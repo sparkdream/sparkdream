@@ -173,6 +173,9 @@ service Msg {
   // ResolveGovActionAppeal defines the ResolveGovActionAppeal RPC. Resolves
   // a pending gov action appeal via council authority (UPHELD or OVERTURNED).
   rpc ResolveGovActionAppeal(MsgResolveGovActionAppeal) returns (MsgResolveGovActionAppealResponse);
+
+  // CancelInitiative defines the CancelInitiative RPC.
+  rpc CancelInitiative(MsgCancelInitiative) returns (MsgCancelInitiativeResponse);
 }
 
 // MsgUpdateParams is the Msg/UpdateParams request type.
@@ -848,3 +851,16 @@ message MsgResolveGovActionAppeal {
 // MsgResolveGovActionAppealResponse defines the response for
 // ResolveGovActionAppeal.
 message MsgResolveGovActionAppealResponse {}
+
+// MsgCancelInitiative retires an OPEN, unassigned initiative. Callable by the
+// parent project's creator or the Operations Committee.
+message MsgCancelInitiative {
+  option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/rep/MsgCancelInitiative";
+  string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 initiative_id = 2;
+  string reason = 3;
+}
+
+// MsgCancelInitiativeResponse defines the MsgCancelInitiativeResponse message.
+message MsgCancelInitiativeResponse {}

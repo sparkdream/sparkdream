@@ -97,9 +97,10 @@ func (k Keeper) CreateChallenge(
 		return 0, fmt.Errorf("failed to add challenge to status index: %w", err)
 	}
 
-	// Update initiative status to challenged
+	// Update initiative status to challenged (UpdateInitiative maintains the
+	// by-status index, keeping the SUBMITTED bucket free of challenged work)
 	initiative.Status = types.InitiativeStatus_INITIATIVE_STATUS_CHALLENGED
-	if err := k.Initiative.Set(ctx, initiative.Id, initiative); err != nil {
+	if err := k.UpdateInitiative(ctx, initiative); err != nil {
 		return 0, err
 	}
 
@@ -223,6 +224,15 @@ func (k Keeper) UpholdChallenge(ctx context.Context, challengeID uint64) error {
 		return err
 	}
 
+	// Only an unresolved challenge can be upheld. Guards against resolving a
+	// VOIDED challenge (parent project cancelled — stake already refunded) or
+	// double-resolving an UPHELD/REJECTED one: either would corrupt the
+	// challenger's lock accounting and resurrect a terminal initiative.
+	if challenge.Status != types.ChallengeStatus_CHALLENGE_STATUS_ACTIVE &&
+		challenge.Status != types.ChallengeStatus_CHALLENGE_STATUS_IN_JURY_REVIEW {
+		return fmt.Errorf("challenge %d is already resolved (status %s)", challengeID, challenge.Status.String())
+	}
+
 	initiative, err := k.GetInitiative(ctx, challenge.InitiativeId)
 	if err != nil {
 		return err
@@ -301,9 +311,11 @@ func (k Keeper) UpholdChallenge(ctx context.Context, challengeID uint64) error {
 		return err
 	}
 
-	// Update initiative status to rejected (failed challenge)
+	// Update initiative status to rejected (failed challenge). UpdateInitiative
+	// maintains the by-status index so the terminal initiative leaves the
+	// CHALLENGED bucket.
 	initiative.Status = types.InitiativeStatus_INITIATIVE_STATUS_REJECTED
-	if err := k.Initiative.Set(ctx, initiative.Id, initiative); err != nil {
+	if err := k.UpdateInitiative(ctx, initiative); err != nil {
 		return err
 	}
 
@@ -334,6 +346,15 @@ func (k Keeper) RejectChallenge(ctx context.Context, challengeID uint64) error {
 	challenge, err := k.GetChallenge(ctx, challengeID)
 	if err != nil {
 		return err
+	}
+
+	// Only an unresolved challenge can be rejected — see the matching guard in
+	// UpholdChallenge. Without it a late jury tally on a VOIDED challenge would
+	// burn the challenger's already-refunded stake (confiscation without a
+	// verdict) and flip a CANCELLED initiative back to IN_REVIEW.
+	if challenge.Status != types.ChallengeStatus_CHALLENGE_STATUS_ACTIVE &&
+		challenge.Status != types.ChallengeStatus_CHALLENGE_STATUS_IN_JURY_REVIEW {
+		return fmt.Errorf("challenge %d is already resolved (status %s)", challengeID, challenge.Status.String())
 	}
 
 	initiative, err := k.GetInitiative(ctx, challenge.InitiativeId)
@@ -372,7 +393,7 @@ func (k Keeper) RejectChallenge(ctx context.Context, challengeID uint64) error {
 	// Challenge was rejected, so work is valid and ready for completion
 	// NOT setting to SUBMITTED to avoid triggering another challenge period
 	initiative.Status = types.InitiativeStatus_INITIATIVE_STATUS_IN_REVIEW
-	if err := k.Initiative.Set(ctx, initiative.Id, initiative); err != nil {
+	if err := k.UpdateInitiative(ctx, initiative); err != nil {
 		return err
 	}
 
@@ -385,6 +406,103 @@ func (k Keeper) RejectChallenge(ctx context.Context, challengeID uint64) error {
 		),
 	)
 
+	return nil
+}
+
+// voidActiveChallengesForInitiative terminates every unresolved challenge on
+// an initiative without a verdict, refunding each challenger's stake in full.
+// Used when the initiative is discarded out from under the dispute — i.e. its
+// parent project is cancelled — so neither party is judged: the challenger is
+// made whole (no burn, no reward) and any pending jury review is closed
+// INCONCLUSIVE so the EndBlocker never tallies a verdict on a dead initiative.
+func (k Keeper) voidActiveChallengesForInitiative(ctx context.Context, initiativeID uint64) error {
+	sdkCtx := sdk.UnwrapSDKContext(ctx)
+
+	// Collect first: the callbacks below mutate the status index we walk.
+	var toVoid []types.Challenge
+	activeStatuses := []types.ChallengeStatus{
+		types.ChallengeStatus_CHALLENGE_STATUS_ACTIVE,
+		types.ChallengeStatus_CHALLENGE_STATUS_IN_JURY_REVIEW,
+	}
+	for _, status := range activeStatuses {
+		err := k.IterateChallengesByStatus(ctx, status, func(_ uint64, challenge types.Challenge) bool {
+			if challenge.InitiativeId == initiativeID {
+				toVoid = append(toVoid, challenge)
+			}
+			return false
+		})
+		if err != nil {
+			return err
+		}
+	}
+
+	for _, challenge := range toVoid {
+		// Refund the challenger's stake in full — the dispute was never
+		// adjudicated, so it is neither won (reward) nor lost (burn).
+		challengerAddr, err := sdk.AccAddressFromBech32(challenge.Challenger)
+		if err != nil {
+			return err
+		}
+		if err := k.UnlockDREAM(ctx, challengerAddr, DerefInt(challenge.StakedDream)); err != nil {
+			return err
+		}
+
+		oldStatus := challenge.Status
+		challenge.Status = types.ChallengeStatus_CHALLENGE_STATUS_VOIDED
+		challenge.ResolvedAt = sdkCtx.BlockHeight()
+		if err := k.Challenge.Set(ctx, challenge.Id, challenge); err != nil {
+			return err
+		}
+		if err := k.UpdateChallengeStatusIndex(ctx, oldStatus, challenge.Status, challenge.Id); err != nil {
+			return err
+		}
+
+		// Close any pending jury review for this challenge so the EndBlocker
+		// jury resolver skips it. Jurors are rewarded only at tally time, so
+		// no per-juror state needs unwinding here.
+		if err := k.voidPendingJuryReviewForChallenge(ctx, challenge.Id); err != nil {
+			return err
+		}
+
+		sdkCtx.EventManager().EmitEvent(
+			sdk.NewEvent(
+				"challenge_voided",
+				sdk.NewAttribute("challenge_id", fmt.Sprintf("%d", challenge.Id)),
+				sdk.NewAttribute("initiative_id", fmt.Sprintf("%d", initiativeID)),
+				sdk.NewAttribute("refunded_stake", DerefInt(challenge.StakedDream).String()),
+			),
+		)
+	}
+
+	return nil
+}
+
+// voidPendingJuryReviewForChallenge closes every PENDING jury review for a
+// challenge being voided, moving each to an INCONCLUSIVE verdict and off the
+// PENDING verdict index so the EndBlocker resolver no longer tallies them.
+// Normally at most one review exists per challenge, but voiding all matches
+// keeps the cleanup complete even if that invariant ever slips.
+func (k Keeper) voidPendingJuryReviewForChallenge(ctx context.Context, challengeID uint64) error {
+	// Collect first: the writes below mutate the PENDING index being walked.
+	var targets []types.JuryReview
+	k.IterateActiveJuryReviews(ctx, func(_ int64, review types.JuryReview) bool {
+		if review.ChallengeId == challengeID {
+			targets = append(targets, review)
+		}
+		return false
+	})
+
+	for _, target := range targets {
+		oldVerdict := target.Verdict
+		target.Verdict = types.Verdict_VERDICT_INCONCLUSIVE
+		target.Reasoning = "voided: parent project cancelled"
+		if err := k.JuryReview.Set(ctx, target.Id, target); err != nil {
+			return err
+		}
+		if err := k.UpdateJuryReviewVerdictIndex(ctx, oldVerdict, target.Verdict, target.Id); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

@@ -373,6 +373,14 @@ func (k Keeper) SubmitJurorVote(
 		return err
 	}
 
+	// Only PENDING reviews accept votes. A review that already carries a
+	// verdict — tallied normally, or closed INCONCLUSIVE because its challenge
+	// was voided (parent project cancelled) — is finished; without this guard a
+	// late vote could re-trigger TallyJuryVotes and resolve a voided challenge.
+	if juryReview.Verdict != types.Verdict_VERDICT_PENDING {
+		return fmt.Errorf("jury review %d is already resolved (verdict %s)", juryReviewID, juryReview.Verdict.String())
+	}
+
 	// Verify juror is on the jury
 	jurorAddrStr := jurorAddr.String()
 	isJuror := false

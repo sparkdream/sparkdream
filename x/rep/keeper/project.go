@@ -236,9 +236,33 @@ func (k Keeper) CancelProject(ctx context.Context, projectID uint64, reason stri
 		return err
 	}
 
-	// Validate status
-	if project.Status == types.ProjectStatus_PROJECT_STATUS_COMPLETED || project.Status == types.ProjectStatus_PROJECT_STATUS_CANCELLED {
-		return fmt.Errorf("project already completed or cancelled")
+	// Validate status - a project can only be cancelled from a live state
+	// (PROPOSED or ACTIVE). COMPLETED, CANCELLED, and EXPIRED are terminal, so
+	// re-cancelling them is rejected (cancelling an EXPIRED project would
+	// otherwise relabel its audit trail and lose the "expired through inaction"
+	// signal).
+	if project.Status == types.ProjectStatus_PROJECT_STATUS_COMPLETED ||
+		project.Status == types.ProjectStatus_PROJECT_STATUS_CANCELLED ||
+		project.Status == types.ProjectStatus_PROJECT_STATUS_EXPIRED {
+		return fmt.Errorf("project is already in a terminal state (%s)", project.Status.String())
+	}
+
+	// Cascade: retire every non-terminal initiative under this project. OPEN
+	// listings, assigned work, submitted deliverables, and challenged work all
+	// move to CANCELLED with their reserved budget returned, self-assign bonds
+	// released, and any active challenge voided (refunding the challenger).
+	// Run before flipping the project status so each ReturnBudget applies
+	// against the still-live project.
+	if err := k.cancelInitiativesForProjectCancel(ctx, projectID, reason); err != nil {
+		return fmt.Errorf("failed to cascade-cancel initiatives: %w", err)
+	}
+
+	// Re-read after the cascade: cancelling the open initiatives writes the
+	// project's AllocatedBudget back down, and we must not clobber that with
+	// the pre-cascade snapshot when we persist the status change below.
+	project, err = k.GetProject(ctx, projectID)
+	if err != nil {
+		return err
 	}
 
 	// Update project
@@ -268,6 +292,101 @@ func (k Keeper) CancelProject(ctx context.Context, projectID uint64, reason stri
 	)
 
 	return nil
+}
+
+// cancelInitiativesForProjectCancel retires every non-terminal initiative
+// belonging to the given project as part of the project's cancellation. IDs are
+// collected before mutating so the walk is not invalidated by the writes.
+func (k Keeper) cancelInitiativesForProjectCancel(ctx context.Context, projectID uint64, reason string) error {
+	var ids []uint64
+	err := k.Initiative.Walk(ctx, nil, func(id uint64, initiative types.Initiative) (bool, error) {
+		if initiative.ProjectId == projectID && !isTerminalInitiativeStatus(initiative.Status) {
+			ids = append(ids, id)
+		}
+		return false, nil
+	})
+	if err != nil {
+		return err
+	}
+
+	for _, id := range ids {
+		initiative, gerr := k.GetInitiative(ctx, id)
+		if gerr != nil {
+			return fmt.Errorf("initiative %d: %w", id, gerr)
+		}
+		if err := k.terminateInitiativeForProjectCancel(ctx, initiative, reason); err != nil {
+			return fmt.Errorf("initiative %d: %w", id, err)
+		}
+	}
+	return nil
+}
+
+// terminateInitiativeForProjectCancel moves a single non-terminal initiative to
+// CANCELLED because its parent project is being cancelled: it voids any active
+// challenge (refunding the challenger), returns the reserved budget, releases
+// the assignee's self-assign bond, and emits initiative_cancelled. Safe for
+// OPEN initiatives too — they simply carry no challenge, assignee, or bond.
+func (k Keeper) terminateInitiativeForProjectCancel(ctx context.Context, initiative types.Initiative, reason string) error {
+	// Void any unresolved challenge first — leaving one live would let the
+	// EndBlocker later tally a verdict on (and resurrect) a cancelled
+	// initiative. This refunds the challenger's stake in full.
+	if err := k.voidActiveChallengesForInitiative(ctx, initiative.Id); err != nil {
+		return err
+	}
+
+	// Return the reserved budget to the still-live project (non-permissionless).
+	// Clamp to the project's currently-allocated amount: production never needs
+	// this (allocation always covers every non-terminal initiative's budget),
+	// but it makes the whole-project cascade resilient to any pre-existing
+	// allocation drift rather than aborting the cancel midway.
+	project, projErr := k.GetProject(ctx, initiative.ProjectId)
+	if projErr == nil && !project.Permissionless {
+		toReturn := DerefInt(initiative.Budget)
+		if allocated := DerefInt(project.AllocatedBudget); allocated.LT(toReturn) {
+			toReturn = allocated
+		}
+		if toReturn.IsPositive() {
+			if err := k.ReturnBudget(ctx, initiative.ProjectId, toReturn); err != nil {
+				return fmt.Errorf("failed to return budget: %w", err)
+			}
+		}
+	}
+
+	// Release any self-assign bond (no-op when none is held) — no upheld
+	// challenge occurred, so the bond is returned, not burned.
+	if err := k.ReleaseSelfAssignBond(ctx, &initiative); err != nil {
+		return err
+	}
+
+	initiative.Status = types.InitiativeStatus_INITIATIVE_STATUS_CANCELLED
+	if err := k.UpdateInitiative(ctx, initiative); err != nil {
+		return err
+	}
+
+	sdkCtx := sdk.UnwrapSDKContext(ctx)
+	sdkCtx.EventManager().EmitEvent(
+		sdk.NewEvent(
+			"initiative_cancelled",
+			sdk.NewAttribute("initiative_id", fmt.Sprintf("%d", initiative.Id)),
+			sdk.NewAttribute("project_id", fmt.Sprintf("%d", initiative.ProjectId)),
+			sdk.NewAttribute("reason", reason),
+		),
+	)
+	return nil
+}
+
+// isTerminalInitiativeStatus reports whether an initiative status is a final
+// resting state that a project cancel should leave untouched.
+func isTerminalInitiativeStatus(status types.InitiativeStatus) bool {
+	switch status {
+	case types.InitiativeStatus_INITIATIVE_STATUS_COMPLETED,
+		types.InitiativeStatus_INITIATIVE_STATUS_REJECTED,
+		types.InitiativeStatus_INITIATIVE_STATUS_ABANDONED,
+		types.InitiativeStatus_INITIATIVE_STATUS_CANCELLED:
+		return true
+	default:
+		return false
+	}
 }
 
 // ExpireProject transitions a PROPOSED project to EXPIRED. Called only by the

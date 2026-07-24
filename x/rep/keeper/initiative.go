@@ -519,6 +519,66 @@ func (k Keeper) AbandonInitiative(
 	return nil
 }
 
+// CancelInitiative retires an initiative that was never started. Unlike
+// AbandonInitiative — which records an assignee walking away from work they
+// had taken on — this is the project side retiring a listing nobody picked up.
+//
+// Restricted to OPEN, unassigned initiatives so it can never be used to strip
+// work from an assignee or to escape a challenge. Once assigned, the only
+// exits remain abandonment (by the assignee) and the normal review path.
+//
+// Outstanding conviction stakes are deliberately left in place: RemoveStake
+// has no status gate, so stakers can withdraw principal plus accrued rewards
+// at any time. Moving to a terminal status drops the initiative out of
+// IterateActiveInitiatives, so its conviction simply stops being recomputed.
+func (k Keeper) CancelInitiative(ctx context.Context, initiativeID uint64, reason string) error {
+	// Get initiative
+	initiative, err := k.GetInitiative(ctx, initiativeID)
+	if err != nil {
+		return err
+	}
+
+	// Validate status - only unstarted work can be cancelled
+	if initiative.Status != types.InitiativeStatus_INITIATIVE_STATUS_OPEN {
+		return fmt.Errorf("initiative must be in OPEN status, got %s", initiative.Status.String())
+	}
+
+	// Defensive: an OPEN initiative should never carry an assignee, but if one
+	// is present the assignee's abandon path owns the exit (it also returns
+	// their self-assign bond).
+	if initiative.Assignee != "" {
+		return fmt.Errorf("initiative %d is assigned to %s; the assignee must abandon it", initiativeID, initiative.Assignee)
+	}
+
+	// Return budget to project (skip for permissionless — no pre-allocated budget)
+	project, projErr := k.GetProject(ctx, initiative.ProjectId)
+	if projErr == nil && !project.Permissionless {
+		if err := k.ReturnBudget(ctx, initiative.ProjectId, DerefInt(initiative.Budget)); err != nil {
+			return fmt.Errorf("failed to return budget: %w", err)
+		}
+	}
+
+	// Update initiative
+	initiative.Status = types.InitiativeStatus_INITIATIVE_STATUS_CANCELLED
+
+	if err := k.UpdateInitiative(ctx, initiative); err != nil {
+		return err
+	}
+
+	// Emit event
+	sdkCtx := sdk.UnwrapSDKContext(ctx)
+	sdkCtx.EventManager().EmitEvent(
+		sdk.NewEvent(
+			"initiative_cancelled",
+			sdk.NewAttribute("initiative_id", fmt.Sprintf("%d", initiativeID)),
+			sdk.NewAttribute("project_id", fmt.Sprintf("%d", initiative.ProjectId)),
+			sdk.NewAttribute("reason", reason),
+		),
+	)
+
+	return nil
+}
+
 // CompleteInitiative completes an initiative and distributes rewards
 func (k Keeper) CompleteInitiative(ctx context.Context, initiativeID uint64) error {
 	// Get initiative
@@ -533,6 +593,20 @@ func (k Keeper) CompleteInitiative(ctx context.Context, initiativeID uint64) err
 	if initiative.Status != types.InitiativeStatus_INITIATIVE_STATUS_SUBMITTED &&
 		initiative.Status != types.InitiativeStatus_INITIATIVE_STATUS_IN_REVIEW {
 		return fmt.Errorf("initiative must be in SUBMITTED or IN_REVIEW status, got %s", initiative.Status)
+	}
+
+	// Refuse to mint a payout under a cancelled parent project. Cancelling a
+	// project terminates new payouts from it; the assignee's clean exit is
+	// AbandonInitiative (which returns their self-assign bond and the reserved
+	// budget). CanCompleteInitiative enforces the same rule for the EndBlocker
+	// transition path — this explicit guard gives the manual completion path a
+	// clear error and defends the mint even if that check ever changes.
+	parentProject, err := k.GetProject(ctx, initiative.ProjectId)
+	if err != nil {
+		return fmt.Errorf("failed to get parent project: %w", err)
+	}
+	if parentProject.Status == types.ProjectStatus_PROJECT_STATUS_CANCELLED {
+		return fmt.Errorf("cannot complete initiative %d: parent project %d is cancelled", initiativeID, initiative.ProjectId)
 	}
 
 	// Check if completion requirements are met

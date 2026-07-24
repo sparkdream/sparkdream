@@ -68,6 +68,20 @@ func SimulateMsgPullAllowance(
 			remaining = sa.MaxPerPeriod.Amount.Sub(sa.SpentInCurrentPeriod.Amount)
 		}
 
+		// Clamp headroom to the granter's spendable balance. The handler debits
+		// the granter's bank account, so a pull above their balance would fail
+		// delivery (and fail the whole simulation). Budget headroom alone is not
+		// enough — the granter may have spent SPARK on fees since the grant was
+		// created.
+		granterAddr, err := sdk.AccAddressFromBech32(grant.Granter)
+		if err != nil {
+			return simtypes.NoOpMsg(types.ModuleName, msgType, "invalid granter address"), nil, nil
+		}
+		granterBal := bk.SpendableCoins(ctx, granterAddr).AmountOf(sa.Denom)
+		if granterBal.LT(remaining) {
+			remaining = granterBal
+		}
+
 		// Min pull amount from params.
 		params, err := k.Params.Get(ctx)
 		if err != nil {

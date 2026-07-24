@@ -152,7 +152,6 @@ func findAppeal(t *testing.T, f *fixture, appellant string) (uint64, types.GovAc
 	return 0, types.GovActionAppeal{}
 }
 
-
 // sumRoleVerdicts totals the upheld/overturned verdict counters across all
 // action kinds on the sentinel's rep-side RoleActivity record.
 func sumRoleVerdicts(t *testing.T, f *fixture, sentinel string) (uint64, uint64) {

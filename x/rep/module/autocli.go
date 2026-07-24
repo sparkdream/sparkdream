@@ -741,6 +741,12 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "appeal_id"}, {ProtoField: "verdict"}, {ProtoField: "reason"}},
 				},
 				// this line is used by ignite scaffolding # autocli/tx
+				{
+					RpcMethod:      "CancelInitiative",
+					Use:            "cancel-initiative [initiative-id] [reason]",
+					Short:          "Send a cancel-initiative tx",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "initiative_id"}, {ProtoField: "reason"}},
+				},
 			},
 		},
 	}

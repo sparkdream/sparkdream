@@ -44,8 +44,25 @@ func SimulateMsgCancelProject(
 			_ = k.Project.Set(ctx, projectID, projObj)
 		}
 
+		// The handler authorizes only the project creator or the project
+		// council's Operations Committee. Resolve the signer to the project
+		// creator so the delivered tx cannot be rejected regardless of which
+		// project was selected above.
+		projObj, err := k.Project.Get(ctx, projectID)
+		if err != nil {
+			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgCancelProject{}), "failed to load project"), nil, nil
+		}
+		signerAcc := cancellerAcc
+		if projObj.Creator != canceller.Address {
+			acc, found := getAccountFromMember(&types.Member{Address: projObj.Creator}, accs)
+			if !found {
+				return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgCancelProject{}), "project creator not in sim accounts"), nil, nil
+			}
+			signerAcc = acc
+		}
+
 		msg := &types.MsgCancelProject{
-			Creator:   canceller.Address,
+			Creator:   projObj.Creator,
 			ProjectId: projectID,
 			Reason:    "Simulation cancellation",
 		}
@@ -58,7 +75,7 @@ func SimulateMsgCancelProject(
 			Msg:             msg,
 			CoinsSpentInMsg: sdk.NewCoins(),
 			Context:         ctx,
-			SimAccount:      cancellerAcc,
+			SimAccount:      signerAcc,
 			AccountKeeper:   ak,
 			Bankkeeper:      bk,
 			ModuleName:      types.ModuleName,

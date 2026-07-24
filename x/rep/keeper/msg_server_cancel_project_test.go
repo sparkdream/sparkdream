@@ -41,11 +41,13 @@ func TestMsgServerCancelProject(t *testing.T) {
 		})
 
 		require.Error(t, err)
-		require.Contains(t, err.Error(), "failed to cancel project")
+		require.Contains(t, err.Error(), "failed to get project")
 	})
 
-	t.Run("successful cancellation", func(t *testing.T) {
-		f := initFixture(t)
+	t.Run("successful cancellation by creator", func(t *testing.T) {
+		// NeverAuthorized proves authority comes from owning the project, not
+		// from committee membership.
+		f := initFixture(t, WithAuthorizationPolicy(NeverAuthorized))
 		ms := keeper.NewMsgServerImpl(f.keeper)
 		k := f.keeper
 		ctx := f.ctx
@@ -75,6 +77,57 @@ func TestMsgServerCancelProject(t *testing.T) {
 		require.NoError(t, err)
 
 		// Verify project status
+		project, err := k.GetProject(ctx, projectID)
+		require.NoError(t, err)
+		require.Equal(t, types.ProjectStatus_PROJECT_STATUS_CANCELLED, project.Status)
+	})
+
+	t.Run("rejects non-creator, non-ops caller", func(t *testing.T) {
+		f := initFixture(t, WithAuthorizationPolicy(NeverAuthorized))
+		ms := keeper.NewMsgServerImpl(f.keeper)
+		k := f.keeper
+		ctx := f.ctx
+
+		creator := sdk.AccAddress([]byte("creator"))
+		projectID, _ := k.CreateProject(ctx, creator, "Proj", "Desc", []string{"tag"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical", math.NewInt(10000), math.NewInt(1000), false)
+
+		otherStr, err := f.addressCodec.BytesToString(sdk.AccAddress([]byte("other")))
+		require.NoError(t, err)
+
+		_, err = ms.CancelProject(ctx, &types.MsgCancelProject{
+			Creator:   otherStr,
+			ProjectId: projectID,
+			Reason:    "Test",
+		})
+		require.Error(t, err)
+		require.ErrorIs(t, err, types.ErrUnauthorized)
+
+		// Project is untouched by the rejected cancel.
+		project, err := k.GetProject(ctx, projectID)
+		require.NoError(t, err)
+		require.Equal(t, types.ProjectStatus_PROJECT_STATUS_PROPOSED, project.Status)
+	})
+
+	t.Run("operations committee member may cancel", func(t *testing.T) {
+		ops := sdk.AccAddress([]byte("ops-member"))
+		f := initFixture(t, WithAuthorizationPolicy(AuthorizeAddresses(ops)))
+		ms := keeper.NewMsgServerImpl(f.keeper)
+		k := f.keeper
+		ctx := f.ctx
+
+		creator := sdk.AccAddress([]byte("creator"))
+		projectID, _ := k.CreateProject(ctx, creator, "Proj", "Desc", []string{"tag"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical", math.NewInt(10000), math.NewInt(1000), false)
+
+		opsStr, err := f.addressCodec.BytesToString(ops)
+		require.NoError(t, err)
+
+		_, err = ms.CancelProject(ctx, &types.MsgCancelProject{
+			Creator:   opsStr,
+			ProjectId: projectID,
+			Reason:    "Stale project",
+		})
+		require.NoError(t, err)
+
 		project, err := k.GetProject(ctx, projectID)
 		require.NoError(t, err)
 		require.Equal(t, types.ProjectStatus_PROJECT_STATUS_CANCELLED, project.Status)

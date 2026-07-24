@@ -11,7 +11,7 @@ import (
 )
 
 // ValidateInitiativeReference checks if an initiative exists and is in a valid status
-// for content linking (not COMPLETED, REJECTED, or ABANDONED).
+// for content linking (not COMPLETED, REJECTED, ABANDONED, or CANCELLED).
 func (k Keeper) ValidateInitiativeReference(ctx context.Context, initiativeID uint64) error {
 	initiative, err := k.GetInitiative(ctx, initiativeID)
 	if err != nil {
@@ -21,7 +21,8 @@ func (k Keeper) ValidateInitiativeReference(ctx context.Context, initiativeID ui
 	switch initiative.Status {
 	case types.InitiativeStatus_INITIATIVE_STATUS_COMPLETED,
 		types.InitiativeStatus_INITIATIVE_STATUS_REJECTED,
-		types.InitiativeStatus_INITIATIVE_STATUS_ABANDONED:
+		types.InitiativeStatus_INITIATIVE_STATUS_ABANDONED,
+		types.InitiativeStatus_INITIATIVE_STATUS_CANCELLED:
 		return fmt.Errorf("initiative %d is in terminal status %s", initiativeID, initiative.Status)
 	}
 

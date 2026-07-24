@@ -27,4 +27,10 @@ enum ChallengeStatus {
   CHALLENGE_STATUS_IN_JURY_REVIEW = 1;
   CHALLENGE_STATUS_UPHELD = 2;
   CHALLENGE_STATUS_REJECTED = 3;
+  // VOIDED terminates a challenge without a verdict when the underlying
+  // initiative is discarded out from under it — specifically when the parent
+  // project is cancelled. The challenger's stake is refunded in full (no burn,
+  // no reward) because the dispute was never adjudicated; any pending jury
+  // review is closed INCONCLUSIVE.
+  CHALLENGE_STATUS_VOIDED = 4;
 }

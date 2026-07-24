@@ -49,6 +49,14 @@ func (k Keeper) EndBlocker(ctx context.Context) error {
 	// 3. Finalize unchallenged initiatives
 	k.IteratePendingCompletionInitiatives(ctx, func(index int64, initiative types.Initiative) bool {
 		if sdkCtx.BlockHeight() >= initiative.ChallengePeriodEnd {
+			// Skip payout for initiatives whose parent project was cancelled
+			// after they entered review — CompleteInitiative would reject them
+			// anyway; skipping keeps that off the per-block error log. The
+			// assignee reclaims their bond via AbandonInitiative.
+			if project, perr := k.GetProject(ctx, initiative.ProjectId); perr == nil &&
+				project.Status == types.ProjectStatus_PROJECT_STATUS_CANCELLED {
+				return false
+			}
 			if err := k.CompleteInitiative(ctx, initiative.Id); err != nil {
 				sdkCtx.Logger().Error("failed to complete initiative", "initiative_id", initiative.Id, "error", err)
 			}

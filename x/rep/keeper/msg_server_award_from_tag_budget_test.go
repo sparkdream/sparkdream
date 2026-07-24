@@ -24,8 +24,8 @@ type mockForumKeeper struct {
 	// Stage C hooks (populated by appeal-resolve tests):
 	actionSentinels  map[string]string // key=<actionType>:<actionTarget>
 	committedAmount  sdkmath.Int       // per-action reserved bond GetActionCommittedAmount reports (zero/unset => no slash)
-	resolvedCalls    []string // records OnSentinelActionResolved "<actionType>:<actionTarget>"
-	reverseCalls     []string // records ReverseSentinelAction invocations
+	resolvedCalls    []string          // records OnSentinelActionResolved "<actionType>:<actionTarget>"
+	reverseCalls     []string          // records ReverseSentinelAction invocations
 	resolvedError    error
 	reverseError     error
 	getSentinelError error
@@ -72,8 +72,6 @@ func (m *mockForumKeeper) ReverseSentinelAction(_ context.Context, actionType ty
 	m.reverseCalls = append(m.reverseCalls, mockForumKey(actionType, actionTarget))
 	return m.reverseError
 }
-
-
 
 func (m *mockForumKeeper) GetActionCommittedAmount(_ context.Context, _ types.GovActionType, _ string) (sdkmath.Int, error) {
 	if m.committedAmount.IsNil() {

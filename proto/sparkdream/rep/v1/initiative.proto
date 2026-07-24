@@ -74,4 +74,8 @@ enum InitiativeStatus {
   INITIATIVE_STATUS_COMPLETED = 5;
   INITIATIVE_STATUS_REJECTED = 6;
   INITIATIVE_STATUS_ABANDONED = 7;
+  // Retired by the project creator (or Operations Committee) while still
+  // OPEN and unassigned. Distinct from ABANDONED, which records an assignee
+  // walking away from work they had taken on.
+  INITIATIVE_STATUS_CANCELLED = 8;
 }

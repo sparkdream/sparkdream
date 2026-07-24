@@ -255,7 +255,7 @@ func TestUnhideContent_Guards(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			f := initTestFixture(t)
 			denyCouncil(f)
-	denyCouncil(f)
+			denyCouncil(f)
 			f.setBlockHeight(100)
 			collID := f.createCollection(t, f.owner)
 			hrID := hideCollectionForUnhide(t, f, collID)

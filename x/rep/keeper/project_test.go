@@ -233,6 +233,38 @@ func TestCancelProject(t *testing.T) {
 	// Verify cancellation
 	project, _ := k.GetProject(ctx, projectID)
 	require.Equal(t, types.ProjectStatus_PROJECT_STATUS_CANCELLED, project.Status)
+
+	// Test: cannot re-cancel a terminal (CANCELLED) project.
+	err = k.CancelProject(ctx, projectID, "again")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "terminal state")
+}
+
+func TestCancelProjectRejectsTerminalStates(t *testing.T) {
+	fixture := initFixture(t)
+	k := fixture.keeper
+	ctx := fixture.ctx
+
+	creator := sdk.AccAddress([]byte("creator"))
+
+	// An EXPIRED project (PROPOSED that was never approved before its TTL)
+	// cannot be cancelled — that would relabel its audit trail.
+	expiredID, err := k.CreateProject(ctx, creator, "Expired", "Desc", []string{"tag"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical", math.NewInt(10000), math.NewInt(1000), false)
+	require.NoError(t, err)
+	require.NoError(t, k.ExpireProject(ctx, expiredID))
+
+	got, err := k.GetProject(ctx, expiredID)
+	require.NoError(t, err)
+	require.Equal(t, types.ProjectStatus_PROJECT_STATUS_EXPIRED, got.Status)
+
+	err = k.CancelProject(ctx, expiredID, "retire")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "terminal state")
+
+	// Status is unchanged by the rejected cancel.
+	got, err = k.GetProject(ctx, expiredID)
+	require.NoError(t, err)
+	require.Equal(t, types.ProjectStatus_PROJECT_STATUS_EXPIRED, got.Status)
 }
 
 func TestProjectInvalidStateTransitions(t *testing.T) {

@@ -368,8 +368,13 @@ enum InitiativeStatus {
   INITIATIVE_STATUS_COMPLETED = 5;
   INITIATIVE_STATUS_REJECTED = 6;
   INITIATIVE_STATUS_ABANDONED = 7;
+  INITIATIVE_STATUS_CANCELLED = 8;
 }
 ```
+
+`ABANDONED` and `CANCELLED` are distinct terminal states: `ABANDONED` records
+an assignee walking away from work they had taken on, `CANCELLED` records the
+project side retiring a listing nobody ever picked up.
 
 ### Interim
 
@@ -619,8 +624,15 @@ enum ChallengeStatus {
   CHALLENGE_STATUS_IN_JURY_REVIEW = 1;
   CHALLENGE_STATUS_UPHELD = 2;
   CHALLENGE_STATUS_REJECTED = 3;
+  CHALLENGE_STATUS_VOIDED = 4;
 }
 ```
+
+`CHALLENGE_STATUS_VOIDED` terminates a challenge without a verdict when the
+underlying initiative is discarded out from under it — currently only when the
+parent project is cancelled (see the "Cancelling a Project" section). The
+challenger's stake is refunded in full (no burn, no reward) and any pending
+jury review is closed `INCONCLUSIVE`.
 
 > **Note:** Anonymous challenges no longer carry ZK proof fields (`is_anonymous`, `payout_address`, `membership_proof`, `nullifier`) on the Challenge proto. Anonymous challenge submission is handled entirely by x/shield: the challenger submits `MsgShieldedExec` wrapping `MsgCreateChallenge`, and x/shield handles ZK proof verification, nullifier management, and module-paid gas. The resulting Challenge stored in x/rep is structurally identical to a non-anonymous challenge (the `challenger` field is set to x/shield's module address).
 
@@ -1203,6 +1215,77 @@ message MsgCancelProject {
 3. Trigger `PROJECT_APPROVAL` interim for Operations Committee
 4. Await `MsgApproveProjectBudget` → transitions to ACTIVE
 
+#### Cancelling a Project
+
+`MsgCancelProject` moves a project to `CANCELLED` from any non-terminal status
+(`PROPOSED` or `ACTIVE`); it returns `ErrUnauthorized` unless the signer is
+either:
+
+- the **project creator**, or
+- a member of the **project council's Operations Committee** — the same
+  committee that approves and funds the project via `MsgApproveProjectBudget`
+  (authority is resolved against `project.council`, not a fixed council).
+
+This authorization gate is enforced in the message handler. Without it any
+address could retire any project, including budget-backed ones with active
+initiatives. Cancellation flips the by-status index off `PROPOSED`/`ACTIVE` so
+the EndBlocker expiry sweep skips the project, and emits `project_cancelled`.
+Cancellation is only permitted from the two live states (`PROPOSED`, `ACTIVE`):
+the three terminal states — `COMPLETED`, `CANCELLED`, and `EXPIRED` — are
+rejected. In particular an `EXPIRED` project (one that was never approved before
+its TTL) cannot be cancelled, since relabeling it `CANCELLED` would erase the
+"expired through inaction" signal.
+
+**Effect on the project's initiatives.** Cancellation **cascade-terminates
+every non-terminal initiative** under the project — `OPEN` listings, `ASSIGNED`
+work, `SUBMITTED` deliverables, `IN_REVIEW` work, and `CHALLENGED` work all move
+to `INITIATIVE_STATUS_CANCELLED`, emitting one `initiative_cancelled` event
+apiece. Initiatives already in a terminal state (`COMPLETED`, `REJECTED`,
+`ABANDONED`, `CANCELLED`) are left untouched. For each terminated initiative:
+
+- its **reserved budget is returned** to the project (skipped for permissionless
+  projects; clamped to the project's remaining allocation so the cascade can
+  never drive `allocated_budget` negative);
+- any **self-assign bond is released** back to the assignee (not burned — no
+  upheld challenge occurred); and
+- any **active challenge is voided** (see below).
+
+The cascade runs *before* the project's own status is persisted so every budget
+return lands on the still-live project; the project is then re-read so the
+status write does not clobber the returned budget.
+
+**Voiding an active challenge.** A `CHALLENGED` initiative carries an unresolved
+challenge holding the challenger's staked DREAM, and possibly a pending jury
+review. Terminating it moves the challenge to `CHALLENGE_STATUS_VOIDED` and:
+
+- **refunds the challenger's stake in full** — unlocked, never burned and never
+  rewarded, because the dispute was never adjudicated; and
+- closes any pending jury review with an `INCONCLUSIVE` verdict, removing it
+  from the pending index so the EndBlocker jury resolver never tallies a verdict
+  on (and thereby resurrects) a cancelled initiative.
+
+Each voided challenge emits a `challenge_voided` event carrying the challenge id,
+initiative id, and the refunded stake amount.
+
+A voided challenge is **sealed**: `MsgSubmitJurorVote` rejects votes on any
+review that is no longer `VERDICT_PENDING`, and `UpholdChallenge` /
+`RejectChallenge` reject any challenge that is not `ACTIVE` /
+`IN_JURY_REVIEW`. Without these guards, a juror voting after the void could
+re-trigger the tally and resolve the dead dispute — double-refunding or
+retro-burning the challenger's already-returned stake and resurrecting the
+`CANCELLED` initiative.
+
+This is required for correctness, not just tidiness: a live challenge left on a
+cancelled initiative would be auto-upheld or jury-tallied by a later EndBlocker
+pass, overwriting the `CANCELLED` status and double-returning budget.
+
+New initiatives cannot be added to a cancelled project (`MsgCreateInitiative`
+requires an `ACTIVE` parent). As defence in depth, `CanCompleteInitiative`
+returns false and `CompleteInitiative` errors for any initiative whose parent
+project is `CANCELLED`, so no DREAM can ever be minted from a cancelled
+project's work even if an initiative reached a terminal-payout path by another
+route.
+
 ### Initiative Messages
 
 ```protobuf
@@ -1256,7 +1339,32 @@ message MsgCompleteInitiative {
   uint64 initiative_id = 2;
   string completion_notes = 3;
 }
+
+message MsgCancelInitiative {
+  option (cosmos.msg.v1.signer) = "creator";
+  string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 initiative_id = 2;
+  string reason = 3;
+}
 ```
+
+#### Cancelling an Unstarted Initiative
+
+`MsgAbandonInitiative` is assignee-only, so an initiative that nobody ever took
+on has no exit — including the common case of a listing whose tier is above any
+current member's reputation. `MsgCancelInitiative` closes that gap:
+
+- **Authority**: the parent project's creator, or the Operations Committee.
+- **Precondition**: status is `OPEN` and `assignee` is empty. Once assigned, the
+  only exits remain abandonment (by the assignee) and the normal review path, so
+  cancellation can never strip work from an assignee or escape a challenge.
+- **Effects**: returns the reserved budget to the project (skipped for
+  permissionless projects, which allocate no budget up front), moves the
+  initiative to `CANCELLED`, and emits `initiative_cancelled`.
+- **Stakes**: outstanding conviction stakes are left in place. `RemoveStake` has
+  no status gate, so stakers withdraw principal plus accrued rewards whenever
+  they choose; the terminal status simply drops the initiative out of
+  `IterateActiveInitiatives` so its conviction stops being recomputed.
 
 #### Initiative Creation Under Permissionless Projects
 

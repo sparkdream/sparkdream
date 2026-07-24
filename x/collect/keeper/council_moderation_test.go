@@ -51,10 +51,10 @@ func TestModerationAuthority_Resolution(t *testing.T) {
 		expSentinel    bool // on success: HideRecord.Sentinel == creator (sentinel path)
 	}{
 		{
-			name:       "AUTO dual-role prefers sentinel path",
-			creator:    "sentinel",
-			councilFor: "sentinel",
-			authority:  types.ModerationAuthority_MODERATION_AUTHORITY_AUTO,
+			name:        "AUTO dual-role prefers sentinel path",
+			creator:     "sentinel",
+			councilFor:  "sentinel",
+			authority:   types.ModerationAuthority_MODERATION_AUTHORITY_AUTO,
 			expSentinel: true,
 		},
 		{

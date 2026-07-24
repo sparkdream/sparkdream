@@ -365,6 +365,12 @@ func (k Keeper) CanCompleteInitiative(ctx context.Context, initiativeID uint64) 
 	if err != nil {
 		return false, err
 	}
+	// A cancelled parent project can never complete its initiatives — this
+	// keeps the EndBlocker from advancing a SUBMITTED initiative toward payout
+	// under a dead project (silent; the assignee exits via AbandonInitiative).
+	if project.Status == types.ProjectStatus_PROJECT_STATUS_CANCELLED {
+		return false, nil
+	}
 	externalRatio := params.ExternalConvictionRatio
 	if initiative.Assignee == project.Creator {
 		externalRatio = params.SelfAssignedExternalConvictionRatio

@@ -796,6 +796,135 @@ fi  # End of assignment success check
 fi  # End of if block for ABANDON_TEST_INIT_ID check
 
 # ========================================================================
+# PART 14B: CANCEL INITIATIVE (UNSTARTED, OPEN-ONLY)
+# ========================================================================
+echo ""
+echo "--- PART 14B: TEST CANCEL INITIATIVE ---"
+echo "Creating a new OPEN initiative to test cancel flow..."
+
+CANCEL_STATUS="INITIATIVE_STATUS_OPEN"   # default for summary line if skipped
+
+# Create a test initiative for cancel (apprentice tier -> no reputation floor)
+# Command: create-initiative [project-id] [title] [description] [tier] [category] [template-id] [budget]
+CANCEL_TEST_RES=$($BINARY tx rep create-initiative \
+  $PROJECT_ID \
+  "Test Cancel Initiative" \
+  "This OPEN initiative will be cancelled by the project creator" \
+  "0" \
+  "1" \
+  "0" \
+  "50000000" \
+  --from alice \
+  --chain-id $CHAIN_ID \
+  --keyring-backend test \
+  --fees 5000${BOND_DENOM} \
+  -y \
+  -o json)
+
+CANCEL_TEST_TX=$(echo $CANCEL_TEST_RES | jq -r '.txhash')
+sleep 6  # wait for the tx to be indexed
+
+# Extract the new initiative ID from events, with a query fallback.
+CANCEL_TEST_INIT_ID=$($BINARY query tx $CANCEL_TEST_TX -o json 2>/dev/null | \
+  jq -r '.events[] | select(.type=="initiative_created") | .attributes[] | select(.key=="initiative_id") | .value' | \
+  tr -d '"' 2>/dev/null)
+
+if [ -z "$CANCEL_TEST_INIT_ID" ] || [ "$CANCEL_TEST_INIT_ID" == "null" ] || [ "$CANCEL_TEST_INIT_ID" == "" ]; then
+    echo "[WARN]  Failed to extract from events, querying latest initiative..."
+    CANCEL_TEST_INIT_ID=$($BINARY query rep initiatives-by-project $PROJECT_ID -o json 2>/dev/null | \
+      jq -r '.initiatives | sort_by(.id) | .[-1].id' 2>/dev/null)
+fi
+
+echo "Created test initiative: $CANCEL_TEST_INIT_ID"
+
+if [ -z "$CANCEL_TEST_INIT_ID" ] || [ "$CANCEL_TEST_INIT_ID" == "null" ] || [ "$CANCEL_TEST_INIT_ID" == "" ]; then
+    echo "[WARN]  Failed to extract cancel test initiative ID, skipping cancel test"
+else
+
+# Record the project's allocated budget before cancelling (proto3 omits zeros).
+PROJECT_BEFORE_CANCEL=$($BINARY query rep get-project $PROJECT_ID -o json 2>/dev/null)
+ALLOCATED_BEFORE=$(echo "$PROJECT_BEFORE_CANCEL" | jq -r '.project.allocated_budget // "0"')
+echo "Project allocated budget before cancel: $ALLOCATED_BEFORE"
+
+# --- Negative check: a non-creator, non-ops member cannot cancel ---
+echo "Worker (not the project creator) attempts to cancel..."
+UNAUTH_CANCEL_RES=$($BINARY tx rep cancel-initiative \
+  $CANCEL_TEST_INIT_ID \
+  "unauthorized attempt" \
+  --from $WORKER_NAME \
+  --chain-id $CHAIN_ID \
+  --keyring-backend test \
+  --fees 5000${BOND_DENOM} \
+  -y \
+  -o json)
+UNAUTH_CANCEL_TX=$(echo $UNAUTH_CANCEL_RES | jq -r '.txhash')
+sleep 2
+UNAUTH_CANCEL_CODE=$($BINARY query tx $UNAUTH_CANCEL_TX -o json 2>/dev/null | jq -r '.code // 0')
+if [ "$UNAUTH_CANCEL_CODE" != "0" ]; then
+    echo "[ OK ] Non-creator cancel correctly rejected (code $UNAUTH_CANCEL_CODE)"
+else
+    echo "[WARN]  Non-creator cancel unexpectedly succeeded"
+fi
+
+# Confirm the initiative is still OPEN after the rejected attempt.
+STILL_OPEN=$($BINARY query rep get-initiative $CANCEL_TEST_INIT_ID -o json 2>/dev/null | \
+  jq -r '.initiative.status // "INITIATIVE_STATUS_OPEN"')
+if [ "$STILL_OPEN" == "INITIATIVE_STATUS_OPEN" ]; then
+    echo "[ OK ] Initiative remains OPEN after rejected cancel"
+else
+    echo "[WARN]  Initiative status after rejected cancel: $STILL_OPEN (expected OPEN)"
+fi
+
+# --- Happy path: the project creator (alice) cancels the OPEN initiative ---
+echo "Project creator (alice) cancels the OPEN initiative..."
+CANCEL_RES=$($BINARY tx rep cancel-initiative \
+  $CANCEL_TEST_INIT_ID \
+  "Listing no longer needed" \
+  --from alice \
+  --chain-id $CHAIN_ID \
+  --keyring-backend test \
+  --fees 5000${BOND_DENOM} \
+  -y \
+  -o json)
+CANCEL_TX=$(echo $CANCEL_RES | jq -r '.txhash')
+sleep 2
+
+CANCEL_TX_RESULT=$($BINARY query tx $CANCEL_TX -o json 2>/dev/null)
+CANCEL_CODE=$(echo "$CANCEL_TX_RESULT" | jq -r '.code // 0')
+if [ "$CANCEL_CODE" != "0" ]; then
+    CANCEL_ERROR=$(echo "$CANCEL_TX_RESULT" | jq -r '.raw_log // "Unknown error"')
+    echo "[WARN]  Cancel transaction failed: $CANCEL_ERROR"
+fi
+
+# Verify status changed to CANCELLED (distinct from ABANDONED).
+CANCELLED_INITIATIVE=$($BINARY query rep get-initiative $CANCEL_TEST_INIT_ID -o json)
+CANCEL_STATUS=$(echo "$CANCELLED_INITIATIVE" | jq -r '.initiative.status // "INITIATIVE_STATUS_OPEN"')
+echo "Cancelled initiative status: $CANCEL_STATUS"
+
+if [ "$CANCEL_STATUS" == "INITIATIVE_STATUS_CANCELLED" ]; then
+    echo "[ OK ] Initiative successfully CANCELLED"
+elif [ "$CANCEL_CODE" != "0" ]; then
+    echo "[WARN]  Cancel failed - see error above"
+else
+    echo "[WARN]  Initiative status: $CANCEL_STATUS (transaction succeeded but status not CANCELLED)"
+fi
+
+# Verify the reserved budget (50 DREAM = 50000000 micro) was returned to the project.
+PROJECT_AFTER_CANCEL=$($BINARY query rep get-project $PROJECT_ID -o json 2>/dev/null)
+ALLOCATED_AFTER=$(echo "$PROJECT_AFTER_CANCEL" | jq -r '.project.allocated_budget // "0"')
+echo "Project allocated budget after cancel: $ALLOCATED_AFTER (was $ALLOCATED_BEFORE)"
+EXPECTED_AFTER=$((ALLOCATED_BEFORE - 50000000))
+if [ "$CANCEL_STATUS" == "INITIATIVE_STATUS_CANCELLED" ]; then
+    if [ "$ALLOCATED_AFTER" == "$EXPECTED_AFTER" ]; then
+        echo "[ OK ] Reserved budget (50000000) returned to project"
+    else
+        echo "[WARN]  Allocated budget $ALLOCATED_AFTER != expected $EXPECTED_AFTER after budget return"
+    fi
+fi
+
+fi  # End of if block for CANCEL_TEST_INIT_ID check
+
+# ========================================================================
 # PART 15: COMPLETE INITIATIVE (NORMAL FLOW)
 # ========================================================================
 echo ""
@@ -1002,11 +1131,13 @@ OPEN_COUNT=$(echo "$FINAL_PROJECT_INITIATIVES" | jq -r '.initiatives // [] | [.[
 ASSIGNED_COUNT=$(echo "$FINAL_PROJECT_INITIATIVES" | jq -r '.initiatives // [] | [.[] | select(.status=="INITIATIVE_STATUS_ASSIGNED")] | length')
 SUBMITTED_COUNT=$(echo "$FINAL_PROJECT_INITIATIVES" | jq -r '.initiatives // [] | [.[] | select(.status=="INITIATIVE_STATUS_SUBMITTED" or .status=="INITIATIVE_STATUS_IN_REVIEW" or .status=="INITIATIVE_STATUS_CHALLENGED")] | length')
 ABANDONED_COUNT=$(echo "$FINAL_PROJECT_INITIATIVES" | jq -r '.initiatives // [] | [.[] | select(.status=="INITIATIVE_STATUS_ABANDONED")] | length')
+CANCELLED_COUNT=$(echo "$FINAL_PROJECT_INITIATIVES" | jq -r '.initiatives // [] | [.[] | select(.status=="INITIATIVE_STATUS_CANCELLED")] | length')
 
 echo "  OPEN: $OPEN_COUNT"
 echo "  ASSIGNED: $ASSIGNED_COUNT"
 echo "  SUBMITTED/IN REVIEW/CHALLENGED: $SUBMITTED_COUNT"
 echo "  ABANDONED: $ABANDONED_COUNT"
+echo "  CANCELLED: $CANCELLED_COUNT"
 
 # ========================================================================
 # SUMMARY
@@ -1028,6 +1159,7 @@ echo "[ OK ] Part 11: Conviction query            Current: $CURRENT_CONVICTION"
 echo "[ OK ] Part 12: Stakes by target           Tracked"
 echo "[ OK ] Part 13: Challenges by initiative    $CHALLENGE_COUNT found"
 echo "[ OK ] Part 14: Abandoned flow            Status: $ABANDON_STATUS"
+echo "[ OK ] Part 14B: Cancel flow              Status: $CANCEL_STATUS"
 echo "[ OK ] Part 15: Completion attempt          Status: $FINAL_STATUS"
 echo "[ OK ] Part 16: Pending rewards           Queried"
 echo "[ OK ] Part 17: Unstake/claim            Attempted"

@@ -3,6 +3,7 @@ package simulation
 import (
 	"math/rand"
 
+	"cosmossdk.io/math"
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -57,11 +58,31 @@ func SimulateMsgUpdatePost(
 		}
 
 		// 4. Create the Update message with new random content
+		newTitle := simtypes.RandStringOfLength(r, 25)
+		newBody := simtypes.RandStringOfLength(r, 250)
 		msg := &types.MsgUpdatePost{
 			Creator: simAccount.Address.String(),
 			Id:      post.Id,
-			Title:   simtypes.RandStringOfLength(r, 25),  // New title
-			Body:    simtypes.RandStringOfLength(r, 250), // New body
+			Title:   newTitle,
+			Body:    newBody,
+		}
+
+		// 4b. Ensure the creator can cover the high-water storage delta fee the
+		// handler will charge (CostPerByteAmount * bytes above the post's
+		// previous high-water mark). Without this precheck a larger edit can
+		// deliver a tx the creator cannot pay, failing the whole simulation.
+		params, perr := k.Params.Get(ctx)
+		if perr == nil && !params.CostPerByteExempt && params.CostPerByteAmount.IsPositive() {
+			newBytes := uint64(len(newTitle) + len(newBody))
+			if newBytes > post.FeeBytesHighWater {
+				delta := int64(newBytes - post.FeeBytesHighWater)
+				deltaFee := params.CostPerByteAmount.MulRaw(delta)
+				bondDenom := k.BondDenom(ctx)
+				needed := deltaFee.Add(math.NewInt(10000)) // + gas headroom
+				if bk.SpendableCoins(ctx, simAccount.Address).AmountOf(bondDenom).LT(needed) {
+					return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "creator cannot cover storage delta fee"), nil, nil
+				}
+			}
 		}
 
 		// 5. Construct the OperationInput struct

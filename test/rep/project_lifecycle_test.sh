@@ -425,6 +425,333 @@ else
 fi
 
 # ========================================================================
+# TEST 5 — cancel authorization: a non-creator, non-ops member is rejected
+# ========================================================================
+# MsgCancelProject is gated to the project creator or the project council's
+# Operations Committee. A plain member (challenger) is neither, so their
+# cancel attempt must be rejected and the project must stay non-terminal.
+echo "--- TEST 5: non-creator, non-ops cancel is rejected ---"
+
+# Propose a fresh project as alice (left PROPOSED; PROPOSED is cancellable).
+TX_RES=$($BINARY tx rep propose-project \
+    "lifecycle-cancel-target" "Cancel authorization target" "infrastructure" \
+    "Technical Council" "100000000" "0" \
+    --from alice --chain-id $CHAIN_ID --keyring-backend test \
+    --fees 5000${BOND_DENOM} --gas 400000 -y --output json 2>&1)
+
+if ! submit_tx_and_wait "$TX_RES" || ! check_tx_success "$TX_RESULT"; then
+    echo "  Failed to propose cancel-target project: $(echo "$TX_RESULT" | jq -r '.raw_log // ""')"
+    record_result "TEST 5: unauthorized cancel rejected" "FAIL"
+    record_result "TEST 6: creator cancel succeeds" "FAIL"
+else
+    CANCEL_PID=$(echo "$TX_RESULT" | jq -r '.events[] | select(.type=="project_proposed") | .attributes[] | select(.key=="project_id") | .value' | tr -d '"')
+    echo "  Proposed cancel-target project #$CANCEL_PID"
+
+    # 5a. challenger (plain member) attempts to cancel — must be rejected.
+    TX_RES=$($BINARY tx rep cancel-project \
+        "$CANCEL_PID" "unauthorized attempt" \
+        --from challenger --chain-id $CHAIN_ID --keyring-backend test \
+        --fees 5000${BOND_DENOM} --gas 400000 -y --output json 2>&1)
+
+    if submit_tx_and_wait "$TX_RES" && check_tx_failure "$TX_RESULT"; then
+        RAW=$(echo "$TX_RESULT" | jq -r '.raw_log // ""')
+        if echo "$RAW" | grep -qi "only the project creator or the Operations Committee"; then
+            echo "  Correctly rejected: $RAW"
+            record_result "TEST 5: unauthorized cancel rejected" "PASS"
+        else
+            echo "  Rejected but with unexpected error: $RAW"
+            record_result "TEST 5: unauthorized cancel rejected" "FAIL"
+        fi
+    else
+        echo "  Expected rejection but cancel succeeded"
+        record_result "TEST 5: unauthorized cancel rejected" "FAIL"
+    fi
+
+    # 5b. The project must be untouched by the rejected cancel.
+    MID_STATUS=$($BINARY query rep get-project "$CANCEL_PID" --output json 2>/dev/null | jq -r '.project.status // empty')
+    echo "  Project #$CANCEL_PID status after rejected cancel: $MID_STATUS"
+    if [ "$MID_STATUS" == "PROJECT_STATUS_CANCELLED" ]; then
+        echo "  ERROR: project was cancelled by an unauthorized caller"
+    fi
+
+    # ====================================================================
+    # TEST 6 — cancel authorization: the project creator can cancel
+    # ====================================================================
+    echo "--- TEST 6: project creator can cancel ---"
+    TX_RES=$($BINARY tx rep cancel-project \
+        "$CANCEL_PID" "creator retires the project" \
+        --from alice --chain-id $CHAIN_ID --keyring-backend test \
+        --fees 5000${BOND_DENOM} --gas 400000 -y --output json 2>&1)
+
+    if submit_tx_and_wait "$TX_RES" && check_tx_success "$TX_RESULT"; then
+        FINAL_STATUS=$($BINARY query rep get-project "$CANCEL_PID" --output json 2>/dev/null | jq -r '.project.status // empty')
+        echo "  Project #$CANCEL_PID status after creator cancel: $FINAL_STATUS"
+        if [ "$FINAL_STATUS" == "PROJECT_STATUS_CANCELLED" ]; then
+            record_result "TEST 6: creator cancel succeeds" "PASS"
+        else
+            echo "  Expected PROJECT_STATUS_CANCELLED, got $FINAL_STATUS"
+            record_result "TEST 6: creator cancel succeeds" "FAIL"
+        fi
+    else
+        echo "  Expected success but cancel failed: $(echo "$TX_RESULT" | jq -r '.raw_log // ""')"
+        record_result "TEST 6: creator cancel succeeds" "FAIL"
+    fi
+fi
+
+# ========================================================================
+# TEST 7 — cancel cascade: OPEN and in-flight initiatives are both retired
+# ========================================================================
+# Cancelling a project cascade-terminates every non-terminal initiative under
+# it (OPEN and in-flight alike) and returns their reserved budget. We need an
+# ACTIVE project for that, so this test proposes a small (under-threshold)
+# project, has alice approve it directly, adds one OPEN and one self-assigned
+# (in-flight) initiative, then cancels the project and checks both landed in
+# CANCELLED with allocation fully returned.
+echo "--- TEST 7: project cancel cascades to OPEN and in-flight initiatives ---"
+
+CASCADE_OK=1
+
+# 7a. Propose a small budget-backed project (5,000 DREAM, under the 10,000
+# large-project threshold so alice can approve it directly).
+TX_RES=$($BINARY tx rep propose-project \
+    "lifecycle-cascade" "Cancel cascade target" "infrastructure" \
+    "Technical Council" "5000000000" "0" \
+    --from alice --chain-id $CHAIN_ID --keyring-backend test \
+    --fees 5000${BOND_DENOM} --gas 400000 -y --output json 2>&1)
+if ! submit_tx_and_wait "$TX_RES" || ! check_tx_success "$TX_RESULT"; then
+    echo "  Failed to propose cascade project: $(echo "$TX_RESULT" | jq -r '.raw_log // ""')"
+    CASCADE_OK=0
+fi
+CASCADE_PID=$(echo "$TX_RESULT" | jq -r '.events[] | select(.type=="project_proposed") | .attributes[] | select(.key=="project_id") | .value' | tr -d '"')
+
+# 7b. Approve it (alice is on the Ops Committee; budget under threshold).
+if [ "$CASCADE_OK" == "1" ]; then
+    TX_RES=$($BINARY tx rep approve-project-budget \
+        "$CASCADE_PID" "5000000000" "0" \
+        --from alice --chain-id $CHAIN_ID --keyring-backend test \
+        --fees 5000${BOND_DENOM} --gas 400000 -y --output json 2>&1)
+    if ! submit_tx_and_wait "$TX_RES" || ! check_tx_success "$TX_RESULT"; then
+        echo "  Failed to approve cascade project: $(echo "$TX_RESULT" | jq -r '.raw_log // ""')"
+        CASCADE_OK=0
+    fi
+fi
+
+# 7c. Create one OPEN apprentice initiative (budget 50 DREAM) under it.
+CASCADE_INIT=""
+if [ "$CASCADE_OK" == "1" ]; then
+    TX_RES=$($BINARY tx rep create-initiative \
+        "$CASCADE_PID" "Cascade initiative" "Will be cancelled with the project" \
+        "0" "1" "0" "50000000" \
+        --from alice --chain-id $CHAIN_ID --keyring-backend test \
+        --fees 5000${BOND_DENOM} --gas 400000 -y --output json 2>&1)
+    if ! submit_tx_and_wait "$TX_RES" || ! check_tx_success "$TX_RESULT"; then
+        echo "  Failed to create cascade initiative: $(echo "$TX_RESULT" | jq -r '.raw_log // ""')"
+        CASCADE_OK=0
+    else
+        CASCADE_INIT=$(echo "$TX_RESULT" | jq -r '.events[] | select(.type=="initiative_created") | .attributes[] | select(.key=="initiative_id") | .value' | tr -d '"')
+        echo "  Created OPEN initiative #$CASCADE_INIT under project #$CASCADE_PID"
+    fi
+fi
+
+# 7d. Create a second apprentice initiative and self-assign it to alice so it
+# is in-flight (ASSIGNED, not OPEN) at cancel time. Apprentice tier has no
+# reputation floor, so alice qualifies.
+CASCADE_INIT2=""
+if [ "$CASCADE_OK" == "1" ]; then
+    TX_RES=$($BINARY tx rep create-initiative \
+        "$CASCADE_PID" "Cascade in-flight" "Assigned, then cancelled with the project" \
+        "0" "1" "0" "50000000" \
+        --from alice --chain-id $CHAIN_ID --keyring-backend test \
+        --fees 5000${BOND_DENOM} --gas 400000 -y --output json 2>&1)
+    if ! submit_tx_and_wait "$TX_RES" || ! check_tx_success "$TX_RESULT"; then
+        echo "  Failed to create second initiative: $(echo "$TX_RESULT" | jq -r '.raw_log // ""')"
+        CASCADE_OK=0
+    else
+        CASCADE_INIT2=$(echo "$TX_RESULT" | jq -r '.events[] | select(.type=="initiative_created") | .attributes[] | select(.key=="initiative_id") | .value' | tr -d '"')
+        ALICE_ADDR=$($BINARY keys show alice -a --keyring-backend test)
+        TX_RES=$($BINARY tx rep assign-initiative \
+            "$CASCADE_INIT2" "$ALICE_ADDR" \
+            --from alice --chain-id $CHAIN_ID --keyring-backend test \
+            --fees 5000${BOND_DENOM} --gas 400000 -y --output json 2>&1)
+        if ! submit_tx_and_wait "$TX_RES" || ! check_tx_success "$TX_RESULT"; then
+            echo "  Failed to self-assign second initiative: $(echo "$TX_RESULT" | jq -r '.raw_log // ""')"
+            CASCADE_OK=0
+        else
+            IN_FLIGHT_STATUS=$($BINARY query rep get-initiative "$CASCADE_INIT2" --output json 2>/dev/null | jq -r '.initiative.status // ""')
+            echo "  Created + self-assigned in-flight initiative #$CASCADE_INIT2 (status $IN_FLIGHT_STATUS)"
+        fi
+    fi
+fi
+
+# 7e. Both initiatives now reserve budget on the project (2 x 50000000).
+if [ "$CASCADE_OK" == "1" ]; then
+    ALLOC_BEFORE=$($BINARY query rep get-project "$CASCADE_PID" --output json 2>/dev/null | jq -r '.project.allocated_budget // "0"')
+    echo "  Allocated budget before cancel: $ALLOC_BEFORE"
+
+    # 7f. Cancel the project and verify the cascade over both initiatives.
+    TX_RES=$($BINARY tx rep cancel-project \
+        "$CASCADE_PID" "retire with cascade" \
+        --from alice --chain-id $CHAIN_ID --keyring-backend test \
+        --fees 5000${BOND_DENOM} --gas 400000 -y --output json 2>&1)
+    if ! submit_tx_and_wait "$TX_RES" || ! check_tx_success "$TX_RESULT"; then
+        echo "  Cancel failed: $(echo "$TX_RESULT" | jq -r '.raw_log // ""')"
+        CASCADE_OK=0
+    fi
+fi
+
+if [ "$CASCADE_OK" == "1" ]; then
+    INIT_STATUS=$($BINARY query rep get-initiative "$CASCADE_INIT" --output json 2>/dev/null | jq -r '.initiative.status // "INITIATIVE_STATUS_OPEN"')
+    INIT2_STATUS=$($BINARY query rep get-initiative "$CASCADE_INIT2" --output json 2>/dev/null | jq -r '.initiative.status // "INITIATIVE_STATUS_OPEN"')
+    ALLOC_AFTER=$($BINARY query rep get-project "$CASCADE_PID" --output json 2>/dev/null | jq -r '.project.allocated_budget // "0"')
+    echo "  OPEN initiative #$CASCADE_INIT status after cancel:      $INIT_STATUS"
+    echo "  In-flight initiative #$CASCADE_INIT2 status after cancel: $INIT2_STATUS"
+    echo "  Allocated budget after cancel: $ALLOC_AFTER"
+
+    if [ "$INIT_STATUS" == "INITIATIVE_STATUS_CANCELLED" ] && \
+       [ "$INIT2_STATUS" == "INITIATIVE_STATUS_CANCELLED" ] && \
+       [ "$ALLOC_AFTER" == "0" ]; then
+        record_result "TEST 7: cancel cascades to OPEN + in-flight initiatives" "PASS"
+    else
+        echo "  Expected both initiatives CANCELLED and allocated_budget 0"
+        record_result "TEST 7: cancel cascades to OPEN + in-flight initiatives" "FAIL"
+    fi
+else
+    record_result "TEST 7: cancel cascades to OPEN + in-flight initiatives" "FAIL"
+fi
+
+# ========================================================================
+# TEST 8 — cancel voids an active challenge and refunds the challenger
+# ========================================================================
+# A CHALLENGED initiative under a cancelled project must not leave the dispute
+# dangling: the cascade voids the challenge (CHALLENGE_STATUS_VOIDED) and
+# refunds the challenger's staked DREAM in full. Flow: alice proposes+approves
+# a project, creates an apprentice initiative, assigns it to expert, expert
+# submits work, challenger challenges it, alice cancels the project.
+echo "--- TEST 8: project cancel voids active challenge, refunds stake ---"
+
+T8_OK=1
+EXPERT_ADDR=$($BINARY keys show expert -a --keyring-backend test 2>/dev/null)
+CHALLENGER_ADDR=$($BINARY keys show challenger -a --keyring-backend test 2>/dev/null)
+if [ -z "$EXPERT_ADDR" ] || [ -z "$CHALLENGER_ADDR" ]; then
+    echo "  [WARN] expert/challenger keys not found (setup_test_accounts.sh not run?); skipping"
+    T8_OK=0
+    record_result "TEST 8: cancel voids challenge + refunds" "FAIL"
+fi
+
+# Read the min challenge stake from live params instead of hardcoding.
+MIN_CHALLENGE_STAKE=$($BINARY query rep params --output json 2>/dev/null | jq -r '.params.min_challenge_stake // "50000000"')
+
+# 8a. Propose + approve a small project.
+VOID_PID=""
+if [ "$T8_OK" == "1" ]; then
+    TX_RES=$($BINARY tx rep propose-project \
+        "lifecycle-void" "Challenge void target" "infrastructure" \
+        "Technical Council" "5000000000" "0" \
+        --from alice --chain-id $CHAIN_ID --keyring-backend test \
+        --fees 5000${BOND_DENOM} --gas 400000 -y --output json 2>&1)
+    if submit_tx_and_wait "$TX_RES" && check_tx_success "$TX_RESULT"; then
+        VOID_PID=$(echo "$TX_RESULT" | jq -r '.events[] | select(.type=="project_proposed") | .attributes[] | select(.key=="project_id") | .value' | tr -d '"')
+        TX_RES=$($BINARY tx rep approve-project-budget \
+            "$VOID_PID" "5000000000" "0" \
+            --from alice --chain-id $CHAIN_ID --keyring-backend test \
+            --fees 5000${BOND_DENOM} --gas 400000 -y --output json 2>&1)
+        if ! submit_tx_and_wait "$TX_RES" || ! check_tx_success "$TX_RESULT"; then
+            echo "  Failed to approve void-target project: $(echo "$TX_RESULT" | jq -r '.raw_log // ""')"
+            T8_OK=0
+        fi
+    else
+        echo "  Failed to propose void-target project: $(echo "$TX_RESULT" | jq -r '.raw_log // ""')"
+        T8_OK=0
+    fi
+fi
+
+# 8b. Create an apprentice initiative, assign to expert, expert submits work.
+VOID_INIT=""
+if [ "$T8_OK" == "1" ]; then
+    TX_RES=$($BINARY tx rep create-initiative \
+        "$VOID_PID" "Void-challenge initiative" "Will be challenged, then voided" \
+        "0" "1" "0" "50000000" \
+        --from alice --chain-id $CHAIN_ID --keyring-backend test \
+        --fees 5000${BOND_DENOM} --gas 400000 -y --output json 2>&1)
+    if submit_tx_and_wait "$TX_RES" && check_tx_success "$TX_RESULT"; then
+        VOID_INIT=$(echo "$TX_RESULT" | jq -r '.events[] | select(.type=="initiative_created") | .attributes[] | select(.key=="initiative_id") | .value' | tr -d '"')
+        TX_RES=$($BINARY tx rep assign-initiative \
+            "$VOID_INIT" "$EXPERT_ADDR" \
+            --from alice --chain-id $CHAIN_ID --keyring-backend test \
+            --fees 5000${BOND_DENOM} --gas 400000 -y --output json 2>&1)
+        if ! submit_tx_and_wait "$TX_RES" || ! check_tx_success "$TX_RESULT"; then
+            echo "  Failed to assign initiative to expert: $(echo "$TX_RESULT" | jq -r '.raw_log // ""')"
+            T8_OK=0
+        fi
+    else
+        echo "  Failed to create void-target initiative: $(echo "$TX_RESULT" | jq -r '.raw_log // ""')"
+        T8_OK=0
+    fi
+fi
+if [ "$T8_OK" == "1" ]; then
+    TX_RES=$($BINARY tx rep submit-initiative-work \
+        "$VOID_INIT" "ipfs://deliverable" "done" \
+        --from expert --chain-id $CHAIN_ID --keyring-backend test \
+        --fees 5000${BOND_DENOM} --gas 400000 -y --output json 2>&1)
+    if ! submit_tx_and_wait "$TX_RES" || ! check_tx_success "$TX_RESULT"; then
+        echo "  Failed to submit work: $(echo "$TX_RESULT" | jq -r '.raw_log // ""')"
+        T8_OK=0
+    fi
+fi
+
+# 8c. Challenger stakes a challenge against the submitted work.
+VOID_CHALLENGE=""
+STAKED_BEFORE="0"
+if [ "$T8_OK" == "1" ]; then
+    STAKED_BEFORE=$($BINARY query rep get-member "$CHALLENGER_ADDR" -o json 2>/dev/null | jq -r '.member.staked_dream // "0"')
+    TX_RES=$($BINARY tx rep create-challenge \
+        "$VOID_INIT" "Work does not meet requirements" "$MIN_CHALLENGE_STAKE" \
+        --from challenger --chain-id $CHAIN_ID --keyring-backend test \
+        --fees 5000${BOND_DENOM} --gas 400000 -y --output json 2>&1)
+    if submit_tx_and_wait "$TX_RES" && check_tx_success "$TX_RESULT"; then
+        VOID_CHALLENGE=$(echo "$TX_RESULT" | jq -r '.events[] | select(.type=="challenge_created") | .attributes[] | select(.key=="challenge_id") | .value' | tr -d '"')
+        STAKED_DURING=$($BINARY query rep get-member "$CHALLENGER_ADDR" -o json 2>/dev/null | jq -r '.member.staked_dream // "0"')
+        echo "  Challenge #$VOID_CHALLENGE created (staked: $STAKED_BEFORE -> $STAKED_DURING)"
+    else
+        echo "  Failed to create challenge: $(echo "$TX_RESULT" | jq -r '.raw_log // ""')"
+        T8_OK=0
+    fi
+fi
+
+# 8d. Cancel the project; assert challenge VOIDED, initiative CANCELLED, and
+# the challenger's staked DREAM back at its pre-challenge level.
+if [ "$T8_OK" == "1" ]; then
+    TX_RES=$($BINARY tx rep cancel-project \
+        "$VOID_PID" "retire with active challenge" \
+        --from alice --chain-id $CHAIN_ID --keyring-backend test \
+        --fees 5000${BOND_DENOM} --gas 400000 -y --output json 2>&1)
+    if ! submit_tx_and_wait "$TX_RES" || ! check_tx_success "$TX_RESULT"; then
+        echo "  Cancel failed: $(echo "$TX_RESULT" | jq -r '.raw_log // ""')"
+        T8_OK=0
+    fi
+fi
+
+if [ "$T8_OK" == "1" ]; then
+    VOID_INIT_STATUS=$($BINARY query rep get-initiative "$VOID_INIT" -o json 2>/dev/null | jq -r '.initiative.status // "INITIATIVE_STATUS_OPEN"')
+    VOID_CH_STATUS=$($BINARY query rep get-challenge "$VOID_CHALLENGE" -o json 2>/dev/null | jq -r '.challenge.status // "CHALLENGE_STATUS_ACTIVE"')
+    STAKED_AFTER=$($BINARY query rep get-member "$CHALLENGER_ADDR" -o json 2>/dev/null | jq -r '.member.staked_dream // "0"')
+    echo "  Initiative #$VOID_INIT status: $VOID_INIT_STATUS"
+    echo "  Challenge #$VOID_CHALLENGE status:  $VOID_CH_STATUS"
+    echo "  Challenger staked: before=$STAKED_BEFORE after=$STAKED_AFTER"
+
+    if [ "$VOID_INIT_STATUS" == "INITIATIVE_STATUS_CANCELLED" ] && \
+       [ "$VOID_CH_STATUS" == "CHALLENGE_STATUS_VOIDED" ] && \
+       [ "$STAKED_AFTER" == "$STAKED_BEFORE" ]; then
+        record_result "TEST 8: cancel voids challenge + refunds" "PASS"
+    else
+        echo "  Expected CANCELLED initiative, VOIDED challenge, staked restored"
+        record_result "TEST 8: cancel voids challenge + refunds" "FAIL"
+    fi
+elif [ -n "$EXPERT_ADDR" ] && [ -n "$CHALLENGER_ADDR" ]; then
+    record_result "TEST 8: cancel voids challenge + refunds" "FAIL"
+fi
+
+# ========================================================================
 # Results
 # ========================================================================
 echo "============================================"

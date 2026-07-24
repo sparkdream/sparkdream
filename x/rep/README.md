@@ -295,8 +295,21 @@ OPEN → SUBMITTED → IN_REVIEW → PENDING_COMPLETION → COMPLETED
   │       │           │                │
   │       │           ├── CHALLENGED ──┘
   │       │           │
-  └───────┴───────────┴── ABANDONED
+  │       └───────────┴── ABANDONED   (assignee walks away)
+  │
+  └── CANCELLED                        (project retires an unstarted listing)
 ```
+
+`ABANDONED` and `CANCELLED` are distinct terminal states: `ABANDONED` is
+reached by the assignee abandoning work in progress; `CANCELLED` is reached
+only from `OPEN` when the project creator or Operations Committee retires a
+listing nobody ever picked up.
+
+**Cancelling the parent project** cascade-terminates *every* non-terminal
+initiative under it (`OPEN`…`CHALLENGED` → `CANCELLED`): each one's reserved
+budget is returned, its self-assign bond released, and any active challenge
+voided (refunding the challenger's stake in full). See the "Cancelling a
+Project" section of [docs/x-rep-spec.md](../../docs/x-rep-spec.md).
 
 ## Messages
 
@@ -320,7 +333,7 @@ OPEN → SUBMITTED → IN_REVIEW → PENDING_COMPLETION → COMPLETED
 |---------|-------------|--------|
 | `MsgProposeProject` | Propose project with budget and tags | Any member |
 | `MsgApproveProjectBudget` | Approve and fund project | Committee authority |
-| `MsgCancelProject` | Cancel project with reason | Committee authority |
+| `MsgCancelProject` | Cancel project with reason | Project creator or council Operations Committee |
 
 ### Initiatives
 
@@ -330,7 +343,8 @@ OPEN → SUBMITTED → IN_REVIEW → PENDING_COMPLETION → COMPLETED
 | `MsgAssignInitiative` | Assign to worker (creator self-assign allowed; stricter completion gates apply) | Project authority |
 | `MsgSubmitInitiativeWork` | Submit deliverable | Assignee |
 | `MsgApproveInitiative` | Confirm completion | Approver (never the assignee or project creator) |
-| `MsgAbandonInitiative` | Abandon work | Assignee |
+| `MsgAbandonInitiative` | Abandon work in progress | Assignee |
+| `MsgCancelInitiative` | Retire an OPEN, unassigned initiative; returns reserved budget | Project creator or Operations Committee |
 | `MsgCompleteInitiative` | Finalize after challenge period, mint rewards | Authority |
 
 Creator self-assignment is allowed but hardened: full external conviction required, extended challenge window, DREAM bond on budget-backed projects (returned on completion/abandon, burned on upheld challenge), and neither creator nor assignee may approve. See the self-assignment section of [docs/x-rep-spec.md](../../docs/x-rep-spec.md).
@@ -350,8 +364,14 @@ Creator self-assignment is allowed but hardened: full external conviction requir
 |---------|-------------|--------|
 | `MsgCreateChallenge` | Challenge initiative work (named or anonymous via x/shield) | Members |
 | `MsgRespondToChallenge` | Respond to prevent auto-uphold | Assignee |
-| `MsgSubmitJurorVote` | Cast jury vote with verdict and confidence | Selected juror |
+| `MsgSubmitJurorVote` | Cast jury vote with verdict and confidence (PENDING reviews only) | Selected juror |
 | `MsgSubmitExpertTestimony` | Provide expert context during review | Domain experts |
+
+Challenges resolve to `UPHELD` or `REJECTED` — or `VOIDED` when the parent
+project is cancelled out from under the dispute: the challenger's stake is
+refunded in full, any pending jury review closes `INCONCLUSIVE`, and the voided
+challenge is sealed against late votes and resolution. See the "Cancelling a
+Project" section of [docs/x-rep-spec.md](../../docs/x-rep-spec.md).
 
 ### Content Challenges
 

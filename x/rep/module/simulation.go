@@ -622,6 +622,21 @@ func (am AppModule) WeightedOperations(simState module.SimulationState) []simtyp
 		weightMsgAppealGovAction,
 		repsimulation.SimulateMsgAppealGovAction(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
 	))
+	const (
+		opWeightMsgCancelInitiative          = "op_weight_msg_rep"
+		defaultWeightMsgCancelInitiative int = 100
+	)
+
+	var weightMsgCancelInitiative int
+	simState.AppParams.GetOrGenerate(opWeightMsgCancelInitiative, &weightMsgCancelInitiative, nil,
+		func(_ *rand.Rand) {
+			weightMsgCancelInitiative = defaultWeightMsgCancelInitiative
+		},
+	)
+	operations = append(operations, simulation.NewWeightedOperation(
+		weightMsgCancelInitiative,
+		repsimulation.SimulateMsgCancelInitiative(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
+	))
 
 	return operations
 }
