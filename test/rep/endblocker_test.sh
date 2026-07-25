@@ -816,16 +816,15 @@ echo "  - 90% to stakers (proportional to conviction)"
 echo ""
 
 # Query stake details
-# Note: stakes-by-staker returns flat fields (stake_id, target_type, amount) per page,
-# not a .stakes array. Use the flat fields directly.
+# Note: stakes-by-staker returns all of the staker's stakes in a .stakes[] array.
 BOB_STAKES=$($BINARY query rep stakes-by-staker $BOB_ADDR --output json)
 if [ -n "$BOB_STAKES" ]; then
-    STAKE_ID=$(echo "$BOB_STAKES" | jq -r '.stake_id // "0"')
-    STAKE_AMT=$(echo "$BOB_STAKES" | jq -r '.amount // "0"')
-    STAKE_TYPE=$(echo "$BOB_STAKES" | jq -r '.target_type // "0"')
-
-    if [ "$STAKE_ID" != "0" ] && [ -n "$STAKE_ID" ]; then
-        echo "Bob has stake #$STAKE_ID: amount=$STAKE_AMT, target_type=$STAKE_TYPE"
+    BOB_STAKE_COUNT=$(echo "$BOB_STAKES" | jq -r '.stakes | length // 0' 2>/dev/null || echo 0)
+    if [ "$BOB_STAKE_COUNT" -gt 0 ]; then
+        STAKE_ID=$(echo "$BOB_STAKES" | jq -r '.stakes[0].id // "0"')
+        STAKE_AMT=$(echo "$BOB_STAKES" | jq -r '.stakes[0].amount // "0"')
+        STAKE_TYPE=$(echo "$BOB_STAKES" | jq -r '.stakes[0].target_type // "0"')
+        echo "Bob has $BOB_STAKE_COUNT stake(s); first is #$STAKE_ID: amount=$STAKE_AMT, target_type=$STAKE_TYPE"
     else
         echo "Bob has no stakes recorded"
     fi

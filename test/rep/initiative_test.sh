@@ -522,7 +522,7 @@ fi
 if [ -z "$STAKER1_STAKE_ID" ] || [ "$STAKER1_STAKE_ID" == "null" ] || [ "$STAKER1_STAKE_ID" == "" ]; then
     sleep 1  # Give chain time to process
     STAKER1_STAKE_ID=$($BINARY query rep stakes-by-staker $STAKER1_ADDR -o json 2>/dev/null | \
-      jq -r '.stake_id // ""')
+      jq -r '.stakes[0].id // ""')
 fi
 
 if [ -z "$STAKER1_STAKE_ID" ] || [ "$STAKER1_STAKE_ID" == "null" ] || [ "$STAKER1_STAKE_ID" == "" ]; then
@@ -577,7 +577,7 @@ fi
 if [ -z "$STAKER2_STAKE_ID" ] || [ "$STAKER2_STAKE_ID" == "null" ] || [ "$STAKER2_STAKE_ID" == "" ]; then
     sleep 1  # Give chain time to process
     STAKER2_STAKE_ID=$($BINARY query rep stakes-by-staker $STAKER2_ADDR -o json 2>/dev/null | \
-      jq -r '.stake_id // ""')
+      jq -r '.stakes[0].id // ""')
 fi
 
 if [ -z "$STAKER2_STAKE_ID" ] || [ "$STAKER2_STAKE_ID" == "null" ] || [ "$STAKER2_STAKE_ID" == "" ]; then
@@ -634,16 +634,17 @@ fi
 
 # Query Staker1's stakes
 STAKER1_STAKES_LIST=$($BINARY query rep stakes-by-staker $STAKER1_ADDR -o json)
-# Note: Query returns single object {stake_id, target_type, amount}, not array
-STAKER1_STAKE_ID_FROM_QUERY=$(echo "$STAKER1_STAKES_LIST" | jq -r '.stake_id // ""')
+# Note: Query returns all of the staker's stakes in a .stakes[] array.
+STAKER1_STAKE_TOTAL=$(echo "$STAKER1_STAKES_LIST" | jq -r '.stakes | length // 0')
+STAKER1_STAKE_ID_FROM_QUERY=$(echo "$STAKER1_STAKES_LIST" | jq -r '.stakes[0].id // ""')
 
 # Update STAKER1_STAKE_ID if query found it (overrides "unknown" from Part 8)
 if [ -n "$STAKER1_STAKE_ID_FROM_QUERY" ] && [ "$STAKER1_STAKE_ID_FROM_QUERY" != "null" ] && [ "$STAKER1_STAKE_ID_FROM_QUERY" != "" ]; then
     STAKER1_STAKE_ID="$STAKER1_STAKE_ID_FROM_QUERY"
-    STAKER1_STAKE_AMOUNT=$(echo "$STAKER1_STAKES_LIST" | jq -r '.amount // "0"')
+    STAKER1_STAKE_AMOUNT=$(echo "$STAKER1_STAKES_LIST" | jq -r '.stakes[0].amount // "0"')
     STAKER1_STAKE_AMOUNT_DREAM=$(echo "scale=2; $STAKER1_STAKE_AMOUNT / 1000000" | bc 2>/dev/null || echo "0")
-    echo "Staker1 has 1 stake:"
-    echo "  Stake ID: $STAKER1_STAKE_ID"
+    echo "Staker1 has $STAKER1_STAKE_TOTAL stake(s):"
+    echo "  First stake ID: $STAKER1_STAKE_ID"
     echo "  Amount: $STAKER1_STAKE_AMOUNT_DREAM DREAM"
     echo "[ OK ] Staker1's stake found"
     echo "[INFO]  Updated stake ID for use in later parts"

@@ -781,10 +781,8 @@ message QueryStakesByStakerRequest {
 
 // QueryStakesByStakerResponse defines the QueryStakesByStakerResponse message.
 message QueryStakesByStakerResponse {
-  uint64 stake_id = 1;
-  uint64 target_type = 2;
-  string amount = 3 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
-  cosmos.base.query.v1beta1.PageResponse pagination = 4;
+  repeated Stake stakes = 1;
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
 }
 
 // QueryStakesByTargetRequest defines the QueryStakesByTargetRequest message.

@@ -14,26 +14,20 @@ func (q queryServer) StakesByStaker(ctx context.Context, req *types.QueryStakesB
 		return nil, status.Error(codes.InvalidArgument, "invalid request")
 	}
 
-	// Collect first stake by the specified staker (proto response is singular)
-	var foundStake *types.Stake
+	// Collect all stakes owned by the specified staker.
+	var stakes []*types.Stake
 	err := q.k.Stake.Walk(ctx, nil, func(id uint64, stake types.Stake) (bool, error) {
 		if stake.Staker == req.Staker {
-			foundStake = &stake
-			return true, nil // stop iteration
+			stakeCopy := stake
+			stakes = append(stakes, &stakeCopy)
 		}
-		return false, nil
+		return false, nil // continue iteration
 	})
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
 
-	if foundStake != nil {
-		return &types.QueryStakesByStakerResponse{
-			StakeId:    foundStake.Id,
-			TargetType: uint64(foundStake.TargetType),
-			Amount:     &foundStake.Amount,
-		}, nil
-	}
-
-	return &types.QueryStakesByStakerResponse{}, nil
+	return &types.QueryStakesByStakerResponse{
+		Stakes: stakes,
+	}, nil
 }

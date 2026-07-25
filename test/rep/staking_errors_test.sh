@@ -174,7 +174,7 @@ if submit_tx_and_wait "$TX_RES" && check_tx_success "$TX_RESULT"; then
 else
     # Check if Alice already has a stake on Bob from a previous run
     EXISTING_STAKES=$($BINARY query rep stakes-by-staker $ALICE_ADDR --output json 2>&1)
-    EXISTING_ALICE_BOB=$(echo "$EXISTING_STAKES" | jq -r '.stake[]? | select(.target_identifier=="'"$BOB_ADDR"'") | .id' 2>/dev/null | head -1)
+    EXISTING_ALICE_BOB=$(echo "$EXISTING_STAKES" | jq -r '.stakes[]? | select(.target_identifier=="'"$BOB_ADDR"'") | .id' 2>/dev/null | head -1)
     if [ -n "$EXISTING_ALICE_BOB" ] && [ "$EXISTING_ALICE_BOB" != "null" ]; then
         echo "  Alice already has a stake on Bob (stake ID: $EXISTING_ALICE_BOB)"
         ALICE_BOB_STAKED=true

@@ -450,15 +450,16 @@ fi
 echo ""
 echo "--- PART 5: QUERY ALL STAKES BY STAKER ---"
 
-# Query Staker1's stakes (initiative staker)
-# Note: stakes-by-staker returns single object {stake_id, target_type, amount}, not array
+# Query Staker1's stakes
+# Note: stakes-by-staker returns all of the staker's stakes in a .stakes[] array.
 STAKER1_STAKE=$($BINARY query rep stakes-by-staker $STAKER1_ADDR --output json 2>&1)
 
-if echo "$STAKER1_STAKE" | jq -e '.stake_id' >/dev/null 2>&1; then
-    STAKER1_STAKE_ID=$(echo "$STAKER1_STAKE" | jq -r '.stake_id')
-    STAKER1_AMOUNT=$(echo "$STAKER1_STAKE" | jq -r '.amount')
-    STAKER1_TARGET=$(echo "$STAKER1_STAKE" | jq -r '.target_type')
-    echo "Staker1 has stake #$STAKER1_STAKE_ID (amount: $STAKER1_AMOUNT micro-DREAM, target_type: $STAKER1_TARGET)"
+STAKER1_STAKE_COUNT=$(echo "$STAKER1_STAKE" | jq -r '.stakes | length // 0' 2>/dev/null || echo 0)
+if [ "$STAKER1_STAKE_COUNT" -gt 0 ]; then
+    STAKER1_STAKE_ID=$(echo "$STAKER1_STAKE" | jq -r '.stakes[0].id // "0"')
+    STAKER1_AMOUNT=$(echo "$STAKER1_STAKE" | jq -r '.stakes[0].amount')
+    STAKER1_TARGET=$(echo "$STAKER1_STAKE" | jq -r '.stakes[0].target_type // "0"')
+    echo "Staker1 has $STAKER1_STAKE_COUNT stake(s); first is #$STAKER1_STAKE_ID (amount: $STAKER1_AMOUNT micro-DREAM, target_type: $STAKER1_TARGET)"
 else
     echo "Staker1 has no stakes or query returned error"
 fi
@@ -467,11 +468,12 @@ fi
 TAG_STAKER_STAKE=$($BINARY query rep stakes-by-staker $TAG_STAKER_ADDR --output json 2>&1)
 
 echo ""
-if echo "$TAG_STAKER_STAKE" | jq -e '.stake_id' >/dev/null 2>&1; then
-    TAG_STAKER_STAKE_ID=$(echo "$TAG_STAKER_STAKE" | jq -r '.stake_id')
-    TAG_STAKER_AMOUNT=$(echo "$TAG_STAKER_STAKE" | jq -r '.amount')
-    TAG_STAKER_TARGET=$(echo "$TAG_STAKER_STAKE" | jq -r '.target_type')
-    echo "Tag Staker has stake #$TAG_STAKER_STAKE_ID (amount: $TAG_STAKER_AMOUNT micro-DREAM, target_type: $TAG_STAKER_TARGET)"
+TAG_STAKER_STAKE_COUNT=$(echo "$TAG_STAKER_STAKE" | jq -r '.stakes | length // 0' 2>/dev/null || echo 0)
+if [ "$TAG_STAKER_STAKE_COUNT" -gt 0 ]; then
+    TAG_STAKER_STAKE_ID=$(echo "$TAG_STAKER_STAKE" | jq -r '.stakes[0].id // "0"')
+    TAG_STAKER_AMOUNT=$(echo "$TAG_STAKER_STAKE" | jq -r '.stakes[0].amount')
+    TAG_STAKER_TARGET=$(echo "$TAG_STAKER_STAKE" | jq -r '.stakes[0].target_type // "0"')
+    echo "Tag Staker has $TAG_STAKER_STAKE_COUNT stake(s); first is #$TAG_STAKER_STAKE_ID (amount: $TAG_STAKER_AMOUNT micro-DREAM, target_type: $TAG_STAKER_TARGET)"
 else
     echo "Tag Staker has no stakes or query returned error"
 fi

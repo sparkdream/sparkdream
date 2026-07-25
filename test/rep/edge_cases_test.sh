@@ -285,12 +285,11 @@ sleep 2
 
 # Get stake ID
 EARLY_STAKES=$($BINARY query rep stakes-by-staker $EARLY_UNSTAKER_ADDR --output json)
-# stakes-by-staker returns a singular stake (first match), not a list — count
-# how many "stake_id" attestations come back via list-stake instead.
-STAKE_COUNT=$(echo "$EARLY_STAKES" | jq -r 'if .stake_id then 1 else 0 end // 0')
+# stakes-by-staker returns all of the staker's stakes in a .stakes[] array.
+STAKE_COUNT=$(echo "$EARLY_STAKES" | jq -r '.stakes | length // 0')
 
 if [ "$STAKE_COUNT" -gt 0 ]; then
-    EARLY_STAKE_ID=$(echo "$EARLY_STAKES" | jq -r '.stake_id // "1"')
+    EARLY_STAKE_ID=$(echo "$EARLY_STAKES" | jq -r '.stakes[0].id // "1"')
     echo "[ OK ] Early stake created: ID $EARLY_STAKE_ID"
 
     # Query stake details
@@ -677,8 +676,8 @@ echo "Testing behavior with empty states:"
 # Query with no stakes
 NO_STAKE_MEMBER=$($BINARY query rep get-member $EDGE_USER_ADDR --output json 2>/dev/null)
 NO_STAKES=$($BINARY query rep stakes-by-staker $EDGE_USER_ADDR --output json)
-# Empty response from stakes-by-staker is "{}" (no stake_id field).
-NO_STAKE_COUNT=$(echo "$NO_STAKES" | jq -r 'if .stake_id then 1 else 0 end // 0')
+# Empty response from stakes-by-staker is an empty (or absent) .stakes[] array.
+NO_STAKE_COUNT=$(echo "$NO_STAKES" | jq -r '.stakes | length // 0')
 
 echo ""
 echo "Edge cases with empty states:"
