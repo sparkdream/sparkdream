@@ -117,7 +117,7 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					Short:          "Create a new blog post",
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "title"}, {ProtoField: "body"}},
 					FlagOptions: map[string]*autocliv1.FlagOptions{
-						"content_type":          {Name: "content-type", Usage: "content type (e.g. CONTENT_TYPE_TEXT, CONTENT_TYPE_MARKDOWN)"},
+						"content_type":          {Name: "content-type", Usage: "content type, lowercase enum value (e.g. text, markdown, html)"},
 						"min_reply_trust_level": {Name: "min-reply-trust-level", Usage: "minimum trust level to reply (-1 to 4, default: 0)"},
 					},
 				},
@@ -127,7 +127,7 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					Short:          "Update an existing blog post",
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "title"}, {ProtoField: "body"}, {ProtoField: "id"}},
 					FlagOptions: map[string]*autocliv1.FlagOptions{
-						"content_type":          {Name: "content-type", Usage: "content type (e.g. CONTENT_TYPE_TEXT, CONTENT_TYPE_MARKDOWN)"},
+						"content_type":          {Name: "content-type", Usage: "content type, lowercase enum value (e.g. text, markdown, html)"},
 						"replies_enabled":       {Name: "replies-enabled", Usage: "whether replies are accepted"},
 						"min_reply_trust_level": {Name: "min-reply-trust-level", Usage: "minimum trust level to reply (-1 to 4)"},
 					},
@@ -157,7 +157,7 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "post_id"}, {ProtoField: "body"}},
 					FlagOptions: map[string]*autocliv1.FlagOptions{
 						"parent_reply_id": {Name: "parent-reply-id", Usage: "parent reply ID for nesting (0 = top-level)"},
-						"content_type":    {Name: "content-type", Usage: "content type (e.g. CONTENT_TYPE_TEXT, CONTENT_TYPE_MARKDOWN)"},
+						"content_type":    {Name: "content-type", Usage: "content type, lowercase enum value (e.g. text, markdown, html)"},
 					},
 				},
 				{
@@ -166,7 +166,7 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					Short:          "Update an existing reply",
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "id"}, {ProtoField: "body"}},
 					FlagOptions: map[string]*autocliv1.FlagOptions{
-						"content_type": {Name: "content-type", Usage: "content type (e.g. CONTENT_TYPE_TEXT, CONTENT_TYPE_MARKDOWN)"},
+						"content_type": {Name: "content-type", Usage: "content type, lowercase enum value (e.g. text, markdown, html)"},
 					},
 				},
 				{

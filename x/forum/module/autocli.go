@@ -348,7 +348,7 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					Short:          "Send a create-post tx",
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "category_id"}, {ProtoField: "parent_id"}, {ProtoField: "content"}},
 					FlagOptions: map[string]*autocliv1.FlagOptions{
-						"content_type": {Name: "content-type", Usage: "content type hint (e.g. CONTENT_TYPE_TEXT, CONTENT_TYPE_MARKDOWN)"},
+						"content_type": {Name: "content-type", Usage: "content type hint, lowercase enum value (e.g. text, markdown, html)"},
 					},
 				},
 				{
@@ -357,7 +357,7 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					Short:          "Send an edit-post tx",
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "post_id"}, {ProtoField: "new_content"}},
 					FlagOptions: map[string]*autocliv1.FlagOptions{
-						"content_type": {Name: "content-type", Usage: "content type hint (e.g. CONTENT_TYPE_TEXT, CONTENT_TYPE_MARKDOWN)"},
+						"content_type": {Name: "content-type", Usage: "content type hint, lowercase enum value (e.g. text, markdown, html)"},
 					},
 				},
 				{
