@@ -75,7 +75,7 @@ func TestMsgServerCreateInitiative(t *testing.T) {
 		require.NoError(t, err)
 
 		// Create initiative
-		_, err = ms.CreateInitiative(ctx, &types.MsgCreateInitiative{
+		resp, err := ms.CreateInitiative(ctx, &types.MsgCreateInitiative{
 			Creator:   creatorStr,
 			ProjectId: projectID,
 			Title:     "New Task",
@@ -90,5 +90,10 @@ func TestMsgServerCreateInitiative(t *testing.T) {
 		project, err := k.GetProject(ctx, projectID)
 		require.NoError(t, err)
 		require.Equal(t, math.NewInt(100).String(), project.AllocatedBudget.String())
+
+		// Authorship is recorded on state, not only in the creation event
+		initiative, err := k.GetInitiative(ctx, resp.InitiativeId)
+		require.NoError(t, err)
+		require.Equal(t, creatorStr, initiative.Creator)
 	})
 }

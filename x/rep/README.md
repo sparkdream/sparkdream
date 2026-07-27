@@ -462,11 +462,20 @@ DREAM-bonded role primitive only. SPARK-staked roles (e.g. federation bridge ope
 |-------|-------------|
 | `GetProject` / `ListProject` | Project lookup/list |
 | `ProjectsByCouncil` | Projects approved by council |
+| `ProjectsByCreator` | Projects proposed by member |
 | `GetInitiative` / `ListInitiative` | Initiative lookup/list |
 | `InitiativesByProject` | Initiatives under a project |
 | `InitiativesByAssignee` | Member's assigned initiatives |
+| `InitiativesByCreator` | Initiatives scoped by member |
 | `AvailableInitiatives` | Open initiatives to claim |
 | `InitiativeConviction` | Current conviction score (time-weighted) |
+
+`Project.creator` and `Initiative.creator` record the address that
+submitted the creating message, so authorship is answerable from a node
+query rather than an off-chain replay of `project_created` /
+`initiative_created` events. Creator is distinct from
+`Initiative.assignee` — the member who scoped the work is usually not the
+member who takes it on.
 
 The list queries above accept an optional `sort_by` field (`--sort-by` on
 the CLI). Project keys: `id`, `name`, `budget`, `status`. Initiative keys:

@@ -661,6 +661,7 @@ func getOrCreateInitiative(r *rand.Rand, ctx sdk.Context, k keeper.Keeper, creat
 		Category:    randomInitiativeCategory(r),
 		Status:      status,
 		Budget:      &budget,
+		Creator:     creator.Address,
 	}
 
 	// Set assignee if status requires it

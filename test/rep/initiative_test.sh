@@ -278,6 +278,71 @@ else
     echo "[WARN]  Query may not have found the assigned initiative"
 fi
 
+# Authorship is on state, not just in the initiative_created event: the
+# initiative record carries creator, and initiatives-by-creator inverts the
+# lookup. Alice created every initiative in PART 3; the assignee is a
+# different account, so creator and assignee must not be conflated.
+if [ "$APPRENTICE_ID" != "unknown" ]; then
+    APPRENTICE_CREATOR=$($BINARY query rep get-initiative $APPRENTICE_ID -o json | jq -r '.initiative.creator // ""')
+    if [ "$APPRENTICE_CREATOR" == "$ALICE_ADDR" ]; then
+        echo "[ OK ] get-initiative $APPRENTICE_ID reports creator $ALICE_ADDR"
+    else
+        echo "[FAIL] get-initiative $APPRENTICE_ID creator was '$APPRENTICE_CREATOR', expected $ALICE_ADDR"
+        exit 1
+    fi
+fi
+
+ALICE_INITIATIVES=$($BINARY query rep initiatives-by-creator $ALICE_ADDR -o json)
+ALICE_INIT_COUNT=$(echo "$ALICE_INITIATIVES" | jq -r '.initiatives | length')
+if [ "$ALICE_INIT_COUNT" -gt 0 ]; then
+    echo "[ OK ] initiatives-by-creator returned $ALICE_INIT_COUNT initiative(s) for alice"
+else
+    echo "[FAIL] initiatives-by-creator returned 0 initiatives for alice"
+    exit 1
+fi
+
+# Every returned initiative must actually be alice's. proto3 omits an empty
+# repeated field entirely, so `.initiatives` is null (not []) on a no-match
+# response — normalize with `// []` before iterating or jq aborts.
+ALICE_INIT_FOREIGN=$(echo "$ALICE_INITIATIVES" | jq -r --arg a "$ALICE_ADDR" '[(.initiatives // [])[] | select(.creator != $a)] | length')
+if [ "$ALICE_INIT_FOREIGN" != "0" ]; then
+    echo "[FAIL] initiatives-by-creator returned $ALICE_INIT_FOREIGN initiative(s) not created by alice"
+    exit 1
+fi
+
+# Discriminating check: alice created the PART 3 initiatives, the worker
+# only ever gets assigned them. Asserting on a known id (rather than on set
+# sizes) keeps this independent of what earlier suite steps left behind.
+if [ "$APPRENTICE_ID" != "unknown" ]; then
+    ALICE_HAS=$(echo "$ALICE_INITIATIVES" | jq -r --arg id "$APPRENTICE_ID" '[(.initiatives // [])[] | select((.id // "0") == $id)] | length')
+    # The worker created nothing, so this response has no initiatives field
+    # at all — hence the `// []` guard here too.
+    WORKER_HAS=$($BINARY query rep initiatives-by-creator $WORKER_ADDR -o json 2>/dev/null | \
+      jq -r --arg id "$APPRENTICE_ID" '[(.initiatives // [])[] | select((.id // "0") == $id)] | length')
+    if [ "$ALICE_HAS" == "1" ] && [ "$WORKER_HAS" == "0" ]; then
+        echo "[ OK ] initiative $APPRENTICE_ID is under alice's creations, not the assignee's"
+    else
+        echo "[FAIL] initiative $APPRENTICE_ID by-creator: alice=$ALICE_HAS (want 1), worker=$WORKER_HAS (want 0)"
+        exit 1
+    fi
+fi
+
+# projects-by-creator: same inversion on the project side.
+PROJECT_CREATOR=$(echo "$PROJECT_QUERY" | jq -r '.project.creator // ""')
+if [ -n "$PROJECT_CREATOR" ]; then
+    CREATOR_PROJECTS=$($BINARY query rep projects-by-creator "$PROJECT_CREATOR" -o json)
+    CREATOR_PROJECT_MATCH=$(echo "$CREATOR_PROJECTS" | jq -r --arg id "$PROJECT_ID" '[(.projects // [])[] | select((.id // "0") == $id)] | length')
+    if [ "$CREATOR_PROJECT_MATCH" == "1" ]; then
+        echo "[ OK ] projects-by-creator $PROJECT_CREATOR includes project $PROJECT_ID"
+    else
+        echo "[FAIL] projects-by-creator $PROJECT_CREATOR did not include project $PROJECT_ID"
+        exit 1
+    fi
+else
+    echo "[FAIL] get-project $PROJECT_ID returned no creator"
+    exit 1
+fi
+
 # Sorted listing: --sort-by orders the set before offset pagination; an
 # unknown key must be rejected.
 SORTED_AVAILABLE=$($BINARY query rep available-initiatives --sort-by budget --page-reverse -o json 2>/dev/null)

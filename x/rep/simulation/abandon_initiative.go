@@ -56,6 +56,7 @@ func SimulateMsgAbandonInitiative(
 				Status:      types.InitiativeStatus_INITIATIVE_STATUS_ASSIGNED,
 				Assignee:    member.Address, // Explicitly assign to this member
 				Budget:      &budget,
+				Creator:     member.Address,
 			}
 
 			if err := k.Initiative.Set(ctx, initID, newInit); err != nil {

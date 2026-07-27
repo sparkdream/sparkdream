@@ -730,7 +730,7 @@ if [ "$STAKE1_ID" != "unknown" ]; then
               tr -d '"')
             echo "[FAIL] Claim unexpectedly succeeded (rewards: ${CLAIMED_AMOUNT:-0})"
             echo "   Expected rejection: stake is younger than min_stake_duration_seconds"
-        elif echo "$CLAIM_LOG" | grep -q "minimum duration"; then
+        elif echo "$CLAIM_LOG" | grep -q "minimum stake duration"; then
             echo "[ OK ] Claim correctly rejected: stake has not met the minimum holding period"
         else
             echo "[FAIL] Claim failed for the wrong reason: $CLAIM_LOG"

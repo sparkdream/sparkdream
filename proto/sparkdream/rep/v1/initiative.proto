@@ -43,6 +43,12 @@ message Initiative {
   // DREAM locked by a self-assigning project creator (budget-backed projects
   // only). Returned on completion/abandonment, burned on upheld challenge.
   string self_assign_bond = 26 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
+
+  // Address that submitted MsgCreateInitiative. Recorded on state so
+  // authorship is answerable from a node query instead of only from the
+  // initiative_created event (which requires an off-chain indexer).
+  // Immutable once set.
+  string creator = 27;
 }
 
 enum InitiativeTier {

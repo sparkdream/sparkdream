@@ -171,6 +171,7 @@ func (k Keeper) CreateInitiative(
 		ConvictionLastUpdated: sdk.UnwrapSDKContext(ctx).BlockHeight(),
 		Status:                types.InitiativeStatus_INITIATIVE_STATUS_OPEN,
 		CreatedAt:             sdk.UnwrapSDKContext(ctx).BlockTime().Unix(),
+		Creator:               creator.String(),
 	}
 
 	// Store initiative

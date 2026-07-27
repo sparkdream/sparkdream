@@ -337,6 +337,11 @@ message Initiative {
   // DREAM locked by a self-assigning project creator (budget-backed projects
   // only). Returned on completion/abandonment, burned on upheld challenge.
   string self_assign_bond = 26 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
+
+  // Address that submitted MsgCreateInitiative. Recorded on state so
+  // authorship is answerable from a node query instead of only from the
+  // initiative_created event. Immutable once set.
+  string creator = 27;
 }
 
 enum InitiativeTier {
@@ -1846,7 +1851,8 @@ All seven live on `Params` and `RepOperationalParams` (council-tunable via `MsgU
 ### Sorted List Pagination
 
 The project/initiative list queries (`ListProject`, `ListInitiative`,
-`ProjectsByCouncil`, `InitiativesByProject`, `InitiativesByAssignee`,
+`ProjectsByCouncil`, `ProjectsByCreator`, `InitiativesByProject`,
+`InitiativesByAssignee`, `InitiativesByCreator`,
 `AvailableInitiatives`) accept an optional `sort_by` request field that
 orders the full (filtered) set before pagination is applied:
 
@@ -1872,6 +1878,18 @@ The `ProjectsByCouncil`, `InitiativesByAssignee`, and
 that could never carry more than one match; the fields were replaced (not
 extended) because no client could have used them meaningfully.
 
+### Authorship
+
+Both `Project.creator` and `Initiative.creator` record the address that
+submitted the creating message, so "who created this?" is answerable from
+a node query alone — no off-chain indexer replaying `project_created` /
+`initiative_created` events. `ProjectsByCreator` and
+`InitiativesByCreator` invert the lookup ("what has this member
+created?"). Creator is immutable once set and is independent of
+`Initiative.assignee`: the member who scoped the work is often not the
+member who takes it on, so `InitiativesByCreator` and
+`InitiativesByAssignee` answer different questions.
+
 ```protobuf
 service Query {
   // Params
@@ -1891,12 +1909,14 @@ service Query {
   rpc GetProject(QueryGetProjectRequest) returns (QueryGetProjectResponse);
   rpc ListProject(QueryAllProjectRequest) returns (QueryAllProjectResponse);
   rpc ProjectsByCouncil(QueryProjectsByCouncilRequest) returns (QueryProjectsByCouncilResponse);
+  rpc ProjectsByCreator(QueryProjectsByCreatorRequest) returns (QueryProjectsByCreatorResponse);
 
   // Initiatives
   rpc GetInitiative(QueryGetInitiativeRequest) returns (QueryGetInitiativeResponse);
   rpc ListInitiative(QueryAllInitiativeRequest) returns (QueryAllInitiativeResponse);
   rpc InitiativesByProject(QueryInitiativesByProjectRequest) returns (QueryInitiativesByProjectResponse);
   rpc InitiativesByAssignee(QueryInitiativesByAssigneeRequest) returns (QueryInitiativesByAssigneeResponse);
+  rpc InitiativesByCreator(QueryInitiativesByCreatorRequest) returns (QueryInitiativesByCreatorResponse);
   rpc AvailableInitiatives(QueryAvailableInitiativesRequest) returns (QueryAvailableInitiativesResponse);
   rpc InitiativeConviction(QueryInitiativeConvictionRequest) returns (QueryInitiativeConvictionResponse);
 

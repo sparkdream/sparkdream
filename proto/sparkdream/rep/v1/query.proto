@@ -167,6 +167,16 @@ service Query {
     option (google.api.http).get = "/sparkdream/rep/v1/initiatives_by_assignee/{assignee}";
   }
 
+  // InitiativesByCreator Queries a list of InitiativesByCreator items.
+  rpc InitiativesByCreator(QueryInitiativesByCreatorRequest) returns (QueryInitiativesByCreatorResponse) {
+    option (google.api.http).get = "/sparkdream/rep/v1/initiatives_by_creator/{creator}";
+  }
+
+  // ProjectsByCreator Queries a list of ProjectsByCreator items.
+  rpc ProjectsByCreator(QueryProjectsByCreatorRequest) returns (QueryProjectsByCreatorResponse) {
+    option (google.api.http).get = "/sparkdream/rep/v1/projects_by_creator/{creator}";
+  }
+
   // AvailableInitiatives Queries a list of AvailableInitiatives items.
   rpc AvailableInitiatives(QueryAvailableInitiativesRequest) returns (QueryAvailableInitiativesResponse) {
     option (google.api.http).get = "/sparkdream/rep/v1/available_initiatives";
@@ -754,6 +764,34 @@ message QueryInitiativesByAssigneeRequest {
 // extended) because no client could have used them meaningfully.
 message QueryInitiativesByAssigneeResponse {
   repeated Initiative initiatives = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryInitiativesByCreatorRequest defines the QueryInitiativesByCreatorRequest message.
+message QueryInitiativesByCreatorRequest {
+  string creator = 1;
+  cosmos.base.query.v1beta1.PageRequest pagination = 2;
+  // Same keys and semantics as QueryAllInitiativeRequest.sort_by.
+  string sort_by = 3;
+}
+
+// QueryInitiativesByCreatorResponse defines the QueryInitiativesByCreatorResponse message.
+message QueryInitiativesByCreatorResponse {
+  repeated Initiative initiatives = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryProjectsByCreatorRequest defines the QueryProjectsByCreatorRequest message.
+message QueryProjectsByCreatorRequest {
+  string creator = 1;
+  cosmos.base.query.v1beta1.PageRequest pagination = 2;
+  // Same keys and semantics as QueryAllProjectRequest.sort_by.
+  string sort_by = 3;
+}
+
+// QueryProjectsByCreatorResponse defines the QueryProjectsByCreatorResponse message.
+message QueryProjectsByCreatorResponse {
+  repeated Project projects = 1 [(gogoproto.nullable) = false];
   cosmos.base.query.v1beta1.PageResponse pagination = 2;
 }
 

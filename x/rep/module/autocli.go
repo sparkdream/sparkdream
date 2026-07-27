@@ -182,6 +182,20 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 				},
 
 				{
+					RpcMethod:      "InitiativesByCreator",
+					Use:            "initiatives-by-creator [creator]",
+					Short:          "Query initiatives-by-creator",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "creator"}},
+				},
+
+				{
+					RpcMethod:      "ProjectsByCreator",
+					Use:            "projects-by-creator [creator]",
+					Short:          "Query projects-by-creator",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "creator"}},
+				},
+
+				{
 					RpcMethod:      "AvailableInitiatives",
 					Use:            "available-initiatives ",
 					Short:          "Query available-initiatives",
