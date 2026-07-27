@@ -60,7 +60,12 @@ type archiveBlockEntry struct {
 	Commit       *cmttypes.Commit  `json:"commit"`        // commit for THIS block (from /commit RPC)
 }
 
-var archiveFilePattern = regexp.MustCompile(`^blocks_(\d+)_to_(\d+)\.jsonl\.gz$`)
+// Archive files are either complete, boundary-aligned ranges
+// (blocks_1_to_10000.jsonl.gz) or a sub-boundary tail written by the
+// archiver's --finalize mode (blocks_10001_to_12345.partial.jsonl.gz).
+// A tail overlaps the complete range that later covers the same starting
+// height; replay skips already-applied blocks, so both may be present.
+var archiveFilePattern = regexp.MustCompile(`^blocks_(\d+)_to_(\d+)(\.partial)?\.jsonl\.gz$`)
 
 // ReplayFromArchiveCmd returns the cobra command for replaying blocks from archive files.
 func ReplayFromArchiveCmd() *cobra.Command {
@@ -77,14 +82,16 @@ replay.
 
 Archive files that fall entirely below the current height are skipped
 automatically. Partially overlapping files are read but already-applied
-blocks within them are skipped.
+blocks within them are skipped. This includes ".partial" tail archives,
+which cover the blocks after the last clean batch boundary and therefore
+overlap the complete range that later covers the same heights.
 
 After replay completes, the node can be started normally with:
   sparkdreamd start`,
 		RunE: replayFromArchive,
 	}
 
-	cmd.Flags().String(flagArchiveDir, "", "Directory containing blocks_*.jsonl.gz archive files (required)")
+	cmd.Flags().String(flagArchiveDir, "", "Directory containing blocks_*.jsonl.gz archive files, including .partial tails (required)")
 	cmd.Flags().Int64(flagEndHeight, 0, "Stop replay at this height (0 = replay all available)")
 	cmd.Flags().Bool(flagValidate, true, "Verify app hash after each block (disable with --validate=false for speed)")
 	_ = cmd.MarkFlagRequired(flagArchiveDir)
@@ -271,10 +278,17 @@ func replayFromArchive(cmd *cobra.Command, _ []string) error {
 		err := processArchiveFile(af.path, startFrom, endHeight, func(block *cmttypes.Block, blockID cmttypes.BlockID, commit *cmttypes.Commit) error {
 			height := block.Height
 
-			// Verify sequential
+			// Verify sequential. Heights at or below the current tip are
+			// already applied — archives are allowed to overlap (a .partial
+			// tail and the complete range covering it both cover the same
+			// blocks), so duplicates are skipped rather than treated as
+			// corruption. Only a forward gap is fatal.
 			expectedHeight := state.LastBlockHeight + 1
+			if height < expectedHeight {
+				return nil
+			}
 			if height != expectedHeight {
-				return fmt.Errorf("block height %d does not match expected %d (gap or duplicate in archives)", height, expectedHeight)
+				return fmt.Errorf("block height %d does not match expected %d (gap in archives)", height, expectedHeight)
 			}
 
 			// Save the previous block to the block store now that we have
@@ -438,9 +452,14 @@ func discoverArchives(dir string) ([]archiveFile, error) {
 		})
 	}
 
-	// Sort by fromBlock ascending
+	// Sort by fromBlock ascending, then by toBlock ascending so that when a
+	// tail and the complete range covering it share a starting height, the
+	// shorter tail is processed first and replay advances monotonically.
 	sort.Slice(archives, func(i, j int) bool {
-		return archives[i].fromBlock < archives[j].fromBlock
+		if archives[i].fromBlock != archives[j].fromBlock {
+			return archives[i].fromBlock < archives[j].fromBlock
+		}
+		return archives[i].toBlock < archives[j].toBlock
 	})
 
 	return archives, nil

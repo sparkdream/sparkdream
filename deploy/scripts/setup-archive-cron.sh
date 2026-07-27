@@ -12,6 +12,11 @@
 # The archiver output is stored on the persistent volume alongside
 # the chain data, so it survives container restarts.
 #
+# The cron job runs the archiver in its default mode, which only emits
+# complete, boundary-aligned block ranges. Capturing the sub-boundary
+# tail (`block-archiver --finalize`) is a deliberate, one-off operation
+# for cold restores — see deploy/docs/archival-strategy.md.
+#
 # Usage:
 #   setup-archive-cron                  # Enable (default: every 6 hours)
 #   setup-archive-cron --disable        # Disable and remove the cron job

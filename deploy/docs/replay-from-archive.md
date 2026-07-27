@@ -22,6 +22,19 @@ blocks_20001_to_30000.jsonl.gz
 ...
 ```
 
+Plus, optionally, a tail archive written by `block-archiver.sh
+--finalize` covering the blocks after the last clean boundary:
+
+```
+blocks_30001_to_33421.partial.jsonl.gz
+```
+
+A tail overlaps the complete range that later covers the same starting
+height (`blocks_30001_to_40000.jsonl.gz`). Both may be present in the
+archive directory: files are sorted by range, the shorter tail is read
+first, and blocks at or below the node's current height are skipped as
+already-applied. Only a forward gap is an error.
+
 Each line is a JSON object from the `/block?height=N` RPC endpoint, which
 returns the full block including header, data (transactions), evidence,
 and last commit.
@@ -344,7 +357,27 @@ sparkdreamd replay-from-archive \
   --archive-dir ./archives
 ```
 
-### Scenario 5: Periodic catch-up from new archive files
+### Scenario 5: Cold rebuild of a sentry or validator (no live peer)
+```bash
+# Complete ranges only reach the last 10K boundary. To reconstruct a
+# node all the way to the chain tip with no peer to sync from, the
+# archive set must include a tail file. Capture one from any node
+# whose RPC still answers, before it goes away:
+block-archiver --finalize
+
+# Download everything, including the tail
+./archive-download.sh arweave -a -d ./archives
+
+# Replay — the tail extends the node past the last boundary
+sparkdreamd replay-from-archive \
+  --home /root/.sparkdream \
+  --archive-dir ./archives
+
+# Later, once the complete range covering those blocks is archived,
+# the tail becomes redundant; leaving it in place is harmless.
+```
+
+### Scenario 6: Periodic catch-up from new archive files
 ```bash
 # Node was replayed up to height 80000 last week
 # New archive files blocks_80001_to_90000.jsonl.gz downloaded

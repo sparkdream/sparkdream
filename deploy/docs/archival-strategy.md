@@ -43,6 +43,47 @@ overlap between runs.
 Archive format includes both `/block` and `/block_results` data
 for each height, providing everything needed for replay.
 
+#### Tail archives (`--finalize`)
+
+Normal runs only ever emit boundary-aligned files, so the blocks
+between the last boundary and the chain tip (up to `BATCH_SIZE - 1`
+of them) exist in no archive. That is fine while the network is
+running — a rebuilt node replays to the last boundary and p2p syncs
+the remainder from a live peer.
+
+It is not fine when there is no peer to sync from: a full cold
+restore, an air-gapped rebuild, or a chain that has halted. For those
+cases, `--finalize` writes the remainder as a tail file:
+
+```
+blocks_20001_to_23421.partial.jsonl.gz
+```
+
+The state file is deliberately **not** advanced. The next normal run
+still fetches from block 20001 and produces the clean
+`blocks_20001_to_30000.jsonl.gz`, at which point the archiver deletes
+the now-redundant local tail. Complete 10K ranges keep working exactly
+as before; the tail is an extra artifact, never a replacement.
+
+The tail and the complete range covering it overlap on purpose.
+`replay-from-archive` sorts archives by range and skips blocks at or
+below the node's current height, so having both present is a no-op.
+Uploads skip `.partial` files by default (`UPLOAD_PARTIALS=true` to
+include them) — on pay-once storage like Arweave, a tail uploaded on
+every cron tick is permanent payment for data superseded within hours.
+
+Finalize is a deliberate operation — node shutdown, migration, or
+prepping a cold-restore set. **Keep the cron on the default,
+non-finalize path.**
+
+```bash
+# Normal incremental run (what the cron does)
+block-archiver
+
+# ... plus a tail covering everything after the last boundary
+block-archiver --finalize
+```
+
 ### Layer 3: Permanent Storage on Arweave
 
 Archive files are uploaded to Arweave for permanent, immutable
@@ -181,7 +222,18 @@ restore from the archive node on your home LAN). Reconnect TMKMS.
 ### Scenario 4: Complete network loss (all nodes down)
 
 This is the worst case — no running peers to sync from. Recovery
-relies entirely on the archived data:
+relies entirely on the archived data, so the last sub-boundary blocks
+have to come from a tail archive. If any node is still reachable,
+capture one *before* tearing it down:
+
+```bash
+# On the surviving node, while its RPC still answers
+block-archiver --finalize
+# then upload with UPLOAD_PARTIALS=true
+```
+
+Without a tail, replay stops at the last 10K boundary and the blocks
+after it are unrecoverable from archives alone.
 
 ```bash
 # 1. Initialize a fresh node
@@ -320,7 +372,10 @@ for f in archives/blocks_*.jsonl.gz; do
 done
 
 # Verify block continuity (no gaps)
-# Each file's first block should be the previous file's last + 1
+# Each file's first block should be the previous file's last + 1.
+# A .partial tail is the exception: it overlaps the complete range
+# covering the same starting height, which replay handles by skipping
+# already-applied blocks.
 for f in $(ls archives/blocks_*.jsonl.gz | sort -t_ -k2 -n); do
   FIRST=$(zcat "$f" | head -1 | jq -r '.block.header.height')
   LAST=$(zcat "$f" | tail -1 | jq -r '.block.header.height')

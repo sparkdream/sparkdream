@@ -57,6 +57,50 @@ func TestDiscoverArchives(t *testing.T) {
 	}
 }
 
+// A .partial tail and the complete range that later covers the same starting
+// height must both be discovered, with the shorter tail sorted first so replay
+// advances monotonically and skips the duplicates in the complete file.
+func TestDiscoverArchives_PartialSortsBeforeCompleteRange(t *testing.T) {
+	dir := t.TempDir()
+
+	for _, f := range []string{
+		"blocks_20001_to_30000.jsonl.gz",
+		"blocks_20001_to_23421.partial.jsonl.gz",
+		"blocks_1_to_20000.jsonl.gz",
+	} {
+		if err := os.WriteFile(filepath.Join(dir, f), []byte{}, 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	archives, err := discoverArchives(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(archives) != 3 {
+		t.Fatalf("expected 3 archives, got %d", len(archives))
+	}
+
+	expected := []struct {
+		from, to int64
+	}{
+		{1, 20000},
+		{20001, 23421}, // tail first
+		{20001, 30000},
+	}
+	for i, e := range expected {
+		if archives[i].fromBlock != e.from || archives[i].toBlock != e.to {
+			t.Errorf("archive[%d]: expected %d-%d, got %d-%d",
+				i, e.from, e.to, archives[i].fromBlock, archives[i].toBlock)
+		}
+	}
+
+	// Overlapping coverage must not be reported as a gap.
+	if err := detectArchiveGaps(archives, 1, 0); err != nil {
+		t.Errorf("unexpected gap error for overlapping archives: %v", err)
+	}
+}
+
 func TestDiscoverArchives_EmptyDir(t *testing.T) {
 	dir := t.TempDir()
 
@@ -348,7 +392,11 @@ func TestArchiveFilePattern(t *testing.T) {
 		{"blocks_1_to_10000.jsonl.gz", true, "1", "10000"},
 		{"blocks_10001_to_20000.jsonl.gz", true, "10001", "20000"},
 		{"blocks_1_to_750.jsonl.gz", true, "1", "750"},
+		{"blocks_20001_to_23421.partial.jsonl.gz", true, "20001", "23421"},
 		{"blocks_bad_to_100.jsonl.gz", false, "", ""},
+		{"blocks_1_to_100.partial.jsonl", false, "", ""},
+		{"blocks_1_to_100.partial.gz", false, "", ""},
+		{"blocks_1_to_100.tmp.jsonl.gz", false, "", ""},
 		{"blocks_1_to_100.jsonl", false, "", ""},
 		{"blocks_1_to_100.gz", false, "", ""},
 		{"random_file.txt", false, "", ""},

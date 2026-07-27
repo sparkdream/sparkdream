@@ -39,6 +39,8 @@
 #   MANIFEST_FILE   - Path to the CID manifest (default: $ARCHIVE_DIR/storacha-manifest.csv)
 #   UPLOADED_FILE   - Tracks already-uploaded files (default: $ARCHIVE_DIR/.storacha-uploaded)
 #   DRY_RUN         - Set to "true" to show what would be uploaded without uploading
+#   UPLOAD_PARTIALS - Set to "true" to also upload .partial tail archives
+#                     (written by block-archiver.sh --finalize; skipped by default)
 #
 set -e
 
@@ -58,6 +60,7 @@ while [ $# -gt 0 ]; do
 done
 
 ARCHIVE_DIR="${1:-${ARCHIVE_DIR:-./sparkdream-archives}}"
+UPLOAD_PARTIALS="${UPLOAD_PARTIALS:-false}"
 MANIFEST_FILE="${MANIFEST_FILE:-${ARCHIVE_DIR}/storacha-manifest.csv}"
 UPLOADED_FILE="${UPLOADED_FILE:-${ARCHIVE_DIR}/.storacha-uploaded}"
 
@@ -154,6 +157,20 @@ FAIL_COUNT=0
 for ARCHIVE_FILE in $(ls "${ARCHIVE_DIR}"/blocks_*.jsonl.gz 2>/dev/null | sort -t_ -k2 -n); do
     FILENAME=$(basename "$ARCHIVE_FILE")
 
+    # Tail archives (block-archiver.sh --finalize) are superseded once the
+    # complete, boundary-aligned range covering the same heights is written.
+    # Skip them by default so permanent/paid storage does not accumulate
+    # short-lived duplicates; set UPLOAD_PARTIALS=true for a cold-restore set.
+    case "$FILENAME" in
+        *.partial.jsonl.gz)
+            if [ "${UPLOAD_PARTIALS}" != "true" ]; then
+                echo "Skipping tail archive: $FILENAME (set UPLOAD_PARTIALS=true to include)"
+                SKIP_COUNT=$(( SKIP_COUNT + 1 ))
+                continue
+            fi
+            ;;
+    esac
+
     # Skip if already uploaded
     if grep -qF "$FILENAME" "$UPLOADED_FILE" 2>/dev/null; then
         SKIP_COUNT=$(( SKIP_COUNT + 1 ))
@@ -162,7 +179,7 @@ for ARCHIVE_FILE in $(ls "${ARCHIVE_DIR}"/blocks_*.jsonl.gz 2>/dev/null | sort -
 
     # Extract block range from filename (blocks_1_to_10000.jsonl.gz)
     FROM_BLOCK=$(echo "$FILENAME" | sed 's/blocks_\([0-9]*\)_to_.*/\1/')
-    TO_BLOCK=$(echo "$FILENAME" | sed 's/blocks_[0-9]*_to_\([0-9]*\)\.jsonl\.gz/\1/')
+    TO_BLOCK=$(echo "$FILENAME" | sed 's/blocks_[0-9]*_to_\([0-9]*\).*/\1/')
 
     FILE_SIZE=$(du -h "$ARCHIVE_FILE" | cut -f1)
     echo "Uploading: $FILENAME ($FILE_SIZE) [blocks ${FROM_BLOCK}-${TO_BLOCK}]"

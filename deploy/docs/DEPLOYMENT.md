@@ -431,6 +431,14 @@ Run the block archiver on the sentry (which has public RPC):
 RPC_URL=http://localhost:26657 \
 OUTPUT_DIR=/root/.sparkdream/archives \
   ./block-archiver.sh
+
+# Before decommissioning a node, also capture the sub-boundary tail so
+# a cold restore can reach the chain tip without a live peer to sync
+# from (writes blocks_<from>_to_<to>.partial.jsonl.gz, leaves the
+# complete 10K ranges untouched)
+RPC_URL=http://localhost:26657 \
+OUTPUT_DIR=/root/.sparkdream/archives \
+  ./block-archiver.sh --finalize
 ```
 
 Download archives to your local machine and upload to Arweave:
