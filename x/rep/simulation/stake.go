@@ -40,6 +40,31 @@ func SimulateMsgStake(
 			}
 		}
 
+		// Precheck CreateStake's per-target limits against live state. A
+		// simulation runs many ops against a small account set, so the same
+		// member repeatedly drawing the same random initiative is normal — and
+		// both of these would fail delivery, which fails the whole simulation.
+		params, err := k.Params.Get(ctx)
+		if err != nil {
+			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgStake{}), "failed to load params"), nil, nil
+		}
+		existingStakes, err := k.GetStakesByTarget(ctx, targetType, targetID)
+		if err != nil {
+			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgStake{}), "failed to read existing stakes"), nil, nil
+		}
+		stakerTotal := math.ZeroInt()
+		tranches := 0
+		for _, s := range existingStakes {
+			if s.Staker != staker.Address {
+				continue
+			}
+			stakerTotal = stakerTotal.Add(s.Amount)
+			tranches++
+		}
+		if tranches >= types.MaxStakeTranchesPerTarget {
+			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgStake{}), "tranche cap reached on this target"), nil, nil
+		}
+
 		// Calculate stake amount (10-50% of available DREAM)
 		// Calculate available (unstaked) balance
 		if staker.DreamBalance == nil || staker.DreamBalance.LT(minStake) {
@@ -69,6 +94,12 @@ func SimulateMsgStake(
 			stakeAmount = math.NewInt(int64(r.Intn(int(rangeVal))) + minStake.Int64())
 		} else {
 			stakeAmount = minStake
+		}
+
+		// Second half of the per-target precheck: the anti-whale cap is on the
+		// staker's cumulative total on this target, not on a single stake.
+		if stakerTotal.Add(stakeAmount).GT(params.MaxInitiativeStakePerMember) {
+			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgStake{}), "per-member stake cap reached on this target"), nil, nil
 		}
 
 		msg := &types.MsgStake{

@@ -288,14 +288,42 @@ func TestApplyDecay_MixedStakingLevels(t *testing.T) {
 }
 
 // TestDistributeEpochStakingRewards tests staking rewards distribution
-func TestDistributeEpochStakingRewards(t *testing.T) {
+// TestDistributeEpochStakingRewards_EpochGate is a liveness-of-the-budget test.
+// EndBlocker calls this every block, but each call to the underlying
+// DistributeEpochStakingRewardsFromPool takes remaining/remainingEpochs. Without
+// the IsEpochEnd gate a season's whole staking budget would drain epoch_blocks
+// times too fast — invisible while the pool was never initialised and every call
+// returned early.
+func TestDistributeEpochStakingRewards_EpochGate(t *testing.T) {
 	fixture := initFixture(t)
 	k := fixture.keeper
-	ctx := fixture.ctx
 
-	// Currently a no-op, just verify it doesn't error
-	err := k.DistributeEpochStakingRewards(ctx)
+	params, err := k.Params.Get(fixture.ctx)
 	require.NoError(t, err)
+	require.Positive(t, params.EpochBlocks)
+
+	// InitGenesis seeds the pool, so there is a budget to drain.
+	before, err := k.GetSeasonalPoolRemaining(fixture.ctx)
+	require.NoError(t, err)
+	require.True(t, before.IsPositive(), "the seasonal pool should be seeded at genesis")
+
+	// Mid-epoch: must be a no-op.
+	midCtx := sdk.UnwrapSDKContext(fixture.ctx).WithBlockHeight(params.EpochBlocks + 1)
+	require.NoError(t, k.DistributeEpochStakingRewards(midCtx))
+
+	afterMid, err := k.GetSeasonalPoolRemaining(midCtx)
+	require.NoError(t, err)
+	require.Equal(t, before.String(), afterMid.String(),
+		"a mid-epoch block must not draw from the seasonal budget")
+
+	// On an epoch boundary: draws exactly one slice.
+	boundaryCtx := sdk.UnwrapSDKContext(fixture.ctx).WithBlockHeight(params.EpochBlocks * 2)
+	require.NoError(t, k.DistributeEpochStakingRewards(boundaryCtx))
+
+	afterBoundary, err := k.GetSeasonalPoolRemaining(boundaryCtx)
+	require.NoError(t, err)
+	require.True(t, afterBoundary.LT(before),
+		"an epoch-boundary block must draw one slice from the seasonal budget")
 }
 
 // TestUpdateAllTrustLevels tests mass trust level updates

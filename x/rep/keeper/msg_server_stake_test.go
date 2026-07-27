@@ -92,3 +92,98 @@ func TestMsgServerCreateStake(t *testing.T) {
 		require.Equal(t, math.NewInt(100).String(), stake.Amount.String())
 	})
 }
+
+// TestMsgServerStake_TrancheCap asserts the per-target tranche cap surfaces
+// through the msg server, not just the keeper. The cap is what bounds the
+// conviction queue's work; without it a member could hold an unbounded number
+// of stake records on one target for a fully refundable cost.
+func TestMsgServerStake_TrancheCap(t *testing.T) {
+	f := initFixture(t)
+	ms := keeper.NewMsgServerImpl(f.keeper)
+	k := f.keeper
+	ctx := f.ctx
+
+	staker := sdk.AccAddress([]byte("msg_tranche_staker__"))
+	require.NoError(t, k.Member.Set(ctx, staker.String(), types.Member{
+		Address:          staker.String(),
+		DreamBalance:     keeper.PtrInt(math.NewInt(5_000_000_000)),
+		StakedDream:      keeper.PtrInt(math.ZeroInt()),
+		LifetimeEarned:   keeper.PtrInt(math.ZeroInt()),
+		LifetimeBurned:   keeper.PtrInt(math.ZeroInt()),
+		ReputationScores: map[string]string{"backend": "50.0"},
+	}))
+	stakerStr, err := f.addressCodec.BytesToString(staker)
+	require.NoError(t, err)
+
+	projectID, err := k.CreateProject(ctx, staker, "P", "D", []string{"backend"},
+		types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical",
+		math.NewInt(100000), math.NewInt(1000), false)
+	require.NoError(t, err)
+	require.NoError(t, k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(100000), math.NewInt(1000)))
+	initID, err := k.CreateInitiative(ctx, staker, projectID, "T", "D", []string{"backend"},
+		types.InitiativeTier_INITIATIVE_TIER_STANDARD,
+		types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, "", math.NewInt(1000))
+	require.NoError(t, err)
+
+	stakeMsg := &types.MsgStake{
+		Staker:     stakerStr,
+		TargetType: types.StakeTargetType_STAKE_TARGET_INITIATIVE,
+		TargetId:   initID,
+		Amount:     keeper.PtrInt(math.NewInt(100)),
+	}
+
+	for i := 0; i < types.MaxStakeTranchesPerTarget; i++ {
+		_, err := ms.Stake(ctx, stakeMsg)
+		require.NoError(t, err, "tranche %d should be accepted", i)
+	}
+
+	_, err = ms.Stake(ctx, stakeMsg)
+	require.ErrorIs(t, err, types.ErrTooManyStakeTranches)
+}
+
+// TestMsgServerClaimAndCompound_Rejections covers the two new msg-server-visible
+// rejections: rewards are not collectable before min_stake_duration_seconds, and
+// initiative/project stakes cannot compound.
+func TestMsgServerClaimAndCompound_Rejections(t *testing.T) {
+	f := initFixture(t)
+	ms := keeper.NewMsgServerImpl(f.keeper)
+	k := f.keeper
+	ctx := f.ctx
+
+	staker := sdk.AccAddress([]byte("msg_reject_staker___"))
+	require.NoError(t, k.Member.Set(ctx, staker.String(), types.Member{
+		Address:          staker.String(),
+		DreamBalance:     keeper.PtrInt(math.NewInt(5_000_000_000)),
+		StakedDream:      keeper.PtrInt(math.ZeroInt()),
+		LifetimeEarned:   keeper.PtrInt(math.ZeroInt()),
+		LifetimeBurned:   keeper.PtrInt(math.ZeroInt()),
+		ReputationScores: map[string]string{"backend": "50.0"},
+	}))
+	stakerStr, err := f.addressCodec.BytesToString(staker)
+	require.NoError(t, err)
+
+	projectID, err := k.CreateProject(ctx, staker, "P", "D", []string{"backend"},
+		types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical",
+		math.NewInt(100000), math.NewInt(1000), false)
+	require.NoError(t, err)
+	require.NoError(t, k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(100000), math.NewInt(1000)))
+
+	stakeID, err := k.CreateStake(ctx, staker, types.StakeTargetType_STAKE_TARGET_PROJECT, projectID, "", math.NewInt(1_000_000))
+	require.NoError(t, err)
+
+	t.Run("claim before minimum duration is rejected", func(t *testing.T) {
+		_, err := ms.ClaimStakingRewards(ctx, &types.MsgClaimStakingRewards{
+			Staker:  stakerStr,
+			StakeId: stakeID,
+		})
+		require.ErrorIs(t, err, types.ErrMinStakeDuration)
+	})
+
+	t.Run("compound on a project stake is rejected", func(t *testing.T) {
+		_, err := ms.CompoundStakingRewards(ctx, &types.MsgCompoundStakingRewards{
+			Staker:  stakerStr,
+			StakeId: stakeID,
+		})
+		require.ErrorIs(t, err, types.ErrCompoundNotSupported)
+	})
+}

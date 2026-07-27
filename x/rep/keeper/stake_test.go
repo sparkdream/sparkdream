@@ -945,18 +945,25 @@ func TestStakeRewardsWithTime(t *testing.T) {
 	require.True(t, actualReward2.GTE(math.ZeroInt()),
 		"staker2 reward should be non-negative, got %s", actualReward2.String())
 
-	// Test 3: Verify proportional relationship (staker1 staked 2x, should get 2x reward)
-	// Only check ratio if both rewards are positive (accumulator was populated)
+	// Test 3: Verify the proportional relationship between the two stakers.
+	//
+	// The seasonal accumulator is never advanced in this test, so what both
+	// stakers actually receive is the conviction-weighted completion bonus.
+	// Conviction is sqrt-dampened per staker, so staking 2x yields sqrt(2)x the
+	// bonus, not 2x — that dampening is the anti-whale property, and seeing it
+	// here confirms the bonus is reaching stakers at all (it previously ran
+	// after the stake records were deleted and silently paid nobody).
 	if actualReward1.IsPositive() && actualReward2.IsPositive() {
 		ratio := math.LegacyNewDecFromInt(actualReward1).Quo(math.LegacyNewDecFromInt(actualReward2))
-		expectedRatio := math.LegacyNewDec(2) // 10000/5000 = 2
+		expectedRatio, err := math.LegacyNewDec(2).ApproxSqrt()
+		require.NoError(t, err)
 		require.True(t, ratio.Sub(expectedRatio).Abs().LT(math.LegacyNewDecWithPrec(1, 2)),
-			"reward ratio should be ~2.0, got %s", ratio.String())
+			"completion bonus ratio should be ~sqrt(2), got %s", ratio.String())
 
-		t.Logf("MasterChef staking rewards:")
+		t.Logf("Conviction-weighted completion bonus:")
 		t.Logf("  Staker1 (10000 DREAM): %s DREAM", actualReward1.String())
 		t.Logf("  Staker2 (5000 DREAM):  %s DREAM", actualReward2.String())
-		t.Logf("  Ratio: %s (expected: 2.0)", ratio.String())
+		t.Logf("  Ratio: %s (expected: %s)", ratio.String(), expectedRatio.String())
 	} else {
 		t.Log("Rewards are zero because no epoch distribution was run in this test")
 	}

@@ -69,6 +69,11 @@ type RepKeeper interface {
 
 	// GetSeasonMinted returns total DREAM minted this season (for activity-based retro PGF budget).
 	GetSeasonMinted(ctx context.Context) (math.Int, error)
+
+	// InitSeasonalPool refills the seasonal staking reward budget and resets
+	// x/rep's per-season economic counters for the incoming season. Called once
+	// at the end of a season transition.
+	InitSeasonalPool(ctx context.Context, season uint64) error
 }
 
 // NameKeeper defines the expected interface for the x/name module.

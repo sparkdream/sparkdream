@@ -2,127 +2,49 @@ package keeper
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	"sparkdream/x/rep/types"
 
-	"cosmossdk.io/collections"
 	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 )
 
-// GetPendingStakingRewards calculates pending rewards for any stake type (O(1))
+// GetPendingStakingRewards calculates pending rewards for any stake type (O(1)).
+//
+// This is the read-only twin of settleStake: both resolve the accumulator
+// through stakeAccumulator and apply the same MasterChef formula, so a query
+// can never report a figure the settlement path would not pay.
 func (k Keeper) GetPendingStakingRewards(ctx context.Context, stake types.Stake) (math.Int, error) {
-	switch stake.TargetType {
-	case types.StakeTargetType_STAKE_TARGET_INITIATIVE:
-		return k.CalculateStakingReward(ctx, stake)
-	case types.StakeTargetType_STAKE_TARGET_PROJECT:
-		return k.getPendingProjectRewards(ctx, stake)
-	case types.StakeTargetType_STAKE_TARGET_MEMBER:
-		return k.getPendingMemberRewards(ctx, stake)
-	case types.StakeTargetType_STAKE_TARGET_TAG:
-		return k.getPendingTagRewards(ctx, stake)
-	case types.StakeTargetType_STAKE_TARGET_BLOG_CONTENT,
-		types.StakeTargetType_STAKE_TARGET_FORUM_CONTENT,
-		types.StakeTargetType_STAKE_TARGET_COLLECTION_CONTENT,
-		types.StakeTargetType_STAKE_TARGET_BLOG_AUTHOR_BOND,
-		types.StakeTargetType_STAKE_TARGET_FORUM_AUTHOR_BOND,
-		types.StakeTargetType_STAKE_TARGET_COLLECTION_AUTHOR_BOND,
-		types.StakeTargetType_STAKE_TARGET_BLOG_REPLY_AUTHOR_BOND:
-		// Content conviction and author bond stakes earn no DREAM rewards
-		return math.ZeroInt(), nil
-	}
-	return math.ZeroInt(), fmt.Errorf("unknown stake target type: %v", stake.TargetType)
-}
-
-// getPendingProjectRewards calculates rewards from the seasonal pool for project stakes.
-// Uses the same MasterChef accumulator as initiative stakes (shared seasonal pool).
-func (k Keeper) getPendingProjectRewards(ctx context.Context, stake types.Stake) (math.Int, error) {
-	// Get the project to check if it's still active
-	project, err := k.GetProject(ctx, stake.TargetId)
-	if err != nil {
-		return math.ZeroInt(), err
-	}
-
-	// Only earn while project is ACTIVE
-	if project.Status != types.ProjectStatus_PROJECT_STATUS_ACTIVE {
-		return math.ZeroInt(), nil
-	}
-
-	// Same MasterChef formula as initiative stakes
-	accPerShare, err := k.getSeasonalPoolAccPerShare(ctx)
-	if err != nil {
-		return math.ZeroInt(), nil
-	}
-
-	rewardDebt := stake.RewardDebt
-	if rewardDebt.IsNil() {
-		rewardDebt = math.ZeroInt()
-	}
-	gross := math.LegacyNewDecFromInt(stake.Amount).Mul(accPerShare).TruncateInt()
-	pending := gross.Sub(rewardDebt)
-	if pending.IsNegative() {
-		return math.ZeroInt(), nil
-	}
-	return pending, nil
-}
-
-// getPendingMemberRewards calculates pending rewards from member stake pool
-func (k Keeper) getPendingMemberRewards(ctx context.Context, stake types.Stake) (math.Int, error) {
-	pool, err := k.GetMemberStakePool(ctx, sdk.MustAccAddressFromBech32(stake.TargetIdentifier))
-	if err != nil {
-		if errors.Is(err, collections.ErrNotFound) {
+	if !types.IsRewardBearingType(stake.TargetType) {
+		if types.IsContentOrBondType(stake.TargetType) {
+			// Content conviction and author bond stakes earn no DREAM rewards
 			return math.ZeroInt(), nil
 		}
-		return math.ZeroInt(), err
+		return math.ZeroInt(), fmt.Errorf("unknown stake target type: %v", stake.TargetType)
 	}
 
-	if pool.TotalStaked.IsZero() {
-		return math.ZeroInt(), nil
-	}
-
-	// MasterChef formula: (stake.Amount * pool.AccRewardPerShare) - stake.RewardDebt
-	pending := stake.Amount.ToLegacyDec().
-		Mul(pool.AccRewardPerShare).
-		TruncateInt().
-		Sub(stake.RewardDebt)
-
-	if pending.IsNegative() {
-		return math.ZeroInt(), nil
-	}
-
-	return pending, nil
-}
-
-// getPendingTagRewards calculates pending rewards from tag stake pool
-func (k Keeper) getPendingTagRewards(ctx context.Context, stake types.Stake) (math.Int, error) {
-	pool, err := k.GetTagStakePool(ctx, stake.TargetIdentifier)
+	accPerShare, rewardBearing, err := k.stakeAccumulator(ctx, stake)
 	if err != nil {
-		if errors.Is(err, collections.ErrNotFound) {
-			return math.ZeroInt(), nil
-		}
 		return math.ZeroInt(), err
 	}
-
-	if pool.TotalStaked.IsZero() {
+	if !rewardBearing {
 		return math.ZeroInt(), nil
 	}
 
-	// MasterChef formula: (stake.Amount * pool.AccRewardPerShare) - stake.RewardDebt
-	pending := stake.Amount.ToLegacyDec().
-		Mul(pool.AccRewardPerShare).
-		TruncateInt().
-		Sub(stake.RewardDebt)
-
-	if pending.IsNegative() {
+	// Frozen targets (a project past ACTIVE) stop accruing.
+	accruing, err := k.stakeAccruing(ctx, stake)
+	if err != nil {
+		return math.ZeroInt(), err
+	}
+	if !accruing {
 		return math.ZeroInt(), nil
 	}
 
-	return pending, nil
+	return pendingAgainst(stake.Amount, stakeRewardDebt(stake), accPerShare), nil
 }
 
-// ClaimStakingRewards claims pending rewards for a stake
+// ClaimStakingRewards claims pending rewards for a stake.
 func (k Keeper) ClaimStakingRewards(ctx context.Context, stakeID uint64, stakerAddr sdk.AccAddress) (math.Int, error) {
 	stake, err := k.GetStake(ctx, stakeID)
 	if err != nil {
@@ -134,57 +56,57 @@ func (k Keeper) ClaimStakingRewards(ctx context.Context, stakeID uint64, stakerA
 		return math.ZeroInt(), fmt.Errorf("only stake owner can claim rewards")
 	}
 
-	// Calculate pending rewards
-	rewards, err := k.GetPendingStakingRewards(ctx, stake)
-	if err != nil {
-		return math.ZeroInt(), err
-	}
-
-	if rewards.IsZero() {
+	if !types.IsRewardBearingType(stake.TargetType) {
 		return math.ZeroInt(), nil
 	}
 
-	// Mint rewards to staker
-	if err := k.MintDREAM(ctx, stakerAddr, rewards); err != nil {
-		return math.ZeroInt(), fmt.Errorf("failed to mint rewards: %w", err)
+	// Rewards only become collectable once the stake has been held for the
+	// minimum duration. Nothing is forfeited here — the debt is left alone so
+	// the rewards keep accruing until the staker is eligible.
+	eligible, err := k.stakeMeetsMinDuration(ctx, stake)
+	if err != nil {
+		return math.ZeroInt(), err
+	}
+	if !eligible {
+		return math.ZeroInt(), types.ErrMinStakeDuration
 	}
 
-	// Update stake's last claimed timestamp and reward debt
+	// Harvest and rebase the debt against the unchanged principal.
+	stake, settlement, err := k.settleStake(ctx, stake, stake.Amount, false)
+	if err != nil {
+		return math.ZeroInt(), err
+	}
+	if settlement.Minted.IsZero() {
+		return math.ZeroInt(), nil
+	}
+
 	stake.LastClaimedAt = sdk.UnwrapSDKContext(ctx).BlockTime().Unix()
-
-	// Update reward debt for MasterChef-style targets
-	if stake.TargetType == types.StakeTargetType_STAKE_TARGET_MEMBER {
-		pool, err := k.GetMemberStakePool(ctx, sdk.MustAccAddressFromBech32(stake.TargetIdentifier))
-		if err == nil {
-			stake.RewardDebt = stake.Amount.ToLegacyDec().Mul(pool.AccRewardPerShare).TruncateInt()
-		}
-	} else if stake.TargetType == types.StakeTargetType_STAKE_TARGET_TAG {
-		pool, err := k.GetTagStakePool(ctx, stake.TargetIdentifier)
-		if err == nil {
-			stake.RewardDebt = stake.Amount.ToLegacyDec().Mul(pool.AccRewardPerShare).TruncateInt()
-		}
-	}
-
-	// Save updated stake
 	if err := k.Stake.Set(ctx, stakeID, stake); err != nil {
 		return math.ZeroInt(), err
 	}
 
-	// Emit event
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	sdkCtx.EventManager().EmitEvent(
 		sdk.NewEvent(
 			"staking_rewards_claimed",
 			sdk.NewAttribute("stake_id", fmt.Sprintf("%d", stakeID)),
 			sdk.NewAttribute("staker", stakerAddr.String()),
-			sdk.NewAttribute("rewards", rewards.String()),
+			sdk.NewAttribute("rewards", settlement.Minted.String()),
 		),
 	)
 
-	return rewards, nil
+	return settlement.Minted, nil
 }
 
-// CompoundStakingRewards compounds pending rewards into stake principal
+// CompoundStakingRewards compounds pending rewards into stake principal.
+//
+// Only MEMBER and TAG stakes may compound. Initiative and project stakes are
+// rejected: their principal carries a conviction maturity clock keyed on
+// created_at, so growing the amount in place would hand the new DREAM full
+// maturity instantly — exactly the exploit that CreateStake's separate-tranche
+// design exists to prevent. Those stakers claim and re-stake instead, which
+// routes the new DREAM through CreateStake's per-member cap and gives it a
+// fresh maturity clock.
 func (k Keeper) CompoundStakingRewards(ctx context.Context, stakeID uint64, stakerAddr sdk.AccAddress) (math.Int, error) {
 	stake, err := k.GetStake(ctx, stakeID)
 	if err != nil {
@@ -196,70 +118,70 @@ func (k Keeper) CompoundStakingRewards(ctx context.Context, stakeID uint64, stak
 		return math.ZeroInt(), fmt.Errorf("only stake owner can compound rewards")
 	}
 
-	// Calculate pending rewards
-	rewards, err := k.GetPendingStakingRewards(ctx, stake)
+	if !types.IsRewardBearingType(stake.TargetType) {
+		return math.ZeroInt(), nil
+	}
+	if types.IsSeasonalPoolType(stake.TargetType) {
+		return math.ZeroInt(), types.ErrCompoundNotSupported
+	}
+
+	eligible, err := k.stakeMeetsMinDuration(ctx, stake)
 	if err != nil {
 		return math.ZeroInt(), err
 	}
+	if !eligible {
+		return math.ZeroInt(), types.ErrMinStakeDuration
+	}
 
-	if rewards.IsZero() {
+	// Peek at what is owed so the new principal can be passed to settleStake as
+	// the rebase target in a single pass.
+	pending, err := k.GetPendingStakingRewards(ctx, stake)
+	if err != nil {
+		return math.ZeroInt(), err
+	}
+	if !pending.IsPositive() {
 		return math.ZeroInt(), nil
 	}
 
-	// Mint the rewards to the staker's balance first, so LockDREAM has sufficient unlocked balance
-	if err := k.MintDREAM(ctx, stakerAddr, rewards); err != nil {
-		return math.ZeroInt(), fmt.Errorf("failed to mint compounded rewards: %w", err)
+	newAmount := stake.Amount.Add(pending)
+
+	// settleStake mints the pending amount to the staker's balance, which is
+	// what gives LockDREAM below the unlocked balance it needs.
+	stake, settlement, err := k.settleStake(ctx, stake, newAmount, false)
+	if err != nil {
+		return math.ZeroInt(), err
+	}
+	if settlement.Minted.IsZero() {
+		return math.ZeroInt(), nil
 	}
 
-	// Add rewards to stake principal
-	stake.Amount = stake.Amount.Add(rewards)
+	stake.Amount = newAmount
 	stake.LastClaimedAt = sdk.UnwrapSDKContext(ctx).BlockTime().Unix()
 
-	// Update reward debt for MasterChef-style targets
-	if stake.TargetType == types.StakeTargetType_STAKE_TARGET_MEMBER {
-		pool, err := k.GetMemberStakePool(ctx, sdk.MustAccAddressFromBech32(stake.TargetIdentifier))
-		if err == nil {
-			stake.RewardDebt = stake.Amount.ToLegacyDec().Mul(pool.AccRewardPerShare).TruncateInt()
-		}
-	} else if stake.TargetType == types.StakeTargetType_STAKE_TARGET_TAG {
-		pool, err := k.GetTagStakePool(ctx, stake.TargetIdentifier)
-		if err == nil {
-			stake.RewardDebt = stake.Amount.ToLegacyDec().Mul(pool.AccRewardPerShare).TruncateInt()
-		}
-	}
-
-	// Lock additional DREAM for the compounded rewards
-	if err := k.LockDREAM(ctx, stakerAddr, rewards); err != nil {
+	if err := k.LockDREAM(ctx, stakerAddr, settlement.Minted); err != nil {
 		return math.ZeroInt(), fmt.Errorf("failed to lock compounded rewards: %w", err)
 	}
 
-	// For member/tag staking, update pool totals
-	if stake.TargetType == types.StakeTargetType_STAKE_TARGET_MEMBER {
-		if err := k.updateMemberStakePoolOnStake(ctx, stake.TargetIdentifier, rewards); err != nil {
-			return math.ZeroInt(), err
-		}
-	} else if stake.TargetType == types.StakeTargetType_STAKE_TARGET_TAG {
-		if err := k.updateTagStakePoolOnStake(ctx, stake.TargetIdentifier, rewards); err != nil {
-			return math.ZeroInt(), err
-		}
+	// The compounded principal must dilute the pool it earns from, or it would
+	// draw rewards without appearing in the denominator.
+	if err := k.updateStakePoolTotals(ctx, stake, settlement.Minted); err != nil {
+		return math.ZeroInt(), err
 	}
 
-	// Save updated stake
 	if err := k.Stake.Set(ctx, stakeID, stake); err != nil {
 		return math.ZeroInt(), err
 	}
 
-	// Emit event
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	sdkCtx.EventManager().EmitEvent(
 		sdk.NewEvent(
 			"staking_rewards_compounded",
 			sdk.NewAttribute("stake_id", fmt.Sprintf("%d", stakeID)),
 			sdk.NewAttribute("staker", stakerAddr.String()),
-			sdk.NewAttribute("compounded", rewards.String()),
+			sdk.NewAttribute("compounded", settlement.Minted.String()),
 			sdk.NewAttribute("new_principal", stake.Amount.String()),
 		),
 	)
 
-	return rewards, nil
+	return settlement.Minted, nil
 }

@@ -31,16 +31,32 @@ func (k Keeper) ValidateInitiativeReference(ctx context.Context, initiativeID ui
 
 // RegisterContentInitiativeLink registers a content item as linked to an initiative.
 // Called by x/blog (and later x/forum) when creating content with an initiative reference.
+//
+// Maintains InitiativesByContent alongside the forward link: linking content
+// changes the initiative's propagated conviction, and the reverse index is what
+// lets a later stake on that content find this initiative again.
 func (k Keeper) RegisterContentInitiativeLink(ctx context.Context, initiativeID uint64, targetType int32, targetID uint64) error {
 	key := collections.Join(initiativeID, collections.Join(targetType, targetID))
-	return k.ContentInitiativeLinks.Set(ctx, key)
+	if err := k.ContentInitiativeLinks.Set(ctx, key); err != nil {
+		return err
+	}
+	if err := k.InitiativesByContent.Set(ctx, collections.Join(collections.Join(targetType, targetID), initiativeID)); err != nil {
+		return err
+	}
+	return k.MarkConvictionDirty(ctx, initiativeID)
 }
 
 // RemoveContentInitiativeLink removes a content-initiative link.
 // Called when content is deleted or hidden.
 func (k Keeper) RemoveContentInitiativeLink(ctx context.Context, initiativeID uint64, targetType int32, targetID uint64) error {
 	key := collections.Join(initiativeID, collections.Join(targetType, targetID))
-	return k.ContentInitiativeLinks.Remove(ctx, key)
+	if err := k.ContentInitiativeLinks.Remove(ctx, key); err != nil {
+		return err
+	}
+	if err := k.InitiativesByContent.Remove(ctx, collections.Join(collections.Join(targetType, targetID), initiativeID)); err != nil {
+		return err
+	}
+	return k.MarkConvictionDirty(ctx, initiativeID)
 }
 
 // GetPropagatedConviction calculates the total conviction propagated from linked content

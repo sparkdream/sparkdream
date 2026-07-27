@@ -11,29 +11,19 @@ import (
 )
 
 // CalculateStakingReward calculates staking rewards from the seasonal pool.
-// Rewards are computed based on the MasterChef accumulator: the global
-// SeasonalPoolAccPerShare is updated each epoch in EndBlocker, and individual
-// stakes use their RewardDebt to compute pending rewards.
+// The global SeasonalPoolAccPerShare is advanced once per epoch in EndBlocker,
+// and each stake's RewardDebt records the accumulator value it joined at.
 //
-// Fallback: if the accumulator hasn't been initialized yet (e.g., first epoch),
-// computes an effective APY from MaxStakingRewardsPerSeason / totalStaked.
+// This reads the seasonal accumulator unconditionally and is therefore only
+// meaningful for INITIATIVE and PROJECT stakes. Callers that handle stakes of
+// arbitrary target type must use GetPendingStakingRewards, which dispatches to
+// the accumulator that actually owns the stake.
 func (k Keeper) CalculateStakingReward(ctx context.Context, stake types.Stake) (math.Int, error) {
 	accPerShare, err := k.getSeasonalPoolAccPerShare(ctx)
 	if err != nil {
 		return math.ZeroInt(), nil // no pool initialized yet
 	}
-
-	// MasterChef formula: pending = stake.Amount * accPerShare - rewardDebt
-	rewardDebt := stake.RewardDebt
-	if rewardDebt.IsNil() {
-		rewardDebt = math.ZeroInt()
-	}
-	gross := math.LegacyNewDecFromInt(stake.Amount).Mul(accPerShare).TruncateInt()
-	pending := gross.Sub(rewardDebt)
-	if pending.IsNegative() {
-		return math.ZeroInt(), nil
-	}
-	return pending, nil
+	return pendingAgainst(stake.Amount, stakeRewardDebt(stake), accPerShare), nil
 }
 
 // CalculateRawStakeConviction calculates the pre-sqrt (raw) time-weighted conviction
@@ -129,14 +119,20 @@ func (k Keeper) CalculateStakeConviction(ctx context.Context, stake types.Stake,
 // UpdateInitiativeConvictionLazy updates an initiative's conviction using lazy evaluation
 // This is called when stakes are added/removed or when conviction is queried
 func (k Keeper) UpdateInitiativeConvictionLazy(ctx context.Context, initiativeID uint64) error {
-	// Get initiative
-	initiative, err := k.GetInitiative(ctx, initiativeID)
+	stakes, err := k.GetInitiativeStakes(ctx, initiativeID)
 	if err != nil {
 		return err
 	}
+	return k.updateInitiativeConvictionWithStakes(ctx, initiativeID, stakes)
+}
 
-	// Get all stakes for this initiative
-	stakes, err := k.GetInitiativeStakes(ctx, initiativeID)
+// updateInitiativeConvictionWithStakes is the body of the lazy update, taking an
+// already-fetched stake slice. The conviction queue drainer needs the stake
+// count to charge its per-block work budget, and re-reading the index just to
+// count would double the cost of the very sweep the budget exists to bound.
+func (k Keeper) updateInitiativeConvictionWithStakes(ctx context.Context, initiativeID uint64, stakes []types.Stake) error {
+	// Get initiative
+	initiative, err := k.GetInitiative(ctx, initiativeID)
 	if err != nil {
 		return err
 	}

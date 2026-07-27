@@ -25,6 +25,8 @@ type mockRepKeeper struct {
 	ArchiveCallCount int
 	// LastArchivedAddresses tracks addresses that had reputation archived
 	LastArchivedAddresses []string
+	// SeasonalPoolInitialisedFor records the season passed to InitSeasonalPool
+	SeasonalPoolInitialisedFor uint64
 }
 
 // newMockRepKeeper creates a new mock rep keeper with empty state
@@ -192,4 +194,10 @@ func (m *mockRepKeeper) GetTrustLevel(ctx context.Context, addr sdk.AccAddress) 
 func (m *mockRepKeeper) GetSeasonMinted(ctx context.Context) (math.Int, error) {
 	// Return a reasonable default for test purposes
 	return math.NewInt(60000000000), nil // 60,000 DREAM (typical Season 1 initiative minting)
+}
+
+// InitSeasonalPool records the season the staking reward pool was refilled for.
+func (m *mockRepKeeper) InitSeasonalPool(ctx context.Context, season uint64) error {
+	m.SeasonalPoolInitialisedFor = season
+	return nil
 }

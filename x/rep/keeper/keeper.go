@@ -87,6 +87,16 @@ type Keeper struct {
 	// Key: (initiativeID, (targetType, targetID)) — enables prefix scan by initiative
 	ContentInitiativeLinks collections.KeySet[collections.Pair[uint64, collections.Pair[int32, uint64]]]
 
+	// Bounded conviction refresh. ConvictionQueue is a due-time-ordered work
+	// list drained under a per-block stake budget in EndBlocker;
+	// ConvictionScheduledAt is the reverse pointer that lets a reschedule remove
+	// an initiative's existing entry. InitiativesByContent is the reverse of
+	// ContentInitiativeLinks, so a content stake mutation can reschedule exactly
+	// the initiatives whose propagated conviction it affected.
+	ConvictionQueue       collections.KeySet[collections.Pair[int64, uint64]]
+	ConvictionScheduledAt collections.Map[uint64, int64]
+	InitiativesByContent  collections.KeySet[collections.Pair[collections.Pair[int32, uint64], uint64]]
+
 	// Seasonal staking reward pool state (MasterChef-style accumulator)
 	SeasonalPoolRemaining   collections.Item[string] // remaining DREAM in pool (as Int string)
 	SeasonalPoolAccPerShare collections.Item[string] // accumulated reward per share (as Dec string)
@@ -230,6 +240,18 @@ func NewKeeper(
 		ContentInitiativeLinks: collections.NewKeySet(
 			sb, types.ContentInitiativeLinksKey, "contentInitiativeLinks",
 			collections.PairKeyCodec(collections.Uint64Key, collections.PairKeyCodec(collections.Int32Key, collections.Uint64Key)),
+		),
+		ConvictionQueue: collections.NewKeySet(
+			sb, types.ConvictionQueueKey, "convictionQueue",
+			collections.PairKeyCodec(collections.Int64Key, collections.Uint64Key),
+		),
+		ConvictionScheduledAt: collections.NewMap(
+			sb, types.ConvictionScheduledAtKey, "convictionScheduledAt",
+			collections.Uint64Key, collections.Int64Value,
+		),
+		InitiativesByContent: collections.NewKeySet(
+			sb, types.InitiativesByContentKey, "initiativesByContent",
+			collections.PairKeyCodec(collections.PairKeyCodec(collections.Int32Key, collections.Uint64Key), collections.Uint64Key),
 		),
 
 		// Seasonal staking reward pool state

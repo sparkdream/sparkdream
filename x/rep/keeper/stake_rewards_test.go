@@ -306,15 +306,88 @@ func TestClaimStakingRewards_ZeroRewards(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	// Claim immediately (zero time elapsed -> zero rewards)
-	rewards, err := k.ClaimStakingRewards(f.ctx, stakeID, stakerAddr)
+	// Claiming before MinStakeDurationSeconds is rejected outright.
+	_, err = k.ClaimStakingRewards(f.ctx, stakeID, stakerAddr)
+	require.ErrorIs(t, err, types.ErrMinStakeDuration)
+
+	// Past the minimum, the claim succeeds and pays nothing — the accumulator
+	// never advanced, so there is genuinely nothing owed.
+	rewards, err := k.ClaimStakingRewards(matureCtx(f, stakeID), stakeID, stakerAddr)
 	require.NoError(t, err)
 	require.True(t, rewards.IsZero())
 }
 
+// matureCtx returns a context whose block time is past the stake's minimum
+// holding period, so reward claims are eligible.
+func matureCtx(f *fixture, stakeID uint64) sdk.Context {
+	sdkCtx := sdk.UnwrapSDKContext(f.ctx)
+	params, err := f.keeper.Params.Get(f.ctx)
+	if err != nil {
+		panic(err)
+	}
+	stake, err := f.keeper.GetStake(f.ctx, stakeID)
+	if err != nil {
+		panic(err)
+	}
+	return sdkCtx.WithBlockTime(time.Unix(stake.CreatedAt+params.MinStakeDurationSeconds+1, 0))
+}
+
+// TestCompoundStakingRewards_SeasonalPoolTypesRejected asserts that initiative
+// and project stakes cannot compound. Their principal carries a conviction
+// maturity clock keyed on created_at, so growing the amount in place would give
+// the added DREAM full maturity instantly.
+func TestCompoundStakingRewards_SeasonalPoolTypesRejected(t *testing.T) {
+	f := initFixture(t)
+	k := f.keeper
+
+	stakerAddr := sdk.AccAddress([]byte("compound_reject_stkr"))
+	require.NoError(t, k.Member.Set(f.ctx, stakerAddr.String(), types.Member{
+		Address:          stakerAddr.String(),
+		DreamBalance:     PtrInt(math.NewInt(5000000000)),
+		StakedDream:      PtrInt(math.ZeroInt()),
+		LifetimeEarned:   PtrInt(math.ZeroInt()),
+		LifetimeBurned:   PtrInt(math.ZeroInt()),
+		TrustLevel:       types.TrustLevel_TRUST_LEVEL_ESTABLISHED,
+		ReputationScores: map[string]string{"tag1": "100.0"},
+	}))
+
+	projectID, err := k.CreateProject(
+		f.ctx, sdk.AccAddress([]byte("proj_cmp_reject_crt_")),
+		"Project", "Desc", []string{"tag1"},
+		types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical",
+		math.NewInt(1000), math.NewInt(100),
+		false,
+	)
+	require.NoError(t, err)
+	require.NoError(t, k.ApproveProject(f.ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(1000), math.NewInt(100)))
+
+	stakeID, err := k.CreateStake(
+		f.ctx, stakerAddr,
+		types.StakeTargetType_STAKE_TARGET_PROJECT,
+		projectID, "", math.NewInt(1000000),
+	)
+	require.NoError(t, err)
+
+	_, err = k.CompoundStakingRewards(f.ctx, stakeID, stakerAddr)
+	require.ErrorIs(t, err, types.ErrCompoundNotSupported)
+}
+
+// TestCompoundStakingRewards_Success covers the member-stake path, the only
+// target type family where compounding is allowed.
 func TestCompoundStakingRewards_Success(t *testing.T) {
 	f := initFixture(t)
 	k := f.keeper
+
+	targetAddr := sdk.AccAddress([]byte("compound_target_____"))
+	require.NoError(t, k.Member.Set(f.ctx, targetAddr.String(), types.Member{
+		Address:          targetAddr.String(),
+		DreamBalance:     PtrInt(math.ZeroInt()),
+		StakedDream:      PtrInt(math.ZeroInt()),
+		LifetimeEarned:   PtrInt(math.ZeroInt()),
+		LifetimeBurned:   PtrInt(math.ZeroInt()),
+		TrustLevel:       types.TrustLevel_TRUST_LEVEL_ESTABLISHED,
+		ReputationScores: map[string]string{},
+	}))
 
 	stakerAddr := sdk.AccAddress([]byte("compound_staker_____"))
 	stakerMember := types.Member{
@@ -328,34 +401,27 @@ func TestCompoundStakingRewards_Success(t *testing.T) {
 	}
 	require.NoError(t, k.Member.Set(f.ctx, stakerMember.Address, stakerMember))
 
-	projectID, err := k.CreateProject(
-		f.ctx, sdk.AccAddress([]byte("proj_compound_creat_")),
-		"Compound Project", "Desc", []string{"tag1"},
-		types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical",
-		math.NewInt(1000), math.NewInt(100),
-		false,
-	)
-	require.NoError(t, err)
-	k.ApproveProject(f.ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(1000), math.NewInt(100))
-
 	originalAmount := math.NewInt(1000000)
 	stakeID, err := k.CreateStake(
 		f.ctx, stakerAddr,
-		types.StakeTargetType_STAKE_TARGET_PROJECT,
-		projectID, "", originalAmount,
+		types.StakeTargetType_STAKE_TARGET_MEMBER,
+		0, targetAddr.String(), originalAmount,
 	)
 	require.NoError(t, err)
 
-	// Initialize the seasonal pool and distribute rewards so accPerShare > 0.
-	require.NoError(t, k.InitSeasonalPool(f.ctx, 1))
-	require.NoError(t, k.UpdateSeasonalPoolTotalStaked(f.ctx, originalAmount))
-	require.NoError(t, k.DistributeEpochStakingRewardsFromPool(f.ctx))
+	// Push revenue through the member pool so its accumulator is nonzero.
+	require.NoError(t, k.AccumulateMemberStakeRevenue(f.ctx, targetAddr, math.NewInt(10000000)))
 
-	// Advance time by 1 year
+	// Advance past the minimum holding period.
+	sdkCtx := sdk.UnwrapSDKContext(f.ctx)
 	createdStake, err := k.GetStake(f.ctx, stakeID)
 	require.NoError(t, err)
-	sdkCtx := sdk.UnwrapSDKContext(f.ctx)
-	newCtx := sdkCtx.WithBlockTime(time.Unix(createdStake.CreatedAt+31557600, 0))
+	params, err := k.Params.Get(f.ctx)
+	require.NoError(t, err)
+	newCtx := sdkCtx.WithBlockTime(time.Unix(createdStake.CreatedAt+params.MinStakeDurationSeconds+1, 0))
+
+	poolBefore, err := k.GetMemberStakePool(newCtx, targetAddr)
+	require.NoError(t, err)
 
 	compounded, err := k.CompoundStakingRewards(newCtx, stakeID, stakerAddr)
 	require.NoError(t, err)
@@ -366,6 +432,17 @@ func TestCompoundStakingRewards_Success(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, updatedStake.Amount.GT(originalAmount))
 	require.Equal(t, originalAmount.Add(compounded), updatedStake.Amount)
+
+	// The compounded principal must dilute the pool it now earns from.
+	poolAfter, err := k.GetMemberStakePool(newCtx, targetAddr)
+	require.NoError(t, err)
+	require.Equal(t, poolBefore.TotalStaked.Add(compounded), poolAfter.TotalStaked)
+
+	// A second compound immediately after settles to zero — the debt was
+	// rebased, so there is nothing left to harvest.
+	again, err := k.CompoundStakingRewards(newCtx, stakeID, stakerAddr)
+	require.NoError(t, err)
+	require.True(t, again.IsZero())
 }
 
 func TestCompoundStakingRewards_NotStakeOwner(t *testing.T) {
@@ -437,13 +514,13 @@ func TestCompoundStakingRewards_ZeroRewards(t *testing.T) {
 
 	stakeID, err := k.CreateStake(
 		f.ctx, stakerAddr,
-		types.StakeTargetType_STAKE_TARGET_PROJECT,
-		projectID, "", math.NewInt(1000000),
+		types.StakeTargetType_STAKE_TARGET_MEMBER,
+		0, sdk.AccAddress([]byte("compound_zero_targt_")).String(), math.NewInt(1000000),
 	)
 	require.NoError(t, err)
 
-	// Compound immediately (zero time -> zero rewards)
-	compounded, err := k.CompoundStakingRewards(f.ctx, stakeID, stakerAddr)
+	// No revenue has ever reached the pool, so there is nothing to compound.
+	compounded, err := k.CompoundStakingRewards(matureCtx(f, stakeID), stakeID, stakerAddr)
 	require.NoError(t, err)
 	require.True(t, compounded.IsZero())
 }

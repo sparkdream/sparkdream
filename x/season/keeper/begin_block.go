@@ -755,6 +755,16 @@ func (k Keeper) finalizeTransition(ctx context.Context, state types.SeasonTransi
 		return err
 	}
 
+	// Refill x/rep's seasonal staking reward budget and reset its per-season
+	// economic counters for the incoming season. Non-fatal: a failure here must
+	// not strand the chain mid-transition with the old season already cleared.
+	if k.repKeeper != nil {
+		if err := k.repKeeper.InitSeasonalPool(ctx, newSeasonNumber); err != nil {
+			sdkCtx.Logger().Error("failed to initialise rep seasonal staking pool",
+				"season", newSeasonNumber, "error", err)
+		}
+	}
+
 	// Clear transition state
 	if err := k.SeasonTransitionState.Remove(ctx); err != nil {
 		return err

@@ -47,9 +47,17 @@ func TestUpdateSeasonalPoolTotalStaked_IncrementAndGuard(t *testing.T) {
 	// Negative delta is fine as long as total stays non-negative.
 	require.NoError(t, k.UpdateSeasonalPoolTotalStaked(ctx, math.NewInt(-40)))
 
-	// Driving the total below zero is rejected.
-	err := k.UpdateSeasonalPoolTotalStaked(ctx, math.NewInt(-1_000_000))
-	require.Error(t, err)
+	total, err := k.GetSeasonalPoolTotalStaked(ctx)
+	require.NoError(t, err)
+	require.Equal(t, math.NewInt(110), total)
+
+	// An under-run would mean a decrement site ran without a matching
+	// increment. Failing the tx would strand the staker's DREAM, so the total
+	// is floored at zero instead (and the discrepancy logged).
+	require.NoError(t, k.UpdateSeasonalPoolTotalStaked(ctx, math.NewInt(-1_000_000)))
+	total, err = k.GetSeasonalPoolTotalStaked(ctx)
+	require.NoError(t, err)
+	require.True(t, total.IsZero())
 }
 
 func TestDistributeEpochStakingRewardsFromPool_NoopWhenPoolEmpty(t *testing.T) {

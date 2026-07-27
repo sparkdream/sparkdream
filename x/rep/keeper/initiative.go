@@ -677,52 +677,62 @@ func (k Keeper) CompleteInitiative(ctx context.Context, initiativeID uint64) err
 	// Get SDK context for event emission
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 
-	// Distribute time-based APY rewards to stakers
+	// Distribute the conviction-weighted completion bonus BEFORE the payout
+	// loop below deletes the stake records. The bonus is weighted by each
+	// stake's time-weighted conviction, which is derived from created_at, so
+	// running it afterwards left it with an empty stake set and it silently
+	// paid nothing to anyone.
 	if len(stakes) > 0 {
-		for _, stake := range stakes {
-			stakerAddr, err := sdk.AccAddressFromBech32(stake.Staker)
-			if err != nil {
-				continue
-			}
-
-			// Calculate time-based staking reward (Stake × APY × Duration / Year)
-			stakingReward, err := k.CalculateStakingReward(ctx, stake)
-			if err != nil {
-				return fmt.Errorf("failed to calculate staking reward for %s: %w", stake.Staker, err)
-			}
-
-			// Mint staking rewards to staker
-			if stakingReward.GT(math.ZeroInt()) {
-				if err := k.MintDREAM(ctx, stakerAddr, stakingReward); err != nil {
-					return fmt.Errorf("failed to mint DREAM for staker %s: %w", stake.Staker, err)
-				}
-			}
-
-			// Unlock staked DREAM
-			if err := k.UnlockDREAM(ctx, stakerAddr, stake.Amount); err != nil {
-				return fmt.Errorf("failed to unlock DREAM for staker %s: %w", stake.Staker, err)
-			}
-
-			// Remove stake from target index
-			_ = k.RemoveStakeFromTargetIndex(ctx, stake)
-
-			// Remove stake
-			if err := k.Stake.Remove(ctx, stake.Id); err != nil {
-				return fmt.Errorf("failed to remove stake: %w", err)
-			}
-
-			// Emit event for stake completion
-			sdkCtx.EventManager().EmitEvent(
-				sdk.NewEvent(
-					"stake_completed",
-					sdk.NewAttribute("stake_id", fmt.Sprintf("%d", stake.Id)),
-					sdk.NewAttribute("staker", stake.Staker),
-					sdk.NewAttribute("amount", stake.Amount.String()),
-					sdk.NewAttribute("reward", stakingReward.String()),
-					sdk.NewAttribute("initiative_id", fmt.Sprintf("%d", initiativeID)),
-				),
-			)
+		if err := k.DistributeInitiativeCompletionBonus(ctx, initiativeID, totalReward); err != nil {
+			return fmt.Errorf("failed to distribute initiative completion bonus: %w", err)
 		}
+	}
+
+	// Settle and release every stake.
+	for _, stake := range stakes {
+		stakerAddr, err := sdk.AccAddressFromBech32(stake.Staker)
+		if err != nil {
+			continue
+		}
+
+		// Harvest whatever the stake accrued from the seasonal pool and zero
+		// its debt — the record is about to be deleted.
+		settledStake, settlement, err := k.settleStake(ctx, stake, math.ZeroInt(), false)
+		if err != nil {
+			return fmt.Errorf("failed to settle stake %d for %s: %w", stake.Id, stake.Staker, err)
+		}
+
+		// Unlock staked DREAM
+		if err := k.UnlockDREAM(ctx, stakerAddr, stake.Amount); err != nil {
+			return fmt.Errorf("failed to unlock DREAM for staker %s: %w", stake.Staker, err)
+		}
+
+		// Shrink the seasonal denominator by the stake leaving it. Missing this
+		// would ratchet total_staked upward with every completed initiative and
+		// under-pay the remaining stakers forever.
+		if err := k.updateStakePoolTotals(ctx, settledStake, stake.Amount.Neg()); err != nil {
+			return fmt.Errorf("failed to update stake pool totals for stake %d: %w", stake.Id, err)
+		}
+
+		// Remove stake from target index
+		_ = k.RemoveStakeFromTargetIndex(ctx, stake)
+
+		// Remove stake
+		if err := k.Stake.Remove(ctx, stake.Id); err != nil {
+			return fmt.Errorf("failed to remove stake: %w", err)
+		}
+
+		// Emit event for stake completion
+		sdkCtx.EventManager().EmitEvent(
+			sdk.NewEvent(
+				"stake_completed",
+				sdk.NewAttribute("stake_id", fmt.Sprintf("%d", stake.Id)),
+				sdk.NewAttribute("staker", stake.Staker),
+				sdk.NewAttribute("amount", stake.Amount.String()),
+				sdk.NewAttribute("reward", settlement.Minted.String()),
+				sdk.NewAttribute("initiative_id", fmt.Sprintf("%d", initiativeID)),
+			),
+		)
 	}
 
 	// Grant reputation to completer
@@ -799,14 +809,6 @@ func (k Keeper) CompleteInitiative(ctx context.Context, initiativeID uint64) err
 		}
 	}
 
-	// Distribute conviction-based completion bonus to initiative stakers
-	// This is a 10% bonus pool distributed based on conviction weight
-	if len(stakes) > 0 {
-		if err := k.DistributeInitiativeCompletionBonus(ctx, initiativeID, totalReward); err != nil {
-			sdkCtx.Logger().Debug("failed to distribute initiative completion bonus", "error", err, "initiative_id", initiativeID)
-		}
-	}
-
 	// Mark budget as spent in project (skip for permissionless — no pre-allocated budget)
 	completionProject, projErr := k.GetProject(ctx, initiative.ProjectId)
 	if projErr == nil && !completionProject.Permissionless {
@@ -854,6 +856,21 @@ func (k Keeper) GetMember(ctx context.Context, address sdk.AccAddress) (types.Me
 			return types.Member{}, fmt.Errorf("member not found: %s", address.String())
 		}
 		return types.Member{}, err
+	}
+
+	// Both decay passes are no-ops once the member is current for this epoch —
+	// they share the LastDecayEpoch guard. Checking it here lets GetMember skip
+	// the write as well, not just the arithmetic. That matters because GetMember
+	// is called from hot paths (notably the per-block conviction sweep, once per
+	// stake), and an unconditional Set re-hashes the member's IAVL node on every
+	// commit, making state growth and commit cost scale with stake count rather
+	// than with real activity.
+	currentEpoch, err := k.GetCurrentEpoch(ctx)
+	if err != nil {
+		return types.Member{}, err
+	}
+	if member.LastDecayEpoch >= currentEpoch {
+		return member, nil
 	}
 
 	// Apply lazy reputation decay before DREAM decay (both use LastDecayEpoch).

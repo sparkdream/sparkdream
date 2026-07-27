@@ -23,15 +23,14 @@ func (k Keeper) EndBlocker(ctx context.Context) error {
 		sdkCtx.Logger().Error("failed to apply bulk decay", "error", err)
 	}
 
-	// 1. Update conviction for all active initiative stakes
-	k.IterateActiveInitiatives(ctx, func(index int64, initiative types.Initiative) bool {
-		// We update conviction for each active initiative
-		// This recalculates based on time elapsed for all stakes
-		if err := k.UpdateInitiativeConviction(ctx, initiative.Id); err != nil {
-			sdkCtx.Logger().Error("failed to update initiative conviction", "initiative_id", initiative.Id, "error", err)
-		}
-		return false
-	})
+	// 1. Recompute conviction for initiatives whose refresh is due, under a
+	// per-block work budget. This replaces a sweep over every stake of every
+	// active initiative on every block, whose cost scaled with a stake count any
+	// member could inflate for a refundable amount of DREAM. See
+	// conviction_queue.go for the scheduling model.
+	if err := k.DrainConvictionQueue(ctx); err != nil {
+		sdkCtx.Logger().Error("failed to drain conviction queue", "error", err)
+	}
 
 	// 2. Check initiative completion thresholds
 	k.IterateSubmittedInitiatives(ctx, func(index int64, initiative types.Initiative) bool {
@@ -57,8 +56,18 @@ func (k Keeper) EndBlocker(ctx context.Context) error {
 				project.Status == types.ProjectStatus_PROJECT_STATUS_CANCELLED {
 				return false
 			}
-			if err := k.CompleteInitiative(ctx, initiative.Id); err != nil {
+			// CompleteInitiative mints to the completer, the treasury, and every
+			// staker before it deletes the stake records, and it is not
+			// idempotent. EndBlocker writes straight to the deliver state, so a
+			// mid-function error here would persist the mints already made and
+			// leave the initiative to be retried next block — paying them
+			// twice. Run it in a child cache context and only commit on
+			// success. (The msg-server path already gets this from the SDK.)
+			cacheCtx, writeCache := sdkCtx.CacheContext()
+			if err := k.CompleteInitiative(cacheCtx, initiative.Id); err != nil {
 				sdkCtx.Logger().Error("failed to complete initiative", "initiative_id", initiative.Id, "error", err)
+			} else {
+				writeCache()
 			}
 		}
 		return false

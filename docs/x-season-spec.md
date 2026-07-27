@@ -54,7 +54,7 @@ The `x/season` module depends on:
 
 | Module | Usage |
 |--------|-------|
-| `x/rep` | Member validation, DREAM burning for guild creation, DREAM minting for retroactive rewards, challenge/jury hooks |
+| `x/rep` | Member validation, DREAM burning for guild creation, DREAM minting for retroactive rewards, challenge/jury hooks, seasonal staking pool refill |
 | `x/name` | Display name and guild name uniqueness (see below) |
 | `x/gov` / `x/commons` | Vote/proposal hooks for XP |
 | `x/forum` | Forum calls `seasonKeeper.GrantXP()` directly for forum-sourced XP; content validation for nominations |
@@ -2095,6 +2095,18 @@ type RepKeeper interface {
     // Member and trust level checks
     IsActiveMember(ctx context.Context, addr sdk.AccAddress) bool
     GetTrustLevel(ctx context.Context, addr sdk.AccAddress) (reptypes.TrustLevel, error)
+
+    // InitSeasonalPool refills x/rep's seasonal staking reward budget from
+    // MaxStakingRewardsPerSeason and resets its per-season economic counters
+    // (SeasonMinted, SeasonBurned, treasury inflow/outflow). Called once from
+    // finalizeTransition after the new Season record is written. The call is
+    // non-fatal: a failure is logged rather than returned, so it cannot strand
+    // the chain mid-transition with the old season already cleared.
+    //
+    // Note this does NOT reset x/rep's conviction accumulator — that is
+    // deliberately monotonic across seasons; see the reward-accounting section
+    // of docs/x-rep-spec.md.
+    InitSeasonalPool(ctx context.Context, season uint64) error
 }
 
 type BlogKeeper interface {

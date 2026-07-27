@@ -314,6 +314,190 @@ TX_RES=$($BINARY tx rep transfer-dream \
 expect_tx_failure "$TX_RES" "invalid transfer purpose\|invalid\|unknown" "DREAM transfer invalid purpose"
 
 # ========================================================================
+# TEST 8: Claim staking rewards before min_stake_duration_seconds
+# ========================================================================
+# Rewards are only collectable after min_stake_duration_seconds (24h by
+# default). Rejecting an early claim forfeits nothing — reward_debt is left
+# untouched so the rewards keep accruing until the staker is eligible.
+echo "--- TEST 8: Claim rewards before minimum stake duration ---"
+
+MIN_DURATION=$($BINARY query rep params --output json 2>/dev/null | jq -r '.params.min_stake_duration_seconds // "0"')
+echo "  min_stake_duration_seconds: $MIN_DURATION"
+
+if [ "$MIN_DURATION" = "0" ]; then
+    echo "  [WARN] min_stake_duration_seconds is 0 on this chain; early-claim gate is disabled"
+    echo "  Skipped (params make this unreachable)"
+else
+    TX_RES=$($BINARY tx rep stake \
+        "stake-target-member" 0 "100" \
+        --target-identifier "$BOB_ADDR" \
+        --from alice \
+        --chain-id $CHAIN_ID \
+        --keyring-backend test \
+        --fees 5000${BOND_DENOM} \
+        -y \
+        --output json 2>&1)
+
+    EARLY_CLAIM_STAKE_ID=""
+    if submit_tx_and_wait "$TX_RES" && check_tx_success "$TX_RESULT"; then
+        EARLY_CLAIM_STAKE_ID=$(echo "$TX_RESULT" | jq -r '.events[] | select(.type=="stake_created") | .attributes[] | select(.key=="stake_id") | .value' | tr -d '"' | head -1)
+    fi
+
+    if [ -n "$EARLY_CLAIM_STAKE_ID" ] && [ "$EARLY_CLAIM_STAKE_ID" != "null" ]; then
+        echo "  Stake ID: $EARLY_CLAIM_STAKE_ID (created this block, well inside the minimum)"
+        TX_RES=$($BINARY tx rep claim-staking-rewards \
+            --stake-id "$EARLY_CLAIM_STAKE_ID" \
+            --from alice \
+            --chain-id $CHAIN_ID \
+            --keyring-backend test \
+            --fees 5000${BOND_DENOM} \
+            -y \
+            --output json 2>&1)
+
+        expect_tx_failure "$TX_RES" "minimum stake duration" "Claim before minimum stake duration"
+
+        # Cleanup: principal is always returnable, only the rewards are forfeited.
+        TX_RES=$($BINARY tx rep unstake "$EARLY_CLAIM_STAKE_ID" "100" \
+            --from alice \
+            --chain-id $CHAIN_ID \
+            --keyring-backend test \
+            --fees 5000${BOND_DENOM} \
+            -y \
+            --output json 2>&1)
+        submit_tx_and_wait "$TX_RES"
+    else
+        echo "  [WARN] Could not create the member stake prerequisite"
+        record_result "Claim before minimum stake duration" "FAIL"
+    fi
+fi
+
+# ========================================================================
+# TEST 9: Compound an initiative stake (only member/tag stakes may compound)
+# ========================================================================
+# Growing an initiative stake's principal in place would give the added DREAM
+# the conviction maturity of the original created_at — the exploit that separate
+# stake tranches exist to prevent. Those stakers claim and re-stake instead.
+echo "--- TEST 9: Compound an initiative stake ---"
+
+ERR_INIT_ID=$($BINARY query rep list-initiative --output json 2>/dev/null | jq -r '.initiative[-1].id // ""')
+
+if [ -z "$ERR_INIT_ID" ] || [ "$ERR_INIT_ID" = "null" ]; then
+    echo "  [WARN] No initiative available on this chain; skipping"
+else
+    echo "  Using initiative #$ERR_INIT_ID"
+    TX_RES=$($BINARY tx rep stake \
+        "stake-target-initiative" "$ERR_INIT_ID" "100" \
+        --from alice \
+        --chain-id $CHAIN_ID \
+        --keyring-backend test \
+        --fees 5000${BOND_DENOM} \
+        -y \
+        --output json 2>&1)
+
+    COMPOUND_STAKE_ID=""
+    if submit_tx_and_wait "$TX_RES" && check_tx_success "$TX_RESULT"; then
+        COMPOUND_STAKE_ID=$(echo "$TX_RESULT" | jq -r '.events[] | select(.type=="stake_created") | .attributes[] | select(.key=="stake_id") | .value' | tr -d '"' | head -1)
+    fi
+
+    if [ -n "$COMPOUND_STAKE_ID" ] && [ "$COMPOUND_STAKE_ID" != "null" ]; then
+        TX_RES=$($BINARY tx rep compound-staking-rewards \
+            --stake-id "$COMPOUND_STAKE_ID" \
+            --from alice \
+            --chain-id $CHAIN_ID \
+            --keyring-backend test \
+            --fees 5000${BOND_DENOM} \
+            -y \
+            --output json 2>&1)
+
+        expect_tx_failure "$TX_RES" "compounding is not supported" "Compound an initiative stake"
+
+        TX_RES=$($BINARY tx rep unstake "$COMPOUND_STAKE_ID" "100" \
+            --from alice \
+            --chain-id $CHAIN_ID \
+            --keyring-backend test \
+            --fees 5000${BOND_DENOM} \
+            -y \
+            --output json 2>&1)
+        submit_tx_and_wait "$TX_RES"
+    else
+        echo "  [WARN] Could not create the initiative stake prerequisite"
+        record_result "Compound an initiative stake" "FAIL"
+    fi
+fi
+
+# ========================================================================
+# TEST 10: Per-target stake tranche cap
+# ========================================================================
+# Stakes are never merged (each keeps its own maturity clock and reward-debt
+# baseline), so the record count is bounded instead. Without the cap, a member
+# could impose permanent per-block conviction work for a refundable cost.
+echo "--- TEST 10: Per-target stake tranche cap ---"
+
+TRANCHE_INIT_ID=$($BINARY query rep list-initiative --output json 2>/dev/null | jq -r '.initiative[-1].id // ""')
+
+if [ -z "$TRANCHE_INIT_ID" ] || [ "$TRANCHE_INIT_ID" = "null" ]; then
+    echo "  [WARN] No initiative available on this chain; skipping"
+else
+    # Count what bob already holds on this target so the loop tops it up to the
+    # cap rather than assuming a clean slate.
+    # target-type 0 = STAKE_TARGET_INITIATIVE (this query takes the numeric enum)
+    EXISTING_TRANCHES=$($BINARY query rep stakes-by-target 0 "$TRANCHE_INIT_ID" --output json 2>/dev/null \
+        | jq -r --arg s "$BOB_ADDR" '[.stakes[]? | select(.staker==$s)] | length' 2>/dev/null)
+    EXISTING_TRANCHES=${EXISTING_TRANCHES:-0}
+    echo "  Bob already holds $EXISTING_TRANCHES tranche(s) on initiative #$TRANCHE_INIT_ID"
+
+    TRANCHE_CAP=10   # types.MaxStakeTranchesPerTarget
+    TRANCHE_IDS=()
+    FILL_OK=true
+    for ((i=EXISTING_TRANCHES; i<TRANCHE_CAP; i++)); do
+        TX_RES=$($BINARY tx rep stake \
+            "stake-target-initiative" "$TRANCHE_INIT_ID" "100" \
+            --from bob \
+            --chain-id $CHAIN_ID \
+            --keyring-backend test \
+            --fees 5000${BOND_DENOM} \
+            -y \
+            --output json 2>&1)
+        if submit_tx_and_wait "$TX_RES" && check_tx_success "$TX_RESULT"; then
+            TID=$(echo "$TX_RESULT" | jq -r '.events[] | select(.type=="stake_created") | .attributes[] | select(.key=="stake_id") | .value' | tr -d '"' | head -1)
+            [ -n "$TID" ] && [ "$TID" != "null" ] && TRANCHE_IDS+=("$TID")
+        else
+            echo "  [WARN] Could not fill tranche $i: $(echo "$TX_RESULT" | jq -r '.raw_log // empty' | head -c 200)"
+            FILL_OK=false
+            break
+        fi
+    done
+
+    if [ "$FILL_OK" = true ]; then
+        echo "  Cap reached; the next stake on this target must be rejected"
+        TX_RES=$($BINARY tx rep stake \
+            "stake-target-initiative" "$TRANCHE_INIT_ID" "100" \
+            --from bob \
+            --chain-id $CHAIN_ID \
+            --keyring-backend test \
+            --fees 5000${BOND_DENOM} \
+            -y \
+            --output json 2>&1)
+
+        expect_tx_failure "$TX_RES" "max number of separate stakes" "Per-target stake tranche cap"
+    else
+        echo "  Skipped (could not reach the tranche cap)"
+    fi
+
+    # Cleanup: return every tranche this test created.
+    for TID in "${TRANCHE_IDS[@]}"; do
+        TX_RES=$($BINARY tx rep unstake "$TID" "100" \
+            --from bob \
+            --chain-id $CHAIN_ID \
+            --keyring-backend test \
+            --fees 5000${BOND_DENOM} \
+            -y \
+            --output json 2>&1)
+        submit_tx_and_wait "$TX_RES" > /dev/null 2>&1
+    done
+fi
+
+# ========================================================================
 # SUMMARY
 # ========================================================================
 echo "============================================================================"

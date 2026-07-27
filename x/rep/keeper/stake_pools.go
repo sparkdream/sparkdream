@@ -39,8 +39,57 @@ func (k Keeper) GetProjectStakeInfo(ctx context.Context, projectID uint64) (type
 	return info, nil
 }
 
-// updateMemberStakePoolOnStake updates member pool when stake is added
-func (k Keeper) updateMemberStakePoolOnStake(ctx context.Context, memberAddr string, amount math.Int) error {
+// updateStakePoolTotals moves every denominator that governs `stake`'s rewards
+// by `delta`, which is negative on withdrawal. Routing both directions through
+// one dispatch is what keeps TotalStaked in lockstep with stake.Amount at every
+// mutation site — the asymmetry it replaces (increment on stake, no decrement
+// anywhere) permanently diluted every remaining staker, because incoming
+// revenue was divided by a denominator backed by DREAM that had already left.
+//
+// A project stake moves two denominators: its own ProjectStakeInfo and the
+// shared seasonal pool it draws rewards from.
+func (k Keeper) updateStakePoolTotals(ctx context.Context, stake types.Stake, delta math.Int) error {
+	if delta.IsNil() || delta.IsZero() {
+		return nil
+	}
+
+	switch stake.TargetType {
+	case types.StakeTargetType_STAKE_TARGET_INITIATIVE:
+		return k.UpdateSeasonalPoolTotalStaked(ctx, delta)
+
+	case types.StakeTargetType_STAKE_TARGET_PROJECT:
+		if err := k.updateProjectStakeInfoTotal(ctx, stake.TargetId, delta); err != nil {
+			return err
+		}
+		return k.UpdateSeasonalPoolTotalStaked(ctx, delta)
+
+	case types.StakeTargetType_STAKE_TARGET_MEMBER:
+		return k.updateMemberStakePoolTotal(ctx, stake.TargetIdentifier, delta)
+
+	case types.StakeTargetType_STAKE_TARGET_TAG:
+		return k.updateTagStakePoolTotal(ctx, stake.TargetIdentifier, delta)
+	}
+
+	// Content conviction and author bond stakes have no pool accounting.
+	return nil
+}
+
+// clampPoolTotal applies delta to a denominator, floored at zero. A negative
+// result means a decrement site ran without a matching increment; that is a bug
+// worth surfacing, but failing the transaction would strand the staker's DREAM,
+// so the total is floored and the discrepancy logged.
+func clampPoolTotal(ctx context.Context, label string, current, delta math.Int) math.Int {
+	updated := current.Add(delta)
+	if updated.IsNegative() {
+		sdk.UnwrapSDKContext(ctx).Logger().Error("stake pool total would go negative; clamping to zero",
+			"pool", label, "current", current.String(), "delta", delta.String())
+		return math.ZeroInt()
+	}
+	return updated
+}
+
+// updateMemberStakePoolTotal moves a member pool's staked denominator.
+func (k Keeper) updateMemberStakePoolTotal(ctx context.Context, memberAddr string, delta math.Int) error {
 	pool, err := k.MemberStakePool.Get(ctx, memberAddr)
 	if err != nil {
 		if errors.Is(err, collections.ErrNotFound) {
@@ -57,14 +106,14 @@ func (k Keeper) updateMemberStakePoolOnStake(ctx context.Context, memberAddr str
 		}
 	}
 
-	pool.TotalStaked = pool.TotalStaked.Add(amount)
+	pool.TotalStaked = clampPoolTotal(ctx, "member/"+memberAddr, pool.TotalStaked, delta)
 	pool.LastUpdated = sdk.UnwrapSDKContext(ctx).BlockTime().Unix()
 
 	return k.MemberStakePool.Set(ctx, memberAddr, pool)
 }
 
-// updateTagStakePoolOnStake updates tag pool when stake is added
-func (k Keeper) updateTagStakePoolOnStake(ctx context.Context, tag string, amount math.Int) error {
+// updateTagStakePoolTotal moves a tag pool's staked denominator.
+func (k Keeper) updateTagStakePoolTotal(ctx context.Context, tag string, delta math.Int) error {
 	pool, err := k.TagStakePool.Get(ctx, tag)
 	if err != nil {
 		if errors.Is(err, collections.ErrNotFound) {
@@ -80,14 +129,14 @@ func (k Keeper) updateTagStakePoolOnStake(ctx context.Context, tag string, amoun
 		}
 	}
 
-	pool.TotalStaked = pool.TotalStaked.Add(amount)
+	pool.TotalStaked = clampPoolTotal(ctx, "tag/"+tag, pool.TotalStaked, delta)
 	pool.LastUpdated = sdk.UnwrapSDKContext(ctx).BlockTime().Unix()
 
 	return k.TagStakePool.Set(ctx, tag, pool)
 }
 
-// updateProjectStakeInfoOnStake updates project info when stake is added
-func (k Keeper) updateProjectStakeInfoOnStake(ctx context.Context, projectID uint64, amount math.Int) error {
+// updateProjectStakeInfoTotal moves a project's staked denominator.
+func (k Keeper) updateProjectStakeInfoTotal(ctx context.Context, projectID uint64, delta math.Int) error {
 	info, err := k.ProjectStakeInfo.Get(ctx, projectID)
 	if err != nil {
 		if errors.Is(err, collections.ErrNotFound) {
@@ -102,9 +151,125 @@ func (k Keeper) updateProjectStakeInfoOnStake(ctx context.Context, projectID uin
 		}
 	}
 
-	info.TotalStaked = info.TotalStaked.Add(amount)
+	info.TotalStaked = clampPoolTotal(ctx, fmt.Sprintf("project/%d", projectID), info.TotalStaked, delta)
 
 	return k.ProjectStakeInfo.Set(ctx, projectID, info)
+}
+
+// ReconcileStakePoolTotals recomputes every staked denominator — the member,
+// tag and project pools plus the shared seasonal pool — by summing the live
+// stakes that back them, and writes back any that disagree.
+//
+// This is the repair counterpart to updateStakePoolTotals: it is O(all stakes)
+// and is intended for genesis import, where it heals state written before the
+// decrement paths existed, rather than for the hot path.
+func (k Keeper) ReconcileStakePoolTotals(ctx context.Context) error {
+	memberTotals := map[string]math.Int{}
+	tagTotals := map[string]math.Int{}
+	projectTotals := map[uint64]math.Int{}
+	seasonalTotal := math.ZeroInt()
+
+	addTo := func(m map[string]math.Int, key string, amount math.Int) {
+		if cur, ok := m[key]; ok {
+			m[key] = cur.Add(amount)
+			return
+		}
+		m[key] = amount
+	}
+
+	err := k.Stake.Walk(ctx, nil, func(_ uint64, stake types.Stake) (bool, error) {
+		if stake.Amount.IsNil() || !stake.Amount.IsPositive() {
+			return false, nil
+		}
+		switch stake.TargetType {
+		case types.StakeTargetType_STAKE_TARGET_INITIATIVE:
+			seasonalTotal = seasonalTotal.Add(stake.Amount)
+		case types.StakeTargetType_STAKE_TARGET_PROJECT:
+			seasonalTotal = seasonalTotal.Add(stake.Amount)
+			if cur, ok := projectTotals[stake.TargetId]; ok {
+				projectTotals[stake.TargetId] = cur.Add(stake.Amount)
+			} else {
+				projectTotals[stake.TargetId] = stake.Amount
+			}
+		case types.StakeTargetType_STAKE_TARGET_MEMBER:
+			addTo(memberTotals, stake.TargetIdentifier, stake.Amount)
+		case types.StakeTargetType_STAKE_TARGET_TAG:
+			addTo(tagTotals, stake.TargetIdentifier, stake.Amount)
+		}
+		return false, nil
+	})
+	if err != nil {
+		return fmt.Errorf("failed to walk stakes for pool reconciliation: %w", err)
+	}
+
+	if err := k.setSeasonalPoolTotalStaked(ctx, seasonalTotal); err != nil {
+		return fmt.Errorf("failed to reconcile seasonal pool total staked: %w", err)
+	}
+
+	// Existing pools not represented in the live stake set are zeroed rather
+	// than left stale — a pool with no backing stakes must not keep dividing
+	// incoming revenue by a phantom denominator.
+	if err := k.MemberStakePool.Walk(ctx, nil, func(addr string, pool types.MemberStakePool) (bool, error) {
+		want, ok := memberTotals[addr]
+		if !ok {
+			want = math.ZeroInt()
+		}
+		delete(memberTotals, addr)
+		if pool.TotalStaked.Equal(want) {
+			return false, nil
+		}
+		pool.TotalStaked = want
+		return false, k.MemberStakePool.Set(ctx, addr, pool)
+	}); err != nil {
+		return fmt.Errorf("failed to reconcile member stake pools: %w", err)
+	}
+	for addr, want := range memberTotals {
+		if err := k.updateMemberStakePoolTotal(ctx, addr, want); err != nil {
+			return fmt.Errorf("failed to create member stake pool for %s: %w", addr, err)
+		}
+	}
+
+	if err := k.TagStakePool.Walk(ctx, nil, func(tag string, pool types.TagStakePool) (bool, error) {
+		want, ok := tagTotals[tag]
+		if !ok {
+			want = math.ZeroInt()
+		}
+		delete(tagTotals, tag)
+		if pool.TotalStaked.Equal(want) {
+			return false, nil
+		}
+		pool.TotalStaked = want
+		return false, k.TagStakePool.Set(ctx, tag, pool)
+	}); err != nil {
+		return fmt.Errorf("failed to reconcile tag stake pools: %w", err)
+	}
+	for tag, want := range tagTotals {
+		if err := k.updateTagStakePoolTotal(ctx, tag, want); err != nil {
+			return fmt.Errorf("failed to create tag stake pool for %s: %w", tag, err)
+		}
+	}
+
+	if err := k.ProjectStakeInfo.Walk(ctx, nil, func(id uint64, info types.ProjectStakeInfo) (bool, error) {
+		want, ok := projectTotals[id]
+		if !ok {
+			want = math.ZeroInt()
+		}
+		delete(projectTotals, id)
+		if info.TotalStaked.Equal(want) {
+			return false, nil
+		}
+		info.TotalStaked = want
+		return false, k.ProjectStakeInfo.Set(ctx, id, info)
+	}); err != nil {
+		return fmt.Errorf("failed to reconcile project stake info: %w", err)
+	}
+	for id, want := range projectTotals {
+		if err := k.updateProjectStakeInfoTotal(ctx, id, want); err != nil {
+			return fmt.Errorf("failed to create project stake info for %d: %w", id, err)
+		}
+	}
+
+	return nil
 }
 
 // AccumulateMemberStakeRevenue adds revenue to a member's stake pool
@@ -172,7 +337,11 @@ func (k Keeper) AccumulateTagStakeRevenue(ctx context.Context, tags []string, to
 	return nil
 }
 
-// DistributeInitiativeCompletionBonus distributes conviction-based bonus to initiative stakers
+// DistributeInitiativeCompletionBonus distributes conviction-based bonus to initiative stakers.
+//
+// Must be called while the stake records are still live: it recomputes each
+// staker's time-weighted conviction from stake.created_at, so it has nothing to
+// weight by once CompleteInitiative's payout loop has deleted them.
 func (k Keeper) DistributeInitiativeCompletionBonus(ctx context.Context, initiativeID uint64, totalBudget math.Int) error {
 	// Get initiative to check assignee and challenger
 	initiative, err := k.GetInitiative(ctx, initiativeID)
@@ -226,17 +395,20 @@ func (k Keeper) DistributeInitiativeCompletionBonus(ctx context.Context, initiat
 		return nil
 	}
 
-	// Calculate bonus pool (10% of budget)
-	bonusPool := math.LegacyNewDecFromInt(totalBudget).QuoInt64(10).TruncateInt()
+	// Calculate bonus pool as a fixed fraction of the initiative budget.
+	bonusPool := math.LegacyNewDecFromInt(totalBudget).
+		QuoInt64(types.InitiativeCompletionBonusDivisor).
+		TruncateInt()
 
 	if bonusPool.IsZero() {
 		return nil
 	}
 
-	// Split bonus: external stakers get their proportional share
-	// If external conviction >= 50%, they get full proportional distribution
-	// Otherwise, distribute based on conviction weight
+	// Split the bonus across stakers by conviction weight. Conviction is
+	// time-weighted, so a stake placed moments before completion earns
+	// approximately nothing here.
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
+	totalMinted := math.ZeroInt()
 
 	for _, sc := range stakeConvictions {
 		if sc.conviction.IsZero() {
@@ -249,29 +421,41 @@ func (k Keeper) DistributeInitiativeCompletionBonus(ctx context.Context, initiat
 			Quo(totalConviction).
 			TruncateInt()
 
-		if bonusShare.GT(math.ZeroInt()) {
-			stakerAddr, err := sdk.AccAddressFromBech32(sc.stake.Staker)
-			if err != nil {
-				continue
-			}
+		if !bonusShare.IsPositive() {
+			continue
+		}
 
-			// Mint bonus to staker
-			if err := k.MintDREAM(ctx, stakerAddr, bonusShare); err != nil {
-				continue
-			}
+		stakerAddr, err := sdk.AccAddressFromBech32(sc.stake.Staker)
+		if err != nil {
+			return fmt.Errorf("invalid staker address %q on stake %d: %w", sc.stake.Staker, sc.stake.Id, err)
+		}
 
-			// Emit event
-			sdkCtx.EventManager().EmitEvent(
-				sdk.NewEvent(
-					"initiative_completion_bonus",
-					sdk.NewAttribute("initiative_id", fmt.Sprintf("%d", initiativeID)),
-					sdk.NewAttribute("stake_id", fmt.Sprintf("%d", sc.stake.Id)),
-					sdk.NewAttribute("staker", sc.stake.Staker),
-					sdk.NewAttribute("bonus", bonusShare.String()),
-					sdk.NewAttribute("conviction", sc.conviction.String()),
-					sdk.NewAttribute("is_external", fmt.Sprintf("%t", sc.isExternal)),
-				),
-			)
+		// Mint bonus to staker
+		if err := k.MintDREAM(ctx, stakerAddr, bonusShare); err != nil {
+			return fmt.Errorf("failed to mint completion bonus for staker %s: %w", sc.stake.Staker, err)
+		}
+		totalMinted = totalMinted.Add(bonusShare)
+
+		// Emit event
+		sdkCtx.EventManager().EmitEvent(
+			sdk.NewEvent(
+				"initiative_completion_bonus",
+				sdk.NewAttribute("initiative_id", fmt.Sprintf("%d", initiativeID)),
+				sdk.NewAttribute("stake_id", fmt.Sprintf("%d", sc.stake.Id)),
+				sdk.NewAttribute("staker", sc.stake.Staker),
+				sdk.NewAttribute("bonus", bonusShare.String()),
+				sdk.NewAttribute("conviction", sc.conviction.String()),
+				sdk.NewAttribute("is_external", fmt.Sprintf("%t", sc.isExternal)),
+			),
+		)
+	}
+
+	// The bonus is freshly minted DREAM sourced from the initiative budget, so
+	// it belongs under the same per-season cap as the completer and treasury
+	// shares that CompleteInitiative already tracks.
+	if totalMinted.IsPositive() {
+		if err := k.TrackInitiativeRewardMint(ctx, totalMinted); err != nil {
+			return fmt.Errorf("failed to track initiative completion bonus mint: %w", err)
 		}
 	}
 
@@ -305,22 +489,10 @@ func (k Keeper) DistributeProjectCompletionBonus(ctx context.Context, projectID 
 		return nil
 	}
 
-	// Add bonus to completion bonus pool
-	projectInfo.CompletionBonusPool = projectInfo.CompletionBonusPool.Add(bonusPool)
-
-	// Update AccRewardPerShare for the project pool (similar to MasterChef)
-	// This allows stakers to claim their share proportionally
-	bonusPerShare := math.LegacyNewDecFromInt(bonusPool).
-		Quo(math.LegacyNewDecFromInt(projectInfo.TotalStaked))
-
-	// We'll track this in the completion bonus pool
-	// Individual stakers will get their share when they unstake or claim
-
-	if err := k.ProjectStakeInfo.Set(ctx, projectID, projectInfo); err != nil {
-		return err
-	}
-
-	// Emit event
+	// The bonus is paid out in full immediately, below — nothing is escrowed,
+	// so nothing is accumulated into projectInfo.CompletionBonusPool. That field
+	// was previously incremented here and never read back anywhere, which
+	// misrepresented a deferred-claim liability that does not exist.
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	sdkCtx.EventManager().EmitEvent(
 		sdk.NewEvent(
@@ -328,7 +500,6 @@ func (k Keeper) DistributeProjectCompletionBonus(ctx context.Context, projectID 
 			sdk.NewAttribute("project_id", fmt.Sprintf("%d", projectID)),
 			sdk.NewAttribute("bonus_pool", bonusPool.String()),
 			sdk.NewAttribute("total_staked", projectInfo.TotalStaked.String()),
-			sdk.NewAttribute("bonus_per_share", bonusPerShare.String()),
 		),
 	)
 

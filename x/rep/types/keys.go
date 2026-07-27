@@ -104,6 +104,27 @@ var (
 // Enables prefix scan by initiativeID to find all linked content for conviction propagation
 var ContentInitiativeLinksKey = collections.NewPrefix("content_initiative_links/")
 
+// Conviction refresh scheduling. The EndBlocker recomputes initiative
+// conviction from a bounded work queue rather than sweeping every stake of
+// every active initiative on every block.
+var (
+	// ConvictionQueueKey orders pending conviction recomputes by due time:
+	// (due_at_unix, initiative_id) -> exists. The drainer in EndBlocker scans
+	// only the due prefix and removes what it processes, so the queue is its own
+	// cursor across blocks. Drained by Keeper.DrainConvictionQueue.
+	ConvictionQueueKey = collections.NewPrefix("conviction/queue/")
+	// ConvictionScheduledAtKey maps initiative_id -> its current due time in the
+	// queue. It exists purely so a reschedule can find and delete the initiative's
+	// existing queue entry; without it, rescheduling would leave duplicates behind.
+	ConvictionScheduledAtKey = collections.NewPrefix("conviction/scheduled_at/")
+	// InitiativesByContentKey is the reverse of ContentInitiativeLinks:
+	// ((target_type, target_id), initiative_id) -> exists. A content stake
+	// mutation prefix-scans this to reschedule exactly the initiatives whose
+	// propagated conviction it changed, instead of relying on a full sweep to
+	// eventually notice.
+	InitiativesByContentKey = collections.NewPrefix("conviction/initiatives_by_content/")
+)
+
 // Seasonal staking reward pool state
 var (
 	// SeasonalPoolRemainingKey tracks remaining DREAM in this season's reward pool

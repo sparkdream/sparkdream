@@ -107,17 +107,21 @@ Initiatives complete when:
 
 Stakes lock DREAM on various targets to signal conviction:
 
-| Target Type | APY | Description |
-|-------------|-----|-------------|
-| Initiative | 10% | Signal belief in work quality |
-| Project | 8% | Support active projects (5% completion bonus) |
-| Member | 5% | Peer support (circular A↔B blocked, no self-stake) |
-| Tag | 2% | Domain expertise signal |
-| Content | — | Blog/forum/collection conviction |
+| Target Type | Reward source | Description |
+|-------------|---------------|-------------|
+| Initiative | Seasonal pool (shared) | Signal belief in work quality; conviction-weighted completion bonus (1/10th of budget) |
+| Project | Seasonal pool (shared) | Support active projects (`project_completion_bonus_rate` bonus on completion) |
+| Member | Member pool (revenue share) | Peer support (circular A↔B blocked, no self-stake) |
+| Tag | Tag pool (revenue share) | Domain expertise signal |
+| Content | None | Blog/forum/collection conviction signal only |
 
-- Min stake duration: 24 hours
-- Max conviction share per member: 33% (prevents single-member dominance)
-- Content stakes capped at 10K DREAM per member per item
+There is no per-target APY. Initiative and project stakes draw pro-rata from one shared seasonal pool (`max_staking_rewards_per_season`), so effective yield self-adjusts with total staked; member and tag stakes earn a revenue share accumulated when the target earns. All four use MasterChef accounting — a per-stake `reward_debt` baseline taken at join and rebased on every settlement — routed through a single `settleStake` helper. See the reward-accounting section of [docs/x-rep-spec.md](../../docs/x-rep-spec.md).
+
+- **Min stake duration**: 24 hours (`min_stake_duration_seconds`). Gates reward *collection*, not principal return. Claiming or compounding earlier is rejected with `ErrMinStakeDuration` and forfeits nothing. Unstaking earlier always returns the principal but forfeits accrued rewards (the DREAM is never minted and stays in the pool).
+- **Max conviction share per member**: 33% (prevents single-member dominance)
+- **Content stakes** capped at 10K DREAM per member per item
+- **Tranche cap**: at most `types.MaxStakeTranchesPerTarget` (10) separate stake records per member per target. Stakes are never merged — each keeps its own `created_at` maturity clock and `reward_debt` baseline — so the cap is what bounds the record count instead.
+- **Compounding** is available for member and tag stakes only. Initiative and project stakes are rejected with `ErrCompoundNotSupported`: growing the principal in place would give the added DREAM the maturity of the original `created_at`. Those stakers claim and re-stake, which starts a fresh tranche.
 
 ### Challenge System
 
@@ -287,6 +291,9 @@ Enums: `GovActionType`, `MemberReportStatus`, `GovAppealStatus`.
 | `ContentChallengesByStatus` | Active/resolved content challenges |
 | `ContentChallengesByTarget` | Active challenge per content item (type, id) |
 | `ContentInitiativeLinks` | Content → initiative conviction propagation |
+| `InitiativesByContent` | Reverse of `ContentInitiativeLinks`; lets a content stake reschedule the initiatives it propagates into |
+| `ConvictionQueue` | Due-time-ordered `(due_at, initiative_id)` work list for bounded conviction refresh |
+| `ConvictionScheduledAt` | Initiative → its current due time, so a reschedule can replace its queue entry |
 
 ### Initiative Status Lifecycle
 
@@ -353,10 +360,10 @@ Creator self-assignment is allowed but hardened: full external conviction requir
 
 | Message | Description | Access |
 |---------|-------------|--------|
-| `MsgStake` | Create conviction/content/author bond stake | Members |
-| `MsgUnstake` | Partial/full unstake (min 24h duration) | Stake owner |
-| `MsgClaimStakingRewards` | Claim accumulated staking rewards | Members |
-| `MsgCompoundStakingRewards` | Re-stake accumulated rewards in place | Members |
+| `MsgStake` | Create conviction/content/author bond stake (max 10 tranches per target) | Members |
+| `MsgUnstake` | Partial/full unstake; principal always returned, rewards forfeited before 24h | Stake owner |
+| `MsgClaimStakingRewards` | Claim accumulated staking rewards (rejected before 24h) | Stake owner |
+| `MsgCompoundStakingRewards` | Re-stake accumulated rewards in place; member/tag stakes only | Stake owner |
 
 ### Challenges
 
@@ -662,14 +669,14 @@ Cross-module keepers are wired manually in `app.go` via shared `lateKeepers` str
 
 ## EndBlocker
 
-1. **Update conviction** for all active initiative stakes (time-weighted decay)
+1. **Drain the conviction queue** — recompute conviction for initiatives whose refresh is due, capped at `MaxConvictionStakeUpdatesPerBlock` (500) stake-level updates per block, with leftover work rolling to later blocks
 2. **Check completion thresholds** for submitted initiatives
-3. **Finalize unchallenged** initiatives after challenge period expires
+3. **Finalize unchallenged** initiatives after challenge period expires (run in a cache context so a mid-payout error cannot persist partial mints)
 4. **Process expired challenge responses** (auto-uphold if no response by deadline)
 5. **Process expired content challenge responses**
 6. **Tally jury review votes** when deadline reached
 7. **Process interim deadlines** (expire if deadline passes)
-8. **Distribute epoch staking rewards** (MasterChef pools for member/tag/project stakes)
+8. **Distribute epoch staking rewards** from the seasonal pool — gated on `IsEpochEnd`
 9. **Process invitation accountability** (slash inviters if invitee zeroed)
 10. **Rebuild member trust tree** if dirty (for `x/shield` ZK proofs)
 

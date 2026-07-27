@@ -189,10 +189,22 @@ func TestExtendedStaking_ClaimRewards(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, int64(0), stake.LastClaimedAt)
 
-	// Test: Claim rewards (should be 0 since just created, no time elapsed)
-	claimed, err := k.ClaimStakingRewards(ctx, stakeID, staker)
+	// A freshly created stake has not met MinStakeDurationSeconds, so rewards
+	// are not yet collectable. Nothing is forfeited — the debt is untouched and
+	// the rewards keep accruing.
+	_, err = k.ClaimStakingRewards(ctx, stakeID, staker)
+	require.ErrorIs(t, err, types.ErrMinStakeDuration)
+
+	// Past the minimum duration the claim succeeds; with a zero accumulator
+	// there is nothing to pay out yet.
+	params, err := k.Params.Get(ctx)
 	require.NoError(t, err)
-	require.True(t, claimed.GTE(math.ZeroInt()))
+	sdkCtx := sdk.UnwrapSDKContext(ctx)
+	matureCtx := sdkCtx.WithBlockTime(sdkCtx.BlockTime().Add(time.Duration(params.MinStakeDurationSeconds+1) * time.Second))
+
+	claimed, err := k.ClaimStakingRewards(matureCtx, stakeID, staker)
+	require.NoError(t, err)
+	require.True(t, claimed.IsZero())
 
 	// Note: LastClaimedAt is only updated when there are rewards to claim
 	// With no time elapsed, claimed==0, so timestamp may not be updated
@@ -226,15 +238,15 @@ func TestExtendedStaking_CompoundRewards(t *testing.T) {
 	stakeID, err := k.CreateStake(ctx, staker, types.StakeTargetType_STAKE_TARGET_INITIATIVE, initID, "", initialAmount)
 	require.NoError(t, err)
 
-	// Test: Compound rewards
-	compounded, err := k.CompoundStakingRewards(ctx, stakeID, staker)
-	require.NoError(t, err)
-	require.True(t, compounded.GTE(math.ZeroInt()))
+	// Compounding is rejected for initiative stakes: growing the principal in
+	// place would hand the new DREAM the maturity of the original created_at.
+	_, err = k.CompoundStakingRewards(ctx, stakeID, staker)
+	require.ErrorIs(t, err, types.ErrCompoundNotSupported)
 
-	// Stake amount should be >= initial (rewards compounded)
+	// The stake is untouched.
 	stake, err := k.GetStake(ctx, stakeID)
 	require.NoError(t, err)
-	require.True(t, stake.Amount.GTE(initialAmount))
+	require.Equal(t, initialAmount, stake.Amount)
 }
 
 // TestExtendedStaking_PendingRewardsQuery tests querying pending rewards
@@ -619,10 +631,12 @@ func TestDistributeProjectCompletionBonus(t *testing.T) {
 	require.Equal(t, math.NewInt(700).String(), receivedB.String(),
 		"stakerB should receive 700 (70%% of bonus pool)")
 
-	// Verify project stake info has accumulated bonus
+	// The bonus is paid out in full immediately, so nothing is escrowed:
+	// CompletionBonusPool stays at zero rather than tracking a liability that
+	// no code path would ever pay from.
 	updatedInfo, err := k.GetProjectStakeInfo(ctx, projectID)
 	require.NoError(t, err)
-	require.Equal(t, expectedBonusPool.String(), updatedInfo.CompletionBonusPool.String())
+	require.True(t, updatedInfo.CompletionBonusPool.IsZero())
 
 	// Test: Zero budget returns without error
 	err = k.DistributeProjectCompletionBonus(ctx, projectID, math.ZeroInt())

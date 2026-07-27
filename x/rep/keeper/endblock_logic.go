@@ -120,7 +120,20 @@ func (k Keeper) MaybeApplyBulkDecay(ctx context.Context) error {
 // Member and tag stake rewards remain event-driven (unchanged):
 //   - Member stakes: AccumulateMemberStakeRevenue on initiative completion
 //   - Tag stakes: AccumulateTagStakeRevenue on initiative completion
+//
+// The epoch gate is load-bearing: EndBlocker runs this every block, and
+// DistributeEpochStakingRewardsFromPool takes remaining/remainingEpochs each
+// time it is called. Ungated, a season's entire staking budget would drain in a
+// fraction of a season (EpochBlocks times too fast). This was invisible while
+// the pool was never initialised and every call returned early.
 func (k Keeper) DistributeEpochStakingRewards(ctx context.Context) error {
+	isEpochEnd, err := k.IsEpochEnd(ctx)
+	if err != nil {
+		return err
+	}
+	if !isEpochEnd {
+		return nil
+	}
 	return k.DistributeEpochStakingRewardsFromPool(ctx)
 }
 

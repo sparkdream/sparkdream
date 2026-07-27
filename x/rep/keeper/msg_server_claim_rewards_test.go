@@ -155,31 +155,40 @@ func TestMsgCompoundStakingRewards(t *testing.T) {
 		stakerStr, err := f.addressCodec.BytesToString(staker)
 		require.NoError(t, err)
 
-		// Create project and initiative
-		projectID, err := k.CreateProject(ctx, staker, "Proj", "Desc", []string{"backend"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical", math.NewInt(10000), math.NewInt(1000), false)
-		require.NoError(t, err)
-		err = k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(10000), math.NewInt(1000))
-		require.NoError(t, err)
-		initID, err := k.CreateInitiative(ctx, staker, projectID, "Task", "D", []string{"backend"}, types.InitiativeTier_INITIATIVE_TIER_STANDARD, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, "", math.NewInt(100))
-		require.NoError(t, err)
+		// Compounding is only supported for member and tag stakes; initiative
+		// and project stakes must claim and re-stake so the new DREAM gets its
+		// own conviction maturity clock.
+		target := sdk.AccAddress([]byte("compound_msg_target_"))
+		k.Member.Set(ctx, target.String(), types.Member{
+			Address:          target.String(),
+			DreamBalance:     PtrInt(math.ZeroInt()),
+			StakedDream:      PtrInt(math.ZeroInt()),
+			LifetimeEarned:   PtrInt(math.ZeroInt()),
+			LifetimeBurned:   PtrInt(math.ZeroInt()),
+			ReputationScores: map[string]string{},
+		})
 
 		// Create stake
 		initialStakeAmount := math.NewInt(1000)
-		stakeID, err := k.CreateStake(ctx, staker, types.StakeTargetType_STAKE_TARGET_INITIATIVE, initID, "", initialStakeAmount)
+		stakeID, err := k.CreateStake(ctx, staker, types.StakeTargetType_STAKE_TARGET_MEMBER, 0, target.String(), initialStakeAmount)
 		require.NoError(t, err)
 
-		// Initialize seasonal pool and distribute to populate accumulator
-		require.NoError(t, k.InitSeasonalPool(ctx, 1))
-		require.NoError(t, k.UpdateSeasonalPoolTotalStaked(ctx, initialStakeAmount))
-		require.NoError(t, k.DistributeEpochStakingRewardsFromPool(ctx))
+		// Push revenue through the member pool to populate its accumulator
+		require.NoError(t, k.AccumulateMemberStakeRevenue(ctx, target, math.NewInt(1000000)))
 
 		// Give the staker enough DREAM to cover compounded rewards
 		member, _ := k.Member.Get(ctx, staker.String())
 		*member.DreamBalance = math.NewInt(500000000000000)
 		k.Member.Set(ctx, staker.String(), member)
 
+		// Advance past the minimum holding period so rewards are collectable
+		params, err := k.Params.Get(ctx)
+		require.NoError(t, err)
+		sdkCtx := sdk.UnwrapSDKContext(ctx)
+		matureCtx := sdkCtx.WithBlockTime(sdkCtx.BlockTime().Add(time.Duration(params.MinStakeDurationSeconds+1) * time.Second))
+
 		// Compound rewards
-		resp, err := ms.CompoundStakingRewards(ctx, &types.MsgCompoundStakingRewards{
+		resp, err := ms.CompoundStakingRewards(matureCtx, &types.MsgCompoundStakingRewards{
 			Staker:  stakerStr,
 			StakeId: stakeID,
 		})
@@ -188,9 +197,9 @@ func TestMsgCompoundStakingRewards(t *testing.T) {
 		require.NotNil(t, resp.CompoundedAmount)
 		require.NotNil(t, resp.NewStakeAmount)
 
-		// Verify compounded amount is positive (rewards accumulated over 30 days)
+		// Verify compounded amount is positive (revenue reached the pool)
 		require.True(t, resp.CompoundedAmount.GT(math.ZeroInt()),
-			"compounded amount should be positive after 30 days")
+			"compounded amount should be positive after pool revenue")
 
 		// Verify new stake amount equals initial + compounded
 		expectedNewAmount := initialStakeAmount.Add(*resp.CompoundedAmount)

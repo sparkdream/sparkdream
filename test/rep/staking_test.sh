@@ -603,8 +603,8 @@ if echo "$PROJECT_INFO" | jq -e '.info' >/dev/null 2>&1; then
 
     echo "Project #$PROJECT_ID Stake Info:"
     echo "  → Total staked: $PROJECT_TOTAL_STAKED DREAM"
-    echo "  → Completion bonus pool: $PROJECT_BONUS_POOL DREAM"
-    echo "  → 5% bonus distributed to stakers on project completion"
+    echo "  → Completion bonus pool: $PROJECT_BONUS_POOL DREAM (always 0 — the 5%"
+    echo "    bonus is minted straight to stakers on completion, nothing is escrowed)"
 else
     echo "[WARN]  project-stake-info query not implemented or returned error"
 fi
@@ -701,8 +701,12 @@ echo "Note: Rewards accumulate over time. More blocks = more rewards."
 echo ""
 echo "--- PART 11: CLAIM STAKING REWARDS ---"
 
+# Rewards only become collectable after min_stake_duration_seconds (24h by
+# default). This test runs in seconds, so the expected outcome is a rejection —
+# that rejection IS the assertion. Nothing is forfeited by a rejected claim:
+# reward_debt is untouched, so the rewards keep accruing.
 if [ "$STAKE1_ID" != "unknown" ]; then
-    echo "Staker1 claiming rewards for stake #$STAKE1_ID..."
+    echo "Staker1 claiming rewards for stake #$STAKE1_ID (expected: rejected, stake too young)..."
     CLAIM_RES=$($BINARY tx rep claim-staking-rewards \
       --stake-id $STAKE1_ID \
       --from challenger \
@@ -720,18 +724,16 @@ if [ "$STAKE1_ID" != "unknown" ]; then
     # Check transaction result
     if echo "$CLAIM_RESULT" | jq -e '.code' >/dev/null 2>&1; then
         TX_CODE=$(echo "$CLAIM_RESULT" | jq -r '.code')
+        CLAIM_LOG=$(echo "$CLAIM_RESULT" | jq -r '.raw_log // .log')
         if [ "$TX_CODE" = "0" ]; then
             CLAIMED_AMOUNT=$(echo "$CLAIM_RESULT" | jq -r '.events[] | select(.type=="staking_rewards_claimed") | .attributes[] | select(.key=="rewards") | .value' | \
               tr -d '"')
-            if [ -n "$CLAIMED_AMOUNT" ] && [ "$CLAIMED_AMOUNT" != "null" ] && [ "$CLAIMED_AMOUNT" != "0" ]; then
-                echo "[ OK ] Staker1 claimed rewards: $CLAIMED_AMOUNT micro-DREAM"
-            else
-                echo "[ OK ] Claim succeeded (rewards: 0-10 micro-DREAM due to short duration)"
-                echo "   Note: Time-based APY calculated correctly"
-                echo "   Formula: 100 DREAM × 10% APY × (~30 seconds / year) ≈ 9 micro-DREAM"
-            fi
+            echo "[FAIL] Claim unexpectedly succeeded (rewards: ${CLAIMED_AMOUNT:-0})"
+            echo "   Expected rejection: stake is younger than min_stake_duration_seconds"
+        elif echo "$CLAIM_LOG" | grep -q "minimum duration"; then
+            echo "[ OK ] Claim correctly rejected: stake has not met the minimum holding period"
         else
-            echo "[FAIL] Claim failed: $(echo "$CLAIM_RESULT" | jq -r '.raw_log // .log')"
+            echo "[FAIL] Claim failed for the wrong reason: $CLAIM_LOG"
         fi
     else
         echo "[WARN]  Could not parse transaction result"
@@ -746,8 +748,12 @@ fi
 echo ""
 echo "--- PART 12: COMPOUND STAKING REWARDS ---"
 
+# Compounding is rejected for initiative and project stakes. Growing the
+# principal in place would give the added DREAM the conviction maturity of the
+# original created_at, which is exactly the exploit that separate stake tranches
+# exist to prevent. Those stakers claim and re-stake instead.
 if [ "$STAKE2_ID" != "unknown" ]; then
-    echo "Staker2 compounds rewards back into stake #$STAKE2_ID"
+    echo "Staker2 compounds rewards into initiative stake #$STAKE2_ID (expected: rejected)"
 
     COMPOUND_RES=$($BINARY tx rep compound-staking-rewards \
       --stake-id $STAKE2_ID \
@@ -766,17 +772,14 @@ if [ "$STAKE2_ID" != "unknown" ]; then
     # Check transaction result
     if echo "$COMPOUND_RESULT" | jq -e '.code' >/dev/null 2>&1; then
         TX_CODE=$(echo "$COMPOUND_RESULT" | jq -r '.code')
+        COMPOUND_LOG=$(echo "$COMPOUND_RESULT" | jq -r '.raw_log // .log')
         if [ "$TX_CODE" = "0" ]; then
-            COMPOUNDED_AMOUNT=$(echo "$COMPOUND_RESULT" | jq -r '.events[] | select(.type=="staking_rewards_compounded") | .attributes[] | select(.key=="compounded") | .value' | \
-              tr -d '"')
-            if [ -n "$COMPOUNDED_AMOUNT" ] && [ "$COMPOUNDED_AMOUNT" != "null" ] && [ "$COMPOUNDED_AMOUNT" != "0" ]; then
-                echo "[ OK ] Staker2 compounded rewards: $COMPOUNDED_AMOUNT micro-DREAM"
-            else
-                echo "[ OK ] Compound succeeded (rewards: 0-10 micro-DREAM due to short duration)"
-                echo "   Note: Rewards calculated correctly using lazy APY calculation"
-            fi
+            echo "[FAIL] Compound unexpectedly succeeded on an initiative stake"
+            echo "   Expected rejection: compounding is only supported for member and tag stakes"
+        elif echo "$COMPOUND_LOG" | grep -q "compounding is not supported"; then
+            echo "[ OK ] Compound correctly rejected for an initiative stake"
         else
-            echo "[FAIL] Compound failed: $(echo "$COMPOUND_RESULT" | jq -r '.raw_log // .log')"
+            echo "[FAIL] Compound failed for the wrong reason: $COMPOUND_LOG"
         fi
     else
         echo "[WARN]  Could not parse transaction result"

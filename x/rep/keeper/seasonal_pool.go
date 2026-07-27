@@ -65,6 +65,25 @@ func (k Keeper) getSeasonalPoolTotalStaked(ctx context.Context) (math.Int, error
 	return val, nil
 }
 
+// GetSeasonalPoolTotalStaked returns the total DREAM staked across all
+// initiatives and projects — the denominator the seasonal pool divides each
+// epoch's reward slice by.
+func (k Keeper) GetSeasonalPoolTotalStaked(ctx context.Context) (math.Int, error) {
+	return k.getSeasonalPoolTotalStaked(ctx)
+}
+
+// GetSeasonalPoolAccPerShare returns the seasonal pool's accumulated reward per
+// share. Monotonic for the life of the chain; see InitSeasonalPool.
+func (k Keeper) GetSeasonalPoolAccPerShare(ctx context.Context) (math.LegacyDec, error) {
+	return k.getSeasonalPoolAccPerShare(ctx)
+}
+
+// GetSeasonalPoolRemaining returns the DREAM left in this season's staking
+// reward budget.
+func (k Keeper) GetSeasonalPoolRemaining(ctx context.Context) (math.Int, error) {
+	return k.getSeasonalPoolRemaining(ctx)
+}
+
 // setSeasonalPoolAccPerShare persists the accumulated reward per share.
 func (k Keeper) setSeasonalPoolAccPerShare(ctx context.Context, val math.LegacyDec) error {
 	return k.SeasonalPoolAccPerShare.Set(ctx, val.String())
@@ -81,23 +100,29 @@ func (k Keeper) setSeasonalPoolTotalStaked(ctx context.Context, val math.Int) er
 }
 
 // UpdateSeasonalPoolTotalStaked adds delta to the total staked amount.
-// delta may be negative (e.g. when a user unstakes).
+// delta may be negative (e.g. when a user unstakes). Called from every site
+// that mutates an INITIATIVE or PROJECT stake amount, via updateStakePoolTotals.
 func (k Keeper) UpdateSeasonalPoolTotalStaked(ctx context.Context, delta math.Int) error {
 	current, err := k.getSeasonalPoolTotalStaked(ctx)
 	if err != nil {
 		return err
 	}
-	updated := current.Add(delta)
-	if updated.IsNegative() {
-		return fmt.Errorf("seasonal pool total staked cannot go negative: current %s, delta %s", current, delta)
-	}
-	return k.setSeasonalPoolTotalStaked(ctx, updated)
+	return k.setSeasonalPoolTotalStaked(ctx, clampPoolTotal(ctx, "seasonal", current, delta))
 }
 
 // InitSeasonalPool initialises the seasonal staking reward pool for a new
-// season. It sets the remaining budget from params.MaxStakingRewardsPerSeason,
-// resets the accumulator to zero, and records the season number. It also
-// resets SeasonMinted and SeasonBurned counters.
+// season. It refills the remaining budget from params.MaxStakingRewardsPerSeason
+// and records the season number. It also resets SeasonMinted and SeasonBurned
+// counters.
+//
+// The accumulator is deliberately NOT reset. accPerShare is monotonic for the
+// life of the chain, and each stake's reward_debt is a snapshot of it taken at
+// join time. Zeroing the accumulator at a season boundary would leave every
+// surviving stake holding a debt larger than the accumulator it is measured
+// against, so `amount * accPerShare - reward_debt` would clamp to zero until
+// the new season's accumulator climbed back past the old value — silently
+// paying nothing to anyone who held across the rollover. Per-season budgeting
+// is enforced by SeasonalPoolRemaining alone.
 func (k Keeper) InitSeasonalPool(ctx context.Context, season uint64) error {
 	params, err := k.Params.Get(ctx)
 	if err != nil {
@@ -106,9 +131,6 @@ func (k Keeper) InitSeasonalPool(ctx context.Context, season uint64) error {
 
 	if err := k.setSeasonalPoolRemaining(ctx, params.MaxStakingRewardsPerSeason); err != nil {
 		return fmt.Errorf("failed to set seasonal pool remaining: %w", err)
-	}
-	if err := k.setSeasonalPoolAccPerShare(ctx, math.LegacyZeroDec()); err != nil {
-		return fmt.Errorf("failed to reset seasonal pool acc_per_share: %w", err)
 	}
 	if err := k.SeasonalPoolSeason.Set(ctx, season); err != nil {
 		return fmt.Errorf("failed to set seasonal pool season: %w", err)

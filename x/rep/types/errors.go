@@ -171,6 +171,12 @@ var (
 	ErrRequestedBudgetExceedsCap = errors.Register(ModuleName, 2104, "requested project budget exceeds the proposal-time cap")
 	ErrRequestedSparkExceedsCap  = errors.Register(ModuleName, 2105, "requested project SPARK exceeds the proposal-time cap")
 
+	// Staking reward accounting. Early claim/compound/unstake reuses the
+	// long-registered ErrMinStakeDuration (1503) rather than adding a second
+	// code for the same condition.
+	ErrCompoundNotSupported = errors.Register(ModuleName, 2106, "compounding is not supported for this stake target type; claim and re-stake instead")
+	ErrTooManyStakeTranches = errors.Register(ModuleName, 2107, "member has reached the max number of separate stakes on this target")
+
 	// Keeper-internal validation
 	ErrEmptyWarningReason = errors.Register(ModuleName, 2201, "warning reason is required")
 )

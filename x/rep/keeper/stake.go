@@ -52,15 +52,12 @@ func (k Keeper) CreateStake(
 			return 0, fmt.Errorf("initiative not found: %w", err)
 		}
 		// Per-member cap: prevents reward pool extraction via disproportionate stakes
-		existingStakes, err := k.GetStakesByTarget(ctx, targetType, targetID)
+		memberTotal, tranches, err := k.stakerTotalsOnTarget(ctx, staker, targetType, targetID)
 		if err != nil {
-			return 0, fmt.Errorf("failed to check existing stakes: %w", err)
+			return 0, err
 		}
-		memberTotal := math.ZeroInt()
-		for _, s := range existingStakes {
-			if s.Staker == staker.String() {
-				memberTotal = memberTotal.Add(s.Amount)
-			}
+		if tranches >= types.MaxStakeTranchesPerTarget {
+			return 0, types.ErrTooManyStakeTranches
 		}
 		if memberTotal.Add(amount).GT(params.MaxInitiativeStakePerMember) {
 			return 0, types.ErrInitiativeStakeCap
@@ -71,15 +68,12 @@ func (k Keeper) CreateStake(
 			return 0, fmt.Errorf("project not found: %w", err)
 		}
 		// Same per-member cap for projects (shared seasonal reward pool)
-		existingStakes, err := k.GetStakesByTarget(ctx, targetType, targetID)
+		memberTotal, tranches, err := k.stakerTotalsOnTarget(ctx, staker, targetType, targetID)
 		if err != nil {
-			return 0, fmt.Errorf("failed to check existing stakes: %w", err)
+			return 0, err
 		}
-		memberTotal := math.ZeroInt()
-		for _, s := range existingStakes {
-			if s.Staker == staker.String() {
-				memberTotal = memberTotal.Add(s.Amount)
-			}
+		if tranches >= types.MaxStakeTranchesPerTarget {
+			return 0, types.ErrTooManyStakeTranches
 		}
 		if memberTotal.Add(amount).GT(params.MaxInitiativeStakePerMember) {
 			return 0, types.ErrInitiativeStakeCap
@@ -118,15 +112,12 @@ func (k Keeper) CreateStake(
 			return 0, types.ErrSelfContentStake
 		}
 		// Per-member cap: sum existing stakes by this member on this target
-		existingStakes, err := k.GetStakesByTarget(ctx, targetType, targetID)
+		memberTotal, tranches, err := k.stakerTotalsOnTarget(ctx, staker, targetType, targetID)
 		if err != nil {
-			return 0, fmt.Errorf("failed to check existing stakes: %w", err)
+			return 0, err
 		}
-		memberTotal := math.ZeroInt()
-		for _, s := range existingStakes {
-			if s.Staker == staker.String() {
-				memberTotal = memberTotal.Add(s.Amount)
-			}
+		if tranches >= types.MaxStakeTranchesPerTarget {
+			return 0, types.ErrTooManyStakeTranches
 		}
 		if memberTotal.Add(amount).GT(params.MaxContentStakePerMember) {
 			return 0, types.ErrContentStakeCap
@@ -165,32 +156,28 @@ func (k Keeper) CreateStake(
 		RewardDebt:       math.ZeroInt(),
 	}
 
-	// For MasterChef-style pools, initialize reward debt (skip for content/bond types)
-	if targetType == types.StakeTargetType_STAKE_TARGET_MEMBER {
-		pool, err := k.MemberStakePool.Get(ctx, targetIdentifier)
-		if err == nil {
-			stake.RewardDebt = amount.ToLegacyDec().Mul(pool.AccRewardPerShare).TruncateInt()
-		}
-		// Update member stake pool
-		if err := k.updateMemberStakePoolOnStake(ctx, targetIdentifier, amount); err != nil {
-			return 0, fmt.Errorf("failed to update member stake pool: %w", err)
-		}
-	} else if targetType == types.StakeTargetType_STAKE_TARGET_TAG {
-		pool, err := k.TagStakePool.Get(ctx, targetIdentifier)
-		if err == nil {
-			stake.RewardDebt = amount.ToLegacyDec().Mul(pool.AccRewardPerShare).TruncateInt()
-		}
-		// Update tag stake pool
-		if err := k.updateTagStakePoolOnStake(ctx, targetIdentifier, amount); err != nil {
-			return 0, fmt.Errorf("failed to update tag stake pool: %w", err)
-		}
-	} else if targetType == types.StakeTargetType_STAKE_TARGET_PROJECT {
-		// Update project stake info
-		if err := k.updateProjectStakeInfoOnStake(ctx, targetID, amount); err != nil {
-			return 0, fmt.Errorf("failed to update project stake info: %w", err)
-		}
+	// Snapshot the pool accumulator as this stake's reward-debt baseline. This
+	// is what makes the new staker's pending balance start at zero instead of
+	// at the pool's entire accumulated history, and it is why a stake placed
+	// just before a distribution earns nothing from it. It must be taken for
+	// every reward-bearing target type — initiative and project stakes were
+	// previously left at a permanent zero debt, which turned `pending` into a
+	// pure function of stake size, repayable on every claim.
+	//
+	// Read before the denominator moves below: the accumulator is only advanced
+	// by revenue, not by total_staked, but reading first keeps the ordering
+	// obvious.
+	rewardDebt, err := k.initialRewardDebt(ctx, stake, amount)
+	if err != nil {
+		return 0, fmt.Errorf("failed to compute initial reward debt: %w", err)
 	}
-	// Content conviction and author bond types have no pool accounting
+	stake.RewardDebt = rewardDebt
+
+	// Grow every denominator this stake will draw rewards from. Content
+	// conviction and author bond types have no pool accounting and are no-ops.
+	if err := k.updateStakePoolTotals(ctx, stake, amount); err != nil {
+		return 0, fmt.Errorf("failed to update stake pool totals: %w", err)
+	}
 
 	// Store stake
 	if err := k.Stake.Set(ctx, stakeID, stake); err != nil {
@@ -202,11 +189,12 @@ func (k Keeper) CreateStake(
 		return 0, fmt.Errorf("failed to add stake to target index: %w", err)
 	}
 
-	// If staking on an initiative, update conviction (lazy update)
-	if targetType == types.StakeTargetType_STAKE_TARGET_INITIATIVE {
-		if err := k.UpdateInitiativeConvictionLazy(ctx, targetID); err != nil {
-			return 0, fmt.Errorf("failed to update conviction: %w", err)
-		}
+	// Refresh conviction for whatever this stake feeds into. The recompute is
+	// synchronous here — it is gas-metered and the staker should see the effect
+	// immediately — and the initiative is then re-armed on the queue so its
+	// time-driven drift keeps being tracked.
+	if err := k.refreshConvictionForStake(ctx, stake); err != nil {
+		return 0, err
 	}
 
 	// Emit event
@@ -288,6 +276,12 @@ func (k Keeper) RemoveStake(ctx context.Context, stakeID uint64, stakerAddr sdk.
 				return fmt.Errorf("failed to update stake: %w", err)
 			}
 		}
+		// Withdrawing content conviction lowers what propagates into any
+		// initiative linking that content, so those need recomputing too.
+		if err := k.refreshConvictionForStake(ctx, stake); err != nil {
+			return err
+		}
+
 		sdkCtx := sdk.UnwrapSDKContext(ctx)
 		eventType := "stake_removed"
 		if !remainingAmount.IsZero() {
@@ -306,32 +300,42 @@ func (k Keeper) RemoveStake(ctx context.Context, stakeID uint64, stakerAddr sdk.
 		return nil
 	}
 
-	// Create a temporary stake representing only the portion being removed
-	// This ensures rewards are calculated only for the removed amount
-	removedPortionStake := stake
-	removedPortionStake.Amount = amount
+	remainingAmount := currentStakeAmount.Sub(amount)
 
-	// Calculate staking rewards based on time and APY for the removed portion
-	stakingReward, err := k.CalculateStakingReward(ctx, removedPortionStake)
+	// Settle the whole position against the accumulator that actually owns it.
+	// The previous code ran CalculateStakingReward — the *seasonal* accumulator
+	// — for every non-content type, so a member or tag staker who unstaked
+	// without claiming first was paid from the wrong pool (in practice, zero)
+	// and then lost the record that was their only claim ticket. settleStake
+	// dispatches on target type, so member and tag stakes settle against their
+	// own pool and initiative and project stakes against the seasonal one.
+	//
+	// Rewards are collectable only after MinStakeDurationSeconds. Leaving
+	// earlier forfeits them: the debt is still rebased, so the unclaimed DREAM
+	// is never minted and simply stays in the pool for the remaining stakers.
+	eligible, err := k.stakeMeetsMinDuration(ctx, stake)
 	if err != nil {
-		return fmt.Errorf("failed to calculate staking reward: %w", err)
+		return err
 	}
-
-	// Mint staking rewards to staker
-	if stakingReward.GT(math.ZeroInt()) {
-		if err := k.MintDREAM(ctx, stakerAddr, stakingReward); err != nil {
-			return fmt.Errorf("failed to mint staking reward: %w", err)
-		}
+	stake, settlement, err := k.settleStake(ctx, stake, remainingAmount, !eligible)
+	if err != nil {
+		return err
 	}
+	stakingReward := settlement.Minted
 
 	// Unlock the removed principal DREAM
 	if err := k.UnlockDREAM(ctx, stakerAddr, amount); err != nil {
 		return fmt.Errorf("failed to unlock DREAM: %w", err)
 	}
 
-	// Update or Delete Stake
-	remainingAmount := currentStakeAmount.Sub(amount)
+	// Shrink every denominator this stake was diluting. Without this the pool
+	// keeps dividing incoming revenue by DREAM that has already left, silently
+	// and permanently under-paying everyone who stayed.
+	if err := k.updateStakePoolTotals(ctx, stake, amount.Neg()); err != nil {
+		return fmt.Errorf("failed to update stake pool totals: %w", err)
+	}
 
+	// Update or Delete Stake
 	if remainingAmount.IsZero() {
 		// Full removal - also remove from target index
 		if err := k.RemoveStakeFromTargetIndex(ctx, stake); err != nil {
@@ -342,7 +346,10 @@ func (k Keeper) RemoveStake(ctx context.Context, stakeID uint64, stakerAddr sdk.
 			return fmt.Errorf("failed to remove stake: %w", err)
 		}
 	} else {
-		// Partial removal - index key doesn't change, just the amount
+		// Partial removal - index key doesn't change, just the amount.
+		// settleStake has already rebased reward_debt to remainingAmount, so
+		// the shrunken stake no longer carries a debt sized for its original
+		// principal (which would have clamped its future rewards to zero).
 		stake.Amount = remainingAmount
 		if err := k.Stake.Set(ctx, stakeID, stake); err != nil {
 			return fmt.Errorf("failed to update stake: %w", err)
@@ -350,10 +357,8 @@ func (k Keeper) RemoveStake(ctx context.Context, stakeID uint64, stakerAddr sdk.
 	}
 
 	// Trigger conviction update after store change
-	if stake.TargetType == types.StakeTargetType_STAKE_TARGET_INITIATIVE {
-		if err := k.UpdateInitiativeConvictionLazy(ctx, stake.TargetId); err != nil {
-			return fmt.Errorf("failed to update conviction: %w", err)
-		}
+	if err := k.refreshConvictionForStake(ctx, stake); err != nil {
+		return err
 	}
 
 	// Emit event
@@ -371,10 +376,39 @@ func (k Keeper) RemoveStake(ctx context.Context, stakeID uint64, stakerAddr sdk.
 			sdk.NewAttribute("amount_removed", amount.String()),
 			sdk.NewAttribute("amount_remaining", remainingAmount.String()),
 			sdk.NewAttribute("reward", stakingReward.String()),
+			sdk.NewAttribute("reward_forfeited", settlement.Pending.Sub(stakingReward).String()),
 		),
 	)
 
 	return nil
+}
+
+// stakerTotalsOnTarget returns how much `staker` already has staked on a target
+// and across how many separate stake records. Both feed CreateStake's limits:
+// the total against the per-member DREAM cap, the count against
+// MaxStakeTranchesPerTarget.
+func (k Keeper) stakerTotalsOnTarget(
+	ctx context.Context,
+	staker sdk.AccAddress,
+	targetType types.StakeTargetType,
+	targetID uint64,
+) (math.Int, int, error) {
+	existingStakes, err := k.GetStakesByTarget(ctx, targetType, targetID)
+	if err != nil {
+		return math.ZeroInt(), 0, fmt.Errorf("failed to check existing stakes: %w", err)
+	}
+
+	stakerStr := staker.String()
+	total := math.ZeroInt()
+	tranches := 0
+	for _, s := range existingStakes {
+		if s.Staker != stakerStr {
+			continue
+		}
+		total = total.Add(s.Amount)
+		tranches++
+	}
+	return total, tranches, nil
 }
 
 // GetInitiativeStakes returns all stakes for an initiative.

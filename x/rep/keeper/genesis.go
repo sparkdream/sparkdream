@@ -102,10 +102,17 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 		return err
 	}
 
-	// Content initiative links
+	// Content initiative links, plus the InitiativesByContent reverse index.
+	// The reverse index is derived state and is not exported, so it has to be
+	// rebuilt here or content stakes would stop reaching the initiatives they
+	// propagate into.
 	for _, link := range genState.ContentInitiativeLinks {
 		key := collections.Join(link.InitiativeId, collections.Join(link.TargetType, link.TargetId))
 		if err := k.ContentInitiativeLinks.Set(ctx, key); err != nil {
+			return err
+		}
+		reverseKey := collections.Join(collections.Join(link.TargetType, link.TargetId), link.InitiativeId)
+		if err := k.InitiativesByContent.Set(ctx, reverseKey); err != nil {
 			return err
 		}
 	}
@@ -203,7 +210,41 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 		k.MarkTrustTreeDirty(ctx)
 	}
 
-	return k.Params.Set(ctx, genState.Params)
+	if err := k.Params.Set(ctx, genState.Params); err != nil {
+		return err
+	}
+
+	// Seed the seasonal staking reward pool. Without this the pool's remaining
+	// budget stays unset, DistributeEpochStakingRewardsFromPool returns early
+	// every epoch, and the accumulator never leaves zero — which is why no
+	// initiative or project staker could earn from it. Params must already be
+	// set: InitSeasonalPool reads MaxStakingRewardsPerSeason.
+	//
+	// Only seeds an uninitialised pool, so re-importing an exported chain does
+	// not silently refill a season's budget or reset its economic counters.
+	remaining, err := k.getSeasonalPoolRemaining(ctx)
+	if err != nil {
+		return err
+	}
+	if remaining.IsZero() {
+		if err := k.InitSeasonalPool(ctx, 1); err != nil {
+			return err
+		}
+	}
+
+	// Arm the conviction queue for every imported initiative that can still
+	// accrue. The queue is derived state and is not exported, so without this an
+	// imported chain would never refresh conviction until the next stake
+	// mutation.
+	if err := k.RearmConvictionQueue(ctx); err != nil {
+		return err
+	}
+
+	// Recompute every staked denominator from the imported stakes. The pool
+	// records are exported verbatim, so this both rebuilds SeasonalPoolTotalStaked
+	// (which is derived state and not exported at all) and heals member, tag and
+	// project totals written before the decrement paths existed.
+	return k.ReconcileStakePoolTotals(ctx)
 }
 
 // ExportGenesis returns the module's exported genesis.

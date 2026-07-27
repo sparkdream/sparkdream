@@ -594,6 +594,42 @@ message ProjectStakeInfo {
 
 **Seasonal Reward Pool**: At the start of each season, `MaxStakingRewardsPerSeason` DREAM is allocated as the staking reward budget. Each epoch, `pool / remaining_epochs` is distributed pro-rata to all initiative and project stakers. When the pool is exhausted, no more staking rewards are minted until the next season. This makes effective APY self-adjusting: more total staked DREAM → lower per-unit yield; less staked → higher yield.
 
+The pool is seeded in `InitGenesis` and refilled by x/season at the end of each season transition (`RepKeeper.InitSeasonalPool`). The epoch slice is taken in `EndBlocker` step 8, gated on `IsEpochEnd` — the distribution call itself is per-block, so without that gate a season's whole budget would drain `epoch_blocks` times too fast.
+
+**Reward accounting (MasterChef)**: All four reward-bearing target types share one settlement path, `settleStake` in [x/rep/keeper/stake_settlement.go](../x/rep/keeper/stake_settlement.go). Every site that mutates a stake's amount or pays it out — create, claim, compound, unstake, initiative completion — goes through it, and it dispatches on target type to the accumulator that owns the stake: the shared seasonal `acc_per_share` for `INITIATIVE` and `PROJECT`, the per-target `MemberStakePool` / `TagStakePool` accumulator for `MEMBER` and `TAG`. Two invariants make the pattern correct and are both maintained there:
+
+- `reward_debt` is set to `amount × acc_per_share` at join and rebased to `new_amount × acc_per_share` on every settlement. This is what makes a new staker's pending balance start at zero rather than at the pool's whole accumulated history, and it is why a stake placed just before a distribution earns nothing from it. A partial withdrawal rebases against the *remaining* amount, so a shrunken stake does not sit under a debt sized for its original principal.
+- `total_staked` moves in lockstep with `stake.Amount` in both directions, via `updateStakePoolTotals`. A project stake moves two denominators (its own `ProjectStakeInfo` and the seasonal pool). `ReconcileStakePoolTotals` recomputes every denominator from live stakes and runs at genesis import.
+
+**Accumulator is monotonic across seasons.** `InitSeasonalPool` refills `SeasonalPoolRemaining` but does *not* reset `acc_per_share`. Since each stake's `reward_debt` is a snapshot of the accumulator, zeroing it at a season boundary would leave every surviving stake holding a debt larger than the accumulator it is measured against, silently paying nothing until the new season climbed back past the old value. Per-season budgeting is enforced by `SeasonalPoolRemaining` alone.
+
+**Minimum holding period.** `min_stake_duration_seconds` (24 hours) gates reward collection, not principal return. Claiming or compounding earlier is rejected with `ErrStakeMinDurationNotMet` and forfeits nothing — the debt is untouched, so rewards keep accruing. Unstaking earlier always returns the principal but forfeits the accrued rewards: the debt is rebased without minting, so the DREAM is never created and simply stays in the pool for the remaining stakers.
+
+**Compounding is member/tag only.** `MsgCompoundStakingRewards` rejects `INITIATIVE` and `PROJECT` stakes with `ErrCompoundNotSupported`. Growing those principals in place would give the added DREAM the conviction maturity of the original `created_at` — the exact exploit that separate stake tranches exist to prevent. Those stakers claim and re-stake, which routes the new DREAM through `CreateStake`'s per-member cap and starts it on a fresh maturity clock.
+
+**Tranche cap.** Stakes are never merged: each carries its own `created_at` maturity clock and its own `reward_debt` baseline, and averaging two joins made at different times or accumulator values would break both. `types.MaxStakeTranchesPerTarget` (10) bounds how many records one member may hold on a single target, which also keeps `CreateStake`'s O(n) per-member cap check from making n tranches cost O(n²) to accumulate.
+
+### Conviction refresh scheduling
+
+Initiative conviction is recomputed from a due-time-ordered work queue rather than by sweeping every stake of every active initiative on every block. The old sweep made per-block validator work scale linearly with a stake count any member could inflate for a fully refundable amount of DREAM — a one-time transaction fee bought permanent, unmetered per-block work on every validator. See [x/rep/keeper/conviction_queue.go](../x/rep/keeper/conviction_queue.go).
+
+Three things drive the queue:
+
+- **Event-driven.** Anything that changes conviction inputs reschedules the affected initiative to "due now". A stake on the initiative itself is additionally recomputed synchronously, since that work is gas-metered on the staker's own transaction and they should see the effect immediately. A stake on *linked content* is not recomputed inline — it can fan out to many initiatives — so those are marked due via the `InitiativesByContent` reverse index and picked up by the next EndBlocker. That reverse index is what makes an incremental refresh correct: without it, propagated conviction would silently stop tracking content stakes.
+- **Self-rearming.** Conviction also drifts with no external event, because each stake's time weighting climbs until it matures. After every recompute an initiative re-arms itself: at `half_life / 8` while any of its stakes is still maturing (so conviction is sampled ~16 times across the maturity window regardless of how `conviction_half_life_epochs` and `epoch_blocks` are configured), and at `ConvictionStableRefreshSeconds` (6 hours) once they all have. A matured initiative's conviction only moves via reputation decay, so a multi-hour cadence keeps the error negligible — and it removes dust stakes from the per-block cost model entirely once they mature.
+- **Bounded per block.** `DrainConvictionQueue` scans only the due prefix and stops once `MaxConvictionStakeUpdatesPerBlock` (500) stake-level recomputations are spent. An initiative is always processed whole, since conviction is meaningless from a partial stake set, so the budget is checked between initiatives. Leftover work rolls to the next block.
+
+Consequences worth knowing:
+
+- A saturated queue delays conviction *freshness*; it cannot inflate block time. That is the intended failure mode.
+- `CanCompleteInitiative` (EndBlocker) reads stored conviction, so an initiative can cross its threshold up to one refresh interval late — by construction, ~1/16th of the maturity window. The `InitiativeConviction` query recomputes on demand, so a caller who asks directly never sees a stale figure.
+- Initiatives that leave the active status set are dropped from the queue by the drainer itself, so completion, cancellation, abandonment and expiry are all covered without a hook in each transition.
+- The queue and the `InitiativesByContent` reverse index are derived state and are not exported in genesis. `InitGenesis` rebuilds the reverse index from `ContentInitiativeLinks` and calls `RearmConvictionQueue`, which is also available as a recovery hatch if the queue is ever suspected of having drifted.
+
+`MaxConvictionStakeUpdatesPerBlock` and `ConvictionStableRefreshSeconds` are compile-time constants rather than governance params — they bound unmetered EndBlocker work, so a value set too high is itself a liveness risk, and changing one belongs with a change to the sweep's cost model in a chain upgrade. This matches the local convention (`maxTagExpirations` in the same module) rather than the param-driven batching used by x/collect and x/federation.
+
+**Completion bonus ordering.** `CompleteInitiative` distributes the conviction-weighted completion bonus (`InitiativeCompletionBonusDivisor`, 1/10th of budget) *before* the payout loop deletes the stake records — the weighting is derived from `stake.created_at`, so running it afterwards leaves it nothing to weight. The bonus mint is tracked against `MaxInitiativeRewardsPerSeason` alongside the completer and treasury shares. The project-side equivalent (`ProjectCompletionBonusRate`) mints directly to stakers; `ProjectStakeInfo.completion_bonus_pool` is vestigial and stays at zero, since nothing is escrowed.
+
 **Staked Decay**: All staked DREAM decays at `StakedDecayRate` (0.05%/epoch, ~18% annualized). This ensures idle stakes erode over time even though the rate is lower than unstaked decay (0.2%/epoch). Active stakers earning from the seasonal pool easily outpace the staked decay, but abandoned stakes are gradually burned.
 
 **New Member Grace Period**: Members who joined fewer than `NewMemberDecayGraceEpochs` (30 epochs, ~1 month) ago are exempt from both unstaked and staked decay, giving them time to earn and stake DREAM before decay applies.
@@ -2104,11 +2140,10 @@ Located in `x/rep/keeper/abci.go`:
 
 ```go
 func (k Keeper) EndBlocker(ctx context.Context) error {
-    // 1. Update conviction for all active initiative stakes
-    k.IterateActiveInitiatives(ctx, func(index int64, initiative types.Initiative) bool {
-        _ = k.UpdateInitiativeConviction(ctx, initiative.Id)
-        return false
-    })
+    // 1. Recompute conviction for initiatives whose refresh is due, under a
+    // per-block work budget. Replaces a sweep over every stake of every active
+    // initiative on every block. See "Conviction refresh scheduling".
+    k.DrainConvictionQueue(ctx)
 
     // 2. Check initiative completion thresholds
     k.IterateSubmittedInitiatives(ctx, func(index int64, initiative types.Initiative) bool {
@@ -2119,10 +2154,18 @@ func (k Keeper) EndBlocker(ctx context.Context) error {
         return false
     })
 
-    // 3. Finalize unchallenged initiatives
+    // 3. Finalize unchallenged initiatives.
+    // Run in a child cache context, committed only on success: CompleteInitiative
+    // mints to the completer, treasury and every staker before deleting the
+    // stakes, and is not idempotent. EndBlocker writes straight to the deliver
+    // state, so a mid-function error would persist those mints and pay them
+    // again on the next block's retry.
     k.IteratePendingCompletionInitiatives(ctx, func(index int64, initiative types.Initiative) bool {
         if sdkCtx.BlockHeight() >= initiative.ChallengePeriodEnd {
-            _ = k.CompleteInitiative(ctx, initiative.Id)
+            cacheCtx, writeCache := sdkCtx.CacheContext()
+            if err := k.CompleteInitiative(cacheCtx, initiative.Id); err == nil {
+                writeCache()
+            }
         }
         return false
     })
@@ -2158,11 +2201,13 @@ func (k Keeper) EndBlocker(ctx context.Context) error {
         return false
     })
 
-    // 8. Distribute staking rewards from seasonal pool
+    // 8. Distribute staking rewards from seasonal pool.
     // Rewards are pro-rata from MaxStakingRewardsPerSeason, split across
     // all epochs in the season. Once the pool is exhausted, no more rewards
     // are minted until the next season. Effective APY is self-adjusting:
     // more staked → lower per-unit yield; less staked → higher yield.
+    // Internally gated on IsEpochEnd — this is called every block, and each
+    // call takes remaining/remainingEpochs.
     k.DistributeEpochStakingRewards(ctx)
 
     // 9. Treasury overflow check (once per epoch boundary)
@@ -2481,10 +2526,20 @@ The `RepOperationalParams` message mirrors most `Params` fields except governanc
 | 1405 | `ErrNotAssignee` | Not the assignee of this initiative |
 | 1501 | `ErrStakeNotFound` | Stake not found |
 | 1502 | `ErrNotStakeOwner` | Not the owner of this stake |
-| 1503 | `ErrMinStakeDuration` | Minimum stake duration not met |
+| 1503 | `ErrMinStakeDuration` | Minimum stake duration not met — returned by claim and compound before `min_stake_duration_seconds` has elapsed |
 | 1504 | `ErrSelfMemberStake` | Cannot stake on yourself |
 | 1505 | `ErrInvalidTargetType` | Invalid stake target type |
 | 1506 | `ErrStakePoolNotFound` | Stake pool not found |
+| 1507 | `ErrSelfContentStake` | Cannot stake conviction on own content |
+| 1508 | `ErrContentStakeCap` | Exceeds max content stake per member for this content |
+| 1509 | `ErrAuthorBondCap` | Exceeds max author bond per content item |
+| 1510 | `ErrAuthorBondExists` | Author bond already exists for this content item |
+| 1511 | `ErrAuthorBondNotFound` | No author bond found for this content item |
+| 1512 | `ErrNotContentTargetType` | Target type is not a content conviction type |
+| 1513 | `ErrNotAuthorBondType` | Target type is not an author bond type |
+| 1514 | `ErrAuthorBondViaMsg` | Author bonds must be created via content module, not `MsgStake` |
+| 1515 | `ErrInitiativeStakeCap` | Exceeds max initiative stake per member for this target |
+| 1516 | `ErrInitiativeRewardCapReached` | Season initiative reward minting cap reached |
 | 1600 | `ErrInvalidRequest` | Invalid request |
 | 1701 | `ErrChallengeNotFound` | Challenge not found |
 | 1702 | `ErrChallengeNotPending` | Challenge is not pending |
@@ -2495,6 +2550,10 @@ The `RepOperationalParams` message mirrors most `Params` fields except governanc
 | 1901 | `ErrInsufficientTrustLevel` | Trust level too low for permissionless creation |
 | 1902 | `ErrPermissionlessTierExceeded` | Tier exceeds maximum allowed for permissionless projects |
 | 1903 | `ErrInsufficientCreationFee` | Insufficient DREAM balance for creation fee |
+| 2106 | `ErrCompoundNotSupported` | Compounding is not supported for this stake target type; claim and re-stake instead |
+| 2107 | `ErrTooManyStakeTranches` | Member has reached the max number of separate stakes on this target (`types.MaxStakeTranchesPerTarget`) |
+
+> **Note:** this table is not exhaustive. `x/rep/types/errors.go` registers 120 errors; the rows above cover the ranges documented so far. The 2001–2007 (content challenge), 2101–2105 (activity caps, mint cap, proposal-time caps) and 2201 blocks are registered but not yet tabulated here.
 
 ## Content Staking
 
