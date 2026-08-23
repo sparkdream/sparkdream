@@ -15,6 +15,10 @@ enum GovActionType {
   GOV_ACTION_TYPE_THREAD_MOVE = 7;
   GOV_ACTION_TYPE_REPLY_PIN = 8;
   GOV_ACTION_TYPE_POST_HIDE = 9;
+  // A reviewer rejection of submitted initiative work. Appealed by the
+  // assignee; a successful appeal voids the rejection and records the
+  // rejecting reviewers as overturned.
+  GOV_ACTION_TYPE_REVIEW_REJECTION = 10;
 }
 
 // MemberReportStatus represents the status of a member report.

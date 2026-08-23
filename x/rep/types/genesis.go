@@ -20,8 +20,8 @@ func DefaultGenesis() *GenesisState {
 		JuryReviewList:         []JuryReview{},
 		JuryReviewCount:        1,
 		InterimList:            []Interim{},
+		InitiativeReviewList:   []InitiativeReview{},
 		InterimCount:           1,
-		InterimTemplateMap:     []InterimTemplate{},
 		ContentChallengeList:   []ContentChallenge{},
 		ContentChallengeCount:  1,
 		ContentInitiativeLinks: []ContentInitiativeLink{},
@@ -48,6 +48,25 @@ func DefaultGenesis() *GenesisState {
 // fails to write-through.
 func DefaultBondedRoleConfigs() []BondedRoleConfig {
 	return []BondedRoleConfig{
+		{
+			// x/rep owns this role, so there is no other module to write it
+			// through — these values are the operative config, not a seed.
+			//
+			// The bond is an order of magnitude above the sentinel's because
+			// the liability is: a wrong approval mints DREAM, up to an EPIC
+			// initiative's 10,000, and minted DREAM cannot be clawed back.
+			// Each verdict additionally commits reviewer_bond_reserve_rate of
+			// that initiative's budget, so this floor is what lets a reviewer
+			// hold several open verdicts at once.
+			RoleType:          RoleType_ROLE_TYPE_INITIATIVE_REVIEWER,
+			MinBond:           "5000",
+			MinRepTier:        3,
+			MinTrustLevel:     "TRUST_LEVEL_ESTABLISHED",
+			MinAgeBlocks:      0,
+			DemotionCooldown:  604800,  // 7 days
+			DemotionThreshold: "2500",  // half the floor
+			UnbondCooldown:    1209600, // 14 days: bond stays slashable while open verdicts age out
+		},
 		{
 			RoleType:          RoleType_ROLE_TYPE_CONTENT_SENTINEL,
 			MinBond:           "1000",
@@ -172,16 +191,6 @@ func (gs GenesisState) Validate() error {
 		}
 		interimIdMap[elem.Id] = true
 	}
-	interimTemplateIndexMap := make(map[string]struct{})
-
-	for _, elem := range gs.InterimTemplateMap {
-		index := fmt.Sprint(elem.Id)
-		if _, ok := interimTemplateIndexMap[index]; ok {
-			return fmt.Errorf("duplicated index for interimTemplate")
-		}
-		interimTemplateIndexMap[index] = struct{}{}
-	}
-
 	// Content challenge validation
 	contentChallengeIdMap := make(map[uint64]bool)
 	contentChallengeCount := gs.GetContentChallengeCount()

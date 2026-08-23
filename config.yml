@@ -214,7 +214,7 @@ genesis:
         gift_cooldown_blocks: "5"  # ~30 seconds (was ~1 day = 14400 blocks)
         max_gifts_per_sender_epoch: "2000000000"  # 2000 DREAM per epoch (same as production)
         # Jury - SMALL for testing (production: 5)
-        jury_size: 3  # 3 jurors for testing (5 in production)
+        jury_size: 5  # must exceed MinSeatedJurors (3) or the redraw sweep can never vacate a seat
         min_juror_reputation: "20"  # 20 reputation (50 in production)
         # DREAM economics - TESTING overrides only
         new_member_decay_grace_epochs: "5"  # 5 epochs grace (~5 min, production: 30 ~1 month)

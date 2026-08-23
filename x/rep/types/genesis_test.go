@@ -23,23 +23,22 @@ func TestGenesisState_Validate(t *testing.T) {
 			desc: "valid genesis state",
 			// Added Params: types.DefaultParams() to ensure EpochBlocks > 0
 			genState: &types.GenesisState{
-				Params:             types.DefaultParams(),
-				MemberMap:          []types.Member{{Address: "0"}, {Address: "1"}},
-				InvitationList:     []types.Invitation{{Id: 0}, {Id: 1}},
-				InvitationCount:    2,
-				ProjectList:        []types.Project{{Id: 0}, {Id: 1}},
-				ProjectCount:       2,
-				InitiativeList:     []types.Initiative{{Id: 0}, {Id: 1}},
-				InitiativeCount:    2,
-				StakeList:          []types.Stake{{Id: 0}, {Id: 1}},
-				StakeCount:         2,
-				ChallengeList:      []types.Challenge{{Id: 0}, {Id: 1}},
-				ChallengeCount:     2,
-				JuryReviewList:     []types.JuryReview{{Id: 0}, {Id: 1}},
-				JuryReviewCount:    2,
-				InterimList:        []types.Interim{{Id: 0}, {Id: 1}},
-				InterimCount:       2,
-				InterimTemplateMap: []types.InterimTemplate{{Id: "0"}, {Id: "1"}},
+				Params:          types.DefaultParams(),
+				MemberMap:       []types.Member{{Address: "0"}, {Address: "1"}},
+				InvitationList:  []types.Invitation{{Id: 0}, {Id: 1}},
+				InvitationCount: 2,
+				ProjectList:     []types.Project{{Id: 0}, {Id: 1}},
+				ProjectCount:    2,
+				InitiativeList:  []types.Initiative{{Id: 0}, {Id: 1}},
+				InitiativeCount: 2,
+				StakeList:       []types.Stake{{Id: 0}, {Id: 1}},
+				StakeCount:      2,
+				ChallengeList:   []types.Challenge{{Id: 0}, {Id: 1}},
+				ChallengeCount:  2,
+				JuryReviewList:  []types.JuryReview{{Id: 0}, {Id: 1}},
+				JuryReviewCount: 2,
+				InterimList:     []types.Interim{{Id: 0}, {Id: 1}},
+				InterimCount:    2,
 			},
 			valid: true,
 		}, {
@@ -54,7 +53,7 @@ func TestGenesisState_Validate(t *testing.T) {
 					},
 				},
 				InvitationList: []types.Invitation{{Id: 0}, {Id: 1}}, InvitationCount: 2,
-				ProjectList: []types.Project{{Id: 0}, {Id: 1}}, ProjectCount: 2, InitiativeList: []types.Initiative{{Id: 0}, {Id: 1}}, InitiativeCount: 2, StakeList: []types.Stake{{Id: 0}, {Id: 1}}, StakeCount: 2, ChallengeList: []types.Challenge{{Id: 0}, {Id: 1}}, ChallengeCount: 2, JuryReviewList: []types.JuryReview{{Id: 0}, {Id: 1}}, JuryReviewCount: 2, InterimList: []types.Interim{{Id: 0}, {Id: 1}}, InterimCount: 2, InterimTemplateMap: []types.InterimTemplate{{Id: "0"}, {Id: "1"}}}, valid: false,
+				ProjectList: []types.Project{{Id: 0}, {Id: 1}}, ProjectCount: 2, InitiativeList: []types.Initiative{{Id: 0}, {Id: 1}}, InitiativeCount: 2, StakeList: []types.Stake{{Id: 0}, {Id: 1}}, StakeCount: 2, ChallengeList: []types.Challenge{{Id: 0}, {Id: 1}}, ChallengeCount: 2, JuryReviewList: []types.JuryReview{{Id: 0}, {Id: 1}}, JuryReviewCount: 2, InterimList: []types.Interim{{Id: 0}, {Id: 1}}, InterimCount: 2}, valid: false,
 		}, {
 			desc: "duplicated invitation",
 			genState: &types.GenesisState{
@@ -67,7 +66,7 @@ func TestGenesisState_Validate(t *testing.T) {
 					},
 				},
 				ProjectList: []types.Project{{Id: 0}, {Id: 1}}, ProjectCount: 2,
-				InitiativeList: []types.Initiative{{Id: 0}, {Id: 1}}, InitiativeCount: 2, StakeList: []types.Stake{{Id: 0}, {Id: 1}}, StakeCount: 2, ChallengeList: []types.Challenge{{Id: 0}, {Id: 1}}, ChallengeCount: 2, JuryReviewList: []types.JuryReview{{Id: 0}, {Id: 1}}, JuryReviewCount: 2, InterimList: []types.Interim{{Id: 0}, {Id: 1}}, InterimCount: 2, InterimTemplateMap: []types.InterimTemplate{{Id: "0"}, {Id: "1"}}}, valid: false,
+				InitiativeList: []types.Initiative{{Id: 0}, {Id: 1}}, InitiativeCount: 2, StakeList: []types.Stake{{Id: 0}, {Id: 1}}, StakeCount: 2, ChallengeList: []types.Challenge{{Id: 0}, {Id: 1}}, ChallengeCount: 2, JuryReviewList: []types.JuryReview{{Id: 0}, {Id: 1}}, JuryReviewCount: 2, InterimList: []types.Interim{{Id: 0}, {Id: 1}}, InterimCount: 2}, valid: false,
 		}, {
 			desc: "invalid invitation count",
 			genState: &types.GenesisState{
@@ -78,7 +77,7 @@ func TestGenesisState_Validate(t *testing.T) {
 				},
 				InvitationCount: 0,
 				ProjectList:     []types.Project{{Id: 0}, {Id: 1}}, ProjectCount: 2,
-				InitiativeList: []types.Initiative{{Id: 0}, {Id: 1}}, InitiativeCount: 2, StakeList: []types.Stake{{Id: 0}, {Id: 1}}, StakeCount: 2, ChallengeList: []types.Challenge{{Id: 0}, {Id: 1}}, ChallengeCount: 2, JuryReviewList: []types.JuryReview{{Id: 0}, {Id: 1}}, JuryReviewCount: 2, InterimList: []types.Interim{{Id: 0}, {Id: 1}}, InterimCount: 2, InterimTemplateMap: []types.InterimTemplate{{Id: "0"}, {Id: "1"}}}, valid: false,
+				InitiativeList: []types.Initiative{{Id: 0}, {Id: 1}}, InitiativeCount: 2, StakeList: []types.Stake{{Id: 0}, {Id: 1}}, StakeCount: 2, ChallengeList: []types.Challenge{{Id: 0}, {Id: 1}}, ChallengeCount: 2, JuryReviewList: []types.JuryReview{{Id: 0}, {Id: 1}}, JuryReviewCount: 2, InterimList: []types.Interim{{Id: 0}, {Id: 1}}, InterimCount: 2}, valid: false,
 		}, {
 			desc: "duplicated project",
 			genState: &types.GenesisState{
@@ -91,7 +90,7 @@ func TestGenesisState_Validate(t *testing.T) {
 					},
 				},
 				InitiativeList: []types.Initiative{{Id: 0}, {Id: 1}}, InitiativeCount: 2,
-				StakeList: []types.Stake{{Id: 0}, {Id: 1}}, StakeCount: 2, ChallengeList: []types.Challenge{{Id: 0}, {Id: 1}}, ChallengeCount: 2, JuryReviewList: []types.JuryReview{{Id: 0}, {Id: 1}}, JuryReviewCount: 2, InterimList: []types.Interim{{Id: 0}, {Id: 1}}, InterimCount: 2, InterimTemplateMap: []types.InterimTemplate{{Id: "0"}, {Id: "1"}}}, valid: false,
+				StakeList: []types.Stake{{Id: 0}, {Id: 1}}, StakeCount: 2, ChallengeList: []types.Challenge{{Id: 0}, {Id: 1}}, ChallengeCount: 2, JuryReviewList: []types.JuryReview{{Id: 0}, {Id: 1}}, JuryReviewCount: 2, InterimList: []types.Interim{{Id: 0}, {Id: 1}}, InterimCount: 2}, valid: false,
 		}, {
 			desc: "invalid project count",
 			genState: &types.GenesisState{
@@ -102,7 +101,7 @@ func TestGenesisState_Validate(t *testing.T) {
 				},
 				ProjectCount:   0,
 				InitiativeList: []types.Initiative{{Id: 0}, {Id: 1}}, InitiativeCount: 2,
-				StakeList: []types.Stake{{Id: 0}, {Id: 1}}, StakeCount: 2, ChallengeList: []types.Challenge{{Id: 0}, {Id: 1}}, ChallengeCount: 2, JuryReviewList: []types.JuryReview{{Id: 0}, {Id: 1}}, JuryReviewCount: 2, InterimList: []types.Interim{{Id: 0}, {Id: 1}}, InterimCount: 2, InterimTemplateMap: []types.InterimTemplate{{Id: "0"}, {Id: "1"}}}, valid: false,
+				StakeList: []types.Stake{{Id: 0}, {Id: 1}}, StakeCount: 2, ChallengeList: []types.Challenge{{Id: 0}, {Id: 1}}, ChallengeCount: 2, JuryReviewList: []types.JuryReview{{Id: 0}, {Id: 1}}, JuryReviewCount: 2, InterimList: []types.Interim{{Id: 0}, {Id: 1}}, InterimCount: 2}, valid: false,
 		}, {
 			desc: "duplicated initiative",
 			genState: &types.GenesisState{
@@ -115,7 +114,7 @@ func TestGenesisState_Validate(t *testing.T) {
 					},
 				},
 				StakeList: []types.Stake{{Id: 0}, {Id: 1}}, StakeCount: 2,
-				ChallengeList: []types.Challenge{{Id: 0}, {Id: 1}}, ChallengeCount: 2, JuryReviewList: []types.JuryReview{{Id: 0}, {Id: 1}}, JuryReviewCount: 2, InterimList: []types.Interim{{Id: 0}, {Id: 1}}, InterimCount: 2, InterimTemplateMap: []types.InterimTemplate{{Id: "0"}, {Id: "1"}}}, valid: false,
+				ChallengeList: []types.Challenge{{Id: 0}, {Id: 1}}, ChallengeCount: 2, JuryReviewList: []types.JuryReview{{Id: 0}, {Id: 1}}, JuryReviewCount: 2, InterimList: []types.Interim{{Id: 0}, {Id: 1}}, InterimCount: 2}, valid: false,
 		}, {
 			desc: "invalid initiative count",
 			genState: &types.GenesisState{
@@ -126,7 +125,7 @@ func TestGenesisState_Validate(t *testing.T) {
 				},
 				InitiativeCount: 0,
 				StakeList:       []types.Stake{{Id: 0}, {Id: 1}}, StakeCount: 2,
-				ChallengeList: []types.Challenge{{Id: 0}, {Id: 1}}, ChallengeCount: 2, JuryReviewList: []types.JuryReview{{Id: 0}, {Id: 1}}, JuryReviewCount: 2, InterimList: []types.Interim{{Id: 0}, {Id: 1}}, InterimCount: 2, InterimTemplateMap: []types.InterimTemplate{{Id: "0"}, {Id: "1"}}}, valid: false,
+				ChallengeList: []types.Challenge{{Id: 0}, {Id: 1}}, ChallengeCount: 2, JuryReviewList: []types.JuryReview{{Id: 0}, {Id: 1}}, JuryReviewCount: 2, InterimList: []types.Interim{{Id: 0}, {Id: 1}}, InterimCount: 2}, valid: false,
 		}, {
 			desc: "duplicated stake",
 			genState: &types.GenesisState{
@@ -139,7 +138,7 @@ func TestGenesisState_Validate(t *testing.T) {
 					},
 				},
 				ChallengeList: []types.Challenge{{Id: 0}, {Id: 1}}, ChallengeCount: 2,
-				JuryReviewList: []types.JuryReview{{Id: 0}, {Id: 1}}, JuryReviewCount: 2, InterimList: []types.Interim{{Id: 0}, {Id: 1}}, InterimCount: 2, InterimTemplateMap: []types.InterimTemplate{{Id: "0"}, {Id: "1"}}}, valid: false,
+				JuryReviewList: []types.JuryReview{{Id: 0}, {Id: 1}}, JuryReviewCount: 2, InterimList: []types.Interim{{Id: 0}, {Id: 1}}, InterimCount: 2}, valid: false,
 		}, {
 			desc: "invalid stake count",
 			genState: &types.GenesisState{
@@ -150,7 +149,7 @@ func TestGenesisState_Validate(t *testing.T) {
 				},
 				StakeCount:    0,
 				ChallengeList: []types.Challenge{{Id: 0}, {Id: 1}}, ChallengeCount: 2,
-				JuryReviewList: []types.JuryReview{{Id: 0}, {Id: 1}}, JuryReviewCount: 2, InterimList: []types.Interim{{Id: 0}, {Id: 1}}, InterimCount: 2, InterimTemplateMap: []types.InterimTemplate{{Id: "0"}, {Id: "1"}}}, valid: false,
+				JuryReviewList: []types.JuryReview{{Id: 0}, {Id: 1}}, JuryReviewCount: 2, InterimList: []types.Interim{{Id: 0}, {Id: 1}}, InterimCount: 2}, valid: false,
 		}, {
 			desc: "duplicated challenge",
 			genState: &types.GenesisState{
@@ -163,7 +162,7 @@ func TestGenesisState_Validate(t *testing.T) {
 					},
 				},
 				JuryReviewList: []types.JuryReview{{Id: 0}, {Id: 1}}, JuryReviewCount: 2,
-				InterimList: []types.Interim{{Id: 0}, {Id: 1}}, InterimCount: 2, InterimTemplateMap: []types.InterimTemplate{{Id: "0"}, {Id: "1"}}}, valid: false,
+				InterimList: []types.Interim{{Id: 0}, {Id: 1}}, InterimCount: 2}, valid: false,
 		}, {
 			desc: "invalid challenge count",
 			genState: &types.GenesisState{
@@ -174,7 +173,7 @@ func TestGenesisState_Validate(t *testing.T) {
 				},
 				ChallengeCount: 0,
 				JuryReviewList: []types.JuryReview{{Id: 0}, {Id: 1}}, JuryReviewCount: 2,
-				InterimList: []types.Interim{{Id: 0}, {Id: 1}}, InterimCount: 2, InterimTemplateMap: []types.InterimTemplate{{Id: "0"}, {Id: "1"}}}, valid: false,
+				InterimList: []types.Interim{{Id: 0}, {Id: 1}}, InterimCount: 2}, valid: false,
 		}, {
 			desc: "duplicated juryReview",
 			genState: &types.GenesisState{
@@ -186,8 +185,7 @@ func TestGenesisState_Validate(t *testing.T) {
 						Id: 0,
 					},
 				},
-				InterimList: []types.Interim{{Id: 0}, {Id: 1}}, InterimCount: 2,
-				InterimTemplateMap: []types.InterimTemplate{{Id: "0"}, {Id: "1"}}}, valid: false,
+				InterimList: []types.Interim{{Id: 0}, {Id: 1}}, InterimCount: 2}, valid: false,
 		}, {
 			desc: "invalid juryReview count",
 			genState: &types.GenesisState{
@@ -197,8 +195,7 @@ func TestGenesisState_Validate(t *testing.T) {
 					},
 				},
 				JuryReviewCount: 0,
-				InterimList:     []types.Interim{{Id: 0}, {Id: 1}}, InterimCount: 2,
-				InterimTemplateMap: []types.InterimTemplate{{Id: "0"}, {Id: "1"}}}, valid: false,
+				InterimList:     []types.Interim{{Id: 0}, {Id: 1}}, InterimCount: 2}, valid: false,
 		}, {
 			desc: "duplicated interim",
 			genState: &types.GenesisState{
@@ -209,8 +206,7 @@ func TestGenesisState_Validate(t *testing.T) {
 					{
 						Id: 0,
 					},
-				},
-				InterimTemplateMap: []types.InterimTemplate{{Id: "0"}, {Id: "1"}}},
+				}},
 			valid: false,
 		}, {
 			desc: "invalid interim count",
@@ -220,22 +216,12 @@ func TestGenesisState_Validate(t *testing.T) {
 						Id: 1,
 					},
 				},
-				InterimCount:       0,
-				InterimTemplateMap: []types.InterimTemplate{{Id: "0"}, {Id: "1"}}},
+				InterimCount: 0},
 			valid: false,
 		}, {
-			desc: "duplicated interimTemplate",
-			genState: &types.GenesisState{
-				InterimTemplateMap: []types.InterimTemplate{
-					{
-						Id: "0",
-					},
-					{
-						Id: "0",
-					},
-				},
-			},
-			valid: false,
+			desc:     "duplicated interimTemplate",
+			genState: &types.GenesisState{},
+			valid:    false,
 		},
 	}
 	for _, tc := range tests {

@@ -50,7 +50,6 @@ func setupInitiativeForContentLink(t *testing.T, f *fixture) uint64 {
 		[]string{"tag1"},
 		types.InitiativeTier_INITIATIVE_TIER_STANDARD,
 		types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE,
-		"",
 		math.NewInt(100),
 	)
 	require.NoError(t, err)

@@ -19,7 +19,7 @@ func TestQueryJuryParticipation(t *testing.T) {
 	participations := []types.JuryParticipation{
 		{Juror: "juror-phoenix", TotalAssigned: 5, TotalVoted: 4, TotalTimeouts: 1},
 		{Juror: "juror-aurora", TotalAssigned: 10, TotalVoted: 10, TotalTimeouts: 0},
-		{Juror: "juror-zenith", TotalAssigned: 2, TotalVoted: 1, TotalTimeouts: 1, Excluded: true},
+		{Juror: "juror-zenith", TotalAssigned: 4, TotalVoted: 1, TotalTimeouts: 2, TotalDeclined: 1, TotalAbandoned: 1},
 	}
 	for _, p := range participations {
 		require.NoError(t, f.keeper.JuryParticipation.Set(f.ctx, p.Juror, p))

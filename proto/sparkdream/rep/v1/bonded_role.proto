@@ -29,6 +29,12 @@ enum RoleType {
   ROLE_TYPE_CONTENT_SENTINEL = 1;
   ROLE_TYPE_COLLECT_CURATOR = 2;
   ROLE_TYPE_FEDERATION_VERIFIER = 3;
+  // Reviews submitted initiative work against its acceptance criteria. Owned by
+  // x/rep. Distinct from CONTENT_SENTINEL because the competence, the liability
+  // (a wrong approval mints DREAM), the bond sizing and the accuracy
+  // denominators all differ — see the Initiative Review section of
+  // docs/x-rep-spec.md.
+  ROLE_TYPE_INITIATIVE_REVIEWER = 4;
 }
 
 // BondedRoleStatus represents the lifecycle status of a bonded role record.

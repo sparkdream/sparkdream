@@ -1195,6 +1195,50 @@ if [ -f "$SCRIPT_DIR/jury_participation_test.sh" ]; then
 fi
 
 # ========================================================================
+# Step 22c: Run Initiative Review Test (bonded reviewer role)
+# ========================================================================
+if [ -f "$SCRIPT_DIR/initiative_review_test.sh" ]; then
+    echo "========================================================================="
+    echo "STEP 22c: INITIATIVE REVIEW TEST (bonded reviewer role)"
+    echo "========================================================================="
+    echo ""
+
+    bash "$SCRIPT_DIR/initiative_review_test.sh"
+    INITIATIVE_REVIEW_EXIT_CODE=$?
+
+    echo ""
+    if [ $INITIATIVE_REVIEW_EXIT_CODE -eq 0 ]; then
+        echo "Initiative review test completed"
+    else
+        echo "[FAIL] Initiative review test exited with code: $INITIATIVE_REVIEW_EXIT_CODE"
+    fi
+    echo ""
+    sleep 2
+fi
+
+# ========================================================================
+# Step 22b: Run Jury Duty Test (acceptance criteria + jury seat lifecycle)
+# ========================================================================
+if [ -f "$SCRIPT_DIR/jury_duty_test.sh" ]; then
+    echo "========================================================================="
+    echo "STEP 22b: JURY DUTY TEST (acceptance criteria, accept/decline seats)"
+    echo "========================================================================="
+    echo ""
+
+    bash "$SCRIPT_DIR/jury_duty_test.sh"
+    JURY_DUTY_EXIT_CODE=$?
+
+    echo ""
+    if [ $JURY_DUTY_EXIT_CODE -eq 0 ]; then
+        echo "Jury duty test completed"
+    else
+        echo "[FAIL] Jury duty test exited with code: $JURY_DUTY_EXIT_CODE"
+    fi
+    echo ""
+    sleep 2
+fi
+
+# ========================================================================
 # Step 23: Run Tag Budget Test (tag primitives)
 # ========================================================================
 if [ -f "$SCRIPT_DIR/tag_budget_test.sh" ]; then

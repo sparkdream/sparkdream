@@ -16,6 +16,11 @@ SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
 BINARY="sparkdreamd"
 CHAIN_ID="sparkdream"
+# Resolve BOND_DENOM / DREAM_DENOM. Honours an already-exported value first,
+# so this is a no-op under run_all_tests.sh and makes the script runnable
+# standalone — without it BOND_DENOM is empty and every --fees flag becomes
+# a bare amount with no denom, which the CLI rejects as an invalid coin.
+source "$SCRIPT_DIR/../lib/denoms.sh"
 
 ALICE_ADDR=$($BINARY keys show alice -a --keyring-backend test)
 BOB_ADDR=$($BINARY keys show bob -a --keyring-backend test)

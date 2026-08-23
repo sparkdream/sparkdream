@@ -9,6 +9,11 @@ mkdir -p "$PROPOSAL_DIR"
 
 BINARY="sparkdreamd"
 CHAIN_ID="sparkdream"
+# Resolve BOND_DENOM / DREAM_DENOM. Honours an already-exported value first,
+# so this is a no-op under run_all_tests.sh and makes the script runnable
+# standalone — without it BOND_DENOM is empty and every --fees flag becomes
+# a bare amount with no denom, which the CLI rejects as an invalid coin.
+source "$SCRIPT_DIR/../lib/denoms.sh"
 
 # Get existing test keys
 ALICE_ADDR=$($BINARY keys show alice -a --keyring-backend test)

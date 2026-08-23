@@ -27,6 +27,7 @@ func (k msgServer) CreateChallenge(ctx context.Context, msg *types.MsgCreateChal
 		msg.Reason,
 		msg.Evidence,
 		*msg.StakedDream,
+		msg.CriteriaId,
 	)
 	if err != nil {
 		return nil, err

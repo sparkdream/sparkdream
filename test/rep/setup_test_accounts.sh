@@ -79,7 +79,29 @@ echo "Step 1: Creating test account keys..."
 
 ACCOUNTS=("challenger" "anonymous_challenger" "assignee" "juror1" "juror2" "juror3" "expert" "sentinel1" "sentinel2" "poster1" "poster2" "moderator" "bounty_creator")
 
-for ACCOUNT in "${ACCOUNTS[@]}"; do
+# A second invitation lineage, invited by bob rather than by alice.
+#
+# External conviction excludes affiliates AND anyone one invitation hop from
+# them, in either direction. Every account above is a direct invitee of alice,
+# and alice authors the test project and most test initiatives — so with a
+# single-lineage fixture, alice is an affiliate of nearly everything and no
+# account above can supply external conviction to it. Initiatives then never
+# satisfy external_conviction_ratio, never complete, and Step 8 below cannot
+# build any juror reputation.
+#
+# bob is the other seeded genesis member: ESTABLISHED, holding invitation
+# credits and DREAM, and outside alice's invitation subtree entirely. Accounts
+# he invites are unrelated to alice under the one-hop rule, so they are external
+# to her work. The invitation must come from a seeded member rather than from
+# one of alice's invitees — those are created at TRUST_LEVEL_NEW, which carries
+# zero invitation credits and therefore cannot invite anyone.
+# Four, not three. Each staker's conviction is capped at
+# MaxConvictionSharePerMember (0.33) of an initiative's required_conviction, so
+# three stakers top out at 0.99 of the requirement and an initiative can never
+# complete no matter how much they stake. Four is the minimum that clears it.
+COMMUNITY_ACCOUNTS=("community1" "community2" "community3" "community4")
+
+for ACCOUNT in "${ACCOUNTS[@]}" "${COMMUNITY_ACCOUNTS[@]}"; do
     if ! $BINARY keys show $ACCOUNT --keyring-backend test > /dev/null 2>&1; then
         $BINARY keys add $ACCOUNT --keyring-backend test --output json > /dev/null 2>&1
         echo "  [ OK ] Created key: $ACCOUNT"
@@ -102,6 +124,12 @@ POSTER1_ADDR=$($BINARY keys show poster1 -a --keyring-backend test)
 POSTER2_ADDR=$($BINARY keys show poster2 -a --keyring-backend test)
 MODERATOR_ADDR=$($BINARY keys show moderator -a --keyring-backend test)
 BOUNTY_CREATOR_ADDR=$($BINARY keys show bounty_creator -a --keyring-backend test)
+COMMUNITY1_ADDR=$($BINARY keys show community1 -a --keyring-backend test)
+COMMUNITY2_ADDR=$($BINARY keys show community2 -a --keyring-backend test)
+COMMUNITY3_ADDR=$($BINARY keys show community3 -a --keyring-backend test)
+COMMUNITY4_ADDR=$($BINARY keys show community4 -a --keyring-backend test)
+# The second seeded genesis member, used as the second invitation lineage's root.
+BOB_ADDR=$($BINARY keys show bob -a --keyring-backend test)
 
 echo ""
 
@@ -110,7 +138,7 @@ echo ""
 # ========================================================================
 echo "Step 2: Funding test accounts with SPARK for gas fees..."
 
-for ADDR in $CHALLENGER_ADDR $ANON_CHALLENGER_ADDR $ASSIGNEE_ADDR $JUROR1_ADDR $JUROR2_ADDR $JUROR3_ADDR $EXPERT_ADDR $SENTINEL1_ADDR $SENTINEL2_ADDR $POSTER1_ADDR $POSTER2_ADDR $MODERATOR_ADDR $BOUNTY_CREATOR_ADDR; do
+for ADDR in $CHALLENGER_ADDR $ANON_CHALLENGER_ADDR $ASSIGNEE_ADDR $JUROR1_ADDR $JUROR2_ADDR $JUROR3_ADDR $EXPERT_ADDR $SENTINEL1_ADDR $SENTINEL2_ADDR $POSTER1_ADDR $POSTER2_ADDR $MODERATOR_ADDR $BOUNTY_CREATOR_ADDR $COMMUNITY1_ADDR $COMMUNITY2_ADDR $COMMUNITY3_ADDR $COMMUNITY4_ADDR; do
     echo "  → Sending 10 SPARK to $ADDR..."
     TX_RES=$($BINARY tx bank send \
         alice $ADDR \
@@ -345,6 +373,131 @@ for ACCOUNT in "${ACCOUNTS[@]}"; do
     else
         echo "  [FAIL] Failed to transfer DREAM to $ACCOUNT"
         echo "     $(echo "$TX_RESULT" | jq -r '.raw_log')"
+    fi
+done
+
+echo ""
+
+# ========================================================================
+# 5b. Second Invitation Lineage (invited by bob, not by alice)
+# ========================================================================
+# Gives the fixture members outside alice's invitation subtree, so they can
+# supply external conviction to alice-authored initiatives. See the comment on
+# COMMUNITY_ACCOUNTS in Step 1 for why a single-lineage fixture cannot.
+echo "Step 5b: Building a second invitation lineage under bob..."
+
+COMMUNITY_INVITATION_IDS=()
+for ACCOUNT in "${COMMUNITY_ACCOUNTS[@]}"; do
+    case "$ACCOUNT" in
+        "community1") ADDR=$COMMUNITY1_ADDR ;;
+        "community2") ADDR=$COMMUNITY2_ADDR ;;
+        "community3") ADDR=$COMMUNITY3_ADDR ;;
+        "community4") ADDR=$COMMUNITY4_ADDR ;;
+        *) echo "Unknown community account: $ACCOUNT"; continue ;;
+    esac
+
+    if ! $BINARY query rep get-member $ADDR --output json 2>&1 | grep -q "not found"; then
+        echo "  [SKIP]  $ACCOUNT is already a member"
+        COMMUNITY_INVITATION_IDS+=("")
+        continue
+    fi
+
+    REQUIRED_STAKE=$($BINARY query rep required-invitation-stake "$BOB_ADDR" --output json 2>/dev/null \
+        | jq -r '.required_stake // "100000000"')
+    echo "  → bob inviting $ACCOUNT (stake: $REQUIRED_STAKE micro-DREAM)..."
+
+    TX_RES=$($BINARY tx rep invite-member \
+        $ADDR \
+        "$REQUIRED_STAKE" \
+        --from bob \
+        --chain-id $CHAIN_ID \
+        --keyring-backend test \
+        --fees 5000${BOND_DENOM} \
+        -y \
+        --output json 2>&1)
+
+    TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
+    if [ -z "$TXHASH" ] || [ "$TXHASH" == "null" ]; then
+        echo "  [FAIL] Failed to invite $ACCOUNT: no txhash"
+        COMMUNITY_INVITATION_IDS+=("")
+        continue
+    fi
+
+    sleep 6
+    TX_RESULT=$(wait_for_tx $TXHASH)
+    if check_tx_success "$TX_RESULT"; then
+        INVITATION_ID=$(extract_event_value "$TX_RESULT" "create_invitation" "invitation_id")
+        COMMUNITY_INVITATION_IDS+=("$INVITATION_ID")
+        echo "  [ OK ] Invited $ACCOUNT (invitation #$INVITATION_ID)"
+    else
+        RAW_LOG=$(echo "$TX_RESULT" | jq -r '.raw_log')
+        echo "  [FAIL] Failed to invite $ACCOUNT: $RAW_LOG"
+        COMMUNITY_INVITATION_IDS+=("")
+    fi
+done
+
+for i in "${!COMMUNITY_ACCOUNTS[@]}"; do
+    ACCOUNT="${COMMUNITY_ACCOUNTS[$i]}"
+    INVITATION_ID="${COMMUNITY_INVITATION_IDS[$i]}"
+    [ -z "$INVITATION_ID" ] && continue
+
+    echo "  → $ACCOUNT accepting invitation #$INVITATION_ID..."
+    TX_RES=$($BINARY tx rep accept-invitation \
+        $INVITATION_ID \
+        --from $ACCOUNT \
+        --chain-id $CHAIN_ID \
+        --keyring-backend test \
+        --fees 5000${BOND_DENOM} \
+        -y \
+        --output json 2>&1)
+
+    TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
+    if [ -z "$TXHASH" ] || [ "$TXHASH" == "null" ]; then
+        echo "  [FAIL] $ACCOUNT could not accept: no txhash"
+        continue
+    fi
+    sleep 6
+    TX_RESULT=$(wait_for_tx $TXHASH)
+    if check_tx_success "$TX_RESULT"; then
+        echo "  [ OK ] $ACCOUNT is now a member (invited by bob)"
+    else
+        echo "  [FAIL] $ACCOUNT could not accept: $(echo "$TX_RESULT" | jq -r '.raw_log')"
+    fi
+done
+
+# New members are created with a zero DREAM balance, so they need working
+# capital before they can stake. GiftOnlyToInvitees permits the
+# inviter -> own-invitee direction, which is exactly this.
+for ACCOUNT in "${COMMUNITY_ACCOUNTS[@]}"; do
+    case "$ACCOUNT" in
+        "community1") ADDR=$COMMUNITY1_ADDR ;;
+        "community2") ADDR=$COMMUNITY2_ADDR ;;
+        "community3") ADDR=$COMMUNITY3_ADDR ;;
+        "community4") ADDR=$COMMUNITY4_ADDR ;;
+        *) continue ;;
+    esac
+
+    echo "  → bob sending 50 DREAM to $ACCOUNT (staking capital)..."
+    TX_RES=$($BINARY tx rep transfer-dream \
+        $ADDR "50000000" "gift" "community-staking-capital" \
+        --from bob \
+        --chain-id $CHAIN_ID \
+        --keyring-backend test \
+        --fees 5000${BOND_DENOM} \
+        -y \
+        --output json 2>&1)
+
+    TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
+    if [ -z "$TXHASH" ] || [ "$TXHASH" == "null" ]; then
+        echo "  [WARN]  Failed to fund $ACCOUNT: no txhash"
+        continue
+    fi
+    sleep 6
+    TX_RESULT=$(wait_for_tx $TXHASH)
+    if check_tx_success "$TX_RESULT"; then
+        echo "  [ OK ] $ACCOUNT funded"
+    else
+        echo "  [WARN]  Failed to fund $ACCOUNT: $(echo "$TX_RESULT" | jq -r '.raw_log')"
     fi
 done
 
@@ -597,7 +750,6 @@ for JUROR in "${JUROR_ACCOUNTS[@]}"; do
         "APPRENTICE tier to build juror reputation" \
         "0" \
         "0" \
-        "" \
         "250000" \
         --tags "challenge","test","jury" \
         --from alice \
@@ -685,7 +837,14 @@ for JUROR in "${JUROR_ACCOUNTS[@]}"; do
     # Alice is project creator (NOT external). Need 3 external stakers for
     # external conviction >= 50% requirement (3 × 33% = 99% > 50%).
     # Stakers: alice (internal), challenger, anonymous_challenger, expert (all external)
-    STAKER_ACCOUNTS=("alice" "challenger" "anonymous_challenger" "expert")
+    # Stakers must be EXTERNAL to the initiative, and the initiative is
+    # authored by alice under alice's project — so alice herself and every
+    # direct invitee of alice (challenger, anonymous_challenger, expert, ...)
+    # are excluded by the one-hop invitation rule and contribute zero external
+    # conviction. Use the second-lineage accounts from Step 5b, invited by
+    # bob. Without this the initiative never satisfies
+    # external_conviction_ratio, never completes, and no reputation is granted.
+    STAKER_ACCOUNTS=("community1" "community2" "community3" "community4")
 
     for STAKER in "${STAKER_ACCOUNTS[@]}"; do
         TX_RES=$($BINARY tx rep stake \
@@ -1037,6 +1196,13 @@ export POSTER1_ADDR=$POSTER1_ADDR
 export POSTER2_ADDR=$POSTER2_ADDR
 export MODERATOR_ADDR=$MODERATOR_ADDR
 export BOUNTY_CREATOR_ADDR=$BOUNTY_CREATOR_ADDR
+# Second invitation lineage (invited by bob, outside alice's subtree). These
+# are the accounts to stake from when a test needs external conviction on
+# alice-authored work.
+export COMMUNITY1_ADDR=$COMMUNITY1_ADDR
+export COMMUNITY2_ADDR=$COMMUNITY2_ADDR
+export COMMUNITY3_ADDR=$COMMUNITY3_ADDR
+export COMMUNITY4_ADDR=$COMMUNITY4_ADDR
 export TEST_PROJECT_ID=$PROJECT_ID
 export TEST_CATEGORY_ID=$FIRST_CATEGORY
 export BOND_DENOM=$BOND_DENOM

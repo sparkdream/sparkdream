@@ -139,6 +139,40 @@ func (k Keeper) UpdateJuryReviewVerdictIndex(ctx context.Context, oldVerdict, ne
 	return k.JuryReviewsByVerdict.Set(ctx, collections.Join(int32(newVerdict), id))
 }
 
+// AddJuryReviewToJurorIndex indexes a review under every juror seated on it,
+// so a juror can find their summons without scanning all reviews. Seatings are
+// the only writer; entries are left in place after resolution so a juror can
+// also see their service history, and callers filter on verdict.
+func (k Keeper) AddJuryReviewToJurorIndex(ctx context.Context, review types.JuryReview) error {
+	for _, juror := range review.Jurors {
+		if juror == "" {
+			continue
+		}
+		if err := k.JuryReviewsByJuror.Set(ctx, collections.Join(juror, review.Id)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// RemoveJuryReviewFromJurorIndex drops one juror's entry — used when a seat is
+// vacated rather than when a review resolves.
+func (k Keeper) RemoveJuryReviewFromJurorIndex(ctx context.Context, juror string, id uint64) error {
+	return k.JuryReviewsByJuror.Remove(ctx, collections.Join(juror, id))
+}
+
+// IterateJuryReviewsByJuror iterates the reviews a juror has been seated on.
+func (k Keeper) IterateJuryReviewsByJuror(ctx context.Context, juror string, fn func(id uint64, review types.JuryReview) bool) error {
+	rng := collections.NewPrefixedPairRange[string, uint64](juror)
+	return k.JuryReviewsByJuror.Walk(ctx, rng, func(key collections.Pair[string, uint64]) (stop bool, err error) {
+		review, err := k.JuryReview.Get(ctx, key.K2())
+		if err != nil {
+			return false, nil // Skip if not found
+		}
+		return fn(key.K2(), review), nil
+	})
+}
+
 // IterateJuryReviewsByVerdict iterates over jury reviews with a specific verdict
 func (k Keeper) IterateJuryReviewsByVerdict(ctx context.Context, verdict types.Verdict, fn func(id uint64, review types.JuryReview) bool) error {
 	rng := collections.NewPrefixedPairRange[int32, uint64](int32(verdict))

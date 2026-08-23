@@ -108,15 +108,43 @@ func (k Keeper) EndBlocker(ctx context.Context) error {
 		sdkCtx.Logger().Error("failed to resolve expired challenge jury reviews", "error", err)
 	}
 
-	// 7. Process assigned initiative deadlines (interims)
+	// 6b. Vacate and redraw jury seats nobody answered. Runs before the tally
+	// sweep above has any effect on a given review because the acceptance
+	// window is far shorter than the vote deadline — the point is to replace a
+	// silent juror while the review still has time to run, rather than
+	// discovering the absence when the deadline forces an INCONCLUSIVE tally.
+	if err := k.SweepUnansweredJurySeats(ctx); err != nil {
+		sdkCtx.Logger().Error("failed to sweep unanswered jury seats", "error", err)
+	}
+
+	// 6c. Escalate review rounds nobody finished. With the staker veto retired,
+	// reviewers are the quality gate — so if nobody reviews, nothing completes.
+	// This is the liveness guarantee: past the deadline the round goes to the
+	// Operations Committee, and committee silence resolves to PASSED rather than
+	// leaving the initiative wedged.
+	if err := k.SweepReviewDeadlines(ctx); err != nil {
+		sdkCtx.Logger().Error("failed to sweep review deadlines", "error", err)
+	}
+
+	// 7. Process assigned initiative deadlines (interims).
+	//
+	// Collect first, then expire. ExpireInterim moves the interim out of
+	// PENDING/IN_PROGRESS, which is the very index IteratePendingInterims is
+	// walking, and it now also resolves an adjudication's challenge — so
+	// mutating mid-walk is doubly unsafe. Same shape as
+	// ResolveExpiredChallengeJuryReviews above.
+	var dueInterims []uint64
 	k.IteratePendingInterims(ctx, func(index int64, interim types.Interim) bool {
 		if sdkCtx.BlockHeight() >= interim.Deadline {
-			if err := k.ExpireInterim(ctx, interim.Id); err != nil {
-				sdkCtx.Logger().Error("failed to expire interim", "interim_id", interim.Id, "error", err)
-			}
+			dueInterims = append(dueInterims, interim.Id)
 		}
 		return false
 	})
+	for _, id := range dueInterims {
+		if err := k.ExpireInterim(ctx, id); err != nil {
+			sdkCtx.Logger().Error("failed to expire interim", "interim_id", id, "error", err)
+		}
+	}
 
 	// 7b. Expire stale PROPOSED projects that no committee has approved within
 	// their expiry window. Collect first, mutate after the iterator closes so

@@ -149,8 +149,12 @@ func (k Keeper) updateInitiativeConvictionWithStakes(ctx context.Context, initia
 		return err
 	}
 
-	assigneeAddr := initiative.Assignee
-	creatorAddr := project.Creator
+	// Everyone with an insider stake in the outcome, so that conviction from
+	// the initiative's own author does not count toward the external floor,
+	// together with the invitation edges reaching them. Hoisted out of the
+	// stake loop below: resolving it costs a member lookup per affiliate, and
+	// this runs once per initiative per conviction refresh.
+	affiliates := k.InvitationNeighborhoodOf(ctx, InitiativeAffiliates(initiative, project)...)
 
 	// Track per-staker RAW conviction (pre-sqrt) for correct aggregation.
 	// Using raw values prevents the stake splitting exploit: N small stakes
@@ -173,9 +177,10 @@ func (k Keeper) updateInitiativeConvictionWithStakes(ctx context.Context, initia
 		}
 		stakerRawConviction[stake.Staker] = prev.Add(rawConviction)
 
-		// Check if stake is external (non-affiliated)
-		if k.IsStakerExternal(stake.Staker, assigneeAddr, creatorAddr) {
-			stakerIsExternal[stake.Staker] = true
+		// Check if stake is external (non-affiliated). One staker can hold
+		// several stakes and the test is per address, so resolve it once.
+		if _, seen := stakerIsExternal[stake.Staker]; !seen {
+			stakerIsExternal[stake.Staker] = k.IsStakerExternalTo(ctx, stake.Staker, affiliates)
 		}
 	}
 
@@ -206,7 +211,7 @@ func (k Keeper) updateInitiativeConvictionWithStakes(ctx context.Context, initia
 	}
 
 	// Calculate conviction propagated from linked content (external stakers only)
-	propagatedConviction, err := k.GetPropagatedConviction(ctx, initiativeID, assigneeAddr, creatorAddr)
+	propagatedConviction, err := k.GetPropagatedConvictionIn(ctx, initiativeID, affiliates)
 	if err != nil {
 		// Log but don't fail — propagation is a bonus, not critical
 		propagatedConviction = math.LegacyZeroDec()
@@ -285,7 +290,15 @@ func (k Keeper) GetContentConviction(ctx context.Context, targetType types.Stake
 // counting only stakes from members who are not affiliated with a linked initiative.
 // This prevents sybil networks from bypassing the external conviction requirement
 // by routing conviction through the content layer.
-func (k Keeper) GetExternalContentConviction(ctx context.Context, targetType types.StakeTargetType, targetID uint64, assigneeAddr, creatorAddr string) (math.LegacyDec, error) {
+func (k Keeper) GetExternalContentConviction(ctx context.Context, targetType types.StakeTargetType, targetID uint64, affiliated ...string) (math.LegacyDec, error) {
+	// Hoisted for the same reason as the initiative path: the neighborhood is
+	// fixed for the target, the per-staker test is not.
+	return k.GetExternalContentConvictionIn(ctx, targetType, targetID, k.InvitationNeighborhoodOf(ctx, affiliated...))
+}
+
+// GetExternalContentConvictionIn is GetExternalContentConviction against an
+// already-resolved neighborhood.
+func (k Keeper) GetExternalContentConvictionIn(ctx context.Context, targetType types.StakeTargetType, targetID uint64, neighborhood InvitationNeighborhood) (math.LegacyDec, error) {
 	if !types.IsContentConvictionType(targetType) {
 		return math.LegacyZeroDec(), types.ErrNotContentTargetType
 	}
@@ -298,7 +311,7 @@ func (k Keeper) GetExternalContentConviction(ctx context.Context, targetType typ
 	totalConviction := math.LegacyZeroDec()
 	for _, stake := range stakes {
 		// Only count stakes from external (non-affiliated) members
-		if !k.IsStakerExternal(stake.Staker, assigneeAddr, creatorAddr) {
+		if !k.IsStakerExternalTo(ctx, stake.Staker, neighborhood) {
 			continue
 		}
 		conviction, err := k.CalculateContentConviction(ctx, stake)
@@ -319,10 +332,109 @@ func (k Keeper) GetContentStakes(ctx context.Context, targetType types.StakeTarg
 	return k.GetStakesByTarget(ctx, targetType, targetID)
 }
 
-// IsStakerExternal checks if a staker is external (non-affiliated) to an initiative
-func (k Keeper) IsStakerExternal(stakerAddr, assigneeAddr, creatorAddr string) bool {
-	// Staker is external if they are not the assignee or creator
-	return stakerAddr != assigneeAddr && stakerAddr != creatorAddr
+// InvitationNeighborhood is the one-hop invitation-graph neighborhood of a set
+// of affiliates, precomputed so that the per-staker independence test stays a
+// single member lookup no matter how many stakers there are.
+//
+// Membership on this chain comes from an invitation, and an invitation is a
+// vouching relationship with a staked bond behind it. A puppet account backing
+// the work of the member who invited it is therefore not an independent voice —
+// it is the inviter's own conviction wearing a second address, which is exactly
+// the shape of the cheapest available attack on the external-conviction floor:
+// invite a handful of accounts, gift them DREAM (GiftOnlyToInvitees permits the
+// inviter -> own invitee direction), and have them vouch for a self-assigned
+// mint.
+//
+// Exactly one hop is excluded, in both directions. That is a deliberate choice
+// over a full subtree walk: one hop costs O(1) per staker against the member
+// record that already exists, whereas walking a subtree is unbounded per-block
+// work that any member can inflate for the price of more invitations — the same
+// class of problem the conviction queue exists to bound. Siblings (two accounts
+// invited by the same third party) are two hops apart and still count as
+// external.
+type InvitationNeighborhood struct {
+	// affiliates are the insiders themselves.
+	affiliates map[string]struct{}
+	// inviters are the addresses that invited an affiliate. A staker in this
+	// set vouched for an insider once already, with a bond, before the
+	// initiative existed.
+	inviters map[string]struct{}
+}
+
+// InvitationNeighborhoodOf resolves the inviter of each affiliate once, so that
+// callers iterating stakes can reuse the result. Costs at most one member
+// lookup per affiliate — four, for an initiative.
+func (k Keeper) InvitationNeighborhoodOf(ctx context.Context, affiliated ...string) InvitationNeighborhood {
+	n := InvitationNeighborhood{
+		affiliates: make(map[string]struct{}, len(affiliated)),
+		inviters:   make(map[string]struct{}, len(affiliated)),
+	}
+	for _, addr := range affiliated {
+		if addr == "" {
+			continue
+		}
+		n.affiliates[addr] = struct{}{}
+	}
+	for addr := range n.affiliates {
+		// Read the member record directly rather than through GetMember:
+		// invited_by is immutable and this must not trigger the lazy-decay
+		// write path from inside a read-only independence test.
+		member, err := k.Member.Get(ctx, addr)
+		if err != nil {
+			// A non-member affiliate (or one whose record is gone) simply
+			// contributes no invitation edge.
+			continue
+		}
+		if member.InvitedBy != "" {
+			n.inviters[member.InvitedBy] = struct{}{}
+		}
+	}
+	return n
+}
+
+// IsStakerExternalTo reports whether a staker is at arm's length from a
+// precomputed neighborhood: neither an affiliate, nor one invitation hop from
+// one in either direction.
+//
+// Note what this still is not. It excludes known insiders and their immediate
+// invitation edges, but nothing here resists a sybil ring assembled through an
+// unrelated inviter, and nothing here weighs trust level — any member may stake,
+// and membership comes from an invitation.
+func (k Keeper) IsStakerExternalTo(ctx context.Context, stakerAddr string, n InvitationNeighborhood) bool {
+	if stakerAddr == "" {
+		return false
+	}
+	if _, ok := n.affiliates[stakerAddr]; ok {
+		return false
+	}
+	// The staker invited an affiliate.
+	if _, ok := n.inviters[stakerAddr]; ok {
+		return false
+	}
+	// An affiliate invited the staker. Checked against the affiliates only, not
+	// against n.inviters, or two accounts sharing an inviter would be excluded
+	// as well — that is the two-hop sibling case this deliberately allows.
+	member, err := k.Member.Get(ctx, stakerAddr)
+	if err != nil {
+		return true
+	}
+	if member.InvitedBy == "" {
+		return true
+	}
+	_, invitedByAffiliate := n.affiliates[member.InvitedBy]
+	return !invitedByAffiliate
+}
+
+// IsStakerExternal reports whether a staker is external (non-affiliated) to the
+// thing they staked on. The caller supplies the affiliated addresses — for an
+// initiative use InitiativeAffiliates, which includes the initiative's author;
+// the content paths pass the assignee and creator of the linked initiative.
+//
+// Convenience wrapper for callers testing a single staker. Anything iterating a
+// stake list should hoist InvitationNeighborhoodOf out of the loop and call
+// IsStakerExternalTo instead.
+func (k Keeper) IsStakerExternal(ctx context.Context, stakerAddr string, affiliated ...string) bool {
+	return k.IsStakerExternalTo(ctx, stakerAddr, k.InvitationNeighborhoodOf(ctx, affiliated...))
 }
 
 // CanCompleteInitiative checks if an initiative has met completion requirements
@@ -353,10 +465,9 @@ func (k Keeper) CanCompleteInitiative(ctx context.Context, initiativeID uint64) 
 	}
 
 	// Check external conviction ratio (must be at least 50%).
-	// When the assignee is also the project creator, the two "internal"
-	// roles collapse into one party, so the ENTIRE conviction threshold
-	// must be met by external (non-affiliated) stakers — the community
-	// alone vouches for self-assigned work.
+	// When the work is self-assigned the "internal" roles collapse into one
+	// party, so the ENTIRE conviction threshold must be met by external
+	// (non-affiliated) stakers — the community alone vouches for it.
 	project, err := k.GetProject(ctx, initiative.ProjectId)
 	if err != nil {
 		return false, err
@@ -368,11 +479,23 @@ func (k Keeper) CanCompleteInitiative(ctx context.Context, initiativeID uint64) 
 		return false, nil
 	}
 	externalRatio := params.ExternalConvictionRatio
-	if initiative.Assignee == project.Creator {
+	if IsSelfAssigned(initiative, project, initiative.Assignee) {
 		externalRatio = params.SelfAssignedExternalConvictionRatio
 	}
 	minExternalConviction := DerefDec(initiative.RequiredConviction).Mul(externalRatio)
 	if DerefDec(initiative.ExternalConviction).LT(minExternalConviction) {
+		return false, nil
+	}
+
+	// Reviewer sign-off, when the parent project asks for it. An *additional*
+	// brake: every conviction gate above and the challenge window below still
+	// apply. min_verifier_count 0 (the genesis default) makes this a no-op, so
+	// nothing wedges while the reviewer roster is still filling.
+	reviewed, err := k.ReviewGateSatisfied(ctx, initiative, project)
+	if err != nil {
+		return false, err
+	}
+	if !reviewed {
 		return false, nil
 	}
 

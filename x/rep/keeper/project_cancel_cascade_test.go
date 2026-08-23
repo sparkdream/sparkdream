@@ -31,9 +31,9 @@ func TestCancelProjectCascadesToOpenInitiatives(t *testing.T) {
 
 	// Two OPEN initiatives, budget 100 each -> 200 allocated.
 	budget := math.NewInt(100)
-	initA, err := k.CreateInitiative(ctx, creator, projectID, "A", "D", []string{"tag"}, types.InitiativeTier_INITIATIVE_TIER_STANDARD, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, "", budget)
+	initA, err := k.CreateInitiative(ctx, creator, projectID, "A", "D", []string{"tag"}, types.InitiativeTier_INITIATIVE_TIER_STANDARD, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, budget)
 	require.NoError(t, err)
-	initB, err := k.CreateInitiative(ctx, creator, projectID, "B", "D", []string{"tag"}, types.InitiativeTier_INITIATIVE_TIER_STANDARD, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, "", budget)
+	initB, err := k.CreateInitiative(ctx, creator, projectID, "B", "D", []string{"tag"}, types.InitiativeTier_INITIATIVE_TIER_STANDARD, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, budget)
 	require.NoError(t, err)
 
 	projBefore, err := k.GetProject(ctx, projectID)
@@ -67,7 +67,7 @@ func setupSubmittedInitiative(t *testing.T, f *fixture) (uint64, uint64, sdk.Acc
 	creator := sdk.AccAddress([]byte("creator"))
 	projectID := newActiveProject(t, k, ctx, creator)
 
-	initID, err := k.CreateInitiative(ctx, creator, projectID, "Task", "D", []string{"tag"}, types.InitiativeTier_INITIATIVE_TIER_STANDARD, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, "", math.NewInt(100))
+	initID, err := k.CreateInitiative(ctx, creator, projectID, "Task", "D", []string{"tag"}, types.InitiativeTier_INITIATIVE_TIER_STANDARD, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, math.NewInt(100))
 	require.NoError(t, err)
 
 	assignee := sdk.AccAddress([]byte("assignee"))
@@ -303,7 +303,10 @@ func TestCompletionGuardBlocksCancelledProjectPayout(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, can)
 
-	// ...and the direct/manual path errors clearly.
+	// ...and the direct/manual path errors clearly. Advance the initiative past
+	// the challenge window first so the cancelled-project guard is what rejects
+	// it, rather than the status guard that now precedes it.
+	advanceToCompletable(t, k, ctx, initID)
 	err = k.CompleteInitiative(ctx, initID)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "parent project")

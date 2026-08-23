@@ -352,7 +352,7 @@ func TestCreateInitiativeRejectsFakeTags(t *testing.T) {
 			"Test", "Desc", []string{"fake-nonexistent-tag"},
 			types.InitiativeTier_INITIATIVE_TIER_STANDARD,
 			types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE,
-			"", math.NewInt(TestRewardAmount))
+			math.NewInt(TestRewardAmount))
 		require.Error(t, err)
 		require.ErrorIs(t, err, types.ErrTagNotRegistered)
 	})
@@ -371,7 +371,7 @@ func TestCreateInitiativeRejectsFakeTags(t *testing.T) {
 			"Test", "Desc", []string{TestTagBackend},
 			types.InitiativeTier_INITIATIVE_TIER_STANDARD,
 			types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE,
-			"", math.NewInt(TestRewardAmount))
+			math.NewInt(TestRewardAmount))
 		require.NoError(t, err)
 		require.NotZero(t, initID)
 	})
@@ -394,7 +394,7 @@ func TestMaxTagsPerInitiativeEnforced(t *testing.T) {
 		"Three tags", "Desc", []string{"tag1", "tag2", "tag3"},
 		types.InitiativeTier_INITIATIVE_TIER_STANDARD,
 		types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE,
-		"", math.NewInt(TestRewardAmount))
+		math.NewInt(TestRewardAmount))
 	require.NoError(t, err)
 	require.NotZero(t, initID)
 
@@ -403,7 +403,7 @@ func TestMaxTagsPerInitiativeEnforced(t *testing.T) {
 		"Four tags", "Desc", []string{"tag1", "tag2", "tag3", "tag4"},
 		types.InitiativeTier_INITIATIVE_TIER_STANDARD,
 		types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE,
-		"", math.NewInt(TestRewardAmount))
+		math.NewInt(TestRewardAmount))
 	require.Error(t, err)
 	require.ErrorIs(t, err, types.ErrTooManyTags)
 }
@@ -443,7 +443,7 @@ func TestReputationSplitAcrossTags(t *testing.T) {
 	require.NoError(t, err)
 
 	initID1, err := k.CreateInitiative(sdkCtx, TestAddrCreator, projectID1, "T1", "D", []string{"alpha"},
-		types.InitiativeTier_INITIATIVE_TIER_APPRENTICE, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, "", budget)
+		types.InitiativeTier_INITIATIVE_TIER_APPRENTICE, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, budget)
 	require.NoError(t, err)
 	err = k.AssignInitiativeToMember(sdkCtx, initID1, addr1)
 	require.NoError(t, err)
@@ -457,6 +457,7 @@ func TestReputationSplitAcrossTags(t *testing.T) {
 	init1.CurrentConviction = PtrDec(reqConv)
 	init1.ExternalConviction = PtrDec(reqConv)
 	k.UpdateInitiative(sdkCtx, init1)
+	advanceToCompletable(t, k, sdkCtx, initID1)
 	err = k.CompleteInitiative(sdkCtx, initID1)
 	require.NoError(t, err)
 
@@ -482,7 +483,7 @@ func TestReputationSplitAcrossTags(t *testing.T) {
 	require.NoError(t, err)
 
 	initID2, err := k.CreateInitiative(sdkCtx, TestAddrCreator, projectID2, "T2", "D", []string{"beta", "gamma", "delta"},
-		types.InitiativeTier_INITIATIVE_TIER_APPRENTICE, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, "", budget)
+		types.InitiativeTier_INITIATIVE_TIER_APPRENTICE, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, budget)
 	require.NoError(t, err)
 	err = k.AssignInitiativeToMember(sdkCtx, initID2, addr2)
 	require.NoError(t, err)
@@ -493,6 +494,7 @@ func TestReputationSplitAcrossTags(t *testing.T) {
 	init2.CurrentConviction = PtrDec(reqConv)
 	init2.ExternalConviction = PtrDec(reqConv)
 	k.UpdateInitiative(sdkCtx, init2)
+	advanceToCompletable(t, k, sdkCtx, initID2)
 	err = k.CompleteInitiative(sdkCtx, initID2)
 	require.NoError(t, err)
 

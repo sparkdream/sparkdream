@@ -1,0 +1,42 @@
+syntax = "proto3";
+package sparkdream.rep.v1;
+
+import "gogoproto/gogo.proto";
+import "cosmos_proto/cosmos.proto";
+import "sparkdream/rep/v1/jury_review.proto";
+
+option go_package = "sparkdream/x/rep/types";
+
+// One bonded reviewer's verdict on a round of submitted work.
+//
+// Keyed by (initiative_id, round, reviewer): a rejection sends the initiative
+// back to ASSIGNED for the assignee to fix and resubmit, and each resubmission
+// opens a new round, so the same reviewer may legitimately file again on the
+// same initiative. Rounds are bounded by max_review_rounds.
+//
+// Reviewers are paid per verdict filed, never per approval — the whole point of
+// the role is that judging pays and the outcome does not.
+message InitiativeReview {
+  uint64 initiative_id = 1;
+  // Which review round this verdict belongs to, from Initiative.review_round.
+  uint32 round = 2;
+  string reviewer = 3 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  bool approved = 4;
+  // Per-criterion verdicts, validated against the initiative's
+  // acceptance_criteria. This is CriteriaVote's proper home: a per-item verdict
+  // belongs to somebody accountable for getting it right.
+  repeated CriteriaVote criteria_votes = 5;
+  string comments = 6;
+  int64 created_at = 7;
+  // Bond committed against this verdict, released when the challenge window
+  // closes unchallenged and slashed when a jury overturns it. Scales with the
+  // initiative budget, so liability tracks what the review could mint.
+  string bond_reserved = 8 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  // Set once the verdict's bond has been released or slashed, so the sweep does
+  // not settle the same verdict twice.
+  bool settled = 9;
+}

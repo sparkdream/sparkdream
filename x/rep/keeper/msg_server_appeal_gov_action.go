@@ -102,6 +102,12 @@ func (k Keeper) CreateGovActionAppeal(ctx context.Context, actionType types.GovA
 			review.RequiredVotes = uint32(k.appealRequiredVotes(ctx, len(jurors)))
 			if err := k.JuryReview.Set(ctx, initiativeID, review); err != nil {
 				sdkCtx.Logger().Warn("failed to attach appeal jury", "initiative_id", initiativeID, "error", err)
+			} else if err := k.AddJuryReviewToJurorIndex(ctx, review); err != nil {
+				sdkCtx.Logger().Warn("failed to index appeal jury seating", "initiative_id", initiativeID, "error", err)
+			} else if err := k.RecordJurySeating(ctx, jurors); err != nil {
+				// Best-effort, matching the rest of this block: a bookkeeping
+				// failure must not block the appeal from being filed.
+				sdkCtx.Logger().Warn("failed to record appeal jury seating", "initiative_id", initiativeID, "error", err)
 			}
 		}
 	}

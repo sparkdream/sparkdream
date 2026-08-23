@@ -292,12 +292,76 @@ Initiatives are project work that any qualified member can claim. Completion is 
 
 Under **permissionless projects**, initiatives are capped at STANDARD tier (max 500 DREAM). The creator burns an `InitiativeCreationFee` (scaled by tier) and the budget represents DREAM minted on conviction completion — no pre-allocated project budget is consumed. Under **budget-backed projects**, the existing flow applies: initiative budgets are allocated from the project's approved budget.
 
-**Creator self-assignment.** The project creator MAY be the assignee of their own project's initiatives (solo builders are the common legitimate case). Conflict-of-interest is handled at the judging layer, not the assignment layer (mirroring x/reveal's contributor exclusion — conflicted parties may do the work, never judge it). Four safeguards apply to creator-assigned initiatives:
+**Who may create an initiative.** Creating one under a **budget-backed** project is restricted to that project's creator, or the Operations Committee as an administrative escape hatch — the same standing that lets it assign and cancel (`ErrUnauthorized`). **Permissionless** projects are deliberately open to any member meeting the trust-level and tier gates, since open contribution is the point of that mode.
 
-- **Full external conviction**: when `assignee == project.creator`, the external-conviction requirement rises from `external_conviction_ratio` (default 50%) to `self_assigned_external_conviction_ratio` (default 100%) of `required_conviction` — the community alone must vouch for the work. (Creator and assignee stakes were never counted as external; see `IsStakerExternal`.)
-- **Extended challenge window**: `TransitionToChallengePeriod` multiplies the challenge duration by `self_assigned_challenge_multiplier` (default 2) for creator-assigned initiatives.
+> The gate is about the *allocation*, not the initiative record. A project's `approved_budget` is a ceiling a council voted for, and `CreateInitiative` draws against it through `AllocateBudget`, which validates only that the project is ACTIVE and has room remaining. Without the check, any member could commission work against somebody else's council-approved budget until it was exhausted.
+
+The check sits in the message server, after the membership check and before the keeper call, so that a non-member still gets `ErrNotMember` rather than an authorization error.
+
+**Self-assignment.** A member MAY be the assignee of an initiative they commissioned themselves (solo builders are the common legitimate case). Conflict-of-interest is handled at the judging layer, not the assignment layer (mirroring x/reveal's contributor exclusion — conflicted parties may do the work, never judge it). Four safeguards apply.
+
+An initiative counts as **self-assigned** when the assignee authored the initiative **or** created the parent project (`IsSelfAssigned`). Testing only the latter left the safeguards trivially avoidable: `CreateInitiative` does not require the author to own the project it sits under, and `MsgAssignInitiative` authorises every self-assignment, so creating an initiative under somebody else's active project and taking it yourself cleared all four at once.
+
+- **Full external conviction**: for self-assigned work the external-conviction requirement rises from `external_conviction_ratio` (default 50%) to `self_assigned_external_conviction_ratio` (default 100%) of `required_conviction` — the community alone must vouch for the work.
+- **Extended challenge window**: `TransitionToChallengePeriod` multiplies the challenge duration by `self_assigned_challenge_multiplier` (default 2).
 - **Approval exclusion**: neither the assignee nor the project creator may sign `MsgApproveInitiative` for the initiative, regardless of stake or Operations Committee membership (`ErrConflictOfInterest`, code 1404).
-- **DREAM bond** (budget-backed projects only): at assignment, `self_assigned_bond_rate` (default 10%) of the initiative budget is locked from the creator's DREAM via `LockDREAM` and recorded in `initiative.self_assign_bond`. The bond is returned on completion, voluntary abandonment, or staker disapproval, and **burned** when a challenge is upheld. Permissionless projects are exempt — the creator already burned a creation fee and no treasury budget is at stake.
+- **DREAM bond**: at assignment a fraction of the initiative budget is locked from the assignee via `LockDREAM` and recorded in `initiative.self_assign_bond`. The bond is returned on completion, voluntary abandonment, or staker disapproval, and **burned** when a challenge is upheld. The rate depends on where the DREAM comes from:
+  - budget-backed project → `self_assigned_bond_rate` (default 10%)
+  - permissionless project → `permissionless_self_assigned_bond_rate` (default 25%)
+
+> Permissionless self-assignment used to be **exempt** from the bond, on the reasoning that no treasury budget was at stake. That reads the exposure backwards. A budget-backed initiative *moves* DREAM a council already approved; a permissionless one *mints* DREAM nobody approved, and the dilution lands on every holder. The exemption disabled the main economic deterrent precisely where no counterparty exists. Because `completer_share + treasury_share` is validated to equal 1, the initiative budget already **is** the amount minted — so the minting case needs a heavier rate, not a different base.
+
+**Insider exclusion.** `InitiativeAffiliates` is the canonical set of addresses with an insider stake in an initiative's outcome: the assignee, the apprentice, the **author**, and the parent project's creator. Stakes from these addresses build total conviction but never count toward the external floor.
+
+**Why these safeguards cluster here.** A payout has four independent brakes on
+it, and they are unevenly distributed. Budget-backed work that somebody else
+assigned has all four; permissionless work you assigned to yourself originally
+had none:
+
+| Brake | Budget-backed, externally assigned | Permissionless + self-assigned |
+|---|---|---|
+| Committee approval | Required before the project is ACTIVE | None — fee burn, immediately ACTIVE |
+| Self-assign bond | 10% of budget locked | 25% of the amount to be minted |
+| Budget | Finite, pre-allocated, already approved | An instruction to mint |
+| Assigner | Someone else | Yourself |
+
+The bond row is the one that was inverted: it used to be waived exactly where
+the counterparty is missing. A budget-backed initiative **moves** DREAM
+governance already approved; a permissionless one **creates** DREAM nobody
+approved, and the dilution is borne by every holder. What guards that quadrant
+today is the raised external-conviction floor (100%), the doubled challenge
+window, the season mint cap, and the bond — which is why the definition of
+"external" carries so much weight below.
+
+**One invitation hop is excluded too.** `IsStakerExternal` also rejects a staker who is one invitation edge from an affiliate, in either direction: an account an affiliate invited, or the account that invited an affiliate. Membership on this chain comes from an invitation, and an invitation is a vouching relationship with a staked bond behind it, so neither party is an independent voice on the other's work.
+
+This closes the cheapest route past the external floor, which was never to defeat it but to manufacture the electorate: invite a few accounts, gift them DREAM — `GiftOnlyToInvitees` (default true) permits exactly the inviter → own-invitee direction — and have them vouch for a self-assigned mint. The identity test alone counted every one of them as external.
+
+Exactly **one** hop is excluded, deliberately. A one-hop test is an O(1) read of the `Member.invited_by` field that already exists, needing no new index and no walk of invitation records. A full subtree walk would be unbounded per-block work that any member can inflate for the price of more invitations — the same class of problem the conviction queue exists to bound. Two accounts sharing an inviter are two hops apart and still count as external.
+
+Mechanically, `InvitationNeighborhoodOf` resolves the affiliates' inviters once per target and `IsStakerExternalTo` answers per staker against that, so the cost does not scale with staker count. The same test guards content-layer conviction (`GetExternalContentConvictionIn`), or routing conviction through linked content would bypass it.
+
+What this still is **not**: it resists the invitation edge, not sybils generally. A ring assembled through an unrelated inviter is untouched, and staking has no trust-level gate — any member may stake, and membership comes from an invitation.
+
+**Open (not built): weight external conviction by trust level.** A `NEW` account invited last week counts exactly as much toward the external floor as an `ESTABLISHED` member who has been earning for a season. Scaling each staker's contribution by trust level composes with the invitation-hop rule rather than replacing it — the hop rule removes voices that are structurally dependent, trust weighting discounts voices that are merely new. It is the cheapest remaining hardening after the hop, because trust level is already on the member record and already drives invitation credits and tier eligibility.
+
+**The cost model this is defending against.** Worth recording, because it sets the priority. With default parameters, one cycle of the permissionless self-assigned loop looks like:
+
+| Quantity | Value |
+|---|---|
+| Initiative creation fee (burned) | 3 DREAM |
+| Refundable stake across ~4 backers | ~8.7 DREAM |
+| Self-assign bond (25% of budget, returned on completion) | 125 DREAM |
+| Minted to the assignee on completion | 450 DREAM |
+
+Setup — the project fee plus the invitations needed to create backers — is roughly 45 DREAM and is paid **once**; the invited accounts stay members and can back all ten of one member's concurrent initiatives. The season cap (`MaxInitiativeRewardsPerSeason`, 100,000 DREAM) is the ceiling.
+
+Two things about that table are easy to misread:
+
+- **The bond is a capital requirement, not a cost.** It is refunded on completion, so against an attacker who expects to succeed it raises the bar and enlarges a challenger's burn target, but it does not raise the expected cost of a *successful* ring. That is what the external floor, the invitation-hop rule and trust weighting are for.
+- **The rate limiter is time, not money.** A stake reaches full conviction weight only after roughly two half-lives (~14 days at defaults), which makes this a slow drain rather than a fast one. It is also not a defence: the wait is unattended.
+
+The arithmetic is derived from the parameter defaults and was checked against a live chain (an 80 DREAM initiative shows exactly `0.2 x sqrt(80e6) = 1789` required conviction), but the full loop has not been run end to end on a devnet. Run it once before letting these numbers drive a priority decision.
 
 ```protobuf
 message Initiative {
@@ -308,7 +372,6 @@ message Initiative {
   repeated string tags = 5;
   InitiativeTier tier = 6;
   InitiativeCategory category = 7;
-  string template_id = 8;
 
   string budget = 9 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
 
@@ -326,7 +389,8 @@ message Initiative {
 
   int64 review_period_end = 19;
   int64 challenge_period_end = 20;
-  repeated string approvals = 21;
+  repeated string approvals = 21;      // Advisory endorsements
+  repeated string disapprovals = 28;   // Stake-weighted votes against
 
   InitiativeStatus status = 22;
   int64 created_at = 23;
@@ -334,8 +398,10 @@ message Initiative {
 
   string propagated_conviction = 25 [(gogoproto.customtype) = "cosmossdk.io/math.LegacyDec"]; // Conviction propagated from linked content
 
-  // DREAM locked by a self-assigning project creator (budget-backed projects
-  // only). Returned on completion/abandonment, burned on upheld challenge.
+  // DREAM locked by a self-assigning assignee (the author of the initiative or
+  // of the parent project). Rate depends on whether the parent project is
+  // budget-backed or permissionless. Returned on completion/abandonment,
+  // burned on upheld challenge.
   string self_assign_bond = 26 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
 
   // Address that submitted MsgCreateInitiative. Recorded on state so
@@ -631,9 +697,20 @@ Consequences worth knowing:
 - Initiatives that leave the active status set are dropped from the queue by the drainer itself, so completion, cancellation, abandonment and expiry are all covered without a hook in each transition.
 - The queue and the `InitiativesByContent` reverse index are derived state and are not exported in genesis. `InitGenesis` rebuilds the reverse index from `ContentInitiativeLinks` and calls `RearmConvictionQueue`, which is also available as a recovery hatch if the queue is ever suspected of having drifted.
 
+**Every derived index must be rebuilt on import.** Derived indexes are not exported, so `InitGenesis` rebuilds all of them from the primary collections: `Project`, `Initiative` and `Challenge` by status, and `JuryReview` by verdict and by juror. Covered by `TestGenesisRebuildsDerivedIndexes`.
+
+> This is a correctness requirement, not housekeeping. `HasActiveChallenges` reads the challenge-by-status index and `CanCompleteInitiative` reads that, so an unrebuilt challenge index makes an unresolved challenge **invisible** — and a challenged initiative pays out after a genesis restart. Only `Project` was rebuilt originally; the other three were not. Any new derived index has to be added here at the same time it is added to the keeper.
+
 `MaxConvictionStakeUpdatesPerBlock` and `ConvictionStableRefreshSeconds` are compile-time constants rather than governance params — they bound unmetered EndBlocker work, so a value set too high is itself a liveness risk, and changing one belongs with a change to the sweep's cost model in a chain upgrade. This matches the local convention (`maxTagExpirations` in the same module) rather than the param-driven batching used by x/collect and x/federation.
 
-**Completion bonus ordering.** `CompleteInitiative` distributes the conviction-weighted completion bonus (`InitiativeCompletionBonusDivisor`, 1/10th of budget) *before* the payout loop deletes the stake records — the weighting is derived from `stake.created_at`, so running it afterwards leaves it nothing to weight. The bonus mint is tracked against `MaxInitiativeRewardsPerSeason` alongside the completer and treasury shares. The project-side equivalent (`ProjectCompletionBonusRate`) mints directly to stakers; `ProjectStakeInfo.completion_bonus_pool` is vestigial and stays at zero, since nothing is escrowed.
+**Completion bonus is for external stakers only.** The bonus rewards independent vouching, so it is paid only to stakers who pass the same test the external-conviction floor uses — `InitiativeAffiliates` plus the one invitation hop. It previously excluded the assignee and apprentice alone, which made it the third and last place in the module defining affiliation differently from the other two: the initiative's own author and the parent project's creator were paid as though they were arm's-length backers, on top of the completer share the assignee already receives. Insiders staking on their own commission are not vouching for it. Their principal is untouched — stakes are settled and returned regardless — and the withheld share is simply never minted rather than redistributed, so excluding insiders reduces emission instead of concentrating it.
+
+The pool is `initiative_completion_bonus_rate` (default 0.1) of the budget. It
+was a hardcoded 1/10 divisor while the project-side
+`project_completion_bonus_rate` was already a parameter — the same economic knob,
+tunable on one side and fixed on the other.
+
+**Completion bonus ordering.** `CompleteInitiative` distributes the conviction-weighted completion bonus (`initiative_completion_bonus_rate`, default 1/10th of budget) *before* the payout loop deletes the stake records — the weighting is derived from `stake.created_at`, so running it afterwards leaves it nothing to weight. The bonus mint is tracked against `MaxInitiativeRewardsPerSeason` alongside the completer and treasury shares. The project-side equivalent (`ProjectCompletionBonusRate`) mints directly to stakers; `ProjectStakeInfo.completion_bonus_pool` is vestigial and stays at zero, since nothing is escrowed.
 
 **Staked Decay**: All staked DREAM decays at `StakedDecayRate` (0.05%/epoch, ~18% annualized). This ensures idle stakes erode over time even though the rate is lower than unstaked decay (0.2%/epoch). Active stakers earning from the seasonal pool easily outpace the staked decay, but abandoned stakes are gradually burned.
 
@@ -651,8 +728,10 @@ message Challenge {
   repeated string evidence = 5;
   string staked_dream = 6 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
 
-  // Fields 7-10 reserved (anonymous challenge fields removed;
-  // anonymous challenges are handled entirely by x/shield via MsgShieldedExec)
+  // 7-10 are an unused gap left by the removed anonymous-challenge fields;
+  // anonymous challenges are handled entirely by x/shield via MsgShieldedExec.
+  // Not a proto `reserved` declaration — this chain reclaims field numbers
+  // rather than reserving them (see CLAUDE.md > Proto).
 
   ChallengeStatus status = 11;
   int64 created_at = 12;
@@ -797,16 +876,14 @@ enum Verdict {
 }
 ```
 
-### InterimTemplate
+### VerificationCriteria
+
+An initiative's definition of done, declared at creation and immutable after.
+Lives in `acceptance_criteria.proto`. It previously sat beside an
+`InterimTemplate` registry, deleted because no message ever created one, all
+three networks shipped zero, and `Initiative.template_id` resolved against it.
 
 ```protobuf
-message InterimTemplate {
-  string id = 1;
-  string name = 2;
-  repeated string tags = 3;
-  repeated VerificationCriteria criteria = 4;
-  string verification_guide = 5;
-}
 
 message VerificationCriteria {
   string id = 1;
@@ -1338,7 +1415,6 @@ message MsgCreateInitiative {
   string description = 4;
   uint64 tier = 5;
   uint64 category = 6;
-  string template_id = 7;
   repeated string tags = 8;
   string budget = 9 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
 }
@@ -1362,9 +1438,8 @@ message MsgApproveInitiative {
   option (cosmos.msg.v1.signer) = "creator";
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 initiative_id = 2;
-  repeated CriteriaVote criteria_votes = 3;
-  bool approved = 4;
-  string comments = 5;
+  bool approved = 3;
+  string comments = 4;
 }
 
 message MsgAbandonInitiative {
@@ -1388,6 +1463,763 @@ message MsgCancelInitiative {
   string reason = 3;
 }
 ```
+
+#### Submitting Work
+
+`MsgSubmitInitiativeWork` moves an `ASSIGNED` initiative to `SUBMITTED` and
+records `deliverable_uri` — the pointer to the work.
+
+The URI must be non-empty after trimming, and is bounded by
+`MaxDeliverableURILength` (512). It is stored trimmed, so the value that was
+validated is the value reviewers read.
+
+> Nothing on the happy path reads the deliverable: completion turns on
+> conviction, and the only mechanism that inspects the work is the challenge
+> system, which requires someone to bond and initiate. An empty URI accepted
+> here therefore rides through the review window, past the challenge window and
+> into a payout, having given stakers, challengers and jurors nothing to judge.
+> Clients require text, but that is a client-side courtesy, not a chain rule.
+>
+> Enforced in `Keeper.SubmitInitiativeWork` rather than a `ValidateBasic`. SDK
+> 0.50+ deprecates `ValidateBasic` in favour of keeper-side validation, and
+> x/rep has none anywhere in its types package.
+
+Error: `ErrEmptyDeliverable` (1710).
+
+#### Reviewing an Initiative
+
+`MsgApproveInitiative` records one reviewer's verdict on submitted work. It is
+accepted while the initiative is `SUBMITTED` **or** `IN_REVIEW` — the latter is
+the review period, and excluding it left well-backed work reviewable for as
+little as one block, since the EndBlocker transitions an initiative out of
+`SUBMITTED` as soon as its conviction gates are met.
+
+- **Standing**: an active stake on the initiative, or a seat on the Commons
+  Operations Committee. The assignee and the parent project's creator are
+  excluded outright (`ErrConflictOfInterest`, code 1404).
+- **Approval is advisory.** The approver is appended to `initiative.approvals`
+  so the endorsement is visible, but no completion logic consults the list —
+  conviction remains the only gate on payout. Re-signing is idempotent.
+- **Disapproval is committee-only.** The Operations Committee abandons the
+  initiative outright; a non-committee disapproval is refused with
+  `ErrUnauthorized`.
+
+The stake-weighted staker veto that used to sit here is retired. Stakers are paid
+on completion, so the veto was held by exactly the people who lost money using
+it — and backing a proposal is a different judgement from evaluating a
+deliverable, made earlier and often without the expertise. Quality is the bonded
+reviewer's question now (see [Initiative Review](#initiative-review)); conviction
+is the stakers'.
+
+Abandonment by disapproval is not an upheld challenge: the self-assign bond is
+returned and the reserved budget goes back to the project. The assignee simply
+is not paid.
+
+**Stakes are not settled by abandonment.** `AbandonInitiative` returns the budget
+and the bond but does not touch stake records — unlike `CompleteInitiative`,
+which settles and deletes them. `RemoveStake` carries no initiative-status
+guard, so stakers on an `ABANDONED` or `CANCELLED` initiative withdraw normally,
+by their own transaction, whenever they choose.
+
+> This is a deliberate asymmetry, not an oversight: completion has a payout to
+> settle against, abandonment has nothing to distribute, and forcing an unstake
+> loop into the abandonment path would make it unbounded per-block work. But it
+> puts an obligation on clients — the stake controls must stay reachable on
+> abandoned and cancelled initiatives, and hidden only on `COMPLETED`, where the
+> records are genuinely gone. A client that treats every terminal status alike
+> strands its users' DREAM with no path out, and staker-driven abandonment makes
+> that state far more reachable than it used to be.
+
+Stakers keep a real exit regardless: conviction is recomputed from **live** stake
+records and completion needs both the total and external thresholds, so
+withdrawing a stake blocks completion within about one refresh interval. Voting
+with your feet is a functioning veto, not a gesture.
+
+Event: `initiative_disapproved` with `resolved_by` `operations_committee`.
+
+#### Acceptance Criteria
+
+An initiative may declare `repeated VerificationCriteria acceptance_criteria` at
+creation — a definition of done, fixed before any work starts and immutable
+afterwards. Criteria agreed *after* submission are the author marking their own
+homework, so pre-commitment is the whole value.
+
+Criteria are **not** a completion gate of their own. Making them one requires an
+electorate to judge every submission, and neither available electorate is
+suitable: stakers are paid only on completion (so they are paid to pass the
+work), and a lot-drawn jury costs more in participation rewards than a STANDARD
+initiative's entire budget. Instead criteria arm the one actor whose incentives
+are already two-sided — the challenger, who stakes DREAM that is burned if they
+lose — with an objective standard the author agreed to up front.
+
+> That reasoning rules out *stakers* and *per-submission juries* as judges — not
+> judging as such. [Initiative Review](#initiative-review-design-not-yet-built)
+> designs the third option both were standing in for: a bonded, accuracy-measured
+> role paid for reviewing rather than for approving. Criteria are the standard it
+> would judge against, which is why they are declared before work starts.
+
+They are consumed in two places:
+
+- **`MsgCreateChallenge.criteria_id`** — the challenger may name the criterion
+  the work fails. Validated against the initiative and stored on
+  `Challenge.criteria_id`, turning "the work is bad" into a question a jury can
+  adjudicate. Validated *before* the stake is locked, so a typo costs nothing.
+- **`MsgSubmitJurorVote.criteria_votes`** — a juror's per-item verdicts must
+  answer criteria the initiative actually declared. Until `acceptance_criteria`
+  existed these ids resolved to nothing, which is what left `CriteriaVote`
+  decorative.
+
+`CriteriaVote` appears on `MsgSubmitJurorVote` and nowhere else.
+`MsgApproveInitiative` used to carry the same field and read it nowhere; it has
+been removed rather than left in place, because a field the handler silently
+discards is worse than no field — clients populate it and users believe it did
+something. A reviewer's verdict is the `approved` flag plus `comments`; the
+per-criterion form belongs to the jury, which is the body that adjudicates
+against the standard.
+
+Citing a criterion is optional; an initiative that declared none can only be
+challenged free-form. But citing one that does not exist is an error
+(`ErrUnknownAcceptanceCriterion`, 1706) rather than a silently ignored field.
+Malformed criteria at creation are rejected with `ErrInvalidAcceptanceCriteria`
+(1705): ids must be unique and non-empty, every criterion needs a question, and
+the set is bounded by `MaxAcceptanceCriteria` (20).
+
+Both fields are reachable from the CLI: `create-initiative --acceptance-criteria`
+takes the criteria set as JSON, and `create-challenge --criteria-id` names the
+criterion. Without them the feature would be reachable only by a client that
+builds the proto message directly.
+
+Criteria are declared per-initiative. The `InterimTemplate` registry they might
+otherwise have referenced is gone: no message ever created one and all three
+networks shipped zero, so the reference would have pointed into an empty store.
+
+#### Inconclusive Juries Have a Terminal Path
+
+A jury that fails to reach quorum (`len(jurors)/2 + 1`) returns
+`VERDICT_INCONCLUSIVE`, which does **not** resolve the challenge. `TallyJuryVotes`
+raises an `ADJUDICATION` interim for the Operations Committee and leaves the
+challenge in `IN_JURY_REVIEW` — a status `HasActiveChallenges` counts as active,
+so `CanCompleteInitiative` never returns true again.
+
+If the committee never acts, `ExpireInterim` resolves the challenge by
+**default REJECT**: the challenger's stake is burned, the challenge is closed,
+and the initiative returns to `IN_REVIEW`. Event:
+`challenge_resolved_by_timeout`.
+
+> The direction is deliberate. Defaulting to UPHOLD would pay a challenger for a
+> jury that never sat, making it profitable to challenge good work and wait for
+> apathy. REJECT burns the stake instead, so engineering a stalled jury costs the
+> person who engineered it. It does mean unreviewed work can be paid — but
+> conviction thresholds and the challenge window still apply, and an unbounded
+> freeze is the worse failure.
+
+Without this, a below-quorum jury froze the initiative permanently, with the
+challenger's stake, every staker's conviction DREAM, and the assignee's
+self-assign bond locked inside it — recoverable only by a manual committee
+action that nothing scheduled or prompted.
+
+#### Finding Your Jury Duty
+
+Jury duty is drawn by lot, pays `StandardComplexityBudget`, and arrives without
+warning. `JuryReviewsByJuror` indexes seatings by juror address, and the query of
+the same name (`jury-reviews-by-juror [juror] [--pending-only]`) lets a juror or
+their monitoring client find outstanding summons without paging through every
+review on the chain. The `jury_review_created` event carries the seated
+addresses and the deadline, so a lightweight notifier can work off an event
+filter alone.
+
+An unnoticed summons is the main way a jury loses quorum, which is why discovery
+is part of the accountability story rather than a client-side nicety.
+
+#### Accepting or Declining Jury Duty
+
+Jurors are conscripted by sortition — nobody volunteers for a specific dispute —
+so the consequences for absence only stay fair if saying "not me" is free.
+
+- **`MsgAcceptJuryDuty`** turns a seat drawn by lot into a commitment to vote.
+  Idempotent.
+- **`MsgDeclineJuryDuty`** releases the seat immediately. It is **never**
+  recorded as a no-show, and the seat is subtracted from the participation
+  rate's denominator via `total_declined`. Ignoring the summons is what costs
+  the seat and counts against the rate.
+
+> The denominator adjustment is the substance, not a detail. `RecordJurySeating`
+> counts a seat the moment the lot draws it, so a declined seat left in the
+> denominator would make declining cost exactly as much as silence — three
+> declines then one genuine miss reads as 0/4 rather than 0/1, excluding a juror
+> on their first actual lapse. Declines are tracked separately rather than by
+> decrementing `total_assigned` so a juror who declines everything stays visible
+> as such: they are behaving correctly and must never be excluded for it, but
+> they are a seat the lot keeps wasting, which is the signal a future
+> selection-weight adjustment would read.
+
+An explicit decline is worth little as a *speed* optimisation — it saves a small
+fraction of the review window. Its value is the **record**: without it,
+"unavailable" and "ignoring the summons" are the same event, and the
+responsiveness weight would discount honest unavailability. It is also the
+consent primitive any future slashing depends on, since penalising an accepted
+seat is only fair when refusing one was free.
+
+**A decline is never refused for the jury's convenience.** The only rejections
+are the three in `jurorSeatGuard`: the review already has a verdict
+(`ErrJuryReviewResolved`, 1707), the address is not seated
+(`ErrNotSeatedJuror`, 1708), or the juror already voted
+(`ErrJurorAlreadyVoted`, 1709). Refusing a decline because the jury would get
+too small is **not** in that class, and must not be added.
+
+> The reason is worth stating, because "block the decline that breaks quorum"
+> looks like an obvious guard. A refused decline leaves the juror two options:
+> serve when they may be unavailable, unqualified or unwilling, or say nothing.
+> Saying nothing is free — `RecordJuryNoShows` charges reputation only to jurors
+> who *accepted*. But the two are not equivalent in the record: a decline counts
+> toward `answered` in the responsiveness weight, while silence increments
+> `total_timeouts` and does not. So refusing a decline converts an honest,
+> early, informative "not me" into a silent no-show, **costs the juror draw odds
+> they would otherwise have kept**, and destroys the signal — to solve a quorum
+> problem that is not the juror's fault.
+>
+> It would also collapse the justification for the abandoned-seat penalty, which
+> is fair *only* because handing the seat back was free and immediate.
+>
+> The jury adapts to the juror, never the reverse. When a roster shrinks past
+> viability the right outcome is that it loses the power to decide — see the
+> quorum floor below — not that a conscript loses the power to leave.
+
+#### Replacing Unanswered Seats
+
+`SweepUnansweredJurySeats` runs each block. For a `PENDING` review past its
+`acceptance_deadline`, every juror who neither accepted nor voted loses the
+seat, the silence is charged to their participation record, and a replacement is
+drawn.
+
+> **Replacement, not reinforcement.** Quorum is `len(jurors)/2 + 1` and
+> `required_votes` is `jury_super_majority × len(jurors)`, both computed from
+> the **seated** list. *Adding* jurors to a stalling jury therefore raises the
+> bar it is already failing to clear. Seats are swapped one-for-one instead, so
+> jury size and quorum hold steady; `required_votes` is recomputed against the
+> new roster.
+
+Vacating stops at `MinSeatedJurors` (3). Quorum is `len(jurors)/2 + 1`, so if
+replacements cannot be drawn every vacated seat shrinks the jury *and* its
+quorum — an unguarded sweep could leave one juror holding a quorum of one, able
+to uphold a challenge and burn the assignee's bond alone. At the floor the
+remaining silent jurors keep their seats, quorum holds, and the review falls
+through to its deadline tally (and from there to the terminal path) rather than
+being decided by a rump.
+
+##### Seat-lifecycle defects found and fixed
+
+Three problems, found together and fixed together. The first two were live
+correctness bugs; the third is why they were not caught by use. Recorded because
+the reasoning constrains anything that touches seat handling again.
+
+**The floor guards the involuntary path only.** `DeclineJuryDuty` calls
+`vacateJurySeat` directly, with no `MinSeatedJurors` check and no
+`required_votes` recompute — both of which the sweep does. The guard was added
+to the path where seats are taken (silence) and not to the path where they are
+given back, which is the path the design actively encourages as free.
+
+The consequence is reachable by ordinary behaviour. On a three-juror jury, two
+jurors decline — entirely normal, since declining is meant to cost nothing —
+leaving one. Quorum is `1/2 + 1 = 1`, so at the deadline tally that juror votes,
+`rejectVotes > totalVotes/2` holds at `1 > 0`, and they **single-handedly reject
+the challenge and burn the challenger's stake**. The uphold direction is blocked
+only by accident: `required_votes` is stale at the original roster's
+supermajority, so one vote cannot clear it. That asymmetry is leftover state,
+not a decision.
+
+**The sweep is inert at `jury_size = 3`.** `vacatable` is
+`len(jurors) - MinSeatedJurors`, and devnet and testnet both ship
+`jury_size = 3` against a floor of 3 — so it is always zero, and the sweep
+vacates nothing, redraws nothing and returns. The acceptance window,
+`MaxJuryRedraws` and replacement selection do nothing on those networks. Only
+mainnet's `jury_size = 5` leaves the mechanism two seats of headroom.
+
+**The acceptance window is a fixed constant against a variable review period.**
+`JuryAcceptanceWindowBlocks` is 1200 blocks (~2 hours) regardless of network:
+
+| Network | Review deadline | Acceptance window | Ratio |
+|---|---|---|---|
+| mainnet | `7 x 14400` = 100,800 blocks (~7 days) | 1,200 (~2h) | 1.2% |
+| devnet | `3 x 300` = 900 blocks (~1.5h) | 1,200 | 133% |
+
+On devnet and the test configuration the acceptance deadline falls *after* the
+vote deadline, so the sweep can never fire before the review resolves. The
+constant is simultaneously far too short for a human on mainnet and longer than
+the entire review everywhere else.
+
+Two hours also contradicts this document's own reasoning about no-shows: absence
+goes unpenalised precisely because a member cannot be expected to monitor the
+chain continuously for an event reaching them roughly once a year — and then the
+seat is withdrawn if they do not answer within two hours. Both cannot be right.
+The window should be sized to how long it takes someone to read a notification,
+not to react to a block.
+
+##### How they were fixed
+
+- **The decision threshold is floored, never the roster.** `TallyJuryVotes`
+  raises quorum to at least what a minimum-size jury would require
+  (`MinSeatedJurors/2 + 1` = 2), so no verdict is ever binding on fewer than two
+  concurring jurors. A roster thinned past that returns `INCONCLUSIVE` and takes
+  the terminal path its review type already has — adjudication interim for
+  initiative challenges, `ResolveInconclusiveContentChallenge` for content,
+  `TimeoutExpiredAppeals` for appeals. The rump loses the power to decide; the
+  juror keeps the power to leave. A two-juror jury drawn from a thin pool still
+  decides, so this does not wedge young chains.
+- **`required_votes` is recomputed on every seat change** through a shared
+  `recomputeRequiredVotes`, used by both the decline path and the sweep, so the
+  supermajority always tracks the live roster rather than leaving stale state to
+  protect one verdict direction by accident.
+- **A decline refills immediately.** It is the earliest vacancy signal there is
+  and therefore the one with the most review time left to act on; it used to
+  vacate and draw nobody, waiting for a sweep that at `jury_size = 3` never ran.
+  `refillJurySeats` draws a replacement on the spot when the pool allows, and
+  the quorum floor covers the case where it does not. The `jury_duty_declined`
+  event now carries `replacements` and the resulting `seated` count.
+- **The acceptance window is now a fraction of the review period.**
+  `jury_acceptance_window_ratio` (Params-only, default **0.25**) replaces the
+  fixed `JuryAcceptanceWindowBlocks` constant, clamped into
+  `[1, reviewPeriod - 1]` so it is always answerable and always strictly inside
+  the vote deadline. Mainnet gives ~42 hours to notice a summons; short-period
+  networks scale down instead of overshooting their own deadline. Validation
+  rejects values outside `(0,1)`: zero would sweep every seat on the block it
+  was drawn, and one or more restores the unreachable-sweep bug.
+  `MaxJuryRedraws` drops to **1** at that width, so redraw rounds cannot consume
+  the time replacement jurors need to read the work. Discovery already supports
+  the wider window: `jury-reviews-by-juror` and the juror addresses on the
+  `jury_review_created` event.
+- **Jury selection shrinks to fit instead of refusing outright.** `SelectJury`
+  used to error whenever the eligible pool was smaller than `jury_size`, so a
+  pool one juror short produced *no* jury at all and escalated to the committee
+  — a worse outcome than a slightly smaller jury, and a sharp cliff the moment
+  `jury_size` was raised. It now seats what the pool allows; an empty pool is
+  still an error, preserving the escalation path that matches on that message.
+  This is safe only because quorum is floored: a short jury cannot return a rump
+  verdict. `CreateJuryReview` enforces `MinSeatedJurors` itself and escalates
+  below it, since a jury under the floor could never reach quorum and seating
+  one would strand the challenge until its deadline. Replacement draws take
+  whatever they get, as they always did.
+
+- **The sweep has headroom on every network.** devnet and testnet `jury_size`
+  goes 3 → 5 (mainnet was already 5), so `vacatable` is no longer pinned at
+  zero. Raised rather than lowering `MinSeatedJurors`, since that floor is what
+  stands between a thinned jury and a rump verdict.
+
+- **`jury_size` is validated against that floor**, on both `Params` and
+  `RepOperationalParams`. This is the one that made the rest durable: `jury_size`
+  is **committee-editable**, and validation checked only that it was odd — so an
+  operational-params update could set it back to 3 and silently re-disable the
+  sweep without a governance vote, or set it to 1 (also odd) and leave every
+  jury unable to reach quorum. The genesis change alone was a value anyone could
+  revert past. Covered by `TestJurySizeMustExceedSeatedJuryFloor`.
+
+- **The window and the redraw cap are validated together.** Each redraw round
+  costs one acceptance window out of the review period, so
+  `jury_acceptance_window_ratio x (max_jury_redraws + 1)` must stay below 1 — a
+  wide window and several rounds cannot both be configured, or replacement
+  jurors inherit no time to read the work.
+
+> Content-challenge and moderation-appeal juries were checked before the floor
+> went in, since they use their own selection routines and can be seated small
+> from a thin pool. All three review types have a terminal `INCONCLUSIVE` path
+> already, so the floor cannot wedge any of them — it converts a rump verdict
+> into an escalation rather than into a stall. Refilling on decline stays
+> initiative-challenge-only, because the other two are selected against targets
+> a challenge review does not carry.
+
+Bounded twice: `MaxJuryRedraws` (2) rounds per review, and
+`maxJuryDeadlinesPerBlock` reviews per block. A review at the cap falls through
+to its deadline tally. Only initiative-challenge juries are redrawn — content
+and appeal juries use their own selection routines, so their unanswered seats
+are simply vacated, which lowers quorum rather than stranding it against absent
+jurors.
+
+Charging the no-show at vacate time is load-bearing: `RecordJuryNoShows` reads
+the seated list at tally time, so an un-seated juror would otherwise escape the
+record entirely.
+
+#### Juror Pay
+
+Juror pay scales with the amount in dispute: each seat is worth
+`initiative.budget × juror_reward_rate / len(jurors)`, floored at
+`min_juror_reward` (5 DREAM) and capped at `StandardComplexityBudget`.
+
+Both halves are parameters, and the floor is the one that carries most of the
+weight: content challenges and moderation appeals have no initiative budget to
+scale against, so for those the floor **is** the entire rate. Leaving it a
+compile-time constant meant the single number setting juror pay for two of the
+three review types could only move in a chain upgrade.
+
+It is a fixed **per-seat** share rather than a pool split among whoever turned
+up, so a juror never earns more because their colleagues stayed home — the
+unclaimed shares are simply never minted. Content challenges and moderation
+appeals carry no initiative budget and pay the floor.
+
+> Pay was previously a flat `StandardComplexityBudget` regardless of what was in
+> dispute, so a challenge over a 100 DREAM APPRENTICE initiative minted 750
+> DREAM in juror fees to settle it — several times the value of the work. A jury
+> should cost a fraction of what it is judging.
+
+#### Juror Accountability
+
+**Ignoring a summons is not penalised.** It briefly was — an unanswered seat
+cost a participation-rate mark and eventually a timed exclusion from selection —
+but two changes removed the harm that was pricing: the adjudication terminal
+path resolves an inconclusive jury safely, and the redraw sweep replaces an
+unanswered seat within the acceptance window. What remains of a no-show is some
+delay in a week-long review, and pricing that would oblige every eligible member
+to monitor the chain continuously for an event that reaches them roughly once a
+year. Under broad sortition, non-response is the expected default of a
+population that never volunteered; penalising the default punishes an accident
+of the draw.
+
+> This reasoning is the reason the acceptance window has to be sized in days
+> rather than hours, and the reason a decline can never be refused. A design
+> that excuses non-response because nobody watches the chain continuously cannot
+> then withdraw a seat for not answering within two hours, or trap a juror who
+> answers honestly. See [Known defects in the seat
+> lifecycle](#known-defects-in-the-seat-lifecycle-not-yet-fixed).
+
+`JuryParticipation` still records seatings, votes, declines and timeouts, and
+the record still does work — as **selection weight**:
+
+- `JurorResponsivenessWeight` multiplies a juror's reputation-derived selection
+  weight by `(voted + declined) / assigned`.
+- Declines count as answering. A prompt decline frees the seat, which is exactly
+  the behaviour the lot wants to keep drawing.
+- Below `MinJurySeatingsForWeighting` (3) seatings there is no meaningful record
+  and the juror is drawn at full weight.
+- The multiplier is floored at `MinJurorSelectionWeight` (0.1). A juror who
+  never answers is drawn less often, **never not at all** — a zero-weight
+  address is excluded in all but name, with no way to earn its way back since it
+  would never be drawn again to demonstrate otherwise.
+
+This fixes the pool-efficiency problem exclusion was really solving, without
+taking anything from anyone and without removing an address from the lot.
+
+> **Both are guesses, and both are now tunable.** `min_juror_selection_weight`
+> (0.1) and `min_jury_seatings_for_weighting` (3) were chosen for shape, not
+> fitted to anything, so they are parameters rather than compile-time constants
+> — a value you intend to revisit against observed response rates should not
+> need a chain upgrade to move. The floor in particular trades pool breadth
+> against the cost of repeatedly drawing an address that never answers. The
+> `Default*` constants of the same name survive only as genesis seeds and as the
+> fallback for a chain whose stored params predate the fields.
+
+**Abandoning an accepted seat is penalised.** A juror who signs
+`MsgAcceptJuryDuty` and then lets the seat lapse is charged
+`abandoned_jury_seat_penalty` reputation (default 10) against each tag of the
+disputed initiative, and the seat is counted in `total_abandoned`.
+
+> This is fair precisely because declining is free and immediate. The juror was
+> drawn, was told, could have handed the seat back at no cost, and instead took
+> it and held it empty until the deadline. Reputation is the right currency
+> because it is what qualifies a juror: at `min_juror_reputation` 50, four
+> abandoned seats cost an otherwise qualified member their eligibility in that
+> tag, so the penalty is self-limiting rather than unbounded.
+
+Reviews with no initiative (content challenges, moderation appeals) have no tags
+to charge against and are skipped rather than charged arbitrarily. Setting the
+penalty to 0 disables it.
+
+
+#### Initiative Review
+
+**The gap.** Nothing in the happy path reads the deliverable. Completion turns
+on conviction, which measures whether people *wanted the work done* — not
+whether it *was* done. Acceptance criteria gave a challenger a standard to cite;
+they gave nobody a reason to look in the first place.
+
+Both obvious electorates are disqualified, and the reasons are worth keeping
+because they constrain any future redesign:
+
+- **Stakers are the wrong judges twice over.** They are paid on completion, so
+  they are paid to pass the work. And backing is simply not reviewing: a staker
+  says *I want this to exist*, which is a judgement about a proposal, made
+  early, often by someone with no expertise in the deliverable. They cannot even
+  express a verdict when they stake — `MsgApproveInitiative` opens only in
+  `SUBMITTED` / `IN_REVIEW`, so for the whole `OPEN` → `ASSIGNED` phase, when
+  conviction is accruing, there is nothing to vote on.
+- **A lot-drawn jury per submission** conscripts reviewers for undisputed work
+  and prices every completion at a jury.
+
+The answer is a third role that does nothing else.
+
+##### A bonded role, modelled on content sentinels
+
+`ROLE_TYPE_INITIATIVE_REVIEWER`, owned by x/rep, reusing `BondedRole`,
+`BondedRoleConfig` and `RoleActivity` unchanged. Bonding and unbonding are the
+existing `MsgBondRole` / `MsgUnbondRole` with the new role type — no new
+lifecycle messages.
+
+**Why not simply let content sentinels do it.** Role types are module-scoped and
+a distinct job gets a distinct type (see
+[bonded-role-generalization.md](bonded-role-generalization.md)). Four reasons
+apply here specifically:
+
+- **Different competence.** Sentinel work is policy application — abusive,
+  off-topic, miscategorised — and is largely domain-independent. Review is
+  technical evaluation against acceptance criteria and needs expertise in the
+  initiative's own tags, which is exactly what `requires_domain_rep` and
+  `min_verifier_reputation` exist to express.
+- **Liability differs by orders of magnitude.** A wrong hide costs a post some
+  visibility. A wrong approval **mints DREAM** — up to 10,000 for an EPIC
+  initiative — and minted DREAM cannot be clawed back. Bond must scale to
+  liability, and a single `min_bond` cannot serve both.
+- **Slash isolation.** Merged, a sentinel overturned on a forum hide would lose
+  bond that was simultaneously backing their initiative reviews. Independent
+  bond pools per role type is a deliberate property of the primitive.
+- **Accuracy denominators.** `RoleActivity` is keyed `(role_type, address)`
+  precisely so a high-volume accurate sentinel cannot carry a poor reviewer
+  record. Pool them and accuracy-gated pay stops meaning anything.
+
+**The population objection dissolves.** The one real argument for merging is
+that a young chain may not have enough members for two rosters — but
+`BondedRole`'s key is `(role_type, address)`, so **one address can already hold
+both roles**. If the pool is thin the same people bond both, and none of the
+bonds, configs, slash surfaces or accuracy records get coupled. Merging to share
+people is unnecessary.
+
+##### Who may review what
+
+`VerificationPolicy` on the parent project is the config, and this is what its
+fields are for:
+
+| Field | Role |
+|---|---|
+| `default_review` | which process this project uses |
+| `min_verifier_count` | approvals required before completion; **0 = conviction-only** |
+| `min_verifier_reputation` | the bar to review here; defaults to the initiative tier's own `min_reputation` |
+| `requires_domain_rep` | that reputation must be in the initiative's tags |
+| `requires_creator_approval` | the project creator must sign off as well |
+| `review_period_epochs` / `challenge_period_epochs` | per-project windows |
+
+A reviewer qualifies for a given initiative when they hold the role at `NORMAL`
+status past `min_age_blocks`, clear the reputation bar, and are **independent of
+the work** — the same `InitiativeAffiliates` plus one-invitation-hop test that
+gates external conviction, reused rather than reinvented.
+
+**A staker on an initiative may not review it.** Holding conviction on the
+outcome is the conflict this whole role exists to remove; permitting it would
+reintroduce the problem one layer down.
+
+**Windows may only lengthen.** `review_period_epochs` and
+`challenge_period_epochs` are clamped to `max(global, project)`. Without that, a
+permissionless project creator could shrink their own contest window toward zero
+and walk past the brake the self-assignment safeguards depend on. A project may
+be more conservative than the chain default, never less — which is why the
+override needs no approval.
+
+##### Configuring it
+
+`MsgSetVerificationPolicy(creator, project_id, policy)` — project creator or
+Operations Committee, while the project is `ACTIVE`. Settable rather than fixed
+at creation because the reviewer roster grows over time: a project has to be
+able to turn review on once reviewers exist, and creation-time-only would strand
+every project made before then on conviction-only permanently. The policy's
+windows are clamped to `max(global, project)` on write, and `min_verifier_count`
+is bounded by `MaxVerifierCount` (10) — a project demanding more approvals than
+the roster can supply stalls every initiative under it.
+
+##### The completion gate
+
+`CanCompleteInitiative` gains one condition when `min_verifier_count > 0`:
+approvals from qualified reviewers must reach `min_verifier_count`, plus the
+creator's approval when `requires_creator_approval`. Conviction gates, the
+challenge window and the no-active-challenges rule all still apply — review is
+an **additional** brake, never a substitute for one.
+
+`MsgSubmitInitiativeReview(reviewer, initiative_id, approved, criteria_votes,
+comments)` records a verdict, reserving bond against it the way a sentinel
+action does. This is also the correct home for `CriteriaVote` — a per-criterion
+verdict belongs to someone accountable for getting it right, which is why
+removing the field from `MsgApproveInitiative` (where nothing read it) was right
+rather than merely tidy.
+
+##### Pay: two components, and only one of them is optional
+
+**Reviewing must pay per completed review, never per approval.** If approving
+pays and rejecting does not, the role rebuilds "paid to say yes" one layer down.
+This is the single constraint the reward design cannot trade away.
+
+- **DREAM per review, from the initiative budget**, scaled by the tier's
+  existing `TierConfig.reward_multiplier` (0.5 / 1.0 / 1.5 / 2.0 across
+  APPRENTICE → EPIC — no new parameter needed). Self-funding and available from
+  day one. It mirrors juror pay, which already scales against the disputed
+  budget. On rejection the budget returns to the project **minus** the review
+  fees: the project pays for having had the work evaluated, which is where that
+  cost belongs.
+- **SPARK from an accuracy-gated pool**, distributed on the sentinel schedule
+  with the same cap-and-overflow-burn treatment. This is the quality component —
+  the reason to hold the role rather than merely fill it.
+
+> **The SPARK pool needs a funding line that does not exist yet.** The sentinel
+> pool is fed *only* by forfeited appeal bonds, which gives it a perverse
+> property: good moderation means few appeals means an empty pool. For reviewers
+> that is worse — good reviewing means few challenges means no pay, for exactly
+> the expensive expert labour the SPARK component is meant to compensate. A
+> council treasury allocation through x/split is the legitimate SPARK path and
+> should be stood up before the SPARK half is relied on. **Ship the DREAM
+> component first**; a SPARK-only design would leave reviewers working for
+> nothing, the roster empty, and every initiative falling through to the
+> committee.
+
+Tier scaling is a **score weight within a fixed pool** for the SPARK half, and a
+genuine per-review fee for the DREAM half. Absolute scaling only comes from the
+component that scales with what is being reviewed.
+
+> `TierConfig` is creator-set, so inflating tier to attract reviewers is
+> conceivable. It is bounded — tier gates creation on the creator's own
+> reputation, and permissionless work caps at STANDARD — but budget is the
+> harder-to-fake signal if the multiplier ever looks gameable in practice.
+
+##### Accountability, in both directions
+
+Reviewer accuracy comes from challenge outcomes, exactly as sentinel accuracy
+does, and it has to work symmetrically:
+
+- **A completion approval is challengeable** — "reviewers passed bad work" —
+  through the existing challenge flow. If the jury upholds the challenge, the
+  approving reviewers are recorded as overturned and their reserved bond is
+  slashed.
+- **A rejection sends the work back.** `REJECTED` returns the initiative to
+  `ASSIGNED` with the deliverable cleared and the round incremented, so the
+  assignee fixes it and resubmits — the natural remedy for "not done". Bounded
+  by `max_review_rounds` (3); the last rejection abandons the initiative through
+  the existing clean exit. Verdicts are keyed by round, so a reviewer may file
+  again on the new round without colliding with the one already on record.
+  `GOV_ACTION_TYPE_REVIEW_REJECTION` is reserved for appealing a rejection as an
+  *action* rather than resubmitting, on the `GovActionAppeal` shape.
+
+Either way the outcome writes to `RoleActivity`'s existing upheld / overturned
+counters and accuracy ring, gates the reviewer's share of the SPARK pool, and
+feeds the existing consecutive-overturn demotion. Unchallenged reviews release
+their reserved bond when the challenge window closes.
+
+##### The stall path, which is the dominant risk
+
+With the staker veto retired (below), reviewers are load-bearing: if nobody
+reviews, nothing completes. Every part of this path exists to guarantee
+liveness.
+
+1. Review runs until `review_deadline` = submission + `review_period_epochs`.
+2. If approvals are still short of `min_verifier_count`, the initiative
+   escalates to the Operations Committee, which has three options:
+   - **approve** — satisfies the reviewer gate,
+   - **reject** — blocks completion; the assignee may appeal as above,
+   - **let the challenge period run** — decline to substitute judgement; the
+     initiative proceeds on conviction alone.
+3. **Committee inaction defaults to option three.** This module has already been
+   bitten once by an escalation that expired and touched nothing, freezing an
+   initiative permanently with the challenger's stake, every staker's conviction
+   and the assignee's bond locked inside it. Silence must never be the state
+   that wedges an initiative, and silence must never mint.
+
+**All three committee outcomes still run the challenge window.** Committee
+approval satisfies the reviewer requirement and nothing else — it is not a
+bypass around the one brake that does not depend on somebody showing up.
+Committee approval writes **no** `RoleActivity` entry, since the committee holds
+no bond and carries no accuracy record, and emits a distinct event so
+committee-approved completions stay auditable.
+
+**Bootstrap.** `min_verifier_count` defaults to **0** at genesis, which is
+exactly today's conviction-only behaviour — a project that asks for no reviewers
+is always satisfied and no review window opens at all. Turning the role on is a
+per-project decision taken once reviewers exist, so nothing can wedge while the
+roster is still filling.
+
+##### What shipped, and what did not
+
+Built: the role and its `BondedRoleConfig` (5,000 DREAM floor, an order of
+magnitude above the sentinel's because the liability is), per-verdict bond
+scaled by `reviewer_bond_reserve_rate`, the completion gate, the round/resubmit
+cycle, the committee escalation with its PASSED-on-silence default, the DREAM
+fee via `review_fee_rate` x the tier multiplier paid on both terminal paths, and
+the accuracy wiring into `RoleActivity` from both challenge directions.
+
+**Not built: the SPARK half.** The sentinel pool it would copy is fed only by
+forfeited appeal bonds, which means good reviewing produces few challenges
+produces an empty pool — the wrong shape for the expensive expert labour the
+SPARK component exists to compensate. It needs a council treasury allocation
+through x/split first. The DREAM component is self-funding and ships alone, so
+the role is viable from day one; SPARK is the quality bonus to add once there is
+a line to fund it.
+
+##### What this retires
+
+The **stake-weighted disapproval veto** is gone: `initiative_disapproval_threshold`
+(both `Params` and `RepOperationalParams`), `Initiative.disapprovals`, and the
+staker branch of `MsgApproveInitiative`, which now refuses a non-committee
+disapproval outright with `ErrUnauthorized`. Approval remains advisory and
+recorded; disapproval is committee-only.
+
+Stakers still hold a real exit. Conviction is recomputed from **live** stake
+records and completion requires both the total and external thresholds, so
+withdrawing a stake genuinely blocks completion, with roughly one refresh
+interval of lag. Voting with your feet is a functioning veto, not a gesture.
+
+What makes retiring correct is not that the conflict disappears — unstaking
+forfeits the completion bonus and seasonal staking rewards, so it costs the
+staker just as disapproving did. It is that **the staker's opinion stops being
+load-bearing**: conviction measures demand, reviewers measure quality, and each
+electorate is now asked only the question it is competent to answer.
+
+> Accept the consequence: because conflicted stakers rarely withdraw, conviction
+> becomes effectively monotonic — it ratchets toward completion and seldom
+> retreats. That is tolerable only while reviewers are genuinely the quality
+> gate. Reviewer coverage and accuracy are therefore not refinements of this
+> design; they are the thing holding it up.
+
+#### Jury verdicts are final
+
+A jury verdict on a challenge or an appeal **cannot be overturned**. There is no
+appeal against a jury.
+
+This is a design decision, not a missing feature. The jury is the terminal
+fact-finder: any appellate body would itself need to be measured, and whatever
+measured *it* would need measuring in turn. Finality is what stops the regress,
+and it is what lets every other accountable role in the module — sentinels,
+curators, verifiers, and reviewers above — treat a jury outcome as ground truth
+for their accuracy records.
+
+**Committee arbitration is not an exception.** When a jury fails to reach
+quorum, the Operations Committee arbitrates — but that substitutes for a jury
+that never formed rather than reviewing one that ruled. Slower, and eventual,
+but never a second opinion on a delivered verdict.
+
+**The consequence for jurors: reliability is measurable, accuracy is not.**
+Without an overturn signal there is no way to score whether a juror judged
+*well*, and none should be invented — the available proxies all punish
+principled dissent and reward voting with the herd. Jurors are therefore held to
+whether they **show up**: seatings, votes, declines and abandoned seats, feeding
+`JurorResponsivenessWeight` and the abandoned-seat reputation penalty documented
+above. That is the whole of juror accountability by design, and it is already
+built.
+
+
+#### Completing an Initiative
+
+Payout is the one irreversible step in the initiative lifecycle: it mints to the
+completer and the treasury, settles every staker, and deletes the stake records.
+`MsgCompleteInitiative` is therefore gated on the contest window having actually
+elapsed, not merely on the conviction thresholds being met:
+
+- **Authority**: the initiative's assignee, or the Operations Committee.
+- **Preconditions**: status is `IN_REVIEW`, the current block height is at or
+  past `challenge_period_end`, the parent project is not `CANCELLED`, and
+  `CanCompleteInitiative` passes (both conviction gates, no open challenges).
+- **Errors**: `ErrInvalidInitiativeStatus` (1402) before the initiative reaches
+  review, `ErrChallengePeriodActive` (1704) while the window is still open.
+  Neither is permanent — the same call succeeds once the window closes.
+
+`SUBMITTED` was accepted here previously, which let an assignee skip the
+challenge period entirely: submit, wait for the EndBlocker to observe the
+conviction thresholds met, then call `MsgCompleteInitiative` before a single
+block of the window had run. Because the EndBlocker finalises unchallenged
+initiatives on its own at `challenge_period_end`, the manual message is now a
+retry path rather than the normal route to payout — it matters when an
+EndBlocker completion failed for a recoverable reason (the season mint cap in
+`ErrInitiativeRewardCapReached`, say) and the call is worth repeating later.
 
 #### Cancelling an Unstarted Initiative
 
@@ -1425,11 +2257,34 @@ current member's reputation. `MsgCancelInitiative` closes that gap:
 6. Create initiative normally — budget represents DREAM minted on conviction completion
 7. Conviction threshold, challenge period, and completion flow are identical to budget-backed initiatives
 
-**Budget-backed path** (existing behavior, unchanged):
-1. Validate parent project is ACTIVE
-2. Validate tier budget limits
-3. Allocate budget from project's approved budget
-4. Create initiative
+**Budget-backed path**:
+1. Validate the caller is the parent project's **creator** or on the Operations
+   Committee (`ErrUnauthorized`)
+2. Validate parent project is ACTIVE
+3. Validate tier budget limits
+4. Allocate budget from project's approved budget
+5. Create initiative
+
+**Standing on budget-backed projects.** Step 1 is the only asymmetry between the
+two paths' authorization, and it exists because `AllocateBudget` validates only
+that a project is ACTIVE and has budget remaining — it has no creator guard. Any
+member could therefore commission work under somebody else's budget-backed
+project and draw down its council-approved ceiling, then self-assign it and be
+paid from a pool they were never granted. Permissionless projects stay open to
+any member meeting the trust-level and tier gates, because there is no approved
+pool to consume — the DREAM is minted against conviction or not at all.
+
+Three placement details that mattered:
+
+- **The gate lives in the message server, not the keeper**, which is where
+  authorization lives throughout this module and keeps the keeper callable as
+  trusted internal API.
+- **It runs *after* the membership check**, so a non-member still gets a
+  membership error rather than an authorization one.
+- It was chosen over adding an "open to contributions" flag on `Project`
+  because it needs no proto field and no genesis value, and it matches the
+  standing model already used by cancel-project, cancel-initiative and
+  assign-initiative.
 
 ### Interim Messages
 
@@ -1923,8 +2778,6 @@ service Query {
   // Interims
   rpc GetInterim(QueryGetInterimRequest) returns (QueryGetInterimResponse);
   rpc ListInterim(QueryAllInterimRequest) returns (QueryAllInterimResponse);
-  rpc GetInterimTemplate(QueryGetInterimTemplateRequest) returns (QueryGetInterimTemplateResponse);
-  rpc ListInterimTemplate(QueryAllInterimTemplateRequest) returns (QueryAllInterimTemplateResponse);
   rpc InterimsByAssignee(QueryInterimsByAssigneeRequest) returns (QueryInterimsByAssigneeResponse);
   rpc InterimsByType(QueryInterimsByTypeRequest) returns (QueryInterimsByTypeResponse);
   rpc InterimsByReference(QueryInterimsByReferenceRequest) returns (QueryInterimsByReferenceResponse);
@@ -2080,7 +2933,6 @@ type Keeper struct {
     JuryReview      collections.Map[uint64, types.JuryReview]
     InterimSeq      collections.Sequence
     Interim         collections.Map[uint64, types.Interim]
-    InterimTemplate collections.Map[string, types.InterimTemplate]
     GiftRecord      collections.Map[collections.Pair[string, string], types.GiftRecord]
 
     // Secondary indexes (avoid full table scans in EndBlocker)
@@ -2323,7 +3175,6 @@ message GenesisState {
   uint64 jury_review_count = 14;
   repeated Interim interim_list = 15 [(gogoproto.nullable) = false];
   uint64 interim_count = 16;
-  repeated InterimTemplate interim_template_map = 17 [(gogoproto.nullable) = false];
 
   // Stake pools
   repeated MemberStakePool member_stake_pool_list = 18 [(gogoproto.nullable) = false];

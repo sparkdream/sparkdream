@@ -4,10 +4,12 @@ import (
 	"context"
 	"fmt"
 	stdmath "math"
+	"strings"
 
 	"sparkdream/x/rep/types"
 
 	"cosmossdk.io/collections"
+	errorsmod "cosmossdk.io/errors"
 	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 )
@@ -21,8 +23,8 @@ func (k Keeper) CreateInitiative(
 	tags []string,
 	tier types.InitiativeTier,
 	category types.InitiativeCategory,
-	templateID string,
 	budget math.Int,
+	acceptanceCriteria ...types.VerificationCriteria,
 ) (uint64, error) {
 	// Validate project exists and is active
 	project, err := k.GetProject(ctx, projectID)
@@ -111,6 +113,13 @@ func (k Keeper) CreateInitiative(
 		return 0, fmt.Errorf("budget %s DREAM exceeds %s tier maximum of %s DREAM", budgetDream.String(), tierName, maxDream.String())
 	}
 
+	// The definition of done is fixed here and never again — pre-commitment is
+	// the entire value, since criteria agreed after the work is submitted are
+	// just the author marking their own homework.
+	if err := ValidateAcceptanceCriteria(acceptanceCriteria); err != nil {
+		return 0, err
+	}
+
 	// Enforce max tags per initiative (anti-gaming: prevents tag stuffing for rep/revenue inflation)
 	if params.MaxTagsPerInitiative > 0 && uint32(len(tags)) > params.MaxTagsPerInitiative {
 		return 0, fmt.Errorf("initiative has %d tags, max allowed is %d: %w", len(tags), params.MaxTagsPerInitiative, types.ErrTooManyTags)
@@ -163,7 +172,7 @@ func (k Keeper) CreateInitiative(
 		Tags:                  tags,
 		Tier:                  tier,
 		Category:              category,
-		TemplateId:            templateID,
+		AcceptanceCriteria:    acceptanceCriteria,
 		Budget:                PtrInt(budget),
 		RequiredConviction:    PtrDec(requiredConviction),
 		CurrentConviction:     PtrDec(math.LegacyZeroDec()),
@@ -331,21 +340,34 @@ func (k Keeper) AssignInitiativeToMember(
 		return fmt.Errorf("insufficient reputation for tier: have %s, need %s", avgRep.String(), tierConfig.MinReputation.String())
 	}
 
-	// Self-assignment bond: a creator taking their own budget-backed
-	// initiative locks a fraction of the budget as a DREAM bond — returned
-	// on completion/abandonment, burned on upheld challenge. Permissionless
-	// projects are exempt (no treasury exposure).
+	// Self-assignment bond: taking an initiative you commissioned yourself
+	// locks a fraction of its budget as a DREAM bond — returned on
+	// completion/abandonment, burned on upheld challenge.
+	//
+	// Permissionless projects used to be exempt on the grounds that they carry
+	// no treasury exposure. That reads the exposure backwards. A budget-backed
+	// initiative MOVES DREAM a council already approved; a permissionless one
+	// MINTS DREAM nobody approved, and the dilution lands on every holder.
+	// Since CompleterShare + TreasuryShare == 1, the budget IS the mint, so the
+	// bond base is already right — what the minting case needs is the heavier
+	// rate, not a different base.
 	project, err := k.GetProject(ctx, initiative.ProjectId)
 	if err != nil {
 		return err
 	}
-	if assignee.String() == project.Creator && !project.Permissionless && params.SelfAssignedBondRate.IsPositive() {
-		bond := DerefInt(initiative.Budget).ToLegacyDec().Mul(params.SelfAssignedBondRate).TruncateInt()
-		if bond.IsPositive() {
-			if err := k.LockDREAM(ctx, assignee, bond); err != nil {
-				return fmt.Errorf("failed to lock self-assign bond of %s DREAM: %w", bond, err)
+	if IsSelfAssigned(initiative, project, assignee.String()) {
+		bondRate := params.SelfAssignedBondRate
+		if project.Permissionless {
+			bondRate = params.PermissionlessSelfAssignedBondRate
+		}
+		if bondRate.IsPositive() {
+			bond := DerefInt(initiative.Budget).ToLegacyDec().Mul(bondRate).TruncateInt()
+			if bond.IsPositive() {
+				if err := k.LockDREAM(ctx, assignee, bond); err != nil {
+					return fmt.Errorf("failed to lock self-assign bond of %s DREAM: %w", bond, err)
+				}
+				initiative.SelfAssignBond = PtrInt(bond)
 			}
-			initiative.SelfAssignBond = PtrInt(bond)
 		}
 	}
 
@@ -394,6 +416,21 @@ func (k Keeper) SubmitInitiativeWork(
 		return fmt.Errorf("initiative must be in ASSIGNED status")
 	}
 
+	// Require something to review. Nothing on the happy path reads the
+	// deliverable — completion turns on conviction — so an empty URI submitted
+	// here rides through the review window, past the challenge window and into
+	// a payout, having given stakers, challengers and jurors nothing to judge.
+	// Enforced keeper-side rather than in a ValidateBasic: SDK 0.50+ deprecates
+	// ValidateBasic and this module has none anywhere in x/rep/types.
+	deliverableURI = strings.TrimSpace(deliverableURI)
+	if deliverableURI == "" {
+		return types.ErrEmptyDeliverable
+	}
+	if len(deliverableURI) > types.MaxDeliverableURILength {
+		return fmt.Errorf("%w: deliverable URI is %d characters, max %d",
+			types.ErrInvalidRequest, len(deliverableURI), types.MaxDeliverableURILength)
+	}
+
 	// Get params for review periods
 	params, err := k.Params.Get(ctx)
 	if err != nil {
@@ -408,6 +445,22 @@ func (k Keeper) SubmitInitiativeWork(
 	initiative.SubmittedAt = sdkCtx.BlockTime().Unix()
 	initiative.Status = types.InitiativeStatus_INITIATIVE_STATUS_SUBMITTED
 	initiative.ReviewPeriodEnd = currentHeight + (params.DefaultReviewPeriodEpochs * params.EpochBlocks)
+
+	// Open a reviewer window for this round when the parent project asks for
+	// sign-off. Past the deadline with the gate unmet, the EndBlocker escalates
+	// to the Operations Committee rather than letting the work sit forever.
+	if project, pErr := k.GetProject(ctx, initiative.ProjectId); pErr == nil && ReviewRequired(project) {
+		reviewEpochs := params.DefaultReviewPeriodEpochs
+		if project.VerificationPolicy.ReviewPeriodEpochs > reviewEpochs {
+			reviewEpochs = project.VerificationPolicy.ReviewPeriodEpochs
+		}
+		initiative.ReviewDeadline = currentHeight + (reviewEpochs * params.EpochBlocks)
+		initiative.ReviewEscalation = types.ReviewEscalation_REVIEW_ESCALATION_NONE
+		// Snapshot the requirement so the gate cannot be relaxed mid-flight.
+		initiative.RequiredVerifiers = project.VerificationPolicy.MinVerifierCount
+	} else {
+		initiative.RequiredVerifiers = 0
+	}
 
 	if err := k.UpdateInitiative(ctx, initiative); err != nil {
 		return err
@@ -485,10 +538,31 @@ func (k Keeper) AbandonInitiative(
 		return fmt.Errorf("only assignee can abandon initiative")
 	}
 
-	// Return budget to project (skip for permissionless — no pre-allocated budget)
+	// Reviewers are paid for the round that resolved this initiative whether it
+	// completed or was abandoned. Making the fee outcome-dependent would rebuild
+	// exactly the bias the role exists to remove.
+	reviewFees, feeErr := k.PayReviewFees(ctx, initiative)
+	if feeErr != nil {
+		return fmt.Errorf("failed to pay review fees: %w", feeErr)
+	}
+	// Nothing here is contestable any more, so release the bond every verdict
+	// committed.
+	if err := k.SettleReviewBonds(ctx, initiativeID); err != nil {
+		return fmt.Errorf("failed to settle review bonds: %w", err)
+	}
+
+	// Return budget to project (skip for permissionless — no pre-allocated
+	// budget), net of what review cost. The project pays for having had the work
+	// evaluated, which is where that cost belongs: returning the full budget
+	// would make review free to the party that asked for it and fund the
+	// reviewers purely by dilution.
 	project, projErr := k.GetProject(ctx, initiative.ProjectId)
 	if projErr == nil && !project.Permissionless {
-		if err := k.ReturnBudget(ctx, initiative.ProjectId, DerefInt(initiative.Budget)); err != nil {
+		returned := DerefInt(initiative.Budget).Sub(reviewFees)
+		if returned.IsNegative() {
+			returned = math.ZeroInt()
+		}
+		if err := k.ReturnBudget(ctx, initiative.ProjectId, returned); err != nil {
 			return fmt.Errorf("failed to return budget: %w", err)
 		}
 	}
@@ -588,12 +662,27 @@ func (k Keeper) CompleteInitiative(ctx context.Context, initiativeID uint64) err
 		return err
 	}
 
-	// Validate status - must be SUBMITTED or IN_REVIEW
-	// SUBMITTED: Manual completion after conviction met
-	// IN_REVIEW: Automatic completion after challenge period
-	if initiative.Status != types.InitiativeStatus_INITIATIVE_STATUS_SUBMITTED &&
-		initiative.Status != types.InitiativeStatus_INITIATIVE_STATUS_IN_REVIEW {
-		return fmt.Errorf("initiative must be in SUBMITTED or IN_REVIEW status, got %s", initiative.Status)
+	// Validate status - must be IN_REVIEW, and the challenge window must have
+	// closed. Payout is the one irreversible step in the lifecycle (it mints,
+	// pays stakers, and deletes the stake records), so it is gated on the
+	// window in which anyone can contest the work having actually elapsed.
+	//
+	// SUBMITTED was accepted here until it became clear that it let the
+	// assignee skip that window entirely: submit, wait for the EndBlocker to
+	// see the conviction thresholds met, then call MsgCompleteInitiative
+	// before a single block of the challenge period had run. The community
+	// gets its full DefaultChallengePeriodEpochs (doubled for self-assigned
+	// work) to raise a challenge, and this guard is what makes that promise
+	// real rather than advisory. TransitionToChallengePeriod is the only way
+	// into IN_REVIEW, so it always sets ChallengePeriodEnd before this runs.
+	if initiative.Status != types.InitiativeStatus_INITIATIVE_STATUS_IN_REVIEW {
+		return errorsmod.Wrapf(types.ErrInvalidInitiativeStatus,
+			"initiative must be in IN_REVIEW status to complete, got %s", initiative.Status)
+	}
+	if currentHeight := sdk.UnwrapSDKContext(ctx).BlockHeight(); currentHeight < initiative.ChallengePeriodEnd {
+		return errorsmod.Wrapf(types.ErrChallengePeriodActive,
+			"challenge period for initiative %d ends at height %d (current %d)",
+			initiativeID, initiative.ChallengePeriodEnd, currentHeight)
 	}
 
 	// Refuse to mint a payout under a cancelled parent project. Cancelling a
@@ -687,6 +776,19 @@ func (k Keeper) CompleteInitiative(ctx context.Context, initiativeID uint64) err
 		if err := k.DistributeInitiativeCompletionBonus(ctx, initiativeID, totalReward); err != nil {
 			return fmt.Errorf("failed to distribute initiative completion bonus: %w", err)
 		}
+	}
+
+	// Pay the reviewers who judged the round that resolved this initiative.
+	// Paid per verdict filed, never per approval — and paid on this path and
+	// the abandonment path alike, so the fee never depends on the outcome.
+	if _, err := k.PayReviewFees(ctx, initiative); err != nil {
+		return fmt.Errorf("failed to pay review fees: %w", err)
+	}
+	// Completion is gated on the challenge window having elapsed with no active
+	// challenge, so these verdicts are no longer contestable and the bond
+	// committed against them is free.
+	if err := k.SettleReviewBonds(ctx, initiativeID); err != nil {
+		return fmt.Errorf("failed to settle review bonds: %w", err)
 	}
 
 	// Settle and release every stake.

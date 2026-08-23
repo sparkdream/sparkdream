@@ -32,7 +32,7 @@ func TestCreateStake(t *testing.T) {
 		ReputationScores: map[string]string{"backend": "100.0"},
 	})
 
-	initID, _ := k.CreateInitiative(ctx, creator, projectID, "Task", "D", []string{"backend"}, types.InitiativeTier_INITIATIVE_TIER_STANDARD, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, "", math.NewInt(100))
+	initID, _ := k.CreateInitiative(ctx, creator, projectID, "Task", "D", []string{"backend"}, types.InitiativeTier_INITIATIVE_TIER_STANDARD, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, math.NewInt(100))
 	k.AssignInitiativeToMember(ctx, initID, assignee)
 
 	// Create staker with DREAM balance
@@ -83,7 +83,7 @@ func TestCreateStakeErrors(t *testing.T) {
 	// Create a project and initiative to test against
 	projectID, _ := k.CreateProject(ctx, creator, "Proj", "Desc", []string{"backend"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical", math.NewInt(10000), math.NewInt(1000), false)
 	k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(10000), math.NewInt(1000))
-	initID, _ := k.CreateInitiative(ctx, creator, projectID, "Task", "D", []string{"backend"}, types.InitiativeTier_INITIATIVE_TIER_STANDARD, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, "", math.NewInt(100))
+	initID, _ := k.CreateInitiative(ctx, creator, projectID, "Task", "D", []string{"backend"}, types.InitiativeTier_INITIATIVE_TIER_STANDARD, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, math.NewInt(100))
 
 	// Test: Insufficient balance (staker has 100, trying to stake 1000)
 	_, err := k.CreateStake(ctx, staker, types.StakeTargetType_STAKE_TARGET_INITIATIVE, initID, "", math.NewInt(1000))
@@ -122,7 +122,7 @@ func TestInitiativeStakeCapEnforcement(t *testing.T) {
 		ReputationScores: map[string]string{"backend": "100.0"},
 	})
 
-	initID, _ := k.CreateInitiative(ctx, creator, projectID, "Task", "D", []string{"backend"}, types.InitiativeTier_INITIATIVE_TIER_STANDARD, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, "", math.NewInt(100))
+	initID, _ := k.CreateInitiative(ctx, creator, projectID, "Task", "D", []string{"backend"}, types.InitiativeTier_INITIATIVE_TIER_STANDARD, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, math.NewInt(100))
 	k.AssignInitiativeToMember(ctx, initID, assignee)
 
 	// Whale staker with massive DREAM balance
@@ -186,7 +186,7 @@ func TestRemoveStake(t *testing.T) {
 		ReputationScores: map[string]string{"backend": "100.0"},
 	})
 
-	initID, _ := k.CreateInitiative(ctx, creator, projectID, "Task", "D", []string{"backend"}, types.InitiativeTier_INITIATIVE_TIER_STANDARD, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, "", math.NewInt(100))
+	initID, _ := k.CreateInitiative(ctx, creator, projectID, "Task", "D", []string{"backend"}, types.InitiativeTier_INITIATIVE_TIER_STANDARD, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, math.NewInt(100))
 	k.AssignInitiativeToMember(ctx, initID, assignee)
 
 	staker := sdk.AccAddress([]byte("staker"))
@@ -249,7 +249,7 @@ func TestCalculateConviction(t *testing.T) {
 		ReputationScores: map[string]string{"tag": "100.0"},
 	})
 
-	initID, _ := k.CreateInitiative(ctx, creator, projectID, "Task", "D", []string{"tag"}, types.InitiativeTier_INITIATIVE_TIER_STANDARD, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, "", math.NewInt(100))
+	initID, _ := k.CreateInitiative(ctx, creator, projectID, "Task", "D", []string{"tag"}, types.InitiativeTier_INITIATIVE_TIER_STANDARD, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, math.NewInt(100))
 	k.AssignInitiativeToMember(ctx, initID, assignee)
 
 	stakeID, _ := k.CreateStake(ctx, staker, types.StakeTargetType_STAKE_TARGET_INITIATIVE, initID, "", stakeAmount)
@@ -296,7 +296,7 @@ func TestConvictionCalculation_TimeWeighting(t *testing.T) {
 		ReputationScores: map[string]string{"tag": "100.0"},
 	})
 
-	initID, _ := k.CreateInitiative(ctx, creator, projectID, "Task", "D", []string{"tag"}, types.InitiativeTier_INITIATIVE_TIER_STANDARD, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, "", math.NewInt(100))
+	initID, _ := k.CreateInitiative(ctx, creator, projectID, "Task", "D", []string{"tag"}, types.InitiativeTier_INITIATIVE_TIER_STANDARD, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, math.NewInt(100))
 	k.AssignInitiativeToMember(ctx, initID, assignee)
 
 	// Stake 10000 DREAM (should result in sqrt(10000) = 100 conviction when fully weighted)
@@ -392,7 +392,7 @@ func TestConvictionCalculation_QuadraticDampening(t *testing.T) {
 		ReputationScores: map[string]string{"tag": "100.0"},
 	})
 
-	initID, _ := k.CreateInitiative(ctx, creator, projectID, "Task", "D", []string{"tag"}, types.InitiativeTier_INITIATIVE_TIER_STANDARD, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, "", math.NewInt(100))
+	initID, _ := k.CreateInitiative(ctx, creator, projectID, "Task", "D", []string{"tag"}, types.InitiativeTier_INITIATIVE_TIER_STANDARD, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, math.NewInt(100))
 	k.AssignInitiativeToMember(ctx, initID, assignee)
 
 	// Test: Quadratic dampening means 4x stake = 2x conviction (not 4x)
@@ -466,7 +466,7 @@ func TestConvictionCalculation_ReputationMultiplier(t *testing.T) {
 	})
 
 	// Initiative uses tags ["backend", "frontend"] - only reputation in these tags counts
-	initID, _ := k.CreateInitiative(ctx, creator, projectID, "Task", "D", []string{"backend", "frontend"}, types.InitiativeTier_INITIATIVE_TIER_STANDARD, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, "", math.NewInt(100))
+	initID, _ := k.CreateInitiative(ctx, creator, projectID, "Task", "D", []string{"backend", "frontend"}, types.InitiativeTier_INITIATIVE_TIER_STANDARD, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, math.NewInt(100))
 	k.AssignInitiativeToMember(ctx, initID, assignee)
 
 	// Test different reputation levels - only "backend" and "frontend" tags affect conviction
@@ -701,7 +701,7 @@ func TestStakeRewards(t *testing.T) {
 
 	// Use EXPERT tier which allows up to 2000 DREAM budget
 	initBudget := math.NewInt(1000)
-	initID, err := k.CreateInitiative(ctx, creator, projectID, "Task", "D", []string{"backend"}, types.InitiativeTier_INITIATIVE_TIER_EXPERT, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, "", initBudget)
+	initID, err := k.CreateInitiative(ctx, creator, projectID, "Task", "D", []string{"backend"}, types.InitiativeTier_INITIATIVE_TIER_EXPERT, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, initBudget)
 	require.NoError(t, err)
 	err = k.AssignInitiativeToMember(ctx, initID, assignee)
 	require.NoError(t, err)
@@ -754,6 +754,7 @@ func TestStakeRewards(t *testing.T) {
 	}
 
 	// Complete the initiative (this distributes rewards)
+	advanceToCompletable(t, k, ctx, initID)
 	err = k.CompleteInitiative(ctx, initID)
 	require.NoError(t, err)
 
@@ -876,7 +877,7 @@ func TestStakeRewardsWithTime(t *testing.T) {
 
 	// Use EXPERT tier which allows up to 2000 DREAM budget
 	initBudget := math.NewInt(1000)
-	initID, err := k.CreateInitiative(ctx, creator, projectID, "Task", "D", []string{"backend"}, types.InitiativeTier_INITIATIVE_TIER_EXPERT, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, "", initBudget)
+	initID, err := k.CreateInitiative(ctx, creator, projectID, "Task", "D", []string{"backend"}, types.InitiativeTier_INITIATIVE_TIER_EXPERT, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, initBudget)
 	require.NoError(t, err)
 	err = k.AssignInitiativeToMember(ctx, initID, assignee)
 	require.NoError(t, err)
@@ -924,6 +925,7 @@ func TestStakeRewardsWithTime(t *testing.T) {
 	k.UpdateInitiative(ctx, initiative)
 
 	// Complete the initiative
+	advanceToCompletable(t, k, ctx, initID)
 	err = k.CompleteInitiative(ctx, initID)
 	require.NoError(t, err)
 

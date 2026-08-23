@@ -103,7 +103,7 @@ make_submitted_initiative() {
     local TAGS="$3"   # comma-separated
     local TX_RES TXHASH TX_RESULT INIT_ID
     TX_RES=$($BINARY tx rep create-initiative \
-        $PROJECT_ID "$TITLE" "$DESC" "0" "0" "1" "5000" \
+        $PROJECT_ID "$TITLE" "$DESC" "0" "0" "5000" \
         --tags "$TAGS" \
         --from alice --chain-id $CHAIN_ID --keyring-backend test \
         --fees 5000${BOND_DENOM} -y --output json)

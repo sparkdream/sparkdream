@@ -211,7 +211,6 @@ if [ -n "$DAVE_ADDR" ]; then
         "This should fail because dave is not a member" \
         "1" \
         "0" \
-        "0" \
         "5000000" \
         --tags "backend" \
         --from dave \

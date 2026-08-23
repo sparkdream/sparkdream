@@ -132,6 +132,91 @@ Additional rationale worth knowing:
 
 ---
 
+## Adding a Module Parameter
+
+Modules with a committee-tunable `*OperationalParams` message keep a **subset**
+of `Params` that a committee may edit without a full governance vote, merged
+back in by `ApplyOperationalParams`. A knob that belongs in both costs six edits
+in `x/<module>/types/params.go`, and missing any one of them fails somewhere
+unhelpful:
+
+1. `DefaultParams()`
+2. `Params.Validate()`
+3. `Default<Module>OperationalParams()`
+4. `<Module>OperationalParams.Validate()`
+5. `ApplyOperationalParams()`
+6. `ExtractOperationalParams()`
+
+Plus the field in **both** proto messages, plus a value in the devnet, testnet
+and mainnet `genesis.json`. `make verify-genesis` has a param-completeness check
+that fails loudly on that last one — run it; it is the backstop.
+
+**Decide whether the knob belongs in operational params at all.** Economic
+security parameters are better left `Params`-only, so governance moves them and
+a committee cannot. That is also the cheapest option, because it avoids the E2E
+churn below entirely.
+
+Traps, all of them learned the hard way:
+
+- **A new operational-params field silently breaks the E2E suite.**
+  `MsgUpdateOperationalParams` validates the *whole* submitted payload, and the
+  shell tests build that payload from a hand-maintained `jq` field list. Omit
+  the new field and it decodes as zero, which a `(0,1]` range check rejects — so
+  every op-params proposal in the suite fails to execute. Update both the `jq`
+  projection *and* the `DEC_FIELDS` list (the CLI renders `LegacyDec` as a raw
+  18-precision integer that proto-JSON will not accept). For x/rep that is three
+  lists in `test/rep/operational_params_test.sh` and two in
+  `test/rep/project_lifecycle_test.sh`. **`make verify-genesis` does not catch
+  this.**
+- **A new non-nullable `LegacyDec` is nil on an already-running chain.** If the
+  module has no migration handler and `ConsensusVersion` is still 1, any code
+  path multiplying by it panics. Either guard at the read site or accept that
+  genesis is the only supported route.
+
+  **For x/rep the answer is settled: genesis is the only supported route.** The
+  module has no migration handlers and `ConsensusVersion` stays at 1 by
+  decision, not by omission — the chain has not launched and its networks are
+  reset rather than upgraded, so param additions land in the three
+  `genesis.json` files and running nodes are re-initialised. Do not add a
+  migration handler for a parameter; add the genesis value and reset. Guarding
+  nil reads at the call site is still worth doing where it is cheap, because it
+  keeps a stale devnet from panicking mid-block instead of simply reporting a
+  default.
+- **Editing `genesis.json` with Python's `json.dumps` mangles it.** Pass
+  `ensure_ascii=False`, or every emoji and em dash in unrelated seed content
+  becomes `\uXXXX` and you get a several-hundred-line diff.
+
+## Proto Field Numbering
+
+Before adding a field, compute the next free tag rather than trusting a comment:
+brace-match the message body, collect every `= N`, and check that `max(tags)`
+equals the field count with no gaps and no duplicates.
+
+This is the same check the no-`reserved` rule implies (see CLAUDE.md). Removing
+a field means renumbering so the message stays dense — the chain has not
+launched and its networks can be reset, so a gapped tag buys wire compatibility
+nobody is asking for and carries the gap forever.
+
+`make proto-gen` runs `ignite generate proto-go`.
+
+## Writing Regression Guards
+
+- **Prove a new guard fails against the old behaviour.** Temporarily revert the
+  predicate and re-run. It is the only way to tell a real regression guard from
+  a test that passes vacuously, and it routinely turns up something — on one
+  x/rep change it exposed a nil-pointer crash and revealed that one of six tests
+  was not testing what it claimed.
+- **Assert nil-safely on optional custom types.** A bare `.String()` on an unset
+  `*math.Int` segfaults the *whole test binary*, hiding every other test in the
+  run behind one panic. Use the `Deref*` helpers.
+- **Check what the fixture's default authorization policy actually does.** In
+  x/rep, `initFixture` defaults to `AlwaysAuthorized`, so every caller reads as
+  Operations Committee and a test meant to exercise a staker-only path silently
+  takes the committee branch and proves nothing. `NeverAuthorized` is too blunt
+  — it also blocks setup calls like `ApproveProject`.
+
+---
+
 ## When in Doubt
 
 - Module specs live in `docs/x-<module>-spec.md`.

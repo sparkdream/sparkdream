@@ -396,6 +396,10 @@ func (k Keeper) CreateContentJuryReview(ctx context.Context, ccID uint64) error 
 		return err
 	}
 
+	if err := k.RecordJurySeating(ctx, jurors); err != nil {
+		return err
+	}
+
 	// Create jury review with content_challenge_id set
 	juryReview := types.JuryReview{
 		Id:                 juryReviewID,
@@ -425,6 +429,13 @@ func (k Keeper) CreateContentJuryReview(ctx context.Context, ccID uint64) error 
 	// jury review at the short jury deadline would resolve an in-review challenge
 	// out from under callers (it regressed content_challenge_test). They resolve
 	// by juror votes (TallyJuryVotes) as before.
+
+	// Index the seating by juror even though content reviews stay out of the
+	// PENDING verdict index — discovery is orthogonal to the deadline sweep,
+	// and a content juror needs to find their summons just as much.
+	if err := k.AddJuryReviewToJurorIndex(ctx, juryReview); err != nil {
+		return err
+	}
 
 	// Update content challenge status
 	oldStatus := cc.Status
@@ -537,7 +548,7 @@ func (k Keeper) SelectContentJury(
 	// Weighted random selection based on total reputation
 	weights := make([]float64, len(eligible))
 	for i, m := range eligible {
-		weights[i] = m.totalRep.MustFloat64()
+		weights[i] = m.totalRep.MustFloat64() * k.JurorResponsivenessWeight(ctx, m.address)
 	}
 
 	// Seed deterministic PRNG from block AppHash XOR ccID to avoid consensus divergence.

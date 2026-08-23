@@ -23,7 +23,6 @@ func createInitiativeForAssignee(k keeper.Keeper, ctx context.Context, id uint64
 		Description: "Description for initiative " + strconv.FormatUint(id, 10),
 		Tier:        types.InitiativeTier_INITIATIVE_TIER_STANDARD,
 		Category:    types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE,
-		TemplateId:  "template-" + strconv.FormatUint(id, 10),
 		Budget:      &amount,
 		Assignee:    assignee,
 		Status:      status,

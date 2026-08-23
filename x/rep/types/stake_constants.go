@@ -6,11 +6,6 @@ package types
 // details (per-block iteration cost, MasterChef debt semantics), so changing
 // them belongs to a chain upgrade alongside the code that reads them.
 const (
-	// InitiativeCompletionBonusDivisor sets the conviction-weighted completion
-	// bonus at 1/10th of the initiative budget. Mirrors the project-side
-	// ProjectCompletionBonusRate param.
-	InitiativeCompletionBonusDivisor = 10
-
 	// MaxStakeTranchesPerTarget caps how many separate stake records one member
 	// may hold on a single target.
 	//

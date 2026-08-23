@@ -126,7 +126,7 @@ PROJECT_ID=$TEST_PROJECT_ID
 echo "[ OK ] Using test project: $PROJECT_ID"
 
 # Create initiative
-# Usage: create-initiative [project-id] [title] [description] [tier] [category] [template-id] [budget]
+# Usage: create-initiative [project-id] [title] [description] [tier] [category] [budget]
 # Tier: 0=APPRENTICE (max 100 DREAM), 1=STANDARD (max 500), 2=EXPERT (max 2000), 3=EPIC (max 10000)
 # Category: 0=FEATURE, 1=BUGFIX, 2=REFACTOR, 3=TESTING, 4=SECURITY, 5=DOCS, 6=DESIGN, 7=RESEARCH, 8=REVIEW, 9=OTHER
 # Using tier 2 (EXPERT) for 1000 DREAM budget (Standard tier max is 500 DREAM)
@@ -136,7 +136,6 @@ INITIATIVE_RES=$($BINARY tx rep create-initiative \
   "Initiative for testing multi-staker rewards" \
   2 \
   0 \
-  "template1" \
   "1000000000" \
   --tags "staking,test" \
   --from alice \

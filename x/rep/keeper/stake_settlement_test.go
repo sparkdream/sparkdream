@@ -48,7 +48,7 @@ func newActiveInitiative(t *testing.T, f *fixture, creator sdk.AccAddress, seed 
 	initID, err := k.CreateInitiative(
 		f.ctx, creator, projectID, "T"+seed, "D", []string{"tag1"},
 		types.InitiativeTier_INITIATIVE_TIER_STANDARD,
-		types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, "", math.NewInt(1000),
+		types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, math.NewInt(1000),
 	)
 	require.NoError(t, err)
 	return initID
@@ -280,6 +280,7 @@ func TestSettlement_CompletionBonusReachesExternalStaker(t *testing.T) {
 	require.NoError(t, k.UpdateInitiative(ctx, initiative))
 
 	before := mustMember(t, f, staker)
+	advanceToCompletable(t, k, ctx, initID)
 	require.NoError(t, k.CompleteInitiative(ctx, initID))
 	after := mustMember(t, f, staker)
 

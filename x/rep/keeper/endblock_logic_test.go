@@ -96,7 +96,7 @@ func TestUpdateInitiativeConviction(t *testing.T) {
 	// Create initiative (using EXPERT tier which allows up to 2000 DREAM)
 	initiativeID, err := k.CreateInitiative(ctx, member, projectID, "Test", "Test", []string{"tag1"},
 		types.InitiativeTier_INITIATIVE_TIER_EXPERT, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE,
-		"", math.NewInt(1000))
+		math.NewInt(1000))
 	require.NoError(t, err)
 
 	// Update conviction (wrapper should call UpdateInitiativeConvictionLazy)
@@ -139,7 +139,7 @@ func TestTransitionToChallengePeriod(t *testing.T) {
 	// Create initiative (using EXPERT tier which allows up to 2000 DREAM)
 	initiativeID, err := k.CreateInitiative(ctx, member, projectID, "Test", "Test", []string{"tag1"},
 		types.InitiativeTier_INITIATIVE_TIER_EXPERT, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE,
-		"", math.NewInt(1000))
+		math.NewInt(1000))
 	require.NoError(t, err)
 
 	// Update status to SUBMITTED manually since CreateInitiative sets it to OPEN
@@ -434,7 +434,7 @@ func TestTransitionToChallengePeriod_PeriodCalculation(t *testing.T) {
 
 	initiativeID, err := k.CreateInitiative(ctx, member, projectID, "Test", "Test", []string{"tag"},
 		types.InitiativeTier_INITIATIVE_TIER_EXPERT, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE,
-		"", math.NewInt(1000))
+		math.NewInt(1000))
 	require.NoError(t, err)
 
 	// Update status to SUBMITTED
@@ -496,7 +496,7 @@ func TestTransitionToChallengePeriod_SelfAssignedExtendedWindow(t *testing.T) {
 
 	initiativeID, err := k.CreateInitiative(ctx, member, projectID, "Test", "Test", []string{"tag"},
 		types.InitiativeTier_INITIATIVE_TIER_EXPERT, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE,
-		"", math.NewInt(1000))
+		math.NewInt(1000))
 	require.NoError(t, err)
 
 	// Self-assigned: assignee is the project creator

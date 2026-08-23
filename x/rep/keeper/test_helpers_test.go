@@ -199,7 +199,6 @@ type InitiativeSetupConfig struct {
 	Tags         []string
 	Tier         types.InitiativeTier
 	Category     types.InitiativeCategory
-	ParentID     string
 	RewardAmount int64
 	ShouldAssign bool
 	Assignee     sdk.AccAddress
@@ -215,7 +214,6 @@ func DefaultInitiativeConfig(creator sdk.AccAddress, projectID uint64) Initiativ
 		Tags:         []string{TestTagBackend},
 		Tier:         types.InitiativeTier_INITIATIVE_TIER_STANDARD,
 		Category:     types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE,
-		ParentID:     "",
 		RewardAmount: TestRewardAmount,
 		ShouldAssign: false,
 		Assignee:     nil,
@@ -235,7 +233,6 @@ func SetupInitiative(t *testing.T, k *keeper.Keeper, ctx sdk.Context, cfg Initia
 		cfg.Tags,
 		cfg.Tier,
 		cfg.Category,
-		cfg.ParentID,
 		math.NewInt(cfg.RewardAmount),
 	)
 	require.NoError(t, err, "failed to create initiative")
@@ -391,4 +388,21 @@ func AdvanceBlockHeight(ctx sdk.Context, blocks int64) sdk.Context {
 func AdvanceEpochs(ctx sdk.Context, params types.Params, epochs int64) sdk.Context {
 	blocks := epochs * int64(params.EpochBlocks)
 	return AdvanceBlockHeight(ctx, blocks)
+}
+
+// advanceToCompletable puts an initiative into the only state CompleteInitiative
+// accepts: IN_REVIEW with its challenge window already elapsed. That is what the
+// real lifecycle produces — TransitionToChallengePeriod moves SUBMITTED work to
+// IN_REVIEW once the conviction gates are met, and the EndBlocker pays out after
+// challenge_period_end. Tests that only care about what completion *does*
+// (rewards, reputation, settlement) use this instead of hand-setting SUBMITTED,
+// so they keep exercising the guard rather than routing around it.
+func advanceToCompletable(t *testing.T, k keeper.Keeper, ctx sdk.Context, initiativeID uint64) {
+	t.Helper()
+	initiative, err := k.GetInitiative(ctx, initiativeID)
+	require.NoError(t, err)
+	initiative.Status = types.InitiativeStatus_INITIATIVE_STATUS_IN_REVIEW
+	initiative.ReviewPeriodEnd = ctx.BlockHeight()
+	initiative.ChallengePeriodEnd = ctx.BlockHeight()
+	require.NoError(t, k.UpdateInitiative(ctx, initiative))
 }

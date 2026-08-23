@@ -305,7 +305,6 @@ TX_RES=$($BINARY tx rep create-initiative \
     "Initiative for testing adjudication interim" \
     0 \
     0 \
-    "" \
     "2000000" \
     --tags "testing","security" \
     --from alice \

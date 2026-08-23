@@ -66,7 +66,7 @@ func TestMsgServerAbandonInitiative(t *testing.T) {
 		})
 
 		budget := math.NewInt(100)
-		initID, _ := k.CreateInitiative(ctx, creator, projectID, "Task", "D", []string{"tag"}, types.InitiativeTier_INITIATIVE_TIER_STANDARD, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, "", budget)
+		initID, _ := k.CreateInitiative(ctx, creator, projectID, "Task", "D", []string{"tag"}, types.InitiativeTier_INITIATIVE_TIER_STANDARD, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, budget)
 		k.AssignInitiativeToMember(ctx, initID, assignee)
 
 		// Try to abandon with a different user (non-assignee)
@@ -106,7 +106,7 @@ func TestMsgServerAbandonInitiative(t *testing.T) {
 		})
 
 		budget := math.NewInt(100)
-		initID, _ := k.CreateInitiative(ctx, creator, projectID, "Task", "D", []string{"tag"}, types.InitiativeTier_INITIATIVE_TIER_STANDARD, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, "", budget)
+		initID, _ := k.CreateInitiative(ctx, creator, projectID, "Task", "D", []string{"tag"}, types.InitiativeTier_INITIATIVE_TIER_STANDARD, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, budget)
 		k.AssignInitiativeToMember(ctx, initID, assignee)
 
 		assigneeStr, err := f.addressCodec.BytesToString(assignee)

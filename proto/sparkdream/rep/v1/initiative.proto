@@ -2,6 +2,7 @@ syntax = "proto3";
 package sparkdream.rep.v1;
 
 import "gogoproto/gogo.proto";
+import "sparkdream/rep/v1/acceptance_criteria.proto";
 
 option go_package = "sparkdream/x/rep/types";
 
@@ -14,41 +15,73 @@ message Initiative {
   repeated string tags = 5;
   InitiativeTier tier = 6;
   InitiativeCategory category = 7;
-  string template_id = 8;
 
-  string budget = 9 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
+  string budget = 8 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
 
-  string assignee = 10;
-  string apprentice = 11;
-  int64 assigned_at = 12;
+  string assignee = 9;
+  string apprentice = 10;
+  int64 assigned_at = 11;
 
-  string deliverable_uri = 13;
-  int64 submitted_at = 14;
+  string deliverable_uri = 12;
+  int64 submitted_at = 13;
 
-  string required_conviction = 15 [(gogoproto.customtype) = "cosmossdk.io/math.LegacyDec"];
-  string current_conviction = 16 [(gogoproto.customtype) = "cosmossdk.io/math.LegacyDec"];
-  string external_conviction = 17 [(gogoproto.customtype) = "cosmossdk.io/math.LegacyDec"];
-  int64 conviction_last_updated = 18;
+  string required_conviction = 14 [(gogoproto.customtype) = "cosmossdk.io/math.LegacyDec"];
+  string current_conviction = 15 [(gogoproto.customtype) = "cosmossdk.io/math.LegacyDec"];
+  string external_conviction = 16 [(gogoproto.customtype) = "cosmossdk.io/math.LegacyDec"];
+  int64 conviction_last_updated = 17;
 
-  int64 review_period_end = 19;
-  int64 challenge_period_end = 20;
-  repeated string approvals = 21;
+  int64 review_period_end = 18;
+  int64 challenge_period_end = 19;
+  repeated string approvals = 20;
 
-  InitiativeStatus status = 22;
-  int64 created_at = 23;
-  int64 completed_at = 24;
+  InitiativeStatus status = 21;
+  int64 created_at = 22;
+  int64 completed_at = 23;
 
-  string propagated_conviction = 25 [(gogoproto.customtype) = "cosmossdk.io/math.LegacyDec"]; // Conviction propagated from linked content
+  string propagated_conviction = 24 [(gogoproto.customtype) = "cosmossdk.io/math.LegacyDec"]; // Conviction propagated from linked content
 
   // DREAM locked by a self-assigning project creator (budget-backed projects
   // only). Returned on completion/abandonment, burned on upheld challenge.
-  string self_assign_bond = 26 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
+  string self_assign_bond = 25 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
+
+  // The definition of done, pre-committed by the initiative's author before
+  // any work starts and immutable thereafter. Optional; when present it gives
+  // a challenger something concrete and objective to point at
+  // (Challenge.criteria_id) and gives a juror's CriteriaVote a real referent
+  // instead of an unvalidated free-form id.
+  //
+  // Deliberately declared per-initiative rather than resolved from a registry:
+  // templates have no authoring message and all three networks ship zero of
+  // them, so a template reference would be a pointer into an empty registry.
+    repeated VerificationCriteria acceptance_criteria = 27 [(gogoproto.nullable) = false];
+
+  // Review-round bookkeeping for the bonded reviewer gate. A rejection returns
+  // the initiative to ASSIGNED and increments the round, so the assignee can
+  // fix the work and resubmit; each round collects its own verdicts. Bounded by
+  // max_review_rounds so a bad-faith assignee cannot burn reviewer effort
+  // indefinitely.
+  uint32 review_round = 28;
+  // Height at which the current round's review window closes. Past this with
+  // the gate unmet, the initiative escalates to the Operations Committee.
+  int64 review_deadline = 29;
+  // Set when the committee has resolved an escalation for the current round, so
+  // the sweep does not escalate the same round twice.
+  ReviewEscalation review_escalation = 30;
 
   // Address that submitted MsgCreateInitiative. Recorded on state so
   // authorship is answerable from a node query instead of only from the
   // initiative_created event (which requires an off-chain indexer).
   // Immutable once set.
-  string creator = 27;
+  string creator = 26;
+
+  // Reviewer approvals this round needs, snapshotted from the project's policy
+  // when the review window opened.
+  //
+  // Read instead of the live policy so a project cannot relax its own standard
+  // out from under work already under review — the creator owns the policy and,
+  // for self-assigned work, is also the party the gate exists to constrain.
+  // Zero means no reviewer gate for this round, which is the genesis default.
+  uint32 required_verifiers = 31;
 }
 
 enum InitiativeTier {
@@ -84,4 +117,20 @@ enum InitiativeStatus {
   // OPEN and unassigned. Distinct from ABANDONED, which records an assignee
   // walking away from work they had taken on.
   INITIATIVE_STATUS_CANCELLED = 8;
+}
+
+// How an escalated review round was resolved by the Operations Committee.
+//
+// PASSED is also what committee *inaction* resolves to: silence must never wedge
+// an initiative, and silence must never mint.
+enum ReviewEscalation {
+  REVIEW_ESCALATION_NONE = 0;
+  // Committee satisfied the reviewer gate itself. Writes no RoleActivity — the
+  // committee holds no bond and carries no accuracy record.
+  REVIEW_ESCALATION_APPROVED = 1;
+  // Committee rejected; same effect as a reviewer rejection.
+  REVIEW_ESCALATION_REJECTED = 2;
+  // Committee declined to substitute its judgement. The initiative proceeds on
+  // conviction alone; the challenge window still runs.
+  REVIEW_ESCALATION_PASSED = 3;
 }

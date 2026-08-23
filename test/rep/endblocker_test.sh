@@ -148,13 +148,12 @@ sleep 1
 # Create initiatives
 echo "Creating initiatives for conviction testing..."
 
-# Usage: create-initiative [project-id] [title] [description] [tier] [category] [template-id] [budget]
+# Usage: create-initiative [project-id] [title] [description] [tier] [category] [budget]
 # Use tier 0 (APPRENTICE) because test members have no reputation and can't qualify for higher tiers
 INIT1_RES=$($BINARY tx rep create-initiative \
   $PROJECT_ID \
   "Initiative 1 - Early Staking" \
   "Will receive early stakes for testing" \
-  "0" \
   "0" \
   "0" \
   "1000000" \
@@ -181,13 +180,12 @@ if [ -z "$INIT1_ID" ] || [ "$INIT1_ID" == "null" ]; then
 fi
 echo "[ OK ] Initiative 1 created: ID $INIT1_ID"
 
-# Usage: create-initiative [project-id] [title] [description] [tier] [category] [template-id] [budget]
+# Usage: create-initiative [project-id] [title] [description] [tier] [category] [budget]
 # Use tier 0 (APPRENTICE) because test members have no reputation
 INIT2_RES=$($BINARY tx rep create-initiative \
   $PROJECT_ID \
   "Initiative 2 - Late Staking" \
   "Will receive late stakes for testing" \
-  "0" \
   "0" \
   "0" \
   "1000000" \
@@ -345,7 +343,7 @@ echo "                     ABANDONED      ABANDONED"
 echo ""
 
 # Create another initiative to test transitions
-# Usage: create-initiative [project-id] [title] [description] [tier] [category] [template-id] [budget]
+# Usage: create-initiative [project-id] [title] [description] [tier] [category] [budget]
 # Use tier 0 (APPRENTICE) because test members have no reputation
 echo ""
 echo "Creating Initiative 3 for status transition testing..."
@@ -353,7 +351,6 @@ INIT3_RES=$($BINARY tx rep create-initiative \
   $PROJECT_ID \
   "Status Transition Test" \
   "Testing all status transitions" \
-  "0" \
   "0" \
   "0" \
   "1000000" \
@@ -482,13 +479,12 @@ echo "  4. Challenge closed"
 echo ""
 
 # Create a challenge scenario
-# Usage: create-initiative [project-id] [title] [description] [tier] [category] [template-id] [budget]
+# Usage: create-initiative [project-id] [title] [description] [tier] [category] [budget]
 # Use tier 0 (APPRENTICE) because test members have no reputation
 INIT4_RES=$($BINARY tx rep create-initiative \
   $PROJECT_ID \
   "Jury Deadline Test" \
   "Testing jury deadline enforcement" \
-  "0" \
   "0" \
   "0" \
   "1000000" \

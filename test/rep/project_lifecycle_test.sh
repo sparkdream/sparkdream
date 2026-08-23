@@ -19,6 +19,11 @@ mkdir -p "$PROPOSAL_DIR"
 
 BINARY="sparkdreamd"
 CHAIN_ID="sparkdream"
+# Resolve BOND_DENOM / DREAM_DENOM. Honours an already-exported value first,
+# so this is a no-op under run_all_tests.sh and makes the script runnable
+# standalone — without it BOND_DENOM is empty and every --fees flag becomes
+# a bare amount with no denom, which the CLI rejects as an invalid coin.
+source "$SCRIPT_DIR/../lib/denoms.sh"
 
 ALICE_ADDR=$($BINARY keys show alice -a --keyring-backend test)
 echo "Alice: $ALICE_ADDR"
@@ -168,6 +173,11 @@ DEC_FIELDS = [
     'content_challenge_reward_share', 'conviction_propagation_ratio',
     'reputation_decay_rate', 'max_conviction_share_per_member',
     'invitation_stake_burn_rate', 'max_reputation_gain_per_epoch',
+    'juror_reward_rate',
+    'abandoned_jury_seat_penalty',
+    'min_juror_selection_weight', 'initiative_completion_bonus_rate',
+    'jury_acceptance_window_ratio',
+    'reviewer_bond_reserve_rate', 'review_fee_rate',
     'staked_decay_rate',
     'sentinel_reward_pool_overflow_burn_ratio',
     'min_sentinel_accuracy', 'min_appeal_rate'
@@ -236,7 +246,18 @@ build_op_params_with_override() {
       max_active_initiatives_per_member, max_active_interims_per_member,
       max_dream_mint_per_epoch,
       max_project_requested_budget, max_project_requested_spark,
-      proposed_project_expiry_blocks
+      proposed_project_expiry_blocks,
+      juror_reward_rate,
+      abandoned_jury_seat_penalty,
+      min_juror_reward,
+      min_juror_selection_weight,
+      min_jury_seatings_for_weighting,
+      initiative_completion_bonus_rate,
+      jury_acceptance_window_ratio,
+      max_jury_redraws,
+      reviewer_bond_reserve_rate,
+      review_fee_rate,
+      max_review_rounds
     }')
 
     # Apply the override. int64 fields are JSON numbers in the query output;
@@ -541,7 +562,7 @@ CASCADE_INIT=""
 if [ "$CASCADE_OK" == "1" ]; then
     TX_RES=$($BINARY tx rep create-initiative \
         "$CASCADE_PID" "Cascade initiative" "Will be cancelled with the project" \
-        "0" "1" "0" "50000000" \
+        "0" "1" "50000000" \
         --from alice --chain-id $CHAIN_ID --keyring-backend test \
         --fees 5000${BOND_DENOM} --gas 400000 -y --output json 2>&1)
     if ! submit_tx_and_wait "$TX_RES" || ! check_tx_success "$TX_RESULT"; then
@@ -560,7 +581,7 @@ CASCADE_INIT2=""
 if [ "$CASCADE_OK" == "1" ]; then
     TX_RES=$($BINARY tx rep create-initiative \
         "$CASCADE_PID" "Cascade in-flight" "Assigned, then cancelled with the project" \
-        "0" "1" "0" "50000000" \
+        "0" "1" "50000000" \
         --from alice --chain-id $CHAIN_ID --keyring-backend test \
         --fees 5000${BOND_DENOM} --gas 400000 -y --output json 2>&1)
     if ! submit_tx_and_wait "$TX_RES" || ! check_tx_success "$TX_RESULT"; then
@@ -670,7 +691,7 @@ VOID_INIT=""
 if [ "$T8_OK" == "1" ]; then
     TX_RES=$($BINARY tx rep create-initiative \
         "$VOID_PID" "Void-challenge initiative" "Will be challenged, then voided" \
-        "0" "1" "0" "50000000" \
+        "0" "1" "50000000" \
         --from alice --chain-id $CHAIN_ID --keyring-backend test \
         --fees 5000${BOND_DENOM} --gas 400000 -y --output json 2>&1)
     if submit_tx_and_wait "$TX_RES" && check_tx_success "$TX_RESULT"; then

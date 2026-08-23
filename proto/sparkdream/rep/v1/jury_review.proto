@@ -27,6 +27,22 @@ message JuryReview {
 
   // For content challenges (non-zero means this review is for a content challenge, not an initiative challenge)
   uint64 content_challenge_id = 15;
+
+  // Block height by which a seated juror must accept, after which unanswered
+  // seats are vacated and redrawn (see SweepUnansweredJurySeats).
+  int64 acceptance_deadline = 16;
+
+  // Jurors who have accepted the summons. Accepting is what converts a seat
+  // drawn by lot into a commitment: jurors are conscripted by sortition, so
+  // penalising a no-show who never agreed to serve would punish an accident of
+  // the draw. Declining is free and immediate; ignoring the summons is what
+  // costs a seat and counts against the participation rate.
+  repeated string accepted = 17;
+
+  // How many replacement rounds this review has been through. Bounded by
+  // MaxJuryRedraws so a review cannot redraw forever against a pool that will
+  // not answer.
+  uint32 redraw_count = 18;
 }
 
 message JurorVote {

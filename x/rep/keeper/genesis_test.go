@@ -12,20 +12,20 @@ func TestGenesis(t *testing.T) {
 	genesisState := types.GenesisState{
 		Params:    types.DefaultParams(),
 		MemberMap: []types.Member{{Address: "0"}, {Address: "1"}}, InvitationList: []types.Invitation{{Id: 0}, {Id: 1}},
-		InvitationCount:    2,
-		ProjectList:        []types.Project{{Id: 0}, {Id: 1}},
-		ProjectCount:       2,
-		InitiativeList:     []types.Initiative{{Id: 0}, {Id: 1}},
-		InitiativeCount:    2,
-		StakeList:          []types.Stake{{Id: 0}, {Id: 1}},
-		StakeCount:         2,
-		ChallengeList:      []types.Challenge{{Id: 0}, {Id: 1}},
-		ChallengeCount:     2,
-		JuryReviewList:     []types.JuryReview{{Id: 0}, {Id: 1}},
-		JuryReviewCount:    2,
-		InterimList:        []types.Interim{{Id: 0}, {Id: 1}},
-		InterimCount:       2,
-		InterimTemplateMap: []types.InterimTemplate{{Id: "0"}, {Id: "1"}}}
+		InvitationCount: 2,
+		ProjectList:     []types.Project{{Id: 0}, {Id: 1}},
+		ProjectCount:    2,
+		InitiativeList:  []types.Initiative{{Id: 0}, {Id: 1}},
+		InitiativeCount: 2,
+		StakeList:       []types.Stake{{Id: 0}, {Id: 1}},
+		StakeCount:      2,
+		ChallengeList:   []types.Challenge{{Id: 0}, {Id: 1}},
+		ChallengeCount:  2,
+		JuryReviewList:  []types.JuryReview{{Id: 0}, {Id: 1}},
+		JuryReviewCount: 2,
+		InterimList:     []types.Interim{{Id: 0}, {Id: 1}},
+		InterimCount:    2,
+	}
 	f := initFixture(t)
 	err := f.keeper.InitGenesis(f.ctx, genesisState)
 	require.NoError(t, err)
@@ -49,7 +49,6 @@ func TestGenesis(t *testing.T) {
 	require.Equal(t, genesisState.JuryReviewCount, got.JuryReviewCount)
 	require.EqualExportedValues(t, genesisState.InterimList, got.InterimList)
 	require.Equal(t, genesisState.InterimCount, got.InterimCount)
-	require.EqualExportedValues(t, genesisState.InterimTemplateMap, got.InterimTemplateMap)
 
 }
 

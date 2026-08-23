@@ -38,7 +38,7 @@ func TestMsgClaimStakingRewards(t *testing.T) {
 		require.NoError(t, err)
 		err = k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(10000), math.NewInt(1000))
 		require.NoError(t, err)
-		initID, err := k.CreateInitiative(ctx, staker, projectID, "Task", "D", []string{"backend"}, types.InitiativeTier_INITIATIVE_TIER_STANDARD, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, "", math.NewInt(100))
+		initID, err := k.CreateInitiative(ctx, staker, projectID, "Task", "D", []string{"backend"}, types.InitiativeTier_INITIATIVE_TIER_STANDARD, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, math.NewInt(100))
 		require.NoError(t, err)
 
 		// Create stake
@@ -113,7 +113,7 @@ func TestMsgClaimStakingRewards(t *testing.T) {
 		require.NoError(t, err)
 		err = k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(10000), math.NewInt(1000))
 		require.NoError(t, err)
-		initID, err := k.CreateInitiative(ctx, staker, projectID, "Task", "D", []string{"backend"}, types.InitiativeTier_INITIATIVE_TIER_STANDARD, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, "", math.NewInt(100))
+		initID, err := k.CreateInitiative(ctx, staker, projectID, "Task", "D", []string{"backend"}, types.InitiativeTier_INITIATIVE_TIER_STANDARD, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, math.NewInt(100))
 		require.NoError(t, err)
 
 		// Create stake owned by staker

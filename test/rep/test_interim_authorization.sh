@@ -36,7 +36,6 @@ TX_RES=$($BINARY tx rep create-initiative \
     "Critical security review" \
     0 \
     0 \
-    "" \
     "5000000" \
     --tags "cryptography","zero-knowledge" \
     --from alice \

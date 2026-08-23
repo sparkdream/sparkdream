@@ -104,7 +104,11 @@ func TestMsgServerSubmitJurorVote(t *testing.T) {
 		})
 		projectID, _ := k.CreateProject(ctx, creator, "Proj", "Desc", []string{"tag"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical", math.NewInt(10000), math.NewInt(1000), false)
 		k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(10000), math.NewInt(1000))
-		initID, _ := k.CreateInitiative(ctx, creator, projectID, "Task", "D", []string{"tag"}, types.InitiativeTier_INITIATIVE_TIER_STANDARD, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, "", math.NewInt(100))
+		// The juror below answers criterion "quality", so the initiative has to
+		// declare it — an id that resolves to nothing is now rejected rather
+		// than stored as unverifiable free text.
+		initID, _ := k.CreateInitiative(ctx, creator, projectID, "Task", "D", []string{"tag"}, types.InitiativeTier_INITIATIVE_TIER_STANDARD, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, math.NewInt(100),
+			types.VerificationCriteria{Id: "quality", Question: "Does the work meet the agreed quality bar?", Required: true})
 		challenger := sdk.AccAddress([]byte("challenger"))
 		challenge := types.Challenge{
 			Id:           1,

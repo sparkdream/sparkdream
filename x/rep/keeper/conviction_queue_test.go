@@ -226,7 +226,7 @@ func TestConvictionQueue_PerBlockBudgetRollsOver(t *testing.T) {
 		_, err := k.CreateInitiative(
 			f.ctx, creator, projectID, "T", "D", []string{"tag1"},
 			types.InitiativeTier_INITIATIVE_TIER_APPRENTICE,
-			types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, "", math.NewInt(1_000),
+			types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, math.NewInt(1_000),
 		)
 		require.NoError(t, err)
 	}

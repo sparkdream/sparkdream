@@ -53,16 +53,22 @@ type Keeper struct {
 	Challenge            collections.Map[uint64, types.Challenge]
 	JuryReviewSeq        collections.Sequence
 	JuryReview           collections.Map[uint64, types.JuryReview]
-	InterimSeq           collections.Sequence
-	Interim              collections.Map[uint64, types.Interim]
-	InterimTemplate      collections.Map[string, types.InterimTemplate]
-	GiftRecord           collections.Map[collections.Pair[string, string], types.GiftRecord]
+	// InitiativeReview holds bonded reviewers' verdicts, keyed
+	// (initiative_id, round, reviewer).
+	InitiativeReview collections.Map[collections.Triple[uint64, uint32, string], types.InitiativeReview]
+	// EscalatedReviews is the set of initiatives whose review round is with the
+	// Operations Committee awaiting a decision.
+	EscalatedReviews collections.KeySet[uint64]
+	InterimSeq       collections.Sequence
+	Interim          collections.Map[uint64, types.Interim]
+	GiftRecord       collections.Map[collections.Pair[string, string], types.GiftRecord]
 
 	// Secondary indexes for efficient lookups (avoid full table scans in EndBlocker)
 	// Key: (status, id) - allows iteration by status
 	InitiativesByStatus  collections.KeySet[collections.Pair[int32, uint64]]
 	InterimsByStatus     collections.KeySet[collections.Pair[int32, uint64]]
 	JuryReviewsByVerdict collections.KeySet[collections.Pair[int32, uint64]]
+	JuryReviewsByJuror   collections.KeySet[collections.Pair[string, uint64]]
 	// Key: (targetType, targetID, stakeID) - allows lookup of stakes by target
 	StakesByTarget collections.KeySet[collections.Triple[int32, uint64, uint64]]
 	// Key: (status, id) - allows iteration of challenges by status
@@ -184,10 +190,13 @@ func NewKeeper(
 		Challenge:            collections.NewMap(sb, types.ChallengeKey, "challenge", collections.Uint64Key, codec.CollValue[types.Challenge](cdc)),
 		ChallengeSeq:         collections.NewSequence(sb, types.ChallengeCountKey, "challengeSequence"),
 		JuryReview:           collections.NewMap(sb, types.JuryReviewKey, "juryReview", collections.Uint64Key, codec.CollValue[types.JuryReview](cdc)),
-		JuryReviewSeq:        collections.NewSequence(sb, types.JuryReviewCountKey, "juryReviewSequence"),
-		Interim:              collections.NewMap(sb, types.InterimKey, "interim", collections.Uint64Key, codec.CollValue[types.Interim](cdc)),
-		InterimSeq:           collections.NewSequence(sb, types.InterimCountKey, "interimSequence"),
-		InterimTemplate:      collections.NewMap(sb, types.InterimTemplateKey, "interimTemplate", collections.StringKey, codec.CollValue[types.InterimTemplate](cdc)),
+		EscalatedReviews:     collections.NewKeySet(sb, types.EscalatedReviewsKey, "escalatedReviews", collections.Uint64Key),
+		InitiativeReview: collections.NewMap(sb, types.InitiativeReviewKey, "initiativeReview",
+			collections.TripleKeyCodec(collections.Uint64Key, collections.Uint32Key, collections.StringKey),
+			codec.CollValue[types.InitiativeReview](cdc)),
+		JuryReviewSeq: collections.NewSequence(sb, types.JuryReviewCountKey, "juryReviewSequence"),
+		Interim:       collections.NewMap(sb, types.InterimKey, "interim", collections.Uint64Key, codec.CollValue[types.Interim](cdc)),
+		InterimSeq:    collections.NewSequence(sb, types.InterimCountKey, "interimSequence"),
 		GiftRecord: collections.NewMap(sb, types.GiftRecordKey, "giftRecord",
 			collections.PairKeyCodec(collections.StringKey, collections.StringKey),
 			codec.CollValue[types.GiftRecord](cdc)),
@@ -204,6 +213,10 @@ func NewKeeper(
 		JuryReviewsByVerdict: collections.NewKeySet(
 			sb, types.JuryReviewsByVerdictKey, "juryReviewsByVerdict",
 			collections.PairKeyCodec(collections.Int32Key, collections.Uint64Key),
+		),
+		JuryReviewsByJuror: collections.NewKeySet(
+			sb, types.JuryReviewsByJurorKey, "juryReviewsByJuror",
+			collections.PairKeyCodec(collections.StringKey, collections.Uint64Key),
 		),
 		StakesByTarget: collections.NewKeySet(
 			sb, types.StakesByTargetKey, "stakesByTarget",

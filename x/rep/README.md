@@ -192,6 +192,34 @@ Per-tag reward pools that incentivize quality posts carrying a specific tag:
 
 Award validation delegates to x/forum via `ForumKeeper.GetPostAuthor` / `GetPostTags` — x/rep verifies the target post exists and carries the budget's tag, but does not own post state.
 
+### Initiative Review
+
+Conviction measures whether people *wanted* work done, not whether it *was*
+done — so nothing in the completion path ever reads the deliverable. A bonded
+reviewer role closes that gap, modelled on content sentinels but a distinct
+`RoleType`: the competence differs, a wrong approval **mints DREAM** rather than
+hiding a post, and pooling the two would mix their bond and accuracy records.
+
+- Opt-in per project via `MsgSetVerificationPolicy`. `min_verifier_count` 0 is
+  the genesis default and means conviction-only, so nothing changes for a
+  project that never turns it on.
+- A reviewer must hold the role at `NORMAL`, clear the reputation bar, and be
+  independent of the work — the same affiliates-plus-one-invitation-hop test
+  that gates external conviction. A staker on the initiative may not review it,
+  and a reviewer may not afterwards stake on it.
+- Reviewing pays **per verdict filed, never per approval**; making pay depend on
+  the verdict would rebuild the bias the role exists to remove.
+- A rejection returns the work to `ASSIGNED` for another round, bounded by
+  `max_review_rounds`. Verdicts are keyed by round.
+- If nobody reviews, the round escalates to the Operations Committee, and
+  committee silence resolves to *pass* — the initiative proceeds on conviction
+  alone. Silence must never wedge an initiative, and silence must never mint.
+- Accuracy comes from challenge outcomes and feeds the shared `RoleActivity`
+  record, queryable with `query rep role-activity`.
+
+See the Initiative Review section of
+[docs/x-rep-spec.md](../../docs/x-rep-spec.md).
+
 ### Sentinel Accountability
 
 > **Note:** The generic bond/identity lives here (x/rep); forum-specific action counters live in x/forum.
@@ -262,7 +290,7 @@ Enums: `GovActionType`, `MemberReportStatus`, `GovAppealStatus`.
 | `Challenge` | `challenge/value/{id}` | Initiative challenges with jury reference |
 | `JuryReview` | `juryreview/value/{id}` | Jury voting on challenges |
 | `Interim` | `interim/value/{id}` | Fixed-rate delegated work |
-| `InterimTemplate` | `interimtemplate/value/{index}` | Reusable interim work templates |
+| `InitiativeReview` | `initiativereview/value/{initiative_id}/{round}/{reviewer}` | A bonded reviewer's verdict on one round of submitted work |
 | `ContentChallenge` | `contentchallenge/value/{id}` | Challenges on bonded content |
 | `GiftRecord` | `giftrecord/{sender}/{recipient}` | Gift cooldown tracking |
 | `MemberStakePool` | `stake/member_pool/{address}` | Aggregate member stake pool for rewards |
@@ -349,7 +377,10 @@ Project" section of [docs/x-rep-spec.md](../../docs/x-rep-spec.md).
 | `MsgCreateInitiative` | Create initiative under project | Any member |
 | `MsgAssignInitiative` | Assign to worker (creator self-assign allowed; stricter completion gates apply) | Project authority |
 | `MsgSubmitInitiativeWork` | Submit deliverable | Assignee |
-| `MsgApproveInitiative` | Confirm completion | Approver (never the assignee or project creator) |
+| `MsgApproveInitiative` | Record an advisory verdict; disapproval abandons | Approval: any staker or committee. Disapproval: Operations Committee only |
+| `MsgSubmitInitiativeReview` | File a bonded reviewer's verdict on submitted work | Bonded initiative reviewer, independent of the work and not a staker on it |
+| `MsgSetVerificationPolicy` | Configure how a project's initiatives are reviewed | Project creator or Operations Committee |
+| `MsgResolveReviewEscalation` | Settle a review round that hit its deadline | Operations Committee |
 | `MsgAbandonInitiative` | Abandon work in progress | Assignee |
 | `MsgCancelInitiative` | Retire an OPEN, unassigned initiative; returns reserved budget | Project creator or Operations Committee |
 | `MsgCompleteInitiative` | Finalize after challenge period, mint rewards | Authority |
@@ -519,7 +550,8 @@ decimal offset, not a store key). See the Sorted List Pagination section of
 | `InterimsByAssignee` | Interim work assigned to member |
 | `InterimsByType` | Interim work filtered by type |
 | `InterimsByReference` | Interim work linked to content |
-| `GetInterimTemplate` / `ListInterimTemplate` | Interim template lookup/list |
+| `RoleActivity` | A bonded role holder's accountability record (counters, streaks, accuracy ring) |
+| `JuryReviewsByJuror` | Jury summons seated on an address |
 
 ## Parameters
 
@@ -580,13 +612,32 @@ These parameters are excluded from `RepOperationalParams` and can only be change
 |-----------|------|---------|-------------|
 | `min_challenge_stake` | Int | 50 DREAM | Minimum to file challenge |
 | `challenger_reward_rate` | LegacyDec | 20% | Of initiative budget |
-| `jury_size` | uint64 | 5 | Odd number |
+| `jury_size` | uint32 | 5 | Odd, and must exceed the seated-jury floor (3) |
 | `jury_super_majority` | LegacyDec | 67% | To uphold/reject |
 | `min_juror_reputation` | uint64 | 50 | Reputation required to serve |
+| `juror_reward_rate` | LegacyDec | 25% | Of the disputed budget, split across seats |
+| `min_juror_reward` | Int | 5 DREAM | Pay floor; the whole rate for content challenges and appeals, which have no budget |
+| `abandoned_jury_seat_penalty` | LegacyDec | 10 | Reputation charged for abandoning an accepted seat |
+| `jury_acceptance_window_ratio` | LegacyDec | 25% | Of the review period; how long to answer a summons |
+| `max_jury_redraws` | uint32 | 1 | Replacement rounds per review; validated against the window |
+| `min_juror_selection_weight` | LegacyDec | 0.1 | Floor on the responsiveness draw multiplier |
+| `min_jury_seatings_for_weighting` | uint64 | 3 | Seatings before responsiveness applies |
 | `challenge_response_deadline_epochs` | uint64 | 3 | Auto-uphold if no response |
 | `max_active_challenges_per_committee` | uint64 | 3 | Rate limit |
 | `max_new_challenges_per_epoch` | uint64 | 2 | Rate limit |
 | `challenge_queue_max_size` | uint64 | 10 | Queue size limit |
+
+#### Initiative Review
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `reviewer_bond_reserve_rate` | LegacyDec | 10% | Of the initiative budget, committed per verdict and slashed on overturn |
+| `review_fee_rate` | LegacyDec | 5% | Of the budget, x the tier multiplier, split across the reviewers who filed |
+| `max_review_rounds` | uint32 | 3 | Rejection returns the work for another round; the last one abandons |
+| `initiative_completion_bonus_rate` | LegacyDec | 10% | Of the budget, to external stakers on completion |
+
+Per-project review is configured by `MsgSetVerificationPolicy`;
+`min_verifier_count` 0 (the genesis default) is conviction-only.
 
 #### Content Conviction
 

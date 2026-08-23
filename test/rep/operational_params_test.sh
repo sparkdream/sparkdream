@@ -9,6 +9,11 @@ mkdir -p "$PROPOSAL_DIR"
 
 BINARY="sparkdreamd"
 CHAIN_ID="sparkdream"
+# Resolve BOND_DENOM / DREAM_DENOM. Honours an already-exported value first,
+# so this is a no-op under run_all_tests.sh and makes the script runnable
+# standalone — without it BOND_DENOM is empty and every --fees flag becomes
+# a bare amount with no denom, which the CLI rejects as an invalid coin.
+source "$SCRIPT_DIR/../lib/denoms.sh"
 ALICE_ADDR=$($BINARY keys show alice -a --keyring-backend test)
 BOB_ADDR=$($BINARY keys show bob -a --keyring-backend test)
 
@@ -115,6 +120,11 @@ DEC_FIELDS = [
     'content_challenge_reward_share', 'conviction_propagation_ratio',
     'reputation_decay_rate', 'max_conviction_share_per_member',
     'invitation_stake_burn_rate', 'max_reputation_gain_per_epoch',
+    'juror_reward_rate',
+    'abandoned_jury_seat_penalty',
+    'min_juror_selection_weight', 'initiative_completion_bonus_rate',
+    'jury_acceptance_window_ratio',
+    'reviewer_bond_reserve_rate', 'review_fee_rate',
     'staked_decay_rate',
     'sentinel_reward_pool_overflow_burn_ratio',
     'min_sentinel_accuracy', 'min_appeal_rate'
@@ -261,7 +271,18 @@ if [ "$QUERY_PARAMS_RESULT" == "PASS" ]; then
 
       max_project_requested_budget,
       max_project_requested_spark,
-      proposed_project_expiry_blocks
+      proposed_project_expiry_blocks,
+      juror_reward_rate,
+      abandoned_jury_seat_penalty,
+      min_juror_reward,
+      min_juror_selection_weight,
+      min_jury_seatings_for_weighting,
+      initiative_completion_bonus_rate,
+      jury_acceptance_window_ratio,
+      max_jury_redraws,
+      reviewer_bond_reserve_rate,
+      review_fee_rate,
+      max_review_rounds
     }')
 
     # Modify test fields
@@ -481,7 +502,18 @@ if [ "$UPDATE_PARAMS_RESULT" == "PASS" ]; then
 
       max_project_requested_budget,
       max_project_requested_spark,
-      proposed_project_expiry_blocks
+      proposed_project_expiry_blocks,
+      juror_reward_rate,
+      abandoned_jury_seat_penalty,
+      min_juror_reward,
+      min_juror_selection_weight,
+      min_jury_seatings_for_weighting,
+      initiative_completion_bonus_rate,
+      jury_acceptance_window_ratio,
+      max_jury_redraws,
+      reviewer_bond_reserve_rate,
+      review_fee_rate,
+      max_review_rounds
     }')
 
     # Convert LegacyDec fields from raw format to decimal format

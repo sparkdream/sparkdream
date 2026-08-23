@@ -16,10 +16,16 @@ message Challenge {
   repeated string evidence = 5;
   string staked_dream = 6 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
 
-  ChallengeStatus status = 11;
-  int64 created_at = 12;
-  int64 resolved_at = 13;
-  int64 response_deadline = 14;
+  ChallengeStatus status = 7;
+  int64 created_at = 8;
+  int64 resolved_at = 9;
+  int64 response_deadline = 10;
+
+  // The acceptance criterion this challenge says the work fails, when the
+  // initiative declared any. Optional — a challenge may still be a free-form
+  // claim — but naming one turns "the work is bad" into a question the jury can
+  // actually adjudicate against a standard the author agreed to up front.
+  string criteria_id = 11;
 }
 
 enum ChallengeStatus {

@@ -9,5 +9,5 @@ message TagReport {
   string total_bond = 2;
   int64 first_report_at = 3;
   bool under_review = 4;
-  repeated string reporters = 10;
+  repeated string reporters = 5;
 }

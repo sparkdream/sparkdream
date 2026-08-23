@@ -11,5 +11,5 @@ message MemberWarning {
   int64 issued_at = 4;
   string issued_by = 5;
   uint64 warning_number = 6;
-  repeated uint64 evidence_post_ids = 10;
+  repeated uint64 evidence_post_ids = 7;
 }

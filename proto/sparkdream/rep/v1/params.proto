@@ -440,31 +440,166 @@ message Params {
   // pollution by stale unapproved proposals. Must be positive.
   int64 proposed_project_expiry_blocks = 90;
 
-  // Self-assignment safeguards. A project creator MAY be the assignee of their
-  // own project's initiatives; conflict-of-interest is handled at the judging
-  // layer instead of an assignment-time ban (mirrors x/reveal's contributor
-  // exclusion). These three knobs harden the creator-assigned path.
+  // Self-assignment safeguards. A member MAY assign themselves an initiative
+  // they created (or one under a project they created); conflict-of-interest
+  // is handled at the judging layer instead of an assignment-time ban (mirrors
+  // x/reveal's contributor exclusion). These knobs harden the self-assigned
+  // path. "Self-assigned" means the assignee authored the initiative or the
+  // parent project — checking only the latter let anyone create an initiative
+  // under someone else's project and self-assign to dodge all three.
 
-  // Fraction of the initiative budget locked as a DREAM bond when the project
-  // creator self-assigns on a budget-backed project (permissionless projects
-  // are exempt — no treasury exposure). Bond is returned on completion or
-  // abandonment and burned when a challenge is upheld. Range [0, 1]; 0 disables.
+  // Fraction of the initiative budget locked as a DREAM bond when an
+  // initiative is self-assigned on a budget-backed project. Bond is returned
+  // on completion or abandonment and burned when a challenge is upheld.
+  // Range [0, 1]; 0 disables.
   string self_assigned_bond_rate = 92 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
 
   // External-conviction ratio applied instead of external_conviction_ratio when
-  // the assignee is the project creator. Must be >= external_conviction_ratio
-  // and <= 1. Default 1.0: the community alone vouches for self-assigned work.
+  // the initiative is self-assigned. Must be >= external_conviction_ratio and
+  // <= 1. Default 1.0: the community alone vouches for self-assigned work.
   string self_assigned_external_conviction_ratio = 93 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
 
-  // Multiplier applied to the challenge window for creator-assigned
-  // initiatives. Must be >= 1. Default 2.
+  // Multiplier applied to the challenge window for self-assigned initiatives.
+  // Must be >= 1. Default 2.
   int64 self_assigned_challenge_multiplier = 94;
+
+
+  // Bond rate applied instead of self_assigned_bond_rate when the initiative
+  // is self-assigned under a permissionless project. Higher because the two
+  // cases expose the commons differently: a budget-backed initiative MOVES
+  // DREAM that governance already approved, while a permissionless one MINTS
+  // DREAM nobody approved and dilutes every holder. Permissionless
+  // self-assignment used to be exempt from the bond entirely, which disabled
+  // the main economic deterrent exactly where no counterparty exists.
+  // Range [0, 1]; 0 disables. Default 0.25.
+  string permissionless_self_assigned_bond_rate = 95 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+  // Reputation deducted, per tag of the disputed initiative, from a juror who
+  // accepted a summons and then let it lapse. Accepting is voluntary and
+  // declining is free and immediate, so an abandoned seat is a broken
+  // commitment rather than an accident of the draw.
+  //
+  // Charged in reputation because that is what qualifies a juror: enough
+  // abandoned seats and they fall below min_juror_reputation and stop being
+  // drawn for that tag at all. Must be non-negative; 0 disables. Default 10.
+  string abandoned_jury_seat_penalty = 96 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+  // Fraction of the disputed initiative's budget paid out to its jury, split
+  // evenly across the seats. Juror pay was a flat StandardComplexityBudget
+  // regardless of what was in dispute, so a challenge over a 100 DREAM
+  // APPRENTICE initiative minted 750 DREAM in juror fees to settle it — more
+  // than the work was worth. Range [0, 1]. Default 0.25.
+  string juror_reward_rate = 97 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+  // Fraction of an initiative's review period a juror has to answer a summons
+  // before the seat is swept and redrawn.
+  //
+  // A ratio rather than a block count because the review period varies by two
+  // orders of magnitude across networks: the previous fixed 1200-block (~2h)
+  // window was 1.2% of mainnet's ~7-day review but 133% of devnet's, putting
+  // the acceptance deadline *after* the vote deadline there and making the
+  // sweep unreachable. It also contradicted the reason no-shows go unpunished
+  // — that a member cannot be expected to watch the chain for an event that
+  // reaches them about once a year — by then withdrawing the seat if they did
+  // not answer within two hours.
+  //
+  // Sized for how long it takes someone to read a notification, not to react
+  // to a block. Range (0, 1). Default 0.25 — about 42 hours on mainnet.
+  //
+  // Operational alongside the other juror knobs: leaving juror *pay* committee
+  // tunable while juror *timing* needed a governance vote was an artifact of
+  // build order, not a decision.
+  string jury_acceptance_window_ratio = 98 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+  // Floor on a single juror's pay, in micro-DREAM.
+  //
+  // juror_reward_rate scales pay against the disputed initiative's budget, but
+  // content challenges and moderation appeals have no initiative budget to
+  // scale against — for those this floor *is* the whole rate, which is why it
+  // cannot stay a compile-time constant. Default 5 DREAM.
+  string min_juror_reward = 99 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  // Floor on the responsiveness multiplier applied to a juror's selection
+  // weight. A juror who never answers is drawn less often, never not at all —
+  // a zero-weight address could never earn its way back, since it would stop
+  // being drawn and so could never demonstrate otherwise.
+  //
+  // Chosen for shape rather than fitted to anything, and meant to be revisited
+  // against observed response rates. Range (0,1]. Default 0.1.
+  string min_juror_selection_weight = 100 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+  // Seatings a juror must have before the responsiveness weight applies at all.
+  // Below this there is no meaningful record and they are drawn at full weight.
+  // Like the floor above, a guess awaiting real data. Default 3.
+  uint64 min_jury_seatings_for_weighting = 101;
+  // Conviction-weighted completion bonus, as a fraction of the initiative
+  // budget, paid to external stakers on completion.
+  //
+  // Was a hardcoded 1/10 divisor while the project-side equivalent
+  // (project_completion_bonus_rate) was already a param — the same economic
+  // knob, tunable on one side and fixed on the other. Range [0,1].
+  // Default 0.1.
+  string initiative_completion_bonus_rate = 102 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+  // Replacement rounds the acceptance sweep may run per jury review.
+  //
+  // Coupled to jury_acceptance_window_ratio and validated against it: each round
+  // costs one acceptance window out of the review period, so widening the window
+  // without lowering this leaves replacement jurors no time to read the work.
+  // Both live in the same scope so the pair always moves under one authority.
+  // Default 1.
+  uint32 max_jury_redraws = 103;
+  // Fraction of an initiative's budget a reviewer commits as bond when filing a
+  // verdict on it, and the amount slashed if a jury overturns that verdict.
+  //
+  // Scaled rather than flat so liability tracks what the review could mint — a
+  // wrong approval on an EPIC initiative releases up to 10,000 DREAM, and the
+  // same risk should not attach to a 100 DREAM one. It is also self-limiting:
+  // a reviewer can only hold as many open verdicts as their free bond covers.
+  // Range (0,1]. Default 0.1.
+  string reviewer_bond_reserve_rate = 104 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+  // Fraction of an initiative's budget paid to the reviewers who filed a
+  // verdict on the round that resolved it, scaled by the tier's
+  // reward_multiplier and split evenly across those reviewers.
+  //
+  // Paid per verdict filed, never per approval — if approving paid and
+  // rejecting did not, the role would rebuild "paid to say yes" one layer down.
+  // Paid when the initiative resolves, so an unacted-on review costs nothing and
+  // filing verdicts earns nothing until something turns on them. Range [0,1].
+  // Default 0.05.
+  string review_fee_rate = 105 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+  // Review rounds an initiative may go through before a rejection becomes
+  // terminal. A rejection returns the work to ASSIGNED so the assignee can fix
+  // and resubmit, which is the right remedy for "not done" — but unbounded it
+  // lets a bad-faith assignee burn reviewer effort indefinitely. Default 3.
+  uint32 max_review_rounds = 106;
 }
 
 // RepOperationalParams defines the operational parameters that can be updated
@@ -772,4 +907,58 @@ message RepOperationalParams {
     (gogoproto.nullable) = false
   ];
   int64 proposed_project_expiry_blocks = 74;
+
+  // Reputation deducted from a juror who accepted a summons and abandoned it.
+  // Mirrors abandoned_jury_seat_penalty in Params.
+  string abandoned_jury_seat_penalty = 76 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+  // Fraction of the disputed initiative's budget paid out to its jury, split
+  // evenly across the seats. Juror pay was a flat StandardComplexityBudget
+  // regardless of what was in dispute, so a challenge over a 100 DREAM
+  // APPRENTICE initiative minted 750 DREAM in juror fees to settle it — more
+  // than the work was worth. Range [0, 1]. Default 0.25.
+  string juror_reward_rate = 77 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+  // Mirrors min_juror_reward in Params.
+  string min_juror_reward = 78 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  // Mirrors min_juror_selection_weight in Params.
+  string min_juror_selection_weight = 79 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+  // Mirrors min_jury_seatings_for_weighting in Params.
+  uint64 min_jury_seatings_for_weighting = 80;
+  // Mirrors initiative_completion_bonus_rate in Params.
+  string initiative_completion_bonus_rate = 81 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+  // Mirrors jury_acceptance_window_ratio in Params. Validated against
+  // max_jury_redraws below — the pair must fit inside the review period.
+  string jury_acceptance_window_ratio = 82 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+  // Mirrors max_jury_redraws in Params.
+  uint32 max_jury_redraws = 83;
+  // Mirrors reviewer_bond_reserve_rate in Params.
+  string reviewer_bond_reserve_rate = 84 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+  // Mirrors review_fee_rate in Params.
+  string review_fee_rate = 85 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+  // Mirrors max_review_rounds in Params.
+  uint32 max_review_rounds = 86;
 }

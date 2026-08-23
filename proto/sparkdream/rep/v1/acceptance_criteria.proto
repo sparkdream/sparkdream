@@ -1,0 +1,32 @@
+syntax = "proto3";
+package sparkdream.rep.v1;
+
+option go_package = "sparkdream/x/rep/types";
+
+// A single item in an initiative's definition of done.
+//
+// Declared on the initiative at creation and immutable afterwards, so the
+// standard is fixed before any work starts. Consumed by MsgCreateChallenge
+// (the challenger names the criterion the work fails) and by MsgSubmitJurorVote
+// (a juror's per-item verdicts must answer criteria the initiative actually
+// declared).
+//
+// These types previously sat alongside an InterimTemplate registry, since
+// removed: no message ever created a template, all three networks shipped zero
+// of them, and Initiative.template_id resolved against nothing. Criteria are
+// declared per-initiative precisely because a template reference would have
+// been a pointer into an empty store.
+message VerificationCriteria {
+  string id = 1;
+  string question = 2;
+  CriteriaType type = 3;
+  bool required = 4;
+  string how_to_verify = 5;
+  string evidence = 6;
+}
+
+enum CriteriaType {
+  CRITERIA_TYPE_BINARY = 0;
+  CRITERIA_TYPE_SCALE = 1;
+  CRITERIA_TYPE_TEXT = 2;
+}

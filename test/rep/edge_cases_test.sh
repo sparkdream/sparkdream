@@ -7,6 +7,11 @@ SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
 BINARY="sparkdreamd"
 CHAIN_ID="sparkdream"
+# Resolve BOND_DENOM / DREAM_DENOM. Honours an already-exported value first,
+# so this is a no-op under run_all_tests.sh and makes the script runnable
+# standalone — without it BOND_DENOM is empty and every --fees flag becomes
+# a bare amount with no denom, which the CLI rejects as an invalid coin.
+source "$SCRIPT_DIR/../lib/denoms.sh"
 
 # Get existing test keys
 ALICE_ADDR=$($BINARY keys show alice -a --keyring-backend test)
@@ -111,7 +116,7 @@ sleep 1
 echo "[ OK ] Project created: ID $PROJECT_ID"
 
 # Create initiative for threshold testing
-# Usage: create-initiative [project-id] [title] [description] [tier] [category] [template-id] [budget]
+# Usage: create-initiative [project-id] [title] [description] [tier] [category] [budget]
 # Tier and category are uint64 values (NOT enums):
 #   tier: 0=apprentice, 1=standard, 2=expert, 3=epic
 #   category: 0=feature, 1=bugfix, 2=refactor, 3=testing, 4=security, 5=documentation, 6=design, 7=research, 8=review, 9=other
@@ -121,7 +126,6 @@ THRESH_RES=$($BINARY tx rep create-initiative \
   "Testing exact 50% external conviction" \
   "1" \
   "0" \
-  "" \
   "1000000" \
   --from alice \
   --chain-id $CHAIN_ID \
@@ -245,7 +249,7 @@ MIN_DURATION=$(echo "$PARAMS" | jq -r '.params.minimum_stake_epochs // "10"')
 echo "Minimum stake duration: $MIN_DURATION epochs"
 
 # Create initiative for duration test
-# Usage: create-initiative [project-id] [title] [description] [tier] [category] [template-id] [budget]
+# Usage: create-initiative [project-id] [title] [description] [tier] [category] [budget]
 # Tier and category are uint64 values (NOT enums):
 #   tier: 0=apprentice, 1=standard, 2=expert, 3=epic
 #   category: 0=feature, 1=bugfix, 2=refactor, 3=testing, 4=security, 5=documentation, 6=design, 7=research, 8=review, 9=other
@@ -255,7 +259,6 @@ DUR_RES=$($BINARY tx rep create-initiative \
   "Testing minimum stake duration" \
   "1" \
   "0" \
-  "" \
   "500000" \
   --from alice \
   --chain-id $CHAIN_ID \
@@ -522,7 +525,7 @@ echo "  Epic (3):        max 10,000,000,000 (10000 DREAM)"
 # Test tier budget enforcement
 echo ""
 echo "Creating Epic tier initiative (max 10,000,000,000 micro-DREAM = 10000 DREAM)..."
-# Usage: create-initiative [project-id] [title] [description] [tier] [category] [template-id] [budget]
+# Usage: create-initiative [project-id] [title] [description] [tier] [category] [budget]
 # Tier and category are uint64 values (NOT enums):
 #   tier: 0=apprentice, 1=standard, 2=expert, 3=epic
 #   category: 0=feature, 1=bugfix, 2=refactor, 3=testing, 4=security, 5=documentation, 6=design, 7=research, 8=review, 9=other
@@ -532,7 +535,6 @@ EPIC_RES=$($BINARY tx rep create-initiative \
   "Testing epic tier budget limit" \
   "3" \
   "0" \
-  "" \
   "10000000000" \
   --from alice \
   --chain-id $CHAIN_ID \
@@ -557,7 +559,7 @@ fi
 echo ""
 echo "Attempting to exceed epic tier limit (15,000,000,000 micro-DREAM = 15000 DREAM)..."
 
-# Usage: create-initiative [project-id] [title] [description] [tier] [category] [template-id] [budget]
+# Usage: create-initiative [project-id] [title] [description] [tier] [category] [budget]
 # Tier and category are uint64 values (NOT enums):
 #   tier: 0=apprentice, 1=standard, 2=expert, 3=epic
 #   category: 0=feature, 1=bugfix, 2=refactor, 3=testing, 4=security, 5=documentation, 6=design, 7=research, 8=review, 9=other
@@ -567,7 +569,6 @@ EXCEED_RES=$($BINARY tx rep create-initiative \
   "Should fail - exceeds tier budget" \
   "3" \
   "0" \
-  "" \
   "15000000000" \
   --from alice \
   --chain-id $CHAIN_ID \

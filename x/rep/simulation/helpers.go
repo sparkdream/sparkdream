@@ -2,6 +2,7 @@ package simulation
 
 import (
 	"errors"
+	"fmt"
 	"math/rand"
 
 	"cosmossdk.io/math"
@@ -73,6 +74,29 @@ func findInvitation(r *rand.Rand, ctx sdk.Context, k keeper.Keeper, status types
 }
 
 // findProject returns a random project with the given status
+// findProjectByCreator returns an existing project with the given status that
+// the address created, so a simulation op that must act as project authority
+// has something it is actually authorised over.
+func findProjectByCreator(ctx sdk.Context, k keeper.Keeper, status types.ProjectStatus, creator string) (*types.Project, uint64, error) {
+	var found *types.Project
+	var foundID uint64
+	err := k.Project.Walk(ctx, nil, func(id uint64, p types.Project) (bool, error) {
+		if p.Status == status && p.Creator == creator {
+			cp := p
+			found, foundID = &cp, id
+			return true, nil
+		}
+		return false, nil
+	})
+	if err != nil {
+		return nil, 0, err
+	}
+	if found == nil {
+		return nil, 0, fmt.Errorf("no %s project created by %s", status, creator)
+	}
+	return found, foundID, nil
+}
+
 func findProject(r *rand.Rand, ctx sdk.Context, k keeper.Keeper, status types.ProjectStatus) (*types.Project, uint64, error) {
 	var projects []struct {
 		id      uint64
@@ -597,14 +621,22 @@ func createInvitation(ctx sdk.Context, k keeper.Keeper, r *rand.Rand, inviter *t
 
 // getOrCreateProject returns an existing active project or creates one
 func getOrCreateProject(r *rand.Rand, ctx sdk.Context, k keeper.Keeper, creator *types.Member) (uint64, error) {
-	// Try to find existing active project
-	project, projectID, err := findProject(r, ctx, k, types.ProjectStatus_PROJECT_STATUS_ACTIVE)
-	if err == nil && project != nil {
+	// Reuse an existing ACTIVE project only when this member created it.
+	//
+	// Budget-backed projects are closed to outsiders: MsgCreateInitiative
+	// requires the parent project's creator or the Operations Committee, since
+	// AllocateBudget has no creator guard of its own and an outsider could
+	// otherwise draw down a council-approved ceiling. Handing back a randomly
+	// chosen project made every caller a probable outsider, and a delivered-tx
+	// failure fails the whole simulation. Ownership also happens to be what
+	// cancel_project needs, so filtering here serves every caller.
+	if project, projectID, err := findProjectByCreator(ctx, k,
+		types.ProjectStatus_PROJECT_STATUS_ACTIVE, creator.Address); err == nil && project != nil {
 		return projectID, nil
 	}
 
-	// Create new project
-	projectID, err = k.ProjectSeq.Next(ctx)
+	// Create new project, owned by this member.
+	projectID, err := k.ProjectSeq.Next(ctx)
 	if err != nil {
 		return 0, err
 	}

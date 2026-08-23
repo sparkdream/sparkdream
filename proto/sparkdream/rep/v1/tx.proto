@@ -9,6 +9,8 @@ import "gogoproto/gogo.proto";
 import "sparkdream/rep/v1/accountability.proto";
 import "sparkdream/rep/v1/bonded_role.proto";
 import "sparkdream/rep/v1/interim.proto";
+import "sparkdream/rep/v1/acceptance_criteria.proto";
+import "sparkdream/rep/v1/initiative.proto";
 import "sparkdream/rep/v1/jury_review.proto";
 import "sparkdream/rep/v1/params.proto";
 import "sparkdream/rep/v1/project.proto";
@@ -102,6 +104,15 @@ service Msg {
 
   // SubmitJurorVote defines the SubmitJurorVote RPC.
   rpc SubmitJurorVote(MsgSubmitJurorVote) returns (MsgSubmitJurorVoteResponse);
+  rpc AcceptJuryDuty(MsgAcceptJuryDuty) returns (MsgAcceptJuryDutyResponse);
+
+  // SubmitInitiativeReview files a bonded reviewer's verdict on submitted work.
+  rpc SubmitInitiativeReview(MsgSubmitInitiativeReview) returns (MsgSubmitInitiativeReviewResponse);
+  // SetVerificationPolicy configures how a project's initiatives are reviewed.
+  rpc SetVerificationPolicy(MsgSetVerificationPolicy) returns (MsgSetVerificationPolicyResponse);
+  // ResolveReviewEscalation settles a review round that reached its deadline.
+  rpc ResolveReviewEscalation(MsgResolveReviewEscalation) returns (MsgResolveReviewEscalationResponse);
+  rpc DeclineJuryDuty(MsgDeclineJuryDuty) returns (MsgDeclineJuryDutyResponse);
 
   // SubmitExpertTestimony defines the SubmitExpertTestimony RPC.
   rpc SubmitExpertTestimony(MsgSubmitExpertTestimony) returns (MsgSubmitExpertTestimonyResponse);
@@ -392,11 +403,13 @@ message MsgCreateInitiative {
   uint64 project_id = 2;
   string title = 3;
   string description = 4;
-  repeated string tags = 8;
+  repeated string tags = 7;
   uint64 tier = 5;
   uint64 category = 6;
-  string template_id = 7;
-  string budget = 9 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
+  string budget = 8 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
+  // Optional definition of done, fixed at creation. See
+  // Initiative.acceptance_criteria.
+  repeated VerificationCriteria acceptance_criteria = 9 [(gogoproto.nullable) = false];
 }
 
 // MsgCreateInitiativeResponse defines the MsgCreateInitiativeResponse message.
@@ -429,15 +442,24 @@ message MsgSubmitInitiativeWork {
 // MsgSubmitInitiativeWorkResponse defines the MsgSubmitInitiativeWorkResponse message.
 message MsgSubmitInitiativeWorkResponse {}
 
-// MsgApproveInitiative defines the MsgApproveInitiative message.
+// MsgApproveInitiative records a reviewer's verdict on submitted work.
+//
+// Review is advisory for budget-backed, externally assigned work and binding
+// only in aggregate for stakers, whose disapproval is weighted by the DREAM
+// they have staked on the initiative. Conviction remains the gate on payout.
+//
+// This message used to carry a `criteria_votes` field that the handler read
+// nowhere. Per-criterion verdicts belong on MsgSubmitJurorVote, which stores
+// them on the JurorVote record and validates each id against the initiative's
+// acceptance criteria. A field the handler silently discards is worse than no
+// field: clients populate it and users believe it did something.
 message MsgApproveInitiative {
   option (cosmos.msg.v1.signer) = "creator";
   option (amino.name) = "sparkdream/x/rep/MsgApproveInitiative";
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 initiative_id = 2;
-  repeated CriteriaVote criteria_votes = 3;
-  bool approved = 4;
-  string comments = 5;
+  bool approved = 3;
+  string comments = 4;
 }
 
 // MsgApproveInitiativeResponse defines the MsgApproveInitiativeResponse message.
@@ -534,10 +556,38 @@ message MsgCreateChallenge {
   string reason = 3;
   repeated string evidence = 4;
   string staked_dream = 5 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
+  // Optional id of the acceptance criterion the work is said to fail. Must
+  // match one declared on the initiative.
+  string criteria_id = 6;
 }
 
 // MsgCreateChallengeResponse defines the MsgCreateChallengeResponse message.
 message MsgCreateChallengeResponse {}
+
+// MsgAcceptJuryDuty accepts a jury summons, turning a seat drawn by lot into a
+// commitment to vote.
+message MsgAcceptJuryDuty {
+  option (cosmos.msg.v1.signer) = "juror";
+  option (amino.name) = "sparkdream/x/rep/MsgAcceptJuryDuty";
+  string juror = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 jury_review_id = 2;
+}
+
+// MsgAcceptJuryDutyResponse defines the MsgAcceptJuryDuty response.
+message MsgAcceptJuryDutyResponse {}
+
+// MsgDeclineJuryDuty releases a seat immediately so it can be redrawn. Free by
+// design: a juror who has no time to review the work should say so early rather
+// than sit on the seat until the deadline.
+message MsgDeclineJuryDuty {
+  option (cosmos.msg.v1.signer) = "juror";
+  option (amino.name) = "sparkdream/x/rep/MsgDeclineJuryDuty";
+  string juror = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 jury_review_id = 2;
+}
+
+// MsgDeclineJuryDutyResponse defines the MsgDeclineJuryDuty response.
+message MsgDeclineJuryDutyResponse {}
 
 // MsgRespondToChallenge defines the MsgRespondToChallenge message.
 message MsgRespondToChallenge {
@@ -864,3 +914,62 @@ message MsgCancelInitiative {
 
 // MsgCancelInitiativeResponse defines the MsgCancelInitiativeResponse message.
 message MsgCancelInitiativeResponse {}
+
+// MsgSubmitInitiativeReview files one bonded reviewer's verdict on the current
+// review round of an initiative's submitted work.
+//
+// Filing reserves bond scaled to the initiative's budget, so a reviewer can
+// only take on as much work as their bond covers and liability tracks what the
+// review could mint. The bond is released when the challenge window closes
+// unchallenged, and slashed when a jury overturns the verdict.
+message MsgSubmitInitiativeReview {
+  option (cosmos.msg.v1.signer) = "reviewer";
+  option (amino.name) = "sparkdream/x/rep/MsgSubmitInitiativeReview";
+  string reviewer = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 initiative_id = 2;
+  bool approved = 3;
+  repeated CriteriaVote criteria_votes = 4;
+  string comments = 5;
+}
+
+// MsgSubmitInitiativeReviewResponse defines the MsgSubmitInitiativeReview response.
+message MsgSubmitInitiativeReviewResponse {}
+
+// MsgSetVerificationPolicy sets how a project's initiatives are reviewed.
+//
+// Authority is the project's creator or the Operations Committee, and it is
+// settable while the project is ACTIVE rather than fixed at creation: the
+// reviewer roster grows over time, so a project needs to be able to turn review
+// on once reviewers exist. The review and challenge windows in the policy are
+// clamped to max(global, project) — a project may be more conservative than the
+// chain default, never less.
+message MsgSetVerificationPolicy {
+  option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/rep/MsgSetVerificationPolicy";
+  string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 project_id = 2;
+  VerificationPolicy policy = 3 [(gogoproto.nullable) = false];
+}
+
+// MsgSetVerificationPolicyResponse defines the MsgSetVerificationPolicy response.
+message MsgSetVerificationPolicyResponse {}
+
+// MsgResolveReviewEscalation settles a review round that hit its deadline
+// without meeting the reviewer gate.
+//
+// Operations Committee only. The three resolutions are approve (satisfy the
+// gate), reject (send the work back for another round), and pass (decline to
+// substitute judgement and let conviction and the challenge window decide).
+// All three still run the challenge window — committee approval satisfies the
+// reviewer requirement and nothing else.
+message MsgResolveReviewEscalation {
+  option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/rep/MsgResolveReviewEscalation";
+  string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 initiative_id = 2;
+  ReviewEscalation resolution = 3;
+  string reason = 4;
+}
+
+// MsgResolveReviewEscalationResponse defines the MsgResolveReviewEscalation response.
+message MsgResolveReviewEscalationResponse {}

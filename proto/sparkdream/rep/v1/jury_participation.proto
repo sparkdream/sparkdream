@@ -3,12 +3,43 @@ package sparkdream.rep.v1;
 
 option go_package = "sparkdream/x/rep/types";
 
-// JuryParticipation defines the JuryParticipation message.
+// JuryParticipation is a juror's service record.
+//
+// Jurors are drawn by lot and paid a flat participation reward for voting.
+// Ignoring a summons is **not** penalised: the adjudication terminal path
+// resolves an inconclusive jury safely and the redraw sweep replaces an
+// unanswered seat within the acceptance window, so what remains of a no-show is
+// a few hours of delay in a week-long review. Pricing that would oblige every
+// eligible member to monitor the chain for an event that reaches them roughly
+// once a year, and under broad sortition non-response is the expected default
+// of a population that never volunteered.
+//
+// This record instead feeds **selection weight**: a juror who never answers is
+// drawn less often, never removed from the lot. Nobody loses eligibility, and an
+// address can always earn its weight back — which an excluded one could not,
+// since it would never be drawn again to demonstrate otherwise.
+//
+// The one penalised case is total_abandoned: accepting a summons and then
+// letting it lapse. Accepting is voluntary and declining is free, so that is a
+// broken commitment rather than an accident, and it is charged in reputation.
 message JuryParticipation {
   string juror = 1;
+
+  // Seats drawn, votes cast, and seats that went to the deadline unanswered.
   uint64 total_assigned = 2;
   uint64 total_voted = 3;
   uint64 total_timeouts = 4;
+
   int64 last_assigned_at = 5;
-  bool excluded = 6;
+
+  // Seats explicitly handed back. Counted as answering the summons, both for
+  // selection weight and so that declining never loads the responsiveness
+  // denominator — a decline that counted as silence would cost exactly as much
+  // as ignoring the summons, and there would be no free way out of a seat
+  // nobody asked for.
+  uint64 total_declined = 6;
+
+  // Seats accepted and then left unanswered at the deadline. The one form of
+  // absence that is penalised, in reputation.
+  uint64 total_abandoned = 7;
 }

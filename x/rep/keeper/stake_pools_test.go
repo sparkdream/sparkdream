@@ -178,7 +178,7 @@ func TestExtendedStaking_ClaimRewards(t *testing.T) {
 	// Create project and initiative for stake target
 	projectID, _ := k.CreateProject(ctx, staker, "Proj", "Desc", []string{"tag"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical", math.NewInt(10000), math.NewInt(1000), false)
 	k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(10000), math.NewInt(1000))
-	initID, _ := k.CreateInitiative(ctx, staker, projectID, "Task", "D", []string{"tag"}, types.InitiativeTier_INITIATIVE_TIER_STANDARD, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, "", math.NewInt(100))
+	initID, _ := k.CreateInitiative(ctx, staker, projectID, "Task", "D", []string{"tag"}, types.InitiativeTier_INITIATIVE_TIER_STANDARD, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, math.NewInt(100))
 
 	// Create stake
 	stakeID, err := k.CreateStake(ctx, staker, types.StakeTargetType_STAKE_TARGET_INITIATIVE, initID, "", math.NewInt(100))
@@ -231,7 +231,7 @@ func TestExtendedStaking_CompoundRewards(t *testing.T) {
 	// Create project and initiative
 	projectID, _ := k.CreateProject(ctx, staker, "Proj", "Desc", []string{"tag"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical", math.NewInt(10000), math.NewInt(1000), false)
 	k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(10000), math.NewInt(1000))
-	initID, _ := k.CreateInitiative(ctx, staker, projectID, "Task", "D", []string{"tag"}, types.InitiativeTier_INITIATIVE_TIER_STANDARD, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, "", math.NewInt(100))
+	initID, _ := k.CreateInitiative(ctx, staker, projectID, "Task", "D", []string{"tag"}, types.InitiativeTier_INITIATIVE_TIER_STANDARD, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, math.NewInt(100))
 
 	// Create stake
 	initialAmount := math.NewInt(100)
@@ -269,7 +269,7 @@ func TestExtendedStaking_PendingRewardsQuery(t *testing.T) {
 	// Create project and initiative
 	projectID, _ := k.CreateProject(ctx, staker, "Proj", "Desc", []string{"tag"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical", math.NewInt(10000), math.NewInt(1000), false)
 	k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(10000), math.NewInt(1000))
-	initID, _ := k.CreateInitiative(ctx, staker, projectID, "Task", "D", []string{"tag"}, types.InitiativeTier_INITIATIVE_TIER_STANDARD, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, "", math.NewInt(100))
+	initID, _ := k.CreateInitiative(ctx, staker, projectID, "Task", "D", []string{"tag"}, types.InitiativeTier_INITIATIVE_TIER_STANDARD, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, math.NewInt(100))
 
 	// Create stake
 	stakeID, err := k.CreateStake(ctx, staker, types.StakeTargetType_STAKE_TARGET_INITIATIVE, initID, "", math.NewInt(100))
@@ -467,7 +467,7 @@ func TestDistributeInitiativeCompletionBonus(t *testing.T) {
 	// Create initiative
 	initID, err := k.CreateInitiative(ctx, creator, projectID, "Task", "Do the work",
 		[]string{"backend"}, types.InitiativeTier_INITIATIVE_TIER_STANDARD,
-		types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, "", math.NewInt(1000))
+		types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, math.NewInt(1000))
 	require.NoError(t, err)
 
 	// Staker1 stakes 200 DREAM, staker2 stakes 800 DREAM
@@ -528,17 +528,21 @@ func TestDistributeInitiativeCompletionBonus(t *testing.T) {
 		"staker2 (800 DREAM stake) should receive more bonus than staker1 (200 DREAM stake): got %s vs %s",
 		received2.String(), received1.String())
 
-	// Verify that the creator (internal staker) also received a share
+	// The creator authored both the project and the initiative, so they are an
+	// affiliate and the bonus — which exists to reward independent vouching —
+	// is withheld. Their staked principal is untouched; only this extra mint is
+	// skipped, and the skipped share is never minted rather than redistributed.
 	memberCreator, _ := k.Member.Get(ctx, creator.String())
 	receivedCreator := memberCreator.DreamBalance.Sub(preBalances[creator.String()])
-	require.True(t, receivedCreator.GT(math.ZeroInt()),
-		"creator (internal staker) should also receive a bonus share")
+	require.True(t, receivedCreator.IsZero(),
+		"creator is an affiliate and must not receive a completion bonus, got %s",
+		receivedCreator.String())
 
 	// Test: No stakes returns without error
 	// Create a separate initiative with no stakes
 	initID2, err := k.CreateInitiative(ctx, creator, projectID, "Empty", "No stakes",
 		[]string{"backend"}, types.InitiativeTier_INITIATIVE_TIER_STANDARD,
-		types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, "", math.NewInt(100))
+		types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, math.NewInt(100))
 	require.NoError(t, err)
 	err = k.DistributeInitiativeCompletionBonus(ctx, initID2, math.NewInt(10000))
 	require.NoError(t, err)

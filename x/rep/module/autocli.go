@@ -95,6 +95,13 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					Short:     "List all jury-review",
 				},
 				{
+					RpcMethod:      "JuryReviewsByJuror",
+					Use:            "jury-reviews-by-juror [juror]",
+					Short:          "List the jury reviews an address is seated on",
+					Long:           "List the jury reviews an address is seated on. Pass --pending-only to show just the summons still awaiting a verdict.",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "juror"}},
+				},
+				{
 					RpcMethod:      "GetJuryReview",
 					Use:            "get-jury-review [id]",
 					Short:          "Gets a jury-review by id",
@@ -114,16 +121,10 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "id"}},
 				},
 				{
-					RpcMethod: "ListInterimTemplate",
-					Use:       "list-interim-template",
-					Short:     "List all interim-template",
-				},
-				{
-					RpcMethod:      "GetInterimTemplate",
-					Use:            "get-interim-template [id]",
-					Short:          "Gets an interim-template",
-					Alias:          []string{"show-interim-template"},
-					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "template_id"}},
+					RpcMethod:      "RoleActivity",
+					Use:            "role-activity [role-type] [address]",
+					Short:          "Query a bonded role holder's accountability record",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "role_type"}, {ProtoField: "address"}},
 				},
 				{
 					RpcMethod:      "MembersByTrustLevel",
@@ -522,11 +523,14 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 				},
 				{
 					RpcMethod:      "CreateInitiative",
-					Use:            "create-initiative [project-id] [title] [description] [tier] [category] [template-id] [budget]",
+					Use:            "create-initiative [project-id] [title] [description] [tier] [category] [budget]",
 					Short:          "Send a create-initiative tx",
-					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "project_id"}, {ProtoField: "title"}, {ProtoField: "description"}, {ProtoField: "tier"}, {ProtoField: "category"}, {ProtoField: "template_id"}, {ProtoField: "budget"}},
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "project_id"}, {ProtoField: "title"}, {ProtoField: "description"}, {ProtoField: "tier"}, {ProtoField: "category"}, {ProtoField: "budget"}},
 					FlagOptions: map[string]*autocliv1.FlagOptions{
 						"tags": {Name: "tags"},
+						// The definition of done, declared here or never:
+						// acceptance_criteria is immutable after creation.
+						"acceptance_criteria": {Name: "acceptance-criteria"},
 					},
 				},
 				{
@@ -576,6 +580,12 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					Use:            "create-challenge [initiative-id] [reason] [staked-dream]",
 					Short:          "Send a create-challenge tx",
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "initiative_id"}, {ProtoField: "reason"}, {ProtoField: "staked_dream"}},
+					FlagOptions: map[string]*autocliv1.FlagOptions{
+						// Naming the criterion the work fails is what turns a
+						// challenge into a question a jury can adjudicate.
+						"criteria_id": {Name: "criteria-id"},
+						"evidence":    {Name: "evidence"},
+					},
 				},
 				{
 					RpcMethod:      "RespondToChallenge",
@@ -591,6 +601,40 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					FlagOptions: map[string]*autocliv1.FlagOptions{
 						"criteria_votes": {Name: "criteria-votes"},
 					},
+				},
+				{
+					RpcMethod:      "SubmitInitiativeReview",
+					Use:            "submit-initiative-review [initiative-id] [approved] [comments]",
+					Short:          "File a bonded reviewer's verdict on submitted work",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "initiative_id"}, {ProtoField: "approved"}, {ProtoField: "comments"}},
+					FlagOptions: map[string]*autocliv1.FlagOptions{
+						"criteria_votes": {Name: "criteria-votes"},
+					},
+				},
+				{
+					RpcMethod:      "SetVerificationPolicy",
+					Use:            "set-verification-policy [project-id] [policy-json]",
+					Short:          "Set how a project's initiatives are reviewed",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "project_id"}, {ProtoField: "policy"}},
+				},
+				{
+					RpcMethod:      "ResolveReviewEscalation",
+					Use:            "resolve-review-escalation [initiative-id] [resolution] [reason]",
+					Short:          "Operations Committee: settle a stalled review round",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "initiative_id"}, {ProtoField: "resolution"}, {ProtoField: "reason"}},
+				},
+				{
+					RpcMethod:      "AcceptJuryDuty",
+					Use:            "accept-jury-duty [jury-review-id]",
+					Short:          "Accept a jury summons, committing to vote on it",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "jury_review_id"}},
+				},
+				{
+					RpcMethod:      "DeclineJuryDuty",
+					Use:            "decline-jury-duty [jury-review-id]",
+					Short:          "Decline a jury summons, releasing the seat to be redrawn",
+					Long:           "Decline a jury summons. Free and immediate — declining is never recorded against your participation rate, unlike ignoring the summons.",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "jury_review_id"}},
 				},
 				{
 					RpcMethod:      "SubmitExpertTestimony",

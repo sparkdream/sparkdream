@@ -55,7 +55,6 @@ func TestCreateChallenge(t *testing.T) {
 		[]string{"tag1"},
 		types.InitiativeTier_INITIATIVE_TIER_STANDARD,
 		types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE,
-		"",
 		math.NewInt(100),
 	)
 	require.NoError(t, err)
@@ -142,7 +141,6 @@ func TestRespondToChallenge(t *testing.T) {
 		[]string{"tag"},
 		types.InitiativeTier_INITIATIVE_TIER_STANDARD,
 		types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE,
-		"",
 		math.NewInt(100),
 	)
 	// Assign needed if creator != assignee but here we make them same for simplicity of creation
@@ -160,20 +158,25 @@ func TestRespondToChallenge(t *testing.T) {
 		LifetimeBurned:   PtrInt(math.ZeroInt()),
 		ReputationScores: make(map[string]string),
 	})
-	// Create a juror
-	juror := sdk.AccAddress([]byte("juror"))
-	k.Member.Set(ctx, juror.String(), types.Member{
-		Address:          juror.String(),
-		DreamBalance:     PtrInt(math.ZeroInt()),
-		StakedDream:      PtrInt(math.ZeroInt()),
-		LifetimeEarned:   PtrInt(math.ZeroInt()),
-		LifetimeBurned:   PtrInt(math.ZeroInt()),
-		ReputationScores: map[string]string{"tag": "100.0"}, // Match initiative tag
-	})
+	// Create jurors matching the initiative tag. MinSeatedJurors (3) is the smallest jury that can return a verdict —
+	// TallyJuryVotes floors quorum there, so a smaller one would be held at
+	// INCONCLUSIVE forever and CreateJuryReview escalates to the committee
+	// rather than seating it.
+	for i := 0; i < types.MinSeatedJurors; i++ {
+		juror := sdk.AccAddress([]byte(fmt.Sprintf("%-16.16s", fmt.Sprintf("juror-%d", i))))
+		k.Member.Set(ctx, juror.String(), types.Member{
+			Address:          juror.String(),
+			DreamBalance:     PtrInt(math.ZeroInt()),
+			StakedDream:      PtrInt(math.ZeroInt()),
+			LifetimeEarned:   PtrInt(math.ZeroInt()),
+			LifetimeBurned:   PtrInt(math.ZeroInt()),
+			ReputationScores: map[string]string{"tag": "100.0"},
+		})
+	}
 
 	// Update params for small jury
 	params, _ := k.Params.Get(ctx)
-	params.JurySize = 1
+	params.JurySize = uint32(types.MinSeatedJurors)
 	params.MinJurorReputation = math.LegacyOneDec()
 	k.Params.Set(ctx, params)
 
@@ -251,7 +254,6 @@ func TestChallengeResponseDeadline(t *testing.T) {
 		[]string{"tag1"},
 		types.InitiativeTier_INITIATIVE_TIER_STANDARD,
 		types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE,
-		"",
 		math.NewInt(100),
 	)
 	require.NoError(t, err)
@@ -342,7 +344,6 @@ func TestChallengeAutoUpholdOnExpiration(t *testing.T) {
 		[]string{"tag1"},
 		types.InitiativeTier_INITIATIVE_TIER_STANDARD,
 		types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE,
-		"",
 		math.NewInt(100),
 	)
 	require.NoError(t, err)
@@ -458,7 +459,6 @@ func TestChallengeResponsePreventsAutoUphold(t *testing.T) {
 		[]string{"tag1"},
 		types.InitiativeTier_INITIATIVE_TIER_STANDARD,
 		types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE,
-		"",
 		math.NewInt(100),
 	)
 	require.NoError(t, err)
@@ -481,20 +481,25 @@ func TestChallengeResponsePreventsAutoUphold(t *testing.T) {
 	})
 	k.MintDREAM(ctx, challenger, math.NewInt(1000000000)) // 1000 DREAM
 
-	// Create a juror for the jury selection
-	juror := sdk.AccAddress([]byte("juror"))
-	k.Member.Set(ctx, juror.String(), types.Member{
-		Address:          juror.String(),
-		DreamBalance:     PtrInt(math.ZeroInt()),
-		StakedDream:      PtrInt(math.ZeroInt()),
-		LifetimeEarned:   PtrInt(math.ZeroInt()),
-		LifetimeBurned:   PtrInt(math.ZeroInt()),
-		ReputationScores: map[string]string{"tag1": "100.0"},
-	})
+	// Create jurors for the jury selection. MinSeatedJurors (3) is the smallest jury that can return a verdict —
+	// TallyJuryVotes floors quorum there, so a smaller one would be held at
+	// INCONCLUSIVE forever and CreateJuryReview escalates to the committee
+	// rather than seating it.
+	for i := 0; i < types.MinSeatedJurors; i++ {
+		juror := sdk.AccAddress([]byte(fmt.Sprintf("%-16.16s", fmt.Sprintf("juror-%d", i))))
+		k.Member.Set(ctx, juror.String(), types.Member{
+			Address:          juror.String(),
+			DreamBalance:     PtrInt(math.ZeroInt()),
+			StakedDream:      PtrInt(math.ZeroInt()),
+			LifetimeEarned:   PtrInt(math.ZeroInt()),
+			LifetimeBurned:   PtrInt(math.ZeroInt()),
+			ReputationScores: map[string]string{"tag1": "100.0"},
+		})
+	}
 
 	// Set params for small jury
 	params, _ := k.Params.Get(ctx)
-	params.JurySize = 1
+	params.JurySize = uint32(types.MinSeatedJurors)
 	params.MinJurorReputation = math.LegacyOneDec()
 	params.ChallengeResponseDeadlineEpochs = 1
 	params.EpochBlocks = 10
@@ -564,7 +569,7 @@ func TestHasActiveChallenges(t *testing.T) {
 
 		initID, err := k.CreateInitiative(ctx, assignee, projectID, "Init", "D", []string{"tag1"},
 			types.InitiativeTier_INITIATIVE_TIER_STANDARD, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE,
-			"", math.NewInt(100))
+			math.NewInt(100))
 		require.NoError(t, err)
 		k.AssignInitiativeToMember(ctx, initID, assignee)
 		k.SubmitInitiativeWork(ctx, initID, assignee, "URI")
@@ -716,7 +721,7 @@ func TestTriageChallenge(t *testing.T) {
 
 		initID, err := k.CreateInitiative(ctx, assignee, projectID, "Init", "D", []string{"tag1"},
 			types.InitiativeTier_INITIATIVE_TIER_STANDARD, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE,
-			"", math.NewInt(100))
+			math.NewInt(100))
 		require.NoError(t, err)
 		k.AssignInitiativeToMember(ctx, initID, assignee)
 		k.SubmitInitiativeWork(ctx, initID, assignee, "URI")
@@ -758,7 +763,7 @@ func TestTriageChallenge(t *testing.T) {
 
 		initID, err := k.CreateInitiative(ctx, assignee, projectID, "Init", "D", []string{"tag1"},
 			types.InitiativeTier_INITIATIVE_TIER_STANDARD, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE,
-			"", math.NewInt(100))
+			math.NewInt(100))
 		require.NoError(t, err)
 		k.AssignInitiativeToMember(ctx, initID, assignee)
 		k.SubmitInitiativeWork(ctx, initID, assignee, "URI")
@@ -802,7 +807,7 @@ func TestEscalateChallengeToCommittee(t *testing.T) {
 
 	initID, err := k.CreateInitiative(ctx, assignee, projectID, "Init", "D", []string{"tag1"},
 		types.InitiativeTier_INITIATIVE_TIER_STANDARD, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE,
-		"", math.NewInt(100))
+		math.NewInt(100))
 	require.NoError(t, err)
 	k.AssignInitiativeToMember(ctx, initID, assignee)
 	k.SubmitInitiativeWork(ctx, initID, assignee, "URI")

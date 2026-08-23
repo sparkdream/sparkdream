@@ -46,8 +46,13 @@ func TestCreateJuryReviewIndexesPending(t *testing.T) {
 	assignee := sdk.AccAddress([]byte("cjr-assignee-aaaa"))
 	mkMember(assignee.String(), map[string]string{"coding": "1000.0"})
 	initID, _ := k.CreateInitiative(ctx, assignee, projectID, "CjrInit", "D", []string{"coding"},
-		types.InitiativeTier_INITIATIVE_TIER_STANDARD, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, "", math.NewInt(150))
-	k.AssignInitiativeToMember(ctx, initID, assignee)
+		types.InitiativeTier_INITIATIVE_TIER_STANDARD, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, math.NewInt(150))
+	// The assignee authored this initiative, so self-assigning it now posts a
+	// DREAM bond (IsSelfAssigned). Fund them and assert the assignment lands —
+	// swallowing the error here left the initiative OPEN and produced a
+	// confusing failure three calls later, at CreateChallenge.
+	k.MintDREAM(ctx, assignee, math.NewInt(1000000))
+	require.NoError(t, k.AssignInitiativeToMember(ctx, initID, assignee))
 	k.SubmitInitiativeWork(ctx, initID, assignee, "URI")
 
 	challenger := sdk.AccAddress([]byte("cjr-challenger-aa"))
@@ -125,8 +130,13 @@ func TestChallengeDeadlineSweep(t *testing.T) {
 		mkMember(assignee.String(), map[string]string{"coding": "1000.0"})
 		initID, _ := k.CreateInitiative(ctx, assignee, projectID, "CdsInit", "D",
 			[]string{"coding"}, types.InitiativeTier_INITIATIVE_TIER_STANDARD,
-			types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, "", math.NewInt(150))
-		k.AssignInitiativeToMember(ctx, initID, assignee)
+			types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, math.NewInt(150))
+		// The assignee authored this initiative, so self-assigning it now posts a
+		// DREAM bond (IsSelfAssigned). Fund them and assert the assignment lands —
+		// swallowing the error here left the initiative OPEN and produced a
+		// confusing failure three calls later, at CreateChallenge.
+		k.MintDREAM(ctx, assignee, math.NewInt(1000000))
+		require.NoError(t, k.AssignInitiativeToMember(ctx, initID, assignee))
 		k.SubmitInitiativeWork(ctx, initID, assignee, "URI")
 
 		challenger := sdk.AccAddress([]byte("cds-challenger-aa"))

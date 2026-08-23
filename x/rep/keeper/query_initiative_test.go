@@ -26,7 +26,6 @@ func createNInitiative(keeper keeper.Keeper, ctx context.Context, n int) []types
 		items[i].Description = strconv.Itoa(i)
 		items[i].Tier = types.InitiativeTier(i)
 		items[i].Category = types.InitiativeCategory(i)
-		items[i].TemplateId = strconv.Itoa(i)
 		amount := math.NewInt(int64(i))
 		items[i].Budget = &amount
 		items[i].Assignee = strconv.Itoa(i)

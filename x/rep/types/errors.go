@@ -77,6 +77,22 @@ var (
 	ErrChallengeNotFound   = errors.Register(ModuleName, 1701, "challenge not found")
 	ErrChallengeNotPending = errors.Register(ModuleName, 1702, "challenge is not pending")
 	ErrNotChallengeParty   = errors.Register(ModuleName, 1703, "not a party to this challenge")
+	// Returned when a payout is attempted before the window in which the work
+	// can be contested has elapsed. Not a permanent failure: the same call
+	// succeeds once the initiative's challenge_period_end height passes.
+	ErrChallengePeriodActive = errors.Register(ModuleName, 1704, "challenge period has not ended")
+	// Acceptance criteria are fixed at initiative creation and are the standard
+	// a challenger cites and a juror answers against.
+	ErrInvalidAcceptanceCriteria  = errors.Register(ModuleName, 1705, "invalid acceptance criteria")
+	ErrUnknownAcceptanceCriterion = errors.Register(ModuleName, 1706, "unknown acceptance criterion")
+	// Jury seat lifecycle.
+	ErrJuryReviewResolved = errors.Register(ModuleName, 1707, "jury review already resolved")
+	ErrNotSeatedJuror     = errors.Register(ModuleName, 1708, "address is not seated on this jury")
+	ErrJurorAlreadyVoted  = errors.Register(ModuleName, 1709, "juror has already voted")
+	// A submission with no deliverable gives reviewers, challengers and jurors
+	// nothing to read. Completion turns on conviction and never inspects the
+	// URI, so an empty one would otherwise ride all the way to a payout.
+	ErrEmptyDeliverable = errors.Register(ModuleName, 1710, "deliverable URI is empty")
 
 	// Member status errors
 	ErrMemberAlreadyZeroed = errors.Register(ModuleName, 1801, "member is already zeroed")

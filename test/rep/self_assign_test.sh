@@ -74,7 +74,6 @@ create_initiative() {
       "Self-assignment e2e test initiative" \
       "0" \
       "1" \
-      "0" \
       "$BUDGET" \
       --tags "documentation" \
       --from alice \
@@ -226,18 +225,29 @@ echo "Note: self-assigned initiatives need FULL external conviction ($SELF_EXT_R
 
 # Per-staker conviction is capped at max_conviction_share_per_member (33%
 # of required), so at least four distinct non-affiliated members must reach
-# the cap for 100% external. Six setup-created members are tried for margin
-# (alice, the creator+assignee, is internal and her stakes would not count
-# as external anyway); individual failures are tolerated as long as four land.
+# the cap for 100% external; individual failures are tolerated as long as
+# four land.
+#
+# The stakers must be the community accounts, not alice's invitees. "External"
+# excludes affiliates and anyone one invitation hop from them in either
+# direction, and this initiative is created and self-assigned by alice — so
+# challenger, anonymous_challenger, expert, assignee, juror1 and juror2 are all
+# alice's direct invitees and every one of them contributes zero external
+# conviction. The community accounts are invited by bob, outside alice's
+# subtree. See Step 5b of setup_test_accounts.sh.
+# Conviction is sqrt-dampened and capped per member, so the cap is reached well
+# before a large stake matters. Keep this within the community accounts'
+# working capital (50 DREAM each from Step 5b, less the transfer tax).
+SELF_STAKE_AMOUNT="40000000"
 STAKE_ERR_FILE=$(mktemp)
 STAKES_LANDED=0
-for STAKER in challenger anonymous_challenger expert assignee juror1 juror2; do
+for STAKER in community1 community2 community3 community4; do
     # Note: keep stderr separate — with --gas auto the CLI prints
     # "gas estimate: N" to stderr, which would corrupt the JSON if merged.
     STAKE_RES=$($BINARY tx rep stake \
       stake-target-initiative \
       $SELF_INIT_ID \
-      "150000000" \
+      "$SELF_STAKE_AMOUNT" \
       --from $STAKER --chain-id $CHAIN_ID --keyring-backend test \
       --gas auto --gas-adjustment 1.5 --fees 5000${BOND_DENOM} -y -o json 2>"$STAKE_ERR_FILE")
     STAKE_TX=$(echo "$STAKE_RES" | jq -r '.txhash // ""' 2>/dev/null)
@@ -248,7 +258,7 @@ for STAKER in challenger anonymous_challenger expert assignee juror1 juror2; do
     sleep 3
     STAKE_CODE=$($BINARY query tx $STAKE_TX -o json 2>/dev/null | jq -r '.code // 0')
     if [ "$STAKE_CODE" == "0" ]; then
-        echo "[ OK ] $STAKER staked 150 DREAM"
+        echo "[ OK ] $STAKER staked $((SELF_STAKE_AMOUNT / 1000000)) DREAM"
         STAKES_LANDED=$((STAKES_LANDED+1))
     else
         STAKE_ERR=$($BINARY query tx $STAKE_TX -o json 2>/dev/null | jq -r '.raw_log // "unknown"')

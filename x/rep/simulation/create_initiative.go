@@ -83,7 +83,6 @@ func SimulateMsgCreateInitiative(
 			Tags:        randomTags(r),
 			Tier:        uint64(tier),
 			Category:    uint64(category),
-			TemplateId:  "",
 			Budget:      &budget,
 		}
 

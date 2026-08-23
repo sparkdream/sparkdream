@@ -187,7 +187,6 @@ for i in "${!WORKERS[@]}"; do
         "Work item $INIT_NUM for multi-worker project" \
         "0" \
         "1" \
-        "" \
         "50000000" \
         --tags "concurrent" \
         --from alice \
@@ -508,7 +507,6 @@ if [ "$ASSIGNEE_TRUST" == "TRUST_LEVEL_NEW" ] || [ "$ASSIGNEE_TRUST" == "null" ]
         "Building reputation to reach PROVISIONAL trust level" \
         "0" \
         "0" \
-        "" \
         "500000000" \
         --tags "referral-test,trust-builder" \
         --from alice \
@@ -720,7 +718,6 @@ TX_RES=$($BINARY tx rep create-initiative \
     "Testing referral reward distribution" \
     "0" \
     "0" \
-    "" \
     "1000000" \
     --tags "referral-test" \
     --from alice \
@@ -950,7 +947,6 @@ for i in 1 2 3; do
         "Initiative $i for budget testing" \
         "3" \
         "1" \
-        "" \
         "4000000000" \
         --tags "budget" \
         --from alice \
@@ -1003,7 +999,6 @@ COMP_RES=$($BINARY tx rep create-initiative \
     "Initiative for conviction competition test" \
     "0" \
     "1" \
-    "" \
     "50000000" \
     --tags "competition" \
     --from alice \
@@ -1099,7 +1094,6 @@ for i in 1 2 3; do
         "Initiative $i for parallel challenge testing" \
         "0" \
         "1" \
-        "" \
         "50000000" \
         --tags "challenge" \
         --from alice \
@@ -1196,7 +1190,6 @@ PROJECT2_INIT_RES=$($BINARY tx rep create-initiative \
     "Initiative in second project for testing worker movement" \
     "0" \
     "1" \
-    "" \
     "50000000" \
     --tags "cross-project" \
     --from alice \

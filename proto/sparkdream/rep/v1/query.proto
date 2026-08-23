@@ -7,12 +7,13 @@ import "cosmos/base/query/v1beta1/pagination.proto";
 import "gogoproto/gogo.proto";
 import "google/api/annotations.proto";
 import "sparkdream/rep/v1/bonded_role.proto";
+import "sparkdream/rep/v1/role_activity.proto";
 import "sparkdream/rep/v1/challenge.proto";
 import "sparkdream/rep/v1/content_challenge.proto";
 import "sparkdream/rep/v1/gov_action_appeal.proto";
 import "sparkdream/rep/v1/initiative.proto";
 import "sparkdream/rep/v1/interim.proto";
-import "sparkdream/rep/v1/interim_template.proto";
+import "sparkdream/rep/v1/acceptance_criteria.proto";
 import "sparkdream/rep/v1/invitation.proto";
 import "sparkdream/rep/v1/jury_participation.proto";
 import "sparkdream/rep/v1/jury_review.proto";
@@ -107,6 +108,23 @@ service Query {
     option (google.api.http).get = "/sparkdream/rep/v1/jury_review";
   }
 
+  // JuryReviewsByJuror lists the reviews a juror has been seated on. This is
+  // how a juror (or their monitoring client) discovers an outstanding summons:
+  // jury duty pays but is infrequent, and there is no other way to ask "am I
+  // seated" short of paging through every review ever created.
+  rpc JuryReviewsByJuror(QueryJuryReviewsByJurorRequest) returns (QueryJuryReviewsByJurorResponse) {
+    option (google.api.http).get = "/sparkdream/rep/v1/jury_reviews_by_juror/{juror}";
+  }
+
+  // RoleActivity returns a bonded role holder's shared accountability record —
+  // per-kind action counters, verdict streaks, overturn cooldown and the
+  // accuracy ring. x/forum projects the sentinel view of this; reviewers and
+  // curators had no way to inspect theirs at all, which matters because the
+  // record gates pay and drives demotion.
+  rpc RoleActivity(QueryRoleActivityRequest) returns (QueryRoleActivityResponse) {
+    option (google.api.http).get = "/sparkdream/rep/v1/role_activity/{role_type}/{address}";
+  }
+
   // ListInterim Queries a list of Interim items.
   rpc GetInterim(QueryGetInterimRequest) returns (QueryGetInterimResponse) {
     option (google.api.http).get = "/sparkdream/rep/v1/interim/{id}";
@@ -117,15 +135,6 @@ service Query {
     option (google.api.http).get = "/sparkdream/rep/v1/interim";
   }
 
-  // ListInterimTemplate Queries a list of InterimTemplate items.
-  rpc GetInterimTemplate(QueryGetInterimTemplateRequest) returns (QueryGetInterimTemplateResponse) {
-    option (google.api.http).get = "/sparkdream/rep/v1/interim_template/{template_id}";
-  }
-
-  // ListInterimTemplate defines the ListInterimTemplate RPC.
-  rpc ListInterimTemplate(QueryAllInterimTemplateRequest) returns (QueryAllInterimTemplateResponse) {
-    option (google.api.http).get = "/sparkdream/rep/v1/interim_template";
-  }
 
   // MembersByTrustLevel Queries a list of MembersByTrustLevel items.
   rpc MembersByTrustLevel(QueryMembersByTrustLevelRequest) returns (QueryMembersByTrustLevelResponse) {
@@ -631,26 +640,9 @@ message QueryAllInterimResponse {
   cosmos.base.query.v1beta1.PageResponse pagination = 2;
 }
 
-// QueryGetInterimTemplateRequest defines the QueryGetInterimTemplateRequest message.
-message QueryGetInterimTemplateRequest {
-  string template_id = 1;
-}
 
-// QueryGetInterimTemplateResponse defines the QueryGetInterimTemplateResponse message.
-message QueryGetInterimTemplateResponse {
-  InterimTemplate interim_template = 1 [(gogoproto.nullable) = false];
-}
 
-// QueryAllInterimTemplateRequest defines the QueryAllInterimTemplateRequest message.
-message QueryAllInterimTemplateRequest {
-  cosmos.base.query.v1beta1.PageRequest pagination = 1;
-}
 
-// QueryAllInterimTemplateResponse defines the QueryAllInterimTemplateResponse message.
-message QueryAllInterimTemplateResponse {
-  repeated InterimTemplate interim_template = 1 [(gogoproto.nullable) = false];
-  cosmos.base.query.v1beta1.PageResponse pagination = 2;
-}
 
 // QueryMembersByTrustLevelRequest defines the QueryMembersByTrustLevelRequest message.
 message QueryMembersByTrustLevelRequest {
@@ -673,6 +665,22 @@ message QueryInvitationsByInviterRequest {
 // QueryInvitationsByInviterResponse defines the QueryInvitationsByInviterResponse message.
 message QueryInvitationsByInviterResponse {
   repeated Invitation invitation = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryJuryReviewsByJurorRequest defines the QueryJuryReviewsByJuror request.
+message QueryJuryReviewsByJurorRequest {
+  string juror = 1;
+  // When true, return only reviews still awaiting a verdict — the summons a
+  // juror can still act on. Defaults to false, which returns their full
+  // service history.
+  bool pending_only = 2;
+  cosmos.base.query.v1beta1.PageRequest pagination = 3;
+}
+
+// QueryJuryReviewsByJurorResponse defines the QueryJuryReviewsByJuror response.
+message QueryJuryReviewsByJurorResponse {
+  repeated JuryReview jury_review = 1 [(gogoproto.nullable) = false];
   cosmos.base.query.v1beta1.PageResponse pagination = 2;
 }
 
@@ -1490,4 +1498,15 @@ message QueryAuthorBondsByTypeRequest {
 message QueryAuthorBondsByTypeResponse {
   repeated Stake bonds = 1 [(gogoproto.nullable) = false];
   cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryRoleActivityRequest defines the QueryRoleActivity request.
+message QueryRoleActivityRequest {
+  RoleType role_type = 1;
+  string address = 2;
+}
+
+// QueryRoleActivityResponse defines the QueryRoleActivity response.
+message QueryRoleActivityResponse {
+  RoleActivity role_activity = 1 [(gogoproto.nullable) = false];
 }

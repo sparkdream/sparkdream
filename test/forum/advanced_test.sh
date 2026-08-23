@@ -944,9 +944,15 @@ echo "  Result: $PART24_RESULT"
 echo ""
 
 # ========================================================================
-# PART 25: MARK ACCEPTED REPLY ERROR - NOT THREAD AUTHOR
+# PART 25: MARK ACCEPTED REPLY - NON-AUTHOR CANNOT ACCEPT DIRECTLY
 # ========================================================================
-echo "--- PART 25: MARK ACCEPTED REPLY ERROR - NOT THREAD AUTHOR ---"
+# MarkAcceptedReply has no "only the thread author" rejection: a non-author is
+# routed to the sentinel-proposal path instead, which requires an eligible
+# bonded sentinel and produces a *proposal* awaiting the author, never an
+# immediate acceptance. This part therefore asserts the invariant that survives
+# either branch — a non-author never sets accepted_reply_id — plus the specific
+# ErrNotSentinel a non-sentinel caller gets.
+echo "--- PART 25: MARK ACCEPTED REPLY - NON-AUTHOR CANNOT ACCEPT DIRECTLY ---"
 
 PART25_RESULT="FAIL"
 
@@ -1033,20 +1039,38 @@ if [ -n "$AUTHOR_ERR_THREAD_ID" ] && [ -n "$AUTHOR_ERR_REPLY_ID" ]; then
         CODE=$(echo "$TX_RESULT" | jq -r '.code')
         RAW_LOG=$(echo "$TX_RESULT" | jq -r '.raw_log // ""')
 
+        # Whatever the branch, the reply must not have become accepted.
+        ACCEPTED=$($BINARY query forum get-thread-metadata "$AUTHOR_ERR_THREAD_ID" --output json 2>&1 \
+            | jq -r '.thread_metadata.accepted_reply_id // "0"')
+        [ "$ACCEPTED" == "null" ] && ACCEPTED="0"
+
         if [ "$CODE" != "0" ]; then
-            if echo "$RAW_LOG" | grep -qi "not the thread author"; then
-                echo "  Correctly rejected: $RAW_LOG"
-                PART25_RESULT="PASS"
+            if echo "$RAW_LOG" | grep -qi "not a registered sentinel\|not.*sentinel"; then
+                # poster2 is not a bonded sentinel, so the proposal path refuses
+                # them before anything is recorded.
+                echo "  Correctly rejected: non-author is not an eligible sentinel"
+                [ "$ACCEPTED" == "0" ] && PART25_RESULT="PASS" \
+                    || echo "  but accepted_reply_id is $ACCEPTED, expected 0"
             else
                 echo "  Tx failed but unexpected error: $RAW_LOG"
             fi
         else
-            echo "  Expected failure but tx succeeded"
+            # If poster2 ever becomes a sentinel this branch runs: the call is
+            # accepted as a *proposal*, which still must not accept the reply.
+            PROPOSED=$($BINARY query forum get-thread-metadata "$AUTHOR_ERR_THREAD_ID" --output json 2>&1 \
+                | jq -r '.thread_metadata.proposed_reply_id // "0"')
+            [ "$PROPOSED" == "null" ] && PROPOSED="0"
+            if [ "$ACCEPTED" == "0" ] && [ "$PROPOSED" == "$AUTHOR_ERR_REPLY_ID" ]; then
+                echo "  Non-author created a proposal, not an acceptance (reply $PROPOSED pending)"
+                PART25_RESULT="PASS"
+            else
+                echo "  Expected a pending proposal with nothing accepted; accepted=$ACCEPTED proposed=$PROPOSED"
+            fi
         fi
     else
         echo "  Tx rejected at broadcast"
         RAW_LOG=$(echo "$TX_RES" | jq -r '.raw_log // .message // .' 2>/dev/null | head -1)
-        if echo "$RAW_LOG" | grep -qi "not the thread author"; then
+        if echo "$RAW_LOG" | grep -qi "not a registered sentinel\|not.*sentinel"; then
             PART25_RESULT="PASS"
         fi
     fi
@@ -1815,7 +1839,7 @@ echo "  Follow non-existent thread:  $PART21_RESULT"
 echo "  Follow already-followed:     $PART22_RESULT"
 echo "  Unfollow not-following:      $PART23_RESULT"
 echo "  Mark accepted reply:         $PART24_RESULT"
-echo "  Accept reply: not author:    $PART25_RESULT"
+echo "  Accept reply: non-author:    $PART25_RESULT"
 echo "  Accept reply: thread 404:    $PART26_RESULT"
 echo "  Accept reply: reply 404:     $PART27_RESULT"
 echo "  Forum paused: unauthorized:  $PART28_RESULT"

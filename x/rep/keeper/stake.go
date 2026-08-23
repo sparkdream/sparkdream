@@ -31,6 +31,23 @@ func (k Keeper) CreateStake(
 		return 0, fmt.Errorf("staker is not a member: %w", err)
 	}
 
+	// A bonded reviewer who has already judged this initiative may not then take
+	// a position on its outcome. QualifiedReviewer blocks the other order —
+	// stake first, review second — and without this the same conflict is simply
+	// acquired in reverse: approve the work, then stake and collect the
+	// completion bonus. Holding conviction on something you passed is exactly
+	// what the reviewer role exists to keep separate.
+	if targetType == types.StakeTargetType_STAKE_TARGET_INITIATIVE {
+		reviewed, rErr := k.HasReviewedInitiative(ctx, targetID, staker.String())
+		if rErr != nil {
+			return 0, rErr
+		}
+		if reviewed {
+			return 0, fmt.Errorf("%w: %s has reviewed initiative %d and may not stake on it",
+				types.ErrConflictOfInterest, staker.String(), targetID)
+		}
+	}
+
 	// Get params for validation
 	params, err := k.Params.Get(ctx)
 	if err != nil {

@@ -19,6 +19,7 @@ func (k Keeper) CreateChallenge(
 	reason string,
 	evidence []string,
 	stakedDream math.Int,
+	criteriaID ...string,
 ) (uint64, error) {
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	params, err := k.Params.Get(ctx)
@@ -56,6 +57,16 @@ func (k Keeper) CreateChallenge(
 		return 0, fmt.Errorf("initiative already has an active challenge")
 	}
 
+	// A cited criterion must be one the author pre-committed to. Checked before
+	// the stake is locked so a typo costs the challenger nothing.
+	citedCriterion := ""
+	if len(criteriaID) > 0 {
+		citedCriterion = criteriaID[0]
+	}
+	if err := ValidateCriteriaCitation(initiative, citedCriterion); err != nil {
+		return 0, err
+	}
+
 	// Validate and lock DREAM stake
 	minStake := params.MinChallengeStake
 	if stakedDream.LT(minStake) {
@@ -85,6 +96,7 @@ func (k Keeper) CreateChallenge(
 		Status:           types.ChallengeStatus_CHALLENGE_STATUS_ACTIVE,
 		CreatedAt:        sdkCtx.BlockHeight(),
 		ResponseDeadline: responseDeadline,
+		CriteriaId:       citedCriterion,
 	}
 
 	// Save challenge
@@ -238,6 +250,14 @@ func (k Keeper) UpholdChallenge(ctx context.Context, challengeID uint64) error {
 		return err
 	}
 
+	// The jury has contradicted the reviewers who passed this work. Charge the
+	// approvers their committed bond and record the outcome against every
+	// verdict on the round, so the accuracy ring reflects who was right as well
+	// as who was wrong. Reviewers who voted to reject are credited.
+	if err := k.SlashReviewersOnOverturn(ctx, initiative.Id, initiative.ReviewRound, true); err != nil {
+		return fmt.Errorf("failed to settle reviewer bonds on upheld challenge: %w", err)
+	}
+
 	// Slash assignee reputation
 	assigneeAddr, err := sdk.AccAddressFromBech32(initiative.Assignee)
 	if err != nil {
@@ -360,6 +380,13 @@ func (k Keeper) RejectChallenge(ctx context.Context, challengeID uint64) error {
 	initiative, err := k.GetInitiative(ctx, challenge.InitiativeId)
 	if err != nil {
 		return err
+	}
+
+	// The jury agreed with the reviewers who passed this work. Credit their
+	// accuracy record; their bond stays committed until the initiative itself
+	// resolves, since a later challenge could still land.
+	if err := k.RecordReviewRoundUpheld(ctx, initiative.Id, initiative.ReviewRound); err != nil {
+		return fmt.Errorf("failed to credit reviewers on rejected challenge: %w", err)
 	}
 
 	// Slash challenger's stake: unlock first, then burn. Burning without

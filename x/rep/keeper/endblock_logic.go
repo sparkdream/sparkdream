@@ -47,15 +47,16 @@ func (k Keeper) TransitionToChallengePeriod(ctx context.Context, initiativeID ui
 	initiative.ReviewPeriodEnd = currentHeight + reviewDuration
 
 	// Also set challenge period end which follows review. Self-assigned
-	// initiatives (assignee == project creator) get an extended window:
-	// fewer independent parties were involved before submission, so the
-	// community gets extra time to contest the work.
+	// initiatives get an extended window: fewer independent parties were
+	// involved before submission, so the community gets extra time to contest
+	// the work. See IsSelfAssigned — authoring the initiative counts, not only
+	// owning the project it sits under.
 	challengeDuration := params.DefaultChallengePeriodEpochs * params.EpochBlocks
 	project, err := k.GetProject(ctx, initiative.ProjectId)
 	if err != nil {
 		return err
 	}
-	if initiative.Assignee == project.Creator {
+	if IsSelfAssigned(initiative, project, initiative.Assignee) {
 		challengeDuration *= params.SelfAssignedChallengeMultiplier
 	}
 	initiative.ChallengePeriodEnd = initiative.ReviewPeriodEnd + challengeDuration

@@ -118,25 +118,25 @@ func TestIsStakerExternal(t *testing.T) {
 	creator := "cosmos1creator"
 
 	t.Run("staker is assignee - not external", func(t *testing.T) {
-		result := k.IsStakerExternal(assignee, assignee, creator)
+		result := k.IsStakerExternal(f.ctx, assignee, assignee, creator)
 		require.False(t, result, "assignee should not be external")
 	})
 
 	t.Run("staker is creator - not external", func(t *testing.T) {
-		result := k.IsStakerExternal(creator, assignee, creator)
+		result := k.IsStakerExternal(f.ctx, creator, assignee, creator)
 		require.False(t, result, "creator should not be external")
 	})
 
 	t.Run("staker is neither assignee nor creator - external", func(t *testing.T) {
 		outsider := "cosmos1outsider"
-		result := k.IsStakerExternal(outsider, assignee, creator)
+		result := k.IsStakerExternal(f.ctx, outsider, assignee, creator)
 		require.True(t, result, "unaffiliated staker should be external")
 	})
 
 	t.Run("staker is both assignee and creator - not external", func(t *testing.T) {
 		// When assignee == creator == staker
 		same := "cosmos1same"
-		result := k.IsStakerExternal(same, same, same)
+		result := k.IsStakerExternal(f.ctx, same, same, same)
 		require.False(t, result, "staker who is both assignee and creator should not be external")
 	})
 }
@@ -165,7 +165,7 @@ func TestCanCompleteInitiative(t *testing.T) {
 		require.NoError(t, err)
 
 		budget := math.NewInt(100)
-		initID, err := k.CreateInitiative(ctx, creator, projectID, "Task", "Desc", []string{"backend"}, types.InitiativeTier_INITIATIVE_TIER_STANDARD, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, "", budget)
+		initID, err := k.CreateInitiative(ctx, creator, projectID, "Task", "Desc", []string{"backend"}, types.InitiativeTier_INITIATIVE_TIER_STANDARD, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, budget)
 		require.NoError(t, err)
 
 		return initID

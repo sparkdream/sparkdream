@@ -46,14 +46,61 @@ func ZeroInt() math.Int {
 // IsAffiliated checks if an address is affiliated with an initiative.
 // This is a basic check without project creator lookup. Prefer IsAffiliatedWithProject
 // when a keeper is available for full affiliation checking.
+//
+// The author of the initiative counts as affiliated. Under a permissionless
+// project anyone may create an initiative, so the author is frequently not the
+// project creator — an affiliation test that looks only at assignee, apprentice
+// and project creator therefore treats the person who wrote the initiative as a
+// disinterested outsider.
 func IsAffiliated(initiative types.Initiative, addr string) bool {
+	if addr == "" {
+		return false
+	}
 	if initiative.Assignee == addr {
 		return true
 	}
 	if initiative.Apprentice == addr {
 		return true
 	}
+	if initiative.Creator == addr {
+		return true
+	}
 	return false
+}
+
+// IsSelfAssigned reports whether the assignee is judging their own commission:
+// they either authored the initiative or created the project it sits under.
+//
+// This is the trigger for all three self-assignment safeguards — the DREAM bond
+// (AssignInitiativeToMember), the raised external-conviction floor
+// (CanCompleteInitiative) and the extended challenge window
+// (TransitionToChallengePeriod). Each of those used to test
+// `assignee == project.Creator` alone, which the permissionless path walks
+// straight past: CreateInitiative does not require the author to own the
+// project, and AssignInitiative authorises any self-assignment, so creating an
+// initiative under somebody else's project and taking it yourself cleared all
+// three at once.
+//
+// An empty assignee (an unassigned initiative) is never self-assigned.
+func IsSelfAssigned(initiative types.Initiative, project types.Project, assignee string) bool {
+	if assignee == "" {
+		return false
+	}
+	return assignee == initiative.Creator || assignee == project.Creator
+}
+
+// InitiativeAffiliates returns every address with an insider stake in an
+// initiative's outcome: the assignee, the apprentice, the author, and the
+// creator of the parent project. Empty entries are omitted so a record that
+// predates a field cannot match an empty address.
+func InitiativeAffiliates(initiative types.Initiative, project types.Project) []string {
+	addrs := make([]string, 0, 4)
+	for _, a := range []string{initiative.Assignee, initiative.Apprentice, initiative.Creator, project.Creator} {
+		if a != "" {
+			addrs = append(addrs, a)
+		}
+	}
+	return addrs
 }
 
 // IsAffiliatedWithProject checks if an address is affiliated with an initiative,

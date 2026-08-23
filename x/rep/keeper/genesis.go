@@ -44,6 +44,11 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 		if err := k.Initiative.Set(ctx, elem.Id, elem); err != nil {
 			return err
 		}
+		// Derived state, not separately exported — rebuild it or the EndBlocker
+		// completion and challenge-period sweeps go blind after a restart.
+		if err := k.AddInitiativeToStatusIndex(ctx, elem); err != nil {
+			return err
+		}
 	}
 
 	if err := k.InitiativeSeq.Set(ctx, genState.InitiativeCount); err != nil {
@@ -62,6 +67,12 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 		if err := k.Challenge.Set(ctx, elem.Id, elem); err != nil {
 			return err
 		}
+		// Critical: HasActiveChallenges reads this index, and CanCompleteInitiative
+		// reads that. An unpopulated index reports "no active challenges", which
+		// would let a challenged initiative pay out after a genesis restart.
+		if err := k.AddChallengeToStatusIndex(ctx, elem); err != nil {
+			return err
+		}
 	}
 
 	if err := k.ChallengeSeq.Set(ctx, genState.ChallengeCount); err != nil {
@@ -71,10 +82,24 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 		if err := k.JuryReview.Set(ctx, elem.Id, elem); err != nil {
 			return err
 		}
+		if err := k.AddJuryReviewToVerdictIndex(ctx, elem); err != nil {
+			return err
+		}
+		// Rebuild the by-juror index too, so a juror's client can still find
+		// their outstanding summons across a restart.
+		if err := k.AddJuryReviewToJurorIndex(ctx, elem); err != nil {
+			return err
+		}
 	}
 
 	if err := k.JuryReviewSeq.Set(ctx, genState.JuryReviewCount); err != nil {
 		return err
+	}
+	for _, elem := range genState.InitiativeReviewList {
+		if err := k.InitiativeReview.Set(ctx,
+			collections.Join3(elem.InitiativeId, elem.Round, elem.Reviewer), elem); err != nil {
+			return err
+		}
 	}
 	for _, elem := range genState.InterimList {
 		if err := k.Interim.Set(ctx, elem.Id, elem); err != nil {
@@ -84,11 +109,6 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 
 	if err := k.InterimSeq.Set(ctx, genState.InterimCount); err != nil {
 		return err
-	}
-	for _, elem := range genState.InterimTemplateMap {
-		if err := k.InterimTemplate.Set(ctx, elem.Id, elem); err != nil {
-			return err
-		}
 	}
 
 	// Content challenges
@@ -341,15 +361,16 @@ func (k Keeper) ExportGenesis(ctx context.Context) (*types.GenesisState, error) 
 	if err != nil {
 		return nil, err
 	}
-
-	genesis.InterimCount, err = k.InterimSeq.Peek(ctx)
+	err = k.InitiativeReview.Walk(ctx, nil, func(_ collections.Triple[uint64, uint32, string], elem types.InitiativeReview) (bool, error) {
+		genesis.InitiativeReviewList = append(genesis.InitiativeReviewList, elem)
+		return false, nil
+	})
 	if err != nil {
 		return nil, err
 	}
-	if err := k.InterimTemplate.Walk(ctx, nil, func(_ string, val types.InterimTemplate) (stop bool, err error) {
-		genesis.InterimTemplateMap = append(genesis.InterimTemplateMap, val)
-		return false, nil
-	}); err != nil {
+
+	genesis.InterimCount, err = k.InterimSeq.Peek(ctx)
+	if err != nil {
 		return nil, err
 	}
 

@@ -150,7 +150,9 @@ func DefaultParams() Params {
 		ReputationDecayRate:         math.LegacyNewDecWithPrec(5, 3),  // 0.5% per epoch (~47% retained over a 5-month season)
 		MaxConvictionSharePerMember: math.LegacyNewDecWithPrec(33, 2), // 33% — no single member can contribute more than 1/3 of required conviction
 		InvitationStakeBurnRate:     math.LegacyNewDecWithPrec(10, 2), // 10% of invitation stake burned on acceptance
-		MaxReputationGainPerEpoch:   math.LegacyNewDec(50),            // Max 50 reputation per tag per epoch (prevents interim grinding)
+		// Majority of the stake behind an initiative must vote against it
+		// before submitted work is abandoned.
+		MaxReputationGainPerEpoch: math.LegacyNewDec(50), // Max 50 reputation per tag per epoch (prevents interim grinding)
 
 		// Anti-whale staking cap (prevents reward pool extraction via disproportionate initiative stakes)
 		MaxInitiativeStakePerMember: math.NewInt(50000000000), // 50,000 DREAM per member per initiative/project
@@ -201,10 +203,37 @@ func DefaultParams() Params {
 		// operational params if a faster e2e cycle is needed.
 		ProposedProjectExpiryBlocks: 200000,
 
-		// Self-assignment safeguards (creator-assigned initiatives)
+		// Self-assignment safeguards (self-assigned initiatives)
 		SelfAssignedBondRate:                math.LegacyNewDecWithPrec(10, 2), // 10% of budget
 		SelfAssignedExternalConvictionRatio: math.LegacyOneDec(),              // 100% external
 		SelfAssignedChallengeMultiplier:     2,
+		// Permissionless self-assignment mints DREAM nobody approved rather
+		// than moving DREAM governance already allocated, so it carries a
+		// heavier bond. At the STANDARD tier ceiling (500 DREAM) this is 125
+		// DREAM locked to self-assign — returned on completion, burned if a
+		// challenge is upheld.
+		PermissionlessSelfAssignedBondRate: math.LegacyNewDecWithPrec(25, 2), // 25% of the mint
+
+		// Reputation charged per tag for accepting a summons and abandoning it.
+		// At MinJurorReputation 50, four abandoned seats cost an otherwise
+		// qualified juror their eligibility in that tag.
+		AbandonedJurySeatPenalty: math.LegacyNewDec(10),
+		// A quarter of the disputed budget pays the jury, split across the
+		// seats. Settling a dispute should cost a fraction of what is in
+		// dispute, not several times it.
+		JurorRewardRate: math.LegacyNewDecWithPrec(25, 2), // 25%
+		// Params-only, like the self-assign bond rates: this governs how long a
+		// conscripted juror has to answer before losing the seat, so governance
+		// moves it and the Operations Committee does not.
+		JuryAcceptanceWindowRatio:     math.LegacyNewDecWithPrec(25, 2), // 25% of the review period
+		MinJurorReward:                math.NewInt(5_000_000),           // 5 DREAM
+		MinJurorSelectionWeight:       math.LegacyNewDecWithPrec(1, 1),  // 0.1
+		MinJurySeatingsForWeighting:   3,
+		InitiativeCompletionBonusRate: math.LegacyNewDecWithPrec(1, 1), // 10% of budget
+		MaxJuryRedraws:                1,
+		ReviewerBondReserveRate:       math.LegacyNewDecWithPrec(1, 1), // 10% of budget per verdict
+		ReviewFeeRate:                 math.LegacyNewDecWithPrec(5, 2), // 5% of budget to reviewers
+		MaxReviewRounds:               3,
 	}
 }
 
@@ -257,6 +286,55 @@ func (p Params) Validate() error {
 	if p.JurySize%2 == 0 {
 		return fmt.Errorf("jury size must be odd: %d", p.JurySize)
 	}
+	// ...and must leave the redraw sweep somewhere to go. `vacatable` is
+	// len(jurors) - MinSeatedJurors, so at jury_size == MinSeatedJurors it is
+	// always zero and the sweep silently vacates nothing, replaces nothing and
+	// returns — the acceptance window, redraws and replacement selection all
+	// become dead code. Below the floor a jury can never reach quorum at all
+	// (TallyJuryVotes floors it), so every challenge would escalate. Oddness
+	// alone let both through: 1 and 3 are both odd.
+	if p.JurySize <= MinSeatedJurors {
+		return fmt.Errorf("jury size must exceed the seated-jury floor %d, got %d",
+			MinSeatedJurors, p.JurySize)
+	}
+	if p.ReviewerBondReserveRate.IsNil() || !p.ReviewerBondReserveRate.IsPositive() ||
+		p.ReviewerBondReserveRate.GT(math.LegacyOneDec()) {
+		// Zero would let a reviewer approve a mint with nothing at risk, which
+		// is the entire accountability of the role.
+		return fmt.Errorf("reviewer bond reserve rate must be in (0,1]: %s", p.ReviewerBondReserveRate)
+	}
+	if p.ReviewFeeRate.IsNil() || p.ReviewFeeRate.IsNegative() ||
+		p.ReviewFeeRate.GT(math.LegacyOneDec()) {
+		return fmt.Errorf("review fee rate must be in [0,1]: %s", p.ReviewFeeRate)
+	}
+	if p.MaxReviewRounds == 0 {
+		// Zero rounds means a rejection can never be remedied and the work is
+		// stuck; one round is the minimum that still allows a resubmission.
+		return fmt.Errorf("max review rounds must be at least 1")
+	}
+	if p.MinJurorReward.IsNil() || p.MinJurorReward.IsNegative() {
+		return fmt.Errorf("min juror reward must be non-negative: %s", p.MinJurorReward)
+	}
+	if p.MinJurorSelectionWeight.IsNil() || !p.MinJurorSelectionWeight.IsPositive() ||
+		p.MinJurorSelectionWeight.GT(math.LegacyOneDec()) {
+		// Zero would exclude a non-responder in all but name: an address drawn
+		// with zero weight can never be drawn again, so it could never earn its
+		// standing back.
+		return fmt.Errorf("min juror selection weight must be in (0,1]: %s", p.MinJurorSelectionWeight)
+	}
+	if p.InitiativeCompletionBonusRate.IsNil() || p.InitiativeCompletionBonusRate.IsNegative() ||
+		p.InitiativeCompletionBonusRate.GT(math.LegacyOneDec()) {
+		return fmt.Errorf("initiative completion bonus rate must be in [0,1]: %s",
+			p.InitiativeCompletionBonusRate)
+	}
+	// Each redraw round costs one acceptance window out of the review period,
+	// so the rounds and the window have to fit inside it together.
+	if !p.JuryAcceptanceWindowRatio.IsNil() &&
+		p.JuryAcceptanceWindowRatio.MulInt64(int64(p.MaxJuryRedraws+1)).GTE(math.LegacyOneDec()) {
+		return fmt.Errorf(
+			"jury acceptance window ratio %s x %d redraw rounds consumes the whole review period",
+			p.JuryAcceptanceWindowRatio, p.MaxJuryRedraws+1)
+	}
 
 	// Jury super-majority must be in (0,1]; >1 deadlocks every jury/appeal.
 	if p.JurySuperMajority.IsNil() || !p.JurySuperMajority.IsPositive() || p.JurySuperMajority.GT(math.LegacyOneDec()) {
@@ -279,6 +357,25 @@ func (p Params) Validate() error {
 	// Self-assignment safeguards.
 	if p.SelfAssignedBondRate.IsNil() || p.SelfAssignedBondRate.IsNegative() || p.SelfAssignedBondRate.GT(math.LegacyOneDec()) {
 		return fmt.Errorf("self-assigned bond rate must be in [0,1]: %s", p.SelfAssignedBondRate)
+	}
+	if p.AbandonedJurySeatPenalty.IsNil() || p.AbandonedJurySeatPenalty.IsNegative() {
+		return fmt.Errorf("abandoned jury seat penalty cannot be negative: %s", p.AbandonedJurySeatPenalty)
+	}
+	if p.JuryAcceptanceWindowRatio.IsNil() || !p.JuryAcceptanceWindowRatio.IsPositive() ||
+		p.JuryAcceptanceWindowRatio.GTE(math.LegacyOneDec()) {
+		// Zero would sweep every seat on the block it was drawn; 1 or more puts
+		// the acceptance deadline at or past the vote deadline, which is the
+		// state that made the sweep unreachable on short-period networks.
+		return fmt.Errorf("jury acceptance window ratio must be in (0,1): %s", p.JuryAcceptanceWindowRatio)
+	}
+	if p.JurorRewardRate.IsNil() || p.JurorRewardRate.IsNegative() ||
+		p.JurorRewardRate.GT(math.LegacyOneDec()) {
+		return fmt.Errorf("juror reward rate must be in [0,1]: %s", p.JurorRewardRate)
+	}
+	if p.PermissionlessSelfAssignedBondRate.IsNil() ||
+		p.PermissionlessSelfAssignedBondRate.IsNegative() ||
+		p.PermissionlessSelfAssignedBondRate.GT(math.LegacyOneDec()) {
+		return fmt.Errorf("permissionless self-assigned bond rate must be in [0,1]: %s", p.PermissionlessSelfAssignedBondRate)
 	}
 	if p.SelfAssignedExternalConvictionRatio.IsNil() ||
 		p.SelfAssignedExternalConvictionRatio.LT(p.ExternalConvictionRatio) ||
@@ -531,7 +628,19 @@ func DefaultRepOperationalParams() RepOperationalParams {
 		ReputationDecayRate:         math.LegacyNewDecWithPrec(5, 3),  // 0.5% per epoch
 		MaxConvictionSharePerMember: math.LegacyNewDecWithPrec(33, 2), // 33%
 		InvitationStakeBurnRate:     math.LegacyNewDecWithPrec(10, 2), // 10%
-		MaxReputationGainPerEpoch:   math.LegacyNewDec(50),            // Max 50 per tag per epoch
+		// Majority of staked DREAM required to abandon submitted work.
+		AbandonedJurySeatPenalty:      math.LegacyNewDec(10),            // reputation, per tag
+		JurorRewardRate:               math.LegacyNewDecWithPrec(25, 2), // 25% of the disputed budget
+		MinJurorReward:                math.NewInt(5_000_000),           // 5 DREAM
+		MinJurorSelectionWeight:       math.LegacyNewDecWithPrec(1, 1),  // 0.1
+		MinJurySeatingsForWeighting:   3,
+		InitiativeCompletionBonusRate: math.LegacyNewDecWithPrec(1, 1),  // 10% of budget
+		JuryAcceptanceWindowRatio:     math.LegacyNewDecWithPrec(25, 2), // 25% of the review period
+		MaxJuryRedraws:                1,
+		ReviewerBondReserveRate:       math.LegacyNewDecWithPrec(1, 1),
+		ReviewFeeRate:                 math.LegacyNewDecWithPrec(5, 2),
+		MaxReviewRounds:               3,
+		MaxReputationGainPerEpoch:     math.LegacyNewDec(50), // Max 50 per tag per epoch
 		// Anti-whale staking cap
 		MaxInitiativeStakePerMember: math.NewInt(50000000000), // 50,000 DREAM
 		// Anti-collusion caps
@@ -607,6 +716,13 @@ func (op RepOperationalParams) Validate() error {
 	if op.JurySize%2 == 0 {
 		return fmt.Errorf("jury size must be odd: %d", op.JurySize)
 	}
+	// jury_size is committee-editable, so the seated-jury floor has to be
+	// enforced here as well — otherwise an operational-params update could
+	// disable the redraw sweep entirely without a governance vote.
+	if op.JurySize <= MinSeatedJurors {
+		return fmt.Errorf("jury size must exceed the seated-jury floor %d, got %d",
+			MinSeatedJurors, op.JurySize)
+	}
 	// Jury super-majority must be in (0,1]; >1 deadlocks every jury/appeal.
 	if op.JurySuperMajority.IsNil() || !op.JurySuperMajority.IsPositive() || op.JurySuperMajority.GT(math.LegacyOneDec()) {
 		return fmt.Errorf("jury super majority must be in (0,1]: %s", op.JurySuperMajority)
@@ -663,6 +779,53 @@ func (op RepOperationalParams) Validate() error {
 	}
 	if op.InvitationStakeBurnRate.IsNegative() {
 		return fmt.Errorf("invitation stake burn rate cannot be negative: %s", op.InvitationStakeBurnRate)
+	}
+	if op.JurorRewardRate.IsNil() || op.JurorRewardRate.IsNegative() ||
+		op.JurorRewardRate.GT(math.LegacyOneDec()) {
+		return fmt.Errorf("juror reward rate must be in [0,1]: %s", op.JurorRewardRate)
+	}
+	if op.ReviewerBondReserveRate.IsNil() || !op.ReviewerBondReserveRate.IsPositive() ||
+		op.ReviewerBondReserveRate.GT(math.LegacyOneDec()) {
+		// Zero would let a reviewer approve a mint with nothing at risk, which
+		// is the entire accountability of the role.
+		return fmt.Errorf("reviewer bond reserve rate must be in (0,1]: %s", op.ReviewerBondReserveRate)
+	}
+	if op.ReviewFeeRate.IsNil() || op.ReviewFeeRate.IsNegative() ||
+		op.ReviewFeeRate.GT(math.LegacyOneDec()) {
+		return fmt.Errorf("review fee rate must be in [0,1]: %s", op.ReviewFeeRate)
+	}
+	if op.MaxReviewRounds == 0 {
+		// Zero rounds means a rejection can never be remedied and the work is
+		// stuck; one round is the minimum that still allows a resubmission.
+		return fmt.Errorf("max review rounds must be at least 1")
+	}
+	if op.MinJurorReward.IsNil() || op.MinJurorReward.IsNegative() {
+		return fmt.Errorf("min juror reward must be non-negative: %s", op.MinJurorReward)
+	}
+	if op.MinJurorSelectionWeight.IsNil() || !op.MinJurorSelectionWeight.IsPositive() ||
+		op.MinJurorSelectionWeight.GT(math.LegacyOneDec()) {
+		return fmt.Errorf("min juror selection weight must be in (0,1]: %s", op.MinJurorSelectionWeight)
+	}
+	if op.InitiativeCompletionBonusRate.IsNil() || op.InitiativeCompletionBonusRate.IsNegative() ||
+		op.InitiativeCompletionBonusRate.GT(math.LegacyOneDec()) {
+		return fmt.Errorf("initiative completion bonus rate must be in [0,1]: %s",
+			op.InitiativeCompletionBonusRate)
+	}
+	if op.JuryAcceptanceWindowRatio.IsNil() || !op.JuryAcceptanceWindowRatio.IsPositive() ||
+		op.JuryAcceptanceWindowRatio.GTE(math.LegacyOneDec()) {
+		return fmt.Errorf("jury acceptance window ratio must be in (0,1): %s", op.JuryAcceptanceWindowRatio)
+	}
+	// The window and the redraw rounds are tuned together and must fit inside
+	// the review period together, so the coupling is enforced on this surface
+	// too — otherwise a committee update could satisfy each field in isolation
+	// and still leave replacement jurors no time to read the work.
+	if op.JuryAcceptanceWindowRatio.MulInt64(int64(op.MaxJuryRedraws + 1)).GTE(math.LegacyOneDec()) {
+		return fmt.Errorf(
+			"jury acceptance window ratio %s x %d redraw rounds consumes the whole review period",
+			op.JuryAcceptanceWindowRatio, op.MaxJuryRedraws+1)
+	}
+	if op.AbandonedJurySeatPenalty.IsNil() || op.AbandonedJurySeatPenalty.IsNegative() {
+		return fmt.Errorf("abandoned jury seat penalty cannot be negative: %s", op.AbandonedJurySeatPenalty)
 	}
 	if op.InvitationStakeBurnRate.GTE(math.LegacyOneDec()) {
 		return fmt.Errorf("invitation stake burn rate must be less than 1: %s", op.InvitationStakeBurnRate)
@@ -811,6 +974,17 @@ func (p Params) ApplyOperationalParams(op RepOperationalParams) Params {
 	p.MaxConvictionSharePerMember = op.MaxConvictionSharePerMember
 	p.InvitationStakeBurnRate = op.InvitationStakeBurnRate
 	p.MaxReputationGainPerEpoch = op.MaxReputationGainPerEpoch
+	p.AbandonedJurySeatPenalty = op.AbandonedJurySeatPenalty
+	p.JurorRewardRate = op.JurorRewardRate
+	p.MinJurorReward = op.MinJurorReward
+	p.MinJurorSelectionWeight = op.MinJurorSelectionWeight
+	p.MinJurySeatingsForWeighting = op.MinJurySeatingsForWeighting
+	p.InitiativeCompletionBonusRate = op.InitiativeCompletionBonusRate
+	p.JuryAcceptanceWindowRatio = op.JuryAcceptanceWindowRatio
+	p.MaxJuryRedraws = op.MaxJuryRedraws
+	p.ReviewerBondReserveRate = op.ReviewerBondReserveRate
+	p.ReviewFeeRate = op.ReviewFeeRate
+	p.MaxReviewRounds = op.MaxReviewRounds
 	// Anti-whale staking cap
 	p.MaxInitiativeStakePerMember = op.MaxInitiativeStakePerMember
 	// Anti-collusion caps
@@ -913,10 +1087,21 @@ func (p Params) ExtractOperationalParams() RepOperationalParams {
 		// Tag anti-gaming
 		MaxTagsPerInitiative: p.MaxTagsPerInitiative,
 		// Anti-gaming
-		ReputationDecayRate:         p.ReputationDecayRate,
-		MaxConvictionSharePerMember: p.MaxConvictionSharePerMember,
-		InvitationStakeBurnRate:     p.InvitationStakeBurnRate,
-		MaxReputationGainPerEpoch:   p.MaxReputationGainPerEpoch,
+		ReputationDecayRate:           p.ReputationDecayRate,
+		MaxConvictionSharePerMember:   p.MaxConvictionSharePerMember,
+		InvitationStakeBurnRate:       p.InvitationStakeBurnRate,
+		MaxReputationGainPerEpoch:     p.MaxReputationGainPerEpoch,
+		AbandonedJurySeatPenalty:      p.AbandonedJurySeatPenalty,
+		JurorRewardRate:               p.JurorRewardRate,
+		MinJurorReward:                p.MinJurorReward,
+		MinJurorSelectionWeight:       p.MinJurorSelectionWeight,
+		MinJurySeatingsForWeighting:   p.MinJurySeatingsForWeighting,
+		InitiativeCompletionBonusRate: p.InitiativeCompletionBonusRate,
+		JuryAcceptanceWindowRatio:     p.JuryAcceptanceWindowRatio,
+		MaxJuryRedraws:                p.MaxJuryRedraws,
+		ReviewerBondReserveRate:       p.ReviewerBondReserveRate,
+		ReviewFeeRate:                 p.ReviewFeeRate,
+		MaxReviewRounds:               p.MaxReviewRounds,
 		// Anti-whale staking cap
 		MaxInitiativeStakePerMember: p.MaxInitiativeStakePerMember,
 		// Anti-collusion caps

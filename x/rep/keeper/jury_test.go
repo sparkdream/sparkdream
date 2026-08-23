@@ -52,7 +52,6 @@ func TestJuryWorkflow(t *testing.T) {
 		[]string{"coding"},
 		types.InitiativeTier_INITIATIVE_TIER_STANDARD,
 		types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE,
-		"",
 		math.NewInt(150),
 	)
 
@@ -68,7 +67,12 @@ func TestJuryWorkflow(t *testing.T) {
 		ReputationScores: map[string]string{"coding": "1000.0"},
 	})
 
-	k.AssignInitiativeToMember(ctx, initID, assignee)
+	// The assignee authored this initiative, so self-assigning it now posts a
+	// DREAM bond (IsSelfAssigned). Fund them and assert the assignment lands —
+	// swallowing the error here left the initiative OPEN and produced a
+	// confusing failure three calls later, at CreateChallenge.
+	k.MintDREAM(ctx, assignee, math.NewInt(1000000))
+	require.NoError(t, k.AssignInitiativeToMember(ctx, initID, assignee))
 	k.SubmitInitiativeWork(ctx, initID, assignee, "URI")
 
 	challenger := sdk.AccAddress([]byte("chal"))
@@ -238,7 +242,7 @@ func TestSelectJury(t *testing.T) {
 		}
 	})
 
-	t.Run("insufficient eligible members returns error", func(t *testing.T) {
+	t.Run("shrinks to the pool when short, and the caller enforces the floor", func(t *testing.T) {
 		fixture := initFixture(t)
 		k := fixture.keeper
 		ctx := fixture.ctx
@@ -267,7 +271,30 @@ func TestSelectJury(t *testing.T) {
 			Assignee: "other-address",
 		}
 
-		_, err := k.SelectJury(ctx, initiative, params.JurySize)
+		// Selection seats what the pool allows rather than refusing outright.
+		// All-or-nothing meant a pool one juror short of jury_size produced no
+		// jury at all — a worse outcome than a smaller one, and a sharp cliff
+		// whenever jury_size is raised. Safe because TallyJuryVotes floors
+		// quorum, so a short jury cannot return a rump verdict.
+		jurors, err := k.SelectJury(ctx, initiative, params.JurySize)
+		require.NoError(t, err)
+		require.Len(t, jurors, 2, "seats the two eligible members, not five")
+
+		// The floor is the caller's business: CreateJuryReview refuses a jury
+		// below MinSeatedJurors and escalates to the committee instead.
+		require.Less(t, len(jurors), types.MinSeatedJurors)
+	})
+
+	t.Run("an empty pool is still an error", func(t *testing.T) {
+		fixture := initFixture(t)
+		k := fixture.keeper
+		ctx := fixture.ctx
+
+		// The escalation path in RespondToChallenge matches on this message, so
+		// an unseatable jury must keep producing it.
+		_, err := k.SelectJury(ctx, types.Initiative{
+			Id: 1, Tags: []string{"nobody-has-this"}, Assignee: "other-address",
+		}, 5)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "insufficient eligible jurors")
 	})
@@ -499,10 +526,14 @@ func TestTallyJuryVotes(t *testing.T) {
 			[]string{"coding"},
 			types.InitiativeTier_INITIATIVE_TIER_STANDARD,
 			types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE,
-			"",
 			math.NewInt(150),
 		)
-		k.AssignInitiativeToMember(ctx, initID, assignee)
+		// The assignee authored this initiative, so self-assigning it now posts a
+		// DREAM bond (IsSelfAssigned). Fund them and assert the assignment lands —
+		// swallowing the error here left the initiative OPEN and produced a
+		// confusing failure three calls later, at CreateChallenge.
+		k.MintDREAM(ctx, assignee, math.NewInt(1000000))
+		require.NoError(t, k.AssignInitiativeToMember(ctx, initID, assignee))
 		k.SubmitInitiativeWork(ctx, initID, assignee, "URI")
 
 		challenger := sdk.AccAddress([]byte("tally-challenger"))
@@ -685,20 +716,61 @@ func TestRewardJurors(t *testing.T) {
 		err := k.RewardJurors(ctx, review)
 		require.NoError(t, err)
 
-		params, _ := k.Params.Get(ctx)
-		expectedReward := params.StandardComplexityBudget
+		// This review carries no initiative (InitiativeId 0), so there is no
+		// disputed budget to scale against and pay falls back to the floor.
+		expectedReward := math.NewInt(types.DefaultMinJurorReward)
 
 		// Voter 1 should have received the reward
 		member1, err := k.GetMember(ctx, voter1)
 		require.NoError(t, err)
 		require.True(t, member1.DreamBalance.Equal(expectedReward),
-			"voter1 should receive StandardComplexityBudget DREAM, got %s", member1.DreamBalance.String())
+			"voter1 should receive the floor reward, got %s", member1.DreamBalance.String())
 
 		// Voter 2 should have received the reward
 		member2, err := k.GetMember(ctx, voter2)
 		require.NoError(t, err)
 		require.True(t, member2.DreamBalance.Equal(expectedReward),
-			"voter2 should receive StandardComplexityBudget DREAM, got %s", member2.DreamBalance.String())
+			"voter2 should receive the floor reward, got %s", member2.DreamBalance.String())
+	})
+
+	t.Run("pay scales with the amount in dispute", func(t *testing.T) {
+		// Settling a dispute should cost a fraction of what is in dispute. A
+		// flat StandardComplexityBudget per seat meant a challenge over a 100
+		// DREAM APPRENTICE initiative minted 750 DREAM to settle it.
+		f := initFixture(t)
+		k, ctx := f.keeper, f.ctx
+
+		creator := sdk.AccAddress([]byte("jrw-creator-addr-"))
+		mkFundedMember(t, k, ctx, creator, 10_000_000)
+		projectID, err := k.CreateProject(ctx, creator, "Proj", "D", []string{"tag"},
+			types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical",
+			math.NewInt(1_000_000_000), math.NewInt(1000), false)
+		require.NoError(t, err)
+		require.NoError(t, k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")),
+			math.NewInt(1_000_000_000), math.NewInt(1000)))
+		initID, err := k.CreateInitiative(ctx, creator, projectID, "Task", "D", []string{"tag"},
+			types.InitiativeTier_INITIATIVE_TIER_STANDARD,
+			types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, math.NewInt(400_000_000))
+		require.NoError(t, err)
+
+		juror := sdk.AccAddress([]byte("jrw-juror-address"))
+		mkFundedMember(t, k, ctx, juror, 0)
+
+		review := types.JuryReview{
+			Id: 1, InitiativeId: initID,
+			Jurors: []string{juror.String(), "a", "b", "c"},
+			Votes:  []*types.JurorVote{{Juror: juror.String()}},
+		}
+		require.NoError(t, k.RewardJurors(ctx, review))
+
+		// 400 DREAM budget x 25% / 4 seats = 25 DREAM per juror.
+		got, err := k.GetMember(ctx, juror)
+		require.NoError(t, err)
+		require.Equal(t, "25000000", got.DreamBalance.String())
+
+		params, _ := k.Params.Get(ctx)
+		require.True(t, got.DreamBalance.LT(params.StandardComplexityBudget),
+			"a jury must cost less than the work it is judging")
 	})
 
 	t.Run("jurors who did not vote receive nothing", func(t *testing.T) {

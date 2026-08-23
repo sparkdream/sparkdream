@@ -72,7 +72,7 @@ echo ""
 echo "--- PART 3: CREATE INITIATIVES (DIFFERENT TIERS) ---"
 
 # Create Apprentice tier initiative
-# Command: create-initiative [project-id] [title] [description] [tier] [category] [template-id] [budget]
+# Command: create-initiative [project-id] [title] [description] [tier] [category] [budget]
 # Category: 0=FEATURE, 1=BUGFIX, 2=TESTING, 3=DOCUMENTATION, 4=REFACTORING
 echo "Creating APPRENTICE tier initiative..."
 # Note: Using 95 DREAM budget (close to 100 DREAM tier limit) to require more conviction
@@ -83,7 +83,6 @@ APPRENTICE_RES=$($BINARY tx rep create-initiative \
   "Simple fix for documentation typo" \
   "0" \
   "1" \
-  "0" \
   "95000000" \
   --tags "documentation" \
   --from alice \
@@ -135,7 +134,6 @@ STANDARD_RES=$($BINARY tx rep create-initiative \
   "Comprehensive test coverage for auth module" \
   "1" \
   "2" \
-  "0" \
   "500000000" \
   --tags "testing","security" \
   --from alice \
@@ -751,14 +749,13 @@ echo "--- PART 14: TEST ABANDON INITIATIVE ---"
 echo "Creating a new initiative to test abandon flow..."
 
 # Create a test initiative for abandon
-# Command: create-initiative [project-id] [title] [description] [tier] [category] [template-id] [budget]
+# Command: create-initiative [project-id] [title] [description] [tier] [category] [budget]
 ABANDON_TEST_RES=$($BINARY tx rep create-initiative \
   $PROJECT_ID \
   "Test Abandon Initiative" \
   "This initiative will be abandoned" \
   "0" \
   "1" \
-  "0" \
   "50000000" \
   --from alice \
   --chain-id $CHAIN_ID \
@@ -891,14 +888,13 @@ echo "Creating a new OPEN initiative to test cancel flow..."
 CANCEL_STATUS="INITIATIVE_STATUS_OPEN"   # default for summary line if skipped
 
 # Create a test initiative for cancel (apprentice tier -> no reputation floor)
-# Command: create-initiative [project-id] [title] [description] [tier] [category] [template-id] [budget]
+# Command: create-initiative [project-id] [title] [description] [tier] [category] [budget]
 CANCEL_TEST_RES=$($BINARY tx rep create-initiative \
   $PROJECT_ID \
   "Test Cancel Initiative" \
   "This OPEN initiative will be cancelled by the project creator" \
   "0" \
   "1" \
-  "0" \
   "50000000" \
   --from alice \
   --chain-id $CHAIN_ID \

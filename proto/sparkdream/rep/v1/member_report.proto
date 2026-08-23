@@ -15,13 +15,13 @@ message MemberReport {
   MemberReportStatus status = 6;
   string defense = 7;
   int64 defense_submitted_at = 8;
-  repeated string reporters = 10;
-  repeated uint64 evidence_post_ids = 11;
-  repeated uint64 defense_post_ids = 12;
+  repeated string reporters = 9;
+  repeated uint64 evidence_post_ids = 10;
+  repeated uint64 defense_post_ids = 11;
   // Per-signer locked bond amounts. Initial reporter and each cosigner lock
   // different amounts; refunds must use the recorded per-signer amount, not
   // an averaged share, to prevent cross-signer bond theft.
-  repeated ReporterBondEntry reporter_bonds = 13;
+  repeated ReporterBondEntry reporter_bonds = 12;
 }
 
 // ReporterBondEntry tracks the DREAM amount locked by a specific reporter

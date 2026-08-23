@@ -63,10 +63,18 @@ func (k Keeper) RemoveContentInitiativeLink(ctx context.Context, initiativeID ui
 // to an initiative. Prefix-scans all content linked to the initiative, sums their
 // content conviction from external stakers only, and multiplies by the propagation ratio.
 //
-// Anti-gaming: Content stakes from the initiative's assignee or project creator are
-// excluded, preventing sybil networks from bypassing the external conviction requirement
-// by routing conviction through the content layer.
-func (k Keeper) GetPropagatedConviction(ctx context.Context, initiativeID uint64, assigneeAddr, creatorAddr string) (math.LegacyDec, error) {
+// Anti-gaming: Content stakes from the initiative's affiliates — and from one
+// invitation hop around them — are excluded, preventing sybil networks from
+// bypassing the external conviction requirement by routing conviction through
+// the content layer.
+func (k Keeper) GetPropagatedConviction(ctx context.Context, initiativeID uint64, affiliated ...string) (math.LegacyDec, error) {
+	return k.GetPropagatedConvictionIn(ctx, initiativeID, k.InvitationNeighborhoodOf(ctx, affiliated...))
+}
+
+// GetPropagatedConvictionIn is GetPropagatedConviction against an already-resolved
+// neighborhood, for callers that have one in hand and would otherwise rebuild it
+// for every linked content item.
+func (k Keeper) GetPropagatedConvictionIn(ctx context.Context, initiativeID uint64, neighborhood InvitationNeighborhood) (math.LegacyDec, error) {
 	params, err := k.Params.Get(ctx)
 	if err != nil {
 		return math.LegacyZeroDec(), err
@@ -85,7 +93,7 @@ func (k Keeper) GetPropagatedConviction(ctx context.Context, initiativeID uint64
 		targetID := key.K2().K2()
 
 		// Get external-only content conviction (filters out affiliated stakers)
-		conviction, err := k.GetExternalContentConviction(ctx, targetType, targetID, assigneeAddr, creatorAddr)
+		conviction, err := k.GetExternalContentConvictionIn(ctx, targetType, targetID, neighborhood)
 		if err != nil {
 			return false, nil // skip items that error
 		}

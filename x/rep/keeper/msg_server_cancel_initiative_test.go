@@ -25,7 +25,7 @@ func setupCancellableInitiative(t *testing.T, k keeper.Keeper, ctx sdk.Context, 
 	require.NoError(t, err)
 	require.NoError(t, k.ApproveProject(ctx, projectID, cancelTestApprover, math.NewInt(10000), math.NewInt(1000)))
 
-	initID, err := k.CreateInitiative(ctx, creator, projectID, "Task", "D", []string{"tag"}, types.InitiativeTier_INITIATIVE_TIER_STANDARD, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, "", budget)
+	initID, err := k.CreateInitiative(ctx, creator, projectID, "Task", "D", []string{"tag"}, types.InitiativeTier_INITIATIVE_TIER_STANDARD, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, budget)
 	require.NoError(t, err)
 
 	return projectID, initID

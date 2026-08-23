@@ -3,6 +3,7 @@ package keeper_test
 import (
 	"fmt"
 	stdmath "math"
+	"strings"
 	"testing"
 
 	"cosmossdk.io/math"
@@ -59,7 +60,6 @@ func TestCreateInitiative(t *testing.T) {
 		[]string{"backend"},
 		types.InitiativeTier_INITIATIVE_TIER_STANDARD,
 		types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE,
-		"template123",
 		budget,
 	)
 	require.NoError(t, err)
@@ -105,7 +105,6 @@ func TestAssignInitiative(t *testing.T) {
 		[]string{"tag"},
 		types.InitiativeTier_INITIATIVE_TIER_STANDARD,
 		types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE,
-		"",
 		math.NewInt(100),
 	)
 
@@ -164,7 +163,6 @@ func TestAssignInitiativeProjectCreatorCanSelfAssign(t *testing.T) {
 		[]string{"tag"},
 		types.InitiativeTier_INITIATIVE_TIER_STANDARD,
 		types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE,
-		"",
 		math.NewInt(100),
 	)
 
@@ -203,7 +201,7 @@ func TestSelfAssignBondInsufficientBalanceRejected(t *testing.T) {
 	projectID, _ := k.CreateProject(ctx, creator, "Proj", "Desc", []string{"tag"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical", math.NewInt(10000), math.NewInt(1000), false)
 	k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(10000), math.NewInt(1000))
 
-	initID, _ := k.CreateInitiative(ctx, creator, projectID, "Task", "D", []string{"tag"}, types.InitiativeTier_INITIATIVE_TIER_STANDARD, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, "", math.NewInt(100))
+	initID, _ := k.CreateInitiative(ctx, creator, projectID, "Task", "D", []string{"tag"}, types.InitiativeTier_INITIATIVE_TIER_STANDARD, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, math.NewInt(100))
 
 	err := k.AssignInitiativeToMember(ctx, initID, creator)
 	require.Error(t, err)
@@ -219,7 +217,7 @@ func TestSelfAssignBondNotLockedForNonCreator(t *testing.T) {
 	projectID, _ := k.CreateProject(ctx, creator, "Proj", "Desc", []string{"tag"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical", math.NewInt(10000), math.NewInt(1000), false)
 	k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(10000), math.NewInt(1000))
 
-	initID, _ := k.CreateInitiative(ctx, creator, projectID, "Task", "D", []string{"tag"}, types.InitiativeTier_INITIATIVE_TIER_STANDARD, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, "", math.NewInt(100))
+	initID, _ := k.CreateInitiative(ctx, creator, projectID, "Task", "D", []string{"tag"}, types.InitiativeTier_INITIATIVE_TIER_STANDARD, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, math.NewInt(100))
 
 	assignee := sdk.AccAddress([]byte("assignee"))
 	k.Member.Set(ctx, assignee.String(), types.Member{
@@ -259,7 +257,7 @@ func TestSelfAssignBondReleasedOnAbandon(t *testing.T) {
 	projectID, _ := k.CreateProject(ctx, creator, "Proj", "Desc", []string{"tag"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical", math.NewInt(10000), math.NewInt(1000), false)
 	k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(10000), math.NewInt(1000))
 
-	initID, _ := k.CreateInitiative(ctx, creator, projectID, "Task", "D", []string{"tag"}, types.InitiativeTier_INITIATIVE_TIER_STANDARD, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, "", math.NewInt(100))
+	initID, _ := k.CreateInitiative(ctx, creator, projectID, "Task", "D", []string{"tag"}, types.InitiativeTier_INITIATIVE_TIER_STANDARD, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, math.NewInt(100))
 
 	require.NoError(t, k.AssignInitiativeToMember(ctx, initID, creator))
 
@@ -293,7 +291,7 @@ func TestBurnSelfAssignBond(t *testing.T) {
 	projectID, _ := k.CreateProject(ctx, creator, "Proj", "Desc", []string{"tag"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical", math.NewInt(10000), math.NewInt(1000), false)
 	k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(10000), math.NewInt(1000))
 
-	initID, _ := k.CreateInitiative(ctx, creator, projectID, "Task", "D", []string{"tag"}, types.InitiativeTier_INITIATIVE_TIER_STANDARD, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, "", math.NewInt(100))
+	initID, _ := k.CreateInitiative(ctx, creator, projectID, "Task", "D", []string{"tag"}, types.InitiativeTier_INITIATIVE_TIER_STANDARD, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, math.NewInt(100))
 
 	require.NoError(t, k.AssignInitiativeToMember(ctx, initID, creator))
 
@@ -330,7 +328,7 @@ func TestSubmitInitiativeWork(t *testing.T) {
 		ReputationScores: map[string]string{"tag": "100.0"},
 	})
 
-	initID, _ := k.CreateInitiative(ctx, creator, projectID, "Task", "D", []string{"tag"}, types.InitiativeTier_INITIATIVE_TIER_STANDARD, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, "", math.NewInt(100))
+	initID, _ := k.CreateInitiative(ctx, creator, projectID, "Task", "D", []string{"tag"}, types.InitiativeTier_INITIATIVE_TIER_STANDARD, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, math.NewInt(100))
 	k.AssignInitiativeToMember(ctx, initID, assignee)
 
 	// Test: Submit work
@@ -342,6 +340,62 @@ func TestSubmitInitiativeWork(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, types.InitiativeStatus_INITIATIVE_STATUS_SUBMITTED, initiative.Status)
 	require.Equal(t, "https://github.com/repo/pr/123", initiative.DeliverableUri)
+}
+
+func TestSubmitInitiativeWorkRequiresADeliverable(t *testing.T) {
+	fixture := initFixture(t)
+	k := fixture.keeper
+	ctx := fixture.ctx
+
+	// Nothing on the happy path reads the deliverable — completion turns on
+	// conviction — so an empty URI accepted here rides through the review
+	// window, past the challenge window and into a payout, having given
+	// stakers, challengers and jurors nothing to judge. The UI requires text,
+	// but that is a client-side courtesy.
+	creator := sdk.AccAddress([]byte("dl-creator-addr-"))
+	projectID, err := k.CreateProject(ctx, creator, "Proj", "Desc", []string{"tag"},
+		types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical",
+		math.NewInt(10000), math.NewInt(1000), false)
+	require.NoError(t, err)
+	require.NoError(t, k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")),
+		math.NewInt(10000), math.NewInt(1000)))
+
+	assignee := sdk.AccAddress([]byte("dl-assignee-addr"))
+	require.NoError(t, k.Member.Set(ctx, assignee.String(), types.Member{
+		Address:          assignee.String(),
+		DreamBalance:     PtrInt(math.ZeroInt()),
+		StakedDream:      PtrInt(math.ZeroInt()),
+		LifetimeEarned:   PtrInt(math.ZeroInt()),
+		LifetimeBurned:   PtrInt(math.ZeroInt()),
+		ReputationScores: map[string]string{"tag": "100.0"},
+	}))
+
+	initID, err := k.CreateInitiative(ctx, creator, projectID, "Task", "D", []string{"tag"},
+		types.InitiativeTier_INITIATIVE_TIER_STANDARD,
+		types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, math.NewInt(100))
+	require.NoError(t, err)
+	require.NoError(t, k.AssignInitiativeToMember(ctx, initID, assignee))
+
+	require.ErrorIs(t, k.SubmitInitiativeWork(ctx, initID, assignee, ""), types.ErrEmptyDeliverable)
+	// Whitespace is the same nothing, spelled differently.
+	require.ErrorIs(t, k.SubmitInitiativeWork(ctx, initID, assignee, "   \t\n "), types.ErrEmptyDeliverable)
+
+	// The initiative must still be submittable afterwards: this is a rejected
+	// submission, not a state transition.
+	initiative, err := k.GetInitiative(ctx, initID)
+	require.NoError(t, err)
+	require.Equal(t, types.InitiativeStatus_INITIATIVE_STATUS_ASSIGNED, initiative.Status)
+
+	// An over-long URI is bounded too — it is state the submitter controls and
+	// every reviewer reads.
+	tooLong := strings.Repeat("u", types.MaxDeliverableURILength+1)
+	require.Error(t, k.SubmitInitiativeWork(ctx, initID, assignee, tooLong))
+
+	require.NoError(t, k.SubmitInitiativeWork(ctx, initID, assignee, "  https://example.test/pr/1  "))
+	initiative, err = k.GetInitiative(ctx, initID)
+	require.NoError(t, err)
+	require.Equal(t, "https://example.test/pr/1", initiative.DeliverableUri,
+		"the stored URI is trimmed, so the emptiness check and the stored value agree")
 }
 
 func TestAbandonInitiative(t *testing.T) {
@@ -365,7 +419,7 @@ func TestAbandonInitiative(t *testing.T) {
 	})
 
 	budget := math.NewInt(100)
-	initID, _ := k.CreateInitiative(ctx, creator, projectID, "Task", "D", []string{"tag"}, types.InitiativeTier_INITIATIVE_TIER_STANDARD, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, "", budget)
+	initID, _ := k.CreateInitiative(ctx, creator, projectID, "Task", "D", []string{"tag"}, types.InitiativeTier_INITIATIVE_TIER_STANDARD, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, budget)
 	k.AssignInitiativeToMember(ctx, initID, assignee)
 
 	// Test: Abandon initiative
@@ -405,7 +459,7 @@ func TestCompleteInitiative(t *testing.T) {
 	})
 
 	budget := math.NewInt(100)
-	initID, _ := k.CreateInitiative(ctx, creator, projectID, "Task", "D", []string{"backend"}, types.InitiativeTier_INITIATIVE_TIER_STANDARD, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, "", budget)
+	initID, _ := k.CreateInitiative(ctx, creator, projectID, "Task", "D", []string{"backend"}, types.InitiativeTier_INITIATIVE_TIER_STANDARD, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, budget)
 	k.AssignInitiativeToMember(ctx, initID, assignee)
 	k.SubmitInitiativeWork(ctx, initID, assignee, "deliverable")
 
@@ -445,6 +499,7 @@ func TestCompleteInitiative(t *testing.T) {
 	k.UpdateInitiative(ctx, initiative)
 
 	// Test: Complete initiative
+	advanceToCompletable(t, k, ctx, initID)
 	err = k.CompleteInitiative(ctx, initID)
 	require.NoError(t, err)
 }
@@ -486,7 +541,7 @@ func TestSeasonInitiativeRewardsCap(t *testing.T) {
 
 		projID, _ := k.CreateProject(ctx, creator, "P"+suffix, "D", []string{"backend"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical", math.NewInt(100000), math.NewInt(1000), false)
 		k.ApproveProject(ctx, projID, sdk.AccAddress([]byte("approver")), math.NewInt(100000), math.NewInt(1000))
-		initID, _ := k.CreateInitiative(ctx, creator, projID, "T"+suffix, "D", []string{"backend"}, types.InitiativeTier_INITIATIVE_TIER_APPRENTICE, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, "", budget)
+		initID, _ := k.CreateInitiative(ctx, creator, projID, "T"+suffix, "D", []string{"backend"}, types.InitiativeTier_INITIATIVE_TIER_APPRENTICE, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, budget)
 		k.AssignInitiativeToMember(ctx, initID, assignee)
 		k.SubmitInitiativeWork(ctx, initID, assignee, "deliverable")
 		k.CreateStake(ctx, staker, types.StakeTargetType_STAKE_TARGET_INITIATIVE, initID, "", math.NewInt(10000))
@@ -496,6 +551,7 @@ func TestSeasonInitiativeRewardsCap(t *testing.T) {
 		init.CurrentConviction = PtrDec(DerefDec(init.RequiredConviction).Mul(math.LegacyNewDec(3)))
 		init.ExternalConviction = PtrDec(DerefDec(init.RequiredConviction).Mul(math.LegacyNewDec(3)))
 		k.UpdateInitiative(ctx, init)
+		advanceToCompletable(t, k, ctx, initID)
 		return initID
 	}
 

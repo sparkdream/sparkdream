@@ -45,8 +45,15 @@ var (
 )
 
 var (
-	JuryReviewKey      = collections.NewPrefix("juryreview/value/")
-	JuryReviewCountKey = collections.NewPrefix("juryreview/count/")
+	JuryReviewKey = collections.NewPrefix("juryreview/value/")
+	// InitiativeReview is keyed (initiative_id, round, reviewer) so a rejection
+	// can send the work back for another round without colliding with the
+	// verdicts already filed on the previous one.
+	InitiativeReviewKey = collections.NewPrefix("initiativereview/value/")
+	// EscalatedReviews tracks review rounds handed to the committee, so the
+	// timeout sweep does not have to rescan every open initiative.
+	EscalatedReviewsKey = collections.NewPrefix("escalatedreviews/")
+	JuryReviewCountKey  = collections.NewPrefix("juryreview/count/")
 )
 
 var (
@@ -73,6 +80,10 @@ var (
 	// JuryReviewsByVerdict: verdict -> []reviewID
 	// Enables O(1) lookup of jury reviews by verdict instead of full table scan
 	JuryReviewsByVerdictKey = collections.NewPrefix("juryreview/by_verdict/")
+	// JuryReviewsByJurorKey indexes seatings by juror address so a juror (or
+	// their monitoring client) can find their outstanding summons without
+	// scanning every review ever created.
+	JuryReviewsByJurorKey = collections.NewPrefix("juryreview/by_juror/")
 
 	// StakesByTarget: (targetType, targetID) -> []stakeID
 	// Enables O(1) lookup of stakes for a specific initiative/project/member

@@ -337,7 +337,23 @@ func (k Keeper) AccumulateTagStakeRevenue(ctx context.Context, tags []string, to
 	return nil
 }
 
-// DistributeInitiativeCompletionBonus distributes conviction-based bonus to initiative stakers.
+// DistributeInitiativeCompletionBonus distributes a conviction-based bonus to an
+// initiative's *external* stakers.
+//
+// The bonus rewards vouching, so it is paid only to stakers at arm's length from
+// the work — the same independence test the external-conviction floor uses, via
+// InitiativeAffiliates and the invitation-graph hop in IsStakerExternal. It used
+// to exclude the assignee and apprentice only, which made this the third and
+// last place in the module that defined affiliation differently from the other
+// two: the initiative's own author and the parent project's creator were paid as
+// though they were independent backers, on top of the completer share the
+// assignee already receives. Insiders staking on their own commission are not
+// vouching for it, and paying them to complete it compounds the fact that the
+// bonus is paid on completion and on no other outcome.
+//
+// Their principal is untouched — stakes are settled and returned by
+// CompleteInitiative regardless. Only this extra mint is withheld, and the
+// withheld share is never minted rather than being redistributed.
 //
 // Must be called while the stake records are still live: it recomputes each
 // staker's time-weighted conviction from stake.created_at, so it has nothing to
@@ -355,50 +371,65 @@ func (k Keeper) DistributeInitiativeCompletionBonus(ctx context.Context, initiat
 		return err
 	}
 
-	// Calculate total conviction and separate external vs internal stakers
-	totalConviction := math.LegacyZeroDec()
+	// The parent project is needed for the full affiliate set. A missing
+	// project must not silently widen the payout back to everyone, so treat the
+	// lookup failure as fatal rather than falling back to a narrower test.
+	project, err := k.GetProject(ctx, initiative.ProjectId)
+	if err != nil {
+		return fmt.Errorf("failed to load project %d for initiative %d completion bonus: %w",
+			initiative.ProjectId, initiativeID, err)
+	}
+	affiliates := k.InvitationNeighborhoodOf(ctx, InitiativeAffiliates(initiative, project)...)
+
+	// Sum conviction over the stakers eligible for the bonus.
 	externalConviction := math.LegacyZeroDec()
-	internalConviction := math.LegacyZeroDec()
 
 	type stakeConviction struct {
 		stake      types.Stake
 		conviction math.LegacyDec
-		isExternal bool
 	}
 	stakeConvictions := make([]stakeConviction, 0, len(stakes))
 
+	// One staker can hold several stakes; the independence test is per address,
+	// so cache it rather than re-walking the invitation graph for each.
+	isExternal := make(map[string]bool, len(stakes))
+
 	for _, stake := range stakes {
+		external, seen := isExternal[stake.Staker]
+		if !seen {
+			external = k.IsStakerExternalTo(ctx, stake.Staker, affiliates)
+			isExternal[stake.Staker] = external
+		}
+		if !external {
+			continue
+		}
+
 		// Calculate conviction for this stake
 		conviction, err := k.CalculateStakeConviction(ctx, stake, initiative.Tags)
 		if err != nil {
 			continue
 		}
 
-		// External stakers are those who are not the assignee or apprentice
-		isExternal := stake.Staker != initiative.Assignee && stake.Staker != initiative.Apprentice
-
 		stakeConvictions = append(stakeConvictions, stakeConviction{
 			stake:      stake,
 			conviction: conviction,
-			isExternal: isExternal,
 		})
 
-		totalConviction = totalConviction.Add(conviction)
-		if isExternal {
-			externalConviction = externalConviction.Add(conviction)
-		} else {
-			internalConviction = internalConviction.Add(conviction)
-		}
+		externalConviction = externalConviction.Add(conviction)
 	}
 
-	if totalConviction.IsZero() {
+	if externalConviction.IsZero() {
 		return nil
 	}
 
-	// Calculate bonus pool as a fixed fraction of the initiative budget.
-	bonusPool := math.LegacyNewDecFromInt(totalBudget).
-		QuoInt64(types.InitiativeCompletionBonusDivisor).
-		TruncateInt()
+	// Calculate bonus pool as a fraction of the initiative budget. Tunable, and
+	// the mirror of the project-side project_completion_bonus_rate — it was a
+	// hardcoded 1/10 divisor while the project equivalent was already a param.
+	bonusRate := math.LegacyNewDecWithPrec(1, 1) // 0.1, the shipped default
+	if params, pErr := k.Params.Get(ctx); pErr == nil && !params.InitiativeCompletionBonusRate.IsNil() {
+		bonusRate = params.InitiativeCompletionBonusRate
+	}
+	bonusPool := math.LegacyNewDecFromInt(totalBudget).Mul(bonusRate).TruncateInt()
 
 	if bonusPool.IsZero() {
 		return nil
@@ -418,7 +449,7 @@ func (k Keeper) DistributeInitiativeCompletionBonus(ctx context.Context, initiat
 		// Calculate this staker's share of the bonus pool based on conviction
 		bonusShare := math.LegacyNewDecFromInt(bonusPool).
 			Mul(sc.conviction).
-			Quo(totalConviction).
+			Quo(externalConviction).
 			TruncateInt()
 
 		if !bonusShare.IsPositive() {
@@ -445,7 +476,6 @@ func (k Keeper) DistributeInitiativeCompletionBonus(ctx context.Context, initiat
 				sdk.NewAttribute("staker", sc.stake.Staker),
 				sdk.NewAttribute("bonus", bonusShare.String()),
 				sdk.NewAttribute("conviction", sc.conviction.String()),
-				sdk.NewAttribute("is_external", fmt.Sprintf("%t", sc.isExternal)),
 			),
 		)
 	}

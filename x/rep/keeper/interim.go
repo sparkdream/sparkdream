@@ -423,7 +423,44 @@ func (k Keeper) CompleteInterimDirectly(
 	return k.UpdateInterim(ctx, interim)
 }
 
-// ExpireInterim marks an interim as expired when deadline passes
+// findAdjudicationChallenge returns the unresolved challenge that an
+// ADJUDICATION interim was raised to settle. The interim's reference_id is the
+// initiative id; the challenge is whichever one on that initiative is still
+// sitting in IN_JURY_REVIEW, the status an inconclusive jury leaves behind.
+func (k Keeper) findAdjudicationChallenge(ctx context.Context, initiativeID uint64) (uint64, bool) {
+	var challengeID uint64
+	var found bool
+	_ = k.IterateChallengesByStatus(ctx, types.ChallengeStatus_CHALLENGE_STATUS_IN_JURY_REVIEW,
+		func(id uint64, challenge types.Challenge) bool {
+			if challenge.InitiativeId == initiativeID {
+				challengeID = id
+				found = true
+				return true
+			}
+			return false
+		})
+	return challengeID, found
+}
+
+// ExpireInterim marks an interim as expired when its deadline passes, and — for
+// an ADJUDICATION interim — resolves the challenge it was raised to settle.
+//
+// This is the terminal path for an inconclusive jury. Without it the sequence
+// was: jurors fail to reach quorum -> TallyJuryVotes returns INCONCLUSIVE and
+// raises an adjudication interim -> nobody on the committee completes it ->
+// the interim expires and touches nothing. The challenge stays IN_JURY_REVIEW,
+// which HasActiveChallenges counts as active, so CanCompleteInitiative never
+// returns true again. The initiative is frozen permanently, with the
+// challenger's stake, every staker's conviction DREAM, and the assignee's
+// self-assign bond locked inside it.
+//
+// The default is REJECT, and the direction is deliberate. Defaulting to UPHOLD
+// would pay a challenger for a jury that never sat, making it profitable to
+// challenge good work and wait for apathy. REJECT burns the challenger's stake
+// instead, so engineering a stalled jury costs the person who engineered it and
+// the work proceeds. It does mean unreviewed work can be paid — but conviction
+// thresholds and the challenge window still apply, and an unbounded freeze is
+// the worse failure.
 func (k Keeper) ExpireInterim(ctx context.Context, interimID uint64) error {
 	interim, err := k.GetInterim(ctx, interimID)
 	if err != nil {
@@ -431,8 +468,38 @@ func (k Keeper) ExpireInterim(ctx context.Context, interimID uint64) error {
 	}
 
 	interim.Status = types.InterimStatus_INTERIM_STATUS_EXPIRED
+	if err := k.UpdateInterim(ctx, interim); err != nil {
+		return err
+	}
 
-	return k.UpdateInterim(ctx, interim)
+	if interim.Type != types.InterimType_INTERIM_TYPE_ADJUDICATION || interim.ReferenceId == 0 {
+		return nil
+	}
+	challengeID, ok := k.findAdjudicationChallenge(ctx, interim.ReferenceId)
+	if !ok {
+		// Already resolved by the committee, or voided with its project. The
+		// interim expiring is then just bookkeeping.
+		return nil
+	}
+
+	sdkCtx := sdk.UnwrapSDKContext(ctx)
+	if err := k.RejectChallenge(ctx, challengeID); err != nil {
+		// Logged, not returned: the interim is already expired, and failing the
+		// whole EndBlocker sweep over one stuck challenge would block every
+		// other expiry behind it.
+		sdkCtx.Logger().Error("failed to resolve challenge on adjudication timeout",
+			"interim_id", interimID, "challenge_id", challengeID, "error", err)
+		return nil
+	}
+
+	sdkCtx.EventManager().EmitEvent(sdk.NewEvent(
+		"challenge_resolved_by_timeout",
+		sdk.NewAttribute("challenge_id", fmt.Sprintf("%d", challengeID)),
+		sdk.NewAttribute("initiative_id", fmt.Sprintf("%d", interim.ReferenceId)),
+		sdk.NewAttribute("interim_id", fmt.Sprintf("%d", interimID)),
+		sdk.NewAttribute("resolution", "rejected_by_default"),
+	))
+	return nil
 }
 
 // GetInterimBudget returns the budget for a given complexity level
