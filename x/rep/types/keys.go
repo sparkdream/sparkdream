@@ -53,7 +53,12 @@ var (
 	// EscalatedReviews tracks review rounds handed to the committee, so the
 	// timeout sweep does not have to rescan every open initiative.
 	EscalatedReviewsKey = collections.NewPrefix("escalatedreviews/")
-	JuryReviewCountKey  = collections.NewPrefix("juryreview/count/")
+	// RoleRewardDayFundingKey ledgers how much has been skimmed from the
+	// community pool on a given UTC day, so the daily cap survives restarts.
+	RoleRewardDayFundingKey = collections.NewPrefix("rolerewarddayfunding/")
+	// ReviewBountyKey holds escrowed per-initiative review bounties.
+	ReviewBountyKey    = collections.NewPrefix("reviewbounty/")
+	JuryReviewCountKey = collections.NewPrefix("juryreview/count/")
 )
 
 var (

@@ -178,9 +178,12 @@ DEC_FIELDS = [
     'min_juror_selection_weight', 'initiative_completion_bonus_rate',
     'jury_acceptance_window_ratio',
     'reviewer_bond_reserve_rate', 'review_fee_rate',
+    'reviewer_reward_pool_overflow_burn_ratio', 'min_reviewer_accuracy',
     'staked_decay_rate',
     'sentinel_reward_pool_overflow_burn_ratio',
-    'min_sentinel_accuracy', 'min_appeal_rate'
+    'min_sentinel_accuracy', 'min_appeal_rate',
+    'curator_reward_pool_overflow_burn_ratio', 'min_curator_accuracy',
+    'role_reward_inflation_share', 'permissionless_min_review_bounty_rate'
 ]
 PRECISION = 18
 params = json.loads(sys.argv[1])
@@ -257,7 +260,21 @@ build_op_params_with_override() {
       max_jury_redraws,
       reviewer_bond_reserve_rate,
       review_fee_rate,
-      max_review_rounds
+      max_review_rounds,
+      max_reviewer_reward_pool,
+      reviewer_reward_pool_overflow_burn_ratio,
+      reviewer_reward_epoch_blocks,
+      min_reviewer_accuracy,
+      reviewer_accuracy_window_epochs,
+      role_reward_inflation_share,
+      max_curator_reward_pool,
+      curator_reward_pool_overflow_burn_ratio,
+      curator_reward_epoch_blocks,
+      min_curator_accuracy,
+      curator_accuracy_window_epochs,
+      review_required_above_budget,
+      review_bounty_reclaim_delay,
+      permissionless_min_review_bounty_rate
     }')
 
     # Apply the override. int64 fields are JSON numbers in the query output;

@@ -174,13 +174,16 @@ var (
 						// chain modules
 						sparkdreammoduletypes.ModuleName,
 						blogmoduletypes.ModuleName,
-						shieldmoduletypes.ModuleName, // before split: skim gas reserve from community pool first
+						// Both of these skim the community pool and MUST run before
+						// split, which distributes whatever remains to the councils
+						// in full. Placed after split they would find an empty pool.
+						shieldmoduletypes.ModuleName, // gas reserve
+						repmoduletypes.ModuleName,    // bonded-role reward pools
 						splitmoduletypes.ModuleName,
 						ecosystemmoduletypes.ModuleName,
 						namemoduletypes.ModuleName,
 						commonsmoduletypes.ModuleName,
 						futarchymoduletypes.ModuleName,
-						repmoduletypes.ModuleName,
 						forummoduletypes.ModuleName,
 						seasonmoduletypes.ModuleName,
 						revealmoduletypes.ModuleName,

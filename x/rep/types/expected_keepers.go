@@ -148,3 +148,30 @@ type CollectKeeper interface {
 	// GetCollectionOwner returns the owner address for the given collection.
 	GetCollectionOwner(ctx context.Context, collectionID uint64) (string, error)
 }
+
+// DistrKeeper is the slice of x/distribution x/rep needs to auto-fund its
+// bonded-role reward pools from the community pool.
+//
+// Late-wired in app.go rather than declared as a depinject dependency: even an
+// optional dependency participates in cycle detection, and rep sits upstream of
+// too much to take one safely.
+type DistrKeeper interface {
+	DistributeFromFeePool(ctx context.Context, amount sdk.Coins, receiveAddr sdk.AccAddress) error
+	GetCommunityPool(ctx context.Context) (sdk.DecCoins, error)
+	// GetCommunityTax is the fraction of block rewards routed to the community
+	// pool. Together with annual provisions it gives the pool's income rate,
+	// which is what role_reward_inflation_share is a share OF.
+	GetCommunityTax(ctx context.Context) (math.LegacyDec, error)
+}
+
+// MintKeeper is the slice of x/mint x/rep needs to size the bonded-role
+// funding draw.
+//
+// Only annual provisions: supply x current inflation, recomputed every block by
+// mint's BeginBlocker. Reading the rate rather than the community pool balance
+// is deliberate — the balance includes the 95M SPARK genesis allocation and any
+// direct deposit, neither of which is income. x/mint's authority is the burn
+// address, so this anchors the funding rate to a number governance cannot move.
+type MintKeeper interface {
+	AnnualProvisions(ctx context.Context) (math.LegacyDec, error)
+}

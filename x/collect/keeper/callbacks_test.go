@@ -185,6 +185,17 @@ func TestResolveChallengeResult_Upheld(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, uint64(1), activity.OverturnedReviews)
 	require.Equal(t, uint64(1), activity.ConsecutiveOverturns)
+
+	// ...and mirrored into x/rep's shared RoleActivity, which is what the
+	// curator SPARK pool reads for windowed accuracy. The local counters above
+	// only drive collect's own demotion streak; without this report a curator
+	// would look permanently unchallenged and could never earn from the pool.
+	require.Equal(t, []roleOutcomeCall{{
+		roleType: reptypes.RoleType_ROLE_TYPE_COLLECT_CURATOR,
+		addr:     f.member,
+		kind:     reptypes.ActionKindCollectCuration,
+		upheld:   false,
+	}}, f.repKeeper.roleOutcomeCalls)
 }
 
 func TestResolveChallengeResult_Rejected(t *testing.T) {
@@ -269,6 +280,15 @@ func TestResolveChallengeResult_Rejected(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, uint64(1), activity.UpheldReviews)
 	require.Equal(t, uint64(1), activity.ConsecutiveUpheld)
+
+	// The upheld side must reach the shared record too, or every curator's
+	// windowed accuracy reads as 0% and the pool pays nobody.
+	require.Equal(t, []roleOutcomeCall{{
+		roleType: reptypes.RoleType_ROLE_TYPE_COLLECT_CURATOR,
+		addr:     f.member,
+		kind:     reptypes.ActionKindCollectCuration,
+		upheld:   true,
+	}}, f.repKeeper.roleOutcomeCalls)
 }
 
 func TestResolveHideAppeal_Upheld(t *testing.T) {

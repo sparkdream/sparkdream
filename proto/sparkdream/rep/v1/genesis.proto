@@ -20,6 +20,7 @@ import "sparkdream/rep/v1/member_warning.proto";
 import "sparkdream/rep/v1/params.proto";
 import "sparkdream/rep/v1/project.proto";
 import "sparkdream/rep/v1/reserved_tag.proto";
+import "sparkdream/rep/v1/review_bounty.proto";
 import "sparkdream/rep/v1/role_activity.proto";
 import "sparkdream/rep/v1/stake.proto";
 import "sparkdream/rep/v1/tag.proto";
@@ -92,6 +93,29 @@ message GenesisState {
   // Reviewer verdicts. Their bond_reserved is live liability, so losing them on
   // import would strand committed bond with nothing to release it.
   repeated InitiativeReview initiative_review_list = 39 [(gogoproto.nullable) = false];
+  // Review rounds sitting with the Operations Committee. This set is the ONLY
+  // marker for "already escalated" — ReviewEscalation is reset to NONE on
+  // escalation — so losing it on import re-escalates every open round and
+  // extends its deadline again, and leaves silent escalations with nothing to
+  // resolve them.
+  repeated uint64 escalated_review_list = 40;
+  // Per-UTC-day community-pool draw ledger for the bonded-role reward pools.
+  // Dropping it on import hands the chain a fresh daily allowance.
+  repeated RoleRewardDayFunding role_reward_day_funding_list = 41 [(gogoproto.nullable) = false];
+  // Escrowed review bounties. Real DREAM is held against these, so losing them
+  // on import would strand the escrow with nothing able to pay or refund it.
+  repeated ReviewBounty review_bounty_list = 42 [(gogoproto.nullable) = false];
+}
+
+// RoleRewardDayFunding is one UTC day's community-pool draw for the
+// bonded-role reward pools, ledgered so role_reward_daily_funding bounds a day
+// rather than a block.
+message RoleRewardDayFunding {
+  uint64 day = 1;
+  string amount_funded = 2 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
 }
 
 // ContentInitiativeLink defines a link between content and an initiative for conviction propagation.

@@ -162,6 +162,8 @@ func TestRepTrustThresholds(t *testing.T) {
 func TestRepSentinelEpoch(t *testing.T) {
 	rep := loadModule(t, "rep")
 	intsAsc(t, rep, "rep", "sentinel_reward_epoch_blocks")
+	intsAsc(t, rep, "rep", "reviewer_reward_epoch_blocks")
+	intsAsc(t, rep, "rep", "curator_reward_epoch_blocks")
 }
 
 func TestShieldHardening(t *testing.T) {
@@ -210,6 +212,8 @@ var allowedVariations = map[string]string{
 	"rep.params.jury_size":                                         "devnet uses smaller jury (3) due to small test member set",
 	"rep.params.min_juror_reputation":                              "devnet lowers juror rep threshold for testing",
 	"rep.params.sentinel_reward_epoch_blocks":                      "build-tag conditional cadence (devnet 6h / testnet 12h / mainnet 24h)",
+	"rep.params.reviewer_reward_epoch_blocks":                      "reviewer pool distributes on the same per-network cadence as the sentinel pool",
+	"rep.params.curator_reward_epoch_blocks":                       "curator pool distributes on the same per-network cadence as the sentinel pool",
 	"rep.params.trust_level_config.provisional_min_rep":            "build-tag conditional",
 	"rep.params.trust_level_config.provisional_min_interims":       "build-tag conditional",
 	"rep.params.trust_level_config.established_min_rep":            "build-tag conditional",

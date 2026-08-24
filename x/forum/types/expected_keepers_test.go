@@ -176,6 +176,9 @@ func (stubRepKeeper) DeductForumRep(context.Context, sdk.AccAddress, string, mat
 func (stubRepKeeper) IssueWarning(context.Context, string, string, string, []uint64) error {
 	return nil
 }
+func (stubRepKeeper) AddToSentinelRewardPool(context.Context, sdk.AccAddress, math.Int) error {
+	return nil
+}
 
 func TestExpectedKeepersImplementable(t *testing.T) {
 	var (

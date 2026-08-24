@@ -6,11 +6,11 @@ import "amino/amino.proto";
 import "cosmos/msg/v1/msg.proto";
 import "cosmos_proto/cosmos.proto";
 import "gogoproto/gogo.proto";
+import "sparkdream/rep/v1/acceptance_criteria.proto";
 import "sparkdream/rep/v1/accountability.proto";
 import "sparkdream/rep/v1/bonded_role.proto";
-import "sparkdream/rep/v1/interim.proto";
-import "sparkdream/rep/v1/acceptance_criteria.proto";
 import "sparkdream/rep/v1/initiative.proto";
+import "sparkdream/rep/v1/interim.proto";
 import "sparkdream/rep/v1/jury_review.proto";
 import "sparkdream/rep/v1/params.proto";
 import "sparkdream/rep/v1/project.proto";
@@ -113,6 +113,11 @@ service Msg {
   // ResolveReviewEscalation settles a review round that reached its deadline.
   rpc ResolveReviewEscalation(MsgResolveReviewEscalation) returns (MsgResolveReviewEscalationResponse);
   rpc DeclineJuryDuty(MsgDeclineJuryDuty) returns (MsgDeclineJuryDutyResponse);
+
+  // FundReviewBounty escrows DREAM against an initiative to attract reviewers.
+  rpc FundReviewBounty(MsgFundReviewBounty) returns (MsgFundReviewBountyResponse);
+  // ReclaimReviewBounty withdraws a funder's own unpaid contribution.
+  rpc ReclaimReviewBounty(MsgReclaimReviewBounty) returns (MsgReclaimReviewBountyResponse);
 
   // SubmitExpertTestimony defines the SubmitExpertTestimony RPC.
   rpc SubmitExpertTestimony(MsgSubmitExpertTestimony) returns (MsgSubmitExpertTestimonyResponse);
@@ -973,3 +978,55 @@ message MsgResolveReviewEscalation {
 
 // MsgResolveReviewEscalationResponse defines the MsgResolveReviewEscalation response.
 message MsgResolveReviewEscalationResponse {}
+
+// MsgFundReviewBounty escrows DREAM against an initiative so reviewers have a
+// reason to look at that one rather than any other.
+//
+// Anyone may fund, and contributions are additive: the creator who wants their
+// work cleared, a staker protecting conviction already committed, or a third
+// party who simply wants the thing checked. Restricting it to the creator would
+// make the amount a statement about one person's budget rather than about how
+// much the work matters.
+message MsgFundReviewBounty {
+  option (cosmos.msg.v1.signer) = "funder";
+  option (amino.name) = "sparkdream/x/rep/MsgFundReviewBounty";
+  string funder = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 initiative_id = 2;
+  string amount = 3 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+}
+
+// MsgFundReviewBountyResponse defines the MsgFundReviewBounty response.
+message MsgFundReviewBountyResponse {
+  // Total escrowed against the initiative after this contribution.
+  string total = 1 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+}
+
+// MsgReclaimReviewBounty returns a funder's own unpaid contribution.
+//
+// Permitted only after review_bounty_reclaim_delay blocks and only while NO
+// verdict has been filed against the initiative. The delay stops a funder
+// advertising a bounty and yanking it in the same breath; the verdict bar stops
+// them yanking it once reviewers have committed bond on the strength of it.
+message MsgReclaimReviewBounty {
+  option (cosmos.msg.v1.signer) = "funder";
+  option (amino.name) = "sparkdream/x/rep/MsgReclaimReviewBounty";
+  string funder = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 initiative_id = 2;
+}
+
+// MsgReclaimReviewBountyResponse defines the MsgReclaimReviewBounty response.
+message MsgReclaimReviewBountyResponse {
+  string refunded = 1 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+}

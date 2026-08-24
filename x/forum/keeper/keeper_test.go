@@ -184,8 +184,9 @@ type mockRepKeeper struct {
 	restoreError error
 	// deductCalls / warningCalls observe the unappealed-hide finalization
 	// hooks (Tier 0 and Tier 1 from the promotion-slash plan).
-	deductCalls  []mockDeductCall
-	warningCalls []mockWarningCall
+	deductCalls       []mockDeductCall
+	warningCalls      []mockWarningCall
+	sentinelPoolCalls []sentinelPoolCall
 	// mintDreamCalls observes MintDREAM invocations (curation rewards, etc.).
 	mintDreamCalls []mockMintDreamCall
 	// currentEpoch is returned by CurrentSentinelRewardEpoch; tests set it to
@@ -699,6 +700,18 @@ func (m *mockRepKeeper) DeductForumRep(_ context.Context, addr sdk.AccAddress, t
 			m.forumRepBalances[key] = next
 		}
 	}
+	return nil
+}
+
+// sentinelPoolCall records a spam-tax contribution so tests can assert the
+// money reached x/rep's pool API rather than some other account.
+type sentinelPoolCall struct {
+	Sender sdk.AccAddress
+	Amount math.Int
+}
+
+func (m *mockRepKeeper) AddToSentinelRewardPool(_ context.Context, sender sdk.AccAddress, amount math.Int) error {
+	m.sentinelPoolCalls = append(m.sentinelPoolCalls, sentinelPoolCall{Sender: sender, Amount: amount})
 	return nil
 }
 

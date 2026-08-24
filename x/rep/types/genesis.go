@@ -324,5 +324,26 @@ func (gs GenesisState) Validate() error {
 		roleActivityIndex[key] = struct{}{}
 	}
 
+	escalatedIndex := make(map[uint64]struct{})
+	for _, id := range gs.EscalatedReviewList {
+		if _, ok := escalatedIndex[id]; ok {
+			return fmt.Errorf("duplicated escalated review for initiative %d", id)
+		}
+		escalatedIndex[id] = struct{}{}
+	}
+
+	dayFundingIndex := make(map[uint64]struct{})
+	for _, df := range gs.RoleRewardDayFundingList {
+		if _, ok := dayFundingIndex[df.Day]; ok {
+			// A duplicate would be silently collapsed on import, under-reporting
+			// the day's draw and handing back part of an allowance already spent.
+			return fmt.Errorf("duplicated role reward day funding for day %d", df.Day)
+		}
+		if df.AmountFunded.IsNil() || df.AmountFunded.IsNegative() {
+			return fmt.Errorf("role reward day funding for day %d must be non-negative", df.Day)
+		}
+		dayFundingIndex[df.Day] = struct{}{}
+	}
+
 	return gs.Params.Validate()
 }

@@ -295,9 +295,10 @@ type roleActionCall struct {
 }
 
 type roleOutcomeCall struct {
-	addr   string
-	kind   string
-	upheld bool
+	roleType reptypes.RoleType
+	addr     string
+	kind     string
+	upheld   bool
 }
 
 func (m *mockRepKeeper) RecordRoleAction(_ context.Context, _ reptypes.RoleType, addr, kind string) error {
@@ -305,8 +306,9 @@ func (m *mockRepKeeper) RecordRoleAction(_ context.Context, _ reptypes.RoleType,
 	return nil
 }
 
-func (m *mockRepKeeper) RecordRoleOutcome(_ context.Context, _ reptypes.RoleType, addr, kind string, upheld bool) error {
-	m.roleOutcomeCalls = append(m.roleOutcomeCalls, roleOutcomeCall{addr: addr, kind: kind, upheld: upheld})
+func (m *mockRepKeeper) RecordRoleOutcome(_ context.Context, roleType reptypes.RoleType, addr, kind string, upheld bool) error {
+	m.roleOutcomeCalls = append(m.roleOutcomeCalls,
+		roleOutcomeCall{roleType: roleType, addr: addr, kind: kind, upheld: upheld})
 	return nil
 }
 

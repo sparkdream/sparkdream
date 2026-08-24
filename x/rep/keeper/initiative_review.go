@@ -68,8 +68,45 @@ func TierConfigFor(params types.Params, tier types.InitiativeTier) types.TierCon
 // at all. min_verifier_count 0 is the genesis default and means conviction-only
 // — exactly the behaviour that predates this role, so nothing wedges while the
 // reviewer roster is still filling.
-func ReviewRequired(project types.Project) bool {
-	return project.VerificationPolicy != nil && project.VerificationPolicy.MinVerifierCount > 0
+func ReviewRequired(params types.Params, initiative types.Initiative, project types.Project) bool {
+	return RequiredVerifiersFor(params, initiative, project) > 0
+}
+
+// RequiredVerifiersFor is how many approving verdicts this initiative needs.
+//
+// The MAXIMUM of two independent sources, deliberately:
+//
+//   - the per-project policy, read from the initiative's own snapshot. The
+//     project creator owns that policy and — for self-assigned work — is also
+//     the party the gate constrains, so reading it live would let them switch
+//     the gate off over work already submitted. As a snapshot it is a floor.
+//
+//   - the chain-wide review_required_above_budget threshold, read LIVE. Its
+//     setter is governance or the Operations Committee, not the party being
+//     constrained, so the argument above does not apply — and snapshotting it
+//     would mean a committee raising the threshold to respond to a farm in
+//     progress could not touch anything already submitted.
+//
+// Taking the max means neither source can be used to weaken the other: policy
+// cannot be relaxed after submission, and the threshold cannot be dodged by
+// a project declaring no policy.
+func RequiredVerifiersFor(params types.Params, initiative types.Initiative, project types.Project) uint32 {
+	required := initiative.RequiredVerifiers
+	// A snapshot of 0 on an initiative created before any policy existed still
+	// gets the live threshold applied below.
+	if project.VerificationPolicy != nil && project.VerificationPolicy.MinVerifierCount > required {
+		// Only when the initiative predates its own snapshot being written.
+		if initiative.RequiredVerifiers == 0 {
+			required = project.VerificationPolicy.MinVerifierCount
+		}
+	}
+	threshold := params.ReviewRequiredAboveBudget
+	if !threshold.IsNil() && threshold.IsPositive() && required < 1 {
+		if budget := DerefInt(initiative.Budget); !budget.IsNil() && budget.GT(threshold) {
+			required = 1
+		}
+	}
+	return required
 }
 
 // ReviewerBondForInitiative is what a verdict on this initiative costs in
@@ -201,12 +238,10 @@ func (k Keeper) GetInitiativeReviews(ctx context.Context, initiativeID uint64, r
 //
 // Review is an *additional* brake: conviction, the challenge window and the
 // no-active-challenges rule all still apply. It never substitutes for one.
-func (k Keeper) ReviewGateSatisfied(ctx context.Context, initiative types.Initiative, project types.Project) (bool, error) {
-	// The snapshot taken when the window opened, not the live policy: the
-	// project creator owns the policy and — for self-assigned work — is also the
-	// party this gate exists to constrain, so reading it live would let them
-	// switch the gate off over work already submitted.
-	required := initiative.RequiredVerifiers
+func (k Keeper) ReviewGateSatisfied(ctx context.Context, params types.Params, initiative types.Initiative, project types.Project) (bool, error) {
+	// Snapshotted project policy OR'd with the live chain-wide threshold — see
+	// RequiredVerifiersFor for why the two sources are read differently.
+	required := RequiredVerifiersFor(params, initiative, project)
 	if required == 0 {
 		return true, nil
 	}
@@ -270,9 +305,13 @@ func (k Keeper) SubmitInitiativeReview(
 	if err != nil {
 		return err
 	}
-	if !ReviewRequired(project) {
-		return fmt.Errorf("%w: project %d does not require reviewer sign-off",
-			types.ErrInvalidRequest, project.Id)
+	params, err := k.Params.Get(ctx)
+	if err != nil {
+		return err
+	}
+	if !ReviewRequired(params, initiative, project) {
+		return fmt.Errorf("%w: initiative %d does not require reviewer sign-off",
+			types.ErrInvalidRequest, initiative.Id)
 	}
 	if err := k.QualifiedReviewer(ctx, initiative, project, reviewer); err != nil {
 		return err
@@ -309,6 +348,12 @@ func (k Keeper) SubmitInitiativeReview(
 		CreatedAt:     sdkCtx.BlockTime().Unix(),
 		BondReserved:  bond,
 	}); err != nil {
+		return err
+	}
+	// From the first verdict the bounty is committed: reviewers commit bond and
+	// do the reading on the strength of what was advertised, so a withdrawal
+	// after this point would be a bait-and-switch.
+	if err := k.MarkReviewBountyCommitted(ctx, initiative.Id); err != nil {
 		return err
 	}
 	if err := k.RecordRoleAction(ctx, types.RoleType_ROLE_TYPE_INITIATIVE_REVIEWER, reviewer, "review"); err != nil {
@@ -382,6 +427,24 @@ func (k Keeper) rejectReviewRound(ctx context.Context, initiative types.Initiati
 	return nil
 }
 
+// ReviewFeePool is the DREAM a round's reviewers share between them.
+//
+// Factored out of PayReviewFees so the per-season mint cap can be tested
+// against it BEFORE any minting happens. The fee is freshly minted, so a gate
+// that only counted the completer and treasury shares would let a completion
+// through and then mint past the cap it had just checked.
+func (k Keeper) ReviewFeePool(ctx context.Context, params types.Params, initiative types.Initiative) math.Int {
+	budget := DerefInt(initiative.Budget)
+	if budget.IsNil() || !budget.IsPositive() {
+		return math.ZeroInt()
+	}
+	tierMult := TierConfigFor(params, initiative.Tier).RewardMultiplier
+	if tierMult.IsNil() || !tierMult.IsPositive() {
+		tierMult = math.LegacyOneDec()
+	}
+	return k.reviewFeeRate(params).Mul(tierMult).MulInt(budget).TruncateInt()
+}
+
 // PayReviewFees pays the reviewers who filed a verdict on the round that
 // resolved the initiative, and settles their bond.
 //
@@ -400,15 +463,7 @@ func (k Keeper) PayReviewFees(ctx context.Context, initiative types.Initiative) 
 	if err != nil {
 		return math.ZeroInt(), err
 	}
-	budget := DerefInt(initiative.Budget)
-	if budget.IsNil() || !budget.IsPositive() {
-		return math.ZeroInt(), nil
-	}
-	tierMult := TierConfigFor(params, initiative.Tier).RewardMultiplier
-	if tierMult.IsNil() || !tierMult.IsPositive() {
-		tierMult = math.LegacyOneDec()
-	}
-	pool := k.reviewFeeRate(params).Mul(tierMult).MulInt(budget).TruncateInt()
+	pool := k.ReviewFeePool(ctx, params, initiative)
 	if !pool.IsPositive() {
 		return math.ZeroInt(), nil
 	}
@@ -682,11 +737,17 @@ func (k Keeper) SweepReviewDeadlines(ctx context.Context) error {
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	height := sdkCtx.BlockHeight()
 
+	params, err := k.Params.Get(ctx)
+	if err != nil {
+		return err
+	}
+
 	type due struct {
 		initiative types.Initiative
 		project    types.Project
 	}
 	var pending []due
+	var adopt []types.Initiative
 
 	if err := k.IterateInitiativesByStatuses(ctx, []types.InitiativeStatus{
 		types.InitiativeStatus_INITIATIVE_STATUS_SUBMITTED,
@@ -695,10 +756,32 @@ func (k Keeper) SweepReviewDeadlines(ctx context.Context) error {
 		if len(pending) >= maxReviewEscalationsPerBlock {
 			return true
 		}
-		if initiative.ReviewDeadline == 0 || height < initiative.ReviewDeadline {
+		if initiative.ReviewEscalation != types.ReviewEscalation_REVIEW_ESCALATION_NONE {
 			return false
 		}
-		if initiative.ReviewEscalation != types.ReviewEscalation_REVIEW_ESCALATION_NONE {
+		// Whether a gate applies is decided first, so an ungated initiative is
+		// never adopted below and a gated one is never skipped for want of a
+		// deadline.
+		project, pErr := k.GetProject(ctx, initiative.ProjectId)
+		if pErr != nil || !ReviewRequired(params, initiative, project) {
+			return false
+		}
+		satisfied, sErr := k.ReviewGateSatisfied(ctx, params, initiative, project)
+		if sErr != nil || satisfied {
+			return false
+		}
+		// A deadline of zero on a GATED initiative means it was submitted while
+		// ungated and has since come under the gate — the chain-wide threshold
+		// was lowered, or the project policy arrived late. Skipping it would
+		// leave it unable to complete and invisible to the escalation path: a
+		// permanent wedge introduced by the gate itself. Adopt it instead by
+		// opening a review window now, so it gets a full window under the rules
+		// that now apply rather than one that expired before anyone knew.
+		if initiative.ReviewDeadline == 0 {
+			adopt = append(adopt, initiative)
+			return false
+		}
+		if height < initiative.ReviewDeadline {
 			return false
 		}
 		// Already with the committee: its window is what the deadline now
@@ -707,27 +790,32 @@ func (k Keeper) SweepReviewDeadlines(ctx context.Context) error {
 		if escalated, eErr := k.EscalatedReviews.Has(ctx, initiative.Id); eErr == nil && escalated {
 			return false
 		}
-		project, pErr := k.GetProject(ctx, initiative.ProjectId)
-		if pErr != nil || !ReviewRequired(project) {
-			return false
-		}
-		satisfied, sErr := k.ReviewGateSatisfied(ctx, initiative, project)
-		if sErr != nil || satisfied {
-			return false
-		}
 		pending = append(pending, due{initiative: initiative, project: project})
 		return false
 	}); err != nil {
 		return err
 	}
 
+	// Open a window for initiatives that came under the gate after submission.
+	// Done before the escalation pass so an adopted initiative starts its
+	// window rather than being escalated in the same block.
+	for _, initiative := range adopt {
+		initiative.ReviewDeadline = height + (params.DefaultReviewPeriodEpochs * params.EpochBlocks)
+		initiative.ReviewEscalation = types.ReviewEscalation_REVIEW_ESCALATION_NONE
+		if err := k.UpdateInitiative(ctx, initiative); err != nil {
+			return err
+		}
+		sdkCtx.EventManager().EmitEvent(sdk.NewEvent(
+			"initiative_review_window_opened",
+			sdk.NewAttribute("initiative_id", fmt.Sprintf("%d", initiative.Id)),
+			sdk.NewAttribute("reason", "gate_applied_after_submission"),
+			sdk.NewAttribute("review_deadline", fmt.Sprintf("%d", initiative.ReviewDeadline)),
+		))
+	}
+
 	// Collect before mutating: the loop above walks the status index and the
 	// escalation below writes the initiative back into it.
 	for _, d := range pending {
-		params, err := k.Params.Get(ctx)
-		if err != nil {
-			return err
-		}
 		// Give the committee its own window, then resolve to PASSED on silence.
 		d.initiative.ReviewDeadline = height + (params.DefaultReviewPeriodEpochs * params.EpochBlocks)
 		d.initiative.ReviewEscalation = types.ReviewEscalation_REVIEW_ESCALATION_NONE
@@ -785,15 +873,32 @@ func (k Keeper) resolveSilentEscalations(ctx context.Context, height int64) erro
 		if initiative.ReviewEscalation != types.ReviewEscalation_REVIEW_ESCALATION_NONE {
 			continue // the committee acted in time
 		}
-		initiative.ReviewEscalation = types.ReviewEscalation_REVIEW_ESCALATION_PASSED
-		if err := k.UpdateInitiative(ctx, initiative); err != nil {
-			return err
+
+		// Nobody reviewed and the committee did not act. This used to resolve
+		// to PASSED, which let a gated initiative complete and mint with no
+		// verdict on it at all — the review gate could be waited out. It now
+		// rejects the round instead: the assignee resubmits and gets another
+		// window (bounded by max_review_rounds), and when the rounds run out
+		// rejectReviewRound abandons cleanly — budget returned, bond released,
+		// nothing minted.
+		//
+		// Silence must never mint. It must also never wedge, which is why the
+		// terminal state is abandonment rather than an indefinite hold.
+		project, pErr := k.GetProject(ctx, initiative.ProjectId)
+		if pErr != nil {
+			sdkCtx.Logger().Error("review escalation timeout: project missing",
+				"initiative_id", id, "project_id", initiative.ProjectId, "error", pErr)
+			continue
 		}
 		sdkCtx.EventManager().EmitEvent(sdk.NewEvent(
 			"initiative_review_escalation_timeout",
 			sdk.NewAttribute("initiative_id", fmt.Sprintf("%d", id)),
-			sdk.NewAttribute("resolution", types.ReviewEscalation_REVIEW_ESCALATION_PASSED.String()),
+			sdk.NewAttribute("resolution", "round_rejected"),
+			sdk.NewAttribute("round", fmt.Sprintf("%d", initiative.ReviewRound)),
 		))
+		if err := k.rejectReviewRound(ctx, initiative, project, "escalation timeout: no verdict filed"); err != nil {
+			return err
+		}
 	}
 	return nil
 }

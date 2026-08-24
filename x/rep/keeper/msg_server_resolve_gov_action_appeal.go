@@ -8,7 +8,6 @@ import (
 
 	errorsmod "cosmossdk.io/errors"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 )
 
 // govActionAppealInitiativeType is the appeal-type string stored on the jury
@@ -96,7 +95,13 @@ func (k Keeper) applyGovActionAppealVerdict(ctx context.Context, appealID uint64
 			remainder := bond.Sub(half)
 			if half.IsPositive() {
 				burnCoins := sdk.NewCoins(sdk.NewCoin(k.BondDenom(ctx), half))
-				if err := k.bankKeeper.SendCoins(ctx, AppealBondEscrowAddress(), authtypes.NewModuleAddress(types.ModuleName), burnCoins); err != nil {
+				// Routed through SendCoinsFromAccountToModule rather than a plain SendCoins
+				// to the raw module address: a plain send auto-creates a BaseAccount at
+				// that address, and the BurnCoins below then resolves it as a module
+				// account and PANICS ("account is not a module account"). x/forum used to
+				// instantiate rep's module account properly as a side effect of routing
+				// its spam tax through it, which masked this at every burn site here.
+				if err := k.bankKeeper.SendCoinsFromAccountToModule(ctx, AppealBondEscrowAddress(), types.ModuleName, burnCoins); err != nil {
 					return errorsmod.Wrap(err, "failed to move appeal bond half to module account")
 				}
 				if err := k.bankKeeper.BurnCoins(ctx, types.ModuleName, burnCoins); err != nil {

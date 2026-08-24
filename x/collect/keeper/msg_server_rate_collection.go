@@ -175,6 +175,12 @@ func (k msgServer) RateCollection(ctx context.Context, msg *types.MsgRateCollect
 	}
 	// Stamp BondedRole activity timestamp on rep's side (tracks inactivity).
 	_ = k.repKeeper.RecordActivity(ctx, reptypes.RoleType_ROLE_TYPE_COLLECT_CURATOR, msg.Creator)
+	// Record the rating on the shared RoleActivity counters too. The SPARK pool
+	// gates on challenge outcomes rather than raw volume, so this does not by
+	// itself earn anything — it keeps the shared record a complete picture of
+	// the role holder's work, the way forum reports hides.
+	_ = k.repKeeper.RecordRoleAction(ctx, reptypes.RoleType_ROLE_TYPE_COLLECT_CURATOR,
+		msg.Creator, reptypes.ActionKindCollectCuration)
 
 	// Update CurationSummary (up_count/down_count, merge tags, last_reviewed_at)
 	summary, err := k.CurationSummary.Get(ctx, msg.CollectionId)

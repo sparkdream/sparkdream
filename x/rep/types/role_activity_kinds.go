@@ -14,6 +14,11 @@ const (
 	ActionKindForumPin      = "forum_pin"
 	ActionKindForumCuration = "forum_curation"
 	ActionKindCollectHide   = "collect_hide"
+	// Curation ratings by a bonded collect curator. Reported by x/collect on
+	// challenge resolution so curator accuracy lives in the shared record
+	// rather than only in collect's local CuratorActivity — the curator SPARK
+	// pool reads it from here, the same way the sentinel pool reads hides.
+	ActionKindCollectCuration = "collect_curation"
 
 	// Appeals filed AGAINST a role holder's actions. Not sentinel work —
 	// excluded from the activity gate; feeds the Gate 4 appeal-rate check.

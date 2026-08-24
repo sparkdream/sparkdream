@@ -190,6 +190,52 @@ message GiftRecord {
 }
 ```
 
+### The new-member on-ramp
+
+A member created by `AcceptInvitation` starts with **zero of everything**: zero
+DREAM, zero SPARK, zero reputation, and `TRUST_LEVEL_NEW`. That is deliberate,
+and the reasoning is recorded here because it is repeatedly mistaken for a
+cold-start bug.
+
+**Capital is not required to participate.** The self-assignment bond fires only
+on `IsSelfAssigned`; a member *assigned* work by someone else needs no DREAM at
+all. The intended path is therefore: be invited → be assigned work and complete
+interims → earn DREAM and reputation → reach `PROVISIONAL` → commission your own
+work. Zero balance blocks only the last step.
+
+**The creation fee is not what gates that last step — trust level is.**
+Permissionless creation requires `PROVISIONAL` at minimum, which on mainnet
+means 50 reputation and 3 completed interims. Interims pay DREAM, so by the time
+the 1 DREAM apprentice creation fee is even reachable, the member has been paid
+three times. Waiving that fee for "new" members would subsidise a state that
+cannot occur.
+
+**The inviter is the intended funding channel, and the protocol builds one for
+it.** `GiftOnlyToInvitees` (default true) restricts gifts to a sender's own
+invitees — capped at `max_gift_amount` (500 DREAM) per gift and
+`max_gifts_per_sender_epoch` (2,000 DREAM) per epoch, with a one-day
+per-recipient cooldown. The check is `recipientMember.InvitedBy == sender`, a
+relationship written once at member creation and never cleared, so an inviter
+can seed a member at any later point rather than only at invitation time. Tips
+(100 DREAM, 10/epoch) are a second channel and carry no invitee restriction, so
+a third party can top someone up too.
+
+This places trust and exposure with the same party: the invitation stake is
+slashable if the invitee misbehaves, and the same inviter decides how much to
+seed them. Both are that member's judgment.
+
+**Why there is no protocol-wide welcome grant.** A minted grant would replace
+that judgment with a flat entitlement, and the invitation economics cannot price
+it. An invitation costs the inviter `min_invitation_stake` (100 DREAM, returned
+unless slashed) and an irreversible burn of `invitation_stake_burn_rate` (10%,
+so 10 DREAM), escalating by `invitation_cost_multiplier` (1.1x) per invitation.
+A grant larger than that burn makes inviting **net-profitable** and turns the
+invitation system into a DREAM faucet: at 50 DREAM the first ~17 invitations
+from every member each net a profit, roughly +427 DREAM over 20 invites. Any
+future grant must therefore be bounded by the burn — which at 10 DREAM buys ten
+apprentice initiatives and is comfortably covered by the gift channel that
+already exists.
+
 ### Invitation
 
 ```protobuf
@@ -710,7 +756,11 @@ was a hardcoded 1/10 divisor while the project-side
 `project_completion_bonus_rate` was already a parameter — the same economic knob,
 tunable on one side and fixed on the other.
 
-**Completion bonus ordering.** `CompleteInitiative` distributes the conviction-weighted completion bonus (`initiative_completion_bonus_rate`, default 1/10th of budget) *before* the payout loop deletes the stake records — the weighting is derived from `stake.created_at`, so running it afterwards leaves it nothing to weight. The bonus mint is tracked against `MaxInitiativeRewardsPerSeason` alongside the completer and treasury shares. The project-side equivalent (`ProjectCompletionBonusRate`) mints directly to stakers; `ProjectStakeInfo.completion_bonus_pool` is vestigial and stays at zero, since nothing is escrowed.
+**Season cap gate.** `CompleteInitiative` checks `MaxInitiativeRewardsPerSeason` against *every* DREAM the completion will create — completer share, treasury share, the conviction-weighted staker bonus, and the reviewers' fee — not just the first two. All four are freshly minted inside the same function; the last two used to be minted *after* the gate and counted only afterwards, so a completion could be admitted and then mint past the cap it had just cleared, overrunning by up to ~15% of that initiative's budget.
+
+Both added projections are upper bounds and are skipped when the payout cannot happen: the staker bonus is projected only when the initiative has stakes, the review fee only when the round has verdicts. Where they do apply the estimate can still exceed the actual mint, since per-recipient shares truncate and the bonus pays nothing if no external staker holds conviction. The gate is therefore conservative — it can refuse a completion that would have fitted, never admit one that does not. For a cap, that is the correct direction to err.
+
+**Completion bonus ordering.** `CompleteInitiative` distributes the conviction-weighted completion bonus (`initiative_completion_bonus_rate`, default 1/10th of budget) *before* the payout loop deletes the stake records — the weighting is derived from `stake.created_at`, so running it afterwards leaves it nothing to weight. The bonus mint is tracked against `MaxInitiativeRewardsPerSeason` alongside the completer and treasury shares, **and is projected at the cap gate before any minting** — see "Season cap gate" below. The project-side equivalent (`ProjectCompletionBonusRate`) mints directly to stakers; `ProjectStakeInfo.completion_bonus_pool` is vestigial and stays at zero, since nothing is escrowed.
 
 **Staked Decay**: All staked DREAM decays at `StakedDecayRate` (0.05%/epoch, ~18% annualized). This ensures idle stakes erode over time even though the rate is lower than unstaked decay (0.2%/epoch). Active stakers earning from the seasonal pool easily outpace the staked decay, but abandoned stakes are gradually burned.
 
@@ -1062,13 +1112,15 @@ message RoleActivity {
 | `collect_hide` | collect MsgHideContent | yes | 0.01 | yes |
 | `forum_appeal_filed` / `collect_appeal_filed` | appeal messages | no (appeals against the holder are not their work) | — | — |
 
-**Keeper surface**: `RecordRoleAction(role_type, addr, kind)`; `RecordRoleOutcome(role_type, addr, kind, upheld)` (verdict maps + streaks + ring at the current reward epoch + cooldown per the kind table + internal streak demotion); `RoleOverturnCooldownUntil`; `RoleEpochActionCount` (forum's `max_*_per_epoch` caps read this — single source of truth, no module-local counter copies); `GetRoleWindowedAccuracy`; `ResetRoleEpochCounters` (reward-epoch boundaries); `BumpRoleEpochAppealsResolved` (forum flag-dismissals feed the score's sqrt term without an accuracy tick); `GetRoleActivity`.
+**Keeper surface**: `RecordRoleAction(role_type, addr, kind)`; `RecordRoleOutcome(role_type, addr, kind, upheld)` (verdict maps + streaks + ring at the recording role's own reward epoch + cooldown per the kind table + internal streak demotion); `RoleOverturnCooldownUntil`; `RoleEpochActionCount` (forum's `max_*_per_epoch` caps read this — single source of truth, no module-local counter copies); `GetRoleWindowedAccuracy`; `ResetRoleEpochCounters` (reward-epoch boundaries); `BumpRoleEpochAppealsResolved` (forum flag-dismissals feed the score's sqrt term without an accuracy tick); `GetRoleActivity`.
 
 **Consequences of the shared record**:
 - The sentinel reward distribution is fully rep-internal: eligibility gates, cross-surface activity, the Gate 4 appeal rate (`(forum_appeal_filed + collect_appeal_filed) / (forum_hide + collect_hide)`), and windowed accuracy all read RoleActivity. A collect-only moderator is reward-eligible.
 - Overturn streaks and the cooldown span surfaces: losing appeals in collect demotes the same as in forum, and the cooldown blocks new hides on both.
 - Module-local bookkeeping stays home: forum keeps `pending_hide_count`, `unchallenged_hides`, and curation-proposal lifecycle counters in a slim `sparkdream.forum.v1.SentinelActivity`; forum's `get-sentinel-activity` query serves a read-through projection composing both records into the legacy response shape (the projected fields are never persisted in forum state). A role holder who has only acted on other surfaces (no forum-local record) is still served by the single-address `get-sentinel-activity` query via the projection, but does not appear in `list-sentinel-activity`, which paginates forum-local records only.
 - Jury resolution (`MsgResolveGovActionAppeal`) records the verdict on RoleActivity directly and calls forum's narrow `OnSentinelActionResolved` hook for the one forum-local effect (pending-hide decrement).
+- **Escalation markers are genesis state.** `EscalatedReviews` is the only record that a review round is already with the committee — `ReviewEscalation` is reset to `NONE` on escalation — so it is exported and re-imported. Dropping it would re-escalate every open round on the next sweep, extending each deadline by another full committee window, and leave silent escalations with nothing to resolve them to `PASSED`.
+- **The accuracy ring is stamped in the units of the recording role's own reward epoch.** The ring is written when a verdict resolves and read back as a window at distribution time, so the stamp and the window must agree on what an epoch is. Each role with its own reward pool has an independently committee-editable cadence (`sentinel_reward_epoch_blocks`, `reviewer_reward_epoch_blocks`), so deriving the stamp from any one role's dial zeroes another role's pay the moment the two are set apart — the reviewer pool's window would find no in-range verdicts and pay nobody, silently, with no error anywhere. Roles without a pool of their own share the sentinel clock.
 
 ### MemberReport, MemberWarning, GovActionAppeal, JuryParticipation
 
@@ -2053,16 +2105,20 @@ This is the single constraint the reward design cannot trade away.
   with the same cap-and-overflow-burn treatment. This is the quality component —
   the reason to hold the role rather than merely fill it.
 
-> **The SPARK pool needs a funding line that does not exist yet.** The sentinel
-> pool is fed *only* by forfeited appeal bonds, which gives it a perverse
-> property: good moderation means few appeals means an empty pool. For reviewers
-> that is worse — good reviewing means few challenges means no pay, for exactly
-> the expensive expert labour the SPARK component is meant to compensate. A
-> council treasury allocation through x/split is the legitimate SPARK path and
-> should be stood up before the SPARK half is relied on. **Ship the DREAM
-> component first**; a SPARK-only design would leave reviewers working for
-> nothing, the roster empty, and every initiative falling through to the
-> committee.
+> **Funding the SPARK pool.** The pool is fed automatically from the community
+> pool — see [Automatic funding for bonded-role pools](#automatic-funding-for-bonded-role-pools)
+> below. Unlike the sentinel pool, it is deliberately *not* also fed by
+> forfeited bonds: that arrangement has a perverse property even for sentinels,
+> since good moderation means few appeals means an empty pool, and for reviewers
+> it would be worse — good reviewing means few challenges, so the pay would dry
+> up for exactly the expert labour it exists to compensate.
+>
+> `ReviewerRewardPoolAddress()` remains an ordinary bank sub-address, so a
+> council can still top it up with a plain send; automatic funding is a floor,
+> not a monopoly. The DREAM fee also stands alone if the pool is somehow empty:
+> reviewing still pays, so the roster fills and nothing falls through to the
+> committee for want of compensation. An empty pool distributes nothing and is
+> not an error.
 
 Tier scaling is a **score weight within a fixed pool** for the SPARK half, and a
 genuine per-review fee for the DREAM half. Absolute scaling only comes from the
@@ -2130,20 +2186,252 @@ roster is still filling.
 
 ##### What shipped, and what did not
 
-Built: the role and its `BondedRoleConfig` (5,000 DREAM floor, an order of
-magnitude above the sentinel's because the liability is), per-verdict bond
-scaled by `reviewer_bond_reserve_rate`, the completion gate, the round/resubmit
-cycle, the committee escalation with its PASSED-on-silence default, the DREAM
-fee via `review_fee_rate` x the tier multiplier paid on both terminal paths, and
-the accuracy wiring into `RoleActivity` from both challenge directions.
+Both halves are built: the role and its `BondedRoleConfig` (5,000 DREAM floor,
+an order of magnitude above the sentinel's because the liability is), per-verdict
+bond scaled by `reviewer_bond_reserve_rate`, the completion gate, the
+round/resubmit cycle, the committee escalation with its PASSED-on-silence
+default, the DREAM fee via `review_fee_rate` x the tier multiplier paid on both
+terminal paths, the accuracy wiring into `RoleActivity` from both challenge
+directions, and the accuracy-gated SPARK pool below.
 
-**Not built: the SPARK half.** The sentinel pool it would copy is fed only by
-forfeited appeal bonds, which means good reviewing produces few challenges
-produces an empty pool — the wrong shape for the expensive expert labour the
-SPARK component exists to compensate. It needs a council treasury allocation
-through x/split first. The DREAM component is self-funding and ships alone, so
-the role is viable from day one; SPARK is the quality bonus to add once there is
-a line to fund it.
+##### The SPARK pool
+
+Paid on `reviewer_reward_epoch_blocks`, weighted by windowed accuracy against
+the square root of decided verdicts, to reviewers at `NORMAL` status clearing
+`min_reviewer_accuracy` (0.70) over `reviewer_accuracy_window_epochs`. Capped at
+`max_reviewer_reward_pool`, with `reviewer_reward_pool_overflow_burn_ratio` of
+the excess burned each epoch so an over-funded pool cannot become a standing
+prize worth farming.
+
+Every knob is separate from the sentinel equivalent, and the pools are separate
+bank sub-addresses. That is the same reasoning that made this a distinct role
+type: a wrong approval mints DREAM that cannot be clawed back, where a wrong
+hide costs a post some visibility, so neither role may draw on the other's funds
+or be tuned by the other's bar.
+
+**A reviewer with no contested verdict in the window earns nothing here.**
+Unchallenged work is not evidence of accuracy, and counting it would pay most
+for reviewing whatever nobody bothers to challenge — the DREAM fee already
+covers turning up.
+
+##### Automatic funding for bonded-role pools
+
+Bonded-role pay does not depend on anyone remembering to send SPARK. In
+`BeginBlock`, x/rep takes **one** capped claim on the community pool and divides
+it across every bonded-role reward pool, in the same way x/shield funds its gas
+reserve.
+
+Pay that arrives only when a committee schedules a transfer arrives
+unpredictably, and unpredictable pay does not hold a roster. That matters most
+for initiative reviewers, who became load-bearing for completion when the
+staker veto was retired — a review gate nobody staffs is a stalled queue, and
+routing the shortfall to committee arbitration converts a funding failure into
+governance work.
+
+**Which pools.** Content sentinel, initiative reviewer and collect curator.
+Federation verifiers are deliberately excluded: they already have a working
+reward mechanism of their own — a flat DREAM mint per epoch under a global cap,
+run by federation's own EndBlocker — and adding a SPARK share on top would pay
+the role twice. Converting them is a separate decision.
+
+Caps set the relative share, since the division is headroom-proportional and all
+three pools drain on roughly the same cadence: reviewer 150,000 SPARK against
+100,000 each for sentinel and curator. Reviewers are paid ~1.5x because a wrong
+approval mints DREAM that cannot be clawed back, where a wrong hide or a wrong
+rating costs some visibility. Sentinel and curator are equal because hiding a
+post and rating a collection are comparable calls on comparable evidence.
+
+**One intake, divided internally.** The skim lands in `RoleRewardIntakeAddress()`
+and is immediately placed into the per-role pools, so the community pool sees a
+single auditable claim from this module regardless of how many roles exist. The
+intake holds no balance between blocks; it is a conduit, not an account.
+
+**The division is proportional to headroom** — each pool's `max(0, cap −
+balance)` against the total. This needs no per-role funding parameter: a pool
+already at its cap draws nothing, so an idle role costs the community pool
+nothing, and adding a fourth bonded role means adding it to `fundedRolePools`
+and no new parameter anywhere. The last pool in the division takes the
+remainder, so integer truncation cannot strand dust in the intake.
+
+**Bounds.** The draw per UTC day is capped by a **share of inflation** rather
+than a fixed amount:
+
+```
+daily_allowance = annual_provisions * community_tax * role_reward_inflation_share / 365
+```
+
+Default share 0.5 — half the community pool's inflation income. A fixed nominal
+draw takes its *largest* share of the pool exactly when the pool is *poorest*:
+inflation floats between 2% and 5%, so on a 100M supply the pool takes in
+822–2,055 SPARK/day, and a constant 1,000/day would be 49% of that at the top of
+the range and 122% at the bottom. Since x/rep skims before x/split, at the bottom
+the councils would get nothing. A share is counter-cyclical — it takes less when
+there is less — so the councils' remainder is structural rather than residual.
+It also tracks supply growth without anyone periodically retuning a number.
+
+**The base is the inflation rate, not the community pool balance.** The balance
+holds the 95M SPARK genesis allocation that x/split exists to hand to the
+councils, plus any direct `fund-community-pool` deposit; neither is income, and
+a share of the balance would raid both. `annual_provisions` also comes from
+x/mint, whose authority is the burn address — so the funding rate is anchored to
+a number no committee or proposal can move, which is a stronger guarantee than
+the previous committee-editable absolute amount.
+
+The draw is additionally bounded by total pool headroom and by the community
+pool's actual balance — the latter because a draw larger than the pool would
+fail `DistributeFromFeePool` and, in `BeginBlock`, take the block with it. The
+day ledger persists in state, so the allowance bounds a day rather than a block
+and cannot be reset by producing more blocks. Setting the share to zero disables
+automatic funding entirely; a share above 1 is rejected by validation, since it
+would mean intending to leave the councils nothing.
+
+A funding failure is logged, never returned: it must not be able to halt the
+chain. A failed draw also does not consume the day's allowance, so a transient
+distribution error costs a block of funding rather than a day of it.
+
+The placement step sweeps the intake's whole balance rather than only the block's
+draw, so SPARK left behind by a placement that failed on an earlier block is
+picked up on the next one instead of being stranded.
+
+The day ledger is exported and re-imported with genesis. Without that, an
+export/import round-trip hands the chain a fresh allowance, and the daily cap
+would bound a day only until the next export.
+
+**Ordering.** x/rep runs before x/split in `BeginBlockers`, alongside x/shield.
+x/split distributes whatever remains in the community pool to the councils in
+full, so a module that skims must skim first or find an empty pool.
+
+##### The completion gate
+
+Above `review_required_above_budget` (default 100 DREAM — the APPRENTICE
+ceiling) an initiative cannot complete without at least one reviewer verdict,
+whatever its parent project's policy says.
+
+The gate keys on **how much the completion mints**, not on whether the project
+is budget-backed. A permissionless initiative mints against a self-declared
+number with no treasury behind it, capped only by tier, so the funded/unfunded
+axis gets the risk ordering backwards: the mode with no council vouching for it
+was the one with no mandatory review. Mint size is the figure that matters and
+it exists on both paths. Apprentice work stays exempt because it is small and it
+is the on-ramp where reviewer scarcity would hurt newcomers most.
+
+`RequiredVerifiersFor` takes the **maximum** of two sources read differently.
+The per-project policy comes from the initiative's snapshot, because the project
+creator owns that policy and — for self-assigned work — is also the party the
+gate constrains; read live, they could switch it off over work already
+submitted. The chain-wide threshold is read **live**, because its setter is
+governance or the Operations Committee rather than the constrained party, and
+snapshotting it would mean a committee raising the threshold in response to a
+farm in progress could not touch anything already submitted. Taking the max
+means neither source can be used to weaken the other.
+
+**Silence rejects the round rather than passing it.** An escalation that reaches
+its deadline with no verdict and no committee decision used to resolve to
+PASSED, which made the gate advisory for anyone patient enough: wait out the
+reviewers, wait out the committee, mint. It now calls `rejectReviewRound` — the
+assignee resubmits and gets another window, and when `max_review_rounds` is
+exhausted the initiative is abandoned cleanly, budget returned and nothing
+minted. Silence must never mint; it must also never wedge, which is why the
+terminal state is abandonment rather than an indefinite hold.
+
+**Reading the gate.** Three queries cover state that would otherwise be
+write-only. `initiative-reviews [id]` returns **every** round's verdicts plus
+`approvals`, `required` and `satisfied` for the current one — `satisfied` is
+reported rather than left to the caller because `approvals >= required` is not
+the whole rule: a committee escalation can settle the gate on its own.
+
+> It takes no round selector on purpose. The house convention for an optional
+> numeric filter is a plain field where zero means unset
+> (`QueryPostsRequest.category_id`, `QuerySeasonStatsRequest.season`,
+> `QueryShieldRequest.epoch`), which is safe in those domains because none of
+> them has a valid zero. Review rounds number from 0, so the same convention
+> would make the first round unaddressable — and the first round is exactly what
+> someone wants to read after a bounce. `max_review_rounds` bounds the set at 3,
+> so returning all of them costs nothing and keeps the convention intact rather
+> than carving out an exception for one message. `review-bounty [id]`
+returns the escrow and, per contribution, the height at which it matures and
+whether it is reclaimable *now*; that flag folds in the committed check, so it
+never tells a funder they can withdraw something the handler will refuse.
+`escalated-reviews` lists the committee's queue — escalation lives in its own
+set because `ReviewEscalation` is reset to `NONE` when a round escalates, so it
+cannot be derived from the initiative and the committee would otherwise have no
+way to find the decisions waiting on it.
+
+**Initiatives that come under the gate late are adopted, not stranded.** An
+initiative submitted while ungated has `ReviewDeadline == 0`. Once the threshold
+moves under its budget it can no longer complete, and the escalation sweep would
+have skipped it forever for want of a deadline — leaving it unable to pass,
+bounce or abandon. The sweep therefore opens a review window for any gated
+initiative with no deadline, so it gets a full window under the rules that now
+apply rather than one that expired before anyone knew of it.
+
+##### Review bounties
+
+```protobuf
+message ReviewBounty {
+  uint64 initiative_id = 1;
+  // Total DREAM currently escrowed and unpaid.
+  string amount = 2;
+  // Per-funder contributions, so a reclaim or an end-without-verdict refund
+  // returns each funder's own DREAM rather than a pro-rata approximation.
+  repeated ReviewBountyContribution contributions = 3;
+  // True once any verdict has been filed. Reclaim is barred from that point.
+  bool committed = 4;
+}
+
+message ReviewBountyContribution {
+  string funder = 1;
+  string amount = 2;
+  int64 funded_at = 3;  // block height, for the reclaim delay
+}
+```
+
+
+`MsgFundReviewBounty` escrows DREAM against one initiative to bid reviewer
+attention toward it; `MsgReclaimReviewBounty` withdraws an unpaid contribution.
+Anyone may fund and contributions are additive — the amount should express how
+much the work matters to the people who want it checked, not what one person can
+spare.
+
+Payment is **per verdict filed**, split across the resolving round's reviewers,
+exactly like the DREAM fee. A bounty released on successful completion would be
+a bribe to approve with extra steps.
+
+Two rules keep funding honest in the other direction. Reclaim requires
+`review_bounty_reclaim_delay` blocks, so advertising a bounty and pulling it in
+the same breath is not free. And reclaim is barred outright from the moment any
+verdict is filed: reviewers commit bond and do the reading on the strength of
+what was advertised, so a later withdrawal would waste their collateral. An
+initiative that ends with no verdict refunds every contribution rather than
+forfeiting it — funding must not be a gamble on someone else's behaviour.
+
+DREAM lives on the member record rather than in bank, so the escrow is a lock on
+the funder's own balance plus the claim recorded against it, the same shape as a
+challenge stake. Payout draws the total down from the funders and mints the same
+amount to the reviewers: supply is unchanged, and it never routes through the
+transfer tax, which exists to throttle peer-to-peer gifting rather than to skim
+earned pay.
+
+**Gated permissionless initiatives must escrow a minimum** —
+`permissionless_min_review_bounty_rate` (default 10%) of budget, in existing
+DREAM, at creation.
+
+The charge tracks the gate: it applies only when the budget exceeds
+`review_required_above_budget`. The bounty pays for *mandatory* review, so
+charging it where no review is required would take DREAM for a service that is
+never delivered. Since the threshold equals the APPRENTICE ceiling, apprentice
+work carries no bounty at all — which matters because that tier is the on-ramp,
+reachable at `PROVISIONAL`, and members join holding **zero** DREAM
+(`Member.DreamBalance` starts at zero on invitation accept). An unconditional
+charge would have made a newcomer'"'"'s first initiative cost 11x its 1 DREAM
+creation fee for a review that could never happen. Their review fee is minted like everything else about them,
+so without this the reviewers of permissionless work are funded purely by
+dilution — precisely the outcome the funded path's budget-netting exists to
+prevent. A creator-funded bounty prices that attention onto whoever consumes it,
+is non-inflationary because it moves DREAM that already exists, and scales the
+spam brake with the amount being minted instead of leaving it at a flat creation
+fee. It fails creation outright if the creator cannot cover it: the brake is
+meant to bite when the work is commissioned, not to be discovered later.
 
 ##### What this retires
 
@@ -2650,10 +2938,47 @@ Sentinels (forum moderators registered via `MsgBondRole` with `role_type = ROLE_
 
 ### Reward Pool (SPARK)
 
-- Lives in the x/rep module account, denominated in `uspark`.
+- Lives at `SentinelRewardPoolAddress()` — a derived sub-address owned by x/rep,
+  denominated in `uspark`. **Not the x/rep module account**, which it used to be:
+  the pool moved to a sub-address so it could not be confused with the DREAM
+  escrow and burn traffic sharing that account. Nothing reads the module
+  account's SPARK balance, so anything sent there is stranded rather than
+  pooled.
+- **Contributions go through `AddToSentinelRewardPool`, never a direct send to
+  the address.** Cross-module callers must not name the pool address at all.
+  When the pool moved, x/forum's spam tax kept targeting the old destination and
+  the money silently stopped arriving — for the length of a refactor, sentinels
+  were underpaid by exactly what forum users had paid to reward them, with no
+  error anywhere. Routing through the keeper method keeps the address x/rep's to
+  change.
 - **Funding sources:**
   - 50% of forum non-member spam taxes and edit fees — `spam_tax`, `reaction_spam_tax`, `flag_spam_tax`, `edit_fee`. The other 50% is burned.
   - 50% of appeal bonds on `UPHELD` verdicts (see "Appeal Resolution"). Other 50% burned.
+  - Its share of the automatic community-pool draw — see [Automatic funding for bonded-role pools](#automatic-funding-for-bonded-role-pools).
+
+### Curator Reward Pool (SPARK)
+
+Held at `CuratorRewardPoolAddress()`, capped by `max_curator_reward_pool`
+(100,000 SPARK — equal to the sentinel pool), distributed every
+`curator_reward_epoch_blocks` to bonded curators at `NORMAL` clearing
+`min_curator_accuracy` over `curator_accuracy_window_epochs`, weighted by
+accuracy against the square root of decided ratings. Overflow above the cap is
+partially burned per `curator_reward_pool_overflow_burn_ratio`.
+
+Its only funding source is the automatic community-pool draw.
+
+**Why it exists.** Before it, the curator role was pure downside: a curator
+posted a slashable DREAM bond, earned nothing for rating a collection, and on
+*winning* a challenge got back only their own committed bond while the
+challenger's deposit was burned. The single economic signal attached to the role
+was punishment, which does not staff expert judgment work.
+
+**Accuracy comes from x/collect**, which reports challenge outcomes on both
+branches of `ResolveChallengeResult` into the shared `RoleActivity` under
+`collect_curation`. Reporting only the overturned side would make every curator
+read as 0% accurate and the pool would pay nobody. collect keeps its own
+`CuratorActivity` counters for its local demotion streak; the pool reads the
+shared record, the same split as forum's sentinel bookkeeping.
 - **Cap:** `max_sentinel_reward_pool` (default 100,000 SPARK). Overflow is partially burned per `sentinel_reward_pool_overflow_burn_ratio` (default 50%) each block by the rep EndBlocker.
 
 ### Epoch Distribution
@@ -3342,8 +3667,32 @@ var DefaultParams = Params{
     // Author bond staking (set MaxAuthorBondPerContent to 0 to disable)
     MaxAuthorBondPerContent:            math.NewInt(1_000_000_000),  // 1000 DREAM per content item
     AuthorBondSlashOnModeration:        true,                        // slash bond if content is moderated/removed
+
+    // Initiative review: the gate, the reviewers' pay, and the bounties that
+    // fund attention on the work that needs it.
+    ReviewRequiredAboveBudget:          math.NewInt(100_000_000),    // 100 DREAM — the APPRENTICE ceiling
+    ReviewerBondReserveRate:            math.LegacyNewDecWithPrec(1, 1),  // 10% of budget, committed per verdict
+    ReviewFeeRate:                      math.LegacyNewDecWithPrec(5, 2),  // 5% of budget, x tier multiplier
+    MaxReviewRounds:                    3,                           // last rejection abandons
+    ReviewBountyReclaimDelay:           14400,                       // ~1 day before a funder may reclaim
+    PermissionlessMinReviewBountyRate:  math.LegacyNewDecWithPrec(1, 1),  // 10% of budget, in existing DREAM
+
+    // Bonded-role SPARK pools. Caps set the relative share, since the daily
+    // draw is divided in proportion to each pool's headroom.
+    MaxSentinelRewardPool:              math.NewInt(100_000_000_000), // 100,000 SPARK
+    MaxCuratorRewardPool:               math.NewInt(100_000_000_000), // 100,000 SPARK — equal to sentinel
+    MaxReviewerRewardPool:              math.NewInt(150_000_000_000), // 150,000 SPARK — 1.5x the others
+    RoleRewardInflationShare:           math.LegacyNewDecWithPrec(5, 1), // 0.5 of the pool's inflation income
+    MinSentinelAccuracy:                math.LegacyNewDecWithPrec(70, 2), // 0.70
+    MinCuratorAccuracy:                 math.LegacyNewDecWithPrec(70, 2), // 0.70
+    MinReviewerAccuracy:                math.LegacyNewDecWithPrec(70, 2), // 0.70
 }
 ```
+
+> The block above is illustrative rather than exhaustive — `Params` carries 118
+> fields and `DefaultParams()` in
+> [x/rep/types/params.go](../x/rep/types/params.go) is the source of truth. Only
+> the economically load-bearing dials are reproduced here.
 
 ## RepOperationalParams
 

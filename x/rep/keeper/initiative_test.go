@@ -10,6 +10,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/stretchr/testify/require"
 
+	repkeeper "sparkdream/x/rep/keeper"
 	"sparkdream/x/rep/types"
 )
 
@@ -502,6 +503,110 @@ func TestCompleteInitiative(t *testing.T) {
 	advanceToCompletable(t, k, ctx, initID)
 	err = k.CompleteInitiative(ctx, initID)
 	require.NoError(t, err)
+}
+
+// newCompletableInitiativeForCap builds a completable initiative with the given
+// budget. `withStake` controls whether an external staker exists, which is what
+// decides whether a completion bonus is possible at all.
+func newCompletableInitiativeForCap(t *testing.T, k repkeeper.Keeper, ctx sdk.Context, budget math.Int, suffix string) uint64 {
+	t.Helper()
+	return buildCompletableInitiative(t, k, ctx, budget, suffix, false)
+}
+
+func buildCompletableInitiative(t *testing.T, k repkeeper.Keeper, ctx sdk.Context, budget math.Int, suffix string, withStake bool) uint64 {
+	t.Helper()
+	mk := func(prefix, rep string, trust types.TrustLevel, bal math.Int) sdk.AccAddress {
+		addr := sdk.AccAddress([]byte(prefix + suffix))
+		require.NoError(t, k.Member.Set(ctx, addr.String(), types.Member{
+			Address: addr.String(), DreamBalance: PtrInt(bal),
+			StakedDream: PtrInt(math.ZeroInt()), LifetimeEarned: PtrInt(math.ZeroInt()),
+			LifetimeBurned:   PtrInt(math.ZeroInt()),
+			ReputationScores: map[string]string{"backend": rep}, TrustLevel: trust,
+		}))
+		return addr
+	}
+	creator := mk("creator", "50.0", types.TrustLevel_TRUST_LEVEL_NEW, math.ZeroInt())
+	assignee := mk("assignee", "100.0", types.TrustLevel_TRUST_LEVEL_ESTABLISHED, math.ZeroInt())
+
+	projID, err := k.CreateProject(ctx, creator, "P"+suffix, "D", []string{"backend"},
+		types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical", math.NewInt(100000), math.NewInt(1000), false)
+	require.NoError(t, err)
+	require.NoError(t, k.ApproveProject(ctx, projID, sdk.AccAddress([]byte("approver")), math.NewInt(100000), math.NewInt(1000)))
+	initID, err := k.CreateInitiative(ctx, creator, projID, "T"+suffix, "D", []string{"backend"},
+		types.InitiativeTier_INITIATIVE_TIER_APPRENTICE, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, budget)
+	require.NoError(t, err)
+	require.NoError(t, k.AssignInitiativeToMember(ctx, initID, assignee))
+	require.NoError(t, k.SubmitInitiativeWork(ctx, initID, assignee, "deliverable"))
+
+	if withStake {
+		staker := mk("staker", "100.0", types.TrustLevel_TRUST_LEVEL_NEW, math.NewInt(100000))
+		_, sErr := k.CreateStake(ctx, staker, types.StakeTargetType_STAKE_TARGET_INITIATIVE, initID, "", math.NewInt(10000))
+		require.NoError(t, sErr)
+	}
+
+	init, err := k.GetInitiative(ctx, initID)
+	require.NoError(t, err)
+	init.CurrentConviction = PtrDec(DerefDec(init.RequiredConviction).Mul(math.LegacyNewDec(3)))
+	init.ExternalConviction = PtrDec(DerefDec(init.RequiredConviction).Mul(math.LegacyNewDec(3)))
+	require.NoError(t, k.UpdateInitiative(ctx, init))
+	advanceToCompletable(t, k, ctx, initID)
+	return initID
+}
+
+// The season cap gate has to cover every DREAM a completion will create, not
+// just the completer and treasury shares. The staker bonus and the reviewers'
+// fee are minted further down the same function and counted afterwards, so a
+// gate that ignored them would admit a completion and then mint past the cap it
+// had just checked — overrunning by up to ~15% of the last budget through the
+// door.
+func TestSeasonCapGateCountsStakerBonusAndReviewFees(t *testing.T) {
+	fixture := initFixture(t)
+	k := fixture.keeper
+	ctx := fixture.ctx
+
+	// Cap sits between the completer+treasury mint (100) and the full projected
+	// mint including the 10% staker bonus (110). A gate that counts only the
+	// first pair admits this completion; one that counts everything refuses it.
+	params, _ := k.Params.Get(ctx)
+	params.MaxInitiativeRewardsPerSeason = math.NewInt(105)
+	k.Params.Set(ctx, params)
+	k.InitSeasonalPool(ctx, 1)
+
+	initID := buildCompletableInitiative(t, k, ctx, math.NewInt(100), "_capgate", true)
+
+	err := k.CompleteInitiative(ctx, initID)
+	require.Error(t, err, "a completion whose full mint exceeds the cap must be refused")
+	require.ErrorIs(t, err, types.ErrInitiativeRewardCapReached)
+	require.Contains(t, err.Error(), "staker bonus",
+		"the error should name the components so an operator can see why it was refused")
+
+	// Nothing minted, so the counter is untouched.
+	minted, mErr := k.GetSeasonInitiativeRewardsMinted(ctx)
+	require.NoError(t, mErr)
+	require.True(t, minted.IsZero())
+}
+
+// An initiative with no stakes cannot pay a bonus, so the gate must not charge
+// for one -- over-projecting there would refuse completions near the cap for a
+// payout that was never going to happen.
+func TestSeasonCapGateDoesNotChargeForAnAbsentBonus(t *testing.T) {
+	fixture := initFixture(t)
+	k := fixture.keeper
+	ctx := fixture.ctx
+
+	params, _ := k.Params.Get(ctx)
+	params.MaxInitiativeRewardsPerSeason = math.NewInt(105)
+	k.Params.Set(ctx, params)
+	k.InitSeasonalPool(ctx, 1)
+
+	initID := newCompletableInitiativeForCap(t, k, ctx, math.NewInt(100), "_nostake")
+	// Same budget as the test above, but no stake was placed.
+	hasStakes, err := k.InitiativeHasStakes(ctx, initID)
+	require.NoError(t, err)
+	require.False(t, hasStakes)
+
+	require.NoError(t, k.CompleteInitiative(ctx, initID),
+		"100 of mint under a 105 cap must be admitted when no bonus is possible")
 }
 
 func TestSeasonInitiativeRewardsCap(t *testing.T) {

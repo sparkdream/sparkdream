@@ -5,16 +5,23 @@ import (
 
 	errorsmod "cosmossdk.io/errors"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 
 	"sparkdream/x/forum/types"
-	reptypes "sparkdream/x/rep/types"
 )
 
 // distributeSpamTax splits coins already held by the forum module account
-// 50/50 between a burn and a transfer to the x/rep module account (which
-// acts as the sentinel reward pool). Any odd-amount rounding remainder is
-// burned (the larger half is burned). Very small amounts (< 2 smallest units
-// per denom) are burned in full.
+// 50/50 between a burn and a transfer to x/rep's sentinel reward pool. Any
+// odd-amount rounding remainder is burned (the larger half is burned). Very
+// small amounts (< 2 smallest units per denom) are burned in full.
+//
+// The pool share goes through repKeeper.AddToSentinelRewardPool rather than a
+// module-to-module send. It used to be the latter, back when the pool WAS the
+// rep module account's SPARK balance; when x/rep moved the pool to a derived
+// sub-address, this send kept targeting the module account and the money
+// stopped arriving. Nothing reads that account's SPARK balance, so it
+// accumulated there unnoticed and sentinels were underpaid by exactly the
+// amount forum users had paid to reward them.
 //
 // 50/50 split; param promotion deferred (Stage B hardcodes the ratio).
 //
@@ -29,6 +36,12 @@ func (k Keeper) distributeSpamTax(ctx context.Context, coins sdk.Coins, source s
 		return nil
 	}
 
+	// The sentinel reward pool holds the bond denom only, so the denom
+	// decision belongs here, in the split: a non-bond denom (which no current
+	// call site produces) is burned in full rather than half-routed to a pool
+	// that cannot hold it.
+	bondDenom := k.BondDenom(ctx)
+
 	var (
 		burnCoins sdk.Coins
 		poolCoins sdk.Coins
@@ -36,6 +49,10 @@ func (k Keeper) distributeSpamTax(ctx context.Context, coins sdk.Coins, source s
 
 	for _, c := range coins {
 		if !c.Amount.IsPositive() {
+			continue
+		}
+		if c.Denom != bondDenom {
+			burnCoins = burnCoins.Add(c)
 			continue
 		}
 		// QuoRaw(2) truncates. Odd amounts → pool gets the smaller half
@@ -51,10 +68,11 @@ func (k Keeper) distributeSpamTax(ctx context.Context, coins sdk.Coins, source s
 		}
 	}
 
-	// Transfer pool share to x/rep module account (sentinel reward pool).
-	if !poolCoins.IsZero() {
-		if err := k.bankKeeper.SendCoinsFromModuleToModule(ctx, types.ModuleName, reptypes.ModuleName, poolCoins); err != nil {
-			return errorsmod.Wrap(err, "failed to transfer spam tax to reward pool")
+	// Move the pool share into x/rep's sentinel reward pool.
+	for _, c := range poolCoins {
+		if err := k.repKeeper.AddToSentinelRewardPool(
+			ctx, authtypes.NewModuleAddress(types.ModuleName), c.Amount); err != nil {
+			return errorsmod.Wrap(err, "failed to transfer spam tax to sentinel reward pool")
 		}
 	}
 
@@ -74,7 +92,7 @@ func (k Keeper) distributeSpamTax(ctx context.Context, coins sdk.Coins, source s
 			sdk.NewAttribute("total", coins.String()),
 			sdk.NewAttribute("burned", burnCoins.String()),
 			sdk.NewAttribute("pooled", poolCoins.String()),
-			sdk.NewAttribute("pool_module", reptypes.ModuleName),
+			sdk.NewAttribute("pool_denom", bondDenom),
 		),
 	)
 

@@ -6,6 +6,7 @@ import (
 	"sparkdream/x/rep/types"
 
 	"cosmossdk.io/collections"
+	"cosmossdk.io/math"
 )
 
 // InitGenesis initializes the module's state from a provided genesis state.
@@ -222,6 +223,31 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 			return err
 		}
 	}
+	// EscalatedReviews is the only marker for "already with the committee" —
+	// ReviewEscalation is reset to NONE when a round escalates — so an import
+	// that drops it re-escalates every open round and extends its deadline
+	// again, and leaves silent escalations with nothing to resolve them.
+	for _, id := range genState.EscalatedReviewList {
+		if err := k.EscalatedReviews.Set(ctx, id); err != nil {
+			return err
+		}
+	}
+	// Without the day ledger an import hands the chain a fresh daily allowance,
+	// so role_reward_daily_funding would bound a day only until the next export.
+	for _, b := range genState.ReviewBountyList {
+		if err := k.ReviewBounty.Set(ctx, b.InitiativeId, b); err != nil {
+			return err
+		}
+	}
+	for _, df := range genState.RoleRewardDayFundingList {
+		amount := df.AmountFunded
+		if amount.IsNil() {
+			amount = math.ZeroInt()
+		}
+		if err := k.RoleRewardDayFunding.Set(ctx, df.Day, amount.String()); err != nil {
+			return err
+		}
+	}
 
 	// If there are members, trigger a full trust tree rebuild on next EndBlock.
 	// The tree is derived state (not exported in genesis) and will be populated
@@ -363,6 +389,32 @@ func (k Keeper) ExportGenesis(ctx context.Context) (*types.GenesisState, error) 
 	}
 	err = k.InitiativeReview.Walk(ctx, nil, func(_ collections.Triple[uint64, uint32, string], elem types.InitiativeReview) (bool, error) {
 		genesis.InitiativeReviewList = append(genesis.InitiativeReviewList, elem)
+		return false, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	err = k.EscalatedReviews.Walk(ctx, nil, func(id uint64) (bool, error) {
+		genesis.EscalatedReviewList = append(genesis.EscalatedReviewList, id)
+		return false, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	err = k.ReviewBounty.Walk(ctx, nil, func(_ uint64, b types.ReviewBounty) (bool, error) {
+		genesis.ReviewBountyList = append(genesis.ReviewBountyList, b)
+		return false, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	err = k.RoleRewardDayFunding.Walk(ctx, nil, func(day uint64, raw string) (bool, error) {
+		amount, ok := math.NewIntFromString(raw)
+		if !ok {
+			amount = math.ZeroInt()
+		}
+		genesis.RoleRewardDayFundingList = append(genesis.RoleRewardDayFundingList,
+			types.RoleRewardDayFunding{Day: day, AmountFunded: amount})
 		return false, nil
 	})
 	if err != nil {

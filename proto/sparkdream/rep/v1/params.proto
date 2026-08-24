@@ -469,7 +469,6 @@ message Params {
   // Must be >= 1. Default 2.
   int64 self_assigned_challenge_multiplier = 94;
 
-
   // Bond rate applied instead of self_assigned_bond_rate when the initiative
   // is self-assigned under a permissionless project. Higher because the two
   // cases expose the commons differently: a budget-backed initiative MOVES
@@ -600,6 +599,139 @@ message Params {
   // and resubmit, which is the right remedy for "not done" — but unbounded it
   // lets a bad-faith assignee burn reviewer effort indefinitely. Default 3.
   uint32 max_review_rounds = 106;
+  // SPARK reward pool for initiative reviewers, mirroring the sentinel pool but
+  // held and tuned separately.
+  //
+  // The DREAM review fee pays for the act of reviewing; this pays for reviewing
+  // *well*, gated on windowed accuracy the same way sentinel pay is. Separate
+  // knobs because the liability differs by orders of magnitude: a wrong
+  // approval mints DREAM that cannot be clawed back, where a wrong hide costs a
+  // post some visibility.
+  //
+  // The pool is an ordinary bank sub-address, so a council policy funds it with
+  // a plain send.
+  string max_reviewer_reward_pool = 107 [ // Upper cap (uspark). Excess burned at the ratio below. Default 100,000 SPARK.
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  string reviewer_reward_pool_overflow_burn_ratio = 108 [ // Fraction of overflow burned per epoch. Default 0.5.
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+  uint64 reviewer_reward_epoch_blocks = 109; // Distribution cadence. Default 14400 (~1 day).
+  string min_reviewer_accuracy = 110 [ // Minimum windowed accuracy to earn a share. Default 0.70.
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+  uint64 reviewer_accuracy_window_epochs = 111; // Epochs of history the accuracy ring scores. Default 6.
+  // Ceiling on the uspark x/rep may draw from the community pool per UTC day to
+  // fund its bonded-role reward pools.
+  //
+  // One capped claim on the community pool for the whole module, divided
+  // internally by headroom — adding a fourth bonded role must not mean adding a
+  // fourth funding line. The skim tops pools up toward their own caps and stops
+  // there, so an idle role costs the community pool nothing.
+  //
+  // Funding is automatic rather than by council transfer because pay that
+  // depends on somebody remembering to send it arrives unpredictably, and
+  // unpredictable pay does not hold a roster.
+  //
+  // Expressed as a SHARE OF INFLATION rather than an absolute daily amount:
+  //
+  //   daily_allowance = annual_provisions * community_tax * share / 365
+  //
+  // A fixed nominal draw takes its largest share of the community pool exactly
+  // when the pool is poorest — inflation floats 2–5%, so a constant amount is
+  // half the pool's income at the top of that range and more than all of it at
+  // the bottom, and x/rep skims before x/split. A share is counter-cyclical:
+  // it takes less when there is less, so the councils' remainder is structural
+  // rather than whatever happens to be left over. It also tracks supply growth
+  // without periodic retuning.
+  //
+  // The base is inflation, NOT the community pool balance. A share of the
+  // balance would let x/rep raid the 95M SPARK genesis allocation that x/split
+  // exists to hand to the councils, and would take a cut of every direct
+  // fund-community-pool deposit. annual_provisions is also set by x/mint, whose
+  // authority is the burn address — so this rate is anchored to a number no
+  // committee or proposal can move.
+  //
+  // Default 0.5 (half the community pool's inflation income); zero disables the
+  // skim, leaving the pools to forfeited bonds and direct sends.
+  string role_reward_inflation_share = 112 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+
+  // Curator SPARK pool. Same shape and cadence as the sentinel pool above and
+  // sized to match it: curating a collection rating and hiding a post are
+  // comparable judgment calls with comparable liability. Kept as separate
+  // params (and a separate pool) anyway, so neither role can draw on the
+  // other's funds or be retuned by the other's bar.
+  string max_curator_reward_pool = 113 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  string curator_reward_pool_overflow_burn_ratio = 114 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+  uint64 curator_reward_epoch_blocks = 115;
+  string min_curator_accuracy = 116 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+  uint64 curator_accuracy_window_epochs = 117;
+
+  // Budget above which an initiative cannot complete without at least one
+  // reviewer verdict, regardless of the parent project's verification policy.
+  //
+  // The gate keys on how much DREAM the completion CREATES, not on whether the
+  // project is budget-backed. Permissionless initiatives mint against a
+  // self-declared budget with no treasury behind it, capped only by tier — so
+  // the funded/unfunded axis gets the risk ordering backwards. Mint size is the
+  // number that actually matters and it exists on both paths.
+  //
+  // Default 100 DREAM, the APPRENTICE ceiling: apprentice work stays exempt
+  // because it is small and it is the on-ramp where reviewer scarcity would
+  // hurt newcomers most, while every permissionless STANDARD initiative — the
+  // whole farming vector — is gated.
+  //
+  // Composes with the per-project policy as a MAXIMUM, never a replacement: a
+  // project may demand more verifiers than this, never fewer. Zero disables the
+  // chain-wide gate and leaves review entirely to project policy.
+  string review_required_above_budget = 118 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+
+  // Blocks a review bounty must sit before its funder may reclaim it. Stops a
+  // funder advertising a bounty and withdrawing it in the same breath, which
+  // would let anyone grief the reviewer roster at zero cost. Reclaim is barred
+  // outright once any verdict is filed, regardless of this delay.
+  uint64 review_bounty_reclaim_delay = 119;
+
+  // Minimum review bounty a PERMISSIONLESS initiative must escrow at creation,
+  // as a fraction of its budget, paid in existing DREAM.
+  //
+  // Permissionless initiatives mint against a self-declared budget with no
+  // treasury behind them, and their review fee is minted too — so reviewers of
+  // permissionless work are currently paid purely by dilution, the very thing
+  // the funded path's budget-netting exists to avoid. A creator-funded bounty
+  // prices that reviewer attention onto whoever consumes it, is non-inflationary
+  // because it moves existing DREAM, and scales the spam brake with the amount
+  // being minted instead of a flat creation fee.
+  //
+  // Charged ONLY when the budget exceeds review_required_above_budget: the
+  // bounty funds mandatory review, so below the gate it would take DREAM for a
+  // service that is never delivered. That keeps apprentice work — the on-ramp,
+  // where members arrive holding zero DREAM — free of it. Zero disables the
+  // requirement entirely.
+  string permissionless_min_review_bounty_rate = 120 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
 }
 
 // RepOperationalParams defines the operational parameters that can be updated
@@ -961,4 +1093,52 @@ message RepOperationalParams {
   ];
   // Mirrors max_review_rounds in Params.
   uint32 max_review_rounds = 86;
+  // Mirrors the reviewer reward pool knobs in Params.
+  string max_reviewer_reward_pool = 87 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  string reviewer_reward_pool_overflow_burn_ratio = 88 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+  uint64 reviewer_reward_epoch_blocks = 89;
+  string min_reviewer_accuracy = 90 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+  uint64 reviewer_accuracy_window_epochs = 91;
+  // Mirrors role_reward_inflation_share in Params.
+  string role_reward_inflation_share = 92 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+
+  // Mirrors the curator SPARK pool params in Params.
+  string max_curator_reward_pool = 93 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  string curator_reward_pool_overflow_burn_ratio = 94 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+  uint64 curator_reward_epoch_blocks = 95;
+  string min_curator_accuracy = 96 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+  uint64 curator_accuracy_window_epochs = 97;
+  // Mirrors review_required_above_budget in Params.
+  string review_required_above_budget = 98 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  uint64 review_bounty_reclaim_delay = 99;
+  string permissionless_min_review_bounty_rate = 100 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
 }

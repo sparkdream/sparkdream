@@ -6,6 +6,19 @@ import (
 	"cosmossdk.io/math"
 )
 
+// RoleRewardPoolCeiling bounds every bonded-role SPARK reward pool cap and the
+// daily community-pool draw.
+//
+// 1e18 uspark is a trillion SPARK — four orders of magnitude above any supply
+// this chain can reach, so it never binds a real configuration. It exists
+// because these caps are committee-editable and feed a multiplication in
+// FundRoleRewardPools: math.Int panics past 256 bits, and a panic in BeginBlock
+// halts the chain. Without a ceiling, a single mistyped operational-params
+// proposal (an extra run of zeros) is a chain-halt bug, not a bad setting.
+func RoleRewardPoolCeiling() math.Int {
+	return math.NewInt(1_000_000_000_000_000_000)
+}
+
 // DefaultParams returns a default set of parameters.
 // PRODUCTION values - use config.yml to override for testing/development.
 func DefaultParams() Params {
@@ -182,6 +195,37 @@ func DefaultParams() Params {
 		MinEpochActivityForReward:           1,
 		MinAppealRate:                       math.LegacyNewDecWithPrec(5, 2), // 0.05
 		SentinelAccuracyWindowEpochs:        DefaultSentinelAccuracyWindowEpochs,
+		// Reviewer SPARK pool: same shape as the sentinel pool above, tuned
+		// separately because the liability differs by orders of magnitude.
+		MaxReviewerRewardPool:               math.NewInt(150000000000),        // 150,000 SPARK — 1.5x the sentinel/curator pools
+		ReviewerRewardPoolOverflowBurnRatio: math.LegacyNewDecWithPrec(5, 1),  // 0.5 (50%)
+		ReviewerRewardEpochBlocks:           getSentinelRewardEpochBlocks(),   // same build-tag cadence
+		MinReviewerAccuracy:                 math.LegacyNewDecWithPrec(70, 2), // 0.70
+		ReviewerAccuracyWindowEpochs:        DefaultSentinelAccuracyWindowEpochs,
+		// One capped claim on the community pool per UTC day, divided across
+		// every bonded-role pool by headroom. Expressed as a share of the
+		// pool's inflation income so it scales with supply and takes less when
+		// the pool is thin, instead of taking most of a poor pool and half of a
+		// rich one.
+		RoleRewardInflationShare: math.LegacyNewDecWithPrec(5, 1), // 0.5
+		// Curator SPARK pool: sized equal to the sentinel pool, same cadence
+		// and accuracy bar. Separate params so the two can diverge later
+		// without one role's tuning silently moving the other's.
+		MaxCuratorRewardPool:               math.NewInt(100000000000),        // 100,000 SPARK in uspark
+		CuratorRewardPoolOverflowBurnRatio: math.LegacyNewDecWithPrec(5, 1),  // 0.5 (50%)
+		CuratorRewardEpochBlocks:           getSentinelRewardEpochBlocks(),   // same build-tag cadence
+		MinCuratorAccuracy:                 math.LegacyNewDecWithPrec(70, 2), // 0.70
+		CuratorAccuracyWindowEpochs:        DefaultSentinelAccuracyWindowEpochs,
+		// Chain-wide review gate, keyed on how much the completion mints.
+		// 100 DREAM is the APPRENTICE ceiling, so apprentice work stays exempt
+		// and every permissionless STANDARD initiative is gated.
+		ReviewRequiredAboveBudget: math.NewInt(100000000), // 100 DREAM
+		// A bounty must sit a full epoch before it can be pulled, so
+		// advertising one and withdrawing it is not free.
+		ReviewBountyReclaimDelay: 14400, // ~1 day
+		// Permissionless work pays for the review its own minting consumes,
+		// in existing DREAM rather than by diluting everyone.
+		PermissionlessMinReviewBountyRate: math.LegacyNewDecWithPrec(1, 1), // 0.1
 
 		// Per-member active work caps (anti-monopolization)
 		MaxActiveInitiativesPerMember: 10,
@@ -306,6 +350,66 @@ func (p Params) Validate() error {
 	if p.ReviewFeeRate.IsNil() || p.ReviewFeeRate.IsNegative() ||
 		p.ReviewFeeRate.GT(math.LegacyOneDec()) {
 		return fmt.Errorf("review fee rate must be in [0,1]: %s", p.ReviewFeeRate)
+	}
+	if p.MaxReviewerRewardPool.IsNil() || p.MaxReviewerRewardPool.IsNegative() {
+		return fmt.Errorf("max reviewer reward pool must be non-negative: %s", p.MaxReviewerRewardPool)
+	}
+	if p.MaxReviewerRewardPool.GT(RoleRewardPoolCeiling()) {
+		return fmt.Errorf("max reviewer reward pool exceeds ceiling %s: %s", RoleRewardPoolCeiling(), p.MaxReviewerRewardPool)
+	}
+	if p.ReviewerRewardPoolOverflowBurnRatio.IsNil() || p.ReviewerRewardPoolOverflowBurnRatio.IsNegative() ||
+		p.ReviewerRewardPoolOverflowBurnRatio.GT(math.LegacyOneDec()) {
+		return fmt.Errorf("reviewer reward pool overflow burn ratio must be in [0,1]: %s", p.ReviewerRewardPoolOverflowBurnRatio)
+	}
+	if p.ReviewerRewardEpochBlocks == 0 {
+		// Zero would divide by zero when deriving the epoch number.
+		return fmt.Errorf("reviewer reward epoch blocks must be positive")
+	}
+	// Zero is meaningful here: it disables automatic funding entirely and
+	// returns the pools to manual top-ups. The upper bound is 1 — a share
+	// above the community pool's whole inflation income would mean x/rep
+	// intends to leave the councils nothing, which should not be expressible.
+	if p.RoleRewardInflationShare.IsNil() || p.RoleRewardInflationShare.IsNegative() ||
+		p.RoleRewardInflationShare.GT(math.LegacyOneDec()) {
+		return fmt.Errorf("role reward inflation share must be in [0,1]: %s", p.RoleRewardInflationShare)
+	}
+	if p.MaxCuratorRewardPool.IsNil() || p.MaxCuratorRewardPool.IsNegative() {
+		return fmt.Errorf("max curator reward pool must be non-negative: %s", p.MaxCuratorRewardPool)
+	}
+	if p.MaxCuratorRewardPool.GT(RoleRewardPoolCeiling()) {
+		return fmt.Errorf("max curator reward pool exceeds ceiling %s: %s", RoleRewardPoolCeiling(), p.MaxCuratorRewardPool)
+	}
+	if p.CuratorRewardPoolOverflowBurnRatio.IsNil() || p.CuratorRewardPoolOverflowBurnRatio.IsNegative() ||
+		p.CuratorRewardPoolOverflowBurnRatio.GT(math.LegacyOneDec()) {
+		return fmt.Errorf("curator reward pool overflow burn ratio must be in [0,1]: %s", p.CuratorRewardPoolOverflowBurnRatio)
+	}
+	if p.CuratorRewardEpochBlocks == 0 {
+		// Zero would divide by zero when deriving the epoch number.
+		return fmt.Errorf("curator reward epoch blocks must be positive")
+	}
+	if p.MinCuratorAccuracy.IsNil() || p.MinCuratorAccuracy.IsNegative() ||
+		p.MinCuratorAccuracy.GT(math.LegacyOneDec()) {
+		return fmt.Errorf("min curator accuracy must be in [0,1]: %s", p.MinCuratorAccuracy)
+	}
+	if p.CuratorAccuracyWindowEpochs == 0 {
+		return fmt.Errorf("curator accuracy window epochs must be positive")
+	}
+	// Zero is meaningful: it disables the chain-wide gate and leaves review to
+	// per-project policy.
+	if p.ReviewRequiredAboveBudget.IsNil() || p.ReviewRequiredAboveBudget.IsNegative() {
+		return fmt.Errorf("review required above budget must be non-negative: %s", p.ReviewRequiredAboveBudget)
+	}
+	if p.PermissionlessMinReviewBountyRate.IsNil() || p.PermissionlessMinReviewBountyRate.IsNegative() ||
+		p.PermissionlessMinReviewBountyRate.GT(math.LegacyOneDec()) {
+		return fmt.Errorf("permissionless min review bounty rate must be in [0,1]: %s", p.PermissionlessMinReviewBountyRate)
+	}
+	if p.MinReviewerAccuracy.IsNil() || p.MinReviewerAccuracy.IsNegative() ||
+		p.MinReviewerAccuracy.GT(math.LegacyOneDec()) {
+		return fmt.Errorf("min reviewer accuracy must be in [0,1]: %s", p.MinReviewerAccuracy)
+	}
+	if p.ReviewerAccuracyWindowEpochs == 0 || p.ReviewerAccuracyWindowEpochs > MaxSentinelAccuracyWindowEpochs {
+		return fmt.Errorf("reviewer accuracy window epochs must be in [1,%d]: %d",
+			MaxSentinelAccuracyWindowEpochs, p.ReviewerAccuracyWindowEpochs)
 	}
 	if p.MaxReviewRounds == 0 {
 		// Zero rounds means a rejection can never be remedied and the work is
@@ -514,6 +618,9 @@ func (p Params) Validate() error {
 	if p.MaxSentinelRewardPool.IsNegative() {
 		return fmt.Errorf("max sentinel reward pool cannot be negative: %s", p.MaxSentinelRewardPool)
 	}
+	if !p.MaxSentinelRewardPool.IsNil() && p.MaxSentinelRewardPool.GT(RoleRewardPoolCeiling()) {
+		return fmt.Errorf("max sentinel reward pool exceeds ceiling %s: %s", RoleRewardPoolCeiling(), p.MaxSentinelRewardPool)
+	}
 	if p.SentinelRewardPoolOverflowBurnRatio.IsNegative() {
 		return fmt.Errorf("sentinel reward pool overflow burn ratio cannot be negative: %s", p.SentinelRewardPoolOverflowBurnRatio)
 	}
@@ -661,6 +768,37 @@ func DefaultRepOperationalParams() RepOperationalParams {
 		MinEpochActivityForReward:           1,
 		MinAppealRate:                       math.LegacyNewDecWithPrec(5, 2), // 0.05
 		SentinelAccuracyWindowEpochs:        DefaultSentinelAccuracyWindowEpochs,
+		// Reviewer SPARK pool: same shape as the sentinel pool above, tuned
+		// separately because the liability differs by orders of magnitude.
+		MaxReviewerRewardPool:               math.NewInt(150000000000),        // 150,000 SPARK — 1.5x the sentinel/curator pools
+		ReviewerRewardPoolOverflowBurnRatio: math.LegacyNewDecWithPrec(5, 1),  // 0.5 (50%)
+		ReviewerRewardEpochBlocks:           getSentinelRewardEpochBlocks(),   // same build-tag cadence
+		MinReviewerAccuracy:                 math.LegacyNewDecWithPrec(70, 2), // 0.70
+		ReviewerAccuracyWindowEpochs:        DefaultSentinelAccuracyWindowEpochs,
+		// One capped claim on the community pool per UTC day, divided across
+		// every bonded-role pool by headroom. Expressed as a share of the
+		// pool's inflation income so it scales with supply and takes less when
+		// the pool is thin, instead of taking most of a poor pool and half of a
+		// rich one.
+		RoleRewardInflationShare: math.LegacyNewDecWithPrec(5, 1), // 0.5
+		// Curator SPARK pool: sized equal to the sentinel pool, same cadence
+		// and accuracy bar. Separate params so the two can diverge later
+		// without one role's tuning silently moving the other's.
+		MaxCuratorRewardPool:               math.NewInt(100000000000),        // 100,000 SPARK in uspark
+		CuratorRewardPoolOverflowBurnRatio: math.LegacyNewDecWithPrec(5, 1),  // 0.5 (50%)
+		CuratorRewardEpochBlocks:           getSentinelRewardEpochBlocks(),   // same build-tag cadence
+		MinCuratorAccuracy:                 math.LegacyNewDecWithPrec(70, 2), // 0.70
+		CuratorAccuracyWindowEpochs:        DefaultSentinelAccuracyWindowEpochs,
+		// Chain-wide review gate, keyed on how much the completion mints.
+		// 100 DREAM is the APPRENTICE ceiling, so apprentice work stays exempt
+		// and every permissionless STANDARD initiative is gated.
+		ReviewRequiredAboveBudget: math.NewInt(100000000), // 100 DREAM
+		// A bounty must sit a full epoch before it can be pulled, so
+		// advertising one and withdrawing it is not free.
+		ReviewBountyReclaimDelay: 14400, // ~1 day
+		// Permissionless work pays for the review its own minting consumes,
+		// in existing DREAM rather than by diluting everyone.
+		PermissionlessMinReviewBountyRate: math.LegacyNewDecWithPrec(1, 1), // 0.1
 
 		// Per-member active work caps
 		MaxActiveInitiativesPerMember: 10,
@@ -794,6 +932,66 @@ func (op RepOperationalParams) Validate() error {
 		op.ReviewFeeRate.GT(math.LegacyOneDec()) {
 		return fmt.Errorf("review fee rate must be in [0,1]: %s", op.ReviewFeeRate)
 	}
+	if op.MaxReviewerRewardPool.IsNil() || op.MaxReviewerRewardPool.IsNegative() {
+		return fmt.Errorf("max reviewer reward pool must be non-negative: %s", op.MaxReviewerRewardPool)
+	}
+	if op.MaxReviewerRewardPool.GT(RoleRewardPoolCeiling()) {
+		return fmt.Errorf("max reviewer reward pool exceeds ceiling %s: %s", RoleRewardPoolCeiling(), op.MaxReviewerRewardPool)
+	}
+	if op.ReviewerRewardPoolOverflowBurnRatio.IsNil() || op.ReviewerRewardPoolOverflowBurnRatio.IsNegative() ||
+		op.ReviewerRewardPoolOverflowBurnRatio.GT(math.LegacyOneDec()) {
+		return fmt.Errorf("reviewer reward pool overflow burn ratio must be in [0,1]: %s", op.ReviewerRewardPoolOverflowBurnRatio)
+	}
+	if op.ReviewerRewardEpochBlocks == 0 {
+		// Zero would divide by zero when deriving the epoch number.
+		return fmt.Errorf("reviewer reward epoch blocks must be positive")
+	}
+	// Zero is meaningful here: it disables automatic funding entirely and
+	// returns the pools to manual top-ups. The upper bound is 1 — a share
+	// above the community pool's whole inflation income would mean x/rep
+	// intends to leave the councils nothing, which should not be expressible.
+	if op.RoleRewardInflationShare.IsNil() || op.RoleRewardInflationShare.IsNegative() ||
+		op.RoleRewardInflationShare.GT(math.LegacyOneDec()) {
+		return fmt.Errorf("role reward inflation share must be in [0,1]: %s", op.RoleRewardInflationShare)
+	}
+	if op.MaxCuratorRewardPool.IsNil() || op.MaxCuratorRewardPool.IsNegative() {
+		return fmt.Errorf("max curator reward pool must be non-negative: %s", op.MaxCuratorRewardPool)
+	}
+	if op.MaxCuratorRewardPool.GT(RoleRewardPoolCeiling()) {
+		return fmt.Errorf("max curator reward pool exceeds ceiling %s: %s", RoleRewardPoolCeiling(), op.MaxCuratorRewardPool)
+	}
+	if op.CuratorRewardPoolOverflowBurnRatio.IsNil() || op.CuratorRewardPoolOverflowBurnRatio.IsNegative() ||
+		op.CuratorRewardPoolOverflowBurnRatio.GT(math.LegacyOneDec()) {
+		return fmt.Errorf("curator reward pool overflow burn ratio must be in [0,1]: %s", op.CuratorRewardPoolOverflowBurnRatio)
+	}
+	if op.CuratorRewardEpochBlocks == 0 {
+		// Zero would divide by zero when deriving the epoch number.
+		return fmt.Errorf("curator reward epoch blocks must be positive")
+	}
+	if op.MinCuratorAccuracy.IsNil() || op.MinCuratorAccuracy.IsNegative() ||
+		op.MinCuratorAccuracy.GT(math.LegacyOneDec()) {
+		return fmt.Errorf("min curator accuracy must be in [0,1]: %s", op.MinCuratorAccuracy)
+	}
+	if op.CuratorAccuracyWindowEpochs == 0 {
+		return fmt.Errorf("curator accuracy window epochs must be positive")
+	}
+	// Zero is meaningful: it disables the chain-wide gate and leaves review to
+	// per-project policy.
+	if op.ReviewRequiredAboveBudget.IsNil() || op.ReviewRequiredAboveBudget.IsNegative() {
+		return fmt.Errorf("review required above budget must be non-negative: %s", op.ReviewRequiredAboveBudget)
+	}
+	if op.PermissionlessMinReviewBountyRate.IsNil() || op.PermissionlessMinReviewBountyRate.IsNegative() ||
+		op.PermissionlessMinReviewBountyRate.GT(math.LegacyOneDec()) {
+		return fmt.Errorf("permissionless min review bounty rate must be in [0,1]: %s", op.PermissionlessMinReviewBountyRate)
+	}
+	if op.MinReviewerAccuracy.IsNil() || op.MinReviewerAccuracy.IsNegative() ||
+		op.MinReviewerAccuracy.GT(math.LegacyOneDec()) {
+		return fmt.Errorf("min reviewer accuracy must be in [0,1]: %s", op.MinReviewerAccuracy)
+	}
+	if op.ReviewerAccuracyWindowEpochs == 0 || op.ReviewerAccuracyWindowEpochs > MaxSentinelAccuracyWindowEpochs {
+		return fmt.Errorf("reviewer accuracy window epochs must be in [1,%d]: %d",
+			MaxSentinelAccuracyWindowEpochs, op.ReviewerAccuracyWindowEpochs)
+	}
 	if op.MaxReviewRounds == 0 {
 		// Zero rounds means a rejection can never be remedied and the work is
 		// stuck; one round is the minimum that still allows a resubmission.
@@ -864,6 +1062,9 @@ func (op RepOperationalParams) Validate() error {
 	// Sentinel reward pool validation
 	if op.MaxSentinelRewardPool.IsNegative() {
 		return fmt.Errorf("max sentinel reward pool cannot be negative: %s", op.MaxSentinelRewardPool)
+	}
+	if !op.MaxSentinelRewardPool.IsNil() && op.MaxSentinelRewardPool.GT(RoleRewardPoolCeiling()) {
+		return fmt.Errorf("max sentinel reward pool exceeds ceiling %s: %s", RoleRewardPoolCeiling(), op.MaxSentinelRewardPool)
 	}
 	if op.SentinelRewardPoolOverflowBurnRatio.IsNegative() {
 		return fmt.Errorf("sentinel reward pool overflow burn ratio cannot be negative: %s", op.SentinelRewardPoolOverflowBurnRatio)
@@ -997,6 +1198,20 @@ func (p Params) ApplyOperationalParams(op RepOperationalParams) Params {
 	p.TagCreationFee = op.TagCreationFee
 	// Sentinel SPARK reward pool
 	p.MaxSentinelRewardPool = op.MaxSentinelRewardPool
+	p.MaxReviewerRewardPool = op.MaxReviewerRewardPool
+	p.ReviewerRewardPoolOverflowBurnRatio = op.ReviewerRewardPoolOverflowBurnRatio
+	p.ReviewerRewardEpochBlocks = op.ReviewerRewardEpochBlocks
+	p.MinReviewerAccuracy = op.MinReviewerAccuracy
+	p.ReviewerAccuracyWindowEpochs = op.ReviewerAccuracyWindowEpochs
+	p.RoleRewardInflationShare = op.RoleRewardInflationShare
+	p.MaxCuratorRewardPool = op.MaxCuratorRewardPool
+	p.CuratorRewardPoolOverflowBurnRatio = op.CuratorRewardPoolOverflowBurnRatio
+	p.CuratorRewardEpochBlocks = op.CuratorRewardEpochBlocks
+	p.MinCuratorAccuracy = op.MinCuratorAccuracy
+	p.CuratorAccuracyWindowEpochs = op.CuratorAccuracyWindowEpochs
+	p.ReviewRequiredAboveBudget = op.ReviewRequiredAboveBudget
+	p.ReviewBountyReclaimDelay = op.ReviewBountyReclaimDelay
+	p.PermissionlessMinReviewBountyRate = op.PermissionlessMinReviewBountyRate
 	p.SentinelRewardPoolOverflowBurnRatio = op.SentinelRewardPoolOverflowBurnRatio
 	p.SentinelRewardEpochBlocks = op.SentinelRewardEpochBlocks
 	p.MinSentinelAccuracy = op.MinSentinelAccuracy
@@ -1115,6 +1330,20 @@ func (p Params) ExtractOperationalParams() RepOperationalParams {
 		// Sentinel SPARK reward pool
 		MaxSentinelRewardPool:               p.MaxSentinelRewardPool,
 		SentinelRewardPoolOverflowBurnRatio: p.SentinelRewardPoolOverflowBurnRatio,
+		MaxReviewerRewardPool:               p.MaxReviewerRewardPool,
+		ReviewerRewardPoolOverflowBurnRatio: p.ReviewerRewardPoolOverflowBurnRatio,
+		ReviewerRewardEpochBlocks:           p.ReviewerRewardEpochBlocks,
+		MinReviewerAccuracy:                 p.MinReviewerAccuracy,
+		ReviewerAccuracyWindowEpochs:        p.ReviewerAccuracyWindowEpochs,
+		RoleRewardInflationShare:            p.RoleRewardInflationShare,
+		MaxCuratorRewardPool:                p.MaxCuratorRewardPool,
+		CuratorRewardPoolOverflowBurnRatio:  p.CuratorRewardPoolOverflowBurnRatio,
+		CuratorRewardEpochBlocks:            p.CuratorRewardEpochBlocks,
+		MinCuratorAccuracy:                  p.MinCuratorAccuracy,
+		CuratorAccuracyWindowEpochs:         p.CuratorAccuracyWindowEpochs,
+		ReviewRequiredAboveBudget:           p.ReviewRequiredAboveBudget,
+		ReviewBountyReclaimDelay:            p.ReviewBountyReclaimDelay,
+		PermissionlessMinReviewBountyRate:   p.PermissionlessMinReviewBountyRate,
 		SentinelRewardEpochBlocks:           p.SentinelRewardEpochBlocks,
 		MinSentinelAccuracy:                 p.MinSentinelAccuracy,
 		MinAppealsForAccuracy:               p.MinAppealsForAccuracy,

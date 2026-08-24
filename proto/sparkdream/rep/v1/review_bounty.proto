@@ -1,0 +1,50 @@
+syntax = "proto3";
+package sparkdream.rep.v1;
+
+import "cosmos_proto/cosmos.proto";
+import "gogoproto/gogo.proto";
+
+option go_package = "sparkdream/x/rep/types";
+
+// ReviewBounty is DREAM escrowed against one initiative to attract reviewer
+// attention to it.
+//
+// The DREAM review fee pays for the act of reviewing at a rate fixed by the
+// budget. A bounty is how the people who actually want a particular initiative
+// looked at — its creator, its stakers, anyone — bid that attention up. Review
+// is the scarcest input in the system once the completion gate is mandatory,
+// and a flat fee cannot express "this one matters more".
+//
+// Paid out per verdict filed and split across the round's reviewers, exactly
+// like the fee: outcome-blind. A bounty released on successful completion would
+// be a straightforward bribe to approve, which is the bias the reviewer role
+// exists to remove.
+message ReviewBounty {
+  uint64 initiative_id = 1;
+  // Total DREAM currently escrowed and unpaid.
+  string amount = 2 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  // Per-funder contributions, so a reclaim or an end-without-verdict refund
+  // returns each funder's own DREAM rather than a pro-rata approximation.
+  repeated ReviewBountyContribution contributions = 3 [(gogoproto.nullable) = false];
+  // True once any verdict has been filed against this initiative. Reclaim is
+  // barred from that point: reviewers commit bond and do the reading on the
+  // strength of the advertised bounty, so allowing a withdrawal afterwards
+  // would make funding a bait-and-switch.
+  bool committed = 4;
+}
+
+// ReviewBountyContribution is one funder's stake in a bounty.
+message ReviewBountyContribution {
+  string funder = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string amount = 2 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  // Block height the contribution was made, for the reclaim delay.
+  int64 funded_at = 3;
+}

@@ -1217,6 +1217,50 @@ if [ -f "$SCRIPT_DIR/initiative_review_test.sh" ]; then
 fi
 
 # ========================================================================
+# Step 22e: Run Review Bounty Test (mandatory gate + bounty escrow)
+# ========================================================================
+if [ -f "$SCRIPT_DIR/review_bounty_test.sh" ]; then
+    echo "========================================================================="
+    echo "STEP 22e: REVIEW BOUNTY TEST (mandatory completion gate + bounty escrow)"
+    echo "========================================================================="
+    echo ""
+
+    bash "$SCRIPT_DIR/review_bounty_test.sh"
+    REVIEW_BOUNTY_EXIT_CODE=$?
+
+    echo ""
+    if [ $REVIEW_BOUNTY_EXIT_CODE -eq 0 ]; then
+        echo "Review bounty test completed"
+    else
+        echo "[FAIL] Review bounty test exited with code: $REVIEW_BOUNTY_EXIT_CODE"
+    fi
+    echo ""
+    sleep 2
+fi
+
+# ========================================================================
+# Step 22d: Run Role Reward Funding Test (automatic bonded-role pool funding)
+# ========================================================================
+if [ -f "$SCRIPT_DIR/role_reward_funding_test.sh" ]; then
+    echo "========================================================================="
+    echo "STEP 22d: ROLE REWARD FUNDING TEST (automatic bonded-role pool funding)"
+    echo "========================================================================="
+    echo ""
+
+    bash "$SCRIPT_DIR/role_reward_funding_test.sh"
+    ROLE_REWARD_FUNDING_EXIT_CODE=$?
+
+    echo ""
+    if [ $ROLE_REWARD_FUNDING_EXIT_CODE -eq 0 ]; then
+        echo "Role reward funding test completed"
+    else
+        echo "[FAIL] Role reward funding test exited with code: $ROLE_REWARD_FUNDING_EXIT_CODE"
+    fi
+    echo ""
+    sleep 2
+fi
+
+# ========================================================================
 # Step 22b: Run Jury Duty Test (acceptance criteria + jury seat lifecycle)
 # ========================================================================
 if [ -f "$SCRIPT_DIR/jury_duty_test.sh" ]; then

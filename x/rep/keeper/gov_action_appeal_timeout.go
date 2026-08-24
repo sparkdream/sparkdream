@@ -7,7 +7,6 @@ import (
 	"sparkdream/x/rep/types"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 )
 
 // maxAppealTimeoutsPerBlock bounds the EndBlocker work to a safe amount of
@@ -117,8 +116,11 @@ func (k Keeper) TimeoutExpiredAppeals(ctx context.Context) error {
 				// Round-trip through the rep module account so BurnCoins has a
 				// module-account identity with Burner permission.
 				burnCoins := sdk.NewCoins(sdk.NewCoin(k.BondDenom(ctx), half))
-				if err := k.bankKeeper.SendCoins(
-					ctx, AppealBondEscrowAddress(), authtypes.NewModuleAddress(types.ModuleName), burnCoins,
+				// Module-aware send: a plain SendCoins to the raw module address
+				// creates a BaseAccount there and the BurnCoins below then panics
+				// resolving it as a module account.
+				if err := k.bankKeeper.SendCoinsFromAccountToModule(
+					ctx, AppealBondEscrowAddress(), types.ModuleName, burnCoins,
 				); err != nil {
 					sdkCtx.Logger().Error("failed to move appeal bond half to module account",
 						"appeal_id", p.id, "error", err)

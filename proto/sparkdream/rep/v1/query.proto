@@ -12,6 +12,7 @@ import "sparkdream/rep/v1/challenge.proto";
 import "sparkdream/rep/v1/content_challenge.proto";
 import "sparkdream/rep/v1/gov_action_appeal.proto";
 import "sparkdream/rep/v1/initiative.proto";
+import "sparkdream/rep/v1/initiative_review.proto";
 import "sparkdream/rep/v1/interim.proto";
 import "sparkdream/rep/v1/acceptance_criteria.proto";
 import "sparkdream/rep/v1/invitation.proto";
@@ -23,6 +24,7 @@ import "sparkdream/rep/v1/member_warning.proto";
 import "sparkdream/rep/v1/params.proto";
 import "sparkdream/rep/v1/project.proto";
 import "sparkdream/rep/v1/reserved_tag.proto";
+import "sparkdream/rep/v1/review_bounty.proto";
 import "sparkdream/rep/v1/stake.proto";
 import "sparkdream/rep/v1/tag.proto";
 import "sparkdream/rep/v1/tag_budget.proto";
@@ -445,6 +447,31 @@ service Query {
   // AuthorBondsByType Queries a list of AuthorBondsByType items.
   rpc AuthorBondsByType(QueryAuthorBondsByTypeRequest) returns (QueryAuthorBondsByTypeResponse) {
     option (google.api.http).get = "/sparkdream/rep/v1/author_bonds_by_type/{target_type}";
+  }
+
+  // InitiativeReviews returns the bonded reviewers' verdicts on one initiative.
+  rpc InitiativeReviews(QueryInitiativeReviewsRequest) returns (QueryInitiativeReviewsResponse) {
+    option (google.api.http).get = "/sparkdream/rep/v1/initiative_reviews/{initiative_id}";
+  }
+
+  // ReviewBounty returns the DREAM escrowed against an initiative to attract
+  // reviewers, and when each contribution becomes reclaimable.
+  rpc ReviewBounty(QueryReviewBountyRequest) returns (QueryReviewBountyResponse) {
+    option (google.api.http).get = "/sparkdream/rep/v1/review_bounty/{initiative_id}";
+  }
+
+  // EscalatedReviews lists the review rounds awaiting an Operations Committee
+  // decision.
+  rpc EscalatedReviews(QueryEscalatedReviewsRequest) returns (QueryEscalatedReviewsResponse) {
+    option (google.api.http).get = "/sparkdream/rep/v1/escalated_reviews";
+  }
+
+  // RoleRewardPools reports the funding state of every bonded-role SPARK
+  // reward pool, plus how much of today's community-pool allowance x/rep has
+  // already drawn. Automatic funding is otherwise invisible: the pools are
+  // derived sub-addresses with no other read surface.
+  rpc RoleRewardPools(QueryRoleRewardPoolsRequest) returns (QueryRoleRewardPoolsResponse) {
+    option (google.api.http).get = "/sparkdream/rep/v1/role_reward_pools";
   }
 }
 
@@ -1509,4 +1536,144 @@ message QueryRoleActivityRequest {
 // QueryRoleActivityResponse defines the QueryRoleActivity response.
 message QueryRoleActivityResponse {
   RoleActivity role_activity = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryRoleRewardPoolsRequest is the request for RoleRewardPools.
+message QueryRoleRewardPoolsRequest {}
+
+// RoleRewardPoolStatus is one bonded-role reward pool's funding state.
+message RoleRewardPoolStatus {
+  // role identifies the bonded role the pool pays, e.g. "content_sentinel".
+  string role = 1;
+  // address is the derived sub-address holding the pool balance.
+  string address = 2;
+  // balance is the pool's current SPARK balance.
+  string balance = 3 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  // cap is the pool's configured ceiling; excess is burned each epoch.
+  string cap = 4 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  // headroom is max(0, cap - balance) and sets this pool's share of the draw.
+  string headroom = 5 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+}
+
+// QueryRoleRewardPoolsResponse is the response for RoleRewardPools.
+message QueryRoleRewardPoolsResponse {
+  repeated RoleRewardPoolStatus pools = 1 [(gogoproto.nullable) = false];
+  // funded_today is the SPARK already drawn from the community pool on the
+  // current UTC day.
+  string funded_today = 2 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  // daily_funding_cap is today's computed allowance in uspark --
+  // annual_provisions * community_tax * inflation_share / 365. Zero means
+  // automatic funding is disabled or nothing is being minted yet.
+  string daily_funding_cap = 3 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  // inflation_share is the role_reward_inflation_share param the allowance is
+  // derived from. Reported alongside the computed amount so an operator can
+  // tell a retuned share from a change in the inflation rate.
+  string inflation_share = 4 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+}
+
+// QueryInitiativeReviewsRequest asks for the verdicts on one initiative.
+//
+// Deliberately has NO round selector. The codebase convention for an optional
+// numeric filter is a plain field where zero means unset (see
+// QueryPostsRequest.category_id, QuerySeasonStatsRequest.season,
+// QueryShieldRequest.epoch) — which works there because none of those domains
+// has a valid zero. Review rounds number from 0, so the same convention would
+// make the first round unaddressable. Rather than diverge from the convention
+// for one message, every round is returned: max_review_rounds bounds the set at
+// 3, so there is nothing to select between and nothing to paginate.
+message QueryInitiativeReviewsRequest {
+  uint64 initiative_id = 1;
+}
+
+// QueryInitiativeReviewsResponse returns every round's verdicts, plus what the
+// current round adds up to against the gate.
+message QueryInitiativeReviewsResponse {
+  // Oldest round first. A rejected round's verdicts stay here so the decision
+  // that sent work back can still be audited.
+  repeated InitiativeReviewRound rounds = 1 [(gogoproto.nullable) = false];
+  // The round the gate is judging now.
+  uint32 current_round = 2;
+  // Approving verdicts on the current round.
+  uint32 approvals = 3;
+  // How many approvals the gate needs — the maximum of the initiative's
+  // snapshotted project policy and the live chain-wide budget threshold.
+  uint32 required = 4;
+  // Whether the gate is satisfied. Reported rather than left to the caller to
+  // recompute, because "approvals >= required" is not the whole rule: a
+  // committee escalation can satisfy or fail the gate on its own.
+  bool satisfied = 5;
+}
+
+// InitiativeReviewRound groups one round's verdicts.
+message InitiativeReviewRound {
+  uint32 round = 1;
+  repeated InitiativeReview reviews = 2 [(gogoproto.nullable) = false];
+  uint32 approvals = 3;
+}
+
+// QueryReviewBountyRequest asks what is escrowed against an initiative.
+message QueryReviewBountyRequest {
+  uint64 initiative_id = 1;
+}
+
+// QueryReviewBountyResponse returns the escrow and its reclaim state.
+message QueryReviewBountyResponse {
+  ReviewBounty bounty = 1 [(gogoproto.nullable) = false];
+  // Per-funder view of when each contribution matures, so a funder can see what
+  // they may reclaim without recomputing the delay themselves.
+  repeated ReviewBountyReclaimStatus reclaim_status = 2 [(gogoproto.nullable) = false];
+}
+
+// ReviewBountyReclaimStatus is one contribution's reclaim eligibility.
+message ReviewBountyReclaimStatus {
+  string funder = 1;
+  string amount = 2 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  // Height at which the reclaim delay elapses for this contribution.
+  int64 reclaimable_at_height = 3;
+  // False whenever the bounty is committed, regardless of height: a verdict has
+  // been filed and the escrow now belongs to paying for it.
+  bool reclaimable = 4;
+}
+
+// QueryEscalatedReviewsRequest asks what is awaiting the committee.
+message QueryEscalatedReviewsRequest {}
+
+// QueryEscalatedReviewsResponse lists the escalated rounds.
+//
+// Escalation is recorded in a separate set rather than on the initiative --
+// ReviewEscalation is reset to NONE when a round escalates -- so without this
+// query a committee has no way to find the decisions waiting on it.
+message QueryEscalatedReviewsResponse {
+  repeated EscalatedReview escalations = 1 [(gogoproto.nullable) = false];
+}
+
+// EscalatedReview is one round sitting with the Operations Committee.
+message EscalatedReview {
+  uint64 initiative_id = 1;
+  uint32 round = 2;
+  // Height at which committee silence rejects the round.
+  int64 review_deadline = 3;
+  string title = 4;
+  string assignee = 5;
 }

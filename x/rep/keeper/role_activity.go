@@ -74,7 +74,7 @@ func (k Keeper) RecordRoleOutcome(ctx context.Context, roleType types.RoleType, 
 		return err
 	}
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
-	epoch := k.CurrentSentinelRewardEpoch(ctx)
+	epoch := k.roleRewardEpoch(ctx, roleType)
 
 	ra := k.getOrInitRoleActivity(ctx, roleType, addr)
 	ra.EpochAppealsResolved++
@@ -132,6 +132,26 @@ func (k Keeper) RoleEpochActionCount(ctx context.Context, roleType types.RoleTyp
 		return 0
 	}
 	return ra.EpochActions[kind]
+}
+
+// roleRewardEpoch returns the reward-epoch index in the units the given role's
+// reward distribution reads.
+//
+// The accuracy ring is stamped here and read as a window at distribution time,
+// so the two must agree on what an epoch is. Each role with its own reward pool
+// has its own independently committee-editable cadence, so deriving the stamp
+// from any single role's dial silently zeroes another role's pay the moment the
+// two are set apart — which is exactly what happened when every role stamped in
+// sentinel epochs. Roles without a pool of their own share the sentinel clock.
+func (k Keeper) roleRewardEpoch(ctx context.Context, roleType types.RoleType) uint64 {
+	switch roleType {
+	case types.RoleType_ROLE_TYPE_INITIATIVE_REVIEWER:
+		return k.CurrentReviewerRewardEpoch(ctx)
+	case types.RoleType_ROLE_TYPE_COLLECT_CURATOR:
+		return k.CurrentCuratorRewardEpoch(ctx)
+	default:
+		return k.CurrentSentinelRewardEpoch(ctx)
+	}
 }
 
 // ResetRoleEpochCounters zeros the per-epoch state (epoch_actions map +

@@ -152,6 +152,17 @@ func (k Keeper) ResolveChallengeResult(ctx context.Context, reviewID uint64, uph
 		activity.ConsecutiveOverturns++
 		activity.ConsecutiveUpheld = 0
 
+		// Report the outcome into x/rep's shared RoleActivity as well. The
+		// local CuratorActivity above drives collect's demotion streak; the
+		// shared record is what the curator SPARK pool reads for windowed
+		// accuracy. Best-effort: an accounting failure must not roll back the
+		// jury's verdict.
+		if err := k.repKeeper.RecordRoleOutcome(ctx, reptypes.RoleType_ROLE_TYPE_COLLECT_CURATOR,
+			review.Curator, reptypes.ActionKindCollectCuration, false); err != nil {
+			sdkCtx.Logger().Warn("curator outcome (overturned) not recorded on RoleActivity",
+				"curator", review.Curator, "error", err)
+		}
+
 		// Refund challenge deposit to challenger.
 		k.repKeeper.UnlockDREAM(ctx, challengerAddr, params.ChallengeDeposit) //nolint:errcheck
 
@@ -203,6 +214,15 @@ func (k Keeper) ResolveChallengeResult(ctx context.Context, reviewID uint64, uph
 		activity.UpheldReviews++
 		activity.ConsecutiveUpheld++
 		activity.ConsecutiveOverturns = 0
+
+		// Mirror into x/rep's shared RoleActivity — the curator SPARK pool
+		// reads windowed accuracy from there, and it needs the upheld side as
+		// much as the overturned one or every curator looks 0% accurate.
+		if err := k.repKeeper.RecordRoleOutcome(ctx, reptypes.RoleType_ROLE_TYPE_COLLECT_CURATOR,
+			review.Curator, reptypes.ActionKindCollectCuration, true); err != nil {
+			sdkCtx.Logger().Warn("curator outcome (upheld) not recorded on RoleActivity",
+				"curator", review.Curator, "error", err)
+		}
 
 		// Burn challenge deposit.
 		k.repKeeper.BurnDREAM(ctx, challengerAddr, params.ChallengeDeposit) //nolint:errcheck

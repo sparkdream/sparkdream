@@ -358,6 +358,38 @@ func (k Keeper) AccumulateTagStakeRevenue(ctx context.Context, tags []string, to
 // Must be called while the stake records are still live: it recomputes each
 // staker's time-weighted conviction from stake.created_at, so it has nothing to
 // weight by once CompleteInitiative's payout loop has deleted them.
+// InitiativeHasStakes reports whether an initiative has any stake at all.
+//
+// Used by the completion mint gate to skip projecting a staker bonus for an
+// initiative that cannot pay one — over-projecting there would refuse
+// completions near the season cap for a payout that was never going to happen.
+func (k Keeper) InitiativeHasStakes(ctx context.Context, initiativeID uint64) (bool, error) {
+	stakes, err := k.GetInitiativeStakes(ctx, initiativeID)
+	if err != nil {
+		return false, err
+	}
+	return len(stakes) > 0, nil
+}
+
+// InitiativeCompletionBonusPool is the DREAM external stakers share on
+// completion, as a fraction of the initiative budget. Tunable, and the mirror
+// of the project-side project_completion_bonus_rate — it was a hardcoded 1/10
+// divisor while the project equivalent was already a param.
+//
+// Factored out so CompleteInitiative can count it against the per-season mint
+// cap before minting rather than after. It is an upper bound: the actual payout
+// truncates per staker, and is zero when no external staker holds conviction.
+func (k Keeper) InitiativeCompletionBonusPool(ctx context.Context, totalBudget math.Int) math.Int {
+	bonusRate := math.LegacyNewDecWithPrec(1, 1) // 0.1, the shipped default
+	if params, pErr := k.Params.Get(ctx); pErr == nil && !params.InitiativeCompletionBonusRate.IsNil() {
+		bonusRate = params.InitiativeCompletionBonusRate
+	}
+	if bonusRate.IsNil() || !bonusRate.IsPositive() {
+		return math.ZeroInt()
+	}
+	return math.LegacyNewDecFromInt(totalBudget).Mul(bonusRate).TruncateInt()
+}
+
 func (k Keeper) DistributeInitiativeCompletionBonus(ctx context.Context, initiativeID uint64, totalBudget math.Int) error {
 	// Get initiative to check assignee and challenger
 	initiative, err := k.GetInitiative(ctx, initiativeID)
@@ -422,15 +454,7 @@ func (k Keeper) DistributeInitiativeCompletionBonus(ctx context.Context, initiat
 		return nil
 	}
 
-	// Calculate bonus pool as a fraction of the initiative budget. Tunable, and
-	// the mirror of the project-side project_completion_bonus_rate — it was a
-	// hardcoded 1/10 divisor while the project equivalent was already a param.
-	bonusRate := math.LegacyNewDecWithPrec(1, 1) // 0.1, the shipped default
-	if params, pErr := k.Params.Get(ctx); pErr == nil && !params.InitiativeCompletionBonusRate.IsNil() {
-		bonusRate = params.InitiativeCompletionBonusRate
-	}
-	bonusPool := math.LegacyNewDecFromInt(totalBudget).Mul(bonusRate).TruncateInt()
-
+	bonusPool := k.InitiativeCompletionBonusPool(ctx, totalBudget)
 	if bonusPool.IsZero() {
 		return nil
 	}

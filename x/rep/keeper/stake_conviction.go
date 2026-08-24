@@ -487,11 +487,11 @@ func (k Keeper) CanCompleteInitiative(ctx context.Context, initiativeID uint64) 
 		return false, nil
 	}
 
-	// Reviewer sign-off, when the parent project asks for it. An *additional*
-	// brake: every conviction gate above and the challenge window below still
-	// apply. min_verifier_count 0 (the genesis default) makes this a no-op, so
-	// nothing wedges while the reviewer roster is still filling.
-	reviewed, err := k.ReviewGateSatisfied(ctx, initiative, project)
+	// Reviewer sign-off, required when the parent project asks for it OR when
+	// the completion would mint more than review_required_above_budget. An
+	// *additional* brake: every conviction gate above and the challenge window
+	// below still apply.
+	reviewed, err := k.ReviewGateSatisfied(ctx, params, initiative, project)
 	if err != nil {
 		return false, err
 	}

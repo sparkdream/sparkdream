@@ -466,6 +466,28 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					Short:          "Query author-bonds-by-type",
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "target_type"}},
 				},
+				{
+					RpcMethod:      "InitiativeReviews",
+					Use:            "initiative-reviews [initiative-id]",
+					Short:          "Show the bonded reviewers' verdicts on an initiative and whether the gate is met",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "initiative_id"}},
+				},
+				{
+					RpcMethod:      "ReviewBounty",
+					Use:            "review-bounty [initiative-id]",
+					Short:          "Show the DREAM escrowed against an initiative and when it can be reclaimed",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "initiative_id"}},
+				},
+				{
+					RpcMethod: "EscalatedReviews",
+					Use:       "escalated-reviews",
+					Short:     "List review rounds awaiting an Operations Committee decision",
+				},
+				{
+					RpcMethod: "RoleRewardPools",
+					Use:       "role-reward-pools",
+					Short:     "Show funding state of every bonded-role SPARK reward pool",
+				},
 			},
 		},
 		Tx: &autocliv1.ServiceCommandDescriptor{
@@ -601,6 +623,18 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					FlagOptions: map[string]*autocliv1.FlagOptions{
 						"criteria_votes": {Name: "criteria-votes"},
 					},
+				},
+				{
+					RpcMethod:      "FundReviewBounty",
+					Use:            "fund-review-bounty [initiative-id] [amount]",
+					Short:          "Escrow DREAM against an initiative to attract reviewers",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "initiative_id"}, {ProtoField: "amount"}},
+				},
+				{
+					RpcMethod:      "ReclaimReviewBounty",
+					Use:            "reclaim-review-bounty [initiative-id]",
+					Short:          "Withdraw your own unpaid review bounty (before any verdict is filed)",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "initiative_id"}},
 				},
 				{
 					RpcMethod:      "SubmitInitiativeReview",

@@ -21,6 +21,8 @@ type lateKeepers struct {
 	blogKeeper     types.BlogKeeper
 	collectKeeper  types.CollectKeeper
 	identityKeeper types.IdentityKeeper
+	distrKeeper    types.DistrKeeper
+	mintKeeper     types.MintKeeper
 	hooks          types.RepHooks
 }
 
@@ -59,9 +61,13 @@ type Keeper struct {
 	// EscalatedReviews is the set of initiatives whose review round is with the
 	// Operations Committee awaiting a decision.
 	EscalatedReviews collections.KeySet[uint64]
-	InterimSeq       collections.Sequence
-	Interim          collections.Map[uint64, types.Interim]
-	GiftRecord       collections.Map[collections.Pair[string, string], types.GiftRecord]
+	// RoleRewardDayFunding tracks the community-pool skim per UTC day.
+	RoleRewardDayFunding collections.Map[uint64, string]
+	// ReviewBounty is DREAM escrowed against an initiative to attract reviewers.
+	ReviewBounty collections.Map[uint64, types.ReviewBounty]
+	InterimSeq   collections.Sequence
+	Interim      collections.Map[uint64, types.Interim]
+	GiftRecord   collections.Map[collections.Pair[string, string], types.GiftRecord]
 
 	// Secondary indexes for efficient lookups (avoid full table scans in EndBlocker)
 	// Key: (status, id) - allows iteration by status
@@ -191,6 +197,10 @@ func NewKeeper(
 		ChallengeSeq:         collections.NewSequence(sb, types.ChallengeCountKey, "challengeSequence"),
 		JuryReview:           collections.NewMap(sb, types.JuryReviewKey, "juryReview", collections.Uint64Key, codec.CollValue[types.JuryReview](cdc)),
 		EscalatedReviews:     collections.NewKeySet(sb, types.EscalatedReviewsKey, "escalatedReviews", collections.Uint64Key),
+		RoleRewardDayFunding: collections.NewMap(sb, types.RoleRewardDayFundingKey, "roleRewardDayFunding",
+			collections.Uint64Key, collections.StringValue),
+		ReviewBounty: collections.NewMap(sb, types.ReviewBountyKey, "reviewBounty",
+			collections.Uint64Key, codec.CollValue[types.ReviewBounty](cdc)),
 		InitiativeReview: collections.NewMap(sb, types.InitiativeReviewKey, "initiativeReview",
 			collections.TripleKeyCodec(collections.Uint64Key, collections.Uint32Key, collections.StringKey),
 			codec.CollValue[types.InitiativeReview](cdc)),
@@ -339,6 +349,19 @@ func NewKeeper(
 // Uses the shared lateKeepers so all value copies see the update.
 func (k Keeper) SetSeasonKeeper(sk types.SeasonKeeper) {
 	k.late.seasonKeeper = sk
+}
+
+// SetDistrKeeper sets the distribution keeper after depinject initialization.
+// Lets the bonded-role reward pools top themselves up from the community pool
+// instead of waiting on a council to remember to fund them.
+func (k Keeper) SetDistrKeeper(dk types.DistrKeeper) {
+	k.late.distrKeeper = dk
+}
+
+// SetMintKeeper sets the mint keeper after depinject initialization. Supplies
+// annual provisions, which size the bonded-role funding draw.
+func (k Keeper) SetMintKeeper(mk types.MintKeeper) {
+	k.late.mintKeeper = mk
 }
 
 // SetForumKeeper sets the forum keeper after depinject initialization.

@@ -345,6 +345,14 @@ func New(
 	app.RepKeeper.SetBlogKeeper(app.BlogKeeper)
 	app.RepKeeper.SetCollectKeeper(app.CollectKeeper)
 
+	// x/rep draws one capped daily claim on the community pool in BeginBlock
+	// and divides it across the bonded-role reward pools (sentinel, reviewer).
+	app.RepKeeper.SetDistrKeeper(NewDistrKeeperAdapter(app.DistrKeeper))
+	// Annual provisions size that draw: it is a share of the community pool's
+	// inflation income, not a fixed daily amount and not a share of the pool
+	// balance (which holds the genesis allocation earmarked for the councils).
+	app.RepKeeper.SetMintKeeper(NewMintProvisionsAdapter(app.MintKeeper))
+
 	// Wire x/rep lifecycle hooks. On member admission each subscriber
 	// enqueues the new member's address into its own EndBlocker promotion
 	// queue so pre-admission ephemeral content is eagerly flipped to

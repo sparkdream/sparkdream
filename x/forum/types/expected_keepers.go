@@ -192,4 +192,16 @@ type RepKeeper interface {
 	// is auditable. `reason` is a stable short identifier; `evidencePostIDs`
 	// lists the offending post(s).
 	IssueWarning(ctx context.Context, member string, issuedBy string, reason string, evidencePostIDs []uint64) error
+
+	// AddToSentinelRewardPool moves the pool half of a spam tax from the forum
+	// module account into x/rep's sentinel reward pool.
+	//
+	// Deliberately a method rather than an exported pool address: the pool
+	// lives at a derived sub-address that x/rep owns and has already moved
+	// once. When it did, forum was still sending to the rep MODULE account and
+	// the transfers silently stopped reaching the pool -- nothing reads that
+	// account's SPARK balance, so the money simply accumulated there. Keeping
+	// the address inside x/rep means a future move cannot desynchronise a
+	// caller again.
+	AddToSentinelRewardPool(ctx context.Context, sender sdk.AccAddress, amount math.Int) error
 }

@@ -53,7 +53,7 @@ message Initiative {
   // Deliberately declared per-initiative rather than resolved from a registry:
   // templates have no authoring message and all three networks ship zero of
   // them, so a template reference would be a pointer into an empty registry.
-    repeated VerificationCriteria acceptance_criteria = 27 [(gogoproto.nullable) = false];
+  repeated VerificationCriteria acceptance_criteria = 27 [(gogoproto.nullable) = false];
 
   // Review-round bookkeeping for the bonded reviewer gate. A rejection returns
   // the initiative to ASSIGNED and increments the round, so the assignee can

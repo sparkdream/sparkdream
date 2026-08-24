@@ -143,6 +143,32 @@ func (k Keeper) CreateInitiative(
 		}
 	}
 
+	// Permissionless work must pay for the review its own minting consumes.
+	//
+	// A permissionless budget is a self-declared number with no treasury behind
+	// it, and the review fee it eventually pays is minted — so reviewers of
+	// permissionless work would otherwise be funded purely by dilution, the
+	// exact outcome the funded path's budget-netting exists to prevent. A
+	// creator-funded bounty in EXISTING DREAM prices that attention onto
+	// whoever consumes it, and scales the spam brake with the amount being
+	// minted rather than leaving it at a flat creation fee.
+	// Only charged when the initiative is actually GATED. The bounty pays for
+	// mandatory review; below review_required_above_budget no review is
+	// required, so charging for it would take DREAM for a service that is never
+	// delivered. That threshold equals the APPRENTICE ceiling, so apprentice
+	// work — the on-ramp, reachable at PROVISIONAL, and where members arrive
+	// holding zero DREAM — carries no bounty at all and still costs only its
+	// 1 DREAM creation fee.
+	minBounty := math.ZeroInt()
+	gated := !params.ReviewRequiredAboveBudget.IsNil() &&
+		params.ReviewRequiredAboveBudget.IsPositive() &&
+		budget.GT(params.ReviewRequiredAboveBudget)
+	if project.Permissionless && gated &&
+		!params.PermissionlessMinReviewBountyRate.IsNil() &&
+		params.PermissionlessMinReviewBountyRate.IsPositive() {
+		minBounty = params.PermissionlessMinReviewBountyRate.MulInt(budget).TruncateInt()
+	}
+
 	// Get next initiative ID
 	initiativeID, err := k.InitiativeSeq.Next(ctx)
 	if err != nil {
@@ -191,6 +217,16 @@ func (k Keeper) CreateInitiative(
 	// Add to status index for efficient EndBlocker lookups
 	if err := k.AddInitiativeToStatusIndex(ctx, initiative); err != nil {
 		return 0, fmt.Errorf("failed to add initiative to status index: %w", err)
+	}
+
+	// Escrow the mandatory permissionless bounty. Done after the initiative
+	// exists so the escrow has something to attach to, and it fails the whole
+	// creation if the creator cannot cover it — which is the point: the brake
+	// is meant to bite at creation, not to be discovered later.
+	if minBounty.IsPositive() {
+		if _, err := k.EscrowReviewBounty(ctx, creator, initiativeID, minBounty); err != nil {
+			return 0, fmt.Errorf("permissionless initiative requires a review bounty of %s: %w", minBounty, err)
+		}
 	}
 
 	// Emit event
@@ -449,15 +485,24 @@ func (k Keeper) SubmitInitiativeWork(
 	// Open a reviewer window for this round when the parent project asks for
 	// sign-off. Past the deadline with the gate unmet, the EndBlocker escalates
 	// to the Operations Committee rather than letting the work sit forever.
-	if project, pErr := k.GetProject(ctx, initiative.ProjectId); pErr == nil && ReviewRequired(project) {
+	if project, pErr := k.GetProject(ctx, initiative.ProjectId); pErr == nil &&
+		ReviewRequired(params, initiative, project) {
 		reviewEpochs := params.DefaultReviewPeriodEpochs
-		if project.VerificationPolicy.ReviewPeriodEpochs > reviewEpochs {
+		// The policy may be nil: the chain-wide budget threshold gates an
+		// initiative whether or not its project declared a policy of its own.
+		if project.VerificationPolicy != nil && project.VerificationPolicy.ReviewPeriodEpochs > reviewEpochs {
 			reviewEpochs = project.VerificationPolicy.ReviewPeriodEpochs
 		}
 		initiative.ReviewDeadline = currentHeight + (reviewEpochs * params.EpochBlocks)
 		initiative.ReviewEscalation = types.ReviewEscalation_REVIEW_ESCALATION_NONE
-		// Snapshot the requirement so the gate cannot be relaxed mid-flight.
-		initiative.RequiredVerifiers = project.VerificationPolicy.MinVerifierCount
+		// Snapshot the project-policy requirement so it cannot be relaxed
+		// mid-flight. The chain-wide threshold is deliberately NOT snapshotted
+		// — see RequiredVerifiersFor.
+		if project.VerificationPolicy != nil {
+			initiative.RequiredVerifiers = project.VerificationPolicy.MinVerifierCount
+		} else {
+			initiative.RequiredVerifiers = 0
+		}
 	} else {
 		initiative.RequiredVerifiers = 0
 	}
@@ -541,6 +586,9 @@ func (k Keeper) AbandonInitiative(
 	// Reviewers are paid for the round that resolved this initiative whether it
 	// completed or was abandoned. Making the fee outcome-dependent would rebuild
 	// exactly the bias the role exists to remove.
+	if _, bErr := k.PayReviewBounty(ctx, initiative); bErr != nil {
+		return fmt.Errorf("failed to settle review bounty: %w", bErr)
+	}
 	reviewFees, feeErr := k.PayReviewFees(ctx, initiative)
 	if feeErr != nil {
 		return fmt.Errorf("failed to pay review fees: %w", feeErr)
@@ -722,17 +770,40 @@ func (k Keeper) CompleteInitiative(ctx context.Context, initiativeID uint64) err
 	treasuryShare := math.LegacyNewDecFromInt(totalReward).Mul(params.TreasuryShare).TruncateInt()
 	totalInitiativeMint := completerReward.Add(treasuryShare)
 
-	// Check per-season initiative reward minting cap against the full mint
-	// (completer + treasury) so the cap reflects every DREAM created by the
-	// completion, not just what the completer received.
+	// Check the per-season minting cap against EVERY DREAM this completion will
+	// create, not just the completer and treasury shares. The staker completion
+	// bonus and the reviewers' fee are minted further down this same function
+	// and counted afterwards, so a gate that ignored them would admit a
+	// completion and then mint past the cap it had just checked — the overrun
+	// bounded only by the size of the last initiative through the door.
+	//
+	// Both projections are upper bounds. The bonus pays nothing when no
+	// external staker holds conviction, and both truncate per recipient, so the
+	// gate is conservative: it can refuse a completion that would have fitted,
+	// never admit one that does not. For a cap, erring that way is correct.
+	projectedBonus := math.ZeroInt()
+	if hasStakes, sErr := k.InitiativeHasStakes(ctx, initiativeID); sErr == nil && hasStakes {
+		projectedBonus = k.InitiativeCompletionBonusPool(ctx, totalReward)
+	}
+	// Only project a review fee if the round actually has verdicts to pay for.
+	// PayReviewFees returns early on an empty round, so charging the gate for a
+	// review that never happened would refuse completions for a mint that is
+	// not coming.
+	projectedReviewFees := math.ZeroInt()
+	if reviews, rErr := k.GetInitiativeReviews(ctx, initiative.Id, initiative.ReviewRound); rErr == nil && len(reviews) > 0 {
+		projectedReviewFees = k.ReviewFeePool(ctx, params, initiative)
+	}
+	projectedTotalMint := totalInitiativeMint.Add(projectedBonus).Add(projectedReviewFees)
+
 	seasonRewardsMinted, err := k.GetSeasonInitiativeRewardsMinted(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get season initiative rewards: %w", err)
 	}
-	if seasonRewardsMinted.Add(totalInitiativeMint).GT(params.MaxInitiativeRewardsPerSeason) {
-		return fmt.Errorf("completing this initiative would mint %s DREAM, exceeding season cap of %s (already minted %s): %w",
-			totalInitiativeMint.String(), params.MaxInitiativeRewardsPerSeason.String(), seasonRewardsMinted.String(),
-			types.ErrInitiativeRewardCapReached)
+	if seasonRewardsMinted.Add(projectedTotalMint).GT(params.MaxInitiativeRewardsPerSeason) {
+		return fmt.Errorf("completing this initiative would mint up to %s DREAM (completer+treasury %s, staker bonus %s, review fees %s), exceeding season cap of %s (already minted %s): %w",
+			projectedTotalMint.String(), totalInitiativeMint.String(), projectedBonus.String(),
+			projectedReviewFees.String(), params.MaxInitiativeRewardsPerSeason.String(),
+			seasonRewardsMinted.String(), types.ErrInitiativeRewardCapReached)
 	}
 
 	// Mint DREAM to assignee (completer)
@@ -783,6 +854,11 @@ func (k Keeper) CompleteInitiative(ctx context.Context, initiativeID uint64) err
 	// the abandonment path alike, so the fee never depends on the outcome.
 	if _, err := k.PayReviewFees(ctx, initiative); err != nil {
 		return fmt.Errorf("failed to pay review fees: %w", err)
+	}
+	// Any escrowed bounty settles on the same terms and the same path: split
+	// across the verdicts filed, refunded to funders if there were none.
+	if _, err := k.PayReviewBounty(ctx, initiative); err != nil {
+		return fmt.Errorf("failed to settle review bounty: %w", err)
 	}
 	// Completion is gated on the challenge window having elapsed with no active
 	// challenge, so these verdicts are no longer contestable and the bond

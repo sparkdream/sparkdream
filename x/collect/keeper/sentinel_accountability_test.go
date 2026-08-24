@@ -70,7 +70,7 @@ func TestResolveHideAppeal_ReportsOutcomes(t *testing.T) {
 		appealHide(t, f, hrID)
 		require.NoError(t, f.keeper.ResolveHideAppeal(f.ctx, hrID, true)) // appeal upheld = sentinel wrong
 
-		require.Equal(t, []roleOutcomeCall{{addr: f.sentinel, kind: reptypes.ActionKindCollectHide, upheld: false}},
+		require.Equal(t, []roleOutcomeCall{{roleType: reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, addr: f.sentinel, kind: reptypes.ActionKindCollectHide, upheld: false}},
 			f.repKeeper.roleOutcomeCalls)
 		// The appeal filing itself was also counted (Gate 4 appeal rate).
 		require.Contains(t, f.repKeeper.roleActionCalls,
@@ -86,7 +86,7 @@ func TestResolveHideAppeal_ReportsOutcomes(t *testing.T) {
 		appealHide(t, f, hrID)
 		require.NoError(t, f.keeper.ResolveHideAppeal(f.ctx, hrID, false)) // appeal rejected = sentinel right
 
-		require.Equal(t, []roleOutcomeCall{{addr: f.sentinel, kind: reptypes.ActionKindCollectHide, upheld: true}},
+		require.Equal(t, []roleOutcomeCall{{roleType: reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, addr: f.sentinel, kind: reptypes.ActionKindCollectHide, upheld: true}},
 			f.repKeeper.roleOutcomeCalls)
 	})
 }

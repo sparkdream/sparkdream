@@ -214,6 +214,13 @@ echo "  Result: $TEST_3_RESULT"; echo
 # TEST 4 + 5: rejection opens a new round, and commits bond
 # ========================================================================
 echo "--- TEST 4/5: rejection opens a new round; bond scales with budget ---"
+# total_committed_bond is cumulative across every open verdict the reviewer
+# holds, not per-initiative, so the absolute value only equals one verdict's
+# commitment on a pristine chain. Measure the DELTA instead: the property under
+# test is that a verdict commits rate x budget, and that holds whatever the
+# reviewer was already carrying.
+COMMITTED_BEFORE=$($BINARY query rep bonded-role initiative-reviewer "$SENTINEL1_ADDR" --output json 2>&1 \
+    | jq -r '.bonded_role.total_committed_bond // "0"')
 R=$(send $BINARY tx rep submit-initiative-review "$INIT_ID" false "criterion not met" --from sentinel1)
 if [ "$(code_of "$R")" == "0" ]; then
     AFTER=$($BINARY query rep get-initiative "$INIT_ID" --output json 2>&1)
@@ -230,11 +237,12 @@ if [ "$(code_of "$R")" == "0" ]; then
     # params rather than hardcoded.
     RATE=$($BINARY query rep params --output json 2>&1 | jq -r '.params.reviewer_bond_reserve_rate // "0"')
     BUDGET=$(echo "$AFTER" | jq -r '.initiative.budget // "0"')
-    COMMITTED=$($BINARY query rep bonded-role initiative-reviewer "$SENTINEL1_ADDR" --output json 2>&1 \
+    COMMITTED_AFTER=$($BINARY query rep bonded-role initiative-reviewer "$SENTINEL1_ADDR" --output json 2>&1 \
         | jq -r '.bonded_role.total_committed_bond // "0"')
+    DELTA=$((COMMITTED_AFTER - COMMITTED_BEFORE))
     EXPECTED=$(python3 -c "print(int(int('$BUDGET') * int('$RATE') // 10**18))" 2>/dev/null)
-    echo "  committed=$COMMITTED expected=$EXPECTED (budget $BUDGET)"
-    [ "$COMMITTED" == "$EXPECTED" ] && TEST_5_RESULT="PASS" || echo "  bond must scale to what the verdict could mint"
+    echo "  committed $COMMITTED_BEFORE -> $COMMITTED_AFTER (delta $DELTA, expected $EXPECTED, budget $BUDGET)"
+    [ "$DELTA" == "$EXPECTED" ] && TEST_5_RESULT="PASS" || echo "  bond must scale to what the verdict could mint"
 else
     echo "  review failed: $(log_of "$R")"
 fi

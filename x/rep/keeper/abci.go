@@ -6,10 +6,24 @@ import (
 	"sparkdream/x/rep/types"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 )
 
 const maxTagExpirations = 50
+
+// BeginBlocker tops up the bonded-role reward pools from the community pool.
+//
+// BeginBlock rather than EndBlock so a pool is funded before the same block's
+// reward distribution reads its balance — funding that landed one block late
+// would silently shrink the epoch payout it was meant to cover.
+//
+// A funding failure must never halt the chain, so FundRoleRewardPools swallows
+// its own recoverable errors and anything that escapes is logged, not returned.
+func (k Keeper) BeginBlocker(ctx context.Context) error {
+	if err := k.FundRoleRewardPools(ctx); err != nil {
+		sdk.UnwrapSDKContext(ctx).Logger().Error("failed to fund role reward pools", "error", err)
+	}
+	return nil
+}
 
 // EndBlocker implements the end blocker logic
 func (k Keeper) EndBlocker(ctx context.Context) error {
@@ -213,6 +227,24 @@ func (k Keeper) EndBlocker(ctx context.Context) error {
 		sdkCtx.Logger().Error("error burning sentinel reward pool overflow", "error", err)
 	}
 
+	// 15c. Same pair for the initiative-reviewer SPARK pool, on its own cadence
+	// and against its own cap. Distribution runs before the burn for the same
+	// reason: drain to the people who earned it first, burn only the residual.
+	if err := k.DistributeReviewerRewards(ctx); err != nil {
+		sdkCtx.Logger().Error("error distributing reviewer rewards", "error", err)
+	}
+	if err := k.BurnReviewerRewardPoolOverflow(ctx); err != nil {
+		sdkCtx.Logger().Error("error burning reviewer reward pool overflow", "error", err)
+	}
+
+	// 15d. Same pair for the collect-curator SPARK pool.
+	if err := k.DistributeCuratorRewards(ctx); err != nil {
+		sdkCtx.Logger().Error("error distributing curator rewards", "error", err)
+	}
+	if err := k.BurnCuratorRewardPoolOverflow(ctx); err != nil {
+		sdkCtx.Logger().Error("error burning curator reward pool overflow", "error", err)
+	}
+
 	// 16. Time out expired gov action appeals (half refund / half burn).
 	if err := k.TimeoutExpiredAppeals(ctx); err != nil {
 		sdkCtx.Logger().Error("error timing out expired gov action appeals", "error", err)
@@ -265,7 +297,13 @@ func (k Keeper) BurnSentinelRewardPoolOverflow(ctx context.Context) error {
 	// inside this BeginBlocker call, so no other path observes the intermediate
 	// balance on the rep module account.
 	coins := sdk.NewCoins(sdk.NewCoin(k.BondDenom(ctx), burnAmount))
-	if err := k.bankKeeper.SendCoins(ctx, SentinelRewardPoolAddress(), authtypes.NewModuleAddress(types.ModuleName), coins); err != nil {
+	// Routed through SendCoinsFromAccountToModule rather than a plain SendCoins
+	// to the raw module address: a plain send auto-creates a BaseAccount at
+	// that address, and the BurnCoins below then resolves it as a module
+	// account and PANICS ("account is not a module account"). x/forum used to
+	// instantiate rep's module account properly as a side effect of routing
+	// its spam tax through it, which masked this at every burn site here.
+	if err := k.bankKeeper.SendCoinsFromAccountToModule(ctx, SentinelRewardPoolAddress(), types.ModuleName, coins); err != nil {
 		return fmt.Errorf("move sentinel overflow to module account: %w", err)
 	}
 	if err := k.bankKeeper.BurnCoins(ctx, types.ModuleName, coins); err != nil {

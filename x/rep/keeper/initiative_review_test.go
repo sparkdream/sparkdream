@@ -100,14 +100,24 @@ func TestReviewGateIsOffByDefault(t *testing.T) {
 	rf := setupReview(t, 0)
 	project, err := rf.f.keeper.GetProject(rf.f.ctx, rf.projectID)
 	require.NoError(t, err)
-	require.False(t, keeper.ReviewRequired(project))
-
 	initiative, err := rf.f.keeper.GetInitiative(rf.f.ctx, rf.initiative)
 	require.NoError(t, err)
-	ok, err := rf.f.keeper.ReviewGateSatisfied(rf.f.ctx, initiative, project)
+	gp := gateParams(t, rf.f.keeper, rf.f.ctx)
+	require.False(t, keeper.ReviewRequired(gp, initiative, project))
+
+	ok, err := rf.f.keeper.ReviewGateSatisfied(rf.f.ctx, gp, initiative, project)
 	require.NoError(t, err)
 	require.True(t, ok, "a project asking for no reviewers is always satisfied")
 	require.Zero(t, initiative.ReviewDeadline, "no review window opens when none is required")
+}
+
+// gateParams fetches params for the review-gate signatures, which now need
+// them because the gate combines project policy with a chain-wide threshold.
+func gateParams(t *testing.T, k keeper.Keeper, ctx sdk.Context) types.Params {
+	t.Helper()
+	p, err := k.Params.Get(ctx)
+	require.NoError(t, err)
+	return p
 }
 
 func TestReviewGateBlocksUntilApproved(t *testing.T) {
@@ -120,7 +130,7 @@ func TestReviewGateBlocksUntilApproved(t *testing.T) {
 	require.NoError(t, err)
 	require.NotZero(t, initiative.ReviewDeadline, "a review window opens on submission")
 
-	ok, err := k.ReviewGateSatisfied(ctx, initiative, project)
+	ok, err := k.ReviewGateSatisfied(ctx, gateParams(t, k, ctx), initiative, project)
 	require.NoError(t, err)
 	require.False(t, ok, "unreviewed work must not satisfy the gate")
 
@@ -129,7 +139,7 @@ func TestReviewGateBlocksUntilApproved(t *testing.T) {
 
 	initiative, err = k.GetInitiative(ctx, rf.initiative)
 	require.NoError(t, err)
-	ok, err = k.ReviewGateSatisfied(ctx, initiative, project)
+	ok, err = k.ReviewGateSatisfied(ctx, gateParams(t, k, ctx), initiative, project)
 	require.NoError(t, err)
 	require.True(t, ok, "one approval meets a min_verifier_count of 1")
 }
@@ -234,15 +244,21 @@ func TestReviewFeeIsPaidOnEitherVerdict(t *testing.T) {
 		"a reviewer is paid for rejecting, exactly as for approving")
 }
 
-func TestCommitteeEscalationDefaultsToPassed(t *testing.T) {
-	// Silence must never wedge an initiative, and silence must never mint. The
-	// module has already been bitten once by an escalation that expired and
-	// touched nothing.
+func TestCommitteeEscalationTimeoutRejectsTheRound(t *testing.T) {
+	// Silence must never mint, and must never wedge either.
+	//
+	// This used to resolve to PASSED, which meant a gated initiative could
+	// complete with no verdict on it at all: wait out the reviewers, wait out
+	// the committee, mint. The gate was therefore advisory for anyone patient
+	// enough. It now rejects the round — the assignee resubmits and gets
+	// another window, and when max_review_rounds runs out the initiative is
+	// abandoned cleanly rather than held forever.
 	rf := setupReview(t, 1)
 	k := rf.f.keeper
 
 	initiative, err := k.GetInitiative(rf.f.ctx, rf.initiative)
 	require.NoError(t, err)
+	startRound := initiative.ReviewRound
 
 	// Past the review deadline, then past the committee's own window.
 	ctx := rf.f.ctx.WithBlockHeight(initiative.ReviewDeadline + 1)
@@ -258,14 +274,62 @@ func TestCommitteeEscalationDefaultsToPassed(t *testing.T) {
 
 	resolved, err := k.GetInitiative(ctx, rf.initiative)
 	require.NoError(t, err)
-	require.Equal(t, types.ReviewEscalation_REVIEW_ESCALATION_PASSED, resolved.ReviewEscalation,
-		"committee inaction resolves to PASSED — conviction decides, nothing is minted by silence")
+	require.Equal(t, startRound+1, resolved.ReviewRound,
+		"the unreviewed round is rejected and a new one opens")
+	require.Equal(t, types.InitiativeStatus_INITIATIVE_STATUS_ASSIGNED, resolved.Status,
+		"the work goes back to the assignee rather than through the gate")
+	require.Empty(t, resolved.DeliverableUri,
+		"a new round needs a fresh submission — which is also a fresh call for reviewer attention")
 
 	project, err := k.GetProject(ctx, rf.projectID)
 	require.NoError(t, err)
-	ok, err := k.ReviewGateSatisfied(ctx, resolved, project)
+	ok, err := k.ReviewGateSatisfied(ctx, gateParams(t, k, ctx), resolved, project)
 	require.NoError(t, err)
-	require.True(t, ok, "a passed escalation unblocks the gate without approving the work")
+	require.False(t, ok, "waiting the clock out must not satisfy the gate")
+
+	// The escalation marker is cleared, or the next round would be skipped as
+	// "already with the committee" and silently lose its escalation path.
+	stillEscalated, hErr := k.EscalatedReviews.Has(ctx, rf.initiative)
+	require.NoError(t, hErr)
+	require.False(t, stillEscalated)
+}
+
+func TestRepeatedEscalationTimeoutsExhaustRoundsAndAbandon(t *testing.T) {
+	// The terminal state is abandonment, not an indefinite hold: budget
+	// returned, bond released, nothing minted. A farmer cannot wait out the
+	// gate, and an assignee cannot be held forever by reviewer absence.
+	rf := setupReview(t, 1)
+	k := rf.f.keeper
+	params, err := k.Params.Get(rf.f.ctx)
+	require.NoError(t, err)
+
+	ctx := rf.f.ctx
+	for round := uint32(0); round < params.MaxReviewRounds; round++ {
+		cur, gErr := k.GetInitiative(ctx, rf.initiative)
+		require.NoError(t, gErr)
+		if cur.Status == types.InitiativeStatus_INITIATIVE_STATUS_ABANDONED {
+			break
+		}
+		// Re-submit so the round has a deliverable and a deadline to expire.
+		if cur.Status == types.InitiativeStatus_INITIATIVE_STATUS_ASSIGNED {
+			assignee, aErr := sdk.AccAddressFromBech32(cur.Assignee)
+			require.NoError(t, aErr)
+			require.NoError(t, k.SubmitInitiativeWork(ctx, rf.initiative, assignee, "deliverable"))
+			cur, gErr = k.GetInitiative(ctx, rf.initiative)
+			require.NoError(t, gErr)
+		}
+		ctx = ctx.WithBlockHeight(cur.ReviewDeadline + 1)
+		require.NoError(t, k.SweepReviewDeadlines(ctx))
+		mid, gErr := k.GetInitiative(ctx, rf.initiative)
+		require.NoError(t, gErr)
+		ctx = ctx.WithBlockHeight(mid.ReviewDeadline + 1)
+		require.NoError(t, k.SweepReviewDeadlines(ctx))
+	}
+
+	final, err := k.GetInitiative(ctx, rf.initiative)
+	require.NoError(t, err)
+	require.Equal(t, types.InitiativeStatus_INITIATIVE_STATUS_ABANDONED, final.Status,
+		"rounds exhausted with no verdict must abandon, never pass")
 }
 
 // The four defects below were all found by auditing the reviewer role after it
@@ -388,7 +452,7 @@ func TestPolicyCannotBeRelaxedOverWorkInReview(t *testing.T) {
 
 	project, err = k.GetProject(ctx, rf.projectID)
 	require.NoError(t, err)
-	ok, err := k.ReviewGateSatisfied(ctx, initiative, project)
+	ok, err := k.ReviewGateSatisfied(ctx, gateParams(t, k, ctx), initiative, project)
 	require.NoError(t, err)
 	require.False(t, ok,
 		"the round keeps the standard it opened under; relaxing the policy does not apply retroactively")

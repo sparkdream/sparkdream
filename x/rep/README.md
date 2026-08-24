@@ -22,6 +22,7 @@ This module provides:
 - **Tag budgets** — `TagBudget` / `TagBudgetAward` reward pools per tag
 - **Sentinel accountability** — generic bond/bond-status/activity record shared across content modules; forum holds the per-action counters
 - **Sentinel reward pool** — SPARK pool funded by forum spam-tax splits and UPHELD appeal bonds; accuracy-weighted epoch distribution (see "Sentinel Accountability")
+- **Automatic bonded-role funding** — one capped daily claim on the community pool in `BeginBlock`, divided across the bonded-role SPARK pools by headroom (see "Automatic Bonded-Role Funding")
 - **Gov-action appeal resolution** — Operations-Committee `MsgResolveGovActionAppeal` + EndBlocker timeout path; verdicts drive appellant-bond burn/refund and, on OVERTURNED, slash the sentinel by the exact bond the action reserved (its per-action committed amount, read back from the forum record — slash == reserved)
 - **Member accountability** — `MemberReport`, `MemberWarning`, `GovActionAppeal`, `JuryParticipation`; salvation counters live on the Member proto
 
@@ -209,6 +210,11 @@ hiding a post, and pooling the two would mix their bond and accuracy records.
   and a reviewer may not afterwards stake on it.
 - Reviewing pays **per verdict filed, never per approval**; making pay depend on
   the verdict would rebuild the bias the role exists to remove.
+- Pay has two parts: a DREAM fee per verdict filed, and an accuracy-gated SPARK
+  pool that pays for reviewing *well*. The pool is auto-funded from the
+  community pool (see "Automatic bonded-role funding"); it is also an ordinary
+  bank sub-address, so a council can top it up with a plain send. An unfunded
+  pool simply distributes nothing, and the DREAM fee stands alone.
 - A rejection returns the work to `ASSIGNED` for another round, bounded by
   `max_review_rounds`. Verdicts are keyed by round.
 - If nobody reviews, the round escalates to the Operations Committee, and
@@ -218,6 +224,40 @@ hiding a post, and pooling the two would mix their bond and accuracy records.
   record, queryable with `query rep role-activity`.
 
 See the Initiative Review section of
+[docs/x-rep-spec.md](../../docs/x-rep-spec.md).
+
+### Automatic Bonded-Role Funding
+
+Bonded-role SPARK pay does not wait on a council transfer. In `BeginBlock`,
+x/rep draws **one** capped claim on the community pool into a single intake
+sub-address and immediately divides it across the per-role pools (content
+sentinel, initiative reviewer, collect curator) in proportion to each pool's
+headroom (`max(0, cap - balance)`).
+
+Caps set the relative share: reviewer 150,000 SPARK, sentinel and curator
+100,000 each. Federation verifiers are excluded — they earn a flat DREAM mint
+from federation's own EndBlocker instead.
+
+- The draw is bounded per UTC day by a share of inflation --
+  `annual_provisions * community_tax * role_reward_inflation_share / 365` --
+  ledgered in state so the allowance survives restarts, and additionally bounded
+  by total headroom and by the community pool's balance. A fixed amount would
+  take its largest share of the pool when the pool is poorest; a share is
+  counter-cyclical. The base is inflation, not the pool balance, which holds the
+  councils' 95M SPARK genesis allocation. Zero disables it.
+- Headroom-proportional division needs no per-role funding parameter: a full
+  pool draws nothing, so an idle role costs the community pool nothing, and a
+  new bonded role inherits funding by being listed in `fundedRolePools`.
+- x/rep must run before x/split in `BeginBlockers` — x/split distributes
+  whatever remains in the community pool to the councils in full.
+- Pool caps and the daily draw are bounded above by `RoleRewardPoolCeiling()`
+  (1e18 uspark). The caps feed a multiplication and `math.Int` panics past 256
+  bits, so an unbounded committee-editable cap would make a mistyped proposal a
+  chain-halt bug.
+- The day ledger and the review-escalation set are both exported in genesis.
+- Inspect it with `query rep role-reward-pools`.
+
+See the Automatic funding section of
 [docs/x-rep-spec.md](../../docs/x-rep-spec.md).
 
 ### Sentinel Accountability
@@ -247,7 +287,7 @@ Keeper methods exposed to consumers (content modules call these):
 
 Forum content-action handlers (hide / lock / move / pin / dismiss-flags) authenticate via `GetBondedRole` behind the shared `eligibleSentinel` quantity gate (NORMAL/RECOVERY, or UNBONDING with staying bond ≥ floor) and manage commitment via `ReserveBond` / `ReleaseBond` / `SlashBond`; they still update their own forum-side counters locally. Because `ReserveBond` is pending-aware, a slash reserved during an unbond can only draw on the staying, uncommitted bond — so the action stays fully backed through its appeal window even as the unbond drains.
 
-**Reward distribution.** Active sentinels earn from an x/rep-owned SPARK reward pool (`uspark`) fed by 50% of forum non-member spam/edit fees and 50% of `UPHELD` appeal bonds (remainder burned); pool capped at `max_sentinel_reward_pool` with overflow burn per `sentinel_reward_pool_overflow_burn_ratio`. Every `sentinel_reward_epoch_blocks` the rep EndBlocker distributes the pool pro-rata on an accuracy-weighted score (`accuracy_rate * sqrt(epoch_appeals_resolved)` plus small bonuses per hide/lock/move) to sentinels that clear the eligibility gates (`min_appeals_for_accuracy`, `min_epoch_activity_for_reward`, `min_appeal_rate`, `min_sentinel_accuracy`, not `DEMOTED`). Payouts update `cumulative_rewards` + `last_reward_epoch` on the rep-side record and forum-side per-epoch counters are reset for all sentinels. See [docs/x-rep-spec.md](../../docs/x-rep-spec.md#sentinel-rewards) for the full spec.
+**Reward distribution.** Active sentinels earn from an x/rep-owned SPARK reward pool (`uspark`) fed by 50% of forum non-member spam/edit/flag/reaction fees (via `AddToSentinelRewardPool`) and 50% of `UPHELD` appeal bonds (remainder burned); pool capped at `max_sentinel_reward_pool` with overflow burn per `sentinel_reward_pool_overflow_burn_ratio`. Every `sentinel_reward_epoch_blocks` the rep EndBlocker distributes the pool pro-rata on an accuracy-weighted score (`accuracy_rate * sqrt(epoch_appeals_resolved)` plus small bonuses per hide/lock/move) to sentinels that clear the eligibility gates (`min_appeals_for_accuracy`, `min_epoch_activity_for_reward`, `min_appeal_rate`, `min_sentinel_accuracy`, not `DEMOTED`). Payouts update `cumulative_rewards` + `last_reward_epoch` on the rep-side record and forum-side per-epoch counters are reset for all sentinels. See [docs/x-rep-spec.md](../../docs/x-rep-spec.md#sentinel-rewards) for the full spec.
 
 ### Member Accountability
 
@@ -379,6 +419,8 @@ Project" section of [docs/x-rep-spec.md](../../docs/x-rep-spec.md).
 | `MsgSubmitInitiativeWork` | Submit deliverable | Assignee |
 | `MsgApproveInitiative` | Record an advisory verdict; disapproval abandons | Approval: any staker or committee. Disapproval: Operations Committee only |
 | `MsgSubmitInitiativeReview` | File a bonded reviewer's verdict on submitted work | Bonded initiative reviewer, independent of the work and not a staker on it |
+| `MsgFundReviewBounty` | Escrow DREAM against an initiative to attract reviewers | Members |
+| `MsgReclaimReviewBounty` | Withdraw your own unpaid bounty (before any verdict) | Funder |
 | `MsgSetVerificationPolicy` | Configure how a project's initiatives are reviewed | Project creator or Operations Committee |
 | `MsgResolveReviewEscalation` | Settle a review round that hit its deadline | Operations Committee |
 | `MsgAbandonInitiative` | Abandon work in progress | Assignee |
@@ -552,6 +594,10 @@ decimal offset, not a store key). See the Sorted List Pagination section of
 | `InterimsByReference` | Interim work linked to content |
 | `RoleActivity` | A bonded role holder's accountability record (counters, streaks, accuracy ring) |
 | `JuryReviewsByJuror` | Jury summons seated on an address |
+| `RoleRewardPools` | Funding state of every bonded-role SPARK pool, plus today's community-pool draw |
+| `InitiativeReviews` | All rounds' reviewer verdicts on an initiative, plus whether the current round meets the gate |
+| `ReviewBounty` | DREAM escrowed against an initiative and when each contribution becomes reclaimable |
+| `EscalatedReviews` | Review rounds awaiting an Operations Committee decision |
 
 ## Parameters
 
@@ -633,7 +679,21 @@ These parameters are excluded from `RepOperationalParams` and can only be change
 |-----------|------|---------|-------------|
 | `reviewer_bond_reserve_rate` | LegacyDec | 10% | Of the initiative budget, committed per verdict and slashed on overturn |
 | `review_fee_rate` | LegacyDec | 5% | Of the budget, x the tier multiplier, split across the reviewers who filed |
+| `review_required_above_budget` | Int | 100 DREAM | Above this, completion needs a verdict regardless of project policy |
+| `review_bounty_reclaim_delay` | uint64 | 14400 (~1 day) | Blocks before a funder may reclaim an unpaid bounty |
+| `permissionless_min_review_bounty_rate` | LegacyDec | 10% | Of budget, escrowed in existing DREAM at permissionless creation — only when the budget is above the review gate |
 | `max_review_rounds` | uint32 | 3 | Rejection returns the work for another round; the last one abandons |
+| `max_reviewer_reward_pool` | Int | 150,000 SPARK | Cap on the reviewer SPARK pool; 1.5x sentinel/curator |
+| `reviewer_reward_pool_overflow_burn_ratio` | LegacyDec | 50% | Fraction of overflow burned each epoch |
+| `reviewer_reward_epoch_blocks` | uint64 | 14400 (~1 day) | Distribution cadence |
+| `min_reviewer_accuracy` | LegacyDec | 0.70 | Windowed accuracy needed to earn a pool share |
+| `reviewer_accuracy_window_epochs` | uint64 | 6 | Epochs of history the accuracy ring scores |
+| `max_curator_reward_pool` | Int | 100,000 SPARK | Cap on the curator SPARK pool; equal to the sentinel pool |
+| `curator_reward_pool_overflow_burn_ratio` | LegacyDec | 50% | Fraction of overflow burned each epoch |
+| `curator_reward_epoch_blocks` | uint64 | 14400 (~1 day) | Distribution cadence |
+| `min_curator_accuracy` | LegacyDec | 0.70 | Windowed accuracy needed to earn a pool share |
+| `curator_accuracy_window_epochs` | uint64 | 6 | Epochs of history the accuracy ring scores |
+| `role_reward_inflation_share` | LegacyDec | 0.5 | Share of the community pool's inflation income drawn per UTC day, split across all bonded-role pools by headroom; 0 disables |
 | `initiative_completion_bonus_rate` | LegacyDec | 10% | Of the budget, to external stakers on completion |
 
 Per-project review is configured by `MsgSetVerificationPolicy`;

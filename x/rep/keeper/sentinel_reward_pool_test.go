@@ -2,10 +2,15 @@ package keeper_test
 
 import (
 	"context"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	"github.com/stretchr/testify/require"
 
 	"sparkdream/x/rep/keeper"
@@ -146,11 +151,16 @@ func TestBurnSentinelRewardPoolOverflow_AboveCapBurnsRatio(t *testing.T) {
 		return sdk.NewCoin(denom, maxPool.Add(overflow))
 	}
 
+	// The move is a module-aware send, not a plain SendCoins: sending to the raw
+	// module address would create a BaseAccount there and the BurnCoins below
+	// would then panic resolving it as a module account.
 	var movedFrom sdk.AccAddress
 	var movedCoins sdk.Coins
+	var movedToModule string
 	moveCount := 0
-	fixture.bankKeeper.SendCoinsFn = func(_ context.Context, from sdk.AccAddress, _ sdk.AccAddress, amt sdk.Coins) error {
+	fixture.bankKeeper.SendCoinsFromAccountToModuleFn = func(_ context.Context, from sdk.AccAddress, module string, amt sdk.Coins) error {
 		movedFrom = from
+		movedToModule = module
 		movedCoins = amt
 		moveCount++
 		return nil
@@ -169,6 +179,7 @@ func TestBurnSentinelRewardPoolOverflow_AboveCapBurnsRatio(t *testing.T) {
 	require.NoError(t, k.BurnSentinelRewardPoolOverflow(ctx))
 	require.Equal(t, 1, moveCount, "expected exactly one move out of sentinel sub-address")
 	require.True(t, movedFrom.Equals(keeper.SentinelRewardPoolAddress()))
+	require.Equal(t, types.ModuleName, movedToModule, "burns must route through the module account by name")
 	require.Equal(t, sdk.NewCoins(sdk.NewCoin("uspark", math.NewInt(500))), movedCoins)
 	require.Equal(t, 1, burnCount, "expected exactly one burn call")
 	require.Equal(t, types.ModuleName, burnedModule)
@@ -194,4 +205,92 @@ func TestBurnSentinelRewardPoolOverflow_TinyOverflowNoBurn(t *testing.T) {
 	}
 	require.NoError(t, k.BurnSentinelRewardPoolOverflow(ctx))
 	require.False(t, burnCalled)
+}
+
+// TestSentinelRewardPool_ModuleAccountIsNotThePool states the bug that made
+// forum's spam tax vanish for the length of a refactor.
+//
+// The pool used to BE the rep module account's SPARK balance. When it moved to
+// a derived sub-address, forum kept sending the spam-tax pool share to the
+// module account. Nothing reads that account's SPARK balance and nothing sweeps
+// it, so the money accumulated there permanently while sentinels went unpaid --
+// and no test failed, because forum's assertion only checked the destination
+// *module*, which was still x/rep.
+func TestSentinelRewardPool_ModuleAccountIsNotThePool(t *testing.T) {
+	fixture := initFixture(t)
+	k := fixture.keeper
+	ctx := fixture.ctx
+
+	ledger := map[string]math.Int{}
+	get := func(a sdk.AccAddress) math.Int {
+		if v, ok := ledger[a.String()]; ok {
+			return v
+		}
+		return math.ZeroInt()
+	}
+	fixture.bankKeeper.GetBalanceFn = func(_ context.Context, addr sdk.AccAddress, denom string) sdk.Coin {
+		return sdk.NewCoin(denom, get(addr))
+	}
+	fixture.bankKeeper.SendCoinsFn = func(_ context.Context, from, to sdk.AccAddress, amt sdk.Coins) error {
+		ledger[from.String()] = get(from).Sub(amt[0].Amount)
+		ledger[to.String()] = get(to).Add(amt[0].Amount)
+		return nil
+	}
+
+	moduleAddr := authtypes.NewModuleAddress(types.ModuleName)
+	require.False(t, moduleAddr.Equals(keeper.SentinelRewardPoolAddress()),
+		"the module account and the pool must be distinct, or this whole guard is vacuous")
+
+	// Money parked in the module account is invisible to the pool.
+	ledger[moduleAddr.String()] = math.NewInt(50_000)
+	require.True(t, k.GetSentinelRewardPool(ctx).IsZero(),
+		"the rep module account is not the sentinel reward pool")
+
+	// Money added through the pool API is visible, and comes out of the sender.
+	sender := sdk.AccAddress([]byte("spam-tax-collector--"))
+	ledger[sender.String()] = math.NewInt(1_000)
+	require.NoError(t, k.AddToSentinelRewardPool(ctx, sender, math.NewInt(1_000)))
+	require.Equal(t, math.NewInt(1_000), k.GetSentinelRewardPool(ctx))
+	require.True(t, get(sender).IsZero())
+
+	// The stranded module-account balance is still stranded -- it was never
+	// swept anywhere, which is why the bug was silent rather than loud.
+	require.Equal(t, math.NewInt(50_000), get(moduleAddr))
+}
+
+// TestBurnsNeverSendToTheRawModuleAddress is a source-level guard, because the
+// bug it prevents cannot be reproduced against a stub bank.
+//
+// A plain SendCoins to authtypes.NewModuleAddress(ModuleName) creates a
+// BaseAccount at that address. A later BurnCoins resolves the same address as a
+// module account, finds a BaseAccount, and PANICS — taking down the message
+// handler. It stayed hidden for as long as x/forum happened to route its spam
+// tax through SendCoinsFromModuleToModule, which instantiated rep's module
+// account properly; the moment that routing was corrected, every burn site here
+// became a live panic.
+//
+// The fix is to always reach the module account by NAME. This test fails if any
+// keeper file reintroduces the address form.
+func TestBurnsNeverSendToTheRawModuleAddress(t *testing.T) {
+	files, err := filepath.Glob("*.go")
+	require.NoError(t, err)
+
+	var offenders []string
+	for _, f := range files {
+		if strings.HasSuffix(f, "_test.go") {
+			continue
+		}
+		src, rErr := os.ReadFile(f)
+		require.NoError(t, rErr)
+		for i, line := range strings.Split(string(src), "\n") {
+			if strings.Contains(line, "SendCoins(") &&
+				strings.Contains(line, "NewModuleAddress(types.ModuleName)") {
+				offenders = append(offenders, fmt.Sprintf("%s:%d", f, i+1))
+			}
+		}
+	}
+	require.Empty(t, offenders,
+		"use SendCoinsFromAccountToModule(ctx, from, types.ModuleName, coins) instead — "+
+			"a plain send to the raw module address creates a BaseAccount and the "+
+			"subsequent BurnCoins panics")
 }

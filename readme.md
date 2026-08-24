@@ -43,7 +43,7 @@ Community Pool      15% → x/split → councils
 Genesis             5% to founders, 95% to community pool
 ```
 
-SPARK secures consensus, pays gas, and funds councils. The mint module's parameter authority is set to a burn address, so `MsgUpdateParams` from `x/gov` cannot inflate the supply. See [docs/security-hardening.md](docs/security-hardening.md).
+SPARK secures consensus, pays gas, and funds councils. The mint module's parameter authority is `x/guardian`, not `x/gov`, and guardian's filter for `mint.MsgUpdateParams` rejects any change to `inflation_min`, `inflation_max`, `goal_bonded`, or `inflation_rate_change` — a passing gov proposal cannot inflate the supply. `blocks_per_year` stays tunable. See [docs/security-hardening.md](docs/security-hardening.md).
 
 ### DREAM — earned, productivity-backed
 
@@ -55,31 +55,32 @@ Full economics: [docs/tokenomics.md](docs/tokenomics.md).
 
 ## Module Map
 
-15 custom modules layered by responsibility. Specs live under `docs/x-<module>-spec.md`.
+17 custom modules layered by responsibility, plus the external `x/gnovm`. Specs live under `docs/x-<module>-spec.md`.
 
 ```
-GOVERNANCE      x/gov            x/commons        x/futarchy
-                params           Three Pillars     confidence markets
+GOVERNANCE      x/gov            x/commons         x/futarchy          x/guardian
+                params           Three Pillars     confidence markets  param authority proxy
 
-ECONOMIC        x/distribution   x/split          x/ecosystem
+ECONOMIC        x/distribution   x/split           x/ecosystem
                 15% rev tax      council split     ecosystem treasury
 
-COORDINATION    x/rep            x/season         x/reveal
+COORDINATION    x/rep            x/season          x/reveal
                 members,DREAM    seasonal reset    progressive open-source
                 reputation,tags  XP, retro PGF     tranched contributor payouts
                 invitations,
                 bonded roles,
                 challenges
 
-CONTENT         x/blog           x/forum          x/collect
+CONTENT         x/blog           x/forum           x/collect
                 posts            threads,sentinels curated collections
 
-IDENTITY        x/name           x/federation
-                handle registry  IBC + ActivityPub/AT bridges
+IDENTITY        x/name           x/identity        x/federation        x/service
+                handle registry  chain denoms      IBC + ActivityPub   SPARK-staked
+                                 and tickers       /AT bridges         operator bonds
 
-PRIVACY/UTIL    x/shield         x/session
-                ZK + TLE,        session keys +
-                shielded exec    fee delegation
+PRIVACY/UTIL    x/shield         x/session         x/gnovm
+                ZK + TLE,        session keys +    Gno smart contracts
+                shielded exec    fee delegation    (external module)
 ```
 
 A few non-obvious choices worth flagging:
@@ -88,6 +89,9 @@ A few non-obvious choices worth flagging:
 - **`x/shield` replaces what would have been `x/vote`.** All ZK proof verification, the DKG ceremony, master public key, Shamir shares, and per-domain nullifiers are unified behind a single `MsgShieldedExec`. The shield module account pays gas, so anonymous submitters need zero balance. See [docs/x-shield-spec.md](docs/x-shield-spec.md).
 - **`x/session` replaces `x/authz` + `x/feegrant`.** Purpose-built session keys with scoped message-type delegation, integrated fee delegation, hardcoded anti-recursion. Avoids licensing constraints and the recursion attack surface of authz. See [docs/x-session-spec.md](docs/x-session-spec.md).
 - **`x/federation` is sovereignty-first.** Bilateral peer relationships only — no cross-chain tokens, no binding reputation, no supergovernment. Reputation crossing a peer boundary is heavily discounted (50%, capped at PROVISIONAL, 30-day TTL). See [docs/x-federation-spec.md](docs/x-federation-spec.md).
+- **`x/guardian` owns the authority address for sensitive SDK modules.** Gov cannot call `mint`/`staking`/`distribution` `MsgUpdateParams` directly; it must route through `MsgExec`, which runs each inner message through a per-type field filter that rejects forbidden fields and clamps tunable ones. This is what makes the immutable-inflation promise enforceable rather than aspirational. See [x/guardian/README.md](x/guardian/README.md).
+- **`x/identity` fixes each chain's denoms at genesis.** `bond_denom`, `dream_denom`, display symbols and decimals are written once at `InitGenesis` and sealed — there is no mutation message. Federated chains therefore get distinct tickers and denoms without forking the source tree. See [docs/x-identity-spec.md](docs/x-identity-spec.md).
+- **`x/service` is the generic SPARK-staked accountability primitive.** Off-chain agents doing work the chain cannot verify (federation bridge operators today) register as Operators keyed by `(address, service_type)`, put up a SPARK bond, and answer to a controller Group. New service types need a gov-managed config entry, not a proto bump. See [docs/x-service-spec.md](docs/x-service-spec.md).
 
 ---
 
@@ -97,9 +101,27 @@ Active development. Mainnet has not launched.
 
 | Network | Chain ID | Status |
 |---|---|---|
-| Devnet  | `sparkdream-dev-1`  | N/A |
+| Devnet  | `sparkdream-dev-1`  | Live |
 | Testnet | `sparkdream-test-1` | Live |
 | Mainnet | `sparkdream-1`      | Pre-launch |
+
+### Devnet endpoints
+
+The devnet is the current integration target — newest code, loosest guarantees. It is wiped and re-genesised whenever a breaking change lands, so treat every address, balance, and object ID on it as disposable.
+
+| Service | URL |
+|---|---|
+| RPC       | https://rpc-dev.sparkdream.io |
+| REST API  | https://api-dev.sparkdream.io |
+| Explorer  | https://explorer-devnet.sparkdream.io |
+| Frontend  | https://app-dev.sparkdream.io |
+
+Devnet runs its own `x/identity` denoms rather than the generic ones — `uspark.sparkdreamdev` for SPARK and `udream.sparkdreamdev` for DREAM, both 6 decimals (see [deploy/config/network/devnet/chain.env](deploy/config/network/devnet/chain.env)). Point the CLI at it with `--node https://rpc-dev.sparkdream.io:443 --chain-id sparkdream-dev-1`.
+
+Two agent-driven simulations exercise the devnet end to end and double as worked examples of the coordination flows:
+
+- [docs/devnet-team-simulation-agent-guide.md](docs/devnet-team-simulation-agent-guide.md) — four accounts proposing initiatives, discussing them in the forum, and staking conviction on each other's work ([sim/devnet/rep/](sim/devnet/rep/))
+- [docs/devnet-governance-simulation-agent-guide.md](docs/devnet-governance-simulation-agent-guide.md) — council proposal and voting flows ([sim/devnet/gov/](sim/devnet/gov/))
 
 ### Testnet endpoints
 
@@ -179,16 +201,21 @@ Module specifications:
 - [docs/x-shield-spec.md](docs/x-shield-spec.md) — ZK + TLE unified privacy layer
 - [docs/x-session-spec.md](docs/x-session-spec.md) — session keys + fee delegation
 - [docs/x-forum-spec.md](docs/x-forum-spec.md) · [docs/x-blog-spec.md](docs/x-blog-spec.md) · [docs/x-collect-spec.md](docs/x-collect-spec.md) — content modules
-- [docs/x-name-spec.md](docs/x-name-spec.md) — identity registry
+- [docs/x-name-spec.md](docs/x-name-spec.md) — handle registry
+- [docs/x-identity-spec.md](docs/x-identity-spec.md) — genesis-sealed chain denoms and tickers
 - [docs/x-federation-spec.md](docs/x-federation-spec.md) — IBC + ActivityPub/AT Protocol bridges
+- [docs/x-service-spec.md](docs/x-service-spec.md) — SPARK-staked operator bonds and slashing
 - [docs/x-futarchy-spec.md](docs/x-futarchy-spec.md) — confidence markets
+- [x/guardian/README.md](x/guardian/README.md) — param authority proxy and field filters
 
 Operational:
 
 - [deploy/docs/DEPLOYMENT.md](deploy/docs/DEPLOYMENT.md) — Akash + Headscale + Arweave deployment
 - [deploy/docs/archival-strategy.md](deploy/docs/archival-strategy.md) — block archival to Arweave
 - [deploy/docs/state-sync.md](deploy/docs/state-sync.md) — state sync setup
+- [deploy/docs/replay-from-archive.md](deploy/docs/replay-from-archive.md) — restoring a node from archived blocks
 - [docs/security-hardening.md](docs/security-hardening.md) — immutable parameters and what they protect
+- [docs/development-conventions.md](docs/development-conventions.md) — proto, amino-name, and build conventions
 
 ---
 

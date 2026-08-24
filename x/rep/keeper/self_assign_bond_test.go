@@ -256,15 +256,22 @@ func TestPermissionlessSelfAssignBondIsReleasable(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, k.AssignInitiativeToMember(ctx, initID, creator))
 
+	// 250 self-assign bond (25% of the 1000 budget), locked rather than spent.
+	// No review bounty: 1000 micro-DREAM is far below
+	// review_required_above_budget, so no review is mandatory here and nothing
+	// is charged for one.
 	staked, err := k.GetMember(ctx, creator)
 	require.NoError(t, err)
 	require.Equal(t, "250", staked.StakedDream.String(), "bond is locked, not spent")
+	require.True(t, k.GetReviewBounty(ctx, initID).Amount.IsZero(),
+		"ungated work carries no minimum bounty")
 
 	require.NoError(t, k.AbandonInitiative(ctx, initID, creator, "changed my mind"))
 
 	after, err := k.GetMember(ctx, creator)
 	require.NoError(t, err)
-	require.True(t, after.StakedDream.IsZero(), "bond must unlock on abandonment")
+	require.True(t, after.StakedDream.IsZero(),
+		"bond unlocks on abandonment")
 
 	initiative, err := k.GetInitiative(ctx, initID)
 	require.NoError(t, err)
