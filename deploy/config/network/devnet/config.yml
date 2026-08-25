@@ -220,8 +220,8 @@ genesis:
         # Gift rate limiting - DEVNET: ~30 min cooldown
         gift_cooldown_blocks: "300"                # ~30 min (DEVNET; production: 14400 ~1 day)
         max_gifts_per_sender_epoch: "2000000000"   # 2000 DREAM per epoch (same as production)
-        # Jury - DEVNET: smaller jury, lower rep threshold
-        jury_size: 3                               # DEVNET; production: 5
+        # Jury - DEVNET: smallest jury the rules allow, lower rep threshold
+        jury_size: 5                               # must be odd and exceed MinSeatedJurors (3)
         min_juror_reputation: "30"                 # DEVNET; production: 50
         # Anti-whale staking cap
         max_initiative_stake_per_member: "50000000000"  # 50,000 DREAM (same as production)

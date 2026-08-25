@@ -22,6 +22,11 @@ import (
 	ibctransfertypes "github.com/cosmos/ibc-go/v10/modules/apps/transfer/types"
 	gnovmtypes "github.com/sparkdream/gnovm/x/gnovm/types"
 
+	// Blank import for its package init, which sets and seals the SDK's
+	// bech32 config. Params validation parses addresses, and without this
+	// every sprkdrm1… address in genesis reads as "expected cosmos".
+	_ "sparkdream/app"
+
 	blogtypes "sparkdream/x/blog/types"
 	collecttypes "sparkdream/x/collect/types"
 	commonstypes "sparkdream/x/commons/types"
@@ -105,11 +110,41 @@ func ParamsKeys(params any) map[string]struct{} {
 // Unknown fields are tolerated; rely on the symmetric ParamsKeys check for
 // stricter, friendlier "extra key" diagnostics.
 func RoundTripJSON(raw []byte, template any) error {
+	_, err := decodeParams(raw, template)
+	return err
+}
+
+// ValidateParams runs a module's own Params.Validate over the values in
+// genesis, for modules that have one.
+//
+// The key and round-trip checks answer "is every param present, spelled
+// right and of the right type" — which a param whose VALUE the module
+// rejects passes cleanly. Live (2026-08-25): devnet and testnet shipped
+// `jury_size: 3` after a rule landed requiring it to exceed the seated-jury
+// floor of 3, so both files were valid-looking JSON that the binary refused
+// at the first `genesis gentx`, one error line deep under a screenful of
+// cobra help. Nothing in this audit had any reason to look.
+func ValidateParams(raw []byte, template any) error {
+	msg, err := decodeParams(raw, template)
+	if err != nil {
+		return err
+	}
+	v, ok := msg.(interface{ Validate() error })
+	if !ok {
+		return nil // module defines no validation of its own
+	}
+	return v.Validate()
+}
+
+func decodeParams(raw []byte, template any) (proto.Message, error) {
 	ptr := reflect.New(reflect.TypeOf(template)).Interface()
 	msg, ok := ptr.(proto.Message)
 	if !ok {
-		return fmt.Errorf("template %T does not implement proto.Message", template)
+		return nil, fmt.Errorf("template %T does not implement proto.Message", template)
 	}
 	u := &jsonpb.Unmarshaler{AllowUnknownFields: true}
-	return u.Unmarshal(bytes.NewReader(raw), msg)
+	if err := u.Unmarshal(bytes.NewReader(raw), msg); err != nil {
+		return nil, err
+	}
+	return msg, nil
 }

@@ -316,8 +316,8 @@ genesis:
         # Gift rate limiting - TESTNET: ~2.4 hour cooldown
         gift_cooldown_blocks: "1440"               # ~2.4 hours (production: 14400 ~1 day)
         max_gifts_per_sender_epoch: "2000000000"   # 2000 DREAM per epoch (same as production)
-        # Jury - TESTNET: reduced for small founder set
-        jury_size: 3                               # reduced for small testnet (production: 5)
+        # Jury - TESTNET: smallest jury the rules allow
+        jury_size: 5                               # must be odd and exceed MinSeatedJurors (3)
         min_juror_reputation: "25"                 # halved for testnet (production: 50)
         # Anti-whale staking cap
         max_initiative_stake_per_member: "50000000000"  # 50,000 DREAM (same as production)

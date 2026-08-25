@@ -92,5 +92,10 @@ func assertModuleParams(t *testing.T, appState map[string]json.RawMessage, name 
 
 	if err := RoundTripJSON(mod.Params, params); err != nil {
 		t.Errorf("type-check round-trip failed for %s: %v", name, err)
+		return // a value check on params that did not decode says nothing
+	}
+
+	if err := ValidateParams(mod.Params, params); err != nil {
+		t.Errorf("%s params in genesis fail the module's own validation: %v", name, err)
 	}
 }
