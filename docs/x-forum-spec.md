@@ -321,7 +321,7 @@ message ForumRepEpochCounter {
 // > package.
 enum SentinelBondStatus {
   SENTINEL_BOND_STATUS_UNSPECIFIED = 0;                  // Proto3 convention: zero value must be UNSPECIFIED
-  SENTINEL_BOND_STATUS_NORMAL = 1;                       // Bond >= min_sentinel_bond (1000 DREAM)
+  SENTINEL_BOND_STATUS_NORMAL = 1;                       // Bond >= min_sentinel_bond (500 DREAM)
   SENTINEL_BOND_STATUS_RECOVERY = 2;                     // Bond < min_sentinel_bond but >= demotion_threshold
   SENTINEL_BOND_STATUS_DEMOTED = 3;                      // Bond < demotion_threshold (loses sentinel privileges)
 }
@@ -4105,7 +4105,7 @@ Sentinel bonds DREAM to become a forum moderator (or adds to existing bond). Inv
    - Otherwise: `BONDED_ROLE_STATUS_DEMOTED` (should not happen on first bond since rep rejects first bonds below `min_bond`).
 7. Emit `bonded_role_bonded` event.
 
-**Note:** Initial bond must be ≥ the forum-seeded `min_sentinel_bond` (default 1000 DREAM) to become sentinel. If sentinel was previously demoted, must wait `sentinel_demotion_cooldown` (default 7d) before re-bonding.
+**Note:** Initial bond must be ≥ the forum-seeded `min_sentinel_bond` (default 500 DREAM) to become sentinel. If sentinel was previously demoted, must wait `sentinel_demotion_cooldown` (default 7d) before re-bonding.
 
 ---
 
@@ -6195,11 +6195,11 @@ The following ranges are recommended for production deployment. Values outside t
 
 | Parameter | Safe Range | Default | Notes |
 |-----------|------------|---------|-------|
-| `min_sentinel_bond` | 500-5000 DREAM | 1000 DREAM | Self-bonded stake for skin-in-the-game |
+| `min_sentinel_bond` | 500-5000 DREAM | 500 DREAM | Self-bonded stake for skin-in-the-game |
 | `min_sentinel_backing` | 5000-50000 DREAM | 10000 DREAM | Community trust requirement |
 | `min_backer_membership_duration` | 7d-90d | 30d (2592000s) | Sybil protection; too low enables fake backing |
 | `sentinel_slash_amount` | 50-500 DREAM | 100 DREAM | Per-overturn penalty |
-| `sentinel_demotion_threshold` | 250-750 DREAM | 500 DREAM | Must be < min_sentinel_bond |
+| `sentinel_demotion_threshold` | 250-750 DREAM | 250 DREAM | Must be < min_sentinel_bond; half the floor, as in x/collect and x/rep |
 | `min_sentinel_accuracy` | 0.50-0.90 | 0.70 | Accuracy for reward eligibility |
 | `min_appeal_rate` | 0.05-0.20 | 0.10 | Min appeals for accuracy to count |
 | `curation_dream_reward` | 2-20 DREAM | 5 DREAM | Reward per successful pin/proposal |

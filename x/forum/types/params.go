@@ -87,6 +87,15 @@ const (
 	DefaultSentinelDemotionCooldown = int64(604800)      // 7 days
 	DefaultMinSentinelBondAmount    = int64(500_000_000) // 500 DREAM (in udream)
 	DefaultSentinelSlashAmount      = int64(100_000_000) // 100 DREAM per overturned appeal (in udream)
+	// DefaultSentinelDemotionThresholdAmount is the bond floor below which the
+	// sentinel transitions from RECOVERY to DEMOTED — half the bond floor,
+	// matching x/collect's curator (500/250 DREAM) and x/rep's initiative
+	// reviewer (5,000/2,500 DREAM). Lives here, beside min_sentinel_bond,
+	// because the two are only meaningful against each other: it previously
+	// sat on its own below NewParams() as a bare int64(250), i.e. 250 udream
+	// against a 500 DREAM floor, which put DEMOTED 6 orders of magnitude out
+	// of reach and left every underfunded sentinel parked in RECOVERY.
+	DefaultSentinelDemotionThresholdAmount = int64(250_000_000) // 250 DREAM (in udream)
 	// DefaultSentinelUnbondCooldown keeps a sentinel's bond locked and
 	// slashable for 14 days after MsgUnbondRole — longer than the 7-day
 	// demotion cooldown to ensure overturns flagged during the unbond window
@@ -268,10 +277,6 @@ func NewParams() Params {
 		MaxAcceptProposalsPerSentinelPerThread: DefaultMaxAcceptProposalsPerSentinelPerThread,
 	}
 }
-
-// DefaultSentinelDemotionThresholdAmount is the bond floor below which the
-// sentinel transitions from RECOVERY to DEMOTED.
-const DefaultSentinelDemotionThresholdAmount = int64(250)
 
 // DefaultParams returns a default set of parameters.
 func DefaultParams() Params {

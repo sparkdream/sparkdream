@@ -52,20 +52,39 @@ func DefaultBondedRoleConfigs() []BondedRoleConfig {
 			// x/rep owns this role, so there is no other module to write it
 			// through — these values are the operative config, not a seed.
 			//
-			// The bond is an order of magnitude above the sentinel's because
-			// the liability is: a wrong approval mints DREAM, up to an EPIC
-			// initiative's 10,000, and minted DREAM cannot be clawed back.
-			// Each verdict additionally commits reviewer_bond_reserve_rate of
-			// that initiative's budget, so this floor is what lets a reviewer
-			// hold several open verdicts at once.
-			RoleType:          RoleType_ROLE_TYPE_INITIATIVE_REVIEWER,
-			MinBond:           "5000",
-			MinRepTier:        3,
+			// The bond is an order of magnitude above the sentinel's 500
+			// DREAM because the liability is: a wrong approval mints DREAM, up
+			// to an EPIC initiative's 10,000, and minted DREAM cannot be
+			// clawed back. Each verdict additionally commits
+			// reviewer_bond_reserve_rate of that initiative's budget, so this
+			// floor is what lets a reviewer hold several open verdicts at
+			// once.
+			//
+			// Denominated in udream, like every other bond on the chain
+			// (x/forum's min_sentinel_bond and x/collect's min_curator_bond
+			// are both 500_000_000). The seeds for the write-through roles
+			// below are whole-DREAM stand-ins that never take effect, but this
+			// one is operative, so it carries real units.
+			RoleType: RoleType_ROLE_TYPE_INITIATIVE_REVIEWER,
+			MinBond:  "5000000000", // 5,000 DREAM
+			// Eligibility is the trust level, not a separate rep tier. Every
+			// other bonded role gates on min_trust_level alone and leaves this
+			// at 0 — the sentinel's seed below reads 3 but x/forum writes 0
+			// through on InitGenesis, so 3 was only ever operative here, where
+			// no module writes through. That made the reviewer the one role
+			// nobody could qualify for on a fresh chain: trust levels are
+			// seeded in genesis, reputation scores are left empty in every
+			// genesis we ship, so seeded members sat at ESTABLISHED with tier
+			// 0 and no way to bond. The trust ladder already encodes
+			// reputation (ESTABLISHED requires rep plus interims), so the tier
+			// check was a second, stricter copy of the same gate rather than
+			// an independent one.
+			MinRepTier:        0,
 			MinTrustLevel:     "TRUST_LEVEL_ESTABLISHED",
 			MinAgeBlocks:      0,
-			DemotionCooldown:  604800,  // 7 days
-			DemotionThreshold: "2500",  // half the floor
-			UnbondCooldown:    1209600, // 14 days: bond stays slashable while open verdicts age out
+			DemotionCooldown:  604800,       // 7 days
+			DemotionThreshold: "2500000000", // 2,500 DREAM: half the floor
+			UnbondCooldown:    1209600,      // 14 days: bond stays slashable while open verdicts age out
 		},
 		{
 			RoleType:          RoleType_ROLE_TYPE_CONTENT_SENTINEL,

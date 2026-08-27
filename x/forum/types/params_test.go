@@ -244,3 +244,51 @@ func TestDefaultValueHelpers(t *testing.T) {
 		t.Error("DefaultEditMaxWindowValue mismatch")
 	}
 }
+
+// TestSentinelBondDefaults_ShareUdreamScale guards the units of the sentinel
+// bond ladder. Every DREAM amount on the chain is udream, but the amounts are
+// plain integer strings with nothing in the type to say so, and
+// sentinel_demotion_threshold shipped as a bare 250 — 250 udream against a
+// 500 DREAM floor — through three network genesis files. A threshold that
+// small is unreachable, so DEMOTED became dead state and underfunded
+// sentinels sat in RECOVERY forever.
+//
+// The ordering assertions are the real check; the scale assertion is what
+// catches a whole-DREAM value slipping back in.
+func TestSentinelBondDefaults_ShareUdreamScale(t *testing.T) {
+	const oneDream = int64(1_000_000)
+
+	amounts := map[string]int64{
+		"min_sentinel_bond":           types.DefaultMinSentinelBondAmount,
+		"sentinel_demotion_threshold": types.DefaultSentinelDemotionThresholdAmount,
+		"sentinel_slash_amount":       types.DefaultSentinelSlashAmount,
+	}
+	for name, amount := range amounts {
+		if amount < oneDream {
+			t.Errorf("%s = %d is below 1 DREAM (%d udream) — almost certainly a whole-DREAM value that should be scaled by 1e6",
+				name, amount, oneDream)
+		}
+	}
+
+	// A threshold at or above the bond floor never triggers: NORMAL is
+	// checked first, so RECOVERY would be the unreachable state instead.
+	if types.DefaultSentinelDemotionThresholdAmount >= types.DefaultMinSentinelBondAmount {
+		t.Errorf("sentinel_demotion_threshold (%d) must be below min_sentinel_bond (%d)",
+			types.DefaultSentinelDemotionThresholdAmount, types.DefaultMinSentinelBondAmount)
+	}
+
+	// A slash that cannot move a NORMAL sentinel out of NORMAL makes the
+	// per-overturn penalty purely nominal.
+	if types.DefaultSentinelSlashAmount > types.DefaultMinSentinelBondAmount-types.DefaultSentinelDemotionThresholdAmount {
+		t.Errorf("sentinel_slash_amount (%d) exceeds the NORMAL-to-DEMOTED span (%d)",
+			types.DefaultSentinelSlashAmount,
+			types.DefaultMinSentinelBondAmount-types.DefaultSentinelDemotionThresholdAmount)
+	}
+
+	// DefaultMinSentinelBond (math.Int) and DefaultMinSentinelBondAmount
+	// (int64) are separate declarations of the same number.
+	if !types.DefaultMinSentinelBond.Equal(math.NewInt(types.DefaultMinSentinelBondAmount)) {
+		t.Errorf("DefaultMinSentinelBond (%s) and DefaultMinSentinelBondAmount (%d) disagree",
+			types.DefaultMinSentinelBond, types.DefaultMinSentinelBondAmount)
+	}
+}

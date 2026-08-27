@@ -596,7 +596,7 @@
         "reaction_spam_tax_amount": "100000",
         "reactions_enabled": true,
         "sentinel_demotion_cooldown": "604800",
-        "sentinel_demotion_threshold": "250",
+        "sentinel_demotion_threshold": "250000000",
         "sentinel_slash_amount": "100000000",
         "sentinel_unbond_cooldown": "1209600",
         "sentinel_unhide_window": "86400",
@@ -926,10 +926,10 @@
       "bonded_role_config_list": [
         {
           "demotion_cooldown": "604800",
-          "demotion_threshold": "2500",
+          "demotion_threshold": "2500000000",
           "min_age_blocks": "0",
-          "min_bond": "5000",
-          "min_rep_tier": "3",
+          "min_bond": "5000000000",
+          "min_rep_tier": "0",
           "min_trust_level": "TRUST_LEVEL_ESTABLISHED",
           "role_type": "ROLE_TYPE_INITIATIVE_REVIEWER",
           "unbond_cooldown": "1209600"

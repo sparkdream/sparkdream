@@ -451,7 +451,8 @@ All operational (editable via `MsgUpdateOperationalParams`). Defaults are the sa
 | `appeal_deadline` | 1,209,600 (14d) | Appeal submission deadline |
 | `min_sentinel_bond` | 500 DREAM | Minimum to become sentinel |
 | `sentinel_slash_amount` | 100 DREAM | Per overturned appeal |
-| `min_rep_tier_sentinel` | 3 | Rep tier required to be sentinel |
+| `sentinel_demotion_threshold` | 250 DREAM | Bond floor below which a sentinel goes DEMOTED rather than RECOVERY |
+| `min_rep_tier_sentinel` | 0 | No rep-tier floor; the trust-level gate, bond and accuracy metrics filter eligibility |
 | `min_rep_tier_tags` | 2 | Rep tier required to create tags |
 | `min_rep_tier_thread_lock` | 4 | Rep tier required to lock threads |
 | `max_hides_per_epoch` | 50 | Sentinel hide limit per epoch |

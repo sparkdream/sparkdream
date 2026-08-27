@@ -84,3 +84,25 @@ func AsDec(raw json.RawMessage) (math.LegacyDec, error) {
 	}
 	return math.LegacyNewDecFromStr(s)
 }
+
+// ModuleField returns a named top-level field of a module's app_state block
+// other than "params" — e.g. rep's "bonded_role_config_list".
+//
+// ModuleParams covers the params block, which is where nearly all drift
+// lives. The exceptions are the seeded state lists a module writes from its
+// DefaultGenesis: they are just as generated, just as easy to leave stale
+// after a Go-side default changes, and invisible to every params-shaped
+// check. The bool return is false when the field is absent, which for a
+// list-valued field is indistinguishable from empty in proto-JSON.
+func ModuleField(appState map[string]json.RawMessage, module, field string) (json.RawMessage, bool, error) {
+	raw, ok := appState[module]
+	if !ok {
+		return nil, false, fmt.Errorf("module %q missing from app_state", module)
+	}
+	var mod map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &mod); err != nil {
+		return nil, false, fmt.Errorf("parse %s app_state: %w", module, err)
+	}
+	v, ok := mod[field]
+	return v, ok, nil
+}
