@@ -46,15 +46,19 @@ var (
 	// VerifierActivityKey: address -> VerifierActivity (federation-specific
 	// per-verifier counters). Generic bond state lives in x/rep as
 	// BondedRole(ROLE_TYPE_FEDERATION_VERIFIER, addr).
-	VerifierActivityKey     = collections.NewPrefix("fed/verifier_activity/")
-	VerificationRecsKey     = collections.NewPrefix("fed/verifyrecs/")
-	ArbiterSubmissionsKey   = collections.NewPrefix("fed/arbiters/")
-	ContentKey              = collections.NewPrefix("fed/content/")
-	IdentityLinksKey        = collections.NewPrefix("fed/idlinks/")
-	PendingIdChallengesKey  = collections.NewPrefix("fed/idchallenges/")
-	RepAttestationsKey      = collections.NewPrefix("fed/repattest/")
-	OutboundAttestationsKey = collections.NewPrefix("fed/outbound/")
-	PeerRemovalQueueKey     = collections.NewPrefix("fed/peerremoval/")
+	VerifierActivityKey = collections.NewPrefix("fed/verifier_activity/")
+	// OperatorRewardDayFundingKey: utc_day -> math.Int string. Ledgers the
+	// community-pool draw for the bridge-operator reward pool so the daily
+	// allowance survives restarts and cannot be re-drawn within the same day.
+	OperatorRewardDayFundingKey = collections.NewPrefix("fed/operator_reward_day/")
+	VerificationRecsKey         = collections.NewPrefix("fed/verifyrecs/")
+	ArbiterSubmissionsKey       = collections.NewPrefix("fed/arbiters/")
+	ContentKey                  = collections.NewPrefix("fed/content/")
+	IdentityLinksKey            = collections.NewPrefix("fed/idlinks/")
+	PendingIdChallengesKey      = collections.NewPrefix("fed/idchallenges/")
+	RepAttestationsKey          = collections.NewPrefix("fed/repattest/")
+	OutboundAttestationsKey     = collections.NewPrefix("fed/outbound/")
+	PeerRemovalQueueKey         = collections.NewPrefix("fed/peerremoval/")
 
 	// --- Sequences ---
 

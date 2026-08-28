@@ -22,6 +22,8 @@ type AuthKeeper interface {
 // BankKeeper defines the expected interface for the Bank module.
 type BankKeeper interface {
 	SpendableCoins(context.Context, sdk.AccAddress) sdk.Coins
+	// GetBalance reads the bridge-operator reward pool's sub-address balance.
+	GetBalance(ctx context.Context, addr sdk.AccAddress, denom string) sdk.Coin
 	SendCoins(ctx context.Context, fromAddr, toAddr sdk.AccAddress, amt sdk.Coins) error
 	SendCoinsFromAccountToModule(ctx context.Context, senderAddr sdk.AccAddress, recipientModule string, amt sdk.Coins) error
 	SendCoinsFromModuleToAccount(ctx context.Context, senderModule string, recipientAddr sdk.AccAddress, amt sdk.Coins) error
@@ -139,8 +141,44 @@ type RepKeeper interface {
 	// BondedRole record after a reward distribution.
 	RecordRewardPayout(ctx context.Context, roleType reptypes.RoleType, addr string, epoch int64, amount math.Int) error
 	RecordActivity(ctx context.Context, roleType reptypes.RoleType, addr string) error
+
+	// Shared accountability record (RoleActivity), owned by x/rep. Federation
+	// REPORTS verifications and verdicts here and reads the results back for
+	// action gating and event payloads; rep applies every consequence --
+	// streaks, the escalating overturn cooldown, the accuracy ring, streak
+	// demotion -- and runs the role's reward distribution. Federation keeps no
+	// copy of any of it.
+	RecordRoleAction(ctx context.Context, roleType reptypes.RoleType, addr, kind string) error
+	RecordRoleOutcome(ctx context.Context, roleType reptypes.RoleType, addr, kind string, upheld bool) error
+	GetRoleActivity(ctx context.Context, roleType reptypes.RoleType, addr string) (reptypes.RoleActivity, error)
+	RoleOverturnCooldownUntil(ctx context.Context, roleType reptypes.RoleType, addr string) int64
 	SetBondStatus(ctx context.Context, roleType reptypes.RoleType, addr string, status reptypes.BondedRoleStatus, cooldownUntil int64) error
 	SetBondedRoleConfig(ctx context.Context, cfg reptypes.BondedRoleConfig) error
+}
+
+// DistrKeeper is the slice of x/distribution federation needs to auto-fund
+// the bridge-operator reward pool from the community pool.
+//
+// Late-wired in app.go rather than declared as a depinject dependency: even an
+// optional dependency participates in cycle detection.
+type DistrKeeper interface {
+	DistributeFromFeePool(ctx context.Context, amount sdk.Coins, receiveAddr sdk.AccAddress) error
+	GetCommunityPool(ctx context.Context) (sdk.DecCoins, error)
+	// GetCommunityTax is the fraction of block rewards routed to the community
+	// pool. With annual provisions it gives the pool's income RATE, which is
+	// what operator_reward_inflation_share is a share of.
+	GetCommunityTax(ctx context.Context) (math.LegacyDec, error)
+}
+
+// MintKeeper is the slice of x/mint federation needs to size the operator
+// funding draw.
+//
+// Only annual provisions: supply x current inflation. Reading the rate rather
+// than the community pool balance is deliberate — the balance includes the
+// genesis allocation earmarked for the councils and any direct deposit,
+// neither of which is income.
+type MintKeeper interface {
+	AnnualProvisions(ctx context.Context) (math.LegacyDec, error)
 }
 
 // NameKeeper defines the expected interface for the Name module.

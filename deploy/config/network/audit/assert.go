@@ -5,6 +5,8 @@ import (
 	"os"
 	"sort"
 	"testing"
+
+	"github.com/cosmos/gogoproto/proto"
 )
 
 // AssertGenesisParams loads the genesis at genesisPath and asserts, for
@@ -14,10 +16,16 @@ import (
 //  3. Round-trips into the typed struct without error (catches type
 //     mismatches like a quoted "5" where a uint64 is expected, and
 //     validates nested structs such as trust_level_config).
+//  4. Passes the module's own Params.Validate.
+//  5. Carries the same VALUE the build-tag-active code default produces, for
+//     every param the network's config.yml does not deliberately pin.
+//
+// configPath is the network's config.yml — the authoritative list of which
+// params that network intends to diverge on. See AssertNoParamDrift.
 //
 // Each module gets its own subtest so a single network's drift surfaces
 // every affected module at once instead of bailing on the first failure.
-func AssertGenesisParams(t *testing.T, genesisPath string) {
+func AssertGenesisParams(t *testing.T, genesisPath, configPath string) {
 	t.Helper()
 	data, err := os.ReadFile(genesisPath)
 	if err != nil {
@@ -30,16 +38,22 @@ func AssertGenesisParams(t *testing.T, genesisPath string) {
 		t.Fatalf("parse %s: %v", genesisPath, err)
 	}
 
+	pins, err := PinnedParamKeys(configPath)
+	if err != nil {
+		t.Fatalf("read %s: %v", configPath, err)
+	}
+
 	for _, group := range []struct {
 		label   string
-		modules map[string]any
+		modules map[string]func() proto.Message
 	}{
 		{"project", ProjectModules},
 		{"sdk", SDKModules},
 	} {
-		for name, params := range group.modules {
+		for name, ctor := range group.modules {
 			t.Run(group.label+"/"+name, func(t *testing.T) {
-				assertModuleParams(t, doc.AppState, name, params)
+				assertModuleParams(t, doc.AppState, name, ZeroTemplate(ctor))
+				assertNoModuleDrift(t, doc.AppState, name, ctor, pins[name])
 			})
 		}
 	}
@@ -97,5 +111,36 @@ func assertModuleParams(t *testing.T, appState map[string]json.RawMessage, name 
 
 	if err := ValidateParams(mod.Params, params); err != nil {
 		t.Errorf("%s params in genesis fail the module's own validation: %v", name, err)
+	}
+}
+
+// assertNoModuleDrift fails when a param the network does not pin in its
+// config.yml carries a different value in genesis than the build-tag-active
+// code default produces.
+//
+// A failure here means the shipped genesis and the binary disagree. Either the
+// genesis needs regenerating for a default that moved, or — if the divergence
+// is intended — the value belongs in that network's config.yml, where it is
+// visible as a deliberate choice instead of an accident of generation order.
+func assertNoModuleDrift(t *testing.T, appState map[string]json.RawMessage, name string, ctor func() proto.Message, pinned map[string]struct{}) {
+	t.Helper()
+	modBytes, ok := appState[name]
+	if !ok {
+		return // absence is already reported by assertModuleParams
+	}
+	var mod struct {
+		Params json.RawMessage `json:"params"`
+	}
+	if err := json.Unmarshal(modBytes, &mod); err != nil || len(mod.Params) == 0 {
+		return
+	}
+	drift, err := ParamDrift(mod.Params, ctor, pinned)
+	if err != nil {
+		t.Errorf("%s: compare params against code defaults: %v", name, err)
+		return
+	}
+	for _, d := range drift {
+		t.Errorf("%s params drifted from code defaults — %s\n"+
+			"    regenerate this network's genesis, or pin the value in its config.yml if the divergence is intended", name, d)
 	}
 }

@@ -11,6 +11,7 @@ import (
 	ibckeeper "github.com/cosmos/ibc-go/v10/modules/core/keeper"
 
 	"sparkdream/x/federation/types"
+	reptypes "sparkdream/x/rep/types"
 )
 
 // lateKeepers holds dependencies wired after depinject via Set* methods.
@@ -37,6 +38,12 @@ type lateKeepers struct {
 	// nil-check via the accessor and either fail loudly or fall back
 	// to legacy behavior.
 	serviceKeeper types.ServiceKeeper
+
+	// distrKeeper / mintKeeper fund the bridge-operator reward pool from the
+	// community pool. Late-wired for the same cycle-detection reason as the
+	// others; nil in standalone tests, where funding is simply a no-op.
+	distrKeeper types.DistrKeeper
+	mintKeeper  types.MintKeeper
 }
 
 type Keeper struct {
@@ -68,15 +75,18 @@ type Keeper struct {
 	// VerifierActivity holds federation-specific per-verifier counters. The
 	// generic bond/status record lives in x/rep as BondedRole
 	// (ROLE_TYPE_FEDERATION_VERIFIER).
-	VerifierActivity     collections.Map[string, types.VerifierActivity]
-	VerificationRecords  collections.Map[uint64, types.VerificationRecord]
-	ArbiterSubmissions   collections.Map[collections.Pair[uint64, string], types.ArbiterHashSubmission]
-	Content              collections.Map[uint64, types.FederatedContent]
-	IdentityLinks        collections.Map[collections.Pair[string, string], types.IdentityLink]
-	PendingIdChallenges  collections.Map[collections.Pair[string, string], types.PendingIdentityChallenge]
-	RepAttestations      collections.Map[collections.Pair[string, string], types.ReputationAttestation]
-	OutboundAttestations collections.Map[uint64, types.OutboundAttestation]
-	PeerRemovalQueue     collections.Map[string, types.PeerRemovalState]
+	VerifierActivity collections.Map[string, types.VerifierActivity]
+	// OperatorRewardDayFunding ledgers the per-UTC-day community-pool draw
+	// for the bridge-operator reward pool.
+	OperatorRewardDayFunding collections.Map[uint64, string]
+	VerificationRecords      collections.Map[uint64, types.VerificationRecord]
+	ArbiterSubmissions       collections.Map[collections.Pair[uint64, string], types.ArbiterHashSubmission]
+	Content                  collections.Map[uint64, types.FederatedContent]
+	IdentityLinks            collections.Map[collections.Pair[string, string], types.IdentityLink]
+	PendingIdChallenges      collections.Map[collections.Pair[string, string], types.PendingIdentityChallenge]
+	RepAttestations          collections.Map[collections.Pair[string, string], types.ReputationAttestation]
+	OutboundAttestations     collections.Map[uint64, types.OutboundAttestation]
+	PeerRemovalQueue         collections.Map[string, types.PeerRemovalState]
 
 	// --- Sequences ---
 
@@ -183,6 +193,8 @@ func NewKeeper(
 			codec.CollValue[types.BridgeBinding](cdc)),
 		VerifierActivity: collections.NewMap(sb, types.VerifierActivityKey, "verifierActivity",
 			collections.StringKey, codec.CollValue[types.VerifierActivity](cdc)),
+		OperatorRewardDayFunding: collections.NewMap(sb, types.OperatorRewardDayFundingKey,
+			"operatorRewardDayFunding", collections.Uint64Key, collections.StringValue),
 		VerificationRecords: collections.NewMap(sb, types.VerificationRecsKey, "verificationRecords",
 			collections.Uint64Key, codec.CollValue[types.VerificationRecord](cdc)),
 		ArbiterSubmissions: collections.NewMap(sb, types.ArbiterSubmissionsKey, "arbiterSubmissions",
@@ -339,6 +351,16 @@ func (k Keeper) SetServiceKeeper(sk types.ServiceKeeper) {
 	k.late.serviceKeeper = sk
 }
 
+// SetDistrKeeper wires x/distribution for bridge-operator pool funding.
+func (k Keeper) SetDistrKeeper(dk types.DistrKeeper) {
+	k.late.distrKeeper = dk
+}
+
+// SetMintKeeper wires x/mint for sizing the operator funding draw.
+func (k Keeper) SetMintKeeper(mk types.MintKeeper) {
+	k.late.mintKeeper = mk
+}
+
 // serviceKeeper returns the wired ServiceKeeper, or nil if running in
 // standalone mode (no service wired). Callers MUST nil-check.
 func (k Keeper) serviceKeeper() types.ServiceKeeper {
@@ -357,4 +379,17 @@ func (k Keeper) serviceKeeper() types.ServiceKeeper {
 // of Keeper sees the assignment too — see lateKeepers comment.
 func (k Keeper) SetIBCKeeperFn(fn func() *ibckeeper.Keeper) {
 	k.late.ibcKeeperFn = fn
+}
+
+// ReportSimulatedVerification reports one verification to x/rep's shared
+// RoleActivity record. Exists so the simulation can drive the counter the
+// same way MsgVerifyContent does, without reaching into the late-wired rep
+// keeper from the simulation package. No-op when rep is unwired.
+func (k Keeper) ReportSimulatedVerification(ctx context.Context, addr string) error {
+	if k.late.repKeeper == nil {
+		return nil
+	}
+	return k.late.repKeeper.RecordRoleAction(ctx,
+		reptypes.RoleType_ROLE_TYPE_FEDERATION_VERIFIER, addr,
+		reptypes.ActionKindFederationVerify)
 }

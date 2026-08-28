@@ -67,11 +67,20 @@ func TestParamsValidate_LegacyDecBounds(t *testing.T) {
 		{"trust_discount_rate > 1", func(p *types.Params) {
 			p.TrustDiscountRate = math.LegacyNewDecWithPrec(11, 1)
 		}},
-		{"min_verifier_accuracy > 1", func(p *types.Params) {
-			p.MinVerifierAccuracy = math.LegacyNewDecWithPrec(11, 1)
+		{"operator_reward_inflation_share < 0", func(p *types.Params) {
+			p.OperatorRewardInflationShare = math.LegacyNewDecWithPrec(-1, 1)
 		}},
-		{"operator_reward_share < 0", func(p *types.Params) {
-			p.OperatorRewardShare = math.LegacyNewDecWithPrec(-1, 1)
+		{"operator_reward_inflation_share > 1", func(p *types.Params) {
+			p.OperatorRewardInflationShare = math.LegacyNewDecWithPrec(11, 1)
+		}},
+		{"max_unverified_rate > 1", func(p *types.Params) {
+			p.MaxUnverifiedRate = math.LegacyNewDecWithPrec(11, 1)
+		}},
+		{"operator_reward_pool_overflow_burn_ratio < 0", func(p *types.Params) {
+			p.OperatorRewardPoolOverflowBurnRatio = math.LegacyNewDecWithPrec(-1, 1)
+		}},
+		{"operator_reward_pool_overflow_burn_ratio > 1", func(p *types.Params) {
+			p.OperatorRewardPoolOverflowBurnRatio = math.LegacyNewDecWithPrec(11, 1)
 		}},
 	}
 	for _, tc := range cases {
@@ -91,8 +100,6 @@ func TestParamsValidate_NilIntFields(t *testing.T) {
 		func(p *types.Params) { p.MinVerifierBond = math.Int{} },
 		func(p *types.Params) { p.VerifierRecoveryThreshold = math.Int{} },
 		func(p *types.Params) { p.VerifierSlashAmount = math.Int{} },
-		func(p *types.Params) { p.VerifierDreamReward = math.Int{} },
-		func(p *types.Params) { p.MaxVerifierDreamMintPerEpoch = math.Int{} },
 		func(p *types.Params) { p.ChallengeFeeAmount = math.Int{} },
 		func(p *types.Params) { p.EscalationFeeAmount = math.Int{} },
 	}
@@ -145,4 +152,49 @@ func TestParamsValidate_QuorumMin(t *testing.T) {
 	err := p.Validate()
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "arbiter_quorum")
+}
+
+// TestOperatorRewardParams covers the bridge-operator compensation params that
+// the Dec-bounds and nil-Int tables above do not reach: the epoch cadence
+// (a divisor) and the pool cap.
+func TestOperatorRewardParams(t *testing.T) {
+	t.Run("defaults validate", func(t *testing.T) {
+		require.NoError(t, types.DefaultParams().Validate())
+	})
+
+	t.Run("epoch_blocks zero rejected", func(t *testing.T) {
+		// Zero divides by zero when deriving the epoch number.
+		p := types.DefaultParams()
+		p.OperatorRewardEpochBlocks = 0
+		require.ErrorContains(t, p.Validate(), "operator_reward_epoch_blocks")
+	})
+
+	t.Run("max_pool nil rejected", func(t *testing.T) {
+		p := types.DefaultParams()
+		p.MaxOperatorRewardPool = math.Int{}
+		require.ErrorContains(t, p.Validate(), "max_operator_reward_pool")
+	})
+
+	t.Run("max_pool negative rejected", func(t *testing.T) {
+		p := types.DefaultParams()
+		p.MaxOperatorRewardPool = math.NewInt(-1)
+		require.ErrorContains(t, p.Validate(), "max_operator_reward_pool")
+	})
+
+	t.Run("inflation_share zero is legal and disables funding", func(t *testing.T) {
+		// Zero is meaningful, not a misconfiguration: it turns off the
+		// automatic community-pool draw without disabling distribution of
+		// whatever the pool already holds.
+		p := types.DefaultParams()
+		p.OperatorRewardInflationShare = math.LegacyZeroDec()
+		require.NoError(t, p.Validate())
+	})
+
+	t.Run("min_epoch_verified_submissions zero rejected", func(t *testing.T) {
+		// Zero would pay an operator who got nothing verified all epoch,
+		// which is the whole condition the compensation rests on.
+		p := types.DefaultParams()
+		p.MinEpochVerifiedSubmissions = 0
+		require.ErrorContains(t, p.Validate(), "min_epoch_verified_submissions")
+	})
 }

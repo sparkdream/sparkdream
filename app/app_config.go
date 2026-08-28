@@ -174,11 +174,12 @@ var (
 						// chain modules
 						sparkdreammoduletypes.ModuleName,
 						blogmoduletypes.ModuleName,
-						// Both of these skim the community pool and MUST run before
+						// All three of these skim the community pool and MUST run before
 						// split, which distributes whatever remains to the councils
 						// in full. Placed after split they would find an empty pool.
-						shieldmoduletypes.ModuleName, // gas reserve
-						repmoduletypes.ModuleName,    // bonded-role reward pools
+						shieldmoduletypes.ModuleName,     // gas reserve
+						repmoduletypes.ModuleName,        // bonded-role reward pools
+						federationmoduletypes.ModuleName, // bridge-operator reward pool
 						splitmoduletypes.ModuleName,
 						ecosystemmoduletypes.ModuleName,
 						namemoduletypes.ModuleName,
@@ -190,7 +191,6 @@ var (
 						collectmoduletypes.ModuleName,
 						gnovmmoduletypes.ModuleName,
 						sessionmoduletypes.ModuleName,
-						federationmoduletypes.ModuleName,
 						// this line is used by starport scaffolding # stargate/app/beginBlockers
 						servicemoduletypes.ModuleName},
 					EndBlockers: []string{

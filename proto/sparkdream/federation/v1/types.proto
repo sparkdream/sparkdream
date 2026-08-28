@@ -153,6 +153,29 @@ message BridgeBinding {
   // by AfterOperatorReFunded. Federation rejects new content
   // submissions from suspended bindings.
   bool suspended = 11;
+
+  // --- Per-epoch counters, reset at every operator reward distribution ---
+  //
+  // The lifetime counters above cannot score a reward: they only grow, so a
+  // long-serving operator would out-earn an equally productive newcomer
+  // forever on history alone. These mirror them for the current reward epoch
+  // and are zeroed on every distribution, eligible or not.
+  uint64 epoch_submitted = 12;
+  uint64 epoch_verified = 13;
+  uint64 epoch_rejected = 14;
+  uint64 epoch_unverified = 15;
+
+  // last_reward_epoch is the most recent epoch in which this binding was
+  // paid. Zero means never paid.
+  int64 last_reward_epoch = 16;
+
+  // cumulative_rewards is lifetime SPARK paid to this binding
+  // (math.Int string, bond-denom micro-units).
+  string cumulative_rewards = 17 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
 }
 
 // NOTE: Phase 4 of the bonded-role generalization removed FederationVerifier.

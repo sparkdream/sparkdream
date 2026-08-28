@@ -7,6 +7,7 @@ import (
 	"sparkdream/x/federation/types"
 
 	"cosmossdk.io/collections"
+	"cosmossdk.io/math"
 )
 
 // InitGenesis initializes the module's state from a provided genesis state.
@@ -113,6 +114,19 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 	// VerificationRecords
 	for _, vr := range genState.VerificationRecords {
 		if err := k.VerificationRecords.Set(ctx, vr.ContentId, vr); err != nil {
+			return err
+		}
+	}
+
+	// Per-UTC-day community-pool draw ledger for the operator reward pool.
+	// Without it an import hands the chain a fresh daily allowance, so the
+	// day's draw could be taken twice across a mid-day export/import.
+	for _, df := range genState.OperatorRewardDayFundingList {
+		amount := df.AmountFunded
+		if amount.IsNil() {
+			amount = math.ZeroInt()
+		}
+		if err := k.OperatorRewardDayFunding.Set(ctx, df.Day, amount.String()); err != nil {
 			return err
 		}
 	}
@@ -230,6 +244,20 @@ func (k Keeper) ExportGenesis(ctx context.Context) (*types.GenesisState, error) 
 	// Export verification records
 	err = k.VerificationRecords.Walk(ctx, nil, func(key uint64, value types.VerificationRecord) (bool, error) {
 		genesis.VerificationRecords = append(genesis.VerificationRecords, value)
+		return false, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	// Export the operator reward day-funding ledger
+	err = k.OperatorRewardDayFunding.Walk(ctx, nil, func(day uint64, raw string) (bool, error) {
+		amount, ok := math.NewIntFromString(raw)
+		if !ok {
+			amount = math.ZeroInt()
+		}
+		genesis.OperatorRewardDayFundingList = append(genesis.OperatorRewardDayFundingList,
+			types.OperatorRewardDayFunding{Day: day, AmountFunded: amount})
 		return false, nil
 	})
 	if err != nil {

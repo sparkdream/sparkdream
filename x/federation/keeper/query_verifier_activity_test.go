@@ -9,6 +9,7 @@ import (
 
 	"sparkdream/x/federation/keeper"
 	"sparkdream/x/federation/types"
+	reptypes "sparkdream/x/rep/types"
 )
 
 func TestQueryVerifierActivity_Basic(t *testing.T) {
@@ -17,16 +18,20 @@ func TestQueryVerifierActivity_Basic(t *testing.T) {
 
 	addr := testAddr(t, f, "verif-activity-1")
 
-	// Seed a VerifierActivity record.
+	// The response is a PROJECTION over two state owners, so seed both: the
+	// slim federation-local record...
 	require.NoError(t, f.keeper.VerifierActivity.Set(f.ctx, addr, types.VerifierActivity{
 		Address:                   addr,
-		TotalVerifications:        10,
-		UpheldVerifications:       7,
-		OverturnedVerifications:   1,
 		UnchallengedVerifications: 2,
-		ConsecutiveUpheld:         3,
-		SlashCount:                1,
 	}))
+	// ...and the shared accountability record x/rep owns.
+	require.NoError(t, f.repKeeper.SeedRoleActivity(
+		reptypes.RoleType_ROLE_TYPE_FEDERATION_VERIFIER, addr, reptypes.RoleActivity{
+			TotalActions:      map[string]uint64{reptypes.ActionKindFederationVerify: 10},
+			UpheldActions:     map[string]uint64{reptypes.ActionKindFederationVerify: 7},
+			OverturnedActions: map[string]uint64{reptypes.ActionKindFederationVerify: 1},
+			ConsecutiveUpheld: 3,
+		}))
 
 	resp, err := qs.VerifierActivity(f.ctx, &types.QueryVerifierActivityRequest{Address: addr})
 	require.NoError(t, err)
@@ -36,6 +41,7 @@ func TestQueryVerifierActivity_Basic(t *testing.T) {
 	require.Equal(t, uint64(1), resp.Activity.OverturnedVerifications)
 	require.Equal(t, uint64(2), resp.Activity.UnchallengedVerifications)
 	require.Equal(t, uint64(3), resp.Activity.ConsecutiveUpheld)
+	// slash_count is derived from the overturned count, not stored.
 	require.Equal(t, uint64(1), resp.Activity.SlashCount)
 }
 

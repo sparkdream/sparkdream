@@ -9,5 +9,5 @@ import (
 )
 
 func TestMainnetGenesisHasAllParams(t *testing.T) {
-	audit.AssertGenesisParams(t, "genesis.json")
+	audit.AssertGenesisParams(t, "genesis.json", "config.yml")
 }

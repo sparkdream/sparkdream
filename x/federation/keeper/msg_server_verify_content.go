@@ -37,13 +37,13 @@ func (k msgServer) VerifyContent(ctx context.Context, msg *types.MsgVerifyConten
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	blockTime := sdkCtx.BlockTime().Unix()
 
-	// 2. Verify not in per-module overturn cooldown.
-	activity, _ := k.VerifierActivity.Get(ctx, msg.Creator)
-	if activity.Address == "" {
-		activity.Address = msg.Creator
-	}
-	if activity.OverturnCooldownUntil > 0 && blockTime < activity.OverturnCooldownUntil {
-		return nil, errorsmod.Wrapf(types.ErrVerifierOverturnCooldown, "cooldown until %d", activity.OverturnCooldownUntil)
+	// 2. Verify not in the shared overturn cooldown. Owned by x/rep on the
+	//    role's RoleActivity record, so a lockout applies to the role rather
+	//    than to this one surface.
+	cooldownUntil := k.late.repKeeper.RoleOverturnCooldownUntil(ctx,
+		reptypes.RoleType_ROLE_TYPE_FEDERATION_VERIFIER, msg.Creator)
+	if cooldownUntil > 0 && blockTime < cooldownUntil {
+		return nil, errorsmod.Wrapf(types.ErrVerifierOverturnCooldown, "cooldown until %d", cooldownUntil)
 	}
 
 	// 3. Verify content exists and is PENDING_VERIFICATION (first-verifier-wins)
@@ -98,10 +98,6 @@ func (k msgServer) VerifyContent(ctx context.Context, msg *types.MsgVerifyConten
 		EscrowedChallengeFee: math.ZeroInt(),
 	}
 
-	// Bump per-module verifier activity counters.
-	activity.TotalVerifications++
-	activity.EpochVerifications++
-
 	if hashMatch {
 		// Match: content → VERIFIED
 		content.Status = types.FederatedContentStatus_FEDERATED_CONTENT_STATUS_VERIFIED
@@ -117,6 +113,7 @@ func (k msgServer) VerifyContent(ctx context.Context, msg *types.MsgVerifyConten
 		bridge, err := k.BridgeBindings.Get(ctx, bridgeKey)
 		if err == nil {
 			bridge.ContentVerified++
+			bridge.EpochVerified++
 			_ = k.BridgeBindings.Set(ctx, bridgeKey, bridge)
 		}
 
@@ -145,7 +142,13 @@ func (k msgServer) VerifyContent(ctx context.Context, msg *types.MsgVerifyConten
 		)
 	}
 
-	// Stamp last_active_epoch on the generic bonded-role record.
+	// Report the verification to x/rep: it owns the per-kind counters the
+	// reward distribution reads, and last_active_epoch on the bonded role.
+	if err := k.late.repKeeper.RecordRoleAction(ctx,
+		reptypes.RoleType_ROLE_TYPE_FEDERATION_VERIFIER, msg.Creator,
+		reptypes.ActionKindFederationVerify); err != nil {
+		return nil, err
+	}
 	_ = k.late.repKeeper.RecordActivity(ctx, reptypes.RoleType_ROLE_TYPE_FEDERATION_VERIFIER, msg.Creator)
 
 	// Save all state
@@ -153,9 +156,6 @@ func (k msgServer) VerifyContent(ctx context.Context, msg *types.MsgVerifyConten
 		return nil, err
 	}
 	if err := k.VerificationRecords.Set(ctx, msg.ContentId, record); err != nil {
-		return nil, err
-	}
-	if err := k.VerifierActivity.Set(ctx, msg.Creator, activity); err != nil {
 		return nil, err
 	}
 

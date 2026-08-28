@@ -134,10 +134,14 @@ func (am AppModule) ExportGenesis(ctx sdk.Context, _ codec.JSONCodec) json.RawMe
 // To avoid wrong/empty versions, the initial version should be set to 1.
 func (AppModule) ConsensusVersion() uint64 { return 1 }
 
-// BeginBlock contains the logic that is automatically triggered at the beginning of each block.
-// The begin block implementation is optional.
-func (am AppModule) BeginBlock(_ context.Context) error {
-	return nil
+// BeginBlock tops up the bridge-operator reward pool from the community pool.
+//
+// In BeginBlock rather than EndBlock, and ordered BEFORE x/split in
+// app_config.go, because x/split distributes whatever REMAINS in the community
+// pool to the councils in full — a module that skims must skim first or find
+// an empty pool.
+func (am AppModule) BeginBlock(ctx context.Context) error {
+	return am.keeper.BeginBlocker(ctx)
 }
 
 // EndBlock contains the logic that is automatically triggered at the end of each block.

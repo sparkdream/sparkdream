@@ -23,38 +23,30 @@ var _ = math.Inf
 // proto package needs to be updated.
 const _ = proto.GoGoProtoPackageIsVersion3 // please upgrade the proto package
 
-// VerifierActivity holds federation-specific per-verifier counters. The
-// generic bond/status/activity record lives in x/rep as BondedRole
-// (ROLE_TYPE_FEDERATION_VERIFIER) — this proto only tracks what's
-// federation-specific: verification counts and dispute outcomes.
+// VerifierActivity is federation's SLIM per-verifier record.
+//
+// Everything that is a property of the ROLE rather than of federation's
+// surface -- verdict streaks, the overturn cooldown, the rolling accuracy
+// ring, and the per-action counters -- lives on x/rep's shared RoleActivity
+// under ROLE_TYPE_FEDERATION_VERIFIER, alongside the bond it governs.
+// Federation reports actions (RecordRoleAction with
+// ActionKindFederationVerify) and verdicts (RecordRoleOutcome); x/rep applies
+// the consequences and pays the role. Same ownership split forum and collect
+// already use for the content sentinel.
+//
+// Only unchallenged_verifications stays here: it is a federation-local
+// bookkeeping stat with no shared meaning -- an unchallenged verification is
+// not evidence of accuracy and deliberately earns nothing, so it must not
+// reach the accuracy ring.
+//
+// The QueryVerifierActivityResponse still returns the FULL historical shape.
+// Those fields are PROJECTED from rep at query time (see
+// query_verifier_activity.go) and are not persisted here.
 type VerifierActivity struct {
 	Address string `protobuf:"bytes,1,opt,name=address,proto3" json:"address,omitempty"`
-	// Lifetime metrics
-	TotalVerifications        uint64 `protobuf:"varint,2,opt,name=total_verifications,json=totalVerifications,proto3" json:"total_verifications,omitempty"`
-	UpheldVerifications       uint64 `protobuf:"varint,3,opt,name=upheld_verifications,json=upheldVerifications,proto3" json:"upheld_verifications,omitempty"`
-	OverturnedVerifications   uint64 `protobuf:"varint,4,opt,name=overturned_verifications,json=overturnedVerifications,proto3" json:"overturned_verifications,omitempty"`
-	UnchallengedVerifications uint64 `protobuf:"varint,5,opt,name=unchallenged_verifications,json=unchallengedVerifications,proto3" json:"unchallenged_verifications,omitempty"`
-	// Epoch metrics
-	EpochVerifications      uint64 `protobuf:"varint,6,opt,name=epoch_verifications,json=epochVerifications,proto3" json:"epoch_verifications,omitempty"`
-	EpochChallengesResolved uint64 `protobuf:"varint,7,opt,name=epoch_challenges_resolved,json=epochChallengesResolved,proto3" json:"epoch_challenges_resolved,omitempty"`
-	// Consecutive-outcome tracking for demotion triggers. Slash streak beyond
-	// UpheldToResetOverturns consecutive-overturn is the demotion signal.
-	ConsecutiveOverturns uint64 `protobuf:"varint,8,opt,name=consecutive_overturns,json=consecutiveOverturns,proto3" json:"consecutive_overturns,omitempty"`
-	ConsecutiveUpheld    uint64 `protobuf:"varint,9,opt,name=consecutive_upheld,json=consecutiveUpheld,proto3" json:"consecutive_upheld,omitempty"`
-	// overturn_cooldown_until is the unix timestamp during which the verifier
-	// cannot submit new verifications after an overturn. Managed by the
-	// federation challenge-resolution flow.
-	OverturnCooldownUntil int64 `protobuf:"varint,10,opt,name=overturn_cooldown_until,json=overturnCooldownUntil,proto3" json:"overturn_cooldown_until,omitempty"`
-	// slash_count is the lifetime number of times this verifier has been
-	// slashed (overturn verdicts).
-	SlashCount uint64 `protobuf:"varint,11,opt,name=slash_count,json=slashCount,proto3" json:"slash_count,omitempty"`
-	// last_slash_epoch records the Phase 11 reward-epoch number
-	// (height / GetVerifierRewardEpochBlocks) in which this verifier was
-	// most recently slashed. Phase 11's "no slashing this epoch"
-	// eligibility gate compares this against the current reward epoch —
-	// an exact match disqualifies the verifier for the current epoch's
-	// payout. Zero means "never slashed under the current accounting".
-	LastSlashEpoch int64 `protobuf:"varint,12,opt,name=last_slash_epoch,json=lastSlashEpoch,proto3" json:"last_slash_epoch,omitempty"`
+	// unchallenged_verifications counts verifications whose challenge window
+	// closed with no challenge filed. Bumped by the Phase 6 EndBlocker sweep.
+	UnchallengedVerifications uint64 `protobuf:"varint,2,opt,name=unchallenged_verifications,json=unchallengedVerifications,proto3" json:"unchallenged_verifications,omitempty"`
 }
 
 func (m *VerifierActivity) Reset()         { *m = VerifierActivity{} }
@@ -97,27 +89,6 @@ func (m *VerifierActivity) GetAddress() string {
 	return ""
 }
 
-func (m *VerifierActivity) GetTotalVerifications() uint64 {
-	if m != nil {
-		return m.TotalVerifications
-	}
-	return 0
-}
-
-func (m *VerifierActivity) GetUpheldVerifications() uint64 {
-	if m != nil {
-		return m.UpheldVerifications
-	}
-	return 0
-}
-
-func (m *VerifierActivity) GetOverturnedVerifications() uint64 {
-	if m != nil {
-		return m.OverturnedVerifications
-	}
-	return 0
-}
-
 func (m *VerifierActivity) GetUnchallengedVerifications() uint64 {
 	if m != nil {
 		return m.UnchallengedVerifications
@@ -125,57 +96,152 @@ func (m *VerifierActivity) GetUnchallengedVerifications() uint64 {
 	return 0
 }
 
-func (m *VerifierActivity) GetEpochVerifications() uint64 {
+// VerifierActivityView is the read-only projection returned by the
+// verifier-activity query: federation's slim stored record overlaid with the
+// shared accountability state x/rep owns. Never persisted.
+type VerifierActivityView struct {
+	Address string `protobuf:"bytes,1,opt,name=address,proto3" json:"address,omitempty"`
+	// Federation-local (stored).
+	UnchallengedVerifications uint64 `protobuf:"varint,2,opt,name=unchallenged_verifications,json=unchallengedVerifications,proto3" json:"unchallenged_verifications,omitempty"`
+	// Projected from rep RoleActivity per-kind counters
+	// (ActionKindFederationVerify).
+	TotalVerifications      uint64 `protobuf:"varint,3,opt,name=total_verifications,json=totalVerifications,proto3" json:"total_verifications,omitempty"`
+	UpheldVerifications     uint64 `protobuf:"varint,4,opt,name=upheld_verifications,json=upheldVerifications,proto3" json:"upheld_verifications,omitempty"`
+	OverturnedVerifications uint64 `protobuf:"varint,5,opt,name=overturned_verifications,json=overturnedVerifications,proto3" json:"overturned_verifications,omitempty"`
+	EpochVerifications      uint64 `protobuf:"varint,6,opt,name=epoch_verifications,json=epochVerifications,proto3" json:"epoch_verifications,omitempty"`
+	// Projected from rep RoleActivity shared fields.
+	EpochChallengesResolved uint64 `protobuf:"varint,7,opt,name=epoch_challenges_resolved,json=epochChallengesResolved,proto3" json:"epoch_challenges_resolved,omitempty"`
+	ConsecutiveOverturns    uint64 `protobuf:"varint,8,opt,name=consecutive_overturns,json=consecutiveOverturns,proto3" json:"consecutive_overturns,omitempty"`
+	ConsecutiveUpheld       uint64 `protobuf:"varint,9,opt,name=consecutive_upheld,json=consecutiveUpheld,proto3" json:"consecutive_upheld,omitempty"`
+	OverturnCooldownUntil   int64  `protobuf:"varint,10,opt,name=overturn_cooldown_until,json=overturnCooldownUntil,proto3" json:"overturn_cooldown_until,omitempty"`
+	LastSlashEpoch          int64  `protobuf:"varint,11,opt,name=last_slash_epoch,json=lastSlashEpoch,proto3" json:"last_slash_epoch,omitempty"`
+	// slash_count is DERIVED, not stored: every upheld challenge against a
+	// verifier slashes exactly once, so the overturned-verification count IS
+	// the slash count. It was a duplicate counter incremented on the same line
+	// as the overturn before the migration.
+	SlashCount uint64 `protobuf:"varint,12,opt,name=slash_count,json=slashCount,proto3" json:"slash_count,omitempty"`
+}
+
+func (m *VerifierActivityView) Reset()         { *m = VerifierActivityView{} }
+func (m *VerifierActivityView) String() string { return proto.CompactTextString(m) }
+func (*VerifierActivityView) ProtoMessage()    {}
+func (*VerifierActivityView) Descriptor() ([]byte, []int) {
+	return fileDescriptor_ff99916355787d20, []int{1}
+}
+func (m *VerifierActivityView) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *VerifierActivityView) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_VerifierActivityView.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *VerifierActivityView) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_VerifierActivityView.Merge(m, src)
+}
+func (m *VerifierActivityView) XXX_Size() int {
+	return m.Size()
+}
+func (m *VerifierActivityView) XXX_DiscardUnknown() {
+	xxx_messageInfo_VerifierActivityView.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_VerifierActivityView proto.InternalMessageInfo
+
+func (m *VerifierActivityView) GetAddress() string {
+	if m != nil {
+		return m.Address
+	}
+	return ""
+}
+
+func (m *VerifierActivityView) GetUnchallengedVerifications() uint64 {
+	if m != nil {
+		return m.UnchallengedVerifications
+	}
+	return 0
+}
+
+func (m *VerifierActivityView) GetTotalVerifications() uint64 {
+	if m != nil {
+		return m.TotalVerifications
+	}
+	return 0
+}
+
+func (m *VerifierActivityView) GetUpheldVerifications() uint64 {
+	if m != nil {
+		return m.UpheldVerifications
+	}
+	return 0
+}
+
+func (m *VerifierActivityView) GetOverturnedVerifications() uint64 {
+	if m != nil {
+		return m.OverturnedVerifications
+	}
+	return 0
+}
+
+func (m *VerifierActivityView) GetEpochVerifications() uint64 {
 	if m != nil {
 		return m.EpochVerifications
 	}
 	return 0
 }
 
-func (m *VerifierActivity) GetEpochChallengesResolved() uint64 {
+func (m *VerifierActivityView) GetEpochChallengesResolved() uint64 {
 	if m != nil {
 		return m.EpochChallengesResolved
 	}
 	return 0
 }
 
-func (m *VerifierActivity) GetConsecutiveOverturns() uint64 {
+func (m *VerifierActivityView) GetConsecutiveOverturns() uint64 {
 	if m != nil {
 		return m.ConsecutiveOverturns
 	}
 	return 0
 }
 
-func (m *VerifierActivity) GetConsecutiveUpheld() uint64 {
+func (m *VerifierActivityView) GetConsecutiveUpheld() uint64 {
 	if m != nil {
 		return m.ConsecutiveUpheld
 	}
 	return 0
 }
 
-func (m *VerifierActivity) GetOverturnCooldownUntil() int64 {
+func (m *VerifierActivityView) GetOverturnCooldownUntil() int64 {
 	if m != nil {
 		return m.OverturnCooldownUntil
 	}
 	return 0
 }
 
-func (m *VerifierActivity) GetSlashCount() uint64 {
-	if m != nil {
-		return m.SlashCount
-	}
-	return 0
-}
-
-func (m *VerifierActivity) GetLastSlashEpoch() int64 {
+func (m *VerifierActivityView) GetLastSlashEpoch() int64 {
 	if m != nil {
 		return m.LastSlashEpoch
 	}
 	return 0
 }
 
+func (m *VerifierActivityView) GetSlashCount() uint64 {
+	if m != nil {
+		return m.SlashCount
+	}
+	return 0
+}
+
 func init() {
 	proto.RegisterType((*VerifierActivity)(nil), "sparkdream.federation.v1.VerifierActivity")
+	proto.RegisterType((*VerifierActivityView)(nil), "sparkdream.federation.v1.VerifierActivityView")
 }
 
 func init() {
@@ -183,35 +249,36 @@ func init() {
 }
 
 var fileDescriptor_ff99916355787d20 = []byte{
-	// 441 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0x64, 0x92, 0xc1, 0x6e, 0xd3, 0x30,
-	0x18, 0xc7, 0x1b, 0x56, 0x36, 0xe6, 0x21, 0x34, 0xdc, 0x4e, 0xb8, 0x93, 0x08, 0x15, 0xa7, 0x5e,
-	0xd6, 0x50, 0x26, 0x81, 0x40, 0xe2, 0xb0, 0x55, 0x9c, 0x91, 0x3a, 0x6d, 0x07, 0x2e, 0x96, 0x71,
-	0xbe, 0xad, 0x11, 0x9e, 0x1d, 0xd9, 0x4e, 0x60, 0x6f, 0xc1, 0xc3, 0xf0, 0x10, 0x1c, 0x2b, 0x4e,
-	0x1c, 0x51, 0xfb, 0x12, 0x1c, 0x51, 0x3e, 0xa7, 0x6d, 0xda, 0x1d, 0xf3, 0xfd, 0xfe, 0xbf, 0x7f,
-	0x6c, 0xeb, 0x23, 0xaf, 0x5c, 0x2e, 0xec, 0xd7, 0xd4, 0x82, 0xb8, 0x4d, 0xae, 0x21, 0x05, 0x2b,
-	0x7c, 0x66, 0x74, 0x52, 0x8e, 0x92, 0x12, 0x6c, 0x76, 0x9d, 0x81, 0xe5, 0x42, 0xfa, 0xac, 0xcc,
-	0xfc, 0xdd, 0x30, 0xb7, 0xc6, 0x1b, 0xca, 0xd6, 0xc6, 0x70, 0x6d, 0x0c, 0xcb, 0xd1, 0x71, 0x4f,
-	0x1a, 0x77, 0x6b, 0x1c, 0xc7, 0x5c, 0x12, 0x3e, 0x82, 0xf4, 0xf2, 0x5f, 0x9b, 0x1c, 0x5e, 0xd5,
-	0x85, 0x67, 0x75, 0x1f, 0x7d, 0x4d, 0xf6, 0x44, 0x9a, 0x5a, 0x70, 0x8e, 0x45, 0xfd, 0x68, 0xb0,
-	0x7f, 0xce, 0x7e, 0xff, 0x3c, 0xe9, 0xd6, 0xde, 0x59, 0x20, 0x17, 0xde, 0x66, 0xfa, 0x66, 0xb2,
-	0x0c, 0xd2, 0x84, 0x74, 0xbc, 0xf1, 0x42, 0xf1, 0x70, 0x3c, 0x89, 0x3f, 0x77, 0xec, 0x41, 0x3f,
-	0x1a, 0xb4, 0x27, 0x14, 0xd1, 0x55, 0x93, 0xd0, 0x11, 0xe9, 0x16, 0xf9, 0x14, 0x54, 0xba, 0x65,
-	0xec, 0xa0, 0xd1, 0x09, 0x6c, 0x53, 0x79, 0x47, 0x98, 0x29, 0xc1, 0xfa, 0xc2, 0x6a, 0xd8, 0xd6,
-	0xda, 0xa8, 0x3d, 0x5b, 0xf3, 0x4d, 0xf5, 0x03, 0x39, 0x2e, 0xb4, 0x9c, 0x0a, 0xa5, 0x40, 0xdf,
-	0xdc, 0x93, 0x1f, 0xa2, 0xdc, 0x6b, 0x26, 0x36, 0xf5, 0x84, 0x74, 0x20, 0x37, 0x72, 0xba, 0xe5,
-	0xed, 0x86, 0xdb, 0x21, 0xda, 0x14, 0xde, 0x93, 0x5e, 0x10, 0x56, 0x8d, 0x8e, 0x5b, 0x70, 0x46,
-	0x95, 0x90, 0xb2, 0xbd, 0x70, 0x56, 0x0c, 0x8c, 0x57, 0x7c, 0x52, 0x63, 0x7a, 0x4a, 0x8e, 0xa4,
-	0xd1, 0x0e, 0x64, 0xe1, 0xb3, 0x12, 0xf8, 0xf2, 0x4a, 0x8e, 0x3d, 0x42, 0xaf, 0xdb, 0x80, 0x9f,
-	0x96, 0x8c, 0x9e, 0x10, 0xda, 0x94, 0xc2, 0xf3, 0xb1, 0x7d, 0x34, 0x9e, 0x36, 0xc8, 0x25, 0x02,
-	0xfa, 0x86, 0xac, 0x9e, 0x8a, 0x4b, 0x63, 0x54, 0x6a, 0xbe, 0x69, 0x5e, 0x68, 0x9f, 0x29, 0x46,
-	0xfa, 0xd1, 0x60, 0x67, 0x72, 0xb4, 0xc4, 0xe3, 0x9a, 0x5e, 0x56, 0x90, 0xbe, 0x20, 0x07, 0x4e,
-	0x09, 0x37, 0xe5, 0xd2, 0x14, 0xda, 0xb3, 0x03, 0xec, 0x27, 0x38, 0x1a, 0x57, 0x13, 0x3a, 0x20,
-	0x87, 0x4a, 0x38, 0xcf, 0x43, 0x0a, 0xaf, 0xc8, 0x1e, 0x63, 0xe3, 0x93, 0x6a, 0x7e, 0x51, 0x8d,
-	0x3f, 0x56, 0xd3, 0xf3, 0xb7, 0xbf, 0xe6, 0x71, 0x34, 0x9b, 0xc7, 0xd1, 0xdf, 0x79, 0x1c, 0xfd,
-	0x58, 0xc4, 0xad, 0xd9, 0x22, 0x6e, 0xfd, 0x59, 0xc4, 0xad, 0xcf, 0xcf, 0x1b, 0xbb, 0xff, 0xbd,
-	0xb9, 0xfd, 0xfe, 0x2e, 0x07, 0xf7, 0x65, 0x17, 0x57, 0xf7, 0xf4, 0x7f, 0x00, 0x00, 0x00, 0xff,
-	0xff, 0x9a, 0x87, 0x2a, 0xf8, 0x23, 0x03, 0x00, 0x00,
+	// 455 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xc4, 0x93, 0xb1, 0x6e, 0x13, 0x31,
+	0x18, 0xc7, 0x73, 0x34, 0xb4, 0xd4, 0x45, 0xa8, 0xb8, 0xa9, 0x70, 0x2a, 0x71, 0x44, 0x9d, 0xb2,
+	0x34, 0x47, 0xa8, 0x04, 0x02, 0x89, 0xa1, 0x8d, 0x98, 0x91, 0x52, 0x35, 0x03, 0x8b, 0x65, 0x7c,
+	0x5f, 0x1b, 0x0b, 0xd7, 0x3e, 0xd9, 0xbe, 0x2b, 0x7d, 0x00, 0x76, 0x1e, 0x86, 0x87, 0x60, 0xac,
+	0x98, 0x18, 0x51, 0xf2, 0x1a, 0x0c, 0xe8, 0xec, 0x4b, 0x72, 0xb9, 0x3c, 0x00, 0xe3, 0x7d, 0xbf,
+	0xff, 0xef, 0xfc, 0xff, 0x86, 0x0f, 0xbd, 0xb4, 0x19, 0x33, 0x5f, 0x52, 0x03, 0xec, 0x26, 0xb9,
+	0x82, 0x14, 0x0c, 0x73, 0x42, 0xab, 0xa4, 0x18, 0x26, 0x05, 0x18, 0x71, 0x25, 0xc0, 0x50, 0xc6,
+	0x9d, 0x28, 0x84, 0xbb, 0x1b, 0x64, 0x46, 0x3b, 0x8d, 0xc9, 0xca, 0x18, 0xac, 0x8c, 0x41, 0x31,
+	0x3c, 0xea, 0x72, 0x6d, 0x6f, 0xb4, 0xa5, 0x3e, 0x97, 0x84, 0x8f, 0x20, 0x1d, 0x7f, 0x8b, 0xd0,
+	0xfe, 0xa4, 0xfa, 0xe1, 0x59, 0xf5, 0x3f, 0xfc, 0x0a, 0xed, 0xb0, 0x34, 0x35, 0x60, 0x2d, 0x89,
+	0x7a, 0x51, 0x7f, 0xf7, 0x9c, 0xfc, 0xfa, 0x71, 0xd2, 0xa9, 0xbc, 0xb3, 0x40, 0x2e, 0x9c, 0x11,
+	0xea, 0x7a, 0xbc, 0x08, 0xe2, 0xf7, 0xe8, 0x28, 0x57, 0x7c, 0xca, 0xa4, 0x04, 0x75, 0x0d, 0x29,
+	0x0d, 0x2d, 0xb9, 0xef, 0x60, 0xc9, 0x83, 0x5e, 0xd4, 0x6f, 0x8f, 0xbb, 0xf5, 0xc4, 0xa4, 0x1e,
+	0x38, 0xfe, 0xdb, 0x46, 0x9d, 0x66, 0x8f, 0x89, 0x80, 0xdb, 0xff, 0xd0, 0x05, 0x27, 0xe8, 0xc0,
+	0x69, 0xc7, 0x64, 0xc3, 0xdb, 0xf2, 0x1e, 0xf6, 0x68, 0x5d, 0x18, 0xa2, 0x4e, 0x9e, 0x4d, 0x41,
+	0x36, 0x5f, 0x6a, 0x7b, 0xe3, 0x20, 0xb0, 0x75, 0xe5, 0x2d, 0x22, 0xba, 0x00, 0xe3, 0x72, 0xa3,
+	0x36, 0x0a, 0x3e, 0xf4, 0xda, 0xb3, 0x15, 0xdf, 0xa8, 0x07, 0x99, 0xe6, 0xd3, 0x86, 0xb5, 0x1d,
+	0xea, 0x79, 0xb4, 0x2e, 0xbc, 0x43, 0xdd, 0x20, 0x2c, 0x17, 0xb6, 0xd4, 0x80, 0xd5, 0xb2, 0x80,
+	0x94, 0xec, 0x84, 0xc7, 0x7c, 0x60, 0xb4, 0xe4, 0xe3, 0x0a, 0xe3, 0x53, 0x74, 0xc8, 0xb5, 0xb2,
+	0xc0, 0x73, 0x27, 0x0a, 0xa0, 0x8b, 0x4e, 0x96, 0x3c, 0xf2, 0x5e, 0xa7, 0x06, 0x3f, 0x2e, 0x18,
+	0x3e, 0x41, 0xb8, 0x2e, 0x85, 0xfd, 0xc9, 0xae, 0x37, 0x9e, 0xd6, 0xc8, 0xa5, 0x07, 0xf8, 0x35,
+	0x5a, 0xee, 0x4a, 0xb9, 0xd6, 0x32, 0xd5, 0xb7, 0x8a, 0xe6, 0xca, 0x09, 0x49, 0x50, 0x2f, 0xea,
+	0x6f, 0x8d, 0x0f, 0x17, 0x78, 0x54, 0xd1, 0xcb, 0x12, 0xe2, 0x3e, 0xda, 0x97, 0xcc, 0x3a, 0x6a,
+	0x25, 0xb3, 0x53, 0xea, 0x37, 0x20, 0x7b, 0x5e, 0x78, 0x52, 0xce, 0x2f, 0xca, 0xf1, 0x87, 0x72,
+	0x8a, 0x5f, 0xa0, 0xbd, 0x10, 0xe2, 0x3a, 0x57, 0x8e, 0x3c, 0xf6, 0x4d, 0x90, 0x1f, 0x8d, 0xca,
+	0xc9, 0xf9, 0x9b, 0x9f, 0xb3, 0x38, 0xba, 0x9f, 0xc5, 0xd1, 0x9f, 0x59, 0x1c, 0x7d, 0x9f, 0xc7,
+	0xad, 0xfb, 0x79, 0xdc, 0xfa, 0x3d, 0x8f, 0x5b, 0x9f, 0x9e, 0xd7, 0xee, 0xf0, 0x6b, 0xfd, 0x12,
+	0xdd, 0x5d, 0x06, 0xf6, 0xf3, 0xb6, 0x3f, 0xa3, 0xd3, 0x7f, 0x01, 0x00, 0x00, 0xff, 0xff, 0xe0,
+	0xc3, 0x80, 0x42, 0xaf, 0x03, 0x00, 0x00,
 }
 
 func (m *VerifierActivity) Marshal() (dAtA []byte, err error) {
@@ -234,13 +301,48 @@ func (m *VerifierActivity) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	_ = i
 	var l int
 	_ = l
-	if m.LastSlashEpoch != 0 {
-		i = encodeVarintVerifierActivity(dAtA, i, uint64(m.LastSlashEpoch))
+	if m.UnchallengedVerifications != 0 {
+		i = encodeVarintVerifierActivity(dAtA, i, uint64(m.UnchallengedVerifications))
+		i--
+		dAtA[i] = 0x10
+	}
+	if len(m.Address) > 0 {
+		i -= len(m.Address)
+		copy(dAtA[i:], m.Address)
+		i = encodeVarintVerifierActivity(dAtA, i, uint64(len(m.Address)))
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *VerifierActivityView) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *VerifierActivityView) MarshalTo(dAtA []byte) (int, error) {
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *VerifierActivityView) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.SlashCount != 0 {
+		i = encodeVarintVerifierActivity(dAtA, i, uint64(m.SlashCount))
 		i--
 		dAtA[i] = 0x60
 	}
-	if m.SlashCount != 0 {
-		i = encodeVarintVerifierActivity(dAtA, i, uint64(m.SlashCount))
+	if m.LastSlashEpoch != 0 {
+		i = encodeVarintVerifierActivity(dAtA, i, uint64(m.LastSlashEpoch))
 		i--
 		dAtA[i] = 0x58
 	}
@@ -269,23 +371,23 @@ func (m *VerifierActivity) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 		i--
 		dAtA[i] = 0x30
 	}
-	if m.UnchallengedVerifications != 0 {
-		i = encodeVarintVerifierActivity(dAtA, i, uint64(m.UnchallengedVerifications))
-		i--
-		dAtA[i] = 0x28
-	}
 	if m.OverturnedVerifications != 0 {
 		i = encodeVarintVerifierActivity(dAtA, i, uint64(m.OverturnedVerifications))
 		i--
-		dAtA[i] = 0x20
+		dAtA[i] = 0x28
 	}
 	if m.UpheldVerifications != 0 {
 		i = encodeVarintVerifierActivity(dAtA, i, uint64(m.UpheldVerifications))
 		i--
-		dAtA[i] = 0x18
+		dAtA[i] = 0x20
 	}
 	if m.TotalVerifications != 0 {
 		i = encodeVarintVerifierActivity(dAtA, i, uint64(m.TotalVerifications))
+		i--
+		dAtA[i] = 0x18
+	}
+	if m.UnchallengedVerifications != 0 {
+		i = encodeVarintVerifierActivity(dAtA, i, uint64(m.UnchallengedVerifications))
 		i--
 		dAtA[i] = 0x10
 	}
@@ -320,6 +422,25 @@ func (m *VerifierActivity) Size() (n int) {
 	if l > 0 {
 		n += 1 + l + sovVerifierActivity(uint64(l))
 	}
+	if m.UnchallengedVerifications != 0 {
+		n += 1 + sovVerifierActivity(uint64(m.UnchallengedVerifications))
+	}
+	return n
+}
+
+func (m *VerifierActivityView) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	l = len(m.Address)
+	if l > 0 {
+		n += 1 + l + sovVerifierActivity(uint64(l))
+	}
+	if m.UnchallengedVerifications != 0 {
+		n += 1 + sovVerifierActivity(uint64(m.UnchallengedVerifications))
+	}
 	if m.TotalVerifications != 0 {
 		n += 1 + sovVerifierActivity(uint64(m.TotalVerifications))
 	}
@@ -328,9 +449,6 @@ func (m *VerifierActivity) Size() (n int) {
 	}
 	if m.OverturnedVerifications != 0 {
 		n += 1 + sovVerifierActivity(uint64(m.OverturnedVerifications))
-	}
-	if m.UnchallengedVerifications != 0 {
-		n += 1 + sovVerifierActivity(uint64(m.UnchallengedVerifications))
 	}
 	if m.EpochVerifications != 0 {
 		n += 1 + sovVerifierActivity(uint64(m.EpochVerifications))
@@ -347,11 +465,11 @@ func (m *VerifierActivity) Size() (n int) {
 	if m.OverturnCooldownUntil != 0 {
 		n += 1 + sovVerifierActivity(uint64(m.OverturnCooldownUntil))
 	}
-	if m.SlashCount != 0 {
-		n += 1 + sovVerifierActivity(uint64(m.SlashCount))
-	}
 	if m.LastSlashEpoch != 0 {
 		n += 1 + sovVerifierActivity(uint64(m.LastSlashEpoch))
+	}
+	if m.SlashCount != 0 {
+		n += 1 + sovVerifierActivity(uint64(m.SlashCount))
 	}
 	return n
 }
@@ -425,6 +543,126 @@ func (m *VerifierActivity) Unmarshal(dAtA []byte) error {
 			iNdEx = postIndex
 		case 2:
 			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field UnchallengedVerifications", wireType)
+			}
+			m.UnchallengedVerifications = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowVerifierActivity
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.UnchallengedVerifications |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		default:
+			iNdEx = preIndex
+			skippy, err := skipVerifierActivity(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthVerifierActivity
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *VerifierActivityView) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowVerifierActivity
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: VerifierActivityView: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: VerifierActivityView: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Address", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowVerifierActivity
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthVerifierActivity
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthVerifierActivity
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Address = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 2:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field UnchallengedVerifications", wireType)
+			}
+			m.UnchallengedVerifications = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowVerifierActivity
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.UnchallengedVerifications |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 3:
+			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field TotalVerifications", wireType)
 			}
 			m.TotalVerifications = 0
@@ -442,7 +680,7 @@ func (m *VerifierActivity) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 3:
+		case 4:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field UpheldVerifications", wireType)
 			}
@@ -461,7 +699,7 @@ func (m *VerifierActivity) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 4:
+		case 5:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field OverturnedVerifications", wireType)
 			}
@@ -476,25 +714,6 @@ func (m *VerifierActivity) Unmarshal(dAtA []byte) error {
 				b := dAtA[iNdEx]
 				iNdEx++
 				m.OverturnedVerifications |= uint64(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-		case 5:
-			if wireType != 0 {
-				return fmt.Errorf("proto: wrong wireType = %d for field UnchallengedVerifications", wireType)
-			}
-			m.UnchallengedVerifications = 0
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowVerifierActivity
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				m.UnchallengedVerifications |= uint64(b&0x7F) << shift
 				if b < 0x80 {
 					break
 				}
@@ -596,25 +815,6 @@ func (m *VerifierActivity) Unmarshal(dAtA []byte) error {
 			}
 		case 11:
 			if wireType != 0 {
-				return fmt.Errorf("proto: wrong wireType = %d for field SlashCount", wireType)
-			}
-			m.SlashCount = 0
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowVerifierActivity
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				m.SlashCount |= uint64(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-		case 12:
-			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field LastSlashEpoch", wireType)
 			}
 			m.LastSlashEpoch = 0
@@ -628,6 +828,25 @@ func (m *VerifierActivity) Unmarshal(dAtA []byte) error {
 				b := dAtA[iNdEx]
 				iNdEx++
 				m.LastSlashEpoch |= int64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 12:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field SlashCount", wireType)
+			}
+			m.SlashCount = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowVerifierActivity
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.SlashCount |= uint64(b&0x7F) << shift
 				if b < 0x80 {
 					break
 				}

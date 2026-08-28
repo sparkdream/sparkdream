@@ -126,7 +126,8 @@ fix_legacy_dec_fields() {
     echo "$json_input" | python3 -c "
 import json, sys
 d = json.load(sys.stdin)
-DEC_FIELDS = ['trust_discount_rate', 'min_verifier_accuracy', 'operator_reward_share']
+DEC_FIELDS = ['trust_discount_rate', 'operator_reward_inflation_share',
+              'operator_reward_pool_overflow_burn_ratio', 'max_unverified_rate']
 for f in DEC_FIELDS:
     if f in d and d[f] is not None:
         s = str(d[f])
@@ -535,9 +536,9 @@ EOF
         OK_GONE=$(echo "$ESC" | grep -q "no escalated" && echo 1 || echo 0)
         OK_STATUS=$([ "$CSTAT" == "FEDERATED_CONTENT_STATUS_VERIFIED" ] && echo 1 || echo 0)
         OK_UPHELD=$([ "$POST_UPHELD" -gt "$PRE_UPHELD" ] 2>/dev/null && echo 1 || echo 0)
-        # epoch_challenges_resolved is a per-epoch counter that Phase 10
+        # epoch_challenges_resolved is a per-epoch counter that the reward
         # resets at every reward-epoch boundary (10 blocks ≈ 60s in
-        # testparams). If a Phase 10 fires between the OpsComm proposal
+        # testparams). If a distribution fires between the OpsComm proposal
         # landing and this snapshot, the counter has already been reset
         # to 0. Treat OK_CHAL as informational — required only when the
         # value actually changed in the visible window.
@@ -546,7 +547,7 @@ EOF
 
         if [ "$OK_GONE" == "1" ] && [ "$OK_STATUS" == "1" ] && [ "$OK_UPHELD" == "1" ] && [ "$OK_PRIOR" == "1" ]; then
             if [ "$OK_CHAL" != "1" ]; then
-                echo "  (epoch_challenges_resolved didn't grow — likely reset by an intervening Phase 10 sweep; lifetime counters are authoritative)"
+                echo "  (epoch_challenges_resolved didn't grow — likely reset by an intervening reward sweep; lifetime counters are authoritative)"
             fi
             record_result "Happy path CHALLENGE_REJECTED" "PASS"
         else

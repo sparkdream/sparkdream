@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/stretchr/testify/require"
 
@@ -224,4 +225,176 @@ func TestAccuracyWindow_ResponsivenessVsLifetime(t *testing.T) {
 	up, ov := f.keeper.GetRoleWindowedAccuracy(f.ctx, raRole, addr, 10, 3)
 	require.Equal(t, uint64(1), up)
 	require.Equal(t, uint64(2), ov)
+}
+
+// --- Per-role verdict-streak policy (BondedRoleConfig) -----------------
+//
+// The federation verifier's accountability record moved onto RoleActivity,
+// and its streak rules differ from the moderation roles': an overturn there
+// means the holder attested to a hash that was false, not that they made a
+// contested judgment call. Rather than flatten one role's semantics into the
+// other's, the policy is per-role config. These tests pin both sides.
+
+func TestRoleOutcome_OverturnStreakResetsOnFirstUpheldByDefault(t *testing.T) {
+	f := raFixture(t)
+	addr := "streak-default"
+
+	require.NoError(t, f.keeper.RecordRoleOutcome(f.ctx, raRole, addr, types.ActionKindForumHide, false))
+	require.NoError(t, f.keeper.RecordRoleOutcome(f.ctx, raRole, addr, types.ActionKindForumHide, false))
+	ra, _ := f.keeper.GetRoleActivity(f.ctx, raRole, addr)
+	require.Equal(t, uint64(2), ra.ConsecutiveOverturns)
+
+	require.NoError(t, f.keeper.RecordRoleOutcome(f.ctx, raRole, addr, types.ActionKindForumHide, true))
+	ra, _ = f.keeper.GetRoleActivity(f.ctx, raRole, addr)
+	require.Zero(t, ra.ConsecutiveOverturns, "one good call wipes the slate for moderation roles")
+}
+
+func TestRoleOutcome_StickyOverturnStreakNeedsNConsecutiveUpheld(t *testing.T) {
+	f := raFixture(t)
+	role := types.RoleType_ROLE_TYPE_FEDERATION_VERIFIER
+	addr := "streak-sticky"
+
+	require.NoError(t, f.keeper.SetBondedRoleConfig(f.ctx, types.BondedRoleConfig{
+		RoleType:               role,
+		UpheldToResetOverturns: 3,
+	}))
+
+	require.NoError(t, f.keeper.RecordRoleOutcome(f.ctx, role, addr, types.ActionKindFederationVerify, false))
+	require.NoError(t, f.keeper.RecordRoleOutcome(f.ctx, role, addr, types.ActionKindFederationVerify, false))
+
+	// Two upheld verdicts are not enough to clear the streak.
+	for i := 0; i < 2; i++ {
+		require.NoError(t, f.keeper.RecordRoleOutcome(f.ctx, role, addr, types.ActionKindFederationVerify, true))
+		ra, _ := f.keeper.GetRoleActivity(f.ctx, role, addr)
+		require.Equal(t, uint64(2), ra.ConsecutiveOverturns,
+			"alternating wrong/right must not hold a verifier permanently short of demotion")
+	}
+
+	require.NoError(t, f.keeper.RecordRoleOutcome(f.ctx, role, addr, types.ActionKindFederationVerify, true))
+	ra, _ := f.keeper.GetRoleActivity(f.ctx, role, addr)
+	require.Zero(t, ra.ConsecutiveOverturns, "the third consecutive upheld clears it")
+}
+
+func TestRoleOutcome_OverturnCooldownIsFlatByDefault(t *testing.T) {
+	f := raFixture(t)
+	addr := "cooldown-flat"
+	now := f.ctx.BlockTime().Unix()
+
+	require.NoError(t, f.keeper.RecordRoleOutcome(f.ctx, raRole, addr, types.ActionKindForumHide, false))
+	require.Equal(t, now+types.DefaultRoleOverturnCooldown,
+		f.keeper.RoleOverturnCooldownUntil(f.ctx, raRole, addr))
+
+	require.NoError(t, f.keeper.RecordRoleOutcome(f.ctx, raRole, addr, types.ActionKindForumHide, false))
+	require.Equal(t, now+types.DefaultRoleOverturnCooldown,
+		f.keeper.RoleOverturnCooldownUntil(f.ctx, raRole, addr),
+		"a second overturn draws the same flat lockout")
+}
+
+func TestRoleOutcome_OverturnCooldownEscalatesWhenConfigured(t *testing.T) {
+	f := raFixture(t)
+	role := types.RoleType_ROLE_TYPE_FEDERATION_VERIFIER
+	addr := "cooldown-escalating"
+	now := f.ctx.BlockTime().Unix()
+	const base = int64(3600)
+
+	require.NoError(t, f.keeper.SetBondedRoleConfig(f.ctx, types.BondedRoleConfig{
+		RoleType:                  role,
+		OverturnBaseCooldown:      base,
+		OverturnCooldownEscalates: true,
+	}))
+
+	for i, want := range []int64{base, base * 2, base * 4} {
+		require.NoError(t, f.keeper.RecordRoleOutcome(f.ctx, role, addr, types.ActionKindFederationVerify, false))
+		require.Equal(t, now+want, f.keeper.RoleOverturnCooldownUntil(f.ctx, role, addr),
+			"overturn %d should double the previous lockout", i+1)
+	}
+}
+
+func TestRoleOutcome_EscalatingCooldownIsCapped(t *testing.T) {
+	// Escalation must stay a cooldown, not become an unappealable ban that
+	// routes around the demotion path.
+	f := raFixture(t)
+	role := types.RoleType_ROLE_TYPE_FEDERATION_VERIFIER
+	addr := "cooldown-capped"
+	now := f.ctx.BlockTime().Unix()
+
+	require.NoError(t, f.keeper.SetBondedRoleConfig(f.ctx, types.BondedRoleConfig{
+		RoleType:                  role,
+		OverturnBaseCooldown:      86400,
+		OverturnCooldownEscalates: true,
+	}))
+
+	for i := 0; i < 12; i++ {
+		require.NoError(t, f.keeper.RecordRoleOutcome(f.ctx, role, addr, types.ActionKindFederationVerify, false))
+	}
+	require.Equal(t, now+types.MaxRoleOverturnCooldown,
+		f.keeper.RoleOverturnCooldownUntil(f.ctx, role, addr))
+}
+
+func TestStreakDemotionSurvivesASubsequentSlash(t *testing.T) {
+	// A streak demotion is an accountability state, not a bond-amount state.
+	// SlashBond recomputes bond_status from the remaining bond, and a verifier
+	// demoted for three consecutive overturns still has a bond well above
+	// demotion_threshold -- so a naive recompute hands them RECOVERY back and
+	// the demotion evaporates. Whether it did used to depend on whether the
+	// owning module called SlashBond before or after RecordRoleOutcome:
+	// x/collect slashed first, x/federation and x/rep's own initiative-review
+	// path reported first. Now neither order can undo it.
+	f := raFixture(t)
+	role := types.RoleType_ROLE_TYPE_FEDERATION_VERIFIER
+	addr := sdk.AccAddress([]byte("demote-then-slash"[:20-4])).String()
+
+	require.NoError(t, f.keeper.SetBondedRoleConfig(f.ctx, types.BondedRoleConfig{
+		RoleType:          role,
+		MinBond:           math.NewInt(500_000_000).String(),
+		DemotionThreshold: math.NewInt(100_000_000).String(),
+		DemotionCooldown:  604800,
+	}))
+	setMemberWithStaked(t, f, sdk.MustAccAddressFromBech32(addr),
+		math.NewInt(500_000_000), math.NewInt(500_000_000))
+	bondVerifier(t, f.keeper, f.ctx, sdk.MustAccAddressFromBech32(addr),
+		500_000_000, types.BondedRoleStatus_BONDED_ROLE_STATUS_NORMAL)
+
+	// Three consecutive overturns cross DefaultMaxConsecutiveOverturnsBeforeDemotion.
+	for i := uint64(0); i < types.DefaultMaxConsecutiveOverturnsBeforeDemotion; i++ {
+		require.NoError(t, f.keeper.RecordRoleOutcome(f.ctx, role, addr, types.ActionKindFederationVerify, false))
+	}
+	br, err := f.keeper.GetBondedRole(f.ctx, role, addr)
+	require.NoError(t, err)
+	require.Equal(t, types.BondedRoleStatus_BONDED_ROLE_STATUS_DEMOTED, br.BondStatus,
+		"three consecutive overturns must demote")
+
+	// The slash that accompanies the same verdict leaves the bond at 480 DREAM
+	// -- below min_bond, above demotion_threshold, i.e. RECOVERY on bond alone.
+	require.NoError(t, f.keeper.SlashBond(f.ctx, role, addr, math.NewInt(20_000_000), "challenge upheld"))
+
+	br, err = f.keeper.GetBondedRole(f.ctx, role, addr)
+	require.NoError(t, err)
+	require.Equal(t, types.BondedRoleStatus_BONDED_ROLE_STATUS_DEMOTED, br.BondStatus,
+		"the slash must not restore a demoted role to RECOVERY")
+}
+
+func TestSlashCanStillDeepenStatus(t *testing.T) {
+	// The guard takes the HARSHER of the two, so a slash that drops the bond
+	// below demotion_threshold must still demote a NORMAL holder.
+	f := raFixture(t)
+	role := types.RoleType_ROLE_TYPE_FEDERATION_VERIFIER
+	addr := sdk.AccAddress([]byte("slash-deepens---")).String()
+
+	require.NoError(t, f.keeper.SetBondedRoleConfig(f.ctx, types.BondedRoleConfig{
+		RoleType:          role,
+		MinBond:           math.NewInt(500_000_000).String(),
+		DemotionThreshold: math.NewInt(100_000_000).String(),
+		DemotionCooldown:  604800,
+	}))
+	setMemberWithStaked(t, f, sdk.MustAccAddressFromBech32(addr),
+		math.NewInt(500_000_000), math.NewInt(500_000_000))
+	bondVerifier(t, f.keeper, f.ctx, sdk.MustAccAddressFromBech32(addr),
+		500_000_000, types.BondedRoleStatus_BONDED_ROLE_STATUS_NORMAL)
+
+	require.NoError(t, f.keeper.SlashBond(f.ctx, role, addr, math.NewInt(450_000_000), "large slash"))
+
+	br, err := f.keeper.GetBondedRole(f.ctx, role, addr)
+	require.NoError(t, err)
+	require.Equal(t, types.BondedRoleStatus_BONDED_ROLE_STATUS_DEMOTED, br.BondStatus)
 }

@@ -19,6 +19,14 @@ import (
 //   - VerifierRecoveryThreshold→ BondedRoleConfig.DemotionThreshold
 //   - VerifierDemotionCooldown → BondedRoleConfig.DemotionCooldown (seconds)
 //   - VerifierUnbondCooldown   → BondedRoleConfig.UnbondCooldown (seconds)
+//   - UpheldToResetOverturns   → BondedRoleConfig.UpheldToResetOverturns
+//   - VerifierOverturnBaseCooldown → BondedRoleConfig.OverturnBaseCooldown
+//
+// The last two, plus the OverturnCooldownEscalates flag set below, are the
+// verdict-streak policy x/rep applies in RecordRoleOutcome now that the
+// verifier's accountability record lives on the shared RoleActivity. They
+// stay federation params — federation owns the role's policy — but rep is
+// what enforces them, so they have to be written through like the rest.
 //
 // Federation's verifier is trust-level-gated, not rep-tier-gated, so
 // MinRepTier is left at zero. Age-of-bond is not enforced, so MinAgeBlocks
@@ -54,5 +62,15 @@ func (k Keeper) SyncVerifierBondedRoleConfig(ctx context.Context, p types.Params
 		DemotionCooldown:  int64(p.VerifierDemotionCooldown.Seconds()),
 		DemotionThreshold: demotionThreshold,
 		UnbondCooldown:    int64(p.VerifierUnbondCooldown.Seconds()),
+
+		UpheldToResetOverturns: uint64(p.UpheldToResetOverturns),
+		OverturnBaseCooldown:   int64(p.VerifierOverturnBaseCooldown.Seconds()),
+		// The verifier's overturn cooldown DOUBLES per consecutive overturn,
+		// unlike the moderation roles' flat lockout. An overturned hide is a
+		// contested judgment call; an overturned verification means the holder
+		// attested to a hash that was false. First mistake cheap, pattern
+		// expensive — capped at 7 days so it stays a cooldown rather than an
+		// unappealable ban.
+		OverturnCooldownEscalates: true,
 	})
 }

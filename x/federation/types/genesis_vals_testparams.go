@@ -53,20 +53,9 @@ func getFederationGenesisParams() federationGenesisParams {
 		// (between recovery_threshold and min_bond). The reward cap
 		// (7 DREAM) is set so 2 eligible verifiers (each entitled to
 		// 5 DREAM) trigger pro-rata scaling.
-		MinVerifierBond:              math.NewInt(100_000_000), // 100 DREAM (prod: 500)
-		VerifierRecoveryThreshold:    math.NewInt(50_000_000),  // 50 DREAM  (prod: 250)
-		VerifierSlashAmount:          math.NewInt(20_000_000),  // 20 DREAM  (prod: 50)
-		MinEpochVerifications:        uint32(1),                // 1 verif   (prod: 3)
-		MinVerifierAccuracy:          math.LegacyZeroDec(),     // 0%        (prod: 0.8) — lets overturned verifiers earn under fresh activity in RECOVERY test
-		VerifierDreamReward:          math.NewInt(5_000_000),   // 5 DREAM   (prod: 5)
-		MaxVerifierDreamMintPerEpoch: math.NewInt(7_000_000),   // 7 DREAM   (prod: 100) — forces scaling with 2+ eligibles
+		MinVerifierBond:           math.NewInt(100_000_000), // 100 DREAM (prod: 500)
+		VerifierRecoveryThreshold: math.NewInt(50_000_000),  // 50 DREAM  (prod: 250)
+		VerifierSlashAmount:       math.NewInt(20_000_000),  // 20 DREAM  (prod: 50)
+		OperatorRewardEpochBlocks: 10,
 	}
-}
-
-// getVerifierRewardEpochBlocks returns the cadence at which Phase 10 fires.
-// Testparams uses a short epoch (10 blocks ≈ 60s) so the RECOVERY auto-bond
-// test can wait through two reward epochs (slash in epoch N, auto-bond in
-// epoch N+1) inside ~2 minutes of wall time. Production cadence is ~7 days.
-func getVerifierRewardEpochBlocks() uint64 {
-	return 10
 }

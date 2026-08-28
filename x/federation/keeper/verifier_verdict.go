@@ -16,10 +16,12 @@ import (
 // VerificationRecord. Runs from finalizeAutoResolutions when the
 // escalation window expires without escalation. Performs three things:
 //
-//  1. Counter updates on VerifierActivity (Upheld/Overturned, streak
-//     counters, EpochChallengesResolved, LastSlashEpoch on overturn).
+//  1. A verdict report to x/rep, which owns the shared accountability
+//     record: per-kind upheld/overturned counters, verdict streaks, the
+//     rolling accuracy ring, the overturn cooldown, and streak demotion.
 //  2. DREAM bond slash on overturn (+ half-slash bounty minted to the
-//     challenger per spec §7).
+//     challenger per spec §7). SlashBond stamps last_slash_epoch, which
+//     the reward distribution reads as its no-pay-this-epoch gate.
 //  3. SPARK fee disbursement on the escrowed challenge fee — full
 //     refund to challenger on UPHELD, 50/50 split (verifier reward /
 //     burn) on REJECTED. Content status flips to REJECTED on UPHELD
@@ -77,21 +79,20 @@ func (k Keeper) applyAutoVerdictRejected(
 ) {
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 
-	activity, err := k.VerifierActivity.Get(ctx, record.Verifier)
-	if err != nil {
-		activity = types.VerifierActivity{Address: record.Verifier}
+	// Report the upheld verdict to x/rep. It bumps the per-kind upheld
+	// counter, the accuracy ring, epoch_appeals_resolved and the streaks --
+	// including how many consecutive upheld verdicts clear an overturn
+	// streak, which is now BondedRoleConfig.upheld_to_reset_overturns rather
+	// than a federation-local param read here.
+	if k.late.repKeeper != nil {
+		if err := k.late.repKeeper.RecordRoleOutcome(ctx,
+			reptypes.RoleType_ROLE_TYPE_FEDERATION_VERIFIER, record.Verifier,
+			reptypes.ActionKindFederationVerify, true); err != nil {
+			sdkCtx.Logger().Warn("auto-verdict (rejected): record outcome failed",
+				"verifier", record.Verifier, "error", err)
+		}
 	}
-	activity.EpochChallengesResolved++
-	activity.UpheldVerifications++
-	activity.ConsecutiveUpheld++
-	if params.UpheldToResetOverturns > 0 &&
-		activity.ConsecutiveUpheld >= uint64(params.UpheldToResetOverturns) {
-		activity.ConsecutiveOverturns = 0
-	}
-	if err := k.VerifierActivity.Set(ctx, record.Verifier, activity); err != nil {
-		sdkCtx.Logger().Warn("auto-verdict (rejected): persist activity failed",
-			"verifier", record.Verifier, "error", err)
-	}
+	consecutiveUpheld := k.verifierConsecutiveUpheld(ctx, record.Verifier)
 
 	// Bump prior_rejected_challenges so the next challenger pays the
 	// escalating fee (matches MsgChallengeVerification's 2^N multiplier).
@@ -117,7 +118,7 @@ func (k Keeper) applyAutoVerdictRejected(
 		sdk.NewAttribute(types.AttributeKeyContentID, fmt.Sprintf("%d", contentID)),
 		sdk.NewAttribute(types.AttributeKeyVerifier, record.Verifier),
 		sdk.NewAttribute(types.AttributeKeyChallenger, record.Challenger),
-		sdk.NewAttribute("consecutive_upheld", fmt.Sprintf("%d", activity.ConsecutiveUpheld)),
+		sdk.NewAttribute("consecutive_upheld", fmt.Sprintf("%d", consecutiveUpheld)),
 	))
 }
 
@@ -127,9 +128,9 @@ func (k Keeper) applyAutoVerdictRejected(
 //
 // Takes record by pointer for parity with applyAutoVerdictRejected;
 // currently this helper doesn't mutate the record itself (the slash
-// state lives on VerifierActivity), but the pointer signature lets
-// future field updates flow back to the caller without re-discovering
-// the bug fixed in PR #N.
+// state lives on x/rep's RoleActivity and BondedRole), but the pointer
+// signature lets future field updates flow back to the caller without
+// re-discovering the bug fixed in PR #N.
 func (k Keeper) applyAutoVerdictUpheld(
 	ctx context.Context,
 	contentID uint64,
@@ -139,31 +140,33 @@ func (k Keeper) applyAutoVerdictUpheld(
 ) {
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 
-	activity, err := k.VerifierActivity.Get(ctx, record.Verifier)
-	if err != nil {
-		activity = types.VerifierActivity{Address: record.Verifier}
+	// Report the overturn to x/rep. It bumps the per-kind overturned counter
+	// and the accuracy ring, advances the overturn streak, applies the
+	// ESCALATING overturn cooldown (base * 2^(streak-1), capped at 7 days --
+	// configured via BondedRoleConfig.overturn_cooldown_escalates, which
+	// SyncVerifierBondedRoleConfig writes through from
+	// verifier_overturn_base_cooldown), and demotes the bond once the streak
+	// crosses the threshold.
+	//
+	// Ordering against the SlashBond below is not load-bearing in either
+	// direction: SlashBond takes the harsher of its recomputed status and the
+	// existing one, so a streak demotion applied here survives the slash.
+	if k.late.repKeeper != nil {
+		if err := k.late.repKeeper.RecordRoleOutcome(ctx,
+			reptypes.RoleType_ROLE_TYPE_FEDERATION_VERIFIER, record.Verifier,
+			reptypes.ActionKindFederationVerify, false); err != nil {
+			sdkCtx.Logger().Warn("auto-verdict (upheld): record outcome failed",
+				"verifier", record.Verifier, "error", err)
+		}
 	}
-	activity.EpochChallengesResolved++
-	activity.OverturnedVerifications++
-	activity.SlashCount++
-	activity.ConsecutiveUpheld = 0
-	activity.ConsecutiveOverturns++
-	activity.LastSlashEpoch = k.CurrentVerifierRewardEpoch(ctx)
-	activity.OverturnCooldownUntil = blockTime + computeOverturnCooldown(
-		params.VerifierOverturnBaseCooldown.Seconds(),
-		activity.ConsecutiveOverturns,
-	)
-	if err := k.VerifierActivity.Set(ctx, record.Verifier, activity); err != nil {
-		sdkCtx.Logger().Warn("auto-verdict (upheld): persist activity failed",
-			"verifier", record.Verifier, "error", err)
-	}
+	consecutiveOverturns, slashCount, cooldownUntil := k.verifierOverturnState(ctx, record.Verifier)
 
 	// Slash DREAM bond. Half is later minted back to the challenger as
 	// bounty (the SlashBond burn + MintDREAM half-back pattern conserves
 	// the net "50% burned" outcome described in spec §7).
 	slashAmount := params.VerifierSlashAmount
 	if k.late.repKeeper != nil && !slashAmount.IsNil() && slashAmount.IsPositive() {
-		reason := fmt.Sprintf("federation: challenge upheld (slash_count=%d)", activity.SlashCount)
+		reason := fmt.Sprintf("federation: challenge upheld (slash_count=%d)", slashCount)
 		if err := k.late.repKeeper.SlashBond(ctx,
 			reptypes.RoleType_ROLE_TYPE_FEDERATION_VERIFIER,
 			record.Verifier,
@@ -187,12 +190,28 @@ func (k Keeper) applyAutoVerdictUpheld(
 		}
 	}
 
-	// Content → REJECTED (operator's claim falsified by quorum).
+	// Content → REJECTED (operator's claim falsified by quorum), and the
+	// submitting operator's rejection counters bump.
+	//
+	// content_rejected was declared and documented from the start but never
+	// actually incremented — the counter sat at zero for every operator on
+	// chain. It is now load-bearing: epoch_rejected is the eligibility gate on
+	// operator compensation, so a falsified submission has to cost the
+	// operator the epoch's pay.
 	if content, cerr := k.Content.Get(ctx, contentID); cerr == nil {
 		content.Status = types.FederatedContentStatus_FEDERATED_CONTENT_STATUS_REJECTED
 		if err := k.Content.Set(ctx, contentID, content); err != nil {
 			sdkCtx.Logger().Warn("auto-verdict (upheld): persist content failed",
 				"content_id", contentID, "error", err)
+		}
+		bridgeKey := collections.Join(content.SubmittedBy, content.PeerId)
+		if binding, berr := k.BridgeBindings.Get(ctx, bridgeKey); berr == nil {
+			binding.ContentRejected++
+			binding.EpochRejected++
+			if err := k.BridgeBindings.Set(ctx, bridgeKey, binding); err != nil {
+				sdkCtx.Logger().Warn("auto-verdict (upheld): persist binding failed",
+					"operator", content.SubmittedBy, "peer", content.PeerId, "error", err)
+			}
 		}
 	}
 
@@ -204,12 +223,12 @@ func (k Keeper) applyAutoVerdictUpheld(
 		sdk.NewAttribute(types.AttributeKeyVerifier, record.Verifier),
 		sdk.NewAttribute(types.AttributeKeyChallenger, record.Challenger),
 		sdk.NewAttribute(types.AttributeKeySlashAmount, slashAmountString(slashAmount)),
-		sdk.NewAttribute("consecutive_overturns", fmt.Sprintf("%d", activity.ConsecutiveOverturns)),
+		sdk.NewAttribute("consecutive_overturns", fmt.Sprintf("%d", consecutiveOverturns)),
 	))
 	sdkCtx.EventManager().EmitEvent(sdk.NewEvent(types.EventTypeVerifierCooldownApplied,
 		sdk.NewAttribute("address", record.Verifier),
-		sdk.NewAttribute("cooldown_until", fmt.Sprintf("%d", activity.OverturnCooldownUntil)),
-		sdk.NewAttribute("consecutive_overturns", fmt.Sprintf("%d", activity.ConsecutiveOverturns)),
+		sdk.NewAttribute("cooldown_until", fmt.Sprintf("%d", cooldownUntil)),
+		sdk.NewAttribute("consecutive_overturns", fmt.Sprintf("%d", consecutiveOverturns)),
 	))
 }
 
@@ -476,25 +495,40 @@ func (k Keeper) removeEscalatedChallenge(ctx context.Context, esc types.Escalate
 	_ = k.EscalatedChallengeDeadline.Remove(ctx, collections.Join(esc.JuryDeadline, esc.ContentId))
 }
 
-// computeOverturnCooldown returns base * 2^(consecutive-1) seconds,
-// capped at 7 days. Shift amount is capped at 20 to keep the bit-shift
-// from overflowing; even 2^20 multiplied by a 24h base hits the 7-day
-// cap immediately.
-func computeOverturnCooldown(baseSeconds float64, consecutive uint64) int64 {
-	if consecutive == 0 {
+// verifierConsecutiveUpheld reads the upheld streak back from x/rep for
+// event emission. Zero when rep is unwired or the record is missing --
+// events are informational and must never fail a verdict.
+func (k Keeper) verifierConsecutiveUpheld(ctx context.Context, verifier string) uint64 {
+	if k.late.repKeeper == nil {
 		return 0
 	}
-	shift := consecutive - 1
-	if shift > 20 {
-		shift = 20
+	ra, err := k.late.repKeeper.GetRoleActivity(ctx,
+		reptypes.RoleType_ROLE_TYPE_FEDERATION_VERIFIER, verifier)
+	if err != nil {
+		return 0
 	}
-	multiplier := int64(1) << shift
-	cooldown := int64(baseSeconds) * multiplier
-	const sevenDays = int64(7 * 24 * 60 * 60)
-	if cooldown > sevenDays || cooldown < 0 {
-		cooldown = sevenDays
+	return ra.ConsecutiveUpheld
+}
+
+// verifierOverturnState reads back the post-verdict overturn streak, the
+// lifetime slash count, and the cooldown x/rep just applied.
+//
+// slash_count is DERIVED from the overturned-verification count rather than
+// stored: every upheld challenge slashes the verifier exactly once, so the two
+// were always incremented on adjacent lines and a separate counter was pure
+// duplication with a chance to drift.
+func (k Keeper) verifierOverturnState(ctx context.Context, verifier string) (consecutiveOverturns, slashCount uint64, cooldownUntil int64) {
+	if k.late.repKeeper == nil {
+		return 0, 0, 0
 	}
-	return cooldown
+	ra, err := k.late.repKeeper.GetRoleActivity(ctx,
+		reptypes.RoleType_ROLE_TYPE_FEDERATION_VERIFIER, verifier)
+	if err != nil {
+		return 0, 0, 0
+	}
+	return ra.ConsecutiveOverturns,
+		ra.OverturnedActions[reptypes.ActionKindFederationVerify],
+		ra.OverturnCooldownUntil
 }
 
 // slashAmountString returns the string form of a math.Int, normalizing

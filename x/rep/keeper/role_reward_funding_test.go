@@ -117,7 +117,8 @@ func TestFundRoleRewardPoolsSplitsByHeadroom(t *testing.T) {
 	// Give the sentinel pool three times the reviewer pool's headroom.
 	params.MaxSentinelRewardPool = math.NewInt(3_000_000)
 	params.MaxReviewerRewardPool = math.NewInt(1_000_000)
-	params.MaxCuratorRewardPool = math.ZeroInt() // a zero-cap pool is skipped entirely
+	params.MaxCuratorRewardPool = math.ZeroInt()  // a zero-cap pool is skipped entirely
+	params.MaxVerifierRewardPool = math.ZeroInt() // ditto
 	setDailyAllowance(mk, 400_000)
 	require.NoError(t, f.keeper.Params.Set(f.ctx, params))
 
@@ -142,6 +143,7 @@ func TestFundRoleRewardPoolsRespectsDailyCapAcrossBlocks(t *testing.T) {
 	params.MaxSentinelRewardPool = math.NewInt(100_000_000)
 	params.MaxReviewerRewardPool = math.NewInt(100_000_000)
 	params.MaxCuratorRewardPool = math.NewInt(100_000_000)
+	params.MaxVerifierRewardPool = math.NewInt(100_000_000)
 	setDailyAllowance(mk, 500_000)
 	require.NoError(t, f.keeper.Params.Set(f.ctx, params))
 
@@ -153,7 +155,8 @@ func TestFundRoleRewardPoolsRespectsDailyCapAcrossBlocks(t *testing.T) {
 	poolTotal := func() math.Int {
 		return balanceOf(ledger, keeper.SentinelRewardPoolAddress()).
 			Add(balanceOf(ledger, keeper.ReviewerRewardPoolAddress())).
-			Add(balanceOf(ledger, keeper.CuratorRewardPoolAddress()))
+			Add(balanceOf(ledger, keeper.CuratorRewardPoolAddress())).
+			Add(balanceOf(ledger, keeper.VerifierRewardPoolAddress()))
 	}
 	require.Equal(t, math.NewInt(500_000), poolTotal(), "20 blocks in one UTC day must draw one cap")
 
@@ -172,6 +175,7 @@ func TestFundRoleRewardPoolsStopsAtPoolCaps(t *testing.T) {
 	params.MaxSentinelRewardPool = math.NewInt(10_000)
 	params.MaxReviewerRewardPool = math.NewInt(10_000)
 	params.MaxCuratorRewardPool = math.NewInt(10_000)
+	params.MaxVerifierRewardPool = math.NewInt(10_000)
 	require.NoError(t, f.keeper.Params.Set(f.ctx, params))
 	setDailyAllowance(mk, 1_000_000_000) // far above total headroom
 
@@ -179,10 +183,11 @@ func TestFundRoleRewardPoolsStopsAtPoolCaps(t *testing.T) {
 	require.Equal(t, math.NewInt(10_000), balanceOf(ledger, keeper.SentinelRewardPoolAddress()))
 	require.Equal(t, math.NewInt(10_000), balanceOf(ledger, keeper.ReviewerRewardPoolAddress()))
 	require.Equal(t, math.NewInt(10_000), balanceOf(ledger, keeper.CuratorRewardPoolAddress()))
-	require.Equal(t, math.NewInt(1_000_000_000_000-30_000), dk.pool,
+	require.Equal(t, math.NewInt(10_000), balanceOf(ledger, keeper.VerifierRewardPoolAddress()))
+	require.Equal(t, math.NewInt(1_000_000_000_000-40_000), dk.pool,
 		"the draw is bounded by total headroom, not by the daily cap")
 
-	// Both pools are now full: a further block must not touch the community pool.
+	// Every pool is now full: a further block must not touch the community pool.
 	before := dk.pool
 	require.NoError(t, f.keeper.FundRoleRewardPools(f.ctx))
 	require.Equal(t, before, dk.pool, "an idle role costs the community pool nothing")
@@ -197,6 +202,7 @@ func TestFundRoleRewardPoolsBoundedByCommunityPool(t *testing.T) {
 	params.MaxSentinelRewardPool = math.NewInt(1_000_000)
 	params.MaxReviewerRewardPool = math.NewInt(1_000_000)
 	params.MaxCuratorRewardPool = math.NewInt(1_000_000)
+	params.MaxVerifierRewardPool = math.NewInt(1_000_000)
 	setDailyAllowance(mk, 1_000_000)
 	require.NoError(t, f.keeper.Params.Set(f.ctx, params))
 
@@ -205,7 +211,8 @@ func TestFundRoleRewardPoolsBoundedByCommunityPool(t *testing.T) {
 	require.NoError(t, f.keeper.FundRoleRewardPools(f.ctx))
 	total := balanceOf(ledger, keeper.SentinelRewardPoolAddress()).
 		Add(balanceOf(ledger, keeper.ReviewerRewardPoolAddress())).
-		Add(balanceOf(ledger, keeper.CuratorRewardPoolAddress()))
+		Add(balanceOf(ledger, keeper.CuratorRewardPoolAddress())).
+		Add(balanceOf(ledger, keeper.VerifierRewardPoolAddress()))
 	require.Equal(t, math.NewInt(7_000), total, "the whole available pool is drawn and placed")
 	require.True(t, dk.pool.IsZero())
 }
@@ -283,7 +290,8 @@ func TestQueryRoleRewardPools(t *testing.T) {
 	require.NoError(t, err)
 	params.MaxSentinelRewardPool = math.NewInt(80_000)
 	params.MaxReviewerRewardPool = math.NewInt(20_000)
-	params.MaxCuratorRewardPool = math.ZeroInt() // keep this case a 2-pool split
+	params.MaxCuratorRewardPool = math.ZeroInt()  // keep this case a 2-pool split
+	params.MaxVerifierRewardPool = math.ZeroInt() // ditto
 	setDailyAllowance(mk, 50_000)
 	require.NoError(t, f.keeper.Params.Set(f.ctx, params))
 	require.NoError(t, f.keeper.FundRoleRewardPools(f.ctx))
@@ -292,9 +300,9 @@ func TestQueryRoleRewardPools(t *testing.T) {
 	resp, err := qs.RoleRewardPools(f.ctx, &types.QueryRoleRewardPoolsRequest{})
 	require.NoError(t, err)
 	// The query reports every pool in fundedRolePools, including the curator
-	// pool zeroed above -- a role with funding switched off should still be
-	// visible, or "why is nobody being paid" has no answer.
-	require.Len(t, resp.Pools, 3)
+	// and verifier pools zeroed above -- a role with funding switched off
+	// should still be visible, or "why is nobody being paid" has no answer.
+	require.Len(t, resp.Pools, 4)
 	require.Equal(t, math.NewInt(50_000), resp.FundedToday)
 	require.Equal(t, math.NewInt(50_000), resp.DailyFundingCap)
 
@@ -334,6 +342,7 @@ func TestFundRoleRewardPoolsSweepsStrandedIntake(t *testing.T) {
 	params.MaxSentinelRewardPool = math.NewInt(1_000_000)
 	params.MaxReviewerRewardPool = math.NewInt(1_000_000)
 	params.MaxCuratorRewardPool = math.ZeroInt()
+	params.MaxVerifierRewardPool = math.ZeroInt()
 	setDailyAllowance(mk, 10_000)
 	require.NoError(t, f.keeper.Params.Set(f.ctx, params))
 
@@ -357,6 +366,7 @@ func TestRepSubAddressesAreDistinct(t *testing.T) {
 	addrs := map[string]string{
 		"sentinel_rewards":   keeper.SentinelRewardPoolAddress().String(),
 		"reviewer_rewards":   keeper.ReviewerRewardPoolAddress().String(),
+		"verifier_rewards":   keeper.VerifierRewardPoolAddress().String(),
 		"role_reward_intake": keeper.RoleRewardIntakeAddress().String(),
 		"tag_budgets":        keeper.TagBudgetEscrowAddress().String(),
 		"appeal_bonds":       keeper.AppealBondEscrowAddress().String(),

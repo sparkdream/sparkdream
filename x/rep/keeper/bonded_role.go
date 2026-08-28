@@ -358,12 +358,31 @@ func (k Keeper) SlashBond(ctx context.Context, roleType types.RoleType, addr str
 		// slash that drains current_bond to zero still waits for completion
 		// time so the holder can observe the outcome before re-bonding.
 	} else {
-		// Re-evaluate bond_status against the role's config thresholds.
-		br.BondStatus = k.computeBondStatus(ctx, roleType, newCurrent)
+		// Re-evaluate bond_status against the role's config thresholds, but
+		// never make it LESS severe than it already is. A slash only ever
+		// lowers current_bond, so the recomputed status can't legitimately be
+		// milder than the pre-slash one on bond grounds alone -- the only way
+		// that happens is when the existing status came from somewhere other
+		// than the bond amount, i.e. a RecordRoleOutcome overturn-streak
+		// demotion of a holder whose bond is still healthy. Clobbering that
+		// back to NORMAL/RECOVERY silently undoes the demotion, and whether it
+		// happened depended on whether the owning module called SlashBond
+		// before or after RecordRoleOutcome. It no longer does.
+		br.BondStatus = moreSevereBondStatus(br.BondStatus,
+			k.computeBondStatus(ctx, roleType, newCurrent))
 	}
 
 	if err := k.BondedRoles.Set(ctx, key, br); err != nil {
 		return err
+	}
+
+	// Stamp the slash onto the shared accountability record so a reward
+	// distribution can refuse to pay a role in the same epoch it was slashed
+	// for. Best-effort: the bond is already written, and losing the stamp must
+	// not roll back a slash.
+	if err := k.stampRoleSlashEpoch(ctx, roleType, addr); err != nil {
+		sdk.UnwrapSDKContext(ctx).Logger().Warn("failed to stamp role slash epoch",
+			"role_type", roleType.String(), "address", addr, "error", err)
 	}
 
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
@@ -658,6 +677,29 @@ func (k Keeper) computeBondStatus(ctx context.Context, roleType types.RoleType, 
 	default:
 		return types.BondedRoleStatus_BONDED_ROLE_STATUS_DEMOTED
 	}
+}
+
+// bondStatusSeverity ranks bond statuses so a slash can pick the harsher of
+// two candidates. UNBONDING is deliberately absent: SlashBond returns before
+// reaching here for an in-flight unbond, and MatureUnbonds owns that
+// transition.
+func bondStatusSeverity(s types.BondedRoleStatus) int {
+	switch s {
+	case types.BondedRoleStatus_BONDED_ROLE_STATUS_DEMOTED:
+		return 2
+	case types.BondedRoleStatus_BONDED_ROLE_STATUS_RECOVERY:
+		return 1
+	default:
+		return 0
+	}
+}
+
+// moreSevereBondStatus returns whichever of the two statuses is harsher.
+func moreSevereBondStatus(a, b types.BondedRoleStatus) types.BondedRoleStatus {
+	if bondStatusSeverity(a) >= bondStatusSeverity(b) {
+		return a
+	}
+	return b
 }
 
 // parseIntOrZero parses a math.Int-string; empty strings map to zero. A non-empty

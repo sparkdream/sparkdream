@@ -23,88 +23,88 @@ message Params {
   // service.MinBond economic gate, content-hash deduplication, and per-
   // peer rate limits. Gov may dial it down without a chain upgrade if
   // some unknown-unknown materializes. It is NOT a normal policy lever.
-  uint64 max_bridges_per_peer = 2;
+  uint64 max_bridges_per_peer = 1;
 
   // Content types
-  repeated string known_content_types = 5;
+  repeated string known_content_types = 2;
 
   // Content federation
-  uint64 max_inbound_per_block = 6;
-  uint64 max_content_body_size = 7;
-  uint64 max_content_uri_size = 8;
-  uint64 max_protocol_metadata_size = 9;
-  google.protobuf.Duration content_ttl = 10 [
+  uint64 max_inbound_per_block = 3;
+  uint64 max_content_body_size = 4;
+  uint64 max_content_uri_size = 5;
+  uint64 max_protocol_metadata_size = 6;
+  google.protobuf.Duration content_ttl = 7 [
     (gogoproto.nullable) = false,
     (gogoproto.stdduration) = true
   ];
 
   // Reputation
-  google.protobuf.Duration attestation_ttl = 11 [
+  google.protobuf.Duration attestation_ttl = 8 [
     (gogoproto.nullable) = false,
     (gogoproto.stdduration) = true
   ];
-  uint32 global_max_trust_credit = 12;
-  string trust_discount_rate = 13 [
+  uint32 global_max_trust_credit = 9;
+  string trust_discount_rate = 10 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
 
   // Identity
-  uint32 max_identity_links_per_user = 14;
-  google.protobuf.Duration unverified_link_ttl = 15 [
+  uint32 max_identity_links_per_user = 11;
+  google.protobuf.Duration unverified_link_ttl = 12 [
     (gogoproto.nullable) = false,
     (gogoproto.stdduration) = true
   ];
-  google.protobuf.Duration challenge_ttl = 16 [
+  google.protobuf.Duration challenge_ttl = 13 [
     (gogoproto.nullable) = false,
     (gogoproto.stdduration) = true
   ];
 
   // Bridge monitoring
-  uint64 bridge_inactivity_threshold = 17;
+  uint64 bridge_inactivity_threshold = 14;
 
   // IBC
-  string ibc_port = 18;
-  string ibc_channel_version = 19;
-  google.protobuf.Duration ibc_packet_timeout = 20 [
+  string ibc_port = 15;
+  string ibc_channel_version = 16;
+  google.protobuf.Duration ibc_packet_timeout = 17 [
     (gogoproto.nullable) = false,
     (gogoproto.stdduration) = true
   ];
 
   // Pruning
-  uint64 max_prune_per_block = 21;
+  uint64 max_prune_per_block = 18;
 
   // Outbound rate limiting
-  uint64 max_outbound_per_block = 22;
+  uint64 max_outbound_per_block = 19;
 
   // Rate limiting
-  google.protobuf.Duration rate_limit_window = 23 [
+  google.protobuf.Duration rate_limit_window = 20 [
     (gogoproto.nullable) = false,
     (gogoproto.stdduration) = true
   ];
 
   // Verification (sentinel-style)
-  uint32 min_verifier_trust_level = 24;
-  string min_verifier_bond = 25 [
+  uint32 min_verifier_trust_level = 21;
+  string min_verifier_bond = 22 [
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
-  string verifier_recovery_threshold = 26 [
+  string verifier_recovery_threshold = 23 [
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
-  string verifier_slash_amount = 27 [
+  string verifier_slash_amount = 24 [
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
-  google.protobuf.Duration verification_window = 28 [
+  google.protobuf.Duration verification_window = 25 [
     (gogoproto.nullable) = false,
     (gogoproto.stdduration) = true
   ];
-  google.protobuf.Duration challenge_window = 29 [
+  google.protobuf.Duration challenge_window = 26 [
     (gogoproto.nullable) = false,
     (gogoproto.stdduration) = true
   ];
@@ -112,63 +112,103 @@ message Params {
   // challenger, in bond-denom micro-units. Denom is resolved at runtime
   // from x/identity (see x-identity-spec.md). Escalating multiplier in
   // msg_server_challenge_verification.go applies to this amount.
-  string challenge_fee_amount = 30 [
+  string challenge_fee_amount = 27 [
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
-  google.protobuf.Duration challenge_jury_deadline = 31 [
+  google.protobuf.Duration challenge_jury_deadline = 28 [
     (gogoproto.nullable) = false,
     (gogoproto.stdduration) = true
   ];
-  google.protobuf.Duration verifier_demotion_cooldown = 32 [
+  google.protobuf.Duration verifier_demotion_cooldown = 29 [
     (gogoproto.nullable) = false,
     (gogoproto.stdduration) = true
   ];
-  google.protobuf.Duration verifier_overturn_base_cooldown = 33 [
+  google.protobuf.Duration verifier_overturn_base_cooldown = 30 [
     (gogoproto.nullable) = false,
     (gogoproto.stdduration) = true
   ];
-  uint32 upheld_to_reset_overturns = 34;
-  uint32 min_epoch_verifications = 35;
-  string min_verifier_accuracy = 36 [
+  // upheld_to_reset_overturns is how many CONSECUTIVE upheld verdicts clear a
+  // verifier's overturn streak. Federation owns the value; x/rep enforces it,
+  // via BondedRoleConfig.upheld_to_reset_overturns written through by
+  // SyncVerifierBondedRoleConfig -- same path as the two cooldowns above.
+  uint32 upheld_to_reset_overturns = 31;
+  // --- Bridge operator compensation ---
+  //
+  // Operators run the infrastructure that pulls content off ActivityPub /
+  // AT Protocol and pay gas to submit it. Like the verifier, that is real
+  // off-chain cost denominated in SPARK, so the compensation is SPARK.
+  //
+  // Federation takes ONE capped claim on the community pool per UTC day and
+  // pays operators from it -- the same shape x/shield uses for its gas
+  // reserve and x/rep for the bonded-role pools. It is NOT an x/split
+  // allocation: that design (dropped, see the spec's Section 15.6) would have
+  // made x/split import x/federation, and x/split's job is dividing whatever
+  // REMAINS among the councils.
+  //
+  // Unlike the verifier's flat base, operator pay IS volume-weighted, on
+  // verified submissions. That difference is deliberate and safe: a verifier
+  // self-certifies, so paying them per item would fund rubber-stamping,
+  // whereas an operator's verified count has already been confirmed by an
+  // independent second party. Volume an operator cannot unilaterally
+  // manufacture is a fair thing to pay for.
+
+  // operator_reward_inflation_share is the fraction of the community pool's
+  // INFLATION income federation may draw per UTC day:
+  //
+  //   daily_allowance = annual_provisions * community_tax * share / 365
+  //
+  // A share rather than a fixed amount, for the reason x/rep documents: a
+  // fixed draw takes its largest share of the pool exactly when the pool is
+  // poorest. The base is the inflation rate, never the pool balance -- the
+  // balance holds the genesis allocation earmarked for the councils. Zero
+  // disables automatic funding, leaving the pool to direct sends.
+  string operator_reward_inflation_share = 32 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
-  string operator_reward_share = 37 [
+  // Upper cap on the pool; excess is burned at the ratio below, so an
+  // over-funded pool cannot sit as a standing prize.
+  string max_operator_reward_pool = 33 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  string operator_reward_pool_overflow_burn_ratio = 34 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
-  string verifier_dream_reward = 38 [
-    (cosmos_proto.scalar) = "cosmos.Int",
-    (gogoproto.customtype) = "cosmossdk.io/math.Int",
-    (gogoproto.nullable) = false
-  ];
-  string max_verifier_dream_mint_per_epoch = 39 [
-    (cosmos_proto.scalar) = "cosmos.Int",
-    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+  uint64 operator_reward_epoch_blocks = 35;
+  // Minimum independently-verified submissions in an epoch to earn anything.
+  uint32 min_epoch_verified_submissions = 36;
+  // Ceiling on epoch_unverified / epoch_submitted. An operator flooding the
+  // queue with content no verifier will confirm is spending verifier
+  // attention rather than producing value.
+  string max_unverified_rate = 37 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
 
   // Anonymous challenge resolution
-  uint32 arbiter_quorum = 40;
-  google.protobuf.Duration arbiter_resolution_window = 41 [
+  uint32 arbiter_quorum = 38;
+  google.protobuf.Duration arbiter_resolution_window = 39 [
     (gogoproto.nullable) = false,
     (gogoproto.stdduration) = true
   ];
-  google.protobuf.Duration arbiter_escalation_window = 42 [
+  google.protobuf.Duration arbiter_escalation_window = 40 [
     (gogoproto.nullable) = false,
     (gogoproto.stdduration) = true
   ];
   // escalation_fee_amount is the fee escrowed by a party escalating a
   // challenge to a system report, in bond-denom micro-units. Denom is
   // resolved at runtime from x/identity (see x-identity-spec.md).
-  string escalation_fee_amount = 43 [
+  string escalation_fee_amount = 41 [
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
-  google.protobuf.Duration challenge_cooldown = 44 [
+  google.protobuf.Duration challenge_cooldown = 42 [
     (gogoproto.nullable) = false,
     (gogoproto.stdduration) = true
   ];
@@ -179,7 +219,7 @@ message Params {
   // Propagated to x/rep BondedRoleConfig via SyncVerifierBondedRoleConfig.
   // Mirrors bridge_unbonding_period — verifier and bridge operator both
   // face a 14-day slashable window after exit-of-role intent.
-  google.protobuf.Duration verifier_unbond_cooldown = 45 [
+  google.protobuf.Duration verifier_unbond_cooldown = 43 [
     (gogoproto.nullable) = false,
     (gogoproto.stdduration) = true
   ];

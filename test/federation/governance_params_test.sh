@@ -83,14 +83,20 @@ submit_and_wait() {
 # Convert federation Params LegacyDec fields from their internal
 # integer representation (e.g., 500000000000000000 = 0.5) back to a
 # normal decimal string before round-tripping into a message body.
-# The three LegacyDec fields on federation Params are:
-#   trust_discount_rate, min_verifier_accuracy, operator_reward_share
+# The four LegacyDec fields on federation Params are:
+#   trust_discount_rate, operator_reward_inflation_share,
+#   operator_reward_pool_overflow_burn_ratio, max_unverified_rate
+# A Dec field missing from this list round-trips as a plain decimal string
+# ("0.5") instead of the padded integer form the proto expects, and the
+# resulting message fails to unmarshal. min_verifier_accuracy used to be here
+# and is now an x/rep param; operator_reward_share no longer exists.
 fix_legacy_dec_fields() {
     local json_input="$1"
     echo "$json_input" | python3 -c "
 import json, sys
 d = json.load(sys.stdin)
-DEC_FIELDS = ['trust_discount_rate', 'min_verifier_accuracy', 'operator_reward_share']
+DEC_FIELDS = ['trust_discount_rate', 'operator_reward_inflation_share',
+              'operator_reward_pool_overflow_burn_ratio', 'max_unverified_rate']
 for f in DEC_FIELDS:
     if f in d and d[f] is not None:
         s = str(d[f])

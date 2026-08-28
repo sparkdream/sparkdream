@@ -162,6 +162,7 @@ func (k msgServer) SubmitFederatedContent(ctx context.Context, msg *types.MsgSub
 
 	// 13. Update bridge stats
 	bridge.ContentSubmitted++
+	bridge.EpochSubmitted++
 	bridge.LastSubmissionAt = blockTime
 	if err := k.BridgeBindings.Set(ctx, bridgeKey, bridge); err != nil {
 		return nil, err

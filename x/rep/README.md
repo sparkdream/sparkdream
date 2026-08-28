@@ -231,12 +231,19 @@ See the Initiative Review section of
 Bonded-role SPARK pay does not wait on a council transfer. In `BeginBlock`,
 x/rep draws **one** capped claim on the community pool into a single intake
 sub-address and immediately divides it across the per-role pools (content
-sentinel, initiative reviewer, collect curator) in proportion to each pool's
-headroom (`max(0, cap - balance)`).
+sentinel, initiative reviewer, collect curator, federation verifier) in
+proportion to each pool's headroom (`max(0, cap - balance)`).
 
-Caps set the relative share: reviewer 150,000 SPARK, sentinel and curator
-100,000 each. Federation verifiers are excluded — they earn a flat DREAM mint
-from federation's own EndBlocker instead.
+Caps set the relative share: reviewer 150,000 SPARK, sentinel, curator and
+verifier 100,000 each.
+
+Federation verifiers are funded here like every other bonded role. They used
+to be the exception — paid a flat DREAM mint from x/federation's own
+EndBlocker — which made the role structurally SPARK-negative to perform: a
+verifier fetches a peer's content off-chain and pays SPARK gas per submission,
+and was compensated in a token that cannot buy gas. They now draw from a SPARK
+pool on the same terms as the other roles, plus the DREAM stipend. See
+[Federation Verifier Pay](#federation-verifier-pay).
 
 - The draw is bounded per UTC day by a share of inflation --
   `annual_provisions * community_tax * role_reward_inflation_share / 365` --
@@ -259,6 +266,57 @@ from federation's own EndBlocker instead.
 
 See the Automatic funding section of
 [docs/x-rep-spec.md](../../docs/x-rep-spec.md).
+
+### Federation Verifier Pay
+
+Bonded federation verifiers (`ROLE_TYPE_FEDERATION_VERIFIER`) are paid a SPARK
+pool share plus a flat DREAM stipend, distributed together every
+`verifier_reward_epoch_blocks`.
+
+The distribution lives in x/rep rather than x/federation because the accuracy
+it scores comes from the shared `RoleActivity` record x/rep owns, and because
+paying resets that record's per-epoch counters. Two modules distributing for
+one role on two independently-editable cadences would each reset those
+counters and neither would read a coherent window. x/federation reports the
+actions and the challenge verdicts; x/rep pays.
+
+**Score:** `1 + accuracy * sqrt(epoch_appeals_resolved)`.
+
+The flat 1 is the point. The obvious formula — `verified_count * accuracy` —
+is the one x/rep already rejected for collect curators, and it is worse here:
+verification is mechanical hash-matching, a verifier with no decided challenge
+scores as fully accurate, and challenges are rare. Paying per verification on
+that curve pays most for high-volume rubber-stamping, which is precisely the
+failure the role exists to prevent. So volume enters only as the
+`min_epoch_verifications` floor, never as a weight: the flat term buys
+availability and covers gas, and the contested term rewards judgment somebody
+actually tested. A verifier doing the minimum and one doing ten times the
+minimum earn the same base, deliberately.
+
+**Eligibility gates**, in order: bond status NORMAL or RECOVERY; at least
+`min_epoch_verifications` verifications this epoch; windowed accuracy at least
+`min_verifier_accuracy`; and no slash stamped in the window being paid for.
+
+That last gate is a window test, not an equality test. The distribution runs at
+the boundary of epoch N, but the counters it pays for accrued during epoch
+N-1, so a slash anywhere in that window stamps N-1. It accepts either N-1 or N.
+
+**Cadence.** `verifier_reward_epoch_blocks` is its own dial rather than reusing
+the sentinel cadence, set to one full federation `challenge_window` in blocks.
+An epoch shorter than the challenge window scores a verifier's accuracy before
+the challenges against that epoch's work can resolve, so the accuracy ring
+would always be reading a stale verdict count. Testparams breaks this rule
+deliberately for wall-time reasons, and relaxes `min_verifier_accuracy` to 0 to
+compensate.
+
+**RECOVERY auto-bond.** SPARK is paid straight out even in RECOVERY — it
+reimburses gas already spent, and withholding it would make recovery
+self-defeating. The DREAM stipend instead auto-bonds the portion needed to
+restore `min_verifier_bond`.
+
+See the Federation Verifier Pay section of
+[docs/x-rep-spec.md](../../docs/x-rep-spec.md) and
+[docs/x-federation-spec.md](../../docs/x-federation-spec.md) §3.9.
 
 ### Sentinel Accountability
 
@@ -693,6 +751,14 @@ These parameters are excluded from `RepOperationalParams` and can only be change
 | `curator_reward_epoch_blocks` | uint64 | 14400 (~1 day) | Distribution cadence |
 | `min_curator_accuracy` | LegacyDec | 0.70 | Windowed accuracy needed to earn a pool share |
 | `curator_accuracy_window_epochs` | uint64 | 6 | Epochs of history the accuracy ring scores |
+| `max_verifier_reward_pool` | Int | 100,000 SPARK | Cap on the federation-verifier SPARK pool; equal to the sentinel pool |
+| `verifier_reward_pool_overflow_burn_ratio` | LegacyDec | 50% | Fraction of overflow burned each epoch |
+| `verifier_reward_epoch_blocks` | uint64 | One federation `challenge_window` (100800 mainnet, 43200 testnet, 1200 devnet, 10 testparams) | Distribution cadence. Its own dial rather than the sentinel's — see [Federation Verifier Pay](#federation-verifier-pay) |
+| `min_verifier_accuracy` | LegacyDec | 0.80 (0 in testparams) | Windowed accuracy needed to earn a pool share; higher than the sentinel/curator 0.70 because a hash mismatch is objective |
+| `verifier_accuracy_window_epochs` | uint64 | 6 | Epochs of history the accuracy ring scores |
+| `min_epoch_verifications` | uint32 | 3 (1 in testparams) | Per-epoch verification floor. A floor, never a weight — see below |
+| `verifier_dream_reward` | Int | 5 DREAM | Flat per-eligible-verifier stipend, minted alongside the SPARK share |
+| `max_verifier_dream_mint_per_epoch` | Int | 100 DREAM (7 in testparams) | Cap on total DREAM minted per epoch; eligible verifiers scale down pro-rata |
 | `role_reward_inflation_share` | LegacyDec | 0.5 | Share of the community pool's inflation income drawn per UTC day, split across all bonded-role pools by headroom; 0 disables |
 | `initiative_completion_bonus_rate` | LegacyDec | 10% | Of the budget, to external stakers on completion |
 
@@ -798,7 +864,10 @@ Cross-module keepers are wired manually in `app.go` via shared `lateKeepers` str
 7. **Process interim deadlines** (expire if deadline passes)
 8. **Distribute epoch staking rewards** from the seasonal pool — gated on `IsEpochEnd`
 9. **Process invitation accountability** (slash inviters if invitee zeroed)
-10. **Rebuild member trust tree** if dirty (for `x/shield` ZK proofs)
+10. **Distribute bonded-role pay** — sentinel, initiative reviewer, collect
+    curator and federation verifier, each on its own `*_reward_epoch_blocks`
+    cadence and each resetting only its own role's per-epoch counters
+11. **Rebuild member trust tree** if dirty (for `x/shield` ZK proofs)
 
 Lazy operations (applied on-demand via `GetMember()`):
 - DREAM decay, reputation decay, invitation credit resets, trust level updates

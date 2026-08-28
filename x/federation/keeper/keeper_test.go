@@ -2,6 +2,7 @@ package keeper_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"cosmossdk.io/core/address"
@@ -35,6 +36,7 @@ type fixture struct {
 	addressCodec address.Codec
 	authority    string
 	repKeeper    *mockRepKeeper
+	bankKeeper   *mockBankKeeper
 }
 
 func initFixture(t *testing.T) *fixture {
@@ -49,6 +51,7 @@ func initFixture(t *testing.T) *fixture {
 
 	authority := authtypes.NewModuleAddress(govtypes.ModuleName)
 	mockUpgradeKeeper := newMockUpgradeKeeper()
+	bankKeeper := &mockBankKeeper{balances: make(map[string]sdk.Coins)}
 
 	k := keeper.NewKeeper(
 		storeService,
@@ -56,7 +59,7 @@ func initFixture(t *testing.T) *fixture {
 		addressCodec,
 		authority,
 		&mockAuthKeeper{addressCodec: addressCodec},
-		&mockBankKeeper{balances: make(map[string]sdk.Coins)},
+		bankKeeper,
 		func() *ibckeeper.Keeper {
 			return ibckeeper.NewKeeper(encCfg.Codec, storeService, newMockParams(), mockUpgradeKeeper, authority.String())
 		},
@@ -81,6 +84,7 @@ func initFixture(t *testing.T) *fixture {
 		addressCodec: addressCodec,
 		authority:    authorityStr,
 		repKeeper:    repKeeper,
+		bankKeeper:   bankKeeper,
 	}
 }
 
@@ -110,11 +114,46 @@ func (m *mockBankKeeper) SpendableCoins(_ context.Context, addr sdk.AccAddress) 
 	return m.balances[addr.String()]
 }
 
-func (m *mockBankKeeper) SendCoins(_ context.Context, _, _ sdk.AccAddress, _ sdk.Coins) error {
+// GetBalance reads a single denom. Backed by the same map SpendableCoins
+// serves, so operator-reward tests can seed a pool and assert it drained.
+func (m *mockBankKeeper) GetBalance(_ context.Context, addr sdk.AccAddress, denom string) sdk.Coin {
+	return sdk.NewCoin(denom, m.balances[addr.String()].AmountOf(denom))
+}
+
+// SendCoins actually MOVES balance in the mock. It used to be a no-op, which
+// was fine while nothing federation did depended on the result; the
+// bridge-operator reward distribution does, and a no-op mock would let a
+// broken payout pass its own test.
+func (m *mockBankKeeper) SendCoins(_ context.Context, from, to sdk.AccAddress, amt sdk.Coins) error {
+	if m.balances == nil {
+		m.balances = map[string]sdk.Coins{}
+	}
+	fromBal := m.balances[from.String()]
+	if !fromBal.IsAllGTE(amt) {
+		return fmt.Errorf("mock bank: insufficient funds for %s", from.String())
+	}
+	m.balances[from.String()] = fromBal.Sub(amt...)
+	m.balances[to.String()] = m.balances[to.String()].Add(amt...)
 	return nil
 }
 
-func (m *mockBankKeeper) SendCoinsFromAccountToModule(_ context.Context, _ sdk.AccAddress, _ string, _ sdk.Coins) error {
+// SendCoinsFromAccountToModule debits when the source can cover it and
+// otherwise no-ops.
+//
+// Deliberately laxer than SendCoins above. This is the fee-ESCROW path, and
+// the challenge / arbiter tests that drive it never fund their signers — they
+// are about verdict logic, not bank accounting, and a real bank would reject
+// them. Keeping it permissive avoids making every one of those tests carry
+// balance setup it has no interest in, while the reward-pool tests that DO
+// care seed the pool and get a real debit.
+func (m *mockBankKeeper) SendCoinsFromAccountToModule(_ context.Context, from sdk.AccAddress, _ string, amt sdk.Coins) error {
+	if m.balances == nil {
+		m.balances = map[string]sdk.Coins{}
+	}
+	fromBal := m.balances[from.String()]
+	if fromBal.IsAllGTE(amt) {
+		m.balances[from.String()] = fromBal.Sub(amt...)
+	}
 	return nil
 }
 
@@ -189,6 +228,116 @@ type mockRepKeeper struct {
 	// BondedRoleConfig write-throughs land here keyed by role_type; the
 	// bonded_role_sync tests assert against this map.
 	bondedRoleConfigs map[reptypes.RoleType]reptypes.BondedRoleConfig
+	// Shared RoleActivity records keyed by (roleType, addr). Federation
+	// reports actions and verdicts here since the verifier's accountability
+	// state moved to x/rep.
+	roleActivities map[string]reptypes.RoleActivity
+	// blockTime the mock stamps cooldowns against. Tests that assert on
+	// cooldown values set this to the same time the keeper ctx uses.
+	blockTime int64
+}
+
+// The mock mirrors x/rep's RecordRoleOutcome closely enough for federation's
+// handlers to be exercised end to end, but it is NOT the specification: the
+// authoritative tests for streak reset, escalating cooldown, ring stamping and
+// streak demotion live in x/rep/keeper/role_activity_test.go, next to the
+// implementation. Federation's tests assert that federation REPORTS the right
+// action and verdict, and that it reads the results back correctly.
+
+func (m *mockRepKeeper) RecordRoleAction(_ context.Context, roleType reptypes.RoleType, addr, kind string) error {
+	ra := m.getOrInitRoleActivity(roleType, addr)
+	ra.EpochActions[kind]++
+	ra.TotalActions[kind]++
+	m.roleActivities[mockBondedRoleKey(roleType, addr)] = ra
+	return nil
+}
+
+func (m *mockRepKeeper) RecordRoleOutcome(_ context.Context, roleType reptypes.RoleType, addr, kind string, upheld bool) error {
+	cfg := m.bondedRoleConfigs[roleType]
+	ra := m.getOrInitRoleActivity(roleType, addr)
+	ra.EpochAppealsResolved++
+
+	if upheld {
+		ra.UpheldActions[kind]++
+		ra.ConsecutiveUpheld++
+		needed := cfg.UpheldToResetOverturns
+		if needed == 0 {
+			needed = 1
+		}
+		if ra.ConsecutiveUpheld >= needed {
+			ra.ConsecutiveOverturns = 0
+		}
+	} else {
+		ra.OverturnedActions[kind]++
+		ra.ConsecutiveOverturns++
+		ra.ConsecutiveUpheld = 0
+		if reptypes.CooldownOnOverturn[kind] {
+			base := cfg.OverturnBaseCooldown
+			if base <= 0 {
+				base = reptypes.DefaultRoleOverturnCooldown
+			}
+			cooldown := base
+			if cfg.OverturnCooldownEscalates && ra.ConsecutiveOverturns > 1 {
+				shift := ra.ConsecutiveOverturns - 1
+				if shift > 20 {
+					shift = 20
+				}
+				cooldown = base * (int64(1) << shift)
+				if cooldown > reptypes.MaxRoleOverturnCooldown || cooldown < 0 {
+					cooldown = reptypes.MaxRoleOverturnCooldown
+				}
+			}
+			ra.OverturnCooldownUntil = m.blockTime + cooldown
+		}
+	}
+	m.roleActivities[mockBondedRoleKey(roleType, addr)] = ra
+	return nil
+}
+
+// SeedRoleActivity inserts a RoleActivity record directly, standing in for
+// accumulated reporting from federation's handlers.
+func (m *mockRepKeeper) SeedRoleActivity(roleType reptypes.RoleType, addr string, ra reptypes.RoleActivity) error {
+	if m.roleActivities == nil {
+		m.roleActivities = make(map[string]reptypes.RoleActivity)
+	}
+	ra.RoleType = roleType
+	ra.Address = addr
+	m.roleActivities[mockBondedRoleKey(roleType, addr)] = ra
+	return nil
+}
+
+func (m *mockRepKeeper) GetRoleActivity(_ context.Context, roleType reptypes.RoleType, addr string) (reptypes.RoleActivity, error) {
+	if ra, ok := m.roleActivities[mockBondedRoleKey(roleType, addr)]; ok {
+		return ra, nil
+	}
+	return reptypes.RoleActivity{RoleType: roleType, Address: addr}, nil
+}
+
+func (m *mockRepKeeper) RoleOverturnCooldownUntil(_ context.Context, roleType reptypes.RoleType, addr string) int64 {
+	return m.roleActivities[mockBondedRoleKey(roleType, addr)].OverturnCooldownUntil
+}
+
+func (m *mockRepKeeper) getOrInitRoleActivity(roleType reptypes.RoleType, addr string) reptypes.RoleActivity {
+	if m.roleActivities == nil {
+		m.roleActivities = make(map[string]reptypes.RoleActivity)
+	}
+	ra, ok := m.roleActivities[mockBondedRoleKey(roleType, addr)]
+	if !ok {
+		ra = reptypes.RoleActivity{RoleType: roleType, Address: addr}
+	}
+	if ra.EpochActions == nil {
+		ra.EpochActions = map[string]uint64{}
+	}
+	if ra.TotalActions == nil {
+		ra.TotalActions = map[string]uint64{}
+	}
+	if ra.UpheldActions == nil {
+		ra.UpheldActions = map[string]uint64{}
+	}
+	if ra.OverturnedActions == nil {
+		ra.OverturnedActions = map[string]uint64{}
+	}
+	return ra
 }
 
 // SeedBondedRole inserts a BondedRole record into the mock keyed by

@@ -4,6 +4,7 @@ package sparkdream.federation.v1;
 
 import "amino/amino.proto";
 import "cosmos/base/query/v1beta1/pagination.proto";
+import "cosmos_proto/cosmos.proto";
 import "gogoproto/gogo.proto";
 import "google/api/annotations.proto";
 import "sparkdream/federation/v1/params.proto";
@@ -59,12 +60,20 @@ service Query {
   rpc ListOutboundAttestations(QueryListOutboundAttestationsRequest) returns (QueryListOutboundAttestationsResponse) {
     option (google.api.http).get = "/sparkdream/federation/v1/list_outbound_attestations";
   }
-  // VerifierActivity returns federation-specific per-verifier counters
-  // (verifications, upheld, overturned, consecutive streaks). The generic
+  // VerifierActivity returns the per-verifier counter view: federation's
+  // slim stored record (unchallenged verifications) overlaid with the
+  // shared accountability state x/rep owns on RoleActivity -- per-kind
+  // verification counts, verdict streaks, overturn cooldown. The generic
   // bond/status record lives in x/rep under
   // BondedRole(ROLE_TYPE_FEDERATION_VERIFIER, addr).
   rpc VerifierActivity(QueryVerifierActivityRequest) returns (QueryVerifierActivityResponse) {
     option (google.api.http).get = "/sparkdream/federation/v1/verifier_activity/{address}";
+  }
+  // OperatorRewardPool reports the bridge-operator SPARK pool's balance, cap
+  // and today's draw against the daily allowance. Without it "why was I not
+  // paid this epoch" has no on-chain answer.
+  rpc OperatorRewardPool(QueryOperatorRewardPoolRequest) returns (QueryOperatorRewardPoolResponse) {
+    option (google.api.http).get = "/sparkdream/federation/v1/operator_reward_pool";
   }
   rpc GetVerificationRecord(QueryGetVerificationRecordRequest) returns (QueryGetVerificationRecordResponse) {
     option (google.api.http).get = "/sparkdream/federation/v1/get_verification_record/{content_id}";
@@ -212,7 +221,47 @@ message QueryVerifierActivityRequest {
   string address = 1;
 }
 message QueryVerifierActivityResponse {
-  VerifierActivity activity = 1 [(gogoproto.nullable) = false];
+  VerifierActivityView activity = 1 [(gogoproto.nullable) = false];
+}
+
+// --- Operator reward pool ---
+message QueryOperatorRewardPoolRequest {}
+message QueryOperatorRewardPoolResponse {
+  // address is the pool's bank sub-address; it is an ordinary account, so a
+  // council can top it up with a plain send.
+  string address = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string balance = 2 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  string cap = 3 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  string headroom = 4 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  // funded_today / daily_funding_cap are the UTC-day draw ledger.
+  string funded_today = 5 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  string daily_funding_cap = 6 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  // inflation_share is the operator_reward_inflation_share the allowance is
+  // derived from; zero means automatic funding is off.
+  string inflation_share = 7 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
 }
 
 // --- VerificationRecord ---

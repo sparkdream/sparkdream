@@ -160,4 +160,34 @@ message BondedRoleConfig {
   // no cooldown (immediate withdrawal, legacy behavior). Source of truth is
   // the owning module's operational params.
   int64 unbond_cooldown = 8;
+
+  // --- Verdict-streak policy, applied by x/rep in RecordRoleOutcome. ---
+  //
+  // These three exist because the federation verifier's accountability
+  // record moved onto the shared RoleActivity and its streak rules differ
+  // from the moderation roles'. The difference is real, not incidental: a
+  // sentinel's overturn is one contested judgment call among many, while a
+  // verifier's overturn means they attested to a hash that was wrong. So
+  // rather than flatten one role's semantics into the other's, the policy
+  // becomes per-role config -- which is what this message is for, and which
+  // keeps the knobs governance-editable through the owning module's params
+  // instead of freezing them into rep constants.
+
+  // upheld_to_reset_overturns is how many CONSECUTIVE upheld verdicts clear
+  // an accumulated overturn streak. Zero or one = reset on the first upheld
+  // verdict (the moderation-role behavior). Higher values make the streak
+  // -- and therefore the demotion ratchet and the escalating cooldown --
+  // stickier, so a role cannot alternate wrong/right indefinitely and stay
+  // out of demotion range.
+  uint64 upheld_to_reset_overturns = 9;
+
+  // overturn_base_cooldown is the lockout in seconds applied on an
+  // overturned verdict for kinds in the CooldownOnOverturn policy table.
+  // Zero falls back to DefaultRoleOverturnCooldown (24h).
+  int64 overturn_base_cooldown = 10;
+
+  // overturn_cooldown_escalates doubles the lockout per consecutive
+  // overturn -- base * 2^(streak-1), capped at 7 days. Off means every
+  // overturn draws the same flat base cooldown.
+  bool overturn_cooldown_escalates = 11;
 }

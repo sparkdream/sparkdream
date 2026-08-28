@@ -1097,6 +1097,7 @@ message RoleActivity {
   map<string, uint64> total_actions = 9;      // per-kind lifetime
   map<string, uint64> upheld_actions = 10;
   map<string, uint64> overturned_actions = 11;
+  int64 last_slash_epoch = 12;        // stamped by SlashBond, in the role's own epoch units
 }
 ```
 
@@ -1110,17 +1111,41 @@ message RoleActivity {
 | `forum_pin` | forum MsgPinReply | yes | 0 | yes |
 | `forum_curation` | forum proposal confirm/reject | yes | 0.02 | **no** — a rejected curation proposal must not lock the sentinel out of moderation |
 | `collect_hide` | collect MsgHideContent | yes | 0.01 | yes |
+| `collect_curation` | collect challenge resolution | — | — | — |
+| `federation_verify` | federation MsgVerifyContent + challenge resolution | yes | **none** — verifier pay is flat plus a contested-accuracy bonus, never per verification | yes, and it **escalates** (see below) |
 | `forum_appeal_filed` / `collect_appeal_filed` | appeal messages | no (appeals against the holder are not their work) | — | — |
 
+**Per-role verdict-streak policy.** Three `BondedRoleConfig` fields let a role
+depart from the moderation defaults, written through by the owning module:
+
+| field | default | federation verifier |
+|---|---|---|
+| `upheld_to_reset_overturns` | 1 — one good call wipes the slate | 3 — the streak is sticky, so alternating wrong/right cannot hold a holder permanently one overturn short of demotion |
+| `overturn_base_cooldown` | `DefaultRoleOverturnCooldown` (24h) | `verifier_overturn_base_cooldown` |
+| `overturn_cooldown_escalates` | off — flat lockout per overturn | on — `base * 2^(streak-1)`, capped at `MaxRoleOverturnCooldown` (7 days) |
+
+The verifier's departure is not incidental: an overturned hide is a contested
+judgment call, while an overturned verification means the holder attested to a
+hash that was false. Making it config rather than a rep constant keeps the
+knobs governance-editable through the owning module's params, which is what
+`BondedRoleConfig` is for.
+
 **Keeper surface**: `RecordRoleAction(role_type, addr, kind)`; `RecordRoleOutcome(role_type, addr, kind, upheld)` (verdict maps + streaks + ring at the recording role's own reward epoch + cooldown per the kind table + internal streak demotion); `RoleOverturnCooldownUntil`; `RoleEpochActionCount` (forum's `max_*_per_epoch` caps read this — single source of truth, no module-local counter copies); `GetRoleWindowedAccuracy`; `ResetRoleEpochCounters` (reward-epoch boundaries); `BumpRoleEpochAppealsResolved` (forum flag-dismissals feed the score's sqrt term without an accuracy tick); `GetRoleActivity`.
+
+`SlashBond` stamps `last_slash_epoch` on this record for **every** role type, in that role's own reward-epoch units. Reward distributions may read it as a "no pay in the window you were slashed in" gate; only the federation verifier does today, and the sentinel/curator/reviewer gates were deliberately left unchanged rather than silently tightened as a side effect of the stamp existing.
+
+**The gate is a window test, not an equality test.** A distribution runs at height `N * epoch_blocks` and so labels itself epoch `N`, but the counters it is paying for accrued over heights `[(N-1) * epoch_blocks, N * epoch_blocks)` — every one of which stamps `N-1`. Matching `last_slash_epoch == N` therefore catches only a slash landing in the boundary block itself and lets an entire epoch of slashes collect pay. The gate accepts `N-1` or `N`. Note also that `last_slash_epoch` is a plain `int64` with no "never slashed" encoding, so a slash in epoch 0 is indistinguishable from an unslashed role; that only affects the first two distributions on a fresh chain.
+
+**Streak demotion outranks the bond amount.** `RecordRoleOutcome` sets `bond_status = DEMOTED` once the overturn streak crosses the threshold, and `SlashBond` recomputes `bond_status` from the remaining bond. A role demoted for a streak usually still holds a bond above `demotion_threshold`, so a naive recompute would hand them `RECOVERY` back and erase the demotion — and whether it did would depend on whether the owning module happened to call `SlashBond` before or after `RecordRoleOutcome`. `SlashBond` therefore takes the **harsher** of its recomputed status and the existing one. A slash can always deepen a status; it can never soften one. Call order is not load-bearing in either direction.
 
 **Consequences of the shared record**:
 - The sentinel reward distribution is fully rep-internal: eligibility gates, cross-surface activity, the Gate 4 appeal rate (`(forum_appeal_filed + collect_appeal_filed) / (forum_hide + collect_hide)`), and windowed accuracy all read RoleActivity. A collect-only moderator is reward-eligible.
 - Overturn streaks and the cooldown span surfaces: losing appeals in collect demotes the same as in forum, and the cooldown blocks new hides on both.
+- The same split applies to the **federation verifier**: x/federation reports `federation_verify` actions and verdicts and keeps only `unchallenged_verifications` in a slim `sparkdream.federation.v1.VerifierActivity`, with its `verifier-activity` query serving a read-through `VerifierActivityView` projection over both records. Its `slash_count` is derived from the overturned count rather than stored — an upheld challenge slashes exactly once.
 - Module-local bookkeeping stays home: forum keeps `pending_hide_count`, `unchallenged_hides`, and curation-proposal lifecycle counters in a slim `sparkdream.forum.v1.SentinelActivity`; forum's `get-sentinel-activity` query serves a read-through projection composing both records into the legacy response shape (the projected fields are never persisted in forum state). A role holder who has only acted on other surfaces (no forum-local record) is still served by the single-address `get-sentinel-activity` query via the projection, but does not appear in `list-sentinel-activity`, which paginates forum-local records only.
 - Jury resolution (`MsgResolveGovActionAppeal`) records the verdict on RoleActivity directly and calls forum's narrow `OnSentinelActionResolved` hook for the one forum-local effect (pending-hide decrement).
 - **Escalation markers are genesis state.** `EscalatedReviews` is the only record that a review round is already with the committee — `ReviewEscalation` is reset to `NONE` on escalation — so it is exported and re-imported. Dropping it would re-escalate every open round on the next sweep, extending each deadline by another full committee window, and leave silent escalations with nothing to resolve them to `PASSED`.
-- **The accuracy ring is stamped in the units of the recording role's own reward epoch.** The ring is written when a verdict resolves and read back as a window at distribution time, so the stamp and the window must agree on what an epoch is. Each role with its own reward pool has an independently committee-editable cadence (`sentinel_reward_epoch_blocks`, `reviewer_reward_epoch_blocks`), so deriving the stamp from any one role's dial zeroes another role's pay the moment the two are set apart — the reviewer pool's window would find no in-range verdicts and pay nobody, silently, with no error anywhere. Roles without a pool of their own share the sentinel clock.
+- **The accuracy ring is stamped in the units of the recording role's own reward epoch.** The ring is written when a verdict resolves and read back as a window at distribution time, so the stamp and the window must agree on what an epoch is. Each role with its own reward pool has an independently committee-editable cadence (`sentinel_reward_epoch_blocks`, `reviewer_reward_epoch_blocks`, `curator_reward_epoch_blocks`, `verifier_reward_epoch_blocks` — and the verifier's is set independently, to one full federation `challenge_window`, since a verification stays challengeable far longer than a hide stays appealable; on production networks that makes it the longest of the four, though not on every network — devnet compresses its challenge window harder than its sentinel epoch), so deriving the stamp from any one role's dial zeroes another role's pay the moment the two are set apart — the reviewer pool's window would find no in-range verdicts and pay nobody, silently, with no error anywhere. Roles without a pool of their own share the sentinel clock.
 
 ### MemberReport, MemberWarning, GovActionAppeal, JuryParticipation
 
@@ -2228,18 +2253,38 @@ staker veto was retired — a review gate nobody staffs is a stalled queue, and
 routing the shortfall to committee arbitration converts a funding failure into
 governance work.
 
-**Which pools.** Content sentinel, initiative reviewer and collect curator.
-Federation verifiers are deliberately excluded: they already have a working
-reward mechanism of their own — a flat DREAM mint per epoch under a global cap,
-run by federation's own EndBlocker — and adding a SPARK share on top would pay
-the role twice. Converting them is a separate decision.
+**Which pools.** Content sentinel, initiative reviewer, collect curator and
+federation verifier.
 
-Caps set the relative share, since the division is headroom-proportional and all
-three pools drain on roughly the same cadence: reviewer 150,000 SPARK against
-100,000 each for sentinel and curator. Reviewers are paid ~1.5x because a wrong
-approval mints DREAM that cannot be clawed back, where a wrong hide or a wrong
-rating costs some visibility. Sentinel and curator are equal because hiding a
-post and rating a collection are comparable calls on comparable evidence.
+The verifier was excluded at first on the grounds that a flat DREAM mint per
+epoch already paid the role, so a SPARK share would pay it twice. That
+reasoning was wrong, for a reason specific to this role: the verifier is the
+only bonded role whose work has an **off-chain cost**. It fetches a peer's
+content, hashes it, and pays SPARK gas per submission, while the other three
+act on on-chain state that is free to read. Paying it only in DREAM — which
+cannot be sold and cannot buy gas — made verifying structurally SPARK-negative
+for the holder, even as the bridge operator on the other side of the same
+exchange is paid in SPARK. The DREAM stipend was never redundant with SPARK
+pay; it does a different job (bond recovery in RECOVERY status), which is why
+both now run from the same distribution rather than one replacing the other.
+
+Its distribution moved into x/rep along with the pool, because the accuracy it
+scores comes from `RoleActivity` and a distribution resets that record's
+per-epoch counters — two modules distributing for one role on two
+independently-editable cadences would both reset those counters and neither
+would read a coherent window.
+
+Caps set the relative share, since the division is headroom-proportional:
+reviewer 150,000 SPARK against 100,000 each for sentinel, curator and
+verifier. Reviewers are paid ~1.5x because a wrong approval mints DREAM that
+cannot be clawed back, where a wrong hide or a wrong rating costs some
+visibility. Sentinel and curator are equal because hiding a post and rating a
+collection are comparable calls on comparable evidence. The verifier matches
+them at an equal cap rather than on a bespoke sizing story: headroom-
+proportional funding means an idle pool draws nothing, so an equal cap costs
+the community pool nothing while the roster is small. Note that the verifier
+pool drains on a **longer cadence** than the other three, so an equal cap is
+not an equal per-epoch spend.
 
 **One intake, divided internally.** The skim lands in `RoleRewardIntakeAddress()`
 and is immediately placed into the per-role pools, so the community pool sees a
@@ -2249,8 +2294,9 @@ intake holds no balance between blocks; it is a conduit, not an account.
 **The division is proportional to headroom** — each pool's `max(0, cap −
 balance)` against the total. This needs no per-role funding parameter: a pool
 already at its cap draws nothing, so an idle role costs the community pool
-nothing, and adding a fourth bonded role means adding it to `fundedRolePools`
-and no new parameter anywhere. The last pool in the division takes the
+nothing, and adding a bonded role means adding it to `fundedRolePools` and no
+new funding parameter anywhere — as the federation verifier's addition
+demonstrated. The last pool in the division takes the
 remainder, so integer truncation cannot strand dust in the intake.
 
 **Bounds.** The draw per UTC day is capped by a **share of inflation** rather
@@ -2981,6 +3027,79 @@ read as 0% accurate and the pool would pay nobody. collect keeps its own
 shared record, the same split as forum's sentinel bookkeeping.
 - **Cap:** `max_sentinel_reward_pool` (default 100,000 SPARK). Overflow is partially burned per `sentinel_reward_pool_overflow_burn_ratio` (default 50%) each block by the rep EndBlocker.
 
+### Federation Verifier Reward Pool (SPARK + DREAM stipend)
+
+Held at `VerifierRewardPoolAddress()`, capped by `max_verifier_reward_pool`
+(100,000 SPARK — equal to the sentinel and curator pools), distributed every
+`verifier_reward_epoch_blocks` to bonded federation verifiers. Overflow above
+the cap is partially burned per `verifier_reward_pool_overflow_burn_ratio`. Its
+only funding source is the automatic community-pool draw.
+
+Each eligible verifier also receives a flat `verifier_dream_reward` (5 DREAM)
+mint, with the epoch total capped at `max_verifier_dream_mint_per_epoch` and all
+recipients scaled down pro-rata when the cap binds.
+
+**Why it exists.** The federation verifier was the one bonded role paid in DREAM
+alone, which made doing the job structurally SPARK-negative: a verifier fetches a
+peer's content off-chain, hashes it, and pays SPARK gas per submission, and was
+compensated in a token that cannot be sold and cannot buy gas. The bridge
+operator on the other side of the same exchange is paid SPARK. Sentinels,
+curators and reviewers act on on-chain state, which is free to read, and are paid
+SPARK too.
+
+**Why it lives in x/rep.** The accuracy it scores comes from the shared
+`RoleActivity` record x/rep owns, and a distribution resets that record's
+per-epoch counters. Two modules distributing for one role on two independently
+editable cadences would both reset those counters and neither would read a
+coherent window. x/federation reports actions (`federation_verify`) and challenge
+verdicts; x/rep pays.
+
+**Score:** `1 + accuracy * sqrt(epoch_appeals_resolved)`.
+
+The flat 1 is load-bearing. The obvious formula — `verified_count * accuracy` —
+is the one already rejected for curators, and is worse here: verification is
+mechanical hash-matching, a verifier with no decided challenge scores as fully
+accurate, and challenges are rare. Paying per verification on that curve pays
+most for high-volume rubber-stamping, which is the exact failure the role exists
+to prevent. Volume therefore enters only as the `min_epoch_verifications` floor,
+never as a weight. A verifier doing the minimum and one doing ten times the
+minimum earn the same base, deliberately; it mirrors the DREAM stipend, which has
+always been flat per eligible verifier. If challenges never materialise every
+eligible verifier scores 1 and the pool splits evenly, so the pool is never
+stranded, and an empty roster draws nothing at all because funding is
+headroom-proportional.
+
+This is the opposite choice from bridge-operator pay, which *is* volume-weighted.
+The asymmetry is deliberate: an operator's submission count is attested by
+somebody else (verifiers increment it), while a verifier self-certifies.
+
+**Eligibility gates**, applied in order:
+
+1. Bond status `NORMAL` or `RECOVERY`.
+2. `epoch_actions["federation_verify"] >= min_epoch_verifications`.
+3. Windowed accuracy over `verifier_accuracy_window_epochs` at least
+   `min_verifier_accuracy` (0.80 — higher than the sentinel/curator 0.70, since a
+   hash mismatch is objective in a way a moderation call is not). A verifier with
+   no *decided* challenge in the window has not been demonstrated wrong and is
+   treated as fully accurate; most verifications are never challenged.
+4. No slash stamped in the window being paid for — see the window-test note in
+   the RoleActivity section.
+
+**Cadence.** `verifier_reward_epoch_blocks` is its own dial rather than a reuse of
+the sentinel cadence, and is set to **one full federation `challenge_window`** in
+blocks: 100800 on mainnet (7d), 43200 on testnet (3d), 1200 on devnet (2h). An
+epoch shorter than the challenge window scores a verifier's accuracy before the
+challenges against that epoch's work can resolve, so the accuracy ring would
+always be reading a stale verdict count. Testparams deliberately breaks the rule
+(10 blocks, against a 50-block challenge window) because the RECOVERY auto-bond
+test must span two whole epochs, and relaxes `min_verifier_accuracy` to 0 so the
+bar cannot fire on the stale count that shortcut produces.
+
+**RECOVERY auto-bond.** SPARK is paid straight out even in `RECOVERY` — it
+reimburses gas already spent, and withholding it would make recovery
+self-defeating. The DREAM stipend instead auto-bonds the portion needed to
+restore `min_verifier_bond`.
+
 ### Epoch Distribution
 
 Runs in the rep EndBlocker every `sentinel_reward_epoch_blocks` blocks (default 14,400 = ~1 day at 6 s blocks; 20 blocks under testparams).
@@ -3681,15 +3800,26 @@ var DefaultParams = Params{
     // draw is divided in proportion to each pool's headroom.
     MaxSentinelRewardPool:              math.NewInt(100_000_000_000), // 100,000 SPARK
     MaxCuratorRewardPool:               math.NewInt(100_000_000_000), // 100,000 SPARK — equal to sentinel
+    MaxVerifierRewardPool:              math.NewInt(100_000_000_000), // 100,000 SPARK — equal, but drains on a longer cadence
     MaxReviewerRewardPool:              math.NewInt(150_000_000_000), // 150,000 SPARK — 1.5x the others
     RoleRewardInflationShare:           math.LegacyNewDecWithPrec(5, 1), // 0.5 of the pool's inflation income
     MinSentinelAccuracy:                math.LegacyNewDecWithPrec(70, 2), // 0.70
     MinCuratorAccuracy:                 math.LegacyNewDecWithPrec(70, 2), // 0.70
     MinReviewerAccuracy:                math.LegacyNewDecWithPrec(70, 2), // 0.70
+    MinVerifierAccuracy:                math.LegacyNewDecWithPrec(80, 2), // 0.80 — carried over from federation
+
+    // Federation-verifier pay. The distribution lives here, not in
+    // x/federation: it is scored from RoleActivity and it resets that
+    // record's per-epoch counters.
+    VerifierRewardEpochBlocks:          getVerifierRewardEpochBlocks(),   // ~7 days on mainnet
+    VerifierAccuracyWindowEpochs:       6,
+    MinEpochVerifications:              3,                            // a floor on volume, never a weight
+    VerifierDreamReward:                math.NewInt(5_000_000),       // 5 DREAM per eligible verifier
+    MaxVerifierDreamMintPerEpoch:       math.NewInt(100_000_000),     // 100 DREAM
 }
 ```
 
-> The block above is illustrative rather than exhaustive — `Params` carries 118
+> The block above is illustrative rather than exhaustive — `Params` carries 128
 > fields and `DefaultParams()` in
 > [x/rep/types/params.go](../x/rep/types/params.go) is the source of truth. Only
 > the economically load-bearing dials are reproduced here.

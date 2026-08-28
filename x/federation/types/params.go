@@ -48,13 +48,13 @@ type federationGenesisParams struct {
 	// testparams can set aggressive values (low min_bond, small slash) to
 	// keep RECOVERY auto-bond and cap-scaling tests fast. Devnet/testnet/
 	// mainnet retain the spec-default values.
-	MinVerifierBond              math.Int
-	VerifierRecoveryThreshold    math.Int
-	VerifierSlashAmount          math.Int
-	MinEpochVerifications        uint32
-	MinVerifierAccuracy          math.LegacyDec
-	VerifierDreamReward          math.Int
-	MaxVerifierDreamMintPerEpoch math.Int
+	MinVerifierBond           math.Int
+	VerifierRecoveryThreshold math.Int
+	VerifierSlashAmount       math.Int
+
+	// OperatorRewardEpochBlocks is per-network so testparams can drive a
+	// distribution in seconds rather than days.
+	OperatorRewardEpochBlocks uint64
 }
 
 // Default parameter values — network-independent constants.
@@ -84,12 +84,24 @@ var (
 	// Verification — network-independent (DREAM amounts in udream: 1 DREAM = 1e6 udream)
 	DefaultMinVerifierTrustLevel  = uint32(2) // ESTABLISHED
 	DefaultUpheldToResetOverturns = uint32(3)
-	// MinVerifierBond / VerifierRecoveryThreshold / VerifierSlashAmount /
-	// MinEpochVerifications / MinVerifierAccuracy / VerifierDreamReward /
-	// MaxVerifierDreamMintPerEpoch are per-network and live in
-	// genesis_vals_*.go so testparams can set aggressive values for fast
-	// RECOVERY auto-bond + cap-scaling tests.
-	DefaultOperatorRewardShare = math.LegacyNewDecWithPrec(6, 1) // 0.6
+	// MinVerifierBond / VerifierRecoveryThreshold / VerifierSlashAmount are
+	// per-network and live in genesis_vals_*.go so testparams can set
+	// aggressive values for fast RECOVERY auto-bond tests.
+	//
+	// Verifier PAY (min_epoch_verifications, min_verifier_accuracy, the DREAM
+	// stipend and its mint cap, and the SPARK pool) is not here at all: it
+	// lives in x/rep params alongside the other bonded roles' reward knobs,
+	// because x/rep runs the distribution. See
+	// x/rep/keeper/verifier_reward_distribution.go.
+	// Bridge operator compensation. The pool cap matches x/rep's bonded-role
+	// pools; the inflation share is deliberately an order of magnitude below
+	// x/rep's 0.5 because this is ONE role, not four, and because federation
+	// is the third module skimming the community pool ahead of x/split.
+	DefaultOperatorRewardInflationShare       = math.LegacyNewDecWithPrec(5, 2) // 0.05
+	DefaultMaxOperatorRewardPool              = math.NewInt(100_000_000_000)    // 100,000 SPARK
+	DefaultOperatorRewardPoolOverflowBurnRate = math.LegacyNewDecWithPrec(5, 1) // 0.5
+	DefaultMinEpochVerifiedSubmissions        = uint32(1)
+	DefaultMaxUnverifiedRate                  = math.LegacyNewDecWithPrec(5, 1) // 0.5
 
 	// Arbiter — network-independent
 	DefaultArbiterQuorum = uint32(3)
@@ -144,11 +156,14 @@ func DefaultParams() Params {
 		VerifierUnbondCooldown:       gp.VerifierUnbondCooldown,
 		VerifierOverturnBaseCooldown: gp.VerifierOverturnBaseCooldown,
 		UpheldToResetOverturns:       DefaultUpheldToResetOverturns,
-		MinEpochVerifications:        gp.MinEpochVerifications,
-		MinVerifierAccuracy:          gp.MinVerifierAccuracy,
-		OperatorRewardShare:          DefaultOperatorRewardShare,
-		VerifierDreamReward:          gp.VerifierDreamReward,
-		MaxVerifierDreamMintPerEpoch: gp.MaxVerifierDreamMintPerEpoch,
+
+		// Bridge operator compensation
+		OperatorRewardInflationShare:        DefaultOperatorRewardInflationShare,
+		MaxOperatorRewardPool:               DefaultMaxOperatorRewardPool,
+		OperatorRewardPoolOverflowBurnRatio: DefaultOperatorRewardPoolOverflowBurnRate,
+		OperatorRewardEpochBlocks:           gp.OperatorRewardEpochBlocks,
+		MinEpochVerifiedSubmissions:         DefaultMinEpochVerifiedSubmissions,
+		MaxUnverifiedRate:                   DefaultMaxUnverifiedRate,
 
 		// Arbiter
 		ArbiterQuorum:           DefaultArbiterQuorum,
@@ -157,14 +172,6 @@ func DefaultParams() Params {
 		EscalationFeeAmount:     gp.EscalationFeeAmount,
 		ChallengeCooldown:       gp.ChallengeCooldown,
 	}
-}
-
-// GetVerifierRewardEpochBlocks returns the Phase 10 reward-distribution
-// cadence for the active build (testparams/devnet/testnet/mainnet). Defined
-// here as the exported entry point so keeper code can read it without
-// importing build-tagged unexported helpers.
-func GetVerifierRewardEpochBlocks() uint64 {
-	return getVerifierRewardEpochBlocks()
 }
 
 // Validate validates the set of params per the spec Section 4.13
@@ -181,13 +188,12 @@ func GetVerifierRewardEpochBlocks() uint64 {
 func (p Params) Validate() error {
 	// --- Required math.Int amounts: non-nil + non-negative ---
 	intFields := map[string]math.Int{
-		"min_verifier_bond":                 p.MinVerifierBond,
-		"verifier_recovery_threshold":       p.VerifierRecoveryThreshold,
-		"verifier_slash_amount":             p.VerifierSlashAmount,
-		"verifier_dream_reward":             p.VerifierDreamReward,
-		"max_verifier_dream_mint_per_epoch": p.MaxVerifierDreamMintPerEpoch,
-		"challenge_fee_amount":              p.ChallengeFeeAmount,
-		"escalation_fee_amount":             p.EscalationFeeAmount,
+		"min_verifier_bond":           p.MinVerifierBond,
+		"verifier_recovery_threshold": p.VerifierRecoveryThreshold,
+		"verifier_slash_amount":       p.VerifierSlashAmount,
+		"max_operator_reward_pool":    p.MaxOperatorRewardPool,
+		"challenge_fee_amount":        p.ChallengeFeeAmount,
+		"escalation_fee_amount":       p.EscalationFeeAmount,
 	}
 	for name, v := range intFields {
 		if v.IsNil() {
@@ -226,9 +232,10 @@ func (p Params) Validate() error {
 
 	// --- LegacyDec ranges: [0, 1] (inclusive) ---
 	decFields := map[string]math.LegacyDec{
-		"trust_discount_rate":   p.TrustDiscountRate,
-		"min_verifier_accuracy": p.MinVerifierAccuracy,
-		"operator_reward_share": p.OperatorRewardShare,
+		"trust_discount_rate":                      p.TrustDiscountRate,
+		"operator_reward_inflation_share":          p.OperatorRewardInflationShare,
+		"operator_reward_pool_overflow_burn_ratio": p.OperatorRewardPoolOverflowBurnRatio,
+		"max_unverified_rate":                      p.MaxUnverifiedRate,
 	}
 	one := math.LegacyOneDec()
 	zero := math.LegacyZeroDec()
@@ -275,11 +282,17 @@ func (p Params) Validate() error {
 	if p.ArbiterQuorum < 2 {
 		return fmt.Errorf("arbiter_quorum must be >= 2 (got %d)", p.ArbiterQuorum)
 	}
-	if p.MinEpochVerifications == 0 {
-		return fmt.Errorf("min_epoch_verifications must be > 0")
-	}
 	if p.UpheldToResetOverturns == 0 {
 		return fmt.Errorf("upheld_to_reset_overturns must be > 0")
+	}
+	if p.OperatorRewardEpochBlocks == 0 {
+		// Zero would divide by zero when deriving the epoch number.
+		return fmt.Errorf("operator_reward_epoch_blocks must be > 0")
+	}
+	if p.MinEpochVerifiedSubmissions == 0 {
+		// Zero would pay an operator who got nothing verified all epoch,
+		// which is the entire thing this compensation is conditioned on.
+		return fmt.Errorf("min_epoch_verified_submissions must be > 0")
 	}
 	if p.MaxPrunePerBlock == 0 {
 		return fmt.Errorf("max_prune_per_block must be > 0")

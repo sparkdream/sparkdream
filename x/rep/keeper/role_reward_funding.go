@@ -38,6 +38,7 @@ func (k Keeper) fundedRolePools(params types.Params) []roleRewardPool {
 		{name: "content_sentinel", addr: SentinelRewardPoolAddress(), maxPool: params.MaxSentinelRewardPool},
 		{name: "initiative_reviewer", addr: ReviewerRewardPoolAddress(), maxPool: params.MaxReviewerRewardPool},
 		{name: "collect_curator", addr: CuratorRewardPoolAddress(), maxPool: params.MaxCuratorRewardPool},
+		{name: "federation_verifier", addr: VerifierRewardPoolAddress(), maxPool: params.MaxVerifierRewardPool},
 	}
 }
 

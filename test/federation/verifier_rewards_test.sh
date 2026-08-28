@@ -1,30 +1,37 @@
 #!/bin/bash
 
-echo "--- TESTING: FEDERATION verifier epoch rewards (Phase 10) ---"
+echo "--- TESTING: FEDERATION verifier epoch rewards ---"
 #
-# Exercises Phase 10 of the federation EndBlocker
-# (DistributeVerifierRewards) which fires once per
-# GetVerifierRewardEpochBlocks() boundary (20 blocks in testparams,
-# ~2 minutes at 6s/block) and:
-#   - Mints VerifierDreamReward DREAM per eligible verifier (NORMAL)
+# Exercises x/rep's DistributeVerifierRewards, which fires once per
+# rep params.verifier_reward_epoch_blocks boundary and:
+#   - Pays SPARK from the verifier reward pool, pro-rata on
+#     score = 1 + accuracy * sqrt(contested verdicts resolved). The flat
+#     base is what covers the gas a verifier spends doing the job; volume
+#     is a floor (min_epoch_verifications), never a weight.
+#   - Mints verifier_dream_reward DREAM per eligible verifier
 #   - Auto-bonds the portion needed to restore min_verifier_bond for
 #     RECOVERY-status verifiers
-#   - Resets per-epoch counters (EpochVerifications,
-#     EpochChallengesResolved) on every verifier with non-zero counters
+#   - Resets per-epoch counters on every verifier
 #   - Updates LastRewardEpoch + CumulativeRewards on the BondedRole
+#
+# The distribution lives in x/rep rather than x/federation because the
+# accuracy it scores comes from the shared RoleActivity record rep owns.
+# The federation verifier-activity query still serves the full historical
+# shape as a read-through PROJECTION over both state owners, which is why
+# the counter assertions below are unchanged.
 #
 # Tests:
 #   TEST 1: Wait for the next reward epoch boundary; assert
-#           EpochVerifications on alice resets to 0 (proves Phase 10
-#           fired and walked the VerifierActivity collection).
+#           EpochVerifications on alice resets to 0 (proves the
+#           distribution fired and walked the bonded verifiers).
 #   TEST 2: Assert BondedRole.LastRewardEpoch on alice is set to a
 #           value > 0 (proves the payout path either ran or was
 #           skip-eligible at this height).
 #   TEST 3: Eligibility gate: a verifier with EpochVerifications=0
 #           is silently skipped — no rewards-related event lands
 #           against an unrelated address.
-#   TEST 4: last_slash_epoch gate: if alice was slashed in the same
-#           reward epoch (jury_resolution_test.sh test 8 might have
+#   TEST 4: last_slash_epoch gate: if alice was slashed in the window
+#           being paid for (jury_resolution_test.sh test 8 might have
 #           done that), her LastRewardEpoch must NOT equal the
 #           current_reward_epoch — she's disqualified for that epoch.
 #
@@ -55,10 +62,15 @@ record_result() {
     echo "  => $RESULT"
 }
 
-# Hardcoded to match getVerifierRewardEpochBlocks() in
-# x/federation/types/genesis_vals_testparams.go. If that value moves,
-# update here too — there's no on-chain query for this constant.
-EPOCH_BLOCKS=10
+# Verifier pay is distributed by x/rep (it owns the RoleActivity record the
+# payout is scored from), so the cadence is a rep param and can be queried
+# rather than hardcoded. Falls back to the testparams value if the query
+# fails for any reason.
+EPOCH_BLOCKS=$($BINARY query rep params --output json 2>/dev/null \
+    | jq -r '.params.verifier_reward_epoch_blocks // empty')
+if [ -z "$EPOCH_BLOCKS" ] || [ "$EPOCH_BLOCKS" == "null" ]; then
+    EPOCH_BLOCKS=10
+fi
 
 VERIFIER_A_ADDR="$ALICE_ADDR"
 
@@ -132,8 +144,8 @@ ACTUAL_H=$(wait_for_height $WAIT_TARGET $WAIT_SECS)
 echo "Reached height: $ACTUAL_H"
 echo ""
 
-# Compute the reward epoch number that just fired (Phase 10 increments
-# its internal epoch at floor(boundary / EPOCH_BLOCKS)).
+# Compute the reward epoch number that just fired (the distribution derives
+# its epoch as floor(boundary / EPOCH_BLOCKS)).
 FIRED_EPOCH=$((NEXT_BOUNDARY / EPOCH_BLOCKS))
 echo "Epoch just fired: $FIRED_EPOCH"
 echo ""
@@ -162,11 +174,11 @@ echo ""
 # ========================================================================
 # TEST 1: EpochVerifications reset to 0
 # Whatever value EpochVerifications was at pre-epoch, it must be 0
-# post-epoch (Phase 10 resets every verifier's per-epoch counters
-# regardless of eligibility). This is the strongest "did Phase 10 run"
+# post-epoch (the distribution resets every verifier's per-epoch counters
+# regardless of eligibility). This is the strongest "did the distribution run"
 # signal.
 # ========================================================================
-echo "--- TEST 1: epoch_verifications reset after Phase 10 ---"
+echo "--- TEST 1: epoch_verifications reset after distribution ---"
 if [ "$POST_EPOCH_VERIF" == "0" ] || [ "$POST_EPOCH_VERIF" == "null" ]; then
     if [ "$PRE_EPOCH_VERIF" != "0" ] && [ "$PRE_EPOCH_VERIF" != "null" ]; then
         echo "  PRE=$PRE_EPOCH_VERIF → POST=$POST_EPOCH_VERIF (reset confirmed)"
@@ -186,7 +198,7 @@ fi
 # Same reasoning: if pre was non-zero, post must be 0.
 # ========================================================================
 echo ""
-echo "--- TEST 2: epoch_challenges_resolved reset after Phase 10 ---"
+echo "--- TEST 2: epoch_challenges_resolved reset after distribution ---"
 if [ "$POST_EPOCH_CHAL" == "0" ] || [ "$POST_EPOCH_CHAL" == "null" ]; then
     echo "  PRE=$PRE_EPOCH_CHAL → POST=$POST_EPOCH_CHAL (reset confirmed)"
     record_result "epoch_challenges_resolved reset" "PASS"
@@ -197,8 +209,9 @@ fi
 
 # ========================================================================
 # TEST 3: LastRewardEpoch update + payout side-effect
-# If alice was eligible (>=3 verifications, accuracy >=0.8, no slash
-# this epoch), Phase 10 paid her out AND updated LastRewardEpoch +
+# If alice was eligible (>= min_epoch_verifications, accuracy >=
+# min_verifier_accuracy, no slash in the window just closed), the
+# distribution paid her out AND updated LastRewardEpoch +
 # CumulativeRewards on the BondedRole.
 #
 # If she was NOT eligible, LastRewardEpoch stays unchanged — and that's
@@ -209,7 +222,13 @@ fi
 echo ""
 echo "--- TEST 3: LastRewardEpoch updated when eligible ---"
 LAST_REWARD_INCR=$([ "$POST_LAST_REWARD" -gt "$PRE_LAST_REWARD" ] 2>/dev/null && echo 1 || echo 0)
-SLASHED_THIS_EPOCH=$([ "$POST_LAST_SLASH" -ge "$FIRED_EPOCH" ] 2>/dev/null && echo 1 || echo 0)
+# Mirror the keeper's Gate 4 predicate exactly. The distribution runs at
+# height FIRED_EPOCH*EPOCH_BLOCKS, but the counters it pays for accrued over
+# the PRIOR epoch, so every slash in the window stamps FIRED_EPOCH-1. The gate
+# accepts FIRED_EPOCH-1 (the closed epoch) or FIRED_EPOCH (this boundary
+# block); testing only == FIRED_EPOCH would leave this branch dead.
+SLASHED_IN_WINDOW=$(( FIRED_EPOCH - 1 ))
+SLASHED_THIS_EPOCH=$([ "$POST_LAST_SLASH" -ge "$SLASHED_IN_WINDOW" ] && [ "$POST_LAST_SLASH" != "0" ] 2>/dev/null && echo 1 || echo 0)
 
 if [ "$LAST_REWARD_INCR" == "1" ]; then
     CUM_DELTA=$(( ${POST_CUM_REW:-0} - ${PRE_CUM_REW:-0} ))
@@ -217,13 +236,13 @@ if [ "$LAST_REWARD_INCR" == "1" ]; then
     echo "  cumulative_rewards delta: $CUM_DELTA"
     record_result "LastRewardEpoch updated" "PASS"
 elif [ "$SLASHED_THIS_EPOCH" == "1" ]; then
-    echo "  last_slash_epoch ($POST_LAST_SLASH) >= fired_epoch ($FIRED_EPOCH) — slash gate triggered"
+    echo "  last_slash_epoch ($POST_LAST_SLASH) >= $SLASHED_IN_WINDOW — slash gate triggered"
     echo "  PASS: ineligible-this-epoch path correctly skipped reward"
     record_result "LastRewardEpoch updated" "PASS"
 else
     # Verifier had no slash but reward also didn't fire — likely failed
     # accuracy gate (no upheld/overturned counters) or activity gate
-    # (<3 verifications). Both are valid outcomes.
+    # (below min_epoch_verifications). Both are valid outcomes.
     echo "  No reward, no slash-gate trip — likely accuracy or activity gate"
     echo "  Soft-pass: gates are working; specific assertion requires"
     echo "  pre-arranged state we cannot guarantee from outside this file"
@@ -232,15 +251,15 @@ fi
 
 # ========================================================================
 # TEST 4: last_slash_epoch gate (negative test)
-# If alice was slashed during this epoch (last_slash_epoch ==
-# fired_epoch), she MUST NOT have received a payout for the same epoch
+# If alice was slashed in the window being paid for (last_slash_epoch is
+# fired_epoch-1 or fired_epoch), she MUST NOT have received a payout for it
 # (LastRewardEpoch < fired_epoch on her BondedRole, OR equal but to a
 # prior reward and cumulative didn't change).
 # ========================================================================
 echo ""
 echo "--- TEST 4: last_slash_epoch gate disqualifies for same epoch ---"
 if [ "$SLASHED_THIS_EPOCH" == "1" ]; then
-    # Slashed this epoch — Phase 10 should NOT have paid alice. If
+    # Slashed this epoch — the distribution should NOT have paid alice. If
     # LastRewardEpoch advanced to fired_epoch AND cumulative_rewards
     # grew, the gate failed.
     REWARDED_THIS_EPOCH=$([ "$POST_LAST_REWARD" == "$FIRED_EPOCH" ] && [ "$POST_CUM_REW" -gt "$PRE_CUM_REW" ] 2>/dev/null && echo 1 || echo 0)
@@ -253,7 +272,7 @@ if [ "$SLASHED_THIS_EPOCH" == "1" ]; then
         record_result "last_slash_epoch gate" "PASS"
     fi
 else
-    echo "  alice was not slashed this epoch (last_slash_epoch=$POST_LAST_SLASH, fired=$FIRED_EPOCH)"
+    echo "  alice was not slashed in the window (last_slash_epoch=$POST_LAST_SLASH, window>=$SLASHED_IN_WINDOW)"
     echo "  PASS: gate not exercised in this run (skipped without false-fail)"
     record_result "last_slash_epoch gate" "PASS"
 fi
@@ -303,8 +322,16 @@ submit_and_wait_local() {
     return 0
 }
 
-CAP=7000000   # MaxVerifierDreamMintPerEpoch in testparams (7 DREAM)
-REWARD=5000000  # VerifierDreamReward in testparams (5 DREAM)
+# Both the per-verifier DREAM stipend and the per-epoch mint cap are rep
+# params now, so query them rather than restating testparams values that can
+# drift. Testparams sizes the cap (7 DREAM) below 2x the reward (5 DREAM)
+# specifically so two eligible verifiers force the pro-rata scaling path
+# TEST 5 asserts on. Fallbacks match x/rep/types/params_vals_testparams.go.
+REP_PARAMS=$($BINARY query rep params --output json 2>/dev/null)
+CAP=$(echo "$REP_PARAMS" | jq -r '.params.max_verifier_dream_mint_per_epoch // empty')
+REWARD=$(echo "$REP_PARAMS" | jq -r '.params.verifier_dream_reward // empty')
+if [ -z "$CAP" ] || [ "$CAP" == "null" ]; then CAP=7000000; fi
+if [ -z "$REWARD" ] || [ "$REWARD" == "null" ]; then REWARD=5000000; fi
 
 # Pre-snapshot alice's cumulative_rewards (just-completed epoch is
 # fresh ground for the next epoch).
@@ -363,7 +390,7 @@ if [ "$BOB_ELIGIBLE" == "true" ]; then
     fi
 fi
 
-# Wait for next reward-epoch boundary so Phase 10 fires for the
+# Wait for next reward-epoch boundary so the distribution fires for the
 # epoch in which both verifiers just participated.
 CAP_PRE_HEIGHT=$(current_height)
 MOD=$((CAP_PRE_HEIGHT % EPOCH_BLOCKS))
@@ -442,7 +469,7 @@ fi
 #
 # Goal: drive a verifier into RECOVERY status (current_bond between
 # verifier_recovery_threshold and min_verifier_bond), have them verify
-# content in a fresh reward epoch, then assert that the next Phase 10
+# content in a fresh reward epoch, then assert that the next distribution
 # pass mints DREAM AND auto-bonds it back into the role (current_bond
 # grows + LastRewardEpoch advances).
 #
@@ -554,7 +581,7 @@ if [ "$REC_SKIP" != "true" ]; then
         fi
 
         if [ "$BOB_VERIFY_OK" == "true" ]; then
-            # Wait for the NEXT epoch boundary so Phase 10 fires with
+            # Wait for the NEXT epoch boundary so the distribution fires with
             # bob meeting MinEpochVerifications AND in RECOVERY status.
             POST_VERIF_H=$(current_height)
             BOUNDARY=$(( (POST_VERIF_H / EPOCH_BLOCKS + 1) * EPOCH_BLOCKS + 2 ))

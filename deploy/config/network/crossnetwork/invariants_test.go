@@ -164,6 +164,16 @@ func TestRepSentinelEpoch(t *testing.T) {
 	intsAsc(t, rep, "rep", "sentinel_reward_epoch_blocks")
 	intsAsc(t, rep, "rep", "reviewer_reward_epoch_blocks")
 	intsAsc(t, rep, "rep", "curator_reward_epoch_blocks")
+	intsAsc(t, rep, "rep", "verifier_reward_epoch_blocks")
+}
+
+// TestFederationOperatorRewardEpoch pins that the bridge-operator reward
+// cadence lengthens devnet -> testnet -> mainnet like every other epoch dial.
+// Operator pay is scored on independently VERIFIED submissions, so an epoch
+// shorter than the verification round-trip would pay nobody.
+func TestFederationOperatorRewardEpoch(t *testing.T) {
+	fed := loadModule(t, "federation")
+	intsAsc(t, fed, "federation", "operator_reward_epoch_blocks")
 }
 
 func TestShieldHardening(t *testing.T) {
@@ -214,6 +224,8 @@ var allowedVariations = map[string]string{
 	"rep.params.sentinel_reward_epoch_blocks":                      "build-tag conditional cadence (devnet 6h / testnet 12h / mainnet 24h)",
 	"rep.params.reviewer_reward_epoch_blocks":                      "reviewer pool distributes on the same per-network cadence as the sentinel pool",
 	"rep.params.curator_reward_epoch_blocks":                       "curator pool distributes on the same per-network cadence as the sentinel pool",
+	"federation.params.operator_reward_epoch_blocks":               "bridge-operator pool distributes on the same per-network cadence as the verifier pool it pairs with (mainnet ~7d): operator pay is scored on independently VERIFIED submissions, so the epoch must be long enough for verification to have happened",
+	"rep.params.verifier_reward_epoch_blocks":                      "federation-verifier pool has its OWN longer cadence (mainnet ~7d vs the sentinel's ~1d): a verification stays challengeable far longer than a hide stays appealable, so the epoch must be long enough for a challenge against work in it to resolve before the accuracy window scores that work",
 	"rep.params.trust_level_config.provisional_min_rep":            "build-tag conditional",
 	"rep.params.trust_level_config.provisional_min_interims":       "build-tag conditional",
 	"rep.params.trust_level_config.established_min_rep":            "build-tag conditional",

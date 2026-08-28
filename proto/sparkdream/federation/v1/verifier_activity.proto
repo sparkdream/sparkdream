@@ -5,42 +5,59 @@ import "cosmos_proto/cosmos.proto";
 
 option go_package = "sparkdream/x/federation/types";
 
-// VerifierActivity holds federation-specific per-verifier counters. The
-// generic bond/status/activity record lives in x/rep as BondedRole
-// (ROLE_TYPE_FEDERATION_VERIFIER) — this proto only tracks what's
-// federation-specific: verification counts and dispute outcomes.
+// VerifierActivity is federation's SLIM per-verifier record.
+//
+// Everything that is a property of the ROLE rather than of federation's
+// surface -- verdict streaks, the overturn cooldown, the rolling accuracy
+// ring, and the per-action counters -- lives on x/rep's shared RoleActivity
+// under ROLE_TYPE_FEDERATION_VERIFIER, alongside the bond it governs.
+// Federation reports actions (RecordRoleAction with
+// ActionKindFederationVerify) and verdicts (RecordRoleOutcome); x/rep applies
+// the consequences and pays the role. Same ownership split forum and collect
+// already use for the content sentinel.
+//
+// Only unchallenged_verifications stays here: it is a federation-local
+// bookkeeping stat with no shared meaning -- an unchallenged verification is
+// not evidence of accuracy and deliberately earns nothing, so it must not
+// reach the accuracy ring.
+//
+// The QueryVerifierActivityResponse still returns the FULL historical shape.
+// Those fields are PROJECTED from rep at query time (see
+// query_verifier_activity.go) and are not persisted here.
 message VerifierActivity {
   string address = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
 
-  // Lifetime metrics
-  uint64 total_verifications = 2;
-  uint64 upheld_verifications = 3;
-  uint64 overturned_verifications = 4;
-  uint64 unchallenged_verifications = 5;
+  // unchallenged_verifications counts verifications whose challenge window
+  // closed with no challenge filed. Bumped by the Phase 6 EndBlocker sweep.
+  uint64 unchallenged_verifications = 2;
+}
 
-  // Epoch metrics
+// VerifierActivityView is the read-only projection returned by the
+// verifier-activity query: federation's slim stored record overlaid with the
+// shared accountability state x/rep owns. Never persisted.
+message VerifierActivityView {
+  string address = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+
+  // Federation-local (stored).
+  uint64 unchallenged_verifications = 2;
+
+  // Projected from rep RoleActivity per-kind counters
+  // (ActionKindFederationVerify).
+  uint64 total_verifications = 3;
+  uint64 upheld_verifications = 4;
+  uint64 overturned_verifications = 5;
   uint64 epoch_verifications = 6;
-  uint64 epoch_challenges_resolved = 7;
 
-  // Consecutive-outcome tracking for demotion triggers. Slash streak beyond
-  // UpheldToResetOverturns consecutive-overturn is the demotion signal.
+  // Projected from rep RoleActivity shared fields.
+  uint64 epoch_challenges_resolved = 7;
   uint64 consecutive_overturns = 8;
   uint64 consecutive_upheld = 9;
-
-  // overturn_cooldown_until is the unix timestamp during which the verifier
-  // cannot submit new verifications after an overturn. Managed by the
-  // federation challenge-resolution flow.
   int64 overturn_cooldown_until = 10;
+  int64 last_slash_epoch = 11;
 
-  // slash_count is the lifetime number of times this verifier has been
-  // slashed (overturn verdicts).
-  uint64 slash_count = 11;
-
-  // last_slash_epoch records the Phase 11 reward-epoch number
-  // (height / GetVerifierRewardEpochBlocks) in which this verifier was
-  // most recently slashed. Phase 11's "no slashing this epoch"
-  // eligibility gate compares this against the current reward epoch —
-  // an exact match disqualifies the verifier for the current epoch's
-  // payout. Zero means "never slashed under the current accounting".
-  int64 last_slash_epoch = 12;
+  // slash_count is DERIVED, not stored: every upheld challenge against a
+  // verifier slashes exactly once, so the overturned-verification count IS
+  // the slash count. It was a duplicate counter incremented on the same line
+  // as the overturn before the migration.
+  uint64 slash_count = 12;
 }

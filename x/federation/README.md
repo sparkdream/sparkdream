@@ -65,7 +65,34 @@ Two-phase IBC challenge-response proving key ownership. Bridge-verified links fo
 
 ## Compensation
 
-Bridge operators and verifiers compensated via x/split (SPARK from Community Pool), weighted by verified submissions and verification accuracy respectively. **DREAM is never used in any federation mechanism** — bridge operators stake SPARK only, verifiers bond DREAM only.
+Both federation roles are paid **SPARK**, by different modules, on different
+scoring rules. Neither routes through x/split — that design was specced, never
+built, and dropped.
+
+**Bridge operators — paid here.** Federation takes its own capped daily claim
+on the community pool in `BeginBlock` (`FundOperatorRewardPool`) and pays out
+in `EndBlock` (`DistributeOperatorRewards`), with the residual overflow burned
+after. Pay **is** volume-weighted on independently-verified submissions,
+because an operator's throughput is attested by somebody else: the
+`BridgeBinding` counters federation owns are incremented by verifiers, not by
+the operator. `epoch_rejected` is an eligibility gate, so a submission
+falsified by quorum costs the operator the epoch's pay. Operators are x/service
+Operators — x/service owns the SPARK bond, status and slashing.
+
+**Content verifiers — paid by x/rep.** A SPARK pool share plus a flat DREAM
+stipend, distributed by x/rep's EndBlocker because the accuracy it is scored
+from lives in the shared `RoleActivity` record x/rep owns, and paying resets
+that record's per-epoch counters. Verifier pay is deliberately **not**
+volume-weighted: a verifier self-certifies their own count, so paying per
+verification would fund rubber-stamping. Volume is a floor
+(`min_epoch_verifications`), never a weight. Federation keeps the verification
+*mechanics* — bond sizing, slash amount, challenge windows, cooldown base,
+`upheld_to_reset_overturns`; the reward params live in x/rep. See
+[x/rep/README.md](../rep/README.md#federation-verifier-pay).
+
+Verifiers bond **DREAM** via x/rep's `BondedRole` while being paid SPARK: the
+bond denom and the reward denom are separate decisions. Bridge operators stake
+SPARK on x/service.
 
 ## Messages (24)
 
@@ -115,9 +142,15 @@ Bridge operators and verifiers compensated via x/split (SPARK from Community Poo
 
 `MsgUpdateParams`, `MsgUpdateOperationalParams`.
 
-## Queries (18)
+## Queries (19)
 
-`Params`, `GetPeer`, `ListPeers`, `GetPeerPolicy`, `GetBridgeBinding`, `ListBridgeBindings`, `GetFederatedContent`, `ListFederatedContent`, `GetIdentityLink`, `ListIdentityLinks`, `ResolveRemoteIdentity`, `GetPendingIdentityChallenge`, `ListPendingIdentityChallenges`, `GetReputationAttestation`, `ListOutboundAttestations`, `VerifierActivity` (federation-local counters; bond/status queried via `query rep bonded-role ROLE_TYPE_FEDERATION_VERIFIER <addr>`), `GetVerificationRecord`, `GetEscalatedChallenge`.
+`Params`, `GetPeer`, `ListPeers`, `GetPeerPolicy`, `GetBridgeBinding`, `ListBridgeBindings`, `GetFederatedContent`, `ListFederatedContent`, `GetIdentityLink`, `ListIdentityLinks`, `ResolveRemoteIdentity`, `GetPendingIdentityChallenge`, `ListPendingIdentityChallenges`, `GetReputationAttestation`, `ListOutboundAttestations`, `VerifierActivity` (federation-local counters; bond/status queried via `query rep bonded-role ROLE_TYPE_FEDERATION_VERIFIER <addr>`), `GetVerificationRecord`, `GetEscalatedChallenge`, `OperatorRewardPool`.
+
+`OperatorRewardPool` reports the bridge-operator SPARK pool's balance, cap,
+headroom, today's draw, the daily funding cap and the inflation share. Without
+it, "eligible but the pool was empty" and "not eligible" are indistinguishable
+from outside. The verifier pool has an equivalent on the rep side
+(`query rep role-reward-pools`).
 
 Live bridge operator economic state is queried via `query service operator <addr> federation-bridge-<protocol>`.
 
@@ -134,6 +167,15 @@ Federation implements `servicetypes.ServiceHooks` in [keeper/hooks.go](keeper/ho
 
 All four wrap their bodies in `defer recoverHookPanic` so a federation bug never rolls back an x/service slash. Composite ordering: **federation hooks fire before commons hooks**. Configured in [app/service_adapters.go](../../app/service_adapters.go).
 
+## BeginBlocker
+
+Draws one capped claim on the community pool into the bridge-operator reward
+pool (`FundOperatorRewardPool`), bounded per UTC day by a share of inflation
+and ledgered in state so the allowance survives restarts. Federation is ordered
+**before x/split** in `BeginBlockers` for the same reason x/rep is: x/split
+distributes whatever remains in the community pool to the councils in full, so
+a module that skims must skim first or find an empty pool.
+
 ## EndBlocker (12 phases)
 
 1. Prune expired federated content
@@ -146,9 +188,15 @@ All four wrap their bodies in `defer recoverHookPanic` so a federation bug never
 8. Expire arbiter resolution windows (no quorum → escalate to jury)
 9. Finalize auto-resolutions (escalation window expired → verdict final)
 10. Process peer removal queue (cursor-based)
-11. Verifier epoch rewards (DREAM minting, auto-bonding, counter reset)
+11. Bridge-operator reward distribution, then residual overflow burn
+    — distribution runs first so the pool drains to the operators who earned
+    it and the burn only ever targets what is left
 12. Bridge binding monitoring (inactivity warnings only — bond/underfunded signals come from x/service hooks)
 13. Clean stale rate limit counters (inbound + outbound)
+
+Verifier epoch rewards used to be a phase here. They are now distributed by
+x/rep's EndBlocker; federation reports verifications and verdicts and pays
+verifiers nothing.
 
 ## IBC Application
 
@@ -171,6 +219,7 @@ All four wrap their bodies in `defer recoverHookPanic` so a federation bug never
 | `x/name` | Identity link resolution |
 | `x/bank` | Challenge/escalation fees |
 | `x/shield` | Anonymous arbiter resolution via ZK proofs |
+| `x/distribution` + `x/mint` | Bridge-operator pool funding — the daily community-pool claim is sized as a share of inflation, so it reads `AnnualProvisions` and `GetCommunityTax`. Late-wired |
 | `ibc-go` | IBC application |
 
 ### Late Wiring (app.go)
@@ -178,13 +227,30 @@ All four wrap their bodies in `defer recoverHookPanic` so a federation bug never
 ```
 x/federation ← SetCommonsKeeper(commons), SetRepKeeper(rep)
              ← SetNameKeeper(name), SetShieldKeeper(shield)
+             ← SetIdentityKeeper(identity)
              ← SetServiceKeeper(NewFederationServiceAdapter(service))
+             ← SetDistrKeeper(NewDistrKeeperAdapter(distr))
+             ← SetMintKeeper(NewMintProvisionsAdapter(mint))
+             ← SetIBCKeeperFn(func() *ibckeeper.Keeper { ... })
 ```
 
 ### EndBlocker Ordering
 
 x/service runs **before** x/federation in `app/app.go` so hook-fired binding state mutations settle before federation's own per-block work.
 
+In `BeginBlockers`, x/federation runs **before x/split**, because its operator-pool
+funding skims the community pool and x/split distributes the remainder to the
+councils in full. Same constraint x/rep is under.
+
 ## Leaf-ness
 
-Depended on by: x/split (read-only weight queries). Federation does not export hooks to other modules; it consumes x/service's hooks.
+Nothing depends on x/federation. It exports no hooks and no keeper interface to
+another module; it only consumes (x/service's hooks, and the commons / rep /
+name / shield / service / distribution / mint keepers late-wired in `app.go`).
+The only cross-module mention is a module-account *name* string constant in
+[x/service/types/keys.go](../service/types/keys.go), not a code dependency.
+
+x/split does **not** query federation. An earlier design had operator and
+verifier pay flowing through x/split, weighted by federation-owned counters;
+it was specced, never built, and dropped in favour of the two direct
+community-pool claims described under [Compensation](#compensation).

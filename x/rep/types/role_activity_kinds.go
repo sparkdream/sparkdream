@@ -20,6 +20,13 @@ const (
 	// pool reads it from here, the same way the sentinel pool reads hides.
 	ActionKindCollectCuration = "collect_curation"
 
+	// Content verifications by a bonded federation verifier. Reported by
+	// x/federation at MsgVerifyContent time, with the verdict reported on
+	// challenge resolution. Deliberately has NO ScoreWeights entry: verifier
+	// pay is flat-per-epoch plus a contested-accuracy bonus, never per
+	// verification -- see verifier_reward_distribution.go.
+	ActionKindFederationVerify = "federation_verify"
+
 	// Appeals filed AGAINST a role holder's actions. Not sentinel work —
 	// excluded from the activity gate; feeds the Gate 4 appeal-rate check.
 	ActionKindForumAppealFiled   = "forum_appeal_filed"
@@ -34,7 +41,10 @@ const (
 const RoleAccuracyRingSize = 24
 
 // ActivityKinds are the kinds that count toward the reward-eligibility
-// epoch-activity gate (Gate 3) — the role holder's own moderation work.
+// epoch-activity gate (Gate 3) — work the role holder themselves performed,
+// as opposed to appeals filed against them. Spans surfaces AND roles: a
+// given role's record only ever carries its own kinds, so the sentinel gate
+// summing this list never sees a verification and vice versa.
 var ActivityKinds = []string{
 	ActionKindForumHide,
 	ActionKindForumLock,
@@ -42,6 +52,7 @@ var ActivityKinds = []string{
 	ActionKindForumPin,
 	ActionKindForumCuration,
 	ActionKindCollectHide,
+	ActionKindFederationVerify,
 }
 
 // HideKinds are the hide-action kinds; together with AppealFiledKinds they
@@ -89,4 +100,9 @@ var CooldownOnOverturn = map[string]bool{
 	ActionKindForumMove:   true,
 	ActionKindForumPin:    true,
 	ActionKindCollectHide: true,
+	// A verifier attested to a hash that turned out to be wrong. Cooldown
+	// applies, and for this role it ESCALATES per consecutive overturn --
+	// see BondedRoleConfig.overturn_cooldown_escalates, which x/federation
+	// sets from verifier_overturn_base_cooldown.
+	ActionKindFederationVerify: true,
 }

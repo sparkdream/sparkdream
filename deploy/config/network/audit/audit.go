@@ -1,6 +1,10 @@
 // Package audit provides shared helpers for verifying that each network's
-// genesis.json carries a complete set of params for every module the chain
-// registers. See the per-network genesis_audit_test.go files for usage.
+// genesis.json agrees with the binary that will boot on it: every module's
+// params are present, correctly typed, individually valid, and — for anything
+// the network's config.yml does not deliberately pin — carrying the same value
+// the build-tag-active code default produces. See the per-network
+// genesis_audit_test.go files for usage, and drift.go for why the last check
+// needs config.yml to be meaningful.
 package audit
 
 import (
@@ -45,39 +49,50 @@ import (
 )
 
 // ProjectModules maps each Spark Dream-owned module's app_state key to a
-// zero-value Params struct. The audit reflects over its JSON tags to derive
-// the canonical key set.
-var ProjectModules = map[string]any{
-	"blog":       blogtypes.Params{},
-	"collect":    collecttypes.Params{},
-	"commons":    commonstypes.Params{},
-	"ecosystem":  ecosystemtypes.Params{},
-	"federation": federationtypes.Params{},
-	"forum":      forumtypes.Params{},
-	"futarchy":   futarchytypes.Params{},
-	"name":       nametypes.Params{},
-	"rep":        reptypes.Params{},
-	"reveal":     revealtypes.Params{},
-	"season":     seasontypes.Params{},
-	"session":    sessiontypes.Params{},
-	"shield":     shieldtypes.Params{},
-	"sparkdream": sparkdreamtypes.Params{},
-	"split":      splittypes.Params{},
+// constructor for its DefaultParams() under the active build tag.
+//
+// One registry, not two: the key/type checks need a zero-value struct and the
+// value-drift check needs the populated defaults, but a module listed in one
+// registry and forgotten in the other would silently lose half its coverage.
+// The zero-value template is derived from the constructor instead
+// (ZeroTemplate).
+var ProjectModules = map[string]func() proto.Message{
+	"blog":       func() proto.Message { p := blogtypes.DefaultParams(); return &p },
+	"collect":    func() proto.Message { p := collecttypes.DefaultParams(); return &p },
+	"commons":    func() proto.Message { p := commonstypes.DefaultParams(); return &p },
+	"ecosystem":  func() proto.Message { p := ecosystemtypes.DefaultParams(); return &p },
+	"federation": func() proto.Message { p := federationtypes.DefaultParams(); return &p },
+	"forum":      func() proto.Message { p := forumtypes.DefaultParams(); return &p },
+	"futarchy":   func() proto.Message { p := futarchytypes.DefaultParams(); return &p },
+	"name":       func() proto.Message { p := nametypes.DefaultParams(); return &p },
+	"rep":        func() proto.Message { p := reptypes.DefaultParams(); return &p },
+	"reveal":     func() proto.Message { p := revealtypes.DefaultParams(); return &p },
+	"season":     func() proto.Message { p := seasontypes.DefaultParams(); return &p },
+	"session":    func() proto.Message { p := sessiontypes.DefaultParams(); return &p },
+	"shield":     func() proto.Message { p := shieldtypes.DefaultParams(); return &p },
+	"sparkdream": func() proto.Message { p := sparkdreamtypes.DefaultParams(); return &p },
+	"split":      func() proto.Message { p := splittypes.DefaultParams(); return &p },
 }
 
 // SDKModules maps third-party (Cosmos SDK / IBC / gnovm) module app_state
-// keys to their Params struct. Audited separately so failures from upstream
-// proto changes are visibly distinct from project-owned drift.
-var SDKModules = map[string]any{
-	"auth":         authtypes.Params{},
-	"bank":         banktypes.Params{},
-	"distribution": distrtypes.Params{},
-	"gov":          govv1types.Params{},
-	"mint":         minttypes.Params{},
-	"slashing":     slashingtypes.Params{},
-	"staking":      stakingtypes.Params{},
-	"transfer":     ibctransfertypes.Params{},
-	"gnovm":        gnovmtypes.Params{},
+// keys to their DefaultParams(). Audited separately so failures from upstream
+// proto or default changes are visibly distinct from project-owned drift.
+var SDKModules = map[string]func() proto.Message{
+	"auth":         func() proto.Message { p := authtypes.DefaultParams(); return &p },
+	"bank":         func() proto.Message { p := banktypes.DefaultParams(); return &p },
+	"distribution": func() proto.Message { p := distrtypes.DefaultParams(); return &p },
+	"gov":          func() proto.Message { p := govv1types.DefaultParams(); return &p },
+	"mint":         func() proto.Message { p := minttypes.DefaultParams(); return &p },
+	"slashing":     func() proto.Message { p := slashingtypes.DefaultParams(); return &p },
+	"staking":      func() proto.Message { p := stakingtypes.DefaultParams(); return &p },
+	"transfer":     func() proto.Message { p := ibctransfertypes.DefaultParams(); return &p },
+	"gnovm":        func() proto.Message { p := gnovmtypes.DefaultParams(); return &p },
+}
+
+// ZeroTemplate returns a zero-value struct of the type the constructor
+// produces, for the checks that reflect over the type rather than the values.
+func ZeroTemplate(ctor func() proto.Message) any {
+	return reflect.Zero(reflect.TypeOf(ctor()).Elem()).Interface()
 }
 
 // ParamsKeys returns the JSON field names defined on the given Params struct.

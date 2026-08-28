@@ -63,4 +63,16 @@ message RoleActivity {
   map<string, uint64> total_actions = 9;
   map<string, uint64> upheld_actions = 10;
   map<string, uint64> overturned_actions = 11;
+
+  // last_slash_epoch is the reward epoch (in the units the role's own
+  // reward distribution reads -- see roleRewardEpoch) in which this role
+  // was most recently slashed. Stamped by SlashBond for every role type.
+  //
+  // Reward distributions may use it as a "no pay in an epoch you were
+  // slashed in" gate; only the federation verifier does today. Stamping it
+  // generically anyway is deliberate: it is a property of the bond, the
+  // stamp is one write on a path that is already writing, and a role that
+  // wants the gate should not have to reintroduce a private counter to get
+  // it. Zero means never slashed under the current accounting.
+  int64 last_slash_epoch = 12;
 }

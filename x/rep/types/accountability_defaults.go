@@ -52,6 +52,14 @@ const (
 	// the shared accountability record moved to x/rep.
 	DefaultRoleOverturnCooldown = int64(86400) // 24 hours
 
+	// MaxRoleOverturnCooldown caps the lockout a role holder can accrue from
+	// overturned verdicts, including under the escalating (doubling) policy
+	// roles may opt into via BondedRoleConfig.overturn_cooldown_escalates.
+	// Without a ceiling a long overturn streak compounds into an effectively
+	// permanent ban, which would route around the demotion path that exists
+	// to make role removal explicit, bond-backed, and appealable.
+	MaxRoleOverturnCooldown = int64(604800) // 7 days
+
 	// MaxAcceptanceCriteria bounds the definition-of-done an initiative may
 	// declare. Criteria are stored on the initiative and read on every
 	// challenge citation and juror vote, so the list is state a creator

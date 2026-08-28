@@ -25,8 +25,24 @@ message GenesisState {
   repeated IdentityLink identity_links = 7 [(gogoproto.nullable) = false];
   repeated ReputationAttestation reputation_attestations = 8 [(gogoproto.nullable) = false];
   repeated OutboundAttestation outbound_attestations = 9 [(gogoproto.nullable) = false];
-  repeated VerifierActivity verifier_activities = 14 [(gogoproto.nullable) = false];
+  repeated VerifierActivity verifier_activities = 10 [(gogoproto.nullable) = false];
   repeated VerificationRecord verification_records = 11 [(gogoproto.nullable) = false];
   uint64 next_content_id = 12;
   uint64 next_outbound_attestation_id = 13;
+  // Per-UTC-day community-pool draw ledger for the bridge-operator reward
+  // pool. Dropping it on import hands the chain a fresh daily allowance, so
+  // operator_reward_daily_funding would bound a day only until the next
+  // export. Mirrors x/rep's role_reward_day_funding_list.
+  repeated OperatorRewardDayFunding operator_reward_day_funding_list = 14 [(gogoproto.nullable) = false];
+}
+
+// OperatorRewardDayFunding is one UTC day's community-pool draw for the
+// bridge-operator reward pool, ledgered so the daily cap bounds a day rather
+// than a block.
+message OperatorRewardDayFunding {
+  uint64 day = 1;
+  string amount_funded = 2 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
 }

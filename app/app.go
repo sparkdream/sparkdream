@@ -385,6 +385,17 @@ func New(
 	// is constructed (it is — depinject built ServiceKeeper above).
 	app.FederationKeeper.SetServiceKeeper(NewFederationServiceAdapter(app.ServiceKeeper))
 
+	// Bridge-operator compensation: federation draws one capped daily claim on
+	// the community pool in BeginBlock and pays operators from it in
+	// EndBlock. Same adapters x/rep uses — the interfaces are identical, and
+	// the draw is sized off annual provisions rather than the pool balance for
+	// the same reason (the balance holds the councils' genesis allocation).
+	//
+	// Federation is ordered BEFORE x/split in BeginBlockers (app_config.go)
+	// so this skim happens ahead of the councils' full-remainder distribution.
+	app.FederationKeeper.SetDistrKeeper(NewDistrKeeperAdapter(app.DistrKeeper))
+	app.FederationKeeper.SetMintKeeper(NewMintProvisionsAdapter(app.MintKeeper))
+
 	// Wire cross-module keepers into Service after depinject (leaf module).
 	// Adapters in app/service_adapters.go bridge concrete keepers to the
 	// trimmed interfaces x/service expects. The only remaining stubs are

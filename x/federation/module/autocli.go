@@ -104,8 +104,14 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 				{
 					RpcMethod:      "VerifierActivity",
 					Use:            "verifier-activity [address]",
-					Short:          "Query federation-side per-verifier counters (verifications, upheld, overturned, consecutive streaks). Generic bond state lives in x/rep bonded-role.",
+					Short:          "Query per-verifier counters. A read-through projection: federation's unchallenged count overlaid with the shared accountability record x/rep owns. Generic bond state lives in x/rep bonded-role.",
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "address"}},
+				},
+				{
+					RpcMethod:      "OperatorRewardPool",
+					Use:            "operator-reward-pool",
+					Short:          "Query the bridge-operator SPARK reward pool: balance, cap, headroom, today's draw and the daily allowance",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{},
 				},
 				{
 					RpcMethod:      "GetVerificationRecord",

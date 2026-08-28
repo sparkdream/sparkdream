@@ -12,7 +12,10 @@ import (
 )
 
 func TestCreateInvitation(t *testing.T) {
-	fixture := initFixture(t)
+	// Pin the credit ceiling: required stake is
+	// multiplier^(max_credits - remaining), and max_credits for ESTABLISHED
+	// varies by build tag (5 testparams, 6 mainnet, 8 testnet, 10 devnet).
+	fixture := initFixture(t, WithCustomParams(pinnedCreditsParams()))
 	k := fixture.keeper
 	ctx := fixture.ctx
 
@@ -377,8 +380,9 @@ func TestCreateInvitation_LazyCreditsReset(t *testing.T) {
 // TestCreateInvitation_NoResetSameSeason verifies that credits are NOT reset
 // if the member has already been reset this season.
 func TestCreateInvitation_NoResetSameSeason(t *testing.T) {
-	// Use season 0 so member's LastCreditResetSeason=0 does NOT trigger reset
-	fixture := initFixture(t, WithSeasonNumber(0))
+	// Use season 0 so member's LastCreditResetSeason=0 does NOT trigger reset.
+	// Credit ceiling pinned so the escalated floor is tag-independent.
+	fixture := initFixture(t, WithSeasonNumber(0), WithCustomParams(pinnedCreditsParams()))
 	k := fixture.keeper
 	ctx := fixture.ctx
 

@@ -12,17 +12,21 @@ const (
 	EventTypePeerPolicyUpdated     = "peer_policy_updated"
 	EventTypePeerPolicyAutoUpdated = "peer_policy_auto_updated"
 
-	// Bridge operators
-	EventTypeBridgeRegistered        = "bridge_registered"
-	EventTypeBridgeRevoked           = "bridge_revoked"
-	EventTypeBridgeAutoRevoked       = "bridge_auto_revoked"
-	EventTypeBridgeSlashed           = "bridge_slashed"
-	EventTypeBridgeUpdated           = "bridge_updated"
-	EventTypeBridgeSelfUnbonded      = "bridge_self_unbonded"
-	EventTypeBridgeStakeToppedUp     = "bridge_stake_topped_up"
-	EventTypeBridgeUnbondingComplete = "bridge_unbonding_complete"
-	EventTypeBridgeInactiveWarning   = "bridge_inactive_warning"
-	EventTypeBridgeStakeInsufficient = "bridge_stake_insufficient"
+	// Bridge operators. The bond-lifecycle events this block used to carry
+	// (revoked, auto_revoked, slashed, self_unbonded, stake_topped_up,
+	// unbonding_complete, stake_insufficient) went away with the Phase 4
+	// federation→service migration: x/service owns the bond and emits those.
+	// Federation emits only what it still owns — registration, endpoint
+	// updates, and the binding-lifecycle reactions below.
+	EventTypeBridgeRegistered      = "bridge_registered"
+	EventTypeBridgeUpdated         = "bridge_updated"
+	EventTypeBridgeInactiveWarning = "bridge_inactive_warning"
+
+	// Bridge operator compensation (see keeper/operator_reward.go).
+	EventTypeOperatorRewardPoolFunded         = "operator_reward_pool_funded"
+	EventTypeOperatorRewardPaid               = "operator_reward_paid"
+	EventTypeOperatorRewardEpochSkipped       = "operator_reward_epoch_skipped"
+	EventTypeOperatorRewardPoolOverflowBurned = "operator_reward_pool_overflow_burned"
 
 	// Federation→service migration events (Phase 5).
 	EventTypeBridgeUnbound         = "bridge_unbound"
@@ -64,21 +68,22 @@ const (
 	EventTypeOperationalParamsUpdated = "operational_params_updated"
 
 	// Verification
-	EventTypeVerifierBonded                = "verifier_bonded"
-	EventTypeVerifierUnbonded              = "verifier_unbonded"
-	EventTypeVerifierDemoted               = "verifier_demoted"
-	EventTypeContentVerified               = "content_verified"
-	EventTypeContentDisputed               = "content_disputed"
-	EventTypeContentVerificationExpired    = "content_verification_expired"
-	EventTypeVerificationChallenged        = "verification_challenged"
-	EventTypeChallengeUpheld               = "challenge_upheld"
-	EventTypeChallengeRejected             = "challenge_rejected"
-	EventTypeChallengeTimeout              = "challenge_timeout"
-	EventTypeVerifierSlashed               = "verifier_slashed"
-	EventTypeVerifierCooldownApplied       = "verifier_cooldown_applied"
-	EventTypeVerifierDreamRewardPaid       = "verifier_dream_reward_paid"
-	EventTypeVerifierDreamRewardAutoBonded = "verifier_dream_reward_auto_bonded"
-	EventTypeVerifierBondRestored          = "verifier_bond_restored"
+	EventTypeVerifierBonded             = "verifier_bonded"
+	EventTypeVerifierUnbonded           = "verifier_unbonded"
+	EventTypeVerifierDemoted            = "verifier_demoted"
+	EventTypeContentVerified            = "content_verified"
+	EventTypeContentDisputed            = "content_disputed"
+	EventTypeContentVerificationExpired = "content_verification_expired"
+	EventTypeVerificationChallenged     = "verification_challenged"
+	EventTypeChallengeUpheld            = "challenge_upheld"
+	EventTypeChallengeRejected          = "challenge_rejected"
+	EventTypeChallengeTimeout           = "challenge_timeout"
+	EventTypeVerifierSlashed            = "verifier_slashed"
+	EventTypeVerifierCooldownApplied    = "verifier_cooldown_applied"
+	// The verifier reward events (verifier_spark_reward_paid,
+	// verifier_dream_reward_paid, verifier_dream_reward_auto_bonded,
+	// verifier_bond_restored) are emitted by x/rep, which owns the
+	// distribution -- see x/rep/keeper/verifier_reward_distribution.go.
 
 	// Arbiter resolution
 	EventTypeArbiterHashSubmitted          = "arbiter_hash_submitted"

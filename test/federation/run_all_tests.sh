@@ -16,7 +16,7 @@
 #   ./run_all_tests.sh --no-identity    # Skip identity link tests
 #   ./run_all_tests.sh --no-verifier    # Skip verifier tests
 #   ./run_all_tests.sh --no-jury        # Skip jury resolution tests (Phase 2)
-#   ./run_all_tests.sh --no-rewards     # Skip verifier epoch reward tests (Phase 10)
+#   ./run_all_tests.sh --no-rewards     # Skip epoch reward tests (verifier + bridge operator)
 #   ./run_all_tests.sh --no-ratelimit   # Skip rate-limit enforcement tests
 #   ./run_all_tests.sh --no-query       # Skip query tests
 #   ./run_all_tests.sh --no-pagination  # Skip query pagination tests
@@ -200,7 +200,7 @@ for arg in "$@"; do
             echo "  --no-identity    Skip identity link tests"
             echo "  --no-verifier    Skip verifier tests"
             echo "  --no-jury        Skip jury resolution tests (Phase 2 / EscalatedChallenge)"
-            echo "  --no-rewards     Skip verifier epoch reward tests (Phase 10)"
+            echo "  --no-rewards     Skip epoch reward tests (verifier + bridge operator)"
             echo "  --no-ratelimit   Skip rate-limit enforcement tests"
             echo "  --no-query       Skip query tests"
             echo "  --no-pagination  Skip query pagination tests"
@@ -584,14 +584,22 @@ else
     echo ""
 fi
 
-# Phase 10 verifier epoch reward tests. Waits ~2 min for the next
-# 20-block reward epoch boundary, then asserts EpochVerifications
-# reset + LastRewardEpoch/CumulativeRewards updates + last_slash_epoch
-# gate disqualifies same-epoch-slashed verifiers.
+# Verifier epoch reward tests. Waits for the next reward epoch boundary
+# (cadence read from rep params at runtime), then asserts EpochVerifications
+# reset + LastRewardEpoch/CumulativeRewards updates + the last_slash_epoch
+# gate disqualifies verifiers slashed in the window being paid for.
+#
+# Note the distribution itself lives in x/rep now; this exercises it through
+# federation's read-through verifier-activity projection.
 if [ "$RUN_REWARDS" = true ]; then
     run_test "Verifier Rewards Tests" "verifier_rewards_test.sh"
+    # Bridge-operator pay is the half that stayed in x/federation. Same
+    # --no-rewards flag: both are epoch-boundary tests with the same
+    # wall-time cost and the same reason to skip.
+    run_test "Operator Rewards Tests" "operator_rewards_test.sh"
 else
     echo "Skipping verifier rewards tests (--no-rewards)"
+    echo "Skipping operator rewards tests (--no-rewards)"
     echo ""
 fi
 

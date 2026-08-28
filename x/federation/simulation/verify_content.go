@@ -57,13 +57,10 @@ func SimulateMsgVerifyContent(
 			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgVerifyContent{}), "failed to update content"), nil, nil
 		}
 
-		// Bump per-module verifier activity counter.
-		activity, _ := k.VerifierActivity.Get(ctx, addr)
-		if activity.Address == "" {
-			activity.Address = addr
-		}
-		activity.TotalVerifications++
-		_ = k.VerifierActivity.Set(ctx, addr, activity)
+		// Report the verification to x/rep, which owns the per-kind counters.
+		// Best-effort: the simulation drives the keeper directly and a rep
+		// keeper may not be wired.
+		_ = k.ReportSimulatedVerification(ctx, addr)
 
 		return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgVerifyContent{}), "ok (direct keeper call)"), nil, nil
 	}

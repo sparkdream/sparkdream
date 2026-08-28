@@ -18,6 +18,7 @@ const (
 	subAddrKeyAppealBonds      = "appeal_bonds"
 	subAddrKeyReviewerRewards  = "reviewer_rewards"
 	subAddrKeyCuratorRewards   = "curator_rewards"
+	subAddrKeyVerifierRewards  = "verifier_rewards"
 	subAddrKeyRoleRewardIntake = "role_reward_intake"
 )
 
@@ -49,6 +50,19 @@ func ReviewerRewardPoolAddress() sdk.AccAddress {
 // own accuracy bar.
 func CuratorRewardPoolAddress() sdk.AccAddress {
 	return sdkaddress.Module(types.ModuleName, []byte(subAddrKeyCuratorRewards))
+}
+
+// VerifierRewardPoolAddress returns the deterministic address holding the
+// federation-verifier reward pool's uspark balance.
+//
+// The verifier is the one bonded role whose work costs SPARK to perform: it
+// fetches the peer's content off-chain, hashes it, and pays gas to submit the
+// attestation. Paying that role only in DREAM — which cannot be sold and
+// cannot buy gas — made verifying structurally SPARK-negative for the holder,
+// while the bridge operator on the other side of the same exchange is paid in
+// SPARK. This pool closes that.
+func VerifierRewardPoolAddress() sdk.AccAddress {
+	return sdkaddress.Module(types.ModuleName, []byte(subAddrKeyVerifierRewards))
 }
 
 // RoleRewardIntakeAddress returns the deterministic address that receives

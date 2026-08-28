@@ -12,6 +12,18 @@ import (
 )
 
 // EndBlocker runs at the end of each block. 12 phases per spec §9.
+// BeginBlocker funds the bridge-operator reward pool. Funding is best-effort:
+// FundOperatorRewardPool swallows its own failures, and any error surfacing
+// here is logged rather than returned, because a funding problem must never
+// halt the chain.
+func (k Keeper) BeginBlocker(ctx context.Context) error {
+	if err := k.FundOperatorRewardPool(ctx); err != nil {
+		sdk.UnwrapSDKContext(ctx).Logger().With("module", "x/federation").
+			Error("BeginBlocker: operator reward pool funding failed", "error", err)
+	}
+	return nil
+}
+
 func (k Keeper) EndBlocker(ctx context.Context) error {
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	now := sdkCtx.BlockTime().Unix()
@@ -81,9 +93,21 @@ func (k Keeper) EndBlocker(ctx context.Context) error {
 		logger.Error("EndBlocker phase 9 (process peer removal queue) failed", "error", phaseErr)
 	}
 
-	// Phase 10: Verifier Epoch Rewards
-	if err := k.DistributeVerifierRewards(ctx); err != nil {
-		logger.Error("EndBlocker phase 10 (verifier epoch rewards) failed", "error", err)
+	// Phase 10 (verifier epoch rewards) is gone: verifier pay -- both the
+	// SPARK pool and the DREAM stipend -- is distributed by x/rep's
+	// EndBlocker, which owns the RoleActivity record the payout is scored
+	// from. Federation reports verifications and verdicts and pays nothing.
+	//
+	// Bridge OPERATOR pay does live here, because federation owns the data it
+	// is scored from (BridgeBinding submission counters) and operators are
+	// x/service Operators rather than x/rep bonded roles. Distribution runs
+	// before the overflow burn so the pool drains to the people who earned it
+	// first and the burn only ever targets residual.
+	if err := k.DistributeOperatorRewards(ctx); err != nil {
+		logger.Error("EndBlocker: operator reward distribution failed", "error", err)
+	}
+	if err := k.BurnOperatorRewardPoolOverflow(ctx); err != nil {
+		logger.Error("EndBlocker: operator reward pool overflow burn failed", "error", err)
 	}
 
 	// Phase 11: Bridge Operator Monitoring
@@ -234,6 +258,7 @@ func (k Keeper) expireUnverifiedContent(ctx context.Context, sdkCtx sdk.Context,
 			binding, berr := k.BridgeBindings.Get(ctx, bridgeKey)
 			if berr == nil {
 				binding.ContentUnverified++
+				binding.EpochUnverified++
 				_ = k.BridgeBindings.Set(ctx, bridgeKey, binding)
 			}
 			sdkCtx.EventManager().EmitEvent(sdk.NewEvent(types.EventTypeContentVerificationExpired,

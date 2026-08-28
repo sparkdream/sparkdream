@@ -19,13 +19,17 @@ Key principles:
 |--------|---------|
 | `x/commons` | Council/committee authorization for peer registration; resolves Operations Committee policy address as the default per-peer controller; validates `Peer.controller_group` against `IsGroupPolicyAddress` |
 | `x/service` | Bridge-operator economics: SPARK bond escrow, ACTIVE/UNDERFUNDED/UNBONDING/SLASHED/RETIRED state machine, tier-1 controller verdicts, tier-2 jury escalation, unbonding queue. Federation owns the per-binding endpoint/content-stats record only; bond, status, slashing history, and unbonding period live on the `service.Operator` keyed by `(address, service_type)` per protocol. See [docs/x-service-spec.md](x-service-spec.md) for the surface |
-| `x/bank` | SPARK movement for challenge fees, escalation fees, verifier reward payouts (operator-bond movement is owned by x/service) |
-| `x/rep` | Reputation data, trust level checks, DREAM bonding for verifiers via the generic `BondedRole(ROLE_TYPE_FEDERATION_VERIFIER)` primitive, jury system for verification disputes |
+| `x/bank` | SPARK movement for challenge fees, escalation fees, and bridge-operator reward payouts (verifier reward payouts are made by x/rep; operator-bond movement is owned by x/service) |
+| `x/rep` | Reputation data, trust level checks, DREAM bonding for verifiers via the generic `BondedRole(ROLE_TYPE_FEDERATION_VERIFIER)` primitive, the shared `RoleActivity` accountability record federation reports verifications and verdicts into, the verifier reward distribution, and the jury system for verification disputes |
+| `x/distribution` | Community-pool source for the bridge-operator reward pool (`DistributeFromFeePool`, `GetCommunityPool`, `GetCommunityTax`). Late-wired in `app.go`, as an optional depinject dependency would still participate in cycle detection |
+| `x/mint` | `AnnualProvisions` sizes the operator funding draw. The draw is a share of the pool's inflation INCOME, never of its balance — the balance holds the genesis allocation earmarked for the councils |
 | `x/name` | Name resolution for identity linking |
 | `x/shield` | Anonymous challenge resolution via `MsgShieldedExec` (ZK proofs, scoped nullifiers, module-paid gas) |
 | `ibc-go` | IBC core for Spark Dream ↔ Spark Dream federation channels |
 
-**Depended on by x/split only** (read-only queries for compensation weights). Otherwise a leaf module — content modules (blog, forum, collect) emit standard events; the federation layer consumes them without requiring those modules to know about federation.
+**Depended on by nothing.** x/split was once going to query federation for compensation weights; that design was dropped (§15.6) and no module imports x/federation today. Otherwise a leaf module — content modules (blog, forum, collect) emit standard events; the federation layer consumes them without requiring those modules to know about federation.
+
+**Ordering.** Federation must run **before x/split** in `BeginBlockers`: it skims the community pool for the operator reward pool, and x/split distributes whatever remains to the councils in full. Placed after split it would find an empty pool. It joins x/shield (gas reserve) and x/rep (bonded-role pools) as the third such skimmer.
 
 ---
 
@@ -256,29 +260,41 @@ Any member meeting `min_verifier_trust_level` can challenge a VERIFIED piece of 
 
 #### 3.9.4. Verifier Compensation
 
-Verifiers receive **dual-token compensation** — SPARK for infrastructure costs and a small DREAM reward that enables organic bond recovery:
+Verifiers receive **dual-token compensation** — SPARK for infrastructure costs and a small DREAM reward that enables organic bond recovery. **Both are distributed by x/rep**, on one cadence, from `DistributeVerifierRewards` in its EndBlocker.
 
-**SPARK rewards** (via x/split, proportional to work and accuracy):
+**Why x/rep and not x/split or x/federation.** The payout is scored from the shared `RoleActivity` record x/rep owns, and a distribution resets that record's per-epoch counters — two modules distributing for one role on two independently-editable cadences would both reset those counters and neither would read a coherent window. Routing it through x/split instead would make x/split import x/federation and would put a second per-role skim on the community pool, which is exactly what x/rep's single capped intake exists to avoid. So the verifier is simply the fourth entry in `fundedRolePools`, funded headroom-proportionally like the sentinel, reviewer and curator pools, and its reward params live in x/rep params beside theirs.
 
-Distribution weight per verifier per epoch:
+**Why SPARK at all.** The verifier is the one bonded role whose work has an off-chain cost: fetch the peer's content, hash it, pay SPARK gas per submission. Paying only in DREAM — which cannot be sold and cannot buy gas — made verifying structurally SPARK-negative for the holder, while the bridge operator on the other side of the same exchange is paid in SPARK, and the moderation roles (which act on free-to-read on-chain state) are paid in SPARK too.
+
+**SPARK rewards** (pro-rata from the verifier reward pool):
+
 ```
-weight = verified_count * accuracy_multiplier
+score = 1 + accuracy * sqrt(epoch_appeals_resolved)
 ```
 Where:
-- `verified_count` = content items verified this epoch that remain VERIFIED (not overturned by challenge)
-- `accuracy_multiplier` = `upheld_verifications / (upheld_verifications + overturned_verifications)` over rolling 30-day window. Must be ≥ `min_verifier_accuracy` (default: 0.8) to receive any compensation.
+- the flat `1` is an equal share for every eligible verifier — it covers gas and buys availability
+- `accuracy` = windowed `upheld / (upheld + overturned)` over the last `verifier_accuracy_window_epochs` reward epochs. Must be ≥ `min_verifier_accuracy` (default: 0.8) to receive anything.
+- `epoch_appeals_resolved` = challenges against this verifier's work that were DECIDED this epoch
 
-**DREAM rewards** (minted per epoch via x/rep):
+**Volume is a floor, never a weight.** Pay does **not** scale with `verified_count`. Verification is mechanical hash-matching, a verifier with no decided challenge scores as fully accurate, and challenges are rare — so a per-verification rate would pay most for high-volume rubber-stamping, which is precisely the failure the role exists to prevent. It is the same curve x/rep already rejected for collect curators. Volume enters only as the `min_epoch_verifications` eligibility floor (default: 3).
 
-Each eligible verifier receives `verifier_dream_reward` (default: 5 DREAM) per epoch, minted by x/rep. If total eligible rewards exceed `max_verifier_dream_mint_per_epoch`, all verifiers are scaled down pro-rata (same model as forum sentinels). This DREAM reward serves two purposes:
+The consequence is deliberate and worth stating plainly: a verifier doing ten times the minimum earns the same base as one doing the minimum. Pay tracks availability and tested judgment, not throughput. It mirrors the DREAM stipend, which has always been flat per eligible verifier. If challenges never materialise, every eligible verifier scores 1 and the pool splits evenly; if the roster is empty the pool draws nothing at all, because funding is headroom-proportional.
+
+**DREAM rewards** (minted per epoch by x/rep):
+
+Each eligible verifier receives `verifier_dream_reward` (default: 5 DREAM) per epoch. If total eligible rewards exceed `max_verifier_dream_mint_per_epoch`, all verifiers are scaled down pro-rata (same model as forum sentinels). This DREAM reward serves two purposes:
 1. **Bond recovery**: Verifiers slashed into RECOVERY can rebuild their bond through continued good work rather than needing to front DREAM from their own balance. At 50 DREAM per slash and 5 DREAM per epoch, recovery takes ~10 epochs — meaningful but not punishing.
 2. **Community alignment**: Earning DREAM ties verifiers deeper into the community's internal economy, not just infrastructure compensation.
 
-**Eligibility requirements** (same for both SPARK and DREAM):
-- Verifier bond status NORMAL or RECOVERY
-- No slashing events within current epoch
+**Eligibility requirements** (same for both SPARK and DREAM, evaluated in order):
+- Verifier bond status NORMAL or RECOVERY (UNBONDING and DEMOTED earn nothing — the bond is not standing behind new work)
 - At least `min_epoch_verifications` (default: 3) verified items this epoch
-- Accuracy ≥ `min_verifier_accuracy`
+- Windowed accuracy ≥ `min_verifier_accuracy`. A verifier with no *decided* challenge in the window has not been demonstrated wrong and is treated as fully accurate — most verifications are never challenged.
+- No slashing events within the current epoch, read from `RoleActivity.last_slash_epoch`, which `SlashBond` stamps for every bonded role
+
+**Reward params live in x/rep**, not x/federation: `max_verifier_reward_pool`, `verifier_reward_pool_overflow_burn_ratio`, `verifier_reward_epoch_blocks`, `min_verifier_accuracy`, `verifier_accuracy_window_epochs`, `min_epoch_verifications`, `verifier_dream_reward`, `max_verifier_dream_mint_per_epoch`. x/federation keeps the verification *mechanics* — bond sizing, slash amount, challenge windows, cooldown base, `upheld_to_reset_overturns`.
+
+`verifier_reward_epoch_blocks` is set to **one full `challenge_window`** in blocks — 100800 on mainnet (7d), 43200 on testnet (3d), 1200 on devnet (2h) — rather than reusing any other role's cadence: a verification stays challengeable far longer than a hide stays appealable, so the epoch has to be long enough that a challenge filed against work in it can plausibly resolve before the accuracy window scores that work. On production networks that makes it the longest of the four role cadences (mainnet ~7 days vs the sentinel's ~1 day), though that is a consequence of the rule and not the rule itself: devnet compresses its challenge window (2h) harder than its sentinel epoch (6h), so there the verifier cadence is the shorter of the two. Testparams breaks the rule outright (10 blocks against a 50-block challenge window) to keep the RECOVERY auto-bond test inside ~2 minutes of wall time, and relaxes `min_verifier_accuracy` to 0 so the bar cannot fire on the stale verdict count that shortcut produces.
 
 **DREAM auto-bonding in RECOVERY:** If verifier is in RECOVERY status, DREAM rewards auto-bond until the minimum bond is restored. SPARK rewards are always paid out directly (even in RECOVERY). Once bond is restored to `≥ min_verifier_bond`, status returns to NORMAL and DREAM rewards are paid out normally.
 
@@ -436,30 +452,103 @@ When a verifier confirms content, their bond is partially committed (like forum 
 
 #### 3.9.9. Bridge Operator Compensation
 
-Bridge operators are compensated separately via x/split for infrastructure work. Only **verified** content counts toward compensation:
+Bridge operators run the infrastructure that pulls content off ActivityPub /
+AT Protocol and pay SPARK gas to submit it. Like the verifier's, that is real
+off-chain cost denominated in SPARK, so the compensation is SPARK.
 
-**Distribution weight per operator per epoch:**
+**Funding.** x/federation takes **one** capped claim on the community pool per
+UTC day in `BeginBlock` and pays operators from it in `EndBlock` — the shape
+x/shield uses for its gas reserve and x/rep for the bonded-role pools. It is
+**not** an x/split allocation (§3.9.10, §15.6).
+
 ```
-weight = verified_submissions
+daily_allowance = annual_provisions * community_tax * operator_reward_inflation_share / 365
 ```
-Where `verified_submissions` = content items submitted this epoch that reached VERIFIED status.
 
-**Eligibility:**
-- Bridge status ACTIVE
-- No slashing events within current epoch
-- At least 1 verified submission in the epoch
-- `unverified_rate` < 50% (content that expired unverified / total submitted, rolling 30-day window)
+The base is the inflation *rate*, never the community pool balance: the
+balance holds the genesis allocation x/split exists to hand to the councils.
+The draw is additionally bounded by the pool's headroom under
+`max_operator_reward_pool` and by what the pool actually holds, so a full pool
+draws nothing and an idle operator roster costs the community pool nothing.
+Federation is ordered **before x/split** in `BeginBlockers` for the same reason
+x/rep and x/shield are.
 
-This eliminates volume gaming: operators can submit as much as they want, but compensation only flows for content independently verified by a community member.
+**Distribution weight per binding per epoch:**
+```
+weight = epoch_verified
+```
+Where `epoch_verified` counts content items submitted by that binding which an
+independent verifier confirmed this epoch.
 
-#### 3.9.10. x/split Allocations
+**Why volume-weighted here when verifier pay is flat.** The asymmetry is
+deliberate. A verifier self-certifies, so paying them per item funds
+rubber-stamping — see §3.9.4. An operator's verified count has already been
+confirmed by a second party who staked their own DREAM bond on being right, so
+it is volume the operator cannot unilaterally manufacture, and it is the only
+signal separating an operator actually bridging content from one sitting idle
+on a bond.
 
-The "Federation Operations" x/split allocation (suggested: 5% of Community Pool flow) is split between operators and verifiers:
+**Eligibility** (evaluated in order, per binding):
+- Binding not `suspended`. `AfterOperatorUnderfunded` sets this when a slash
+  drops the bond below `min_bond`, so a stake that no longer backs the
+  submissions earns nothing. A dissolving slash prunes the binding outright.
+- `epoch_verified >= min_epoch_verified_submissions` (default 1)
+- `epoch_rejected == 0` — nothing of theirs was falsified this epoch
+- `epoch_unverified / epoch_submitted <= max_unverified_rate` (default 0.5)
 
-- **Bridge operators**: 60% of Federation Operations allocation (infrastructure costs are higher)
-- **Verifiers**: 40% of Federation Operations allocation
+> **Deviation from the original wording.** This section used to specify the
+> third gate as "no slashing events within the current epoch". Federation
+> cannot observe a *partial* slash — x/service fires hooks only on the terminal
+> transitions (dissolved, retired, underfunded, refunded) — so implementing
+> that literally would have meant adding an `AfterOperatorSlashed` hook to
+> x/service and every implementor. Instead the gate keys on the
+> federation-visible **cause** rather than the x/service-visible effect: a
+> challenge upheld against the operator's content, which is what opens the
+> slash report in the first place. Same property, no new cross-module surface.
 
-If no eligible operators/verifiers exist in an epoch, their share rolls back to the Community Pool. The split ratio is a governance parameter (`operator_reward_share`, default: 0.6).
+`content_rejected` / `epoch_rejected` are incremented on `CHALLENGE_UPHELD`
+(Section 11). Note that `content_rejected` was declared and documented from the
+start but never actually incremented until this compensation shipped — it read
+zero for every operator on chain, and the gate above is what made it
+load-bearing.
+
+**Per-epoch counters.** `epoch_submitted` / `epoch_verified` / `epoch_rejected`
+/ `epoch_unverified` on `BridgeBinding` mirror the lifetime counters for the
+current reward epoch and are reset on **every** distribution, eligible or not —
+otherwise an ineligible binding carries stale activity into the next window and
+is paid twice for the same work. The lifetime counters cannot score a reward
+because they only grow: a long-serving operator would out-earn an equally
+productive newcomer forever on history alone.
+
+`last_reward_epoch` and `cumulative_rewards` on the binding record the payout.
+Above `max_operator_reward_pool`, a fraction of the excess is burned each epoch
+(`operator_reward_pool_overflow_burn_ratio`) so an over-funded pool cannot sit
+as a standing prize that makes the role worth farming rather than doing.
+
+The pool is an ordinary bank sub-address, so a council can top it up with a
+plain send. `query federation operator-reward-pool` reports balance, cap,
+headroom, today's draw and the daily allowance — without it, "eligible but the
+pool was empty" and "not eligible" are indistinguishable from outside.
+
+#### 3.9.10. x/split Allocations — dropped
+
+Neither federation role is paid through x/split. The "Federation Operations"
+allocation this section once described was specified and never built, and both
+halves have since been implemented elsewhere:
+
+| Role | Paid by | Pool | Weight |
+|---|---|---|---|
+| Federation verifier | x/rep `DistributeVerifierRewards` | x/rep verifier reward pool (4th entry in `fundedRolePools`) | flat base + contested-accuracy bonus (§3.9.4) |
+| Bridge operator | x/federation `DistributeOperatorRewards` | x/federation operator reward pool | independently-verified submissions (§3.9.9) |
+
+Routing either through x/split would have made x/split import x/federation,
+and x/split's job is dividing whatever **remains** among the councils — a
+module that scores per-role payouts is doing something else. Each paying module
+instead takes its own single capped claim on the community pool ahead of
+x/split, which is also what x/shield does for its gas reserve.
+
+`operator_reward_share` (the 60/40 operator-vs-verifier split of that
+allocation) was removed with the design; it is not a parameter any more.
 
 ---
 
@@ -551,13 +640,25 @@ message BridgeBinding {
   int64 registered_at = 5;
   uint64 content_submitted = 6;                    // Total inbound items submitted via this binding
   uint64 content_verified = 7;                     // Items that reached VERIFIED status
-  uint64 content_rejected = 8;                     // Items rejected by policy
+  uint64 content_rejected = 8;                     // Items a jury found false (CHALLENGE_UPHELD)
   uint64 content_unverified = 9;                   // Items that expired without verification
   int64 last_submission_at = 10;                   // Block time of last content submission (for inactivity checks)
   bool suspended = 11;                             // Set true by AfterOperatorUnderfunded;
                                                    // cleared by AfterOperatorReFunded. Federation
                                                    // refuses new content submissions and outbound
                                                    // attestations from suspended bindings.
+
+  // Per-epoch mirrors of the lifetime counters above, reset on EVERY operator
+  // reward distribution (§3.9.9). The lifetime counters cannot score a reward
+  // because they only grow: a long-serving operator would out-earn an equally
+  // productive newcomer forever on history alone.
+  uint64 epoch_submitted = 12;
+  uint64 epoch_verified = 13;
+  uint64 epoch_rejected = 14;
+  uint64 epoch_unverified = 15;
+
+  int64 last_reward_epoch = 16;                    // Most recent epoch this binding was paid; 0 = never
+  string cumulative_rewards = 17;                  // Lifetime SPARK paid [(gogoproto.customtype) = "cosmossdk.io/math.Int"]
 }
 ```
 
@@ -586,38 +687,52 @@ message BondedRole {
 }
 ```
 
-**Federation-specific counters:**
+**Verifier accountability state lives in x/rep.** Per-kind verification
+counters, verdict streaks, the overturn cooldown, the rolling accuracy ring
+and the slash-epoch stamp are all on x/rep's shared `RoleActivity` record
+under `ROLE_TYPE_FEDERATION_VERIFIER`, keyed by the `federation_verify`
+action kind. Federation REPORTS actions (`RecordRoleAction` at
+`MsgVerifyContent`) and verdicts (`RecordRoleOutcome` on challenge
+resolution); x/rep applies every consequence — streaks, the escalating
+cooldown, ring stamping, streak demotion — and pays the role. This is the
+same ownership split x/forum and x/collect already use for the content
+sentinel; see the RoleActivity section of [docs/x-rep-spec.md](x-rep-spec.md).
+
+Federation's own record is correspondingly slim:
 
 ```protobuf
 // proto/sparkdream/federation/v1/verifier_activity.proto
 message VerifierActivity {
-  string address = 1;                              // Verifier's bech32 address
-
-  // Lifetime metrics
-  uint64 total_verifications = 2;                  // Total content items verified
-  uint64 upheld_verifications = 3;                 // Challenges rejected (verifier was right)
-  uint64 overturned_verifications = 4;             // Challenges upheld (verifier was wrong)
-  uint64 unchallenged_verifications = 5;           // Challenge window expired (not counted in accuracy)
-
-  // Epoch metrics (reset each epoch)
-  uint64 epoch_verifications = 6;
-  uint64 epoch_challenges_resolved = 7;
-
-  // Cooldown / streak tracking
-  uint64 consecutive_overturns = 8;                // For escalating cooldown / demotion trigger
-  uint64 consecutive_upheld = 9;                   // For overturn counter reset
-  int64  overturn_cooldown_until = 10;             // Cannot verify during cooldown
-  uint64 slash_count = 11;                         // Total times slashed
-
-  // Phase 10 reward-epoch gating: stamped to the current reward epoch
-  // by Phase 8 on every CHALLENGE_UPHELD verdict. Phase 10's
-  // eligibility check disqualifies a verifier whose last_slash_epoch
-  // matches the firing reward epoch — they don't earn for the epoch
-  // in which they were slashed. Compared by integer equality, not by
-  // wall-time.
-  int64  last_slash_epoch = 12;
+  string address = 1;
+  // Challenge window expired with no challenge filed. Federation-local: an
+  // unchallenged verification is not evidence of accuracy and deliberately
+  // earns nothing, so it must never reach the accuracy ring.
+  uint64 unchallenged_verifications = 2;
 }
 ```
+
+The `verifier-activity` query still returns the full historical field set as a
+read-through `VerifierActivityView` PROJECTION over both state owners, so
+clients and e2e scripts keep their field paths. `slash_count` is **derived**
+from the overturned-verification count rather than stored — an upheld
+challenge slashes exactly once, so a separate counter was duplication with a
+chance to drift.
+
+**Verdict-streak policy** is federation's to set and x/rep's to enforce,
+written through to `BondedRoleConfig` by `SyncVerifierBondedRoleConfig`
+alongside the bond thresholds:
+
+| federation param | `BondedRoleConfig` field |
+|---|---|
+| `upheld_to_reset_overturns` | `upheld_to_reset_overturns` |
+| `verifier_overturn_base_cooldown` | `overturn_base_cooldown` |
+| (constant `true` for this role) | `overturn_cooldown_escalates` |
+
+The escalation flag is what preserves the verifier's `base * 2^(streak-1)`
+cooldown, capped at 7 days, where the moderation roles take a flat lockout.
+The difference is deliberate: an overturned hide is a contested judgment
+call, while an overturned verification means the holder attested to a hash
+that was false.
 
 **Bond status:** the shared `BondedRoleStatus` enum (`BONDED_ROLE_STATUS_NORMAL` / `_RECOVERY` / `_DEMOTED`) from x/rep replaces the pre-Phase-4 `VerifierBondStatus` enum.
 
@@ -853,84 +968,85 @@ message Params {
   // service_type on the x/service ServiceTypeConfig — federation seeds
   // configs for "federation-bridge-activitypub", "federation-bridge-atproto",
   // "federation-bridge-nostr", and "federation-bridge-lens".
-  reserved 1, 3, 4;
-  reserved "min_bridge_stake", "bridge_revocation_cooldown", "bridge_unbonding_period";
-
   // max_bridges_per_peer is a kill-switch (Decision 6). Default 1000 leaves it
   // effectively no-op. Gov can dial it down without a chain upgrade if abuse
   // emerges. NOT a normal policy lever — real participation gating is
   // service.MinBond + content-hash dedup + per-peer rate limits.
-  uint64 max_bridges_per_peer = 2;
+  uint64 max_bridges_per_peer = 1;
 
   // Content types
-  repeated string known_content_types = 5;         // Registry of valid content type strings (governance-managed)
+  repeated string known_content_types = 2;         // Registry of valid content type strings (governance-managed)
 
   // Content federation
-  uint64 max_inbound_per_block = 6;                // Global rate limit across all peers
-  uint64 max_outbound_per_block = 22;              // Global outbound rate limit across all peers
-  uint64 max_content_body_size = 7;                // Max bytes for FederatedContent.body
-  uint64 max_content_uri_size = 8;                 // Max bytes for FederatedContent.content_uri
-  uint64 max_protocol_metadata_size = 9;           // Max bytes for FederatedContent.protocol_metadata
-  google.protobuf.Duration content_ttl = 10;       // How long to retain federated content
+  uint64 max_inbound_per_block = 3;                // Global rate limit across all peers
+  uint64 max_outbound_per_block = 19;              // Global outbound rate limit across all peers
+  uint64 max_content_body_size = 4;                // Max bytes for FederatedContent.body
+  uint64 max_content_uri_size = 5;                 // Max bytes for FederatedContent.content_uri
+  uint64 max_protocol_metadata_size = 6;           // Max bytes for FederatedContent.protocol_metadata
+  google.protobuf.Duration content_ttl = 7;       // How long to retain federated content
 
   // Reputation
-  google.protobuf.Duration attestation_ttl = 11;   // How long reputation attestations are valid
-  uint32 global_max_trust_credit = 12;             // Absolute cap on trust credit from any peer
-  string trust_discount_rate = 13;                 // Discount applied (e.g., "0.5" = 50% reduction)
+  google.protobuf.Duration attestation_ttl = 8;   // How long reputation attestations are valid
+  uint32 global_max_trust_credit = 9;             // Absolute cap on trust credit from any peer
+  string trust_discount_rate = 10;                 // Discount applied (e.g., "0.5" = 50% reduction)
                                                    // [(gogoproto.customtype) = "cosmossdk.io/math.LegacyDec"]
 
   // Identity
-  uint32 max_identity_links_per_user = 14;         // Max identity links per local address across all peers
-  google.protobuf.Duration unverified_link_ttl = 15; // How long unverified identity links survive before pruning
-  google.protobuf.Duration challenge_ttl = 16;     // How long pending identity challenges survive (default: 7 days)
+  uint32 max_identity_links_per_user = 11;         // Max identity links per local address across all peers
+  google.protobuf.Duration unverified_link_ttl = 12; // How long unverified identity links survive before pruning
+  google.protobuf.Duration challenge_ttl = 13;     // How long pending identity challenges survive (default: 7 days)
 
   // Bridge monitoring
-  uint64 bridge_inactivity_threshold = 17;         // Epochs without submissions before warning event
+  uint64 bridge_inactivity_threshold = 14;         // Epochs without submissions before warning event
 
   // IBC
-  string ibc_port = 18;                            // IBC port ID (default: "federation")
-  string ibc_channel_version = 19;                 // Channel version string
-  google.protobuf.Duration ibc_packet_timeout = 20; // Timeout for outbound IBC packets
+  string ibc_port = 15;                            // IBC port ID (default: "federation")
+  string ibc_channel_version = 16;                 // Channel version string
+  google.protobuf.Duration ibc_packet_timeout = 17; // Timeout for outbound IBC packets
 
   // Rate limiting
-  google.protobuf.Duration rate_limit_window = 23;   // Sliding window duration for per-peer rate limits (default: 24h)
+  uint64 max_prune_per_block = 18;                   // Bounds per-block EndBlocker cleanup work
+  google.protobuf.Duration rate_limit_window = 20;   // Sliding window duration for per-peer rate limits (default: 24h)
 
   // Verification (sentinel-style)
-  uint32 min_verifier_trust_level = 24;              // Min trust level to become verifier (default: ESTABLISHED = 2)
-  string min_verifier_bond = 25;                     // Min DREAM bond [(gogoproto.customtype) = "cosmossdk.io/math.Int"]
-  string verifier_recovery_threshold = 26;           // Bond below this = DEMOTED [(gogoproto.customtype) = "cosmossdk.io/math.Int"]
-  string verifier_slash_amount = 27;                 // DREAM slashed per overturned verification [(gogoproto.customtype) = "cosmossdk.io/math.Int"]
-  google.protobuf.Duration verification_window = 28; // Time for verifier to check content after submission
-  google.protobuf.Duration challenge_window = 29;    // Time to challenge a VERIFIED item
+  uint32 min_verifier_trust_level = 21;              // Min trust level to become verifier (default: ESTABLISHED = 2)
+  string min_verifier_bond = 22;                     // Min DREAM bond [(gogoproto.customtype) = "cosmossdk.io/math.Int"]
+  string verifier_recovery_threshold = 23;           // Bond below this = DEMOTED [(gogoproto.customtype) = "cosmossdk.io/math.Int"]
+  string verifier_slash_amount = 24;                 // DREAM slashed per overturned verification [(gogoproto.customtype) = "cosmossdk.io/math.Int"]
+  google.protobuf.Duration verification_window = 25; // Time for verifier to check content after submission
+  google.protobuf.Duration challenge_window = 26;    // Time to challenge a VERIFIED item
   // Bare-Int amount in the chain's bond denom (resolved at runtime
   // from x/identity). The msg server wraps it into sdk.Coin at the
   // point of use. The `_amount` suffix distinguishes it from a
   // sdk.Coin proto.
-  string challenge_fee_amount = 30;                  // [(gogoproto.customtype) = "cosmossdk.io/math.Int"]
-  google.protobuf.Duration challenge_jury_deadline = 31; // Max time for jury to render verdict
-  google.protobuf.Duration verifier_demotion_cooldown = 32; // Cooldown before re-bonding after demotion
-  google.protobuf.Duration verifier_overturn_base_cooldown = 33; // Base cooldown after overturn (escalates 2x)
-  uint32 upheld_to_reset_overturns = 34;             // Consecutive upheld verifications to reset overturn counter
-  uint32 min_epoch_verifications = 35;               // Min verifications per epoch for reward eligibility
-  string min_verifier_accuracy = 36;                 // Min accuracy for reward eligibility [(gogoproto.customtype) = "cosmossdk.io/math.LegacyDec"]
-  string operator_reward_share = 37;                 // Fraction of Federation Operations allocation for operators [(gogoproto.customtype) = "cosmossdk.io/math.LegacyDec"]
-  string verifier_dream_reward = 38;                 // DREAM minted per eligible verifier per epoch [(gogoproto.customtype) = "cosmossdk.io/math.Int"]
-  string max_verifier_dream_mint_per_epoch = 39;     // Cap on total DREAM minted for verifiers per epoch [(gogoproto.customtype) = "cosmossdk.io/math.Int"]
+  string challenge_fee_amount = 27;                  // [(gogoproto.customtype) = "cosmossdk.io/math.Int"]
+  google.protobuf.Duration challenge_jury_deadline = 28; // Max time for jury to render verdict
+  google.protobuf.Duration verifier_demotion_cooldown = 29; // Cooldown before re-bonding after demotion
+  google.protobuf.Duration verifier_overturn_base_cooldown = 30; // Base cooldown after overturn (escalates 2x)
+  uint32 upheld_to_reset_overturns = 31;             // Consecutive upheld verifications to reset overturn counter
+  // Bridge operator compensation (§3.9.9). Federation draws one capped daily
+  // claim on the community pool and pays operators from it.
+  string operator_reward_inflation_share = 32;       // Share of the pool's inflation income drawn per UTC day [(gogoproto.customtype) = "cosmossdk.io/math.LegacyDec"]
+  string max_operator_reward_pool = 33;              // Pool cap; excess burned at the ratio below [(gogoproto.customtype) = "cosmossdk.io/math.Int"]
+  string operator_reward_pool_overflow_burn_ratio = 34; // [(gogoproto.customtype) = "cosmossdk.io/math.LegacyDec"]
+  uint64 operator_reward_epoch_blocks = 35;          // Distribution cadence
+  uint32 min_epoch_verified_submissions = 36;        // Verified items needed in an epoch to earn
+  string max_unverified_rate = 37;                   // Ceiling on epoch_unverified / epoch_submitted [(gogoproto.customtype) = "cosmossdk.io/math.LegacyDec"]
 
   // Anonymous challenge resolution
-  uint32 arbiter_quorum = 40;                        // Matching hashes needed for auto-resolution
-  google.protobuf.Duration arbiter_resolution_window = 41; // Time for anonymous arbiters to submit hashes
-  google.protobuf.Duration arbiter_escalation_window = 42; // Time to escalate auto-resolution to jury
+  uint32 arbiter_quorum = 38;                        // Matching hashes needed for auto-resolution
+  google.protobuf.Duration arbiter_resolution_window = 39; // Time for anonymous arbiters to submit hashes
+  google.protobuf.Duration arbiter_escalation_window = 40; // Time to escalate auto-resolution to jury
   // Bare-Int amount in the chain's bond denom (same convention as
   // challenge_fee_amount above).
-  string escalation_fee_amount = 43;                 // [(gogoproto.customtype) = "cosmossdk.io/math.Int"]
-  google.protobuf.Duration challenge_cooldown = 44;  // Min time between challenges on the same content after a rejected challenge
+  string escalation_fee_amount = 41;                 // [(gogoproto.customtype) = "cosmossdk.io/math.Int"]
+  google.protobuf.Duration challenge_cooldown = 42;  // Min time between challenges on the same content after a rejected challenge
 
   // Verifier unbond cooldown — period the verifier bond stays locked and
   // slashable after MsgUnbondRole. Propagated to x/rep BondedRoleConfig via
   // SyncVerifierBondedRoleConfig. Mirrors the bridge-operator unbonding
   // period now hosted on x/service. Default 14 days.
-  google.protobuf.Duration verifier_unbond_cooldown = 45;
+  google.protobuf.Duration verifier_unbond_cooldown = 43;
 
   // Pruning
   uint64 max_prune_per_block = 21;                 // Max items pruned per EndBlocker invocation
@@ -944,20 +1060,20 @@ Subset of `Params` updateable by Operations Committee without governance proposa
 ```protobuf
 message FederationOperationalParams {
   uint64 max_inbound_per_block = 1;
-  uint64 max_outbound_per_block = 11;
-  uint64 max_content_body_size = 2;
-  uint64 max_content_uri_size = 3;
-  uint64 max_protocol_metadata_size = 4;
-  google.protobuf.Duration content_ttl = 5;
-  google.protobuf.Duration attestation_ttl = 6;
-  uint32 global_max_trust_credit = 7;
-  string trust_discount_rate = 8;
-  uint64 bridge_inactivity_threshold = 9;
-  uint64 max_prune_per_block = 10;
+  uint64 max_outbound_per_block = 2;
+  uint64 max_content_body_size = 3;
+  uint64 max_content_uri_size = 4;
+  uint64 max_protocol_metadata_size = 5;
+  google.protobuf.Duration content_ttl = 6;
+  google.protobuf.Duration attestation_ttl = 7;
+  uint32 global_max_trust_credit = 8;
+  string trust_discount_rate = 9;
+  uint64 bridge_inactivity_threshold = 10;
+  uint64 max_prune_per_block = 11;
 }
 ```
 
-Governance-only fields: `max_bridges_per_peer`, `known_content_types`, `max_identity_links_per_user`, `unverified_link_ttl`, `challenge_ttl`, `rate_limit_window`, `min_verifier_trust_level`, `min_verifier_bond`, `verifier_recovery_threshold`, `verifier_slash_amount`, `verification_window`, `challenge_window`, `challenge_fee_amount`, `challenge_jury_deadline`, `verifier_demotion_cooldown`, `verifier_overturn_base_cooldown`, `verifier_unbond_cooldown`, `upheld_to_reset_overturns`, `min_verifier_accuracy`, `operator_reward_share`, `verifier_dream_reward`, `max_verifier_dream_mint_per_epoch`, `arbiter_quorum`, `arbiter_resolution_window`, `arbiter_escalation_window`, `escalation_fee_amount`, `challenge_cooldown`, `ibc_port`, `ibc_channel_version`, `ibc_packet_timeout`.
+Governance-only fields: `max_bridges_per_peer`, `known_content_types`, `max_identity_links_per_user`, `unverified_link_ttl`, `challenge_ttl`, `rate_limit_window`, `min_verifier_trust_level`, `min_verifier_bond`, `verifier_recovery_threshold`, `verifier_slash_amount`, `verification_window`, `challenge_window`, `challenge_fee_amount`, `challenge_jury_deadline`, `verifier_demotion_cooldown`, `verifier_overturn_base_cooldown`, `verifier_unbond_cooldown`, `upheld_to_reset_overturns`, `operator_reward_inflation_share`, `max_operator_reward_pool`, `operator_reward_pool_overflow_burn_ratio`, `operator_reward_epoch_blocks`, `min_epoch_verified_submissions`, `max_unverified_rate`, `arbiter_quorum`, `arbiter_resolution_window`, `arbiter_escalation_window`, `escalation_fee_amount`, `challenge_cooldown`, `ibc_port`, `ibc_channel_version`, `ibc_packet_timeout`.
 
 > Bridge bond minimums, revocation cooldown, and unbonding period are no longer federation params — they live on `service.ServiceTypeConfig` and are tunable per protocol via gov on `x/service`, not on `x/federation`.
 
@@ -990,7 +1106,9 @@ Governance-only fields: `max_bridges_per_peer`, `known_content_types`, `max_iden
 | `verifier_unbond_cooldown` | 0 | 90 days | Period verifier bond stays locked and slashable after MsgUnbondRole; 0 = legacy instant-unbond path |
 | `verifier_overturn_base_cooldown` | 1 hour | 7 days | Base cooldown, escalates 2x per consecutive overturn |
 | `min_verifier_accuracy` | 0.5 | 0.95 | Cannot be impossible to achieve |
-| `operator_reward_share` | 0.1 | 0.9 | Neither operators nor verifiers should get zero |
+| `operator_reward_inflation_share` | 0 | 1 | A fraction of inflation income; 0 disables automatic funding |
+| `max_unverified_rate` | 0 | 1 | A rate |
+| `min_epoch_verified_submissions` | 1 | — | Zero would pay an operator who got nothing verified all epoch |
 | `verifier_dream_reward` | 1 DREAM | 50 DREAM | Must enable recovery without being excessive |
 | `max_verifier_dream_mint_per_epoch` | 10 DREAM | 1000 DREAM | Cap total DREAM inflation from verification |
 | `arbiter_quorum` | 2 | 10 | Min 2 for meaningful consensus; higher = harder to game but slower |
@@ -1014,15 +1132,26 @@ message GenesisState {
   repeated OutboundAttestation outbound_attestations = 9 [(gogoproto.nullable) = false];
   // Field 10 previously held FederationVerifier records; replaced by x/rep
   // BondedRole(ROLE_TYPE_FEDERATION_VERIFIER). Per-module counters live in
-  // verifier_activities.
-  reserved 10;
-  reserved "verifiers";
-  repeated VerifierActivity verifier_activities = 14 [(gogoproto.nullable) = false];
+  // verifier_activities, which reuses the freed tag rather than reserving it.
+  repeated VerifierActivity verifier_activities = 10 [(gogoproto.nullable) = false];
   repeated VerificationRecord verification_records = 11 [(gogoproto.nullable) = false];
   uint64 next_content_id = 12;
   uint64 next_outbound_attestation_id = 13;
+  repeated OperatorRewardDayFunding operator_reward_day_funding_list = 14 [(gogoproto.nullable) = false];
+}
+
+message OperatorRewardDayFunding {
+  uint64 day = 1;
+  string amount_funded = 2 [(gogoproto.customtype) = "cosmossdk.io/math.Int", (gogoproto.nullable) = false];
 }
 ```
+
+`operator_reward_day_funding_list` carries the per-UTC-day community-pool draw
+ledger for the bridge-operator reward pool (§3.9.9). It has to survive an
+export/import: the daily allowance lives only in module state, so dropping it
+hands the chain a fresh allowance and lets a mid-day restart take the same
+day's draw twice. x/rep ledgers its `role_reward_day_funding_list` for the same
+reason.
 
 **Default genesis**: Empty peer list, no bridge bindings, no content. Only `params` and `port_id` are populated with defaults from Section 13.
 
@@ -1036,6 +1165,7 @@ message GenesisState {
 - No duplicate `(peer_id, remote_identity)` pairs in `identity_links`
 - For each `BondedRole(ROLE_TYPE_FEDERATION_VERIFIER, address)` in x/rep, `total_committed_bond` must equal the sum of `committed_amount` across all `verification_records` where `verifier == address` and `outcome` is PENDING or CHALLENGED, and `total_committed_bond ≤ current_bond`. Federation does not store these fields directly; the check runs against x/rep's exported bond state at boot.
 - All verification records must reference existing content in `federated_content`
+- No duplicate `day` in `operator_reward_day_funding_list`, and every `amount_funded` must be non-negative — a duplicate collapses silently on import, under-reporting the day's draw and handing back part of an allowance already spent
 
 **Reverse-index rebuild**: federation's InitGenesis rebuilds `BridgesByPeer` and `BindingsByOperator` from the loaded `BridgeBinding` list — these are not exported as genesis fields and are derived deterministically from the primary records.
 
@@ -1054,31 +1184,36 @@ message GenesisState {
 | `BridgeBindings` | `(address, peer_id)` | `BridgeBinding` | Federation-side binding (endpoint, content stats, suspended flag); economic state lives on `service.Operator` |
 | `BridgesByPeer` | `(peer_id, address)` | — | Index: bindings serving a peer |
 | `BindingsByOperator` | `(service_type, address, peer_id)` | — | Reverse index used by hook handlers to enumerate all bindings an operator holds under a service_type in O(N) without scanning `BridgesByPeer`. Multi-valued by design (Decision 1a: one operator may hold multiple peer bindings under one service_type sharing one bond) |
-| `FederatedContent` | `id` (auto-increment) | `FederatedContent` | Inbound content |
+| `Content` | `id` (auto-increment) | `FederatedContent` | Inbound content |
 | `ContentByPeer` | `(peer_id, id)` | — | Index: content from a peer |
 | `ContentByType` | `(content_type, id)` | — | Index: content by type |
 | `ContentByCreator` | `(creator_identity, id)` | — | Index: content by remote creator (for moderation/search) |
 | `ContentByHash` | `content_hash` | `id` | Index: deduplication lookup by content hash |
-| `ContentExpirationQueue` | `(expires_at, id)` | — | Sorted index for efficient TTL pruning |
-| `PendingIdentityChallenges` | `(claimed_address, peer_id)` | `PendingIdentityChallenge` | IBC identity verification challenges |
+| `ContentExpiration` | `(expires_at, id)` | — | Sorted index for efficient TTL pruning |
+| `PendingIdChallenges` | `(claimed_address, peer_id)` | `PendingIdentityChallenge` | IBC identity verification challenges |
 | `IdentityLinks` | `(local_address, peer_id)` | `IdentityLink` | Identity mappings |
 | `IdentityLinksByRemote` | `(peer_id, remote_identity)` | `local_address` | Reverse lookup (unique constraint) |
 | `IdentityLinkCount` | `local_address` | `uint32` | Per-user link count for cap enforcement |
-| `UnverifiedLinkExpirationQueue` | `(expires_at, local_address, peer_id)` | — | Sorted index for unverified link pruning |
-| `ReputationAttestations` | `(local_address, peer_id)` | `ReputationAttestation` | Cached reputation |
-| `AttestationExpirationQueue` | `(expires_at, local_address, peer_id)` | — | Sorted index for attestation pruning |
+| `UnverifiedLinkExp` | `(expires_at, local_address, peer_id)` | — | Sorted index for unverified link pruning |
+| `RepAttestations` | `(local_address, peer_id)` | `ReputationAttestation` | Cached reputation |
+| `AttestationExp` | `(expires_at, local_address, peer_id)` | — | Sorted index for attestation pruning |
 | `OutboundAttestations` | `id` (auto-increment) | `OutboundAttestation` | Outbound audit trail |
 | `VerifierActivity` | `address` | `VerifierActivity` | Federation-specific per-verifier counters. Generic bond state lives in x/rep as `BondedRoles[(ROLE_TYPE_FEDERATION_VERIFIER, address)]`. |
 | `VerificationRecords` | `content_id` | `VerificationRecord` | Verification records (one per content item) |
-| `VerificationWindowQueue` | `(expires_at, content_id)` | — | Sorted index for verification window expiry |
-| `ChallengeWindowQueue` | `(challenge_window_ends, content_id)` | — | Sorted index for challenge window expiry |
-| `ArbiterHashSubmissions` | `(content_id, submitter_key)` | `ArbiterHashSubmission` | Arbiter hash submissions (submitter_key = operator address for identified, nullifier for anonymous) |
+| `OperatorRewardDayFunding` | `utc_day` | `math.Int` string | Ledgers the community-pool draw for the bridge-operator reward pool, so the daily allowance survives restarts and cannot be re-drawn within one day (§3.9.9) |
+| `VerificationWindow` | `(expires_at, content_id)` | — | Sorted index for verification window expiry |
+| `ChallengeWindow` | `(challenge_window_ends, content_id)` | — | Sorted index for challenge window expiry |
+| `ArbiterSubmissions` | `(content_id, submitter_key)` | `ArbiterHashSubmission` | Arbiter hash submissions (submitter_key = operator address for identified, nullifier for anonymous) |
 | `ArbiterHashCounts` | `(content_id, content_hash)` | `uint32` (count) | Count of matching hashes per content_id (for quorum detection) |
 | `ArbiterResolutionQueue` | `(arbiter_resolution_deadline, content_id)` | — | Sorted index for arbiter window expiry |
 | `ArbiterEscalationQueue` | `(arbiter_escalation_deadline, content_id)` | — | Sorted index for escalation window expiry |
+| `EscalatedChallenges` | `content_id` | `EscalatedChallenge` | Phase 2 jury lifecycle record (§4.6a); removed once a verdict is applied |
+| `EscalatedChallengeDeadline` | `(jury_deadline, content_id)` | — | Sorted index for the jury-deadline sweep |
 | `PeerRemovalQueue` | `peer_id` | `PeerRemovalState` | Peers pending data cleanup (with cursor) |
 | `InboundRateLimits` | `(peer_id, window_start)` | `uint64` (count) | Sliding window inbound rate limit tracking |
 | `OutboundRateLimits` | `(peer_id, window_start)` | `uint64` (count) | Sliding window outbound rate limit tracking |
+| `InboundPerBlock` | `block_height` | `uint64` (count) | Global per-BLOCK inbound counter enforcing `max_inbound_per_block`; distinct from the per-peer sliding window above |
+| `OutboundPerBlock` | `block_height` | `uint64` (count) | Global per-BLOCK outbound counter enforcing `max_outbound_per_block` |
 | `Params` | — | `Params` | Module parameters |
 | `Port` | — | `string` | IBC port ID |
 | `ContentSeq` | — | `uint64` | Auto-increment counter for FederatedContent |
@@ -1256,7 +1391,7 @@ message MsgUpdateBridge {
 >
 > - `MsgUnbondBridge` → `service.MsgUnbondOperator` (operator-signed). Sets the operator to UNBONDING for the per-`ServiceTypeConfig.unbonding_period_blocks` window; bond stays slashable; federation reacts via `AfterOperatorRetired` at unbond completion (binding is pruned).
 > - `MsgTopUpBridgeStake` → `service.MsgTopUpBond` (operator-signed). If the operator was UNDERFUNDED, fires `AfterOperatorReFunded` and federation clears the `suspended` flag on all of that operator's bindings under the service_type.
-> - `MsgSlashBridge` → `service.MsgReportOperator` filed by any qualifying reporter (or by federation itself via `OpenSystemReport` on challenge-upheld quorum, see §6.13 / Section 10.4) → controller `MsgResolveReport` resolves with the chosen tier-1 slash within `unilateral_slash_cap_bps`. Larger slashes escalate to a jury via `MsgResolveReportByJury`.
+> - `MsgSlashBridge` → `service.MsgReportOperator` filed by any qualifying reporter (or by federation itself via `OpenSystemReport` on challenge-upheld quorum, see §6.24 / Section 10.4) → controller `MsgResolveReport` resolves with the chosen tier-1 slash within `unilateral_slash_cap_bps`. Larger slashes escalate to a jury via `MsgResolveReportByJury`.
 > - `MsgRevokeBridge` → covered by `AfterOperatorDissolved` when a controller or jury verdict resolves with `dissolve=true`. Federation prunes the binding, decrements the peer's bridge count, and clears in-flight content state.
 >
 > Operator-facing CLI now mixes `tx federation register-bridge` and `tx federation update-bridge` with `tx service unbond-operator`, `tx service top-up-bond`, `tx service report-operator`, etc. The asymmetry is intentional: economic actions (bond changes, exit, slashing) are owned by x/service; only register and endpoint-update need federation orchestration.
@@ -1467,7 +1602,7 @@ Invoked as:
 2. Verify `amount ≤ current_bond - total_committed_bond` — reject with `ErrInsufficientBond` if insufficient available bond (in-flight `MsgVerifyContent` reservations and unresolved challenges lock committed portions).
 3. **Queued path (`verifier_unbond_cooldown > 0`, default 14 days — mirrors the bridge-operator unbonding period now hosted on `service.ServiceTypeConfig.unbonding_period_blocks`):**
    - Set `pending_unbond_amount = amount` and `unbond_completion_time = block_time + verifier_unbond_cooldown`.
-   - Flip `bond_status` to `BONDED_ROLE_STATUS_UNBONDING`. DREAM stays locked and slashable through the cooldown — `MsgChallengeVerifier` and slashing on overturned verifications can still hit `current_bond`, capping `pending_unbond_amount` at the new floor.
+   - Flip `bond_status` to `BONDED_ROLE_STATUS_UNBONDING`. DREAM stays locked and slashable through the cooldown — `MsgChallengeVerification` and slashing on overturned verifications can still hit `current_bond`, capping `pending_unbond_amount` at the new floor.
    - `MsgVerifyContent` and other verifier actions reject on `UNBONDING` — bond pledged to leave can't back fresh verifications.
    - The rep EndBlocker's `MatureUnbonds` finalizes when `unbond_completion_time` elapses: unlocks remaining DREAM, drops `current_bond`, and recomputes status from the final bond against the role's thresholds (partial unbonds staying ≥ `min_verifier_bond` return to `NORMAL`; drops below `verifier_recovery_threshold` land at `DEMOTED` with `verifier_demotion_cooldown` gating re-bonding).
 4. **Legacy path (`verifier_unbond_cooldown == 0`):** `UnlockDREAM` immediately, recompute `bond_status`, set `demotion_cooldown_until` if transitioning to `DEMOTED`.
@@ -1738,10 +1873,11 @@ message MsgPruneOrphanBindingsResponse {
 | `ListPendingIdentityChallenges` | claimed_address filter, pagination | []PendingIdentityChallenge | List pending challenges for an address |
 | `GetReputationAttestation` | local_address, peer_id | ReputationAttestation | Cached reputation |
 | `ListOutboundAttestations` | peer_id filter, pagination | []OutboundAttestation | Outbound audit trail |
-| `VerifierActivity` | address | VerifierActivity | Federation-specific verifier counters. Generic bond state is at `query rep bonded-role ROLE_TYPE_FEDERATION_VERIFIER <addr>`. |
+| `VerifierActivity` | address | VerifierActivityView | Read-through projection: federation's slim stored record overlaid with x/rep's shared `RoleActivity` (§4.4). Generic bond state is at `query rep bonded-role ROLE_TYPE_FEDERATION_VERIFIER <addr>`. |
 | (use `query rep bonded-roles-by-type ROLE_TYPE_FEDERATION_VERIFIER`) | role_type filter, pagination | []BondedRole | List bonded verifiers (lives in x/rep) |
 | `GetVerificationRecord` | content_id | VerificationRecord | Verification record for content |
 | `GetEscalatedChallenge` | content_id | EscalatedChallenge | Phase 2 jury lifecycle record. Returns `ErrEscalatedChallengeNotFound` when no jury lifecycle is currently open for the content (no escalation has fired, or the verdict has already been applied). |
+| `OperatorRewardPool` | — | balance, cap, headroom, funded_today, daily_funding_cap, inflation_share | Bridge-operator SPARK pool status (§3.9.9). Without it, "eligible but the pool was empty" and "not eligible" are indistinguishable from outside. |
 | `Params` | — | Params | Module parameters |
 
 > `GetBridgeOperator` and `ListBridgeOperators` were removed in Phase 7 of the migration. Their replacements are `GetBridgeBinding` and `ListBridgeBindings` above.
@@ -2018,8 +2154,9 @@ Two sub-passes share the `pruned` budget:
 
 **Sub-pass A: `ArbiterEscalationQueue`**. Walk from earliest entry. For each entry where `arbiter_escalation_deadline <= block_time`:
 1. Apply any stashed `PendingVerifierVerdict` on the VerificationRecord (no-op when UNSPECIFIED — escalation already cleared it):
-   - **VERIFIER_RIGHT (CHALLENGE_REJECTED)**: bump `epoch_challenges_resolved`, `upheld_verifications`, `consecutive_upheld`; reset `consecutive_overturns` when the streak hits `upheld_to_reset_overturns`. Increment `prior_rejected_challenges` so the next challenger pays the escalating fee. Content status → VERIFIED. Disburse the escrowed challenge fee 50/50 (verifier as SPARK reward / burn — odd unit rounds to verifier). Emit `challenge_rejected`.
-   - **VERIFIER_WRONG (CHALLENGE_UPHELD)**: bump `epoch_challenges_resolved`, `overturned_verifications`, `slash_count`, `consecutive_overturns`; reset `consecutive_upheld`. Stamp `last_slash_epoch = current_reward_epoch` so Phase 10 disqualifies the verifier for this epoch's payout. Set `overturn_cooldown_until` via `base * 2^(consecutive_overturns - 1)` capped at 7 days. Slash `verifier_slash_amount` DREAM from the bond (burned) and mint half-slash bounty back to the challenger (net: 50% to challenger, 50% burned). Content status → REJECTED. Refund 100% of the escrowed challenge fee to the challenger. Emit `challenge_upheld` + `verifier_cooldown_applied`.
+   Both verdicts are reported to x/rep via `RecordRoleOutcome(ROLE_TYPE_FEDERATION_VERIFIER, addr, "federation_verify", upheld)`. Rep owns the consequence: the per-kind upheld/overturned counters, `epoch_appeals_resolved`, the accuracy ring, the verdict streaks, the overturn cooldown, and streak demotion. Federation writes none of it and reads the results back only for its event payloads.
+   - **VERIFIER_RIGHT (CHALLENGE_REJECTED)**: report an upheld verdict; rep bumps the upheld counter and `consecutive_upheld`, and resets `consecutive_overturns` once the streak reaches the role's configured `upheld_to_reset_overturns`. Increment `prior_rejected_challenges` so the next challenger pays the escalating fee. Content status → VERIFIED. Disburse the escrowed challenge fee 50/50 (verifier as SPARK reward / burn — odd unit rounds to verifier). Emit `challenge_rejected`.
+   - **VERIFIER_WRONG (CHALLENGE_UPHELD)**: report an overturned verdict; rep bumps the overturned counter and `consecutive_overturns`, resets `consecutive_upheld`, sets `overturn_cooldown_until` via `base * 2^(consecutive_overturns - 1)` capped at 7 days (the escalation the role opts into through `BondedRoleConfig.overturn_cooldown_escalates`), and demotes the bond once the overturn streak crosses the threshold. Slash `verifier_slash_amount` DREAM from the bond (burned) and mint half-slash bounty back to the challenger (net: 50% to challenger, 50% burned); `SlashBond` stamps `last_slash_epoch = current_reward_epoch`, which disqualifies the verifier from that epoch's payout. Content status → REJECTED. Refund 100% of the escrowed challenge fee to the challenger. Emit `challenge_upheld` + `verifier_cooldown_applied`.
 2. Stamp `last_challenge_resolved_at = block_time` and reset `pending_verifier_verdict` to UNSPECIFIED (re-org safety).
 3. Clean up `ArbiterHashSubmissions` and `ArbiterHashCounts` for this content_id.
 4. Delete the queue entry.
@@ -2066,25 +2203,44 @@ For each peer in `PeerRemovalQueue` (bounded by remaining prune budget):
 7. If ALL flags are true, delete the Peer record itself and remove from `PeerRemovalQueue`. Emit `peer_cleanup_complete` event.
 8. If budget exhausted at any step, save cursor state — remaining work resumes from exactly where it left off next block.
 
-### Phase 10: Verifier Epoch Rewards and Counter Reset
+### Phase 10: (retired) Verifier Epoch Rewards
 
-Triggered once per epoch (block-cadence: `height % GetVerifierRewardEpochBlocks() == 0`; cadence is build-tag dependent — 7 days at 6s blocks in mainnet, shorter in test/dev networks):
+Federation's EndBlocker no longer has a verifier reward phase. Verifier pay —
+the SPARK pool share **and** the DREAM stipend — is distributed by x/rep's
+`DistributeVerifierRewards` on its own EndBlocker, because the payout is
+scored from the shared `RoleActivity` record x/rep owns and a distribution
+resets that record's per-epoch counters. See Section 3.9.4.
 
-**DREAM reward distribution:**
-1. Identify eligible verifiers: bond record exists and BondStatus is not DEMOTED/UNBONDING, `epoch_verifications >= min_epoch_verifications`, accuracy ≥ `min_verifier_accuracy`, `last_slash_epoch != current_reward_epoch` (no slashing this epoch — stamped by Phase 8 on CHALLENGE_UPHELD).
-2. Calculate total DREAM to mint: `min(eligible_count × verifier_dream_reward, max_verifier_dream_mint_per_epoch)`.
-3. If cap hit, divide `max_verifier_dream_mint_per_epoch / eligible_count` for a flat per-verifier reward — all verifiers scaled equally.
-4. For each eligible verifier:
-   - Mint the full reward to the verifier's available DREAM balance via `repKeeper.MintDREAM`.
-   - If status is RECOVERY and `current_bond < min_verifier_bond`: lock the smaller of `(reward, min_verifier_bond - current_bond)` from that balance back into the bond via `repKeeper.IncreaseBond` (re-credits `current_bond` and recomputes status — crossing `min_verifier_bond` flips RECOVERY → NORMAL). Emit `verifier_dream_reward_auto_bonded` with `auto_bonded`, `payout`, `new_bond`. If `new_bond >= min_verifier_bond` after the increase, additionally emit `verifier_bond_restored`.
-   - Otherwise the full reward stays as available balance. Emit `verifier_dream_reward_paid`.
-   - Per-verifier auto-bond failure logs and retains the reward as available balance (does not abort the distribution).
-5. Update `last_reward_epoch` + `cumulative_rewards` on the BondedRole record via `repKeeper.RecordRewardPayout`.
+What x/rep does at each `verifier_reward_epoch_blocks` boundary:
 
-**Epoch counter reset** (all verifiers):
-- `epoch_verifications = 0`
-- `epoch_challenges_resolved = 0`
-- `last_active_epoch` and `consecutive_inactive_epochs` are maintained by `repKeeper.RecordActivity`, which is called on every successful `MsgVerifyContent` — no Phase 10 update needed.
+1. Walk `BondedRoles` under `ROLE_TYPE_FEDERATION_VERIFIER` and apply the
+   eligibility gates in order: bond status NORMAL or RECOVERY;
+   `epoch_actions["federation_verify"] >= min_epoch_verifications`; windowed
+   accuracy ≥ `min_verifier_accuracy`; no slash stamped in the window being
+   paid for. That last gate is a window test, not `last_slash_epoch ==
+   current_epoch`: the distribution runs at the boundary of epoch N but the
+   counters accrued in epoch N-1, so it accepts either. See the RoleActivity
+   section of [x-rep-spec.md](x-rep-spec.md).
+2. Score each eligible verifier `1 + accuracy * sqrt(epoch_appeals_resolved)`
+   and pay the SPARK pool out pro-rata. SPARK is paid straight out even in
+   RECOVERY — it reimburses gas already spent, and withholding it would make
+   recovery hardest exactly when the holder can least fund the work.
+3. Mint the flat `verifier_dream_reward` per eligible verifier, scaling all of
+   them down equally if the roster would breach
+   `max_verifier_dream_mint_per_epoch`. For a RECOVERY verifier below
+   `min_bond` (read from the role's `BondedRoleConfig`, which federation
+   write-throughs from `min_verifier_bond`), re-lock the smaller of
+   `(reward, min_bond - current_bond)` via `IncreaseBond` — crossing
+   `min_bond` flips RECOVERY → NORMAL. A per-verifier auto-bond failure logs
+   and leaves the reward as available balance rather than aborting the
+   distribution for everyone else.
+4. Record `last_reward_epoch` + `cumulative_rewards` on the BondedRole.
+5. Reset per-epoch counters on EVERY verifier, eligible or not, via
+   `ResetRoleEpochCounters` — otherwise an ineligible verifier carries stale
+   epoch activity into the next window.
+
+`last_active_epoch` and `consecutive_inactive_epochs` are maintained by
+`repKeeper.RecordActivity`, called on every successful `MsgVerifyContent`.
 
 ### Phase 11: Bridge Binding Monitoring
 
@@ -2324,8 +2480,9 @@ Bridge operators can be slashed for:
 | `challenge_timeout` | content_id, verifier, challenger | No jury consensus |
 | `verifier_slashed` | address, amount, remaining_bond, bond_status | Verifier DREAM slashed |
 | `verifier_cooldown_applied` | address, cooldown_until, consecutive_overturns | Escalating cooldown after overturn |
-| `verifier_dream_reward_paid` | address, amount | DREAM reward paid to verifier (NORMAL status) |
-| `verifier_dream_reward_auto_bonded` | address, auto_bonded, payout, new_bond | DREAM reward auto-bonded in RECOVERY |
+| `verifier_spark_reward_paid` | verifier, amount, accuracy, epoch | Emitted by x/rep: SPARK pool share paid to an eligible verifier |
+| `verifier_dream_reward_paid` | verifier, amount, epoch | Emitted by x/rep: DREAM stipend minted to an eligible verifier |
+| `verifier_dream_reward_auto_bonded` | verifier, amount, epoch | Emitted by x/rep: stipend re-locked into a RECOVERY bond |
 | `verifier_bond_restored` | address, new_bond | Verifier bond restored to NORMAL via auto-bonding |
 | `arbiter_hash_submitted` | content_id, content_hash, is_identified | Arbiter hash received (operator address included if identified, omitted if anonymous) |
 | `arbiter_quorum_reached` | content_id, quorum_hash, matching_count | Quorum of matching hashes reached |
@@ -2336,7 +2493,12 @@ Bridge operators can be slashed for:
 | `jury_verdict_applied` | content_id, verdict, authority, reasoning | Operations Committee applied a Phase 2 jury verdict via `MsgResolveEscalatedChallenge` |
 | `escalation_fee_refunded` | content_id, escalator, amount | Escalation fee refunded to escalator after the jury overturned the auto-verdict |
 | `escalation_fee_burned` | content_id, amount | Escalation fee burned (jury agreed with the auto-verdict, or TIMEOUT) |
-| `verifier_reward_epoch_skipped` | epoch, reason | Phase 10 fired but no rewards distributed (`no_eligible_verifiers` or `reward_zero_after_scaling`) |
+| `operator_reward_pool_funded` | amount, day | Community-pool draw into the bridge-operator reward pool |
+| `operator_reward_paid` | operator, peer_id, amount, verified, epoch | SPARK paid to a bridge operator for independently-verified submissions |
+| `operator_reward_epoch_skipped` | epoch, reason | A reward epoch fired but nothing was distributed (`no_eligible_operators` or `empty_pool`) |
+| `operator_reward_pool_overflow_burned` | amount | Excess above `max_operator_reward_pool` partially burned |
+| `federation_packet_send_failed` | peer_id, packet_kind, content_type / local_address, local_content_id, error | Outbound IBC send failed. The tx still SUCCEEDS — the local state change (attestation record, content federation intent) is kept and only the packet is lost, so this event is the only signal a relayer or operator gets. |
+| `verifier_reward_epoch_skipped` | epoch, reason | Emitted by x/rep: a reward epoch fired but nothing was distributed (`no_eligible_verifiers` or `reward_zero_after_scaling`) |
 
 ---
 
@@ -2379,16 +2541,28 @@ Bridge operators can be slashed for:
 | `verifier_unbond_cooldown` | 14 days | Period verifier bond stays locked and slashable after `MsgUnbondRole`; mirrors the bridge-operator unbonding period now hosted on x/service |
 | `verifier_overturn_base_cooldown` | 24 hours | Escalates 2x per consecutive overturn, capped at 7 days |
 | `upheld_to_reset_overturns` | 3 | Consecutive correct verifications to reset overturn counter |
-| `min_epoch_verifications` | 3 | Must do real work to earn rewards |
-| `min_verifier_accuracy` | 0.8 | Higher than forum sentinel (0.7) because verification is more objective |
-| `operator_reward_share` | 0.6 | 60% operators / 40% verifiers — operators have higher infra costs |
-| `verifier_dream_reward` | 5 DREAM | Enough for ~10 epoch recovery from one slash (50 DREAM) |
-| `max_verifier_dream_mint_per_epoch` | 100 DREAM | Caps inflation: supports up to 20 verifiers at full reward |
+| `operator_reward_inflation_share` | 0.05 | Share of the community pool's inflation income federation may draw per UTC day for operator pay. An order of magnitude below x/rep's 0.5 because this funds ONE role, not four, and federation is the third module skimming ahead of x/split |
+| `max_operator_reward_pool` | 100,000 SPARK | Matches x/rep's bonded-role pool caps |
+| `operator_reward_pool_overflow_burn_ratio` | 0.5 | Partial burn: a temporary spike is not destroyed outright |
+| `operator_reward_epoch_blocks` | ~7 days (mainnet) | Long enough that submissions can plausibly be verified before the epoch that pays for them closes |
+| `min_epoch_verified_submissions` | 1 | Must have got at least one item independently verified to earn |
+| `max_unverified_rate` | 0.5 | Above half your submissions expiring unverified, you are spending verifier attention rather than producing value |
 | `arbiter_quorum` | 3 | Minimum for meaningful consensus; odd number avoids ties |
 | `arbiter_resolution_window` | 24 hours | Matches verification_window; most accessible content resolved same day |
 | `arbiter_escalation_window` | 48 hours | Enough time for losing party to review and decide whether to escalate |
 | `escalation_fee_amount` | 100 SPARK | Low enough to not block legitimate disputes, high enough to deter spam |
 | `challenge_cooldown` | 7 days | Matches challenge_window; prevents re-challenge immediately after resolution |
+
+**Verifier PAY defaults live in x/rep params**, not here — x/rep runs the
+distribution (§3.9.4). For reference: `max_verifier_reward_pool` 100,000 SPARK,
+`verifier_reward_pool_overflow_burn_ratio` 0.5, `verifier_reward_epoch_blocks`
+~7 days on mainnet (one full `challenge_window`; the longest of the four role cadences on production networks),
+`min_verifier_accuracy` 0.8 (higher than the forum sentinel's 0.7 because
+verification is more objective), `verifier_accuracy_window_epochs` 6,
+`min_epoch_verifications` 3, `verifier_dream_reward` 5 DREAM (≈10 epochs to
+recover from one 50 DREAM slash), `max_verifier_dream_mint_per_epoch` 100
+DREAM. [x/rep/types/params.go](../x/rep/types/params.go) is the source of
+truth.
 
 ---
 
@@ -2638,16 +2812,26 @@ Every hook body is wrapped in `defer recoverHookPanic` (fail-soft pattern). A bu
 
 **App init order**: x/commons must construct before x/federation (OpsComm policy address must exist for `MsgRegisterBridge`); x/service must construct before x/federation (federation depends on service keeper). **EndBlocker order**: x/service before x/federation, so hook-fired binding state mutations settle before federation's own per-block work runs.
 
-### 15.6. x/split (reverse dependency — x/split depends on x/federation, not vice versa)
+### 15.6. x/split — NOT used for verifier pay
 
-```go
-// x/split imports x/federation's keeper interface (read-only) to compute distribution weights.
-// x/federation does NOT import or call x/split — it only exposes these query methods:
-k.federationKeeper.GetActiveOperatorWeights(ctx)  // Returns []OperatorWeight{address, peer_id, weight}
-k.federationKeeper.GetActiveVerifierWeights(ctx)   // Returns []VerifierWeight{address, weight}
-```
+**Verifier SPARK pay does not route through x/split.** It is a fourth entry in
+x/rep's `fundedRolePools`, paid by `DistributeVerifierRewards` in x/rep's
+EndBlocker (Section 3.9.4).
 
-x/split calls these each epoch from its own BeginBlocker to distribute the Federation Operations allocation. Operators receive `operator_reward_share` (default 60%) based on verified submissions. Verifiers receive the remainder (40%) based on verification count and accuracy (see Section 3.9). x/split handles the actual SPARK transfer from Community Pool. This is a **read-only, one-directional** call — no circular dependency.
+An earlier revision of this spec assigned the SPARK half of verifier
+compensation to a "Federation Operations" x/split allocation, fed by
+`GetActiveOperatorWeights` / `GetActiveVerifierWeights` keeper methods. That
+design was never implemented and has been dropped. It would have made x/split
+— whose whole job is the simple councils split — import x/federation, and it
+would have put a second per-role skim on the community pool, when x/rep's
+single capped intake exists precisely so the pool sees one claim from this
+chain's bonded roles no matter how many of them there are.
+
+**Bridge operator** compensation is now implemented the same way, in
+x/federation itself: federation owns the data it is scored from
+(`BridgeBinding` submission counters) and operators are x/service Operators
+rather than x/rep bonded roles, so neither x/split nor x/rep is the right
+home. See §3.9.9.
 
 ### 15.7. Content Modules (Blog, Forum, Collect)
 
@@ -2740,6 +2924,7 @@ sparkdreamd query federation list-pending-identity-challenges [claimed-address]
 sparkdreamd query federation get-reputation-attestation [local-address] [peer-id]
 sparkdreamd query federation list-outbound-attestations
 sparkdreamd query federation verifier-activity [address]
+sparkdreamd query federation operator-reward-pool
 sparkdreamd query federation get-verification-record [content-id]
 sparkdreamd query federation params
 

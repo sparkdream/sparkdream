@@ -130,6 +130,7 @@ DEC_FIELDS = [
     'sentinel_reward_pool_overflow_burn_ratio',
     'min_sentinel_accuracy', 'min_appeal_rate',
     'curator_reward_pool_overflow_burn_ratio', 'min_curator_accuracy',
+    'verifier_reward_pool_overflow_burn_ratio', 'min_verifier_accuracy',
     'role_reward_inflation_share', 'permissionless_min_review_bounty_rate'
 ]
 
@@ -297,6 +298,14 @@ if [ "$QUERY_PARAMS_RESULT" == "PASS" ]; then
       curator_reward_epoch_blocks,
       min_curator_accuracy,
       curator_accuracy_window_epochs,
+      max_verifier_reward_pool,
+      verifier_reward_pool_overflow_burn_ratio,
+      verifier_reward_epoch_blocks,
+      min_verifier_accuracy,
+      verifier_accuracy_window_epochs,
+      min_epoch_verifications,
+      verifier_dream_reward,
+      max_verifier_dream_mint_per_epoch,
       review_required_above_budget,
       review_bounty_reclaim_delay,
       permissionless_min_review_bounty_rate
@@ -542,6 +551,14 @@ if [ "$UPDATE_PARAMS_RESULT" == "PASS" ]; then
       curator_reward_epoch_blocks,
       min_curator_accuracy,
       curator_accuracy_window_epochs,
+      max_verifier_reward_pool,
+      verifier_reward_pool_overflow_burn_ratio,
+      verifier_reward_epoch_blocks,
+      min_verifier_accuracy,
+      verifier_accuracy_window_epochs,
+      min_epoch_verifications,
+      verifier_dream_reward,
+      max_verifier_dream_mint_per_epoch,
       review_required_above_budget,
       review_bounty_reclaim_delay,
       permissionless_min_review_bounty_rate

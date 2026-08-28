@@ -216,6 +216,20 @@ func DefaultParams() Params {
 		CuratorRewardEpochBlocks:           getSentinelRewardEpochBlocks(),   // same build-tag cadence
 		MinCuratorAccuracy:                 math.LegacyNewDecWithPrec(70, 2), // 0.70
 		CuratorAccuracyWindowEpochs:        DefaultSentinelAccuracyWindowEpochs,
+		// Federation-verifier pay. Pool sized equal to the sentinel and curator
+		// pools: an idle role draws nothing under headroom-proportional funding,
+		// so an equal cap costs the community pool nothing while the roster is
+		// small and avoids inventing a per-role sizing story with no evidence
+		// behind it yet. Its own cadence (see getVerifierRewardEpochBlocks) and
+		// its own accuracy bar, matching federation's pre-migration 0.8.
+		MaxVerifierRewardPool:               math.NewInt(100000000000),       // 100,000 SPARK in uspark
+		VerifierRewardPoolOverflowBurnRatio: math.LegacyNewDecWithPrec(5, 1), // 0.5 (50%)
+		VerifierRewardEpochBlocks:           getVerifierRewardEpochBlocks(),
+		MinVerifierAccuracy:                 getMinVerifierAccuracy(),
+		VerifierAccuracyWindowEpochs:        DefaultSentinelAccuracyWindowEpochs,
+		MinEpochVerifications:               getMinEpochVerifications(),
+		VerifierDreamReward:                 math.NewInt(5000000), // 5 DREAM
+		MaxVerifierDreamMintPerEpoch:        getMaxVerifierDreamMintPerEpoch(),
 		// Chain-wide review gate, keyed on how much the completion mints.
 		// 100 DREAM is the APPRENTICE ceiling, so apprentice work stays exempt
 		// and every permissionless STANDARD initiative is gated.
@@ -393,6 +407,33 @@ func (p Params) Validate() error {
 	}
 	if p.CuratorAccuracyWindowEpochs == 0 {
 		return fmt.Errorf("curator accuracy window epochs must be positive")
+	}
+	if p.MaxVerifierRewardPool.IsNil() || p.MaxVerifierRewardPool.IsNegative() {
+		return fmt.Errorf("max verifier reward pool must be non-negative: %s", p.MaxVerifierRewardPool)
+	}
+	if p.MaxVerifierRewardPool.GT(RoleRewardPoolCeiling()) {
+		return fmt.Errorf("max verifier reward pool exceeds ceiling %s: %s", RoleRewardPoolCeiling(), p.MaxVerifierRewardPool)
+	}
+	if p.VerifierRewardPoolOverflowBurnRatio.IsNil() || p.VerifierRewardPoolOverflowBurnRatio.IsNegative() ||
+		p.VerifierRewardPoolOverflowBurnRatio.GT(math.LegacyOneDec()) {
+		return fmt.Errorf("verifier reward pool overflow burn ratio must be in [0,1]: %s", p.VerifierRewardPoolOverflowBurnRatio)
+	}
+	if p.VerifierRewardEpochBlocks == 0 {
+		// Zero would divide by zero when deriving the epoch number.
+		return fmt.Errorf("verifier reward epoch blocks must be positive")
+	}
+	if p.MinVerifierAccuracy.IsNil() || p.MinVerifierAccuracy.IsNegative() ||
+		p.MinVerifierAccuracy.GT(math.LegacyOneDec()) {
+		return fmt.Errorf("min verifier accuracy must be in [0,1]: %s", p.MinVerifierAccuracy)
+	}
+	if p.VerifierAccuracyWindowEpochs == 0 {
+		return fmt.Errorf("verifier accuracy window epochs must be positive")
+	}
+	if p.VerifierDreamReward.IsNil() || p.VerifierDreamReward.IsNegative() {
+		return fmt.Errorf("verifier dream reward must be non-negative: %s", p.VerifierDreamReward)
+	}
+	if p.MaxVerifierDreamMintPerEpoch.IsNil() || p.MaxVerifierDreamMintPerEpoch.IsNegative() {
+		return fmt.Errorf("max verifier dream mint per epoch must be non-negative: %s", p.MaxVerifierDreamMintPerEpoch)
 	}
 	// Zero is meaningful: it disables the chain-wide gate and leaves review to
 	// per-project policy.
@@ -789,6 +830,20 @@ func DefaultRepOperationalParams() RepOperationalParams {
 		CuratorRewardEpochBlocks:           getSentinelRewardEpochBlocks(),   // same build-tag cadence
 		MinCuratorAccuracy:                 math.LegacyNewDecWithPrec(70, 2), // 0.70
 		CuratorAccuracyWindowEpochs:        DefaultSentinelAccuracyWindowEpochs,
+		// Federation-verifier pay. Pool sized equal to the sentinel and curator
+		// pools: an idle role draws nothing under headroom-proportional funding,
+		// so an equal cap costs the community pool nothing while the roster is
+		// small and avoids inventing a per-role sizing story with no evidence
+		// behind it yet. Its own cadence (see getVerifierRewardEpochBlocks) and
+		// its own accuracy bar, matching federation's pre-migration 0.8.
+		MaxVerifierRewardPool:               math.NewInt(100000000000),       // 100,000 SPARK in uspark
+		VerifierRewardPoolOverflowBurnRatio: math.LegacyNewDecWithPrec(5, 1), // 0.5 (50%)
+		VerifierRewardEpochBlocks:           getVerifierRewardEpochBlocks(),
+		MinVerifierAccuracy:                 getMinVerifierAccuracy(),
+		VerifierAccuracyWindowEpochs:        DefaultSentinelAccuracyWindowEpochs,
+		MinEpochVerifications:               getMinEpochVerifications(),
+		VerifierDreamReward:                 math.NewInt(5000000), // 5 DREAM
+		MaxVerifierDreamMintPerEpoch:        getMaxVerifierDreamMintPerEpoch(),
 		// Chain-wide review gate, keyed on how much the completion mints.
 		// 100 DREAM is the APPRENTICE ceiling, so apprentice work stays exempt
 		// and every permissionless STANDARD initiative is gated.
@@ -974,6 +1029,32 @@ func (op RepOperationalParams) Validate() error {
 	}
 	if op.CuratorAccuracyWindowEpochs == 0 {
 		return fmt.Errorf("curator accuracy window epochs must be positive")
+	}
+	if op.MaxVerifierRewardPool.IsNil() || op.MaxVerifierRewardPool.IsNegative() {
+		return fmt.Errorf("max verifier reward pool must be non-negative: %s", op.MaxVerifierRewardPool)
+	}
+	if op.MaxVerifierRewardPool.GT(RoleRewardPoolCeiling()) {
+		return fmt.Errorf("max verifier reward pool exceeds ceiling %s: %s", RoleRewardPoolCeiling(), op.MaxVerifierRewardPool)
+	}
+	if op.VerifierRewardPoolOverflowBurnRatio.IsNil() || op.VerifierRewardPoolOverflowBurnRatio.IsNegative() ||
+		op.VerifierRewardPoolOverflowBurnRatio.GT(math.LegacyOneDec()) {
+		return fmt.Errorf("verifier reward pool overflow burn ratio must be in [0,1]: %s", op.VerifierRewardPoolOverflowBurnRatio)
+	}
+	if op.VerifierRewardEpochBlocks == 0 {
+		return fmt.Errorf("verifier reward epoch blocks must be positive")
+	}
+	if op.MinVerifierAccuracy.IsNil() || op.MinVerifierAccuracy.IsNegative() ||
+		op.MinVerifierAccuracy.GT(math.LegacyOneDec()) {
+		return fmt.Errorf("min verifier accuracy must be in [0,1]: %s", op.MinVerifierAccuracy)
+	}
+	if op.VerifierAccuracyWindowEpochs == 0 {
+		return fmt.Errorf("verifier accuracy window epochs must be positive")
+	}
+	if op.VerifierDreamReward.IsNil() || op.VerifierDreamReward.IsNegative() {
+		return fmt.Errorf("verifier dream reward must be non-negative: %s", op.VerifierDreamReward)
+	}
+	if op.MaxVerifierDreamMintPerEpoch.IsNil() || op.MaxVerifierDreamMintPerEpoch.IsNegative() {
+		return fmt.Errorf("max verifier dream mint per epoch must be non-negative: %s", op.MaxVerifierDreamMintPerEpoch)
 	}
 	// Zero is meaningful: it disables the chain-wide gate and leaves review to
 	// per-project policy.
@@ -1209,6 +1290,14 @@ func (p Params) ApplyOperationalParams(op RepOperationalParams) Params {
 	p.CuratorRewardEpochBlocks = op.CuratorRewardEpochBlocks
 	p.MinCuratorAccuracy = op.MinCuratorAccuracy
 	p.CuratorAccuracyWindowEpochs = op.CuratorAccuracyWindowEpochs
+	p.MaxVerifierRewardPool = op.MaxVerifierRewardPool
+	p.VerifierRewardPoolOverflowBurnRatio = op.VerifierRewardPoolOverflowBurnRatio
+	p.VerifierRewardEpochBlocks = op.VerifierRewardEpochBlocks
+	p.MinVerifierAccuracy = op.MinVerifierAccuracy
+	p.VerifierAccuracyWindowEpochs = op.VerifierAccuracyWindowEpochs
+	p.MinEpochVerifications = op.MinEpochVerifications
+	p.VerifierDreamReward = op.VerifierDreamReward
+	p.MaxVerifierDreamMintPerEpoch = op.MaxVerifierDreamMintPerEpoch
 	p.ReviewRequiredAboveBudget = op.ReviewRequiredAboveBudget
 	p.ReviewBountyReclaimDelay = op.ReviewBountyReclaimDelay
 	p.PermissionlessMinReviewBountyRate = op.PermissionlessMinReviewBountyRate
@@ -1341,6 +1430,14 @@ func (p Params) ExtractOperationalParams() RepOperationalParams {
 		CuratorRewardEpochBlocks:            p.CuratorRewardEpochBlocks,
 		MinCuratorAccuracy:                  p.MinCuratorAccuracy,
 		CuratorAccuracyWindowEpochs:         p.CuratorAccuracyWindowEpochs,
+		MaxVerifierRewardPool:               p.MaxVerifierRewardPool,
+		VerifierRewardPoolOverflowBurnRatio: p.VerifierRewardPoolOverflowBurnRatio,
+		VerifierRewardEpochBlocks:           p.VerifierRewardEpochBlocks,
+		MinVerifierAccuracy:                 p.MinVerifierAccuracy,
+		VerifierAccuracyWindowEpochs:        p.VerifierAccuracyWindowEpochs,
+		MinEpochVerifications:               p.MinEpochVerifications,
+		VerifierDreamReward:                 p.VerifierDreamReward,
+		MaxVerifierDreamMintPerEpoch:        p.MaxVerifierDreamMintPerEpoch,
 		ReviewRequiredAboveBudget:           p.ReviewRequiredAboveBudget,
 		ReviewBountyReclaimDelay:            p.ReviewBountyReclaimDelay,
 		PermissionlessMinReviewBountyRate:   p.PermissionlessMinReviewBountyRate,

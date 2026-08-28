@@ -11,13 +11,45 @@ import (
 	"sparkdream/x/rep/types"
 )
 
-// escalationParams returns DefaultParams with InvitationCostMultiplier forced
-// to 1.1x. The default testparams build sets it to 1.0 to keep E2E setup
-// scripts simple, but cost-escalation tests must opt into the production
-// behavior to exercise the multiplier path.
+// escalationParams returns DefaultParams with the two invitation-cost inputs
+// forced to fixed values.
+//
+// InvitationCostMultiplier: the default testparams build sets it to 1.0 to
+// keep E2E setup scripts simple, but cost-escalation tests must opt into the
+// production behavior to exercise the multiplier path.
+//
+// The credit ladder: the ceiling is the OTHER half of the escalation input --
+// cost is multiplier^(max_credits - remaining_credits), so a test that fixes
+// the multiplier and then hardcodes an expected cost is still reading a
+// build-tag-varying ceiling. Every rung varies (ESTABLISHED is 5 testparams,
+// 6 mainnet, 8 testnet, 10 devnet, and TRUSTED and CORE diverge the same way),
+// so pin the whole ladder rather than the one rung a given test happens to use
+// today.
+func pinCreditLadder(p *types.Params) {
+	p.TrustLevelConfig.NewInvitationCredits = 0
+	p.TrustLevelConfig.ProvisionalInvitationCredits = 2
+	p.TrustLevelConfig.EstablishedInvitationCredits = 5
+	p.TrustLevelConfig.TrustedInvitationCredits = 10
+	p.TrustLevelConfig.CoreInvitationCredits = 20
+}
+
+// escalationParams returns DefaultParams with both invitation-cost inputs
+// fixed. The default testparams build sets InvitationCostMultiplier to 1.0 to
+// keep E2E setup scripts simple, but cost-escalation tests must opt into the
+// production behavior to exercise the multiplier path.
 func escalationParams() types.Params {
 	p := types.DefaultParams()
 	p.InvitationCostMultiplier = math.LegacyNewDecWithPrec(110, 2) // 1.1x
+	pinCreditLadder(&p)
+	return p
+}
+
+// pinnedCreditsParams returns DefaultParams with only the credit ladder
+// pinned, for tests that assert on credit counts or on the un-escalated floor
+// but deliberately leave InvitationCostMultiplier at its build-tag default.
+func pinnedCreditsParams() types.Params {
+	p := types.DefaultParams()
+	pinCreditLadder(&p)
 	return p
 }
 
@@ -66,7 +98,7 @@ func TestRequiredInvitationStake_Query(t *testing.T) {
 }
 
 func TestRequiredInvitationStake_QueryReflectsSeasonReset(t *testing.T) {
-	f := initFixture(t, WithSeasonNumber(2))
+	f := initFixture(t, WithSeasonNumber(2), WithCustomParams(pinnedCreditsParams()))
 	qs := keeper.NewQueryServerImpl(f.keeper)
 	k := f.keeper
 	ctx := f.ctx

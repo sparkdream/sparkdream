@@ -138,7 +138,7 @@ if [ "$RES" == "ok" ]; then
     EXPECTED=$((${PRE_BOND:-0} + DELTA_AMOUNT))
     if [ "$POST_BOND" == "$EXPECTED" ]; then
         # Sub-assertion: the reward-tracking fields (used by both forum
-        # sentinel reward distribution and federation Phase 10 verifier
+        # sentinel reward distribution and the verifier reward
         # rewards) must be queryable on the BondedRole. Default values
         # are "0" / "0" until a reward distribution stamps them.
         FULL_BR=$($BINARY q rep bonded-role content-sentinel $SENTINEL1_ADDR --output json 2>/dev/null)

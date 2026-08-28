@@ -76,6 +76,11 @@ func (k Keeper) RecordRoleOutcome(ctx context.Context, roleType types.RoleType, 
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	epoch := k.roleRewardEpoch(ctx, roleType)
 
+	// Per-role streak policy. A missing config yields the zero value, which
+	// resolves to the moderation-role defaults below — so a role whose owning
+	// module has not written a config through behaves exactly as before.
+	cfg, _ := k.GetBondedRoleConfig(ctx, roleType)
+
 	ra := k.getOrInitRoleActivity(ctx, roleType, addr)
 	ra.EpochAppealsResolved++
 	bumpRoleAccuracyWindow(&ra, epoch, upheld)
@@ -83,13 +88,25 @@ func (k Keeper) RecordRoleOutcome(ctx context.Context, roleType types.RoleType, 
 	if upheld {
 		ra.UpheldActions[kind]++
 		ra.ConsecutiveUpheld++
-		ra.ConsecutiveOverturns = 0
+		// How many consecutive upheld verdicts clear an overturn streak.
+		// Zero/one is the moderation default: one good call wipes the slate.
+		// A role that sets this higher (the federation verifier sets 3) makes
+		// the streak sticky, so alternating wrong/right cannot hold a holder
+		// permanently one overturn short of demotion.
+		needed := cfg.UpheldToResetOverturns
+		if needed == 0 {
+			needed = 1
+		}
+		if ra.ConsecutiveUpheld >= needed {
+			ra.ConsecutiveOverturns = 0
+		}
 	} else {
 		ra.OverturnedActions[kind]++
 		ra.ConsecutiveOverturns++
 		ra.ConsecutiveUpheld = 0
 		if types.CooldownOnOverturn[kind] {
-			ra.OverturnCooldownUntil = sdkCtx.BlockTime().Unix() + types.DefaultRoleOverturnCooldown
+			ra.OverturnCooldownUntil = sdkCtx.BlockTime().Unix() +
+				roleOverturnCooldown(cfg, ra.ConsecutiveOverturns)
 		}
 	}
 
@@ -101,7 +118,14 @@ func (k Keeper) RecordRoleOutcome(ctx context.Context, roleType types.RoleType, 
 	// Best-effort with logged errors: a demotion failure must not roll back
 	// the verdict that triggered it.
 	if !upheld && ra.ConsecutiveOverturns >= types.DefaultMaxConsecutiveOverturnsBeforeDemotion {
-		cooldownUntil := sdkCtx.BlockTime().Unix() + types.DefaultSentinelDemotionCooldown
+		// Prefer the role's own configured demotion cooldown; the shared
+		// constant is the fallback for roles whose module has not written a
+		// config through.
+		demotionCooldown := cfg.DemotionCooldown
+		if demotionCooldown <= 0 {
+			demotionCooldown = types.DefaultSentinelDemotionCooldown
+		}
+		cooldownUntil := sdkCtx.BlockTime().Unix() + demotionCooldown
 		if err := k.SetBondStatus(ctx, roleType, addr,
 			types.BondedRoleStatus_BONDED_ROLE_STATUS_DEMOTED, cooldownUntil); err != nil {
 			sdkCtx.Logger().Error("failed to demote role after overturn streak",
@@ -110,6 +134,35 @@ func (k Keeper) RecordRoleOutcome(ctx context.Context, roleType types.RoleType, 
 		}
 	}
 	return nil
+}
+
+// roleOverturnCooldown returns the lockout in seconds for an overturned
+// verdict at the given consecutive-overturn count.
+//
+// Flat at the configured base by default. Roles that opt into escalation
+// double it per consecutive overturn — base * 2^(streak-1) — which is the
+// right shape where a single overturn means the holder asserted something
+// false rather than made a contested judgment call: the first mistake is
+// cheap, a pattern gets expensive fast. Capped at 7 days so escalation
+// cannot become a de-facto permanent ban that sidesteps the demotion path,
+// and the shift is clamped so the doubling cannot overflow.
+func roleOverturnCooldown(cfg types.BondedRoleConfig, consecutiveOverturns uint64) int64 {
+	base := cfg.OverturnBaseCooldown
+	if base <= 0 {
+		base = types.DefaultRoleOverturnCooldown
+	}
+	if !cfg.OverturnCooldownEscalates || consecutiveOverturns <= 1 {
+		return base
+	}
+	shift := consecutiveOverturns - 1
+	if shift > 20 {
+		shift = 20
+	}
+	cooldown := base * (int64(1) << shift)
+	if cooldown > types.MaxRoleOverturnCooldown || cooldown < 0 {
+		return types.MaxRoleOverturnCooldown
+	}
+	return cooldown
 }
 
 // RoleOverturnCooldownUntil returns the unix timestamp until which the role
@@ -149,6 +202,8 @@ func (k Keeper) roleRewardEpoch(ctx context.Context, roleType types.RoleType) ui
 		return k.CurrentReviewerRewardEpoch(ctx)
 	case types.RoleType_ROLE_TYPE_COLLECT_CURATOR:
 		return k.CurrentCuratorRewardEpoch(ctx)
+	case types.RoleType_ROLE_TYPE_FEDERATION_VERIFIER:
+		return k.CurrentVerifierRewardEpoch(ctx)
 	default:
 		return k.CurrentSentinelRewardEpoch(ctx)
 	}
@@ -228,5 +283,22 @@ func (k Keeper) BumpRoleEpochAppealsResolved(ctx context.Context, roleType types
 	}
 	ra := k.getOrInitRoleActivity(ctx, roleType, addr)
 	ra.EpochAppealsResolved++
+	return k.RoleActivities.Set(ctx, roleActivityKey(roleType, addr), ra)
+}
+
+// stampRoleSlashEpoch records that the role was slashed in the current
+// reward epoch (in that role's own epoch units — see roleRewardEpoch).
+// Called from SlashBond for every role type.
+//
+// Reward distributions read it as a "no pay in an epoch you were slashed
+// in" gate. Only the federation verifier gates on it today; sentinel,
+// curator and reviewer eligibility is deliberately left as-is rather than
+// silently tightened as a side effect of this stamp existing.
+func (k Keeper) stampRoleSlashEpoch(ctx context.Context, roleType types.RoleType, addr string) error {
+	if err := validateRoleType(roleType); err != nil {
+		return err
+	}
+	ra := k.getOrInitRoleActivity(ctx, roleType, addr)
+	ra.LastSlashEpoch = int64(k.roleRewardEpoch(ctx, roleType))
 	return k.RoleActivities.Set(ctx, roleActivityKey(roleType, addr), ra)
 }

@@ -1316,7 +1316,7 @@ echo "  total_verifications: $TV"
 
 # Both fields must be present (queryable) — concrete values depend on
 # upstream test order. We assert against TOTAL verifications (monotonic
-# lifetime counter) rather than epoch_verifications, which Phase 10
+# lifetime counter) rather than epoch_verifications, which the reward
 # resets every 10 blocks in testparams (≈60s, easily ≤ the time alice
 # accumulates verifications across TESTs 6/13/etc.). last_slash_epoch
 # can be 0 (never slashed) or > 0 (slashed at some prior epoch); both

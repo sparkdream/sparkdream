@@ -285,7 +285,8 @@ fix_legacy_dec_fields() {
     echo "$json_input" | python3 -c "
 import json, sys
 d = json.load(sys.stdin)
-DEC_FIELDS = ['trust_discount_rate', 'min_verifier_accuracy', 'operator_reward_share']
+DEC_FIELDS = ['trust_discount_rate', 'operator_reward_inflation_share',
+              'operator_reward_pool_overflow_burn_ratio', 'max_unverified_rate']
 for f in DEC_FIELDS:
     if f in d and d[f] is not None:
         s = str(d[f]).replace('.', '')

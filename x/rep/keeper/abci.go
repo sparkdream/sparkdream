@@ -245,6 +245,19 @@ func (k Keeper) EndBlocker(ctx context.Context) error {
 		sdkCtx.Logger().Error("error burning curator reward pool overflow", "error", err)
 	}
 
+	// 15e. Same pair for the federation-verifier SPARK pool. This one also
+	// mints the verifier DREAM stipend, so it is the single distribution for
+	// the role -- x/federation reports verifications and verdicts here and
+	// pays nothing itself. See verifier_reward_distribution.go for why the
+	// role's pay lives in x/rep rather than in the module that owns the
+	// verification surface.
+	if err := k.DistributeVerifierRewards(ctx); err != nil {
+		sdkCtx.Logger().Error("error distributing verifier rewards", "error", err)
+	}
+	if err := k.BurnVerifierRewardPoolOverflow(ctx); err != nil {
+		sdkCtx.Logger().Error("error burning verifier reward pool overflow", "error", err)
+	}
+
 	// 16. Time out expired gov action appeals (half refund / half burn).
 	if err := k.TimeoutExpiredAppeals(ctx); err != nil {
 		sdkCtx.Logger().Error("error timing out expired gov action appeals", "error", err)

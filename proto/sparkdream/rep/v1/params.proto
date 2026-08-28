@@ -732,6 +732,58 @@ message Params {
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
+
+  // --- Federation verifier pay (SPARK pool + DREAM stipend) ---
+  //
+  // The verifier's whole reward distribution lives here rather than in
+  // x/federation, for the same reason the curator's lives here rather than in
+  // x/collect: the accuracy it scores comes from the shared RoleActivity
+  // record x/rep owns, and the epoch it resets is the epoch the accuracy ring
+  // is stamped in. Two modules distributing on two independently-editable
+  // cadences would both reset those per-epoch counters and neither would read
+  // a coherent window. x/federation keeps the verification mechanics -- bond,
+  // slash, challenge windows, cooldown base -- and reports actions here.
+  //
+  // The verifier is the one bonded role whose work has an OFF-chain cost:
+  // fetching the peer's content and hashing it, then paying SPARK gas to
+  // submit. Paying only in DREAM made it the single role where doing the job
+  // drains the holder's SPARK and returns a token they cannot spend on gas.
+  string max_verifier_reward_pool = 121 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  string verifier_reward_pool_overflow_burn_ratio = 122 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+  uint64 verifier_reward_epoch_blocks = 123;
+  string min_verifier_accuracy = 124 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+  uint64 verifier_accuracy_window_epochs = 125;
+
+  // Verified items required in an epoch to earn anything that epoch. This is
+  // the ONLY place volume enters verifier pay -- as a floor, never as a
+  // weight. See the score formula in x/rep/keeper/verifier_reward_distribution.go
+  // for why weighting by verified_count is the wrong curve for this role.
+  uint32 min_epoch_verifications = 126;
+
+  // Flat DREAM minted per eligible verifier per epoch, scaled down pro-rata
+  // when the roster would push the epoch's total past the mint cap. Auto-bonds
+  // while the verifier is in RECOVERY so a slashed verifier can rebuild their
+  // bond by working rather than by fronting DREAM.
+  string verifier_dream_reward = 127 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  string max_verifier_dream_mint_per_epoch = 128 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
 }
 
 // RepOperationalParams defines the operational parameters that can be updated
@@ -1139,6 +1191,34 @@ message RepOperationalParams {
   uint64 review_bounty_reclaim_delay = 99;
   string permissionless_min_review_bounty_rate = 100 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+
+  // Mirrors the federation-verifier pay params in Params.
+  string max_verifier_reward_pool = 101 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  string verifier_reward_pool_overflow_burn_ratio = 102 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+  uint64 verifier_reward_epoch_blocks = 103;
+  string min_verifier_accuracy = 104 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+  uint64 verifier_accuracy_window_epochs = 105;
+  uint32 min_epoch_verifications = 106;
+  string verifier_dream_reward = 107 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  string max_verifier_dream_mint_per_epoch = 108 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
 }

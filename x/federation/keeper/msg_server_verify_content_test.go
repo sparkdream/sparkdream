@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"cosmossdk.io/math"
+	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/stretchr/testify/require"
 
 	"sparkdream/x/federation/keeper"
@@ -34,16 +35,20 @@ func TestVerifyContentMatch(t *testing.T) {
 	record, _ := f.keeper.VerificationRecords.Get(f.ctx, contentID)
 	require.Equal(t, verifierStr, record.Verifier)
 
-	// Generic bond commitment lives on rep's BondedRole; per-module counters
-	// live on federation's VerifierActivity.
+	// Bond commitment and the verification counter BOTH live on x/rep now:
+	// the bond on BondedRole, the counter on the shared RoleActivity under
+	// the federation_verify action kind. Federation stores neither.
 	br, err := f.repKeeper.GetBondedRole(f.ctx,
 		reptypes.RoleType_ROLE_TYPE_FEDERATION_VERIFIER, verifierStr)
 	require.NoError(t, err)
 	committed, _ := math.NewIntFromString(br.TotalCommittedBond)
 	require.True(t, committed.IsPositive())
 
-	activity, _ := f.keeper.VerifierActivity.Get(f.ctx, verifierStr)
-	require.Equal(t, uint64(1), activity.TotalVerifications)
+	ra, err := f.repKeeper.GetRoleActivity(f.ctx,
+		reptypes.RoleType_ROLE_TYPE_FEDERATION_VERIFIER, verifierStr)
+	require.NoError(t, err)
+	require.Equal(t, uint64(1), ra.TotalActions[reptypes.ActionKindFederationVerify])
+	require.Equal(t, uint64(1), ra.EpochActions[reptypes.ActionKindFederationVerify])
 }
 
 func TestVerifyContentMismatch(t *testing.T) {
@@ -119,4 +124,32 @@ func TestVerifyContentFirstVerifierWins(t *testing.T) {
 	})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "not in PENDING_VERIFICATION")
+}
+
+// TestVerifyContentBlockedByRepOverturnCooldown pins the ownership split: the
+// lockout after a lost challenge lives on x/rep's shared RoleActivity, not on
+// a federation-local field, so it applies to the ROLE rather than to this one
+// surface. Federation reads it at action time.
+func TestVerifyContentBlockedByRepOverturnCooldown(t *testing.T) {
+	f := initFixture(t)
+	ms := keeper.NewMsgServerImpl(f.keeper)
+	registerTestPeer(t, f, ms, "cooldown-peer")
+	opStr := registerTestBridge(t, f, ms, "cooldown-peer", "cooldown-op")
+
+	hash := sha256.Sum256([]byte("cooldown-body"))
+	contentID := submitTestContent(t, f, ms, opStr, "cooldown-peer", hash[:])
+	verifierStr := bondTestVerifier(t, f, ms, "cooldown-verifier")
+
+	// An overturned verdict reported to rep starts the shared cooldown.
+	f.repKeeper.blockTime = sdk.UnwrapSDKContext(f.ctx).BlockTime().Unix()
+	require.NoError(t, f.repKeeper.RecordRoleOutcome(f.ctx,
+		reptypes.RoleType_ROLE_TYPE_FEDERATION_VERIFIER, verifierStr,
+		reptypes.ActionKindFederationVerify, false))
+	require.Positive(t, f.repKeeper.RoleOverturnCooldownUntil(f.ctx,
+		reptypes.RoleType_ROLE_TYPE_FEDERATION_VERIFIER, verifierStr))
+
+	_, err := ms.VerifyContent(f.ctx, &types.MsgVerifyContent{
+		Creator: verifierStr, ContentId: contentID, ContentHash: hash[:],
+	})
+	require.ErrorIs(t, err, types.ErrVerifierOverturnCooldown)
 }
