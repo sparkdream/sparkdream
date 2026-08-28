@@ -479,6 +479,7 @@
       "identity_links": [],
       "next_content_id": "0",
       "next_outbound_attestation_id": "0",
+      "operator_reward_day_funding_list": [],
       "outbound_attestations": [],
       "params": {
         "arbiter_escalation_window": "86400s",
