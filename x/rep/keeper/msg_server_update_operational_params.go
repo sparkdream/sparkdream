@@ -32,5 +32,12 @@ func (k msgServer) UpdateOperationalParams(ctx context.Context, req *types.MsgUp
 		return nil, errorsmod.Wrap(err, "failed to set params")
 	}
 
+	// The reviewer bond floor and its exit terms live in params but are enforced
+	// from the BondedRoleConfig, so a merge that stopped here would change the
+	// advertised policy without changing what BondRole actually checks.
+	if err := k.SyncReviewerBondedRoleConfig(ctx, merged); err != nil {
+		return nil, errorsmod.Wrap(err, "failed to sync reviewer bonded role config")
+	}
+
 	return &types.MsgUpdateOperationalParamsResponse{}, nil
 }

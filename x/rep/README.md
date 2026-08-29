@@ -222,6 +222,19 @@ hiding a post, and pooling the two would mix their bond and accuracy records.
   alone. Silence must never wedge an initiative, and silence must never mint.
 - Accuracy comes from challenge outcomes and feeds the shared `RoleActivity`
   record, queryable with `query rep role-activity`.
+- The role's eligibility and exit terms (`min_reviewer_bond` and the six params
+  beside it) are **x/rep's own params**, projected onto the reviewer's
+  `BondedRoleConfig` on `InitGenesis` and on every param update. Every other
+  bonded role is written through by the module that owns it; this one x/rep owns
+  itself, so the Operations Committee can retune it like any other role's rather
+  than needing a chain upgrade.
+- The 500 DREAM floor is a deliberately **low barrier to entry** — per-verdict
+  exposure is the reserve (`reviewer_bond_reserve_rate` x budget), not the
+  floor, so a small floor costs nothing in accountability. Reviewers raise their
+  own ceiling by bonding more: free bond above open reserves decides which
+  initiatives they can take and how many at once, and a top-up is just another
+  `MsgBondRole` on the same record, usable immediately. At the default 10% rate
+  the floor covers budgets to ~5,000 DREAM; an EPIC initiative reserves 1,000.
 
 See the Initiative Review section of
 [docs/x-rep-spec.md](../../docs/x-rep-spec.md).
@@ -327,7 +340,7 @@ See the Federation Verifier Pay section of
 - Generic `MsgBondRole` / `MsgUnbondRole` live in x/rep and operate on the rep record only, keyed by `(role_type, address)`.
 - `BondedRoleStatus` enum lives in x/rep: `NORMAL` / `RECOVERY` / `DEMOTED` / `UNBONDING`.
 
-**Queued unbond.** `MsgUnbondRole` does not release DREAM immediately when the role's `BondedRoleConfig.UnbondCooldown` is positive (the default for every current role: 14 days for FORUM_SENTINEL and FEDERATION_VERIFIER, 7 days for COLLECT_CURATOR). Instead it sets `pending_unbond_amount`, `unbond_completion_time = block_time + UnbondCooldown`, and flips status to `UNBONDING`. DREAM stays locked and slashable through the cooldown. **Role authority during `UNBONDING` is a bond-*quantity* decision, not a blanket deauthorization**: owning modules judge the holder on its *staying* bond (`current_bond - pending_unbond_amount`), so a small partial unbond that leaves the staying bond above the role's floor keeps the role usable — only the withdrawn portion is treated as gone. This falls out for free because `GetAvailableBond` / `ReserveBond` are pending-aware (below). **Bond modifications are incremental — none of them require waiting out the cooldown first.** A `MsgUnbondRole` while already `UNBONDING` accumulates into `pending_unbond_amount` (bounded by `current_bond - total_committed_bond`) and resets the single `unbond_completion_time` to `now + cooldown` (the staying bond is locked at least the full cooldown, never less). A `MsgBondRole` top-up mid-unbond is also allowed — a bond only adds slashable collateral, so it raises `current_bond` immediately while the queued withdrawal keeps maturing. Both keep the role `UNBONDING`. A `MsgCancelUnbondRole` walks a withdrawal back: it reduces `pending_unbond_amount` (no DREAM moves — pending is only an earmark on still-locked bond), and cancelling all of it clears the clock and returns the role to active status (`NORMAL` / `RECOVERY` per the unchanged `current_bond`). So holders can bond / unbond / cancel / rebond in as many increments as they like (correct a mistyped amount, grow or shrink a withdrawal) without serializing on a 14-day wait. The rep EndBlocker's `MatureUnbonds` finalizes at maturity: unlocks remaining DREAM (**never releasing earmarked committed bond** — capped at `current_bond - total_committed_bond`, deferring any remainder to a later block) and recomputes status from the final `current_bond` against the role's thresholds (NORMAL if ≥ `min_bond`, RECOVERY between thresholds, DEMOTED with `demotion_cooldown` gating re-bonding if below `demotion_threshold`). Partial unbonds that keep the role active stay NORMAL. Setting `UnbondCooldown == 0` reverts to legacy immediate-unlock for that role.
+**Queued unbond.** `MsgUnbondRole` does not release DREAM immediately when the role's `BondedRoleConfig.UnbondCooldown` is positive (the default for every current role: 14 days for FORUM_SENTINEL, FEDERATION_VERIFIER and INITIATIVE_REVIEWER, 7 days for COLLECT_CURATOR). Instead it sets `pending_unbond_amount`, `unbond_completion_time = block_time + UnbondCooldown`, and flips status to `UNBONDING`. DREAM stays locked and slashable through the cooldown. **Role authority during `UNBONDING` is a bond-*quantity* decision, not a blanket deauthorization**: owning modules judge the holder on its *staying* bond (`current_bond - pending_unbond_amount`), so a small partial unbond that leaves the staying bond above the role's floor keeps the role usable — only the withdrawn portion is treated as gone. This falls out for free because `GetAvailableBond` / `ReserveBond` are pending-aware (below). **Bond modifications are incremental — none of them require waiting out the cooldown first.** A `MsgUnbondRole` while already `UNBONDING` accumulates into `pending_unbond_amount` (bounded by `current_bond - total_committed_bond`) and resets the single `unbond_completion_time` to `now + cooldown` (the staying bond is locked at least the full cooldown, never less). A `MsgBondRole` top-up mid-unbond is also allowed — a bond only adds slashable collateral, so it raises `current_bond` immediately while the queued withdrawal keeps maturing. Both keep the role `UNBONDING`. A `MsgCancelUnbondRole` walks a withdrawal back: it reduces `pending_unbond_amount` (no DREAM moves — pending is only an earmark on still-locked bond), and cancelling all of it clears the clock and returns the role to active status (`NORMAL` / `RECOVERY` per the unchanged `current_bond`). So holders can bond / unbond / cancel / rebond in as many increments as they like (correct a mistyped amount, grow or shrink a withdrawal) without serializing on a 14-day wait. The rep EndBlocker's `MatureUnbonds` finalizes at maturity: unlocks remaining DREAM (**never releasing earmarked committed bond** — capped at `current_bond - total_committed_bond`, deferring any remainder to a later block) and recomputes status from the final `current_bond` against the role's thresholds (NORMAL if ≥ `min_bond`, RECOVERY between thresholds, DEMOTED with `demotion_cooldown` gating re-bonding if below `demotion_threshold`). Partial unbonds that keep the role active stay NORMAL. Setting `UnbondCooldown == 0` reverts to legacy immediate-unlock for that role.
 
 Keeper methods exposed to consumers (content modules call these):
 
@@ -741,6 +754,13 @@ These parameters are excluded from `RepOperationalParams` and can only be change
 | `review_bounty_reclaim_delay` | uint64 | 14400 (~1 day) | Blocks before a funder may reclaim an unpaid bounty |
 | `permissionless_min_review_bounty_rate` | LegacyDec | 10% | Of budget, escrowed in existing DREAM at permissionless creation — only when the budget is above the review gate |
 | `max_review_rounds` | uint32 | 3 | Rejection returns the work for another round; the last one abandons |
+| `min_reviewer_bond` | Int | 500 DREAM | Bond floor to hold the role; a low entry price, not the per-verdict exposure |
+| `reviewer_demotion_threshold` | Int | 250 DREAM | Free bond below which the role is demoted; half the floor |
+| `min_reviewer_trust_level` | string | `TRUST_LEVEL_ESTABLISHED` | Eligibility gate; required (empty would disable the check) |
+| `min_reviewer_rep_tier` | uint64 | 0 | Off — the trust ladder already encodes reputation |
+| `min_reviewer_age_blocks` | int64 | 0 | Off — no bonded-age wait before reviewing |
+| `reviewer_demotion_cooldown` | int64 | 604800 (7 days) | Seconds a demoted reviewer waits before re-bonding |
+| `reviewer_unbond_cooldown` | int64 | 1209600 (14 days) | Seconds bond stays locked and slashable after unbonding |
 | `max_reviewer_reward_pool` | Int | 150,000 SPARK | Cap on the reviewer SPARK pool; 1.5x sentinel/curator |
 | `reviewer_reward_pool_overflow_burn_ratio` | LegacyDec | 50% | Fraction of overflow burned each epoch |
 | `reviewer_reward_epoch_blocks` | uint64 | 14400 (~1 day) | Distribution cadence |

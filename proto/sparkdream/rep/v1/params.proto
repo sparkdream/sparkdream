@@ -625,6 +625,63 @@ message Params {
     (gogoproto.nullable) = false
   ];
   uint64 reviewer_accuracy_window_epochs = 111; // Epochs of history the accuracy ring scores. Default 6.
+  // Reviewer bonded-role policy: the eligibility and exit terms for
+  // ROLE_TYPE_INITIATIVE_REVIEWER.
+  //
+  // These live here rather than only in the BondedRoleConfig store so the
+  // reviewer role has the same shape as every other bonded role: params are the
+  // source of truth and are written through to rep's enforcement state on
+  // InitGenesis and on every operational param update (x/forum does this for
+  // the sentinel, x/collect for the curator). Before that, the reviewer was the
+  // one role no module owned, so its config was reachable only by editing
+  // genesis or shipping an upgrade.
+  //
+  // Field numbers jump past the reviewer pay knobs above because these were
+  // added later; they belong to this block by topic, not by number.
+  //
+  // min_reviewer_bond is deliberately a LOW barrier to entry (500 DREAM), not a
+  // measure of what a bad verdict costs. Per-verdict exposure is the reserve --
+  // SlashReviewersOnOverturn charges BondReserved, which is
+  // reviewer_bond_reserve_rate x the initiative's budget -- so liability already
+  // scales with what the review could mint, whatever the floor is.
+  //
+  // Reviewers scale up by bonding more when they want bigger work. Free bond
+  // above a reviewer's open reserves is what decides which initiatives they can
+  // pick up and how many at once: at the default 10% rate the floor alone covers
+  // work up to ~5,000 DREAM of budget, while an EPIC initiative (10,000 cap)
+  // reserves 1,000. Raising the ceiling is just another MsgBondRole against the
+  // same record -- it adds to current_bond and is reservable on the next verdict,
+  // with no waiting period and no need to unbond first. Keeping the entry price
+  // low is the point: reviewing should be something an ordinary member can start
+  // doing and then grow into, rather than something gated on holding a large
+  // balance up front.
+  string min_reviewer_bond = 129 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  // Free bond below which a reviewer is demoted out of the role. Conventionally
+  // half of min_reviewer_bond.
+  string reviewer_demotion_threshold = 130 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  // Trust level a member must hold to bond as a reviewer. The trust ladder
+  // already encodes reputation, so this is the whole eligibility gate and
+  // min_reviewer_rep_tier stays 0 (see BondedRoleConfig seeding notes).
+  //
+  // Required, unlike the sentinel's and curator's: BondRole skips the trust
+  // check entirely on an empty string, so an omitted level would silently open
+  // the one role whose approvals mint DREAM. An ungated roster is still
+  // expressible as TRUST_LEVEL_NEW.
+  string min_reviewer_trust_level = 131;
+  uint64 min_reviewer_rep_tier = 132;
+  int64 min_reviewer_age_blocks = 133;
+  int64 reviewer_demotion_cooldown = 134;
+  // Bond stays slashable through this window after an unbond request, so open
+  // verdicts can age out and still be charged if a jury overturns them.
+  int64 reviewer_unbond_cooldown = 135;
   // Ceiling on the uspark x/rep may draw from the community pool per UTC day to
   // fund its bonded-role reward pools.
   //
@@ -1221,4 +1278,23 @@ message RepOperationalParams {
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
+
+  // Mirrors the reviewer bonded-role policy in Params. Updating these writes
+  // through to the BondedRoleConfig for ROLE_TYPE_INITIATIVE_REVIEWER, so the
+  // reviewer bond floor is tunable by council vote like every other role's.
+  string min_reviewer_bond = 109 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  string reviewer_demotion_threshold = 110 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  string min_reviewer_trust_level = 111;
+  uint64 min_reviewer_rep_tier = 112;
+  int64 min_reviewer_age_blocks = 113;
+  int64 reviewer_demotion_cooldown = 114;
+  int64 reviewer_unbond_cooldown = 115;
 }

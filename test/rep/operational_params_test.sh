@@ -38,6 +38,7 @@ QUERY_PARAMS_RESULT="FAIL"
 UPDATE_PARAMS_RESULT="FAIL"
 VERIFY_OPERATIONAL_RESULT="FAIL"
 VERIFY_GOVERNANCE_RESULT="FAIL"
+VERIFY_REVIEWER_CONFIG_RESULT="FAIL"
 RESET_PARAMS_RESULT="FAIL"
 
 # Helper: extract commons proposal ID from tx hash
@@ -287,6 +288,13 @@ if [ "$QUERY_PARAMS_RESULT" == "PASS" ]; then
       reviewer_bond_reserve_rate,
       review_fee_rate,
       max_review_rounds,
+      min_reviewer_bond,
+      reviewer_demotion_threshold,
+      min_reviewer_trust_level,
+      min_reviewer_rep_tier,
+      min_reviewer_age_blocks,
+      reviewer_demotion_cooldown,
+      reviewer_unbond_cooldown,
       max_reviewer_reward_pool,
       reviewer_reward_pool_overflow_burn_ratio,
       reviewer_reward_epoch_blocks,
@@ -314,10 +322,20 @@ if [ "$QUERY_PARAMS_RESULT" == "PASS" ]; then
     # Modify test fields
     NEW_MAX_TIPS="20"
     NEW_JURY_SIZE="7"
+    # The reviewer bond policy lives in params but is ENFORCED from the
+    # BondedRoleConfig, so changing it here is what proves the write-through
+    # (SyncReviewerBondedRoleConfig) actually runs on the council path.
+    # Threshold must stay <= floor or the merged params are rejected.
+    NEW_MIN_REVIEWER_BOND="700000000"
+    NEW_REVIEWER_DEMOTION_THRESHOLD="350000000"
+    NEW_REVIEWER_UNBOND_COOLDOWN="1209601"
 
     OP_PARAMS=$(echo "$OP_PARAMS" | jq '
       .max_tips_per_epoch = '$NEW_MAX_TIPS' |
-      .jury_size = '$NEW_JURY_SIZE'
+      .jury_size = '$NEW_JURY_SIZE' |
+      .min_reviewer_bond = "'$NEW_MIN_REVIEWER_BOND'" |
+      .reviewer_demotion_threshold = "'$NEW_REVIEWER_DEMOTION_THRESHOLD'" |
+      .reviewer_unbond_cooldown = "'$NEW_REVIEWER_UNBOND_COOLDOWN'"
     ')
 
     # Convert LegacyDec fields from raw 18-precision integers to decimal strings
@@ -446,6 +464,64 @@ else
 fi
 echo ""
 
+# --- 4b. VERIFY REVIEWER BONDED-ROLE CONFIG WRITE-THROUGH ---
+# The seven min_reviewer_* / reviewer_* params are the source of truth, but
+# MsgBondRole enforces the BondedRoleConfig. If the sync were skipped the params
+# query would show the new policy while bonding still applied the old floor.
+echo "--- TEST 4b: VERIFY REVIEWER BONDED-ROLE CONFIG WRITE-THROUGH ---"
+
+if [ "$UPDATE_PARAMS_RESULT" == "PASS" ]; then
+    REVIEWER_CFG=$($BINARY query rep bonded-role-config initiative-reviewer --output json 2>/dev/null)
+    CFG_MIN_BOND=$(echo "$REVIEWER_CFG" | jq -r '.bonded_role_config.min_bond // "0"')
+    CFG_THRESHOLD=$(echo "$REVIEWER_CFG" | jq -r '.bonded_role_config.demotion_threshold // "0"')
+    CFG_UNBOND_COOLDOWN=$(echo "$REVIEWER_CFG" | jq -r '.bonded_role_config.unbond_cooldown // "0"')
+    CFG_TRUST=$(echo "$REVIEWER_CFG" | jq -r '.bonded_role_config.min_trust_level // ""')
+
+    # Compare against the params the chain now reports, not against the
+    # hardcoded values: agreement between the two is the property under test.
+    PARAM_MIN_BOND=$(echo "$UPDATED_PARAMS" | jq -r '.params.min_reviewer_bond // "0"')
+    PARAM_THRESHOLD=$(echo "$UPDATED_PARAMS" | jq -r '.params.reviewer_demotion_threshold // "0"')
+    PARAM_UNBOND_COOLDOWN=$(echo "$UPDATED_PARAMS" | jq -r '.params.reviewer_unbond_cooldown // "0"')
+    PARAM_TRUST=$(echo "$UPDATED_PARAMS" | jq -r '.params.min_reviewer_trust_level // ""')
+
+    echo "  min_bond:           config=$CFG_MIN_BOND params=$PARAM_MIN_BOND (expected: $NEW_MIN_REVIEWER_BOND)"
+    echo "  demotion_threshold: config=$CFG_THRESHOLD params=$PARAM_THRESHOLD"
+    echo "  unbond_cooldown:    config=$CFG_UNBOND_COOLDOWN params=$PARAM_UNBOND_COOLDOWN"
+    echo "  min_trust_level:    config=$CFG_TRUST params=$PARAM_TRUST"
+
+    VERIFY_REVIEWER_OK=true
+    if [ "$PARAM_MIN_BOND" != "$NEW_MIN_REVIEWER_BOND" ]; then
+        echo "  params did not take the new reviewer bond floor"
+        VERIFY_REVIEWER_OK=false
+    fi
+    if [ "$CFG_MIN_BOND" != "$PARAM_MIN_BOND" ]; then
+        echo "  config min_bond drifted from params — write-through did not run"
+        VERIFY_REVIEWER_OK=false
+    fi
+    if [ "$CFG_THRESHOLD" != "$PARAM_THRESHOLD" ]; then
+        echo "  config demotion_threshold drifted from params"
+        VERIFY_REVIEWER_OK=false
+    fi
+    if [ "$CFG_UNBOND_COOLDOWN" != "$PARAM_UNBOND_COOLDOWN" ]; then
+        echo "  config unbond_cooldown drifted from params"
+        VERIFY_REVIEWER_OK=false
+    fi
+    if [ "$CFG_TRUST" != "$PARAM_TRUST" ]; then
+        echo "  config min_trust_level drifted from params"
+        VERIFY_REVIEWER_OK=false
+    fi
+
+    if [ "$VERIFY_REVIEWER_OK" == true ]; then
+        VERIFY_REVIEWER_CONFIG_RESULT="PASS"
+        echo "  PASS: Reviewer bonded-role config tracks params"
+    else
+        echo "  FAIL: Reviewer bonded-role config does not track params"
+    fi
+else
+    echo "  SKIP: Update failed, cannot verify reviewer config"
+fi
+echo ""
+
 # --- 5. RESET PARAMS TO ORIGINAL VALUES ---
 echo "--- TEST 5: RESET OPERATIONAL PARAMS TO ORIGINAL ---"
 
@@ -540,6 +616,13 @@ if [ "$UPDATE_PARAMS_RESULT" == "PASS" ]; then
       reviewer_bond_reserve_rate,
       review_fee_rate,
       max_review_rounds,
+      min_reviewer_bond,
+      reviewer_demotion_threshold,
+      min_reviewer_trust_level,
+      min_reviewer_rep_tier,
+      min_reviewer_age_blocks,
+      reviewer_demotion_cooldown,
+      reviewer_unbond_cooldown,
       max_reviewer_reward_pool,
       reviewer_reward_pool_overflow_burn_ratio,
       reviewer_reward_epoch_blocks,
@@ -622,7 +705,7 @@ TOTAL_COUNT=0
 PASS_COUNT=0
 FAIL_COUNT=0
 
-for RESULT in "$QUERY_PARAMS_RESULT" "$UPDATE_PARAMS_RESULT" "$VERIFY_OPERATIONAL_RESULT" "$VERIFY_GOVERNANCE_RESULT" "$RESET_PARAMS_RESULT"; do
+for RESULT in "$QUERY_PARAMS_RESULT" "$UPDATE_PARAMS_RESULT" "$VERIFY_OPERATIONAL_RESULT" "$VERIFY_GOVERNANCE_RESULT" "$VERIFY_REVIEWER_CONFIG_RESULT" "$RESET_PARAMS_RESULT"; do
     TOTAL_COUNT=$((TOTAL_COUNT + 1))
     if [ "$RESULT" == "PASS" ]; then
         PASS_COUNT=$((PASS_COUNT + 1))
@@ -635,6 +718,7 @@ echo "  1. Query Initial Params:          $QUERY_PARAMS_RESULT"
 echo "  2. Update Operational Params:      $UPDATE_PARAMS_RESULT"
 echo "  3. Verify Operational Updated:     $VERIFY_OPERATIONAL_RESULT"
 echo "  4. Verify Governance Unchanged:    $VERIFY_GOVERNANCE_RESULT"
+echo "  4b. Verify Reviewer Config Sync:   $VERIFY_REVIEWER_CONFIG_RESULT"
 echo "  5. Reset Params to Original:       $RESET_PARAMS_RESULT"
 echo ""
 echo "  Total: $TOTAL_COUNT | Passed: $PASS_COUNT | Failed: $FAIL_COUNT"

@@ -28,5 +28,12 @@ func (k msgServer) UpdateParams(ctx context.Context, req *types.MsgUpdateParams)
 		return nil, err
 	}
 
+	// The reviewer bond floor and its exit terms live in params but are enforced
+	// from the BondedRoleConfig, so a write that stopped here would change the
+	// advertised policy without changing what BondRole actually checks.
+	if err := k.SyncReviewerBondedRoleConfig(ctx, req.Params); err != nil {
+		return nil, errorsmod.Wrap(err, "failed to sync reviewer bonded role config")
+	}
+
 	return &types.MsgUpdateParamsResponse{}, nil
 }

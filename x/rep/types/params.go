@@ -202,6 +202,31 @@ func DefaultParams() Params {
 		ReviewerRewardEpochBlocks:           getSentinelRewardEpochBlocks(),   // same build-tag cadence
 		MinReviewerAccuracy:                 math.LegacyNewDecWithPrec(70, 2), // 0.70
 		ReviewerAccuracyWindowEpochs:        DefaultSentinelAccuracyWindowEpochs,
+		// Reviewer bonded-role policy, written through to the BondedRoleConfig for
+		// ROLE_TYPE_INITIATIVE_REVIEWER on InitGenesis and on every operational
+		// param update.
+		//
+		// 500 DREAM, deliberately a low barrier to entry. The floor is not what a
+		// bad verdict costs: SlashReviewersOnOverturn charges the per-verdict
+		// reserve (ReviewerBondReserveRate of the initiative's budget), so exposure
+		// already scales with what the review could mint whatever the floor is. The
+		// floor's job is to keep the role from being free to enter and to give
+		// demotion something to bite on.
+		//
+		// Capacity is a separate decision the reviewer makes by bonding more.
+		// Free bond above their open reserves is what gates which work they can
+		// pick up and how much at once: at the default 10% rate the floor covers
+		// budgets up to ~5,000 DREAM, while an EPIC initiative (10,000 cap)
+		// reserves 1,000. Topping up is another MsgBondRole against the same
+		// record -- it raises current_bond and is reservable immediately. Starting
+		// small and growing into the role is the intended path.
+		MinReviewerBond:           math.NewInt(500_000_000), // 500 DREAM
+		ReviewerDemotionThreshold: math.NewInt(250_000_000), // 250 DREAM: half the floor
+		MinReviewerTrustLevel:     "TRUST_LEVEL_ESTABLISHED",
+		MinReviewerRepTier:        0, // trust level is the whole gate; see BondedRoleConfig notes
+		MinReviewerAgeBlocks:      0,
+		ReviewerDemotionCooldown:  604800,  // 7 days
+		ReviewerUnbondCooldown:    1209600, // 14 days: bond stays slashable while open verdicts age out
 		// One capped claim on the community pool per UTC day, divided across
 		// every bonded-role pool by headroom. Expressed as a share of the
 		// pool's inflation income so it scales with supply and takes less when
@@ -360,6 +385,9 @@ func (p Params) Validate() error {
 		// Zero would let a reviewer approve a mint with nothing at risk, which
 		// is the entire accountability of the role.
 		return fmt.Errorf("reviewer bond reserve rate must be in (0,1]: %s", p.ReviewerBondReserveRate)
+	}
+	if err := p.ReviewerBondPolicy().Validate(); err != nil {
+		return err
 	}
 	if p.ReviewFeeRate.IsNil() || p.ReviewFeeRate.IsNegative() ||
 		p.ReviewFeeRate.GT(math.LegacyOneDec()) {
@@ -816,6 +844,31 @@ func DefaultRepOperationalParams() RepOperationalParams {
 		ReviewerRewardEpochBlocks:           getSentinelRewardEpochBlocks(),   // same build-tag cadence
 		MinReviewerAccuracy:                 math.LegacyNewDecWithPrec(70, 2), // 0.70
 		ReviewerAccuracyWindowEpochs:        DefaultSentinelAccuracyWindowEpochs,
+		// Reviewer bonded-role policy, written through to the BondedRoleConfig for
+		// ROLE_TYPE_INITIATIVE_REVIEWER on InitGenesis and on every operational
+		// param update.
+		//
+		// 500 DREAM, deliberately a low barrier to entry. The floor is not what a
+		// bad verdict costs: SlashReviewersOnOverturn charges the per-verdict
+		// reserve (ReviewerBondReserveRate of the initiative's budget), so exposure
+		// already scales with what the review could mint whatever the floor is. The
+		// floor's job is to keep the role from being free to enter and to give
+		// demotion something to bite on.
+		//
+		// Capacity is a separate decision the reviewer makes by bonding more.
+		// Free bond above their open reserves is what gates which work they can
+		// pick up and how much at once: at the default 10% rate the floor covers
+		// budgets up to ~5,000 DREAM, while an EPIC initiative (10,000 cap)
+		// reserves 1,000. Topping up is another MsgBondRole against the same
+		// record -- it raises current_bond and is reservable immediately. Starting
+		// small and growing into the role is the intended path.
+		MinReviewerBond:           math.NewInt(500_000_000), // 500 DREAM
+		ReviewerDemotionThreshold: math.NewInt(250_000_000), // 250 DREAM: half the floor
+		MinReviewerTrustLevel:     "TRUST_LEVEL_ESTABLISHED",
+		MinReviewerRepTier:        0, // trust level is the whole gate; see BondedRoleConfig notes
+		MinReviewerAgeBlocks:      0,
+		ReviewerDemotionCooldown:  604800,  // 7 days
+		ReviewerUnbondCooldown:    1209600, // 14 days: bond stays slashable while open verdicts age out
 		// One capped claim on the community pool per UTC day, divided across
 		// every bonded-role pool by headroom. Expressed as a share of the
 		// pool's inflation income so it scales with supply and takes less when
@@ -982,6 +1035,9 @@ func (op RepOperationalParams) Validate() error {
 		// Zero would let a reviewer approve a mint with nothing at risk, which
 		// is the entire accountability of the role.
 		return fmt.Errorf("reviewer bond reserve rate must be in (0,1]: %s", op.ReviewerBondReserveRate)
+	}
+	if err := op.ReviewerBondPolicy().Validate(); err != nil {
+		return err
 	}
 	if op.ReviewFeeRate.IsNil() || op.ReviewFeeRate.IsNegative() ||
 		op.ReviewFeeRate.GT(math.LegacyOneDec()) {
@@ -1267,6 +1323,16 @@ func (p Params) ApplyOperationalParams(op RepOperationalParams) Params {
 	p.ReviewerBondReserveRate = op.ReviewerBondReserveRate
 	p.ReviewFeeRate = op.ReviewFeeRate
 	p.MaxReviewRounds = op.MaxReviewRounds
+	// Reviewer bonded-role policy. The caller writes these through to the
+	// BondedRoleConfig after the merge (SyncReviewerBondedRoleConfig); merging
+	// here alone would change the params without changing what BondRole enforces.
+	p.MinReviewerBond = op.MinReviewerBond
+	p.ReviewerDemotionThreshold = op.ReviewerDemotionThreshold
+	p.MinReviewerTrustLevel = op.MinReviewerTrustLevel
+	p.MinReviewerRepTier = op.MinReviewerRepTier
+	p.MinReviewerAgeBlocks = op.MinReviewerAgeBlocks
+	p.ReviewerDemotionCooldown = op.ReviewerDemotionCooldown
+	p.ReviewerUnbondCooldown = op.ReviewerUnbondCooldown
 	// Anti-whale staking cap
 	p.MaxInitiativeStakePerMember = op.MaxInitiativeStakePerMember
 	// Anti-collusion caps
@@ -1406,6 +1472,13 @@ func (p Params) ExtractOperationalParams() RepOperationalParams {
 		ReviewerBondReserveRate:       p.ReviewerBondReserveRate,
 		ReviewFeeRate:                 p.ReviewFeeRate,
 		MaxReviewRounds:               p.MaxReviewRounds,
+		MinReviewerBond:               p.MinReviewerBond,
+		ReviewerDemotionThreshold:     p.ReviewerDemotionThreshold,
+		MinReviewerTrustLevel:         p.MinReviewerTrustLevel,
+		MinReviewerRepTier:            p.MinReviewerRepTier,
+		MinReviewerAgeBlocks:          p.MinReviewerAgeBlocks,
+		ReviewerDemotionCooldown:      p.ReviewerDemotionCooldown,
+		ReviewerUnbondCooldown:        p.ReviewerUnbondCooldown,
 		// Anti-whale staking cap
 		MaxInitiativeStakePerMember: p.MaxInitiativeStakePerMember,
 		// Anti-collusion caps
@@ -1457,4 +1530,92 @@ func (p Params) ExtractOperationalParams() RepOperationalParams {
 		MaxProjectRequestedSpark:    p.MaxProjectRequestedSpark,
 		ProposedProjectExpiryBlocks: p.ProposedProjectExpiryBlocks,
 	}
+}
+
+// ReviewerBondPolicy is the reviewer bonded-role config as it lives in params:
+// the seven fields Params and RepOperationalParams both carry and that
+// SyncReviewerBondedRoleConfig projects onto the BondedRoleConfig for
+// ROLE_TYPE_INITIATIVE_REVIEWER. Grouping them keeps the validator and the
+// write-through reading from one shape instead of seven positional arguments,
+// three of which are adjacent int64s.
+type ReviewerBondPolicy struct {
+	MinBond           math.Int
+	DemotionThreshold math.Int
+	MinTrustLevel     string
+	MinRepTier        uint64
+	MinAgeBlocks      int64
+	DemotionCooldown  int64
+	UnbondCooldown    int64
+}
+
+// ReviewerBondPolicy returns the reviewer bonded-role fields.
+func (p Params) ReviewerBondPolicy() ReviewerBondPolicy {
+	return ReviewerBondPolicy{
+		MinBond:           p.MinReviewerBond,
+		DemotionThreshold: p.ReviewerDemotionThreshold,
+		MinTrustLevel:     p.MinReviewerTrustLevel,
+		MinRepTier:        p.MinReviewerRepTier,
+		MinAgeBlocks:      p.MinReviewerAgeBlocks,
+		DemotionCooldown:  p.ReviewerDemotionCooldown,
+		UnbondCooldown:    p.ReviewerUnbondCooldown,
+	}
+}
+
+// ReviewerBondPolicy returns the reviewer bonded-role fields.
+func (op RepOperationalParams) ReviewerBondPolicy() ReviewerBondPolicy {
+	return ReviewerBondPolicy{
+		MinBond:           op.MinReviewerBond,
+		DemotionThreshold: op.ReviewerDemotionThreshold,
+		MinTrustLevel:     op.MinReviewerTrustLevel,
+		MinRepTier:        op.MinReviewerRepTier,
+		MinAgeBlocks:      op.MinReviewerAgeBlocks,
+		DemotionCooldown:  op.ReviewerDemotionCooldown,
+		UnbondCooldown:    op.ReviewerUnbondCooldown,
+	}
+}
+
+// Validate checks the reviewer bonded-role fields shared by Params and
+// RepOperationalParams.
+//
+// Every field is required and fully constrained here, because the write-through
+// to the BondedRoleConfig is a straight projection: whatever survives this is
+// what BondRole enforces, with no defaulting in between. A field left to its
+// zero value would otherwise be indistinguishable from a deliberate zero and
+// would quietly loosen the role.
+func (rp ReviewerBondPolicy) Validate() error {
+	if rp.MinBond.IsNil() || rp.MinBond.IsNegative() {
+		return fmt.Errorf("min reviewer bond must be non-negative: %s", rp.MinBond)
+	}
+	if rp.DemotionThreshold.IsNil() || rp.DemotionThreshold.IsNegative() {
+		return fmt.Errorf("reviewer demotion threshold must be non-negative: %s", rp.DemotionThreshold)
+	}
+	// A threshold above the floor would demote every reviewer the moment they
+	// bonded the minimum, emptying the roster on the next sweep.
+	if rp.DemotionThreshold.GT(rp.MinBond) {
+		return fmt.Errorf("reviewer demotion threshold %s must not exceed min reviewer bond %s", rp.DemotionThreshold, rp.MinBond)
+	}
+	// Unlike the sentinel and curator, an empty trust level is rejected rather
+	// than read as "no gate". BondRole skips the check entirely on an empty
+	// string, so omission would open the one role whose approvals mint DREAM.
+	// An ungated reviewer roster is still expressible -- as TRUST_LEVEL_NEW --
+	// it just has to be said out loud.
+	if rp.MinTrustLevel == "" {
+		return fmt.Errorf("min reviewer trust level must be set (use TRUST_LEVEL_NEW for no gate)")
+	}
+	if _, ok := TrustLevel_value[rp.MinTrustLevel]; !ok {
+		return fmt.Errorf("invalid min reviewer trust level: %s", rp.MinTrustLevel)
+	}
+	if rp.MinRepTier > 5 {
+		return fmt.Errorf("min reviewer rep tier must be 0-5: %d", rp.MinRepTier)
+	}
+	if rp.MinAgeBlocks < 0 {
+		return fmt.Errorf("min reviewer age blocks must be non-negative: %d", rp.MinAgeBlocks)
+	}
+	if rp.DemotionCooldown < 0 {
+		return fmt.Errorf("reviewer demotion cooldown must be non-negative: %d", rp.DemotionCooldown)
+	}
+	if rp.UnbondCooldown < 0 {
+		return fmt.Errorf("reviewer unbond cooldown must be non-negative: %d", rp.UnbondCooldown)
+	}
+	return nil
 }

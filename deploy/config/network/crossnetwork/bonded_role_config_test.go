@@ -2,14 +2,17 @@
 // TestParamsEqualAcrossNetworks both walk `app_state.<module>.params` — so a
 // module's *other* generated genesis state has no coverage at all.
 //
-// x/rep's bonded_role_config_list is the case that matters. Three of its four
-// roles are overwritten during InitGenesis by their owning module's
-// write-through (x/forum, x/collect, x/federation), but nothing owns
-// ROLE_TYPE_INITIATIVE_REVIEWER: no module syncs it and no Msg updates it, so
-// whatever genesis carries is that role's permanent policy. Live (2026-08-27):
+// x/rep's bonded_role_config_list is the case that matters. Every one of its
+// four roles is overwritten during InitGenesis by a write-through from the
+// owning module's params (x/forum, x/collect and x/federation for the first
+// three; x/rep itself for ROLE_TYPE_INITIATIVE_REVIEWER, via
+// SyncReviewerBondedRoleConfig), so the seeded list is what a chain runs on
+// only if a write-through is ever skipped. Keeping it in step with the Go
+// defaults is cheap and leaves nothing to reason about. Live (2026-08-27):
 // all three networks shipped `min_rep_tier: 3` for the reviewer after the Go
-// default moved to 0, which would have locked the role out of a fresh chain
-// for good — the exact shape of the jury_size miss two days earlier.
+// default moved to 0, back when no module wrote that role through, which
+// would have locked the role out of a fresh chain for good — the exact shape
+// of the jury_size miss two days earlier.
 package crossnetwork_test
 
 import (

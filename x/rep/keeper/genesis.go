@@ -260,6 +260,14 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 		return err
 	}
 
+	// Write the reviewer bonded-role policy through from params, after the
+	// BondedRoleConfigList loop above so params win over whatever the genesis
+	// file seeded. x/forum and x/collect do the same for their own roles from
+	// their InitGenesis; the reviewer's owner is rep itself.
+	if err := k.SyncReviewerBondedRoleConfig(ctx, genState.Params); err != nil {
+		return err
+	}
+
 	// Seed the seasonal staking reward pool. Without this the pool's remaining
 	// budget stays unset, DistributeEpochStakingRewardsFromPool returns early
 	// every epoch, and the accumulator never leaves zero — which is why no

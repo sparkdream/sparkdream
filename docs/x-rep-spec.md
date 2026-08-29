@@ -1038,13 +1038,18 @@ message BondedRole {
 }
 
 message BondedRoleConfig {
-  RoleType role_type           = 1;
-  string   min_bond            = 2;
-  uint64   min_rep_tier        = 3;
-  string   min_trust_level     = 4;
-  int64    min_age_blocks      = 5;
-  int64    demotion_cooldown   = 6;
-  string   demotion_threshold  = 7;
+  RoleType role_type                   = 1;
+  string   min_bond                    = 2;  // math.Int string, udream
+  uint64   min_rep_tier                = 3;  // 0 = no rep-tier gate
+  string   min_trust_level             = 4;  // enum name; empty = no trust gate
+  int64    min_age_blocks              = 5;  // enforced by the owning module at action time
+  int64    demotion_cooldown           = 6;  // seconds a DEMOTED role waits before re-bonding
+  string   demotion_threshold          = 7;  // RECOVERY -> DEMOTED floor
+  int64    unbond_cooldown             = 8;  // seconds bond stays locked and slashable after unbond
+  // Verdict-streak policy, applied by x/rep in RecordRoleOutcome.
+  uint64   upheld_to_reset_overturns   = 9;
+  int64    overturn_base_cooldown      = 10;
+  bool     overturn_cooldown_escalates = 11;
 }
 ```
 
@@ -1059,8 +1064,9 @@ message BondedRoleConfig {
 | `ROLE_TYPE_CONTENT_SENTINEL` | x/forum | `sparkdream.forum.v1.SentinelActivity` (hides, locks, moves, pins, epoch tallies) |
 | `ROLE_TYPE_COLLECT_CURATOR` | x/collect | `sparkdream.collect.v1.CuratorActivity` (total/challenged/upheld/overturned reviews, streak counters) |
 | `ROLE_TYPE_FEDERATION_VERIFIER` | x/federation | `sparkdream.federation.v1.VerifierActivity` (verifications, upheld/overturned/unchallenged, slash count, overturn cooldown) |
+| `ROLE_TYPE_INITIATIVE_REVIEWER` | x/rep | none — rep owns the role outright, so its verdict counters live in the shared `RoleActivity` with nothing split out |
 
-**Config write-through:** each role's owning module keeps the operational params (min bond, trust level, demotion cooldown, etc.) in its own proto and calls `SetBondedRoleConfig` on update + `InitGenesis` so rep's enforcement state stays in sync.
+**Config write-through:** each role's owning module keeps the operational params (min bond, trust level, demotion cooldown, etc.) in its own proto and calls `SetBondedRoleConfig` on update + `InitGenesis` so rep's enforcement state stays in sync. The initiative reviewer's owning module is **x/rep itself**: `SyncReviewerBondedRoleConfig` projects rep's own `min_reviewer_*` / `reviewer_*` params onto the config from `InitGenesis`, `MsgUpdateParams` and `MsgUpdateOperationalParams`. See "The bond floor, and who owns it" under Initiative Review.
 
 **Owning-module → rep API surface** (content-module handlers call these on the rep keeper):
 
@@ -2209,10 +2215,83 @@ is always satisfied and no review window opens at all. Turning the role on is a
 per-project decision taken once reviewers exist, so nothing can wedge while the
 roster is still filling.
 
+##### The bond floor, and who owns it
+
+`min_reviewer_bond` is **500 DREAM**, set deliberately low so that taking up
+reviewing is within reach of an ordinary member rather than gated on holding a
+large balance. An earlier 5,000 was argued from "a wrong approval mints DREAM,
+up to an EPIC initiative's 10,000, and minted DREAM cannot be clawed back" —
+true about the role, but not a description of what the floor does.
+`SlashReviewersOnOverturn` charges `BondReserved`, the per-verdict reserve of
+`reviewer_bond_reserve_rate` x the initiative's budget, never the floor.
+Liability already scales with what the review could mint, whatever the floor is.
+The floor's job is narrower: price entry to the role, and give demotion a
+threshold to sit under.
+
+**Capacity is a separate decision, and reviewers make it by bonding more.** What
+limits a reviewer is free bond above their open reserves — `current_bond -
+total_committed_bond - pending_unbond_amount`. At the default 10% reserve rate
+the floor alone backs work up to roughly 5,000 DREAM of budget; an EPIC
+initiative at the 10,000 cap reserves 1,000 per verdict, so a reviewer who wants
+that work bonds past the floor for it. Raising the ceiling is simply another
+`MsgBondRole` against the same `(role_type, address)` record: it adds to
+`current_bond`, is reservable on the very next verdict with no waiting period,
+and is permitted even while an unbond is in flight (a bond only ever adds
+slashable collateral). Start small, grow into the role.
+
+The trade this makes is explicit. A floor-bonded reviewer cannot file on the
+largest initiatives, and if nobody with sufficient free bond files at all, the
+round escalates to the Operations Committee and an unanswered escalation
+resolves to `PASSED` — so thin reviewer capacity degrades toward unreviewed
+completion rather than toward a wedge.
+
+**The floor is not an availability mechanism, and raising it is not the remedy
+when reviewers are scarce.** A higher floor guarantees nothing: it would seat one
+EPIC verdict only for a reviewer holding no other open reserves, and bond is one
+of three constraints anyway — the reviewer must also pass the independence test
+(affiliates-plus-one-hop, no stake on the initiative) and must actually want the
+work. `min_verifier_count > 1` compounds all three. Since a high floor cannot
+manufacture willing, independent reviewers, its only reliable effect is to shrink
+the roster it is drawn from, which is the opposite of what scarcity calls for.
+
+The levers that do move availability are `reviewer_bond_reserve_rate` (lower
+reserves let the existing roster cover more and larger work at once), the pay —
+`review_fee_rate` and the accuracy-gated SPARK pool — and per-initiative
+`MsgFundReviewBounty` escrow to attract attention to specific work. A low
+`min_reviewer_bond` supports all of them by keeping the roster easy to join.
+
+**The reviewer's policy is owned by x/rep's own params.** The seven fields
+(`min_reviewer_bond`, `reviewer_demotion_threshold`, `min_reviewer_trust_level`,
+`min_reviewer_rep_tier`, `min_reviewer_age_blocks`,
+`reviewer_demotion_cooldown`, `reviewer_unbond_cooldown`) live in `Params` and
+in `RepOperationalParams`, and `SyncReviewerBondedRoleConfig` writes them
+through to the `BondedRoleConfig` for `ROLE_TYPE_INITIATIVE_REVIEWER` on
+`InitGenesis`, on `MsgUpdateParams`, and on `MsgUpdateOperationalParams`. This
+is the same shape x/forum uses for the sentinel and x/collect for the curator.
+Before it, the reviewer was the one bonded role no module owned: its config was
+whatever genesis seeded, reachable only by editing genesis or shipping an
+upgrade. It is now council-tunable like every other role's.
+
+The write-through is a **straight projection** — no field is defaulted on the
+way across. Reading a zero as "unset" would put the params and the enforced
+config back out of step, which is the drift the write-through exists to close: a
+council that votes `reviewer_unbond_cooldown: 0` gets 0, not a silently
+restored 14 days. `ReviewerBondPolicy.Validate` is what makes that safe, so it
+constrains every field, and it is stricter than the sentinel's in one place:
+`min_reviewer_trust_level` may not be empty. `BondRole` skips the trust gate
+entirely on an empty string, so an omitted level would quietly open the one role
+whose approvals mint DREAM. An ungated roster is still expressible — as
+`TRUST_LEVEL_NEW` — it just has to be said out loud.
+
+Eligibility is the trust level alone; `min_reviewer_rep_tier` stays 0. The trust
+ladder already encodes reputation, so a tier check is a second, stricter copy of
+the same gate rather than an independent one — and because genesis seeds trust
+levels but ships no reputation scores, a non-zero tier made the role
+unqualifiable on a fresh chain.
+
 ##### What shipped, and what did not
 
-Both halves are built: the role and its `BondedRoleConfig` (5,000 DREAM floor,
-an order of magnitude above the sentinel's because the liability is), per-verdict
+Both halves are built: the role and its `BondedRoleConfig`, per-verdict
 bond scaled by `reviewer_bond_reserve_rate`, the completion gate, the
 round/resubmit cycle, the committee escalation with its PASSED-on-silence
 default, the DREAM fee via `review_fee_rate` x the tier multiplier paid on both
@@ -3795,6 +3874,17 @@ var DefaultParams = Params{
     MaxReviewRounds:                    3,                           // last rejection abandons
     ReviewBountyReclaimDelay:           14400,                       // ~1 day before a funder may reclaim
     PermissionlessMinReviewBountyRate:  math.LegacyNewDecWithPrec(1, 1),  // 10% of budget, in existing DREAM
+
+    // Reviewer bonded-role policy. Projected onto the BondedRoleConfig for
+    // ROLE_TYPE_INITIATIVE_REVIEWER by SyncReviewerBondedRoleConfig; these
+    // params are the source of truth, the genesis config list is a seed.
+    MinReviewerBond:                    math.NewInt(500_000_000),    // 500 DREAM — level with sentinel and curator
+    ReviewerDemotionThreshold:          math.NewInt(250_000_000),    // 250 DREAM — half the floor
+    MinReviewerTrustLevel:              "TRUST_LEVEL_ESTABLISHED",   // required; the whole eligibility gate
+    MinReviewerRepTier:                 0,                           // trust level already encodes reputation
+    MinReviewerAgeBlocks:               0,
+    ReviewerDemotionCooldown:           604800,                      // 7 days
+    ReviewerUnbondCooldown:             1209600,                     // 14 days — open verdicts age out slashable
 
     // Bonded-role SPARK pools. Caps set the relative share, since the daily
     // draw is divided in proportion to each pool's headroom.
