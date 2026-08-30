@@ -565,27 +565,188 @@ func (k Keeper) BurnSelfAssignBond(ctx context.Context, initiative *types.Initia
 	return nil
 }
 
-// AbandonInitiative allows assignee to abandon an initiative
-func (k Keeper) AbandonInitiative(
+// UnassignInitiative releases an assignment and returns the initiative to OPEN
+// so someone else can pick it up.
+//
+// This is not a way out of the lifecycle. Conviction, its stakes and the
+// funding all stay attached to the initiative, which keeps accruing conviction
+// because OPEN is an active status (see IterateActiveInitiatives). That is the
+// point: the demand the community staked on the work is a property of the work,
+// not of whoever happened to be holding it, and destroying it on a change of
+// hands would make stakers pay for someone else stepping down. Retiring the
+// item outright is CloseInitiative.
+//
+// Status rules, and why they differ for a forced release:
+//
+//   - ASSIGNED is always releasable. The current round holds no verdicts there
+//     (a rejection increments the round before returning to ASSIGNED), so
+//     nothing is owed to a reviewer and nothing is minted.
+//   - SUBMITTED and IN_REVIEW are releasable only by the Operations Committee.
+//     Verdicts can be filed in either state, so a self-service release here
+//     would let an assignee submit, draw reviewer effort, release, and resubmit
+//     on a fresh round — minting review fees each lap at no cost to anyone but
+//     the token supply. Behind the committee that loop is not self-serve.
+//   - CHALLENGED is never releasable, by anyone. Walking away from a live
+//     challenge and re-entering through a new assignee would launder it.
+//
+// Review bonds committed against rounds now being discarded are released: those
+// reviewers judged a submission that is being withdrawn, and holding their bond
+// hostage to a future assignee's conduct would charge them for someone else's
+// exit. No fee is paid for those rounds, matching what already happens to a
+// superseded round after a rejection. Any review bounty stays funded and in
+// escrow, since the initiative it was posted against is still live.
+func (k Keeper) UnassignInitiative(
 	ctx context.Context,
 	initiativeID uint64,
-	assignee sdk.AccAddress,
 	reason string,
+	forced bool,
 ) error {
-	// Get initiative
 	initiative, err := k.GetInitiative(ctx, initiativeID)
 	if err != nil {
 		return err
 	}
 
-	// Validate assignee
-	if initiative.Assignee != assignee.String() {
-		return fmt.Errorf("only assignee can abandon initiative")
+	if initiative.Assignee == "" {
+		return errorsmod.Wrapf(types.ErrInvalidInitiativeStatus,
+			"initiative %d has no assignee to release", initiativeID)
 	}
 
-	// Reviewers are paid for the round that resolved this initiative whether it
-	// completed or was abandoned. Making the fee outcome-dependent would rebuild
-	// exactly the bias the role exists to remove.
+	// The two failure kinds are deliberately different errors. A status nobody
+	// can release from is ErrInvalidInitiativeStatus; a status only the
+	// committee can release from is ErrUnauthorized, because the same call from
+	// a different signer succeeds. A client can tell "wait" from "ask someone
+	// else" without parsing the message.
+	switch initiative.Status {
+	case types.InitiativeStatus_INITIATIVE_STATUS_ASSIGNED:
+	case types.InitiativeStatus_INITIATIVE_STATUS_SUBMITTED,
+		types.InitiativeStatus_INITIATIVE_STATUS_IN_REVIEW:
+		if !forced {
+			return errorsmod.Wrapf(types.ErrUnauthorized,
+				"initiative %d is under review; see the round out or ask the operations committee to release it",
+				initiativeID)
+		}
+	case types.InitiativeStatus_INITIATIVE_STATUS_CHALLENGED:
+		return errorsmod.Wrapf(types.ErrInvalidInitiativeStatus,
+			"initiative %d has an open challenge and cannot be released until it resolves", initiativeID)
+	default:
+		return errorsmod.Wrapf(types.ErrInvalidInitiativeStatus,
+			"initiative %d cannot be released from status %s", initiativeID, initiative.Status.String())
+	}
+
+	// Release every bond still committed against a verdict. Nothing is minted
+	// here, so this cannot be pumped by releasing repeatedly.
+	if err := k.SettleReviewBonds(ctx, initiativeID); err != nil {
+		return fmt.Errorf("failed to settle review bonds: %w", err)
+	}
+
+	// The self-assign bond guards against an upheld challenge on work that
+	// paid out. Nothing paid out and nothing is contestable, so it goes back.
+	if err := k.ReleaseSelfAssignBond(ctx, &initiative); err != nil {
+		return err
+	}
+
+	// Drop any escalation flag along with the round it belonged to. Left set,
+	// the sweep would treat a later round as already with the committee and
+	// that round would silently lose its escalation path.
+	if err := k.EscalatedReviews.Remove(ctx, initiativeID); err != nil {
+		return err
+	}
+
+	previous := initiative.Assignee
+
+	// Everything tied to who was holding the work, cleared. Budget, conviction
+	// and acceptance criteria are properties of the initiative and stay put.
+	initiative.Assignee = ""
+	initiative.Apprentice = ""
+	initiative.AssignedAt = 0
+	initiative.DeliverableUri = ""
+	initiative.SubmittedAt = 0
+	initiative.Approvals = nil
+	// The round counter is never reset. Verdict records are keyed
+	// (initiative, round, reviewer) and outlive the assignment, so pointing the
+	// next submission back at round 0 would hand it the previous holder's
+	// verdicts: stale approvals would satisfy the review gate for work nobody
+	// looked at, PayReviewFees would mint to their authors a second time, and
+	// those authors would be locked out of filing a real verdict.
+	//
+	// Advance past a round that actually collected verdicts, so the next
+	// submission starts on a clean key range. A round with no verdicts is
+	// already clean and is left alone: self-assigning and releasing costs
+	// nothing but gas, so consuming a round there would let anyone burn an
+	// initiative's max_review_rounds budget from the outside.
+	if discarded, rErr := k.GetInitiativeReviews(ctx, initiativeID, initiative.ReviewRound); rErr != nil {
+		return rErr
+	} else if len(discarded) > 0 {
+		initiative.ReviewRound++
+	}
+	initiative.ReviewDeadline = 0
+	initiative.ReviewEscalation = types.ReviewEscalation_REVIEW_ESCALATION_NONE
+	initiative.RequiredVerifiers = 0
+	initiative.ReviewPeriodEnd = 0
+	initiative.ChallengePeriodEnd = 0
+	initiative.Status = types.InitiativeStatus_INITIATIVE_STATUS_OPEN
+
+	if err := k.UpdateInitiative(ctx, initiative); err != nil {
+		return err
+	}
+
+	sdkCtx := sdk.UnwrapSDKContext(ctx)
+	sdkCtx.EventManager().EmitEvent(
+		sdk.NewEvent(
+			"initiative_unassigned",
+			sdk.NewAttribute("initiative_id", fmt.Sprintf("%d", initiativeID)),
+			sdk.NewAttribute("assignee", previous),
+			sdk.NewAttribute("forced", fmt.Sprintf("%t", forced)),
+			sdk.NewAttribute("reason", reason),
+		),
+	)
+
+	return nil
+}
+
+// CloseInitiative retires an initiative and returns its budget to the parent
+// project. This is the project side deciding the work is not going to happen,
+// and it is terminal.
+//
+// It is not restricted to untouched listings: a project must be able to stop
+// funding work whose assignee has gone silent, without needing that assignee's
+// cooperation. Authorization lives in
+// the msg server, which admits the project creator and the Operations
+// Committee, never the assignee — an assignee's exit is UnassignInitiative,
+// which leaves the work available to somebody else.
+//
+// Any live review round is settled on the way out. Reviewers are paid for the
+// round that resolved the initiative whether it completed or closed, because a
+// fee that depended on the outcome would rebuild the bias the role exists to
+// remove.
+//
+// A CHALLENGED initiative cannot be closed. The challenge decides whether the
+// work was delivered, and closing out from under it would let the project side
+// void a challenge that was about to be upheld.
+//
+// Outstanding conviction stakes are deliberately left in place: RemoveStake has
+// no status gate, so stakers can withdraw principal plus accrued rewards at any
+// time. Moving to a terminal status drops the initiative out of
+// IterateActiveInitiatives, so its conviction simply stops being recomputed.
+func (k Keeper) CloseInitiative(ctx context.Context, initiativeID uint64, reason string) error {
+	initiative, err := k.GetInitiative(ctx, initiativeID)
+	if err != nil {
+		return err
+	}
+
+	switch initiative.Status {
+	case types.InitiativeStatus_INITIATIVE_STATUS_OPEN,
+		types.InitiativeStatus_INITIATIVE_STATUS_ASSIGNED,
+		types.InitiativeStatus_INITIATIVE_STATUS_SUBMITTED,
+		types.InitiativeStatus_INITIATIVE_STATUS_IN_REVIEW:
+	case types.InitiativeStatus_INITIATIVE_STATUS_CHALLENGED:
+		return errorsmod.Wrapf(types.ErrInvalidInitiativeStatus,
+			"initiative %d has an open challenge and cannot be closed until it resolves", initiativeID)
+	default:
+		return errorsmod.Wrapf(types.ErrInvalidInitiativeStatus,
+			"initiative %d is already resolved (status %s)", initiativeID, initiative.Status.String())
+	}
+
 	if _, bErr := k.PayReviewBounty(ctx, initiative); bErr != nil {
 		return fmt.Errorf("failed to settle review bounty: %w", bErr)
 	}
@@ -593,16 +754,14 @@ func (k Keeper) AbandonInitiative(
 	if feeErr != nil {
 		return fmt.Errorf("failed to pay review fees: %w", feeErr)
 	}
-	// Nothing here is contestable any more, so release the bond every verdict
-	// committed.
 	if err := k.SettleReviewBonds(ctx, initiativeID); err != nil {
 		return fmt.Errorf("failed to settle review bonds: %w", err)
 	}
 
 	// Return budget to project (skip for permissionless — no pre-allocated
-	// budget), net of what review cost. The project pays for having had the work
-	// evaluated, which is where that cost belongs: returning the full budget
-	// would make review free to the party that asked for it and fund the
+	// budget), net of what review cost. The project pays for having had the
+	// work evaluated, which is where that cost belongs: returning the full
+	// budget would make review free to the party that asked for it and fund the
 	// reviewers purely by dilution.
 	project, projErr := k.GetProject(ctx, initiative.ProjectId)
 	if projErr == nil && !project.Permissionless {
@@ -615,86 +774,34 @@ func (k Keeper) AbandonInitiative(
 		}
 	}
 
-	// Return any self-assign bond — the bond guards against upheld
-	// challenges, not voluntary abandonment (no payout occurred).
+	// Return any self-assign bond — the bond guards against upheld challenges,
+	// not against the project retiring the work (no payout occurred).
 	if err := k.ReleaseSelfAssignBond(ctx, &initiative); err != nil {
 		return err
 	}
 
-	// Update initiative
-	initiative.Status = types.InitiativeStatus_INITIATIVE_STATUS_ABANDONED
+	// Drop any escalation flag. resolveSilentEscalations walks the escalation
+	// keyset rather than the status index, so an entry left behind would time
+	// out later and reject a round on an initiative that no longer exists as
+	// live work — rejectReviewRound would put it back to ASSIGNED with its
+	// budget already returned and its bond already released.
+	if err := k.EscalatedReviews.Remove(ctx, initiativeID); err != nil {
+		return err
+	}
+
+	initiative.Status = types.InitiativeStatus_INITIATIVE_STATUS_CLOSED
 
 	if err := k.UpdateInitiative(ctx, initiative); err != nil {
 		return err
 	}
 
-	// Emit event
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	sdkCtx.EventManager().EmitEvent(
 		sdk.NewEvent(
-			"initiative_abandoned",
-			sdk.NewAttribute("initiative_id", fmt.Sprintf("%d", initiativeID)),
-			sdk.NewAttribute("assignee", assignee.String()),
-			sdk.NewAttribute("reason", reason),
-		),
-	)
-
-	return nil
-}
-
-// CancelInitiative retires an initiative that was never started. Unlike
-// AbandonInitiative — which records an assignee walking away from work they
-// had taken on — this is the project side retiring a listing nobody picked up.
-//
-// Restricted to OPEN, unassigned initiatives so it can never be used to strip
-// work from an assignee or to escape a challenge. Once assigned, the only
-// exits remain abandonment (by the assignee) and the normal review path.
-//
-// Outstanding conviction stakes are deliberately left in place: RemoveStake
-// has no status gate, so stakers can withdraw principal plus accrued rewards
-// at any time. Moving to a terminal status drops the initiative out of
-// IterateActiveInitiatives, so its conviction simply stops being recomputed.
-func (k Keeper) CancelInitiative(ctx context.Context, initiativeID uint64, reason string) error {
-	// Get initiative
-	initiative, err := k.GetInitiative(ctx, initiativeID)
-	if err != nil {
-		return err
-	}
-
-	// Validate status - only unstarted work can be cancelled
-	if initiative.Status != types.InitiativeStatus_INITIATIVE_STATUS_OPEN {
-		return fmt.Errorf("initiative must be in OPEN status, got %s", initiative.Status.String())
-	}
-
-	// Defensive: an OPEN initiative should never carry an assignee, but if one
-	// is present the assignee's abandon path owns the exit (it also returns
-	// their self-assign bond).
-	if initiative.Assignee != "" {
-		return fmt.Errorf("initiative %d is assigned to %s; the assignee must abandon it", initiativeID, initiative.Assignee)
-	}
-
-	// Return budget to project (skip for permissionless — no pre-allocated budget)
-	project, projErr := k.GetProject(ctx, initiative.ProjectId)
-	if projErr == nil && !project.Permissionless {
-		if err := k.ReturnBudget(ctx, initiative.ProjectId, DerefInt(initiative.Budget)); err != nil {
-			return fmt.Errorf("failed to return budget: %w", err)
-		}
-	}
-
-	// Update initiative
-	initiative.Status = types.InitiativeStatus_INITIATIVE_STATUS_CANCELLED
-
-	if err := k.UpdateInitiative(ctx, initiative); err != nil {
-		return err
-	}
-
-	// Emit event
-	sdkCtx := sdk.UnwrapSDKContext(ctx)
-	sdkCtx.EventManager().EmitEvent(
-		sdk.NewEvent(
-			"initiative_cancelled",
+			"initiative_closed",
 			sdk.NewAttribute("initiative_id", fmt.Sprintf("%d", initiativeID)),
 			sdk.NewAttribute("project_id", fmt.Sprintf("%d", initiative.ProjectId)),
+			sdk.NewAttribute("assignee", initiative.Assignee),
 			sdk.NewAttribute("reason", reason),
 		),
 	)
@@ -734,9 +841,10 @@ func (k Keeper) CompleteInitiative(ctx context.Context, initiativeID uint64) err
 	}
 
 	// Refuse to mint a payout under a cancelled parent project. Cancelling a
-	// project terminates new payouts from it; the assignee's clean exit is
-	// AbandonInitiative (which returns their self-assign bond and the reserved
-	// budget). CanCompleteInitiative enforces the same rule for the EndBlocker
+	// project terminates new payouts from it; the clean exit is CloseInitiative
+	// (which returns the assignee's self-assign bond and the reserved budget),
+	// applied to every live initiative by the cancel cascade.
+	// CanCompleteInitiative enforces the same rule for the EndBlocker
 	// transition path — this explicit guard gives the manual completion path a
 	// clear error and defends the mint even if that check ever changes.
 	parentProject, err := k.GetProject(ctx, initiative.ProjectId)
@@ -851,7 +959,7 @@ func (k Keeper) CompleteInitiative(ctx context.Context, initiativeID uint64) err
 
 	// Pay the reviewers who judged the round that resolved this initiative.
 	// Paid per verdict filed, never per approval — and paid on this path and
-	// the abandonment path alike, so the fee never depends on the outcome.
+	// the close path alike, so the fee never depends on the outcome.
 	if _, err := k.PayReviewFees(ctx, initiative); err != nil {
 		return fmt.Errorf("failed to pay review fees: %w", err)
 	}

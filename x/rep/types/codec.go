@@ -8,7 +8,7 @@ import (
 
 func RegisterInterfaces(registrar codectypes.InterfaceRegistry) {
 	registrar.RegisterImplementations((*sdk.Msg)(nil),
-		&MsgCancelInitiative{},
+		&MsgCloseInitiative{},
 	)
 
 	registrar.RegisterImplementations((*sdk.Msg)(nil),
@@ -68,7 +68,7 @@ func RegisterInterfaces(registrar codectypes.InterfaceRegistry) {
 	)
 
 	registrar.RegisterImplementations((*sdk.Msg)(nil),
-		&MsgAbandonInitiative{},
+		&MsgUnassignInitiative{},
 	)
 
 	registrar.RegisterImplementations((*sdk.Msg)(nil),

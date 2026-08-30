@@ -322,10 +322,10 @@ func (k Keeper) cancelInitiativesForProjectCancel(ctx context.Context, projectID
 }
 
 // terminateInitiativeForProjectCancel moves a single non-terminal initiative to
-// CANCELLED because its parent project is being cancelled: it voids any active
+// CLOSED because its parent project is being cancelled: it voids any active
 // challenge (refunding the challenger), returns the reserved budget, releases
-// the assignee's self-assign bond, and emits initiative_cancelled. Safe for
-// OPEN initiatives too — they simply carry no challenge, assignee, or bond.
+// the assignee's self-assign bond, and emits initiative_closed. Safe for OPEN
+// initiatives too — they simply carry no challenge, assignee, or bond.
 func (k Keeper) terminateInitiativeForProjectCancel(ctx context.Context, initiative types.Initiative, reason string) error {
 	// Void any unresolved challenge first — leaving one live would let the
 	// EndBlocker later tally a verdict on (and resurrect) a cancelled
@@ -358,7 +358,14 @@ func (k Keeper) terminateInitiativeForProjectCancel(ctx context.Context, initiat
 		return err
 	}
 
-	initiative.Status = types.InitiativeStatus_INITIATIVE_STATUS_CANCELLED
+	// Drop any escalation flag, for the same reason the challenge above is
+	// voided: the escalation sweep walks its own keyset, not the status index,
+	// and would later reject a round on (and resurrect) a closed initiative.
+	if err := k.EscalatedReviews.Remove(ctx, initiative.Id); err != nil {
+		return err
+	}
+
+	initiative.Status = types.InitiativeStatus_INITIATIVE_STATUS_CLOSED
 	if err := k.UpdateInitiative(ctx, initiative); err != nil {
 		return err
 	}
@@ -366,7 +373,7 @@ func (k Keeper) terminateInitiativeForProjectCancel(ctx context.Context, initiat
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	sdkCtx.EventManager().EmitEvent(
 		sdk.NewEvent(
-			"initiative_cancelled",
+			"initiative_closed",
 			sdk.NewAttribute("initiative_id", fmt.Sprintf("%d", initiative.Id)),
 			sdk.NewAttribute("project_id", fmt.Sprintf("%d", initiative.ProjectId)),
 			sdk.NewAttribute("reason", reason),
@@ -381,8 +388,7 @@ func isTerminalInitiativeStatus(status types.InitiativeStatus) bool {
 	switch status {
 	case types.InitiativeStatus_INITIATIVE_STATUS_COMPLETED,
 		types.InitiativeStatus_INITIATIVE_STATUS_REJECTED,
-		types.InitiativeStatus_INITIATIVE_STATUS_ABANDONED,
-		types.InitiativeStatus_INITIATIVE_STATUS_CANCELLED:
+		types.InitiativeStatus_INITIATIVE_STATUS_CLOSED:
 		return true
 	default:
 		return false

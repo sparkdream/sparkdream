@@ -112,11 +112,13 @@ enum InitiativeStatus {
   INITIATIVE_STATUS_CHALLENGED = 4;
   INITIATIVE_STATUS_COMPLETED = 5;
   INITIATIVE_STATUS_REJECTED = 6;
-  INITIATIVE_STATUS_ABANDONED = 7;
-  // Retired by the project creator (or Operations Committee) while still
-  // OPEN and unassigned. Distinct from ABANDONED, which records an assignee
-  // walking away from work they had taken on.
-  INITIATIVE_STATUS_CANCELLED = 8;
+  // Retired by the project creator or the Operations Committee. The work is
+  // not being done and its budget has gone back to the project.
+  //
+  // Distinct from COMPLETED, which is narrower: COMPLETED means the work was
+  // delivered, passed its gates and paid out. CLOSED carries no claim about
+  // the work at all, only that the project stopped funding it.
+  INITIATIVE_STATUS_CLOSED = 7;
 }
 
 // How an escalated review round was resolved by the Operations Committee.

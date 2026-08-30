@@ -9,7 +9,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 )
 
-func (k msgServer) CancelInitiative(ctx context.Context, msg *types.MsgCancelInitiative) (*types.MsgCancelInitiativeResponse, error) {
+func (k msgServer) CloseInitiative(ctx context.Context, msg *types.MsgCloseInitiative) (*types.MsgCloseInitiativeResponse, error) {
 	creatorBytes, err := k.addressCodec.StringToBytes(msg.Creator)
 	if err != nil {
 		return nil, errorsmod.Wrap(err, "invalid creator address")
@@ -31,13 +31,13 @@ func (k msgServer) CancelInitiative(ctx context.Context, msg *types.MsgCancelIni
 			return nil, errorsmod.Wrap(opsErr, "failed to check operations committee membership")
 		}
 		if !isOps {
-			return nil, errorsmod.Wrap(types.ErrUnauthorized, "only the project creator or operations committee may cancel an initiative")
+			return nil, errorsmod.Wrap(types.ErrUnauthorized, "only the project creator or operations committee may close an initiative")
 		}
 	}
 
-	if err := k.Keeper.CancelInitiative(ctx, msg.InitiativeId, msg.Reason); err != nil {
-		return nil, errorsmod.Wrap(err, "failed to cancel initiative")
+	if err := k.Keeper.CloseInitiative(ctx, msg.InitiativeId, msg.Reason); err != nil {
+		return nil, errorsmod.Wrap(err, "failed to close initiative")
 	}
 
-	return &types.MsgCancelInitiativeResponse{}, nil
+	return &types.MsgCloseInitiativeResponse{}, nil
 }

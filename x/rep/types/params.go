@@ -287,8 +287,23 @@ func DefaultParams() Params {
 		ProposedProjectExpiryBlocks: 200000,
 
 		// Self-assignment safeguards (self-assigned initiatives)
-		SelfAssignedBondRate:                math.LegacyNewDecWithPrec(10, 2), // 10% of budget
-		SelfAssignedExternalConvictionRatio: math.LegacyOneDec(),              // 100% external
+		SelfAssignedBondRate: math.LegacyNewDecWithPrec(10, 2), // 10% of budget
+		// 75% external. This is a distinct-staker floor as much as a magnitude
+		// one: max_conviction_share_per_member caps any single member at 33% of
+		// required conviction, so the ratio divided by that cap is the minimum
+		// number of independent stakers who must show up —
+		// ceil(0.75/0.33) = 3, against ceil(0.50/0.33) = 2 for ordinary
+		// externally-assigned work. Self-assignment stays strictly harder to
+		// complete, which is the point, but 100% put the floor at 4 and made
+		// the gate unreachable on a small chain rather than merely demanding.
+		//
+		// Anything in (0.66, 0.99] shares that floor of 3, so this sits at the
+		// low end of the band: three stakers clear it averaging 0.25 each
+		// rather than arriving nearly capped. Note the coupling — the floor is
+		// ceil(ratio / max_conviction_share_per_member), and that cap is
+		// operationally tunable, so raising it above 0.375 would quietly drop
+		// this floor to 2.
+		SelfAssignedExternalConvictionRatio: math.LegacyNewDecWithPrec(75, 2),
 		SelfAssignedChallengeMultiplier:     2,
 		// Permissionless self-assignment mints DREAM nobody approved rather
 		// than moving DREAM governance already allocated, so it carries a

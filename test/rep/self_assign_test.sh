@@ -7,7 +7,7 @@ echo "--- TESTING: CREATOR SELF-ASSIGNMENT (BOND, APPROVAL EXCLUSION, CHALLENGE 
 #   2. DREAM bond (self_assigned_bond_rate x budget) locked at assignment
 #   3. Assignee/project creator cannot approve-initiative (conflict of interest)
 #   4. Challenge window is multiplied by self_assigned_challenge_multiplier
-#   5. Bond released on voluntary abandon
+#   5. Bond released when the assignment is released
 #   6. Non-creator assignment locks no bond
 
 # --- 0. SETUP ---
@@ -304,28 +304,28 @@ else
 fi
 
 # ========================================================================
-# PART 4: BOND RELEASED ON VOLUNTARY ABANDON
+# PART 4: BOND RELEASED ON VOLUNTARY UNASSIGN
 # ========================================================================
 echo ""
-echo "--- PART 4: BOND RELEASED ON ABANDON ---"
+echo "--- PART 4: BOND RELEASED ON UNASSIGN ---"
 
-ABANDON_BUDGET="50000000"
-ABANDON_INIT_ID=$(create_initiative "Self-assigned then abandoned" "$ABANDON_BUDGET")
-echo "Initiative ID: $ABANDON_INIT_ID"
+RELEASE_BUDGET="50000000"
+RELEASE_INIT_ID=$(create_initiative "Self-assigned then released" "$RELEASE_BUDGET")
+echo "Initiative ID: $RELEASE_INIT_ID"
 
-$BINARY tx rep assign-initiative $ABANDON_INIT_ID $ALICE_ADDR \
+$BINARY tx rep assign-initiative $RELEASE_INIT_ID $ALICE_ADDR \
   --from alice --chain-id $CHAIN_ID --keyring-backend test \
   --fees 5000${BOND_DENOM} -y -o json > /dev/null 2>&1
 sleep 6
 
-BOND_BEFORE_ABANDON=$($BINARY query rep get-initiative $ABANDON_INIT_ID -o json | jq -r '.initiative.self_assign_bond // "0"')
-STAKED_BEFORE_ABANDON=$($BINARY query rep get-member $ALICE_ADDR -o json 2>/dev/null | jq -r '.member.staked_dream // "0"')
+BOND_BEFORE_RELEASE=$($BINARY query rep get-initiative $RELEASE_INIT_ID -o json | jq -r '.initiative.self_assign_bond // "0"')
+STAKED_BEFORE_RELEASE=$($BINARY query rep get-member $ALICE_ADDR -o json 2>/dev/null | jq -r '.member.staked_dream // "0"')
 
-if [ "$BOND_BEFORE_ABANDON" == "0" ]; then
-    echo "[WARN]  No bond locked on second initiative - skipping abandon check"
+if [ "$BOND_BEFORE_RELEASE" == "0" ]; then
+    echo "[WARN]  No bond locked on second initiative - skipping release check"
 else
-    ABANDON_RES=$($BINARY tx rep abandon-initiative \
-      $ABANDON_INIT_ID \
+    RELEASE_RES=$($BINARY tx rep unassign-initiative \
+      $RELEASE_INIT_ID \
       "changed my mind" \
       --from alice \
       --chain-id $CHAIN_ID \
@@ -335,27 +335,29 @@ else
       -o json)
     sleep 6
 
-    ABANDONED_INIT=$($BINARY query rep get-initiative $ABANDON_INIT_ID -o json)
-    ABANDON_STATUS=$(echo "$ABANDONED_INIT" | jq -r '.initiative.status // ""')
-    BOND_AFTER_ABANDON=$(echo "$ABANDONED_INIT" | jq -r '.initiative.self_assign_bond // "0"')
-    STAKED_AFTER_ABANDON=$($BINARY query rep get-member $ALICE_ADDR -o json 2>/dev/null | jq -r '.member.staked_dream // "0"')
-    RELEASED=$(awk "BEGIN{printf \"%d\", $STAKED_BEFORE_ABANDON - $STAKED_AFTER_ABANDON}")
+    RELEASED_INIT=$($BINARY query rep get-initiative $RELEASE_INIT_ID -o json)
+    # OPEN is enum 0, which proto3 omits from the CLI JSON entirely -- the
+    # default here IS the expected value, not a fallback for a missing record.
+    RELEASE_STATUS=$(echo "$RELEASED_INIT" | jq -r '.initiative.status // "INITIATIVE_STATUS_OPEN"')
+    BOND_AFTER_RELEASE=$(echo "$RELEASED_INIT" | jq -r '.initiative.self_assign_bond // "0"')
+    STAKED_AFTER_RELEASE=$($BINARY query rep get-member $ALICE_ADDR -o json 2>/dev/null | jq -r '.member.staked_dream // "0"')
+    RELEASED=$(awk "BEGIN{printf \"%d\", $STAKED_BEFORE_RELEASE - $STAKED_AFTER_RELEASE}")
 
-    echo "Status after abandon: $ABANDON_STATUS"
-    echo "Bond after abandon:   $BOND_AFTER_ABANDON"
-    echo "Staked released:      $RELEASED (bond was: $BOND_BEFORE_ABANDON)"
+    echo "Status after unassign: $RELEASE_STATUS"
+    echo "Bond after unassign:   $BOND_AFTER_RELEASE"
+    echo "Staked released:      $RELEASED (bond was: $BOND_BEFORE_RELEASE)"
 
-    if [ "$ABANDON_STATUS" == "INITIATIVE_STATUS_ABANDONED" ] && [ "$BOND_AFTER_ABANDON" == "0" ]; then
-        echo "[ OK ] Bond cleared on abandon"
+    if [ "$RELEASE_STATUS" == "INITIATIVE_STATUS_OPEN" ] && [ "$BOND_AFTER_RELEASE" == "0" ]; then
+        echo "[ OK ] Bond cleared and initiative returned to OPEN"
     else
-        echo "[FAIL] Bond not cleared on abandon (status: $ABANDON_STATUS, bond: $BOND_AFTER_ABANDON)"
+        echo "[FAIL] Bond not cleared on unassign (status: $RELEASE_STATUS, bond: $BOND_AFTER_RELEASE)"
         FAIL_COUNT=$((FAIL_COUNT+1))
     fi
 
-    if [ "$RELEASED" == "$BOND_BEFORE_ABANDON" ]; then
+    if [ "$RELEASED" == "$BOND_BEFORE_RELEASE" ]; then
         echo "[ OK ] Bond returned to creator's unlocked balance"
     else
-        echo "[WARN]  Released amount $RELEASED != bond $BOND_BEFORE_ABANDON (decay/other stakes may interfere)"
+        echo "[WARN]  Released amount $RELEASED != bond $BOND_BEFORE_RELEASE (decay/other stakes may interfere)"
     fi
 fi
 
@@ -384,10 +386,12 @@ else
     FAIL_COUNT=$((FAIL_COUNT+1))
 fi
 
-# Clean up: abandon the worker-assigned initiative so leftover state doesn't
-# interfere with other test scripts sharing the project.
-$BINARY tx rep abandon-initiative $WORKER_INIT_ID "e2e cleanup" \
-  --from expert --chain-id $CHAIN_ID --keyring-backend test \
+# Clean up: close the worker-assigned initiative so leftover state doesn't
+# interfere with other test scripts sharing the project. Close (not unassign)
+# because this must retire the listing, and it is signed by alice, who created
+# the project -- the assignee has no standing to close.
+$BINARY tx rep close-initiative $WORKER_INIT_ID "e2e cleanup" \
+  --from alice --chain-id $CHAIN_ID --keyring-backend test \
   --fees 5000${BOND_DENOM} -y -o json > /dev/null 2>&1
 sleep 3
 

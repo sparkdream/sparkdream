@@ -11,12 +11,12 @@ import (
 	"sparkdream/x/rep/types"
 )
 
-func TestMsgServerAbandonInitiative(t *testing.T) {
+func TestMsgServerUnassignInitiative(t *testing.T) {
 	t.Run("invalid creator address", func(t *testing.T) {
 		f := initFixture(t)
 		ms := keeper.NewMsgServerImpl(f.keeper)
 
-		_, err := ms.AbandonInitiative(f.ctx, &types.MsgAbandonInitiative{
+		_, err := ms.UnassignInitiative(f.ctx, &types.MsgUnassignInitiative{
 			Creator:      "invalid-address",
 			InitiativeId: 1,
 			Reason:       "Test",
@@ -34,18 +34,25 @@ func TestMsgServerAbandonInitiative(t *testing.T) {
 		assigneeStr, err := f.addressCodec.BytesToString(assignee)
 		require.NoError(t, err)
 
-		_, err = ms.AbandonInitiative(f.ctx, &types.MsgAbandonInitiative{
+		_, err = ms.UnassignInitiative(f.ctx, &types.MsgUnassignInitiative{
 			Creator:      assigneeStr,
 			InitiativeId: 99999,
 			Reason:       "Test",
 		})
 
 		require.Error(t, err)
-		require.Contains(t, err.Error(), "failed to abandon initiative")
+		require.Contains(t, err.Error(), "failed to get initiative")
 	})
 
 	t.Run("not the assignee", func(t *testing.T) {
-		f := initFixture(t)
+		// Everyone but the bystander is authorized, so project setup still
+		// works and the only party this can fail on is the bystander: not the
+		// assignee, and not on the operations committee.
+		otherUser := sdk.AccAddress([]byte("other"))
+		f := initFixture(t, WithAuthorizationPolicy(
+			func(addr sdk.AccAddress, _ string, _ string) bool {
+				return !addr.Equals(otherUser)
+			}))
 		ms := keeper.NewMsgServerImpl(f.keeper)
 		k := f.keeper
 		ctx := f.ctx
@@ -69,22 +76,23 @@ func TestMsgServerAbandonInitiative(t *testing.T) {
 		initID, _ := k.CreateInitiative(ctx, creator, projectID, "Task", "D", []string{"tag"}, types.InitiativeTier_INITIATIVE_TIER_STANDARD, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, budget)
 		k.AssignInitiativeToMember(ctx, initID, assignee)
 
-		// Try to abandon with a different user (non-assignee)
-		otherUser := sdk.AccAddress([]byte("other"))
+		// A bystander is neither the assignee nor on the operations
+		// committee, so the authorization check rejects them before the
+		// keeper is reached.
 		otherUserStr, err := f.addressCodec.BytesToString(otherUser)
 		require.NoError(t, err)
 
-		_, err = ms.AbandonInitiative(ctx, &types.MsgAbandonInitiative{
+		_, err = ms.UnassignInitiative(ctx, &types.MsgUnassignInitiative{
 			Creator:      otherUserStr,
 			InitiativeId: initID,
 			Reason:       "Test",
 		})
 
 		require.Error(t, err)
-		require.Contains(t, err.Error(), "failed to abandon initiative")
+		require.Contains(t, err.Error(), "only the assignee or the operations committee")
 	})
 
-	t.Run("successful abandon - by assignee", func(t *testing.T) {
+	t.Run("successful unassign - by assignee", func(t *testing.T) {
 		f := initFixture(t)
 		ms := keeper.NewMsgServerImpl(f.keeper)
 		k := f.keeper
@@ -117,22 +125,24 @@ func TestMsgServerAbandonInitiative(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, budget.String(), projectBefore.AllocatedBudget.String())
 
-		// Abandon the initiative
-		_, err = ms.AbandonInitiative(ctx, &types.MsgAbandonInitiative{
+		// Step down from the initiative
+		_, err = ms.UnassignInitiative(ctx, &types.MsgUnassignInitiative{
 			Creator:      assigneeStr,
 			InitiativeId: initID,
 			Reason:       "No longer needed",
 		})
 		require.NoError(t, err)
 
-		// Verify initiative was abandoned
+		// The initiative goes back on the board with nobody holding it.
 		initiative, err := k.GetInitiative(ctx, initID)
 		require.NoError(t, err)
-		require.Equal(t, types.InitiativeStatus_INITIATIVE_STATUS_ABANDONED, initiative.Status)
+		require.Equal(t, types.InitiativeStatus_INITIATIVE_STATUS_OPEN, initiative.Status)
+		require.Empty(t, initiative.Assignee)
 
-		// Verify budget was returned to project
+		// The budget stays allocated: the work is still live and still funded
+		// for whoever picks it up next.
 		project, err := k.GetProject(ctx, projectID)
 		require.NoError(t, err)
-		require.Equal(t, math.ZeroInt().String(), project.AllocatedBudget.String())
+		require.Equal(t, budget.String(), project.AllocatedBudget.String())
 	})
 }

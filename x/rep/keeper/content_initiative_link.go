@@ -21,8 +21,7 @@ func (k Keeper) ValidateInitiativeReference(ctx context.Context, initiativeID ui
 	switch initiative.Status {
 	case types.InitiativeStatus_INITIATIVE_STATUS_COMPLETED,
 		types.InitiativeStatus_INITIATIVE_STATUS_REJECTED,
-		types.InitiativeStatus_INITIATIVE_STATUS_ABANDONED,
-		types.InitiativeStatus_INITIATIVE_STATUS_CANCELLED:
+		types.InitiativeStatus_INITIATIVE_STATUS_CLOSED:
 		return fmt.Errorf("initiative %d is in terminal status %s", initiativeID, initiative.Status)
 	}
 

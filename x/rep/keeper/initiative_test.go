@@ -239,7 +239,7 @@ func TestSelfAssignBondNotLockedForNonCreator(t *testing.T) {
 	require.True(t, initiative.SelfAssignBond == nil || initiative.SelfAssignBond.IsZero())
 }
 
-func TestSelfAssignBondReleasedOnAbandon(t *testing.T) {
+func TestSelfAssignBondReleasedOnUnassign(t *testing.T) {
 	fixture := initFixture(t)
 	k := fixture.keeper
 	ctx := fixture.ctx
@@ -262,7 +262,7 @@ func TestSelfAssignBondReleasedOnAbandon(t *testing.T) {
 
 	require.NoError(t, k.AssignInitiativeToMember(ctx, initID, creator))
 
-	err := k.AbandonInitiative(ctx, initID, creator, "changed my mind")
+	err := k.UnassignInitiative(ctx, initID, "changed my mind", false)
 	require.NoError(t, err)
 
 	initiative, _ := k.GetInitiative(ctx, initID)
@@ -399,7 +399,7 @@ func TestSubmitInitiativeWorkRequiresADeliverable(t *testing.T) {
 		"the stored URI is trimmed, so the emptiness check and the stored value agree")
 }
 
-func TestAbandonInitiative(t *testing.T) {
+func TestUnassignInitiative(t *testing.T) {
 	fixture := initFixture(t)
 	k := fixture.keeper
 	ctx := fixture.ctx
@@ -423,19 +423,138 @@ func TestAbandonInitiative(t *testing.T) {
 	initID, _ := k.CreateInitiative(ctx, creator, projectID, "Task", "D", []string{"tag"}, types.InitiativeTier_INITIATIVE_TIER_STANDARD, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, budget)
 	k.AssignInitiativeToMember(ctx, initID, assignee)
 
-	// Test: Abandon initiative
-	err := k.AbandonInitiative(ctx, initID, assignee, "No longer needed")
+	// Test: the assignee steps down
+	err := k.UnassignInitiative(ctx, initID, "No longer needed", false)
 	require.NoError(t, err)
 
-	// Verify abandonment
+	// The work goes back on the board rather than being retired, with nobody
+	// holding it.
 	initiative, err := k.GetInitiative(ctx, initID)
 	require.NoError(t, err)
-	require.Equal(t, types.InitiativeStatus_INITIATIVE_STATUS_ABANDONED, initiative.Status)
+	require.Equal(t, types.InitiativeStatus_INITIATIVE_STATUS_OPEN, initiative.Status)
+	require.Empty(t, initiative.Assignee)
+	require.Zero(t, initiative.AssignedAt)
 
-	// Verify budget was returned
+	// The budget stays allocated: the initiative is still live and still needs
+	// funding for whoever picks it up next.
 	project, err := k.GetProject(ctx, projectID)
 	require.NoError(t, err)
-	require.Equal(t, math.ZeroInt().String(), project.AllocatedBudget.String())
+	require.Equal(t, budget.String(), project.AllocatedBudget.String())
+}
+
+// A released initiative is assignable again — the whole point of returning it
+// to OPEN rather than to a terminal status.
+func TestUnassignInitiativeAllowsReassignment(t *testing.T) {
+	fixture := initFixture(t)
+	k := fixture.keeper
+	ctx := fixture.ctx
+
+	creator := sdk.AccAddress([]byte("creator"))
+	projectID, _ := k.CreateProject(ctx, creator, "Proj", "Desc", []string{"tag"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical", math.NewInt(10000), math.NewInt(1000), false)
+	k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(10000), math.NewInt(1000))
+
+	for _, name := range []string{"assignee-one", "assignee-two"} {
+		addr := sdk.AccAddress([]byte(name))
+		k.Member.Set(ctx, addr.String(), types.Member{
+			Address:          addr.String(),
+			DreamBalance:     PtrInt(math.ZeroInt()),
+			StakedDream:      PtrInt(math.ZeroInt()),
+			LifetimeEarned:   PtrInt(math.ZeroInt()),
+			LifetimeBurned:   PtrInt(math.ZeroInt()),
+			ReputationScores: map[string]string{"tag": "100.0"},
+		})
+	}
+	first := sdk.AccAddress([]byte("assignee-one"))
+	second := sdk.AccAddress([]byte("assignee-two"))
+
+	initID, _ := k.CreateInitiative(ctx, creator, projectID, "Task", "D", []string{"tag"}, types.InitiativeTier_INITIATIVE_TIER_STANDARD, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, math.NewInt(100))
+	require.NoError(t, k.AssignInitiativeToMember(ctx, initID, first))
+	require.NoError(t, k.UnassignInitiative(ctx, initID, "handing it over", false))
+	require.NoError(t, k.AssignInitiativeToMember(ctx, initID, second))
+
+	initiative, err := k.GetInitiative(ctx, initID)
+	require.NoError(t, err)
+	require.Equal(t, second.String(), initiative.Assignee)
+	require.Equal(t, types.InitiativeStatus_INITIATIVE_STATUS_ASSIGNED, initiative.Status)
+}
+
+// An open challenge pins the assignee in place: releasing and re-entering
+// through a new assignee would launder the challenge away.
+func TestUnassignInitiativeBlockedWhileChallenged(t *testing.T) {
+	fixture := initFixture(t)
+	k := fixture.keeper
+	ctx := fixture.ctx
+
+	creator := sdk.AccAddress([]byte("creator"))
+	projectID, _ := k.CreateProject(ctx, creator, "Proj", "Desc", []string{"tag"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical", math.NewInt(10000), math.NewInt(1000), false)
+	k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(10000), math.NewInt(1000))
+
+	assignee := sdk.AccAddress([]byte("assignee"))
+	k.Member.Set(ctx, assignee.String(), types.Member{
+		Address:          assignee.String(),
+		DreamBalance:     PtrInt(math.ZeroInt()),
+		StakedDream:      PtrInt(math.ZeroInt()),
+		LifetimeEarned:   PtrInt(math.ZeroInt()),
+		LifetimeBurned:   PtrInt(math.ZeroInt()),
+		ReputationScores: map[string]string{"tag": "100.0"},
+	})
+
+	initID, _ := k.CreateInitiative(ctx, creator, projectID, "Task", "D", []string{"tag"}, types.InitiativeTier_INITIATIVE_TIER_STANDARD, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, math.NewInt(100))
+	require.NoError(t, k.AssignInitiativeToMember(ctx, initID, assignee))
+
+	initiative, err := k.GetInitiative(ctx, initID)
+	require.NoError(t, err)
+	initiative.Status = types.InitiativeStatus_INITIATIVE_STATUS_CHALLENGED
+	require.NoError(t, k.UpdateInitiative(ctx, initiative))
+
+	// Nobody can release from CHALLENGED, so this is a status error rather than
+	// an authorization one — the committee override fails the same way.
+	require.ErrorIs(t, k.UnassignInitiative(ctx, initID, "let me out", false),
+		types.ErrInvalidInitiativeStatus)
+	require.ErrorIs(t, k.UnassignInitiative(ctx, initID, "committee override", true),
+		types.ErrInvalidInitiativeStatus)
+}
+
+// Mid-review, only the committee can free the work. A self-service release
+// there would let an assignee draw reviewer effort and resubmit on a fresh
+// round, minting review fees each lap.
+func TestUnassignInitiativeUnderReviewIsCommitteeOnly(t *testing.T) {
+	fixture := initFixture(t)
+	k := fixture.keeper
+	ctx := fixture.ctx
+
+	creator := sdk.AccAddress([]byte("creator"))
+	projectID, _ := k.CreateProject(ctx, creator, "Proj", "Desc", []string{"tag"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical", math.NewInt(10000), math.NewInt(1000), false)
+	k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(10000), math.NewInt(1000))
+
+	assignee := sdk.AccAddress([]byte("assignee"))
+	k.Member.Set(ctx, assignee.String(), types.Member{
+		Address:          assignee.String(),
+		DreamBalance:     PtrInt(math.ZeroInt()),
+		StakedDream:      PtrInt(math.ZeroInt()),
+		LifetimeEarned:   PtrInt(math.ZeroInt()),
+		LifetimeBurned:   PtrInt(math.ZeroInt()),
+		ReputationScores: map[string]string{"tag": "100.0"},
+	})
+
+	initID, _ := k.CreateInitiative(ctx, creator, projectID, "Task", "D", []string{"tag"}, types.InitiativeTier_INITIATIVE_TIER_STANDARD, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, math.NewInt(100))
+	require.NoError(t, k.AssignInitiativeToMember(ctx, initID, assignee))
+
+	initiative, err := k.GetInitiative(ctx, initID)
+	require.NoError(t, err)
+	initiative.Status = types.InitiativeStatus_INITIATIVE_STATUS_SUBMITTED
+	require.NoError(t, k.UpdateInitiative(ctx, initiative))
+
+	// Authorization, not status: the identical call from the committee succeeds,
+	// so a client is being told to ask someone else rather than to wait.
+	require.ErrorIs(t, k.UnassignInitiative(ctx, initID, "changed my mind", false),
+		types.ErrUnauthorized)
+	require.NoError(t, k.UnassignInitiative(ctx, initID, "stalled", true))
+
+	initiative, err = k.GetInitiative(ctx, initID)
+	require.NoError(t, err)
+	require.Equal(t, types.InitiativeStatus_INITIATIVE_STATUS_OPEN, initiative.Status)
+	require.Empty(t, initiative.DeliverableUri)
 }
 
 func TestCompleteInitiative(t *testing.T) {

@@ -50,8 +50,7 @@ func (k Keeper) EscrowReviewBounty(ctx context.Context, funder sdk.AccAddress, i
 	// or refund automatically.
 	switch initiative.Status {
 	case types.InitiativeStatus_INITIATIVE_STATUS_COMPLETED,
-		types.InitiativeStatus_INITIATIVE_STATUS_ABANDONED,
-		types.InitiativeStatus_INITIATIVE_STATUS_CANCELLED:
+		types.InitiativeStatus_INITIATIVE_STATUS_CLOSED:
 		return math.ZeroInt(), fmt.Errorf("%w: initiative %d is %s", types.ErrInvalidInitiativeStatus,
 			initiativeID, initiative.Status)
 	}

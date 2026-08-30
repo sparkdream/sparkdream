@@ -437,22 +437,30 @@ Enums: `GovActionType`, `MemberReportStatus`, `GovAppealStatus`.
 ### Initiative Status Lifecycle
 
 ```
-OPEN → SUBMITTED → IN_REVIEW → PENDING_COMPLETION → COMPLETED
-  │       │           │                │
-  │       │           ├── CHALLENGED ──┘
-  │       │           │
-  │       └───────────┴── ABANDONED   (assignee walks away)
-  │
-  └── CANCELLED                        (project retires an unstarted listing)
+OPEN → ASSIGNED → SUBMITTED → IN_REVIEW → COMPLETED
+ ↑        │           │           │
+ │        │           │           └── CHALLENGED → REJECTED
+ │        │           │
+ └────────┴───────────┘   MsgUnassignInitiative (back to OPEN, not terminal)
+
+any live status ─────────→ CLOSED   (project creator or Operations Committee)
 ```
 
-`ABANDONED` and `CANCELLED` are distinct terminal states: `ABANDONED` is
-reached by the assignee abandoning work in progress; `CANCELLED` is reached
-only from `OPEN` when the project creator or Operations Committee retires a
-listing nobody ever picked up.
+Releasing an assignment is **not** a terminal state, which is the distinction
+worth holding on to. `MsgUnassignInitiative` returns the work item to `OPEN`
+with its budget, conviction and stakes intact, so the demand the community
+built up survives a change of hands. `MsgCloseInitiative` is the terminal one:
+the project side stops funding the work and the reserved budget goes back.
+
+Releasing is self-service from `ASSIGNED`, Operations-Committee-only from
+`SUBMITTED` and `IN_REVIEW` (otherwise an assignee could submit, draw reviewer
+effort, release and resubmit on a fresh round, minting review fees each lap),
+and impossible from `CHALLENGED` in either direction — re-entering through a
+new assignee would launder a live challenge. Closing is blocked from
+`CHALLENGED` for the same reason.
 
 **Cancelling the parent project** cascade-terminates *every* non-terminal
-initiative under it (`OPEN`…`CHALLENGED` → `CANCELLED`): each one's reserved
+initiative under it (`OPEN`…`CHALLENGED` → `CLOSED`): each one's reserved
 budget is returned, its self-assign bond released, and any active challenge
 voided (refunding the challenger's stake in full). See the "Cancelling a
 Project" section of [docs/x-rep-spec.md](../../docs/x-rep-spec.md).
@@ -488,17 +496,24 @@ Project" section of [docs/x-rep-spec.md](../../docs/x-rep-spec.md).
 | `MsgCreateInitiative` | Create initiative under project | Any member |
 | `MsgAssignInitiative` | Assign to worker (creator self-assign allowed; stricter completion gates apply) | Project authority |
 | `MsgSubmitInitiativeWork` | Submit deliverable | Assignee |
-| `MsgApproveInitiative` | Record an advisory verdict; disapproval abandons | Approval: any staker or committee. Disapproval: Operations Committee only |
+| `MsgApproveInitiative` | Record an advisory verdict; disapproval closes the initiative | Approval: any staker or committee. Disapproval: Operations Committee only |
 | `MsgSubmitInitiativeReview` | File a bonded reviewer's verdict on submitted work | Bonded initiative reviewer, independent of the work and not a staker on it |
 | `MsgFundReviewBounty` | Escrow DREAM against an initiative to attract reviewers | Members |
 | `MsgReclaimReviewBounty` | Withdraw your own unpaid bounty (before any verdict) | Funder |
 | `MsgSetVerificationPolicy` | Configure how a project's initiatives are reviewed | Project creator or Operations Committee |
 | `MsgResolveReviewEscalation` | Settle a review round that hit its deadline | Operations Committee |
-| `MsgAbandonInitiative` | Abandon work in progress | Assignee |
-| `MsgCancelInitiative` | Retire an OPEN, unassigned initiative; returns reserved budget | Project creator or Operations Committee |
+| `MsgUnassignInitiative` | Release an assignment; the initiative returns to OPEN, keeping its budget and conviction | Assignee, or Operations Committee for work stalled in review |
+| `MsgCloseInitiative` | Retire an initiative outright; returns reserved budget to the project | Project creator or Operations Committee |
+
+Both exits refuse with a registered error rather than a generic failure, and
+which one tells the caller what to do next: `ErrUnauthorized` (1304) means the
+same call from another signer would succeed (releasing work that is under
+review — ask the Operations Committee), while `ErrInvalidInitiativeStatus`
+(1402) means no signer can do it from this status (an open challenge must
+resolve first; a terminal initiative is already resolved).
 | `MsgCompleteInitiative` | Finalize after challenge period, mint rewards | Authority |
 
-Creator self-assignment is allowed but hardened: full external conviction required, extended challenge window, DREAM bond on budget-backed projects (returned on completion/abandon, burned on upheld challenge), and neither creator nor assignee may approve. See the self-assignment section of [docs/x-rep-spec.md](../../docs/x-rep-spec.md).
+Creator self-assignment is allowed but hardened: a raised external-conviction ratio (75% of required, against 50% for externally-assigned work — which is a floor of three independent stakers rather than two, given the 33% per-member conviction cap), extended challenge window, DREAM bond on budget-backed projects (returned on completion or release, burned on upheld challenge), and neither creator nor assignee may approve. See the self-assignment section of [docs/x-rep-spec.md](../../docs/x-rep-spec.md).
 
 ### Staking
 
@@ -720,7 +735,7 @@ These parameters are excluded from `RepOperationalParams` and can only be change
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `self_assigned_bond_rate` | LegacyDec | 10% | Of budget, locked as DREAM bond on budget-backed projects; burned on upheld challenge |
-| `self_assigned_external_conviction_ratio` | LegacyDec | 100% | Replaces `external_conviction_ratio` when assignee == project creator |
+| `self_assigned_external_conviction_ratio` | LegacyDec | 75% | Replaces `external_conviction_ratio` when assignee == project creator. Divided by `max_conviction_share_per_member`, it is also the floor on independent stakers: 3 |
 | `self_assigned_challenge_multiplier` | int64 | 2 | Challenge-window multiplier for creator-assigned initiatives |
 
 #### Challenges
@@ -753,7 +768,7 @@ These parameters are excluded from `RepOperationalParams` and can only be change
 | `review_required_above_budget` | Int | 100 DREAM | Above this, completion needs a verdict regardless of project policy |
 | `review_bounty_reclaim_delay` | uint64 | 14400 (~1 day) | Blocks before a funder may reclaim an unpaid bounty |
 | `permissionless_min_review_bounty_rate` | LegacyDec | 10% | Of budget, escrowed in existing DREAM at permissionless creation — only when the budget is above the review gate |
-| `max_review_rounds` | uint32 | 3 | Rejection returns the work for another round; the last one abandons |
+| `max_review_rounds` | uint32 | 3 | Rejection returns the work for another round; the last one closes the initiative |
 | `min_reviewer_bond` | Int | 500 DREAM | Bond floor to hold the role; a low entry price, not the per-verdict exposure |
 | `reviewer_demotion_threshold` | Int | 250 DREAM | Free bond below which the role is demoted; half the floor |
 | `min_reviewer_trust_level` | string | `TRUST_LEVEL_ESTABLISHED` | Eligibility gate; required (empty would disable the check) |

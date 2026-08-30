@@ -294,7 +294,7 @@ func TestCommitteeEscalationTimeoutRejectsTheRound(t *testing.T) {
 	require.False(t, stillEscalated)
 }
 
-func TestRepeatedEscalationTimeoutsExhaustRoundsAndAbandon(t *testing.T) {
+func TestRepeatedEscalationTimeoutsExhaustRoundsAndClose(t *testing.T) {
 	// The terminal state is abandonment, not an indefinite hold: budget
 	// returned, bond released, nothing minted. A farmer cannot wait out the
 	// gate, and an assignee cannot be held forever by reviewer absence.
@@ -307,7 +307,7 @@ func TestRepeatedEscalationTimeoutsExhaustRoundsAndAbandon(t *testing.T) {
 	for round := uint32(0); round < params.MaxReviewRounds; round++ {
 		cur, gErr := k.GetInitiative(ctx, rf.initiative)
 		require.NoError(t, gErr)
-		if cur.Status == types.InitiativeStatus_INITIATIVE_STATUS_ABANDONED {
+		if cur.Status == types.InitiativeStatus_INITIATIVE_STATUS_CLOSED {
 			break
 		}
 		// Re-submit so the round has a deliverable and a deadline to expire.
@@ -328,8 +328,8 @@ func TestRepeatedEscalationTimeoutsExhaustRoundsAndAbandon(t *testing.T) {
 
 	final, err := k.GetInitiative(ctx, rf.initiative)
 	require.NoError(t, err)
-	require.Equal(t, types.InitiativeStatus_INITIATIVE_STATUS_ABANDONED, final.Status,
-		"rounds exhausted with no verdict must abandon, never pass")
+	require.Equal(t, types.InitiativeStatus_INITIATIVE_STATUS_CLOSED, final.Status,
+		"rounds exhausted with no verdict must close, never pass")
 }
 
 // The four defects below were all found by auditing the reviewer role after it
@@ -405,7 +405,7 @@ func TestReviewerMayNotStakeOnWorkTheyJudged(t *testing.T) {
 		"holding conviction on work you passed is the conflict the role removes")
 }
 
-func TestAbandonmentChargesTheProjectForReview(t *testing.T) {
+func TestClosureChargesTheProjectForReview(t *testing.T) {
 	// The project pays for having had the work evaluated. Returning the full
 	// budget would make review free to the party that asked for it and fund the
 	// reviewers purely by dilution.
@@ -419,7 +419,7 @@ func TestAbandonmentChargesTheProjectForReview(t *testing.T) {
 	require.NoError(t, err)
 	allocatedBefore := keeper.DerefInt(projectBefore.AllocatedBudget)
 
-	require.NoError(t, k.AbandonInitiative(ctx, rf.initiative, rf.assignee, "changed my mind"))
+	require.NoError(t, k.CloseInitiative(ctx, rf.initiative, "changed my mind"))
 
 	projectAfter, err := k.GetProject(ctx, rf.projectID)
 	require.NoError(t, err)
@@ -467,4 +467,45 @@ func TestPolicyCannotBeRelaxedOverWorkInReview(t *testing.T) {
 	next, err := k.GetInitiative(ctx, nextID)
 	require.NoError(t, err)
 	require.Zero(t, next.RequiredVerifiers, "new work opens under the current policy")
+}
+
+// Committee disapproval routes through CloseInitiative rather than writing the
+// status inline. Written inline it left the bond behind every filed verdict
+// reserved with nothing left to release it: the initiative was terminal, so no
+// later path would ever call SettleReviewBonds for it, and the reviewer's bond
+// was stranded for good.
+func TestDisapprovalReleasesCommittedReviewBonds(t *testing.T) {
+	rf := setupReview(t, 1) // AlwaysAuthorized: the caller reads as committee
+	k, ctx := rf.f.keeper, rf.f.ctx
+	ms := keeper.NewMsgServerImpl(k)
+
+	require.NoError(t, k.SubmitInitiativeReview(ctx, rf.initiative, rf.reviewer.String(),
+		true, nil, "looks done"))
+
+	committed, err := k.GetBondedRole(ctx, types.RoleType_ROLE_TYPE_INITIATIVE_REVIEWER, rf.reviewer.String())
+	require.NoError(t, err)
+	require.NotEqual(t, "0", committed.TotalCommittedBond,
+		"filing a verdict commits bond, or this test proves nothing")
+
+	// A disapproving voice that is neither the assignee nor the project creator
+	// (both are excluded by the conflict-of-interest gate).
+	objector := sdk.AccAddress([]byte("rv-objector------"))
+	mkReviewMember(t, k, ctx, objector, "500.0")
+
+	_, err = ms.ApproveInitiative(ctx, &types.MsgApproveInitiative{
+		Creator:      objector.String(),
+		InitiativeId: rf.initiative,
+		Approved:     false,
+		Comments:     "not what was asked for",
+	})
+	require.NoError(t, err)
+
+	initiative, err := k.GetInitiative(ctx, rf.initiative)
+	require.NoError(t, err)
+	require.Equal(t, types.InitiativeStatus_INITIATIVE_STATUS_CLOSED, initiative.Status)
+
+	after, err := k.GetBondedRole(ctx, types.RoleType_ROLE_TYPE_INITIATIVE_REVIEWER, rf.reviewer.String())
+	require.NoError(t, err)
+	require.Equal(t, "0", after.TotalCommittedBond,
+		"the terminal exit must release every bond it strands")
 }

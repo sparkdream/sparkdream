@@ -334,7 +334,10 @@ type Params struct {
 	SelfAssignedBondRate cosmossdk_io_math.LegacyDec `protobuf:"bytes,92,opt,name=self_assigned_bond_rate,json=selfAssignedBondRate,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"self_assigned_bond_rate"`
 	// External-conviction ratio applied instead of external_conviction_ratio when
 	// the initiative is self-assigned. Must be >= external_conviction_ratio and
-	// <= 1. Default 1.0: the community alone vouches for self-assigned work.
+	// <= 1. Default 0.75 — a distinct-staker floor as much as a magnitude one,
+	// since max_conviction_share_per_member caps any one member's contribution:
+	// ceil(0.75 / 0.33) = 3 independent stakers, against 2 for externally
+	// assigned work.
 	SelfAssignedExternalConvictionRatio cosmossdk_io_math.LegacyDec `protobuf:"bytes,93,opt,name=self_assigned_external_conviction_ratio,json=selfAssignedExternalConvictionRatio,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"self_assigned_external_conviction_ratio"`
 	// Multiplier applied to the challenge window for self-assigned initiatives.
 	// Must be >= 1. Default 2.

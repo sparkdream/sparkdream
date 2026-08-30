@@ -474,7 +474,7 @@ func (k Keeper) CanCompleteInitiative(ctx context.Context, initiativeID uint64) 
 	}
 	// A cancelled parent project can never complete its initiatives — this
 	// keeps the EndBlocker from advancing a SUBMITTED initiative toward payout
-	// under a dead project (silent; the assignee exits via AbandonInitiative).
+	// under a dead project (silent; the cancel cascade closes them out).
 	if project.Status == types.ProjectStatus_PROJECT_STATUS_CANCELLED {
 		return false, nil
 	}

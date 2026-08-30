@@ -31,12 +31,12 @@ func setupCancellableInitiative(t *testing.T, k keeper.Keeper, ctx sdk.Context, 
 	return projectID, initID
 }
 
-func TestMsgServerCancelInitiative(t *testing.T) {
+func TestMsgServerCloseInitiative(t *testing.T) {
 	t.Run("invalid creator address", func(t *testing.T) {
 		f := initFixture(t)
 		ms := keeper.NewMsgServerImpl(f.keeper)
 
-		_, err := ms.CancelInitiative(f.ctx, &types.MsgCancelInitiative{
+		_, err := ms.CloseInitiative(f.ctx, &types.MsgCloseInitiative{
 			Creator:      "invalid-address",
 			InitiativeId: 1,
 			Reason:       "Test",
@@ -53,7 +53,7 @@ func TestMsgServerCancelInitiative(t *testing.T) {
 		creatorStr, err := f.addressCodec.BytesToString(sdk.AccAddress([]byte("creator")))
 		require.NoError(t, err)
 
-		_, err = ms.CancelInitiative(f.ctx, &types.MsgCancelInitiative{
+		_, err = ms.CloseInitiative(f.ctx, &types.MsgCloseInitiative{
 			Creator:      creatorStr,
 			InitiativeId: 99999,
 			Reason:       "Test",
@@ -75,7 +75,7 @@ func TestMsgServerCancelInitiative(t *testing.T) {
 		otherStr, err := f.addressCodec.BytesToString(sdk.AccAddress([]byte("other")))
 		require.NoError(t, err)
 
-		_, err = ms.CancelInitiative(f.ctx, &types.MsgCancelInitiative{
+		_, err = ms.CloseInitiative(f.ctx, &types.MsgCloseInitiative{
 			Creator:      otherStr,
 			InitiativeId: initID,
 			Reason:       "Test",
@@ -96,7 +96,7 @@ func TestMsgServerCancelInitiative(t *testing.T) {
 		opsStr, err := f.addressCodec.BytesToString(ops)
 		require.NoError(t, err)
 
-		_, err = ms.CancelInitiative(f.ctx, &types.MsgCancelInitiative{
+		_, err = ms.CloseInitiative(f.ctx, &types.MsgCloseInitiative{
 			Creator:      opsStr,
 			InitiativeId: initID,
 			Reason:       "Stale listing",
@@ -105,7 +105,7 @@ func TestMsgServerCancelInitiative(t *testing.T) {
 
 		initiative, err := f.keeper.GetInitiative(f.ctx, initID)
 		require.NoError(t, err)
-		require.Equal(t, types.InitiativeStatus_INITIATIVE_STATUS_CANCELLED, initiative.Status)
+		require.Equal(t, types.InitiativeStatus_INITIATIVE_STATUS_CLOSED, initiative.Status)
 	})
 
 	t.Run("successful cancel by project creator returns budget", func(t *testing.T) {
@@ -127,7 +127,7 @@ func TestMsgServerCancelInitiative(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, budget.String(), projectBefore.AllocatedBudget.String())
 
-		_, err = ms.CancelInitiative(ctx, &types.MsgCancelInitiative{
+		_, err = ms.CloseInitiative(ctx, &types.MsgCloseInitiative{
 			Creator:      creatorStr,
 			InitiativeId: initID,
 			Reason:       "No longer needed",
@@ -136,7 +136,7 @@ func TestMsgServerCancelInitiative(t *testing.T) {
 
 		initiative, err := k.GetInitiative(ctx, initID)
 		require.NoError(t, err)
-		require.Equal(t, types.InitiativeStatus_INITIATIVE_STATUS_CANCELLED, initiative.Status)
+		require.Equal(t, types.InitiativeStatus_INITIATIVE_STATUS_CLOSED, initiative.Status)
 
 		// Budget returned to the project
 		project, err := k.GetProject(ctx, projectID)
@@ -144,7 +144,7 @@ func TestMsgServerCancelInitiative(t *testing.T) {
 		require.Equal(t, math.ZeroInt().String(), project.AllocatedBudget.String())
 	})
 
-	t.Run("rejects assigned initiative", func(t *testing.T) {
+	t.Run("closes assigned initiative", func(t *testing.T) {
 		f := initFixture(t)
 		ms := keeper.NewMsgServerImpl(f.keeper)
 		k := f.keeper
@@ -167,23 +167,24 @@ func TestMsgServerCancelInitiative(t *testing.T) {
 		creatorStr, err := f.addressCodec.BytesToString(creator)
 		require.NoError(t, err)
 
-		_, err = ms.CancelInitiative(ctx, &types.MsgCancelInitiative{
+		_, err = ms.CloseInitiative(ctx, &types.MsgCloseInitiative{
 			Creator:      creatorStr,
 			InitiativeId: initID,
 			Reason:       "Reclaiming",
 		})
 
-		require.Error(t, err)
-		require.Contains(t, err.Error(), "must be in OPEN status")
+		// The project side can stop funding work it no longer wants without
+		// needing the assignee's cooperation — otherwise an assignee who goes
+		// silent pins the budget indefinitely. The assignee's own exit is
+		// UnassignInitiative, which leaves the work open to someone else.
+		require.NoError(t, err)
 
-		// Assignment survives the rejected cancel
 		initiative, err := k.GetInitiative(ctx, initID)
 		require.NoError(t, err)
-		require.Equal(t, types.InitiativeStatus_INITIATIVE_STATUS_ASSIGNED, initiative.Status)
-		require.Equal(t, assignee.String(), initiative.Assignee)
+		require.Equal(t, types.InitiativeStatus_INITIATIVE_STATUS_CLOSED, initiative.Status)
 	})
 
-	t.Run("rejects double cancel", func(t *testing.T) {
+	t.Run("rejects double close", func(t *testing.T) {
 		f := initFixture(t)
 		ms := keeper.NewMsgServerImpl(f.keeper)
 
@@ -193,13 +194,13 @@ func TestMsgServerCancelInitiative(t *testing.T) {
 		creatorStr, err := f.addressCodec.BytesToString(creator)
 		require.NoError(t, err)
 
-		msg := &types.MsgCancelInitiative{Creator: creatorStr, InitiativeId: initID, Reason: "Test"}
-		_, err = ms.CancelInitiative(f.ctx, msg)
+		msg := &types.MsgCloseInitiative{Creator: creatorStr, InitiativeId: initID, Reason: "Test"}
+		_, err = ms.CloseInitiative(f.ctx, msg)
 		require.NoError(t, err)
 
-		_, err = ms.CancelInitiative(f.ctx, msg)
+		_, err = ms.CloseInitiative(f.ctx, msg)
 		require.Error(t, err)
-		require.Contains(t, err.Error(), "must be in OPEN status")
+		require.Contains(t, err.Error(), "already resolved")
 
 		// Budget was returned exactly once
 		project, err := f.keeper.GetProject(f.ctx, projectID)

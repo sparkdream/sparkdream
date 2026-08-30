@@ -40,7 +40,7 @@ func TestIterateActiveInitiatives(t *testing.T) {
 		{4, types.InitiativeStatus_INITIATIVE_STATUS_CHALLENGED, true},
 		{5, types.InitiativeStatus_INITIATIVE_STATUS_COMPLETED, false},
 		{6, types.InitiativeStatus_INITIATIVE_STATUS_REJECTED, false},
-		{7, types.InitiativeStatus_INITIATIVE_STATUS_ABANDONED, false},
+		{7, types.InitiativeStatus_INITIATIVE_STATUS_CLOSED, false},
 	}
 
 	for _, tc := range testCases {

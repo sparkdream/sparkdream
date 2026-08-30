@@ -661,12 +661,12 @@ if [ "$CASCADE_OK" == "1" ]; then
     echo "  In-flight initiative #$CASCADE_INIT2 status after cancel: $INIT2_STATUS"
     echo "  Allocated budget after cancel: $ALLOC_AFTER"
 
-    if [ "$INIT_STATUS" == "INITIATIVE_STATUS_CANCELLED" ] && \
-       [ "$INIT2_STATUS" == "INITIATIVE_STATUS_CANCELLED" ] && \
+    if [ "$INIT_STATUS" == "INITIATIVE_STATUS_CLOSED" ] && \
+       [ "$INIT2_STATUS" == "INITIATIVE_STATUS_CLOSED" ] && \
        [ "$ALLOC_AFTER" == "0" ]; then
         record_result "TEST 7: cancel cascades to OPEN + in-flight initiatives" "PASS"
     else
-        echo "  Expected both initiatives CANCELLED and allocated_budget 0"
+        echo "  Expected both initiatives CLOSED and allocated_budget 0"
         record_result "TEST 7: cancel cascades to OPEN + in-flight initiatives" "FAIL"
     fi
 else
@@ -793,12 +793,12 @@ if [ "$T8_OK" == "1" ]; then
     echo "  Challenge #$VOID_CHALLENGE status:  $VOID_CH_STATUS"
     echo "  Challenger staked: before=$STAKED_BEFORE after=$STAKED_AFTER"
 
-    if [ "$VOID_INIT_STATUS" == "INITIATIVE_STATUS_CANCELLED" ] && \
+    if [ "$VOID_INIT_STATUS" == "INITIATIVE_STATUS_CLOSED" ] && \
        [ "$VOID_CH_STATUS" == "CHALLENGE_STATUS_VOIDED" ] && \
        [ "$STAKED_AFTER" == "$STAKED_BEFORE" ]; then
         record_result "TEST 8: cancel voids challenge + refunds" "PASS"
     else
-        echo "  Expected CANCELLED initiative, VOIDED challenge, staked restored"
+        echo "  Expected CLOSED initiative, VOIDED challenge, staked restored"
         record_result "TEST 8: cancel voids challenge + refunds" "FAIL"
     fi
 elif [ -n "$EXPERT_ADDR" ] && [ -n "$CHALLENGER_ADDR" ]; then

@@ -78,8 +78,8 @@ service Msg {
   // ApproveInitiative defines the ApproveInitiative RPC.
   rpc ApproveInitiative(MsgApproveInitiative) returns (MsgApproveInitiativeResponse);
 
-  // AbandonInitiative defines the AbandonInitiative RPC.
-  rpc AbandonInitiative(MsgAbandonInitiative) returns (MsgAbandonInitiativeResponse);
+  // UnassignInitiative defines the UnassignInitiative RPC.
+  rpc UnassignInitiative(MsgUnassignInitiative) returns (MsgUnassignInitiativeResponse);
 
   // CompleteInitiative defines the CompleteInitiative RPC.
   rpc CompleteInitiative(MsgCompleteInitiative) returns (MsgCompleteInitiativeResponse);
@@ -190,8 +190,8 @@ service Msg {
   // a pending gov action appeal via council authority (UPHELD or OVERTURNED).
   rpc ResolveGovActionAppeal(MsgResolveGovActionAppeal) returns (MsgResolveGovActionAppealResponse);
 
-  // CancelInitiative defines the CancelInitiative RPC.
-  rpc CancelInitiative(MsgCancelInitiative) returns (MsgCancelInitiativeResponse);
+  // CloseInitiative defines the CloseInitiative RPC.
+  rpc CloseInitiative(MsgCloseInitiative) returns (MsgCloseInitiativeResponse);
 }
 
 // MsgUpdateParams is the Msg/UpdateParams request type.
@@ -470,17 +470,26 @@ message MsgApproveInitiative {
 // MsgApproveInitiativeResponse defines the MsgApproveInitiativeResponse message.
 message MsgApproveInitiativeResponse {}
 
-// MsgAbandonInitiative defines the MsgAbandonInitiative message.
-message MsgAbandonInitiative {
+// MsgUnassignInitiative releases an assignment and returns the initiative to
+// OPEN so someone else can pick it up. It does not retire the work item —
+// MsgCloseInitiative does that — and it leaves conviction and its stakes
+// untouched, so the demand the community built up survives a change of hands.
+//
+// Signed by the assignee stepping down, or by the Operations Committee forcing
+// the release of work that has stalled. Deliberately NOT open to the project
+// creator, unlike MsgAssignInitiative: the creator is an interested party, and
+// letting them pull an assignment back would be a rug-pull on work in flight.
+// Their lever is MsgCloseInitiative, which retires the item outright.
+message MsgUnassignInitiative {
   option (cosmos.msg.v1.signer) = "creator";
-  option (amino.name) = "sparkdream/x/rep/MsgAbandonInitiative";
+  option (amino.name) = "sparkdream/x/rep/MsgUnassignInitiative";
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 initiative_id = 2;
   string reason = 3;
 }
 
-// MsgAbandonInitiativeResponse defines the MsgAbandonInitiativeResponse message.
-message MsgAbandonInitiativeResponse {}
+// MsgUnassignInitiativeResponse defines the MsgUnassignInitiativeResponse message.
+message MsgUnassignInitiativeResponse {}
 
 // MsgCompleteInitiative defines the MsgCompleteInitiative message.
 message MsgCompleteInitiative {
@@ -907,18 +916,21 @@ message MsgResolveGovActionAppeal {
 // ResolveGovActionAppeal.
 message MsgResolveGovActionAppealResponse {}
 
-// MsgCancelInitiative retires an OPEN, unassigned initiative. Callable by the
-// parent project's creator or the Operations Committee.
-message MsgCancelInitiative {
+// MsgCloseInitiative retires an initiative and returns its budget to the
+// parent project. Callable by the project's creator or the Operations
+// Committee, whether or not anyone is currently assigned: the project side
+// must be able to stop funding work it no longer wants without needing the
+// assignee's cooperation.
+message MsgCloseInitiative {
   option (cosmos.msg.v1.signer) = "creator";
-  option (amino.name) = "sparkdream/x/rep/MsgCancelInitiative";
+  option (amino.name) = "sparkdream/x/rep/MsgCloseInitiative";
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 initiative_id = 2;
   string reason = 3;
 }
 
-// MsgCancelInitiativeResponse defines the MsgCancelInitiativeResponse message.
-message MsgCancelInitiativeResponse {}
+// MsgCloseInitiativeResponse defines the MsgCloseInitiativeResponse message.
+message MsgCloseInitiativeResponse {}
 
 // MsgSubmitInitiativeReview files one bonded reviewer's verdict on the current
 // review round of an initiative's submitted work.

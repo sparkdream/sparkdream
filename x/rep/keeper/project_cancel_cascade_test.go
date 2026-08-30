@@ -47,7 +47,7 @@ func TestCancelProjectCascadesToOpenInitiatives(t *testing.T) {
 	for _, id := range []uint64{initA, initB} {
 		got, gerr := k.GetInitiative(ctx, id)
 		require.NoError(t, gerr)
-		require.Equal(t, types.InitiativeStatus_INITIATIVE_STATUS_CANCELLED, got.Status, "initiative %d", id)
+		require.Equal(t, types.InitiativeStatus_INITIATIVE_STATUS_CLOSED, got.Status, "initiative %d", id)
 	}
 
 	// Their reserved budget was returned, and the project itself is CANCELLED.
@@ -112,7 +112,7 @@ func TestCancelProjectTerminatesInFlightInitiative(t *testing.T) {
 	// The SUBMITTED initiative is now CANCELLED, not left in limbo.
 	got, err := k.GetInitiative(ctx, initID)
 	require.NoError(t, err)
-	require.Equal(t, types.InitiativeStatus_INITIATIVE_STATUS_CANCELLED, got.Status)
+	require.Equal(t, types.InitiativeStatus_INITIATIVE_STATUS_CLOSED, got.Status)
 
 	// Its reserved budget was returned to the project.
 	projAfter, err := k.GetProject(ctx, projectID)
@@ -169,7 +169,7 @@ func TestCancelProjectVoidsActiveChallengeAndRefundsChallenger(t *testing.T) {
 	// The initiative is CANCELLED and its challenge VOIDED.
 	got, err := k.GetInitiative(ctx, initID)
 	require.NoError(t, err)
-	require.Equal(t, types.InitiativeStatus_INITIATIVE_STATUS_CANCELLED, got.Status)
+	require.Equal(t, types.InitiativeStatus_INITIATIVE_STATUS_CLOSED, got.Status)
 
 	challenge, err := k.GetChallenge(ctx, challengeID)
 	require.NoError(t, err)
@@ -412,7 +412,7 @@ func TestVoidedChallengeIsSealed(t *testing.T) {
 
 	gotInit, err := k.GetInitiative(ctx, initID)
 	require.NoError(t, err)
-	require.Equal(t, types.InitiativeStatus_INITIATIVE_STATUS_CANCELLED, gotInit.Status)
+	require.Equal(t, types.InitiativeStatus_INITIATIVE_STATUS_CLOSED, gotInit.Status)
 
 	member, err := k.GetMember(ctx, challenger)
 	require.NoError(t, err)

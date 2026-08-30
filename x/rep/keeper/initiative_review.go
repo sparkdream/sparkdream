@@ -376,8 +376,19 @@ func (k Keeper) SubmitInitiativeReview(
 }
 
 // rejectReviewRound sends the work back to the assignee for another round, or
-// abandons the initiative once max_review_rounds is exhausted.
+// closes the initiative once max_review_rounds is exhausted.
 func (k Keeper) rejectReviewRound(ctx context.Context, initiative types.Initiative, project types.Project, by string) error {
+	// Backstop for the deferred callers. The escalation sweep reaches this with
+	// an initiative it loaded blocks earlier from a keyset that carries no
+	// status, so a round that resolves after the initiative was closed would
+	// otherwise be sent back to ASSIGNED — resurrecting work whose budget has
+	// already gone back to the project and whose bond has already been
+	// released. Every terminal path clears its escalation entry; this catches
+	// any that is ever missed.
+	if isTerminalInitiativeStatus(initiative.Status) {
+		return nil
+	}
+
 	params, err := k.Params.Get(ctx)
 	if err != nil {
 		return err
@@ -385,19 +396,21 @@ func (k Keeper) rejectReviewRound(ctx context.Context, initiative types.Initiati
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 
 	if initiative.ReviewRound+1 >= k.maxReviewRounds(params) {
-		// Out of rounds. Abandonment is the existing clean exit: budget returns
-		// to the project, the self-assign bond is released, nothing is minted.
+		// Out of rounds. Close is the clean exit: budget returns to the
+		// project, the self-assign bond is released, nothing is minted.
+		//
+		// Deliberately terminal rather than an unassign back to OPEN. The round
+		// cap exists so a bad-faith assignee cannot burn reviewer effort
+		// without end, and reopening here would hand the same initiative to a
+		// fresh assignee with the counter reset — defeating the cap by the one
+		// route it is supposed to close.
 		sdkCtx.EventManager().EmitEvent(sdk.NewEvent(
 			"initiative_review_exhausted",
 			sdk.NewAttribute("initiative_id", fmt.Sprintf("%d", initiative.Id)),
 			sdk.NewAttribute("rounds", fmt.Sprintf("%d", initiative.ReviewRound+1)),
 			sdk.NewAttribute("rejected_by", by),
 		))
-		assignee, aErr := sdk.AccAddressFromBech32(initiative.Assignee)
-		if aErr != nil {
-			return fmt.Errorf("invalid assignee %q on initiative %d: %w", initiative.Assignee, initiative.Id, aErr)
-		}
-		return k.AbandonInitiative(ctx, initiative.Id, assignee, "review rejected: no rounds remaining")
+		return k.CloseInitiative(ctx, initiative.Id, "review rejected: no rounds remaining")
 	}
 
 	// Drop any escalation flag for the round just closed. Left set, the sweep
@@ -450,10 +463,10 @@ func (k Keeper) ReviewFeePool(ctx context.Context, params types.Params, initiati
 //
 // Paid per verdict filed, never per approval: if approving paid and rejecting
 // did not, the role would rebuild the exact bias it exists to remove. Called on
-// both terminal paths — completion and abandonment — so the fee does not depend
-// on the outcome either.
-// Returns the total minted so callers on the abandonment path can reduce what
-// they hand back to the project by it.
+// both terminal paths — completion and close — so the fee does not depend on
+// the outcome either.
+// Returns the total minted so callers on the close path can reduce what they
+// hand back to the project by it.
 func (k Keeper) PayReviewFees(ctx context.Context, initiative types.Initiative) (math.Int, error) {
 	reviews, err := k.GetInitiativeReviews(ctx, initiative.Id, initiative.ReviewRound)
 	if err != nil || len(reviews) == 0 {
@@ -879,11 +892,11 @@ func (k Keeper) resolveSilentEscalations(ctx context.Context, height int64) erro
 		// verdict on it at all — the review gate could be waited out. It now
 		// rejects the round instead: the assignee resubmits and gets another
 		// window (bounded by max_review_rounds), and when the rounds run out
-		// rejectReviewRound abandons cleanly — budget returned, bond released,
+		// rejectReviewRound closes cleanly — budget returned, bond released,
 		// nothing minted.
 		//
 		// Silence must never mint. It must also never wedge, which is why the
-		// terminal state is abandonment rather than an indefinite hold.
+		// terminal state is a close rather than an indefinite hold.
 		project, pErr := k.GetProject(ctx, initiative.ProjectId)
 		if pErr != nil {
 			sdkCtx.Logger().Error("review escalation timeout: project missing",

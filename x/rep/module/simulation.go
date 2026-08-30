@@ -188,19 +188,19 @@ func (am AppModule) WeightedOperations(simState module.SimulationState) []simtyp
 		repsimulation.SimulateMsgApproveInitiative(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
 	))
 	const (
-		opWeightMsgAbandonInitiative          = "op_weight_msg_rep"
-		defaultWeightMsgAbandonInitiative int = 100
+		opWeightMsgUnassignInitiative          = "op_weight_msg_rep"
+		defaultWeightMsgUnassignInitiative int = 100
 	)
 
-	var weightMsgAbandonInitiative int
-	simState.AppParams.GetOrGenerate(opWeightMsgAbandonInitiative, &weightMsgAbandonInitiative, nil,
+	var weightMsgUnassignInitiative int
+	simState.AppParams.GetOrGenerate(opWeightMsgUnassignInitiative, &weightMsgUnassignInitiative, nil,
 		func(_ *rand.Rand) {
-			weightMsgAbandonInitiative = defaultWeightMsgAbandonInitiative
+			weightMsgUnassignInitiative = defaultWeightMsgUnassignInitiative
 		},
 	)
 	operations = append(operations, simulation.NewWeightedOperation(
-		weightMsgAbandonInitiative,
-		repsimulation.SimulateMsgAbandonInitiative(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
+		weightMsgUnassignInitiative,
+		repsimulation.SimulateMsgUnassignInitiative(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
 	))
 	const (
 		opWeightMsgCompleteInitiative          = "op_weight_msg_rep"
@@ -623,19 +623,19 @@ func (am AppModule) WeightedOperations(simState module.SimulationState) []simtyp
 		repsimulation.SimulateMsgAppealGovAction(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
 	))
 	const (
-		opWeightMsgCancelInitiative          = "op_weight_msg_rep"
-		defaultWeightMsgCancelInitiative int = 100
+		opWeightMsgCloseInitiative          = "op_weight_msg_rep"
+		defaultWeightMsgCloseInitiative int = 100
 	)
 
-	var weightMsgCancelInitiative int
-	simState.AppParams.GetOrGenerate(opWeightMsgCancelInitiative, &weightMsgCancelInitiative, nil,
+	var weightMsgCloseInitiative int
+	simState.AppParams.GetOrGenerate(opWeightMsgCloseInitiative, &weightMsgCloseInitiative, nil,
 		func(_ *rand.Rand) {
-			weightMsgCancelInitiative = defaultWeightMsgCancelInitiative
+			weightMsgCloseInitiative = defaultWeightMsgCloseInitiative
 		},
 	)
 	operations = append(operations, simulation.NewWeightedOperation(
-		weightMsgCancelInitiative,
-		repsimulation.SimulateMsgCancelInitiative(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
+		weightMsgCloseInitiative,
+		repsimulation.SimulateMsgCloseInitiative(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
 	))
 
 	return operations

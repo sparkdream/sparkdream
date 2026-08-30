@@ -338,7 +338,7 @@ Initiatives are project work that any qualified member can claim. Completion is 
 
 Under **permissionless projects**, initiatives are capped at STANDARD tier (max 500 DREAM). The creator burns an `InitiativeCreationFee` (scaled by tier) and the budget represents DREAM minted on conviction completion — no pre-allocated project budget is consumed. Under **budget-backed projects**, the existing flow applies: initiative budgets are allocated from the project's approved budget.
 
-**Who may create an initiative.** Creating one under a **budget-backed** project is restricted to that project's creator, or the Operations Committee as an administrative escape hatch — the same standing that lets it assign and cancel (`ErrUnauthorized`). **Permissionless** projects are deliberately open to any member meeting the trust-level and tier gates, since open contribution is the point of that mode.
+**Who may create an initiative.** Creating one under a **budget-backed** project is restricted to that project's creator, or the Operations Committee as an administrative escape hatch — the same standing that lets it assign and close (`ErrUnauthorized`). **Permissionless** projects are deliberately open to any member meeting the trust-level and tier gates, since open contribution is the point of that mode.
 
 > The gate is about the *allocation*, not the initiative record. A project's `approved_budget` is a ceiling a council voted for, and `CreateInitiative` draws against it through `AllocateBudget`, which validates only that the project is ACTIVE and has room remaining. Without the check, any member could commission work against somebody else's council-approved budget until it was exhausted.
 
@@ -348,7 +348,11 @@ The check sits in the message server, after the membership check and before the 
 
 An initiative counts as **self-assigned** when the assignee authored the initiative **or** created the parent project (`IsSelfAssigned`). Testing only the latter left the safeguards trivially avoidable: `CreateInitiative` does not require the author to own the project it sits under, and `MsgAssignInitiative` authorises every self-assignment, so creating an initiative under somebody else's active project and taking it yourself cleared all four at once.
 
-- **Full external conviction**: for self-assigned work the external-conviction requirement rises from `external_conviction_ratio` (default 50%) to `self_assigned_external_conviction_ratio` (default 100%) of `required_conviction` — the community alone must vouch for the work.
+- **Raised external conviction**: for self-assigned work the external-conviction requirement rises from `external_conviction_ratio` (default 50%) to `self_assigned_external_conviction_ratio` (default 75%) of `required_conviction` — the community must supply the large majority of the vouching. Because `max_conviction_share_per_member` (default 33%) caps what any one member can contribute, this ratio is also a floor on the number of *independent* stakers who must show up: `ceil(0.75 / 0.33) = 3`, against `ceil(0.50 / 0.33) = 2` for externally assigned work.
+
+  Read the ratio as choosing a staker count, not a magnitude. Every value in `(0.66, 0.99]` yields the same floor of 3, so the choice within that band is only about how much headroom those three get: at 0.75 they clear the gate averaging 0.25 apiece, where 0.90 would need 0.30 of a 0.33 cap and 1.00 is unreachable by three at any stake size (`3 x 0.33 = 0.99`). The floor was 4 at 100%, which put the gate out of reach on a chain with few enough members rather than merely making it demanding.
+
+  The coupling cuts both ways and is worth stating: the floor is `ceil(ratio / max_conviction_share_per_member)`, and that cap is an operational parameter. Raising it above 0.375 would silently drop this floor to 2. Either parameter should be changed with the other in view.
 - **Extended challenge window**: `TransitionToChallengePeriod` multiplies the challenge duration by `self_assigned_challenge_multiplier` (default 2).
 - **Approval exclusion**: neither the assignee nor the project creator may sign `MsgApproveInitiative` for the initiative, regardless of stake or Operations Committee membership (`ErrConflictOfInterest`, code 1404).
 - **DREAM bond**: at assignment a fraction of the initiative budget is locked from the assignee via `LockDREAM` and recorded in `initiative.self_assign_bond`. The bond is returned on completion, voluntary abandonment, or staker disapproval, and **burned** when a challenge is upheld. The rate depends on where the DREAM comes from:
@@ -484,14 +488,18 @@ enum InitiativeStatus {
   INITIATIVE_STATUS_CHALLENGED = 4;
   INITIATIVE_STATUS_COMPLETED = 5;
   INITIATIVE_STATUS_REJECTED = 6;
-  INITIATIVE_STATUS_ABANDONED = 7;
-  INITIATIVE_STATUS_CANCELLED = 8;
+  INITIATIVE_STATUS_CLOSED = 7;
 }
 ```
 
-`ABANDONED` and `CANCELLED` are distinct terminal states: `ABANDONED` records
-an assignee walking away from work they had taken on, `CANCELLED` records the
-project side retiring a listing nobody ever picked up.
+`CLOSED` is the project side's terminal exit: the work is not being done and
+its budget has gone back to the project. It carries no claim about the work
+itself, which is what separates it from `COMPLETED` (delivered, gated, paid)
+and `REJECTED` (judged and failed).
+
+There is no terminal state for an assignee stepping down. That is
+`MsgUnassignInitiative`, and it returns the initiative to `OPEN` rather than
+retiring it — see [Releasing an assignment](#releasing-an-assignment).
 
 ### Interim
 
@@ -1440,16 +1448,20 @@ its TTL) cannot be cancelled, since relabeling it `CANCELLED` would erase the
 **Effect on the project's initiatives.** Cancellation **cascade-terminates
 every non-terminal initiative** under the project — `OPEN` listings, `ASSIGNED`
 work, `SUBMITTED` deliverables, `IN_REVIEW` work, and `CHALLENGED` work all move
-to `INITIATIVE_STATUS_CANCELLED`, emitting one `initiative_cancelled` event
-apiece. Initiatives already in a terminal state (`COMPLETED`, `REJECTED`,
-`ABANDONED`, `CANCELLED`) are left untouched. For each terminated initiative:
+to `INITIATIVE_STATUS_CLOSED`, emitting one `initiative_closed` event apiece.
+Initiatives already in a terminal state (`COMPLETED`, `REJECTED`, `CLOSED`) are
+left untouched. For each terminated initiative:
 
 - its **reserved budget is returned** to the project (skipped for permissionless
   projects; clamped to the project's remaining allocation so the cascade can
   never drive `allocated_budget` negative);
 - any **self-assign bond is released** back to the assignee (not burned — no
-  upheld challenge occurred); and
-- any **active challenge is voided** (see below).
+  upheld challenge occurred);
+- any **active challenge is voided** (see below); and
+- any **review escalation entry is dropped**. The escalation sweep walks its own
+  keyset rather than the status index, so an entry left behind would time out
+  later and hand `rejectReviewRound` a dead initiative — putting it back to
+  `ASSIGNED` with its budget already returned and its bond already released.
 
 The cascade runs *before* the project's own status is persisted so every budget
 return lands on the still-live project; the project is then re-read so the
@@ -1525,7 +1537,7 @@ message MsgApproveInitiative {
   string comments = 4;
 }
 
-message MsgAbandonInitiative {
+message MsgUnassignInitiative {
   option (cosmos.msg.v1.signer) = "creator";
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 initiative_id = 2;
@@ -1539,7 +1551,7 @@ message MsgCompleteInitiative {
   string completion_notes = 3;
 }
 
-message MsgCancelInitiative {
+message MsgCloseInitiative {
   option (cosmos.msg.v1.signer) = "creator";
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 initiative_id = 2;
@@ -1594,24 +1606,25 @@ deliverable, made earlier and often without the expertise. Quality is the bonded
 reviewer's question now (see [Initiative Review](#initiative-review)); conviction
 is the stakers'.
 
-Abandonment by disapproval is not an upheld challenge: the self-assign bond is
+Closure by disapproval is not an upheld challenge: the self-assign bond is
 returned and the reserved budget goes back to the project. The assignee simply
-is not paid.
+is not paid. It routes through `CloseInitiative` rather than writing the status
+inline, so the live review round is settled the same way every other terminal
+exit settles it.
 
-**Stakes are not settled by abandonment.** `AbandonInitiative` returns the budget
-and the bond but does not touch stake records — unlike `CompleteInitiative`,
-which settles and deletes them. `RemoveStake` carries no initiative-status
-guard, so stakers on an `ABANDONED` or `CANCELLED` initiative withdraw normally,
-by their own transaction, whenever they choose.
+**Stakes are not settled by closure.** `CloseInitiative` returns the budget and
+the bond but does not touch stake records — unlike `CompleteInitiative`, which
+settles and deletes them. `RemoveStake` carries no initiative-status guard, so
+stakers on a `CLOSED` initiative withdraw normally, by their own transaction,
+whenever they choose.
 
 > This is a deliberate asymmetry, not an oversight: completion has a payout to
-> settle against, abandonment has nothing to distribute, and forcing an unstake
-> loop into the abandonment path would make it unbounded per-block work. But it
-> puts an obligation on clients — the stake controls must stay reachable on
-> abandoned and cancelled initiatives, and hidden only on `COMPLETED`, where the
-> records are genuinely gone. A client that treats every terminal status alike
-> strands its users' DREAM with no path out, and staker-driven abandonment makes
-> that state far more reachable than it used to be.
+> settle against, closure has nothing to distribute, and forcing an unstake loop
+> into the close path would make it unbounded per-block work. But it puts an
+> obligation on clients — the stake controls must stay reachable on `CLOSED`
+> initiatives, and hidden only on `COMPLETED`, where the records are genuinely
+> gone. A client that treats every terminal status alike strands its users'
+> DREAM with no path out.
 
 Stakers keep a real exit regardless: conviction is recomputed from **live** stake
 records and completion needs both the total and external thresholds, so
@@ -2634,19 +2647,79 @@ retry path rather than the normal route to payout — it matters when an
 EndBlocker completion failed for a recoverable reason (the season mint cap in
 `ErrInitiativeRewardCapReached`, say) and the call is worth repeating later.
 
-#### Cancelling an Unstarted Initiative
+#### Releasing an assignment
 
-`MsgAbandonInitiative` is assignee-only, so an initiative that nobody ever took
-on has no exit — including the common case of a listing whose tier is above any
-current member's reputation. `MsgCancelInitiative` closes that gap:
+`MsgUnassignInitiative` releases an assignment and returns the initiative to
+`OPEN` so somebody else can pick it up. It is **not** a terminal exit, and that
+is the whole point: conviction, its stakes and the funding all stay attached to
+the initiative, which keeps accruing conviction because `OPEN` is an active
+status. The demand the community staked on the work is a property of the work,
+not of whoever happened to be holding it, and destroying it on a change of hands
+would make stakers pay for someone else stepping down.
+
+- **Authority**: the assignee stepping down, or the Operations Committee freeing
+  work that has stalled. Deliberately **not** the project creator, unlike
+  `MsgAssignInitiative` — the creator is an interested party and pulling an
+  assignment back would be a rug-pull on work in flight. Their lever is
+  `MsgCloseInitiative`.
+- **Status rules**:
+  - `ASSIGNED` is always releasable. The current round holds no verdicts there,
+    so nothing is owed to a reviewer and nothing is minted.
+  - `SUBMITTED` and `IN_REVIEW` are Operations-Committee-only. Verdicts can be
+    filed in either state, so a self-service release here would let an assignee
+    submit, draw reviewer effort, release, and resubmit on a fresh round —
+    minting review fees each lap at no cost to anyone but the token supply.
+  - `CHALLENGED` is never releasable, by anyone. Walking away from a live
+    challenge and re-entering through a new assignee would launder it.
+
+  The two refusals carry **different registered errors**, and the distinction is
+  load-bearing for clients. A status only the committee can release from returns
+  `ErrUnauthorized` (1304) — the identical call from another signer succeeds, so
+  the caller is being told to ask someone else. A status nobody can release from
+  returns `ErrInvalidInitiativeStatus` (1402) — no signer can do it, so the
+  caller is being told to wait. Releasing an initiative that has no assignee is
+  also 1402.
+- **Effects**: clears everything tied to the holder (`assignee`, `apprentice`,
+  `assigned_at`, `deliverable_uri`, `submitted_at`, `approvals`,
+  `required_verifiers`, the review and challenge deadlines) and releases the
+  self-assign bond and every review bond still committed against a verdict. The
+  budget stays allocated. Any review bounty stays funded and in escrow, since
+  the initiative it was posted against is still live.
+- **The review round counter is never reset.** Verdict records are keyed
+  `(initiative, round, reviewer)` and outlive the assignment, so rewinding to
+  round 0 would hand the next submission the previous holder's verdicts: stale
+  approvals would satisfy the review gate for work nobody looked at,
+  `PayReviewFees` would mint to their authors a second time, and those authors
+  would be locked out of filing a real verdict. The counter instead advances
+  past a round that actually collected verdicts, so the next submission starts
+  on a clean key range. A round with no verdicts is already clean and is left
+  alone — self-assigning and releasing costs nothing but gas, so consuming a
+  round there would let anyone burn an initiative's `max_review_rounds` budget
+  from the outside.
+
+#### Closing an Initiative
+
+`MsgCloseInitiative` retires an initiative and returns its budget to the parent
+project. This is the project side deciding the work is not going to happen, and
+it is terminal.
 
 - **Authority**: the parent project's creator, or the Operations Committee.
-- **Precondition**: status is `OPEN` and `assignee` is empty. Once assigned, the
-  only exits remain abandonment (by the assignee) and the normal review path, so
-  cancellation can never strip work from an assignee or escape a challenge.
-- **Effects**: returns the reserved budget to the project (skipped for
-  permissionless projects, which allocate no budget up front), moves the
-  initiative to `CANCELLED`, and emits `initiative_cancelled`.
+  Never the assignee — their exit is `MsgUnassignInitiative`.
+- **Precondition**: any live status, assigned or not. A project must be able to
+  stop funding work whose assignee has gone silent, without needing that
+  assignee's cooperation. `CHALLENGED` is the one exception — the challenge
+  decides whether the work was delivered, and closing out from under it would
+  let the project side void a challenge that was about to be upheld. Both that
+  refusal and closing an already-terminal initiative return
+  `ErrInvalidInitiativeStatus` (1402); an unauthorized signer gets
+  `ErrUnauthorized` (1304) from the message server before the keeper is reached.
+- **Effects**: settles any live review round (bounty paid, review fees paid,
+  review bonds released), returns the reserved budget net of what review cost
+  (skipped for permissionless projects, which allocate no budget up front),
+  releases the self-assign bond, drops any review escalation entry, moves the
+  initiative to `CLOSED`, and emits `initiative_closed`.
+- **Reviewers are paid whether the initiative completed or closed.** A fee that
+  depended on the outcome would rebuild the bias the role exists to remove.
 - **Stakes**: outstanding conviction stakes are left in place. `RemoveStake` has
   no status gate, so stakers withdraw principal plus accrued rewards whenever
   they choose; the terminal status simply drops the initiative out of
@@ -2696,7 +2769,7 @@ Three placement details that mattered:
   membership error rather than an authorization one.
 - It was chosen over adding an "open to contributions" flag on `Project`
   because it needs no proto field and no genesis value, and it matches the
-  standing model already used by cancel-project, cancel-initiative and
+  standing model already used by cancel-project, close-initiative and
   assign-initiative.
 
 ### Interim Messages
@@ -3792,7 +3865,7 @@ var DefaultParams = Params{
 
     // Self-assignment safeguards (creator-assigned initiatives)
     SelfAssignedBondRate:                math.LegacyNewDecWithPrec(10, 2), // 10% of budget
-    SelfAssignedExternalConvictionRatio: math.LegacyOneDec(),              // 100% external
+    SelfAssignedExternalConvictionRatio: math.LegacyNewDecWithPrec(75, 2), // 75% external
     SelfAssignedChallengeMultiplier:     2,                                // 2x challenge window
 
     // Invitations

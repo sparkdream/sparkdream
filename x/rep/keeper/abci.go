@@ -65,7 +65,7 @@ func (k Keeper) EndBlocker(ctx context.Context) error {
 			// Skip payout for initiatives whose parent project was cancelled
 			// after they entered review — CompleteInitiative would reject them
 			// anyway; skipping keeps that off the per-block error log. The
-			// assignee reclaims their bond via AbandonInitiative.
+			// cancel cascade closes them and returns the assignee's bond.
 			if project, perr := k.GetProject(ctx, initiative.ProjectId); perr == nil &&
 				project.Status == types.ProjectStatus_PROJECT_STATUS_CANCELLED {
 				return false

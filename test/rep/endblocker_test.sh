@@ -8,6 +8,12 @@ SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 BINARY="sparkdreamd"
 CHAIN_ID="sparkdream"
 
+# Hard-assertion counter. Most of this script is descriptive and reports with
+# [WARN], but checks that pin a specific contract (an exact rejection code, say)
+# must be able to fail the suite -- a [WARN] would let a regression through as
+# a PASS on exit code 0.
+FAIL_COUNT=0
+
 # Load test environment (contains pre-setup member addresses)
 if [ ! -f "$SCRIPT_DIR/.test_env" ]; then
     echo "[FAIL] Test environment not found (.test_env missing)"
@@ -336,10 +342,10 @@ echo ""
 echo "Initiative Status State Machine:"
 echo ""
 echo "OPEN → ASSIGNED → SUBMITTED → IN_REVIEW → COMPLETED"
-echo "                          ↓              ↓"
-echo "                     CHALLENGED      CHALLENGED (if challenge in review)"
-echo "                          ↓              ↓"
-echo "                     ABANDONED      ABANDONED"
+echo "  ↑         ↓          ↓            ↓"
+echo "  └──── unassign ──────┘        CHALLENGED → REJECTED"
+echo ""
+echo "Any live status → CLOSED (project creator or Operations Committee)"
 echo ""
 
 # Create another initiative to test transitions
@@ -442,24 +448,47 @@ if [ "$SKIP_INIT3_TEST" != "true" ]; then
         echo "[WARN]  Expected SUBMITTED, got: $INIT3_SUBMITTED"
     fi
 
-    # Test abandon (must be from worker2, the assignee - not alice!)
-    echo "Abandoning from worker2 (assignee)..."
+    # Mid-review, an assignee cannot release themselves: submit-release-resubmit
+    # would draw reviewer effort on a fresh round each lap. Only the Operations
+    # Committee can free work that has stalled in SUBMITTED.
+    echo "worker2 (assignee) attempts to unassign from SUBMITTED..."
     # Note: worker2 = challenger key from test setup
-    ABANDON_RES=$($BINARY tx rep abandon-initiative $INIT3_ID "Testing abandon flow" --from challenger --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y --output json 2>&1)
+    UNASSIGN_RES=$($BINARY tx rep unassign-initiative $INIT3_ID "Testing release from review" --from challenger --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y --output json 2>&1)
+    UNASSIGN_TX=$(echo "$UNASSIGN_RES" | jq -r '.txhash // ""' 2>/dev/null)
     sleep 6
-    # Check if abandon transaction failed
-    ABANDON_CODE=$(echo "$ABANDON_RES" | jq -r '.code // 0' 2>/dev/null)
-    if [ "$ABANDON_CODE" != "0" ]; then
-        ABANDON_LOG=$(echo "$ABANDON_RES" | jq -r '.raw_log // "unknown"' 2>/dev/null)
-        echo "[WARN]  Abandon tx failed (code: $ABANDON_CODE): $ABANDON_LOG"
-    fi
-    INIT3_ABANDONED=$($BINARY query rep get-initiative $INIT3_ID --output json | jq -r '.initiative.status // "INITIATIVE_STATUS_OPEN"')
-    echo "After abandon: $INIT3_ABANDONED"
-
-    if [ "$INIT3_ABANDONED" == "INITIATIVE_STATUS_ABANDONED" ]; then
-        echo "[ OK ] Status transition to ABANDONED successful"
+    UNASSIGN_CODE=$($BINARY query tx $UNASSIGN_TX --output json 2>/dev/null | jq -r '.code // 0')
+    # 1304 = ErrUnauthorized. Asserting the specific code, not merely non-zero:
+    # the release is refused because the SIGNER lacks standing at this status
+    # (the committee's identical call succeeds), and a bare "it errored" check
+    # would pass just as happily on an unrelated failure.
+    if [ "$UNASSIGN_CODE" == "1304" ]; then
+        echo "[ OK ] Self-service release from SUBMITTED rejected as unauthorized (1304)"
+    elif [ "$UNASSIGN_CODE" != "0" ]; then
+        echo "[FAIL] Release from SUBMITTED rejected with code $UNASSIGN_CODE, expected 1304 (ErrUnauthorized)"
+        FAIL_COUNT=$((FAIL_COUNT+1))
     else
-        echo "[WARN]  Status: $INIT3_ABANDONED (expected ABANDONED)"
+        echo "[FAIL] Self-service release from SUBMITTED unexpectedly succeeded"
+        FAIL_COUNT=$((FAIL_COUNT+1))
+    fi
+
+    # The project side retires it instead. Close works from any live status and
+    # returns the budget to the project.
+    echo "Closing from alice (project creator)..."
+    CLOSE_RES=$($BINARY tx rep close-initiative $INIT3_ID "Testing close flow" --from alice --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y --output json 2>&1)
+    CLOSE_TX=$(echo "$CLOSE_RES" | jq -r '.txhash // ""' 2>/dev/null)
+    sleep 6
+    CLOSE_CODE=$($BINARY query tx $CLOSE_TX --output json 2>/dev/null | jq -r '.code // 0')
+    if [ "$CLOSE_CODE" != "0" ]; then
+        CLOSE_LOG=$($BINARY query tx $CLOSE_TX --output json 2>/dev/null | jq -r '.raw_log // "unknown"')
+        echo "[WARN]  Close tx failed (code: $CLOSE_CODE): $CLOSE_LOG"
+    fi
+    INIT3_CLOSED=$($BINARY query rep get-initiative $INIT3_ID --output json | jq -r '.initiative.status // "INITIATIVE_STATUS_OPEN"')
+    echo "After close: $INIT3_CLOSED"
+
+    if [ "$INIT3_CLOSED" == "INITIATIVE_STATUS_CLOSED" ]; then
+        echo "[ OK ] Status transition to CLOSED successful"
+    else
+        echo "[WARN]  Status: $INIT3_CLOSED (expected CLOSED)"
     fi
 else
     echo "(Skipping status transition tests due to initiative creation failure)"
@@ -713,7 +742,7 @@ OPEN_COUNT=$(echo "$ALL_INITIATIVES" | jq -r '[(.initiative // [])[] | select(.s
 ASSIGNED_COUNT=$(echo "$ALL_INITIATIVES" | jq -r '[(.initiative // [])[] | select(.status=="INITIATIVE_STATUS_ASSIGNED")] | length')
 SUBMITTED_COUNT=$(echo "$ALL_INITIATIVES" | jq -r '[(.initiative // [])[] | select(.status=="INITIATIVE_STATUS_SUBMITTED" or .status=="INITIATIVE_STATUS_IN_REVIEW" or .status=="INITIATIVE_STATUS_CHALLENGED")] | length')
 COMPLETED_COUNT=$(echo "$ALL_INITIATIVES" | jq -r '[(.initiative // [])[] | select(.status=="INITIATIVE_STATUS_COMPLETED")] | length')
-ABANDONED_COUNT=$(echo "$ALL_INITIATIVES" | jq -r '[(.initiative // [])[] | select(.status=="INITIATIVE_STATUS_ABANDONED")] | length')
+CLOSED_COUNT=$(echo "$ALL_INITIATIVES" | jq -r '[(.initiative // [])[] | select(.status=="INITIATIVE_STATUS_CLOSED")] | length')
 
 echo ""
 echo "Initiatives by status:"
@@ -721,7 +750,7 @@ echo "  OPEN: $OPEN_COUNT"
 echo "  ASSIGNED: $ASSIGNED_COUNT"
 echo "  SUBMITTED/REVIEW/CHALLENGED: $SUBMITTED_COUNT"
 echo "  COMPLETED: $COMPLETED_COUNT"
-echo "  ABANDONED: $ABANDONED_COUNT"
+echo "  CLOSED: $CLOSED_COUNT"
 
 echo ""
 echo "Note: EndBlocker processes all initiatives efficiently in a single pass"
@@ -886,7 +915,7 @@ echo ""
 echo "TESTED (with assertions):"
 echo "[ OK ] Part 1:  Conviction updates            Time-weighted conviction verified non-zero"
 echo "[ OK ] Part 2:  Auto-complete flow           Review period end verified"
-echo "[ OK ] Part 3:  Status transitions           OPEN→ASSIGNED→SUBMITTED→ABANDONED verified"
+echo "[ OK ] Part 3:  Status transitions           OPEN→ASSIGNED→SUBMITTED→CLOSED verified"
 echo "[ OK ] Part 4:  Jury deadlines               Initiative setup for jury testing"
 echo "[ OK ] Part 5:  Expired interims             Interim count and status queried"
 echo "[ OK ] Part 8:  Lazy calculation            Conviction growth verified on re-query"
@@ -918,4 +947,8 @@ echo "⏱️  TIMING: All processes happen in a single block"
 echo " SCALING: Lazy calculation reduces per-block work"
 echo " CORRECTNESS: Events emitted for all state changes"
 echo ""
+if [ "$FAIL_COUNT" -gt 0 ]; then
+    echo "=== ENDBLOCKER LOGIC TEST FAILED ($FAIL_COUNT hard check(s)) ==="
+    exit 1
+fi
 echo "=== ENDBLOCKER LOGIC TEST COMPLETED ==="

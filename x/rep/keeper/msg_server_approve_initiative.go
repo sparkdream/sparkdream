@@ -15,18 +15,17 @@ import (
 //
 // Approval is advisory: it is recorded on the initiative so the endorsement is
 // visible, but nothing consults the list — conviction remains the only gate on
-// completion. Disapproval is not advisory, and its authority is split:
+// completion. Disapproval is not advisory, and it is committee-only: the
+// Operations Committee closes the initiative outright, on the same standing
+// that lets it close one through MsgCloseInitiative.
 //
-//   - The Operations Committee abandons the initiative outright. It is the same
-//     standing that already lets the committee cancel an unstarted initiative.
-//   - A staker casts a weighted vote. The initiative is abandoned only once
-//     stakers holding InitiativeDisapprovalThreshold of the DREAM staked on it
-//     have voted against. Until then the disapproval is recorded and the work
-//     stands.
-//
-// The weighting is what makes staker disapproval safe to expose. A single
-// minimum stake used to be enough to destroy submitted work outright, which
-// made the cost of griefing an assignee's payout a refundable deposit.
+// Stakers may call this to approve, and to retract an approval, but not to
+// disapprove. A staker veto put the power to destroy submitted work in the
+// hands of exactly the people paid on its completion, and cost a griefer only
+// a refundable deposit. What stakers have instead is withdrawal: conviction is
+// recomputed from live stake records and completion needs both the total and
+// the external threshold, so pulling a stake blocks completion within about one
+// refresh interval.
 func (k msgServer) ApproveInitiative(ctx context.Context, msg *types.MsgApproveInitiative) (*types.MsgApproveInitiativeResponse, error) {
 	creatorBytes, err := k.addressCodec.StringToBytes(msg.Creator)
 	if err != nil {
@@ -79,23 +78,24 @@ func (k msgServer) ApproveInitiative(ctx context.Context, msg *types.MsgApproveI
 
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 
-	// abandon terminates the initiative without penalty to the assignee.
+	// disapprove retires the initiative without penalty to the assignee.
 	// Disapproval is not an upheld challenge: the self-assign bond comes back
 	// and the reserved budget returns to the project, the assignee simply
 	// isn't paid.
-	abandon := func(reason string, weight string) error {
-		initiative.Status = types.InitiativeStatus_INITIATIVE_STATUS_ABANDONED
-		if err := k.Keeper.ReleaseSelfAssignBond(ctx, &initiative); err != nil {
-			return errorsmod.Wrap(err, "failed to release self-assign bond")
-		}
-		// Permissionless projects hold no pre-allocated budget to return.
-		if !project.Permissionless {
-			if err := k.Keeper.ReturnBudget(ctx, initiative.ProjectId, DerefInt(initiative.Budget)); err != nil {
-				return errorsmod.Wrap(err, "failed to return budget")
-			}
-		}
+	//
+	// Routed through CloseInitiative rather than writing the status here, so
+	// this path settles the review round like every other terminal exit. Doing
+	// it inline used to leave the bond behind every filed verdict reserved with
+	// nothing left to release it.
+	disapprove := func(reason string, weight string) error {
+		// Persist the approval-list edit first: CloseInitiative reads the
+		// initiative back from the store, so an unsaved change here would be
+		// overwritten by it.
 		if err := k.Keeper.UpdateInitiative(ctx, initiative); err != nil {
 			return errorsmod.Wrap(err, "failed to update initiative")
+		}
+		if err := k.Keeper.CloseInitiative(ctx, msg.InitiativeId, "disapproved: "+reason); err != nil {
+			return errorsmod.Wrap(err, "failed to close initiative")
 		}
 		sdkCtx.EventManager().EmitEvent(sdk.NewEvent(
 			"initiative_disapproved",
@@ -136,7 +136,7 @@ func (k msgServer) ApproveInitiative(ctx context.Context, msg *types.MsgApproveI
 		return nil, errorsmod.Wrap(types.ErrUnauthorized,
 			"only the Operations Committee may disapprove; stakers withdraw their stake instead")
 	}
-	if err := abandon("operations_committee", "0"); err != nil {
+	if err := disapprove("operations_committee", "0"); err != nil {
 		return nil, err
 	}
 	return &types.MsgApproveInitiativeResponse{}, nil

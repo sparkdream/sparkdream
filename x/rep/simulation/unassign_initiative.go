@@ -13,7 +13,7 @@ import (
 	"sparkdream/x/rep/types"
 )
 
-func SimulateMsgAbandonInitiative(
+func SimulateMsgUnassignInitiative(
 	ak types.AuthKeeper,
 	bk types.BankKeeper,
 	k keeper.Keeper,
@@ -24,22 +24,26 @@ func SimulateMsgAbandonInitiative(
 		// Get or create a member
 		member, memberAcc, err := getOrCreateMember(r, ctx, k, accs)
 		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgAbandonInitiative{}), "failed to get/create member"), nil, nil
+			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgUnassignInitiative{}), "failed to get/create member"), nil, nil
 		}
 
-		// Try to find an initiative assigned to this member
+		// Only ASSIGNED work is self-releasable. SUBMITTED and IN_REVIEW are
+		// Operations-Committee-only and CHALLENGED is closed to everyone, so
+		// this op deliberately never selects them: the committee-forced branch
+		// needs the x/commons committee bootstrap that simulation does not run
+		// (same reason approve_interim and approve_project_budget skip).
 		_, initID, err := findInitiativeByAssignee(r, ctx, k, member.Address, types.InitiativeStatus_INITIATIVE_STATUS_ASSIGNED)
 		if err != nil {
 			// Create a project and initiative directly assigned to this member
 			projectID, err := getOrCreateProject(r, ctx, k, member)
 			if err != nil {
-				return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgAbandonInitiative{}), "failed to create project"), nil, nil
+				return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgUnassignInitiative{}), "failed to create project"), nil, nil
 			}
 
 			// Create initiative directly
 			initID, err = k.InitiativeSeq.Next(ctx)
 			if err != nil {
-				return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgAbandonInitiative{}), "failed to get init ID"), nil, nil
+				return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgUnassignInitiative{}), "failed to get init ID"), nil, nil
 			}
 
 			tier := randomInitiativeTier(r)
@@ -60,21 +64,24 @@ func SimulateMsgAbandonInitiative(
 			}
 
 			if err := k.Initiative.Set(ctx, initID, newInit); err != nil {
-				return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgAbandonInitiative{}), "failed to create initiative"), nil, nil
+				return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgUnassignInitiative{}), "failed to create initiative"), nil, nil
 			}
 
-			// Mirror CreateInitiative's budget allocation on the project so AbandonInitiative's
-			// ReturnBudget succeeds (non-permissionless only).
+			// Mirror CreateInitiative's budget allocation on the project, keeping
+			// AllocatedBudget consistent with outstanding initiatives. Releasing
+			// an assignment does not return the budget -- the work stays funded
+			// for whoever picks it up next -- so this only matters for whatever
+			// later retires the initiative (non-permissionless only).
 			if project, perr := k.GetProject(ctx, projectID); perr == nil && !project.Permissionless {
 				project.AllocatedBudget = PtrInt(keeper.DerefInt(project.AllocatedBudget).Add(budget))
 				_ = k.Project.Set(ctx, projectID, project)
 			}
 		}
 
-		msg := &types.MsgAbandonInitiative{
+		msg := &types.MsgUnassignInitiative{
 			Creator:      member.Address,
 			InitiativeId: initID,
-			Reason:       "Simulation abandonment",
+			Reason:       "Simulation unassign",
 		}
 
 		return simulation.GenAndDeliverTxWithRandFees(simulation.OperationInput{

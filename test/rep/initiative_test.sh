@@ -742,18 +742,20 @@ else
 fi
 
 # ========================================================================
-# PART 14: ABANDON INITIATIVE (OPTIONAL FLOW)
+# PART 14: UNASSIGN INITIATIVE (RELEASE BACK TO OPEN)
 # ========================================================================
 echo ""
-echo "--- PART 14: TEST ABANDON INITIATIVE ---"
-echo "Creating a new initiative to test abandon flow..."
+echo "--- PART 14: TEST UNASSIGN INITIATIVE ---"
+echo "Creating a new initiative to test the release flow..."
 
-# Create a test initiative for abandon
+UNASSIGN_STATUS="INITIATIVE_STATUS_OPEN"   # default for summary line if skipped
+
+# Create a test initiative for unassign
 # Command: create-initiative [project-id] [title] [description] [tier] [category] [budget]
-ABANDON_TEST_RES=$($BINARY tx rep create-initiative \
+UNASSIGN_TEST_RES=$($BINARY tx rep create-initiative \
   $PROJECT_ID \
-  "Test Abandon Initiative" \
-  "This initiative will be abandoned" \
+  "Test Unassign Initiative" \
+  "This initiative will be released back to OPEN" \
   "0" \
   "1" \
   "50000000" \
@@ -764,43 +766,43 @@ ABANDON_TEST_RES=$($BINARY tx rep create-initiative \
   -y \
   -o json)
 
-ABANDON_TEST_TX=$(echo $ABANDON_TEST_RES | jq -r '.txhash')
+UNASSIGN_TEST_TX=$(echo $UNASSIGN_TEST_RES | jq -r '.txhash')
 sleep 6  # Increased wait time for transaction to be indexed
 
 # Method 1: Extract from transaction events
-ABANDON_TEST_INIT_ID=$($BINARY query tx $ABANDON_TEST_TX -o json 2>/dev/null | \
+UNASSIGN_TEST_INIT_ID=$($BINARY query tx $UNASSIGN_TEST_TX -o json 2>/dev/null | \
   jq -r '.events[] | select(.type=="initiative_created") | .attributes[] | select(.key=="initiative_id") | .value' | \
   tr -d '"' 2>/dev/null)
 
 # Method 2: Try alternative event extraction from logs
-if [ -z "$ABANDON_TEST_INIT_ID" ] || [ "$ABANDON_TEST_INIT_ID" == "null" ] || [ "$ABANDON_TEST_INIT_ID" == "" ]; then
-    ABANDON_TEST_INIT_ID=$($BINARY query tx $ABANDON_TEST_TX -o json 2>/dev/null | \
+if [ -z "$UNASSIGN_TEST_INIT_ID" ] || [ "$UNASSIGN_TEST_INIT_ID" == "null" ] || [ "$UNASSIGN_TEST_INIT_ID" == "" ]; then
+    UNASSIGN_TEST_INIT_ID=$($BINARY query tx $UNASSIGN_TEST_TX -o json 2>/dev/null | \
       jq -r '.logs[0].events[] | select(.type=="initiative_created") | .attributes[] | select(.key=="initiative_id") | .value' 2>/dev/null)
 fi
 
 # Method 3: Extract from raw logs
-if [ -z "$ABANDON_TEST_INIT_ID" ] || [ "$ABANDON_TEST_INIT_ID" == "null" ] || [ "$ABANDON_TEST_INIT_ID" == "" ]; then
-    ABANDON_TEST_INIT_ID=$($BINARY query tx $ABANDON_TEST_TX -o json 2>/dev/null | jq -r '.raw_log' | grep -oP 'initiative_id\\",\\"value\\":\\"\K[0-9]+' | head -1)
+if [ -z "$UNASSIGN_TEST_INIT_ID" ] || [ "$UNASSIGN_TEST_INIT_ID" == "null" ] || [ "$UNASSIGN_TEST_INIT_ID" == "" ]; then
+    UNASSIGN_TEST_INIT_ID=$($BINARY query tx $UNASSIGN_TEST_TX -o json 2>/dev/null | jq -r '.raw_log' | grep -oP 'initiative_id\\",\\"value\\":\\"\K[0-9]+' | head -1)
 fi
 
 # Method 4: Fallback to querying latest initiative from project
-if [ -z "$ABANDON_TEST_INIT_ID" ] || [ "$ABANDON_TEST_INIT_ID" == "null" ] || [ "$ABANDON_TEST_INIT_ID" == "" ]; then
+if [ -z "$UNASSIGN_TEST_INIT_ID" ] || [ "$UNASSIGN_TEST_INIT_ID" == "null" ] || [ "$UNASSIGN_TEST_INIT_ID" == "" ]; then
     echo "[WARN]  Failed to extract from events, querying latest initiative..."
-    ABANDON_TEST_INIT_ID=$($BINARY query rep initiatives-by-project $PROJECT_ID -o json 2>/dev/null | \
+    UNASSIGN_TEST_INIT_ID=$($BINARY query rep initiatives-by-project $PROJECT_ID -o json 2>/dev/null | \
       jq -r '.initiatives | sort_by(.id) | .[-1].id' 2>/dev/null)
 fi
 
-echo "Created test initiative: $ABANDON_TEST_INIT_ID"
+echo "Created test initiative: $UNASSIGN_TEST_INIT_ID"
 
 # Final check
-if [ -z "$ABANDON_TEST_INIT_ID" ] || [ "$ABANDON_TEST_INIT_ID" == "null" ] || [ "$ABANDON_TEST_INIT_ID" == "" ]; then
-    echo "[WARN]  Failed to extract abandon test initiative ID, skipping abandon test"
+if [ -z "$UNASSIGN_TEST_INIT_ID" ] || [ "$UNASSIGN_TEST_INIT_ID" == "null" ] || [ "$UNASSIGN_TEST_INIT_ID" == "" ]; then
+    echo "[WARN]  Failed to extract unassign test initiative ID, skipping unassign test"
     # Skip the rest of Part 14
 else
 
 # Assign it to Worker
-ASSIGN_ABANDON_RES=$($BINARY tx rep assign-initiative \
-  $ABANDON_TEST_INIT_ID \
+ASSIGN_RELEASE_RES=$($BINARY tx rep assign-initiative \
+  $UNASSIGN_TEST_INIT_ID \
   $WORKER_ADDR \
   --from alice \
   --chain-id $CHAIN_ID \
@@ -809,37 +811,39 @@ ASSIGN_ABANDON_RES=$($BINARY tx rep assign-initiative \
   -y \
   -o json)
 
-ASSIGN_ABANDON_TX=$(echo $ASSIGN_ABANDON_RES | jq -r '.txhash')
+ASSIGN_RELEASE_TX=$(echo $ASSIGN_RELEASE_RES | jq -r '.txhash')
 sleep 2
 
 # Verify assignment succeeded
-ASSIGN_ABANDON_TX_RESULT=$($BINARY query tx $ASSIGN_ABANDON_TX -o json 2>/dev/null)
-ASSIGN_ABANDON_CODE=$(echo "$ASSIGN_ABANDON_TX_RESULT" | jq -r '.code // 0')
-if [ "$ASSIGN_ABANDON_CODE" != "0" ]; then
-    ASSIGN_ABANDON_ERROR=$(echo "$ASSIGN_ABANDON_TX_RESULT" | jq -r '.raw_log // "Unknown error"')
-    echo "[WARN]  Assignment failed: $ASSIGN_ABANDON_ERROR"
-    echo "[WARN]  Skipping abandon test - assignment failed"
-    # Skip abandon
+ASSIGN_RELEASE_TX_RESULT=$($BINARY query tx $ASSIGN_RELEASE_TX -o json 2>/dev/null)
+ASSIGN_RELEASE_CODE=$(echo "$ASSIGN_RELEASE_TX_RESULT" | jq -r '.code // 0')
+if [ "$ASSIGN_RELEASE_CODE" != "0" ]; then
+    ASSIGN_RELEASE_ERROR=$(echo "$ASSIGN_RELEASE_TX_RESULT" | jq -r '.raw_log // "Unknown error"')
+    echo "[WARN]  Assignment failed: $ASSIGN_RELEASE_ERROR"
+    echo "[WARN]  Skipping unassign test - assignment failed"
+    # Skip unassign
 else
     # Verify initiative is actually assigned to Worker
-    ABANDON_TEST_INIT=$($BINARY query rep get-initiative $ABANDON_TEST_INIT_ID -o json 2>/dev/null)
-    ABANDON_TEST_ASSIGNEE=$(echo "$ABANDON_TEST_INIT" | jq -r '.initiative.assignee // ""')
-    ABANDON_TEST_STATUS=$(echo "$ABANDON_TEST_INIT" | jq -r '.initiative.status // "0"')
+    UNASSIGN_TEST_INIT=$($BINARY query rep get-initiative $UNASSIGN_TEST_INIT_ID -o json 2>/dev/null)
+    UNASSIGN_TEST_ASSIGNEE=$(echo "$UNASSIGN_TEST_INIT" | jq -r '.initiative.assignee // ""')
+    UNASSIGN_TEST_STATUS=$(echo "$UNASSIGN_TEST_INIT" | jq -r '.initiative.status // "INITIATIVE_STATUS_OPEN"')
 
     echo "Assigned to Worker: $WORKER_ADDR"
-    echo "Initiative assignee: $ABANDON_TEST_ASSIGNEE"
-    echo "Initiative status: $ABANDON_TEST_STATUS"
+    echo "Initiative assignee: $UNASSIGN_TEST_ASSIGNEE"
+    echo "Initiative status: $UNASSIGN_TEST_STATUS"
 
-    if [ "$ABANDON_TEST_ASSIGNEE" != "$WORKER_ADDR" ]; then
+    if [ "$UNASSIGN_TEST_ASSIGNEE" != "$WORKER_ADDR" ]; then
         echo "[WARN]  Assignment verification failed - assignee mismatch"
         echo "[WARN]  Expected: $WORKER_ADDR"
-        echo "[WARN]  Got: $ABANDON_TEST_ASSIGNEE"
-        echo "[WARN]  Skipping abandon test - assignment not verified"
+        echo "[WARN]  Got: $UNASSIGN_TEST_ASSIGNEE"
+        echo "[WARN]  Skipping unassign test - assignment not verified"
     else
-        # Now Worker abandons it
-        echo "Worker abandons the assigned initiative..."
-ABANDON_RES=$($BINARY tx rep abandon-initiative \
-  $ABANDON_TEST_INIT_ID \
+        # Now Worker steps down from it
+        ALLOC_BEFORE_UNASSIGN=$($BINARY query rep get-project $PROJECT_ID -o json 2>/dev/null | \
+          jq -r '.project.allocated_budget // "0"')
+        echo "Worker releases the assigned initiative..."
+UNASSIGN_RES=$($BINARY tx rep unassign-initiative \
+  $UNASSIGN_TEST_INIT_ID \
   "Changed priorities, not relevant anymore" \
   --from $WORKER_NAME \
   --chain-id $CHAIN_ID \
@@ -848,51 +852,82 @@ ABANDON_RES=$($BINARY tx rep abandon-initiative \
   -y \
   -o json)
 
-ABANDON_TX=$(echo $ABANDON_RES | jq -r '.txhash')
+UNASSIGN_TX=$(echo $UNASSIGN_RES | jq -r '.txhash')
 sleep 2
 
 # Check if transaction succeeded
-ABANDON_TX_RESULT=$($BINARY query tx $ABANDON_TX -o json 2>/dev/null)
-ABANDON_CODE=$(echo "$ABANDON_TX_RESULT" | jq -r '.code // 0')
-if [ "$ABANDON_CODE" != "0" ]; then
-    ABANDON_ERROR=$(echo "$ABANDON_TX_RESULT" | jq -r '.raw_log // "Unknown error"')
-    echo "[WARN]  Abandon transaction failed: $ABANDON_ERROR"
+UNASSIGN_TX_RESULT=$($BINARY query tx $UNASSIGN_TX -o json 2>/dev/null)
+UNASSIGN_CODE=$(echo "$UNASSIGN_TX_RESULT" | jq -r '.code // 0')
+if [ "$UNASSIGN_CODE" != "0" ]; then
+    UNASSIGN_ERROR=$(echo "$UNASSIGN_TX_RESULT" | jq -r '.raw_log // "Unknown error"')
+    echo "[WARN]  Unassign transaction failed: $UNASSIGN_ERROR"
 fi
 
-# Verify initiative status changed to ABANDONED
-ABANDONED_INITIATIVE=$($BINARY query rep get-initiative $ABANDON_TEST_INIT_ID -o json)
+# Releasing returns the initiative to OPEN with nobody holding it -- the work
+# item survives so somebody else can pick it up. Retiring it is close-initiative.
+RELEASED_INITIATIVE=$($BINARY query rep get-initiative $UNASSIGN_TEST_INIT_ID -o json)
 # Note: Proto3 omits zero values - use // operator for defaults
-ABANDON_STATUS=$(echo "$ABANDONED_INITIATIVE" | jq -r '.initiative.status // "INITIATIVE_STATUS_OPEN"')
+UNASSIGN_STATUS=$(echo "$RELEASED_INITIATIVE" | jq -r '.initiative.status // "INITIATIVE_STATUS_OPEN"')
+UNASSIGN_ASSIGNEE=$(echo "$RELEASED_INITIATIVE" | jq -r '.initiative.assignee // ""')
 
-echo "Abandoned initiative status: $ABANDON_STATUS"
+echo "Released initiative status: $UNASSIGN_STATUS (assignee: '$UNASSIGN_ASSIGNEE')"
 
-if [ "$ABANDON_STATUS" == "INITIATIVE_STATUS_ABANDONED" ]; then
-    echo "[ OK ] Initiative successfully ABANDONED"
-elif [ "$ABANDON_CODE" != "0" ]; then
-    echo "[WARN]  Abandon failed - see error above"
+if [ "$UNASSIGN_STATUS" == "INITIATIVE_STATUS_OPEN" ] && [ -z "$UNASSIGN_ASSIGNEE" ]; then
+    echo "[ OK ] Initiative returned to OPEN with no assignee"
+elif [ "$UNASSIGN_CODE" != "0" ]; then
+    echo "[WARN]  Unassign failed - see error above"
 else
-    echo "[WARN]  Initiative status: $ABANDON_STATUS (transaction succeeded but status not changed)"
+    echo "[WARN]  Initiative status: $UNASSIGN_STATUS assignee: '$UNASSIGN_ASSIGNEE' (expected OPEN and unassigned)"
+fi
+
+# The budget stays allocated: the work is still live and still funded for
+# whoever picks it up next. Only close-initiative hands it back.
+RELEASED_PROJECT_ALLOC=$($BINARY query rep get-project $PROJECT_ID -o json 2>/dev/null | \
+  jq -r '.project.allocated_budget // "0"')
+if [ "$RELEASED_PROJECT_ALLOC" == "$ALLOC_BEFORE_UNASSIGN" ]; then
+    echo "[ OK ] Budget stays allocated across the release ($RELEASED_PROJECT_ALLOC)"
+else
+    echo "[WARN]  Allocated budget changed on release: $ALLOC_BEFORE_UNASSIGN -> $RELEASED_PROJECT_ALLOC"
+fi
+
+# The released initiative can be taken up by someone else.
+REASSIGN_RES=$($BINARY tx rep assign-initiative \
+  $UNASSIGN_TEST_INIT_ID \
+  $WORKER_ADDR \
+  --from alice \
+  --chain-id $CHAIN_ID \
+  --keyring-backend test \
+  --fees 5000${BOND_DENOM} \
+  -y \
+  -o json)
+REASSIGN_TX=$(echo $REASSIGN_RES | jq -r '.txhash')
+sleep 2
+REASSIGN_CODE=$($BINARY query tx $REASSIGN_TX -o json 2>/dev/null | jq -r '.code // 0')
+if [ "$REASSIGN_CODE" == "0" ]; then
+    echo "[ OK ] Released initiative is assignable again"
+else
+    echo "[WARN]  Reassignment after release failed (code $REASSIGN_CODE)"
 fi
 
     fi  # End of assignee verification check
 fi  # End of assignment success check
-fi  # End of if block for ABANDON_TEST_INIT_ID check
+fi  # End of if block for UNASSIGN_TEST_INIT_ID check
 
 # ========================================================================
-# PART 14B: CANCEL INITIATIVE (UNSTARTED, OPEN-ONLY)
+# PART 14B: CLOSE INITIATIVE (RETIRE AND RETURN BUDGET)
 # ========================================================================
 echo ""
-echo "--- PART 14B: TEST CANCEL INITIATIVE ---"
-echo "Creating a new OPEN initiative to test cancel flow..."
+echo "--- PART 14B: TEST CLOSE INITIATIVE ---"
+echo "Creating a new OPEN initiative to test the close flow..."
 
-CANCEL_STATUS="INITIATIVE_STATUS_OPEN"   # default for summary line if skipped
+CLOSE_STATUS="INITIATIVE_STATUS_OPEN"   # default for summary line if skipped
 
-# Create a test initiative for cancel (apprentice tier -> no reputation floor)
+# Create a test initiative for close (apprentice tier -> no reputation floor)
 # Command: create-initiative [project-id] [title] [description] [tier] [category] [budget]
-CANCEL_TEST_RES=$($BINARY tx rep create-initiative \
+CLOSE_TEST_RES=$($BINARY tx rep create-initiative \
   $PROJECT_ID \
-  "Test Cancel Initiative" \
-  "This OPEN initiative will be cancelled by the project creator" \
+  "Test Close Initiative" \
+  "This OPEN initiative will be closed by the project creator" \
   "0" \
   "1" \
   "50000000" \
@@ -903,35 +938,35 @@ CANCEL_TEST_RES=$($BINARY tx rep create-initiative \
   -y \
   -o json)
 
-CANCEL_TEST_TX=$(echo $CANCEL_TEST_RES | jq -r '.txhash')
+CLOSE_TEST_TX=$(echo $CLOSE_TEST_RES | jq -r '.txhash')
 sleep 6  # wait for the tx to be indexed
 
 # Extract the new initiative ID from events, with a query fallback.
-CANCEL_TEST_INIT_ID=$($BINARY query tx $CANCEL_TEST_TX -o json 2>/dev/null | \
+CLOSE_TEST_INIT_ID=$($BINARY query tx $CLOSE_TEST_TX -o json 2>/dev/null | \
   jq -r '.events[] | select(.type=="initiative_created") | .attributes[] | select(.key=="initiative_id") | .value' | \
   tr -d '"' 2>/dev/null)
 
-if [ -z "$CANCEL_TEST_INIT_ID" ] || [ "$CANCEL_TEST_INIT_ID" == "null" ] || [ "$CANCEL_TEST_INIT_ID" == "" ]; then
+if [ -z "$CLOSE_TEST_INIT_ID" ] || [ "$CLOSE_TEST_INIT_ID" == "null" ] || [ "$CLOSE_TEST_INIT_ID" == "" ]; then
     echo "[WARN]  Failed to extract from events, querying latest initiative..."
-    CANCEL_TEST_INIT_ID=$($BINARY query rep initiatives-by-project $PROJECT_ID -o json 2>/dev/null | \
+    CLOSE_TEST_INIT_ID=$($BINARY query rep initiatives-by-project $PROJECT_ID -o json 2>/dev/null | \
       jq -r '.initiatives | sort_by(.id) | .[-1].id' 2>/dev/null)
 fi
 
-echo "Created test initiative: $CANCEL_TEST_INIT_ID"
+echo "Created test initiative: $CLOSE_TEST_INIT_ID"
 
-if [ -z "$CANCEL_TEST_INIT_ID" ] || [ "$CANCEL_TEST_INIT_ID" == "null" ] || [ "$CANCEL_TEST_INIT_ID" == "" ]; then
-    echo "[WARN]  Failed to extract cancel test initiative ID, skipping cancel test"
+if [ -z "$CLOSE_TEST_INIT_ID" ] || [ "$CLOSE_TEST_INIT_ID" == "null" ] || [ "$CLOSE_TEST_INIT_ID" == "" ]; then
+    echo "[WARN]  Failed to extract close test initiative ID, skipping close test"
 else
 
-# Record the project's allocated budget before cancelling (proto3 omits zeros).
-PROJECT_BEFORE_CANCEL=$($BINARY query rep get-project $PROJECT_ID -o json 2>/dev/null)
-ALLOCATED_BEFORE=$(echo "$PROJECT_BEFORE_CANCEL" | jq -r '.project.allocated_budget // "0"')
-echo "Project allocated budget before cancel: $ALLOCATED_BEFORE"
+# Record the project's allocated budget before closing (proto3 omits zeros).
+PROJECT_BEFORE_CLOSE=$($BINARY query rep get-project $PROJECT_ID -o json 2>/dev/null)
+ALLOCATED_BEFORE=$(echo "$PROJECT_BEFORE_CLOSE" | jq -r '.project.allocated_budget // "0"')
+echo "Project allocated budget before close: $ALLOCATED_BEFORE"
 
-# --- Negative check: a non-creator, non-ops member cannot cancel ---
-echo "Worker (not the project creator) attempts to cancel..."
-UNAUTH_CANCEL_RES=$($BINARY tx rep cancel-initiative \
-  $CANCEL_TEST_INIT_ID \
+# --- Negative check: a non-creator, non-ops member cannot close ---
+echo "Worker (not the project creator) attempts to close..."
+UNAUTH_CLOSE_RES=$($BINARY tx rep close-initiative \
+  $CLOSE_TEST_INIT_ID \
   "unauthorized attempt" \
   --from $WORKER_NAME \
   --chain-id $CHAIN_ID \
@@ -939,28 +974,28 @@ UNAUTH_CANCEL_RES=$($BINARY tx rep cancel-initiative \
   --fees 5000${BOND_DENOM} \
   -y \
   -o json)
-UNAUTH_CANCEL_TX=$(echo $UNAUTH_CANCEL_RES | jq -r '.txhash')
+UNAUTH_CLOSE_TX=$(echo $UNAUTH_CLOSE_RES | jq -r '.txhash')
 sleep 2
-UNAUTH_CANCEL_CODE=$($BINARY query tx $UNAUTH_CANCEL_TX -o json 2>/dev/null | jq -r '.code // 0')
-if [ "$UNAUTH_CANCEL_CODE" != "0" ]; then
-    echo "[ OK ] Non-creator cancel correctly rejected (code $UNAUTH_CANCEL_CODE)"
+UNAUTH_CLOSE_CODE=$($BINARY query tx $UNAUTH_CLOSE_TX -o json 2>/dev/null | jq -r '.code // 0')
+if [ "$UNAUTH_CLOSE_CODE" != "0" ]; then
+    echo "[ OK ] Non-creator close correctly rejected (code $UNAUTH_CLOSE_CODE)"
 else
-    echo "[WARN]  Non-creator cancel unexpectedly succeeded"
+    echo "[WARN]  Non-creator close unexpectedly succeeded"
 fi
 
 # Confirm the initiative is still OPEN after the rejected attempt.
-STILL_OPEN=$($BINARY query rep get-initiative $CANCEL_TEST_INIT_ID -o json 2>/dev/null | \
+STILL_OPEN=$($BINARY query rep get-initiative $CLOSE_TEST_INIT_ID -o json 2>/dev/null | \
   jq -r '.initiative.status // "INITIATIVE_STATUS_OPEN"')
 if [ "$STILL_OPEN" == "INITIATIVE_STATUS_OPEN" ]; then
-    echo "[ OK ] Initiative remains OPEN after rejected cancel"
+    echo "[ OK ] Initiative remains OPEN after rejected close"
 else
-    echo "[WARN]  Initiative status after rejected cancel: $STILL_OPEN (expected OPEN)"
+    echo "[WARN]  Initiative status after rejected close: $STILL_OPEN (expected OPEN)"
 fi
 
-# --- Happy path: the project creator (alice) cancels the OPEN initiative ---
-echo "Project creator (alice) cancels the OPEN initiative..."
-CANCEL_RES=$($BINARY tx rep cancel-initiative \
-  $CANCEL_TEST_INIT_ID \
+# --- Happy path: the project creator (alice) closes the OPEN initiative ---
+echo "Project creator (alice) closes the OPEN initiative..."
+CLOSE_RES=$($BINARY tx rep close-initiative \
+  $CLOSE_TEST_INIT_ID \
   "Listing no longer needed" \
   --from alice \
   --chain-id $CHAIN_ID \
@@ -968,35 +1003,35 @@ CANCEL_RES=$($BINARY tx rep cancel-initiative \
   --fees 5000${BOND_DENOM} \
   -y \
   -o json)
-CANCEL_TX=$(echo $CANCEL_RES | jq -r '.txhash')
+CLOSE_TX=$(echo $CLOSE_RES | jq -r '.txhash')
 sleep 2
 
-CANCEL_TX_RESULT=$($BINARY query tx $CANCEL_TX -o json 2>/dev/null)
-CANCEL_CODE=$(echo "$CANCEL_TX_RESULT" | jq -r '.code // 0')
-if [ "$CANCEL_CODE" != "0" ]; then
-    CANCEL_ERROR=$(echo "$CANCEL_TX_RESULT" | jq -r '.raw_log // "Unknown error"')
-    echo "[WARN]  Cancel transaction failed: $CANCEL_ERROR"
+CLOSE_TX_RESULT=$($BINARY query tx $CLOSE_TX -o json 2>/dev/null)
+CLOSE_CODE=$(echo "$CLOSE_TX_RESULT" | jq -r '.code // 0')
+if [ "$CLOSE_CODE" != "0" ]; then
+    CLOSE_ERROR=$(echo "$CLOSE_TX_RESULT" | jq -r '.raw_log // "Unknown error"')
+    echo "[WARN]  Close transaction failed: $CLOSE_ERROR"
 fi
 
-# Verify status changed to CANCELLED (distinct from ABANDONED).
-CANCELLED_INITIATIVE=$($BINARY query rep get-initiative $CANCEL_TEST_INIT_ID -o json)
-CANCEL_STATUS=$(echo "$CANCELLED_INITIATIVE" | jq -r '.initiative.status // "INITIATIVE_STATUS_OPEN"')
-echo "Cancelled initiative status: $CANCEL_STATUS"
+# Verify status changed to CLOSED.
+CLOSED_INITIATIVE=$($BINARY query rep get-initiative $CLOSE_TEST_INIT_ID -o json)
+CLOSE_STATUS=$(echo "$CLOSED_INITIATIVE" | jq -r '.initiative.status // "INITIATIVE_STATUS_OPEN"')
+echo "Closed initiative status: $CLOSE_STATUS"
 
-if [ "$CANCEL_STATUS" == "INITIATIVE_STATUS_CANCELLED" ]; then
-    echo "[ OK ] Initiative successfully CANCELLED"
-elif [ "$CANCEL_CODE" != "0" ]; then
-    echo "[WARN]  Cancel failed - see error above"
+if [ "$CLOSE_STATUS" == "INITIATIVE_STATUS_CLOSED" ]; then
+    echo "[ OK ] Initiative successfully CLOSED"
+elif [ "$CLOSE_CODE" != "0" ]; then
+    echo "[WARN]  Close failed - see error above"
 else
-    echo "[WARN]  Initiative status: $CANCEL_STATUS (transaction succeeded but status not CANCELLED)"
+    echo "[WARN]  Initiative status: $CLOSE_STATUS (transaction succeeded but status not CLOSED)"
 fi
 
 # Verify the reserved budget (50 DREAM = 50000000 micro) was returned to the project.
-PROJECT_AFTER_CANCEL=$($BINARY query rep get-project $PROJECT_ID -o json 2>/dev/null)
-ALLOCATED_AFTER=$(echo "$PROJECT_AFTER_CANCEL" | jq -r '.project.allocated_budget // "0"')
-echo "Project allocated budget after cancel: $ALLOCATED_AFTER (was $ALLOCATED_BEFORE)"
+PROJECT_AFTER_CLOSE=$($BINARY query rep get-project $PROJECT_ID -o json 2>/dev/null)
+ALLOCATED_AFTER=$(echo "$PROJECT_AFTER_CLOSE" | jq -r '.project.allocated_budget // "0"')
+echo "Project allocated budget after close: $ALLOCATED_AFTER (was $ALLOCATED_BEFORE)"
 EXPECTED_AFTER=$((ALLOCATED_BEFORE - 50000000))
-if [ "$CANCEL_STATUS" == "INITIATIVE_STATUS_CANCELLED" ]; then
+if [ "$CLOSE_STATUS" == "INITIATIVE_STATUS_CLOSED" ]; then
     if [ "$ALLOCATED_AFTER" == "$EXPECTED_AFTER" ]; then
         echo "[ OK ] Reserved budget (50000000) returned to project"
     else
@@ -1004,7 +1039,7 @@ if [ "$CANCEL_STATUS" == "INITIATIVE_STATUS_CANCELLED" ]; then
     fi
 fi
 
-fi  # End of if block for CANCEL_TEST_INIT_ID check
+fi  # End of if block for CLOSE_TEST_INIT_ID check
 
 # ========================================================================
 # PART 15: COMPLETE INITIATIVE (NORMAL FLOW)
@@ -1212,14 +1247,12 @@ echo "Project #$PROJECT_ID now has $FINAL_INIT_COUNT initiatives"
 OPEN_COUNT=$(echo "$FINAL_PROJECT_INITIATIVES" | jq -r '.initiatives // [] | [.[] | select(.status=="INITIATIVE_STATUS_OPEN")] | length')
 ASSIGNED_COUNT=$(echo "$FINAL_PROJECT_INITIATIVES" | jq -r '.initiatives // [] | [.[] | select(.status=="INITIATIVE_STATUS_ASSIGNED")] | length')
 SUBMITTED_COUNT=$(echo "$FINAL_PROJECT_INITIATIVES" | jq -r '.initiatives // [] | [.[] | select(.status=="INITIATIVE_STATUS_SUBMITTED" or .status=="INITIATIVE_STATUS_IN_REVIEW" or .status=="INITIATIVE_STATUS_CHALLENGED")] | length')
-ABANDONED_COUNT=$(echo "$FINAL_PROJECT_INITIATIVES" | jq -r '.initiatives // [] | [.[] | select(.status=="INITIATIVE_STATUS_ABANDONED")] | length')
-CANCELLED_COUNT=$(echo "$FINAL_PROJECT_INITIATIVES" | jq -r '.initiatives // [] | [.[] | select(.status=="INITIATIVE_STATUS_CANCELLED")] | length')
+CLOSED_COUNT=$(echo "$FINAL_PROJECT_INITIATIVES" | jq -r '.initiatives // [] | [.[] | select(.status=="INITIATIVE_STATUS_CLOSED")] | length')
 
 echo "  OPEN: $OPEN_COUNT"
 echo "  ASSIGNED: $ASSIGNED_COUNT"
 echo "  SUBMITTED/IN REVIEW/CHALLENGED: $SUBMITTED_COUNT"
-echo "  ABANDONED: $ABANDONED_COUNT"
-echo "  CANCELLED: $CANCELLED_COUNT"
+echo "  CLOSED: $CLOSED_COUNT"
 
 # ========================================================================
 # SUMMARY
@@ -1240,8 +1273,8 @@ echo "[ OK ] Part 10: Staking (conviction)     Staker1: 100, Staker2: 150 DREAM"
 echo "[ OK ] Part 11: Conviction query            Current: $CURRENT_CONVICTION"
 echo "[ OK ] Part 12: Stakes by target           Tracked"
 echo "[ OK ] Part 13: Challenges by initiative    $CHALLENGE_COUNT found"
-echo "[ OK ] Part 14: Abandoned flow            Status: $ABANDON_STATUS"
-echo "[ OK ] Part 14B: Cancel flow              Status: $CANCEL_STATUS"
+echo "[ OK ] Part 14: Unassign flow             Status: $UNASSIGN_STATUS"
+echo "[ OK ] Part 14B: Close flow               Status: $CLOSE_STATUS"
 echo "[ OK ] Part 15: Completion attempt          Status: $FINAL_STATUS"
 echo "[ OK ] Part 16: Pending rewards           Queried"
 echo "[ OK ] Part 17: Unstake/claim            Attempted"

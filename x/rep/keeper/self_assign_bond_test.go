@@ -266,12 +266,12 @@ func TestPermissionlessSelfAssignBondIsReleasable(t *testing.T) {
 	require.True(t, k.GetReviewBounty(ctx, initID).Amount.IsZero(),
 		"ungated work carries no minimum bounty")
 
-	require.NoError(t, k.AbandonInitiative(ctx, initID, creator, "changed my mind"))
+	require.NoError(t, k.UnassignInitiative(ctx, initID, "changed my mind", false))
 
 	after, err := k.GetMember(ctx, creator)
 	require.NoError(t, err)
 	require.True(t, after.StakedDream.IsZero(),
-		"bond unlocks on abandonment")
+		"bond unlocks when the assignment is released")
 
 	initiative, err := k.GetInitiative(ctx, initID)
 	require.NoError(t, err)

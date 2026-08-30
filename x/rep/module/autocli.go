@@ -574,9 +574,9 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "initiative_id"}, {ProtoField: "approved"}, {ProtoField: "comments"}},
 				},
 				{
-					RpcMethod:      "AbandonInitiative",
-					Use:            "abandon-initiative [initiative-id] [reason]",
-					Short:          "Send a abandon-initiative tx",
+					RpcMethod:      "UnassignInitiative",
+					Use:            "unassign-initiative [initiative-id] [reason]",
+					Short:          "Release an assignment and return the initiative to OPEN",
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "initiative_id"}, {ProtoField: "reason"}},
 				},
 				{
@@ -834,9 +834,9 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 				},
 				// this line is used by ignite scaffolding # autocli/tx
 				{
-					RpcMethod:      "CancelInitiative",
-					Use:            "cancel-initiative [initiative-id] [reason]",
-					Short:          "Send a cancel-initiative tx",
+					RpcMethod:      "CloseInitiative",
+					Use:            "close-initiative [initiative-id] [reason]",
+					Short:          "Retire an initiative and return its budget to the project",
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "initiative_id"}, {ProtoField: "reason"}},
 				},
 			},

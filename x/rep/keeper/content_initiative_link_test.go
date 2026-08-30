@@ -73,7 +73,7 @@ func TestValidateInitiativeReference(t *testing.T) {
 
 		initiative, err := k.GetInitiative(f.ctx, initiativeID)
 		require.NoError(t, err)
-		initiative.Status = types.InitiativeStatus_INITIATIVE_STATUS_ABANDONED
+		initiative.Status = types.InitiativeStatus_INITIATIVE_STATUS_CLOSED
 		require.NoError(t, k.UpdateInitiative(f.ctx, initiative))
 
 		err = k.ValidateInitiativeReference(f.ctx, initiativeID)

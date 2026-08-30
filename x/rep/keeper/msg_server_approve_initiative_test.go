@@ -138,7 +138,7 @@ func TestMsgServerApproveInitiative(t *testing.T) {
 
 		initiative, err := k.GetInitiative(ctx, initID)
 		require.NoError(t, err)
-		require.Equal(t, types.InitiativeStatus_INITIATIVE_STATUS_ABANDONED, initiative.Status)
+		require.Equal(t, types.InitiativeStatus_INITIATIVE_STATUS_CLOSED, initiative.Status)
 	})
 
 	t.Run("approve initiative", func(t *testing.T) {
@@ -409,7 +409,7 @@ func TestStakerDisapprovalIsRejected(t *testing.T) {
 
 	initiative, gErr := f.keeper.GetInitiative(f.ctx, initID)
 	require.NoError(t, gErr)
-	require.NotEqual(t, types.InitiativeStatus_INITIATIVE_STATUS_ABANDONED, initiative.Status,
+	require.NotEqual(t, types.InitiativeStatus_INITIATIVE_STATUS_CLOSED, initiative.Status,
 		"a refused disapproval must not touch the initiative")
 }
 
@@ -430,5 +430,5 @@ func TestOpsCommitteeDisapprovalIsImmediate(t *testing.T) {
 
 	initiative, err := f.keeper.GetInitiative(f.ctx, initID)
 	require.NoError(t, err)
-	require.Equal(t, types.InitiativeStatus_INITIATIVE_STATUS_ABANDONED, initiative.Status)
+	require.Equal(t, types.InitiativeStatus_INITIATIVE_STATUS_CLOSED, initiative.Status)
 }
