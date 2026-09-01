@@ -160,8 +160,16 @@ func DefaultParams() Params {
 		MaxTagsPerInitiative: 3, // Max 3 tags per initiative (prevents tag stuffing for rep/revenue inflation)
 
 		// Anti-gaming parameters
-		ReputationDecayRate:         math.LegacyNewDecWithPrec(5, 3),  // 0.5% per epoch (~47% retained over a 5-month season)
-		MaxConvictionSharePerMember: math.LegacyNewDecWithPrec(33, 2), // 33% — no single member can contribute more than 1/3 of required conviction
+		ReputationDecayRate: math.LegacyNewDecWithPrec(5, 3), // 0.5% per epoch (~47% retained over a 5-month season)
+		// 35%. Two members reach 0.70 and cannot carry work alone, three reach
+		// 1.05 and can. The band is narrow and both edges bite: below 1/3 the
+		// total-conviction gate needs four stakers, and at 0.375 or above two
+		// stakers clear the 75% self-assigned floor, collapsing that safeguard
+		// to the same two as ordinary work. Validate enforces both edges —
+		// this cap is operationally tunable and the ratio it is coupled to is
+		// not, so the pairing has to hold at the msg boundary rather than only
+		// in TestSelfAssignedGatesImplyThreeIndependentStakers.
+		MaxConvictionSharePerMember: math.LegacyNewDecWithPrec(35, 2),
 		InvitationStakeBurnRate:     math.LegacyNewDecWithPrec(10, 2), // 10% of invitation stake burned on acceptance
 		// Majority of the stake behind an initiative must vote against it
 		// before submitted work is abandoned.
@@ -289,20 +297,33 @@ func DefaultParams() Params {
 		// Self-assignment safeguards (self-assigned initiatives)
 		SelfAssignedBondRate: math.LegacyNewDecWithPrec(10, 2), // 10% of budget
 		// 75% external. This is a distinct-staker floor as much as a magnitude
-		// one: max_conviction_share_per_member caps any single member at 33% of
+		// one: max_conviction_share_per_member caps any single member at 35% of
 		// required conviction, so the ratio divided by that cap is the minimum
 		// number of independent stakers who must show up —
-		// ceil(0.75/0.33) = 3, against ceil(0.50/0.33) = 2 for ordinary
+		// ceil(0.75/0.35) = 3, against ceil(0.50/0.35) = 2 for ordinary
 		// externally-assigned work. Self-assignment stays strictly harder to
 		// complete, which is the point, but 100% put the floor at 4 and made
 		// the gate unreachable on a small chain rather than merely demanding.
 		//
-		// Anything in (0.66, 0.99] shares that floor of 3, so this sits at the
-		// low end of the band: three stakers clear it averaging 0.25 each
-		// rather than arriving nearly capped. Note the coupling — the floor is
-		// ceil(ratio / max_conviction_share_per_member), and that cap is
-		// operationally tunable, so raising it above 0.375 would quietly drop
-		// this floor to 2.
+		// This ratio is not the only gate. CanCompleteInitiative also requires
+		// current >= required, and that total gate counts affiliated stake as
+		// well — the assignee, the project creator and everyone one invitation
+		// hop from them contribute to current_conviction but not to
+		// external_conviction, and nothing stops them staking (the self-stake
+		// guard in CreateStake covers member targets only).
+		//
+		// So this ratio sets the floor on *external* stakers, ceil(0.75/cap),
+		// while the total gate demands those same stakers reach 1.00 whenever
+		// no affiliate stakes alongside them. Three unaided external stakers at
+		// a 0.33 cap cleared the 0.75 floor and then stalled at 0.99 of
+		// required — dropping this ratio from 1.00 relaxed only the gate that
+		// was not binding for them. Raising the cap 0.33 -> 0.35 is what made
+		// three unaided stakers sufficient.
+		//
+		// Both floors are pinned by
+		// TestSelfAssignedGatesImplyThreeIndependentStakers and enforced by
+		// Params.Validate. Changing either param moves a floor the other one
+		// owns.
 		SelfAssignedExternalConvictionRatio: math.LegacyNewDecWithPrec(75, 2),
 		SelfAssignedChallengeMultiplier:     2,
 		// Permissionless self-assignment mints DREAM nobody approved rather
@@ -333,6 +354,25 @@ func DefaultParams() Params {
 		ReviewFeeRate:                 math.LegacyNewDecWithPrec(5, 2), // 5% of budget to reviewers
 		MaxReviewRounds:               3,
 	}
+}
+
+// independentStakerFloor returns the smallest number of members who, each
+// contributing the full per-member conviction cap, together reach
+// ratio × required_conviction — i.e. the minimum number of distinct stakers a
+// conviction gate at `ratio` can be satisfied by.
+//
+// Computed by repeated multiplication rather than dividing ratio by the cap:
+// LegacyDec division rounds at 18 decimals, which is enough to push an exact
+// boundary like 1 / (1/3) over to 4 and misreport the floor.
+func independentStakerFloor(shareCap, ratio math.LegacyDec) int64 {
+	// A validated cap is at least 1/3 and a validated ratio at most 1, so the
+	// answer is always found well inside this bound.
+	for n := int64(1); n <= 16; n++ {
+		if shareCap.MulInt64(n).GTE(ratio) {
+			return n
+		}
+	}
+	return 0
 }
 
 // Validate validates the set of params.
@@ -650,6 +690,38 @@ func (p Params) Validate() error {
 	if p.MaxConvictionSharePerMember.GT(math.LegacyOneDec()) {
 		return fmt.Errorf("max conviction share per member cannot be greater than 1: %s", p.MaxConvictionSharePerMember)
 	}
+	// The per-member cap and the conviction ratios jointly decide how many
+	// independent stakers an initiative needs: a gate at `ratio` takes
+	// ceil(ratio / cap) members. The pairing is checked here rather than left
+	// to the defaults because only one half of it is operationally tunable —
+	// the Operations Committee owns the cap, governance owns the ratios — so
+	// an ops-only edit could otherwise retune a floor governance set.
+	//
+	// Lower edge: three members at the cap must cover the whole threshold.
+	// CanCompleteInitiative gates on current >= required, and on self-assigned
+	// work no affiliate need stake at all, so a cap below 1/3 leaves three
+	// fully committed external stakers short of completing anything.
+	if p.MaxConvictionSharePerMember.MulInt64(3).LT(math.LegacyOneDec()) {
+		return fmt.Errorf(
+			"max conviction share per member must be at least 1/3 so three independent stakers can meet the full conviction threshold: %s",
+			p.MaxConvictionSharePerMember,
+		)
+	}
+	// Upper edge: when governance asks for a stricter self-assigned ratio it is
+	// asking for a higher staker floor, so the cap must not be large enough to
+	// let the same number of members clear both gates. Only enforced when the
+	// stricter ratio was actually requested — setting the two ratios equal is a
+	// legitimate way to run without the safeguard.
+	if p.SelfAssignedExternalConvictionRatio.GT(p.ExternalConvictionRatio) {
+		selfFloor := independentStakerFloor(p.MaxConvictionSharePerMember, p.SelfAssignedExternalConvictionRatio)
+		ordinaryFloor := independentStakerFloor(p.MaxConvictionSharePerMember, p.ExternalConvictionRatio)
+		if selfFloor <= ordinaryFloor {
+			return fmt.Errorf(
+				"max conviction share per member (%s) is too large for self-assigned external conviction ratio (%s): both floors land on %d independent stakers, leaving self-assigned work no harder to complete than ordinary work",
+				p.MaxConvictionSharePerMember, p.SelfAssignedExternalConvictionRatio, selfFloor,
+			)
+		}
+	}
 	if p.InvitationStakeBurnRate.IsNegative() {
 		return fmt.Errorf("invitation stake burn rate cannot be negative: %s", p.InvitationStakeBurnRate)
 	}
@@ -817,7 +889,7 @@ func DefaultRepOperationalParams() RepOperationalParams {
 		MaxTagsPerInitiative: 3,
 		// Anti-gaming
 		ReputationDecayRate:         math.LegacyNewDecWithPrec(5, 3),  // 0.5% per epoch
-		MaxConvictionSharePerMember: math.LegacyNewDecWithPrec(33, 2), // 33%
+		MaxConvictionSharePerMember: math.LegacyNewDecWithPrec(35, 2), // 35%
 		InvitationStakeBurnRate:     math.LegacyNewDecWithPrec(10, 2), // 10%
 		// Majority of staked DREAM required to abandon submitted work.
 		AbandonedJurySeatPenalty:      math.LegacyNewDec(10),            // reputation, per tag
@@ -1037,6 +1109,16 @@ func (op RepOperationalParams) Validate() error {
 	}
 	if op.MaxConvictionSharePerMember.GT(math.LegacyOneDec()) {
 		return fmt.Errorf("max conviction share per member cannot be greater than 1: %s", op.MaxConvictionSharePerMember)
+	}
+	// Lower edge of the staker-floor band, repeated from Params.Validate so an
+	// ops edit fails on its own field rather than on the merged params. The
+	// upper edge is coupled to a governance-only ratio and can only be checked
+	// after the merge.
+	if op.MaxConvictionSharePerMember.MulInt64(3).LT(math.LegacyOneDec()) {
+		return fmt.Errorf(
+			"max conviction share per member must be at least 1/3 so three independent stakers can meet the full conviction threshold: %s",
+			op.MaxConvictionSharePerMember,
+		)
 	}
 	if op.InvitationStakeBurnRate.IsNegative() {
 		return fmt.Errorf("invitation stake burn rate cannot be negative: %s", op.InvitationStakeBurnRate)

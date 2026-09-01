@@ -96,9 +96,10 @@ ACCOUNTS=("challenger" "anonymous_challenger" "assignee" "juror1" "juror2" "juro
 # one of alice's invitees — those are created at TRUST_LEVEL_NEW, which carries
 # zero invitation credits and therefore cannot invite anyone.
 # Four, not three. Each staker's conviction is capped at
-# MaxConvictionSharePerMember (0.33) of an initiative's required_conviction, so
-# three stakers top out at 0.99 of the requirement and an initiative can never
-# complete no matter how much they stake. Four is the minimum that clears it.
+# MaxConvictionSharePerMember (0.35) of an initiative's required_conviction, so
+# three stakers top out at 1.05 -- enough for the total gate, but with no room
+# for one of them to fail to land. Four keeps a spare, and the setup has to
+# survive individual stake failures without stranding every downstream test.
 COMMUNITY_ACCOUNTS=("community1" "community2" "community3" "community4")
 
 for ACCOUNT in "${ACCOUNTS[@]}" "${COMMUNITY_ACCOUNTS[@]}"; do
@@ -741,9 +742,9 @@ for JUROR in "${JUROR_ACCOUNTS[@]}"; do
     # APPRENTICE: tier=0, min_rep=0, cap=25
     # Budget: 0.25 DREAM (250000 micro) → rep grant = 25 per tag
     # Required conviction = conviction_per_dream × sqrt(budget) = 0.2 × 500 = 100
-    # Per-member cap = 33% of required = 33 per staker
-    # 4 stakers × 33 cap = 132 > 100 required [ OK ]
-    # External conviction: 3 external × 33 = 99 > 50 required [ OK ]
+    # Per-member cap = 35% of required = 35 per staker
+    # 4 stakers × 35 cap = 140 > 100 required [ OK ]
+    # External conviction: 3 external × 35 = 105 > 50 required [ OK ]
     TX_RES=$($BINARY tx rep create-initiative \
         $PROJECT_ID \
         "Reputation builder for $JUROR" \
@@ -832,10 +833,11 @@ for JUROR in "${JUROR_ACCOUNTS[@]}"; do
 
     echo "    → Adding stakes for conviction..."
 
-    # MaxConvictionSharePerMember = 33%, so each staker is capped at 33% of required.
-    # Need 4 stakers to exceed 100% (4 × 33% = 132%).
-    # Alice is project creator (NOT external). Need 3 external stakers for
-    # external conviction >= 50% requirement (3 × 33% = 99% > 50%).
+    # MaxConvictionSharePerMember = 35%, so each staker is capped at 35% of required.
+    # Three would reach 105% of the total gate; four (4 × 35% = 140%) leaves
+    # headroom for a stake that fails to land.
+    # Alice is project creator (NOT external). Need 2 external stakers for
+    # external conviction >= 50% requirement (2 × 35% = 70% > 50%).
     # Stakers: alice (internal), challenger, anonymous_challenger, expert (all external)
     # Stakers must be EXTERNAL to the initiative, and the initiative is
     # authored by alice under alice's project — so alice herself and every

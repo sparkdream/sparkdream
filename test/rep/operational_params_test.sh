@@ -39,6 +39,7 @@ UPDATE_PARAMS_RESULT="FAIL"
 VERIFY_OPERATIONAL_RESULT="FAIL"
 VERIFY_GOVERNANCE_RESULT="FAIL"
 VERIFY_REVIEWER_CONFIG_RESULT="FAIL"
+REJECT_BAD_CAP_RESULT="FAIL"
 RESET_PARAMS_RESULT="FAIL"
 
 # Helper: extract commons proposal ID from tx hash
@@ -427,6 +428,86 @@ else
 fi
 echo ""
 
+# --- 3b. REJECT AN OUT-OF-BAND CONVICTION SHARE CAP ---
+echo "--- TEST 3b: OUT-OF-BAND MAX_CONVICTION_SHARE_PER_MEMBER IS REJECTED ---"
+
+# max_conviction_share_per_member is council-tunable, but the staker floors it
+# sets are shared with self_assigned_external_conviction_ratio, which is
+# governance-only. Params.Validate holds the cap inside [1/3, 0.375) so the
+# committee cannot retune a floor governance owns. Both edges are checked, and
+# they fail at different points:
+#   below 1/3  -> rejected by RepOperationalParams.Validate, before the merge
+#   >= 0.375   -> needs the governance-only ratio, so only the merged
+#                 Params.Validate can catch it
+# Either way the proposal must not reach EXECUTED and the on-chain cap must be
+# untouched.
+if [ "$UPDATE_PARAMS_RESULT" == "PASS" ]; then
+    CAP_BEFORE=$($BINARY query rep params --output json | jq -r '.params.max_conviction_share_per_member')
+    echo "  Cap before: $CAP_BEFORE"
+
+    REJECT_OK=true
+    for CASE in "0.3|below the 1/3 lower edge (pre-merge validation)" \
+                "0.4|at or above the 0.375 upper edge (post-merge validation)"; do
+        BAD_CAP="${CASE%%|*}"
+        CASE_DESC="${CASE#*|}"
+        echo "  Trying $BAD_CAP - $CASE_DESC"
+
+        # $OP_PARAMS is the converted object from TEST 2: decimal-string decs,
+        # every operational field present. Only the cap differs.
+        BAD_OP_PARAMS=$(echo "$OP_PARAMS" | jq --arg cap "$BAD_CAP" '.max_conviction_share_per_member = $cap')
+
+        jq -n \
+          --arg policy "$COMMITTEE_POLICY" \
+          --argjson op_params "$BAD_OP_PARAMS" \
+        '{
+          policy_address: $policy,
+          metadata: "Attempt an out-of-band conviction share cap",
+          messages: [{
+            "@type": "/sparkdream.rep.v1.MsgUpdateOperationalParams",
+            authority: $policy,
+            operational_params: $op_params
+          }]
+        }' > "$PROPOSAL_DIR/reject_bad_cap.json"
+
+        BAD_SUBMIT=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/reject_bad_cap.json" \
+            --from alice -y --chain-id $CHAIN_ID --keyring-backend test \
+            --fees 5000000${BOND_DENOM} --output json 2>/dev/null)
+        BAD_TX_HASH=$(echo "$BAD_SUBMIT" | jq -r '.txhash // empty')
+        sleep 3
+        BAD_PROPOSAL_ID=$(get_group_proposal_id "$BAD_TX_HASH")
+
+        if [ -z "$BAD_PROPOSAL_ID" ] || [ "$BAD_PROPOSAL_ID" == "null" ]; then
+            # Rejected at submission is also a pass: the message never landed.
+            echo "    [ OK ] Rejected at proposal submission"
+            continue
+        fi
+
+        if vote_and_execute "$BAD_PROPOSAL_ID" > /dev/null 2>&1; then
+            echo "    [FAIL] Proposal executed with cap $BAD_CAP"
+            REJECT_OK=false
+        else
+            echo "    [ OK ] Proposal did not execute"
+        fi
+    done
+
+    CAP_AFTER=$($BINARY query rep params --output json | jq -r '.params.max_conviction_share_per_member')
+    echo "  Cap after:  $CAP_AFTER"
+    if [ "$CAP_AFTER" != "$CAP_BEFORE" ]; then
+        echo "  [FAIL] Cap changed despite rejected proposals"
+        REJECT_OK=false
+    fi
+
+    if [ "$REJECT_OK" == true ]; then
+        REJECT_BAD_CAP_RESULT="PASS"
+        echo "  PASS: Out-of-band conviction share caps rejected, cap unchanged"
+    else
+        echo "  FAIL: An out-of-band conviction share cap was accepted"
+    fi
+else
+    echo "  SKIP: Update failed, no converted op params to reuse"
+fi
+echo ""
+
 # --- 4. VERIFY GOVERNANCE-ONLY FIELDS UNCHANGED ---
 echo "--- TEST 4: VERIFY GOVERNANCE-ONLY FIELDS UNCHANGED ---"
 
@@ -705,7 +786,7 @@ TOTAL_COUNT=0
 PASS_COUNT=0
 FAIL_COUNT=0
 
-for RESULT in "$QUERY_PARAMS_RESULT" "$UPDATE_PARAMS_RESULT" "$VERIFY_OPERATIONAL_RESULT" "$VERIFY_GOVERNANCE_RESULT" "$VERIFY_REVIEWER_CONFIG_RESULT" "$RESET_PARAMS_RESULT"; do
+for RESULT in "$QUERY_PARAMS_RESULT" "$UPDATE_PARAMS_RESULT" "$VERIFY_OPERATIONAL_RESULT" "$REJECT_BAD_CAP_RESULT" "$VERIFY_GOVERNANCE_RESULT" "$VERIFY_REVIEWER_CONFIG_RESULT" "$RESET_PARAMS_RESULT"; do
     TOTAL_COUNT=$((TOTAL_COUNT + 1))
     if [ "$RESULT" == "PASS" ]; then
         PASS_COUNT=$((PASS_COUNT + 1))
@@ -717,6 +798,7 @@ done
 echo "  1. Query Initial Params:          $QUERY_PARAMS_RESULT"
 echo "  2. Update Operational Params:      $UPDATE_PARAMS_RESULT"
 echo "  3. Verify Operational Updated:     $VERIFY_OPERATIONAL_RESULT"
+echo "  3b. Reject Out-Of-Band Cap:        $REJECT_BAD_CAP_RESULT"
 echo "  4. Verify Governance Unchanged:    $VERIFY_GOVERNANCE_RESULT"
 echo "  4b. Verify Reviewer Config Sync:   $VERIFY_REVIEWER_CONFIG_RESULT"
 echo "  5. Reset Params to Original:       $RESET_PARAMS_RESULT"

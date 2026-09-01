@@ -348,11 +348,20 @@ The check sits in the message server, after the membership check and before the 
 
 An initiative counts as **self-assigned** when the assignee authored the initiative **or** created the parent project (`IsSelfAssigned`). Testing only the latter left the safeguards trivially avoidable: `CreateInitiative` does not require the author to own the project it sits under, and `MsgAssignInitiative` authorises every self-assignment, so creating an initiative under somebody else's active project and taking it yourself cleared all four at once.
 
-- **Raised external conviction**: for self-assigned work the external-conviction requirement rises from `external_conviction_ratio` (default 50%) to `self_assigned_external_conviction_ratio` (default 75%) of `required_conviction` — the community must supply the large majority of the vouching. Because `max_conviction_share_per_member` (default 33%) caps what any one member can contribute, this ratio is also a floor on the number of *independent* stakers who must show up: `ceil(0.75 / 0.33) = 3`, against `ceil(0.50 / 0.33) = 2` for externally assigned work.
+- **Raised external conviction**: for self-assigned work the external-conviction requirement rises from `external_conviction_ratio` (default 50%) to `self_assigned_external_conviction_ratio` (default 75%) of `required_conviction` — the community must supply the large majority of the vouching. Because `max_conviction_share_per_member` (default 35%) caps what any one member can contribute, this ratio is also a floor on the number of *independent* stakers who must show up: `ceil(0.75 / 0.35) = 3`, against `ceil(0.50 / 0.35) = 2` for externally assigned work.
 
-  Read the ratio as choosing a staker count, not a magnitude. Every value in `(0.66, 0.99]` yields the same floor of 3, so the choice within that band is only about how much headroom those three get: at 0.75 they clear the gate averaging 0.25 apiece, where 0.90 would need 0.30 of a 0.33 cap and 1.00 is unreachable by three at any stake size (`3 x 0.33 = 0.99`). The floor was 4 at 100%, which put the gate out of reach on a chain with few enough members rather than merely making it demanding.
+  Read the ratio as choosing a staker count, not a magnitude. Every value in `(0.70, 1.05]` yields the same floor of 3, so the choice within that band is only about how much headroom those three get: at 0.75 they clear the gate averaging 0.25 apiece, where 1.00 would need 0.34 of a 0.35 cap.
 
-  The coupling cuts both ways and is worth stating: the floor is `ceil(ratio / max_conviction_share_per_member)`, and that cap is an operational parameter. Raising it above 0.375 would silently drop this floor to 2. Either parameter should be changed with the other in view.
+  **This ratio is not the only conviction gate, and it is not always the binding one.** `CanCompleteInitiative` also requires `current_conviction >= required_conviction`, and that total gate counts affiliated stake too — the assignee, the project creator, and everyone one invitation hop from them add to `current_conviction` but not to `external_conviction`, and nothing prevents them staking (the self-stake guard in `CreateStake` covers member targets only). So:
+
+  - the ratio sets the floor on *external* stakers, `ceil(ratio / cap)`;
+  - the total gate additionally requires those same members to reach `1.00` whenever no affiliate stakes alongside them, i.e. `ceil(1.00 / cap)`.
+
+  The second floor is the one that bites on a small chain, and missing it is what made the earlier tuning ineffective: at a 0.33 cap, three unaided external stakers cleared the 0.75 ratio and then stalled at 0.99 of required, so lowering the ratio from 1.00 to 0.75 relaxed only the gate that was not binding for them. Raising the cap from 0.33 to 0.35 is what actually made three unaided stakers sufficient (`3 x 0.35 = 1.05`).
+
+  Conviction propagated from linked content is added to both totals *uncapped*, so these are floors on direct stakers; propagation can supply part of a threshold without them.
+
+  The coupling cuts both ways, and only one half of it is operationally tunable — the Operations Committee owns the cap, governance owns the ratios. `Params.Validate` therefore enforces the band directly, on both the governance and the operational-merge paths: the cap must be at least `1/3` (below that, three fully committed stakers cannot complete anything), and when governance asks for a stricter self-assigned ratio the cap must not let the same number of members clear both gates — which at a 0.75 ratio means staying under `0.375`. `TestSelfAssignedGatesImplyThreeIndependentStakers` pins the defaults against the same band.
 - **Extended challenge window**: `TransitionToChallengePeriod` multiplies the challenge duration by `self_assigned_challenge_multiplier` (default 2).
 - **Approval exclusion**: neither the assignee nor the project creator may sign `MsgApproveInitiative` for the initiative, regardless of stake or Operations Committee membership (`ErrConflictOfInterest`, code 1404).
 - **DREAM bond**: at assignment a fraction of the initiative budget is locked from the assignee via `LockDREAM` and recorded in `initiative.self_assign_bond`. The bond is returned on completion, voluntary abandonment, or staker disapproval, and **burned** when a challenge is upheld. The rate depends on where the DREAM comes from:
@@ -3858,6 +3867,11 @@ var DefaultParams = Params{
     ConvictionHalfLifeEpochs: 7,                                 // 7 days half-life
     ExternalConvictionRatio:  math.LegacyNewDecWithPrec(50, 2),  // 50%
     ConvictionPerDream:       math.LegacyNewDecWithPrec(20, 2),  // 0.20
+    // Per-member cap on conviction, as a share of required_conviction. Sets
+    // the staker floors together with the two ratios above: three members at
+    // the cap cover a whole threshold, two do not. Validate holds it in
+    // [1/3, 0.375) -- see the self-assignment safeguards section.
+    MaxConvictionSharePerMember: math.LegacyNewDecWithPrec(35, 2), // 35%
 
     // Review periods
     DefaultReviewPeriodEpochs:    7,  // ~1 week
@@ -4002,6 +4016,14 @@ The `RepOperationalParams` message mirrors most `Params` fields except governanc
 
 **Operational fields** (council-tunable, included in RepOperationalParams):
 - `ProjectCreationFee`, `InitiativeCreationFeeApprentice`, `InitiativeCreationFeeStandard` (fee amounts are tuning knobs)
+
+**Cross-field constraint.** `MaxConvictionSharePerMember` is operational, but the
+staker floors it sets are shared with `SelfAssignedExternalConvictionRatio` and
+`ExternalConvictionRatio`, which are governance-only. `Params.Validate` therefore
+holds the cap inside `[1/3, 0.375)`, so a council update cannot retune a floor
+governance owns. The lower edge needs no governance field and is checked in
+`RepOperationalParams.Validate` as well, failing before the merge with an error
+naming the field the committee actually set.
 
 ## Error Codes
 

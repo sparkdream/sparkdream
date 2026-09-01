@@ -728,14 +728,14 @@ These parameters are excluded from `RepOperationalParams` and can only be change
 | `conviction_per_dream` | LegacyDec | 0.2 | Sqrt scaling factor |
 | `conviction_half_life_epochs` | uint64 | 7 | Exponential decay rate |
 | `external_conviction_ratio` | LegacyDec | 50% | Required from non-affiliated stakers |
-| `max_conviction_share_per_member` | LegacyDec | 33% | Prevents single-member dominance |
+| `max_conviction_share_per_member` | LegacyDec | 35% | Prevents single-member dominance. Also sets the staker floors: three members at the cap cover a full threshold (3 x 0.35 = 1.05), two do not. `Validate` holds it in [1/3, 0.375) |
 
 #### Self-Assignment Safeguards (creator-assigned initiatives)
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `self_assigned_bond_rate` | LegacyDec | 10% | Of budget, locked as DREAM bond on budget-backed projects; burned on upheld challenge |
-| `self_assigned_external_conviction_ratio` | LegacyDec | 75% | Replaces `external_conviction_ratio` when assignee == project creator. Divided by `max_conviction_share_per_member`, it is also the floor on independent stakers: 3 |
+| `self_assigned_external_conviction_ratio` | LegacyDec | 75% | Replaces `external_conviction_ratio` when assignee == project creator. Divided by `max_conviction_share_per_member`, it is also the floor on independent *external* stakers: 3 |
 | `self_assigned_challenge_multiplier` | int64 | 2 | Challenge-window multiplier for creator-assigned initiatives |
 
 #### Challenges

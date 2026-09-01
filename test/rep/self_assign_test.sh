@@ -101,10 +101,11 @@ echo ""
 echo "--- PART 1: CREATOR SELF-ASSIGN + BOND LOCK ---"
 
 # Note: small budget (1 DREAM) keeps required conviction low enough that
-# external stakers can reach the FULL external threshold within the Part 3
-# poll window: required = conviction_per_dream * sqrt(budget) = 200, and
-# per-staker conviction is capped at 33% of required (66), so 4 external
-# stakers suffice, each reaching the cap in ~35s with a 150 DREAM stake.
+# external stakers can reach the raised self-assigned threshold within the
+# Part 3 poll window: required = conviction_per_dream * sqrt(budget) = 200, and
+# per-staker conviction is capped at 35% of required (70), so 3 external
+# stakers suffice (210 > 200 total, 210 > 150 external), each reaching the cap
+# in ~35s with a 150 DREAM stake. A fourth is staked for headroom.
 # Also stays under the APPRENTICE tier cap.
 SELF_BUDGET="1000000"
 SELF_INIT_ID=$(create_initiative "Self-assigned doc fix" "$SELF_BUDGET")
@@ -221,12 +222,13 @@ fi
 echo ""
 echo "--- PART 3: EXTENDED CHALLENGE WINDOW FOR SELF-ASSIGNED WORK ---"
 echo "Staking as external members to push conviction over the threshold..."
-echo "Note: self-assigned initiatives need FULL external conviction ($SELF_EXT_RATIO)"
+echo "Note: self-assigned initiatives need a raised external conviction ratio ($SELF_EXT_RATIO)"
 
-# Per-staker conviction is capped at max_conviction_share_per_member (33%
-# of required), so at least four distinct non-affiliated members must reach
-# the cap for 100% external; individual failures are tolerated as long as
-# four land.
+# Per-staker conviction is capped at max_conviction_share_per_member (35%
+# of required), so three distinct non-affiliated members at the cap clear both
+# gates: 3 x 0.35 = 1.05 of required for the total-conviction gate, and the
+# same 1.05 against the 0.75 self-assigned external floor. A fourth is staked
+# for headroom, so individual failures are tolerated as long as three land.
 #
 # The stakers must be the community accounts, not alice's invitees. "External"
 # excludes affiliates and anyone one invitation hop from them in either
@@ -266,7 +268,7 @@ for STAKER in community1 community2 community3 community4; do
     fi
 done
 rm -f "$STAKE_ERR_FILE"
-echo "Stakes landed: $STAKES_LANDED (need 4 to cross the full-external threshold)"
+echo "Stakes landed: $STAKES_LANDED (need 3 to cross the self-assigned external threshold)"
 
 # Conviction grows with time; poll for the IN_REVIEW transition instead of
 # sleeping a fixed wall-clock amount (block rate drifts on long runs).
