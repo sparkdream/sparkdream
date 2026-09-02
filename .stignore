@@ -1,0 +1,28 @@
+// Syncthing ignore patterns for sparkdream (Go chain)
+// Keep identical on every peer. Verified: none of these hold tracked files.
+
+// Compiled output: build/sparkdreamd is a 232 MB binary, rebuild with make
+node_modules
+/build
+/vendor
+
+// Vendored third-party explorer clone, 768 MB. Re-clone it, don't sync it.
+/explorer
+
+// e2e test-run artifacts, 473 MB
+/e2e
+
+// Local simulation output
+/sim
+
+// Archives and backups, ~640 MB of test*.tgz and .tar.gz
+*.tgz
+*.tar.gz
+*.zip
+
+// Logs, Go test binaries, noise
+*.log
+*.test
+.DS_Store
+Thumbs.db
+*.swp
