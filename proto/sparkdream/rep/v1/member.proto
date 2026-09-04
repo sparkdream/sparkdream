@@ -87,6 +87,31 @@ message Member {
   // ladder. Keeps the historical signal visible on profiles without
   // letting forum participation gate higher tiers across seasons.
   map<string, string> lifetime_forum_rep_per_tag = 32;
+
+  // Block height at which the member joined. This is the height-domain
+  // twin of joined_at (a unix timestamp): the new-member decay grace
+  // window is denominated in epochs — height / epoch_blocks — so it must
+  // be measured against a height, not a timestamp. Dividing the unix
+  // timestamp by epoch_blocks produced an astronomically large "join
+  // epoch", a deeply negative member age, and a grace window that never
+  // expired for invited members (genesis-seeded members with joined_at=0
+  // were unaffected). Members restored from genesis written before this
+  // field carry 0, which reads as "joined at genesis" — they exit grace
+  // after NewMemberDecayGraceEpochs epochs, the same behaviour
+  // genesis-seeded members have always had.
+  int64 joined_at_height = 33;
+
+  // Aggregate DREAM this member currently holds in content-conviction stakes
+  // across ALL content items (blog, forum, collection). Backs the per-member
+  // max_total_content_stake_per_member cap: the per-item cap only sets the
+  // granularity of parking DREAM here, so the aggregate is what bounds the
+  // total. (Content stakes earn no DREAM but do decay.) Maintained
+  // by updateStakePoolTotals — the single choke point for stake-amount
+  // mutations — and recomputed by ReconcileStakePoolTotals on genesis import.
+  // Author bonds are not counted here; they are slashable escrow with their
+  // own per-item cap. Nil on records written before this field existed;
+  // readers must treat nil as zero.
+  string content_staked_dream = 34 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
 }
 
 enum TrustLevel {

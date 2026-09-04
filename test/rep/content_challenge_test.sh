@@ -488,6 +488,41 @@ fi
 # ========================================================================
 echo "--- TEST 8: Fail — duplicate challenge on same content ---"
 
+# The one-challenge-per-target slot is held only while a challenge is LIVE
+# (ACTIVE or IN_JURY_REVIEW). Challenge #1 was routed to a jury by TEST 2b, and
+# on this chain a jury review expires in default_review_period_epochs *
+# epoch_blocks = ~10 blocks, so by now the EndBlocker's content-jury timeout
+# sweep has resolved it inconclusive and released the slot. That sweep is the
+# fix for a permanent deadlock (a jury that never voted used to lock the
+# challenger's stake, the author's bond and this slot forever), so the slot NOT
+# being held indefinitely is correct behaviour — the duplicate guard has to be
+# tested against a challenge that is still live.
+CURRENT_CC_STATUS=$($BINARY query rep get-content-challenge "$CONTENT_CHALLENGE_ID" --output json 2>/dev/null \
+    | jq -r '.content_challenge.status // ""')
+echo "  Challenge #$CONTENT_CHALLENGE_ID status now: ${CURRENT_CC_STATUS:-unknown}"
+
+DUP_TARGET_ID="$BONDED_POST_ID"
+if [ "$CURRENT_CC_STATUS" != "CONTENT_CHALLENGE_STATUS_ACTIVE" ] \
+   && [ "$CURRENT_CC_STATUS" != "CONTENT_CHALLENGE_STATUS_IN_JURY_REVIEW" ]; then
+    echo "  Original challenge is no longer live; opening a fresh one to hold the slot..."
+    TX_RES=$($BINARY tx rep challenge-content \
+        7 \
+        $DUP_TARGET_ID \
+        "Fresh challenge to hold the target slot" \
+        "$MIN_CHALLENGE_STAKE" \
+        --from challenger \
+        --chain-id $CHAIN_ID \
+        --keyring-backend test \
+        --fees 50000${BOND_DENOM} \
+        -y \
+        --output json 2>&1)
+    if submit_tx_and_wait "$TX_RES" && check_tx_success "$TX_RESULT"; then
+        echo "  Fresh challenge created; the slot is held again"
+    else
+        echo "  [WARN] Could not open a fresh challenge: $(echo "$TX_RESULT" | jq -r '.raw_log // empty' | head -c 160)"
+    fi
+fi
+
 if [ -n "$BONDED_POST_ID" ] && [ -n "$CONTENT_CHALLENGE_ID" ]; then
     TX_RES=$($BINARY tx rep challenge-content \
         7 \

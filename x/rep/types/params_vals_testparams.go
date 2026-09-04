@@ -84,3 +84,13 @@ func getMaxVerifierDreamMintPerEpoch() math.Int {
 func getInvitationCostMultiplier() math.LegacyDec {
 	return math.LegacyOneDec()
 }
+
+// getMaxInterimRewardsPerSeason is the per-season interim emission ceiling.
+// Testparams raises it far above the production 50,000 DREAM because the E2E
+// setup alone bootstraps reputation with 24 EPIC interims (1,000 DREAM each
+// plus the 50% solo-expert bonus = ~36,000 DREAM) before a single test runs,
+// and several suites create more. The cap's behaviour is covered directly by
+// TestInterim_SeasonCapBoundsTotalEmission rather than by starving the suites.
+func getMaxInterimRewardsPerSeason() math.Int {
+	return math.NewInt(100_000_000_000_000) // 100,000,000 DREAM — effectively unbounded for tests
+}

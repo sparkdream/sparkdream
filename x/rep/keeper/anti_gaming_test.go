@@ -197,13 +197,13 @@ func TestPerMemberConvictionCap(t *testing.T) {
 	_, initiativeID := SetupProjectWithInitiative(t, &k, sdkCtx, TestAddrCreator)
 
 	// Whale stakes a massive amount
-	whaleAmount := math.NewInt(50000)
+	whaleAmount := math.NewInt(500000)
 	_, err := k.CreateStake(sdkCtx, TestAddrStaker,
 		types.StakeTargetType_STAKE_TARGET_INITIATIVE, initiativeID, "", whaleAmount)
 	require.NoError(t, err)
 
 	// Normal member stakes modest amount
-	normalAmount := math.NewInt(500)
+	normalAmount := math.NewInt(5000)
 	_, err = k.CreateStake(sdkCtx, TestAddrMember1,
 		types.StakeTargetType_STAKE_TARGET_INITIATIVE, initiativeID, "", normalAmount)
 	require.NoError(t, err)
@@ -541,14 +541,14 @@ func TestStakeSplittingGivesNoAdvantage(t *testing.T) {
 	_, initiativeID1 := SetupProjectWithInitiative(t, &k, sdkCtx, TestAddrCreator)
 	_, initiativeID2 := SetupProjectWithInitiative(t, &k, sdkCtx, TestAddrCreator)
 
-	totalAmount := int64(10000)
+	totalAmount := int64(20000)
 
-	// Staker: one big stake of 10000
+	// Staker: one big stake of 20000
 	_, err := k.CreateStake(sdkCtx, TestAddrStaker,
 		types.StakeTargetType_STAKE_TARGET_INITIATIVE, initiativeID1, "", math.NewInt(totalAmount))
 	require.NoError(t, err)
 
-	// Member1: 10 stakes of 1000 each (same total)
+	// Member1: 10 stakes of 2000 each (same total)
 	for i := 0; i < 10; i++ {
 		_, err := k.CreateStake(sdkCtx, TestAddrMember1,
 			types.StakeTargetType_STAKE_TARGET_INITIATIVE, initiativeID2, "", math.NewInt(totalAmount/10))
@@ -708,13 +708,13 @@ func TestCircularMemberStakePrevented(t *testing.T) {
 	// A stakes on B — should succeed
 	_, err := k.CreateStake(sdkCtx, TestAddrStaker,
 		types.StakeTargetType_STAKE_TARGET_MEMBER, 0, TestAddrMember1.String(),
-		math.NewInt(100))
+		math.NewInt(2000))
 	require.NoError(t, err)
 
 	// B stakes on A — should fail (circular)
 	_, err = k.CreateStake(sdkCtx, TestAddrMember1,
 		types.StakeTargetType_STAKE_TARGET_MEMBER, 0, TestAddrStaker.String(),
-		math.NewInt(100))
+		math.NewInt(2000))
 	require.Error(t, err)
 	require.ErrorIs(t, err, types.ErrCircularMemberStake)
 }
@@ -732,13 +732,13 @@ func TestNonCircularMemberStakeAllowed(t *testing.T) {
 	// A stakes on B — OK
 	_, err := k.CreateStake(sdkCtx, TestAddrStaker,
 		types.StakeTargetType_STAKE_TARGET_MEMBER, 0, TestAddrMember1.String(),
-		math.NewInt(100))
+		math.NewInt(2000))
 	require.NoError(t, err)
 
 	// C stakes on A — OK (no circular dependency)
 	_, err = k.CreateStake(sdkCtx, TestAddrMember2,
 		types.StakeTargetType_STAKE_TARGET_MEMBER, 0, TestAddrStaker.String(),
-		math.NewInt(100))
+		math.NewInt(2000))
 	require.NoError(t, err)
 }
 

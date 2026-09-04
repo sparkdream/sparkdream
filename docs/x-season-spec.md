@@ -469,7 +469,7 @@ message RetroRewardRecord {
 ```protobuf
 message Params {
   // Epoch configuration (immutable after genesis in practice)
-  int64 epoch_blocks = 1;             // Blocks per epoch (default 17280 = ~1 day at 5s blocks)
+  int64 epoch_blocks = 1;             // Blocks per epoch (default 14400 = ~1 day at 6s blocks; must equal x/rep epoch_blocks)
 
   // Season timing
   int64 season_duration_epochs = 2;
@@ -583,7 +583,7 @@ All duration parameters use **epochs** (not blocks). An epoch is a fixed number 
 
 ```go
 // EpochBlocks is stored in params, not as a constant
-// Default: 17280 blocks (~1 day assuming 5-second blocks)
+// Default: 14400 blocks (~1 day at 6s blocks; must equal x/rep epoch_blocks — the seasonal pool drains on x/rep's clock and refills on this one)
 // Testnet: 720 blocks (~1 hour for faster testing)
 
 func (k Keeper) GetCurrentEpoch(ctx sdk.Context) int64 {

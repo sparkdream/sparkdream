@@ -7,6 +7,8 @@ import (
 
 	"sparkdream/x/rep/types"
 
+	errorsmod "cosmossdk.io/errors"
+
 	"cosmossdk.io/collections"
 	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -285,6 +287,13 @@ func (k Keeper) ApproveInterim(
 			}
 			treasuryFirst := params.TreasuryFundsInterims
 
+			// Same season cap as the direct-completion path; committee approval
+			// authorizes the work, it does not exempt it from the ceiling.
+			if err := k.chargeInterimRewardCap(ctx, params,
+				paymentPerAssignee.MulRaw(int64(len(interim.Assignees)))); err != nil {
+				return err
+			}
+
 			for _, assigneeStr := range interim.Assignees {
 				assigneeAddr, err := sdk.AccAddressFromBech32(assigneeStr)
 				if err != nil {
@@ -338,7 +347,51 @@ func (k Keeper) ApproveInterim(
 	return nil
 }
 
-// CompleteInterimDirectly completes an interim without approval (for automatic completions)
+// chargeInterimRewardCap projects an interim's total payout against
+// max_interim_rewards_per_season and books it if it fits.
+//
+// Both interim payout paths go through here. The cap exists because the interim
+// path is the one DREAM-creating flow with no natural bound: an interim is
+// self-assigned by its creator and self-completed by its assignee, so
+// max_active_interims_per_member only limits how many are open at once, not how
+// many a member can complete and re-create in a season. Before this, the only
+// ceiling was max_dream_mint_per_epoch — 250,000 DREAM/day against a genesis
+// supply of 25,000.
+//
+// Checked before any minting, like CompleteInitiative's season-cap gate, so the
+// cap can refuse a payout but never be overrun by one.
+func (k Keeper) chargeInterimRewardCap(ctx context.Context, params types.Params, total math.Int) error {
+	if total.IsNil() || !total.IsPositive() {
+		return nil
+	}
+	cap := params.MaxInterimRewardsPerSeason
+	if cap.IsNil() || !cap.IsPositive() {
+		// An unset or zero cap closes the path rather than uncapping it: a
+		// param that has never been written is not a decision to mint freely.
+		return errorsmod.Wrapf(types.ErrInterimRewardCapReached,
+			"max_interim_rewards_per_season is unset or zero")
+	}
+	minted, err := k.GetSeasonInterimRewardsMinted(ctx)
+	if err != nil {
+		return err
+	}
+	if minted.Add(total).GT(cap) {
+		return errorsmod.Wrapf(types.ErrInterimRewardCapReached,
+			"paying %s would exceed the season cap of %s (already minted %s)",
+			total, cap, minted)
+	}
+	return k.TrackInterimRewardMint(ctx, total)
+}
+
+// CompleteInterimDirectly completes an interim without committee approval.
+//
+// It pays every assignee and is reached from MsgCompleteInterim, where the
+// signer is an assignee — i.e. the payee certifies their own payment. That is
+// deliberate for the self-service interim types, but it makes the finalized
+// guard below load-bearing rather than cosmetic: without it the function paid
+// out on every call, so an assignee could re-send MsgCompleteInterim against
+// an already-COMPLETED interim and mint the budget again, indefinitely.
+// ApproveInterim has always had this guard; this path did not.
 func (k Keeper) CompleteInterimDirectly(
 	ctx context.Context,
 	interimID uint64,
@@ -347,6 +400,14 @@ func (k Keeper) CompleteInterimDirectly(
 	interim, err := k.GetInterim(ctx, interimID)
 	if err != nil {
 		return err
+	}
+
+	// Only live work can be completed. Mirrors ApproveInterim's check so the
+	// two payout paths cannot disagree about what "already finalized" means.
+	if interim.Status != types.InterimStatus_INTERIM_STATUS_IN_PROGRESS &&
+		interim.Status != types.InterimStatus_INTERIM_STATUS_PENDING {
+		return errorsmod.Wrapf(types.ErrInvalidInterimStatus,
+			"interim %d already finalized: status %s", interimID, interim.Status)
 	}
 
 	// Distribute payment equally among assignees
@@ -361,6 +422,12 @@ func (k Keeper) CompleteInterimDirectly(
 			return fmt.Errorf("failed to get params: %w", err)
 		}
 		treasuryFirst := params.TreasuryFundsInterims
+
+		// Book the whole payout against the season cap before paying any of it.
+		if err := k.chargeInterimRewardCap(ctx, params,
+			paymentPerAssignee.MulRaw(int64(len(interim.Assignees)))); err != nil {
+			return err
+		}
 
 		for _, assigneeStr := range interim.Assignees {
 			assigneeAddr, err := sdk.AccAddressFromBech32(assigneeStr)

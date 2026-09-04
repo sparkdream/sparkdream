@@ -40,6 +40,7 @@ var (
 	ErrInsufficientBudget       = errors.Register(ModuleName, 1303, "insufficient budget")
 	ErrUnauthorized             = errors.Register(ModuleName, 1304, "unauthorized: insufficient permissions")
 	ErrLargeProjectNeedsCouncil = errors.Register(ModuleName, 1305, "project budget exceeds threshold; requires council proposal approval")
+	ErrProjectTerminal          = errors.Register(ModuleName, 1306, "project is in a terminal state")
 
 	// Initiative errors
 	ErrInitiativeNotFound      = errors.Register(ModuleName, 1401, "initiative not found")
@@ -190,8 +191,12 @@ var (
 	// Staking reward accounting. Early claim/compound/unstake reuses the
 	// long-registered ErrMinStakeDuration (1503) rather than adding a second
 	// code for the same condition.
-	ErrCompoundNotSupported = errors.Register(ModuleName, 2106, "compounding is not supported for this stake target type; claim and re-stake instead")
-	ErrTooManyStakeTranches = errors.Register(ModuleName, 2107, "member has reached the max number of separate stakes on this target")
+	ErrCompoundNotSupported    = errors.Register(ModuleName, 2106, "compounding is not supported for this stake target type; claim and re-stake instead")
+	ErrTooManyStakeTranches    = errors.Register(ModuleName, 2107, "member has reached the max number of separate stakes on this target")
+	ErrStakeBelowMinimum       = errors.Register(ModuleName, 2108, "stake is below min_stake_amount")
+	ErrInitiativeTerminal      = errors.Register(ModuleName, 2109, "initiative is in a terminal status and can no longer accept stakes")
+	ErrInvalidInterimStatus    = errors.Register(ModuleName, 2110, "interim is not in a state that allows this action")
+	ErrInterimRewardCapReached = errors.Register(ModuleName, 2111, "interim rewards would exceed the per-season cap")
 
 	// Keeper-internal validation
 	ErrEmptyWarningReason = errors.Register(ModuleName, 2201, "warning reason is required")

@@ -126,7 +126,7 @@ genesis:
         total_extension_epochs: 0
         original_end_block: 9001
       params:
-        epoch_blocks: "300"              # ~30 minutes at 6s blocks (DEVNET; production: 17280 ~1 day)
+        epoch_blocks: "300"              # ~30 minutes at 6s blocks (DEVNET; production: 14400 ~1 day, must match rep)
         season_duration_epochs: "30"     # 30 epochs = ~15 hours (DEVNET; production: 150 ~5 months)
         transition_batch_size: "50"      # 50 members per block per phase (DEVNET; production: 100)
         transition_grace_period: "600"   # ~1 hour in blocks (DEVNET; production: 50400 ~1 week)
@@ -209,6 +209,13 @@ genesis:
         invitation_accountability_epochs: "30"     # 1 season (DEVNET; production: 150)
         # Interim compensation - DEVNET: ~3 hours deadline
         interim_deadline_epochs: "6"               # ~3 hours (DEVNET; production: 7 ~1 week)
+        # Staking - DEVNET: the claim gate must fit inside a season.
+        # A devnet season is 30 epochs * 300 blocks * 6s = 54,000s (15h), so the
+        # production 86,400s (24h) gate can never be satisfied within one: every
+        # stake would forfeit its accrued rewards on unstake and no claim would
+        # ever be eligible. One devnet epoch keeps the gate meaningful and
+        # reachable. TestRepMinStakeDurationFitsSeason enforces the relation.
+        min_stake_duration_seconds: "1800"         # 1 epoch / 30 min (DEVNET; production: 86400 ~24h)
         # Interim budgets - same as production (in micro-DREAM)
         simple_complexity_budget: "50000000"        # 50 DREAM
         standard_complexity_budget: "150000000"     # 150 DREAM
@@ -226,7 +233,6 @@ genesis:
         # Anti-whale staking cap
         max_initiative_stake_per_member: "50000000000"  # 50,000 DREAM (same as production)
         # Anti-collusion caps
-        max_initiative_rewards_per_season: "100000000000000"  # 100,000 DREAM
         large_project_budget_threshold: "10000000000"  # 10,000 DREAM
         # Trust level configuration - uses devnet build tag values
       member_map:

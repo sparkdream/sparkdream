@@ -81,13 +81,14 @@ func (k Keeper) ApplyDecay(ctx context.Context) error {
 	})
 }
 
-// MaybeApplyBulkDecay applies decay to every member exactly once per epoch.
-// It runs at the top of EndBlocker so all subsequent reads within the epoch
-// (whether via lazy ApplyPendingDecay on write paths or via gRPC queries on
-// a cache-wrapped context) observe the same post-decay balances — fixing the
-// lazy-decay view inconsistency (x-rep-security.md Point 6). Cost: O(members)
-// Power() calls once per epoch; for the 1000-member target this is cheap and
-// amortizes to ~0.07 Power() calls per block at 14400 blocks/epoch.
+// MaybeApplyBulkDecay applies decay exactly once per epoch: the unstaked decay
+// to every member, then the staked decay to every reward-bearing stake record
+// (decayStakes). It runs at the top of EndBlocker so all subsequent reads
+// within the epoch (whether via lazy ApplyPendingDecay on write paths or via
+// gRPC queries on a cache-wrapped context) observe the same post-decay state —
+// fixing the lazy-decay view inconsistency (x-rep-security.md Point 6). Cost:
+// O(members) + O(stakes) once per epoch; for the 1000-member target this is
+// cheap and amortizes across the epoch's blocks.
 func (k Keeper) MaybeApplyBulkDecay(ctx context.Context) error {
 	currentEpoch, err := k.GetCurrentEpoch(ctx)
 	if err != nil {
@@ -106,6 +107,9 @@ func (k Keeper) MaybeApplyBulkDecay(ctx context.Context) error {
 	}
 
 	if err := k.ApplyDecay(ctx); err != nil {
+		return err
+	}
+	if err := k.decayStakes(ctx); err != nil {
 		return err
 	}
 	return k.DecayLastProcessedEpoch.Set(ctx, uint64(currentEpoch))

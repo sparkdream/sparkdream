@@ -22,9 +22,22 @@ func SimulateMsgStake(
 ) simtypes.Operation {
 	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
 	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		// Get or create a member with DREAM to stake
-		minStake := math.NewInt(50)
-		staker, stakerAcc, err := getOrCreateMemberWithDream(r, ctx, k, accs, minStake)
+		// The stake floor is a param (min_stake_amount), not a constant: a
+		// hardcoded floor below it makes every op this function sends fail
+		// delivery with ErrStakeBelowMinimum, which fails the whole simulation.
+		params, err := k.Params.Get(ctx)
+		if err != nil {
+			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgStake{}), "failed to load params"), nil, nil
+		}
+		minStake := params.MinStakeAmount
+		if minStake.IsNil() || !minStake.IsPositive() {
+			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgStake{}), "min_stake_amount is unset"), nil, nil
+		}
+
+		// Get or create a member with DREAM to stake. Ask for headroom above
+		// the floor so the random amount below has a range to draw from
+		// instead of pinning to the minimum every time.
+		staker, stakerAcc, err := getOrCreateMemberWithDream(r, ctx, k, accs, minStake.MulRaw(4))
 		if err != nil {
 			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgStake{}), "failed to get/create member with DREAM"), nil, nil
 		}
@@ -44,10 +57,6 @@ func SimulateMsgStake(
 		// simulation runs many ops against a small account set, so the same
 		// member repeatedly drawing the same random initiative is normal — and
 		// both of these would fail delivery, which fails the whole simulation.
-		params, err := k.Params.Get(ctx)
-		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgStake{}), "failed to load params"), nil, nil
-		}
 		existingStakes, err := k.GetStakesByTarget(ctx, targetType, targetID)
 		if err != nil {
 			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgStake{}), "failed to read existing stakes"), nil, nil
@@ -94,6 +103,13 @@ func SimulateMsgStake(
 			stakeAmount = math.NewInt(int64(r.Intn(int(rangeVal))) + minStake.Int64())
 		} else {
 			stakeAmount = minStake
+		}
+		// The floor is enforced by CreateStake; never send below it.
+		if stakeAmount.LT(minStake) {
+			stakeAmount = minStake
+		}
+		if stakeAmount.GT(availableBalance) {
+			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgStake{}), "floor exceeds available balance"), nil, nil
 		}
 
 		// Second half of the per-target precheck: the anti-whale cap is on the

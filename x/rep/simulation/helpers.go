@@ -740,9 +740,16 @@ func createStake(ctx sdk.Context, k keeper.Keeper, r *rand.Rand, staker *types.M
 		return 0, err
 	}
 
-	// Stake 10-50% of available DREAM
+	// Stake 10-50% of available DREAM. The floor tracks min_stake_amount so
+	// directly-written sim state matches what MsgStake would have accepted —
+	// sub-floor stake records would otherwise seed conviction and decay math
+	// with positions the chain itself rejects.
 	maxStake := staker.DreamBalance.QuoRaw(2)
 	minStake := math.NewInt(50)
+	if params, err := k.Params.Get(ctx); err == nil &&
+		!params.MinStakeAmount.IsNil() && params.MinStakeAmount.IsPositive() {
+		minStake = params.MinStakeAmount
+	}
 	if maxStake.LT(minStake) {
 		maxStake = minStake
 	}

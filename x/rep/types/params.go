@@ -28,8 +28,14 @@ func DefaultParams() Params {
 		SeasonDurationEpochs: 150,   // ~5 months (150 days)
 
 		// DREAM economics
-		UnstakedDecayRate:         math.LegacyNewDecWithPrec(2, 3), // 0.2% per epoch (~73% annualized)
-		StakedDecayRate:           math.LegacyNewDecWithPrec(5, 4), // 0.05% per epoch (~18% annualized)
+		UnstakedDecayRate: math.LegacyNewDecWithPrec(2, 3), // 0.2% per epoch (0.998^365 ≈ 0.482 — ~51.9%/yr compounded; the linear 0.002×365 = 73% overstates the loss)
+		// 0.025% per epoch (0.99975^365 ≈ 0.913 — ~8.7%/yr compounded). Halved
+		// together with StakingRewardYieldPerEpoch: the gradient that actually
+		// drives staking is yield - staked_decay + unstaked_decay, and
+		// unstaked_decay supplies 80% of it, so halving the staked pair moves
+		// the incentive from 0.25%/epoch to 0.225% — a 10% cut — while halving
+		// gross emission. A staked position still nets +0.025%/epoch.
+		StakedDecayRate:           math.LegacyNewDecWithPrec(25, 5),
 		NewMemberDecayGraceEpochs: 30,                              // ~1 month grace period (no decay)
 		TransferTaxRate:           math.LegacyNewDecWithPrec(3, 2), // 3%
 		MaxTipAmount:              math.NewInt(100000000),          // 100 DREAM (100 * 1e6 micro-DREAM)
@@ -38,12 +44,16 @@ func DefaultParams() Params {
 		GiftOnlyToInvitees:        true,
 
 		// Seasonal staking reward pool (replaces fixed StakingApy)
-		MaxStakingRewardsPerSeason: math.NewInt(25000000000000), // 25,000 DREAM per season
+		MaxStakingRewardsPerSeason: math.NewInt(25000000000),        // 25,000 DREAM per season (25,000 * 1e6 micro-DREAM)
+		StakingRewardYieldPerEpoch: math.LegacyNewDecWithPrec(5, 4), // 0.05% per epoch on the staked base
+		StakingPoolMintShare:       math.LegacyNewDecWithPrec(5, 2), // 5% of the previous season's non-staking mints
+		StakingPoolCapBase:         math.NewInt(25000000000),        // 25,000 DREAM — the genesis DREAM supply
+		StakingPoolCapRate:         math.LegacyNewDecWithPrec(5, 2), // 5% of the base per season elapsed
 
 		// Treasury management
-		MaxTreasuryBalance:    math.NewInt(100000000000000), // 100,000 DREAM — excess burned
-		TreasuryFundsInterims: true,                         // interims paid from treasury first
-		TreasuryFundsRetroPgf: true,                         // retro PGF paid from treasury first
+		MaxTreasuryBalance:    math.NewInt(100000000000), // 100,000 DREAM — excess burned
+		TreasuryFundsInterims: true,                      // interims paid from treasury first
+		TreasuryFundsRetroPgf: true,                      // retro PGF paid from treasury first
 
 		// Initiative rewards
 		CompleterShare:          math.LegacyNewDecWithPrec(90, 2), // 90%
@@ -77,11 +87,19 @@ func DefaultParams() Params {
 		},
 
 		// Conviction - PRODUCTION values
-		// FIXED: ConvictionPerDream with sqrt scaling on both sides
-		// Formula: required_conviction = ConvictionPerDream × sqrt(budget)
-		//          actual_conviction = sqrt(total_stakes × time × rep)
-		// This maintains constant ~4% stake-to-budget ratio across ALL budget sizes
-		// Example: 100 DREAM → need 4 DREAM, 10K DREAM → need 400 DREAM
+		// ConvictionPerDream with sqrt scaling on both sides:
+		//   required_conviction = ConvictionPerDream × sqrt(budget)
+		//   supplied_conviction = sum over stakers of sqrt(stake × time × rep)
+		//
+		// The stake-to-budget ratio is scale-invariant in the budget but NOT in
+		// the staker count. sqrt is applied per staker (aggregated across that
+		// staker's tranches, then capped at MaxConvictionSharePerMember), so N
+		// stakers clear the gate with ConvictionPerDream² × budget / N in
+		// total: 4% of budget at one staker, 1.33% at three, 0.4% at ten.
+		// Falling capital per participant is the intended quadratic-funding
+		// shape — it rewards breadth over capital — but it means the
+		// completion bonus cannot be priced off the budget alone. See
+		// MaxCompletionBonusStakeMultiple below.
 		ConvictionHalfLifeEpochs: 7,                                // 7 epochs = 7 days half-life
 		ExternalConvictionRatio:  math.LegacyNewDecWithPrec(50, 2), // 50%
 		ConvictionPerDream:       math.LegacyNewDecWithPrec(20, 2), // 0.2 (sqrt scaling)
@@ -147,8 +165,15 @@ func DefaultParams() Params {
 		// Content conviction staking
 		ContentConvictionHalfLifeEpochs: 14,                       // 14 epochs = ~2 weeks (slower than initiative conviction)
 		MaxContentStakePerMember:        math.NewInt(10000000000), // 10,000 DREAM per member per content item
-		MaxAuthorBondPerContent:         math.NewInt(1000000000),  // 1,000 DREAM max author bond per content item
-		AuthorBondSlashOnModeration:     true,                     // Slash author bonds when content is moderated
+		// Aggregate bound across every content item a member stakes on.
+		// The per-item cap only sets the granularity of parking DREAM in
+		// content stakes, not the total, so this is what actually bounds it.
+		// (Content stakes earn no DREAM but are charged StakedDecayRate like
+		// any other staked position — see decayStakes.) Default 2x the
+		// per-item cap; see params.proto field 142.
+		MaxTotalContentStakePerMember: math.NewInt(20000000000), // 20,000 DREAM across all content stakes
+		MaxAuthorBondPerContent:       math.NewInt(1000000000),  // 1,000 DREAM max author bond per content item
+		AuthorBondSlashOnModeration:   true,                     // Slash author bonds when content is moderated
 
 		// Content challenge reward share (fraction of slashed bond minted to challenger)
 		ContentChallengeRewardShare: math.LegacyNewDecWithPrec(50, 2), // 50%
@@ -178,8 +203,24 @@ func DefaultParams() Params {
 		// Anti-whale staking cap (prevents reward pool extraction via disproportionate initiative stakes)
 		MaxInitiativeStakePerMember: math.NewInt(50000000000), // 50,000 DREAM per member per initiative/project
 
+		// Anti-dust floor on a single stake, pinned to
+		// 1/StakingRewardYieldPerEpoch: the smallest stake whose own per-epoch
+		// accrual (amount * yield, truncated to an integer) reaches one
+		// micro-DREAM. Below it a record can never earn anything while still
+		// counting as a participant everywhere conviction is weighed. Move this
+		// with the yield — at 0.0005 the floor is 2,000. State hygiene, not an
+		// economic gate: what bounds the return on a small position is
+		// MaxCompletionBonusStakeMultiple.
+		MinStakeAmount: math.NewInt(2000), // 0.002 DREAM
+
 		// Anti-collusion: per-season cap on total DREAM minted via initiative completion
-		MaxInitiativeRewardsPerSeason: math.NewInt(100000000000000), // 100,000 DREAM per season
+		MaxInitiativeRewardsPerSeason: math.NewInt(100000000000), // 100,000 DREAM per season
+		// Same bound for interim work. Interims are self-assigned and
+		// self-completed, so max_active_interims_per_member does not bound the
+		// total — a member can complete and re-create indefinitely. Without a
+		// season cap this was the only DREAM-creating path limited solely by
+		// max_dream_mint_per_epoch.
+		MaxInterimRewardsPerSeason: getMaxInterimRewardsPerSeason(),
 
 		// Anti-collusion: projects above this budget require council proposal approval (not single committee member)
 		LargeProjectBudgetThreshold: math.NewInt(10000000000), // 10,000 DREAM (Epic tier max)
@@ -279,9 +320,16 @@ func DefaultParams() Params {
 		MaxActiveInterimsPerMember:    10,
 
 		// Global per-epoch DREAM minting ceiling (anti-inflation safety net).
-		// 10,000 DREAM per epoch; at 150 epochs/season this bounds total inflation
-		// to ~1.5M DREAM/season even under pathological rubber-stamping.
-		MaxDreamMintPerEpoch: math.NewInt(10000000000000),
+		// 250,000 DREAM per epoch. The ceiling has to clear the largest
+		// legitimate single-block mint: x/season pays out a whole season of
+		// retro PGF (retro_reward_budget_max, 75,000 DREAM) in the transition
+		// block through this same check, and a season's initiative rewards
+		// (max_initiative_rewards_per_season, 100,000 DREAM) can land in the
+		// same epoch. 250,000 clears both with headroom and still binds at ~10x
+		// the genesis DREAM supply. This is deliberately NOT the 10,000 DREAM
+		// the old comment claimed the value was — that ceiling would fail every
+		// retro PGF distribution. See "Micro-DREAM scaling" in docs/x-rep-spec.md.
+		MaxDreamMintPerEpoch: math.NewInt(250000000000),
 
 		// Proposal-time hard caps. ~100× the routing threshold (10K DREAM) and
 		// 100K SPARK — never bites a legitimate proposal but rejects nonsense
@@ -349,10 +397,20 @@ func DefaultParams() Params {
 		MinJurorSelectionWeight:       math.LegacyNewDecWithPrec(1, 1),  // 0.1
 		MinJurySeatingsForWeighting:   3,
 		InitiativeCompletionBonusRate: math.LegacyNewDecWithPrec(1, 1), // 10% of budget
-		MaxJuryRedraws:                1,
-		ReviewerBondReserveRate:       math.LegacyNewDecWithPrec(1, 1), // 10% of budget per verdict
-		ReviewFeeRate:                 math.LegacyNewDecWithPrec(5, 2), // 5% of budget to reviewers
-		MaxReviewRounds:               3,
+		// The bonus is also capped at a multiple of the external DREAM actually
+		// staked. Priced off the budget alone it pays 2.5*N times each staker's
+		// stake, because the capital that clears the conviction gate falls as
+		// 1/N in the staker count while the budget share does not.
+		//
+		// Raised to 3 as the seasonal yield was halved: emission moves from the
+		// flat rate every stake earns regardless of outcome to the one payout
+		// conditioned on work actually shipping, so backing something that
+		// completes beats parking by a visible margin.
+		MaxCompletionBonusStakeMultiple: math.LegacyNewDec(3),
+		MaxJuryRedraws:                  1,
+		ReviewerBondReserveRate:         math.LegacyNewDecWithPrec(1, 1), // 10% of budget per verdict
+		ReviewFeeRate:                   math.LegacyNewDecWithPrec(5, 2), // 5% of budget to reviewers
+		MaxReviewRounds:                 3,
 	}
 }
 
@@ -403,6 +461,22 @@ func (p Params) Validate() error {
 	}
 	if p.MaxStakingRewardsPerSeason.IsNegative() {
 		return fmt.Errorf("max staking rewards per season cannot be negative: %s", p.MaxStakingRewardsPerSeason)
+	}
+	// A zero yield stops staking rewards entirely, which is a legitimate
+	// setting; anything above 1 would pay more than the staked base per epoch.
+	if p.StakingRewardYieldPerEpoch.IsNil() || p.StakingRewardYieldPerEpoch.IsNegative() ||
+		p.StakingRewardYieldPerEpoch.GT(math.LegacyOneDec()) {
+		return fmt.Errorf("staking reward yield per epoch must be in [0,1]: %s", p.StakingRewardYieldPerEpoch)
+	}
+	if p.StakingPoolMintShare.IsNil() || p.StakingPoolMintShare.IsNegative() ||
+		p.StakingPoolMintShare.GT(math.LegacyOneDec()) {
+		return fmt.Errorf("staking pool mint share must be in [0,1]: %s", p.StakingPoolMintShare)
+	}
+	if p.StakingPoolCapBase.IsNil() || p.StakingPoolCapBase.IsNegative() {
+		return fmt.Errorf("staking pool cap base cannot be negative: %s", p.StakingPoolCapBase)
+	}
+	if p.StakingPoolCapRate.IsNil() || p.StakingPoolCapRate.IsNegative() {
+		return fmt.Errorf("staking pool cap rate cannot be negative: %s", p.StakingPoolCapRate)
 	}
 	if p.MaxTreasuryBalance.IsNegative() {
 		return fmt.Errorf("max treasury balance cannot be negative: %s", p.MaxTreasuryBalance)
@@ -657,6 +731,16 @@ func (p Params) Validate() error {
 	if !p.MaxContentStakePerMember.IsPositive() {
 		return fmt.Errorf("max content stake per member must be positive: %s", p.MaxContentStakePerMember)
 	}
+	// The aggregate content cap has to dominate the per-item cap, or the
+	// per-item figure is unreachable and the aggregate is the only binding
+	// limit — a configuration that reads as two knobs but behaves as one.
+	if p.MaxTotalContentStakePerMember.IsNil() || !p.MaxTotalContentStakePerMember.IsPositive() {
+		return fmt.Errorf("max total content stake per member must be positive: %s", p.MaxTotalContentStakePerMember)
+	}
+	if p.MaxTotalContentStakePerMember.LT(p.MaxContentStakePerMember) {
+		return fmt.Errorf("max total content stake per member %s cannot be lower than the per-item cap %s",
+			p.MaxTotalContentStakePerMember, p.MaxContentStakePerMember)
+	}
 	if !p.MaxAuthorBondPerContent.IsPositive() {
 		return fmt.Errorf("max author bond per content must be positive: %s", p.MaxAuthorBondPerContent)
 	}
@@ -738,6 +822,20 @@ func (p Params) Validate() error {
 	}
 
 	// Anti-whale staking cap
+	if p.MaxInterimRewardsPerSeason.IsNil() || p.MaxInterimRewardsPerSeason.IsNegative() {
+		return fmt.Errorf("max interim rewards per season cannot be negative: %s", p.MaxInterimRewardsPerSeason)
+	}
+	if p.MinStakeAmount.IsNil() || !p.MinStakeAmount.IsPositive() {
+		return fmt.Errorf("min stake amount must be positive: %s", p.MinStakeAmount)
+	}
+	if p.MinStakeAmount.GT(p.MaxInitiativeStakePerMember) {
+		return fmt.Errorf("min stake amount %s cannot exceed max initiative stake per member %s",
+			p.MinStakeAmount, p.MaxInitiativeStakePerMember)
+	}
+	if p.MaxCompletionBonusStakeMultiple.IsNil() || p.MaxCompletionBonusStakeMultiple.IsNegative() {
+		return fmt.Errorf("max completion bonus stake multiple cannot be negative: %s",
+			p.MaxCompletionBonusStakeMultiple)
+	}
 	if !p.MaxInitiativeStakePerMember.IsPositive() {
 		return fmt.Errorf("max initiative stake per member must be positive: %s", p.MaxInitiativeStakePerMember)
 	}
@@ -824,8 +922,8 @@ func DefaultRepOperationalParams() RepOperationalParams {
 		EpochBlocks:          14400,
 		SeasonDurationEpochs: 150,
 		// DREAM economics
-		UnstakedDecayRate:         math.LegacyNewDecWithPrec(2, 3), // 0.2%
-		StakedDecayRate:           math.LegacyNewDecWithPrec(5, 4), // 0.05%
+		UnstakedDecayRate:         math.LegacyNewDecWithPrec(2, 3),  // 0.2%
+		StakedDecayRate:           math.LegacyNewDecWithPrec(25, 5), // 0.025%
 		NewMemberDecayGraceEpochs: 30,
 		TransferTaxRate:           math.LegacyNewDecWithPrec(3, 2), // 3%
 		MaxTipAmount:              math.NewInt(100000000),          // 100 DREAM
@@ -833,9 +931,13 @@ func DefaultRepOperationalParams() RepOperationalParams {
 		MaxGiftAmount:             math.NewInt(500000000), // 500 DREAM
 		GiftOnlyToInvitees:        true,
 		// Seasonal staking reward pool
-		MaxStakingRewardsPerSeason: math.NewInt(25000000000000), // 25,000 DREAM
+		MaxStakingRewardsPerSeason: math.NewInt(25000000000), // 25,000 DREAM
+		StakingRewardYieldPerEpoch: math.LegacyNewDecWithPrec(5, 4),
+		StakingPoolMintShare:       math.LegacyNewDecWithPrec(5, 2),
+		StakingPoolCapBase:         math.NewInt(25000000000),
+		StakingPoolCapRate:         math.LegacyNewDecWithPrec(5, 2),
 		// Treasury management
-		MaxTreasuryBalance:    math.NewInt(100000000000000), // 100,000 DREAM
+		MaxTreasuryBalance:    math.NewInt(100000000000), // 100,000 DREAM
 		TreasuryFundsInterims: true,
 		TreasuryFundsRetroPgf: true,
 		// Reputation
@@ -879,6 +981,7 @@ func DefaultRepOperationalParams() RepOperationalParams {
 		// Content conviction staking
 		ContentConvictionHalfLifeEpochs: 14,
 		MaxContentStakePerMember:        math.NewInt(10000000000), // 10,000 DREAM
+		MaxTotalContentStakePerMember:   math.NewInt(20000000000), // 20,000 DREAM across all content stakes
 		MaxAuthorBondPerContent:         math.NewInt(1000000000),  // 1,000 DREAM
 		AuthorBondSlashOnModeration:     true,
 		// Content challenge reward share
@@ -892,23 +995,26 @@ func DefaultRepOperationalParams() RepOperationalParams {
 		MaxConvictionSharePerMember: math.LegacyNewDecWithPrec(35, 2), // 35%
 		InvitationStakeBurnRate:     math.LegacyNewDecWithPrec(10, 2), // 10%
 		// Majority of staked DREAM required to abandon submitted work.
-		AbandonedJurySeatPenalty:      math.LegacyNewDec(10),            // reputation, per tag
-		JurorRewardRate:               math.LegacyNewDecWithPrec(25, 2), // 25% of the disputed budget
-		MinJurorReward:                math.NewInt(5_000_000),           // 5 DREAM
-		MinJurorSelectionWeight:       math.LegacyNewDecWithPrec(1, 1),  // 0.1
-		MinJurySeatingsForWeighting:   3,
-		InitiativeCompletionBonusRate: math.LegacyNewDecWithPrec(1, 1),  // 10% of budget
-		JuryAcceptanceWindowRatio:     math.LegacyNewDecWithPrec(25, 2), // 25% of the review period
-		MaxJuryRedraws:                1,
-		ReviewerBondReserveRate:       math.LegacyNewDecWithPrec(1, 1),
-		ReviewFeeRate:                 math.LegacyNewDecWithPrec(5, 2),
-		MaxReviewRounds:               3,
-		MaxReputationGainPerEpoch:     math.LegacyNewDec(50), // Max 50 per tag per epoch
+		AbandonedJurySeatPenalty:        math.LegacyNewDec(10),            // reputation, per tag
+		JurorRewardRate:                 math.LegacyNewDecWithPrec(25, 2), // 25% of the disputed budget
+		MinJurorReward:                  math.NewInt(5_000_000),           // 5 DREAM
+		MinJurorSelectionWeight:         math.LegacyNewDecWithPrec(1, 1),  // 0.1
+		MinJurySeatingsForWeighting:     3,
+		InitiativeCompletionBonusRate:   math.LegacyNewDecWithPrec(1, 1),  // 10% of budget
+		MaxCompletionBonusStakeMultiple: math.LegacyNewDec(3),             // bonus <= 3x the external stake behind it
+		JuryAcceptanceWindowRatio:       math.LegacyNewDecWithPrec(25, 2), // 25% of the review period
+		MaxJuryRedraws:                  1,
+		ReviewerBondReserveRate:         math.LegacyNewDecWithPrec(1, 1),
+		ReviewFeeRate:                   math.LegacyNewDecWithPrec(5, 2),
+		MaxReviewRounds:                 3,
+		MaxReputationGainPerEpoch:       math.LegacyNewDec(50), // Max 50 per tag per epoch
 		// Anti-whale staking cap
 		MaxInitiativeStakePerMember: math.NewInt(50000000000), // 50,000 DREAM
+		MinStakeAmount:              math.NewInt(2000),        // 0.002 DREAM anti-dust floor (= 1/staking_reward_yield_per_epoch)
 		// Anti-collusion caps
-		MaxInitiativeRewardsPerSeason: math.NewInt(100000000000000), // 100,000 DREAM
-		LargeProjectBudgetThreshold:   math.NewInt(10000000000),     // 10,000 DREAM
+		MaxInitiativeRewardsPerSeason: math.NewInt(100000000000), // 100,000 DREAM
+		MaxInterimRewardsPerSeason:    getMaxInterimRewardsPerSeason(),
+		LargeProjectBudgetThreshold:   math.NewInt(10000000000), // 10,000 DREAM
 		// Permissionless creation fees
 		ProjectCreationFee:              math.NewInt(5000000), // 5 DREAM
 		InitiativeCreationFeeApprentice: math.NewInt(1000000), // 1 DREAM
@@ -999,8 +1105,8 @@ func DefaultRepOperationalParams() RepOperationalParams {
 		MaxActiveInitiativesPerMember: 10,
 		MaxActiveInterimsPerMember:    10,
 
-		// Global per-epoch DREAM minting ceiling (10,000 DREAM/epoch)
-		MaxDreamMintPerEpoch: math.NewInt(10000000000000),
+		// Global per-epoch DREAM minting ceiling (250,000 DREAM/epoch)
+		MaxDreamMintPerEpoch: math.NewInt(250000000000),
 
 		// Proposal-time hard caps (mirror Params.max_project_requested_*).
 		MaxProjectRequestedBudget: math.NewInt(1000000000000), // 1,000,000 DREAM
@@ -1036,6 +1142,20 @@ func (op RepOperationalParams) Validate() error {
 	}
 	if op.MaxStakingRewardsPerSeason.IsNegative() {
 		return fmt.Errorf("max staking rewards per season cannot be negative: %s", op.MaxStakingRewardsPerSeason)
+	}
+	if op.StakingRewardYieldPerEpoch.IsNil() || op.StakingRewardYieldPerEpoch.IsNegative() ||
+		op.StakingRewardYieldPerEpoch.GT(math.LegacyOneDec()) {
+		return fmt.Errorf("staking reward yield per epoch must be in [0,1]: %s", op.StakingRewardYieldPerEpoch)
+	}
+	if op.StakingPoolMintShare.IsNil() || op.StakingPoolMintShare.IsNegative() ||
+		op.StakingPoolMintShare.GT(math.LegacyOneDec()) {
+		return fmt.Errorf("staking pool mint share must be in [0,1]: %s", op.StakingPoolMintShare)
+	}
+	if op.StakingPoolCapBase.IsNil() || op.StakingPoolCapBase.IsNegative() {
+		return fmt.Errorf("staking pool cap base cannot be negative: %s", op.StakingPoolCapBase)
+	}
+	if op.StakingPoolCapRate.IsNil() || op.StakingPoolCapRate.IsNegative() {
+		return fmt.Errorf("staking pool cap rate cannot be negative: %s", op.StakingPoolCapRate)
 	}
 	if op.MaxTreasuryBalance.IsNegative() {
 		return fmt.Errorf("max treasury balance cannot be negative: %s", op.MaxTreasuryBalance)
@@ -1079,6 +1199,15 @@ func (op RepOperationalParams) Validate() error {
 	}
 	if !op.MaxContentStakePerMember.IsPositive() {
 		return fmt.Errorf("max content stake per member must be positive: %s", op.MaxContentStakePerMember)
+	}
+	// Mirrors Params.Validate: the aggregate must stay at or above the per-item
+	// cap so both knobs remain meaningful.
+	if op.MaxTotalContentStakePerMember.IsNil() || !op.MaxTotalContentStakePerMember.IsPositive() {
+		return fmt.Errorf("max total content stake per member must be positive: %s", op.MaxTotalContentStakePerMember)
+	}
+	if op.MaxTotalContentStakePerMember.LT(op.MaxContentStakePerMember) {
+		return fmt.Errorf("max total content stake per member %s cannot be lower than the per-item cap %s",
+			op.MaxTotalContentStakePerMember, op.MaxContentStakePerMember)
 	}
 	if !op.MaxAuthorBondPerContent.IsPositive() {
 		return fmt.Errorf("max author bond per content must be positive: %s", op.MaxAuthorBondPerContent)
@@ -1270,6 +1399,20 @@ func (op RepOperationalParams) Validate() error {
 		return fmt.Errorf("max tags per initiative must be positive")
 	}
 	// Anti-whale staking cap
+	if op.MaxInterimRewardsPerSeason.IsNil() || op.MaxInterimRewardsPerSeason.IsNegative() {
+		return fmt.Errorf("max interim rewards per season cannot be negative: %s", op.MaxInterimRewardsPerSeason)
+	}
+	if op.MinStakeAmount.IsNil() || !op.MinStakeAmount.IsPositive() {
+		return fmt.Errorf("min stake amount must be positive: %s", op.MinStakeAmount)
+	}
+	if op.MinStakeAmount.GT(op.MaxInitiativeStakePerMember) {
+		return fmt.Errorf("min stake amount %s cannot exceed max initiative stake per member %s",
+			op.MinStakeAmount, op.MaxInitiativeStakePerMember)
+	}
+	if op.MaxCompletionBonusStakeMultiple.IsNil() || op.MaxCompletionBonusStakeMultiple.IsNegative() {
+		return fmt.Errorf("max completion bonus stake multiple cannot be negative: %s",
+			op.MaxCompletionBonusStakeMultiple)
+	}
 	if !op.MaxInitiativeStakePerMember.IsPositive() {
 		return fmt.Errorf("max initiative stake per member must be positive: %s", op.MaxInitiativeStakePerMember)
 	}
@@ -1351,6 +1494,10 @@ func (p Params) ApplyOperationalParams(op RepOperationalParams) Params {
 	p.GiftOnlyToInvitees = op.GiftOnlyToInvitees
 	// Seasonal staking reward pool
 	p.MaxStakingRewardsPerSeason = op.MaxStakingRewardsPerSeason
+	p.StakingRewardYieldPerEpoch = op.StakingRewardYieldPerEpoch
+	p.StakingPoolMintShare = op.StakingPoolMintShare
+	p.StakingPoolCapBase = op.StakingPoolCapBase
+	p.StakingPoolCapRate = op.StakingPoolCapRate
 	// Treasury management
 	p.MaxTreasuryBalance = op.MaxTreasuryBalance
 	p.TreasuryFundsInterims = op.TreasuryFundsInterims
@@ -1396,6 +1543,7 @@ func (p Params) ApplyOperationalParams(op RepOperationalParams) Params {
 	// Content conviction staking
 	p.ContentConvictionHalfLifeEpochs = op.ContentConvictionHalfLifeEpochs
 	p.MaxContentStakePerMember = op.MaxContentStakePerMember
+	p.MaxTotalContentStakePerMember = op.MaxTotalContentStakePerMember
 	p.MaxAuthorBondPerContent = op.MaxAuthorBondPerContent
 	p.AuthorBondSlashOnModeration = op.AuthorBondSlashOnModeration
 	// Content challenge reward share
@@ -1415,6 +1563,7 @@ func (p Params) ApplyOperationalParams(op RepOperationalParams) Params {
 	p.MinJurorSelectionWeight = op.MinJurorSelectionWeight
 	p.MinJurySeatingsForWeighting = op.MinJurySeatingsForWeighting
 	p.InitiativeCompletionBonusRate = op.InitiativeCompletionBonusRate
+	p.MaxCompletionBonusStakeMultiple = op.MaxCompletionBonusStakeMultiple
 	p.JuryAcceptanceWindowRatio = op.JuryAcceptanceWindowRatio
 	p.MaxJuryRedraws = op.MaxJuryRedraws
 	p.ReviewerBondReserveRate = op.ReviewerBondReserveRate
@@ -1432,6 +1581,8 @@ func (p Params) ApplyOperationalParams(op RepOperationalParams) Params {
 	p.ReviewerUnbondCooldown = op.ReviewerUnbondCooldown
 	// Anti-whale staking cap
 	p.MaxInitiativeStakePerMember = op.MaxInitiativeStakePerMember
+	p.MinStakeAmount = op.MinStakeAmount
+	p.MaxInterimRewardsPerSeason = op.MaxInterimRewardsPerSeason
 	// Anti-collusion caps
 	p.MaxInitiativeRewardsPerSeason = op.MaxInitiativeRewardsPerSeason
 	p.LargeProjectBudgetThreshold = op.LargeProjectBudgetThreshold
@@ -1500,6 +1651,10 @@ func (p Params) ExtractOperationalParams() RepOperationalParams {
 		GiftOnlyToInvitees:        p.GiftOnlyToInvitees,
 		// Seasonal staking reward pool
 		MaxStakingRewardsPerSeason: p.MaxStakingRewardsPerSeason,
+		StakingRewardYieldPerEpoch: p.StakingRewardYieldPerEpoch,
+		StakingPoolMintShare:       p.StakingPoolMintShare,
+		StakingPoolCapBase:         p.StakingPoolCapBase,
+		StakingPoolCapRate:         p.StakingPoolCapRate,
 		// Treasury management
 		MaxTreasuryBalance:    p.MaxTreasuryBalance,
 		TreasuryFundsInterims: p.TreasuryFundsInterims,
@@ -1545,6 +1700,7 @@ func (p Params) ExtractOperationalParams() RepOperationalParams {
 		// Content conviction staking
 		ContentConvictionHalfLifeEpochs: p.ContentConvictionHalfLifeEpochs,
 		MaxContentStakePerMember:        p.MaxContentStakePerMember,
+		MaxTotalContentStakePerMember:   p.MaxTotalContentStakePerMember,
 		MaxAuthorBondPerContent:         p.MaxAuthorBondPerContent,
 		AuthorBondSlashOnModeration:     p.AuthorBondSlashOnModeration,
 		// Content challenge reward share
@@ -1554,30 +1710,33 @@ func (p Params) ExtractOperationalParams() RepOperationalParams {
 		// Tag anti-gaming
 		MaxTagsPerInitiative: p.MaxTagsPerInitiative,
 		// Anti-gaming
-		ReputationDecayRate:           p.ReputationDecayRate,
-		MaxConvictionSharePerMember:   p.MaxConvictionSharePerMember,
-		InvitationStakeBurnRate:       p.InvitationStakeBurnRate,
-		MaxReputationGainPerEpoch:     p.MaxReputationGainPerEpoch,
-		AbandonedJurySeatPenalty:      p.AbandonedJurySeatPenalty,
-		JurorRewardRate:               p.JurorRewardRate,
-		MinJurorReward:                p.MinJurorReward,
-		MinJurorSelectionWeight:       p.MinJurorSelectionWeight,
-		MinJurySeatingsForWeighting:   p.MinJurySeatingsForWeighting,
-		InitiativeCompletionBonusRate: p.InitiativeCompletionBonusRate,
-		JuryAcceptanceWindowRatio:     p.JuryAcceptanceWindowRatio,
-		MaxJuryRedraws:                p.MaxJuryRedraws,
-		ReviewerBondReserveRate:       p.ReviewerBondReserveRate,
-		ReviewFeeRate:                 p.ReviewFeeRate,
-		MaxReviewRounds:               p.MaxReviewRounds,
-		MinReviewerBond:               p.MinReviewerBond,
-		ReviewerDemotionThreshold:     p.ReviewerDemotionThreshold,
-		MinReviewerTrustLevel:         p.MinReviewerTrustLevel,
-		MinReviewerRepTier:            p.MinReviewerRepTier,
-		MinReviewerAgeBlocks:          p.MinReviewerAgeBlocks,
-		ReviewerDemotionCooldown:      p.ReviewerDemotionCooldown,
-		ReviewerUnbondCooldown:        p.ReviewerUnbondCooldown,
+		ReputationDecayRate:             p.ReputationDecayRate,
+		MaxConvictionSharePerMember:     p.MaxConvictionSharePerMember,
+		InvitationStakeBurnRate:         p.InvitationStakeBurnRate,
+		MaxReputationGainPerEpoch:       p.MaxReputationGainPerEpoch,
+		AbandonedJurySeatPenalty:        p.AbandonedJurySeatPenalty,
+		JurorRewardRate:                 p.JurorRewardRate,
+		MinJurorReward:                  p.MinJurorReward,
+		MinJurorSelectionWeight:         p.MinJurorSelectionWeight,
+		MinJurySeatingsForWeighting:     p.MinJurySeatingsForWeighting,
+		InitiativeCompletionBonusRate:   p.InitiativeCompletionBonusRate,
+		MaxCompletionBonusStakeMultiple: p.MaxCompletionBonusStakeMultiple,
+		JuryAcceptanceWindowRatio:       p.JuryAcceptanceWindowRatio,
+		MaxJuryRedraws:                  p.MaxJuryRedraws,
+		ReviewerBondReserveRate:         p.ReviewerBondReserveRate,
+		ReviewFeeRate:                   p.ReviewFeeRate,
+		MaxReviewRounds:                 p.MaxReviewRounds,
+		MinReviewerBond:                 p.MinReviewerBond,
+		ReviewerDemotionThreshold:       p.ReviewerDemotionThreshold,
+		MinReviewerTrustLevel:           p.MinReviewerTrustLevel,
+		MinReviewerRepTier:              p.MinReviewerRepTier,
+		MinReviewerAgeBlocks:            p.MinReviewerAgeBlocks,
+		ReviewerDemotionCooldown:        p.ReviewerDemotionCooldown,
+		ReviewerUnbondCooldown:          p.ReviewerUnbondCooldown,
 		// Anti-whale staking cap
 		MaxInitiativeStakePerMember: p.MaxInitiativeStakePerMember,
+		MinStakeAmount:              p.MinStakeAmount,
+		MaxInterimRewardsPerSeason:  p.MaxInterimRewardsPerSeason,
 		// Anti-collusion caps
 		MaxInitiativeRewardsPerSeason: p.MaxInitiativeRewardsPerSeason,
 		LargeProjectBudgetThreshold:   p.LargeProjectBudgetThreshold,

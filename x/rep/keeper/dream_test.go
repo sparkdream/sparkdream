@@ -130,7 +130,11 @@ func TestApplyPendingDecay_MultipleEpochs(t *testing.T) {
 	require.Equal(t, int64(33), member.LastDecayEpoch)
 }
 
-// TestApplyPendingDecay_WithStakedBalance tests that both staked and unstaked balances decay
+// TestApplyPendingDecay_WithStakedBalance pins that the lazy member pass only
+// decays the UNSTAKED portion: staked decay is owned by decayStakes, which
+// shrinks the stake records and the aggregate together once per epoch. Here the
+// member holds a synthetic aggregate with no stake records behind it, so
+// nothing decays the staked part at all.
 func TestApplyPendingDecay_WithStakedBalance(t *testing.T) {
 	fixture := initFixture(t)
 	k := fixture.keeper
@@ -155,19 +159,18 @@ func TestApplyPendingDecay_WithStakedBalance(t *testing.T) {
 	err := k.ApplyPendingDecay(ctx, &member)
 	require.NoError(t, err)
 
-	// Unstaked 400 decays at 0.2%: 400 * (1 - 0.002) = 400 * 0.998 = 399.2 → 399 (truncated)
+	// Unstaked 400 decays at 0.2%: 400 * 0.998 = 399.2 → 399 (truncated)
 	// Unstaked decay = 400 - 399 = 1
-	// Staked 600 decays at 0.05%: 600 * (1 - 0.0005) = 600 * 0.9995 = 599.7 → 599 (truncated)
-	// Staked decay = 600 - 599 = 1
-	// Total balance: 1000 - 1 (unstaked decay) - 1 (staked decay) = 998
-	expectedBalance := math.NewInt(998)
+	// Staked 600 is untouched by this pass (decayStakes owns staked decay and
+	// only runs where actual stake records exist to shrink).
+	expectedBalance := math.NewInt(999)
 	require.Equal(t, expectedBalance.String(), member.DreamBalance.String())
 
-	// Staked balance reduced by staked decay
-	require.Equal(t, math.NewInt(599).String(), member.StakedDream.String())
+	require.Equal(t, math.NewInt(600).String(), member.StakedDream.String(),
+		"the lazy member pass must not decay the staked aggregate")
 
-	// Verify 2 DREAM burned total (1 unstaked + 1 staked)
-	require.Equal(t, math.NewInt(2).String(), member.LifetimeBurned.String())
+	// Verify only the unstaked DREAM was burned
+	require.Equal(t, math.NewInt(1).String(), member.LifetimeBurned.String())
 }
 
 // TestApplyPendingDecay_NoDecayWhenUpToDate tests no decay when already current
@@ -829,4 +832,353 @@ func TestTransferDREAM_InsufficientBalance(t *testing.T) {
 	err := k.TransferDREAM(ctx, sender, recipient, math.NewInt(200), types.TransferPurpose_TRANSFER_PURPOSE_BOUNTY)
 	require.Error(t, err)
 	require.ErrorIs(t, err, types.ErrInsufficientBalance)
+}
+
+// decayEpochContext returns a context at the first block past the 30-epoch
+// new-member grace window, where one epoch of decay is due.
+func decayEpochContext(t *testing.T, f *fixture) sdk.Context {
+	t.Helper()
+	params, err := f.keeper.Params.Get(f.ctx)
+	require.NoError(t, err)
+	sdkCtx := sdk.UnwrapSDKContext(f.ctx)
+	return sdkCtx.WithBlockHeight(params.EpochBlocks * 31)
+}
+
+// TestDecayStakes_ShrinksRecordsPoolsAndAggregates is the core
+// ledger-consistency regression: staked decay must shrink the stake record,
+// every pool denominator, and the staker's member aggregates by the same
+// amount, so the aggregate always equals the sum of the obligations backing
+// it. The old design decayed only the aggregate, silently stranding the
+// difference on whoever unlocked last.
+func TestDecayStakes_ShrinksRecordsPoolsAndAggregates(t *testing.T) {
+	f := initFixture(t)
+	k := f.keeper
+
+	creator := newStakerMember(t, f, "decay_ledger_creator", math.NewInt(5_000_000_000))
+	staker := newStakerMember(t, f, "decay_ledger_staker", math.NewInt(1_000_000_000))
+	// Past the grace window with exactly one epoch of decay due, so the
+	// expected figures below are one epoch's worth.
+	stakerMember := mustMember(t, f, staker)
+	stakerMember.LastDecayEpoch = 30
+	require.NoError(t, k.Member.Set(f.ctx, staker.String(), stakerMember))
+	initID := newActiveInitiative(t, f, creator, "dlgr")
+
+	amount := math.NewInt(1_000_000)
+	stakeID, err := k.CreateStake(f.ctx, staker, types.StakeTargetType_STAKE_TARGET_INITIATIVE, initID, "", amount)
+	require.NoError(t, err)
+
+	require.NoError(t, k.MaybeApplyBulkDecay(decayEpochContext(t, f)))
+
+	stake := mustStake(t, f, stakeID)
+	// 1_000_000 * 0.99975 = 999_750
+	require.Equal(t, "999750", stake.Amount.String(), "the stake record must decay")
+
+	totalStaked, err := k.GetSeasonalPoolTotalStaked(f.ctx)
+	require.NoError(t, err)
+	require.Equal(t, "999750", totalStaked.String(), "the pool denominator must decay with the records")
+
+	member := mustMember(t, f, staker)
+	require.Equal(t, "999750", member.StakedDream.String(), "the member aggregate must decay with the records")
+
+	// Unstaked 999_000_000 decays 1_998_000; staked decay burns another 250.
+	require.Equal(t, "998001750", member.DreamBalance.String())
+	require.Equal(t, "1998250", member.LifetimeBurned.String())
+}
+
+// TestDecayStakes_PreservesPendingProportionally pins the reward-debt
+// scaling: decay must shrink the pending claim by the same factor as the
+// principal, not clamp it to zero (which is what an unscaled debt would do,
+// since pending = amount*acc - debt would go negative and truncate).
+func TestDecayStakes_PreservesPendingProportionally(t *testing.T) {
+	f := initFixture(t)
+	k := f.keeper
+
+	creator := newStakerMember(t, f, "decay_pend_creator_", math.NewInt(5_000_000_000))
+	staker := newStakerMember(t, f, "decay_pend_staker_", math.NewInt(1_000_000_000))
+	initID := newActiveInitiative(t, f, creator, "dpend")
+
+	stakeID, err := k.CreateStake(f.ctx, staker, types.StakeTargetType_STAKE_TARGET_INITIATIVE, initID, "", math.NewInt(1_000_000))
+	require.NoError(t, err)
+	require.NoError(t, k.DistributeEpochStakingRewardsFromPool(f.ctx))
+
+	pendingBefore, err := k.GetPendingStakingRewards(f.ctx, mustStake(t, f, stakeID))
+	require.NoError(t, err)
+	require.Equal(t, "500", pendingBefore.String(), "precondition: 0.0005 yield on 1M staked")
+
+	require.NoError(t, k.MaybeApplyBulkDecay(decayEpochContext(t, f)))
+
+	pendingAfter, err := k.GetPendingStakingRewards(f.ctx, mustStake(t, f, stakeID))
+	require.NoError(t, err)
+	require.Equal(t, "499", pendingAfter.String(),
+		"a decayed stake keeps a proportionally decayed claim: 999_750 * 0.0005 = 499.8 -> 499")
+}
+
+// TestDecayStakes_GraceMemberExempt pins that stakes held by a member still
+// inside the new-member grace window do not decay.
+func TestDecayStakes_GraceMemberExempt(t *testing.T) {
+	f := initFixture(t)
+	k := f.keeper
+
+	creator := newStakerMember(t, f, "decay_grac_creator_", math.NewInt(5_000_000_000))
+	staker := newStakerMember(t, f, "decay_grac_staker_", math.NewInt(1_000_000_000))
+	initID := newActiveInitiative(t, f, creator, "dgrac")
+
+	amount := math.NewInt(1_000_000)
+	stakeID, err := k.CreateStake(f.ctx, staker, types.StakeTargetType_STAKE_TARGET_INITIATIVE, initID, "", amount)
+	require.NoError(t, err)
+
+	// The grace window is measured from the join HEIGHT (the height-domain
+	// twin of the JoinedAt timestamp); setting it to the current epoch's
+	// first block puts the member at age 0 — in grace.
+	params, err := k.Params.Get(f.ctx)
+	require.NoError(t, err)
+	graceMember := mustMember(t, f, staker)
+	graceMember.JoinedAtHeight = params.EpochBlocks * 31
+	require.NoError(t, k.Member.Set(f.ctx, staker.String(), graceMember))
+
+	require.NoError(t, k.MaybeApplyBulkDecay(decayEpochContext(t, f)))
+
+	require.Equal(t, amount.String(), mustStake(t, f, stakeID).Amount.String(),
+		"a staker inside the grace window must not decay")
+	require.Equal(t, amount.String(), mustMember(t, f, staker).StakedDream.String())
+}
+
+// TestDecayStakes_DecaysContentConviction pins the scope on the other side:
+// content conviction stakes decay like every other reward-bearing position,
+// but never touch the seasonal pool denominator.
+//
+// They were exempt on the stated grounds that content conviction "already
+// time-decays through the conviction half-life". It does not — both
+// CalculateContentConviction and CalculateRawStakeConviction ramp time_factor
+// linearly to 1.0 and hold it there, so neither is a half-life despite the
+// parameter names. Content stakes are locked (exempt from unstaked decay),
+// earn no DREAM, and propagate conviction into initiative conviction, which
+// made them a costless shelter strictly better than holding DREAM: 0%/epoch
+// against 0.2%, with a governance benefit attached. Decaying the principal is
+// also what makes content conviction genuinely erode, since conviction is
+// amount * time_factor and only the amount can carry it.
+func TestDecayStakes_DecaysContentConviction(t *testing.T) {
+	f := initFixture(t)
+	k := f.keeper
+
+	staker := newStakerMember(t, f, "decay_cont_staker_", math.NewInt(1_000_000_000))
+	amount := math.NewInt(1_000_000)
+	stakeID, err := k.CreateStake(f.ctx, staker, types.StakeTargetType_STAKE_TARGET_BLOG_CONTENT, 1, "", amount)
+	require.NoError(t, err)
+
+	require.NoError(t, k.MaybeApplyBulkDecay(decayEpochContext(t, f)))
+
+	// 1_000_000 * 0.99975 = 999_750
+	require.Equal(t, "999750", mustStake(t, f, stakeID).Amount.String(),
+		"content conviction stakes decay like every other staked position")
+
+	// The per-member content aggregate moves with it (adjustMemberContentStaked).
+	require.Equal(t, "999750", mustMember(t, f, staker).ContentStakedDream.String(),
+		"the content aggregate must decay with the records")
+
+	totalStaked, err := k.GetSeasonalPoolTotalStaked(f.ctx)
+	require.NoError(t, err)
+	require.True(t, totalStaked.IsZero(), "content stakes never enter the seasonal denominator")
+}
+
+// TestApplyPendingDecay_GraceMeasuredByJoinHeightNotTimestamp is the
+// regression for the perpetual-grace bug: the grace check used to divide the
+// JoinedAt unix timestamp by EpochBlocks as though it were a block height, so
+// every invited member computed a hugely negative age and was exempt from
+// decay forever. Grace must be measured against JoinedAtHeight, with the
+// timestamp irrelevant.
+func TestApplyPendingDecay_GraceMeasuredByJoinHeightNotTimestamp(t *testing.T) {
+	fixture := initFixture(t)
+	k := fixture.keeper
+	ctx := fixture.ctx
+
+	params, err := k.Params.Get(ctx)
+	require.NoError(t, err)
+	epochBlocks := params.EpochBlocks
+
+	// An invited member: JoinedAt is a real unix timestamp, joined at block
+	// height 10 * epoch_blocks (join epoch 10), LastDecayEpoch stamped at
+	// join so only the grace gate decides.
+	member := types.Member{
+		Address:        sdk.AccAddress([]byte("invited")).String(),
+		DreamBalance:   PtrInt(math.NewInt(1000)),
+		StakedDream:    PtrInt(math.ZeroInt()),
+		LifetimeBurned: PtrInt(math.ZeroInt()),
+		JoinedAt:       1_750_000_000, // unix seconds — must be ignored by the grace gate
+		JoinedAtHeight: epochBlocks * 10,
+		LastDecayEpoch: 10,
+	}
+
+	// At epoch 31 the member is 21 epochs old — inside the 30-epoch window.
+	sdkCtx := sdk.UnwrapSDKContext(ctx).WithBlockHeight(epochBlocks * 31)
+	inGrace := member
+	require.NoError(t, k.ApplyPendingDecay(sdkCtx, &inGrace))
+	require.Equal(t, "1000", inGrace.DreamBalance.String(),
+		"a member inside the grace window must not decay")
+	require.Equal(t, int64(31), inGrace.LastDecayEpoch)
+
+	// At epoch 41 the member is 31 epochs old — the window has closed and
+	// the (previously perpetual) decay finally applies.
+	sdkCtx = sdk.UnwrapSDKContext(ctx).WithBlockHeight(epochBlocks * 41)
+	outGrace := member
+	outGrace.LastDecayEpoch = 40
+	require.NoError(t, k.ApplyPendingDecay(sdkCtx, &outGrace))
+	require.Equal(t, "998", outGrace.DreamBalance.String(),
+		"an invited member past the grace window must decay — the unix JoinedAt must not extend the window forever")
+}
+
+// TestDecayStakes_ExemptsProposedProjectStakes covers the asymmetry between
+// decay and accrual on projects.
+//
+// stakeAccruing pays only on ACTIVE projects, so a stake placed while a project
+// is still PROPOSED earns nothing — and used to be charged staked decay for the
+// privilege. That is a pure levy on backing work at the earliest and least
+// certain moment, which is exactly the conviction the system is trying to buy.
+// The window is bounded (approval starts accrual, rejection ends the stake), so
+// exempting it creates no lasting shelter. Terminal projects keep decaying:
+// their principal is freely withdrawable and decay is the nudge to withdraw.
+func TestDecayStakes_ExemptsProposedProjectStakes(t *testing.T) {
+	f := initFixture(t)
+	k := f.keeper
+
+	creator := newStakerMember(t, f, "decay_prop_creator__", math.NewInt(5_000_000_000))
+	staker := newStakerMember(t, f, "decay_prop_staker___", math.NewInt(1_000_000_000))
+
+	proposed, err := k.CreateProject(f.ctx, creator, "Proposed", "D", []string{"tag1"},
+		types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical",
+		math.NewInt(100000), math.NewInt(1000), false)
+	require.NoError(t, err)
+
+	active, err := k.CreateProject(f.ctx, creator, "Active", "D", []string{"tag1"},
+		types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical",
+		math.NewInt(100000), math.NewInt(1000), false)
+	require.NoError(t, err)
+	require.NoError(t, k.ApproveProject(f.ctx, active, sdk.AccAddress([]byte("approver")),
+		math.NewInt(100000), math.NewInt(1000)))
+
+	amount := math.NewInt(1_000_000)
+	proposedStake, err := k.CreateStake(f.ctx, staker, types.StakeTargetType_STAKE_TARGET_PROJECT, proposed, "", amount)
+	require.NoError(t, err)
+	activeStake, err := k.CreateStake(f.ctx, staker, types.StakeTargetType_STAKE_TARGET_PROJECT, active, "", amount)
+	require.NoError(t, err)
+
+	require.NoError(t, k.MaybeApplyBulkDecay(decayEpochContext(t, f)))
+
+	require.Equal(t, amount.String(), mustStake(t, f, proposedStake).Amount.String(),
+		"a stake on a PROPOSED project is frozen out of the pool and must not be charged decay")
+	require.Equal(t, "999750", mustStake(t, f, activeStake).Amount.String(),
+		"a stake on an ACTIVE project decays normally")
+}
+
+// sumLifetimeBurned totals LifetimeBurned across every member — the ledger-side
+// record of DREAM destroyed from member balances.
+func sumLifetimeBurned(t *testing.T, f *fixture) math.Int {
+	t.Helper()
+	total := math.ZeroInt()
+	require.NoError(t, f.keeper.Member.Walk(f.ctx, nil, func(_ string, m types.Member) (bool, error) {
+		if m.LifetimeBurned != nil {
+			total = total.Add(*m.LifetimeBurned)
+		}
+		return false, nil
+	}))
+	return total
+}
+
+// TestTrackBurn_CoversEveryDreamDestructionPath is the regression for the
+// SeasonBurned gap.
+//
+// TrackBurn had exactly one call site — the treasury-overflow burn — so
+// SeasonBurned reported one minor line as the chain's entire destruction: no
+// slashing, no failed challenges or invitations, no creation fees, no bonds, no
+// decay, no transfer tax, no zeroing. This is the same shape as the TrackMint
+// defect fixed in the seasonal-pool work, where SeasonMinted counted only the
+// protocol's 10% treasury share. MintBurnRatio and DreamSupplyStats read this
+// counter, so both were reporting on a rounding error.
+//
+// The invariant asserted is the one that actually matters and does not depend
+// on which other members the fixture seeds: every micro-DREAM that leaves a
+// member's balance as a burn must land in SeasonBurned. Each subtest drives one
+// of the five member-balance destruction paths and requires the counter to move
+// by exactly the total LifetimeBurned movement. (The sixth path, treasury
+// overflow, burns a module ledger no member's LifetimeBurned records, and has
+// always tracked its own burn.)
+func TestTrackBurn_CoversEveryDreamDestructionPath(t *testing.T) {
+	cases := []struct {
+		name string
+		run  func(t *testing.T, f *fixture)
+	}{
+		{
+			// The choke point every module burn routes through — creation
+			// fees, slashing, failed challenges and invitations, bonds, and
+			// the x/forum, x/collect, x/reveal, x/name and x/season burns.
+			name: "BurnDREAM",
+			run: func(t *testing.T, f *fixture) {
+				addr := newStakerMember(t, f, "burn_central_member_", math.NewInt(1_000_000))
+				require.NoError(t, f.keeper.BurnDREAM(f.ctx, addr, math.NewInt(250_000)))
+			},
+		},
+		{
+			name: "unstaked decay",
+			run: func(t *testing.T, f *fixture) {
+				newStakerMember(t, f, "burn_unstaked_decay_", math.NewInt(1_000_000))
+				require.NoError(t, f.keeper.MaybeApplyBulkDecay(decayEpochContext(t, f)))
+			},
+		},
+		{
+			name: "staked decay",
+			run: func(t *testing.T, f *fixture) {
+				k := f.keeper
+				creator := newStakerMember(t, f, "burn_staked_creator_", math.NewInt(5_000_000_000))
+				staker := newStakerMember(t, f, "burn_staked_decay___", math.NewInt(1_000_000))
+				initID := newActiveInitiative(t, f, creator, "burnstaked")
+				_, err := k.CreateStake(f.ctx, staker, types.StakeTargetType_STAKE_TARGET_INITIATIVE,
+					initID, "", math.NewInt(1_000_000))
+				require.NoError(t, err)
+				require.NoError(t, k.MaybeApplyBulkDecay(decayEpochContext(t, f)))
+			},
+		},
+		{
+			name: "transfer tax",
+			run: func(t *testing.T, f *fixture) {
+				k := f.keeper
+				params, err := k.Params.Get(f.ctx)
+				require.NoError(t, err)
+				sender := newStakerMember(t, f, "burn_tax_sender_____", math.NewInt(5_000_000_000))
+				recipient := newStakerMember(t, f, "burn_tax_recipient__", math.NewInt(5_000_000_000))
+				require.True(t, params.TransferTaxRate.MulInt(params.MaxTipAmount).TruncateInt().IsPositive(),
+					"precondition: the transfer must be taxed")
+				require.NoError(t, k.TransferDREAM(f.ctx, sender, recipient, params.MaxTipAmount,
+					types.TransferPurpose_TRANSFER_PURPOSE_TIP))
+			},
+		},
+		{
+			name: "zeroing",
+			run: func(t *testing.T, f *fixture) {
+				addr := newStakerMember(t, f, "burn_zeroed_member__", math.NewInt(750_000))
+				require.NoError(t, f.keeper.ZeroMember(f.ctx, addr, "test"))
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := initFixture(t)
+
+			counterBefore, err := f.keeper.GetSeasonBurned(f.ctx)
+			require.NoError(t, err)
+			ledgerBefore := sumLifetimeBurned(t, f)
+
+			tc.run(t, f)
+
+			counterAfter, err := f.keeper.GetSeasonBurned(f.ctx)
+			require.NoError(t, err)
+			ledgerAfter := sumLifetimeBurned(t, f)
+
+			burned := ledgerAfter.Sub(ledgerBefore)
+			require.True(t, burned.IsPositive(),
+				"precondition: this path must actually destroy DREAM, got %s", burned)
+			require.Equal(t, burned.String(), counterAfter.Sub(counterBefore).String(),
+				"SeasonBurned must move by exactly the DREAM destroyed (%s)", burned)
+		})
+	}
 }

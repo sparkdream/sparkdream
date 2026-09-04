@@ -227,15 +227,19 @@ func (k Keeper) AcceptInvitation(ctx context.Context, invitationID uint64, invit
 		TrustLevelUpdatedAt: currentTime,
 		JoinedSeason:        uint32(currentSeason),
 		JoinedAt:            currentTime,
-		InvitedBy:           invitation.Inviter,
-		InvitationChain:     invitationChain,
-		InvitationCredits:   0, // New members start with 0 credits
-		Status:              types.MemberStatus_MEMBER_STATUS_ACTIVE,
-		ZeroedAt:            0,
-		ZeroedCount:         0,
-		LastDecayEpoch:      currentEpoch,
-		GiftsSentThisEpoch:  new(math.Int), // Initialize gift tracking
-		LastGiftEpoch:       0,
+		// Height-domain twin of JoinedAt: the decay grace window is
+		// denominated in epochs (height / epoch_blocks), so it must be
+		// measured against the join height, not the unix timestamp.
+		JoinedAtHeight:     sdkCtx.BlockHeight(),
+		InvitedBy:          invitation.Inviter,
+		InvitationChain:    invitationChain,
+		InvitationCredits:  0, // New members start with 0 credits
+		Status:             types.MemberStatus_MEMBER_STATUS_ACTIVE,
+		ZeroedAt:           0,
+		ZeroedCount:        0,
+		LastDecayEpoch:     currentEpoch,
+		GiftsSentThisEpoch: new(math.Int), // Initialize gift tracking
+		LastGiftEpoch:      0,
 	}
 
 	// Initialize vouched tag reputations

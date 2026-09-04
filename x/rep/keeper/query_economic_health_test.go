@@ -17,8 +17,8 @@ func TestQueryDreamSupplyStats_EmptyFixture(t *testing.T) {
 
 	resp, err := qs.DreamSupplyStats(f.ctx, &types.QueryDreamSupplyStatsRequest{})
 	require.NoError(t, err)
-	require.True(t, resp.TotalMinted.IsZero())
-	require.True(t, resp.TotalBurned.IsZero())
+	require.True(t, resp.SeasonMinted.IsZero())
+	require.True(t, resp.SeasonBurned.IsZero())
 	require.True(t, resp.Circulating.IsZero())
 	require.True(t, resp.TotalStaked.IsZero())
 	require.True(t, resp.TreasuryBalance.IsZero())
@@ -47,8 +47,8 @@ func TestQueryDreamSupplyStats_ReflectsMembers(t *testing.T) {
 
 	resp, err := qs.DreamSupplyStats(f.ctx, &types.QueryDreamSupplyStatsRequest{})
 	require.NoError(t, err)
-	require.Equal(t, math.NewInt(500), resp.TotalMinted)
-	require.Equal(t, math.NewInt(100), resp.TotalBurned)
+	require.Equal(t, math.NewInt(500), resp.SeasonMinted)
+	require.Equal(t, math.NewInt(100), resp.SeasonBurned)
 	require.Equal(t, math.NewInt(1000), resp.Circulating)
 	require.Equal(t, math.NewInt(300), resp.TotalStaked)
 	require.Equal(t, math.NewInt(200), resp.TreasuryBalance)

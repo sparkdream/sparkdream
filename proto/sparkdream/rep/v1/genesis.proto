@@ -105,6 +105,51 @@ message GenesisState {
   // Escrowed review bounties. Real DREAM is held against these, so losing them
   // on import would strand the escrow with nothing able to pay or refund it.
   repeated ReviewBounty review_bounty_list = 42 [(gogoproto.nullable) = false];
+
+  // The module's own token ledger and accumulators. x/rep keeps DREAM outside
+  // x/bank, so none of this is recoverable from anywhere else — an export that
+  // omits it hands the importing chain a zero treasury, zero season counters
+  // (re-opening every per-season cap mid-season), a zero seasonal pool (so the
+  // "only seed an uninitialised pool" guard in InitGenesis refills a whole
+  // season budget on every import), a reset per-epoch mint allowance, and a
+  // decay clock that re-applies an extra epoch.
+  EconomicState economic_state = 43;
+
+  // Per-recipient gift cooldown records. Not exported meant a capped gift
+  // re-enabled itself across a restart.
+  repeated GiftRecordEntry gift_record_list = 44 [(gogoproto.nullable) = false];
+}
+
+// EconomicState carries x/rep's token ledger across a genesis round trip.
+// Int and Dec values travel as strings so an absent field reads as zero rather
+// than as a malformed number.
+message EconomicState {
+  string treasury_balance = 1;
+  string season_minted = 2;
+  string season_burned = 3;
+  string season_initiative_rewards_minted = 4;
+  string season_staking_rewards_minted = 5;
+  string season_interim_rewards_minted = 6;
+  string season_treasury_inflow = 7;
+  string season_treasury_outflow = 8;
+  string seasonal_pool_remaining = 9;
+  // Monotonic for the life of the chain. Exporting it is what lets
+  // RebaseStakeRewardDebt be a no-op on a faithful round trip instead of the
+  // repair it has to be when the accumulator resets to zero.
+  string seasonal_pool_acc_per_share = 10;
+  uint64 seasonal_pool_season = 11;
+  uint64 seasonal_pool_start_epoch = 12;
+  uint64 epoch_minted_epoch = 13;
+  string epoch_minted_amount = 14;
+  uint64 decay_last_processed_epoch = 15;
+}
+
+// GiftRecordEntry is one (sender, recipient) gift cooldown record, flattened
+// for genesis because the live collection is keyed by the pair.
+message GiftRecordEntry {
+  string sender = 1;
+  string recipient = 2;
+  GiftRecord record = 3;
 }
 
 // RoleRewardDayFunding is one UTC day's community-pool draw for the

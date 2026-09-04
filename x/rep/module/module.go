@@ -81,6 +81,17 @@ func (am AppModule) RegisterServices(registrar grpc.ServiceRegistrar) error {
 	return nil
 }
 
+// RegisterInvariants registers module invariants with the crisis module.
+//
+// x/rep keeps its own DREAM ledger and four reward accumulators, none of which
+// another module can cross-check, and nothing was registered here at all — so
+// a drifted pool denominator, an inverted staked/balance relation, a negative
+// treasury, or an emission counter past its cap were all undetectable
+// on-chain.
+func (am AppModule) RegisterInvariants(ir sdk.InvariantRegistry) {
+	keeper.RegisterInvariants(ir, am.keeper)
+}
+
 // DefaultGenesis returns a default GenesisState for the module, marshalled to json.RawMessage.
 // The default GenesisState need to be defined by the module developer and is primarily used for testing.
 func (am AppModule) DefaultGenesis(codec.JSONCodec) json.RawMessage {

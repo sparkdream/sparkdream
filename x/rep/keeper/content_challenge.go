@@ -7,6 +7,7 @@ import (
 	"math/rand"
 
 	"cosmossdk.io/collections"
+	errorsmod "cosmossdk.io/errors"
 	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
@@ -188,6 +189,16 @@ func (k Keeper) UpholdContentChallenge(ctx context.Context, ccID uint64) error {
 		return types.ErrContentChallengeNotFound
 	}
 
+	// A resolved content challenge must never resolve again: every branch here
+	// moves DREAM (burn, refund, or slash-and-reward), so a second call pays or
+	// burns a second time. The initiative-side twins (UpholdChallenge /
+	// RejectChallenge) have always had this guard; these three did not, and the
+	// new timeout sweep gives them one more caller.
+	if !isLiveContentChallenge(cc.Status) {
+		return errorsmod.Wrapf(types.ErrContentChallengeNotActive,
+			"content challenge %d is already resolved (status %s)", ccID, cc.Status)
+	}
+
 	// Get author address
 	authorAddr, err := sdk.AccAddressFromBech32(cc.Author)
 	if err != nil {
@@ -272,6 +283,16 @@ func (k Keeper) RejectContentChallenge(ctx context.Context, ccID uint64) error {
 		return types.ErrContentChallengeNotFound
 	}
 
+	// A resolved content challenge must never resolve again: every branch here
+	// moves DREAM (burn, refund, or slash-and-reward), so a second call pays or
+	// burns a second time. The initiative-side twins (UpholdChallenge /
+	// RejectChallenge) have always had this guard; these three did not, and the
+	// new timeout sweep gives them one more caller.
+	if !isLiveContentChallenge(cc.Status) {
+		return errorsmod.Wrapf(types.ErrContentChallengeNotActive,
+			"content challenge %d is already resolved (status %s)", ccID, cc.Status)
+	}
+
 	// Burn challenger's staked DREAM
 	challengerAddr, err := sdk.AccAddressFromBech32(cc.Challenger)
 	if err != nil {
@@ -319,6 +340,16 @@ func (k Keeper) ResolveInconclusiveContentChallenge(ctx context.Context, ccID ui
 	cc, err := k.ContentChallenge.Get(ctx, ccID)
 	if err != nil {
 		return types.ErrContentChallengeNotFound
+	}
+
+	// A resolved content challenge must never resolve again: every branch here
+	// moves DREAM (burn, refund, or slash-and-reward), so a second call pays or
+	// burns a second time. The initiative-side twins (UpholdChallenge /
+	// RejectChallenge) have always had this guard; these three did not, and the
+	// new timeout sweep gives them one more caller.
+	if !isLiveContentChallenge(cc.Status) {
+		return errorsmod.Wrapf(types.ErrContentChallengeNotActive,
+			"content challenge %d is already resolved (status %s)", ccID, cc.Status)
 	}
 
 	// Return challenger's staked DREAM (no penalty for inconclusive)
@@ -640,4 +671,75 @@ func (k Keeper) IterateActiveContentChallenges(ctx context.Context, fn func(inde
 	_ = k.IterateContentChallengesByStatus(ctx, types.ContentChallengeStatus_CONTENT_CHALLENGE_STATUS_ACTIVE, func(id uint64, cc types.ContentChallenge) bool {
 		return fn(int64(id), cc)
 	})
+}
+
+// SweepExpiredContentJuryReviews resolves content-challenge jury reviews whose
+// vote deadline passed without reaching a verdict.
+//
+// Content jury reviews are deliberately excluded from the shared PENDING
+// verdict index, because ResolveExpiredChallengeJuryReviews applies
+// initiative-challenge semantics that resolved an in-review content challenge
+// out from under its callers. But nothing replaced it, so a content jury that
+// never voted — or missed the supermajority at the deadline — left the review
+// PENDING forever with no sweep able to reach it: the challenger's stake, the
+// author's bond, and the target's one-challenge-at-a-time slot were locked
+// permanently, and the juror seats never vacated.
+//
+// This is the replacement, and it walks the content-challenge status index
+// rather than the verdict index, so it cannot interfere with the initiative
+// sweep. INCONCLUSIVE is the right outcome for a jury that did not decide:
+// ResolveInconclusiveContentChallenge preserves the status quo (content stays
+// as it was) and returns the challenger's stake without penalty, exactly as a
+// vote-driven inconclusive tally does.
+//
+// Capped per block like every other sweep in the EndBlocker, and
+// collect-then-resolve because resolution mutates the index being walked.
+func (k Keeper) SweepExpiredContentJuryReviews(ctx context.Context) error {
+	sdkCtx := sdk.UnwrapSDKContext(ctx)
+	height := sdkCtx.BlockHeight()
+
+	const maxPerBlock = 50
+	var expired []uint64
+
+	if err := k.IterateContentChallengesByStatus(ctx,
+		types.ContentChallengeStatus_CONTENT_CHALLENGE_STATUS_IN_JURY_REVIEW,
+		func(id uint64, cc types.ContentChallenge) bool {
+			if cc.JuryReviewId == 0 {
+				return false
+			}
+			review, err := k.JuryReview.Get(ctx, cc.JuryReviewId)
+			if err != nil {
+				// A challenge stuck IN_JURY_REVIEW with no review record can
+				// never resolve by votes either; sweep it rather than leave the
+				// stake locked forever.
+				expired = append(expired, id)
+				return len(expired) >= maxPerBlock
+			}
+			if review.Verdict != types.Verdict_VERDICT_PENDING {
+				return false
+			}
+			if review.Deadline > 0 && height >= review.Deadline {
+				expired = append(expired, id)
+			}
+			return len(expired) >= maxPerBlock
+		}); err != nil {
+		return fmt.Errorf("failed to walk content challenges in jury review: %w", err)
+	}
+
+	for _, id := range expired {
+		if err := k.ResolveInconclusiveContentChallenge(ctx, id); err != nil {
+			// One stuck challenge must not stop the others from resolving.
+			sdkCtx.Logger().Error("failed to resolve expired content jury review",
+				"content_challenge_id", id, "error", err)
+			continue
+		}
+		sdkCtx.EventManager().EmitEvent(
+			sdk.NewEvent(
+				"content_jury_review_timed_out",
+				sdk.NewAttribute("content_challenge_id", fmt.Sprintf("%d", id)),
+				sdk.NewAttribute("height", fmt.Sprintf("%d", height)),
+			),
+		)
+	}
+	return nil
 }

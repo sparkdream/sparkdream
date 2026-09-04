@@ -243,17 +243,19 @@ func TestApplyDecay_MixedStakingLevels(t *testing.T) {
 	ctx := fixture.ctx
 
 	// Create members with different staking levels
-	// Set LastDecayEpoch=30 so members are past the grace period (30 epochs)
-	// New decay rates: 0.2% unstaked, 0.05% staked per epoch
+	// Set LastDecayEpoch=30 so members are past the grace period (30 epochs).
+	// The member walk only decays the UNSTAKED portion at 0.2%/epoch; staked
+	// decay runs against actual stake records in decayStakes, and these
+	// members hold synthetic aggregates with no records behind them.
 	testCases := []struct {
 		name            string
 		totalBalance    math.Int
 		stakedBalance   math.Int
 		expectedBalance math.Int
 	}{
-		{"all_staked", math.NewInt(1000), math.NewInt(1000), math.NewInt(999)}, // Staked decay: 1000*0.0005=0.5→trunc 999, decay 1
-		{"half_staked", math.NewInt(1000), math.NewInt(500), math.NewInt(998)}, // Unstaked: 500*0.002=1 decay, Staked: 500*0.0005→decay 1, total -2
-		{"none_staked", math.NewInt(1000), math.NewInt(0), math.NewInt(998)},   // Unstaked: 1000*0.002=2 decay
+		{"all_staked", math.NewInt(1000), math.NewInt(1000), math.NewInt(1000)}, // No unstaked DREAM: nothing decays here
+		{"half_staked", math.NewInt(1000), math.NewInt(500), math.NewInt(999)},  // Unstaked: 500*0.002=1 decay
+		{"none_staked", math.NewInt(1000), math.NewInt(0), math.NewInt(998)},    // Unstaked: 1000*0.002=2 decay
 	}
 
 	for _, tc := range testCases {
@@ -316,8 +318,20 @@ func TestDistributeEpochStakingRewards_EpochGate(t *testing.T) {
 	require.Equal(t, before.String(), afterMid.String(),
 		"a mid-epoch block must not draw from the seasonal budget")
 
-	// On an epoch boundary: draws exactly one slice.
-	boundaryCtx := sdk.UnwrapSDKContext(fixture.ctx).WithBlockHeight(params.EpochBlocks * 2)
+	// On an epoch boundary with nothing staked: still a no-op. The slice has no
+	// denominator to divide by, so it stays in the pool for a later epoch rather
+	// than being drawn and lost.
+	emptyCtx := sdk.UnwrapSDKContext(fixture.ctx).WithBlockHeight(params.EpochBlocks * 2)
+	require.NoError(t, k.DistributeEpochStakingRewards(emptyCtx))
+
+	afterEmpty, err := k.GetSeasonalPoolRemaining(emptyCtx)
+	require.NoError(t, err)
+	require.Equal(t, before.String(), afterEmpty.String(),
+		"an epoch boundary with nothing staked must not spend the seasonal budget")
+
+	// On an epoch boundary with DREAM staked: draws exactly one slice.
+	require.NoError(t, k.UpdateSeasonalPoolTotalStaked(emptyCtx, math.NewInt(1_000_000_000)))
+	boundaryCtx := sdk.UnwrapSDKContext(fixture.ctx).WithBlockHeight(params.EpochBlocks * 3)
 	require.NoError(t, k.DistributeEpochStakingRewards(boundaryCtx))
 
 	afterBoundary, err := k.GetSeasonalPoolRemaining(boundaryCtx)

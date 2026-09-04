@@ -595,7 +595,7 @@ func TestCompleteInitiative(t *testing.T) {
 	})
 
 	// Stake enough to meet conviction requirements
-	stakeAmount := math.NewInt(1000)
+	stakeAmount := math.NewInt(2000)
 	_, err := k.CreateStake(ctx, staker, types.StakeTargetType_STAKE_TARGET_INITIATIVE, initID, "", stakeAmount)
 	require.NoError(t, err)
 
@@ -802,4 +802,67 @@ func TestSeasonInitiativeRewardsCap(t *testing.T) {
 	minted, err = k.GetSeasonInitiativeRewardsMinted(ctx)
 	require.NoError(t, err)
 	require.Equal(t, math.NewInt(100).String(), minted.String())
+}
+
+// TestSeasonCapGateCountsMemberAndTagStakeShares extends the gate coverage to
+// the member- and tag-stake revenue shares: they are minted when those stakers
+// settle, but created by the completion, so the gate projects them and the
+// tracker counts the accrued figures — a completion can no longer slip 7% of
+// the completer reward past the cap through the stake pools.
+func TestSeasonCapGateCountsMemberAndTagStakeShares(t *testing.T) {
+	fixture := initFixture(t)
+	k := fixture.keeper
+	ctx := fixture.ctx
+
+	// completer+treasury = 100; member share = 5% of 90 = 4, tag share = 2%
+	// of 90 / 1 tag = 1. A cap of 103 admits the old gate's projection (100)
+	// and must refuse the full one (105).
+	params, _ := k.Params.Get(ctx)
+	params.MaxInitiativeRewardsPerSeason = math.NewInt(103)
+	require.NoError(t, k.Params.Set(ctx, params))
+	require.NoError(t, k.InitSeasonalPool(ctx, 1))
+
+	// No stakes on the initiative: no bonus projection. The member/tag shares
+	// are still projected — they are bounded by the completer reward, not by
+	// whether the pools happen to be funded (accrual would skip empty pools,
+	// but the gate errs conservative, same as the bonus and fee projections).
+	initID := buildCompletableInitiative(t, k, ctx, math.NewInt(100), "_capshare", false)
+
+	err := k.CompleteInitiative(ctx, initID)
+	require.ErrorIs(t, err, types.ErrInitiativeRewardCapReached)
+	require.Contains(t, err.Error(), "member/tag stake shares",
+		"the error should name the share component that tipped it over")
+
+	// Nothing was minted or accrued by the refused completion.
+	minted, mErr := k.GetSeasonInitiativeRewardsMinted(ctx)
+	require.NoError(t, mErr)
+	require.True(t, minted.IsZero())
+
+	// Raise the cap and fund both pools: the member pool via a stake on the
+	// assignee, the tag pool via a stake on the initiative's tag.
+	params.MaxInitiativeRewardsPerSeason = math.NewInt(1000)
+	require.NoError(t, k.Params.Set(ctx, params))
+
+	supporter := sdk.AccAddress([]byte("capshare_supporter___"))
+	require.NoError(t, k.Member.Set(ctx, supporter.String(), types.Member{
+		Address: supporter.String(), DreamBalance: PtrInt(math.NewInt(100000)),
+		StakedDream: PtrInt(math.ZeroInt()), LifetimeEarned: PtrInt(math.ZeroInt()),
+		LifetimeBurned: PtrInt(math.ZeroInt()), ReputationScores: map[string]string{},
+	}))
+	init, err := k.GetInitiative(ctx, initID)
+	require.NoError(t, err)
+	assignee := sdk.AccAddress([]byte("assignee" + "_capshare"))
+	_, err = k.CreateStake(ctx, supporter, types.StakeTargetType_STAKE_TARGET_MEMBER, 0, assignee.String(), math.NewInt(2000))
+	require.NoError(t, err)
+	_, err = k.CreateStake(ctx, supporter, types.StakeTargetType_STAKE_TARGET_TAG, 0, init.Tags[0], math.NewInt(2000))
+	require.NoError(t, err)
+
+	require.NoError(t, k.CompleteInitiative(ctx, initID))
+
+	// 100 completer+treasury, +4 member share, +1 tag share — the accrued
+	// figures, counted at the completion that created them.
+	minted, mErr = k.GetSeasonInitiativeRewardsMinted(ctx)
+	require.NoError(t, mErr)
+	require.Equal(t, math.NewInt(105).String(), minted.String(),
+		"the member and tag revenue shares must count against the season cap")
 }

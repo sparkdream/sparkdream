@@ -47,7 +47,7 @@ func TestCreateStake(t *testing.T) {
 	})
 
 	// Test: Create stake
-	stakeAmount := math.NewInt(1000)
+	stakeAmount := math.NewInt(2000)
 	stakeID, err := k.CreateStake(ctx, staker, types.StakeTargetType_STAKE_TARGET_INITIATIVE, initID, "", stakeAmount)
 	require.NoError(t, err)
 
@@ -86,7 +86,7 @@ func TestCreateStakeErrors(t *testing.T) {
 	initID, _ := k.CreateInitiative(ctx, creator, projectID, "Task", "D", []string{"backend"}, types.InitiativeTier_INITIATIVE_TIER_STANDARD, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, math.NewInt(100))
 
 	// Test: Insufficient balance (staker has 100, trying to stake 1000)
-	_, err := k.CreateStake(ctx, staker, types.StakeTargetType_STAKE_TARGET_INITIATIVE, initID, "", math.NewInt(1000))
+	_, err := k.CreateStake(ctx, staker, types.StakeTargetType_STAKE_TARGET_INITIATIVE, initID, "", math.NewInt(2000))
 	require.ErrorIs(t, err, types.ErrInsufficientBalance)
 
 	// Test: Zero amount
@@ -140,8 +140,8 @@ func TestInitiativeStakeCapEnforcement(t *testing.T) {
 	_, err := k.CreateStake(ctx, whale, types.StakeTargetType_STAKE_TARGET_INITIATIVE, initID, "", math.NewInt(500000000))
 	require.NoError(t, err)
 
-	// Stake 1 more micro-DREAM — should fail (exceeds cap)
-	_, err = k.CreateStake(ctx, whale, types.StakeTargetType_STAKE_TARGET_INITIATIVE, initID, "", math.NewInt(1))
+	// Stake one min-sized tranche more — should fail (exceeds cap)
+	_, err = k.CreateStake(ctx, whale, types.StakeTargetType_STAKE_TARGET_INITIATIVE, initID, "", math.NewInt(2000))
 	require.ErrorIs(t, err, types.ErrInitiativeStakeCap)
 
 	// Different member can still stake on the same initiative (cap is per-member)
@@ -199,7 +199,7 @@ func TestRemoveStake(t *testing.T) {
 		ReputationScores: map[string]string{"backend": "50.0"},
 	})
 
-	stakeAmount := math.NewInt(1000)
+	stakeAmount := math.NewInt(2000)
 	stakeID, _ := k.CreateStake(ctx, staker, types.StakeTargetType_STAKE_TARGET_INITIATIVE, initID, "", stakeAmount)
 
 	// Get initial balance after staking
@@ -222,7 +222,7 @@ func TestCalculateConviction(t *testing.T) {
 
 	// Test quadratic dampening
 	// For amount = 100, conviction should be sqrt(100) = 10 (after time weighting = 1)
-	stakeAmount := math.NewInt(100)
+	stakeAmount := math.NewInt(2000)
 
 	// Create a stake to test conviction calculation
 	staker := sdk.AccAddress([]byte("staker"))
@@ -401,11 +401,10 @@ func TestConvictionCalculation_QuadraticDampening(t *testing.T) {
 		amount       int64
 		expectedConv float64 // Expected conviction at full time weight
 	}{
-		{"100 DREAM", 100, 10.0},        // sqrt(100) = 10
-		{"400 DREAM", 400, 20.0},        // sqrt(400) = 20 (4x amount = 2x conviction)
-		{"10000 DREAM", 10000, 100.0},   // sqrt(10000) = 100
-		{"40000 DREAM", 40000, 200.0},   // sqrt(40000) = 200 (4x amount = 2x conviction)
-		{"100000 DREAM", 100000, 316.2}, // sqrt(100000) ≈ 316 (large stake has diminishing returns)
+		{"2500 uDREAM", 2500, 50.0},      // sqrt(2500) = 50
+		{"10000 uDREAM", 10000, 100.0},   // sqrt(10000) = 100 (4x amount = 2x conviction)
+		{"40000 uDREAM", 40000, 200.0},   // sqrt(40000) = 200 (4x amount = 2x conviction)
+		{"100000 uDREAM", 100000, 316.2}, // sqrt(100000) ≈ 316 (large stake has diminishing returns)
 	}
 
 	for _, tc := range testCases {
@@ -715,9 +714,9 @@ func TestStakeRewards(t *testing.T) {
 		addr   sdk.AccAddress
 		amount math.Int
 	}{
-		{staker1, math.NewInt(1000)}, // Stake 1000 DREAM
-		{staker2, math.NewInt(2000)}, // Stake 2000 DREAM
-		{staker3, math.NewInt(500)},  // Stake 500 DREAM
+		{staker1, math.NewInt(2000)}, // Stake 2,000 micro-DREAM
+		{staker2, math.NewInt(4000)}, // Stake 4,000 micro-DREAM
+		{staker3, math.NewInt(3000)}, // Stake 3,000 micro-DREAM
 	}
 
 	// Create staker members and stakes
@@ -918,7 +917,10 @@ func TestStakeRewardsWithTime(t *testing.T) {
 
 	// Set conviction to meet requirements
 	initiative, _ := k.GetInitiative(ctx, initID)
-	requiredConviction := math.LegacyNewDec(100)
+	// Above 2x sqrt(largest stake) so max_conviction_share_per_member (35%)
+	// does not bind — the completion bonus applies that cap too, and a capped
+	// staker is paid on the capped figure, which would flatten the ratio below.
+	requiredConviction := math.LegacyNewDec(1000)
 	initiative.RequiredConviction = PtrDec(requiredConviction)
 	initiative.CurrentConviction = PtrDec(requiredConviction.Mul(math.LegacyNewDec(2)))
 	initiative.ExternalConviction = PtrDec(requiredConviction.Mul(math.LegacyNewDec(2)))

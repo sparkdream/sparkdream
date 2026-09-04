@@ -90,6 +90,13 @@ func (k msgServer) ResolveMemberReport(ctx context.Context, msg *types.MsgResolv
 			if err := k.DemoteMember(ctx, sdk.AccAddress(memberBytes), msg.Reason); err != nil {
 				return nil, errorsmod.Wrap(err, "failed to demote member")
 			}
+			// An upheld report returns the reporters' bonds, whichever action
+			// the resolver picked. This branch omitted the refund, so a report
+			// that succeeded on its merits still stranded every reporter's
+			// locked DREAM permanently.
+			if err := k.refundReportBonds(ctx, report); err != nil {
+				return nil, errorsmod.Wrap(err, "failed to refund bonds to reporters")
+			}
 
 		case types.GovActionType_GOV_ACTION_TYPE_ZEROING:
 			if err := k.ZeroMember(ctx, sdk.AccAddress(memberBytes), msg.Reason); err != nil {
@@ -98,6 +105,15 @@ func (k msgServer) ResolveMemberReport(ctx context.Context, msg *types.MsgResolv
 			if err := k.refundReportBonds(ctx, report); err != nil {
 				return nil, errorsmod.Wrap(err, "failed to refund bonds to reporters")
 			}
+
+		default:
+			// The switch had no default, so every other action type fell
+			// through applying nothing, refunding nothing, and still marking
+			// the report RESOLVED below — the reporters' bonds vanished for an
+			// action the resolver was allowed to pick. Reject the resolution
+			// instead of half-applying it.
+			return nil, errorsmod.Wrapf(types.ErrUnauthorized,
+				"action %s is not a valid resolution for a member report", action)
 		}
 	}
 

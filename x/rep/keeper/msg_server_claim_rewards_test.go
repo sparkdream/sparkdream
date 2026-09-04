@@ -42,7 +42,7 @@ func TestMsgClaimStakingRewards(t *testing.T) {
 		require.NoError(t, err)
 
 		// Create stake
-		stakeAmount := math.NewInt(1000)
+		stakeAmount := math.NewInt(2000)
 		stakeID, err := k.CreateStake(ctx, staker, types.StakeTargetType_STAKE_TARGET_INITIATIVE, initID, "", stakeAmount)
 		require.NoError(t, err)
 
@@ -117,7 +117,7 @@ func TestMsgClaimStakingRewards(t *testing.T) {
 		require.NoError(t, err)
 
 		// Create stake owned by staker
-		stakeID, err := k.CreateStake(ctx, staker, types.StakeTargetType_STAKE_TARGET_INITIATIVE, initID, "", math.NewInt(1000))
+		stakeID, err := k.CreateStake(ctx, staker, types.StakeTargetType_STAKE_TARGET_INITIATIVE, initID, "", math.NewInt(2000))
 		require.NoError(t, err)
 
 		// Advance time so there are rewards to claim
@@ -169,12 +169,13 @@ func TestMsgCompoundStakingRewards(t *testing.T) {
 		})
 
 		// Create stake
-		initialStakeAmount := math.NewInt(1000)
+		initialStakeAmount := math.NewInt(2000)
 		stakeID, err := k.CreateStake(ctx, staker, types.StakeTargetType_STAKE_TARGET_MEMBER, 0, target.String(), initialStakeAmount)
 		require.NoError(t, err)
 
 		// Push revenue through the member pool to populate its accumulator
-		require.NoError(t, k.AccumulateMemberStakeRevenue(ctx, target, math.NewInt(1000000)))
+		_, mErr := k.AccumulateMemberStakeRevenue(ctx, target, math.NewInt(1000000))
+		require.NoError(t, mErr)
 
 		// Give the staker enough DREAM to cover compounded rewards
 		member, _ := k.Member.Get(ctx, staker.String())

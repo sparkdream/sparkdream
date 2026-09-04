@@ -23,6 +23,30 @@ echo "Challenger: $CHALLENGER_ADDR"
 echo "Assignee:   $ASSIGNEE_ADDR"
 echo ""
 
+# ------------------------------------------------------------------------
+# min_stake_amount is a param, not a constant. Every stake this script sends
+# has to clear it or the tx is rejected with ErrStakeBelowMinimum before the
+# behaviour under test is ever reached — which would turn the tranche-cap test
+# below into a silent skip. Read it at runtime and derive amounts from it.
+# ------------------------------------------------------------------------
+MIN_STAKE=$($BINARY query rep params --output json 2>/dev/null | jq -r '.params.min_stake_amount // "1"')
+[ -z "$MIN_STAKE" ] && MIN_STAKE=1
+echo "min_stake_amount: $MIN_STAKE"
+
+# A LIVE initiative to stake on. `.initiative[-1]` is simply the most recently
+# created one, and earlier tests in the suite leave CLOSED initiatives behind —
+# staking on one is now rejected with ErrInitiativeTerminal before the
+# behaviour under test is ever reached.
+live_initiative_id() {
+    $BINARY query rep list-initiative --output json 2>/dev/null | jq -r '
+        [ .initiative[]?
+          | select(.status != "INITIATIVE_STATUS_COMPLETED"
+                and .status != "INITIATIVE_STATUS_REJECTED"
+                and .status != "INITIATIVE_STATUS_CLOSED") ]
+        | last | .id // ""'
+}
+echo ""
+
 # ========================================================================
 # Result Tracking & Helpers
 # ========================================================================
@@ -156,7 +180,7 @@ echo "  First: Alice stakes on Bob..."
 
 # Alice → Bob (should succeed) — use minimal amount to avoid balance issues
 TX_RES=$($BINARY tx rep stake \
-    "stake-target-member" 0 "100" \
+    "stake-target-member" 0 "$MIN_STAKE" \
     --target-identifier "$BOB_ADDR" \
     --from alice \
     --chain-id $CHAIN_ID \
@@ -188,7 +212,7 @@ if [ "$ALICE_BOB_STAKED" = true ]; then
     echo "  Now: Bob stakes on Alice (should fail — circular)..."
 
     TX_RES=$($BINARY tx rep stake \
-        "stake-target-member" 0 "100" \
+        "stake-target-member" 0 "$MIN_STAKE" \
         --target-identifier "$ALICE_ADDR" \
         --from bob \
         --chain-id $CHAIN_ID \
@@ -206,7 +230,7 @@ fi
 # Cleanup: remove the Alice→Bob stake if we created it
 if [ -n "$ALICE_BOB_STAKE_ID" ] && [ "$ALICE_BOB_STAKE_ID" != "null" ]; then
     echo "  Cleaning up: removing Alice→Bob stake..."
-    TX_RES=$($BINARY tx rep unstake "$ALICE_BOB_STAKE_ID" "100" \
+    TX_RES=$($BINARY tx rep unstake "$ALICE_BOB_STAKE_ID" "$MIN_STAKE" \
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
@@ -329,7 +353,7 @@ if [ "$MIN_DURATION" = "0" ]; then
     echo "  Skipped (params make this unreachable)"
 else
     TX_RES=$($BINARY tx rep stake \
-        "stake-target-member" 0 "100" \
+        "stake-target-member" 0 "$MIN_STAKE" \
         --target-identifier "$BOB_ADDR" \
         --from alice \
         --chain-id $CHAIN_ID \
@@ -357,7 +381,7 @@ else
         expect_tx_failure "$TX_RES" "minimum stake duration" "Claim before minimum stake duration"
 
         # Cleanup: principal is always returnable, only the rewards are forfeited.
-        TX_RES=$($BINARY tx rep unstake "$EARLY_CLAIM_STAKE_ID" "100" \
+        TX_RES=$($BINARY tx rep unstake "$EARLY_CLAIM_STAKE_ID" "$MIN_STAKE" \
             --from alice \
             --chain-id $CHAIN_ID \
             --keyring-backend test \
@@ -379,14 +403,14 @@ fi
 # stake tranches exist to prevent. Those stakers claim and re-stake instead.
 echo "--- TEST 9: Compound an initiative stake ---"
 
-ERR_INIT_ID=$($BINARY query rep list-initiative --output json 2>/dev/null | jq -r '.initiative[-1].id // ""')
+ERR_INIT_ID=$(live_initiative_id)
 
 if [ -z "$ERR_INIT_ID" ] || [ "$ERR_INIT_ID" = "null" ]; then
     echo "  [WARN] No initiative available on this chain; skipping"
 else
     echo "  Using initiative #$ERR_INIT_ID"
     TX_RES=$($BINARY tx rep stake \
-        "stake-target-initiative" "$ERR_INIT_ID" "100" \
+        "stake-target-initiative" "$ERR_INIT_ID" "$MIN_STAKE" \
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
@@ -411,7 +435,7 @@ else
 
         expect_tx_failure "$TX_RES" "compounding is not supported" "Compound an initiative stake"
 
-        TX_RES=$($BINARY tx rep unstake "$COMPOUND_STAKE_ID" "100" \
+        TX_RES=$($BINARY tx rep unstake "$COMPOUND_STAKE_ID" "$MIN_STAKE" \
             --from alice \
             --chain-id $CHAIN_ID \
             --keyring-backend test \
@@ -433,7 +457,7 @@ fi
 # could impose permanent per-block conviction work for a refundable cost.
 echo "--- TEST 10: Per-target stake tranche cap ---"
 
-TRANCHE_INIT_ID=$($BINARY query rep list-initiative --output json 2>/dev/null | jq -r '.initiative[-1].id // ""')
+TRANCHE_INIT_ID=$(live_initiative_id)
 
 if [ -z "$TRANCHE_INIT_ID" ] || [ "$TRANCHE_INIT_ID" = "null" ]; then
     echo "  [WARN] No initiative available on this chain; skipping"
@@ -451,7 +475,7 @@ else
     FILL_OK=true
     for ((i=EXISTING_TRANCHES; i<TRANCHE_CAP; i++)); do
         TX_RES=$($BINARY tx rep stake \
-            "stake-target-initiative" "$TRANCHE_INIT_ID" "100" \
+            "stake-target-initiative" "$TRANCHE_INIT_ID" "$MIN_STAKE" \
             --from bob \
             --chain-id $CHAIN_ID \
             --keyring-backend test \
@@ -471,7 +495,7 @@ else
     if [ "$FILL_OK" = true ]; then
         echo "  Cap reached; the next stake on this target must be rejected"
         TX_RES=$($BINARY tx rep stake \
-            "stake-target-initiative" "$TRANCHE_INIT_ID" "100" \
+            "stake-target-initiative" "$TRANCHE_INIT_ID" "$MIN_STAKE" \
             --from bob \
             --chain-id $CHAIN_ID \
             --keyring-backend test \
@@ -486,7 +510,7 @@ else
 
     # Cleanup: return every tranche this test created.
     for TID in "${TRANCHE_IDS[@]}"; do
-        TX_RES=$($BINARY tx rep unstake "$TID" "100" \
+        TX_RES=$($BINARY tx rep unstake "$TID" "$MIN_STAKE" \
             --from bob \
             --chain-id $CHAIN_ID \
             --keyring-backend test \
@@ -495,6 +519,65 @@ else
             --output json 2>&1)
         submit_tx_and_wait "$TX_RES" > /dev/null 2>&1
     done
+fi
+
+# ========================================================================
+# TEST 11: Stake below min_stake_amount (ErrStakeBelowMinimum)
+# ========================================================================
+# There was no floor at all. Every weighting a stake feeds is either per-record
+# or sqrt-scaled, so a one-micro-DREAM stake bought a full participant slot in
+# conviction and in the completion bonus for nothing.
+echo "--- TEST 11: Stake below min_stake_amount ---"
+
+FLOOR_INIT_ID=$(live_initiative_id)
+
+if [ -z "$FLOOR_INIT_ID" ] || [ "$FLOOR_INIT_ID" = "null" ]; then
+    echo "  [WARN] No initiative available on this chain; skipping"
+elif [ "$MIN_STAKE" -le 1 ] 2>/dev/null; then
+    echo "  [WARN] min_stake_amount is $MIN_STAKE; nothing sits below it. Skipping"
+else
+    BELOW_FLOOR=$((MIN_STAKE - 1))
+    echo "  Staking $BELOW_FLOOR against a floor of $MIN_STAKE (must be rejected)..."
+    TX_RES=$($BINARY tx rep stake \
+        "stake-target-initiative" "$FLOOR_INIT_ID" "$BELOW_FLOOR" \
+        --from bob \
+        --chain-id $CHAIN_ID \
+        --keyring-backend test \
+        --fees 5000${BOND_DENOM} \
+        -y \
+        --output json 2>&1)
+
+    expect_tx_failure "$TX_RES" "below min_stake_amount" "Stake below min_stake_amount rejected"
+fi
+
+# ========================================================================
+# TEST 12: Stake on a terminal initiative (ErrInitiativeTerminal)
+# ========================================================================
+# A terminal initiative can never accrue again (stakeAccruing freezes it), so
+# fresh DREAM locked against one could only ever be withdrawn as principal.
+# Mirrors the long-standing ErrProjectTerminal rule on the project side.
+echo "--- TEST 12: Stake on a terminal initiative ---"
+
+# COMPLETED deletes its stake records, so look for CLOSED or REJECTED — the two
+# terminal statuses that keep them. Status enum: 5=COMPLETED, 6=REJECTED, 7=CLOSED.
+TERMINAL_INIT_ID=$($BINARY query rep list-initiative --output json 2>/dev/null \
+    | jq -r '[.initiative[]? | select(.status=="INITIATIVE_STATUS_CLOSED" or .status=="INITIATIVE_STATUS_REJECTED")] | last | .id // ""')
+
+if [ -z "$TERMINAL_INIT_ID" ] || [ "$TERMINAL_INIT_ID" = "null" ]; then
+    echo "  [WARN] No CLOSED or REJECTED initiative on this chain; skipping"
+    echo "         (run initiative_test.sh / challenge_test.sh first to produce one)"
+else
+    echo "  Staking on terminal initiative #$TERMINAL_INIT_ID (must be rejected)..."
+    TX_RES=$($BINARY tx rep stake \
+        "stake-target-initiative" "$TERMINAL_INIT_ID" "$MIN_STAKE" \
+        --from bob \
+        --chain-id $CHAIN_ID \
+        --keyring-backend test \
+        --fees 5000${BOND_DENOM} \
+        -y \
+        --output json 2>&1)
+
+    expect_tx_failure "$TX_RES" "terminal status" "Stake on terminal initiative rejected"
 fi
 
 # ========================================================================

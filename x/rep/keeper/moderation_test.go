@@ -49,8 +49,11 @@ func TestZeroMember(t *testing.T) {
 	require.True(t, member.DreamBalance.IsZero(), "DREAM balance should be zero")
 	require.True(t, member.StakedDream.IsZero(), "staked DREAM should be zero")
 
-	// Lifetime burned should reflect burned amount (1000 + 500 = 1500)
-	require.Equal(t, int64(1500), member.LifetimeBurned.Int64())
+	// Lifetime burned is the member's whole DREAM holding: 1000. staked_dream
+	// (500) is a SUBSET of dream_balance — LockDREAM adds to the former without
+	// reducing the latter — so the old expectation of 1000+500 double-counted
+	// every staked coin in both lifetime_burned and the season burn counter.
+	require.Equal(t, int64(1000), member.LifetimeBurned.Int64())
 
 	// All reputation scores should be zeroed
 	for tag, score := range member.ReputationScores {

@@ -174,7 +174,7 @@ func TestAffiliatesAndStakersMayNotReview(t *testing.T) {
 	staker := sdk.AccAddress([]byte("rv-staker--------"))
 	mkReviewMember(t, k, ctx, staker, "500.0")
 	bondReviewer(t, k, ctx, staker, 100_000_000)
-	_, sErr := k.CreateStake(ctx, staker, types.StakeTargetType_STAKE_TARGET_INITIATIVE, rf.initiative, "", math.NewInt(100))
+	_, sErr := k.CreateStake(ctx, staker, types.StakeTargetType_STAKE_TARGET_INITIATIVE, rf.initiative, "", math.NewInt(2000))
 	require.NoError(t, sErr)
 	err = k.SubmitInitiativeReview(ctx, rf.initiative, staker.String(), true, nil, "pass it")
 	require.ErrorIs(t, err, types.ErrConflictOfInterest)
@@ -400,7 +400,7 @@ func TestReviewerMayNotStakeOnWorkTheyJudged(t *testing.T) {
 		true, nil, "looks done"))
 
 	_, err := k.CreateStake(ctx, rf.reviewer, types.StakeTargetType_STAKE_TARGET_INITIATIVE,
-		rf.initiative, "", math.NewInt(100))
+		rf.initiative, "", math.NewInt(1000))
 	require.ErrorIs(t, err, types.ErrConflictOfInterest,
 		"holding conviction on work you passed is the conflict the role removes")
 }

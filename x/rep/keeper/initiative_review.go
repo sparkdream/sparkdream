@@ -385,7 +385,7 @@ func (k Keeper) rejectReviewRound(ctx context.Context, initiative types.Initiati
 	// already gone back to the project and whose bond has already been
 	// released. Every terminal path clears its escalation entry; this catches
 	// any that is ever missed.
-	if isTerminalInitiativeStatus(initiative.Status) {
+	if types.IsInitiativeTerminal(initiative.Status) {
 		return nil
 	}
 

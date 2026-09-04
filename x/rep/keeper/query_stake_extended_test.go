@@ -39,7 +39,7 @@ func TestQueryPendingStakeRewards(t *testing.T) {
 		require.NoError(t, err)
 
 		// Create stake
-		stakeAmount := math.NewInt(1000)
+		stakeAmount := math.NewInt(2000)
 		stakeID, err := k.CreateStake(ctx, staker, types.StakeTargetType_STAKE_TARGET_INITIATIVE, initID, "", stakeAmount)
 		require.NoError(t, err)
 

@@ -151,6 +151,12 @@ var (
 	SeasonalPoolTotalStakedKey = collections.NewPrefix("seasonal_pool/total_staked")
 	// SeasonalPoolSeasonKey tracks which season the pool was initialized for
 	SeasonalPoolSeasonKey = collections.NewPrefix("seasonal_pool/season")
+	// SeasonalPoolStartEpochKey tracks the epoch at which the current pool was
+	// initialized. The per-epoch drain slice is sized against this anchor —
+	// not against a height modulo — so the budget schedule follows the actual
+	// season boundary that x/season drove, which need not be aligned with any
+	// multiple of SeasonDurationEpochs computed from genesis height.
+	SeasonalPoolStartEpochKey = collections.NewPrefix("seasonal_pool/start_epoch")
 )
 
 // Treasury and economic tracking
@@ -163,6 +169,15 @@ var (
 	SeasonBurnedKey = collections.NewPrefix("econ/season_burned")
 	// SeasonInitiativeRewardsMintedKey tracks DREAM minted via initiative completion this season
 	SeasonInitiativeRewardsMintedKey = collections.NewPrefix("econ/season_initiative_rewards")
+	// SeasonInterimRewardsMintedKey tracks DREAM minted to pay interim work this
+	// season, bounded by max_interim_rewards_per_season. Interims are
+	// self-assigned and self-completed, so this counter is the only thing
+	// bounding that path's total emission within a season.
+	SeasonInterimRewardsMintedKey = collections.NewPrefix("econ/season_interim_rewards")
+	// SeasonStakingRewardsMintedKey tracks DREAM minted as staking rewards this
+	// season. Subtracted from SeasonMinted to size the next season's pool, so
+	// that a season's staking rewards cannot fund the next season's.
+	SeasonStakingRewardsMintedKey = collections.NewPrefix("econ/season_staking_rewards")
 	// SeasonTreasuryInflowKey tracks DREAM credited to the module treasury this season.
 	// Drives the TreasuryStatus query's season_inflow field (true inflow, distinct from
 	// global SeasonMinted which mixes treasury and non-treasury mints).

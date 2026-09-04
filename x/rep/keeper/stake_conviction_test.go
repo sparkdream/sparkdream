@@ -41,11 +41,15 @@ func TestCalculateStakingReward(t *testing.T) {
 		// Distribute one epoch's rewards
 		require.NoError(t, k.DistributeEpochStakingRewardsFromPool(ctx))
 
-		// Compute expected reward:
-		// epochSlice = MaxStakingRewardsPerSeason / SeasonDurationEpochs
-		//            = 25,000,000,000,000 / 150 = 166,666,666,666
-		// accPerShare = epochSlice / totalStaked = 166,666,666,666 / 1,000,000
-		// reward = stakeAmount * accPerShare - rewardDebt(0)
+		// Compute expected reward. The calendar slice is
+		// budget/SeasonDurationEpochs, but StakingRewardYieldPerEpoch caps it at
+		// a yield on the staked base, and with 1 DREAM staked that cap is what
+		// binds:
+		//   calendar = 2,500,000,000 / 150 = 16,666,666
+		//   capped   = 0.001 * 1,000,000   = 1,000
+		//   accPerShare = 1,000 / 1,000,000 = 0.001
+		//   reward = stakeAmount * accPerShare - rewardDebt(0) = 1,000
+		// Uncapped this paid 166,666 DREAM per epoch on a 1 DREAM stake.
 		stake := types.Stake{
 			Id:        1,
 			Staker:    "staker",
@@ -55,9 +59,9 @@ func TestCalculateStakingReward(t *testing.T) {
 
 		reward, err := k.CalculateStakingReward(ctx, stake)
 		require.NoError(t, err)
-		// epochSlice (166,666,666,666) is distributed to the sole staker
+		// The capped slice is distributed to the sole staker.
 		require.True(t, reward.IsPositive(), "expected positive reward after distribution, got %s", reward.String())
-		require.Equal(t, math.NewInt(166666666666), reward)
+		require.Equal(t, math.NewInt(500), reward)
 	})
 
 	t.Run("reward proportional to stake share", func(t *testing.T) {
@@ -100,13 +104,13 @@ func TestCalculateStakingReward(t *testing.T) {
 			Id:         1,
 			Staker:     "staker",
 			Amount:     stakeAmount,
-			RewardDebt: math.NewInt(100000000000), // already claimed 100B
+			RewardDebt: math.NewInt(400), // already claimed 400
 		}
 
 		reward, err := k.CalculateStakingReward(ctx, stake)
 		require.NoError(t, err)
-		// Gross reward = 166,666,666,666 minus debt 100,000,000,000 = 66,666,666,666
-		require.Equal(t, math.NewInt(66666666666), reward)
+		// Gross reward 500 (see above) minus debt 400 = 100.
+		require.Equal(t, math.NewInt(100), reward)
 	})
 }
 

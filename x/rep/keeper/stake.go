@@ -54,6 +54,22 @@ func (k Keeper) CreateStake(
 		return 0, err
 	}
 
+	// Floor on the position, applied to every type MsgStake can open. There was
+	// no floor at all, and every weighting a stake feeds is sqrt-scaled or
+	// per-record: a member could open the ten tranches
+	// MaxStakeTranchesPerTarget allows at one micro-DREAM each and still be
+	// counted as a distinct participant in conviction and in the completion
+	// bonus. The floor is what makes a stake record cost something
+	// proportionate to the state slot it occupies.
+	if params.MinStakeAmount.IsNil() || !params.MinStakeAmount.IsPositive() {
+		// An unset floor is a stale param set, not permission to accept dust.
+		return 0, fmt.Errorf("%w: min_stake_amount is unset", types.ErrStakeBelowMinimum)
+	}
+	if amount.LT(params.MinStakeAmount) {
+		return 0, fmt.Errorf("%w: %s is below the %s minimum",
+			types.ErrStakeBelowMinimum, amount, params.MinStakeAmount)
+	}
+
 	// Self-stake prevention for member staking
 	if targetType == types.StakeTargetType_STAKE_TARGET_MEMBER {
 		if targetIdentifier == staker.String() && !params.AllowSelfMemberStake {
@@ -64,9 +80,16 @@ func (k Keeper) CreateStake(
 	// Validate target exists based on type
 	switch targetType {
 	case types.StakeTargetType_STAKE_TARGET_INITIATIVE:
-		_, err := k.GetInitiative(ctx, targetID)
+		initiative, err := k.GetInitiative(ctx, targetID)
 		if err != nil {
 			return 0, fmt.Errorf("initiative not found: %w", err)
+		}
+		// Terminal initiatives no longer accrue (stakeAccruing) and never will
+		// again, so fresh DREAM locked against one is stranded in a position
+		// that can only ever return principal. Mirrors the project rule below.
+		if types.IsInitiativeTerminal(initiative.Status) {
+			return 0, fmt.Errorf("%w: initiative %d is %s and can no longer accept stakes",
+				types.ErrInitiativeTerminal, targetID, initiative.Status.String())
 		}
 		// Per-member cap: prevents reward pool extraction via disproportionate stakes
 		memberTotal, tranches, err := k.stakerTotalsOnTarget(ctx, staker, targetType, targetID)
@@ -80,9 +103,20 @@ func (k Keeper) CreateStake(
 			return 0, types.ErrInitiativeStakeCap
 		}
 	case types.StakeTargetType_STAKE_TARGET_PROJECT:
-		_, err := k.GetProject(ctx, targetID)
+		project, err := k.GetProject(ctx, targetID)
 		if err != nil {
 			return 0, fmt.Errorf("project not found: %w", err)
+		}
+		// Terminal projects no longer accrue seasonal rewards and never will
+		// again; locking fresh DREAM against one would strand it in a position
+		// that can only ever return principal. PROPOSED projects stay open for
+		// early conviction — the approval path rebases those stakes' reward
+		// debts so they accrue only from approval onward.
+		if project.Status == types.ProjectStatus_PROJECT_STATUS_COMPLETED ||
+			project.Status == types.ProjectStatus_PROJECT_STATUS_CANCELLED ||
+			project.Status == types.ProjectStatus_PROJECT_STATUS_EXPIRED {
+			return 0, fmt.Errorf("%w: project %d is %s and can no longer accept stakes",
+				types.ErrProjectTerminal, targetID, project.Status.String())
 		}
 		// Same per-member cap for projects (shared seasonal reward pool)
 		memberTotal, tranches, err := k.stakerTotalsOnTarget(ctx, staker, targetType, targetID)
@@ -138,6 +172,23 @@ func (k Keeper) CreateStake(
 		}
 		if memberTotal.Add(amount).GT(params.MaxContentStakePerMember) {
 			return 0, types.ErrContentStakeCap
+		}
+		// Aggregate cap across every content item combined. Without it the
+		// per-item cap above only sets the granularity, not the total: one
+		// member could park max_content_stake_per_member on every item ever
+		// created. Content stakes earn no DREAM and are charged the lower
+		// StakedDecayRate rather than the unstaked rate, so the position is
+		// cheap to hold even though it is no longer free.
+		// Read raw (not GetMember) — a cap check must not ride the lazy-decay
+		// write path, and membership was already validated above.
+		stakerRecord, err := k.Member.Get(ctx, staker.String())
+		if err != nil {
+			return 0, fmt.Errorf("failed to load member for content-stake cap: %w", err)
+		}
+		if DerefInt(stakerRecord.ContentStakedDream).Add(amount).GT(params.MaxTotalContentStakePerMember) {
+			return 0, fmt.Errorf("%w: %s held across all content stakes would exceed %s",
+				types.ErrContentStakeCap, DerefInt(stakerRecord.ContentStakedDream).Add(amount),
+				params.MaxTotalContentStakePerMember)
 		}
 	case types.StakeTargetType_STAKE_TARGET_BLOG_AUTHOR_BOND,
 		types.StakeTargetType_STAKE_TARGET_FORUM_AUTHOR_BOND,
@@ -279,6 +330,16 @@ func (k Keeper) RemoveStake(ctx context.Context, stakeID uint64, stakerAddr sdk.
 		if err := k.UnlockDREAM(ctx, stakerAddr, amount); err != nil {
 			return fmt.Errorf("failed to unlock DREAM: %w", err)
 		}
+
+		// Shrink the aggregate content-stake total through the same choke
+		// point every other stake-amount mutation uses. The dispatch is a
+		// no-op for pools (content stakes have none); what moves is the
+		// member's ContentStakedDream aggregate, which CreateStake's
+		// max_total_content_stake_per_member gate is measured against.
+		if err := k.updateStakePoolTotals(ctx, stake, amount.Neg()); err != nil {
+			return fmt.Errorf("failed to update stake pool totals: %w", err)
+		}
+
 		remainingAmount := currentStakeAmount.Sub(amount)
 		if remainingAmount.IsZero() {
 			if err := k.RemoveStakeFromTargetIndex(ctx, stake); err != nil {

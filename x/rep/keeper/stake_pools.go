@@ -70,8 +70,31 @@ func (k Keeper) updateStakePoolTotals(ctx context.Context, stake types.Stake, de
 		return k.updateTagStakePoolTotal(ctx, stake.TargetIdentifier, delta)
 	}
 
-	// Content conviction and author bond stakes have no pool accounting.
+	// Content conviction stakes have no reward pool, but they do carry the
+	// per-member aggregate that backs max_total_content_stake_per_member, the
+	// bound on how much DREAM one member can hold in them. Keeping it in step
+	// here is also what makes their staked decay land on the right ledger:
+	// decayStakes routes every shrink through this function. Author bonds are
+	// neither pooled nor counted: slashable escrow with its own per-item cap.
+	if types.IsContentConvictionType(stake.TargetType) {
+		return k.adjustMemberContentStaked(ctx, stake.Staker, delta)
+	}
 	return nil
+}
+
+// adjustMemberContentStaked moves a member's aggregate content-stake total by
+// delta, floored at zero. Read and written directly (not via GetMember) so a
+// pure counter adjustment never rides the lazy-decay write path.
+func (k Keeper) adjustMemberContentStaked(ctx context.Context, staker string, delta math.Int) error {
+	member, err := k.Member.Get(ctx, staker)
+	if err != nil {
+		// CreateStake validated membership before locking; a missing record
+		// here is stale state worth surfacing, not a total to drift past.
+		return fmt.Errorf("failed to load member %s for content-stake aggregate: %w", staker, err)
+	}
+	updated := clampPoolTotal(ctx, "content-staked/"+staker, DerefInt(member.ContentStakedDream), delta)
+	member.ContentStakedDream = PtrInt(updated)
+	return k.Member.Set(ctx, staker, member)
 }
 
 // clampPoolTotal applies delta to a denominator, floored at zero. A negative
@@ -167,6 +190,7 @@ func (k Keeper) ReconcileStakePoolTotals(ctx context.Context) error {
 	memberTotals := map[string]math.Int{}
 	tagTotals := map[string]math.Int{}
 	projectTotals := map[uint64]math.Int{}
+	contentTotals := map[string]math.Int{}
 	seasonalTotal := math.ZeroInt()
 
 	addTo := func(m map[string]math.Int, key string, amount math.Int) {
@@ -195,6 +219,13 @@ func (k Keeper) ReconcileStakePoolTotals(ctx context.Context) error {
 			addTo(memberTotals, stake.TargetIdentifier, stake.Amount)
 		case types.StakeTargetType_STAKE_TARGET_TAG:
 			addTo(tagTotals, stake.TargetIdentifier, stake.Amount)
+		default:
+			// Content conviction stakes back the per-member aggregate capped
+			// by max_total_content_stake_per_member. Author bonds are escrow
+			// and are not counted.
+			if types.IsContentConvictionType(stake.TargetType) {
+				addTo(contentTotals, stake.Staker, stake.Amount)
+			}
 		}
 		return false, nil
 	})
@@ -269,14 +300,38 @@ func (k Keeper) ReconcileStakePoolTotals(ctx context.Context) error {
 		}
 	}
 
+	// Rebuild every member's aggregate content-stake total from the live
+	// stakes — the same heal-the-drift contract as the pools above, including
+	// zeroing aggregates whose backing stakes are gone. Also backfills nil on
+	// records written before the field existed.
+	if err := k.Member.Walk(ctx, nil, func(addr string, member types.Member) (bool, error) {
+		want, ok := contentTotals[addr]
+		if !ok {
+			// A zero-value math.Int carries a nil big.Int and panics on
+			// comparison; absent means "holds no content stakes", i.e. zero.
+			want = math.ZeroInt()
+		}
+		if DerefInt(member.ContentStakedDream).Equal(want) {
+			return false, nil
+		}
+		member.ContentStakedDream = PtrInt(want)
+		return false, k.Member.Set(ctx, addr, member)
+	}); err != nil {
+		return fmt.Errorf("failed to reconcile member content-stake aggregates: %w", err)
+	}
+
 	return nil
 }
 
-// AccumulateMemberStakeRevenue adds revenue to a member's stake pool
-func (k Keeper) AccumulateMemberStakeRevenue(ctx context.Context, memberAddr sdk.AccAddress, amount math.Int) error {
+// AccumulateMemberStakeRevenue adds revenue to a member's stake pool and
+// returns the DREAM actually accrued to it. Zero when there is no pool or
+// nothing staked to accrue against — the caller (CompleteInitiative) counts
+// the returned figure against the per-season initiative reward cap, so it has
+// to be the real accrual, not the notional share.
+func (k Keeper) AccumulateMemberStakeRevenue(ctx context.Context, memberAddr sdk.AccAddress, amount math.Int) (math.Int, error) {
 	params, err := k.Params.Get(ctx)
 	if err != nil {
-		return err
+		return math.ZeroInt(), err
 	}
 
 	revenueShare := amount.ToLegacyDec().Mul(params.MemberStakeRevenueShare).TruncateInt()
@@ -285,13 +340,13 @@ func (k Keeper) AccumulateMemberStakeRevenue(ctx context.Context, memberAddr sdk
 	if err != nil {
 		if errors.Is(err, collections.ErrNotFound) {
 			// No stakers on this member, skip
-			return nil
+			return math.ZeroInt(), nil
 		}
-		return err
+		return math.ZeroInt(), err
 	}
 
 	if pool.TotalStaked.IsZero() {
-		return nil
+		return math.ZeroInt(), nil
 	}
 
 	// MasterChef: accumulate reward per share unit
@@ -300,14 +355,19 @@ func (k Keeper) AccumulateMemberStakeRevenue(ctx context.Context, memberAddr sdk
 	pool.PendingRevenue = pool.PendingRevenue.Add(revenueShare)
 	pool.LastUpdated = sdk.UnwrapSDKContext(ctx).BlockTime().Unix()
 
-	return k.MemberStakePool.Set(ctx, memberAddr.String(), pool)
+	if err := k.MemberStakePool.Set(ctx, memberAddr.String(), pool); err != nil {
+		return math.ZeroInt(), err
+	}
+	return revenueShare, nil
 }
 
-// AccumulateTagStakeRevenue adds revenue to tag stake pools
-func (k Keeper) AccumulateTagStakeRevenue(ctx context.Context, tags []string, totalRevenue math.Int) error {
+// AccumulateTagStakeRevenue adds revenue to tag stake pools and returns the
+// DREAM actually accrued across them (zero for tags with no pool or no stake —
+// the same real-accrual contract as AccumulateMemberStakeRevenue).
+func (k Keeper) AccumulateTagStakeRevenue(ctx context.Context, tags []string, totalRevenue math.Int) (math.Int, error) {
 	params, err := k.Params.Get(ctx)
 	if err != nil {
-		return err
+		return math.ZeroInt(), err
 	}
 
 	// Split the total tag revenue share evenly across all tags.
@@ -315,6 +375,7 @@ func (k Keeper) AccumulateTagStakeRevenue(ctx context.Context, tags []string, to
 	// E.g., 3 tags with 2% share → each tag pool gets 0.66% instead of 2% each.
 	perTagShare := totalRevenue.ToLegacyDec().Mul(params.TagStakeRevenueShare).QuoInt64(int64(len(tags))).TruncateInt()
 
+	accrued := math.ZeroInt()
 	for _, tag := range tags {
 		pool, err := k.TagStakePool.Get(ctx, tag)
 		if err != nil {
@@ -331,10 +392,13 @@ func (k Keeper) AccumulateTagStakeRevenue(ctx context.Context, tags []string, to
 		rewardPerShare := perTagShare.ToLegacyDec().Quo(pool.TotalStaked.ToLegacyDec())
 		pool.AccRewardPerShare = pool.AccRewardPerShare.Add(rewardPerShare)
 		pool.LastUpdated = sdk.UnwrapSDKContext(ctx).BlockTime().Unix()
-		_ = k.TagStakePool.Set(ctx, tag, pool)
+		if err := k.TagStakePool.Set(ctx, tag, pool); err != nil {
+			continue
+		}
+		accrued = accrued.Add(perTagShare)
 	}
 
-	return nil
+	return accrued, nil
 }
 
 // DistributeInitiativeCompletionBonus distributes a conviction-based bonus to an
@@ -378,7 +442,9 @@ func (k Keeper) InitiativeHasStakes(ctx context.Context, initiativeID uint64) (b
 //
 // Factored out so CompleteInitiative can count it against the per-season mint
 // cap before minting rather than after. It is an upper bound: the actual payout
-// truncates per staker, and is zero when no external staker holds conviction.
+// truncates per staker, is capped again at a multiple of the external stake by
+// CappedInitiativeCompletionBonusPool, and is zero when no external staker
+// holds conviction.
 func (k Keeper) InitiativeCompletionBonusPool(ctx context.Context, totalBudget math.Int) math.Int {
 	bonusRate := math.LegacyNewDecWithPrec(1, 1) // 0.1, the shipped default
 	if params, pErr := k.Params.Get(ctx); pErr == nil && !params.InitiativeCompletionBonusRate.IsNil() {
@@ -388,6 +454,48 @@ func (k Keeper) InitiativeCompletionBonusPool(ctx context.Context, totalBudget m
 		return math.ZeroInt()
 	}
 	return math.LegacyNewDecFromInt(totalBudget).Mul(bonusRate).TruncateInt()
+}
+
+// CappedInitiativeCompletionBonusPool is the bonus actually paid:
+//
+//	min(initiative_completion_bonus_rate * budget,
+//	    max_completion_bonus_stake_multiple * external_stake)
+//
+// The budget term alone prices the bonus off the work, not off the risk taken
+// to back it, and those two come apart as the staker count grows. Clearing the
+// conviction gate costs conviction_per_dream^2 * budget / N in total across N
+// stakers, because required_conviction scales with sqrt(budget) while each
+// staker supplies sqrt(stake) — so the same fixed share of budget is a 7.5x
+// return on stake at three stakers, 25x at ten, 62.5x at twenty-five, on any
+// initiative that completes. Capping against capital at risk holds the return
+// at max_completion_bonus_stake_multiple no matter how many stakers split it,
+// and restores the ~4% stake-to-budget ratio the conviction formula was
+// designed around: below roughly bonus_rate/multiple of the budget staked, the
+// stake term binds and the bonus scales down with the capital behind it.
+//
+// A zero or unset multiple disables the bonus rather than uncapping it — a
+// param that has never been written is not a decision to pay without limit.
+func (k Keeper) CappedInitiativeCompletionBonusPool(
+	ctx context.Context,
+	params types.Params,
+	totalBudget math.Int,
+	externalStake math.Int,
+) math.Int {
+	pool := k.InitiativeCompletionBonusPool(ctx, totalBudget)
+	if !pool.IsPositive() {
+		return math.ZeroInt()
+	}
+	multiple := params.MaxCompletionBonusStakeMultiple
+	if multiple.IsNil() || !multiple.IsPositive() {
+		return math.ZeroInt()
+	}
+	if externalStake.IsNil() || !externalStake.IsPositive() {
+		return math.ZeroInt()
+	}
+	if stakeCap := multiple.MulInt(externalStake).TruncateInt(); stakeCap.LT(pool) {
+		return stakeCap
+	}
+	return pool
 }
 
 func (k Keeper) DistributeInitiativeCompletionBonus(ctx context.Context, initiativeID uint64, totalBudget math.Int) error {
@@ -403,6 +511,11 @@ func (k Keeper) DistributeInitiativeCompletionBonus(ctx context.Context, initiat
 		return err
 	}
 
+	params, err := k.Params.Get(ctx)
+	if err != nil {
+		return err
+	}
+
 	// The parent project is needed for the full affiliate set. A missing
 	// project must not silently widen the payout back to everyone, so treat the
 	// lookup failure as fatal rather than falling back to a narrower test.
@@ -413,14 +526,20 @@ func (k Keeper) DistributeInitiativeCompletionBonus(ctx context.Context, initiat
 	}
 	affiliates := k.InvitationNeighborhoodOf(ctx, InitiativeAffiliates(initiative, project)...)
 
-	// Sum conviction over the stakers eligible for the bonus.
-	externalConviction := math.LegacyZeroDec()
-
-	type stakeConviction struct {
-		stake      types.Stake
-		conviction math.LegacyDec
+	// Accumulate RAW (pre-sqrt) conviction per staker, exactly as the
+	// completion gate does in updateInitiativeConvictionWithStakes. Taking the
+	// sqrt per stake record instead — which is what this function used to do —
+	// pays a member who splits one position across k tranches sqrt(k) times as
+	// much for the same capital: ten tranches of 0.049 DREAM weigh 2,214 where
+	// one 0.49 DREAM stake weighs 700. The gate has guarded against exactly
+	// that since it was written; the payout beside it did not, so the exploit
+	// the gate refuses to reward was rewarded one function later.
+	type stakerPosition struct {
+		rawConviction math.LegacyDec
+		principal     math.Int
 	}
-	stakeConvictions := make([]stakeConviction, 0, len(stakes))
+	positions := make(map[string]*stakerPosition, len(stakes))
+	order := make([]string, 0, len(stakes)) // deterministic payout order
 
 	// One staker can hold several stakes; the independence test is per address,
 	// so cache it rather than re-walking the invitation graph for each.
@@ -436,26 +555,59 @@ func (k Keeper) DistributeInitiativeCompletionBonus(ctx context.Context, initiat
 			continue
 		}
 
-		// Calculate conviction for this stake
-		conviction, err := k.CalculateStakeConviction(ctx, stake, initiative.Tags)
+		// Calculate raw conviction for this stake
+		rawConviction, err := k.CalculateRawStakeConviction(ctx, stake, initiative.Tags)
 		if err != nil {
 			continue
 		}
 
-		stakeConvictions = append(stakeConvictions, stakeConviction{
-			stake:      stake,
-			conviction: conviction,
-		})
+		pos, ok := positions[stake.Staker]
+		if !ok {
+			pos = &stakerPosition{rawConviction: math.LegacyZeroDec(), principal: math.ZeroInt()}
+			positions[stake.Staker] = pos
+			order = append(order, stake.Staker)
+		}
+		pos.rawConviction = pos.rawConviction.Add(rawConviction)
+		if !stake.Amount.IsNil() && stake.Amount.IsPositive() {
+			pos.principal = pos.principal.Add(stake.Amount)
+		}
+	}
 
-		externalConviction = externalConviction.Add(conviction)
+	// Dampen and cap each staker's aggregate the way the gate does, so the
+	// weight that earns the bonus is the same number that unlocked the budget.
+	maxPerMember := DerefDec(initiative.RequiredConviction).Mul(params.MaxConvictionSharePerMember)
+
+	type stakerShare struct {
+		staker     string
+		conviction math.LegacyDec
+	}
+	shares := make([]stakerShare, 0, len(order))
+	externalConviction := math.LegacyZeroDec()
+	externalStake := math.ZeroInt()
+
+	for _, staker := range order {
+		pos := positions[staker]
+		dampened, err := pos.rawConviction.ApproxSqrt()
+		if err != nil {
+			continue
+		}
+		if maxPerMember.IsPositive() && dampened.GT(maxPerMember) {
+			dampened = maxPerMember
+		}
+		if !dampened.IsPositive() {
+			continue
+		}
+		shares = append(shares, stakerShare{staker: staker, conviction: dampened})
+		externalConviction = externalConviction.Add(dampened)
+		externalStake = externalStake.Add(pos.principal)
 	}
 
 	if externalConviction.IsZero() {
 		return nil
 	}
 
-	bonusPool := k.InitiativeCompletionBonusPool(ctx, totalBudget)
-	if bonusPool.IsZero() {
+	bonusPool := k.CappedInitiativeCompletionBonusPool(ctx, params, totalBudget, externalStake)
+	if !bonusPool.IsPositive() {
 		return nil
 	}
 
@@ -465,14 +617,10 @@ func (k Keeper) DistributeInitiativeCompletionBonus(ctx context.Context, initiat
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	totalMinted := math.ZeroInt()
 
-	for _, sc := range stakeConvictions {
-		if sc.conviction.IsZero() {
-			continue
-		}
-
+	for _, sh := range shares {
 		// Calculate this staker's share of the bonus pool based on conviction
 		bonusShare := math.LegacyNewDecFromInt(bonusPool).
-			Mul(sc.conviction).
+			Mul(sh.conviction).
 			Quo(externalConviction).
 			TruncateInt()
 
@@ -480,14 +628,14 @@ func (k Keeper) DistributeInitiativeCompletionBonus(ctx context.Context, initiat
 			continue
 		}
 
-		stakerAddr, err := sdk.AccAddressFromBech32(sc.stake.Staker)
+		stakerAddr, err := sdk.AccAddressFromBech32(sh.staker)
 		if err != nil {
-			return fmt.Errorf("invalid staker address %q on stake %d: %w", sc.stake.Staker, sc.stake.Id, err)
+			return fmt.Errorf("invalid staker address %q on initiative %d: %w", sh.staker, initiativeID, err)
 		}
 
 		// Mint bonus to staker
 		if err := k.MintDREAM(ctx, stakerAddr, bonusShare); err != nil {
-			return fmt.Errorf("failed to mint completion bonus for staker %s: %w", sc.stake.Staker, err)
+			return fmt.Errorf("failed to mint completion bonus for staker %s: %w", sh.staker, err)
 		}
 		totalMinted = totalMinted.Add(bonusShare)
 
@@ -496,10 +644,10 @@ func (k Keeper) DistributeInitiativeCompletionBonus(ctx context.Context, initiat
 			sdk.NewEvent(
 				"initiative_completion_bonus",
 				sdk.NewAttribute("initiative_id", fmt.Sprintf("%d", initiativeID)),
-				sdk.NewAttribute("stake_id", fmt.Sprintf("%d", sc.stake.Id)),
-				sdk.NewAttribute("staker", sc.stake.Staker),
+				sdk.NewAttribute("staker", sh.staker),
 				sdk.NewAttribute("bonus", bonusShare.String()),
-				sdk.NewAttribute("conviction", sc.conviction.String()),
+				sdk.NewAttribute("conviction", sh.conviction.String()),
+				sdk.NewAttribute("stake", positions[sh.staker].principal.String()),
 			),
 		)
 	}
@@ -516,37 +664,97 @@ func (k Keeper) DistributeInitiativeCompletionBonus(ctx context.Context, initiat
 	return nil
 }
 
-// DistributeProjectCompletionBonus distributes 5% completion bonus to project stakers
-func (k Keeper) DistributeProjectCompletionBonus(ctx context.Context, projectID uint64, finalBudget math.Int) error {
+// DistributeProjectCompletionBonus distributes the project completion bonus
+// to the project's EXTERNAL stakers, and returns the DREAM actually minted so
+// the caller can account it against the per-season cap.
+//
+// This is the project-side mirror of CappedInitiativeCompletionBonusPool plus
+// DistributeInitiativeCompletionBonus, and it now carries the same three
+// hardenings the initiative side already had — none of which it had before:
+//
+//  1. Stake-multiple cap. The bonus is bounded at
+//     max_completion_bonus_stake_multiple x totalStaked. Priced off the
+//     budget alone, a 0.001 DREAM dust stake on a PROPOSED project captured
+//     the entire 5% of a completing project's spent budget — a ~500,000x
+//     return on the min stake, exactly the exploit class the multiple was
+//     introduced to kill on initiatives.
+//  2. External filter. The project creator (and their invitation
+//     neighborhood) is excluded: insiders staking on their own project are
+//     not vouching for it, the same arm's-length test the initiative bonus
+//     applies. The withheld share is never minted, not redistributed.
+//  3. Season-cap accounting. The bonus is clamped to the headroom left under
+//     max_initiative_rewards_per_season and the minted total is returned for
+//     TrackInitiativeRewardMint — project completions used to mint entirely
+//     outside the cap that initiative completions are gated by.
+//
+// Unlike the initiative gate (which refuses the completion), cap pressure here
+// clamps the bonus rather than failing the terminal transition: CompleteProject
+// settles stakes and flips the project COMPLETED, and a payout cap should not
+// be able to wedge a terminal state transition.
+//
+// A zero or unset MaxCompletionBonusStakeMultiple disables the bonus rather
+// than uncapping it, mirroring the initiative side.
+func (k Keeper) DistributeProjectCompletionBonus(ctx context.Context, projectID uint64, finalBudget math.Int) (math.Int, error) {
 	params, err := k.Params.Get(ctx)
 	if err != nil {
-		return err
+		return math.ZeroInt(), err
 	}
 
-	// Calculate 5% bonus pool
-	bonusPool := math.LegacyNewDecFromInt(finalBudget).
-		Mul(params.ProjectCompletionBonusRate).
-		TruncateInt()
-
-	if bonusPool.IsZero() {
-		return nil
+	project, err := k.GetProject(ctx, projectID)
+	if err != nil {
+		return math.ZeroInt(), fmt.Errorf("failed to load project %d for completion bonus: %w", projectID, err)
 	}
 
-	// Get project stake info to get total staked
 	projectInfo, err := k.GetProjectStakeInfo(ctx, projectID)
 	if err != nil {
 		// No stakes on this project
-		return nil
+		return math.ZeroInt(), nil
 	}
-
 	if projectInfo.TotalStaked.IsZero() {
-		return nil
+		return math.ZeroInt(), nil
 	}
 
-	// The bonus is paid out in full immediately, below — nothing is escrowed,
-	// so nothing is accumulated into projectInfo.CompletionBonusPool. That field
-	// was previously incremented here and never read back anywhere, which
-	// misrepresented a deferred-claim liability that does not exist.
+	// Cap 1: rate on the budget actually spent.
+	bonusPool := math.LegacyNewDecFromInt(finalBudget).
+		Mul(params.ProjectCompletionBonusRate).
+		TruncateInt()
+	if !bonusPool.IsPositive() {
+		return math.ZeroInt(), nil
+	}
+
+	// Cap 2: multiple of the DREAM actually staked behind the project.
+	multiple := params.MaxCompletionBonusStakeMultiple
+	if multiple.IsNil() || !multiple.IsPositive() {
+		return math.ZeroInt(), nil
+	}
+	if stakeCap := multiple.MulInt(projectInfo.TotalStaked).TruncateInt(); stakeCap.LT(bonusPool) {
+		bonusPool = stakeCap
+	}
+	if !bonusPool.IsPositive() {
+		return math.ZeroInt(), nil
+	}
+
+	// Cap 3: headroom under the per-season initiative reward cap.
+	seasonMinted, err := k.GetSeasonInitiativeRewardsMinted(ctx)
+	if err != nil {
+		return math.ZeroInt(), err
+	}
+	headroom := params.MaxInitiativeRewardsPerSeason.Sub(seasonMinted)
+	if !headroom.IsPositive() {
+		headroom = math.ZeroInt()
+	}
+	if headroom.LT(bonusPool) {
+		bonusPool = headroom
+	}
+	if !bonusPool.IsPositive() {
+		return math.ZeroInt(), nil
+	}
+
+	stakes, err := k.GetProjectStakes(ctx, projectID)
+	if err != nil || len(stakes) == 0 {
+		return math.ZeroInt(), err
+	}
+
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	sdkCtx.EventManager().EmitEvent(
 		sdk.NewEvent(
@@ -557,59 +765,52 @@ func (k Keeper) DistributeProjectCompletionBonus(ctx context.Context, projectID 
 		),
 	)
 
-	// Distribute bonus to all project stakers immediately
-	if err := k.distributeProjectBonusToStakers(ctx, projectID, bonusPool, projectInfo.TotalStaked); err != nil {
-		return err
-	}
+	// External stakers only, pro-rata by principal. No conviction weighting:
+	// the project bonus prices breadth of backing, and the stake-multiple cap
+	// above is what bounds the return on a late or tiny position.
+	neighborhood := k.InvitationNeighborhoodOf(ctx, project.Creator)
 
-	return nil
-}
-
-// distributeProjectBonusToStakers distributes project completion bonus to all stakers
-func (k Keeper) distributeProjectBonusToStakers(ctx context.Context, projectID uint64, bonusPool math.Int, totalStaked math.Int) error {
-	// Get all stakes for this project
-	stakes, err := k.GetProjectStakes(ctx, projectID)
-	if err != nil || len(stakes) == 0 {
-		return err
-	}
-
-	sdkCtx := sdk.UnwrapSDKContext(ctx)
-
+	totalMinted := math.ZeroInt()
 	for _, stake := range stakes {
-		if stake.Amount.IsZero() {
+		if stake.Amount.IsNil() || !stake.Amount.IsPositive() {
+			continue
+		}
+		if !k.IsStakerExternalTo(ctx, stake.Staker, neighborhood) {
 			continue
 		}
 
-		// Calculate this staker's share: (stake.Amount / totalStaked) * bonusPool
 		bonusShare := math.LegacyNewDecFromInt(bonusPool).
 			Mul(math.LegacyNewDecFromInt(stake.Amount)).
-			Quo(math.LegacyNewDecFromInt(totalStaked)).
+			Quo(math.LegacyNewDecFromInt(projectInfo.TotalStaked)).
 			TruncateInt()
-
-		if bonusShare.GT(math.ZeroInt()) {
-			stakerAddr, err := sdk.AccAddressFromBech32(stake.Staker)
-			if err != nil {
-				continue
-			}
-
-			// Mint bonus to staker
-			if err := k.MintDREAM(ctx, stakerAddr, bonusShare); err != nil {
-				continue
-			}
-
-			// Emit event
-			sdkCtx.EventManager().EmitEvent(
-				sdk.NewEvent(
-					"project_completion_bonus_distributed",
-					sdk.NewAttribute("project_id", fmt.Sprintf("%d", projectID)),
-					sdk.NewAttribute("stake_id", fmt.Sprintf("%d", stake.Id)),
-					sdk.NewAttribute("staker", stake.Staker),
-					sdk.NewAttribute("bonus", bonusShare.String()),
-					sdk.NewAttribute("stake_amount", stake.Amount.String()),
-				),
-			)
+		if !bonusShare.IsPositive() {
+			continue
 		}
+
+		stakerAddr, err := sdk.AccAddressFromBech32(stake.Staker)
+		if err != nil {
+			continue
+		}
+		if err := k.MintDREAM(ctx, stakerAddr, bonusShare); err != nil {
+			// Same containment as the old helper: one failed payout must not
+			// void the others or the project's terminal transition.
+			sdkCtx.Logger().Error("failed to mint project completion bonus",
+				"project_id", projectID, "staker", stake.Staker, "error", err)
+			continue
+		}
+		totalMinted = totalMinted.Add(bonusShare)
+
+		sdkCtx.EventManager().EmitEvent(
+			sdk.NewEvent(
+				"project_completion_bonus_distributed",
+				sdk.NewAttribute("project_id", fmt.Sprintf("%d", projectID)),
+				sdk.NewAttribute("stake_id", fmt.Sprintf("%d", stake.Id)),
+				sdk.NewAttribute("staker", stake.Staker),
+				sdk.NewAttribute("bonus", bonusShare.String()),
+				sdk.NewAttribute("stake_amount", stake.Amount.String()),
+			),
+		)
 	}
 
-	return nil
+	return totalMinted, nil
 }

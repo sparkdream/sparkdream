@@ -77,17 +77,39 @@ func (k Keeper) stakeAccumulator(ctx context.Context, stake types.Stake) (math.L
 }
 
 // stakeAccruing reports whether the stake is currently earning from its pool.
-// Only project stakes can be frozen: a project that is no longer ACTIVE stops
-// accruing, matching the long-standing behaviour of getPendingProjectRewards.
+//
+// Project stakes accrue only while the project is ACTIVE, matching the
+// long-standing behaviour of getPendingProjectRewards. Initiative stakes accrue
+// until the initiative reaches a terminal status.
+//
+// The initiative half was missing, and the gap was not symmetric with the
+// project one: CompleteInitiative deletes the stakes it pays out, but
+// CloseInitiative and the challenge-REJECTED path leave them in place. Those
+// stakes went on drawing the seasonal yield forever against work that had been
+// retired or thrown out, and their principal went on diluting total_staked for
+// everyone still backing live work. Nothing distinguished a shipping initiative
+// from an abandoned one.
+//
+// Both terminal transitions now settle their stakes first (see
+// settleInitiativeStakes), so what this freezes is future accrual, not rewards
+// already earned while the work was live.
 func (k Keeper) stakeAccruing(ctx context.Context, stake types.Stake) (bool, error) {
-	if stake.TargetType != types.StakeTargetType_STAKE_TARGET_PROJECT {
-		return true, nil
+	switch stake.TargetType {
+	case types.StakeTargetType_STAKE_TARGET_PROJECT:
+		project, err := k.GetProject(ctx, stake.TargetId)
+		if err != nil {
+			return false, err
+		}
+		return project.Status == types.ProjectStatus_PROJECT_STATUS_ACTIVE, nil
+
+	case types.StakeTargetType_STAKE_TARGET_INITIATIVE:
+		initiative, err := k.GetInitiative(ctx, stake.TargetId)
+		if err != nil {
+			return false, err
+		}
+		return !types.IsInitiativeTerminal(initiative.Status), nil
 	}
-	project, err := k.GetProject(ctx, stake.TargetId)
-	if err != nil {
-		return false, err
-	}
-	return project.Status == types.ProjectStatus_PROJECT_STATUS_ACTIVE, nil
+	return true, nil
 }
 
 // stakeRewardDebt reads a stake's reward debt, normalising the nil Int that
@@ -166,10 +188,14 @@ func (k Keeper) settleStake(
 		return stake, empty, err
 	}
 	if !accruing {
-		// Accrual is frozen (non-ACTIVE project). Scale the existing debt to the
-		// new principal instead of rebasing to the live accumulator, so a staker
-		// who trims their position keeps a proportional claim on what they had
-		// already earned rather than forfeiting it.
+		// Accrual is frozen (non-ACTIVE project): the shared accumulator keeps
+		// advancing on the strength of the still-live stakers, so settling
+		// against it would credit growth this stake is not entitled to.
+		// Terminal transitions settle everything payable while the project is
+		// still ACTIVE (see settleProjectStakes), so a stake arriving here with
+		// a residual claim either predates that settle or lost it to a mint-cap
+		// failure at the transition. Scale the debt with the principal so
+		// trimming the position does not inflate the residual claim.
 		stake.RewardDebt = scaleRewardDebt(stakeRewardDebt(stake), stake.Amount, newAmount)
 		return stake, empty, nil
 	}
@@ -192,6 +218,19 @@ func (k Keeper) settleStake(
 	}
 	if err := k.MintDREAM(ctx, stakerAddr, pending); err != nil {
 		return stake, empty, fmt.Errorf("failed to mint staking reward for stake %d: %w", stake.Id, err)
+	}
+	// Seasonal-pool payouts are excluded from the base that sizes the next
+	// season's pool; see TrackStakingRewardMint. Member and tag settlements
+	// are NOT: their DREAM is initiative-completion revenue share —
+	// production, already counted against the per-season initiative cap at
+	// the completion that accrued it — so it belongs IN the pool-sizing base.
+	// Subtracting it here as well would have excluded it twice.
+	switch stake.TargetType {
+	case types.StakeTargetType_STAKE_TARGET_INITIATIVE,
+		types.StakeTargetType_STAKE_TARGET_PROJECT:
+		if err := k.TrackStakingRewardMint(ctx, pending); err != nil {
+			return stake, empty, fmt.Errorf("failed to track staking reward for stake %d: %w", stake.Id, err)
+		}
 	}
 	settlement.Minted = pending
 

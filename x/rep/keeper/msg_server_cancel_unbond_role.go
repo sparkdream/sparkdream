@@ -59,6 +59,8 @@ func (k msgServer) CancelUnbondRole(ctx context.Context, msg *types.MsgCancelUnb
 
 	newPending := pending.Sub(amount)
 
+	now := sdk.UnwrapSDKContext(ctx).BlockTime().Unix()
+
 	if newPending.IsZero() {
 		// Full cancel: clear the unbond and return the role to active status.
 		currentBond, err := parseIntOrZero(br.CurrentBond)
@@ -67,7 +69,12 @@ func (k msgServer) CancelUnbondRole(ctx context.Context, msg *types.MsgCancelUnb
 		}
 		br.PendingUnbondAmount = "0"
 		br.UnbondCompletionTime = 0
-		br.BondStatus = k.computeBondStatus(ctx, msg.RoleType, currentBond)
+		// Cancelling an unbond must not launder away an unexpired demotion:
+		// without this clamp, unbond(token amount) -> cancel returned the role
+		// to NORMAL immediately, since status was recomputed from bond size
+		// alone.
+		br.BondStatus = clampStatusToDemotionCooldown(br, now,
+			k.computeBondStatus(ctx, msg.RoleType, currentBond))
 	} else {
 		// Partial cancel: shrink pending, keep the role UNBONDING on its
 		// existing clock.

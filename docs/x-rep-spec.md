@@ -111,6 +111,23 @@ message Member {
   // reputation_scores). Display-only — never read by the trust-level ladder, so
   // forum rep accrued in an early season cannot ride into TRUSTED/CORE later.
   map<string, string> lifetime_forum_rep_per_tag = 32;
+
+  // Height-domain twin of joined_at (a unix timestamp). The new-member decay
+  // grace window is denominated in epochs — height / epoch_blocks — so it has
+  // to be measured against a height. Dividing the timestamp by epoch_blocks
+  // produced an astronomically large join epoch, a deeply negative member age,
+  // and a grace window that never expired for invited members. Records written
+  // before this field carry 0, which reads as "joined at genesis" — the same
+  // behaviour genesis-seeded members have always had.
+  int64 joined_at_height = 33;
+
+  // Aggregate DREAM held in content-conviction stakes across ALL content items
+  // (blog, forum, collection), backing max_total_content_stake_per_member.
+  // Maintained by updateStakePoolTotals, the single choke point for
+  // stake-amount mutations, and recomputed by ReconcileStakePoolTotals on
+  // genesis import. Author bonds are excluded — slashable escrow with its own
+  // per-item cap. Nil on older records; readers must treat nil as zero.
+  string content_staked_dream = 34 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
 }
 
 enum TrustLevel {
@@ -726,18 +743,72 @@ message ProjectStakeInfo {
 | Blog/Forum/Collection Content | None (conviction only) | Time-weighted conviction score | DREAM returned on unstake after cooldown |
 | Blog/Forum/Collection Author Bond | None (signal only) | Flat bond amount (no conviction score) | DREAM returned on unstake, or slashed on moderation |
 
-**Seasonal Reward Pool**: At the start of each season, `MaxStakingRewardsPerSeason` DREAM is allocated as the staking reward budget. Each epoch, `pool / remaining_epochs` is distributed pro-rata to all initiative and project stakers. When the pool is exhausted, no more staking rewards are minted until the next season. This makes effective APY self-adjusting: more total staked DREAM → lower per-unit yield; less staked → higher yield.
+**Seasonal Reward Pool**: At the start of each season a staking reward budget is allocated, sized from what the chain actually produced rather than from the calendar:
 
-The pool is seeded in `InitGenesis` and refilled by x/season at the end of each season transition (`RepKeeper.InitSeasonalPool`). The epoch slice is taken in `EndBlocker` step 8, gated on `IsEpochEnd` — the distribution call itself is per-block, so without that gate a season's whole budget would drain `epoch_blocks` times too fast.
+```
+activity = staking_pool_mint_share * (season_minted - season_staking_rewards_minted)
+schedule = staking_pool_cap_base * (season + 1) * staking_pool_cap_rate
+budget   = min(activity, schedule, max_staking_rewards_per_season)
+```
+
+The counters hold the outgoing season's totals when `InitSeasonalPool` runs, so `activity` is last season's production — known and fixed at the moment the budget must be set. Staking rewards are subtracted from that base so a season's emission cannot fund the next season's. A chain with no mint history at all (genesis) falls back to the schedule ceiling.
+
+Each epoch distributes `min(pool / remaining_epochs, staking_reward_yield_per_epoch * total_staked)` pro-rata to initiative and project stakers. **Both halves of that minimum are load-bearing.** Per-unit yield is `pool / total_staked`, which does not self-adjust downward as the staked base shrinks — it diverges. A devnet running 1.47 DREAM as its entire staked base handed the whole season budget to three dust stakes; `acc_per_share` climbed until settling any one of them exceeded `max_dream_mint_per_epoch`, at which point every path that settles a stake reverted — claim, unstake, and initiative completion alike, stranding an initiative in `IN_REVIEW` past its challenge window. The per-epoch yield cap is what bounds that. What it withholds stays in `SeasonalPoolRemaining` rather than being distributed or dropped, so a season that opens quiet can still pay out in full if staking picks up before it closes. Likewise, an epoch with nothing staked leaves its slice in the pool rather than spending it into a void.
+
+**Which half of that minimum binds, and what follows.** The two terms cross at
+`total_staked = budget / (season_duration_epochs * staking_reward_yield_per_epoch)`
+— with the default 25,000 DREAM budget over 150 epochs at 0.05%/epoch, that is
+**333,333 DREAM staked**, roughly 13x the genesis DREAM supply. Below it the
+yield cap binds and emission is simply `staking_reward_yield_per_epoch *
+total_staked`: a flat interest rate, not a divided pool, with no dilution
+between stakers and no competition for a fixed budget. `seasonalPoolBudget`'s
+three sizing terms (`max_staking_rewards_per_season`, `staking_pool_mint_share`,
+`staking_pool_cap_base`/`_rate`) therefore do not affect the outcome at any
+staked base this chain will see soon. What they withhold now carries over:
+`InitSeasonalPool` adds the outgoing season's unspent `SeasonalPoolRemaining`
+to the incoming budget and re-caps the total at `max_staking_rewards_per_season`,
+so a season that opened quiet pays out what was withheld once staking picks up,
+in that season or the next, instead of the budget being discarded at the
+rollover. They are a ceiling held in reserve for a chain
+whose staked base has grown past the crossover; until then
+`staking_reward_yield_per_epoch` is the only live knob. Net of
+`staked_decay_rate` (0.025%/epoch) the real yield is ~0.025%/epoch — 3.75% over
+a 150-epoch season.
+
+**Why both were halved.** The gradient that actually drives staking is
+`yield - staked_decay + unstaked_decay`. At the original 0.1/0.05/0.2 that is
+0.25%/epoch, of which `unstaked_decay` supplies 0.2 — **80% of the reason to
+stake is the penalty for not staking, not the reward for staking**. Halving the
+staked pair to 0.05/0.025 moves the gradient to 0.225%/epoch, a 10% cut in the
+incentive, while halving gross emission: delivering a real +0.05% previously
+required minting 0.1% and burning 0.05%, twice the mint volume through
+`max_dream_mint_per_epoch` for the same net position. The emission freed this
+way went to `max_completion_bonus_stake_multiple` (2.0 -> 3.0), the one payout
+conditioned on work actually shipping — the flat seasonal yield pays the same
+whether a stake backs a live initiative or a dormant tag, so it cannot be the
+lever that encourages work.
+
+The pool is seeded in `InitGenesis` and refilled by x/season at the end of each season transition (`RepKeeper.InitSeasonalPool`). The epoch slice is taken in `EndBlocker` step 8, gated on `IsEpochEnd` — the distribution call itself is per-block, so without that gate a season's whole budget would drain `epoch_blocks` times too fast. The slice's `remaining_epochs` denominator is anchored to the epoch stored at pool initialization (`SeasonalPoolStartEpoch`, written by `InitSeasonalPool`), not to a modulo of the raw epoch counter: seasons are driven by x/season, whose `SeasonDurationEpochs` is a separate param from x/rep's, and the anchor makes the drain schedule follow wherever the boundary actually fell, re-anchoring at every rollover.
 
 **Reward accounting (MasterChef)**: All four reward-bearing target types share one settlement path, `settleStake` in [x/rep/keeper/stake_settlement.go](../x/rep/keeper/stake_settlement.go). Every site that mutates a stake's amount or pays it out — create, claim, compound, unstake, initiative completion — goes through it, and it dispatches on target type to the accumulator that owns the stake: the shared seasonal `acc_per_share` for `INITIATIVE` and `PROJECT`, the per-target `MemberStakePool` / `TagStakePool` accumulator for `MEMBER` and `TAG`. Two invariants make the pattern correct and are both maintained there:
 
 - `reward_debt` is set to `amount × acc_per_share` at join and rebased to `new_amount × acc_per_share` on every settlement. This is what makes a new staker's pending balance start at zero rather than at the pool's whole accumulated history, and it is why a stake placed just before a distribution earns nothing from it. A partial withdrawal rebases against the *remaining* amount, so a shrunken stake does not sit under a debt sized for its original principal.
 - `total_staked` moves in lockstep with `stake.Amount` in both directions, via `updateStakePoolTotals`. A project stake moves two denominators (its own `ProjectStakeInfo` and the seasonal pool). `ReconcileStakePoolTotals` recomputes every denominator from live stakes and runs at genesis import.
 
-**Accumulator is monotonic across seasons.** `InitSeasonalPool` refills `SeasonalPoolRemaining` but does *not* reset `acc_per_share`. Since each stake's `reward_debt` is a snapshot of the accumulator, zeroing it at a season boundary would leave every surviving stake holding a debt larger than the accumulator it is measured against, silently paying nothing until the new season climbed back past the old value. Per-season budgeting is enforced by `SeasonalPoolRemaining` alone.
+**Accumulator is rebased on genesis import.** `acc_per_share` is derived state that genesis does not carry, while `reward_debt` is exported with each stake — so an import resumes with the accumulator back at zero and every stake still holding a debt taken against the old one. `RebaseStakeRewardDebt` runs from `InitGenesis` (after `ReconcileStakePoolTotals`) and re-measures every initiative and project stake against the accumulator it will actually earn from. Without it a stake with positive debt silently earns nothing until the accumulator climbs back past its stale figure, and a stake whose debt is zero because it predates any distribution keeps claiming from zero against whatever the accumulator later becomes.
+
+**Accumulator is monotonic across seasons.** `InitSeasonalPool` re-sizes `SeasonalPoolRemaining` but does *not* reset `acc_per_share`. Since each stake's `reward_debt` is a snapshot of the accumulator, zeroing it at a season boundary would leave every surviving stake holding a debt larger than the accumulator it is measured against, silently paying nothing until the new season climbed back past the old value. Per-season budgeting is enforced by `SeasonalPoolRemaining` alone.
 
 **Minimum holding period.** `min_stake_duration_seconds` (24 hours) gates reward collection, not principal return. Claiming or compounding earlier is rejected with `ErrStakeMinDurationNotMet` and forfeits nothing — the debt is untouched, so rewards keep accruing. Unstaking earlier always returns the principal but forfeits the accrued rewards: the debt is rebased without minting, so the DREAM is never created and simply stays in the pool for the remaining stakers.
+
+**It must fit inside a season.** Set longer than `epoch_blocks *
+season_duration_epochs * 6` seconds, the gate stops being a holding period and
+becomes an unconditional forfeiture: no stake opened in a season can ever claim
+within it, and every stake closed within it loses everything it accrued. Devnet
+shipped that way — a 24h gate over a 15h season — because both values were
+copied from production independently and nothing related them. Devnet now pins
+1800s and the local `config.yml` 60s; `TestRepMinStakeDurationFitsSeason` in the
+cross-network invariants enforces the relation on every network.
 
 **Compounding is member/tag only.** `MsgCompoundStakingRewards` rejects `INITIATIVE` and `PROJECT` stakes with `ErrCompoundNotSupported`. Growing those principals in place would give the added DREAM the conviction maturity of the original `created_at` — the exact exploit that separate stake tranches exist to prevent. Those stakers claim and re-stake, which routes the new DREAM through `CreateStake`'s per-member cap and starts it on a fresh maturity clock.
 
@@ -760,7 +831,48 @@ Consequences worth knowing:
 - Initiatives that leave the active status set are dropped from the queue by the drainer itself, so completion, cancellation, abandonment and expiry are all covered without a hook in each transition.
 - The queue and the `InitiativesByContent` reverse index are derived state and are not exported in genesis. `InitGenesis` rebuilds the reverse index from `ContentInitiativeLinks` and calls `RearmConvictionQueue`, which is also available as a recovery hatch if the queue is ever suspected of having drifted.
 
-**Every derived index must be rebuilt on import.** Derived indexes are not exported, so `InitGenesis` rebuilds all of them from the primary collections: `Project`, `Initiative` and `Challenge` by status, and `JuryReview` by verdict and by juror. Covered by `TestGenesisRebuildsDerivedIndexes`.
+**Every derived index must be rebuilt on import.** Derived indexes are not exported, so `InitGenesis` rebuilds all of them from the primary collections: `Project`, `Initiative` and `Challenge` by status, `JuryReview` by verdict and by juror, `Stake` by target, `Interim` by status, `ContentChallenge` by status and by target, and `Invitation` by invitee. Covered by `TestGenesisRebuildsDerivedIndexes` and `TestGenesisRebuildsStakeAndInvitationIndexes`.
+
+> The last four were missing while the first four carried comments explaining why they mattered. Their absence was not cosmetic:
+>
+> - **Stake by target** is the worst. Conviction is recomputed from `GetInitiativeStakes`, which reads this index, so every imported stake was invisible — initiatives could never reach their threshold, and `CompleteInitiative` settled nothing, leaving the principal stranded in records no payout path could see.
+> - **Invitation by invitee** is what `ProcessInviterAccountability` resolves an invitee's invitation through, so an unrebuilt index silently disables the invitation slash on top of failing the duplicate-invitation guard open.
+> - **Interim by status** is walked by the EndBlocker expiry sweep; without it no imported interim ever expires.
+> - **ContentChallenge by status** is walked by the unanswered-challenge sweep, and **by target** enforces one live challenge per content item, which otherwise fails open. Only unresolved statuses (`ACTIVE`, `IN_JURY_REVIEW`) reclaim the target slot — `isLiveContentChallenge` — since every terminal transition frees it.
+
+**The economic ledger travels in genesis.** x/rep keeps DREAM outside x/bank, so
+its treasury, season counters, seasonal pool and per-epoch mint allowance are
+recoverable from nowhere else. `GenesisState.economic_state` (field 43) carries
+them; `GiftRecordEntry` (field 44) carries the per-recipient gift cooldowns, and
+the long-present pool fields 17-19 are finally populated. Without this an import
+was not a partial restore but a different economy: zero treasury, zero season
+counters (re-opening every per-season cap mid-season), a reset mint allowance,
+and a decay clock that re-applied an extra epoch.
+
+It also made `InitGenesis`'s "only seed an uninitialised pool" guard dead code —
+`SeasonalPoolRemaining` always read zero on import, so every import refilled a
+whole season's budget over whatever the exporting chain had left. `InitGenesis`
+now restores the ledger *before* that guard and skips seeding when a pool with a
+remaining budget was imported.
+
+Two halves are deliberately NOT carried, because they are derived and
+`ReconcileStakePoolTotals` owns them: the pool `total_staked` denominators
+(recomputed from live stake records) and `SeasonalPoolTotalStaked`. The
+accumulators are the half that cannot be recomputed from anything, which is why
+they have to travel. Regressions: `TestGenesisRoundTripsEconomicLedger`,
+`TestGenesisRoundTripsMemberAndTagPools`.
+
+**Registered invariants.** `RegisterInvariants` wires four checks into
+`x/crisis`, where the module previously registered none — so a drifted pool
+denominator, an inverted staked/balance relation, a negative treasury, or an
+emission counter past its cap were all undetectable on-chain:
+>
+> | Invariant | Catches | Grade |
+> |---|---|---|
+> | `seasonal-pool-denominator` | `SeasonalPoolTotalStaked` drifting from the live initiative+project stake sum — every seasonal payout divides by it | halting |
+> | `member-staked-within-balance` | `staked_dream` exceeding `dream_balance` (it is a subset) or either going negative | halting |
+> | `treasury-non-negative` | a treasury spend path failing to clamp | halting |
+> | `season-caps-not-exceeded` | an emission counter above the cap that gates it, i.e. a payout that minted without charging the gate | warning — a governance cap cut mid-season legitimately leaves the counter above it |
 
 > This is a correctness requirement, not housekeeping. `HasActiveChallenges` reads the challenge-by-status index and `CanCompleteInitiative` reads that, so an unrebuilt challenge index makes an unresolved challenge **invisible** — and a challenged initiative pays out after a genesis restart. Only `Project` was rebuilt originally; the other three were not. Any new derived index has to be added here at the same time it is added to the keeper.
 
@@ -768,10 +880,63 @@ Consequences worth knowing:
 
 **Completion bonus is for external stakers only.** The bonus rewards independent vouching, so it is paid only to stakers who pass the same test the external-conviction floor uses — `InitiativeAffiliates` plus the one invitation hop. It previously excluded the assignee and apprentice alone, which made it the third and last place in the module defining affiliation differently from the other two: the initiative's own author and the parent project's creator were paid as though they were arm's-length backers, on top of the completer share the assignee already receives. Insiders staking on their own commission are not vouching for it. Their principal is untouched — stakes are settled and returned regardless — and the withheld share is simply never minted rather than redistributed, so excluding insiders reduces emission instead of concentrating it.
 
-The pool is `initiative_completion_bonus_rate` (default 0.1) of the budget. It
-was a hardcoded 1/10 divisor while the project-side
+The pool is `initiative_completion_bonus_rate` (default 0.1) of the budget, **capped
+at `max_completion_bonus_stake_multiple` (default 3.0) times the external DREAM
+actually staked behind the initiative**:
+
+```
+bonus_pool = min(initiative_completion_bonus_rate * budget,
+                 max_completion_bonus_stake_multiple * external_stake)
+```
+
+The rate was a hardcoded 1/10 divisor while the project-side
 `project_completion_bonus_rate` was already a parameter — the same economic knob,
 tunable on one side and fixed on the other.
+
+**Why the bonus cannot be priced off the budget alone.** `required_conviction`
+is `conviction_per_dream * sqrt(budget)` and each staker supplies `sqrt(stake)`,
+so N stakers clear the gate with `conviction_per_dream^2 * budget / N` between
+them — 4% of the budget at one staker, 1.33% at three, 0.4% at ten. The capital
+needed falls as `1/N` while a fixed share of the budget does not, which made
+each staker's return `2.5 * N` times their own stake: 7.5x at three stakers,
+25x at ten, 62.5x at twenty-five, risk-free on any initiative that completes,
+bounded only by neighborhood independence and `max_initiative_rewards_per_season`.
+
+Capping against capital at risk holds the return at
+`max_completion_bonus_stake_multiple` regardless of how many stakers split it,
+and restores the ~4% stake-to-budget ratio the conviction formula was designed
+around: below roughly `bonus_rate / multiple` of the budget staked, the stake
+term binds and the bonus scales down with the capital behind it. The falling
+capital-per-participant is the intended quadratic-funding shape and is left
+alone — only the payout is repriced.
+
+**The bonus is weighted on the same conviction the gate counts.** Raw conviction
+is aggregated per staker, the sqrt is taken once on that aggregate, and the
+result is capped at `max_conviction_share_per_member` — exactly what
+`updateInitiativeConvictionWithStakes` does. Taking the sqrt per *stake record*
+instead, which the payout did originally, pays a member who splits one position
+across `k` tranches `sqrt(k)` times as much for identical capital: ten tranches
+of 0.049 DREAM weigh 2,214 where one 0.49 DREAM stake weighs 700. The completion
+gate has guarded against stake splitting since it was written; the payout beside
+it did not, so the exploit the gate refuses to reward was rewarded one function
+later. Regression: `TestCompletionBonus_SplittingAStakeGivesNoAdvantage`, and
+`TestCompletionBonus_CapsAtAMultipleOfTheStakeBehindIt` for the cap.
+
+Applying the per-member conviction cap to the payout also means a staker whose
+conviction was capped for the purpose of unlocking the budget is paid on the
+capped figure, not an uncapped one — two stakers both above the cap are paid
+equally no matter how far above it they are.
+
+**Minimum stake.** `min_stake_amount` (default 1,000 micro-DREAM = 0.001 DREAM)
+floors every stake `MsgStake` can open. There was no floor, and every weighting
+a stake feeds is either per-record or sqrt-scaled, so a member could open the
+ten tranches `MaxStakeTranchesPerTarget` allows at one micro-DREAM each and
+still count as a participant everywhere conviction is weighed. The default is
+the point below which a stake cannot earn at all — an epoch slice is
+`staking_reward_yield_per_epoch * total_staked` truncated to an integer, which
+is zero under 1,000 micro-DREAM at the default yield — so it is state hygiene
+rather than an economic gate. What bounds the return on a small position is
+`max_completion_bonus_stake_multiple`.
 
 **Season cap gate.** `CompleteInitiative` checks `MaxInitiativeRewardsPerSeason` against *every* DREAM the completion will create — completer share, treasury share, the conviction-weighted staker bonus, and the reviewers' fee — not just the first two. All four are freshly minted inside the same function; the last two used to be minted *after* the gate and counted only afterwards, so a completion could be admitted and then mint past the cap it had just cleared, overrunning by up to ~15% of that initiative's budget.
 
@@ -779,9 +944,13 @@ Both added projections are upper bounds and are skipped when the payout cannot h
 
 **Completion bonus ordering.** `CompleteInitiative` distributes the conviction-weighted completion bonus (`initiative_completion_bonus_rate`, default 1/10th of budget) *before* the payout loop deletes the stake records — the weighting is derived from `stake.created_at`, so running it afterwards leaves it nothing to weight. The bonus mint is tracked against `MaxInitiativeRewardsPerSeason` alongside the completer and treasury shares, **and is projected at the cap gate before any minting** — see "Season cap gate" below. The project-side equivalent (`ProjectCompletionBonusRate`) mints directly to stakers; `ProjectStakeInfo.completion_bonus_pool` is vestigial and stays at zero, since nothing is escrowed.
 
-**Staked Decay**: All staked DREAM decays at `StakedDecayRate` (0.05%/epoch, ~18% annualized). This ensures idle stakes erode over time even though the rate is lower than unstaked decay (0.2%/epoch). Active stakers earning from the seasonal pool easily outpace the staked decay, but abandoned stakes are gradually burned.
+**Staked Decay**: Reward-bearing stake records (initiative, project, member, tag, content conviction) decay at `StakedDecayRate` (0.025%/epoch, ~8.7% annualized compounded), applied once per epoch by `decayStakes` in the EndBlocker bulk decay pass. Each stake's `Amount`, its pool denominators (seasonal pool, per-project info, member/tag pools), its `reward_debt` (scaled with the principal so the pending claim shrinks proportionally instead of clamping to zero), and the staker's `staked_dream`/`dream_balance`/`lifetime_burned` all move in lockstep, so the member aggregate always equals the sum of the obligations backing it and every unlock can be paid in full. This replaces the earlier design that decayed only the `member.StakedDream` aggregate: that left every obligation at face value against a shrinking aggregate, and `UnlockDREAM`'s cap-to-actual fallback dumped the whole shortfall on whoever unlocked last. Escrow-style locks — invitation stakes, challenge stakes, bonded roles, review bounties, report bonds, author bonds — do not decay; a bond that must be slashable at full face value cannot erode. Idle stakes still erode (active stakers earning from the seasonal pool outpace 0.025%), but escrow does not.
 
-**New Member Grace Period**: Members who joined fewer than `NewMemberDecayGraceEpochs` (30 epochs, ~1 month) ago are exempt from both unstaked and staked decay, giving them time to earn and stake DREAM before decay applies.
+**Content conviction stakes decay too**, and originally did not. They were exempt on the stated grounds that content conviction "already time-decays via the conviction half-life" — it does not. Both `CalculateContentConviction` and `CalculateRawStakeConviction` compute `time_factor = t / (2 * half_life)` capped at 1.0: a linear ramp to a permanent maximum, not a half-life, despite the names `ContentConvictionHalfLifeEpochs` and `ConvictionHalfLifeEpochs`. Content stakes are locked (so exempt from the 0.2%/epoch unstaked decay), earn no DREAM, and propagate conviction into initiative conviction — which made them a costless shelter strictly better than holding DREAM, with a governance benefit attached. Decaying the principal is also what makes content conviction genuinely erode, since conviction is `amount * time_factor` and only the amount can carry the decay. `updateStakePoolTotals` routes these through `adjustMemberContentStaked`, so the per-member content aggregate moves in lockstep. Regression: `TestDecayStakes_DecaysContentConviction`.
+
+**Terminal-project stakes decay; PROPOSED-project stakes do not.** Staked decay is the cost of holding a staked position, not merely a brake on compounding, so a stake on a completed or cancelled project keeps eroding — its principal is freely withdrawable and decay is the nudge to withdraw it, and exempting it would create a decay-free store of value dominating both unstaked DREAM and live stakes as a place to park. A stake on a *PROPOSED* project is the opposite case: `stakeAccruing` freezes it out of the seasonal pool, so charging it decay is a pure levy on backing work at the earliest and least certain moment — exactly the conviction the system exists to buy. That window is bounded (approval starts accrual and rebases the debt; rejection ends the stake), so the exemption creates no lasting shelter. Regression: `TestDecayStakes_ExemptsProposedProjectStakes`.
+
+**New Member Grace Period**: Members who joined fewer than `NewMemberDecayGraceEpochs` (30 epochs, ~1 month) ago are exempt from both unstaked and staked decay, giving them time to earn and stake DREAM before decay applies. The window is measured from `Member.joined_at_height` — the height-domain twin of the `joined_at` unix timestamp — as an honest epoch count (`current_epoch − joined_at_height/epoch_blocks < grace_epochs`). It used to be derived by dividing the `joined_at` timestamp by `epoch_blocks` as though it were a block height, which computed a hugely negative age for every invited member and made the grace window perpetual; members restored from state written before `joined_at_height` existed carry 0, which reads as "joined at genesis" and exits grace after the same 30 epochs.
 
 ### Challenge
 
@@ -1508,6 +1677,32 @@ project is `CANCELLED`, so no DREAM can ever be minted from a cancelled
 project's work even if an initiative reached a terminal-payout path by another
 route.
 
+**Settlement of the project's own stakes.** Both terminal transitions that
+leave `ACTIVE` — `MsgCancelProject` and project completion — run
+`settleProjectStakes` *before* the status flips, while `settleStake` still sees
+the project as accruing. Every project stake is harvested against the seasonal
+accumulator and paid out (mirroring `CompleteInitiative`'s payout loop:
+`forfeit=false`, since the staker did not choose to exit early), and its
+`reward_debt` is rebased so the stake holds no further claim. Without this,
+everything accrued up to the flip was stranded: past the flip the frozen branch
+of `settleStake` deliberately pays nothing (the shared accumulator keeps
+advancing on the strength of live stakers, and a frozen stake must not credit
+that growth), so the stakes stayed on the books, returned principal on unstake,
+and could never collect their rewards. A per-stake mint failure (e.g. the
+per-epoch mint cap) does not block the transition: that stake keeps its old
+debt and forfeits the pending, with a loud log; every other staker still gets
+paid. Each paid stake emits a `project_stake_settled` event.
+
+**Who may stake on a project.** `MsgStake` accepts project stakes while the
+project is `PROPOSED` or `ACTIVE` and rejects the three terminal states with
+`ErrProjectTerminal` — a terminal project can never accrue again, so fresh DREAM
+locked against one could only ever be withdrawn as principal. Stakes placed
+while `PROPOSED` are early conviction: approval (`MsgApproveProjectBudget`)
+rebases their `reward_debt` to the accumulator at approval time, so they accrue
+only from approval onward rather than harvesting the whole PROPOSED-window
+growth retroactively at settlement. Nothing is owed at the rebase moment — the
+project was frozen since each stake was placed — so the rebase forfeits nothing.
+
 ### Initiative Messages
 
 ```protobuf
@@ -1621,19 +1816,48 @@ is not paid. It routes through `CloseInitiative` rather than writing the status
 inline, so the live review round is settled the same way every other terminal
 exit settles it.
 
-**Stakes are not settled by closure.** `CloseInitiative` returns the budget and
-the bond but does not touch stake records — unlike `CompleteInitiative`, which
-settles and deletes them. `RemoveStake` carries no initiative-status guard, so
-stakers on a `CLOSED` initiative withdraw normally, by their own transaction,
-whenever they choose.
+**Closure settles stakes but does not delete them.** `CloseInitiative` runs
+`settleInitiativeStakes` *before* the status flips — the initiative-side twin of
+`settleProjectStakes`, and for the same reason: `stakeAccruing` stops paying the
+moment the status is terminal, so settling afterwards would harvest nothing.
+Each stake is harvested against the seasonal accumulator with `forfeit=false`
+(the staker did not choose to exit early), its `reward_debt` is rebased, and a
+`initiative_stake_settled` event is emitted for each payout. A per-stake mint
+failure — the per-epoch mint cap, most plausibly — is logged and forfeited
+rather than blocking the transition; an initiative that cannot be retired is the
+failure mode that stranded devnet initiative #1 in `IN_REVIEW` for ~6,000
+blocks.
 
-> This is a deliberate asymmetry, not an oversight: completion has a payout to
-> settle against, closure has nothing to distribute, and forcing an unstake loop
-> into the close path would make it unbounded per-block work. But it puts an
-> obligation on clients — the stake controls must stay reachable on `CLOSED`
-> initiatives, and hidden only on `COMPLETED`, where the records are genuinely
-> gone. A client that treats every terminal status alike strands its users'
-> DREAM with no path out.
+The *records* survive, unlike `CompleteInitiative`, which settles and deletes
+them in its payout loop. `RemoveStake` carries no initiative-status guard, so
+stakers on a `CLOSED` initiative withdraw their principal normally, by their own
+transaction, whenever they choose.
+
+> This asymmetry is deliberate: forcing an unstake loop into the close path
+> would make it unbounded per-block work. But it puts an obligation on clients —
+> the stake controls must stay reachable on `CLOSED` initiatives, and hidden
+> only on `COMPLETED`, where the records are genuinely gone. A client that
+> treats every terminal status alike strands its users' DREAM with no path out.
+
+**Terminal initiatives stop accruing.** `stakeAccruing` freezes initiative
+stakes at `COMPLETED`, `REJECTED` or `CLOSED` (the set `types.IsInitiativeTerminal`
+owns), matching the long-standing project rule. It had no initiative branch at
+all, and the gap was not symmetric with the project one: `CompleteInitiative`
+deletes the stakes it pays out, but `CloseInitiative` and the challenge-REJECTED
+path leave theirs in place. Those stakes drew the seasonal yield **forever**
+against work that had been retired or thrown out, and their principal went on
+diluting `total_staked` for everyone still backing live work — nothing
+distinguished a shipping initiative from an abandoned one. The
+challenge-REJECTED path settles through `settleInitiativeStakes` too: a
+rejection does not retroactively unearn rewards from the window the position was
+live, which is what slashing is for.
+
+`MsgStake` rejects new stakes on all three terminal statuses with
+`ErrInitiativeTerminal`, mirroring `ErrProjectTerminal` — fresh DREAM locked
+against an initiative that can never accrue again could only ever be withdrawn
+as principal. Regressions:
+`TestSettlement_ClosedInitiativePaysAccruedThenStopsAccruing` and
+`TestCreateStake_RejectsTerminalInitiative`.
 
 Stakers keep a real exit regardless: conviction is recomputed from **live** stake
 records and completion needs both the total and external thresholds, so
@@ -2725,14 +2949,19 @@ it is terminal.
 - **Effects**: settles any live review round (bounty paid, review fees paid,
   review bonds released), returns the reserved budget net of what review cost
   (skipped for permissionless projects, which allocate no budget up front),
-  releases the self-assign bond, drops any review escalation entry, moves the
-  initiative to `CLOSED`, and emits `initiative_closed`.
+  releases the self-assign bond, drops any review escalation entry, settles the
+  initiative's conviction stakes (`settleInitiativeStakes`, before the flip),
+  moves the initiative to `CLOSED`, and emits `initiative_closed`.
 - **Reviewers are paid whether the initiative completed or closed.** A fee that
   depended on the outcome would rebuild the bias the role exists to remove.
-- **Stakes**: outstanding conviction stakes are left in place. `RemoveStake` has
-  no status gate, so stakers withdraw principal plus accrued rewards whenever
-  they choose; the terminal status simply drops the initiative out of
-  `IterateActiveInitiatives` so its conviction stops being recomputed.
+- **Stakes**: the stake *records* are left in place, but their accrued rewards
+  are paid at closure, not at withdrawal — `settleInitiativeStakes` harvests
+  them before the status flips, because `stakeAccruing` stops paying on a
+  terminal initiative and settling afterwards would strand everything earned.
+  `RemoveStake` has no status gate, so stakers withdraw their principal whenever
+  they choose; by then the pending is zero. The terminal status also drops the
+  initiative out of `IterateActiveInitiatives` so its conviction stops being
+  recomputed.
 
 #### Initiative Creation Under Permissionless Projects
 
@@ -2831,6 +3060,36 @@ message MsgCompleteInterim {
   string completion_notes = 3;
 }
 ```
+
+**Interim authorization and the emission ceiling.** Interims are the module's
+self-service paid-work path, and all three of their authorization gates were
+missing — together they composed into an unbounded DREAM self-mint:
+
+| Message | Gate | What it was before |
+|---|---|---|
+| `MsgCreateInterim` | must be a member | none at all — any address could commission a complexity-derived budget for itself, since `CreateInterimWork` makes the creator the sole assignee |
+| `MsgAssignInterim` | Operations Committee | none at all — anyone could add themselves to anyone's PENDING interim and collect on completion |
+| `MsgCompleteInterim` | interim must not be finalized | none — `CompleteInterimDirectly` paid on *every* call, so re-sending the same message minted the budget again indefinitely (`ApproveInterim` always had this guard; the direct path did not) |
+
+Beyond authorization, the path needed a ceiling. An interim is self-assigned by
+its creator and self-completed by its assignee, so
+`max_active_interims_per_member` bounds only how many are open at once, not how
+many a member can complete and re-create in a season. That left the interim path
+as the one DREAM-creating flow limited solely by `max_dream_mint_per_epoch` —
+250,000 DREAM/day against a 25,000 DREAM genesis supply, with no seasonal bound
+at all while initiatives had `max_initiative_rewards_per_season`.
+
+`max_interim_rewards_per_season` (default 50,000 DREAM) closes that.
+`chargeInterimRewardCap` projects an interim's whole payout and books it
+*before* any minting, so the cap can refuse a payout but never be overrun by
+one — the same conservative direction `CompleteInitiative`'s season gate errs
+in. Both payout paths charge it: committee approval authorizes the work, it does
+not exempt it from the ceiling. An unset or zero cap closes the path rather than
+uncapping it, since a param that has never been written is not a decision to
+mint freely. Counter: `SeasonInterimRewardsMinted` (`econ/season_interim_rewards`),
+reset with the other per-season counters in `InitSeasonalPool`. Regressions:
+`TestInterim_CompletingTwiceDoesNotPayTwice`,
+`TestInterim_SeasonCapBoundsTotalEmission`.
 
 ### Stake Messages
 
@@ -2935,6 +3194,30 @@ Anonymous challenges are not submitted directly to x/rep with per-module ZK proo
 x/rep's `IsShieldCompatible()` method (in `shield_aware.go`) identifies `MsgCreateChallenge` as eligible for shielded execution.
 
 ### Content Challenge Messages
+
+**Content jury reviews have their own timeout path.** They are deliberately
+excluded from the shared PENDING verdict index that
+`ResolveExpiredChallengeJuryReviews` sweeps, because that sweep applies
+initiative-challenge semantics and resolved an in-review content challenge out
+from under its callers. Nothing replaced it, so a content jury that never voted
+— or missed the supermajority at its deadline — left the review PENDING with no
+sweep able to reach it: the challenger's stake, the author's bond, and the
+target's one-challenge-at-a-time slot were locked **permanently**, and the juror
+seats never vacated.
+
+`SweepExpiredContentJuryReviews` (EndBlocker step 6a) is the replacement. It
+walks the *content-challenge* status index rather than the verdict index, so it
+cannot interfere with the initiative sweep, and resolves anything past its
+review deadline through `ResolveInconclusiveContentChallenge` — which preserves
+the status quo and returns the challenger's stake without penalty, exactly as a
+vote-driven inconclusive tally does. Capped at 50 per block and
+collect-then-resolve, since resolution mutates the index being walked.
+
+`UpholdContentChallenge`, `RejectContentChallenge` and
+`ResolveInconclusiveContentChallenge` also gained the terminal-status guard
+their initiative-side twins always had. Every branch of all three moves DREAM
+(burn, refund, or slash-and-reward), so a second call paid or burned a second
+time — and the new sweep gives them one more caller.
 
 ```protobuf
 message MsgChallengeContent {
@@ -3065,6 +3348,17 @@ The EndBlocker calls `MatureUnbonds` every block. For any record whose `UnbondCo
 3. Recompute status from the new `CurrentBond` against the role's thresholds (the same mapping as `BondRole` / immediate-unlock): `NORMAL` if `≥ MinBond`, `RECOVERY` if in `[DemotionThreshold, MinBond)`, `DEMOTED` if below. Only when the matured unbond actually drops the holder into `DEMOTED` do we set `DemotionCooldownUntil = block_time + DemotionCooldown`. **Partial unbonds that keep the bond at or above `MinBond` stay `NORMAL`** — the holder reduced their stake but did not exit the role.
 
 When `UnbondCooldown == 0` the handler falls back to the legacy immediate-unlock path: DREAM is released in the same transaction and status is recomputed from the new bond. Tests opt into this for the rare cases that want to exercise the synchronous flow.
+
+**A cancelled unbond cannot launder away a demotion.** `computeBondStatus`
+derives status from bond size alone, which made the demotion punishment
+escapable in a single round trip: unbond a token amount (status → `UNBONDING`),
+then cancel it in full. `CancelUnbondRole` recomputed status from the bond, saw
+it above `MinBond`, and wrote `NORMAL` — voiding a `DemotionCooldownUntil` that
+had not elapsed. `MsgBondRole` checks the cooldown before re-bonding, but
+nothing checked it on the way back from `UNBONDING`.
+`clampStatusToDemotionCooldown` now holds the role at `DEMOTED` for as long as
+the cooldown runs, whatever the bond says. Regression:
+`TestBondedRole_CancelUnbondCannotLaunderADemotion`.
 
 See the "BondedRole (generic accountability primitive)" state section above for the keeper API used by content-module handlers.
 
@@ -3431,14 +3725,34 @@ service Query {
 // Economic health query messages
 message QueryDreamSupplyStatsRequest {}
 message QueryDreamSupplyStatsResponse {
-  string total_minted = 1 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];     // all-time minted
-  string total_burned = 2 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];     // all-time burned
-  string circulating = 3 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];      // member balances
-  string total_staked = 4 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];     // locked in stakes
+  string season_minted = 1 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];    // this season, resets at rollover
+  string season_burned = 2 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];    // this season, resets at rollover
+  string circulating = 3 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];      // member balances, staked included
+  string total_staked = 4 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];     // the locked subset of circulating
   string treasury_balance = 5 [(gogoproto.customtype) = "cosmossdk.io/math.Int"]; // module treasury
   string staked_ratio = 6 [(gogoproto.customtype) = "cosmossdk.io/math.LegacyDec"]; // staked / circulating
 }
+```
 
+**Fields 1-2 are season figures, not all-time ones.** They were named
+`total_minted` / `total_burned` and documented as "all-time" while reading
+`SeasonMinted` / `SeasonBurned`, which `InitSeasonalPool` resets at every
+rollover — so the query reported a season's flow under a name that reads as
+lifetime supply. Renamed to match what they hold, and to match the same pair on
+`QueryMintBurnRatioResponse`.
+
+There are no all-time counters to point them at instead. Treasury flows bypass
+the member ledgers entirely — `MintToTreasury` advances `TrackMint` without
+touching any member, and the treasury-overflow burn touches no member's
+`LifetimeBurned` — so summing member lifetimes would undercount both sides, and
+real all-time figures would need two new chain-level counters plus genesis
+carriage. They would also be largely redundant: `circulating` sums every
+member's `DreamBalance` with the staked portion included (`LockDREAM` does not
+reduce the balance; it adds to `StakedDream` alongside it), so
+`circulating + treasury_balance` is already the live DREAM supply that all-time
+minted-minus-burned would only approximate.
+
+```protobuf
 message QueryMintBurnRatioRequest {}
 message QueryMintBurnRatioResponse {
   string season_minted = 1 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
@@ -3464,6 +3778,30 @@ message QueryTreasuryStatusResponse {
   string season_burned = 5 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];   // excess burned
 }
 ```
+
+**Every DREAM burn advances `SeasonBurned`.** `TrackBurn` used to have exactly
+one call site — the treasury-overflow burn — so the counter behind
+`MintBurnRatio` and `DreamSupplyStats` reported one minor line as the chain's
+entire destruction: no slashing, no failed challenges or invitations, no
+creation fees, no bonds, no decay, no transfer tax, no zeroing. This is the same
+defect shape as the pre-fix `TrackMint`, which counted only the protocol's 10%
+treasury share.
+
+Tracking now sits at each of the six paths that destroy DREAM:
+
+| Path | Where tracked |
+|---|---|
+| Every module burn — creation fees, slashing, failed challenges and invitations, bonds, and the x/forum, x/collect, x/reveal, x/name and x/season burns | `BurnDREAM`, the choke point they all route through |
+| Unstaked decay | `ApplyPendingDecay` — tracked there rather than in the bulk walker, because write paths also call it lazily |
+| Staked decay | `decayStakes`, once per pass against the total it already accumulates for its event |
+| Transfer tax (3%) | `TransferDREAM` |
+| Zeroing | `ZeroMember`, which writes the member record directly |
+| Treasury overflow | `BurnTreasuryOverflow` — a module ledger, not a member balance; this was the original and only call site |
+
+The invariant, and what `TestTrackBurn_CoversEveryDreamDestructionPath` asserts
+per path: `SeasonBurned` moves by exactly the total movement in members'
+`LifetimeBurned`. SPARK burns — the bonded-role reward-pool overflows — are
+deliberately excluded, since `SeasonBurned` counts DREAM.
 
 ## Expected Keeper Interfaces
 
@@ -3647,11 +3985,14 @@ func (k Keeper) EndBlocker(ctx context.Context) error {
         return false
     })
 
-    // 4. DREAM decay (unstaked AND staked) is applied lazily via GetMember/GetBalance
-    // Unstaked decay: 0.2%/epoch. Staked decay: 0.05%/epoch.
-    // New members (joined < NewMemberDecayGraceEpochs ago) are exempt from both.
-    // No bulk decay — calculated on-demand when members are accessed.
-    // Scales O(1) per block instead of O(n) where n = member count
+    // 4. DREAM decay runs once per epoch at the top of EndBlocker
+    // (MaybeApplyBulkDecay), with the lazy per-member ApplyPendingDecay on
+    // write paths as a safety net.
+    // Unstaked decay: 0.2%/epoch, per member. Staked decay: 0.05%/epoch,
+    // per reward-bearing stake record (decayStakes), moving the stake, its
+    // pool denominators, its reward debt, and the member aggregates in
+    // lockstep. New members (joined < NewMemberDecayGraceEpochs ago) are
+    // exempt from both.
 
     // 5. Process expired challenge responses
     // If assignee doesn't respond within deadline, challenge is auto-upheld
@@ -3799,6 +4140,23 @@ message GenesisState {
 
 All `math.Int` values are in **micro-DREAM** (1 DREAM = 1,000,000 micro-DREAM) unless noted.
 
+### Micro-DREAM scaling — resolved
+
+Four defaults carried values a thousand times larger than the comment beside them stated. Every other `math.Int` default in the module scales correctly (`MaxTipAmount` 100 DREAM = 100,000,000, `MaxInitiativeStakePerMember` 50,000 DREAM = 50,000,000,000, the tier budgets), which is what marked these as extra zeros rather than a choice. For scale, the genesis DREAM supply is 25,000 DREAM on testnet and mainnet and 85,000 on devnet, so every one of these ceilings sat far above any state the chain could reach — they could not bind, which made them decorative rather than protective.
+
+| Param | Was (micro-DREAM) | Now | Reads as |
+|---|---|---|---|
+| `MaxStakingRewardsPerSeason` | 25,000,000,000,000 | 25,000,000,000 | 25,000 DREAM per season |
+| `MaxTreasuryBalance` | 100,000,000,000,000 | 100,000,000,000 | 100,000 DREAM, excess burned |
+| `MaxInitiativeRewardsPerSeason` | 100,000,000,000,000 | 100,000,000,000 | 100,000 DREAM per season |
+| `MaxDreamMintPerEpoch` | 10,000,000,000,000 | 250,000,000,000 | 250,000 DREAM per epoch |
+
+The first three are restored to the figure their comments always claimed. All three now bind on a chain of this size, which is the point of having them: `MaxTreasuryBalance` starts burning treasury overflow at 100,000 DREAM, `MaxInitiativeRewardsPerSeason` stops completion payouts for the remainder of a season at 100,000 DREAM, and `MaxStakingRewardsPerSeason` is the outer ceiling above the mint-share and schedule terms that size the seasonal pool.
+
+`MaxDreamMintPerEpoch` is the exception: its documented intent — 10,000 DREAM per epoch, ~1.5M per season at 150 epochs — is **not restorable**, and the naive 1000x correction would be a bug. x/season's retro PGF distribution pays out an entire season's budget in the season-transition block, up to `retro_reward_budget_max` = 75,000 DREAM, and every DREAM of it is minted through this same ceiling (`PayRetroPgfReward` → `MintDREAM` → `CheckAndTrackEpochMint`). A 10,000 DREAM epoch ceiling would fail that distribution every season. The value is instead derived from the largest legitimate single-epoch mint: 75,000 DREAM of retro PGF plus a season's worth of initiative rewards (100,000 DREAM) landing in the same epoch, rounded up for headroom. At 250,000 DREAM per epoch the ceiling is ~10x the genesis DREAM supply — loose enough never to bite legitimate traffic, tight enough to bound pathological rubber-stamping, where the previous value was ~400x supply per epoch and bounded nothing.
+
+The related failure mode is worth stating plainly, because it is the one this module has already hit: a mint ceiling that binds does not merely cap a payout, it **reverts the transaction that tried to exceed it**, and everything bundled into it. That is how an unbounded seasonal accumulator (see [Reward Mechanics by Target Type](#reward-mechanics-by-target-type)) took initiative completion down with it — `CompleteInitiative` settles stakes, settling a stake mints, and the mint exceeded the cap. Ceilings on this path should be set from the largest legitimate burst, never from a round number.
+
 ```go
 var DefaultParams = Params{
     // Time
@@ -3806,17 +4164,29 @@ var DefaultParams = Params{
     SeasonDurationEpochs: 150,   // ~5 months (150 days)
 
     // DREAM economics
-    MaxStakingRewardsPerSeason: math.NewInt(25_000_000_000_000), // 25,000 DREAM seasonal pool
-    // Effective APY = MaxStakingRewardsPerSeason / total_staked (self-adjusting)
+    MaxStakingRewardsPerSeason: math.NewInt(25_000_000_000),     // 25,000 DREAM — absolute ceiling on the seasonal pool
+    StakingRewardYieldPerEpoch: math.LegacyNewDecWithPrec(5, 4),  // 0.05%/epoch on the staked base
+    StakingPoolMintShare:       math.LegacyNewDecWithPrec(5, 2),  // 5% of last season's non-staking mints
+    StakingPoolCapBase:         math.NewInt(25_000_000_000),      // 25,000 DREAM — the genesis supply
+    StakingPoolCapRate:         math.LegacyNewDecWithPrec(5, 2),  // 5% of the base per season elapsed
+    // Effective per-unit yield is bounded by StakingRewardYieldPerEpoch, NOT by
+    // pool/total_staked — that ratio diverges as the staked base shrinks.
     // No fixed StakingApy — replaced by seasonal pool to cap inflationary minting
-    UnstakedDecayRate:       math.LegacyNewDecWithPrec(2, 3),    // 0.2% per epoch (~73% annualized)
-    StakedDecayRate:         math.LegacyNewDecWithPrec(5, 4),    // 0.05% per epoch (~18% annualized)
+    UnstakedDecayRate:       math.LegacyNewDecWithPrec(2, 3),    // 0.2% per epoch (~51.9% annualized compounded)
+    StakedDecayRate:         math.LegacyNewDecWithPrec(25, 5),   // 0.025% per epoch (~8.7% annualized)
     NewMemberDecayGraceEpochs: 30,                                // ~1 month grace period (no decay)
     TransferTaxRate:         math.LegacyNewDecWithPrec(3, 2),    // 3%
     MaxTipAmount:            math.NewInt(100_000_000),            // 100 DREAM
     MaxTipsPerEpoch:         10,
     MaxGiftAmount:           math.NewInt(500_000_000),            // 500 DREAM
     GiftOnlyToInvitees:      true,
+
+    // Staking floors and caps
+    MaxInterimRewardsPerSeason:      math.NewInt(50_000_000_000),     // 50,000 DREAM/season — the interim path's ceiling
+    MinStakeAmount:                  math.NewInt(2_000),              // 0.002 DREAM — anti-dust floor, = 1/StakingRewardYieldPerEpoch
+    MaxCompletionBonusStakeMultiple: math.LegacyNewDec(3),            // completion bonus <= 3x the external stake behind it
+    MaxContentStakePerMember:        math.NewInt(10_000_000_000),     // 10,000 DREAM on any one content item
+    MaxTotalContentStakePerMember:   math.NewInt(20_000_000_000),     // 20,000 DREAM across all content items
 
     // Permissionless creation fees (burned on creation — anti-spam + deflationary pressure)
     ProjectCreationFee:               math.NewInt(5_000_000),   // 5 DREAM — burned when creating a permissionless project
@@ -3826,7 +4196,7 @@ var DefaultParams = Params{
     PermissionlessMaxTier:            1,                         // STANDARD — highest tier allowed in permissionless projects
 
     // Treasury management
-    MaxTreasuryBalance: math.NewInt(100_000_000_000_000), // 100,000 DREAM — excess burned
+    MaxTreasuryBalance: math.NewInt(100_000_000_000), // 100,000 DREAM — excess burned
     TreasuryFundsInterims: true,  // interims paid from treasury first, mint only if empty
     TreasuryFundsRetroPgf: true,  // retro PGF paid from treasury first, mint remainder
 
@@ -4054,6 +4424,8 @@ naming the field the committee actually set.
 | 1302 | `ErrInvalidProjectStatus` | Invalid project status |
 | 1303 | `ErrInsufficientBudget` | Insufficient budget |
 | 1304 | `ErrUnauthorized` | Unauthorized: insufficient permissions |
+| 1305 | `ErrLargeProjectNeedsCouncil` | Project budget exceeds `large_project_budget_threshold`; requires council proposal approval |
+| 1306 | `ErrProjectTerminal` | Project is COMPLETED, CANCELLED or EXPIRED and can no longer accept stakes |
 | 1401 | `ErrInitiativeNotFound` | Initiative not found |
 | 1402 | `ErrInvalidInitiativeStatus` | Invalid initiative status |
 | 1403 | `ErrInsufficientReputation` | Insufficient reputation for tier |
@@ -4087,6 +4459,10 @@ naming the field the committee actually set.
 | 1903 | `ErrInsufficientCreationFee` | Insufficient DREAM balance for creation fee |
 | 2106 | `ErrCompoundNotSupported` | Compounding is not supported for this stake target type; claim and re-stake instead |
 | 2107 | `ErrTooManyStakeTranches` | Member has reached the max number of separate stakes on this target (`types.MaxStakeTranchesPerTarget`) |
+| 2108 | `ErrStakeBelowMinimum` | Stake is below `min_stake_amount` |
+| 2109 | `ErrInitiativeTerminal` | Initiative is COMPLETED, REJECTED or CLOSED and can no longer accept stakes |
+| 2110 | `ErrInvalidInterimStatus` | Interim is not in a state that allows this action (e.g. completing an already-finalized one) |
+| 2111 | `ErrInterimRewardCapReached` | Paying this interim would exceed `max_interim_rewards_per_season` |
 
 > **Note:** this table is not exhaustive. `x/rep/types/errors.go` registers 120 errors; the rows above cover the ranges documented so far. The 2001–2007 (content challenge), 2101–2105 (activity caps, mint cap, proposal-time caps) and 2201 blocks are registered but not yet tabulated here.
 
@@ -4135,8 +4511,11 @@ Community conviction staking allows any active member to stake DREAM on content 
 - **Active members only** — must be an active member to stake
 - **No self-staking** — authors cannot stake on their own content (use author bonds instead)
 - **Per-member cap** — `max_content_stake_per_member` caps how much one member can stake on a single content item (default 10,000 DREAM)
-- **Min duration** — same `min_stake_duration_seconds` cooldown as other stakes (24 hours)
-- **Conviction decay** — conviction decays with `content_conviction_half_life_epochs` half-life; stops growing when staker unstakes
+- **Aggregate cap** — `max_total_content_stake_per_member` caps one member's content conviction stakes across *every* item combined. The per-item cap alone only set the granularity of parking DREAM here, not the total; the aggregate is what bounds it. Tracked on `Member.content_staked_dream` via `updateStakePoolTotals` and rebuilt by `ReconcileStakePoolTotals` at genesis import. Author bonds are not counted — they are slashable escrow with their own per-item cap.
+- **Minimum stake** — `min_stake_amount` floors every content stake, as it does every other `MsgStake`
+- **Min duration** — same `min_stake_duration_seconds` cooldown as other stakes
+- **Content stakes decay** — they earn no DREAM but are charged `staked_decay_rate` like every other staked position, so parking DREAM here is no longer free. See the Staked Decay section: the exemption they used to have rested on a conviction half-life that does not exist.
+- **Conviction growth** — conviction *ramps* rather than decays: `time_factor = t / (2 * content_conviction_half_life_epochs)` capped at 1.0, so a stake matures to a permanent maximum. Despite the parameter name there is no half-life. What makes content conviction erode over time is the decay applied to the principal, since conviction is `amount * time_factor` and only the amount can carry it.
 
 **Conviction formula:**
 

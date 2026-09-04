@@ -74,7 +74,7 @@ func TestSelfContentStake_BypassViaEmptyTargetIdentifier(t *testing.T) {
 	k.SetForumKeeper(&mockForumKeeper{authors: map[uint64]string{postID: author.String()}, tags: map[uint64][]string{}})
 	k.SetCollectKeeper(&stubCollectKeeper{owners: map[uint64]string{collID: author.String()}})
 
-	stakeAmt := math.NewInt(100)
+	stakeAmt := math.NewInt(2000)
 
 	// Blog: empty targetIdentifier MUST still block author self-stake.
 	_, err := k.CreateStake(ctx, author, types.StakeTargetType_STAKE_TARGET_BLOG_CONTENT, postID, "", stakeAmt)

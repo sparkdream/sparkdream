@@ -20,7 +20,7 @@ func TestMsgServerCreateStake(t *testing.T) {
 			Staker:     "invalid-address",
 			TargetType: 0,
 			TargetId:   1,
-			Amount:     keeper.PtrInt(math.NewInt(100)),
+			Amount:     keeper.PtrInt(math.NewInt(1000)),
 		})
 
 		require.Error(t, err)
@@ -56,7 +56,7 @@ func TestMsgServerCreateStake(t *testing.T) {
 		staker := sdk.AccAddress([]byte("staker"))
 		k.Member.Set(ctx, staker.String(), types.Member{
 			Address:          staker.String(),
-			DreamBalance:     PtrInt(math.NewInt(1000)),
+			DreamBalance:     PtrInt(math.NewInt(10000)),
 			StakedDream:      PtrInt(math.ZeroInt()),
 			LifetimeEarned:   PtrInt(math.ZeroInt()),
 			LifetimeBurned:   PtrInt(math.ZeroInt()),
@@ -76,7 +76,7 @@ func TestMsgServerCreateStake(t *testing.T) {
 			Staker:     stakerStr,
 			TargetType: types.StakeTargetType_STAKE_TARGET_INITIATIVE,
 			TargetId:   initID,
-			Amount:     keeper.PtrInt(math.NewInt(100)),
+			Amount:     keeper.PtrInt(math.NewInt(2000)),
 		})
 		require.NoError(t, err)
 
@@ -89,7 +89,7 @@ func TestMsgServerCreateStake(t *testing.T) {
 			return true, nil
 		})
 		require.True(t, found)
-		require.Equal(t, math.NewInt(100).String(), stake.Amount.String())
+		require.Equal(t, math.NewInt(2000).String(), stake.Amount.String())
 	})
 }
 
@@ -129,7 +129,7 @@ func TestMsgServerStake_TrancheCap(t *testing.T) {
 		Staker:     stakerStr,
 		TargetType: types.StakeTargetType_STAKE_TARGET_INITIATIVE,
 		TargetId:   initID,
-		Amount:     keeper.PtrInt(math.NewInt(100)),
+		Amount:     keeper.PtrInt(math.NewInt(2000)),
 	}
 
 	for i := 0; i < types.MaxStakeTranchesPerTarget; i++ {

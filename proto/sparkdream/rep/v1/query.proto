@@ -1063,11 +1063,20 @@ message QueryContentByInitiativeResponse {
 message QueryDreamSupplyStatsRequest {}
 
 message QueryDreamSupplyStatsResponse {
-  string total_minted = 1 [
+  // Season-scoped flow figures, the same pair QueryMintBurnRatio returns. They
+  // were named total_minted/total_burned while reading the per-season
+  // counters, which reads as an all-time supply figure and is not: those
+  // counters reset every season in InitSeasonalPool.
+  //
+  // There are no all-time counters to point them at instead, and adding some
+  // would be redundant — circulating (every member's balance, staked included)
+  // plus treasury_balance below is already the complete live supply, which is
+  // what all-time minted-minus-burned would only approximate.
+  string season_minted = 1 [
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
-  string total_burned = 2 [
+  string season_burned = 2 [
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];

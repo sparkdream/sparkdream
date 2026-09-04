@@ -207,6 +207,14 @@ func (k Keeper) ApproveProject(
 		return err
 	}
 
+	// Stakes placed while the project was PROPOSED hold reward-debt snapshots
+	// from their join-time accumulator. Rebase them to the current one so
+	// accrual starts from approval — without this, those stakes would harvest
+	// the whole PROPOSED-window growth retroactively at completion.
+	if err := k.rebaseProjectStakeDebts(ctx, projectID); err != nil {
+		return err
+	}
+
 	// Shift the by-status index entry (PROPOSED -> ACTIVE) so the expiry sweep
 	// no longer considers this project.
 	if err := k.UpdateProjectStatusIndex(ctx, oldStatus, project.Status, project.Id); err != nil {
@@ -265,6 +273,13 @@ func (k Keeper) CancelProject(ctx context.Context, projectID uint64, reason stri
 		return err
 	}
 
+	// Settle the project's stakes while the project is still ACTIVE: past this
+	// point the frozen branch of settleStake deliberately pays nothing, so
+	// anything accrued but unclaimed at cancellation would be stranded forever.
+	if err := k.settleProjectStakes(ctx, projectID); err != nil {
+		return err
+	}
+
 	// Update project
 	oldStatus := project.Status
 	project.Status = types.ProjectStatus_PROJECT_STATUS_CANCELLED
@@ -300,7 +315,7 @@ func (k Keeper) CancelProject(ctx context.Context, projectID uint64, reason stri
 func (k Keeper) cancelInitiativesForProjectCancel(ctx context.Context, projectID uint64, reason string) error {
 	var ids []uint64
 	err := k.Initiative.Walk(ctx, nil, func(id uint64, initiative types.Initiative) (bool, error) {
-		if initiative.ProjectId == projectID && !isTerminalInitiativeStatus(initiative.Status) {
+		if initiative.ProjectId == projectID && !types.IsInitiativeTerminal(initiative.Status) {
 			ids = append(ids, id)
 		}
 		return false, nil
@@ -382,19 +397,6 @@ func (k Keeper) terminateInitiativeForProjectCancel(ctx context.Context, initiat
 	return nil
 }
 
-// isTerminalInitiativeStatus reports whether an initiative status is a final
-// resting state that a project cancel should leave untouched.
-func isTerminalInitiativeStatus(status types.InitiativeStatus) bool {
-	switch status {
-	case types.InitiativeStatus_INITIATIVE_STATUS_COMPLETED,
-		types.InitiativeStatus_INITIATIVE_STATUS_REJECTED,
-		types.InitiativeStatus_INITIATIVE_STATUS_CLOSED:
-		return true
-	default:
-		return false
-	}
-}
-
 // ExpireProject transitions a PROPOSED project to EXPIRED. Called only by the
 // EndBlocker sweep over PROPOSED projects past their expiry_block_height.
 // Idempotent w.r.t. non-PROPOSED status: a project that has been concurrently
@@ -432,6 +434,93 @@ func (k Keeper) ExpireProject(ctx context.Context, projectID uint64) error {
 	return nil
 }
 
+// settleProjectStakes harvests every stake on a project, pays out what it has
+// accrued from the seasonal pool, and rebases its reward debt so the stake
+// holds no further claim. Called at the project's terminal transitions —
+// cancel and complete — while the project is still ACTIVE.
+//
+// Why at the transition and not lazily: once the project leaves ACTIVE,
+// stakeAccruing reports false and the frozen branch of settleStake pays
+// nothing — correctly, because the shared accumulator keeps advancing on the
+// strength of the still-live stakers and a frozen stake must not credit that
+// post-terminal growth. Before this settle existed, everything accrued up to
+// the flip was stranded: the stakes stayed on the books, returned their
+// principal on unstake, and could never collect their rewards.
+//
+// Mirrors CompleteInitiative's payout loop: settleStake with forfeit=false,
+// since the staker did not choose to exit early and MinStakeDurationSeconds
+// is an early-withdrawal penalty, not a settlement gate.
+//
+// A per-stake mint failure (e.g. the per-epoch mint cap) must not block the
+// transition: that stake keeps its old debt and, being frozen afterwards,
+// forfeits the pending — no worse than the status quo before this settle —
+// while every other staker still gets paid. Logged loudly, since it points at
+// cap pressure worth investigating.
+func (k Keeper) settleProjectStakes(ctx context.Context, projectID uint64) error {
+	stakes, err := k.GetProjectStakes(ctx, projectID)
+	if err != nil {
+		return fmt.Errorf("failed to load stakes of project %d for settlement: %w", projectID, err)
+	}
+
+	sdkCtx := sdk.UnwrapSDKContext(ctx)
+	for _, stake := range stakes {
+		settled, settlement, err := k.settleStake(ctx, stake, stake.Amount, false)
+		if err != nil {
+			sdkCtx.Logger().Error("failed to settle project stake at terminal transition; pending forfeited",
+				"project_id", projectID, "stake_id", stake.Id, "staker", stake.Staker, "error", err)
+			continue
+		}
+		if err := k.Stake.Set(ctx, stake.Id, settled); err != nil {
+			return fmt.Errorf("failed to persist settled stake %d: %w", stake.Id, err)
+		}
+		if settlement.Minted.IsPositive() {
+			sdkCtx.EventManager().EmitEvent(
+				sdk.NewEvent(
+					"project_stake_settled",
+					sdk.NewAttribute("project_id", fmt.Sprintf("%d", projectID)),
+					sdk.NewAttribute("stake_id", fmt.Sprintf("%d", stake.Id)),
+					sdk.NewAttribute("staker", stake.Staker),
+					sdk.NewAttribute("rewards", settlement.Minted.String()),
+				),
+			)
+		}
+	}
+	return nil
+}
+
+// rebaseProjectStakeDebts re-measures every stake placed while a project was
+// PROPOSED against the live seasonal accumulator. Stakes on a non-ACTIVE
+// project accrue nothing, but their reward-debt snapshot was taken at the
+// (lower) accumulator of join time; without this rebase at approval they
+// would harvest the entire PROPOSED-window growth retroactively once the
+// project settles. Nothing is owed at this moment — the project has been
+// frozen since each stake was placed — so the rebase forfeits nothing.
+func (k Keeper) rebaseProjectStakeDebts(ctx context.Context, projectID uint64) error {
+	accPerShare, err := k.getSeasonalPoolAccPerShare(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to read seasonal accumulator for project %d debt rebase: %w", projectID, err)
+	}
+
+	stakes, err := k.GetProjectStakes(ctx, projectID)
+	if err != nil {
+		return fmt.Errorf("failed to load stakes of project %d for debt rebase: %w", projectID, err)
+	}
+	for _, stake := range stakes {
+		if stake.Amount.IsNil() || !stake.Amount.IsPositive() {
+			continue
+		}
+		debt := math.LegacyNewDecFromInt(stake.Amount).Mul(accPerShare).TruncateInt()
+		if stakeRewardDebt(stake).Equal(debt) {
+			continue
+		}
+		stake.RewardDebt = debt
+		if err := k.Stake.Set(ctx, stake.Id, stake); err != nil {
+			return fmt.Errorf("failed to persist rebased stake %d: %w", stake.Id, err)
+		}
+	}
+	return nil
+}
+
 // CompleteProject marks a project as completed and distributes completion bonuses
 func (k Keeper) CompleteProject(ctx context.Context, projectID uint64) error {
 	// Get project
@@ -448,10 +537,28 @@ func (k Keeper) CompleteProject(ctx context.Context, projectID uint64) error {
 	// Calculate final budget (what was actually spent)
 	spentBudget := DerefInt(project.SpentBudget)
 
-	// Distribute 5% completion bonus to project stakers
+	// Settle the project's stakes while it is still ACTIVE. CompleteInitiative
+	// does the same for every stake it touches; the project's own terminal
+	// transition used to skip it, leaving each staker's accrued seasonal
+	// rewards claimable by no code path at all — the stakes survived as
+	// records, withdrew as principal, and paid nothing.
+	if err := k.settleProjectStakes(ctx, projectID); err != nil {
+		return err
+	}
+
+	// Distribute 5% completion bonus to project stakers, capped and
+	// external-only (see DistributeProjectCompletionBonus), then count what
+	// was actually minted against the per-season initiative reward cap — the
+	// same accounting CompleteInitiative applies to its completer, treasury,
+	// bonus and review-fee mints.
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
-	if err := k.DistributeProjectCompletionBonus(ctx, projectID, spentBudget); err != nil {
+	bonusMinted, err := k.DistributeProjectCompletionBonus(ctx, projectID, spentBudget)
+	if err != nil {
 		sdkCtx.Logger().Debug("failed to distribute project completion bonus", "error", err, "project_id", projectID)
+	} else if bonusMinted.IsPositive() {
+		if err := k.TrackInitiativeRewardMint(ctx, bonusMinted); err != nil {
+			return fmt.Errorf("failed to track project completion bonus mint: %w", err)
+		}
 	}
 
 	// Update project status

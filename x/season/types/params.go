@@ -9,7 +9,11 @@ import (
 
 // Default parameter values from spec
 var (
-	DefaultEpochBlocks                  int64  = 17280 // ~1 day at 5s blocks
+	// Must match x/rep's default epoch length: the seasonal pool's per-epoch
+	// slices are counted in x/rep epochs while season transitions refill it on
+	// x/season's clock, so mismatched epoch lengths desynchronize drain from
+	// refill (see the cross-network epoch-alignment invariant test).
+	DefaultEpochBlocks                  int64  = 14400 // ~1 day at 6s blocks
 	DefaultSeasonDurationEpochs         int64  = 150   // ~5 months
 	DefaultSeasonTransitionEpochs       int64  = 7     // ~1 week for transition
 	DefaultXpVoteCast                   uint64 = 5

@@ -657,6 +657,22 @@ func (k Keeper) matureSingleUnbond(ctx context.Context, roleType types.RoleType,
 // computeBondStatus maps a role's current_bond against its config thresholds
 // to NORMAL / RECOVERY / DEMOTED. If no config exists, defaults to NORMAL
 // when current_bond > 0, else DEMOTED.
+// clampStatusToDemotionCooldown holds a role at DEMOTED for as long as its
+// demotion cooldown is still running, whatever the bond size says.
+//
+// computeBondStatus derives status from bond size alone, which made the
+// demotion punishment escapable in one round trip: unbond a token amount
+// (status -> UNBONDING), then cancel the unbond in full. The cancel path
+// recomputed status from the bond, saw it above min_bond, and wrote NORMAL —
+// voiding a cooldown that had not elapsed. MsgBondRole checks the cooldown
+// before re-bonding; nothing checked it on the way back from UNBONDING.
+func clampStatusToDemotionCooldown(br types.BondedRole, now int64, status types.BondedRoleStatus) types.BondedRoleStatus {
+	if br.DemotionCooldownUntil > now {
+		return types.BondedRoleStatus_BONDED_ROLE_STATUS_DEMOTED
+	}
+	return status
+}
+
 func (k Keeper) computeBondStatus(ctx context.Context, roleType types.RoleType, currentBond math.Int) types.BondedRoleStatus {
 	cfg, err := k.BondedRoleConfigs.Get(ctx, int32(roleType))
 	if err != nil {

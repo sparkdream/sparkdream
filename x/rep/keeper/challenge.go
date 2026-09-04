@@ -331,6 +331,15 @@ func (k Keeper) UpholdChallenge(ctx context.Context, challengeID uint64) error {
 		return err
 	}
 
+	// Harvest what the stakes accrued while the work was live, BEFORE the flip
+	// below — stakeAccruing stops paying on a terminal initiative, so settling
+	// after it would silently strand every accrued reward. The rejection does
+	// not unearn rewards from the period the position was live; slashing is the
+	// mechanism for punishing the stake itself.
+	if err := k.settleInitiativeStakes(ctx, initiative.Id); err != nil {
+		return err
+	}
+
 	// Update initiative status to rejected (failed challenge). UpdateInitiative
 	// maintains the by-status index so the terminal initiative leaves the
 	// CHALLENGED bucket.

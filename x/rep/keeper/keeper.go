@@ -114,12 +114,15 @@ type Keeper struct {
 	SeasonalPoolAccPerShare collections.Item[string] // accumulated reward per share (as Dec string)
 	SeasonalPoolTotalStaked collections.Item[string] // total DREAM staked in initiatives + projects (as Int string)
 	SeasonalPoolSeason      collections.Item[uint64] // which season this pool was initialized for
+	SeasonalPoolStartEpoch  collections.Item[uint64] // epoch at which this pool was initialized (drain-schedule anchor)
 
 	// Treasury and economic tracking
 	TreasuryBalance               collections.Item[string] // x/rep module treasury DREAM balance (as Int string)
 	SeasonMinted                  collections.Item[string] // total DREAM minted this season (as Int string)
 	SeasonBurned                  collections.Item[string] // total DREAM burned this season (as Int string)
 	SeasonInitiativeRewardsMinted collections.Item[string] // DREAM minted via initiative completion this season (as Int string)
+	SeasonInterimRewardsMinted    collections.Item[string] // DREAM minted to pay interim work this season (as Int string)
+	SeasonStakingRewardsMinted    collections.Item[string] // DREAM minted as staking rewards this season (as Int string)
 	SeasonTreasuryInflow          collections.Item[string] // DREAM credited to module treasury this season (as Int string)
 	SeasonTreasuryOutflow         collections.Item[string] // DREAM spent from module treasury this season (as Int string)
 	EpochMintedEpoch              collections.Item[uint64] // tracked epoch for the per-epoch mint counter
@@ -282,12 +285,15 @@ func NewKeeper(
 		SeasonalPoolAccPerShare: collections.NewItem(sb, types.SeasonalPoolAccPerShareKey, "seasonalPoolAccPerShare", collections.StringValue),
 		SeasonalPoolTotalStaked: collections.NewItem(sb, types.SeasonalPoolTotalStakedKey, "seasonalPoolTotalStaked", collections.StringValue),
 		SeasonalPoolSeason:      collections.NewItem(sb, types.SeasonalPoolSeasonKey, "seasonalPoolSeason", collections.Uint64Value),
+		SeasonalPoolStartEpoch:  collections.NewItem(sb, types.SeasonalPoolStartEpochKey, "seasonalPoolStartEpoch", collections.Uint64Value),
 
 		// Treasury and economic tracking
 		TreasuryBalance:               collections.NewItem(sb, types.TreasuryBalanceKey, "treasuryBalance", collections.StringValue),
 		SeasonMinted:                  collections.NewItem(sb, types.SeasonMintedKey, "seasonMinted", collections.StringValue),
 		SeasonBurned:                  collections.NewItem(sb, types.SeasonBurnedKey, "seasonBurned", collections.StringValue),
 		SeasonInitiativeRewardsMinted: collections.NewItem(sb, types.SeasonInitiativeRewardsMintedKey, "seasonInitiativeRewards", collections.StringValue),
+		SeasonInterimRewardsMinted:    collections.NewItem(sb, types.SeasonInterimRewardsMintedKey, "seasonInterimRewards", collections.StringValue),
+		SeasonStakingRewardsMinted:    collections.NewItem(sb, types.SeasonStakingRewardsMintedKey, "seasonStakingRewards", collections.StringValue),
 		SeasonTreasuryInflow:          collections.NewItem(sb, types.SeasonTreasuryInflowKey, "seasonTreasuryInflow", collections.StringValue),
 		SeasonTreasuryOutflow:         collections.NewItem(sb, types.SeasonTreasuryOutflowKey, "seasonTreasuryOutflow", collections.StringValue),
 		EpochMintedEpoch:              collections.NewItem(sb, types.EpochMintedEpochKey, "epochMintedEpoch", collections.Uint64Value),

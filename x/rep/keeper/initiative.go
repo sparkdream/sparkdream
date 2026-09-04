@@ -106,6 +106,16 @@ func (k Keeper) CreateInitiative(
 		return 0, fmt.Errorf("invalid initiative tier: %v", tier)
 	}
 
+	// A negative budget passed every check below: AllocateBudget tests
+	// `available < amount`, which is never true for a negative, so
+	// allocated_budget SHRANK and the project's future headroom grew past what
+	// the committee approved. The initiative itself could never complete
+	// (MintDREAM rejects negatives), but the accounting damage was done.
+	if budget.IsNil() || budget.IsNegative() {
+		return 0, errorsmod.Wrapf(types.ErrInvalidAmount,
+			"initiative budget cannot be negative: %s", budget)
+	}
+
 	if budget.GT(tierConfig.MaxBudget) {
 		// Convert micro-DREAM to DREAM for readable error (1 DREAM = 1,000,000 micro-DREAM)
 		budgetDream := budget.Quo(math.NewInt(1000000))
@@ -789,6 +799,13 @@ func (k Keeper) CloseInitiative(ctx context.Context, initiativeID uint64, reason
 		return err
 	}
 
+	// Harvest what the stakes accrued while the work was live, BEFORE the flip
+	// below — stakeAccruing stops paying on a terminal initiative, so settling
+	// after it would silently strand every accrued reward.
+	if err := k.settleInitiativeStakes(ctx, initiativeID); err != nil {
+		return err
+	}
+
 	initiative.Status = types.InitiativeStatus_INITIATIVE_STATUS_CLOSED
 
 	if err := k.UpdateInitiative(ctx, initiative); err != nil {
@@ -901,16 +918,32 @@ func (k Keeper) CompleteInitiative(ctx context.Context, initiativeID uint64) err
 	if reviews, rErr := k.GetInitiativeReviews(ctx, initiative.Id, initiative.ReviewRound); rErr == nil && len(reviews) > 0 {
 		projectedReviewFees = k.ReviewFeePool(ctx, params, initiative)
 	}
-	projectedTotalMint := totalInitiativeMint.Add(projectedBonus).Add(projectedReviewFees)
+
+	// The member- and tag-stake revenue shares this completion accrues are
+	// minted later, when those stakers settle — but they are DREAM created by
+	// initiative completion all the same, and the cap's own contract is "total
+	// DREAM minted via initiative completion". Both are upper bounds: the
+	// pools may be empty or missing, in which case less accrues and less is
+	// eventually minted. The actually-accrued figures are tracked at the
+	// accumulate calls below so the counter converges on reality.
+	projectedMemberShare := params.MemberStakeRevenueShare.MulInt(completerReward).TruncateInt()
+	projectedTagShare := math.ZeroInt()
+	if len(initiative.Tags) > 0 {
+		projectedTagShare = params.TagStakeRevenueShare.MulInt(completerReward).TruncateInt()
+	}
+
+	projectedTotalMint := totalInitiativeMint.Add(projectedBonus).Add(projectedReviewFees).
+		Add(projectedMemberShare).Add(projectedTagShare)
 
 	seasonRewardsMinted, err := k.GetSeasonInitiativeRewardsMinted(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get season initiative rewards: %w", err)
 	}
 	if seasonRewardsMinted.Add(projectedTotalMint).GT(params.MaxInitiativeRewardsPerSeason) {
-		return fmt.Errorf("completing this initiative would mint up to %s DREAM (completer+treasury %s, staker bonus %s, review fees %s), exceeding season cap of %s (already minted %s): %w",
+		return fmt.Errorf("completing this initiative would mint up to %s DREAM (completer+treasury %s, staker bonus %s, review fees %s, member/tag stake shares %s), exceeding season cap of %s (already minted %s): %w",
 			projectedTotalMint.String(), totalInitiativeMint.String(), projectedBonus.String(),
-			projectedReviewFees.String(), params.MaxInitiativeRewardsPerSeason.String(),
+			projectedReviewFees.String(), projectedMemberShare.Add(projectedTagShare).String(),
+			params.MaxInitiativeRewardsPerSeason.String(),
 			seasonRewardsMinted.String(), types.ErrInitiativeRewardCapReached)
 	}
 
@@ -1082,17 +1115,33 @@ func (k Keeper) CompleteInitiative(ctx context.Context, initiativeID uint64) err
 	_ = k.UpdateTrustLevel(ctx, assigneeAddr)
 
 	// Distribute revenue share to member stakers
-	// Members who stake on the assignee receive a portion of the initiative earnings
-	if err := k.AccumulateMemberStakeRevenue(ctx, assigneeAddr, completerReward); err != nil {
+	// Members who stake on the assignee receive a portion of the initiative earnings.
+	// The accrued figures are counted against the per-season initiative reward
+	// cap below — this DREAM is minted when the stakers settle, but it is
+	// created by this completion, and the cap covers everything a completion
+	// creates. Accrual (not the notional share) is tracked, so pools with
+	// nothing staked contribute nothing.
+	memberShareAccrued := math.ZeroInt()
+	if accrued, mErr := k.AccumulateMemberStakeRevenue(ctx, assigneeAddr, completerReward); mErr != nil {
 		// Log but don't fail - stake pools might not exist
-		sdkCtx.Logger().Debug("failed to accumulate member stake revenue", "error", err, "member", assigneeAddr)
+		sdkCtx.Logger().Debug("failed to accumulate member stake revenue", "error", mErr, "member", assigneeAddr)
+	} else {
+		memberShareAccrued = accrued
 	}
 
 	// Distribute revenue share to tag stakers
 	// Members who stake on matching tags receive a portion of the initiative earnings
+	tagShareAccrued := math.ZeroInt()
 	if len(initiative.Tags) > 0 {
-		if err := k.AccumulateTagStakeRevenue(ctx, initiative.Tags, completerReward); err != nil {
-			sdkCtx.Logger().Debug("failed to accumulate tag stake revenue", "error", err, "tags", initiative.Tags)
+		if accrued, tErr := k.AccumulateTagStakeRevenue(ctx, initiative.Tags, completerReward); tErr != nil {
+			sdkCtx.Logger().Debug("failed to accumulate tag stake revenue", "error", tErr, "tags", initiative.Tags)
+		} else {
+			tagShareAccrued = accrued
+		}
+	}
+	if stakeShareTotal := memberShareAccrued.Add(tagShareAccrued); stakeShareTotal.IsPositive() {
+		if err := k.TrackInitiativeRewardMint(ctx, stakeShareTotal); err != nil {
+			return fmt.Errorf("failed to track member/tag stake revenue share mint: %w", err)
 		}
 	}
 
@@ -1178,4 +1227,55 @@ func (k Keeper) GetMember(ctx context.Context, address sdk.AccAddress) (types.Me
 	}
 
 	return member, nil
+}
+
+// settleInitiativeStakes harvests every stake on an initiative against the
+// seasonal accumulator and rebases its debt, leaving the principal locked and
+// the record in place. It is the initiative-side twin of settleProjectStakes.
+//
+// Called at both terminal transitions that do NOT delete their stakes —
+// CloseInitiative and the challenge-REJECTED path — and always BEFORE the
+// status flip, because stakeAccruing stops paying the moment the status is
+// terminal and settling afterwards would harvest nothing. CompleteInitiative
+// does not use this: it settles and deletes each stake in its own payout loop.
+//
+// Rewards accrued while the work was live are paid regardless of how the
+// initiative ended. The outcome does not retroactively unearn them — that is
+// what slashing is for — and this matches CancelProject, which pays out on the
+// cancel path too.
+//
+// A per-stake settle failure (the per-epoch mint cap, most plausibly) is logged
+// and the pending forfeited rather than blocking the transition: an initiative
+// that cannot be retired is the failure mode that stranded devnet initiative #1
+// in IN_REVIEW for ~6,000 blocks.
+func (k Keeper) settleInitiativeStakes(ctx context.Context, initiativeID uint64) error {
+	stakes, err := k.GetInitiativeStakes(ctx, initiativeID)
+	if err != nil {
+		return fmt.Errorf("failed to load stakes of initiative %d for settlement: %w", initiativeID, err)
+	}
+
+	sdkCtx := sdk.UnwrapSDKContext(ctx)
+	for _, stake := range stakes {
+		settled, settlement, err := k.settleStake(ctx, stake, stake.Amount, false)
+		if err != nil {
+			sdkCtx.Logger().Error("failed to settle initiative stake at terminal transition; pending forfeited",
+				"initiative_id", initiativeID, "stake_id", stake.Id, "staker", stake.Staker, "error", err)
+			continue
+		}
+		if err := k.Stake.Set(ctx, stake.Id, settled); err != nil {
+			return fmt.Errorf("failed to persist settled stake %d: %w", stake.Id, err)
+		}
+		if settlement.Minted.IsPositive() {
+			sdkCtx.EventManager().EmitEvent(
+				sdk.NewEvent(
+					"initiative_stake_settled",
+					sdk.NewAttribute("initiative_id", fmt.Sprintf("%d", initiativeID)),
+					sdk.NewAttribute("stake_id", fmt.Sprintf("%d", stake.Id)),
+					sdk.NewAttribute("staker", stake.Staker),
+					sdk.NewAttribute("rewards", settlement.Minted.String()),
+				),
+			)
+		}
+	}
+	return nil
 }

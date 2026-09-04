@@ -287,6 +287,27 @@ if [ "$S1_BOND_OK" = "0" ]; then
 else
     echo "  Sentinel1 already lock-eligible (bond=$S1_BOND, skipping)"
 fi
+
+# The bond is only half the lock gate. GetSentinelBacking reads the sentinel's
+# DREAM *balance* against forum's lock_backing_amount, and that balance erodes
+# at unstaked_decay_rate (0.2%/epoch) for the whole run — so a sentinel funded
+# above the floor at setup can be below it by the time PART 7 executes. Check
+# the quantity the handler actually checks, and let PART 7 skip rather than
+# fail on an environment condition.
+S1_LOCK_BACKING_REQ=$($BINARY query forum params --output json 2>/dev/null \
+    | jq -r '.params.lock_backing_amount // "0"')
+[ -z "$S1_LOCK_BACKING_REQ" ] || [ "$S1_LOCK_BACKING_REQ" = "null" ] && S1_LOCK_BACKING_REQ=0
+S1_BACKING=$($BINARY query rep get-member "$SENTINEL1_ADDR" --output json 2>/dev/null \
+    | jq -r '.member.dream_balance // "0"')
+[ -z "$S1_BACKING" ] || [ "$S1_BACKING" = "null" ] && S1_BACKING=0
+S1_LOCK_ELIGIBLE=true
+if [ "$S1_BACKING" -lt "$S1_LOCK_BACKING_REQ" ] 2>/dev/null; then
+    S1_LOCK_ELIGIBLE=false
+    echo "  [WARN] sentinel1 backing $S1_BACKING is below lock_backing_amount $S1_LOCK_BACKING_REQ"
+    echo "         (DREAM balance decays 0.2%/epoch; a long suite run erodes it)"
+else
+    echo "  Sentinel1 lock backing: $S1_BACKING (>= $S1_LOCK_BACKING_REQ)"
+fi
 echo ""
 
 # ========================================================================
@@ -462,7 +483,10 @@ echo ""
 # ========================================================================
 echo "--- PART 7: AUTO LOCK BY LOCK-ELIGIBLE SENTINEL1 -> SENTINEL PATH ---"
 create_post_as_poster1 "Auto-lock sentinel path $(date +%s)"
-if [ -z "$POST_ID" ]; then
+if [ "$S1_LOCK_ELIGIBLE" != true ]; then
+    echo "  Skipped (sentinel1 no longer meets lock_backing_amount on this chain)"
+    AUTO_LOCK_SENTINEL_RESULT="SKIP"
+elif [ -z "$POST_ID" ]; then
     echo "  Setup failed: could not create thread"; AUTO_LOCK_SENTINEL_RESULT="FAIL"
 else
     # No --authority => AUTO. sentinel1 is lock-eligible, so AUTO must resolve to

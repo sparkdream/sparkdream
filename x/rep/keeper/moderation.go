@@ -27,17 +27,47 @@ func (k Keeper) ZeroMember(ctx context.Context, memberAddr sdk.AccAddress, reaso
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	now := sdkCtx.BlockTime().Unix()
 
-	// Track amounts before zeroing for event
-	dreamBurned := member.DreamBalance.Add(*member.StakedDream)
+	// The member's whole DREAM holding. staked_dream is a SUBSET of
+	// dream_balance — LockDREAM adds to the former without reducing the latter
+	// — so the old `dream_balance + staked_dream` double-counted every staked
+	// coin in both lifetime_burned and the season burn counter.
+	dreamBurned := *member.DreamBalance
 
-	// Burn all DREAM (both available and staked)
-	if member.DreamBalance.IsPositive() {
-		*member.LifetimeBurned = member.LifetimeBurned.Add(*member.DreamBalance)
-		*member.DreamBalance = math.NewInt(0)
+	// Release the member's live stake positions before zeroing the aggregates.
+	// Zeroing used to leave them behind: decayStakes went on shrinking records
+	// backed by a now-zero aggregate (driving staked_dream and dream_balance
+	// negative), and settleStake went on minting rewards to the zeroed member,
+	// who kept unbacked earning positions indefinitely.
+	if err := k.releaseStakesForZeroing(ctx, memberAddr.String()); err != nil {
+		return err
 	}
-	if member.StakedDream.IsPositive() {
-		*member.LifetimeBurned = member.LifetimeBurned.Add(*member.StakedDream)
-		*member.StakedDream = math.NewInt(0)
+
+	// Burn all DREAM. Zeroing writes the member record directly rather than
+	// routing through BurnDREAM, so it counts its own burn against the season.
+	if dreamBurned.IsPositive() {
+		*member.LifetimeBurned = member.LifetimeBurned.Add(dreamBurned)
+		if err := k.TrackBurn(ctx, dreamBurned); err != nil {
+			return err
+		}
+	}
+	*member.DreamBalance = math.NewInt(0)
+	*member.StakedDream = math.NewInt(0)
+	member.ContentStakedDream = PtrInt(math.ZeroInt())
+
+	// Zeroing is the severest penalty the module has, and it is exactly the
+	// event the invitation stake exists to price: whoever vouched for this
+	// member is accountable for them for invitation_accountability_epochs.
+	// ProcessInviterAccountability had no production caller at all, so the
+	// slash never fired and the only realized cost of a bad invitation was the
+	// 10% acceptance burn — the sybil-cost model the spec's invitation
+	// economics assume was not wired to anything.
+	//
+	// Non-fatal: the inviter may have left, the accountability window may have
+	// closed, or there may be no invitation at all for a genesis-seeded member.
+	// None of those should block the zeroing itself.
+	if err := k.ProcessInviterAccountability(ctx, memberAddr, reason); err != nil {
+		sdkCtx.Logger().Info("inviter accountability not applied on zeroing",
+			"member", memberAddr.String(), "error", err)
 	}
 
 	// Archive current reputation to lifetime before zeroing
@@ -341,4 +371,66 @@ func (k Keeper) GetReputationTier(ctx context.Context, addr sdk.AccAddress) (uin
 	}
 
 	return tier, nil
+}
+
+// releaseStakesForZeroing deletes every stake record held by a member being
+// zeroed, shrinking each pool denominator by the amount leaving it.
+//
+// Zeroing burns the member's entire DREAM balance, staked portion included, so
+// the stake records it backed have to go with it. Leaving them behind was the
+// worst of both worlds: `decayStakes` kept shrinking records whose aggregate
+// was already zero (driving staked_dream and dream_balance negative, which
+// corrupts `unlocked = dream_balance - staked_dream` everywhere it is read),
+// and `settleStake` kept minting rewards to the zeroed member, since no payout
+// path checks member status.
+//
+// The principal is NOT returned — it was just burned. This only removes the
+// records and the pool weight they carried, so the remaining stakers' shares
+// are not diluted by a position that no longer has DREAM behind it.
+//
+// Collect-then-delete: rewriting the range being walked is the pattern the rest
+// of the module is careful to avoid.
+func (k Keeper) releaseStakesForZeroing(ctx context.Context, staker string) error {
+	type doomed struct {
+		id    uint64
+		stake types.Stake
+	}
+	var stakes []doomed
+
+	if err := k.Stake.Walk(ctx, nil, func(id uint64, stake types.Stake) (bool, error) {
+		if stake.Staker == staker {
+			stakes = append(stakes, doomed{id: id, stake: stake})
+		}
+		return false, nil
+	}); err != nil {
+		return fmt.Errorf("failed to walk stakes for zeroed member %s: %w", staker, err)
+	}
+
+	sdkCtx := sdk.UnwrapSDKContext(ctx)
+	for _, d := range stakes {
+		if !d.stake.Amount.IsNil() && d.stake.Amount.IsPositive() {
+			if err := k.updateStakePoolTotals(ctx, d.stake, d.stake.Amount.Neg()); err != nil {
+				return fmt.Errorf("failed to shrink pool totals for stake %d: %w", d.id, err)
+			}
+		}
+		if err := k.RemoveStakeFromTargetIndex(ctx, d.stake); err != nil {
+			// Index drift is recoverable; a half-deleted stake is not.
+			sdkCtx.Logger().Error("failed to remove zeroed stake from target index",
+				"stake_id", d.id, "staker", staker, "error", err)
+		}
+		if err := k.Stake.Remove(ctx, d.id); err != nil {
+			return fmt.Errorf("failed to remove stake %d for zeroed member: %w", d.id, err)
+		}
+	}
+
+	if len(stakes) > 0 {
+		sdkCtx.EventManager().EmitEvent(
+			sdk.NewEvent(
+				"zeroed_member_stakes_released",
+				sdk.NewAttribute("member", staker),
+				sdk.NewAttribute("stakes_removed", fmt.Sprintf("%d", len(stakes))),
+			),
+		)
+	}
+	return nil
 }

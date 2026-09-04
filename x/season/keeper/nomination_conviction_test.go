@@ -12,11 +12,11 @@ import (
 )
 
 func TestCalculateNominationConviction(t *testing.T) {
-	// Default params: EpochBlocks=17280, NominationConvictionHalfLifeEpochs=3
-	// halfLifeBlocks = 3 * 17280 = 51840
-	// twoHalfLife = 2 * 51840 = 103680
-	const halfLifeBlocks = 3 * 17280       // 51840
-	const twoHalfLife = 2 * halfLifeBlocks // 103680
+	// Default params: EpochBlocks=14400, NominationConvictionHalfLifeEpochs=3
+	// halfLifeBlocks = 3 * 14400 = 43200
+	// twoHalfLife = 2 * 43200 = 86400
+	const halfLifeBlocks = 3 * 14400       // 43200
+	const twoHalfLife = 2 * halfLifeBlocks // 86400
 
 	t.Run("no stakes", func(t *testing.T) {
 		f := initFixture(t)
@@ -75,8 +75,8 @@ func TestCalculateNominationConviction(t *testing.T) {
 	t.Run("single stake, partial elapsed", func(t *testing.T) {
 		f := initFixture(t)
 		sdkCtx := sdk.UnwrapSDKContext(f.ctx)
-		// Stake at block 0, current block = halfLifeBlocks (51840)
-		// elapsed = 51840, timeFactor = 51840 / 103680 = 0.5
+		// Stake at block 0, current block = halfLifeBlocks (43200)
+		// elapsed = 43200, timeFactor = 43200 / 86400 = 0.5
 		// conviction = 100 * 0.5 = 50
 		sdkCtx = sdkCtx.WithBlockHeight(int64(halfLifeBlocks))
 
@@ -113,8 +113,8 @@ func TestCalculateNominationConviction(t *testing.T) {
 	t.Run("single stake, fully matured", func(t *testing.T) {
 		f := initFixture(t)
 		sdkCtx := sdk.UnwrapSDKContext(f.ctx)
-		// Stake at block 0, current block = twoHalfLife (103680)
-		// elapsed = 103680, timeFactor = min(1.0, 103680/103680) = 1.0
+		// Stake at block 0, current block = twoHalfLife (86400)
+		// elapsed = 86400, timeFactor = min(1.0, 86400/86400) = 1.0
 		// conviction = 100 * 1.0 = 100
 		sdkCtx = sdkCtx.WithBlockHeight(int64(twoHalfLife))
 
@@ -152,7 +152,7 @@ func TestCalculateNominationConviction(t *testing.T) {
 		f := initFixture(t)
 		sdkCtx := sdk.UnwrapSDKContext(f.ctx)
 		// Stake at block 0, current block = twoHalfLife * 2 (207360)
-		// elapsed = 207360, timeFactor = min(1.0, 207360/103680) = 1.0 (capped)
+		// elapsed = 207360, timeFactor = min(1.0, 207360/86400) = 1.0 (capped)
 		// conviction = 200 * 1.0 = 200
 		sdkCtx = sdkCtx.WithBlockHeight(int64(twoHalfLife * 2))
 
@@ -189,7 +189,7 @@ func TestCalculateNominationConviction(t *testing.T) {
 	t.Run("multiple stakes, different ages", func(t *testing.T) {
 		f := initFixture(t)
 		sdkCtx := sdk.UnwrapSDKContext(f.ctx)
-		// Current block = 103680 (twoHalfLife)
+		// Current block = 86400 (twoHalfLife)
 		sdkCtx = sdkCtx.WithBlockHeight(int64(twoHalfLife))
 
 		nominationId := uint64(1)
@@ -204,8 +204,8 @@ func TestCalculateNominationConviction(t *testing.T) {
 			RewardAmount:   math.LegacyZeroDec(),
 		}
 
-		// Stake 1: staked at block 0, elapsed = 103680
-		// timeFactor = min(1.0, 103680/103680) = 1.0
+		// Stake 1: staked at block 0, elapsed = 86400
+		// timeFactor = min(1.0, 86400/86400) = 1.0
 		// conviction1 = 100 * 1.0 = 100
 		stakeKey1 := fmt.Sprintf("%d/%s", nominationId, "staker1")
 		stake1 := types.NominationStake{
@@ -217,8 +217,8 @@ func TestCalculateNominationConviction(t *testing.T) {
 		err := f.keeper.NominationStake.Set(sdkCtx, stakeKey1, stake1)
 		require.NoError(t, err)
 
-		// Stake 2: staked at block 51840 (halfLifeBlocks), elapsed = 103680 - 51840 = 51840
-		// timeFactor = min(1.0, 51840/103680) = 0.5
+		// Stake 2: staked at block 43200 (halfLifeBlocks), elapsed = 86400 - 43200 = 43200
+		// timeFactor = min(1.0, 43200/86400) = 0.5
 		// conviction2 = 200 * 0.5 = 100
 		stakeKey2 := fmt.Sprintf("%d/%s", nominationId, "staker2")
 		stake2 := types.NominationStake{
@@ -282,7 +282,7 @@ func TestCalculateNominationConviction(t *testing.T) {
 		require.NoError(t, err)
 
 		// Only nomination 1's stake should be counted:
-		// elapsed = 103680, timeFactor = 1.0, conviction = 100 * 1.0 = 100
+		// elapsed = 86400, timeFactor = 1.0, conviction = 100 * 1.0 = 100
 		expected := math.LegacyNewDec(100)
 		require.True(t, conviction.Equal(expected),
 			"conviction should be 100 (only nomination 1 stakes counted), got %s", conviction)

@@ -304,6 +304,54 @@ message Params {
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
+
+  // Ceiling on each epoch's reward slice, as a yield on the DREAM actually
+  // staked (default 0.0005 = 0.05% per epoch, 7.5% over a 150-epoch season
+  // gross, ~3.75% net of staked_decay_rate).
+  //
+  // The slice is otherwise remaining/remaining_epochs no matter how little is
+  // staked, so yield per staked DREAM diverges as the staked base shrinks and
+  // acc_per_share grows without bound: a chain with 1.47 DREAM staked hands the
+  // entire season budget to three dust stakes. Whatever this cap withholds
+  // stays in the pool rather than being distributed or dropped.
+  string staking_reward_yield_per_epoch = 136 [
+    (cosmos_proto.scalar) = "cosmos.Dec",
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+
+  // Share of the previous season's non-staking DREAM mints that funds this
+  // season's staking reward pool (default 0.05 = 5%), so emission tracks what
+  // the chain actually produced rather than the calendar.
+  //
+  // Staking rewards are excluded from the base. Counting them would let each
+  // season's pool inflate the next one's, compounding with nothing but the
+  // schedule cap below to stop it.
+  string staking_pool_mint_share = 137 [
+    (cosmos_proto.scalar) = "cosmos.Dec",
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+
+  // Schedule ceiling on the seasonal pool:
+  //
+  //   cap = staking_pool_cap_base * (season + 1) * staking_pool_cap_rate
+  //
+  // The base is the chain's initial DREAM supply (25,000 DREAM at genesis) and
+  // the rate defaults to 0.05, so the ceiling opens at 1,250 DREAM in season 0
+  // and widens by that much each season. It backstops the mint-share term above
+  // on a chain whose mint volume spikes; max_staking_rewards_per_season remains
+  // the absolute ceiling over both.
+  string staking_pool_cap_base = 138 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  string staking_pool_cap_rate = 139 [
+    (cosmos_proto.scalar) = "cosmos.Dec",
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
   string staked_decay_rate = 64 [ // Per-epoch decay on staked DREAM (default 0.05% = 0.0005)
     (cosmos_proto.scalar) = "cosmos.Dec",
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
@@ -324,6 +372,37 @@ message Params {
   // Prevents reward pool extraction — conviction is already capped by max_conviction_share_per_member,
   // but without this cap, a whale can stake disproportionately and extract most seasonal staking rewards.
   string max_initiative_stake_per_member = 69 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+
+  // Anti-dust floor on the DREAM one MsgStake may lock (default 0.002 DREAM =
+  // 2,000 micro-DREAM). There was no floor at all, so a member could open the
+  // ten tranches max_stake_tranches_per_target allows at one micro-DREAM each
+  // and be counted as a participant in every conviction and payout weighting
+  // the initiative runs.
+  //
+  // The default is pinned to 1/staking_reward_yield_per_epoch: the smallest
+  // stake whose own per-epoch accrual (amount * yield, truncated to an integer)
+  // reaches one micro-DREAM. Below that a record can never earn anything, and
+  // should not occupy a state slot. Move it with the yield. What bounds the
+  // return on a small position is max_completion_bonus_stake_multiple, not
+  // this.
+  string min_stake_amount = 140 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+
+  // Per-season cap on total DREAM minted to pay interim work (default 50,000
+  // DREAM). The initiative cap below has always existed; the interim path had
+  // no season bound at all, which left it as the one DREAM-creating flow whose
+  // total was limited only by max_dream_mint_per_epoch — 250,000 DREAM/day
+  // against a 25,000 DREAM genesis supply. Interims are self-assigned and
+  // self-completed by design, so the per-member active cap alone does not
+  // bound the total: a member can complete and re-create indefinitely.
+  string max_interim_rewards_per_season = 143 [
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
@@ -562,6 +641,48 @@ message Params {
   // Default 0.1.
   string initiative_completion_bonus_rate = 102 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+
+  // Ceiling on the initiative completion bonus, as a multiple of the external
+  // DREAM actually staked behind the initiative (default 3.0):
+  //
+  //   bonus_pool = min(initiative_completion_bonus_rate * budget,
+  //                    max_completion_bonus_stake_multiple * external_stake)
+  //
+  // Default 3.0. Without it the bonus is a fixed share of the budget while the
+  // capital needed to unlock that budget falls as 1/N in the number of stakers —
+  // required_conviction is conviction_per_dream * sqrt(budget), each of N
+  // stakers supplies sqrt(stake), so the total stake that clears the gate is
+  // conviction_per_dream^2 * budget / N. The bonus per staker is then
+  // 2.5 * N times their own stake: 7.5x at three stakers, 25x at ten, 62.5x at
+  // twenty-five, risk-free on any initiative that completes.
+  //
+  // Pricing the bonus off capital at risk instead of participant count
+  // restores the stake-to-budget ratio the conviction formula was designed
+  // around (~4%) without touching the sqrt weighting that deliberately rewards
+  // breadth. Range: 0 disables the bonus entirely.
+  string max_completion_bonus_stake_multiple = 141 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+
+  // Ceiling on the TOTAL DREAM one member may hold across all content
+  // conviction stakes (blog, forum, collection — every item combined), on top
+  // of the per-item max_content_stake_per_member.
+  //
+  // Content stakes neither decay (decayStakes skips them) nor earn, so without
+  // an aggregate bound they are an unbounded decay-free store of value: DREAM
+  // parked there escapes the unstaked decay nudge entirely while a reward-
+  // bearing stake pays for itself in yield only when the seasonal pool is not
+  // calendar-bound. The per-item cap alone does not bound the park — one
+  // member can hold max_content_stake_per_member on every item ever created.
+  // Must be >= max_content_stake_per_member. Default 20,000 DREAM (2x the
+  // per-item cap). Author bonds are not counted; they are slashable escrow
+  // with their own per-item cap.
+  string max_total_content_stake_per_member = 142 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
   // Replacement rounds the acceptance sweep may run per jury review.
@@ -1062,6 +1183,20 @@ message RepOperationalParams {
     (gogoproto.nullable) = false
   ];
 
+  // Mirrors min_stake_amount in Params.
+  string min_stake_amount = 120 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+
+  // Mirrors max_interim_rewards_per_season in Params.
+  string max_interim_rewards_per_season = 123 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+
   // Per-season initiative reward minting cap (mirrors Params.max_initiative_rewards_per_season)
   string max_initiative_rewards_per_season = 56 [
     (cosmos_proto.scalar) = "cosmos.Int",
@@ -1185,6 +1320,20 @@ message RepOperationalParams {
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
+
+  // Mirrors max_completion_bonus_stake_multiple in Params.
+  string max_completion_bonus_stake_multiple = 121 [
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+
+  // Mirrors max_total_content_stake_per_member in Params: the aggregate
+  // per-member ceiling across all content conviction stakes.
+  string max_total_content_stake_per_member = 122 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
   // Mirrors jury_acceptance_window_ratio in Params. Validated against
   // max_jury_redraws below — the pair must fit inside the review period.
   string jury_acceptance_window_ratio = 82 [
@@ -1300,4 +1449,26 @@ message RepOperationalParams {
   int64 min_reviewer_age_blocks = 113;
   int64 reviewer_demotion_cooldown = 114;
   int64 reviewer_unbond_cooldown = 115;
+
+  // Seasonal staking pool shape; see the same fields on Params.
+  string staking_reward_yield_per_epoch = 116 [
+    (cosmos_proto.scalar) = "cosmos.Dec",
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+  string staking_pool_mint_share = 117 [
+    (cosmos_proto.scalar) = "cosmos.Dec",
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+  string staking_pool_cap_base = 118 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  string staking_pool_cap_rate = 119 [
+    (cosmos_proto.scalar) = "cosmos.Dec",
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
 }

@@ -17,6 +17,12 @@ func TestGetPendingStakingRewards_Initiative(t *testing.T) {
 
 	stakeAmount := math.NewInt(1000000) // 1 DREAM
 
+	// A live initiative to point at: stakeAccruing resolves the target and
+	// stops paying once it reaches a terminal status, so the reward math can
+	// no longer be exercised against a dangling target id.
+	creator := newStakerMember(t, f, "pending_init_creator", math.NewInt(5_000_000_000))
+	initID := newActiveInitiative(t, f, creator, "pendinit")
+
 	// Initialize the seasonal pool so the MasterChef accumulator is populated.
 	require.NoError(t, k.InitSeasonalPool(f.ctx, 1))
 	require.NoError(t, k.UpdateSeasonalPoolTotalStaked(f.ctx, stakeAmount))
@@ -26,18 +32,20 @@ func TestGetPendingStakingRewards_Initiative(t *testing.T) {
 		Id:         1,
 		Staker:     "staker",
 		TargetType: types.StakeTargetType_STAKE_TARGET_INITIATIVE,
+		TargetId:   initID,
 		Amount:     stakeAmount,
 		CreatedAt:  1000000,
 	}
 
 	reward, err := k.GetPendingStakingRewards(f.ctx, stake)
 	require.NoError(t, err)
-	// Rewards come from the seasonal pool MasterChef accumulator.
-	// epochSlice = MaxStakingRewardsPerSeason / SeasonDurationEpochs = 25000000000000 / 150 = 166666666666
-	// accPerShare = epochSlice / totalStaked; reward = stakeAmount * accPerShare
-	// When stakeAmount == totalStaked, reward == epochSlice.
+	// Rewards come from the seasonal pool MasterChef accumulator. The epoch
+	// slice is the lesser of the calendar share (budget/SeasonDurationEpochs =
+	// 16,666,666) and StakingRewardYieldPerEpoch on the staked base
+	// (0.0005 * 1,000,000 = 500); with 1 DREAM staked the yield cap binds.
+	// When stakeAmount == totalStaked, reward == the slice.
 	require.True(t, reward.IsPositive(), "expected positive reward, got %s", reward)
-	require.Equal(t, math.NewInt(166666666666), reward)
+	require.Equal(t, math.NewInt(500), reward)
 }
 
 func TestGetPendingStakingRewards_ContentStake(t *testing.T) {
@@ -153,11 +161,11 @@ func TestGetPendingStakingRewards_Project(t *testing.T) {
 
 	reward, err := k.GetPendingStakingRewards(f.ctx, stake)
 	require.NoError(t, err)
-	// Project stakes share the same seasonal pool as initiative stakes.
-	// epochSlice = MaxStakingRewardsPerSeason / SeasonDurationEpochs = 25000000000000 / 150 = 166666666666
-	// When stakeAmount == totalStaked, reward == epochSlice.
+	// Project stakes share the same seasonal pool, and the same per-epoch yield
+	// cap, as initiative stakes: 0.0005 * 1,000,000 staked = 500.
+	// When stakeAmount == totalStaked, reward == the slice.
 	require.True(t, reward.IsPositive(), "expected positive reward, got %s", reward)
-	require.Equal(t, math.NewInt(166666666666), reward)
+	require.Equal(t, math.NewInt(500), reward)
 }
 
 func TestClaimStakingRewards_Success(t *testing.T) {
@@ -410,7 +418,8 @@ func TestCompoundStakingRewards_Success(t *testing.T) {
 	require.NoError(t, err)
 
 	// Push revenue through the member pool so its accumulator is nonzero.
-	require.NoError(t, k.AccumulateMemberStakeRevenue(f.ctx, targetAddr, math.NewInt(10000000)))
+	_, mErr := k.AccumulateMemberStakeRevenue(f.ctx, targetAddr, math.NewInt(10000000))
+	require.NoError(t, mErr)
 
 	// Advance past the minimum holding period.
 	sdkCtx := sdk.UnwrapSDKContext(f.ctx)

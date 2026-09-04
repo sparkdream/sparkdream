@@ -16,20 +16,24 @@ func (q queryServer) DreamSupplyStats(ctx context.Context, req *types.QueryDream
 		return nil, status.Error(codes.InvalidArgument, "invalid request")
 	}
 
-	totalMinted, err := q.k.GetSeasonMinted(ctx)
+	seasonMinted, err := q.k.GetSeasonMinted(ctx)
 	if err != nil {
-		totalMinted = math.ZeroInt()
+		seasonMinted = math.ZeroInt()
 	}
-	totalBurned, err := q.k.GetSeasonBurned(ctx)
+	seasonBurned, err := q.k.GetSeasonBurned(ctx)
 	if err != nil {
-		totalBurned = math.ZeroInt()
+		seasonBurned = math.ZeroInt()
 	}
 	treasuryBalance, err := q.k.GetTreasuryBalance(ctx)
 	if err != nil {
 		treasuryBalance = math.ZeroInt()
 	}
 
-	// Walk all members to compute circulating and staked totals
+	// Walk all members to compute circulating and staked totals. LockDREAM does
+	// not reduce DreamBalance — staked DREAM is a subset of it, tracked
+	// separately in StakedDream — so `circulating` is every member's holdings
+	// including what they have locked, and `circulating + treasury_balance` is
+	// the live DREAM supply.
 	circulating := math.ZeroInt()
 	totalStaked := math.ZeroInt()
 	_ = q.k.Member.Walk(ctx, nil, func(_ string, member types.Member) (bool, error) {
@@ -46,8 +50,8 @@ func (q queryServer) DreamSupplyStats(ctx context.Context, req *types.QueryDream
 	}
 
 	return &types.QueryDreamSupplyStatsResponse{
-		TotalMinted:     totalMinted,
-		TotalBurned:     totalBurned,
+		SeasonMinted:    seasonMinted,
+		SeasonBurned:    seasonBurned,
 		Circulating:     circulating,
 		TotalStaked:     totalStaked,
 		TreasuryBalance: treasuryBalance,

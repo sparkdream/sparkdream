@@ -89,3 +89,21 @@ func AuthorBondTypeToContentType(t StakeTargetType) StakeTargetType {
 		return t
 	}
 }
+
+// IsInitiativeTerminal reports whether an initiative has reached a status it
+// can never leave — the work is done, rejected, or retired.
+//
+// Kept in one place because four call sites now depend on the set agreeing:
+// reference validation, review-bounty settlement, the project sweep, and
+// stakeAccruing, which stops seasonal accrual on terminal initiatives. A stake
+// still earning against an initiative one of the others considers finished is
+// exactly the drift this prevents.
+func IsInitiativeTerminal(status InitiativeStatus) bool {
+	switch status {
+	case InitiativeStatus_INITIATIVE_STATUS_COMPLETED,
+		InitiativeStatus_INITIATIVE_STATUS_REJECTED,
+		InitiativeStatus_INITIATIVE_STATUS_CLOSED:
+		return true
+	}
+	return false
+}

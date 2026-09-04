@@ -99,13 +99,17 @@ win_overturned_since() { active_buckets | jq --argjson e "$1" '[.[]|select(.epoc
 
 # create_hide_appeal <poster-key> -> echoes "<post_id> <appeal_id>"
 create_hide_appeal() {
-    local POSTER=$1 RES PID AID
+    local POSTER=$1 RES PID AID APPEAL_RES
     RES=$(run_tx "$POSTER" forum create-post "$TEST_CATEGORY_ID" "0" "window-test-$(date +%s)-$RANDOM")
     PID=$(extract_event_value "$RES" "post_created" "post_id")
     [ -z "$PID" ] && PID=$($BINARY query forum list-post --output json 2>/dev/null | jq -r '.post[-1].id // empty')
     run_tx sentinel1 forum hide-post "$PID" "1" "window test hide" >/dev/null
     sleep 6   # appeal cooldown (5s) before the author may appeal
-    run_tx "$POSTER" forum appeal-post "$PID" >/dev/null
+    # Do not swallow this one: a silently failed appeal shows up much later as
+    # an empty appeal id plus two unexplained window-delta failures.
+    if ! APPEAL_RES=$(run_tx "$POSTER" forum appeal-post "$PID") || ! check_tx_success "$APPEAL_RES"; then
+        echo "  [WARN] appeal-post by $POSTER on $PID failed: $(echo "$APPEAL_RES" | jq -r '.raw_log // .' 2>/dev/null | head -c 200)" >&2
+    fi
     AID=$($BINARY query rep list-gov-action-appeal --output json 2>/dev/null \
         | jq -r --arg t "$PID" '[.gov_action_appeal[]? | select(.action_target==$t and .status=="GOV_APPEAL_STATUS_PENDING")] | sort_by(.id) | last | .id // empty')
     echo "$PID $AID"
@@ -133,6 +137,34 @@ fi
 CUR_BOND=$($BINARY query rep bonded-role content-sentinel "$SENTINEL1_ADDR" --output json 2>/dev/null | jq -r '.bonded_role.current_bond // "0"')
 echo "  sentinel1 bond: $CUR_BOND"
 [ "$CUR_BOND" -ge 1000000000 ] && pass "sentinel1 bonded with headroom" || fail "sentinel1 bond too low ($CUR_BOND)"
+
+# Appeals escrow the x/rep appeal bond (10 SPARK, refundable), so every account
+# that files one here needs SPARK for it. PART 2 appeals as poster1 AND poster2
+# while nothing funded either — poster1 happens to carry SPARK from earlier
+# suites, poster2 does not, which is why appeal B silently failed to file and
+# took the two window assertions that depend on it down with it. Pre-fund both,
+# before the hides, so the funding txs are outside the hide/appeal window.
+for P in "$POSTER1_ADDR" "$POSTER2_ADDR"; do
+    BAL=$($BINARY query bank balances "$P" --output json 2>/dev/null \
+        | jq -r --arg d "$BOND_DENOM" '.balances[]? | select(.denom==$d) | .amount // "0"')
+    [ -z "$BAL" ] && BAL=0
+    if [ "$BAL" -lt 20000000 ] 2>/dev/null; then
+        echo "  Funding $P for the appeal bond (has $BAL)..."
+        # `tx bank send` takes THREE positionals (from, to, amount). run_tx
+        # appends --from, so the sender must still be given positionally or the
+        # recipient is parsed as the sender and the transfer silently does
+        # nothing. Do not swallow the result: a funding tx that fails here
+        # surfaces much later as an unexplained missing appeal.
+        FUND_RES=$(run_tx alice bank send alice "$P" "20000000${BOND_DENOM}")
+        if ! check_tx_success "$FUND_RES"; then
+            echo "  [WARN] funding $P failed: $(echo "$FUND_RES" | jq -r '.raw_log // .' 2>/dev/null | head -c 160)"
+        else
+            NEWBAL=$($BINARY query bank balances "$P" --output json 2>/dev/null \
+                | jq -r --arg d "$BOND_DENOM" '.balances[]? | select(.denom==$d) | .amount // "0"')
+            echo "  Funded $P (balance now ${NEWBAL:-unknown})"
+        fi
+    fi
+done
 
 # ========================================================================
 # PART 1: WINDOW PARAM IS VISIBLE

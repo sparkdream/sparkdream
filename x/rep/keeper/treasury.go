@@ -355,6 +355,68 @@ func (k Keeper) TrackInitiativeRewardMint(ctx context.Context, amount math.Int) 
 	return k.SeasonInitiativeRewardsMinted.Set(ctx, minted.String())
 }
 
+// GetSeasonInterimRewardsMinted returns the DREAM minted to pay interim work
+// during the current season. Returns zero if the counter has not been set.
+func (k Keeper) GetSeasonInterimRewardsMinted(ctx context.Context) (math.Int, error) {
+	str, err := k.SeasonInterimRewardsMinted.Get(ctx)
+	if err != nil {
+		if errors.Is(err, collections.ErrNotFound) {
+			return math.ZeroInt(), nil
+		}
+		return math.Int{}, err
+	}
+	val, ok := math.NewIntFromString(str)
+	if !ok {
+		return math.Int{}, fmt.Errorf("invalid season interim rewards %q", str)
+	}
+	return val, nil
+}
+
+// TrackInterimRewardMint adds the given amount to the SeasonInterimRewardsMinted
+// counter, which max_interim_rewards_per_season is checked against.
+func (k Keeper) TrackInterimRewardMint(ctx context.Context, amount math.Int) error {
+	minted, err := k.GetSeasonInterimRewardsMinted(ctx)
+	if err != nil {
+		return err
+	}
+	minted = minted.Add(amount)
+	return k.SeasonInterimRewardsMinted.Set(ctx, minted.String())
+}
+
+// GetSeasonStakingRewardsMinted returns the DREAM minted as staking rewards
+// during the current season. Returns zero if the counter has not been set.
+func (k Keeper) GetSeasonStakingRewardsMinted(ctx context.Context) (math.Int, error) {
+	str, err := k.SeasonStakingRewardsMinted.Get(ctx)
+	if err != nil {
+		if errors.Is(err, collections.ErrNotFound) {
+			return math.ZeroInt(), nil
+		}
+		return math.Int{}, err
+	}
+	val, ok := math.NewIntFromString(str)
+	if !ok {
+		return math.Int{}, fmt.Errorf("invalid season staking rewards minted %q", str)
+	}
+	return val, nil
+}
+
+// TrackStakingRewardMint adds the given amount to the per-season staking rewards
+// counter. Called by settleStake, the only path that mints from a stake pool
+// accumulator.
+//
+// This counter exists to be subtracted, not reported: InitSeasonalPool sizes the
+// incoming season's budget from the mints the chain produced, and staking
+// rewards are not production. Leaving them in the base would let each season's
+// pool fund the next one's, compounding against nothing but the schedule cap.
+func (k Keeper) TrackStakingRewardMint(ctx context.Context, amount math.Int) error {
+	minted, err := k.GetSeasonStakingRewardsMinted(ctx)
+	if err != nil {
+		return err
+	}
+	minted = minted.Add(amount)
+	return k.SeasonStakingRewardsMinted.Set(ctx, minted.String())
+}
+
 // CheckAndTrackEpochMint atomically enforces the per-epoch DREAM mint ceiling
 // (params.MaxDreamMintPerEpoch) and advances the counter. The tracked epoch
 // rolls over automatically on the first mint of a new epoch, so no separate

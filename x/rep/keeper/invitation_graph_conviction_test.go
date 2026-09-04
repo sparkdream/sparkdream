@@ -140,7 +140,7 @@ func TestExternalConvictionExcludesTheAssigneesInvitee(t *testing.T) {
 		types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, math.NewInt(1000))
 	require.NoError(t, err)
 
-	_, err = k.CreateStake(ctx, puppet, types.StakeTargetType_STAKE_TARGET_INITIATIVE, initID, "", math.NewInt(500))
+	_, err = k.CreateStake(ctx, puppet, types.StakeTargetType_STAKE_TARGET_INITIATIVE, initID, "", math.NewInt(5000))
 	require.NoError(t, err)
 
 	// Let the stakes mature so conviction is non-trivial.
@@ -156,7 +156,7 @@ func TestExternalConvictionExcludesTheAssigneesInvitee(t *testing.T) {
 		keeper.DerefDec(withPuppetOnly.ExternalConviction).String())
 
 	// A genuinely unrelated staker does count.
-	_, err = k.CreateStake(ctx, outsider, types.StakeTargetType_STAKE_TARGET_INITIATIVE, initID, "", math.NewInt(500))
+	_, err = k.CreateStake(ctx, outsider, types.StakeTargetType_STAKE_TARGET_INITIATIVE, initID, "", math.NewInt(5000))
 	require.NoError(t, err)
 	ctx = ctx.WithBlockTime(ctx.BlockTime().Add(14 * 24 * time.Hour))
 	require.NoError(t, k.UpdateInitiativeConviction(ctx, initID))
@@ -202,7 +202,7 @@ func TestCompletionBonusWithholdsFromAuthorAndProjectOwner(t *testing.T) {
 	require.NoError(t, k.AssignInitiativeToMember(ctx, initID, assignee))
 
 	for _, s := range []sdk.AccAddress{owner, author, assignee, invitee, outsider} {
-		_, err = k.CreateStake(ctx, s, types.StakeTargetType_STAKE_TARGET_INITIATIVE, initID, "", math.NewInt(1_000))
+		_, err = k.CreateStake(ctx, s, types.StakeTargetType_STAKE_TARGET_INITIATIVE, initID, "", math.NewInt(2_000))
 		require.NoError(t, err)
 	}
 

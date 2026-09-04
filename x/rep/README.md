@@ -7,7 +7,7 @@ The `x/rep` module is the core coordination engine of Spark Dream, implementing 
 This module provides:
 
 - **Member lifecycle** — invitation-based onboarding with accountability, five trust levels, "zeroing" instead of permanent bans
-- **DREAM token** — internal earned token with minting, burning, limited transfers, lazy unstaked decay
+- **DREAM token** — internal earned token with minting, burning, limited transfers, two-tier decay (unstaked 0.2%/epoch, staked 0.05%/epoch)
 - **Reputation system** — per-tag scores with seasonal resets, lifetime archive, and anti-gaming caps
 - **Invitation system** — staked, accountable invitations with referral rewards
 - **Projects and initiatives** — council-approved budgets with tiered, conviction-based work completion
@@ -49,11 +49,16 @@ Member statuses: ACTIVE, INACTIVE, ZEROED. Zeroing burns all DREAM, zeroes reput
 DREAM is the internal earned token:
 
 - **Minting**: initiative completion (primary), staking rewards, interim compensation, retroactive public goods
-- **Burning**: slashing, failed challenges, failed invitations, unstaked decay (1%/epoch), transfer tax (3%)
+- **Burning**: slashing, failed challenges, failed invitations, unstaked decay (0.2%/epoch), staked decay (0.05%/epoch), transfer tax (3%)
 - **Transfers**: tips (max 100 DREAM, 10/epoch), gifts (max 500 DREAM, invitees only, cooldown per recipient), bounties (escrowed)
 - **No external trading**, no IBC transfer
 
-**Lazy decay**: unstaked DREAM decays at 1%/epoch, applied lazily via `GetMember()` for O(1) scaling.
+**Two-tier decay**: unstaked DREAM decays at 0.2%/epoch (applied lazily per member and in a
+once-per-epoch bulk pass), while reward-bearing stake records decay at 0.05%/epoch via
+`decayStakes`, which shrinks the stake, its pool denominators, its reward debt, and the
+staker's aggregates in lockstep — so `member.staked_dream` always equals the sum of the
+obligations backing it. Escrow-style locks (invitation stakes, challenges, bonded roles,
+bounties, author bonds, content conviction) do not decay.
 
 ### Reputation System
 
@@ -110,13 +115,13 @@ Stakes lock DREAM on various targets to signal conviction:
 
 | Target Type | Reward source | Description |
 |-------------|---------------|-------------|
-| Initiative | Seasonal pool (shared) | Signal belief in work quality; conviction-weighted completion bonus (1/10th of budget) |
+| Initiative | Seasonal pool (shared) | Signal belief in work quality; conviction-weighted completion bonus, `min(10% of budget, 3x the external stake)` |
 | Project | Seasonal pool (shared) | Support active projects (`project_completion_bonus_rate` bonus on completion) |
 | Member | Member pool (revenue share) | Peer support (circular A↔B blocked, no self-stake) |
 | Tag | Tag pool (revenue share) | Domain expertise signal |
 | Content | None | Blog/forum/collection conviction signal only |
 
-There is no per-target APY. Initiative and project stakes draw pro-rata from one shared seasonal pool (`max_staking_rewards_per_season`), so effective yield self-adjusts with total staked; member and tag stakes earn a revenue share accumulated when the target earns. All four use MasterChef accounting — a per-stake `reward_debt` baseline taken at join and rebased on every settlement — routed through a single `settleStake` helper. See the reward-accounting section of [docs/x-rep-spec.md](../../docs/x-rep-spec.md).
+There is no per-target APY. Initiative and project stakes draw pro-rata from one shared seasonal pool, sized from the previous season's production and bounded per epoch by `staking_reward_yield_per_epoch` on the staked base — without that bound, per-unit yield diverges rather than self-adjusts as the staked base shrinks; member and tag stakes earn a revenue share accumulated when the target earns. All four use MasterChef accounting — a per-stake `reward_debt` baseline taken at join and rebased on every settlement — routed through a single `settleStake` helper. See the reward-accounting section of [docs/x-rep-spec.md](../../docs/x-rep-spec.md).
 
 - **Min stake duration**: 24 hours (`min_stake_duration_seconds`). Gates reward *collection*, not principal return. Claiming or compounding earlier is rejected with `ErrMinStakeDuration` and forfeits nothing. Unstaking earlier always returns the principal but forfeits accrued rewards (the DREAM is never minted and stays in the pool).
 - **Max conviction share per member**: 33% (prevents single-member dominance)
@@ -550,12 +555,12 @@ Project" section of [docs/x-rep-spec.md](../../docs/x-rep-spec.md).
 
 | Message | Description | Access |
 |---------|-------------|--------|
-| `MsgCreateInterim` | Create delegated work | Committee authority |
-| `MsgAssignInterim` | Assign to worker | Authority |
+| `MsgCreateInterim` | Create delegated work; the creator becomes its sole assignee | Member |
+| `MsgAssignInterim` | Add an assignee (a share of the budget) | Operations Committee |
 | `MsgSubmitInterimWork` | Submit deliverable | Assignee |
 | `MsgApproveInterim` | Approve completion | Authority |
 | `MsgAbandonInterim` | Abandon assigned interim | Assignee |
-| `MsgCompleteInterim` | Finalize, mint rewards, grant reputation | Authority |
+| `MsgCompleteInterim` | Finalize, mint rewards, grant reputation. Self-certified by the assignee, so bounded by `max_interim_rewards_per_season` and refused on an already-finalized interim | Assignee (ADJUDICATION: Operations Committee) |
 
 ### Tag Registry and Moderation
 
@@ -711,8 +716,13 @@ These parameters are excluded from `RepOperationalParams` and can only be change
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `staking_apy` | LegacyDec | 10% | On staked DREAM |
-| `unstaked_decay_rate` | LegacyDec | 1% | Per epoch on unstaked DREAM |
+| `unstaked_decay_rate` | LegacyDec | 0.2% | Per epoch on unstaked DREAM |
+| `staked_decay_rate` | LegacyDec | 0.025% | Per epoch on reward-bearing stake records (initiative, project, member, tag, content conviction). Escrow — bonds, invitation locks, challenge stakes, bounties — never decays, and stakes on PROPOSED projects are exempt while frozen out of the pool |
+| `staking_reward_yield_per_epoch` | LegacyDec | 0.05% | Ceiling on the seasonal pool's epoch slice as a yield on the staked base. Binds below ~333,333 DREAM staked, which makes it the effective staking rate. Net of `staked_decay_rate`, a staked position earns ~0.025%/epoch |
+| `max_staking_rewards_per_season` | Int | 25,000 DREAM | Absolute ceiling on a season's staking budget, above the two sizing terms below |
+| `staking_pool_mint_share` | LegacyDec | 5% | Sizes the season's budget from the *previous* season's non-staking mints, so emission tracks production rather than the calendar. Staking rewards are excluded from the base so one season's emission cannot fund the next |
+| `staking_pool_cap_base` | Int | 25,000 DREAM | Anchor for the schedule ceiling `cap_base * (season + 1) * cap_rate`. Per-network: each chain's own genesis DREAM supply (devnet 85,000) |
+| `staking_pool_cap_rate` | LegacyDec | 5% | Schedule rate per season elapsed; backstops the mint-share term on a mint spike |
 | `transfer_tax_rate` | LegacyDec | 3% | Burned on transfers |
 | `max_tip_amount` | Int | 100 DREAM | Per tip |
 | `max_tips_per_epoch` | uint64 | 10 | Rate limit |
@@ -796,6 +806,8 @@ These parameters are excluded from `RepOperationalParams` and can only be change
 | `max_verifier_dream_mint_per_epoch` | Int | 100 DREAM (7 in testparams) | Cap on total DREAM minted per epoch; eligible verifiers scale down pro-rata |
 | `role_reward_inflation_share` | LegacyDec | 0.5 | Share of the community pool's inflation income drawn per UTC day, split across all bonded-role pools by headroom; 0 disables |
 | `initiative_completion_bonus_rate` | LegacyDec | 10% | Of the budget, to external stakers on completion |
+| `max_completion_bonus_stake_multiple` | LegacyDec | 3.0 | Ceiling on that bonus as a multiple of the external DREAM staked behind the initiative. The capital clearing the conviction gate falls as 1/N in the staker count while a fixed budget share does not, so pricing the bonus off the budget alone paid 2.5·N times each staker's stake. 0 disables the bonus |
+| `min_stake_amount` | Int | 2,000 (0.002 DREAM) | Anti-dust floor on every `MsgStake`, pinned to 1/`staking_reward_yield_per_epoch`. Below it a stake's own per-epoch accrual truncates to zero, so the record can never pay for the state slot it holds |
 
 Per-project review is configured by `MsgSetVerificationPolicy`;
 `min_verifier_count` 0 (the genesis default) is conviction-only.
@@ -806,6 +818,7 @@ Per-project review is configured by `MsgSetVerificationPolicy`;
 |-----------|------|---------|-------------|
 | `content_conviction_half_life_epochs` | uint64 | 14 | Slower than initiatives |
 | `max_content_stake_per_member` | Int | 10,000 DREAM | Per content item |
+| `max_total_content_stake_per_member` | Int | 20,000 DREAM | Across *all* content items combined, tracked on `Member.content_staked_dream`. The per-item cap only sets the granularity of parking DREAM in content stakes; this bounds the total |
 | `max_author_bond_per_content` | Int | 1,000 DREAM | Bond cap |
 | `author_bond_slash_on_moderation` | bool | true | Slash bonds on moderation |
 | `content_challenge_reward_share` | LegacyDec | 50% | Minted to successful challenger |
@@ -849,6 +862,7 @@ Per-project review is configured by `MsgSetVerificationPolicy`;
 | `expert_complexity_budget` | Int | 1,000 DREAM | Expert task compensation |
 | `solo_expert_bonus_rate` | LegacyDec | 50% | Bonus for solo expert work |
 | `interim_deadline_epochs` | uint64 | 7 | Deadline in epochs |
+| `max_interim_rewards_per_season` | Int | 50,000 DREAM | Per-season ceiling on DREAM minted to pay interim work. Interims are self-assigned and self-completed, so `max_active_interims_per_member` bounds only how many are open at once, not the seasonal total |
 
 #### Slashing
 

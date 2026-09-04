@@ -143,13 +143,16 @@ genesis:
         name: "Genesis Season"
         theme: "The Beginning"
         start_block: 1
-        end_block: 2592001  # epoch_blocks * season_duration_epochs (17280 * 150) + start_block
+        end_block: 2160001  # epoch_blocks * season_duration_epochs (14400 * 150) + start_block
         status: SEASON_STATUS_ACTIVE
         extensions_count: 0
         total_extension_epochs: 0
-        original_end_block: 2592001
+        original_end_block: 2160001
       params:
-        epoch_blocks: "17280"             # ~1 day at 5s blocks (MAINNET production value)
+        # MUST equal rep's epoch_blocks: the seasonal pool drains in x/rep epochs
+        # while this module's transitions refill it, so a mismatch desynchronizes
+        # the two cadences (enforced by the cross-network epoch-alignment test).
+        epoch_blocks: "14400"             # ~1 day at 6s blocks (MAINNET production value; matches rep)
         season_duration_epochs: "150"     # ~5 months (MAINNET production value)
         transition_batch_size: "100"      # MAINNET production value
         transition_grace_period: "50400"  # ~1 week in blocks (MAINNET production value)
@@ -323,7 +326,6 @@ genesis:
         # Anti-whale staking cap
         max_initiative_stake_per_member: "50000000000"  # 50,000 DREAM
         # Anti-collusion caps
-        max_initiative_rewards_per_season: "100000000000000"  # 100,000 DREAM
         large_project_budget_threshold: "10000000000"  # 10,000 DREAM
         # Trust level configuration - uses mainnet build tag values
       member_map:

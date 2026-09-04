@@ -42,10 +42,23 @@ func (k Keeper) UpdateTrustLevel(ctx context.Context, memberAddr sdk.AccAddress)
 	}
 	config := params.TrustLevelConfig
 
-	// Get current season (placeholder until x/season is integrated)
-	// For now we might use epoch or time, or just 0 if x/season is not ready.
-	// Assuming 0 for now.
-	currentSeason := uint32(0)
+	// The seasons-since-joining gates below (TrustedMinSeasons, CoreMinSeasons)
+	// are measured against the live season. This was hardcoded to 0 as a
+	// placeholder long after x/season was wired, which froze the ladder: every
+	// member with joined_season >= 1 failed `currentSeason >= member.JoinedSeason`
+	// permanently, so TRUSTED and CORE were unreachable for anyone who joined
+	// after season 0 and the whole trust-gated economy stalled at ESTABLISHED.
+	//
+	// GetCurrentSeason returns 0 when x/season is not wired, which reproduces
+	// the old behaviour exactly for that case and no other.
+	currentSeasonInt, err := k.GetCurrentSeason(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get current season for trust level: %w", err)
+	}
+	if currentSeasonInt < 0 {
+		currentSeasonInt = 0
+	}
+	currentSeason := uint32(currentSeasonInt)
 
 	// Logic to determine new trust level
 	newLevel := member.TrustLevel

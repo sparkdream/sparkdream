@@ -122,6 +122,15 @@ func (k Keeper) EndBlocker(ctx context.Context) error {
 		sdkCtx.Logger().Error("failed to resolve expired challenge jury reviews", "error", err)
 	}
 
+	// 6a. Content-challenge jury reviews are excluded from the shared PENDING
+	// verdict index that step 6 sweeps (initiative-challenge semantics resolved
+	// them out from under their callers), so they get their own timeout path.
+	// Without it a content jury that never voted locked the challenger's stake,
+	// the author's bond and the target's challenge slot permanently.
+	if err := k.SweepExpiredContentJuryReviews(ctx); err != nil {
+		sdkCtx.Logger().Error("failed to sweep expired content jury reviews", "error", err)
+	}
+
 	// 6b. Vacate and redraw jury seats nobody answered. Runs before the tally
 	// sweep above has any effect on a given review because the acceptance
 	// window is far shorter than the vote deadline — the point is to replace a

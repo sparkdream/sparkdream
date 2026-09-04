@@ -139,7 +139,8 @@ func TestSettlement_FullUnstakePaysMemberPoolRewards(t *testing.T) {
 	stakeID, err := k.CreateStake(f.ctx, staker, types.StakeTargetType_STAKE_TARGET_MEMBER, 0, target.String(), amount)
 	require.NoError(t, err)
 
-	require.NoError(t, k.AccumulateMemberStakeRevenue(f.ctx, target, math.NewInt(100_000_000)))
+	_, mErr := k.AccumulateMemberStakeRevenue(f.ctx, target, math.NewInt(100_000_000))
+	require.NoError(t, mErr)
 
 	ctx := advancePast(t, f)
 
@@ -181,7 +182,8 @@ func TestSettlement_PartialUnstakeDoesNotUnderpay(t *testing.T) {
 	require.Equal(t, math.NewInt(1_000_000).String(), shrunk.Amount.String())
 
 	// Now revenue arrives. The remaining half must earn on it.
-	require.NoError(t, k.AccumulateMemberStakeRevenue(ctx, target, math.NewInt(100_000_000)))
+	_, mErr := k.AccumulateMemberStakeRevenue(ctx, target, math.NewInt(100_000_000))
+	require.NoError(t, mErr)
 
 	pending, err := k.GetPendingStakingRewards(ctx, mustStake(t, f, stakeID))
 	require.NoError(t, err)
@@ -299,11 +301,11 @@ func TestSettlement_TrancheCapBoundsRecordCount(t *testing.T) {
 	initID := newActiveInitiative(t, f, creator, "tranche")
 
 	for i := 0; i < types.MaxStakeTranchesPerTarget; i++ {
-		_, err := k.CreateStake(f.ctx, staker, types.StakeTargetType_STAKE_TARGET_INITIATIVE, initID, "", math.NewInt(1_000))
+		_, err := k.CreateStake(f.ctx, staker, types.StakeTargetType_STAKE_TARGET_INITIATIVE, initID, "", math.NewInt(2_000))
 		require.NoError(t, err, "tranche %d should be accepted", i)
 	}
 
-	_, err := k.CreateStake(f.ctx, staker, types.StakeTargetType_STAKE_TARGET_INITIATIVE, initID, "", math.NewInt(1_000))
+	_, err := k.CreateStake(f.ctx, staker, types.StakeTargetType_STAKE_TARGET_INITIATIVE, initID, "", math.NewInt(2_000))
 	require.ErrorIs(t, err, types.ErrTooManyStakeTranches)
 }
 
@@ -320,7 +322,8 @@ func TestSettlement_EarlyUnstakeForfeitsRewards(t *testing.T) {
 	amount := math.NewInt(1_000_000)
 	stakeID, err := k.CreateStake(f.ctx, staker, types.StakeTargetType_STAKE_TARGET_MEMBER, 0, target.String(), amount)
 	require.NoError(t, err)
-	require.NoError(t, k.AccumulateMemberStakeRevenue(f.ctx, target, math.NewInt(100_000_000)))
+	_, mErr := k.AccumulateMemberStakeRevenue(f.ctx, target, math.NewInt(100_000_000))
+	require.NoError(t, mErr)
 
 	pending, err := k.GetPendingStakingRewards(f.ctx, mustStake(t, f, stakeID))
 	require.NoError(t, err)
@@ -347,8 +350,17 @@ func TestSettlement_GenesisSeedsPoolAndDenominators(t *testing.T) {
 	require.NoError(t, err)
 	params, err := k.Params.Get(f.ctx)
 	require.NoError(t, err)
-	require.Equal(t, params.MaxStakingRewardsPerSeason.String(), remaining.String(),
+	// InitGenesis seeds season 1, and with no mint history to size against the
+	// budget falls back to the schedule ceiling:
+	// staking_pool_cap_base * (1 + 1) * staking_pool_cap_rate.
+	expected := params.StakingPoolCapRate.
+		MulInt(params.StakingPoolCapBase).
+		MulInt64(2).
+		TruncateInt()
+	require.Equal(t, expected.String(), remaining.String(),
 		"InitGenesis must seed the seasonal reward budget")
+	require.True(t, expected.LT(params.MaxStakingRewardsPerSeason),
+		"the schedule ceiling should bind below the absolute maximum")
 
 	// A live stake must be reflected in the rebuilt denominator.
 	creator := newStakerMember(t, f, "settle_gen_creator__", math.NewInt(5_000_000_000))
@@ -443,6 +455,153 @@ func TestSettlement_FrozenProjectStopsAccruing(t *testing.T) {
 		"a frozen stake's debt must scale with the principal, preserving the accrued claim")
 }
 
+// TestSettlement_CompleteProjectPaysAccruedStakeRewards is the regression for
+// stranded project-stake rewards: CompleteProject used to flip the status
+// without settling, and the frozen branch of settleStake pays nothing, so
+// everything a staker had accrued while the project was ACTIVE became
+// unpayable by any code path. The terminal transition must harvest and mint it.
+func TestSettlement_CompleteProjectPaysAccruedStakeRewards(t *testing.T) {
+	f := initFixture(t)
+	k := f.keeper
+
+	creator := newStakerMember(t, f, "settle_pcomp_creator", math.NewInt(5_000_000_000))
+	staker := newStakerMember(t, f, "settle_pcomp_staker", math.NewInt(5_000_000_000))
+	projectID := newActiveProject(t, k, f.ctx, creator)
+
+	amount := math.NewInt(2_000_000)
+	stakeID, err := k.CreateStake(f.ctx, staker, types.StakeTargetType_STAKE_TARGET_PROJECT, projectID, "", amount)
+	require.NoError(t, err)
+	require.NoError(t, k.DistributeEpochStakingRewardsFromPool(f.ctx))
+
+	pending, err := k.GetPendingStakingRewards(f.ctx, mustStake(t, f, stakeID))
+	require.NoError(t, err)
+	require.True(t, pending.IsPositive(), "precondition: the stake accrued something while ACTIVE")
+
+	balanceBefore := *mustMember(t, f, staker).DreamBalance
+	require.NoError(t, k.CompleteProject(f.ctx, projectID))
+
+	balanceAfter := *mustMember(t, f, staker).DreamBalance
+	require.Equal(t, pending.String(), balanceAfter.Sub(balanceBefore).String(),
+		"completion must mint exactly the rewards accrued up to the transition")
+
+	postPending, err := k.GetPendingStakingRewards(f.ctx, mustStake(t, f, stakeID))
+	require.NoError(t, err)
+	require.True(t, postPending.IsZero(), "a settled stake must hold no further claim")
+
+	// Principal stays staked — completion pays rewards, it does not unstake.
+	require.Equal(t, amount.String(), mustMember(t, f, staker).StakedDream.String())
+}
+
+// TestSettlement_CancelProjectPaysAccruedStakeRewards mirrors the completion
+// regression for cancellation: cancelling an ACTIVE project must settle its
+// stakers before the status freezes their claims.
+func TestSettlement_CancelProjectPaysAccruedStakeRewards(t *testing.T) {
+	f := initFixture(t)
+	k := f.keeper
+
+	creator := newStakerMember(t, f, "settle_pcxl_creator_", math.NewInt(5_000_000_000))
+	staker := newStakerMember(t, f, "settle_pcxl_staker_", math.NewInt(5_000_000_000))
+	projectID := newActiveProject(t, k, f.ctx, creator)
+
+	stakeID, err := k.CreateStake(f.ctx, staker, types.StakeTargetType_STAKE_TARGET_PROJECT, projectID, "", math.NewInt(2_000_000))
+	require.NoError(t, err)
+	require.NoError(t, k.DistributeEpochStakingRewardsFromPool(f.ctx))
+
+	pending, err := k.GetPendingStakingRewards(f.ctx, mustStake(t, f, stakeID))
+	require.NoError(t, err)
+	require.True(t, pending.IsPositive())
+
+	balanceBefore := *mustMember(t, f, staker).DreamBalance
+	require.NoError(t, k.CancelProject(f.ctx, projectID, "test cancel"))
+
+	balanceAfter := *mustMember(t, f, staker).DreamBalance
+	require.Equal(t, pending.String(), balanceAfter.Sub(balanceBefore).String(),
+		"cancellation must mint exactly the rewards accrued up to the transition")
+
+	// The staker can still withdraw the principal afterwards.
+	ctx := advancePast(t, f)
+	require.NoError(t, k.RemoveStake(ctx, stakeID, staker, math.NewInt(2_000_000)))
+	require.Equal(t, "0", mustMember(t, f, staker).StakedDream.String())
+}
+
+// TestSettlement_TerminalProjectRejectsNewStakes pins the CreateStake guard:
+// a terminal project can never accrue again, so locking fresh DREAM against
+// one would strand it in a principal-only position. PROPOSED projects stay
+// open for early conviction.
+func TestSettlement_TerminalProjectRejectsNewStakes(t *testing.T) {
+	f := initFixture(t)
+	k := f.keeper
+
+	creator := newStakerMember(t, f, "settle_ptrm_creator_", math.NewInt(5_000_000_000))
+	staker := newStakerMember(t, f, "settle_ptrm_staker_", math.NewInt(5_000_000_000))
+
+	completedID := newActiveProject(t, k, f.ctx, creator)
+	require.NoError(t, k.CompleteProject(f.ctx, completedID))
+	_, err := k.CreateStake(f.ctx, staker, types.StakeTargetType_STAKE_TARGET_PROJECT, completedID, "", math.NewInt(1_000_000))
+	require.ErrorIs(t, err, types.ErrProjectTerminal)
+
+	cancelledID := newActiveProject(t, k, f.ctx, creator)
+	require.NoError(t, k.CancelProject(f.ctx, cancelledID, "test"))
+	_, err = k.CreateStake(f.ctx, staker, types.StakeTargetType_STAKE_TARGET_PROJECT, cancelledID, "", math.NewInt(1_000_000))
+	require.ErrorIs(t, err, types.ErrProjectTerminal)
+
+	// PROPOSED projects accept early-conviction stakes.
+	proposedID, err := k.CreateProject(
+		f.ctx, creator, "PtrmProp", "Desc", []string{"tag1"},
+		types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical",
+		math.NewInt(100000), math.NewInt(1000), false,
+	)
+	require.NoError(t, err)
+	_, err = k.CreateStake(f.ctx, staker, types.StakeTargetType_STAKE_TARGET_PROJECT, proposedID, "", math.NewInt(1_000_000))
+	require.NoError(t, err, "staking on a PROPOSED project must stay allowed")
+}
+
+// TestSettlement_ApprovalRebasesProposedStakeDebts pins the approval rebase: a
+// stake placed while the project was PROPOSED must not harvest the
+// PROPOSED-window accumulator growth retroactively once the project completes —
+// it accrues only from approval onward.
+func TestSettlement_ApprovalRebasesProposedStakeDebts(t *testing.T) {
+	f := initFixture(t)
+	k := f.keeper
+
+	creator := newStakerMember(t, f, "settle_papr_creator", math.NewInt(5_000_000_000))
+	live := newStakerMember(t, f, "settle_papr_live___", math.NewInt(5_000_000_000))
+	early := newStakerMember(t, f, "settle_papr_early__", math.NewInt(5_000_000_000))
+
+	// A live initiative staker makes the shared accumulator advance; the
+	// PROPOSED-project stake dilutes the denominator but accrues nothing.
+	initID := newActiveInitiative(t, f, creator, "papr")
+	_, err := k.CreateStake(f.ctx, live, types.StakeTargetType_STAKE_TARGET_INITIATIVE, initID, "", math.NewInt(1_000_000))
+	require.NoError(t, err)
+
+	proposedID, err := k.CreateProject(
+		f.ctx, creator, "PaprProp", "Desc", []string{"tag1"},
+		types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical",
+		math.NewInt(100000), math.NewInt(1000), false,
+	)
+	require.NoError(t, err)
+	earlyStake, err := k.CreateStake(f.ctx, early, types.StakeTargetType_STAKE_TARGET_PROJECT, proposedID, "", math.NewInt(1_000_000))
+	require.NoError(t, err)
+
+	// Distribution during the PROPOSED window: the early stake earns nothing.
+	require.NoError(t, k.DistributeEpochStakingRewardsFromPool(f.ctx))
+	pending, err := k.GetPendingStakingRewards(f.ctx, mustStake(t, f, earlyStake))
+	require.NoError(t, err)
+	require.True(t, pending.IsZero(), "a stake on a PROPOSED project must not accrue")
+
+	// Approval rebases the debt to the current accumulator.
+	require.NoError(t, k.ApproveProject(f.ctx, proposedID, sdk.AccAddress([]byte("approver")), math.NewInt(100000), math.NewInt(1000)))
+	pending, err = k.GetPendingStakingRewards(f.ctx, mustStake(t, f, earlyStake))
+	require.NoError(t, err)
+	require.True(t, pending.IsZero(), "the rebase must wipe the retroactive claim, not pay it")
+
+	// Post-approval distribution accrues to the early stake.
+	require.NoError(t, k.DistributeEpochStakingRewardsFromPool(f.ctx))
+	pending, err = k.GetPendingStakingRewards(f.ctx, mustStake(t, f, earlyStake))
+	require.NoError(t, err)
+	require.True(t, pending.IsPositive(), "after approval the stake accrues like any live staker")
+}
+
 func mustStake(t *testing.T, f *fixture, stakeID uint64) types.Stake {
 	t.Helper()
 	stake, err := f.keeper.GetStake(f.ctx, stakeID)
@@ -455,4 +614,133 @@ func mustMember(t *testing.T, f *fixture, addr sdk.AccAddress) types.Member {
 	member, err := f.keeper.Member.Get(f.ctx, addr.String())
 	require.NoError(t, err)
 	return member
+}
+
+// TestSettlement_ClosedInitiativePaysAccruedThenStopsAccruing is the
+// initiative-side twin of the terminal-project regression.
+//
+// CompleteInitiative settles and deletes the stakes it pays out, but
+// CloseInitiative and the challenge-REJECTED path leave theirs in place, and
+// stakeAccruing had no initiative branch at all. Those stakes drew the seasonal
+// yield forever against work that had been retired or thrown out, and their
+// principal went on diluting total_staked for everyone backing live work.
+//
+// The contract: rewards accrued while the work was live are paid at the
+// transition, and nothing accrues after it.
+func TestSettlement_ClosedInitiativePaysAccruedThenStopsAccruing(t *testing.T) {
+	f := initFixture(t)
+	k := f.keeper
+
+	creator := newStakerMember(t, f, "close_accrue_creator", math.NewInt(5_000_000_000))
+	staker := newStakerMember(t, f, "close_accrue_staker_", math.NewInt(5_000_000_000))
+	initID := newActiveInitiative(t, f, creator, "closeaccrue")
+
+	amount := math.NewInt(1_000_000)
+	stakeID, err := k.CreateStake(f.ctx, staker, types.StakeTargetType_STAKE_TARGET_INITIATIVE, initID, "", amount)
+	require.NoError(t, err)
+
+	// One epoch of seasonal accrual while the work is live.
+	require.NoError(t, k.InitSeasonalPool(f.ctx, 1))
+	require.NoError(t, k.DistributeEpochStakingRewardsFromPool(f.ctx))
+
+	pending, err := k.GetPendingStakingRewards(f.ctx, mustStake(t, f, stakeID))
+	require.NoError(t, err)
+	require.True(t, pending.IsPositive(), "precondition: the stake accrued while the initiative was live")
+
+	preEarned := *mustMember(t, f, staker).LifetimeEarned
+
+	require.NoError(t, k.CloseInitiative(f.ctx, initID, "retired"))
+
+	// Settled at the transition, not stranded by the status flip.
+	postEarned := *mustMember(t, f, staker).LifetimeEarned
+	require.Equal(t, pending.String(), postEarned.Sub(preEarned).String(),
+		"closing must pay what the stake accrued while the work was live")
+
+	// And nothing accrues afterwards, however many epochs pass.
+	require.Equal(t, "0", mustPending(t, f, stakeID).String(),
+		"a settled stake starts from zero pending")
+	require.NoError(t, k.DistributeEpochStakingRewardsFromPool(f.ctx))
+	require.Equal(t, "0", mustPending(t, f, stakeID).String(),
+		"a terminal initiative must stop accruing entirely")
+}
+
+// TestCreateStake_RejectsTerminalInitiative mirrors ErrProjectTerminal: locking
+// fresh DREAM against an initiative that can never accrue again strands it in a
+// position that only ever returns principal.
+func TestCreateStake_RejectsTerminalInitiative(t *testing.T) {
+	f := initFixture(t)
+	k := f.keeper
+
+	creator := newStakerMember(t, f, "term_init_creator___", math.NewInt(5_000_000_000))
+	staker := newStakerMember(t, f, "term_init_staker____", math.NewInt(5_000_000_000))
+	initID := newActiveInitiative(t, f, creator, "terminit")
+
+	require.NoError(t, k.CloseInitiative(f.ctx, initID, "retired"))
+
+	_, err := k.CreateStake(f.ctx, staker, types.StakeTargetType_STAKE_TARGET_INITIATIVE, initID, "", math.NewInt(1_000_000))
+	require.ErrorIs(t, err, types.ErrInitiativeTerminal)
+}
+
+func mustPending(t *testing.T, f *fixture, stakeID uint64) math.Int {
+	t.Helper()
+	pending, err := f.keeper.GetPendingStakingRewards(f.ctx, mustStake(t, f, stakeID))
+	require.NoError(t, err)
+	return pending
+}
+
+// TestSettlement_UpheldChallengePaysAccruedThenStopsAccruing covers the second
+// terminal-initiative transition that leaves its stake records in place.
+//
+// CloseInitiative is the retirement path; UpholdChallenge is the failure path,
+// moving the initiative to REJECTED. Both had the same defect and both take the
+// same fix, but only closure was covered — and the two live in different files,
+// so a future edit to one would not be caught by the other's test.
+//
+// The contract is deliberately identical to closure's: rewards accrued while
+// the work was live are paid, because the outcome does not retroactively unearn
+// them. Punishing the stake itself is what slashing is for.
+func TestSettlement_UpheldChallengePaysAccruedThenStopsAccruing(t *testing.T) {
+	f := initFixture(t)
+	k := f.keeper
+	ctx := f.ctx
+
+	_, initID, _ := setupSubmittedInitiative(t, f)
+
+	staker := newStakerMember(t, f, "uphold_stake_backer_", math.NewInt(5_000_000_000))
+	stakeID, err := k.CreateStake(ctx, staker, types.StakeTargetType_STAKE_TARGET_INITIATIVE, initID, "", math.NewInt(1_000_000))
+	require.NoError(t, err)
+
+	// One epoch of seasonal accrual while the initiative is still live.
+	require.NoError(t, k.InitSeasonalPool(ctx, 1))
+	require.NoError(t, k.DistributeEpochStakingRewardsFromPool(ctx))
+
+	pending, err := k.GetPendingStakingRewards(ctx, mustStake(t, f, stakeID))
+	require.NoError(t, err)
+	require.True(t, pending.IsPositive(), "precondition: the stake accrued while the work was live")
+
+	challenger := newStakerMember(t, f, "uphold_challenger___", math.NewInt(5_000_000_000))
+	params, err := k.Params.Get(ctx)
+	require.NoError(t, err)
+	challengeID, err := k.CreateChallenge(ctx, challenger, initID, "bad work",
+		[]string{"evidence"}, params.MinChallengeStake)
+	require.NoError(t, err)
+
+	preEarned := *mustMember(t, f, staker).LifetimeEarned
+
+	require.NoError(t, k.UpholdChallenge(ctx, challengeID))
+
+	initiative, err := k.GetInitiative(ctx, initID)
+	require.NoError(t, err)
+	require.Equal(t, types.InitiativeStatus_INITIATIVE_STATUS_REJECTED, initiative.Status,
+		"precondition: upholding must reject the initiative")
+
+	postEarned := *mustMember(t, f, staker).LifetimeEarned
+	require.Equal(t, pending.String(), postEarned.Sub(preEarned).String(),
+		"upholding a challenge must still pay what the stake accrued while the work was live")
+
+	// And a REJECTED initiative accrues nothing further.
+	require.Equal(t, "0", mustPending(t, f, stakeID).String())
+	require.NoError(t, k.DistributeEpochStakingRewardsFromPool(ctx))
+	require.Equal(t, "0", mustPending(t, f, stakeID).String(),
+		"a REJECTED initiative must stop accruing entirely")
 }

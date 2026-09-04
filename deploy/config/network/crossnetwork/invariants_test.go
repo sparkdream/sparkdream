@@ -176,6 +176,88 @@ func TestFederationOperatorRewardEpoch(t *testing.T) {
 	intsAsc(t, fed, "federation", "operator_reward_epoch_blocks")
 }
 
+// TestRepSeasonEpochAlignment pins that, on every network, x/rep and x/season
+// agree on the epoch length and the season length in epochs.
+//
+// The seasonal staking pool drains in x/rep epochs (its EndBlocker slices
+// `remaining` once per rep epoch), while x/season's transition machinery — the
+// only thing that refills the pool via InitSeasonalPool — counts seasons on
+// its own epoch clock. When the two clocks differ, the pool's 150-epoch drain
+// calendar and its refill calendar run at different speeds: mainnet shipped
+// with rep at 14400 and season at 17280, so the pool drained its budget in
+// 150 rep epochs (2.16M blocks) but was only refilled every 2.592M blocks,
+// leaving ~30% of each season with an empty pool and the rest running hot.
+// Testnet and devnet happened to align, which is why no test caught it.
+func TestRepSeasonEpochAlignment(t *testing.T) {
+	for _, network := range []string{"devnet", "testnet", "mainnet"} {
+		appState, ok, err := audit.LoadGenesis(baseDir, network)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !ok {
+			t.Skipf("%s/genesis.json not yet present — skipping cross-network invariants", network)
+		}
+		repParams, err := audit.ModuleParams(appState, "rep")
+		if err != nil {
+			t.Fatal(err)
+		}
+		seasonParams, err := audit.ModuleParams(appState, "season")
+		if err != nil {
+			t.Fatal(err)
+		}
+		repEpoch := mustInt(t, repParams["epoch_blocks"], "epoch_blocks", network)
+		seasonEpoch := mustInt(t, seasonParams["epoch_blocks"], "epoch_blocks", network)
+		if repEpoch != seasonEpoch {
+			t.Errorf("%s: rep epoch_blocks (%d) != season epoch_blocks (%d); the seasonal pool would drain and refill on desynchronized clocks",
+				network, repEpoch, seasonEpoch)
+		}
+		repSeasonEpochs := mustInt(t, repParams["season_duration_epochs"], "season_duration_epochs", network)
+		seasonSeasonEpochs := mustInt(t, seasonParams["season_duration_epochs"], "season_duration_epochs", network)
+		if repSeasonEpochs != seasonSeasonEpochs {
+			t.Errorf("%s: rep season_duration_epochs (%d) != season season_duration_epochs (%d); the pool's slice calendar would not match the season calendar",
+				network, repSeasonEpochs, seasonSeasonEpochs)
+		}
+	}
+}
+
+// TestRepMinStakeDurationFitsSeason asserts the staking claim gate is
+// satisfiable inside a single season on every network.
+//
+// min_stake_duration_seconds gates ClaimStakingRewards and, on the unstake
+// path, decides between paying accrued rewards and forfeiting them. Set longer
+// than a season, it does neither of those things partially: no stake opened in
+// a season can ever claim within it, and every stake closed within it forfeits
+// everything it accrued. Devnet shipped that way — a 24h gate over a 15h
+// season — because both values were copied from production independently and
+// nothing related them.
+func TestRepMinStakeDurationFitsSeason(t *testing.T) {
+	const secondsPerBlock = 6
+
+	for _, network := range []string{"devnet", "testnet", "mainnet"} {
+		appState, ok, err := audit.LoadGenesis(baseDir, network)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !ok {
+			t.Skipf("%s/genesis.json not yet present — skipping cross-network invariants", network)
+		}
+		repParams, err := audit.ModuleParams(appState, "rep")
+		if err != nil {
+			t.Fatal(err)
+		}
+		epochBlocks := mustInt(t, repParams["epoch_blocks"], "epoch_blocks", network)
+		seasonEpochs := mustInt(t, repParams["season_duration_epochs"], "season_duration_epochs", network)
+		minStakeDuration := mustInt(t, repParams["min_stake_duration_seconds"], "min_stake_duration_seconds", network)
+
+		seasonSeconds := epochBlocks * seasonEpochs * secondsPerBlock
+		if minStakeDuration >= seasonSeconds {
+			t.Errorf("%s: min_stake_duration_seconds (%d) >= season length (%d s = %d epochs * %d blocks * %ds); "+
+				"no stake could claim within a season and every unstake would forfeit its rewards",
+				network, minStakeDuration, seasonSeconds, seasonEpochs, epochBlocks, secondsPerBlock)
+		}
+	}
+}
+
 func TestShieldHardening(t *testing.T) {
 	sh := loadModule(t, "shield")
 	intsAsc(t, sh, "shield", "min_tle_validators")
@@ -219,6 +301,8 @@ var allowedVariations = map[string]string{
 	"rep.params.interim_deadline_epochs":                           "interim deadline varies per network",
 	"rep.params.challenge_response_deadline_epochs":                "challenge response window varies per network",
 	"rep.params.gift_cooldown_blocks":                              "gift cooldown matches epoch length per network",
+	"rep.params.staking_pool_cap_base":                             "the schedule ceiling is anchored to each network's own genesis DREAM supply (devnet 85,000, testnet/mainnet 25,000)",
+	"rep.params.min_stake_duration_seconds":                        "the claim gate must fit inside a season, and devnet's season is 15h — see TestRepMinStakeDurationFitsSeason",
 	"rep.params.jury_size":                                         "devnet uses smaller jury (3) due to small test member set",
 	"rep.params.min_juror_reputation":                              "devnet lowers juror rep threshold for testing",
 	"rep.params.sentinel_reward_epoch_blocks":                      "build-tag conditional cadence (devnet 6h / testnet 12h / mainnet 24h)",

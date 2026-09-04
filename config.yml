@@ -194,7 +194,12 @@ genesis:
         season_duration_epochs: "100"  # ~100 minutes (was ~5 months)
         # Conviction - FAST for testing + FIXED with sqrt scaling
         conviction_half_life_epochs: "1"  # 1 epoch = ~1 minute half-life (was 7 days)
-        conviction_per_dream: "0.2"  # 0.2 with sqrt scaling (maintains 4% ratio across all budgets)
+        conviction_per_dream: "0.2"  # 0.2 with sqrt scaling (4% of budget at ONE staker; the total falls as 1/N — see params.go)
+        # Staking - the claim gate must fit inside a season. This chain's season
+        # is 10 blocks * 100 epochs * 6s = 6,000s, so the production 86,400s
+        # gate could never be satisfied within one: no claim would ever be
+        # eligible and every unstake would forfeit its accrued rewards.
+        min_stake_duration_seconds: "60"  # 1 epoch (was 86400 ~24h)
         # Review periods - EXTRA FAST for testing
         default_review_period_epochs: "1"  # ~1 minute (was ~1 week)
         default_challenge_period_epochs: "1"  # ~1 minute (was ~1 week)
@@ -220,8 +225,6 @@ genesis:
         new_member_decay_grace_epochs: "5"  # 5 epochs grace (~5 min, production: 30 ~1 month)
         # Anti-whale staking cap
         max_initiative_stake_per_member: "50000000000"  # 50,000 DREAM (same as production)
-        # Anti-collusion: per-season cap on total DREAM minted via initiative completion
-        max_initiative_rewards_per_season: "100000000000000"  # 100,000 DREAM (same as production)
         # Anti-grinding: per-tag per-epoch rep gain cap (raised for testing so sentinel bootstrap works)
         max_reputation_gain_per_epoch: "1000.000000000000000000"  # 1000 rep/epoch/tag (production: 50)
         # Anti-collusion: projects above this budget require council proposal approval

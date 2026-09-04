@@ -143,14 +143,19 @@ echo "  moderator current_bond=$CUR status=$(bond_status "$MODERATOR_ADDR")"
 # ========================================================================
 echo "--- PART 1: PARTIAL UNBOND (staying bond stays above the floor) ---"
 
-if [ "$(bond_status "$MODERATOR_ADDR")" != "BONDED_ROLE_STATUS_UNBONDING" ]; then
-    RES=$(run_tx moderator rep unbond-role content-sentinel "$UNBOND_AMT")
-    check_tx_success "$RES" && pass "queued partial unbond" || { echo "  $(echo "$RES" | jq -r '.raw_log // .')"; fail "unbond-role"; }
-fi
+# Unbonds are incremental: this amount accumulates onto whatever is already
+# queued rather than replacing it, and an earlier suite may have left this
+# account UNBONDING with pending of its own. Assert the delta against a
+# baseline captured here, never an absolute figure.
+PEND_BEFORE=$(pending_unbond "$MODERATOR_ADDR")
+[ -z "$PEND_BEFORE" ] && PEND_BEFORE=0
+RES=$(run_tx moderator rep unbond-role content-sentinel "$UNBOND_AMT")
+check_tx_success "$RES" && pass "queued partial unbond" || { echo "  $(echo "$RES" | jq -r '.raw_log // .')"; fail "unbond-role"; }
 ST=$(bond_status "$MODERATOR_ADDR"); PEND=$(pending_unbond "$MODERATOR_ADDR")
-echo "  moderator status=$ST pending=$PEND"
+PEND_EXPECTED=$((PEND_BEFORE + UNBOND_AMT))
+echo "  moderator status=$ST pending=$PEND_BEFORE -> $PEND (expected $PEND_EXPECTED)"
 [ "$ST" = "BONDED_ROLE_STATUS_UNBONDING" ] && pass "status flipped to UNBONDING" || fail "expected UNBONDING (got $ST)"
-[ "$PEND" = "$UNBOND_AMT" ] && pass "pending_unbond_amount recorded" || fail "pending mismatch (got $PEND)"
+[ "$PEND" = "$PEND_EXPECTED" ] && pass "pending_unbond_amount accumulated by the unbond" || fail "pending delta wrong (got $PEND, want $PEND_EXPECTED)"
 
 # ========================================================================
 # PART 2: UNBONDING SENTINEL ABOVE FLOOR CAN STILL HIDE (quantity gate)
@@ -192,7 +197,7 @@ if check_tx_success "$RES"; then
     echo "  current_bond: before=$BOND_BEFORE after=$BOND_AFTER (expected $EXPECTED); status=$ST pending=$PEND"
     [ "$BOND_AFTER" = "$EXPECTED" ] && pass "current_bond increased by the top-up" || fail "current_bond delta wrong (got $BOND_AFTER, want $EXPECTED)"
     [ "$ST" = "BONDED_ROLE_STATUS_UNBONDING" ] && pass "status still UNBONDING (queued withdrawal preserved)" || fail "status changed unexpectedly (got $ST)"
-    [ "$PEND" = "$UNBOND_AMT" ] && pass "pending_unbond_amount unchanged by the top-up" || fail "pending changed (got $PEND)"
+    [ "$PEND" = "$PEND_EXPECTED" ] && pass "pending_unbond_amount unchanged by the top-up" || fail "pending changed (got $PEND, want $PEND_EXPECTED)"
 else
     echo "  $(echo "$RES" | jq -r '.raw_log // .')"
     fail "bond top-up rejected while UNBONDING (the limitation this test guards against)"

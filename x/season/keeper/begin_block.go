@@ -728,7 +728,7 @@ func (k Keeper) finalizeTransition(ctx context.Context, state types.SeasonTransi
 	params, _ := k.Params.Get(ctx)
 	epochBlocks := params.EpochBlocks
 	if epochBlocks == 0 {
-		epochBlocks = 17280 // Default
+		epochBlocks = 14400 // Default; keep in lockstep with x/rep's epoch length
 	}
 	seasonDurationEpochs := params.SeasonDurationEpochs
 	if seasonDurationEpochs == 0 {
