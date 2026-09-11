@@ -556,6 +556,24 @@ message Interim {
   // Status
   InterimStatus status = 12;
   string completion_notes = 13;
+
+  // The committee's verdict, set when an ADJUDICATION interim is completed.
+  // Unset on every other type. Structured rather than parsed out of
+  // completion_notes: a free-text keyword that fails to match (or matches the
+  // wrong branch) used to leave the challenge it was raised to settle
+  // unresolved forever, with the interim completed and nothing left to retry.
+  AdjudicationDecision decision = 14;
+}
+
+// AdjudicationDecision is the Operations Committee's verdict on the challenge
+// an ADJUDICATION interim was raised to settle — the terminal path for an
+// inconclusive jury, and for challenges escalated when no jury could be seated.
+enum AdjudicationDecision {
+  ADJUDICATION_DECISION_UNSPECIFIED = 0;
+  // The challenge stands: the work failed. Resolves the challenge as UPHELD.
+  ADJUDICATION_DECISION_UPHOLD = 1;
+  // The challenge fails: the work stands. Resolves the challenge as REJECTED.
+  ADJUDICATION_DECISION_REJECT = 2;
 }
 
 enum InterimType {
@@ -964,15 +982,26 @@ message Challenge {
   repeated string evidence = 5;
   string staked_dream = 6 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
 
-  // 7-10 are an unused gap left by the removed anonymous-challenge fields;
-  // anonymous challenges are handled entirely by x/shield via MsgShieldedExec.
-  // Not a proto `reserved` declaration — this chain reclaims field numbers
-  // rather than reserving them (see CLAUDE.md > Proto).
+  ChallengeStatus status = 7;
+  int64 created_at = 8;
+  int64 resolved_at = 9;
+  int64 response_deadline = 10;   // Block height; auto-uphold if assignee doesn't respond
 
-  ChallengeStatus status = 11;
-  int64 created_at = 12;
-  int64 resolved_at = 13;
-  int64 response_deadline = 14;   // Block height; auto-uphold if assignee doesn't respond
+  // The acceptance criterion this challenge says the work fails, when the
+  // initiative declared any. Optional — a challenge may still be a free-form
+  // claim — but naming one turns "the work is bad" into a question the jury can
+  // actually adjudicate against a standard the author agreed to up front.
+  string criteria_id = 11;
+
+  // The initiative status to restore if this challenge is rejected. Challenges
+  // may be filed while the work is still SUBMITTED — before its challenge
+  // window has opened — and rejecting such a challenge must not skip that
+  // window: restoring SUBMITTED hands the initiative back to the ordinary
+  // transition, which sets a fresh review + challenge period. Challenges filed
+  // on IN_REVIEW work restore IN_REVIEW, whose window has already run. The
+  // zero value (OPEN, on chains predating the snapshot) also restores
+  // IN_REVIEW, the historical behaviour.
+  InitiativeStatus status_before_challenge = 12;
 }
 
 enum ChallengeStatus {
@@ -989,6 +1018,29 @@ underlying initiative is discarded out from under it — currently only when the
 parent project is cancelled (see the "Cancelling a Project" section). The
 challenger's stake is refunded in full (no burn, no reward) and any pending
 jury review is closed `INCONCLUSIVE`.
+
+**A rejected challenge restores the pre-challenge status.** `CreateChallenge`
+snapshots the initiative's status into `Challenge.status_before_challenge`, and
+`RejectChallenge` puts the initiative back where it was:
+
+- challenged while `IN_REVIEW` (the ordinary case — the window has run)
+  restores `IN_REVIEW`, ready to complete;
+- challenged while `SUBMITTED` (legal, but the challenge window has **not**
+  opened — `ChallengePeriodEnd` is still 0, since only
+  `TransitionToChallengePeriod` sets it) restores `SUBMITTED`, re-entering the
+  ordinary transition so a real window opens. The zero-value snapshot (chains
+  predating the field) restores `IN_REVIEW` like the historical behaviour.
+
+The SUBMITTED case is the load-bearing one: before the snapshot, a rejected
+challenge flipped the initiative to `IN_REVIEW` with `ChallengePeriodEnd == 0`,
+the completion sweep read `height >= 0` as "window elapsed", and the work paid
+out in the next block — skipping the entire review + challenge window the
+completion guard promises, for the price of one refundable challenge stake.
+Two defenses back the snapshot up: `CompleteInitiative` treats
+`ChallengePeriodEnd == 0` in `IN_REVIEW` as an unopened window
+(`ErrChallengePeriodActive`), and the EndBlocker's completion sweep **adopts**
+an initiative in that shape by opening a full window (event
+`initiative_challenge_window_opened`) rather than completing or freezing it.
 
 > **Note:** Anonymous challenges no longer carry ZK proof fields (`is_anonymous`, `payout_address`, `membership_proof`, `nullifier`) on the Challenge proto. Anonymous challenge submission is handled entirely by x/shield: the challenger submits `MsgShieldedExec` wrapping `MsgCreateChallenge`, and x/shield handles ZK proof verification, nullifier management, and module-paid gas. The resulting Challenge stored in x/rep is structurally identical to a non-anonymous challenge (the `challenger` field is set to x/shield's module address).
 
@@ -1677,21 +1729,44 @@ project is `CANCELLED`, so no DREAM can ever be minted from a cancelled
 project's work even if an initiative reached a terminal-payout path by another
 route.
 
-**Settlement of the project's own stakes.** Both terminal transitions that
-leave `ACTIVE` — `MsgCancelProject` and project completion — run
-`settleProjectStakes` *before* the status flips, while `settleStake` still sees
+**Release of the project's own stakes.** Both terminal transitions that leave
+`ACTIVE` — `MsgCancelProject` and project completion — run
+`releaseProjectStakes` *before* the status flips, while `settleStake` still sees
 the project as accruing. Every project stake is harvested against the seasonal
-accumulator and paid out (mirroring `CompleteInitiative`'s payout loop:
-`forfeit=false`, since the staker did not choose to exit early), and its
-`reward_debt` is rebased so the stake holds no further claim. Without this,
-everything accrued up to the flip was stranded: past the flip the frozen branch
-of `settleStake` deliberately pays nothing (the shared accumulator keeps
-advancing on the strength of live stakers, and a frozen stake must not credit
-that growth), so the stakes stayed on the books, returned principal on unstake,
-and could never collect their rewards. A per-stake mint failure (e.g. the
-per-epoch mint cap) does not block the transition: that stake keeps its old
-debt and forfeits the pending, with a loud log; every other staker still gets
-paid. Each paid stake emits a `project_stake_settled` event.
+accumulator and paid out (`forfeit=false`, since the staker did not choose to
+exit early), its principal is unlocked, both denominators it was diluting are
+shrunk, and the record is deleted. Each released stake emits a
+`project_stake_released` event.
+
+Settling before the flip is what makes the rewards reachable at all: past the
+flip the frozen branch of `settleStake` deliberately pays nothing (the shared
+accumulator keeps advancing on the strength of live stakers, and a frozen stake
+must not credit that growth), so anything accrued up to the transition would be
+stranded — the stakes stayed on the books, returned principal on unstake, and
+could never collect.
+
+Returning the principal is the other half, and it closes the same ratchet
+`releaseInitiativeStakes` closes for the four initiative transitions. A terminal
+project's stakes cannot earn and cannot signal, yet the settle-only version left
+their DREAM inside both `ProjectStakeInfo.total_staked` and the seasonal
+`total_staked` divisor indefinitely — retired work diluting the yield of
+everyone still backing live work, until each staker happened to unstake by hand.
+`updateStakePoolTotals` shrinks both for a `PROJECT` stake.
+
+On completion the release runs *below* `DistributeProjectCompletionBonus` and
+still above the status flip. Both bounds are load-bearing: the bonus is weighted
+by each stake's principal and reads the records the release deletes, while
+`stakeAccruing` stops paying the moment the status goes terminal.
+`CompleteInitiative` orders its own release the same way for the same two
+reasons.
+
+The per-stake failure split matches `releaseInitiativeStakes` exactly: a settle
+failure against the per-epoch mint cap is returned (transient — the retry pays
+in full), any other settle failure forfeits that stake's pending reward and
+still returns its principal, an unlock failure leaves the record in place with
+its debt rebased for manual `RemoveStake` recovery, and a store write failure is
+returned. Both callers are msg-server paths, so a returned error rolls the whole
+transition back.
 
 **Who may stake on a project.** `MsgStake` accepts project stakes while the
 project is `PROPOSED` or `ACTIVE` and rejects the three terminal states with
@@ -1816,28 +1891,54 @@ is not paid. It routes through `CloseInitiative` rather than writing the status
 inline, so the live review round is settled the same way every other terminal
 exit settles it.
 
-**Closure settles stakes but does not delete them.** `CloseInitiative` runs
-`settleInitiativeStakes` *before* the status flips — the initiative-side twin of
-`settleProjectStakes`, and for the same reason: `stakeAccruing` stops paying the
-moment the status is terminal, so settling afterwards would harvest nothing.
-Each stake is harvested against the seasonal accumulator with `forfeit=false`
-(the staker did not choose to exit early), its `reward_debt` is rebased, and a
-`initiative_stake_settled` event is emitted for each payout. A per-stake mint
-failure — the per-epoch mint cap, most plausibly — is logged and forfeited
-rather than blocking the transition; an initiative that cannot be retired is the
-failure mode that stranded devnet initiative #1 in `IN_REVIEW` for ~6,000
-blocks.
+**Every terminal transition releases stakes in full.** `releaseInitiativeStakes`
+is the single teardown shared by all four: `CompleteInitiative`,
+`CloseInitiative`, the challenge-UPHELD path, and the project-cancel cascade. It
+runs *before* the status flips — `stakeAccruing` stops paying the moment the
+status is terminal, so settling afterwards would harvest nothing. Each stake is
+harvested against the seasonal accumulator with `forfeit=false` (the staker did
+not choose to exit early), its principal is unlocked, every pool denominator it
+was diluting is shrunk, and the record is deleted. Completion emits
+`stake_completed`; the three retirement paths emit `stake_released`.
 
-The *records* survive, unlike `CompleteInitiative`, which settles and deletes
-them in its payout loop. `RemoveStake` carries no initiative-status guard, so
-stakers on a `CLOSED` initiative withdraw their principal normally, by their own
-transaction, whenever they choose.
+This replaces `settleInitiativeStakes`, which harvested rewards but left the
+principal locked and the record in place on the `CLOSED` and `REJECTED` paths.
+That principal could not earn and could not signal, yet it stayed inside
+`seasonal_pool`/`total_staked` indefinitely, diluting the yield of everyone
+still backing live work — the exact ratchet `updateStakePoolTotals` exists to
+prevent, and only the completion path was ever protected from it.
 
-> This asymmetry is deliberate: forcing an unstake loop into the close path
-> would make it unbounded per-block work. But it puts an obligation on clients —
-> the stake controls must stay reachable on `CLOSED` initiatives, and hidden
-> only on `COMPLETED`, where the records are genuinely gone. A client that
-> treats every terminal status alike strands its users' DREAM with no path out.
+Failures are isolated per stake, and the line between them is whether retrying
+can help:
+
+- A settle failure against the **per-epoch mint cap** is returned, aborting the
+  whole transition. The cap clears on its own, so the initiative retires intact
+  an epoch later. Forfeiting instead would destroy a payable reward over a busy
+  block, order-dependently — stakes earlier in the slice get paid, later ones
+  do not. Nothing pre-checks this: `CompleteInitiative`'s projected-mint gate
+  covers the season cap only, and the completer reward, treasury share,
+  completion bonus and review fees have already drawn on the epoch's budget by
+  the time the stakes are settled.
+- **Any other settle failure** — a missing member record, a drifted
+  `StakedDream` aggregate — forfeits that stake's pending reward and still
+  returns its principal. Past the status flip the reward is unrecoverable either
+  way, so holding the principal hostage to it buys the staker nothing, and
+  retrying forever would strand the initiative. That is the failure mode that
+  left devnet initiative #1 in `IN_REVIEW` for ~6,000 blocks.
+- An **unlock failure** skips the stake, persisting its rebased reward debt and
+  leaving the record in place. `RemoveStake` carries no initiative-status guard,
+  so its owner withdraws manually whenever they choose; the rebased debt is what
+  stops that withdrawal from minting the transition's reward a second time.
+
+Because a returned error must not leave the stakes half-released with the
+initiative still live, every caller needs a rollback boundary. The three
+msg-server paths get one from tx rollback; the EndBlocker paths are wrapped in a
+`CacheContext` at their sweep (`abci.go` steps 5 and 5b, and
+`resolveSilentEscalations`, which discards a failed timeout so the id stays in
+`EscalatedReviews` and the next block retries it). The boundary is load-bearing
+rather than defensive: `CloseInitiative` returns the initiative's budget before
+it reaches the stakes, and that return is not idempotent, so a retry over
+committed partial writes fails on unrelated grounds.
 
 **Terminal initiatives stop accruing.** `stakeAccruing` freezes initiative
 stakes at `COMPLETED`, `REJECTED` or `CLOSED` (the set `types.IsInitiativeTerminal`
@@ -1848,7 +1949,7 @@ path leave theirs in place. Those stakes drew the seasonal yield **forever**
 against work that had been retired or thrown out, and their principal went on
 diluting `total_staked` for everyone still backing live work — nothing
 distinguished a shipping initiative from an abandoned one. The
-challenge-REJECTED path settles through `settleInitiativeStakes` too: a
+challenge-UPHELD path releases through `releaseInitiativeStakes` too: a
 rejection does not retroactively unearn rewards from the window the position was
 live, which is what slashing is for.
 
@@ -1856,7 +1957,11 @@ live, which is what slashing is for.
 `ErrInitiativeTerminal`, mirroring `ErrProjectTerminal` — fresh DREAM locked
 against an initiative that can never accrue again could only ever be withdrawn
 as principal. Regressions:
-`TestSettlement_ClosedInitiativePaysAccruedThenStopsAccruing` and
+`TestSettlement_ClosedInitiativeReleasesStake`,
+`TestSettlement_UpheldChallengeReleasesStake`,
+`TestSettlement_ReleaseIsolatesPerStakeFailure`,
+`TestSettlement_LeftBehindStakeCannotDoubleClaimReward`,
+`TestSettlement_MintCapAbortsReleaseAndRetryPaysInFull` and
 `TestCreateStake_RejectsTerminalInitiative`.
 
 Stakers keep a real exit regardless: conviction is recomputed from **live** stake
@@ -1930,10 +2035,46 @@ raises an `ADJUDICATION` interim for the Operations Committee and leaves the
 challenge in `IN_JURY_REVIEW` — a status `HasActiveChallenges` counts as active,
 so `CanCompleteInitiative` never returns true again.
 
+**Committee action is a structured verdict.** Completing an `ADJUDICATION`
+interim requires `MsgCompleteInterim.decision` — `ADJUDICATION_DECISION_UPHOLD`
+resolves the challenge as upheld (work fails), `ADJUDICATION_DECISION_REJECT`
+as rejected (work stands); the verdict is recorded on the interim for the audit
+trail. The decision used to be parsed out of the free-text completion notes,
+with resolution errors discarded: a keyword that failed to match left the
+challenge unresolved "awaiting a clearer decision" while the interim went
+`COMPLETED` — out of every sweep, nothing left to retry, the initiative frozen
+forever. A missing decision is now an error while the interim is still live,
+and a failed resolution propagates and rolls the whole completion back, so the
+same decision can simply be re-sent.
+
+**`MsgApproveInterim` refuses adjudications outright.** It shares the Operations
+Committee gate with `MsgCompleteInterim` but carries only a bool, and "approved"
+cannot express a verdict — approving the committee's *work* is a different
+question from whether the *challenge* is upheld. Left open, it was the same
+freeze through the other door: `approved: false` finalized the interim to
+`EXPIRED` with no decision and no resolution, and `EXPIRED` leaves
+`IteratePendingInterims`, so the default-REJECT backstop below never fired and
+the challenge sat in `IN_JURY_REVIEW` with nothing left to retry it. The refusal
+keys on the interim *type*, not on whether a `reference_id` is set, because the
+payout branch would also pay an `ADJUDICATION` interim's budget — which
+`CompleteInterimDirectly` deliberately skips, committee adjudication earning no
+DREAM. Error: `ErrInvalidRequest`.
+
 If the committee never acts, `ExpireInterim` resolves the challenge by
 **default REJECT**: the challenger's stake is burned, the challenge is closed,
-and the initiative returns to `IN_REVIEW`. Event:
-`challenge_resolved_by_timeout`.
+and the initiative returns to its pre-challenge status (see the snapshot rules
+above). Event: `challenge_resolved_by_timeout`. The expiry and the resolution
+it triggers commit together or not at all — `RejectChallenge` has real mid-way
+failure modes (stake unlocked, burn failed), and the expiry used to be marked
+first, putting the interim out of the pending sweep with the resolution
+half-done and unretryable. A failed expiry now leaves the interim `PENDING` for
+the next block.
+
+> The module authority is the assignee of record on every `ADJUDICATION`
+> interim, so it is exempt from `MaxActiveInterimsPerMember` — counting it
+> turned the per-member anti-monopolization cap into a chain-wide concurrency
+> limit on committee escalations, where the 11th concurrent inconclusive jury
+> failed to raise its interim at all.
 
 > The direction is deliberate. Defaulting to UPHOLD would pay a challenger for a
 > jury that never sat, making it profitable to challenge good work and wait for
@@ -1946,6 +2087,19 @@ Without this, a below-quorum jury froze the initiative permanently, with the
 challenger's stake, every staker's conviction DREAM, and the assignee's
 self-assign bond locked inside it — recoverable only by a manual committee
 action that nothing scheduled or prompted.
+
+**Every resolution path commits all-or-nothing.** The EndBlocker's
+jury-deadline sweep (`ResolveExpiredChallengeJuryReviews`) runs each
+`TallyJuryVotes` in a child `CacheContext` and commits only on success:
+`TallyJuryVotes` writes the verdict, charges no-shows and de-indexes the review
+*before* it resolves the challenge, so a mid-resolution failure on deliver
+state used to commit the de-indexing — the sweep would never revisit the
+review — while the challenge stayed `IN_JURY_REVIEW` and the initiative
+`CHALLENGED` forever. A discarded branch keeps the review `PENDING`, so the
+next block retries it. (The vote-triggered tally needs no wrap:
+`MsgSubmitJurorVote` is a msg-server path and gets its rollback from `runTx`;
+the EndBlocker's auto-uphold and completion sweeps carry the same wrap — see
+the EndBlocker section.)
 
 #### Finding Your Jury Duty
 
@@ -2864,12 +3018,16 @@ completer and the treasury, settles every staker, and deletes the stake records.
 elapsed, not merely on the conviction thresholds being met:
 
 - **Authority**: the initiative's assignee, or the Operations Committee.
-- **Preconditions**: status is `IN_REVIEW`, the current block height is at or
-  past `challenge_period_end`, the parent project is not `CANCELLED`, and
+- **Preconditions**: status is `IN_REVIEW`, the challenge window has actually
+  been opened (`challenge_period_end > 0`) and the current block height is at
+  or past it, the parent project is not `CANCELLED`, and
   `CanCompleteInitiative` passes (both conviction gates, no open challenges).
 - **Errors**: `ErrInvalidInitiativeStatus` (1402) before the initiative reaches
-  review, `ErrChallengePeriodActive` (1704) while the window is still open.
-  Neither is permanent — the same call succeeds once the window closes.
+  review, `ErrChallengePeriodActive` (1704) while the window is still open —
+  including the `challenge_period_end == 0` case, an `IN_REVIEW` initiative
+  whose window was never set (the pre-snapshot rejected-challenge shape; the
+  EndBlocker's completion sweep heals it by opening a window). Neither error is
+  permanent — the same call succeeds once the window opens and closes.
 
 `SUBMITTED` was accepted here previously, which let an assignee skip the
 challenge period entirely: submit, wait for the EndBlocker to observe the
@@ -2949,19 +3107,19 @@ it is terminal.
 - **Effects**: settles any live review round (bounty paid, review fees paid,
   review bonds released), returns the reserved budget net of what review cost
   (skipped for permissionless projects, which allocate no budget up front),
-  releases the self-assign bond, drops any review escalation entry, settles the
-  initiative's conviction stakes (`settleInitiativeStakes`, before the flip),
+  releases the self-assign bond, drops any review escalation entry, releases the
+  initiative's conviction stakes (`releaseInitiativeStakes`, before the flip),
   moves the initiative to `CLOSED`, and emits `initiative_closed`.
 - **Reviewers are paid whether the initiative completed or closed.** A fee that
   depended on the outcome would rebuild the bias the role exists to remove.
-- **Stakes**: the stake *records* are left in place, but their accrued rewards
-  are paid at closure, not at withdrawal — `settleInitiativeStakes` harvests
-  them before the status flips, because `stakeAccruing` stops paying on a
-  terminal initiative and settling afterwards would strand everything earned.
-  `RemoveStake` has no status gate, so stakers withdraw their principal whenever
-  they choose; by then the pending is zero. The terminal status also drops the
-  initiative out of `IterateActiveInitiatives` so its conviction stops being
-  recomputed.
+- **Stakes**: `releaseInitiativeStakes` pays the accrued rewards, returns the
+  principal and deletes the records, before the status flips — `stakeAccruing`
+  stops paying on a terminal initiative, so settling afterwards would strand
+  everything earned. Closing is a retirement, not a confiscation: nothing here
+  is entitled to the staked DREAM. A stake whose unlock fails is left in place
+  with its reward debt rebased, and `RemoveStake` (which has no status gate)
+  remains the recovery path. The terminal status also drops the initiative out
+  of `IterateActiveInitiatives` so its conviction stops being recomputed.
 
 #### Initiative Creation Under Permissionless Projects
 
@@ -3058,6 +3216,10 @@ message MsgCompleteInterim {
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 interim_id = 2;
   string completion_notes = 3;
+  // Required when the interim is an ADJUDICATION: the committee's verdict on
+  // the challenge the interim was raised to settle. Ignored for every other
+  // interim type.
+  AdjudicationDecision decision = 4;
 }
 ```
 
@@ -3070,6 +3232,7 @@ missing — together they composed into an unbounded DREAM self-mint:
 | `MsgCreateInterim` | must be a member | none at all — any address could commission a complexity-derived budget for itself, since `CreateInterimWork` makes the creator the sole assignee |
 | `MsgAssignInterim` | Operations Committee | none at all — anyone could add themselves to anyone's PENDING interim and collect on completion |
 | `MsgCompleteInterim` | interim must not be finalized | none — `CompleteInterimDirectly` paid on *every* call, so re-sending the same message minted the budget again indefinitely (`ApproveInterim` always had this guard; the direct path did not) |
+| `MsgApproveInterim` | interim must not be an `ADJUDICATION` | none — a bool cannot carry a verdict, so approving or rejecting an adjudication finalized it undecided and stranded the challenge it was raised to settle |
 
 Beyond authorization, the path needed a ceiling. An interim is self-assigned by
 its creator and self-completed by its assignee, so
@@ -3975,7 +4138,17 @@ func (k Keeper) EndBlocker(ctx context.Context) error {
     // stakes, and is not idempotent. EndBlocker writes straight to the deliver
     // state, so a mid-function error would persist those mints and pay them
     // again on the next block's retry.
+    //
+    // An IN_REVIEW initiative with ChallengePeriodEnd == 0 never had its window
+    // opened (legacy / pre-snapshot state); it is adopted — a full window opens
+    // (initiative_challenge_window_opened) — rather than completing vacuously
+    // or freezing.
+    var adoptWindows []uint64
     k.IteratePendingCompletionInitiatives(ctx, func(index int64, initiative types.Initiative) bool {
+        if initiative.ChallengePeriodEnd == 0 {
+            adoptWindows = append(adoptWindows, initiative.Id)
+            return false
+        }
         if sdkCtx.BlockHeight() >= initiative.ChallengePeriodEnd {
             cacheCtx, writeCache := sdkCtx.CacheContext()
             if err := k.CompleteInitiative(cacheCtx, initiative.Id); err == nil {
@@ -3984,6 +4157,9 @@ func (k Keeper) EndBlocker(ctx context.Context) error {
         }
         return false
     })
+    for _, id := range adoptWindows {
+        _ = k.TransitionToChallengePeriod(ctx, id)
+    }
 
     // 4. DREAM decay runs once per epoch at the top of EndBlocker
     // (MaybeApplyBulkDecay), with the lazy per-member ApplyPendingDecay on
@@ -3995,23 +4171,35 @@ func (k Keeper) EndBlocker(ctx context.Context) error {
     // exempt from both.
 
     // 5. Process expired challenge responses
-    // If assignee doesn't respond within deadline, challenge is auto-upheld
+    // If assignee doesn't respond within deadline, challenge is auto-upheld.
+    // Same cache-context containment as step 3: UpholdChallenge marks the
+    // challenge resolved before it releases the stakes, and a resolved
+    // challenge never re-enters this sweep.
     k.IterateActiveChallenges(ctx, func(index int64, challenge types.Challenge) bool {
         if challenge.ResponseDeadline > 0 && sdkCtx.BlockHeight() >= challenge.ResponseDeadline {
-            _ = k.UpholdChallenge(ctx, challenge.Id)
+            cacheCtx, writeCache := sdkCtx.CacheContext()
+            if err := k.UpholdChallenge(cacheCtx, challenge.Id); err == nil {
+                writeCache()
+            }
         }
         return false
     })
 
-    // 6. Process jury review deadlines
-    k.IterateActiveJuryReviews(ctx, func(index int64, review types.JuryReview) bool {
-        if sdkCtx.BlockHeight() >= review.Deadline {
-            _ = k.TallyJuryVotes(ctx, review.Id)
+    // 6. Process jury review deadlines. Each tally is applied all-or-nothing:
+    // TallyJuryVotes de-indexes the review before it resolves the challenge,
+    // so a failed branch is discarded — the review stays PENDING and the next
+    // block retries it.
+    for _, id := range dueReviewIds {
+        cacheCtx, writeCache := sdkCtx.CacheContext()
+        if err := k.TallyJuryVotes(cacheCtx, id); err == nil {
+            writeCache()
         }
-        return false
-    })
+    }
 
-    // 7. Process assigned initiative deadlines (interims)
+    // 7. Process assigned initiative deadlines (interims). ExpireInterim is
+    // itself cache-wrapped: expiry and the adjudication resolution it triggers
+    // commit together or not at all, so a failed resolution leaves the interim
+    // PENDING for the next block.
     k.IteratePendingInterims(ctx, func(index int64, interim types.Interim) bool {
         if sdkCtx.BlockHeight() >= interim.Deadline {
             _ = k.ExpireInterim(ctx, interim.Id)

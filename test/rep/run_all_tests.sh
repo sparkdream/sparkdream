@@ -469,6 +469,17 @@ if [ "$RUN_SETUP" = true ]; then
             exit 1
         fi
 
+        # Record the setup-script hash alongside the data, exactly as the
+        # auto-snapshot path does (test/_auto_snapshot.sh). Without it
+        # _snapshot_is_fresh and run_parallel's module_snapshot_is_fresh both
+        # treat the snapshot as stale and re-run setup from scratch every time,
+        # so a snapshot saved through this documented workflow was never
+        # actually reused.
+        if [ -f "$SCRIPT_DIR/setup_test_accounts.sh" ] && [ -d "$SCRIPT_DIR/snapshots/post-setup" ]; then
+            sha256sum "$SCRIPT_DIR/setup_test_accounts.sh" 2>/dev/null | cut -d' ' -f1 \
+                > "$SCRIPT_DIR/snapshots/post-setup/setup_hash"
+        fi
+
         echo ""
         echo "========================================================================="
         echo "SAVE-SETUP MODE COMPLETE"
@@ -1371,6 +1382,31 @@ if [ -f "$SCRIPT_DIR/project_lifecycle_test.sh" ]; then
         echo "Project lifecycle test completed"
     else
         echo "[FAIL] Project lifecycle test exited with code: $PROJECT_LIFECYCLE_EXIT_CODE"
+    fi
+    echo ""
+    sleep 2
+fi
+
+# Interim completion authorization. Covers the ADJUDICATION gates: only the
+# technical committee may complete one, the verdict must arrive as the
+# structured --decision flag rather than a keyword in the notes, and
+# approve-interim cannot finalize one at all (a bool cannot carry a verdict, and
+# finalizing undecided strands the challenge the interim was raised to settle).
+# The file predates this registration and was never wired into the suite.
+if [ -f "$SCRIPT_DIR/interim_authorization_test.sh" ]; then
+    echo "========================================================================="
+    echo "STEP 27: INTERIM AUTHORIZATION TEST (adjudication gates)"
+    echo "========================================================================="
+    echo ""
+
+    bash "$SCRIPT_DIR/interim_authorization_test.sh"
+    INTERIM_AUTH_EXIT_CODE=$?
+
+    echo ""
+    if [ $INTERIM_AUTH_EXIT_CODE -eq 0 ]; then
+        echo "Interim authorization test completed"
+    else
+        echo "[FAIL] Interim authorization test exited with code: $INTERIM_AUTH_EXIT_CODE"
     fi
     echo ""
     sleep 2

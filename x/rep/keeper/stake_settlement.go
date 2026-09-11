@@ -83,16 +83,22 @@ func (k Keeper) stakeAccumulator(ctx context.Context, stake types.Stake) (math.L
 // until the initiative reaches a terminal status.
 //
 // The initiative half was missing, and the gap was not symmetric with the
-// project one: CompleteInitiative deletes the stakes it pays out, but
-// CloseInitiative and the challenge-REJECTED path leave them in place. Those
+// project one: CompleteInitiative deleted the stakes it paid out, but
+// CloseInitiative and the challenge-REJECTED path left them in place. Those
 // stakes went on drawing the seasonal yield forever against work that had been
-// retired or thrown out, and their principal went on diluting total_staked for
-// everyone still backing live work. Nothing distinguished a shipping initiative
-// from an abandoned one.
+// retired or thrown out. Nothing distinguished a shipping initiative from an
+// abandoned one.
 //
-// Both terminal transitions now settle their stakes first (see
-// settleInitiativeStakes), so what this freezes is future accrual, not rewards
-// already earned while the work was live.
+// Every terminal transition now runs releaseInitiativeStakes before the status
+// flip, settling and then deleting each stake, so in the ordinary case no
+// initiative stake reaches this branch at all. What still can: a stake whose
+// unlock failed at the transition and was deliberately left in place for its
+// owner to withdraw manually. Freezing its accrual is the point — it is
+// attached to work that has ended, and the rewards it earned while the work was
+// live were already settled (or forfeited) at the transition.
+//
+// CreateStake rejects terminal initiatives (ErrInitiativeTerminal), so no fresh
+// stake can arrive here after the flip.
 func (k Keeper) stakeAccruing(ctx context.Context, stake types.Stake) (bool, error) {
 	switch stake.TargetType {
 	case types.StakeTargetType_STAKE_TARGET_PROJECT:
@@ -192,7 +198,7 @@ func (k Keeper) settleStake(
 		// advancing on the strength of the still-live stakers, so settling
 		// against it would credit growth this stake is not entitled to.
 		// Terminal transitions settle everything payable while the project is
-		// still ACTIVE (see settleProjectStakes), so a stake arriving here with
+		// still ACTIVE (see releaseProjectStakes), so a stake arriving here with
 		// a residual claim either predates that settle or lost it to a mint-cap
 		// failure at the transition. Scale the debt with the principal so
 		// trimming the position does not inflate the residual claim.

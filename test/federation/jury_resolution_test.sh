@@ -266,27 +266,36 @@ fi
 
 # ========================================================================
 # TEST 2: Direct-signed MsgResolveEscalatedChallenge from non-OpsComm rejected
-# alice signs the message directly (not via OpsComm policy) → should
-# fail with ErrNotAuthorized. Uses content_id=0 (a no-op target) so
-# we exercise the auth gate without needing a live escalation.
+# The signer must be an account with no Operations Committee standing, so
+# challenger1 (a federation-local test account) signs rather than alice.
+# alice was used here before, but IsCouncilAuthorized accepts INDIVIDUAL
+# committee membership (step 4), and alice is a commons/operations member --
+# she sailed past the auth gate and the tx died later on the content_id=0
+# lookup instead. The old assertion passed on any error at all, so a test named
+# for the auth gate was really only proving that some error occurred.
+#
+# The handler checks authority BEFORE it looks up the escalation, so
+# content_id=0 is still a fine no-op target: an unauthorized signer is refused
+# before the missing escalation is ever reached.
 # ========================================================================
 echo ""
 echo "--- TEST 2: Direct (non-OpsComm) ResolveEscalatedChallenge rejected ---"
 
 TX_RES=$($BINARY tx federation resolve-escalated-challenge \
-    "0" "JURY_VERDICT_CHALLENGE_UPHELD" "direct attempt" \
-    --from alice --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y --output json 2>&1)
+    "0" "challenge-upheld" "direct attempt" \
+    --from challenger1 --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y --output json 2>&1)
 
 if ! submit_and_wait "$TX_RES" "direct resolve attempt"; then
-    record_result "Non-OpsComm ResolveEscalatedChallenge rejected" "PASS"
+    echo "  Not delivered: $(echo "$TX_RES" | head -c 200)"
+    record_result "Non-OpsComm ResolveEscalatedChallenge rejected" "FAIL"
 elif [ "$TX_OK" != "true" ]; then
     RAW=$(echo "$TX_RESULT" | jq -r '.raw_log // empty' | head -c 200)
     if echo "$RAW" | grep -qi "not authorized\|operations committee"; then
         echo "  Correctly rejected with auth error: $RAW"
         record_result "Non-OpsComm ResolveEscalatedChallenge rejected" "PASS"
     else
-        echo "  Rejected (some error): $RAW"
-        record_result "Non-OpsComm ResolveEscalatedChallenge rejected" "PASS"
+        echo "  Rejected, but not by the auth gate: $RAW"
+        record_result "Non-OpsComm ResolveEscalatedChallenge rejected" "FAIL"
     fi
 else
     echo "  Should have been rejected — succeeded"

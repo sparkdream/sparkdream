@@ -451,10 +451,14 @@ func TestChallengeResolutionMaintainsInitiativeStatusIndex(t *testing.T) {
 	require.False(t, initiativeInStatusBucket(t, k, ctx, types.InitiativeStatus_INITIATIVE_STATUS_SUBMITTED, initID))
 	require.True(t, initiativeInStatusBucket(t, k, ctx, types.InitiativeStatus_INITIATIVE_STATUS_CHALLENGED, initID))
 
-	// RejectChallenge: CHALLENGED bucket -> IN_REVIEW bucket.
+	// RejectChallenge: CHALLENGED bucket -> back to the snapshotted pre-challenge
+	// bucket. This fixture's initiative was still SUBMITTED when challenged, so
+	// the reject restores SUBMITTED — its challenge window never opened, and
+	// paying it out on a vacuous `height >= 0` check is what the snapshot
+	// exists to prevent.
 	require.NoError(t, k.RejectChallenge(ctx, challengeID))
 	require.False(t, initiativeInStatusBucket(t, k, ctx, types.InitiativeStatus_INITIATIVE_STATUS_CHALLENGED, initID))
-	require.True(t, initiativeInStatusBucket(t, k, ctx, types.InitiativeStatus_INITIATIVE_STATUS_IN_REVIEW, initID))
+	require.True(t, initiativeInStatusBucket(t, k, ctx, types.InitiativeStatus_INITIATIVE_STATUS_SUBMITTED, initID))
 
 	// UpholdChallenge: CHALLENGED bucket -> REJECTED bucket (fresh initiative;
 	// the burn of the reject path above consumed the challenger's stake, so
@@ -472,4 +476,60 @@ func TestChallengeResolutionMaintainsInitiativeStatusIndex(t *testing.T) {
 	require.NoError(t, k.UpholdChallenge(ctx, challengeID2))
 	require.False(t, initiativeInStatusBucket(t, k, ctx, types.InitiativeStatus_INITIATIVE_STATUS_CHALLENGED, initID2))
 	require.True(t, initiativeInStatusBucket(t, k, ctx, types.InitiativeStatus_INITIATIVE_STATUS_REJECTED, initID2))
+}
+
+// TestCancelProjectSettlesAndReleasesInitiativeStakes covers the gap that made
+// the cascade lossier than every other terminal path.
+//
+// terminateInitiativeForProjectCancel voided challenges, returned the budget,
+// released the self-assign bond, and set CLOSED — without ever settling the
+// stakes. Since stakeAccruing stops paying the moment the status is terminal,
+// the rewards those backers had earned while the work was live became
+// unreachable through any path: not this transition, which never settled, and
+// not a later RemoveStake, which takes settleStake's not-accruing branch and
+// mints nothing. CloseInitiative settles before its own flip for exactly this
+// reason; its sibling in the cascade did not.
+func TestCancelProjectSettlesAndReleasesInitiativeStakes(t *testing.T) {
+	f := initFixture(t)
+	k := f.keeper
+	ctx := f.ctx
+
+	projectID, initID, _ := setupSubmittedInitiative(t, f)
+
+	staker := newStakerMember(t, f, "cascade_stake_backer", math.NewInt(5_000_000_000))
+	preStaked := *mustMember(t, f, staker).StakedDream
+	preTotal, err := k.GetSeasonalPoolTotalStaked(ctx)
+	require.NoError(t, err)
+
+	amount := math.NewInt(1_000_000)
+	stakeID, err := k.CreateStake(ctx, staker, types.StakeTargetType_STAKE_TARGET_INITIATIVE, initID, "", amount)
+	require.NoError(t, err)
+
+	// One epoch of seasonal accrual while the work is still live.
+	require.NoError(t, k.InitSeasonalPool(ctx, 1))
+	require.NoError(t, k.DistributeEpochStakingRewardsFromPool(ctx))
+
+	pending, err := k.GetPendingStakingRewards(ctx, mustStake(t, f, stakeID))
+	require.NoError(t, err)
+	require.True(t, pending.IsPositive(), "precondition: the stake accrued while the work was live")
+
+	preEarned := *mustMember(t, f, staker).LifetimeEarned
+
+	require.NoError(t, k.CancelProject(ctx, projectID, "pivoting"))
+
+	// The reward the cascade used to strand.
+	postEarned := *mustMember(t, f, staker).LifetimeEarned
+	require.Equal(t, pending.String(), postEarned.Sub(preEarned).String(),
+		"cancelling the parent must pay what the stake accrued while the work was live")
+
+	// And the principal, on the same terms as every other terminal path.
+	require.Equal(t, preStaked.String(), mustMember(t, f, staker).StakedDream.String(),
+		"cancelling the parent must return the backer's principal")
+	_, err = k.GetStake(ctx, stakeID)
+	require.Error(t, err, "the released stake record must be deleted")
+
+	postTotal, err := k.GetSeasonalPoolTotalStaked(ctx)
+	require.NoError(t, err)
+	require.Equal(t, preTotal.String(), postTotal.String(),
+		"the cascade must shrink total_staked by the released principal")
 }

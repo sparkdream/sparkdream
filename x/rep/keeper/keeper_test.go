@@ -160,6 +160,11 @@ func initFixture(t *testing.T, opts ...FixtureOption) *fixture {
 
 	storeService := runtime.NewKVStoreService(storeKey)
 	ctx := testutil.DefaultContextWithDB(t, storeKey, storetypes.NewTransientStoreKey("transient_test")).Ctx
+	// Realistic base height: block 0 is genesis, where none of the lifecycle
+	// these tests exercise can exist. Height 0 also made "period ended at the
+	// current height" indistinguishable from "period never set" — the sentinel
+	// CompleteInitiative uses for an unopened challenge window.
+	ctx = ctx.WithBlockHeight(1)
 
 	authority := authtypes.NewModuleAddress(types.GovModuleName)
 

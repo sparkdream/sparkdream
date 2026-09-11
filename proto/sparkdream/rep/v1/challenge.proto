@@ -3,6 +3,7 @@ package sparkdream.rep.v1;
 
 import "cosmos_proto/cosmos.proto";
 import "gogoproto/gogo.proto";
+import "sparkdream/rep/v1/initiative.proto";
 
 option go_package = "sparkdream/x/rep/types";
 
@@ -26,6 +27,16 @@ message Challenge {
   // claim — but naming one turns "the work is bad" into a question the jury can
   // actually adjudicate against a standard the author agreed to up front.
   string criteria_id = 11;
+
+  // The initiative status to restore if this challenge is rejected. Challenges
+  // may be filed while the work is still SUBMITTED — before its challenge
+  // window has opened — and rejecting such a challenge must not skip that
+  // window: restoring SUBMITTED hands the initiative back to the ordinary
+  // transition, which sets a fresh review + challenge period. Challenges filed
+  // on IN_REVIEW work restore IN_REVIEW, whose window has already run. The
+  // zero value (OPEN, on chains predating the snapshot) also restores
+  // IN_REVIEW, the historical behaviour.
+  InitiativeStatus status_before_challenge = 12;
 }
 
 enum ChallengeStatus {

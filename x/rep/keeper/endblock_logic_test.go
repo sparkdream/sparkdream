@@ -18,10 +18,10 @@ func TestIsEpochEnd(t *testing.T) {
 
 	params, _ := k.Params.Get(ctx)
 
-	// At block 0, not end of epoch
+	// At the fixture's base height (1, mid-epoch), not end of epoch
 	isEnd, err := k.IsEpochEnd(ctx)
 	require.NoError(t, err)
-	require.True(t, isEnd, "Block 0 is divisible by EpochBlocks (0 % n == 0)")
+	require.False(t, isEnd, "block 1 is mid-epoch for any EpochBlocks > 1")
 
 	// At block EpochBlocks, is end of epoch
 	sdkCtx := sdk.UnwrapSDKContext(ctx)

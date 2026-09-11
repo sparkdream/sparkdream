@@ -60,7 +60,20 @@ func (k Keeper) EndBlocker(ctx context.Context) error {
 	})
 
 	// 3. Finalize unchallenged initiatives
+	//
+	// An IN_REVIEW initiative whose ChallengePeriodEnd is still 0 never had its
+	// window opened (legacy state, or a pre-snapshot rejected challenge). It
+	// must not complete vacuously — `height >= 0` is always true — and must not
+	// freeze either: adopt it by opening a full window now, the same policy the
+	// review-gate sweep applies to work that came under its gate after
+	// submission. Collected during the walk, applied after it closes:
+	// TransitionToChallengePeriod writes the initiative and its status index.
+	var adoptWindows []uint64
 	k.IteratePendingCompletionInitiatives(ctx, func(index int64, initiative types.Initiative) bool {
+		if initiative.ChallengePeriodEnd == 0 {
+			adoptWindows = append(adoptWindows, initiative.Id)
+			return false
+		}
 		if sdkCtx.BlockHeight() >= initiative.ChallengePeriodEnd {
 			// Skip payout for initiatives whose parent project was cancelled
 			// after they entered review — CompleteInitiative would reject them
@@ -86,6 +99,23 @@ func (k Keeper) EndBlocker(ctx context.Context) error {
 		}
 		return false
 	})
+	for _, id := range adoptWindows {
+		if err := k.TransitionToChallengePeriod(ctx, id); err != nil {
+			sdkCtx.Logger().Error("failed to open challenge window for adopted initiative",
+				"initiative_id", id, "error", err)
+			continue
+		}
+		adopted, err := k.GetInitiative(ctx, id)
+		if err != nil {
+			continue
+		}
+		sdkCtx.EventManager().EmitEvent(sdk.NewEvent(
+			"initiative_challenge_window_opened",
+			sdk.NewAttribute("initiative_id", fmt.Sprintf("%d", id)),
+			sdk.NewAttribute("reason", "window_missing_at_completion_sweep"),
+			sdk.NewAttribute("challenge_period_end", fmt.Sprintf("%d", adopted.ChallengePeriodEnd)),
+		))
+	}
 
 	// 4. DREAM decay: bulk pass in step 0 applies decay once per epoch for every
 	// member so same-epoch reads stay consistent. The lazy ApplyPendingDecay on
@@ -95,9 +125,21 @@ func (k Keeper) EndBlocker(ctx context.Context) error {
 	// If assignee doesn't respond within the deadline, challenge is auto-upheld
 	k.IterateActiveChallenges(ctx, func(index int64, challenge types.Challenge) bool {
 		if challenge.ResponseDeadline > 0 && sdkCtx.BlockHeight() >= challenge.ResponseDeadline {
-			// Auto-uphold the challenge - assignee failed to respond
-			if err := k.UpholdChallenge(ctx, challenge.Id); err != nil {
+			// Auto-uphold the challenge - assignee failed to respond.
+			//
+			// UpholdChallenge marks the challenge resolved before it releases the
+			// initiative's stakes, and a resolved challenge never re-enters this
+			// sweep. On deliver state, a mid-function error would therefore
+			// persist the resolution and strand the transition half-done — the
+			// initiative never reaching REJECTED while some stakes are already
+			// released — with no retry. Run it in a child cache context and only
+			// commit on success, mirroring step 3; the still-ACTIVE challenge is
+			// retried on the next block instead.
+			cacheCtx, writeCache := sdkCtx.CacheContext()
+			if err := k.UpholdChallenge(cacheCtx, challenge.Id); err != nil {
 				sdkCtx.Logger().Error("failed to uphold challenge", "challenge_id", challenge.Id, "error", err)
+			} else {
+				writeCache()
 			}
 		}
 		return false
@@ -107,8 +149,18 @@ func (k Keeper) EndBlocker(ctx context.Context) error {
 	// If author doesn't respond within the deadline, challenge is auto-upheld
 	k.IterateActiveContentChallenges(ctx, func(index int64, cc types.ContentChallenge) bool {
 		if cc.ResponseDeadline > 0 && sdkCtx.BlockHeight() >= cc.ResponseDeadline {
-			if err := k.UpholdContentChallenge(ctx, cc.Id); err != nil {
+			// Same containment as step 5: UpholdContentChallenge burns the
+			// author's bond and deletes the bond stake before it mints the
+			// challenger's reward, and only flips Status to UPHELD last. A
+			// mid-way failure without this branch persists the burn with the
+			// challenge still live, and the next block's retry burns the bond
+			// a second time -- UnlockDREAM clamps to StakedDream rather than
+			// erroring, so nothing downstream notices the bond is already gone.
+			cacheCtx, writeCache := sdkCtx.CacheContext()
+			if err := k.UpholdContentChallenge(cacheCtx, cc.Id); err != nil {
 				sdkCtx.Logger().Error("failed to uphold content challenge", "content_challenge_id", cc.Id, "error", err)
+			} else {
+				writeCache()
 			}
 		}
 		return false

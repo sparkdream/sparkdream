@@ -204,6 +204,7 @@ func TestMsgServerCompleteInterim(t *testing.T) {
 		_, err = ms.CompleteInterim(ctx, &types.MsgCompleteInterim{
 			Creator:         committeeStr,
 			InterimId:       interimID,
+			Decision:        types.AdjudicationDecision_ADJUDICATION_DECISION_UPHOLD,
 			CompletionNotes: "UPHELD - evidence supports challenge",
 		})
 		require.NoError(t, err)
@@ -410,6 +411,7 @@ func TestMsgServerCompleteInterim(t *testing.T) {
 		_, err = ms.CompleteInterim(ctx, &types.MsgCompleteInterim{
 			Creator:         committeeStr,
 			InterimId:       interimID,
+			Decision:        types.AdjudicationDecision_ADJUDICATION_DECISION_REJECT,
 			CompletionNotes: "REJECTED - no DREAM reward for adjudication",
 		})
 		require.NoError(t, err)

@@ -28,6 +28,13 @@ func (k msgServer) CompleteInterim(ctx context.Context, msg *types.MsgCompleteIn
 			return nil, errorsmod.Wrap(types.ErrUnauthorized,
 				fmt.Sprintf("only technical committee members can complete ADJUDICATION interims (creator: %s)", msg.Creator))
 		}
+		// The verdict is structured, not parsed from the notes: a free-text
+		// keyword that failed to match used to strand the challenged initiative
+		// forever (see CompleteInterimDirectly).
+		if interim.ReferenceId != 0 && msg.Decision == types.AdjudicationDecision_ADJUDICATION_DECISION_UNSPECIFIED {
+			return nil, errorsmod.Wrap(types.ErrInvalidRequest,
+				"completing an ADJUDICATION interim requires a decision: ADJUDICATION_DECISION_UPHOLD or ADJUDICATION_DECISION_REJECT")
+		}
 	} else {
 		// Regular interims can only be completed by assignees
 		isAssignee := false
@@ -44,7 +51,7 @@ func (k msgServer) CompleteInterim(ctx context.Context, msg *types.MsgCompleteIn
 	}
 
 	// Complete the interim directly using the keeper method
-	if err := k.Keeper.CompleteInterimDirectly(ctx, msg.InterimId, msg.CompletionNotes); err != nil {
+	if err := k.Keeper.CompleteInterimDirectly(ctx, msg.InterimId, msg.Decision, msg.CompletionNotes); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to complete interim")
 	}
 

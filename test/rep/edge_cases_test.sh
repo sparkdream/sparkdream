@@ -169,16 +169,23 @@ fi
 
 echo ""
 echo "Creating stakes for exact 50% external conviction test..."
-echo "Scenario: Assignee stakes 100 DREAM, External stakers stake 100 DREAM"
+echo "Scenario: affiliated staker 100 DREAM, external staker 100 DREAM"
 echo "Result: External = 100 / 200 = 50% (exactly at threshold)"
 
-# Assignee stakes (affiliated, doesn't count as external) - 100 DREAM
+# Affiliated stake (does NOT count as external) - 100 DREAM.
+# Externality is measured against the invitation neighbourhood of the
+# initiative's CREATOR (alice), not the assignee: `assignee` is invited_by alice
+# so it is affiliated, while bob/carol are genesis founders with no inviter and
+# are therefore external. This leg used to come `--from edge_user`, a key the
+# test creates locally but never funds and never registers as a member -- the
+# account does not exist on chain, so the tx failed at account lookup and the
+# affiliated half of this 50/50 scenario never existed.
 # Usage: stake [target-type] [target-id] [amount-micro-dream]
-$BINARY tx rep stake "STAKE_TARGET_INITIATIVE" $THRESH_ID "100000000" --from edge_user --chain-id $CHAIN_ID --keyring-backend test --gas auto --gas-adjustment 1.5 --fees 5000${BOND_DENOM} -y > /dev/null 2>&1
+$BINARY tx rep stake "stake-target-initiative" $THRESH_ID "100000000" --from assignee --chain-id $CHAIN_ID --keyring-backend test --gas auto --gas-adjustment 1.5 --fees 5000${BOND_DENOM} -y > /dev/null 2>&1
 sleep 1
 
 # External staker stakes (counts as external) - 100 DREAM
-$BINARY tx rep stake "STAKE_TARGET_INITIATIVE" $THRESH_ID "100000000" --from bob --chain-id $CHAIN_ID --keyring-backend test --gas auto --gas-adjustment 1.5 --fees 5000${BOND_DENOM} -y > /dev/null 2>&1
+$BINARY tx rep stake "stake-target-initiative" $THRESH_ID "100000000" --from bob --chain-id $CHAIN_ID --keyring-backend test --gas auto --gas-adjustment 1.5 --fees 5000${BOND_DENOM} -y > /dev/null 2>&1
 sleep 1
 
 # Wait for conviction to accrue (conviction = amount * timeFactor, timeFactor=0 at t=0)
@@ -198,12 +205,15 @@ echo "  External conviction: $EXTERNAL (100 DREAM)"
 echo "  Required: $REQUIRED"
 echo ""
 echo "Expected: External conviction = 50% (100/200)"
-echo "  - Assignee stake: 100 (affiliated, not external)"
-echo "  - Bob's stake: 100 (external)"
+echo "  - assignee stake: 100 (invited by alice -> affiliated)"
+echo "  - bob stake:      100 (no inviter -> external)"
 echo "  - External ratio: 100 / 200 = 50%"
 
 if [ -n "$EXTERNAL" ] && [ "$EXTERNAL" != "0" ] && [ -n "$CURRENT" ] && [ "$CURRENT" != "0" ]; then
-    EXTERNAL_RATIO=$((EXTERNAL * 100 / CURRENT))
+    # Conviction is a LegacyDec carrying 18 decimals, so these are ~1e20-scale
+    # integers. Bash arithmetic is int64 and `EXTERNAL * 100` overflows it,
+    # which produced a negative "ratio". Do the math in python, as elsewhere.
+    EXTERNAL_RATIO=$(python3 -c "print(int('$EXTERNAL') * 100 // int('$CURRENT'))" 2>/dev/null || echo 0)
     echo "  Calculated external ratio: $EXTERNAL_RATIO%"
     if [ "$EXTERNAL_RATIO" -ge "$EXTERNAL_REQ" ]; then
         echo "  [ OK ] External conviction >= $EXTERNAL_REQ% threshold met"
@@ -216,9 +226,25 @@ fi
 echo ""
 echo "Testing with 49% external conviction (just below threshold)..."
 
-# Add one more affiliated stake to change ratio - 2 DREAM
-$BINARY tx rep stake "STAKE_TARGET_INITIATIVE" $THRESH_ID "2000000" --from carol --chain-id $CHAIN_ID --keyring-backend test --gas auto --gas-adjustment 1.5 --fees 5000${BOND_DENOM} -y > /dev/null 2>&1
-sleep 1
+# Add one more AFFILIATED stake to dilute the external share - 2 DREAM.
+# `expert` is invited_by alice; carol (used here before) is a genesis founder
+# with no inviter, so staking from her raised the external share rather than
+# diluting it -- the opposite of what this step is for.
+PRE_DILUTE_TOTAL=$($BINARY query rep initiative-conviction $THRESH_ID --output json 2>/dev/null | jq -r '.total_conviction // 0')
+$BINARY tx rep stake "stake-target-initiative" $THRESH_ID "2000000" --from expert --chain-id $CHAIN_ID --keyring-backend test --gas auto --gas-adjustment 1.5 --fees 5000${BOND_DENOM} -y > /dev/null 2>&1
+
+# Wait on the VALUE, not on the tx and not on a fixed sleep. Conviction is
+# time-weighted -- a stake enters with timeFactor 0 and climbs to its plateau --
+# so the dilution is invisible for several blocks after the tx lands. `sleep 1`
+# measured the unchanged pre-dilution ratio and reported "50%, should be ~49%",
+# which read as a failed stake when the stake was fine and the read was early.
+for _i in $(seq 1 40); do
+    NOW_TOTAL=$($BINARY query rep initiative-conviction $THRESH_ID --output json 2>/dev/null | jq -r '.total_conviction // 0')
+    if [ -n "$NOW_TOTAL" ] && [ "$NOW_TOTAL" != "$PRE_DILUTE_TOTAL" ]; then
+        break
+    fi
+    sleep 1
+done
 
 # Query conviction again
 CONVICTION2=$($BINARY query rep initiative-conviction $THRESH_ID --output json)
@@ -226,11 +252,13 @@ CURRENT2=$(echo "$CONVICTION2" | jq -r '.total_conviction // 0')
 EXTERNAL2=$(echo "$CONVICTION2" | jq -r '.external_conviction // 0')
 
 if [ -n "$EXTERNAL2" ] && [ "$EXTERNAL2" != "0" ] && [ -n "$CURRENT2" ] && [ "$CURRENT2" != "0" ]; then
-    EXTERNAL_RATIO2=$((EXTERNAL2 * 100 / CURRENT2))
+    EXTERNAL_RATIO2=$(python3 -c "print(int('$EXTERNAL2') * 100 // int('$CURRENT2'))" 2>/dev/null || echo 0)
     echo "  Total: $CURRENT2, External: $EXTERNAL2"
-    echo "  External ratio: $EXTERNAL_RATIO2% (should be ~49%)"
+    echo "  External ratio: $EXTERNAL_RATIO2% (should be below $EXTERNAL_REQ%)"
     if [ "$EXTERNAL_RATIO2" -lt "$EXTERNAL_REQ" ]; then
         echo "  [ OK ] Below threshold as expected (< $EXTERNAL_REQ%)"
+    else
+        echo "  [WARN]  Expected the affiliated stake to dilute the external share below $EXTERNAL_REQ%, got $EXTERNAL_RATIO2%"
     fi
 fi
 
@@ -283,7 +311,7 @@ echo "[ OK ] Duration test initiative: ID $DUR_ID"
 
 # Early unstaker creates a stake
 # Usage: stake [target-type] [target-id] [amount]
-$BINARY tx rep stake "STAKE_TARGET_INITIATIVE" $DUR_ID "200" --from early_unstaker --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y > /dev/null 2>&1
+$BINARY tx rep stake "stake-target-initiative" $DUR_ID "200" --from early_unstaker --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y > /dev/null 2>&1
 sleep 2
 
 # Get stake ID

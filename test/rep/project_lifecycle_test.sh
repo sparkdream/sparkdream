@@ -829,6 +829,112 @@ elif [ -n "$EXPERT_ADDR" ] && [ -n "$CHALLENGER_ADDR" ]; then
 fi
 
 # ========================================================================
+# TEST 9 - cancel releases the project's own stakes
+# ========================================================================
+# Cancelling is a retirement, not a confiscation. A terminal project's stakes
+# cannot earn (stakeAccruing is false off ACTIVE) and cannot signal, so leaving
+# their principal locked only diluted the seasonal divisor for everyone still
+# backing live work, until each staker happened to unstake by hand.
+# releaseProjectStakes now returns the principal on the transition: the staker's
+# staked_dream drops and the stake record is gone.
+echo "--- TEST 9: project cancel releases project stakes ---"
+
+STAKE_OK=1
+STAKER_ADDR=$($BINARY keys show alice -a --keyring-backend test 2>/dev/null)
+
+# 9a. A small budget-backed project alice can approve directly.
+TX_RES=$($BINARY tx rep propose-project \
+    "lifecycle-stake-release" "Stake release target" "infrastructure" \
+    "Technical Council" "5000000000" "0" \
+    --from alice --chain-id $CHAIN_ID --keyring-backend test \
+    --fees 5000${BOND_DENOM} --gas 400000 -y --output json 2>&1)
+if ! submit_tx_and_wait "$TX_RES" || ! check_tx_success "$TX_RESULT"; then
+    echo "  Failed to propose stake-release project: $(echo "$TX_RESULT" | jq -r '.raw_log // ""')"
+    STAKE_OK=0
+fi
+STAKE_PID=$(echo "$TX_RESULT" | jq -r '.events[] | select(.type=="project_proposed") | .attributes[] | select(.key=="project_id") | .value' | tr -d '"')
+
+if [ "$STAKE_OK" == "1" ]; then
+    TX_RES=$($BINARY tx rep approve-project-budget \
+        "$STAKE_PID" "5000000000" "0" \
+        --from alice --chain-id $CHAIN_ID --keyring-backend test \
+        --fees 5000${BOND_DENOM} --gas 400000 -y --output json 2>&1)
+    if ! submit_tx_and_wait "$TX_RES" || ! check_tx_success "$TX_RESULT"; then
+        echo "  Failed to approve stake-release project: $(echo "$TX_RESULT" | jq -r '.raw_log // ""')"
+        STAKE_OK=0
+    fi
+fi
+
+# 9b. Stake conviction on the ACTIVE project.
+STAKE_AMOUNT=100000000
+if [ "$STAKE_OK" == "1" ]; then
+    STAKED_BEFORE=$($BINARY query rep get-member "$STAKER_ADDR" --output json 2>/dev/null | jq -r '.member.staked_dream // "0"')
+    # AutoCLI binds the positional enum by its kebab-case short form; the full
+    # constant name (STAKE_TARGET_PROJECT) fails client-side before broadcast,
+    # same as the --decision flag on complete-interim.
+    TX_RES=$($BINARY tx rep stake \
+        "stake-target-project" "$STAKE_PID" "$STAKE_AMOUNT" \
+        --from alice --chain-id $CHAIN_ID --keyring-backend test \
+        --fees 5000${BOND_DENOM} --gas 400000 -y --output json 2>&1)
+    if ! submit_tx_and_wait "$TX_RES" || ! check_tx_success "$TX_RESULT"; then
+        echo "  Failed to stake on project: $(echo "$TX_RESULT" | jq -r '.raw_log // ""')"
+        STAKE_OK=0
+    fi
+fi
+
+if [ "$STAKE_OK" == "1" ]; then
+    STAKED_STAKED=$($BINARY query rep get-member "$STAKER_ADDR" --output json 2>/dev/null | jq -r '.member.staked_dream // "0"')
+    echo "  staked_dream before stake: $STAKED_BEFORE, after stake: $STAKED_STAKED"
+    if [ "$STAKED_STAKED" == "$STAKED_BEFORE" ]; then
+        echo "  Expected staked_dream to rise after staking"
+        STAKE_OK=0
+    fi
+fi
+
+# 9c. Cancel, and the principal must come back on the transition.
+if [ "$STAKE_OK" == "1" ]; then
+    TX_RES=$($BINARY tx rep cancel-project \
+        "$STAKE_PID" "retire with stakes" \
+        --from alice --chain-id $CHAIN_ID --keyring-backend test \
+        --fees 5000${BOND_DENOM} --gas 400000 -y --output json 2>&1)
+    if ! submit_tx_and_wait "$TX_RES" || ! check_tx_success "$TX_RESULT"; then
+        echo "  Cancel failed: $(echo "$TX_RESULT" | jq -r '.raw_log // ""')"
+        STAKE_OK=0
+    fi
+fi
+
+if [ "$STAKE_OK" == "1" ]; then
+    RELEASED=$(echo "$TX_RESULT" | jq -r '[.events[] | select(.type=="project_stake_released")] | length')
+    STAKED_AFTER=$($BINARY query rep get-member "$STAKER_ADDR" --output json 2>/dev/null | jq -r '.member.staked_dream // "0"')
+    PROJ_STATUS=$($BINARY query rep get-project "$STAKE_PID" --output json 2>/dev/null | jq -r '.project.status // ""')
+    # Assert on the DROP, not on a return to the exact pre-stake figure. DREAM
+    # decays lazily, so any staked balance the account already carried shrinks a
+    # little between the two reads -- alice ran ~2,400 micro-DREAM below her own
+    # baseline in a full-suite run, where earlier suites had left her with 9.6M
+    # already staked. Standalone the baseline is 0, decays to 0, and the exact
+    # comparison happens to hold, which is exactly the kind of assertion that
+    # passes alone and fails in the suite. The release itself is what matters:
+    # the drop must account for essentially the whole principal.
+    RELEASED_DROP=$((STAKED_STAKED - STAKED_AFTER))
+    MIN_DROP=$((STAKE_AMOUNT * 99 / 100))
+    echo "  project_stake_released events: $RELEASED"
+    echo "  staked_dream after cancel: $STAKED_AFTER (was $STAKED_STAKED)"
+    echo "  released: $RELEASED_DROP of $STAKE_AMOUNT staked (>= $MIN_DROP required, decay-tolerant)"
+    echo "  project status: $PROJ_STATUS"
+
+    if [ "$PROJ_STATUS" == "PROJECT_STATUS_CANCELLED" ] && \
+       [ "$RELEASED" -ge 1 ] && \
+       [ "$RELEASED_DROP" -ge "$MIN_DROP" ]; then
+        record_result "TEST 9: cancel releases project stakes" "PASS"
+    else
+        echo "  Expected CANCELLED project, a project_stake_released event, and a staked_dream drop >= $MIN_DROP (got $RELEASED_DROP)"
+        record_result "TEST 9: cancel releases project stakes" "FAIL"
+    fi
+else
+    record_result "TEST 9: cancel releases project stakes" "FAIL"
+fi
+
+# ========================================================================
 # Results
 # ========================================================================
 echo "============================================"

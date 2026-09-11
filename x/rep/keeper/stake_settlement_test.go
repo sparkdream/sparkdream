@@ -478,18 +478,29 @@ func TestSettlement_CompleteProjectPaysAccruedStakeRewards(t *testing.T) {
 	require.True(t, pending.IsPositive(), "precondition: the stake accrued something while ACTIVE")
 
 	balanceBefore := *mustMember(t, f, staker).DreamBalance
+	spendableBefore := spendable(t, f, staker)
+	preTotal, err := k.GetSeasonalPoolTotalStaked(f.ctx)
+	require.NoError(t, err)
+
 	require.NoError(t, k.CompleteProject(f.ctx, projectID))
 
 	balanceAfter := *mustMember(t, f, staker).DreamBalance
 	require.Equal(t, pending.String(), balanceAfter.Sub(balanceBefore).String(),
 		"completion must mint exactly the rewards accrued up to the transition")
 
-	postPending, err := k.GetPendingStakingRewards(f.ctx, mustStake(t, f, stakeID))
-	require.NoError(t, err)
-	require.True(t, postPending.IsZero(), "a settled stake must hold no further claim")
+	// Rewards plus the unlocked principal: completion retires the position
+	// rather than leaving it locked against finished work.
+	require.Equal(t, pending.Add(amount).String(), spendable(t, f, staker).Sub(spendableBefore).String(),
+		"completion must free the principal along with the rewards")
 
-	// Principal stays staked — completion pays rewards, it does not unstake.
-	require.Equal(t, amount.String(), mustMember(t, f, staker).StakedDream.String())
+	_, err = k.GetStake(f.ctx, stakeID)
+	require.Error(t, err, "the released stake must be deleted")
+	require.Equal(t, "0", mustMember(t, f, staker).StakedDream.String())
+
+	postTotal, err := k.GetSeasonalPoolTotalStaked(f.ctx)
+	require.NoError(t, err)
+	require.Equal(t, preTotal.Sub(amount).String(), postTotal.String(),
+		"the released principal must leave the seasonal divisor")
 }
 
 // TestSettlement_CancelProjectPaysAccruedStakeRewards mirrors the completion
@@ -512,16 +523,30 @@ func TestSettlement_CancelProjectPaysAccruedStakeRewards(t *testing.T) {
 	require.True(t, pending.IsPositive())
 
 	balanceBefore := *mustMember(t, f, staker).DreamBalance
+	spendableBefore := spendable(t, f, staker)
+	preTotal, err := k.GetSeasonalPoolTotalStaked(f.ctx)
+	require.NoError(t, err)
+
 	require.NoError(t, k.CancelProject(f.ctx, projectID, "test cancel"))
 
 	balanceAfter := *mustMember(t, f, staker).DreamBalance
 	require.Equal(t, pending.String(), balanceAfter.Sub(balanceBefore).String(),
 		"cancellation must mint exactly the rewards accrued up to the transition")
 
-	// The staker can still withdraw the principal afterwards.
-	ctx := advancePast(t, f)
-	require.NoError(t, k.RemoveStake(ctx, stakeID, staker, math.NewInt(2_000_000)))
+	// Cancelling is a retirement, not a confiscation: the principal is freed
+	// with the rewards rather than waiting on a manual unstake that may never
+	// come.
+	require.Equal(t, pending.Add(math.NewInt(2_000_000)).String(), spendable(t, f, staker).Sub(spendableBefore).String(),
+		"cancellation must free the principal along with the rewards")
+
+	_, err = k.GetStake(f.ctx, stakeID)
+	require.Error(t, err, "the released stake must be deleted")
 	require.Equal(t, "0", mustMember(t, f, staker).StakedDream.String())
+
+	postTotal, err := k.GetSeasonalPoolTotalStaked(f.ctx)
+	require.NoError(t, err)
+	require.Equal(t, preTotal.Sub(math.NewInt(2_000_000)).String(), postTotal.String(),
+		"the released principal must leave the seasonal divisor")
 }
 
 // TestSettlement_TerminalProjectRejectsNewStakes pins the CreateStake guard:
@@ -602,6 +627,15 @@ func TestSettlement_ApprovalRebasesProposedStakeDebts(t *testing.T) {
 	require.True(t, pending.IsPositive(), "after approval the stake accrues like any live staker")
 }
 
+// spendable is the DREAM a member can actually move: LockDREAM does not debit
+// DreamBalance, it raises StakedDream against it, so a released principal shows
+// up here rather than as a balance increase.
+func spendable(t *testing.T, f *fixture, addr sdk.AccAddress) math.Int {
+	t.Helper()
+	m := mustMember(t, f, addr)
+	return m.DreamBalance.Sub(*m.StakedDream)
+}
+
 func mustStake(t *testing.T, f *fixture, stakeID uint64) types.Stake {
 	t.Helper()
 	stake, err := f.keeper.GetStake(f.ctx, stakeID)
@@ -616,24 +650,30 @@ func mustMember(t *testing.T, f *fixture, addr sdk.AccAddress) types.Member {
 	return member
 }
 
-// TestSettlement_ClosedInitiativePaysAccruedThenStopsAccruing is the
-// initiative-side twin of the terminal-project regression.
+// TestSettlement_ClosedInitiativeReleasesStake is the initiative-side twin of
+// the terminal-project regression.
 //
-// CompleteInitiative settles and deletes the stakes it pays out, but
-// CloseInitiative and the challenge-REJECTED path leave theirs in place, and
-// stakeAccruing had no initiative branch at all. Those stakes drew the seasonal
-// yield forever against work that had been retired or thrown out, and their
-// principal went on diluting total_staked for everyone backing live work.
+// CompleteInitiative settles, unlocks, and deletes the stakes it pays out.
+// CloseInitiative and the challenge-REJECTED path used to settle only, leaving
+// the principal locked and the record in place. That principal could not earn
+// (stakeAccruing is false on terminal work) and could not signal, but it stayed
+// inside seasonal_pool/total_staked forever, diluting the yield of everyone
+// still backing live work — the exact ratchet CompleteInitiative's
+// updateStakePoolTotals call exists to prevent.
 //
-// The contract: rewards accrued while the work was live are paid at the
-// transition, and nothing accrues after it.
-func TestSettlement_ClosedInitiativePaysAccruedThenStopsAccruing(t *testing.T) {
+// The contract on every terminal path: rewards accrued while the work was live
+// are paid, the principal comes back, and the denominator shrinks by it.
+func TestSettlement_ClosedInitiativeReleasesStake(t *testing.T) {
 	f := initFixture(t)
 	k := f.keeper
 
 	creator := newStakerMember(t, f, "close_accrue_creator", math.NewInt(5_000_000_000))
 	staker := newStakerMember(t, f, "close_accrue_staker_", math.NewInt(5_000_000_000))
 	initID := newActiveInitiative(t, f, creator, "closeaccrue")
+
+	preStaked := *mustMember(t, f, staker).StakedDream
+	preTotal, err := k.GetSeasonalPoolTotalStaked(f.ctx)
+	require.NoError(t, err)
 
 	amount := math.NewInt(1_000_000)
 	stakeID, err := k.CreateStake(f.ctx, staker, types.StakeTargetType_STAKE_TARGET_INITIATIVE, initID, "", amount)
@@ -656,12 +696,19 @@ func TestSettlement_ClosedInitiativePaysAccruedThenStopsAccruing(t *testing.T) {
 	require.Equal(t, pending.String(), postEarned.Sub(preEarned).String(),
 		"closing must pay what the stake accrued while the work was live")
 
-	// And nothing accrues afterwards, however many epochs pass.
-	require.Equal(t, "0", mustPending(t, f, stakeID).String(),
-		"a settled stake starts from zero pending")
-	require.NoError(t, k.DistributeEpochStakingRewardsFromPool(f.ctx))
-	require.Equal(t, "0", mustPending(t, f, stakeID).String(),
-		"a terminal initiative must stop accruing entirely")
+	// Principal returned: nothing in the lifecycle is entitled to it, and
+	// closing is a retirement rather than a confiscation.
+	require.Equal(t, preStaked.String(), mustMember(t, f, staker).StakedDream.String(),
+		"closing must unlock the staked principal")
+	_, err = k.GetStake(f.ctx, stakeID)
+	require.Error(t, err, "the released stake record must be deleted")
+
+	// And the denominator shrinks with it. Without this the seasonal pool goes
+	// on dividing revenue by DREAM that has already left.
+	postTotal, err := k.GetSeasonalPoolTotalStaked(f.ctx)
+	require.NoError(t, err)
+	require.Equal(t, preTotal.String(), postTotal.String(),
+		"closing must shrink total_staked by the released principal")
 }
 
 // TestCreateStake_RejectsTerminalInitiative mirrors ErrProjectTerminal: locking
@@ -681,15 +728,8 @@ func TestCreateStake_RejectsTerminalInitiative(t *testing.T) {
 	require.ErrorIs(t, err, types.ErrInitiativeTerminal)
 }
 
-func mustPending(t *testing.T, f *fixture, stakeID uint64) math.Int {
-	t.Helper()
-	pending, err := f.keeper.GetPendingStakingRewards(f.ctx, mustStake(t, f, stakeID))
-	require.NoError(t, err)
-	return pending
-}
-
-// TestSettlement_UpheldChallengePaysAccruedThenStopsAccruing covers the second
-// terminal-initiative transition that leaves its stake records in place.
+// TestSettlement_UpheldChallengeReleasesStake covers the second terminal
+// transition that used to leave its stake records in place.
 //
 // CloseInitiative is the retirement path; UpholdChallenge is the failure path,
 // moving the initiative to REJECTED. Both had the same defect and both take the
@@ -697,9 +737,11 @@ func mustPending(t *testing.T, f *fixture, stakeID uint64) math.Int {
 // so a future edit to one would not be caught by the other's test.
 //
 // The contract is deliberately identical to closure's: rewards accrued while
-// the work was live are paid, because the outcome does not retroactively unearn
-// them. Punishing the stake itself is what slashing is for.
-func TestSettlement_UpheldChallengePaysAccruedThenStopsAccruing(t *testing.T) {
+// the work was live are paid, and the principal comes back, because the outcome
+// does not retroactively unearn either. Punishing the stake itself is what
+// slashing is for. What the upheld challenge burns is the assignee's
+// self-assign bond, not the DREAM of the members who backed the work.
+func TestSettlement_UpheldChallengeReleasesStake(t *testing.T) {
 	f := initFixture(t)
 	k := f.keeper
 	ctx := f.ctx
@@ -707,6 +749,9 @@ func TestSettlement_UpheldChallengePaysAccruedThenStopsAccruing(t *testing.T) {
 	_, initID, _ := setupSubmittedInitiative(t, f)
 
 	staker := newStakerMember(t, f, "uphold_stake_backer_", math.NewInt(5_000_000_000))
+	preStaked := *mustMember(t, f, staker).StakedDream
+	preTotal, err := k.GetSeasonalPoolTotalStaked(ctx)
+	require.NoError(t, err)
 	stakeID, err := k.CreateStake(ctx, staker, types.StakeTargetType_STAKE_TARGET_INITIATIVE, initID, "", math.NewInt(1_000_000))
 	require.NoError(t, err)
 
@@ -738,9 +783,387 @@ func TestSettlement_UpheldChallengePaysAccruedThenStopsAccruing(t *testing.T) {
 	require.Equal(t, pending.String(), postEarned.Sub(preEarned).String(),
 		"upholding a challenge must still pay what the stake accrued while the work was live")
 
-	// And a REJECTED initiative accrues nothing further.
-	require.Equal(t, "0", mustPending(t, f, stakeID).String())
+	// And the backer's principal comes back, exactly as on the close path.
+	require.Equal(t, preStaked.String(), mustMember(t, f, staker).StakedDream.String(),
+		"an upheld challenge must not confiscate a backer's principal")
+	_, err = k.GetStake(ctx, stakeID)
+	require.Error(t, err, "the released stake record must be deleted")
+
+	postTotal, err := k.GetSeasonalPoolTotalStaked(ctx)
+	require.NoError(t, err)
+	require.Equal(t, preTotal.String(), postTotal.String(),
+		"rejection must shrink total_staked by the released principal")
+}
+
+// TestSettlement_ReleaseIsolatesPerStakeFailure pins the fault-isolation
+// contract of releaseInitiativeStakes.
+//
+// Three of its four callers are reachable from the EndBlocker
+// (resolveSilentEscalations -> rejectReviewRound -> CloseInitiative), and
+// UnlockDREAM has real error modes — here, a staker whose member record has
+// gone. If one such stake could abort the transition, the initiative would be
+// unable to retire at all, which is the failure that stranded devnet initiative
+// #1 in IN_REVIEW for ~6,000 blocks.
+//
+// So: the healthy stake is released, the initiative reaches CLOSED regardless,
+// and the failed stake is left intact rather than silently destroyed — leaving
+// its owner the manual withdrawal, which the next test exercises.
+func TestSettlement_ReleaseIsolatesPerStakeFailure(t *testing.T) {
+	f := initFixture(t)
+	k := f.keeper
+
+	creator := newStakerMember(t, f, "isolate_creator_____", math.NewInt(5_000_000_000))
+	healthy := newStakerMember(t, f, "isolate_healthy_____", math.NewInt(5_000_000_000))
+	broken := newStakerMember(t, f, "isolate_broken______", math.NewInt(5_000_000_000))
+	initID := newActiveInitiative(t, f, creator, "isolate")
+
+	amount := math.NewInt(1_000_000)
+	healthyStake, err := k.CreateStake(f.ctx, healthy, types.StakeTargetType_STAKE_TARGET_INITIATIVE, initID, "", amount)
+	require.NoError(t, err)
+	brokenStake, err := k.CreateStake(f.ctx, broken, types.StakeTargetType_STAKE_TARGET_INITIATIVE, initID, "", amount)
+	require.NoError(t, err)
+
+	// Break the unlock for one staker only. No seasonal distribution has run,
+	// so nothing is pending and the failure is isolated to UnlockDREAM.
+	require.NoError(t, k.Member.Remove(f.ctx, broken.String()))
+
+	require.NoError(t, k.CloseInitiative(f.ctx, initID, "retired"),
+		"one unreleasable stake must not block the retirement")
+
+	initiative, err := k.GetInitiative(f.ctx, initID)
+	require.NoError(t, err)
+	require.Equal(t, types.InitiativeStatus_INITIATIVE_STATUS_CLOSED, initiative.Status)
+
+	// The healthy position was released in full.
+	_, err = k.GetStake(f.ctx, healthyStake)
+	require.Error(t, err, "the healthy stake must be released")
+	require.Equal(t, "0", mustMember(t, f, healthy).StakedDream.String())
+
+	// The broken one survives, so its owner still holds the claim ticket.
+	surviving, err := k.GetStake(f.ctx, brokenStake)
+	require.NoError(t, err, "a stake that could not be unlocked must be left in place, not destroyed")
+	require.Equal(t, amount.String(), surviving.Amount.String())
+}
+
+// TestSettlement_LeftBehindStakeStaysWithdrawable is the other half of the
+// isolation contract: the recovery path has to actually work.
+//
+// RemoveStake carries no status gate, so a terminal initiative is no obstacle
+// to withdrawing manually. This is also the path that drains the positions
+// stranded by the old settle-only behaviour on already-closed initiatives.
+func TestSettlement_LeftBehindStakeStaysWithdrawable(t *testing.T) {
+	f := initFixture(t)
+	k := f.keeper
+
+	creator := newStakerMember(t, f, "leftover_creator____", math.NewInt(5_000_000_000))
+	staker := newStakerMember(t, f, "leftover_staker_____", math.NewInt(5_000_000_000))
+	initID := newActiveInitiative(t, f, creator, "leftover")
+
+	amount := math.NewInt(1_000_000)
+	stakeID, err := k.CreateStake(f.ctx, staker, types.StakeTargetType_STAKE_TARGET_INITIATIVE, initID, "", amount)
+	require.NoError(t, err)
+
+	// Simulate the release having failed for this stake: close the initiative
+	// with the member record gone, then restore it.
+	member := mustMember(t, f, staker)
+	require.NoError(t, k.Member.Remove(f.ctx, staker.String()))
+	require.NoError(t, k.CloseInitiative(f.ctx, initID, "retired"))
+	require.NoError(t, k.Member.Set(f.ctx, staker.String(), member))
+
+	require.Equal(t, amount.String(), mustStake(t, f, stakeID).Amount.String(),
+		"precondition: the stake survived the transition")
+
+	require.NoError(t, k.RemoveStake(advancePast(t, f), stakeID, staker, amount),
+		"a stake on a terminal initiative must still be withdrawable")
+	require.Equal(t, "0", mustMember(t, f, staker).StakedDream.String())
+	_, err = k.GetStake(f.ctx, stakeID)
+	require.Error(t, err)
+}
+
+// TestSettlement_LeftBehindStakeCannotDoubleClaimReward pins the half of the
+// unlock-failure contract the missing-member test above cannot reach.
+//
+// Deleting the member record (as ReleaseIsolatesPerStakeFailure does) breaks
+// MintDREAM first, so the reward is forfeited and never minted — there is no
+// double-claim window to close. The interesting failure is the one
+// UnlockDREAM's clamp exists for: the staked aggregate has drifted to zero
+// while the member record is intact. Then settleStake harvests and MINTS the
+// reward, UnlockDREAM refuses, and the stake is persisted with its reward debt
+// rebased to zero. A later manual RemoveStake must return the principal
+// without minting that reward a second time — the rebased debt is the only
+// thing standing between the staker and a double payout.
+func TestSettlement_LeftBehindStakeCannotDoubleClaimReward(t *testing.T) {
+	f := initFixture(t)
+	k := f.keeper
+	ctx := f.ctx
+
+	creator := newStakerMember(t, f, "dblclaim_creator___", math.NewInt(5_000_000_000))
+	staker := newStakerMember(t, f, "dblclaim_staker____", math.NewInt(5_000_000_000))
+	initID := newActiveInitiative(t, f, creator, "dblclaim")
+
+	preTotal, err := k.GetSeasonalPoolTotalStaked(ctx)
+	require.NoError(t, err)
+
+	amount := math.NewInt(1_000_000)
+	stakeID, err := k.CreateStake(ctx, staker, types.StakeTargetType_STAKE_TARGET_INITIATIVE, initID, "", amount)
+	require.NoError(t, err)
+
+	// One epoch of seasonal accrual while the work is still live.
+	require.NoError(t, k.InitSeasonalPool(ctx, 1))
 	require.NoError(t, k.DistributeEpochStakingRewardsFromPool(ctx))
-	require.Equal(t, "0", mustPending(t, f, stakeID).String(),
-		"a REJECTED initiative must stop accruing entirely")
+
+	pending, err := k.GetPendingStakingRewards(ctx, mustStake(t, f, stakeID))
+	require.NoError(t, err)
+	require.True(t, pending.IsPositive(), "precondition: the stake accrued while the work was live")
+
+	preEarned := *mustMember(t, f, staker).LifetimeEarned
+
+	// Drift the staked aggregate to zero but keep the member record: the mint
+	// below still succeeds, and only the unlock fails.
+	member := mustMember(t, f, staker)
+	member.StakedDream = PtrInt(math.ZeroInt())
+	require.NoError(t, k.Member.Set(ctx, staker.String(), member))
+
+	require.NoError(t, k.CloseInitiative(ctx, initID, "retired"))
+
+	// The reward was minted at the transition, and the record survived with its
+	// debt rebased to zero — the persisted proof that it was already paid.
+	postEarned := *mustMember(t, f, staker).LifetimeEarned
+	require.Equal(t, pending.String(), postEarned.Sub(preEarned).String(),
+		"the transition must still pay what accrued while the work was live")
+	surviving, err := k.GetStake(ctx, stakeID)
+	require.NoError(t, err, "a stake whose unlock failed must be left in place")
+	require.Equal(t, math.ZeroInt().String(), surviving.RewardDebt.String(),
+		"the persisted record must carry the rebased debt")
+
+	// Repair the aggregate and withdraw through the documented recovery path.
+	member = mustMember(t, f, staker)
+	member.StakedDream = PtrInt(amount)
+	require.NoError(t, k.Member.Set(ctx, staker.String(), member))
+
+	require.NoError(t, k.RemoveStake(advancePast(t, f), stakeID, staker, amount),
+		"the manual withdrawal path must work once the aggregate is repaired")
+
+	// Principal only: the transition's reward must not be minted twice.
+	finalEarned := *mustMember(t, f, staker).LifetimeEarned
+	require.Equal(t, postEarned.String(), finalEarned.String(),
+		"RemoveStake must not mint the transition's reward a second time")
+	_, err = k.GetStake(ctx, stakeID)
+	require.Error(t, err, "the recovered stake must be deleted")
+
+	// And the recovery closes the denominator loop: the manual withdrawal
+	// shrinks total_staked by the principal the failed unlock had left behind.
+	postTotal, err := k.GetSeasonalPoolTotalStaked(ctx)
+	require.NoError(t, err)
+	require.Equal(t, preTotal.String(), postTotal.String(),
+		"the manual withdrawal must shrink total_staked by the released principal")
+}
+
+// TestSettlement_MintCapAbortsReleaseAndRetryPaysInFull pins the line between
+// the two failure classes in releaseInitiativeStakes.
+//
+// A settle failure against the per-epoch DREAM mint cap is transient: the cap
+// clears on its own. Forfeiting the reward for it would destroy a payable claim
+// because the block happened to be busy, and would do it order-dependently —
+// stakes earlier in the slice get paid, later ones do not. So the whole
+// transition aborts instead, and the retry pays in full.
+//
+// Nothing pre-checks this: CompleteInitiative's projected-mint gate covers the
+// season cap only, and the completer reward, treasury share, completion bonus
+// and review fees have already drawn on the epoch's budget before the stakes
+// are settled.
+//
+// The abort is only recoverable behind a rollback boundary, which is why every
+// caller has one — tx rollback for the three msg-server paths, the CacheContext
+// in resolveSilentEscalations for the EndBlocker one. CloseInitiative returns
+// the initiative's budget before it reaches the stakes, and that return is not
+// idempotent ("cannot return 1000: only 0 allocated" on a second pass), so a
+// retry over committed partial writes does not merely re-do work — it fails on
+// different grounds. This test runs the aborted attempt on a discarded cache
+// branch to model that boundary.
+func TestSettlement_MintCapAbortsReleaseAndRetryPaysInFull(t *testing.T) {
+	f := initFixture(t)
+	k := f.keeper
+	ctx := f.ctx
+
+	creator := newStakerMember(t, f, "mintcap_creator_____", math.NewInt(5_000_000_000))
+	staker := newStakerMember(t, f, "mintcap_staker______", math.NewInt(5_000_000_000))
+	initID := newActiveInitiative(t, f, creator, "mintcap")
+
+	amount := math.NewInt(1_000_000)
+	stakeID, err := k.CreateStake(ctx, staker, types.StakeTargetType_STAKE_TARGET_INITIATIVE, initID, "", amount)
+	require.NoError(t, err)
+
+	// One epoch of seasonal accrual while the work is still live.
+	require.NoError(t, k.InitSeasonalPool(ctx, 1))
+	require.NoError(t, k.DistributeEpochStakingRewardsFromPool(ctx))
+
+	pending, err := k.GetPendingStakingRewards(ctx, mustStake(t, f, stakeID))
+	require.NoError(t, err)
+	require.True(t, pending.IsPositive(), "precondition: the stake accrued while the work was live")
+
+	preEarned := *mustMember(t, f, staker).LifetimeEarned
+	preTotal, err := k.GetSeasonalPoolTotalStaked(ctx)
+	require.NoError(t, err)
+	live, err := k.GetInitiative(ctx, initID)
+	require.NoError(t, err)
+	liveStatus := live.Status
+
+	// Squeeze the epoch budget below what this stake is owed.
+	params, err := k.Params.Get(ctx)
+	require.NoError(t, err)
+	fullCap := params.MaxDreamMintPerEpoch
+	params.MaxDreamMintPerEpoch = math.OneInt()
+	require.NoError(t, k.Params.Set(ctx, params))
+
+	// The aborted attempt, on a branch the caller discards.
+	cacheCtx, _ := sdk.UnwrapSDKContext(ctx).CacheContext()
+	err = k.CloseInitiative(cacheCtx, initID, "retired")
+	require.Error(t, err, "a transient cap hit must abort the transition, not forfeit the reward")
+	require.ErrorIs(t, err, types.ErrDreamMintCapExceeded)
+
+	// Even inside the branch, the abort came before anything irreversible: the
+	// status was not flipped and the stake was not deleted.
+	abortedInitiative, err := k.GetInitiative(cacheCtx, initID)
+	require.NoError(t, err)
+	require.Equal(t, liveStatus, abortedInitiative.Status,
+		"the status flip must not happen when the release aborted")
+	abortedStake, err := k.GetStake(cacheCtx, stakeID)
+	require.NoError(t, err, "the stake must survive an aborted release")
+	require.Equal(t, amount.String(), abortedStake.Amount.String())
+
+	// And the discard leaves committed state untouched.
+	surviving, err := k.GetStake(ctx, stakeID)
+	require.NoError(t, err)
+	require.Equal(t, amount.String(), surviving.Amount.String())
+	require.Equal(t, preEarned.String(), (*mustMember(t, f, staker).LifetimeEarned).String(),
+		"nothing may be minted on the aborted path")
+
+	stillPending, err := k.GetPendingStakingRewards(ctx, mustStake(t, f, stakeID))
+	require.NoError(t, err)
+	require.Equal(t, pending.String(), stillPending.String(),
+		"the abort must leave the reward debt un-rebased, so the retry still owes the full amount")
+
+	// The cap clears; the retry settles the initiative in full.
+	params.MaxDreamMintPerEpoch = fullCap
+	require.NoError(t, k.Params.Set(ctx, params))
+
+	require.NoError(t, k.CloseInitiative(ctx, initID, "retired"),
+		"the retry must succeed once the epoch budget is available")
+
+	closed, err := k.GetInitiative(ctx, initID)
+	require.NoError(t, err)
+	require.Equal(t, types.InitiativeStatus_INITIATIVE_STATUS_CLOSED, closed.Status)
+	require.Equal(t, pending.String(), (*mustMember(t, f, staker).LifetimeEarned).Sub(preEarned).String(),
+		"the retry must pay exactly what accrued while the work was live")
+	_, err = k.GetStake(ctx, stakeID)
+	require.Error(t, err, "the released stake must be deleted")
+	require.Equal(t, "0", mustMember(t, f, staker).StakedDream.String())
+
+	postTotal, err := k.GetSeasonalPoolTotalStaked(ctx)
+	require.NoError(t, err)
+	require.Equal(t, preTotal.Sub(amount).String(), postTotal.String(),
+		"the released principal must leave the denominator")
+}
+
+// TestSettlement_CancelledProjectStakeLeavesTheDivisor is the project-side twin
+// of TestSettlement_ClosedInitiativeReleasesStake.
+//
+// A terminal project's stakes earn nothing — stakeAccruing is false once the
+// project leaves ACTIVE — but the settle-only version left their principal
+// locked inside both the per-project total and the seasonal total_staked
+// divisor, so retired work went on diluting the yield of everyone still backing
+// live work until each staker happened to unstake by hand. That is the same
+// ratchet releaseInitiativeStakes closes for the four initiative transitions.
+func TestSettlement_CancelledProjectStakeLeavesTheDivisor(t *testing.T) {
+	f := initFixture(t)
+	k := f.keeper
+	ctx := f.ctx
+
+	creator := newStakerMember(t, f, "pdilute_creator_____", math.NewInt(5_000_000_000))
+	staker := newStakerMember(t, f, "pdilute_staker______", math.NewInt(5_000_000_000))
+	projectID := newActiveProject(t, k, ctx, creator)
+
+	preTotal, err := k.GetSeasonalPoolTotalStaked(ctx)
+	require.NoError(t, err)
+
+	amount := math.NewInt(1_000_000)
+	stakeID, err := k.CreateStake(ctx, staker, types.StakeTargetType_STAKE_TARGET_PROJECT, projectID, "", amount)
+	require.NoError(t, err)
+
+	staked, err := k.GetSeasonalPoolTotalStaked(ctx)
+	require.NoError(t, err)
+	require.Equal(t, preTotal.Add(amount).String(), staked.String(),
+		"precondition: the stake is in the divisor while the project is live")
+	info, err := k.GetProjectStakeInfo(ctx, projectID)
+	require.NoError(t, err)
+	require.Equal(t, amount.String(), info.TotalStaked.String(),
+		"precondition: and in the project's own total")
+
+	require.NoError(t, k.CancelProject(ctx, projectID, "abandoned"))
+
+	postTotal, err := k.GetSeasonalPoolTotalStaked(ctx)
+	require.NoError(t, err)
+	require.Equal(t, preTotal.String(), postTotal.String(),
+		"a cancelled project's principal must leave the seasonal divisor, not dilute it forever")
+
+	info, err = k.GetProjectStakeInfo(ctx, projectID)
+	if err == nil {
+		require.Equal(t, "0", info.TotalStaked.String(),
+			"and must leave the project's own total too")
+	}
+
+	_, err = k.GetStake(ctx, stakeID)
+	require.Error(t, err, "the released stake must be deleted")
+	require.Equal(t, "0", mustMember(t, f, staker).StakedDream.String(),
+		"the staker's DREAM must be unlocked, not left waiting on a manual unstake")
+}
+
+// TestSettlement_CompleteProjectPaysBonusBeforeReleasing pins the ordering
+// constraint the release is bracketed by.
+//
+// DistributeProjectCompletionBonus is weighted by each stake's principal and
+// reads the very records releaseProjectStakes deletes, so the release has to
+// run below it; stakeAccruing stops paying the moment the status goes terminal,
+// so it also has to run above the status flip. Moving it above the bonus would
+// silently zero every completion bonus — GetProjectStakeInfo would report no
+// stake and the function returns early — which no status assertion would catch.
+func TestSettlement_CompleteProjectPaysBonusBeforeReleasing(t *testing.T) {
+	f := initFixture(t)
+	k := f.keeper
+	ctx := f.ctx
+
+	creator := newStakerMember(t, f, "pbonus_creator______", math.NewInt(5_000_000_000))
+	staker := newStakerMember(t, f, "pbonus_staker_______", math.NewInt(5_000_000_000))
+	projectID := newActiveProject(t, k, ctx, creator)
+
+	amount := math.NewInt(4_000_000)
+	stakeID, err := k.CreateStake(ctx, staker, types.StakeTargetType_STAKE_TARGET_PROJECT, projectID, "", amount)
+	require.NoError(t, err)
+
+	// A completion bonus is a rate on the budget actually spent, so give the
+	// project something to have spent.
+	project, err := k.GetProject(ctx, projectID)
+	require.NoError(t, err)
+	project.SpentBudget = PtrInt(math.NewInt(20_000))
+	require.NoError(t, k.UpdateProject(ctx, project))
+
+	params, err := k.Params.Get(ctx)
+	require.NoError(t, err)
+	require.True(t, params.ProjectCompletionBonusRate.IsPositive(),
+		"precondition: the bonus rate is on, or this test proves nothing")
+
+	earnedBefore := *mustMember(t, f, staker).LifetimeEarned
+	require.NoError(t, k.CompleteProject(ctx, projectID))
+
+	// The bonus landed — it could only have been computed while the stake
+	// records were still there.
+	earnedAfter := *mustMember(t, f, staker).LifetimeEarned
+	require.True(t, earnedAfter.GT(earnedBefore),
+		"the completion bonus must be distributed before the stakes are released")
+
+	// And the release still happened, on the same transition.
+	_, err = k.GetStake(ctx, stakeID)
+	require.Error(t, err, "the released stake must be deleted")
+	require.Equal(t, "0", mustMember(t, f, staker).StakedDream.String())
 }

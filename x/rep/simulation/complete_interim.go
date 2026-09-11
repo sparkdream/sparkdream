@@ -45,6 +45,18 @@ func SimulateMsgCompleteInterim(
 			interim = &interimObj
 		}
 
+		// ADJUDICATION interims are not completable by a random member: the
+		// msg server gates them on technical-committee membership and requires
+		// a UPHOLD/REJECT decision this op has no basis to pick, since the
+		// verdict resolves a real challenge. No current sim op can move one to
+		// IN_PROGRESS (both MsgAssignInterim and MsgSubmitInterimWork are out
+		// of reach — the assignee of record is the module authority), but the
+		// chain raises them on its own from inconclusive juries, so skip
+		// explicitly rather than relying on that chain of coincidences holding.
+		if interim.Type == types.InterimType_INTERIM_TYPE_ADJUDICATION {
+			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgCompleteInterim{}), "skipped: adjudication requires a committee verdict"), nil, nil
+		}
+
 		// Verify member is an assignee
 		isAssignee := false
 		for _, assignee := range interim.Assignees {

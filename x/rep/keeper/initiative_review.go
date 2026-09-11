@@ -876,44 +876,69 @@ func (k Keeper) resolveSilentEscalations(ctx context.Context, height int64) erro
 
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	for _, id := range expired {
-		if err := k.EscalatedReviews.Remove(ctx, id); err != nil {
-			return err
-		}
-		initiative, err := k.GetInitiative(ctx, id)
-		if err != nil {
+		// Each timeout is applied all-or-nothing. rejectReviewRound returns the
+		// budget, releases the bond and runs CloseInitiative -> the stake
+		// teardown, so a failure part-way through would otherwise commit the
+		// EscalatedReviews.Remove above it and leave the initiative half-retired
+		// with nothing left to retry it -- the shape that stranded devnet
+		// initiative #1. Discarding the branch keeps the id in EscalatedReviews,
+		// so the next block picks it up again; the retry is what makes a
+		// transient mint-cap failure inside the teardown recoverable.
+		cacheCtx, writeCache := sdkCtx.CacheContext()
+		if err := k.applyEscalationTimeout(cacheCtx, id); err != nil {
+			sdkCtx.Logger().Error("failed to apply review escalation timeout; will retry next block",
+				"initiative_id", id, "error", err)
 			continue
 		}
-		if initiative.ReviewEscalation != types.ReviewEscalation_REVIEW_ESCALATION_NONE {
-			continue // the committee acted in time
-		}
-
-		// Nobody reviewed and the committee did not act. This used to resolve
-		// to PASSED, which let a gated initiative complete and mint with no
-		// verdict on it at all — the review gate could be waited out. It now
-		// rejects the round instead: the assignee resubmits and gets another
-		// window (bounded by max_review_rounds), and when the rounds run out
-		// rejectReviewRound closes cleanly — budget returned, bond released,
-		// nothing minted.
-		//
-		// Silence must never mint. It must also never wedge, which is why the
-		// terminal state is a close rather than an indefinite hold.
-		project, pErr := k.GetProject(ctx, initiative.ProjectId)
-		if pErr != nil {
-			sdkCtx.Logger().Error("review escalation timeout: project missing",
-				"initiative_id", id, "project_id", initiative.ProjectId, "error", pErr)
-			continue
-		}
-		sdkCtx.EventManager().EmitEvent(sdk.NewEvent(
-			"initiative_review_escalation_timeout",
-			sdk.NewAttribute("initiative_id", fmt.Sprintf("%d", id)),
-			sdk.NewAttribute("resolution", "round_rejected"),
-			sdk.NewAttribute("round", fmt.Sprintf("%d", initiative.ReviewRound)),
-		))
-		if err := k.rejectReviewRound(ctx, initiative, project, "escalation timeout: no verdict filed"); err != nil {
-			return err
-		}
+		writeCache()
 	}
 	return nil
+}
+
+// applyEscalationTimeout resolves one escalated review whose committee window
+// closed without a verdict. Always called on a cache context: see the caller.
+func (k Keeper) applyEscalationTimeout(ctx context.Context, id uint64) error {
+	sdkCtx := sdk.UnwrapSDKContext(ctx)
+
+	if err := k.EscalatedReviews.Remove(ctx, id); err != nil {
+		return err
+	}
+	initiative, err := k.GetInitiative(ctx, id)
+	if err != nil {
+		// The initiative is gone; dropping the dangling index entry is the
+		// whole of the work, so the branch is committed rather than retried.
+		return nil
+	}
+	if initiative.ReviewEscalation != types.ReviewEscalation_REVIEW_ESCALATION_NONE {
+		return nil // the committee acted in time
+	}
+
+	// Nobody reviewed and the committee did not act. This used to resolve
+	// to PASSED, which let a gated initiative complete and mint with no
+	// verdict on it at all — the review gate could be waited out. It now
+	// rejects the round instead: the assignee resubmits and gets another
+	// window (bounded by max_review_rounds), and when the rounds run out
+	// rejectReviewRound closes cleanly — budget returned, bond released,
+	// nothing minted.
+	//
+	// Silence must never mint. It must also never wedge, which is why the
+	// terminal state is a close rather than an indefinite hold.
+	project, pErr := k.GetProject(ctx, initiative.ProjectId)
+	if pErr != nil {
+		// Nothing to reject the round against, and no retry will conjure the
+		// project back. Keep the index entry dropped so the sweep stops
+		// revisiting it every block.
+		sdkCtx.Logger().Error("review escalation timeout: project missing",
+			"initiative_id", id, "project_id", initiative.ProjectId, "error", pErr)
+		return nil
+	}
+	sdkCtx.EventManager().EmitEvent(sdk.NewEvent(
+		"initiative_review_escalation_timeout",
+		sdk.NewAttribute("initiative_id", fmt.Sprintf("%d", id)),
+		sdk.NewAttribute("resolution", "round_rejected"),
+		sdk.NewAttribute("round", fmt.Sprintf("%d", initiative.ReviewRound)),
+	))
+	return k.rejectReviewRound(ctx, initiative, project, "escalation timeout: no verdict filed")
 }
 
 // HasReviewedInitiative reports whether an address has filed a verdict on any

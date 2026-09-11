@@ -914,6 +914,16 @@ const maxJuryDeadlinesPerBlock = 50
 // supermajority rules, resolves the underlying challenge (or escalates on
 // INCONCLUSIVE), and moves the review out of the PENDING index.
 //
+// Each tally is applied all-or-nothing. TallyJuryVotes writes the verdict,
+// charges no-shows and de-indexes the review *before* it resolves the
+// challenge, so a mid-function failure on deliver state would commit the
+// de-indexing — nothing would ever retry it — while the challenge stayed
+// IN_JURY_REVIEW and the initiative CHALLENGED forever, with the challenger's
+// stake, every staker's DREAM and the assignee's bond locked inside. Discarding
+// the branch keeps the review PENDING, so the next block retries it. (The
+// vote-triggered tally needs no such wrap: SubmitJurorVote is a msg-server
+// path and gets its rollback from runTx.)
+//
 // Appeals (timestamp deadline — see TimeoutExpiredAppeals) and content
 // challenges (own response-deadline path — see content_challenge.go) are
 // deliberately NOT handled here.
@@ -935,8 +945,12 @@ func (k Keeper) ResolveExpiredChallengeJuryReviews(ctx context.Context) error {
 	})
 
 	for _, id := range due {
-		if err := k.TallyJuryVotes(ctx, id); err != nil {
-			sdkCtx.Logger().Error("failed to tally expired jury review", "review_id", id, "error", err)
+		cacheCtx, writeCache := sdkCtx.CacheContext()
+		if err := k.TallyJuryVotes(cacheCtx, id); err != nil {
+			sdkCtx.Logger().Error("failed to tally expired jury review; will retry next block",
+				"review_id", id, "error", err)
+		} else {
+			writeCache()
 		}
 	}
 	return nil

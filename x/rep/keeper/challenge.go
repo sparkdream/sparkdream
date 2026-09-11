@@ -85,18 +85,22 @@ func (k Keeper) CreateChallenge(
 	// Calculate response deadline
 	responseDeadline := sdkCtx.BlockHeight() + (params.ChallengeResponseDeadlineEpochs * params.EpochBlocks)
 
-	// Create challenge
+	// Create challenge. The pre-challenge status is snapshotted so a rejection
+	// can put the initiative back exactly where it was: challenges are legal on
+	// SUBMITTED work, whose challenge window has not opened yet, and a rejected
+	// challenge must not skip that window (see RejectChallenge).
 	challenge := types.Challenge{
-		Id:               challengeID,
-		InitiativeId:     initiativeID,
-		Challenger:       challengerAddr.String(),
-		Reason:           reason,
-		Evidence:         evidence,
-		StakedDream:      PtrInt(stakedDream),
-		Status:           types.ChallengeStatus_CHALLENGE_STATUS_ACTIVE,
-		CreatedAt:        sdkCtx.BlockHeight(),
-		ResponseDeadline: responseDeadline,
-		CriteriaId:       citedCriterion,
+		Id:                    challengeID,
+		InitiativeId:          initiativeID,
+		Challenger:            challengerAddr.String(),
+		Reason:                reason,
+		Evidence:              evidence,
+		StakedDream:           PtrInt(stakedDream),
+		Status:                types.ChallengeStatus_CHALLENGE_STATUS_ACTIVE,
+		CreatedAt:             sdkCtx.BlockHeight(),
+		ResponseDeadline:      responseDeadline,
+		CriteriaId:            citedCriterion,
+		StatusBeforeChallenge: initiative.Status,
 	}
 
 	// Save challenge
@@ -331,12 +335,15 @@ func (k Keeper) UpholdChallenge(ctx context.Context, challengeID uint64) error {
 		return err
 	}
 
-	// Harvest what the stakes accrued while the work was live, BEFORE the flip
-	// below — stakeAccruing stops paying on a terminal initiative, so settling
-	// after it would silently strand every accrued reward. The rejection does
-	// not unearn rewards from the period the position was live; slashing is the
-	// mechanism for punishing the stake itself.
-	if err := k.settleInitiativeStakes(ctx, initiative.Id); err != nil {
+	// Harvest what the stakes accrued while the work was live and return their
+	// principal, BEFORE the flip below — stakeAccruing stops paying on a
+	// terminal initiative, so settling after it would silently strand every
+	// accrued reward. The rejection does not unearn rewards from the period the
+	// position was live; slashing is the mechanism for punishing the stake
+	// itself, and it is not applied here. The same reasoning returns the
+	// principal: the upheld challenge burns the assignee's bond, not the DREAM
+	// of the members who backed the work.
+	if err := k.releaseInitiativeStakes(ctx, initiative.Id, types.InitiativeStatus_INITIATIVE_STATUS_REJECTED); err != nil {
 		return err
 	}
 
@@ -424,11 +431,26 @@ func (k Keeper) RejectChallenge(ctx context.Context, challengeID uint64) error {
 	// Update status index
 	_ = k.UpdateChallengeStatusIndex(ctx, oldStatus, challenge.Status, challenge.Id)
 
-	// Restore initiative status to IN_REVIEW
-	// (it was set to CHALLENGED when the challenge was created)
-	// Challenge was rejected, so work is valid and ready for completion
-	// NOT setting to SUBMITTED to avoid triggering another challenge period
-	initiative.Status = types.InitiativeStatus_INITIATIVE_STATUS_IN_REVIEW
+	// Restore the initiative to the status it held when the challenge was
+	// filed, snapshotted at creation.
+	//
+	// A challenge filed on IN_REVIEW work restores IN_REVIEW: its challenge
+	// window has already run, and the work is valid and ready for completion.
+	//
+	// A challenge filed on SUBMITTED work restores SUBMITTED — NOT IN_REVIEW.
+	// SUBMITTED work has ChallengePeriodEnd 0 (only TransitionToChallengePeriod
+	// sets it), so flipping it to IN_REVIEW made the completion sweep's
+	// `height >= ChallengePeriodEnd` check vacuously true and paid out in the
+	// next block, skipping the entire review + challenge window the completion
+	// guard promises. Restoring SUBMITTED hands the initiative back to the
+	// ordinary transition, which opens a real window. The snapshot's zero value
+	// (OPEN, on chains predating the field) restores IN_REVIEW like the
+	// historical behaviour.
+	restore := types.InitiativeStatus_INITIATIVE_STATUS_IN_REVIEW
+	if challenge.StatusBeforeChallenge == types.InitiativeStatus_INITIATIVE_STATUS_SUBMITTED {
+		restore = types.InitiativeStatus_INITIATIVE_STATUS_SUBMITTED
+	}
+	initiative.Status = restore
 	if err := k.UpdateInitiative(ctx, initiative); err != nil {
 		return err
 	}

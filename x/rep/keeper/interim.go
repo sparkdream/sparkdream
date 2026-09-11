@@ -3,7 +3,6 @@ package keeper
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"sparkdream/x/rep/types"
 
@@ -27,12 +26,23 @@ func (k Keeper) CreateInterimWork(
 ) (uint64, error) {
 	// Enforce per-member active interim cap (anti-monopolization). Applies to
 	// every prospective assignee so one member can't circumvent by co-signing.
+	//
+	// The module authority is exempt: it is the assignee of record on
+	// chain-generated committee work (every ADJUDICATION interim names it), not
+	// a member monopolizing the queue — counting it turned the
+	// anti-monopolization cap into a chain-wide concurrency limit on committee
+	// escalations, where the 11th inconclusive jury failed to raise its interim
+	// at all and left its challenge stranded.
 	params, err := k.Params.Get(ctx)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get params: %w", err)
 	}
+	authority := k.GetAuthorityString()
 	if params.MaxActiveInterimsPerMember > 0 {
 		for _, a := range assignees {
+			if a == authority {
+				continue
+			}
 			active, cerr := k.CountActiveInterimsForMember(ctx, a)
 			if cerr != nil {
 				return 0, fmt.Errorf("failed to count active interims for %s: %w", a, cerr)
@@ -251,7 +261,24 @@ func (k Keeper) SubmitInterimWork(
 	return nil
 }
 
-// ApproveInterim approves an interim and pays the assignees
+// ApproveInterim approves an interim and pays the assignees.
+//
+// ADJUDICATION interims are refused here — they settle through
+// MsgCompleteInterim only. This entry point carries a bool, and "approved"
+// cannot express a verdict: approving the committee's *work* is a different
+// question from whether the *challenge* is upheld. Answering the first as if it
+// were the second is what the explicit-decision requirement on
+// CompleteInterimDirectly exists to prevent, and this path shares its
+// Operations Committee gate, so leaving it open reopened the freeze through the
+// other door — `approved: false` finalized the interim to EXPIRED with no
+// decision and no resolution, and EXPIRED leaves IteratePendingInterims, so
+// ExpireInterim's default-REJECT backstop never fired and the challenge sat in
+// IN_JURY_REVIEW with nothing left to retry it.
+//
+// The refusal covers the type, not just the ones carrying a reference_id: the
+// payout below would also pay an ADJUDICATION interim's budget, which
+// CompleteInterimDirectly deliberately skips because committee adjudication
+// earns no DREAM.
 func (k Keeper) ApproveInterim(
 	ctx context.Context,
 	interimID uint64,
@@ -268,6 +295,12 @@ func (k Keeper) ApproveInterim(
 	// Validate approver has authority (Operations Committee)
 	if !k.IsOperationsCommittee(ctx, approver) {
 		return fmt.Errorf("approver %s is not authorized (requires Operations Committee)", approver.String())
+	}
+
+	if interim.Type == types.InterimType_INTERIM_TYPE_ADJUDICATION {
+		return errorsmod.Wrapf(types.ErrInvalidRequest,
+			"interim %d is an adjudication; settle it with MsgCompleteInterim, which carries an explicit UPHOLD or REJECT decision",
+			interimID)
 	}
 
 	// If approved, pay assignees and mark complete
@@ -395,6 +428,7 @@ func (k Keeper) chargeInterimRewardCap(ctx context.Context, params types.Params,
 func (k Keeper) CompleteInterimDirectly(
 	ctx context.Context,
 	interimID uint64,
+	decision types.AdjudicationDecision,
 	notes string,
 ) error {
 	interim, err := k.GetInterim(ctx, interimID)
@@ -408,6 +442,24 @@ func (k Keeper) CompleteInterimDirectly(
 		interim.Status != types.InterimStatus_INTERIM_STATUS_PENDING {
 		return errorsmod.Wrapf(types.ErrInvalidInterimStatus,
 			"interim %d already finalized: status %s", interimID, interim.Status)
+	}
+
+	// An ADJUDICATION interim exists to settle a challenge, so completing one
+	// demands the verdict up front. This used to be parsed out of the free-text
+	// notes: a keyword that failed to match left the challenge IN_JURY_REVIEW
+	// "awaiting a clearer decision" with the interim already COMPLETED — out of
+	// every sweep, nothing left to retry, the initiative frozen forever. A
+	// missing decision is now a hard error while the interim is still live, and
+	// the errors from the resolution itself propagate for the same reason.
+	adjudication := interim.Type == types.InterimType_INTERIM_TYPE_ADJUDICATION && interim.ReferenceId != 0
+	if adjudication {
+		switch decision {
+		case types.AdjudicationDecision_ADJUDICATION_DECISION_UPHOLD,
+			types.AdjudicationDecision_ADJUDICATION_DECISION_REJECT:
+		default:
+			return fmt.Errorf("%w: completing adjudication interim %d requires an explicit UPHOLD or REJECT decision",
+				types.ErrInvalidRequest, interimID)
+		}
 	}
 
 	// Distribute payment equally among assignees
@@ -459,31 +511,28 @@ func (k Keeper) CompleteInterimDirectly(
 	interim.Status = types.InterimStatus_INTERIM_STATUS_COMPLETED
 	interim.CompletedAt = sdk.UnwrapSDKContext(ctx).BlockTime().Unix()
 	interim.CompletionNotes = notes
+	if adjudication {
+		interim.Decision = decision
+	}
 
-	// For ADJUDICATION interims, automatically resolve the challenge based on decision
-	if interim.Type == types.InterimType_INTERIM_TYPE_ADJUDICATION && interim.ReferenceId != 0 {
-		// The reference_id is the initiative_id
-		// Find the challenge associated with this initiative
-		var challengeID uint64
-		err := k.Challenge.Walk(ctx, nil, func(id uint64, challenge types.Challenge) (stop bool, err error) {
-			if challenge.InitiativeId == interim.ReferenceId &&
-				challenge.Status == types.ChallengeStatus_CHALLENGE_STATUS_IN_JURY_REVIEW {
-				challengeID = id
-				return true, nil // stop iteration
+	// Resolve the challenge this interim was raised to settle, by the explicit
+	// verdict. Status-index lookup, not the full-collection Walk this used to
+	// do (its sibling findAdjudicationChallenge was fixed for the same reason).
+	// No unresolved challenge means the committee was overtaken — resolved
+	// while the interim sat pending, or voided with its project — and the
+	// completion is then just bookkeeping.
+	if adjudication {
+		challengeID, ok := k.findAdjudicationChallenge(ctx, interim.ReferenceId)
+		if ok {
+			var err error
+			if decision == types.AdjudicationDecision_ADJUDICATION_DECISION_UPHOLD {
+				err = k.UpholdChallenge(ctx, challengeID)
+			} else {
+				err = k.RejectChallenge(ctx, challengeID)
 			}
-			return false, nil
-		})
-		if err == nil && challengeID != 0 {
-			// Parse decision from completion notes (UPHOLD or REJECT)
-			decision := strings.ToUpper(notes)
-			if strings.Contains(decision, "REJECT") || strings.Contains(decision, "REJECTED") {
-				// Committee decided to reject the challenge
-				_ = k.RejectChallenge(ctx, challengeID)
-			} else if strings.Contains(decision, "UPHOLD") || strings.Contains(decision, "UPHELD") {
-				// Committee decided to uphold the challenge
-				_ = k.UpholdChallenge(ctx, challengeID)
+			if err != nil {
+				return fmt.Errorf("failed to apply adjudication decision to challenge %d: %w", challengeID, err)
 			}
-			// If neither keyword found, challenge remains in review (awaiting clearer decision)
 		}
 	}
 
@@ -519,7 +568,7 @@ func (k Keeper) findAdjudicationChallenge(ctx context.Context, initiativeID uint
 // which HasActiveChallenges counts as active, so CanCompleteInitiative never
 // returns true again. The initiative is frozen permanently, with the
 // challenger's stake, every staker's conviction DREAM, and the assignee's
-// self-assign bond locked inside it.
+// self-assign bond locked inside.
 //
 // The default is REJECT, and the direction is deliberate. Defaulting to UPHOLD
 // would pay a challenger for a jury that never sat, making it profitable to
@@ -528,7 +577,25 @@ func (k Keeper) findAdjudicationChallenge(ctx context.Context, initiativeID uint
 // the work proceeds. It does mean unreviewed work can be paid — but conviction
 // thresholds and the challenge window still apply, and an unbounded freeze is
 // the worse failure.
+//
+// Expiry and the challenge resolution it triggers commit together or not at
+// all: RejectChallenge has real mid-way failure modes (stake unlocked, burn
+// failed), and the expiry used to be marked first — a failure then left the
+// interim EXPIRED, out of the pending sweep, with the resolution half-done and
+// nothing left to retry it. The caller (EndBlocker) invokes this once per due
+// interim, so a discarded branch blocks no other expiry; the interim stays
+// PENDING and the next block retries.
 func (k Keeper) ExpireInterim(ctx context.Context, interimID uint64) error {
+	sdkCtx := sdk.UnwrapSDKContext(ctx)
+	cacheCtx, writeCache := sdkCtx.CacheContext()
+	if err := k.expireInterim(cacheCtx, interimID); err != nil {
+		return err
+	}
+	writeCache()
+	return nil
+}
+
+func (k Keeper) expireInterim(ctx context.Context, interimID uint64) error {
 	interim, err := k.GetInterim(ctx, interimID)
 	if err != nil {
 		return err
@@ -549,17 +616,14 @@ func (k Keeper) ExpireInterim(ctx context.Context, interimID uint64) error {
 		return nil
 	}
 
-	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	if err := k.RejectChallenge(ctx, challengeID); err != nil {
-		// Logged, not returned: the interim is already expired, and failing the
-		// whole EndBlocker sweep over one stuck challenge would block every
-		// other expiry behind it.
-		sdkCtx.Logger().Error("failed to resolve challenge on adjudication timeout",
-			"interim_id", interimID, "challenge_id", challengeID, "error", err)
-		return nil
+		// Propagated, not logged-and-swallowed: the cache context above discards
+		// the half-done resolution along with the expiry, and the retry next
+		// block is the whole point.
+		return fmt.Errorf("failed to resolve challenge %d on adjudication timeout: %w", challengeID, err)
 	}
 
-	sdkCtx.EventManager().EmitEvent(sdk.NewEvent(
+	sdk.UnwrapSDKContext(ctx).EventManager().EmitEvent(sdk.NewEvent(
 		"challenge_resolved_by_timeout",
 		sdk.NewAttribute("challenge_id", fmt.Sprintf("%d", challengeID)),
 		sdk.NewAttribute("initiative_id", fmt.Sprintf("%d", interim.ReferenceId)),

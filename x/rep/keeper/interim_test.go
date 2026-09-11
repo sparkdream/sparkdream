@@ -733,7 +733,7 @@ func TestCompleteInterimDirectly(t *testing.T) {
 
 	// Complete directly
 	notes := "Automatically completed"
-	err = k.CompleteInterimDirectly(ctx, interimID, notes)
+	err = k.CompleteInterimDirectly(ctx, interimID, types.AdjudicationDecision_ADJUDICATION_DECISION_UNSPECIFIED, notes)
 	require.NoError(t, err)
 
 	// Verify completion
@@ -1065,7 +1065,7 @@ func TestCompleteInterimDirectly_EmptyAssignees(t *testing.T) {
 
 	// Complete directly - should handle empty assignees gracefully
 	notes := "Completed with no assignees (edge case)"
-	err = k.CompleteInterimDirectly(ctx, interimID, notes)
+	err = k.CompleteInterimDirectly(ctx, interimID, types.AdjudicationDecision_ADJUDICATION_DECISION_UNSPECIFIED, notes)
 	require.NoError(t, err)
 
 	// Verify completion without payment

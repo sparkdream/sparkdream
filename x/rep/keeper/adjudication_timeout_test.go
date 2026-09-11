@@ -106,7 +106,12 @@ func TestAdjudicationTimeoutResolvesTheChallenge(t *testing.T) {
 
 	initiative, err := k.GetInitiative(ctx, initID)
 	require.NoError(t, err)
-	require.Equal(t, types.InitiativeStatus_INITIATIVE_STATUS_IN_REVIEW, initiative.Status)
+	// SUBMITTED, not IN_REVIEW: this fixture challenges the work while it is
+	// still SUBMITTED, and the rejected challenge restores the snapshotted
+	// pre-challenge status so the ordinary transition opens a real challenge
+	// window (a vacuous ChallengePeriodEnd-0 completion is what the snapshot
+	// prevents).
+	require.Equal(t, types.InitiativeStatus_INITIATIVE_STATUS_SUBMITTED, initiative.Status)
 }
 
 func TestAdjudicationTimeoutLeavesResolvedChallengesAlone(t *testing.T) {

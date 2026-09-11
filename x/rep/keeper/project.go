@@ -2,6 +2,7 @@ package keeper
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"sparkdream/x/rep/types"
@@ -273,10 +274,12 @@ func (k Keeper) CancelProject(ctx context.Context, projectID uint64, reason stri
 		return err
 	}
 
-	// Settle the project's stakes while the project is still ACTIVE: past this
+	// Release the project's stakes while the project is still ACTIVE: past this
 	// point the frozen branch of settleStake deliberately pays nothing, so
 	// anything accrued but unclaimed at cancellation would be stranded forever.
-	if err := k.settleProjectStakes(ctx, projectID); err != nil {
+	// Cancelling is a retirement, not a confiscation, so the principal goes back
+	// with it and stops diluting the pools.
+	if err := k.releaseProjectStakes(ctx, projectID); err != nil {
 		return err
 	}
 
@@ -380,6 +383,18 @@ func (k Keeper) terminateInitiativeForProjectCancel(ctx context.Context, initiat
 		return err
 	}
 
+	// Settle and release every stake, BEFORE the flip below. This call was
+	// missing entirely: the cascade set a terminal status with the stakes
+	// untouched, and since stakeAccruing stops paying the moment the status is
+	// terminal, every reward those stakers had earned while the work was live
+	// became unreachable — not through this transition, which never settled,
+	// and not through a later RemoveStake, which takes settleStake's
+	// not-accruing branch and mints nothing. CloseInitiative settles before its
+	// own flip for exactly this reason; its sibling here did not.
+	if err := k.releaseInitiativeStakes(ctx, initiative.Id, types.InitiativeStatus_INITIATIVE_STATUS_CLOSED); err != nil {
+		return err
+	}
+
 	initiative.Status = types.InitiativeStatus_INITIATIVE_STATUS_CLOSED
 	if err := k.UpdateInitiative(ctx, initiative); err != nil {
 		return err
@@ -434,10 +449,9 @@ func (k Keeper) ExpireProject(ctx context.Context, projectID uint64) error {
 	return nil
 }
 
-// settleProjectStakes harvests every stake on a project, pays out what it has
-// accrued from the seasonal pool, and rebases its reward debt so the stake
-// holds no further claim. Called at the project's terminal transitions —
-// cancel and complete — while the project is still ACTIVE.
+// releaseProjectStakes settles, unlocks, and deletes every stake on a project.
+// Called at the project's terminal transitions — cancel and complete — while
+// the project is still ACTIVE.
 //
 // Why at the transition and not lazily: once the project leaves ACTIVE,
 // stakeAccruing reports false and the frozen branch of settleStake pays
@@ -447,43 +461,93 @@ func (k Keeper) ExpireProject(ctx context.Context, projectID uint64) error {
 // the flip was stranded: the stakes stayed on the books, returned their
 // principal on unstake, and could never collect their rewards.
 //
-// Mirrors CompleteInitiative's payout loop: settleStake with forfeit=false,
-// since the staker did not choose to exit early and MinStakeDurationSeconds
-// is an early-withdrawal penalty, not a settlement gate.
+// The principal comes back here too, which the settle-only version did not do.
+// A cancelled or completed project's stakes could not earn (stakeAccruing is
+// false) and could not signal, yet their DREAM stayed inside the project's
+// stake info and the seasonal total_staked divisor indefinitely, diluting the
+// yield of everyone still backing live work until each staker happened to
+// unstake by hand. That is the same ratchet releaseInitiativeStakes closes for
+// the four initiative transitions, and updateStakePoolTotals below is what
+// closes it here: for a PROJECT stake it shrinks both the per-project total and
+// the seasonal one.
 //
-// A per-stake mint failure (e.g. the per-epoch mint cap) must not block the
-// transition: that stake keeps its old debt and, being frozen afterwards,
-// forfeits the pending — no worse than the status quo before this settle —
-// while every other staker still gets paid. Logged loudly, since it points at
-// cap pressure worth investigating.
-func (k Keeper) settleProjectStakes(ctx context.Context, projectID uint64) error {
+// Settle uses forfeit=false: the staker did not choose to exit early, and
+// MinStakeDurationSeconds is an early-withdrawal penalty, not a settlement
+// gate. The failure split matches releaseInitiativeStakes exactly — see its
+// comment for the reasoning:
+//
+//   - A settle failure against the per-epoch mint cap is returned, aborting the
+//     transition, because the cap clears on its own and the retry pays in full.
+//   - Any other settle failure forfeits that stake's pending reward and still
+//     returns its principal.
+//   - An unlock failure skips the stake, persisting its rebased debt so
+//     RemoveStake cannot pay the reward twice.
+//   - A store write failure is real corruption, and is returned.
+//
+// Both callers are msg-server paths, so a returned error rolls the whole
+// transition back; a future EndBlocker caller would need its own CacheContext.
+func (k Keeper) releaseProjectStakes(ctx context.Context, projectID uint64) error {
 	stakes, err := k.GetProjectStakes(ctx, projectID)
 	if err != nil {
-		return fmt.Errorf("failed to load stakes of project %d for settlement: %w", projectID, err)
+		return fmt.Errorf("failed to load stakes of project %d for release: %w", projectID, err)
 	}
 
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	for _, stake := range stakes {
-		settled, settlement, err := k.settleStake(ctx, stake, stake.Amount, false)
-		if err != nil {
-			sdkCtx.Logger().Error("failed to settle project stake at terminal transition; pending forfeited",
-				"project_id", projectID, "stake_id", stake.Id, "staker", stake.Staker, "error", err)
+		stakerAddr, addrErr := sdk.AccAddressFromBech32(stake.Staker)
+		if addrErr != nil {
+			sdkCtx.Logger().Error("skipping stake with unparseable staker at terminal transition",
+				"project_id", projectID, "stake_id", stake.Id, "staker", stake.Staker, "error", addrErr)
 			continue
 		}
-		if err := k.Stake.Set(ctx, stake.Id, settled); err != nil {
-			return fmt.Errorf("failed to persist settled stake %d: %w", stake.Id, err)
+
+		// Harvest at the stake's full amount and rebase the debt to zero: the
+		// record is about to be deleted.
+		settled, settlement, sErr := k.settleStake(ctx, stake, math.ZeroInt(), false)
+		if sErr != nil {
+			if errors.Is(sErr, types.ErrDreamMintCapExceeded) {
+				return fmt.Errorf("failed to settle stake %d of project %d: %w", stake.Id, projectID, sErr)
+			}
+			sdkCtx.Logger().Error("failed to settle project stake at terminal transition; pending forfeited, principal still returned",
+				"project_id", projectID, "stake_id", stake.Id, "staker", stake.Staker, "error", sErr)
+			settled = stake
+			settlement = stakeSettlement{Pending: math.ZeroInt(), Minted: math.ZeroInt(), Forfeited: true}
 		}
-		if settlement.Minted.IsPositive() {
-			sdkCtx.EventManager().EmitEvent(
-				sdk.NewEvent(
-					"project_stake_settled",
-					sdk.NewAttribute("project_id", fmt.Sprintf("%d", projectID)),
-					sdk.NewAttribute("stake_id", fmt.Sprintf("%d", stake.Id)),
-					sdk.NewAttribute("staker", stake.Staker),
-					sdk.NewAttribute("rewards", settlement.Minted.String()),
-				),
-			)
+
+		if uErr := k.UnlockDREAM(ctx, stakerAddr, stake.Amount); uErr != nil {
+			sdkCtx.Logger().Error("failed to unlock principal at terminal transition; stake left in place for manual withdrawal",
+				"project_id", projectID, "stake_id", stake.Id, "staker", stake.Staker, "error", uErr)
+			// Persist the rebased debt even though the release failed: the
+			// reward above was already minted, and an unpersisted debt would
+			// let RemoveStake pay it a second time.
+			if err := k.Stake.Set(ctx, stake.Id, settled); err != nil {
+				return fmt.Errorf("failed to persist settled stake %d: %w", stake.Id, err)
+			}
+			continue
 		}
+
+		if err := k.updateStakePoolTotals(ctx, settled, stake.Amount.Neg()); err != nil {
+			return fmt.Errorf("failed to update stake pool totals for stake %d: %w", stake.Id, err)
+		}
+
+		if iErr := k.RemoveStakeFromTargetIndex(ctx, stake); iErr != nil {
+			sdkCtx.Logger().Debug("failed to remove stake from target index",
+				"stake_id", stake.Id, "error", iErr)
+		}
+		if err := k.Stake.Remove(ctx, stake.Id); err != nil {
+			return fmt.Errorf("failed to remove stake %d: %w", stake.Id, err)
+		}
+
+		sdkCtx.EventManager().EmitEvent(
+			sdk.NewEvent(
+				"project_stake_released",
+				sdk.NewAttribute("project_id", fmt.Sprintf("%d", projectID)),
+				sdk.NewAttribute("stake_id", fmt.Sprintf("%d", stake.Id)),
+				sdk.NewAttribute("staker", stake.Staker),
+				sdk.NewAttribute("amount", stake.Amount.String()),
+				sdk.NewAttribute("rewards", settlement.Minted.String()),
+			),
+		)
 	}
 	return nil
 }
@@ -537,15 +601,6 @@ func (k Keeper) CompleteProject(ctx context.Context, projectID uint64) error {
 	// Calculate final budget (what was actually spent)
 	spentBudget := DerefInt(project.SpentBudget)
 
-	// Settle the project's stakes while it is still ACTIVE. CompleteInitiative
-	// does the same for every stake it touches; the project's own terminal
-	// transition used to skip it, leaving each staker's accrued seasonal
-	// rewards claimable by no code path at all — the stakes survived as
-	// records, withdrew as principal, and paid nothing.
-	if err := k.settleProjectStakes(ctx, projectID); err != nil {
-		return err
-	}
-
 	// Distribute 5% completion bonus to project stakers, capped and
 	// external-only (see DistributeProjectCompletionBonus), then count what
 	// was actually minted against the per-season initiative reward cap — the
@@ -559,6 +614,16 @@ func (k Keeper) CompleteProject(ctx context.Context, projectID uint64) error {
 		if err := k.TrackInitiativeRewardMint(ctx, bonusMinted); err != nil {
 			return fmt.Errorf("failed to track project completion bonus mint: %w", err)
 		}
+	}
+
+	// Release the stakes only now, and still above the status flip. Both bounds
+	// are load-bearing: DistributeProjectCompletionBonus above is weighted by
+	// each stake's principal and reads the records this deletes, while
+	// stakeAccruing stops paying the moment the status below goes terminal, so
+	// settling after the flip would harvest nothing. CompleteInitiative orders
+	// its own release the same way for the same two reasons.
+	if err := k.releaseProjectStakes(ctx, projectID); err != nil {
+		return err
 	}
 
 	// Update project status

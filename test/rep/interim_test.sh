@@ -370,12 +370,18 @@ ADJUDICATION_ID=$(echo "$INTERIMS" | jq -r '.interim[] | select(.type == "INTERI
 if [ -n "$ADJUDICATION_ID" ] && [ "$ADJUDICATION_ID" != "null" ]; then
     echo "   [ OK ] ADJUDICATION interim #$ADJUDICATION_ID found"
 
-    # Committee member completes the adjudication
+    # Committee member completes the adjudication. The verdict is the
+    # structured --decision flag, required for ADJUDICATION interims — the
+    # completion notes are prose and are no longer parsed for keywords.
+    # AutoCLI's enum flag binding accepts the short kebab-case form
+    # (ADJUDICATION_DECISION_REJECT -> "reject"); the full constant name fails
+    # client-side, same as the verdict flag on submit-juror-vote.
     echo ""
     echo "Step 5: Committee (Alice) completes adjudication..."
     TX_RES=$($BINARY tx rep complete-interim \
         $ADJUDICATION_ID \
         "Committee decision: Challenge REJECTED. Work meets requirements." \
+        --decision reject \
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \

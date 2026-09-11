@@ -492,7 +492,7 @@ Project" section of [docs/x-rep-spec.md](../../docs/x-rep-spec.md).
 |---------|-------------|--------|
 | `MsgProposeProject` | Propose project with budget and tags | Any member |
 | `MsgApproveProjectBudget` | Approve and fund project | Committee authority |
-| `MsgCancelProject` | Cancel project with reason | Project creator or council Operations Committee |
+| `MsgCancelProject` | Cancel project with reason. Cascades to open initiatives and releases every project stake — rewards paid, principal returned, denominators shrunk | Project creator or council Operations Committee |
 
 ### Initiatives
 
@@ -558,9 +558,9 @@ Project" section of [docs/x-rep-spec.md](../../docs/x-rep-spec.md).
 | `MsgCreateInterim` | Create delegated work; the creator becomes its sole assignee | Member |
 | `MsgAssignInterim` | Add an assignee (a share of the budget) | Operations Committee |
 | `MsgSubmitInterimWork` | Submit deliverable | Assignee |
-| `MsgApproveInterim` | Approve completion | Authority |
+| `MsgApproveInterim` | Approve completion. Refused on `ADJUDICATION` interims, which carry a verdict a bool cannot express — settle those with `MsgCompleteInterim` | Operations Committee |
 | `MsgAbandonInterim` | Abandon assigned interim | Assignee |
-| `MsgCompleteInterim` | Finalize, mint rewards, grant reputation. Self-certified by the assignee, so bounded by `max_interim_rewards_per_season` and refused on an already-finalized interim | Assignee (ADJUDICATION: Operations Committee) |
+| `MsgCompleteInterim` | Finalize, mint rewards, grant reputation. Self-certified by the assignee, so bounded by `max_interim_rewards_per_season` and refused on an already-finalized interim. On an `ADJUDICATION` interim, `decision` (UPHOLD/REJECT) is required and resolves the challenge the interim was raised to settle | Assignee (ADJUDICATION: Operations Committee) |
 
 ### Tag Registry and Moderation
 

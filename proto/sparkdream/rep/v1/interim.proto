@@ -30,6 +30,24 @@ message Interim {
   // Status
   InterimStatus status = 12;
   string completion_notes = 13;
+
+  // The committee's verdict, set when an ADJUDICATION interim is completed.
+  // Unset on every other type. Structured rather than parsed out of
+  // completion_notes: a free-text keyword that fails to match (or matches the
+  // wrong branch) used to leave the challenge it was raised to settle
+  // unresolved forever, with the interim completed and nothing left to retry.
+  AdjudicationDecision decision = 14;
+}
+
+// AdjudicationDecision is the Operations Committee's verdict on the challenge
+// an ADJUDICATION interim was raised to settle — the terminal path for an
+// inconclusive jury, and for challenges escalated when no jury could be seated.
+enum AdjudicationDecision {
+  ADJUDICATION_DECISION_UNSPECIFIED = 0;
+  // The challenge stands: the work failed. Resolves the challenge as UPHELD.
+  ADJUDICATION_DECISION_UPHOLD = 1;
+  // The challenge fails: the work stands. Resolves the challenge as REJECTED.
+  ADJUDICATION_DECISION_REJECT = 2;
 }
 
 enum InterimType {

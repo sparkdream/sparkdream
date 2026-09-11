@@ -35,13 +35,13 @@ func TestInterim_CompletingTwiceDoesNotPayTwice(t *testing.T) {
 	require.NoError(t, err)
 
 	before := *mustMember(t, f, worker).DreamBalance
-	require.NoError(t, k.CompleteInterimDirectly(ctx, interimID, "done"))
+	require.NoError(t, k.CompleteInterimDirectly(ctx, interimID, types.AdjudicationDecision_ADJUDICATION_DECISION_UNSPECIFIED, "done"))
 	afterFirst := *mustMember(t, f, worker).DreamBalance
 	paid := afterFirst.Sub(before)
 	require.True(t, paid.IsPositive(), "precondition: the first completion must pay")
 
 	// The second call must be refused outright, not paid again.
-	err = k.CompleteInterimDirectly(ctx, interimID, "done again")
+	err = k.CompleteInterimDirectly(ctx, interimID, types.AdjudicationDecision_ADJUDICATION_DECISION_UNSPECIFIED, "done again")
 	require.ErrorIs(t, err, types.ErrInvalidInterimStatus)
 
 	afterSecond := *mustMember(t, f, worker).DreamBalance
@@ -77,12 +77,12 @@ func TestInterim_SeasonCapBoundsTotalEmission(t *testing.T) {
 	first := mkInterim()
 	second := mkInterim()
 
-	require.NoError(t, k.CompleteInterimDirectly(ctx, first, "done"))
+	require.NoError(t, k.CompleteInterimDirectly(ctx, first, types.AdjudicationDecision_ADJUDICATION_DECISION_UNSPECIFIED, "done"))
 	balanceAtCap := *mustMember(t, f, worker).DreamBalance
 
 	// The cap is now exhausted: the next completion must be refused rather than
 	// minting past it.
-	err := k.CompleteInterimDirectly(ctx, second, "done")
+	err := k.CompleteInterimDirectly(ctx, second, types.AdjudicationDecision_ADJUDICATION_DECISION_UNSPECIFIED, "done")
 	require.ErrorIs(t, err, types.ErrInterimRewardCapReached)
 	require.Equal(t, balanceAtCap.String(), (*mustMember(t, f, worker).DreamBalance).String(),
 		"a refused completion must not pay")

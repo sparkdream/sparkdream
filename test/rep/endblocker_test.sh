@@ -222,10 +222,10 @@ echo "[ OK ] Initiative 2 created: ID $INIT2_ID"
 # Usage: stake [target-type] [target-id] [amount]
 echo ""
 echo "Staking on Initiative 1 (early)..."
-$BINARY tx rep stake "STAKE_TARGET_INITIATIVE" $INIT1_ID "200000000" --from bob --chain-id $CHAIN_ID --keyring-backend test --gas auto --gas-adjustment 1.5 --fees 5000${BOND_DENOM} -y > /dev/null 2>&1
+$BINARY tx rep stake "stake-target-initiative" $INIT1_ID "200000000" --from bob --chain-id $CHAIN_ID --keyring-backend test --gas auto --gas-adjustment 1.5 --fees 5000${BOND_DENOM} -y > /dev/null 2>&1
 sleep 1
 
-$BINARY tx rep stake "STAKE_TARGET_INITIATIVE" $INIT1_ID "300000000" --from carol --chain-id $CHAIN_ID --keyring-backend test --gas auto --gas-adjustment 1.5 --fees 5000${BOND_DENOM} -y > /dev/null 2>&1
+$BINARY tx rep stake "stake-target-initiative" $INIT1_ID "300000000" --from carol --chain-id $CHAIN_ID --keyring-backend test --gas auto --gas-adjustment 1.5 --fees 5000${BOND_DENOM} -y > /dev/null 2>&1
 sleep 1
 
 echo "[ OK ] Stakes created on Initiative 1: Bob (200), Carol (300) = 500 total"
@@ -552,7 +552,7 @@ if [ "$SKIP_INIT4_TEST" != "true" ]; then
 
     # Add stakes for conviction
     # Usage: stake [target-type] [target-id] [amount]
-    $BINARY tx rep stake "STAKE_TARGET_INITIATIVE" $INIT4_ID "200000000" --from bob --chain-id $CHAIN_ID --keyring-backend test --gas auto --gas-adjustment 1.5 --fees 5000${BOND_DENOM} -y > /dev/null 2>&1
+    $BINARY tx rep stake "stake-target-initiative" $INIT4_ID "200000000" --from bob --chain-id $CHAIN_ID --keyring-backend test --gas auto --gas-adjustment 1.5 --fees 5000${BOND_DENOM} -y > /dev/null 2>&1
     sleep 1
 
     echo "[ OK ] Initiative 4 set up for jury testing"

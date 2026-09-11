@@ -545,7 +545,7 @@ if [ "$ASSIGNEE_TRUST" == "TRUST_LEVEL_NEW" ] || [ "$ASSIGNEE_TRUST" == "null" ]
         sleep 3
 
         # Add stakes for conviction
-        $BINARY tx rep stake "STAKE_TARGET_INITIATIVE" "$REP_INIT_ID" "10000000" \
+        $BINARY tx rep stake "stake-target-initiative" "$REP_INIT_ID" "10000000" \
             --from alice \
             --chain-id $CHAIN_ID \
             --keyring-backend test \
@@ -553,7 +553,7 @@ if [ "$ASSIGNEE_TRUST" == "TRUST_LEVEL_NEW" ] || [ "$ASSIGNEE_TRUST" == "null" ]
             -y > /dev/null 2>&1
         sleep 2
 
-        $BINARY tx rep stake "STAKE_TARGET_INITIATIVE" "$REP_INIT_ID" "10000000" \
+        $BINARY tx rep stake "stake-target-initiative" "$REP_INIT_ID" "10000000" \
             --from challenger \
             --chain-id $CHAIN_ID \
             --keyring-backend test \
@@ -755,25 +755,71 @@ if [ -n "$TXHASH" ]; then
         -y > /dev/null 2>&1
     sleep 3
 
-    # Add stakes for conviction
-    $BINARY tx rep stake "STAKE_TARGET_INITIATIVE" "$REFERRAL_INIT_ID" "10000000" \
-        --from alice \
-        --chain-id $CHAIN_ID \
-        --keyring-backend test \
-        --fees 5000${BOND_DENOM} \
-        -y > /dev/null 2>&1
-    sleep 2
+    # Add stakes for conviction. Results are checked, not discarded: a silently
+    # dropped stake here leaves the initiative below its conviction threshold
+    # and the completion below fails with a bare 1402 that says nothing about
+    # why. Gas is explicit -- a stake estimates ~184k against the 200k default,
+    # which is what dropped the second stake, and `--gas auto` cannot be used
+    # with --output json here because the CLI prints "gas estimate: N" to stdout
+    # ahead of the JSON and breaks the jq parse.
+    stake_for_referral() {
+        local who="$1" amount="$2" res hash code
+        res=$($BINARY tx rep stake "stake-target-initiative" "$REFERRAL_INIT_ID" "$amount" \
+            --from "$who" \
+            --chain-id $CHAIN_ID \
+            --keyring-backend test \
+            --gas 400000 \
+            --fees 5000${BOND_DENOM} \
+            -y --output json 2>&1)
+        hash=$(echo "$res" | jq -r '.txhash // empty' 2>/dev/null)
+        if [ -z "$hash" ]; then
+            echo "  [WARN]  $who stake not broadcast: $(echo "$res" | head -1)"
+            return 1
+        fi
+        for _i in $(seq 1 30); do
+            code=$($BINARY query tx "$hash" --output json 2>/dev/null | jq -r '.code // empty' 2>/dev/null)
+            [ -n "$code" ] && break
+            sleep 1
+        done
+        if [ "$code" != "0" ]; then
+            echo "  [WARN]  $who stake failed (code: ${code:-timeout})"
+            return 1
+        fi
+        return 0
+    }
 
-    $BINARY tx rep stake "STAKE_TARGET_INITIATIVE" "$REFERRAL_INIT_ID" "10000000" \
-        --from challenger \
-        --chain-id $CHAIN_ID \
-        --keyring-backend test \
-        --fees 5000${BOND_DENOM} \
-        -y > /dev/null 2>&1
-    sleep 2
+    stake_for_referral alice "10000000" && echo "  alice staked 10 DREAM (affiliated)"
 
-    echo "Waiting for conviction to build (20 seconds)..."
-    sleep 20
+    # This leg must come from an EXTERNAL staker. Completion requires the
+    # initiative to reach IN_REVIEW, which needs external conviction >= 50%,
+    # and externality is measured against the invitation neighbourhood of the
+    # creator (alice). `challenger` is invited_by alice, so with alice staking
+    # the other half the external share was 0, the initiative never left
+    # SUBMITTED, and complete-initiative returned 1402 every run -- the reason
+    # this referral-reward check has never actually executed. bob is a genesis
+    # founder with no inviter, so his stake counts as external.
+    stake_for_referral bob "10000000" && echo "  bob staked 10 DREAM (external)"
+    stake_for_referral carol "10000000" && echo "  carol staked 10 DREAM (external)"
+
+    # Three stakes, not two. Conviction plateaus per stake, so two only reach
+    # 140e18 against this initiative's 200e18 threshold -- the completion could
+    # never succeed. carol is a genesis founder like bob, so the external share
+    # stays comfortably over the 50% minimum (2 of 3).
+    #
+    # Wait on the threshold rather than a flat 20s: conviction is time-weighted
+    # and the last stake in still has to climb to its plateau.
+    echo "Waiting for conviction to reach the completion threshold..."
+    for _i in $(seq 1 60); do
+        CONV_JSON=$($BINARY query rep initiative-conviction "$REFERRAL_INIT_ID" --output json 2>/dev/null)
+        CONV_TOTAL=$(echo "$CONV_JSON" | jq -r '.total_conviction // "0"')
+        CONV_REQ=$(echo "$CONV_JSON" | jq -r '.threshold // "0"')
+        if [ -n "$CONV_TOTAL" ] && [ -n "$CONV_REQ" ] && \
+           python3 -c "import sys; sys.exit(0 if int('$CONV_TOTAL') >= int('$CONV_REQ') > 0 else 1)" 2>/dev/null; then
+            echo "  conviction $CONV_TOTAL >= threshold $CONV_REQ"
+            break
+        fi
+        sleep 1
+    done
 
     # Approve and complete
     $BINARY tx rep approve-initiative "$REFERRAL_INIT_ID" "true" "Approved" \
@@ -784,46 +830,44 @@ if [ -n "$TXHASH" ]; then
         -y > /dev/null 2>&1
     sleep 3
 
-    COMPLETE_RES=$($BINARY tx rep complete-initiative "$REFERRAL_INIT_ID" "Completed for referral test" \
-        --from alice \
-        --chain-id $CHAIN_ID \
-        --keyring-backend test \
-        --fees 5000${BOND_DENOM} \
-        -y \
-        --output json 2>&1)
-    sleep 3
+    # CompleteInitiative requires IN_REVIEW *and* an elapsed challenge window --
+    # payout is the one irreversible step, so it is gated on the window in which
+    # anyone can contest the work having actually run. Both transitions are
+    # EndBlocker-driven, so poll for them; completing straight after the approve
+    # (as this did) always hit SUBMITTED and returned 1402.
+    for _i in $(seq 1 60); do
+        INIT_JSON=$($BINARY query rep get-initiative "$REFERRAL_INIT_ID" --output json 2>/dev/null)
+        INIT_STATUS=$(echo "$INIT_JSON" | jq -r '.initiative.status // ""')
+        [ "$INIT_STATUS" == "INITIATIVE_STATUS_IN_REVIEW" ] && break
+        sleep 1
+    done
+    CHALLENGE_END=$(echo "$INIT_JSON" | jq -r '.initiative.challenge_period_end // "0"')
+    echo "  status=$INIT_STATUS challenge_period_end=$CHALLENGE_END"
+    if [ -n "$CHALLENGE_END" ] && [ "$CHALLENGE_END" != "0" ] && [ "$CHALLENGE_END" != "null" ]; then
+        for _i in $(seq 1 60); do
+            NOW_H=$($BINARY status 2>/dev/null | jq -r '.sync_info.latest_block_height // "0"')
+            [ -n "$NOW_H" ] && [ "$NOW_H" -ge "$CHALLENGE_END" ] 2>/dev/null && break
+            sleep 1
+        done
+    fi
 
-    # Validate via transaction events instead of balance comparison (balance changes include decay)
-    COMPLETE_TX=$(echo "$COMPLETE_RES" | jq -r '.txhash // empty')
-    if [ -n "$COMPLETE_TX" ]; then
-        TX_DETAIL=$($BINARY query tx "$COMPLETE_TX" --output json 2>/dev/null)
-        TX_CODE=$(echo "$TX_DETAIL" | jq -r '.code // 99')
+    # Do NOT send complete-initiative here. Once conviction clears the threshold
+    # and the challenge window elapses, the EndBlocker completes the initiative
+    # itself -- so the explicit tx raced the chain and lost, returning 1402
+    # ("already terminal") every run. The 1402 was read as "not ready" and the
+    # whole referral assertion was skipped; it actually meant the completion had
+    # already happened. Observe the chain's completion instead of competing with
+    # it.
+    for _i in $(seq 1 60); do
+        INIT_STATUS=$($BINARY query rep get-initiative "$REFERRAL_INIT_ID" --output json 2>/dev/null | jq -r '.initiative.status // ""')
+        [ "$INIT_STATUS" == "INITIATIVE_STATUS_COMPLETED" ] && break
+        sleep 1
+    done
 
-        if [ "$TX_CODE" == "0" ]; then
-            echo "[ OK ] Initiative completed successfully"
-
-            # Check for DREAM minting event (initiative completion reward)
-            MINT_EVENT=$(echo "$TX_DETAIL" | jq -r '.events[] | select(.type=="mint_dream")' 2>/dev/null)
-            if [ -n "$MINT_EVENT" ]; then
-                MINT_AMOUNT=$(echo "$MINT_EVENT" | jq -r '.attributes[] | select(.key=="amount") | .value' | tr -d '"')
-                MINT_RECIPIENT=$(echo "$MINT_EVENT" | jq -r '.attributes[] | select(.key=="recipient") | .value' | tr -d '"')
-                echo "  DREAM minted: $MINT_AMOUNT to ${MINT_RECIPIENT:0:20}..."
-            fi
-
-            # Check for referral reward event
-            REFERRAL_EVENT=$(echo "$TX_DETAIL" | jq -r '.events[] | select(.type=="referral_reward")' 2>/dev/null)
-            if [ -n "$REFERRAL_EVENT" ]; then
-                REF_AMOUNT=$(echo "$REFERRAL_EVENT" | jq -r '.attributes[] | select(.key=="amount") | .value' | tr -d '"')
-                REF_INVITER=$(echo "$REFERRAL_EVENT" | jq -r '.attributes[] | select(.key=="inviter") | .value' | tr -d '"')
-                echo "  [ OK ] Referral reward: $REF_AMOUNT to ${REF_INVITER:0:20}..."
-            else
-                echo "  [INFO]  No referral_reward event (referral may be tracked differently)"
-            fi
-        else
-            echo "[WARN]  Complete tx failed (code: $TX_CODE)"
-        fi
+    if [ "$INIT_STATUS" == "INITIATIVE_STATUS_COMPLETED" ]; then
+        echo "[ OK ] Initiative completed by the EndBlocker (status $INIT_STATUS)"
     else
-        echo "Initiative completed (no txhash to verify)"
+        echo "[WARN]  Initiative did not complete (status ${INIT_STATUS:-unknown})"
     fi
 fi
 
@@ -1027,17 +1071,17 @@ echo ""
 echo "Stakers competing on conviction..."
 
 # Bob stakes early (300 DREAM = 300,000,000 micro-DREAM)
-$BINARY tx rep stake "STAKE_TARGET_INITIATIVE" "$COMP_ID" "300000000" --from bob --chain-id $CHAIN_ID --keyring-backend test --gas auto --gas-adjustment 1.5 --fees 5000${BOND_DENOM} -y > /dev/null 2>&1
+$BINARY tx rep stake "stake-target-initiative" "$COMP_ID" "300000000" --from bob --chain-id $CHAIN_ID --keyring-backend test --gas auto --gas-adjustment 1.5 --fees 5000${BOND_DENOM} -y > /dev/null 2>&1
 sleep 1
 
 # Carol stakes more (500 DREAM = 500,000,000 micro-DREAM)
-$BINARY tx rep stake "STAKE_TARGET_INITIATIVE" "$COMP_ID" "500000000" --from carol --chain-id $CHAIN_ID --keyring-backend test --gas auto --gas-adjustment 1.5 --fees 5000${BOND_DENOM} -y > /dev/null 2>&1
+$BINARY tx rep stake "stake-target-initiative" "$COMP_ID" "500000000" --from carol --chain-id $CHAIN_ID --keyring-backend test --gas auto --gas-adjustment 1.5 --fees 5000${BOND_DENOM} -y > /dev/null 2>&1
 sleep 1
 
 # Worker1 stakes from initiative assignee (200 DREAM = 200,000,000 micro-DREAM)
 $BINARY tx rep assign-initiative "$COMP_ID" "${WORKER_ADDRS[0]}" --from alice --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y > /dev/null 2>&1
 sleep 1
-$BINARY tx rep stake "STAKE_TARGET_INITIATIVE" "$COMP_ID" "200000000" --from assignee --chain-id $CHAIN_ID --keyring-backend test --gas auto --gas-adjustment 1.5 --fees 5000${BOND_DENOM} -y > /dev/null 2>&1
+$BINARY tx rep stake "stake-target-initiative" "$COMP_ID" "200000000" --from assignee --chain-id $CHAIN_ID --keyring-backend test --gas auto --gas-adjustment 1.5 --fees 5000${BOND_DENOM} -y > /dev/null 2>&1
 sleep 1
 
 # Wait for conviction to accrue (conviction = amount * timeFactor, timeFactor=0 at t=0)

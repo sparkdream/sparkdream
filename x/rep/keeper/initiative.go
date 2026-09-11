@@ -2,6 +2,7 @@ package keeper
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	stdmath "math"
 	"strings"
@@ -734,9 +735,12 @@ func (k Keeper) UnassignInitiative(
 // work was delivered, and closing out from under it would let the project side
 // void a challenge that was about to be upheld.
 //
-// Outstanding conviction stakes are deliberately left in place: RemoveStake has
-// no status gate, so stakers can withdraw principal plus accrued rewards at any
-// time. Moving to a terminal status drops the initiative out of
+// Conviction stakes are settled and released on the way out: rewards earned
+// while the work was live are paid, the principal returns to the stakers, and
+// the records are deleted (see releaseInitiativeStakes). The exception is a
+// stake whose unlock fails at the transition, which is left in place for its
+// owner — RemoveStake has no status gate, so it remains the manual withdrawal
+// path. Moving to a terminal status drops the initiative out of
 // IterateActiveInitiatives, so its conviction simply stops being recomputed.
 func (k Keeper) CloseInitiative(ctx context.Context, initiativeID uint64, reason string) error {
 	initiative, err := k.GetInitiative(ctx, initiativeID)
@@ -799,10 +803,12 @@ func (k Keeper) CloseInitiative(ctx context.Context, initiativeID uint64, reason
 		return err
 	}
 
-	// Harvest what the stakes accrued while the work was live, BEFORE the flip
-	// below — stakeAccruing stops paying on a terminal initiative, so settling
-	// after it would silently strand every accrued reward.
-	if err := k.settleInitiativeStakes(ctx, initiativeID); err != nil {
+	// Harvest what the stakes accrued while the work was live and return their
+	// principal, BEFORE the flip below — stakeAccruing stops paying on a
+	// terminal initiative, so settling after it would silently strand every
+	// accrued reward. Closing is a retirement, not a confiscation: nothing here
+	// is entitled to the staked DREAM, so it goes back.
+	if err := k.releaseInitiativeStakes(ctx, initiativeID, types.InitiativeStatus_INITIATIVE_STATUS_CLOSED); err != nil {
 		return err
 	}
 
@@ -845,11 +851,19 @@ func (k Keeper) CompleteInitiative(ctx context.Context, initiativeID uint64) err
 	// before a single block of the challenge period had run. The community
 	// gets its full DefaultChallengePeriodEpochs (doubled for self-assigned
 	// work) to raise a challenge, and this guard is what makes that promise
-	// real rather than advisory. TransitionToChallengePeriod is the only way
-	// into IN_REVIEW, so it always sets ChallengePeriodEnd before this runs.
+	// real rather than advisory. TransitionToChallengePeriod is the ordinary
+	// way into IN_REVIEW and always sets ChallengePeriodEnd; RejectChallenge
+	// is a second way in (restoring the pre-challenge status), so a zero
+	// ChallengePeriodEnd here means the window was never opened — a state the
+	// EndBlocker's completion sweep heals by opening one, and which must never
+	// pay out vacuously (`height >= 0` is always true).
 	if initiative.Status != types.InitiativeStatus_INITIATIVE_STATUS_IN_REVIEW {
 		return errorsmod.Wrapf(types.ErrInvalidInitiativeStatus,
 			"initiative must be in IN_REVIEW status to complete, got %s", initiative.Status)
+	}
+	if initiative.ChallengePeriodEnd == 0 {
+		return errorsmod.Wrapf(types.ErrChallengePeriodActive,
+			"challenge window for initiative %d has not been opened yet", initiativeID)
 	}
 	if currentHeight := sdk.UnwrapSDKContext(ctx).BlockHeight(); currentHeight < initiative.ChallengePeriodEnd {
 		return errorsmod.Wrapf(types.ErrChallengePeriodActive,
@@ -1008,51 +1022,15 @@ func (k Keeper) CompleteInitiative(ctx context.Context, initiativeID uint64) err
 		return fmt.Errorf("failed to settle review bonds: %w", err)
 	}
 
-	// Settle and release every stake.
-	for _, stake := range stakes {
-		stakerAddr, err := sdk.AccAddressFromBech32(stake.Staker)
-		if err != nil {
-			continue
-		}
-
-		// Harvest whatever the stake accrued from the seasonal pool and zero
-		// its debt — the record is about to be deleted.
-		settledStake, settlement, err := k.settleStake(ctx, stake, math.ZeroInt(), false)
-		if err != nil {
-			return fmt.Errorf("failed to settle stake %d for %s: %w", stake.Id, stake.Staker, err)
-		}
-
-		// Unlock staked DREAM
-		if err := k.UnlockDREAM(ctx, stakerAddr, stake.Amount); err != nil {
-			return fmt.Errorf("failed to unlock DREAM for staker %s: %w", stake.Staker, err)
-		}
-
-		// Shrink the seasonal denominator by the stake leaving it. Missing this
-		// would ratchet total_staked upward with every completed initiative and
-		// under-pay the remaining stakers forever.
-		if err := k.updateStakePoolTotals(ctx, settledStake, stake.Amount.Neg()); err != nil {
-			return fmt.Errorf("failed to update stake pool totals for stake %d: %w", stake.Id, err)
-		}
-
-		// Remove stake from target index
-		_ = k.RemoveStakeFromTargetIndex(ctx, stake)
-
-		// Remove stake
-		if err := k.Stake.Remove(ctx, stake.Id); err != nil {
-			return fmt.Errorf("failed to remove stake: %w", err)
-		}
-
-		// Emit event for stake completion
-		sdkCtx.EventManager().EmitEvent(
-			sdk.NewEvent(
-				"stake_completed",
-				sdk.NewAttribute("stake_id", fmt.Sprintf("%d", stake.Id)),
-				sdk.NewAttribute("staker", stake.Staker),
-				sdk.NewAttribute("amount", stake.Amount.String()),
-				sdk.NewAttribute("reward", settlement.Minted.String()),
-				sdk.NewAttribute("initiative_id", fmt.Sprintf("%d", initiativeID)),
-			),
-		)
+	// Settle and release every stake: rewards minted, principal unlocked, the
+	// seasonal denominator shrunk, and the record deleted. Shared with the
+	// three retirement paths, which release on the same terms.
+	//
+	// Must stay below DistributeInitiativeCompletionBonus: the bonus is
+	// weighted by each stake's time-weighted conviction and needs the records
+	// this deletes.
+	if err := k.releaseInitiativeStakes(ctx, initiativeID, types.InitiativeStatus_INITIATIVE_STATUS_COMPLETED); err != nil {
+		return err
 	}
 
 	// Grant reputation to completer
@@ -1229,53 +1207,145 @@ func (k Keeper) GetMember(ctx context.Context, address sdk.AccAddress) (types.Me
 	return member, nil
 }
 
-// settleInitiativeStakes harvests every stake on an initiative against the
-// seasonal accumulator and rebases its debt, leaving the principal locked and
-// the record in place. It is the initiative-side twin of settleProjectStakes.
+// releaseInitiativeStakes settles, unlocks, and deletes every stake on an
+// initiative. It is the single teardown shared by all four terminal
+// transitions: CompleteInitiative, CloseInitiative, the challenge-UPHELD path,
+// and the project-cancel cascade.
 //
-// Called at both terminal transitions that do NOT delete their stakes —
-// CloseInitiative and the challenge-REJECTED path — and always BEFORE the
-// status flip, because stakeAccruing stops paying the moment the status is
-// terminal and settling afterwards would harvest nothing. CompleteInitiative
-// does not use this: it settles and deletes each stake in its own payout loop.
+// Always called BEFORE the status flip. stakeAccruing stops paying the moment
+// the status is terminal, so settling afterwards harvests nothing and strands
+// every reward earned while the work was live.
 //
 // Rewards accrued while the work was live are paid regardless of how the
 // initiative ended. The outcome does not retroactively unearn them — that is
 // what slashing is for — and this matches CancelProject, which pays out on the
 // cancel path too.
 //
-// A per-stake settle failure (the per-epoch mint cap, most plausibly) is logged
-// and the pending forfeited rather than blocking the transition: an initiative
-// that cannot be retired is the failure mode that stranded devnet initiative #1
-// in IN_REVIEW for ~6,000 blocks.
-func (k Keeper) settleInitiativeStakes(ctx context.Context, initiativeID uint64) error {
+// The principal now comes back on every path, for the same reason. This
+// replaces settleInitiativeStakes, which harvested the rewards but left the
+// principal locked and the record in place on the CLOSED and REJECTED paths.
+// That principal could not earn (stakeAccruing is false on terminal work) and
+// could not signal (conviction on a retired initiative decides nothing), but it
+// stayed inside seasonal_pool/total_staked indefinitely, diluting the yield of
+// everyone still backing live work. That is the exact ratchet the
+// updateStakePoolTotals call below exists to prevent, and only the completion
+// path was ever protected from it.
+//
+// Failures are isolated per stake. Three of the four callers are reachable from
+// the EndBlocker (resolveSilentEscalations -> rejectReviewRound ->
+// CloseInitiative), and UnlockDREAM has real error modes: a missing member
+// record, or a StakedDream aggregate that has drifted below the obligation. An
+// initiative that cannot retire is a worse failure than a stake that needs a
+// manual withdrawal — it is the one that stranded devnet initiative #1 in
+// IN_REVIEW for ~6,000 blocks.
+//
+// The line between the two is whether retrying can help:
+//
+//   - A settle failure against the per-epoch mint cap is returned, aborting the
+//     whole transition. The cap clears on its own, so the initiative retires
+//     intact an epoch later; forfeiting instead would destroy a payable reward
+//     over a busy block, and do it order-dependently.
+//   - Any other settle failure forfeits that stake's pending reward and still
+//     returns the principal. Past the status flip the reward is unrecoverable
+//     either way (stakeAccruing is false, so a later RemoveStake mints
+//     nothing), so holding the principal hostage to it buys the staker nothing.
+//   - An unlock failure skips the stake, leaving the record intact so its owner
+//     can withdraw manually. RemoveStake carries no status gate, so a terminal
+//     initiative is no obstacle to that.
+//   - A store write failure is real corruption, and is returned.
+//
+// Every caller that returns must be atomic, or a returned error leaves the
+// stakes half-released with the initiative still live. The three msg-server
+// paths get that from tx rollback; the EndBlocker paths are wrapped in a
+// CacheContext at their sweep (see abci.go steps 5/5b and
+// resolveSilentEscalations).
+func (k Keeper) releaseInitiativeStakes(ctx context.Context, initiativeID uint64, terminal types.InitiativeStatus) error {
 	stakes, err := k.GetInitiativeStakes(ctx, initiativeID)
 	if err != nil {
-		return fmt.Errorf("failed to load stakes of initiative %d for settlement: %w", initiativeID, err)
+		return fmt.Errorf("failed to load stakes of initiative %d for release: %w", initiativeID, err)
+	}
+
+	// Completion keeps its original event name so anything indexing payouts
+	// still sees them; the three retirement paths get their own.
+	eventType := "stake_released"
+	if terminal == types.InitiativeStatus_INITIATIVE_STATUS_COMPLETED {
+		eventType = "stake_completed"
 	}
 
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	for _, stake := range stakes {
-		settled, settlement, err := k.settleStake(ctx, stake, stake.Amount, false)
-		if err != nil {
-			sdkCtx.Logger().Error("failed to settle initiative stake at terminal transition; pending forfeited",
-				"initiative_id", initiativeID, "stake_id", stake.Id, "staker", stake.Staker, "error", err)
+		stakerAddr, addrErr := sdk.AccAddressFromBech32(stake.Staker)
+		if addrErr != nil {
+			sdkCtx.Logger().Error("skipping stake with unparseable staker at terminal transition",
+				"initiative_id", initiativeID, "stake_id", stake.Id, "staker", stake.Staker, "error", addrErr)
 			continue
 		}
-		if err := k.Stake.Set(ctx, stake.Id, settled); err != nil {
-			return fmt.Errorf("failed to persist settled stake %d: %w", stake.Id, err)
+
+		// Harvest at the stake's full amount and rebase the debt to zero: the
+		// record is about to be deleted.
+		settled, settlement, sErr := k.settleStake(ctx, stake, math.ZeroInt(), false)
+		if sErr != nil {
+			// A cap hit is transient and the whole transition must back off
+			// for it. Forfeiting here would destroy a payable reward because
+			// the block happened to be busy -- and order-dependently, since
+			// stakes earlier in the slice would already have been paid. The
+			// caller's tx (or the EndBlocker's cache branch) rolls back and
+			// the next epoch settles the initiative in full. Nothing
+			// pre-checks this: the projected-mint gate in CompleteInitiative
+			// covers the season cap only, and the completer reward, treasury
+			// share, completion bonus and review fees have already drawn on
+			// this epoch's budget by the time we get here.
+			if errors.Is(sErr, types.ErrDreamMintCapExceeded) {
+				return fmt.Errorf("failed to settle stake %d of initiative %d: %w", stake.Id, initiativeID, sErr)
+			}
+			// Everything else is permanent -- a missing member record, a
+			// drifted StakedDream aggregate. Retrying forever would strand the
+			// initiative, so forfeit that stake's pending reward and still
+			// return its principal.
+			sdkCtx.Logger().Error("failed to settle initiative stake at terminal transition; pending forfeited, principal still returned",
+				"initiative_id", initiativeID, "stake_id", stake.Id, "staker", stake.Staker, "error", sErr)
+			settled = stake
+			settlement = stakeSettlement{Pending: math.ZeroInt(), Minted: math.ZeroInt(), Forfeited: true}
 		}
-		if settlement.Minted.IsPositive() {
-			sdkCtx.EventManager().EmitEvent(
-				sdk.NewEvent(
-					"initiative_stake_settled",
-					sdk.NewAttribute("initiative_id", fmt.Sprintf("%d", initiativeID)),
-					sdk.NewAttribute("stake_id", fmt.Sprintf("%d", stake.Id)),
-					sdk.NewAttribute("staker", stake.Staker),
-					sdk.NewAttribute("rewards", settlement.Minted.String()),
-				),
-			)
+
+		if uErr := k.UnlockDREAM(ctx, stakerAddr, stake.Amount); uErr != nil {
+			sdkCtx.Logger().Error("failed to unlock principal at terminal transition; stake left in place for manual withdrawal",
+				"initiative_id", initiativeID, "stake_id", stake.Id, "staker", stake.Staker, "error", uErr)
+			// Persist the rebased debt even though the release failed: the
+			// reward above was already minted, and an unpersisted debt would
+			// let RemoveStake pay it a second time.
+			if err := k.Stake.Set(ctx, stake.Id, settled); err != nil {
+				return fmt.Errorf("failed to persist settled stake %d: %w", stake.Id, err)
+			}
+			continue
 		}
+
+		// Shrink every denominator this stake was diluting. Without this the
+		// pool keeps dividing incoming revenue by DREAM that has already left,
+		// silently and permanently under-paying everyone who stayed.
+		if err := k.updateStakePoolTotals(ctx, settled, stake.Amount.Neg()); err != nil {
+			return fmt.Errorf("failed to update stake pool totals for stake %d: %w", stake.Id, err)
+		}
+
+		if iErr := k.RemoveStakeFromTargetIndex(ctx, stake); iErr != nil {
+			sdkCtx.Logger().Debug("failed to remove stake from target index",
+				"stake_id", stake.Id, "error", iErr)
+		}
+		if err := k.Stake.Remove(ctx, stake.Id); err != nil {
+			return fmt.Errorf("failed to remove stake %d: %w", stake.Id, err)
+		}
+
+		sdkCtx.EventManager().EmitEvent(
+			sdk.NewEvent(
+				eventType,
+				sdk.NewAttribute("initiative_id", fmt.Sprintf("%d", initiativeID)),
+				sdk.NewAttribute("stake_id", fmt.Sprintf("%d", stake.Id)),
+				sdk.NewAttribute("staker", stake.Staker),
+				sdk.NewAttribute("amount", stake.Amount.String()),
+				sdk.NewAttribute("reward", settlement.Minted.String()),
+				sdk.NewAttribute("terminal_status", terminal.String()),
+			),
+		)
 	}
 	return nil
 }
