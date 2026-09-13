@@ -136,4 +136,73 @@ func TestMsgServerCreateChallenge(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, types.InitiativeStatus_INITIATIVE_STATUS_CHALLENGED, initiative.Status)
 	})
+
+	// The keeper-level gate is covered in challenge_self_challenge_test.go.
+	// This case covers the wire path: the handler decodes msg.Challenger with
+	// the address codec, while the gate compares against the stored assignee
+	// string, so a bech32 encoding mismatch between the two would let a
+	// self-challenge through here even with the keeper test passing.
+	t.Run("assignee cannot challenge own initiative", func(t *testing.T) {
+		f := initFixture(t)
+		ms := keeper.NewMsgServerImpl(f.keeper)
+		k := f.keeper
+		ctx := f.ctx
+
+		creator := sdk.AccAddress([]byte("sc-ms-creator---"))
+		creatorStr, err := f.addressCodec.BytesToString(creator)
+		require.NoError(t, err)
+		require.NoError(t, k.Member.Set(ctx, creatorStr, types.Member{
+			Address:          creatorStr,
+			DreamBalance:     keeper.PtrInt(math.ZeroInt()),
+			StakedDream:      keeper.PtrInt(math.ZeroInt()),
+			LifetimeEarned:   keeper.PtrInt(math.ZeroInt()),
+			LifetimeBurned:   keeper.PtrInt(math.ZeroInt()),
+			ReputationScores: map[string]string{"tag": "100.0"},
+		}))
+
+		projectID, err := k.CreateProject(ctx, creator, "Proj", "Desc", []string{"tag"},
+			types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical",
+			math.NewInt(10000), math.NewInt(1000), false)
+		require.NoError(t, err)
+		require.NoError(t, k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")),
+			math.NewInt(10000), math.NewInt(1000)))
+
+		initID, err := k.CreateInitiative(ctx, creator, projectID, "Task", "D", []string{"tag"},
+			types.InitiativeTier_INITIATIVE_TIER_STANDARD,
+			types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, math.NewInt(100))
+		require.NoError(t, err)
+
+		assignee := sdk.AccAddress([]byte("sc-ms-assignee--"))
+		assigneeStr, err := f.addressCodec.BytesToString(assignee)
+		require.NoError(t, err)
+		// Funded, so a rejection is attributable to the gate and not to an
+		// empty balance failing the stake lock.
+		require.NoError(t, k.Member.Set(ctx, assigneeStr, types.Member{
+			Address:          assigneeStr,
+			DreamBalance:     keeper.PtrInt(math.NewInt(1000000000)),
+			StakedDream:      keeper.PtrInt(math.ZeroInt()),
+			LifetimeEarned:   keeper.PtrInt(math.ZeroInt()),
+			LifetimeBurned:   keeper.PtrInt(math.ZeroInt()),
+			ReputationScores: map[string]string{"tag": "100.0"},
+		}))
+
+		require.NoError(t, k.AssignInitiativeToMember(ctx, initID, assignee))
+		require.NoError(t, k.SubmitInitiativeWork(ctx, initID, assignee, "uri"))
+
+		_, err = ms.CreateChallenge(ctx, &types.MsgCreateChallenge{
+			Challenger:   assigneeStr,
+			InitiativeId: initID,
+			Reason:       "my own work",
+			StakedDream:  keeper.PtrInt(math.NewInt(100000000)),
+		})
+		require.ErrorIs(t, err, types.ErrSelfChallenge)
+
+		// The initiative never left SUBMITTED and no stake was locked.
+		initiative, err := k.GetInitiative(ctx, initID)
+		require.NoError(t, err)
+		require.Equal(t, types.InitiativeStatus_INITIATIVE_STATUS_SUBMITTED, initiative.Status)
+		member, err := k.GetMember(ctx, assignee)
+		require.NoError(t, err)
+		require.Equal(t, math.ZeroInt().String(), member.StakedDream.String())
+	})
 }

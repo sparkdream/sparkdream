@@ -57,6 +57,14 @@ func (k Keeper) CreateChallenge(
 		return 0, fmt.Errorf("initiative already has an active challenge")
 	}
 
+	// The assignee cannot challenge their own work: an assignee who has
+	// decided to fail could admit fault, win their own challenge, and pocket
+	// the challenger reward while only losing reputation they can re-earn.
+	// Checked before the stake is locked so a self-challenge costs nothing.
+	if initiative.Assignee == challengerAddr.String() {
+		return 0, types.ErrSelfChallenge
+	}
+
 	// A cited criterion must be one the author pre-committed to. Checked before
 	// the stake is locked so a typo costs the challenger nothing.
 	citedCriterion := ""

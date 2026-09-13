@@ -50,6 +50,7 @@ var (
 	ErrNotAssignee             = errors.Register(ModuleName, 1405, "not the assignee of this initiative")
 	ErrTagNotRegistered        = errors.Register(ModuleName, 1406, "tag not registered in forum tag registry")
 	ErrTooManyTags             = errors.Register(ModuleName, 1407, "too many tags on initiative")
+	ErrSelfChallenge           = errors.Register(ModuleName, 1408, "assignee cannot challenge their own initiative")
 
 	// Stake errors
 	ErrStakeNotFound     = errors.Register(ModuleName, 1501, "stake not found")

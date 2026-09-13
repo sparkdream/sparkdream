@@ -40,19 +40,39 @@ func SimulateMsgCreateChallenge(
 			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgCreateChallenge{}), "failed to get/create challenger with DREAM"), nil, nil
 		}
 
+		// The work must be built by a member DISTINCT from the challenger:
+		// CreateChallenge rejects a self-challenge, and getOrCreateInitiative
+		// assigns any initiative it creates to the member passed in here.
+		builder, _, err := getOrCreateDistinctMemberWithDream(r, ctx, k, accs, challenger.Address, math.NewInt(100))
+		if err != nil {
+			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgCreateChallenge{}), "failed to get/create builder"), nil, nil
+		}
+
 		// Find or create an active project
 		project, _, err := findProject(r, ctx, k, types.ProjectStatus_PROJECT_STATUS_ACTIVE)
 		if err != nil || project == nil {
-			_, err := getOrCreateProject(r, ctx, k, challenger)
+			_, err := getOrCreateProject(r, ctx, k, builder)
 			if err != nil {
 				return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgCreateChallenge{}), "failed to create project"), nil, nil
 			}
 		}
 
 		// Find or create a submitted initiative to challenge
-		initID, err := getOrCreateInitiative(r, ctx, k, challenger, types.InitiativeStatus_INITIATIVE_STATUS_SUBMITTED)
+		initID, err := getOrCreateInitiative(r, ctx, k, builder, types.InitiativeStatus_INITIATIVE_STATUS_SUBMITTED)
 		if err != nil {
 			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgCreateChallenge{}), "failed to get/create initiative"), nil, nil
+		}
+
+		// getOrCreateInitiative prefers a pre-existing SUBMITTED initiative and
+		// does not filter by assignee, so the one it returns may still be this
+		// challenger's own work. Skip instead of failing delivery: an operation
+		// that returns an error aborts the whole simulation run.
+		initiative, err := k.Initiative.Get(ctx, initID)
+		if err != nil {
+			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgCreateChallenge{}), "failed to get initiative"), nil, nil
+		}
+		if initiative.Assignee == challenger.Address {
+			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgCreateChallenge{}), "challenger is the assignee"), nil, nil
 		}
 
 		// Calculate stake (10-30% of available balance, min 100)

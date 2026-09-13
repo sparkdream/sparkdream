@@ -1013,6 +1013,47 @@ enum ChallengeStatus {
 }
 ```
 
+**The assignee cannot challenge their own initiative** (`ErrSelfChallenge`,
+1408). Challenges are filed on `SUBMITTED` or `IN_REVIEW` work by any member
+*except* the assignee, and the gate runs before the stake is locked so a
+rejected self-challenge costs nothing. The rule closes a self-dealing loop
+verified live on the devnet: an assignee who had decided to fail could
+challenge their own work, respond with an empty string (auto-upheld — an
+admission of fault), pocket the 20% challenger reward minted on uphold, and
+re-earn the slashed reputation on the next completion — a net-positive payout
+for failing. This mirrors the content-challenge rule
+(`ErrCannotChallengeOwnContent`, 2004); the initiative path had simply never
+gotten the same guard. The project *creator* remains eligible to challenge
+work they did not assign to themselves: an upheld challenge burns the
+assignee's standing and the creator still has to survive the jury or
+committee to collect.
+
+Note that the reward is freshly *minted* DREAM, not a transfer out of the
+initiative budget — `UpholdChallenge` sizes it at `budget ×
+challenger_reward_rate`, and the budget itself is returned to the parent
+project untouched (skipped for permissionless projects, which never
+pre-allocated one). So an upheld challenge is paid by inflation and the budget
+only sets the scale. That is why the gate matters more than the accounting:
+there is no pot the challenger has to compete for, and nothing about the
+budget bounds how often the loop can be run.
+
+**Scope: the gate covers the directly-signed path only.** It compares
+`initiative.assignee` against the message signer, and on the shielded path
+that signer is x/shield's module address, not the real challenger — x/shield
+*requires* the inner `MsgCreateChallenge` to be signed by its own module
+account (`ErrInvalidInnerMessageSigner`), so the comparison can never match.
+A shielded self-challenge is therefore not rejected by this rule. It does not
+currently succeed either, for an unrelated reason: `CreateChallenge` locks the
+challenger's stake via `LockDREAM`, which requires a `Member` record, and the
+shield module address is not seeded as a member — so the message fails with
+`ErrMemberNotFound` at the stake lock. Anonymous challenges are specified but
+not reachable end-to-end today; `test/rep/anon_challenge_test.sh` asserts only
+the x/shield registration metadata and that immediate mode is refused, and
+never drives a shielded challenge to completion, so the above is from code
+inspection rather than an executed path. **If that path is ever completed, the
+self-challenge rule must be re-derived from the shielded identity rather than
+the signer**, or the loop this section closes reopens behind the shield.
+
 `CHALLENGE_STATUS_VOIDED` terminates a challenge without a verdict when the
 underlying initiative is discarded out from under it — currently only when the
 parent project is cancelled (see the "Cancelling a Project" section). The
@@ -4619,6 +4660,9 @@ naming the field the committee actually set.
 | 1403 | `ErrInsufficientReputation` | Insufficient reputation for tier |
 | 1404 | `ErrConflictOfInterest` | Assignee and project creator cannot judge their own initiative |
 | 1405 | `ErrNotAssignee` | Not the assignee of this initiative |
+| 1406 | `ErrTagNotRegistered` | Tag is not registered in the tag registry |
+| 1407 | `ErrTooManyTags` | Too many tags on initiative |
+| 1408 | `ErrSelfChallenge` | Assignee cannot challenge their own initiative |
 | 1501 | `ErrStakeNotFound` | Stake not found |
 | 1502 | `ErrNotStakeOwner` | Not the owner of this stake |
 | 1503 | `ErrMinStakeDuration` | Minimum stake duration not met — returned by claim and compound before `min_stake_duration_seconds` has elapsed |

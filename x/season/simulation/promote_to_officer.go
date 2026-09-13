@@ -56,6 +56,27 @@ func SimulateMsgPromoteToOfficer(
 			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgPromoteToOfficer{}), "failed to create profile"), nil, nil
 		}
 
+		// The two remaining handler preconditions. A member promoted by an
+		// earlier operation in the same run is still a plausible random pick,
+		// and a guild fills up its officer slots as the run goes on. Skip
+		// instead of failing delivery: an operation that returns an error
+		// aborts the whole simulation run, so an unchecked precondition here
+		// is a latent abort that surfaces only on the seeds that reach it.
+		if k.IsGuildOfficer(ctx, guildID, memberAccount.Address.String()) {
+			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgPromoteToOfficer{}), "member is already an officer"), nil, nil
+		}
+		params, err := k.Params.Get(ctx)
+		if err != nil {
+			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgPromoteToOfficer{}), "failed to read params"), nil, nil
+		}
+		current, err := k.Guild.Get(ctx, guildID)
+		if err != nil {
+			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgPromoteToOfficer{}), "failed to reload guild"), nil, nil
+		}
+		if uint32(len(current.Officers)) >= params.MaxGuildOfficers {
+			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgPromoteToOfficer{}), "guild is at its officer cap"), nil, nil
+		}
+
 		msg := &types.MsgPromoteToOfficer{
 			Creator: simAccount.Address.String(),
 			GuildId: guildID,

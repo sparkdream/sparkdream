@@ -15,6 +15,7 @@ CHAIN_ID="sparkdream"
 TEST_1_RESULT="PASS"
 TEST_2_RESULT="PASS"
 TEST_3_RESULT="PASS"
+TEST_4_RESULT="PASS"
 
 # Helper functions
 wait_for_tx() {
@@ -481,6 +482,110 @@ fi
 echo ""
 
 # ========================================================================
+# TEST 4: THE ASSIGNEE CANNOT CHALLENGE THEIR OWN INITIATIVE
+# ========================================================================
+# An assignee who challenges their own work can admit fault with an empty
+# response, auto-uphold the challenge, and collect the challenger reward for
+# failing. The keeper rejects it with ErrSelfChallenge before the stake is
+# locked, so the attempt must also leave the assignee's staked DREAM alone.
+echo "--- TEST 4: Self-challenge rejected ---"
+
+MIN_CHALLENGE_STAKE=$($BINARY query rep params --output json 2>/dev/null \
+    | jq -r '.params.min_challenge_stake // "50000000"')
+echo "Step 1: Creating a SUBMITTED initiative assigned to $ASSIGNEE_ADDR..."
+INITIATIVE4_ID=$(make_submitted_initiative \
+    "Self Challenge Guard" \
+    "Work the assignee will try to challenge themselves" \
+    "challenge,test")
+
+if [ -z "$INITIATIVE4_ID" ] || [ "$INITIATIVE4_ID" = "null" ]; then
+    echo "[FAIL] Could not create SUBMITTED initiative for self-challenge test"
+    TEST_4_RESULT="FAIL"
+else
+    echo "[ OK ] Initiative #$INITIATIVE4_ID submitted"
+
+    # proto3 omits zero-valued fields from CLI JSON, so default to "0".
+    STAKED_BEFORE=$($BINARY query rep get-member "$ASSIGNEE_ADDR" --output json 2>/dev/null \
+        | jq -r '.member.staked_dream // "0"')
+
+    echo ""
+    echo "Step 2: Assignee attempts to challenge their own initiative..."
+    TX_RES=$($BINARY tx rep create-challenge \
+        $INITIATIVE4_ID \
+        "Challenging my own work to collect the reward" \
+        "$MIN_CHALLENGE_STAKE" \
+        --from assignee --chain-id $CHAIN_ID --keyring-backend test \
+        --fees 5000${BOND_DENOM} -y --output json 2>&1)
+    TXHASH=$(echo "$TX_RES" | jq -r '.txhash // empty')
+
+    # The gate lives in the msg handler, so the tx is included in a block with
+    # a non-zero code -- poll the DELIVERED result rather than trusting the
+    # broadcast response. If the broadcast itself was refused, fall back to it.
+    if [ -n "$TXHASH" ] && [ "$TXHASH" != "null" ]; then
+        sleep 6
+        TX_RESULT=$(wait_for_tx $TXHASH)
+    else
+        TX_RESULT="$TX_RES"
+    fi
+    RAW_LOG=$(echo "$TX_RESULT" | jq -r '.raw_log // ""' 2>/dev/null)
+    FULL_ERR="$TX_RES $RAW_LOG"
+
+    if check_tx_success "$TX_RESULT"; then
+        echo "[FAIL] Self-challenge was accepted; it must be rejected"
+        TEST_4_RESULT="FAIL"
+    elif echo "$FULL_ERR" | grep -qi "challenge their own initiative"; then
+        echo "[ OK ] Correctly rejected: assignee cannot challenge their own initiative"
+    else
+        echo "[FAIL] Rejected, but not by the self-challenge gate: ${RAW_LOG:0:200}"
+        TEST_4_RESULT="FAIL"
+    fi
+
+    echo ""
+    echo "Step 3: Initiative stays SUBMITTED and no stake was locked..."
+    INIT4_STATUS=$($BINARY query rep get-initiative $INITIATIVE4_ID --output json 2>/dev/null \
+        | jq -r '.initiative.status')
+    if [ "$INIT4_STATUS" = "INITIATIVE_STATUS_SUBMITTED" ]; then
+        echo "[ OK ] Initiative still SUBMITTED (never flipped to CHALLENGED)"
+    else
+        echo "[FAIL] Expected INITIATIVE_STATUS_SUBMITTED, got $INIT4_STATUS"
+        TEST_4_RESULT="FAIL"
+    fi
+
+    STAKED_AFTER=$($BINARY query rep get-member "$ASSIGNEE_ADDR" --output json 2>/dev/null \
+        | jq -r '.member.staked_dream // "0"')
+    if [ "$STAKED_AFTER" = "$STAKED_BEFORE" ]; then
+        echo "[ OK ] Staked DREAM unchanged ($STAKED_BEFORE) - gate ran before the lock"
+    else
+        echo "[FAIL] Staked DREAM moved: $STAKED_BEFORE -> $STAKED_AFTER"
+        TEST_4_RESULT="FAIL"
+    fi
+
+    echo ""
+    echo "Step 4: Control - a different member may still challenge the same work..."
+    TX_RES=$($BINARY tx rep create-challenge \
+        $INITIATIVE4_ID \
+        "The deliverable does not meet the stated requirements." \
+        "$MIN_CHALLENGE_STAKE" \
+        --from challenger --chain-id $CHAIN_ID --keyring-backend test \
+        --fees 5000${BOND_DENOM} -y --output json 2>&1)
+    TXHASH=$(echo "$TX_RES" | jq -r '.txhash // empty')
+    if [ -n "$TXHASH" ] && [ "$TXHASH" != "null" ]; then
+        sleep 6
+        TX_RESULT=$(wait_for_tx $TXHASH)
+        if check_tx_success "$TX_RESULT"; then
+            echo "[ OK ] Third-party challenge accepted - the gate is assignee-only"
+        else
+            echo "[WARN] Control challenge failed: $(echo "$TX_RESULT" | jq -r '.raw_log' | head -c 200)"
+            echo "       (challenger DREAM is shared across suites and may be spent)"
+        fi
+    else
+        echo "[WARN] Control challenge could not be broadcast"
+    fi
+fi
+
+echo ""
+
+# ========================================================================
 # SUMMARY
 # ========================================================================
 echo "================================================================================"
@@ -499,12 +604,13 @@ print_result() {
 print_result "TEST 1: Anonymous Challenge (moved to x/shield)" "$TEST_1_RESULT"
 print_result "TEST 2: Jury Review (votes + verdict tally)"     "$TEST_2_RESULT"
 print_result "TEST 3: Auto-Uphold (deadline + EndBlocker)"     "$TEST_3_RESULT"
+print_result "TEST 4: Self-Challenge Rejected (ErrSelfChallenge)" "$TEST_4_RESULT"
 echo ""
 echo "================================================================================"
 
 # Exit non-zero on any FAIL so the parent runner picks it up. SKIP does not
 # count as failure (TEST 1 is intentionally skipped).
-if [ "$TEST_2_RESULT" = "FAIL" ] || [ "$TEST_3_RESULT" = "FAIL" ]; then
+if [ "$TEST_2_RESULT" = "FAIL" ] || [ "$TEST_3_RESULT" = "FAIL" ] || [ "$TEST_4_RESULT" = "FAIL" ]; then
     exit 1
 fi
 exit 0

@@ -133,10 +133,11 @@ There is no per-target APY. Initiative and project stakes draw pro-rata from one
 
 Members can challenge initiative work quality:
 
-- **Named challenges**: min 50 DREAM stake, identity public
-- **Anonymous challenges**: via `x/shield`'s `MsgShieldedExec` (only `MsgCreateChallenge` is shield-compatible), no DREAM stake, identity hidden, module-paid gas
+- **Named challenges**: min 50 DREAM stake (`min_challenge_stake`), identity public
+- **Anonymous challenges**: via `x/shield`'s `MsgShieldedExec` (only `MsgCreateChallenge` is shield-compatible), identity hidden, module-paid gas. Specified but not reachable end-to-end today: `CreateChallenge` still locks a stake, and the shield module address it runs as has no `Member` record, so the message fails with `ErrMemberNotFound`.
+- **The assignee cannot challenge their own initiative** (`ErrSelfChallenge`). Checked before the stake is locked, so a rejected self-challenge costs nothing. The project creator *may* challenge work they did not assign to themselves. The check compares the message signer, so it covers the directly-signed path only — see the challenge section of [docs/x-rep-spec.md](../../docs/x-rep-spec.md) for why the shielded path is out of its reach.
 
-**Jury resolution**: 5 jurors (odd, configurable), weighted by reputation in relevant tags, 67% supermajority, min 50 reputation to serve. Auto-uphold if assignee doesn't respond within 3 epochs. Successful challenger receives 20% of initiative budget.
+**Jury resolution**: 5 jurors (odd, configurable), weighted by reputation in relevant tags, 67% supermajority, min 50 reputation to serve. Auto-uphold if assignee doesn't respond within 3 epochs. A successful challenger is paid freshly minted DREAM sized at 20% of the initiative budget (`challenger_reward_rate`); the budget itself returns to the parent project.
 
 ### Content Challenges
 
