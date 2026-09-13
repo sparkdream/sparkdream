@@ -1,26 +1,43 @@
 package app
 
-// gateway_fix.go fixes REST API panics from proto v2 reflection on gogoproto
-// custom types (math.Int, math.LegacyDec, *time.Time).
+// gateway_fix.go re-registers the REST gateway routes on a mux we control.
 //
-// Root cause: The gRPC-gateway handlers use client.Context.Invoke, which
-// delegates to the gRPC client connection. Somewhere in the gRPC/gateway
-// pipeline, proto v2 reflection is triggered on gogoproto types, causing panics.
+// Why it exists: the gogogateway JSONPb marshaler cannot render the
+// *time.Time fields on the block endpoints, so those are answered ahead of
+// the mux by preIntercept below. Rebuilding the mux is what lets us install
+// that middleware and our own marshaler/error-handler options — grpc-gateway
+// v1 is first-registered-wins, so the SDK's mux cannot be amended in place
+// and has to be replaced wholesale.
 //
-// Fix: Instead of letting modules register gateway handlers with clientCtx
-// (which goes through the problematic Invoke path), we register them with a
-// codecConn wrapper that explicitly adds ForceCodec(sdkCodec) to every gRPC
-// call. This ensures gogoproto marshal/unmarshal is used end-to-end.
+// Registration mirrors runtime.App.RegisterAPIRoutes exactly: the three
+// non-module SDK services, then every module's own RegisterGRPCGatewayRoutes.
+// Modules are read from the module manager rather than a list kept here, so a
+// new module's REST routes appear the moment it is wired into the app. An
+// earlier revision of this file did keep such a list, and four modules
+// (federation, guardian, identity, service) were silently missing from it —
+// nothing fails at build or boot, the endpoints just answer 501.
 //
-// This is a GENERIC fix — no per-endpoint URL mapping. Adding a new module
-// requires one RegisterQueryHandlerClient line, and new endpoints within
-// existing modules are automatically covered.
+// Marshaler safety: calling the modules' own RegisterGRPCGatewayRoutes lets a
+// module reach into the mux, and x/gnovm does — it calls
+// runtime.SetHTTPBodyMarshaler, replacing the wildcard marshaler with
+// grpc-gateway's proto v2-backed JSONPb, which panics on gogoproto custom
+// types across every route. registerGatewayRoutes therefore re-asserts our
+// marshaler after the module loop; see setGatewayMarshaler.
+//
+// Codec safety: these handlers query through clientCtx, whose Invoke either
+// calls clientCtx.GRPCClient — which the SDK dials with
+// grpc.ForceCodec(gogo) as a default call option (server/start.go) — or,
+// when gRPC is disabled and that client is nil, falls back to an ABCI query
+// marshaled with ctx.gRPCCodec(). Both paths use the SDK's gogoproto codec,
+// which is what keeps proto v2 reflection away from gogoproto custom types
+// (math.Int, math.LegacyDec).
 
 import (
 	"context"
 	"fmt"
 	"net/http"
 	"os"
+	"sort"
 	"strings"
 
 	gateway "github.com/cosmos/gogogateway"
@@ -28,128 +45,92 @@ import (
 	"github.com/grpc-ecosystem/grpc-gateway/runtime"
 	"google.golang.org/grpc"
 
+	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/codec"
+	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
 	"github.com/cosmos/cosmos-sdk/server/api"
+	"github.com/cosmos/cosmos-sdk/types/module"
 
-	// SDK services
+	// Services the SDK registers outside the module manager, so the loop over
+	// modules cannot reach them.
 	cmtservice "github.com/cosmos/cosmos-sdk/client/grpc/cmtservice"
 	nodeservice "github.com/cosmos/cosmos-sdk/client/grpc/node"
-	txtypes "github.com/cosmos/cosmos-sdk/types/tx"
-
-	// SDK modules
-	upgradetypes "cosmossdk.io/x/upgrade/types"
-	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
-	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
-	consensustypes "github.com/cosmos/cosmos-sdk/x/consensus/types"
-	distrtypes "github.com/cosmos/cosmos-sdk/x/distribution/types"
-	govtypesv1 "github.com/cosmos/cosmos-sdk/x/gov/types/v1"
-	minttypes "github.com/cosmos/cosmos-sdk/x/mint/types"
-	slashingtypes "github.com/cosmos/cosmos-sdk/x/slashing/types"
-	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
-
-	// IBC modules
-	ibctransfertypes "github.com/cosmos/ibc-go/v10/modules/apps/transfer/types"
-	ibcclienttypes "github.com/cosmos/ibc-go/v10/modules/core/02-client/types"
-	ibcconnectiontypes "github.com/cosmos/ibc-go/v10/modules/core/03-connection/types"
-	ibcchanneltypes "github.com/cosmos/ibc-go/v10/modules/core/04-channel/types"
-
-	// Custom modules
-	blogtypes "sparkdream/x/blog/types"
-	collecttypes "sparkdream/x/collect/types"
-	commonstypes "sparkdream/x/commons/types"
-	ecosystemtypes "sparkdream/x/ecosystem/types"
-	forumtypes "sparkdream/x/forum/types"
-	futarchytypes "sparkdream/x/futarchy/types"
-	nametypes "sparkdream/x/name/types"
-	reptypes "sparkdream/x/rep/types"
-	revealtypes "sparkdream/x/reveal/types"
-	seasontypes "sparkdream/x/season/types"
-	sessiontypes "sparkdream/x/session/types"
-	shieldtypes "sparkdream/x/shield/types"
-	sparkdreamtypes "sparkdream/x/sparkdream/types"
-	splittypes "sparkdream/x/split/types"
+	authtx "github.com/cosmos/cosmos-sdk/x/auth/tx"
 )
 
-// codecConn wraps a gRPC connection and forces the SDK codec on every call.
-// This bypasses the problematic proto v2 marshaling in the default gRPC codec.
-type codecConn struct {
-	inner    *grpc.ClientConn
-	forceOpt grpc.CallOption
+// hasGatewayRoutes is the one method of module.AppModuleBasic we need. Kept
+// narrow deliberately: it matches any module that can register REST routes,
+// without requiring the rest of the basic-module surface.
+type hasGatewayRoutes interface {
+	RegisterGRPCGatewayRoutes(client.Context, *runtime.ServeMux)
 }
 
-func (c *codecConn) Invoke(ctx context.Context, method string, args, reply interface{}, opts ...grpc.CallOption) error {
-	return c.inner.Invoke(ctx, method, args, reply, append(opts, c.forceOpt)...)
-}
+// registerGatewayRoutes registers every REST route on the given mux, in the
+// same order runtime.App.RegisterAPIRoutes does: the SDK services that live
+// outside the module manager first, then each module's own registration.
+//
+// Module order is sorted rather than map order so registration is
+// deterministic; grpc-gateway v1 is first-registered-wins, and a random order
+// would resolve any future path collision differently from run to run.
+func registerGatewayRoutes(mux *runtime.ServeMux, clientCtx client.Context, mm *module.Manager) {
+	authtx.RegisterGRPCGatewayRoutes(clientCtx, mux)
+	cmtservice.RegisterGRPCGatewayRoutes(clientCtx, mux)
+	nodeservice.RegisterGRPCGatewayRoutes(clientCtx, mux)
 
-func (c *codecConn) NewStream(ctx context.Context, desc *grpc.StreamDesc, method string, opts ...grpc.CallOption) (grpc.ClientStream, error) {
-	return c.inner.NewStream(ctx, desc, method, append(opts, c.forceOpt)...)
-}
+	names := make([]string, 0, len(mm.Modules))
+	for name := range mm.Modules {
+		names = append(names, name)
+	}
+	sort.Strings(names)
 
-// registerGatewayRoutes registers all gRPC-gateway routes using our codecConn
-// wrapper instead of clientCtx. This is the core fix — modules' gateway
-// handlers will use the SDK codec for all gRPC calls.
-func registerGatewayRoutes(mux *runtime.ServeMux, conn *codecConn) {
-	ctx := context.Background()
-
-	// SDK services
-	cmtservice.RegisterServiceHandlerClient(ctx, mux, cmtservice.NewServiceClient(conn))
-	txtypes.RegisterServiceHandlerClient(ctx, mux, txtypes.NewServiceClient(conn))
-	nodeservice.RegisterServiceHandlerClient(ctx, mux, nodeservice.NewServiceClient(conn))
-
-	// SDK modules
-	authtypes.RegisterQueryHandlerClient(ctx, mux, authtypes.NewQueryClient(conn))
-	banktypes.RegisterQueryHandlerClient(ctx, mux, banktypes.NewQueryClient(conn))
-	consensustypes.RegisterQueryHandlerClient(ctx, mux, consensustypes.NewQueryClient(conn))
-	distrtypes.RegisterQueryHandlerClient(ctx, mux, distrtypes.NewQueryClient(conn))
-	govtypesv1.RegisterQueryHandlerClient(ctx, mux, govtypesv1.NewQueryClient(conn))
-	minttypes.RegisterQueryHandlerClient(ctx, mux, minttypes.NewQueryClient(conn))
-	slashingtypes.RegisterQueryHandlerClient(ctx, mux, slashingtypes.NewQueryClient(conn))
-	stakingtypes.RegisterQueryHandlerClient(ctx, mux, stakingtypes.NewQueryClient(conn))
-	upgradetypes.RegisterQueryHandlerClient(ctx, mux, upgradetypes.NewQueryClient(conn))
-
-	// IBC modules
-	ibctransfertypes.RegisterQueryHandlerClient(ctx, mux, ibctransfertypes.NewQueryClient(conn))
-	ibcchanneltypes.RegisterQueryHandlerClient(ctx, mux, ibcchanneltypes.NewQueryClient(conn))
-	ibcconnectiontypes.RegisterQueryHandlerClient(ctx, mux, ibcconnectiontypes.NewQueryClient(conn))
-	ibcclienttypes.RegisterQueryHandlerClient(ctx, mux, ibcclienttypes.NewQueryClient(conn))
-
-	// Custom modules — add one line here when adding a new module
-	blogtypes.RegisterQueryHandlerClient(ctx, mux, blogtypes.NewQueryClient(conn))
-	collecttypes.RegisterQueryHandlerClient(ctx, mux, collecttypes.NewQueryClient(conn))
-	commonstypes.RegisterQueryHandlerClient(ctx, mux, commonstypes.NewQueryClient(conn))
-	ecosystemtypes.RegisterQueryHandlerClient(ctx, mux, ecosystemtypes.NewQueryClient(conn))
-	forumtypes.RegisterQueryHandlerClient(ctx, mux, forumtypes.NewQueryClient(conn))
-	futarchytypes.RegisterQueryHandlerClient(ctx, mux, futarchytypes.NewQueryClient(conn))
-	nametypes.RegisterQueryHandlerClient(ctx, mux, nametypes.NewQueryClient(conn))
-	reptypes.RegisterQueryHandlerClient(ctx, mux, reptypes.NewQueryClient(conn))
-	revealtypes.RegisterQueryHandlerClient(ctx, mux, revealtypes.NewQueryClient(conn))
-	seasontypes.RegisterQueryHandlerClient(ctx, mux, seasontypes.NewQueryClient(conn))
-	sessiontypes.RegisterQueryHandlerClient(ctx, mux, sessiontypes.NewQueryClient(conn))
-	shieldtypes.RegisterQueryHandlerClient(ctx, mux, shieldtypes.NewQueryClient(conn))
-	sparkdreamtypes.RegisterQueryHandlerClient(ctx, mux, sparkdreamtypes.NewQueryClient(conn))
-	splittypes.RegisterQueryHandlerClient(ctx, mux, splittypes.NewQueryClient(conn))
-}
-
-// installGatewayFix sets up the codec-safe gateway routes and middleware.
-func installGatewayFix(apiSvr *api.Server) {
-	cdc := codec.NewProtoCodec(apiSvr.ClientCtx.InterfaceRegistry)
-
-	conn := &codecConn{
-		inner:    apiSvr.ClientCtx.GRPCClient,
-		forceOpt: grpc.ForceCodec(cdc.GRPCCodec()),
+	for _, name := range names {
+		if gw, ok := mm.Modules[name].(hasGatewayRoutes); ok {
+			gw.RegisterGRPCGatewayRoutes(clientCtx, mux)
+		}
 	}
 
-	// Create a FRESH mux — grpc-gateway v1 uses first-registered-wins,
-	// so we can't override the SDK's routes on the existing mux.
-	// Replicate the SDK's mux options from server/api/server.go:New().
-	marshalerOption := &gateway.JSONPb{
-		EmitDefaults: true,
-		Indent:       "",
-		OrigName:     true,
-		AnyResolver:  apiSvr.ClientCtx.InterfaceRegistry,
+	// Re-assert our marshaler, because a module is free to replace it during
+	// its own registration and one does: x/gnovm calls
+	// runtime.SetHTTPBodyMarshaler, which overwrites the wildcard entry with
+	// grpc-gateway's own JSONPb. That one marshals through
+	// github.com/golang/protobuf/jsonpb and so hits proto v2 reflection,
+	// which panics on every gogoproto custom type (math.Int, math.LegacyDec)
+	// — the exact failure this file exists to prevent. The marshaler is a
+	// single map entry consulted per request, so one module clobbering it
+	// breaks every route, not just its own.
+	//
+	// This must run AFTER the module loop. Doing it in newGatewayMux alone is
+	// not enough, and looks fine in any test that checks a freshly built mux.
+	setGatewayMarshaler(mux, clientCtx.InterfaceRegistry)
+}
+
+// setGatewayMarshaler installs our gogoproto-aware marshaler as the mux's
+// wildcard marshaler. ServeMuxOption is just func(*ServeMux), so the same
+// option the constructor takes can be re-applied to a live mux.
+//
+// It is wrapped in grpc-gateway's HTTPBodyMarshaler so that a handler
+// returning google.api.HttpBody still renders as raw bytes — that is what
+// x/gnovm wanted from SetHTTPBodyMarshaler, and it is preserved here rather
+// than traded away. Everything that is not an HttpBody falls through to the
+// gogo marshaler.
+func setGatewayMarshaler(mux *runtime.ServeMux, ir codectypes.InterfaceRegistry) {
+	m := &runtime.HTTPBodyMarshaler{
+		Marshaler: &gateway.JSONPb{
+			EmitDefaults: true,
+			Indent:       "",
+			OrigName:     true,
+			AnyResolver:  ir,
+		},
 	}
-	newMux := runtime.NewServeMux(
-		runtime.WithMarshalerOption(runtime.MIMEWildcard, marshalerOption),
+	runtime.WithMarshalerOption(runtime.MIMEWildcard, m)(mux)
+}
+
+// newGatewayMux builds the replacement mux, replicating the SDK's own options
+// from server/api/server.go:New(). Shared with the tests so they exercise the
+// same routing behaviour the node serves — notably the proto error handler,
+// which is what makes an unmatched route answer 501 rather than 404.
+func newGatewayMux(ir codectypes.InterfaceRegistry) *runtime.ServeMux {
+	mux := runtime.NewServeMux(
 		runtime.WithProtoErrorHandler(runtime.DefaultHTTPProtoErrorHandler),
 		runtime.WithIncomingHeaderMatcher(api.CustomGRPCHeaderMatcher),
 		runtime.WithForwardResponseOption(func(ctx context.Context, w http.ResponseWriter, _ golangproto.Message) error {
@@ -161,21 +142,31 @@ func installGatewayFix(apiSvr *api.Server) {
 			return nil
 		}),
 	)
+	setGatewayMarshaler(mux, ir)
+	return mux
+}
 
-	// Register all gateway routes on the fresh mux using our codec wrapper
-	registerGatewayRoutes(newMux, conn)
+// installGatewayFix sets up the gateway routes and middleware.
+func installGatewayFix(apiSvr *api.Server, mm *module.Manager) {
+	cdc := codec.NewProtoCodec(apiSvr.ClientCtx.InterfaceRegistry)
+
+	// Create a FRESH mux — grpc-gateway v1 uses first-registered-wins,
+	// so we can't override the SDK's routes on the existing mux.
+	newMux := newGatewayMux(apiSvr.ClientCtx.InterfaceRegistry)
+
+	// Register all gateway routes on the fresh mux
+	registerGatewayRoutes(newMux, apiSvr.ClientCtx, mm)
 
 	// Replace the SDK's mux — Start() will mount this one
 	apiSvr.GRPCGatewayRouter = newMux
 
-	// Pre-intercept middleware for denom metadata defaults + panic safety net
+	// Pre-intercept middleware for the block endpoints + panic safety net
 	grpcConn := apiSvr.ClientCtx.GRPCClient
 	apiSvr.Router.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			path := strings.TrimPrefix(r.URL.Path, "/")
 
 			// Pre-intercept: block endpoints (time.Time marshaling issue)
-			// and denom metadata (default values when genesis has none)
 			if bz, ok := preIntercept(cdc, grpcConn, path); ok {
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(200)
@@ -198,9 +189,10 @@ func installGatewayFix(apiSvr *api.Server) {
 	})
 }
 
-// preIntercept handles endpoints that need to bypass the gateway marshaler:
-// - Block endpoints: gogogateway JSONPb can't marshal time.Time (stdtime)
-// - Denom metadata: provide defaults when genesis has none
+// preIntercept answers the endpoints that have to bypass the gateway
+// marshaler: the block endpoints, whose *time.Time (stdtime) fields the
+// gogogateway JSONPb marshaler cannot render. Everything else falls through
+// to the mux.
 func preIntercept(cdc *codec.ProtoCodec, conn *grpc.ClientConn, path string) ([]byte, bool) {
 	if conn == nil {
 		return nil, false

@@ -631,12 +631,17 @@ func (app *App) SimulationManager() *module.SimulationManager {
 // RegisterAPIRoutes registers all application module routes with the provided
 // API server.
 func (app *App) RegisterAPIRoutes(apiSvr *api.Server, apiConfig config.APIConfig) {
+	// Kept deliberately even though installGatewayFix discards the mux this
+	// populates: it is the SDK's own hook, and cheap insurance if a future
+	// version does more here than register gateway routes.
 	app.App.RegisterAPIRoutes(apiSvr, apiConfig)
 
-	// Re-register all gateway routes using a codec-safe gRPC connection.
-	// The SDK's registration uses clientCtx which triggers proto v2 panics
-	// on gogoproto custom types. Our codecConn wrapper forces the SDK codec.
-	installGatewayFix(apiSvr)
+	// Rebuild the gateway mux on one we control, so the block-endpoint
+	// pre-intercept middleware and our own marshaler options can be installed
+	// — grpc-gateway v1 is first-registered-wins, so the SDK's mux cannot be
+	// amended in place. Codec safety comes from clientCtx itself; see
+	// gateway_fix.go.
+	installGatewayFix(apiSvr, app.ModuleManager)
 
 	// register swagger API in app.go so that other applications can override easily
 	if err := server.RegisterSwaggerAPI(apiSvr.ClientCtx, apiSvr.Router, apiConfig.Swagger); err != nil {

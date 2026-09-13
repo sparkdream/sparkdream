@@ -13,8 +13,8 @@
 #   5. Verifies test params are active (not production)
 #   6. Runs legacy module tests (ecosystem, split, gov)
 #   7. Runs per-module tests (commons, name, futarchy, gnovm, rep, blog,
-#      forum, collect, shield, reveal, federation, season) — each with its
-#      own run_all_tests.sh
+#      forum, collect, shield, reveal, federation, season) plus the
+#      app-level `rest` suite — each with its own run_all_tests.sh
 #   8. Runs destructive commons tests last (tech upgrade, fire council)
 #   9. Reports results
 #
@@ -82,7 +82,9 @@ ONLY_MODULE=""
 # Re-measure and reorder when adding a new module or after major changes
 # to a slow suite. The simplest measurement source is the per-module log
 # mtimes in e2e/latest/ after a full parallel run.
-MODULE_ORDER="forum rep federation season commons collect blog shield futarchy name service reveal gnovm identity guardian"
+# `rest` is app-level LCD wiring rather than a module, and runs in seconds —
+# it stays last so it never delays a batch.
+MODULE_ORDER="forum rep federation season commons collect blog shield futarchy name service reveal gnovm identity guardian rest"
 
 # Track results
 PASSED_TESTS=()

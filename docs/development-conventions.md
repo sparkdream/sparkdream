@@ -199,6 +199,56 @@ nobody is asking for and carries the gap forever.
 
 `make proto-gen` runs `ignite generate proto-go`.
 
+## REST Gateway Routes
+
+The LCD surface is rebuilt at boot by [app/gateway_fix.go](../app/gateway_fix.go),
+which replaces the SDK's gateway mux wholesale. grpc-gateway v1 is
+first-registered-wins, so the SDK's mux cannot be amended in place — replacing
+it is what lets the block-endpoint pre-intercept and the marshaler options be
+installed at all.
+
+- **Never hand-maintain a module list there.** Routes are registered by
+  iterating the module manager, so a new module's REST endpoints appear the
+  moment it is wired into the app. The file did keep such a list once, and four
+  modules (federation, guardian, identity, service) were silently missing from
+  it — nothing fails at build or boot, the endpoints just answer `501`.
+- **Nothing about that failure is loud**, which is why it is guarded by tests
+  rather than review: `TestEveryModuleRegistersGatewayRoutes` and
+  `TestGatewayMuxServesEveryModulePrefix` in
+  [app/gateway_routes_test.go](../app/gateway_routes_test.go) cover the routing
+  table in-process, and `test/rest/lcd_routes_test.sh` covers the live serving
+  path against a running node.
+- **Registration order is sorted, not map order.** first-registered-wins means
+  a random order would resolve any future path collision differently from run
+  to run.
+- **Codec safety comes from `clientCtx`, not from a wrapper.** All three of its
+  query paths use the SDK's gogoproto codec — the default gRPC conn and any
+  historical conns are dialed with `grpc.ForceCodec(gogo)`, and the ABCI
+  fallback marshals with `ctx.gRPCCodec()`. That is what keeps proto v2
+  reflection away from gogoproto custom types (`math.Int`, `math.LegacyDec`).
+- **The block endpoints are answered ahead of the mux** by `preIntercept`,
+  because the gogogateway JSONPb marshaler cannot render their `*time.Time`
+  fields. Everything else falls through.
+- **The mux's marshaler is load-bearing, and a module can steal it.**
+  `EmitDefaults` + `OrigName` produce `default_send_enabled: false` rather than
+  an omitted `defaultSendEnabled`. More importantly the marshaler must be the
+  *gogo* one: grpc-gateway's own `JSONPb` marshals through
+  `github.com/golang/protobuf/jsonpb`, which hits proto v2 reflection and
+  **panics on every `math.Int` / `math.LegacyDec` field**.
+
+  `RegisterGRPCGatewayRoutes` is an open door here — `x/gnovm` calls
+  `runtime.SetHTTPBodyMarshaler(mux)`, which overwrites the single wildcard
+  marshaler entry and so breaks *every* route, not just its own. That is why
+  `registerGatewayRoutes` re-asserts the marshaler after the module loop, and
+  why it wraps it in `HTTPBodyMarshaler` (keeping the `google.api.HttpBody`
+  rendering gnovm wanted, without the proto v2 marshaler underneath).
+
+  When this regressed, all 17 endpoints whose response carries a custom type
+  answered 500 while the other 16 stayed green, and the only evidence anywhere
+  was one `gateway_fix: handler panic` line per request on the node's stderr.
+  Assert the marshaler **after** registration, never on a freshly built mux — a
+  fresh-mux check passes while the live node is fully broken.
+
 ## Writing Regression Guards
 
 - **Prove a new guard fails against the old behaviour.** Temporarily revert the
