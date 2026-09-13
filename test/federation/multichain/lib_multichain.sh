@@ -42,7 +42,7 @@ CHAIN_B_HOME="$LIB_DIR/data/chain-b"
 CHAIN_A_ID="fedtest-a"
 CHAIN_B_ID="fedtest-b"
 
-CHAIN_A_RPC="tcp://localhost:26657"
+CHAIN_A_RPC="tcp://localhost:56657"
 CHAIN_B_RPC="tcp://localhost:36657"
 
 HERMES_CONFIG="$LIB_DIR/hermes_config.toml"

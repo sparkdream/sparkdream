@@ -135,10 +135,16 @@ fi
 # ------------------------------------------------------------------
 # 6. Port availability (best-effort)
 # ------------------------------------------------------------------
-for port in 26657 26656 9090 1317 36657 36656 9190 1417; do
+# Advisory only, and deliberately so: this runs BEFORE stop_chains.sh, so a
+# previous run's own chain-a/chain-b can still legitimately hold these ports
+# and will be cleaned up before the new ones start. Failing here would reject
+# a perfectly good rerun. start_chains.sh repeats this check after the
+# teardown, where a remaining listener really is foreign, and fails hard.
+for port in 56657 56656 9390 1617 36657 36656 9190 1417; do
     if command -v ss >/dev/null 2>&1; then
         if ss -tln 2>/dev/null | awk '{print $4}' | grep -qE ":$port\$"; then
-            yellow "  [WARN] port $port is already in use (will conflict on chain start)"
+            yellow "  [WARN] port $port is already in use"
+            yellow "         If it is not this suite's own leftover chain, chain start will fail."
         fi
     fi
 done

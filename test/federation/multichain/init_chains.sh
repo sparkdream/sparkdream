@@ -298,7 +298,7 @@ PVSTATE
 # ------------------------------------------------------------------
 echo ""
 echo "=== Step 1: Bootstrapping chain-a ($CHAIN_A_ID) ==="
-clone_template "$CHAIN_A_HOME" "$CHAIN_A_ID" 0
+clone_template "$CHAIN_A_HOME" "$CHAIN_A_ID" 30000
 echo "  chain-a ready at $CHAIN_A_HOME"
 
 # ------------------------------------------------------------------
@@ -315,7 +315,7 @@ echo "  INITIALIZATION COMPLETE"
 echo "=================================================="
 echo ""
 echo "  chain-a ($CHAIN_A_ID): $CHAIN_A_HOME"
-echo "    RPC=26657  P2P=26656  gRPC=9090  LCD=1317"
+echo "    RPC=56657  P2P=56656  gRPC=9390  LCD=1617"
 echo "  chain-b ($CHAIN_B_ID): $CHAIN_B_HOME"
 echo "    RPC=36657  P2P=36656  gRPC=9190  LCD=1417"
 echo ""

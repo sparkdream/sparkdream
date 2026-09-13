@@ -6,7 +6,7 @@ End-to-end test suite for cross-chain federation flows (content sharing, identit
 
 ```
    chain-a (fedtest-a)               chain-b (fedtest-b)
-   RPC :26657 / gRPC :9090           RPC :36657 / gRPC :9190
+   RPC :56657 / gRPC :9390           RPC :36657 / gRPC :9190
                   |                          |
                   +-- hermes IBC relayer ----+
                           (port: federation, version: federation-1)
@@ -122,7 +122,9 @@ HERMES=$HOME/.local/bin/hermes ./run_all_multichain_tests.sh
 
 ### 5. Free ports
 
-The suite needs `26656/26657/9090/1317` (chain-a) and `36656/36657/9190/1417` (chain-b). The prereq check warns if any are already in use.
+The suite needs `56656/56657/9390/1617` (chain-a) and `36656/36657/9190/1417` (chain-b). Neither chain uses the Cosmos SDK defaults (`26657/9090/1317`) — chain-a used to, which made it collide with anything else on the box bound to `9090`, including non-Cosmos services.
+
+`check_prereqs.sh` warns about ports in use; `start_chains.sh` re-checks after teardown and fails hard, then waits for **both** RPC and gRPC on each chain. That second probe matters: a gRPC bind failure does not stop CometBFT, so the node keeps producing blocks and an RPC-only check sees a healthy chain while Hermes later fails with an opaque `h2 protocol error`.
 
 ## Running
 

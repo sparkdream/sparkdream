@@ -35,9 +35,9 @@ port = 5555
 [[chains]]
 id = 'fedtest-a'
 type = 'CosmosSdk'
-rpc_addr = 'http://localhost:26657'
-grpc_addr = 'http://localhost:9090'
-event_source = { mode = 'push', url = 'ws://localhost:26657/websocket', batch_delay = '500ms' }
+rpc_addr = 'http://localhost:56657'
+grpc_addr = 'http://localhost:9390'
+event_source = { mode = 'push', url = 'ws://localhost:56657/websocket', batch_delay = '500ms' }
 rpc_timeout = '10s'
 account_prefix = 'sprkdrm'
 key_name = 'hermes-a'

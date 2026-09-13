@@ -135,7 +135,7 @@ echo "==========================================================================
 echo "           X/FEDERATION — MULTI-CHAIN E2E TEST SUITE"
 echo "============================================================================"
 echo ""
-echo "  Chain A: fedtest-a (RPC: 26657)"
+echo "  Chain A: fedtest-a (RPC: 56657)"
 echo "  Chain B: fedtest-b (RPC: 36657)"
 echo "  hermes:  ${HERMES:-hermes}"
 echo "  binary:  ${BINARY:-sparkdreamd}"
