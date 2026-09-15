@@ -73,6 +73,46 @@ FLAGGED=$(query collect flagged-content)
 FLAGGED_TYPE=$(echo "$FLAGGED" | jq -r '(.collection_flags // []) | type' 2>/dev/null)
 assert_equal "flagged-content returns a collection_flags array" "array" "$FLAGGED_TYPE"
 
+# pagination.total must be the size of the whole review queue, not of the page
+# that was returned: a truncated total tells a client there is no second page.
+# The default page size is 100, so an unpaginated read returns the whole queue
+# and total must equal the row count exactly. Over-counting is the orphan bug
+# (an index row whose CollectionFlag is gone used to advance the count without
+# being returned); under-counting is the truncated-total bug.
+FLAGGED_ROWS=$(echo "$FLAGGED" | jq -r '(.collection_flags // []) | length' 2>/dev/null)
+FLAGGED_TOTAL=$(echo "$FLAGGED" | jq -r '.pagination.total // "0"' 2>/dev/null)
+assert_not_empty "flagged-content reports pagination.total" "$FLAGGED_TOTAL"
+if [ "$FLAGGED_ROWS" -lt 100 ] 2>/dev/null; then
+    assert_equal "flagged-content total matches rows on a single page" "$FLAGGED_ROWS" "$FLAGGED_TOTAL"
+else
+    echo "[WARN] Review queue filled the default page ($FLAGGED_ROWS); skipping exact-total check"
+fi
+
+# With >= 2 queued targets, a one-row page must still report the full total --
+# the regression this guards is total collapsing to the page size.
+if [ "$FLAGGED_TOTAL" -ge 2 ] 2>/dev/null; then
+    PAGE1=$(query collect flagged-content --page-limit 1)
+    PAGE1_ROWS=$(echo "$PAGE1" | jq -r '(.collection_flags // []) | length' 2>/dev/null)
+    PAGE1_TOTAL=$(echo "$PAGE1" | jq -r '.pagination.total // "0"' 2>/dev/null)
+    assert_equal "flagged-content --page-limit 1 returns one row" "1" "$PAGE1_ROWS"
+    assert_equal "flagged-content one-row page still reports full total" "$FLAGGED_TOTAL" "$PAGE1_TOTAL"
+
+    # Offsetting past the first row must yield a different target, proving the
+    # offset advances over real rows rather than over skipped index entries.
+    PAGE1_ID=$(echo "$PAGE1" | jq -r '.collection_flags[0].target_id // "0"' 2>/dev/null)
+    PAGE2=$(query collect flagged-content --page-limit 1 --page-offset 1)
+    PAGE2_ID=$(echo "$PAGE2" | jq -r '.collection_flags[0].target_id // "0"' 2>/dev/null)
+    if [ -n "$PAGE2_ID" ] && [ "$PAGE2_ID" != "$PAGE1_ID" ]; then
+        echo "PASS: flagged-content offset 1 returns a different target ($PAGE1_ID -> $PAGE2_ID)"
+        TESTS_PASSED=$((TESTS_PASSED + 1))
+    else
+        echo "FAIL: flagged-content offset 1 repeated target $PAGE1_ID"
+        TESTS_FAILED=$((TESTS_FAILED + 1))
+    fi
+else
+    echo "[WARN] Fewer than 2 targets in the review queue ($FLAGGED_TOTAL); skipping paging checks"
+fi
+
 # =========================================================================
 # Test 7: Query sponsorship-requests
 # =========================================================================

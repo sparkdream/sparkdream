@@ -109,7 +109,7 @@ fi
 
 # reason: 1 = MODERATION_REASON_SPAM, reason_text must be empty for non-OTHER reasons
 # collector1 flags collector2's collection
-TX_OUT=$(send_tx collect flag-content "$FLAG_COLL_ID" collection spam "" --from collector1)
+TX_OUT=$(send_tx collect flag-content "$FLAG_COLL_ID" collection spam --from collector1)
 assert_tx_success "Member flags collection as spam" "$TX_OUT"
 
 # =========================================================================
@@ -126,8 +126,33 @@ assert_not_empty "Flag total weight is set" "$FLAG_TOTAL"
 # =========================================================================
 echo ""
 echo "--- Test 8: Non-member cannot flag ---"
-TX_OUT=$(send_tx collect flag-content "$FLAG_COLL_ID" collection spam "" --from nonmember1)
+TX_OUT=$(send_tx collect flag-content "$FLAG_COLL_ID" collection spam --from nonmember1)
 assert_tx_failure "Non-member cannot flag" "$TX_OUT"
+
+# =========================================================================
+# Test 9: reason-text is only accepted with reason "other"
+# =========================================================================
+# The reason-text positional is optional, so a non-OTHER flag is three
+# arguments; supplying it anyway is rejected with ErrFlagReasonTextForbidden
+# rather than the generic invalid-reason error.
+#
+# These run as collector2, who owns FLAG_COLL_ID but has not flagged it (there
+# is no self-flag guard, and reason-text validation precedes the
+# already-flagged and rate-limit checks). collector1 would fail these on
+# "already flagged" from Test 6 whether or not the reason-text rule holds, so
+# the assertions would not discriminate.
+echo ""
+echo "--- Test 9: reason-text rules ---"
+TX_OUT=$(send_tx collect flag-content "$FLAG_COLL_ID" collection low-quality "should not be set" --from collector2)
+assert_tx_failure "reason-text rejected with a non-OTHER reason" "$TX_OUT"
+
+# The mirror rule: reason "other" requires the text. Omitting it is rejected.
+TX_OUT=$(send_tx collect flag-content "$FLAG_COLL_ID" collection other --from collector2)
+assert_tx_failure "reason other without reason-text is rejected" "$TX_OUT"
+
+# The one case that legitimately takes four positionals.
+TX_OUT=$(send_tx collect flag-content "$FLAG_COLL_ID" collection other "custom reason for testing" --from collector2)
+assert_tx_success "reason other with reason-text succeeds" "$TX_OUT"
 
 echo ""
 print_summary

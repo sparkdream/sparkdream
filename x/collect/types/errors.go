@@ -99,6 +99,9 @@ var (
 	ErrMaxFlagsPerTarget              = errors.Register(ModuleName, 1186, "target has reached max flaggers")
 	ErrFlagReasonTextRequired         = errors.Register(ModuleName, 1187, "reason_text required for REASON_OTHER")
 	ErrFlagReasonTextTooLong          = errors.Register(ModuleName, 1188, "flag reason_text exceeds max length")
+	// Coded out of the 1185-1188 flag block (1189+ belongs to the
+	// OnChainReference range below), so it takes the next free tail code.
+	ErrFlagReasonTextForbidden = errors.Register(ModuleName, 1265, "reason_text is only accepted with reason OTHER; leave it empty for every other reason")
 
 	// OnChainReference validation errors (1189-1199)
 	ErrInvalidOnChainRef  = errors.Register(ModuleName, 1189, "invalid on-chain reference: unknown entity_type or malformed entity_id")

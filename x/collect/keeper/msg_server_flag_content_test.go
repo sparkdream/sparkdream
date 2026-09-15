@@ -188,7 +188,7 @@ func TestFlagContent(t *testing.T) {
 				}
 			},
 			expErr:         true,
-			expErrContains: "invalid or unspecified flag reason",
+			expErrContains: "reason_text is only accepted with reason OTHER",
 		},
 	}
 

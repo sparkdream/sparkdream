@@ -311,16 +311,29 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "target_id"}, {ProtoField: "target_type"}},
 				},
 				{
-					RpcMethod:      "FlagContent",
-					Use:            "flag-content [target-id] [target-type] [reason] [reason-text]",
-					Short:          "Send a FlagContent tx",
-					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "target_id"}, {ProtoField: "target_type"}, {ProtoField: "reason"}, {ProtoField: "reason_text"}},
+					RpcMethod: "FlagContent",
+					Use:       "flag-content [target-id] [target-type] [reason] [reason-text]",
+					Short:     "Flag public content for sentinel review",
+					Long: `Flag public content for sentinel review.
+
+target-type is one of: collection, item.
+
+reason is one of: spam, harassment, misinformation, off-topic, low-quality,
+inappropriate, impersonation, policy-violation, duplicate, scam, copyright,
+other.
+
+reason-text is only accepted with reason "other", where it is required. Omit it
+for every other reason:
+
+  flag-content 1 collection low-quality --from alice
+  flag-content 1 collection other "links to a phishing clone" --from alice`,
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "target_id"}, {ProtoField: "target_type"}, {ProtoField: "reason"}, {ProtoField: "reason_text", Optional: true}},
 				},
 				{
 					RpcMethod:      "HideContent",
 					Use:            "hide-content [target-id] [target-type] [reason-code] [reason-text]",
 					Short:          "Hide public content (sentinel or council; select with --authority)",
-					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "target_id"}, {ProtoField: "target_type"}, {ProtoField: "reason_code"}, {ProtoField: "reason_text"}},
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "target_id"}, {ProtoField: "target_type"}, {ProtoField: "reason_code"}, {ProtoField: "reason_text", Optional: true}},
 				},
 				{
 					RpcMethod:      "AppealHide",

@@ -197,7 +197,7 @@ Anonymous collections are created via `x/shield`'s `MsgShieldedExec` wrapping `M
 
 | Message | Description | Access |
 |---------|-------------|--------|
-| `MsgFlagContent` | Report inappropriate content (builds review queue) | Any member |
+| `MsgFlagContent` | Report inappropriate content (builds review queue); `reason_text` only with reason `OTHER` | Any member |
 | `MsgHideContent` | Hide flagged content (auth + bond commit/release/slash via x/rep `BondedRole(ROLE_TYPE_CONTENT_SENTINEL)`); slashes author bond and applies per-tag `author_rep_penalty` on collection hides | Active forum sentinel |
 | `MsgAppealHide` | Appeal hide decision; 50% fee refunded on timeout. Cannot self-delete a HIDDEN collection (`ErrCannotDeleteHidden`) — must appeal first | Content owner |
 
@@ -246,7 +246,7 @@ Anonymous collections and reactions are submitted via `x/shield`'s `MsgShieldedE
 | `SponsorshipRequests` | Paginated list of all pending sponsorship requests |
 | `Endorsement` | Endorsement record for collection |
 | `ContentFlag` | Flag record and metadata for target |
-| `FlaggedContent` | Paginated flagged content in review queue |
+| `FlaggedContent` | Flagged content in the review queue (offset-paginated; `total` is the full queue size, no `next_key`) |
 | `HideRecord` | Single hide record by ID |
 | `HideRecordsByTarget` | Hide records for specific content |
 

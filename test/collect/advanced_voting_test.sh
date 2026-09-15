@@ -44,7 +44,7 @@ assert_tx_failure "Cannot vote own item" "$TX_OUT"
 echo ""
 echo "--- Test 4: Item-level flag ---"
 # Flagging is separate from voting dedup; collector2 can still flag after upvoting
-TX_OUT=$(send_tx collect flag-content "$ITEM1_ID" item spam "" --from collector2)
+TX_OUT=$(send_tx collect flag-content "$ITEM1_ID" item spam --from collector2)
 assert_tx_success "Member flags item" "$TX_OUT"
 
 # =========================================================================

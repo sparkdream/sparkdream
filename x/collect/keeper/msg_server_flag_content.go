@@ -52,7 +52,7 @@ func (k msgServer) FlagContent(ctx context.Context, msg *types.MsgFlagContent) (
 			return nil, types.ErrFlagReasonTextTooLong
 		}
 	} else if msg.ReasonText != "" {
-		return nil, types.ErrInvalidFlagReason
+		return nil, types.ErrFlagReasonTextForbidden
 	}
 
 	// Build flag composite key

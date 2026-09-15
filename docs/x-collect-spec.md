@@ -1463,7 +1463,18 @@ message MsgFlagContentResponse {}
 - `creator` must not have already flagged this target
 - `creator` must not exceed `max_flags_per_day` (rolling 24h window)
 - If `reason = OTHER`: `reason_text` must be 1–`max_flag_reason_length`
-- If `reason != OTHER`: `reason_text` must be empty
+  (`ErrFlagReasonTextRequired` / `ErrFlagReasonTextTooLong`)
+- If `reason != OTHER`: `reason_text` must be empty (`ErrFlagReasonTextForbidden`)
+
+**CLI:** `reason` takes the autocli short spelling — the enum-name prefix
+stripped and kebab-cased, e.g. `low-quality`, not `MODERATION_REASON_LOW_QUALITY`.
+`reason-text` is an optional trailing positional, so a non-OTHER flag is three
+arguments:
+
+```
+sparkdreamd tx collect flag-content 1 collection low-quality --from alice
+sparkdreamd tx collect flag-content 1 collection other "links to a phishing clone" --from alice
+```
 
 **Logic:**
 1. Create or update `CollectionFlag` for the target:
@@ -1799,6 +1810,10 @@ message ConvictionResponse {
 **Endorsement discovery:** `PendingCollections` returns non-member collections where `seeking_endorsement = true`. This is the primary feed for members looking to endorse promising non-member content. Members browse this feed voluntarily — there is no moderator obligation.
 
 **Moderation queries:** `FlaggedContent` returns content that has reached the flag review threshold. This is used by sentinels to find content requiring moderation attention. `HideRecordsByTarget` provides the full moderation history for a target. `HideRecordsBySentinel` provides the moderation history of a sentinel (newest first, paginated) — useful for accountability review; council (gov) hides carry no sentinel address and never appear in it.
+
+`FlaggedContent` pages by **offset**, not by key: it does not accept `PageRequest.key` and never returns a `next_key`. `PageResponse.total` is the full size of the review queue (the walk always runs to completion), so a client that receives `limit` rows can tell from `total` whether to re-request at `offset += limit`. Default page size is 100 when `pagination` is omitted or `limit = 0`.
+
+A queue index row whose `CollectionFlag` no longer exists is skipped entirely — it is neither returned nor counted toward `total` or the offset, so an orphan cannot silently consume a slot in a page. `MsgHideContent` removes the flag *and* its queue row together, so a `FlaggedContent` read taken after a hide correctly no longer lists that target.
 
 ---
 
@@ -2430,6 +2445,11 @@ Releases endorser DREAM stakes where `stake_release_at ≤ current_block` and `s
 | `ErrMaxNonMemberCollaborators` | 1251 | Collection at `max_non_member_collaborators_per_collection` |
 | `ErrInviterTrustLevelTooLow` | 1252 | Inviter below `min_sponsor_trust_level` (non-member invite) |
 | `ErrCannotDeleteHidden` | 1260 | Cannot delete a collection while it is HIDDEN; appeal the hide first |
+| `ErrHideAppealed` | 1261 | Hide has been appealed; resolution is owned by the jury (blocks sentinel self-correct) |
+| `ErrUnhideWindowExpired` | 1262 | `sentinel_unhide_window_blocks` has elapsed since the hide |
+| `ErrInvalidModerationAuthority` | 1263 | Invalid `authority` on MsgHideContent, or caller not eligible for the requested authority |
+| `ErrSentinelCooldown` | 1264 | Sentinel is in overturn cooldown (see x/rep `BondedRoleConfig`) |
+| `ErrFlagReasonTextForbidden` | 1265 | `reason_text` supplied with a reason other than `OTHER` |
 
 **Rate-limit error note:** Errors 1172 (`ErrFlagRateLimitExceeded`), 1173 (`ErrMaxDailyReactions`), and 1174 (`ErrDownvoteRateLimitExceeded`) cover distinct rate-limiting aspects: flagging, general daily reactions, and downvotes respectively. Each has an independent daily counter tracked in `ReactionLimit/{address}/{day}`.
 
