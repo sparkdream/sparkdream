@@ -63,8 +63,8 @@ CGO_ENABLED=0 go build -tags devnet  -o ~/.local/bin/sparkdreamd-devnet  ./cmd/s
 CGO_ENABLED=0 go build -tags testnet -o ~/.local/bin/sparkdreamd-testnet ./cmd/sparkdreamd/main.go
 ```
 
-The version must also match what each network runs — `curl -s
-https://rpc-dev.sparkdream.io/abci_info` (v1.0.38 at time of writing).
+The version must also match what each network runs — check it with `curl -s
+https://rpc-dev.sparkdream.io/abci_info`.
 
 Two alternatives, if you would rather not run nodes:
 

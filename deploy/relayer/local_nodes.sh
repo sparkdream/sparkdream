@@ -17,15 +17,15 @@
 #
 #   Error in validation  err="wrong Block.Header.AppHash. Expected ..., got ..."
 #
-# Verified the hard way: an untagged v1.0.38 build stalls at height 1 against
-# the devnet; the same source built with -tags devnet syncs cleanly. Build both:
+# Verified the hard way: an untagged build stalls at height 1 against the
+# devnet; the same source built with -tags devnet syncs cleanly. Build both:
 #
 #   cd <chain repo>
 #   CGO_ENABLED=0 go build -tags devnet  -o ~/.local/bin/sparkdreamd-devnet  ./cmd/sparkdreamd/main.go
 #   CGO_ENABLED=0 go build -tags testnet -o ~/.local/bin/sparkdreamd-testnet ./cmd/sparkdreamd/main.go
 #
-# The version must also match what the network runs (v1.0.38 at time of
-# writing -- check `curl -s https://rpc-dev.sparkdream.io/abci_info`).
+# The version must also match what the network runs -- check
+# `curl -s https://rpc-dev.sparkdream.io/abci_info`.
 #
 # Ports (dev / test), chosen to avoid the defaults being taken twice:
 #   RPC   26657 / 36657
