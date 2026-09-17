@@ -487,7 +487,9 @@ current build tag (mainnet / testnet / devnet).
   guardian; identity invariants enforce immutability.
 - All consumer modules' `BondDenom(ctx)` / `DreamDenom(ctx)` resolve to
   the chain's denom (`uspark.sparkdream` for mainnet,
-  `uspark.sparkdreamtest` for testnet, `uspark.sparkdreamdev` for devnet).
+  `uspark.sparkdreamtest` for testnet, `usparz.sparkdreamdev` for devnet —
+  devnet also swaps the ticker to SPARZ/DRMZ to exercise sister-chain
+  token naming).
 - IBC vouchers from peer chains are source-tagged (`uspark.<peer>`).
 - Operators wanting an identity OTHER than the build-tag default can
   override at genesis-construction time with

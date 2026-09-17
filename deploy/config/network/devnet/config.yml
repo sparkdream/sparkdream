@@ -6,17 +6,29 @@ build:
 validation: sovereign
 accounts:
 - name: alice
-  address: sprkdrm1mm04tct5hspk2qzjtf0xaqyjl46ajhcuc4wxcs
-  coins: [20000000000000uspark.sparkdreamdev]  # 20,000,000 SPARK
+  address: sprkdrm1jct5shlz26j2qgdeyzj2nwe5e79djprhcgpwrc
+  coins: [1250000000000usparz.sparkdreamdev]  # 1,250,000 SPARK (CORE)
 - name: bob
-  address: sprkdrm16ef99dd70nzl2lpvwcpz6k84tnhasw009uexc6
-  coins: [10000000000000uspark.sparkdreamdev]  # 10,000,000 SPARK
+  address: sprkdrm1ctk6qnsg5rf7ddupvkxth8q6h7d49h80vcjgg0
+  coins: [750000000000usparz.sparkdreamdev]  # 750,000 SPARK (TRUSTED)
 - name: carol
-  address: sprkdrm1a5wpjpcj0g7s38lqtlp54muytlal3j6jcmhjqw
-  coins: [5000000000000uspark.sparkdreamdev]   # 5,000,000 SPARK
+  address: sprkdrm17tce9p442054fkwl9zrntt7k7h3fs92fcwjxke
+  coins: [450000000000usparz.sparkdreamdev]  # 450,000 SPARK (ESTABLISHED)
 - name: dave
-  address: sprkdrm1v94rgfy8d3e345yva7p2p9uaaf6hle07lhkfs9
-  coins: [5000000uspark.sparkdreamdev]         # 5 SPARK (intentionally tiny — non-member test account)
+  address: sprkdrm1m6xjdt97j9a67smsy6n6h4vqgdkjy7jm8hvq8x
+  coins: [450000000000usparz.sparkdreamdev]  # 450,000 SPARK (ESTABLISHED)
+- name: erin
+  address: sprkdrm1jzxgmcv3xgqlagkfrppaf8jvpvf3lyqpkhljn9
+  coins: [450000000000usparz.sparkdreamdev]  # 450,000 SPARK (ESTABLISHED)
+- name: felix
+  address: sprkdrm1tfl0ys2wws5shrfre259drs5llh4ug83ne7q9e
+  coins: [450000000000usparz.sparkdreamdev]  # 450,000 SPARK (ESTABLISHED)
+- name: gwen
+  address: sprkdrm1kllgzkzvjyq09r8unw4l69wl993u0tex5gd3v0
+  coins: [375000000000usparz.sparkdreamdev]  # 375,000 SPARK (PROVISIONAL)
+- name: hal
+  address: sprkdrm1enva2et8wh6mn3j04lz0lyxezz0mjsyw0kz49s
+  coins: [5000000usparz.sparkdreamdev]  # 5 SPARK (intentionally tiny — non-member test account)
 genesis:
   consensus:
     params:
@@ -24,30 +36,74 @@ genesis:
         vote_extensions_enable_height: "1"
   app_state:
     bank:
+      # Devnet's per-chain token identity is SPARZ / DRMZ rather than SPARK /
+      # DREAM, so a devnet voucher is unmistakable in an IBC denom-trace or an
+      # explorer. x/identity re-registers this metadata from its own genesis
+      # block at InitGenesis (with the uppercase symbol); these entries exist so
+      # `ignite chain init` alone still produces a usable genesis.
       denom_metadata:
-      - base: uspark.sparkdreamdev
+      - base: usparz.sparkdreamdev
         denom_units:
-        - denom: uspark.sparkdreamdev
+        - denom: usparz.sparkdreamdev
           exponent: 0
-        - denom: spark
+        - denom: sparz
           exponent: 6
         description: Native token of Spark Dream A T E L I E R.
-        display: spark
-        name: spark
-        symbol: spark
-      - base: udream.sparkdreamdev
+        display: sparz
+        name: sparz
+        symbol: sparz
+      - base: udrmz.sparkdreamdev
         denom_units:
-        - denom: udream.sparkdreamdev
+        - denom: udrmz.sparkdreamdev
           exponent: 0
-        - denom: dream
+        - denom: drmz
           exponent: 6
         description: Internal coordination token - earned through contribution, not traded.
-        display: dream
-        name: dream
-        symbol: dream
+        display: drmz
+        name: drmz
+        symbol: drmz
     commons:
+      # Overrides the compiled-in GenesisNames / GenesisHandles / FounderName in
+      # x/commons/keeper/genesis_vals_devnet.go, so governance bootstraps around
+      # this roster. Exactly one entry may set founder: true.
+      founding_members:
+      - address: sprkdrm1jct5shlz26j2qgdeyzj2nwe5e79djprhcgpwrc
+        display_name: "Alice"
+        founder: true
+        handles:
+        - "alice"
+      - address: sprkdrm1ctk6qnsg5rf7ddupvkxth8q6h7d49h80vcjgg0
+        display_name: "Bob"
+        founder: false
+        handles:
+        - "bob"
+      - address: sprkdrm17tce9p442054fkwl9zrntt7k7h3fs92fcwjxke
+        display_name: "Carol"
+        founder: false
+        handles:
+        - "carol"
+      - address: sprkdrm1m6xjdt97j9a67smsy6n6h4vqgdkjy7jm8hvq8x
+        display_name: "Dave"
+        founder: false
+        handles:
+        - "dave"
+      - address: sprkdrm1jzxgmcv3xgqlagkfrppaf8jvpvf3lyqpkhljn9
+        display_name: "Erin"
+        founder: false
+        handles:
+        - "erin"
+      - address: sprkdrm1tfl0ys2wws5shrfre259drs5llh4ug83ne7q9e
+        display_name: "Felix"
+        founder: false
+        handles:
+        - "felix"
+      - address: sprkdrm1kllgzkzvjyq09r8unw4l69wl993u0tex5gd3v0
+        display_name: "Gwen"
+        founder: false
+        handles:
+        - "gwen"
       params:
-        proposal_fee: "5000000uspark.sparkdreamdev"
+        proposal_fee: "5000000usparz.sparkdreamdev"
       category_map:
       - category_id: 1
         title: "General"
@@ -84,12 +140,12 @@ genesis:
       params:
         sysnames_pkgpath: ""
         chain_domain: "gno.land"
-        default_deposit: "100000uspark.sparkdreamdev"
-        storage_price: "1uspark.sparkdreamdev"
+        default_deposit: "100000usparz.sparkdreamdev"
+        storage_price: "1usparz.sparkdreamdev"
     distribution:
       fee_pool:
         community_pool:
-        - denom: uspark.sparkdreamdev
+        - denom: usparz.sparkdreamdev
           amount: "95000000000000"  # 95,000,000 SPARK (95%) — x/split routes to councils on first block
       params:
         community_tax: "0.15"
@@ -98,22 +154,22 @@ genesis:
         max_deposit_period: "1800s"       # 30 minutes (DEVNET; production: 172800s = 48h)
         min_deposit:
           - amount: "50000000"
-            denom: uspark.sparkdreamdev
+            denom: usparz.sparkdreamdev
         voting_period: "3600s"            # 1 hour (DEVNET; production: 432000s = 5d)
         expedited_min_deposit:
-          - amount: "100000000"
-            denom: uspark.sparkdreamdev
+          - amount: "100000000"           # 100 SPARK — same as testnet/mainnet
+            denom: usparz.sparkdreamdev
         expedited_voting_period: "1800s"  # 30 minutes (DEVNET; production: 86400s = 1d)
     mint:
       params:
-        mint_denom: uspark.sparkdreamdev
+        mint_denom: usparz.sparkdreamdev
         goal_bonded: "0.67"
         inflation_max: "0.05"
         inflation_min: "0.02"
         inflation_rate_change: "0.13"
     staking:
       params:
-        bond_denom: uspark.sparkdreamdev
+        bond_denom: usparz.sparkdreamdev
     season:
       season:
         number: 1
@@ -132,68 +188,122 @@ genesis:
         transition_grace_period: "600"   # ~1 hour in blocks (DEVNET; production: 50400 ~1 week)
         display_name_appeal_period_blocks: "3600"  # ~6 hours (DEVNET; production: 100800 ~7 days)
         # Nomination params - DEVNET values
-        nomination_min_stake: "5"                          # 5 udream (DEVNET; production: 10)
+        nomination_min_stake: "5"                          # 5 udrmz (DEVNET; production: 10)
         retro_reward_budget_ratio: "0.250000000000000000"  # same as production
         retro_reward_budget_min: "5000000000"              # 5,000 DREAM floor (DEVNET; production: 10,000)
         retro_reward_budget_max: "37500000000"             # 37,500 DREAM ceiling (DEVNET; production: 75,000)
         retro_reward_min_conviction: "25"                  # DEVNET; production: 50
       member_profile_map:
-      # Alice - High level founder with multiple achievements and titles
-      - address: sprkdrm1mm04tct5hspk2qzjtf0xaqyjl46ajhcuc4wxcs  # alice
+      # Zeroed at genesis — a fresh devnet should earn its XP, levels and titles
+      # through the runtime paths rather than start in a state no chain reaches.
+      # genesis_founder is irreplaceable (REQUIREMENT_TYPE_GENESIS has no runtime
+      # awarder); first_spark has exactly one holder per chain.
+      - address: sprkdrm1jct5shlz26j2qgdeyzj2nwe5e79djprhcgpwrc  # alice
         display_name: "Alice"
         username: "alice"
-        display_title: "veteran"
-        season_xp: 5000
-        lifetime_xp: 5000
-        season_level: 8
-        unlocked_titles:
-        - "newcomer"
-        - "veteran"
-        - "rising_star"
-        achievements:
-        - "first_step"
-        - "voice_heard"
-        - "contributor"
-        invitations_successful: 5
-        challenges_won: 2
-        jury_duties_completed: 3
-        votes_cast: 15
-        forum_helpful_count: 50
-      # Bob - Mid level with some achievements
-      - address: sprkdrm16ef99dd70nzl2lpvwcpz6k84tnhasw009uexc6  # bob
-        display_name: "Bob"
-        username: "bob"
-        display_title: "newcomer"
-        season_xp: 1500
-        lifetime_xp: 1500
-        season_level: 6
-        unlocked_titles:
-        - "newcomer"
-        achievements:
-        - "first_step"
-        - "voice_heard"
-        invitations_successful: 2
-        challenges_won: 0
-        jury_duties_completed: 1
-        votes_cast: 5
-        forum_helpful_count: 15
-      # Carol - New member, minimal progress
-      - address: sprkdrm1a5wpjpcj0g7s38lqtlp54muytlal3j6jcmhjqw  # carol
-        display_name: "Carol"
-        username: "carol"
         display_title: ""
-        season_xp: 300
-        lifetime_xp: 300
-        season_level: 2
-        unlocked_titles:
-        - "newcomer"
+        season_xp: 0
+        lifetime_xp: 0
+        season_level: 0
+        unlocked_titles: []
         achievements:
-        - "voice_heard"
+        - "first_spark"
+        - "genesis_founder"
         invitations_successful: 0
         challenges_won: 0
         jury_duties_completed: 0
-        votes_cast: 2
-        forum_helpful_count: 5
+        votes_cast: 0
+        forum_helpful_count: 0
+      - address: sprkdrm1ctk6qnsg5rf7ddupvkxth8q6h7d49h80vcjgg0  # bob
+        display_name: "Bob"
+        username: "bob"
+        display_title: ""
+        season_xp: 0
+        lifetime_xp: 0
+        season_level: 0
+        unlocked_titles: []
+        achievements:
+        - "genesis_founder"
+        invitations_successful: 0
+        challenges_won: 0
+        jury_duties_completed: 0
+        votes_cast: 0
+        forum_helpful_count: 0
+      - address: sprkdrm17tce9p442054fkwl9zrntt7k7h3fs92fcwjxke  # carol
+        display_name: "Carol"
+        username: "carol"
+        display_title: ""
+        season_xp: 0
+        lifetime_xp: 0
+        season_level: 0
+        unlocked_titles: []
+        achievements:
+        - "genesis_founder"
+        invitations_successful: 0
+        challenges_won: 0
+        jury_duties_completed: 0
+        votes_cast: 0
+        forum_helpful_count: 0
+      - address: sprkdrm1m6xjdt97j9a67smsy6n6h4vqgdkjy7jm8hvq8x  # dave
+        display_name: "Dave"
+        username: "dave"
+        display_title: ""
+        season_xp: 0
+        lifetime_xp: 0
+        season_level: 0
+        unlocked_titles: []
+        achievements:
+        - "genesis_founder"
+        invitations_successful: 0
+        challenges_won: 0
+        jury_duties_completed: 0
+        votes_cast: 0
+        forum_helpful_count: 0
+      - address: sprkdrm1jzxgmcv3xgqlagkfrppaf8jvpvf3lyqpkhljn9  # erin
+        display_name: "Erin"
+        username: "erin"
+        display_title: ""
+        season_xp: 0
+        lifetime_xp: 0
+        season_level: 0
+        unlocked_titles: []
+        achievements:
+        - "genesis_founder"
+        invitations_successful: 0
+        challenges_won: 0
+        jury_duties_completed: 0
+        votes_cast: 0
+        forum_helpful_count: 0
+      - address: sprkdrm1tfl0ys2wws5shrfre259drs5llh4ug83ne7q9e  # felix
+        display_name: "Felix"
+        username: "felix"
+        display_title: ""
+        season_xp: 0
+        lifetime_xp: 0
+        season_level: 0
+        unlocked_titles: []
+        achievements:
+        - "genesis_founder"
+        invitations_successful: 0
+        challenges_won: 0
+        jury_duties_completed: 0
+        votes_cast: 0
+        forum_helpful_count: 0
+      - address: sprkdrm1kllgzkzvjyq09r8unw4l69wl993u0tex5gd3v0  # gwen
+        display_name: "Gwen"
+        username: "gwen"
+        display_title: ""
+        season_xp: 0
+        lifetime_xp: 0
+        season_level: 0
+        unlocked_titles: []
+        achievements:
+        - "genesis_founder"
+        invitations_successful: 0
+        challenges_won: 0
+        jury_duties_completed: 0
+        votes_cast: 0
+        forum_helpful_count: 0
     rep:
       params:
         # Time - DEVNET: ~30 min epochs, ~15 hour seasons
@@ -236,11 +346,13 @@ genesis:
         large_project_budget_threshold: "10000000000"  # 10,000 DREAM
         # Trust level configuration - uses devnet build tag values
       member_map:
-      # Alice - CORE founder analog (Tier 1 mapping)
-      - address: sprkdrm1mm04tct5hspk2qzjtf0xaqyjl46ajhcuc4wxcs  # alice
-        dream_balance: "50000000000"  # 50,000 DREAM (generous DEVNET allocation for testing)
+      # Mirrors the mainnet/testnet founder tiers so devnet exercises the same
+      # trust ladder. hal is deliberately absent: it is the non-member fixture.
+      # Alice — CORE
+      - address: sprkdrm1jct5shlz26j2qgdeyzj2nwe5e79djprhcgpwrc  # alice
+        dream_balance: "5000000000"  # 5,000 DREAM
         staked_dream: "0"
-        lifetime_earned: "50000000000"
+        lifetime_earned: "5000000000"
         lifetime_burned: "0"
         reputation_scores: {}
         lifetime_reputation: {}
@@ -259,11 +371,34 @@ genesis:
         last_tip_epoch: 0
         completed_interims_count: 0
         completed_initiatives_count: 0
-      # Bob - ESTABLISHED founder analog (Tier 2 mapping)
-      - address: sprkdrm16ef99dd70nzl2lpvwcpz6k84tnhasw009uexc6  # bob
-        dream_balance: "25000000000"  # 25,000 DREAM (generous DEVNET allocation for testing)
+      # Bob — TRUSTED
+      - address: sprkdrm1ctk6qnsg5rf7ddupvkxth8q6h7d49h80vcjgg0  # bob
+        dream_balance: "3500000000"  # 3,500 DREAM
         staked_dream: "0"
-        lifetime_earned: "25000000000"
+        lifetime_earned: "3500000000"
+        lifetime_burned: "0"
+        reputation_scores: {}
+        lifetime_reputation: {}
+        trust_level: TRUST_LEVEL_TRUSTED
+        trust_level_updated_at: 0
+        joined_season: 0
+        joined_at: 0
+        invited_by: ""
+        invitation_chain: []
+        invitation_credits: 7
+        status: MEMBER_STATUS_ACTIVE
+        zeroed_at: 0
+        zeroed_count: 0
+        last_decay_epoch: 0
+        tips_given_this_epoch: 0
+        last_tip_epoch: 0
+        completed_interims_count: 0
+        completed_initiatives_count: 0
+      # Carol — ESTABLISHED
+      - address: sprkdrm17tce9p442054fkwl9zrntt7k7h3fs92fcwjxke  # carol
+        dream_balance: "2500000000"  # 2,500 DREAM
+        staked_dream: "0"
+        lifetime_earned: "2500000000"
         lifetime_burned: "0"
         reputation_scores: {}
         lifetime_reputation: {}
@@ -282,11 +417,80 @@ genesis:
         last_tip_epoch: 0
         completed_interims_count: 0
         completed_initiatives_count: 0
-      # Carol - PROVISIONAL member (Tier 3 mapping)
-      - address: sprkdrm1a5wpjpcj0g7s38lqtlp54muytlal3j6jcmhjqw  # carol
-        dream_balance: "10000000000"  # 10,000 DREAM (generous DEVNET allocation for testing)
+      # Dave — ESTABLISHED
+      - address: sprkdrm1m6xjdt97j9a67smsy6n6h4vqgdkjy7jm8hvq8x  # dave
+        dream_balance: "2500000000"  # 2,500 DREAM
         staked_dream: "0"
-        lifetime_earned: "10000000000"
+        lifetime_earned: "2500000000"
+        lifetime_burned: "0"
+        reputation_scores: {}
+        lifetime_reputation: {}
+        trust_level: TRUST_LEVEL_ESTABLISHED
+        trust_level_updated_at: 0
+        joined_season: 0
+        joined_at: 0
+        invited_by: ""
+        invitation_chain: []
+        invitation_credits: 5
+        status: MEMBER_STATUS_ACTIVE
+        zeroed_at: 0
+        zeroed_count: 0
+        last_decay_epoch: 0
+        tips_given_this_epoch: 0
+        last_tip_epoch: 0
+        completed_interims_count: 0
+        completed_initiatives_count: 0
+      # Erin — ESTABLISHED
+      - address: sprkdrm1jzxgmcv3xgqlagkfrppaf8jvpvf3lyqpkhljn9  # erin
+        dream_balance: "2500000000"  # 2,500 DREAM
+        staked_dream: "0"
+        lifetime_earned: "2500000000"
+        lifetime_burned: "0"
+        reputation_scores: {}
+        lifetime_reputation: {}
+        trust_level: TRUST_LEVEL_ESTABLISHED
+        trust_level_updated_at: 0
+        joined_season: 0
+        joined_at: 0
+        invited_by: ""
+        invitation_chain: []
+        invitation_credits: 5
+        status: MEMBER_STATUS_ACTIVE
+        zeroed_at: 0
+        zeroed_count: 0
+        last_decay_epoch: 0
+        tips_given_this_epoch: 0
+        last_tip_epoch: 0
+        completed_interims_count: 0
+        completed_initiatives_count: 0
+      # Felix — ESTABLISHED
+      - address: sprkdrm1tfl0ys2wws5shrfre259drs5llh4ug83ne7q9e  # felix
+        dream_balance: "2500000000"  # 2,500 DREAM
+        staked_dream: "0"
+        lifetime_earned: "2500000000"
+        lifetime_burned: "0"
+        reputation_scores: {}
+        lifetime_reputation: {}
+        trust_level: TRUST_LEVEL_ESTABLISHED
+        trust_level_updated_at: 0
+        joined_season: 0
+        joined_at: 0
+        invited_by: ""
+        invitation_chain: []
+        invitation_credits: 5
+        status: MEMBER_STATUS_ACTIVE
+        zeroed_at: 0
+        zeroed_count: 0
+        last_decay_epoch: 0
+        tips_given_this_epoch: 0
+        last_tip_epoch: 0
+        completed_interims_count: 0
+        completed_initiatives_count: 0
+      # Gwen — PROVISIONAL
+      - address: sprkdrm1kllgzkzvjyq09r8unw4l69wl993u0tex5gd3v0  # gwen
+        dream_balance: "2000000000"  # 2,000 DREAM
+        staked_dream: "0"
+        lifetime_earned: "2000000000"
         lifetime_burned: "0"
         reputation_scores: {}
         lifetime_reputation: {}
@@ -379,8 +583,11 @@ genesis:
         min_curator_age_blocks: "300"
 # Bootstrap validators for `ignite chain init`. Tests that bring up a local
 # chain rely on alice + bob being staked at genesis.
+# Bootstrap validators for `ignite chain init`. Tests that bring up a local
+# chain rely on alice + bob being staked at genesis. Bonded amounts must stay
+# well under each account's balance above, or `ignite chain init` fails.
 validators:
 - name: alice
-  bonded: 15000000000000uspark.sparkdreamdev
+  bonded: 400000000000usparz.sparkdreamdev
 - name: bob
-  bonded: 5000000000000uspark.sparkdreamdev
+  bonded: 200000000000usparz.sparkdreamdev

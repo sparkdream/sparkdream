@@ -3,11 +3,22 @@
 package types
 
 // DefaultChainIdentity for the devnet build (`-tags devnet`). Distinct
-// denoms from mainnet and testnet so devnet SPARK / DREAM are
-// unambiguously separate across IBC vouchers, indexers, and explorers.
+// denoms AND distinct tickers from mainnet and testnet: devnet's tokens
+// are SPARZ / DRMZ, not SPARK / DREAM, so a devnet voucher is
+// unmistakable across IBC vouchers, indexers, and explorers even when
+// the denom string itself is truncated in a UI. Devnet is the chain that
+// exercises sister-chain token naming, so it gets its own symbols rather
+// than reusing the canonical ones.
+//
 // Operators running the canonical `sparkdream-dev-1` devnet build with
 // this tag get a working federated genesis with no manual `genesis
 // identity init` step.
+//
+// These values must stay in step with
+// deploy/config/network/devnet/{config.yml,genesis.json,chain.env}. The
+// crossnetwork chain.env tests fail if the denom drifts from the
+// committed genesis, and deploy/scripts/regenerate-network-genesis.py is
+// what regenerates that genesis from this build tag.
 //
 // Build with: `go build -tags devnet ./...`
 //
@@ -20,13 +31,13 @@ func DefaultChainIdentity() ChainIdentity {
 	return ChainIdentity{
 		ChainHumanName:       "SparkdreamDev",
 		ChainTickerPrefix:    "SDD",
-		BondDenom:            "uspark.sparkdreamdev",
-		BondDisplaySymbol:    "SPARK",
-		BondDisplayName:      "Sparkdream Dev Spark",
+		BondDenom:            "usparz.sparkdreamdev",
+		BondDisplaySymbol:    "SPARZ",
+		BondDisplayName:      "Sparz",
 		BondDisplayDecimals:  6,
-		DreamDenom:           "udream.sparkdreamdev",
-		DreamDisplaySymbol:   "DREAM",
-		DreamDisplayName:     "Sparkdream Dev Dream",
+		DreamDenom:           "udrmz.sparkdreamdev",
+		DreamDisplaySymbol:   "DRMZ",
+		DreamDisplayName:     "Drmz",
 		DreamDisplayDecimals: 6,
 		FoundedAt:            1735689600,
 	}

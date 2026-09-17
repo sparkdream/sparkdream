@@ -6,13 +6,20 @@ Regenerate deploy/config/network/{devnet,testnet,mainnet}/genesis.json from:
   * each network's config.yml `genesis.app_state` block
     — source of truth for per-network parameter overrides (mint inflation,
     gov timings, season cadence, forum archive windows, etc.).
-  * FOUNDERS / TEST_ACCOUNTS / DEVNET_MEMBER_* constants below
+  * FOUNDERS / DEVNET_ACCOUNTS constants below
     — source of truth for accounts, balances, members, and profiles.
 
 All three network genesis files are fully generated artifacts: no template,
 no manual editing. Update params in `params_vals_*.go` or per-network
 overrides in `config.yml`, then run this script. Validate with
 `make verify-genesis`.
+
+The output has two consumers that use different halves of it: this repo's
+manual deployment path uses all of it, and the chain launcher keeps only the
+module params and non-address bootstrap state, rebuilding everything keyed to
+an address from its own launch spec. Anything address-keyed added here has to
+be strippable on that side. See the genesis ownership section of
+deploy/README.md before adding one.
 
 Two exceptions are preserved from the existing output file across
 regenerations:
@@ -56,6 +63,15 @@ COMMUNITY_POOL_AMOUNT = "95000000000000"
 # Founder accounts shared by testnet and mainnet. Addresses match
 # x/commons/keeper/genesis_vals.go. SPARK and DREAM allocations follow the
 # 4-tier structure documented in docs/tokenomics.md.
+#
+# The per-trust-level `dream` and `invitation_credits` values are read back by
+# the chain launcher, which treats rep.member_map in the generated genesis as a
+# template library: it finds the row whose trust_level matches what a launch
+# spec asked for and copies those two fields onto the spec's own account.
+# Changing a value here changes what every launched chain grants members of
+# that level, and dropping a tier leaves the launcher with no template for it
+# (it falls back to the CORE row and zeroes both fields). See the genesis
+# ownership section of deploy/README.md.
 FOUNDERS = [
     # Tier 1 (Lead Vocal)
     {"address": "sprkdrm19wsctgkpk93wkquu7t8g07gnvwzwdupshys9mu", "name": "valya",
@@ -99,84 +115,82 @@ FOUNDERS = [
      "display_name": "",                 "username": ""},
 ]
 
-# Devnet test accounts. Addresses derive from the mnemonics committed in
-# deploy/config/network/devnet/config.yml; allocations match that file.
-# Dave intentionally holds a tiny balance for non-member testing.
-TEST_ACCOUNTS = [
-    ("sprkdrm1mm04tct5hspk2qzjtf0xaqyjl46ajhcuc4wxcs", "20000000000000", "alice"),
-    ("sprkdrm16ef99dd70nzl2lpvwcpz6k84tnhasw009uexc6", "10000000000000", "bob"),
-    ("sprkdrm1a5wpjpcj0g7s38lqtlp54muytlal3j6jcmhjqw",  "5000000000000", "carol"),
-    ("sprkdrm1v94rgfy8d3e345yva7p2p9uaaf6hle07lhkfs9",        "5000000", "dave"),
+# Devnet accounts. One roster is the source of truth for the auth/bank
+# accounts, the rep member entries, the season profiles AND the commons
+# founding_members block — keeping them in three parallel lists keyed by
+# address is what let the devnet relaunch of 2026-09-15 drift away from
+# this script without anything noticing.
+#
+# Mnemonics are NOT in this repo: they live in the operator's
+# `accounts.txt` alongside the other devnet keys. Addresses below were
+# verified against the running chain.
+#
+# Per-trust-level `dream` and `invitation_credits` are read back by the chain
+# launcher as templates for launched chains -- see the note on FOUNDERS above,
+# which applies here identically.
+#
+# The roster mirrors the mainnet/testnet founder tiers so devnet exercises
+# the same trust ladder, plus two deliberate test fixtures:
+#   * gwen — the only PROVISIONAL member, for trust-gate rejection paths.
+#   * hal  — funded but NOT a member (no rep entry, no season profile, not
+#            a founding member), for non-member rejection paths. Its tiny
+#            balance also makes it the insufficient-funds fixture.
+# Devnet therefore totals 99,175,005 SPARK rather than the 100,000,000 the
+# tokenomics doc specifies for mainnet; devnet has no float to preserve.
+DEVNET_ACCOUNTS = [
+    # Tier 1 analog — the founder. Marked founder=True in founding_members;
+    # exactly one account may carry it (x/commons GenesisState.Validate).
+    {"address": "sprkdrm1jct5shlz26j2qgdeyzj2nwe5e79djprhcgpwrc", "name": "alice",
+     "spark": "1250000000000", "dream": "5000000000",
+     "trust_level": "TRUST_LEVEL_CORE",        "invitation_credits": 10,
+     "display_name": "Alice", "username": "alice", "handles": ["alice"],
+     "member": True, "founder": True},
+    # Tier 2 analog
+    {"address": "sprkdrm1ctk6qnsg5rf7ddupvkxth8q6h7d49h80vcjgg0", "name": "bob",
+     "spark":  "750000000000", "dream": "3500000000",
+     "trust_level": "TRUST_LEVEL_TRUSTED",     "invitation_credits":  7,
+     "display_name": "Bob", "username": "bob", "handles": ["bob"],
+     "member": True, "founder": False},
+    # Tier 3 analogs
+    {"address": "sprkdrm17tce9p442054fkwl9zrntt7k7h3fs92fcwjxke", "name": "carol",
+     "spark":  "450000000000", "dream": "2500000000",
+     "trust_level": "TRUST_LEVEL_ESTABLISHED", "invitation_credits":  5,
+     "display_name": "Carol", "username": "carol", "handles": ["carol"],
+     "member": True, "founder": False},
+    {"address": "sprkdrm1m6xjdt97j9a67smsy6n6h4vqgdkjy7jm8hvq8x", "name": "dave",
+     "spark":  "450000000000", "dream": "2500000000",
+     "trust_level": "TRUST_LEVEL_ESTABLISHED", "invitation_credits":  5,
+     "display_name": "Dave", "username": "dave", "handles": ["dave"],
+     "member": True, "founder": False},
+    {"address": "sprkdrm1jzxgmcv3xgqlagkfrppaf8jvpvf3lyqpkhljn9", "name": "erin",
+     "spark":  "450000000000", "dream": "2500000000",
+     "trust_level": "TRUST_LEVEL_ESTABLISHED", "invitation_credits":  5,
+     "display_name": "Erin", "username": "erin", "handles": ["erin"],
+     "member": True, "founder": False},
+    {"address": "sprkdrm1tfl0ys2wws5shrfre259drs5llh4ug83ne7q9e", "name": "felix",
+     "spark":  "450000000000", "dream": "2500000000",
+     "trust_level": "TRUST_LEVEL_ESTABLISHED", "invitation_credits":  5,
+     "display_name": "Felix", "username": "felix", "handles": ["felix"],
+     "member": True, "founder": False},
+    # Tier 4 analog — devnet's only PROVISIONAL member (trust-gate fixture).
+    {"address": "sprkdrm1kllgzkzvjyq09r8unw4l69wl993u0tex5gd3v0", "name": "gwen",
+     "spark":  "375000000000", "dream": "2000000000",
+     "trust_level": "TRUST_LEVEL_PROVISIONAL", "invitation_credits":  3,
+     "display_name": "Gwen", "username": "gwen", "handles": ["gwen"],
+     "member": True, "founder": False},
+    # Non-member fixture. 5 SPARK is enough for a handful of fee-bearing
+    # txs and nothing else, so it doubles as the insufficient-funds case.
+    {"address": "sprkdrm1enva2et8wh6mn3j04lz0lyxezz0mjsyw0kz49s", "name": "hal",
+     "spark":       "5000000",
+     "member": False, "founder": False},
 ]
 
-# Devnet rep member entries for alice/bob/carol. Trust levels and DREAM
-# balances mirror deploy/config/network/devnet/config.yml — generous DEVNET
-# allocations chosen for testing convenience, not tokenomic realism.
-def _devnet_member(address, dream_balance, trust_level, invitation_credits):
-    return {
-        "address": address,
-        "dream_balance": dream_balance,
-        "staked_dream": "0",
-        "lifetime_earned": dream_balance,
-        "lifetime_burned": "0",
-        "reputation_scores": {},
-        "lifetime_reputation": {},
-        "trust_level": trust_level,
-        "trust_level_updated_at": 0,
-        "joined_season": 0,
-        "joined_at": 0,
-        "invited_by": "",
-        "invitation_chain": [],
-        "invitation_credits": invitation_credits,
-        "status": "MEMBER_STATUS_ACTIVE",
-        "zeroed_at": 0,
-        "zeroed_count": 0,
-        "last_decay_epoch": 0,
-        "tips_given_this_epoch": 0,
-        "last_tip_epoch": 0,
-        "completed_interims_count": 0,
-        "completed_initiatives_count": 0,
-    }
 
+def devnet_members():
+    """The subset of DEVNET_ACCOUNTS that gets a rep Member, a season
+    profile and a commons founding_members entry. Excludes `hal`."""
+    return [a for a in DEVNET_ACCOUNTS if a["member"]]
 
-DEVNET_MEMBER_MAP = [
-    _devnet_member("sprkdrm1mm04tct5hspk2qzjtf0xaqyjl46ajhcuc4wxcs", "50000000000", "TRUST_LEVEL_CORE",        10),  # alice
-    _devnet_member("sprkdrm16ef99dd70nzl2lpvwcpz6k84tnhasw009uexc6", "25000000000", "TRUST_LEVEL_ESTABLISHED",  5),  # bob
-    _devnet_member("sprkdrm1a5wpjpcj0g7s38lqtlp54muytlal3j6jcmhjqw", "10000000000", "TRUST_LEVEL_PROVISIONAL",  3),  # carol
-]
-
-# Devnet season profiles for alice/bob/carol — high/mid/low XP tiers so
-# devnet exercises different title/level states out of the box. Mirrors
-# deploy/config/network/devnet/config.yml.
-DEVNET_MEMBER_PROFILES = [
-    {
-        "address": "sprkdrm1mm04tct5hspk2qzjtf0xaqyjl46ajhcuc4wxcs",
-        "display_name": "Alice", "username": "alice", "display_title": "veteran",
-        "season_xp": 5000, "lifetime_xp": 5000, "season_level": 8,
-        "unlocked_titles": ["newcomer", "veteran", "rising_star"],
-        "achievements": ["first_step", "voice_heard", "contributor"],
-        "invitations_successful": 5, "challenges_won": 2,
-        "jury_duties_completed": 3, "votes_cast": 15, "forum_helpful_count": 50,
-    },
-    {
-        "address": "sprkdrm16ef99dd70nzl2lpvwcpz6k84tnhasw009uexc6",
-        "display_name": "Bob", "username": "bob", "display_title": "newcomer",
-        "season_xp": 1500, "lifetime_xp": 1500, "season_level": 6,
-        "unlocked_titles": ["newcomer"],
-        "achievements": ["first_step", "voice_heard"],
-        "invitations_successful": 2, "challenges_won": 0,
-        "jury_duties_completed": 1, "votes_cast": 5, "forum_helpful_count": 15,
-    },
-    {
-        "address": "sprkdrm1a5wpjpcj0g7s38lqtlp54muytlal3j6jcmhjqw",
-        "display_name": "Carol", "username": "carol", "display_title": "",
-        "season_xp": 300, "lifetime_xp": 300, "season_level": 2,
-        "unlocked_titles": ["newcomer"],
-        "achievements": ["voice_heard"],
-        "invitations_successful": 0, "challenges_won": 0,
-        "jury_duties_completed": 0, "votes_cast": 2, "forum_helpful_count": 5,
-    },
-]
 
 # Testnet-only welcome blog post (id=1; blog IDs start at 1), authored by kingofbitchain. Lives
 # in genesis so a fresh testnet always boots with the same landing post and
@@ -242,7 +256,7 @@ NETWORKS = {
         # bond_denom is per-chain since the x/identity migration; the binary's
         # build-tagged DefaultChainIdentity sets it per network. Mirrored here
         # so the config.yml consistency check accepts the matching coin strings.
-        "bond_denom": "uspark.sparkdreamdev",
+        "bond_denom": "usparz.sparkdreamdev",
     },
     "testnet": {
         "chain_id": "sparkdream-test-1",
@@ -335,7 +349,7 @@ def _parse_coin_amount(coin_str, denom):
     """Parse a coins string like '20000000000000uspark.sparkdream' → '20000000000000'.
 
     `denom` is the per-network bond denom (e.g. 'uspark.sparkdream',
-    'uspark.sparkdreamtest', 'uspark.sparkdreamdev') — passed in from the
+    'uspark.sparkdreamtest', 'usparz.sparkdreamdev') — passed in from the
     NETWORKS table rather than hardcoded since the x/identity migration
     made bond denoms per-chain."""
     if not isinstance(coin_str, str) or not coin_str.endswith(denom):
@@ -413,11 +427,14 @@ def _check_founders(cfg, errors, bond_denom):
 
 
 def _check_devnet(cfg, errors, bond_denom):
-    """Validate devnet config.yml against TEST_ACCOUNTS, DEVNET_MEMBER_MAP,
-    DEVNET_MEMBER_PROFILES. Test accounts use mnemonic-derived addresses, so
-    the accounts: block is matched by name+amount only (we trust the
-    mnemonic→address mapping was verified once at setup)."""
-    by_name = {name: (addr, amt) for addr, amt, name in TEST_ACCOUNTS}
+    """Validate devnet config.yml against DEVNET_ACCOUNTS.
+
+    Unlike the founder networks, devnet's accounts: block is matched by
+    address as well as amount — the roster now carries the addresses, so
+    there is no reason to trust a name-only match. Covers the four blocks
+    the regenerator writes from the roster: accounts, rep.member_map,
+    season.member_profile_map and commons.founding_members."""
+    by_name = {a["name"]: a for a in DEVNET_ACCOUNTS}
 
     # accounts: top-level
     cfg_accounts = cfg.get("accounts") or []
@@ -426,54 +443,75 @@ def _check_devnet(cfg, errors, bond_denom):
         name = acct.get("name")
         cfg_names.add(name)
         if name not in by_name:
-            errors.append(f"accounts: unknown test account name {name!r}")
+            errors.append(f"accounts: unknown devnet account name {name!r}")
             continue
-        _, expected_amt = by_name[name]
+        a = by_name[name]
+        if acct.get("address") != a["address"]:
+            errors.append(f"accounts.{name}.address: config={acct.get('address')!r} script={a['address']!r}")
         coins = acct.get("coins") or []
         amt = _parse_coin_amount(coins[0], bond_denom) if coins else None
-        if amt != expected_amt:
-            errors.append(f"accounts.{name}.coins[0]: config={(coins[0] if coins else None)!r} expected {expected_amt}{bond_denom}")
-    for _, _, name in TEST_ACCOUNTS:
-        if name not in cfg_names:
-            errors.append(f"accounts: test account {name!r} present in script but missing from config.yml")
+        if amt != a["spark"]:
+            errors.append(f"accounts.{name}.coins[0]: config={(coins[0] if coins else None)!r} expected {a['spark']}{bond_denom}")
+    for a in DEVNET_ACCOUNTS:
+        if a["name"] not in cfg_names:
+            errors.append(f"accounts: devnet account {a['name']!r} present in script but missing from config.yml")
 
     app_state = (cfg.get("genesis") or {}).get("app_state") or {}
+    by_addr = {a["address"]: a for a in devnet_members()}
 
-    # rep.member_map
+    # rep.member_map — members only; hal is deliberately absent.
     rep_mm = (app_state.get("rep") or {}).get("member_map") or []
-    by_addr = {m["address"]: m for m in DEVNET_MEMBER_MAP}
     cfg_addrs = set()
     for m in rep_mm:
         addr = m.get("address")
         cfg_addrs.add(addr)
         if addr not in by_addr:
-            errors.append(f"rep.member_map: unknown devnet member address {addr}")
+            errors.append(f"rep.member_map: {addr} is not a devnet member in the script roster")
             continue
-        ours = by_addr[addr]
+        ours = _devnet_member(by_addr[addr])
         for key in ("dream_balance", "trust_level", "invitation_credits"):
-            if m.get(key) != ours.get(key):
-                errors.append(f"rep.member_map[{addr}].{key}: config={m.get(key)!r} script={ours.get(key)!r}")
-    for ours_m in DEVNET_MEMBER_MAP:
-        if ours_m["address"] not in cfg_addrs:
-            errors.append(f"rep.member_map: address {ours_m['address']} present in script but missing from config.yml")
+            if m.get(key) != ours[key]:
+                errors.append(f"rep.member_map[{addr}].{key}: config={m.get(key)!r} script={ours[key]!r}")
+    for a in devnet_members():
+        if a["address"] not in cfg_addrs:
+            errors.append(f"rep.member_map: address {a['address']} ({a['name']}) present in script but missing from config.yml")
 
     # season.member_profile_map
     profile_mm = (app_state.get("season") or {}).get("member_profile_map") or []
-    by_addr = {p["address"]: p for p in DEVNET_MEMBER_PROFILES}
     cfg_addrs = set()
     for p in profile_mm:
         addr = p.get("address")
         cfg_addrs.add(addr)
         if addr not in by_addr:
-            errors.append(f"season.member_profile_map: unknown devnet address {addr}")
+            errors.append(f"season.member_profile_map: {addr} is not a devnet member in the script roster")
             continue
-        ours = by_addr[addr]
-        for key in ("display_name", "username", "season_xp", "season_level"):
-            if p.get(key) != ours.get(key):
-                errors.append(f"season.member_profile_map[{addr}].{key}: config={p.get(key)!r} script={ours.get(key)!r}")
-    for ours_p in DEVNET_MEMBER_PROFILES:
-        if ours_p["address"] not in cfg_addrs:
-            errors.append(f"season.member_profile_map: address {ours_p['address']} present in script but missing from config.yml")
+        ours = _devnet_profile(by_addr[addr])
+        for key in ("display_name", "username", "achievements", "season_xp", "season_level"):
+            if p.get(key) != ours[key]:
+                errors.append(f"season.member_profile_map[{addr}].{key}: config={p.get(key)!r} script={ours[key]!r}")
+    for a in devnet_members():
+        if a["address"] not in cfg_addrs:
+            errors.append(f"season.member_profile_map: address {a['address']} ({a['name']}) present in script but missing from config.yml")
+
+    # commons.founding_members — overrides the compiled-in GenesisNames /
+    # GenesisHandles / FounderName in x/commons/keeper/genesis_vals_devnet.go,
+    # so a mismatch here silently bootstraps governance around the wrong set.
+    cfg_fm = (app_state.get("commons") or {}).get("founding_members") or []
+    ours_fm = {f["address"]: f for f in _devnet_founding_members()}
+    cfg_addrs = set()
+    for f in cfg_fm:
+        addr = f.get("address")
+        cfg_addrs.add(addr)
+        if addr not in ours_fm:
+            errors.append(f"commons.founding_members: {addr} is not a devnet member in the script roster")
+            continue
+        ours = ours_fm[addr]
+        for key in ("display_name", "founder", "handles"):
+            if f.get(key) != ours[key]:
+                errors.append(f"commons.founding_members[{addr}].{key}: config={f.get(key)!r} script={ours[key]!r}")
+    for addr, f in ours_fm.items():
+        if addr not in cfg_addrs:
+            errors.append(f"commons.founding_members: address {addr} ({f['display_name']}) present in script but missing from config.yml")
 
 
 def _check_community_pool(cfg, errors, bond_denom):
@@ -693,7 +731,7 @@ def preserve_gen_txs(network, account_addrs):
     Gentxs are signed artifacts we cannot reproduce without the validator's
     private key, so regeneration must carry them forward. But a stale gentx
     (wrong chain_id, or signed by an address the operator has since removed
-    from FOUNDERS/TEST_ACCOUNTS) will silently fail InitGenesis at chain
+    from FOUNDERS/DEVNET_ACCOUNTS) will silently fail InitGenesis at chain
     start — so we refuse to preserve in those cases and ask the operator to
     delete the output file and collect a fresh gentx."""
     out_path = NETWORKS[network]["out"]
@@ -731,7 +769,7 @@ def preserve_gen_txs(network, account_addrs):
         if val_data not in known_data:
             raise ValueError(
                 f"{network}: gen_tx[{i}] validator_address {val_addr} does not "
-                f"correspond to any account in FOUNDERS/TEST_ACCOUNTS. Either the "
+                f"correspond to any account in FOUNDERS/DEVNET_ACCOUNTS. Either the "
                 f"gentx is stale (recollect it) or the account was dropped from "
                 f"the script (restore it). Remove "
                 f"{os.path.relpath(out_path, REPO_ROOT)} to regenerate without "
@@ -741,7 +779,7 @@ def preserve_gen_txs(network, account_addrs):
         if delegator and _bech32_data(delegator) not in known_data:
             raise ValueError(
                 f"{network}: gen_tx[{i}] delegator_address {delegator} does not "
-                f"correspond to any account in FOUNDERS/TEST_ACCOUNTS."
+                f"correspond to any account in FOUNDERS/DEVNET_ACCOUNTS."
             )
 
     # Hash-pinning tamper check (see comment block above check_gentx_tampering).
@@ -790,10 +828,12 @@ def _founder_member(f):
 # because REQUIREMENT_TYPE_GENESIS has no runtime awarder in x/season.
 FOUNDER_GENESIS_ACHIEVEMENTS = ["genesis_founder"]
 
-# Per-founder extras. `first_spark` goes to Valya (Tier 1 Lead Vocal) who
-# gathered the initial founding members — exactly one holder, ever.
+# Per-founder extras. `first_spark` goes to whoever gathered that chain's
+# initial founding members — exactly one holder per chain, ever. Keyed by
+# address, so the devnet and testnet/mainnet holders coexist here.
 EXTRA_FOUNDER_ACHIEVEMENTS = {
-    "sprkdrm19wsctgkpk93wkquu7t8g07gnvwzwdupshys9mu": ["first_spark"],  # Valya
+    "sprkdrm19wsctgkpk93wkquu7t8g07gnvwzwdupshys9mu": ["first_spark"],  # Valya (testnet/mainnet)
+    "sprkdrm1jct5shlz26j2qgdeyzj2nwe5e79djprhcgpwrc": ["first_spark"],  # Alice (devnet)
 }
 
 
@@ -822,16 +862,63 @@ def _founder_profile(f):
     }
 
 
-def _set_user_state(g, principal_accounts, members, profiles, bond_denom):
+def _devnet_member(a):
+    """rep.member_map entry for one devnet member. Same shape as
+    _founder_member — devnet just draws its field values from
+    DEVNET_ACCOUNTS instead of FOUNDERS."""
+    return _founder_member(a)
+
+
+def _devnet_profile(a):
+    """season.member_profile_map entry for one devnet member. Profiles are
+    zeroed at genesis (no seeded XP, levels or titles): a fresh devnet
+    should exercise the earning paths, and pre-seeded progress made the
+    season-transition tests start from a state no real chain can reach."""
+    return _founder_profile(a)
+
+
+def _devnet_founding_members():
+    """commons.founding_members for devnet.
+
+    Non-empty, which makes x/commons bootstrap governance around THIS
+    roster and ignore the compiled-in GenesisNames / GenesisHandles /
+    FounderName in x/commons/keeper/genesis_vals_devnet.go. Handles are
+    carried through so each member's canonical name is claimed at genesis
+    rather than left open to a squatter, matching what the compiled-in
+    map does on testnet and mainnet.
+
+    Exactly one entry may set founder=True; GenesisState.Validate rejects
+    anything else and BootstrapGovernance panics on a founderless set."""
+    return [
+        {
+            "address": a["address"],
+            "display_name": a["display_name"],
+            "founder": a["founder"],
+            "handles": list(a["handles"]),
+        }
+        for a in devnet_members()
+    ]
+
+
+def _set_user_state(g, principal_accounts, members, profiles, bond_denom,
+                    founding_members=None):
     """Set auth.accounts, bank.balances, bank.supply, rep.member_map and
     season.member_profile_map from a flat list of (address, spark_amount)
     plus the rep + season member entries.
+
+    `principal_accounts` may be a superset of `members`: an account that is
+    funded but has no rep entry (devnet's `hal`) simply never appears in
+    members/profiles/founding_members.
+
+    `founding_members` overrides x/commons's compiled-in founder maps when
+    non-empty. Networks that want the build-tag defaults pass None, which
+    leaves the fresh-init empty list alone.
 
     Adds the distribution ModuleAccount and the 95M SPARK community pool
     seed at the end (same on every network so x/split has uniform state).
 
     `bond_denom` is the per-network native denom (uspark.sparkdream,
-    uspark.sparkdreamtest, uspark.sparkdreamdev) — passed in from the
+    uspark.sparkdreamtest, usparz.sparkdreamdev) — passed in from the
     NETWORKS table since the x/identity migration made it per-chain."""
     accounts = [
         {
@@ -864,6 +951,8 @@ def _set_user_state(g, principal_accounts, members, profiles, bond_denom):
 
     g["app_state"]["rep"]["member_map"] = members
     g["app_state"]["season"]["member_profile_map"] = profiles
+    if founding_members is not None:
+        g["app_state"]["commons"]["founding_members"] = founding_members
 
 
 def _apply_testnet_welcome_blog_post(g):
@@ -937,14 +1026,15 @@ def build_devnet(fresh):
     g["genesis_time"] = preserve_or_now_genesis_time("devnet")
     g["app_version"] = ""
     g["app_state"]["genutil"]["gen_txs"] = preserve_gen_txs(
-        "devnet", [addr for addr, _, _ in TEST_ACCOUNTS],
+        "devnet", [a["address"] for a in DEVNET_ACCOUNTS],
     )
     _set_user_state(
         g,
-        [(addr, amt) for addr, amt, _ in TEST_ACCOUNTS],
-        copy.deepcopy(DEVNET_MEMBER_MAP),
-        copy.deepcopy(DEVNET_MEMBER_PROFILES),
+        [(a["address"], a["spark"]) for a in DEVNET_ACCOUNTS],
+        [_devnet_member(a) for a in devnet_members()],
+        [_devnet_profile(a) for a in devnet_members()],
         NETWORKS["devnet"]["bond_denom"],
+        founding_members=_devnet_founding_members(),
     )
     return g
 
@@ -1002,7 +1092,7 @@ def main():
                 print(f"  • {e}", file=sys.stderr)
         print(
             f"\nUpdate either the offending config.yml file(s) or the FOUNDERS /\n"
-            f"TEST_ACCOUNTS / DEVNET_MEMBER_MAP / DEVNET_MEMBER_PROFILES /\n"
+            f"DEVNET_ACCOUNTS /\n"
             f"COMMUNITY_POOL_AMOUNT constants in the script.",
             file=sys.stderr,
         )

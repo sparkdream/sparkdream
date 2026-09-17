@@ -1,0 +1,137 @@
+# Hermes IBC relayer configuration for the live sparkdream-dev-1 <-> sparkdream-test-1
+# federation link.
+#
+# This is the deployed-network counterpart to
+# test/federation/multichain/hermes_config.toml, which relays between two
+# throwaway local chains. The differences that matter:
+#
+#   * RPC is public and sits behind Cloudflare, so rpc_addr is https/443 and
+#     the event_source websocket is wss. Both verified reachable.
+#   * gRPC is NOT public. The sentry template binds it to localhost:9090
+#     (deploy/config/template/app.toml.sentry), so the addresses below assume
+#     you have tunnelled it to this host. See README.md -- nothing works until
+#     grpc_addr actually resolves.
+#   * The two chains use DIFFERENT fee denoms. Getting these backwards is
+#     rejected by the node's min-gas-prices, not by Hermes.
+#   * Unbonding is 21 days on both chains (staking params, verified live), so
+#     the conventional 2/3 trusting period is 14 days.
+#
+# Hermes 1.13.3 or newer is required: the chains run ibc-go/v10, and 1.13.0 was
+# the first release with full v10 support.
+
+[global]
+log_level = 'info'
+
+[mode]
+
+[mode.clients]
+enabled = true
+refresh = true
+misbehaviour = true
+
+[mode.connections]
+enabled = true
+
+[mode.channels]
+enabled = true
+
+[mode.packets]
+enabled = true
+clear_interval = 100
+clear_on_start = true
+tx_confirmation = true
+
+[telemetry]
+enabled = true
+host = '127.0.0.1'
+port = 3001
+
+[tracing_server]
+enabled = false
+port = 5555
+
+# ---------------------------------------------------------------------------
+# devnet
+# ---------------------------------------------------------------------------
+[[chains]]
+id = 'sparkdream-dev-1'
+type = 'CosmosSdk'
+rpc_addr = 'https://rpc-dev.sparkdream.io'
+# Served by the local full node from local_nodes.sh (or an ssh tunnel to the
+# sentry). Not public -- see README.md 'Reaching gRPC'.
+grpc_addr = 'http://localhost:9090'
+event_source = { mode = 'push', url = 'wss://rpc-dev.sparkdream.io/websocket', batch_delay = '500ms' }
+# Generous relative to the local suite's 10s: these calls cross a CDN.
+rpc_timeout = '20s'
+account_prefix = 'sprkdrm'
+key_name = 'relayer-dev'
+address_type = { derivation = 'cosmos' }
+store_prefix = 'ibc'
+default_gas = 200000
+max_gas = 4000000
+# The devnet bond denom is usparz.sparkdreamdev -- note the "z". Devnet runs
+# its own SPARZ/DRMZ token identity rather than SPARK/DREAM; see
+# x/identity/types/default_identity_devnet.go. This used to disagree with the
+# checked-in deploy/config/network/devnet/chain.env, which is now corrected and
+# covered by the crossnetwork chain.env tests.
+# The devnet sentry reports minimum_gas_price = "" (no minimum set), so any
+# positive price is accepted. 0.025 matches what the UI signs with
+# (gasPriceStep.average in src/lib/chain.ts).
+gas_price = { price = 0.025, denom = 'usparz.sparkdreamdev' }
+gas_multiplier = 1.5
+max_msg_num = 30
+max_tx_size = 180000
+clock_drift = '10s'
+max_block_time = '30s'
+trusting_period = '14days'
+ccv_consumer_chain = false
+trust_threshold = { numerator = '2', denominator = '3' }
+memo_prefix = 'sparkdream-federation'
+
+# Relay only the federation port. Without this Hermes would also try to relay
+# any transfer channel that appears on the same connection.
+[chains.packet_filter]
+policy = 'allow'
+list = [['federation', '*']]
+
+# ---------------------------------------------------------------------------
+# testnet
+# ---------------------------------------------------------------------------
+[[chains]]
+id = 'sparkdream-test-1'
+type = 'CosmosSdk'
+rpc_addr = 'https://rpc-test.sparkdream.io'
+# The testnet local node uses 9091 so both can run side by side.
+grpc_addr = 'http://localhost:9091'
+event_source = { mode = 'push', url = 'wss://rpc-test.sparkdream.io/websocket', batch_delay = '500ms' }
+rpc_timeout = '20s'
+account_prefix = 'sprkdrm'
+key_name = 'relayer-test'
+address_type = { derivation = 'cosmos' }
+store_prefix = 'ibc'
+default_gas = 200000
+max_gas = 4000000
+# Testnet keeps the "uspark" spelling; only the devnet is "usparz".
+#
+# 0.025 assumes the testnet sentry has been updated. It previously enforced
+# 25000 uspark PER GAS UNIT -- a flat --fees amount copied into a per-gas field
+# -- which is 7,500 SPARK per relayer tx and makes a channel handshake
+# unaffordable. chain.env is fixed; the running node needs the new app.toml and
+# a restart. Confirm before running bringup.sh:
+#   curl -s https://api-test.sparkdream.io/cosmos/base/node/v1beta1/config
+# Anything other than 0.025 (or empty) there and every relayer tx is rejected
+# with "insufficient fees".
+gas_price = { price = 0.025, denom = 'uspark.sparkdreamtest' }
+gas_multiplier = 1.5
+max_msg_num = 30
+max_tx_size = 180000
+clock_drift = '10s'
+max_block_time = '30s'
+trusting_period = '14days'
+ccv_consumer_chain = false
+trust_threshold = { numerator = '2', denominator = '3' }
+memo_prefix = 'sparkdream-federation'
+
+[chains.packet_filter]
+policy = 'allow'
+list = [['federation', '*']]

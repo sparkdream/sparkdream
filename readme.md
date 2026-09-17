@@ -116,7 +116,7 @@ The devnet is the current integration target — newest code, loosest guarantees
 | Explorer  | https://explorer-devnet.sparkdream.io |
 | Frontend  | https://app-dev.sparkdream.io |
 
-Devnet runs its own `x/identity` denoms rather than the generic ones — `uspark.sparkdreamdev` for SPARK and `udream.sparkdreamdev` for DREAM, both 6 decimals (see [deploy/config/network/devnet/chain.env](deploy/config/network/devnet/chain.env)). Point the CLI at it with `--node https://rpc-dev.sparkdream.io:443 --chain-id sparkdream-dev-1`.
+Devnet runs its own `x/identity` tokens rather than the generic ones — **SPARZ** (`usparz.sparkdreamdev`) in place of SPARK and **DRMZ** (`udrmz.sparkdreamdev`) in place of DREAM, both 6 decimals (see [deploy/config/network/devnet/chain.env](deploy/config/network/devnet/chain.env)). The distinct tickers are deliberate: devnet is where sister-chain token naming gets exercised, so a devnet balance can never be mistaken for a testnet or mainnet one. Point the CLI at it with `--node https://rpc-dev.sparkdream.io:443 --chain-id sparkdream-dev-1`.
 
 Two agent-driven simulations exercise the devnet end to end and double as worked examples of the coordination flows:
 

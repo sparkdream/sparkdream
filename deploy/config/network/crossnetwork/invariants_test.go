@@ -366,7 +366,7 @@ var allowedVariations = map[string]string{
 	"shield.params.min_gas_reserve":        "production has larger gas reserve",
 
 	// === per-chain identity: every chain has its own bond/dream denom
-	// (uspark.sparkdream / uspark.sparkdreamtest / uspark.sparkdreamdev),
+	// (uspark.sparkdream / uspark.sparkdreamtest / usparz.sparkdreamdev),
 	// so every param that embeds a coin string differs by design ===
 	"commons.params.proposal_fee":      "embeds chain-specific bond denom",
 	"gnovm.params.default_deposit":     "embeds chain-specific bond denom",
@@ -534,6 +534,22 @@ func compareValue(t *testing.T, path string, d, tn, m json.RawMessage) {
 			compareValue(t, path+"."+k, dObj[k], tnObj[k], mObj[k])
 		}
 		return
+	}
+
+	// A LegacyDec has no canonical JSON form: the SDK marshals it at full
+	// 18-decimal precision ("0.150000000000000000") while a hand-written or
+	// ignite-generated genesis carries the shorthand ("0.15"). Those are the
+	// same number, so compare numerically before calling it drift -- otherwise
+	// regenerating one network's genesis from a running chain lights up every
+	// decimal param as a false positive.
+	if dDec, err := audit.AsDec(d); err == nil {
+		if tnDec, err := audit.AsDec(tn); err == nil {
+			if mDec, err := audit.AsDec(m); err == nil {
+				if dDec.Equal(tnDec) && tnDec.Equal(mDec) {
+					return
+				}
+			}
+		}
 	}
 
 	if _, ok := allowedVariations[path]; ok {
