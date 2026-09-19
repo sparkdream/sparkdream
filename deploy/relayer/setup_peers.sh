@@ -95,8 +95,11 @@ KEYRING_DIR_TEST="${KEYRING_DIR_TEST:-$HOME/.sparkdream-relay-test}"
 # federation params known_content_types, or MsgUpdatePeerPolicy is rejected
 # with ErrContentTypeNotKnown -- query it with:
 #   sparkdreamd query federation params --node <rpc> -o json | jq .params.known_content_types
-# As of v1.0.39 that set is:
-#   blog_post, blog_reply, forum_thread, forum_reply, collection
+# The default below mirrors the set the chain ships with. It is deliberately
+# NOT pinned to a release: the content-type registry has nothing to do with
+# the deploy image version, so a "as of vX.Y.Z" note here would be rewritten
+# by every release bump into a claim nobody re-checked. If the query above
+# disagrees with this list, trust the query and override CONTENT_TYPES.
 CONTENT_TYPES="${CONTENT_TYPES:-blog_post,blog_reply,forum_thread,forum_reply,collection}"
 RATE_LIMIT="${RATE_LIMIT:-100}"
 MIN_TRUST="${MIN_TRUST:-1}"   # 1 = PROVISIONAL; senders below this cannot federate
