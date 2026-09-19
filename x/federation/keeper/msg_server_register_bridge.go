@@ -19,8 +19,9 @@ import (
 // BindingsByOperator and silently misses the in-flight binding.
 //
 // Flow:
-//  1. Load peer; validate type; check max_bridges_per_peer; resolve
-//     controller := peer.controller_group ?? OpsComm policy address.
+//  1. Load peer; validate type; require the peer to already be ACTIVE;
+//     check max_bridges_per_peer; resolve controller :=
+//     peer.controller_group ?? OpsComm policy address.
 //  2. Map peer.type → service_type (federation-bridge-activitypub /
 //     federation-bridge-atproto).
 //  3. Look up existing service.Operator for (operator, service_type):
@@ -34,7 +35,6 @@ import (
 //     If the operator was UNDERFUNDED this fires AfterOperatorReFunded
 //     synchronously; the hook iterates BindingsByOperator and now
 //     correctly includes the binding written in step 4.
-//  6. Transition peer PENDING→ACTIVE on first binding.
 func (k msgServer) RegisterBridge(ctx context.Context, msg *types.MsgRegisterBridge) (*types.MsgRegisterBridgeResponse, error) {
 	operatorBytes, err := k.addressCodec.StringToBytes(msg.Operator)
 	if err != nil {
@@ -47,6 +47,18 @@ func (k msgServer) RegisterBridge(ctx context.Context, msg *types.MsgRegisterBri
 	}
 	if peer.Type != types.PeerType_PEER_TYPE_ACTIVITYPUB && peer.Type != types.PeerType_PEER_TYPE_ATPROTO && peer.Type != types.PeerType_PEER_TYPE_NOSTR && peer.Type != types.PeerType_PEER_TYPE_LENS {
 		return nil, errorsmod.Wrapf(types.ErrPeerTypeMismatch, "bridge operators only for ActivityPub/AT Protocol/NOSTR/Lens peers, got %s", peer.Type)
+	}
+	// The peer must already be ACTIVE. Registering a bridge used to flip a
+	// PENDING peer to ACTIVE on its first binding, which inverted the two
+	// activation paths: an IBC sister chain -- the trust-minimised case --
+	// could only be activated by a governance actor, while a bridge peer,
+	// whose content rests entirely on operator honesty, was activated by the
+	// operator themselves. Activation is a governance decision for both;
+	// operators bind to something already approved (MsgResumePeer).
+	if peer.Status != types.PeerStatus_PEER_STATUS_ACTIVE {
+		return nil, errorsmod.Wrapf(types.ErrPeerNotActive,
+			"peer %q is %s: it must be activated (MsgResumePeer) before a bridge can bind to it",
+			msg.PeerId, peer.Status)
 	}
 
 	params, err := k.Params.Get(ctx)
@@ -148,18 +160,6 @@ func (k msgServer) RegisterBridge(ctx context.Context, msg *types.MsgRegisterBri
 		}
 	}
 
-	// Step 6: peer PENDING → ACTIVE transition on first binding.
-	if peer.Status == types.PeerStatus_PEER_STATUS_PENDING {
-		peer.Status = types.PeerStatus_PEER_STATUS_ACTIVE
-		if err := k.Peers.Set(ctx, msg.PeerId, peer); err != nil {
-			return nil, err
-		}
-		sdkCtx.EventManager().EmitEvent(
-			sdk.NewEvent(types.EventTypePeerActivated,
-				sdk.NewAttribute(types.AttributeKeyPeerID, msg.PeerId)),
-		)
-	}
-
 	sdkCtx.EventManager().EmitEvent(
 		sdk.NewEvent(types.EventTypeBridgeRegistered,
 			sdk.NewAttribute(types.AttributeKeyOperator, msg.Operator),
@@ -240,16 +240,6 @@ func (k msgServer) writeBridgeBindingOnly(ctx context.Context, msg *types.MsgReg
 	}
 	if err := k.BindingsByOperator.Set(ctx, collections.Join3(serviceType, msg.Operator, msg.PeerId)); err != nil {
 		return nil, err
-	}
-
-	peer, _ := k.Peers.Get(ctx, msg.PeerId)
-	if peer.Status == types.PeerStatus_PEER_STATUS_PENDING {
-		peer.Status = types.PeerStatus_PEER_STATUS_ACTIVE
-		_ = k.Peers.Set(ctx, msg.PeerId, peer)
-		sdkCtx.EventManager().EmitEvent(
-			sdk.NewEvent(types.EventTypePeerActivated,
-				sdk.NewAttribute(types.AttributeKeyPeerID, msg.PeerId)),
-		)
 	}
 
 	sdkCtx.EventManager().EmitEvent(

@@ -75,7 +75,6 @@ var (
 	DefaultMaxContentUriSize         = uint64(2048)
 	DefaultMaxProtocolMetadataSize   = uint64(8192)
 	DefaultGlobalMaxTrustCredit      = uint32(1)
-	DefaultTrustDiscountRate         = math.LegacyNewDecWithPrec(5, 1) // 0.5
 	DefaultBridgeInactivityThreshold = uint64(100)
 	DefaultIBCPort                   = PortID
 	DefaultIBCChannelVersion         = Version
@@ -132,7 +131,6 @@ func DefaultParams() Params {
 		ContentTtl:                gp.ContentTTL,
 		AttestationTtl:            gp.AttestationTTL,
 		GlobalMaxTrustCredit:      DefaultGlobalMaxTrustCredit,
-		TrustDiscountRate:         DefaultTrustDiscountRate,
 		MaxIdentityLinksPerUser:   gp.MaxIdentityLinksPerUser,
 		UnverifiedLinkTtl:         gp.UnverifiedLinkTTL,
 		ChallengeTtl:              gp.ChallengeTTL,
@@ -232,7 +230,6 @@ func (p Params) Validate() error {
 
 	// --- LegacyDec ranges: [0, 1] (inclusive) ---
 	decFields := map[string]math.LegacyDec{
-		"trust_discount_rate":                      p.TrustDiscountRate,
 		"operator_reward_inflation_share":          p.OperatorRewardInflationShare,
 		"operator_reward_pool_overflow_burn_ratio": p.OperatorRewardPoolOverflowBurnRatio,
 		"max_unverified_rate":                      p.MaxUnverifiedRate,

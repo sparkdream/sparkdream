@@ -38,6 +38,10 @@ type BankKeeper interface {
 // CommonsKeeper defines the expected interface for the Commons module.
 type CommonsKeeper interface {
 	IsCouncilAuthorized(ctx context.Context, addr string, council string, committee string) bool
+	// Gov, council policy or committee policy -- excludes individual
+	// committee members. Used where an action must carry a committee vote
+	// rather than one member's signature (peer activation).
+	IsCouncilOrCommitteePolicy(ctx context.Context, addr string, council string, committee string) bool
 
 	// IsGroupPolicyAddress reports whether `addr` is a registered
 	// x/commons group-policy address. Used by Phase 1 federation→

@@ -3,3 +3,6 @@
 .hermes_mnemonics/
 # Channel ids written by bringup.sh — derived state, regenerate rather than commit.
 .ibc_channels
+# Unsigned transactions emitted by setup_peers.sh for a signer whose key is
+# not on this machine. Derived state: regenerate rather than commit.
+.unsigned/

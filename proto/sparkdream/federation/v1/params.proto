@@ -44,67 +44,63 @@ message Params {
     (gogoproto.stdduration) = true
   ];
   uint32 global_max_trust_credit = 9;
-  string trust_discount_rate = 10 [
-    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
-    (gogoproto.nullable) = false
-  ];
 
   // Identity
-  uint32 max_identity_links_per_user = 11;
-  google.protobuf.Duration unverified_link_ttl = 12 [
+  uint32 max_identity_links_per_user = 10;
+  google.protobuf.Duration unverified_link_ttl = 11 [
     (gogoproto.nullable) = false,
     (gogoproto.stdduration) = true
   ];
-  google.protobuf.Duration challenge_ttl = 13 [
+  google.protobuf.Duration challenge_ttl = 12 [
     (gogoproto.nullable) = false,
     (gogoproto.stdduration) = true
   ];
 
   // Bridge monitoring
-  uint64 bridge_inactivity_threshold = 14;
+  uint64 bridge_inactivity_threshold = 13;
 
   // IBC
-  string ibc_port = 15;
-  string ibc_channel_version = 16;
-  google.protobuf.Duration ibc_packet_timeout = 17 [
+  string ibc_port = 14;
+  string ibc_channel_version = 15;
+  google.protobuf.Duration ibc_packet_timeout = 16 [
     (gogoproto.nullable) = false,
     (gogoproto.stdduration) = true
   ];
 
   // Pruning
-  uint64 max_prune_per_block = 18;
+  uint64 max_prune_per_block = 17;
 
   // Outbound rate limiting
-  uint64 max_outbound_per_block = 19;
+  uint64 max_outbound_per_block = 18;
 
   // Rate limiting
-  google.protobuf.Duration rate_limit_window = 20 [
+  google.protobuf.Duration rate_limit_window = 19 [
     (gogoproto.nullable) = false,
     (gogoproto.stdduration) = true
   ];
 
   // Verification (sentinel-style)
-  uint32 min_verifier_trust_level = 21;
-  string min_verifier_bond = 22 [
+  uint32 min_verifier_trust_level = 20;
+  string min_verifier_bond = 21 [
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
-  string verifier_recovery_threshold = 23 [
+  string verifier_recovery_threshold = 22 [
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
-  string verifier_slash_amount = 24 [
+  string verifier_slash_amount = 23 [
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
-  google.protobuf.Duration verification_window = 25 [
+  google.protobuf.Duration verification_window = 24 [
     (gogoproto.nullable) = false,
     (gogoproto.stdduration) = true
   ];
-  google.protobuf.Duration challenge_window = 26 [
+  google.protobuf.Duration challenge_window = 25 [
     (gogoproto.nullable) = false,
     (gogoproto.stdduration) = true
   ];
@@ -112,20 +108,20 @@ message Params {
   // challenger, in bond-denom micro-units. Denom is resolved at runtime
   // from x/identity (see x-identity-spec.md). Escalating multiplier in
   // msg_server_challenge_verification.go applies to this amount.
-  string challenge_fee_amount = 27 [
+  string challenge_fee_amount = 26 [
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
-  google.protobuf.Duration challenge_jury_deadline = 28 [
+  google.protobuf.Duration challenge_jury_deadline = 27 [
     (gogoproto.nullable) = false,
     (gogoproto.stdduration) = true
   ];
-  google.protobuf.Duration verifier_demotion_cooldown = 29 [
+  google.protobuf.Duration verifier_demotion_cooldown = 28 [
     (gogoproto.nullable) = false,
     (gogoproto.stdduration) = true
   ];
-  google.protobuf.Duration verifier_overturn_base_cooldown = 30 [
+  google.protobuf.Duration verifier_overturn_base_cooldown = 29 [
     (gogoproto.nullable) = false,
     (gogoproto.stdduration) = true
   ];
@@ -133,7 +129,7 @@ message Params {
   // verifier's overturn streak. Federation owns the value; x/rep enforces it,
   // via BondedRoleConfig.upheld_to_reset_overturns written through by
   // SyncVerifierBondedRoleConfig -- same path as the two cooldowns above.
-  uint32 upheld_to_reset_overturns = 31;
+  uint32 upheld_to_reset_overturns = 30;
   // --- Bridge operator compensation ---
   //
   // Operators run the infrastructure that pulls content off ActivityPub /
@@ -164,51 +160,51 @@ message Params {
   // poorest. The base is the inflation rate, never the pool balance -- the
   // balance holds the genesis allocation earmarked for the councils. Zero
   // disables automatic funding, leaving the pool to direct sends.
-  string operator_reward_inflation_share = 32 [
+  string operator_reward_inflation_share = 31 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
   // Upper cap on the pool; excess is burned at the ratio below, so an
   // over-funded pool cannot sit as a standing prize.
-  string max_operator_reward_pool = 33 [
+  string max_operator_reward_pool = 32 [
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
-  string operator_reward_pool_overflow_burn_ratio = 34 [
+  string operator_reward_pool_overflow_burn_ratio = 33 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
-  uint64 operator_reward_epoch_blocks = 35;
+  uint64 operator_reward_epoch_blocks = 34;
   // Minimum independently-verified submissions in an epoch to earn anything.
-  uint32 min_epoch_verified_submissions = 36;
+  uint32 min_epoch_verified_submissions = 35;
   // Ceiling on epoch_unverified / epoch_submitted. An operator flooding the
   // queue with content no verifier will confirm is spending verifier
   // attention rather than producing value.
-  string max_unverified_rate = 37 [
+  string max_unverified_rate = 36 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
 
   // Anonymous challenge resolution
-  uint32 arbiter_quorum = 38;
-  google.protobuf.Duration arbiter_resolution_window = 39 [
+  uint32 arbiter_quorum = 37;
+  google.protobuf.Duration arbiter_resolution_window = 38 [
     (gogoproto.nullable) = false,
     (gogoproto.stdduration) = true
   ];
-  google.protobuf.Duration arbiter_escalation_window = 40 [
+  google.protobuf.Duration arbiter_escalation_window = 39 [
     (gogoproto.nullable) = false,
     (gogoproto.stdduration) = true
   ];
   // escalation_fee_amount is the fee escrowed by a party escalating a
   // challenge to a system report, in bond-denom micro-units. Denom is
   // resolved at runtime from x/identity (see x-identity-spec.md).
-  string escalation_fee_amount = 41 [
+  string escalation_fee_amount = 40 [
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
-  google.protobuf.Duration challenge_cooldown = 42 [
+  google.protobuf.Duration challenge_cooldown = 41 [
     (gogoproto.nullable) = false,
     (gogoproto.stdduration) = true
   ];
@@ -219,7 +215,7 @@ message Params {
   // Propagated to x/rep BondedRoleConfig via SyncVerifierBondedRoleConfig.
   // Mirrors bridge_unbonding_period — verifier and bridge operator both
   // face a 14-day slashable window after exit-of-role intent.
-  google.protobuf.Duration verifier_unbond_cooldown = 43 [
+  google.protobuf.Duration verifier_unbond_cooldown = 42 [
     (gogoproto.nullable) = false,
     (gogoproto.stdduration) = true
   ];
@@ -241,10 +237,6 @@ message FederationOperationalParams {
     (gogoproto.stdduration) = true
   ];
   uint32 global_max_trust_credit = 8;
-  string trust_discount_rate = 9 [
-    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
-    (gogoproto.nullable) = false
-  ];
-  uint64 bridge_inactivity_threshold = 10;
-  uint64 max_prune_per_block = 11;
+  uint64 bridge_inactivity_threshold = 9;
+  uint64 max_prune_per_block = 10;
 }

@@ -13,18 +13,32 @@
 PROPOSAL_DIR="${PROPOSAL_DIR:-$SCRIPT_DIR/proposals}"
 mkdir -p "$PROPOSAL_DIR"
 
-# register_test_peer <peer_id> <type> <display_name> [ibc_channel_id]
+# register_test_peer <peer_id> <type> <display_name> [ibc_channel_id] [activate]
 # type: PEER_TYPE_ACTIVITYPUB | PEER_TYPE_ATPROTO | PEER_TYPE_SPARK_DREAM
+# activate: yes (default) | no
+#
+# Registration alone leaves the peer PENDING, and a PENDING peer is inert:
+# register-bridge, federate-content, submit-content and reputation
+# attestation all require ACTIVE. register-bridge used to flip the peer to
+# ACTIVE as a side effect of the first binding; it no longer does, so this
+# fixture walks the real lifecycle and activates by default. Pass "no" for
+# tests that only need the peer to exist (e.g. query pagination) and would
+# rather not pay for an extra proposal round per peer.
 register_test_peer() {
     local PEER_ID=$1
     local PEER_TYPE=$2
     local DISPLAY_NAME=$3
     local IBC_CHAN=${4:-""}
+    local ACTIVATE=${5:-yes}
 
-    # If peer already exists, skip
+    # If peer already exists, skip registration -- but still make sure it
+    # is ACTIVE, since it may have been seeded PENDING by another test.
     local EXIST=$($BINARY query federation get-peer "$PEER_ID" --output json 2>&1 | jq -r '.peer.id // empty' 2>/dev/null)
     if [ "$EXIST" == "$PEER_ID" ]; then
         echo "  Fixture peer $PEER_ID already registered"
+        if [ "$ACTIVATE" == "yes" ]; then
+            activate_test_peer "$PEER_ID" || return 1
+        fi
         return 0
     fi
 
@@ -82,6 +96,9 @@ EOF
     EXIST=$($BINARY query federation get-peer "$PEER_ID" --output json 2>&1 | jq -r '.peer.id // empty' 2>/dev/null)
     if [ "$EXIST" == "$PEER_ID" ]; then
         echo "  Fixture peer $PEER_ID registered (proposal $PROP_ID)"
+        if [ "$ACTIVATE" == "yes" ]; then
+            activate_test_peer "$PEER_ID" || return 1
+        fi
         return 0
     else
         echo "  Fixture peer $PEER_ID registration FAILED"
@@ -197,7 +214,6 @@ set_peer_policy() {
         "outbound_rate_limit_per_epoch": 100,
         "allow_reputation_queries": $ALLOW_REP,
         "accept_reputation_attestations": $ACCEPT_REP,
-        "max_trust_credit": 0,
         "require_review": false,
         "blocked_identities": $BLOCKED_JSON
       }

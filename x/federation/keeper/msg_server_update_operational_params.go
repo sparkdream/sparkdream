@@ -6,7 +6,6 @@ import (
 	"sparkdream/x/federation/types"
 
 	errorsmod "cosmossdk.io/errors"
-	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 )
 
@@ -39,9 +38,6 @@ func (k msgServer) UpdateOperationalParams(ctx context.Context, msg *types.MsgUp
 	if op.AttestationTtl.Seconds() <= 0 {
 		return nil, errorsmod.Wrap(types.ErrInvalidParamValue, "attestation_ttl must be > 0")
 	}
-	if op.TrustDiscountRate.IsNegative() || op.TrustDiscountRate.GT(math.LegacyOneDec()) {
-		return nil, errorsmod.Wrap(types.ErrInvalidParamValue, "trust_discount_rate must be in [0, 1]")
-	}
 	if op.MaxPrunePerBlock == 0 {
 		return nil, errorsmod.Wrap(types.ErrInvalidParamValue, "max_prune_per_block must be > 0")
 	}
@@ -60,7 +56,6 @@ func (k msgServer) UpdateOperationalParams(ctx context.Context, msg *types.MsgUp
 	currentParams.ContentTtl = op.ContentTtl
 	currentParams.AttestationTtl = op.AttestationTtl
 	currentParams.GlobalMaxTrustCredit = op.GlobalMaxTrustCredit
-	currentParams.TrustDiscountRate = op.TrustDiscountRate
 	currentParams.BridgeInactivityThreshold = op.BridgeInactivityThreshold
 	currentParams.MaxPrunePerBlock = op.MaxPrunePerBlock
 

@@ -32,6 +32,14 @@ regenerations:
     to the current UTC time (never the Go time.Time zero value, which breaks
     modules that compute `block.time - genesis.time`).
 
+    The consequence is deliberate and load-bearing: a chain RELAUNCHED after
+    this file was last written gets a fresh genesis_time, so the committed
+    file can never match it byte-for-byte. Never sync a node from this
+    directory — fetch genesis from the running chain. A node on a stale
+    genesis still passes CometBFT's p2p handshake (it checks the chain-id and
+    nothing else) and then wedges its peer's blocksync. See the "Never sync a
+    node from the committed genesis.json" section of deploy/README.md.
+
 Usage:
     deploy/scripts/regenerate-network-genesis.py
     deploy/scripts/regenerate-network-genesis.py --networks devnet

@@ -106,6 +106,45 @@ func (k Keeper) IsCouncilAuthorized(ctx context.Context, addr string, council st
 	return false
 }
 
+// IsCouncilOrCommitteePolicy sits between the other two authorization
+// helpers: it accepts the gov authority, the council's policy address, or the
+// named committee's policy address -- but NOT an individual committee member.
+//
+// IsCouncilAuthorized accepts individuals, which makes an action 1-of-N over a
+// body of 2-5. IsCouncilPolicyOrGov excludes committee policies entirely,
+// which forces a full council vote. This is for actions that should be a
+// committee decision: executed by the committee policy, so it carries a
+// proposal record and whatever majority the committee's decision policy
+// requires (percentage 0.5 -> ceil(n/2), see genesis_bootstrap.go).
+func (k Keeper) IsCouncilOrCommitteePolicy(ctx context.Context, addr string, council string, committee string) bool {
+	addrBytes, err := k.addressCodec.StringToBytes(addr)
+	if err != nil {
+		return false
+	}
+	if bytes.Equal(k.authority, addrBytes) {
+		return true
+	}
+
+	// Council policy address (an executed council proposal).
+	councilGroup, err := k.Groups.Get(ctx, normalizeCouncilName(council))
+	if err == nil && councilGroup.PolicyAddress == addr {
+		return true
+	}
+
+	// Committee policy address (an executed committee proposal).
+	if committee != "" {
+		committeeName := resolveCommitteeName(council, committee)
+		if committeeName != "" {
+			committeeGroup, err := k.Groups.Get(ctx, committeeName)
+			if err == nil && committeeGroup.PolicyAddress == addr {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
 // IsCouncilPolicyOrGov returns true only if addr is the gov authority or the
 // council's policy address. Unlike IsCouncilAuthorized, individual committee
 // membership does NOT satisfy this check — it is for handlers that require an

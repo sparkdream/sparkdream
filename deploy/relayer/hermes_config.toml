@@ -78,7 +78,15 @@ max_gas = 4000000
 # positive price is accepted. 0.025 matches what the UI signs with
 # (gasPriceStep.average in src/lib/chain.ts).
 gas_price = { price = 0.025, denom = 'usparz.sparkdreamdev' }
-gas_multiplier = 1.5
+# 1.5 is the Hermes default and it is NOT enough for these chains: client
+# creation simulated 42,833 gas, x1.5 = 64,249 wanted, and the tx then used
+# 66,910 and failed with "out of gas in location: WritePerByte". The
+# simulation does not account for the per-byte store writes a client-state
+# commit makes, and the shortfall grows with the size of what is written, so
+# the margin has to absorb more than the ~1.56x that one case needed.
+# Hermes only charges gas actually consumed, so a generous multiplier costs
+# nothing except a larger fee ceiling per tx.
+gas_multiplier = 2.5
 max_msg_num = 30
 max_tx_size = 180000
 clock_drift = '10s'
@@ -122,7 +130,15 @@ max_gas = 4000000
 # Anything other than 0.025 (or empty) there and every relayer tx is rejected
 # with "insufficient fees".
 gas_price = { price = 0.025, denom = 'uspark.sparkdreamtest' }
-gas_multiplier = 1.5
+# 1.5 is the Hermes default and it is NOT enough for these chains: client
+# creation simulated 42,833 gas, x1.5 = 64,249 wanted, and the tx then used
+# 66,910 and failed with "out of gas in location: WritePerByte". The
+# simulation does not account for the per-byte store writes a client-state
+# commit makes, and the shortfall grows with the size of what is written, so
+# the margin has to absorb more than the ~1.56x that one case needed.
+# Hermes only charges gas actually consumed, so a generous multiplier costs
+# nothing except a larger fee ceiling per tx.
+gas_multiplier = 2.5
 max_msg_num = 30
 max_tx_size = 180000
 clock_drift = '10s'

@@ -55,18 +55,12 @@ func TestParamsValidate_RelationalConstraints(t *testing.T) {
 }
 
 // TestParamsValidate_LegacyDecBounds locks the [0,1] ranges on
-// trust_discount_rate, min_verifier_accuracy, and operator_reward_share.
+// min_verifier_accuracy and operator_reward_share.
 func TestParamsValidate_LegacyDecBounds(t *testing.T) {
 	cases := []struct {
 		name string
 		set  func(*types.Params)
 	}{
-		{"trust_discount_rate < 0", func(p *types.Params) {
-			p.TrustDiscountRate = math.LegacyNewDecWithPrec(-1, 1)
-		}},
-		{"trust_discount_rate > 1", func(p *types.Params) {
-			p.TrustDiscountRate = math.LegacyNewDecWithPrec(11, 1)
-		}},
 		{"operator_reward_inflation_share < 0", func(p *types.Params) {
 			p.OperatorRewardInflationShare = math.LegacyNewDecWithPrec(-1, 1)
 		}},

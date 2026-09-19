@@ -138,8 +138,34 @@ echo ""
 #    params (ibc_port, ibc_channel_version) or the handshake is refused
 #    by the module's OnChanOpenInit/Try.
 # ------------------------------------------------------------------
+# Lowest-numbered OPEN channel on $PORT, via --json.
+#
+# The human-readable `hermes query channels` output cannot be grepped for
+# this: it prints `channel_id: ChannelId(` / `"channel-0",` / `port_id:
+# PortId(` / `"federation",` across separate lines, so the port name is five
+# lines AFTER the channel id it belongs to. A `grep -B1 federation` finds
+# `port_id: PortId(` and no channel id at all, the function returns empty,
+# and the caller concludes no channel exists -- which is how a re-run opened
+# a SECOND federation channel on both chains instead of skipping.
+#
+# Sorted so repeated runs pick the same channel every time; a duplicate from
+# an earlier run stays open (IBC channels cannot be deleted) but is ignored.
 federation_channel() {
-    hc query channels --chain "$1" 2>&1 | grep -B1 "$PORT" | grep -oE 'channel-[0-9]+' | head -1
+    "$HERMES" --json --config "$HERMES_CONFIG" query channels --chain "$1" 2>/dev/null \
+        | python3 -c '
+import json,sys
+port=sys.argv[1]
+ids=[]
+for line in sys.stdin:
+    line=line.strip()
+    if not line.startswith("{"): continue
+    try: d=json.loads(line)
+    except Exception: continue
+    for e in d.get("result") or []:
+        if e.get("port_id")==port and e.get("channel_id"):
+            ids.append(e["channel_id"])
+ids.sort(key=lambda c:int(c.rsplit("-",1)[-1]) if c.rsplit("-",1)[-1].isdigit() else 0)
+print(ids[0] if ids else "")' "$PORT" 2>/dev/null || true
 }
 
 echo "=== Federation channel ==="

@@ -68,9 +68,61 @@ setup_one() {
     [ -x "$BINARY" ] || { echo "ERROR: $BINARY missing. See the build note at the top." >&2; exit 1; }
 
     echo "=== $CHAIN_ID -> $HOME_DIR ==="
+
+    # The deployed chain is the source of truth for genesis, never the copy in
+    # deploy/config/network -- that one drifts (it preserves genesis_time
+    # across regenerations, and the launcher rewrites parts of it), so a node
+    # built from the repo can hold a document the running chain never started
+    # from.
+    #
+    # Existence alone is NOT a reason to skip. A devnet reset writes a new
+    # genesis under the SAME chain-id, and CometBFT's p2p handshake checks
+    # only the chain-id -- so a node left on the previous genesis is accepted
+    # as a peer, advertises the dead chain's height, and poisons the sentry's
+    # blocksync until someone sets max_num_inbound_peers = 0. That happened on
+    # 2026-09-17. Compare against the live document instead and re-init when
+    # it has moved.
     if [ -f "$HOME_DIR/config/genesis.json" ]; then
-        echo "  already initialised - skipping (delete the home dir to redo)"
-        return 0
+        local LIVE_SUM LOCAL_SUM
+        LIVE_SUM=$(curl -sf -m 60 "$RPC/genesis" 2>/dev/null \
+            | python3 -c 'import json,sys,hashlib
+try:
+    g=json.load(sys.stdin)["result"]["genesis"]
+except Exception:
+    sys.exit(1)
+print(hashlib.sha256(json.dumps(g,sort_keys=True,separators=(",",":")).encode()).hexdigest())' 2>/dev/null || true)
+        LOCAL_SUM=$(python3 -c 'import json,sys,hashlib
+g=json.load(open(sys.argv[1]))
+print(hashlib.sha256(json.dumps(g,sort_keys=True,separators=(",",":")).encode()).hexdigest())' \
+            "$HOME_DIR/config/genesis.json" 2>/dev/null || true)
+
+        if [ -z "$LIVE_SUM" ]; then
+            echo "  WARNING: could not reach $RPC to check genesis; leaving $HOME_DIR alone." >&2
+            echo "           If the chain was reset, this node is stale and must not be started." >&2
+            return 0
+        fi
+        if [ "$LIVE_SUM" = "$LOCAL_SUM" ]; then
+            echo "  already initialised on the live genesis - skipping"
+            return 0
+        fi
+
+        echo "  GENESIS CHANGED - the chain was reset under the same chain-id."
+        echo "    local: ${LOCAL_SUM:0:16}"
+        echo "    live:  ${LIVE_SUM:0:16}"
+        if [ "${FORCE_REINIT:-0}" != "1" ]; then
+            echo "" >&2
+            echo "  Refusing to touch $HOME_DIR automatically: re-initialising deletes" >&2
+            echo "  its chain data. Stop the node, then re-run with FORCE_REINIT=1." >&2
+            echo "  Starting it as-is would wedge the sentry it peers with." >&2
+            return 1
+        fi
+        if pgrep -f "start --home $HOME_DIR" >/dev/null 2>&1; then
+            echo "  ERROR: a node is still running against $HOME_DIR. Stop it first:" >&2
+            echo "         $0 stop" >&2
+            return 1
+        fi
+        echo "  FORCE_REINIT=1: clearing $HOME_DIR and re-initialising"
+        rm -rf "${HOME_DIR:?}/data" "${HOME_DIR:?}/config"
     fi
 
     "$BINARY" init "$NAME" --chain-id "$CHAIN_ID" --home "$HOME_DIR" >/dev/null 2>&1
@@ -115,14 +167,55 @@ PY
     echo "  rpc=$RPC_PORT p2p=$P2P_PORT grpc=$GRPC_PORT gas=$GAS"
 }
 
+# sha256 of a genesis document in canonical form (sorted keys, no spaces), so
+# a node's on-disk file and the same document served over RPC compare equal
+# despite being serialised differently. Raw sha256sum of the two files does
+# NOT match even when they are the same genesis.
+genesis_sum_local() {  # <home dir>
+    python3 -c 'import json,sys,hashlib
+print(hashlib.sha256(json.dumps(json.load(open(sys.argv[1])),sort_keys=True,separators=(",",":")).encode()).hexdigest())' \
+        "$1/config/genesis.json" 2>/dev/null || true
+}
+
+genesis_sum_live() {  # <rpc>
+    curl -sf -m 60 "$1/genesis" 2>/dev/null \
+        | python3 -c 'import json,sys,hashlib
+try: g=json.load(sys.stdin)["result"]["genesis"]
+except Exception: sys.exit(1)
+print(hashlib.sha256(json.dumps(g,sort_keys=True,separators=(",",":")).encode()).hexdigest())' 2>/dev/null || true
+}
+
 start_one() {
-    local CHAIN_ID=$1 HOME_DIR=$2 BINARY=$3
+    local CHAIN_ID=$1 HOME_DIR=$2 BINARY=$3 RPC=$4
     mkdir -p "$LOG_DIR"
     local LOG="$LOG_DIR/$CHAIN_ID.log"
     if pgrep -f "start --home $HOME_DIR" >/dev/null; then
         echo "  $CHAIN_ID already running"
         return 0
     fi
+
+    # Refuse to start a node whose genesis has moved. `setup` already checks
+    # this, but setup is not what gets run after a chain reset -- `start` is,
+    # and starting a stale node is precisely what wedges the sentry it peers
+    # with: CometBFT authenticates the chain-id and nothing else, so the node
+    # is accepted as a peer and then advertises a height from a chain that no
+    # longer exists. This exact sequence took the devnet sentry down three
+    # times (2026-09-17, and twice on 09-18) before the check moved here.
+    local live local_sum
+    live=$(genesis_sum_live "$RPC")
+    local_sum=$(genesis_sum_local "$HOME_DIR")
+    if [ -z "$live" ]; then
+        echo "  WARNING: $CHAIN_ID -- could not reach $RPC to verify genesis; starting anyway." >&2
+        echo "           If the chain was reset while this node was down, stop it and re-run setup." >&2
+    elif [ "$live" != "$local_sum" ]; then
+        echo "  REFUSING to start $CHAIN_ID: its genesis does not match the live chain." >&2
+        echo "    local: ${local_sum:0:16}" >&2
+        echo "    live:  ${live:0:16}" >&2
+        echo "  The chain was reset. Starting this node would wedge the sentry's blocksync." >&2
+        echo "  Re-initialise first:  FORCE_REINIT=1 $0 setup" >&2
+        return 1
+    fi
+
     nohup "$BINARY" start --home "$HOME_DIR" > "$LOG" 2>&1 &
     echo "  $CHAIN_ID started (pid $!), log: $LOG"
 }
@@ -153,16 +246,32 @@ case "${1:-}" in
         echo "Now: ./local_nodes.sh start   then watch ./local_nodes.sh status"
         ;;
     start)
-        start_one "$DEV_ID"  "$HOME_DEV"  "$BIN_DEV"
-        start_one "$TEST_ID" "$HOME_TEST" "$BIN_TEST"
+        rc=0
+        start_one "$DEV_ID"  "$HOME_DEV"  "$BIN_DEV"  "$DEV_RPC"  || rc=1
+        start_one "$TEST_ID" "$HOME_TEST" "$BIN_TEST" "$TEST_RPC" || rc=1
+        exit $rc
         ;;
     status)
         status_one "$DEV_ID"  26657 "$DEV_RPC"
         status_one "$TEST_ID" 36657 "$TEST_RPC"
         ;;
     stop)
-        pkill -f "start --home $HOME_DEV"  && echo "  stopped dev"  || echo "  dev not running"
-        pkill -f "start --home $HOME_TEST" && echo "  stopped test" || echo "  test not running"
+        for pair in "dev:$HOME_DEV" "test:$HOME_TEST"; do
+            label="${pair%%:*}"; home="${pair#*:}"
+            if pkill -f "start --home $home"; then
+                # Wait for it to actually exit: `setup --force` deletes this
+                # home, and racing a still-running process there corrupts it.
+                for _ in $(seq 1 30); do
+                    pgrep -f "start --home $home" >/dev/null || break
+                    sleep 1
+                done
+                pgrep -f "start --home $home" >/dev/null \
+                    && echo "  $label STILL RUNNING after 30s" >&2 \
+                    || echo "  stopped $label"
+            else
+                echo "  $label not running"
+            fi
+        done
         ;;
     *)
         echo "usage: $0 {setup|start|status|stop}" >&2

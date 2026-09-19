@@ -4,7 +4,6 @@ import (
 	"testing"
 	"time"
 
-	"cosmossdk.io/math"
 	"github.com/stretchr/testify/require"
 
 	"sparkdream/x/federation/keeper"
@@ -26,7 +25,6 @@ func TestUpdateOperationalParams(t *testing.T) {
 			ContentTtl:                60 * 24 * time.Hour,
 			AttestationTtl:            15 * 24 * time.Hour,
 			GlobalMaxTrustCredit:      2,
-			TrustDiscountRate:         math.LegacyNewDecWithPrec(3, 1),
 			BridgeInactivityThreshold: 50,
 			MaxPrunePerBlock:          200,
 		},

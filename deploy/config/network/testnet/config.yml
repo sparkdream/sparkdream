@@ -123,7 +123,12 @@ genesis:
             denom: uspark.sparkdreamtest
         voting_period: "43200s"            # 12 hours (production: 5 days+)
         expedited_min_deposit:
-          - amount: "100000000"
+          - amount: "250000000"           # 250 SPARK = 5x min_deposit, the SDK's
+                                          # DefaultMinExpeditedDepositTokensRatio. The chain
+                                          # launcher derives this field as min_deposit x 5 and
+                                          # cannot express any other ratio, so a launched chain
+                                          # always lands here; matching it keeps the committed
+                                          # genesis equal to what a reset actually deploys.
             denom: uspark.sparkdreamtest
         expedited_voting_period: "14400s"  # 4 hours (production: 1 day+)
     mint:

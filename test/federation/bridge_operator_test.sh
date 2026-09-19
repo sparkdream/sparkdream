@@ -128,6 +128,12 @@ BOND_AMOUNT="${MIN_BOND_AMT}"
 echo "Min bond (federation-bridge-activitypub): ${BOND_AMOUNT}${BOND_DENOM}"
 echo ""
 
+# mastodon.example is normally left ACTIVE by peer_lifecycle_test.sh, which
+# runs earlier in the suite. Seed it explicitly so this file also passes when
+# run on its own: a bridge can no longer bind to a PENDING peer, and
+# register-bridge no longer activates one as a side effect.
+register_test_peer "mastodon.example" "PEER_TYPE_ACTIVITYPUB" "Example Mastodon instance" ""
+
 # ========================================================================
 # TEST 1: Register bridge operator for ActivityPub peer (operator-signed,
 # escrows bond into x/service)
@@ -401,56 +407,46 @@ fi
 echo ""
 echo "--- TEST 13: Second peer on same protocol shares service.Operator ---"
 
-# Need an additional ActivityPub peer to bind to. Re-register if absent.
-LEMMY_STATUS=$($BINARY query federation get-peer lemmy.example --output json 2>&1 | jq -r '.peer.status // empty')
-if [ -z "$LEMMY_STATUS" ]; then
-    echo "  Registering lemmy.example for shared-bond test..."
-    cat > "$PROPOSAL_DIR/register_lemmy.json" <<EOF
-{
-  "policy_address": "$COMMONS_POLICY",
-  "messages": [
-    {
-      "@type": "/sparkdream.federation.v1.MsgRegisterPeer",
-      "authority": "$COMMONS_POLICY",
-      "peer_id": "lemmy.example",
-      "display_name": "Lemmy test peer",
-      "type": "PEER_TYPE_ACTIVITYPUB"
-    }
-  ],
-  "metadata": "Register lemmy.example for bridge tests"
-}
-EOF
-    TX_RES=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/register_lemmy.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000${BOND_DENOM} --output json)
-    if submit_and_wait "$TX_RES" "register lemmy"; then
-        PROP_ID=$(get_commons_proposal_id "$TX_RESULT")
-        [ -n "$PROP_ID" ] && vote_and_execute_ops "$PROP_ID"
-    fi
-fi
+# Need an additional ACTIVE ActivityPub peer to bind to. Use the shared
+# fixture rather than an inline registration proposal: it registers AND
+# activates, and a bridge can no longer bind to a PENDING peer.
+#
+# The inline version this replaces also keyed existence on `.peer.status`,
+# which proto3 omits for PENDING peers (enum 0) -- so an already-registered
+# PENDING lemmy.example read as "absent" and got a duplicate registration
+# proposal. The fixture keys on `.peer.id` and is idempotent.
+LEMMY_PEER_OK=true
+register_test_peer "lemmy.example" "PEER_TYPE_ACTIVITYPUB" "Lemmy test peer" "" || LEMMY_PEER_OK=false
 
-# Capture operator2's current bond — should be unchanged after the new
-# binding because the (address, service_type) already exists.
-PRE_BOND_OP2=$($BINARY query service operator $OPERATOR2_ADDR $SVC_AP --output json 2>&1 | jq -r '.operator.bond_amount // "0"')
+if [ "$LEMMY_PEER_OK" != "true" ]; then
+    echo "  Failed to register/activate lemmy.example; skipping shared-bond test"
+    record_result "Shared service.Operator across peers" "FAIL"
+else
+    # Capture operator2's current bond — should be unchanged after the new
+    # binding because the (address, service_type) already exists.
+    PRE_BOND_OP2=$($BINARY query service operator $OPERATOR2_ADDR $SVC_AP --output json 2>&1 | jq -r '.operator.bond_amount // "0"')
 
-# Register operator2 for the new peer with stake=0 (no top-up). Per
-# the migration plan, when (operator, service_type) already has an
-# Operator, MsgRegisterBridge just writes a new BridgeBinding and only
-# calls TopUpBond if stake > 0.
-TX_RES=$($BINARY tx federation register-bridge \
-    lemmy.example activitypub https://bridge.lemmy.example "0" \
-    --from operator2 -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} --output json)
+    # Register operator2 for the new peer with stake=0 (no top-up). Per
+    # the migration plan, when (operator, service_type) already has an
+    # Operator, MsgRegisterBridge just writes a new BridgeBinding and only
+    # calls TopUpBond if stake > 0.
+    TX_RES=$($BINARY tx federation register-bridge \
+        lemmy.example activitypub https://bridge.lemmy.example "0" \
+        --from operator2 -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} --output json)
 
-if submit_and_wait "$TX_RES" "register second peer same protocol"; then
-    POST_BOND_OP2=$($BINARY query service operator $OPERATOR2_ADDR $SVC_AP --output json 2>&1 | jq -r '.operator.bond_amount // "0"')
-    LEMMY_BINDING=$($BINARY query federation get-bridge-binding $OPERATOR2_ADDR lemmy.example --output json 2>&1 | jq -r '.bridge_binding.address // empty')
-    if [ "$LEMMY_BINDING" == "$OPERATOR2_ADDR" ] && [ "$POST_BOND_OP2" == "$PRE_BOND_OP2" ]; then
-        echo "  Second binding written; bond unchanged ($POST_BOND_OP2)"
-        record_result "Shared service.Operator across peers" "PASS"
+    if submit_and_wait "$TX_RES" "register second peer same protocol"; then
+        POST_BOND_OP2=$($BINARY query service operator $OPERATOR2_ADDR $SVC_AP --output json 2>&1 | jq -r '.operator.bond_amount // "0"')
+        LEMMY_BINDING=$($BINARY query federation get-bridge-binding $OPERATOR2_ADDR lemmy.example --output json 2>&1 | jq -r '.bridge_binding.address // empty')
+        if [ "$LEMMY_BINDING" == "$OPERATOR2_ADDR" ] && [ "$POST_BOND_OP2" == "$PRE_BOND_OP2" ]; then
+            echo "  Second binding written; bond unchanged ($POST_BOND_OP2)"
+            record_result "Shared service.Operator across peers" "PASS"
+        else
+            echo "  binding=$LEMMY_BINDING pre=$PRE_BOND_OP2 post=$POST_BOND_OP2"
+            record_result "Shared service.Operator across peers" "FAIL"
+        fi
     else
-        echo "  binding=$LEMMY_BINDING pre=$PRE_BOND_OP2 post=$POST_BOND_OP2"
         record_result "Shared service.Operator across peers" "FAIL"
     fi
-else
-    record_result "Shared service.Operator across peers" "FAIL"
 fi
 
 # ========================================================================

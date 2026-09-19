@@ -306,29 +306,51 @@ func (k Keeper) OnRecvIdentityConfirmPacket(ctx context.Context, sourceChannel s
 
 // --- OnAcknowledgementPacket Handlers ---
 
-// OnAckReputationQuery processes the acknowledgement for a reputation query,
-// storing the response as a ReputationAttestation with appropriate discounting.
-func (k Keeper) OnAckReputationQuery(ctx context.Context, originalPacket *types.ReputationQueryPacket, ackData []byte) error {
+// OnAckReputationQuery stores the peer's answer as a ReputationAttestation.
+//
+// sourceChannel identifies which peer answered. It has to be passed in: the
+// ReputationQueryPacket carries only the requester and the queried address,
+// so without the channel the handler cannot tell which peer a reply came
+// from -- which is how attestations previously ended up keyed by
+// (requester, queried_address), colliding across peers and leaving
+// ReputationAttestation.peer_id unset.
+func (k Keeper) OnAckReputationQuery(ctx context.Context, sourceChannel string, originalPacket *types.ReputationQueryPacket, ackData []byte) error {
 	var resp types.ReputationResponseData
 	if err := resp.Unmarshal(ackData); err != nil {
 		return errorsmod.Wrap(err, "failed to unmarshal reputation response")
 	}
 
-	// Apply discount: cap trust level at PROVISIONAL (1), TTL of 30 days
-	discountedTrust := resp.TrustLevel
-	if discountedTrust > 1 {
-		discountedTrust = 1 // Cap at PROVISIONAL
-	}
-
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	blockTime := sdkCtx.BlockTime().Unix()
-	ttl := int64(30 * 24 * 3600) // 30 days
 
-	// We need to find which peer this query was for — use the requester to look up context
-	// For now, store with a generic peer key based on the queried address
-	attestKey := collections.Join(originalPacket.Requester, originalPacket.QueriedAddress)
+	// The peer that answered, resolved from the channel the ack arrived on.
+	peerID, err := k.findPeerByChannel(ctx, sourceChannel)
+	if err != nil {
+		return errorsmod.Wrapf(types.ErrPeerNotFound, "no peer bound to channel %s", sourceChannel)
+	}
+
+	params, err := k.Params.Get(ctx)
+	if err != nil {
+		return err
+	}
+	ttl := int64(params.AttestationTtl.Seconds())
+
+	// Cap the peer's claim at what this chain is willing to credit. Applied on
+	// write, so the stored value is already safe for any reader: a consumer
+	// that forgot to cap would otherwise import a peer's own trust level.
+	// global_max_trust_credit is the single knob -- defaults to 1, i.e. at
+	// most PROVISIONAL-equivalent, however high the peer rates them.
+	discountedTrust := resp.TrustLevel
+	if discountedTrust > params.GlobalMaxTrustCredit {
+		discountedTrust = params.GlobalMaxTrustCredit
+	}
+
+	// Keyed by (local_address, peer_id), matching QueryGetReputationAttestation
+	// and the one-identity-link-per-peer invariant MsgLinkIdentity enforces.
+	attestKey := collections.Join(originalPacket.Requester, peerID)
 	attestation := types.ReputationAttestation{
 		LocalAddress:     originalPacket.Requester,
+		PeerId:           peerID,
 		RemoteAddress:    resp.Address,
 		RemoteTrustLevel: resp.TrustLevel,
 		LocalTrustCredit: discountedTrust,
@@ -339,7 +361,7 @@ func (k Keeper) OnAckReputationQuery(ctx context.Context, originalPacket *types.
 		return err
 	}
 
-	_ = k.AttestationExp.Set(ctx, collections.Join3(blockTime+ttl, originalPacket.Requester, originalPacket.QueriedAddress))
+	_ = k.AttestationExp.Set(ctx, collections.Join3(blockTime+ttl, originalPacket.Requester, peerID))
 
 	sdkCtx.EventManager().EmitEvent(sdk.NewEvent(
 		types.EventTypeReputationAttested,

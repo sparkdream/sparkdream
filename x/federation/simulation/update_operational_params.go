@@ -4,7 +4,6 @@ import (
 	"math/rand"
 	"time"
 
-	"cosmossdk.io/math"
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -36,7 +35,6 @@ func SimulateMsgUpdateOperationalParams(
 		params.ContentTtl = time.Duration(r.Intn(180)+30) * 24 * time.Hour
 		params.AttestationTtl = time.Duration(r.Intn(60)+7) * 24 * time.Hour
 		params.GlobalMaxTrustCredit = uint32(r.Intn(3) + 1)
-		params.TrustDiscountRate = math.LegacyNewDecWithPrec(int64(r.Intn(8)+1), 1) // 0.1-0.9
 		params.BridgeInactivityThreshold = uint64(r.Intn(200) + 50)
 		params.MaxPrunePerBlock = uint64(r.Intn(200) + 50)
 

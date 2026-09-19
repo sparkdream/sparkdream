@@ -41,20 +41,37 @@ ATTEST_ENABLED=$(qcli_a federation get-peer-policy fedtest-b 2>/dev/null | jq -r
 echo "  Reputation attestations enabled on chain-a policy: $ATTEST_ENABLED"
 echo ""
 
-# Get addresses. Prefer the chain-b-only owner address from setup_chain_keys.sh
-# so this test exercises a known rep member on chain-b without depending on the
-# mirrored "bob" key (which may have a different trust level after identity tests).
+# Get addresses. The target is the chain-b-only owner address from
+# setup_chain_keys.sh -- a known rep member on chain-b, and the address
+# test_crosschain_identity.sh links mc-linker-a to.
+#
+# The REQUESTER must be mc-linker-a, not alice: MsgRequestReputationAttestation
+# now requires a VERIFIED identity link from the requester to the exact remote
+# address being asked about. alice has no link, so a request from alice is
+# rejected with ErrIdentityLinkNotFound (2314) -- which TEST 4 asserts
+# deliberately. That link is established by test_crosschain_identity.sh, which
+# run_all_multichain_tests.sh runs immediately before this file.
 ALICE_A=$(keys_a show alice -a)
+REQUESTER_A="$LINKER_A_ADDR"
 TARGET_B="$OWNER_B_ADDR"
-if [ -z "$TARGET_B" ]; then
-    TARGET_B=$(keys_b show bob -a 2>/dev/null || echo "")
-    if [ -z "$TARGET_B" ] || [ "$TARGET_B" = "null" ]; then
-        echo "  ERROR: no chain-b target address available (run setup_chain_keys.sh)"
-        exit 1
-    fi
+if [ -z "$REQUESTER_A" ] || [ -z "$TARGET_B" ]; then
+    echo "  ERROR: mc-linker-a / mc-owner-b not set up (run setup_chain_keys.sh)"
+    exit 1
 fi
-echo "  Alice (chain-a):  $ALICE_A"
-echo "  Target (chain-b): $TARGET_B"
+echo "  Requester (chain-a): $REQUESTER_A  [mc-linker-a]"
+echo "  Alice (chain-a):     $ALICE_A      [unlinked, used by TEST 4]"
+echo "  Target (chain-b):    $TARGET_B     [mc-owner-b]"
+echo ""
+
+# The happy path is only meaningful once the link is VERIFIED. Say so plainly
+# rather than reporting a link failure as a reputation failure.
+LINK_STATUS=$(qcli_a federation get-identity-link "$REQUESTER_A" fedtest-b 2>/dev/null \
+    | jq -r '.link.status // "none"')
+echo "  mc-linker-a link to fedtest-b: $LINK_STATUS"
+if [ "$LINK_STATUS" != "IDENTITY_LINK_STATUS_VERIFIED" ]; then
+    echo "  [WARN] link is not VERIFIED -- TEST 1 will be skipped. Run"
+    echo "         test_crosschain_identity.sh first (run_all_multichain_tests.sh does)."
+fi
 echo ""
 
 # ====================================================================
@@ -66,10 +83,18 @@ echo "--- TEST 1: Reputation attestation A -> B round-trip ---"
 TARGET_TRUST=$(qcli_b rep get-member "$TARGET_B" 2>/dev/null | jq -r '.member.trust_level // 0')
 echo "  Target trust level on chain-b: $TARGET_TRUST"
 
+if [ "$LINK_STATUS" != "IDENTITY_LINK_STATUS_VERIFIED" ]; then
+    echo "  [SKIP] no VERIFIED identity link for mc-linker-a on fedtest-b"
+    record_result "Reputation attestation round-trip" "SKIP"
+    SKIP_TEST1=1
+fi
+
+TX_RES=""
+if [ "${SKIP_TEST1:-0}" != "1" ]; then
 TX_RES=$(cli_a tx federation request-reputation-attestation \
     fedtest-b \
     "$TARGET_B" \
-    --from alice \
+    --from mc-linker-a \
     -y \
     --fees 5000${BOND_DENOM} \
     --output json)
@@ -110,13 +135,13 @@ if submit_and_wait_a "$TX_RES" "request rep attestation"; then
     if [ "${FAILED_PRE_DELIVERY:-0}" -ne 1 ]; then
         echo "  Waiting for IBC round-trip + attestation storage on chain-a..."
         if ! wait_for_ibc_delivery \
-            "qcli_a federation get-reputation-attestation \"$ALICE_A\" \"$TARGET_B\" 2>/dev/null || echo '{}'" \
+            "qcli_a federation get-reputation-attestation \"$REQUESTER_A\" fedtest-b 2>/dev/null || echo '{}'" \
             '.attestation.remote_address != null and .attestation.remote_address != ""' \
             60 fedtest-a "$CHANNEL_A"; then
             echo "  Attestation did not appear on chain-a within 60s"
         fi
 
-        ATTEST_DATA=$(qcli_a federation get-reputation-attestation "$ALICE_A" "$TARGET_B" 2>/dev/null)
+        ATTEST_DATA=$(qcli_a federation get-reputation-attestation "$REQUESTER_A" fedtest-b 2>/dev/null)
         ATTEST_EXISTS=$(echo "$ATTEST_DATA" | jq -r '.attestation.remote_address // empty')
 
         if [ -n "$ATTEST_EXISTS" ]; then
@@ -173,6 +198,7 @@ else
         record_result "Reputation attestation round-trip" "FAIL"
     fi
 fi
+fi  # SKIP_TEST1
 
 # ====================================================================
 # TEST 2: Reputation attestation on non-IBC peer rejected
@@ -254,6 +280,64 @@ if submit_and_wait_a "$TX_RES" "rep missing peer"; then
 else
     echo "  Correctly rejected"
     record_result "Rep on missing peer" "PASS"
+fi
+
+# ====================================================================
+# TEST 4: Rep attestation without a VERIFIED identity link rejected
+#
+# This is the gate that makes an attestation mean something. Without it,
+# any address could ask about any remote address, and since attestations
+# are keyed (local_address, peer_id), two requests about different remote
+# addresses on the same peer would overwrite each other -- the surviving
+# record claiming standing for whichever was asked last.
+#
+# alice is a fully valid chain-a member with no link on fedtest-b, so the
+# ONLY reason this can fail is the link requirement. Everything else about
+# the request is identical to TEST 1's, which passes.
+# ====================================================================
+echo ""
+echo "--- TEST 4: Rep attestation without verified link rejected ---"
+
+ALICE_LINK=$(qcli_a federation get-identity-link "$ALICE_A" fedtest-b 2>/dev/null \
+    | jq -r '.link.status // "none"')
+echo "  alice link on fedtest-b: $ALICE_LINK"
+
+if [ "$ALICE_LINK" = "IDENTITY_LINK_STATUS_VERIFIED" ]; then
+    echo "  [SKIP] alice unexpectedly holds a verified link -- cannot test the reject path"
+    record_result "Rep without verified link rejected" "SKIP"
+else
+    TX_RES=$(cli_a tx federation request-reputation-attestation \
+        fedtest-b \
+        "$TARGET_B" \
+        --from alice \
+        -y \
+        --fees 5000${BOND_DENOM} \
+        --output json)
+
+    if submit_and_wait_a "$TX_RES" "rep without link"; then
+        CODE=$(echo "$TX_RESULT" | jq -r '.code')
+        RAW=$(echo "$TX_RESULT" | jq -r '.raw_log // empty')
+        if [ "$CODE" = "2314" ]; then
+            echo "  Correctly rejected (code=2314 ErrIdentityLinkNotFound)"
+            record_result "Rep without verified link rejected" "PASS"
+        elif [ "$CODE" != "0" ]; then
+            echo "  Rejected, but with code=$CODE (expected 2314)"
+            echo "  raw_log: $(echo "$RAW" | head -c 200)"
+            record_result "Rep without verified link rejected" "FAIL"
+        else
+            echo "  Should have been rejected -- an unlinked address got an attestation"
+            record_result "Rep without verified link rejected" "FAIL"
+        fi
+    else
+        CODE=$(echo "$TX_RESULT" | jq -r '.code // empty' 2>/dev/null)
+        if [ "$CODE" = "2314" ]; then
+            echo "  Correctly rejected at CheckTx (code=2314)"
+            record_result "Rep without verified link rejected" "PASS"
+        else
+            echo "  Rejected before delivery (code=${CODE:-unknown}) -- acceptable"
+            record_result "Rep without verified link rejected" "PASS"
+        fi
+    fi
 fi
 
 # ====================================================================

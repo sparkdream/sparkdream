@@ -37,6 +37,10 @@ type fixture struct {
 	authority    string
 	repKeeper    *mockRepKeeper
 	bankKeeper   *mockBankKeeper
+	// commonsKeeper is exposed so authorization tests can replace the
+	// permissive default stubs with ones that actually discriminate
+	// between a committee POLICY and an individual committee member.
+	commonsKeeper *mockCommonsKeeper
 }
 
 func initFixture(t *testing.T) *fixture {
@@ -66,7 +70,8 @@ func initFixture(t *testing.T) *fixture {
 	)
 
 	// Wire mock commons keeper for authorization tests
-	k.SetCommonsKeeper(&mockCommonsKeeper{})
+	commonsKeeper := &mockCommonsKeeper{}
+	k.SetCommonsKeeper(commonsKeeper)
 	repKeeper := &mockRepKeeper{}
 	k.SetRepKeeper(repKeeper)
 	k.SetIdentityKeeper(&mockIdentityKeeper{})
@@ -85,6 +90,8 @@ func initFixture(t *testing.T) *fixture {
 		authority:    authorityStr,
 		repKeeper:    repKeeper,
 		bankKeeper:   bankKeeper,
+
+		commonsKeeper: commonsKeeper,
 	}
 }
 
@@ -192,9 +199,29 @@ type mockCommonsKeeper struct {
 	// MsgRegisterBridge controller-resolution fall-back path works in
 	// unit tests without standing up the full commons bootstrap.
 	GetCouncilPolicyAddressFn func(ctx context.Context, council string, committee string) (string, bool)
+
+	// IsCouncilOrCommitteePolicyFn lets a test discriminate between an
+	// individual committee member and the committee POLICY. Default: true,
+	// matching IsCouncilAuthorized, so existing tests are unaffected -- any
+	// test asserting the stricter gate must override this, or it proves
+	// nothing.
+	IsCouncilOrCommitteePolicyFn func(ctx context.Context, addr string, council string, committee string) bool
+
+	// IsCouncilAuthorizedFn overrides the permissive default below.
+	IsCouncilAuthorizedFn func(ctx context.Context, addr string, council string, committee string) bool
 }
 
-func (m *mockCommonsKeeper) IsCouncilAuthorized(_ context.Context, addr string, _, _ string) bool {
+func (m *mockCommonsKeeper) IsCouncilOrCommitteePolicy(ctx context.Context, addr string, council, committee string) bool {
+	if m.IsCouncilOrCommitteePolicyFn != nil {
+		return m.IsCouncilOrCommitteePolicyFn(ctx, addr, council, committee)
+	}
+	return true
+}
+
+func (m *mockCommonsKeeper) IsCouncilAuthorized(ctx context.Context, addr string, council, committee string) bool {
+	if m.IsCouncilAuthorizedFn != nil {
+		return m.IsCouncilAuthorizedFn(ctx, addr, council, committee)
+	}
 	// In tests, authority is always authorized
 	return true
 }
@@ -529,6 +556,21 @@ func (mockParams) GetParamSet(_ sdk.Context, _ paramtypes.ParamSet) {}
 
 // --- Test Helpers ---
 
+// activateTestPeer moves a freshly registered peer from PENDING to ACTIVE.
+// Registration alone no longer makes a peer usable and RegisterBridge no
+// longer auto-activates, so every fixture that binds a bridge or moves
+// content has to walk the real lifecycle: register, activate, then bind.
+// f.authority is the gov authority, which satisfies the committee-policy
+// gate on ResumePeer directly.
+func activateTestPeer(t *testing.T, f *fixture, ms types.MsgServer, peerID string) {
+	t.Helper()
+	_, err := ms.ResumePeer(f.ctx, &types.MsgResumePeer{
+		Authority: f.authority,
+		PeerId:    peerID,
+	})
+	require.NoError(t, err)
+}
+
 // registerTestPeer registers an ActivityPub peer with inbound blog_post allowed.
 func registerTestPeer(t *testing.T, f *fixture, ms types.MsgServer, peerID string) {
 	t.Helper()
@@ -548,6 +590,7 @@ func registerTestPeer(t *testing.T, f *fixture, ms types.MsgServer, peerID strin
 		},
 	})
 	require.NoError(t, err)
+	activateTestPeer(t, f, ms, peerID)
 }
 
 // registerTestNOSTRPeer registers a NOSTR relay peer with inbound blog_post allowed.
@@ -569,6 +612,7 @@ func registerTestNOSTRPeer(t *testing.T, f *fixture, ms types.MsgServer, peerID 
 		},
 	})
 	require.NoError(t, err)
+	activateTestPeer(t, f, ms, peerID)
 }
 
 // registerTestLENSPeer registers a Lens Chain peer with inbound blog_post allowed.
@@ -590,6 +634,7 @@ func registerTestLENSPeer(t *testing.T, f *fixture, ms types.MsgServer, peerID s
 		},
 	})
 	require.NoError(t, err)
+	activateTestPeer(t, f, ms, peerID)
 }
 
 // registerTestIBCPeer registers a Spark Dream IBC peer.
@@ -603,6 +648,7 @@ func registerTestIBCPeer(t *testing.T, f *fixture, ms types.MsgServer, peerID st
 		IbcChannelId: "channel-0",
 	})
 	require.NoError(t, err)
+	activateTestPeer(t, f, ms, peerID)
 }
 
 // testAddr returns a deterministic test address string.

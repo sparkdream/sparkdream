@@ -114,16 +114,15 @@ message PeerPolicy {
   repeated string inbound_content_types = 3;
   uint32 min_outbound_trust_level = 4;
   uint64 inbound_rate_limit_per_epoch = 5;
-  uint64 outbound_rate_limit_per_epoch = 11;
+  uint64 outbound_rate_limit_per_epoch = 10;
 
   // Reputation (Spark Dream peers only)
   bool allow_reputation_queries = 6;
   bool accept_reputation_attestations = 7;
-  uint32 max_trust_credit = 8;
 
   // Moderation
-  bool require_review = 9;
-  repeated string blocked_identities = 10;
+  bool require_review = 8;
+  repeated string blocked_identities = 9;
 }
 
 // BridgeBinding represents the federation-owned binding between a bridge

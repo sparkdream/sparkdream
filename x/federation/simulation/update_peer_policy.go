@@ -36,7 +36,6 @@ func SimulateMsgUpdatePeerPolicy(
 			OutboundRateLimitPerEpoch:    uint64(r.Intn(500) + 10),
 			AllowReputationQueries:       r.Intn(2) == 1,
 			AcceptReputationAttestations: r.Intn(2) == 1,
-			MaxTrustCredit:               uint32(r.Intn(3) + 1),
 			RequireReview:                r.Intn(2) == 1,
 		}
 

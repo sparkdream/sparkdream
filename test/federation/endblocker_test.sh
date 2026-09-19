@@ -158,9 +158,6 @@ build_ops_params_payload() {
     local CUR_CONTENT_TTL=$(echo "$PARAMS" | jq -r '.params.content_ttl // "10m0s"')
     local CUR_ATTEST_TTL=$(echo "$PARAMS" | jq -r '.params.attestation_ttl // "10m0s"')
     local CUR_MAX_TRUST=$(echo "$PARAMS" | jq -r '.params.global_max_trust_credit // "1"')
-    local RAW_DISCOUNT=$(echo "$PARAMS" | jq -r '.params.trust_discount_rate // "500000000000000000"')
-    local CUR_DISCOUNT
-    CUR_DISCOUNT=$(python3 -c "print(f'{int(\"$RAW_DISCOUNT\") / 10**18:.18f}'.rstrip('0').rstrip('.'))" 2>/dev/null || echo "0.5")
     local CUR_INACTIVITY=$(echo "$PARAMS" | jq -r '.params.bridge_inactivity_threshold // "100"')
     local CUR_MAX_PRUNE=$(echo "$PARAMS" | jq -r '.params.max_prune_per_block // "100"')
 
@@ -184,7 +181,6 @@ build_ops_params_payload() {
         "content_ttl": "$NEW_CONTENT_TTL",
         "attestation_ttl": "$CUR_ATTEST_TTL",
         "global_max_trust_credit": $CUR_MAX_TRUST,
-        "trust_discount_rate": "$CUR_DISCOUNT",
         "bridge_inactivity_threshold": "$NEW_INACTIVITY",
         "max_prune_per_block": "$CUR_MAX_PRUNE"
       }

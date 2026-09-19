@@ -129,7 +129,6 @@ update_inbound_limit() {
     local OUT_LIMIT=$(echo "$CURRENT" | jq -r '.policy.outbound_rate_limit_per_epoch // "0"')
     local ALLOW_REP=$(echo "$CURRENT" | jq -r 'if .policy.allow_reputation_queries then "true" else "false" end')
     local ACCEPT_REP=$(echo "$CURRENT" | jq -r 'if .policy.accept_reputation_attestations then "true" else "false" end')
-    local MAX_TRUST=$(echo "$CURRENT" | jq -r '.policy.max_trust_credit // "0"')
     local REVIEW=$(echo "$CURRENT" | jq -r 'if .policy.require_review then "true" else "false" end')
     local BLOCKED=$(echo "$CURRENT" | jq -c '.policy.blocked_identities // []')
 
@@ -151,7 +150,6 @@ update_inbound_limit() {
         "outbound_rate_limit_per_epoch": $OUT_LIMIT,
         "allow_reputation_queries": $ALLOW_REP,
         "accept_reputation_attestations": $ACCEPT_REP,
-        "max_trust_credit": $MAX_TRUST,
         "require_review": $REVIEW,
         "blocked_identities": $BLOCKED
       }
@@ -285,7 +283,7 @@ fix_legacy_dec_fields() {
     echo "$json_input" | python3 -c "
 import json, sys
 d = json.load(sys.stdin)
-DEC_FIELDS = ['trust_discount_rate', 'operator_reward_inflation_share',
+DEC_FIELDS = ['operator_reward_inflation_share',
               'operator_reward_pool_overflow_burn_ratio', 'max_unverified_rate']
 for f in DEC_FIELDS:
     if f in d and d[f] is not None:

@@ -57,7 +57,6 @@ func SimulateMsgRegisterPeer(
 			OutboundRateLimitPerEpoch:    uint64(r.Intn(200) + 50),
 			AllowReputationQueries:       r.Intn(2) == 1,
 			AcceptReputationAttestations: r.Intn(2) == 1,
-			MaxTrustCredit:               1,
 		}
 		if err := k.PeerPolicies.Set(ctx, peerID, policy); err != nil {
 			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgRegisterPeer{}), "failed to set policy"), nil, nil

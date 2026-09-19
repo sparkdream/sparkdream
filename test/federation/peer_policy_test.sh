@@ -187,7 +187,6 @@ cat > "$PROPOSAL_DIR/update_policy_content.json" <<EOF
         "outbound_rate_limit_per_epoch": 0,
         "allow_reputation_queries": false,
         "accept_reputation_attestations": false,
-        "max_trust_credit": 0,
         "require_review": false,
         "blocked_identities": []
       }
@@ -236,7 +235,6 @@ cat > "$PROPOSAL_DIR/update_ibc_policy.json" <<EOF
         "outbound_rate_limit_per_epoch": 100,
         "allow_reputation_queries": true,
         "accept_reputation_attestations": true,
-        "max_trust_credit": 1,
         "require_review": false,
         "blocked_identities": []
       }
@@ -285,7 +283,6 @@ cat > "$PROPOSAL_DIR/update_policy_rep_fail.json" <<EOF
         "outbound_rate_limit_per_epoch": 0,
         "allow_reputation_queries": true,
         "accept_reputation_attestations": false,
-        "max_trust_credit": 0,
         "require_review": false,
         "blocked_identities": []
       }
@@ -343,7 +340,6 @@ cat > "$PROPOSAL_DIR/update_policy_bad_type.json" <<EOF
         "outbound_rate_limit_per_epoch": 0,
         "allow_reputation_queries": false,
         "accept_reputation_attestations": false,
-        "max_trust_credit": 0,
         "require_review": false,
         "blocked_identities": []
       }
@@ -400,7 +396,6 @@ cat > "$PROPOSAL_DIR/update_policy_blocked.json" <<EOF
         "outbound_rate_limit_per_epoch": 0,
         "allow_reputation_queries": false,
         "accept_reputation_attestations": false,
-        "max_trust_credit": 0,
         "require_review": true,
         "blocked_identities": ["@spammer@evil.instance", "@troll@bad.server"]
       }
@@ -477,7 +472,6 @@ cat > "$PROPOSAL_DIR/update_policy_reveal.json" <<EOF
         "outbound_rate_limit_per_epoch": 0,
         "allow_reputation_queries": false,
         "accept_reputation_attestations": false,
-        "max_trust_credit": 0,
         "require_review": false,
         "blocked_identities": []
       }
@@ -537,7 +531,6 @@ cat > "$PROPOSAL_DIR/update_policy_outbound.json" <<EOF
         "outbound_rate_limit_per_epoch": 50,
         "allow_reputation_queries": true,
         "accept_reputation_attestations": true,
-        "max_trust_credit": 3,
         "require_review": false,
         "blocked_identities": []
       }
@@ -586,7 +579,6 @@ cat > "$PROPOSAL_DIR/update_policy_reveal_outbound.json" <<EOF
         "outbound_rate_limit_per_epoch": 50,
         "allow_reputation_queries": true,
         "accept_reputation_attestations": true,
-        "max_trust_credit": 3,
         "require_review": false,
         "blocked_identities": []
       }

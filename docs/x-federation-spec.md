@@ -115,7 +115,7 @@ Cross-chain reputation uses the **attestation model**: Chain B queries Chain A v
 - Remote TRUSTED → local credit capped at PROVISIONAL
 - Remote CORE → local credit capped at ESTABLISHED
 - Credit is time-limited (default: 30 days, must be refreshed)
-- Each chain sets its own `max_trust_credit` cap per peer
+- Each chain sets its own `global_max_trust_credit` cap, applied to every peer
 - Attestations are advisory — they may influence onboarding but never bypass local invitation requirements
 
 **No reputation bridging for ActivityPub/AT Protocol/NOSTR/Lens peers** — those protocols have no comparable reputation system. The on-chain guard (`PeerType != PEER_TYPE_SPARK_DREAM`) rejects `allow_reputation_queries` and `accept_reputation_attestations` on every non-IBC peer type.
@@ -436,7 +436,7 @@ Non-matching arbiters (submitted a hash that didn't match quorum) receive nothin
 - **Operator collusion:** The submitting operator is excluded from arbitrating their own content. Even if they submit anonymously as a member, they're at most 1 of `arbiter_quorum` needed. For accessible content, honest hashes are deterministic — one dishonest hash can't swing the result.
 - **Verifier collusion:** Same logic. The verifier is one participant. Even if operator and verifier collude and both submit, they're 2 of 3 needed — one honest arbiter (likely a competing bridge operator) breaks the collusion.
 - **Sybil (anonymous path):** ZK proofs are tied to unique member identities via the trust tree. Creating multiple members requires multiple invitations at ESTABLISHED+ trust level — x/rep's invitation and trust system is the Sybil barrier.
-- **Sybil (identified path):** Bridge operators are registered with SPARK stake on `x/service`. Creating multiple fake operators requires multiple `ServiceTypeConfig.min_bond` deposits — there is no Operations Committee gate on `MsgRegisterBridge` (operator-signed), so the bond size is the entire participation cost. Tuning `min_bond` per service_type is the lever for raising the Sybil floor.
+- **Sybil (identified path):** Bridge operators are registered with SPARK stake on `x/service`. Creating multiple fake operators requires multiple `ServiceTypeConfig.min_bond` deposits — there is no Operations Committee gate on `MsgRegisterBridge` itself (operator-signed), though the peer it binds to must already have been activated by a committee vote, so the bond size is the entire participation cost *per peer governance has already approved*. Tuning `min_bond` per service_type is the lever for raising the Sybil floor.
 - **Mixed quorum strength:** A quorum containing both identified operators and anonymous members is harder to corrupt than either type alone — the attacker would need to compromise entities in both categories simultaneously.
 - **No penalty for abstaining:** Members and operators who can't fetch the content simply don't submit. Natural self-selection ensures only participants who can actually verify participate.
 
@@ -614,16 +614,15 @@ message PeerPolicy {
   repeated string inbound_content_types = 3;
   uint32 min_outbound_trust_level = 4;             // Min trust level to have content federated out
   uint64 inbound_rate_limit_per_epoch = 5;         // Max inbound items per epoch
-  uint64 outbound_rate_limit_per_epoch = 11;       // Max outbound items per epoch to this peer
+  uint64 outbound_rate_limit_per_epoch = 10;       // Max outbound items per epoch to this peer
 
   // Reputation (Spark Dream peers only)
   bool allow_reputation_queries = 6;               // Respond to inbound IBC reputation queries
   bool accept_reputation_attestations = 7;         // Accept reputation attestations from this peer
-  uint32 max_trust_credit = 8;                     // Max local trust credit from this peer's attestations
 
   // Moderation
-  bool require_review = 9;                         // If true, inbound content starts hidden until reviewed
-  repeated string blocked_identities = 10;         // Blocked remote identities (addresses, actor URIs, DIDs)
+  bool require_review = 8;                         // If true, inbound content starts hidden until reviewed
+  repeated string blocked_identities = 9;         // Blocked remote identities (addresses, actor URIs, DIDs)
 }
 ```
 
@@ -988,7 +987,6 @@ message Params {
   // Reputation
   google.protobuf.Duration attestation_ttl = 8;   // How long reputation attestations are valid
   uint32 global_max_trust_credit = 9;             // Absolute cap on trust credit from any peer
-  string trust_discount_rate = 10;                 // Discount applied (e.g., "0.5" = 50% reduction)
                                                    // [(gogoproto.customtype) = "cosmossdk.io/math.LegacyDec"]
 
   // Identity
@@ -1067,7 +1065,6 @@ message FederationOperationalParams {
   google.protobuf.Duration content_ttl = 6;
   google.protobuf.Duration attestation_ttl = 7;
   uint32 global_max_trust_credit = 8;
-  string trust_discount_rate = 9;
   uint64 bridge_inactivity_threshold = 10;
   uint64 max_prune_per_block = 11;
 }
@@ -1090,7 +1087,6 @@ Governance-only fields: `max_bridges_per_peer`, `known_content_types`, `max_iden
 | `content_ttl` | 1 day | 365 days | Prevent indefinite retention or instant pruning |
 | `attestation_ttl` | 1 day | 365 days | Same rationale |
 | `global_max_trust_credit` | 0 | 4 | Cannot exceed max trust level (CORE = 4) |
-| `trust_discount_rate` | 0.0 | 1.0 | 0 = reject all, 1 = no discount |
 | `bridge_inactivity_threshold` | 10 | 10000 | Reasonable monitoring window |
 | `max_prune_per_block` | 10 | 1000 | Bound EndBlocker gas without stalling cleanup |
 | `rate_limit_window` | 1 hour | 7 days | Sliding window size for per-peer rate limits |
@@ -1246,16 +1242,16 @@ message MsgRegisterPeer {
 ```
 
 **Logic:**
-1. Verify authority is governance or Commons Council policy address
+1. Verify authority via `commonsKeeper.IsCouncilAuthorized("commons", "operations")` — governance, the Commons Council policy, the Operations Committee policy, or any single Operations Committee member. Registration is cheap on purpose: a PENDING peer can do nothing, so this is closer to tabling a proposal than to granting anything.
 2. Validate peer ID format (lowercase alphanumeric + hyphens + dots, 3-64 chars)
 3. Check peer doesn't already exist (or is REMOVED — allow re-registration)
 4. If peer is REMOVED, verify it is NOT in `PeerRemovalQueue` — reject with `ErrPeerCleanupInProgress` if cleanup is still running. Re-registration is only allowed after all associated data has been fully cleaned up.
 5. If `controller_group` is non-empty, validate it via `commonsKeeper.IsGroupPolicyAddress(controller_group)` — reject garbage addresses up-front rather than silently falling back to OpsComm at bridge-registration time
-6. Set status to PENDING (activated when IBC channel confirms or first bridge registers)
+6. Set status to PENDING. **The only transition out of PENDING is `MsgResumePeer`** (Section 6.4) — neither the IBC channel handshake nor a first bridge binding activates a peer.
 7. Create default PeerPolicy (empty content types, conservative defaults)
 8. Emit `peer_registered` event
 
-### 6.2. RemovePeer (Commons Council)
+### 6.2. RemovePeer (Operations Committee member)
 
 Permanently remove a federation peer. Triggers cleanup of all associated data.
 
@@ -1287,25 +1283,44 @@ message MsgRemovePeer {
 
 **Stranded-peer escape hatch.** If a peer's operators stop responding (network partition, abandonment) and step 3 keeps blocking removal indefinitely, a single gov proposal can bundle force-dissolves with the removal: include one `service.MsgReportOperator(operator, T1_SLASH, dissolve=true)` per active bridge, followed by `MsgResolveReport(T1_SLASH)` signed by the peer's controller (OpsComm by default), followed by `MsgRemovePeer`. The hook-driven cleanup dissolves the operators (firing `AfterOperatorDissolved` → federation prunes bindings) and the same proposal then passes the now-clean peer-removal check. One atomic vote, no new authority surface.
 
-### 6.3. SuspendPeer (Commons Council)
+### 6.3. SuspendPeer (Operations Committee member)
 
 Temporarily suspend a peer. Blocks all inbound/outbound federation. Reversible via ResumePeer.
 
+Deliberately 1-of-N, and deliberately *looser* than ResumePeer: a single
+member must be able to pull the emergency brake without assembling a quorum.
+Hard to start a trust relationship, easy to stop one.
+
 ```protobuf
 message MsgSuspendPeer {
-  string authority = 1;            // Council policy address or governance
+  string authority = 1;            // Ops Committee member, council policy, or governance
   string peer_id = 2;
   string reason = 3;
 }
 ```
 
-### 6.4. ResumePeer (Commons Council)
+### 6.4. ResumePeer (Operations Committee **vote**)
 
-Resume a suspended peer.
+Move a peer to ACTIVE, from either SUSPENDED (resume) or PENDING (first
+activation). This is the only way a peer becomes ACTIVE.
+
+Authorization is stricter here than anywhere else in the peer lifecycle:
+`commonsKeeper.IsCouncilOrCommitteePolicy` accepts the gov authority, the
+Commons Council policy address, or the Operations Committee policy address —
+but **not** an individual committee member. Activation is the trust decision
+(a PENDING peer is inert; an ACTIVE one exchanges content and reputation), so
+it takes a proposal that has been voted through.
+
+With committee decision policies at `percentage` 0.5, a single yes vote past
+the threshold triggers early acceptance and sets
+`execution_time = now + min_execution_period`, so the real cost is three
+transactions plus 5 minutes on devnet, 10 on testnet, 24 hours on mainnet —
+not the 5-day voting period. See
+[x-federation-peer-authorization-plan.md](x-federation-peer-authorization-plan.md).
 
 ```protobuf
 message MsgResumePeer {
-  string authority = 1;            // Council policy address or governance
+  string authority = 1;            // Committee policy, council policy, or governance
   string peer_id = 2;
 }
 ```
@@ -1349,16 +1364,16 @@ message MsgRegisterBridge {
 **Logic.** Step ordering is load-bearing: any call into x/service that can fire a hook back into federation must happen **after** the new `BridgeBinding` and its reverse-index entry are written, otherwise the hook handler iterates `BindingsByOperator` and silently misses the in-flight binding.
 
 1. Load peer; verify type is ACTIVITYPUB, ATPROTO, NOSTR, or LENS (SPARK_DREAM peers federate via IBC, not bridges).
-2. Check `bridges_count_for_peer < max_bridges_per_peer` (kill-switch).
-3. Reject if a `BridgeBinding` already exists for `(operator, peer_id)`.
-4. Map `peer.type` → `service_type`: `PEER_TYPE_ACTIVITYPUB` → `federation-bridge-activitypub`, `PEER_TYPE_ATPROTO` → `federation-bridge-atproto`, `PEER_TYPE_NOSTR` → `federation-bridge-nostr`, `PEER_TYPE_LENS` → `federation-bridge-lens`.
-5. Resolve controller: `peer.controller_group` if non-empty (re-validated via `commonsKeeper.IsGroupPolicyAddress`), else Operations Committee policy address via `commonsKeeper.GetCouncilPolicyAddress("commons", "operations")`. The resolved address is captured on the resulting `service.Operator`.
-6. Look up `service.Operator` for `(msg.operator, service_type)`:
-   - **Exists** (Decision 1a re-registration for another peer): verify `existing.controller == resolved_controller`. Mismatch is `ErrControllerMismatch` with the message "use a different address for the new peer, or transfer the existing Operator's controller via `service.MsgOpenControllerTransferCase`." Defer top-up to step 8.
-   - **New**: call `serviceKeeper.RegisterOperator(ctx, operator, service_type, controller, stake, metadata, ServiceSourceNormal)`. x/service validates `stake >= min_bond` from the ServiceTypeConfig, escrows the bond, creates the `service.Operator`, and does **not** fire hooks. Skip step 8.
-7. Write `BridgeBinding`, `BridgesByPeer`, and `BindingsByOperator(service_type, operator, peer_id)`. After this point, any hook firing on the operator sees the new binding.
-8. **Exists branch only, when `stake.Amount > 0`**: call `serviceKeeper.TopUpBond(ctx, operator, service_type, stake)`. If the operator was UNDERFUNDED, this fires `AfterOperatorReFunded` synchronously; the hook iterates `BindingsByOperator` and correctly includes the binding written in step 7.
-9. Transition peer PENDING → ACTIVE on first binding for the peer.
+2. **Require `peer.status == ACTIVE`**, else `ErrPeerNotActive`. A bridge binds to a peer governance has already approved; it does not confer approval. Checked after the type check in step 1, so an IBC peer still fails on type — the more specific error.
+3. Check `bridges_count_for_peer < max_bridges_per_peer` (kill-switch).
+4. Reject if a `BridgeBinding` already exists for `(operator, peer_id)`.
+5. Map `peer.type` → `service_type`: `PEER_TYPE_ACTIVITYPUB` → `federation-bridge-activitypub`, `PEER_TYPE_ATPROTO` → `federation-bridge-atproto`, `PEER_TYPE_NOSTR` → `federation-bridge-nostr`, `PEER_TYPE_LENS` → `federation-bridge-lens`.
+6. Resolve controller: `peer.controller_group` if non-empty (re-validated via `commonsKeeper.IsGroupPolicyAddress`), else Operations Committee policy address via `commonsKeeper.GetCouncilPolicyAddress("commons", "operations")`. The resolved address is captured on the resulting `service.Operator`.
+7. Look up `service.Operator` for `(msg.operator, service_type)`:
+   - **Exists** (Decision 1a re-registration for another peer): verify `existing.controller == resolved_controller`. Mismatch is `ErrControllerMismatch` with the message "use a different address for the new peer, or transfer the existing Operator's controller via `service.MsgOpenControllerTransferCase`." Defer top-up to step 9.
+   - **New**: call `serviceKeeper.RegisterOperator(ctx, operator, service_type, controller, stake, metadata, ServiceSourceNormal)`. x/service validates `stake >= min_bond` from the ServiceTypeConfig, escrows the bond, creates the `service.Operator`, and does **not** fire hooks. Skip step 9.
+8. Write `BridgeBinding`, `BridgesByPeer`, and `BindingsByOperator(service_type, operator, peer_id)`. After this point, any hook firing on the operator sees the new binding.
+9. **Exists branch only, when `stake.Amount > 0`**: call `serviceKeeper.TopUpBond(ctx, operator, service_type, stake)`. If the operator was UNDERFUNDED, this fires `AfterOperatorReFunded` synchronously; the hook iterates `BindingsByOperator` and correctly includes the binding written in step 8.
 10. Emit `bridge_registered` event.
 
 If any service call fails (`min_bond` violation, controller mismatch, service_type disabled), federation aborts the whole tx cleanly. The atomic-tx guarantee rolls back any partial writes from earlier steps.
@@ -1574,9 +1589,27 @@ message MsgRequestReputationAttestation {
 **Logic:**
 1. Verify peer is type SPARK_DREAM and ACTIVE
 2. Verify peer policy `accept_reputation_attestations` is true
-3. Send IBC `ReputationQueryPacket` to peer with timeout = `ibc_packet_timeout`
-4. Response handled in `OnAcknowledgementPacket` — stores ReputationAttestation
-5. Timeout handled in `OnTimeoutPacket` — emits `reputation_query_timeout` event, user must retry manually
+3. Verify the creator holds a **VERIFIED** `IdentityLink` on this peer whose
+   `remote_identity` equals `remote_address`. Rejected with
+   `ErrIdentityLinkNotFound` when there is no link, when the link is still
+   UNVERIFIED, or when it names a different remote identity.
+4. Send IBC `ReputationQueryPacket` to peer with timeout = `ibc_packet_timeout`
+5. Response handled in `OnAcknowledgementPacket` — stores ReputationAttestation
+6. Timeout handled in `OnTimeoutPacket` — emits `reputation_query_timeout` event, user must retry manually
+
+**Why the link is required.** The attestation is keyed `(local_address,
+peer_id)`. Without the link this message is a free cross-chain query about
+anyone, and two requests naming different remote addresses on one peer would
+overwrite each other — the surviving record claiming standing for whichever
+was asked last. `MsgLinkIdentity` already enforces one link per
+`(creator, peer)`, so requiring it makes one attestation per `(creator, peer)`
+exactly right.
+
+It also fixes what the credit asserts. An attestation now means "this local
+member proved they control a remote identity, and the peer rates that identity
+thus" — both halves cryptographically established — rather than "some member
+asked about a stranger". The requester must complete the two-phase link
+(§ Identity Linking) before any reputation can be requested about it.
 
 ### 6.20. Verifier bonding (moved to x/rep)
 
@@ -1900,9 +1933,14 @@ On `OnChanOpenInit` / `OnChanOpenTry`:
 3. Verify channel version matches or is compatible (see Section 8.5)
 
 On `OnChanOpenAck` / `OnChanOpenConfirm`:
-1. Find the Peer record matching this IBC channel
-2. Transition peer status from PENDING to ACTIVE
-3. Emit `peer_activated` event
+1. Verify the counterparty version matches
+
+The handshake deliberately does **not** activate the peer. A completed channel
+proves two chains agreed on a transport, not that either one's governance
+approved the relationship — and the handshake is driven by whoever runs the
+relayer. Activation stays a governance decision via `MsgResumePeer`
+(Section 6.4), so bringing up a channel and trusting a peer remain separate
+steps with separate authorization.
 
 ### 8.3. Packet Types
 
@@ -1943,8 +1981,17 @@ message ReputationResponseData {
 
 **OnAcknowledgementPacket** (sending chain):
 1. Parse `ReputationResponseData` from ack
-2. Apply trust discount: `local_credit = min(discounted_trust_level, peer_max_trust_credit, global_max_trust_credit)`
-3. Store ReputationAttestation with `expires_at` = now + `attestation_ttl`, add to `AttestationExpirationQueue`
+2. Resolve the answering peer from the acknowledgement's source channel. The
+   `ReputationQueryPacket` carries only the requester and the queried address,
+   so the channel is the only thing identifying which peer replied.
+3. Cap the claim: `local_credit = min(remote_trust_level, global_max_trust_credit)`.
+   Applied on write, so the stored value is already safe for any reader — a
+   consumer that forgot to cap would otherwise import the peer's own trust
+   level. `global_max_trust_credit` is the single knob; there is no per-peer
+   cap and no separate discount rate.
+4. Store the ReputationAttestation keyed `(local_address, peer_id)` with
+   `peer_id` populated and `expires_at` = now + `attestation_ttl`, add to
+   `AttestationExpirationQueue`
 4. Emit `reputation_attested` event
 
 **OnTimeoutPacket** (sending chain):
@@ -2259,35 +2306,43 @@ Delete `InboundRateLimits` and `OutboundRateLimits` entries where `window_start 
 
 ## 10. Business Logic
 
-### 10.1. Trust Discounting
+### 10.1. Trust Capping
 
-When a reputation attestation is received, the receiving chain applies discounting:
+When a reputation attestation arrives, the receiving chain caps the peer's
+claim at what it is willing to credit. The cap is applied **on write**, in
+`OnAckReputationQuery`, so the stored `local_trust_credit` is already safe for
+any reader — a consumer that forgot to cap cannot import a peer's own trust
+level:
 
 ```go
-func (k Keeper) CalculateTrustCredit(ctx context.Context, remoteTrustLevel uint32, peerID string) uint32 {
-    params := k.GetParams(ctx)
-    policy := k.GetPeerPolicy(ctx, peerID)
-
-    // Apply discount rate using LegacyDec (deterministic fixed-point arithmetic)
-    remoteDec := math.LegacyNewDec(int64(remoteTrustLevel))
-    discountedDec := remoteDec.Mul(params.TrustDiscountRate) // e.g., 3 * 0.5 = 1.5
-    discounted := uint32(discountedDec.TruncateInt64())      // 1.5 → 1
-
-    // Cap at peer-specific limit
-    if discounted > policy.MaxTrustCredit {
-        discounted = policy.MaxTrustCredit
-    }
-
-    // Cap at global limit
-    if discounted > params.GlobalMaxTrustCredit {
-        discounted = params.GlobalMaxTrustCredit
-    }
-
-    return discounted
+// keeper_ibc.go, OnAckReputationQuery
+discountedTrust := resp.TrustLevel
+if discountedTrust > params.GlobalMaxTrustCredit {
+    discountedTrust = params.GlobalMaxTrustCredit
 }
 ```
 
-With default parameters (`trust_discount_rate = 0.5`, `global_max_trust_credit = 1`):
+`global_max_trust_credit` defaults to `1` — PROVISIONAL-equivalent, however
+high the peer rates the member. `remote_trust_level` is stored alongside,
+unmodified, so the peer's original claim stays auditable.
+
+**There is deliberately no discount rate and no per-peer cap.** Both existed
+and both were removed:
+
+- `params.trust_discount_rate` (a LegacyDec percentage) was redundant with the
+  cap. Over a 4-level trust ladder, multiplying by 0.5 and then clamping to 1
+  is just clamping to 1 for every input the clamp does not already dominate —
+  two knobs describing one decision, with the percentage contributing nothing
+  a reader could predict from its value alone.
+- `PeerPolicy.max_trust_credit` was never read. It was written by
+  `MsgUpdatePeerPolicy` and stored, but no code path consulted it, so a peer
+  policy that set it to 3 was silently capped at the global 1 anyway.
+
+Removing both leaves one knob that means exactly what it says. Since the
+imported credit is advisory (see §10.2 — nothing grants a permission from it),
+a single global ceiling is the whole of the policy.
+
+With the default `global_max_trust_credit = 1`:
 - Remote NEW (0) → local credit 0
 - Remote PROVISIONAL (1) → local credit 0
 - Remote ESTABLISHED (2) → local credit 1 (PROVISIONAL equivalent)
@@ -2517,9 +2572,8 @@ Bridge operators can be slashed for:
 | `max_content_uri_size` | 2048 bytes | Standard maximum URL length |
 | `max_protocol_metadata_size` | 8192 bytes | Reasonable JSON metadata cap |
 | `content_ttl` | 90 days | Balance between useful history and state management |
-| `attestation_ttl` | 30 days | Reputation is dynamic; attestations must be refreshed |
+| `attestation_ttl` | 12 hours | Reputation is dynamic; attestations must be refreshed |
 | `global_max_trust_credit` | 1 | At most PROVISIONAL equivalent from any remote chain |
-| `trust_discount_rate` | 0.5 | Halve the remote trust level before applying caps |
 | `max_identity_links_per_user` | 10 | Generous but bounded |
 | `unverified_link_ttl` | 30 days | Unverified links should not persist indefinitely |
 | `challenge_ttl` | 7 days | Reasonable window for remote user to confirm identity |

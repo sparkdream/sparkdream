@@ -25,12 +25,17 @@ func TestGetPeerRequireActive(t *testing.T) {
 	ms := keeper.NewMsgServerImpl(f.keeper)
 	registerTestPeer(t, f, ms, "active-test-peer")
 
+	// The helper activates as part of the normal lifecycle; this test is
+	// about the PENDING rejection, so put it back.
+	peer, _ := f.keeper.Peers.Get(f.ctx, "active-test-peer")
+	peer.Status = types.PeerStatus_PEER_STATUS_PENDING
+	require.NoError(t, f.keeper.Peers.Set(f.ctx, "active-test-peer", peer))
+
 	// PENDING peer should fail
 	_, err := f.keeper.GetPeerRequireActive(f.ctx, "active-test-peer")
 	require.Error(t, err)
 
 	// Set to ACTIVE
-	peer, _ := f.keeper.Peers.Get(f.ctx, "active-test-peer")
 	peer.Status = types.PeerStatus_PEER_STATUS_ACTIVE
 	require.NoError(t, f.keeper.Peers.Set(f.ctx, "active-test-peer", peer))
 

@@ -161,7 +161,6 @@ func getOrCreateActivePeer(r *rand.Rand, ctx sdk.Context, k keeper.Keeper, regis
 		OutboundRateLimitPerEpoch:    100,
 		AllowReputationQueries:       true,
 		AcceptReputationAttestations: true,
-		MaxTrustCredit:               1,
 	}
 	if err := k.PeerPolicies.Set(ctx, peerID, policy); err != nil {
 		return types.Peer{}, err

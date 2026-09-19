@@ -136,6 +136,32 @@ same chain id and the last one run wins. If a canonical network is ever
 relaunched that way, regenerate this repo's `genesis.json` to match before
 anyone uses it to join a node.
 
+### Never sync a node from the committed `genesis.json`
+
+Fetch it from the running chain (`curl <rpc>/genesis | jq '.result.genesis'`),
+never from this directory. The committed file is the recipe, and it is
+*expected* to differ from any deployed chain:
+
+- `regenerate-network-genesis.py` **preserves `genesis_time`** across reruns, so
+  an already-deployed chain's hash does not move when the file is regenerated
+  for an unrelated reason. A chain relaunched afterwards gets a fresh
+  `genesis_time` that the committed file will never carry.
+- A launcher-deployed chain builds its instance half from the **launch spec**,
+  not from this roster, and derives some params itself — `expedited_min_deposit`
+  is always `min_deposit * 5` and `expedited_voting_period` always
+  `voting_period / 2`, whatever the file says.
+
+CometBFT's p2p handshake authenticates the **chain-id only** — it never compares
+genesis hashes. So a node built from a stale or merely-different genesis is
+accepted as a peer, advertises a height from a chain that no longer exists, and
+wedges the blocksync of whatever it connects to. That is not hypothetical: it
+took the devnet sentry down on 2026-09-17 and again on 2026-09-18, and the
+workaround both times was `max_num_inbound_peers = 0`, which blocks every peer.
+
+[relayer/local_nodes.sh](relayer/local_nodes.sh) fetches from the chain and
+compares hashes on every `setup`, refusing to start a node whose genesis has
+moved. Anything else that builds a node home needs the same discipline.
+
 ### The launcher consumes the recipe half only
 
 The chain launcher (sibling repo, `sparkdream/launcher`) vendors this

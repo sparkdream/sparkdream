@@ -43,11 +43,13 @@ record_result() {
 
 # Seed at least four ActivityPub peers so list-peers and
 # list-bridge-bindings have something to page through. peer_fixtures'
-# register_test_peer is idempotent.
+# register_test_peer is idempotent. Activation is skipped ("no") -- these
+# peers are only ever listed, never bound or federated to, so paying for
+# four extra proposal rounds would buy nothing.
 echo ""
 echo "Seeding peers for pagination..."
 for i in 1 2 3 4; do
-    register_test_peer "pagi-$i.example" "PEER_TYPE_ACTIVITYPUB" "Pagination peer $i" ""
+    register_test_peer "pagi-$i.example" "PEER_TYPE_ACTIVITYPUB" "Pagination peer $i" "" "no"
 done
 
 # ========================================================================

@@ -24,6 +24,27 @@ const WindowGovernance = 120 * time.Hour  // 5 Days
 const WindowSupervisory = 360 * time.Hour // 15 Days
 const WindowVeto = 48 * time.Hour         // 2 Days
 
+// Committee decision policies use PolicyType "percentage" with StandardValue
+// "0.5" -- a simple majority that scales with the committee, rather than an
+// absolute count.
+//
+// An absolute threshold of 1 never gains teeth: one member carries a vote
+// however large the committee grows, so routing an action through the
+// committee policy buys an audit record and a delay but never multi-party
+// review. A percentage is evaluated as yes-weight over TOTAL committee weight
+// with >= (see checkThreshold), so at weight 1 per member 0.5 means ceil(n/2):
+// 1 of 1, 1 of 2, 2 of 3, 2 of 4, 3 of 5.
+//
+// 0.5 rather than 0.51 deliberately. Both leave a single-member committee
+// unblocked -- which matters for bringing a chain up -- but 0.51 requires
+// ceil((n+1)/2), making a two-member committee unanimous, where one absent
+// member blocks every action on a body capped at five. The cost is that n=2
+// still passes on one vote; the fix for that is a third member, not a
+// stricter ratio.
+//
+// The Commons Supervisory Board keeps its absolute threshold of 2: it is a
+// deliberately higher bar, and converting it to 0.5 would LOWER it.
+
 // MemberRequest is a local replacement for group.MemberRequest
 type MemberRequest struct {
 	Address  string
@@ -293,8 +314,8 @@ func (k Keeper) BootstrapGovernance(ctx context.Context, founders []types.Foundi
 		// also 0 — only the operations arm needs a treasury.
 		FundingWeight:        15,
 		ParentPolicy:         techPolicy,
-		PolicyType:           "threshold",
-		StandardValue:        "1",
+		PolicyType:           "percentage",
+		StandardValue:        "0.5",
 		StandardWindow:       WindowCommittee,
 		StandardMinExecution: TechOpsMinExecution,
 		StandardPermissions: []string{
@@ -317,8 +338,8 @@ func (k Keeper) BootstrapGovernance(ctx context.Context, founders []types.Foundi
 		Description:          "Membership management for Tech",
 		FundingWeight:        0,
 		ParentPolicy:         techPolicy,
-		PolicyType:           "threshold",
-		StandardValue:        "1",
+		PolicyType:           "percentage",
+		StandardValue:        "0.5",
 		StandardWindow:       WindowGovernance,
 		StandardMinExecution: TechMembershipMinExecution,
 		StandardPermissions:  []string{"/sparkdream.commons.v1.MsgUpdateGroupMembers"},
@@ -389,8 +410,8 @@ func (k Keeper) BootstrapGovernance(ctx context.Context, founders []types.Foundi
 		// 5% of the Ecosystem pillar (10/1000 of community pool).
 		FundingWeight:        10,
 		ParentPolicy:         ecoPolicy,
-		PolicyType:           "threshold",
-		StandardValue:        "1",
+		PolicyType:           "percentage",
+		StandardValue:        "0.5",
 		StandardWindow:       WindowCommittee,
 		StandardMinExecution: EcoOpsMinExecution,
 		StandardPermissions: []string{
@@ -413,8 +434,8 @@ func (k Keeper) BootstrapGovernance(ctx context.Context, founders []types.Foundi
 		Description:          "Membership management for Ecosystem",
 		FundingWeight:        0,
 		ParentPolicy:         ecoPolicy,
-		PolicyType:           "threshold",
-		StandardValue:        "1",
+		PolicyType:           "percentage",
+		StandardValue:        "0.5",
 		StandardWindow:       WindowGovernance,
 		StandardMinExecution: EcoMembershipMinExecution,
 		StandardPermissions:  []string{"/sparkdream.commons.v1.MsgUpdateGroupMembers"},
@@ -477,8 +498,8 @@ func (k Keeper) BootstrapGovernance(ctx context.Context, founders []types.Foundi
 		FundingWeight: 25,
 		ParentPolicy:  commonsPolicy,
 
-		PolicyType:           "threshold",
-		StandardValue:        "1",
+		PolicyType:           "percentage",
+		StandardValue:        "0.5",
 		StandardWindow:       WindowCommittee,
 		StandardMinExecution: CommonsOpsMinExecution,
 
@@ -537,8 +558,8 @@ func (k Keeper) BootstrapGovernance(ctx context.Context, founders []types.Foundi
 		FundingWeight: 0,
 		ParentPolicy:  supervisorPolicy,
 
-		PolicyType:           "threshold",
-		StandardValue:        "1",
+		PolicyType:           "percentage",
+		StandardValue:        "0.5",
 		StandardWindow:       WindowGovernance,
 		StandardMinExecution: CommonsMembershipMinExecution,
 

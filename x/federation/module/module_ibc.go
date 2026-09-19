@@ -183,7 +183,7 @@ func (im IBCModule) OnAcknowledgementPacket(
 				sdk.NewAttribute("error", "acknowledgement was an error")))
 			return nil
 		}
-		return im.keeper.OnAckReputationQuery(ctx, packet.ReputationQuery, resp)
+		return im.keeper.OnAckReputationQuery(ctx, modulePacket.SourceChannel, packet.ReputationQuery, resp)
 
 	case *types.FederationPacketData_Content:
 		// Content ack is a simple success/error — emit event on error

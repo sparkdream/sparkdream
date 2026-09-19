@@ -900,6 +900,162 @@ else
 fi
 
 # ========================================================================
+# TEST 12: Activation from an individual committee member rejected
+#
+# This is the peer-authorization hardening. MsgResumePeer takes the
+# Operations Committee POLICY address -- a proposal that has been voted
+# through -- not one member's signature. alice is a committee member and
+# every other message in this file works when she signs it directly, so
+# the signature is the only variable.
+#
+# The asymmetry is deliberate: hard to start a trust relationship, easy to
+# stop one. TEST 13 pins the other half.
+# ========================================================================
+echo ""
+echo "--- TEST 12: Direct resume-peer from a committee member rejected ---"
+
+ALICE_ADDR=$($BINARY keys show alice -a --keyring-backend test)
+
+# Needs a peer that is NOT already ACTIVE. Register a fresh one and leave
+# it PENDING -- registration is still a single signature.
+DIRECT_PEER="direct-resume.example"
+cat > "$PROPOSAL_DIR/register_direct_peer.json" <<EOF
+{
+  "policy_address": "$COMMONS_POLICY",
+  "messages": [
+    {
+      "@type": "/sparkdream.federation.v1.MsgRegisterPeer",
+      "authority": "$COMMONS_POLICY",
+      "peer_id": "$DIRECT_PEER",
+      "display_name": "Direct resume test peer",
+      "type": "PEER_TYPE_ACTIVITYPUB",
+      "metadata": "peer-authorization test"
+    }
+  ],
+  "metadata": "Register peer for direct-resume test"
+}
+EOF
+
+DIRECT_PEER_OK=false
+TX_RES=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/register_direct_peer.json" \
+    --from alice -y --chain-id $CHAIN_ID --keyring-backend test \
+    --fees 5000000${BOND_DENOM} --output json)
+if submit_and_wait "$TX_RES" "register direct-resume peer"; then
+    PROP_ID=$(get_commons_proposal_id "$TX_RESULT")
+    if [ -n "$PROP_ID" ]; then
+        vote_and_execute_commons $PROP_ID
+        STATUS=$($BINARY query federation get-peer "$DIRECT_PEER" --output json 2>&1 \
+            | jq -r '.peer.status // "PEER_STATUS_PENDING"' 2>/dev/null)
+        # proto3 omits PEER_STATUS_PENDING (enum 0) from CLI JSON, so an
+        # existing-but-pending peer reports the jq default above. Key on
+        # .peer.id for existence instead.
+        PEER_ID_BACK=$($BINARY query federation get-peer "$DIRECT_PEER" --output json 2>&1 \
+            | jq -r '.peer.id // empty' 2>/dev/null)
+        [ "$PEER_ID_BACK" == "$DIRECT_PEER" ] && DIRECT_PEER_OK=true
+    fi
+fi
+
+if [ "$DIRECT_PEER_OK" != "true" ]; then
+    echo "  [WARN] could not register $DIRECT_PEER - skipping"
+    record_result "Direct resume-peer rejected" "SKIP"
+else
+    TX_RES=$($BINARY tx federation resume-peer "$DIRECT_PEER" \
+        --from alice -y --chain-id $CHAIN_ID --keyring-backend test \
+        --fees 5000${BOND_DENOM} --output json)
+
+    RESUME_REJECTED=false
+    if submit_and_wait "$TX_RES" "direct resume"; then
+        CODE=$(echo "$TX_RESULT" | jq -r '.code')
+        RAW=$(echo "$TX_RESULT" | jq -r '.raw_log // empty')
+        if [ "$CODE" == "2318" ]; then
+            echo "  Correctly rejected (code=2318 ErrNotAuthorized)"
+            RESUME_REJECTED=true
+        elif [ "$CODE" != "0" ]; then
+            echo "  Rejected with code=$CODE (expected 2318): $(echo "$RAW" | head -c 160)"
+        else
+            echo "  Should have been rejected - a lone member activated a peer"
+        fi
+    else
+        CODE=$(echo "$TX_RESULT" | jq -r '.code // empty' 2>/dev/null)
+        echo "  Rejected before delivery (code=${CODE:-unknown})"
+        RESUME_REJECTED=true
+    fi
+
+    # The peer must still be inert. A rejection that left it ACTIVE would
+    # be worse than no rejection at all.
+    STATUS=$($BINARY query federation get-peer "$DIRECT_PEER" --output json 2>&1 \
+        | jq -r '.peer.status // "PEER_STATUS_PENDING"' 2>/dev/null)
+    if [ "$RESUME_REJECTED" == "true" ] && [ "$STATUS" != "PEER_STATUS_ACTIVE" ]; then
+        echo "  Peer still $STATUS"
+        record_result "Direct resume-peer rejected" "PASS"
+    else
+        echo "  Peer status after rejected resume: $STATUS"
+        record_result "Direct resume-peer rejected" "FAIL"
+    fi
+fi
+
+# ========================================================================
+# TEST 13: Bridge registration against a PENDING peer rejected
+#
+# RegisterBridge used to flip a PENDING peer to ACTIVE on its first
+# binding, which inverted the trust model: an IBC sister chain needed a
+# governance actor to activate, while a bridge peer -- whose content rests
+# entirely on operator honesty -- was activated by the operator. Both are
+# governance decisions now; operators bind to something already approved.
+# ========================================================================
+echo ""
+echo "--- TEST 13: register-bridge against PENDING peer rejected ---"
+
+if [ "$DIRECT_PEER_OK" != "true" ]; then
+    echo "  [WARN] $DIRECT_PEER unavailable - skipping"
+    record_result "Bridge on PENDING peer rejected" "SKIP"
+else
+    STATUS=$($BINARY query federation get-peer "$DIRECT_PEER" --output json 2>&1 \
+        | jq -r '.peer.status // "PEER_STATUS_PENDING"' 2>/dev/null)
+    if [ "$STATUS" == "PEER_STATUS_ACTIVE" ]; then
+        echo "  [WARN] $DIRECT_PEER is ACTIVE - cannot test the PENDING path"
+        record_result "Bridge on PENDING peer rejected" "SKIP"
+    else
+        MIN_BOND_AMT=$($BINARY query service service-type federation-bridge-activitypub \
+            --output json 2>/dev/null | jq -r '.config.min_bond_amount // "1000000000"')
+
+        TX_RES=$($BINARY tx federation register-bridge \
+            "$DIRECT_PEER" activitypub https://bridge.pending.example "$MIN_BOND_AMT" \
+            --from operator1 -y --chain-id $CHAIN_ID --keyring-backend test \
+            --fees 5000${BOND_DENOM} --output json)
+
+        BRIDGE_REJECTED=false
+        if submit_and_wait "$TX_RES" "bridge on pending peer"; then
+            CODE=$(echo "$TX_RESULT" | jq -r '.code')
+            RAW=$(echo "$TX_RESULT" | jq -r '.raw_log // empty')
+            if [ "$CODE" == "2302" ]; then
+                echo "  Correctly rejected (code=2302 ErrPeerNotActive)"
+                BRIDGE_REJECTED=true
+            elif [ "$CODE" != "0" ]; then
+                echo "  Rejected with code=$CODE (expected 2302): $(echo "$RAW" | head -c 160)"
+            else
+                echo "  Should have been rejected"
+            fi
+        else
+            CODE=$(echo "$TX_RESULT" | jq -r '.code // empty' 2>/dev/null)
+            echo "  Rejected before delivery (code=${CODE:-unknown})"
+            BRIDGE_REJECTED=true
+        fi
+
+        # And the rejected binding must not have activated the peer.
+        STATUS=$($BINARY query federation get-peer "$DIRECT_PEER" --output json 2>&1 \
+            | jq -r '.peer.status // "PEER_STATUS_PENDING"' 2>/dev/null)
+        if [ "$BRIDGE_REJECTED" == "true" ] && [ "$STATUS" != "PEER_STATUS_ACTIVE" ]; then
+            echo "  Peer still $STATUS"
+            record_result "Bridge on PENDING peer rejected" "PASS"
+        else
+            echo "  Peer status after rejected binding: $STATUS"
+            record_result "Bridge on PENDING peer rejected" "FAIL"
+        fi
+    fi
+fi
+
+# ========================================================================
 # Summary
 # ========================================================================
 echo ""

@@ -16,9 +16,20 @@ func (k msgServer) ResumePeer(ctx context.Context, msg *types.MsgResumePeer) (*t
 		return nil, errorsmod.Wrap(err, "invalid authority address")
 	}
 
+	// Activation is the trust decision in a peer's lifecycle: a PENDING peer
+	// is inert -- FederateContent, SubmitFederatedContent and
+	// RequestReputationAttestation all require ACTIVE -- so this is the point
+	// at which content and reputation start crossing. Unlike registration,
+	// suspension and removal, it therefore takes a committee VOTE and not one
+	// member's signature: IsCouncilOrCommitteePolicy excludes individual
+	// membership. Stopping stays 1-of-N on purpose (see SuspendPeer).
 	if !bytes.Equal(k.authority, authorityBytes) {
-		if k.late.commonsKeeper == nil || !k.late.commonsKeeper.IsCouncilAuthorized(ctx, msg.Authority, "commons", "operations") {
-			return nil, errorsmod.Wrap(types.ErrNotAuthorized, "must be governance or Commons Council")
+		if k.late.commonsKeeper == nil || !k.late.commonsKeeper.IsCouncilOrCommitteePolicy(ctx, msg.Authority, "commons", "operations") {
+			return nil, errorsmod.Wrap(types.ErrNotAuthorized,
+				"peer activation must be executed by the Operations Committee policy "+
+					"(a passed committee proposal), the Commons Council policy, or governance. "+
+					"A signature from an individual committee member is not enough -- "+
+					"submit a proposal and vote it through")
 		}
 	}
 

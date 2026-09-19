@@ -90,6 +90,58 @@ sha256_base64() {
 echo "Operator2: $OPERATOR2_ADDR"
 echo ""
 
+# ensure_peer_active <peer_id>
+# Moves a peer to ACTIVE via a Commons Council ResumePeer proposal, no-op
+# if it is already there. Needed by every prerequisite below: a PENDING
+# peer accepts neither a bridge binding nor federated content, and
+# register-bridge no longer activates the peer as a side effect of the
+# first binding.
+ensure_peer_active() {
+    local PEER_ID=$1
+    local STATUS=$($BINARY query federation get-peer "$PEER_ID" --output json 2>&1 | jq -r '.peer.status // "PEER_STATUS_PENDING"')
+    echo "  $PEER_ID status: $STATUS"
+    if [ "$STATUS" == "PEER_STATUS_ACTIVE" ]; then
+        return 0
+    fi
+
+    echo "  Activating $PEER_ID via council ResumePeer..."
+    local CC_POLICY=$($BINARY query commons get-group "Commons Council" --output json 2>&1 | jq -r '.group.policy_address')
+    local PROP_FILE="$PROPOSAL_DIR/prereq_activate_${PEER_ID//./_}.json"
+
+    cat > "$PROP_FILE" <<PREEOF
+{
+  "policy_address": "$CC_POLICY",
+  "messages": [
+    {
+      "@type": "/sparkdream.federation.v1.MsgResumePeer",
+      "authority": "$CC_POLICY",
+      "peer_id": "$PEER_ID"
+    }
+  ],
+  "metadata": "Activate $PEER_ID for content tests"
+}
+PREEOF
+
+    TX_RES=$($BINARY tx commons submit-proposal "$PROP_FILE" \
+        --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000${BOND_DENOM} --output json)
+    if submit_and_wait "$TX_RES" "activate $PEER_ID proposal"; then
+        local PROP_ID=$(get_commons_proposal_id "$TX_RESULT")
+        if [ -n "$PROP_ID" ]; then
+            for VOTER in "alice" "bob" "carol"; do
+                local S=$($BINARY query commons get-proposal $PROP_ID --output json 2>/dev/null | jq -r '.proposal.status')
+                if [ "$S" == "PROPOSAL_STATUS_ACCEPTED" ] || [ "$S" == "PROPOSAL_STATUS_EXECUTED" ]; then continue; fi
+                TX_RES=$($BINARY tx commons vote-proposal $PROP_ID yes --from $VOTER -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000${BOND_DENOM} --output json)
+                submit_and_wait "$TX_RES" "$VOTER vote" || true
+            done
+            TX_RES=$($BINARY tx commons execute-proposal $PROP_ID --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000${BOND_DENOM} --gas 2000000 --output json)
+            submit_and_wait "$TX_RES" "execute activate $PEER_ID" || true
+            sleep 1
+        fi
+    fi
+    STATUS=$($BINARY query federation get-peer "$PEER_ID" --output json 2>&1 | jq -r '.peer.status // "PEER_STATUS_PENDING"')
+    echo "  $PEER_ID now: $STATUS"
+}
+
 # ========================================================================
 # Ensure prerequisites: active peer + active bridge + inbound policy
 # Bridge operator tests may have revoked/unbonded bridges, so re-register
@@ -104,6 +156,8 @@ echo "=== Setting up prerequisites ==="
 # AND a live x/service.Operator (ACTIVE / UNDERFUNDED); if either is
 # missing, the operator signs MsgRegisterBridge directly with a stake ≥
 # min_bond.
+ensure_peer_active mastodon.example
+
 BRIDGE_DATA=$($BINARY query federation get-bridge-binding $OPERATOR2_ADDR mastodon.example --output json)
 BRIDGE_ADDR=$(echo "$BRIDGE_DATA" | jq -r '.bridge_binding.address // empty')
 SVC_STATUS=$($BINARY query service operator $OPERATOR2_ADDR federation-bridge-activitypub --output json 2>&1 | jq -r '.operator.status // empty')
@@ -121,49 +175,8 @@ if [ -z "$BRIDGE_ADDR" ] || [ "$SVC_STATUS" != "OPERATOR_STATUS_ACTIVE" ]; then
     echo "  operator2 binding now: ${BRIDGE_ADDR:-not found} (service status=${SVC_STATUS:-not found})"
 fi
 
-# 2. Activate IBC peer spark.testnet via ResumePeer (PENDING → ACTIVE)
-IBC_PEER_STATUS=$($BINARY query federation get-peer spark.testnet --output json 2>&1 | jq -r '.peer.status // "PEER_STATUS_PENDING"')
-echo "  spark.testnet status: $IBC_PEER_STATUS"
-
-if [ "$IBC_PEER_STATUS" != "PEER_STATUS_ACTIVE" ]; then
-    echo "  Activating spark.testnet via council ResumePeer..."
-
-    # Get Commons Council policy
-    CC_POLICY=$($BINARY query commons get-group "Commons Council" --output json 2>&1 | jq -r '.group.policy_address')
-
-    cat > "$PROPOSAL_DIR/prereq_activate_ibc_peer.json" <<PREEOF
-{
-  "policy_address": "$CC_POLICY",
-  "messages": [
-    {
-      "@type": "/sparkdream.federation.v1.MsgResumePeer",
-      "authority": "$CC_POLICY",
-      "peer_id": "spark.testnet"
-    }
-  ],
-  "metadata": "Activate IBC peer for content tests"
-}
-PREEOF
-
-    TX_RES=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/prereq_activate_ibc_peer.json" \
-        --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000${BOND_DENOM} --output json)
-    if submit_and_wait "$TX_RES" "activate ibc peer proposal"; then
-        PROP_ID=$(get_commons_proposal_id "$TX_RESULT")
-        if [ -n "$PROP_ID" ]; then
-            for VOTER in "alice" "bob" "carol"; do
-                S=$($BINARY query commons get-proposal $PROP_ID --output json 2>/dev/null | jq -r '.proposal.status')
-                if [ "$S" == "PROPOSAL_STATUS_ACCEPTED" ] || [ "$S" == "PROPOSAL_STATUS_EXECUTED" ]; then continue; fi
-                TX_RES=$($BINARY tx commons vote-proposal $PROP_ID yes --from $VOTER -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000${BOND_DENOM} --output json)
-                submit_and_wait "$TX_RES" "$VOTER vote" || true
-            done
-            TX_RES=$($BINARY tx commons execute-proposal $PROP_ID --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000000${BOND_DENOM} --gas 2000000 --output json)
-            submit_and_wait "$TX_RES" "execute activate ibc" || true
-            sleep 1
-        fi
-    fi
-    IBC_PEER_STATUS=$($BINARY query federation get-peer spark.testnet --output json 2>&1 | jq -r '.peer.status // "PEER_STATUS_PENDING"')
-    echo "  spark.testnet now: $IBC_PEER_STATUS"
-fi
+# 2. Activate the IBC peer spark.testnet used by the federate-content tests.
+ensure_peer_active spark.testnet
 
 echo ""
 
@@ -817,36 +830,61 @@ else
 fi
 
 # ========================================================================
-# TEST 17: Request reputation attestation — happy path
+# TEST 17: Rep attestation without a VERIFIED identity link rejected
+#
 # spark.testnet is a SPARK_DREAM peer with AcceptReputationAttestations=true
-# (set in peer_policy_test.sh test 3). The message should succeed.
+# (set in peer_policy_test.sh test 3), so the request clears every other
+# precondition -- the link requirement is the only thing that can reject it.
+#
+# This is a rejection test rather than a happy path ON PURPOSE. Reaching
+# VERIFIED needs the two-phase IBC challenge-response answered by a real
+# counterparty chain, which a single-chain suite has no way to produce. The
+# happy path lives in test/federation/multichain/test_crosschain_reputation.sh
+# TEST 1, where mc-linker-a holds a verified link to mc-owner-b.
 # ========================================================================
 echo ""
-echo "--- TEST 17: Request reputation attestation (happy path) ---"
+echo "--- TEST 17: Rep attestation without verified link rejected ---"
 
-TX_RES=$($BINARY tx federation request-reputation-attestation \
-    spark.testnet \
-    "$ALICE_ADDR" \
-    --from alice \
-    --chain-id $CHAIN_ID \
-    --keyring-backend test \
-    --fees 5000${BOND_DENOM} \
-    -y \
-    --output json)
+LINK_STATUS=$($BINARY query federation get-identity-link "$ALICE_ADDR" spark.testnet --output json 2>/dev/null \
+    | jq -r '.link.status // "none"')
+echo "  alice link on spark.testnet: $LINK_STATUS"
 
-if submit_and_wait "$TX_RES" "request rep attestation"; then
-    echo "  Reputation attestation requested successfully"
-    record_result "Request reputation attestation" "PASS"
+if [ "$LINK_STATUS" == "IDENTITY_LINK_STATUS_VERIFIED" ]; then
+    echo "  [WARN] alice unexpectedly holds a verified link - cannot test the reject path"
+    record_result "Rep without verified link rejected" "SKIP"
 else
-    RAW=$(echo "$TX_RESULT" | jq -r '.raw_log // empty' 2>/dev/null)
-    CODE=$(echo "$TX_RESULT" | jq -r '.code // empty' 2>/dev/null)
-    # May fail if policy doesn't have attestations enabled yet
-    if echo "$RAW" | grep -qi "not.*accept\|not supported\|not active"; then
-        echo "  Peer policy may not accept attestations: $RAW"
-        record_result "Request reputation attestation" "PASS"
+    TX_RES=$($BINARY tx federation request-reputation-attestation \
+        spark.testnet \
+        "$ALICE_ADDR" \
+        --from alice \
+        --chain-id $CHAIN_ID \
+        --keyring-backend test \
+        --fees 5000${BOND_DENOM} \
+        -y \
+        --output json)
+
+    if submit_and_wait "$TX_RES" "rep without link"; then
+        CODE=$(echo "$TX_RESULT" | jq -r '.code')
+        RAW=$(echo "$TX_RESULT" | jq -r '.raw_log // empty')
+        if [ "$CODE" == "2314" ]; then
+            echo "  Correctly rejected (code=2314 ErrIdentityLinkNotFound)"
+            record_result "Rep without verified link rejected" "PASS"
+        elif [ "$CODE" != "0" ]; then
+            echo "  Rejected with code=$CODE (expected 2314): $(echo "$RAW" | head -c 160)"
+            record_result "Rep without verified link rejected" "FAIL"
+        else
+            echo "  Should have been rejected - an unlinked address got an attestation"
+            record_result "Rep without verified link rejected" "FAIL"
+        fi
     else
-        echo "  Failed (code=$CODE): $(echo "$RAW" | head -c 120)"
-        record_result "Request reputation attestation" "FAIL"
+        CODE=$(echo "$TX_RESULT" | jq -r '.code // empty' 2>/dev/null)
+        if [ "$CODE" == "2314" ]; then
+            echo "  Correctly rejected at CheckTx (code=2314)"
+            record_result "Rep without verified link rejected" "PASS"
+        else
+            echo "  Rejected before delivery (code=${CODE:-unknown}) - acceptable"
+            record_result "Rep without verified link rejected" "PASS"
+        fi
     fi
 fi
 

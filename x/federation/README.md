@@ -2,7 +2,7 @@
 
 Cross-chain content exchange, reputation bridging, and identity linking for federated Spark Dream chains (via IBC) and external social protocols (ActivityPub, AT Protocol) via off-chain bridges.
 
-Full spec: [docs/x-federation-spec.md](../../docs/x-federation-spec.md). Service-migration plan: [docs/x-federation-service-migration-plan.md](../../docs/x-federation-service-migration-plan.md).
+Full spec: [docs/x-federation-spec.md](../../docs/x-federation-spec.md). Service-migration plan: [docs/x-federation-service-migration-plan.md](../../docs/x-federation-service-migration-plan.md). Peer-authorization model and the rationale behind it: [docs/x-federation-peer-authorization-plan.md](../../docs/x-federation-peer-authorization-plan.md).
 
 ## Sovereignty Principles
 
@@ -25,9 +25,25 @@ A `Peer` is a remote network (another Spark Dream chain, an ActivityPub server c
 - `protocol` — `IBC` / `ACTIVITYPUB` / `ATPROTO`
 - `controller_group` — optional x/commons Group address that resolves tier-1 reports against this peer's bridge operators. Empty → defaults to Operations Committee at `MsgRegisterBridge` time and the resolved address is captured on the resulting `service.Operator`.
 - `policy` — content type allowlists, inbound/outbound rate limits, moderation rules
-- `status` — ACTIVE / SUSPENDED
+- `status` — PENDING / ACTIVE / SUSPENDED / REMOVED
 
-Commons Council registers/removes peers. Operations Committee manages policies.
+A peer starts **PENDING** and is inert there: `MsgFederateContent`,
+`MsgSubmitFederatedContent` and `MsgRequestReputationAttestation` all require
+ACTIVE. Registration is therefore closer to tabling a proposal than to
+granting anything; **activation is the trust decision**, and the
+authorization model is shaped around that asymmetry:
+
+- **Starting** a trust relationship (`MsgResumePeer`) takes an Operations
+  Committee *vote* — the committee policy address, the Commons Council policy
+  address, or governance. An individual committee member's signature is not
+  enough.
+- **Everything else** in the lifecycle — registering, editing policy,
+  suspending, removing — is a single Operations Committee member's signature.
+
+Suspension stays 1-of-N deliberately: a single member must be able to pull the
+emergency brake without assembling a quorum. See
+[docs/x-federation-peer-authorization-plan.md](../../docs/x-federation-peer-authorization-plan.md)
+for the full rationale.
 
 ## Bridge Operators (Federation-Owned Binding, x/service-Owned Economics)
 
@@ -49,11 +65,32 @@ Verifiers are DREAM-bonded via `BondedRole(ROLE_TYPE_FEDERATION_VERIFIER)` in x/
 
 ## Reputation Bridging
 
-IBC attestation model. A peer can request attestation of a member's reputation; the source chain replies with a signed attestation that the requesting chain stores with:
+IBC attestation model. A member asks their own chain to fetch an attestation of
+their reputation on a peer; the peer replies, and the requesting chain stores
+the result capped and TTL'd.
 
-- **50% discount** (configurable)
-- **Cap at PROVISIONAL** equivalent (no high-trust import)
-- **30-day TTL** (must re-attest)
+**Requesting requires a VERIFIED identity link to that peer.**
+`MsgRequestReputationAttestation` rejects the request otherwise
+(`ErrIdentityLinkNotFound`). Without it any address could ask about any remote
+address, and the attestation would say nothing about who is asking — the link
+is what binds the imported reputation to a local identity that proved key
+ownership over the remote one.
+
+What lands on the requesting chain:
+
+- **Capped at `global_max_trust_credit`** (default `1`, i.e. PROVISIONAL
+  equivalent) — applied on *write*, so the stored `local_trust_credit` is
+  already safe for any reader that forgot to cap. `remote_trust_level` keeps
+  the peer's unmodified claim for audit.
+- **Expires after `attestation_ttl`** (default 30 days); the EndBlocker prunes
+  expired attestations, and re-attesting means requesting again.
+- **Advisory only.** Nothing in this chain reads `local_trust_credit` to grant
+  a permission — it is a signal for humans deciding whether to invite someone,
+  not an import of trust. An invited member still starts at NEW.
+
+There is deliberately no separate discount rate. A percentage discount and a
+hard cap are redundant when the cap is 1 of 4 levels, so
+`global_max_trust_credit` is the single knob.
 
 ## Identity Linking
 
@@ -100,17 +137,18 @@ SPARK on x/service.
 
 | Msg | Access | Purpose |
 |---|---|---|
-| `MsgRegisterPeer` | Commons Council | Register a peer (with optional `controller_group`) |
-| `MsgRemovePeer` | Commons Council | Tombstone a peer (cursor-based pruning in EndBlocker) |
-| `MsgSuspendPeer` / `MsgResumePeer` | Commons Council | Toggle peer status |
-| `MsgUpdatePeerPolicy` | Operations Committee | Content type allowlists, rate limits, moderation |
+| `MsgRegisterPeer` | Ops Committee member | Register a peer (with optional `controller_group`); lands PENDING |
+| `MsgRemovePeer` | Ops Committee member | Tombstone a peer (cursor-based pruning in EndBlocker) |
+| `MsgSuspendPeer` | Ops Committee member | ACTIVE → SUSPENDED; the emergency brake, deliberately 1-of-N |
+| `MsgResumePeer` | Ops Committee **policy** (a passed vote), Council policy, or gov | PENDING/SUSPENDED → ACTIVE. Activation is the trust decision, so it takes a vote |
+| `MsgUpdatePeerPolicy` | Ops Committee member | Content type allowlists, rate limits, moderation |
 | `MsgUpdatePeerController` | gov | Change controller_group for a peer |
 
 ### Bridge Bindings
 
 | Msg | Signer | Purpose |
 |---|---|---|
-| `MsgRegisterBridge` | bridge operator | Create binding + register operator in x/service in one shot |
+| `MsgRegisterBridge` | bridge operator | Create binding + register operator in x/service in one shot. **Requires the peer to be ACTIVE already** — binding no longer activates a PENDING peer |
 | `MsgUpdateBridge` | bridge operator | Edit endpoint / metadata |
 | `MsgResyncBridgeCount` | Ops Committee OR gov | Recovery — re-count `BridgesByPeer` |
 | `MsgPruneOrphanBindings` | Ops Committee OR gov | Recovery — prune BridgeBindings whose service.Operator is missing or terminal |
@@ -136,7 +174,7 @@ SPARK on x/service.
 | `MsgLinkIdentity` | Begin two-phase challenge-response link |
 | `MsgConfirmIdentityLink` | Complete the link |
 | `MsgUnlinkIdentity` | Sever an existing link |
-| `MsgRequestReputationAttestation` | IBC request to source chain |
+| `MsgRequestReputationAttestation` | IBC request to the peer chain. Requires a VERIFIED identity link to that peer |
 
 ### Governance
 
