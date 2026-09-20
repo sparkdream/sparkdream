@@ -7,25 +7,59 @@ travel over. The local two-chain equivalent lives in
 [test/federation/multichain/](../../test/federation/multichain/); this is the
 same shape pointed at deployed networks.
 
-## Current state
+## After a chain reset — start here
 
-Verified against both live chains:
+Resetting either chain destroys everything this link is built on: IBC clients,
+connections, channels, peer records, relayer balances, and the local full nodes
+hermes talks to. Rebuilding it is one command:
+
+```bash
+./relink.sh
+```
+
+That rebuilds the network-tagged binaries, re-initialises and re-syncs the local
+full nodes, funds the hermes relayers, opens the client/connection/channel, and
+registers + activates the devnet peer. It is idempotent — re-run it after
+fixing any failure and it resumes rather than duplicating.
+
+**Stop the local nodes before you reset the chains**, or do the reset and let
+`relink.sh` stop them for you. A node still running against the pre-reset chain
+will peer with the sentry and wedge it: the CometBFT p2p handshake authenticates
+**chain-id only, never the genesis hash**, so a stale node is accepted as a peer
+and then serves garbage. This is the single most common way to break the devnet
+while trying to fix it.
+
+The one thing `relink.sh` cannot do is the **testnet half of the peer setup** —
+that needs `kingofbitchain`, whose key is deliberately not on this machine. The
+script prints the exact UI steps when it finishes. See
+[The testnet half](#the-testnet-half) below.
+
+### Checking the current state
+
+Rather than a table here that goes stale on every reset, ask the chains:
+
+```bash
+./local_nodes.sh status                     # both nodes synced?
+./fund_check.sh                             # relayer keys funded + auth account?
+./setup_peers.sh                            # re-run: reports both peers, non-zero if not ACTIVE
+hermes --config hermes_config.toml query channels --chain sparkdream-dev-1 --show-counterparty
+```
+
+`setup_peers.sh` is the useful one: it is idempotent and ends with a RESULT
+block showing each chain's peer status and bound channel. Content moves only
+when **both** sides are ACTIVE — a peer that is ACTIVE on one chain and PENDING
+on the other silently drops packets rather than erroring.
+
+Standing facts that do not change per reset:
 
 | | sparkdream-dev-1 | sparkdream-test-1 |
 |---|---|---|
-| RPC | `https://rpc-dev.sparkdream.io` ✅ | `https://rpc-test.sparkdream.io` ✅ |
-| WebSocket | `wss://.../websocket` ✅ | `wss://.../websocket` ✅ |
-| gRPC | not exposed — use a local node ⚠️ | not exposed — use a local node ⚠️ |
-| Min gas price (live) | `""` none set | `25000uspark.sparkdreamtest` — fix pending restart |
-| IBC clients | 0 | 0 |
-| IBC channels | 0 | 0 |
-| Federation peers | 1 (`sparkdream-test-1`, PENDING, no channel) | 0 |
+| RPC | `https://rpc-dev.sparkdream.io` | `https://rpc-test.sparkdream.io` |
+| gRPC | not exposed — use a local node | not exposed — use a local node |
 | Fee denom | `usparz.sparkdreamdev` | `uspark.sparkdreamtest` |
-| Unbonding | 21 days | 21 days |
-
-Nothing is connected yet, in either direction. The gRPC gap has a clean
-workaround (local full nodes, verified). The gas price is fixed in chain.env
-but the running nodes need the new app.toml and a restart — see below.
+| Local node RPC | `127.0.0.1:26657` | `127.0.0.1:36657` |
+| Local node gRPC | `127.0.0.1:9090` | `127.0.0.1:9091` |
+| Ops Committee member | `alice` (key is local) | `kingofbitchain` (key is NOT local) |
 
 ## Reaching gRPC
 
@@ -96,9 +130,12 @@ curl -fsSL "https://github.com/informalsystems/hermes/releases/download/${HERMES
   | tar -xz -C ~/.local/bin hermes
 ```
 
-## Gas price — apply the node fix before bringing up
+## Gas price — why it is 0.025
 
-`deploy/config/network/*/chain.env` has been corrected: `MIN_GAS_PRICES` was
+Applied and deployed; kept here because the failure it caused was baffling and
+someone will be tempted to "fix" the value back.
+
+`deploy/config/network/*/chain.env` was corrected: `MIN_GAS_PRICES` was
 `25000<denom>`, a flat `--fees` amount copied into a field that wants a price
 **per gas unit**. At 300k gas that charged 7,500 SPARK per transaction. It is
 now `0.025<denom>` on all three networks, and the devnet's `DENOM` was also
@@ -137,10 +174,11 @@ are real accounts. For each chain:
 1. `hermes keys add --chain <id> --mnemonic-file <file>`, using key names
    `relayer-dev` and `relayer-test` to match the config.
 2. Fund each address in its chain's own fee denom (see the table above —
-   they differ, and the wrong one is rejected by min-gas-prices). On the
-   testnet the only substantially funded account seen is `kingofbitchain`
-   (`sprkdrm1yhjdr8kxsrer3kcqpdrc2zd0kggvsj4c3vazkd`, 50,000 SPARK); alice and
-   bob are empty there. See "Testnet gas price" for why 50,000 is not enough.
+   they differ, and the wrong one is rejected by min-gas-prices). `relink.sh`
+   does this automatically, from `alice` on devnet and `bob` on testnet, and
+   skips the top-up when the balance is already above `FUND_FLOOR`. The keys
+   survive a chain reset — same mnemonic, same address — but the **balances do
+   not**, because the new genesis has never heard of them.
 3. **Send one self-transfer from each relayer key before running the script.**
    `bank.SendCoins` does not create an `auth.BaseAccount` for the recipient, so
    a freshly funded address exists in bank state but returns NotFound from
@@ -176,34 +214,63 @@ ids to `.ibc_channels`.
 
 ## Then: the chain side
 
+`./setup_peers.sh` does this, and `relink.sh` calls it. Run it directly when
+only the peer half needs redoing:
+
+```bash
+SIDES=dev ./setup_peers.sh        # devnet only (the default)
+DRY_RUN=1 SIDES=dev ./setup_peers.sh   # print the txs, broadcast nothing
+```
+
 **Order matters, and it is not the obvious one.** `ibc_channel_id` is written
 only at `MsgRegisterPeer` ([msg_server_register_peer.go](../../x/federation/keeper/msg_server_register_peer.go));
 no other message sets it and no handshake callback fills it in. A peer
 registered before the channel exists can never be pointed at one — it has to be
-removed and re-registered.
+removed and re-registered. So the channel comes first, always, which is why
+`bringup.sh` runs before `setup_peers.sh`.
 
-The devnet's existing `sparkdream-test-1` peer was registered with an empty
-channel, so it needs exactly that treatment:
+Each direction is three steps, and the third one changed:
 
-1. **devnet, Commons Council:** `MsgRemovePeer` for `sparkdream-test-1`. Wait a
-   block or two for the EndBlocker to drain `PeerRemovalQueue` — re-registration
-   is refused while the entry is still there. (The peer has no bridges, content
-   or links, so cleanup is immediate.)
-2. **devnet, Commons Council:** `MsgRegisterPeer` with
-   `ibc_channel_id = $CHANNEL_DEV`, then `MsgResumePeer` to take it PENDING →
-   ACTIVE. Registration and activation are two separate proposals.
-3. **testnet, Commons Council:** the mirror image — register `sparkdream-dev-1`
-   with `ibc_channel_id = $CHANNEL_TEST`, then activate. Federation is bilateral;
-   the testnet currently has no peers at all.
-4. **both chains, Operations Committee:** `MsgUpdatePeerPolicy`. A registered
-   peer carries the empty default policy, so every content list is empty and
-   nothing federates in either direction even once ACTIVE. Reputation bridging
+1. **`MsgRegisterPeer`** with `ibc_channel_id` — a single Operations Committee
+   member's signature. Lands PENDING.
+2. **`MsgUpdatePeerPolicy`** — also a single member. A registered peer carries
+   the **empty** default policy, so every content list is empty and nothing
+   federates in either direction even once ACTIVE. Reputation bridging
    (`allow_reputation_queries`, `accept_reputation_attestations`) is valid here
-   because both sides are `PEER_TYPE_SPARK_DREAM`.
+   because both sides are `PEER_TYPE_SPARK_DREAM`, and `setup_peers.sh` enables
+   both by default.
+3. **`MsgResumePeer`** — **a committee VOTE, not a signature.** This is the
+   trust decision, so it takes the Operations Committee policy address: submit
+   a proposal, vote yes, then execute once `min_execution_period` has elapsed
+   (5 min devnet, 10 min testnet). A single member signing directly is rejected
+   with `ErrNotAuthorized` (2318). `setup_peers.sh` drives all three
+   transactions when it holds the key.
 
-Steps 1–4 are all drivable from the UI's federation page (Propose peer / Edit
-policy). Note step 4 is the **Operations Committee**, not the Council — the
-Council policy's `allowed_messages` does not include `MsgUpdatePeerPolicy`.
+At one member and a `percentage` 0.5 decision policy, one yes vote crosses the
+threshold and triggers early acceptance, so the 5-day voting period never
+applies — the real cost is three transactions plus the min-execution wait.
+
+### The testnet half
+
+`kingofbitchain` is the testnet's only Operations Committee member and that key
+is deliberately not on this machine, so drive it from the UI's federation page:
+
+| Step | How |
+|---|---|
+| Register `sparkdream-dev-1` | Direct signing. Type SPARK_DREAM, `ibc_channel_id` from `.ibc_channels` |
+| Edit policy | Direct signing. Same content types both directions; reputation flags on |
+| **Activate** | **Proposal path only.** Submit to the Operations Committee policy, vote yes, execute after 10 min |
+
+The activation row is the one that trips people up: the UI still offers direct
+council signing for peer messages, and it works for the first two rows. It does
+**not** work for activation any more, and the failure is a `2318` at the point
+of broadcast rather than anything the form warns about.
+
+Two alternatives if you would rather not use the UI: run `setup_peers.sh` with
+`SIDES=test` on the machine that holds the key (it automates all three steps
+including the vote), or set `SIGNER_TEST=<address>` here to emit unsigned
+transactions into `.unsigned/` for signing elsewhere — though that path can only
+emit the proposal submission, leaving the vote and execute to you.
 
 ## Checking it worked
 
