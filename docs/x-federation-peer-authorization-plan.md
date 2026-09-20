@@ -172,6 +172,43 @@ the next chain reset. Existing deployed chains would need a governance change
 to their decision policies. Pinned by `TestCommitteePercentageMajority` and
 `TestSupervisoryBoardKeepsAbsoluteThreshold`.
 
+## The second grant, which this plan originally missed
+
+Authorizing a governance message on this chain takes **two independent grants,
+in different modules**, and satisfying only one makes the message unexecutable
+rather than merely unauthorized:
+
+1. **The module keeper must accept the caller.** `MsgResumePeer` uses
+   `IsCouncilOrCommitteePolicy`, which accepts a committee policy address.
+2. **x/commons must let that policy carry the message.** A commons proposal is
+   checked against the target policy's `AllowedMessages`
+   ([msg_server_proposals.go](../x/commons/keeper/msg_server_proposals.go)) and
+   rejected with `ErrUnauthorized` otherwise.
+
+Decision 2 did (1) and forgot (2). `genesis_bootstrap.go` grants the peer
+lifecycle -- `RegisterPeer`, `RemovePeer`, `SuspendPeer`, `ResumePeer` -- to the
+**Commons Council** policy, and gives the Operations Committee only the
+operational chores. So after the hardening the committee was the only body that
+could pass the vote at n=1, and the only body forbidden from executing the
+result.
+
+That is a hard deadlock, not a slow path. The Council holds the permission but
+needs 0.51 of its *entire* membership (4 of 6 on devnet, 5 of 9 on testnet),
+which no single operator can muster; and the committee cannot grant itself the
+message, because `MsgUpdatePolicyPermissions` is not in its allowlist either.
+It blocked the live devnet/testnet bring-up until `MsgResumePeer` was added to
+the committee's `AllowedMessages`.
+
+`ResumePeer` deliberately stays on the Council's list too. Both are valid
+callers in the keeper, and leaving it there keeps an escalation path if a
+committee is ever unable to act.
+
+**Pinned by `TestOpsCommitteeCanExecuteCommitteeGatedFederationMsgs`**, which
+derives the committee-gated set from the handlers rather than hardcoding it, so
+a future message gated on `IsCouncilOrCommitteePolicy` fails a test instead of a
+live chain. The lesson generalizes: whenever a handler starts requiring a policy
+address, check that the policy is permitted to carry the message.
+
 ## Implementation
 
 1. **Add `IsCouncilOrCommitteePolicy(ctx, addr, council, committee) bool` to

@@ -40,6 +40,11 @@ authorization model is shaped around that asymmetry:
 - **Everything else** in the lifecycle — registering, editing policy,
   suspending, removing — is a single Operations Committee member's signature.
 
+Activation needs two grants that live in different modules: the federation
+keeper must accept the caller, **and** x/commons must list `MsgResumePeer` in
+that policy's `AllowedMessages`. Both the Operations Committee and the Commons
+Council carry it, so either can activate.
+
 Suspension stays 1-of-N deliberately: a single member must be able to pull the
 emergency brake without assembling a quorum. See
 [docs/x-federation-peer-authorization-plan.md](../../docs/x-federation-peer-authorization-plan.md)

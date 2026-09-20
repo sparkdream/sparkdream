@@ -1311,6 +1311,13 @@ but **not** an individual committee member. Activation is the trust decision
 (a PENDING peer is inert; an ACTIVE one exchanges content and reputation), so
 it takes a proposal that has been voted through.
 
+Authorization here takes **two** grants, not one: this keeper check, and the
+target policy's `AllowedMessages` in x/commons. `genesis_bootstrap.go` puts
+`MsgResumePeer` on both the Commons Operations Committee and the Commons
+Council; dropping it from the committee's list makes activation unexecutable
+even though the keeper accepts the committee, because the commons proposal is
+rejected before the handler runs.
+
 With committee decision policies at `percentage` 0.5, a single yes vote past
 the threshold triggers early acceptance and sets
 `execution_time = now + min_execution_period`, so the real cost is three

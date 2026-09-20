@@ -238,11 +238,35 @@ echo ""
 # ------------------------------------------------------------------
 bin_for()     { [ "$1" = dev ] && echo "$BIN_DEV"     || echo "$BIN_TEST"; }
 node_for()    { [ "$1" = dev ] && echo "$NODE_DEV"    || echo "$NODE_TEST"; }
+denom_for()   { [ "$1" = dev ] && echo "$DENOM_DEV"   || echo "$DENOM_TEST"; }
 chain_for()   { [ "$1" = dev ] && echo "$CHAIN_DEV"   || echo "$CHAIN_TEST"; }
 key_for()     {
     if [ "$1" = dev ]; then echo "${SIGNER_DEV:-$KEY_DEV}"; else echo "${SIGNER_TEST:-$KEY_TEST}"; fi
 }
-fees_for()    { [ "$1" = dev ] && echo "$FEES_DEV"    || echo "$FEES_TEST"; }
+# TX_FEE_OVERRIDE lets one call use a fee other than the per-chain default.
+# Set it immediately before a tx_mod call and clear it after -- the commons
+# proposal fee and a high --gas execute both need more than the 8000 a plain
+# federation tx costs, and getting either wrong is a CheckTx rejection that
+# looks nothing like a fee problem until you read code=13.
+TX_FEE_OVERRIDE=""
+fees_for()    {
+    if [ -n "$TX_FEE_OVERRIDE" ]; then echo "$TX_FEE_OVERRIDE"; return; fi
+    [ "$1" = dev ] && echo "$FEES_DEV"    || echo "$FEES_TEST"
+}
+
+# The x/commons proposal fee is a param, so read it off the chain rather than
+# hardcoding 5000000 here: a governance change to commons params would
+# otherwise break activation with an error nobody would connect to this script.
+proposal_fee_for() {  # <side>
+    local f
+    f=$("$(bin_for "$1")" query commons params --node "$(node_for "$1")" -o json 2>/dev/null \
+        | jq -r '.params.proposal_fee // empty' 2>/dev/null)
+    if [ -n "$f" ]; then echo "$f"; else
+        # Fall back to the per-chain default rather than failing outright --
+        # a too-low fee is rejected at CheckTx with a clear message.
+        fees_for "$1"
+    fi
+}
 keydir_for()  { [ "$1" = dev ] && echo "$KEYRING_DIR_DEV" || echo "$KEYRING_DIR_TEST"; }
 ledger_for()  { [ "$1" = dev ] && echo "$LEDGER_DEV"      || echo "$LEDGER_TEST"; }
 
@@ -452,14 +476,20 @@ JSON
     # their proposal id only exists after the submit lands. Emit the submit
     # and hand the rest to the operator.
     if ! signs_locally "$side"; then
-        tx_mod "$side" commons "activate $peer (submit)" submit-proposal "$prop_file" || return 1
+        TX_FEE_OVERRIDE="$(proposal_fee_for "$side")"
+        tx_mod "$side" commons "activate $peer (submit)" submit-proposal "$prop_file" || { TX_FEE_OVERRIDE=""; return 1; }
+        TX_FEE_OVERRIDE=""
         echo "    then, as the committee member: vote-proposal <id> yes, wait out"
         echo "    min_execution_period, and execute-proposal <id> -- or do all three"
         echo "    from the web UI, which is what it is there for."
         return 2
     fi
 
-    tx_mod "$side" commons "activate $peer (submit)" submit-proposal "$prop_file" || return 1
+    # submit-proposal must carry at least the x/commons proposal_fee, which is
+    # far above what a federation tx costs.
+    TX_FEE_OVERRIDE="$(proposal_fee_for "$side")"
+    tx_mod "$side" commons "activate $peer (submit)" submit-proposal "$prop_file" || { TX_FEE_OVERRIDE=""; return 1; }
+    TX_FEE_OVERRIDE=""
 
     local prop_id
     prop_id=$(echo "$TX_DELIVERED" | jq -r '
@@ -511,23 +541,58 @@ JSON
         sleep 15
     done
 
-    tx_mod "$side" commons "activate $peer (execute)" execute-proposal "$prop_id" --gas 2000000 || return 1
+    # execute-proposal runs with --gas 2000000; at the 0.025/gas these chains
+    # charge, the 8000 default fee is an order of magnitude short and the tx is
+    # rejected at CheckTx. 100000 covers it with headroom.
+    TX_FEE_OVERRIDE="${EXECUTE_FEE_OVERRIDE:-100000$(denom_for "$side")}"
+    tx_mod "$side" commons "activate $peer (execute)" execute-proposal "$prop_id" --gas 2000000 || { TX_FEE_OVERRIDE=""; return 1; }
+    TX_FEE_OVERRIDE=""
     return 0
 }
+
+# Reputation bridging is ON by default here. Both flags are only legal for
+# PEER_TYPE_SPARK_DREAM (update_peer_policy rejects them for bridge peers), and
+# this script only ever registers sister chains, so there is no peer type these
+# defaults are invalid for.
+#
+# The two flags are not symmetric, and it is worth being precise about why each
+# is safe rather than waving at "it's only advisory":
+#
+#   accept_reputation_attestations (inbound) -- advisory in the strict sense.
+#     What lands is capped at params.global_max_trust_credit (default 1,
+#     PROVISIONAL-equivalent), expires after attestation_ttl, and nothing on
+#     this chain reads local_trust_credit to grant a permission. An invited
+#     member still starts at NEW. Enabling it cannot raise anyone's standing.
+#
+#   allow_reputation_queries (outbound) -- a DISCLOSURE decision, not an
+#     advisory one: it controls whether this chain answers a peer's questions
+#     about its own members' trust levels and tag scores. What makes it safe is
+#     not advisoryness but two other things: MsgRequestReputationAttestation
+#     requires the requester to hold a VERIFIED identity link to the exact
+#     address being asked about, so a member can only pull reputation for an
+#     identity they proved they control; and peers are activated by a
+#     governance vote, so you answer only chains you chose to trust. The
+#     residual exposure is a peer running modified code that skips the link
+#     check -- bounded, since reputation here is public on-chain data anyway.
+#
+# Override per run with ALLOW_REP_QUERIES / ACCEPT_REP_ATTESTATIONS = false.
+ALLOW_REP_QUERIES="${ALLOW_REP_QUERIES:-true}"
+ACCEPT_REP_ATTESTATIONS="${ACCEPT_REP_ATTESTATIONS:-true}"
 
 policy_json() {  # <peer-id>
     local types
     types=$(printf '%s' "$CONTENT_TYPES" | jq -R 'split(",")')
     jq -cn --arg peer "$1" --argjson t "$types" \
-        --argjson rate "$RATE_LIMIT" --argjson trust "$MIN_TRUST" '{
+        --argjson rate "$RATE_LIMIT" --argjson trust "$MIN_TRUST" \
+        --argjson allowq "$ALLOW_REP_QUERIES" --argjson accepta "$ACCEPT_REP_ATTESTATIONS" '{
         peer_id: $peer,
         outbound_content_types: $t,
         inbound_content_types: $t,
         min_outbound_trust_level: $trust,
         inbound_rate_limit_per_epoch: ($rate|tostring),
         outbound_rate_limit_per_epoch: ($rate|tostring),
-        allow_reputation_queries: false,
-        accept_reputation_attestations: false,
+        allow_reputation_queries: $allowq,
+        accept_reputation_attestations: $accepta,
         require_review: false,
         blocked_identities: []
     }'

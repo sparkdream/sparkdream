@@ -531,6 +531,21 @@ func (k Keeper) BootstrapGovernance(ctx context.Context, founders []types.Foundi
 			// and RegisterBridge moved to operator-signed in Phase 4.
 			"/sparkdream.federation.v1.MsgResyncBridgeCount",
 			"/sparkdream.federation.v1.MsgPruneOrphanBindings",
+			// Peer ACTIVATION. MsgResumePeer is gated in the federation
+			// keeper by IsCouncilOrCommitteePolicy, which accepts this
+			// committee's policy address -- but the keeper check is only
+			// half of it: a commons proposal also has to clear the
+			// AllowedMessages gate in msg_server_proposals.go, and without
+			// this entry the committee cannot execute the message it is
+			// nominally authorized for.
+			//
+			// Leaving it out deadlocks activation entirely, because the
+			// Commons Council (which also holds MsgResumePeer, for
+			// escalation) needs 0.51 of its whole membership while a
+			// committee needs one vote at n=1. That is not a theoretical
+			// gap -- it blocked the devnet/testnet bring-up.
+			// TestOpsCommitteeCanExecuteCommitteeGatedFederationMsgs pins it.
+			"/sparkdream.federation.v1.MsgResumePeer",
 			// Apply Phase 2 jury verdicts to escalated content
 			// challenges. OpsComm-only per spec §6.25a; the proposal
 			// dispatches via x/commons so the council vote is the

@@ -2,6 +2,9 @@ package keeper_test
 
 import (
 	"os"
+	"path/filepath"
+	"regexp"
+	"strings"
 	"testing"
 
 	"sparkdream/x/commons/keeper"
@@ -91,4 +94,72 @@ func TestSupervisoryBoardKeepsAbsoluteThreshold(t *testing.T) {
 		"the Commons Supervisory Board must keep its absolute threshold of 2")
 	require.NotContains(t, string(src), `StandardValue:        "1"`,
 		"committee policies should be percentage 0.5, not an absolute threshold of 1")
+}
+
+// TestOpsCommitteeCanExecuteCommitteeGatedFederationMsgs closes the gap that
+// deadlocked the devnet/testnet federation bring-up.
+//
+// Authorizing a message takes TWO independent grants that live in different
+// modules, and satisfying only one makes the message unexecutable rather than
+// unauthorized:
+//
+//  1. the federation keeper must accept the caller -- MsgResumePeer uses
+//     IsCouncilOrCommitteePolicy, which accepts a committee policy address;
+//  2. x/commons must let that policy carry the message -- msg_server_proposals.go
+//     rejects anything outside the policy's AllowedMessages.
+//
+// The hardening did (1) and missed (2), so the Operations Committee was the
+// only body that could pass the vote at n=1 and the only body forbidden from
+// executing the result. The Commons Council could execute it but needs 0.51 of
+// its entire membership, which no single operator can muster.
+//
+// So: every federation message gated on IsCouncilOrCommitteePolicy MUST appear
+// in the committee's allowlist. This test derives that set from the handlers
+// rather than hardcoding it, so a new committee-gated message fails here
+// instead of on a live chain.
+func TestOpsCommitteeCanExecuteCommitteeGatedFederationMsgs(t *testing.T) {
+	keeperDir := filepath.Join("..", "..", "federation", "keeper")
+	entries, err := os.ReadDir(keeperDir)
+	require.NoError(t, err)
+
+	msgRe := regexp.MustCompile(`func \(k msgServer\) (\w+)\(ctx context\.Context, msg \*types\.(Msg\w+)\)`)
+
+	var gated []string
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".go") || strings.HasSuffix(e.Name(), "_test.go") {
+			continue
+		}
+		body, err := os.ReadFile(filepath.Join(keeperDir, e.Name()))
+		require.NoError(t, err)
+		if !strings.Contains(string(body), "IsCouncilOrCommitteePolicy") {
+			continue
+		}
+		m := msgRe.FindStringSubmatch(string(body))
+		require.NotNil(t, m, "%s calls IsCouncilOrCommitteePolicy but no msgServer handler was found in it", e.Name())
+		gated = append(gated, "/sparkdream.federation.v1."+m[2])
+	}
+
+	require.NotEmpty(t, gated,
+		"no committee-gated federation handlers found -- if the gate was removed, delete this test deliberately")
+
+	bootstrap, err := os.ReadFile("genesis_bootstrap.go")
+	require.NoError(t, err)
+
+	// Scope the search to the Operations Committee's own AllowedMessages
+	// block: MsgResumePeer also appears in the Commons Council's list, so a
+	// whole-file Contains would pass while the committee still could not
+	// execute it -- exactly the bug this guards.
+	src := string(bootstrap)
+	start := strings.Index(src, `Name:        "Commons Operations Committee"`)
+	require.NotEqual(t, -1, start, "Commons Operations Committee block not found")
+	end := strings.Index(src[start:], "MaxSpendPerEpoch")
+	require.NotEqual(t, -1, end, "could not find the end of the committee's config block")
+	committeeBlock := src[start : start+end]
+
+	for _, typeURL := range gated {
+		require.Contains(t, committeeBlock, typeURL,
+			"%s is gated on IsCouncilOrCommitteePolicy but is NOT in the Commons "+
+				"Operations Committee AllowedMessages, so a passed committee proposal "+
+				"cannot execute it (ErrUnauthorized from msg_server_proposals.go)", typeURL)
+	}
 }
