@@ -148,6 +148,19 @@ message QueryGetFederatedContentResponse {
 
 message QueryListFederatedContentRequest {
   cosmos.base.query.v1beta1.PageRequest pagination = 1;
+  // Optional filters, routed through the ContentByPeer / ContentByType /
+  // ContentByCreator indexes where one applies. Empty string means "no
+  // filter"; status takes the full enum name (e.g.
+  // "FEDERATED_CONTENT_STATUS_PENDING_VERIFICATION") because the enum's
+  // zero value is PENDING_VERIFICATION itself, so a numeric field could
+  // not express "filter pending" vs "no filter". The verifier runner
+  // polls peer_id + status rather than paging the whole list. This is a
+  // query message, not a federation packet — appending fields here is
+  // safe per the no-reserved-fields rule.
+  string peer_id = 2;
+  string content_type = 3;
+  string creator_identity = 4;
+  string status = 5;
 }
 message QueryListFederatedContentResponse {
   repeated FederatedContent content = 1 [(gogoproto.nullable) = false];

@@ -49,7 +49,7 @@ test: govet govulncheck test-unit
 # setup_test_accounts.sh unchanged (the SHA-256 hash gate would otherwise
 # reuse stale snapshots). Pass MODULES="forum rep" to limit scope.
 clean-snapshots:
-	@scripts/clean-test-snapshots.sh $(MODULES)
+	@test/clean-test-snapshots.sh $(MODULES)
 
 .PHONY: test test-unit test-race test-cover bench clean-snapshots
 

@@ -188,6 +188,11 @@ message MsgSubmitFederatedContent {
   bytes protocol_metadata = 10;
   int64 remote_created_at = 11;
   bytes content_hash = 12;
+  // supersedes marks this submission as a new version of an earlier record
+  // the same operator anchored for the same peer and content_uri (an edit
+  // at the source). A PENDING_VERIFICATION predecessor is retired to
+  // SUPERSEDED; one already past verification only gains the forward link.
+  ContentRef supersedes = 13;
 }
 message MsgSubmitFederatedContentResponse {
   uint64 content_id = 1;

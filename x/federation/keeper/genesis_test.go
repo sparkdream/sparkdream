@@ -72,3 +72,122 @@ func TestGenesisRejectsDuplicateOperatorRewardDay(t *testing.T) {
 	}
 	require.ErrorContains(t, gs.Validate(), "must be non-negative")
 }
+
+// The verification-lifecycle queues carry deadlines that live nowhere
+// else — ArbiterResolutionQueue and ArbiterEscalationQueue especially.
+// Dropping them on an export/import upgrade strands every in-flight
+// dispute: the content sits DISPUTED or CHALLENGED until content_ttl and
+// the verifier's committed bond is never released, because the EndBlocker
+// walk that would release it has no entry to walk.
+func TestGenesisRoundTripsVerificationLifecycleQueues(t *testing.T) {
+	genesisState := types.GenesisState{
+		Params: types.DefaultParams(),
+		PortId: types.PortID,
+		VerificationWindowQueue: []types.ContentDeadline{
+			{Deadline: 1_700_000_100, ContentId: 1},
+		},
+		ChallengeWindowQueue: []types.ContentDeadline{
+			{Deadline: 1_700_000_200, ContentId: 2},
+		},
+		ArbiterResolutionQueue: []types.ContentDeadline{
+			{Deadline: 1_700_000_300, ContentId: 3},
+			{Deadline: 1_700_000_400, ContentId: 4},
+		},
+		ArbiterEscalationQueue: []types.ContentDeadline{
+			{Deadline: 1_700_000_500, ContentId: 5},
+		},
+		EscalatedChallengeDeadlineQueue: []types.ContentDeadline{
+			{Deadline: 1_700_000_600, ContentId: 6},
+		},
+		EscalatedChallenges: []types.EscalatedChallenge{{
+			ContentId:                   6,
+			Escalator:                   "sprkdrm1escalator",
+			EscrowedEscalationFee:       math.NewInt(5_000_000),
+			AutoVerdictBeforeEscalation: types.PendingVerifierVerdict_PENDING_VERIFIER_VERDICT_VERIFIER_RIGHT,
+			JuryDeadline:                1_700_000_600,
+		}},
+		ArbiterSubmissions: []types.ArbiterSubmissionEntry{{
+			SubmitterKey: "sprkdrm1arbiter",
+			Submission: types.ArbiterHashSubmission{
+				ContentId: 3, ContentHash: []byte{0xaa, 0xbb}, SubmittedAt: 1_700_000_050,
+				Operator: "sprkdrm1arbiter",
+			},
+		}, {
+			SubmitterKey: "anon:7",
+			Submission: types.ArbiterHashSubmission{
+				ContentId: 3, ContentHash: []byte{0xaa, 0xbb}, SubmittedAt: 1_700_000_060,
+				Operator: "sprkdrm1shieldmodule",
+			},
+		}},
+		ArbiterHashCounts: []types.ArbiterHashCount{
+			{ContentId: 3, ContentHash: "aabb", Count: 2},
+		},
+		NextArbiterAnonSubmissionId: 8,
+	}
+
+	f := initFixture(t)
+	require.NoError(t, f.keeper.InitGenesis(f.ctx, genesisState))
+
+	got, err := f.keeper.ExportGenesis(f.ctx)
+	require.NoError(t, err)
+
+	require.ElementsMatch(t, genesisState.VerificationWindowQueue, got.VerificationWindowQueue)
+	require.ElementsMatch(t, genesisState.ChallengeWindowQueue, got.ChallengeWindowQueue)
+	require.ElementsMatch(t, genesisState.ArbiterResolutionQueue, got.ArbiterResolutionQueue)
+	require.ElementsMatch(t, genesisState.ArbiterEscalationQueue, got.ArbiterEscalationQueue)
+	require.ElementsMatch(t, genesisState.EscalatedChallengeDeadlineQueue, got.EscalatedChallengeDeadlineQueue)
+	require.ElementsMatch(t, genesisState.EscalatedChallenges, got.EscalatedChallenges)
+	require.ElementsMatch(t, genesisState.ArbiterHashCounts, got.ArbiterHashCounts)
+	require.Equal(t, genesisState.NextArbiterAnonSubmissionId, got.NextArbiterAnonSubmissionId)
+
+	// The submitter key is part of the STATE key, not of the value, so it
+	// must survive the round trip or the "no double vote per operator"
+	// rule silently stops holding after an upgrade.
+	require.ElementsMatch(t, genesisState.ArbiterSubmissions, got.ArbiterSubmissions)
+}
+
+// This session's state shapes survive export and import: a policy's
+// content_hosts, and a superseded pair (the retired record's SUPERSEDED
+// status and superseded_by, the successor's supersedes ref -- including a
+// ref to content id 0, which is why supersedes is a message, not a uint64).
+func TestGenesisRoundTripsSupersedeAndContentHosts(t *testing.T) {
+	uri := "https://phoenix.example/users/a/statuses/1"
+	genesisState := types.GenesisState{
+		Params: types.DefaultParams(),
+		PortId: types.PortID,
+		PeerPolicies: []types.PeerPolicy{{
+			PeerId:              "phoenix.example",
+			InboundContentTypes: []string{"blog_post"},
+			ContentHosts:        []string{"social.phoenix.example"},
+		}},
+		FederatedContent: []types.FederatedContent{
+			{
+				Id: 0, PeerId: "phoenix.example", ContentType: "blog_post", ContentUri: uri,
+				SubmittedBy: "sprkdrm1operator", ContentHash: []byte{0x01},
+				Status:       types.FederatedContentStatus_FEDERATED_CONTENT_STATUS_SUPERSEDED,
+				SupersededBy: 1, ExpiresAt: 1_700_000_900,
+			},
+			{
+				Id: 1, PeerId: "phoenix.example", ContentType: "blog_post", ContentUri: uri,
+				SubmittedBy: "sprkdrm1operator", ContentHash: []byte{0x02},
+				Status:     types.FederatedContentStatus_FEDERATED_CONTENT_STATUS_PENDING_VERIFICATION,
+				Supersedes: &types.ContentRef{ContentId: 0}, ExpiresAt: 1_700_000_900,
+			},
+		},
+	}
+
+	f := initFixture(t)
+	require.NoError(t, f.keeper.InitGenesis(f.ctx, genesisState))
+	got, err := f.keeper.ExportGenesis(f.ctx)
+	require.NoError(t, err)
+
+	require.ElementsMatch(t, genesisState.FederatedContent, got.FederatedContent)
+	require.Len(t, got.PeerPolicies, 1)
+	require.Equal(t, []string{"social.phoenix.example"}, got.PeerPolicies[0].ContentHosts)
+	for _, c := range got.FederatedContent {
+		if c.Id == 1 {
+			require.NotNil(t, c.Supersedes, "a supersedes ref to content id 0 must survive export")
+			require.Equal(t, uint64(0), c.Supersedes.ContentId)
+		}
+	}
+}

@@ -181,7 +181,7 @@ Content lifecycle (TTL, pruning) is always managed by x/federation's EndBlocker,
 
 ### 3.9. Federation Verifiers
 
-Federation verifiers are community members who independently verify that bridged content matches its source. The role is one of the DREAM-bonded roles managed by x/rep's generic `BondedRole` primitive (`role_type = ROLE_TYPE_FEDERATION_VERIFIER`). Verifiers bond DREAM, must meet a minimum trust level, are rewarded for accurate verification, and are slashed by jury verdict if proven wrong. See [bonded-role-generalization.md](bonded-role-generalization.md).
+Federation verifiers are community members who independently verify that bridged content matches its source. The role is one of the DREAM-bonded roles managed by x/rep's generic `BondedRole` primitive (`role_type = ROLE_TYPE_FEDERATION_VERIFIER`). Verifiers bond DREAM, must meet a minimum trust level, are rewarded for accurate verification, and are slashed by jury verdict if proven wrong. See [bonded-role-generalization.md](untracked/bonded-role-generalization.md).
 
 **Why a separate role from bridge operators?** Bridge operators have infrastructure at stake (SPARK bond) but also have incentive to inflate their submission volume. Verifiers are independent community members with reputation and DREAM at stake — they have no incentive to rubber-stamp operator submissions, and collusion between operator and verifier is punishable by both SPARK slashing (operator) and DREAM slashing (verifier).
 
@@ -410,10 +410,14 @@ Both identified and anonymous submissions count toward the same quorum. When `ar
 
 **Escalation to Phase 2:**
 
-Phase 2 (human jury) activates if:
-- No quorum reached within `arbiter_resolution_window` (content inaccessible, insufficient participation)
-- Either party calls `MsgEscalateChallenge` within `arbiter_escalation_window` after auto-resolution (pays `escalation_fee`, default: 100 SPARK)
-- All submitted hashes are different (no quorum — genuine ambiguity)
+Phase 2 (human jury) activates only when either party calls `MsgEscalateChallenge`
+(pays `escalation_fee`, default: 100 SPARK) while the content is CHALLENGED or
+DISPUTED. There is no automatic escalation: a window that closes with no quorum —
+because the content is inaccessible, because participation was insufficient, or
+because every submitted hash differed — settles terminally instead, per the
+CHALLENGE_TIMEOUT rules in Section 6.x below. Escalation after an auto-resolution
+must happen within `arbiter_escalation_window`, before the stashed verdict is
+applied.
 
 If escalated, the human jury sees all evidence including the arbiter hashes as additional signal. The auto-resolution verdict is reversed and replaced by the jury verdict.
 
@@ -623,8 +627,17 @@ message PeerPolicy {
   // Moderation
   bool require_review = 8;                         // If true, inbound content starts hidden until reviewed
   repeated string blocked_identities = 9;         // Blocked remote identities (addresses, actor URIs, DIDs)
+
+  // Provenance (ActivityPub peers only)
+  repeated string content_hosts = 11;              // Extra hosts allowed in an inbound content_uri, beyond the peer id
 }
 ```
+
+`content_hosts` exists for an instance whose AS2 ids live on a different host from its
+account domain (a Mastodon `WEB_DOMAIN` split). Otherwise leave it empty: only the peer
+id's own host is accepted (see `SubmitFederatedContent` step 4b). `MsgUpdatePeerPolicy`
+accepts it only for ActivityPub peers, at most 8 entries, each a lowercase hostname in
+the peer-id grammar (no port), without duplicates.
 
 ### 4.3. BridgeBinding
 
@@ -863,6 +876,13 @@ message FederatedContent {
   FederatedContentStatus status = 14;
   int64 expires_at = 15;                           // received_at + content_ttl (for expiration queue)
   bytes content_hash = 16;                         // SHA-256 hash of (title + body) for integrity verification and deduplication
+  ContentRef supersedes = 17;                      // Earlier record of the same content_uri this one replaces (an edit); unset for a first version
+  uint64 superseded_by = 18;                       // Newer record that replaced this one; 0 = none (a successor is never id 0)
+}
+
+// Content ids start at 0, so "supersedes nothing" needs a nil ref, not a zero id.
+message ContentRef {
+  uint64 content_id = 1;
 }
 
 enum FederatedContentStatus {
@@ -873,7 +893,28 @@ enum FederatedContentStatus {
   FEDERATED_CONTENT_STATUS_DISPUTED = 4;           // Hash mismatch between operator and verifier, awaiting jury
   FEDERATED_CONTENT_STATUS_CHALLENGED = 5;         // Verified content challenged, awaiting jury
   FEDERATED_CONTENT_STATUS_REJECTED = 6;           // Rejected by policy, moderation, or jury verdict
+  FEDERATED_CONTENT_STATUS_UNRESOLVED = 7;         // Disputed, arbiter window closed with no quorum: no finding was ever made
+  FEDERATED_CONTENT_STATUS_SUPERSEDED = 8;         // Replaced by an edit while still pending: can never be verified
 }
+
+`UNRESOLVED` is **system-assigned and terminal**. It is written only by the EndBlocker,
+for DISPUTED content whose `arbiter_resolution_window` closed without a quorum, and it
+is rejected by `MsgModerateContent` as both a target and a source — an OpsComm member
+must not be able to manufacture a VERIFIED status for content nobody verified. It was
+chosen over reverting to PENDING_VERIFICATION because a revived record would carry no
+`VerificationWindowQueue` entry (Phase 5 consumes that entry unconditionally) and a
+verification deadline already in the past: unverifiable and unreapable until
+`content_ttl`.
+
+`SUPERSEDED` is **system-assigned and terminal** too. It is written only by
+`MsgSubmitFederatedContent` when the same operator anchors a newer version of the same
+`content_uri` (an edit at the source) and names this record in `supersedes` while it is
+still PENDING_VERIFICATION. The anchored version no longer exists at the source, so no
+verifier can ever confirm it; left PENDING, the verification-expiry sweep would move it
+to HIDDEN and count it against an honest operator as `content_unverified`. The sweep
+only touches PENDING records, so SUPERSEDED keeps it out. `MsgModerateContent` rejects it
+as a source for the same reason as UNRESOLVED. A superseded record earns nothing and
+costs nothing in operator pay: it never reaches `epoch_verified` or `epoch_unverified`.
 ```
 
 **Note:** IBC content from Spark Dream peers enters as ACTIVE (verified by light client proof — no verifier needed). Bridge content from ActivityPub/AT Protocol peers enters as PENDING_VERIFICATION and must be independently verified.
@@ -1495,6 +1536,7 @@ message MsgSubmitFederatedContent {
   bytes protocol_metadata = 10;
   int64 remote_created_at = 11;
   bytes content_hash = 12;         // SHA-256 hash of original content (for integrity verification)
+  ContentRef supersedes = 13;      // Optional: earlier record of the same content_uri this edit replaces
 }
 ```
 
@@ -1503,16 +1545,66 @@ message MsgSubmitFederatedContent {
 2. Verify peer is ACTIVE
 3. Verify `content_type` is in peer policy's `inbound_content_types`
 4. Verify `creator_identity` is not in `blocked_identities`
+   - 4b. **Provenance (ActivityPub peers).** A non-empty `content_uri` must be an http(s) URL whose hostname (port and userinfo ignored) is the peer id or one of the policy's `content_hosts`; otherwise `ErrContentHostMismatch`. Without it a bridge bonded for one peer could anchor another instance's posts under that peer's name. AT Protocol ids are `at://` URIs whose authority is a DID, so the rule does not apply there. An empty `content_uri` is still accepted: nothing can fetch it, so no honest verifier can confirm it. The rule lives in `types.ContentURIHostAllowed`, which the bridge and verifier daemons call too.
+   - 4c. **Attribution (ActivityPub peers).** A non-empty `creator_identity` (`@user@host`, leading `@` optional, port ignored) must have a host that is the peer id or one of its `content_hosts`; otherwise `ErrCreatorHostMismatch`. Without it a bridge could anchor the peer's own post as `@anyone@elsewhere`. An empty `creator_identity` is still accepted (unattributed). Rule: `types.CreatorIdentityHostAllowed`, also applied by both daemons.
 5. Check rate limits (see Section 10.2 for sliding window details)
-6. **Content hash** (MUST be provided): The `content_hash` field is **required** — reject with `ErrContentHashRequired` if empty. The hash must be `SHA-256(title + body)` computed from the **full, untruncated** source content. This is critical: verifiers independently fetch the full source content and compute the same hash. If the bridge computed the hash from truncated content, every piece of long content would produce a false DISPUTED status. The bridge operator is responsible for hashing the full content before submission.
+6. **Content hash** (MUST be provided): The `content_hash` field is **required** — reject with `ErrContentHashRequired` if empty. The rule is **per peer type**:
+    - **SPARK_DREAM (IBC) peers:** `SHA-256(title + body)` computed from the **full, untruncated** source content. The sending chain computes the hash itself and the receiving side never re-fetches anything, so this simpler rule is sufficient.
+    - **Bridge (external protocol) peers:** `ap-canonical-v1` — `sha256(RFC 8785 JCS)` over the projection `{id, attributedTo, content, summary, published, updated, inReplyTo, attachment: [{mediaType, name}]}` of the remote AS2 object, absent fields emitted as `null`, `attachment[].url` excluded (signed object-storage URLs are unstable and would cause spurious verifier mismatches), attachment source order preserved. The reference implementation is [tools/apcanon](../tools/apcanon/apcanon.go); both the bridge daemon and the verifier runner import it — a second implementation of the rule is forbidden by design, because a canonicalizer disagreement is indistinguishable from verifier misconduct on-chain. Never hash raw fetched bytes: instances re-serialize JSON-LD differently across versions and even across fetches. The rule version string is recorded in `protocol_metadata.hash_rule`.
+
+    **`ap-canonical-v2`** (the bridge daemon's default) is v1 plus the media: each attachment element also carries `digest`, `sha256:<hex>` of the file at its http(s) `url` (null when it has none, `oversize` past 128 MiB — a limit that is part of the rule, above Mastodon's largest upload). v1 binds an attachment's type and alt text but not its bytes, so a file swapped behind the same URL was invisible; under v2 it changes the hash. Files are fetched with the same destination guard as objects and `Accept-Encoding: identity`, so no transparent decompression changes the bytes hashed. A file that cannot be read fails the hash (the bridge retries; the verifier counts it toward its MEDIA UNFETCHABLE alarm) — nobody hashes a guess. How long a download may take is **not** part of the rule, since running out of time is an error, never a digest: each daemon allows `SDA_MEDIA_TIMEOUT` (default 2 min) for the response and extends it by the declared size at `SDA_MEDIA_MIN_RATE` (default 512 KiB/s, so about five minutes for a 99 MB video; an undeclared size is budgeted as 128 MiB). A file declared over 128 MiB is recorded as `oversize` without being downloaded. v1 records stay valid: the verifier recomputes each record under the rule its metadata names.
+
+    In both cases the hash covers the **full, untruncated** source: verifiers independently re-fetch and recompute, so a bridge that hashed truncated content would force a false DISPUTED on every long item.
 7. Truncate `body` to `max_content_body_size`, `content_uri` to `max_content_uri_size`, `protocol_metadata` to `max_protocol_metadata_size`. Note: truncation happens AFTER the hash is stored — the on-chain body is a preview, but the hash covers the full source content.
-8. Check `ContentByHash` index for duplicates — if the same hash already exists for this peer, reject with `ErrDuplicateContent`.
-8. Set status to `PENDING_VERIFICATION` (bridge content requires independent verification — see Section 3.9). If peer policy `require_review` is true, content will additionally need Operations Committee review after verification.
-9. Compute `expires_at` = current block time + `content_ttl`
-10. Store FederatedContent with `expires_at`, add to `ContentExpirationQueue`, `ContentByCreator`, and `ContentByHash` indexes
-11. Add to `VerificationWindowQueue` with expiry = block_time + `verification_window`
-12. Increment bridge's `content_submitted`, update `last_submission_at`
-13. Emit `federated_content_received` event
+8. Check `ContentByHash` index for duplicates — if the same hash already exists for this peer, reject with `ErrDuplicateContent`. The daemon-side dedupe convention keys on `(uri, content_hash)`, **never** `uri` alone: an edit keeps the URI and changes the hash, and suppressing the re-anchor would kill edit detection — the most valuable thing the bridge produces. The chain's `ContentByHash` is the authority; a daemon's local store is a cache to avoid wasted transactions.
+   - 8b. **Supersede.** If `supersedes` is set, it must name an existing record submitted by the **same operator** for the **same peer** with the **same** (non-empty) `content_uri`, not yet superseded; otherwise `ErrInvalidSupersede`. An operator can only retire its own records. After the new record is stored, the predecessor gets `superseded_by` = the new id, and if it was still PENDING_VERIFICATION it moves to `SUPERSEDED` (a predecessor past verification keeps its status and only gains the link). Emits `content_superseded` (`content_id`, `superseded_by`, `new_status`).
+9. Set status to `PENDING_VERIFICATION` (bridge content requires independent verification — see Section 3.9). If peer policy `require_review` is true, content will additionally need Operations Committee review after verification.
+10. Compute `expires_at` = current block time + `content_ttl`
+11. Store FederatedContent with `expires_at`, add to `ContentExpirationQueue`, `ContentByCreator`, and `ContentByHash` indexes
+12. Add to `VerificationWindowQueue` with expiry = block_time + `verification_window`
+13. Increment bridge's `content_submitted`, update `last_submission_at`
+14. Emit `federated_content_received` event
+
+**Bridge daemon conventions (inbound, external-protocol peers).** These are off-chain conventions, not chain rules — the chain does not interpret them — but they are normative for anyone building a bridge or verifier against this module (reference implementations: [cmd/sdapbridge](../cmd/sdapbridge), [cmd/sdapverify](../cmd/sdapverify)):
+
+- **Discovery and ingestion are separate steps.** Discovery polls the bridge account's *home* timeline on its own instance (one REST request per cycle, regardless of follow-set size — never the *local* timeline, which only carries posts originating on the bridge's own instance). Ingestion fetches each new status at its canonical URI as `application/activity+json` and canonicalizes **that**. The REST Status is never hashed: the verifier has no follow relationship and no app token, so the AS2 object is the only representation both parties can reach, and the two shapes share neither field names nor values (`id`↔`uri`, `attributedTo`↔`account.uri`, `summary`↔`spoiler_text`, `published`↔`created_at`, `updated`↔`edited_at`, `inReplyTo`↔`in_reply_to_id`).
+- **`content_uri` is the AS2 object `id`, never the web permalink.** The verifier
+  re-fetches `content_uri` and must reach the exact representation that was hashed. A
+  permalink resolves to AS2 only because Mastodon happens to content-negotiate, which no
+  other ActivityPub server guarantees; and a *signed* fetch of a permalink redirects,
+  invalidating a signature bound to `(request-target)`. The permalink belongs in
+  `protocol_metadata.content_url`, informational. The same `id` is the key of the
+  daemon's local dedupe cache, so anchoring anything else silently breaks warm-up.
+- **Boosts are skipped** (`reblog != null` would anchor other people's posts under the booster), and **visibility is asserted from the AS2 audience** (`as#Public` present in `to` or `cc`), not from any REST field — followers-only posts reach a home timeline once the bridge is an accepted follower.
+- **Discovery carries a cursor.** The home-timeline poll passes `since_id` and advances
+  it only over statuses actually processed, oldest-first. A fixed-size window with no
+  cursor drops any burst larger than one page, permanently and silently.
+- **Nothing is recorded as anchored until DeliverTx confirms it.** Broadcasting in SYNC
+  mode reports CheckTx only, and every rejection that matters here — duplicate hash,
+  inbound rate limit, `ErrSelfVerification`, an unbonded verifier — is raised in
+  DeliverTx. A daemon that treats CheckTx success as an anchor marks rejected content
+  done forever. Confirmation is also how the assigned `content_id` is recovered, which
+  is what makes `supersedes_content_id` possible at all.
+- **Remote fetches carry no local credential.** The bridge's Mastodon OAuth token is
+  scoped to its own instance; an actor's outbox lives on another server and is fetched
+  unauthenticated (or HTTP-Signature-signed), never with the app token. The outbox root
+  is an `OrderedCollection` with no inline items — the page is at `?page=true`.
+- **Fetch destinations are constrained.** The URIs a daemon fetches originate in inbound
+  federation traffic, so `https` is required, private/loopback/link-local destinations
+  are refused, the redirect chain is short, every hop is re-checked, and signature
+  headers are dropped on a cross-host redirect. An oversized body is an error rather
+  than a truncation: hashing a truncated document would make two fetchers disagree.
+- **An edit re-anchors with `supersedes`** naming the previous record when this operator anchored it (the chain refuses anyone else's), which retires a still-pending predecessor instead of letting it expire as unverified. `protocol_metadata.supersedes_content_id` is still written for every edit, including edits of another bridge's record, which get no chain link. If the chain refuses the link (a concurrent edit got there first), the daemon resubmits without it.
+- **Media is referenced, never carried.** Images and video stay on the origin instance. `protocol_metadata.attachments` describes each attachment — `media_type`, `name` (alt text) and, when present, `width`, `height`, `blurhash` and (under v2) `digest` — so a client can lay out the post and check each file it shows against the anchored digest. **A `url` is recorded only for a file whose sha256 is recorded**: a record vouches for what it shows, and a client renders the link. An oversize file (and every file under v1, which hashes none) is described, marked, and left unlinked; the post at `object_id` still has the link for anyone who wants the unattested file. The verifier enforces this for v2 records, which also closes the opt-out where an origin declares a file oversize to have it displayed unattested. Under `ap-canonical-v2` the hash covers each file's bytes, so a swap before verification is caught and one after it is detectable by any client. The links still last only as long as the origin serves them. The bridge fits the metadata under `max_protocol_metadata_size` itself (the chain truncates bytes, and truncated JSON is unreadable): attachments that do not fit are counted in `attachments_omitted`, and the full list is one AS2 fetch away at `object_id`.
+- **Edits are found by a revisit sweep, not discovery.** An edited status keeps its id, so the `since_id` cursor never re-lists it. The bridge re-checks recently anchored statuses in batches of 20 (`GET /api/v1/statuses?id[]=`) and fetches AS2 only when `edited_at` has moved past the version last hashed. Mastodon caches AS2 bodies for 3 minutes, keyed without `updated_at`, so an edit can be visible over REST before AS2 serves it; the daemon records the AS2 `updated` it actually hashed, never REST's `edited_at`, and retries next sweep until AS2 catches up.
+- **Replies need a reconcile sweep.** Mastodon's home feed drops a reply unless the reader follows the account replied to, so home-timeline discovery never sees a followed author's reply to anyone else. The bridge periodically reads each followed account's recent public posts directly (`min_id`-paged, oldest-first) and anchors what the timeline did not deliver.
+- **Consent before content.** Anchoring puts a post on a public chain, a bigger step than federating it, and fediverse norms around bridging are opt-in. By default (`opt-in`) the bridge anchors only authors who follow the bridge account; `indexable` accepts Mastodon's indexable setting instead; `none` exists for test instances only. Every mode refuses an author whose bio or profile fields carry `#nobridge` or `#nobot`. The check runs before anything of the author's is fetched, outbox backfill included. Consent covers what comes after it: the daemon records when it first observes consent (backdated by its followers-cache TTL, never past the last observed refusal) and never anchors a post published earlier, so neither the reconcile lookback nor the outbox pass reaches an author's history. An unfollow or a `#nobridge` stops new anchors and edit re-anchors; content already anchored stays until `content_ttl`.
+- **One process, many peers.** Each source instance is its own peer, and one operator may hold bindings on many under one bond. The daemon routes each post to the configured peer that owns its host by the provenance rule, skips every other instance, skips a post whose author handle is on a host the peer does not own (the chain would refuse it), and drops at startup any configured peer it holds no binding on. Rejections no retry of *that post* can fix (type not allowed, identity blocked, host mismatch, peer not ACTIVE, binding gone) are skipped, not retried, so they cannot pin the discovery cursor that all peers share.
+- **Size `inbound_rate_limit_per_epoch` to the follow set.** The limit is per peer and every mirrored author on the instance shares it: roughly authors × posts per author per `rate_limit_window` × 1.3 (edits re-anchor), plus newly seen authors × the backfill depth. A submission over the limit is not lost, but every rejected attempt pays its fee and delays the post.
+- **A retryable failure never stalls other peers.** A post that fails for a retryable reason (the peer's rate limit, its instance unreachable, a transient chain error) goes to a persistent per-post retry queue with exponential backoff (1 min doubling to 30 min, given up after 24 h, loudly), and discovery moves on. The failing peer is held until its next retry, and its new posts queue behind the earlier ones with no submit attempt, so a throttled peer costs one probe per backoff step rather than one fee per post. Only a global condition (the bridge's own instance throttling) or a full queue (2000 posts) holds the shared cursor, and then nothing is dropped.
+- **First sight of an account runs one outbox pass** (bounded), because the home timeline only carries what arrived after the follow.
+- **The verifier runner is a separate binary, separate account, separate host, and separate network vantage point** — independence is the anti-fraud property. It re-fetches `content_uri` anonymously (or HTTP-Signature-signed when the instance requires it), recomputes via the shared canonicalizer, and submits `MsgVerifyContent` on a match. During bring-up it **alarms on mismatch instead of auto-submitting**: a mismatch is more likely a canonicalizer bug than operator fraud, and a wrong DISPUTED strands the verifier's committed bond. It applies the provenance rule before fetching and alarms, without fetching or verifying, on a `content_uri` that is not the peer's. **A matching hash is not enough to verify:** `MsgVerifyContent` binds only the hash, and the body, title, content type, timestamps and `protocol_metadata` are the operator's claims, so the runner also checks that the record shows the post it fetched — body a byte-prefix of the content cut no earlier than `max_content_body_size`, title equal to the content warning, `blog_reply` exactly when there is an `inReplyTo`, `remote_created_at` equal to `published`, metadata links equal to the object's, attachment entries equal to the object's own in order (digests included), and the `creator_identity` username equal to the author actor's `preferredUsername`. Any difference raises a MISREPRESENTED alarm and the record is not verified. A mismatch whose fetched object has a later `updated` than the anchored `protocol_metadata.updated` is an edit, not fraud: it is logged once and neither verified nor alarmed, since the bridge anchors the new version as its own record.
+- Daemon credentials are two-key: the chain key (raw operator/verifier key, or an x/session key scoped to the allowlisted federation daemon messages) and the Mastodon OAuth app token (read-only, independently rotated). HTTP Signatures (draft-cavage — **not** RFC 9421, which is a wire-incompatible scheme the fediverse does not implement) are only needed for fetching from secure-mode instances.
 
 ### 6.16. FederateContent (Content Creator)
 
@@ -1789,7 +1881,23 @@ message MsgResolveEscalatedChallenge {
   4. Content stays VERIFIED
 
 - **CHALLENGE_TIMEOUT** (Phase 1: no quorum within `arbiter_resolution_window`):
-  1. Automatically escalate to Phase 2 (Operations Committee jury). No fee for auto-escalation.
+  1. The EndBlocker settles the record terminally; it does **not** auto-escalate
+     (auto-escalation was specified but never implemented, and escalation costs a fee
+     nobody has paid). Either party can still escalate voluntarily while the content is
+     CHALLENGED/DISPUTED, which is what routes it to Phase 2.
+  2. The verifier's committed bond is released and `commitment_released` is stamped on
+     the `VerificationRecord`. Before this was implemented the commitment leaked: the
+     only release path ran off the `ChallengeWindow` queue, which a disputed record
+     never enters.
+  3. Terminal status follows the same "no finding was reached" rule as the Phase 2
+     timeout above:
+     - **CHALLENGED → VERIFIED.** The content was independently verified; a challenge
+       that produced no quorum produced no finding, so the verification stands. Settling
+       it to UNRESOLVED instead would let anyone permanently demote any verified content
+       for the price of one challenge fee, by challenging and then doing nothing.
+     - **DISPUTED → UNRESOLVED.** No verification was ever established here — the
+       verifier's hash disagreed with the operator's and nobody broke the tie — so there
+       is no earlier state to revert to.
 
 - **CHALLENGE_TIMEOUT** (Phase 2: no jury verdict within `challenge_jury_deadline`):
   1. Challenger refunded 50% of `challenge_fee`. 50% burned.
@@ -2443,7 +2551,10 @@ Bridge operators can be slashed for:
 | `ErrAttestationNotFound` | 2316 | Reputation attestation not found |
 | `ErrReputationNotSupported` | 2317 | Reputation queries not supported for this peer type |
 | `ErrNotAuthorized` | 2318 | Sender not authorized for this action |
-| `ErrInvalidSigner` | 2319 | Non-governance signer for UpdateParams |
+| `ErrInvalidSigner` | 1100 | Non-governance signer for UpdateParams |
+| `ErrInvalidPacketTimeout` | 1500 | Invalid packet timeout |
+| `ErrInvalidVersion` | 1501 | Invalid version |
+| `ErrInvalidRequest` | 1502 | Invalid request |
 | `ErrSlashExceedsStake` | 2320 | Slash amount exceeds operator's remaining stake |
 | `ErrContentTooLarge` | 2321 | Content body exceeds max_content_body_size |
 | `ErrRemoteIdentityAlreadyClaimed` | 2322 | Another local address already claims this remote identity |
@@ -2478,10 +2589,15 @@ Bridge operators can be slashed for:
 | `ErrContentHashRequired` | 2351 | Content hash is required (must be SHA-256 of full source content) |
 | `ErrSelfVerification` | 2352 | Verifier cannot verify content submitted by their own bridge operator address |
 | `ErrChallengeCooldownActive` | 2353 | Challenge cooldown has not elapsed since last rejected challenge on this content |
+| `ErrContentTerminal` | 2354 | `MsgModerateContent` on content in a system-assigned terminal status (`UNRESOLVED`, `SUPERSEDED`) |
+| `ErrIBCNotAvailable` | 2360 | IBC channel keeper not available |
 | `ErrControllerMismatch` | 2370 | Operator already has a `service.Operator` under this `service_type` with a different controller; use a different address for the new peer, or transfer the existing operator's controller via `service.MsgOpenControllerTransferCase` |
 | `ErrPeerHasActiveBridges` | 2371 | Peer cannot be removed while it has live bridge bindings — operators must unbond via `service.MsgUnbondOperator` first, or the gov proposal must bundle force-dissolves for abandoned operators |
 | `ErrEscalatedChallengeNotFound` | 2380 | No EscalatedChallenge entry for this content — either the challenge was never escalated to jury, or the jury verdict has already been applied (entry torn down) |
 | `ErrInvalidJuryVerdict` | 2381 | `MsgResolveEscalatedChallenge` verdict must be `CHALLENGE_UPHELD`, `CHALLENGE_REJECTED`, or `CHALLENGE_TIMEOUT` (UNSPECIFIED rejected) |
+| `ErrContentHostMismatch` | 2382 | `MsgSubmitFederatedContent` on an ActivityPub peer: `content_uri` host is neither the peer id nor one of its `content_hosts` |
+| `ErrInvalidSupersede` | 2383 | `MsgSubmitFederatedContent.supersedes` does not name an unsuperseded record of the same `content_uri`, operator and peer |
+| `ErrCreatorHostMismatch` | 2384 | `MsgSubmitFederatedContent` on an ActivityPub peer: `creator_identity` host is neither the peer id nor one of its `content_hosts` |
 
 > `ErrInsufficientStake`, `ErrSlashExceedsStake`, `ErrCooldownNotElapsed`, and `ErrInvalidStakeDenom` are retained in `errors.go` for legacy test fixtures but are no longer produced by federation handlers — bond enforcement runs on `x/service` and surfaces the corresponding service-side errors instead.
 
@@ -2536,6 +2652,9 @@ Bridge operators can be slashed for:
 | `content_verified` | content_id, verifier, peer_id | Content independently verified |
 | `content_disputed` | content_id, verifier, peer_id, operator_hash, verifier_hash | Hash mismatch, jury initiated |
 | `content_verification_expired` | content_id, peer_id, operator | Verification window expired without verification |
+| `content_superseded` | content_id, superseded_by, new_status | An edit anchored by the same operator named this record in `supersedes`; `new_status` is `SUPERSEDED` if it was still pending, otherwise its unchanged status |
+| `content_unresolved` | content_id, verifier | DISPUTED content's arbiter window closed with no quorum; moved to the terminal `UNRESOLVED` |
+| `verifier_commitment_released` | content_id, verifier, amount | The verifier's committed bond for a record was released as the record left its verification lifecycle |
 | `verification_challenged` | content_id, challenger, verifier | VERIFIED content challenged |
 | `challenge_upheld` | content_id, verifier, challenger, slash_amount | Verifier wrong, slashed |
 | `challenge_rejected` | content_id, verifier, challenger | Verifier right, challenger loses fee |

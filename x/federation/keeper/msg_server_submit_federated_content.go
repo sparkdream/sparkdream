@@ -51,6 +51,29 @@ func (k msgServer) SubmitFederatedContent(ctx context.Context, msg *types.MsgSub
 		return nil, errorsmod.Wrapf(types.ErrIdentityBlocked, "identity %q is blocked for peer %s", msg.CreatorIdentity, msg.PeerId)
 	}
 
+	// 4b. Provenance: on an ActivityPub peer a content_uri must live on the
+	//     peer's own host or one of its policy content_hosts. Otherwise a
+	//     bridge bonded for this peer could anchor another instance's posts
+	//     under this peer's name. AT Protocol ids are at:// URIs whose
+	//     authority is a DID, not the peer domain, so the rule does not
+	//     apply there. An empty content_uri is still accepted: nothing can
+	//     fetch it, so no honest verifier can ever confirm it.
+	if peer.Type == types.PeerType_PEER_TYPE_ACTIVITYPUB && msg.ContentUri != "" {
+		if err := types.ContentURIHostAllowed(msg.PeerId, policy.ContentHosts, msg.ContentUri); err != nil {
+			return nil, errorsmod.Wrap(types.ErrContentHostMismatch, err.Error())
+		}
+	}
+
+	// 4c. The same rule for the attribution: a creator_identity's host must
+	//     belong to the peer, or a bridge could anchor this peer's post as
+	//     someone else's on another instance. Empty stays accepted
+	//     (unattributed), like an empty content_uri.
+	if peer.Type == types.PeerType_PEER_TYPE_ACTIVITYPUB && msg.CreatorIdentity != "" {
+		if err := types.CreatorIdentityHostAllowed(msg.PeerId, policy.ContentHosts, msg.CreatorIdentity); err != nil {
+			return nil, errorsmod.Wrap(types.ErrCreatorHostMismatch, err.Error())
+		}
+	}
+
 	params, err := k.Params.Get(ctx)
 	if err != nil {
 		return nil, err
@@ -104,6 +127,27 @@ func (k msgServer) SubmitFederatedContent(ctx context.Context, msg *types.MsgSub
 		return nil, errorsmod.Wrapf(types.ErrDuplicateContent, "content with hash %s already exists", hashHex)
 	}
 
+	// 8b. A supersede must name an earlier record of the SAME content_uri,
+	//     anchored by the SAME operator for the SAME peer, that nothing has
+	//     superseded yet. An operator can only retire its own records.
+	var predecessor *types.FederatedContent
+	if msg.Supersedes != nil {
+		prev, err := k.Content.Get(ctx, msg.Supersedes.ContentId)
+		switch {
+		case err != nil:
+			return nil, errorsmod.Wrapf(types.ErrInvalidSupersede, "content %d not found", msg.Supersedes.ContentId)
+		case prev.SubmittedBy != msg.Operator:
+			return nil, errorsmod.Wrapf(types.ErrInvalidSupersede, "content %d was submitted by another operator", prev.Id)
+		case prev.PeerId != msg.PeerId:
+			return nil, errorsmod.Wrapf(types.ErrInvalidSupersede, "content %d belongs to peer %s", prev.Id, prev.PeerId)
+		case contentUri == "" || prev.ContentUri != contentUri:
+			return nil, errorsmod.Wrapf(types.ErrInvalidSupersede, "content %d has content_uri %q, not %q", prev.Id, prev.ContentUri, contentUri)
+		case prev.SupersededBy != 0:
+			return nil, errorsmod.Wrapf(types.ErrInvalidSupersede, "content %d is already superseded by %d", prev.Id, prev.SupersededBy)
+		}
+		predecessor = &prev
+	}
+
 	// 9. Allocate content ID
 	contentID, err := k.ContentSeq.Next(ctx)
 	if err != nil {
@@ -130,6 +174,7 @@ func (k msgServer) SubmitFederatedContent(ctx context.Context, msg *types.MsgSub
 		Status:           types.FederatedContentStatus_FEDERATED_CONTENT_STATUS_PENDING_VERIFICATION,
 		ExpiresAt:        expiresAt,
 		ContentHash:      msg.ContentHash,
+		Supersedes:       msg.Supersedes,
 	}
 
 	// 11. Store content and indexes
@@ -158,6 +203,29 @@ func (k msgServer) SubmitFederatedContent(ctx context.Context, msg *types.MsgSub
 	verificationDeadline := blockTime + int64(params.VerificationWindow.Seconds())
 	if err := k.VerificationWindow.Set(ctx, collections.Join(verificationDeadline, contentID)); err != nil {
 		return nil, err
+	}
+
+	// 12b. Retire the predecessor. Still PENDING_VERIFICATION, it can never
+	//      be verified (its bytes are gone at the source), so it moves to
+	//      SUPERSEDED: the verification-expiry sweep only touches PENDING
+	//      records, which keeps it from counting against the operator as
+	//      unverified. Past verification, it keeps its status and only
+	//      gains the forward link.
+	if predecessor != nil {
+		retired := predecessor.Status == types.FederatedContentStatus_FEDERATED_CONTENT_STATUS_PENDING_VERIFICATION
+		if retired {
+			predecessor.Status = types.FederatedContentStatus_FEDERATED_CONTENT_STATUS_SUPERSEDED
+		}
+		predecessor.SupersededBy = contentID
+		if err := k.Content.Set(ctx, predecessor.Id, *predecessor); err != nil {
+			return nil, err
+		}
+		sdkCtx.EventManager().EmitEvent(
+			sdk.NewEvent(types.EventTypeContentSuperseded,
+				sdk.NewAttribute(types.AttributeKeyContentID, fmt.Sprintf("%d", predecessor.Id)),
+				sdk.NewAttribute(types.AttributeKeySupersededBy, fmt.Sprintf("%d", contentID)),
+				sdk.NewAttribute(types.AttributeKeyNewStatus, predecessor.Status.String())),
+		)
 	}
 
 	// 13. Update bridge stats

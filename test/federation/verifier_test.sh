@@ -65,6 +65,92 @@ get_commons_proposal_id() {
     echo "$1" | jq -r '.events[] | select(.type=="submit_proposal").attributes[] | select(.key=="proposal_id").value' | tr -d '"'
 }
 
+# ------------------------------------------------------------------------
+# Fresh-record helpers.
+#
+# The arbiter/escalation tests below used to reuse a CHALLENGED or DISPUTED
+# record created many tests earlier. That only worked while the record was
+# STUCK: before the P0.1 commitment-release fix, no-quorum content sat in
+# DISPUTED/CHALLENGED forever because nothing ever settled it. Now the
+# EndBlocker settles it once arbiter_resolution_window (15s in testparams)
+# closes -- CHALLENGED reverts to VERIFIED, DISPUTED goes to UNRESOLVED --
+# so any test that lets unrelated work run in between finds the record
+# already resolved.
+#
+# These mint a record immediately before it is used, which is both correct
+# and robust to block-rate drift.
+# ------------------------------------------------------------------------
+
+# mint_disputed_content <seed>
+# Sets FRESH_CONTENT_ID / FRESH_BODY / FRESH_HASH. The content is submitted
+# by operator2 and mismatch-verified by VERIFIER_A, leaving it DISPUTED.
+mint_disputed_content() {
+    local SEED=$1
+    FRESH_CONTENT_ID=""
+    FRESH_BODY="fresh disputed body $SEED"
+    FRESH_HASH=$(sha256_base64 "$FRESH_BODY")
+    local WRONG_HASH
+    WRONG_HASH=$(sha256_base64 "not the same content at all $SEED")
+
+    local TX_RES
+    TX_RES=$($BINARY tx federation submit-federated-content \
+        mastodon.example "fresh-$SEED" "blog_post" \
+        "@fresh@mastodon.example" "Fresh" "Fresh $SEED" \
+        "$FRESH_BODY" "" "1700060000" \
+        --content-hash "$FRESH_HASH" \
+        --from operator2 --chain-id $CHAIN_ID --keyring-backend test \
+        --fees 5000${BOND_DENOM} -y --output json)
+    submit_and_wait "$TX_RES" "mint disputed $SEED" || return 1
+    FRESH_CONTENT_ID=$(echo "$TX_RESULT" | jq -r '.events[] | select(.type=="federated_content_received").attributes[] | select(.key=="content_id").value' | tr -d '"')
+    [ -z "$FRESH_CONTENT_ID" ] && return 1
+
+    TX_RES=$($BINARY tx federation verify-content "$FRESH_CONTENT_ID" \
+        --content-hash "$WRONG_HASH" \
+        --from $VERIFIER_A --chain-id $CHAIN_ID --keyring-backend test \
+        --fees 5000${BOND_DENOM} -y --output json)
+    submit_and_wait "$TX_RES" "mismatch verify $SEED" || return 1
+    return 0
+}
+
+# mint_challenged_content <seed>
+# Sets FRESH_CONTENT_ID. Submitted by operator2, verified correctly by
+# VERIFIER_A, then challenged by bob -- leaving it CHALLENGED.
+mint_challenged_content() {
+    local SEED=$1
+    FRESH_CONTENT_ID=""
+    FRESH_BODY="fresh challenged body $SEED"
+    FRESH_HASH=$(sha256_base64 "$FRESH_BODY")
+
+    local TX_RES
+    TX_RES=$($BINARY tx federation submit-federated-content \
+        mastodon.example "freshch-$SEED" "blog_post" \
+        "@freshch@mastodon.example" "FreshCh" "FreshCh $SEED" \
+        "$FRESH_BODY" "" "1700060100" \
+        --content-hash "$FRESH_HASH" \
+        --from operator2 --chain-id $CHAIN_ID --keyring-backend test \
+        --fees 5000${BOND_DENOM} -y --output json)
+    submit_and_wait "$TX_RES" "mint challenged $SEED" || return 1
+    FRESH_CONTENT_ID=$(echo "$TX_RESULT" | jq -r '.events[] | select(.type=="federated_content_received").attributes[] | select(.key=="content_id").value' | tr -d '"')
+    [ -z "$FRESH_CONTENT_ID" ] && return 1
+
+    TX_RES=$($BINARY tx federation verify-content "$FRESH_CONTENT_ID" \
+        --content-hash "$FRESH_HASH" \
+        --from $VERIFIER_A --chain-id $CHAIN_ID --keyring-backend test \
+        --fees 5000${BOND_DENOM} -y --output json)
+    submit_and_wait "$TX_RES" "verify $SEED" || return 1
+
+    # bob challenges alice's verification (a verifier cannot challenge
+    # their own -- ErrSelfChallenge).
+    # evidence is POSITIONAL: challenge-verification [content-id] [evidence]
+    TX_RES=$($BINARY tx federation challenge-verification "$FRESH_CONTENT_ID" \
+        "e2e: fresh challenge for the escalation path" \
+        --content-hash "$(sha256_base64 "challenger's differing hash $SEED")" \
+        --from $VERIFIER_B --chain-id $CHAIN_ID --keyring-backend test \
+        --fees 5000${BOND_DENOM} -y --output json)
+    submit_and_wait "$TX_RES" "challenge $SEED" || return 1
+    return 0
+}
+
 # Use alice and bob as verifiers — they have CORE trust level (4),
 # well above min_verifier_trust_level (2/ESTABLISHED).
 # verifier1/verifier2/challenger1 start at NEWCOMER (0) and cannot bond.
@@ -558,13 +644,18 @@ fi
 echo ""
 echo "--- TEST 10: Escalate challenge ---"
 
-if [ -n "$VERIFY_CONTENT_ID" ]; then
-    CONTENT_STATUS=$($BINARY query federation get-federated-content $VERIFY_CONTENT_ID --output json 2>&1 | jq -r '.content.status // "FEDERATED_CONTENT_STATUS_PENDING_VERIFICATION"')
+# Mint a CHALLENGED record here rather than reusing the one from TEST 8:
+# the arbiter resolution window (15s) closes during the intervening tests
+# and the EndBlocker now settles the record, so the old reuse only worked
+# while no-quorum content stayed stuck forever.
+if mint_challenged_content "esc"; then
+    CONTENT_STATUS=$($BINARY query federation get-federated-content $FRESH_CONTENT_ID --output json 2>&1 | jq -r '.content.status // "FEDERATED_CONTENT_STATUS_PENDING_VERIFICATION"')
+    echo "  Fresh content $FRESH_CONTENT_ID status: $CONTENT_STATUS"
 
     if [ "$CONTENT_STATUS" == "FEDERATED_CONTENT_STATUS_CHALLENGED" ]; then
         # alice (the verifier) escalates the challenge
         TX_RES=$($BINARY tx federation escalate-challenge \
-            $VERIFY_CONTENT_ID \
+            $FRESH_CONTENT_ID \
             --from $VERIFIER_A \
             --chain-id $CHAIN_ID \
             --keyring-backend test \
@@ -585,7 +676,7 @@ if [ -n "$VERIFY_CONTENT_ID" ]; then
         record_result "Escalate challenge" "FAIL"
     fi
 else
-    echo "  No content to escalate"
+    echo "  Could not mint a CHALLENGED record to escalate"
     record_result "Escalate challenge" "FAIL"
 fi
 
@@ -857,7 +948,10 @@ fi
 echo ""
 echo "--- TEST 17: Arbiter hash — self-arbiter rejected ---"
 
-if [ -n "$MISMATCH_CONTENT_ID" ]; then
+# Fresh DISPUTED record: the TEST 13 one has long since been settled by
+# the EndBlocker (arbiter_resolution_window is 15s in testparams).
+if mint_disputed_content "selfarb"; then
+    MISMATCH_CONTENT_ID="$FRESH_CONTENT_ID"
     MISMATCH_STATUS=$($BINARY query federation get-federated-content $MISMATCH_CONTENT_ID --output json 2>&1 | jq -r '.content.status // empty')
     echo "  Content $MISMATCH_CONTENT_ID status: $MISMATCH_STATUS"
 
@@ -902,7 +996,7 @@ if [ -n "$MISMATCH_CONTENT_ID" ]; then
         record_result "Arbiter self-arbiter rejected" "FAIL"
     fi
 else
-    echo "  No mismatch content ID for arbiter test"
+    echo "  Could not mint a DISPUTED record for the self-arbiter test"
     record_result "Arbiter self-arbiter rejected" "FAIL"
 fi
 
@@ -1071,7 +1165,22 @@ if echo "$VERIFIER_DATA" | jq -e '.bonded_role' > /dev/null 2>&1; then
                     record_result "Re-bond during UNBONDING/DEMOTED" "FAIL"
                 fi
             elif [ "$BOB_STATUS" == "BONDED_ROLE_STATUS_DEMOTED" ]; then
-                # DEMOTED: re-bond is gated by the demotion cooldown (code 2339).
+                # DEMOTED: re-bond is gated by the demotion cooldown (code
+                # 2339) -- but ONLY while that cooldown is still running.
+                #
+                # verifier_demotion_cooldown is 10s in testparams and
+                # submit_and_wait alone burns ~5s, so the cooldown can lapse
+                # between the unbond maturing and the re-bond landing. A
+                # re-bond accepted after it lapses is CORRECT behaviour, not
+                # a regression. This used to assert refusal unconditionally,
+                # which made the branch fail whenever the preceding tests ran
+                # slowly -- the same maturity race the UNBONDING branch above
+                # already documents.
+                #
+                # Rather than tolerate both outcomes blindly, decide from
+                # state: compare demotion_cooldown_until against block time
+                # and assert the outcome that is actually required.
+                COOLDOWN_UNTIL=$(echo "$VERIFIER_DATA" | jq -r '.bonded_role.demotion_cooldown_until // "0"')
                 TX_RES=$($BINARY tx rep bond-role federation-verifier \
                     500000000 \
                     --from $VERIFIER_B \
@@ -1080,14 +1189,23 @@ if echo "$VERIFIER_DATA" | jq -e '.bonded_role' > /dev/null 2>&1; then
                 if submit_and_wait "$TX_RES" "re-bond during cooldown"; then
                     CODE=$(echo "$TX_RESULT" | jq -r '.code')
                     RAW=$(echo "$TX_RESULT" | jq -r '.raw_log // empty')
+                    # Block time AFTER the tx landed is what the handler saw.
+                    BLOCK_NOW=$($BINARY status 2>/dev/null | jq -r '.sync_info.latest_block_time // empty')
+                    BLOCK_EPOCH=$(date -d "$BLOCK_NOW" +%s 2>/dev/null || echo 0)
+                    echo "  demotion_cooldown_until=$COOLDOWN_UNTIL block_time=$BLOCK_EPOCH"
+
                     if [ "$CODE" == "2339" ] || echo "$RAW" | grep -qi "cooldown\|demotion"; then
                         echo "  Re-bond correctly refused by demotion cooldown (code=$CODE)"
                         record_result "Re-bond during UNBONDING/DEMOTED" "PASS"
                     elif [ "$CODE" != "0" ]; then
                         echo "  Rejected (code=$CODE)"
                         record_result "Re-bond during UNBONDING/DEMOTED" "PASS"
+                    elif [ "$BLOCK_EPOCH" -gt 0 ] 2>/dev/null && [ "$COOLDOWN_UNTIL" -gt 0 ] 2>/dev/null \
+                         && [ "$BLOCK_EPOCH" -ge "$COOLDOWN_UNTIL" ] 2>/dev/null; then
+                        echo "  Re-bond accepted after the demotion cooldown lapsed (until=$COOLDOWN_UNTIL, now=$BLOCK_EPOCH) — correct"
+                        record_result "Re-bond during UNBONDING/DEMOTED" "PASS"
                     else
-                        echo "  Should have been refused by cooldown (status was DEMOTED)"
+                        echo "  Accepted while the cooldown was still running (until=$COOLDOWN_UNTIL, now=$BLOCK_EPOCH) — gate did not hold"
                         record_result "Re-bond during UNBONDING/DEMOTED" "FAIL"
                     fi
                 else
@@ -1128,37 +1246,45 @@ fi
 echo ""
 echo "--- TEST 20: Arbiter hash — happy path ---"
 
-if [ -n "$MISMATCH_CONTENT_ID" ]; then
+# Register alice's bridge FIRST, then mint the DISPUTED record, then
+# arbitrate immediately. Ordering matters: the arbiter resolution window is
+# 15s in testparams and starts the moment the content goes DISPUTED, so a
+# bridge registration (one tx plus settle time) between the two would let
+# the EndBlocker settle the record out from under the arbiter submission.
+#
+# Post-Phase-4: bridge registration is operator-signed (no OpsComm
+# proposal). VERIFIER_A signs MsgRegisterBridge directly with a stake
+# >= min_bond pulled from the federation-bridge-activitypub config.
+# Idempotent: if alice already has a binding for mastodon.example, skip it.
+echo "  Registering alice as bridge operator..."
+ALICE_BRIDGE_OK=false
+EXISTING=$($BINARY query federation get-bridge-binding $VERIFIER_A_ADDR mastodon.example --output json 2>&1 | jq -r '.bridge_binding.address // empty')
+if [ -n "$EXISTING" ]; then
+    echo "  Alice already has a binding for mastodon.example"
+    ALICE_BRIDGE_OK=true
+else
+    MIN_BOND_AMT=$($BINARY query service service-type federation-bridge-activitypub --output json | jq -r '.config.min_bond_amount')
+    TX_RES=$($BINARY tx federation register-bridge \
+        mastodon.example activitypub https://arbiter-bridge.example.com "${MIN_BOND_AMT}" \
+        --from $VERIFIER_A -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} --output json)
+    if submit_and_wait "$TX_RES" "register alice bridge"; then
+        ALICE_BRIDGE_OK=true
+        echo "  Alice registered as bridge operator"
+    else
+        CODE=$(echo "$TX_RESULT" | jq -r '.code // empty' 2>/dev/null)
+        RAW=$(echo "$TX_RESULT" | jq -r '.raw_log // empty' 2>/dev/null)
+        echo "  Bridge registration failed (code=$CODE): $(echo "$RAW" | head -c 120)"
+    fi
+    sleep 5
+fi
+
+if mint_disputed_content "happy"; then
+    MISMATCH_CONTENT_ID="$FRESH_CONTENT_ID"
+    MISMATCH_BODY="$FRESH_BODY"
     MISMATCH_STATUS=$($BINARY query federation get-federated-content $MISMATCH_CONTENT_ID --output json 2>&1 | jq -r '.content.status // empty')
+    echo "  Content $MISMATCH_CONTENT_ID status: $MISMATCH_STATUS"
 
     if [ "$MISMATCH_STATUS" == "FEDERATED_CONTENT_STATUS_DISPUTED" ] || [ "$MISMATCH_STATUS" == "FEDERATED_CONTENT_STATUS_CHALLENGED" ]; then
-        # Post-Phase-4: bridge registration is operator-signed (no OpsComm
-        # proposal). VERIFIER_A signs MsgRegisterBridge directly with a stake
-        # >= min_bond pulled from the federation-bridge-activitypub config.
-        # Idempotent: if alice already has a binding for mastodon.example,
-        # skip the registration.
-        echo "  Registering alice as bridge operator..."
-        ALICE_BRIDGE_OK=false
-        EXISTING=$($BINARY query federation get-bridge-binding $VERIFIER_A_ADDR mastodon.example --output json 2>&1 | jq -r '.bridge_binding.address // empty')
-        if [ -n "$EXISTING" ]; then
-            echo "  Alice already has a binding for mastodon.example"
-            ALICE_BRIDGE_OK=true
-        else
-            MIN_BOND_AMT=$($BINARY query service service-type federation-bridge-activitypub --output json | jq -r '.config.min_bond_amount')
-            TX_RES=$($BINARY tx federation register-bridge \
-                mastodon.example activitypub https://arbiter-bridge.example.com "${MIN_BOND_AMT}" \
-                --from $VERIFIER_A -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} --output json)
-            if submit_and_wait "$TX_RES" "register alice bridge"; then
-                ALICE_BRIDGE_OK=true
-                echo "  Alice registered as bridge operator"
-            else
-                CODE=$(echo "$TX_RESULT" | jq -r '.code // empty' 2>/dev/null)
-                RAW=$(echo "$TX_RESULT" | jq -r '.raw_log // empty' 2>/dev/null)
-                echo "  Bridge registration failed (code=$CODE): $(echo "$RAW" | head -c 120)"
-            fi
-            sleep 5
-        fi
-
         if [ "$ALICE_BRIDGE_OK" == "true" ]; then
             ARBITER_HASH=$(sha256_base64 "$MISMATCH_BODY")
 
@@ -1190,7 +1316,7 @@ if [ -n "$MISMATCH_CONTENT_ID" ]; then
         record_result "Arbiter hash happy path" "FAIL"
     fi
 else
-    echo "  No DISPUTED content for arbiter happy path"
+    echo "  Could not mint a DISPUTED record for the arbiter happy path"
     record_result "Arbiter hash happy path" "FAIL"
 fi
 

@@ -32,6 +32,14 @@ build/
 prod/
 release/
 /sparkdreamd
+# Federation daemon binaries: `go build ./cmd/sdapbridge` from the repo root
+# (or `go build .` in the package) drops the executable next to you.
+/sdapbridge
+/sdapverify
+/apcanon
+cmd/sdapbridge/sdapbridge
+cmd/sdapverify/sdapverify
+tools/apcanon/cmd/apcanon/apcanon
 seed-tle
 
 # Dependencies
@@ -43,6 +51,12 @@ vue/dist
 # Test artifacts
 test/*/proposals
 test/*/snapshots
+# Mastodon live-link harness scratch: every determinism_check.sh run
+# (reruns, aborted runs) lands here. The one run that satisfies P2 is
+# promoted to accepted/, which stays tracked -- including its run.log,
+# re-included after the global *.log rule below.
+test/federation/mastodon/runs/
+test/federation/mastodon/proposals/
 .test_env
 # Parallel E2E runner workdir (per-run isolated chain homes + logs)
 /e2e/
@@ -68,6 +82,8 @@ Thumbs.db
 *.log
 *.ign
 *.out
+# ...except the promoted Mastodon harness run log (see Test artifacts).
+!test/federation/mastodon/accepted/**/*.log
 
 # Python bytecode cache
 __pycache__/
@@ -77,3 +93,19 @@ __pycache__/
 /.stfolder/
 /.stignore
 /.stversions/
+
+# Untracked working docs: handoff notes, audits, review passes, UI test
+# plans. These are deliberately not committed -- durable rationale gets
+# folded into the module specs in docs/ instead. Tracked docs and
+# CLAUDE.md link into here, so those links only resolve locally.
+docs/untracked/
+
+# Vendored explorer checkout (768M, carries its own .git) and local
+# debug scratch.
+deploy/explorer/
+debug/
+
+# Devnet simulation tooling (sim/devnet/{rep,gov}). Uncommitted for now --
+# it is real tooling rather than scratch, so revisit if it is worth
+# tracking.
+sim/

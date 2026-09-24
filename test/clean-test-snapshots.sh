@@ -20,12 +20,12 @@
 # will pick up the missing snapshot, run setup, and save fresh.
 #
 # Usage:
-#   scripts/clean-test-snapshots.sh                  # all modules
-#   scripts/clean-test-snapshots.sh forum rep        # only listed modules
-#   scripts/clean-test-snapshots.sh --dry-run        # show what would be removed
-#   scripts/clean-test-snapshots.sh --include-stale  # also purge post-setup.stale-*
-#   scripts/clean-test-snapshots.sh --quiet          # no per-dir log lines
-#   scripts/clean-test-snapshots.sh --help
+#   test/clean-test-snapshots.sh                  # all modules
+#   test/clean-test-snapshots.sh forum rep        # only listed modules
+#   test/clean-test-snapshots.sh --dry-run        # show what would be removed
+#   test/clean-test-snapshots.sh --include-stale  # also purge post-setup.stale-*
+#   test/clean-test-snapshots.sh --quiet          # no per-dir log lines
+#   test/clean-test-snapshots.sh --help
 #
 # Exit status:
 #   0 — success (including the no-snapshots-present case)

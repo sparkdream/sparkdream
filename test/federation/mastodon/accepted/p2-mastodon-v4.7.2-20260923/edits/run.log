@@ -1,0 +1,37 @@
+target http://localhost:3000/ap/users/117318268488994076/statuses/117320823044160012
+== body: fields moved = [content,updated]
+[14:31:14] phase=edits against <scratch>/step_baseline.txt
+[14:31:14] edit detected on http://localhost:3000/ap/users/117318268488994076/statuses/117320823044160012: 9d9d0cd976ae1fd37a3b81b8361337a9bc80137295e8cdf400176ce05740e7c8 -> 32abb925fbf9c3ce9e09cdfbe1228f6c6feb0ae78fc8c1dd71f2a1d582d98523 (updated populated)
+[14:31:14] edits phase complete
+[14:31:14] PASS
+== cw-add: fields moved = [summary,updated]
+[14:34:18] phase=edits against <scratch>/step_baseline.txt
+[14:34:18] edit detected on http://localhost:3000/ap/users/117318268488994076/statuses/117320823044160012: 32abb925fbf9c3ce9e09cdfbe1228f6c6feb0ae78fc8c1dd71f2a1d582d98523 -> 5c27c85cb53adaac5cb19e2ce9f88f54bbcdf0ac36ebd0dad1633e814bdeb8fd (updated populated)
+[14:34:18] edits phase complete
+[14:34:18] PASS
+== cw-rm: fields moved = [summary,updated]
+[14:37:19] phase=edits against <scratch>/step_baseline.txt
+[14:37:19] edit detected on http://localhost:3000/ap/users/117318268488994076/statuses/117320823044160012: 5c27c85cb53adaac5cb19e2ce9f88f54bbcdf0ac36ebd0dad1633e814bdeb8fd -> f012acebdf5ba250d32e51c697999b25053219326ac8d5ec08f494acdb990122 (updated populated)
+[14:37:19] edits phase complete
+[14:37:19] PASS
+== media-add: fields moved = [attachment,updated]
+[14:40:21] phase=edits against <scratch>/step_baseline.txt
+[14:40:21] edit detected on http://localhost:3000/ap/users/117318268488994076/statuses/117320823044160012: f012acebdf5ba250d32e51c697999b25053219326ac8d5ec08f494acdb990122 -> 89a79dbd91820ba303e596453947d3af0a2a67a94578c611485960be12f4068a (updated populated)
+[14:40:21] edits phase complete
+[14:40:21] PASS
+== media-alt: fields moved = [attachment,updated]
+[14:43:23] phase=edits against <scratch>/step_baseline.txt
+[14:43:24] edit detected on http://localhost:3000/ap/users/117318268488994076/statuses/117320823044160012: 89a79dbd91820ba303e596453947d3af0a2a67a94578c611485960be12f4068a -> 6491aeb027af38049669762fe87d392320d2d0ef4b16f6e40acb0378f9ba340a (updated populated)
+[14:43:24] edits phase complete
+[14:43:24] PASS
+== media-rm: fields moved = [attachment,updated]
+[14:46:25] phase=edits against <scratch>/step_baseline.txt
+[14:46:25] edit detected on http://localhost:3000/ap/users/117318268488994076/statuses/117320823044160012: 6491aeb027af38049669762fe87d392320d2d0ef4b16f6e40acb0378f9ba340a -> b2ac4ebd279a41b81ec3fb1eba76d97fdaf8b344d2fad0b489046b0b4aa9f2f6 (updated populated)
+[14:46:25] edits phase complete
+[14:46:25] PASS
+poll target http://localhost:3000/ap/users/117318268488994076/statuses/117320894745883610
+== poll-options: fields moved = [updated]
+[14:49:28] phase=edits against <scratch>/step_baseline.txt
+[14:49:28] edit detected on http://localhost:3000/ap/users/117318268488994076/statuses/117320894745883610: 06b0c245d2c85ad47f7699e7444cb189b228052747ae7e96c805e6b47a519bbf -> 921e46a3eab3822b0ed81c3273a7c2413a0cf569a7aa1a50d6f50d191887f7ec (updated populated)
+[14:49:28] edits phase complete
+[14:49:28] PASS

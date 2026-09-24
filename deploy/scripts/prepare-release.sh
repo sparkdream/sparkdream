@@ -24,15 +24,15 @@
 # message at the end so you can stage and commit yourself.
 #
 # Usage:
-#   scripts/prepare-release.sh <new-version>             # full pipeline
-#   scripts/prepare-release.sh <new-version> --no-bump   # skip step 1 (re-run from step 2)
-#   scripts/prepare-release.sh <new-version> --no-regen  # skip step 3+4
-#   scripts/prepare-release.sh <new-version> --strict    # treat audit WARN as failure
-#   scripts/prepare-release.sh --help
+#   deploy/scripts/prepare-release.sh <new-version>             # full pipeline
+#   deploy/scripts/prepare-release.sh <new-version> --no-bump   # skip step 1 (re-run from step 2)
+#   deploy/scripts/prepare-release.sh <new-version> --no-regen  # skip step 3+4
+#   deploy/scripts/prepare-release.sh <new-version> --strict    # treat audit WARN as failure
+#   deploy/scripts/prepare-release.sh --help
 #
 # Examples:
-#   scripts/prepare-release.sh v1.0.7
-#   scripts/prepare-release.sh v1.0.7 --no-bump          # versions already bumped manually
+#   deploy/scripts/prepare-release.sh v1.0.7
+#   deploy/scripts/prepare-release.sh v1.0.7 --no-bump          # versions already bumped manually
 #
 # Environment:
 #   SKIP_DIRTY_CHECK=1   bypass the "working tree dirty" pre-flight check.
@@ -41,7 +41,7 @@
 set -e
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-REPO_ROOT="$( cd "$SCRIPT_DIR/.." && pwd )"
+REPO_ROOT="$( cd "$SCRIPT_DIR/../.." && pwd )"
 cd "$REPO_ROOT"
 
 # --- color helpers ---------------------------------------------------------
@@ -189,7 +189,7 @@ if deploy/scripts/audit-configs.py "${AUDIT_ARGS[@]}"; then
 else
     rc=$?
     fail "audit reported issues (exit $rc) — fix before proceeding"
-    echo "    re-run after fixing:  scripts/prepare-release.sh $NEW_VERSION --no-bump" >&2
+    echo "    re-run after fixing:  deploy/scripts/prepare-release.sh $NEW_VERSION --no-bump" >&2
     exit 1
 fi
 
@@ -229,7 +229,7 @@ if git diff --quiet HEAD -- config.yml 2>/dev/null; then
     note "root config.yml unchanged vs HEAD — local E2E snapshots stay fresh, skipping clean"
 else
     echo "  root config.yml changed — invalidating local E2E post-setup snapshots"
-    if scripts/clean-test-snapshots.sh --quiet; then
+    if test/clean-test-snapshots.sh --quiet; then
         ok "snapshots invalidated; next per-module run_all_tests.sh will regenerate lazily"
     else
         warn "snapshot cleanup reported errors — see above; continuing"

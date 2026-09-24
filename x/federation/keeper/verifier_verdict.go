@@ -94,6 +94,12 @@ func (k Keeper) applyAutoVerdictRejected(
 	}
 	consecutiveUpheld := k.verifierConsecutiveUpheld(ctx, record.Verifier)
 
+	// The verifier was right, so their commitment goes back to available.
+	// Without this, every vindicated verification leaked
+	// params.VerifierSlashAmount of committed bond until a slash freed it
+	// (P0.1 of the Mastodon live link).
+	k.releaseVerifierCommitment(ctx, record)
+
 	// Bump prior_rejected_challenges so the next challenger pays the
 	// escalating fee (matches MsgChallengeVerification's 2^N multiplier).
 	record.PriorRejectedChallenges++
@@ -164,7 +170,19 @@ func (k Keeper) applyAutoVerdictUpheld(
 	// Slash DREAM bond. Half is later minted back to the challenger as
 	// bounty (the SlashBond burn + MintDREAM half-back pattern conserves
 	// the net "50% burned" outcome described in spec §7).
-	slashAmount := params.VerifierSlashAmount
+	//
+	// The amount is the RESERVATION SNAPSHOT (record.CommittedAmount), not
+	// the live param: MsgVerifyContent reserved exactly that much via
+	// ReserveBond, and SlashBond decrements TotalCommittedBond by whatever
+	// it slashes. Slashing the live param after a mid-dispute governance
+	// change to verifier_slash_amount would free more or less than was
+	// reserved and drift the committed-bond accounting permanently. Falls
+	// back to the param only for records written before the snapshot
+	// existed.
+	slashAmount := record.CommittedAmount
+	if slashAmount.IsNil() || !slashAmount.IsPositive() {
+		slashAmount = params.VerifierSlashAmount
+	}
 	if k.late.repKeeper != nil && !slashAmount.IsNil() && slashAmount.IsPositive() {
 		reason := fmt.Sprintf("federation: challenge upheld (slash_count=%d)", slashCount)
 		if err := k.late.repKeeper.SlashBond(ctx,
@@ -175,6 +193,18 @@ func (k Keeper) applyAutoVerdictUpheld(
 			sdkCtx.Logger().Warn("verifier slash via rep keeper failed",
 				"verifier", record.Verifier, "amount", slashAmount.String(), "error", err)
 		} else {
+			// The slash freed the whole commitment (SlashBond decrements
+			// TotalCommittedBond itself), so the record is settled. Stamping
+			// the flag here is what stops a later EndBlocker walk over a
+			// stale ArbiterResolutionQueue entry from issuing a SECOND,
+			// saturating ReleaseBond that would silently eat a different
+			// concurrent commitment of the same verifier. Reachable today
+			// via an early OpsComm MsgResolveEscalatedChallenge(UPHELD),
+			// which clears PendingVerifierVerdict and tears down the
+			// EscalatedChallenge while the arbiter resolution window is
+			// still open — both of Phase 7's other guards go false.
+			record.CommitmentReleased = true
+
 			// Mint half-slash DREAM bounty to challenger. Skip when
 			// challenger is empty (e.g. DISPUTED auto-resolution where
 			// there was no challenger).
@@ -336,7 +366,7 @@ func (k Keeper) applyJuryVerdict(
 	case types.JuryVerdict_JURY_VERDICT_CHALLENGE_REJECTED:
 		k.applyAutoVerdictRejected(ctx, contentID, &record, params)
 	case types.JuryVerdict_JURY_VERDICT_CHALLENGE_TIMEOUT:
-		k.applyJuryVerdictTimeout(ctx, contentID, record)
+		k.applyJuryVerdictTimeout(ctx, contentID, &record)
 	default:
 		return
 	}
@@ -361,12 +391,21 @@ func (k Keeper) applyJuryVerdict(
 // content reverts to VERIFIED (or HIDDEN when it was originally
 // DISPUTED — the verifier-vs-operator disagreement is left unresolved).
 // Escrowed challenge fee is split 50/50 (refund to challenger / burn).
+//
+// Takes the record by pointer (parity with the UPHELD/REJECTED helpers)
+// because the verifier's commitment is released here — the jury reached
+// no verdict against them, so the reserved slash budget returns to
+// available — and the caller persists the mutated record.
 func (k Keeper) applyJuryVerdictTimeout(
 	ctx context.Context,
 	contentID uint64,
-	record types.VerificationRecord,
+	record *types.VerificationRecord,
 ) {
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
+
+	// No verdict means no finding against the verifier: give the
+	// committed slash budget back (P0.1).
+	k.releaseVerifierCommitment(ctx, record)
 
 	// Half-refund, half-burn the challenge fee.
 	if !record.EscrowedChallengeFee.IsNil() && record.EscrowedChallengeFee.IsPositive() {

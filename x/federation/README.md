@@ -68,6 +68,27 @@ Bridge content enters as `PENDING_VERIFICATION`. Resolution paths:
 
 Verifiers are DREAM-bonded via `BondedRole(ROLE_TYPE_FEDERATION_VERIFIER)` in x/rep (ESTABLISHED+ trust required). On `CHALLENGE_UPHELD`, federation files a system report against the bridge operator via `serviceKeeper.OpenSystemReport`; the controller resolves via the standard `service.MsgResolveReport` pipeline.
 
+## Inbound Provenance and Edits
+
+- **Provenance (ActivityPub peers).** A non-empty `content_uri` must be an
+  http(s) URL on the peer id's host or one of the policy's `content_hosts`
+  (`ErrContentHostMismatch`, 2382), and a non-empty `creator_identity`
+  (`@user@host`) must be on one of those hosts too (`ErrCreatorHostMismatch`,
+  2384). Otherwise a bridge bonded for one peer could anchor another
+  instance's posts, or attribute this peer's posts to someone elsewhere.
+  The rule is `types.ContentURIHostAllowed` / `types.CreatorIdentityHostAllowed`,
+  shared with the bridge and verifier daemons.
+- **Edits (`supersedes`).** An edit at the source is a new record naming
+  the one it replaces. Only the same operator, peer and `content_uri`, and
+  only once (`ErrInvalidSupersede`, 2383). A still-pending predecessor moves
+  to `SUPERSEDED`: it can never be verified (its bytes are gone at the
+  source), and the expiry sweep, which only touches pending records, no
+  longer counts it against the operator as unverified. The pair is linked
+  both ways: `supersedes` on the new record, `superseded_by` on the old;
+  `content_superseded` is emitted.
+- **`SUPERSEDED` and `UNRESOLVED` are terminal** (`ErrContentTerminal`,
+  2354): moderation cannot turn them into a VERIFIED status nobody earned.
+
 ## Reputation Bridging
 
 IBC attestation model. A member asks their own chain to fetch an attestation of
@@ -146,7 +167,7 @@ SPARK on x/service.
 | `MsgRemovePeer` | Ops Committee member | Tombstone a peer (cursor-based pruning in EndBlocker) |
 | `MsgSuspendPeer` | Ops Committee member | ACTIVE → SUSPENDED; the emergency brake, deliberately 1-of-N |
 | `MsgResumePeer` | Ops Committee **policy** (a passed vote), Council policy, or gov | PENDING/SUSPENDED → ACTIVE. Activation is the trust decision, so it takes a vote |
-| `MsgUpdatePeerPolicy` | Ops Committee member | Content type allowlists, rate limits, moderation |
+| `MsgUpdatePeerPolicy` | Ops Committee member | Content type allowlists, rate limits, moderation, `content_hosts` (ActivityPub peers: extra hosts allowed in a `content_uri` / `creator_identity`, max 8) |
 | `MsgUpdatePeerController` | gov | Change controller_group for a peer |
 
 ### Bridge Bindings
@@ -163,9 +184,9 @@ SPARK on x/service.
 | Msg | Purpose |
 |---|---|
 | `MsgFederateContent` | Outbound — creator-signed |
-| `MsgSubmitFederatedContent` | Inbound from bridge |
+| `MsgSubmitFederatedContent` | Inbound from bridge. On ActivityPub peers, `content_uri` and `creator_identity` must be on the peer's host (errors 2382 / 2384); optional `supersedes` retires the same operator's pending record of the same `content_uri` (2383) |
 | `MsgAttestOutbound` | Attestation of relayed content |
-| `MsgModerateContent` | Hide / unhide federated content |
+| `MsgModerateContent` | Hide / unhide federated content. Refuses the system-assigned terminal statuses `UNRESOLVED` and `SUPERSEDED` (2354) |
 | `MsgVerifyContent` | Verifier submits source-hash match |
 | `MsgChallengeVerification` | Challenge a verification |
 | `MsgSubmitArbiterHash` | Anonymous arbiter quorum (via x/shield) |

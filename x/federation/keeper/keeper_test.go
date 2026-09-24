@@ -686,7 +686,7 @@ func submitTestContent(t *testing.T, f *fixture, ms types.MsgServer, operatorStr
 		PeerId:          peerID,
 		RemoteContentId: "post-" + string(hash[:4]),
 		ContentType:     "blog_post",
-		CreatorIdentity: "@test@example.com",
+		CreatorIdentity: "@test@" + peerID,
 		Title:           "Test",
 		Body:            "Content",
 		ContentHash:     hash,

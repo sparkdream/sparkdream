@@ -172,7 +172,7 @@ EOF
     fi
 }
 
-# set_peer_policy <peer_id> <inbound_types> <outbound_types> [accept_rep_attestations] [allow_rep_queries]
+# set_peer_policy <peer_id> <inbound_types> <outbound_types> [blocked] [accept_rep_attestations] [allow_rep_queries] [inbound_rate_limit]
 # Updates the peer's content-type policy via Operations Committee proposal.
 # Required so submit-content/federate-content tests aren't rejected with 2310.
 set_peer_policy() {
@@ -182,6 +182,7 @@ set_peer_policy() {
     local BLOCKED=${4:-""}
     local ACCEPT_REP=${5:-false}
     local ALLOW_REP=${6:-false}
+    local INBOUND_RATE=${7:-100}
 
     local INBOUND_JSON="[]"
     if [ -n "$INBOUND" ]; then
@@ -210,7 +211,7 @@ set_peer_policy() {
         "outbound_content_types": $OUTBOUND_JSON,
         "inbound_content_types": $INBOUND_JSON,
         "min_outbound_trust_level": 0,
-        "inbound_rate_limit_per_epoch": 100,
+        "inbound_rate_limit_per_epoch": $INBOUND_RATE,
         "outbound_rate_limit_per_epoch": 100,
         "allow_reputation_queries": $ALLOW_REP,
         "accept_reputation_attestations": $ACCEPT_REP,

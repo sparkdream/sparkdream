@@ -80,6 +80,9 @@ const (
 	EventTypeChallengeTimeout           = "challenge_timeout"
 	EventTypeVerifierSlashed            = "verifier_slashed"
 	EventTypeVerifierCooldownApplied    = "verifier_cooldown_applied"
+	EventTypeVerifierCommitmentReleased = "verifier_commitment_released"
+	EventTypeContentUnresolved          = "content_unresolved"
+	EventTypeContentSuperseded          = "content_superseded"
 	// The verifier reward events (verifier_spark_reward_paid,
 	// verifier_dream_reward_paid, verifier_dream_reward_auto_bonded,
 	// verifier_bond_restored) are emitted by x/rep, which owns the
@@ -108,6 +111,7 @@ const (
 	AttributeKeyProtocol        = "protocol"
 	AttributeKeyAmount          = "amount"
 	AttributeKeyContentID       = "content_id"
+	AttributeKeySupersededBy    = "superseded_by"
 	AttributeKeyContentType     = "content_type"
 	AttributeKeyCreatorIdentity = "creator_identity"
 	AttributeKeyLocalAddress    = "local_address"

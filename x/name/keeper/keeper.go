@@ -9,7 +9,7 @@ import (
 	storetypes "cosmossdk.io/core/store"
 	"github.com/cosmos/cosmos-sdk/codec"
 
-	"sparkdream/lib/dreamutil"
+	"sparkdream/internal/dreamutil"
 	"sparkdream/x/name/types"
 )
 

@@ -2,7 +2,7 @@
 
 > **Scope**
 >
-> `x/forum` owns content storage, moderation, bounties, appeals, and thread operations. Tag registry/moderation/budgets, bonded-role accountability (sentinel bond/status/slash), and member-level accountability (reports, warnings, gov-action appeals) live in `x/rep` — consult [`docs/x-rep-spec.md`](x-rep-spec.md) and [`docs/bonded-role-generalization.md`](bonded-role-generalization.md) for those primitives. Forum's `SentinelActivity` holds only per-action counters (hides/locks/moves/pins/proposals, per-epoch tallies, local cooldowns); sentinel auth/bond mechanics go through the rep keeper's role-typed API (`IsBondedRole(ROLE_TYPE_CONTENT_SENTINEL, …)`, `GetBondedRole`, `GetAvailableBond`, `ReserveBond`, `ReleaseBond`, `SlashBond`, `RecordActivity`, `SetBondStatus`).
+> `x/forum` owns content storage, moderation, bounties, appeals, and thread operations. Tag registry/moderation/budgets, bonded-role accountability (sentinel bond/status/slash), and member-level accountability (reports, warnings, gov-action appeals) live in `x/rep` — consult [`docs/x-rep-spec.md`](x-rep-spec.md) and [`docs/bonded-role-generalization.md`](untracked/bonded-role-generalization.md) for those primitives. Forum's `SentinelActivity` holds only per-action counters (hides/locks/moves/pins/proposals, per-epoch tallies, local cooldowns); sentinel auth/bond mechanics go through the rep keeper's role-typed API (`IsBondedRole(ROLE_TYPE_CONTENT_SENTINEL, …)`, `GetBondedRole`, `GetAvailableBond`, `ReserveBond`, `ReleaseBond`, `SlashBond`, `RecordActivity`, `SetBondStatus`).
 >
 > Sections that diverge from the current implementation are annotated with `> **Implementation status:**` or `> **Implementation note:**` callouts.
 >
@@ -1644,7 +1644,7 @@ Thread author appeals a sentinel-initiated lock.
 > `CreateGovActionAppeal` (ActionType `THREAD_LOCK`). It charges the x/rep appeal
 > bond (not the legacy `lock_appeal_fee`, superseded) and resolves through the
 > unified `GovActionAppeal` path — see the `GovActionType` note and
-> [docs/x-forum-appeal-reconciliation.md](x-forum-appeal-reconciliation.md). The
+> [docs/x-forum-appeal-reconciliation.md](untracked/x-forum-appeal-reconciliation.md). The
 > "Cost"/"Verdict Handling (via x/rep hook)" prose below describes the original
 > design; the current resolution is the unified jury/committee path. HR-Committee
 > locks are appealed the same way via `MsgAppealGovAction`.
@@ -2426,7 +2426,7 @@ Thread author disputes a sentinel's pin. **Implemented via the unified
 moderation-appeal path** — it opens an x/rep `GovActionAppeal` (ActionType
 `REPLY_PIN`, ActionTarget = reply id), the same machinery used for hide / lock /
 move. See the `GovActionType` note above and
-[docs/x-forum-appeal-reconciliation.md](x-forum-appeal-reconciliation.md).
+[docs/x-forum-appeal-reconciliation.md](untracked/x-forum-appeal-reconciliation.md).
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -3181,7 +3181,7 @@ Author appeals a hidden post.
 > **Implementation note:** thin facade over x/rep's `CreateGovActionAppeal`
 > (ActionType `POST_HIDE`); charges the x/rep appeal bond (not the legacy
 > `appeal_fee`) and resolves through the unified `GovActionAppeal` path — see the
-> `GovActionType` note and [docs/x-forum-appeal-reconciliation.md](x-forum-appeal-reconciliation.md).
+> `GovActionType` note and [docs/x-forum-appeal-reconciliation.md](untracked/x-forum-appeal-reconciliation.md).
 
 | Field | Type | Description |
 |-------|------|-------------|

@@ -87,6 +87,16 @@ var (
 	ErrSelfArbiter                   = errors.Register(ModuleName, 2347, "submitting operator cannot arbitrate their own content")
 	ErrSelfVerification              = errors.Register(ModuleName, 2352, "verifier cannot verify content submitted by their own bridge operator address")
 	ErrChallengeCooldownActive       = errors.Register(ModuleName, 2353, "challenge cooldown has not elapsed since last rejected challenge on this content")
+	// ErrContentTerminal guards system-assigned terminal statuses against
+	// moderation. UNRESOLVED is written only by the EndBlocker, for content
+	// whose arbiter resolution window closed with no quorum, and moderating
+	// it away would erase the record that no finding was ever made -- and
+	// let an OpsComm member manufacture a VERIFIED status for content nobody
+	// verified. Distinct from ErrInvalidParamValue, which this guard used to
+	// borrow: that produced the misleading tail "operational or governance
+	// param outside valid range" on a rejection that has nothing to do with
+	// params.
+	ErrContentTerminal = errors.Register(ModuleName, 2354, "content is in a system-assigned terminal status and cannot be moderated")
 
 	// Escalation errors
 	ErrNotChallengeParty          = errors.Register(ModuleName, 2348, "escalation signer is not the challenger or verifier")
@@ -96,4 +106,9 @@ var (
 	// Jury resolution errors
 	ErrEscalatedChallengeNotFound = errors.Register(ModuleName, 2380, "no escalated challenge for content")
 	ErrInvalidJuryVerdict         = errors.Register(ModuleName, 2381, "jury verdict must be UPHELD, REJECTED, or TIMEOUT")
+
+	// Inbound content provenance errors
+	ErrContentHostMismatch = errors.Register(ModuleName, 2382, "content_uri host does not belong to the peer")
+	ErrInvalidSupersede    = errors.Register(ModuleName, 2383, "supersedes must name an earlier record of the same content_uri from the same operator and peer")
+	ErrCreatorHostMismatch = errors.Register(ModuleName, 2384, "creator_identity host does not belong to the peer")
 )

@@ -34,6 +34,56 @@ message GenesisState {
   // operator_reward_daily_funding would bound a day only until the next
   // export. Mirrors x/rep's role_reward_day_funding_list.
   repeated OperatorRewardDayFunding operator_reward_day_funding_list = 14 [(gogoproto.nullable) = false];
+
+  // In-flight verification-lifecycle queues. These are NOT derivable from
+  // the records above: ArbiterResolutionQueue and ArbiterEscalationQueue
+  // hold deadlines that live nowhere else, and dropping them on an
+  // export/import upgrade strands every in-flight record — DISPUTED or
+  // CHALLENGED forever, with the verifier's committed bond unreleasable
+  // because the walk that would release it has no queue entry to walk.
+  // (VerificationWindow and ChallengeWindow are recomputable in principle,
+  // but exporting them keeps one rule for the whole lifecycle instead of
+  // two.)
+  repeated ContentDeadline verification_window_queue = 15 [(gogoproto.nullable) = false];
+  repeated ContentDeadline challenge_window_queue = 16 [(gogoproto.nullable) = false];
+  repeated ContentDeadline arbiter_resolution_queue = 17 [(gogoproto.nullable) = false];
+  repeated ContentDeadline arbiter_escalation_queue = 18 [(gogoproto.nullable) = false];
+  repeated EscalatedChallenge escalated_challenges = 19 [(gogoproto.nullable) = false];
+  repeated ContentDeadline escalated_challenge_deadline_queue = 20 [(gogoproto.nullable) = false];
+  // Partial arbiter quorum progress. Dropping these silently resets a
+  // dispute's vote tally to zero mid-window.
+  repeated ArbiterSubmissionEntry arbiter_submissions = 21 [(gogoproto.nullable) = false];
+  repeated ArbiterHashCount arbiter_hash_counts = 22 [(gogoproto.nullable) = false];
+  uint64 next_arbiter_anon_submission_id = 23;
+}
+
+// ContentDeadline is one (deadline, content_id) entry of a federation
+// EndBlocker time queue. All four verification-lifecycle queues share this
+// shape, so they share this message.
+message ContentDeadline {
+  int64 deadline = 1;
+  uint64 content_id = 2;
+}
+
+// ArbiterSubmissionEntry is one ArbiterSubmissions map entry. The submitter
+// key is part of the STATE key rather than of ArbiterHashSubmission —
+// identified arbiters key by bech32 address, anonymous ones by "anon:<seq>"
+// (where the Operator field holds the shield module address instead) — so it
+// must be exported alongside the value or the "no double vote per operator"
+// rule cannot be reconstructed.
+message ArbiterSubmissionEntry {
+  string submitter_key = 1;
+  ArbiterHashSubmission submission = 2 [(gogoproto.nullable) = false];
+}
+
+// ArbiterHashCount is one (content_id, content_hash) -> votes tally from the
+// arbiter quorum counter.
+message ArbiterHashCount {
+  uint64 content_id = 1;
+  // content_hash is the lowercase hex encoding of the submitted hash, which
+  // is how ArbiterHashCounts keys it in state.
+  string content_hash = 2;
+  uint32 count = 3;
 }
 
 // OperatorRewardDayFunding is one UTC day's community-pool draw for the

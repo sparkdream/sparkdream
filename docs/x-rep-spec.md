@@ -1284,7 +1284,7 @@ message TagBudget {
 
 ### BondedRole (generic accountability primitive)
 
-> **Note:** Phase 1–4 of the bonded-role generalization (see [bonded-role-generalization.md](bonded-role-generalization.md)) replaced the former standalone `SentinelActivity` proto with a role-typed `BondedRole`. Per-module action counters (hides, reviews, verifications) stay in the owning module.
+> **Note:** Phase 1–4 of the bonded-role generalization (see [bonded-role-generalization.md](untracked/bonded-role-generalization.md)) replaced the former standalone `SentinelActivity` proto with a role-typed `BondedRole`. Per-module action counters (hides, reviews, verifications) stay in the owning module.
 
 ```protobuf
 // proto/sparkdream/rep/v1/bonded_role.proto
@@ -2478,7 +2478,7 @@ lifecycle messages.
 
 **Why not simply let content sentinels do it.** Role types are module-scoped and
 a distinct job gets a distinct type (see
-[bonded-role-generalization.md](bonded-role-generalization.md)). Four reasons
+[bonded-role-generalization.md](untracked/bonded-role-generalization.md)). Four reasons
 apply here specifically:
 
 - **Different competence.** Sentinel work is policy application — abusive,

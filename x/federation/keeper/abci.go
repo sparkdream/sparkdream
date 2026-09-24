@@ -8,7 +8,6 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	"sparkdream/x/federation/types"
-	reptypes "sparkdream/x/rep/types"
 )
 
 // EndBlocker runs at the end of each block. 12 phases per spec §9.
@@ -289,13 +288,10 @@ func (k Keeper) releaseVerifierBondCommitments(ctx context.Context, now int64, m
 		record, err := k.VerificationRecords.Get(ctx, contentID)
 		if err == nil && record.Outcome == types.VerificationOutcome_VERIFICATION_OUTCOME_PENDING {
 			record.Outcome = types.VerificationOutcome_VERIFICATION_OUTCOME_CONFIRMED
-			// Release the verifier's committed bond back to available and
-			// bump per-module unchallenged counter.
-			if k.late.repKeeper != nil {
-				_ = k.late.repKeeper.ReleaseBond(ctx,
-					reptypes.RoleType_ROLE_TYPE_FEDERATION_VERIFIER,
-					record.Verifier, record.CommittedAmount)
-			}
+			// Release the verifier's committed bond back to available
+			// (sets CommitmentReleased on the record) and bump the
+			// per-module unchallenged counter.
+			k.releaseVerifierCommitment(ctx, &record)
 			activity, _ := k.VerifierActivity.Get(ctx, record.Verifier)
 			if activity.Address == "" {
 				activity.Address = record.Verifier
@@ -325,8 +321,34 @@ func (k Keeper) expireArbiterResolutions(ctx context.Context, sdkCtx sdk.Context
 			return true, nil
 		}
 		contentID := key.K2()
-		sdkCtx.EventManager().EmitEvent(sdk.NewEvent(types.EventTypeArbiterResolutionExpired,
-			sdk.NewAttribute(types.AttributeKeyContentID, fmt.Sprintf("%d", contentID))))
+		// A stashed PendingVerifierVerdict means quorum landed and the
+		// escalation queue (Phase 8) applies it — leave the record alone.
+		// An EscalatedChallenge means the verdict was escalated and the
+		// jury path owns resolution. Anything else is a genuine no-quorum
+		// exit: this walk is the last code that will ever touch the
+		// record, so it settles the content and releases the verifier's
+		// commitment. Before this, both leaked forever — the content sat
+		// DISPUTED/CHALLENGED until content_ttl pruned it, and the
+		// commitment until a slash happened to free it.
+		//
+		// The arbiter_resolution_expired event is emitted only on that
+		// no-quorum branch. Emitting it for every walked entry (as this
+		// did originally) labelled early-resolved records "expired" when
+		// the window had simply been consumed by a verdict.
+		if record, rerr := k.VerificationRecords.Get(ctx, contentID); rerr == nil &&
+			record.PendingVerifierVerdict == types.PendingVerifierVerdict_PENDING_VERIFIER_VERDICT_UNSPECIFIED {
+			if _, eerr := k.EscalatedChallenges.Get(ctx, contentID); eerr != nil {
+				k.releaseVerifierCommitment(ctx, &record)
+				record.LastChallengeResolvedAt = now
+				if rerr := k.VerificationRecords.Set(ctx, contentID, record); rerr != nil {
+					sdkCtx.Logger().Warn("expire arbiter resolutions: persist record failed",
+						"content_id", contentID, "error", rerr)
+				}
+				sdkCtx.EventManager().EmitEvent(sdk.NewEvent(types.EventTypeArbiterResolutionExpired,
+					sdk.NewAttribute(types.AttributeKeyContentID, fmt.Sprintf("%d", contentID))))
+				k.settleNoQuorumContent(ctx, sdkCtx, contentID, record.Verifier)
+			}
+		}
 		k.cleanupArbiterData(ctx, contentID)
 		_ = k.ArbiterResolutionQueue.Remove(ctx, key)
 		pruned++

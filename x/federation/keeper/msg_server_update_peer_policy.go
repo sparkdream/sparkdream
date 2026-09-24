@@ -66,6 +66,17 @@ func (k msgServer) UpdatePeerPolicy(ctx context.Context, msg *types.MsgUpdatePee
 		}
 	}
 
+	// Validation 4: content_hosts widen the content_uri provenance check,
+	// which only exists for ActivityPub peers.
+	if len(msg.Policy.ContentHosts) > 0 {
+		if peer.Type != types.PeerType_PEER_TYPE_ACTIVITYPUB {
+			return nil, errorsmod.Wrapf(types.ErrPeerTypeMismatch, "content_hosts only apply to ActivityPub peers")
+		}
+		if err := types.ValidateContentHosts(msg.Policy.ContentHosts); err != nil {
+			return nil, errorsmod.Wrap(types.ErrInvalidParamValue, err.Error())
+		}
+	}
+
 	// Set peer_id on the policy to ensure consistency
 	msg.Policy.PeerId = msg.PeerId
 

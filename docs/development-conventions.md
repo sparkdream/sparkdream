@@ -272,4 +272,4 @@ installed at all.
 - Module specs live in `docs/x-<module>-spec.md`.
 - Architecture overview: [architecture.md](architecture.md).
 - Tokenomics: [tokenomics.md](tokenomics.md).
-- Security: [security-hardening.md](security-hardening.md), [security-audit.md](security-audit.md), [security-audit-app.md](security-audit-app.md).
+- Security: [security-hardening.md](security-hardening.md), [security-audit.md](untracked/security-audit.md), [security-audit-app.md](untracked/security-audit-app.md).

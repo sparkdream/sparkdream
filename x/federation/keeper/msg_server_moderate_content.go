@@ -22,6 +22,25 @@ func (k msgServer) ModerateContent(ctx context.Context, msg *types.MsgModerateCo
 		return nil, errorsmod.Wrapf(types.ErrContentNotFound, "content ID %d not found", msg.ContentId)
 	}
 
+	// 3a. UNRESOLVED is system-assigned and terminal: the arbiter
+	//     resolution window closed with no quorum, so the chain recorded
+	//     that no finding was ever made. Moderating it away would erase
+	//     that record and let an OpsComm member manufacture a VERIFIED
+	//     status for content nobody verified. Validating only new_status
+	//     (below) guards the target but not the source.
+	if content.Status == types.FederatedContentStatus_FEDERATED_CONTENT_STATUS_UNRESOLVED {
+		return nil, errorsmod.Wrapf(types.ErrContentTerminal,
+			"content %d is UNRESOLVED (the arbiter resolution window closed with no quorum)",
+			msg.ContentId)
+	}
+	// SUPERSEDED is terminal for the same reason: the record was retired
+	// before anyone could verify it, and moderating it to VERIFIED or ACTIVE
+	// would vouch for bytes that no longer exist at the source.
+	if content.Status == types.FederatedContentStatus_FEDERATED_CONTENT_STATUS_SUPERSEDED {
+		return nil, errorsmod.Wrapf(types.ErrContentTerminal,
+			"content %d is SUPERSEDED by content %d", msg.ContentId, content.SupersededBy)
+	}
+
 	// 3. Validate new status (only HIDDEN, ACTIVE/VERIFIED, REJECTED allowed for moderation)
 	switch msg.NewStatus {
 	case types.FederatedContentStatus_FEDERATED_CONTENT_STATUS_HIDDEN,

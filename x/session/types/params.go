@@ -182,6 +182,27 @@ var (
 		"/sparkdream.service.v1.MsgTopUpBond",
 		"/sparkdream.service.v1.MsgUpdateMetadata",
 		"/sparkdream.service.v1.MsgClaimUnbondedBond",
+		// x/federation — bridge-daemon and verifier-runner ergonomics
+		// (Mastodon live link, P0.2). The bridge daemon polls a home
+		// timeline and anchors inbound content unattended; the verifier
+		// runner re-fetches and confirms it. Without these entries both
+		// daemons would sign with the raw operator key that holds the
+		// 1000 SPARK service bond for the whole milestone.
+		//
+		// MsgSubmitFederatedContent and MsgAttestOutbound move no funds:
+		// submission only risks the operator's own reward eligibility
+		// (per-epoch rejected counters), and attestation is a payloadless
+		// audit log entry.
+		"/sparkdream.federation.v1.MsgSubmitFederatedContent",
+		"/sparkdream.federation.v1.MsgAttestOutbound",
+		// MsgVerifyContent reserves the verifier's DREAM slash budget.
+		// Closer to the line than any entry above — admitted anyway so
+		// the verifier runner gets the same key hygiene as the bridge.
+		// A compromised session key can at worst burn the granter's own
+		// slash budget on content it did not submit, and
+		// ErrSelfVerification already blocks the profitable version of
+		// that attack (verifying one's own submissions).
+		"/sparkdream.federation.v1.MsgVerifyContent",
 	}
 )
 

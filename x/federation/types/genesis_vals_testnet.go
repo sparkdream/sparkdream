@@ -11,10 +11,8 @@ import (
 // Testnet values — approaching production but with shorter timers.
 // Build with: go build -tags testnet
 //
-// Bridge-operator economic values now live on x/service ServiceTypeConfig.
-// Testnet seeds:
-//   - min_bond:                500_000_000 uspark (500 SPARK)
-//   - unbonding_period_blocks: ~7 days
+// Bridge-operator economic values (bond, unbonding, slashing) live on
+// x/service ServiceTypeConfig, seeded per network in x/service genesis.
 func getFederationGenesisParams() federationGenesisParams {
 	return federationGenesisParams{
 		ContentTTL:     45 * 24 * time.Hour, // 45 days

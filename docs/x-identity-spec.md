@@ -1542,7 +1542,7 @@ The test plan totals roughly 33 named tests. Estimated effort to write all of th
 - [x-federation-spec.md](x-federation-spec.md): peer registration (extended with `ChainIdentity`)
 - [x-rep-spec.md](x-rep-spec.md): DREAM denom consumer (mint/burn/decay/transfer-tax)
 - [x-commons-spec.md](x-commons-spec.md): SPARK denom consumer (council treasury, governance)
-- [x-dex-spec.md](x-dex-spec.md): `dream_family_denoms` parameter should canonical-source from `IdentityKeeper.DreamDenom`
-- [x-dex-design-space.md](x-dex-design-space.md): federated DEX design context
+- [x-dex-spec.md](untracked/x-dex-spec.md): `dream_family_denoms` parameter should canonical-source from `IdentityKeeper.DreamDenom`
+- [x-dex-design-space.md](untracked/x-dex-design-space.md): federated DEX design context
 - [docs/architecture.md](architecture.md): overall system architecture
 - [docs/tokenomics.md](tokenomics.md): token economics (currently uses bare `SPARK`/`DREAM`; should reference per-chain identity for federated context)

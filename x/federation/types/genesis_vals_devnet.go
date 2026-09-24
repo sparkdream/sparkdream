@@ -11,10 +11,8 @@ import (
 // Devnet values — accelerated timers for development (5-15 minute ranges).
 // Build with: go build -tags devnet
 //
-// Bridge-operator economic values now live on x/service ServiceTypeConfig.
-// Devnet seeds:
-//   - min_bond:                100_000_000 uspark (100 SPARK)
-//   - unbonding_period_blocks: ~30 minutes
+// Bridge-operator economic values (bond, unbonding, slashing) live on
+// x/service ServiceTypeConfig, seeded per network in x/service genesis.
 func getFederationGenesisParams() federationGenesisParams {
 	return federationGenesisParams{
 		ContentTTL:     24 * time.Hour,

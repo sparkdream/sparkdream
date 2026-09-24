@@ -24,7 +24,7 @@ Universal lifecycle messages: `MsgCreateGrant` (payload-dispatching umbrella), `
 - **Security surface**: x/authz's recursive `MsgExec` is explicitly blocked in `x/commons` `ForbiddenMessages` because it bypasses council permission filters. x/session's `MsgExecSession` is non-recursive by design and uses an allowlist-only model with no blocklist to maintain.
 - **Four authorization shapes in one place**: x/feegrant only addresses fee-on-behalf; ERC-7710-style spending allowances and EIP-7702-style scheduled actions have no first-class SDK equivalent. Hosting all four variants under one `Grant` record collapses what would otherwise be four separate modules into one.
 
-> **Design history.** The refactor from session-keys-only to the unified registry is specified in [docs/x-session-grant-registry-plan.md](x-session-grant-registry-plan.md) (Rev 4, P1-P8 phased rollout). This spec describes the post-refactor module surface. Sections 3-10 below preserve the SessionKey-variant detail from the original spec; sections 11-14 cover the new variants. Sections 15-17 are the events stability declaration, CLI reference, and migration / deprecation notes.
+> **Design history.** The refactor from session-keys-only to the unified registry is specified in [docs/x-session-grant-registry-plan.md](untracked/x-session-grant-registry-plan.md) (Rev 4, P1-P8 phased rollout). This spec describes the post-refactor module surface. Sections 3-10 below preserve the SessionKey-variant detail from the original spec; sections 11-14 cover the new variants. Sections 15-17 are the events stability declaration, CLI reference, and migration / deprecation notes.
 
 ---
 
@@ -793,9 +793,19 @@ The following message types form the genesis ceiling (`max_allowed_msg_types`) a
 - `MsgClaimGuildFounder` / `MsgTransferGuildFounder` / `MsgDissolveGuild` — rare, identity-significant
 - `Msg{Create,Update,Deactivate}Quest`, `Msg{Create,Update,Delete}Achievement`, `Msg{Create,Update,Delete}Title`, `MsgResolveDisplayNameAppeal`, `MsgResolveUnappealedModeration`, `Msg{SetNextSeasonInfo,SkipTransitionPhase,ExtendSeason,RetrySeasonTransition,AbortSeasonTransition}` — admin/governance-only
 
-### 12.6. Modules with no session-delegable messages
+### 12.6. x/federation (Bridge and Verifier Daemons)
 
-x/rep, x/reveal, x/futarchy, x/commons, x/federation, x/shield, x/ecosystem, x/split, x/sparkdream — every signer Msg in these modules either moves SPARK/DREAM, locks a bond, requires bonded-role / committee / council privilege, or is governance/admin infrastructure. They are deliberately not in the ceiling and adding any of them requires a chain upgrade.
+| Message Type | Purpose |
+|--------------|---------|
+| `/sparkdream.federation.v1.MsgSubmitFederatedContent` | Bridge daemon anchoring inbound content unattended |
+| `/sparkdream.federation.v1.MsgAttestOutbound` | Bridge daemon attesting relayed outbound content |
+| `/sparkdream.federation.v1.MsgVerifyContent` | Verifier runner confirming anchored content |
+
+These let the Mastodon-link daemons run under a session key instead of the raw operator key that holds the 1000 SPARK service bond. `MsgSubmitFederatedContent` and `MsgAttestOutbound` move no funds: submission only risks the operator's own reward eligibility, and attestation is a payloadless audit entry. `MsgVerifyContent` reserves the verifier's DREAM slash budget — closer to the line than any other entry, admitted so the verifier gets the same key hygiene; a compromised key can at worst burn the granter's own slash budget on content it did not submit, and `ErrSelfVerification` blocks the profitable version (verifying one's own submissions). Every other x/federation signer Msg stays out of the ceiling.
+
+### 12.7. Modules with no session-delegable messages
+
+x/rep, x/reveal, x/futarchy, x/commons, x/shield, x/ecosystem, x/split, x/sparkdream — every signer Msg in these modules either moves SPARK/DREAM, locks a bond, requires bonded-role / committee / council privilege, or is governance/admin infrastructure. They are deliberately not in the ceiling and adding any of them requires a chain upgrade.
 
 ---
 
@@ -1470,7 +1480,7 @@ The new `Grant` queries return any payload variant; the legacy `Session` queries
 
 ## 27. Cross-references
 
-- [docs/x-session-grant-registry-plan.md](x-session-grant-registry-plan.md) — Refactor plan (Rev 4, P1-P8). Authoritative source for the design decisions referenced above.
+- [docs/x-session-grant-registry-plan.md](untracked/x-session-grant-registry-plan.md) — Refactor plan (Rev 4, P1-P8). Authoritative source for the design decisions referenced above.
 - [docs/session-keys.md](session-keys.md) — Original session-key UX pattern (predates the registry refactor; still relevant for the SessionKey variant).
 - [x/session/keeper/](../x/session/keeper/) — Reference implementation.
 

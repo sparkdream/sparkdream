@@ -138,6 +138,43 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 		return err
 	}
 
+	// In-flight verification-lifecycle queues. Restored verbatim rather
+	// than recomputed: the arbiter deadlines exist nowhere else, so a
+	// dropped queue leaves the record permanently un-expirable and its
+	// verifier's committed bond permanently reserved.
+	if err := importDeadlineQueue(ctx, k.VerificationWindow, genState.VerificationWindowQueue); err != nil {
+		return err
+	}
+	if err := importDeadlineQueue(ctx, k.ChallengeWindow, genState.ChallengeWindowQueue); err != nil {
+		return err
+	}
+	if err := importDeadlineQueue(ctx, k.ArbiterResolutionQueue, genState.ArbiterResolutionQueue); err != nil {
+		return err
+	}
+	if err := importDeadlineQueue(ctx, k.ArbiterEscalationQueue, genState.ArbiterEscalationQueue); err != nil {
+		return err
+	}
+	if err := importDeadlineQueue(ctx, k.EscalatedChallengeDeadline, genState.EscalatedChallengeDeadlineQueue); err != nil {
+		return err
+	}
+	for _, esc := range genState.EscalatedChallenges {
+		if err := k.EscalatedChallenges.Set(ctx, esc.ContentId, esc); err != nil {
+			return err
+		}
+	}
+	for _, entry := range genState.ArbiterSubmissions {
+		if err := k.ArbiterSubmissions.Set(ctx,
+			collections.Join(entry.Submission.ContentId, entry.SubmitterKey), entry.Submission); err != nil {
+			return err
+		}
+	}
+	for _, hc := range genState.ArbiterHashCounts {
+		if err := k.ArbiterHashCounts.Set(ctx,
+			collections.Join(hc.ContentId, hc.ContentHash), hc.Count); err != nil {
+			return err
+		}
+	}
+
 	// Sequences — use Set() directly instead of calling Next() N times (O(1) vs O(n))
 	if genState.NextContentId > 0 {
 		if err := k.ContentSeq.Set(ctx, genState.NextContentId); err != nil {
@@ -146,6 +183,11 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 	}
 	if genState.NextOutboundAttestationId > 0 {
 		if err := k.OutboundAttestSeq.Set(ctx, genState.NextOutboundAttestationId); err != nil {
+			return err
+		}
+	}
+	if genState.NextArbiterAnonSubmissionId > 0 {
+		if err := k.ArbiterAnonSubSeq.Set(ctx, genState.NextArbiterAnonSubmissionId); err != nil {
 			return err
 		}
 	}
@@ -264,6 +306,54 @@ func (k Keeper) ExportGenesis(ctx context.Context) (*types.GenesisState, error) 
 		return nil, err
 	}
 
+	// Export the in-flight verification-lifecycle queues. Without these an
+	// export/import upgrade strands every dispute: the arbiter deadlines
+	// live nowhere but the keysets, so a re-imported DISPUTED record would
+	// have no queue entry to expire it and the verifier's committed bond
+	// would never be released.
+	if genesis.VerificationWindowQueue, err = exportDeadlineQueue(ctx, k.VerificationWindow); err != nil {
+		return nil, err
+	}
+	if genesis.ChallengeWindowQueue, err = exportDeadlineQueue(ctx, k.ChallengeWindow); err != nil {
+		return nil, err
+	}
+	if genesis.ArbiterResolutionQueue, err = exportDeadlineQueue(ctx, k.ArbiterResolutionQueue); err != nil {
+		return nil, err
+	}
+	if genesis.ArbiterEscalationQueue, err = exportDeadlineQueue(ctx, k.ArbiterEscalationQueue); err != nil {
+		return nil, err
+	}
+	if genesis.EscalatedChallengeDeadlineQueue, err = exportDeadlineQueue(ctx, k.EscalatedChallengeDeadline); err != nil {
+		return nil, err
+	}
+
+	err = k.EscalatedChallenges.Walk(ctx, nil, func(_ uint64, value types.EscalatedChallenge) (bool, error) {
+		genesis.EscalatedChallenges = append(genesis.EscalatedChallenges, value)
+		return false, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	// Partial arbiter quorum progress.
+	err = k.ArbiterSubmissions.Walk(ctx, nil, func(key collections.Pair[uint64, string], value types.ArbiterHashSubmission) (bool, error) {
+		genesis.ArbiterSubmissions = append(genesis.ArbiterSubmissions,
+			types.ArbiterSubmissionEntry{SubmitterKey: key.K2(), Submission: value})
+		return false, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	err = k.ArbiterHashCounts.Walk(ctx, nil, func(key collections.Pair[uint64, string], count uint32) (bool, error) {
+		genesis.ArbiterHashCounts = append(genesis.ArbiterHashCounts, types.ArbiterHashCount{
+			ContentId: key.K1(), ContentHash: key.K2(), Count: count,
+		})
+		return false, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
 	// Export sequences
 	genesis.NextContentId, err = k.ContentSeq.Peek(ctx)
 	if err != nil && !errors.Is(err, collections.ErrNotFound) {
@@ -273,6 +363,39 @@ func (k Keeper) ExportGenesis(ctx context.Context) (*types.GenesisState, error) 
 	if err != nil && !errors.Is(err, collections.ErrNotFound) {
 		return nil, err
 	}
+	genesis.NextArbiterAnonSubmissionId, err = k.ArbiterAnonSubSeq.Peek(ctx)
+	if err != nil && !errors.Is(err, collections.ErrNotFound) {
+		return nil, err
+	}
 
 	return genesis, nil
+}
+
+// importDeadlineQueue restores one (deadline, content_id) keyset from its
+// genesis representation.
+func importDeadlineQueue(
+	ctx context.Context,
+	ks collections.KeySet[collections.Pair[int64, uint64]],
+	entries []types.ContentDeadline,
+) error {
+	for _, e := range entries {
+		if err := ks.Set(ctx, collections.Join(e.Deadline, e.ContentId)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// exportDeadlineQueue drains one (deadline, content_id) keyset into the
+// genesis representation shared by all four verification-lifecycle queues.
+func exportDeadlineQueue(
+	ctx context.Context,
+	ks collections.KeySet[collections.Pair[int64, uint64]],
+) ([]types.ContentDeadline, error) {
+	var out []types.ContentDeadline
+	err := ks.Walk(ctx, nil, func(key collections.Pair[int64, uint64]) (bool, error) {
+		out = append(out, types.ContentDeadline{Deadline: key.K1(), ContentId: key.K2()})
+		return false, nil
+	})
+	return out, err
 }

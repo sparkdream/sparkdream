@@ -52,6 +52,26 @@ enum FederatedContentStatus {
   FEDERATED_CONTENT_STATUS_DISPUTED = 4;
   FEDERATED_CONTENT_STATUS_CHALLENGED = 5;
   FEDERATED_CONTENT_STATUS_REJECTED = 6;
+  // UNRESOLVED is system-assigned: the arbiter resolution window expired
+  // without quorum, so no finding was ever made about the content. It is
+  // terminal, deliberately excluded from MsgModerateContent (OpsComm
+  // moderates HIDDEN/ACTIVE/VERIFIED/REJECTED, not system states), and
+  // was chosen over reverting to PENDING_VERIFICATION because a revived
+  // record would have no VerificationWindow queue entry and a verification
+  // deadline already in the past — unverifiable and unreapable until
+  // content_ttl. Local state only: FederatedContentStatus never crosses
+  // the IBC wire (see packet_wire_compat_test.go).
+  FEDERATED_CONTENT_STATUS_UNRESOLVED = 7;
+  // SUPERSEDED is system-assigned: the submitting operator anchored a newer
+  // version of the same content_uri (an edit) while this record was still
+  // PENDING_VERIFICATION. The anchored version no longer exists at the
+  // source, so no verifier can ever confirm it; retiring it here keeps it
+  // out of the verification-expiry sweep, which would otherwise count it
+  // against an honest operator as unverified. Terminal and excluded from
+  // MsgModerateContent for the same reason as UNRESOLVED: moderating it
+  // could manufacture a VERIFIED status for bytes nobody verified. Local
+  // state only; never crosses the IBC wire.
+  FEDERATED_CONTENT_STATUS_SUPERSEDED = 8;
 }
 
 enum IdentityLinkStatus {
@@ -123,6 +143,15 @@ message PeerPolicy {
   // Moderation
   bool require_review = 8;
   repeated string blocked_identities = 9;
+
+  // content_hosts lists hostnames, beyond the peer id itself, that may
+  // appear in an inbound content_uri. ActivityPub peers only. An instance
+  // whose AS2 ids live on a different host than its account domain (a
+  // WEB_DOMAIN split) lists that host here; otherwise leave it empty and
+  // only the peer id's own host is accepted. Without the check a bridge
+  // bonded for one peer could anchor another instance's posts under this
+  // peer's name.
+  repeated string content_hosts = 11;
 }
 
 // BridgeBinding represents the federation-owned binding between a bridge
@@ -222,6 +251,18 @@ message VerificationRecord {
   // EndBlocker when the escalation window expires; MsgEscalateChallenge
   // clears it back to UNSPECIFIED, deferring resolution to the jury path.
   PendingVerifierVerdict pending_verifier_verdict = 13;
+
+  // commitment_released records that CommittedAmount was already given
+  // back to the verifier's available bond via x/rep ReleaseBond. The
+  // flag exists because the alternative — inferring from Outcome —
+  // cannot distinguish an upheld challenge (SlashBond already freed the
+  // commitment; a second release would silently eat a different
+  // concurrent commitment, since ReleaseBond is saturating) from the
+  // paths that owe a release, and the record outlives the content
+  // (pruneExpiredContent drops Content but never VerificationRecords).
+  // True means released; false means either not yet resolved or freed
+  // by SlashBond on the upheld path.
+  bool commitment_released = 14;
 }
 
 // PendingVerifierVerdict captures an arbiter-quorum auto-verdict that
@@ -303,6 +344,20 @@ message FederatedContent {
   FederatedContentStatus status = 14;
   int64 expires_at = 15;
   bytes content_hash = 16;
+  // supersedes names the earlier record of the same content_uri that this
+  // one replaces (an edit). Unset for a first version.
+  ContentRef supersedes = 17;
+  // superseded_by is the id of the newer record that replaced this one,
+  // 0 while none has. A successor is always allocated after its
+  // predecessor, so it is never content id 0 and 0 is unambiguous here.
+  uint64 superseded_by = 18;
+}
+
+// ContentRef points at a FederatedContent record. A message rather than a
+// bare uint64 because content ids start at 0: a nil ref is "none", which
+// a zero id could not express.
+message ContentRef {
+  uint64 content_id = 1;
 }
 
 // IdentityLink maps a local address to a remote identity on a federation peer.

@@ -23,6 +23,8 @@
 #   ./run_all_tests.sh --no-hooks       # Skip x/service hook integration tests
 #   ./run_all_tests.sh --no-recovery    # Skip recovery (UpdatePeerController/Resync/Prune) tests
 #   ./run_all_tests.sh --no-endblocker  # Skip EndBlocker sweep tests
+#   ./run_all_tests.sh --no-noquorum    # Skip no-quorum settlement tests
+#   ./run_all_tests.sh --no-provenance  # Skip content provenance / supersede tests
 #   ./run_all_tests.sh --no-gov-params  # Skip MsgUpdateParams gov tests
 #   ./run_all_tests.sh --multichain     # Also run multi-chain IBC tests (test/federation/multichain/)
 #
@@ -65,6 +67,8 @@ RUN_PAGINATION=true
 RUN_HOOKS=true
 RUN_RECOVERY=true
 RUN_ENDBLOCKER=true
+RUN_NOQUORUM=true
+RUN_PROVENANCE=true
 RUN_GOV_PARAMS=true
 SAVE_SETUP=false
 RESTORE_SETUP=false
@@ -121,6 +125,12 @@ for arg in "$@"; do
         --no-endblocker)
             RUN_ENDBLOCKER=false
             ;;
+        --no-noquorum)
+            RUN_NOQUORUM=false
+            ;;
+        --no-provenance)
+            RUN_PROVENANCE=false
+            ;;
         --no-gov-params)
             RUN_GOV_PARAMS=false
             ;;
@@ -140,6 +150,8 @@ for arg in "$@"; do
             RUN_HOOKS=false
             RUN_RECOVERY=false
             RUN_ENDBLOCKER=false
+            RUN_NOQUORUM=false
+            RUN_PROVENANCE=false
             RUN_GOV_PARAMS=false
             ;;
         --save-setup)
@@ -160,6 +172,8 @@ for arg in "$@"; do
             RUN_HOOKS=false
             RUN_RECOVERY=false
             RUN_ENDBLOCKER=false
+            RUN_NOQUORUM=false
+            RUN_PROVENANCE=false
             RUN_GOV_PARAMS=false
             ;;
         --restore-setup)
@@ -185,6 +199,8 @@ for arg in "$@"; do
             RUN_HOOKS=false
             RUN_RECOVERY=false
             RUN_ENDBLOCKER=false
+            RUN_NOQUORUM=false
+            RUN_PROVENANCE=false
             RUN_GOV_PARAMS=false
             ;;
         --help|-h)
@@ -207,6 +223,8 @@ for arg in "$@"; do
             echo "  --no-hooks       Skip x/service ServiceHooks integration tests"
             echo "  --no-recovery    Skip recovery message tests (UpdatePeerController/Resync/Prune)"
             echo "  --no-endblocker  Skip EndBlocker sweep tests (uses accelerated TTL params)"
+            echo "  --no-noquorum    Skip no-quorum settlement + commitment-release tests"
+            echo "  --no-provenance  Skip content provenance (content_hosts, creator host) + supersede tests"
             echo "  --no-gov-params  Skip MsgUpdateParams gov-authority tests"
             echo "  --only-setup     Run only setup (skip all tests)"
             echo "  --save-setup     Run setup, save chain state, then exit"
@@ -666,6 +684,24 @@ if [ "$RUN_ENDBLOCKER" = true ]; then
     run_test "EndBlocker Tests" "endblocker_test.sh"
 else
     echo "Skipping EndBlocker tests (--no-endblocker)"
+    echo ""
+fi
+
+# No-quorum settlement: the arbiter resolution window closing without a
+# quorum must settle the content terminally AND give the verifier's
+# committed bond back. Also covers the ListFederatedContent filters.
+# Runs on testparams' 15s arbiter window, so no gov proposal needed.
+if [ "$RUN_NOQUORUM" = true ]; then
+    run_test "No-Quorum Settlement Tests" "no_quorum_settlement_test.sh"
+else
+    echo "Skipping no-quorum settlement tests (--no-noquorum)"
+    echo ""
+fi
+
+if [ "$RUN_PROVENANCE" = true ]; then
+    run_test "Content Provenance Tests" "content_provenance_test.sh"
+else
+    echo "Skipping content provenance tests (--no-provenance)"
     echo ""
 fi
 

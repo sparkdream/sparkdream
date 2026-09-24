@@ -349,7 +349,7 @@ The collection **owner** has full control. Owner is not represented as a Collabo
 
 ### 3.12. Curator
 
-> **Phase 1–4 bonded-role generalization:** curator bond/status state now lives in x/rep as `BondedRole(ROLE_TYPE_COLLECT_CURATOR, addr)`. Collect owns only the per-module counters (`CuratorActivity`, below). See [bonded-role-generalization.md](bonded-role-generalization.md).
+> **Phase 1–4 bonded-role generalization:** curator bond/status state now lives in x/rep as `BondedRole(ROLE_TYPE_COLLECT_CURATOR, addr)`. Collect owns only the per-module counters (`CuratorActivity`, below). See [bonded-role-generalization.md](untracked/bonded-role-generalization.md).
 
 A curator is an `x/rep` member who stakes DREAM (via rep's `MsgBondRole ROLE_TYPE_COLLECT_CURATOR`) to rate public collection quality. Same generic bonded-role pattern as x/forum sentinels and x/federation verifiers, specialized for quality assessment.
 

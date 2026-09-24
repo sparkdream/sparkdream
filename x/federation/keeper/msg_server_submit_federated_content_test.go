@@ -20,7 +20,7 @@ func TestSubmitFederatedContent(t *testing.T) {
 
 	resp, err := ms.SubmitFederatedContent(f.ctx, &types.MsgSubmitFederatedContent{
 		Operator: opStr, PeerId: "content-peer", RemoteContentId: "post-1",
-		ContentType: "blog_post", CreatorIdentity: "@alice@example.com",
+		ContentType: "blog_post", CreatorIdentity: "@alice@content-peer",
 		Title: "Hello", Body: "World", ContentHash: hash[:],
 	})
 	require.NoError(t, err)
@@ -29,7 +29,7 @@ func TestSubmitFederatedContent(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, types.FederatedContentStatus_FEDERATED_CONTENT_STATUS_PENDING_VERIFICATION, content.Status)
 	require.Equal(t, "content-peer", content.PeerId)
-	require.Equal(t, "@alice@example.com", content.CreatorIdentity)
+	require.Equal(t, "@alice@content-peer", content.CreatorIdentity)
 }
 
 func TestSubmitFederatedContentDuplicateHash(t *testing.T) {
@@ -44,7 +44,7 @@ func TestSubmitFederatedContentDuplicateHash(t *testing.T) {
 	// Second submission with same hash fails
 	_, err := ms.SubmitFederatedContent(f.ctx, &types.MsgSubmitFederatedContent{
 		Operator: opStr, PeerId: "dup-peer", RemoteContentId: "post-2",
-		ContentType: "blog_post", CreatorIdentity: "@bob@example.com",
+		ContentType: "blog_post", CreatorIdentity: "@bob@dup-peer",
 		ContentHash: hash[:],
 	})
 	require.Error(t, err)
@@ -59,7 +59,7 @@ func TestSubmitFederatedContentMissingHash(t *testing.T) {
 
 	_, err := ms.SubmitFederatedContent(f.ctx, &types.MsgSubmitFederatedContent{
 		Operator: opStr, PeerId: "nohash-peer", RemoteContentId: "post-3",
-		ContentType: "blog_post", CreatorIdentity: "@carol@example.com",
+		ContentType: "blog_post", CreatorIdentity: "@carol@nohash-peer",
 	})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "content hash is required")
@@ -75,7 +75,7 @@ func TestSubmitFederatedContentWrongType(t *testing.T) {
 	hash := sha256.Sum256([]byte("wrong type"))
 	_, err := ms.SubmitFederatedContent(f.ctx, &types.MsgSubmitFederatedContent{
 		Operator: opStr, PeerId: "wrongtype-peer", RemoteContentId: "col-1",
-		ContentType: "collection", CreatorIdentity: "@dave@example.com",
+		ContentType: "collection", CreatorIdentity: "@dave@wrongtype-peer",
 		ContentHash: hash[:],
 	})
 	require.Error(t, err)
