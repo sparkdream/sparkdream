@@ -115,6 +115,7 @@ func (m *mockAuthKeeper) GetModuleAddress(name string) sdk.AccAddress {
 
 type mockBankKeeper struct {
 	balances map[string]sdk.Coins
+	metadata map[string]banktypes.Metadata
 }
 
 func (m *mockBankKeeper) SpendableCoins(_ context.Context, addr sdk.AccAddress) sdk.Coins {
@@ -172,10 +173,16 @@ func (m *mockBankKeeper) BurnCoins(_ context.Context, _ string, _ sdk.Coins) err
 	return nil
 }
 
-func (m *mockBankKeeper) SetDenomMetaData(_ context.Context, _ banktypes.Metadata) {}
+func (m *mockBankKeeper) SetDenomMetaData(_ context.Context, md banktypes.Metadata) {
+	if m.metadata == nil {
+		m.metadata = make(map[string]banktypes.Metadata)
+	}
+	m.metadata[md.Base] = md
+}
 
-func (m *mockBankKeeper) GetDenomMetaData(_ context.Context, _ string) (banktypes.Metadata, bool) {
-	return banktypes.Metadata{}, false
+func (m *mockBankKeeper) GetDenomMetaData(_ context.Context, denom string) (banktypes.Metadata, bool) {
+	md, ok := m.metadata[denom]
+	return md, ok
 }
 
 // mockIdentityKeeper implements types.IdentityKeeper for testing.

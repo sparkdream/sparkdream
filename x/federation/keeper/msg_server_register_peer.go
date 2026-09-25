@@ -12,6 +12,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	ibctransfertypes "github.com/cosmos/ibc-go/v10/modules/apps/transfer/types"
+	channeltypes "github.com/cosmos/ibc-go/v10/modules/core/04-channel/types"
 )
 
 func (k msgServer) RegisterPeer(ctx context.Context, msg *types.MsgRegisterPeer) (*types.MsgRegisterPeerResponse, error) {
@@ -63,6 +64,13 @@ func (k msgServer) RegisterPeer(ctx context.Context, msg *types.MsgRegisterPeer)
 		}
 	}
 
+	// 4c. The transfer channel, when given, must be a well-formed channel id.
+	// It is not checked for uniqueness: ICS-20 vouchers are keyed per
+	// channel, so two peers sharing one would only share a metadata entry.
+	if msg.IbcTransferChannelId != "" && !channeltypes.IsValidChannelID(msg.IbcTransferChannelId) {
+		return nil, errorsmod.Wrapf(types.ErrInvalidRequest, "invalid ibc transfer channel id %q", msg.IbcTransferChannelId)
+	}
+
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	blockTime := sdkCtx.BlockTime().Unix()
 
@@ -79,6 +87,8 @@ func (k msgServer) RegisterPeer(ctx context.Context, msg *types.MsgRegisterPeer)
 		RegisteredBy: msg.Authority,
 		Metadata:     msg.Metadata,
 		PeerIdentity: msg.PeerIdentity,
+
+		IbcTransferChannelId: msg.IbcTransferChannelId,
 	}
 
 	if err := k.Peers.Set(ctx, msg.PeerId, peer); err != nil {
@@ -86,11 +96,11 @@ func (k msgServer) RegisterPeer(ctx context.Context, msg *types.MsgRegisterPeer)
 	}
 
 	// 6b. Pre-register IBC voucher metadata for SPARK_DREAM peers that
-	// supplied a peer_identity and an ibc_channel_id (spec §9.2). Skipped for
-	// non-Spark-Dream peers or when identity/channel is missing. Errors here
+	// supplied a peer_identity and an ibc_transfer_channel_id (spec §9.2).
+	// Skipped for non-Spark-Dream peers or when identity/channel is missing. Errors here
 	// do not fail registration — metadata is informational only.
 	if msg.Type == types.PeerType_PEER_TYPE_SPARK_DREAM &&
-		msg.IbcChannelId != "" &&
+		msg.IbcTransferChannelId != "" &&
 		msg.PeerIdentity != nil &&
 		msg.PeerIdentity.BondDenom != "" {
 		if err := k.preRegisterIBCVoucherMetadata(ctx, peer); err != nil {
@@ -129,7 +139,7 @@ func (k msgServer) RegisterPeer(ctx context.Context, msg *types.MsgRegisterPeer)
 
 // preRegisterIBCVoucherMetadata computes the canonical single-hop ICS-20
 // voucher denom for peer SPARK arriving on this chain via the registered
-// IBC channel, and registers DenomMetadata so wallets render <SYMBOL>.ibc
+// ICS-20 transfer channel, and registers DenomMetadata so wallets render <SYMBOL>.ibc
 // instead of ibc/<hash>. See x-identity-spec.md §9.2.
 //
 // Single-hop only: vouchers arriving via multi-hop relay paths produce a
@@ -146,7 +156,7 @@ func (k Keeper) preRegisterIBCVoucherMetadata(ctx context.Context, peer types.Pe
 	}
 	denom := ibctransfertypes.Denom{
 		Base:  id.BondDenom,
-		Trace: []ibctransfertypes.Hop{{PortId: "transfer", ChannelId: peer.IbcChannelId}},
+		Trace: []ibctransfertypes.Hop{{PortId: ibctransfertypes.PortID, ChannelId: peer.IbcTransferChannelId}},
 	}
 	ibcDenom := denom.IBCDenom()
 	if _, ok := k.bankKeeper.GetDenomMetaData(ctx, ibcDenom); ok {
@@ -156,7 +166,7 @@ func (k Keeper) preRegisterIBCVoucherMetadata(ctx context.Context, peer types.Pe
 	display := strings.ToLower(id.BondDisplaySymbol) + ".ibc"
 	meta := banktypes.Metadata{
 		Description: fmt.Sprintf("%s (IBC voucher), sourced from peer chain %s via %s",
-			id.BondDisplayName, peer.Id, peer.IbcChannelId),
+			id.BondDisplayName, peer.Id, peer.IbcTransferChannelId),
 		DenomUnits: []*banktypes.DenomUnit{
 			{Denom: ibcDenom, Exponent: 0},
 			{Denom: display, Exponent: id.BondDisplayDecimals},

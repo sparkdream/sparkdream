@@ -147,6 +147,37 @@ Expected wall-clock: **8-12 minutes** cold. Phases:
 9. Cross-chain content tests (incl. silent-SendPacket regression)
 10. Cross-chain identity tests (Phase 1 + Phase 2 round-trip)
 11. Cross-chain reputation attestation tests
+12. Cross-chain ICS-20 transfer tests (skip unless a transfer channel exists; see below)
+
+### With the relayer image (`--relayer=container`)
+
+```bash
+./run_all_multichain_tests.sh --relayer=container
+```
+
+Relays with the Hermes image the chain launcher deploys
+([deploy/docker/Dockerfile-hermes](../../../deploy/docker/Dockerfile-hermes)),
+driven through its own scripts the way the launcher drives it, instead of a
+host `hermes`. [relayer_container.sh](relayer_container.sh) replaces phases 4-5.
+It builds the image, then checks:
+
+- one mnemonic keys both chains, and the plaintext files are deleted after import
+- a plain bank send funds the key, with no self-send
+- an ICS-20 `transfer` path and a `federation` path share one connection
+- a second bringup opens nothing
+- Hermes comes back after a container restart
+
+It also opens a transfer channel beside the federation one. [setup_peers.sh](setup_peers.sh)
+then registers each peer with `ibc_transfer_channel_id` and the peer's chain
+identity, and [test_crosschain_transfer.sh](test_crosschain_transfer.sh) moves
+tokens both ways and checks the voucher metadata sits under the transfer
+channel's trace, not the federation channel's.
+
+Needs `docker` and `socat` instead of `hermes`. The chains' gRPC stays bound to
+localhost, as on a deployed sentry; socat bridges stand in for the launcher's
+mesh tunnel. Set `RELAYER_IMAGE=<image>` to test a published image instead of
+building one. `stop_chains.sh` removes the container, its volume and the
+bridges.
 
 ### Tests only (chains already running)
 

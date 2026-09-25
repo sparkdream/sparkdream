@@ -29,8 +29,25 @@ fi
 SOURCE_HOME=$(mktemp -d)
 REPLAY_HOME=$(mktemp -d)
 ARCHIVE_DIR=$(mktemp -d)
-RPC_PORT=26757
-P2P_PORT=26756
+# Ports come from the kernel, not constants: fixed ones collided with whatever
+# else was listening -- the parallel e2e runner gives suite 1 exactly the
+# 26857/26856 the replay node used, and the replayed node then failed to start
+# with "address already in use" though the replay itself had succeeded.
+# free_port asks for an ephemeral port and releases it; the node binds it a
+# moment later. Each pick is checked against the earlier ones, since the
+# kernel may hand back a port it just released. (free_port runs in a
+# command-substitution subshell, so callers record the pick themselves.)
+PICKED_PORTS=()
+free_port() {
+    local p
+    while :; do
+        p=$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')
+        [[ " ${PICKED_PORTS[*]} " == *" $p "* ]] || break
+    done
+    echo "$p"
+}
+RPC_PORT=$(free_port); PICKED_PORTS+=("$RPC_PORT")
+P2P_PORT=$(free_port); PICKED_PORTS+=("$P2P_PORT")
 CHAIN_ID="replay-test-1"
 TARGET_HEIGHT=15
 ARCHIVE_BATCH_SIZE=5
@@ -249,8 +266,8 @@ fi
 echo ""
 echo "Step 6: Verify replayed node can start"
 
-REPLAY_RPC_PORT=26857
-REPLAY_P2P_PORT=26856
+REPLAY_RPC_PORT=$(free_port); PICKED_PORTS+=("$REPLAY_RPC_PORT")
+REPLAY_P2P_PORT=$(free_port); PICKED_PORTS+=("$REPLAY_P2P_PORT")
 $BINARY start --home "$REPLAY_HOME" \
     --rpc.laddr "tcp://127.0.0.1:${REPLAY_RPC_PORT}" \
     --grpc.enable=false \

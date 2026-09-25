@@ -43,6 +43,13 @@ func SimulateMsgRegisterPeer(
 			Metadata:     "simulation registered peer",
 		}
 
+		// Some Spark Dream peers also carry an ICS-20 transfer channel, so the
+		// field rides genesis export/import. Always a well-formed id, which is
+		// all MsgRegisterPeer asks of it (this op writes state directly).
+		if peer.Type == types.PeerType_PEER_TYPE_SPARK_DREAM && r.Intn(2) == 0 {
+			peer.IbcTransferChannelId = fmt.Sprintf("channel-%d", r.Intn(100))
+		}
+
 		if err := k.Peers.Set(ctx, peerID, peer); err != nil {
 			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgRegisterPeer{}), "failed to set peer"), nil, nil
 		}

@@ -311,7 +311,14 @@ cat > "$PROPOSAL_DIR/register_ibc_peer.json" <<EOF
       "display_name": "Spark Testnet",
       "type": "PEER_TYPE_SPARK_DREAM",
       "ibc_channel_id": "channel-0",
-      "metadata": "test ibc peer"
+      "ibc_transfer_channel_id": "channel-1",
+      "metadata": "test ibc peer",
+      "peer_identity": {
+        "bond_denom": "uspk.phoenix",
+        "bond_display_symbol": "PSPK",
+        "bond_display_name": "Phoenix Spark",
+        "bond_display_decimals": 6
+      }
     }
   ],
   "metadata": "Register test IBC peer"
@@ -331,6 +338,22 @@ if submit_federation_proposal "$PROPOSAL_DIR/register_ibc_peer.json" "register i
     fi
 else
     record_result "Register IBC peer" "FAIL"
+fi
+
+# Voucher metadata is keyed on the ICS-20 transfer channel (channel-1), never
+# on the federation channel (channel-0): SPARK vouchers only arrive on the
+# former. voucher_denom mirrors ibc-go's Denom.IBCDenom().
+voucher_denom() {
+    echo "ibc/$(printf '%s' "transfer/$1/uspk.phoenix" | sha256sum | cut -d' ' -f1 | tr 'a-f' 'A-F')"
+}
+XFER_CHAN=$(echo "$PEER_DATA" | jq -r '.peer.ibc_transfer_channel_id // empty')
+XFER_SYMBOL=$($BINARY q bank denom-metadata "$(voucher_denom channel-1)" --output json 2>/dev/null | jq -r '.metadata.symbol // empty')
+FED_SYMBOL=$($BINARY q bank denom-metadata "$(voucher_denom channel-0)" --output json 2>/dev/null | jq -r '.metadata.symbol // empty')
+if [ "$XFER_CHAN" == "channel-1" ] && [ "$XFER_SYMBOL" == "PSPK.ibc" ] && [ -z "$FED_SYMBOL" ]; then
+    record_result "Voucher metadata keyed on transfer channel" "PASS"
+else
+    echo "  Unexpected: transfer_channel=$XFER_CHAN, symbol(channel-1)=$XFER_SYMBOL, symbol(channel-0)=$FED_SYMBOL"
+    record_result "Voucher metadata keyed on transfer channel" "FAIL"
 fi
 
 # ========================================================================

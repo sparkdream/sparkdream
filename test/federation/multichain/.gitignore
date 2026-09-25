@@ -19,5 +19,9 @@ proposals/
 .chain_pids
 .hermes_pid
 
+# --relayer=container state (relayer_container.sh)
+.relayer_mode
+.relayer_bridge_pids
+
 # Chain-process logs (also under data/, but covered for safety)
 *.log

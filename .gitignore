@@ -68,6 +68,8 @@ test/federation/mastodon/proposals/
 # AI tooling
 .aiexclude
 .claude/
+# Agent working scratch (e.g. gui-test-screenshots from browser test runs)
+/agents/
 .gemini/
 AGENTS.md
 CLAUDE.md

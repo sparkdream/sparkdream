@@ -59,9 +59,23 @@ else
 fi
 
 # ------------------------------------------------------------------
-# 2. Hermes IBC relayer
+# 2. Hermes IBC relayer (on the host, or in the relayer image with
+#    --relayer=container: then docker + socat instead)
 # ------------------------------------------------------------------
-if ! command -v "$HERMES" >/dev/null 2>&1; then
+if [ "${RELAYER:-host}" = "container" ]; then
+    for tool in docker socat; do
+        if command -v "$tool" >/dev/null 2>&1; then
+            green "  [ OK ] $tool (--relayer=container)"
+        else
+            red "  [FAIL] $tool not on PATH (needed for --relayer=container)"
+            ERR=1
+        fi
+    done
+    if command -v docker >/dev/null 2>&1 && ! docker info >/dev/null 2>&1; then
+        red "  [FAIL] docker daemon not reachable"
+        ERR=1
+    fi
+elif ! command -v "$HERMES" >/dev/null 2>&1; then
     red "  [FAIL] hermes not on PATH (set HERMES=/path/to/hermes if installed elsewhere)"
     echo "         Install (recommended: pre-built binary):"
     echo "           https://github.com/informalsystems/hermes/releases (use v1.13.3 or newer)"

@@ -1,0 +1,5 @@
+# BuildKit reads this for Dockerfile-hermes only (per-Dockerfile ignore), so
+# the repo-wide build context (~2 GB of snapshots and archives) is not sent.
+*
+!deploy/docker/entrypoint_ssh.sh
+!deploy/docker/hermes

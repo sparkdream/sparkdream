@@ -1,0 +1,73 @@
+# Hermes IBC relayer for the launcher's relayer component.
+#
+# One image serves every relay path kind (ICS-20 transfer, x/federation):
+# the launcher uploads a Hermes config plus a path manifest over SSH, runs
+# relayer-bringup to open clients/connections/channels, and relayer-run
+# then execs `hermes start`. See deploy/docker/hermes/*.sh for the contract.
+#
+# Mesh + SSH come from the same entrypoint the node images use, so the
+# relayer reaches each sentry's gRPC/RPC through TS_TUNNEL_n exactly as the
+# explorer reaches its sentry.
+#
+# Hermes ships glibc-only release binaries (built against glibc 2.38, so
+# trixie: bookworm has 2.36 and fails to load it), hence Debian rather than the
+# Alpine base the node images use. >= 1.13.3 is required: the chains run
+# ibc-go/v10 (see deploy/relayer/README.md "Hermes version"). The v1.13.3
+# release binary reports itself as "v1.13.2+bab3b80" (upstream did not bump
+# the version string); the pinned checksum is what identifies the release.
+#
+# Build from the repo root:
+#   make docker-build-hermes VERSION=<chain version>
+# The launcher's profiles default to sparkdreamnft/hermes:<vendored chain
+# version>, so publish one with every chain release.
+
+ARG TAILSCALE_IMAGE=tailscale/tailscale:v1.102.4
+FROM ${TAILSCALE_IMAGE} AS tailscale
+
+FROM debian:trixie-slim
+
+ARG HERMES_VERSION=v1.13.3
+ARG HERMES_SHA256_AMD64=3582136824ac1984c8884b310c63940a1489f091fa45faca38ed80e5dfe7d51b
+ARG HERMES_SHA256_ARM64=c586ac5e8d6bbeffff271e0f28b356488f5b44c58d5b25386c0051ddcf84af4d
+ARG TARGETARCH=amd64
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        ca-certificates curl jq socat procps openssh-server \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN set -eu; \
+    case "$TARGETARCH" in \
+        amd64) triple=x86_64-unknown-linux-gnu; sum=$HERMES_SHA256_AMD64 ;; \
+        arm64) triple=aarch64-unknown-linux-gnu; sum=$HERMES_SHA256_ARM64 ;; \
+        *) echo "unsupported arch $TARGETARCH" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL -o /tmp/hermes.tgz \
+        "https://github.com/informalsystems/hermes/releases/download/${HERMES_VERSION}/hermes-${HERMES_VERSION}-${triple}.tar.gz"; \
+    echo "${sum}  /tmp/hermes.tgz" | sha256sum -c -; \
+    tar -xzf /tmp/hermes.tgz -C /usr/local/bin hermes; \
+    rm /tmp/hermes.tgz; \
+    hermes version
+
+COPY --from=tailscale /usr/local/bin/tailscale /usr/local/bin/tailscaled /usr/local/bin/
+
+# Key-only root SSH on 2222 (the entrypoint starts sshd), same as the node images.
+RUN ssh-keygen -A && \
+    sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin prohibit-password/' /etc/ssh/sshd_config && \
+    sed -i 's/^#\?PubkeyAuthentication.*/PubkeyAuthentication yes/' /etc/ssh/sshd_config && \
+    sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config && \
+    sed -i 's/^#\?KbdInteractiveAuthentication.*/KbdInteractiveAuthentication no/' /etc/ssh/sshd_config && \
+    mkdir -p /run/sshd /var/lib/tailscale /data/relayer
+
+COPY deploy/docker/entrypoint_ssh.sh /usr/local/bin/entrypoint_ssh.sh
+COPY deploy/docker/hermes/relayer-run.sh /usr/local/bin/relayer-run
+COPY deploy/docker/hermes/relayer-bringup.sh /usr/local/bin/relayer-bringup
+COPY deploy/docker/hermes/relayer-fundcheck.sh /usr/local/bin/relayer-fundcheck
+RUN chmod +x /usr/local/bin/entrypoint_ssh.sh /usr/local/bin/relayer-*
+
+ENV RELAYER_DIR=/data/relayer
+
+# The shared entrypoint uses bash redirections (&>), and Debian's /bin/sh is
+# dash, so run it under bash explicitly.
+ENTRYPOINT ["/bin/bash", "/usr/local/bin/entrypoint_ssh.sh"]
+CMD ["relayer-run"]

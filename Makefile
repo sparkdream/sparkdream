@@ -214,3 +214,21 @@ docker-build-mainnet-ssh: docker-build-mainnet
 	docker build --build-arg BASE_IMAGE=sparkdreamnft/sparkdreamd-mainnet:$(VERSION) -f deploy/docker/Dockerfile-sparkdreamd-alpine-ssh -t sparkdreamnft/sparkdreamd-mainnet-ssh:$(VERSION) .
 
 .PHONY: docker-build-ssh docker-build-test-ssh docker-build-devnet-ssh docker-build-testnet-ssh docker-build-mainnet-ssh
+
+###########################
+###  Service images     ###
+###########################
+
+# Network-independent images the chain launcher deploys beside the nodes:
+# the Hermes relayer (transfer + federation paths) and the ActivityPub
+# live-link daemons (sdapbridge, sdapverify). Tagged with the chain version
+# so a release ships one consistent set.
+docker-build-hermes:
+	docker build -f deploy/docker/Dockerfile-hermes -t sparkdreamnft/hermes:$(VERSION) .
+
+docker-build-sdap:
+	docker build -f deploy/docker/Dockerfile-sdap -t sparkdreamnft/sdap:$(VERSION) .
+
+docker-build-services: docker-build-hermes docker-build-sdap
+
+.PHONY: docker-build-hermes docker-build-sdap docker-build-services

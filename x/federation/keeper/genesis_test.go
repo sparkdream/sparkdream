@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"sparkdream/x/federation/types"
+	identitytypes "sparkdream/x/identity/types"
 
 	"cosmossdk.io/math"
 	"github.com/stretchr/testify/require"
@@ -190,4 +191,32 @@ func TestGenesisRoundTripsSupersedeAndContentHosts(t *testing.T) {
 			require.Equal(t, uint64(0), c.Supersedes.ContentId)
 		}
 	}
+}
+
+// A peer's transfer channel and identity are what voucher metadata is keyed
+// on (MsgRegisterPeer, x-identity-spec §9.2); they must survive an
+// export/import, or a relaunched chain renders the peer's SPARK as ibc/<hash>
+// on the next re-registration check.
+func TestGenesisRoundTripsPeerTransferChannel(t *testing.T) {
+	genesisState := types.GenesisState{
+		Params: types.DefaultParams(),
+		PortId: types.PortID,
+		Peers: []types.Peer{{
+			Id: "phoenix-1", DisplayName: "Phoenix", Type: types.PeerType_PEER_TYPE_SPARK_DREAM,
+			Status: types.PeerStatus_PEER_STATUS_ACTIVE, IbcChannelId: "channel-1",
+			IbcTransferChannelId: "channel-0",
+			PeerIdentity: &identitytypes.ChainIdentity{
+				BondDenom: "uspk.phoenix", BondDisplaySymbol: "PSPK", BondDisplayName: "Phoenix Spark", BondDisplayDecimals: 6,
+			},
+		}},
+	}
+
+	f := initFixture(t)
+	require.NoError(t, f.keeper.InitGenesis(f.ctx, genesisState))
+	got, err := f.keeper.ExportGenesis(f.ctx)
+	require.NoError(t, err)
+	require.Len(t, got.Peers, 1)
+	require.Equal(t, "channel-0", got.Peers[0].IbcTransferChannelId)
+	require.Equal(t, "channel-1", got.Peers[0].IbcChannelId)
+	require.Equal(t, "PSPK", got.Peers[0].PeerIdentity.GetBondDisplaySymbol())
 }

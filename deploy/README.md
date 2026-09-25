@@ -61,7 +61,10 @@ deploy/
 ├── docker/                                  Docker images
 │   ├── Dockerfile-sparkdreamd-alpine        Base sparkdreamd Alpine image
 │   ├── Dockerfile-sparkdreamd-alpine-ssh    SSH + Tailscale enabled image
-│   └── entrypoint_ssh.sh                    SSH + Tailscale container entrypoint script
+│   ├── Dockerfile-hermes                    Hermes IBC relayer (transfer + federation paths)
+│   ├── hermes/                              relayer-bringup / -fundcheck / -run scripts baked into it
+│   ├── Dockerfile-sdap                      ActivityPub live-link daemons (sdapbridge, sdapverify)
+│   └── entrypoint_ssh.sh                    SSH + Tailscale container entrypoint script (shared)
 │
 ├── config/
 │   ├── template/               Role-based config templates (use envsubst)

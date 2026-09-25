@@ -89,6 +89,12 @@ message MsgRegisterPeer {
   // PEER_TYPE_SPARK_DREAM peers, federation pre-registers IBC voucher
   // metadata so wallets render <SYMBOL>.ibc instead of ibc/<hash>.
   sparkdream.identity.v1.ChainIdentity peer_identity = 8;
+  // ibc_transfer_channel_id is this chain's end of the ICS-20 `transfer`
+  // channel to the peer. Optional. Distinct from ibc_channel_id, which is
+  // the `federation` port channel: the two are opened separately and
+  // rarely share a number. Voucher metadata for peer_identity is keyed on
+  // this channel and is skipped when it is empty.
+  string ibc_transfer_channel_id = 9;
 }
 message MsgRegisterPeerResponse {}
 

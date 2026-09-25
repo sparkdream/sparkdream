@@ -286,6 +286,7 @@ if [ "$STARTUP_DELAY" -gt 0 ] 2>/dev/null; then
     echo "Startup delay complete."
 fi
 
-# 8. Normal mode: start the Spark Dream blockchain node
-echo "Starting sparkdreamd with args: $@"
+# 8. Normal mode: exec the image CMD (sparkdreamd for node images,
+#    relayer-run for the Hermes image)
+echo "Starting: $@"
 exec "$@"

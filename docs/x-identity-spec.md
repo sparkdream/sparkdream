@@ -830,13 +830,13 @@ if err != nil {
 }
 denom := ibctransfertypes.Denom{
     Base:  peer.Identity.BondDenom,
-    Trace: []ibctransfertypes.Hop{{PortId: "transfer", ChannelId: peer.IBCChannel}},
+    Trace: []ibctransfertypes.Hop{{PortId: "transfer", ChannelId: peer.IbcTransferChannelId}},
 }
 ibcSparkDenom := denom.IBCDenom() // "ibc/" + uppercase-hex(sha256(denom.Path()))
 
 bankKeeper.SetDenomMetaData(ctx, banktypes.Metadata{
     Description: fmt.Sprintf("%s (IBC voucher on %s), sourced from peer chain %s via %s",
-        peer.Identity.BondDisplayName, localIdentity.ChainHumanName, peer.ChainID, peer.IBCChannel),
+        peer.Identity.BondDisplayName, localIdentity.ChainHumanName, peer.ChainID, peer.IbcTransferChannelId),
     DenomUnits: []*banktypes.DenomUnit{
         {Denom: ibcSparkDenom, Exponent: 0},
         {Denom: strings.ToLower(peer.Identity.BondDisplaySymbol) + ".ibc",
@@ -848,6 +848,8 @@ bankKeeper.SetDenomMetaData(ctx, banktypes.Metadata{
     Symbol:  peer.Identity.BondDisplaySymbol + ".ibc",  // e.g., "PSPK.ibc"
 })
 ```
+
+**The trace uses the transfer channel, not the federation channel.** A peer link is two IBC channels on one connection: the `federation` port channel (`ibc_channel_id`, which carries content and attestation packets) and the ICS-20 `transfer` channel that SPARK vouchers actually arrive on (`ibc_transfer_channel_id`). They are opened separately and rarely share a number, so `MsgRegisterPeer` takes the transfer channel as its own optional field and skips pre-registration when it is empty. Open the transfer channel before registering the peer, or the voucher renders as `ibc/<hash>` until the peer is re-registered.
 
 The `.ibc` suffix convention signals "wrapped foreign asset, not native local SPARK." Wallets render `PSPK.ibc` instead of `ibc/A1B2C3…`. DREAM is not pre-registered as an IBC denom because DREAM is non-IBC-transferable, so no voucher will ever exist.
 

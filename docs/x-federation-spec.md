@@ -578,6 +578,13 @@ message Peer {
                                       // MsgRegisterBridge time. Resolved value is captured on
                                       // each new service.Operator; existing operators keep
                                       // their original controller.
+  sparkdream.identity.v1.ChainIdentity peer_identity = 12;  // Optional peer chain identity
+                                      // (denoms, display symbols); drives IBC voucher
+                                      // metadata, see x-identity-spec.md §9.2.
+  string ibc_transfer_channel_id = 13; // This chain's end of the ICS-20 `transfer`
+                                      // channel to the peer. Distinct from ibc_channel_id
+                                      // (the `federation` port channel). Voucher metadata
+                                      // is keyed on it; empty skips it.
 }
 
 enum PeerType {
@@ -1279,6 +1286,9 @@ message MsgRegisterPeer {
                                   // tier-1 reports against this peer's bridge operators.
                                   // Empty → defaults to Operations Committee at
                                   // MsgRegisterBridge time.
+  sparkdream.identity.v1.ChainIdentity peer_identity = 8;  // Optional; see Peer.peer_identity
+  string ibc_transfer_channel_id = 9; // Optional ICS-20 transfer channel; must be a valid
+                                      // channel id. See Peer.ibc_transfer_channel_id.
 }
 ```
 
@@ -1288,7 +1298,9 @@ message MsgRegisterPeer {
 3. Check peer doesn't already exist (or is REMOVED — allow re-registration)
 4. If peer is REMOVED, verify it is NOT in `PeerRemovalQueue` — reject with `ErrPeerCleanupInProgress` if cleanup is still running. Re-registration is only allowed after all associated data has been fully cleaned up.
 5. If `controller_group` is non-empty, validate it via `commonsKeeper.IsGroupPolicyAddress(controller_group)` — reject garbage addresses up-front rather than silently falling back to OpsComm at bridge-registration time
+5b. If `ibc_channel_id` is non-empty, reject it when another non-REMOVED peer is already bound to it (`ErrInvalidRequest`). If `ibc_transfer_channel_id` is non-empty, it must be a well-formed channel id (`channel-N`), else `ErrInvalidRequest`; it is not checked for uniqueness, since vouchers are keyed per channel and two peers sharing one would only share a metadata entry.
 6. Set status to PENDING. **The only transition out of PENDING is `MsgResumePeer`** (Section 6.4) — neither the IBC channel handshake nor a first bridge binding activates a peer.
+6b. For a `PEER_TYPE_SPARK_DREAM` peer that supplies both `peer_identity` (with a `bond_denom`) and `ibc_transfer_channel_id`, pre-register bank `DenomMetadata` for the peer's SPARK voucher, `ibc/HASH(transfer/<ibc_transfer_channel_id>/<bond_denom>)`, with symbol `<bond_display_symbol>.ibc` ([x-identity-spec.md §9.2](x-identity-spec.md)). Keyed on the **transfer** channel, never on `ibc_channel_id`: the two channels are opened separately and rarely share a number. Skipped when either field is empty or the metadata already exists; a failure emits `federation_peer_metadata_skipped` rather than failing registration.
 7. Create default PeerPolicy (empty content types, conservative defaults)
 8. Emit `peer_registered` event
 

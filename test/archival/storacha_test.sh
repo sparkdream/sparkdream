@@ -19,6 +19,17 @@ if ! storacha whoami >/dev/null 2>&1; then
     exit 0
 fi
 
+# The service itself, which the CLI checks above cannot see: `whoami` reads
+# local credentials only. On 2026-09-25 up.storacha.network (the CLI's upload
+# endpoint, still hardcoded in @storacha/cli 3.0.1) had no DNS record at all,
+# public resolvers included, and status.storacha.network served a different
+# product. An unreachable upload host is an environment condition, not a
+# script regression, so it skips like a missing CLI does.
+if ! curl -s -m 15 -o /dev/null https://up.storacha.network/; then
+    skip "Storacha upload service unreachable (https://up.storacha.network) — skipping Storacha tests"
+    exit 0
+fi
+
 TEST_DIR=$(mktemp -d)
 trap "cleanup_test_dir '$TEST_DIR'; rm -rf '$TEST_DIR'" EXIT
 

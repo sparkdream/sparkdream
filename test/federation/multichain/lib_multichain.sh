@@ -205,11 +205,16 @@ wait_for_ibc_delivery() {
         fi
 
         if [ "$nudged" -eq 0 ] && [ "$i" -ge "$HALF" ] \
-                && [ -n "$NUDGE_CHAIN" ] && [ -n "$NUDGE_CHANNEL" ] \
-                && command -v "$HERMES" >/dev/null 2>&1; then
-            "$HERMES" --config "$HERMES_CONFIG" \
-                clear packets --chain "$NUDGE_CHAIN" --port federation --channel "$NUDGE_CHANNEL" \
-                >/dev/null 2>&1 || true
+                && [ -n "$NUDGE_CHAIN" ] && [ -n "$NUDGE_CHANNEL" ]; then
+            if [ "$(cat "$LIB_DIR/.relayer_mode" 2>/dev/null)" = "container" ]; then
+                # --relayer=container: hermes lives in the relayer image
+                bash "$LIB_DIR/relayer_container.sh" clear "$NUDGE_CHAIN" federation "$NUDGE_CHANNEL" \
+                    >/dev/null 2>&1 || true
+            elif command -v "$HERMES" >/dev/null 2>&1; then
+                "$HERMES" --config "$HERMES_CONFIG" \
+                    clear packets --chain "$NUDGE_CHAIN" --port federation --channel "$NUDGE_CHANNEL" \
+                    >/dev/null 2>&1 || true
+            fi
             nudged=1
         fi
 

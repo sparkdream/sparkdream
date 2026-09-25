@@ -58,6 +58,23 @@ echo "  Channel B: $CHANNEL_B"
 echo ""
 
 # ------------------------------------------------------------------
+# 1b. A transfer channel beside the federation one (--relayer=container
+#     opens both): register it too, with the peer's chain identity, so each
+#     chain pre-registers voucher metadata for the other's SPARK under the
+#     transfer channel's trace (test_crosschain_transfer.sh checks it)
+# ------------------------------------------------------------------
+EXTRA_A=""
+EXTRA_B=""
+if [ -n "${TRANSFER_CHANNEL_A:-}" ] && [ -n "${TRANSFER_CHANNEL_B:-}" ]; then
+    ID_A=$(qcli_a identity chain-identity | jq -c '.identity')
+    ID_B=$(qcli_b identity chain-identity | jq -c '.identity')
+    EXTRA_A=", \"ibc_transfer_channel_id\": \"$TRANSFER_CHANNEL_A\", \"peer_identity\": $ID_B"
+    EXTRA_B=", \"ibc_transfer_channel_id\": \"$TRANSFER_CHANNEL_B\", \"peer_identity\": $ID_A"
+    echo "  Transfer channels: A=$TRANSFER_CHANNEL_A B=$TRANSFER_CHANNEL_B (registered with peer identity)"
+    echo ""
+fi
+
+# ------------------------------------------------------------------
 # 2. Register fedtest-b as peer on chain-a
 # ------------------------------------------------------------------
 echo "=== Registering peer 'fedtest-b' on chain-a ==="
@@ -71,7 +88,7 @@ cat > "$PROP_DIR/register_peer_b.json" <<EOF
     "peer_id": "fedtest-b",
     "type": "PEER_TYPE_SPARK_DREAM",
     "display_name": "",
-    "ibc_channel_id": "$CHANNEL_A"
+    "ibc_channel_id": "$CHANNEL_A"$EXTRA_A
   }],
   "metadata": "Register chain-b as IBC peer"
 }
@@ -118,7 +135,7 @@ cat > "$PROP_DIR/register_peer_a.json" <<EOF
     "peer_id": "fedtest-a",
     "type": "PEER_TYPE_SPARK_DREAM",
     "display_name": "",
-    "ibc_channel_id": "$CHANNEL_B"
+    "ibc_channel_id": "$CHANNEL_B"$EXTRA_B
   }],
   "metadata": "Register chain-a as IBC peer"
 }
@@ -149,6 +166,41 @@ submit_ops_proposal_b "$PROP_DIR/activate_peer_a.json" "activate peer fedtest-a"
 # Verify
 PEER_B_STATUS=$(qcli_b federation get-peer fedtest-a | jq -r '.peer.status // "PEER_STATUS_PENDING"')
 echo "  chain-b peer 'fedtest-a' status: $PEER_B_STATUS"
+
+# ------------------------------------------------------------------
+# 6. A non-IBC peer on chain-a, for the negative paths that need a peer of
+#    the wrong KIND rather than no peer at all (test_crosschain_reputation.sh
+#    TEST 2: reputation attestation is Spark-Dream-only). Registration alone
+#    is enough -- the keeper checks the type before the status -- so it stays
+#    PENDING and nothing can federate to it.
+# ------------------------------------------------------------------
+echo ""
+echo "=== Registering ActivityPub peer 'mastodon.example' on chain-a ==="
+
+if qcli_a federation get-peer mastodon.example >/dev/null 2>&1; then
+    echo "  already registered - skipping"
+else
+    cat > "$PROP_DIR/register_peer_ap.json" <<EOF
+{
+  "policy_address": "$CC_POLICY_A",
+  "messages": [{
+    "@type": "/sparkdream.federation.v1.MsgRegisterPeer",
+    "authority": "$CC_POLICY_A",
+    "peer_id": "mastodon.example",
+    "type": "PEER_TYPE_ACTIVITYPUB",
+    "display_name": "Test ActivityPub peer"
+  }],
+  "metadata": "Register a non-IBC peer for negative tests"
+}
+EOF
+    submit_ops_proposal_a "$PROP_DIR/register_peer_ap.json" "register peer mastodon.example"
+fi
+PEER_AP_TYPE=$(qcli_a federation get-peer mastodon.example | jq -r '.peer.type // "not found"')
+echo "  chain-a peer 'mastodon.example' type: $PEER_AP_TYPE"
+if [ "$PEER_AP_TYPE" != "PEER_TYPE_ACTIVITYPUB" ]; then
+    echo "ERROR: ActivityPub test peer was not registered"
+    exit 1
+fi
 
 echo ""
 echo "=================================================="

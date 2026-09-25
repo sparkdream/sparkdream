@@ -16,6 +16,11 @@ pkill -f "sparkdreamd.*data/chain-b" 2>/dev/null && echo "  Sent TERM to chain-b
 # Stop Hermes by config path
 pkill -f "hermes.*hermes_config.toml" 2>/dev/null && echo "  Sent TERM to hermes" || true
 
+# --relayer=container: the relayer image, its volume and gRPC bridges
+if [ -f "$SCRIPT_DIR/.relayer_mode" ] || docker inspect sd-relayer-e2e >/dev/null 2>&1; then
+    bash "$SCRIPT_DIR/relayer_container.sh" stop 2>/dev/null || true
+fi
+
 # Wait up to 10s for graceful shutdown
 for i in $(seq 1 10); do
     REMAIN=0

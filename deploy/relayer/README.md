@@ -7,6 +7,15 @@ travel over. The local two-chain equivalent lives in
 [test/federation/multichain/](../../test/federation/multichain/); this is the
 same shape pointed at deployed networks.
 
+The same bring-up is also packaged as a container,
+[`deploy/docker/Dockerfile-hermes`](../docker/Dockerfile-hermes), which the chain
+launcher deploys as its relayer component. Its
+[`relayer-bringup`](../docker/hermes/relayer-bringup.sh) generalises
+`bringup.sh` to any number of paths (ICS-20 `transfer` and `federation`
+channels, to any counterparty) and keys connections per chain pair rather than
+"any connection exists". The scripts here stay the hand-run path for the
+canonical dev/test link.
+
 ## After a chain reset — start here
 
 Resetting either chain destroys everything this link is built on: IBC clients,
@@ -119,10 +128,12 @@ redeploy, and point `grpc_addr` at the mesh IPs.
 ## Hermes version
 
 The multichain suite asks for **1.13.3 or newer** (1.13.0 was the first release
-with full ibc-go/v10 support). The binary currently on this dev box is
-**1.13.2** — above the functional floor but below the suite's stated bar, so it
-may work and may hit handshake bugs. Worth upgrading before spending time
-debugging a failed channel open:
+with full ibc-go/v10 support). **`hermes version` cannot tell you which you
+have:** the v1.13.3 release binary reports itself as `v1.13.2+bab3b80`
+(upstream did not bump the version string). Check the file hash instead; the
+v1.13.3 x86_64 binary is
+`ed8d57781f57a93e74259c12c8feee661b9633c882307f3a6236e41dbf5ffe35`, and the
+one on this dev box matches it. To install it:
 
 ```bash
 HERMES_VERSION=v1.13.3

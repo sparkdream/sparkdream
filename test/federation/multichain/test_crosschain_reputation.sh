@@ -219,7 +219,8 @@ NONIBC_PEER_ID="mastodon.example"
 # exits non-zero — `set -e` would then abort the entire phase silently right
 # after printing the TEST 2 heading, masking the SKIP path as a hard failure.
 NONIBC_PEER_DATA=$(qcli_a federation get-peer "$NONIBC_PEER_ID" 2>/dev/null || true)
-NONIBC_PEER_TYPE=$(echo "$NONIBC_PEER_DATA" | jq -r '.peer.peer_type // empty' 2>/dev/null || true)
+# the Peer field is `type` (proto), not `peer_type`
+NONIBC_PEER_TYPE=$(echo "$NONIBC_PEER_DATA" | jq -r '.peer.type // empty' 2>/dev/null || true)
 
 if [ -z "$NONIBC_PEER_TYPE" ] || [ "$NONIBC_PEER_TYPE" = "PEER_TYPE_SPARK_DREAM" ] || [ "$NONIBC_PEER_TYPE" = "null" ]; then
     echo "  No non-IBC peer registered as $NONIBC_PEER_ID (peer_type=${NONIBC_PEER_TYPE:-<missing>})"

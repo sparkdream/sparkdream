@@ -14,10 +14,16 @@
 #   ./run_all_multichain_tests.sh --skip-prereqs # Skip host prereq check
 #   ./run_all_multichain_tests.sh --no-auto-snapshot
 #                                                # Fail instead of auto-creating a missing snapshot
+#   ./run_all_multichain_tests.sh --relayer=container
+#                                                # Relay with the Hermes relayer IMAGE (the
+#                                                # launcher's relayer component) instead of a
+#                                                # host hermes; also opens a transfer channel,
+#                                                # which the ICS-20 transfer tests need
 #
 # Environment:
 #   BINARY    path to sparkdreamd (default: sparkdreamd)
-#   HERMES    path to hermes (default: hermes on PATH)
+#   HERMES    path to hermes (default: hermes on PATH; unused with --relayer=container)
+#   RELAYER_IMAGE  --relayer=container: use this image instead of building one
 #   SNAPSHOT  path to post-setup snapshot (default: ../snapshots/post-setup/sparkdream_data)
 # ------------------------------------------------------------------
 set -e
@@ -41,6 +47,7 @@ RUN_PROVISION=true
 RUN_CLEANUP=true
 SKIP_PREREQS=false
 AUTO_SNAPSHOT=true
+RELAYER=host
 
 for arg in "$@"; do
     case $arg in
@@ -48,8 +55,10 @@ for arg in "$@"; do
         --no-cleanup)                RUN_CLEANUP=false ;;
         --skip-prereqs)              SKIP_PREREQS=true ;;
         --no-auto-snapshot)          AUTO_SNAPSHOT=false ;;
+        --relayer=host)              RELAYER=host ;;
+        --relayer=container)         RELAYER=container ;;
         --help|-h)
-            sed -n '4,21p' "$0" | sed 's/^# //; s/^#//'
+            sed -n '4,28p' "$0" | sed 's/^# //; s/^#//'
             exit 0
             ;;
         *)
@@ -58,6 +67,9 @@ for arg in "$@"; do
             ;;
     esac
 done
+
+# the phases (check_prereqs.sh) read it
+export RELAYER
 
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
@@ -137,7 +149,11 @@ echo "==========================================================================
 echo ""
 echo "  Chain A: fedtest-a (RPC: 56657)"
 echo "  Chain B: fedtest-b (RPC: 36657)"
-echo "  hermes:  ${HERMES:-hermes}"
+if [ "$RELAYER" = "container" ]; then
+    echo "  relayer: container (${RELAYER_IMAGE:-built from deploy/docker/Dockerfile-hermes})"
+else
+    echo "  hermes:  ${HERMES:-hermes}"
+fi
 echo "  binary:  ${BINARY:-sparkdreamd}"
 echo ""
 
@@ -170,8 +186,12 @@ if [ "$RUN_PROVISION" = true ]; then
 
     run_phase "Init Chains"             "init_chains.sh"      || exit 1
     run_phase "Start Chains"            "start_chains.sh"     || exit 1
-    run_phase "IBC Setup"               "setup_ibc.sh"        || exit 1
-    run_phase "Start Hermes Relayer"    "start_relayer.sh"    || exit 1
+    if [ "$RELAYER" = "container" ]; then
+        run_phase "IBC Setup (relayer container)" "relayer_container.sh" || exit 1
+    else
+        run_phase "IBC Setup"               "setup_ibc.sh"        || exit 1
+        run_phase "Start Hermes Relayer"    "start_relayer.sh"    || exit 1
+    fi
     run_phase "Peer Setup"              "setup_peers.sh"      || exit 1
     run_phase "Policy Setup"            "setup_policies.sh"   || exit 1
     run_phase "Chain-Specific Keys"     "setup_chain_keys.sh" || exit 1
@@ -191,6 +211,7 @@ echo "==========================================================================
 run_phase "Cross-Chain Content"    "test_crosschain_content.sh"    || true
 run_phase "Cross-Chain Identity"   "test_crosschain_identity.sh"   || true
 run_phase "Cross-Chain Reputation" "test_crosschain_reputation.sh" || true
+run_phase "Cross-Chain Transfer"   "test_crosschain_transfer.sh"   || true
 
 # ==========================================================================
 # Final Summary

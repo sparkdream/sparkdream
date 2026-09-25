@@ -163,7 +163,7 @@ SPARK on x/service.
 
 | Msg | Access | Purpose |
 |---|---|---|
-| `MsgRegisterPeer` | Ops Committee member | Register a peer (with optional `controller_group`); lands PENDING |
+| `MsgRegisterPeer` | Ops Committee member | Register a peer (with optional `controller_group`, and for Spark Dream peers optional `peer_identity` + `ibc_transfer_channel_id`, which pre-register the peer's SPARK voucher metadata under the transfer channel's trace); lands PENDING |
 | `MsgRemovePeer` | Ops Committee member | Tombstone a peer (cursor-based pruning in EndBlocker) |
 | `MsgSuspendPeer` | Ops Committee member | ACTIVE → SUSPENDED; the emergency brake, deliberately 1-of-N |
 | `MsgResumePeer` | Ops Committee **policy** (a passed vote), Council policy, or gov | PENDING/SUSPENDED → ACTIVE. Activation is the trust decision, so it takes a vote |
