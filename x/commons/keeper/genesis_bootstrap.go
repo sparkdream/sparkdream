@@ -554,6 +554,19 @@ func (k Keeper) BootstrapGovernance(ctx context.Context, founders []types.Foundi
 			// Resolve service-side reports against bridge operators
 			// (controllers are x/commons Group policy addresses).
 			"/sparkdream.service.v1.MsgResolveReport",
+			// Own a federation peer's author-curation list (PeerPolicy.
+			// curation): the committee creates the x/collect collection and
+			// adds members as editors, who curate it without a proposal per
+			// author; the committee keeps item and collaborator edits for
+			// disputes. x/collect gives a group policy address member
+			// treatment for ownership (ownsAsMember).
+			"/sparkdream.collect.v1.MsgCreateCollection",
+			"/sparkdream.collect.v1.MsgUpdateCollection",
+			"/sparkdream.collect.v1.MsgAddCollaborator",
+			"/sparkdream.collect.v1.MsgRemoveCollaborator",
+			"/sparkdream.collect.v1.MsgUpdateCollaboratorRole",
+			"/sparkdream.collect.v1.MsgAddItem",
+			"/sparkdream.collect.v1.MsgRemoveItem",
 		},
 		MaxSpendPerEpoch: math.NewInt(10000000000),
 		UpdateCooldown:   int64(CommitteeUpdateCooldown.Seconds()),

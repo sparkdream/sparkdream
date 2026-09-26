@@ -858,6 +858,8 @@ message MsgCreateCollectionResponse {
 3. TTL (`expires_at > 0`): transfer `base_collection_deposit` to module account
 4. Permanent (`expires_at = 0`): burn `base_collection_deposit` (**members only** — non-members rejected)
 
+"Member" here means an owner with member treatment: an `x/rep` member, **or a commons council/committee policy address** (`CommonsKeeper.IsGroupPolicyAddress`) acting for the community through a proposal. That covers ownership only (ACTIVE status, permanent collections, member fees); voting, flagging and other member actions stay with `x/rep` members. The motivating case is a federation peer's author-curation list, owned by the Operations Committee with members added as editor collaborators (see Section 15.2).
+
 **Status assignment:**
 - **Members**: `status = ACTIVE`, `community_feedback_enabled = true` (default)
 - **Non-members**: `status = PENDING`, `seeking_endorsement = true`, `immutable = false`, `community_feedback_enabled = true` (default). Non-member collections start seeking endorsement immediately to appear in the endorsement discovery feed. Non-members can toggle this off via `MsgSetSeekingEndorsement` if they want to curate items before seeking endorsement
@@ -2573,6 +2575,8 @@ Client-side join: resolve `owner` → name for display. No keeper dependency.
 - **Operational params**: `IsCouncilAuthorized(ctx, addr, "commons", "operations")` gates `MsgUpdateOperationalParams`.
 - **Three-level check**: accepts x/gov authority, Commons Council policy address, or Operations Committee member.
 - **Optional dependency**: if `x/commons` is not wired (e.g., during development), falls back to x/gov authority check only.
+- **Committee-owned collections**: `IsGroupPolicyAddress(ctx, addr)` gives a council or committee policy address member treatment as a collection *owner* (Section 5.1), so a committee can own a permanent, ACTIVE list and delegate its day-to-day curation to member collaborators.
+- **Federation author curation**: x/federation reads a collection's active link item URIs (`Keeper.ActiveLinkURIs(ctx, id)`, false unless the collection exists and is ACTIVE) as the admitted authors of a bridged peer (`PeerPolicy.curation`, see x-federation-spec Section 4.2). Removing an item or hiding the collection takes effect on the next bridged submission.
 
 ### 15.3. x/rep (Membership, Reputation, Jury)
 - **Permanent collections**: Only members can create permanent collections directly.

@@ -216,7 +216,8 @@ set_peer_policy() {
         "allow_reputation_queries": $ALLOW_REP,
         "accept_reputation_attestations": $ACCEPT_REP,
         "require_review": false,
-        "blocked_identities": $BLOCKED_JSON
+        "blocked_identities": $BLOCKED_JSON,
+        "allowed_identities": ["*"]
       }
     }
   ],

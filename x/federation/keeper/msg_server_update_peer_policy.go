@@ -77,6 +77,28 @@ func (k msgServer) UpdatePeerPolicy(ctx context.Context, msg *types.MsgUpdatePee
 		}
 	}
 
+	// Validation 5: author curation. Both gates only act on bridged content
+	// (MsgSubmitFederatedContent), which Spark Dream peers never receive.
+	if len(msg.Policy.AllowedIdentities) > types.MaxAllowedIdentities {
+		return nil, errorsmod.Wrapf(types.ErrInvalidParamValue,
+			"allowed_identities has %d entries, max %d (curate a larger list in a collection)",
+			len(msg.Policy.AllowedIdentities), types.MaxAllowedIdentities)
+	}
+	if err := types.ValidateAllowedIdentities(msg.Policy.AllowedIdentities); err != nil {
+		return nil, err
+	}
+	if msg.Policy.Curation != nil {
+		if peer.Type == types.PeerType_PEER_TYPE_SPARK_DREAM {
+			return nil, errorsmod.Wrapf(types.ErrPeerTypeMismatch, "curation only applies to bridged (external-protocol) peers")
+		}
+		// a typo'd collection id would silently admit nobody: refuse it now
+		if _, ok, err := k.curationLinks(ctx, msg.Policy.Curation.CollectionId); err != nil {
+			return nil, err
+		} else if !ok {
+			return nil, errorsmod.Wrapf(types.ErrCurationUnavailable, "collection %d", msg.Policy.Curation.CollectionId)
+		}
+	}
+
 	// Set peer_id on the policy to ensure consistency
 	msg.Policy.PeerId = msg.PeerId
 

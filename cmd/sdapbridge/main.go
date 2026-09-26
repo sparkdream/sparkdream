@@ -36,6 +36,12 @@
 //     accepts Mastodon's indexable setting instead. Every mode honours
 //     #nobridge / #nobot in the author's profile. Checked before fetching
 //     anything of theirs, outbox backfill included.
+//   - Community curation before consent: an author the peer's policy does
+//     not admit (allowed_identities / curation collection, read over the
+//     LCD) is dropped before the consent check. Every SDA_FOLLOW_SYNC
+//     (default 5m) the bridge account follows the admitted authors and
+//     unfollows ones dropped from a curated list (token scope
+//     "read write:follows").
 //   - One process, many peers (SDA_PEER_IDS): each source instance is its
 //     own chain peer; posts are routed by host, and peers this operator
 //     holds no binding on are dropped at startup.
@@ -152,6 +158,10 @@ func main() {
 			return FetchContentHosts(ctx, chain, id)
 		}),
 		startedAt: time.Now(),
+		// each peer's author curation, as the chain states it
+		gateSource: func(ctx context.Context, id string) (authorGate, error) {
+			return FetchAuthorGate(ctx, chain, id)
+		},
 		digest: func(ctx context.Context, url string) (string, error) {
 			return apcanon.FetchMediaDigest(ctx, url, apcanon.FetchOptions{
 				AllowPrivateHosts: cfg.AllowPrivateHosts,
@@ -223,6 +233,8 @@ func classifyDeliverTx(res sdaptx.TxResult) error {
 		return fmt.Errorf("%w: %s", ErrSupersedeRejected, res.RawLog)
 	case types.ErrContentTypeNotAllowed.ABCICode(),
 		types.ErrIdentityBlocked.ABCICode(),
+		types.ErrIdentityNotAllowed.ABCICode(),
+		types.ErrIdentityNotCurated.ABCICode(),
 		types.ErrContentHostMismatch.ABCICode(),
 		types.ErrCreatorHostMismatch.ABCICode(),
 		types.ErrPeerNotActive.ABCICode(),
@@ -313,7 +325,9 @@ func loadConfig() Config {
 		RevisitInterval:   envDuration("SDA_REVISIT", 5*time.Minute),
 		RevisitWindow:     envDuration("SDA_REVISIT_WINDOW", 72*time.Hour),
 		ReconcileInterval: envDuration("SDA_RECONCILE", 15*time.Minute),
-		ReconcileLookback: envDuration("SDA_RECONCILE_LOOKBACK", 24*time.Hour),
+		// follow exactly the authors the peers' curation admits
+		FollowSyncInterval: envDuration("SDA_FOLLOW_SYNC", 5*time.Minute),
+		ReconcileLookback:  envDuration("SDA_RECONCILE_LOOKBACK", 24*time.Hour),
 		// Local test instances only (INSTANCE_SETUP.md); never a real peer.
 		AllowPrivateHosts: envBool("SDA_ALLOW_PRIVATE_HOSTS", false),
 	}

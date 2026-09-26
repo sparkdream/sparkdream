@@ -3,9 +3,10 @@
 # When a module runner is invoked with no explicit `--save-setup`,
 # `--restore-setup`, or `--no-auto-snapshot` flag, this helper:
 #
-#   - Restores from snapshots/post-setup when present and fresh
-#     (i.e. the SHA-256 of setup_test_accounts.sh matches the snapshot's
-#     recorded hash). Skips setup_test_accounts.sh in that case.
+#   - Restores from snapshots/post-setup when present and fresh (its
+#     recorded fingerprint -- setup_test_accounts.sh, the sparkdreamd binary
+#     and config.yml, see _snapshot_fingerprint.sh -- matches the current
+#     one). Skips setup_test_accounts.sh in that case.
 #   - Otherwise marks AUTO_SAVE_AFTER_SETUP=true so that the runner saves a
 #     fresh snapshot once setup completes, then restarts the chain.
 #
@@ -16,9 +17,9 @@
 # (test/run_all_tests.sh) keeps managing the chain itself; in that path the
 # chain is already running so the auto-start is a no-op.
 #
-# The setup-script hash gate prevents stale snapshots from masking
-# setup-script changes. To force a refresh manually, delete the snapshot dir
-# or pass `--save-setup`.
+# The fingerprint gate prevents stale snapshots from masking setup-script,
+# chain-code or genesis-config changes. To force a refresh manually, delete
+# the snapshot dir or pass `--save-setup`.
 #
 # Required caller-supplied variables (set before sourcing):
 #   SCRIPT_DIR  — the module's directory (where run_all_tests.sh lives)
@@ -36,6 +37,8 @@ fi
 # SCRIPT_DIR is the module dir (test/<module>/); the helper lives one up.
 # shellcheck source=./_safe_rm.sh
 source "$SCRIPT_DIR/../_safe_rm.sh"
+# shellcheck source=./_snapshot_fingerprint.sh
+source "$SCRIPT_DIR/../_snapshot_fingerprint.sh"
 
 # These remain settable by the caller — initialize only if unset.
 : "${BINARY:=sparkdreamd}"
@@ -141,18 +144,20 @@ _auto_init_and_start_chain() {
     return 1
 }
 
-# Returns 0 if a snapshot exists and its setup_hash matches the current
-# setup_test_accounts.sh content. Returns 1 otherwise.
+# Returns 0 if a snapshot exists and its fingerprint matches the current
+# inputs. Returns 1 otherwise, leaving the changed inputs in _SNAPSHOT_STALE.
 _snapshot_is_fresh() {
+    _SNAPSHOT_STALE=""
     [ -f "$_SNAPSHOT_PATH/restore.sh" ] || return 1
-    [ -f "$_SETUP_SCRIPT" ] || return 0  # no setup script → freshness vacuously OK
-    [ -f "$_SNAPSHOT_PATH/setup_hash" ] || return 1
+    _SNAPSHOT_STALE=$(snapshot_stale_inputs "$_SNAPSHOT_PATH" "$_SETUP_SCRIPT")
+}
 
-    local current_hash stored_hash
-    current_hash=$(sha256sum "$_SETUP_SCRIPT" 2>/dev/null | cut -d' ' -f1)
-    stored_hash=$(cat "$_SNAPSHOT_PATH/setup_hash" 2>/dev/null)
-    [ -n "$current_hash" ] || return 1
-    [ "$current_hash" = "$stored_hash" ]
+# Human-readable reason for a stale snapshot, from _SNAPSHOT_STALE.
+_snapshot_stale_label() {
+    case "$_SNAPSHOT_STALE" in
+        unrecorded) echo "saved before snapshot fingerprints" ;;
+        *) echo "changed: $(echo "$_SNAPSHOT_STALE" | sed 's/setup/setup_test_accounts.sh/; s/binary/sparkdreamd binary/')" ;;
+    esac
 }
 
 # Called once after arg parsing, before the existing restore-setup branch.
@@ -168,7 +173,7 @@ auto_snapshot_pre() {
 
     if _snapshot_is_fresh; then
         echo "==========================================================================="
-        echo "AUTO-SNAPSHOT: Reusing existing snapshot (setup_test_accounts.sh unchanged)"
+        echo "AUTO-SNAPSHOT: Reusing existing snapshot (setup script, binary and config.yml unchanged)"
         echo "==========================================================================="
         echo "  Snapshot: $_SNAPSHOT_PATH"
         echo "  (Pass --no-auto-snapshot or delete the snapshot to force a refresh.)"
@@ -180,7 +185,7 @@ auto_snapshot_pre() {
         RUN_SETUP=false
     else
         if [ -f "$_SNAPSHOT_PATH/restore.sh" ]; then
-            echo "AUTO-SNAPSHOT: setup_test_accounts.sh changed since last snapshot — will refresh."
+            echo "AUTO-SNAPSHOT: snapshot is stale ($(_snapshot_stale_label)) — will refresh."
         else
             echo "AUTO-SNAPSHOT: no snapshot found at $_SNAPSHOT_PATH — will create one after setup."
         fi
@@ -259,10 +264,8 @@ auto_snapshot_post() {
         echo "  WARNING: snapshot save returned exit code $rc — continuing anyway."
     fi
 
-    # Record the setup-script hash so future runs can detect script changes.
-    if [ -f "$_SETUP_SCRIPT" ] && [ -d "$_SNAPSHOT_PATH" ]; then
-        sha256sum "$_SETUP_SCRIPT" 2>/dev/null | cut -d' ' -f1 > "$_SNAPSHOT_PATH/setup_hash"
-    fi
+    # Record the fingerprint so future runs can detect input changes.
+    snapshot_write_fingerprint "$_SNAPSHOT_PATH" "$_SETUP_SCRIPT"
 
     # snapshot_datadir.sh stops the chain to produce a consistent copy.
     # Restart it so the test run can continue.

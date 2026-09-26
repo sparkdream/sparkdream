@@ -5,15 +5,12 @@
 # Removes test/<module>/snapshots/post-setup/ directories so the next run of
 # any module's run_all_tests.sh forces a fresh setup_test_accounts.sh + save.
 #
-# Use this after changes that affect the snapshot's chain state but leave
-# setup_test_accounts.sh unchanged (so the SHA-256 hash gate in
-# test/_auto_snapshot.sh would otherwise reuse a stale snapshot). Examples:
-#   - config.yml category_map / commons params changes
-#   - module DefaultParams() / DefaultGenesis() changes
-#   - new genesis-handle assignments in x/name
-#   - x/session ceiling expansions
-#   - any deploy/config/network/*/config.yml change that ripples through
-#     deploy/scripts/regenerate-network-genesis.py
+# Snapshots already refresh on their own when setup_test_accounts.sh, the
+# sparkdreamd binary or config.yml changes (the fingerprint gate in
+# test/_snapshot_fingerprint.sh), which covers code changes such as
+# DefaultParams(), genesis bootstrap and x/session ceilings, and config.yml
+# edits. Use this for what the gate cannot see: state a setup script pulls in
+# from elsewhere (a sourced helper, a fixture file), or to reclaim disk.
 #
 # Snapshots regenerate lazily — this script does NOT rebuild them. The next
 # `bash test/<module>/run_all_tests.sh` invocation (without --restore-setup)

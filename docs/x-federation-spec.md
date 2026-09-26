@@ -637,6 +637,14 @@ message PeerPolicy {
 
   // Provenance (ActivityPub peers only)
   repeated string content_hosts = 11;              // Extra hosts allowed in an inbound content_uri, beyond the peer id
+
+  // Author curation (bridged content only)
+  repeated string allowed_identities = 12;         // Admitted authors ("@user@host"), or "*" for any. Empty admits nobody
+  IdentityCuration curation = 13;                  // Optional x/collect collection that must also list the author
+}
+
+message IdentityCuration {
+  uint64 collection_id = 1;                        // x/collect collection whose active link items name the admitted authors
 }
 ```
 
@@ -645,6 +653,24 @@ account domain (a Mastodon `WEB_DOMAIN` split). Otherwise leave it empty: only t
 id's own host is accepted (see `SubmitFederatedContent` step 4b). `MsgUpdatePeerPolicy`
 accepts it only for ActivityPub peers, at most 8 entries, each a lowercase hostname in
 the peer-id grammar (no port), without duplicates.
+
+#### Author curation
+
+A bridge relays what its instance's accounts post, but which remote authors get anchored on this chain is the community's decision, not the operator's: the members chose the peer, so they also choose who from it is in scope. `allowed_identities` and `curation` are two gates on `MsgSubmitFederatedContent`, and an author is admitted only when **both** pass (`blocked_identities` still overrides both):
+
+| `allowed_identities` | `curation` | Who is admitted |
+|---|---|---|
+| empty (the default) | unset | nobody: a new external peer anchors nothing until the committee decides |
+| `["@a@host", ...]` | unset | the listed authors |
+| `["*"]` | unset | any author of the peer |
+| `["*"]` | set | exactly the collection's authors |
+| `["@a@host", ...]` | set | authors who are both listed and in the collection |
+
+The list is edited by committee proposal and is capped at 256 entries (`types.MaxAllowedIdentities`). The collection is the day-to-day tool: the usual setup is a collection **owned by the Operations Committee's policy address** (x/collect treats a commons group policy address as a member for collection ownership, so it is ACTIVE and permanent) with members added as `COLLABORATOR_ROLE_EDITOR` collaborators, who then curate by adding and removing link items without a proposal per author. The committee's genesis `AllowedMessages` carry the collect messages this needs (`MsgCreateCollection`, `MsgUpdateCollection`, `MsgAddCollaborator`, `MsgRemoveCollaborator`, `MsgUpdateCollaboratorRole`, `MsgAddItem`, `MsgRemoveItem`); `TestOpsCommitteeCanOwnCurationCollections` pins them. Only **active link items** (`LinkReference.uri`) of an **ACTIVE** collection count; hidden items and non-link items are ignored, and a hidden or missing collection admits nobody (`ErrCurationUnavailable`).
+
+Entries and items may be written as `@user@host`, `user@host`, the profile URL `https://host/@user`, or the actor id `https://host/users/user`; all are normalized to lowercase `user@host` before comparing (`types.NormalizeAuthorIdentity`). An unattributed submission (empty `creator_identity`) passes only an open policy: `"*"` and no collection.
+
+The chain gate is the enforcement. The bridge daemon reads the same policy and collection and applies them before submitting, and it keeps the bridge account's follows in sync with the admitted set on its own instance so curated authors' posts reach it. The author's own consent (following the bridge account) is a separate, bridge-side rule on top: a curated author who has not opted in is still not relayed.
 
 ### 4.3. BridgeBinding
 
@@ -1403,6 +1429,8 @@ message MsgUpdatePeerPolicy {
 1. Verify all entries in `outbound_content_types` and `inbound_content_types` are present in `params.known_content_types` — reject with `ErrUnknownContentType` if any are not recognized
 2. Reject policies that include `"reveal_proposal"` or `"reveal_tranche"` in either content type list (see Section 15.7)
 3. If peer type is anything other than SPARK_DREAM (ACTIVITYPUB, ATPROTO, NOSTR, or LENS), reject if `allow_reputation_queries` or `accept_reputation_attestations` is true — reputation bridging is only supported for Spark Dream peers (reject with `ErrPeerTypeMismatch`)
+4. `content_hosts`: ActivityPub peers only, at most 8, lowercase hostnames, no duplicates (see Section 4.2)
+5. **Author curation** (see Section 4.2): `allowed_identities` has at most 256 entries, each `"*"` or a recognizable author identity (`ErrInvalidAllowedIdentity`). `curation` is refused on SPARK_DREAM peers (`ErrPeerTypeMismatch`) and must name an existing ACTIVE collection (`ErrCurationUnavailable`) so a mistyped id cannot silently admit nobody
 
 ### 6.6. RegisterBridge (Bridge Operator — Self)
 
@@ -1559,6 +1587,7 @@ message MsgSubmitFederatedContent {
 4. Verify `creator_identity` is not in `blocked_identities`
    - 4b. **Provenance (ActivityPub peers).** A non-empty `content_uri` must be an http(s) URL whose hostname (port and userinfo ignored) is the peer id or one of the policy's `content_hosts`; otherwise `ErrContentHostMismatch`. Without it a bridge bonded for one peer could anchor another instance's posts under that peer's name. AT Protocol ids are `at://` URIs whose authority is a DID, so the rule does not apply there. An empty `content_uri` is still accepted: nothing can fetch it, so no honest verifier can confirm it. The rule lives in `types.ContentURIHostAllowed`, which the bridge and verifier daemons call too.
    - 4c. **Attribution (ActivityPub peers).** A non-empty `creator_identity` (`@user@host`, leading `@` optional, port ignored) must have a host that is the peer id or one of its `content_hosts`; otherwise `ErrCreatorHostMismatch`. Without it a bridge could anchor the peer's own post as `@anyone@elsewhere`. An empty `creator_identity` is still accepted (unattributed). Rule: `types.CreatorIdentityHostAllowed`, also applied by both daemons.
+   - 4d. **Author curation.** The author must pass the policy's `allowed_identities` gate (`ErrIdentityNotAllowed`) and, when `curation` is set, be an active link item of that collection (`ErrIdentityNotCurated`; `ErrCurationUnavailable` if the collection is no longer ACTIVE). See Section 4.2. Rule: `Keeper.CheckAuthorAdmitted`.
 5. Check rate limits (see Section 10.2 for sliding window details)
 6. **Content hash** (MUST be provided): The `content_hash` field is **required** — reject with `ErrContentHashRequired` if empty. The rule is **per peer type**:
     - **SPARK_DREAM (IBC) peers:** `SHA-256(title + body)` computed from the **full, untruncated** source content. The sending chain computes the hash itself and the receiving side never re-fetches anything, so this simpler rule is sufficient.
@@ -1612,12 +1641,13 @@ message MsgSubmitFederatedContent {
 - **Edits are found by a revisit sweep, not discovery.** An edited status keeps its id, so the `since_id` cursor never re-lists it. The bridge re-checks recently anchored statuses in batches of 20 (`GET /api/v1/statuses?id[]=`) and fetches AS2 only when `edited_at` has moved past the version last hashed. Mastodon caches AS2 bodies for 3 minutes, keyed without `updated_at`, so an edit can be visible over REST before AS2 serves it; the daemon records the AS2 `updated` it actually hashed, never REST's `edited_at`, and retries next sweep until AS2 catches up.
 - **Replies need a reconcile sweep.** Mastodon's home feed drops a reply unless the reader follows the account replied to, so home-timeline discovery never sees a followed author's reply to anyone else. The bridge periodically reads each followed account's recent public posts directly (`min_id`-paged, oldest-first) and anchors what the timeline did not deliver.
 - **Consent before content.** Anchoring puts a post on a public chain, a bigger step than federating it, and fediverse norms around bridging are opt-in. By default (`opt-in`) the bridge anchors only authors who follow the bridge account; `indexable` accepts Mastodon's indexable setting instead; `none` exists for test instances only. Every mode refuses an author whose bio or profile fields carry `#nobridge` or `#nobot`. The check runs before anything of the author's is fetched, outbox backfill included. Consent covers what comes after it: the daemon records when it first observes consent (backdated by its followers-cache TTL, never past the last observed refusal) and never anchors a post published earlier, so neither the reconcile lookback nor the outbox pass reaches an author's history. An unfollow or a `#nobridge` stops new anchors and edit re-anchors; content already anchored stays until `content_ttl`.
+- **Curation before consent, both required.** The daemon reads each peer's policy and curation collection over the LCD (cached 5 minutes, falling back to the last good read; an unreadable gate defers to the chain) and drops authors the chain would refuse (Section 4.2) before any consent check or fetch. Every `SDA_FOLLOW_SYNC` (default 5m) it follows each admitted author from the bridge account and unfollows those dropped from a curated list, so a curated author's posts reach the home timeline; it leaves follows alone on an open (`"*"`, no collection) or unreadable policy. Following an author is not consent: the author still has to follow back (or be indexable) before anything is anchored.
 - **One process, many peers.** Each source instance is its own peer, and one operator may hold bindings on many under one bond. The daemon routes each post to the configured peer that owns its host by the provenance rule, skips every other instance, skips a post whose author handle is on a host the peer does not own (the chain would refuse it), and drops at startup any configured peer it holds no binding on. Rejections no retry of *that post* can fix (type not allowed, identity blocked, host mismatch, peer not ACTIVE, binding gone) are skipped, not retried, so they cannot pin the discovery cursor that all peers share.
 - **Size `inbound_rate_limit_per_epoch` to the follow set.** The limit is per peer and every mirrored author on the instance shares it: roughly authors × posts per author per `rate_limit_window` × 1.3 (edits re-anchor), plus newly seen authors × the backfill depth. A submission over the limit is not lost, but every rejected attempt pays its fee and delays the post.
 - **A retryable failure never stalls other peers.** A post that fails for a retryable reason (the peer's rate limit, its instance unreachable, a transient chain error) goes to a persistent per-post retry queue with exponential backoff (1 min doubling to 30 min, given up after 24 h, loudly), and discovery moves on. The failing peer is held until its next retry, and its new posts queue behind the earlier ones with no submit attempt, so a throttled peer costs one probe per backoff step rather than one fee per post. Only a global condition (the bridge's own instance throttling) or a full queue (2000 posts) holds the shared cursor, and then nothing is dropped.
 - **First sight of an account runs one outbox pass** (bounded), because the home timeline only carries what arrived after the follow.
 - **The verifier runner is a separate binary, separate account, separate host, and separate network vantage point** — independence is the anti-fraud property. It re-fetches `content_uri` anonymously (or HTTP-Signature-signed when the instance requires it), recomputes via the shared canonicalizer, and submits `MsgVerifyContent` on a match. During bring-up it **alarms on mismatch instead of auto-submitting**: a mismatch is more likely a canonicalizer bug than operator fraud, and a wrong DISPUTED strands the verifier's committed bond. It applies the provenance rule before fetching and alarms, without fetching or verifying, on a `content_uri` that is not the peer's. **A matching hash is not enough to verify:** `MsgVerifyContent` binds only the hash, and the body, title, content type, timestamps and `protocol_metadata` are the operator's claims, so the runner also checks that the record shows the post it fetched — body a byte-prefix of the content cut no earlier than `max_content_body_size`, title equal to the content warning, `blog_reply` exactly when there is an `inReplyTo`, `remote_created_at` equal to `published`, metadata links equal to the object's, attachment entries equal to the object's own in order (digests included), and the `creator_identity` username equal to the author actor's `preferredUsername`. Any difference raises a MISREPRESENTED alarm and the record is not verified. A mismatch whose fetched object has a later `updated` than the anchored `protocol_metadata.updated` is an edit, not fraud: it is logged once and neither verified nor alarmed, since the bridge anchors the new version as its own record.
-- Daemon credentials are two-key: the chain key (raw operator/verifier key, or an x/session key scoped to the allowlisted federation daemon messages) and the Mastodon OAuth app token (read-only, independently rotated). HTTP Signatures (draft-cavage — **not** RFC 9421, which is a wire-incompatible scheme the fediverse does not implement) are only needed for fetching from secure-mode instances.
+- Daemon credentials are two-key: the chain key (raw operator/verifier key, or an x/session key scoped to the allowlisted federation daemon messages) and the Mastodon OAuth app token (scopes `read write:follows`, independently rotated; the follow scope is only for keeping the bridge account's follows in sync with author curation). HTTP Signatures (draft-cavage — **not** RFC 9421, which is a wire-incompatible scheme the fediverse does not implement) are only needed for fetching from secure-mode instances.
 
 ### 6.16. FederateContent (Content Creator)
 
@@ -2611,6 +2641,10 @@ Bridge operators can be slashed for:
 | `ErrContentHostMismatch` | 2382 | `MsgSubmitFederatedContent` on an ActivityPub peer: `content_uri` host is neither the peer id nor one of its `content_hosts` |
 | `ErrInvalidSupersede` | 2383 | `MsgSubmitFederatedContent.supersedes` does not name an unsuperseded record of the same `content_uri`, operator and peer |
 | `ErrCreatorHostMismatch` | 2384 | `MsgSubmitFederatedContent` on an ActivityPub peer: `creator_identity` host is neither the peer id nor one of its `content_hosts` |
+| `ErrIdentityNotAllowed` | 2385 | `MsgSubmitFederatedContent`: the author is not in the peer policy's `allowed_identities` (and it is not `"*"`) |
+| `ErrIdentityNotCurated` | 2386 | `MsgSubmitFederatedContent`: the author is not an active link item of the policy's curation collection |
+| `ErrCurationUnavailable` | 2387 | The policy's curation collection does not exist or is not ACTIVE |
+| `ErrInvalidAllowedIdentity` | 2388 | `allowed_identities` entry is neither `"*"` nor a recognizable author identity |
 
 > `ErrInsufficientStake`, `ErrSlashExceedsStake`, `ErrCooldownNotElapsed`, and `ErrInvalidStakeDenom` are retained in `errors.go` for legacy test fixtures but are no longer produced by federation handlers — bond enforcement runs on `x/service` and surfaces the corresponding service-side errors instead.
 
@@ -3049,6 +3083,8 @@ No direct keeper dependency. Federation consumes events emitted by content modul
 - `EventCreateCollection` (collect)
 
 Bridges watch these events and decide what to federate based on peer policies.
+
+One inbound dependency on x/collect: a peer policy's `curation` names a collection whose active link items are the admitted authors (Section 4.2). Federation reads it through the late-wired `CollectKeeper.ActiveLinkURIs(ctx, collectionID)` (`app.FederationKeeper.SetCollectKeeper` in `app/app.go`); without x/collect wired, any curated policy admits nobody.
 
 ### 15.8. x/reveal (NOT Federated)
 

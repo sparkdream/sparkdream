@@ -315,6 +315,50 @@ func (m *MastodonClient) accountList(ctx context.Context, first string) ([]Accou
 	return all, nil
 }
 
+// LookupAccountID resolves an acct ("user" locally, "user@host") to the
+// instance's account id.
+func (m *MastodonClient) LookupAccountID(ctx context.Context, acct string) (string, error) {
+	var out Account
+	if err := m.getJSON(ctx, "/api/v1/accounts/lookup?acct="+url.QueryEscape(acct), &out); err != nil {
+		return "", err
+	}
+	if out.ID == "" {
+		return "", fmt.Errorf("mastodon: no account %q", acct)
+	}
+	return out.ID, nil
+}
+
+// Follow and Unfollow need the token's write:follows scope: the bridge
+// follows the authors its peers' curation admits (curation.go).
+func (m *MastodonClient) Follow(ctx context.Context, accountID string) error {
+	return m.post(ctx, "/api/v1/accounts/"+url.PathEscape(accountID)+"/follow")
+}
+
+func (m *MastodonClient) Unfollow(ctx context.Context, accountID string) error {
+	return m.post(ctx, "/api/v1/accounts/"+url.PathEscape(accountID)+"/unfollow")
+}
+
+func (m *MastodonClient) post(ctx context.Context, path string) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, m.base+path, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+m.token)
+	resp, err := m.http.Do(req)
+	if err != nil {
+		return fmt.Errorf("mastodon: post %s: %w", path, err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
+	switch {
+	case resp.StatusCode == http.StatusTooManyRequests:
+		return &RateLimitError{RetryAfter: retryAfter(resp)}
+	case resp.StatusCode != http.StatusOK:
+		return fmt.Errorf("mastodon: post %s: status %d: %.200s", path, resp.StatusCode, body)
+	}
+	return nil
+}
+
 // AccountStatuses returns up to 40 of an account's statuses right after
 // minID, OLDEST first. min_id pages forward from the cursor, where since_id
 // would return the newest 40 and silently drop anything older in a burst.

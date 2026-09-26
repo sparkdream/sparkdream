@@ -37,6 +37,13 @@ func SimulateMsgSubmitFederatedContent(
 			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgSubmitFederatedContent{}), "failed to get content ID"), nil, nil
 		}
 
+		// The handler admits only authors the peer's policy lets in (allowed
+		// identities and curation collection): skip where it would refuse.
+		creator := fmt.Sprintf("@user@%s", bridge.PeerId)
+		if policy, err := k.PeerPolicies.Get(ctx, bridge.PeerId); err != nil || k.CheckAuthorAdmitted(ctx, policy, creator) != nil {
+			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgSubmitFederatedContent{}), "author not admitted by the peer policy"), nil, nil
+		}
+
 		hash := randomContentHash(r)
 		// A content_uri and creator handle on the peer's own host, as
 		// MsgSubmitFederatedContent requires of ActivityPub peers.
@@ -61,7 +68,7 @@ func SimulateMsgSubmitFederatedContent(
 			PeerId:          bridge.PeerId,
 			RemoteContentId: fmt.Sprintf("remote-%d", r.Intn(100000)),
 			ContentType:     randomContentType(r),
-			CreatorIdentity: fmt.Sprintf("@user@%s", bridge.PeerId),
+			CreatorIdentity: creator,
 			ContentUri:      contentURI,
 			CreatorName:     randomCreatorName(r),
 			Title:           randomContentTitle(r),

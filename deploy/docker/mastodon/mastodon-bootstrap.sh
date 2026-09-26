@@ -12,8 +12,9 @@
 #       -> {"registrations":"approved"}
 #   mastodon-bootstrap bridge-token <username> <email>
 #       the account the ActivityPub bridge reads through (authors opt in by
-#       following it), and a read-only API token for it; the same token on
-#       every call
+#       following it), and an API token for it (read + write:follows: it
+#       follows the authors its peers' curation admits); the same token on
+#       every call, replacing an older read-only one
 #       -> {"token":"..."}
 # ------------------------------------------------------------------
 set -euo pipefail
@@ -68,12 +69,21 @@ case "${1:-}" in
         account_exists "$user" || create_account "$user" "$email" >/dev/null
         as_mastodon bundle exec rails runner "
             user = Account.find_local('$user').user
+            # read + write:follows: the bridge reads its home timeline and
+            # follows exactly the authors its peers' curation admits
+            scopes = 'read write:follows'
             app = Doorkeeper::Application.find_or_create_by!(name: 'SparkDream bridge') do |a|
               a.redirect_uri = 'urn:ietf:wg:oauth:2.0:oob'
-              a.scopes = 'read'
+              a.scopes = scopes
             end
-            tok = Doorkeeper::AccessToken.where(application: app, resource_owner_id: user.id, revoked_at: nil).first ||
-                  Doorkeeper::AccessToken.create!(application: app, resource_owner_id: user.id, scopes: 'read')
+            app.update!(scopes: scopes) unless app.scopes.to_s == scopes
+            live = Doorkeeper::AccessToken.where(application: app, resource_owner_id: user.id, revoked_at: nil)
+            tok = live.find { |t| t.scopes.to_s.split.include?('write:follows') }
+            unless tok
+              # an older read-only token: replace it (the launcher re-delivers)
+              live.each(&:revoke)
+              tok = Doorkeeper::AccessToken.create!(application: app, resource_owner_id: user.id, scopes: scopes)
+            end
             puts({ token: tok.token }.to_json)
         " | tail -1
         ;;

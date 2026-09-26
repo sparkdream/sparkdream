@@ -88,7 +88,8 @@
 #
 # Snapshot reuse:
 #   For each suite, if test/<module>/snapshots/post-setup/ exists AND its
-#   recorded setup_hash matches the current SHA-256 of setup_test_accounts.sh,
+#   recorded fingerprint (setup_test_accounts.sh, the sparkdreamd binary and
+#   config.yml; see test/_snapshot_fingerprint.sh) matches the current one,
 #   the chain home is initialized by `cp -r`'ing the snapshot data instead of
 #   running ignite chain init + setup_test_accounts.sh. This typically saves
 #   30-90s per suite. The snapshot is created by the sequential workflow
@@ -124,6 +125,8 @@ TEST_DIR="$PROJECT_DIR/test"
 source "$TEST_DIR/_timing.sh"
 # Shared safe-rmtree helper (see docs/development-conventions.md — `rm -rf` is forbidden project-wide).
 source "$TEST_DIR/_safe_rm.sh"
+# shellcheck source=./_snapshot_fingerprint.sh
+source "$TEST_DIR/_snapshot_fingerprint.sh"
 
 # Workdir root, PID file, and run lock used by the cleanup trap and --stop flag.
 # (Set early so --stop can find the running run_parallel.sh — and release a
@@ -1016,6 +1019,8 @@ unset _seen_modules
 # Pre-flight (PROJECT_DIR / TEST_DIR resolved earlier above)
 # ----------------------------------------------------------------------------
 REAL_SPARKDREAMD="$(go env GOPATH)/bin/sparkdreamd"
+# snapshots are fresh only for the binary the suites will run
+export SNAPSHOT_FINGERPRINT_BINARY="$REAL_SPARKDREAMD"
 
 for m in "${MODULES[@]}"; do
     # Pseudo-modules (legacy, multichain) don't have a test/<name>/ dir;
@@ -1222,27 +1227,17 @@ EOF
 
 # ----------------------------------------------------------------------------
 # Snapshot freshness check.
-# Returns 0 if the module has a post-setup snapshot whose recorded setup_hash
-# matches the current SHA-256 of setup_test_accounts.sh. Returns 1 if the
-# snapshot is missing, incomplete, or stale.
+# Returns 0 if the module has a post-setup snapshot whose recorded
+# fingerprint matches the current setup script, binary and config.yml. Returns
+# 1 if the snapshot is missing, incomplete, or stale.
 # Mirrors the logic in test/_auto_snapshot.sh::_snapshot_is_fresh.
 # ----------------------------------------------------------------------------
 module_snapshot_is_fresh() {
     local module="$1"
     local snap="$TEST_DIR/$module/snapshots/post-setup"
-    local setup="$TEST_DIR/$module/setup_test_accounts.sh"
 
     [ -d "$snap/sparkdream_data" ] || return 1
-
-    if [ -f "$setup" ]; then
-        [ -f "$snap/setup_hash" ] || return 1
-        local current stored
-        current=$(sha256sum "$setup" 2>/dev/null | cut -d' ' -f1)
-        stored=$(cat "$snap/setup_hash" 2>/dev/null)
-        [ -n "$current" ] || return 1
-        [ "$current" = "$stored" ] || return 1
-    fi
-    return 0
+    snapshot_stale_inputs "$snap" "$TEST_DIR/$module/setup_test_accounts.sh" > /dev/null
 }
 
 # ----------------------------------------------------------------------------
@@ -1475,7 +1470,7 @@ prepare_suite_chain() {
             || { echo "ERROR: snapshot restore failed for $module" >&2; return 1; }
     else
         if [ -d "$snap_dir/sparkdream_data" ]; then
-            echo "    → snapshot stale (setup_test_accounts.sh changed since save) — fresh init"
+            echo "    → snapshot stale ($(snapshot_stale_inputs "$snap_dir" "$TEST_DIR/$module/setup_test_accounts.sh") changed since save) — fresh init"
         else
             echo "    → no snapshot — fresh ignite chain init + setup"
         fi

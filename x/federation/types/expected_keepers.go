@@ -205,3 +205,11 @@ type IdentityKeeper interface {
 // Note: x/federation does not call x/shield directly. Instead, x/shield
 // dispatches MsgSubmitArbiterHash to x/federation after ZK proof verification.
 // Federation implements ShieldAware (see keeper/shield_aware.go) to opt in.
+
+// CollectKeeper is the slice of x/collect an author gate reads: a peer
+// policy's curation collection (PeerPolicy.curation). Late-wired in app.go.
+type CollectKeeper interface {
+	// ActiveLinkURIs returns the URIs of the collection's active link items,
+	// and false when the collection does not exist or is not active.
+	ActiveLinkURIs(ctx context.Context, collectionID uint64) ([]string, bool, error)
+}

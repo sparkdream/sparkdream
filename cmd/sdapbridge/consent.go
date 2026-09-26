@@ -104,6 +104,13 @@ const consentGrace = followersTTL
 // forgets it when consent is withdrawn, and logs each refused author at a
 // limited rate.
 func (b *Bridge) allowed(ctx context.Context, acct *Account) bool {
+	// the community's curation first: an author the chain would refuse is
+	// skipped before consent is even looked at, and without touching the
+	// consent record
+	if ok, reason := b.curated(ctx, acct); !ok {
+		b.logRefusal(acct, reason)
+		return false
+	}
 	ok, reason, err := b.consents(ctx, acct)
 	if err != nil {
 		log.Printf("sdapbridge: consent undetermined, not anchoring this cycle: %v", err)
@@ -115,10 +122,18 @@ func (b *Bridge) allowed(ctx context.Context, acct *Account) bool {
 		}
 		return true
 	}
+	if acct != nil {
+		b.state.ConsentWithdrawn(acct.URI, time.Now().Unix())
+	}
+	b.logRefusal(acct, reason)
+	return false
+}
+
+// logRefusal logs a refused author at a limited rate.
+func (b *Bridge) logRefusal(acct *Account, reason string) {
 	key := "?"
 	if acct != nil {
 		key = acct.URI
-		b.state.ConsentWithdrawn(acct.URI, time.Now().Unix())
 	}
 	if b.refusedAt == nil {
 		b.refusedAt = map[string]time.Time{}
@@ -127,7 +142,6 @@ func (b *Bridge) allowed(ctx context.Context, acct *Account) bool {
 		b.refusedAt[key] = time.Now()
 		log.Printf("sdapbridge: not anchoring %s: %s", key, reason)
 	}
-	return false
 }
 
 // publishedBeforeConsent reports whether a post predates its author's

@@ -163,3 +163,25 @@ func TestOpsCommitteeCanExecuteCommitteeGatedFederationMsgs(t *testing.T) {
 				"cannot execute it (ErrUnauthorized from msg_server_proposals.go)", typeURL)
 	}
 }
+
+// The Operations Committee owns federation author-curation lists (x/collect
+// collections named by PeerPolicy.curation). x/collect accepts a group policy
+// address as a collection owner, but, as above, that is only half of the
+// grant: without these entries a passed committee proposal to create the list
+// or add a curator fails with ErrUnauthorized.
+func TestOpsCommitteeCanOwnCurationCollections(t *testing.T) {
+	bootstrap, err := os.ReadFile("genesis_bootstrap.go")
+	require.NoError(t, err)
+	src := string(bootstrap)
+	start := strings.Index(src, `Name:        "Commons Operations Committee"`)
+	require.NotEqual(t, -1, start, "Commons Operations Committee block not found")
+	end := strings.Index(src[start:], "MaxSpendPerEpoch")
+	require.NotEqual(t, -1, end, "could not find the end of the committee's config block")
+	committeeBlock := src[start : start+end]
+
+	for _, msg := range []string{"MsgCreateCollection", "MsgAddCollaborator", "MsgRemoveCollaborator", "MsgAddItem", "MsgRemoveItem"} {
+		require.Contains(t, committeeBlock, `"/sparkdream.collect.v1.`+msg+`"`,
+			"the Operations Committee cannot execute %s, so it cannot run a federation curation list", msg)
+	}
+}
+

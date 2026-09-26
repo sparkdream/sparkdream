@@ -125,7 +125,7 @@ Additional rationale worth knowing:
 ## Test Script Patterns
 
 - Test scripts live under `test/<module>/`. Each module has `setup_test_accounts.sh`, `run_all_tests.sh`, and individual `*_test.sh` files.
-- Snapshots: `test/<module>/snapshots/post-setup/` for fast iteration. `--save-setup` creates a snapshot, `--restore-setup` runs from snapshot.
+- Snapshots: `test/<module>/snapshots/post-setup/` for fast iteration. `--save-setup` creates a snapshot, `--restore-setup` runs from snapshot. A plain `run_all_tests.sh` reuses the snapshot automatically only while its fingerprint (the setup script, the `sparkdreamd` binary and `config.yml`; [test/_snapshot_fingerprint.sh](../test/_snapshot_fingerprint.sh)) still matches, so a rebuilt binary or a genesis change refreshes it on the next run. `--restore-setup` restores unconditionally.
 - The parallel runner is [test/run_parallel.sh](../test/run_parallel.sh).
 - Proto3 JSON omits zero-value fields. When parsing query responses with `jq`, use `(.field // 0)` defaults for any field that could legitimately be zero/empty.
 - Avoid mocking the proto LegacyDec round-trip — `cosmossdk.io/math.LegacyDec` JSON output is the internal integer representation (e.g. `"1000000000000000000"` for `1.0`); shoving that back into a tx message double-encodes. Convert before re-sending.

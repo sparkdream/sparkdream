@@ -1,6 +1,7 @@
 package simulation
 
 import (
+	"fmt"
 	"math/rand"
 
 	"github.com/cosmos/cosmos-sdk/baseapp"
@@ -37,6 +38,8 @@ func SimulateMsgUpdatePeerPolicy(
 			AllowReputationQueries:       r.Intn(2) == 1,
 			AcceptReputationAttestations: r.Intn(2) == 1,
 			RequireReview:                r.Intn(2) == 1,
+			// author gate: open, the sim's own creator handle, or nobody
+			AllowedIdentities: randomAllowedIdentities(r, peer.Id),
 		}
 
 		if err := k.PeerPolicies.Set(ctx, peer.Id, policy); err != nil {
@@ -57,4 +60,18 @@ func randomContentTypeSubset(r *rand.Rand) []string {
 		subset[i] = all[perm[i]]
 	}
 	return subset
+}
+
+// randomAllowedIdentities picks an author gate for a peer: mostly open, some
+// of the time just the "@user@<peer>" handle the submit op writes, rarely
+// nobody (the default for a new external peer).
+func randomAllowedIdentities(r *rand.Rand, peerID string) []string {
+	switch r.Intn(5) {
+	case 0:
+		return nil
+	case 1:
+		return []string{fmt.Sprintf("@user@%s", peerID)}
+	default:
+		return []string{types.AllIdentities}
+	}
 }

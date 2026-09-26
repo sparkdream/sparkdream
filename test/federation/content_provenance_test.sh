@@ -122,6 +122,7 @@ cat > "$POLICY_FILE" <<EOF
       "accept_reputation_attestations": false,
       "require_review": false,
       "blocked_identities": [],
+      "allowed_identities": ["*"],
       "content_hosts": ["$ALIAS_HOST"]
     }
   }],

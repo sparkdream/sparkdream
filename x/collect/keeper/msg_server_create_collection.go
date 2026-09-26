@@ -75,7 +75,7 @@ func (k msgServer) CreateCollection(ctx context.Context, msg *types.MsgCreateCol
 		return nil, err
 	}
 
-	member := k.isMember(ctx, msg.Creator)
+	member := k.ownsAsMember(ctx, msg.Creator)
 	deposit := params.BaseCollectionDeposit
 
 	var status types.CollectionStatus

@@ -131,6 +131,10 @@ update_inbound_limit() {
     local ACCEPT_REP=$(echo "$CURRENT" | jq -r 'if .policy.accept_reputation_attestations then "true" else "false" end')
     local REVIEW=$(echo "$CURRENT" | jq -r 'if .policy.require_review then "true" else "false" end')
     local BLOCKED=$(echo "$CURRENT" | jq -c '.policy.blocked_identities // []')
+    # a full replacement: carry the author gate and content hosts over too
+    local ALLOWED=$(echo "$CURRENT" | jq -c '.policy.allowed_identities // []')
+    local CURATION=$(echo "$CURRENT" | jq -c '.policy.curation // null')
+    local HOSTS=$(echo "$CURRENT" | jq -c '.policy.content_hosts // []')
 
     local PROP_FILE="$PROPOSAL_DIR/ratelimit_set_${PEER_ID//./_}_${LIMIT}.json"
     cat > "$PROP_FILE" <<EOF
@@ -151,7 +155,10 @@ update_inbound_limit() {
         "allow_reputation_queries": $ALLOW_REP,
         "accept_reputation_attestations": $ACCEPT_REP,
         "require_review": $REVIEW,
-        "blocked_identities": $BLOCKED
+        "blocked_identities": $BLOCKED,
+        "allowed_identities": $ALLOWED,
+        "curation": $CURATION,
+        "content_hosts": $HOSTS
       }
     }
   ],

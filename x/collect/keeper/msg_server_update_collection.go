@@ -85,7 +85,7 @@ func (k msgServer) UpdateCollection(ctx context.Context, msg *types.MsgUpdateCol
 	// collection leaves UsageCount inflated, which steers ExpireTags wrong.
 	k.decrementTagUsages(ctx, removedTags)
 
-	member := k.isMember(ctx, msg.Creator)
+	member := k.ownsAsMember(ctx, msg.Creator)
 
 	// Handle TTL/permanent conversion
 	if msg.ExpiresAt == 0 && coll.ExpiresAt > 0 {

@@ -379,6 +379,8 @@ func New(
 	app.FederationKeeper.SetRepKeeper(app.RepKeeper)
 	app.FederationKeeper.SetNameKeeper(app.NameKeeper)
 	app.FederationKeeper.SetIdentityKeeper(app.IdentityKeeper)
+	// a peer policy's author gate reads its curation collection (x/collect)
+	app.FederationKeeper.SetCollectKeeper(app.CollectKeeper)
 	// Phase 2 of the federation→service migration: wire ServiceKeeper
 	// through the FederationServiceAdapter (translates federation's
 	// int-source RegisterOperator signature to the concrete servicekeeper.

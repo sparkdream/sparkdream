@@ -33,5 +33,15 @@ func (gs GenesisState) Validate() error {
 		dayFundingIndex[df.Day] = struct{}{}
 	}
 
+	for _, p := range gs.PeerPolicies {
+		// the same bounds MsgUpdatePeerPolicy enforces on author curation
+		if len(p.AllowedIdentities) > MaxAllowedIdentities {
+			return fmt.Errorf("peer %s: allowed_identities has %d entries, max %d", p.PeerId, len(p.AllowedIdentities), MaxAllowedIdentities)
+		}
+		if err := ValidateAllowedIdentities(p.AllowedIdentities); err != nil {
+			return fmt.Errorf("peer %s: %w", p.PeerId, err)
+		}
+	}
+
 	return gs.Params.Validate()
 }

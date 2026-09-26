@@ -24,6 +24,9 @@ import (
 // struct, the AppModule's value-copy would never see the assignment and
 // SendFederationPacket would silently no-op forever.
 type lateKeepers struct {
+	// collectKeeper reads a peer policy's curation collection (author gate).
+	collectKeeper types.CollectKeeper
+
 	commonsKeeper  types.CommonsKeeper
 	repKeeper      types.RepKeeper
 	nameKeeper     types.NameKeeper
@@ -304,6 +307,12 @@ func (k Keeper) GetAuthority() []byte {
 }
 
 // --- Late Keeper Wiring ---
+
+// SetCollectKeeper wires the x/collect keeper post-depinject so a peer
+// policy's author gate can read its curation collection.
+func (k Keeper) SetCollectKeeper(ck types.CollectKeeper) {
+	k.late.collectKeeper = ck
+}
 
 func (k Keeper) SetCommonsKeeper(ck types.CommonsKeeper) {
 	k.late.commonsKeeper = ck

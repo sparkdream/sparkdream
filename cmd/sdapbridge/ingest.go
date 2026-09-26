@@ -84,6 +84,12 @@ type Bridge struct {
 	startedAt     time.Time // floor for the reconcile window on a fresh start
 	lastReconcile time.Time // when the reconcile sweep last ran
 	selfID        string    // the bridge's own Mastodon account id, cached
+
+	// Author curation (curation.go): each peer's gate as the chain states
+	// it, and when follows were last synced to it.
+	gateSource     func(context.Context, string) (authorGate, error)
+	gates          map[string]cachedGate
+	lastFollowSync time.Time
 }
 
 // Run polls the home timeline forever, backing off on rate limits from
@@ -139,6 +145,14 @@ func (b *Bridge) pollOnceSafe(ctx context.Context) (err error) {
 		b.lastRevisit = time.Now()
 		if err := b.revisitOnce(ctx); err != nil {
 			return err
+		}
+	}
+	if b.cfg.FollowSyncInterval > 0 && time.Since(b.lastFollowSync) >= b.cfg.FollowSyncInterval {
+		b.lastFollowSync = time.Now()
+		// a failed sync (a read-only token, the instance down) costs this
+		// pass, not the anchoring
+		if err := b.syncFollows(ctx); err != nil {
+			log.Printf("sdapbridge: follow sync: %v", err)
 		}
 	}
 	if b.cfg.ReconcileInterval > 0 && time.Since(b.lastReconcile) >= b.cfg.ReconcileInterval {

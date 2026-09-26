@@ -25,6 +25,7 @@
 #   ./run_all_tests.sh --no-endblocker  # Skip EndBlocker sweep tests
 #   ./run_all_tests.sh --no-noquorum    # Skip no-quorum settlement tests
 #   ./run_all_tests.sh --no-provenance  # Skip content provenance / supersede tests
+#   ./run_all_tests.sh --no-curation    # Skip author curation (allowed_identities + collection) tests
 #   ./run_all_tests.sh --no-gov-params  # Skip MsgUpdateParams gov tests
 #   ./run_all_tests.sh --multichain     # Also run multi-chain IBC tests (test/federation/multichain/)
 #
@@ -69,6 +70,7 @@ RUN_RECOVERY=true
 RUN_ENDBLOCKER=true
 RUN_NOQUORUM=true
 RUN_PROVENANCE=true
+RUN_CURATION=true
 RUN_GOV_PARAMS=true
 SAVE_SETUP=false
 RESTORE_SETUP=false
@@ -131,6 +133,9 @@ for arg in "$@"; do
         --no-provenance)
             RUN_PROVENANCE=false
             ;;
+        --no-curation)
+            RUN_CURATION=false
+            ;;
         --no-gov-params)
             RUN_GOV_PARAMS=false
             ;;
@@ -152,6 +157,7 @@ for arg in "$@"; do
             RUN_ENDBLOCKER=false
             RUN_NOQUORUM=false
             RUN_PROVENANCE=false
+            RUN_CURATION=false
             RUN_GOV_PARAMS=false
             ;;
         --save-setup)
@@ -174,6 +180,7 @@ for arg in "$@"; do
             RUN_ENDBLOCKER=false
             RUN_NOQUORUM=false
             RUN_PROVENANCE=false
+            RUN_CURATION=false
             RUN_GOV_PARAMS=false
             ;;
         --restore-setup)
@@ -201,6 +208,7 @@ for arg in "$@"; do
             RUN_ENDBLOCKER=false
             RUN_NOQUORUM=false
             RUN_PROVENANCE=false
+            RUN_CURATION=false
             RUN_GOV_PARAMS=false
             ;;
         --help|-h)
@@ -225,6 +233,7 @@ for arg in "$@"; do
             echo "  --no-endblocker  Skip EndBlocker sweep tests (uses accelerated TTL params)"
             echo "  --no-noquorum    Skip no-quorum settlement + commitment-release tests"
             echo "  --no-provenance  Skip content provenance (content_hosts, creator host) + supersede tests"
+            echo "  --no-curation    Skip author curation (allowed_identities + curated collection) tests"
             echo "  --no-gov-params  Skip MsgUpdateParams gov-authority tests"
             echo "  --only-setup     Run only setup (skip all tests)"
             echo "  --save-setup     Run setup, save chain state, then exit"
@@ -510,16 +519,14 @@ if [ "$RUN_SETUP" = true ]; then
             exit 1
         fi
 
-        # Record the setup-script hash alongside the data, exactly as the
+        # Record the snapshot fingerprint alongside the data, exactly as the
         # auto-snapshot path does (test/_auto_snapshot.sh). Without it
         # _snapshot_is_fresh and run_parallel's module_snapshot_is_fresh both
         # treat the snapshot as stale and re-run setup from scratch every time,
         # so a snapshot saved through this documented workflow was never
         # actually reused.
-        if [ -f "$SCRIPT_DIR/setup_test_accounts.sh" ] && [ -d "$SCRIPT_DIR/snapshots/post-setup" ]; then
-            sha256sum "$SCRIPT_DIR/setup_test_accounts.sh" 2>/dev/null | cut -d' ' -f1 \
-                > "$SCRIPT_DIR/snapshots/post-setup/setup_hash"
-        fi
+        source "$SCRIPT_DIR/../_snapshot_fingerprint.sh"
+        snapshot_write_fingerprint "$SCRIPT_DIR/snapshots/post-setup" "$SCRIPT_DIR/setup_test_accounts.sh"
 
         echo ""
         echo "============================================================================"
@@ -702,6 +709,13 @@ if [ "$RUN_PROVENANCE" = true ]; then
     run_test "Content Provenance Tests" "content_provenance_test.sh"
 else
     echo "Skipping content provenance tests (--no-provenance)"
+    echo ""
+fi
+
+if [ "$RUN_CURATION" = true ]; then
+    run_test "Author Curation Tests" "author_curation_test.sh"
+else
+    echo "Skipping author curation tests (--no-curation)"
     echo ""
 fi
 

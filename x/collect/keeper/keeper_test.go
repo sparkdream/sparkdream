@@ -516,7 +516,15 @@ func (m *mockRepKeeper) SetBondedRoleConfig(_ context.Context, cfg reptypes.Bond
 // ---------------------------------------------------------------------------
 
 type mockCommonsKeeper struct {
-	isCouncilAuthorizedFn func(ctx context.Context, addr string, council string, committee string) bool
+	isCouncilAuthorizedFn  func(ctx context.Context, addr string, council string, committee string) bool
+	isGroupPolicyAddressFn func(ctx context.Context, addr string) bool
+}
+
+func (m *mockCommonsKeeper) IsGroupPolicyAddress(ctx context.Context, addr string) bool {
+	if m.isGroupPolicyAddressFn != nil {
+		return m.isGroupPolicyAddressFn(ctx, addr)
+	}
+	return false
 }
 
 func (m *mockCommonsKeeper) IsCouncilAuthorized(ctx context.Context, addr string, council string, committee string) bool {

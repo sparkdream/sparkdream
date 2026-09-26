@@ -77,7 +77,10 @@ type Config struct {
 	// Chiefly replies: Mastodon's home feed drops a reply unless the reader
 	// follows the account replied to. Zero interval disables it.
 	ReconcileInterval time.Duration
-	ReconcileLookback time.Duration
+	// FollowSyncInterval is how often the bridge makes its follows match
+	// its peers' author curation (curation.go); 0 disables.
+	FollowSyncInterval time.Duration
+	ReconcileLookback  time.Duration
 	// AllowPrivateHosts relaxes apcanon's SSRF guard for a local test
 	// instance. Production must leave this false.
 	AllowPrivateHosts bool

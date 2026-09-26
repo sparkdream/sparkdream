@@ -442,16 +442,14 @@ if [ "$RUN_SETUP" = true ]; then
             exit 1
         fi
 
-        # Record the setup-script hash alongside the data, exactly as the
+        # Record the snapshot fingerprint alongside the data, exactly as the
         # auto-snapshot path does (test/_auto_snapshot.sh). Without it
         # _snapshot_is_fresh and run_parallel's module_snapshot_is_fresh both
         # treat the snapshot as stale and re-run setup from scratch every time,
         # so a snapshot saved through this documented workflow was never
         # actually reused.
-        if [ -f "$SCRIPT_DIR/setup_test_accounts.sh" ] && [ -d "$SCRIPT_DIR/snapshots/post-setup" ]; then
-            sha256sum "$SCRIPT_DIR/setup_test_accounts.sh" 2>/dev/null | cut -d' ' -f1 \
-                > "$SCRIPT_DIR/snapshots/post-setup/setup_hash"
-        fi
+        source "$SCRIPT_DIR/../_snapshot_fingerprint.sh"
+        snapshot_write_fingerprint "$SCRIPT_DIR/snapshots/post-setup" "$SCRIPT_DIR/setup_test_accounts.sh"
 
         echo ""
         echo "============================================================================"

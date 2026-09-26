@@ -594,6 +594,8 @@ func registerTestPeer(t *testing.T, f *fixture, ms types.MsgServer, peerID strin
 		Policy: types.PeerPolicy{
 			InboundContentTypes:  []string{"blog_post", "forum_thread"},
 			OutboundContentTypes: []string{"blog_post"},
+			// any author: these fixtures are not about curation
+			AllowedIdentities: []string{types.AllIdentities},
 		},
 	})
 	require.NoError(t, err)
@@ -616,6 +618,8 @@ func registerTestNOSTRPeer(t *testing.T, f *fixture, ms types.MsgServer, peerID 
 		Policy: types.PeerPolicy{
 			InboundContentTypes:  []string{"blog_post", "forum_thread"},
 			OutboundContentTypes: []string{"blog_post"},
+			// any author: these fixtures are not about curation
+			AllowedIdentities: []string{types.AllIdentities},
 		},
 	})
 	require.NoError(t, err)
@@ -638,6 +642,8 @@ func registerTestLENSPeer(t *testing.T, f *fixture, ms types.MsgServer, peerID s
 		Policy: types.PeerPolicy{
 			InboundContentTypes:  []string{"blog_post", "forum_thread"},
 			OutboundContentTypes: []string{"blog_post"},
+			// any author: these fixtures are not about curation
+			AllowedIdentities: []string{types.AllIdentities},
 		},
 	})
 	require.NoError(t, err)

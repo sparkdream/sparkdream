@@ -111,4 +111,10 @@ var (
 	ErrContentHostMismatch = errors.Register(ModuleName, 2382, "content_uri host does not belong to the peer")
 	ErrInvalidSupersede    = errors.Register(ModuleName, 2383, "supersedes must name an earlier record of the same content_uri from the same operator and peer")
 	ErrCreatorHostMismatch = errors.Register(ModuleName, 2384, "creator_identity host does not belong to the peer")
+
+	// Author curation errors (PeerPolicy.allowed_identities / curation)
+	ErrIdentityNotAllowed     = errors.Register(ModuleName, 2385, "creator_identity is not in the peer's allowed_identities")
+	ErrIdentityNotCurated     = errors.Register(ModuleName, 2386, "creator_identity is not in the peer's curation collection")
+	ErrCurationUnavailable    = errors.Register(ModuleName, 2387, "the peer's curation collection does not exist or is not active")
+	ErrInvalidAllowedIdentity = errors.Register(ModuleName, 2388, "allowed_identities entries must be \"*\", an @user@host handle or a profile URL")
 )

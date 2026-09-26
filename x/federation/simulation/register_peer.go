@@ -59,6 +59,7 @@ func SimulateMsgRegisterPeer(
 			PeerId:                       peerID,
 			OutboundContentTypes:         types.DefaultKnownContentTypes,
 			InboundContentTypes:          types.DefaultKnownContentTypes,
+			AllowedIdentities:            []string{types.AllIdentities},
 			MinOutboundTrustLevel:        1,
 			InboundRateLimitPerEpoch:     uint64(r.Intn(200) + 50),
 			OutboundRateLimitPerEpoch:    uint64(r.Intn(200) + 50),

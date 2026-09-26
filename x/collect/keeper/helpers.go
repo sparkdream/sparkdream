@@ -871,6 +871,18 @@ func (k Keeper) isMember(ctx context.Context, address string) bool {
 	return k.repKeeper.IsMember(ctx, addrBytes)
 }
 
+// ownsAsMember reports whether a collection owner gets member treatment
+// (ACTIVE status, permanent collections): an x/rep member, or a council or
+// committee policy address acting for the community (the Operations
+// Committee owns a federation peer's author-curation list). Only ownership:
+// voting, flagging and the like stay member-only.
+func (k Keeper) ownsAsMember(ctx context.Context, address string) bool {
+	if k.isMember(ctx, address) {
+		return true
+	}
+	return k.commonsKeeper != nil && k.commonsKeeper.IsGroupPolicyAddress(ctx, address)
+}
+
 // meetsMinTrustLevel checks if address is at or above the required trust level string.
 // The shield module address always meets the minimum trust level.
 func (k Keeper) meetsMinTrustLevel(ctx context.Context, address string, minLevel string) bool {

@@ -78,6 +78,16 @@ Verifiers are DREAM-bonded via `BondedRole(ROLE_TYPE_FEDERATION_VERIFIER)` in x/
   instance's posts, or attribute this peer's posts to someone elsewhere.
   The rule is `types.ContentURIHostAllowed` / `types.CreatorIdentityHostAllowed`,
   shared with the bridge and verifier daemons.
+- **Author curation (bridged peers).** The members who chose a peer also
+  choose which of its authors get anchored. The policy's `allowed_identities`
+  (`"*"` for anyone; empty, the default, admits nobody) and optional
+  `curation` collection are both required to pass (`ErrIdentityNotAllowed`
+  2385, `ErrIdentityNotCurated` 2386). The collection is an x/collect
+  collection, typically owned by the Operations Committee with members as
+  editor collaborators, whose active link items (`@user@host` or a profile
+  URL) are the admitted authors, so the list is curated without a proposal
+  per author. The bridge applies the same gate and follows the admitted
+  authors from its account. See x-federation-spec Section 4.2.
 - **Edits (`supersedes`).** An edit at the source is a new record naming
   the one it replaces. Only the same operator, peer and `content_uri`, and
   only once (`ErrInvalidSupersede`, 2383). A still-pending predecessor moves
@@ -167,7 +177,7 @@ SPARK on x/service.
 | `MsgRemovePeer` | Ops Committee member | Tombstone a peer (cursor-based pruning in EndBlocker) |
 | `MsgSuspendPeer` | Ops Committee member | ACTIVE → SUSPENDED; the emergency brake, deliberately 1-of-N |
 | `MsgResumePeer` | Ops Committee **policy** (a passed vote), Council policy, or gov | PENDING/SUSPENDED → ACTIVE. Activation is the trust decision, so it takes a vote |
-| `MsgUpdatePeerPolicy` | Ops Committee member | Content type allowlists, rate limits, moderation, `content_hosts` (ActivityPub peers: extra hosts allowed in a `content_uri` / `creator_identity`, max 8) |
+| `MsgUpdatePeerPolicy` | Ops Committee member | Content type allowlists, rate limits, moderation, `content_hosts` (ActivityPub peers: extra hosts allowed in a `content_uri` / `creator_identity`, max 8), author curation (`allowed_identities` max 256 / `"*"`, `curation` collection: must be ACTIVE, not on Spark Dream peers) |
 | `MsgUpdatePeerController` | gov | Change controller_group for a peer |
 
 ### Bridge Bindings
@@ -184,7 +194,7 @@ SPARK on x/service.
 | Msg | Purpose |
 |---|---|
 | `MsgFederateContent` | Outbound — creator-signed |
-| `MsgSubmitFederatedContent` | Inbound from bridge. On ActivityPub peers, `content_uri` and `creator_identity` must be on the peer's host (errors 2382 / 2384); optional `supersedes` retires the same operator's pending record of the same `content_uri` (2383) |
+| `MsgSubmitFederatedContent` | Inbound from bridge. On ActivityPub peers, `content_uri` and `creator_identity` must be on the peer's host (errors 2382 / 2384); the author must pass the policy's `allowed_identities` and curation collection (2385 / 2386 / 2387); optional `supersedes` retires the same operator's pending record of the same `content_uri` (2383) |
 | `MsgAttestOutbound` | Attestation of relayed content |
 | `MsgModerateContent` | Hide / unhide federated content. Refuses the system-assigned terminal statuses `UNRESOLVED` and `SUPERSEDED` (2354) |
 | `MsgVerifyContent` | Verifier submits source-hash match |

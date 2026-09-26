@@ -124,6 +124,10 @@ type CommonsKeeper interface {
 	// IsCouncilAuthorized checks if an address is authorized via council/committee
 	// Accepts x/gov authority, Commons Council policy address, or Operations Committee member
 	IsCouncilAuthorized(ctx context.Context, addr string, council string, committee string) bool
+	// IsGroupPolicyAddress reports whether addr is a council or committee
+	// policy address. Such an address owns collections as a member does (a
+	// peer's author-curation list is owned by the Operations Committee).
+	IsGroupPolicyAddress(ctx context.Context, addr string) bool
 }
 
 // BlogKeeper defines the expected interface for the x/blog module.

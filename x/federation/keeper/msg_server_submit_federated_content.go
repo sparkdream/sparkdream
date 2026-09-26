@@ -74,6 +74,13 @@ func (k msgServer) SubmitFederatedContent(ctx context.Context, msg *types.MsgSub
 		}
 	}
 
+	// 4d. Author curation: the community decides whose content a bridge may
+	//     anchor for this peer (allowed_identities and/or a curated
+	//     collection); both gates must pass.
+	if err := k.CheckAuthorAdmitted(ctx, policy, msg.CreatorIdentity); err != nil {
+		return nil, err
+	}
+
 	params, err := k.Params.Get(ctx)
 	if err != nil {
 		return nil, err

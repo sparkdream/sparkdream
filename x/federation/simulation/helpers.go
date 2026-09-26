@@ -156,6 +156,7 @@ func getOrCreateActivePeer(r *rand.Rand, ctx sdk.Context, k keeper.Keeper, regis
 		PeerId:                       peerID,
 		OutboundContentTypes:         types.DefaultKnownContentTypes,
 		InboundContentTypes:          types.DefaultKnownContentTypes,
+		AllowedIdentities:            []string{types.AllIdentities},
 		MinOutboundTrustLevel:        1,
 		InboundRateLimitPerEpoch:     100,
 		OutboundRateLimitPerEpoch:    100,

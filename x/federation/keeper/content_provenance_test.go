@@ -57,6 +57,7 @@ func TestSubmitAcceptsPolicyContentHost(t *testing.T) {
 		Policy: types.PeerPolicy{
 			InboundContentTypes: []string{"blog_post"},
 			ContentHosts:        []string{"social.phoenix.example"},
+			AllowedIdentities:   []string{types.AllIdentities},
 		},
 	})
 	require.NoError(t, err)

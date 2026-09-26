@@ -157,6 +157,33 @@ message PeerPolicy {
   // bonded for one peer could anchor another instance's posts under this
   // peer's name.
   repeated string content_hosts = 11;
+
+  // Author curation for bridged content (MsgSubmitFederatedContent, the
+  // external-protocol peers). An author is admitted only when BOTH gates
+  // pass, and blocked_identities still overrides both:
+  //
+  //   allowed_identities  the admitted authors ("@user@host"), or "*" for
+  //                       any author. Empty admits nobody: a new external
+  //                       peer anchors nothing until the Operations
+  //                       Committee decides who is in scope.
+  //   curation            an x/collect collection whose active link items
+  //                       name the admitted authors, curated by the
+  //                       collection's owner and collaborators without a
+  //                       proposal per author. Unset: no collection gate.
+  //
+  // So "*" plus a collection lets the collection alone decide, and a list
+  // without a collection lets the list alone decide. The author's own
+  // consent (following the bridge account) is a bridge-side rule on top.
+  repeated string allowed_identities = 12;
+  IdentityCuration curation = 13;
+}
+
+// IdentityCuration points a peer's author gate at an x/collect collection.
+message IdentityCuration {
+  // collection_id is the x/collect collection listing admitted authors, one
+  // link item each: an "@user@host" handle or the profile URL
+  // ("https://host/@user"). Only active items in an active collection count.
+  uint64 collection_id = 1;
 }
 
 // BridgeBinding represents the federation-owned binding between a bridge
