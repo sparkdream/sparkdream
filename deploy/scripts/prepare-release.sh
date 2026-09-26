@@ -166,8 +166,10 @@ if [ "$DO_BUMP" = true ]; then
             echo "    [OK] $f"
         done
 
-        # Sanity sweep: any stragglers?
-        STRAGGLERS=$(grep -rln "$OLD_VERSION" deploy/ 2>/dev/null || true)
+        # Sanity sweep: any stragglers? Tracked files only: deploy/ also holds
+        # ignored checkouts (deploy/explorer/ping-pub) whose compressed git
+        # packs can contain the version's bytes by chance.
+        STRAGGLERS=$(git grep -lF "$OLD_VERSION" -- deploy/ 2>/dev/null || true)
         if [ -n "$STRAGGLERS" ]; then
             fail "still found $OLD_VERSION in:"
             echo "$STRAGGLERS" | sed 's/^/      /' >&2
@@ -217,24 +219,13 @@ if [ "$DO_REGEN" = true ]; then
     fi
 fi
 
-# --- 5. refresh e2e snapshots ----------------------------------------------
-# Local E2E `post-setup` snapshots are gated on setup_test_accounts.sh's
-# SHA-256 (test/_auto_snapshot.sh), not on config.yml — so config-only
-# changes silently reuse stale snapshots. Invalidate when root config.yml
-# was modified in this working tree relative to HEAD; otherwise keep
-# snapshots warm so post-release E2E iteration stays fast.
-section "5. REFRESH E2E SNAPSHOTS"
-
-if git diff --quiet HEAD -- config.yml 2>/dev/null; then
-    note "root config.yml unchanged vs HEAD — local E2E snapshots stay fresh, skipping clean"
-else
-    echo "  root config.yml changed — invalidating local E2E post-setup snapshots"
-    if test/clean-test-snapshots.sh --quiet; then
-        ok "snapshots invalidated; next per-module run_all_tests.sh will regenerate lazily"
-    else
-        warn "snapshot cleanup reported errors — see above; continuing"
-    fi
-fi
+# --- 5. e2e snapshots ------------------------------------------------------
+# Nothing to do: local E2E `post-setup` snapshots are fingerprinted on the
+# setup script, the sparkdreamd binary and config.yml
+# (test/_snapshot_fingerprint.sh), so a config or code change in this release
+# refreshes them on their next run.
+section "5. E2E SNAPSHOTS"
+note "snapshots refresh on their own when config.yml or the binary changes"
 
 # --- summary ----------------------------------------------------------------
 section "SUMMARY"
