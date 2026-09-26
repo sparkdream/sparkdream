@@ -86,7 +86,7 @@ echo '{
 }' > "$PROPOSAL_DIR/gov_fee_update.json"
 
 # Submit Gov Proposal
-SUBMIT_RES=$($BINARY tx gov submit-proposal "$PROPOSAL_DIR/gov_fee_update.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --output json)
+SUBMIT_RES=$($BINARY tx gov submit-proposal --gas 1000000 "$PROPOSAL_DIR/gov_fee_update.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --output json)
 TX_HASH=$(echo $SUBMIT_RES | jq -r '.txhash')
 echo "Gov Prop Tx: $TX_HASH"
 
@@ -187,7 +187,7 @@ echo '{
   "summary": "Restoring default values."
 }' > "$PROPOSAL_DIR/gov_fee_reset.json"
 
-SUBMIT_RES=$($BINARY tx gov submit-proposal "$PROPOSAL_DIR/gov_fee_reset.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --output json)
+SUBMIT_RES=$($BINARY tx gov submit-proposal --gas 1000000 "$PROPOSAL_DIR/gov_fee_reset.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --output json)
 TX_HASH=$(echo $SUBMIT_RES | jq -r '.txhash')
 
 echo "Waiting for block inclusion..."

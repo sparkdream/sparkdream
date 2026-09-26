@@ -14,7 +14,7 @@ echo ""
 # Setup: Create a fresh collection for item tests
 # =========================================================================
 echo "--- Setup: Create collection for item tests ---"
-TX_OUT=$(send_tx collect create-collection \
+TX_OUT=$(send_tx collect create-collection --gas 400000 \
     mixed public false 0 "ItemTestColl" "For item tests" "" "" \
     --from collector1)
 assert_tx_success "Create collection for item tests" "$TX_OUT"
@@ -31,7 +31,7 @@ echo "  Collection ID: $ITEM_COLL_ID"
 # =========================================================================
 echo ""
 echo "--- Test 1: Add item to own collection ---"
-TX_OUT=$(send_tx collect add-item \
+TX_OUT=$(send_tx collect add-item --gas 400000 \
     "$ITEM_COLL_ID" 0 "First Item" "A test item" "" unspecified \
     --from collector1)
 
@@ -54,7 +54,7 @@ assert_equal "Item title is correct" "First Item" "$ITEM1_TITLE"
 # =========================================================================
 echo ""
 echo "--- Test 2: Add second item ---"
-TX_OUT=$(send_tx collect add-item \
+TX_OUT=$(send_tx collect add-item --gas 400000 \
     "$ITEM_COLL_ID" 1 "Second Item" "Another test item" "" unspecified \
     --from collector1)
 
@@ -113,7 +113,7 @@ assert_gt "Owner has items" "0" "$OWNER_ITEM_COUNT"
 # =========================================================================
 echo ""
 echo "--- Test 7: Cannot add item to someone else's collection ---"
-TX_OUT=$(send_tx collect add-item \
+TX_OUT=$(send_tx collect add-item --gas 400000 \
     "$ITEM_COLL_ID" 0 "Unauthorized" "Should fail" "" unspecified \
     --from collector2)
 assert_tx_failure "Cannot add item to another's collection" "$TX_OUT"
@@ -137,7 +137,7 @@ assert_equal "Collection has 1 item after removal" "1" "$ITEM_COUNT"
 echo ""
 echo "--- Test 9: Non-member adds item to own TTL collection ---"
 if [ -n "$COLL3_ID" ]; then
-    TX_OUT=$(send_tx collect add-item \
+    TX_OUT=$(send_tx collect add-item --gas 400000 \
         "$COLL3_ID" 0 "Guest Item" "Guest added" "" unspecified \
         --from nonmember1)
     assert_tx_success "Non-member adds item to own collection" "$TX_OUT"

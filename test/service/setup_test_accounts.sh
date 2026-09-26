@@ -172,7 +172,7 @@ for i in "${!TO_INVITE[@]}"; do
     echo "  Inviting $ACCOUNT ($ADDR)..."
     REQUIRED_STAKE=$($BINARY query rep required-invitation-stake "$ALICE_ADDR" --output json 2>/dev/null \
         | jq -r '.required_stake // "100000000"')
-    TX_RES=$($BINARY tx rep invite-member $ADDR "$REQUIRED_STAKE" \
+    TX_RES=$($BINARY tx rep invite-member --gas 400000 $ADDR "$REQUIRED_STAKE" \
         --from alice --chain-id $CHAIN_ID --keyring-backend test \
         --fees 5000${BOND_DENOM} -y --output json)
 
@@ -207,7 +207,7 @@ for i in "${!TO_INVITE[@]}"; do
         continue
     fi
     echo "  $ACCOUNT accepting invitation #$INVITATION_ID..."
-    TX_RES=$($BINARY tx rep accept-invitation $INVITATION_ID \
+    TX_RES=$($BINARY tx rep accept-invitation --gas 400000 $INVITATION_ID \
         --from $ACCOUNT --chain-id $CHAIN_ID --keyring-backend test \
         --fees 5000${BOND_DENOM} -y --output json)
     TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
@@ -304,7 +304,7 @@ if [ "$SKIP_PROPOSAL" != "true" ]; then
 }
 EOF
 
-    SUBMIT_RES=$($BINARY tx gov submit-proposal "$PROPOSAL_DIR/enable_test_service_type.json" \
+    SUBMIT_RES=$($BINARY tx gov submit-proposal --gas 1000000 "$PROPOSAL_DIR/enable_test_service_type.json" \
         --from alice --chain-id $CHAIN_ID --keyring-backend test \
         --fees 5000${BOND_DENOM} -y --output json)
     PROP_TX_HASH=$(echo "$SUBMIT_RES" | jq -r '.txhash')

@@ -175,6 +175,12 @@ genesis:
     staking:
       params:
         bond_denom: usparz.sparkdreamdev
+    session:
+      params:
+        # 90 days, not the 7-day code default: launcher-run bridge and
+        # verifier daemons sign through session keys, and a week-long grant
+        # means a re-grant every few days. Mainnet keeps the default.
+        max_expiration: 7776000s
     season:
       season:
         number: 1

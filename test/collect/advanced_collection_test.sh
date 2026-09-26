@@ -18,7 +18,7 @@ FUTURE_BLOCK=$((BLOCK_HEIGHT + 5000))
 # Test 1: Encrypted + public rejected
 # =========================================================================
 echo "--- Test 1: Encrypted + public rejected ---"
-TX_OUT=$(send_tx collect create-collection \
+TX_OUT=$(send_tx collect create-collection --gas 400000 \
     nft public true "$FUTURE_BLOCK" "" "" "" "" \
     --from collector1)
 assert_tx_failure "Encrypted+public rejected" "$TX_OUT"
@@ -28,7 +28,7 @@ assert_tx_failure "Encrypted+public rejected" "$TX_OUT"
 # =========================================================================
 echo ""
 echo "--- Test 2: Private requires encryption ---"
-TX_OUT=$(send_tx collect create-collection \
+TX_OUT=$(send_tx collect create-collection --gas 400000 \
     nft private false "$FUTURE_BLOCK" "PrivNoEnc" "Priv without enc" "" "" \
     --from collector1)
 assert_tx_failure "Private requires encryption" "$TX_OUT"
@@ -39,7 +39,7 @@ assert_tx_failure "Private requires encryption" "$TX_OUT"
 echo ""
 echo "--- Test 3: Non-member TTL cap exceeded ---"
 FAR_FUTURE=$((BLOCK_HEIGHT + 500000))
-TX_OUT=$(send_tx collect create-collection \
+TX_OUT=$(send_tx collect create-collection --gas 400000 \
     nft public false "$FAR_FUTURE" "TooLong" "TTL too long" "" "" \
     --from nonmember1)
 assert_tx_failure "Non-member TTL cap exceeded" "$TX_OUT"
@@ -49,7 +49,7 @@ assert_tx_failure "Non-member TTL cap exceeded" "$TX_OUT"
 # =========================================================================
 echo ""
 echo "--- Test 4: Delete collection with items (cascade) ---"
-TX_OUT=$(send_tx collect create-collection \
+TX_OUT=$(send_tx collect create-collection --gas 400000 \
     mixed public false 0 "CascadeDel" "For cascade delete" "" "" \
     --from collector2)
 assert_tx_success "Create collection for cascade delete" "$TX_OUT"
@@ -61,9 +61,9 @@ if [ -z "$CASCADE_COLL_ID" ]; then
 fi
 
 # Add 2 items
-TX_OUT=$(send_tx collect add-item "$CASCADE_COLL_ID" 0 "CascadeItem1" "Item 1" "" unspecified --from collector2)
+TX_OUT=$(send_tx collect add-item --gas 400000 "$CASCADE_COLL_ID" 0 "CascadeItem1" "Item 1" "" unspecified --from collector2)
 assert_tx_success "Add cascade item 1" "$TX_OUT"
-TX_OUT=$(send_tx collect add-item "$CASCADE_COLL_ID" 1 "CascadeItem2" "Item 2" "" unspecified --from collector2)
+TX_OUT=$(send_tx collect add-item --gas 400000 "$CASCADE_COLL_ID" 1 "CascadeItem2" "Item 2" "" unspecified --from collector2)
 assert_tx_success "Add cascade item 2" "$TX_OUT"
 
 # Verify items exist
@@ -95,7 +95,7 @@ assert_tx_failure "Permanent to TTL rejected" "$TX_OUT"
 # =========================================================================
 echo ""
 echo "--- Test 6: Member TTL → permanent conversion ---"
-TX_OUT=$(send_tx collect create-collection \
+TX_OUT=$(send_tx collect create-collection --gas 400000 \
     link public false "$FUTURE_BLOCK" "ConvertMe" "Will become permanent" "" "" \
     --from collector2)
 assert_tx_success "Create TTL for conversion" "$TX_OUT"
@@ -132,7 +132,7 @@ assert_tx_failure "Non-member cannot convert TTL to permanent" "$TX_OUT"
 # =========================================================================
 echo ""
 echo "--- Test 8: Community feedback toggle ---"
-TX_OUT=$(send_tx collect create-collection \
+TX_OUT=$(send_tx collect create-collection --gas 400000 \
     nft public false 0 "FeedbackColl" "For feedback toggle" "" "" \
     --from collector2)
 assert_tx_success "Create collection for feedback toggle" "$TX_OUT"
@@ -164,7 +164,7 @@ assert_tx_failure "Upvote rejected when feedback disabled" "$TX_OUT"
 # =========================================================================
 echo ""
 echo "--- Test 9: Delete PENDING collection ---"
-TX_OUT=$(send_tx collect create-collection \
+TX_OUT=$(send_tx collect create-collection --gas 400000 \
     nft public false "$FUTURE_BLOCK" "PendingDel" "Will be deleted" "" "" \
     --from nonmember1)
 assert_tx_success "Create PENDING for deletion" "$TX_OUT"

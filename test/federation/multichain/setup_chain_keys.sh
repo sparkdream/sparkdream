@@ -101,7 +101,7 @@ invite_and_accept() {
 
     echo "  Inviting $ADDR as rep member on chain-$CHAIN (stake=$DREAM micro-DREAM)..."
     local TX
-    TX=$($cli_x tx rep invite-member "$ADDR" "$DREAM" \
+    TX=$($cli_x tx rep invite-member --gas 400000 "$ADDR" "$DREAM" \
         --from "$INVITER" -y --fees 5000${BOND_DENOM} --output json)
     $submit_x "$TX" "invite $ADDR" || return 1
 
@@ -118,7 +118,7 @@ invite_and_accept() {
     fi
 
     echo "  Accepting invitation $INVITATION_ID..."
-    TX=$($cli_x tx rep accept-invitation "$INVITATION_ID" \
+    TX=$($cli_x tx rep accept-invitation --gas 400000 "$INVITATION_ID" \
         --from "$KEY" -y --fees 5000${BOND_DENOM} --output json)
     $submit_x "$TX" "accept $INVITATION_ID" || return 1
 }

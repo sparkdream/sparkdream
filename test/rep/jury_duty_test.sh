@@ -304,7 +304,7 @@ else
 
         # Respond immediately — the jury is seated by the response, and the
         # window to send it is short.
-        RESPOND_RESULT=$(send_tx $BINARY tx rep respond-to-challenge $CHALLENGE_ID \
+        RESPOND_RESULT=$(send_tx $BINARY tx rep respond-to-challenge --gas 500000 $CHALLENGE_ID \
             "The tree builds; see the linked CI run" --from $ASSIGNEE_KEY)
 
         STORED_CRIT=$($BINARY query rep get-challenge $CHALLENGE_ID --output json 2>&1 \
@@ -432,7 +432,7 @@ else
     DECLINE_HASH=""
     NON_JUROR_HASH=""
     [ -n "$ACCEPT_KEY" ] && ACCEPT_HASH=$(broadcast_tx $BINARY tx rep accept-jury-duty $JURY_REVIEW_ID --from $ACCEPT_KEY)
-    [ -n "$DECLINE_KEY" ] && DECLINE_HASH=$(broadcast_tx $BINARY tx rep decline-jury-duty $JURY_REVIEW_ID --from $DECLINE_KEY)
+    [ -n "$DECLINE_KEY" ] && DECLINE_HASH=$(broadcast_tx $BINARY tx rep decline-jury-duty --gas 400000 $JURY_REVIEW_ID --from $DECLINE_KEY)
     [ -n "$NON_JUROR_KEY" ] && NON_JUROR_HASH=$(broadcast_tx $BINARY tx rep accept-jury-duty $JURY_REVIEW_ID --from $NON_JUROR_KEY)
 
     sleep 6

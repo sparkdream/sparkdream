@@ -1597,6 +1597,7 @@ message MsgSubmitFederatedContent {
   DeliverTx. A daemon that treats CheckTx success as an anchor marks rejected content
   done forever. Confirmation is also how the assigned `content_id` is recovered, which
   is what makes `supersedes_content_id` possible at all.
+- **Unattended daemons sign through an x/session key, not the account's own key.** The bridge operator's key controls the service bond, and the verifier's controls a DREAM bond, so neither belongs on a host someone else runs. Set `SDA_SESSION_KEY_FILE` and `SDA_GRANTER` in place of `SDA_MNEMONIC`: the daemon signs as the grantee and wraps each message in `MsgExecSession` for the granter, who pays the fees from the session's `spend_limit`. The granter scopes the grant to the one message the daemon sends (`MsgSubmitFederatedContent` for a bridge, `MsgVerifyContent` for a verifier). A leaked key can then send only that message, spend at most what is left of the fee budget, and last until the grant expires or the granter revokes it. The key file is re-read before every tx, so rotation is a file write with no restart. While the file is missing, or the grant is gone, expired or spent, the daemon keeps polling and holds its work for the next cycle; it neither crashes nor drops content. Send the grantee any amount first: `MsgCreateSession` does not create the grantee's auth account, and an account that does not exist cannot sign.
 - **Remote fetches carry no local credential.** The bridge's Mastodon OAuth token is
   scoped to its own instance; an actor's outbox lives on another server and is fetched
   unauthenticated (or HTTP-Signature-signed), never with the app token. The outbox root
@@ -2905,8 +2906,23 @@ Federation registers two invariants with `x/crisis` to catch state drift from fa
 IBC packet processing (both sending and receiving) follows the standard Cosmos IBC gas model:
 
 - **Sending chain**: The signer of the message that triggers packet creation (`MsgFederateContent`, `MsgRequestReputationAttestation`, `MsgLinkIdentity`) pays gas for packet commitment and event emission.
-- **Receiving chain**: The IBC relayer pays gas for `MsgRecvPacket`, which covers `OnRecvPacket` execution including state writes (storing `FederatedContent`, `ReputationAttestation`, etc.). Relayers recoup costs through their own incentive model.
-- **Acknowledgement**: The relayer pays gas for `MsgAcknowledgement` on the sending chain, which covers `OnAcknowledgementPacket` execution.
+- **Receiving chain**: The IBC relayer pays gas for `MsgRecvPacket`, which covers `OnRecvPacket` execution including state writes (storing `FederatedContent`, `ReputationAttestation`, etc.). Between sister Spark Dream chains the fee comes back (below).
+- **Acknowledgement**: The relayer pays gas for `MsgAcknowledgement` on the sending chain, which covers `OnAcknowledgementPacket` execution. It is refunded on the same terms.
+
+**Relay fee refund (app/relayrefund).** A relayer signs with a raw key on a host it usually does not control: Hermes cannot sign through an x/session key. Whatever that key holds is at the host's mercy. ICS-29 fee middleware, the usual incentive, was removed from ibc-go v10. So the chain refunds the relays it wants carried, and the key needs only a float of a few fees. The relayer pays each fee up front, and a post handler returns it from the fee collector when the tx succeeds. A tx is refunded when all of the following hold:
+
+- It contains only `MsgUpdateClient`, `MsgRecvPacket`, `MsgAcknowledgement`, `MsgTimeout` and `MsgTimeoutOnClose` (IBC v1).
+- It carries at least one packet message.
+- Every packet travels on this chain's end of the federation or transfer channel of an ACTIVE `PEER_TYPE_SPARK_DREAM` peer (`Keeper.IsActivePeerChannel`, matching `ibc_channel_id` / `ibc_transfer_channel_id`).
+- Every client update is for a client under one of those packets' connections.
+- Every packet is still undelivered when the tx starts executing:
+  - a receive has no receipt, or on an ordered channel its sequence is not below `next_sequence_recv`;
+  - an ack or timeout still has its commitment;
+  - no packet appears twice in the tx.
+
+Freshness is decided before execution by plain state reads, and validity by execution itself: a bad proof fails the tx, and a failed tx is never refunded. When two relayers race one packet in a block, the second tx's ante runs after the first executed, sees the packet delivered, and pays its fee. In CheckTx, ibc-go's `RedundantRelayDecorator` turns away txs whose packets are all delivered before they cost anyone. Only block execution refunds, never CheckTx or simulation. Each refund emits `relay_fee_refund` (`relayer`, `amount`).
+
+Anyone may relay and be refunded; the peer-channel rule is what keeps refunds from turning into free block space. A packet on a peer channel was sent, and paid for, by a user on a chain this one chose to federate with. A channel anyone could open would let them relay junk from a chain they control for free. Other traffic is not refunded: standalone client refreshes, channels to non-peers, and external chains. A relayer's key therefore still needs a small, capped balance on those.
 - **Content storage cost**: Inbound `ContentPacket` processing involves multiple store writes (primary record + up to 5 indexes). The `max_content_body_size` and field size limits bound the per-packet gas cost.
 
 ---

@@ -487,7 +487,7 @@ submit_gov_proposal_expedited_hooks() {
     local FILE=$1
     local LABEL=${2:-"gov proposal"}
     echo "  Submitting $LABEL via x/gov (expedited)..."
-    TX_RES=$($BINARY tx gov submit-proposal "$FILE" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} --output json)
+    TX_RES=$($BINARY tx gov submit-proposal --gas 1000000 "$FILE" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} --output json)
     if ! submit_and_wait "$TX_RES" "$LABEL gov submit"; then return 1; fi
     local PROP_ID
     PROP_ID=$(echo "$TX_RESULT" | jq -r '.events[] | select(.type=="submit_proposal").attributes[] | select(.key=="proposal_id").value' | tr -d '"' | head -n 1)

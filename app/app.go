@@ -47,6 +47,7 @@ import (
 	gnovmante "github.com/sparkdream/gnovm/x/gnovm/ante"
 	gnovmmodulekeeper "github.com/sparkdream/gnovm/x/gnovm/keeper"
 
+	"sparkdream/app/relayrefund"
 	"sparkdream/docs"
 	blogmodulekeeper "sparkdream/x/blog/keeper"
 	collectmodulekeeper "sparkdream/x/collect/keeper"
@@ -474,6 +475,9 @@ func New(
 		SigGasConsumer:  cosmos_ante.DefaultSigVerificationGasConsumer,
 	}
 
+	// relay refunds: the ante marks a tx, the post handler pays it
+	relayMarks := relayrefund.NewMarks()
+
 	// Manually define the standard decorators (since NewModuleAnteDecorators doesn't exist)
 	decorators := []sdk.AnteDecorator{
 		cosmos_ante.NewSetUpContextDecorator(), // outermost
@@ -495,6 +499,16 @@ func New(
 		cosmos_ante.NewSigGasConsumeDecorator(app.AuthKeeper, anteOptions.SigGasConsumer),
 		cosmos_ante.NewSigVerificationDecorator(app.AuthKeeper, anteOptions.SignModeHandler),
 		cosmos_ante.NewIncrementSequenceDecorator(app.AuthKeeper),
+		// IBC relays: ibc-go's mempool check turns away a tx whose packets
+		// are all delivered already; FreshRelayDecorator marks a relay on a
+		// sister Spark Dream chain's channel for a fee refund (post handler
+		// below). The IBC keeper is built after this handler, hence the getter.
+		relayrefund.NewRedundantRelayDecorator(func() *ibckeeper.Keeper { return app.IBCKeeper }),
+		relayrefund.NewFreshRelayDecorator(
+			relayrefund.KeeperState(func() *ibckeeper.Keeper { return app.IBCKeeper }),
+			app.FederationKeeper,
+			relayMarks,
+		),
 	}
 
 	// 3. Insert the proposal fee decorator at the end
@@ -504,6 +518,10 @@ func New(
 
 	// 4. Chain them together and set
 	app.SetAnteHandler(sdk.ChainAnteDecorators(decorators...))
+
+	// Successful relays between sister Spark Dream chains get their fee back,
+	// so a relayer's hot key only needs a float (app/relayrefund).
+	app.SetPostHandler(sdk.ChainPostDecorators(relayrefund.NewRefundDecorator(app.BankKeeper, relayMarks)))
 
 	// -------------------------------------------------------------------------
 	// Wire ABCI++ Vote Extension handlers for DKG automation.

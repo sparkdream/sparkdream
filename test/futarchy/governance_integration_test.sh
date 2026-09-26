@@ -198,7 +198,7 @@ echo '{
   "summary": "A test proposal to validate futarchy prediction market accuracy."
 }' > "$PROPOSAL_DIR/gov_prop_42.json"
 
-PROP_SUBMIT=$($BINARY tx gov submit-proposal "$PROPOSAL_DIR/gov_prop_42.json" \
+PROP_SUBMIT=$($BINARY tx gov submit-proposal --gas 1000000 "$PROPOSAL_DIR/gov_prop_42.json" \
   --from alice \
   --chain-id $CHAIN_ID \
   --keyring-backend test \

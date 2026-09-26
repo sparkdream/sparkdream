@@ -14,6 +14,11 @@
 #   3. B -> A, the other direction on the same channel
 #   4. the voucher returns home: sending it back to chain-a unwinds to the
 #      native denom (escrow released, no double voucher)
+#   5. relaying between sister chains is refunded (app/relayrefund): every
+#      receive and ack above lands with a relay_fee_refund event on its
+#      chain, and the relayer's gas balance on both chains is where it
+#      started (a standalone client refresh by Hermes, which is not refunded,
+#      only warns)
 #
 # Skips (passing) when no transfer channel exists: the host-hermes suite
 # (setup_ibc.sh) opens only the federation channel. Run the suite with
@@ -62,6 +67,15 @@ ALICE_B=$(keys_b show alice -a)
 SYMBOL_A=$(qcli_a identity chain-identity | jq -r '.identity.bond_display_symbol')
 SYMBOL_B=$(qcli_b identity chain-identity | jq -r '.identity.bond_display_symbol')
 AMOUNT=12345
+
+# the relayer's key (relayer_container.sh names it relayer-e2e on both chains)
+RELAYER=$(keys_a show relayer-e2e -a 2>/dev/null || true)
+if [ -n "$RELAYER" ]; then
+    RELAYER_A0=$(balance_of a "$RELAYER" "$BOND_DENOM")
+    RELAYER_B0=$(balance_of b "$RELAYER" "$BOND_DENOM")
+    echo "  relayer $RELAYER holds $RELAYER_A0 on chain-a, $RELAYER_B0 on chain-b"
+    echo ""
+fi
 
 # ====================================================================
 # TEST 1 + 2: A -> B, voucher denom and its metadata
@@ -137,6 +151,42 @@ if transfer b "$TRANSFER_CHANNEL_B" "$ALICE_A" "${AMOUNT}${VOUCHER_ON_B}" "retur
     fi
 else
     record_result "Voucher unwinds to native" "FAIL"
+fi
+
+# ====================================================================
+# TEST 5: the relayer's fees come back
+# ====================================================================
+echo "--- TEST 5: relay fees refunded on both chains ---"
+refunds() {  # <a|b> -> number of refunded txs for the relayer
+    qcli_$1 txs --query "relay_fee_refund.relayer='$RELAYER'" --limit 100 | jq -r '.total_count // "0"'
+}
+if [ -z "$RELAYER" ]; then
+    echo "  SKIP: no relayer-e2e key (not the container relayer)"
+    record_result "Relay fees refunded" "SKIP"
+else
+    # chain-a received 2 packets and acked 1 of its own; chain-b the reverse:
+    # the last acks land a few blocks after the last receive
+    REFUNDS_A=0; REFUNDS_B=0
+    for _ in $(seq 1 45); do
+        REFUNDS_A=$(refunds a); REFUNDS_B=$(refunds b)
+        [ "${REFUNDS_A:-0}" -ge 3 ] && [ "${REFUNDS_B:-0}" -ge 3 ] && break
+        sleep 2
+    done
+    RELAYER_A1=$(balance_of a "$RELAYER" "$BOND_DENOM")
+    RELAYER_B1=$(balance_of b "$RELAYER" "$BOND_DENOM")
+    echo "  refunded relay txs: chain-a $REFUNDS_A, chain-b $REFUNDS_B (expected >= 3 each)"
+    echo "  relayer balance: chain-a $RELAYER_A0 -> $RELAYER_A1, chain-b $RELAYER_B0 -> $RELAYER_B1"
+    if [ "${REFUNDS_A:-0}" -ge 3 ] && [ "${REFUNDS_B:-0}" -ge 3 ]; then
+        if [ "$RELAYER_A1" -ge "$RELAYER_A0" ] && [ "$RELAYER_B1" -ge "$RELAYER_B0" ]; then
+            record_result "Relay fees refunded" "PASS"
+        else
+            # a client refresh on its own carries no packet and is paid
+            echo "  [WARN] the relayer paid for something unrefunded (a standalone client update?)"
+            record_result "Relay fees refunded" "PASS"
+        fi
+    else
+        record_result "Relay fees refunded" "FAIL"
+    fi
 fi
 
 print_summary "CROSS-CHAIN TRANSFER TEST RESULTS"

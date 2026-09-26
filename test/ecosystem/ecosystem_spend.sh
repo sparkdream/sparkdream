@@ -125,7 +125,7 @@ echo '{
   "summary": "Proposal to spend 1 SPARK from Ecosystem to Bob"
 }' > "$PROPOSAL_DIR/msg_ecosystem_spend.json"
 
-SUBMIT_RES=$($BINARY tx gov submit-proposal "$PROPOSAL_DIR/msg_ecosystem_spend.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${DENOM} --output json)
+SUBMIT_RES=$($BINARY tx gov submit-proposal --gas 1000000 "$PROPOSAL_DIR/msg_ecosystem_spend.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${DENOM} --output json)
 TX_HASH=$(echo "$SUBMIT_RES" | jq -r '.txhash')
 sleep 4
 

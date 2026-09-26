@@ -143,7 +143,7 @@ U_A_PRE=$(tag_usage_count "$TAG_A")
 U_B_PRE=$(tag_usage_count "$TAG_B")
 echo "  Pre-create: $TAG_A=$U_A_PRE $TAG_B=$U_B_PRE"
 
-TX_RES=$($BINARY tx forum create-post \
+TX_RES=$($BINARY tx forum create-post --gas 500000 \
     "$TEST_CATEGORY_ID" \
     "0" \
     "Forum tag test post body" \

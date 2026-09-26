@@ -20,7 +20,7 @@ FUTURE_BLOCK=$((BLOCK_HEIGHT + 5000))
 echo "--- Setup: Create and endorse a collection with items ---"
 
 # Create a PENDING TTL collection for nonmember1
-TX_OUT=$(send_tx collect create-collection \
+TX_OUT=$(send_tx collect create-collection --gas 400000 \
     nft public false "$FUTURE_BLOCK" "ImmutableColl" "For immutability tests" "" "" \
     --from nonmember1)
 assert_tx_success "Create collection for immutability test" "$TX_OUT"
@@ -33,7 +33,7 @@ fi
 echo "  Collection ID: $IMMUT_COLL_ID"
 
 # Add 2 items
-TX_OUT=$(send_tx collect add-item "$IMMUT_COLL_ID" 0 "ImmutItem1" "First item" "" unspecified --from nonmember1)
+TX_OUT=$(send_tx collect add-item --gas 400000 "$IMMUT_COLL_ID" 0 "ImmutItem1" "First item" "" unspecified --from nonmember1)
 assert_tx_success "Add item 1 to immutable collection" "$TX_OUT"
 IMMUT_ITEM1_ID=$(extract_event_attr "$TX_RESULT_OUT" "item_added" "id")
 if [ -z "$IMMUT_ITEM1_ID" ]; then
@@ -41,7 +41,7 @@ if [ -z "$IMMUT_ITEM1_ID" ]; then
     IMMUT_ITEM1_ID=$(echo "$ITEMS_DATA" | jq -r '.items[0].id // empty' 2>/dev/null)
 fi
 
-TX_OUT=$(send_tx collect add-item "$IMMUT_COLL_ID" 1 "ImmutItem2" "Second item" "" unspecified --from nonmember1)
+TX_OUT=$(send_tx collect add-item --gas 400000 "$IMMUT_COLL_ID" 1 "ImmutItem2" "Second item" "" unspecified --from nonmember1)
 assert_tx_success "Add item 2 to immutable collection" "$TX_OUT"
 IMMUT_ITEM2_ID=$(extract_event_attr "$TX_RESULT_OUT" "item_added" "id")
 if [ -z "$IMMUT_ITEM2_ID" ]; then
@@ -72,7 +72,7 @@ assert_equal "Collection status is ACTIVE" "COLLECTION_STATUS_ACTIVE" "$STATUS"
 # =========================================================================
 echo ""
 echo "--- Test 1: Cannot add item to immutable collection ---"
-TX_OUT=$(send_tx collect add-item "$IMMUT_COLL_ID" 0 "NewItem" "Should fail" "" unspecified --from nonmember1)
+TX_OUT=$(send_tx collect add-item --gas 400000 "$IMMUT_COLL_ID" 0 "NewItem" "Should fail" "" unspecified --from nonmember1)
 assert_tx_failure "Cannot add item to immutable collection" "$TX_OUT"
 
 # =========================================================================

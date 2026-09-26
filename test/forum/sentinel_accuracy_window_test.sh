@@ -107,7 +107,7 @@ create_hide_appeal() {
     sleep 6   # appeal cooldown (5s) before the author may appeal
     # Do not swallow this one: a silently failed appeal shows up much later as
     # an empty appeal id plus two unexplained window-delta failures.
-    if ! APPEAL_RES=$(run_tx "$POSTER" forum appeal-post "$PID") || ! check_tx_success "$APPEAL_RES"; then
+    if ! APPEAL_RES=$(run_tx "$POSTER" forum appeal-post --gas 500000 "$PID") || ! check_tx_success "$APPEAL_RES"; then
         echo "  [WARN] appeal-post by $POSTER on $PID failed: $(echo "$APPEAL_RES" | jq -r '.raw_log // .' 2>/dev/null | head -c 200)" >&2
     fi
     AID=$($BINARY query rep list-gov-action-appeal --output json 2>/dev/null \

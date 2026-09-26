@@ -311,7 +311,7 @@ echo "[ OK ] Duration test initiative: ID $DUR_ID"
 
 # Early unstaker creates a stake
 # Usage: stake [target-type] [target-id] [amount]
-$BINARY tx rep stake "stake-target-initiative" $DUR_ID "200" --from early_unstaker --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y > /dev/null 2>&1
+$BINARY tx rep stake --gas 500000 "stake-target-initiative" $DUR_ID "200" --from early_unstaker --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y > /dev/null 2>&1
 sleep 2
 
 # Get stake ID

@@ -182,7 +182,7 @@ for i in "${!ACCOUNTS[@]}"; do
     echo "  Inviting $ACCOUNT ($ADDR)..."
     REQUIRED_STAKE=$($BINARY query rep required-invitation-stake "$ALICE_ADDR" --output json 2>/dev/null \
         | jq -r '.required_stake // "100000000"')
-    TX_RES=$($BINARY tx rep invite-member \
+    TX_RES=$($BINARY tx rep invite-member --gas 400000 \
         $ADDR \
         "$REQUIRED_STAKE" \
         --from alice \
@@ -232,7 +232,7 @@ for i in "${!ACCOUNTS[@]}"; do
     fi
 
     echo "  $ACCOUNT accepting invitation $INVITATION_ID..."
-    TX_RES=$($BINARY tx rep accept-invitation \
+    TX_RES=$($BINARY tx rep accept-invitation --gas 400000 \
         $INVITATION_ID \
         --from $ACCOUNT \
         --chain-id $CHAIN_ID \
@@ -329,7 +329,7 @@ json.dump(d, sys.stdout)
 }
 ' > "$SCRIPT_DIR/proposals/tune_service_for_e2e.json"
 
-    TX_RES=$($BINARY tx gov submit-proposal "$SCRIPT_DIR/proposals/tune_service_for_e2e.json" \
+    TX_RES=$($BINARY tx gov submit-proposal --gas 1000000 "$SCRIPT_DIR/proposals/tune_service_for_e2e.json" \
         --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} --output json)
     TXHASH=$(echo "$TX_RES" | jq -r '.txhash // empty')
     if [ -n "$TXHASH" ] && [ "$TXHASH" != "null" ]; then

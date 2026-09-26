@@ -1934,8 +1934,8 @@ github.com/sourcegraph/conc v0.3.1-0.20240121214520-5f936abd7ae8/go.mod h1:3n1Cw
 github.com/sourcegraph/go-diff v0.7.0 h1:9uLlrd5T46OXs5qpp8L/MTltk0zikUGi0sNNyCpA8G0=
 github.com/sourcegraph/go-diff v0.7.0/go.mod h1:iBszgVvyxdc8SFZ7gm69go2KDdt3ag071iBaWPF6cjs=
 github.com/spaolacci/murmur3 v0.0.0-20180118202830-f09979ecbc72/go.mod h1:JwIasOWyU6f++ZhiEuf87xNszmSA2myDM2Kzu9HwQUA=
-github.com/sparkdream/gnovm v0.0.0-20260324003447-6311965dbfc1 h1:TtVDfQZpCmK51K4e7IA0ib5kc/cVdiyNkjQ4ywvWz28=
-github.com/sparkdream/gnovm v0.0.0-20260324003447-6311965dbfc1/go.mod h1:fb2hdc//p+Y1RfHc/raf3SoLncTpLUcMfQPsmjErYAg=
+github.com/sparkdream/gnovm v0.0.0-20260925185722-606b8c4d29a8 h1:fvACGB6JVOJ/gs6CNITgpqzfKwkdTNsRiuho3JKb8K0=
+github.com/sparkdream/gnovm v0.0.0-20260925185722-606b8c4d29a8/go.mod h1:fb2hdc//p+Y1RfHc/raf3SoLncTpLUcMfQPsmjErYAg=
 github.com/spf13/afero v1.3.3/go.mod h1:5KUK8ByomD5Ti5Artl0RtHeI5pTF7MIDuXL3yY520V4=
 github.com/spf13/afero v1.6.0/go.mod h1:Ai8FlHk4v/PARR026UzYexafAt9roJ7LcLMAmO6Z93I=
 github.com/spf13/afero v1.9.2/go.mod h1:iUV7ddyEEZPO5gA3zD4fJt6iStLlL+Lg4m2cihcDf8Y=

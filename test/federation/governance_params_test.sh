@@ -164,7 +164,7 @@ jq -n \
 }
 ' > "$PROPOSAL_DIR/gov_update_params.json"
 
-TX_RES=$($BINARY tx gov submit-proposal "$PROPOSAL_DIR/gov_update_params.json" \
+TX_RES=$($BINARY tx gov submit-proposal --gas 1000000 "$PROPOSAL_DIR/gov_update_params.json" \
     --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} --output json)
 
 if ! submit_and_wait "$TX_RES" "gov submit-proposal"; then
@@ -233,7 +233,7 @@ jq -n \
 }
 ' > "$PROPOSAL_DIR/gov_restore_params.json"
 
-TX_RES=$($BINARY tx gov submit-proposal "$PROPOSAL_DIR/gov_restore_params.json" \
+TX_RES=$($BINARY tx gov submit-proposal --gas 1000000 "$PROPOSAL_DIR/gov_restore_params.json" \
     --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} --output json)
 
 if submit_and_wait "$TX_RES" "gov restore"; then

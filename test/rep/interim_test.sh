@@ -120,7 +120,7 @@ echo "   Budget: $INTERIM_BUDGET_DREAM DREAM ($INTERIM_BUDGET micro-DREAM)"
 # Complete the interim
 echo ""
 echo "Step 3: Alice completes the interim work..."
-TX_RES=$($BINARY tx rep complete-interim \
+TX_RES=$($BINARY tx rep complete-interim --gas 500000 \
     $INTERIM_ID \
     "Security audit completed - no critical issues found" \
     --from alice \
@@ -349,7 +349,7 @@ echo "   [ OK ] Challenge #$CHALLENGE_ID created"
 # Respond to challenge (triggers escalation if not enough jurors)
 echo ""
 echo "Step 3: Assignee responds to challenge..."
-$BINARY tx rep respond-to-challenge \
+$BINARY tx rep respond-to-challenge --gas 500000 \
     $CHALLENGE_ID \
     "Work is correct" \
     --evidence "https://example.com/response" \
@@ -378,7 +378,7 @@ if [ -n "$ADJUDICATION_ID" ] && [ "$ADJUDICATION_ID" != "null" ]; then
     # client-side, same as the verdict flag on submit-juror-vote.
     echo ""
     echo "Step 5: Committee (Alice) completes adjudication..."
-    TX_RES=$($BINARY tx rep complete-interim \
+    TX_RES=$($BINARY tx rep complete-interim --gas 500000 \
         $ADJUDICATION_ID \
         "Committee decision: Challenge REJECTED. Work meets requirements." \
         --decision reject \

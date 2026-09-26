@@ -48,7 +48,7 @@ echo '{
   "summary": "This proposal attempts to steal funds."
 }' > "$PROPOSAL_DIR/bad_proposal.json"
 
-SUBMIT_RES=$($BINARY tx gov submit-proposal "$PROPOSAL_DIR/bad_proposal.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --output json)
+SUBMIT_RES=$($BINARY tx gov submit-proposal --gas 1000000 "$PROPOSAL_DIR/bad_proposal.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --output json)
 TX_HASH=$(echo $SUBMIT_RES | jq -r '.txhash')
 
 echo "Submitted Gov Prop. Hash: $TX_HASH"

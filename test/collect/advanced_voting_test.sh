@@ -58,7 +58,7 @@ C2_COLLS=$(query collect collections-by-owner "$COLLECTOR2_ADDR")
 C2_COLL_ID=$(echo "$C2_COLLS" | jq -r '.collections[0].id // empty' 2>/dev/null)
 
 if [ -n "$C2_COLL_ID" ]; then
-    TX_OUT=$(send_tx collect add-item "$C2_COLL_ID" 0 "DVTarget" "For downvote" "" unspecified --from collector2)
+    TX_OUT=$(send_tx collect add-item --gas 400000 "$C2_COLL_ID" 0 "DVTarget" "For downvote" "" unspecified --from collector2)
     assert_tx_success "Add item for downvote" "$TX_OUT"
 
     DV_ITEM_ID=$(extract_event_attr "$TX_RESULT_OUT" "item_added" "id")

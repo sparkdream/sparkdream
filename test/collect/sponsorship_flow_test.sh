@@ -18,7 +18,7 @@ FUTURE_BLOCK=$((BLOCK_HEIGHT + 5000))
 # Setup: Create TTL collection with items for nonmember1
 # =========================================================================
 echo "--- Setup: Create TTL collection with items ---"
-TX_OUT=$(send_tx collect create-collection \
+TX_OUT=$(send_tx collect create-collection --gas 400000 \
     link public false "$FUTURE_BLOCK" "SponsorFlowColl" "For sponsor flow" "" "" \
     --from nonmember1)
 assert_tx_success "Create TTL collection for sponsorship flow" "$TX_OUT"
@@ -31,7 +31,7 @@ fi
 echo "  Collection ID: $SF_COLL_ID"
 
 # Add 2 items
-TX_OUT=$(send_tx collect add-item "$SF_COLL_ID" 0 "SFItem1" "First item" "" unspecified --from nonmember1)
+TX_OUT=$(send_tx collect add-item --gas 400000 "$SF_COLL_ID" 0 "SFItem1" "First item" "" unspecified --from nonmember1)
 assert_tx_success "Add item 1" "$TX_OUT"
 SF_ITEM1_ID=$(extract_event_attr "$TX_RESULT_OUT" "item_added" "id")
 if [ -z "$SF_ITEM1_ID" ]; then
@@ -39,7 +39,7 @@ if [ -z "$SF_ITEM1_ID" ]; then
     SF_ITEM1_ID=$(echo "$ITEMS_DATA" | jq -r '.items[0].id // empty' 2>/dev/null)
 fi
 
-TX_OUT=$(send_tx collect add-item "$SF_COLL_ID" 1 "SFItem2" "Second item" "" unspecified --from nonmember1)
+TX_OUT=$(send_tx collect add-item --gas 400000 "$SF_COLL_ID" 1 "SFItem2" "Second item" "" unspecified --from nonmember1)
 assert_tx_success "Add item 2" "$TX_OUT"
 
 # =========================================================================
@@ -60,7 +60,7 @@ assert_equal "Sponsorship requester is nonmember1" "$NONMEMBER1_ADDR" "$REQUESTE
 # =========================================================================
 echo ""
 echo "--- Test 2: Cannot add item during sponsorship ---"
-TX_OUT=$(send_tx collect add-item "$SF_COLL_ID" 2 "Blocked" "Should fail" "" unspecified --from nonmember1)
+TX_OUT=$(send_tx collect add-item --gas 400000 "$SF_COLL_ID" 2 "Blocked" "Should fail" "" unspecified --from nonmember1)
 assert_tx_failure "Cannot add item during sponsorship" "$TX_OUT"
 
 # =========================================================================
@@ -124,7 +124,7 @@ assert_equal "Sponsorship request removed" "" "$REQUESTER"
 # =========================================================================
 echo ""
 echo "--- Test 9: Items unlocked after sponsorship ---"
-TX_OUT=$(send_tx collect add-item "$SF_COLL_ID" 2 "PostSponsor" "Item after sponsor" "" unspecified --from nonmember1)
+TX_OUT=$(send_tx collect add-item --gas 400000 "$SF_COLL_ID" 2 "PostSponsor" "Item after sponsor" "" unspecified --from nonmember1)
 assert_tx_success "Can add item after sponsorship completes" "$TX_OUT"
 
 # =========================================================================

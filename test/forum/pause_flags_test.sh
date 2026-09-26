@@ -210,7 +210,7 @@ echo ""
 # ========================================================================
 echo "--- PREREQUISITE: Create test post ---"
 
-TX_RES=$($BINARY tx forum create-post \
+TX_RES=$($BINARY tx forum create-post --gas 500000 \
     "$TEST_CATEGORY_ID" 0 "Pause flag test post" \
     --from poster1 \
     --chain-id $CHAIN_ID \
@@ -271,7 +271,7 @@ echo "--- TEST 1: ForumPaused blocks post creation ---"
 
 set_forum_paused "true"
 
-TX_RES=$($BINARY tx forum create-post \
+TX_RES=$($BINARY tx forum create-post --gas 500000 \
     "$TEST_CATEGORY_ID" 0 "This post should be blocked" \
     --from poster1 \
     --chain-id $CHAIN_ID \
@@ -385,7 +385,7 @@ echo "--- TEST 7: Appeal on non-hidden post ---"
 echo "  Note: appeals_paused has no CLI toggle; testing appeal validation instead"
 echo "  Appealing active post $PAUSE_TEST_POST_ID (should fail: not hidden)..."
 
-TX_RES=$($BINARY tx forum appeal-post \
+TX_RES=$($BINARY tx forum appeal-post --gas 500000 \
     "$PAUSE_TEST_POST_ID" \
     --from poster1 \
     --chain-id $CHAIN_ID \

@@ -13,3 +13,5 @@
 !x/identity/types
 !x/rep/types
 !x/service/types
+!x/session/types
+!deploy/docker/sdap/sdap-entry.sh

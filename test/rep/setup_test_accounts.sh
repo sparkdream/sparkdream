@@ -206,7 +206,7 @@ for i in "${!ACCOUNTS[@]}"; do
         | jq -r '.required_stake // "100000000"')
     echo "    Required stake: $REQUIRED_STAKE micro-DREAM"
 
-    TX_RES=$($BINARY tx rep invite-member \
+    TX_RES=$($BINARY tx rep invite-member --gas 400000 \
         $ADDR \
         "$REQUIRED_STAKE" \
         --from alice \
@@ -263,7 +263,7 @@ for i in "${!ACCOUNTS[@]}"; do
 
     echo "  → $ACCOUNT accepting invitation #$INVITATION_ID..."
 
-    TX_RES=$($BINARY tx rep accept-invitation \
+    TX_RES=$($BINARY tx rep accept-invitation --gas 400000 \
         $INVITATION_ID \
         --from $ACCOUNT \
         --chain-id $CHAIN_ID \
@@ -407,7 +407,7 @@ for ACCOUNT in "${COMMUNITY_ACCOUNTS[@]}"; do
         | jq -r '.required_stake // "100000000"')
     echo "  → bob inviting $ACCOUNT (stake: $REQUIRED_STAKE micro-DREAM)..."
 
-    TX_RES=$($BINARY tx rep invite-member \
+    TX_RES=$($BINARY tx rep invite-member --gas 400000 \
         $ADDR \
         "$REQUIRED_STAKE" \
         --from bob \
@@ -443,7 +443,7 @@ for i in "${!COMMUNITY_ACCOUNTS[@]}"; do
     [ -z "$INVITATION_ID" ] && continue
 
     echo "  → $ACCOUNT accepting invitation #$INVITATION_ID..."
-    TX_RES=$($BINARY tx rep accept-invitation \
+    TX_RES=$($BINARY tx rep accept-invitation --gas 400000 \
         $INVITATION_ID \
         --from $ACCOUNT \
         --chain-id $CHAIN_ID \
@@ -1090,7 +1090,7 @@ bootstrap_reputation() {
         INTERIM_ID=$(extract_event_value "$TX_RESULT" "interim_created" "interim_id")
 
         # Complete the interim
-        TX_RES=$($BINARY tx rep complete-interim $INTERIM_ID "Completed for test setup" \
+        TX_RES=$($BINARY tx rep complete-interim --gas 500000 $INTERIM_ID "Completed for test setup" \
             --from $ACCOUNT \
             --chain-id $CHAIN_ID \
             --keyring-backend test \

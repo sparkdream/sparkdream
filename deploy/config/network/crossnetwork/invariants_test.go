@@ -365,6 +365,9 @@ var allowedVariations = map[string]string{
 	"shield.params.max_pending_queue_size": "production has larger queue",
 	"shield.params.min_gas_reserve":        "production has larger gas reserve",
 
+	// === session: grant lifetime ceiling ===
+	"session.params.max_expiration": "devnet/testnet allow 90-day session grants so launcher-run bridge and verifier daemons renew rarely; mainnet keeps the 7-day code default",
+
 	// === per-chain identity: every chain has its own bond/dream denom
 	// (uspark.sparkdream / uspark.sparkdreamtest / usparz.sparkdreamdev),
 	// so every param that embeds a coin string differs by design ===

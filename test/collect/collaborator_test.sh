@@ -14,7 +14,7 @@ echo ""
 # Setup: Create a fresh collection for collaborator tests
 # =========================================================================
 echo "--- Setup: Create collection for collaborator tests ---"
-TX_OUT=$(send_tx collect create-collection \
+TX_OUT=$(send_tx collect create-collection --gas 400000 \
     mixed public false 0 "CollabTestColl" "For collaborator tests" "" "" \
     --from collector1)
 assert_tx_success "Create collection for collaborator tests" "$TX_OUT"
@@ -49,7 +49,7 @@ assert_equal "Collaborator role is EDITOR" "COLLABORATOR_ROLE_EDITOR" "$COLLAB_R
 # =========================================================================
 echo ""
 echo "--- Test 2: EDITOR collaborator adds item ---"
-TX_OUT=$(send_tx collect add-item \
+TX_OUT=$(send_tx collect add-item --gas 400000 \
     "$COLLAB_COLL_ID" 0 "Collab Item" "Added by collaborator" "" unspecified \
     --from collector2)
 assert_tx_success "Collaborator adds item" "$TX_OUT"
@@ -116,7 +116,7 @@ assert_equal "No collaborators after removal" "0" "$COLLAB_COUNT"
 # =========================================================================
 echo ""
 echo "--- Test 8: Removed collaborator cannot add items ---"
-TX_OUT=$(send_tx collect add-item \
+TX_OUT=$(send_tx collect add-item --gas 400000 \
     "$COLLAB_COLL_ID" 0 "Unauthorized" "Should fail" "" unspecified \
     --from collector2)
 assert_tx_failure "Removed collaborator cannot add items" "$TX_OUT"

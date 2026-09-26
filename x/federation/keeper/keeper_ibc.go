@@ -393,3 +393,25 @@ func (k Keeper) findPeerByChannel(ctx context.Context, channelID string) (string
 	}
 	return foundPeerID, nil
 }
+
+// IsActivePeerChannel reports whether channelID is this chain's end of the
+// federation or transfer channel of an ACTIVE Spark Dream peer. The app's
+// relay fee refund (app/relayrefund) covers only such channels: a channel
+// anyone can open would otherwise let them fill blocks with junk packets
+// from a chain they control, for free.
+func (k Keeper) IsActivePeerChannel(ctx context.Context, channelID string) bool {
+	if channelID == "" {
+		return false
+	}
+	found := false
+	_ = k.Peers.Walk(ctx, nil, func(_ string, peer types.Peer) (bool, error) {
+		if peer.Status == types.PeerStatus_PEER_STATUS_ACTIVE &&
+			peer.Type == types.PeerType_PEER_TYPE_SPARK_DREAM &&
+			(peer.IbcChannelId == channelID || peer.IbcTransferChannelId == channelID) {
+			found = true
+			return true, nil
+		}
+		return false, nil
+	})
+	return found
+}

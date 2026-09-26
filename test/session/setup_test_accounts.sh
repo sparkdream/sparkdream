@@ -141,7 +141,7 @@ if echo "$MEMBER_INFO" | grep -q "not found"; then
 
     REQUIRED_STAKE=$($BINARY query rep required-invitation-stake "$ALICE_ADDR" --output json 2>/dev/null \
         | jq -r '.required_stake // "100000000"')
-    TX_RES=$($BINARY tx rep invite-member \
+    TX_RES=$($BINARY tx rep invite-member --gas 400000 \
         $GRANTER_ADDR \
         "$REQUIRED_STAKE" \
         --from alice \
@@ -167,7 +167,7 @@ if echo "$MEMBER_INFO" | grep -q "not found"; then
 
             # Accept invitation
             echo "  session_granter accepting invitation #$INVITATION_ID..."
-            TX_RES=$($BINARY tx rep accept-invitation \
+            TX_RES=$($BINARY tx rep accept-invitation --gas 400000 \
                 $INVITATION_ID \
                 --from session_granter \
                 --chain-id $CHAIN_ID \

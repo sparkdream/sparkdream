@@ -131,7 +131,7 @@ echo "  Alice invites Bob, who is already a member..."
 # not on "insufficient stake" once cost escalation kicks in.
 REQUIRED_STAKE=$($BINARY query rep required-invitation-stake "$ALICE_ADDR" --output json 2>/dev/null \
     | jq -r '.required_stake // "100000000"')
-TX_RES=$($BINARY tx rep invite-member \
+TX_RES=$($BINARY tx rep invite-member --gas 400000 \
     "$BOB_ADDR" "$REQUIRED_STAKE" \
     --from alice \
     --chain-id $CHAIN_ID \
@@ -148,7 +148,7 @@ expect_tx_failure "$TX_RES" "already.*member\|member already exists\|already exi
 echo "--- TEST 2: Accept non-existent invitation ---"
 echo "  Trying to accept invitation ID 99999..."
 
-TX_RES=$($BINARY tx rep accept-invitation \
+TX_RES=$($BINARY tx rep accept-invitation --gas 400000 \
     99999 \
     --from bob \
     --chain-id $CHAIN_ID \
@@ -165,7 +165,7 @@ expect_tx_failure "$TX_RES" "invitation.*not found\|not found\|does not exist" "
 echo "--- TEST 3: Stake on non-existent initiative ---"
 echo "  Alice stakes on initiative ID 99999 (does not exist)..."
 
-TX_RES=$($BINARY tx rep stake \
+TX_RES=$($BINARY tx rep stake --gas 500000 \
     "stake-target-initiative" 99999 "1000000" \
     --from alice \
     --chain-id $CHAIN_ID \
@@ -232,7 +232,7 @@ fi
 echo "--- TEST 6: Zero-amount stake ---"
 echo "  Alice attempts to stake with amount=0..."
 
-TX_RES=$($BINARY tx rep stake \
+TX_RES=$($BINARY tx rep stake --gas 500000 \
     "stake-target-tag" 0 "0" \
     --target-identifier "backend" \
     --from alice \

@@ -1,0 +1,32 @@
+# Mastodon for the chain launcher's mastodon component: the upstream image
+# plus what running it on Akash needs.
+#
+#   - mastodon-run: web (puma) + sidekiq in one container, since an Akash
+#     persistent volume belongs to one service and both write media; takes
+#     ownership of that root-owned volume, waits for postgres/redis,
+#     `rails db:prepare` (so an image upgrade migrates itself), then drops to
+#     uid 991 for everything Mastodon runs
+#   - zz_sparkdream_proxy.rb: SPARKDREAM_ASSUME_SSL=true stops the redirect
+#     loop force_ssl causes behind an ingress that forwards plain HTTP
+#   - mastodon-bootstrap: idempotent owner account / registrations / bridge
+#     token setup the launcher runs over lease-shell
+#
+# The streaming server needs none of this and runs the upstream
+# ghcr.io/mastodon/mastodon-streaming image as-is.
+#
+# Build from the repo root:
+#   make docker-build-mastodon VERSION=<chain version>
+
+ARG MASTODON_IMAGE=ghcr.io/mastodon/mastodon:v4.7.2
+FROM ${MASTODON_IMAGE}
+
+USER root
+COPY deploy/docker/mastodon/zz_sparkdream_proxy.rb /opt/mastodon/config/initializers/zz_sparkdream_proxy.rb
+COPY deploy/docker/mastodon/mastodon-run.sh /usr/local/bin/mastodon-run
+COPY deploy/docker/mastodon/mastodon-bootstrap.sh /usr/local/bin/mastodon-bootstrap
+RUN chmod 0755 /usr/local/bin/mastodon-run /usr/local/bin/mastodon-bootstrap \
+ && chmod 0644 /opt/mastodon/config/initializers/zz_sparkdream_proxy.rb
+
+# root, so mastodon-run can take the volume; it drops to 991 itself
+ENTRYPOINT ["/usr/bin/tini", "--"]
+CMD ["mastodon-run"]

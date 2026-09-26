@@ -133,7 +133,7 @@ sleep 6
 # Three ephemeral posts.
 EPHEMERAL_POST_IDS=()
 for i in 1 2 3; do
-    TX_RES=$($BINARY tx forum create-post \
+    TX_RES=$($BINARY tx forum create-post --gas 500000 \
         $CATEGORY_ID 0 "Pre-admission forum post $i" \
         --from $PROMOTEE_ACCOUNT \
         --chain-id $CHAIN_ID \
@@ -154,7 +154,7 @@ done
 # One ephemeral reply on the first post.
 EPHEMERAL_REPLY_ID=""
 if [ ${#EPHEMERAL_POST_IDS[@]} -gt 0 ]; then
-    TX_RES=$($BINARY tx forum create-post \
+    TX_RES=$($BINARY tx forum create-post --gas 500000 \
         $CATEGORY_ID ${EPHEMERAL_POST_IDS[0]} "Pre-admission ephemeral reply." \
         --from $PROMOTEE_ACCOUNT \
         --chain-id $CHAIN_ID \
@@ -199,7 +199,7 @@ REQUIRED_STAKE=$($BINARY query rep required-invitation-stake "$ALICE_ADDR" --out
     | jq -r '.required_stake // "100000000"')
 echo "  Required invitation stake: $REQUIRED_STAKE"
 
-TX_RES=$($BINARY tx rep invite-member \
+TX_RES=$($BINARY tx rep invite-member --gas 400000 \
     $PROMOTEE_ADDR \
     "$REQUIRED_STAKE" \
     --from alice \
@@ -217,7 +217,7 @@ else
     exit 1
 fi
 
-TX_RES=$($BINARY tx rep accept-invitation \
+TX_RES=$($BINARY tx rep accept-invitation --gas 400000 \
     $INVITATION_ID \
     --from $PROMOTEE_ACCOUNT \
     --chain-id $CHAIN_ID \
@@ -309,7 +309,7 @@ fi
 # ========================================================================
 echo "--- TEST 4: Post-admission content is permanent on creation ---"
 
-TX_RES=$($BINARY tx forum create-post \
+TX_RES=$($BINARY tx forum create-post --gas 500000 \
     $CATEGORY_ID 0 "Post-admission forum post; should be permanent on creation." \
     --from $PROMOTEE_ACCOUNT \
     --chain-id $CHAIN_ID \

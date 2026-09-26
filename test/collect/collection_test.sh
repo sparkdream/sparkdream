@@ -17,7 +17,7 @@ FUTURE_BLOCK=$((BLOCK_HEIGHT + 5000))
 # Test 1: Member creates permanent PUBLIC collection (ACTIVE)
 # =========================================================================
 echo "--- Test 1: Member creates permanent PUBLIC collection ---"
-TX_OUT=$(send_tx collect create-collection \
+TX_OUT=$(send_tx collect create-collection --gas 400000 \
     nft public false 0 "ArtGallery" "A test art gallery" "" "" \
     --from collector1)
 assert_tx_success "Member creates permanent PUBLIC collection" "$TX_OUT"
@@ -46,7 +46,7 @@ assert_equal "Collection owner is collector1" "$COLLECTOR1_ADDR" "$COLL1_OWNER"
 # =========================================================================
 echo ""
 echo "--- Test 2: Member creates TTL PUBLIC collection ---"
-TX_OUT=$(send_tx collect create-collection \
+TX_OUT=$(send_tx collect create-collection --gas 400000 \
     link public false "$FUTURE_BLOCK" "MyLinks" "Link bookmarks" "" "" \
     --from collector1)
 assert_tx_success "Member creates TTL PUBLIC collection" "$TX_OUT"
@@ -68,7 +68,7 @@ assert_equal "TTL collection has correct expiry" "$FUTURE_BLOCK" "$COLL2_EXPIRES
 echo ""
 echo "--- Test 3: Non-member creates TTL PUBLIC collection (PENDING) ---"
 # Non-members need BaseCollectionDeposit (1 SPARK) + EndorsementCreationFee (10 SPARK) + gas
-TX_OUT=$(send_tx collect create-collection \
+TX_OUT=$(send_tx collect create-collection --gas 400000 \
     nft public false "$FUTURE_BLOCK" "GuestColl" "Guest collection" "" "" \
     --from nonmember1)
 assert_tx_success "Non-member creates TTL PUBLIC collection" "$TX_OUT"
@@ -89,7 +89,7 @@ assert_equal "Non-member collection status is PENDING" "COLLECTION_STATUS_PENDIN
 # =========================================================================
 echo ""
 echo "--- Test 4: Non-member cannot create permanent collection ---"
-TX_OUT=$(send_tx collect create-collection \
+TX_OUT=$(send_tx collect create-collection --gas 400000 \
     nft public false 0 "Permanent" "Should fail" "" "" \
     --from nonmember1)
 assert_tx_failure "Non-member cannot create permanent collection" "$TX_OUT"
@@ -123,7 +123,7 @@ assert_tx_failure "Non-owner cannot update collection" "$TX_OUT"
 # =========================================================================
 echo ""
 echo "--- Test 7: Create and delete collection ---"
-TX_OUT=$(send_tx collect create-collection \
+TX_OUT=$(send_tx collect create-collection --gas 400000 \
     mixed public false 0 "ToDelete" "Will be deleted" "" "" \
     --from collector1)
 assert_tx_success "Create collection for deletion" "$TX_OUT"

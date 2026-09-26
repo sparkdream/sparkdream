@@ -218,7 +218,7 @@ echo "  Alice rep on $SLASH_TAG_A before slash: $REP_A_BEFORE"
 echo "  Alice rep on $SLASH_TAG_B before slash: $REP_B_BEFORE"
 
 # nonmember1 creates a PENDING TTL collection seeking endorsement.
-TX_OUT=$(send_tx collect create-collection \
+TX_OUT=$(send_tx collect create-collection --gas 400000 \
     nft public false "$FUTURE_BLOCK" "SlashColl" "Bad content fixture" "" "$SLASH_TAG_A,$SLASH_TAG_B" \
     --from "$SLASH_OWNER_ACCT")
 assert_tx_success "nonmember1 creates PENDING TTL collection" "$TX_OUT"
@@ -324,7 +324,7 @@ STAKED_BEFORE_T2=$(alice_staked_dream)
 BLOCK_HEIGHT=$(get_block_height)
 T2_TTL=$((BLOCK_HEIGHT + 1000))  # Long TTL — the test resolves before TTL.
 
-TX_OUT=$(send_tx collect create-collection \
+TX_OUT=$(send_tx collect create-collection --gas 400000 \
     nft public false "$T2_TTL" "DeleteBlockColl" "Hide-and-try-delete fixture" "" "" \
     --from "$SLASH_OWNER_ACCT")
 assert_tx_success "nonmember1 creates PENDING TTL collection (Test 2)" "$TX_OUT"
@@ -411,7 +411,7 @@ BLOCK_HEIGHT=$(get_block_height)
 # so the collection is still HIDDEN-deferred when we assert it.
 T3_TTL=$((BLOCK_HEIGHT + 60))
 
-TX_OUT=$(send_tx collect create-collection \
+TX_OUT=$(send_tx collect create-collection --gas 400000 \
     nft public false "$T3_TTL" "DeferredColl" "Appeal-defers-TTL fixture" "" "" \
     --from "$SLASH_OWNER_ACCT")
 assert_tx_success "nonmember1 creates PENDING TTL collection (Test 3)" "$TX_OUT"
@@ -533,7 +533,7 @@ else
     echo "  carol rep on $AUTHOR_TAG_B before hide: $AUTHOR_REP_B_BEFORE"
 
     # carol creates an ACTIVE tagged collection (no TTL, no endorsement).
-    TX_OUT=$(send_tx collect create-collection \
+    TX_OUT=$(send_tx collect create-collection --gas 400000 \
         nft public false 0 "AuthorSlashColl" "Author rep deduction fixture" "" "$AUTHOR_TAG_A,$AUTHOR_TAG_B" \
         --from carol)
     assert_tx_success "carol creates a tagged ACTIVE collection" "$TX_OUT"

@@ -515,7 +515,7 @@ if [ -n "$TAG_BUDGET_ID" ]; then
 
     # Create a test post with the matching tag (--tags flag)
     echo "Creating test post with tag '$TAG_NAME' for award target..."
-    TX_RES=$($BINARY tx forum create-post \
+    TX_RES=$($BINARY tx forum create-post --gas 500000 \
         "$TEST_CATEGORY_ID" \
         "0" \
         "Test post for tag budget award" \

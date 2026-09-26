@@ -790,7 +790,7 @@ echo "--- NEG 6: POST IN ADMIN-ONLY CATEGORY BY NON-ADMIN ---"
 if [ -n "$ADMIN_CATEGORY_ID" ]; then
     echo "Attempting to post in admin-only category $ADMIN_CATEGORY_ID as poster1..."
 
-    TX_RES=$($BINARY tx forum create-post \
+    TX_RES=$($BINARY tx forum create-post --gas 500000 \
         "$ADMIN_CATEGORY_ID" \
         "0" \
         "This should fail - admin only category" \
@@ -838,7 +838,7 @@ if [ -n "$MEMBERS_CATEGORY_ID" ]; then
 
     echo "Attempting to post in members-only category $MEMBERS_CATEGORY_ID as non-member..."
 
-    TX_RES=$($BINARY tx forum create-post \
+    TX_RES=$($BINARY tx forum create-post --gas 500000 \
         "$MEMBERS_CATEGORY_ID" \
         "0" \
         "This should fail - members only category" \
@@ -865,7 +865,7 @@ echo "--- NEG 8: POST IN ADMIN-ONLY CATEGORY BY MEMBER (non-admin) ---"
 if [ -n "$ADMIN_CATEGORY_ID" ]; then
     echo "Attempting to post in admin-only category $ADMIN_CATEGORY_ID as poster2 (member, not admin)..."
 
-    TX_RES=$($BINARY tx forum create-post \
+    TX_RES=$($BINARY tx forum create-post --gas 500000 \
         "$ADMIN_CATEGORY_ID" \
         "0" \
         "This should fail - admin only even for members" \
@@ -892,7 +892,7 @@ echo "--- VERIFY: POST IN MEMBERS-ONLY CATEGORY BY MEMBER ---"
 if [ -n "$MEMBERS_CATEGORY_ID" ]; then
     echo "Posting in members-only category $MEMBERS_CATEGORY_ID as poster1 (member)..."
 
-    TX_RES=$($BINARY tx forum create-post \
+    TX_RES=$($BINARY tx forum create-post --gas 500000 \
         "$MEMBERS_CATEGORY_ID" \
         "0" \
         "Members can post here - this should succeed" \
@@ -925,7 +925,7 @@ echo "--- VERIFY: POST IN ADMIN-ONLY CATEGORY BY AUTHORITY ---"
 if [ -n "$ADMIN_CATEGORY_ID" ]; then
     echo "Posting in admin-only category $ADMIN_CATEGORY_ID as alice (authority)..."
 
-    TX_RES=$($BINARY tx forum create-post \
+    TX_RES=$($BINARY tx forum create-post --gas 500000 \
         "$ADMIN_CATEGORY_ID" \
         "0" \
         "Authority can post here - this should succeed" \

@@ -104,7 +104,7 @@ bootstrap_reputation() {
             return 1
         fi
 
-        TX_RES=$($BINARY tx rep complete-interim \
+        TX_RES=$($BINARY tx rep complete-interim --gas 500000 \
             "$INTERIM_ID" "Test setup rep bootstrap" \
             --from $ACCOUNT \
             --chain-id $CHAIN_ID \

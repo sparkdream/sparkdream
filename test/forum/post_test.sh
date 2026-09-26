@@ -192,7 +192,7 @@ POST_CONTENT="This is a test thread created at $(date). Testing the x/forum modu
 
 echo "Creating new thread in category $TEST_CATEGORY_ID..."
 
-TX_RES=$($BINARY tx forum create-post \
+TX_RES=$($BINARY tx forum create-post --gas 500000 \
     "$TEST_CATEGORY_ID" \
     "0" \
     "$POST_CONTENT" \
@@ -272,7 +272,7 @@ if [ -n "$ROOT_POST_ID" ]; then
 
     echo "Creating reply to post $ROOT_POST_ID..."
 
-    TX_RES=$($BINARY tx forum create-post \
+    TX_RES=$($BINARY tx forum create-post --gas 500000 \
         "$TEST_CATEGORY_ID" \
         "$ROOT_POST_ID" \
         "$REPLY_CONTENT" \
@@ -739,7 +739,7 @@ echo "Creating a post to delete..."
 
 DELETE_CONTENT="This post will be deleted shortly."
 
-TX_RES=$($BINARY tx forum create-post \
+TX_RES=$($BINARY tx forum create-post --gas 500000 \
     "$TEST_CATEGORY_ID" \
     "0" \
     "$DELETE_CONTENT" \
@@ -814,7 +814,7 @@ else
     EPHEMERAL_CONTENT="Ephemeral post from non-member dave - should be pruned after TTL"
 
     echo "  Creating ephemeral post from dave..."
-    TX_RES=$($BINARY tx forum create-post \
+    TX_RES=$($BINARY tx forum create-post --gas 500000 \
         "$TEST_CATEGORY_ID" \
         "0" \
         "$EPHEMERAL_CONTENT" \
@@ -901,7 +901,7 @@ echo "--- NEG 1: CREATE POST IN NON-EXISTENT CATEGORY ---"
 
 echo "Attempting to create post in category 999999..."
 
-TX_RES=$($BINARY tx forum create-post \
+TX_RES=$($BINARY tx forum create-post --gas 500000 \
     "999999" \
     "0" \
     "This should fail - bad category" \
@@ -942,7 +942,7 @@ echo "--- NEG 2: CREATE POST WITH EMPTY CONTENT ---"
 
 echo "Attempting to create post with empty content..."
 
-TX_RES=$($BINARY tx forum create-post \
+TX_RES=$($BINARY tx forum create-post --gas 500000 \
     "$TEST_CATEGORY_ID" \
     "0" \
     "" \
@@ -984,7 +984,7 @@ echo "--- NEG 3: CREATE POST WITH CONTENT TOO LARGE ---"
 LARGE_CONTENT=$(python3 -c "print('X' * 10241)" 2>/dev/null || printf 'X%.0s' $(seq 1 10241))
 echo "Attempting to create post with ${#LARGE_CONTENT}-byte content (limit is 10240)..."
 
-TX_RES=$($BINARY tx forum create-post \
+TX_RES=$($BINARY tx forum create-post --gas 500000 \
     "$TEST_CATEGORY_ID" \
     "0" \
     "$LARGE_CONTENT" \
@@ -1025,7 +1025,7 @@ echo "--- NEG 4: CREATE REPLY TO NON-EXISTENT PARENT ---"
 
 echo "Attempting to reply to non-existent post 999999..."
 
-TX_RES=$($BINARY tx forum create-post \
+TX_RES=$($BINARY tx forum create-post --gas 500000 \
     "$TEST_CATEGORY_ID" \
     "999999" \
     "This reply should fail - parent does not exist" \
@@ -1644,7 +1644,7 @@ echo "--- NEG 18: MARK ACCEPTED REPLY BY NON-AUTHOR ---"
 # Create a fresh thread + reply for this test (so accepted_reply is not already set)
 echo "Creating fresh thread for non-author accepted reply test..."
 
-TX_RES=$($BINARY tx forum create-post \
+TX_RES=$($BINARY tx forum create-post --gas 500000 \
     "$TEST_CATEGORY_ID" \
     "0" \
     "Thread for accepted reply non-author test" \
@@ -1659,7 +1659,7 @@ if submit_tx_and_wait "$TX_RES" && check_tx_success "$TX_RESULT"; then
     FRESH_THREAD_ID=$(extract_event_value "$TX_RESULT" "post_created" "post_id")
 
     # Create a reply
-    TX_RES=$($BINARY tx forum create-post \
+    TX_RES=$($BINARY tx forum create-post --gas 500000 \
         "$TEST_CATEGORY_ID" \
         "$FRESH_THREAD_ID" \
         "Reply for non-author accepted reply test" \

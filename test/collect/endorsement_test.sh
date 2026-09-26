@@ -17,7 +17,7 @@ FUTURE_BLOCK=$((BLOCK_HEIGHT + 5000))
 # Test 1: Non-member creates PENDING TTL collection
 # =========================================================================
 echo "--- Test 1: Non-member creates PENDING TTL collection ---"
-TX_OUT=$(send_tx collect create-collection \
+TX_OUT=$(send_tx collect create-collection --gas 400000 \
     nft public false "$FUTURE_BLOCK" "EndorseColl" "For endorsement" "" "" \
     --from nonmember1)
 assert_tx_success "Non-member creates TTL collection" "$TX_OUT"

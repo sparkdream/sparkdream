@@ -367,7 +367,7 @@ if [ -n "$NEW_CATEGORY_ID" ]; then
     echo "  Setup: created category $CAT_WITH_POST_ID"
 
     # Attach a forum post (reply-to-id=0 means top-level).
-    POST_TX=$($BINARY tx forum create-post \
+    POST_TX=$($BINARY tx forum create-post --gas 500000 \
         "$CAT_WITH_POST_ID" \
         "0" \
         "Post that should block category deletion" \

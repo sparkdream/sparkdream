@@ -232,7 +232,7 @@ JURY_REVIEW_ID=""
 if [ "$TEST_2_RESULT" = "PASS" ] && [ -n "$CHALLENGE2_ID" ]; then
     echo ""
     echo "Step 3: Assignee responding to challenge (creates jury review)..."
-    TX_RES=$($BINARY tx rep respond-to-challenge \
+    TX_RES=$($BINARY tx rep respond-to-challenge --gas 500000 \
         $CHALLENGE2_ID \
         "We believe the deliverable meets all requirements." \
         --evidence "https://github.com/repo/README.md","https://github.com/repo/docs/api.md" \
@@ -318,7 +318,7 @@ if [ "$TEST_2_RESULT" = "PASS" ] && [ -n "$JURY_REVIEW_ID" ] && [ "$JURY_REVIEW_
         fi
         VERDICT="${VERDICT_FOR_JUROR[$JNAME]}"
         REASON="${REASONING_FOR_JUROR[$JNAME]}"
-        TX_RES=$($BINARY tx rep submit-juror-vote \
+        TX_RES=$($BINARY tx rep submit-juror-vote --gas 500000 \
             $JURY_REVIEW_ID "$VERDICT" "0.9" "$REASON" \
             --from "$JNAME" --chain-id $CHAIN_ID --keyring-backend test \
             --fees 5000${BOND_DENOM} -y --output json 2>&1)

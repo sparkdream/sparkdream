@@ -36,7 +36,7 @@ create_ttl_collection() {
     local owner_addr
     owner_addr=$(get_address "$owner")
     local tx_out
-    tx_out=$(send_tx collect create-collection \
+    tx_out=$(send_tx collect create-collection --gas 400000 \
         nft public false "$FUTURE_BLOCK" "$name" "TTL fixture" "" "" \
         --from "$owner")
     assert_tx_success "Create TTL collection $name" "$tx_out" >/dev/null

@@ -81,9 +81,19 @@ func main() {
 		FeeAmount:    cfg.Fee,
 		GasLimit:     cfg.Gas,
 		Mnemonic:     cfg.Mnemonic,
+
+		SessionKeyFile: cfg.SessionKeyFile,
+		Granter:        cfg.Granter,
 	})
 	if err != nil {
 		log.Fatalf("sdapbridge: chain client: %v", err)
+	}
+	if chain.Session() {
+		signer := chain.SignerAddress()
+		if signer == "" {
+			signer = "none yet: waiting for " + cfg.SessionKeyFile
+		}
+		log.Printf("sdapbridge: signing through a session key for operator %s (key %s)", chain.Address(), signer)
 	}
 
 	var signer *apcanon.HTTPSigner
@@ -238,6 +248,11 @@ func (s *chainSubmitter) Submit(ctx context.Context, msg *types.MsgSubmitFederat
 			return s.confirm(ctx, res.TxHash)
 		} else {
 			lastErr = fmt.Errorf("tx rejected in CheckTx with code %d: %s", res.Code, res.RawLog)
+			if res.SessionUnusable() {
+				// not this post's fault: held for the next poll, when the
+				// operator may have delivered a fresh session key
+				return 0, res.TxHash, fmt.Errorf("%w: %s", sdaptx.ErrNoSessionKey, res.RawLog)
+			}
 			if !sdaptx.Retryable(res.Code) {
 				return 0, res.TxHash, lastErr
 			}
@@ -280,6 +295,8 @@ func loadConfig() Config {
 		PeerIDs:           splitList(env("SDA_PEER_IDS", env("SDA_PEER_ID", ""))),
 		Consent:           ConsentMode(env("SDA_CONSENT", string(ConsentOptIn))),
 		Mnemonic:          env("SDA_MNEMONIC", ""),
+		SessionKeyFile:    env("SDA_SESSION_KEY_FILE", ""),
+		Granter:           env("SDA_GRANTER", ""),
 		StatePath:         env("SDA_STATE", "sdapbridge-state.json"),
 		PollInterval:      envDuration("SDA_POLL", 30*time.Second),
 		ConfirmTimeout:    envDuration("SDA_CONFIRM_TIMEOUT", 45*time.Second),

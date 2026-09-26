@@ -321,7 +321,7 @@ if [ -n "$BONDED_POST_ID" ]; then
         echo ""
         echo "--- TEST 2b: Author responds to challenge (happy path, must be immediate) ---"
 
-        TX_RES=$($BINARY tx rep respond-to-content-challenge \
+        TX_RES=$($BINARY tx rep respond-to-content-challenge --gas 500000 \
             $CONTENT_CHALLENGE_ID \
             "The content meets all quality standards. Here is my defense with supporting evidence." \
             --evidence "https://example.com/defense1" \
@@ -584,7 +584,7 @@ fi
 echo "--- TEST 11: Fail — non-author responds ---"
 
 if [ -n "$CONTENT_CHALLENGE_ID" ]; then
-    TX_RES=$($BINARY tx rep respond-to-content-challenge \
+    TX_RES=$($BINARY tx rep respond-to-content-challenge --gas 500000 \
         $CONTENT_CHALLENGE_ID \
         "I am not the author" \
         --from challenger \
@@ -614,7 +614,7 @@ echo "--- TEST 12: Fail — respond to non-active challenge ---"
 if [ -n "$CONTENT_CHALLENGE_ID" ] && [ "$AUTHOR_RESPONDED" = true ]; then
     # The challenge was already responded to (moved to IN_JURY_REVIEW),
     # so responding again should fail
-    TX_RES=$($BINARY tx rep respond-to-content-challenge \
+    TX_RES=$($BINARY tx rep respond-to-content-challenge --gas 500000 \
         $CONTENT_CHALLENGE_ID \
         "Second response attempt" \
         --from alice \
@@ -641,7 +641,7 @@ fi
 # ========================================================================
 echo "--- TEST 13: Fail — respond to non-existent challenge ---"
 
-TX_RES=$($BINARY tx rep respond-to-content-challenge \
+TX_RES=$($BINARY tx rep respond-to-content-challenge --gas 500000 \
     999999 \
     "No such challenge" \
     --from alice \

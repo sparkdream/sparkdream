@@ -65,7 +65,7 @@ USAGE_A_BEFORE=$(tag_usage_count "$TAG_A")
 USAGE_B_BEFORE=$(tag_usage_count "$TAG_B")
 echo "  Baseline: $TAG_A=$USAGE_A_BEFORE, $TAG_B=$USAGE_B_BEFORE"
 
-TX_OUT=$(send_tx collect create-collection \
+TX_OUT=$(send_tx collect create-collection --gas 400000 \
     mixed public false 0 "TaggedColl" "With tags" "" "$TAG_A,$TAG_B" \
     --from "$TAG_CREATOR")
 assert_tx_success "Create collection with valid tags" "$TX_OUT"
@@ -143,7 +143,7 @@ fi
 # =========================================================================
 echo ""
 echo "--- Test 6: Reject create-collection with unknown tag ---"
-TX_OUT=$(send_tx collect create-collection \
+TX_OUT=$(send_tx collect create-collection --gas 400000 \
     mixed public false 0 "UnknownTagColl" "Should fail" "" "totally-fake-unregistered-tag" \
     --from "$TAG_CREATOR")
 assert_tx_failure "Reject unknown tag on create" "$TX_OUT"
@@ -153,7 +153,7 @@ assert_tx_failure "Reject unknown tag on create" "$TX_OUT"
 # =========================================================================
 echo ""
 echo "--- Test 7: Reject create-collection with duplicate tag ---"
-TX_OUT=$(send_tx collect create-collection \
+TX_OUT=$(send_tx collect create-collection --gas 400000 \
     mixed public false 0 "DupTagColl" "Should fail" "" "$TAG_A,$TAG_A" \
     --from "$TAG_CREATOR")
 assert_tx_failure "Reject duplicate tag on create" "$TX_OUT"
@@ -163,7 +163,7 @@ assert_tx_failure "Reject duplicate tag on create" "$TX_OUT"
 # =========================================================================
 echo ""
 echo "--- Test 8: Reject create-collection with malformed tag ---"
-TX_OUT=$(send_tx collect create-collection \
+TX_OUT=$(send_tx collect create-collection --gas 400000 \
     mixed public false 0 "MalformedTagColl" "Should fail" "" "NotLowercase" \
     --from "$TAG_CREATOR")
 assert_tx_failure "Reject malformed tag on create" "$TX_OUT"
@@ -174,7 +174,7 @@ assert_tx_failure "Reject malformed tag on create" "$TX_OUT"
 echo ""
 echo "--- Test 9: Reject create-collection with tag > max_tag_length ---"
 LONG_TAG=$(printf 'a%.0s' {1..33})
-TX_OUT=$(send_tx collect create-collection \
+TX_OUT=$(send_tx collect create-collection --gas 400000 \
     mixed public false 0 "LongTagColl" "Should fail" "" "$LONG_TAG" \
     --from "$TAG_CREATOR")
 assert_tx_failure "Reject overly-long tag on create" "$TX_OUT"
@@ -186,7 +186,7 @@ echo ""
 echo "--- Test 10: Reject create-collection with too many tags ---"
 # Default MaxTagsPerCollection=10, so pass 11 known tags to trip only the count cap.
 OVERFLOW_TAGS="commons-council,technical-council,ecosystem-council,commons-ops-committee,commons-gov-committee,technical-ops-committee,technical-gov-committee,ecosystem-ops-committee,ecosystem-gov-committee,advanced-physics,budget"
-TX_OUT=$(send_tx collect create-collection \
+TX_OUT=$(send_tx collect create-collection --gas 400000 \
     mixed public false 0 "OverflowColl" "Should fail" "" "$OVERFLOW_TAGS" \
     --from "$TAG_CREATOR")
 assert_tx_failure "Reject create-collection with too many tags" "$TX_OUT"
@@ -367,7 +367,7 @@ RES_NAME=$(echo "$RES_INFO" | jq -r '.reserved_tag.name // .reservedTag.name // 
 assert_equal "Reserved tag entry stored" "$RESERVED_TAG" "$RES_NAME"
 
 # Reject create-collection that references the reserved tag.
-TX_OUT=$(send_tx collect create-collection \
+TX_OUT=$(send_tx collect create-collection --gas 400000 \
     mixed public false 0 "ReservedTagColl" "Should fail" "" "$RESERVED_TAG" \
     --from "$TAG_CREATOR")
 assert_tx_failure "Reject create-collection with reserved tag" "$TX_OUT"
@@ -391,7 +391,7 @@ assert_tx_success "Top-up alice as curator (idempotent)" "$TX_OUT"
 
 # Create a fresh collection owned by bob (alice is neither owner nor
 # collaborator — rate-collection requires both).
-TX_OUT=$(send_tx collect create-collection \
+TX_OUT=$(send_tx collect create-collection --gas 400000 \
     mixed public false 0 "RatableColl" "For curator rating" "" "" \
     --from "$TAG_CREATOR")
 assert_tx_success "Create collection to rate" "$TX_OUT"
@@ -449,7 +449,7 @@ echo ""
 echo "--- Test 16: Reject rate-collection with unknown review tag ---"
 
 # Create another fresh collection so alice isn't hitting ErrAlreadyReviewed.
-TX_OUT=$(send_tx collect create-collection \
+TX_OUT=$(send_tx collect create-collection --gas 400000 \
     mixed public false 0 "RatableColl2" "For curator rating #2" "" "" \
     --from "$TAG_CREATOR")
 assert_tx_success "Create second collection to rate" "$TX_OUT"

@@ -75,7 +75,7 @@ PART1_RESULT="FAIL"
 # Create a thread to freeze
 FREEZE_CONTENT="Thread for freeze test $(date +%s)"
 
-TX_RES=$($BINARY tx forum create-post \
+TX_RES=$($BINARY tx forum create-post --gas 500000 \
     "$TEST_CATEGORY_ID" \
     "0" \
     "$FREEZE_CONTENT" \
@@ -376,7 +376,7 @@ PART15_RESULT="FAIL"
 # Create a thread with a reply for proposed reply testing
 REPLY_THREAD_CONTENT="Thread for proposed reply test $(date +%s)"
 
-TX_RES=$($BINARY tx forum create-post \
+TX_RES=$($BINARY tx forum create-post --gas 500000 \
     "$TEST_CATEGORY_ID" \
     "0" \
     "$REPLY_THREAD_CONTENT" \
@@ -401,7 +401,7 @@ if [ -n "$TXHASH" ] && [ "$TXHASH" != "null" ]; then
         echo "  Thread created: $REPLY_THREAD_ID"
 
         # Create a reply
-        TX_RES=$($BINARY tx forum create-post \
+        TX_RES=$($BINARY tx forum create-post --gas 500000 \
             "$TEST_CATEGORY_ID" \
             "$REPLY_THREAD_ID" \
             "This is a helpful reply" \
@@ -548,7 +548,7 @@ PART18_RESULT="FAIL"
 # Create a fresh thread for follow testing
 FOLLOW_CONTENT="Thread for follow test $(date +%s)"
 
-TX_RES=$($BINARY tx forum create-post \
+TX_RES=$($BINARY tx forum create-post --gas 500000 \
     "$TEST_CATEGORY_ID" \
     "0" \
     "$FOLLOW_CONTENT" \
@@ -852,7 +852,7 @@ ACCEPT_CONTENT="Thread for accepted reply test $(date +%s)"
 ACCEPT_THREAD_ID=""
 ACCEPT_REPLY_ID=""
 
-TX_RES=$($BINARY tx forum create-post \
+TX_RES=$($BINARY tx forum create-post --gas 500000 \
     "$TEST_CATEGORY_ID" \
     "0" \
     "$ACCEPT_CONTENT" \
@@ -881,7 +881,7 @@ fi
 
 # Create a reply by poster2
 if [ -n "$ACCEPT_THREAD_ID" ]; then
-    TX_RES=$($BINARY tx forum create-post \
+    TX_RES=$($BINARY tx forum create-post --gas 500000 \
         "$TEST_CATEGORY_ID" \
         "$ACCEPT_THREAD_ID" \
         "This is a great answer to the question" \
@@ -961,7 +961,7 @@ AUTHOR_ERR_CONTENT="Thread for author error test $(date +%s)"
 AUTHOR_ERR_THREAD_ID=""
 AUTHOR_ERR_REPLY_ID=""
 
-TX_RES=$($BINARY tx forum create-post \
+TX_RES=$($BINARY tx forum create-post --gas 500000 \
     "$TEST_CATEGORY_ID" \
     "0" \
     "$AUTHOR_ERR_CONTENT" \
@@ -989,7 +989,7 @@ if [ -n "$TXHASH" ] && [ "$TXHASH" != "null" ]; then
 fi
 
 if [ -n "$AUTHOR_ERR_THREAD_ID" ]; then
-    TX_RES=$($BINARY tx forum create-post \
+    TX_RES=$($BINARY tx forum create-post --gas 500000 \
         "$TEST_CATEGORY_ID" \
         "$AUTHOR_ERR_THREAD_ID" \
         "Reply for author error test" \
@@ -1493,7 +1493,7 @@ fi
 if [ -n "$MOVE_CAT_ID" ]; then
     MOVE_CONTENT="Thread for move test $(date +%s)"
 
-    TX_RES=$($BINARY tx forum create-post \
+    TX_RES=$($BINARY tx forum create-post --gas 500000 \
         "$TEST_CATEGORY_ID" \
         "0" \
         "$MOVE_CONTENT" \
@@ -1568,7 +1568,7 @@ PART39_RESULT="FAIL"
 PIN_CONTENT="Thread for pin test $(date +%s)"
 PIN_THREAD_ID=""
 
-TX_RES=$($BINARY tx forum create-post \
+TX_RES=$($BINARY tx forum create-post --gas 500000 \
     "$TEST_CATEGORY_ID" \
     "0" \
     "$PIN_CONTENT" \
@@ -1683,7 +1683,7 @@ PIN_REPLY_CONTENT="Thread for pin-reply test $(date +%s)"
 PIN_REPLY_THREAD_ID=""
 PIN_REPLY_ID=""
 
-TX_RES=$($BINARY tx forum create-post \
+TX_RES=$($BINARY tx forum create-post --gas 500000 \
     "$TEST_CATEGORY_ID" \
     "0" \
     "$PIN_REPLY_CONTENT" \
@@ -1711,7 +1711,7 @@ fi
 
 # Create a reply
 if [ -n "$PIN_REPLY_THREAD_ID" ]; then
-    TX_RES=$($BINARY tx forum create-post \
+    TX_RES=$($BINARY tx forum create-post --gas 500000 \
         "$TEST_CATEGORY_ID" \
         "$PIN_REPLY_THREAD_ID" \
         "Reply to pin" \
@@ -1783,7 +1783,7 @@ PART42_RESULT="FAIL"
 if [ -n "$PIN_REPLY_THREAD_ID" ] && [ -n "$PIN_REPLY_ID" ]; then
     echo "Disputing pinned reply $PIN_REPLY_ID in thread $PIN_REPLY_THREAD_ID..."
 
-    TX_RES=$($BINARY tx forum dispute-pin \
+    TX_RES=$($BINARY tx forum dispute-pin --gas 500000 \
         "$PIN_REPLY_THREAD_ID" \
         "$PIN_REPLY_ID" \
         "Pin is not relevant" \

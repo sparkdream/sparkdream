@@ -157,7 +157,7 @@ CATEGORY_ID="1"  # General Discussion (created at genesis)
 
 echo "  Creating root post in category $CATEGORY_ID..."
 
-TX_RES=$($BINARY tx forum create-post \
+TX_RES=$($BINARY tx forum create-post --gas 500000 \
     "$CATEGORY_ID" 0 "Archive cycle test root post content" \
     --from alice \
     --chain-id $CHAIN_ID \
@@ -179,7 +179,7 @@ fi
 
 if [ -n "$ROOT_POST_ID" ] && [ "$ROOT_POST_ID" != "null" ]; then
     # Create a reply
-    TX_RES=$($BINARY tx forum create-post \
+    TX_RES=$($BINARY tx forum create-post --gas 500000 \
         "$CATEGORY_ID" "$ROOT_POST_ID" "Reply to root post for testing" \
         --from alice \
         --chain-id $CHAIN_ID \
@@ -226,7 +226,7 @@ echo "--- TEST 4: Freeze fresh thread (before threshold) ---"
 # Create a fresh post and immediately try to freeze it (no sleep)
 echo "  Creating fresh post and immediately trying to freeze..."
 
-FRESH_TX=$($BINARY tx forum create-post \
+FRESH_TX=$($BINARY tx forum create-post --gas 500000 \
     "$CATEGORY_ID" 0 "Fresh post for immediate freeze test" \
     --from alice \
     --chain-id $CHAIN_ID \
@@ -298,7 +298,7 @@ echo "--- TEST 6: Unarchive non-archived thread ---"
 
 # Create a NEW thread that has NOT been archived
 echo "  Creating fresh (non-archived) thread..."
-TX_RES=$($BINARY tx forum create-post \
+TX_RES=$($BINARY tx forum create-post --gas 500000 \
     "$CATEGORY_ID" 0 "Non-archived thread for unarchive test" \
     --from alice \
     --chain-id $CHAIN_ID \

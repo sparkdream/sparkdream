@@ -74,7 +74,7 @@ sleep $TX_WAIT
 BLOCK_HEIGHT=$(get_block_height)
 FUTURE_BLOCK=$((BLOCK_HEIGHT + 10000))
 echo "  Alice creates member-owned host collection..."
-TX_OUT=$(send_tx collect create-collection \
+TX_OUT=$(send_tx collect create-collection --gas 400000 \
     nft public false 0 "promoq-host" "promotion-queue host collection" "" "" \
     --from alice)
 assert_tx_success "Alice creates host collection" "$TX_OUT"
@@ -116,7 +116,7 @@ assert_equal "Host collection has 1 non-member collaborator" "1" "$NM_COUNT"
 BLOCK_HEIGHT=$(get_block_height)
 FUTURE_BLOCK=$((BLOCK_HEIGHT + 100000))
 echo "  Promotee creates PENDING TTL collection..."
-TX_OUT=$(send_tx collect create-collection \
+TX_OUT=$(send_tx collect create-collection --gas 400000 \
     nft public false "$FUTURE_BLOCK" "promoq-pending" "auto-promotion target" "" "" \
     --from $PROMOTEE_ACCOUNT)
 assert_tx_success "Promotee creates PENDING TTL collection" "$TX_OUT"
@@ -154,7 +154,7 @@ REQUIRED_STAKE=$($BINARY query rep required-invitation-stake "$ALICE_ADDR" --out
     | jq -r '.required_stake // "100000000"')
 echo "  Required invitation stake: $REQUIRED_STAKE"
 
-TX_OUT=$(send_tx rep invite-member "$PROMOTEE_ADDR" "$REQUIRED_STAKE" --from alice)
+TX_OUT=$(send_tx rep invite-member --gas 400000 "$PROMOTEE_ADDR" "$REQUIRED_STAKE" --from alice)
 assert_tx_success "Alice invites promotee" "$TX_OUT"
 INVITATION_ID=$(extract_event_attr "$TX_RESULT_OUT" "create_invitation" "invitation_id")
 if [ -z "$INVITATION_ID" ]; then
@@ -164,7 +164,7 @@ if [ -z "$INVITATION_ID" ]; then
 fi
 echo "  Invitation ID: $INVITATION_ID"
 
-TX_OUT=$(send_tx rep accept-invitation "$INVITATION_ID" --from $PROMOTEE_ACCOUNT)
+TX_OUT=$(send_tx rep accept-invitation --gas 400000 "$INVITATION_ID" --from $PROMOTEE_ACCOUNT)
 assert_tx_success "Promotee accepts invitation" "$TX_OUT"
 
 # Wait two blocks for the EndBlocker drain (default cap 50, so both passes
@@ -259,7 +259,7 @@ echo "--- TEST 4: Post-admission collection is ACTIVE on creation ---"
 
 BLOCK_HEIGHT=$(get_block_height)
 FUTURE_BLOCK=$((BLOCK_HEIGHT + 10000))
-TX_OUT=$(send_tx collect create-collection \
+TX_OUT=$(send_tx collect create-collection --gas 400000 \
     nft public false "$FUTURE_BLOCK" "post-admission" "" "" "" \
     --from $PROMOTEE_ACCOUNT)
 assert_tx_success "Post-admission TTL collection creates" "$TX_OUT"

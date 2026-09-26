@@ -100,7 +100,7 @@ provision_member() {
     local STAKE
     STAKE=$($BINARY query rep required-invitation-stake "$ALICE_ADDR" --output json 2>/dev/null \
         | jq -r '.required_stake // "100000000"')
-    TX=$($BINARY tx rep invite-member "$ADDR" "$STAKE" \
+    TX=$($BINARY tx rep invite-member --gas 400000 "$ADDR" "$STAKE" \
         --from alice --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y \
         --output json 2>&1)
     H=$(echo "$TX" | jq -r '.txhash')
@@ -120,7 +120,7 @@ provision_member() {
         return 1
     fi
 
-    TX=$($BINARY tx rep accept-invitation "$INV" \
+    TX=$($BINARY tx rep accept-invitation --gas 400000 "$INV" \
         --from $NAME --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y \
         --output json 2>&1)
     H=$(echo "$TX" | jq -r '.txhash')

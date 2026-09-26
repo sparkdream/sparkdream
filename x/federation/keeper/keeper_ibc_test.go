@@ -110,3 +110,29 @@ func TestOnRecvIdentityConfirmPacket_RejectsChallengeMismatch(t *testing.T) {
 	stillUnverified, _ := f.keeper.IdentityLinks.Get(f.ctx, collections.Join(user, "ibc-peer"))
 	require.Equal(t, types.IdentityLinkStatus_IDENTITY_LINK_STATUS_UNVERIFIED, stillUnverified.Status)
 }
+
+// The relay fee refund trusts exactly these channels: this chain's end of an
+// ACTIVE Spark Dream peer's federation or transfer channel.
+func TestIsActivePeerChannel(t *testing.T) {
+	f := initFixture(t)
+	set := func(id string, typ types.PeerType, status types.PeerStatus, fed, transfer string) {
+		require.NoError(t, f.keeper.Peers.Set(f.ctx, id, types.Peer{
+			Id: id, Type: typ, Status: status, IbcChannelId: fed, IbcTransferChannelId: transfer,
+		}))
+	}
+	set("phoenix-1", types.PeerType_PEER_TYPE_SPARK_DREAM, types.PeerStatus_PEER_STATUS_ACTIVE, "channel-1", "channel-0")
+	set("aurora-1", types.PeerType_PEER_TYPE_SPARK_DREAM, types.PeerStatus_PEER_STATUS_SUSPENDED, "channel-3", "channel-2")
+	set("zenith.example", types.PeerType_PEER_TYPE_ACTIVITYPUB, types.PeerStatus_PEER_STATUS_ACTIVE, "channel-5", "")
+
+	for ch, want := range map[string]bool{
+		"channel-1": true,  // active peer, federation channel
+		"channel-0": true,  // active peer, transfer channel
+		"channel-3": false, // suspended peer
+		"channel-2": false,
+		"channel-5": false, // not a Spark Dream chain
+		"channel-9": false, // nobody's
+		"":          false,
+	} {
+		require.Equal(t, want, f.keeper.IsActivePeerChannel(f.ctx, ch), ch)
+	}
+}

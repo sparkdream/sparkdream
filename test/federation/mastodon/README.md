@@ -40,7 +40,11 @@ table defines them.
 The daemons live in the main tree, not here: `cmd/sdapbridge` (inbound
 bridge, P5) and `cmd/sdapverify` (verifier runner, P6), sharing
 `tools/apcanon` (the canonicalizer, P1) and `internal/sdaptx` (the LCD
-tx client).
+tx client). Both sign either with the account's own key (`SDA_MNEMONIC`,
+fine on your own machine) or through an x/session key
+(`SDA_SESSION_KEY_FILE` + `SDA_GRANTER`, for any host you do not
+control). See the daemon conventions in
+[docs/x-federation-spec.md](../../../docs/x-federation-spec.md).
 
 ## Order of operations
 
@@ -131,3 +135,7 @@ tx client).
   SPARK in bonds (one bond per ADDRESS, not per binding).
 - The daemons sign with raw keys in v1; switch to x/session keys scoped
   to the P0.2-allowlisted messages after the reset.
+
+## The launcher's Mastodon image
+
+[image_smoke_test.sh](image_smoke_test.sh) runs [Dockerfile-mastodon](../../../deploy/docker/Dockerfile-mastodon) the way the chain launcher deploys it: postgres, redis, web + sidekiq and upstream streaming as separate containers, behind a proxy that forwards plain HTTP with `X-Forwarded-Proto: http` like an Akash ingress fronted by Cloudflare. It checks that the schema prepares itself, that there is no `force_ssl` redirect loop, that the AS2 actor has an https id, that the bootstrap commands (owner, registrations, bridge token) are idempotent, and that the root-owned media volume is taken over. It needs docker, curl, jq and openssl; `MASTODON_IMAGE=<image>` tests a published image instead of building one.

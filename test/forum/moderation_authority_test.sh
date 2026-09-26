@@ -157,7 +157,7 @@ bootstrap_reputation() {
             echo "    Failed to create interim $i"; return 1
         fi
         INTERIM_ID=$(extract_event_value "$TX_RESULT" "interim_created" "interim_id")
-        TX_RES=$($BINARY tx rep complete-interim $INTERIM_ID "hide-authority setup" \
+        TX_RES=$($BINARY tx rep complete-interim --gas 500000 $INTERIM_ID "hide-authority setup" \
             --from $ACCOUNT --chain-id $CHAIN_ID --keyring-backend test \
             --fees 5000${BOND_DENOM} -y --output json 2>&1)
         if ! submit_tx_and_wait "$TX_RES" || ! check_tx_success "$TX_RESULT"; then
@@ -169,7 +169,7 @@ bootstrap_reputation() {
 
 create_post_as_poster1() {
     local BODY="$1"
-    TX_RES=$($BINARY tx forum create-post "$TEST_CATEGORY_ID" "0" "$BODY" \
+    TX_RES=$($BINARY tx forum create-post --gas 500000 "$TEST_CATEGORY_ID" "0" "$BODY" \
         --from poster1 --chain-id $CHAIN_ID --keyring-backend test \
         --fees 5000${BOND_DENOM} -y --output json 2>&1)
     if ! submit_tx_and_wait "$TX_RES" || ! check_tx_success "$TX_RESULT"; then

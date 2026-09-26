@@ -2041,7 +2041,7 @@
         ],
         "max_endblocker_dispatches_per_pass": 100,
         "max_exec_count": "10000",
-        "max_expiration": "604800s",
+        "max_expiration": "7776000s",
         "max_grant_lifetime_seconds": "31536000",
         "max_msg_types_per_session": "20",
         "max_oneshot_exec_gas": "200000",

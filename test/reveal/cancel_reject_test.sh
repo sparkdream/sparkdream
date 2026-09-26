@@ -455,7 +455,7 @@ if [ -n "$NEG_CONTRIB_ID" ] && [ -n "$COUNCIL_POLICY" ]; then
 
         # Now try self-staking (alice is the contributor, should be rejected)
         echo "  Alice trying to stake on her own contribution #$NEG_CONTRIB_ID..."
-        TX_RES=$($BINARY tx reveal stake \
+        TX_RES=$($BINARY tx reveal stake --gas 500000 \
             $NEG_CONTRIB_ID 0 "200000000" \
             --from alice \
             --chain-id $CHAIN_ID \
@@ -502,7 +502,7 @@ do_stake_and_check() {
     local TRANCHE_ID=$4
 
     local STAKE_TX_RES STAKE_TXHASH STAKE_RESULT STAKE_CODE STAKE_LOG
-    STAKE_TX_RES=$($BINARY tx reveal stake \
+    STAKE_TX_RES=$($BINARY tx reveal stake --gas 500000 \
         $CONTRIB_ID $TRANCHE_ID "$AMOUNT" \
         --from "$STAKER_NAME" \
         --chain-id $CHAIN_ID \

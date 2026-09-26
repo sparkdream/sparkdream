@@ -121,7 +121,7 @@ expect_tx_failure() {
 echo "--- TEST 1: Cannot upvote own post ---"
 
 # Create a post by poster1
-TX_RES=$($BINARY tx forum create-post \
+TX_RES=$($BINARY tx forum create-post --gas 500000 \
     "$TEST_CATEGORY_ID" 0 "Post for self-vote test" \
     --from poster1 \
     --chain-id $CHAIN_ID \
@@ -180,7 +180,7 @@ fi
 echo "--- TEST 3: Cannot upvote deleted post ---"
 
 # Create and delete a post
-TX_RES=$($BINARY tx forum create-post \
+TX_RES=$($BINARY tx forum create-post --gas 500000 \
     "$TEST_CATEGORY_ID" 0 "Post to be deleted for status gate test" \
     --from poster1 \
     --chain-id $CHAIN_ID \
@@ -233,7 +233,7 @@ fi
 echo "--- TEST 4: Cannot reply to locked thread ---"
 
 # Create a post, lock it, then try to reply
-TX_RES=$($BINARY tx forum create-post \
+TX_RES=$($BINARY tx forum create-post --gas 500000 \
     "$TEST_CATEGORY_ID" 0 "Thread to be locked for reply test" \
     --from poster2 \
     --chain-id $CHAIN_ID \
@@ -265,7 +265,7 @@ if submit_tx_and_wait "$TX_RES" && check_tx_success "$TX_RESULT"; then
 fi
 
 if [ -n "$LOCKED_POST_ID" ]; then
-    TX_RES=$($BINARY tx forum create-post \
+    TX_RES=$($BINARY tx forum create-post --gas 500000 \
         "$TEST_CATEGORY_ID" "$LOCKED_POST_ID" "Reply to locked thread" \
         --from poster1 \
         --chain-id $CHAIN_ID \

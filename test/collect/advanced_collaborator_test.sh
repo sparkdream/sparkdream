@@ -45,7 +45,7 @@ assert_equal "No collaborators after self-removal" "0" "$COLLAB_COUNT"
 # =========================================================================
 echo ""
 echo "--- Test 2: Self-removed cannot add items ---"
-TX_OUT=$(send_tx collect add-item "$COLL1_ID" 0 "Unauthorized" "Should fail" "" unspecified --from collector2)
+TX_OUT=$(send_tx collect add-item --gas 400000 "$COLL1_ID" 0 "Unauthorized" "Should fail" "" unspecified --from collector2)
 assert_tx_failure "Self-removed cannot add items" "$TX_OUT"
 
 # =========================================================================
@@ -60,7 +60,7 @@ COLLABS=$(query collect collaborators "$COLL1_ID")
 ROLE=$(echo "$COLLABS" | jq -r '.collaborators[0].role // empty' 2>/dev/null)
 assert_equal "Role is ADMIN" "COLLABORATOR_ROLE_ADMIN" "$ROLE"
 
-TX_OUT=$(send_tx collect add-item "$COLL1_ID" 0 "AdminItem" "Added by ADMIN" "" unspecified --from collector2)
+TX_OUT=$(send_tx collect add-item --gas 400000 "$COLL1_ID" 0 "AdminItem" "Added by ADMIN" "" unspecified --from collector2)
 assert_tx_success "ADMIN can add items" "$TX_OUT"
 
 # Clean up: remove the item

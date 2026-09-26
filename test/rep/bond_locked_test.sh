@@ -349,7 +349,7 @@ fi
 echo "--- TEST 7: Respond to challenge to deactivate it ---"
 
 if [ -n "$CONTENT_CHALLENGE_ID" ]; then
-    TX_RES=$($BINARY tx rep respond-to-content-challenge \
+    TX_RES=$($BINARY tx rep respond-to-content-challenge --gas 500000 \
         $CONTENT_CHALLENGE_ID \
         "Defense: the content meets all quality standards." \
         --evidence "https://example.com/defense-evidence" \

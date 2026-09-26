@@ -135,7 +135,7 @@ elif [ -z "$EXISTING_MEMBER" ]; then
       | jq -r '.required_stake // "200000000"')
     # Invite at the required stake (or higher to demonstrate "high stake = higher referral")
     if [ "$REQUIRED_STAKE" -lt 200000000 ]; then REQUIRED_STAKE="200000000"; fi
-    INVITE_RES=$($BINARY tx rep invite-member \
+    INVITE_RES=$($BINARY tx rep invite-member --gas 400000 \
       "$INVITEE1_ADDR" \
       "$REQUIRED_STAKE" \
       --vouched-tags "rust","golang" \
@@ -214,7 +214,7 @@ fi
 if [ -z "$EXISTING_MEMBER" ]; then
     echo ""
     echo "Invitee1 accepts invitation..."
-    ACCEPT_RES=$($BINARY tx rep accept-invitation \
+    ACCEPT_RES=$($BINARY tx rep accept-invitation --gas 400000 \
       $INVITATION_ID1 \
       --from invitee1 \
       --chain-id $CHAIN_ID \
@@ -348,7 +348,7 @@ else
     echo "Alice invites Invitee2..."
     REQUIRED_STAKE=$($BINARY query rep required-invitation-stake "$ALICE_ADDR" --output json 2>/dev/null \
       | jq -r '.required_stake // "150000000"')
-    INVITE2_RES=$($BINARY tx rep invite-member \
+    INVITE2_RES=$($BINARY tx rep invite-member --gas 400000 \
       "$INVITEE2_ADDR" \
       "$REQUIRED_STAKE" \
       --vouched-tags "security" \
@@ -384,7 +384,7 @@ elif [ "$INV2_STATUS" = "INVITATION_STATUS_ACCEPTED" ]; then
     echo "[INFO]  Invitation already accepted but member record not found (may need investigation)"
 elif [ "$INV2_STATUS" = "null" ] || [ "$INV2_STATUS" = "INVITATION_STATUS_PENDING" ] || [ -z "$INV2_STATUS" ]; then
     echo "Invitee2 accepts invitation..."
-    ACCEPT_RES=$($BINARY tx rep accept-invitation $INVITATION_ID2 --from invitee2 --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y --output json 2>&1)
+    ACCEPT_RES=$($BINARY tx rep accept-invitation --gas 400000 $INVITATION_ID2 --from invitee2 --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y --output json 2>&1)
     sleep 5
 
     # Check if response is valid JSON
@@ -467,7 +467,7 @@ else
     echo "Alice invites Invitee3..."
     REQUIRED_STAKE=$($BINARY query rep required-invitation-stake "$ALICE_ADDR" --output json 2>/dev/null \
       | jq -r '.required_stake // "100000000"')
-    INVITE3_RES=$($BINARY tx rep invite-member \
+    INVITE3_RES=$($BINARY tx rep invite-member --gas 400000 \
       "$INVITEE3_ADDR" \
       "$REQUIRED_STAKE" \
       --vouched-tags "testing" \
@@ -497,7 +497,7 @@ INVITEE3_EXISTS=$($BINARY query rep get-member $INVITEE3_ADDR --output json 2>&1
 
 if [ "$INVITEE3_EXISTS" = "no" ] && [ -n "$INVITATION_ID3" ]; then
     echo "Invitee3 accepts invitation..."
-    ACCEPT3_RES=$($BINARY tx rep accept-invitation $INVITATION_ID3 --from invitee3 --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y --output json 2>&1)
+    ACCEPT3_RES=$($BINARY tx rep accept-invitation --gas 400000 $INVITATION_ID3 --from invitee3 --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y --output json 2>&1)
     sleep 5
 
     # Check if transaction succeeded
@@ -560,7 +560,7 @@ else
     echo "Alice invites Invitee4 as separate branch..."
     REQUIRED_STAKE=$($BINARY query rep required-invitation-stake "$ALICE_ADDR" --output json 2>/dev/null \
       | jq -r '.required_stake // "100000000"')
-    INVITE4_RES=$($BINARY tx rep invite-member \
+    INVITE4_RES=$($BINARY tx rep invite-member --gas 400000 \
       "$INVITEE4_ADDR" \
       "$REQUIRED_STAKE" \
       --vouched-tags "documentation" \
@@ -598,7 +598,7 @@ elif [ "$INVITEE4_EXISTS" = "yes" ]; then
     echo "[INFO]  Invitee4 is already a member"
 else
     echo "Invitee4 accepts invitation..."
-    ACCEPT4_RES=$($BINARY tx rep accept-invitation $INVITATION_ID4 --from invitee4 --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y --output json 2>&1)
+    ACCEPT4_RES=$($BINARY tx rep accept-invitation --gas 400000 $INVITATION_ID4 --from invitee4 --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y --output json 2>&1)
     sleep 5
 
     # Check if transaction succeeded

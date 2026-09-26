@@ -64,6 +64,8 @@ deploy/
 │   ├── Dockerfile-hermes                    Hermes IBC relayer (transfer + federation paths)
 │   ├── hermes/                              relayer-bringup / -fundcheck / -run scripts baked into it
 │   ├── Dockerfile-sdap                      ActivityPub live-link daemons (sdapbridge, sdapverify)
+│   ├── Dockerfile-mastodon                  Mastodon made runnable on Akash (launcher's mastodon component)
+│   ├── mastodon/                            mastodon-run / mastodon-bootstrap / assume_ssl initializer
 │   └── entrypoint_ssh.sh                    SSH + Tailscale container entrypoint script (shared)
 │
 ├── config/

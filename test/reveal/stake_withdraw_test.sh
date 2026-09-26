@@ -218,7 +218,7 @@ echo ""
 echo "--- TEST 1: STAKE DREAM ON TRANCHE ---"
 
 echo "  Staker3 staking 200 DREAM on tranche 0..."
-TX_RES=$($BINARY tx reveal stake \
+TX_RES=$($BINARY tx reveal stake --gas 500000 \
     $CONTRIB_ID 0 "200000000" \
     --from staker3 \
     --chain-id $CHAIN_ID \
@@ -379,7 +379,7 @@ fi
 
 # Create a stake by staker1, then try to withdraw it as staker2
 echo "  Staker1 staking 200 DREAM..."
-TX_RES=$($BINARY tx reveal stake \
+TX_RES=$($BINARY tx reveal stake --gas 500000 \
     $CONTRIB_ID 0 "200000000" \
     --from staker1 \
     --chain-id $CHAIN_ID \
@@ -453,7 +453,7 @@ echo "--- TEST 7: NEGATIVE - STAKE AMOUNT TOO LOW ---"
 
 # min_stake_amount is 100_000_000 udream (100 DREAM); try 50_000_000 (50 DREAM)
 echo "  Staker3 trying to stake 50 DREAM (below minimum 100)..."
-TX_RES=$($BINARY tx reveal stake \
+TX_RES=$($BINARY tx reveal stake --gas 500000 \
     $CONTRIB_ID 0 "50000000" \
     --from staker3 \
     --chain-id $CHAIN_ID \
@@ -525,7 +525,7 @@ echo "--- TEST 9: NEGATIVE - STAKE EXCEEDS THRESHOLD ---"
 # Tranche threshold is 700 DREAM (700_000_000 udream).
 # First stake 400 DREAM, then try 400 more (total would be 800 > 700 threshold).
 echo "  Staker1 staking 400 DREAM..."
-TX_RES=$($BINARY tx reveal stake \
+TX_RES=$($BINARY tx reveal stake --gas 500000 \
     $CONTRIB_ID 0 "400000000" \
     --from staker1 \
     --chain-id $CHAIN_ID \
@@ -543,7 +543,7 @@ if [ -n "$TXHASH" ] && [ "$TXHASH" != "null" ]; then
 fi
 
 echo "  Staker2 trying to stake 400 DREAM (would push total to 800 > 700 threshold)..."
-TX_RES=$($BINARY tx reveal stake \
+TX_RES=$($BINARY tx reveal stake --gas 500000 \
     $CONTRIB_ID 0 "400000000" \
     --from staker2 \
     --chain-id $CHAIN_ID \
@@ -639,7 +639,7 @@ if [ -n "$ORBIT_ID" ]; then
 
     # Now try to stake on the cancelled contribution
     echo "  Staker1 trying to stake on cancelled contribution #$ORBIT_ID..."
-    TX_RES=$($BINARY tx reveal stake \
+    TX_RES=$($BINARY tx reveal stake --gas 500000 \
         $ORBIT_ID 0 "200000000" \
         --from staker1 \
         --chain-id $CHAIN_ID \

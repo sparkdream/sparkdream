@@ -294,7 +294,7 @@ STAKE2_ID=""
 if [ "$TRANCHE_STAKING_RESULT" == "PASS" ]; then
     # Staker1 stakes 100 DREAM (= min_stake_amount)
     echo "  Staker1 staking 100 DREAM..."
-    TX_RES=$($BINARY tx reveal stake \
+    TX_RES=$($BINARY tx reveal stake --gas 500000 \
         $CONTRIB_ID 0 "100000000" \
         --from staker1 \
         --chain-id $CHAIN_ID \
@@ -322,7 +322,7 @@ if [ "$TRANCHE_STAKING_RESULT" == "PASS" ]; then
 
     # Staker2 stakes 100 DREAM (should push total to 200 = threshold, auto-transition to BACKED)
     echo "  Staker2 staking 100 DREAM (should reach threshold)..."
-    TX_RES=$($BINARY tx reveal stake \
+    TX_RES=$($BINARY tx reveal stake --gas 500000 \
         $CONTRIB_ID 0 "100000000" \
         --from staker2 \
         --chain-id $CHAIN_ID \
@@ -827,7 +827,7 @@ if [ -n "$EMBER_ID" ]; then
         vote_and_execute $EMBER_PROP_ID > /dev/null 2>&1
 
         # Stake to BACKED with staker1 (200 DREAM = 200_000_000 udream = threshold)
-        TX_RES=$($BINARY tx reveal stake \
+        TX_RES=$($BINARY tx reveal stake --gas 500000 \
             $EMBER_ID 0 "200000000" \
             --from staker1 \
             --chain-id $CHAIN_ID \

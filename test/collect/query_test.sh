@@ -132,21 +132,21 @@ echo ""
 echo "--- Test 8: Pinned collection surfaces first in public-collections ---"
 
 # Create three permanent (non-TTL) collections owned by alice so we can pin.
-PF_COLL_A=$(send_tx collect create-collection \
+PF_COLL_A=$(send_tx collect create-collection --gas 400000 \
     nft public false 0 "PinFirstA" "pin-first A" "" "" \
     --from alice)
 assert_tx_success "Create PinFirstA" "$PF_COLL_A" >/dev/null
 PF_A_ID=$(extract_event_attr "$TX_RESULT_OUT" "collection_created" "id")
 [ -z "$PF_A_ID" ] && PF_A_ID=$(resolve_collection_id "$ALICE_ADDR" "PinFirstA")
 
-PF_COLL_B=$(send_tx collect create-collection \
+PF_COLL_B=$(send_tx collect create-collection --gas 400000 \
     nft public false 0 "PinFirstB" "pin-first B" "" "" \
     --from alice)
 assert_tx_success "Create PinFirstB" "$PF_COLL_B" >/dev/null
 PF_B_ID=$(extract_event_attr "$TX_RESULT_OUT" "collection_created" "id")
 [ -z "$PF_B_ID" ] && PF_B_ID=$(resolve_collection_id "$ALICE_ADDR" "PinFirstB")
 
-PF_COLL_C=$(send_tx collect create-collection \
+PF_COLL_C=$(send_tx collect create-collection --gas 400000 \
     nft public false 0 "PinFirstC" "pin-first C" "" "" \
     --from alice)
 assert_tx_success "Create PinFirstC" "$PF_COLL_C" >/dev/null
@@ -210,14 +210,14 @@ echo "--- Test 10: Pinned collection surfaces first in collections-by-owner ---"
 
 # Create two more permanent collections owned by alice so the owner list has
 # fresh, ascending ids we can reason about.
-PF_OWNER_A=$(send_tx collect create-collection \
+PF_OWNER_A=$(send_tx collect create-collection --gas 400000 \
     nft public false 0 "OwnerPinA" "owner-pin A" "" "" \
     --from alice)
 assert_tx_success "Create OwnerPinA" "$PF_OWNER_A" >/dev/null
 OWNER_A_ID=$(extract_event_attr "$TX_RESULT_OUT" "collection_created" "id")
 [ -z "$OWNER_A_ID" ] && OWNER_A_ID=$(resolve_collection_id "$ALICE_ADDR" "OwnerPinA")
 
-PF_OWNER_B=$(send_tx collect create-collection \
+PF_OWNER_B=$(send_tx collect create-collection --gas 400000 \
     nft public false 0 "OwnerPinB" "owner-pin B" "" "" \
     --from alice)
 assert_tx_success "Create OwnerPinB" "$PF_OWNER_B" >/dev/null
@@ -264,14 +264,14 @@ echo ""
 echo "--- Test 11: Pinned collection surfaces first in public-collections-by-type ---"
 
 # Type 1 = NFT. Create two NFT collections, pin the higher-id one.
-PF_TYPE_A=$(send_tx collect create-collection \
+PF_TYPE_A=$(send_tx collect create-collection --gas 400000 \
     nft public false 0 "TypePinA" "type-pin A" "" "" \
     --from alice)
 assert_tx_success "Create TypePinA (nft)" "$PF_TYPE_A" >/dev/null
 TYPE_A_ID=$(extract_event_attr "$TX_RESULT_OUT" "collection_created" "id")
 [ -z "$TYPE_A_ID" ] && TYPE_A_ID=$(resolve_collection_id "$ALICE_ADDR" "TypePinA")
 
-PF_TYPE_B=$(send_tx collect create-collection \
+PF_TYPE_B=$(send_tx collect create-collection --gas 400000 \
     nft public false 0 "TypePinB" "type-pin B" "" "" \
     --from alice)
 assert_tx_success "Create TypePinB (nft)" "$PF_TYPE_B" >/dev/null

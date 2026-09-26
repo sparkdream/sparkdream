@@ -38,7 +38,7 @@ echo '{
 }' > "$PROPOSAL_DIR/set_bob_dictator.json"
 
 # Submit & Vote
-SUBMIT_RES=$($BINARY tx gov submit-proposal "$PROPOSAL_DIR/set_bob_dictator.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --output json)
+SUBMIT_RES=$($BINARY tx gov submit-proposal --gas 1000000 "$PROPOSAL_DIR/set_bob_dictator.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --output json)
 TX_HASH=$(echo $SUBMIT_RES | jq -r '.txhash')
 sleep 3
 
@@ -91,7 +91,7 @@ echo '{
   "summary": "Trying to steal while Bob is in charge."
 }' > "$PROPOSAL_DIR/bad_prop_bob.json"
 
-SUBMIT_RES=$($BINARY tx gov submit-proposal "$PROPOSAL_DIR/bad_prop_bob.json" --from carol -y --chain-id $CHAIN_ID --keyring-backend test --output json)
+SUBMIT_RES=$($BINARY tx gov submit-proposal --gas 1000000 "$PROPOSAL_DIR/bad_prop_bob.json" --from carol -y --chain-id $CHAIN_ID --keyring-backend test --output json)
 TX_HASH=$(echo $SUBMIT_RES | jq -r '.txhash')
 sleep 3
 BAD_PROP_ID=$(echo $($BINARY query tx $TX_HASH --output json) | jq -r '.events[] | select(.type=="submit_proposal") | .attributes[] | select(.key=="proposal_id") | .value' | tr -d '"')
@@ -175,7 +175,7 @@ echo '{
 }' > "$PROPOSAL_DIR/restore_council.json"
 
 # Submit Proposal
-SUBMIT_RES=$($BINARY tx gov submit-proposal "$PROPOSAL_DIR/restore_council.json" --from bob -y --chain-id $CHAIN_ID --keyring-backend test --output json)
+SUBMIT_RES=$($BINARY tx gov submit-proposal --gas 1000000 "$PROPOSAL_DIR/restore_council.json" --from bob -y --chain-id $CHAIN_ID --keyring-backend test --output json)
 TX_HASH=$(echo $SUBMIT_RES | jq -r '.txhash')
 sleep 3
 RESTORE_PROP_ID=$(echo $($BINARY query tx $TX_HASH --output json) | jq -r '.events[] | select(.type=="submit_proposal") | .attributes[] | select(.key=="proposal_id") | .value' | tr -d '"')

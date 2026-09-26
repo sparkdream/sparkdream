@@ -94,7 +94,7 @@ bootstrap_reputation() {
         INTERIM_ID=$(extract_event_value "$TX_RESULT" "interim_created" "interim_id")
 
         # Complete the interim
-        TX_RES=$($BINARY tx rep complete-interim $INTERIM_ID "Completed for test setup" \
+        TX_RES=$($BINARY tx rep complete-interim --gas 500000 $INTERIM_ID "Completed for test setup" \
             --from $ACCOUNT \
             --chain-id $CHAIN_ID \
             --keyring-backend test \
@@ -179,7 +179,7 @@ echo "Creating post for appeal test..."
 
 POST_CONTENT="Test post for appeal $(date +%s)"
 
-TX_RES=$($BINARY tx forum create-post \
+TX_RES=$($BINARY tx forum create-post --gas 500000 \
     "$TEST_CATEGORY_ID" \
     "0" \
     "$POST_CONTENT" \
@@ -302,7 +302,7 @@ if [ "$POST_HIDDEN" = true ]; then
     [ -n "$TXHASH" ] && [ "$TXHASH" != "null" ] && { sleep 4; wait_for_tx $TXHASH > /dev/null 2>&1; }
 
     # Fresh post by poster1.
-    TX_RES=$($BINARY tx forum create-post "$TEST_CATEGORY_ID" "0" "Appeal-post target $(date +%s)" \
+    TX_RES=$($BINARY tx forum create-post --gas 500000 "$TEST_CATEGORY_ID" "0" "Appeal-post target $(date +%s)" \
         --from poster1 --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y --output json 2>&1)
     TXHASH=$(echo "$TX_RES" | jq -r '.txhash'); sleep 4; TX_RESULT=$(wait_for_tx $TXHASH)
     APPEAL_POST_ID=$(extract_event_value "$TX_RESULT" "post_created" "post_id")
@@ -322,7 +322,7 @@ if [ "$POST_HIDDEN" = true ]; then
         echo "Waiting for appeal cooldown (5s)..."
         sleep 6
         echo "Author appealing hidden post $APPEAL_POST_ID..."
-        TX_RES=$($BINARY tx forum appeal-post "$APPEAL_POST_ID" \
+        TX_RES=$($BINARY tx forum appeal-post --gas 500000 "$APPEAL_POST_ID" \
             --from poster1 --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y --output json 2>&1)
         TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
         if [ -z "$TXHASH" ] || [ "$TXHASH" == "null" ]; then
@@ -379,7 +379,7 @@ echo "--- PART 6: CREATE AND LOCK THREAD ---"
 
 LOCK_THREAD_CONTENT="Thread for lock appeal test $(date +%s)"
 
-TX_RES=$($BINARY tx forum create-post \
+TX_RES=$($BINARY tx forum create-post --gas 500000 \
     "$TEST_CATEGORY_ID" \
     "0" \
     "$LOCK_THREAD_CONTENT" \
@@ -645,7 +645,7 @@ echo "--- PART 16: APPEAL POST ERROR - Post not found ---"
 
 echo "Appealing non-existent post (post_id=999999)..."
 
-TX_RES=$($BINARY tx forum appeal-post \
+TX_RES=$($BINARY tx forum appeal-post --gas 500000 \
     "999999" \
     --from poster1 \
     --chain-id $CHAIN_ID \
@@ -691,7 +691,7 @@ echo "Creating a visible post..."
 
 VIS_CONTENT="Visible post for error test $(date +%s)"
 
-TX_RES=$($BINARY tx forum create-post \
+TX_RES=$($BINARY tx forum create-post --gas 500000 \
     "$TEST_CATEGORY_ID" \
     "0" \
     "$VIS_CONTENT" \
@@ -721,7 +721,7 @@ fi
 if [ -n "$VISIBLE_POST_ID" ]; then
     echo "Appealing visible (non-hidden) post $VISIBLE_POST_ID..."
 
-    TX_RES=$($BINARY tx forum appeal-post \
+    TX_RES=$($BINARY tx forum appeal-post --gas 500000 \
         "$VISIBLE_POST_ID" \
         --from poster1 \
         --chain-id $CHAIN_ID \
@@ -768,7 +768,7 @@ echo "--- PART 18: APPEAL POST ERROR - Not post author ---"
 if [ "$POST_HIDDEN" = true ] && [ -n "$APPEAL_POST_ID" ]; then
     echo "poster2 appealing poster1's hidden post $APPEAL_POST_ID..."
 
-    TX_RES=$($BINARY tx forum appeal-post \
+    TX_RES=$($BINARY tx forum appeal-post --gas 500000 \
         "$APPEAL_POST_ID" \
         --from poster2 \
         --chain-id $CHAIN_ID \
@@ -1077,7 +1077,7 @@ if [ -n "$MOVE_TARGET_CATEGORY" ]; then
 
     MOVE_CONTENT="Thread for move appeal test $(date +%s)"
 
-    TX_RES=$($BINARY tx forum create-post \
+    TX_RES=$($BINARY tx forum create-post --gas 500000 \
         "$TEST_CATEGORY_ID" \
         "0" \
         "$MOVE_CONTENT" \
@@ -1175,7 +1175,7 @@ if [ "$THREAD_MOVED" = true ] && [ -n "$MOVE_THREAD_ID" ]; then
 
     echo "Thread author appealing move for thread $MOVE_THREAD_ID..."
 
-    TX_RES=$($BINARY tx forum appeal-thread-move \
+    TX_RES=$($BINARY tx forum appeal-thread-move --gas 500000 \
         "$MOVE_THREAD_ID" \
         --from poster1 \
         --chain-id $CHAIN_ID \
@@ -1219,7 +1219,7 @@ echo "--- PART 26: APPEAL THREAD MOVE ERROR - Non-existent thread ---"
 
 echo "Appealing move for non-existent thread (thread_id=999999)..."
 
-TX_RES=$($BINARY tx forum appeal-thread-move \
+TX_RES=$($BINARY tx forum appeal-thread-move --gas 500000 \
     "999999" \
     --from poster1 \
     --chain-id $CHAIN_ID \
@@ -1263,7 +1263,7 @@ echo "--- PART 27: APPEAL THREAD MOVE ERROR - Not thread author ---"
 if [ "$THREAD_MOVED" = true ] && [ -n "$MOVE_THREAD_ID" ]; then
     echo "poster2 appealing poster1's moved thread $MOVE_THREAD_ID..."
 
-    TX_RES=$($BINARY tx forum appeal-thread-move \
+    TX_RES=$($BINARY tx forum appeal-thread-move --gas 500000 \
         "$MOVE_THREAD_ID" \
         --from poster2 \
         --chain-id $CHAIN_ID \
@@ -1312,7 +1312,7 @@ DUPLICATE_MOVE_APPEAL_RESULT="SKIP"
 if [ -n "$MOVE_THREAD_ID" ] && [ "$THREAD_MOVED" = true ]; then
     echo "Filing duplicate move appeal for thread $MOVE_THREAD_ID..."
 
-    TX_RES=$($BINARY tx forum appeal-thread-move \
+    TX_RES=$($BINARY tx forum appeal-thread-move --gas 500000 \
         "$MOVE_THREAD_ID" \
         --from poster1 \
         --chain-id $CHAIN_ID \

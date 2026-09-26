@@ -100,7 +100,7 @@ echo '{
   "summary": "Increase minimum liquidity and trading fees for better market quality."
 }' > "$PROPOSAL_DIR/update_params.json"
 
-SUBMIT_RES=$($BINARY tx gov submit-proposal "$PROPOSAL_DIR/update_params.json" \
+SUBMIT_RES=$($BINARY tx gov submit-proposal --gas 1000000 "$PROPOSAL_DIR/update_params.json" \
   --from alice \
   --chain-id $CHAIN_ID \
   --keyring-backend test \

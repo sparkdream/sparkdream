@@ -73,7 +73,7 @@ echo '{
   "summary": "Bootstrapping the Cultural Pillar."
 }' > "$PROPOSAL_DIR/create_commons.json"
 
-SUBMIT_RES=$($BINARY tx gov submit-proposal "$PROPOSAL_DIR/create_commons.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --output json)
+SUBMIT_RES=$($BINARY tx gov submit-proposal --gas 1000000 "$PROPOSAL_DIR/create_commons.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --output json)
 TX_HASH=$(echo $SUBMIT_RES | jq -r '.txhash')
 PROP_ID=$(get_prop_id $TX_HASH)
 
@@ -110,7 +110,7 @@ echo '{
   "summary": "Bootstrapping the Technical Pillar."
 }' > "$PROPOSAL_DIR/create_tech.json"
 
-SUBMIT_RES=$($BINARY tx gov submit-proposal "$PROPOSAL_DIR/create_tech.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --output json)
+SUBMIT_RES=$($BINARY tx gov submit-proposal --gas 1000000 "$PROPOSAL_DIR/create_tech.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --output json)
 TX_HASH=$(echo $SUBMIT_RES | jq -r '.txhash')
 PROP_ID=$(get_prop_id $TX_HASH)
 
@@ -147,7 +147,7 @@ echo '{
   "summary": "Bootstrapping the Growth Pillar."
 }' > "$PROPOSAL_DIR/create_eco.json"
 
-SUBMIT_RES=$($BINARY tx gov submit-proposal "$PROPOSAL_DIR/create_eco.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --output json)
+SUBMIT_RES=$($BINARY tx gov submit-proposal --gas 1000000 "$PROPOSAL_DIR/create_eco.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --output json)
 TX_HASH=$(echo $SUBMIT_RES | jq -r '.txhash')
 PROP_ID=$(get_prop_id $TX_HASH)
 

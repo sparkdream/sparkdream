@@ -158,7 +158,7 @@ echo '{
   "summary": "Cancel prediction market due to emergency situation."
 }' > "$PROPOSAL_DIR/cancel_market.json"
 
-SUBMIT_RES=$($BINARY tx gov submit-proposal "$PROPOSAL_DIR/cancel_market.json" \
+SUBMIT_RES=$($BINARY tx gov submit-proposal --gas 1000000 "$PROPOSAL_DIR/cancel_market.json" \
   --from alice \
   --chain-id $CHAIN_ID \
   --keyring-backend test \

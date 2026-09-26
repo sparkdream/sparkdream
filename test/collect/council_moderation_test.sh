@@ -90,7 +90,7 @@ wait_for_bond_drain() {
 # pass/fail counters, which a command-substitution subshell would swallow.)
 create_carol_collection() {
     local name=$1
-    TX_OUT=$(send_tx collect create-collection \
+    TX_OUT=$(send_tx collect create-collection --gas 400000 \
         nft public false 0 "$name" "Council-mod fixture" "" "" --from carol)
     assert_tx_success "carol creates collection $name" "$TX_OUT"
     COLL_ID=$(extract_event_attr "$TX_RESULT_OUT" "collection_created" "id")

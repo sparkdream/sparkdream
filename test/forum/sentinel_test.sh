@@ -126,7 +126,7 @@ bootstrap_reputation() {
         INTERIM_ID=$(extract_event_value "$TX_RESULT" "interim_created" "interim_id")
 
         # Complete the interim
-        TX_RES=$($BINARY tx rep complete-interim $INTERIM_ID "Completed for test setup" \
+        TX_RES=$($BINARY tx rep complete-interim --gas 500000 $INTERIM_ID "Completed for test setup" \
             --from $ACCOUNT \
             --chain-id $CHAIN_ID \
             --keyring-backend test \
@@ -308,7 +308,7 @@ echo "--- PART 5: CREATE POST FOR MODERATION TEST ---"
 # Create a post that will be moderated
 TEST_CONTENT="This is a test post for moderation testing at $(date)"
 
-TX_RES=$($BINARY tx forum create-post \
+TX_RES=$($BINARY tx forum create-post --gas 500000 \
     "${TEST_CATEGORY_ID:-1}" \
     "0" \
     "$TEST_CONTENT" \
@@ -414,7 +414,7 @@ echo ""
 echo "--- PART 8: HIDE POST (Sentinel Action) ---"
 
 # Create another post to hide
-TX_RES=$($BINARY tx forum create-post \
+TX_RES=$($BINARY tx forum create-post --gas 500000 \
     "${TEST_CATEGORY_ID:-1}" \
     "0" \
     "This post will be hidden by a sentinel" \
@@ -480,7 +480,7 @@ echo ""
 echo "--- PART 9: LOCK THREAD (Sentinel Action) ---"
 
 # Create a thread to lock
-TX_RES=$($BINARY tx forum create-post \
+TX_RES=$($BINARY tx forum create-post --gas 500000 \
     "${TEST_CATEGORY_ID:-1}" \
     "0" \
     "This thread will be locked by a sentinel" \
@@ -826,7 +826,7 @@ echo ""
 echo "--- PART 17: HIDE POST WITHOUT BEING SENTINEL (Negative Test) ---"
 
 # Create a fresh post for this test
-TX_RES=$($BINARY tx forum create-post \
+TX_RES=$($BINARY tx forum create-post --gas 500000 \
     "${TEST_CATEGORY_ID:-1}" \
     "0" \
     "Post for negative hide test" \
@@ -987,7 +987,7 @@ echo ""
 echo "--- PART 20: LOCK ALREADY-LOCKED THREAD (Negative Test) ---"
 
 # Create a new thread and lock it, then try locking again
-TX_RES=$($BINARY tx forum create-post \
+TX_RES=$($BINARY tx forum create-post --gas 500000 \
     "${TEST_CATEGORY_ID:-1}" \
     "0" \
     "Thread for double-lock test" \

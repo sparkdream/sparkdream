@@ -224,7 +224,7 @@ fi
 echo "--- TEST 2: ErrNotSentinel - Hide post without being sentinel ---"
 
 # Create a post to target
-TX_RES=$($BINARY tx forum create-post \
+TX_RES=$($BINARY tx forum create-post --gas 500000 \
     "${TEST_CATEGORY_ID:-1}" \
     "0" \
     "Post for sentinel limit error test $(date +%s)" \
@@ -352,7 +352,7 @@ echo "--- TEST 6: ErrPostAlreadyHidden - Hide an already-hidden post ---"
 
 if [ "$SENTINEL_BONDED" = true ]; then
     # Create a fresh post to hide
-    TX_RES=$($BINARY tx forum create-post \
+    TX_RES=$($BINARY tx forum create-post --gas 500000 \
         "${TEST_CATEGORY_ID:-1}" \
         "0" \
         "Post to be hidden then re-hidden $(date +%s)" \
@@ -441,7 +441,7 @@ echo "--- TEST 8: ErrThreadAlreadyLocked - Lock an already-locked thread ---"
 
 if [ "$SENTINEL_BONDED" = true ]; then
     # Create a fresh thread to lock
-    TX_RES=$($BINARY tx forum create-post \
+    TX_RES=$($BINARY tx forum create-post --gas 500000 \
         "${TEST_CATEGORY_ID:-1}" \
         "0" \
         "Thread for double-lock error test $(date +%s)" \
@@ -513,7 +513,7 @@ if [ "$SENTINEL_BONDED" = true ]; then
     echo "  Before hide: total_hides=$BEFORE_TOTAL_HIDES, epoch_hides=$BEFORE_EPOCH_HIDES"
 
     # Create a fresh post and hide it
-    TX_RES=$($BINARY tx forum create-post \
+    TX_RES=$($BINARY tx forum create-post --gas 500000 \
         "${TEST_CATEGORY_ID:-1}" \
         "0" \
         "Post for activity tracking test $(date +%s)" \
@@ -583,7 +583,7 @@ if [ "$SENTINEL_BONDED" = true ]; then
     echo "  Before lock: total_locks=$BEFORE_TOTAL_LOCKS, epoch_locks=$BEFORE_EPOCH_LOCKS"
 
     # Create a fresh thread to lock
-    TX_RES=$($BINARY tx forum create-post \
+    TX_RES=$($BINARY tx forum create-post --gas 500000 \
         "${TEST_CATEGORY_ID:-1}" \
         "0" \
         "Thread for lock tracking test $(date +%s)" \

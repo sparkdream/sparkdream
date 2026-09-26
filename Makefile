@@ -220,8 +220,9 @@ docker-build-mainnet-ssh: docker-build-mainnet
 ###########################
 
 # Network-independent images the chain launcher deploys beside the nodes:
-# the Hermes relayer (transfer + federation paths) and the ActivityPub
-# live-link daemons (sdapbridge, sdapverify). Tagged with the chain version
+# the Hermes relayer (transfer + federation paths), the ActivityPub
+# live-link daemons (sdapbridge, sdapverify) and Mastodon (the upstream image
+# made runnable on Akash). Tagged with the chain version
 # so a release ships one consistent set.
 docker-build-hermes:
 	docker build -f deploy/docker/Dockerfile-hermes -t sparkdreamnft/hermes:$(VERSION) .
@@ -229,6 +230,9 @@ docker-build-hermes:
 docker-build-sdap:
 	docker build -f deploy/docker/Dockerfile-sdap -t sparkdreamnft/sdap:$(VERSION) .
 
-docker-build-services: docker-build-hermes docker-build-sdap
+docker-build-mastodon:
+	docker build -f deploy/docker/Dockerfile-mastodon -t sparkdreamnft/mastodon:$(VERSION) .
 
-.PHONY: docker-build-hermes docker-build-sdap docker-build-services
+docker-build-services: docker-build-hermes docker-build-sdap docker-build-mastodon
+
+.PHONY: docker-build-hermes docker-build-sdap docker-build-mastodon docker-build-services

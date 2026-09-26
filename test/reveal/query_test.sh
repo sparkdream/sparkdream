@@ -107,7 +107,7 @@ if [ "$SEED_NEEDED" = true ]; then
 
             # Stake from staker1 (below threshold so tranche stays in STAKING for query tests)
             echo "  Staker1 staking on seed tranche..."
-            STAKE_TX=$($BINARY tx reveal stake \
+            STAKE_TX=$($BINARY tx reveal stake --gas 500000 \
                 $SEED_CONTRIB_ID 0 "100000000" --from staker1 -y \
                 --chain-id $CHAIN_ID --keyring-backend test \
                 --fees 5000${BOND_DENOM} --output json 2>&1)

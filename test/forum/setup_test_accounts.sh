@@ -158,7 +158,7 @@ for i in "${!ACCOUNTS[@]}"; do
     # via InvitationCostMultiplier (see x/rep params).
     REQUIRED_STAKE=$($BINARY query rep required-invitation-stake "$ALICE_ADDR" --output json 2>/dev/null \
         | jq -r '.required_stake // "100000000"')
-    TX_RES=$($BINARY tx rep invite-member \
+    TX_RES=$($BINARY tx rep invite-member --gas 400000 \
         $ADDR \
         "$REQUIRED_STAKE" \
         --from alice \
@@ -216,7 +216,7 @@ for i in "${!ACCOUNTS[@]}"; do
 
     echo "  $ACCOUNT accepting invitation #$INVITATION_ID..."
 
-    TX_RES=$($BINARY tx rep accept-invitation \
+    TX_RES=$($BINARY tx rep accept-invitation --gas 400000 \
         $INVITATION_ID \
         --from $ACCOUNT \
         --chain-id $CHAIN_ID \

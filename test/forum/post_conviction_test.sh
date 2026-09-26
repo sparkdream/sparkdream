@@ -131,7 +131,7 @@ bootstrap_reputation() {
         fi
         INTERIM_ID=$(extract_event_value "$TX_RESULT" "interim_created" "interim_id")
 
-        TX_RES=$($BINARY tx rep complete-interim $INTERIM_ID "post-conviction test setup" \
+        TX_RES=$($BINARY tx rep complete-interim --gas 500000 $INTERIM_ID "post-conviction test setup" \
             --from $ACCOUNT \
             --chain-id $CHAIN_ID \
             --keyring-backend test \
@@ -216,7 +216,7 @@ submit_tx_and_wait "$TX_RES" > /dev/null
 echo "=== FIXTURES ==="
 
 ALICE_POST_ID=""
-TX_RES=$($BINARY tx forum create-post \
+TX_RES=$($BINARY tx forum create-post --gas 500000 \
     $CATEGORY_ID 0 "Alice's post for self-stake reject test." \
     --tags "$POST_TAG" \
     --from alice \
@@ -234,7 +234,7 @@ else
 fi
 
 POSTER2_POST_ID=""
-TX_RES=$($BINARY tx forum create-post \
+TX_RES=$($BINARY tx forum create-post --gas 500000 \
     $CATEGORY_ID 0 "Poster2's post — happy-path accrual + release target." \
     --tags "$POST_TAG" \
     --from poster2 \
@@ -539,7 +539,7 @@ if [ "$SENTINEL_READY" != "true" ]; then
     echo "  Sentinel1 prerequisite unmet; cannot exercise the slash path."
     record_result "Hide-finalization slashes conviction stake" "FAIL"
 else
-    TX_RES=$($BINARY tx forum create-post \
+    TX_RES=$($BINARY tx forum create-post --gas 500000 \
         $CATEGORY_ID 0 "Poster2's slash-test post — will be hidden." \
         --tags "$POST_TAG" \
         --from poster2 \

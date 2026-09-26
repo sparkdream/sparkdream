@@ -160,7 +160,7 @@ echo "--- TEST 1: Self-member-stake prevention ---"
 echo "  Alice stakes on herself (target_type=member)..."
 
 # target-type=member, target-id=0, target-identifier=self, amount=1000
-TX_RES=$($BINARY tx rep stake \
+TX_RES=$($BINARY tx rep stake --gas 500000 \
     "stake-target-member" 0 "1000000" \
     --target-identifier "$ALICE_ADDR" \
     --from alice \
@@ -179,7 +179,7 @@ echo "--- TEST 2: Circular member stake ---"
 echo "  First: Alice stakes on Bob..."
 
 # Alice → Bob (should succeed) — use minimal amount to avoid balance issues
-TX_RES=$($BINARY tx rep stake \
+TX_RES=$($BINARY tx rep stake --gas 500000 \
     "stake-target-member" 0 "$MIN_STAKE" \
     --target-identifier "$BOB_ADDR" \
     --from alice \
@@ -211,7 +211,7 @@ fi
 if [ "$ALICE_BOB_STAKED" = true ]; then
     echo "  Now: Bob stakes on Alice (should fail — circular)..."
 
-    TX_RES=$($BINARY tx rep stake \
+    TX_RES=$($BINARY tx rep stake --gas 500000 \
         "stake-target-member" 0 "$MIN_STAKE" \
         --target-identifier "$ALICE_ADDR" \
         --from bob \
@@ -251,7 +251,7 @@ DAVE_ADDR=$($BINARY keys show dave -a --keyring-backend test 2>/dev/null)
 if [ -n "$DAVE_ADDR" ]; then
     echo "  Dave ($DAVE_ADDR) is not a member, attempting to stake..."
 
-    TX_RES=$($BINARY tx rep stake \
+    TX_RES=$($BINARY tx rep stake --gas 500000 \
         "stake-target-tag" 0 "1000000" \
         --target-identifier "backend" \
         --from dave \
@@ -288,7 +288,7 @@ expect_tx_failure "$TX_RES" "not found" "Unstake non-existent stake"
 # ========================================================================
 echo "--- TEST 5: Invalid stake target type ---"
 
-TX_RES=$($BINARY tx rep stake \
+TX_RES=$($BINARY tx rep stake --gas 500000 \
     "999" 0 "1000000" \
     --from alice \
     --chain-id $CHAIN_ID \
@@ -352,7 +352,7 @@ if [ "$MIN_DURATION" = "0" ]; then
     echo "  [WARN] min_stake_duration_seconds is 0 on this chain; early-claim gate is disabled"
     echo "  Skipped (params make this unreachable)"
 else
-    TX_RES=$($BINARY tx rep stake \
+    TX_RES=$($BINARY tx rep stake --gas 500000 \
         "stake-target-member" 0 "$MIN_STAKE" \
         --target-identifier "$BOB_ADDR" \
         --from alice \
@@ -409,7 +409,7 @@ if [ -z "$ERR_INIT_ID" ] || [ "$ERR_INIT_ID" = "null" ]; then
     echo "  [WARN] No initiative available on this chain; skipping"
 else
     echo "  Using initiative #$ERR_INIT_ID"
-    TX_RES=$($BINARY tx rep stake \
+    TX_RES=$($BINARY tx rep stake --gas 500000 \
         "stake-target-initiative" "$ERR_INIT_ID" "$MIN_STAKE" \
         --from alice \
         --chain-id $CHAIN_ID \
@@ -474,7 +474,7 @@ else
     TRANCHE_IDS=()
     FILL_OK=true
     for ((i=EXISTING_TRANCHES; i<TRANCHE_CAP; i++)); do
-        TX_RES=$($BINARY tx rep stake \
+        TX_RES=$($BINARY tx rep stake --gas 500000 \
             "stake-target-initiative" "$TRANCHE_INIT_ID" "$MIN_STAKE" \
             --from bob \
             --chain-id $CHAIN_ID \
@@ -494,7 +494,7 @@ else
 
     if [ "$FILL_OK" = true ]; then
         echo "  Cap reached; the next stake on this target must be rejected"
-        TX_RES=$($BINARY tx rep stake \
+        TX_RES=$($BINARY tx rep stake --gas 500000 \
             "stake-target-initiative" "$TRANCHE_INIT_ID" "$MIN_STAKE" \
             --from bob \
             --chain-id $CHAIN_ID \
@@ -538,7 +538,7 @@ elif [ "$MIN_STAKE" -le 1 ] 2>/dev/null; then
 else
     BELOW_FLOOR=$((MIN_STAKE - 1))
     echo "  Staking $BELOW_FLOOR against a floor of $MIN_STAKE (must be rejected)..."
-    TX_RES=$($BINARY tx rep stake \
+    TX_RES=$($BINARY tx rep stake --gas 500000 \
         "stake-target-initiative" "$FLOOR_INIT_ID" "$BELOW_FLOOR" \
         --from bob \
         --chain-id $CHAIN_ID \
@@ -568,7 +568,7 @@ if [ -z "$TERMINAL_INIT_ID" ] || [ "$TERMINAL_INIT_ID" = "null" ]; then
     echo "         (run initiative_test.sh / challenge_test.sh first to produce one)"
 else
     echo "  Staking on terminal initiative #$TERMINAL_INIT_ID (must be rejected)..."
-    TX_RES=$($BINARY tx rep stake \
+    TX_RES=$($BINARY tx rep stake --gas 500000 \
         "stake-target-initiative" "$TERMINAL_INIT_ID" "$MIN_STAKE" \
         --from bob \
         --chain-id $CHAIN_ID \

@@ -58,7 +58,7 @@ echo '{
 }' > "$PROPOSAL_DIR/create_sunset_dao.json"
 
 # Submit via Gov
-SUBMIT_RES=$($BINARY tx gov submit-proposal "$PROPOSAL_DIR/create_sunset_dao.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --output json)
+SUBMIT_RES=$($BINARY tx gov submit-proposal --gas 1000000 "$PROPOSAL_DIR/create_sunset_dao.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --output json)
 TX_HASH=$(echo $SUBMIT_RES | jq -r '.txhash')
 sleep 3
 
@@ -146,7 +146,7 @@ echo '{
 }' > "$PROPOSAL_DIR/gov_sunset.json"
 
 # Submit
-SUBMIT_RES=$($BINARY tx gov submit-proposal "$PROPOSAL_DIR/gov_sunset.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --output json)
+SUBMIT_RES=$($BINARY tx gov submit-proposal --gas 1000000 "$PROPOSAL_DIR/gov_sunset.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --output json)
 TX_HASH=$(echo $SUBMIT_RES | jq -r '.txhash')
 sleep 3
 

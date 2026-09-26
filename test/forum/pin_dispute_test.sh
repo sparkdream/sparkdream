@@ -107,7 +107,7 @@ FR=$($BINARY tx bank send alice "$POSTER1_ADDR" 20000000${BOND_DENOM} --chain-id
     --keyring-backend test --fees 5000${BOND_DENOM} -y --output json 2>&1)
 FH=$(echo "$FR" | jq -r '.txhash // empty'); [ -n "$FH" ] && { sleep 6; wait_for_tx "$FH" >/dev/null; }
 
-R=$(submit poster1 dispute-pin "$THREAD_ID" "$REPLY_ID" "pin is off-topic")
+R=$(submit poster1 dispute-pin --gas 500000 "$THREAD_ID" "$REPLY_ID" "pin is off-topic")
 if [ "$(tx_code "$R")" = "0" ]; then pass "dispute filed"; else
     echo "  $(echo "$R" | jq -r '.raw_log')"; fail "dispute-pin"
 fi

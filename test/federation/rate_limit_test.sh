@@ -311,7 +311,7 @@ jq -n --arg auth "$GOV_ADDR" --argjson p "$PARAMS_NEW" '
 }' > "$PROPOSAL_DIR/rl_bump_window.json"
 
 RL_WINDOW_OK=false
-TX_RES=$($BINARY tx gov submit-proposal "$PROPOSAL_DIR/rl_bump_window.json" \
+TX_RES=$($BINARY tx gov submit-proposal --gas 1000000 "$PROPOSAL_DIR/rl_bump_window.json" \
     --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} --output json)
 if submit_and_wait_capture "$TX_RES"; then
     PROP_ID=$(echo "$TX_RESULT" | jq -r '.events[] | select(.type=="submit_proposal").attributes[] | select(.key=="proposal_id").value' | tr -d '"' | head -n1)
@@ -471,7 +471,7 @@ if [ "$RL_WINDOW_OK" = "true" ]; then
   "summary": "restore",
   "expedited": true
 }' > "$PROPOSAL_DIR/rl_restore_window.json"
-    TX_RES=$($BINARY tx gov submit-proposal "$PROPOSAL_DIR/rl_restore_window.json" \
+    TX_RES=$($BINARY tx gov submit-proposal --gas 1000000 "$PROPOSAL_DIR/rl_restore_window.json" \
         --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} --output json)
     if submit_and_wait_capture "$TX_RES"; then
         PROP_ID=$(echo "$TX_RESULT" | jq -r '.events[] | select(.type=="submit_proposal").attributes[] | select(.key=="proposal_id").value' | tr -d '"' | head -n1)

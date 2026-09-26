@@ -153,7 +153,7 @@ submit_tx_and_wait "$TX_RES" > /dev/null
 POST_TAG="test"
 
 EPHEMERAL_POST_ID=""
-TX_RES=$($BINARY tx forum create-post \
+TX_RES=$($BINARY tx forum create-post --gas 500000 \
     $CATEGORY_ID 0 "Ephemeral post by non-member; will be promoted then hidden." \
     --tags "$POST_TAG" \
     --from $NONMEMBER_ACCOUNT \
@@ -310,7 +310,7 @@ fi
 echo "--- TEST 4: member-authored hidden post does NOT issue a promoter warning ---"
 
 MEMBER_POST_ID=""
-TX_RES=$($BINARY tx forum create-post \
+TX_RES=$($BINARY tx forum create-post --gas 500000 \
     $CATEGORY_ID 0 "Member-authored permanent post; will be hidden." \
     --from poster2 \
     --chain-id $CHAIN_ID \

@@ -17,7 +17,7 @@ FUTURE_BLOCK=$((BLOCK_HEIGHT + 5000))
 # Test 1: Non-member creates TTL collection for sponsorship
 # =========================================================================
 echo "--- Test 1: Non-member creates TTL collection ---"
-TX_OUT=$(send_tx collect create-collection \
+TX_OUT=$(send_tx collect create-collection --gas 400000 \
     link public false "$FUTURE_BLOCK" "SponsorColl" "For sponsorship test" "" "" \
     --from nonmember1)
 assert_tx_success "Create TTL collection for sponsorship" "$TX_OUT"
@@ -61,7 +61,7 @@ assert_gt "Sponsorship requests exist" "0" "$REQ_COUNT"
 echo ""
 echo "--- Test 5: Member cannot request sponsorship ---"
 # Create a TTL collection as member (use collector2 to avoid tier limit on collector1)
-TX_OUT=$(send_tx collect create-collection \
+TX_OUT=$(send_tx collect create-collection --gas 400000 \
     link public false "$FUTURE_BLOCK" "MemberTTL" "Member TTL" "" "" \
     --from collector2)
 assert_tx_success "Create member TTL collection" "$TX_OUT"

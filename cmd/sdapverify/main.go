@@ -62,9 +62,19 @@ func main() {
 		FeeAmount:    cfg.Fee,
 		GasLimit:     cfg.Gas,
 		Mnemonic:     cfg.Mnemonic,
+
+		SessionKeyFile: cfg.SessionKeyFile,
+		Granter:        cfg.Granter,
 	})
 	if err != nil {
 		log.Fatalf("sdapverify: chain client: %v", err)
+	}
+	if chain.Session() {
+		signer := chain.SignerAddress()
+		if signer == "" {
+			signer = "none yet: waiting for " + cfg.SessionKeyFile
+		}
+		log.Printf("sdapverify: signing through a session key for %s (key %s)", chain.Address(), signer)
 	}
 
 	var signer *apcanon.HTTPSigner
@@ -130,6 +140,9 @@ func main() {
 				if err != nil {
 					return "", err
 				}
+				if !res.OK() && res.SessionUnusable() {
+					return res.TxHash, fmt.Errorf("%w: %s", sdaptx.ErrNoSessionKey, res.RawLog)
+				}
 				if !res.OK() {
 					// Only sequence races and a full mempool are worth a
 					// retry. Code 13 is ErrInsufficientFee, which retrying
@@ -186,7 +199,12 @@ type Config struct {
 	MediaTimeout time.Duration
 	MediaMinRate int64
 	Mnemonic     string
-	PollInterval time.Duration
+	// SessionKeyFile + Granter: sign as an x/session grantee for the
+	// verifier account (Granter), whose mnemonic never reaches this host.
+	// The file is re-read on every tx, so rotation is a rewrite.
+	SessionKeyFile string
+	Granter        string
+	PollInterval   time.Duration
 	// ConfirmTimeout bounds the wait for tx inclusion. SYNC-mode broadcast
 	// reports CheckTx only.
 	ConfirmTimeout time.Duration
@@ -215,6 +233,8 @@ func loadConfig() Config {
 		MediaTimeout:        envDuration("SDA_MEDIA_TIMEOUT", apcanon.DefaultMediaTimeout),
 		MediaMinRate:        envInt("SDA_MEDIA_MIN_RATE", apcanon.DefaultMediaMinRate),
 		Mnemonic:            env("SDA_MNEMONIC", ""),
+		SessionKeyFile:      env("SDA_SESSION_KEY_FILE", ""),
+		Granter:             env("SDA_GRANTER", ""),
 		PollInterval:        envDuration("SDA_POLL", 45*time.Second),
 		ConfirmTimeout:      envDuration("SDA_CONFIRM_TIMEOUT", 45*time.Second),
 		FetchFailureAlarmAt: int(envInt("SDA_FETCH_FAIL_ALARM_AT", defaultFetchFailureAlarmAt)),
@@ -233,11 +253,11 @@ func (c *Config) Validate() error {
 	if len(c.PeerIDs) == 0 {
 		missing = append(missing, "SDA_PEER_IDS")
 	}
-	if c.Mnemonic == "" {
-		missing = append(missing, "SDA_MNEMONIC")
-	}
 	if len(missing) > 0 {
 		return fmt.Errorf("missing required configuration: %s", strings.Join(missing, ", "))
+	}
+	if err := sdaptx.CheckSigningConfig(c.Mnemonic, c.SessionKeyFile, c.Granter); err != nil {
+		return err
 	}
 	if (c.FetchKeyID == "") != (c.FetchKeyPath == "") {
 		return fmt.Errorf("SDA_FETCH_KEY_ID and SDA_FETCH_KEY must be set together")

@@ -161,7 +161,7 @@ REP_B_BEFORE=$(carol_rep_for_tag "$UNHIDE_TAG_B")
 echo "  carol rep on $UNHIDE_TAG_A before hide: $REP_A_BEFORE"
 echo "  carol rep on $UNHIDE_TAG_B before hide: $REP_B_BEFORE"
 
-TX_OUT=$(send_tx collect create-collection \
+TX_OUT=$(send_tx collect create-collection --gas 400000 \
     nft public false 0 "UnhideColl" "Self-correct fixture" "" "$UNHIDE_TAG_A,$UNHIDE_TAG_B" \
     --from carol)
 assert_tx_success "carol creates a tagged ACTIVE collection" "$TX_OUT"
@@ -283,7 +283,7 @@ assert_equal "Collection still ACTIVE after both deadlines passed (no deletion)"
 echo ""
 echo "--- Test 2: Owner cannot unhide / Test 3: appealed hide cannot be unhidden ---"
 
-TX_OUT=$(send_tx collect create-collection \
+TX_OUT=$(send_tx collect create-collection --gas 400000 \
     nft public false 0 "UnhideGuardColl" "Guard fixture" "" "$UNHIDE_TAG_A" \
     --from carol)
 assert_tx_success "carol creates guard-test collection" "$TX_OUT"
@@ -316,7 +316,7 @@ assert_tx_failure "bob cannot self-correct an appealed hide" "$TX_OUT"
 echo ""
 echo "--- Test 4: Unhide after the window is rejected ---"
 
-TX_OUT=$(send_tx collect create-collection \
+TX_OUT=$(send_tx collect create-collection --gas 400000 \
     nft public false 0 "UnhideLateColl" "Window-expiry fixture" "" "" \
     --from carol)
 assert_tx_success "carol creates window-expiry collection" "$TX_OUT"

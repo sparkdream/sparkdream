@@ -100,7 +100,7 @@ for ACCT in collector1 collector2; do
         echo "  Alice inviting $ACCT..."
         REQUIRED_STAKE=$($BINARY query rep required-invitation-stake "$ALICE_ADDR" --output json 2>/dev/null \
             | jq -r '.required_stake // "100000000"')
-        TX_RES=$(send_tx rep invite-member "$ADDR" "$REQUIRED_STAKE" --from alice)
+        TX_RES=$(send_tx rep invite-member --gas 400000 "$ADDR" "$REQUIRED_STAKE" --from alice)
         TXHASH=$(get_txhash "$TX_RES")
         if [ -z "$TXHASH" ]; then
             echo "  WARNING: Failed to invite $ACCT"
@@ -123,7 +123,7 @@ for ACCT in collector1 collector2; do
 
     # Accept invitation with invitation ID
     echo "  $ACCT accepting invitation (ID=$INVITATION_ID)..."
-    TX_RES=$(send_tx rep accept-invitation "$INVITATION_ID" --from "$ACCT")
+    TX_RES=$(send_tx rep accept-invitation --gas 400000 "$INVITATION_ID" --from "$ACCT")
     TXHASH=$(get_txhash "$TX_RES")
     if [ -z "$TXHASH" ]; then
         echo "  WARNING: Failed to accept invitation for $ACCT"

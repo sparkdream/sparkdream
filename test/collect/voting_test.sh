@@ -14,7 +14,7 @@ echo ""
 # Setup: Create a collection owned by collector1 for voting tests
 # =========================================================================
 echo "--- Setup: Create collection for voting tests ---"
-TX_OUT=$(send_tx collect create-collection \
+TX_OUT=$(send_tx collect create-collection --gas 400000 \
     nft public false 0 "VotableColl" "A votable collection" "" "" \
     --from collector1)
 assert_tx_success "Create votable collection" "$TX_OUT"
@@ -71,7 +71,7 @@ assert_tx_failure "Non-member cannot upvote" "$TX_OUT"
 echo ""
 echo "--- Test 5: Member downvotes collection ---"
 # Create collection as collector2 for downvoting (collector1 at tier limit)
-TX_OUT=$(send_tx collect create-collection \
+TX_OUT=$(send_tx collect create-collection --gas 400000 \
     nft public false 0 "DownvoteColl" "For downvoting" "" "" \
     --from collector2)
 assert_tx_success "Create collection for downvoting" "$TX_OUT"
@@ -96,7 +96,7 @@ assert_equal "Downvote count is 1" "1" "$DV_COUNT"
 echo ""
 echo "--- Test 6: Member flags collection ---"
 # Create collection as collector2 for flagging
-TX_OUT=$(send_tx collect create-collection \
+TX_OUT=$(send_tx collect create-collection --gas 400000 \
     nft public false 0 "FlagColl" "For flagging" "" "" \
     --from collector2)
 assert_tx_success "Create collection for flagging" "$TX_OUT"

@@ -127,7 +127,7 @@ setup_adjudication() {
     echo "[ OK ] Challenge #$CHALLENGE_ID created"
 
     # Assignee responds (triggers escalation)
-    TX_RES=$($BINARY tx rep respond-to-challenge \
+    TX_RES=$($BINARY tx rep respond-to-challenge --gas 500000 \
         $CHALLENGE_ID \
         "Analysis is complete" \
         --evidence "https://example.com/response" \
@@ -166,7 +166,7 @@ echo "==========================================================================
 echo "TEST 1: Non-committee member (assignee) CANNOT complete ADJUDICATION interim"
 echo "================================================================================"
 
-TX_RES=$($BINARY tx rep complete-interim \
+TX_RES=$($BINARY tx rep complete-interim --gas 500000 \
     $ADJUDICATION_ID \
     "REJECT - trying to self-resolve" \
     --from assignee \
@@ -205,7 +205,7 @@ echo "==========================================================================
 # and a keyword that failed to match left the challenge unresolved forever with
 # the interim already COMPLETED. Omitting --decision must now be refused while
 # the interim is still live and retryable.
-TX_RES=$($BINARY tx rep complete-interim \
+TX_RES=$($BINARY tx rep complete-interim --gas 500000 \
     $ADJUDICATION_ID \
     "Committee decision: Challenge REJECTED. Work meets requirements." \
     --from alice \
@@ -260,7 +260,7 @@ echo "==========================================================================
 # freeze through the other door: approved=false finalized the interim to EXPIRED
 # with no decision and no resolution, dropping it out of the pending sweep that
 # would otherwise have defaulted the challenge to REJECT.
-TX_RES=$($BINARY tx rep approve-interim \
+TX_RES=$($BINARY tx rep approve-interim --gas 500000 \
     $ADJUDICATION_ID \
     "false" \
     "Committee declines this adjudication" \
@@ -312,7 +312,7 @@ echo "==========================================================================
 
 # Structured --decision flag (short kebab form), required for ADJUDICATION
 # interims; the notes are prose only.
-TX_RES=$($BINARY tx rep complete-interim \
+TX_RES=$($BINARY tx rep complete-interim --gas 500000 \
     $ADJUDICATION_ID \
     "Committee decision: Challenge REJECTED. Analysis is thorough and complete." \
     --decision reject \

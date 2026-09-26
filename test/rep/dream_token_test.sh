@@ -94,14 +94,14 @@ ensure_member() {
         # Alice invites this member (query required stake — escalates per invitation)
         local req_stake=$($BINARY query rep required-invitation-stake "$ALICE_ADDR" --output json 2>/dev/null \
             | jq -r '.required_stake // "100000000"')
-        $BINARY tx rep invite-member $addr "$req_stake" --from alice --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y > /dev/null 2>&1
+        $BINARY tx rep invite-member --gas 400000 $addr "$req_stake" --from alice --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y > /dev/null 2>&1
         sleep 2
 
         # Accept invitation
         local invitations=$($BINARY query rep list-invitation -o json 2>/dev/null | jq -r ".invitation[] | select(.invitee_address==\"$addr\") | .id")
         if [ -n "$invitations" ]; then
             local inv_id=$(echo "$invitations" | head -1)
-            $BINARY tx rep accept-invitation $inv_id --from $name --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y > /dev/null 2>&1
+            $BINARY tx rep accept-invitation --gas 400000 $inv_id --from $name --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y > /dev/null 2>&1
             sleep 2
 
             # Verify member was created

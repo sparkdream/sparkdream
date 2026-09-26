@@ -112,7 +112,7 @@ bootstrap_reputation() {
         fi
 
         # Complete the interim
-        TX_RES=$($BINARY tx rep complete-interim \
+        TX_RES=$($BINARY tx rep complete-interim --gas 500000 \
             "$INTERIM_ID" "Test setup rep bootstrap" \
             --from $ACCOUNT \
             --chain-id $CHAIN_ID \
@@ -268,7 +268,7 @@ echo ""
 echo "--- PART 2: CREATE THREAD FOR MOVE TEST ---"
 PART2_RESULT="FAIL"
 
-TX_RES=$($BINARY tx forum create-post \
+TX_RES=$($BINARY tx forum create-post --gas 500000 \
     "${TEST_CATEGORY_ID:-1}" \
     "0" \
     "This thread will be moved to a different category" \
@@ -421,7 +421,7 @@ if [ -n "$MOVE_THREAD_ID" ]; then
     APPEAL_ATTEMPT=0
     APPEAL_MAX=3
     while [ "$APPEAL_ATTEMPT" -lt "$APPEAL_MAX" ]; do
-        TX_RES=$($BINARY tx forum appeal-thread-move \
+        TX_RES=$($BINARY tx forum appeal-thread-move --gas 500000 \
             "$MOVE_THREAD_ID" \
             --from poster1 \
             --chain-id $CHAIN_ID \
@@ -475,7 +475,7 @@ echo "--- PART 5: PIN POST ---"
 PART5_RESULT="FAIL"
 
 # Create a post to pin
-TX_RES=$($BINARY tx forum create-post \
+TX_RES=$($BINARY tx forum create-post --gas 500000 \
     "${TEST_CATEGORY_ID:-1}" \
     "0" \
     "This is an important announcement that should be pinned" \
@@ -596,7 +596,7 @@ PART8_RESULT="FAIL"
 THREAD_FOR_PIN="${MOVE_THREAD_ID:-1}"
 
 # Create a reply to pin
-TX_RES=$($BINARY tx forum create-post \
+TX_RES=$($BINARY tx forum create-post --gas 500000 \
     "${TEST_CATEGORY_ID:-1}" \
     "$THREAD_FOR_PIN" \
     "This is an important reply that should be pinned" \
@@ -670,7 +670,7 @@ if [ -n "$PIN_REPLY_ID" ]; then
 
     echo "  Disputing pinned reply $PIN_REPLY_ID..."
 
-    TX_RES=$($BINARY tx forum dispute-pin \
+    TX_RES=$($BINARY tx forum dispute-pin --gas 500000 \
         "$THREAD_FOR_PIN" \
         "$PIN_REPLY_ID" \
         "This reply does not deserve to be pinned" \
@@ -845,7 +845,7 @@ echo "--- PART 20: FLAG POST (MEMBER FLAGGING) ---"
 PART20_RESULT="FAIL"
 
 # Create a post to flag
-TX_RES=$($BINARY tx forum create-post \
+TX_RES=$($BINARY tx forum create-post --gas 500000 \
     "${TEST_CATEGORY_ID:-1}" \
     "0" \
     "This post might need moderation review" \
@@ -926,7 +926,7 @@ echo "--- PART 22: HIDE POST (SENTINEL) ---"
 PART22_RESULT="FAIL"
 
 # Create a post to hide
-TX_RES=$($BINARY tx forum create-post \
+TX_RES=$($BINARY tx forum create-post --gas 500000 \
     "${TEST_CATEGORY_ID:-1}" \
     "0" \
     "This post will be hidden by sentinel" \
@@ -1009,7 +1009,7 @@ PART24_RESULT="FAIL"
 # Sentinel can only dismiss posts in review queue (threshold=5 weight, each flag=2).
 # Create a new post and flag it from 3 accounts (6 weight >= 5 threshold).
 echo "  Creating post for dismiss-flags test..."
-TX_RES=$($BINARY tx forum create-post \
+TX_RES=$($BINARY tx forum create-post --gas 500000 \
     "${TEST_CATEGORY_ID:-1}" \
     "0" \
     "Post for dismiss flags test" \
@@ -1091,7 +1091,7 @@ echo "--- PART 25: LOCK THREAD (SENTINEL) ---"
 PART25_RESULT="FAIL"
 
 # Create a new thread to lock
-TX_RES=$($BINARY tx forum create-post \
+TX_RES=$($BINARY tx forum create-post --gas 500000 \
     "${TEST_CATEGORY_ID:-1}" \
     "0" \
     "This thread will be locked by sentinel" \
@@ -1418,7 +1418,7 @@ PART33_RESULT="FAIL"
 if [ -n "$THREAD_FOR_PIN" ]; then
     echo "  Creating a new reply for unpin test..."
 
-    TX_RES=$($BINARY tx forum create-post \
+    TX_RES=$($BINARY tx forum create-post --gas 500000 \
         "${TEST_CATEGORY_ID:-1}" \
         "$THREAD_FOR_PIN" \
         "Reply to test unpin" \
@@ -1711,7 +1711,7 @@ echo "--- PART 39: ERROR - HidePost ErrNotSentinel ---"
 PART39_RESULT="FAIL"
 
 # Create a fresh post to attempt hiding
-TX_RES=$($BINARY tx forum create-post \
+TX_RES=$($BINARY tx forum create-post --gas 500000 \
     "${TEST_CATEGORY_ID:-1}" \
     "0" \
     "Test post for not-sentinel error" \
@@ -1821,7 +1821,7 @@ echo "--- PART 41: ERROR - DismissFlags ErrUnauthorized ---"
 PART41_RESULT="FAIL"
 
 # Create a post and flag it for this test
-TX_RES=$($BINARY tx forum create-post \
+TX_RES=$($BINARY tx forum create-post --gas 500000 \
     "${TEST_CATEGORY_ID:-1}" \
     "0" \
     "Post for unauthorized dismiss test" \
@@ -2179,7 +2179,7 @@ PART49_RESULT="FAIL"
 
 if [ -n "$THREAD_FOR_PIN" ]; then
     # Create a reply
-    TX_RES=$($BINARY tx forum create-post \
+    TX_RES=$($BINARY tx forum create-post --gas 500000 \
         "${TEST_CATEGORY_ID:-1}" \
         "$THREAD_FOR_PIN" \
         "Reply for pin-reply error test" \
@@ -2362,7 +2362,7 @@ echo "--- PART 55: ERROR - LockThread ErrThreadAlreadyLocked ---"
 PART55_RESULT="FAIL"
 
 # Create and lock a thread, then try to lock again
-TX_RES=$($BINARY tx forum create-post \
+TX_RES=$($BINARY tx forum create-post --gas 500000 \
     "${TEST_CATEGORY_ID:-1}" \
     "0" \
     "Thread for double-lock error test" \

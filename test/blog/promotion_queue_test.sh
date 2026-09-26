@@ -198,7 +198,7 @@ REQUIRED_STAKE=$($BINARY query rep required-invitation-stake "$ALICE_ADDR" --out
     | jq -r '.required_stake // "100000000"')
 echo "  Required invitation stake: $REQUIRED_STAKE"
 
-TX_RES=$($BINARY tx rep invite-member \
+TX_RES=$($BINARY tx rep invite-member --gas 400000 \
     $PROMOTEE_ADDR \
     "$REQUIRED_STAKE" \
     --from alice \
@@ -217,7 +217,7 @@ else
 fi
 
 # Promotee accepts.
-TX_RES=$($BINARY tx rep accept-invitation \
+TX_RES=$($BINARY tx rep accept-invitation --gas 400000 \
     $INVITATION_ID \
     --from $PROMOTEE_ACCOUNT \
     --chain-id $CHAIN_ID \

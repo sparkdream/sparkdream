@@ -13,6 +13,13 @@
 # consent timestamps and the timeline cursor are not, so mount /data on
 # persistent storage.
 #
+# Signing: on a host you do not control, give the daemons an x/session
+# key (SDA_SESSION_KEY_FILE, e.g. /data/session-key, + SDA_GRANTER), never
+# the account's mnemonic. The entrypoint (deploy/docker/sdap/sdap-entry.sh)
+# starts as root only to hand /data to the unprivileged sdap user, so a
+# root-owned volume works; pass the daemon as the command (or as args after
+# the entrypoint), not as an entrypoint override.
+#
 # The build context is allowlisted by Dockerfile-sdap.dockerignore.
 #
 # Build from the repo root:
@@ -27,12 +34,13 @@ RUN CGO_ENABLED=0 go build -trimpath -o /out/sdapbridge ./cmd/sdapbridge \
  && CGO_ENABLED=0 go build -trimpath -o /out/sdapverify ./cmd/sdapverify
 
 FROM alpine
-RUN apk add --no-cache ca-certificates \
+RUN apk add --no-cache ca-certificates su-exec \
  && adduser -D -u 10001 sdap \
  && mkdir -p /data \
  && chown sdap /data
 COPY --from=build /out/sdapbridge /out/sdapverify /usr/local/bin/
-USER sdap
+COPY deploy/docker/sdap/sdap-entry.sh /usr/local/bin/sdap-entry
 WORKDIR /data
 ENV SDA_STATE=/data/sdapbridge-state.json
+ENTRYPOINT ["sdap-entry"]
 CMD ["sdapbridge"]

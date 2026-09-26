@@ -4,13 +4,20 @@
 // (118, path m/44'/118'/0'/0/0) and SIGN_MODE_DIRECT, then broadcasts
 // through the LCD's /cosmos/tx/v1beta1/txs endpoint in SYNC mode.
 //
-// Both daemons could sign through a session key (the federation daemon
-// messages are allowlisted in x/session genesis since the P0.2 change);
-// wrapping Msgs in MsgExecSession is deliberately NOT implemented yet —
-// the devnet reset that seeds the ceiling has not happened (P3.0), so
-// v1 signs with the operator/verifier key directly and accepts that
-// risk on devnet only. The Signer seam below is where a
-// session wrapper slots in later.
+// Two signing modes:
+//
+//   - Direct: the account's own mnemonic signs its messages. Fine for a
+//     daemon run on a machine the account holder controls.
+//   - Session: an x/session SESSION_KEY grantee signs, and every message
+//     goes out wrapped in MsgExecSession on behalf of the granter, who
+//     pays the fees out of the session's spend limit. The granter's
+//     mnemonic never reaches the daemon's host: a compromised host leaks a
+//     key scoped to the grant's allowed_msg_types, spend_limit, exec cap
+//     and expiration, which the granter revokes with one tx. The key is
+//     read from a file on every broadcast, so whoever holds the granter
+//     key rotates it by writing the file, without a restart; until a key
+//     is there, broadcasts fail with ErrNoSessionKey and the daemon keeps
+//     polling.
 package sdaptx
 
 import (
@@ -22,8 +29,10 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"cosmossdk.io/math"
@@ -41,6 +50,7 @@ import (
 	"github.com/cosmos/go-bip39"
 
 	"sparkdream/x/federation/types"
+	sessiontypes "sparkdream/x/session/types"
 )
 
 // Config configures a Client.
@@ -53,9 +63,41 @@ type Config struct {
 	Denom        string // fee denom, bond-denom micro units
 	FeeAmount    int64  // fee in denom micro-units
 	GasLimit     uint64
-	// Mnemonic of the signing account (BIP39, 12/24 words).
+	// Mnemonic of the signing account (BIP39, 12/24 words). Direct mode.
 	Mnemonic string
+	// SessionKeyFile holds the BIP39 mnemonic of an x/session grantee
+	// (session mode). Set together with Granter, instead of Mnemonic.
+	SessionKeyFile string
+	// Granter is the account the session acts for: the address the
+	// daemons act as (Address) and the one that pays the fees.
+	Granter string
 }
+
+// CheckSigningConfig validates a daemon's signing settings: a mnemonic, or
+// a session key file and granter together. It names the env variables the
+// daemons read them from.
+func CheckSigningConfig(mnemonic, sessionKeyFile, granter string) error {
+	session := sessionKeyFile != "" || granter != ""
+	switch {
+	case session && mnemonic != "":
+		return fmt.Errorf("set SDA_MNEMONIC or SDA_SESSION_KEY_FILE + SDA_GRANTER, not both")
+	case session && (sessionKeyFile == "" || granter == ""):
+		return fmt.Errorf("SDA_SESSION_KEY_FILE and SDA_GRANTER must be set together")
+	case !session && mnemonic == "":
+		return fmt.Errorf("missing signing key: set SDA_SESSION_KEY_FILE + SDA_GRANTER (session key) or SDA_MNEMONIC")
+	}
+	return nil
+}
+
+// SessionGasOverhead is the gas MsgExecSession adds on top of the wrapped
+// message: the grant read and write, the allowlist checks and the nested
+// dispatch. Added to GasLimit in session mode, with the fee scaled in
+// proportion so the tx still meets the node's minimum gas price.
+const SessionGasOverhead = 100_000
+
+// ErrNoSessionKey reports that session mode has no usable key file yet:
+// the granter has not delivered one, or it is not a valid mnemonic.
+var ErrNoSessionKey = errors.New("sdaptx: no session key")
 
 // Client signs and broadcasts through an LCD endpoint.
 type Client struct {
@@ -65,10 +107,16 @@ type Client struct {
 	privKey   cryptotypes.PrivKey
 	addrBytes []byte
 	addrStr   string
+	// session mode: the mnemonic the current key was derived from, so an
+	// unchanged file is not re-derived on every broadcast
+	sessionMnemonic string
+	// keyMu guards the key fields, which session mode swaps on rotation
+	keyMu sync.Mutex
 }
 
 // New derives the key, sets the bech32 prefix, and registers the minimal
-// codec surface the federation messages need.
+// codec surface the federation messages need. In session mode the key file
+// may not exist yet; New succeeds and broadcasts wait for it.
 func New(cfg Config) (*Client, error) {
 	if cfg.FeeAmount == 0 {
 		cfg.FeeAmount = 5000
@@ -81,15 +129,44 @@ func New(cfg Config) (*Client, error) {
 	ir := codectypes.NewInterfaceRegistry()
 	cryptocodec.RegisterInterfaces(ir)
 	types.RegisterInterfaces(ir)
+	sessiontypes.RegisterInterfaces(ir)
 	cdc := codec.NewProtoCodec(ir)
-	txConfig := authtx.NewTxConfig(cdc, authtx.DefaultSignModes)
-
-	if !bip39.IsMnemonicValid(cfg.Mnemonic) {
-		return nil, fmt.Errorf("sdaptx: invalid mnemonic")
+	c := &Client{
+		cfg:      cfg,
+		http:     &http.Client{Timeout: 30 * time.Second},
+		txConfig: authtx.NewTxConfig(cdc, authtx.DefaultSignModes),
 	}
-	derived, err := hd.Secp256k1.Derive()(cfg.Mnemonic, "", hd.CreateHDPath(118, 0, 0).String())
+
+	if cfg.SessionKeyFile != "" || cfg.Granter != "" {
+		if cfg.SessionKeyFile == "" || cfg.Granter == "" {
+			return nil, fmt.Errorf("sdaptx: session mode needs both a session key file and a granter")
+		}
+		if cfg.Mnemonic != "" {
+			return nil, fmt.Errorf("sdaptx: set either a mnemonic or a session key, not both")
+		}
+		if _, err := sdk.AccAddressFromBech32(cfg.Granter); err != nil {
+			return nil, fmt.Errorf("sdaptx: granter %q: %w", cfg.Granter, err)
+		}
+		// best effort: a missing file is the normal state until the
+		// granter delivers one
+		_ = c.loadSessionKey()
+		return c, nil
+	}
+
+	if err := c.setKey(cfg.Mnemonic); err != nil {
+		return nil, err
+	}
+	return c, nil
+}
+
+// setKey derives the signing key from a mnemonic.
+func (c *Client) setKey(mnemonic string) error {
+	if !bip39.IsMnemonicValid(mnemonic) {
+		return fmt.Errorf("sdaptx: invalid mnemonic")
+	}
+	derived, err := hd.Secp256k1.Derive()(mnemonic, "", hd.CreateHDPath(118, 0, 0).String())
 	if err != nil {
-		return nil, fmt.Errorf("sdaptx: derive key from mnemonic: %w", err)
+		return fmt.Errorf("sdaptx: derive key from mnemonic: %w", err)
 	}
 	priv := &secp256k1.PrivKey{Key: derived}
 	addr := priv.PubKey().Address()
@@ -97,22 +174,63 @@ func New(cfg Config) (*Client, error) {
 	// expects data already regrouped into 5-bit words and errors out
 	// ("invalid data byte") on a raw 20-byte address for essentially every
 	// key. The SDK helper does the ConvertBits(8, 5) first.
-	addrStr, err := sdk.Bech32ifyAddressBytes(cfg.Bech32Prefix, addr.Bytes())
+	addrStr, err := sdk.Bech32ifyAddressBytes(c.cfg.Bech32Prefix, addr.Bytes())
 	if err != nil {
-		return nil, fmt.Errorf("sdaptx: bech32-encode address: %w", err)
+		return fmt.Errorf("sdaptx: bech32-encode address: %w", err)
 	}
-	return &Client{
-		cfg:       cfg,
-		http:      &http.Client{Timeout: 30 * time.Second},
-		txConfig:  txConfig,
-		privKey:   priv,
-		addrBytes: addr.Bytes(),
-		addrStr:   addrStr,
-	}, nil
+	c.privKey, c.addrBytes, c.addrStr = priv, addr.Bytes(), addrStr
+	return nil
 }
 
-// Address returns the signer's bech32 address.
-func (c *Client) Address() string { return c.addrStr }
+// loadSessionKey (re)reads the session key file, re-deriving only when its
+// content changed. A missing, empty or invalid file clears the key.
+func (c *Client) loadSessionKey() error {
+	c.keyMu.Lock()
+	defer c.keyMu.Unlock()
+	raw, err := os.ReadFile(c.cfg.SessionKeyFile)
+	mnemonic := strings.Join(strings.Fields(string(raw)), " ")
+	if err != nil || mnemonic == "" {
+		c.privKey, c.addrBytes, c.addrStr, c.sessionMnemonic = nil, nil, "", ""
+		return fmt.Errorf("%w: %s not readable", ErrNoSessionKey, c.cfg.SessionKeyFile)
+	}
+	if mnemonic == c.sessionMnemonic && c.privKey != nil {
+		return nil
+	}
+	if err := c.setKey(mnemonic); err != nil {
+		c.privKey, c.addrBytes, c.addrStr, c.sessionMnemonic = nil, nil, "", ""
+		return fmt.Errorf("%w: %s: %v", ErrNoSessionKey, c.cfg.SessionKeyFile, err)
+	}
+	c.sessionMnemonic = mnemonic
+	return nil
+}
+
+// Session reports whether the client signs through a session key.
+func (c *Client) Session() bool { return c.cfg.Granter != "" }
+
+// Address returns the account the daemon acts as: the granter in session
+// mode, else the signer. Message creator/operator fields take this value.
+func (c *Client) Address() string {
+	if c.Session() {
+		return c.cfg.Granter
+	}
+	return c.addrStr
+}
+
+// SignerAddress returns the key that signs transactions: the session
+// grantee in session mode ("" until a key file is loaded).
+func (c *Client) SignerAddress() string {
+	c.keyMu.Lock()
+	defer c.keyMu.Unlock()
+	return c.addrStr
+}
+
+// signer snapshots the current key, so a rotation mid-broadcast cannot mix
+// two keys into one tx.
+func (c *Client) signer() (cryptotypes.PrivKey, string) {
+	c.keyMu.Lock()
+	defer c.keyMu.Unlock()
+	return c.privKey, c.addrStr
+}
 
 // BroadcastResult is the SYNC-mode outcome: the CheckTx verdict plus the
 // tx hash. CheckTx passing means only that the tx entered the mempool —
@@ -122,14 +240,33 @@ func (c *Client) Address() string { return c.addrStr }
 // whether the state change actually happened must follow up with
 // Confirm; OK() alone is not evidence of anything.
 type BroadcastResult struct {
-	TxHash string
-	Code   uint32
-	RawLog string
+	TxHash    string
+	Code      uint32
+	Codespace string
+	RawLog    string
 }
 
 // OK reports whether the tx passed CheckTx and entered the mempool. It
 // does NOT report whether the tx succeeded — see Confirm.
 func (r BroadcastResult) OK() bool { return r.Code == 0 }
+
+// SessionUnusable reports a CheckTx rejection meaning the session key can
+// no longer act: no grant for this (granter, grantee) pair, the grant
+// expired, or its fee budget or exec cap is spent. Nothing but a new
+// session fixes it; the daemon waits for the granter to deliver one.
+func (r BroadcastResult) SessionUnusable() bool {
+	if r.Codespace != sessiontypes.ModuleName {
+		return false
+	}
+	switch r.Code {
+	case sessiontypes.ErrSessionNotFound.ABCICode(),
+		sessiontypes.ErrSessionExpired.ABCICode(),
+		sessiontypes.ErrSpendLimitExceeded.ABCICode(),
+		sessiontypes.ErrExecCountExceeded.ABCICode():
+		return true
+	}
+	return false
+}
 
 // TxResult is the DeliverTx outcome of an included transaction.
 type TxResult struct {
@@ -238,11 +375,48 @@ func isNotFound(err error) bool {
 		strings.Contains(s, "NotFound")
 }
 
-// SignAndBroadcast signs msgs with the derived key and broadcasts in
-// SYNC mode. Sequence errors (concurrent submissions racing the account
-// query) surface as code 32 (sequence mismatch) — callers retry.
+// wrapSession packs msgs into one MsgExecSession for the granter, and
+// returns the gas limit and fee to use for it.
+func (c *Client) wrapSession(grantee string, msgs []sdk.Msg) ([]sdk.Msg, uint64, int64, error) {
+	anys := make([]*codectypes.Any, 0, len(msgs))
+	for _, m := range msgs {
+		a, err := codectypes.NewAnyWithValue(m)
+		if err != nil {
+			return nil, 0, 0, fmt.Errorf("sdaptx: pack %T: %w", m, err)
+		}
+		anys = append(anys, a)
+	}
+	gas := c.cfg.GasLimit + SessionGasOverhead
+	// ceil(fee * gas / base gas): the configured fee is sized to the
+	// configured gas at the node's minimum price
+	fee := (c.cfg.FeeAmount*int64(gas) + int64(c.cfg.GasLimit) - 1) / int64(c.cfg.GasLimit)
+	return []sdk.Msg{&sessiontypes.MsgExecSession{
+		Grantee: grantee,
+		Granter: c.cfg.Granter,
+		Msgs:    anys,
+	}}, gas, fee, nil
+}
+
+// SignAndBroadcast signs msgs and broadcasts in SYNC mode; in session mode
+// they go out inside one MsgExecSession signed by the session key. Sequence
+// errors (concurrent submissions racing the account query) surface as code
+// 32 (sequence mismatch) — callers retry.
 func (c *Client) SignAndBroadcast(ctx context.Context, msgs ...sdk.Msg) (BroadcastResult, error) {
-	acctNum, seq, err := c.account(ctx)
+	gas, fee := c.cfg.GasLimit, c.cfg.FeeAmount
+	if c.Session() {
+		if err := c.loadSessionKey(); err != nil {
+			return BroadcastResult{}, err
+		}
+	}
+	privKey, addr := c.signer()
+	if c.Session() {
+		wrapped, g, f, err := c.wrapSession(addr, msgs)
+		if err != nil {
+			return BroadcastResult{}, err
+		}
+		msgs, gas, fee = wrapped, g, f
+	}
+	acctNum, seq, err := c.account(ctx, addr)
 	if err != nil {
 		return BroadcastResult{}, err
 	}
@@ -251,13 +425,13 @@ func (c *Client) SignAndBroadcast(ctx context.Context, msgs ...sdk.Msg) (Broadca
 	if err := builder.SetMsgs(msgs...); err != nil {
 		return BroadcastResult{}, fmt.Errorf("sdaptx: set msgs: %w", err)
 	}
-	builder.SetFeeAmount(sdk.NewCoins(sdk.NewCoin(c.cfg.Denom, math.NewInt(c.cfg.FeeAmount))))
-	builder.SetGasLimit(c.cfg.GasLimit)
+	builder.SetFeeAmount(sdk.NewCoins(sdk.NewCoin(c.cfg.Denom, math.NewInt(fee))))
+	builder.SetGasLimit(gas)
 
 	// Two-pass signing: first attach an empty signature so the auth info
 	// is complete, then sign the sign-bytes it induces.
 	emptySig := signing.SignatureV2{
-		PubKey: c.privKey.PubKey(),
+		PubKey: privKey.PubKey(),
 		Data: &signing.SingleSignatureData{
 			SignMode: signing.SignMode_SIGN_MODE_DIRECT,
 		},
@@ -267,23 +441,23 @@ func (c *Client) SignAndBroadcast(ctx context.Context, msgs ...sdk.Msg) (Broadca
 		return BroadcastResult{}, fmt.Errorf("sdaptx: set empty signature: %w", err)
 	}
 	signerData := authsigning.SignerData{
-		Address:       c.addrStr,
+		Address:       addr,
 		ChainID:       c.cfg.ChainID,
 		AccountNumber: acctNum,
 		Sequence:      seq,
-		PubKey:        c.privKey.PubKey(),
+		PubKey:        privKey.PubKey(),
 	}
 	signBytes, err := authsigning.GetSignBytesAdapter(ctx, c.txConfig.SignModeHandler(),
 		signing.SignMode_SIGN_MODE_DIRECT, signerData, builder.GetTx())
 	if err != nil {
 		return BroadcastResult{}, fmt.Errorf("sdaptx: sign bytes: %w", err)
 	}
-	sigBytes, err := c.privKey.Sign(signBytes)
+	sigBytes, err := privKey.Sign(signBytes)
 	if err != nil {
 		return BroadcastResult{}, fmt.Errorf("sdaptx: sign: %w", err)
 	}
 	fullSig := signing.SignatureV2{
-		PubKey: c.privKey.PubKey(),
+		PubKey: privKey.PubKey(),
 		Data: &signing.SingleSignatureData{
 			SignMode:  signing.SignMode_SIGN_MODE_DIRECT,
 			Signature: sigBytes,
@@ -323,18 +497,20 @@ func (c *Client) SignAndBroadcast(ctx context.Context, msgs ...sdk.Msg) (Broadca
 	}
 	var out struct {
 		TxResponse struct {
-			TxHash string `json:"txhash"`
-			Code   uint32 `json:"code"`
-			RawLog string `json:"raw_log"`
+			TxHash    string `json:"txhash"`
+			Code      uint32 `json:"code"`
+			Codespace string `json:"codespace"`
+			RawLog    string `json:"raw_log"`
 		} `json:"tx_response"`
 	}
 	if err := json.Unmarshal(raw, &out); err != nil {
 		return BroadcastResult{}, fmt.Errorf("sdaptx: decode broadcast response: %w (%s)", err, truncate(raw, 400))
 	}
 	return BroadcastResult{
-		TxHash: out.TxResponse.TxHash,
-		Code:   out.TxResponse.Code,
-		RawLog: out.TxResponse.RawLog,
+		TxHash:    out.TxResponse.TxHash,
+		Code:      out.TxResponse.Code,
+		Codespace: out.TxResponse.Codespace,
+		RawLog:    out.TxResponse.RawLog,
 	}, nil
 }
 
@@ -361,14 +537,14 @@ func (c *Client) GetJSON(ctx context.Context, path string, out any) error {
 }
 
 // account fetches the signer's account number and current sequence.
-func (c *Client) account(ctx context.Context) (acctNum, seq uint64, err error) {
+func (c *Client) account(ctx context.Context, addr string) (acctNum, seq uint64, err error) {
 	var out struct {
 		Account struct {
 			AccountNumber string `json:"account_number"`
 			Sequence      string `json:"sequence"`
 		} `json:"account"`
 	}
-	if err := c.GetJSON(ctx, "/cosmos/auth/v1beta1/accounts/"+c.addrStr, &out); err != nil {
+	if err := c.GetJSON(ctx, "/cosmos/auth/v1beta1/accounts/"+addr, &out); err != nil {
 		return 0, 0, err
 	}
 	// An absent account answers 404, which GetJSON already turns into an
@@ -377,8 +553,8 @@ func (c *Client) account(ctx context.Context) (acctNum, seq uint64, err error) {
 	// be treated as "not found" — doing so made genesis accounts unable
 	// to sign at all.
 	if out.Account.AccountNumber == "" {
-		return 0, 0, fmt.Errorf("sdaptx: account %s not found on %s (fund it or check the mnemonic)",
-			c.addrStr, c.cfg.ChainID)
+		return 0, 0, fmt.Errorf("sdaptx: account %s not found on %s (fund it or check the key)",
+			addr, c.cfg.ChainID)
 	}
 	acctNum, err = strconv.ParseUint(out.Account.AccountNumber, 10, 64)
 	if err != nil {

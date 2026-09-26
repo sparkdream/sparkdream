@@ -500,7 +500,7 @@ echo ""
 echo "--- PART 9: WORKER RESPONDS TO CHALLENGE ---"
 
 if [ "$CHALLENGE_ID" != "unknown" ] && [ -n "$CHALLENGE_ID" ]; then
-    RESPOND_RES=$($BINARY tx rep respond-to-challenge \
+    RESPOND_RES=$($BINARY tx rep respond-to-challenge --gas 500000 \
       $CHALLENGE_ID \
       "All requirements met, see evidence" \
       --evidence "ipfs://QmResponseEvidence" \

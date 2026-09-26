@@ -166,7 +166,7 @@ echo "--- TEST 3: Non-member cannot stake ---"
 if [ -n "$DAVE_ADDR" ]; then
     echo "  Dave (non-member) tries to stake..."
 
-    TX_RES=$($BINARY tx rep stake \
+    TX_RES=$($BINARY tx rep stake --gas 500000 \
         "stake-target-tag" 0 "1000000" \
         --target-identifier "backend" \
         --from dave \
@@ -193,7 +193,7 @@ if [ -n "$DAVE_ADDR" ]; then
     INVITE_TARGET="$BOB_ADDR"
     echo "  Dave (non-member) tries to invite a new address..."
 
-    TX_RES=$($BINARY tx rep invite-member \
+    TX_RES=$($BINARY tx rep invite-member --gas 400000 \
         "$INVITE_TARGET" "100000000" \
         --from dave \
         --chain-id $CHAIN_ID \

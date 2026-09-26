@@ -47,7 +47,7 @@ echo '{
 }' > "$PROPOSAL_DIR/fire_council.json"
 
 # Submit EXPEDITED Proposal
-SUBMIT_RES=$($BINARY tx gov submit-proposal "$PROPOSAL_DIR/fire_council.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --output json)
+SUBMIT_RES=$($BINARY tx gov submit-proposal --gas 1000000 "$PROPOSAL_DIR/fire_council.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --output json)
 TX_HASH=$(echo $SUBMIT_RES | jq -r '.txhash')
 
 echo "Submitted Expedited Prop. Hash: $TX_HASH"

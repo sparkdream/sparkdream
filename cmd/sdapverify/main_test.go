@@ -430,3 +430,28 @@ func TestForeignCreatorAlarms(t *testing.T) {
 		t.Fatalf("want one PROVENANCE alarm and no verification, got %d submissions, alarms=%q", len(h.submitted), h.alarms)
 	}
 }
+
+// The signing key is a session key file for the verifier account, or its
+// mnemonic, never both and never half of the session pair.
+func TestValidateSigningKey(t *testing.T) {
+	base := func() Config {
+		return Config{PeerIDs: []string{"md.test"}, PollInterval: minPollInterval}
+	}
+	for name, tc := range map[string]struct {
+		mutate func(*Config)
+		ok     bool
+	}{
+		"session key":           {func(c *Config) { c.SessionKeyFile, c.Granter = "/data/session-key", "sprkdrm1granter" }, true},
+		"mnemonic":              {func(c *Config) { c.Mnemonic = "words" }, true},
+		"no key":                {func(c *Config) {}, false},
+		"file without granter":  {func(c *Config) { c.SessionKeyFile = "/data/session-key" }, false},
+		"granter without file":  {func(c *Config) { c.Granter = "sprkdrm1granter" }, false},
+		"session plus mnemonic": {func(c *Config) { c.SessionKeyFile, c.Granter, c.Mnemonic = "/k", "g", "words" }, false},
+	} {
+		c := base()
+		tc.mutate(&c)
+		if err := c.Validate(); (err == nil) != tc.ok {
+			t.Errorf("%s: Validate() = %v, want ok=%v", name, err, tc.ok)
+		}
+	}
+}

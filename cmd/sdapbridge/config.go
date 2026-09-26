@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"sparkdream/internal/sdaptx"
 	"sparkdream/tools/apcanon"
 )
 
@@ -14,7 +15,8 @@ const minPollInterval = 5 * time.Second
 
 // Config carries every knob of the daemon. All fields have env-var
 // defaults (see loadConfig); the two credentials that MUST be supplied
-// are the Mastodon app token and the operator mnemonic.
+// are the Mastodon app token and a signing key: a session key file for the
+// operator (SDA_SESSION_KEY_FILE + SDA_GRANTER), or the operator mnemonic.
 type Config struct {
 	MastodonURL string // https://fedi.example
 	Token       string // read-only OAuth app token (its own rotation note in the runbook)
@@ -27,10 +29,15 @@ type Config struct {
 	// peer that owns its host; posts from any other instance are skipped.
 	PeerIDs []string
 	// Consent decides whose posts may be anchored (consent.go).
-	Consent      ConsentMode
-	Mnemonic     string        // bridge operator key (raw-key mode until session keys land)
-	StatePath    string        // local dedupe cache
-	PollInterval time.Duration // discovery poll
+	Consent  ConsentMode
+	Mnemonic string // bridge operator key (direct mode)
+	// SessionKeyFile + Granter: sign as an x/session grantee for the
+	// operator (Granter), whose mnemonic never reaches this host. The file
+	// is re-read on every tx, so the operator rotates it by rewriting it.
+	SessionKeyFile string
+	Granter        string
+	StatePath      string        // local dedupe cache
+	PollInterval   time.Duration // discovery poll
 	// ConfirmTimeout bounds the wait for tx inclusion. SYNC-mode broadcast
 	// reports CheckTx only, so the daemon has to follow up before it can
 	// claim anything was anchored.
@@ -84,14 +91,14 @@ func (c *Config) Validate() error {
 	if c.Token == "" {
 		missing = append(missing, "MASTODON_TOKEN")
 	}
-	if c.Mnemonic == "" {
-		missing = append(missing, "SDA_MNEMONIC")
-	}
 	if len(c.PeerIDs) == 0 {
 		missing = append(missing, "SDA_PEER_IDS")
 	}
 	if len(missing) > 0 {
 		return fmt.Errorf("missing required configuration: %s", strings.Join(missing, ", "))
+	}
+	if err := sdaptx.CheckSigningConfig(c.Mnemonic, c.SessionKeyFile, c.Granter); err != nil {
+		return err
 	}
 	if !c.Consent.valid() {
 		return fmt.Errorf("SDA_CONSENT must be opt-in, indexable or none (got %q)", c.Consent)

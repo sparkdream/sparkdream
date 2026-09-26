@@ -200,7 +200,7 @@ if echo "$MEMBER_INFO" | grep -q "not found"; then
     ALICE_ADDR=$($BINARY keys show alice -a --keyring-backend test 2>/dev/null)
     REQUIRED_STAKE=$($BINARY query rep required-invitation-stake "$ALICE_ADDR" --output json 2>/dev/null \
         | jq -r '.required_stake // "100000000"')
-    TX_RES=$($BINARY tx rep invite-member "$FEE_GRANTER_ADDR" "$REQUIRED_STAKE" \
+    TX_RES=$($BINARY tx rep invite-member --gas 400000 "$FEE_GRANTER_ADDR" "$REQUIRED_STAKE" \
         --from alice --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y --output json 2>&1)
     TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
     if [ -n "$TXHASH" ] && [ "$TXHASH" != "null" ]; then
@@ -209,7 +209,7 @@ if echo "$MEMBER_INFO" | grep -q "not found"; then
         if check_tx_success "$TX_RESULT"; then
             INVITATION_ID=$(echo "$TX_RESULT" | jq -r '.events[] | select(.type=="create_invitation") | .attributes[] | select(.key=="invitation_id") | .value' | tr -d '"')
             [ -z "$INVITATION_ID" ] && INVITATION_ID="1"
-            TX_RES=$($BINARY tx rep accept-invitation "$INVITATION_ID" \
+            TX_RES=$($BINARY tx rep accept-invitation --gas 400000 "$INVITATION_ID" \
                 --from fee_granter --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y --output json 2>&1)
             TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
             if [ -n "$TXHASH" ] && [ "$TXHASH" != "null" ]; then

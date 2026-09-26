@@ -135,7 +135,7 @@ submit_tx_and_wait "$TX_RES" > /dev/null
 
 # Ephemeral root post — happy-path promotion target.
 EPHEMERAL_POST_ID=""
-TX_RES=$($BINARY tx forum create-post \
+TX_RES=$($BINARY tx forum create-post --gas 500000 \
     $CATEGORY_ID 0 "Ephemeral forum post awaiting promotion." \
     --from $NONMEMBER_ACCOUNT \
     --chain-id $CHAIN_ID \
@@ -154,7 +154,7 @@ fi
 # Ephemeral reply — happy-path promotion target for replies.
 EPHEMERAL_REPLY_ID=""
 if [ -n "$EPHEMERAL_POST_ID" ]; then
-    TX_RES=$($BINARY tx forum create-post \
+    TX_RES=$($BINARY tx forum create-post --gas 500000 \
         $CATEGORY_ID $EPHEMERAL_POST_ID "Ephemeral reply awaiting promotion." \
         --from $NONMEMBER_ACCOUNT \
         --chain-id $CHAIN_ID \
@@ -170,7 +170,7 @@ fi
 
 # Permanent post — used to assert MakePermanent is idempotent.
 PERMANENT_POST_ID=""
-TX_RES=$($BINARY tx forum create-post \
+TX_RES=$($BINARY tx forum create-post --gas 500000 \
     $CATEGORY_ID 0 "Already-permanent post for idempotency test." \
     --from alice \
     --chain-id $CHAIN_ID \
@@ -185,7 +185,7 @@ fi
 
 # A second ephemeral post used by TEST 3 (pre-promotion pin must be rejected).
 PIN_REJECT_POST_ID=""
-TX_RES=$($BINARY tx forum create-post \
+TX_RES=$($BINARY tx forum create-post --gas 500000 \
     $CATEGORY_ID 0 "Ephemeral post for pin-rejection test." \
     --from $NONMEMBER_ACCOUNT \
     --chain-id $CHAIN_ID \

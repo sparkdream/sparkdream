@@ -33,6 +33,31 @@ PROPOSAL_DIR="$SCRIPT_DIR/proposals"
 mkdir -p "$PROPOSAL_DIR"
 
 BINARY="sparkdreamd"
+
+# Poll until a broadcast tx is included and print its JSON. Blocks slow
+# down under the parallel e2e runner, so a fixed sleep can look for a tx
+# before it lands -- and a claim that is merely late would then read as
+# "rejected".
+wait_for_tx() {
+    local TXHASH=$1 RESULT
+    for _ in $(seq 1 60); do
+        RESULT=$($BINARY query tx "$TXHASH" --output json 2>/dev/null)
+        if echo "$RESULT" | jq -e '.code != null' > /dev/null 2>&1; then
+            echo "$RESULT"
+            return 0
+        fi
+        sleep 1
+    done
+    echo "ERROR: tx $TXHASH not included after 60s" >&2
+    return 1
+}
+
+# Broadcast a tx command (JSON output appended) and wait until it lands.
+tx_wait() {
+    local OUT
+    OUT=$("$@" --output json)
+    wait_for_tx "$(echo "$OUT" | jq -r '.txhash')" > /dev/null
+}
 CHAIN_ID="sparkdream"
 
 ALICE_ADDR=$($BINARY keys show alice -a --keyring-backend test)
@@ -67,8 +92,7 @@ echo "session.min_recurring_period_seconds = $SESSION_MIN_PERIOD"
 # --- 1. FUND THE COMMITTEE --------------------------------------------------
 echo ""
 echo "STEP 1: Funding committee treasury..."
-$BINARY tx bank send "$ALICE_ADDR" "$POLICY_ADDR" 50000000${BOND_DENOM} --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} > /dev/null
-sleep 3
+tx_wait $BINARY tx bank send "$ALICE_ADDR" "$POLICY_ADDR" 50000000${BOND_DENOM} --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM}
 
 # --- 2. SCHEDULE A RECURRING SPEND ------------------------------------------
 echo ""
@@ -83,7 +107,11 @@ echo "STEP 2: Submitting recurring-spend schedule via Commons Operations Committ
 NOW=$(date +%s)
 START_TIME=$((NOW + 30))
 PERIOD_SECONDS=20
-END_TIME=$((START_TIME + 3 * PERIOD_SECONDS))
+# The grant expires at END_TIME, and the first claim lands one period after
+# START_TIME: 10 periods leaves minutes of margin for a loaded machine (the
+# parallel runner), where each CLI call is slow. Nothing here waits for the
+# end; the schedule is cancelled in step 4.
+END_TIME=$((START_TIME + 10 * PERIOD_SECONDS))
 AMOUNT_PER_PERIOD=100000  # 0.1 SPARK
 
 cat > "$PROPOSAL_DIR/schedule_recurring.json" <<EOF
@@ -109,8 +137,7 @@ EOF
 
 SCHED_SUBMIT=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/schedule_recurring.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees "$PROPOSAL_FEE" --output json)
 SCHED_TX_HASH=$(echo "$SCHED_SUBMIT" | jq -r '.txhash')
-sleep 3
-SCHED_TX_RES=$($BINARY query tx "$SCHED_TX_HASH" --output json)
+SCHED_TX_RES=$(wait_for_tx "$SCHED_TX_HASH")
 SCHED_PROP_ID=$(echo "$SCHED_TX_RES" | jq -r '.events[] | select(.type=="submit_proposal") | .attributes[] | select(.key=="proposal_id") | .value' | tr -d '"')
 if [ -z "$SCHED_PROP_ID" ] || [ "$SCHED_PROP_ID" == "null" ]; then
     echo "[FAIL] Could not capture commons proposal ID."
@@ -119,14 +146,12 @@ if [ -z "$SCHED_PROP_ID" ] || [ "$SCHED_PROP_ID" == "null" ]; then
 fi
 echo "Commons proposal ID: $SCHED_PROP_ID"
 
-$BINARY tx commons vote-proposal "$SCHED_PROP_ID" yes --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} > /dev/null
-sleep 3
-$BINARY tx commons vote-proposal "$SCHED_PROP_ID" yes --from bob   -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} > /dev/null
-sleep 3
+tx_wait $BINARY tx commons vote-proposal "$SCHED_PROP_ID" yes --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM}
+tx_wait $BINARY tx commons vote-proposal "$SCHED_PROP_ID" yes --from bob   -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM}
 
 EXEC_RES=$($BINARY tx commons execute-proposal "$SCHED_PROP_ID" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --gas 2000000 --fees 5000000${BOND_DENOM} --output json)
-sleep 3
 EXEC_TX_HASH=$(echo "$EXEC_RES" | jq -r '.txhash')
+wait_for_tx "$EXEC_TX_HASH" > /dev/null
 
 PROP_STATUS=$($BINARY query commons get-proposal "$SCHED_PROP_ID" --output json | jq -r '.proposal.status')
 if [ "$PROP_STATUS" != "PROPOSAL_STATUS_EXECUTED" ]; then
@@ -199,8 +224,7 @@ CLAIM_CODE=$(echo "$CLAIM_RES" | jq -r '.code')
 # fail in DeliverTx. Poll the delivered code so a failed claim can never be
 # masked as a balance-delta surprise.
 if [ "$CLAIM_CODE" == "0" ]; then
-    sleep 3
-    CLAIM_TX=$($BINARY query tx "$CLAIM_HASH" --output json 2>/dev/null)
+    CLAIM_TX=$(wait_for_tx "$CLAIM_HASH")
     CLAIM_CODE=$(echo "$CLAIM_TX" | jq -r '.code // "0"')
     CLAIM_LOG=$(echo "$CLAIM_TX" | jq -r '.raw_log // empty')
 else
@@ -246,8 +270,7 @@ EARLY_CODE=$(echo "$EARLY_CLAIM" | jq -r '.code')
 EARLY_LOG=$(echo "$EARLY_CLAIM" | jq -r '.raw_log')
 if [ "$EARLY_CODE" == "0" ]; then
     EARLY_HASH=$(echo "$EARLY_CLAIM" | jq -r '.txhash')
-    sleep 3
-    EARLY_TX=$($BINARY query tx "$EARLY_HASH" --output json 2>/dev/null)
+    EARLY_TX=$(wait_for_tx "$EARLY_HASH")
     EARLY_CODE=$(echo "$EARLY_TX" | jq -r '.code')
     EARLY_LOG=$(echo "$EARLY_TX" | jq -r '.raw_log')
 fi
@@ -310,17 +333,14 @@ EOF
 
 CANCEL_SUBMIT=$($BINARY tx commons submit-proposal "$PROPOSAL_DIR/cancel_recurring.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees "$PROPOSAL_FEE" --output json)
 CANCEL_TX_HASH=$(echo "$CANCEL_SUBMIT" | jq -r '.txhash')
-sleep 3
-CANCEL_PROP_ID=$($BINARY query tx "$CANCEL_TX_HASH" --output json | jq -r '.events[] | select(.type=="submit_proposal") | .attributes[] | select(.key=="proposal_id") | .value' | tr -d '"')
+CANCEL_PROP_ID=$(wait_for_tx "$CANCEL_TX_HASH" | jq -r '.events[] | select(.type=="submit_proposal") | .attributes[] | select(.key=="proposal_id") | .value' | tr -d '"')
 
-$BINARY tx commons vote-proposal "$CANCEL_PROP_ID" yes --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} > /dev/null
-sleep 3
-$BINARY tx commons vote-proposal "$CANCEL_PROP_ID" yes --from bob   -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} > /dev/null
-sleep 3
+tx_wait $BINARY tx commons vote-proposal "$CANCEL_PROP_ID" yes --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM}
+tx_wait $BINARY tx commons vote-proposal "$CANCEL_PROP_ID" yes --from bob   -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM}
 
 CANCEL_EXEC=$($BINARY tx commons execute-proposal "$CANCEL_PROP_ID" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --gas 2000000 --fees 5000000${BOND_DENOM} --output json)
-sleep 3
 CANCEL_EXEC_HASH=$(echo "$CANCEL_EXEC" | jq -r '.txhash')
+wait_for_tx "$CANCEL_EXEC_HASH" > /dev/null
 
 CANCEL_STATUS=$($BINARY query commons get-proposal "$CANCEL_PROP_ID" --output json | jq -r '.proposal.status')
 if [ "$CANCEL_STATUS" != "PROPOSAL_STATUS_EXECUTED" ]; then
@@ -364,8 +384,7 @@ POST_LOG=$(echo "$POST_CANCEL" | jq -r '.raw_log')
 # fails — poll the tx hash for the delivered code.
 if [ "$POST_CODE" == "0" ]; then
     POST_HASH=$(echo "$POST_CANCEL" | jq -r '.txhash')
-    sleep 3
-    POST_TX=$($BINARY query tx "$POST_HASH" --output json 2>/dev/null)
+    POST_TX=$(wait_for_tx "$POST_HASH")
     POST_CODE=$(echo "$POST_TX" | jq -r '.code')
     POST_LOG=$(echo "$POST_TX" | jq -r '.raw_log')
 fi

@@ -111,7 +111,7 @@ echo "--- PART 2: CREATE A THREAD FOR ARCHIVAL TESTING ---"
 
 THREAD_CONTENT="Archive test thread $(date +%s) - this thread will be archived"
 
-TX_RES=$($BINARY tx forum create-post \
+TX_RES=$($BINARY tx forum create-post --gas 500000 \
     "$TEST_CATEGORY_ID" \
     "0" \
     "$THREAD_CONTENT" \
@@ -153,7 +153,7 @@ echo "--- PART 3: ADD REPLIES TO THE THREAD ---"
 if [ -n "$THREAD_ID" ]; then
     REPLY_CONTENT="Reply to archive test thread $(date +%s)"
 
-    TX_RES=$($BINARY tx forum create-post \
+    TX_RES=$($BINARY tx forum create-post --gas 500000 \
         "$TEST_CATEGORY_ID" \
         "$THREAD_ID" \
         "$REPLY_CONTENT" \
@@ -853,7 +853,7 @@ elif check_tx_success "$TX_RESULT"; then
     echo "  18b: Creating a thread for paused-forum tests..."
     PAUSE_THREAD_CONTENT="Pause test thread $(date +%s)"
 
-    TX_RES=$($BINARY tx forum create-post \
+    TX_RES=$($BINARY tx forum create-post --gas 500000 \
         "$TEST_CATEGORY_ID" \
         "0" \
         "$PAUSE_THREAD_CONTENT" \

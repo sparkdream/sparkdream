@@ -163,7 +163,7 @@ echo "--- PART 2: CREATE THREAD FOR BOUNTY ---"
 
 BOUNTY_THREAD_CONTENT="Help needed: This is a question with a bounty reward! Created at $(date)"
 
-TX_RES=$($BINARY tx forum create-post \
+TX_RES=$($BINARY tx forum create-post --gas 500000 \
     "${TEST_CATEGORY_ID:-1}" \
     "0" \
     "$BOUNTY_THREAD_CONTENT" \
@@ -368,7 +368,7 @@ echo "--- PART 7: CREATE REPLY FOR BOUNTY AWARD ---"
 if [ -n "$BOUNTY_THREAD_ID" ]; then
     REPLY_CONTENT="This is the answer to your question! Hope this helps."
 
-    TX_RES=$($BINARY tx forum create-post \
+    TX_RES=$($BINARY tx forum create-post --gas 500000 \
         "${TEST_CATEGORY_ID:-1}" \
         "$BOUNTY_THREAD_ID" \
         "$REPLY_CONTENT" \
@@ -568,7 +568,7 @@ echo ""
 echo "--- PART 11: CREATE AND QUERY EXPIRING BOUNTY ---"
 
 # Create a new thread and bounty with short duration for expiry test
-TX_RES=$($BINARY tx forum create-post \
+TX_RES=$($BINARY tx forum create-post --gas 500000 \
     "${TEST_CATEGORY_ID:-1}" \
     "0" \
     "Short bounty for expiry test" \
@@ -641,7 +641,7 @@ echo ""
 echo "--- PART 12: CANCEL BOUNTY ---"
 
 # Create a bounty to cancel
-TX_RES=$($BINARY tx forum create-post \
+TX_RES=$($BINARY tx forum create-post --gas 500000 \
     "${TEST_CATEGORY_ID:-1}" \
     "0" \
     "This bounty will be cancelled" \
@@ -763,7 +763,7 @@ echo ""
 echo "--- PART 14: ERROR PATHS - CreateBounty ---"
 
 # Create a thread owned by bounty_creator for error testing
-TX_RES=$($BINARY tx forum create-post \
+TX_RES=$($BINARY tx forum create-post --gas 500000 \
     "${TEST_CATEGORY_ID:-1}" \
     "0" \
     "Thread for error path testing" \
@@ -1019,7 +1019,7 @@ echo "--- PART 17: ERROR PATHS - AssignBountyToReply ---"
 
 if [ -n "$ERROR_THREAD_ID" ] && [ -n "$ERROR_BOUNTY_ID" ]; then
     # Create a reply on the error-test thread for assign tests
-    TX_RES=$($BINARY tx forum create-post \
+    TX_RES=$($BINARY tx forum create-post --gas 500000 \
         "${TEST_CATEGORY_ID:-1}" \
         "$ERROR_THREAD_ID" \
         "Reply on error test thread for assign tests" \
@@ -1102,7 +1102,7 @@ if [ -n "$ERROR_THREAD_ID" ] && [ -n "$ERROR_BOUNTY_ID" ]; then
     fi
 
     # 17d: Creator tries to accept their own reply (self-award guard)
-    TX_RES=$($BINARY tx forum create-post \
+    TX_RES=$($BINARY tx forum create-post --gas 500000 \
         "${TEST_CATEGORY_ID:-1}" \
         "$ERROR_THREAD_ID" \
         "Creator answering own bounty question" \
@@ -1259,7 +1259,7 @@ echo "--- PART 19: BALANCE VERIFICATION - Escrow and Cancellation Fee ---"
 #   1. Escrow deducts the bounty amount from creator
 #   2. Cancellation refunds minus 10% fee
 
-TX_RES=$($BINARY tx forum create-post \
+TX_RES=$($BINARY tx forum create-post --gas 500000 \
     "${TEST_CATEGORY_ID:-1}" \
     "0" \
     "Balance verification test thread" \
@@ -1406,7 +1406,7 @@ SPLIT_BOUNTY_AMOUNT="1001"
 SPLIT_PAYOUT_RESULT="FAIL"
 SPLIT_AUDIT_RESULT="FAIL"
 
-TX_RES=$($BINARY tx forum create-post \
+TX_RES=$($BINARY tx forum create-post --gas 500000 \
     "${TEST_CATEGORY_ID:-1}" \
     "0" \
     "Multi-winner split test thread" \
@@ -1458,7 +1458,7 @@ SPLIT_REPLY1_ID=""
 SPLIT_REPLY2_ID=""
 if [ -n "$SPLIT_BOUNTY_ID" ]; then
     for POSTER in poster1 poster2; do
-        TX_RES=$($BINARY tx forum create-post \
+        TX_RES=$($BINARY tx forum create-post --gas 500000 \
             "${TEST_CATEGORY_ID:-1}" \
             "$SPLIT_THREAD_ID" \
             "Split test answer from $POSTER" \

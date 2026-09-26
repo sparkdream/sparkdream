@@ -56,7 +56,7 @@ echo '{
 }' > "$PROPOSAL_DIR/gov_handover_hostile.json"
 
 # Submit
-SUBMIT_RES=$($BINARY tx gov submit-proposal "$PROPOSAL_DIR/gov_handover_hostile.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --output json)
+SUBMIT_RES=$($BINARY tx gov submit-proposal --gas 1000000 "$PROPOSAL_DIR/gov_handover_hostile.json" --from alice -y --chain-id $CHAIN_ID --keyring-backend test --output json)
 TX_HASH=$(echo $SUBMIT_RES | jq -r '.txhash')
 
 echo "Waiting for block inclusion (3s)..."

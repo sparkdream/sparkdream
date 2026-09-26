@@ -111,7 +111,7 @@ echo "  arbiter_quorum:      $(echo "$FED_PARAMS" | jq -r .arbiter_quorum) -> $A
 echo "  $SERVICE_TYPE unbonding_period_blocks: $(echo "$SVC_CFG" | jq -r .unbonding_period_blocks) -> $UNBONDING_BLOCKS"
 [[ -n "${DRY_RUN:-}" ]] && exit 0
 
-TX=$("$BINARY" tx gov submit-proposal "$PROP_FILE" --from "$FROM" "${TX_FLAGS[@]}")
+TX=$("$BINARY" tx gov submit-proposal --gas 1000000 "$PROP_FILE" --from "$FROM" "${TX_FLAGS[@]}")
 TXHASH=$(echo "$TX" | jq -r '.txhash // empty')
 [[ -n "$TXHASH" && "$(echo "$TX" | jq -r '.code')" == "0" ]] || { echo "submit rejected: $TX" >&2; exit 1; }
 
