@@ -648,9 +648,27 @@ message IdentityCuration {
 }
 ```
 
-`content_hosts` exists for an instance whose AS2 ids live on a different host from its
-account domain (a Mastodon `WEB_DOMAIN` split). Otherwise leave it empty: only the peer
-id's own host is accepted (see `SubmitFederatedContent` step 4b). `MsgUpdatePeerPolicy`
+`content_hosts` lists hosts besides the peer id whose posts (`content_uri`) and authors
+(`creator_identity`) the peer may carry (see `SubmitFederatedContent` steps 4b/4c). Two
+uses:
+
+- **A second domain of the same instance**: an instance whose AS2 ids live on a different
+  host from its account domain (a Mastodon `WEB_DOMAIN` split).
+- **Other servers under one peer**: a bridge on one instance anchors authors from other
+  Mastodon servers it follows (the author follows the bridge account to consent, from
+  wherever they are). Listing those servers here puts their posts under this peer: one
+  author curation, one block list, one binding and one shared rate limit for all of them,
+  and the peer id records which bridge carried a post while `content_uri` and
+  `creator_identity` still show where it came from.
+
+The alternative to the second is **one peer per server**: register each server as an
+ActivityPub peer of its own, bound to the same bridge operator (an operator already bonded
+for the service type binds to another peer with no further stake), with its own policy,
+curation and rate limit, suspendable on its own. The two combine freely; a host should be
+covered by one of them, since the bridge routes a post to the first peer that accepts its
+host.
+
+With neither, only the peer id's own host is accepted. `MsgUpdatePeerPolicy`
 accepts it only for ActivityPub peers, at most 8 entries, each a lowercase hostname in
 the peer-id grammar (no port), without duplicates.
 

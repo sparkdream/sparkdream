@@ -74,6 +74,9 @@ type fakeFollows struct {
 	mu        sync.Mutex
 	following map[string]string // id -> acct
 	accounts  map[string]string // acct -> id
+	// remote accounts the instance has not seen: lookup misses them,
+	// search with resolve=true fetches them (acct -> id)
+	remote    map[string]string
 	followed  []string
 	unfollows []string
 }
@@ -98,6 +101,15 @@ func (f *fakeFollows) handler(t *testing.T) http.HandlerFunc {
 				return
 			}
 			_ = json.NewEncoder(w).Encode(Account{ID: id})
+		case r.URL.Path == "/api/v2/search":
+			q := strings.TrimPrefix(r.URL.Query().Get("q"), "@")
+			var out struct {
+				Accounts []Account `json:"accounts"`
+			}
+			if id, ok := f.remote[q]; ok && r.URL.Query().Get("resolve") == "true" {
+				out.Accounts = append(out.Accounts, Account{ID: id, Acct: q})
+			}
+			_ = json.NewEncoder(w).Encode(out)
 		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/follow"):
 			id := strings.Split(r.URL.Path, "/")[4]
 			f.followed = append(f.followed, id)
@@ -145,5 +157,29 @@ func TestSyncFollowsToCuration(t *testing.T) {
 	}
 	if len(f.followed)+len(f.unfollows) != 0 {
 		t.Fatalf("open gate changed follows: %v %v", f.followed, f.unfollows)
+	}
+}
+
+// A curated author on another server (a content host of the peer) whom
+// this instance has never seen: lookup misses, search resolves and follows.
+func TestSyncFollowsResolvesRemoteAuthors(t *testing.T) {
+	f := &fakeFollows{
+		following: map[string]string{},
+		accounts:  map[string]string{},
+		remote:    map[string]string{"phoenix@aurora.example": "77"},
+	}
+	srv := httptest.NewServer(f.handler(t))
+	t.Cleanup(srv.Close)
+	b, _ := testBridge(t, nil)
+	b.masto = NewMastodonClient(srv.URL, "tok")
+	b.peers.hosts[b.peers.ids[0]] = []string{"aurora.example"}
+	b.gateSource = func(context.Context, string) (authorGate, error) {
+		return buildGate([]string{"*"}, true, []string{"@phoenix@aurora.example"}), nil
+	}
+	if err := b.syncFollows(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(f.followed, ",") != "77" {
+		t.Fatalf("followed %v, want the resolved remote author [77]", f.followed)
 	}
 }

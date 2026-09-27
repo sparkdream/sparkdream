@@ -316,16 +316,35 @@ func (m *MastodonClient) accountList(ctx context.Context, first string) ([]Accou
 }
 
 // LookupAccountID resolves an acct ("user" locally, "user@host") to the
-// instance's account id.
+// instance's account id. accounts/lookup only knows accounts the instance
+// has already seen, so a remote author nobody here follows yet (a curated
+// author on another server) is resolved through search, which fetches the
+// account from its server (the token's read scope covers read:search).
 func (m *MastodonClient) LookupAccountID(ctx context.Context, acct string) (string, error) {
 	var out Account
-	if err := m.getJSON(ctx, "/api/v1/accounts/lookup?acct="+url.QueryEscape(acct), &out); err != nil {
-		return "", err
+	err := m.getJSON(ctx, "/api/v1/accounts/lookup?acct="+url.QueryEscape(acct), &out)
+	if err == nil && out.ID != "" {
+		return out.ID, nil
 	}
-	if out.ID == "" {
+	if !strings.Contains(acct, "@") {
+		if err != nil {
+			return "", err
+		}
 		return "", fmt.Errorf("mastodon: no account %q", acct)
 	}
-	return out.ID, nil
+	var found struct {
+		Accounts []Account `json:"accounts"`
+	}
+	q := url.Values{"q": {"@" + acct}, "type": {"accounts"}, "resolve": {"true"}, "limit": {"5"}}
+	if serr := m.getJSON(ctx, "/api/v2/search?"+q.Encode(), &found); serr != nil {
+		return "", fmt.Errorf("mastodon: resolve %q: %w", acct, serr)
+	}
+	for _, a := range found.Accounts {
+		if strings.EqualFold(a.Acct, acct) && a.ID != "" {
+			return a.ID, nil
+		}
+	}
+	return "", fmt.Errorf("mastodon: no account %q, here or on its server", acct)
 }
 
 // Follow and Unfollow need the token's write:follows scope: the bridge

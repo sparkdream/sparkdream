@@ -245,6 +245,51 @@ submit "@alice@$PEER"; expect_code "Listed but not curated refused (2386)" "2386
 submit "@dave@$PEER"; expect_code "Curated but not listed refused (2385)" "2385"
 
 # ========================================================================
+# TEST 6: the committee curates by proposal too (no curator needed)
+# ========================================================================
+echo ""
+echo "--- TEST 6: committee adds and removes an author by proposal ---"
+set_policy '["*"]' "{\"collection_id\": \"$COLL\"}"
+echo "  policy proposal: $PROP_STATUS"
+submit "@erin@$PEER"; expect_code "Before: uncurated author refused (2386)" "2386"
+
+cat > "$PROPOSAL_DIR/curation_add_item.json" <<JSON
+{
+  "policy_address": "$OPS_POLICY",
+  "messages": [{
+    "@type": "/sparkdream.collect.v1.MsgAddItem",
+    "creator": "$OPS_POLICY",
+    "collection_id": "$COLL",
+    "position": "0",
+    "title": "@erin@$PEER",
+    "reference_type": "REFERENCE_TYPE_LINK",
+    "link": {"uri": "@erin@$PEER"}
+  }],
+  "metadata": "Author curation test: the committee adds an author"
+}
+JSON
+committee "$PROPOSAL_DIR/curation_add_item.json"
+echo "  add proposal: $PROP_STATUS"
+submit "@erin@$PEER"; expect_code "Committee-added author admitted" "0"
+
+ITEM=$($BINARY query collect items "$COLL" --output json 2>/dev/null | jq -r --arg u "@erin@$PEER" '[.items[]? | select(.link.uri == $u) | (.id // "0")] | first // empty')
+echo "  item: $ITEM"
+cat > "$PROPOSAL_DIR/curation_remove_item.json" <<JSON
+{
+  "policy_address": "$OPS_POLICY",
+  "messages": [{
+    "@type": "/sparkdream.collect.v1.MsgRemoveItem",
+    "creator": "$OPS_POLICY",
+    "id": "$ITEM"
+  }],
+  "metadata": "Author curation test: the committee removes an author"
+}
+JSON
+committee "$PROPOSAL_DIR/curation_remove_item.json"
+echo "  remove proposal: $PROP_STATUS"
+submit "@erin@$PEER"; expect_code "Committee-removed author refused (2386)" "2386"
+
+# ========================================================================
 # Summary
 # ========================================================================
 echo ""
