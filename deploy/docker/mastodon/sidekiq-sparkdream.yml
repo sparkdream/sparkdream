@@ -1,0 +1,4 @@
+    sparkdream_membership_sweep:
+      every: ['1h', first_in: '10m']
+      class: SparkdreamMembershipSweepWorker
+      queue: scheduler

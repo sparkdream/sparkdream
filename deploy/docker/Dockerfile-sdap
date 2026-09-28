@@ -1,4 +1,5 @@
-# ActivityPub live-link daemons: sdapbridge (default CMD) and sdapverify.
+# ActivityPub live-link daemons: sdapbridge (default CMD), sdapverify and
+# sdaplogin.
 #
 # The launcher runs sdapbridge as a sidecar service next to a Mastodon
 # instance. sdapverify ships in the same image but must NOT run beside the
@@ -6,9 +7,13 @@
 # host and network vantage point, so run it elsewhere with
 #   docker run ... sparkdreamnft/sdap:<ver> sdapverify
 #
-# Both daemons are configured purely by env (see cmd/sdapbridge/config.go
-# and cmd/sdapverify/main.go). Neither depends on a network build tag, so
-# one image serves every network. The bridge's cursor/consent state goes
+# sdaplogin is the wallet sign-in for the same Mastodon instance: an OpenID
+# Connect provider the launcher runs as a `login` sidecar when the spec sets
+# mastodon.walletLogin. It keeps no state on disk.
+#
+# All three are configured purely by env (see cmd/sdapbridge/config.go,
+# cmd/sdapverify/main.go and cmd/sdaplogin/main.go). None depends on a
+# network build tag, so one image serves every network. The bridge's cursor/consent state goes
 # to SDA_STATE on the /data volume: it is rebuildable from the chain, but
 # consent timestamps and the timeline cursor are not, so mount /data on
 # persistent storage.
@@ -31,14 +36,15 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 go build -trimpath -o /out/sdapbridge ./cmd/sdapbridge \
- && CGO_ENABLED=0 go build -trimpath -o /out/sdapverify ./cmd/sdapverify
+ && CGO_ENABLED=0 go build -trimpath -o /out/sdapverify ./cmd/sdapverify \
+ && CGO_ENABLED=0 go build -trimpath -o /out/sdaplogin ./cmd/sdaplogin
 
 FROM alpine
 RUN apk add --no-cache ca-certificates su-exec \
  && adduser -D -u 10001 sdap \
  && mkdir -p /data \
  && chown sdap /data
-COPY --from=build /out/sdapbridge /out/sdapverify /usr/local/bin/
+COPY --from=build /out/sdapbridge /out/sdapverify /out/sdaplogin /usr/local/bin/
 COPY deploy/docker/sdap/sdap-entry.sh /usr/local/bin/sdap-entry
 WORKDIR /data
 ENV SDA_STATE=/data/sdapbridge-state.json

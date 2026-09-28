@@ -16,6 +16,11 @@
 #       follows the authors its peers' curation admits); the same token on
 #       every call, replacing an older read-only one
 #       -> {"token":"..."}
+#   mastodon-bootstrap login-chain sync '<json object>'
+#       wallet sign-in: replace the chains whose members may sign in (keyed
+#       by chain fleet id; served at /sparkdream/login-chains.json for the
+#       sdaplogin sidecar). {} turns sign-in off for every chain
+#       -> {"chains":2}
 # ------------------------------------------------------------------
 set -euo pipefail
 cd /opt/mastodon
@@ -87,8 +92,18 @@ case "${1:-}" in
             puts({ token: tok.token }.to_json)
         " | tail -1
         ;;
+    login-chain)
+        [ "${2:-}" = "sync" ] || { echo "usage: mastodon-bootstrap login-chain sync '<json object>'" >&2; exit 2; }
+        # through the environment, not the Ruby source: the JSON is data
+        SPARKDREAM_LOGIN_CHAINS="${3:-}" as_mastodon bundle exec rails runner '
+            chains = JSON.parse(ENV.fetch("SPARKDREAM_LOGIN_CHAINS"))
+            abort "login-chain sync: expected a JSON object" unless chains.is_a?(Hash)
+            Setting["sparkdream_login_chains"] = chains.to_json
+            puts({ chains: chains.size }.to_json)
+        ' | tail -1
+        ;;
     *)
-        echo "usage: mastodon-bootstrap owner|registrations|bridge-token ..." >&2
+        echo "usage: mastodon-bootstrap owner|registrations|bridge-token|login-chain ..." >&2
         exit 2
         ;;
 esac

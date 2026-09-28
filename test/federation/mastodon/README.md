@@ -138,4 +138,16 @@ control). See the daemon conventions in
 
 ## The launcher's Mastodon image
 
-[image_smoke_test.sh](image_smoke_test.sh) runs [Dockerfile-mastodon](../../../deploy/docker/Dockerfile-mastodon) the way the chain launcher deploys it: postgres, redis, web + sidekiq and upstream streaming as separate containers, behind a proxy that forwards plain HTTP with `X-Forwarded-Proto: http` like an Akash ingress fronted by Cloudflare. It checks that the schema prepares itself, that there is no `force_ssl` redirect loop, that the AS2 actor has an https id, that the bootstrap commands (owner, registrations, bridge token) are idempotent, and that the root-owned media volume is taken over. It needs docker, curl, jq and openssl; `MASTODON_IMAGE=<image>` tests a published image instead of building one.
+[image_smoke_test.sh](image_smoke_test.sh) runs [Dockerfile-mastodon](../../../deploy/docker/Dockerfile-mastodon) the way the chain launcher deploys it: postgres, redis, web + sidekiq and upstream streaming as separate containers, behind a proxy that forwards plain HTTP with `X-Forwarded-Proto: http` like an Akash ingress fronted by Cloudflare. It checks that the schema prepares itself, that there is no `force_ssl` redirect loop, that the AS2 actor has an https id, that the bootstrap commands (owner, registrations, bridge token, wallet sign-in chains) are idempotent, and that the root-owned media volume is taken over. It also covers the Mastodon half of wallet sign-in against a stub membership endpoint: the chain-list route, handles taken from the x/name rather than the address uid, and the membership sweep. It needs docker, curl, jq and openssl; `MASTODON_IMAGE=<image>` tests a published image instead of building one.
+
+### Wallet sign-in
+
+Members of a linked chain sign in to the launcher's Mastodon with Keplr through `cmd/sdaplogin`, an OpenID Connect provider shipped in the sdap image. The launcher's DESIGN.md (Mastodon, "Wallet sign-in") describes the deployment.
+
+[wallet_login_e2e.sh](wallet_login_e2e.sh) runs the real round trip between the Mastodon image and the sdap image, wired the way the launcher renders them, behind a TLS edge with a throwaway CA. The chain's LCD is an nginx serving files. [walletsign](walletsign/) stands in for Keplr, producing the ADR-036 `signArbitrary` result for a test seed. The script checks:
+- Mastodon's request phase discovers the provider;
+- a non-member is refused;
+- a member's signature ends in a signed-in Mastodon session, with the account named from the x/name, confirmed, and with registrations still closed;
+- the hourly sweep disables the member once they leave the chain.
+
+It needs docker, curl, jq, openssl, python3 and go; `MASTODON_IMAGE` and `SDAP_IMAGE` skip the builds. The provider's own logic (signature checks, trust floor, codes, PKCE, tokens) is unit-tested in `go test ./cmd/sdaplogin`, against a sign-doc vector made with cosmjs.

@@ -8,8 +8,11 @@
 #     uid 991 for everything Mastodon runs
 #   - zz_sparkdream_proxy.rb: SPARKDREAM_ASSUME_SSL=true stops the redirect
 #     loop force_ssl causes behind an ingress that forwards plain HTTP
+#   - zz_sparkdream_wallet_login.rb: wallet sign-in through the sdaplogin
+#     sidecar (SPARKDREAM_WALLET_LOGIN=true): the linked-chain list route,
+#     handles from x/name, and the hourly membership sweep scheduled below
 #   - mastodon-bootstrap: idempotent owner account / registrations / bridge
-#     token setup the launcher runs over lease-shell
+#     token / wallet-login chain setup the launcher runs over lease-shell
 #
 # The streaming server needs none of this and runs the upstream
 # ghcr.io/mastodon/mastodon-streaming image as-is.
@@ -22,10 +25,18 @@ FROM ${MASTODON_IMAGE}
 
 USER root
 COPY deploy/docker/mastodon/zz_sparkdream_proxy.rb /opt/mastodon/config/initializers/zz_sparkdream_proxy.rb
+COPY deploy/docker/mastodon/zz_sparkdream_wallet_login.rb /opt/mastodon/config/initializers/zz_sparkdream_wallet_login.rb
 COPY deploy/docker/mastodon/mastodon-run.sh /usr/local/bin/mastodon-run
 COPY deploy/docker/mastodon/mastodon-bootstrap.sh /usr/local/bin/mastodon-bootstrap
 RUN chmod 0755 /usr/local/bin/mastodon-run /usr/local/bin/mastodon-bootstrap \
- && chmod 0644 /opt/mastodon/config/initializers/zz_sparkdream_proxy.rb
+ && chmod 0644 /opt/mastodon/config/initializers/zz_sparkdream_proxy.rb \
+               /opt/mastodon/config/initializers/zz_sparkdream_wallet_login.rb
+# the wallet-login membership sweep, hourly in sidekiq's scheduler (the
+# worker returns at once unless SPARKDREAM_WALLET_LOGIN=true)
+COPY deploy/docker/mastodon/sidekiq-sparkdream.yml /tmp/sidekiq-sparkdream.yml
+RUN sed -i '/^  :schedule:$/r /tmp/sidekiq-sparkdream.yml' config/sidekiq.yml \
+ && grep -q '^      class: SparkdreamMembershipSweepWorker$' config/sidekiq.yml \
+ && rm /tmp/sidekiq-sparkdream.yml
 
 # root, so mastodon-run can take the volume; it drops to 991 itself
 ENTRYPOINT ["/usr/bin/tini", "--"]

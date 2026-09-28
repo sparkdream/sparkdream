@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Spark Dream sign-in</title>
+<style>
+  :root { --bg: #f6f7f9; --card: #ffffff; --text: #1b1f24; --muted: #5b6470; --accent: #5b4bdb; --accent-text: #ffffff; --border: #d9dde3; --error: #b42318; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #111418; --card: #1a1f25; --text: #e7eaee; --muted: #9aa4b0; --accent: #8b7cff; --accent-text: #111418; --border: #2c333b; --error: #f97066; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 16px;
+         background: var(--bg); color: var(--text); font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { width: 100%; max-width: 420px; background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 28px 24px; }
+  h1 { font-size: 1.3rem; margin: 0 0 6px; }
+  p { margin: 0 0 16px; color: var(--muted); }
+  label { display: block; font-weight: 600; margin-bottom: 6px; }
+  select, button { width: 100%; font: inherit; border-radius: 8px; padding: 10px 12px; }
+  select { background: var(--bg); color: var(--text); border: 1px solid var(--border); margin-bottom: 16px; }
+  button { background: var(--accent); color: var(--accent-text); border: 0; font-weight: 600; cursor: pointer; }
+  button:disabled { opacity: .6; cursor: default; }
+  #status { margin: 14px 0 0; min-height: 1.5em; }
+  .error { color: var(--error); }
+  .fine { font-size: .85rem; margin-top: 18px; }
+</style>
+</head>
+<body>
+<main>
+{{if .Error}}
+  <h1>Sign-in unavailable</h1>
+  <p class="error">{{.Error}}</p>
+{{else}}
+  <h1>Sign in to {{.Host}}</h1>
+  <p>Members of a Spark Dream chain sign in with their wallet. Your handle here is your primary name on that chain.</p>
+  <label for="chain">Chain</label>
+  <select id="chain"></select>
+  <button id="go" type="button">Sign in with Keplr</button>
+  <p id="status" role="status"></p>
+  <p class="fine">Your wallet will ask you to sign a message. It is not a transaction and costs nothing.</p>
+  <script id="page" type="application/json">{{.Page}}</script>
+  <script>
+  (function () {
+    var page = JSON.parse(document.getElementById("page").textContent);
+    var select = document.getElementById("chain");
+    var button = document.getElementById("go");
+    var statusEl = document.getElementById("status");
+
+    page.chains.forEach(function (c) {
+      var opt = document.createElement("option");
+      opt.value = c.id;
+      opt.textContent = c.chainName || c.chainId;
+      select.appendChild(opt);
+    });
+    if (page.chains.length === 1) select.disabled = true;
+
+    function say(msg, isError) {
+      statusEl.textContent = msg;
+      statusEl.className = isError ? "error" : "";
+    }
+
+    function waitForWallet(ms) {
+      return new Promise(function (resolve) {
+        var start = Date.now();
+        (function poll() {
+          if (window.keplr) return resolve(window.keplr);
+          if (Date.now() - start > ms) return resolve(null);
+          setTimeout(poll, 100);
+        })();
+      });
+    }
+
+    function chainInfo(c) {
+      var currency = { coinDenom: c.displayDenom || c.denom, coinMinimalDenom: c.denom, coinDecimals: c.decimals || 6 };
+      var gas = Number(c.gasPrice) || 0;
+      var p = c.bech32Prefix;
+      return {
+        chainId: c.chainId, chainName: c.chainName || c.chainId, rpc: c.rpc, rest: c.rest,
+        bip44: { coinType: 118 },
+        bech32Config: {
+          bech32PrefixAccAddr: p, bech32PrefixAccPub: p + "pub",
+          bech32PrefixValAddr: p + "valoper", bech32PrefixValPub: p + "valoperpub",
+          bech32PrefixConsAddr: p + "valcons", bech32PrefixConsPub: p + "valconspub"
+        },
+        currencies: [currency],
+        feeCurrencies: [Object.assign({}, currency, { gasPriceStep: { low: gas, average: gas, high: gas * 2 } })],
+        stakeCurrency: currency
+      };
+    }
+
+    async function signIn() {
+      var chain = page.chains.find(function (c) { return c.id === select.value; });
+      button.disabled = true;
+      try {
+        var wallet = await waitForWallet(3000);
+        if (!wallet) throw new Error("No wallet found. Install Keplr (or a Keplr-compatible wallet) and reload this page.");
+        say("Waiting for your wallet...");
+        try {
+          await wallet.enable(chain.chainId);
+        } catch (e) {
+          await wallet.experimentalSuggestChain(chainInfo(chain));
+          await wallet.enable(chain.chainId);
+        }
+        var key = await wallet.getKey(chain.chainId);
+        var signature = await wallet.signArbitrary(chain.chainId, key.bech32Address, page.challenge);
+        say("Checking membership...");
+        var resp = await fetch(page.verifyUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ request: page.request, chain: chain.id, address: key.bech32Address, signature: signature })
+        });
+        var body = await resp.json().catch(function () { return {}; });
+        if (!resp.ok || !body.redirect) throw new Error(body.error || ("sign-in failed (" + resp.status + ")"));
+        say("Signed in. Returning to Mastodon...");
+        window.location.assign(body.redirect);
+      } catch (e) {
+        say(e && e.message ? e.message : String(e), true);
+        button.disabled = false;
+      }
+    }
+
+    button.addEventListener("click", signIn);
+  })();
+  </script>
+{{end}}
+</main>
+</body>
+</html>

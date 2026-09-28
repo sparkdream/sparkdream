@@ -15,6 +15,14 @@
 #      registrations set, the bridge token stable across calls, and the token
 #      reads /api/v1/accounts/verify_credentials
 #   5. the media volume, mounted root-owned as Akash does, was taken over
+#   6. wallet sign-in (zz_sparkdream_wallet_login.rb), with registrations
+#      none: login-chain sync is served at /sparkdream/login-chains.json; a
+#      provider sign-in creates a confirmed, approved account named from the
+#      x/name nickname (never the address uid); a clash gets a suffix; no
+#      nickname creates nothing; the sweep disables a non-member and
+#      re-enables them, and leaves an admin-disabled account alone. A stub
+#      stands in for sdaplogin's /membership endpoint (sdaplogin itself is
+#      covered by go test ./cmd/sdaplogin)
 #
 # Usage: test/federation/mastodon/image_smoke_test.sh
 #   MASTODON_IMAGE=<img>  test that image instead of building one
@@ -39,7 +47,7 @@ bad()  { echo "[FAIL] $*"; FAILS=$((FAILS + 1)); }
 cleanup() {
     [ "${KEEP:-0}" = "1" ] && { echo "KEEP=1: containers left running (docker rm -f \$(docker ps -aq --filter name=$P))"; return; }
     docker rm -f $(docker ps -aq --filter "name=$P") >/dev/null 2>&1 || true
-    docker volume rm $P-db $P-redis $P-media >/dev/null 2>&1 || true
+    docker volume rm $P-db $P-redis $P-media $P-stub >/dev/null 2>&1 || true
     docker network rm $NET >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
@@ -73,6 +81,14 @@ ENV=(
     -e ACTIVE_RECORD_ENCRYPTION_KEY_DERIVATION_SALT=$(alnum 32)
     -e ACTIVE_RECORD_ENCRYPTION_PRIMARY_KEY=$(alnum 32)
     -e SMTP_DELIVERY_METHOD=file
+    # wallet sign-in, as the launcher renders it; the provider is never
+    # reached here (sign-ins are simulated below), the stub answers the sweep
+    -e SPARKDREAM_WALLET_LOGIN=true -e SPARKDREAM_LOGIN_URL=http://login:8080
+    -e OIDC_ENABLED=true -e OIDC_DISPLAY_NAME=Spark-Dream -e OIDC_ISSUER=https://login.$DOMAIN
+    -e OIDC_DISCOVERY=true -e OIDC_SCOPE=openid,profile,email -e OIDC_UID_FIELD=sub
+    -e OIDC_CLIENT_ID=mastodon -e OIDC_CLIENT_SECRET=$(hex 16) -e OIDC_USE_PKCE=true
+    -e OIDC_REDIRECT_URI=https://$DOMAIN/auth/auth/openid_connect/callback
+    -e OIDC_SECURITY_ASSUME_EMAIL_IS_VERIFIED=true
 )
 
 echo "=== starting the stack ==="
@@ -87,6 +103,18 @@ docker run -d --name $P-web --network $NET --network-alias web -v $P-media:/opt/
     "${ENV[@]}" "$IMAGE" >/dev/null
 docker run -d --name $P-streaming --network $NET --network-alias streaming \
     "${ENV[@]}" "$STREAMING_IMAGE" node ./streaming/index.js >/dev/null
+# stand-in for sdaplogin's /membership/<uid>: answers whatever status.json holds
+docker volume create $P-stub >/dev/null
+docker run --rm -v $P-stub:/srv alpine sh -c 'echo "{\"status\":\"active\"}" > /srv/status.json'
+docker run -d --name $P-login --network $NET --network-alias login -v $P-stub:/srv nginx:alpine sh -c "cat > /etc/nginx/conf.d/default.conf <<'CONF'
+server {
+  listen 8080;
+  location /membership/ { default_type application/json; root /srv; try_files /status.json =404; }
+}
+CONF
+exec nginx -g 'daemon off;'" >/dev/null
+stub() { docker run --rm -v $P-stub:/srv alpine sh -c "echo '{\"status\":\"$1\"}' > /srv/status.json"; }
+
 # the "ingress": plain HTTP to the pod, X-Forwarded-Proto rewritten to http
 docker run -d --name $P-proxy --network $NET -p 127.0.0.1:$PROXY_PORT:80 nginx:alpine sh -c "cat > /etc/nginx/conf.d/default.conf <<'CONF'
 server {
@@ -144,6 +172,67 @@ OWNER=$(docker exec $P-web stat -c %u /opt/mastodon/public/system)
 # streaming process up (reachable only inside the network here)
 if docker exec $P-web curl -s -m 5 http://streaming:4000/api/v1/streaming/health | grep -q OK; then ok "streaming healthy"
 else bad "streaming not healthy"; fi
+
+# 6. wallet sign-in
+echo "=== wallet sign-in ==="
+[ "$(jq -r .registrations <<<"$(B registrations none)")" = "none" ] \
+    && ok "registrations closed (none)" || bad "registrations not closed"
+
+CHAINS='{"fleet-phoenix":{"chainId":"phoenix-1","chainName":"Phoenix","rest":"https://api.phoenix.example","bech32Prefix":"sprkdrm"}}'
+[ "$(jq -r .chains <<<"$(B login-chain sync "$CHAINS")")" = "1" ] && ok "login-chain sync stored one chain" || bad "login-chain sync"
+SERVED=$(get "http://127.0.0.1:$PROXY_PORT/sparkdream/login-chains.json" | jq -r '."fleet-phoenix".chainId // empty')
+[ "$SERVED" = "phoenix-1" ] && ok "/sparkdream/login-chains.json serves the stored chains" || bad "login-chains.json served '$SERVED'"
+if docker exec $P-web mastodon-bootstrap login-chain sync '[1,2]' >/dev/null 2>&1; then bad "login-chain sync accepted a non-object"
+else ok "login-chain sync refuses a non-object"; fi
+
+SCHED=$(docker exec -w /opt/mastodon $P-web ruby -ryaml -rerb -e \
+    'puts YAML.load(ERB.new(File.read("config/sidekiq.yml")).result)[:scheduler][:schedule]["sparkdream_membership_sweep"]["class"]' 2>&1)
+[ "$SCHED" = "SparkdreamMembershipSweepWorker" ] && ok "sweep scheduled in sidekiq.yml" || bad "sweep schedule: $SCHED"
+
+# sign-ins as the callback controller makes them (User.find_for_omniauth on
+# the strategy's auth hash), then the sweep against the stub
+R() { docker exec -u 991 -w /opt/mastodon $P-web bundle exec rails runner "$1" 2>/dev/null | tail -1; }
+SIGNIN='
+  def signin(uid, nick)
+    auth = OmniAuth::AuthHash.new(provider: "openid_connect", uid: uid,
+      info: { nickname: nick, name: nick, email: "#{uid}@wallet.invalid", email_verified: true })
+    User.find_for_omniauth(auth)
+  end
+'
+UID_A=4e9be94a169918bba094cbf07be47d41975580b4
+UID_B=1111111111111111111111111111111111111111
+UID_C=2222222222222222222222222222222222222222
+OUT=$(R "$SIGNIN"'
+  a  = signin("'$UID_A'", "phoenix-one")
+  a2 = signin("'$UID_A'", "phoenix-renamed")
+  b  = signin("'$UID_B'", "phoenix-one")
+  blank = begin; signin("'$UID_C'", ""); "created"; rescue ActiveRecord::RecordInvalid; "refused"; end
+  puts({ a: a.account.username, confirmed: a.confirmed?, approved: a.approved?, external: a.external,
+         same: a.id == a2.id, b: b.account.username, blank: blank,
+         c_exists: Identity.exists?(provider: "openid_connect", uid: "'$UID_C'") }.to_json)')
+[ "$(jq -r .a <<<"$OUT")" = "phoenix_one" ] && ok "handle phoenix_one from x/name phoenix-one (not the uid)" || bad "sign-in: $OUT"
+[ "$(jq -r '[.confirmed,.approved,.external]|all' <<<"$OUT")" = "true" ] \
+    && ok "confirmed and approved with registrations closed" || bad "account state: $OUT"
+[ "$(jq -r .same <<<"$OUT")" = "true" ] && ok "same uid signs in to the same account after a rename" || bad "rename: $OUT"
+[ "$(jq -r .b <<<"$OUT")" = "phoenix_one_1" ] && ok "a clashing handle gets a suffix" || bad "clash: $OUT"
+[ "$(jq -r '.blank + " " + (.c_exists|tostring)' <<<"$OUT")" = "refused false" ] \
+    && ok "no x/name, no account" || bad "blank nickname: $OUT"
+
+SWEEP='SparkdreamMembershipSweepWorker.new.perform
+  state = ->(uid) { Identity.find_by(provider: "openid_connect", uid: uid).user.disabled? }
+  puts({ a: state.("'$UID_A'"), b: state.("'$UID_B'") }.to_json)'
+# B is disabled by an admin, so the sweep must never re-enable it
+R 'Identity.find_by(provider: "openid_connect", uid: "'$UID_B'").user.disable!' >/dev/null
+stub inactive
+# guard: a stub that never answers would pass the checks below vacuously
+STUB=$(docker exec $P-web curl -s -m 5 http://login:8080/membership/$UID_A | jq -r '.status // empty')
+[ "$STUB" = "inactive" ] || { bad "membership stub answered '$STUB'"; }
+[ "$(R "$SWEEP" | jq -c .)" = '{"a":true,"b":true}' ] && ok "sweep disables a non-member" || bad "sweep (inactive)"
+stub active
+[ "$(R "$SWEEP" | jq -c .)" = '{"a":false,"b":true}' ] \
+    && ok "sweep re-enables its own, leaves the admin's disabled" || bad "sweep (active)"
+stub unknown
+[ "$(R "$SWEEP" | jq -c .)" = '{"a":false,"b":true}' ] && ok "sweep leaves accounts alone on an unknown answer" || bad "sweep (unknown)"
 
 echo ""
 if [ "$FAILS" -gt 0 ]; then echo ">>> $FAILS CHECK(S) FAILED <<<"; exit 1; fi
