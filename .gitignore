@@ -36,9 +36,11 @@ release/
 # (or `go build .` in the package) drops the executable next to you.
 /sdapbridge
 /sdapverify
+/sdaplogin
 /apcanon
 cmd/sdapbridge/sdapbridge
 cmd/sdapverify/sdapverify
+cmd/sdaplogin/sdaplogin
 tools/apcanon/cmd/apcanon/apcanon
 seed-tle
 
