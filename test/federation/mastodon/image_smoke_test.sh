@@ -20,7 +20,8 @@
 #      provider sign-in creates a confirmed, approved account named from the
 #      x/name nickname (never the address uid); a clash gets a suffix; no
 #      nickname creates nothing; the sweep disables a non-member and
-#      re-enables them, and leaves an admin-disabled account alone. A stub
+#      re-enables them, and leaves an admin-disabled account alone; the
+#      bridge-only wallet_addresses endpoint (follow-back). A stub
 #      stands in for sdaplogin's /membership endpoint (sdaplogin itself is
 #      covered by go test ./cmd/sdaplogin)
 #
@@ -233,6 +234,23 @@ stub active
     && ok "sweep re-enables its own, leaves the admin's disabled" || bad "sweep (active)"
 stub unknown
 [ "$(R "$SWEEP" | jq -c .)" = '{"a":false,"b":true}' ] && ok "sweep leaves accounts alone on an unknown answer" || bad "sweep (unknown)"
+
+# the bridge's follow-back reads its wallet-account followers' addresses:
+# only with a bridge token, only for accounts that follow that bridge
+# its last JSON line: a first follow! logs the jobs it enqueues after it
+RJ() { docker exec -u 991 -w /opt/mastodon $P-web bundle exec rails runner "$1" 2>/dev/null | grep '^{' | tail -1; }
+IDS=$(RJ 'a = Account.find_local("phoenix_one"); b = Account.find_local("phoenix_one_1"); a.follow!(Account.find_local("bridge"))
+  puts({ a: a.id.to_s, b: b.id.to_s }.to_json)')
+A_ID=$(jq -r .a <<<"$IDS"); B_ID=$(jq -r .b <<<"$IDS")
+WA="http://127.0.0.1:$PROXY_PORT/api/v1/sparkdream/wallet_addresses?id%5B%5D=$A_ID&id%5B%5D=$B_ID"
+GOT=$(get -H "Authorization: Bearer $T1" "$WA" | jq -c .)
+[ "$GOT" = "{\"$A_ID\":\"$UID_A\"}" ] && ok "bridge token reads its wallet followers' addresses, and no one else's" \
+    || bad "wallet_addresses with the bridge token: $GOT"
+[ "$(get -o /dev/null -w '%{http_code}' "$WA")" = "401" ] && ok "wallet_addresses refuses a request with no token" || bad "wallet_addresses answered without a token"
+OTHER=$(R 'app = Doorkeeper::Application.find_or_create_by!(name: "other app") { |a| a.redirect_uri = "urn:ietf:wg:oauth:2.0:oob"; a.scopes = "read" }
+  puts Doorkeeper::AccessToken.create!(application: app, resource_owner_id: Account.find_local("phoenix_one").user.id, scopes: "read").token')
+[ "$(get -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $OTHER" "$WA")" = "401" ] \
+    && ok "wallet_addresses refuses a token of any other app" || bad "wallet_addresses answered another app's token"
 
 echo ""
 if [ "$FAILS" -gt 0 ]; then echo ">>> $FAILS CHECK(S) FAILED <<<"; exit 1; fi

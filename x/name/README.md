@@ -6,7 +6,7 @@ The `x/name` module is the identity registry for the Spark Dream chain, implemen
 
 This module provides:
 
-- **Council-gated registration** — only Commons Council members can register names, preventing squatting
+- **Membership-gated registration** — any active x/rep member can register a name; the fee, the per-address cap, the blocked-names list and disputes bound squatting
 - **Forward and reverse resolution** — name-to-address and address-to-primary-name lookups
 - **Inactivity scavenging** — names become available after 1 year of owner inactivity (default)
 - **Dispute resolution** — DREAM-staked disputes with jury arbitration via `x/rep`
@@ -17,7 +17,7 @@ This module provides:
 
 ### Name Registration
 
-Names follow strict formatting: lowercase alphanumeric with optional hyphens (`^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`), 3-30 characters. Registration requires Commons Council membership and a 10 SPARK fee (default). The first registered name automatically becomes the owner's primary name for reverse resolution.
+Names follow strict formatting: lowercase alphanumeric with optional hyphens (`^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`), 3-30 characters. Registration requires active x/rep membership and a 10 SPARK fee (default). The first registered name automatically becomes the owner's primary name for reverse resolution.
 
 ### Name Scavenging
 
@@ -54,7 +54,7 @@ Any address can file a dispute by staking 50 DREAM. The current owner can contes
 
 | Message | Description | Access |
 |---------|-------------|--------|
-| `MsgRegisterName` | Register a new name or scavenge an expired one | Commons Council members |
+| `MsgRegisterName` | Register a new name or scavenge an expired one | Active x/rep members |
 | `MsgUpdateName` | Update metadata for an owned name | Name owner only |
 | `MsgSetPrimary` | Set primary name for reverse resolution | Name owner only |
 | `MsgFileDispute` | Challenge name ownership (stakes 50 DREAM) | Any address |
@@ -102,7 +102,7 @@ Any address can file a dispute by staking 50 DREAM. The current owner can contes
 | `x/auth` | Yes | Address codec |
 | `x/bank` | Yes | Registration fee collection |
 | `x/commons` | Yes | Council membership checks, authorization, group/policy management |
-| `x/rep` | Yes | DREAM lock/unlock/burn for disputes; jury integration |
+| `x/rep` | Yes | Active-membership gate for registration; DREAM lock/unlock/burn for disputes; jury integration |
 
 ## BeginBlocker
 
@@ -119,7 +119,7 @@ Processes expired disputes each block:
 
 ```bash
 # Registration
-sparkdreamd tx name register-name alice --data "ipfs://..." --from council_member
+sparkdreamd tx name register-name alice --data "ipfs://..." --from alice
 sparkdreamd tx name update-name alice --data "new metadata" --from alice
 sparkdreamd tx name set-primary alice --from alice
 

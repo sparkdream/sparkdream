@@ -16,7 +16,12 @@
 #      changes, so the handle comes from the provider's preferred_username
 #      (the member's primary x/name) instead, with '-' as '_'. With no name
 #      the account is not created.
-#   3. SparkdreamMembershipSweepWorker (hourly, see the image's sidekiq.yml
+#   3. GET /api/v1/sparkdream/wallet_addresses: for the bridge's follow-back
+#      (sdapbridge followback.go), the wallet address of each given account
+#      that signed in with a wallet and follows the calling bridge. Only a
+#      bridge token may ask, so a member's wallet is shown to no one but the
+#      bridge they chose to follow.
+#   4. SparkdreamMembershipSweepWorker (hourly, see the image's sidekiq.yml
 #      entry): disables the login of accounts whose owner is no longer a
 #      member (asking sdaplogin at SPARKDREAM_LOGIN_URL/membership/<uid>),
 #      and re-enables the ones it disabled once they are again.
@@ -28,6 +33,36 @@ module SparkdreamWalletLogin
 
   def self.enabled?
     ENV['SPARKDREAM_WALLET_LOGIN'] == 'true'
+  end
+
+  # The wallet addresses of the calling bridge's wallet-account followers.
+  module WalletAddresses
+    BRIDGE_APP = 'SparkDream bridge' # the app mastodon-bootstrap bridge-token makes
+    MAX_IDS    = 100
+
+    # a fresh hash per response: Rack middleware adds headers to it
+    def self.json_headers
+      { 'content-type' => 'application/json', 'cache-control' => 'no-store' }
+    end
+
+    def self.call(env)
+      req    = Rack::Request.new(env)
+      token  = req.get_header('HTTP_AUTHORIZATION').to_s[/\ABearer (.+)\z/, 1]
+      access = token && Doorkeeper::AccessToken.by_token(token)
+      unless access&.accessible? && access.application&.name == BRIDGE_APP
+        return [401, json_headers, ['{"error":"a bridge token is required"}']]
+      end
+
+      bridge = User.find_by(id: access.resource_owner_id)&.account
+      return [401, json_headers, ['{"error":"a bridge token is required"}']] if bridge.nil?
+
+      ids       = Array(req.params['id']).first(MAX_IDS).map(&:to_i)
+      followers = Follow.where(target_account_id: bridge.id, account_id: ids).pluck(:account_id)
+      rows      = Identity.where(provider: PROVIDER).joins(:user)
+                          .where(users: { account_id: followers })
+                          .pluck('users.account_id', 'identities.uid')
+      [200, json_headers, [rows.to_h { |account_id, uid| [account_id.to_s, uid] }.to_json]]
+    end
   end
 
   # The handle for a new account from the provider's nickname.
@@ -53,6 +88,7 @@ if SparkdreamWalletLogin.enabled?
       [200, { 'content-type' => 'application/json', 'cache-control' => 'no-store' },
        [Setting[SparkdreamWalletLogin::CHAINS_SETTING].presence || '{}']]
     }
+    get '/api/v1/sparkdream/wallet_addresses', to: SparkdreamWalletLogin::WalletAddresses
   end
 
   Rails.application.config.to_prepare do

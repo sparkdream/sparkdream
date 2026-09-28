@@ -162,6 +162,8 @@ func main() {
 		gateSource: func(ctx context.Context, id string) (authorGate, error) {
 			return FetchAuthorGate(ctx, chain, id)
 		},
+		// this chain's membership, for following back member followers
+		members: FetchMembership(chain, cfg.Prefix),
 		digest: func(ctx context.Context, url string) (string, error) {
 			return apcanon.FetchMediaDigest(ctx, url, apcanon.FetchOptions{
 				AllowPrivateHosts: cfg.AllowPrivateHosts,
@@ -327,6 +329,7 @@ func loadConfig() Config {
 		ReconcileInterval: envDuration("SDA_RECONCILE", 15*time.Minute),
 		// follow exactly the authors the peers' curation admits
 		FollowSyncInterval: envDuration("SDA_FOLLOW_SYNC", 5*time.Minute),
+		FollowBack:         envBool("SDA_FOLLOW_BACK", true),
 		ReconcileLookback:  envDuration("SDA_RECONCILE_LOOKBACK", 24*time.Hour),
 		// Local test instances only (INSTANCE_SETUP.md); never a real peer.
 		AllowPrivateHosts: envBool("SDA_ALLOW_PRIVATE_HOSTS", false),

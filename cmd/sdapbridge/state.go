@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strconv"
 	"sync"
+	"time"
 )
 
 // State is the local (uri, hash) → content record. The chain's
@@ -40,6 +41,10 @@ type State struct {
 	// cycle instead of falling out of the window. Mastodon ids are
 	// numeric-as-string and monotonically increasing per instance.
 	LastSeen string `json:"last_seen_status_id"`
+	// FollowBacks are the accounts (instance account ids) the bridge
+	// followed back as member followers, with when: only these does
+	// follow-back ever unfollow (followback.go).
+	FollowBackSet map[string]int64 `json:"follow_backs"`
 }
 
 // SeenRecord is one anchored version of one remote status.
@@ -78,9 +83,10 @@ func LoadState(path string) (*State, error) {
 		Accounts: map[string]bool{},
 		Tracked:  map[string]*TrackedStatus{},
 
-		ConsentSince: map[string]int64{},
-		RefusedAt:    map[string]int64{},
-		Deferred:     map[string]*DeferredStatus{},
+		ConsentSince:  map[string]int64{},
+		RefusedAt:     map[string]int64{},
+		Deferred:      map[string]*DeferredStatus{},
+		FollowBackSet: map[string]int64{},
 	}
 	raw, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
@@ -113,7 +119,44 @@ func LoadState(path string) (*State, error) {
 	if s.Deferred == nil {
 		s.Deferred = map[string]*DeferredStatus{}
 	}
+	if s.FollowBackSet == nil {
+		s.FollowBackSet = map[string]int64{}
+	}
 	return s, nil
+}
+
+// RecordFollowBack notes that the bridge followed account id back.
+func (s *State) RecordFollowBack(id string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.FollowBackSet[id] = time.Now().Unix()
+}
+
+// ForgetFollowBack drops account id from the follow-backs.
+func (s *State) ForgetFollowBack(id string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.FollowBackSet, id)
+}
+
+// FollowedBack reports whether the bridge followed account id back.
+func (s *State) FollowedBack(id string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, ok := s.FollowBackSet[id]
+	return ok
+}
+
+// FollowBacks lists the accounts the bridge followed back, sorted.
+func (s *State) FollowBacks() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]string, 0, len(s.FollowBackSet))
+	for id := range s.FollowBackSet {
+		out = append(out, id)
+	}
+	sort.Strings(out)
+	return out
 }
 
 func SeenKey(uri string, hash []byte) string {

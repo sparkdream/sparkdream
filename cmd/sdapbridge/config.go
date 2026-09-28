@@ -80,7 +80,11 @@ type Config struct {
 	// FollowSyncInterval is how often the bridge makes its follows match
 	// its peers' author curation (curation.go); 0 disables.
 	FollowSyncInterval time.Duration
-	ReconcileLookback  time.Duration
+	// FollowBack follows back the bridge's local followers who are active
+	// members of this chain, on an open peer with sign-ups closed
+	// (followback.go). SDA_FOLLOW_BACK=false turns it off.
+	FollowBack        bool
+	ReconcileLookback time.Duration
 	// AllowPrivateHosts relaxes apcanon's SSRF guard for a local test
 	// instance. Production must leave this false.
 	AllowPrivateHosts bool

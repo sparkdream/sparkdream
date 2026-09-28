@@ -87,9 +87,14 @@ type Bridge struct {
 
 	// Author curation (curation.go): each peer's gate as the chain states
 	// it, and when follows were last synced to it.
-	gateSource     func(context.Context, string) (authorGate, error)
-	gates          map[string]cachedGate
-	lastFollowSync time.Time
+	gateSource func(context.Context, string) (authorGate, error)
+	gates      map[string]cachedGate
+
+	// members answers whether an address is an active member of this
+	// chain, for follow-back (followback.go); nil disables follow-back.
+	members             memberSource
+	followBackOffLogged time.Time
+	lastFollowSync      time.Time
 }
 
 // Run polls the home timeline forever, backing off on rate limits from
@@ -153,6 +158,9 @@ func (b *Bridge) pollOnceSafe(ctx context.Context) (err error) {
 		// pass, not the anchoring
 		if err := b.syncFollows(ctx); err != nil {
 			log.Printf("sdapbridge: follow sync: %v", err)
+		}
+		if err := b.syncFollowBacks(ctx); err != nil {
+			log.Printf("sdapbridge: follow-back: %v", err)
 		}
 	}
 	if b.cfg.ReconcileInterval > 0 && time.Since(b.lastReconcile) >= b.cfg.ReconcileInterval {
