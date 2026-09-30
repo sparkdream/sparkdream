@@ -163,19 +163,71 @@ if [ -n "$HEADSCALE_URL" ] && [ -n "$TS_AUTHKEY" ]; then
     # firewall drops inbound). Sentry p2p tunnels (TS_TUNNEL_*) are not
     # supervised here on purpose: their targets are rewired over SSH after
     # boot, so restarting env-defined ones could resurrect stale targets.
+    #
+    # Remote-signer validators (PRIVVAL_KEEPALIVE_PORT set) also get a stall
+    # rule. When a mesh blip outlasts CometBFT's sign retries, the node's own
+    # proposal/vote fails and is never retried, and prevote/precommit
+    # timeouts only start once +2/3 of the power has voted. A validator whose
+    # missing vote blocks that quorum (always, on a single-validator chain)
+    # then waits forever, even after tmkms reconnects: observed live on
+    # devnet 2026-09-28 as a 30h halt at a frozen height with the signer
+    # session up and tmkms receiving no sign requests. A restart starts a
+    # fresh round that asks for signatures again, and tmkms's double-sign
+    # state keeps that safe. So: height frozen for NODE_STALL_SECS (default
+    # 180, 0 disables) with the signer session established, and the node not
+    # deliberately halted (app.toml halt-height) → restart sparkdreamd, at
+    # most once per NODE_RESTART_COOLDOWN (default 600).
     (
         TS_SOCKET="${TS_STATE_DIR}/tailscaled.sock"
         REUP_COOLDOWN=300    # seconds between tailscale re-up attempts
         NETCHECK_EVERY=10    # DERP probe every Nth cycle (it is slow and chatty)
+        NODE_STALL_SECS="${NODE_STALL_SECS:-180}"
+        NODE_RESTART_COOLDOWN="${NODE_RESTART_COOLDOWN:-600}"
+        NODE_RPC="${NODE_RPC:-http://127.0.0.1:26657}"
+        NODE_HOME_DIR=/root/.sparkdream
         cycle=0
         netcheck_fails=0
         last_reup=0
+        stall_height=""
+        stall_since=0
+        last_node_restart=0
         tailscale_up() {
             tailscale --socket="$TS_SOCKET" up \
                 --login-server="$HEADSCALE_URL" \
                 --authkey="$TS_AUTHKEY" \
                 --hostname="$TS_HOSTNAME" \
                 --accept-dns=false
+        }
+        # established privval sessions on the backend port (tmkms holds one
+        # through the keepalive proxy); same probe the launcher uses
+        signer_connected() {
+            n=$({ netstat -tn 2>/dev/null || ss -tn 2>/dev/null; } \
+                | grep -cE ":${PRIVVAL_BACKEND_PORT}.*ESTABLISHED|ESTAB.*:${PRIVVAL_BACKEND_PORT}" || true)
+            [ "${n:-0}" -ge 1 ]
+        }
+        # restart a running `sparkdreamd start`, keeping its own command line
+        # and log target. Two shapes exist: sparkdreamd as PID 1 (entrypoint
+        # exec, so stopping it restarts the container and the restart starts
+        # the node), or a detached child the launcher started over SSH, which
+        # has to be started again here.
+        restart_node() {
+            pid=$(pgrep -xo sparkdreamd) || return 1
+            if [ "$pid" = 1 ]; then
+                kill -TERM 1
+                return 0
+            fi
+            cmd=$(tr '\0' ' ' < "/proc/$pid/cmdline")
+            out=$(readlink "/proc/$pid/fd/1" 2>/dev/null || true)
+            case "$out" in /*) ;; *) out="${NODE_HOME_DIR}/sparkdreamd.log" ;; esac
+            kill -TERM "$pid" || true
+            for i in $(seq 1 30); do
+                kill -0 "$pid" 2>/dev/null || break
+                sleep 1
+            done
+            kill -0 "$pid" 2>/dev/null && kill -KILL "$pid"
+            sleep 1
+            # cmdline is re-split on purpose (node args carry no spaces)
+            nohup $cmd >>"$out" 2>&1 &
         }
         while true; do
             sleep 30
@@ -243,9 +295,43 @@ if [ -n "$HEADSCALE_URL" ] && [ -n "$TS_AUTHKEY" ]; then
                     TCP:127.0.0.1:${PRIVVAL_BACKEND_PORT},${SOCAT_OPTS} \
                     >>/var/log/socat-privval.log 2>&1 &
             fi
+
+            # consensus stalled on a failed own vote (see the stall rule above)
+            if [ -n "$PRIVVAL_KEEPALIVE_PORT" ] && [ "$NODE_STALL_SECS" -gt 0 ] 2>/dev/null; then
+                pid=$(pgrep -xo sparkdreamd || true)
+                # only a running `start` serving RPC counts; anything else
+                # (WAIT_FOR_CONFIG, replay/export tools, a node the launcher
+                # stopped on purpose) resets the baseline and is left alone
+                h=""
+                if [ -n "$pid" ] && tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null | grep -q ' start'; then
+                    home=$(tr '\0' '\n' < "/proc/$pid/cmdline" 2>/dev/null | sed -n '/^--home$/{n;p;}' | head -1)
+                    NODE_HOME_DIR="${home:-/root/.sparkdream}"
+                    h=$(curl -s -m 5 "${NODE_RPC}/status" 2>/dev/null \
+                        | jq -r 'select(.result.sync_info.catching_up == false)
+                                 | .result.sync_info.latest_block_height // empty' 2>/dev/null || true)
+                fi
+                if [ -z "$h" ]; then
+                    stall_height=""
+                elif [ "$h" != "$stall_height" ]; then
+                    stall_height=$h
+                    stall_since=$now
+                elif [ $((now - stall_since)) -ge "$NODE_STALL_SECS" ] \
+                    && [ $((now - last_node_restart)) -ge "$NODE_RESTART_COOLDOWN" ] \
+                    && ! grep -Eq '^halt-height *= *"?[1-9]' "${NODE_HOME_DIR}/config/app.toml" 2>/dev/null \
+                    && signer_connected; then
+                    echo "watchdog: height stuck at ${h} for $((now - stall_since))s with the signer connected, restarting sparkdreamd"
+                    restart_node && echo "watchdog: sparkdreamd restarted" \
+                        || echo "watchdog: sparkdreamd restart failed"
+                    last_node_restart=$now
+                    stall_since=$now
+                fi
+            fi
         done
     ) &
     echo "watchdog: supervising tailscaled and the privval proxy (30s cycle)"
+    if [ -n "$PRIVVAL_KEEPALIVE_PORT" ] && [ "${NODE_STALL_SECS:-180}" -gt 0 ] 2>/dev/null; then
+        echo "watchdog: restarts sparkdreamd after ${NODE_STALL_SECS:-180}s of frozen height with the signer connected"
+    fi
 elif [ -n "$HEADSCALE_URL" ] || [ -n "$TS_AUTHKEY" ]; then
     echo "WARNING: Both HEADSCALE_URL and TS_AUTHKEY must be set for Tailscale. Skipping."
 else

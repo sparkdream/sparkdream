@@ -26,6 +26,18 @@ docker push sparkdreamnft/sparkdreamd-${NETWORK}:$VERSION
 docker push sparkdreamnft/sparkdreamd-${NETWORK}-ssh:$VERSION
 ```
 
+### Service images
+
+The chain launcher deploys three service images beside the nodes: the Hermes relayer, the ActivityPub bridge daemons (`sdap`: sdapbridge, sdapverify, sdaplogin) and Mastodon. They are tagged with the chain version so every release ships one consistent set. Build and push them on every release, even when nothing in them changed. They are network-independent, so build them once per release, not once per network.
+
+```bash
+make docker-build-services VERSION=$VERSION
+
+docker push sparkdreamnft/hermes:$VERSION
+docker push sparkdreamnft/sdap:$VERSION
+docker push sparkdreamnft/mastodon:$VERSION
+```
+
 ## Phase 2: Deploy Headscale Coordination Server
 
 Headscale manages the encrypted mesh network between your nodes.
@@ -354,6 +366,18 @@ sed -i 's|^priv_validator_laddr.*|priv_validator_laddr = "tcp://127.0.0.1:26660"
    healthy privval listener with zero inbound connections) and previously took
    a container restart to recover.
 
+   The same watchdog restarts sparkdreamd when the block height has not moved
+   for `NODE_STALL_SECS` (default 180) while a signer session is connected, at
+   most once per `NODE_RESTART_COOLDOWN` (default 600). This covers a network
+   stall that outlasts CometBFT's sign retries: the validator's own vote fails,
+   CometBFT never asks for it again, and on a chain where that vote is needed
+   for quorum (always, with one validator) the chain halts for good even after
+   tmkms reconnects. The tell is tmkms logging "connected to validator
+   successfully" with no signing lines after it. A restart starts a fresh
+   round, and tmkms's double-sign protection keeps it safe. Nodes halted on
+   purpose (`halt-height` set in `app.toml`) are left alone. Set
+   `NODE_STALL_SECS=0` in the SDL env to disable.
+
 2. Allow duplicate IPs. Because sentries connect through socat tunnels, the validator sees
    all inbound sentry connections as coming from `127.0.0.1`. CometBFT deduplicates by
    remote IP by default, so only the first sentry can connect. This setting allows multiple
@@ -480,9 +504,10 @@ storage survives redeployments on the same provider.
 ### Updating the sparkdreamd binary
 
 1. Build new Docker image with updated sparkdreamd
-2. Push to registry
-3. Update image tag in SDL
-4. Redeploy
+2. Build the service images at the same version (see [Service images](#service-images))
+3. Push all of them to the registry
+4. Update image tag in SDL
+5. Redeploy
 
 ### Updating Headscale
 
