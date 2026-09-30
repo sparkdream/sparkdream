@@ -488,6 +488,12 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					Use:       "role-reward-pools",
 					Short:     "Show funding state of every bonded-role SPARK reward pool",
 				},
+				{
+					RpcMethod:      "InitiativeBounty",
+					Use:            "initiative-bounty [initiative-id]",
+					Short:          "Show the DREAM escrowed against an initiative for its assignee",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "initiative_id"}},
+				},
 			},
 		},
 		Tx: &autocliv1.ServiceCommandDescriptor{
@@ -838,6 +844,18 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					Use:            "close-initiative [initiative-id] [reason]",
 					Short:          "Retire an initiative and return its budget to the project",
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "initiative_id"}, {ProtoField: "reason"}},
+				},
+				{
+					RpcMethod:      "FundInitiativeBounty",
+					Use:            "fund-initiative-bounty [initiative-id] [amount]",
+					Short:          "Escrow DREAM against an initiative, paid to its assignee on completion",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "initiative_id"}, {ProtoField: "amount"}},
+				},
+				{
+					RpcMethod:      "ReclaimInitiativeBounty",
+					Use:            "reclaim-initiative-bounty [initiative-id]",
+					Short:          "Reclaim your matured initiative bounty contributions while it is unassigned",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "initiative_id"}},
 				},
 			},
 		},

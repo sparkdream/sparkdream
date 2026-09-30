@@ -82,13 +82,21 @@ message Params {
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
+  // Tips are gratitude, so a token amount suffices: max_tip_amount per tip and
+  // max_tips_sent_per_epoch DREAM in total per sender per epoch.
   string max_tip_amount = 5 [
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
-  uint32 max_tips_per_epoch = 6;
-  string max_gift_amount = 7 [
+  string max_tips_sent_per_epoch = 6 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  // Lifetime total a sender may gift each of their own invitees. A gift is a
+  // one-time seed to help an invitee get started.
+  string max_gift_per_invitee = 7 [
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
@@ -239,11 +247,17 @@ message Params {
   // If assignee doesn't respond within this time, challenge is auto-upheld
   int64 challenge_response_deadline_epochs = 49;
 
-  // Gift rate limiting
-  // Cooldown period in blocks before same sender can gift same recipient again
-  int64 gift_cooldown_blocks = 50;
-  // Maximum total DREAM a sender can gift per epoch (across all recipients)
-  string max_gifts_per_sender_epoch = 51 [
+  // Recipient-side transfer limits. DREAM an account may take in through tips
+  // and initiative bounty payouts per epoch and per season. Sender caps alone
+  // cannot bound a buyer, who can collect from any number of senders; these
+  // bound how fast any one position can be bought. Gifts are excluded: each
+  // member has one inviter, so max_gift_per_invitee already bounds them.
+  string max_transfer_received_per_epoch = 50 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  string max_transfer_received_per_season = 51 [
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
@@ -965,6 +979,31 @@ message Params {
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
+  // Initiative bounties: DREAM escrowed against an initiative, paid to the
+  // assignee on completion. Total bounty is capped at
+  // initiative_bounty_max_budget_ratio x budget (zero disables funding), each
+  // funder at max_initiative_bounty_per_funder_epoch, and contributions below
+  // min_initiative_bounty_contribution or beyond
+  // max_initiative_bounty_contributions are refused. A funder may reclaim a
+  // contribution older than initiative_bounty_reclaim_delay blocks while the
+  // initiative is unassigned.
+  string initiative_bounty_max_budget_ratio = 144 [
+    (cosmos_proto.scalar) = "cosmos.Dec",
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+  string max_initiative_bounty_per_funder_epoch = 145 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  string min_initiative_bounty_contribution = 146 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  uint32 max_initiative_bounty_contributions = 147;
+  uint64 initiative_bounty_reclaim_delay = 148;
 }
 
 // RepOperationalParams defines the operational parameters that can be updated
@@ -987,13 +1026,21 @@ message RepOperationalParams {
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
+  // Tips are gratitude, so a token amount suffices: max_tip_amount per tip and
+  // max_tips_sent_per_epoch DREAM in total per sender per epoch.
   string max_tip_amount = 5 [
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
-  uint32 max_tips_per_epoch = 6;
-  string max_gift_amount = 7 [
+  string max_tips_sent_per_epoch = 6 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  // Lifetime total a sender may gift each of their own invitees. A gift is a
+  // one-time seed to help an invitee get started.
+  string max_gift_per_invitee = 7 [
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
@@ -1097,9 +1144,17 @@ message RepOperationalParams {
   // Challenge response deadline (epochs)
   int64 challenge_response_deadline_epochs = 35;
 
-  // Gift rate limiting
-  int64 gift_cooldown_blocks = 36;
-  string max_gifts_per_sender_epoch = 37 [
+  // Recipient-side transfer limits. DREAM an account may take in through tips
+  // and initiative bounty payouts per epoch and per season. Sender caps alone
+  // cannot bound a buyer, who can collect from any number of senders; these
+  // bound how fast any one position can be bought. Gifts are excluded: each
+  // member has one inviter, so max_gift_per_invitee already bounds them.
+  string max_transfer_received_per_epoch = 36 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  string max_transfer_received_per_season = 37 [
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
@@ -1471,4 +1526,29 @@ message RepOperationalParams {
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
+  // Initiative bounties: DREAM escrowed against an initiative, paid to the
+  // assignee on completion. Total bounty is capped at
+  // initiative_bounty_max_budget_ratio x budget (zero disables funding), each
+  // funder at max_initiative_bounty_per_funder_epoch, and contributions below
+  // min_initiative_bounty_contribution or beyond
+  // max_initiative_bounty_contributions are refused. A funder may reclaim a
+  // contribution older than initiative_bounty_reclaim_delay blocks while the
+  // initiative is unassigned.
+  string initiative_bounty_max_budget_ratio = 124 [
+    (cosmos_proto.scalar) = "cosmos.Dec",
+    (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
+    (gogoproto.nullable) = false
+  ];
+  string max_initiative_bounty_per_funder_epoch = 125 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  string min_initiative_bounty_contribution = 126 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  uint32 max_initiative_bounty_contributions = 127;
+  uint64 initiative_bounty_reclaim_delay = 128;
 }

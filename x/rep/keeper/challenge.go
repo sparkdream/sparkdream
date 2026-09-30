@@ -270,6 +270,27 @@ func (k Keeper) UpholdChallenge(ctx context.Context, challengeID uint64) error {
 		return fmt.Errorf("failed to settle reviewer bonds on upheld challenge: %w", err)
 	}
 
+	// Settle the review bounty. REJECTED is terminal, and without this the
+	// funders' DREAM stayed locked for good: a verdict on the round commits the
+	// bounty, which bars reclaim. Paid per verdict filed like on every other
+	// terminal path — slashing, above, is what answers a wrong verdict.
+	if _, err := k.PayReviewBounty(ctx, initiative); err != nil {
+		return fmt.Errorf("failed to settle review bounty on upheld challenge: %w", err)
+	}
+	// The work failed, so the initiative bounty goes back whole.
+	if err := k.RefundInitiativeBounty(ctx, initiative.Id, "challenge upheld"); err != nil {
+		return fmt.Errorf("failed to refund initiative bounty on upheld challenge: %w", err)
+	}
+	// The fee is paid per verdict filed on this path too. Withholding it here
+	// made the fee contingent on nobody later challenging the work, and cost
+	// the reviewers who rejected it — the ones the jury just proved right —
+	// as much as those who approved it. The approvers are answered by the
+	// slash above, which outweighs their share of the fee.
+	reviewFees, err := k.PayReviewFees(ctx, initiative)
+	if err != nil {
+		return fmt.Errorf("failed to pay review fees on upheld challenge: %w", err)
+	}
+
 	// Slash assignee reputation
 	assigneeAddr, err := sdk.AccAddressFromBech32(initiative.Assignee)
 	if err != nil {
@@ -363,10 +384,16 @@ func (k Keeper) UpholdChallenge(ctx context.Context, challengeID uint64) error {
 		return err
 	}
 
-	// Return unspent budget to project (skip for permissionless — no pre-allocated budget)
+	// Return unspent budget to project (skip for permissionless — no pre-allocated
+	// budget), net of what review cost, as in CloseInitiative: the project
+	// asked for the work to be evaluated and it was.
 	project, projErr := k.GetProject(ctx, initiative.ProjectId)
 	if projErr == nil && !project.Permissionless {
-		if err := k.ReturnBudget(ctx, initiative.ProjectId, DerefInt(initiative.Budget)); err != nil {
+		returned := DerefInt(initiative.Budget).Sub(reviewFees)
+		if returned.IsNegative() {
+			returned = math.ZeroInt()
+		}
+		if err := k.ReturnBudget(ctx, initiative.ProjectId, returned); err != nil {
 			return err
 		}
 	}

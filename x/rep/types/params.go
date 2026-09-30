@@ -38,10 +38,14 @@ func DefaultParams() Params {
 		StakedDecayRate:           math.LegacyNewDecWithPrec(25, 5),
 		NewMemberDecayGraceEpochs: 30,                              // ~1 month grace period (no decay)
 		TransferTaxRate:           math.LegacyNewDecWithPrec(3, 2), // 3%
-		MaxTipAmount:              math.NewInt(100000000),          // 100 DREAM (100 * 1e6 micro-DREAM)
-		MaxTipsPerEpoch:           10,
-		MaxGiftAmount:             math.NewInt(500000000), // 500 DREAM (500 * 1e6 micro-DREAM)
-		GiftOnlyToInvitees:        true,
+		// Transfer limits. The genesis DREAM supply is 25,000, so these are
+		// sized to it: a tip is a thank-you, a gift a one-time seed for an
+		// invitee, and the recipient-side caps below bound how fast any one
+		// account can build a position however many senders cooperate.
+		MaxTipAmount:        math.NewInt(10000000),  // 10 DREAM
+		MaxTipsSentPerEpoch: math.NewInt(50000000),  // 50 DREAM per sender per epoch
+		MaxGiftPerInvitee:   math.NewInt(500000000), // 500 DREAM per invitee, lifetime
+		GiftOnlyToInvitees:  true,
 
 		// Seasonal staking reward pool (replaces fixed StakingApy)
 		MaxStakingRewardsPerSeason: math.NewInt(25000000000),        // 25,000 DREAM per season (25,000 * 1e6 micro-DREAM)
@@ -158,9 +162,11 @@ func DefaultParams() Params {
 		// Challenge response deadline - PRODUCTION values
 		ChallengeResponseDeadlineEpochs: 3, // 3 epochs = ~3 days
 
-		// Gift rate limiting - PRODUCTION values
-		GiftCooldownBlocks:     14400,                   // 1 day (14400 blocks * 6s = 86400s = 1 day)
-		MaxGiftsPerSenderEpoch: math.NewInt(2000000000), // 2000 DREAM per epoch total (2000 * 1e6 micro-DREAM)
+		// Recipient-side transfer limits (tips + initiative bounty payouts).
+		// Accumulating a founder-sized position (5,000 DREAM) by transfer
+		// takes at least five seasons.
+		MaxTransferReceivedPerEpoch:  math.NewInt(100000000),  // 100 DREAM
+		MaxTransferReceivedPerSeason: math.NewInt(1000000000), // 1,000 DREAM
 
 		// Content conviction staking
 		ContentConvictionHalfLifeEpochs: 14,                       // 14 epochs = ~2 weeks (slower than initiative conviction)
@@ -314,6 +320,13 @@ func DefaultParams() Params {
 		// Permissionless work pays for the review its own minting consumes,
 		// in existing DREAM rather than by diluting everyone.
 		PermissionlessMinReviewBountyRate: math.LegacyNewDecWithPrec(1, 1), // 0.1
+		// Initiative bounties: no more than the budget in total, and a funder's
+		// epoch allowance matches the recipient epoch limit.
+		InitiativeBountyMaxBudgetRatio:    math.LegacyOneDec(),
+		MaxInitiativeBountyPerFunderEpoch: math.NewInt(100000000), // 100 DREAM
+		MinInitiativeBountyContribution:   math.NewInt(1000000),   // 1 DREAM
+		MaxInitiativeBountyContributions:  20,
+		InitiativeBountyReclaimDelay:      14400, // ~1 day
 
 		// Per-member active work caps (anti-monopolization)
 		MaxActiveInitiativesPerMember: 10,
@@ -716,12 +729,13 @@ func (p Params) Validate() error {
 		return fmt.Errorf("zeroing slash penalty must be in [0,1]: %s", p.ZeroingSlashPenalty)
 	}
 
-	// Gift rate limiting validation
-	if p.GiftCooldownBlocks < 0 {
-		return fmt.Errorf("gift cooldown blocks cannot be negative: %d", p.GiftCooldownBlocks)
+	if err := validateTransferLimits(p.MaxTipAmount, p.MaxTipsSentPerEpoch, p.MaxGiftPerInvitee,
+		p.MaxTransferReceivedPerEpoch, p.MaxTransferReceivedPerSeason); err != nil {
+		return err
 	}
-	if p.MaxGiftsPerSenderEpoch.IsNegative() {
-		return fmt.Errorf("max gifts per sender epoch cannot be negative: %s", p.MaxGiftsPerSenderEpoch)
+	if err := validateInitiativeBountyParams(p.InitiativeBountyMaxBudgetRatio, p.MaxInitiativeBountyPerFunderEpoch,
+		p.MinInitiativeBountyContribution, p.MaxInitiativeBountyContributions); err != nil {
+		return err
 	}
 
 	// Content conviction staking validation
@@ -926,9 +940,9 @@ func DefaultRepOperationalParams() RepOperationalParams {
 		StakedDecayRate:           math.LegacyNewDecWithPrec(25, 5), // 0.025%
 		NewMemberDecayGraceEpochs: 30,
 		TransferTaxRate:           math.LegacyNewDecWithPrec(3, 2), // 3%
-		MaxTipAmount:              math.NewInt(100000000),          // 100 DREAM
-		MaxTipsPerEpoch:           10,
-		MaxGiftAmount:             math.NewInt(500000000), // 500 DREAM
+		MaxTipAmount:              math.NewInt(10000000),           // 10 DREAM
+		MaxTipsSentPerEpoch:       math.NewInt(50000000),           // 50 DREAM
+		MaxGiftPerInvitee:         math.NewInt(500000000),          // 500 DREAM lifetime
 		GiftOnlyToInvitees:        true,
 		// Seasonal staking reward pool
 		MaxStakingRewardsPerSeason: math.NewInt(25000000000), // 25,000 DREAM
@@ -975,9 +989,9 @@ func DefaultRepOperationalParams() RepOperationalParams {
 		AllowSelfMemberStake:       false,
 		// Challenge response deadline
 		ChallengeResponseDeadlineEpochs: 3,
-		// Gift rate limiting
-		GiftCooldownBlocks:     14400,
-		MaxGiftsPerSenderEpoch: math.NewInt(2000000000), // 2000 DREAM
+		// Recipient-side transfer limits
+		MaxTransferReceivedPerEpoch:  math.NewInt(100000000),  // 100 DREAM
+		MaxTransferReceivedPerSeason: math.NewInt(1000000000), // 1,000 DREAM
 		// Content conviction staking
 		ContentConvictionHalfLifeEpochs: 14,
 		MaxContentStakePerMember:        math.NewInt(10000000000), // 10,000 DREAM
@@ -1100,6 +1114,13 @@ func DefaultRepOperationalParams() RepOperationalParams {
 		// Permissionless work pays for the review its own minting consumes,
 		// in existing DREAM rather than by diluting everyone.
 		PermissionlessMinReviewBountyRate: math.LegacyNewDecWithPrec(1, 1), // 0.1
+		// Initiative bounties: no more than the budget in total, and a funder's
+		// epoch allowance matches the recipient epoch limit.
+		InitiativeBountyMaxBudgetRatio:    math.LegacyOneDec(),
+		MaxInitiativeBountyPerFunderEpoch: math.NewInt(100000000), // 100 DREAM
+		MinInitiativeBountyContribution:   math.NewInt(1000000),   // 1 DREAM
+		MaxInitiativeBountyContributions:  20,
+		InitiativeBountyReclaimDelay:      14400, // ~1 day
 
 		// Per-member active work caps
 		MaxActiveInitiativesPerMember: 10,
@@ -1187,11 +1208,13 @@ func (op RepOperationalParams) Validate() error {
 	if op.DefaultChallengePeriodEpochs <= 0 {
 		return fmt.Errorf("default challenge period epochs must be positive: %d", op.DefaultChallengePeriodEpochs)
 	}
-	if op.GiftCooldownBlocks < 0 {
-		return fmt.Errorf("gift cooldown blocks cannot be negative: %d", op.GiftCooldownBlocks)
+	if err := validateTransferLimits(op.MaxTipAmount, op.MaxTipsSentPerEpoch, op.MaxGiftPerInvitee,
+		op.MaxTransferReceivedPerEpoch, op.MaxTransferReceivedPerSeason); err != nil {
+		return err
 	}
-	if op.MaxGiftsPerSenderEpoch.IsNegative() {
-		return fmt.Errorf("max gifts per sender epoch cannot be negative: %s", op.MaxGiftsPerSenderEpoch)
+	if err := validateInitiativeBountyParams(op.InitiativeBountyMaxBudgetRatio, op.MaxInitiativeBountyPerFunderEpoch,
+		op.MinInitiativeBountyContribution, op.MaxInitiativeBountyContributions); err != nil {
+		return err
 	}
 	// Content conviction staking validation
 	if op.ContentConvictionHalfLifeEpochs <= 0 {
@@ -1489,8 +1512,8 @@ func (p Params) ApplyOperationalParams(op RepOperationalParams) Params {
 	p.NewMemberDecayGraceEpochs = op.NewMemberDecayGraceEpochs
 	p.TransferTaxRate = op.TransferTaxRate
 	p.MaxTipAmount = op.MaxTipAmount
-	p.MaxTipsPerEpoch = op.MaxTipsPerEpoch
-	p.MaxGiftAmount = op.MaxGiftAmount
+	p.MaxTipsSentPerEpoch = op.MaxTipsSentPerEpoch
+	p.MaxGiftPerInvitee = op.MaxGiftPerInvitee
 	p.GiftOnlyToInvitees = op.GiftOnlyToInvitees
 	// Seasonal staking reward pool
 	p.MaxStakingRewardsPerSeason = op.MaxStakingRewardsPerSeason
@@ -1537,9 +1560,9 @@ func (p Params) ApplyOperationalParams(op RepOperationalParams) Params {
 	p.AllowSelfMemberStake = op.AllowSelfMemberStake
 	// Challenge response deadline
 	p.ChallengeResponseDeadlineEpochs = op.ChallengeResponseDeadlineEpochs
-	// Gift rate limiting
-	p.GiftCooldownBlocks = op.GiftCooldownBlocks
-	p.MaxGiftsPerSenderEpoch = op.MaxGiftsPerSenderEpoch
+	// Recipient-side transfer limits
+	p.MaxTransferReceivedPerEpoch = op.MaxTransferReceivedPerEpoch
+	p.MaxTransferReceivedPerSeason = op.MaxTransferReceivedPerSeason
 	// Content conviction staking
 	p.ContentConvictionHalfLifeEpochs = op.ContentConvictionHalfLifeEpochs
 	p.MaxContentStakePerMember = op.MaxContentStakePerMember
@@ -1615,6 +1638,11 @@ func (p Params) ApplyOperationalParams(op RepOperationalParams) Params {
 	p.ReviewRequiredAboveBudget = op.ReviewRequiredAboveBudget
 	p.ReviewBountyReclaimDelay = op.ReviewBountyReclaimDelay
 	p.PermissionlessMinReviewBountyRate = op.PermissionlessMinReviewBountyRate
+	p.InitiativeBountyMaxBudgetRatio = op.InitiativeBountyMaxBudgetRatio
+	p.MaxInitiativeBountyPerFunderEpoch = op.MaxInitiativeBountyPerFunderEpoch
+	p.MinInitiativeBountyContribution = op.MinInitiativeBountyContribution
+	p.MaxInitiativeBountyContributions = op.MaxInitiativeBountyContributions
+	p.InitiativeBountyReclaimDelay = op.InitiativeBountyReclaimDelay
 	p.SentinelRewardPoolOverflowBurnRatio = op.SentinelRewardPoolOverflowBurnRatio
 	p.SentinelRewardEpochBlocks = op.SentinelRewardEpochBlocks
 	p.MinSentinelAccuracy = op.MinSentinelAccuracy
@@ -1646,8 +1674,8 @@ func (p Params) ExtractOperationalParams() RepOperationalParams {
 		NewMemberDecayGraceEpochs: p.NewMemberDecayGraceEpochs,
 		TransferTaxRate:           p.TransferTaxRate,
 		MaxTipAmount:              p.MaxTipAmount,
-		MaxTipsPerEpoch:           p.MaxTipsPerEpoch,
-		MaxGiftAmount:             p.MaxGiftAmount,
+		MaxTipsSentPerEpoch:       p.MaxTipsSentPerEpoch,
+		MaxGiftPerInvitee:         p.MaxGiftPerInvitee,
 		GiftOnlyToInvitees:        p.GiftOnlyToInvitees,
 		// Seasonal staking reward pool
 		MaxStakingRewardsPerSeason: p.MaxStakingRewardsPerSeason,
@@ -1694,9 +1722,9 @@ func (p Params) ExtractOperationalParams() RepOperationalParams {
 		AllowSelfMemberStake:       p.AllowSelfMemberStake,
 		// Challenge response deadline
 		ChallengeResponseDeadlineEpochs: p.ChallengeResponseDeadlineEpochs,
-		// Gift rate limiting
-		GiftCooldownBlocks:     p.GiftCooldownBlocks,
-		MaxGiftsPerSenderEpoch: p.MaxGiftsPerSenderEpoch,
+		// Recipient-side transfer limits
+		MaxTransferReceivedPerEpoch:  p.MaxTransferReceivedPerEpoch,
+		MaxTransferReceivedPerSeason: p.MaxTransferReceivedPerSeason,
 		// Content conviction staking
 		ContentConvictionHalfLifeEpochs: p.ContentConvictionHalfLifeEpochs,
 		MaxContentStakePerMember:        p.MaxContentStakePerMember,
@@ -1770,6 +1798,11 @@ func (p Params) ExtractOperationalParams() RepOperationalParams {
 		ReviewRequiredAboveBudget:           p.ReviewRequiredAboveBudget,
 		ReviewBountyReclaimDelay:            p.ReviewBountyReclaimDelay,
 		PermissionlessMinReviewBountyRate:   p.PermissionlessMinReviewBountyRate,
+		InitiativeBountyMaxBudgetRatio:      p.InitiativeBountyMaxBudgetRatio,
+		MaxInitiativeBountyPerFunderEpoch:   p.MaxInitiativeBountyPerFunderEpoch,
+		MinInitiativeBountyContribution:     p.MinInitiativeBountyContribution,
+		MaxInitiativeBountyContributions:    p.MaxInitiativeBountyContributions,
+		InitiativeBountyReclaimDelay:        p.InitiativeBountyReclaimDelay,
 		SentinelRewardEpochBlocks:           p.SentinelRewardEpochBlocks,
 		MinSentinelAccuracy:                 p.MinSentinelAccuracy,
 		MinAppealsForAccuracy:               p.MinAppealsForAccuracy,
@@ -1872,6 +1905,51 @@ func (rp ReviewerBondPolicy) Validate() error {
 	}
 	if rp.UnbondCooldown < 0 {
 		return fmt.Errorf("reviewer unbond cooldown must be non-negative: %d", rp.UnbondCooldown)
+	}
+	return nil
+}
+
+// validateTransferLimits checks the member-to-member DREAM transfer caps. Each
+// must be positive: a zero cap would silently disable its channel rather than
+// throttle it, and a nil one reads as zero.
+func validateTransferLimits(maxTip, maxTipsSent, maxGiftPerInvitee, receivedEpoch, receivedSeason math.Int) error {
+	for _, c := range []struct {
+		name string
+		v    math.Int
+	}{
+		{"max tip amount", maxTip},
+		{"max tips sent per epoch", maxTipsSent},
+		{"max gift per invitee", maxGiftPerInvitee},
+		{"max transfer received per epoch", receivedEpoch},
+		{"max transfer received per season", receivedSeason},
+	} {
+		if c.v.IsNil() || !c.v.IsPositive() {
+			return fmt.Errorf("%s must be positive: %s", c.name, c.v)
+		}
+	}
+	if maxTip.GT(maxTipsSent) {
+		return fmt.Errorf("max tip amount %s exceeds max tips sent per epoch %s", maxTip, maxTipsSent)
+	}
+	if receivedEpoch.GT(receivedSeason) {
+		return fmt.Errorf("max transfer received per epoch %s exceeds the per-season limit %s", receivedEpoch, receivedSeason)
+	}
+	return nil
+}
+
+// validateInitiativeBountyParams checks the initiative bounty caps. A zero
+// budget ratio is allowed and disables funding.
+func validateInitiativeBountyParams(ratio math.LegacyDec, perFunderEpoch, minContribution math.Int, maxContributions uint32) error {
+	if ratio.IsNil() || ratio.IsNegative() {
+		return fmt.Errorf("initiative bounty max budget ratio must be non-negative: %s", ratio)
+	}
+	if perFunderEpoch.IsNil() || perFunderEpoch.IsNegative() {
+		return fmt.Errorf("max initiative bounty per funder epoch must be non-negative: %s", perFunderEpoch)
+	}
+	if minContribution.IsNil() || !minContribution.IsPositive() {
+		return fmt.Errorf("min initiative bounty contribution must be positive: %s", minContribution)
+	}
+	if maxContributions == 0 {
+		return fmt.Errorf("max initiative bounty contributions must be positive")
 	}
 	return nil
 }

@@ -637,6 +637,36 @@ func (am AppModule) WeightedOperations(simState module.SimulationState) []simtyp
 		weightMsgCloseInitiative,
 		repsimulation.SimulateMsgCloseInitiative(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
 	))
+	const (
+		opWeightMsgFundInitiativeBounty          = "op_weight_msg_rep"
+		defaultWeightMsgFundInitiativeBounty int = 100
+	)
+
+	var weightMsgFundInitiativeBounty int
+	simState.AppParams.GetOrGenerate(opWeightMsgFundInitiativeBounty, &weightMsgFundInitiativeBounty, nil,
+		func(_ *rand.Rand) {
+			weightMsgFundInitiativeBounty = defaultWeightMsgFundInitiativeBounty
+		},
+	)
+	operations = append(operations, simulation.NewWeightedOperation(
+		weightMsgFundInitiativeBounty,
+		repsimulation.SimulateMsgFundInitiativeBounty(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
+	))
+	const (
+		opWeightMsgReclaimInitiativeBounty          = "op_weight_msg_rep"
+		defaultWeightMsgReclaimInitiativeBounty int = 100
+	)
+
+	var weightMsgReclaimInitiativeBounty int
+	simState.AppParams.GetOrGenerate(opWeightMsgReclaimInitiativeBounty, &weightMsgReclaimInitiativeBounty, nil,
+		func(_ *rand.Rand) {
+			weightMsgReclaimInitiativeBounty = defaultWeightMsgReclaimInitiativeBounty
+		},
+	)
+	operations = append(operations, simulation.NewWeightedOperation(
+		weightMsgReclaimInitiativeBounty,
+		repsimulation.SimulateMsgReclaimInitiativeBounty(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
+	))
 
 	return operations
 }

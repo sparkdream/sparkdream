@@ -1,0 +1,41 @@
+syntax = "proto3";
+package sparkdream.rep.v1;
+
+import "cosmos_proto/cosmos.proto";
+import "gogoproto/gogo.proto";
+
+option go_package = "sparkdream/x/rep/types";
+
+// InitiativeBounty is DREAM escrowed against one initiative by members who
+// want the work done, paid to the assignee only if the initiative completes.
+//
+// The budget is minted; a bounty moves DREAM that already exists, so it is the
+// non-inflationary way to signal demand. Because it is contingent on completion
+// it is also a route for DREAM between members, which is why it is capped
+// against the budget and per funder, barred to anyone affiliated with the work,
+// taxed on release, and counted against the assignee's recipient-side transfer
+// limits. Distinct from ReviewBounty, which pays reviewers per verdict filed
+// and is never contingent on approval.
+message InitiativeBounty {
+  uint64 initiative_id = 1;
+  // Total DREAM currently escrowed and unpaid.
+  string amount = 2 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  // Per-funder contributions, so refunds return each funder's own DREAM.
+  repeated InitiativeBountyContribution contributions = 3 [(gogoproto.nullable) = false];
+}
+
+// InitiativeBountyContribution is one funder's stake in an initiative bounty.
+message InitiativeBountyContribution {
+  string funder = 1;
+  string amount = 2 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  // Block height, for initiative_bounty_reclaim_delay.
+  int64 funded_at = 3;
+}

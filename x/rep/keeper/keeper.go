@@ -65,9 +65,12 @@ type Keeper struct {
 	RoleRewardDayFunding collections.Map[uint64, string]
 	// ReviewBounty is DREAM escrowed against an initiative to attract reviewers.
 	ReviewBounty collections.Map[uint64, types.ReviewBounty]
-	InterimSeq   collections.Sequence
-	Interim      collections.Map[uint64, types.Interim]
-	GiftRecord   collections.Map[collections.Pair[string, string], types.GiftRecord]
+	// InitiativeBounty is DREAM escrowed against an initiative, paid to its
+	// assignee on completion and refunded otherwise.
+	InitiativeBounty collections.Map[uint64, types.InitiativeBounty]
+	InterimSeq       collections.Sequence
+	Interim          collections.Map[uint64, types.Interim]
+	GiftRecord       collections.Map[collections.Pair[string, string], types.GiftRecord]
 
 	// Secondary indexes for efficient lookups (avoid full table scans in EndBlocker)
 	// Key: (status, id) - allows iteration by status
@@ -204,6 +207,8 @@ func NewKeeper(
 			collections.Uint64Key, collections.StringValue),
 		ReviewBounty: collections.NewMap(sb, types.ReviewBountyKey, "reviewBounty",
 			collections.Uint64Key, codec.CollValue[types.ReviewBounty](cdc)),
+		InitiativeBounty: collections.NewMap(sb, types.InitiativeBountyKey, "initiativeBounty",
+			collections.Uint64Key, codec.CollValue[types.InitiativeBounty](cdc)),
 		InitiativeReview: collections.NewMap(sb, types.InitiativeReviewKey, "initiativeReview",
 			collections.TripleKeyCodec(collections.Uint64Key, collections.Uint32Key, collections.StringKey),
 			codec.CollValue[types.InitiativeReview](cdc)),

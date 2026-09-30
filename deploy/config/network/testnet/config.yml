@@ -324,9 +324,6 @@ genesis:
         solo_expert_bonus_rate: "0.5"               # 50% bonus for solo experts
         # Challenge response deadline - TESTNET: production epoch count
         challenge_response_deadline_epochs: "3"    # same as production (but epochs are shorter)
-        # Gift rate limiting - TESTNET: ~2.4 hour cooldown
-        gift_cooldown_blocks: "1440"               # ~2.4 hours (production: 14400 ~1 day)
-        max_gifts_per_sender_epoch: "2000000000"   # 2000 DREAM per epoch (same as production)
         # Jury - TESTNET: smallest jury the rules allow
         jury_size: 5                               # must be odd and exceed MinSeatedJurors (3)
         min_juror_reputation: "25"                 # halved for testnet (production: 50)
@@ -355,7 +352,6 @@ genesis:
         zeroed_at: 0
         zeroed_count: 0
         last_decay_epoch: 0
-        tips_given_this_epoch: 0
         last_tip_epoch: 0
         completed_interims_count: 0
         completed_initiatives_count: 0
@@ -378,7 +374,6 @@ genesis:
         zeroed_at: 0
         zeroed_count: 0
         last_decay_epoch: 0
-        tips_given_this_epoch: 0
         last_tip_epoch: 0
         completed_interims_count: 0
         completed_initiatives_count: 0
@@ -401,7 +396,6 @@ genesis:
         zeroed_at: 0
         zeroed_count: 0
         last_decay_epoch: 0
-        tips_given_this_epoch: 0
         last_tip_epoch: 0
         completed_interims_count: 0
         completed_initiatives_count: 0
@@ -423,7 +417,6 @@ genesis:
         zeroed_at: 0
         zeroed_count: 0
         last_decay_epoch: 0
-        tips_given_this_epoch: 0
         last_tip_epoch: 0
         completed_interims_count: 0
         completed_initiatives_count: 0
@@ -445,7 +438,6 @@ genesis:
         zeroed_at: 0
         zeroed_count: 0
         last_decay_epoch: 0
-        tips_given_this_epoch: 0
         last_tip_epoch: 0
         completed_interims_count: 0
         completed_initiatives_count: 0
@@ -467,7 +459,6 @@ genesis:
         zeroed_at: 0
         zeroed_count: 0
         last_decay_epoch: 0
-        tips_given_this_epoch: 0
         last_tip_epoch: 0
         completed_interims_count: 0
         completed_initiatives_count: 0
@@ -489,7 +480,6 @@ genesis:
         zeroed_at: 0
         zeroed_count: 0
         last_decay_epoch: 0
-        tips_given_this_epoch: 0
         last_tip_epoch: 0
         completed_interims_count: 0
         completed_initiatives_count: 0
@@ -512,7 +502,6 @@ genesis:
         zeroed_at: 0
         zeroed_count: 0
         last_decay_epoch: 0
-        tips_given_this_epoch: 0
         last_tip_epoch: 0
         completed_interims_count: 0
         completed_initiatives_count: 0
@@ -534,7 +523,6 @@ genesis:
         zeroed_at: 0
         zeroed_count: 0
         last_decay_epoch: 0
-        tips_given_this_epoch: 0
         last_tip_epoch: 0
         completed_interims_count: 0
         completed_initiatives_count: 0

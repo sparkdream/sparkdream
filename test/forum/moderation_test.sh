@@ -236,10 +236,11 @@ if [ "$BOND2_RC" -ne 0 ]; then
     bootstrap_reputation moderator 5
 
     # Fund moderator with enough DREAM for bonding (2500 default) + cosign
-    # escrow. Use "bounty" purpose to bypass the 500-DREAM gift cap.
+    # escrow. A tip, since gifts are invitee-only; the test chain pins loose
+    # transfer limits.
     echo "  Funding moderator with DREAM for sentinel operations..."
     TX_RES=$($BINARY tx rep transfer-dream \
-        "$MODERATOR_ADDR" "3000000000" "bounty" "Fund moderator for sentinel ops" \
+        "$MODERATOR_ADDR" "3000000000" "tip" "Fund moderator for sentinel ops" \
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \

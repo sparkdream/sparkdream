@@ -300,7 +300,6 @@ var allowedVariations = map[string]string{
 	"rep.params.invitation_accountability_epochs":                  "invitation lock varies per network (1 season each)",
 	"rep.params.interim_deadline_epochs":                           "interim deadline varies per network",
 	"rep.params.challenge_response_deadline_epochs":                "challenge response window varies per network",
-	"rep.params.gift_cooldown_blocks":                              "gift cooldown matches epoch length per network",
 	"rep.params.staking_pool_cap_base":                             "the schedule ceiling is anchored to each network's own genesis DREAM supply (devnet 85,000, testnet/mainnet 25,000)",
 	"rep.params.min_stake_duration_seconds":                        "the claim gate must fit inside a season, and devnet's season is 15h — see TestRepMinStakeDurationFitsSeason",
 	"rep.params.jury_size":                                         "devnet uses smaller jury (3) due to small test member set",

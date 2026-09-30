@@ -68,17 +68,18 @@ message Member {
   // Lazy decay tracking
   int64 last_decay_epoch = 18;
 
-  // Tip rate limiting
-  uint32 tips_given_this_epoch = 19;
+  // Tip allowance: DREAM tipped this epoch (an amount, not a count)
+  string tips_sent_this_epoch = 19 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
   int64 last_tip_epoch = 20;
 
   // Cached counts for performance (avoid full table scans for trust level checks)
   uint32 completed_interims_count = 21;
   uint32 completed_initiatives_count = 22;
 
-  // Gift rate limiting
-  string gifts_sent_this_epoch = 23 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
-  int64 last_gift_epoch = 24;
+  // Recipient-side transfer limit: DREAM received through tips and initiative
+  // bounty payouts this epoch (see DREAM Transfer Limits)
+  string transfer_received_this_epoch = 23 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
+  int64 last_transfer_received_epoch = 24;
 
   // Invitation credit tracking for lazy seasonal reset
   int64 last_credit_reset_season = 25;
@@ -128,6 +129,15 @@ message Member {
   // genesis import. Author bonds are excluded — slashable escrow with its own
   // per-item cap. Nil on older records; readers must treat nil as zero.
   string content_staked_dream = 34 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
+
+  // Season-scale counterpart of transfer_received_this_epoch
+  string transfer_received_this_season = 35 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
+  int64 last_transfer_received_season = 36;
+
+  // DREAM escrowed into initiative bounties this epoch, bounded by
+  // max_initiative_bounty_per_funder_epoch
+  string initiative_bounty_funded_this_epoch = 37 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
+  int64 last_initiative_bounty_epoch = 38;
 }
 
 enum TrustLevel {
@@ -197,13 +207,14 @@ The `reputation_archived` event gains a `forum_tags_archived` attribute.
 
 ### GiftRecord
 
-Tracks per-recipient cooldown for gift transfers:
+The lifetime ledger of what a sender has gifted one of their invitees, bounded
+by `max_gift_per_invitee`:
 
 ```protobuf
 message GiftRecord {
   string sender = 1;
   string recipient = 2;
-  int64 last_gift_block = 3; // Block height when last gift was sent
+  string total_gifted = 3 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
 }
 ```
 
@@ -229,13 +240,13 @@ cannot occur.
 
 **The inviter is the intended funding channel, and the protocol builds one for
 it.** `GiftOnlyToInvitees` (default true) restricts gifts to a sender's own
-invitees — capped at `max_gift_amount` (500 DREAM) per gift and
-`max_gifts_per_sender_epoch` (2,000 DREAM) per epoch, with a one-day
-per-recipient cooldown. The check is `recipientMember.InvitedBy == sender`, a
-relationship written once at member creation and never cleared, so an inviter
-can seed a member at any later point rather than only at invitation time. Tips
-(100 DREAM, 10/epoch) are a second channel and carry no invitee restriction, so
-a third party can top someone up too.
+invitees, up to `max_gift_per_invitee` (500 DREAM) per invitee for life (see
+[DREAM Transfer Limits](#dream-transfer-limits)). The check is
+`recipientMember.InvitedBy == sender`, a relationship written once at member
+creation and never cleared, so an inviter can seed a member at any later point
+rather than only at invitation time. Tips (10 DREAM each, 50 per sender per
+epoch) are a second channel and carry no invitee restriction, so a third party
+can top someone up too.
 
 This places trust and exposure with the same party: the invitation stake is
 slashable if the invitee misbehaves, and the same inviter decides how much to
@@ -1623,10 +1634,11 @@ message MsgTransferDream {
   string reference = 5;
 }
 
+// Any other value is rejected. Bounties are escrowed against an initiative
+// with MsgFundInitiativeBounty, not sent as a transfer.
 enum TransferPurpose {
   TRANSFER_PURPOSE_TIP = 0;
   TRANSFER_PURPOSE_GIFT = 1;
-  TRANSFER_PURPOSE_BOUNTY = 2;
 }
 
 // Register a ZK public key for anonymous operations.
@@ -1639,6 +1651,110 @@ message MsgRegisterZkPublicKey {
   bytes zk_public_key = 2;
 }
 ```
+
+#### DREAM Transfer Limits
+
+> These replaced the original tip and gift limits (100 DREAM per tip, 10 tips
+> per epoch, 500 DREAM per gift, 2,000 DREAM gifted per epoch, a one-day
+> per-recipient gift cooldown) and the `BOUNTY` transfer purpose, now
+> [initiative bounties](#initiative-bounties).
+
+DREAM is not meant to be monetized. No chain rule can stop an off-chain sale,
+so the defence is to keep DREAM off every market venue and to make any route by
+which DREAM moves between members too slow to be worth buying through.
+
+##### Why the original limits did not do that
+
+**They were sized for a mature economy, not this one.** The genesis DREAM
+supply is 25,000. A single tip could be 100 DREAM — the entire budget ceiling
+of an APPRENTICE initiative — and a member could tip 1,000 DREAM a day to
+anyone, all to one recipient, since tips were capped by count rather than
+amount. A founder could empty their balance in two to five days.
+
+**They capped the wrong side.** Every limit bound the *sender*. A seller can
+only send their own DREAM, but a buyer can receive from many sellers at once: at
+any per-sender cap, twenty cooperating sellers move twenty times that into one
+account. Tightening sender caps only raises the number of sellers needed.
+
+What a buyer wants is a *position*. Trust level derives from reputation, not
+balance, so bought DREAM does not buy rank directly — but it does buy conviction
+(which pushes initiatives to completion and mints), invitation stakes (more
+invitations, so more controlled accounts), and bonds for paid roles. All of
+those scale with what one account holds. The binding limit therefore belongs on
+the **recipient**.
+
+##### The limits
+
+| Limit | Default | Applies to |
+|---|---|---|
+| `max_transfer_received_per_season` | 1,000 DREAM | Tips received + initiative bounty payouts |
+| `max_transfer_received_per_epoch` | 100 DREAM | Tips received + initiative bounty payouts |
+| `max_tip_amount` | 10 DREAM | Per tip |
+| `max_tips_sent_per_epoch` | 50 DREAM | Per sender, by **amount** (replaces the count-based `max_tips_per_epoch`) |
+| `max_gift_per_invitee` | 500 DREAM | Lifetime total from an inviter to each of their invitees |
+
+The guarantee this buys: accumulating a founder-sized position (5,000 DREAM)
+through transfers takes at least five seasons, about two years, **however many
+senders cooperate** — and whatever is done with it in the meantime is slow and
+visible. That is the property that matters; how fast the whole supply could
+churn is not, because no one can move DREAM that is not theirs.
+
+**Tips are gratitude, so a token amount suffices.** Ten DREAM is a meaningful
+thank-you against an APPRENTICE budget of 100; it is not a payment channel.
+
+**Gifts become a one-time seed.** A gift exists to help one invitee get started
+(see [the new-member on-ramp](#the-new-member-on-ramp)), which needs doing once,
+not every day. A lifetime per-invitee total replaces the per-gift cap, the
+per-sender epoch cap and the per-recipient cooldown, all of which were
+approximating it. Gifts do **not** count toward the recipient limits: each
+member has exactly one inviter, so gifts can bring any account at most 500 DREAM
+ever, and multiplying that across invitees costs the inviter an escalating,
+partly burned invitation stake per account.
+
+**Initiative bounty payouts do count.** Otherwise a buyer takes many small
+initiatives and routes around the recipient limit. When a completing
+initiative's bounty would push the assignee over either limit, the assignee is
+paid up to the limit and the excess is refunded to the funders pro rata,
+untaxed. The initiative still completes; only the bounty is clipped.
+
+Transfers the recipient limit refuses fail with a new
+`ErrExceedsTransferReceiveLimit` and are not partially applied — a tip either
+lands whole or not at all.
+
+##### State
+
+The recipient counters live on `Member`:
+`transfer_received_this_epoch` / `last_transfer_received_epoch` and
+`transfer_received_this_season` / `last_transfer_received_season`. Each window
+resets lazily on the first receipt in a new epoch or season
+(`rollTransferReceivedWindows`), and proto3 omits them for members who never
+receive a transfer. `TransferReceiveHeadroom` reports the smaller of the two
+remaining allowances; the initiative bounty payout clips to it.
+
+On the sending side `Member.tips_sent_this_epoch` counts DREAM tipped (an
+amount), and `GiftRecord.total_gifted` is the lifetime ledger per
+(sender, invitee).
+
+**Zeroing keeps the recipient counters.** `ZeroMember` clears the tip
+allowance but not what the member has received this season: resetting it would
+let a zeroed account buy its position straight back.
+
+**Every check runs before any write.** A refused tip or gift leaves no trace —
+no gift ledger entry, no tip allowance consumed — even when `TransferDREAM` is
+called from another module outside a transaction.
+
+**The test chain pins these loose.** The root `config.yml` raises every
+transfer limit so the e2e setup scripts can fund test accounts from alice by
+tip; the production values are pinned by the keeper unit tests.
+
+##### Purpose validation
+
+`TransferDREAM` accepts exactly `TIP` and `GIFT`; any other value, including an
+undefined enum number on a hand-built transaction, fails with
+`ErrInvalidTransferPurpose`. The old code switched on `TIP` and `GIFT` with no
+default, so every other value — including `BOUNTY` — was an uncapped send.
+`TRANSFER_PURPOSE_BOUNTY` is removed from the enum. The unread `reference`
+field stays as a free-text memo, echoed into the `transfer_dream` event.
 
 ### Project Messages
 
@@ -2971,6 +3087,20 @@ what was advertised, so a later withdrawal would waste their collateral. An
 initiative that ends with no verdict refunds every contribution rather than
 forfeiting it — funding must not be a gamble on someone else's behaviour.
 
+Every terminal path settles the bounty: `CompleteInitiative`, `CloseInitiative`,
+the upheld-challenge path (`REJECTED`) and the project-cancel cascade. The last
+two once skipped it, which stranded committed bounties on their funders for
+good; the cascade also skipped the review fees and never released the
+reviewers' reserved bonds. It now settles the round exactly as
+`CloseInitiative` does, returning the budget net of review fees.
+
+The review **fee** follows the same rule on the upheld-challenge path: paid per
+verdict filed, with the project's budget returned net of it. Withholding it
+there made the fee contingent on nobody later challenging the work, and cost
+the reviewers who rejected it — the ones the jury proved right — as much as the
+approvers. The approvers are answered by the overturn slash (10% of budget per
+verdict), which outweighs their share of a 5% fee pool.
+
 DREAM lives on the member record rather than in bank, so the escrow is a lock on
 the funder's own balance plus the claim recorded against it, the same shape as a
 challenge stake. Payout draws the total down from the funders and mints the same
@@ -3023,6 +3153,189 @@ electorate is now asked only the question it is competent to answer.
 > retreats. That is tolerable only while reviewers are genuinely the quality
 > gate. Reviewer coverage and accuracy are therefore not refinements of this
 > design; they are the thing holding it up.
+
+#### Initiative Bounties
+
+> Replaces the old `TRANSFER_PURPOSE_BOUNTY`, which was never more than an
+> enum value: `TransferDREAM` gave it no case of its own, so a "bounty" transfer
+> was an uncapped member-to-member send with only the 3% tax, bypassing every
+> tip and gift limit. Keeper: [initiative_bounty.go](../x/rep/keeper/initiative_bounty.go).
+
+An initiative bounty lets members put DREAM they already hold toward work they
+want done, on top of the initiative's budget. It is escrowed against one
+initiative and paid to the assignee only if the initiative completes. It is the
+non-inflationary way to signal demand: the budget is minted, the bounty moves
+DREAM that already exists.
+
+It is distinct from a [review bounty](#review-bounties), which pays reviewers
+per verdict filed and is never contingent on approval. An initiative bounty is
+contingent on completion by design — that is what makes it pay for the work —
+so everything below exists to keep it from becoming a DREAM transfer channel
+wearing the costume of a work order.
+
+##### The threat it has to survive
+
+DREAM is not meant to be monetized. No chain rule can stop two members agreeing
+off-chain to swap SPARK or cash for DREAM, so the defence is to keep DREAM off
+every market venue (no IBC, no DEX) and to throttle every route by which DREAM
+moves between members. Tips and gifts are throttled by per-transfer and
+per-epoch caps. A completion-released bounty is another route, and the attack
+on it is direct: a seller funds a bounty on a trivial initiative, the buyer is
+assigned and "completes" it, the bounty releases.
+
+What stands in the way is completion itself — conviction with at least 50%
+from non-affiliated stakers, a clean challenge period, and mandatory review
+above `review_required_above_budget`. The rules below make that gate the
+binding constraint and bound how much any one pass through it can carry, so the
+bounty is never a cheaper route to a chosen recipient than a tip.
+
+##### State
+
+```protobuf
+message InitiativeBounty {
+  uint64 initiative_id = 1;
+  // Total DREAM currently escrowed and unpaid.
+  string amount = 2;
+  // Per-funder contributions, so refunds return each funder's own DREAM.
+  repeated InitiativeBountyContribution contributions = 3;
+}
+
+message InitiativeBountyContribution {
+  string funder = 1;
+  string amount = 2;
+  int64 funded_at = 3;  // block height, for the reclaim delay
+}
+```
+
+Escrow is a lock on the funder's own balance (`LockDREAM`) plus the claim
+recorded here — the same shape as a review bounty or a challenge stake. Locked
+DREAM does not decay and cannot be spent.
+
+Per-funder epoch spend lives on `Member`
+(`initiative_bounty_funded_this_epoch` / `last_initiative_bounty_epoch`) and
+resets on the first funding of a new epoch.
+
+##### Messages
+
+```protobuf
+message MsgFundInitiativeBounty {
+  option (cosmos.msg.v1.signer) = "funder";
+  option (amino.name) = "sparkdream/x/rep/MsgFundInitiativeBounty";
+  string funder = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 initiative_id = 2;
+  string amount = 3;
+}
+
+message MsgReclaimInitiativeBounty {
+  option (cosmos.msg.v1.signer) = "funder";
+  option (amino.name) = "sparkdream/x/rep/MsgReclaimInitiativeBounty";
+  string funder = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 initiative_id = 2;
+}
+```
+
+Neither is in x/session's `allowed_msg_types`, so a session key cannot fund
+or reclaim a bounty unless governance adds them; nothing about funding a bounty
+needs one. Query: `initiative-bounty [initiative-id]` returns the escrow and each
+contribution's reclaim state.
+
+##### Funding rules
+
+`MsgFundInitiativeBounty` fails unless all of these hold:
+
+1. **The initiative is `OPEN` or `ASSIGNED`.** Funding after work is submitted
+   is paying for a known deliverable to a known person — a directed transfer,
+   not a bid for work.
+2. **The funder is not affiliated.** Not the assignee, apprentice, initiative
+   creator or project creator (`InitiativeAffiliates`). The converse is
+   enforced too: `MsgAssignInitiative` refuses an assignee who holds a live
+   contribution to that initiative's bounty, so a funder cannot fund and then
+   take the work.
+3. **Total bounty ≤ `initiative_bounty_max_budget_ratio` × budget** (default
+   1.0). The budget is already bounded by tier, trust level and review, so the
+   bounty cannot outweigh the work backing it. This is the rule that bounds
+   laundering volume: every DREAM moved must ride on an initiative that real,
+   non-affiliated conviction pushed over the line, at no more than 1:1 with
+   what that initiative was worth.
+4. **The funder's spend this epoch plus `amount` ≤
+   `max_initiative_bounty_per_funder_epoch`.** The sender-side counterpart to
+   the recipient limits in [DREAM Transfer Limits](#dream-transfer-limits).
+5. **`amount` ≥ `min_initiative_bounty_contribution`** and the bounty has fewer
+   than `max_initiative_bounty_contributions` entries. Bounds the state and the
+   payout loop.
+6. **The funder can lock `amount`** of unlocked DREAM.
+
+##### Reclaim
+
+`MsgReclaimInitiativeBounty` returns the funder's own matured contributions
+(older than `initiative_bounty_reclaim_delay` blocks) **only while the
+initiative is `OPEN`**. Once someone is assigned they are working on the
+strength of the advertised bounty, and pulling it is a bait-and-switch — the
+same reasoning that commits a review bounty once a verdict is filed.
+
+If the assignment is released (`MsgUnassignInitiative`, or the stall path) and
+the initiative returns to `OPEN`, reclaim becomes available again. The bounty
+otherwise stays escrowed and carries over to the next assignee.
+
+##### Settlement
+
+| Terminal status | Effect |
+|---|---|
+| `COMPLETED` | Paid to the assignee, net of the transfer tax |
+| `CLOSED` (including the project-cancel cascade) | Refunded to each funder in full, no tax |
+| `REJECTED` (challenge upheld) | Refunded to each funder in full, no tax |
+
+On completion, settlement draws the total down off the funders' locked
+balances, burns `transfer_tax_rate` of it (tracked as a burn), and credits the
+remainder to the assignee. Supply falls by exactly the tax, which is charged to
+the funders' `lifetime_burned` in proportion to what each paid in — as
+`TransferDREAM` charges it to the sender — so the member ledger and
+`SeasonBurned` move together. It is a balance
+move, not burn-and-mint like the review bounty: the DREAM already exists, so it
+must not count against the epoch mint cap (which could otherwise fail a
+completion) or the season's minted total. The tax applies
+here and not to review bounties because this is a member choosing to move DREAM
+to another member — precisely what the tax exists to throttle — whereas a
+review bounty pays for a service rendered to the network.
+
+The payout counts toward the assignee's `max_transfer_received_per_epoch` and
+`max_transfer_received_per_season` (see
+[DREAM Transfer Limits](#dream-transfer-limits)). Whatever would exceed them is
+refunded to the funders pro rata, untaxed; the initiative still completes.
+
+The payout is **not** initiative reward: it does not count toward
+`max_initiative_rewards_per_season`, the treasury share, the completion bonus,
+reputation, or conviction. Buying a bounty buys DREAM movement, never standing.
+
+**Zeroing drops a funder's contributions.** `ZeroMember` burns the member's
+whole balance, the DREAM locked behind a bounty contribution included, so it
+removes their contributions from every initiative bounty rather than leaving
+claims no settlement can unlock. The remaining funders' escrow is untouched.
+
+Every terminal path settles the bounty. The hook lives beside the review
+bounty's in `CompleteInitiative`, `CloseInitiative`, the upheld-challenge path
+in `challenge.go`, and the project-cancel cascade
+(`terminateInitiativeForProjectCancel`).
+
+##### Parameters
+
+| Param | Default | Purpose |
+|---|---|---|
+| `initiative_bounty_max_budget_ratio` | 1.0 | Cap on total bounty relative to budget |
+| `max_initiative_bounty_per_funder_epoch` | 100 DREAM | Per-funder epoch cap, sized to the recipient epoch limit |
+| `min_initiative_bounty_contribution` | 1 DREAM | Dust floor |
+| `max_initiative_bounty_contributions` | 20 | Bounds state and payout loop |
+| `initiative_bounty_reclaim_delay` | 14400 blocks | Mirrors `review_bounty_reclaim_delay` |
+
+All operational (Operations Committee editable). A ratio of zero disables
+funding.
+
+##### Open question: vesting the payout
+
+Paying the bounty as locked DREAM that unlocks linearly over N epochs would stop
+a buyer from immediately spending or re-routing what they received, at the cost
+of a vesting record per payout. Not in the first cut; revisit if bounty volume
+turns out to concentrate on a few recipients.
 
 #### Jury verdicts are final
 
@@ -4405,9 +4718,9 @@ var DefaultParams = Params{
     StakedDecayRate:         math.LegacyNewDecWithPrec(25, 5),   // 0.025% per epoch (~8.7% annualized)
     NewMemberDecayGraceEpochs: 30,                                // ~1 month grace period (no decay)
     TransferTaxRate:         math.LegacyNewDecWithPrec(3, 2),    // 3%
-    MaxTipAmount:            math.NewInt(100_000_000),            // 100 DREAM
-    MaxTipsPerEpoch:         10,
-    MaxGiftAmount:           math.NewInt(500_000_000),            // 500 DREAM
+    MaxTipAmount:            math.NewInt(10_000_000),             // 10 DREAM
+    MaxTipsSentPerEpoch:     math.NewInt(50_000_000),             // 50 DREAM per sender per epoch
+    MaxGiftPerInvitee:       math.NewInt(500_000_000),            // 500 DREAM per invitee, lifetime
     GiftOnlyToInvitees:      true,
 
     // Staking floors and caps
@@ -4540,9 +4853,9 @@ var DefaultParams = Params{
     MinStakeDurationSeconds:    86400,                              // 24 hours
     AllowSelfMemberStake:       false,
 
-    // Gift rate limiting
-    GiftCooldownBlocks:     14400,                          // 1 day
-    MaxGiftsPerSenderEpoch: math.NewInt(2_000_000_000),     // 2000 DREAM per epoch
+    // Recipient-side transfer limits (tips + initiative bounty payouts)
+    MaxTransferReceivedPerEpoch:  math.NewInt(100_000_000),   // 100 DREAM
+    MaxTransferReceivedPerSeason: math.NewInt(1_000_000_000), // 1,000 DREAM
 
     // Content staking (set MaxContentStakePerMember to 0 to disable)
     MaxContentStakePerMember:           math.NewInt(10_000_000_000), // 10000 DREAM per content item
@@ -4560,6 +4873,13 @@ var DefaultParams = Params{
     MaxReviewRounds:                    3,                           // last rejection abandons
     ReviewBountyReclaimDelay:           14400,                       // ~1 day before a funder may reclaim
     PermissionlessMinReviewBountyRate:  math.LegacyNewDecWithPrec(1, 1),  // 10% of budget, in existing DREAM
+
+    // Initiative bounties (paid to the assignee on completion)
+    InitiativeBountyMaxBudgetRatio:    math.LegacyOneDec(),         // total <= budget
+    MaxInitiativeBountyPerFunderEpoch: math.NewInt(100_000_000),    // 100 DREAM
+    MinInitiativeBountyContribution:   math.NewInt(1_000_000),      // 1 DREAM
+    MaxInitiativeBountyContributions:  20,
+    InitiativeBountyReclaimDelay:      14400,                       // ~1 day
 
     // Reviewer bonded-role policy. Projected onto the BondedRoleConfig for
     // ROLE_TYPE_INITIATIVE_REVIEWER by SyncReviewerBondedRoleConfig; these
@@ -4636,12 +4956,12 @@ naming the field the committee actually set.
 | 1105 | `ErrCannotTransferToSelf` | Cannot transfer to self |
 | 1106 | `ErrInvalidTransferPurpose` | Invalid transfer purpose |
 | 1107 | `ErrExceedsMaxTipAmount` | Exceeds maximum tip amount |
-| 1108 | `ErrExceedsMaxTipsPerEpoch` | Exceeds maximum tips per epoch |
+| 1108 | `ErrExceedsMaxTipsPerEpoch` | Exceeds maximum DREAM tipped per epoch |
 | 1109 | `ErrRecipientNotActive` | Recipient is not active |
-| 1110 | `ErrExceedsMaxGiftAmount` | Exceeds maximum gift amount |
+| 1110 | `ErrExceedsGiftAllowance` | Exceeds lifetime gift allowance for this invitee |
 | 1111 | `ErrGiftOnlyToInvitees` | Gifts only allowed to invitees |
-| 1112 | `ErrGiftCooldownNotMet` | Gift cooldown period not met |
-| 1113 | `ErrExceedsEpochGiftLimit` | Exceeds maximum gifts per epoch |
+| 1112 | `ErrExceedsTransferReceiveLimit` | Recipient has reached their transfer receive limit |
+| 1113 | `ErrExceedsInitiativeBountyLimit` | Exceeds initiative bounty limit |
 | 1201 | `ErrNoInvitationCredits` | No invitation credits available |
 | 1202 | `ErrMemberAlreadyExists` | Member already exists |
 | 1203 | `ErrInvitationAlreadyExists` | Invitation already exists for this address |

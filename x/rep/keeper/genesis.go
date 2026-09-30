@@ -275,6 +275,11 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 			return err
 		}
 	}
+	for _, b := range genState.InitiativeBountyList {
+		if err := k.InitiativeBounty.Set(ctx, b.InitiativeId, b); err != nil {
+			return err
+		}
+	}
 	for _, df := range genState.RoleRewardDayFundingList {
 		amount := df.AmountFunded
 		if amount.IsNil() {
@@ -512,6 +517,13 @@ func (k Keeper) ExportGenesis(ctx context.Context) (*types.GenesisState, error) 
 	}
 	err = k.ReviewBounty.Walk(ctx, nil, func(_ uint64, b types.ReviewBounty) (bool, error) {
 		genesis.ReviewBountyList = append(genesis.ReviewBountyList, b)
+		return false, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	err = k.InitiativeBounty.Walk(ctx, nil, func(_ uint64, b types.InitiativeBounty) (bool, error) {
+		genesis.InitiativeBountyList = append(genesis.InitiativeBountyList, b)
 		return false, nil
 	})
 	if err != nil {

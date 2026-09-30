@@ -215,9 +215,15 @@ genesis:
         solo_expert_bonus_rate: "0.5"  # 50% bonus for solo experts
         # Challenge response deadline - FAST for testing
         challenge_response_deadline_epochs: "1"  # ~1 minute (was ~3 days)
-        # Gift rate limiting - FAST for testing
-        gift_cooldown_blocks: "5"  # ~30 seconds (was ~1 day = 14400 blocks)
-        max_gifts_per_sender_epoch: "2000000000"  # 2000 DREAM per epoch (same as production)
+        # DREAM transfer limits - LOOSE for testing. The e2e setup scripts fund
+        # test accounts from alice by tip and gift, up to 25,000 DREAM at once.
+        # Production (10 DREAM tips, 50/epoch sent, 100/epoch and 1,000/season
+        # received, 500 lifetime per invitee) is pinned by unit tests instead.
+        max_tip_amount: "100000000000"                     # 100,000 DREAM (production: 10)
+        max_tips_sent_per_epoch: "1000000000000"           # 1,000,000 DREAM (production: 50)
+        max_gift_per_invitee: "1000000000000"              # 1,000,000 DREAM (production: 500)
+        max_transfer_received_per_epoch: "1000000000000"   # 1,000,000 DREAM (production: 100)
+        max_transfer_received_per_season: "1000000000000"  # 1,000,000 DREAM (production: 1,000)
         # Jury - SMALL for testing (production: 5)
         jury_size: 5  # must exceed MinSeatedJurors (3) or the redraw sweep can never vacate a seat
         min_juror_reputation: "20"  # 20 reputation (50 in production)
@@ -250,7 +256,6 @@ genesis:
         zeroed_at: 0
         zeroed_count: 0
         last_decay_epoch: 0
-        tips_given_this_epoch: 0
         last_tip_epoch: 0
         completed_interims_count: 0
         completed_initiatives_count: 0
@@ -272,7 +277,6 @@ genesis:
         zeroed_at: 0
         zeroed_count: 0
         last_decay_epoch: 0
-        tips_given_this_epoch: 0
         last_tip_epoch: 0
         completed_interims_count: 0
         completed_initiatives_count: 0
@@ -294,7 +298,6 @@ genesis:
         zeroed_at: 0
         zeroed_count: 0
         last_decay_epoch: 0
-        tips_given_this_epoch: 0
         last_tip_epoch: 0
         completed_interims_count: 0
         completed_initiatives_count: 0

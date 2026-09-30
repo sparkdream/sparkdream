@@ -1248,6 +1248,28 @@ if [ -f "$SCRIPT_DIR/review_bounty_test.sh" ]; then
 fi
 
 # ========================================================================
+# Step 22f: Run Initiative Bounty Test (escrow paid to the assignee)
+# ========================================================================
+if [ -f "$SCRIPT_DIR/initiative_bounty_test.sh" ]; then
+    echo "========================================================================="
+    echo "STEP 22f: INITIATIVE BOUNTY TEST (escrow paid to the assignee on completion)"
+    echo "========================================================================="
+    echo ""
+
+    bash "$SCRIPT_DIR/initiative_bounty_test.sh"
+    INITIATIVE_BOUNTY_EXIT_CODE=$?
+
+    echo ""
+    if [ $INITIATIVE_BOUNTY_EXIT_CODE -eq 0 ]; then
+        echo "Initiative bounty test completed"
+    else
+        echo "[FAIL] Initiative bounty test exited with code: $INITIATIVE_BOUNTY_EXIT_CODE"
+    fi
+    echo ""
+    sleep 2
+fi
+
+# ========================================================================
 # Step 22d: Run Role Reward Funding Test (automatic bonded-role pool funding)
 # ========================================================================
 if [ -f "$SCRIPT_DIR/role_reward_funding_test.sh" ]; then

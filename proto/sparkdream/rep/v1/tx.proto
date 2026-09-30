@@ -108,14 +108,17 @@ service Msg {
 
   // SubmitInitiativeReview files a bonded reviewer's verdict on submitted work.
   rpc SubmitInitiativeReview(MsgSubmitInitiativeReview) returns (MsgSubmitInitiativeReviewResponse);
+
   // SetVerificationPolicy configures how a project's initiatives are reviewed.
   rpc SetVerificationPolicy(MsgSetVerificationPolicy) returns (MsgSetVerificationPolicyResponse);
+
   // ResolveReviewEscalation settles a review round that reached its deadline.
   rpc ResolveReviewEscalation(MsgResolveReviewEscalation) returns (MsgResolveReviewEscalationResponse);
   rpc DeclineJuryDuty(MsgDeclineJuryDuty) returns (MsgDeclineJuryDutyResponse);
 
   // FundReviewBounty escrows DREAM against an initiative to attract reviewers.
   rpc FundReviewBounty(MsgFundReviewBounty) returns (MsgFundReviewBountyResponse);
+
   // ReclaimReviewBounty withdraws a funder's own unpaid contribution.
   rpc ReclaimReviewBounty(MsgReclaimReviewBounty) returns (MsgReclaimReviewBountyResponse);
 
@@ -192,6 +195,12 @@ service Msg {
 
   // CloseInitiative defines the CloseInitiative RPC.
   rpc CloseInitiative(MsgCloseInitiative) returns (MsgCloseInitiativeResponse);
+
+  // FundInitiativeBounty defines the FundInitiativeBounty RPC.
+  rpc FundInitiativeBounty(MsgFundInitiativeBounty) returns (MsgFundInitiativeBountyResponse);
+
+  // ReclaimInitiativeBounty defines the ReclaimInitiativeBounty RPC.
+  rpc ReclaimInitiativeBounty(MsgReclaimInitiativeBounty) returns (MsgReclaimInitiativeBountyResponse);
 }
 
 // MsgUpdateParams is the Msg/UpdateParams request type.
@@ -270,10 +279,12 @@ message MsgTransferDream {
   string reference = 5;
 }
 
+// TransferPurpose selects which limits a MsgTransferDream is held to. Any
+// other value is rejected. Bounties are not a transfer purpose: they are
+// escrowed against an initiative with MsgFundInitiativeBounty.
 enum TransferPurpose {
   TRANSFER_PURPOSE_TIP = 0;
   TRANSFER_PURPOSE_GIFT = 1;
-  TRANSFER_PURPOSE_BOUNTY = 2;
 }
 
 // MsgTransferDreamResponse defines the MsgTransferDreamResponse message.
@@ -351,6 +362,7 @@ message MsgCompleteInterim {
   string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 interim_id = 2;
   string completion_notes = 3;
+
   // Required when the interim is an ADJUDICATION: the committee's verdict on
   // the challenge the interim was raised to settle. Ignored for every other
   // interim type.
@@ -416,6 +428,7 @@ message MsgCreateInitiative {
   uint64 tier = 5;
   uint64 category = 6;
   string budget = 8 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
+
   // Optional definition of done, fixed at creation. See
   // Initiative.acceptance_criteria.
   repeated VerificationCriteria acceptance_criteria = 9 [(gogoproto.nullable) = false];
@@ -574,6 +587,7 @@ message MsgCreateChallenge {
   string reason = 3;
   repeated string evidence = 4;
   string staked_dream = 5 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
+
   // Optional id of the acceptance criterion the work is said to fail. Must
   // match one declared on the initiative.
   string criteria_id = 6;
@@ -1040,6 +1054,56 @@ message MsgReclaimReviewBounty {
 
 // MsgReclaimReviewBountyResponse defines the MsgReclaimReviewBounty response.
 message MsgReclaimReviewBountyResponse {
+  string refunded = 1 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+}
+
+// MsgFundInitiativeBounty escrows DREAM against an OPEN or ASSIGNED initiative,
+// paid to its assignee if it completes and refunded if it closes or is
+// rejected.
+//
+// The funder must not be affiliated with the initiative. The total bounty is
+// capped at initiative_bounty_max_budget_ratio of the budget, and each funder
+// at max_initiative_bounty_per_funder_epoch.
+message MsgFundInitiativeBounty {
+  option (cosmos.msg.v1.signer) = "funder";
+  option (amino.name) = "sparkdream/x/rep/MsgFundInitiativeBounty";
+  string funder = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 initiative_id = 2;
+  string amount = 3 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+}
+
+// MsgFundInitiativeBountyResponse defines the MsgFundInitiativeBounty response.
+message MsgFundInitiativeBountyResponse {
+  // Total escrowed against the initiative after this contribution.
+  string total = 1 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+}
+
+// MsgReclaimInitiativeBounty returns a funder's own matured contributions.
+//
+// Permitted only while the initiative is OPEN (unassigned) and only for
+// contributions older than initiative_bounty_reclaim_delay blocks. Once someone
+// is assigned they are working on the strength of the advertised bounty.
+message MsgReclaimInitiativeBounty {
+  option (cosmos.msg.v1.signer) = "funder";
+  option (amino.name) = "sparkdream/x/rep/MsgReclaimInitiativeBounty";
+  string funder = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 initiative_id = 2;
+}
+
+// MsgReclaimInitiativeBountyResponse defines the MsgReclaimInitiativeBounty response.
+message MsgReclaimInitiativeBountyResponse {
   string refunded = 1 [
     (cosmos_proto.scalar) = "cosmos.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",

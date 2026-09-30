@@ -250,10 +250,10 @@ fi
 echo ""
 
 # ========================================================================
-# PART 2: DREAM TIPS (MAX 100, 10/EPOCH LIMIT)
+# PART 2: DREAM TIPS (PER-TIP CAP, PER-EPOCH ALLOWANCE)
 # ========================================================================
 echo "========================================================================="
-echo "PART 2: DREAM TIPS (MAX 100, 10 PER EPOCH LIMIT)"
+echo "PART 2: DREAM TIPS (PER-TIP CAP, PER-EPOCH ALLOWANCE)"
 echo "========================================================================="
 
 # Test tip within limit
@@ -267,7 +267,7 @@ if [ -z "$TIP_RECIPIENT1_MEMBER" ] || [ "$TIP_RECIPIENT1_MEMBER" == "null" ]; th
     echo "   Run setup_test_accounts.sh to create test members"
     echo ""
 else
-    echo "Test: Alice tips $TIP_AMOUNT_DISPLAY DREAM to $TIP_RECIPIENT1_NAME (max 100, within limit)"
+    echo "Test: Alice tips $TIP_AMOUNT_DISPLAY DREAM to $TIP_RECIPIENT1_NAME (within the tip limits)"
 
     TIP_REC1_INITIAL=$(get_balance $TIP_RECIPIENT1_ADDR)
     echo "$TIP_RECIPIENT1_NAME initial balance: $TIP_REC1_INITIAL DREAM"
@@ -306,10 +306,10 @@ TIP_RES=$($BINARY tx rep transfer-dream \
             echo "   [INFO]  Received less than expected - likely due to decay during test"
         fi
 
-        # Check Alice's tip counter
+        # Check Alice's tip allowance (counted by amount, not by count)
         ALICE_MEMBER=$(get_member $ALICE_ADDR)
-        TIPS_GIVEN=$(echo "$ALICE_MEMBER" | jq -r '.member.tips_given_this_epoch // 0')
-        echo "   Alice tips given this epoch: $TIPS_GIVEN"
+        TIPS_SENT=$(echo "$ALICE_MEMBER" | jq -r '.member.tips_sent_this_epoch // "0"')
+        echo "   Alice tipped this epoch: $TIPS_SENT micro-DREAM"
     else
         echo "[FAIL] Tip failed"
         echo "Error: $(echo $TIP_RES | jq -r '.raw_log // .code // "Unknown error"')"
@@ -318,9 +318,14 @@ fi
 
 echo ""
 
-# Test tip limit enforcement (try to tip > 100)
-LARGE_TIP_MICRO="150000000"  # 150 DREAM (over limit)
-echo "Test: Alice attempts to tip > 100 DREAM to $TIP_RECIPIENT2_NAME (should fail)"
+# Test tip limit enforcement: one micro-DREAM over max_tip_amount. The tip cap
+# is checked before the balance, so this fails on the cap whatever Alice holds
+# -- the test chain pins the limits loose, so read them rather than assume.
+REP_PARAMS=$($BINARY query rep params --output json)
+MAX_TIP=$(echo "$REP_PARAMS" | jq -r '.params.max_tip_amount')
+MAX_GIFT_PER_INVITEE=$(echo "$REP_PARAMS" | jq -r '.params.max_gift_per_invitee')
+LARGE_TIP_MICRO=$(echo "$MAX_TIP + 1" | bc)
+echo "Test: Alice attempts to tip max_tip_amount + 1 ($LARGE_TIP_MICRO) to $TIP_RECIPIENT2_NAME (should fail)"
 
 LARGE_TIP_RES=$($BINARY tx rep transfer-dream \
   "$TIP_RECIPIENT2_ADDR" \
@@ -335,32 +340,59 @@ LARGE_TIP_RES=$($BINARY tx rep transfer-dream \
   --output json 2>&1)
 
 LARGE_TIP_TX=$(echo $LARGE_TIP_RES | jq -r '.txhash' 2>/dev/null)
-LARGE_TIP_CODE=$(echo $LARGE_TIP_RES | jq -r '.code' 2>/dev/null)
-
-if [ "$LARGE_TIP_CODE" != "0" ] || [ -z "$LARGE_TIP_TX" ] || [ "$LARGE_TIP_TX" == "null" ]; then
-    echo "[ OK ] Large tip rejected as expected (> 100 limit)"
-    echo "   Error: $(echo $LARGE_TIP_RES | jq -r '.raw_log' 2>/dev/null | head -1)"
-else
+LARGE_TIP_LOG=$(echo $LARGE_TIP_RES | jq -r '.raw_log // ""' 2>/dev/null)
+if [ -n "$LARGE_TIP_TX" ] && [ "$LARGE_TIP_TX" != "null" ]; then
     sleep 2
     TX_DETAIL=$($BINARY query tx $LARGE_TIP_TX --output json)
-    TX_CODE=$(echo "$TX_DETAIL" | jq -r '.code // 0')
-    if [ "$TX_CODE" != "0" ]; then
-        echo "[ OK ] Large tip rejected in execution (> 100 limit)"
+    LARGE_TIP_LOG=$(echo "$TX_DETAIL" | jq -r '.raw_log // ""')
+fi
+if echo "$LARGE_TIP_LOG" | grep -q "exceeds maximum tip amount"; then
+    echo "[ OK ] Large tip rejected by the tip cap"
+else
+    echo "[FAIL] Large tip was not rejected by the tip cap"
+    echo "   Log: $LARGE_TIP_LOG"
+fi
+echo ""
+
+# Bounty is no longer a transfer purpose: bounties are escrowed against an
+# initiative with fund-initiative-bounty. It used to be an uncapped send.
+echo "Test: transfer-dream with purpose 'bounty' (should be refused)"
+BOUNTY_RES=$($BINARY tx rep transfer-dream \
+  "$TIP_RECIPIENT2_ADDR" \
+  "1000000" \
+  "bounty" \
+  "This should fail" \
+  --from alice \
+  --chain-id $CHAIN_ID \
+  --keyring-backend test \
+  --fees 5000${BOND_DENOM} \
+  -y \
+  --output json 2>&1)
+BOUNTY_TX=$(echo "$BOUNTY_RES" | jq -r '.txhash' 2>/dev/null)
+if [ -z "$BOUNTY_TX" ] || [ "$BOUNTY_TX" == "null" ]; then
+    echo "[ OK ] 'bounty' purpose refused"
+else
+    sleep 2
+    BOUNTY_CODE=$($BINARY query tx $BOUNTY_TX --output json | jq -r '.code // 0')
+    if [ "$BOUNTY_CODE" != "0" ]; then
+        echo "[ OK ] 'bounty' purpose refused in execution"
     else
-        echo "[WARN]  Large tip succeeded (limit may not be enforced yet)"
+        echo "[FAIL] 'bounty' purpose was accepted"
     fi
 fi
-
 echo ""
-echo "Note: Each member can give max 10 tips per epoch"
-echo "      Tip counter tracked in member.tips_given_this_epoch field"
+
+echo "Note: tips are capped per tip (max_tip_amount) and by the DREAM a sender"
+echo "      tips per epoch (max_tips_sent_per_epoch, tracked in"
+echo "      member.tips_sent_this_epoch). Tips also count against the recipient's"
+echo "      max_transfer_received_per_epoch / _per_season."
 echo ""
 
 # ========================================================================
-# PART 3: DREAM GIFTS (MAX 500, INVITEES ONLY)
+# PART 3: DREAM GIFTS (LIFETIME PER-INVITEE ALLOWANCE, INVITEES ONLY)
 # ========================================================================
 echo "========================================================================="
-echo "PART 3: DREAM GIFTS (MAX 500, INVITEES ONLY)"
+echo "PART 3: DREAM GIFTS (LIFETIME PER-INVITEE ALLOWANCE, INVITEES ONLY)"
 echo "========================================================================="
 
 # Check if invitee exists and relationship
@@ -373,7 +405,7 @@ if [ -z "$INVITEE_MEMBER" ] || [ "$INVITEE_MEMBER" == "null" ] || echo "$INVITEE
     echo "   → Gifts require recipient to be an invited member"
     echo "   [INFO]  Run invitation test first to create invitees, or gifts test will be limited"
     echo ""
-    echo "Test: Alice attempts to gift > 500 DREAM (testing limit enforcement)"
+    echo "Test: Alice attempts to gift more than the lifetime allowance (testing limit enforcement)"
 else
     # Invitee is a member - check relationship
     INVITER=$(echo "$INVITEE_MEMBER" | jq -r '.member.invited_by // ""')
@@ -391,7 +423,7 @@ else
     # Try to send a gift
     GIFT_AMOUNT_MICRO="200000000"  # 200 DREAM
     GIFT_AMOUNT_DISPLAY="200"
-    echo "Test: Alice gifts $GIFT_AMOUNT_DISPLAY DREAM to invitee (max 500)"
+    echo "Test: Alice gifts $GIFT_AMOUNT_DISPLAY DREAM to invitee (within the lifetime allowance)"
 
 INVITEE_INITIAL=$(get_balance $INVITEE_ADDR)
 echo "Invitee initial balance: $INVITEE_INITIAL micro-DREAM"
@@ -444,12 +476,13 @@ fi
     echo ""
 fi  # End of invitee existence check
 
-# Test gift limit enforcement (try > 500) - always test this
-LARGE_GIFT_MICRO="600000000"  # 600 DREAM (over limit)
+# Test gift limit enforcement: one micro-DREAM over the lifetime per-invitee
+# allowance. Checked before the balance, so it fails on the allowance.
+LARGE_GIFT_MICRO=$(echo "$MAX_GIFT_PER_INVITEE + 1" | bc)
 if [ -n "$INVITEE_MEMBER" ] && [ "$INVITEE_MEMBER" != "null" ] && ! echo "$INVITEE_MEMBER" | grep -q "not found"; then
-    echo "Test: Alice attempts to gift > 500 DREAM to invitee (should fail)"
+    echo "Test: Alice attempts to gift more than max_gift_per_invitee to invitee (should fail)"
 else
-    echo "Test: Alice attempts to gift > 500 DREAM (testing limit - will fail, no valid invitee)"
+    echo "Test: Alice attempts to gift more than max_gift_per_invitee (will fail, no valid invitee)"
 fi
 
 LARGE_GIFT_RES=$($BINARY tx rep transfer-dream \
@@ -472,12 +505,12 @@ if [ -n "$LARGE_GIFT_TX" ] && [ "$LARGE_GIFT_TX" != "null" ]; then
     TX_CODE=$(echo "$TX_DETAIL" | jq -r '.code // 0')
 
     if [ "$TX_CODE" != "0" ]; then
-        echo "[ OK ] Large gift rejected as expected (> 500 limit)"
+        echo "[ OK ] Large gift rejected as expected (over the lifetime allowance)"
     else
-        echo "[WARN]  Large gift succeeded (limit may not be enforced yet)"
+        echo "[FAIL] Large gift succeeded past the lifetime allowance"
     fi
 else
-    echo "[ OK ] Large gift rejected as expected (> 500 limit)"
+    echo "[ OK ] Large gift rejected as expected (over the lifetime allowance)"
 fi
 
 echo ""
@@ -653,16 +686,17 @@ echo "========================================================================="
 echo ""
 echo "Test Results:"
 echo "  [ OK ] Part 1: Transfer with 3% tax"
-echo "  [ OK ] Part 2: Tips (max 100, 10/epoch)"
-echo "  [ OK ] Part 3: Gifts (max 500, invitees only)"
+echo "  [ OK ] Part 2: Tips (per-tip cap, per-epoch allowance)"
+echo "  [ OK ] Part 3: Gifts (lifetime per-invitee allowance, invitees only)"
 echo "  [ OK ] Part 4: Unstaked decay ($DECAY_PCT%/epoch)"
 echo "  [ OK ] Part 5: Lifetime tracking"
 echo "  [ OK ] Part 6: Balance queries"
 echo ""
 echo "DREAM Token Rules:"
 echo "  • Transfer Tax:    3% burned on all transfers"
-echo "  • Tips:            max 100 DREAM, 10/epoch, members only"
-echo "  • Gifts:           max 500 DREAM, invitees only, per-recipient cooldown"
+echo "  • Tips:            10 DREAM each, 50/epoch per sender (production)"
+echo "  • Gifts:           invitees only, 500 DREAM per invitee for life (production)"
+echo "  • Received:        100 DREAM/epoch, 1,000/season per member (production)"
 echo "  • Decay:           1%/epoch on unstaked DREAM only (lazy calculation)"
 echo "  • Staked:          IMMUNE from decay"
 echo "  • Trading:         NOT ALLOWED (module-managed, no x/bank, no IBC)"

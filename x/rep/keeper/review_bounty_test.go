@@ -302,3 +302,129 @@ func TestGatedPermissionlessWorkStillPaysTheMinimum(t *testing.T) {
 	require.Equal(t, want, k.GetReviewBounty(ctx, initID).Amount,
 		"gated permissionless work funds the review it makes mandatory")
 }
+
+func TestBountySettlesWhenAChallengeIsUpheld(t *testing.T) {
+	// An upheld challenge leaves the initiative REJECTED. The verdict filed
+	// before it commits the bounty, which bars reclaim, so if the REJECTED path
+	// does not settle the bounty the funder's DREAM stays locked forever.
+	rf := setupReview(t, 1)
+	k, ctx := rf.f.keeper, rf.f.ctx
+	// setupReview records the bond without locking DREAM behind it; the
+	// overturn slash below draws on the lock, so back it for real.
+	require.NoError(t, k.LockDREAM(ctx, rf.reviewer, math.NewInt(100_000_000)))
+
+	funder := sdk.AccAddress([]byte("bounty-funder5--"))
+	mkReviewMember(t, k, ctx, funder, "100.0")
+	_, err := k.EscrowReviewBounty(ctx, funder, rf.initiative, math.NewInt(1_000))
+	require.NoError(t, err)
+
+	require.NoError(t, k.SubmitInitiativeReview(ctx, rf.initiative, rf.reviewer.String(),
+		true, nil, "looks done"))
+
+	challenger := sdk.AccAddress([]byte("bounty-challengr"))
+	mkReviewMember(t, k, ctx, challenger, "100.0")
+	params, err := k.Params.Get(ctx)
+	require.NoError(t, err)
+	challengeID, err := k.CreateChallenge(ctx, challenger, rf.initiative, "bad work",
+		[]string{"evidence"}, params.MinChallengeStake)
+	require.NoError(t, err)
+	require.NoError(t, k.UpholdChallenge(ctx, challengeID))
+
+	initiative, err := k.GetInitiative(ctx, rf.initiative)
+	require.NoError(t, err)
+	require.Equal(t, types.InitiativeStatus_INITIATIVE_STATUS_REJECTED, initiative.Status)
+
+	_, gErr := k.ReviewBounty.Get(ctx, rf.initiative)
+	require.Error(t, gErr, "the bounty is settled, not left behind on a terminal initiative")
+	funderAfter, err := k.GetMember(ctx, funder)
+	require.NoError(t, err)
+	require.True(t, funderAfter.StakedDream.IsZero(), "no funder DREAM stays locked")
+}
+
+func TestReviewRoundSettlesWhenTheProjectIsCancelled(t *testing.T) {
+	// The project-cancel cascade closes initiatives itself rather than through
+	// CloseInitiative, and used to skip the review round entirely: the bounty
+	// stayed locked on its funders and the reviewer's bond stayed reserved.
+	rf := setupReview(t, 1)
+	k, ctx := rf.f.keeper, rf.f.ctx
+
+	funder := sdk.AccAddress([]byte("bounty-funder6--"))
+	mkReviewMember(t, k, ctx, funder, "100.0")
+	_, err := k.EscrowReviewBounty(ctx, funder, rf.initiative, math.NewInt(1_000))
+	require.NoError(t, err)
+
+	bondBefore, err := k.GetAvailableBond(ctx, types.RoleType_ROLE_TYPE_INITIATIVE_REVIEWER, rf.reviewer.String())
+	require.NoError(t, err)
+	require.NoError(t, k.SubmitInitiativeReview(ctx, rf.initiative, rf.reviewer.String(),
+		true, nil, "looks done"))
+	bondDuring, err := k.GetAvailableBond(ctx, types.RoleType_ROLE_TYPE_INITIATIVE_REVIEWER, rf.reviewer.String())
+	require.NoError(t, err)
+	require.True(t, bondDuring.LT(bondBefore), "precondition: the verdict reserves bond")
+
+	require.NoError(t, k.CancelProject(ctx, rf.projectID, "pivoting"))
+
+	initiative, err := k.GetInitiative(ctx, rf.initiative)
+	require.NoError(t, err)
+	require.Equal(t, types.InitiativeStatus_INITIATIVE_STATUS_CLOSED, initiative.Status)
+
+	_, gErr := k.ReviewBounty.Get(ctx, rf.initiative)
+	require.Error(t, gErr, "the bounty is settled by the cascade")
+	funderAfter, err := k.GetMember(ctx, funder)
+	require.NoError(t, err)
+	require.True(t, funderAfter.StakedDream.IsZero(), "no funder DREAM stays locked")
+
+	bondAfter, err := k.GetAvailableBond(ctx, types.RoleType_ROLE_TYPE_INITIATIVE_REVIEWER, rf.reviewer.String())
+	require.NoError(t, err)
+	require.Equal(t, bondBefore.String(), bondAfter.String(), "the reviewer's reserved bond is released")
+}
+
+func TestReviewFeesArePaidWhenAChallengeIsUpheld(t *testing.T) {
+	// The fee is paid per verdict filed on every terminal path. An upheld
+	// challenge used to withhold it, so the fee depended on nobody challenging
+	// the work later. The project gets its budget back net of the fee, as on
+	// close: it asked for the work to be reviewed and it was.
+	rf := setupReview(t, 1)
+	k, ctx := rf.f.keeper, rf.f.ctx
+	require.NoError(t, k.LockDREAM(ctx, rf.reviewer, math.NewInt(100_000_000)))
+
+	require.NoError(t, k.SubmitInitiativeReview(ctx, rf.initiative, rf.reviewer.String(),
+		true, nil, "looks done"))
+
+	initiative, err := k.GetInitiative(ctx, rf.initiative)
+	require.NoError(t, err)
+	params, err := k.Params.Get(ctx)
+	require.NoError(t, err)
+	fee := k.ReviewFeePool(ctx, params, initiative)
+	require.True(t, fee.IsPositive(), "precondition: the initiative carries a review fee")
+
+	challenger := sdk.AccAddress([]byte("fee-challenger--"))
+	mkReviewMember(t, k, ctx, challenger, "100.0")
+	challengeID, err := k.CreateChallenge(ctx, challenger, rf.initiative, "bad work",
+		[]string{"evidence"}, params.MinChallengeStake)
+	require.NoError(t, err)
+
+	projectBefore, err := k.GetProject(ctx, rf.projectID)
+	require.NoError(t, err)
+	ctx = ctx.WithEventManager(sdk.NewEventManager())
+
+	require.NoError(t, k.UpholdChallenge(ctx, challengeID))
+
+	var paid []string
+	for _, ev := range ctx.EventManager().Events() {
+		if ev.Type != "initiative_review_fee_paid" {
+			continue
+		}
+		for _, a := range ev.Attributes {
+			if a.Key == "amount" {
+				paid = append(paid, a.Value)
+			}
+		}
+	}
+	require.Equal(t, []string{fee.String()}, paid, "the single verdict on the round earns the whole fee")
+
+	projectAfter, err := k.GetProject(ctx, rf.projectID)
+	require.NoError(t, err)
+	returned := projectBefore.AllocatedBudget.Sub(*projectAfter.AllocatedBudget)
+	require.Equal(t, initiative.Budget.Sub(fee).String(), returned.String(),
+		"the budget comes back net of the review fee")
+}

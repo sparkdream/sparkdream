@@ -290,12 +290,10 @@ for ACCOUNT in "${ACCOUNTS[@]}"; do
         echo "  Sending 0.1 DREAM to $ACCOUNT..."
     fi
 
-    # Use "gift" for small amounts; sentinel funding exceeds the 500-DREAM
-    # gift cap, so use "bounty" purpose for sentinels (uncapped, escrowed-style).
-    PURPOSE="gift"
-    if [ "$ACCOUNT" == "sentinel1" ] || [ "$ACCOUNT" == "sentinel2" ]; then
-        PURPOSE="bounty"
-    fi
+    # Tip rather than gift: gifts are invitee-only, and the test chain's
+    # config.yml pins tip limits loose enough for the sentinel funding.
+    # (There is no uncapped transfer purpose any more.)
+    PURPOSE="tip"
     TX_RES=$($BINARY tx rep transfer-dream \
         $ADDR \
         "$DREAM_AMOUNT" \

@@ -294,10 +294,8 @@ echo ""
 # 5. Transfer DREAM to Test Accounts
 # ========================================================================
 echo "Step 5: Transferring DREAM to test accounts..."
-echo "  NOTE: DREAM transfer rate limiting enforced:"
-echo "    - Max 500 DREAM per gift (500000000 micro-DREAM)"
-echo "    - Cooldown: 5 blocks (~30 sec test) / 1 day (production) per recipient"
-echo "    - Epoch limit: 2000 DREAM total per epoch across all recipients"
+echo "  NOTE: funded by tip; the test chain's config.yml pins the transfer"
+echo "    limits loose (production: 10 DREAM tips, 100/epoch received per member)"
 echo "  → Sending 250 DREAM to each account (single gift per account)"
 echo "  → This provides sufficient DREAM for tests while preserving Alice's balance"
 
@@ -339,12 +337,10 @@ for ACCOUNT in "${ACCOUNTS[@]}"; do
         echo "  → Sending 250 DREAM to $ACCOUNT..."
     fi
 
-    # Choose transfer purpose: gift caps at 500 DREAM (MaxGiftAmount), so for
-    # 1500-DREAM sentinel funding we use "bounty" which is uncapped.
-    PURPOSE="gift"
-    if [ "${DREAM_AMOUNT:-0}" -gt 500000000 ]; then
-        PURPOSE="bounty"
-    fi
+    # Tip rather than gift: gifts are invitee-only, and the test chain's
+    # config.yml pins tip limits loose enough for the 1500-DREAM sentinel
+    # funding. (There is no uncapped transfer purpose any more.)
+    PURPOSE="tip"
 
     # Transfer DREAM to the new member
     TX_RES=$($BINARY tx rep transfer-dream \
@@ -856,7 +852,7 @@ for JUROR in "${JUROR_ACCOUNTS[@]}"; do
             --from $STAKER \
             --chain-id $CHAIN_ID \
             --keyring-backend test \
-            --gas 300000 \
+            --gas 400000 \
             --fees 5000${BOND_DENOM} \
             -y --output json 2>&1)
 

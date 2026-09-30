@@ -635,13 +635,12 @@ func TestTransferDREAM_Tip(t *testing.T) {
 
 	// Create members
 	k.Member.Set(ctx, sender.String(), types.Member{
-		Address:            sender.String(),
-		DreamBalance:       PtrInt(math.NewInt(1000)),
-		StakedDream:        PtrInt(math.NewInt(0)),
-		LifetimeEarned:     PtrInt(math.ZeroInt()),
-		LifetimeBurned:     PtrInt(math.ZeroInt()),
-		TipsGivenThisEpoch: 0,
-		LastTipEpoch:       0,
+		Address:        sender.String(),
+		DreamBalance:   PtrInt(math.NewInt(1000)),
+		StakedDream:    PtrInt(math.NewInt(0)),
+		LifetimeEarned: PtrInt(math.ZeroInt()),
+		LifetimeBurned: PtrInt(math.ZeroInt()),
+		LastTipEpoch:   0,
 	})
 
 	k.Member.Set(ctx, recipient.String(), types.Member{
@@ -671,8 +670,11 @@ func TestTransferDREAM_Tip(t *testing.T) {
 	expectedRecipient := math.NewInt(100).Add(netAmount)
 	require.Equal(t, expectedRecipient.String(), recipientMember.DreamBalance.String())
 
-	// Verify tip counter incremented
-	require.Equal(t, uint32(1), senderMember.TipsGivenThisEpoch)
+	// The sender's epoch allowance is counted by amount, not by count.
+	require.Equal(t, amount.String(), senderMember.TipsSentThisEpoch.String())
+	// And the recipient's receive counters take the net amount.
+	require.Equal(t, netAmount.String(), recipientMember.TransferReceivedThisEpoch.String())
+	require.Equal(t, netAmount.String(), recipientMember.TransferReceivedThisSeason.String())
 }
 
 // TestTransferDREAM_ExceedsMaxTip tests tip limit enforcement
@@ -722,13 +724,13 @@ func TestTransferDREAM_ExceedsTipsPerEpoch(t *testing.T) {
 	currentEpoch, _ := k.GetCurrentEpoch(ctx)
 
 	k.Member.Set(ctx, sender.String(), types.Member{
-		Address:            sender.String(),
-		DreamBalance:       PtrInt(math.NewInt(10000)),
-		StakedDream:        PtrInt(math.NewInt(0)),
-		LifetimeEarned:     PtrInt(math.ZeroInt()),
-		LifetimeBurned:     PtrInt(math.ZeroInt()),
-		TipsGivenThisEpoch: params.MaxTipsPerEpoch, // Already at max
-		LastTipEpoch:       currentEpoch,
+		Address:           sender.String(),
+		DreamBalance:      PtrInt(math.NewInt(10000)),
+		StakedDream:       PtrInt(math.NewInt(0)),
+		LifetimeEarned:    PtrInt(math.ZeroInt()),
+		LifetimeBurned:    PtrInt(math.ZeroInt()),
+		TipsSentThisEpoch: PtrInt(params.MaxTipsSentPerEpoch), // Already at max
+		LastTipEpoch:      currentEpoch,
 	})
 
 	k.Member.Set(ctx, recipient.String(), types.Member{
@@ -828,8 +830,8 @@ func TestTransferDREAM_InsufficientBalance(t *testing.T) {
 		LifetimeBurned: PtrInt(math.ZeroInt()),
 	})
 
-	// Try to transfer more than balance (use BOUNTY to avoid tip limit check)
-	err := k.TransferDREAM(ctx, sender, recipient, math.NewInt(200), types.TransferPurpose_TRANSFER_PURPOSE_BOUNTY)
+	// Try to transfer more than balance, well inside the tip limits.
+	err := k.TransferDREAM(ctx, sender, recipient, math.NewInt(200), types.TransferPurpose_TRANSFER_PURPOSE_TIP)
 	require.Error(t, err)
 	require.ErrorIs(t, err, types.ErrInsufficientBalance)
 }
@@ -1149,6 +1151,22 @@ func TestTrackBurn_CoversEveryDreamDestructionPath(t *testing.T) {
 					"precondition: the transfer must be taxed")
 				require.NoError(t, k.TransferDREAM(f.ctx, sender, recipient, params.MaxTipAmount,
 					types.TransferPurpose_TRANSFER_PURPOSE_TIP))
+			},
+		},
+		{
+			// The initiative bounty release is taxed like a transfer; the tax
+			// is charged to the funders' lifetime_burned.
+			name: "initiative bounty tax",
+			run: func(t *testing.T, f *fixture) {
+				bf := setupBountyOn(t, f)
+				k, ctx := f.keeper, f.ctx
+				_, err := k.EscrowInitiativeBounty(ctx, bf.funder, bf.initiative, math.NewInt(50_000_000))
+				require.NoError(t, err)
+				require.NoError(t, k.AssignInitiativeToMember(ctx, bf.initiative, bf.assignee))
+				initiative, err := k.GetInitiative(ctx, bf.initiative)
+				require.NoError(t, err)
+				_, err = k.PayInitiativeBounty(ctx, initiative)
+				require.NoError(t, err)
 			},
 		},
 		{

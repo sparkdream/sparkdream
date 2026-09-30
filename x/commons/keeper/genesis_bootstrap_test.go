@@ -184,4 +184,3 @@ func TestOpsCommitteeCanOwnCurationCollections(t *testing.T) {
 			"the Operations Committee cannot execute %s, so it cannot run a federation curation list", msg)
 	}
 }
-

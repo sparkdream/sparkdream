@@ -29,13 +29,19 @@ func SimulateMsgTransferDream(
 			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgTransferDream{}), "failed to get/create sender with DREAM"), nil, nil
 		}
 
-		// Pre-validation: check if sender has exceeded tips per epoch limit
+		// Pre-validation: the largest tip below must still fit in the sender's
+		// epoch tip allowance.
 		params, err := k.Params.Get(ctx)
 		if err != nil {
 			params = types.DefaultParams()
 		}
-		if sender.TipsGivenThisEpoch >= params.MaxTipsPerEpoch {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgTransferDream{}), "exceeded max tips per epoch"), nil, nil
+		epoch, err := k.GetCurrentEpoch(ctx)
+		if err != nil {
+			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgTransferDream{}), "failed to read epoch"), nil, nil
+		}
+		if sender.LastTipEpoch == epoch &&
+			keeper.DerefInt(sender.TipsSentThisEpoch).AddRaw(100).GT(params.MaxTipsSentPerEpoch) {
+			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgTransferDream{}), "exceeded tip allowance this epoch"), nil, nil
 		}
 
 		// Get or create a recipient (different from sender)
@@ -54,8 +60,16 @@ func SimulateMsgTransferDream(
 			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgTransferDream{}), "unable to find different recipient"), nil, nil
 		}
 
-		// Use TIP transfers only (gifts have cooldown requirements that are complex to simulate)
-		// Tips: max 100 DREAM
+		// Recipient-side limit: skip rather than fail when the recipient has
+		// no room left this epoch or season.
+		rcpt := *recipient
+		headroom, err := k.TransferReceiveHeadroom(ctx, params, &rcpt)
+		if err != nil || headroom.LT(math.NewInt(100)) {
+			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgTransferDream{}), "recipient at transfer receive limit"), nil, nil
+		}
+
+		// Use TIP transfers only (gifts are invitee-only with a lifetime cap,
+		// which random accounts rarely satisfy). At most 100 micro-DREAM.
 		purpose := types.TransferPurpose_TRANSFER_PURPOSE_TIP
 		maxTransfer := math.NewInt(100)
 

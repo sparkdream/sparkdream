@@ -352,14 +352,37 @@ func (k Keeper) terminateInitiativeForProjectCancel(ctx context.Context, initiat
 		return err
 	}
 
-	// Return the reserved budget to the still-live project (non-permissionless).
+	// Settle the live review round exactly as CloseInitiative does. This was
+	// missing: the review bounty stayed locked on its funders (reclaim is
+	// barred once a verdict is filed) and every reviewer's reserved bond was
+	// never released.
+	if _, err := k.PayReviewBounty(ctx, initiative); err != nil {
+		return fmt.Errorf("failed to settle review bounty: %w", err)
+	}
+	if err := k.RefundInitiativeBounty(ctx, initiative.Id, "project cancelled"); err != nil {
+		return fmt.Errorf("failed to refund initiative bounty: %w", err)
+	}
+	reviewFees, err := k.PayReviewFees(ctx, initiative)
+	if err != nil {
+		return fmt.Errorf("failed to pay review fees: %w", err)
+	}
+	if err := k.SettleReviewBonds(ctx, initiative.Id); err != nil {
+		return fmt.Errorf("failed to settle review bonds: %w", err)
+	}
+
+	// Return the reserved budget to the still-live project (non-permissionless),
+	// net of what review cost — the project pays for having had the work
+	// evaluated, as in CloseInitiative.
 	// Clamp to the project's currently-allocated amount: production never needs
 	// this (allocation always covers every non-terminal initiative's budget),
 	// but it makes the whole-project cascade resilient to any pre-existing
 	// allocation drift rather than aborting the cancel midway.
 	project, projErr := k.GetProject(ctx, initiative.ProjectId)
 	if projErr == nil && !project.Permissionless {
-		toReturn := DerefInt(initiative.Budget)
+		toReturn := DerefInt(initiative.Budget).Sub(reviewFees)
+		if toReturn.IsNegative() {
+			toReturn = math.ZeroInt()
+		}
 		if allocated := DerefInt(project.AllocatedBudget); allocated.LT(toReturn) {
 			toReturn = allocated
 		}

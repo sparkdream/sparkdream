@@ -57,8 +57,11 @@ var (
 	// community pool on a given UTC day, so the daily cap survives restarts.
 	RoleRewardDayFundingKey = collections.NewPrefix("rolerewarddayfunding/")
 	// ReviewBountyKey holds escrowed per-initiative review bounties.
-	ReviewBountyKey    = collections.NewPrefix("reviewbounty/")
-	JuryReviewCountKey = collections.NewPrefix("juryreview/count/")
+	ReviewBountyKey = collections.NewPrefix("reviewbounty/")
+	// InitiativeBountyKey holds DREAM escrowed against an initiative, paid to
+	// its assignee on completion.
+	InitiativeBountyKey = collections.NewPrefix("initiativebounty/")
+	JuryReviewCountKey  = collections.NewPrefix("juryreview/count/")
 )
 
 var (

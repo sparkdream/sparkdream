@@ -42,6 +42,14 @@ func (k Keeper) ZeroMember(ctx context.Context, memberAddr sdk.AccAddress, reaso
 		return err
 	}
 
+	// Drop the member's initiative bounty contributions. The DREAM behind them
+	// is locked on this member and burned below with the rest of the balance;
+	// left in place, settling the bounty would try to unlock DREAM that no
+	// longer exists and fail every path that completes or closes the work.
+	if err := k.dropInitiativeBountyContributions(ctx, memberAddr.String()); err != nil {
+		return err
+	}
+
 	// Burn all DREAM. Zeroing writes the member record directly rather than
 	// routing through BurnDREAM, so it counts its own burn against the season.
 	if dreamBurned.IsPositive() {
@@ -95,10 +103,9 @@ func (k Keeper) ZeroMember(ctx context.Context, memberAddr sdk.AccAddress, reaso
 	member.ZeroedCount++
 	member.TrustLevel = types.TrustLevel_TRUST_LEVEL_NEW
 	member.InvitationCredits = 0
-	member.TipsGivenThisEpoch = 0
-	if member.GiftsSentThisEpoch != nil {
-		*member.GiftsSentThisEpoch = math.NewInt(0)
-	}
+	// The recipient-side transfer counters are deliberately kept: resetting
+	// them would let a zeroed account buy its position straight back.
+	member.TipsSentThisEpoch = nil
 
 	// Save member
 	if err := k.Member.Set(ctx, memberAddr.String(), member); err != nil {

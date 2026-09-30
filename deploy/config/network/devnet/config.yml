@@ -345,9 +345,6 @@ genesis:
         solo_expert_bonus_rate: "0.5"               # 50% bonus for solo experts
         # Challenge response deadline - DEVNET: ~1 hour
         challenge_response_deadline_epochs: "2"    # ~1 hour (DEVNET; production: 3 ~3 days)
-        # Gift rate limiting - DEVNET: ~30 min cooldown
-        gift_cooldown_blocks: "300"                # ~30 min (DEVNET; production: 14400 ~1 day)
-        max_gifts_per_sender_epoch: "2000000000"   # 2000 DREAM per epoch (same as production)
         # Jury - DEVNET: smallest jury the rules allow, lower rep threshold
         jury_size: 5                               # must be odd and exceed MinSeatedJurors (3)
         min_juror_reputation: "30"                 # DEVNET; production: 50
@@ -378,7 +375,6 @@ genesis:
         zeroed_at: 0
         zeroed_count: 0
         last_decay_epoch: 0
-        tips_given_this_epoch: 0
         last_tip_epoch: 0
         completed_interims_count: 0
         completed_initiatives_count: 0
@@ -401,7 +397,6 @@ genesis:
         zeroed_at: 0
         zeroed_count: 0
         last_decay_epoch: 0
-        tips_given_this_epoch: 0
         last_tip_epoch: 0
         completed_interims_count: 0
         completed_initiatives_count: 0
@@ -424,7 +419,6 @@ genesis:
         zeroed_at: 0
         zeroed_count: 0
         last_decay_epoch: 0
-        tips_given_this_epoch: 0
         last_tip_epoch: 0
         completed_interims_count: 0
         completed_initiatives_count: 0
@@ -447,7 +441,6 @@ genesis:
         zeroed_at: 0
         zeroed_count: 0
         last_decay_epoch: 0
-        tips_given_this_epoch: 0
         last_tip_epoch: 0
         completed_interims_count: 0
         completed_initiatives_count: 0
@@ -470,7 +463,6 @@ genesis:
         zeroed_at: 0
         zeroed_count: 0
         last_decay_epoch: 0
-        tips_given_this_epoch: 0
         last_tip_epoch: 0
         completed_interims_count: 0
         completed_initiatives_count: 0
@@ -493,7 +485,6 @@ genesis:
         zeroed_at: 0
         zeroed_count: 0
         last_decay_epoch: 0
-        tips_given_this_epoch: 0
         last_tip_epoch: 0
         completed_interims_count: 0
         completed_initiatives_count: 0
@@ -516,7 +507,6 @@ genesis:
         zeroed_at: 0
         zeroed_count: 0
         last_decay_epoch: 0
-        tips_given_this_epoch: 0
         last_tip_epoch: 0
         completed_interims_count: 0
         completed_initiatives_count: 0

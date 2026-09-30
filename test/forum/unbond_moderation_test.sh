@@ -92,7 +92,9 @@ bootstrap_reputation() {
         RES=$(run_tx "$ACCOUNT" rep create-interim other 0 "unbondmod-$i-$RANDOM" epic 999999999)
         check_tx_success "$RES" || { echo "    create-interim $i failed"; return 1; }
         IID=$(extract_event_value "$RES" "interim_created" "interim_id")
-        RES=$(run_tx "$ACCOUNT" rep complete-interim "$IID" "done")
+        # 500k like the other forum bootstraps: completing an EPIC interim
+        # writes reputation onto a member record that grows with each one.
+        RES=$(run_tx "$ACCOUNT" rep complete-interim "$IID" "done" --gas 500000)
         check_tx_success "$RES" || { echo "    complete-interim $i failed"; return 1; }
     done
 }
@@ -113,11 +115,11 @@ echo "--- PART 0: BOOTSTRAP + BOND moderator AS A DEDICATED SENTINEL ---"
 
 CUR=$(current_bond "$MODERATOR_ADDR")
 if [ "$CUR" -lt "$BOND_AMT" ] 2>/dev/null; then
-    # Fund the bond stake in DREAM from alice (uncapped "bounty" purpose, like
-    # setup does for the sentinels). Idempotent enough for re-runs: extra DREAM
-    # is harmless.
+    # Fund the bond stake in DREAM from alice by tip, like setup does for the
+    # sentinels (the test chain pins loose transfer limits). Idempotent enough
+    # for re-runs: extra DREAM is harmless.
     echo "  Funding moderator with DREAM from alice..."
-    run_tx alice rep transfer-dream "$MODERATOR_ADDR" "$DREAM_FUND" bounty "unbond-mod test funding" >/dev/null
+    run_tx alice rep transfer-dream "$MODERATOR_ADDR" "$DREAM_FUND" tip "unbond-mod test funding" >/dev/null
     echo "  moderator dream_balance: $(dream_balance "$MODERATOR_ADDR")"
 
     # Build rep/trust to clear the bond eligibility gate, then bond. Retry with

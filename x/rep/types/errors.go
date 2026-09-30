@@ -18,12 +18,14 @@ var (
 	ErrCannotTransferToSelf   = errors.Register(ModuleName, 1105, "cannot transfer to self")
 	ErrInvalidTransferPurpose = errors.Register(ModuleName, 1106, "invalid transfer purpose")
 	ErrExceedsMaxTipAmount    = errors.Register(ModuleName, 1107, "exceeds maximum tip amount")
-	ErrExceedsMaxTipsPerEpoch = errors.Register(ModuleName, 1108, "exceeds maximum tips per epoch")
+	ErrExceedsMaxTipsPerEpoch = errors.Register(ModuleName, 1108, "exceeds maximum DREAM tipped per epoch")
 	ErrRecipientNotActive     = errors.Register(ModuleName, 1109, "recipient is not active")
-	ErrExceedsMaxGiftAmount   = errors.Register(ModuleName, 1110, "exceeds maximum gift amount")
+	ErrExceedsGiftAllowance   = errors.Register(ModuleName, 1110, "exceeds lifetime gift allowance for this invitee")
 	ErrGiftOnlyToInvitees     = errors.Register(ModuleName, 1111, "gifts only allowed to invitees")
-	ErrGiftCooldownNotMet     = errors.Register(ModuleName, 1112, "gift cooldown period not met for this recipient")
-	ErrExceedsEpochGiftLimit  = errors.Register(ModuleName, 1113, "exceeds maximum gifts per epoch")
+	// The recipient-side cap: what one account may take in through tips and
+	// initiative bounty payouts per epoch and per season.
+	ErrExceedsTransferReceiveLimit  = errors.Register(ModuleName, 1112, "recipient has reached their transfer receive limit")
+	ErrExceedsInitiativeBountyLimit = errors.Register(ModuleName, 1113, "exceeds initiative bounty limit")
 
 	// Invitation errors
 	ErrNoInvitationCredits     = errors.Register(ModuleName, 1201, "no invitation credits available")

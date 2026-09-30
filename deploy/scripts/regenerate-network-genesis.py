@@ -825,7 +825,6 @@ def _founder_member(f):
         "zeroed_at": 0,
         "zeroed_count": 0,
         "last_decay_epoch": 0,
-        "tips_given_this_epoch": 0,
         "last_tip_epoch": 0,
         "completed_interims_count": 0,
         "completed_initiatives_count": 0,

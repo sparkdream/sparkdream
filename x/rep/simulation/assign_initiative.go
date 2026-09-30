@@ -81,7 +81,9 @@ func SimulateMsgAssignInitiative(
 					active, cerr := k.CountActiveInitiativesForAssignee(ctx, project.Creator)
 					underCap = cerr == nil && active < params.MaxActiveInitiativesPerMember
 				}
-				if unlocked.GTE(bond) && underCap {
+				// A funder of the initiative's bounty cannot take the work.
+				notFunder := !k.HasInitiativeBountyContribution(ctx, initID, project.Creator)
+				if unlocked.GTE(bond) && underCap && notFunder {
 					msg := &types.MsgAssignInitiative{
 						Creator:      signerAddr,
 						InitiativeId: initID,
@@ -121,6 +123,10 @@ func SimulateMsgAssignInitiative(
 		// If we still got the project creator after 5 tries, skip this operation
 		if assignee.Address == project.Creator {
 			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgAssignInitiative{}), "could not pick a non-creator assignee"), nil, nil
+		}
+		// A funder of the initiative's bounty cannot take the work.
+		if k.HasInitiativeBountyContribution(ctx, initID, assignee.Address) {
+			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgAssignInitiative{}), "assignee funds the initiative's bounty"), nil, nil
 		}
 
 		msg := &types.MsgAssignInitiative{

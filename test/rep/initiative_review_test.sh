@@ -135,7 +135,7 @@ if [ "$ALREADY" == "BONDED_ROLE_STATUS_NORMAL" ]; then
     echo "  already bonded from an earlier run"
     TEST_2_RESULT="PASS"
 else
-    send $BINARY tx rep transfer-dream "$SENTINEL1_ADDR" 6000000000 bounty reviewer-bond --from alice > /dev/null
+    send $BINARY tx rep transfer-dream "$SENTINEL1_ADDR" 6000000000 tip reviewer-bond --from alice > /dev/null
     R=$(send $BINARY tx rep bond-role initiative-reviewer 5500000000 --from sentinel1)
     STATUS=$($BINARY query rep bonded-role initiative-reviewer "$SENTINEL1_ADDR" --output json 2>&1 \
         | jq -r '.bonded_role.bond_status // ""')

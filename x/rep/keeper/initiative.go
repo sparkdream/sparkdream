@@ -323,6 +323,12 @@ func (k Keeper) AssignInitiativeToMember(
 		return fmt.Errorf("assignee is not a member: %w", err)
 	}
 
+	// A funder of the initiative's bounty cannot take the work: funding it and
+	// then completing it is a transfer to oneself routed through the bounty.
+	if k.HasInitiativeBountyContribution(ctx, initiativeID, assignee.String()) {
+		return errorsmod.Wrap(types.ErrUnauthorized, "a funder of this initiative's bounty cannot be assigned to it")
+	}
+
 	// Validate member is qualified for tier
 	params, err := k.Params.Get(ctx)
 	if err != nil {
@@ -764,6 +770,10 @@ func (k Keeper) CloseInitiative(ctx context.Context, initiativeID uint64, reason
 	if _, bErr := k.PayReviewBounty(ctx, initiative); bErr != nil {
 		return fmt.Errorf("failed to settle review bounty: %w", bErr)
 	}
+	// The work was not delivered, so the initiative bounty goes back whole.
+	if err := k.RefundInitiativeBounty(ctx, initiativeID, "initiative closed"); err != nil {
+		return fmt.Errorf("failed to refund initiative bounty: %w", err)
+	}
 	reviewFees, feeErr := k.PayReviewFees(ctx, initiative)
 	if feeErr != nil {
 		return fmt.Errorf("failed to pay review fees: %w", feeErr)
@@ -1014,6 +1024,11 @@ func (k Keeper) CompleteInitiative(ctx context.Context, initiativeID uint64) err
 	// across the verdicts filed, refunded to funders if there were none.
 	if _, err := k.PayReviewBounty(ctx, initiative); err != nil {
 		return fmt.Errorf("failed to settle review bounty: %w", err)
+	}
+	// The initiative bounty is the one payment contingent on completion: it
+	// goes to the assignee, taxed and within their transfer receive limits.
+	if _, err := k.PayInitiativeBounty(ctx, initiative); err != nil {
+		return fmt.Errorf("failed to pay initiative bounty: %w", err)
 	}
 	// Completion is gated on the challenge window having elapsed with no active
 	// challenge, so these verdicts are no longer contestable and the bond

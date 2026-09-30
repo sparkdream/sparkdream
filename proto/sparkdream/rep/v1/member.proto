@@ -37,16 +37,22 @@ message Member {
   int64 zeroed_at = 16;
   uint32 zeroed_count = 17;
   int64 last_decay_epoch = 18;
-  uint32 tips_given_this_epoch = 19;
+  // DREAM tipped this epoch (amount, not count), reset lazily when
+  // last_tip_epoch falls behind. Nil on records written before it existed.
+  string tips_sent_this_epoch = 19 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
   int64 last_tip_epoch = 20;
 
   // Cached counts for performance (avoid full table scans)
   uint32 completed_interims_count = 21; // Incremented on interim completion
   uint32 completed_initiatives_count = 22; // Incremented on initiative completion
 
-  // Gift tracking for rate limiting
-  string gifts_sent_this_epoch = 23 [(gogoproto.customtype) = "cosmossdk.io/math.Int"]; // Total DREAM gifted this epoch
-  int64 last_gift_epoch = 24; // Epoch when gift counter was last reset
+  // DREAM received through member-to-member transfers (tips and initiative
+  // bounty payouts) in the current epoch, bounded by
+  // max_transfer_received_per_epoch. The binding transfer limit sits on the
+  // recipient: a buyer can collect from any number of senders, so only a cap
+  // on what one account takes in bounds how fast a position can be bought.
+  string transfer_received_this_epoch = 23 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
+  int64 last_transfer_received_epoch = 24;
 
   // Invitation credit tracking for lazy seasonal reset
   int64 last_credit_reset_season = 25; // Season when credits were last reset to trust-level max
@@ -112,6 +118,16 @@ message Member {
   // own per-item cap. Nil on records written before this field existed;
   // readers must treat nil as zero.
   string content_staked_dream = 34 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
+
+  // Season-scale counterpart of transfer_received_this_epoch, bounded by
+  // max_transfer_received_per_season.
+  string transfer_received_this_season = 35 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
+  int64 last_transfer_received_season = 36;
+
+  // DREAM this member escrowed into initiative bounties this epoch, bounded by
+  // max_initiative_bounty_per_funder_epoch.
+  string initiative_bounty_funded_this_epoch = 37 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
+  int64 last_initiative_bounty_epoch = 38;
 }
 
 enum TrustLevel {
@@ -128,10 +144,12 @@ enum MemberStatus {
   MEMBER_STATUS_ZEROED = 2;
 }
 
-// GiftRecord tracks the last time a sender gifted a specific recipient
-// Used to enforce per-recipient cooldown periods
+// GiftRecord is the lifetime ledger of what a sender has gifted one of their
+// invitees, bounded by max_gift_per_invitee. A gift is a one-time seed to help
+// an invitee get started, so the cap is per invitee for life rather than per
+// epoch.
 message GiftRecord {
   string sender = 1;
   string recipient = 2;
-  int64 last_gift_block = 3; // Block height when last gift was sent
+  string total_gifted = 3 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
 }

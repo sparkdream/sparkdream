@@ -105,7 +105,7 @@ echo "--- PART 1: CREATOR SELF-ASSIGN + BOND LOCK ---"
 # Part 3 poll window: required = conviction_per_dream * sqrt(budget) = 200, and
 # per-staker conviction is capped at 35% of required (70), so 3 external
 # stakers suffice (210 > 200 total, 210 > 150 external), each reaching the cap
-# in ~35s with a 150 DREAM stake. A fourth is staked for headroom.
+# within seconds with a 10 DREAM stake. A fourth is staked for headroom.
 # Also stays under the APPRENTICE tier cap.
 SELF_BUDGET="1000000"
 SELF_INIT_ID=$(create_initiative "Self-assigned doc fix" "$SELF_BUDGET")
@@ -122,6 +122,7 @@ ASSIGN_RES=$($BINARY tx rep assign-initiative \
   --from alice \
   --chain-id $CHAIN_ID \
   --keyring-backend test \
+  --gas 400000 \
   --fees 5000${BOND_DENOM} \
   -y \
   -o json)
@@ -237,10 +238,13 @@ echo "Note: self-assigned initiatives need a raised external conviction ratio ($
 # alice's direct invitees and every one of them contributes zero external
 # conviction. The community accounts are invited by bob, outside alice's
 # subtree. See Step 5b of setup_test_accounts.sh.
-# Conviction is sqrt-dampened and capped per member, so the cap is reached well
-# before a large stake matters. Keep this within the community accounts'
-# working capital (50 DREAM each from Step 5b, less the transfer tax).
-SELF_STAKE_AMOUNT="40000000"
+# Conviction is sqrt(micro-DREAM * time_factor) and capped per member at 70, so
+# 10 DREAM hits the cap about a second after staking; a larger stake buys
+# nothing. Keep it well under the community accounts' working capital: 50 DREAM
+# each from Step 5b, less the 3% transfer tax, then eroded by unstaked decay
+# (0.2%/epoch, 1-minute epochs) for the hour or more the suite runs before this
+# test. A 40 DREAM stake failed with "insufficient balance" on late runs.
+SELF_STAKE_AMOUNT="10000000"
 STAKE_ERR_FILE=$(mktemp)
 STAKES_LANDED=0
 for STAKER in community1 community2 community3 community4; do
@@ -316,7 +320,7 @@ RELEASE_INIT_ID=$(create_initiative "Self-assigned then released" "$RELEASE_BUDG
 echo "Initiative ID: $RELEASE_INIT_ID"
 
 $BINARY tx rep assign-initiative $RELEASE_INIT_ID $ALICE_ADDR \
-  --from alice --chain-id $CHAIN_ID --keyring-backend test \
+  --from alice --chain-id $CHAIN_ID --keyring-backend test --gas 400000 \
   --fees 5000${BOND_DENOM} -y -o json > /dev/null 2>&1
 sleep 6
 
@@ -332,6 +336,7 @@ else
       --from alice \
       --chain-id $CHAIN_ID \
       --keyring-backend test \
+      --gas 400000 \
       --fees 5000${BOND_DENOM} \
       -y \
       -o json)

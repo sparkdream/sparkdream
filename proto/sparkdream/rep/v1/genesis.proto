@@ -9,6 +9,7 @@ import "sparkdream/rep/v1/challenge.proto";
 import "sparkdream/rep/v1/content_challenge.proto";
 import "sparkdream/rep/v1/gov_action_appeal.proto";
 import "sparkdream/rep/v1/initiative.proto";
+import "sparkdream/rep/v1/initiative_bounty.proto";
 import "sparkdream/rep/v1/initiative_review.proto";
 import "sparkdream/rep/v1/interim.proto";
 import "sparkdream/rep/v1/invitation.proto";
@@ -115,9 +116,12 @@ message GenesisState {
   // decay clock that re-applies an extra epoch.
   EconomicState economic_state = 43;
 
-  // Per-recipient gift cooldown records. Not exported meant a capped gift
-  // re-enabled itself across a restart.
+  // Per-(sender, invitee) lifetime gift ledgers. Not exporting them would
+  // re-open every invitee's lifetime gift allowance across a restart.
   repeated GiftRecordEntry gift_record_list = 44 [(gogoproto.nullable) = false];
+  // Initiative bounties are a lock on each funder's DREAM; dropping them on
+  // import would strand the escrow with nothing able to pay or refund it.
+  repeated InitiativeBounty initiative_bounty_list = 45 [(gogoproto.nullable) = false];
 }
 
 // EconomicState carries x/rep's token ledger across a genesis round trip.
@@ -144,7 +148,7 @@ message EconomicState {
   uint64 decay_last_processed_epoch = 15;
 }
 
-// GiftRecordEntry is one (sender, recipient) gift cooldown record, flattened
+// GiftRecordEntry is one (sender, recipient) lifetime gift ledger, flattened
 // for genesis because the live collection is keyed by the pair.
 message GiftRecordEntry {
   string sender = 1;

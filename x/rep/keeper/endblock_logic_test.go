@@ -543,18 +543,18 @@ func TestApplyDecay_PreservesOtherFields(t *testing.T) {
 	// With NewMemberDecayGraceEpochs=30, we need memberAge >= 30 epochs
 	// Set LastDecayEpoch = 30 and advance to epoch 31 (past grace period)
 	originalMember := types.Member{
-		Address:            addr.String(),
-		DreamBalance:       PtrInt(math.NewInt(1000)),
-		StakedDream:        PtrInt(math.NewInt(0)),
-		LifetimeEarned:     PtrInt(math.NewInt(5000)),
-		LifetimeBurned:     PtrInt(math.NewInt(100)),
-		ReputationScores:   map[string]string{"technical": "75.5", "audit": "60.0"},
-		TrustLevel:         types.TrustLevel_TRUST_LEVEL_CORE,
-		InvitedBy:          "cosmos1inviter",
-		LastDecayEpoch:     30, // Start tracking from epoch 30
-		TipsGivenThisEpoch: 5,
-		LastTipEpoch:       0,
-		JoinedAt:           0, // Joined very early (epoch 0)
+		Address:           addr.String(),
+		DreamBalance:      PtrInt(math.NewInt(1000)),
+		StakedDream:       PtrInt(math.NewInt(0)),
+		LifetimeEarned:    PtrInt(math.NewInt(5000)),
+		LifetimeBurned:    PtrInt(math.NewInt(100)),
+		ReputationScores:  map[string]string{"technical": "75.5", "audit": "60.0"},
+		TrustLevel:        types.TrustLevel_TRUST_LEVEL_CORE,
+		InvitedBy:         "cosmos1inviter",
+		LastDecayEpoch:    30, // Start tracking from epoch 30
+		TipsSentThisEpoch: PtrInt(math.NewInt(5)),
+		LastTipEpoch:      0,
+		JoinedAt:          0, // Joined very early (epoch 0)
 	}
 	k.Member.Set(ctx, addr.String(), originalMember)
 
@@ -580,5 +580,5 @@ func TestApplyDecay_PreservesOtherFields(t *testing.T) {
 	require.Equal(t, originalMember.ReputationScores, member.ReputationScores)
 	require.Equal(t, originalMember.TrustLevel, member.TrustLevel)
 	require.Equal(t, originalMember.InvitedBy, member.InvitedBy)
-	require.Equal(t, originalMember.TipsGivenThisEpoch, member.TipsGivenThisEpoch)
+	require.Equal(t, originalMember.TipsSentThisEpoch.String(), member.TipsSentThisEpoch.String())
 }

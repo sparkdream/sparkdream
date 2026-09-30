@@ -7,6 +7,7 @@ import (
 	"sparkdream/x/rep/types"
 
 	"cosmossdk.io/collections"
+	errorsmod "cosmossdk.io/errors"
 	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 )
@@ -614,10 +615,23 @@ func (k Keeper) UnlockDREAM(ctx context.Context, addr sdk.AccAddress, amount mat
 	return nil
 }
 
-// TransferDREAM transfers DREAM tokens between members with purpose validation and tax
+// TransferDREAM transfers DREAM between members, held to the limits of its
+// purpose and taxed at transfer_tax_rate.
+//
+// Only TIP and GIFT exist. Every other value, including an undefined enum
+// number on a hand-built transaction, is rejected: the old switch had no
+// default, so any other purpose was an uncapped send. Bounties are escrowed
+// against an initiative with MsgFundInitiativeBounty instead.
+//
+// All limit checks run before any state is written, so a refused transfer
+// leaves no trace even when called from another module outside a tx.
 func (k Keeper) TransferDREAM(ctx context.Context, sender, recipient sdk.AccAddress, amount math.Int, purpose types.TransferPurpose) error {
-	if amount.IsNegative() || amount.IsZero() {
+	if amount.IsNil() || !amount.IsPositive() {
 		return types.ErrInvalidAmount
+	}
+	if purpose != types.TransferPurpose_TRANSFER_PURPOSE_TIP &&
+		purpose != types.TransferPurpose_TRANSFER_PURPOSE_GIFT {
+		return errorsmod.Wrapf(types.ErrInvalidTransferPurpose, "%d", int32(purpose))
 	}
 
 	if sender.Equals(recipient) {
@@ -629,19 +643,15 @@ func (k Keeper) TransferDREAM(ctx context.Context, sender, recipient sdk.AccAddr
 		return err
 	}
 
-	// Get sender member
 	senderMember, err := k.Member.Get(ctx, sender.String())
 	if err != nil {
 		return types.ErrMemberNotFound
 	}
-
-	// Get recipient member
 	recipientMember, err := k.Member.Get(ctx, recipient.String())
 	if err != nil {
 		return types.ErrMemberNotFound
 	}
 
-	// Apply decay to both members
 	if err := k.ApplyPendingDecay(ctx, &senderMember); err != nil {
 		return err
 	}
@@ -649,85 +659,52 @@ func (k Keeper) TransferDREAM(ctx context.Context, sender, recipient sdk.AccAddr
 		return err
 	}
 
-	// Check purpose limits
 	currentEpoch, err := k.GetCurrentEpoch(ctx)
 	if err != nil {
 		return err
 	}
+
+	tax := math.ZeroInt()
+	if !params.TransferTaxRate.IsZero() {
+		tax = math.LegacyNewDecFromInt(amount).Mul(params.TransferTaxRate).TruncateInt()
+	}
+	netAmount := amount.Sub(tax)
+
+	giftKey := collections.Join(sender.String(), recipient.String())
+	var giftTotal math.Int
 
 	switch purpose {
 	case types.TransferPurpose_TRANSFER_PURPOSE_TIP:
 		if amount.GT(params.MaxTipAmount) {
 			return types.ErrExceedsMaxTipAmount
 		}
-
-		// Reset tip counter if new epoch
-		if senderMember.LastTipEpoch < currentEpoch {
-			senderMember.TipsGivenThisEpoch = 0
+		if senderMember.LastTipEpoch < currentEpoch || senderMember.TipsSentThisEpoch == nil {
+			senderMember.TipsSentThisEpoch = PtrInt(math.ZeroInt())
 			senderMember.LastTipEpoch = currentEpoch
 		}
-
-		if senderMember.TipsGivenThisEpoch >= params.MaxTipsPerEpoch {
-			return types.ErrExceedsMaxTipsPerEpoch
+		sent := senderMember.TipsSentThisEpoch.Add(amount)
+		if sent.GT(params.MaxTipsSentPerEpoch) {
+			return errorsmod.Wrapf(types.ErrExceedsMaxTipsPerEpoch, "%s of %s already tipped this epoch",
+				senderMember.TipsSentThisEpoch, params.MaxTipsSentPerEpoch)
 		}
-
-		senderMember.TipsGivenThisEpoch++
+		// Tips count against the recipient's limits; gifts do not (each
+		// member has one inviter, so the per-invitee lifetime cap bounds them).
+		if err := k.chargeTransferReceived(ctx, params, &recipientMember, netAmount); err != nil {
+			return err
+		}
+		senderMember.TipsSentThisEpoch = PtrInt(sent)
 
 	case types.TransferPurpose_TRANSFER_PURPOSE_GIFT:
-		if amount.GT(params.MaxGiftAmount) {
-			return types.ErrExceedsMaxGiftAmount
+		if params.GiftOnlyToInvitees && recipientMember.InvitedBy != sender.String() {
+			return types.ErrGiftOnlyToInvitees
 		}
-
-		if params.GiftOnlyToInvitees {
-			if recipientMember.InvitedBy != sender.String() {
-				return types.ErrGiftOnlyToInvitees
-			}
+		giftTotal = math.ZeroInt()
+		if rec, gErr := k.GiftRecord.Get(ctx, giftKey); gErr == nil {
+			giftTotal = DerefInt(rec.TotalGifted)
 		}
-
-		// Check per-recipient cooldown
-		sdkCtx := sdk.UnwrapSDKContext(ctx)
-		currentBlock := sdkCtx.BlockHeight()
-		giftKey := collections.Join(sender.String(), recipient.String())
-
-		existingRecord, err := k.GiftRecord.Get(ctx, giftKey)
-		if err == nil {
-			// Record exists, check cooldown
-			blocksSinceLastGift := currentBlock - existingRecord.LastGiftBlock
-			if blocksSinceLastGift < params.GiftCooldownBlocks {
-				return types.ErrGiftCooldownNotMet
-			}
-		}
-		// If no record exists (err != nil), this is the first gift to this recipient
-
-		// Initialize GiftsSentThisEpoch if nil (for members created before this field was added)
-		if senderMember.GiftsSentThisEpoch == nil {
-			senderMember.GiftsSentThisEpoch = new(math.Int)
-			*senderMember.GiftsSentThisEpoch = math.NewInt(0)
-		}
-
-		// Check and update per-sender epoch limit
-		if senderMember.LastGiftEpoch < currentEpoch {
-			// New epoch, reset counter
-			*senderMember.GiftsSentThisEpoch = math.NewInt(0)
-			senderMember.LastGiftEpoch = currentEpoch
-		}
-
-		newTotal := senderMember.GiftsSentThisEpoch.Add(amount)
-		if newTotal.GT(params.MaxGiftsPerSenderEpoch) {
-			return types.ErrExceedsEpochGiftLimit
-		}
-
-		// Update sender's epoch gift counter (will be saved later with member)
-		*senderMember.GiftsSentThisEpoch = newTotal
-
-		// Update gift record for cooldown tracking
-		giftRecord := types.GiftRecord{
-			Sender:        sender.String(),
-			Recipient:     recipient.String(),
-			LastGiftBlock: currentBlock,
-		}
-		if err := k.GiftRecord.Set(ctx, giftKey, giftRecord); err != nil {
-			return err
+		giftTotal = giftTotal.Add(amount)
+		if giftTotal.GT(params.MaxGiftPerInvitee) {
+			return errorsmod.Wrapf(types.ErrExceedsGiftAllowance, "lifetime allowance is %s", params.MaxGiftPerInvitee)
 		}
 	}
 
@@ -737,20 +714,19 @@ func (k Keeper) TransferDREAM(ctx context.Context, sender, recipient sdk.AccAddr
 		return types.ErrInsufficientBalance
 	}
 
-	// Calculate tax
-	tax := math.NewInt(0)
-	if !params.TransferTaxRate.IsZero() {
-		taxDec := math.LegacyNewDecFromInt(amount).Mul(params.TransferTaxRate)
-		tax = taxDec.TruncateInt()
+	if purpose == types.TransferPurpose_TRANSFER_PURPOSE_GIFT {
+		if err := k.GiftRecord.Set(ctx, giftKey, types.GiftRecord{
+			Sender:      sender.String(),
+			Recipient:   recipient.String(),
+			TotalGifted: PtrInt(giftTotal),
+		}); err != nil {
+			return err
+		}
 	}
 
-	netAmount := amount.Sub(tax)
-
-	// Execute transfer
 	*senderMember.DreamBalance = senderMember.DreamBalance.Sub(amount)
 	*recipientMember.DreamBalance = recipientMember.DreamBalance.Add(netAmount)
 
-	// Track burned tax
 	if tax.IsPositive() {
 		*senderMember.LifetimeBurned = senderMember.LifetimeBurned.Add(tax)
 		if err := k.TrackBurn(ctx, tax); err != nil {
@@ -758,7 +734,6 @@ func (k Keeper) TransferDREAM(ctx context.Context, sender, recipient sdk.AccAddr
 		}
 	}
 
-	// Save both members
 	if err := k.Member.Set(ctx, sender.String(), senderMember); err != nil {
 		return err
 	}
@@ -766,7 +741,6 @@ func (k Keeper) TransferDREAM(ctx context.Context, sender, recipient sdk.AccAddr
 		return err
 	}
 
-	// Emit event
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	sdkCtx.EventManager().EmitEvent(
 		sdk.NewEvent(
@@ -779,5 +753,64 @@ func (k Keeper) TransferDREAM(ctx context.Context, sender, recipient sdk.AccAddr
 		),
 	)
 
+	return nil
+}
+
+// TransferReceiveHeadroom is how much more DREAM a member may take in through
+// tips and initiative bounty payouts before hitting either the epoch or the
+// season limit.
+//
+// The limit sits on the recipient because that is the side a buyer cannot
+// multiply: a seller can only send their own DREAM, but a buyer can collect
+// from any number of sellers.
+func (k Keeper) TransferReceiveHeadroom(ctx context.Context, params types.Params, m *types.Member) (math.Int, error) {
+	if err := k.rollTransferReceivedWindows(ctx, m); err != nil {
+		return math.ZeroInt(), err
+	}
+	epochLeft := params.MaxTransferReceivedPerEpoch.Sub(DerefInt(m.TransferReceivedThisEpoch))
+	seasonLeft := params.MaxTransferReceivedPerSeason.Sub(DerefInt(m.TransferReceivedThisSeason))
+	left := math.MinInt(epochLeft, seasonLeft)
+	if left.IsNegative() {
+		return math.ZeroInt(), nil
+	}
+	return left, nil
+}
+
+// chargeTransferReceived counts amount against the member's recipient-side
+// limits, failing whole rather than admitting part of it. The caller persists
+// the member.
+func (k Keeper) chargeTransferReceived(ctx context.Context, params types.Params, m *types.Member, amount math.Int) error {
+	left, err := k.TransferReceiveHeadroom(ctx, params, m)
+	if err != nil {
+		return err
+	}
+	if amount.GT(left) {
+		return errorsmod.Wrapf(types.ErrExceedsTransferReceiveLimit,
+			"%s can receive %s more this epoch and season, not %s", m.Address, left, amount)
+	}
+	m.TransferReceivedThisEpoch = PtrInt(DerefInt(m.TransferReceivedThisEpoch).Add(amount))
+	m.TransferReceivedThisSeason = PtrInt(DerefInt(m.TransferReceivedThisSeason).Add(amount))
+	return nil
+}
+
+// rollTransferReceivedWindows resets the epoch and season receive counters
+// when their window has moved on.
+func (k Keeper) rollTransferReceivedWindows(ctx context.Context, m *types.Member) error {
+	epoch, err := k.GetCurrentEpoch(ctx)
+	if err != nil {
+		return err
+	}
+	season, err := k.GetCurrentSeason(ctx)
+	if err != nil {
+		return err
+	}
+	if m.LastTransferReceivedEpoch != epoch || m.TransferReceivedThisEpoch == nil {
+		m.TransferReceivedThisEpoch = PtrInt(math.ZeroInt())
+		m.LastTransferReceivedEpoch = epoch
+	}
+	if m.LastTransferReceivedSeason != season || m.TransferReceivedThisSeason == nil {
+		m.TransferReceivedThisSeason = PtrInt(math.ZeroInt())
+		m.LastTransferReceivedSeason = season
+	}
 	return nil
 }

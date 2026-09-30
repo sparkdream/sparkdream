@@ -185,6 +185,7 @@ DEC_FIELDS = [
     'curator_reward_pool_overflow_burn_ratio', 'min_curator_accuracy',
     'verifier_reward_pool_overflow_burn_ratio', 'min_verifier_accuracy',
     'role_reward_inflation_share', 'permissionless_min_review_bounty_rate',
+    'initiative_bounty_max_budget_ratio',
     'staking_reward_yield_per_epoch', 'staking_pool_mint_share',
     'staking_pool_cap_rate', 'max_completion_bonus_stake_multiple'
 ]
@@ -213,8 +214,8 @@ build_op_params_with_override() {
     local raw_params=$($BINARY query rep params --output json)
     local op_params=$(echo "$raw_params" | jq '.params | {
       epoch_blocks, season_duration_epochs, unstaked_decay_rate,
-      transfer_tax_rate, max_tip_amount, max_tips_per_epoch,
-      max_gift_amount,
+      transfer_tax_rate, max_tip_amount, max_tips_sent_per_epoch,
+      max_gift_per_invitee,
       gift_only_to_invitees: (.gift_only_to_invitees // false),
       min_reputation_multiplier, default_review_period_epochs,
       default_challenge_period_epochs, min_invitation_stake,
@@ -229,8 +230,8 @@ build_op_params_with_override() {
       project_completion_bonus_rate, member_stake_revenue_share,
       tag_stake_revenue_share, min_stake_duration_seconds,
       allow_self_member_stake: (.allow_self_member_stake // false),
-      challenge_response_deadline_epochs, gift_cooldown_blocks,
-      max_gifts_per_sender_epoch, content_conviction_half_life_epochs,
+      challenge_response_deadline_epochs, max_transfer_received_per_epoch,
+      max_transfer_received_per_season, content_conviction_half_life_epochs,
       max_content_stake_per_member, max_total_content_stake_per_member, max_author_bond_per_content,
       author_bond_slash_on_moderation: (.author_bond_slash_on_moderation // false),
       content_challenge_reward_share, conviction_propagation_ratio,
@@ -297,7 +298,12 @@ build_op_params_with_override() {
       max_verifier_dream_mint_per_epoch,
       review_required_above_budget,
       review_bounty_reclaim_delay,
-      permissionless_min_review_bounty_rate
+      permissionless_min_review_bounty_rate,
+      initiative_bounty_max_budget_ratio,
+      max_initiative_bounty_per_funder_epoch,
+      min_initiative_bounty_contribution,
+      max_initiative_bounty_contributions,
+      initiative_bounty_reclaim_delay
     }')
 
     # Apply the override. int64 fields are JSON numbers in the query output;

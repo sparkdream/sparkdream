@@ -209,28 +209,37 @@ ALLOWED TRANSFERS:
 
 1. TIPS
    ├── Purpose: Thank/reward other members
-   ├── Max amount: 100 DREAM per tip
-   ├── Max frequency: 10 tips per epoch
+   ├── Max amount: 10 DREAM per tip
+   ├── Max per sender: 50 DREAM per epoch
    ├── Recipients: Any member
    └── Tax: 3% burned
 
 2. GIFTS
-   ├── Purpose: Help onboard invitees
-   ├── Max amount: 500 DREAM per gift
+   ├── Purpose: One-time seed to help an invitee get started
+   ├── Max amount: 500 DREAM per invitee, lifetime
    ├── Recipients: Only your invitees
    └── Tax: 3% burned
 
-3. BOUNTIES
-   ├── Purpose: Fund specific work
-   ├── Mechanism: Escrowed until initiative completion
-   ├── Tied to: Specific initiative ID
+3. INITIATIVE BOUNTIES (MsgFundInitiativeBounty)
+   ├── Purpose: Put DREAM you hold toward work you want done
+   ├── Mechanism: Escrowed; paid to the assignee on completion,
+   │              refunded if the initiative is closed or rejected
+   ├── Caps: total <= the initiative's budget; 100 DREAM per funder per epoch
+   ├── Funders: not the assignee, apprentice, or either creator
    └── Tax: 3% burned on release
+
+RECIPIENT LIMIT (tips + bounty payouts):
+├── 100 DREAM per epoch, 1,000 DREAM per season per member
+└── The binding limit: a buyer can collect from any number of sellers, so
+    only a cap on what one account takes in bounds how fast a position can
+    be bought. Accumulating 5,000 DREAM by transfer takes at least five
+    seasons however many senders cooperate.
 
 PROHIBITED:
 ├── External market trading
 ├── IBC transfers
 ├── Transfers to non-members
-├── Bulk transfers (>500 DREAM without escrow)
+├── Any other transfer purpose (there is no uncapped transfer)
 └── Buying DREAM with SPARK
 ```
 

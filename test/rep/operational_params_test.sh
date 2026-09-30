@@ -134,6 +134,7 @@ DEC_FIELDS = [
     'curator_reward_pool_overflow_burn_ratio', 'min_curator_accuracy',
     'verifier_reward_pool_overflow_burn_ratio', 'min_verifier_accuracy',
     'role_reward_inflation_share', 'permissionless_min_review_bounty_rate',
+    'initiative_bounty_max_budget_ratio',
     'staking_reward_yield_per_epoch', 'staking_pool_mint_share',
     'staking_pool_cap_rate', 'max_completion_bonus_stake_multiple'
 ]
@@ -168,7 +169,7 @@ echo "--- TEST 1: QUERY INITIAL REP PARAMETERS ---"
 PARAMS_JSON=$($BINARY query rep params --output json)
 
 # Operational fields we'll test
-INITIAL_MAX_TIPS=$(echo $PARAMS_JSON | jq -r '.params.max_tips_per_epoch')
+INITIAL_MAX_TIPS=$(echo $PARAMS_JSON | jq -r '.params.max_tips_sent_per_epoch')
 INITIAL_JURY_SIZE=$(echo $PARAMS_JSON | jq -r '.params.jury_size')
 INITIAL_EPOCH_BLOCKS=$(echo $PARAMS_JSON | jq -r '.params.epoch_blocks')
 
@@ -178,7 +179,7 @@ INITIAL_TREASURY_SHARE=$(echo $PARAMS_JSON | jq -r '.params.treasury_share')
 INITIAL_MINOR_SLASH=$(echo $PARAMS_JSON | jq -r '.params.minor_slash_penalty')
 
 echo "Operational params (subset):"
-echo "  max_tips_per_epoch: $INITIAL_MAX_TIPS"
+echo "  max_tips_sent_per_epoch: $INITIAL_MAX_TIPS"
 echo "  jury_size:          $INITIAL_JURY_SIZE"
 echo "  epoch_blocks:       $INITIAL_EPOCH_BLOCKS"
 echo "Governance-only params:"
@@ -207,8 +208,8 @@ if [ "$QUERY_PARAMS_RESULT" == "PASS" ]; then
       unstaked_decay_rate,
       transfer_tax_rate,
       max_tip_amount,
-      max_tips_per_epoch,
-      max_gift_amount,
+      max_tips_sent_per_epoch,
+      max_gift_per_invitee,
       gift_only_to_invitees: (.gift_only_to_invitees // false),
       min_reputation_multiplier,
       default_review_period_epochs,
@@ -237,8 +238,8 @@ if [ "$QUERY_PARAMS_RESULT" == "PASS" ]; then
       min_stake_duration_seconds,
       allow_self_member_stake: (.allow_self_member_stake // false),
       challenge_response_deadline_epochs,
-      gift_cooldown_blocks,
-      max_gifts_per_sender_epoch,
+      max_transfer_received_per_epoch,
+      max_transfer_received_per_season,
 
       content_conviction_half_life_epochs,
       max_content_stake_per_member, max_total_content_stake_per_member,
@@ -326,11 +327,20 @@ if [ "$QUERY_PARAMS_RESULT" == "PASS" ]; then
       max_verifier_dream_mint_per_epoch,
       review_required_above_budget,
       review_bounty_reclaim_delay,
-      permissionless_min_review_bounty_rate
+      permissionless_min_review_bounty_rate,
+      initiative_bounty_max_budget_ratio,
+      max_initiative_bounty_per_funder_epoch,
+      min_initiative_bounty_contribution,
+      max_initiative_bounty_contributions,
+      initiative_bounty_reclaim_delay
     }')
 
     # Modify test fields
-    NEW_MAX_TIPS="20"
+    # max_tips_sent_per_epoch is a DREAM amount (micro-DREAM string) and must
+    # stay >= max_tip_amount or the merged params are rejected, so raise the
+    # live value by 1 DREAM rather than picking a constant that may sit below
+    # whatever the network pins max_tip_amount to.
+    NEW_MAX_TIPS=$((INITIAL_MAX_TIPS + 1000000))
     NEW_JURY_SIZE="7"
     # The reviewer bond policy lives in params but is ENFORCED from the
     # BondedRoleConfig, so changing it here is what proves the write-through
@@ -341,7 +351,7 @@ if [ "$QUERY_PARAMS_RESULT" == "PASS" ]; then
     NEW_REVIEWER_UNBOND_COOLDOWN="1209601"
 
     OP_PARAMS=$(echo "$OP_PARAMS" | jq '
-      .max_tips_per_epoch = '$NEW_MAX_TIPS' |
+      .max_tips_sent_per_epoch = "'$NEW_MAX_TIPS'" |
       .jury_size = '$NEW_JURY_SIZE' |
       .min_reviewer_bond = "'$NEW_MIN_REVIEWER_BOND'" |
       .reviewer_demotion_threshold = "'$NEW_REVIEWER_DEMOTION_THRESHOLD'" |
@@ -354,7 +364,7 @@ if [ "$QUERY_PARAMS_RESULT" == "PASS" ]; then
 
     echo "  Converted operational params for proposal (sample):"
     echo "    unstaked_decay_rate: $(echo $OP_PARAMS | jq -r '.unstaked_decay_rate')"
-    echo "    max_tips_per_epoch: $(echo $OP_PARAMS | jq -r '.max_tips_per_epoch')"
+    echo "    max_tips_sent_per_epoch: $(echo $OP_PARAMS | jq -r '.max_tips_sent_per_epoch')"
 
     # Build the proposal JSON
     jq -n \
@@ -363,7 +373,7 @@ if [ "$QUERY_PARAMS_RESULT" == "PASS" ]; then
       --argjson op_params "$OP_PARAMS" \
     '{
       policy_address: $policy,
-      metadata: "Adjust tip limits and jury size via Operations Committee",
+      metadata: "Adjust tip allowance and jury size via Operations Committee",
       messages: [{
         "@type": "/sparkdream.rep.v1.MsgUpdateOperationalParams",
         authority: $policy,
@@ -410,15 +420,15 @@ echo "--- TEST 3: VERIFY OPERATIONAL PARAMS UPDATED ---"
 
 if [ "$UPDATE_PARAMS_RESULT" == "PASS" ]; then
     UPDATED_PARAMS=$($BINARY query rep params --output json)
-    UPDATED_MAX_TIPS=$(echo $UPDATED_PARAMS | jq -r '.params.max_tips_per_epoch')
+    UPDATED_MAX_TIPS=$(echo $UPDATED_PARAMS | jq -r '.params.max_tips_sent_per_epoch')
     UPDATED_JURY_SIZE=$(echo $UPDATED_PARAMS | jq -r '.params.jury_size')
 
-    echo "  max_tips_per_epoch: $UPDATED_MAX_TIPS (expected: $NEW_MAX_TIPS)"
+    echo "  max_tips_sent_per_epoch: $UPDATED_MAX_TIPS (expected: $NEW_MAX_TIPS)"
     echo "  jury_size:          $UPDATED_JURY_SIZE (expected: $NEW_JURY_SIZE)"
 
     VERIFY_OP_OK=true
     if [ "$UPDATED_MAX_TIPS" != "$NEW_MAX_TIPS" ]; then
-        echo "  max_tips_per_epoch mismatch (got $UPDATED_MAX_TIPS)"
+        echo "  max_tips_sent_per_epoch mismatch (got $UPDATED_MAX_TIPS)"
         VERIFY_OP_OK=false
     fi
     if [ "$UPDATED_JURY_SIZE" != "$NEW_JURY_SIZE" ]; then
@@ -622,8 +632,8 @@ if [ "$UPDATE_PARAMS_RESULT" == "PASS" ]; then
       unstaked_decay_rate,
       transfer_tax_rate,
       max_tip_amount,
-      max_tips_per_epoch,
-      max_gift_amount,
+      max_tips_sent_per_epoch,
+      max_gift_per_invitee,
       gift_only_to_invitees: (.gift_only_to_invitees // false),
       min_reputation_multiplier,
       default_review_period_epochs,
@@ -652,8 +662,8 @@ if [ "$UPDATE_PARAMS_RESULT" == "PASS" ]; then
       min_stake_duration_seconds,
       allow_self_member_stake: (.allow_self_member_stake // false),
       challenge_response_deadline_epochs,
-      gift_cooldown_blocks,
-      max_gifts_per_sender_epoch,
+      max_transfer_received_per_epoch,
+      max_transfer_received_per_season,
 
       content_conviction_half_life_epochs,
       max_content_stake_per_member, max_total_content_stake_per_member,
@@ -741,7 +751,12 @@ if [ "$UPDATE_PARAMS_RESULT" == "PASS" ]; then
       max_verifier_dream_mint_per_epoch,
       review_required_above_budget,
       review_bounty_reclaim_delay,
-      permissionless_min_review_bounty_rate
+      permissionless_min_review_bounty_rate,
+      initiative_bounty_max_budget_ratio,
+      max_initiative_bounty_per_funder_epoch,
+      min_initiative_bounty_contribution,
+      max_initiative_bounty_contributions,
+      initiative_bounty_reclaim_delay
     }')
 
     # Convert LegacyDec fields from raw format to decimal format
@@ -775,7 +790,7 @@ if [ "$UPDATE_PARAMS_RESULT" == "PASS" ]; then
         if [ $? -eq 0 ]; then
             # Verify reset
             RESET_PARAMS=$($BINARY query rep params --output json)
-            RESET_TIPS=$(echo $RESET_PARAMS | jq -r '.params.max_tips_per_epoch')
+            RESET_TIPS=$(echo $RESET_PARAMS | jq -r '.params.max_tips_sent_per_epoch')
 
             if [ "$RESET_TIPS" == "$INITIAL_MAX_TIPS" ]; then
                 RESET_PARAMS_RESULT="PASS"

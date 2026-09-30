@@ -6,15 +6,15 @@ import "amino/amino.proto";
 import "cosmos/base/query/v1beta1/pagination.proto";
 import "gogoproto/gogo.proto";
 import "google/api/annotations.proto";
+import "sparkdream/rep/v1/acceptance_criteria.proto";
 import "sparkdream/rep/v1/bonded_role.proto";
-import "sparkdream/rep/v1/role_activity.proto";
 import "sparkdream/rep/v1/challenge.proto";
 import "sparkdream/rep/v1/content_challenge.proto";
 import "sparkdream/rep/v1/gov_action_appeal.proto";
 import "sparkdream/rep/v1/initiative.proto";
+import "sparkdream/rep/v1/initiative_bounty.proto";
 import "sparkdream/rep/v1/initiative_review.proto";
 import "sparkdream/rep/v1/interim.proto";
-import "sparkdream/rep/v1/acceptance_criteria.proto";
 import "sparkdream/rep/v1/invitation.proto";
 import "sparkdream/rep/v1/jury_participation.proto";
 import "sparkdream/rep/v1/jury_review.proto";
@@ -25,6 +25,7 @@ import "sparkdream/rep/v1/params.proto";
 import "sparkdream/rep/v1/project.proto";
 import "sparkdream/rep/v1/reserved_tag.proto";
 import "sparkdream/rep/v1/review_bounty.proto";
+import "sparkdream/rep/v1/role_activity.proto";
 import "sparkdream/rep/v1/stake.proto";
 import "sparkdream/rep/v1/tag.proto";
 import "sparkdream/rep/v1/tag_budget.proto";
@@ -136,7 +137,6 @@ service Query {
   rpc ListInterim(QueryAllInterimRequest) returns (QueryAllInterimResponse) {
     option (google.api.http).get = "/sparkdream/rep/v1/interim";
   }
-
 
   // MembersByTrustLevel Queries a list of MembersByTrustLevel items.
   rpc MembersByTrustLevel(QueryMembersByTrustLevelRequest) returns (QueryMembersByTrustLevelResponse) {
@@ -473,6 +473,12 @@ service Query {
   rpc RoleRewardPools(QueryRoleRewardPoolsRequest) returns (QueryRoleRewardPoolsResponse) {
     option (google.api.http).get = "/sparkdream/rep/v1/role_reward_pools";
   }
+
+  // InitiativeBounty returns the DREAM escrowed against an initiative to be
+  // paid to its assignee on completion, and each contribution's reclaim state.
+  rpc InitiativeBounty(QueryInitiativeBountyRequest) returns (QueryInitiativeBountyResponse) {
+    option (google.api.http).get = "/sparkdream/rep/v1/initiative_bounty/{initiative_id}";
+  }
 }
 
 // QueryParamsRequest is request type for the Query/Params RPC method.
@@ -542,6 +548,7 @@ message QueryGetProjectResponse {
 // QueryAllProjectRequest defines the QueryAllProjectRequest message.
 message QueryAllProjectRequest {
   cosmos.base.query.v1beta1.PageRequest pagination = 1;
+
   // sort_by orders the full project set before pagination is applied.
   // Supported keys: "id" (default), "name", "budget" (approved budget),
   // "status". Direction follows pagination.reverse. When set, pagination is
@@ -568,6 +575,7 @@ message QueryGetInitiativeResponse {
 // QueryAllInitiativeRequest defines the QueryAllInitiativeRequest message.
 message QueryAllInitiativeRequest {
   cosmos.base.query.v1beta1.PageRequest pagination = 1;
+
   // sort_by orders the full initiative set before pagination is applied.
   // Supported keys: "id" (default), "title", "status", "budget", "tier",
   // "conviction" (current/required completion ratio; initiatives with no
@@ -667,10 +675,6 @@ message QueryAllInterimResponse {
   cosmos.base.query.v1beta1.PageResponse pagination = 2;
 }
 
-
-
-
-
 // QueryMembersByTrustLevelRequest defines the QueryMembersByTrustLevelRequest message.
 message QueryMembersByTrustLevelRequest {
   uint64 trust_level = 1;
@@ -698,6 +702,7 @@ message QueryInvitationsByInviterResponse {
 // QueryJuryReviewsByJurorRequest defines the QueryJuryReviewsByJuror request.
 message QueryJuryReviewsByJurorRequest {
   string juror = 1;
+
   // When true, return only reviews still awaiting a verdict — the summons a
   // juror can still act on. Defaults to false, which returns their full
   // service history.
@@ -758,6 +763,7 @@ message QueryInterimsByReferenceResponse {
 message QueryProjectsByCouncilRequest {
   string council = 1;
   cosmos.base.query.v1beta1.PageRequest pagination = 2;
+
   // Same keys and semantics as QueryAllProjectRequest.sort_by.
   string sort_by = 3;
 }
@@ -775,6 +781,7 @@ message QueryProjectsByCouncilResponse {
 message QueryInitiativesByProjectRequest {
   uint64 project_id = 1;
   cosmos.base.query.v1beta1.PageRequest pagination = 2;
+
   // Same keys and semantics as QueryAllInitiativeRequest.sort_by.
   string sort_by = 3;
 }
@@ -789,6 +796,7 @@ message QueryInitiativesByProjectResponse {
 message QueryInitiativesByAssigneeRequest {
   string assignee = 1;
   cosmos.base.query.v1beta1.PageRequest pagination = 2;
+
   // Same keys and semantics as QueryAllInitiativeRequest.sort_by.
   string sort_by = 3;
 }
@@ -806,6 +814,7 @@ message QueryInitiativesByAssigneeResponse {
 message QueryInitiativesByCreatorRequest {
   string creator = 1;
   cosmos.base.query.v1beta1.PageRequest pagination = 2;
+
   // Same keys and semantics as QueryAllInitiativeRequest.sort_by.
   string sort_by = 3;
 }
@@ -820,6 +829,7 @@ message QueryInitiativesByCreatorResponse {
 message QueryProjectsByCreatorRequest {
   string creator = 1;
   cosmos.base.query.v1beta1.PageRequest pagination = 2;
+
   // Same keys and semantics as QueryAllProjectRequest.sort_by.
   string sort_by = 3;
 }
@@ -833,6 +843,7 @@ message QueryProjectsByCreatorResponse {
 // QueryAvailableInitiativesRequest defines the QueryAvailableInitiativesRequest message.
 message QueryAvailableInitiativesRequest {
   cosmos.base.query.v1beta1.PageRequest pagination = 1;
+
   // Same keys and semantics as QueryAllInitiativeRequest.sort_by.
   string sort_by = 2;
 }
@@ -1067,7 +1078,7 @@ message QueryDreamSupplyStatsResponse {
   // were named total_minted/total_burned while reading the per-season
   // counters, which reads as an all-time supply figure and is not: those
   // counters reset every season in InitSeasonalPool.
-  //
+
   // There are no all-time counters to point them at instead, and adding some
   // would be redundant — circulating (every member's balance, staked included)
   // plus treasury_balance below is already the complete live supply, which is
@@ -1554,18 +1565,22 @@ message QueryRoleRewardPoolsRequest {}
 message RoleRewardPoolStatus {
   // role identifies the bonded role the pool pays, e.g. "content_sentinel".
   string role = 1;
+
   // address is the derived sub-address holding the pool balance.
   string address = 2;
+
   // balance is the pool's current SPARK balance.
   string balance = 3 [
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
+
   // cap is the pool's configured ceiling; excess is burned each epoch.
   string cap = 4 [
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
+
   // headroom is max(0, cap - balance) and sets this pool's share of the draw.
   string headroom = 5 [
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
@@ -1576,12 +1591,14 @@ message RoleRewardPoolStatus {
 // QueryRoleRewardPoolsResponse is the response for RoleRewardPools.
 message QueryRoleRewardPoolsResponse {
   repeated RoleRewardPoolStatus pools = 1 [(gogoproto.nullable) = false];
+
   // funded_today is the SPARK already drawn from the community pool on the
   // current UTC day.
   string funded_today = 2 [
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
+
   // daily_funding_cap is today's computed allowance in uspark --
   // annual_provisions * community_tax * inflation_share / 365. Zero means
   // automatic funding is disabled or nothing is being minted yet.
@@ -1589,6 +1606,7 @@ message QueryRoleRewardPoolsResponse {
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
+
   // inflation_share is the role_reward_inflation_share param the allowance is
   // derived from. Reported alongside the computed amount so an operator can
   // tell a retuned share from a change in the inflation rate.
@@ -1618,13 +1636,17 @@ message QueryInitiativeReviewsResponse {
   // Oldest round first. A rejected round's verdicts stay here so the decision
   // that sent work back can still be audited.
   repeated InitiativeReviewRound rounds = 1 [(gogoproto.nullable) = false];
+
   // The round the gate is judging now.
   uint32 current_round = 2;
+
   // Approving verdicts on the current round.
   uint32 approvals = 3;
+
   // How many approvals the gate needs — the maximum of the initiative's
   // snapshotted project policy and the live chain-wide budget threshold.
   uint32 required = 4;
+
   // Whether the gate is satisfied. Reported rather than left to the caller to
   // recompute, because "approvals >= required" is not the whole rule: a
   // committee escalation can satisfy or fail the gate on its own.
@@ -1646,6 +1668,7 @@ message QueryReviewBountyRequest {
 // QueryReviewBountyResponse returns the escrow and its reclaim state.
 message QueryReviewBountyResponse {
   ReviewBounty bounty = 1 [(gogoproto.nullable) = false];
+
   // Per-funder view of when each contribution matures, so a funder can see what
   // they may reclaim without recomputing the delay themselves.
   repeated ReviewBountyReclaimStatus reclaim_status = 2 [(gogoproto.nullable) = false];
@@ -1658,8 +1681,10 @@ message ReviewBountyReclaimStatus {
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
+
   // Height at which the reclaim delay elapses for this contribution.
   int64 reclaimable_at_height = 3;
+
   // False whenever the bounty is committed, regardless of height: a verdict has
   // been filed and the escrow now belongs to paying for it.
   bool reclaimable = 4;
@@ -1681,8 +1706,34 @@ message QueryEscalatedReviewsResponse {
 message EscalatedReview {
   uint64 initiative_id = 1;
   uint32 round = 2;
+
   // Height at which committee silence rejects the round.
   int64 review_deadline = 3;
   string title = 4;
   string assignee = 5;
+}
+
+// QueryInitiativeBountyRequest asks what is escrowed against an initiative.
+message QueryInitiativeBountyRequest {
+  uint64 initiative_id = 1;
+}
+
+// QueryInitiativeBountyResponse returns the escrow and its reclaim state.
+message QueryInitiativeBountyResponse {
+  InitiativeBounty bounty = 1 [(gogoproto.nullable) = false];
+  repeated InitiativeBountyReclaimStatus reclaim_status = 2 [(gogoproto.nullable) = false];
+}
+
+// InitiativeBountyReclaimStatus is one contribution's reclaim eligibility.
+message InitiativeBountyReclaimStatus {
+  string funder = 1;
+  string amount = 2 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  // Height at which the reclaim delay elapses for this contribution.
+  int64 reclaimable_at_height = 3;
+  // False whenever the initiative is not OPEN, regardless of height: an
+  // assignee is working on the strength of the bounty.
+  bool reclaimable = 4;
 }

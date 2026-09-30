@@ -130,8 +130,9 @@ echo "  MinChallengeStake: $MIN_CHALLENGE_STAKE"
 
 # Earlier suite tests (challenge_test, staking_errors) drain & burn the
 # challenger's DREAM, leaving them with too little unlocked balance to post the
-# 50-DREAM content-challenge stake here. Top up via a 250-DREAM bounty (no cap)
-# so this test runs deterministically regardless of upstream test order.
+# 50-DREAM content-challenge stake here. Top up with a tip (the test chain pins
+# loose transfer limits) so this test runs deterministically regardless of
+# upstream test order.
 CHALLENGER_BAL_JSON=$($BINARY query rep get-member "$CHALLENGER_ADDR" -o json 2>/dev/null)
 CHALLENGER_BAL=$(echo "$CHALLENGER_BAL_JSON" | jq -r '.member.dream_balance // "0"')
 CHALLENGER_STAKED=$(echo "$CHALLENGER_BAL_JSON" | jq -r '.member.staked_dream // "0"')
@@ -139,7 +140,7 @@ CHALLENGER_AVAILABLE=$((${CHALLENGER_BAL:-0} - ${CHALLENGER_STAKED:-0}))
 NEEDED=300000000  # 300 DREAM cushion (50 stake + multiple test rounds + tax)
 if [ "$CHALLENGER_AVAILABLE" -lt "$NEEDED" ]; then
     echo "  Topping up challenger (available: $CHALLENGER_AVAILABLE, need: $NEEDED)..."
-    $BINARY tx rep transfer-dream "$CHALLENGER_ADDR" 500000000 bounty \
+    $BINARY tx rep transfer-dream "$CHALLENGER_ADDR" 500000000 tip \
         "content_challenge_test top-up" \
         --from alice --chain-id $CHAIN_ID --keyring-backend test \
         --fees 5000${BOND_DENOM} -y --output json > /dev/null 2>&1

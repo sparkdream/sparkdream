@@ -20,17 +20,19 @@ func TestZeroMember(t *testing.T) {
 
 	// Setup: Active member with DREAM balance and reputation
 	err := k.Member.Set(ctx, memberAddr.String(), types.Member{
-		Address:            memberAddr.String(),
-		Status:             types.MemberStatus_MEMBER_STATUS_ACTIVE,
-		DreamBalance:       PtrInt(math.NewInt(1000)),
-		StakedDream:        PtrInt(math.NewInt(500)),
-		LifetimeEarned:     PtrInt(math.NewInt(1500)),
-		LifetimeBurned:     PtrInt(math.NewInt(0)),
-		ReputationScores:   map[string]string{"backend": "100.0", "frontend": "50.0"},
-		TrustLevel:         types.TrustLevel_TRUST_LEVEL_ESTABLISHED,
-		InvitationCredits:  5,
-		TipsGivenThisEpoch: 3,
-		GiftsSentThisEpoch: PtrInt(math.NewInt(100)),
+		Address:           memberAddr.String(),
+		Status:            types.MemberStatus_MEMBER_STATUS_ACTIVE,
+		DreamBalance:      PtrInt(math.NewInt(1000)),
+		StakedDream:       PtrInt(math.NewInt(500)),
+		LifetimeEarned:    PtrInt(math.NewInt(1500)),
+		LifetimeBurned:    PtrInt(math.NewInt(0)),
+		ReputationScores:  map[string]string{"backend": "100.0", "frontend": "50.0"},
+		TrustLevel:        types.TrustLevel_TRUST_LEVEL_ESTABLISHED,
+		InvitationCredits: 5,
+		TipsSentThisEpoch: PtrInt(math.NewInt(30)),
+		// Receive counters survive zeroing: resetting them would let a
+		// zeroed account buy its position straight back.
+		TransferReceivedThisSeason: PtrInt(math.NewInt(70)),
 	})
 	require.NoError(t, err)
 
@@ -70,8 +72,8 @@ func TestZeroMember(t *testing.T) {
 
 	// Credits and counters should be reset
 	require.Equal(t, uint32(0), member.InvitationCredits)
-	require.Equal(t, uint32(0), member.TipsGivenThisEpoch)
-	require.True(t, member.GiftsSentThisEpoch.IsZero())
+	require.Nil(t, member.TipsSentThisEpoch)
+	require.Equal(t, "70", member.TransferReceivedThisSeason.String())
 
 	// Zeroed count should be incremented
 	require.Equal(t, uint32(1), member.ZeroedCount)

@@ -8,6 +8,14 @@ import (
 
 func RegisterInterfaces(registrar codectypes.InterfaceRegistry) {
 	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgReclaimInitiativeBounty{},
+	)
+
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgFundInitiativeBounty{},
+	)
+
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
 		&MsgCloseInitiative{},
 	)
 

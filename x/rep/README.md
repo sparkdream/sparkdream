@@ -50,7 +50,8 @@ DREAM is the internal earned token:
 
 - **Minting**: initiative completion (primary), staking rewards, interim compensation, retroactive public goods
 - **Burning**: slashing, failed challenges, failed invitations, unstaked decay (0.2%/epoch), staked decay (0.05%/epoch), transfer tax (3%)
-- **Transfers**: tips (max 100 DREAM, 10/epoch), gifts (max 500 DREAM, invitees only, cooldown per recipient), bounties (escrowed)
+- **Transfers**: tips (max 10 DREAM each, 50 DREAM per sender per epoch), gifts (invitees only, 500 DREAM per invitee for life); every recipient capped at 100 DREAM per epoch and 1,000 per season received through tips and bounty payouts
+- **Initiative bounties**: DREAM escrowed against an initiative by non-affiliated members, capped at its budget, paid to the assignee on completion (taxed, within the receive limits) and refunded otherwise
 - **No external trading**, no IBC transfer
 
 **Two-tier decay**: unstaked DREAM decays at 0.2%/epoch (applied lazily per member and in a
@@ -485,7 +486,7 @@ Project" section of [docs/x-rep-spec.md](../../docs/x-rep-spec.md).
 
 | Message | Description | Access |
 |---------|-------------|--------|
-| `MsgTransferDream` | Tip/gift with purpose validation and rate limiting | Members |
+| `MsgTransferDream` | Tip or gift (any other purpose is rejected), held to sender and recipient limits | Members |
 
 ### Projects
 
@@ -506,6 +507,8 @@ Project" section of [docs/x-rep-spec.md](../../docs/x-rep-spec.md).
 | `MsgSubmitInitiativeReview` | File a bonded reviewer's verdict on submitted work | Bonded initiative reviewer, independent of the work and not a staker on it |
 | `MsgFundReviewBounty` | Escrow DREAM against an initiative to attract reviewers | Members |
 | `MsgReclaimReviewBounty` | Withdraw your own unpaid bounty (before any verdict) | Funder |
+| `MsgFundInitiativeBounty` | Escrow DREAM against an OPEN or ASSIGNED initiative, paid to its assignee on completion | Non-affiliated members |
+| `MsgReclaimInitiativeBounty` | Withdraw your own matured contributions while the initiative is OPEN | Funder |
 | `MsgSetVerificationPolicy` | Configure how a project's initiatives are reviewed | Project creator or Operations Committee |
 | `MsgResolveReviewEscalation` | Settle a review round that hit its deadline | Operations Committee |
 | `MsgUnassignInitiative` | Release an assignment; the initiative returns to OPEN, keeping its budget and conviction | Assignee, or Operations Committee for work stalled in review |
@@ -689,6 +692,7 @@ decimal offset, not a store key). See the Sorted List Pagination section of
 | `RoleRewardPools` | Funding state of every bonded-role SPARK pool, plus today's community-pool draw |
 | `InitiativeReviews` | All rounds' reviewer verdicts on an initiative, plus whether the current round meets the gate |
 | `ReviewBounty` | DREAM escrowed against an initiative and when each contribution becomes reclaimable |
+| `InitiativeBounty` | DREAM escrowed for an initiative's assignee and when each contribution becomes reclaimable |
 | `EscalatedReviews` | Review rounds awaiting an Operations Committee decision |
 
 ## Parameters
@@ -725,12 +729,17 @@ These parameters are excluded from `RepOperationalParams` and can only be change
 | `staking_pool_cap_base` | Int | 25,000 DREAM | Anchor for the schedule ceiling `cap_base * (season + 1) * cap_rate`. Per-network: each chain's own genesis DREAM supply (devnet 85,000) |
 | `staking_pool_cap_rate` | LegacyDec | 5% | Schedule rate per season elapsed; backstops the mint-share term on a mint spike |
 | `transfer_tax_rate` | LegacyDec | 3% | Burned on transfers |
-| `max_tip_amount` | Int | 100 DREAM | Per tip |
-| `max_tips_per_epoch` | uint64 | 10 | Rate limit |
-| `max_gift_amount` | Int | 500 DREAM | Per gift (invitees only) |
+| `max_tip_amount` | Int | 10 DREAM | Per tip |
+| `max_tips_sent_per_epoch` | Int | 50 DREAM | DREAM a sender may tip per epoch |
+| `max_gift_per_invitee` | Int | 500 DREAM | Lifetime total an inviter may gift each invitee |
 | `gift_only_to_invitees` | bool | true | Restrict gifts to invitees |
-| `gift_cooldown_blocks` | int64 | 14,400 | Cooldown per recipient (1 day) |
-| `max_gifts_per_sender_epoch` | Int | 2,000 DREAM | Total gifts per sender per epoch |
+| `max_transfer_received_per_epoch` | Int | 100 DREAM | DREAM a member may receive per epoch through tips and initiative bounty payouts |
+| `max_transfer_received_per_season` | Int | 1,000 DREAM | Same, per season. The recipient side is the binding limit: a buyer can collect from any number of senders |
+| `initiative_bounty_max_budget_ratio` | LegacyDec | 1.0 | Total initiative bounty as a multiple of the budget (0 disables) |
+| `max_initiative_bounty_per_funder_epoch` | Int | 100 DREAM | DREAM one member may escrow into initiative bounties per epoch |
+| `min_initiative_bounty_contribution` | Int | 1 DREAM | Smallest contribution |
+| `max_initiative_bounty_contributions` | uint32 | 20 | Contributions per initiative bounty |
+| `initiative_bounty_reclaim_delay` | uint64 | 14,400 | Blocks before a contribution may be reclaimed (only while the initiative is OPEN) |
 
 #### Conviction
 
