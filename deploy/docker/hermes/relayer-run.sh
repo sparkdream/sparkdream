@@ -26,4 +26,12 @@ until [ -f "$RELAYER_DIR/ready" ] && [ -f "$CONFIG" ]; do
 done
 
 echo "relayer-run: starting hermes with $CONFIG"
-exec hermes --config "$CONFIG" start
+# Not exec: as the container's PID 1, hermes would ignore SIGTERM (the kernel
+# drops signals PID 1 installs no handler for, and hermes installs none), so
+# the launcher's `kill 1` after a relink did nothing and hermes kept relaying
+# on the old config. Bash stays PID 1, forwards the signal and exits, and the
+# container restart starts hermes on the new config.
+hermes --config "$CONFIG" start &
+child=$!
+trap 'kill -TERM "$child" 2>/dev/null; wait "$child"; exit 143' TERM INT
+wait "$child"
