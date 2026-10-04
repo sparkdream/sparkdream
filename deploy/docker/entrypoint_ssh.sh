@@ -360,6 +360,26 @@ if [ "${WAIT_FOR_CONFIG}" = "true" ]; then
     exec tail -f /dev/null
 fi
 
+# 6b. Launcher hold: a maintenance task that needs the node stopped (the
+#     launcher's chain-data backup copies the data directory, which must not
+#     change under it) writes a unix-time deadline to this file on the data
+#     volume and restarts the container. Until the file is removed or the
+#     deadline passes, sshd and the mesh run but the node does not start;
+#     then the node starts here as usual. The deadline is what brings the
+#     node back if the launcher never returns to remove the file.
+HOLD_FILE=/root/.sparkdream/.launcher-hold
+hold_active() {
+    [ -f "$HOLD_FILE" ] || return 1
+    deadline=$(cat "$HOLD_FILE" 2>/dev/null)
+    [ "$deadline" -gt "$(date +%s)" ] 2>/dev/null
+}
+if [ -f "$HOLD_FILE" ]; then
+    echo "launcher hold: node not started until $(cat "$HOLD_FILE" 2>/dev/null) (unix time) or until the hold is removed"
+    while hold_active; do sleep 15; done
+    rm -f "$HOLD_FILE"
+    echo "launcher hold released: starting the node"
+fi
+
 # 7. Optional startup delay to allow Tailscale mesh and TMKMS connections to
 #    establish before the node begins signing. Without this, the node can panic
 #    on the first block if the external signer isn't reachable yet, causing

@@ -378,6 +378,16 @@ sed -i 's|^priv_validator_laddr.*|priv_validator_laddr = "tcp://127.0.0.1:26660"
    purpose (`halt-height` set in `app.toml`) are left alone. Set
    `NODE_STALL_SECS=0` in the SDL env to disable.
 
+   **Launcher hold** (section 6b of `entrypoint_ssh.sh`): when
+   `/root/.sparkdream/.launcher-hold` exists and holds a unix time in the
+   future, the entrypoint starts sshd and the mesh but not the node, and
+   polls until the file is removed or the time passes, then starts the node
+   as usual. The launcher uses it to copy the data directory of a stopped
+   node (chain-data backups, which is also why the base image carries
+   `s5cmd`, `age` and `zstd`) and to restore a backup in place. A file with
+   anything other than a future unix time is ignored, so a stale or garbled
+   hold never keeps a node down.
+
 2. Allow duplicate IPs. Because sentries connect through socat tunnels, the validator sees
    all inbound sentry connections as coming from `127.0.0.1`. CometBFT deduplicates by
    remote IP by default, so only the first sentry can connect. This setting allows multiple

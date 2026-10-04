@@ -2,7 +2,24 @@ FROM alpine
 
 ENV LOCAL=/usr/local
 
+ARG S5CMD_VERSION=2.2.2
+
 RUN apk add --no-cache bash strace gettext jq curl vim dcron
+
+# Chain-data backups (the launcher's data-backup op): the node's data
+# directory is packed with tar + zstd, encrypted with age to the fleet's
+# recipient, and streamed to S3-compatible storage with s5cmd, the same
+# tools the headscale image restores its keys with. A relaunched node then
+# restores from the latest backup instead of replaying the chain from
+# block 1.
+RUN set -eux; \
+    apk add --no-cache age zstd; \
+    curl -fsSL -o /tmp/s5cmd.tar.gz "https://github.com/peak/s5cmd/releases/download/v${S5CMD_VERSION}/s5cmd_${S5CMD_VERSION}_Linux-64bit.tar.gz"; \
+    tar -xzf /tmp/s5cmd.tar.gz -C ${LOCAL}/bin s5cmd; \
+    rm /tmp/s5cmd.tar.gz; \
+    age --version; \
+    zstd --version; \
+    s5cmd version
 
 COPY build/sparkdreamd ${LOCAL}/bin/sparkdreamd
 COPY deploy/scripts/block-archiver.sh ${LOCAL}/bin/block-archiver
