@@ -119,11 +119,52 @@ fi
 # ------------------------------------------------------------------
 # Object lookups
 # ------------------------------------------------------------------
-# Lowest client on $1 tracking chain $2.
+# rpc_addr of chain $1 in the Hermes config.
+rpc_of() {
+    awk -v id="$1" '
+        /^\[\[chains\]\]/ { here = 0 }
+        /^id *=/ { v = $0; sub(/^id *= */, "", v); gsub(/['\''"]/, "", v); here = (v == id) }
+        here && /^rpc_addr *=/ { v = $0; sub(/^rpc_addr *= */, "", v); gsub(/['\''"]/, "", v); print v; exit }
+    ' "$CONFIG"
+}
+
+# Whether client $2 on $1 still tracks chain $3 as it is now. A chain reset
+# keeps the chain id, so a client of the pre-reset chain matches $3 by id
+# yet can never be updated again (2026-10-08: a reset devnet's relink reused
+# Osmosis' client of the old chain and died on "missing trusted state
+# smaller than target height"). Its latest trusted state must be a block
+# the chain has now: a height it has reached, at the same time. Anything
+# the check cannot read (a pruned height, an RPC hiccup) keeps the client,
+# since a needless new client opens a second connection and channel.
+client_is_current() {
+    local host=$1 client=$2 ref=$3 h rpc tip cs_ts blk_ts
+    h=$(hj query client state --chain "$host" --client "$client" \
+        | jq -r '.latest_height.revision_height // empty') || return 0
+    rpc=$(rpc_of "$ref")
+    [ -n "$h" ] && [ -n "$rpc" ] || return 0
+    tip=$(curl -fsS -m 15 "$rpc/status" | jq -r '.result.sync_info.latest_block_height // empty') || return 0
+    [ -n "$tip" ] || return 0
+    [ "$h" -le "$tip" ] || return 1
+    cs_ts=$(hj query client consensus --chain "$host" --client "$client" --consensus-height "$h" \
+        | jq -r '.timestamp // empty') || return 0
+    blk_ts=$(curl -fsS -m 15 "$rpc/block?height=$h" | jq -r '.result.block.header.time // empty') || return 0
+    [ -n "$cs_ts" ] && [ -n "$blk_ts" ] || return 0
+    # same second: the two sides print different numbers of nanosecond digits
+    [ "${cs_ts:0:19}" = "${blk_ts:0:19}" ]
+}
+
+# Lowest client on $1 tracking chain $2 as it is now (client_is_current).
 find_client() {
-    hj query clients --host-chain "$1" --reference-chain "$2" --omit-chain-ids \
-        | jq -r '.[]? | if type == "object" then (.client_id // .ClientId // empty) else . end' 2>/dev/null \
-        | lowest
+    local c
+    for c in $(hj query clients --host-chain "$1" --reference-chain "$2" --omit-chain-ids \
+            | jq -r '.[]? | if type == "object" then (.client_id // .ClientId // empty) else . end' 2>/dev/null \
+            | sort -t- -k2,2n); do
+        if client_is_current "$1" "$c" "$2"; then
+            echo "$c"
+            return 0
+        fi
+        log "  ignoring $1/$c: it tracks an earlier $2 (the chain was reset since)"
+    done
 }
 
 # Lowest OPEN connection on $1 over client $2 whose counterparty client is $3.
