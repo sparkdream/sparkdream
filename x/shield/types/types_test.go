@@ -1,9 +1,12 @@
 package types_test
 
 import (
+	"context"
 	"testing"
 
 	"cosmossdk.io/math"
+	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
+	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/stretchr/testify/require"
 
 	"sparkdream/x/shield/types"
@@ -156,9 +159,19 @@ func TestGenesisValidation(t *testing.T) {
 		require.NoError(t, gs.Validate())
 	})
 
-	t.Run("default genesis has 13 registered ops", func(t *testing.T) {
+	t.Run("default genesis has 21 registered ops", func(t *testing.T) {
 		gs := types.DefaultGenesis()
-		require.Len(t, gs.RegisteredOps, 13)
+		require.Len(t, gs.RegisteredOps, 21)
+	})
+
+	t.Run("ownership op must be immediate-only", func(t *testing.T) {
+		gs := types.DefaultGenesis()
+		gs.RegisteredOps = append(gs.RegisteredOps, types.ShieldedOpRegistration{
+			MessageTypeUrl: "/sparkdream.test.v1.MsgOwned",
+			NullifierMode:  types.NullifierMode_NULLIFIER_MODE_OWNERSHIP,
+			BatchMode:      types.ShieldBatchMode_SHIELD_BATCH_MODE_EITHER,
+		})
+		require.ErrorIs(t, gs.Validate(), types.ErrOwnershipBatchMode)
 	})
 }
 
@@ -188,6 +201,13 @@ func TestDefaultGenesisOpsContent(t *testing.T) {
 		require.True(t, ok)
 		require.Equal(t, types.NullifierScopeType_NULLIFIER_SCOPE_MESSAGE_FIELD, op.NullifierScopeType)
 		require.Equal(t, "post_id", op.ScopeFieldPath)
+	})
+
+	t.Run("blog MsgReact", func(t *testing.T) {
+		op, ok := ops["/sparkdream.blog.v1.MsgReact"]
+		require.True(t, ok)
+		require.Equal(t, types.NullifierScopeType_NULLIFIER_SCOPE_MESSAGE_FIELD, op.NullifierScopeType)
+		require.Equal(t, "reply_id|post_id", op.ScopeFieldPath)
 	})
 
 	// Verify rep ops (encrypted only)
@@ -228,7 +248,11 @@ func TestDefaultGenesisOpsContent(t *testing.T) {
 	t.Run("unique nullifier domains", func(t *testing.T) {
 		domains := make(map[uint32]string)
 		for _, op := range gs.RegisteredOps {
-			if existing, ok := domains[op.NullifierDomain]; ok {
+			// Ownership-mode ops record no nullifiers; the domain only labels them.
+			if op.NullifierMode == types.NullifierMode_NULLIFIER_MODE_OWNERSHIP {
+				continue
+			}
+			if existing, ok := domains[op.NullifierDomain]; ok && !sharedVoteDomains[[2]string{existing, op.MessageTypeUrl}] {
 				t.Errorf("duplicate nullifier domain %d: %s and %s", op.NullifierDomain, existing, op.MessageTypeUrl)
 			}
 			domains[op.NullifierDomain] = op.MessageTypeUrl
@@ -293,4 +317,67 @@ func TestModuleConstants(t *testing.T) {
 	require.Equal(t, "shield", types.ModuleName)
 	require.Equal(t, "shield", types.StoreKey)
 	require.Equal(t, "shield_fee_paid", types.ContextKeyFeePaid)
+}
+
+// sharedVoteDomains are op pairs that deliberately share a nullifier domain:
+// an up- and a downvote on the same target spend the same nullifier, so a
+// member casts one anonymous vote per target either way.
+var sharedVoteDomains = map[[2]string]bool{
+	{"/sparkdream.forum.v1.MsgUpvotePost", "/sparkdream.forum.v1.MsgDownvotePost"}:           true,
+	{"/sparkdream.collect.v1.MsgUpvoteContent", "/sparkdream.collect.v1.MsgDownvoteContent"}: true,
+}
+
+func TestPackNullifierScope(t *testing.T) {
+	got, err := types.PackNullifierScope(2, 5)
+	require.NoError(t, err)
+	require.Equal(t, uint64(2)<<56|5, got)
+
+	got, err = types.PackNullifierScope(255, 1<<56-1)
+	require.NoError(t, err)
+	require.Equal(t, ^uint64(0), got)
+
+	_, err = types.PackNullifierScope(256, 0)
+	require.Error(t, err)
+	_, err = types.PackNullifierScope(0, 1<<56)
+	require.Error(t, err)
+}
+
+func TestParamsMaxFeePerExec(t *testing.T) {
+	p := types.DefaultParams()
+	require.True(t, p.MaxFeePerExec.IsPositive())
+
+	p.MaxFeePerExec = math.NewInt(-1)
+	require.Error(t, p.Validate())
+
+	p.MaxFeePerExec = math.Int{}
+	require.Error(t, p.Validate())
+}
+
+// The public submitter is derived from a fixed seed, so every client and node
+// computes the same key; its address must be the one its key signs for.
+func TestPublicSubmitter(t *testing.T) {
+	priv := &secp256k1.PrivKey{Key: types.PublicSubmitterPrivKey()}
+	require.Equal(t, sdk.AccAddress(priv.PubKey().Address()), types.PublicSubmitterAddress())
+	require.Equal(t, types.PublicSubmitterAddress(), types.PublicSubmitterAddress())
+
+	// The returned key is a copy: changing it doesn't change the submitter.
+	key := types.PublicSubmitterPrivKey()
+	key[0] ^= 0xff
+	require.NotEqual(t, key, types.PublicSubmitterPrivKey())
+}
+
+func TestProvenTrustLevel(t *testing.T) {
+	ctx := sdk.Context{}.WithContext(context.Background())
+
+	_, ok := types.ProvenTrustLevel(ctx)
+	require.False(t, ok, "no level outside a shield exec")
+
+	level, ok := types.ProvenTrustLevel(types.WithProvenTrustLevel(ctx, 2))
+	require.True(t, ok)
+	require.Equal(t, uint32(2), level)
+
+	// A zero level is still a proven level, distinct from none.
+	level, ok = types.ProvenTrustLevel(types.WithProvenTrustLevel(ctx, 0))
+	require.True(t, ok)
+	require.Zero(t, level)
 }

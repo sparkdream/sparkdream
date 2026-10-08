@@ -5,10 +5,12 @@ import (
 	"time"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	"github.com/stretchr/testify/require"
 
 	"sparkdream/x/blog/keeper"
 	"sparkdream/x/blog/types"
+	shieldtypes "sparkdream/x/shield/types"
 )
 
 func TestRateLimitAllowsUpToLimit(t *testing.T) {
@@ -179,5 +181,43 @@ func TestRateLimitPerActionType(t *testing.T) {
 		Body:    "Second reply",
 	})
 	require.Error(t, err)
+	require.ErrorIs(t, err, types.ErrRateLimitExceeded)
+}
+
+// Every anonymous post carries the shield address, so a per-address daily
+// limit would be shared by all anonymous members; x/shield's identity rate
+// limit applies instead. Anonymous posts also stay ephemeral: they pass the
+// membership gate, but conviction renewal is what keeps them alive.
+func TestAnonymousPostsSkipRateLimitAndStayEphemeral(t *testing.T) {
+	f := initFixture(t)
+	msgServer := keeper.NewMsgServerImpl(f.keeper)
+
+	params, err := f.keeper.Params.Get(f.ctx)
+	require.NoError(t, err)
+	params.MaxPostsPerDay = 1
+	params.CostPerByteExempt = true
+	require.NoError(t, f.keeper.Params.Set(f.ctx, params))
+
+	shield := sdk.MustBech32ifyAddressBytes("sprkdrm", authtypes.NewModuleAddress("shield"))
+	ctx := shieldtypes.WithProvenTrustLevel(sdk.UnwrapSDKContext(f.ctx).WithBlockTime(time.Unix(86400*100, 0)), 1)
+
+	for i := 0; i < 3; i++ {
+		resp, err := msgServer.CreatePost(ctx, &types.MsgCreatePost{
+			Creator: shield,
+			Title:   "Anonymous",
+			Body:    "Anonymous post",
+		})
+		require.NoError(t, err, "anonymous post %d", i+1)
+
+		post, found := f.keeper.GetPost(ctx, resp.Id)
+		require.True(t, found)
+		require.Positive(t, post.ExpiresAt, "anonymous posts are ephemeral")
+	}
+
+	// An identified member still hits the limit.
+	creator := "sprkdrm1afyuna8gqe55t7jztxcg0aleg0k5txep72pfan"
+	_, err = msgServer.CreatePost(ctx, &types.MsgCreatePost{Creator: creator, Title: "One", Body: "first"})
+	require.NoError(t, err)
+	_, err = msgServer.CreatePost(ctx, &types.MsgCreatePost{Creator: creator, Title: "Two", Body: "second"})
 	require.ErrorIs(t, err, types.ErrRateLimitExceeded)
 }

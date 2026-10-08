@@ -37,10 +37,14 @@ func (q queryServer) GetProposal(ctx context.Context, req *types.QueryGetProposa
 		tally = types.TallyResult{}
 	}
 
+	// A proposal with no anonymous votes has no tally record: report zeros.
+	anonTally, _ := q.k.AnonVoteTallies.Get(ctx, proposal.Id)
+
 	return &types.QueryGetProposalResponse{
-		Proposal: proposal,
-		Votes:    votes,
-		Tally:    tally,
+		Proposal:  proposal,
+		Votes:     votes,
+		Tally:     tally,
+		AnonTally: anonTally,
 	}, nil
 }
 
@@ -105,8 +109,11 @@ func (q queryServer) GetProposalVotes(ctx context.Context, req *types.QueryGetPr
 		tally = types.TallyResult{}
 	}
 
+	anonTally, _ := q.k.AnonVoteTallies.Get(ctx, proposal.Id)
+
 	return &types.QueryGetProposalVotesResponse{
-		Votes: votes,
-		Tally: tally,
+		Votes:     votes,
+		Tally:     tally,
+		AnonTally: anonTally,
 	}, nil
 }

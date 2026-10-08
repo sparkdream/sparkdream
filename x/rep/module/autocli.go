@@ -494,6 +494,11 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					Short:          "Show the DREAM escrowed against an initiative for its assignee",
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "initiative_id"}},
 				},
+				{
+					RpcMethod: "TrustTree",
+					Use:       "trust-tree",
+					Short:     "Export the member trust tree root and its non-empty leaves",
+				},
 			},
 		},
 		Tx: &autocliv1.ServiceCommandDescriptor{

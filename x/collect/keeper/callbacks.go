@@ -432,15 +432,22 @@ func (k Keeper) ResolveHideAppeal(ctx context.Context, hideRecordID uint64, uphe
 					k.ItemsByOwner.Remove(ctx, collections.Join(coll.Owner, item.Id))   //nolint:errcheck
 					k.decrementItemCount(&coll, 1)
 					coll.UpdatedAt = sdkCtx.BlockHeight()
-					k.Collection.Set(ctx, coll.Id, coll) //nolint:errcheck
 
-					// Refund item deposit if TTL
-					if isTTLCollection(coll) {
+					// Refund item deposit if TTL, capped at what is actually
+					// held and released from ItemDepositTotal so a later
+					// delete/expiry doesn't refund it a second time.
+					// Anonymous collections hold none, so the shield account
+					// is never paid out of other owners' escrow.
+					if isTTLCollection(coll) && k.chargesDeposits(coll) {
+						refund := heldItemDeposit(coll, params.PerItemDeposit, 1)
 						ownerAddr, addrErr := k.addressCodec.StringToBytes(coll.Owner)
-						if addrErr == nil {
-							k.RefundSPARK(ctx, ownerAddr, params.PerItemDeposit) //nolint:errcheck
+						if addrErr == nil && refund.IsPositive() {
+							if k.RefundSPARK(ctx, ownerAddr, refund) == nil {
+								coll.ItemDepositTotal = coll.ItemDepositTotal.Sub(refund)
+							}
 						}
 					}
+					k.Collection.Set(ctx, coll.Id, coll) //nolint:errcheck
 				}
 			}
 		}

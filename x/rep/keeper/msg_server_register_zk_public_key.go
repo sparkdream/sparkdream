@@ -7,6 +7,8 @@ import (
 
 	errorsmod "cosmossdk.io/errors"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+
+	zkcrypto "sparkdream/tools/crypto"
 )
 
 // ZkPublicKeySize is the required size of a ZK public key (32 bytes, BN254 field element).
@@ -20,6 +22,13 @@ func (k msgServer) RegisterZkPublicKey(ctx context.Context, msg *types.MsgRegist
 	// Validate key size.
 	if len(msg.ZkPublicKey) != ZkPublicKeySize {
 		return nil, errorsmod.Wrapf(types.ErrInvalidRequest, "zk_public_key must be exactly %d bytes, got %d", ZkPublicKeySize, len(msg.ZkPublicKey))
+	}
+
+	// The key is hashed into the trust tree as a BN254 field element; a value at
+	// or above the modulus would hash to garbage and lock the member out of
+	// every proof.
+	if !zkcrypto.IsCanonicalFieldElement(msg.ZkPublicKey) {
+		return nil, errorsmod.Wrap(types.ErrInvalidRequest, "zk_public_key must be below the BN254 scalar field modulus")
 	}
 
 	// Member must exist and be active.

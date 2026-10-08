@@ -93,19 +93,23 @@ func (k msgServer) RemoveItems(ctx context.Context, msg *types.MsgRemoveItems) (
 		return nil, types.ErrItemsLockedForSponsorship
 	}
 
-	// Refund deposits if TTL
-	if isTTLCollection(coll) {
-		ownerAddr, err := k.addressCodec.StringToBytes(coll.Owner)
-		if err != nil {
-			return nil, errorsmod.Wrap(err, "invalid owner address")
-		}
-		totalRefund := params.PerItemDeposit.MulRaw(int64(batchSize))
-		if err := k.RefundSPARK(ctx, ownerAddr, totalRefund); err != nil {
-			return nil, errorsmod.Wrap(err, "failed to refund item deposits")
-		}
-		coll.ItemDepositTotal = coll.ItemDepositTotal.Sub(totalRefund)
-		if coll.ItemDepositTotal.IsNegative() {
-			coll.ItemDepositTotal = math.ZeroInt()
+	// Refund deposits if TTL, capped at what is actually held (anonymous
+	// collections hold none, so the shield account is never paid out of
+	// other owners' escrow).
+	if isTTLCollection(coll) && k.chargesDeposits(coll) {
+		totalRefund := heldItemDeposit(coll, params.PerItemDeposit, uint64(batchSize))
+		if totalRefund.IsPositive() {
+			ownerAddr, err := k.addressCodec.StringToBytes(coll.Owner)
+			if err != nil {
+				return nil, errorsmod.Wrap(err, "invalid owner address")
+			}
+			if err := k.RefundSPARK(ctx, ownerAddr, totalRefund); err != nil {
+				return nil, errorsmod.Wrap(err, "failed to refund item deposits")
+			}
+			coll.ItemDepositTotal = coll.ItemDepositTotal.Sub(totalRefund)
+			if coll.ItemDepositTotal.IsNegative() {
+				coll.ItemDepositTotal = math.ZeroInt()
+			}
 		}
 	}
 

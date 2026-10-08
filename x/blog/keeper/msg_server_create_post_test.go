@@ -20,6 +20,7 @@ import (
 	module "sparkdream/x/blog/module"
 	"sparkdream/x/blog/types"
 	commontypes "sparkdream/x/common/types"
+	shieldtypes "sparkdream/x/shield/types"
 )
 
 func setupMsgServer(t testing.TB) (keeper.Keeper, types.MsgServer, sdk.Context, *mockBankKeeper) {
@@ -276,6 +277,60 @@ func TestCreatePostStorageFee(t *testing.T) {
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "failed to charge storage fee")
 	})
+}
+
+// Anonymous (shield-routed) content pays no storage fee: the shield module
+// account would be paying it out of the communal gas reserve, not the member.
+// That holds for posts, replies, and the high-water-mark delta fee on edits,
+// while an identified author is still charged on the same path.
+func TestStorageFee_AnonymousNotCharged(t *testing.T) {
+	_, msgServer, ctx, bk := setupMsgServer(t)
+	shieldAddr := authtypes.NewModuleAddress("shield")
+	shield := sdk.MustBech32ifyAddressBytes("sprkdrm", shieldAddr)
+	anonCtx := shieldtypes.WithProvenTrustLevel(ctx, 2)
+
+	post, err := msgServer.CreatePost(anonCtx, &types.MsgCreatePost{
+		Creator: shield,
+		Title:   "Anonymous",
+		Body:    "No storage fee for this",
+	})
+	require.NoError(t, err)
+
+	reply, err := msgServer.CreateReply(anonCtx, &types.MsgCreateReply{
+		Creator: shield,
+		PostId:  post.Id,
+		Body:    "Nor for this",
+	})
+	require.NoError(t, err)
+
+	// Edits that grow past the high-water mark would owe a delta fee.
+	_, err = msgServer.UpdatePost(anonCtx, &types.MsgUpdatePost{
+		Creator:        shield,
+		Id:             post.Id,
+		Title:          "Anonymous, edited",
+		Body:           "No storage fee for this, even after growing it",
+		RepliesEnabled: true,
+	})
+	require.NoError(t, err)
+	_, err = msgServer.UpdateReply(anonCtx, &types.MsgUpdateReply{
+		Creator: shield,
+		Id:      reply.Id,
+		Body:    "Nor for this, even after growing it",
+	})
+	require.NoError(t, err)
+
+	require.Empty(t, bk.SendCoinsFromAccountToModuleCalls, "anonymous content charged the shield module")
+	require.Empty(t, bk.BurnCoinsCalls)
+
+	// An identified reply on the same post still pays: 7 bytes * 100.
+	member := "sprkdrm1afyuna8gqe55t7jztxcg0aleg0k5txep72pfan"
+	_, err = msgServer.CreateReply(ctx, &types.MsgCreateReply{Creator: member, PostId: post.Id, Body: "charged"})
+	require.NoError(t, err)
+	require.Len(t, bk.SendCoinsFromAccountToModuleCalls, 1)
+	memberAddr, err := sdk.GetFromBech32(member, "sprkdrm")
+	require.NoError(t, err)
+	require.Equal(t, sdk.AccAddress(memberAddr), bk.SendCoinsFromAccountToModuleCalls[0].SenderAddr)
+	require.Equal(t, sdk.NewCoins(sdk.NewCoin("uspark", math.NewInt(700))), bk.SendCoinsFromAccountToModuleCalls[0].Amt)
 }
 
 func TestCreatePostIDIncrement(t *testing.T) {

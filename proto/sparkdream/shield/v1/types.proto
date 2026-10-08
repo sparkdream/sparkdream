@@ -25,6 +25,18 @@ enum NullifierScopeType {
   NULLIFIER_SCOPE_GLOBAL = 2;
 }
 
+// NullifierMode controls what an operation's nullifier proves.
+enum NullifierMode {
+  // The nullifier is consumed: each (member, scope) acts once.
+  NULLIFIER_MODE_CONSUME = 0;
+  // The nullifier proves ownership of anonymously created content and is
+  // reused: the target module's ShieldOwnershipResolver supplies the owner's
+  // domain, scope and tag (the creation nullifier), the proof must reproduce
+  // the tag, and the owner's sequence (bound into the message hash) stops
+  // replays. Immediate mode only.
+  NULLIFIER_MODE_OWNERSHIP = 1;
+}
+
 // ShieldBatchMode controls which execution modes an operation supports.
 enum ShieldBatchMode {
   // Only immediate execution allowed
@@ -68,6 +80,17 @@ message ShieldedOpRegistration {
   // e.g. "post_id", "proposal_id", "collection_id"
   // Must refer to a uint64 field in the inner message
   string scope_field_path = 8;
+
+  // What the nullifier proves: a consumed one-time action (default) or
+  // ownership of anonymously created content. OWNERSHIP ignores
+  // nullifier_scope_type and scope_field_path (the target module supplies the
+  // owner's scope) and requires batch_mode IMMEDIATE_ONLY.
+  NullifierMode nullifier_mode = 9;
+
+  // For NULLIFIER_SCOPE_EPOCH: the scope is current_epoch / epoch_window, so
+  // each member gets one action per window of this many shield epochs instead
+  // of one per epoch. 0 or 1 = every epoch. Must be 0 for other scope types.
+  uint64 epoch_window = 10;
 }
 
 // UsedNullifier records a nullifier that has been consumed.
@@ -296,7 +319,7 @@ message ValidatorDKGExtension {
 // VerificationKey stores a ZK circuit verification key.
 message VerificationKey {
   string circuit_id = 1; // e.g. "shield_v1"
-  bytes vk_bytes = 2; // serialized Groth16/PLONK verification key
+  bytes vk_bytes = 2; // serialized Groth16 verification key
   string description = 3;
 }
 

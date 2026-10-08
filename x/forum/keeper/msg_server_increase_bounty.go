@@ -16,6 +16,13 @@ func (k msgServer) IncreaseBounty(ctx context.Context, msg *types.MsgIncreaseBou
 		return nil, errorsmod.Wrap(err, "invalid creator address")
 	}
 
+	// A bounty escrows real SPARK from its creator. From the shield address
+	// that would be the communal gas reserve, and every anonymous member
+	// shares that address, so any of them could cancel or award it.
+	if k.isAnonymous(msg.Creator) {
+		return nil, types.ErrAnonymousBounty
+	}
+
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 
 	// Load bounty

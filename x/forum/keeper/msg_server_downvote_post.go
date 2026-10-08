@@ -44,8 +44,10 @@ func (k msgServer) DownvotePost(ctx context.Context, msg *types.MsgDownvotePost)
 		return nil, types.ErrPostArchived
 	}
 
-	// Cannot vote on your own post
-	if post.Author == msg.Creator {
+	anonymous := k.isAnonymous(msg.Creator)
+
+	// Cannot vote on your own post (an anonymous author can't be identified)
+	if post.Author == msg.Creator && !anonymous {
 		return nil, types.ErrCannotVoteOwnPost
 	}
 
@@ -55,18 +57,22 @@ func (k msgServer) DownvotePost(ctx context.Context, msg *types.MsgDownvotePost)
 	if err != nil {
 		return nil, errorsmod.Wrap(err, "failed to check vote record")
 	}
-	if hasVoted {
+	if hasVoted && !anonymous {
 		return nil, types.ErrAlreadyVoted
 	}
 
 	// Check downvote rate limit (separate from upvote limit)
-	if err := k.checkAndUpdateDownvoteLimit(ctx, msg.Creator, now); err != nil {
-		return nil, err
+	if !anonymous {
+		if err := k.checkAndUpdateDownvoteLimit(ctx, msg.Creator, now); err != nil {
+			return nil, err
+		}
 	}
 
 	// Burn downvote_deposit from creator
-	// Downvotes require a SPARK deposit that is burned immediately (no refund)
-	if params.DownvoteDepositAmount.IsPositive() {
+	// Downvotes require a SPARK deposit that is burned immediately (no refund).
+	// An anonymous downvoter would be spending the shield module's gas
+	// reserve, not their own SPARK, so the deposit doesn't apply to them.
+	if params.DownvoteDepositAmount.IsPositive() && !anonymous {
 		creatorAddr, _ := sdk.AccAddressFromBech32(msg.Creator)
 		burnCoins := sdk.NewCoins(sdk.NewCoin(k.BondDenom(ctx), params.DownvoteDepositAmount))
 		// First transfer to module, then burn
@@ -86,9 +92,12 @@ func (k msgServer) DownvotePost(ctx context.Context, msg *types.MsgDownvotePost)
 		return nil, errorsmod.Wrap(err, "failed to update post")
 	}
 
-	// Record individual vote to prevent duplicates
-	if err := k.PostVote.Set(ctx, voteKey); err != nil {
-		return nil, errorsmod.Wrap(err, "failed to store vote record")
+	// Record individual vote to prevent duplicates. Anonymous votes are
+	// deduplicated per member by x/shield's nullifier instead.
+	if !anonymous {
+		if err := k.PostVote.Set(ctx, voteKey); err != nil {
+			return nil, errorsmod.Wrap(err, "failed to store vote record")
+		}
 	}
 
 	// Emit event

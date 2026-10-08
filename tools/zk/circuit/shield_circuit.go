@@ -6,6 +6,7 @@
 //  2. Meets a minimum trust level requirement
 //  3. Has computed a valid scoped nullifier (prevents double actions)
 //  4. Has computed a valid rate-limit nullifier (enables per-identity rate limiting)
+//  5. Means this proof for one specific inner message (MessageHash)
 //
 // All of this is proven WITHOUT revealing the member's identity or exact trust level.
 package circuit
@@ -39,8 +40,10 @@ const RateLimitDomainTag = math.MaxUint64
 //   - Nullifier: H(secretKey, scope) — prevents double actions per scope
 //   - RateLimitNullifier: H(secretKey, domainTag, rateLimitEpoch) — per-identity rate limiting
 //   - MinTrustLevel: Minimum trust level required for this action
-//   - Scope: Context binding (epoch, postID, proposalID, etc.)
+//   - Scope: Context binding, crypto.ScopeElement(domain, rawScope): the nullifier
+//     domain hashed with the raw scope (epoch, postID, proposalID, etc.)
 //   - RateLimitEpoch: Epoch for rate-limit binding (set by verifier)
+//   - MessageHash: Hash of the inner message (set by verifier from the tx)
 //
 // PRIVATE INPUTS (known only to the prover):
 //   - SecretKey: The member's secret key (never revealed)
@@ -65,11 +68,18 @@ type ShieldCircuit struct {
 	// MinTrustLevel is the minimum trust level required for this action
 	MinTrustLevel frontend.Variable `gnark:",public"`
 
-	// Scope binds the action nullifier to a context (epoch, post ID, proposal ID, etc.)
+	// Scope binds the action nullifier to a context: crypto.ScopeElement(domain,
+	// rawScope), so the same raw scope (epoch, post ID, ...) in two nullifier
+	// domains gives two unrelated nullifiers
 	Scope frontend.Variable `gnark:",public"`
 
 	// RateLimitEpoch binds the rate-limit nullifier to the current epoch
 	RateLimitEpoch frontend.Variable `gnark:",public"`
+
+	// MessageHash binds the proof to one inner message (crypto.ShieldMessageHash).
+	// Without it, anyone seeing a pending exec could resubmit its proof with
+	// different content and spend the member's nullifier first.
+	MessageHash frontend.Variable `gnark:",public"`
 
 	// === PRIVATE INPUTS (Witness) ===
 
@@ -165,6 +175,13 @@ func (c *ShieldCircuit) Define(api frontend.API) error {
 	for i := 0; i < TreeDepth; i++ {
 		c.assertIsBinary(api, c.PathIndices[i])
 	}
+
+	// =========================================================================
+	// CONSTRAINT 8: Bind the message hash
+	// A public input that appears in no constraint gets a zero verifying-key
+	// term, so any value would verify. Squaring it puts it in a constraint.
+	// =========================================================================
+	api.Mul(c.MessageHash, c.MessageHash)
 
 	return nil
 }

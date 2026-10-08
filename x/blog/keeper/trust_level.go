@@ -2,6 +2,7 @@ package keeper
 
 import (
 	"context"
+	shieldtypes "sparkdream/x/shield/types"
 
 	"sparkdream/x/blog/types"
 
@@ -13,14 +14,16 @@ import (
 // shieldModuleAddress is the deterministic address for the shield module account.
 // Computed once: SHA256("shield")[:20].
 //
-// SECURITY NOTE (CROSS-1): This address bypasses ALL membership and trust level checks
-// when it appears as the message signer. This is a single point of failure — if the shield
-// module account is compromised or if a bug allows arbitrary messages to be routed through
-// x/shield without proper ZK proof verification, all access controls in this module are
-// bypassed. The bypass is intentional because x/shield verifies membership and trust level
-// via ZK proofs before routing, but this creates a hard dependency on x/shield's correctness.
-// The bypass is narrowly scoped to membership/trust-level checks only — other validations
-// (content length, rate limits, etc.) still apply.
+// SECURITY NOTE (CROSS-1): This address bypasses the membership check when it appears
+// as the message signer, and trust gates compare against the level its ZK proof
+// established (shieldtypes.ProvenTrustLevel; no proven level means refused). This is a
+// single point of failure — if the shield module account is compromised or if a bug
+// allows arbitrary messages to be routed through x/shield without proper ZK proof
+// verification, membership gating in this module is bypassed. Per-address bookkeeping
+// (rate limits, per-creator reaction records, the thread-author exemption) does not
+// apply to it, since every anonymous member shares it; content validation still does.
+// No per-action SPARK charge (storage fee, edit delta fee, reaction fee) applies
+// either: the shield account's balance is the communal gas reserve, not the member's.
 var shieldModuleAddress = authtypes.NewModuleAddress("shield")
 
 // isShieldModuleAddress returns true if addr is the shield module account.
@@ -36,18 +39,21 @@ func isShieldModuleAddress(addr sdk.AccAddress) bool {
 // Trust levels per spec §7.6:
 //
 //	-1 = open to all (no membership required)
-//	 0 = any active member
-//	 1 = NEWCOMER or above
+//	 0 = any active member (NEW or above)
+//	 1 = PROVISIONAL or above
 //	 2 = ESTABLISHED or above
 //	 3 = TRUSTED or above
-//	 4 = PILLAR
+//	 4 = CORE
 func (k Keeper) meetsReplyTrustLevel(ctx context.Context, addr sdk.AccAddress, minLevel int32) bool {
 	if minLevel == -1 {
 		return true // open to all
 	}
-	// Shield module address: ZK proof already verified trust level
+	// Shield module address: compare with the level the ZK proof established.
+	// No proven level means the message didn't come through a shield exec, so
+	// nothing about the actual signer is known: refuse.
 	if isShieldModuleAddress(addr) {
-		return true
+		proven, ok := shieldtypes.ProvenTrustLevel(ctx)
+		return ok && int32(proven) >= minLevel
 	}
 	if !k.isActiveMember(ctx, addr) {
 		return false

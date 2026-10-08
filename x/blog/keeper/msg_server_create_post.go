@@ -56,8 +56,10 @@ func (k msgServer) CreatePost(ctx context.Context, msg *types.MsgCreatePost) (*t
 		return nil, err
 	}
 
-	// Charge cost_per_byte storage fee (applies to all posts, burned)
-	if !params.CostPerByteExempt && params.CostPerByteAmount.IsPositive() {
+	// Charge cost_per_byte storage fee (burned). An anonymous poster would be
+	// spending the shield module's gas reserve, not their own SPARK, so the
+	// fee doesn't apply.
+	if !params.CostPerByteExempt && params.CostPerByteAmount.IsPositive() && !isShieldModuleAddress(creatorAddr) {
 		contentBytes := int64(len(msg.Title)) + int64(len(msg.Body))
 		storageFee := sdk.NewCoin(k.BondDenom(ctx),
 			params.CostPerByteAmount.MulRaw(contentBytes))
@@ -71,10 +73,12 @@ func (k msgServer) CreatePost(ctx context.Context, msg *types.MsgCreatePost) (*t
 		}
 	}
 
-	// Determine TTL: active members get permanent posts, others get ephemeral
+	// Determine TTL: active members get permanent posts, others get ephemeral.
+	// Anonymous (shield-routed) content passes the membership gate but stays
+	// ephemeral; conviction renewal is what keeps it alive.
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	var expiresAt int64
-	if k.isActiveMember(ctx, creatorAddr) {
+	if k.isActiveMember(ctx, creatorAddr) && !isShieldModuleAddress(creatorAddr) {
 		expiresAt = 0
 	} else {
 		expiresAt = sdkCtx.BlockTime().Unix() + params.EphemeralContentTtl

@@ -554,7 +554,10 @@ SubmitProposal ───▶ SUBMITTED
 2. Verify the council has not expired (`now <= current_term_expiration`).
 3. The proposal fee is enforced by the `GroupPolicyMinFeeDecorator` ante decorator (`x/commons/ante/group_policy.go`). For every `MsgSubmitProposal` (and `MsgVoteProposal`), the decorator requires the tx's `--fees` to meet `Params.proposal_fee`; the fee is paid via the standard Cosmos SDK fee path (to validators), not transferred to `policy_address`. Emergency actions (`MsgEmergencyCancelGovProposal`, `MsgVetoGroupProposals`) and shielded variants (`MsgSubmitAnonymousProposal`, `MsgAnonymousVoteProposal`) are exempt from the decorator — shield handles its own funding via the privacy module's community-pool subsidy.
 4. For each inner message, check its type URL is in
-   `PolicyPermissions[policy_address].allowed_messages`.
+   `PolicyPermissions[policy_address].allowed_messages`. A signaling proposal
+   (no inner messages) is allowed but must carry non-empty `metadata`
+   (`ErrInvalidRequest`, "signaling proposal requires non-empty metadata");
+   `MsgSubmitAnonymousProposal` applies the same rule.
 5. Snapshot `policy_version` at submit time — used later to detect a veto
    that bumped the version mid-flight.
 6. Set `voting_deadline = now + DecisionPolicy.voting_period`.
@@ -760,9 +763,9 @@ mostly unchanged; commons-specific translations are noted):
 | `GetGroup` | `q commons get-group [name]` | The full `Group` record |
 | `ListGroups` | `q commons list-group` | Paginated `Group` list |
 | `GetCouncilMembers` | `q commons get-council-members [name]` | Members for a council |
-| `GetProposal` | `q commons get-proposal [id]` | `Proposal` + its `votes` + `tally` (computed) |
+| `GetProposal` | `q commons get-proposal [id]` | `Proposal` + its `votes` + `tally` (computed) + `anon_tally` (`AnonVoteTally` of anonymous votes; zeros when none) |
 | `ListProposals` | `q commons list-proposals` | Paginated proposals, filterable by council |
-| `GetProposalVotes` | `q commons get-proposal-votes [id]` | All votes cast on a proposal |
+| `GetProposalVotes` | `q commons get-proposal-votes [id]` | All member votes cast on a proposal, plus `tally` and `anon_tally` |
 | `GetCategory` | `q commons get-category [id]` | Single shared content category |
 | `ListCategory` | `q commons list-category` | Paginated categories |
 | `GetRecurringSpend` | `q commons get-recurring-spend [id]` | Single recurring spend schedule, projected from `session.Grants`. Returns `NotFound` for cancelled/declined schedules (the grant is deleted on terminal transitions — audit trail in events). COMPLETED schedules are retained and queryable |
@@ -863,14 +866,20 @@ What the commons handler still enforces:
 
 - The target policy address exists.
 - The council has not expired.
-- Every inner message is on the policy's `allowed_messages` allowlist.
+- Every inner message is on the policy's `allowed_messages` allowlist; a
+  signaling proposal (no messages) needs non-empty `metadata`, as for
+  `MsgSubmitProposal`.
 - The proposal fee is paid (charged from the shield module account, which
   the shield module pre-funds via its community-pool integration).
 
 Anonymous votes accumulate into `AnonVoteTally` (uniform weight=1 per vote)
 and are folded into `checkThreshold` alongside member votes — the threshold
 check sees the combined tally so anonymous voters genuinely influence
-outcomes without leaking individual identities.
+outcomes without leaking individual identities. Anonymous votes are not
+`Vote` records (every one shares the shield address), so they never appear in
+a proposal's `votes` list; `GetProposal` and `GetProposalVotes` return them as
+the separate `anon_tally` field (yes / no / abstain / no_with_veto counts,
+zeros when no anonymous vote was cast).
 
 ---
 
@@ -904,7 +913,8 @@ Other errors raised inline with `cosmossdk.io/errors`'s sentinel set:
   policy-version mismatch (veto), `validateMsgAuthority` failure.
 - `ErrNotFound` — proposal/group/category lookup miss.
 - `ErrInvalidRequest` — `min_execution_period` not yet elapsed, malformed
-  amount, missing required field.
+  amount, missing required field, signaling proposal (direct or anonymous)
+  with empty `metadata`.
 - `ErrInvalidAddress` — `addressCodec.StringToBytes` rejection.
 - `ErrLogic` — internal invariants (msg router not wired, codec failures).
 

@@ -2,7 +2,7 @@
 
 echo "--- TESTING: Cross-Module Shield-Aware Integration (x/shield) ---"
 echo ""
-echo "NOTE: Tests verify that all 13 genesis shielded operations are registered,"
+echo "NOTE: Tests verify that all 21 genesis shielded operations are registered,"
 echo "      their shield-aware interfaces respond correctly, and cross-module"
 echo "      configuration (nullifier domains, scope types, batch modes) is consistent."
 echo ""
@@ -45,9 +45,9 @@ record_result() {
 }
 
 # =========================================================================
-# TEST 1: All 13 genesis operations registered
+# TEST 1: All 21 genesis operations registered
 # =========================================================================
-echo "--- TEST 1: Verify all 13 genesis shielded operations ---"
+echo "--- TEST 1: Verify all 21 genesis shielded operations ---"
 
 OPS=$($BINARY query shield shielded-ops --output json 2>&1)
 
@@ -58,12 +58,12 @@ else
     OP_COUNT=$(echo "$OPS" | jq -r '.registrations | length' 2>/dev/null || echo "0")
     echo "  Total registered operations: $OP_COUNT"
 
-    if [ "$OP_COUNT" -ge 12 ]; then
+    if [ "$OP_COUNT" -ge 21 ]; then
         echo "  All expected operations present ($OP_COUNT registered)"
-        echo "  (Genesis registers 13; governance tests may deregister one)"
+        echo "  (Genesis registers 21)"
         record_result "All genesis ops registered" "PASS"
     else
-        echo "  Expected at least 12, got $OP_COUNT"
+        echo "  Expected at least 21, got $OP_COUNT"
         record_result "All genesis ops registered" "FAIL"
     fi
 fi
@@ -117,7 +117,8 @@ echo "--- TEST 3: Forum shielded operations (3 ops) ---"
 TEST3_PASS=true
 
 FORUM_OPS=("/sparkdream.forum.v1.MsgCreatePost" "/sparkdream.forum.v1.MsgUpvotePost" "/sparkdream.forum.v1.MsgDownvotePost")
-FORUM_DOMAINS=(11 12 13)
+# Upvotes and downvotes share a domain: one anonymous vote per member per post.
+FORUM_DOMAINS=(11 12 12)
 
 for i in "${!FORUM_OPS[@]}"; do
     OP_URL="${FORUM_OPS[$i]}"
@@ -154,7 +155,8 @@ echo "--- TEST 4: Collect shielded operations (3 ops) ---"
 TEST4_PASS=true
 
 COLLECT_OPS=("/sparkdream.collect.v1.MsgCreateCollection" "/sparkdream.collect.v1.MsgUpvoteContent" "/sparkdream.collect.v1.MsgDownvoteContent")
-COLLECT_DOMAINS=(21 22 23)
+# Upvotes and downvotes share a domain: one anonymous vote per member per target.
+COLLECT_DOMAINS=(21 22 22)
 
 for i in "${!COLLECT_OPS[@]}"; do
     OP_URL="${COLLECT_OPS[$i]}"
@@ -181,6 +183,32 @@ if [ "$TEST4_PASS" == "true" ]; then
 else
     record_result "Collect ops (3: collection, up, down)" "FAIL"
 fi
+
+# =========================================================================
+# TEST 4b: Collect management operations (8 ops, ownership mode)
+# =========================================================================
+echo "--- TEST 4b: Collect management ops (ownership mode) ---"
+
+# Managing an anonymous collection proves the anonymous creator: the proof
+# must reproduce the collection's owner tag, so these run in ownership mode
+# (nullifier reused, owner sequence bound) and are immediate-only.
+TEST4B_PASS=true
+for OP in MsgUpdateCollection MsgDeleteCollection MsgAddItem MsgAddItems MsgUpdateItem MsgRemoveItem MsgRemoveItems MsgReorderItem; do
+    OP_RESULT=$($BINARY query shield shielded-op "/sparkdream.collect.v1.$OP" --output json 2>&1)
+    if echo "$OP_RESULT" | grep -qi "not found\|error"; then
+        echo "  MISSING: $OP"
+        TEST4B_PASS=false
+        continue
+    fi
+    MODE=$(echo "$OP_RESULT" | jq -r '.registration.nullifier_mode // "NULLIFIER_MODE_CONSUME"')
+    # proto3 JSON omits the zero enum value, which is IMMEDIATE_ONLY
+    BATCH=$(echo "$OP_RESULT" | jq -r '.registration.batch_mode // "SHIELD_BATCH_MODE_IMMEDIATE_ONLY"')
+    echo "  $OP: mode=$MODE batch=$BATCH"
+    if [ "$MODE" != "NULLIFIER_MODE_OWNERSHIP" ] || [ "$BATCH" != "SHIELD_BATCH_MODE_IMMEDIATE_ONLY" ]; then
+        TEST4B_PASS=false
+    fi
+done
+record_result "Collect management ops (ownership mode)" "$([ "$TEST4B_PASS" = true ] && echo PASS || echo FAIL)"
 
 # =========================================================================
 # TEST 5: Rep operation (1 op: CreateChallenge)
@@ -315,15 +343,18 @@ echo "--- TEST 9: Batch mode consistency ---"
 
 echo "  Operations by batch mode:"
 
-EITHER_OPS=$(echo "$OPS" | jq -r '[.registrations[]? | select(.batch_mode == "SHIELD_BATCH_MODE_EITHER" or .batch_mode == 0 or .batch_mode == null)] | length' 2>/dev/null || echo "0")
-ENCRYPTED_ONLY_OPS=$(echo "$OPS" | jq -r '[.registrations[]? | select(.batch_mode == "SHIELD_BATCH_MODE_ENCRYPTED_ONLY" or .batch_mode == 2)] | length' 2>/dev/null || echo "0")
+# proto3 JSON omits the zero enum value (IMMEDIATE_ONLY)
+EITHER_OPS=$(echo "$OPS" | jq -r '[.registrations[]? | select(.batch_mode == "SHIELD_BATCH_MODE_EITHER" or .batch_mode == 2)] | length' 2>/dev/null || echo "0")
+IMMEDIATE_ONLY_OPS=$(echo "$OPS" | jq -r '[.registrations[]? | select(.batch_mode == "SHIELD_BATCH_MODE_IMMEDIATE_ONLY" or .batch_mode == 0 or .batch_mode == null)] | length' 2>/dev/null || echo "0")
+ENCRYPTED_ONLY_OPS=$(echo "$OPS" | jq -r '[.registrations[]? | select(.batch_mode == "SHIELD_BATCH_MODE_ENCRYPTED_ONLY" or .batch_mode == 1)] | length' 2>/dev/null || echo "0")
 
 echo "  EITHER mode:          $EITHER_OPS"
+echo "  IMMEDIATE_ONLY mode:  $IMMEDIATE_ONLY_OPS"
 echo "  ENCRYPTED_ONLY mode:  $ENCRYPTED_ONLY_OPS"
 
 # Verify rep challenge is ENCRYPTED_ONLY (maximum privacy for challenges)
 REP_BATCH=$(echo "$OPS" | jq -r '.registrations[]? | select(.message_type_url | contains("MsgCreateChallenge")) | .batch_mode' 2>/dev/null)
-if echo "$REP_BATCH" | grep -qi "ENCRYPTED_ONLY\|2"; then
+if echo "$REP_BATCH" | grep -qi "ENCRYPTED_ONLY\|^1$"; then
     echo "  MsgCreateChallenge: correctly ENCRYPTED_ONLY"
 elif [ -z "$REP_BATCH" ]; then
     echo "  MsgCreateChallenge: batch_mode not found (may use default)"

@@ -910,9 +910,9 @@ message Params {
 
   // Reactions (one reaction per user per post — upvote OR downvote, public or private)
   cosmos.base.v1beta1.Coin reaction_spam_tax = 129;      // Cost for non-members to react (e.g., 10 SPARK)
-  uint64 max_reactions_per_day = 130;                    // Max reactions (upvotes + downvotes, public + private) per user per 24h (e.g., 100)
+  uint64 max_reactions_per_day = 130;                    // Max public reactions (upvotes + downvotes) per user per 24h (e.g., 100); anonymous reactions are bounded by x/shield instead
   bool   reactions_enabled = 131;                        // Toggle to enable/disable all reactions (default true)
-  cosmos.base.v1beta1.Coin downvote_deposit = 132;       // SPARK burned to downvote (e.g., 50 SPARK) — no refund, applies to both public and private
+  cosmos.base.v1beta1.Coin downvote_deposit = 132;       // SPARK burned to downvote (e.g., 50 SPARK); no refund; public downvotes only (anonymous downvotes are exempt)
   bool   private_reactions_enabled = 133;                // Toggle to enable/disable private reactions via x/shield (default true; requires reactions_enabled)
 
   // Post Editing (time-limited, fee-based after grace period)
@@ -1218,7 +1218,7 @@ Creates a new post or reply.
 **Fees:**
 - **Gas Fee:** Paid by all users (Standard Cosmos SDK Execution Cost).
 - **Spam Tax:** Paid by Non-Members (Protocol Fixed Fee).
-- **Cost Per Byte:** Charged for on-chain content storage (burned), unless `cost_per_byte_exempt` is true.
+- **Cost Per Byte:** Charged for on-chain content storage (burned), unless `cost_per_byte_exempt` is true. Never charged to anonymous posts (shield module account).
 
 **State Transition Logic:**
 
@@ -1241,6 +1241,7 @@ Creates a new post or reply.
    - Fail with `ErrContentTooLarge` if `len(content) > max_content_size`
 
 2. **Epoch-Based Rate Limit Check** (Fixed Memory - No Unbounded Growth)
+   - Skipped for anonymous posts (creator = shield module account): every anonymous member shares that address, so x/shield's per-identity rate limit bounds them instead. No storage fee is charged either (the shield module account would pay it from its gas reserve)
    - Load `UserRateLimit` for author (or create new)
    - **Epoch Rotation:** If `now - current_epoch_start >= 86400` (24h):
      - Set `previous_epoch_count = current_epoch_count`
@@ -1272,6 +1273,7 @@ Creates a new post or reply.
    - **Non-Member:** `status = ACTIVE`, `expiration_time = now + ephemeral_ttl`
      - Charge `spam_tax` (50% Burn, 50% Reward Pool)
      - *Note: This is additive to any tag creation fees and gas.*
+   - **Anonymous** (creator = shield module account): counts as a member; neither `spam_tax` nor the storage fee is charged
 
 4.5. **Initiative Reference Validation** (Cross-Module Conviction Propagation)
    - If `initiative_id > 0` and `repKeeper` is not nil:
@@ -2020,12 +2022,13 @@ Attach a SPARK bounty to a thread to reward helpful replies.
 | `amount` | `Coin` | SPARK amount for bounty |
 | `duration` | `int64` | Optional custom duration in seconds (0 = default) |
 
-**Authorization:** Must be the thread author (root post creator). Must be a member.
+**Authorization:** Must be the thread author (root post creator). Must be a member. Never the shield module address: anonymous senders cannot create or increase bounties (`ErrAnonymousBounty`) — the escrow would come from the communal shield gas reserve, and every anonymous member shares that address, so any of them could cancel or award it.
 
 **Fees:** Standard Gas Fee + bounty amount escrowed.
 
 **Logic:**
 1. **Validation:**
+   - Fail with `ErrAnonymousBounty` if `creator` is the shield module address
    - Fail with `ErrBountiesDisabled` if `params.bounties_enabled == false`
    - Fail with `ErrForumPaused` if `params.forum_paused == true`
    - Load post by `thread_id`
@@ -2110,6 +2113,7 @@ Increase an existing bounty amount.
 
 **Logic:**
 1. **Validation:**
+   - Fail with `ErrAnonymousBounty` if `creator` is the shield module address
    - Load bounty, verify creator, verify status is `ACTIVE`
    - Fail with `ErrBountyTooSmall` if `additional_amount < min_bounty_amount`
 
@@ -2734,7 +2738,7 @@ Upvote a post (public reaction). Enforces one reaction per user per post — if 
 **Design Note — Public vs Private Reactions:**
 - Public reactions store a `ReactionRecord` keyed by `{post_id}/{voter}`, enabling one-per-target enforcement and voter identity visibility
 - Private reactions use ZK nullifiers for the same one-per-target guarantee without revealing identity (routed via `x/shield`'s `MsgShieldedExec`)
-- Both modes share the unified `max_reactions_per_day` budget
+- Public reactions draw on the `max_reactions_per_day` budget. Private reactions arrive with the shield module address as voter, shared by every anonymous member, so the forum stores no per-voter `ReactionRecord`, skips the own-post and already-reacted checks and the per-voter reaction limit, and only increments the counter; x/shield's nullifier (one per member per post) and per-identity rate limit bound them instead
 - Reactions are non-removable in both modes (parity — private reactions cannot be undone via nullifier, so public reactions are also permanent)
 
 **State Transitions:**
@@ -2744,6 +2748,7 @@ Upvote a post (public reaction). Enforces one reaction per user per post — if 
    - Load post by `post_id`; fail with `ErrPostNotFound` if missing
    - Fail with `ErrCannotReactToHidden` if `post.status == HIDDEN`
    - Fail with `ErrAlreadyReacted` if `reaction_records/{post_id}/{voter}` exists
+   - Anonymous voter (shield module account): the own-post and already-reacted checks, the step 3 rate limit, and the `ReactionRecord` write in step 4 are skipped; only `post.upvote_count` is incremented
 
 2. **Check Membership & Charge Tax:**
    - Query `x/rep` for membership status of `voter`
@@ -2782,11 +2787,13 @@ Downvote a post (public reaction). Requires SPARK deposit which is burned immedi
    - Fail with `ErrForumPaused` if `params.forum_paused == true`
    - Load post by `post_id`; fail with `ErrPostNotFound` if missing
    - Fail with `ErrCannotReactToHidden` if `post.status == HIDDEN`
-   - Fail with `ErrCannotDownvoteOwnPost` if `voter == post.author`
+   - Fail with `ErrCannotVoteOwnPost` if `voter == post.author`
    - Fail with `ErrAlreadyReacted` if `reaction_records/{post_id}/{voter}` exists
+   - Anonymous voter (shield module account): both checks are skipped (the author can't be identified; dedup is x/shield's nullifier), and so are steps 2-3 and the `ReactionRecord` write in step 4
 
 2. **Burn Deposit:**
    - Burn `downvote_deposit` from voter (no refund, creates conviction signal)
+   - Not charged for anonymous downvotes: the shield module account would pay it from its gas reserve, not the anonymous member
 
 3. **Rate Limit Check (unified budget):**
    - Load or create `UserReactionLimit` for voter
@@ -2920,7 +2927,7 @@ Edits post content within time window. Free during grace period, SPARK fee requi
    - Fail with `ErrNoContentChange` if `new_content == post.content` (no-op protection)
 
 4. **Charge Edit Fee (if outside grace period):**
-   - If `post_age > params.edit_grace_period`:
+   - If `post_age > params.edit_grace_period` (and the author is not the shield module account — anonymous edits pay neither this nor the storage delta fee):
      - Transfer `edit_fee` from author to module account
      - Fee distribution: 50% burned, 50% to reward pool (same as spam tax)
 
@@ -5674,6 +5681,7 @@ message EventInitiativeLinkRemoved {
 | | `ErrNotReplyInThread` | 1760 | Post is not a reply in the bounty thread |
 | | `ErrBountyFullyAwarded` | 1761 | Bounty has been fully awarded |
 | | `ErrCannotAwardSelf` | 1762 | Cannot award bounty to own reply |
+| | `ErrAnonymousBounty` | 1763 | Anonymous senders cannot fund bounties |
 | **Tag Budget (1800-1849)** | | | |
 | | `ErrTagBudgetNotFound` | 1800 | Tag budget not found |
 | | `ErrTagBudgetNotActive` | 1801 | Tag budget is not active |
@@ -5849,11 +5857,11 @@ message EventInitiativeLinkRemoved {
 | **Reaction Spam** | Unified `max_reactions_per_day` (100) limits all reactions per user per 24h. Non-member `reaction_spam_tax` (10 SPARK) creates cost barrier. One reaction per user per post prevents vote-stacking. |
 | **Reaction Sybil** | Rate limit + spam tax + one-per-target makes Sybil attacks expensive. Membership requirement for free reactions ties votes to earned status. |
 | **Reaction State Bloat** | `ReactionRecord` per public vote (cleaned up on thread archival §16.15, leaving only aggregate counters). Private reaction nullifiers managed by x/shield's centralized store. |
-| **Vote Brigading** | One reaction per user per post (enforced by keyed storage for public, x/shield nullifier for private). Unified daily budget caps total reactions. |
+| **Vote Brigading** | One reaction per user per post (enforced by keyed storage for public, x/shield nullifier for private). `max_reactions_per_day` caps public reactions; x/shield's per-identity rate limit caps private ones. |
 | **Upvote Farming** | No direct economic benefit to post authors from upvotes. Reactions are engagement signals only, not rewards. One-per-target prevents vote inflation. |
-| **Downvote Harassment** | `downvote_deposit` (50 SPARK) creates significant cost for both public and private downvotes. Deposit burned immediately. |
-| **Downvote Brigading** | Unified `max_reactions_per_day` limits all reactions. Each downvote burns deposit. Coordinated attacks require large capital commitment. |
-| **Self-Downvote Exploit** | `ErrCannotDownvoteOwnPost` prevents gaming via self-downvotes (public mode). Private downvotes cannot check authorship but trust-level requirement + deposit cost make self-gaming expensive and pointless. |
+| **Downvote Harassment** | `downvote_deposit` creates significant cost for public downvotes; deposit burned immediately. Private downvotes pay no deposit (it would come from the shield gas reserve) and are bounded by the x/shield nullifier (one per member per post) and per-identity rate limit. |
+| **Downvote Brigading** | `max_reactions_per_day` limits public reactions and each public downvote burns deposit; private downvotes are bounded by the x/shield nullifier and per-identity rate limit. Coordinated attacks require large capital commitment. |
+| **Self-Downvote Exploit** | `ErrCannotVoteOwnPost` prevents gaming via self-downvotes (public mode). Private downvotes cannot check authorship but the trust-level requirement, the one-vote-per-member-per-post nullifier, and x/shield's per-identity rate limit make self-gaming pointless. |
 | **Private Reaction Privacy** | ZK proof reveals nothing about the voter except membership at minimum trust level. Nullifiers are scoped to individual posts — reactions on different posts cannot be correlated. All privacy infrastructure (proof verification, nullifiers) now managed by x/shield. |
 | **Private Reaction Relay Trust** | Shielded execution via x/shield's `MsgShieldedExec` handles relay trust. Module-paid gas eliminates the need for submitter balance, reducing relay trust assumptions. |
 | **Archival Re-reaction** | After archival, reaction uniqueness data is deleted. Unarchived threads allow re-reactions. Acceptable: unarchival is rare, gas-expensive, and aggregate counts are preserved. |
@@ -6346,7 +6354,7 @@ See **[docs/session-keys.md](session-keys.md)** and **[docs/x-session-spec.md](x
 
 ## 16. Anonymous Features via x/shield
 
-> **Implementation status (March 2026):** Per-module anonymous messages (`MsgCreateAnonymousPost`, `MsgCreateAnonymousReply`, `MsgAnonymousReact`) have been **REMOVED**. All anonymous operations are now routed through `x/shield`'s unified `MsgShieldedExec` entry point. The forum keeper implements the `ShieldAware` interface (see `x/forum/keeper/shield_aware.go`) to declare which messages are shield-compatible: `MsgCreatePost`, `MsgUpvotePost`, `MsgDownvotePost`. ZK proof verification (PLONK over BN254), nullifier management, TLE infrastructure, and module-paid gas are all owned by x/shield. The anonymous posting subsidy system has also been removed (replaced by x/shield's module-paid gas model). See `docs/x-shield-spec.md` for the unified privacy architecture.
+> **Implementation status (March 2026):** Per-module anonymous messages (`MsgCreateAnonymousPost`, `MsgCreateAnonymousReply`, `MsgAnonymousReact`) have been **REMOVED**. All anonymous operations are now routed through `x/shield`'s unified `MsgShieldedExec` entry point. The forum keeper implements the `ShieldAware` interface (see `x/forum/keeper/shield_aware.go`) to declare which messages are shield-compatible: `MsgCreatePost`, `MsgUpvotePost`, `MsgDownvotePost`. ZK proof verification (Groth16 over BN254), nullifier management, TLE infrastructure, and module-paid gas are all owned by x/shield. The anonymous posting subsidy system has also been removed (replaced by x/shield's module-paid gas model). See `docs/x-shield-spec.md` for the unified privacy architecture.
 
 Members can create forum posts, replies, and reactions without revealing their identity via `x/shield`'s `MsgShieldedExec`. The member proves they meet a minimum trust level — without revealing *which* member they are. Nullifiers prevent spam and are managed centrally by x/shield with per-domain scoping. Two execution modes are available: **Immediate** (low latency, content visible on-chain) and **Encrypted Batch** (TLE + batching for maximum privacy).
 
@@ -6356,7 +6364,7 @@ See **[docs/x-shield-spec.md](x-shield-spec.md)** for the full specification cov
 
 | Module | Purpose |
 |--------|---------|
-| `x/shield` | Owns all ZK proof verification (PLONK/BN254), nullifier management, TLE infrastructure, and module-paid gas. Dispatches shielded operations to forum via the `ShieldAware` interface. |
+| `x/shield` | Owns all ZK proof verification (Groth16/BN254), nullifier management, TLE infrastructure, and module-paid gas. Dispatches shielded operations to forum via the `ShieldAware` interface. |
 | `x/rep` | `RepKeeper.GetMemberTrustTreeRoot()` — Merkle root for trust-level proofs (read by x/shield during proof verification) |
 
 x/forum does NOT depend on x/shield directly. Instead, x/shield calls into forum when processing a `MsgShieldedExec` that wraps a forum message. The forum keeper declares shield-compatible messages via the `ShieldAware` interface (`IsShieldCompatible()`). All ZK proof verification, nullifier deduplication, and trust tree root validation are performed by x/shield before dispatching to the forum keeper.
@@ -6369,9 +6377,8 @@ x/forum does NOT depend on x/shield directly. Instead, x/shield calls into forum
 
 | Domain | Action | Scope | Effect |
 |--------|--------|-------|--------|
-| `11` | Shielded post (MsgCreatePost) | Current epoch | One anonymous thread per member per epoch |
-| `12` | Shielded upvote (MsgUpvotePost) | `post_id` | One anonymous upvote per member per post |
-| `13` | Shielded downvote (MsgDownvotePost) | `post_id` | One anonymous downvote per member per post |
+| `11` | Shielded post (MsgCreatePost) | Current epoch window (`epoch / 3`) | One anonymous post or reply per member per 3 shield epochs (~15 minutes) |
+| `12` | Shielded upvote or downvote (MsgUpvotePost, MsgDownvotePost) | `post_id` | One anonymous vote (up or down) per member per post |
 
 All domains use `PROOF_DOMAIN_TRUST_TREE` with `min_trust_level=1` and `batch_mode=EITHER`. Nullifier storage and deduplication are handled by x/shield's centralized nullifier store with per-domain scoping.
 
@@ -6398,7 +6405,12 @@ The global `anonymous_posting_enabled` param acts as a master kill-switch. If fa
 
 > **REMOVED:** The per-module anonymous messages `MsgCreateAnonymousPost`, `MsgCreateAnonymousReply`, and `MsgAnonymousReact` have been **deleted** from `tx.proto`. Anonymous operations are now executed by wrapping standard forum messages (`MsgCreatePost`, `MsgUpvotePost`, `MsgDownvotePost`) inside `x/shield`'s `MsgShieldedExec`.
 >
-> **How it works:** A user submits `MsgShieldedExec` containing a ZK proof and the inner message (e.g., `MsgCreatePost`). x/shield verifies the proof, checks the nullifier, and dispatches the inner message to the forum keeper with the `creator` field set to the shield module account address. The forum keeper processes it as a normal message — the anonymous identity is enforced at the shield layer, not the forum layer.
+> **How it works:** A user submits `MsgShieldedExec` containing a ZK proof and the inner message (e.g., `MsgCreatePost`). x/shield verifies the proof, checks the nullifier, and dispatches the inner message to the forum keeper with the `creator` field set to the shield module account address. The forum keeper processes it as a normal message — the anonymous identity is enforced at the shield layer, not the forum layer, except where per-address bookkeeping would treat every anonymous member as one account:
+>
+> - **Trust level:** `GetTrustLevel` for the shield module address returns the level the ZK proof established (`shieldtypes.ProvenTrustLevel(ctx)`); with no proven level in the context (the message did not come through a shield exec) it returns `TRUST_LEVEL_NEW`.
+> - **Posts:** the per-address `daily_post_limit` is skipped (x/shield's per-identity rate limit applies).
+> - **No per-action SPARK charges:** storage fee, `spam_tax`/`reaction_spam_tax`/`flag_spam_tax`, `edit_fee` and the edit storage delta fee, and `downvote_deposit` are all skipped for the shield module address — its balance is the communal gas reserve, not the member's money. (The shield address counts as a member, so the non-member spam taxes never reach it; the explicit check is defense in depth.) x/shield's per-identity exec limit and per-op rate-limit windows bound anonymous volume instead.
+> - **Votes:** no per-voter `ReactionRecord`, no own-post check, no per-voter reaction/downvote rate limits, and no `downvote_deposit` (see `MsgUpvotePost` / `MsgDownvotePost`).
 >
 > **Registered shielded operations for x/forum:**
 >
@@ -6406,7 +6418,7 @@ The global `anonymous_posting_enabled` param acts as a master kill-switch. If fa
 > |--------------|--------|-------|-------------|----------------|------------|
 > | `MsgCreatePost` | 11 | epoch-scoped | `PROOF_DOMAIN_TRUST_TREE` | 1 | EITHER |
 > | `MsgUpvotePost` | 12 | `post_id`-scoped | `PROOF_DOMAIN_TRUST_TREE` | 1 | EITHER |
-> | `MsgDownvotePost` | 13 | `post_id`-scoped | `PROOF_DOMAIN_TRUST_TREE` | 1 | EITHER |
+> | `MsgDownvotePost` | 12 (shared with upvote) | `post_id`-scoped | `PROOF_DOMAIN_TRUST_TREE` | 1 | EITHER |
 >
 > See `x/shield/keeper/registration.go` and `docs/x-shield-spec.md` for details on `MsgShieldedExec` processing.
 
@@ -6469,7 +6481,7 @@ Anonymous posts differ from regular posts in lifecycle:
 | Initiative reference | Optional (via `initiative_id`) | Optional (via `initiative_id`) |
 | Conviction propagation | Yes (if initiative linked) | Yes (if initiative linked) |
 
-Anonymous posts are always permanent because ephemeral posts require author interaction (member replies to "promote" them), and the anonymous author's identity is unknown. x/shield's nullifier scoping (one per epoch/thread) and per-identity rate limiting prevent abuse of permanent storage.
+Anonymous posts are always permanent because ephemeral posts require author interaction (member replies to "promote" them), and the anonymous author's identity is unknown. x/shield's nullifier scoping (one post per member per 3-epoch window) and per-identity rate limiting prevent abuse of permanent storage.
 
 **Conviction propagation:** Both regular and anonymous posts can reference an x/rep initiative via `initiative_id`. When a post accumulates community conviction stakes (via `STAKE_TARGET_FORUM_CONTENT`), x/rep's `GetPropagatedConviction()` multiplies the content's total conviction by `conviction_propagation_ratio` (default 10%) and adds it as external conviction to the referenced initiative. This creates a virtuous cycle: popular discussion content accelerates the linked initiative's completion.
 
@@ -6489,7 +6501,7 @@ Anonymous posts are always permanent because ephemeral posts require author inte
 - **Nullifier unlinkability:** Nullifiers from different scopes (different posts, different epochs) cannot be correlated to the same member. Nullifier management is centralized in x/shield.
 - **Module-paid gas:** x/shield's module account pays transaction fees for shielded operations, so the submitter needs zero balance. This eliminates balance-based deanonymization attacks.
 - **Encrypted Batch mode:** For maximum privacy, users can submit via TLE-encrypted batch mode. Content is encrypted until the epoch decryption key is released, preventing transaction ordering analysis.
-- **Spam prevention:** Per-identity rate limiting in x/shield + nullifier scoping (one per epoch/post_id) + forum-level rate limits.
+- **Spam prevention:** Per-identity rate limiting in x/shield + nullifier scoping (one per epoch/post_id). Forum's per-address rate limits do not apply to the shared shield address.
 - **No edit/delete as feature:** Immutability prevents behavioral deanonymization (edit timing, deletion patterns).
 - **Sentinel moderation preserved:** Unlike x/blog, forum anonymous posts are subject to full sentinel moderation, preventing abuse without sacrificing anonymity.
 - **Admin-only categories excluded:** (Design target) Categories with `admin_only_write = true` should not allow anonymous posting, preventing impersonation of governance authority. The `allow_anonymous` field is not yet implemented.
@@ -6500,9 +6512,9 @@ Anonymous posts are always permanent because ephemeral posts require author inte
 
 ### 16.14. Anonymous Reactions (Private Upvote/Downvote)
 
-> **REMOVED:** `MsgAnonymousReact` has been **deleted** from `tx.proto`. Private reactions are now executed by wrapping `MsgUpvotePost` (domain 12) or `MsgDownvotePost` (domain 13) inside `x/shield`'s `MsgShieldedExec`.
+> **REMOVED:** `MsgAnonymousReact` has been **deleted** from `tx.proto`. Private reactions are now executed by wrapping `MsgUpvotePost` or `MsgDownvotePost` (both nullifier domain 12) inside `x/shield`'s `MsgShieldedExec`.
 
-Members can upvote or downvote posts without revealing their identity via x/shield's `MsgShieldedExec`. A nullifier scoped to the `post_id` (managed by x/shield) enforces one reaction per member per post — the same constraint as public reactions.
+Members can upvote or downvote posts without revealing their identity via x/shield's `MsgShieldedExec`. A nullifier scoped to the `post_id` (managed by x/shield, shared by upvotes and downvotes) enforces one reaction per member per post — the same constraint as public reactions.
 
 **Why this matters:** On-chain transactions reveal the voter's address. Even though the current system stores individual `ReactionRecord`s for public reactions, users who want voting privacy comparable to X/Twitter's private likes can use the shielded execution mode. x/shield's module-paid gas eliminates any balance-based correlation.
 
@@ -6510,10 +6522,11 @@ Members can upvote or downvote posts without revealing their identity via x/shie
 
 | Property | Public | Private (via x/shield) |
 |----------|--------|---------|
-| One reaction per user per post | `ReactionRecord` keyed storage | ZK nullifier managed by x/shield (domain 12/13, scope=post_id) |
+| One reaction per user per post | `ReactionRecord` keyed storage | ZK nullifier managed by x/shield (domain 12, scope=post_id); no `ReactionRecord` |
 | Non-removable | No removal message | Nullifier permanent |
-| Daily budget | `max_reactions_per_day` | Same (shared budget) |
-| Downvote cost | `downvote_deposit` burned | Same (charged to shield module account) |
+| Daily budget | `max_reactions_per_day` | x/shield per-identity rate limit (forum's per-voter limit skipped) |
+| Downvote cost | `downvote_deposit` burned | None (the shield module account would pay it from its gas reserve) |
+| Own-post check | `ErrCannotVoteOwnPost` | Skipped (author can't be identified) |
 | Voter identity | Stored in `ReactionRecord` | Hidden by ZK proof |
 
 ### 16.15. Reaction Aggregation on Thread Archival

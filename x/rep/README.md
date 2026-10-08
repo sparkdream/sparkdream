@@ -170,6 +170,8 @@ Persistent KV-based sparse Merkle tree for `x/shield` ZK proof validation:
 - Leaves = `MiMC(zk_public_key, trust_level)` for each member with a registered ZK key
 - Built incrementally via EndBlocker `MaybeRebuildTrustTree()` (dirty member tracking for O(depth) updates)
 - Exposes `GetTrustTreeRoot()` and `GetPreviousTrustTreeRoot()` for stale-proof tolerance
+- `TrustTree` query exports the root, depth, `leaf_count` and every non-empty leaf (index, hash) in index order; anonymous clients download the whole tree and compute their own Merkle path locally, so the query reveals nothing about who asks. Empty (zero-hash) leaves are not stored or returned
+- `MsgRegisterZkPublicKey` rejects a key that is not a canonical BN254 scalar (value >= field modulus) with `ErrInvalidRequest`: it would hash to an unprovable leaf
 
 ### Tag Registry
 
@@ -480,7 +482,7 @@ Project" section of [docs/x-rep-spec.md](../../docs/x-rep-spec.md).
 |---------|-------------|--------|
 | `MsgInviteMember` | Create invitation, lock DREAM stake | Members with invitation credits |
 | `MsgAcceptInvitation` | Accept invitation, create new member | Invitee |
-| `MsgRegisterZkPublicKey` | Register ZK public key for anonymous operations | Any member |
+| `MsgRegisterZkPublicKey` | Register ZK public key (32-byte canonical BN254 scalar) for anonymous operations | Any member |
 
 ### DREAM Transfers
 
@@ -623,6 +625,7 @@ DREAM-bonded role primitive only. SPARK-staked roles (e.g. federation bridge ope
 | `MembersByTrustLevel` | Filter by trust level |
 | `GetInvitation` / `ListInvitation` | Invitation lookup/list |
 | `InvitationsByInviter` | Invitations sent by member |
+| `TrustTree` | Trust tree root, depth, leaf count and non-empty leaves (paginated) for anonymous clients |
 
 ### Projects and Initiatives
 
@@ -960,6 +963,7 @@ sparkdreamd tx rep claim-rewards --from alice
 sparkdreamd q rep get-member [address]
 sparkdreamd q rep initiative-conviction [initiative_id]
 sparkdreamd q rep reputation [address] [tag]
+sparkdreamd q rep trust-tree
 sparkdreamd q rep params
 ```
 

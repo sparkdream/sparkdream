@@ -78,4 +78,15 @@ message Params {
   // Validator set drift percentage (0-100) that triggers automatic re-keying.
   // e.g. 33 means re-key if >33% of DKG participants are no longer in the bonded set.
   uint32 max_validator_set_drift = 18;
+
+  // Maximum fee (in the bond denom) the shield module pays for one
+  // MsgShieldedExec. The submitter chooses the fee but the module pays it, so
+  // without a ceiling one exec could hand the whole gas reserve to the fee
+  // collector. A tx whose fee exceeds this, or is in any other denom, is
+  // rejected before anything is paid.
+  string max_fee_per_exec = 19 [
+    (cosmos_proto.scalar) = "cosmossdk.io/math.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
 }

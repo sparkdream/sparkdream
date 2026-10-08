@@ -9,6 +9,8 @@ echo "  - ENCRYPTED_ONLY operations are properly registered"
 echo "  - Shield module has gas funds"
 echo "  - Batch mode enforcement is configured"
 echo "  - Shield disable via governance works (and re-enable)"
+echo "  - Shielded exec fees are capped at max_fee_per_exec"
+echo "  - The public anonymous submitter can only sign MsgShieldedExec"
 echo ""
 
 # ========================================================================
@@ -39,6 +41,7 @@ echo ""
 # ========================================================================
 PASS_COUNT=0
 FAIL_COUNT=0
+SKIP_COUNT=0
 RESULTS=()
 TEST_NAMES=()
 
@@ -49,6 +52,8 @@ record_result() {
     RESULTS+=("$RESULT")
     if [ "$RESULT" == "PASS" ]; then
         PASS_COUNT=$((PASS_COUNT + 1))
+    elif [ "$RESULT" == "SKIP" ]; then
+        SKIP_COUNT=$((SKIP_COUNT + 1))
     else
         FAIL_COUNT=$((FAIL_COUNT + 1))
     fi
@@ -338,24 +343,26 @@ OP_COUNT=$(echo "$ALL_OPS" | jq -r '.registrations | length' 2>/dev/null || echo
 
 echo "  Total registered operations: $OP_COUNT"
 
-# Check for duplicate domains
-DOMAINS=$(echo "$ALL_OPS" | jq -r '.registrations[].nullifier_domain' 2>/dev/null | sort)
-UNIQUE_DOMAINS=$(echo "$DOMAINS" | sort -u)
-DOMAIN_COUNT=$(echo "$DOMAINS" | wc -l)
-UNIQUE_COUNT=$(echo "$UNIQUE_DOMAINS" | wc -l)
+# Domains must be unique except for the deliberate vote pairs: upvote and
+# downvote share a domain so a member gets one anonymous vote per target,
+# either direction.
+SHARED_OK="/sparkdream.forum.v1.MsgDownvotePost,/sparkdream.forum.v1.MsgUpvotePost
+/sparkdream.collect.v1.MsgDownvoteContent,/sparkdream.collect.v1.MsgUpvoteContent"
+# Ownership-mode ops (managing anonymous collections) record no nullifiers;
+# their shared domain is only a label, so only consume-mode ops count.
+SHARED=$(echo "$ALL_OPS" | jq -r '[.registrations[] | select((.nullifier_mode // "NULLIFIER_MODE_CONSUME") == "NULLIFIER_MODE_CONSUME")] | group_by(.nullifier_domain) | map(select(length > 1) | map(.message_type_url) | sort | join(",")) | .[]' 2>/dev/null | sort)
+UNEXPECTED=$(comm -23 <(echo "$SHARED" | grep -v '^$') <(echo "$SHARED_OK" | sort))
 
-echo "  Total domains: $DOMAIN_COUNT"
-echo "  Unique domains: $UNIQUE_COUNT"
+echo "  Shared domains:"
+echo "$SHARED" | sed 's/^/    /'
 
-if [ "$DOMAIN_COUNT" == "$UNIQUE_COUNT" ]; then
-    echo "  All nullifier domains are unique (no domain collision risk)"
+if [ -z "$UNEXPECTED" ]; then
+    echo "  Only the up/down vote pairs share nullifier domains"
     record_result "Nullifier domain uniqueness" "PASS"
 else
-    echo "  WARNING: Some operations share nullifier domains"
-    echo "  This could allow cross-operation nullifier collision"
-    # This might be intentional (e.g., same domain for related ops with different scope)
-    # so we pass but warn
-    record_result "Nullifier domain uniqueness" "PASS"
+    echo "  ERROR: unexpected shared nullifier domains:"
+    echo "$UNEXPECTED" | sed 's/^/    /'
+    record_result "Nullifier domain uniqueness" "FAIL"
 fi
 
 # ========================================================================
@@ -409,9 +416,104 @@ echo "  (CLI cannot construct multi-msg txs, so E2E coverage relies on Go tests)
 record_result "Multi-message tx protection (documented)" "PASS"
 
 # ========================================================================
-# TEST 9: Verify shield disable/re-enable via governance
+# TEST 9: Shielded exec fee is capped at max_fee_per_exec
 # ========================================================================
-echo "--- TEST 9: Shield disable via governance and re-enable ---"
+echo "--- TEST 9: Fee cap (max_fee_per_exec) ---"
+
+# The submitter picks the fee but the shield module pays it, so the ante
+# handler refuses a fee above max_fee_per_exec before anything is paid.
+MAX_FEE=$($BINARY query shield params --output json 2>&1 | jq -r '.params.max_fee_per_exec // "0"')
+echo "  max_fee_per_exec: $MAX_FEE"
+
+if [ "$MAX_FEE" == "0" ] || [ -z "$MAX_FEE" ]; then
+    echo "  ERROR: max_fee_per_exec is unset or zero"
+    record_result "Fee cap (max_fee_per_exec)" "FAIL"
+else
+    OVER_FEE=$((MAX_FEE + 1))
+    FEE_INNER="{\"@type\":\"/sparkdream.blog.v1.MsgCreatePost\",\"creator\":\"$SHIELD_MODULE_ADDR\",\"title\":\"fee cap\",\"body\":\"over the fee cap\"}"
+    FEE_RES=$($BINARY tx shield shielded-exec \
+        --inner-message "$FEE_INNER" \
+        --proof "$(python3 -c "print('aa' * 128)")" \
+        --nullifier "$(openssl rand -hex 32)" \
+        --rate-limit-nullifier "$(openssl rand -hex 32)" \
+        --merkle-root "$(openssl rand -hex 32)" \
+        --proof-domain 1 \
+        --min-trust-level 1 \
+        --exec-mode 0 \
+        --from submitter1 \
+        --chain-id $CHAIN_ID \
+        --keyring-backend test \
+        --fees ${OVER_FEE}${BOND_DENOM} \
+        --gas 500000 \
+        -y \
+        --output json 2>&1)
+
+    FEE_CODE=$(echo "$FEE_RES" | jq -r '.code // "0"' 2>/dev/null || echo "1")
+    FEE_LOG=$(echo "$FEE_RES" | jq -r '.raw_log // ""' 2>/dev/null || echo "$FEE_RES")
+    if [ "$FEE_CODE" == "0" ]; then
+        echo "  ERROR: fee $OVER_FEE above the cap was accepted"
+        record_result "Fee cap (max_fee_per_exec)" "FAIL"
+    elif echo "$FEE_RES $FEE_LOG" | grep -qi "max_fee_per_exec"; then
+        echo "  Correctly rejected fee $OVER_FEE > $MAX_FEE before paying"
+        record_result "Fee cap (max_fee_per_exec)" "PASS"
+    elif echo "$FEE_RES $FEE_LOG" | grep -qi "ZK proof verification failed"; then
+        # A verifying key is stored, so the dummy proof fails before the cap
+        # is reached: the cap wasn't exercised here (covered by Go tests).
+        echo "  Rejected at proof verification (verifying key present); fee cap not reachable with a dummy proof"
+        record_result "Fee cap (max_fee_per_exec)" "SKIP"
+    else
+        echo "  ERROR: rejected for an unexpected reason: ${FEE_LOG:0:200}${FEE_RES:0:200}"
+        record_result "Fee cap (max_fee_per_exec)" "FAIL"
+    fi
+fi
+
+# ========================================================================
+# TEST 10: Public anonymous submitter can only sign MsgShieldedExec
+# ========================================================================
+echo "--- TEST 10: Public submitter confined to MsgShieldedExec ---"
+
+# Anonymous clients all sign with one shared key whose private key is public
+# (sha256 of a fixed seed), so the outer signer reveals nothing. The ante
+# handler refuses anything else it signs, or anyone could spend its funds.
+PUB_SUBMITTER_HEX=$(printf %s "sparkdream/shield/public-submitter/v1" | sha256sum | cut -d' ' -f1)
+$BINARY keys delete pubsubmitter --keyring-backend test -y > /dev/null 2>&1
+$BINARY keys import-hex pubsubmitter "$PUB_SUBMITTER_HEX" --keyring-backend test > /dev/null 2>&1
+PUB_SUBMITTER_ADDR=$($BINARY keys show pubsubmitter -a --keyring-backend test 2>/dev/null)
+echo "  Public submitter: $PUB_SUBMITTER_ADDR"
+
+TEST10_OK=true
+# Genesis creates its account so clients can sign with its account number.
+ACC_NUM=$($BINARY query auth account "$PUB_SUBMITTER_ADDR" --output json 2>/dev/null | jq -r '.account.value.account_number // .account.account_number // empty' 2>/dev/null)
+if [ -z "$ACC_NUM" ]; then
+    echo "  ERROR: public submitter account does not exist on chain"
+    TEST10_OK=false
+else
+    echo "  Account exists (account_number=$ACC_NUM)"
+fi
+
+SEND_RES=$($BINARY tx bank send pubsubmitter "$ALICE_ADDR" 1${BOND_DENOM} \
+    --chain-id $CHAIN_ID \
+    --keyring-backend test \
+    --fees 5000${BOND_DENOM} \
+    -y \
+    --output json 2>&1)
+SEND_CODE=$(echo "$SEND_RES" | jq -r '.code // "0"' 2>/dev/null || echo "1")
+if [ "$SEND_CODE" == "0" ] && echo "$SEND_RES" | jq -e '.txhash' > /dev/null 2>&1; then
+    echo "  ERROR: a MsgSend signed by the public submitter was accepted"
+    TEST10_OK=false
+elif echo "$SEND_RES" | grep -qi "public anonymous submitter"; then
+    echo "  Correctly rejected a non-shield tx signed by the public submitter"
+else
+    echo "  ERROR: rejected for an unexpected reason: ${SEND_RES:0:200}"
+    TEST10_OK=false
+fi
+$BINARY keys delete pubsubmitter --keyring-backend test -y > /dev/null 2>&1
+record_result "Public submitter confined to MsgShieldedExec" "$([ "$TEST10_OK" = true ] && echo PASS || echo FAIL)"
+
+# ========================================================================
+# TEST 11: Verify shield disable/re-enable via governance
+# ========================================================================
+echo "--- TEST 11: Shield disable via governance and re-enable ---"
 
 GOV_ADDR=$($BINARY query auth module-account gov --output json | jq -r '.account.base_account.address // .account.value.address')
 
@@ -441,6 +543,7 @@ else
     CUR_MIN_TLE_VALS=$(echo "$CURRENT_PARAMS" | jq -r '.params.min_tle_validators // 3')
     CUR_DKG_WINDOW=$(echo "$CURRENT_PARAMS" | jq -r '.params.dkg_window_blocks // "20"')
     CUR_MAX_DRIFT=$(echo "$CURRENT_PARAMS" | jq -r '.params.max_validator_set_drift // 33')
+    CUR_MAX_FEE=$(echo "$CURRENT_PARAMS" | jq -r '.params.max_fee_per_exec // "50000"')
 
     # Disable shield via governance
     cat > "$PROPOSAL_DIR/disable_shield.json" <<EOF
@@ -467,7 +570,8 @@ else
         "tle_jail_duration": "$CUR_TLE_JAIL",
         "min_tle_validators": $CUR_MIN_TLE_VALS,
         "dkg_window_blocks": "$CUR_DKG_WINDOW",
-        "max_validator_set_drift": $CUR_MAX_DRIFT
+        "max_validator_set_drift": $CUR_MAX_DRIFT,
+        "max_fee_per_exec": "$CUR_MAX_FEE"
       }
     }
   ],
@@ -523,7 +627,8 @@ EOF
         "tle_jail_duration": "$CUR_TLE_JAIL",
         "min_tle_validators": $CUR_MIN_TLE_VALS,
         "dkg_window_blocks": "$CUR_DKG_WINDOW",
-        "max_validator_set_drift": $CUR_MAX_DRIFT
+        "max_validator_set_drift": $CUR_MAX_DRIFT,
+        "max_fee_per_exec": "$CUR_MAX_FEE"
       }
     }
   ],
@@ -567,7 +672,7 @@ for i in "${!TEST_NAMES[@]}"; do
     printf "  %-55s %s\n" "${TEST_NAMES[$i]}" "${RESULTS[$i]}"
 done
 echo ""
-echo "Total: $PASS_COUNT passed, $FAIL_COUNT failed out of $((PASS_COUNT + FAIL_COUNT))"
+echo "Total: $PASS_COUNT passed, $FAIL_COUNT failed, $SKIP_COUNT skipped out of $((PASS_COUNT + FAIL_COUNT + SKIP_COUNT))"
 if [ $FAIL_COUNT -gt 0 ]; then
     exit 1
 fi

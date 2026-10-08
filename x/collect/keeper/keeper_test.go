@@ -143,12 +143,13 @@ type restoreAuthorBondCall struct {
 }
 
 type mockRepKeeper struct {
-	isMemberFn         func(ctx context.Context, addr sdk.AccAddress) bool
-	getTrustLevelFn    func(ctx context.Context, addr sdk.AccAddress) (reptypes.TrustLevel, error)
-	lockDREAMFn        func(ctx context.Context, addr sdk.AccAddress, amount math.Int) error
-	unlockDREAMFn      func(ctx context.Context, addr sdk.AccAddress, amount math.Int) error
-	burnDREAMFn        func(ctx context.Context, addr sdk.AccAddress, amount math.Int) error
-	deductReputationFn func(ctx context.Context, addr sdk.AccAddress, tag string, amount math.LegacyDec) error
+	getContentConvictionFn func(ctx context.Context, targetType reptypes.StakeTargetType, targetID uint64) (math.LegacyDec, error)
+	isMemberFn             func(ctx context.Context, addr sdk.AccAddress) bool
+	getTrustLevelFn        func(ctx context.Context, addr sdk.AccAddress) (reptypes.TrustLevel, error)
+	lockDREAMFn            func(ctx context.Context, addr sdk.AccAddress, amount math.Int) error
+	unlockDREAMFn          func(ctx context.Context, addr sdk.AccAddress, amount math.Int) error
+	burnDREAMFn            func(ctx context.Context, addr sdk.AccAddress, amount math.Int) error
+	deductReputationFn     func(ctx context.Context, addr sdk.AccAddress, tag string, amount math.LegacyDec) error
 
 	// Call recorders, optional. Tests opt in by setting the *Fn fields above
 	// to write into these slices.
@@ -255,6 +256,9 @@ func (m *mockRepKeeper) DeductReputation(ctx context.Context, addr sdk.AccAddres
 }
 
 func (m *mockRepKeeper) GetContentConviction(ctx context.Context, targetType reptypes.StakeTargetType, targetID uint64) (math.LegacyDec, error) {
+	if m.getContentConvictionFn != nil {
+		return m.getContentConvictionFn(ctx, targetType, targetID)
+	}
 	return math.LegacyZeroDec(), nil
 }
 

@@ -13,9 +13,11 @@ import (
 
 func (k msgServer) UpdatePost(ctx context.Context, msg *types.MsgUpdatePost) (*types.MsgUpdatePostResponse, error) {
 	// Validate creator address
-	if _, err := k.addressCodec.StringToBytes(msg.Creator); err != nil {
+	creatorAddrBytes, err := k.addressCodec.StringToBytes(msg.Creator)
+	if err != nil {
 		return nil, errorsmod.Wrap(err, "invalid creator address")
 	}
+	creatorAddr := sdk.AccAddress(creatorAddrBytes)
 
 	// Check if post exists and verify ownership
 	val, found := k.GetPost(ctx, msg.Id)
@@ -64,14 +66,15 @@ func (k msgServer) UpdatePost(ctx context.Context, msg *types.MsgUpdatePost) (*t
 			"min_reply_trust_level must be between -1 and 4, got %d", msg.MinReplyTrustLevel)
 	}
 
-	// High-water mark fee: only charge for bytes above the previous high water mark
+	// High-water mark fee: only charge for bytes above the previous high water mark.
+	// An anonymous editor would be spending the shield module's gas reserve,
+	// not their own SPARK, so the fee doesn't apply.
 	newBytes := uint64(len(msg.Title) + len(msg.Body))
-	if !params.CostPerByteExempt && params.CostPerByteAmount.IsPositive() && newBytes > val.FeeBytesHighWater {
+	if !params.CostPerByteExempt && params.CostPerByteAmount.IsPositive() && newBytes > val.FeeBytesHighWater && !isShieldModuleAddress(creatorAddr) {
 		delta := int64(newBytes - val.FeeBytesHighWater)
 		deltaFee := sdk.NewCoin(k.BondDenom(ctx),
 			params.CostPerByteAmount.MulRaw(delta))
 		if deltaFee.IsPositive() {
-			creatorAddr, _ := sdk.AccAddressFromBech32(msg.Creator)
 			if err := k.bankKeeper.SendCoinsFromAccountToModule(ctx, creatorAddr, types.ModuleName, sdk.NewCoins(deltaFee)); err != nil {
 				return nil, errorsmod.Wrap(err, "failed to charge storage delta fee")
 			}

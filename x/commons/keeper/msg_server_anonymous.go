@@ -58,8 +58,10 @@ func (k msgServer) SubmitAnonymousProposal(goCtx context.Context, msg *types.Msg
 		return nil, errorsmod.Wrapf(sdkerrors.ErrUnauthorized, "no permissions found for %s", msg.PolicyAddress)
 	}
 
-	if len(msg.Messages) == 0 {
-		return nil, errorsmod.Wrap(sdkerrors.ErrInvalidRequest, "empty proposal")
+	// Same rule as SubmitProposal: a signaling proposal (no executable
+	// messages) is allowed but must carry metadata.
+	if len(msg.Messages) == 0 && msg.Metadata == "" {
+		return nil, errorsmod.Wrap(sdkerrors.ErrInvalidRequest, "signaling proposal requires non-empty metadata")
 	}
 
 	for _, anyMsg := range msg.Messages {

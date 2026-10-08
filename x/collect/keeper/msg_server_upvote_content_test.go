@@ -3,9 +3,11 @@ package keeper_test
 import (
 	"testing"
 
+	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	"github.com/stretchr/testify/require"
 
 	"sparkdream/x/collect/types"
+	shieldtypes "sparkdream/x/shield/types"
 )
 
 func TestUpvoteContent(t *testing.T) {
@@ -142,4 +144,57 @@ func TestUpvoteContent(t *testing.T) {
 			require.Equal(t, uint64(1), coll.UpvoteCount)
 		})
 	}
+}
+
+// Anonymous votes all carry the shield module as voter; x/shield's nullifier
+// limits each member to one vote per target, so collect's per-voter dedup and
+// daily limit must not block a second member's anonymous vote.
+func TestUpvoteContent_AnonymousVotesAreIndependent(t *testing.T) {
+	f := initTestFixture(t)
+	shield := authtypes.NewModuleAddress("shield").String()
+	collID := f.createCollection(t, f.owner)
+
+	for i := 0; i < 3; i++ {
+		_, err := f.msgServer.UpvoteContent(f.ctx, &types.MsgUpvoteContent{
+			Creator:    shield,
+			TargetId:   collID,
+			TargetType: types.FlagTargetType_FLAG_TARGET_TYPE_COLLECTION,
+		})
+		require.NoError(t, err, "anonymous upvote %d", i+1)
+	}
+	coll, err := f.keeper.Collection.Get(f.ctx, collID)
+	require.NoError(t, err)
+	require.Equal(t, uint64(3), coll.UpvoteCount)
+}
+
+// The shield address owns every anonymous collection, so an anonymous vote on
+// an anonymous collection can't be told apart from the owner voting on their
+// own: the own-content check is skipped for it. An identified owner voting on
+// their own collection is still refused.
+func TestUpvoteContent_AnonymousOwnContentRelaxation(t *testing.T) {
+	f := initTestFixture(t)
+	shield := authtypes.NewModuleAddress("shield").String()
+
+	anonID := createAnonCollection(t, f, 3, f.sdkCtx.BlockHeight()+100)
+	anonColl, err := f.keeper.Collection.Get(f.ctx, anonID)
+	require.NoError(t, err)
+	require.Equal(t, shield, anonColl.Owner)
+
+	_, err = f.msgServer.UpvoteContent(shieldtypes.WithProvenTrustLevel(f.sdkCtx, 1), &types.MsgUpvoteContent{
+		Creator:    shield,
+		TargetId:   anonID,
+		TargetType: types.FlagTargetType_FLAG_TARGET_TYPE_COLLECTION,
+	})
+	require.NoError(t, err)
+	anonColl, err = f.keeper.Collection.Get(f.ctx, anonID)
+	require.NoError(t, err)
+	require.Equal(t, uint64(1), anonColl.UpvoteCount)
+
+	ownID := f.createCollection(t, f.owner)
+	_, err = f.msgServer.UpvoteContent(f.ctx, &types.MsgUpvoteContent{
+		Creator:    f.owner,
+		TargetId:   ownID,
+		TargetType: types.FlagTargetType_FLAG_TARGET_TYPE_COLLECTION,
+	})
+	require.ErrorIs(t, err, types.ErrCannotVoteOwnContent)
 }

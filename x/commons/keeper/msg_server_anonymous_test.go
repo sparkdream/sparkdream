@@ -80,12 +80,21 @@ func TestSubmitAnonymousProposal_EmptyMessages(t *testing.T) {
 	policyAddr := sdk.AccAddress([]byte("anon_policy_________")).String()
 	setupProposalState(t, k, ctx, "AnonCouncil", policyAddr, shieldModuleAddr())
 
+	// No messages and no metadata: a blank vote.
 	_, err := msgServer.SubmitAnonymousProposal(ctx, &types.MsgSubmitAnonymousProposal{
 		Proposer:      shieldModuleAddr(),
 		PolicyAddress: policyAddr,
 	})
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "empty proposal")
+	require.Contains(t, err.Error(), "signaling proposal requires non-empty metadata")
+
+	// A signaling proposal with metadata is accepted, as for SubmitProposal.
+	_, err = msgServer.SubmitAnonymousProposal(ctx, &types.MsgSubmitAnonymousProposal{
+		Proposer:      shieldModuleAddr(),
+		PolicyAddress: policyAddr,
+		Metadata:      "Should we hold a community call?",
+	})
+	require.NoError(t, err)
 }
 
 func TestSubmitAnonymousProposal_MsgNotAllowed(t *testing.T) {
@@ -245,4 +254,33 @@ func TestAnonymousVoteProposal_VotingDeadlinePassed(t *testing.T) {
 	})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "voting period has ended")
+}
+
+// The proposal queries report anonymous votes alongside member votes: zeros
+// before any anonymous vote (no tally record yet), then the running counts.
+func TestProposalQueries_ReportAnonTally(t *testing.T) {
+	k, ctx, _ := setupCommonsKeeper(t)
+	msgServer := keeper.NewMsgServerImpl(k)
+	qs := keeper.NewQueryServerImpl(k)
+
+	pid := submitAnonProposal(t, k, ctx)
+
+	got, err := qs.GetProposal(ctx, &types.QueryGetProposalRequest{ProposalId: pid})
+	require.NoError(t, err)
+	require.Equal(t, types.AnonVoteTally{}, got.AnonTally)
+
+	// No YES majority, so the proposal stays open for all three votes.
+	for _, opt := range []types.VoteOption{types.VoteOption_VOTE_OPTION_NO, types.VoteOption_VOTE_OPTION_NO, types.VoteOption_VOTE_OPTION_ABSTAIN} {
+		_, err := msgServer.AnonymousVoteProposal(ctx, &types.MsgAnonymousVoteProposal{Voter: shieldModuleAddr(), ProposalId: pid, Option: opt})
+		require.NoError(t, err)
+	}
+	want := types.AnonVoteTally{NoCount: 2, AbstainCount: 1}
+
+	got, err = qs.GetProposal(ctx, &types.QueryGetProposalRequest{ProposalId: pid})
+	require.NoError(t, err)
+	require.Equal(t, want, got.AnonTally)
+
+	votes, err := qs.GetProposalVotes(ctx, &types.QueryGetProposalVotesRequest{ProposalId: pid})
+	require.NoError(t, err)
+	require.Equal(t, want, votes.AnonTally)
 }

@@ -104,3 +104,19 @@ func TestRegisterZkPublicKey_InvalidAddress(t *testing.T) {
 	})
 	require.Error(t, err)
 }
+
+func TestRegisterZkPublicKey_RejectsNonCanonicalKey(t *testing.T) {
+	f := initFixture(t)
+	srv := keeper.NewMsgServerImpl(f.keeper)
+
+	addr := sdk.AccAddress([]byte("member_noncanonical"))
+	seedActiveMember(t, f, addr, types.MemberStatus_MEMBER_STATUS_ACTIVE)
+
+	// 0xff... is far above the BN254 scalar modulus (0x3064...).
+	key := bytes.Repeat([]byte{0xff}, keeper.ZkPublicKeySize)
+	_, err := srv.RegisterZkPublicKey(f.ctx, &types.MsgRegisterZkPublicKey{
+		Member:      addr.String(),
+		ZkPublicKey: key,
+	})
+	require.ErrorIs(t, err, types.ErrInvalidRequest)
+}

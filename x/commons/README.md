@@ -75,10 +75,10 @@ Decision policies support two modes:
 ### Anonymous Governance
 
 Through `x/shield`, members can:
-- **Submit anonymous proposals** — proposer is the shield module account; ZK proof verifies membership
+- **Submit anonymous proposals** — proposer is the shield module account; ZK proof verifies membership. Signaling proposals (no messages) need non-empty metadata, as for `MsgSubmitProposal`
 - **Cast anonymous votes** — uniform weight of 1; nullifier scoped by proposal ID prevents double-voting
 
-Anonymous vote tallies are stored separately and combined with regular votes during threshold checks.
+Anonymous vote tallies are stored separately and combined with regular votes during threshold checks. Queries report them as `anon_tally` rather than as entries in `votes`.
 
 ### Permission Model
 
@@ -217,9 +217,9 @@ Cancelled and declined schedules return `NotFound` from `QueryGetRecurringSpend(
 | `GetCouncilMembers` | List members of a council |
 | `GetPolicyPermissions` | Allowed messages for a policy |
 | `ListPolicyPermissions` | Paginated list of all permission sets |
-| `GetProposal` | Single proposal by ID (includes votes and tally) |
+| `GetProposal` | Single proposal by ID (includes votes, tally, and `anon_tally` of anonymous votes) |
 | `ListProposals` | Paginated proposals with optional council filter |
-| `GetProposalVotes` | Votes for a proposal with tally |
+| `GetProposalVotes` | Votes for a proposal with tally and `anon_tally` |
 
 ## Parameters
 

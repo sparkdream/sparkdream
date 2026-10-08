@@ -29,8 +29,11 @@ func (k msgServer) UpvoteContent(ctx context.Context, msg *types.MsgUpvoteConten
 		return nil, err
 	}
 
-	// Creator must not be collection owner or collaborator
-	if coll.Owner == msg.Creator {
+	anonymous := k.isAnonymous(msg.Creator)
+
+	// Creator must not be collection owner or collaborator (an anonymous
+	// owner can't be identified)
+	if coll.Owner == msg.Creator && !anonymous {
 		return nil, types.ErrCannotVoteOwnContent
 	}
 	isCollab, _, err := k.IsCollaborator(ctx, coll.Id, msg.Creator)
@@ -44,7 +47,7 @@ func (k msgServer) UpvoteContent(ctx context.Context, msg *types.MsgUpvoteConten
 	// Check ReactionDedup - creator must not have already voted on this target
 	dedupKey := ReactionDedupCompositeKey(msg.Creator, msg.TargetType, msg.TargetId)
 	_, err = k.ReactionDedup.Get(ctx, dedupKey)
-	if err == nil {
+	if err == nil && !anonymous {
 		return nil, types.ErrAlreadyVoted
 	}
 
@@ -53,8 +56,10 @@ func (k msgServer) UpvoteContent(ctx context.Context, msg *types.MsgUpvoteConten
 	if err != nil {
 		return nil, errorsmod.Wrap(err, "failed to get params")
 	}
-	if err := k.checkDailyLimit(ctx, msg.Creator, blockHeight, "upvote", params.MaxUpvotesPerDay); err != nil {
-		return nil, err
+	if !anonymous {
+		if err := k.checkDailyLimit(ctx, msg.Creator, blockHeight, "upvote", params.MaxUpvotesPerDay); err != nil {
+			return nil, err
+		}
 	}
 
 	// Increment upvote_count on target
@@ -76,8 +81,11 @@ func (k msgServer) UpvoteContent(ctx context.Context, msg *types.MsgUpvoteConten
 	}
 
 	// Store ReactionDedup key with value 1 (upvote)
-	if err := k.ReactionDedup.Set(ctx, dedupKey, 1); err != nil {
-		return nil, errorsmod.Wrap(err, "failed to set reaction dedup")
+	// Anonymous votes are deduplicated per member by x/shield's nullifier.
+	if !anonymous {
+		if err := k.ReactionDedup.Set(ctx, dedupKey, 1); err != nil {
+			return nil, errorsmod.Wrap(err, "failed to set reaction dedup")
+		}
 	}
 
 	// Emit event

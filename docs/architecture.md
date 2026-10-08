@@ -477,7 +477,7 @@ Separate from the `x/split` distribution pipeline, this module holds funds for e
 **Key Features:**
 - **Single entry point:** `MsgShieldedExec` wraps any registered inner message for anonymous execution
 - **Module-paid gas:** Shield module account pays tx fees; submitters need zero balance (auto-funded from community pool via BeginBlocker)
-- **ZK proof verification:** PLONK over BN254, verification keys stored on-chain, proof of trust tree membership
+- **ZK proof verification:** Groth16 over BN254, verification keys stored on-chain, proof of trust tree membership
 - **Two execution modes:** Immediate (low latency, content visible) and Encrypted Batch (TLE + batching, maximum privacy)
 - **Centralized nullifiers:** Per-domain, per-scope nullifier tracking replaces per-module stores
 - **TLE infrastructure:** Distributed Key Generation (DKG) ceremony, master public key, Shamir secret sharing, epoch-based decryption

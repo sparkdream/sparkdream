@@ -128,6 +128,7 @@ var (
 	ErrNotReplyInThread      = errors.Register(ModuleName, 1760, "post is not a reply in the bounty thread")
 	ErrBountyFullyAwarded    = errors.Register(ModuleName, 1761, "bounty has been fully awarded")
 	ErrCannotAwardSelf       = errors.Register(ModuleName, 1762, "cannot award bounty to own reply")
+	ErrAnonymousBounty       = errors.Register(ModuleName, 1763, "anonymous senders cannot fund bounties")
 
 	// Flag errors (1850-1899)
 	ErrAlreadyFlagged     = errors.Register(ModuleName, 1850, "already flagged this post")

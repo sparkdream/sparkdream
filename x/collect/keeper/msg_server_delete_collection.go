@@ -20,7 +20,7 @@ func (k msgServer) DeleteCollection(ctx context.Context, msg *types.MsgDeleteCol
 	}
 
 	// Must be owner
-	if coll.Owner != msg.Creator {
+	if !k.isCollectionOwner(ctx, coll, msg.Creator) {
 		return nil, types.ErrUnauthorized
 	}
 

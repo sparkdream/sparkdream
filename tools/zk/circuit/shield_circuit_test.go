@@ -21,6 +21,7 @@ type smallShieldCircuit struct {
 	MinTrustLevel      frontend.Variable `gnark:",public"`
 	Scope              frontend.Variable `gnark:",public"`
 	RateLimitEpoch     frontend.Variable `gnark:",public"`
+	MessageHash        frontend.Variable `gnark:",public"`
 
 	SecretKey    frontend.Variable
 	TrustLevel   frontend.Variable
@@ -89,6 +90,9 @@ func (c *smallShieldCircuit) Define(api frontend.API) error {
 		api.AssertIsEqual(product, 0)
 	}
 
+	// 8. bind the message hash
+	api.Mul(c.MessageHash, c.MessageHash)
+
 	return nil
 }
 
@@ -131,6 +135,7 @@ func makeAssignment(
 		MinTrustLevel:      minTrustLevel,
 		Scope:              scope,
 		RateLimitEpoch:     rateLimitEpoch,
+		MessageHash:        1,
 		SecretKey:          new(big.Int).SetBytes(zkcrypto.PadTo32(secretKey)),
 		TrustLevel:         trustLevel,
 	}
@@ -210,6 +215,7 @@ func TestShieldCircuit_WrongScope(t *testing.T) {
 		MinTrustLevel:      uint64(1),
 		Scope:              correctScope, // Scope doesn't match the nullifier
 		RateLimitEpoch:     rlEpoch,
+		MessageHash:        1,
 		SecretKey:          new(big.Int).SetBytes(zkcrypto.PadTo32(secretKey)),
 		TrustLevel:         trustLevel,
 	}
@@ -246,6 +252,7 @@ func TestShieldCircuit_WrongMerkleRoot(t *testing.T) {
 		MinTrustLevel:      uint64(1),
 		Scope:              scope,
 		RateLimitEpoch:     rlEpoch,
+		MessageHash:        1,
 		SecretKey:          new(big.Int).SetBytes(zkcrypto.PadTo32(secretKey)),
 		TrustLevel:         trustLevel,
 	}
@@ -283,6 +290,7 @@ func TestShieldCircuit_ForgedRateLimitNullifier(t *testing.T) {
 		MinTrustLevel:      uint64(1),
 		Scope:              scope,
 		RateLimitEpoch:     rlEpoch,
+		MessageHash:        1,
 		SecretKey:          new(big.Int).SetBytes(zkcrypto.PadTo32(secretKey)),
 		TrustLevel:         trustLevel,
 	}
@@ -321,6 +329,7 @@ func TestShieldCircuit_WrongRateLimitEpoch(t *testing.T) {
 		MinTrustLevel:      uint64(1),
 		Scope:              scope,
 		RateLimitEpoch:     verifierEpoch, // Verifier uses epoch 43
+		MessageHash:        1,
 		SecretKey:          new(big.Int).SetBytes(zkcrypto.PadTo32(secretKey)),
 		TrustLevel:         trustLevel,
 	}

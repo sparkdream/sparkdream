@@ -479,6 +479,15 @@ service Query {
   rpc InitiativeBounty(QueryInitiativeBountyRequest) returns (QueryInitiativeBountyResponse) {
     option (google.api.http).get = "/sparkdream/rep/v1/initiative_bounty/{initiative_id}";
   }
+
+  // TrustTree exports the member trust tree: its root and every non-empty
+  // leaf in index order. Anonymous (x/shield) clients rebuild the tree locally
+  // and find their own leaf, so fetching a Merkle path reveals nothing about
+  // who asked. Leaves are MiMC(zk_public_key, trust_level); empty leaves are
+  // 32 zero bytes and are omitted.
+  rpc TrustTree(QueryTrustTreeRequest) returns (QueryTrustTreeResponse) {
+    option (google.api.http).get = "/sparkdream/rep/v1/trust_tree";
+  }
 }
 
 // QueryParamsRequest is request type for the Query/Params RPC method.
@@ -1736,4 +1745,27 @@ message InitiativeBountyReclaimStatus {
   // False whenever the initiative is not OPEN, regardless of height: an
   // assignee is working on the strength of the bounty.
   bool reclaimable = 4;
+}
+
+// QueryTrustTreeRequest pages through the trust tree's non-empty leaves.
+message QueryTrustTreeRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+// TrustTreeLeaf is one non-empty leaf of the member trust tree.
+message TrustTreeLeaf {
+  uint64 index = 1;
+  bytes hash = 2;
+}
+
+// QueryTrustTreeResponse returns the trust tree root and a page of leaves.
+message QueryTrustTreeResponse {
+  // root is the current Merkle root; empty before the tree is first built.
+  bytes root = 1;
+  // depth is the tree depth (number of levels above the leaves).
+  uint32 depth = 2;
+  // leaf_count is the number of leaf slots allocated so far.
+  uint64 leaf_count = 3;
+  repeated TrustTreeLeaf leaves = 4 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 5;
 }

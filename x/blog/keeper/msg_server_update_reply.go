@@ -12,9 +12,11 @@ import (
 )
 
 func (k msgServer) UpdateReply(ctx context.Context, msg *types.MsgUpdateReply) (*types.MsgUpdateReplyResponse, error) {
-	if _, err := k.addressCodec.StringToBytes(msg.Creator); err != nil {
+	creatorAddrBytes, err := k.addressCodec.StringToBytes(msg.Creator)
+	if err != nil {
 		return nil, errorsmod.Wrap(err, "invalid creator address")
 	}
+	creatorAddr := sdk.AccAddress(creatorAddrBytes)
 
 	// Get reply
 	reply, found := k.GetReply(ctx, msg.Id)
@@ -50,14 +52,15 @@ func (k msgServer) UpdateReply(ctx context.Context, msg *types.MsgUpdateReply) (
 			"body exceeds maximum length of %d characters", params.MaxReplyLength)
 	}
 
-	// High-water mark fee: only charge for bytes above the previous high water mark
+	// High-water mark fee: only charge for bytes above the previous high water mark.
+	// An anonymous editor would be spending the shield module's gas reserve,
+	// not their own SPARK, so the fee doesn't apply.
 	newBytes := uint64(len(msg.Body))
-	if !params.CostPerByteExempt && params.CostPerByteAmount.IsPositive() && newBytes > reply.FeeBytesHighWater {
+	if !params.CostPerByteExempt && params.CostPerByteAmount.IsPositive() && newBytes > reply.FeeBytesHighWater && !isShieldModuleAddress(creatorAddr) {
 		delta := int64(newBytes - reply.FeeBytesHighWater)
 		deltaFee := sdk.NewCoin(k.BondDenom(ctx),
 			params.CostPerByteAmount.MulRaw(delta))
 		if deltaFee.IsPositive() {
-			creatorAddr, _ := sdk.AccAddressFromBech32(msg.Creator)
 			if err := k.bankKeeper.SendCoinsFromAccountToModule(ctx, creatorAddr, types.ModuleName, sdk.NewCoins(deltaFee)); err != nil {
 				return nil, errorsmod.Wrap(err, "failed to charge storage delta fee")
 			}

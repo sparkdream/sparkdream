@@ -9,6 +9,9 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	reptypes "sparkdream/x/rep/types"
+	shieldtypes "sparkdream/x/shield/types"
+
+	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 
 	"github.com/stretchr/testify/require"
 )
@@ -158,6 +161,20 @@ func TestGetTrustLevel_InvalidAddress(t *testing.T) {
 
 	tl := f.keeper.GetTrustLevel(f.ctx, "invalid")
 	require.Equal(t, uint64(0), tl)
+}
+
+// An anonymous (shield-signed) message reports the trust level its ZK proof
+// established. Without one it didn't come through a shield exec, so nothing
+// is known about the signer and it gets the lowest level.
+func TestGetTrustLevel_Anonymous(t *testing.T) {
+	f := initFixture(t)
+	shield := authtypes.NewModuleAddress("shield").String()
+
+	tl := f.keeper.GetTrustLevel(shieldtypes.WithProvenTrustLevel(sdk.UnwrapSDKContext(f.ctx), uint32(reptypes.TrustLevel_TRUST_LEVEL_ESTABLISHED)), shield)
+	require.Equal(t, uint64(reptypes.TrustLevel_TRUST_LEVEL_ESTABLISHED), tl)
+
+	tl = f.keeper.GetTrustLevel(f.ctx, shield)
+	require.Equal(t, uint64(reptypes.TrustLevel_TRUST_LEVEL_NEW), tl)
 }
 
 // --- Group integration with CommonsKeeper ---

@@ -5,6 +5,7 @@ import (
 
 	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	"github.com/stretchr/testify/require"
 
 	"sparkdream/x/forum/types"
@@ -374,4 +375,40 @@ func TestEditPostStorageDeltaFee(t *testing.T) {
 		require.Len(t, f.bankKeeper.SendCoinsFromAccountToModuleCalls, 0)
 		require.Len(t, f.bankKeeper.BurnCoinsCalls, 0)
 	})
+}
+
+// An anonymous edit (shield-routed, on a post the shield address authored)
+// pays neither the storage delta fee nor the post-grace-period edit fee: the
+// shield module account would be paying them out of the communal gas reserve.
+// The same edit by an identified author pays both.
+func TestEditPost_AnonymousPaysNoFees(t *testing.T) {
+	f := initFixture(t)
+	shield := authtypes.NewModuleAddress("shield").String()
+	now := f.sdkCtx().BlockTime().Unix()
+	params := types.DefaultParams()
+
+	for _, tc := range []struct {
+		name      string
+		author    string
+		wantCalls int
+	}{
+		{"anonymous", shield, 0},
+		{"identified", testCreator, 2}, // delta storage fee + edit fee
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			post := f.createTestPost(t, tc.author, 0, 0)
+			// Past the grace period, inside the edit window.
+			post.CreatedAt = now - params.EditGracePeriod - 1
+			require.NoError(t, f.keeper.Post.Set(f.ctx, post.PostId, post))
+
+			f.bankKeeper.SendCoinsFromAccountToModuleCalls = nil
+			_, err := f.msgServer.EditPost(f.ctx, &types.MsgEditPost{
+				Creator:    tc.author,
+				PostId:     post.PostId,
+				NewContent: post.Content + " -- now noticeably longer",
+			})
+			require.NoError(t, err)
+			require.Len(t, f.bankKeeper.SendCoinsFromAccountToModuleCalls, tc.wantCalls)
+		})
+	}
 }

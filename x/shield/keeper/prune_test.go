@@ -16,9 +16,9 @@ func TestPruneIntegrated(t *testing.T) {
 	f := initFixture(t)
 
 	// Set up state across multiple collections at "old" epochs/days.
-	// Epoch-scoped nullifiers (domain 1 = blog posts, EPOCH scoped)
-	require.NoError(t, f.keeper.RecordNullifier(f.ctx, 1, 2, "old_null", 10))
-	require.NoError(t, f.keeper.RecordNullifier(f.ctx, 1, 10, "current_null", 50))
+	// Epoch-scoped nullifiers (domain 31 = anonymous proposals, EPOCH scoped, window 1)
+	require.NoError(t, f.keeper.RecordNullifier(f.ctx, 31, 2, "old_null", 10))
+	require.NoError(t, f.keeper.RecordNullifier(f.ctx, 31, 10, "current_null", 50))
 
 	// Identity rate limits
 	require.NoError(t, f.keeper.SetShieldEpochStateVal(f.ctx, types.ShieldEpochState{CurrentEpoch: 2}))
@@ -48,7 +48,7 @@ func TestPruneIntegrated(t *testing.T) {
 	require.NoError(t, f.keeper.PruneDecryptionState(f.ctx, cutoffEpoch))
 
 	// Verify old state pruned
-	require.False(t, f.keeper.IsNullifierUsed(f.ctx, 1, 2, "old_null"))
+	require.False(t, f.keeper.IsNullifierUsed(f.ctx, 31, 2, "old_null"))
 	require.NoError(t, f.keeper.SetShieldEpochStateVal(f.ctx, types.ShieldEpochState{CurrentEpoch: 2}))
 	require.Equal(t, uint64(0), f.keeper.GetIdentityRateLimitCount(f.ctx, "old_id"))
 	require.True(t, f.keeper.GetDayFunding(f.ctx, 1).IsZero())
@@ -56,7 +56,7 @@ func TestPruneIntegrated(t *testing.T) {
 	require.False(t, found)
 
 	// Verify current state preserved
-	require.True(t, f.keeper.IsNullifierUsed(f.ctx, 1, 10, "current_null"))
+	require.True(t, f.keeper.IsNullifierUsed(f.ctx, 31, 10, "current_null"))
 	require.NoError(t, f.keeper.SetShieldEpochStateVal(f.ctx, types.ShieldEpochState{CurrentEpoch: 10}))
 	require.Equal(t, uint64(1), f.keeper.GetIdentityRateLimitCount(f.ctx, "current_id"))
 	require.Equal(t, math.NewInt(500), f.keeper.GetDayFunding(f.ctx, 5))

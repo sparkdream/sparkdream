@@ -10,6 +10,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	"sparkdream/x/collect/types"
+	shieldtypes "sparkdream/x/shield/types"
 
 	reptypes "sparkdream/x/rep/types"
 )
@@ -28,14 +29,46 @@ func (k msgServer) CreateCollection(ctx context.Context, msg *types.MsgCreateCol
 		return nil, errorsmod.Wrap(err, "failed to get params")
 	}
 
-	// Check tiered collection limit
-	currentCount, err := k.countCollectionsByOwner(ctx, msg.Creator)
-	if err != nil {
-		return nil, errorsmod.Wrap(err, "failed to count collections")
+	anonymous := k.isAnonymous(msg.Creator)
+
+	// Check tiered collection limit. Every anonymous collection is owned by the
+	// shared shield address, so the per-owner limit would be one chain-wide cap
+	// on anonymous collections; x/shield's epoch-scoped nullifier allows each
+	// member one anonymous collection per epoch instead.
+	if !anonymous {
+		currentCount, err := k.countCollectionsByOwner(ctx, msg.Creator)
+		if err != nil {
+			return nil, errorsmod.Wrap(err, "failed to count collections")
+		}
+		maxCollections := k.getMaxCollections(ctx, msg.Creator, params)
+		if currentCount >= maxCollections {
+			return nil, types.ErrMaxCollections
+		}
 	}
-	maxCollections := k.getMaxCollections(ctx, msg.Creator, params)
-	if currentCount >= maxCollections {
-		return nil, types.ErrMaxCollections
+
+	// Anonymous collections are public and ephemeral: encrypted content from
+	// an unknown author has no discoverability or accountability path, and
+	// permanence takes community action (MsgMakeCollectionPermanent) or
+	// conviction renewal, not the anonymous creator's choice.
+	// The creation proof's nullifier becomes the owner tag that lets the
+	// anonymous creator, and only them, manage the collection later.
+	var ownerClaim shieldtypes.ExecNullifier
+	if anonymous {
+		if msg.Visibility != types.Visibility_VISIBILITY_PUBLIC || msg.Encrypted {
+			return nil, types.ErrAnonymousMustBePublic
+		}
+		if msg.ExpiresAt == 0 {
+			return nil, types.ErrAnonymousPermanent
+		}
+		// A bond locked from the shield account holds no one accountable.
+		if msg.AuthorBond != nil && msg.AuthorBond.IsPositive() {
+			return nil, types.ErrAnonymousAuthorBond
+		}
+		claim, ok := shieldtypes.GetExecNullifier(ctx)
+		if !ok || len(claim.Nullifier) == 0 {
+			return nil, types.ErrAnonymousNoOwnerClaim
+		}
+		ownerClaim = claim
 	}
 
 	// Validate visibility/encryption constraints
@@ -77,6 +110,13 @@ func (k msgServer) CreateCollection(ctx context.Context, msg *types.MsgCreateCol
 
 	member := k.ownsAsMember(ctx, msg.Creator)
 	deposit := params.BaseCollectionDeposit
+	// The shield module account signs anonymous creates; its balance is the
+	// communal gas reserve, not the member's money, so an anonymous collection
+	// takes no deposit (and records none, so no later refund or burn path
+	// moves anything). x/shield's per-op rate-limit window bounds the volume.
+	if anonymous {
+		deposit = math.ZeroInt()
+	}
 
 	var status types.CollectionStatus
 	var depositBurned bool
@@ -99,8 +139,10 @@ func (k msgServer) CreateCollection(ctx context.Context, msg *types.MsgCreateCol
 			if params.MaxTtlBlocks > 0 && (msg.ExpiresAt-blockHeight) > params.MaxTtlBlocks {
 				return nil, types.ErrInvalidExpiry
 			}
-			if err := k.EscrowSPARK(ctx, creatorAddr, deposit); err != nil {
-				return nil, errorsmod.Wrap(types.ErrInsufficientFunds, err.Error())
+			if deposit.IsPositive() {
+				if err := k.EscrowSPARK(ctx, creatorAddr, deposit); err != nil {
+					return nil, errorsmod.Wrap(types.ErrInsufficientFunds, err.Error())
+				}
 			}
 			depositBurned = false
 		}
@@ -165,6 +207,9 @@ func (k msgServer) CreateCollection(ctx context.Context, msg *types.MsgCreateCol
 		ItemDepositTotal:         math.ZeroInt(),
 		DepositBurned:            depositBurned,
 		CommunityFeedbackEnabled: true,
+		AnonOwnerDomain:          ownerClaim.Domain,
+		AnonOwnerScope:           ownerClaim.Scope,
+		AnonOwnerTag:             ownerClaim.Nullifier,
 		Status:                   status,
 		SeekingEndorsement:       status == types.CollectionStatus_COLLECTION_STATUS_PENDING,
 		InitiativeId:             msg.InitiativeId,

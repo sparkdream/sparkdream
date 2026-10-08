@@ -43,6 +43,10 @@ cmd/sdapverify/sdapverify
 cmd/sdaplogin/sdaplogin
 tools/apcanon/cmd/apcanon/apcanon
 seed-tle
+# ZK ceremony binary: `go build ./tools/zk/cmd/ceremony` from the repo root.
+# Anchored so the tools/zk/cmd/ceremony/ source dir stays tracked.
+/ceremony
+tools/zk/cmd/ceremony/ceremony
 
 # Dependencies
 vue/node_modules

@@ -74,11 +74,11 @@ func safeAddDelta(count uint64, delta int64) uint64 {
 }
 
 func (k msgServer) React(ctx context.Context, msg *types.MsgReact) (*types.MsgReactResponse, error) {
-	if _, err := k.addressCodec.StringToBytes(msg.Creator); err != nil {
+	creatorAddrBytes, err := k.addressCodec.StringToBytes(msg.Creator)
+	if err != nil {
 		return nil, errorsmod.Wrap(err, "invalid authority address")
 	}
-
-	creatorAddr, _ := sdk.AccAddressFromBech32(msg.Creator)
+	creatorAddr := sdk.AccAddress(creatorAddrBytes)
 
 	// Validate reaction type
 	if msg.ReactionType == types.ReactionType_REACTION_TYPE_UNSPECIFIED {
@@ -124,8 +124,10 @@ func (k msgServer) React(ctx context.Context, msg *types.MsgReact) (*types.MsgRe
 	// on any reply to it — even as a non-member, so they are never locked out
 	// of a conversation they started. Bypasses ONLY the trust gate; the
 	// moderation checks above, the rate limit, and the reaction fee below all
-	// still apply. Narrowly scoped to this thread's own author.
-	isThreadAuthor := msg.Creator == post.Creator
+	// still apply. Narrowly scoped to this thread's own author. Never for
+	// anonymous content: every anonymous post and reaction shares the shield
+	// address, so matching creators says nothing about who wrote the post.
+	isThreadAuthor := msg.Creator == post.Creator && !isShieldModuleAddress(creatorAddr)
 	if !isThreadAuthor && !k.meetsReplyTrustLevel(ctx, creatorAddr, post.MinReplyTrustLevel) {
 		return nil, k.trustLevelError(ctx, creatorAddr, post.MinReplyTrustLevel, "reactions on this post")
 	}
@@ -136,9 +138,14 @@ func (k msgServer) React(ctx context.Context, msg *types.MsgReact) (*types.MsgRe
 		return nil, err
 	}
 
+	// Anonymous reactions all carry the shield module as creator, so they
+	// can't be tracked per creator: each one only adds to the counts.
+	// x/shield's nullifier allows one per member per post and per reply.
+	anonymous := isShieldModuleAddress(creatorAddr)
+
 	// Check existing reaction
 	existing, found := k.GetReaction(ctx, msg.PostId, msg.ReplyId, msg.Creator)
-	if found {
+	if found && !anonymous {
 		if existing.ReactionType == msg.ReactionType {
 			// Same type - no-op
 			return &types.MsgReactResponse{}, nil
@@ -176,8 +183,9 @@ func (k msgServer) React(ctx context.Context, msg *types.MsgReact) (*types.MsgRe
 		return nil, err
 	}
 
-	// Charge reaction fee
-	if !params.ReactionFeeExempt && params.ReactionFeeAmount.IsPositive() {
+	// Charge reaction fee. An anonymous reactor would be spending the shield
+	// module's gas reserve, not their own SPARK, so the fee doesn't apply.
+	if !params.ReactionFeeExempt && params.ReactionFeeAmount.IsPositive() && !anonymous {
 		reactionFee := sdk.NewCoin(k.BondDenom(ctx), params.ReactionFeeAmount)
 		if err := k.bankKeeper.SendCoinsFromAccountToModule(ctx, creatorAddr, types.ModuleName, sdk.NewCoins(reactionFee)); err != nil {
 			return nil, err
@@ -188,12 +196,14 @@ func (k msgServer) React(ctx context.Context, msg *types.MsgReact) (*types.MsgRe
 	}
 
 	// Store reaction
-	k.SetReaction(ctx, types.Reaction{
-		Creator:      msg.Creator,
-		ReactionType: msg.ReactionType,
-		PostId:       msg.PostId,
-		ReplyId:      msg.ReplyId,
-	})
+	if !anonymous {
+		k.SetReaction(ctx, types.Reaction{
+			Creator:      msg.Creator,
+			ReactionType: msg.ReactionType,
+			PostId:       msg.PostId,
+			ReplyId:      msg.ReplyId,
+		})
+	}
 
 	// Increment count
 	counts := k.GetReactionCounts(ctx, msg.PostId, msg.ReplyId)

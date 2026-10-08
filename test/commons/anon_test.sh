@@ -212,7 +212,7 @@ TX_RES=$($BINARY tx shield shielded-exec \
     --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 500000${BOND_DENOM} \
+    --fees 25000${BOND_DENOM} \
     --gas 500000 \
     -y \
     --output json 2>&1)
@@ -276,7 +276,7 @@ else
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 500000${BOND_DENOM} \
+        --fees 25000${BOND_DENOM} \
         --gas 500000 \
         -y \
         --output json 2>&1)
@@ -285,6 +285,7 @@ else
 
     if check_tx_success "$TX_RESULT"; then
         echo "  Anonymous YES vote submitted on proposal $VOTE_PROPOSAL_ID"
+        ANON_VOTE_OK=true
         record_result "Anonymous vote on proposal" "PASS"
     else
         RAW_LOG=$(echo "$TX_RESULT" | jq -r '.raw_log // ""' 2>/dev/null)
@@ -318,7 +319,7 @@ else
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
-        --fees 500000${BOND_DENOM} \
+        --fees 25000${BOND_DENOM} \
         --gas 500000 \
         -y \
         --output json 2>&1)
@@ -348,18 +349,31 @@ if [ -z "$VOTE_PROPOSAL_ID" ]; then
     echo "  SKIP: No proposal available"
     record_result "Anonymous vote tally" "FAIL"
 else
-    # Query the proposal to check anonymous vote tallies
+    # Anonymous votes are tallied separately from member votes and reported
+    # as anon_tally on both proposal queries. TEST 2 cast one anonymous YES;
+    # TEST 3's double vote was rejected, so exactly one anonymous vote counts.
     PROP_QUERY=$($BINARY query commons get-proposal "$VOTE_PROPOSAL_ID" --output json 2>&1)
+    VOTES_QUERY=$($BINARY query commons get-proposal-votes "$VOTE_PROPOSAL_ID" --output json 2>&1)
+    echo "  Proposal $VOTE_PROPOSAL_ID status: $(echo "$PROP_QUERY" | jq -r '.proposal.status // "unknown"')"
 
-    # Check if there are anonymous votes recorded
-    # The tally may be in the proposal or via a separate query
-    ANON_TALLY=$($BINARY query commons get-proposal "$VOTE_PROPOSAL_ID" --output json 2>&1)
-    echo "  Proposal $VOTE_PROPOSAL_ID status: $(echo "$ANON_TALLY" | jq -r '.proposal.status // "unknown"')"
+    anon_total() {
+        echo "$1" | jq -r '[.anon_tally.yes_count, .anon_tally.no_count, .anon_tally.abstain_count, .anon_tally.no_with_veto_count] | map(. // "0" | tonumber) | add' 2>/dev/null || echo "-1"
+    }
+    YES=$(echo "$PROP_QUERY" | jq -r '.anon_tally.yes_count // "0"' 2>/dev/null || echo "0")
+    TOTAL=$(anon_total "$PROP_QUERY")
+    VOTES_TOTAL=$(anon_total "$VOTES_QUERY")
+    echo "  anon_tally: yes=$YES total=$TOTAL (get-proposal-votes total=$VOTES_TOTAL)"
 
-    # If the anonymous vote was cast, the tally should show at least 1 yes vote
-    # The exact query path depends on the commons module implementation
-    echo "  Anonymous vote was recorded (verified by TEST 2 success + TEST 3 replay rejection)"
-    record_result "Anonymous vote tally" "PASS"
+    if [ "$ANON_VOTE_OK" != "true" ]; then
+        echo "  [WARN] TEST 2's anonymous vote did not land; tally not checked"
+        record_result "Anonymous vote tally" "FAIL"
+    elif [ "$YES" == "1" ] && [ "$TOTAL" == "1" ] && [ "$VOTES_TOTAL" == "1" ]; then
+        echo "  Anonymous tally shows exactly the one YES vote on both queries"
+        record_result "Anonymous vote tally" "PASS"
+    else
+        echo "  ERROR: expected one anonymous YES vote on both queries"
+        record_result "Anonymous vote tally" "FAIL"
+    fi
 fi
 
 # =========================================================================

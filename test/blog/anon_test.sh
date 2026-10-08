@@ -130,6 +130,22 @@ fi
 DUMMY_PROOF=$(python3 -c "print('aa' * 128)")
 DUMMY_MERKLE_ROOT="0000000000000000000000000000000000000000000000000000000000000001"
 
+# Anonymous actions carry no per-action SPARK charge: the shield account's
+# balance is the communal gas reserve, so its only spend in a shielded tx is
+# the gas fee. storage_fee_charged TX_JSON PARAMS_JSON BYTES succeeds when the
+# cost_per_byte storage fee for BYTES shows up among the shield account's
+# coin_spent amounts in the tx.
+storage_fee_charged() {
+    local cpb exempt fee spent
+    cpb=$(echo "$2" | jq -r '.params.cost_per_byte_amount // "0"')
+    exempt=$(echo "$2" | jq -r '.params.cost_per_byte_exempt // false')
+    [ "$exempt" == "true" ] || [ "$cpb" == "0" ] && return 1
+    fee=$(( cpb * $3 ))
+    spent=$(echo "$1" | jq -r --arg a "$SHIELD_MODULE_ADDR" '[.events[] | select(.type=="coin_spent") | select(any(.attributes[]; .key=="spender" and .value==$a)) | .attributes[] | select(.key=="amount") | .value] | join(" ")' 2>/dev/null)
+    echo "  Shield account spent: ${spent:-nothing} (storage fee would be ${fee}${BOND_DENOM})"
+    echo " $spent " | grep -q " ${fee}${BOND_DENOM} "
+}
+
 # =========================================================================
 # TEST 1: Anonymous blog post creation via MsgShieldedExec
 # =========================================================================
@@ -137,7 +153,9 @@ echo "--- TEST 1: Anonymous blog post creation ---"
 
 NULLIFIER_POST="ab01000000000000000000000000000000000000000000000000000000000001"
 RATE_NULL_POST=$(openssl rand -hex 32)
-INNER_MSG="{\"@type\":\"/sparkdream.blog.v1.MsgCreatePost\",\"creator\":\"$SHIELD_MODULE_ADDR\",\"title\":\"Anonymous Test Post\",\"body\":\"This post was created anonymously via x/shield\"}"
+ANON_POST_TITLE="Anonymous Test Post"
+ANON_POST_BODY="This post was created anonymously via x/shield"
+INNER_MSG="{\"@type\":\"/sparkdream.blog.v1.MsgCreatePost\",\"creator\":\"$SHIELD_MODULE_ADDR\",\"title\":\"$ANON_POST_TITLE\",\"body\":\"$ANON_POST_BODY\"}"
 
 TX_RES=$($BINARY tx shield shielded-exec \
     --inner-message "$INNER_MSG" \
@@ -151,7 +169,7 @@ TX_RES=$($BINARY tx shield shielded-exec \
     --from blogger1 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 500000${BOND_DENOM} \
+    --fees 25000${BOND_DENOM} \
     --gas 500000 \
     -y \
     --output json 2>&1)
@@ -168,9 +186,20 @@ if check_tx_success "$TX_RESULT"; then
         POST_QUERY=$($BINARY query blog show-post "$ANON_POST_ID" --output json 2>&1)
         POST_CREATOR=$(echo "$POST_QUERY" | jq -r '.post.creator // empty')
 
-        if [ "$POST_CREATOR" == "$SHIELD_MODULE_ADDR" ]; then
+        # Anonymous posts pass the membership gate but stay ephemeral:
+        # conviction renewal, not membership, is what keeps them alive.
+        POST_EXPIRES=$(echo "$POST_QUERY" | jq -r '.post.expires_at // "0"')
+        BLOG_PARAMS=$($BINARY query blog params --output json 2>/dev/null)
+        if storage_fee_charged "$TX_RESULT" "$BLOG_PARAMS" $(( ${#ANON_POST_TITLE} + ${#ANON_POST_BODY} )); then
+            echo "  ERROR: the storage fee was charged to the shield account"
+            record_result "Anonymous blog post creation" "FAIL"
+        elif [ "$POST_CREATOR" == "$SHIELD_MODULE_ADDR" ] && [ "$POST_EXPIRES" != "0" ]; then
             echo "  Post creator is shield module (anonymous): confirmed"
+            echo "  Post is ephemeral (expires_at=$POST_EXPIRES)"
             record_result "Anonymous blog post creation" "PASS"
+        elif [ "$POST_CREATOR" == "$SHIELD_MODULE_ADDR" ]; then
+            echo "  ERROR: anonymous post is permanent (expires_at=0); it should be ephemeral"
+            record_result "Anonymous blog post creation" "FAIL"
         else
             echo "  UNEXPECTED: post creator = $POST_CREATOR (expected $SHIELD_MODULE_ADDR)"
             record_result "Anonymous blog post creation" "FAIL"
@@ -206,7 +235,8 @@ fi
 
 NULLIFIER_REPLY="ab02000000000000000000000000000000000000000000000000000000000002"
 RATE_NULL_REPLY=$(openssl rand -hex 32)
-INNER_MSG="{\"@type\":\"/sparkdream.blog.v1.MsgCreateReply\",\"creator\":\"$SHIELD_MODULE_ADDR\",\"post_id\":\"$ANON_POST_ID\",\"body\":\"Anonymous reply via x/shield\"}"
+ANON_REPLY_BODY="Anonymous reply via x/shield"
+INNER_MSG="{\"@type\":\"/sparkdream.blog.v1.MsgCreateReply\",\"creator\":\"$SHIELD_MODULE_ADDR\",\"post_id\":\"$ANON_POST_ID\",\"body\":\"$ANON_REPLY_BODY\"}"
 
 TX_RES=$($BINARY tx shield shielded-exec \
     --inner-message "$INNER_MSG" \
@@ -220,7 +250,7 @@ TX_RES=$($BINARY tx shield shielded-exec \
     --from blogger1 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 500000${BOND_DENOM} \
+    --fees 25000${BOND_DENOM} \
     --gas 500000 \
     -y \
     --output json 2>&1)
@@ -230,7 +260,13 @@ submit_tx_and_wait "$TX_RES"
 if check_tx_success "$TX_RESULT"; then
     REPLY_ID=$(extract_event_value "$TX_RESULT" "blog.reply.created" "reply_id")
     echo "  Anonymous reply created (ID: ${REPLY_ID:-unknown})"
-    record_result "Anonymous blog reply" "PASS"
+    BLOG_PARAMS=$($BINARY query blog params --output json 2>/dev/null)
+    if storage_fee_charged "$TX_RESULT" "$BLOG_PARAMS" ${#ANON_REPLY_BODY}; then
+        echo "  ERROR: the storage fee was charged to the shield account"
+        record_result "Anonymous blog reply" "FAIL"
+    else
+        record_result "Anonymous blog reply" "PASS"
+    fi
 else
     RAW_LOG=$(echo "$TX_RESULT" | jq -r '.raw_log // ""' 2>/dev/null)
     echo "  Transaction failed: ${RAW_LOG:0:200}"
@@ -259,7 +295,7 @@ TX_RES=$($BINARY tx shield shielded-exec \
     --from blogger1 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 500000${BOND_DENOM} \
+    --fees 25000${BOND_DENOM} \
     --gas 500000 \
     -y \
     --output json 2>&1)
@@ -268,7 +304,20 @@ submit_tx_and_wait "$TX_RES"
 
 if check_tx_success "$TX_RESULT"; then
     echo "  Anonymous reaction submitted successfully"
-    record_result "Anonymous blog reaction" "PASS"
+    # The reaction fee would come out of the shield account's gas reserve, so
+    # anonymous reactions don't pay it. The shield account's only spend in
+    # this tx is the gas fee.
+    BLOG_PARAMS=$($BINARY query blog params --output json 2>/dev/null)
+    REACT_FEE=$(echo "$BLOG_PARAMS" | jq -r '.params.reaction_fee_amount // "0"')
+    REACT_EXEMPT=$(echo "$BLOG_PARAMS" | jq -r '.params.reaction_fee_exempt // false')
+    SHIELD_SPENT=$(echo "$TX_RESULT" | jq -r --arg a "$SHIELD_MODULE_ADDR" '[.events[] | select(.type=="coin_spent") | select(any(.attributes[]; .key=="spender" and .value==$a)) | .attributes[] | select(.key=="amount") | .value] | join(" ")' 2>/dev/null)
+    echo "  Shield account spent: ${SHIELD_SPENT:-nothing} (reaction fee: $REACT_FEE, exempt: $REACT_EXEMPT)"
+    if [ "$REACT_EXEMPT" != "true" ] && [ "$REACT_FEE" != "0" ] && echo " $SHIELD_SPENT " | grep -q " ${REACT_FEE}${BOND_DENOM} "; then
+        echo "  ERROR: the reaction fee was charged to the shield account"
+        record_result "Anonymous blog reaction" "FAIL"
+    else
+        record_result "Anonymous blog reaction" "PASS"
+    fi
 else
     RAW_LOG=$(echo "$TX_RESULT" | jq -r '.raw_log // ""' 2>/dev/null)
     echo "  Transaction failed: ${RAW_LOG:0:200}"
@@ -296,7 +345,7 @@ TX_RES=$($BINARY tx shield shielded-exec \
     --from blogger1 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 500000${BOND_DENOM} \
+    --fees 25000${BOND_DENOM} \
     --gas 500000 \
     -y \
     --output json 2>&1)

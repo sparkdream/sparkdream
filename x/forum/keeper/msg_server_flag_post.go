@@ -82,8 +82,10 @@ func (k msgServer) FlagPost(ctx context.Context, msg *types.MsgFlagPost) (*types
 		weight = types.DefaultMemberFlagWeight
 	} else {
 		weight = types.DefaultNonmemberFlagWeight
-		// Charge flag_spam_tax to non-members; split 50/50 burn / sentinel reward pool
-		if params.FlagSpamTaxAmount.IsPositive() {
+		// Charge flag_spam_tax to non-members; split 50/50 burn / sentinel reward pool.
+		// Anonymous flaggers count as members, but never charge the shield gas
+		// reserve regardless.
+		if params.FlagSpamTaxAmount.IsPositive() && !k.isAnonymous(msg.Creator) {
 			creatorAddr, _ := sdk.AccAddressFromBech32(msg.Creator)
 			flagSpamTaxCoins := sdk.NewCoins(sdk.NewCoin(k.BondDenom(ctx), params.FlagSpamTaxAmount))
 			if err := k.bankKeeper.SendCoinsFromAccountToModule(ctx, creatorAddr, types.ModuleName, flagSpamTaxCoins); err != nil {

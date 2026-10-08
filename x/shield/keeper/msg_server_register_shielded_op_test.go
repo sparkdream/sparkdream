@@ -93,3 +93,38 @@ func TestRegisterShieldedOpAllBatchModes(t *testing.T) {
 		})
 	}
 }
+
+// epoch_window only applies to EPOCH-scoped one-time ops.
+func TestRegisterShieldedOpEpochWindow(t *testing.T) {
+	f, ms := initMsgServer(t)
+
+	authority, err := f.addressCodec.BytesToString(authtypes.NewModuleAddress("gov"))
+	require.NoError(t, err)
+	register := func(reg types.ShieldedOpRegistration) error {
+		_, err := ms.RegisterShieldedOp(f.ctx, &types.MsgRegisterShieldedOp{Authority: authority, Registration: reg})
+		return err
+	}
+	reg := types.ShieldedOpRegistration{
+		MessageTypeUrl:     "/sparkdream.test.v1.MsgWindowed",
+		ProofDomain:        types.ProofDomain_PROOF_DOMAIN_TRUST_TREE,
+		NullifierDomain:    88,
+		NullifierScopeType: types.NullifierScopeType_NULLIFIER_SCOPE_EPOCH,
+		EpochWindow:        12,
+		Active:             true,
+		BatchMode:          types.ShieldBatchMode_SHIELD_BATCH_MODE_EITHER,
+	}
+	require.NoError(t, register(reg))
+	got, found := f.keeper.GetShieldedOp(f.ctx, reg.MessageTypeUrl)
+	require.True(t, found)
+	require.Equal(t, uint64(12), got.EpochWindow)
+
+	reg.NullifierScopeType = types.NullifierScopeType_NULLIFIER_SCOPE_MESSAGE_FIELD
+	reg.ScopeFieldPath = "post_id"
+	require.Error(t, register(reg))
+
+	reg.NullifierScopeType = types.NullifierScopeType_NULLIFIER_SCOPE_EPOCH
+	reg.ScopeFieldPath = ""
+	reg.NullifierMode = types.NullifierMode_NULLIFIER_MODE_OWNERSHIP
+	reg.BatchMode = types.ShieldBatchMode_SHIELD_BATCH_MODE_IMMEDIATE_ONLY
+	require.Error(t, register(reg))
+}

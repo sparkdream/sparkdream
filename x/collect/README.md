@@ -15,7 +15,7 @@ This module provides:
 - **Community reactions** — members upvote (free) or downvote (25 SPARK cost) public collections and items
 - **Sentinel moderation** — x/forum sentinels can hide inappropriate content with appeal mechanism; bond commit/release/slash flows through x/rep's `BondedRole(ROLE_TYPE_CONTENT_SENTINEL)` API (no collect-local bond store)
 - **Tiered collection limits** — capacity scales with `x/rep` trust level
-- **Anonymous operations** — anonymous collections and reactions via `x/shield`'s `MsgShieldedExec`
+- **Anonymous operations** — anonymous collections and reactions via `x/shield`'s `MsgShieldedExec`; the anonymous creator manages their collection through x/shield ownership-mode proofs
 - **Conviction renewal** — anonymous collections can be sustained if community conviction staking meets threshold
 - **Membership-driven promotion** — when a non-member is admitted, an EndBlocker pass releases their inviters' collaborator stakes and flips their owned ephemeral collections to permanent
 - **Slash rep-penalties** — endorsers, collaborator-inviters, and authors take per-tag reputation deductions alongside their DREAM-burn slash paths
@@ -91,7 +91,7 @@ Non-member requests sponsorship → escrowed deposit paid → member sponsors (p
 
 ### Anonymous Collections
 
-Anonymous collections are created via `x/shield`'s `MsgShieldedExec` wrapping `MsgCreateCollection`. The shield module verifies ZK proofs demonstrating membership and minimum trust level without revealing identity. Nullifiers prevent double-creation while preserving privacy. The shield module pays gas fees so submitters need zero balance. `MsgMakeCollectionPermanent` converts anonymous ephemeral collections to permanent (burning deposits); `MsgPinCollection` is a separate display-only marker that requires the collection to already be permanent.
+Anonymous collections are created via `x/shield`'s `MsgShieldedExec` wrapping `MsgCreateCollection`. The shield module verifies ZK proofs demonstrating membership and minimum trust level without revealing identity. Nullifiers prevent double-creation while preserving privacy. The shield module pays gas fees so submitters need zero balance. The creating exec's nullifier is stored on the collection as its owner tag, which later lets the anonymous creator - and only them - manage it (see Anonymous Operations below). `MsgMakeCollectionPermanent` converts anonymous ephemeral collections to permanent (anonymous collections hold no deposits, so nothing is burned); `MsgPinCollection` is a separate display-only marker that requires the collection to already be permanent.
 
 ## State
 
@@ -99,7 +99,7 @@ Anonymous collections are created via `x/shield`'s `MsgShieldedExec` wrapping `M
 
 | Object | Key | Description |
 |--------|-----|-------------|
-| `Collection` | `collection/value/{id}` | Collection metadata, status, visibility, encryption, `pinned` marker, `non_member_collaborator_count` |
+| `Collection` | `collection/value/{id}` | Collection metadata, status, visibility, encryption, `pinned` marker, `non_member_collaborator_count`, anonymous owner claim (`anon_owner_domain`, `anon_owner_scope`, `anon_owner_tag`, `anon_owner_sequence`) |
 | `Item` | `item/value/{id}` | Collection item with references and attributes |
 | `Collaborator` | `collaborator/value/{collectionID}/{address}` | Collaborator role entry (EDITOR, ADMIN); non-members carry `inviter` + `dream_stake` |
 | `Curator` | `curator/value/{address}` | Curator registration and bond |
@@ -140,8 +140,8 @@ Anonymous collections are created via `x/shield`'s `MsgShieldedExec` wrapping `M
 | Message | Description | Access |
 |---------|-------------|--------|
 | `MsgCreateCollection` | Create collection with type, visibility, encryption, TTL, metadata | Any address (members get permanent; non-members get TTL + PENDING) |
-| `MsgUpdateCollection` | Update name, description, cover_uri, tags, type, TTL | Owner only |
-| `MsgDeleteCollection` | Delete collection and all items; refund deposits | Owner only |
+| `MsgUpdateCollection` | Update name, description, cover_uri, tags, type, TTL | Owner only (anonymous owner via x/shield ownership mode; cannot change TTL or disable feedback) |
+| `MsgDeleteCollection` | Delete collection and all items; refund deposits | Owner only (anonymous owner via x/shield ownership mode) |
 
 ### Item Management
 
@@ -203,7 +203,18 @@ Anonymous collections are created via `x/shield`'s `MsgShieldedExec` wrapping `M
 
 ### Anonymous Operations (via x/shield)
 
-Anonymous collections and reactions are submitted via `x/shield`'s `MsgShieldedExec` wrapping standard collect messages (`MsgCreateCollection`, `MsgUpvoteContent`, `MsgDownvoteContent`). The shield module handles ZK proof verification, nullifier management, and module-paid gas. The collect module implements the `ShieldAware` interface to validate shielded messages.
+Anonymous collections and reactions are submitted via `x/shield`'s `MsgShieldedExec` wrapping standard collect messages (`MsgCreateCollection`, `MsgUpvoteContent`, `MsgDownvoteContent`). The anonymous creator manages their collection through the same entry point wrapping `MsgUpdateCollection`, `MsgDeleteCollection`, `MsgAddItem`, `MsgAddItems`, `MsgUpdateItem`, `MsgRemoveItem`, `MsgRemoveItems` or `MsgReorderItem`, registered in x/shield as `NULLIFIER_MODE_OWNERSHIP`, `IMMEDIATE_ONLY`. The shield module handles ZK proof verification, nullifier management, and module-paid gas. The collect module implements the `ShieldAware` interface to validate shielded messages and `ShieldOwnershipResolver` for the management messages.
+
+Anonymous messages arrive with the shield module address as creator, shared by every anonymous member:
+- **Votes**: no `ReactionDedup` record, no own-collection check, no daily vote limits, and no `downvote_cost`. Upvotes and downvotes share one x/shield nullifier domain scoped to the target, so each member gets one anonymous vote per target; x/shield's per-identity rate limit bounds the rest
+- **Trust gates**: `meetsMinTrustLevel` compares the level the ZK proof established; no proven level means refused
+- **Deposits**: none. The shield module account's balance is the communal gas reserve, not the member's money, so anonymous collections take no base deposit or endorsement fee (`deposit_amount = 0`), and their items take no per-item deposit or spam tax (`item_deposit_total` stays 0); removal, deletion, expiry and promotion therefore move no SPARK. Anonymous volume is bounded by x/shield's per-op rate-limit windows (one anonymous collection per member per window), with item adds bounded by the per-identity exec limit and `max_items_per_collection`
+- **Collections**: must be `PUBLIC`, unencrypted, have `expires_at > 0` and carry no `author_bond` (`ErrAnonymousMustBePublic`, `ErrAnonymousPermanent`, `ErrAnonymousAuthorBond`); they skip the per-owner collection limit (x/shield's epoch nullifier allows one per member per 288-epoch window, ~1 day) and are renewed by the EndBlocker when conviction meets `conviction_renewal_threshold`
+- **Owner claim**: the create must run in a consume-mode shielded exec; its `ExecNullifier` (domain 21, the creation epoch as scope, the nullifier) is stored as `anon_owner_domain/scope/tag` (`ErrAnonymousNoOwnerClaim` if absent). `anon_owner_sequence` starts at 0
+- **Management**: `ResolveOwnership` returns the target collection's claim (item ops resolve the collection from the item; all `MsgRemoveItems` ids must share one collection); x/shield requires the proof's nullifier to equal `anon_owner_tag`, verifies it over `(anon_owner_domain, anon_owner_scope)` with `anon_owner_sequence` bound into the message hash, then calls `AdvanceOwnership` (sequence + 1) and runs the message with the tag in context. `isCollectionOwner` (behind `HasWriteAccess`, `IsOwnerOrAdmin`, update and delete) treats the shield address as owner only when that tag matches, so anonymous members cannot touch each other's collections
+- **Owner limits**: an anonymous owner cannot change `expires_at` or disable community feedback (`ErrAnonymousFixedField`); can delete (not while HIDDEN; there are no deposits to refund); cannot add collaborators (not shield-compatible)
+- **Client flow**: read the collection's `anon_owner_*` fields; check locally `crypto.ComputeScopedNullifier(sk, domain, scope) == tag` (this finds your collections from chain data, so a wallet-derived key restores management on a new device); build the inner message with `creator` = shield address; prove with the claim's domain/scope and `owner_sequence`; submit `MsgShieldedExec` in immediate mode from the public submitter
+- **Limitations**: rotating the ZK key (`MsgRegisterZkPublicKey`) or losing membership/trust makes the tag unprovable, ending management (an ownership transfer message is a planned follow-up); management ops on one collection are linkable to each other and to its creation; x/rep's author exclusion sees the shield account as author, so the creator can still stake conviction on their own collection from an identified account
 
 ### Preservation and Pinning
 

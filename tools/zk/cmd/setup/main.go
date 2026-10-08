@@ -232,6 +232,7 @@ func testProofGeneration(
 		MinTrustLevel:      minTrustLevel,
 		Scope:              scope,
 		RateLimitEpoch:     rateLimitEpoch,
+		MessageHash:        0,
 		SecretKey:          crypto.BytesToFieldElement(keys.SecretKey),
 		TrustLevel:         trustLevel,
 	}

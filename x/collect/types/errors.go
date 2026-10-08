@@ -147,4 +147,11 @@ var (
 
 	// Shared content-sentinel accountability
 	ErrSentinelCooldown = errors.Register(ModuleName, 1264, "sentinel is in overturn cooldown")
+
+	// Anonymous (shield-routed) collections
+	ErrAnonymousMustBePublic = errors.Register(ModuleName, 1266, "anonymous collections must be public and unencrypted")
+	ErrAnonymousPermanent    = errors.Register(ModuleName, 1267, "anonymous collections must have a TTL (expires_at > 0)")
+	ErrAnonymousAuthorBond   = errors.Register(ModuleName, 1268, "anonymous collections cannot carry an author bond")
+	ErrAnonymousNoOwnerClaim = errors.Register(ModuleName, 1269, "anonymous collection has no owner claim (not created through a shielded exec)")
+	ErrAnonymousFixedField   = errors.Register(ModuleName, 1270, "anonymous owners cannot change expires_at or disable community feedback")
 )

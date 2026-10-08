@@ -26,6 +26,9 @@ var (
 	DefaultMinTLEValidators      uint32 = 5
 	DefaultDKGWindowBlocks       uint64 = 200 // ~20 minutes at 6s blocks
 	DefaultMaxValidatorSetDrift  uint32 = 33  // 33% drift triggers re-keying
+	// DefaultMaxFeePerExec covers a max_gas_per_exec inner message plus the
+	// outer tx overhead (~700k gas) at 0.025 uspark/gas with ~3x headroom.
+	DefaultMaxFeePerExec = math.NewInt(50_000) // 0.05 SPARK
 )
 
 // NewParams creates a new Params instance.
@@ -49,6 +52,7 @@ func NewParams() Params {
 		MinTleValidators:            DefaultMinTLEValidators,
 		DkgWindowBlocks:             DefaultDKGWindowBlocks,
 		MaxValidatorSetDrift:        DefaultMaxValidatorSetDrift,
+		MaxFeePerExec:               DefaultMaxFeePerExec,
 	}
 }
 
@@ -65,6 +69,9 @@ func (p Params) Validate() error {
 	}
 	if p.MinGasReserve.IsNegative() {
 		return fmt.Errorf("min_gas_reserve must be non-negative: %s", p.MinGasReserve)
+	}
+	if p.MaxFeePerExec.IsNil() || p.MaxFeePerExec.IsNegative() {
+		return fmt.Errorf("max_fee_per_exec must be non-negative: %s", p.MaxFeePerExec)
 	}
 	if p.MaxGasPerExec == 0 {
 		return fmt.Errorf("max_gas_per_exec must be positive")

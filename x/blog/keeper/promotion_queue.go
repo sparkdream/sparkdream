@@ -8,7 +8,6 @@ import (
 	"cosmossdk.io/store/prefix"
 	"github.com/cosmos/cosmos-sdk/runtime"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 
 	"sparkdream/x/blog/types"
 )
@@ -18,20 +17,20 @@ const (
 	EphemeralKindReply byte = 2
 )
 
-// blogModuleAddrString is the bech32 address of the blog module account, used
-// to distinguish anonymous content (creator = module addr) from authored
-// content. Anonymous ephemerals are skipped by the EphemeralByAuthor index and
-// the promotion queue — they cannot "become a member" and have their own
+// anonymousCreatorAddr is the bech32 address that anonymous content carries as
+// its creator: the shield module account, which x/shield signs inner messages
+// with. Anonymous ephemerals are skipped by the EphemeralByAuthor index and the
+// promotion queue — they cannot "become a member" and have their own
 // conviction-renewal lifecycle.
-func (k Keeper) blogModuleAddrString() string {
-	return authtypes.NewModuleAddress(types.ModuleName).String()
+func anonymousCreatorAddr() string {
+	return shieldModuleAddress.String()
 }
 
 // AddEphemeralAuthorIndex records that `creator` has an ephemeral post/reply
 // (`kind`, `id`) pending eventual promotion. No-op for module-account
 // (anonymous) creators.
 func (k Keeper) AddEphemeralAuthorIndex(ctx context.Context, creator string, kind byte, id uint64) {
-	if creator == "" || creator == k.blogModuleAddrString() {
+	if creator == "" || creator == anonymousCreatorAddr() {
 		return
 	}
 	store := k.ephemeralByAuthorStore(ctx)
@@ -51,7 +50,7 @@ func (k Keeper) RemoveEphemeralAuthorIndex(ctx context.Context, creator string, 
 // EnqueueAuthorForPromotion adds `creator` to the promotion queue with the
 // current block height stamped as the enqueue marker. Idempotent.
 func (k Keeper) EnqueueAuthorForPromotion(ctx context.Context, creator string) {
-	if creator == "" || creator == k.blogModuleAddrString() {
+	if creator == "" || creator == anonymousCreatorAddr() {
 		return
 	}
 	sdkCtx := sdk.UnwrapSDKContext(ctx)

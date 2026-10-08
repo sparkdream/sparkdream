@@ -11,14 +11,14 @@ import (
 )
 
 // EndBlocker handles epoch advancement and batch execution.
+//
+// The epoch advances whether or not encrypted batch mode is enabled: immediate
+// mode reads it for EPOCH-scoped nullifiers and per-epoch rate limits, so a
+// frozen epoch would turn those into lifetime limits.
 func (k Keeper) EndBlocker(ctx context.Context) error {
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	params, err := k.Params.Get(ctx)
 	if err != nil {
-		return nil
-	}
-
-	if !params.EncryptedBatchEnabled {
 		return nil
 	}
 
@@ -46,15 +46,17 @@ func (k Keeper) EndBlocker(ctx context.Context) error {
 		EpochStartHeight: currentHeight,
 	})
 
-	// Try to process the PREVIOUS epoch's pending ops
-	prevEpoch := epochState.CurrentEpoch
-	k.tryProcessBatch(ctx, params, prevEpoch, currentHeight)
+	if params.EncryptedBatchEnabled {
+		// Try to process the PREVIOUS epoch's pending ops
+		prevEpoch := epochState.CurrentEpoch
+		k.tryProcessBatch(ctx, params, prevEpoch, currentHeight)
 
-	// Also try to process any carried-over ops from older epochs
-	k.processCarriedOverBatches(ctx, params, prevEpoch, currentHeight)
+		// Also try to process any carried-over ops from older epochs
+		k.processCarriedOverBatches(ctx, params, prevEpoch, currentHeight)
 
-	// Check TLE liveness — increment miss counters and jail violators
-	k.checkTLELiveness(ctx, prevEpoch)
+		// Check TLE liveness — increment miss counters and jail violators
+		k.checkTLELiveness(ctx, prevEpoch)
+	}
 
 	// Prune stale state
 	k.pruneStaleState(ctx, newEpoch)
@@ -234,9 +236,18 @@ func (k Keeper) processEncryptedOp(ctx context.Context, params types.Params, op 
 		return batchResultOtherFail
 	}
 
+	// Ownership proofs bind the owner's sequence at execution, which a batch
+	// submitter can't predict; they are immediate-only.
+	if reg.NullifierMode == types.NullifierMode_NULLIFIER_MODE_OWNERSHIP {
+		return batchResultOtherFail
+	}
+
 	// 4. Resolve scope and verify ZK proof
-	scope := k.resolveNullifierScope(ctx, reg, &innerExec)
-	if err := k.verifyProof(ctx, &innerExec, scope); err != nil {
+	scope, err := k.resolveNullifierScope(ctx, reg, &innerExec)
+	if err != nil {
+		return batchResultOtherFail
+	}
+	if err := k.verifyProof(ctx, &innerExec, consumeBinding(reg.NullifierDomain, scope, &innerExec)); err != nil {
 		return batchResultProofFail
 	}
 
@@ -248,7 +259,12 @@ func (k Keeper) processEncryptedOp(ctx context.Context, params types.Params, op 
 	_ = k.RecordNullifier(ctx, reg.NullifierDomain, scope, nullifierHex, sdkCtx.BlockHeight())
 
 	// 6. Execute the inner message
-	_, err = k.executeInnerMessage(sdkCtx, params, innerExec.InnerMessage)
+	execCtx := types.WithExecNullifier(types.WithProvenTrustLevel(sdkCtx, op.MinTrustLevel), types.ExecNullifier{
+		Domain:    reg.NullifierDomain,
+		Scope:     scope,
+		Nullifier: op.Nullifier,
+	})
+	_, err = k.executeInnerMessage(execCtx, params, innerExec.InnerMessage)
 	if err != nil {
 		return batchResultOtherFail
 	}

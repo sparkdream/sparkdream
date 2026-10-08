@@ -21,8 +21,8 @@ func (k msgServer) RegisterShieldedOp(ctx context.Context, msg *types.MsgRegiste
 	}
 
 	reg := msg.Registration
-	if reg.MessageTypeUrl == "" {
-		return nil, errorsmod.Wrap(types.ErrInvalidInnerMessage, "message_type_url cannot be empty")
+	if err := reg.Validate(); err != nil {
+		return nil, err
 	}
 
 	if err := k.SetShieldedOp(ctx, reg); err != nil {

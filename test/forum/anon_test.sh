@@ -125,6 +125,22 @@ fi
 DUMMY_PROOF=$(python3 -c "print('aa' * 128)")
 DUMMY_MERKLE_ROOT="0000000000000000000000000000000000000000000000000000000000000001"
 
+# Anonymous actions carry no per-action SPARK charge: the shield account's
+# balance is the communal gas reserve, so its only spend in a shielded tx is
+# the gas fee. storage_fee_charged TX_JSON PARAMS_JSON BYTES succeeds when the
+# cost_per_byte storage fee for BYTES shows up among the shield account's
+# coin_spent amounts in the tx.
+storage_fee_charged() {
+    local cpb exempt fee spent
+    cpb=$(echo "$2" | jq -r '.params.cost_per_byte_amount // "0"')
+    exempt=$(echo "$2" | jq -r '.params.cost_per_byte_exempt // false')
+    [ "$exempt" == "true" ] || [ "$cpb" == "0" ] && return 1
+    fee=$(( cpb * $3 ))
+    spent=$(echo "$1" | jq -r --arg a "$SHIELD_MODULE_ADDR" '[.events[] | select(.type=="coin_spent") | select(any(.attributes[]; .key=="spender" and .value==$a)) | .attributes[] | select(.key=="amount") | .value] | join(" ")' 2>/dev/null)
+    echo "  Shield account spent: ${spent:-nothing} (storage fee would be ${fee}${BOND_DENOM})"
+    echo " $spent " | grep -q " ${fee}${BOND_DENOM} "
+}
+
 # We need a category ID. Use TEST_CATEGORY_ID from .test_env or default to 1.
 CATEGORY_ID="${TEST_CATEGORY_ID:-1}"
 if [ "$CATEGORY_ID" == "null" ] || [ -z "$CATEGORY_ID" ]; then
@@ -164,7 +180,8 @@ echo "--- TEST 1: Anonymous forum post creation ---"
 
 NULLIFIER_POST="fc01000000000000000000000000000000000000000000000000000000000001"
 RATE_NULL_POST=$(openssl rand -hex 32)
-INNER_MSG="{\"@type\":\"/sparkdream.forum.v1.MsgCreatePost\",\"creator\":\"$SHIELD_MODULE_ADDR\",\"category_id\":\"$CATEGORY_ID\",\"parent_id\":\"0\",\"content\":\"Anonymous forum post created via x/shield shielded exec\",\"tags\":[\"commons-council\"]}"
+ANON_POST_CONTENT="Anonymous forum post created via x/shield shielded exec"
+INNER_MSG="{\"@type\":\"/sparkdream.forum.v1.MsgCreatePost\",\"creator\":\"$SHIELD_MODULE_ADDR\",\"category_id\":\"$CATEGORY_ID\",\"parent_id\":\"0\",\"content\":\"$ANON_POST_CONTENT\",\"tags\":[\"commons-council\"]}"
 
 TX_RES=$($BINARY tx shield shielded-exec \
     --inner-message "$INNER_MSG" \
@@ -178,7 +195,7 @@ TX_RES=$($BINARY tx shield shielded-exec \
     --from poster1 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 500000${BOND_DENOM} \
+    --fees 25000${BOND_DENOM} \
     --gas 500000 \
     -y \
     --output json 2>&1)
@@ -192,7 +209,7 @@ if check_tx_success "$TX_RESULT"; then
     # Verify post creator is shield module address
     if [ -n "$ANON_POST_ID" ]; then
         POST_QUERY=$($BINARY query forum show-post "$ANON_POST_ID" --output json 2>&1)
-        POST_CREATOR=$(echo "$POST_QUERY" | jq -r '.post.creator // empty')
+        POST_CREATOR=$(echo "$POST_QUERY" | jq -r '.post.author // empty')
 
         if [ "$POST_CREATOR" == "$SHIELD_MODULE_ADDR" ]; then
             echo "  Post creator is shield module (anonymous): confirmed"
@@ -201,7 +218,13 @@ if check_tx_success "$TX_RESULT"; then
         fi
     fi
 
-    record_result "Anonymous forum post creation" "PASS"
+    FORUM_PARAMS=$($BINARY query forum params --output json 2>/dev/null)
+    if storage_fee_charged "$TX_RESULT" "$FORUM_PARAMS" ${#ANON_POST_CONTENT}; then
+        echo "  ERROR: the storage fee was charged to the shield account"
+        record_result "Anonymous forum post creation" "FAIL"
+    else
+        record_result "Anonymous forum post creation" "PASS"
+    fi
 else
     RAW_LOG=$(echo "$TX_RESULT" | jq -r '.raw_log // ""' 2>/dev/null)
     echo "  Transaction failed: ${RAW_LOG:0:200}"
@@ -229,7 +252,7 @@ TX_RES=$($BINARY tx shield shielded-exec \
     --from poster1 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 500000${BOND_DENOM} \
+    --fees 25000${BOND_DENOM} \
     --gas 500000 \
     -y \
     --output json 2>&1)
@@ -246,13 +269,59 @@ else
 fi
 
 # =========================================================================
+# TEST 2b: A second anonymous upvote (distinct nullifier) on the same post counts
+# =========================================================================
+echo "--- TEST 2b: Second anonymous upvote on the same post ---"
+
+# Every anonymous vote carries the shield address, so the forum keeps no
+# per-voter record for it; x/shield's nullifier (a different one per member)
+# is what allows one vote per member per post. The same key signs with a fresh
+# nullifier, standing in for a second member (in dummy-proof mode that only
+# shows a second distinct nullifier counts).
+UP_BEFORE=$($BINARY query forum show-post "$VOTE_TARGET_POST_ID" --output json 2>/dev/null | jq -r '.post.upvote_count // "0"')
+INNER_MSG="{\"@type\":\"/sparkdream.forum.v1.MsgUpvotePost\",\"creator\":\"$SHIELD_MODULE_ADDR\",\"post_id\":\"$VOTE_TARGET_POST_ID\"}"
+
+TX_RES=$($BINARY tx shield shielded-exec \
+    --inner-message "$INNER_MSG" \
+    --proof "$DUMMY_PROOF" \
+    --nullifier "$(openssl rand -hex 32)" \
+    --rate-limit-nullifier "$(openssl rand -hex 32)" \
+    --merkle-root "$DUMMY_MERKLE_ROOT" \
+    --proof-domain 1 \
+    --min-trust-level 1 \
+    --exec-mode 0 \
+    --from poster1 \
+    --chain-id $CHAIN_ID \
+    --keyring-backend test \
+    --fees 25000${BOND_DENOM} \
+    --gas 500000 \
+    -y \
+    --output json 2>&1)
+
+submit_tx_and_wait "$TX_RES"
+
+if check_tx_success "$TX_RESULT"; then
+    UP_AFTER=$($BINARY query forum show-post "$VOTE_TARGET_POST_ID" --output json 2>/dev/null | jq -r '.post.upvote_count // "0"')
+    if [ "$UP_AFTER" -eq $((UP_BEFORE + 1)) ] 2>/dev/null; then
+        echo "  Second anonymous upvote counted ($UP_BEFORE -> $UP_AFTER)"
+        record_result "Second anonymous upvote (distinct nullifier) counts" "PASS"
+    else
+        echo "  ERROR: upvote_count $UP_BEFORE -> $UP_AFTER, expected +1"
+        record_result "Second anonymous upvote (distinct nullifier) counts" "FAIL"
+    fi
+else
+    RAW_LOG=$(echo "$TX_RESULT" | jq -r '.raw_log // ""' 2>/dev/null)
+    echo "  ERROR: second anonymous upvote rejected: ${RAW_LOG:0:200}"
+    record_result "Second anonymous upvote (distinct nullifier) counts" "FAIL"
+fi
+
+# =========================================================================
 # TEST 3: Anonymous downvote via MsgShieldedExec
 # =========================================================================
 echo "--- TEST 3: Anonymous forum downvote ---"
 
-# Create a separate post for the downvote test to avoid duplicate-vote conflict.
-# The upvote test already voted on VOTE_TARGET_POST_ID from the shield module address,
-# and our duplicate-vote prevention (FORUM-1 fix) rejects a second vote on the same post.
+# Use a separate post so the downvote count starts clean. (Anonymous votes
+# keep no per-voter record, so voting on VOTE_TARGET_POST_ID would also work.)
 TX_RES=$($BINARY tx forum create-post "$CATEGORY_ID" 0 "Downvote Target Post" \
     --tags "commons-council" \
     --from poster1 --chain-id $CHAIN_ID --keyring-backend test \
@@ -280,7 +349,7 @@ TX_RES=$($BINARY tx shield shielded-exec \
     --from poster1 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 500000${BOND_DENOM} \
+    --fees 25000${BOND_DENOM} \
     --gas 500000 \
     -y \
     --output json 2>&1)
@@ -289,7 +358,18 @@ submit_tx_and_wait "$TX_RES"
 
 if check_tx_success "$TX_RESULT"; then
     echo "  Anonymous downvote submitted successfully"
-    record_result "Anonymous forum downvote" "PASS"
+    # The downvote deposit would come out of the shield account's gas
+    # reserve, so anonymous downvotes don't pay it. The shield account's only
+    # spend in this tx is the gas fee.
+    DEPOSIT=$($BINARY query forum params --output json 2>/dev/null | jq -r '.params.downvote_deposit_amount // "0"')
+    SHIELD_SPENT=$(echo "$TX_RESULT" | jq -r --arg a "$SHIELD_MODULE_ADDR" '[.events[] | select(.type=="coin_spent") | select(any(.attributes[]; .key=="spender" and .value==$a)) | .attributes[] | select(.key=="amount") | .value] | join(" ")' 2>/dev/null)
+    echo "  Shield account spent: ${SHIELD_SPENT:-nothing} (downvote deposit: $DEPOSIT)"
+    if [ "$DEPOSIT" != "0" ] && echo " $SHIELD_SPENT " | grep -q " ${DEPOSIT}${BOND_DENOM} "; then
+        echo "  ERROR: the downvote deposit was charged to the shield account"
+        record_result "Anonymous forum downvote" "FAIL"
+    else
+        record_result "Anonymous forum downvote" "PASS"
+    fi
 else
     RAW_LOG=$(echo "$TX_RESULT" | jq -r '.raw_log // ""' 2>/dev/null)
     echo "  Transaction failed: ${RAW_LOG:0:200}"
@@ -317,7 +397,7 @@ TX_RES=$($BINARY tx shield shielded-exec \
     --from poster1 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
-    --fees 500000${BOND_DENOM} \
+    --fees 25000${BOND_DENOM} \
     --gas 500000 \
     -y \
     --output json 2>&1)

@@ -8,18 +8,32 @@ import (
 	"sparkdream/x/shield/types"
 )
 
-func TestEndBlockerDisabled(t *testing.T) {
+func TestEndBlockerAdvancesEpochWithBatchDisabled(t *testing.T) {
 	f := initFixture(t)
 
-	// EncryptedBatchEnabled is false by default
-	err := f.keeper.EndBlocker(f.ctx)
+	// EncryptedBatchEnabled is false by default; immediate mode still needs
+	// the epoch to advance for EPOCH-scoped nullifiers and rate limits.
+	params, err := f.keeper.Params.Get(f.ctx)
 	require.NoError(t, err)
+	require.False(t, params.EncryptedBatchEnabled)
+	params.ShieldEpochInterval = 10
+	require.NoError(t, f.keeper.Params.Set(f.ctx, params))
 
-	// Should not have initialized epoch state
-	_, found := f.keeper.GetShieldEpochStateVal(f.ctx)
-	// Genesis init sets epoch state, so it may exist. The point is
-	// EndBlocker returns early without advancing.
-	_ = found
+	require.NoError(t, f.keeper.SetShieldEpochStateVal(f.ctx, types.ShieldEpochState{
+		CurrentEpoch:     0,
+		EpochStartHeight: 0,
+	}))
+
+	f.ctx = f.ctx.WithBlockHeight(10)
+	require.NoError(t, f.keeper.EndBlocker(f.ctx))
+	epochState, found := f.keeper.GetShieldEpochStateVal(f.ctx)
+	require.True(t, found)
+	require.Equal(t, uint64(1), epochState.CurrentEpoch)
+
+	f.ctx = f.ctx.WithBlockHeight(20)
+	require.NoError(t, f.keeper.EndBlocker(f.ctx))
+	epochState, _ = f.keeper.GetShieldEpochStateVal(f.ctx)
+	require.Equal(t, uint64(2), epochState.CurrentEpoch)
 }
 
 func TestEndBlockerInitializesEpochState(t *testing.T) {

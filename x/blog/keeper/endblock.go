@@ -9,7 +9,6 @@ import (
 	"cosmossdk.io/store/prefix"
 	"github.com/cosmos/cosmos-sdk/runtime"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 
 	"sparkdream/x/blog/types"
 
@@ -42,7 +41,9 @@ func (k Keeper) processExpiredContent(ctx context.Context, blockTime int64) {
 	storeAdapter := runtime.KVStoreAdapter(k.storeService.OpenKVStore(ctx))
 	store := prefix.NewStore(storeAdapter, []byte(types.ExpiryKey))
 
-	moduleAddr := authtypes.NewModuleAddress(types.ModuleName).String()
+	// Anonymous content is created through x/shield, so its creator is the
+	// shield module account.
+	anonAddr := anonymousCreatorAddr()
 
 	// Build an end key: blockTime+1 encoded as big-endian to get all entries <= blockTime
 	endBz := make([]byte, 8)
@@ -97,9 +98,9 @@ func (k Keeper) processExpiredContent(ctx context.Context, blockTime int64) {
 	for _, entry := range entries {
 		switch entry.contentType {
 		case "post":
-			k.processExpiredPost(ctx, sdkCtx, entry.id, entry.expiresAt, moduleAddr)
+			k.processExpiredPost(ctx, sdkCtx, entry.id, entry.expiresAt, anonAddr)
 		case "reply":
-			k.processExpiredReply(ctx, sdkCtx, entry.id, entry.expiresAt, moduleAddr)
+			k.processExpiredReply(ctx, sdkCtx, entry.id, entry.expiresAt, anonAddr)
 		default:
 			// Unknown content type, just remove from index
 			store.Delete(entry.fullKey)
@@ -108,7 +109,7 @@ func (k Keeper) processExpiredContent(ctx context.Context, blockTime int64) {
 }
 
 // processExpiredPost handles a single expired post: upgrade to permanent if creator is now active, else tombstone.
-func (k Keeper) processExpiredPost(ctx context.Context, sdkCtx sdk.Context, id uint64, expiresAt int64, moduleAddr string) {
+func (k Keeper) processExpiredPost(ctx context.Context, sdkCtx sdk.Context, id uint64, expiresAt int64, anonAddr string) {
 	post, found := k.GetPost(ctx, id)
 	if !found {
 		// Post gone, just clean up expiry index
@@ -124,7 +125,7 @@ func (k Keeper) processExpiredPost(ctx context.Context, sdkCtx sdk.Context, id u
 	}
 
 	// Check if creator is now an active member (upgrade path — non-anonymous only)
-	if post.Creator != moduleAddr {
+	if post.Creator != anonAddr {
 		creatorAccAddr, err := sdk.AccAddressFromBech32(post.Creator)
 		if err == nil && k.isActiveMember(ctx, creatorAccAddr) {
 			// Upgrade to permanent
@@ -141,8 +142,8 @@ func (k Keeper) processExpiredPost(ctx context.Context, sdkCtx sdk.Context, id u
 		}
 	}
 
-	// Conviction check (anonymous only): if creator is module account and conviction renewal is enabled
-	if post.Creator == moduleAddr && k.repKeeper != nil {
+	// Conviction check (anonymous only): if creator is the shield module account and conviction renewal is enabled
+	if post.Creator == anonAddr && k.repKeeper != nil {
 		params, err := k.Params.Get(ctx)
 		if err == nil && params.ConvictionRenewalThreshold.IsPositive() {
 			conviction, err := k.repKeeper.GetContentConviction(ctx, reptypes.StakeTargetType_STAKE_TARGET_BLOG_CONTENT, id)
@@ -207,7 +208,7 @@ func (k Keeper) processExpiredPost(ctx context.Context, sdkCtx sdk.Context, id u
 }
 
 // processExpiredReply handles a single expired reply: upgrade to permanent if creator is now active, else tombstone.
-func (k Keeper) processExpiredReply(ctx context.Context, sdkCtx sdk.Context, id uint64, expiresAt int64, moduleAddr string) {
+func (k Keeper) processExpiredReply(ctx context.Context, sdkCtx sdk.Context, id uint64, expiresAt int64, anonAddr string) {
 	reply, found := k.GetReply(ctx, id)
 	if !found {
 		k.RemoveFromExpiryIndex(ctx, expiresAt, "reply", id)
@@ -221,7 +222,7 @@ func (k Keeper) processExpiredReply(ctx context.Context, sdkCtx sdk.Context, id 
 	}
 
 	// Check if creator is now an active member (upgrade path — non-anonymous only)
-	if reply.Creator != moduleAddr {
+	if reply.Creator != anonAddr {
 		creatorAccAddr, err := sdk.AccAddressFromBech32(reply.Creator)
 		if err == nil && k.isActiveMember(ctx, creatorAccAddr) {
 			reply.ExpiresAt = 0
@@ -238,8 +239,8 @@ func (k Keeper) processExpiredReply(ctx context.Context, sdkCtx sdk.Context, id 
 		}
 	}
 
-	// Conviction check (anonymous only): if creator is module account and conviction renewal is enabled
-	if reply.Creator == moduleAddr && k.repKeeper != nil {
+	// Conviction check (anonymous only): if creator is the shield module account and conviction renewal is enabled
+	if reply.Creator == anonAddr && k.repKeeper != nil {
 		params, err := k.Params.Get(ctx)
 		if err == nil && params.ConvictionRenewalThreshold.IsPositive() {
 			conviction, err := k.repKeeper.GetContentConviction(ctx, reptypes.StakeTargetType_STAKE_TARGET_BLOG_CONTENT, id)

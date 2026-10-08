@@ -44,8 +44,10 @@ func (k msgServer) UpvotePost(ctx context.Context, msg *types.MsgUpvotePost) (*t
 		return nil, types.ErrPostArchived
 	}
 
-	// Cannot vote on your own post
-	if post.Author == msg.Creator {
+	anonymous := k.isAnonymous(msg.Creator)
+
+	// Cannot vote on your own post (an anonymous author can't be identified)
+	if post.Author == msg.Creator && !anonymous {
 		return nil, types.ErrCannotVoteOwnPost
 	}
 
@@ -55,20 +57,24 @@ func (k msgServer) UpvotePost(ctx context.Context, msg *types.MsgUpvotePost) (*t
 	if err != nil {
 		return nil, errorsmod.Wrap(err, "failed to check vote record")
 	}
-	if hasVoted {
+	if hasVoted && !anonymous {
 		return nil, types.ErrAlreadyVoted
 	}
 
 	// Check and update reaction rate limit
-	if err := k.checkAndUpdateReactionLimit(ctx, msg.Creator, now); err != nil {
-		return nil, err
+	if !anonymous {
+		if err := k.checkAndUpdateReactionLimit(ctx, msg.Creator, now); err != nil {
+			return nil, err
+		}
 	}
 
 	// Check membership for spam tax
 	isMember := k.IsMember(ctx, msg.Creator)
 	if !isMember {
-		// Charge reaction_spam_tax to non-members; split 50/50 burn / sentinel reward pool
-		if params.ReactionSpamTaxAmount.IsPositive() {
+		// Charge reaction_spam_tax to non-members; split 50/50 burn / sentinel reward pool.
+		// Anonymous voters count as members, but never charge the shield gas
+		// reserve regardless.
+		if params.ReactionSpamTaxAmount.IsPositive() && !anonymous {
 			creatorAddr, _ := sdk.AccAddressFromBech32(msg.Creator)
 			reactionSpamTaxCoins := sdk.NewCoins(sdk.NewCoin(k.BondDenom(ctx), params.ReactionSpamTaxAmount))
 			if err := k.bankKeeper.SendCoinsFromAccountToModule(ctx, creatorAddr, types.ModuleName, reactionSpamTaxCoins); err != nil {
@@ -97,9 +103,12 @@ func (k msgServer) UpvotePost(ctx context.Context, msg *types.MsgUpvotePost) (*t
 		return nil, errorsmod.Wrap(err, "failed to update post")
 	}
 
-	// Record individual vote to prevent duplicates
-	if err := k.PostVote.Set(ctx, voteKey); err != nil {
-		return nil, errorsmod.Wrap(err, "failed to store vote record")
+	// Record individual vote to prevent duplicates. Anonymous votes are
+	// deduplicated per member by x/shield's nullifier instead.
+	if !anonymous {
+		if err := k.PostVote.Set(ctx, voteKey); err != nil {
+			return nil, errorsmod.Wrap(err, "failed to store vote record")
+		}
 	}
 
 	// Emit event

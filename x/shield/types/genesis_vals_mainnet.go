@@ -26,7 +26,8 @@ func getShieldGenesisParams() Params {
 		TleMissTolerance:            10,
 		TleJailDuration:             600, // 10 minutes
 		MinTleValidators:            5,
-		DkgWindowBlocks:             200, // ~20 minutes at 6s blocks
-		MaxValidatorSetDrift:        33,  // 33% drift triggers re-keying
+		DkgWindowBlocks:             200,                 // ~20 minutes at 6s blocks
+		MaxValidatorSetDrift:        33,                  // 33% drift triggers re-keying
+		MaxFeePerExec:               math.NewInt(50_000), // 0.05 SPARK per exec
 	}
 }

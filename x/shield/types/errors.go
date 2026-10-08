@@ -63,4 +63,13 @@ var (
 	ErrInvalidNullifierLength = errorsmod.Register(ModuleName, 44, "nullifier must be exactly 32 bytes")
 	ErrInvalidMerkleRootLen   = errorsmod.Register(ModuleName, 45, "merkle root must be exactly 32 bytes")
 	ErrProofTooLarge          = errorsmod.Register(ModuleName, 46, "proof exceeds maximum allowed size")
+	ErrFeeTooHigh             = errorsmod.Register(ModuleName, 47, "shielded exec fee exceeds max_fee_per_exec")
+
+	// Ownership mode
+	ErrNotOwnable         = errorsmod.Register(ModuleName, 48, "target module cannot resolve ownership for this operation")
+	ErrOwnershipMismatch  = errorsmod.Register(ModuleName, 49, "proof nullifier does not match the content's owner tag")
+	ErrOwnershipBatchMode = errorsmod.Register(ModuleName, 50, "ownership operations are immediate-only")
+
+	// Mempool guard (node-local, CheckTx only)
+	ErrProofVerificationThrottled = errorsmod.Register(ModuleName, 51, "node is at its proof verification rate limit; retry shortly")
 )

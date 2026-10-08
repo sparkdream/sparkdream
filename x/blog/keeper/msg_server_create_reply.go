@@ -97,8 +97,10 @@ func (k msgServer) CreateReply(ctx context.Context, msg *types.MsgCreateReply) (
 		return nil, err
 	}
 
-	// Charge cost_per_byte storage fee
-	if !params.CostPerByteExempt && params.CostPerByteAmount.IsPositive() {
+	// Charge cost_per_byte storage fee (burned). An anonymous replier would be
+	// spending the shield module's gas reserve, not their own SPARK, so the
+	// fee doesn't apply.
+	if !params.CostPerByteExempt && params.CostPerByteAmount.IsPositive() && !isShieldModuleAddress(creatorAddr) {
 		contentBytes := int64(len(msg.Body))
 		storageFee := sdk.NewCoin(k.BondDenom(ctx),
 			params.CostPerByteAmount.MulRaw(contentBytes))
@@ -112,10 +114,12 @@ func (k msgServer) CreateReply(ctx context.Context, msg *types.MsgCreateReply) (
 		}
 	}
 
-	// Determine TTL: active members get permanent replies, others get ephemeral
+	// Determine TTL: active members get permanent replies, others get ephemeral.
+	// Anonymous (shield-routed) content passes the membership gate but stays
+	// ephemeral; conviction renewal is what keeps it alive.
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	var expiresAt int64
-	if k.isActiveMember(ctx, creatorAddr) {
+	if k.isActiveMember(ctx, creatorAddr) && !isShieldModuleAddress(creatorAddr) {
 		expiresAt = 0
 	} else {
 		expiresAt = sdkCtx.BlockTime().Unix() + params.EphemeralContentTtl

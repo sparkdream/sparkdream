@@ -28,5 +28,6 @@ func getShieldGenesisParams() Params {
 		MinTleValidators:            4,   // production: 5
 		DkgWindowBlocks:             100, // ~10 min (production: 200)
 		MaxValidatorSetDrift:        33,
+		MaxFeePerExec:               math.NewInt(50_000), // 0.05 SPARK per exec
 	}
 }

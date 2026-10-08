@@ -8,7 +8,6 @@ import (
 	"cosmossdk.io/collections"
 	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 
 	"sparkdream/x/collect/types"
 
@@ -120,10 +119,10 @@ func (k Keeper) pruneExpiredCollections(
 			continue
 		}
 
-		// §10.1 Conviction-based TTL renewal: anonymous collections (owner == module account)
-		// can be renewed if their conviction score meets the threshold.
-		moduleAddr := authtypes.NewModuleAddress(types.ModuleName).String()
-		if coll.Owner == moduleAddr && k.repKeeper != nil && params.ConvictionRenewalThreshold.IsPositive() {
+		// §10.1 Conviction-based TTL renewal: anonymous collections (owned by the
+		// shield module account, which x/shield signs inner messages with) can be
+		// renewed if their conviction score meets the threshold.
+		if k.isAnonymous(coll.Owner) && k.repKeeper != nil && params.ConvictionRenewalThreshold.IsPositive() {
 			conviction, convErr := k.repKeeper.GetContentConviction(ctx,
 				reptypes.StakeTargetType_STAKE_TARGET_COLLECTION_AUTHOR_BOND, collID)
 			if convErr == nil && conviction.GTE(params.ConvictionRenewalThreshold) {
@@ -406,15 +405,24 @@ func (k Keeper) handleUnappealedHideExpiry(
 			// Refund per_item_deposit to collection owner if TTL collection
 			coll, collErr := k.Collection.Get(ctx, item.CollectionId)
 			if collErr == nil && !coll.DepositBurned {
+				// Refund capped at the deposit actually held; anonymous
+				// collections hold none, so the shield account is never
+				// paid out of other owners' escrow.
+				refund := math.ZeroInt()
+				if k.chargesDeposits(coll) {
+					refund = heldItemDeposit(coll, params.PerItemDeposit, 1)
+				}
 				ownerAddr, addrErr := k.addressCodec.StringToBytes(coll.Owner)
-				if addrErr == nil && params.PerItemDeposit.IsPositive() {
-					k.RefundSPARK(ctx, ownerAddr, params.PerItemDeposit) //nolint:errcheck
+				if addrErr == nil && refund.IsPositive() {
+					k.RefundSPARK(ctx, ownerAddr, refund) //nolint:errcheck
 				}
 				// Decrement item_count and item_deposit_total
 				k.decrementItemCount(&coll, 1)
-				coll.ItemDepositTotal = coll.ItemDepositTotal.Sub(params.PerItemDeposit)
-				if coll.ItemDepositTotal.IsNegative() {
-					coll.ItemDepositTotal = math.ZeroInt() // safety clamp
+				if refund.IsPositive() {
+					coll.ItemDepositTotal = coll.ItemDepositTotal.Sub(refund)
+					if coll.ItemDepositTotal.IsNegative() {
+						coll.ItemDepositTotal = math.ZeroInt() // safety clamp
+					}
 				}
 				k.Collection.Set(ctx, coll.Id, coll) //nolint:errcheck
 			}

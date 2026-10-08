@@ -7,6 +7,7 @@ import (
 
 	"cosmossdk.io/collections"
 	errorsmod "cosmossdk.io/errors"
+	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	"sparkdream/x/collect/types"
@@ -90,16 +91,26 @@ func (k msgServer) AddItems(ctx context.Context, msg *types.MsgAddItems) (*types
 	}
 
 	// Single deposit transfer for all items
+	// Anonymous collections (owned by the shield module account, whose balance
+	// is the communal gas reserve) carry no item deposits or spam tax;
+	// ItemDepositTotal stays zero.
+	chargeable := k.chargesDeposits(coll)
 	depositPerItem := params.PerItemDeposit
+	if !chargeable {
+		depositPerItem = math.ZeroInt()
+	}
 	totalDeposit := depositPerItem.MulRaw(int64(batchSize))
 	isMemberCreator := k.isMember(ctx, msg.Creator)
 
-	if isTTLCollection(coll) {
+	switch {
+	case !totalDeposit.IsPositive():
+		// Nothing to hold or burn.
+	case isTTLCollection(coll):
 		// TTL: escrow total deposit
 		if err := k.EscrowSPARK(ctx, creatorAddr, totalDeposit); err != nil {
 			return nil, errorsmod.Wrap(types.ErrInsufficientFunds, err.Error())
 		}
-	} else {
+	default:
 		// Permanent: burn total deposit
 		if err := k.BurnSPARKFromAccount(ctx, creatorAddr, totalDeposit); err != nil {
 			return nil, errorsmod.Wrap(types.ErrInsufficientFunds, err.Error())
@@ -107,7 +118,7 @@ func (k msgServer) AddItems(ctx context.Context, msg *types.MsgAddItems) (*types
 	}
 
 	// Non-member creator pays per_item_spam_tax for all items (burned)
-	if !isMemberCreator && params.PerItemSpamTax.IsPositive() {
+	if chargeable && !isMemberCreator && params.PerItemSpamTax.IsPositive() {
 		totalSpamTax := params.PerItemSpamTax.MulRaw(int64(batchSize))
 		if err := k.BurnSPARKFromAccount(ctx, creatorAddr, totalSpamTax); err != nil {
 			return nil, errorsmod.Wrap(types.ErrInsufficientFunds, err.Error())

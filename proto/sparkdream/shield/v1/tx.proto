@@ -61,7 +61,7 @@ message MsgShieldedExec {
   // REQUIRED for IMMEDIATE mode, EMPTY for ENCRYPTED_BATCH mode.
   google.protobuf.Any inner_message = 2;
 
-  // ZK proof bytes (PLONK over BN254).
+  // ZK proof bytes (Groth16 over BN254).
   // REQUIRED for IMMEDIATE mode, EMPTY for ENCRYPTED_BATCH mode.
   bytes proof = 3;
 

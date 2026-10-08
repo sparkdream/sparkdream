@@ -96,45 +96,52 @@ func (k Keeper) IteratePendingNullifiers(ctx context.Context, fn func(nullifierH
 }
 
 // PruneEpochScopedNullifiers removes epoch-scoped nullifiers older than cutoffEpoch.
-// It cross-references each nullifier's domain against registered operations to determine
-// which domains use EPOCH scoping, then prunes only those with scope < cutoffEpoch.
+// It cross-references registered operations to find the domains that use EPOCH
+// scoping, then prunes only those whose window ends before cutoffEpoch (scope
+// < cutoffEpoch / epoch_window; the largest window if a domain's ops differ).
 // GLOBAL-scoped (scope=0) and MESSAGE_FIELD-scoped nullifiers are not pruned.
+//
+// Nullifiers are keyed (domain, scope, hex), so each epoch domain is pruned by
+// a range scan over exactly the stale keys; the ever-growing MESSAGE_FIELD
+// nullifiers (one per member per voted target) are never visited.
 func (k Keeper) PruneEpochScopedNullifiers(ctx context.Context, cutoffEpoch uint64) error {
-	// Build a set of domains that use EPOCH scoping.
-	epochDomains := make(map[uint32]bool)
+	// Domains that use EPOCH scoping, in registration order, with the
+	// largest window among their ops so no live window is pruned.
+	var epochDomains []uint32
+	windows := make(map[uint32]uint64)
 	if err := k.IterateShieldedOps(ctx, func(_ string, reg types.ShieldedOpRegistration) bool {
-		if reg.NullifierScopeType == types.NullifierScopeType_NULLIFIER_SCOPE_EPOCH {
-			epochDomains[reg.NullifierDomain] = true
+		if reg.NullifierScopeType != types.NullifierScopeType_NULLIFIER_SCOPE_EPOCH {
+			return false
 		}
+		if _, seen := windows[reg.NullifierDomain]; !seen {
+			epochDomains = append(epochDomains, reg.NullifierDomain)
+		}
+		windows[reg.NullifierDomain] = max(windows[reg.NullifierDomain], reg.Window())
 		return false
 	}); err != nil {
 		return err
 	}
 
-	if len(epochDomains) == 0 {
-		return nil
-	}
-
-	// Collect keys to delete (cannot modify during iteration).
-	type tripleKey struct {
-		domain uint32
-		scope  uint64
-		hex    string
-	}
-	var toDelete []tripleKey
-
-	if err := k.IterateUsedNullifiers(ctx, func(n types.UsedNullifier) bool {
-		if epochDomains[n.Domain] && n.Scope < cutoffEpoch {
-			toDelete = append(toDelete, tripleKey{n.Domain, n.Scope, n.NullifierHex})
-		}
-		return false
-	}); err != nil {
-		return err
-	}
-
-	for _, key := range toDelete {
-		if err := k.UsedNullifiers.Remove(ctx, collections.Join3(key.domain, key.scope, key.hex)); err != nil {
+	for _, domain := range epochDomains {
+		// [(domain, 0, ""), (domain, cutoffScope, "")) covers every scope
+		// below the cutoff and nothing else.
+		cutoffScope := cutoffEpoch / windows[domain]
+		rng := new(collections.Range[collections.Triple[uint32, uint64, string]]).
+			StartInclusive(collections.Join3(domain, uint64(0), "")).
+			EndExclusive(collections.Join3(domain, cutoffScope, ""))
+		iter, err := k.UsedNullifiers.Iterate(ctx, rng)
+		if err != nil {
 			return err
+		}
+		// Collect first: the store can't be modified while iterating.
+		keys, err := iter.Keys()
+		if err != nil {
+			return err
+		}
+		for _, key := range keys {
+			if err := k.UsedNullifiers.Remove(ctx, key); err != nil {
+				return err
+			}
 		}
 	}
 

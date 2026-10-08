@@ -203,6 +203,9 @@ message QueryGetProposalResponse {
   Proposal proposal = 1 [(gogoproto.nullable) = false];
   repeated Vote votes = 2 [(gogoproto.nullable) = false];
   TallyResult tally = 3 [(gogoproto.nullable) = false];
+  // anon_tally counts the anonymous votes cast through x/shield (weight 1
+  // each, tallied separately from council member votes).
+  AnonVoteTally anon_tally = 4 [(gogoproto.nullable) = false];
 }
 
 // QueryListProposalsRequest queries all proposals with optional council filter.
@@ -227,6 +230,8 @@ message QueryGetProposalVotesRequest {
 message QueryGetProposalVotesResponse {
   repeated Vote votes = 1 [(gogoproto.nullable) = false];
   TallyResult tally = 2 [(gogoproto.nullable) = false];
+  // anon_tally counts the anonymous votes cast through x/shield.
+  AnonVoteTally anon_tally = 3 [(gogoproto.nullable) = false];
 }
 
 // QueryGetCategoryRequest queries a single category by id.

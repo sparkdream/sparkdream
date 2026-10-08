@@ -1652,6 +1652,12 @@ message MsgRegisterZkPublicKey {
 }
 ```
 
+`MsgRegisterZkPublicKey` requires `zk_public_key` to be exactly 32 bytes and a
+canonical BN254 scalar: its big-endian value must be below the field modulus,
+or the message fails with `ErrInvalidRequest`. The key is hashed into the trust
+tree as a field element, so an out-of-range value would produce a leaf no proof
+can open and lock the member out of every anonymous action.
+
 #### DREAM Transfer Limits
 
 > These replaced the original tip and gift limits (100 DREAM per tip, 10 tips
@@ -3703,7 +3709,7 @@ message MsgSubmitExpertTestimony {
 
 Anonymous challenges are not submitted directly to x/rep with per-module ZK proof verification. Instead, they go through x/shield's unified privacy layer:
 
-1. **Submission**: The challenger submits `MsgShieldedExec` to x/shield, wrapping a standard `MsgCreateChallenge`. x/shield handles ZK proof verification (PLONK over BN254), nullifier checking (domain 41, GLOBAL scope), and module-paid gas.
+1. **Submission**: The challenger submits `MsgShieldedExec` to x/shield, wrapping a standard `MsgCreateChallenge`. x/shield handles ZK proof verification (Groth16 over BN254), nullifier checking (domain 41, GLOBAL scope), and module-paid gas.
 2. **Proof verification**: x/shield verifies the ZK proof against the trust tree root maintained by x/rep (`GetTrustTreeRoot()`). The proof demonstrates membership and sufficient trust level without revealing the challenger's identity.
 3. **Execution**: x/shield unwraps and dispatches the inner `MsgCreateChallenge` to x/rep's message server. The `challenger` field is set to x/shield's module address (not the real challenger).
 4. **Batch mode**: Anonymous challenges use ENCRYPTED_ONLY batch mode -- the inner message is TLE-encrypted and only decrypted/executed after epoch key revelation, providing maximum privacy.
@@ -4232,6 +4238,9 @@ service Query {
   // Reputation
   rpc Reputation(QueryReputationRequest) returns (QueryReputationResponse);
 
+  // Trust tree export for anonymous (x/shield) clients
+  rpc TrustTree(QueryTrustTreeRequest) returns (QueryTrustTreeResponse);
+
   // Economic Health (governance monitoring)
   rpc DreamSupplyStats(QueryDreamSupplyStatsRequest) returns (QueryDreamSupplyStatsResponse);
   rpc MintBurnRatio(QueryMintBurnRatioRequest) returns (QueryMintBurnRatioResponse);
@@ -4624,6 +4633,28 @@ The tree is rebuilt incrementally in EndBlocker via `MaybeRebuildTrustTree()`:
 2. **Batch update**: EndBlocker iterates only dirty members, recomputes their leaf hash, and updates the affected path from leaf to root. This is O(dirty_count * tree_depth) per block.
 3. **Previous root preserved**: Before updating, the current root is saved as `previous_root`. x/shield accepts proofs against either the current or previous root (handles race conditions where a proof was generated against a slightly stale root).
 4. **Full rebuild**: On genesis import or upgrade, a full rebuild flag triggers recomputation of all leaves.
+
+### TrustTree Query
+
+`TrustTree` (`GET /sparkdream/rep/v1/trust_tree`, CLI `sparkdreamd q rep trust-tree`,
+paginated) exports the tree for anonymous clients:
+
+```protobuf
+message QueryTrustTreeResponse {
+  bytes root = 1;        // current root; empty before the tree is first built
+  uint32 depth = 2;      // levels above the leaves
+  uint64 leaf_count = 3; // leaf slots allocated so far
+  repeated TrustTreeLeaf leaves = 4; // non-empty leaves {index, hash}, index order
+  cosmos.base.query.v1beta1.PageResponse pagination = 5;
+}
+```
+
+Empty leaves (the zero hash) are never stored, so they are not returned; a
+client fills the gaps with zeros. A client downloads every page, rebuilds the
+tree, finds its own leaf `MiMC(zk_public_key, trust_level)` and computes the
+Merkle path locally. Because every client fetches the same whole tree, the
+query reveals nothing about who is asking or which leaf they hold. Keeper:
+[query_trust_tree.go](../x/rep/keeper/query_trust_tree.go).
 
 ### Exported API (used by x/shield)
 

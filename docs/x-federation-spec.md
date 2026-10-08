@@ -396,7 +396,7 @@ MsgShieldedExec {
 }
 ```
 
-The ZK proof (verified by x/shield's PLONK/BN254 verifier) proves the submitter is a member at the required trust level without revealing their identity. The scoped nullifier prevents any member from submitting twice for the same content.
+The ZK proof (verified by x/shield's Groth16/BN254 verifier) proves the submitter is a member at the required trust level without revealing their identity. The scoped nullifier prevents any member from submitting twice for the same content.
 
 **Quorum and auto-resolution:**
 
@@ -3203,7 +3203,7 @@ sparkdreamd query service get-service-type-config federation-bridge-<protocol>
 
 ## 17. Future Considerations
 
-1. **ZK Reputation Proofs**: Allow members to prove trust level on a remote chain without revealing identity, using x/shield's existing ZK infrastructure. The flow would be: user generates a ZK proof using x/shield's `TRUST_TREE` domain proving `min_trust_level >= PROVISIONAL` without revealing identity → proof is sent via IBC → receiving chain verifies using x/shield's PLONK verifier → result stored as a `ZkReputationProof` (distinct from `ReputationAttestation`). This uses x/shield's existing circuit and verification infrastructure — no new circuit is needed. Trust tree roots can be shared via IBC light client state proofs.
+1. **ZK Reputation Proofs**: Allow members to prove trust level on a remote chain without revealing identity, using x/shield's existing ZK infrastructure. The flow would be: user generates a ZK proof using x/shield's `TRUST_TREE` domain proving `min_trust_level >= PROVISIONAL` without revealing identity → proof is sent via IBC → receiving chain verifies using x/shield's Groth16 verifier → result stored as a `ZkReputationProof` (distinct from `ReputationAttestation`). This uses x/shield's existing circuit and verification infrastructure — no new circuit is needed. Trust tree roots can be shared via IBC light client state proofs.
 2. **Cross-Chain Initiatives**: Shared projects across Spark Dream chains with independent DREAM budgets per chain, coordinated via IBC messaging
 3. **ActivityPub Extensions**: Custom ActivityPub extensions for Spark Dream-specific features (reputation badges, conviction signals, trust level indicators)
 4. **AT Protocol Lexicons**: Custom lexicon schemas for Spark Dream content types

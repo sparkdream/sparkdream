@@ -129,7 +129,7 @@ type MsgShieldedExec struct {
 	// The inner message's signer field MUST be set to the shield module account address.
 	// REQUIRED for IMMEDIATE mode, EMPTY for ENCRYPTED_BATCH mode.
 	InnerMessage *any.Any `protobuf:"bytes,2,opt,name=inner_message,json=innerMessage,proto3" json:"inner_message,omitempty"`
-	// ZK proof bytes (PLONK over BN254).
+	// ZK proof bytes (Groth16 over BN254).
 	// REQUIRED for IMMEDIATE mode, EMPTY for ENCRYPTED_BATCH mode.
 	Proof []byte `protobuf:"bytes,3,opt,name=proof,proto3" json:"proof,omitempty"`
 	// 32-byte nullifier (prevents replay)

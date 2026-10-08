@@ -28,5 +28,6 @@ func getShieldGenesisParams() Params {
 		MinTleValidators:            3,  // Low threshold for testing (production: 5)
 		DkgWindowBlocks:             20, // Short window for testing (production: 200)
 		MaxValidatorSetDrift:        33,
+		MaxFeePerExec:               math.NewInt(50_000), // 0.05 SPARK per exec
 	}
 }

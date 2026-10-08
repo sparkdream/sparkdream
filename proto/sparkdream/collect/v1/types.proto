@@ -117,6 +117,18 @@ message Collection {
   // non-members (stake-bearing collaborators). Maintained alongside the total
   // count; bounded by Params.max_non_member_collaborators_per_collection.
   uint32 non_member_collaborator_count = 30;
+
+  // Anonymous owner claim, set only when the collection was created through
+  // x/shield (owner is the shield module account). The tag is the creation
+  // proof's nullifier over (anon_owner_domain, anon_owner_scope); only the
+  // creator's secret key reproduces it, so a NULLIFIER_MODE_OWNERSHIP shielded
+  // exec reproducing it proves the anonymous creator is managing the
+  // collection. anon_owner_sequence is bound into each ownership proof's
+  // message hash and advances after every one, so proofs can't be replayed.
+  uint32 anon_owner_domain = 31;
+  uint64 anon_owner_scope = 32;
+  bytes anon_owner_tag = 33;
+  uint64 anon_owner_sequence = 34;
 }
 
 // Item represents a single entry within a collection.

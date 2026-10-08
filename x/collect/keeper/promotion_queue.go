@@ -299,7 +299,7 @@ func (k Keeper) promoteOneOwnedEphemeral(
 	// EndorsementPending index.
 	if wasPending {
 		ownerAddr, ownerErr := k.addressCodec.StringToBytes(addr)
-		if ownerErr == nil && params.EndorsementCreationFee.IsPositive() {
+		if ownerErr == nil && k.chargesDeposits(coll) && params.EndorsementCreationFee.IsPositive() {
 			if refundErr := k.RefundSPARK(ctx, ownerAddr, params.EndorsementCreationFee); refundErr != nil {
 				sdkCtx.Logger().Error("failed to refund endorsement creation fee on auto-promotion",
 					"collection_id", collID, "owner", addr, "error", refundErr)

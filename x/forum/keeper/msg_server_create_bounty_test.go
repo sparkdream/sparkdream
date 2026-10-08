@@ -7,6 +7,7 @@ import (
 	"sparkdream/x/forum/types"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	"github.com/stretchr/testify/require"
 )
 
@@ -157,4 +158,17 @@ func TestCreateBountyEscrow(t *testing.T) {
 	// Verify funds were escrowed
 	require.NotEmpty(t, escrowedAmount)
 	require.Equal(t, "100000000", escrowedAmount.AmountOf("uspark").String())
+}
+
+// Bounties escrow real SPARK; from the shield address that would be the
+// communal gas reserve, shared by every anonymous member.
+func TestBounty_AnonymousRejected(t *testing.T) {
+	f := initFixture(t)
+	shield := authtypes.NewModuleAddress("shield").String()
+
+	_, err := f.msgServer.CreateBounty(f.ctx, &types.MsgCreateBounty{Creator: shield, ThreadId: 1, Amount: "100000000"})
+	require.ErrorIs(t, err, types.ErrAnonymousBounty)
+
+	_, err = f.msgServer.IncreaseBounty(f.ctx, &types.MsgIncreaseBounty{Creator: shield, BountyId: 1, AdditionalAmount: "1000000"})
+	require.ErrorIs(t, err, types.ErrAnonymousBounty)
 }

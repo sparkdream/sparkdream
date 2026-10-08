@@ -1,6 +1,7 @@
 package keeper
 
 import (
+	"bytes"
 	"context"
 	"encoding/hex"
 	"fmt"
@@ -55,70 +56,212 @@ func (k msgServer) ShieldedExec(ctx context.Context, msg *types.MsgShieldedExec)
 	}
 }
 
-// handleImmediate verifies the ZK proof and executes the inner message immediately.
-func (k msgServer) handleImmediate(ctx sdk.Context, params types.Params, msg *types.MsgShieldedExec) (*types.MsgShieldedExecResponse, error) {
+// immediateExec is an immediate-mode exec that passed validateImmediate.
+type immediateExec struct {
+	reg types.ShieldedOpRegistration
+	// scope is the resolved raw nullifier scope (consume mode).
+	scope uint64
+	// owner is set for an ownership-mode exec.
+	owner *ownedExec
+}
+
+// ownedExec is the ownership part of a validated ownership-mode exec.
+type ownedExec struct {
+	resolver types.ShieldOwnershipResolver
+	innerMsg sdk.Msg
+	tag      []byte
+}
+
+// validateImmediate runs every check of an immediate-mode exec that does not
+// write state: registration, batch mode, proof domain, trust level, nullifier
+// freshness (or, in ownership mode, that the nullifier is the target's owner
+// tag), the identity rate limit and, last, the ZK proof. The ante handler runs it
+// before the shield module pays the fee, so an invalid exec costs nothing.
+// The proof is skipped when the ante handler already verified this message in
+// the same tx (see types.WithProofVerified).
+func (k Keeper) validateImmediate(ctx context.Context, params types.Params, msg *types.MsgShieldedExec) (immediateExec, error) {
 	// 1. Look up registered operation
 	if msg.InnerMessage == nil {
-		return nil, types.ErrInvalidInnerMessage
+		return immediateExec{}, types.ErrInvalidInnerMessage
 	}
-	typeURL := msg.InnerMessage.TypeUrl
-	reg, found := k.GetShieldedOp(ctx, typeURL)
+	reg, found := k.GetShieldedOp(ctx, msg.InnerMessage.TypeUrl)
 	if !found {
-		return nil, types.ErrUnregisteredOperation
+		return immediateExec{}, types.ErrUnregisteredOperation
 	}
 	if !reg.Active {
-		return nil, types.ErrOperationInactive
+		return immediateExec{}, types.ErrOperationInactive
 	}
 
 	// 2. Validate batch mode allows immediate
 	if reg.BatchMode == types.ShieldBatchMode_SHIELD_BATCH_MODE_ENCRYPTED_ONLY {
-		return nil, types.ErrImmediateNotAllowed
+		return immediateExec{}, types.ErrImmediateNotAllowed
 	}
 
 	// 3. Validate proof domain matches registration
 	if msg.ProofDomain != reg.ProofDomain {
-		return nil, types.ErrProofDomainMismatch
+		return immediateExec{}, types.ErrProofDomainMismatch
 	}
 
 	// 4. Validate minimum trust level meets requirement
 	if msg.MinTrustLevel < reg.MinTrustLevel {
-		return nil, types.ErrInsufficientTrustLevel
+		return immediateExec{}, types.ErrInsufficientTrustLevel
 	}
 
-	// 5. Resolve nullifier scope and verify ZK proof
-	scope := k.resolveNullifierScope(ctx, reg, msg)
-	if err := k.verifyProof(ctx, msg, scope); err != nil {
+	// 5. Resolve what the proof is bound to, verify it, and check the nullifier
+	v := immediateExec{reg: reg}
+	var binding proofBinding
+	if reg.NullifierMode == types.NullifierMode_NULLIFIER_MODE_OWNERSHIP {
+		owner, claim, err := k.resolveOwnership(ctx, msg)
+		if err != nil {
+			return immediateExec{}, err
+		}
+		// The proof must reproduce the owner tag: only the creator's secret
+		// key yields it over the owner's scope.
+		if !bytes.Equal(msg.Nullifier, claim.Tag) {
+			return immediateExec{}, types.ErrOwnershipMismatch
+		}
+		v.owner = owner
+		binding = ownedBinding(claim, msg)
+	} else {
+		scope, err := k.resolveNullifierScope(ctx, reg, msg)
+		if err != nil {
+			return immediateExec{}, err
+		}
+		if k.IsNullifierUsed(ctx, reg.NullifierDomain, scope, hex.EncodeToString(msg.Nullifier)) {
+			return immediateExec{}, types.ErrNullifierUsed
+		}
+		v.scope = scope
+		binding = consumeBinding(reg.NullifierDomain, scope, msg)
+	}
+
+	// 6. Identity under its rate limit. Checked before the proof, like every
+	// other state check, so CheckTx rejects an over-limit exec without a
+	// pairing check (the pairing is the expensive step; see the ante
+	// handler's proof guard). Either failure rejects the exec, so DeliverTx
+	// outcomes are unchanged.
+	if k.GetIdentityRateLimitCount(ctx, hex.EncodeToString(msg.RateLimitNullifier)) >= params.MaxExecsPerIdentityPerEpoch {
+		return immediateExec{}, types.ErrRateLimitExceeded
+	}
+
+	// Last, the ZK proof: verifyProof checks the merkle root before the
+	// pairing check.
+	if !types.ProofVerified(ctx, msg) {
+		if err := k.verifyProof(ctx, msg, binding); err != nil {
+			return immediateExec{}, err
+		}
+	}
+
+	return v, nil
+}
+
+// resolveOwnership decodes the inner message and asks its module for the
+// ownership claim it acts under.
+func (k Keeper) resolveOwnership(ctx context.Context, msg *types.MsgShieldedExec) (*ownedExec, types.OwnershipClaim, error) {
+	if msg.InnerMessage.TypeUrl == "" {
+		return nil, types.OwnershipClaim{}, types.ErrInvalidInnerMessage
+	}
+	var innerMsg sdk.Msg
+	if err := k.cdc.UnpackAny(&codectypes.Any{TypeUrl: msg.InnerMessage.TypeUrl, Value: msg.InnerMessage.Value}, &innerMsg); err != nil {
+		return nil, types.OwnershipClaim{}, errorsmod.Wrap(types.ErrInvalidInnerMessage, err.Error())
+	}
+	sa, found := k.getShieldAware(msg.InnerMessage.TypeUrl)
+	if !found {
+		return nil, types.OwnershipClaim{}, types.ErrIncompatibleOperation
+	}
+	resolver, ok := sa.(types.ShieldOwnershipResolver)
+	if !ok {
+		return nil, types.OwnershipClaim{}, types.ErrNotOwnable
+	}
+	claim, err := resolver.ResolveOwnership(ctx, innerMsg)
+	if err != nil {
+		return nil, types.OwnershipClaim{}, errorsmod.Wrap(types.ErrNotOwnable, err.Error())
+	}
+	if len(claim.Tag) == 0 {
+		return nil, types.OwnershipClaim{}, types.ErrNotOwnable
+	}
+	return &ownedExec{resolver: resolver, innerMsg: innerMsg, tag: claim.Tag}, claim, nil
+}
+
+// PrecheckImmediate validates an immediate-mode exec. Used by the ante handler
+// before the shield module pays gas.
+//
+// In CheckTx it also marks the exec as spent in the check state, which is
+// discarded at every commit: a consumed nullifier is recorded, and an
+// ownership claim's sequence advances. Anyone can sign as the public
+// submitter, so anyone can rewrap a pending exec in new outer txs; without the
+// mark every copy would enter the mempool and take block space until the first
+// one landed.
+func (k Keeper) PrecheckImmediate(ctx sdk.Context, msg *types.MsgShieldedExec) error {
+	params, err := k.Params.Get(ctx)
+	if err != nil {
+		return err
+	}
+	v, err := k.validateImmediate(ctx, params, msg)
+	if err != nil {
+		return err
+	}
+	// Simulate also runs on the check state, but its msg server would then
+	// find the exec already spent, so it must not mark it.
+	if !ctx.IsCheckTx() || ctx.ExecMode() == sdk.ExecModeSimulate {
+		return nil
+	}
+	if v.owner != nil {
+		return v.owner.resolver.AdvanceOwnership(ctx, v.owner.innerMsg)
+	}
+	return k.RecordNullifier(ctx, v.reg.NullifierDomain, v.scope, hex.EncodeToString(msg.Nullifier), ctx.BlockHeight())
+}
+
+// handleImmediate verifies the ZK proof and executes the inner message immediately.
+func (k msgServer) handleImmediate(ctx sdk.Context, params types.Params, msg *types.MsgShieldedExec) (*types.MsgShieldedExecResponse, error) {
+	v, err := k.validateImmediate(ctx, params, msg)
+	if err != nil {
 		return nil, err
 	}
-
-	// 6. Check and record nullifier
+	typeURL := msg.InnerMessage.TypeUrl
 	nullifierHex := hex.EncodeToString(msg.Nullifier)
-	if k.IsNullifierUsed(ctx, reg.NullifierDomain, scope, nullifierHex) {
-		return nil, types.ErrNullifierUsed
-	}
-	if err := k.RecordNullifier(ctx, reg.NullifierDomain, scope, nullifierHex, ctx.BlockHeight()); err != nil {
-		return nil, err
+	execCtx := types.WithProvenTrustLevel(ctx, msg.MinTrustLevel)
+
+	if v.owner != nil {
+		// 7. Ownership: the nullifier is the owner tag and is reused, so it is
+		// not recorded; advancing the owner's sequence retires this proof.
+		if err := v.owner.resolver.AdvanceOwnership(ctx, v.owner.innerMsg); err != nil {
+			return nil, err
+		}
+		execCtx = types.WithOwnershipTag(execCtx, v.owner.tag)
+	} else {
+		// 7. Record nullifier
+		if err := k.RecordNullifier(ctx, v.reg.NullifierDomain, v.scope, nullifierHex, ctx.BlockHeight()); err != nil {
+			return nil, err
+		}
+		// A module that lets the anonymous creator manage content later keeps
+		// this nullifier as the content's owner tag.
+		execCtx = types.WithExecNullifier(execCtx, types.ExecNullifier{
+			Domain:    v.reg.NullifierDomain,
+			Scope:     v.scope,
+			Nullifier: msg.Nullifier,
+		})
 	}
 
-	// 7. Check per-identity rate limit
+	// 8. Count against the per-identity rate limit
 	rateLimitHex := hex.EncodeToString(msg.RateLimitNullifier)
 	if !k.CheckAndIncrementRateLimit(ctx, rateLimitHex, params.MaxExecsPerIdentityPerEpoch) {
 		return nil, types.ErrRateLimitExceeded
 	}
 
-	// 8. Decode, validate signer, and execute inner message
-	resp, err := k.executeInnerMessage(ctx, params, msg.InnerMessage)
+	// 9. Decode, validate signer, and execute inner message
+	resp, err := k.executeInnerMessage(execCtx, params, msg.InnerMessage)
 	if err != nil {
 		return nil, err
 	}
 
-	// 9. Emit event
+	// 10. Emit event
 	ctx.EventManager().EmitEvent(sdk.NewEvent(
 		types.EventTypeShieldedExec,
 		sdk.NewAttribute(types.AttributeKeyMessageType, typeURL),
-		sdk.NewAttribute(types.AttributeKeyNullifierDomain, fmt.Sprintf("%d", reg.NullifierDomain)),
+		sdk.NewAttribute(types.AttributeKeyNullifierDomain, fmt.Sprintf("%d", v.reg.NullifierDomain)),
 		sdk.NewAttribute(types.AttributeKeyNullifierHex, nullifierHex),
 		sdk.NewAttribute(types.AttributeKeyExecMode, "immediate"),
+		sdk.NewAttribute(types.AttributeKeyNullifierMode, v.reg.NullifierMode.String()),
 	))
 
 	return &types.MsgShieldedExecResponse{InnerResponse: resp}, nil
@@ -218,23 +361,61 @@ func (k msgServer) handleEncryptedBatch(ctx sdk.Context, params types.Params, ms
 }
 
 // resolveNullifierScope determines the scope for nullifier uniqueness.
-func (k Keeper) resolveNullifierScope(ctx context.Context, reg types.ShieldedOpRegistration, msg *types.MsgShieldedExec) uint64 {
+// A MESSAGE_FIELD scope whose field can't be read is rejected rather than
+// falling back to the epoch: the fallback would let one identity act once per
+// epoch on something meant to be once per target.
+func (k Keeper) resolveNullifierScope(ctx context.Context, reg types.ShieldedOpRegistration, msg *types.MsgShieldedExec) (uint64, error) {
 	switch reg.NullifierScopeType {
 	case types.NullifierScopeType_NULLIFIER_SCOPE_EPOCH:
-		return k.GetCurrentEpoch(ctx)
+		return reg.EpochScope(k.GetCurrentEpoch(ctx)), nil
 	case types.NullifierScopeType_NULLIFIER_SCOPE_MESSAGE_FIELD:
 		if msg.InnerMessage != nil && reg.ScopeFieldPath != "" {
-			if val, ok := extractUint64Field(k.cdc, msg.InnerMessage, reg.ScopeFieldPath); ok {
-				return val
+			if val, ok := k.extractScope(msg.InnerMessage, reg.ScopeFieldPath); ok {
+				return val, nil
 			}
 		}
-		// Fallback to epoch scope if field extraction fails
-		return k.GetCurrentEpoch(ctx)
+		return 0, errorsmod.Wrapf(types.ErrInvalidInnerMessage, "cannot read nullifier scope field %q", reg.ScopeFieldPath)
 	case types.NullifierScopeType_NULLIFIER_SCOPE_GLOBAL:
-		return 0
+		return 0, nil
 	default:
-		return k.GetCurrentEpoch(ctx)
+		return k.GetCurrentEpoch(ctx), nil
 	}
+}
+
+// extractScope reads a MESSAGE_FIELD scope: one field, two joined by
+// types.ScopeFieldSeparator and packed with types.PackNullifierScope, or two
+// joined by types.ScopeFieldFallback (the first when non-zero, else the second).
+func (k Keeper) extractScope(msgAny *any.Any, fieldPath string) (uint64, bool) {
+	if firstPath, secondPath, ok := strings.Cut(fieldPath, types.ScopeFieldFallback); ok {
+		first, ok := extractUint64Field(k.cdc, msgAny, firstPath)
+		if !ok {
+			return 0, false
+		}
+		if first != 0 {
+			scope, err := types.PackNullifierScope(1, first)
+			return scope, err == nil
+		}
+		second, ok := extractUint64Field(k.cdc, msgAny, secondPath)
+		if !ok {
+			return 0, false
+		}
+		scope, err := types.PackNullifierScope(0, second)
+		return scope, err == nil
+	}
+	qualifierPath, idPath, two := strings.Cut(fieldPath, types.ScopeFieldSeparator)
+	if !two {
+		return extractUint64Field(k.cdc, msgAny, fieldPath)
+	}
+	qualifier, ok := extractUint64Field(k.cdc, msgAny, qualifierPath)
+	if !ok {
+		return 0, false
+	}
+	id, ok := extractUint64Field(k.cdc, msgAny, idPath)
+	if !ok {
+		return 0, false
+	}
+	scope, err := types.PackNullifierScope(qualifier, id)
+	return scope, err == nil
 }
 
 // extractUint64Field extracts a uint64 field from a proto Any message by field name.
@@ -362,6 +543,12 @@ func (k Keeper) executeInnerMessage(ctx sdk.Context, params types.Params, innerM
 	result, err := handler(childCtx, innerMsg)
 	if err != nil {
 		return nil, err
+	}
+	// The router runs the handler on a fresh event manager; re-emit its
+	// events (e.g. collection_created, coin_spent) on the exec's. They name
+	// the shield address as actor, never the member.
+	if result != nil {
+		ctx.EventManager().EmitEvents(result.GetEvents())
 	}
 
 	// Return the first response message as Any, if present

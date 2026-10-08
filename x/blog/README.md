@@ -29,7 +29,14 @@ Posts and replies are **tombstoned** rather than fully removed — content is cl
 
 ### Anonymous Posting
 
-Members with sufficient trust level can post anonymously via `x/shield`'s `MsgShieldedExec`, which wraps blog messages with ZK proofs demonstrating membership and minimum trust level without revealing identity. Nullifiers (scoped per epoch for posts, per post for replies) prevent double-posting while preserving privacy. The shield module pays gas fees so submitters need zero balance.
+Members with sufficient trust level can post anonymously via `x/shield`'s `MsgShieldedExec`, which wraps blog messages with ZK proofs demonstrating membership and minimum trust level without revealing identity. Nullifiers (one post per member per 12-epoch window, ~1 hour; one reply per post) prevent double-posting while preserving privacy. The shield module pays gas fees so submitters need zero balance.
+
+Anonymous content carries the **shield module address** as creator, shared by every anonymous member, so x/blog treats it specially:
+- Posts and replies always stay ephemeral (even though the shield address passes the membership gate) and rely on conviction renewal; they are skipped by the `EphemeralByAuthor` index and promotion queue
+- Trust gates compare the level the ZK proof established (`shieldtypes.ProvenTrustLevel`); no proven level means refused, and the thread-author exemption never applies
+- Per-address daily rate limits exempt the shield address (x/shield's per-identity rate limit applies instead)
+- No per-action SPARK charge applies (storage fee, edit delta fee, reaction fee): the shield account's balance is the communal gas reserve, not the member's. x/shield's per-identity exec limit and per-op rate-limit windows bound anonymous volume instead
+- Reactions are count-only: no per-creator record, so each one increments the counts and cannot be changed or removed
 
 ### Conviction-Sustained Content
 
@@ -119,7 +126,7 @@ Each user can have at most one reaction per target. Reacting again changes the r
 
 | Message | Description | Access |
 |---------|-------------|--------|
-| `MsgReact` | Add or change reaction on a post or reply | Subject to post `min_reply_trust_level` |
+| `MsgReact` | Add or change reaction on a post or reply (anonymous reactions only add to the counts) | Subject to post `min_reply_trust_level` |
 | `MsgRemoveReaction` | Remove your reaction | Reaction creator only |
 
 ### Anonymous Operations (via x/shield)

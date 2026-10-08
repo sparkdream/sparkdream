@@ -14,6 +14,13 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 		return err
 	}
 
+	// The shared anonymous submitter must exist before its first exec:
+	// clients sign with its account number, which a just-created account
+	// wouldn't have yet.
+	if submitter := types.PublicSubmitterAddress(); k.accountKeeper.GetAccount(ctx, submitter) == nil {
+		k.accountKeeper.SetAccount(ctx, k.accountKeeper.NewAccountWithAddress(ctx, submitter))
+	}
+
 	// Registered operations
 	for _, reg := range genState.RegisteredOps {
 		if err := k.SetShieldedOp(ctx, reg); err != nil {

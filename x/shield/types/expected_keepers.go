@@ -12,6 +12,8 @@ type AccountKeeper interface {
 	GetModuleAddress(moduleName string) sdk.AccAddress
 	GetModuleAccount(ctx context.Context, moduleName string) sdk.ModuleAccountI
 	GetAccount(ctx context.Context, addr sdk.AccAddress) sdk.AccountI // used by simulation
+	NewAccountWithAddress(ctx context.Context, addr sdk.AccAddress) sdk.AccountI
+	SetAccount(ctx context.Context, acc sdk.AccountI)
 }
 
 // BankKeeper defines the expected interface for the Bank module.

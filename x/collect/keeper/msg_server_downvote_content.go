@@ -30,8 +30,11 @@ func (k msgServer) DownvoteContent(ctx context.Context, msg *types.MsgDownvoteCo
 		return nil, err
 	}
 
-	// Creator must not be collection owner or collaborator
-	if coll.Owner == msg.Creator {
+	anonymous := k.isAnonymous(msg.Creator)
+
+	// Creator must not be collection owner or collaborator (an anonymous
+	// owner can't be identified)
+	if coll.Owner == msg.Creator && !anonymous {
 		return nil, types.ErrCannotVoteOwnContent
 	}
 	isCollab, _, err := k.IsCollaborator(ctx, coll.Id, msg.Creator)
@@ -45,7 +48,7 @@ func (k msgServer) DownvoteContent(ctx context.Context, msg *types.MsgDownvoteCo
 	// Check ReactionDedup - creator must not have already voted on this target
 	dedupKey := ReactionDedupCompositeKey(msg.Creator, msg.TargetType, msg.TargetId)
 	_, err = k.ReactionDedup.Get(ctx, dedupKey)
-	if err == nil {
+	if err == nil && !anonymous {
 		return nil, types.ErrAlreadyVoted
 	}
 
@@ -56,13 +59,19 @@ func (k msgServer) DownvoteContent(ctx context.Context, msg *types.MsgDownvoteCo
 	}
 
 	// Check daily limit BEFORE burning tokens to avoid irreversible burn on rate-limited txs
-	if err := k.checkDailyLimit(ctx, msg.Creator, blockHeight, "downvote", params.MaxDownvotesPerDay); err != nil {
-		return nil, err
+	if !anonymous {
+		if err := k.checkDailyLimit(ctx, msg.Creator, blockHeight, "downvote", params.MaxDownvotesPerDay); err != nil {
+			return nil, err
+		}
 	}
 
-	// Burn downvote_cost SPARK from creator
-	if err := k.BurnSPARKFromAccount(ctx, creatorAddr, params.DownvoteCost); err != nil {
-		return nil, errorsmod.Wrap(types.ErrInsufficientFunds, err.Error())
+	// Burn downvote_cost SPARK from creator. An anonymous downvoter would be
+	// spending the shield module's gas reserve, not their own SPARK, so the
+	// cost doesn't apply to them.
+	if !anonymous {
+		if err := k.BurnSPARKFromAccount(ctx, creatorAddr, params.DownvoteCost); err != nil {
+			return nil, errorsmod.Wrap(types.ErrInsufficientFunds, err.Error())
+		}
 	}
 
 	// Increment downvote_count on target
@@ -84,8 +93,11 @@ func (k msgServer) DownvoteContent(ctx context.Context, msg *types.MsgDownvoteCo
 	}
 
 	// Store ReactionDedup key with value 2 (downvote)
-	if err := k.ReactionDedup.Set(ctx, dedupKey, 2); err != nil {
-		return nil, errorsmod.Wrap(err, "failed to set reaction dedup")
+	// Anonymous votes are deduplicated per member by x/shield's nullifier.
+	if !anonymous {
+		if err := k.ReactionDedup.Set(ctx, dedupKey, 2); err != nil {
+			return nil, errorsmod.Wrap(err, "failed to set reaction dedup")
+		}
 	}
 
 	// Emit event

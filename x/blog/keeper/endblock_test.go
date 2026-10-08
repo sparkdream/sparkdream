@@ -5,11 +5,14 @@ import (
 	"testing"
 	"time"
 
+	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	"github.com/stretchr/testify/require"
 
 	"sparkdream/x/blog/keeper"
 	"sparkdream/x/blog/types"
+	reptypes "sparkdream/x/rep/types"
 )
 
 // Regression: when EndBlock tombstones an ephemeral post that carried tags,
@@ -282,4 +285,57 @@ func TestEndBlockNoOpWhenNoExpiredContent(t *testing.T) {
 	require.Equal(t, "Future Expiry", post.Title)
 	require.Equal(t, "This post has not expired yet", post.Body)
 	require.Equal(t, expiresAt, post.ExpiresAt)
+}
+
+// Regression: anonymous (shield-routed) posts must be ephemeral, renew while
+// conviction holds, and tombstone once it drops. They used to be created
+// permanent because the shield account passes the membership gate, and the
+// renewal branch compared against the blog module account instead.
+func TestEndBlockAnonymousPostConvictionLifecycle(t *testing.T) {
+	f := initFixture(t)
+	msgServer := keeper.NewMsgServerImpl(f.keeper)
+	shieldAddr := authtypes.NewModuleAddress("shield").String()
+
+	params, err := f.keeper.Params.Get(f.ctx)
+	require.NoError(t, err)
+	params.MaxPostsPerDay = 100
+	params.CostPerByteExempt = true
+	params.ConvictionRenewalThreshold = math.LegacyNewDec(10)
+	require.NoError(t, f.keeper.Params.Set(f.ctx, params))
+
+	baseTime := int64(3_000_000)
+	f.ctx = sdk.UnwrapSDKContext(f.ctx).WithBlockTime(time.Unix(baseTime, 0))
+
+	resp, err := msgServer.CreatePost(f.ctx, &types.MsgCreatePost{
+		Creator: shieldAddr,
+		Title:   "Anonymous",
+		Body:    "posted through x/shield",
+	})
+	require.NoError(t, err)
+
+	post, found := f.keeper.GetPost(f.ctx, resp.Id)
+	require.True(t, found)
+	require.Equal(t, baseTime+params.EphemeralContentTtl, post.ExpiresAt, "anonymous posts must be ephemeral")
+
+	// Conviction above the threshold at expiry: sustained and renewed.
+	conviction := math.LegacyNewDec(10)
+	f.repKeeper.GetContentConvictionFn = func(context.Context, reptypes.StakeTargetType, uint64) (math.LegacyDec, error) {
+		return conviction, nil
+	}
+	expiry := post.ExpiresAt
+	f.ctx = sdk.UnwrapSDKContext(f.ctx).WithBlockTime(time.Unix(expiry+1, 0))
+	require.NoError(t, f.keeper.EndBlock(f.ctx))
+
+	post, _ = f.keeper.GetPost(f.ctx, resp.Id)
+	require.NotEqual(t, types.PostStatus_POST_STATUS_DELETED, post.Status)
+	require.True(t, post.ConvictionSustained)
+	require.Equal(t, expiry+1+params.ConvictionRenewalPeriod, post.ExpiresAt)
+
+	// Conviction gone at the next expiry: tombstoned.
+	conviction = math.LegacyZeroDec()
+	f.ctx = sdk.UnwrapSDKContext(f.ctx).WithBlockTime(time.Unix(post.ExpiresAt+1, 0))
+	require.NoError(t, f.keeper.EndBlock(f.ctx))
+
+	post, _ = f.keeper.GetPost(f.ctx, resp.Id)
+	require.Equal(t, types.PostStatus_POST_STATUS_DELETED, post.Status)
 }

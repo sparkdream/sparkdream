@@ -26,6 +26,8 @@ import (
 
 type mockAccountKeeper struct {
 	GetModuleAddressFn func(moduleName string) sdk.AccAddress
+	// accounts, when non-nil, backs GetAccount/SetAccount.
+	accounts map[string]sdk.AccountI
 }
 
 func (m mockAccountKeeper) GetModuleAddress(moduleName string) sdk.AccAddress {
@@ -40,7 +42,17 @@ func (m mockAccountKeeper) GetModuleAccount(ctx context.Context, moduleName stri
 }
 
 func (m mockAccountKeeper) GetAccount(ctx context.Context, addr sdk.AccAddress) sdk.AccountI {
-	return nil
+	return m.accounts[addr.String()]
+}
+
+func (m mockAccountKeeper) NewAccountWithAddress(_ context.Context, addr sdk.AccAddress) sdk.AccountI {
+	return authtypes.NewBaseAccountWithAddress(addr)
+}
+
+func (m mockAccountKeeper) SetAccount(_ context.Context, acc sdk.AccountI) {
+	if m.accounts != nil {
+		m.accounts[acc.GetAddress().String()] = acc
+	}
 }
 
 type mockBankKeeper struct{}
@@ -204,10 +216,10 @@ func TestPendingNullifiers(t *testing.T) {
 func TestPruneEpochScopedNullifiers(t *testing.T) {
 	f := initFixture(t)
 
-	// Record nullifiers for epoch-scoped domain 1 (blog posts) and global domain 41 (rep challenges)
-	// Domain 1 is EPOCH scoped, domain 41 is GLOBAL scoped
-	require.NoError(t, f.keeper.RecordNullifier(f.ctx, 1, 5, "old_epoch", 10))
-	require.NoError(t, f.keeper.RecordNullifier(f.ctx, 1, 10, "current_epoch", 20))
+	// Record nullifiers for epoch-scoped domain 31 (anonymous proposals) and global domain 41 (rep challenges)
+	// Domain 31 is EPOCH scoped (window 1), domain 41 is GLOBAL scoped
+	require.NoError(t, f.keeper.RecordNullifier(f.ctx, 31, 5, "old_epoch", 10))
+	require.NoError(t, f.keeper.RecordNullifier(f.ctx, 31, 10, "current_epoch", 20))
 	require.NoError(t, f.keeper.RecordNullifier(f.ctx, 41, 0, "global_null", 15))
 
 	// Prune epoch-scoped nullifiers older than epoch 10
@@ -215,9 +227,9 @@ func TestPruneEpochScopedNullifiers(t *testing.T) {
 	require.NoError(t, err)
 
 	// Old epoch-scoped nullifier should be pruned
-	require.False(t, f.keeper.IsNullifierUsed(f.ctx, 1, 5, "old_epoch"))
+	require.False(t, f.keeper.IsNullifierUsed(f.ctx, 31, 5, "old_epoch"))
 	// Current epoch-scoped nullifier should remain
-	require.True(t, f.keeper.IsNullifierUsed(f.ctx, 1, 10, "current_epoch"))
+	require.True(t, f.keeper.IsNullifierUsed(f.ctx, 31, 10, "current_epoch"))
 	// Global-scoped nullifier should remain (not pruned)
 	require.True(t, f.keeper.IsNullifierUsed(f.ctx, 41, 0, "global_null"))
 }
@@ -345,8 +357,8 @@ func TestShieldedOpRegistration(t *testing.T) {
 			return false
 		})
 		require.NoError(t, err)
-		// Default genesis registers 13 ops (blog:3, forum:3, collect:3, rep:1, commons:2, federation:1)
-		require.Equal(t, 13, count)
+		// Default genesis registers 21 ops (blog:3, forum:3, collect:3+8 ownership, rep:1, commons:2, federation:1)
+		require.Equal(t, 21, count)
 	})
 }
 
@@ -421,6 +433,13 @@ func TestGenesisImportExport(t *testing.T) {
 // initFixtureEmpty creates a keeper without initializing genesis
 func initFixtureEmpty(t *testing.T) *fixture {
 	t.Helper()
+	return initFixtureEmptyWithAccounts(t, mockAccountKeeper{})
+}
+
+// initFixtureEmptyWithAccounts is initFixtureEmpty with a caller-supplied
+// account keeper, for tests that inspect accounts genesis creates.
+func initFixtureEmptyWithAccounts(t *testing.T, ak mockAccountKeeper) *fixture {
+	t.Helper()
 
 	encCfg := moduletestutil.MakeTestEncodingConfig(module.AppModule{})
 	key := storetypes.NewKVStoreKey(types.StoreKey)
@@ -436,7 +455,7 @@ func initFixtureEmpty(t *testing.T) *fixture {
 		encCfg.Codec,
 		addrCodec,
 		authority,
-		mockAccountKeeper{},
+		ak,
 		mockBankKeeper{},
 	)
 	k.SetIdentityKeeper(&mockIdentityKeeperShield{})
@@ -702,14 +721,18 @@ func TestDefaultGenesisOps(t *testing.T) {
 
 	require.Equal(t, 3, opsByModule["blog"], "blog should have 3 ops")
 	require.Equal(t, 3, opsByModule["forum"], "forum should have 3 ops")
-	require.Equal(t, 3, opsByModule["collect"], "collect should have 3 ops")
+	require.Equal(t, 11, opsByModule["collect"], "collect should have 3 ops plus 8 ownership-mode management ops")
 	require.Equal(t, 1, opsByModule["rep"], "rep should have 1 op")
 	require.Equal(t, 2, opsByModule["commons"], "commons should have 2 ops")
 
 	// Verify domain uniqueness
 	domains := make(map[uint32]string)
 	for _, op := range genesis.RegisteredOps {
-		if existing, ok := domains[op.NullifierDomain]; ok {
+		// Ownership-mode ops record no nullifiers; the domain only labels them.
+		if op.NullifierMode == types.NullifierMode_NULLIFIER_MODE_OWNERSHIP {
+			continue
+		}
+		if existing, ok := domains[op.NullifierDomain]; ok && !sharedVoteDomains[[2]string{existing, op.MessageTypeUrl}] {
 			t.Errorf("duplicate nullifier domain %d: %s and %s", op.NullifierDomain, existing, op.MessageTypeUrl)
 		}
 		domains[op.NullifierDomain] = op.MessageTypeUrl
@@ -734,4 +757,11 @@ func splitTypeURL(typeURL string) []string {
 		parts = append(parts, typeURL[start:])
 	}
 	return parts
+}
+
+// sharedVoteDomains are op pairs that deliberately share a nullifier domain
+// (one anonymous vote per member per target, either way).
+var sharedVoteDomains = map[[2]string]bool{
+	{"/sparkdream.forum.v1.MsgUpvotePost", "/sparkdream.forum.v1.MsgDownvotePost"}:           true,
+	{"/sparkdream.collect.v1.MsgUpvoteContent", "/sparkdream.collect.v1.MsgDownvoteContent"}: true,
 }

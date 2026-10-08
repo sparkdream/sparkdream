@@ -116,28 +116,29 @@ else
 fi
 
 # =========================================================================
-# PART 3: Check encrypted batch mode (determines epoch behavior)
+# PART 3: Check encrypted batch mode
 # =========================================================================
 echo "--- PART 3: Encrypted batch mode check ---"
 
 BATCH_ENABLED=$(echo "$PARAMS" | jq -r '.params.encrypted_batch_enabled // "false"')
 echo "  Encrypted batch enabled: $BATCH_ENABLED"
-
-if [ "$BATCH_ENABLED" != "true" ]; then
-    echo "  Epoch advancement is DISABLED when encrypted_batch_enabled=false"
-    echo "  EndBlocker skips epoch logic entirely — epochs stay at initial value"
-    echo "  This is expected on a test chain without DKG completion"
-fi
+# The epoch advances either way: immediate mode uses it for EPOCH-scoped
+# nullifiers and per-epoch rate limits, which a frozen epoch would turn into
+# lifetime limits. Only batch/TLE work is gated on encrypted_batch_enabled.
+echo "  Epochs advance regardless (EPOCH-scoped nullifiers and rate limits need them)"
 record_result "Encrypted batch mode check" "PASS"
 
 # =========================================================================
-# PART 4: Verify epoch stays stable (batch disabled) or advances (batch enabled)
+# PART 4: Verify the epoch advances at the interval boundary
 # =========================================================================
 echo "--- PART 4: Verify epoch behavior ---"
 
-# Wait a few blocks to give EndBlocker a chance to run
+# Wait until one block past the next boundary so EndBlocker has run there.
+WAIT_TARGET=$((INITIAL_EPOCH_START + EPOCH_INTERVAL + 1))
 CURRENT_HEIGHT=$(get_block_height)
-WAIT_TARGET=$((CURRENT_HEIGHT + 3))
+if [ "$WAIT_TARGET" -le "$CURRENT_HEIGHT" ] 2>/dev/null; then
+    WAIT_TARGET=$((CURRENT_HEIGHT + 1))
+fi
 echo "  Waiting for block $WAIT_TARGET (current: $CURRENT_HEIGHT)..."
 wait_for_block $WAIT_TARGET > /dev/null 2>&1
 
@@ -148,51 +149,28 @@ NEW_EPOCH_START=$(echo "$EPOCH_STATE_AFTER" | jq -r '.epoch_state.epoch_start_he
 echo "  Previous epoch: $INITIAL_EPOCH"
 echo "  Current epoch: $NEW_EPOCH"
 
-if [ "$BATCH_ENABLED" != "true" ]; then
-    # Epochs should NOT advance when batch is disabled
-    if [ "$NEW_EPOCH" == "$INITIAL_EPOCH" ]; then
-        echo "  Epoch correctly stayed at $INITIAL_EPOCH (batch disabled)"
-        record_result "Verify epoch behavior" "PASS"
-    else
-        echo "  Epoch unexpectedly changed from $INITIAL_EPOCH to $NEW_EPOCH"
-        record_result "Verify epoch behavior" "FAIL"
-    fi
+if [ "$NEW_EPOCH" -gt "$INITIAL_EPOCH" ] 2>/dev/null; then
+    echo "  Epoch advanced from $INITIAL_EPOCH to $NEW_EPOCH"
+    record_result "Verify epoch behavior" "PASS"
 else
-    # Epochs should advance when batch is enabled
-    if [ "$NEW_EPOCH" -gt "$INITIAL_EPOCH" ] 2>/dev/null; then
-        echo "  Epoch advanced from $INITIAL_EPOCH to $NEW_EPOCH"
-        record_result "Verify epoch behavior" "PASS"
-    else
-        echo "  Epoch did not advance (was $INITIAL_EPOCH, now $NEW_EPOCH)"
-        record_result "Verify epoch behavior" "FAIL"
-    fi
+    echo "  Epoch did not advance (was $INITIAL_EPOCH, now $NEW_EPOCH)"
+    record_result "Verify epoch behavior" "FAIL"
 fi
 
 # =========================================================================
-# PART 5: Verify epoch start height consistency
+# PART 5: Verify epoch start height moves with the epoch
 # =========================================================================
 echo "--- PART 5: Verify epoch start height ---"
 
 echo "  Initial epoch start: $INITIAL_EPOCH_START"
 echo "  Current epoch start: $NEW_EPOCH_START"
 
-if [ "$BATCH_ENABLED" != "true" ]; then
-    # When batch disabled, start height should stay the same
-    echo "  Epoch start height stable (batch disabled)"
+if [ "$NEW_EPOCH" -gt "$INITIAL_EPOCH" ] 2>/dev/null && [ "$NEW_EPOCH_START" -gt "$INITIAL_EPOCH_START" ] 2>/dev/null; then
+    echo "  Epoch start height updated: $INITIAL_EPOCH_START -> $NEW_EPOCH_START"
     record_result "Verify epoch start height" "PASS"
 else
-    if [ "$NEW_EPOCH" -gt "$INITIAL_EPOCH" ] 2>/dev/null; then
-        if [ "$NEW_EPOCH_START" -gt "$INITIAL_EPOCH_START" ] 2>/dev/null; then
-            echo "  Epoch start height updated: $INITIAL_EPOCH_START -> $NEW_EPOCH_START"
-            record_result "Verify epoch start height" "PASS"
-        else
-            echo "  Epoch start height not updated despite epoch change"
-            record_result "Verify epoch start height" "FAIL"
-        fi
-    else
-        echo "  No epoch change — start height unchanged"
-        record_result "Verify epoch start height" "PASS"
-    fi
+    echo "  Epoch start height not updated with the epoch"
+    record_result "Verify epoch start height" "FAIL"
 fi
 
 # =========================================================================
@@ -217,35 +195,22 @@ else
 fi
 
 # =========================================================================
-# PART 7: Verify epoch stability over time
+# PART 7: Verify the epoch never goes backwards
 # =========================================================================
 echo "--- PART 7: Verify epoch stability ---"
 
-# Query epoch again after more blocks
 EPOCH_STATE_SECOND=$($BINARY query shield shield-epoch --output json 2>&1)
 SECOND_EPOCH=$(echo "$EPOCH_STATE_SECOND" | jq -r '.epoch_state.current_epoch // "0"')
 SECOND_EPOCH_START=$(echo "$EPOCH_STATE_SECOND" | jq -r '.epoch_state.epoch_start_height // "0"')
 
 echo "  Epoch progression: $INITIAL_EPOCH -> $NEW_EPOCH -> $SECOND_EPOCH"
 
-if [ "$BATCH_ENABLED" != "true" ]; then
-    # Epochs should still be at initial value
-    if [ "$SECOND_EPOCH" == "$INITIAL_EPOCH" ]; then
-        echo "  Epoch correctly stable at $INITIAL_EPOCH (batch disabled)"
-        record_result "Epoch stability" "PASS"
-    else
-        echo "  Epoch unexpectedly changed"
-        record_result "Epoch stability" "FAIL"
-    fi
+if [ "$SECOND_EPOCH" -ge "$NEW_EPOCH" ] 2>/dev/null; then
+    echo "  Epoch monotonically increasing"
+    record_result "Epoch stability" "PASS"
 else
-    # With batch enabled, epoch should be >= previous
-    if [ "$SECOND_EPOCH" -ge "$NEW_EPOCH" ] 2>/dev/null; then
-        echo "  Epoch monotonically increasing"
-        record_result "Epoch stability" "PASS"
-    else
-        echo "  Epoch went backwards"
-        record_result "Epoch stability" "FAIL"
-    fi
+    echo "  Epoch went backwards"
+    record_result "Epoch stability" "FAIL"
 fi
 
 # =========================================================================

@@ -43,6 +43,7 @@ const (
 	AttributeKeyNullifierDomain    = "nullifier_domain"
 	AttributeKeyNullifierHex       = "nullifier_hex"
 	AttributeKeyExecMode           = "exec_mode"
+	AttributeKeyNullifierMode      = "nullifier_mode"
 	AttributeKeyPendingOpId        = "pending_op_id"
 	AttributeKeyTargetEpoch        = "target_epoch"
 	AttributeKeyEpoch              = "epoch"

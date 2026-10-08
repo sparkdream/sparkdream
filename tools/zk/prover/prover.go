@@ -54,11 +54,20 @@ type ShieldProofInput struct {
 	// MinTrustLevel is the minimum trust level required for this action
 	MinTrustLevel uint64
 
-	// Scope is the context binding for the action nullifier (epoch, postID, etc.)
+	// Domain is the operation's nullifier domain. It is hashed into the proof's
+	// scope (crypto.ScopeElement) so nullifiers from different operations
+	// never match.
+	Domain uint32
+
+	// Scope is the raw context binding for the action nullifier (epoch,
+	// postID, etc.) as the chain resolves it for this operation
 	Scope uint64
 
 	// RateLimitEpoch is the epoch for rate-limit nullifier binding
 	RateLimitEpoch uint64
+
+	// MessageHash binds the proof to its inner message (crypto.ShieldMessageHash)
+	MessageHash []byte
 
 	// MerkleRoot is the root of the member trust tree
 	MerkleRoot []byte
@@ -84,11 +93,15 @@ type ShieldProofOutput struct {
 	// MinTrustLevel is the minimum trust level proven
 	MinTrustLevel uint64
 
-	// Scope is the context binding used
-	Scope uint64
+	// Domain and Scope are the nullifier domain and raw scope used
+	Domain uint32
+	Scope  uint64
 
 	// RateLimitEpoch is the epoch the rate limit nullifier is bound to
 	RateLimitEpoch uint64
+
+	// MessageHash is the inner-message hash the proof is bound to
+	MessageHash []byte
 
 	// ProvingTime is how long proof generation took
 	ProvingTime time.Duration
@@ -137,8 +150,25 @@ func NewShieldProver(provingKeyPath string, r1csPath string) (*ShieldProver, err
 
 // NewShieldProverFromBytes creates a prover from in-memory key bytes.
 func NewShieldProverFromBytes(provingKeyBytes []byte, r1csBytes []byte) (*ShieldProver, error) {
+	return newShieldProverFromBytes(provingKeyBytes, r1csBytes, false)
+}
+
+// NewShieldProverFromTrustedBytes is NewShieldProverFromBytes without the
+// proving key's curve-point checks, which dominate load time (tens of seconds
+// in a browser). Only for a key whose integrity is checked another way, such
+// as a pinned hash. Pair it with an uncompressed key (WriteRawTo) to also skip
+// point decompression.
+func NewShieldProverFromTrustedBytes(provingKeyBytes []byte, r1csBytes []byte) (*ShieldProver, error) {
+	return newShieldProverFromBytes(provingKeyBytes, r1csBytes, true)
+}
+
+func newShieldProverFromBytes(provingKeyBytes []byte, r1csBytes []byte, trusted bool) (*ShieldProver, error) {
 	pk := groth16.NewProvingKey(ecc.BN254)
-	if _, err := pk.ReadFrom(bytes.NewReader(provingKeyBytes)); err != nil {
+	read := pk.ReadFrom
+	if trusted {
+		read = pk.UnsafeReadFrom
+	}
+	if _, err := read(bytes.NewReader(provingKeyBytes)); err != nil {
 		return nil, fmt.Errorf("failed to read proving key: %w", err)
 	}
 
@@ -189,7 +219,7 @@ func (p *ShieldProver) GenerateProof(input *ShieldProofInput) (*ShieldProofOutpu
 	}
 
 	// Compute nullifiers
-	nullifier := crypto.ComputeNullifier(input.SecretKey, input.Scope)
+	nullifier := crypto.ComputeScopedNullifier(input.SecretKey, input.Domain, input.Scope)
 	rateLimitNullifier := crypto.ComputeRateLimitNullifier(input.SecretKey, input.RateLimitEpoch)
 
 	// Build circuit assignment
@@ -198,8 +228,9 @@ func (p *ShieldProver) GenerateProof(input *ShieldProofInput) (*ShieldProofOutpu
 		Nullifier:          crypto.BytesToFieldElement(nullifier),
 		RateLimitNullifier: crypto.BytesToFieldElement(rateLimitNullifier),
 		MinTrustLevel:      input.MinTrustLevel,
-		Scope:              input.Scope,
+		Scope:              crypto.BytesToFieldElement(crypto.ScopeElement(input.Domain, input.Scope)),
 		RateLimitEpoch:     input.RateLimitEpoch,
+		MessageHash:        crypto.BytesToFieldElement(input.MessageHash),
 		SecretKey:          crypto.BytesToFieldElement(input.SecretKey),
 		TrustLevel:         input.TrustLevel,
 	}
@@ -241,8 +272,10 @@ func (p *ShieldProver) GenerateProof(input *ShieldProofInput) (*ShieldProofOutpu
 		RateLimitNullifier: rateLimitNullifier,
 		MerkleRoot:         input.MerkleRoot,
 		MinTrustLevel:      input.MinTrustLevel,
+		Domain:             input.Domain,
 		Scope:              input.Scope,
 		RateLimitEpoch:     input.RateLimitEpoch,
+		MessageHash:        input.MessageHash,
 		ProvingTime:        provingTime,
 	}, nil
 }
@@ -272,13 +305,23 @@ func validateShieldInput(input *ShieldProofInput) error {
 // Key Management Helpers
 // ============================================================
 
-// GenerateSecretKey generates a new random secret key.
+// GenerateSecretKey generates a new random secret key. It is a canonical
+// BN254 scalar (below the field modulus): MiMC rejects larger values and
+// HashToField discards that error, so a non-canonical key would derive a
+// public key the circuit can never prove against.
 func GenerateSecretKey() ([]byte, error) {
-	secretKey := make([]byte, 32)
-	if _, err := io.ReadFull(rand.Reader, secretKey); err != nil {
-		return nil, fmt.Errorf("failed to generate random bytes: %w", err)
+	for {
+		secretKey := make([]byte, 32)
+		if _, err := io.ReadFull(rand.Reader, secretKey); err != nil {
+			return nil, fmt.Errorf("failed to generate random bytes: %w", err)
+		}
+		// The modulus is just under 2^254: clearing the top two bits makes
+		// three in four draws canonical.
+		secretKey[0] &= 0x3f
+		if crypto.IsCanonicalFieldElement(secretKey) {
+			return secretKey, nil
+		}
 	}
-	return secretKey, nil
 }
 
 // DeriveSecretKeyFromSeed derives a secret key from a seed phrase.
@@ -298,7 +341,7 @@ func PreviewProof(input *ShieldProofInput) (*ShieldProofOutput, error) {
 		return nil, err
 	}
 
-	nullifier := crypto.ComputeNullifier(input.SecretKey, input.Scope)
+	nullifier := crypto.ComputeScopedNullifier(input.SecretKey, input.Domain, input.Scope)
 	rateLimitNullifier := crypto.ComputeRateLimitNullifier(input.SecretKey, input.RateLimitEpoch)
 
 	return &ShieldProofOutput{
@@ -307,8 +350,10 @@ func PreviewProof(input *ShieldProofInput) (*ShieldProofOutput, error) {
 		RateLimitNullifier: rateLimitNullifier,
 		MerkleRoot:         input.MerkleRoot,
 		MinTrustLevel:      input.MinTrustLevel,
+		Domain:             input.Domain,
 		Scope:              input.Scope,
 		RateLimitEpoch:     input.RateLimitEpoch,
+		MessageHash:        input.MessageHash,
 	}, nil
 }
 
@@ -359,8 +404,9 @@ func (v *ShieldVerifier) Verify(output *ShieldProofOutput) error {
 		Nullifier:          crypto.BytesToFieldElement(output.Nullifier),
 		RateLimitNullifier: crypto.BytesToFieldElement(output.RateLimitNullifier),
 		MinTrustLevel:      output.MinTrustLevel,
-		Scope:              output.Scope,
+		Scope:              crypto.BytesToFieldElement(crypto.ScopeElement(output.Domain, output.Scope)),
 		RateLimitEpoch:     output.RateLimitEpoch,
+		MessageHash:        crypto.BytesToFieldElement(output.MessageHash),
 	}
 
 	publicWitness, err := frontend.NewWitness(

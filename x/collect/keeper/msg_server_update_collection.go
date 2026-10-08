@@ -26,7 +26,7 @@ func (k msgServer) UpdateCollection(ctx context.Context, msg *types.MsgUpdateCol
 	}
 
 	// Must be owner
-	if coll.Owner != msg.Creator {
+	if !k.isCollectionOwner(ctx, coll, msg.Creator) {
 		return nil, types.ErrUnauthorized
 	}
 
@@ -86,6 +86,20 @@ func (k msgServer) UpdateCollection(ctx context.Context, msg *types.MsgUpdateCol
 	k.decrementTagUsages(ctx, removedTags)
 
 	member := k.ownsAsMember(ctx, msg.Creator)
+
+	// An anonymous owner can't change the lifetime: expires_at = 0 would make
+	// the collection permanent, and moving it out would keep it alive without
+	// the community (MsgMakeCollectionPermanent or conviction renewal). Nor can
+	// it turn off community feedback, which is how anonymous collections are
+	// held accountable.
+	if k.isAnonymous(msg.Creator) {
+		if msg.ExpiresAt != coll.ExpiresAt {
+			return nil, errorsmod.Wrapf(types.ErrAnonymousFixedField, "expires_at must stay %d", coll.ExpiresAt)
+		}
+		if msg.UpdateCommunityFeedback && !msg.CommunityFeedbackEnabled {
+			return nil, types.ErrAnonymousFixedField
+		}
+	}
 
 	// Handle TTL/permanent conversion
 	if msg.ExpiresAt == 0 && coll.ExpiresAt > 0 {

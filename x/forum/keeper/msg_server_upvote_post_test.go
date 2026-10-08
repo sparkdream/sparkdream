@@ -3,6 +3,7 @@ package keeper_test
 import (
 	"testing"
 
+	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	"github.com/stretchr/testify/require"
 
 	"sparkdream/x/forum/types"
@@ -106,4 +107,28 @@ func TestMsgServerUpvotePost(t *testing.T) {
 		// Reset params
 		f.keeper.Params.Set(f.ctx, types.DefaultParams())
 	})
+}
+
+// Anonymous votes all carry the shield module as voter. x/shield's nullifier
+// already limits each member to one vote per post, so the forum's per-voter
+// record must not stop a second member's anonymous vote, and an anonymous
+// author's post can be voted on anonymously.
+func TestMsgServerUpvotePost_AnonymousVotesAreIndependent(t *testing.T) {
+	f := initFixture(t)
+	shield := authtypes.NewModuleAddress("shield").String()
+
+	post := f.createTestPost(t, shield, 0, 0)
+	for i := 0; i < 3; i++ {
+		_, err := f.msgServer.UpvotePost(f.ctx, &types.MsgUpvotePost{Creator: shield, PostId: post.PostId})
+		require.NoError(t, err, "anonymous upvote %d", i+1)
+	}
+	got, err := f.keeper.Post.Get(f.ctx, post.PostId)
+	require.NoError(t, err)
+	require.Equal(t, uint64(3), got.UpvoteCount)
+
+	// Identified voters keep their one-vote rule.
+	_, err = f.msgServer.UpvotePost(f.ctx, &types.MsgUpvotePost{Creator: testCreator2, PostId: post.PostId})
+	require.NoError(t, err)
+	_, err = f.msgServer.UpvotePost(f.ctx, &types.MsgUpvotePost{Creator: testCreator2, PostId: post.PostId})
+	require.ErrorIs(t, err, types.ErrAlreadyVoted)
 }

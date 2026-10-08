@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	shieldtypes "sparkdream/x/shield/types"
 
 	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -39,6 +40,19 @@ func (k Keeper) SyncSentinelBondedRoleConfig(ctx context.Context, p types.Params
 // When the shield module routes a message via MsgShieldedExec, the ZK proof has
 // already verified membership and trust level, so this module bypasses its own checks.
 var shieldModuleAddress = authtypes.NewModuleAddress("shield")
+
+// isAnonymous reports whether addr is the shield module account, i.e. the
+// message is an anonymous action routed through x/shield. Every anonymous
+// member shares that address, so per-address bookkeeping (one vote per voter,
+// per-voter rate limits, "own post" checks) must not apply to it: x/shield's
+// nullifier already allows one action per member per target, and its
+// identity rate limit bounds each member. Nor do per-action SPARK charges
+// (storage fee, spam taxes, edit fee, downvote burn): the shield account's
+// balance is the communal gas reserve, not the member's money.
+func (k Keeper) isAnonymous(addr string) bool {
+	addrBytes, err := k.addressCodec.StringToBytes(addr)
+	return err == nil && sdk.AccAddress(addrBytes).Equals(shieldModuleAddress)
+}
 
 // Cross-module integration with x/rep
 // These methods delegate to the RepKeeper for DREAM token operations and member management
@@ -389,7 +403,8 @@ func (k Keeper) UpdateSalvationCounters(ctx context.Context, addr string, epochS
 }
 
 // GetTrustLevel returns the trust level for a member via x/rep.
-// The shield module address returns TRUSTED level since ZK proof verified trust.
+// The shield module address returns the level its ZK proof established
+// (shieldtypes.ProvenTrustLevel), or TRUST_LEVEL_NEW when there is none.
 func (k Keeper) GetTrustLevel(ctx context.Context, addr string) uint64 {
 	if k.repKeeper == nil {
 		return uint64(reptypes.TrustLevel_TRUST_LEVEL_TRUSTED) // Fallback when x/rep not wired
@@ -399,7 +414,13 @@ func (k Keeper) GetTrustLevel(ctx context.Context, addr string) uint64 {
 		return 0
 	}
 	if sdk.AccAddress(addrBytes).Equals(shieldModuleAddress) {
-		return uint64(reptypes.TrustLevel_TRUST_LEVEL_TRUSTED)
+		// Anonymous: the level the ZK proof established. No proven level means
+		// the message didn't come through a shield exec, so nothing about the
+		// actual signer is known: report the lowest level.
+		if proven, ok := shieldtypes.ProvenTrustLevel(ctx); ok {
+			return uint64(proven)
+		}
+		return uint64(reptypes.TrustLevel_TRUST_LEVEL_NEW)
 	}
 	trustLevel, err := k.repKeeper.GetTrustLevel(ctx, sdk.AccAddress(addrBytes))
 	if err != nil {

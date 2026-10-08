@@ -7,9 +7,11 @@ import (
 
 	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	"github.com/stretchr/testify/require"
 
 	"sparkdream/x/collect/types"
+	shieldtypes "sparkdream/x/shield/types"
 )
 
 func TestDownvoteContent(t *testing.T) {
@@ -152,3 +154,60 @@ func TestDownvoteContent(t *testing.T) {
 
 // Ensure math import is used.
 var _ = math.NewInt(0)
+
+// An anonymous downvote would burn downvote_cost from the shield module
+// account, i.e. out of the gas reserve rather than the member's own SPARK, so
+// anonymous downvotes pay none. Each member's vote still counts.
+func TestDownvoteContent_AnonymousPaysNoCost(t *testing.T) {
+	f := initTestFixture(t)
+	shield := authtypes.NewModuleAddress("shield")
+	collID := f.createCollection(t, f.owner)
+
+	f.bankKeeper.sendCoinsFromAccountToModuleFn = func(_ context.Context, sender sdk.AccAddress, _ string, amt sdk.Coins) error {
+		require.False(t, sender.Equals(shield), "anonymous downvote charged the shield module %s", amt)
+		return nil
+	}
+
+	for i := 0; i < 2; i++ {
+		_, err := f.msgServer.DownvoteContent(f.ctx, &types.MsgDownvoteContent{
+			Creator:    shield.String(),
+			TargetId:   collID,
+			TargetType: types.FlagTargetType_FLAG_TARGET_TYPE_COLLECTION,
+		})
+		require.NoError(t, err, "anonymous downvote %d", i+1)
+	}
+
+	coll, err := f.keeper.Collection.Get(f.ctx, collID)
+	require.NoError(t, err)
+	require.Equal(t, uint64(2), coll.DownvoteCount)
+}
+
+// See TestUpvoteContent_AnonymousOwnContentRelaxation: the own-content check
+// is skipped for the shared shield address, not for an identified owner.
+func TestDownvoteContent_AnonymousOwnContentRelaxation(t *testing.T) {
+	f := initTestFixture(t)
+	shield := authtypes.NewModuleAddress("shield").String()
+
+	anonID := createAnonCollection(t, f, 4, f.sdkCtx.BlockHeight()+100)
+	anonColl, err := f.keeper.Collection.Get(f.ctx, anonID)
+	require.NoError(t, err)
+	require.Equal(t, shield, anonColl.Owner)
+
+	_, err = f.msgServer.DownvoteContent(shieldtypes.WithProvenTrustLevel(f.sdkCtx, 1), &types.MsgDownvoteContent{
+		Creator:    shield,
+		TargetId:   anonID,
+		TargetType: types.FlagTargetType_FLAG_TARGET_TYPE_COLLECTION,
+	})
+	require.NoError(t, err)
+	anonColl, err = f.keeper.Collection.Get(f.ctx, anonID)
+	require.NoError(t, err)
+	require.Equal(t, uint64(1), anonColl.DownvoteCount)
+
+	ownID := f.createCollection(t, f.owner)
+	_, err = f.msgServer.DownvoteContent(f.ctx, &types.MsgDownvoteContent{
+		Creator:    f.owner,
+		TargetId:   ownID,
+		TargetType: types.FlagTargetType_FLAG_TARGET_TYPE_COLLECTION,
+	})
+	require.ErrorIs(t, err, types.ErrCannotVoteOwnContent)
+}

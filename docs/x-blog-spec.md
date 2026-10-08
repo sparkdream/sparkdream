@@ -78,7 +78,7 @@ The `content_type` field is an enum from `sparkdream.common.v1` indicating how t
 
 Default is `0` (any active member), consistent with participation being a membership perk. Authors who want fully open discussion can set `-1` — that opens the post to non-member replies AND non-member reactions, since the same audience-control knob governs both. Reactions on a reply use the parent post's setting (the post author chooses the audience).
 
-**Thread-author exemption.** The author of the root post may always *reply* and *react* within their own thread — including replying to and reacting on replies — even as a non-member and even when `min_reply_trust_level` would otherwise exclude them. Non-members can author posts (they get ephemeral content), so without this carve-out a non-member could start a conversation and then be locked out of it. The exemption is scoped to the trust gate only: `replies_enabled`, moderation state (deleted/hidden post/reply), the per-day rate limits, the storage/reaction fees, and the ephemeral TTL for non-member content all still apply, so a non-member author's self-replies are throttled, charged, and garbage-collected exactly like their post. It never lets anyone reply or react into a thread they did not author.
+**Thread-author exemption.** The author of the root post may always *reply* and *react* within their own thread — including replying to and reacting on replies — even as a non-member and even when `min_reply_trust_level` would otherwise exclude them. Non-members can author posts (they get ephemeral content), so without this carve-out a non-member could start a conversation and then be locked out of it. The exemption is scoped to the trust gate only: `replies_enabled`, moderation state (deleted/hidden post/reply), the per-day rate limits, the storage/reaction fees, and the ephemeral TTL for non-member content all still apply, so a non-member author's self-replies are throttled, charged, and garbage-collected exactly like their post. It never lets anyone reply or react into a thread they did not author. It also never applies to anonymous replies or reactions: every anonymous post, reply, and reaction carries the shield module address as creator, so an anonymous reaction on an anonymous post matching creators says nothing about who wrote the post, and the post's trust gate applies in full.
 
 ### 3.2. PostStatus
 
@@ -278,7 +278,7 @@ Removed -- anonymous post metadata (nullifiers, merkle roots, proven trust level
 | ExpiryIndex | `Expiry/{expires_at}/{type}/{id}` | []byte | Index: content by expiry time (type = `post` or `reply`) |
 | CreatorPostIndex | `Post/creator/{creator}/{post_id}` | []byte | Index: all posts by a specific creator |
 | ReactorIndex | `Reaction/creator/{creator}/{post_id}/{reply_id}` | []byte | Index: all reactions by a specific creator |
-| EphemeralByAuthorIndex | `Ephemeral/creator/{creator}/{kind}/{id}` | []byte | Index: still-ephemeral content (`kind = 1` post, `kind = 2` reply) grouped by author. Anonymous (module-creator) ephemerals are NOT tracked. Maintained in lockstep with `ExpiryIndex`. |
+| EphemeralByAuthorIndex | `Ephemeral/creator/{creator}/{kind}/{id}` | []byte | Index: still-ephemeral content (`kind = 1` post, `kind = 2` reply) grouped by author. Anonymous (shield-creator) ephemerals are NOT tracked. Maintained in lockstep with `ExpiryIndex`. |
 | PromotionQueue | `Promotion/queue/{creator}` | uint64 (enqueue block height, big-endian, telemetry only) | Set of authors with pending ephemeral content awaiting eager EndBlocker promotion to permanent. Enqueued by the `AfterMemberAdmitted` hook from x/rep. |
 
 **ID Assignment:**
@@ -340,9 +340,9 @@ message MsgCreatePostResponse {
 **Logic:**
 1. Validate creator address
 2. Retrieve params and validate content lengths
-3. Check rate limit for posts (`params.max_posts_per_day`)
-4. Charge and burn storage fee
-5. Determine TTL: if `RepKeeper.IsActiveMember(ctx, creator)` is true, `expires_at = 0` (permanent); otherwise `expires_at = block_time + params.ephemeral_content_ttl` (ephemeral, 0 if `ephemeral_content_ttl == 0`)
+3. Check rate limit for posts (`params.max_posts_per_day`; the shield module address is exempt, see section 23.4)
+4. Charge and burn storage fee (skipped for anonymous posts: the shield module account would pay it from its gas reserve, not the anonymous member)
+5. Determine TTL: if `RepKeeper.IsActiveMember(ctx, creator)` is true and the creator is not the shield module address, `expires_at = 0` (permanent); otherwise `expires_at = block_time + params.ephemeral_content_ttl` (ephemeral, 0 if `ephemeral_content_ttl == 0`). Anonymous posts pass the membership gate but always stay ephemeral; conviction renewal is what keeps them alive
 6. Create Post object with creator, content, content_type, `created_at = block_time`, `status = POST_STATUS_ACTIVE`, `replies_enabled = true`, `fee_bytes_high_water = len(title) + len(body)`, `expires_at` from step 5
 7. Call `AppendPost` to assign ID, store post, increment counter, and add to `CreatorPostIndex`
 8. If `initiative_id` is non-zero and `RepKeeper` is available: call `RepKeeper.ValidateInitiativeReference(ctx, initiativeId)`. Fail the tx if validation fails. Then call `RepKeeper.RegisterContentInitiativeLink(ctx, initiativeId, targetType, postID)` to link the content for conviction propagation.
@@ -389,7 +389,7 @@ This prevents the shrink-then-expand exploit: a user cannot shrink a post to 1 b
 1. Validate creator address
 2. Retrieve existing post, verify it is active and verify ownership
 3. Validate new content lengths and `min_reply_trust_level`
-4. Charge and burn storage fee (if new size exceeds high-water mark)
+4. Charge and burn storage fee (if new size exceeds high-water mark; skipped when the creator is the shield module account)
 5. Update post fields: title, body, content_type, replies_enabled, min_reply_trust_level
 6. Set `updated_at = block_time`, `edited = true`, `edited_at = block_time`; update `fee_bytes_high_water` if applicable
 7. **`expires_at` is not modified** — updates do not reset or extend the TTL. Ephemeral content cannot be kept alive by periodic edits
@@ -550,6 +550,7 @@ message MsgCreateReplyResponse {
   - If `-1` (open): any valid address (no membership check)
   - If `0` (NEW): creator must be an active member (`RepKeeper.IsActiveMember`)
   - If `1-4`: creator must be an active member with `RepKeeper.GetTrustLevel(ctx, addr) >= min_reply_trust_level`
+  - Anonymous (shield module) creator: compared against the trust level the ZK proof established (`shieldtypes.ProvenTrustLevel(ctx)`); with no proven level in the context the reply is refused. The thread-author exemption never applies
 - Body must be non-empty
 - `len(body)` ≤ `params.max_reply_length`
 - If `parent_reply_id > 0`: parent reply must exist, belong to the same post, have `status = REPLY_STATUS_ACTIVE` (`ErrReplyDeleted` if tombstoned, `ErrReplyHidden` if hidden), and `parent.depth + 1` ≤ `params.max_reply_depth`
@@ -566,9 +567,9 @@ message MsgCreateReplyResponse {
 4. Check creator meets the post's `min_reply_trust_level`
 5. If nested: validate parent reply exists and is active (not tombstoned or hidden), compute depth
 6. Validate body length (`params.max_reply_length`)
-7. Check rate limit for replies (`params.max_replies_per_day`)
-8. Charge and burn storage fee
-9. Determine TTL: if `RepKeeper.IsActiveMember(ctx, creator)` is true, `expires_at = 0` (permanent); otherwise `expires_at = block_time + params.ephemeral_content_ttl` (ephemeral, 0 if `ephemeral_content_ttl == 0`). Note: when `min_reply_trust_level >= 0`, creator is already verified as an active member in step 4, so TTL is always 0; this check only produces non-zero TTL for the `-1` (open) case
+7. Check rate limit for replies (`params.max_replies_per_day`; the shield module address is exempt)
+8. Charge and burn storage fee (skipped for anonymous replies: the shield module account would pay it from its gas reserve, not the anonymous member)
+9. Determine TTL: if `RepKeeper.IsActiveMember(ctx, creator)` is true and the creator is not the shield module address, `expires_at = 0` (permanent); otherwise `expires_at = block_time + params.ephemeral_content_ttl` (ephemeral, 0 if `ephemeral_content_ttl == 0`). Note: when `min_reply_trust_level >= 0`, creator is already verified as an active member in step 4, so TTL is always 0; this check only produces non-zero TTL for the `-1` (open) case and for anonymous replies
 10. Create Reply with `depth`, `created_at = block_time`, `status = REPLY_STATUS_ACTIVE`, `fee_bytes_high_water = len(body)`, `expires_at` from step 9
 11. Store reply via `AppendReply`
 12. If `author_bond` is non-nil and positive and `RepKeeper` is available: call `RepKeeper.CreateAuthorBond(ctx, creator, STAKE_TARGET_BLOG_AUTHOR_BOND, replyID, amount)`. Fail the tx if bond creation fails.
@@ -691,7 +692,7 @@ message MsgUnhideReplyResponse {}
 
 ### 5.13. React
 
-Add or change a reaction on a post or reply. Eligibility is governed by the post's `min_reply_trust_level` — the same knob that controls replies (see §3.1). One reaction per user per target — calling again with a different type replaces the previous reaction.
+Add or change a reaction on a post or reply. Eligibility is governed by the post's `min_reply_trust_level` — the same knob that controls replies (see §3.1). One reaction per user per target — calling again with a different type replaces the previous reaction. Anonymous reactions are the exception: see **Anonymous reactions** below.
 
 ```protobuf
 message MsgReact {
@@ -714,6 +715,7 @@ message MsgReactResponse {}
   - If `0`: creator must be an active member (`RepKeeper.IsActiveMember(ctx, creator)`)
   - If `1-4`: creator must be an active member with `RepKeeper.GetTrustLevel(ctx, creator) >= min_reply_trust_level`
   - For reactions on a reply (`reply_id > 0`), the parent post's setting applies
+  - Anonymous (shield module) creator: compared against the proven trust level (`shieldtypes.ProvenTrustLevel(ctx)`); no proven level in the context means refused. The thread-author exemption never applies
   - Returns `ErrNotMember` when the post requires membership and the creator isn't an active member; `ErrInsufficientTrustLevel` when the creator is a member but doesn't meet a higher trust-level bar
 - Creator must not exceed `params.max_reactions_per_day` (only counted for new reactions, not changes)
 
@@ -724,6 +726,9 @@ message MsgReactResponse {}
 - **Changing** an existing reaction to a different type: no additional fee
 - **Removing** a reaction: no fee
 - Skipped if `reaction_fee_exempt` is true or `reaction_fee` is zero/nil
+- Never charged for anonymous reactions: the shield module account would pay it from its gas reserve, not the anonymous member
+
+**Anonymous reactions.** Every anonymous reaction carries the shield module address as creator, so reactions cannot be tracked per creator. An anonymous reaction stores no `Reaction` record and no `ReactorIndex` entry, skips the existing-reaction lookup (no change or no-op path), and simply increments the type count in `ReactionCounts`. x/shield's nullifier (domain 8, scoped by `reply_id|post_id` — the reply when reacting to one, else the post; section 21.1) limits each member to one anonymous reaction per post and one per reply, matching the one-reaction-per-target rule identified members get, and the per-address daily rate limit does not apply. Anonymous reactions therefore cannot be changed or removed.
 
 **Logic:**
 1. Validate creator address and reaction type, look up the post (and reply if `reply_id > 0`), check post/reply are active
@@ -1263,7 +1268,7 @@ func (k Keeper) incrementRateLimit(ctx context.Context, actionType string, addr 
 
 ```go
 // AddToExpiryIndex adds a post or reply to the expiry index at the given timestamp.
-// Called when creating anonymous content with a non-zero expires_at.
+// Called when creating ephemeral (anonymous or non-member) content with a non-zero expires_at.
 func (k Keeper) AddToExpiryIndex(ctx context.Context, expiresAt int64, contentType string, id uint64)
 
 // RemoveFromExpiryIndex removes a post or reply from the expiry index.
@@ -1276,8 +1281,8 @@ func (k Keeper) RemoveFromExpiryIndex(ctx context.Context, expiresAt int64, cont
 func (k Keeper) TombstoneExpiredContent(ctx context.Context) uint64
 
 // AddEphemeralAuthorIndex / RemoveEphemeralAuthorIndex maintain the author-keyed
-// shadow of ExpiryIndex. Skipped automatically when `creator` is the module
-// account (anonymous content is not tracked here).
+// shadow of ExpiryIndex. Skipped automatically when `creator` is the shield
+// module account (anonymous content is not tracked here).
 func (k Keeper) AddEphemeralAuthorIndex(ctx context.Context, creator string, kind byte, id uint64)
 func (k Keeper) RemoveEphemeralAuthorIndex(ctx context.Context, creator string, kind byte, id uint64)
 
@@ -1658,7 +1663,7 @@ Posts and replies incur a per-byte storage fee that is burned, creating deflatio
 | MakeReplyPermanent | No fee |
 
 - Fees are sent from the creator to the `blog` module account and immediately burned
-- For anonymous operations routed through x/shield's `MsgShieldedExec`, the shield module account pays gas fees; storage fees for the inner message (e.g., `MsgCreatePost`) are paid by the shield module account as the sender
+- For anonymous operations routed through x/shield's `MsgShieldedExec`, the shield module account pays gas fees; no per-action SPARK charge applies to the inner message (storage fees, edit delta fees, reaction fees), since the shield module account would pay it out of the communal gas reserve rather than the anonymous member. Anonymous volume is bounded by x/shield's per-identity exec limit and per-op rate-limit windows instead
 - Setting `cost_per_byte_exempt = true` disables storage fees (posts and replies)
 - Setting `reaction_fee_exempt = true` disables reaction fees (independent of storage fees)
 - The Operations Committee can adjust fees and rate limits via `MsgUpdateOperationalParams` without a governance vote
@@ -1695,7 +1700,7 @@ message GenesisReactionCounts {
 
 All state is preserved across genesis import/export. This includes tombstoned posts, hidden posts, hidden replies, tombstoned replies, and pin/expiry fields on posts and replies -- the full state is exported and restored faithfully.
 
-**Derived indexes are not exported.** `ReplyPostIndex`, `CreatorPostIndex`, `ExpiryIndex`, `EphemeralByAuthorIndex`, and `ReactorIndex` are rebuilt during `InitGenesis` by iterating imported posts, replies, and reactions. `EphemeralByAuthorIndex` is rebuilt at the same time as `ExpiryIndex`: any imported post or reply with `expires_at > 0` and a non-module-creator gets both index entries.
+**Derived indexes are not exported.** `ReplyPostIndex`, `CreatorPostIndex`, `ExpiryIndex`, `EphemeralByAuthorIndex`, and `ReactorIndex` are rebuilt during `InitGenesis` by iterating imported posts, replies, and reactions. `EphemeralByAuthorIndex` is rebuilt at the same time as `ExpiryIndex`: any imported post or reply with `expires_at > 0` and a creator other than the shield module account gets both index entries.
 
 **The promotion queue is not exported either.** `PromotionQueue` is a strictly forward-looking eager-drain hint. It's safe to start empty after a chain restart — the EndBlocker Pass 2 lazy member-now check still catches every ephemeral whose author is a member at TTL time, so no content is ever stranded. Any author who had pending eager promotion at export time loses only the "expires_at displayed as 0 sooner" UX benefit until they post again or the TTL hits.
 
@@ -1731,7 +1736,7 @@ All state is preserved across genesis import/export. This includes tombstoned po
 
 **EndBlock — Pass 1: Promotion Queue Drain**
 
-Subscribes to x/rep's `RepHooks.AfterMemberAdmitted` via `BlogRepHooks` (wired in `app.go` through `repmoduletypes.NewMultiRepHooks(...)`). When a non-member becomes a member via `MsgAcceptInvitation`, x/rep invokes the hook; x/blog enqueues the new member's address into `PromotionQueue` (no-op if the address is the blog module account — anonymous content has its own conviction-renewal lifecycle and is never queued).
+Subscribes to x/rep's `RepHooks.AfterMemberAdmitted` via `BlogRepHooks` (wired in `app.go` through `repmoduletypes.NewMultiRepHooks(...)`). When a non-member becomes a member via `MsgAcceptInvitation`, x/rep invokes the hook; x/blog enqueues the new member's address into `PromotionQueue` (no-op if the address is the shield module account — anonymous content has its own conviction-renewal lifecycle and is never queued).
 
 At each block end, before the TTL pruner, the queue is drained with `params.max_promotions_per_block` total promotions as a budget across all queued authors:
 
@@ -1752,8 +1757,8 @@ Iterates the `ExpiryIndex` for all entries where `expires_at <= block_time`. For
 1. Retrieve the post or reply
 2. If already tombstoned (e.g., manually deleted before TTL): remove from expiry index, skip
 3. If already hidden: proceed to step 4 (hidden ephemeral content is not shielded from expiry — see note below)
-4. **Membership auto-upgrade check (non-anonymous only):** If the creator is a real address (not module account, i.e. non-anonymous) and `RepKeeper.IsActiveMember(ctx, creator)` is true: the creator has since joined x/rep. Clear `expires_at = 0`, remove from `ExpiryIndex` AND `EphemeralByAuthorIndex`, and emit `blog.post.upgraded` or `blog.reply.upgraded` event (with no `via` attribute — `via` is reserved for the explicit MakePermanent and queue-drain paths). **No additional fee is charged** — the creator already paid full storage fees at creation, and membership itself is the qualifying event. Skip tombstoning. **In practice this lazy path is rarely hit post-rework** — Pass 1's eager drain promotes nearly all member-author content within a few blocks of admission; this branch survives as a safety net for queue-drained chain restarts and `max_promotions_per_block = 0` configurations.
-5. **Conviction check (anonymous only):** If the creator is the module account (anonymous content) and `params.conviction_renewal_threshold > 0`: query `RepKeeper.GetContentConviction(ctx, targetType, targetID)` where `targetType` = `STAKE_TARGET_CONTENT` and `targetID` encodes `"blog/post/{id}"` or `"blog/reply/{id}"`.
+4. **Membership auto-upgrade check (non-anonymous only):** If the creator is a real address (not the shield module account, i.e. non-anonymous) and `RepKeeper.IsActiveMember(ctx, creator)` is true: the creator has since joined x/rep. Clear `expires_at = 0`, remove from `ExpiryIndex` AND `EphemeralByAuthorIndex`, and emit `blog.post.upgraded` or `blog.reply.upgraded` event (with no `via` attribute — `via` is reserved for the explicit MakePermanent and queue-drain paths). **No additional fee is charged** — the creator already paid full storage fees at creation, and membership itself is the qualifying event. Skip tombstoning. **In practice this lazy path is rarely hit post-rework** — Pass 1's eager drain promotes nearly all member-author content within a few blocks of admission; this branch survives as a safety net for queue-drained chain restarts and `max_promotions_per_block = 0` configurations.
+5. **Conviction check (anonymous only):** If the creator is the shield module account (anonymous content) and `params.conviction_renewal_threshold > 0`: query `RepKeeper.GetContentConviction(ctx, targetType, targetID)` where `targetType` = `STAKE_TARGET_CONTENT` and `targetID` encodes `"blog/post/{id}"` or `"blog/reply/{id}"`.
    - **Entering conviction-sustained state (first expiry):** If `conviction_sustained == false` and conviction score ≥ threshold: set `conviction_sustained = true`, set `expires_at = block_time + params.conviction_renewal_period`, update `ExpiryIndex`, and emit `blog.post.conviction_sustained` or `blog.reply.conviction_sustained` event. Skip tombstoning.
    - **Renewal (already conviction-sustained):** If `conviction_sustained == true` and conviction score ≥ threshold: set `expires_at = block_time + params.conviction_renewal_period`, update `ExpiryIndex`, emit `blog.post.renewed` or `blog.reply.renewed` event. Skip tombstoning.
    - **Expiry (conviction dropped):** If conviction score < threshold: set `conviction_sustained = false`. Proceed to tombstone (step 6).
@@ -1881,7 +1886,7 @@ For every post, `post.reply_count` must equal the count of replies with `status 
 
 Every entry in the `ExpiryIndex` must reference a post or reply that (a) exists and (b) has `expires_at > 0` matching the index key. Conversely, every active post/reply with `expires_at > 0` must have a corresponding `ExpiryIndex` entry. Pinned content (`pinned_by != ""`) must have `expires_at == 0` and no expiry index entry — strict separation guarantees this: `MsgPinPost` / `MsgPinReply` reject ephemeral targets, and `MsgUnpin*` never reintroduce a TTL.
 
-**EphemeralByAuthor consistency.** For every active post/reply with `expires_at > 0` AND a non-anonymous (non-module) creator, there must be exactly one matching `EphemeralByAuthorIndex` entry keyed by `{creator}/{kind}/{id}`. Anonymous (module-creator) ephemerals are tracked only in `ExpiryIndex`. The EndBlocker promotion drain and the keeper add/remove helpers maintain both indexes in lockstep at every state-mutating site (create, delete, pin/unpin is a no-op here, MakePermanent, EndBlock member-now path, EndBlock tombstone, EndBlock queue drain).
+**EphemeralByAuthor consistency.** For every active post/reply with `expires_at > 0` AND a non-anonymous (non-shield) creator, there must be exactly one matching `EphemeralByAuthorIndex` entry keyed by `{creator}/{kind}/{id}`. Anonymous (shield-creator) ephemerals are tracked only in `ExpiryIndex`. The EndBlocker promotion drain and the keeper add/remove helpers maintain both indexes in lockstep at every state-mutating site (create, delete, pin/unpin is a no-op here, MakePermanent, EndBlock member-now path, EndBlock tombstone, EndBlock queue drain).
 
 **PromotionQueue is purely informational.** It may contain authors with no remaining `EphemeralByAuthorIndex` entries — the next EndBlock drain dequeues them as a no-op. There is no consistency relation between the queue and any other state worth checking via the crisis module; the queue is self-pruning.
 
@@ -1943,7 +1948,7 @@ For every non-tombstoned post, `fee_bytes_high_water >= len(title) + len(body)` 
 
 Two categories of content are **ephemeral** (subject to TTL expiry):
 
-1. **Anonymous posts/replies** (creator = module account) — no author identity for moderation
+1. **Anonymous posts/replies** (creator = shield module account) — no author identity for moderation
 2. **Non-member posts/replies** — creator is a valid address but not an active x/rep member
 
 Both carry a TTL (`params.ephemeral_content_ttl`, default 7 days) set at creation time and are automatically tombstoned by the EndBlocker when the TTL elapses. Member posts and replies are always permanent (`expires_at = 0`).
@@ -2012,7 +2017,7 @@ See **[docs/session-keys.md](session-keys.md)** for the full specification, gran
 
 ## 21. Anonymous Posting [REMOVED]
 
-Per-module anonymous posting has been fully removed from x/blog. The legacy messages (`MsgCreateAnonymousPost`, `MsgCreateAnonymousReply`, `MsgAnonymousReact`) no longer exist. All anonymous blog operations are now routed through x/shield's single `MsgShieldedExec` entry point, which handles ZK proof verification (PLONK over BN254), nullifier management, and module-paid gas. x/blog implements the `ShieldAware` interface (Section 23) to opt into shielded execution.
+Per-module anonymous posting has been fully removed from x/blog. The legacy messages (`MsgCreateAnonymousPost`, `MsgCreateAnonymousReply`, `MsgAnonymousReact`) no longer exist. All anonymous blog operations are now routed through x/shield's single `MsgShieldedExec` entry point, which handles ZK proof verification (Groth16 over BN254), nullifier management, and module-paid gas. x/blog implements the `ShieldAware` interface (Section 23) to opt into shielded execution.
 
 For the current architecture, see `docs/x-shield-spec.md`.
 
@@ -2024,10 +2029,9 @@ Nullifier domains for blog operations are registered with and enforced by x/shie
 
 | Domain | Action | Scope | Effect |
 |--------|--------|-------|--------|
-| `1` | Anonymous post | Current epoch | One anonymous post per member per epoch |
+| `1` | Anonymous post | Current epoch window (`epoch / 12`) | One anonymous post per member per 12 shield epochs (~1 hour) |
 | `2` | Anonymous reply | `post_id` | One anonymous reply per member per post |
-| `8` | Anonymous post reaction | `post_id` | One anonymous reaction per member per post |
-| `9` | Anonymous reply reaction | `reply_id` | One anonymous reaction per member per reply |
+| `8` | Anonymous reaction (`MsgReact`, on the post or any of its replies) | `reply_id\|post_id` (`(1 << 56) \| reply_id` on a reply, else `post_id`) | One anonymous reaction per member per post, and per reply |
 
 ### 21.2. Access Control for Anonymous Content
 
@@ -2036,15 +2040,15 @@ Nullifier domains for blog operations are registered with and enforced by x/shie
 | Create anonymous post/reply/reaction | Via x/shield `MsgShieldedExec` wrapping the regular message |
 | Update anonymous post/reply | **Nobody** -- anonymous content is immutable |
 | Delete/hide anonymous post | **Nobody** directly -- creator is shield module account (cannot sign). Content is naturally tombstoned by TTL expiry |
-| Pin anonymous post/reply | Active member at `pin_min_trust_level`+ (clears TTL, makes permanent) |
+| Make anonymous post/reply permanent | Member at `make_permanent_min_trust_level`+ via `MsgMakePostPermanent`/`MsgMakeReplyPermanent` (clears TTL); pinning then requires `pin_min_trust_level` |
 | Hide anonymous reply | Post author (same as regular replies -- only available when post has an identified author) |
 | Delete anonymous reply | Post author only (reply author path is shield module account, so only post author path applies) |
 
-Anonymous posts and replies cannot be updated, deleted, or hidden by their author (there is no known author). Like all ephemeral content (see Section 19.6), anonymous posts carry a TTL (`params.ephemeral_content_ttl`, default 7 days). At TTL expiry, the EndBlocker checks the content's community conviction score (via x/rep's content staking system). If conviction >= `params.conviction_renewal_threshold`, the TTL is extended by `params.conviction_renewal_period` instead of tombstoning. If conviction is below the threshold, the content is tombstoned normally. Additionally, an ESTABLISHED+ member can **pin** the content at any time via `MsgPinPost`/`MsgPinReply`, clearing the TTL entirely and making it permanent.
+Anonymous posts and replies cannot be updated, deleted, or hidden by their author (there is no known author). Like all ephemeral content (see Section 19.6), anonymous posts carry a TTL (`params.ephemeral_content_ttl`, default 7 days). At TTL expiry, the EndBlocker checks the content's community conviction score (via x/rep's content staking system). If conviction >= `params.conviction_renewal_threshold`, the TTL is extended by `params.conviction_renewal_period` instead of tombstoning. If conviction is below the threshold, the content is tombstoned normally. Additionally, a member at `make_permanent_min_trust_level`+ can promote the content at any time via `MsgMakePostPermanent`/`MsgMakeReplyPermanent`, clearing the TTL entirely.
 
 **Moderation on anonymous posts:** Since the post author is the shield module account (which cannot sign transactions), the "post author" moderation path is unavailable for replies on anonymous posts. This means:
 - **Regular replies on anonymous posts** can only be self-deleted by the reply author
-- **Anonymous replies on anonymous posts** cannot be hidden/deleted by anyone -- they expire via TTL unless pinned
+- **Anonymous replies on anonymous posts** cannot be hidden/deleted by anyone -- they expire via TTL unless made permanent
 
 For use cases needing stronger moderation of anonymous or non-member content, x/forum provides platform-level tools (sentinel bonds, appeals, council oversight).
 
@@ -2072,7 +2076,7 @@ x/blog implements the `ShieldAware` interface defined in `x/shield/types/shield_
 ### 23.1. How It Works
 
 1. A user submits `MsgShieldedExec` to x/shield with an inner message (e.g., `MsgCreatePost`) and a ZK proof
-2. x/shield verifies the ZK proof (PLONK over BN254), checks the nullifier, and validates the proof against the trust tree
+2. x/shield verifies the ZK proof (Groth16 over BN254), checks the nullifier, and validates the proof against the trust tree
 3. x/shield checks that the inner message type is registered in the governance whitelist (`ShieldedOpRegistration`)
 4. x/shield calls `IsShieldCompatible(ctx, innerMsg)` on x/blog's msg server — **both gates must pass**
 5. x/shield dispatches the inner message to x/blog's normal message handler with the **shield module account** as the `creator`/sender
@@ -2095,7 +2099,7 @@ All other message types (e.g., `MsgUpdatePost`, `MsgDeletePost`, `MsgHidePost`) 
 
 With the migration to x/shield, x/blog no longer:
 
-- **Stores or verifies ZK proofs** — x/shield owns all PLONK/BN254 verification
+- **Stores or verifies ZK proofs** — x/shield owns all Groth16/BN254 verification
 - **Manages nullifiers** — x/shield's centralized nullifier store with per-domain scoping replaces the per-module `AnonNullifier/` KV entries
 - **Stores anonymous post metadata** — x/shield tracks shielded execution records (nullifiers, merkle roots, proven trust levels)
 - **Draws subsidy from council treasury** — x/shield's module account is auto-funded from the community pool via BeginBlocker
@@ -2106,11 +2110,15 @@ With the migration to x/shield, x/blog no longer:
 
 When x/shield dispatches an inner message to x/blog, the resulting content behaves identically to the old per-module anonymous posts:
 
-- **Creator** is set to the shield module account address (functionally equivalent to the old blog module account address for anonymous posts)
-- **Ephemeral TTL** applies: `expires_at = block_time + params.ephemeral_content_ttl` (because the shield module account is not an active x/rep member)
-- **Replies enabled** with `min_reply_trust_level = 0` (any active member can reply)
+- **Creator** is the shield module account address (`authtypes.NewModuleAddress("shield")`), shared by every anonymous member. The EndBlocker, `EphemeralByAuthorIndex`, and `PromotionQueue` recognise anonymous content by this address (not the blog module address)
+- **Ephemeral TTL** applies: `expires_at = block_time + params.ephemeral_content_ttl`. x/blog treats the shield address as an active member for gating, but explicitly keeps its posts and replies ephemeral
+- **Trust gates** compare the level the ZK proof established, which x/shield passes in the context (`shieldtypes.ProvenTrustLevel(ctx)`); with no proven level the action is refused. The thread-author exemption never applies
+- **Rate limits**: the per-address daily limits (`checkRateLimit`/`incrementRateLimit`) exempt the shield address; x/shield's per-identity rate limit bounds each member instead
+- **Fees**: none beyond module-paid gas — storage fees, edit delta fees, and reaction fees are all skipped for the shield module account (it would pay them from the gas reserve); x/shield's per-identity exec limit and per-op rate-limit windows bound volume instead
+- **Reactions** are count-only: no per-creator `Reaction` record, so they cannot be changed or removed (section 5.13)
+- **Replies enabled**; `min_reply_trust_level` is whatever the anonymous author set in `MsgCreatePost`
 - **Immutable** — anonymous content cannot be updated, hidden, or deleted by the author (shield module account cannot sign follow-up transactions)
-- **Pinning** by ESTABLISHED+ members still works (clears TTL, makes permanent)
+- **MakePermanent** by members at `make_permanent_min_trust_level`+ still works (clears TTL); pinning then works as for any permanent post
 - **Conviction-based renewal** at TTL expiry still works (community stakes extend lifetime)
 
 ---

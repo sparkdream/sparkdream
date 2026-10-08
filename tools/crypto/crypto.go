@@ -80,6 +80,13 @@ func HashTwoFields(left, right []byte) []byte {
 	return h.Sum(nil)
 }
 
+// IsCanonicalFieldElement reports whether b, read big-endian, is below the
+// BN254 scalar modulus. MiMC rejects non-canonical blocks and HashToField
+// discards that error, so hashing such a value silently yields a wrong result.
+func IsCanonicalFieldElement(b []byte) bool {
+	return new(big.Int).SetBytes(b).Cmp(fr.Modulus()) < 0
+}
+
 // PadTo32 pads or truncates a byte slice to exactly 32 bytes
 func PadTo32(data []byte) []byte {
 	result := make([]byte, 32)
@@ -104,6 +111,21 @@ func PadTo32(data []byte) []byte {
 func ComputeNullifier(secretKey []byte, proposalID uint64) []byte {
 	proposalBytes := Uint64ToBytes(proposalID)
 	return HashToField(secretKey, proposalBytes)
+}
+
+// ScopeElement is the proof's Scope public input for an action in a nullifier
+// domain: MiMC(domain, rawScope). The circuit hashes only (secretKey, scope),
+// so without the domain two operations that share a raw scope (a blog post 5
+// and a forum post 5, or any two GLOBAL ops) would carry the same public
+// nullifier and link the member across modules.
+func ScopeElement(domain uint32, rawScope uint64) []byte {
+	return HashToField(Uint64ToBytes(uint64(domain)), Uint64ToBytes(rawScope))
+}
+
+// ComputeScopedNullifier is the action nullifier for a raw scope in a domain:
+// MiMC(secretKey, ScopeElement(domain, rawScope)).
+func ComputeScopedNullifier(secretKey []byte, domain uint32, rawScope uint64) []byte {
+	return HashToField(secretKey, ScopeElement(domain, rawScope))
 }
 
 // Uint64ToBytes converts a uint64 to a 32-byte big-endian representation

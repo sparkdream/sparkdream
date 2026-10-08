@@ -11,8 +11,10 @@ import (
 )
 
 // checkRateLimit checks if an address has exceeded the rate limit for an action.
+// The shield module account is exempt: every anonymous member shares it, and
+// x/shield rate-limits each member's anonymous actions by identity instead.
 func (k Keeper) checkRateLimit(ctx context.Context, actionType string, addr sdk.AccAddress, limit uint32) error {
-	if limit == 0 {
+	if limit == 0 || isShieldModuleAddress(addr) {
 		return nil // no limit
 	}
 
@@ -32,6 +34,9 @@ func (k Keeper) checkRateLimit(ctx context.Context, actionType string, addr sdk.
 
 // incrementRateLimit increments the rate limit counter for an action.
 func (k Keeper) incrementRateLimit(ctx context.Context, actionType string, addr sdk.AccAddress) {
+	if isShieldModuleAddress(addr) {
+		return
+	}
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	currentDay := uint64(sdkCtx.BlockTime().Unix() / 86400)
 

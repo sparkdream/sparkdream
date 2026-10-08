@@ -128,6 +128,8 @@ The following messages support anonymous execution via `x/shield`'s `MsgShielded
 - `MsgUpvotePost` — anonymous upvotes
 - `MsgDownvotePost` — anonymous downvotes
 
+Anonymous messages arrive with the shield module address as creator, shared by every anonymous member, so per-address bookkeeping is skipped for it: no per-voter vote record, own-post check, or per-voter reaction/downvote rate limit; no downvote deposit; no per-address daily post limit. x/shield's nullifier (one vote per member per post, upvotes and downvotes sharing one domain) and per-identity rate limit bound each member instead. No per-action SPARK charge applies either — storage fee, spam taxes, edit fee, downvote deposit — since the shield account's balance is the communal gas reserve, not the member's; x/shield's per-identity exec limit and per-op rate-limit windows bound anonymous volume instead. `GetTrustLevel` for the shield address returns the level the ZK proof established, or `TRUST_LEVEL_NEW` when there is none.
+
 ## State
 
 ### Objects
@@ -245,7 +247,7 @@ Anonymous posts, replies, and reactions are submitted via `x/shield`'s `MsgShiel
 
 | Message | Description | Access |
 |---------|-------------|--------|
-| `MsgCreateBounty` | Create bounty on thread (escrows SPARK) | Any member |
+| `MsgCreateBounty` | Create bounty on thread (escrows SPARK) | Any member (not anonymous: `ErrAnonymousBounty`) |
 | `MsgAwardBounty` | Award bounty to reply | Bounty creator |
 | `MsgIncreaseBounty` | Add more SPARK to active bounty | Bounty creator |
 | `MsgCancelBounty` | Cancel (refund minus 10% fee) | Bounty creator |

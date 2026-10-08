@@ -9,10 +9,12 @@ import (
 	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/forum/types"
 	reptypes "sparkdream/x/rep/types"
+	shieldtypes "sparkdream/x/shield/types"
 
 	"cosmossdk.io/collections"
 	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	"github.com/stretchr/testify/require"
 )
 
@@ -346,6 +348,46 @@ func TestCreatePostReply(t *testing.T) {
 			}
 		})
 	}
+}
+
+// Every anonymous post carries the shield address, so the per-address daily
+// post limit would be shared by all anonymous members; x/shield's identity
+// rate limit applies instead. Nor do anonymous posts pay the storage fee: the
+// shield module account would be paying it out of the communal gas reserve.
+func TestCreatePost_AnonymousSkipsDailyLimit(t *testing.T) {
+	f := initFixture(t)
+	cat := f.createTestCategory(t, "General")
+	shield := authtypes.NewModuleAddress("shield")
+
+	params := types.DefaultParams()
+	params.DailyPostLimit = 1
+	require.NoError(t, f.keeper.Params.Set(f.ctx, params))
+
+	f.bankKeeper.SendCoinsFromAccountToModuleCalls = nil
+	ctx := shieldtypes.WithProvenTrustLevel(sdk.UnwrapSDKContext(f.ctx), 1)
+	for i := 0; i < 3; i++ {
+		_, err := f.msgServer.CreatePost(ctx, &types.MsgCreatePost{
+			Creator:    shield.String(),
+			CategoryId: cat.CategoryId,
+			Content:    fmt.Sprintf("anonymous post %d", i),
+		})
+		require.NoError(t, err, "anonymous post %d", i+1)
+	}
+
+	require.Empty(t, f.bankKeeper.SendCoinsFromAccountToModuleCalls, "anonymous posts charged the shield account")
+	require.Empty(t, f.bankKeeper.BurnCoinsCalls)
+
+	// An identified member still pays the storage fee and hits the limit.
+	member := &types.MsgCreatePost{Creator: testCreator, CategoryId: cat.CategoryId, Content: "first"}
+	_, err := f.msgServer.CreatePost(f.ctx, member)
+	require.NoError(t, err)
+	require.Len(t, f.bankKeeper.SendCoinsFromAccountToModuleCalls, 1)
+	require.Equal(t, testCreator, f.bankKeeper.SendCoinsFromAccountToModuleCalls[0].SenderAddr.String())
+	require.Equal(t, sdk.NewCoins(sdk.NewCoin("uspark", math.NewInt(int64(len("first"))*100))),
+		f.bankKeeper.SendCoinsFromAccountToModuleCalls[0].Amt)
+	member.Content = "second"
+	_, err = f.msgServer.CreatePost(f.ctx, member)
+	require.Error(t, err)
 }
 
 func TestCreatePostStorageFee(t *testing.T) {

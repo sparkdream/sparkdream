@@ -1,8 +1,10 @@
 package keeper
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	shieldtypes "sparkdream/x/shield/types"
 	"strconv"
 	"strings"
 
@@ -19,12 +21,13 @@ import (
 // When the shield module routes a message via MsgShieldedExec, the ZK proof has
 // already verified membership and trust level, so this module bypasses its own checks.
 //
-// SECURITY NOTE (CROSS-1): This address bypasses ALL membership and trust level checks
-// in isMember() and meetsMinTrustLevel(). This is a single point of failure — correctness
-// depends entirely on x/shield's ZK proof verification. If the shield module is compromised,
-// all access controls in x/collect are bypassed. The bypass is narrowly scoped to
-// membership/trust-level gates only; other validations (ownership, deposits, rate limits)
-// still apply even for shield-routed messages.
+// SECURITY NOTE (CROSS-1): This address bypasses the membership check in isMember(),
+// and meetsMinTrustLevel() compares it against the level its ZK proof established.
+// This is a single point of failure — correctness depends entirely on x/shield's ZK
+// proof verification. If the shield module is compromised, membership gating in
+// x/collect is bypassed. Per-voter bookkeeping (vote dedup, daily vote limits, the
+// own-collection check) does not apply to it since every anonymous member shares it;
+// deposits and other validations still apply.
 var shieldModuleAddress = authtypes.NewModuleAddress("shield")
 
 const (
@@ -65,7 +68,7 @@ func HideRecordTargetCompositeKey(targetType types.FlagTargetType, targetID uint
 // HasWriteAccess returns true if the address is the collection owner or an EDITOR/ADMIN collaborator.
 func (k Keeper) HasWriteAccess(ctx context.Context, coll types.Collection, address string) (bool, error) {
 	if coll.Owner == address {
-		return true, nil
+		return k.isCollectionOwner(ctx, coll, address), nil
 	}
 	key := CollaboratorCompositeKey(coll.Id, address)
 	collab, err := k.Collaborator.Get(ctx, key)
@@ -82,7 +85,7 @@ func (k Keeper) HasWriteAccess(ctx context.Context, coll types.Collection, addre
 // IsOwnerOrAdmin returns true if the address is the collection owner or an ADMIN collaborator.
 func (k Keeper) IsOwnerOrAdmin(ctx context.Context, coll types.Collection, address string) (bool, error) {
 	if coll.Owner == address {
-		return true, nil
+		return k.isCollectionOwner(ctx, coll, address), nil
 	}
 	key := CollaboratorCompositeKey(coll.Id, address)
 	collab, err := k.Collaborator.Get(ctx, key)
@@ -503,7 +506,9 @@ func (k Keeper) deleteCollectionFull(ctx context.Context, coll types.Collection)
 		return err
 	}
 
-	// Refund deposits if not burned
+	// Refund deposits if not burned. Only tracked amounts move: an anonymous
+	// collection records zero DepositAmount/ItemDepositTotal, so nothing is
+	// paid to the shield account.
 	if !coll.DepositBurned {
 		totalRefund := coll.DepositAmount.Add(coll.ItemDepositTotal)
 		if totalRefund.IsPositive() {
@@ -514,17 +519,21 @@ func (k Keeper) deleteCollectionFull(ctx context.Context, coll types.Collection)
 	}
 
 	// Handle PENDING collection: refund endorsement creation fee (minus burn fraction)
+	// (Anonymous collections never pay the fee and never start PENDING; the
+	// chargesDeposits guard keeps the shield account from ever being paid.)
 	if coll.Status == types.CollectionStatus_COLLECTION_STATUS_PENDING {
-		burnAmt := params.EndorsementDeletionBurnFraction.MulInt(params.EndorsementCreationFee).TruncateInt()
-		refundAmt := params.EndorsementCreationFee.Sub(burnAmt)
-		if refundAmt.IsPositive() {
-			if err := k.RefundSPARK(ctx, ownerAddr, refundAmt); err != nil {
-				return err
+		if k.chargesDeposits(coll) {
+			burnAmt := params.EndorsementDeletionBurnFraction.MulInt(params.EndorsementCreationFee).TruncateInt()
+			refundAmt := params.EndorsementCreationFee.Sub(burnAmt)
+			if refundAmt.IsPositive() {
+				if err := k.RefundSPARK(ctx, ownerAddr, refundAmt); err != nil {
+					return err
+				}
 			}
-		}
-		if burnAmt.IsPositive() {
-			if err := k.BurnSPARK(ctx, burnAmt); err != nil {
-				return err
+			if burnAmt.IsPositive() {
+				if err := k.BurnSPARK(ctx, burnAmt); err != nil {
+					return err
+				}
 			}
 		}
 		// Remove from pending index (walk to find the actual key)
@@ -857,6 +866,31 @@ func (k Keeper) getMaxCollections(ctx context.Context, address string, params ty
 	return params.MaxCollectionsBase + uint32(TrustLevelIndex(tl))*params.MaxCollectionsPerTrustLevel
 }
 
+// isAnonymous reports whether address is the shield module account, i.e. an
+// anonymous action routed through x/shield. Every anonymous member shares that
+// address, so per-address bookkeeping (one vote per voter, daily vote limits,
+// "own content" checks) must not apply to it: x/shield's nullifier allows one
+// action per member per target, and its identity rate limit bounds each member.
+func (k Keeper) isAnonymous(address string) bool {
+	addrBytes, err := k.addressCodec.StringToBytes(address)
+	return err == nil && sdk.AccAddress(addrBytes).Equals(shieldModuleAddress)
+}
+
+// isCollectionOwner reports whether address owns coll. The shield address owns
+// every anonymous collection, so for it ownership also takes an x/shield
+// ownership proof for this collection's owner tag in the context; without one
+// the shield address owns nothing.
+func (k Keeper) isCollectionOwner(ctx context.Context, coll types.Collection, address string) bool {
+	if coll.Owner != address {
+		return false
+	}
+	if !k.isAnonymous(address) {
+		return true
+	}
+	tag, ok := shieldtypes.GetOwnershipTag(ctx)
+	return ok && len(coll.AnonOwnerTag) > 0 && bytes.Equal(tag, coll.AnonOwnerTag)
+}
+
 // isMember checks if the address is an active x/rep member.
 // The shield module address is always considered a member because the ZK proof
 // verified membership before routing the message.
@@ -884,14 +918,23 @@ func (k Keeper) ownsAsMember(ctx context.Context, address string) bool {
 }
 
 // meetsMinTrustLevel checks if address is at or above the required trust level string.
-// The shield module address always meets the minimum trust level.
+// The shield module address is compared using the level its ZK proof established
+// (shieldtypes.ProvenTrustLevel); with no proven level it is refused.
 func (k Keeper) meetsMinTrustLevel(ctx context.Context, address string, minLevel string) bool {
 	addrBytes, err := k.addressCodec.StringToBytes(address)
 	if err != nil {
 		return false
 	}
 	if sdk.AccAddress(addrBytes).Equals(shieldModuleAddress) {
-		return true
+		// Anonymous: compare with the level the ZK proof established. No
+		// proven level means the message didn't come through a shield exec,
+		// so nothing about the actual signer is known: refuse.
+		proven, ok := shieldtypes.ProvenTrustLevel(ctx)
+		if !ok {
+			return false
+		}
+		required, ok := ParseTrustLevel(minLevel)
+		return ok && int64(proven) >= int64(required)
 	}
 	if !k.repKeeper.IsMember(ctx, addrBytes) {
 		return false
@@ -934,6 +977,27 @@ func attrsToValues(attrs []*types.KeyValuePair) []types.KeyValuePair {
 // isTTLCollection returns true if the collection has a TTL and deposits are held (not burned).
 func isTTLCollection(coll types.Collection) bool {
 	return coll.ExpiresAt > 0 && !coll.DepositBurned
+}
+
+// chargesDeposits reports whether the owner of coll pays SPARK deposits,
+// fees and spam tax. An anonymous collection is owned by the shield module
+// account, whose balance is the communal gas reserve rather than the
+// member's money, so anonymous collections and their items carry none;
+// anonymous volume is bounded by x/shield's per-op rate-limit windows and
+// the per-collection item cap instead.
+func (k Keeper) chargesDeposits(coll types.Collection) bool {
+	return !k.isAnonymous(coll.Owner)
+}
+
+// heldItemDeposit returns the item deposit to release when n items leave a
+// TTL collection: n * perItem, capped at the ItemDepositTotal actually held so
+// a param change or an anonymous (deposit-free) collection never releases
+// SPARK that was not collected.
+func heldItemDeposit(coll types.Collection, perItem math.Int, n uint64) math.Int {
+	if coll.ItemDepositTotal.IsNil() || !coll.ItemDepositTotal.IsPositive() || perItem.IsNil() || !perItem.IsPositive() {
+		return math.ZeroInt()
+	}
+	return math.MinInt(perItem.MulRaw(int64(n)), coll.ItemDepositTotal)
 }
 
 // decrementItemCount saturates at zero to avoid uint64 underflow when a

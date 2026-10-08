@@ -26,7 +26,7 @@ The current architecture has each module independently implementing anonymous op
 
 Every anonymous operation requires the submitter to have funds for gas. This creates a metadata trail: an observer can correlate funding transactions to anonymous submissions. Relayer subsidy (x/blog) partially addresses this but introduces a trusted intermediary who learns timing metadata.
 
-x/shield eliminates all of this. The submitter address is meaningless — it can be a fresh account with zero balance. The module pays gas. No funding trail, no relayer, no correlation.
+x/shield eliminates all of this. The submitter address is meaningless - by default every anonymous client signs with the same shared public submitter (see [Public Anonymous Submitter](#public-anonymous-submitter)), which holds no balance. The module pays gas. No funding trail, no relayer, no correlation.
 
 ## Privacy Model
 
@@ -41,6 +41,8 @@ Privacy:
 ├── Content:        Exposed (inner message visible in mempool and on-chain)
 └── Anonymity set:  All members meeting the trust level requirement
 ```
+
+Content is visible but cannot be swapped: the proof is bound to the exact inner message (`MessageHash`), so a proof seen in the mempool cannot be resubmitted with different content to spend the member's nullifier first.
 
 Operations execute on receipt after ZK proof verification. Best for latency-sensitive operations where content isn't secret (blog posts, reactions, replies). This is the behavior described in the original architecture section below.
 
@@ -68,6 +70,8 @@ Operations are threshold-encrypted and queued. They are only decrypted and execu
 ├── The minimum trust level being proven
 └── The message type URL (in immediate mode) or target epoch (in encrypted batch mode)
 ```
+
+Nullifiers are domain-separated (the proof's Scope is `ScopeElement(nullifier_domain, raw_scope)`), so one member's nullifiers never repeat across operations. In ownership mode the public nullifier is the content's owner tag, shared by every management op on that content (see [Nullifier Modes](#nullifier-modes)).
 
 ### What's Always Hidden (Both Modes)
 
@@ -117,24 +121,36 @@ User (offline)                    Chain
 
 3. Wrap in MsgShieldedExec
    exec_mode = IMMEDIATE
-   submitter = any account
+   submitter = public anonymous submitter
+   (signed as an unordered tx)
 
 4. Broadcast ──────────────────►  5. ShieldGasDecorator (ante handler)
                                      - Detects MsgShieldedExec
+                                     - Prechecks proof, nullifier, identity
+                                       rate limit (PrecheckImmediate)
+                                     - Caps fee at max_fee_per_exec
                                      - Deducts gas from shield module account
                                      - Skips normal fee deduction for submitter
 
                                   6. msg_server.ShieldedExec()
                                      - Validates inner message type is registered
                                      - Looks up proof requirements for that message type
-                                     - Verifies ZK proof (trust tree membership)
+                                     - Verifies ZK proof (trust tree membership,
+                                       bound to the inner message); skipped if
+                                       the ante handler already verified it
                                      - Checks nullifier not used (domain + scope)
                                      - Records nullifier
-                                     - Dispatches inner message via router
+                                       (ownership mode instead: nullifier must
+                                       equal the target's owner tag; nothing is
+                                       recorded and the owner sequence advances)
+                                     - Dispatches inner message via router with
+                                       the proven trust level in context (plus
+                                       the exec nullifier or the owner tag)
 
                                   7. Target module executes normally
                                      - Sees shield module account as sender
-                                     - No knowledge that this was shielded
+                                     - Applies its own trust gates against
+                                       types.ProvenTrustLevel(ctx)
 ```
 
 ### Encrypted Batch Mode Flow
@@ -208,11 +224,17 @@ x/shield uses a single unified proof domain:
 Proves membership in the x/rep trust tree with a minimum trust level. Used for **all** anonymous operations — content (blog posts, forum posts, reactions, collections) and governance (anonymous proposals, votes, challenges).
 
 **Circuit**: `ShieldCircuit` (Groth16 over BN254)
-**Public inputs**: MerkleRoot, Nullifier, RateLimitNullifier, MinTrustLevel, Scope, RateLimitEpoch
-**Proves**: (1) member exists in trust tree, (2) trust level >= minimum, (3) valid scoped nullifier, (4) valid rate-limit nullifier for this epoch
+**Public inputs**: MerkleRoot, Nullifier, RateLimitNullifier, MinTrustLevel, Scope, RateLimitEpoch, MessageHash
+**Proves**: (1) member exists in trust tree, (2) trust level >= minimum, (3) valid scoped nullifier, (4) valid rate-limit nullifier for this epoch, (5) the proof is for one specific inner message
 **Tree source**: x/rep keeper provides the Merkle tree snapshots (leaves = `MiMC(zk_public_key, trust_level)`)
 
+The **Scope** public input is the domain-separated scope element, never the raw scope: `Scope = crypto.ScopeElement(nullifier_domain, raw_scope) = MiMC(be(nullifier_domain), be(raw_scope))`, where `raw_scope` is what `resolveNullifierScope` returns (epoch, message field value, or 0 for GLOBAL). The circuit computes `Nullifier = MiMC(secret_key, Scope)` and hashes nothing else, so with a raw scope one member's nullifiers would match across every operation sharing it (blog post 5, forum post 5 and commons proposal 5; every GLOBAL op) and link that member across modules and epochs. Hashing the domain into the scope element gives each (domain, raw scope) pair its own nullifier: `crypto.ComputeScopedNullifier(secret_key, domain, raw_scope)`. The domain separation needs no circuit change (Scope was already a field element). Chain storage still keys used nullifiers by `(domain, raw_scope, nullifier_hex)`.
+
 The **RateLimitNullifier** is derived as `H(member_secret, RateLimitDomainTag, epoch)` where `RateLimitDomainTag = MaxUint64`. It is the same for all operations by the same member in the same epoch, enabling per-identity rate limiting without revealing which member it is. The circuit proves this derivation is correct.
+
+The **MessageHash** is `crypto.ShieldMessageHash(type_url, value)` over the inner `Any` exactly as submitted (no re-encoding on either side): `sha256("sparkdream/shield/message/v1" || be32(len(type_url)) || type_url || value)` with the top three bits cleared so it is a canonical BN254 scalar. The verifier computes it from the tx, so a proof only verifies alongside the inner message it was made for - a proof copied out of a pending exec cannot be reused with different content. The circuit squares it (`api.Mul(MessageHash, MessageHash)`): a public input that appears in no constraint gets a zero verifying-key term, so any value would verify.
+
+For a `NULLIFIER_MODE_OWNERSHIP` operation (see [Nullifier Modes](#nullifier-modes)) the MessageHash is `crypto.ShieldOwnedMessageHash(type_url, value, sequence)` instead: `sha256("sparkdream/shield/owned-message/v1" || be32(len(type_url)) || type_url || value || be64(sequence))`, top three bits cleared, where `sequence` is the owner sequence the target module reports for the content. The separate domain string keeps the two hash families disjoint.
 
 > **Note**: The original design had a separate `PROOF_DOMAIN_VOTER_TREE` for governance operations. This was removed because the unified `ShieldCircuit` handles all proof domains — governance operations use `TRUST_TREE` with `min_trust_level = 0` (any member). The `PROOF_DOMAIN_VOTER_TREE` enum value (2) is reserved but unused.
 
@@ -235,18 +257,43 @@ message VerificationKey {
 }
 ```
 
-The verification key is set at genesis and can only be updated via chain upgrade (not governance parameter changes) to prevent malicious key substitution. When no verification key is stored (test mode / early startup), all proof verification is skipped — this allows E2E testing without a trusted setup ceremony.
+The verification key is set at genesis and can only be updated via chain upgrade (not governance parameter changes) to prevent malicious key substitution. When no verification key is stored, production builds (mainnet/testnet/devnet) reject every exec with `ErrNoVerificationKey`; only `testparams` builds skip proof verification, which allows E2E testing without a trusted setup ceremony.
 
 ### Proof Verification Flow
 
 ```go
-func (k Keeper) verifyProof(ctx context.Context, msg *types.MsgShieldedExec, scope uint64) error {
+// proofBinding is what the chain binds a proof's Scope and MessageHash
+// public inputs to.
+type proofBinding struct {
+    scope       []byte // crypto.ScopeElement(domain, rawScope)
+    messageHash []byte // ShieldMessageHash, or ShieldOwnedMessageHash in ownership mode
+}
+
+// Consume mode (immediate and batch): the registration's domain and the
+// resolved raw scope.
+func consumeBinding(domain uint32, rawScope uint64, msg *types.MsgShieldedExec) proofBinding {
+    return proofBinding{scope: zkcrypto.ScopeElement(domain, rawScope), messageHash: messageHash(msg)}
+}
+
+// Ownership mode: the owner claim's domain and scope, and a message hash that
+// also covers the owner's current sequence.
+func ownedBinding(claim types.OwnershipClaim, msg *types.MsgShieldedExec) proofBinding {
+    return proofBinding{
+        scope:       zkcrypto.ScopeElement(claim.Domain, claim.Scope),
+        messageHash: zkcrypto.ShieldOwnedMessageHash(msg.InnerMessage.TypeUrl, msg.InnerMessage.Value, claim.Sequence),
+    }
+}
+
+func (k Keeper) verifyProof(ctx context.Context, msg *types.MsgShieldedExec, binding proofBinding) error {
     // 1. Look up verification key — unified circuit for all domains.
-    // When no VK is stored (test mode / early startup), skip ALL verification
-    // including merkle root validation.
+    // No VK: production builds refuse; testparams builds skip ALL
+    // verification, including merkle root validation.
     const circuitID = "shield_v1"
     storedVK, found := k.GetVerificationKeyVal(ctx, circuitID)
     if !found || len(storedVK.VkBytes) == 0 {
+        if requireVerificationKey() {
+            return types.ErrNoVerificationKey
+        }
         return nil
     }
 
@@ -262,9 +309,11 @@ func (k Keeper) verifyProof(ctx context.Context, msg *types.MsgShieldedExec, sco
     }
 
     // 4. Deserialize and verify the proof against the unified ShieldCircuit
-    // Public inputs: MerkleRoot, Nullifier, RateLimitNullifier, MinTrustLevel, Scope, RateLimitEpoch
+    // Public inputs: MerkleRoot, Nullifier, RateLimitNullifier, MinTrustLevel,
+    // Scope (= binding.scope, the domain-separated scope element), RateLimitEpoch,
+    // MessageHash (= binding.messageHash)
     epoch := k.GetCurrentEpoch(ctx)
-    return k.verifyShieldProof(vk, proof, msg, scope, epoch)
+    return k.verifyShieldProof(vk, proof, msg, binding, epoch)
 }
 ```
 
@@ -359,6 +408,11 @@ message Params {
   // Validator set drift percentage (0-100) that triggers automatic re-keying.
   // e.g. 33 means re-key if >33% of DKG participants are no longer in the bonded set.
   uint32 max_validator_set_drift = 18;
+
+  // Maximum fee (bond denom) the module pays for one MsgShieldedExec. The
+  // submitter picks the fee but the module pays it; a higher fee, or any other
+  // denom, is refused before anything is paid.
+  string max_fee_per_exec = 19 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
 }
 ```
 
@@ -393,6 +447,17 @@ message ShieldedOpRegistration {
   // e.g. "post_id", "proposal_id", "collection_id"
   // Must refer to a uint64 field in the inner message
   string scope_field_path = 8;
+
+  // What the nullifier proves: a consumed one-time action (default) or
+  // ownership of anonymously created content. OWNERSHIP ignores
+  // nullifier_scope_type and scope_field_path (the target module supplies the
+  // owner's scope) and requires batch_mode IMMEDIATE_ONLY.
+  NullifierMode nullifier_mode = 9;
+
+  // For NULLIFIER_SCOPE_EPOCH: the scope is current_epoch / epoch_window, so
+  // each member gets one action per window of this many shield epochs instead
+  // of one per epoch. 0 or 1 = every epoch. Must be 0 for other scope types.
+  uint64 epoch_window = 10;
 }
 
 enum ProofDomain {
@@ -410,6 +475,17 @@ enum NullifierScopeType {
   NULLIFIER_SCOPE_GLOBAL = 2;
 }
 
+enum NullifierMode {
+  // The nullifier is consumed: each (member, scope) acts once.
+  NULLIFIER_MODE_CONSUME = 0;
+  // The nullifier proves ownership of anonymously created content and is
+  // reused: the target module's ShieldOwnershipResolver supplies the owner's
+  // domain, scope and tag (the creation nullifier), the proof must reproduce
+  // the tag, and the owner's sequence (bound into the message hash) stops
+  // replays. Immediate mode only.
+  NULLIFIER_MODE_OWNERSHIP = 1;
+}
+
 enum ShieldBatchMode {
   // Only immediate execution allowed
   SHIELD_BATCH_MODE_IMMEDIATE_ONLY = 0;
@@ -419,6 +495,8 @@ enum ShieldBatchMode {
   SHIELD_BATCH_MODE_EITHER = 2;
 }
 ```
+
+`ShieldedOpRegistration.Validate()` (`x/shield/types/registration.go`) requires a non-empty `message_type_url` and rejects `NULLIFIER_MODE_OWNERSHIP` with any batch mode other than `IMMEDIATE_ONLY` (`ErrOwnershipBatchMode`). Both genesis validation and `MsgRegisterShieldedOp` run it.
 
 ### Used Nullifiers
 
@@ -432,6 +510,8 @@ message UsedNullifier {
   int64  used_at_height = 4;
 }
 ```
+
+`scope` here is the raw scope (epoch, message field value, or 0), not the proof's scope element: the domain is already part of the key. Only consume-mode execs record nullifiers; ownership-mode execs reuse the owner tag and record nothing, and x/shield keeps no ownership state (the owner claim and its sequence live with the content in the target module).
 
 ### Funding Ledger
 
@@ -499,7 +579,8 @@ The single entry point for all anonymous operations. Supports both immediate and
 message MsgShieldedExec {
   option (cosmos.msg.v1.signer) = "submitter";
 
-  // Any account — does not need funds, identity is irrelevant
+  // Any account — does not need funds, identity is irrelevant. Clients
+  // default to the shared public anonymous submitter (see below).
   string submitter = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
 
   // --- Immediate mode fields (cleartext) ---
@@ -509,7 +590,8 @@ message MsgShieldedExec {
   // REQUIRED for IMMEDIATE mode, EMPTY for ENCRYPTED_BATCH mode
   google.protobuf.Any inner_message = 2;
 
-  // ZK proof bytes (Groth16 over BN254)
+  // ZK proof bytes (Groth16 over BN254), bound to inner_message via the
+  // circuit's MessageHash public input
   // REQUIRED for IMMEDIATE mode, EMPTY for ENCRYPTED_BATCH mode
   bytes proof = 3;
 
@@ -564,6 +646,17 @@ message MsgShieldedExecResponse {
   uint64 pending_op_id = 2;
 }
 ```
+
+### Public Anonymous Submitter
+
+`MsgShieldedExec` still needs an outer signer, and a member's own address would deanonymize them. `types.PublicSubmitterAddress()` is a shared secp256k1 account whose private key is **public on purpose**: it is derived from `sha256("sparkdream/shield/public-submitter/v1")` (`types.PublicSubmitterPrivKey()`). Every anonymous client signs its exec with it, so all anonymous actions come from one address and the outer signer reveals nothing. The ZK proof, not the signature, authorizes an exec.
+
+- Clients send **unordered** txs, so concurrent submitters never race on the account's sequence.
+- `InitGenesis` creates the account if it is missing - clients sign with its account number, which a just-created account would not have yet.
+- Because anyone can sign as it, the `ShieldGasDecorator` refuses any tx signed by it that is not a `MsgShieldedExec` (`sdkerrors.ErrUnauthorized`), so nothing else it signs is spendable by anyone.
+- Anyone can also rewrap a pending exec in a new outer tx; the CheckTx nullifier mark in `PrecheckImmediate` keeps those copies out of the mempool, and the message binding (`MessageHash`) stops a copy from carrying different content.
+
+Any other account still works as submitter; the public one is the recommended default.
 
 ### DKG via Vote Extensions
 
@@ -752,48 +845,71 @@ service Query {
 
 ## Ante Handler: ShieldGasDecorator
 
-The critical piece that enables gasless submission. Inserted into the ante handler chain:
+The critical piece that enables gasless submission. Inserted into the ante handler chain. Because the module pays, the decorator validates the exec **before** any fee moves (SHIELD-8):
 
 ```go
 func (d ShieldGasDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (sdk.Context, error) {
-    msgs := tx.GetMsgs()
-
-    // Check if any message is MsgShieldedExec
-    hasShieldedExec := false
-    for _, msg := range msgs {
-        if _, ok := msg.(*shieldtypes.MsgShieldedExec); ok {
-            hasShieldedExec = true
-            break
-        }
-    }
+    shieldMsg, hasShieldedExec := firstShieldedExec(tx.GetMsgs())
 
     if !hasShieldedExec {
+        // The public anonymous submitter's key is public: refuse anything
+        // else it signed (ErrUnauthorized).
+        if err := rejectPublicSubmitter(tx); err != nil {
+            return ctx, err
+        }
         return next(ctx, tx, simulate)
     }
 
-    // REJECT multi-message transactions containing MsgShieldedExec.
-    // Bundling MsgShieldedExec with other messages (e.g. MsgSend) would:
-    // 1. Deanonymize the shielded exec (the other message reveals the submitter's identity)
-    // 2. Allow piggybacking non-shield messages on module-paid gas
-    if len(msgs) != 1 {
+    // REJECT multi-message transactions containing MsgShieldedExec
+    // (deanonymization + piggybacking on module-paid gas).
+    if len(tx.GetMsgs()) != 1 {
         return ctx, shieldtypes.ErrMultiMsgNotAllowed
     }
 
-    // Check shield module is enabled
-    params, err := d.shieldKeeper.GetShieldParams(ctx)
-    if err != nil {
-        return ctx, err
-    }
+    params, _ := d.shieldKeeper.GetShieldParams(ctx)
     if !params.Enabled {
         return ctx, shieldtypes.ErrShieldDisabled
     }
 
-    // Calculate fee from gas
-    feeTx, ok := tx.(sdk.FeeTx)
-    if !ok {
-        return ctx, sdkerrors.ErrTxDecode
+    // --- Anti-spam checks BEFORE paying gas ---
+    // 1-3. Format: 32-byte nullifier; immediate mode also needs a 32-byte
+    //      rate-limit nullifier and a proof of at least 128 bytes.
+    //      Batch execs are refused outright while batch mode is off.
+    if immediate {
+        // ... length checks (ErrInvalidNullifierLength / ErrInvalidProof)
+    } else if !params.EncryptedBatchEnabled {
+        return ctx, shieldtypes.ErrEncryptedBatchDisabled
     }
-    fees := feeTx.GetFee()
+
+    if immediate {
+        // 4. Full validation: registration, nullifier freshness, identity
+        //    rate limit, then the proof (incl. MessageHash). The identity rate
+        //    limit bounds spend per member, so there is no per-address cap
+        //    (anonymous clients share one submitter address). Outside
+        //    DeliverTx this runs behind the node-local proof guard (rejected-
+        //    proof cache + verification throttle; see below).
+        if err := d.precheckImmediate(ctx, shieldMsg, simulate); err != nil {
+            return ctx, err
+        }
+        // The msg server needn't verify the proof again.
+        ctx = shieldtypes.WithProofVerified(ctx, shieldMsg)
+    } else {
+        // 4. Batch execs can't be verified until decryption: cap execs per
+        //    submitter address per epoch instead (maxSubmitterExecsPerEpoch).
+        if d.shieldKeeper.GetSubmitterExecCount(ctx, epoch, shieldMsg.Submitter) >= maxSubmitterExecsPerEpoch {
+            return ctx, shieldtypes.ErrRateLimitExceeded
+        }
+        d.shieldKeeper.IncrementSubmitterExecCount(ctx, epoch, shieldMsg.Submitter)
+    }
+
+    fees := tx.(sdk.FeeTx).GetFee()
+
+    // 5. The submitter picks the fee but the module pays it: bond denom only,
+    //    at most max_fee_per_exec.
+    maxFee := sdk.NewCoins(sdk.NewCoin(d.shieldKeeper.BondDenom(ctx), params.MaxFeePerExec))
+    if !fees.IsZero() && !fees.IsAllLTE(maxFee) {
+        return ctx, shieldtypes.ErrFeeTooHigh
+    }
 
     if fees.IsZero() {
         // No fees to pay — proceed (gas is still metered)
@@ -802,13 +918,8 @@ func (d ShieldGasDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool
     }
 
     // Deduct fees from shield module account → fee collector
-    err = d.bankKeeper.SendCoinsFromModuleToModule(
-        ctx,
-        shieldtypes.ModuleName,       // source: shield module
-        authtypes.FeeCollectorName,    // dest: fee collector
-        fees,
-    )
-    if err != nil {
+    if err := d.bankKeeper.SendCoinsFromModuleToModule(ctx,
+        shieldtypes.ModuleName, authtypes.FeeCollectorName, fees); err != nil {
         return ctx, shieldtypes.ErrShieldGasDepleted
     }
 
@@ -817,6 +928,21 @@ func (d ShieldGasDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool
     return next(ctx, tx, simulate)
 }
 ```
+
+`PrecheckImmediate` runs the same read-only validation as the msg server (`validateImmediate`). In CheckTx (but not simulate) it also marks the exec spent in the check state, which is discarded at every commit - a consume-mode nullifier is recorded, and an ownership-mode exec calls the target module's `AdvanceOwnership` so the owner sequence moves on: anyone can sign as the public submitter, so anyone can rewrap a pending exec in new outer txs, and without the mark every copy would enter the mempool and take block space until the first one landed.
+
+### Mempool CPU Guard (CheckTx Proof Verification)
+
+Verifying in CheckTx means a Groth16 pairing check (~1.5-3 ms per proof) for every immediate exec a node admits. Public-submitter txs are unordered and an invalid proof is rejected before any fee moves, so submission is free: without a guard, anyone could make every node pay a pairing check per submission, indefinitely (staged-upgrade review finding **M4** - **mitigated**). The reserve is never at risk either way; this is purely a CPU-DoS defence. `ShieldGasDecorator.precheckImmediate` (`x/shield/ante/proof_guard.go`) wraps `PrecheckImmediate` with two **node-local, non-consensus** defences:
+
+1. **Rejected-proof cache.** A bounded, mutex-guarded LRU (`rejectedProofCacheSize` = 4096 keys, < 1 MiB) of execs whose proof failed verification. An identical resubmission is refused with `ErrInvalidProof` ("proof already rejected by this node") without verifying again. The key is `sha256` over: the full `MsgShieldedExec` bytes (proof, merkle root, nullifiers, min trust level, proof domain, inner message - every public input the message carries), the stored `shield_v1` VK bytes (a governance VK change invalidates every entry), the current shield epoch (the `RateLimitEpoch` input and the scope of epoch-scoped ops) and the op's registration (nullifier domain and scope derivation). Verification is then a pure function of the key, so a cached rejection can never become valid. Only `ErrInvalidProof` is cached: in the `PrecheckImmediate` path it comes solely from proof verification (decoding the VK/proof, building the witness, the pairing check); every state-dependent failure (shield disabled, unregistered/inactive op, stale merkle root, used nullifier, identity rate limit) has its own error code and is re-checked each time. Ownership-mode execs are never cached - their Scope and MessageHash inputs come from the target content's owner record (scope, sequence), which the key cannot cover.
+2. **Verification throttle.** A token bucket (`proofVerifyRate` = 150/s sustained, `proofVerifyBurst` = 300) caps how many verifications new CheckTx and simulate run. 150/s bounds an attacker to roughly a third to half of one core, while honest anonymous traffic - capped per member by `max_execs_per_identity_per_epoch` - sits far below it; the burst absorbs a flush of queued txs after a network hiccup. When the bucket is empty the exec is refused with **`ErrProofVerificationThrottled`** (code 51, retryable: honest clients resubmit the same tx a moment later). A cache hit costs no token, and an exec that fails a cheap state check before any verification gets its token back. **ReCheckTx is never throttled** - that would evict txs that already passed.
+
+Both are used only in CheckTx / ReCheckTx / simulate and **never in DeliverTx** (`FinalizeBlock`), which always verifies, so consensus never depends on node-local memory. Neither applies without a stored VK (test-mode builds), where nothing is verified. The constants are package-level vars in `x/shield/ante` (tests override them).
+
+`validateImmediate` also orders every cheap state check **before** the pairing check: registration, proof domain, trust level, ownership/nullifier freshness, the identity rate limit, and (inside `verifyProof`) the merkle root all run first, so garbage with a bogus root or a spent nullifier is rejected without a pairing. Reordering changes only which error a doubly-invalid exec reports; DeliverTx outcomes are identical.
+
+Operators can additionally bound what any one peer can push at them with CometBFT's per-peer p2p limits (`send_rate` / `recv_rate` in `config.toml`, plus the mempool's `size` / `max_txs_bytes`); the chain ships no p2p changes.
 
 The decorator is placed **before** the standard `DeductFeeDecorator` in the ante chain. The standard decorator checks the `ContextKeyFeePaid` flag and skips deduction if already handled.
 
@@ -1068,16 +1194,12 @@ To handle carried-over ops, validators can embed decryption shares for past epoc
 
 ## EndBlocker: Batch Execution
 
-The EndBlocker checks at each block whether a batch should execute:
+The EndBlocker advances the shield epoch at each boundary and, when encrypted batch mode is enabled, checks whether a batch should execute. The epoch advances **whether or not** `encrypted_batch_enabled` is set: immediate mode reads it for EPOCH-scoped nullifiers and per-epoch identity rate limits, so a frozen epoch would turn those into lifetime limits.
 
 ```go
 func (k Keeper) EndBlocker(ctx context.Context) error {
     sdkCtx := sdk.UnwrapSDKContext(ctx)
     params := k.GetParams(ctx)
-
-    if !params.EncryptedBatchEnabled {
-        return nil
-    }
 
     epochState := k.GetShieldEpochState(ctx)
     currentHeight := sdkCtx.BlockHeight()
@@ -1094,14 +1216,20 @@ func (k Keeper) EndBlocker(ctx context.Context) error {
         EpochStartHeight: currentHeight,
     })
 
-    // Try to process the PREVIOUS epoch's pending ops
-    prevEpoch := epochState.CurrentEpoch
-    k.tryProcessBatch(ctx, params, prevEpoch, currentHeight)
+    if params.EncryptedBatchEnabled {
+        // Try to process the PREVIOUS epoch's pending ops
+        prevEpoch := epochState.CurrentEpoch
+        k.tryProcessBatch(ctx, params, prevEpoch, currentHeight)
 
-    // Also try to process any carried-over ops from older epochs
-    k.processCarriedOverBatches(ctx, params, prevEpoch, currentHeight)
+        // Also try to process any carried-over ops from older epochs
+        k.processCarriedOverBatches(ctx, params, prevEpoch, currentHeight)
 
-    // Prune stale state (rate limits, old nullifiers, day fundings, decryption state)
+        // Check TLE liveness — increment miss counters and jail violators
+        k.checkTLELiveness(ctx, prevEpoch)
+    }
+
+    // Prune stale state every epoch, batch mode or not
+    // (rate limits, old nullifiers, day fundings, decryption state)
     k.pruneStaleState(ctx, newEpoch)
 
     return nil
@@ -1217,8 +1345,20 @@ func (k Keeper) executeDecryptedOp(ctx context.Context, params types.Params, op 
         return types.ErrInsufficientTrustLevel
     }
 
-    // 4. Verify ZK proof (now decrypted and readable) — x/shield owns verification
-    if err := k.verifyProofForBatch(ctx, op); err != nil {
+    //    Ownership ops bind the owner sequence at execution, which a batch
+    //    submitter can't predict: they are immediate-only and dropped here
+    //    (registration validation already forbids non-IMMEDIATE_ONLY ownership ops).
+    if reg.NullifierMode == types.NullifierMode_NULLIFIER_MODE_OWNERSHIP {
+        return types.ErrOwnershipBatchMode
+    }
+
+    // 4. Resolve the raw scope and verify the ZK proof (now decrypted and
+    //    readable) against consumeBinding: Scope = ScopeElement(domain, scope)
+    scope, err := k.resolveNullifierScope(ctx, reg, &types.MsgShieldedExec{InnerMessage: op.innerMsg})
+    if err != nil {
+        return err // unreadable MESSAGE_FIELD scope
+    }
+    if err := k.verifyProofForBatch(ctx, op, reg.NullifierDomain, scope); err != nil { // consumeBinding
         return types.ErrInvalidProof
     }
 
@@ -1244,16 +1384,25 @@ func (k Keeper) executeDecryptedOp(ctx context.Context, params types.Params, op 
     //    a nullifier previously used in immediate mode must also be rejected here.
     sdkCtx := sdk.UnwrapSDKContext(ctx)
     nullifierHex := hex.EncodeToString(op.pending.Nullifier)
-    scope := k.resolveNullifierScope(ctx, reg, &types.MsgShieldedExec{InnerMessage: op.innerMsg})
     if k.IsNullifierUsed(ctx, reg.NullifierDomain, scope, nullifierHex) {
         return types.ErrNullifierUsed
     }
     k.RecordNullifier(ctx, reg.NullifierDomain, scope, nullifierHex, sdkCtx.BlockHeight())
 
-    // 8. Execute with gas limit
-    childCtx := sdkCtx.WithGasMeter(storetypes.NewGasMeter(params.MaxGasPerExec))
-    _, err = handler(childCtx, innerMsg)
-    return err
+    // 8. Execute with gas limit, the proven trust level and the exec nullifier
+    //    in context
+    childCtx := types.WithExecNullifier(types.WithProvenTrustLevel(sdkCtx, op.pending.MinTrustLevel),
+        types.ExecNullifier{Domain: reg.NullifierDomain, Scope: scope, Nullifier: op.pending.Nullifier}).
+        WithGasMeter(storetypes.NewGasMeter(params.MaxGasPerExec))
+    result, err := handler(childCtx, innerMsg)
+    if err != nil {
+        return err
+    }
+    // The router runs the handler on a fresh event manager: re-emit its events
+    // (e.g. collection_created, coin_spent) so clients can read what an
+    // anonymous action created. They name the shield address, never the member.
+    sdkCtx.EventManager().EmitEvents(result.GetEvents())
+    return nil
 }
 ```
 
@@ -1313,7 +1462,7 @@ func (k Keeper) processCarriedOverBatches(ctx context.Context, params types.Para
 
 ## State Pruning
 
-The EndBlocker performs periodic pruning to prevent unbounded state growth. Pruning runs once per epoch boundary (same trigger as batch processing):
+The EndBlocker performs periodic pruning to prevent unbounded state growth. Pruning runs once per epoch boundary, whether or not encrypted batch mode is enabled:
 
 ```go
 func (k Keeper) pruneStaleState(ctx context.Context, currentEpoch uint64) {
@@ -1336,6 +1485,9 @@ func (k Keeper) pruneStaleState(ctx context.Context, currentEpoch uint64) {
     // 2. Prune epoch-scoped UsedNullifiers.
     //    Nullifiers with NULLIFIER_SCOPE_EPOCH only need to persist for max_pending_epochs
     //    (to prevent replay of carried-over batch ops). GLOBAL nullifiers are never pruned.
+    //    Keys are (domain, scope, hex), so each EPOCH-scoped domain is pruned by one
+    //    range scan [(domain, 0), (domain, cutoffEpoch)) - the ever-growing
+    //    MESSAGE_FIELD nullifiers are never visited.
     if cutoffEpoch > 0 {
         k.PruneEpochScopedNullifiers(ctx, cutoffEpoch)
     }
@@ -1358,7 +1510,7 @@ func (k Keeper) pruneStaleState(ctx context.Context, currentEpoch uint64) {
 This is called from `EndBlocker` after batch processing:
 
 ```go
-// In EndBlocker, after tryProcessBatch and processCarriedOverBatches:
+// In EndBlocker, after the (batch-mode-only) batch processing:
 k.pruneStaleState(ctx, newEpoch)
 ```
 
@@ -1414,6 +1566,70 @@ func (k msgServer) IsShieldCompatible(ctx context.Context, msg sdk.Msg) bool {
 
 Each module lists exactly which of its message types are safe for anonymous execution. This is a compile-time declaration that cannot be changed by governance.
 
+### Ownership Resolver (Optional)
+
+A `ShieldAware` module whose anonymously created content can later be managed by its anonymous creator also implements `ShieldOwnershipResolver` (`x/shield/types/shield_aware.go`). x/shield type-asserts the module's `ShieldAware` implementation to it for every `NULLIFIER_MODE_OWNERSHIP` operation; a module that does not implement it fails those operations with `ErrNotOwnable`.
+
+```go
+// OwnershipClaim identifies the anonymous owner of some content: the domain and
+// raw scope of the proof that created it, the resulting nullifier (the owner
+// tag), and the owner's current sequence.
+type OwnershipClaim struct {
+    Domain   uint32
+    Scope    uint64
+    Tag      []byte
+    Sequence uint64
+}
+
+type ShieldOwnershipResolver interface {
+    // ResolveOwnership returns the ownership claim msg acts under, or an error
+    // if its target is missing or not anonymously owned.
+    ResolveOwnership(ctx context.Context, msg sdk.Msg) (OwnershipClaim, error)
+
+    // AdvanceOwnership increments the claim's sequence, so the proof just
+    // accepted (bound to the old sequence) can never be replayed.
+    AdvanceOwnership(ctx context.Context, msg sdk.Msg) error
+}
+```
+
+The claim, including its sequence, is stored by the target module alongside the content (x/collect: `Collection.anon_owner_domain/scope/tag/sequence`), so it is pruned with the content and x/shield keeps no ownership state of its own. A resolver error, or a claim with an empty tag, is wrapped as `ErrNotOwnable`. x/collect is the only module implementing it today.
+
+### Exec Context Values
+
+x/shield passes what the proof established to the inner message's handler through the context (`x/shield/types/exec_context.go`, `proven_trust.go`):
+
+| Accessor | Set for | Value |
+|----------|---------|-------|
+| `ProvenTrustLevel(ctx)` | Every exec (immediate and batch) | The proven `min_trust_level` |
+| `GetExecNullifier(ctx)` | Consume-mode execs (immediate and batch) | `ExecNullifier{Domain, Scope, Nullifier}`: the registration's domain, the resolved raw scope, and the consumed nullifier |
+| `GetOwnershipTag(ctx)` | Ownership-mode execs | The owner tag the proof reproduced |
+
+A module that lets the anonymous creator manage content later stores the `ExecNullifier` of the creating exec as the content's owner claim; before letting the shield address manage that content it compares `GetOwnershipTag(ctx)` with the stored tag. Without a matching tag in context the shield address owns nothing, so one anonymous member cannot manage another's content even though both act as the same shield account.
+
+## Nullifier Modes
+
+`ShieldedOpRegistration.nullifier_mode` decides what an operation's nullifier proves.
+
+**`NULLIFIER_MODE_CONSUME` (default)** - the nullifier is a one-time action token. It must be unused under `(nullifier_domain, raw_scope)`, is recorded on execution, and the proof's Scope is `ScopeElement(nullifier_domain, raw_scope)` with the raw scope from `nullifier_scope_type`. Every operation registered before ownership mode existed is a consume op.
+
+**`NULLIFIER_MODE_OWNERSHIP`** - the nullifier proves the submitter is the anonymous creator of the target content and is deliberately reused. For an ownership op, `validateImmediate`:
+
+1. Decodes the inner message and resolves the module's `ShieldOwnershipResolver` (`ErrIncompatibleOperation` if no `ShieldAware` module is registered for the type, `ErrNotOwnable` if it does not resolve ownership).
+2. Calls `ResolveOwnership` to get the content's `OwnershipClaim`.
+3. Requires `msg.nullifier == claim.Tag` (`ErrOwnershipMismatch`). Only the creator's secret key yields the tag over the claim's domain and scope.
+4. Verifies the proof with `Scope = ScopeElement(claim.Domain, claim.Scope)` and `MessageHash = ShieldOwnedMessageHash(type_url, value, claim.Sequence)`. `nullifier_scope_type` and `scope_field_path` are ignored.
+5. Checks the identity rate limit as usual. The nullifier is NOT checked against or recorded in `UsedNullifiers`.
+
+`handleImmediate` then calls `AdvanceOwnership` (sequence + 1), counts the rate limit, and runs the inner message with `WithOwnershipTag(ctx, tag)` and the proven trust level. Advancing the sequence retires the proof: the next ownership proof for the same content must bind the new sequence. In CheckTx (not simulate) `PrecheckImmediate` calls `AdvanceOwnership` in the check state, the ownership counterpart of the consume-mode nullifier mark, so rewrapped copies of a pending ownership exec leave the mempool.
+
+`nullifier_domain` on an ownership registration only labels the operation (it appears in the `shielded_exec` event); nothing is recorded under it. The domain proven against is the claim's, i.e. the creation op's.
+
+**Immediate only.** An ownership proof binds the owner sequence at execution time, which an encrypted batch submitter cannot predict. `ShieldedOpRegistration.Validate()` rejects an ownership registration whose batch mode is not `IMMEDIATE_ONLY` (`ErrOwnershipBatchMode`), and the batch executor drops any decrypted ownership op.
+
+**Groth16 malleability.** A Groth16 proof can be re-randomized by anyone into a different valid proof for the same public inputs. Because the public inputs bind the exact inner message and the owner sequence, a mauled copy of a pending ownership exec can only run that same operation once; after it lands the sequence has advanced and every copy fails verification.
+
+**Linkability.** Management ops on one piece of content all carry its owner tag, so they are linkable to each other and to the creation exec (whose nullifier is the tag). They are not linkable to the member or to the member's other content: the tag is a domain-separated nullifier, distinct for every (domain, scope) pair.
+
 ## Execution Flow
 
 ### MsgShieldedExec Handler
@@ -1438,66 +1654,125 @@ func (k msgServer) ShieldedExec(goCtx context.Context, msg *types.MsgShieldedExe
     }
 }
 
-// handleImmediate verifies the ZK proof and executes the inner message immediately.
-func (k msgServer) handleImmediate(ctx sdk.Context, params types.Params, msg *types.MsgShieldedExec) (*types.MsgShieldedExecResponse, error) {
-    // 1. Look up registered operation
-    typeURL := msg.InnerMessage.TypeUrl
-    reg, found := k.GetShieldedOp(ctx, typeURL)
+// validateImmediate runs every read-only check of an immediate exec. The ante
+// handler runs it too (PrecheckImmediate) before the module pays the fee.
+func (k Keeper) validateImmediate(ctx context.Context, params types.Params, msg *types.MsgShieldedExec) (immediateExec, error) {
+    // 1. Look up registered operation (must exist and be active)
+    reg, found := k.GetShieldedOp(ctx, msg.InnerMessage.TypeUrl)
     if !found {
-        return nil, types.ErrUnregisteredOperation
+        return immediateExec{}, types.ErrUnregisteredOperation
     }
     if !reg.Active {
-        return nil, types.ErrOperationInactive
+        return immediateExec{}, types.ErrOperationInactive
     }
 
     // 2. Validate batch mode allows immediate
     if reg.BatchMode == types.SHIELD_BATCH_MODE_ENCRYPTED_ONLY {
-        return nil, types.ErrImmediateNotAllowed
+        return immediateExec{}, types.ErrImmediateNotAllowed
     }
 
     // 3. Validate proof domain matches registration
     if msg.ProofDomain != reg.ProofDomain {
-        return nil, types.ErrProofDomainMismatch
+        return immediateExec{}, types.ErrProofDomainMismatch
     }
 
     // 4. Validate minimum trust level meets requirement
     if msg.MinTrustLevel < reg.MinTrustLevel {
-        return nil, types.ErrInsufficientTrustLevel
+        return immediateExec{}, types.ErrInsufficientTrustLevel
     }
 
-    // 5. Resolve nullifier scope and verify ZK proof
-    scope := k.resolveNullifierScope(ctx, reg, msg)
-    if err := k.verifyProof(ctx, msg, scope); err != nil {
+    // 5. Resolve what the proof is bound to, check the nullifier, verify the
+    //    proof. Verification is skipped when the ante handler already verified
+    //    this message in the same tx (types.WithProofVerified).
+    v := immediateExec{reg: reg}
+    var binding proofBinding
+    if reg.NullifierMode == types.NullifierMode_NULLIFIER_MODE_OWNERSHIP {
+        // Ownership: the target module supplies the owner claim; the proof
+        // must reproduce its tag over the claim's domain and scope.
+        owner, claim, err := k.resolveOwnership(ctx, msg) // ErrIncompatibleOperation / ErrNotOwnable
+        if err != nil {
+            return immediateExec{}, err
+        }
+        if !bytes.Equal(msg.Nullifier, claim.Tag) {
+            return immediateExec{}, types.ErrOwnershipMismatch
+        }
+        v.owner = owner
+        binding = ownedBinding(claim, msg)
+    } else {
+        scope, err := k.resolveNullifierScope(ctx, reg, msg)
+        if err != nil {
+            return immediateExec{}, err
+        }
+        if k.IsNullifierUsed(ctx, reg.NullifierDomain, scope, hex.EncodeToString(msg.Nullifier)) {
+            return immediateExec{}, types.ErrNullifierUsed
+        }
+        v.scope = scope
+        binding = consumeBinding(reg.NullifierDomain, scope, msg)
+    }
+
+    // 6. Identity under its rate limit - before the proof, like every other
+    //    state check, so CheckTx rejects it without a pairing check.
+    if k.GetIdentityRateLimitCount(ctx, hex.EncodeToString(msg.RateLimitNullifier)) >= params.MaxExecsPerIdentityPerEpoch {
+        return immediateExec{}, types.ErrRateLimitExceeded
+    }
+
+    // Last, the ZK proof (verifyProof checks the merkle root first).
+    if !types.ProofVerified(ctx, msg) {
+        if err := k.verifyProof(ctx, msg, binding); err != nil {
+            return immediateExec{}, err
+        }
+    }
+    return v, nil
+}
+
+// handleImmediate validates the exec and executes the inner message immediately.
+func (k msgServer) handleImmediate(ctx sdk.Context, params types.Params, msg *types.MsgShieldedExec) (*types.MsgShieldedExecResponse, error) {
+    v, err := k.validateImmediate(ctx, params, msg)
+    if err != nil {
         return nil, err
     }
-
-    // 6. Check and record nullifier
     nullifierHex := hex.EncodeToString(msg.Nullifier)
-    if k.IsNullifierUsed(ctx, reg.NullifierDomain, scope, nullifierHex) {
-        return nil, types.ErrNullifierUsed
-    }
-    k.RecordNullifier(ctx, reg.NullifierDomain, scope, nullifierHex, ctx.BlockHeight())
+    execCtx := types.WithProvenTrustLevel(ctx, msg.MinTrustLevel)
 
-    // 7. Check per-identity rate limit (uses rate_limit_nullifier, NOT the operation nullifier)
-    // rate_limit_nullifier = H(secret, "rate_limit", epoch) — same for all ops by same member in same epoch
+    if v.owner != nil {
+        // 7. Ownership: the nullifier is the owner tag and is reused, so it is
+        //    not recorded; advancing the owner's sequence retires this proof.
+        if err := v.owner.resolver.AdvanceOwnership(ctx, v.owner.innerMsg); err != nil {
+            return nil, err
+        }
+        execCtx = types.WithOwnershipTag(execCtx, v.owner.tag)
+    } else {
+        // 7. Record nullifier, and expose it to the target module (which may
+        //    keep it as the owner tag of content it creates)
+        k.RecordNullifier(ctx, v.reg.NullifierDomain, v.scope, nullifierHex, ctx.BlockHeight())
+        execCtx = types.WithExecNullifier(execCtx, types.ExecNullifier{
+            Domain: v.reg.NullifierDomain, Scope: v.scope, Nullifier: msg.Nullifier,
+        })
+    }
+
+    // 8. Count against the per-identity rate limit (uses rate_limit_nullifier,
+    //    NOT the operation nullifier - same for all ops by same member in same epoch)
     rateLimitHex := hex.EncodeToString(msg.RateLimitNullifier)
     if !k.CheckAndIncrementRateLimit(ctx, rateLimitHex, params.MaxExecsPerIdentityPerEpoch) {
         return nil, types.ErrRateLimitExceeded
     }
 
-    // 8. Decode, validate signer, check ShieldAware interface, and execute inner message
-    resp, err := k.executeInnerMessage(ctx, params, msg.InnerMessage)
+    // 9. Decode, validate signer, check ShieldAware interface, and execute inner
+    //    message with the proven trust level (and exec nullifier or owner tag)
+    //    in context
+    resp, err := k.executeInnerMessage(execCtx, params, msg.InnerMessage)
     if err != nil {
         return nil, err
     }
 
-    // 9. Emit event (no identity information)
+    // 10. Emit event (no identity information)
     ctx.EventManager().EmitEvent(sdk.NewEvent(
         types.EventTypeShieldedExec,
-        sdk.NewAttribute(types.AttributeKeyMessageType, typeURL),
-        sdk.NewAttribute(types.AttributeKeyNullifierDomain, fmt.Sprintf("%d", reg.NullifierDomain)),
+        sdk.NewAttribute(types.AttributeKeyMessageType, msg.InnerMessage.TypeUrl),
+        sdk.NewAttribute(types.AttributeKeyNullifierDomain, fmt.Sprintf("%d", v.reg.NullifierDomain)),
         sdk.NewAttribute(types.AttributeKeyNullifierHex, nullifierHex),
         sdk.NewAttribute(types.AttributeKeyExecMode, "immediate"),
+        sdk.NewAttribute(types.AttributeKeyNullifierMode, v.reg.NullifierMode.String()),
     ))
 
     return &types.MsgShieldedExecResponse{InnerResponse: resp}, nil
@@ -1591,22 +1866,34 @@ func (k msgServer) handleEncryptedBatch(ctx sdk.Context, params types.Params, ms
 The scope determines the granularity of nullifier uniqueness:
 
 ```go
-func (k Keeper) resolveNullifierScope(ctx sdk.Context, reg types.ShieldedOpRegistration, msg *types.MsgShieldedExec) uint64 {
+func (k Keeper) resolveNullifierScope(ctx context.Context, reg types.ShieldedOpRegistration, msg *types.MsgShieldedExec) (uint64, error) {
     switch reg.NullifierScopeType {
     case types.NULLIFIER_SCOPE_EPOCH:
-        return k.GetCurrentEpoch(ctx)
+        // current_epoch / epoch_window: one action per member per window
+        return reg.EpochScope(k.GetCurrentEpoch(ctx)), nil
     case types.NULLIFIER_SCOPE_MESSAGE_FIELD:
         // Extract scope from inner message using the registered field path
-        return k.extractScopeFromMessage(msg.InnerMessage, reg.ScopeFieldPath)
+        if msg.InnerMessage != nil && reg.ScopeFieldPath != "" {
+            if val, ok := k.extractScope(msg.InnerMessage, reg.ScopeFieldPath); ok {
+                return val, nil
+            }
+        }
+        // No fallback to the epoch scope: that would let one identity act
+        // once per epoch on something meant to be once per target.
+        return 0, errorsmod.Wrapf(types.ErrInvalidInnerMessage, "cannot read nullifier scope field %q", reg.ScopeFieldPath)
     case types.NULLIFIER_SCOPE_GLOBAL:
-        return 0
+        return 0, nil
     default:
-        return k.GetCurrentEpoch(ctx)
+        return k.GetCurrentEpoch(ctx), nil
     }
 }
 ```
 
-**Scope field extraction**: When `nullifier_scope_type = MESSAGE_FIELD`, the `ShieldedOpRegistration` includes a `scope_field_path` (e.g., `"post_id"`, `"proposal_id"`, `"collection_id"`). The keeper uses proto reflection to extract the named uint64 field from the decoded inner message. If the field is missing or not a uint64, the operation is rejected with `ErrInvalidInnerMessage`.
+**Epoch windows**: an EPOCH-scoped op's raw scope is `current_epoch / epoch_window` (`ShieldedOpRegistration.EpochScope`; a window of 0 or 1 means every epoch), so a member gets one action per window of `epoch_window` shield epochs. This is the rate limit for anonymous creation, which carries no SPARK charge (the shield reserve, not the member, would pay it). Clients compute the same window index for the proof's scope. Defaults (at the default 50-block shield epoch): blog posts 12 (~1 hour), forum posts and replies 3 (~15 minutes), collections 288 (~1 day); other EPOCH ops 1. `epoch_window > 1` is rejected for MESSAGE_FIELD/GLOBAL scopes and ownership ops. EPOCH ops sharing a nullifier domain should share a window; pruning cuts each domain at `cutoff_epoch / largest_window`, so a mismatch never prunes a live window.
+
+**Scope field extraction**: When `nullifier_scope_type = MESSAGE_FIELD`, the `ShieldedOpRegistration` includes a `scope_field_path` (e.g., `"post_id"`, `"proposal_id"`, `"collection_id"`). The keeper uses reflection to extract the named integer field from the decoded inner message. A two-field path joined by `types.ScopeFieldSeparator` (`"target_type,target_id"`) is packed with `types.PackNullifierScope` as `(qualifier << 56) | id`. A fallback path joined by `types.ScopeFieldFallback` (`"reply_id|post_id"`) uses the first field when it is non-zero, packed as `(1 << 56) | first`, and the bare second field otherwise - so a blog reaction on a reply has its own scope and doesn't spend the post's. If a field is missing, not an integer, or does not fit the packing, the operation is rejected with `ErrInvalidInnerMessage` - there is no fallback to the epoch scope.
+
+`resolveNullifierScope` returns the **raw** scope: it keys the `UsedNullifiers` store and is never passed to the verifier directly. The proof's Scope public input is always `crypto.ScopeElement(reg.NullifierDomain, rawScope)` (`consumeBinding`). Ownership-mode ops skip this function; their scope comes from the target module's `OwnershipClaim`.
 
 For encrypted batch mode, the scope cannot be extracted at submission time (inner message is encrypted). The scope check is deferred to batch execution time in `executeDecryptedOp`, where the decrypted inner message is available.
 
@@ -1708,31 +1995,48 @@ The list of permitted shielded operations is a **governance-controlled whitelist
 
 ### Default Operations (Genesis)
 
-The genesis set covers all existing anonymous functionality on the chain:
+The genesis set covers all existing anonymous functionality on the chain: 21 operations (13 consume-mode, 8 ownership-mode collect management ops). `GenesisState.Validate()` runs `ShieldedOpRegistration.Validate()` on every entry. Every row below is `NULLIFIER_MODE_CONSUME` unless its table says otherwise.
 
 #### x/blog
 
 | Message Type | Proof Domain | Min Trust | Null. Domain | Scope | Batch Mode |
 |-------------|-------------|-----------|-------------|-------|------------|
-| `MsgCreatePost` | TRUST_TREE | `anon_min_trust` | 1 | EPOCH | EITHER |
+| `MsgCreatePost` | TRUST_TREE | `anon_min_trust` | 1 | EPOCH (window 12) | EITHER |
 | `MsgCreateReply` | TRUST_TREE | `anon_min_trust` | 2 | MESSAGE_FIELD (post_id) | EITHER |
-| `MsgReact` | TRUST_TREE | `anon_min_trust` | 8 | MESSAGE_FIELD (post_id) | EITHER |
+| `MsgReact` | TRUST_TREE | `anon_min_trust` | 8 | MESSAGE_FIELD (reply_id\|post_id) | EITHER |
 
 #### x/forum
 
 | Message Type | Proof Domain | Min Trust | Null. Domain | Scope | Batch Mode |
 |-------------|-------------|-----------|-------------|-------|------------|
-| `MsgCreatePost` | TRUST_TREE | `anon_min_trust` | 11 | EPOCH | EITHER |
+| `MsgCreatePost` | TRUST_TREE | `anon_min_trust` | 11 | EPOCH (window 3) | EITHER |
 | `MsgUpvotePost` | TRUST_TREE | `anon_min_trust` | 12 | MESSAGE_FIELD (post_id) | EITHER |
-| `MsgDownvotePost` | TRUST_TREE | `anon_min_trust` | 13 | MESSAGE_FIELD (post_id) | EITHER |
+| `MsgDownvotePost` | TRUST_TREE | `anon_min_trust` | 12 | MESSAGE_FIELD (post_id) | EITHER |
 
 #### x/collect
 
 | Message Type | Proof Domain | Min Trust | Null. Domain | Scope | Batch Mode |
 |-------------|-------------|-----------|-------------|-------|------------|
-| `MsgCreateCollection` | TRUST_TREE | `anon_min_trust` | 21 | EPOCH | EITHER |
-| `MsgUpvoteContent` | TRUST_TREE | `anon_min_trust` | 22 | MESSAGE_FIELD (target_id) | EITHER |
-| `MsgDownvoteContent` | TRUST_TREE | `anon_min_trust` | 23 | MESSAGE_FIELD (target_id) | EITHER |
+| `MsgCreateCollection` | TRUST_TREE | `anon_min_trust` | 21 | EPOCH (window 288) | EITHER |
+| `MsgUpvoteContent` | TRUST_TREE | `anon_min_trust` | 22 | MESSAGE_FIELD (target_type,target_id) | EITHER |
+| `MsgDownvoteContent` | TRUST_TREE | `anon_min_trust` | 22 | MESSAGE_FIELD (target_type,target_id) | EITHER |
+
+Upvotes and downvotes share a nullifier domain (forum 12, collect 22): one anonymous vote per member per target, either direction, matching the modules' own per-voter record. A two-field scope path packs the first field into the top byte: raw scope = `(target_type << 56) | target_id` (`types.PackNullifierScope`; ids must fit in 56 bits). Clients pass that value as the prover's raw `Scope` (the prover hashes it with the domain into the scope element). Without the qualifier, a vote on collection 5 would block a vote on item 5.
+
+#### x/collect (Anonymous Collection Management - Ownership Mode)
+
+| Message Type | Proof Domain | Min Trust | Null. Domain | Nullifier Mode | Batch Mode |
+|-------------|-------------|-----------|-------------|-------|------------|
+| `MsgUpdateCollection` | TRUST_TREE | 1 | 23 (label) | OWNERSHIP | IMMEDIATE_ONLY |
+| `MsgDeleteCollection` | TRUST_TREE | 1 | 23 (label) | OWNERSHIP | IMMEDIATE_ONLY |
+| `MsgAddItem` | TRUST_TREE | 1 | 23 (label) | OWNERSHIP | IMMEDIATE_ONLY |
+| `MsgAddItems` | TRUST_TREE | 1 | 23 (label) | OWNERSHIP | IMMEDIATE_ONLY |
+| `MsgUpdateItem` | TRUST_TREE | 1 | 23 (label) | OWNERSHIP | IMMEDIATE_ONLY |
+| `MsgRemoveItem` | TRUST_TREE | 1 | 23 (label) | OWNERSHIP | IMMEDIATE_ONLY |
+| `MsgRemoveItems` | TRUST_TREE | 1 | 23 (label) | OWNERSHIP | IMMEDIATE_ONLY |
+| `MsgReorderItem` | TRUST_TREE | 1 | 23 (label) | OWNERSHIP | IMMEDIATE_ONLY |
+
+These let the anonymous creator of a collection manage it (see [Nullifier Modes](#nullifier-modes)). The proof is made over the collection's owner claim - `anon_owner_domain` (21, the `MsgCreateCollection` domain) and `anon_owner_scope` (the creation epoch) - so its nullifier reproduces `anon_owner_tag`, and it binds `anon_owner_sequence`. Domain 23 only labels the ops; nothing is recorded under it, and they have no scope type or scope field. x/collect's `ShieldOwnershipResolver` resolves the collection from the message id (item ops resolve it from the item; all `MsgRemoveItems` ids must be in one collection).
 
 #### x/commons (Anonymous Governance)
 
@@ -1749,12 +2053,20 @@ The genesis set covers all existing anonymous functionality on the chain:
 |-------------|-------------|-----------|-------------|-------|------------|
 | `MsgCreateChallenge` | TRUST_TREE | 0 | 41 | GLOBAL | ENCRYPTED_ONLY |
 
+#### x/federation (Anonymous Arbiter Quorum)
+
+| Message Type | Proof Domain | Min Trust | Null. Domain | Scope | Batch Mode |
+|-------------|-------------|-----------|-------------|-------|------------|
+| `MsgSubmitArbiterHash` | TRUST_TREE | 2 | 51 | MESSAGE_FIELD (content_id) | EITHER |
+
+Scoped per `content_id` so one identity cannot cast several arbiter votes for the same federated content.
+
 ### Governance Control
 
 - **Add operations**: Register new message types via `MsgRegisterShieldedOp` governance proposal
 - **Deactivate operations**: Set `active = false` to disable without removing state
 - **Remove operations**: Fully delete via `MsgDeregisterShieldedOp` governance proposal
-- **Modify parameters**: Change proof domain, trust level, batch mode, or nullifier scoping per operation
+- **Modify parameters**: Change proof domain, trust level, batch mode, nullifier scoping or nullifier mode per operation (an OWNERSHIP registration must stay IMMEDIATE_ONLY)
 - **Whitelist only**: Any message type NOT in the registry is rejected — no gas-free execution of token transfers, staking, IBC, or other non-privacy operations
 
 ### Module Account Constraint
@@ -1786,12 +2098,15 @@ An operation works through x/shield only if:
 4. Derive authorization from the ZK proof context, not the sender address
 5. Not require the sender to own or transfer assets
 
+**Proven trust level.** Both exec paths (immediate and encrypted batch) run the inner message with `types.WithProvenTrustLevel(ctx, min_trust_level)` - the level the ZK proof established. When the signer is the shield module account, target modules (blog, collect, forum) compare their own trust gates against `types.ProvenTrustLevel(ctx)` instead of looking up a member. A message from the shield address with no proven level in its context did not come through a shield exec, so nothing is known about the signer: blog and collect refuse it, and forum treats it as the lowest trust level.
+
 Even if governance registers a message type, x/shield rejects it at execution time unless the target module explicitly opts in via `ShieldAware`. This is defense in depth — a malicious governance proposal cannot compromise non-privacy modules.
 
 **Rationale for batch mode assignments:**
 - **Content operations (blog, forum, collect)**: `EITHER` — users choose latency vs privacy. Most content doesn't need batch delay, but whistleblower content benefits from maximum privacy.
 - **Governance operations (commons proposals/votes)**: `EITHER` — immediate mode is required while TLE/DKG is not yet active. Once TLE is production-ready, governance can tighten to `ENCRYPTED_ONLY` for maximum sender unlinkability.
 - **Challenges (rep)**: `ENCRYPTED_ONLY` — challenges are inherently privacy-critical. The batch delay (one shield epoch, ~5 min) is acceptable for challenge submissions.
+- **Anonymous collection management (collect ownership ops)**: `IMMEDIATE_ONLY` - required for ownership mode: the proof binds the owner sequence at execution time, which a batch submitter cannot predict.
 
 ## Events
 
@@ -1802,8 +2117,9 @@ Even if governance registers a message type, x/shield rejects it at execution ti
 EventShieldedExec {
   message_type:     string  // inner message type URL
   nullifier_domain: uint32
-  nullifier_hex:    string  // for public nullifier tracking
+  nullifier_hex:    string  // for public nullifier tracking (ownership mode: the owner tag)
   exec_mode:        string  // "immediate"
+  nullifier_mode:   string  // "NULLIFIER_MODE_CONSUME" or "NULLIFIER_MODE_OWNERSHIP"
   // NOTE: no submitter address, no identity information
 }
 
@@ -1950,19 +2266,20 @@ EventTLEJail {
 ```go
 var (
     // General
-    ErrShieldDisabled           = errorsmod.Register(ModuleName, 2, "shielded execution is disabled")
-    ErrShieldGasDepleted        = errorsmod.Register(ModuleName, 3, "shield module gas reserve depleted")
-    ErrUnregisteredOperation    = errorsmod.Register(ModuleName, 4, "inner message type not registered for shielded execution")
-    ErrOperationInactive        = errorsmod.Register(ModuleName, 5, "shielded operation is currently inactive")
-    ErrProofDomainMismatch      = errorsmod.Register(ModuleName, 6, "proof domain does not match registered requirement")
-    ErrInsufficientTrustLevel   = errorsmod.Register(ModuleName, 7, "proven trust level below required minimum")
-    ErrInvalidProof             = errorsmod.Register(ModuleName, 8, "ZK proof verification failed")
-    ErrInvalidProofDomain       = errorsmod.Register(ModuleName, 9, "unknown proof domain")
-    ErrNullifierUsed            = errorsmod.Register(ModuleName, 10, "nullifier already used in this domain and scope")
-    ErrRateLimitExceeded        = errorsmod.Register(ModuleName, 11, "per-identity rate limit exceeded for this epoch")
-    ErrInvalidInnerMessage      = errorsmod.Register(ModuleName, 12, "inner message is invalid or cannot be decoded")
+    ErrInvalidSigner             = errorsmod.Register(ModuleName, 1100, "expected gov account as only signer for proposal message")
+    ErrShieldDisabled            = errorsmod.Register(ModuleName, 2, "shielded execution is disabled")
+    ErrShieldGasDepleted         = errorsmod.Register(ModuleName, 3, "shield module gas reserve depleted")
+    ErrUnregisteredOperation     = errorsmod.Register(ModuleName, 4, "inner message type not registered for shielded execution")
+    ErrOperationInactive         = errorsmod.Register(ModuleName, 5, "shielded operation is currently inactive")
+    ErrProofDomainMismatch       = errorsmod.Register(ModuleName, 6, "proof domain does not match registered requirement")
+    ErrInsufficientTrustLevel    = errorsmod.Register(ModuleName, 7, "proven trust level below required minimum")
+    ErrInvalidProof              = errorsmod.Register(ModuleName, 8, "ZK proof verification failed")
+    ErrInvalidProofDomain        = errorsmod.Register(ModuleName, 9, "unknown proof domain")
+    ErrNullifierUsed             = errorsmod.Register(ModuleName, 10, "nullifier already used in this domain and scope")
+    ErrRateLimitExceeded         = errorsmod.Register(ModuleName, 11, "per-identity rate limit exceeded for this epoch")
+    ErrInvalidInnerMessage       = errorsmod.Register(ModuleName, 12, "inner message is invalid or cannot be decoded")
     ErrInvalidInnerMessageSigner = errorsmod.Register(ModuleName, 13, "inner message signer must be shield module account")
-    ErrMultiMsgNotAllowed       = errorsmod.Register(ModuleName, 14, "MsgShieldedExec must be the only message in the transaction")
+    ErrMultiMsgNotAllowed        = errorsmod.Register(ModuleName, 14, "MsgShieldedExec must be the only message in the transaction")
 
     // Execution mode
     ErrInvalidExecMode          = errorsmod.Register(ModuleName, 15, "invalid execution mode")
@@ -1971,23 +2288,23 @@ var (
     ErrEncryptedBatchNotAllowed = errorsmod.Register(ModuleName, 18, "this operation does not support encrypted batch mode")
 
     // Encrypted batch
-    ErrMissingEncryptedPayload  = errorsmod.Register(ModuleName, 19, "encrypted_payload is required for encrypted batch mode")
-    ErrPayloadTooLarge          = errorsmod.Register(ModuleName, 20, "encrypted_payload exceeds max_encrypted_payload_size")
-    ErrInvalidTargetEpoch       = errorsmod.Register(ModuleName, 21, "target_epoch must be the current shield epoch")
-    ErrPendingQueueFull         = errorsmod.Register(ModuleName, 22, "pending operation queue is at capacity")
-    ErrDecryptionFailed         = errorsmod.Register(ModuleName, 23, "failed to decrypt encrypted payload")
-    ErrInvalidMerkleRoot        = errorsmod.Register(ModuleName, 24, "merkle root is not current or previous")
+    ErrMissingEncryptedPayload = errorsmod.Register(ModuleName, 19, "encrypted_payload is required for encrypted batch mode")
+    ErrPayloadTooLarge         = errorsmod.Register(ModuleName, 20, "encrypted_payload exceeds max_encrypted_payload_size")
+    ErrInvalidTargetEpoch      = errorsmod.Register(ModuleName, 21, "target_epoch must be the current shield epoch")
+    ErrPendingQueueFull        = errorsmod.Register(ModuleName, 22, "pending operation queue is at capacity")
+    ErrDecryptionFailed        = errorsmod.Register(ModuleName, 23, "failed to decrypt encrypted payload")
+    ErrInvalidMerkleRoot       = errorsmod.Register(ModuleName, 24, "merkle root is not current or previous")
 
     // Validator TLE
-    ErrInvalidDecryptionShare   = errorsmod.Register(ModuleName, 25, "decryption share verification failed")
-    ErrDuplicateShare           = errorsmod.Register(ModuleName, 26, "decryption share already submitted for this epoch")
-    ErrNotTLEValidator          = errorsmod.Register(ModuleName, 27, "validator has no registered TLE public key share")
-    ErrEpochTooOld              = errorsmod.Register(ModuleName, 28, "epoch is too old for late share submission")
-    ErrDKGNotComplete           = errorsmod.Register(ModuleName, 29, "DKG ceremony not yet complete — encrypted batch mode unavailable")
-    ErrInvalidProofOfPossession = errorsmod.Register(ModuleName, 30, "proof of possession for TLE key share is invalid")
-    ErrRawMasterShareSubmitted  = errorsmod.Register(ModuleName, 31, "raw master share submitted instead of epoch-derived share — slashable")
-    ErrIncompatibleOperation    = errorsmod.Register(ModuleName, 32, "target module does not implement ShieldAware or rejects this message type")
-    ErrDKGInProgress            = errorsmod.Register(ModuleName, 33, "DKG ceremony already in progress")
+    ErrInvalidDecryptionShare    = errorsmod.Register(ModuleName, 25, "decryption share verification failed")
+    ErrDuplicateShare            = errorsmod.Register(ModuleName, 26, "decryption share already submitted for this epoch")
+    ErrNotTLEValidator           = errorsmod.Register(ModuleName, 27, "validator has no registered TLE public key share")
+    ErrEpochTooOld               = errorsmod.Register(ModuleName, 28, "epoch is too old for late share submission")
+    ErrDKGNotComplete            = errorsmod.Register(ModuleName, 29, "DKG ceremony not yet complete")
+    ErrInvalidProofOfPossession  = errorsmod.Register(ModuleName, 30, "proof of possession for TLE key share is invalid")
+    ErrRawMasterShareSubmitted   = errorsmod.Register(ModuleName, 31, "raw master share submitted instead of epoch-derived share")
+    ErrIncompatibleOperation     = errorsmod.Register(ModuleName, 32, "target module does not implement ShieldAware or rejects this message type")
+    ErrDKGInProgress             = errorsmod.Register(ModuleName, 33, "DKG ceremony already in progress")
     ErrCleartextFieldInBatchMode = errorsmod.Register(ModuleName, 34, "inner_message and proof must be empty in encrypted batch mode")
 
     // DKG ceremony
@@ -1999,6 +2316,21 @@ var (
     ErrInvalidEvaluations     = errorsmod.Register(ModuleName, 40, "encrypted evaluations are invalid or incomplete")
     ErrInsufficientValidators = errorsmod.Register(ModuleName, 41, "not enough bonded validators for DKG")
     ErrValidatorNotInDKG      = errorsmod.Register(ModuleName, 42, "validator is not in the expected DKG participant set")
+    ErrNoVerificationKey      = errorsmod.Register(ModuleName, 43, "no verification key registered; shielded execution requires a VK to be stored before use")
+
+    // Input validation
+    ErrInvalidNullifierLength = errorsmod.Register(ModuleName, 44, "nullifier must be exactly 32 bytes")
+    ErrInvalidMerkleRootLen   = errorsmod.Register(ModuleName, 45, "merkle root must be exactly 32 bytes")
+    ErrProofTooLarge          = errorsmod.Register(ModuleName, 46, "proof exceeds maximum allowed size")
+    ErrFeeTooHigh             = errorsmod.Register(ModuleName, 47, "shielded exec fee exceeds max_fee_per_exec")
+
+    // Ownership mode
+    ErrNotOwnable         = errorsmod.Register(ModuleName, 48, "target module cannot resolve ownership for this operation")
+    ErrOwnershipMismatch  = errorsmod.Register(ModuleName, 49, "proof nullifier does not match the content's owner tag")
+    ErrOwnershipBatchMode = errorsmod.Register(ModuleName, 50, "ownership operations are immediate-only")
+
+    // Mempool guard (node-local, CheckTx only)
+    ErrProofVerificationThrottled = errorsmod.Register(ModuleName, 51, "node is at its proof verification rate limit; retry shortly")
 )
 ```
 
@@ -2063,21 +2395,27 @@ Legacy per-module anonymous messages have been removed:
 
 Multiple layers prevent free gas exploitation:
 
-1. **ZK proof required**: Every shielded exec needs a valid membership proof — no proof, no free gas
+1. **ZK proof required**: Every shielded exec needs a valid membership proof — no proof, no free gas. For immediate mode the ante handler checks the proof, nullifier and identity rate limit (`PrecheckImmediate`) before any fee moves, and the msg server skips re-verifying a proof the ante handler already verified for the same message. In CheckTx the precheck also marks the exec spent in the check state (discarded at commit) - it records a consume-mode nullifier or advances an ownership-mode owner sequence - so rewrapped copies of a pending exec — anyone can sign as the public submitter — never enter the mempool
 2. **Per-identity rate limit**: `max_execs_per_identity_per_epoch` caps how many free operations each anonymous identity gets per epoch, enforced via the ZK-proven `rate_limit_nullifier` (same for all ops by the same member in the same epoch — unforgeable)
 3. **Single-message enforcement**: Cannot bundle non-shielded messages with a shielded exec to piggyback free gas. Multi-message txs containing `MsgShieldedExec` are explicitly rejected by the ante handler.
 4. **Max gas per exec**: `max_gas_per_exec` prevents expensive inner messages from draining the module quickly
 5. **Daily funding cap**: `max_funding_per_day` bounds community pool drain regardless of usage (independent of shield epoch interval)
 6. **Registered operations only**: Only governance-approved message types can be executed via shield (whitelist model)
+7. **Fee cap**: the submitter picks the fee but the module pays it, so `max_fee_per_exec` caps it (bond denom only); without it one exec could hand the whole reserve to the fee collector
+8. **No per-action charges on anonymous actions**: inner messages are signed by the shield module account, so target modules skip every per-action SPARK cost for it (storage fees, spam taxes, edit fees, blog reaction fee, downvote costs, collection/item deposits) — charging them would spend the gas reserve, not the member's SPARK. Anonymous volume is bounded instead by the per-identity exec limit and per-op rate-limit windows
 
 ### Privacy Properties
 
 See the [Privacy Model](#privacy-model) section for a detailed comparison of immediate vs encrypted batch mode.
 
+**Cross-operation unlinkability:** the proof's Scope is `ScopeElement(nullifier_domain, raw_scope)`, so the same member's nullifiers never repeat across operations or domains (a blog post 5, a forum post 5 and a commons proposal 5 give three unrelated nullifiers, as do two GLOBAL ops in different domains). Before the domain was hashed in, any two ops sharing a raw scope produced the same public nullifier for one member and linked them across modules and epochs.
+
+**Ownership-mode linkability:** every management op on one piece of anonymous content carries the same owner tag, which is the creation exec's nullifier, so those ops are linkable to each other and to the creation (inherent: they must prove the same owner). They stay unlinkable to the member and to the member's other content.
+
 **Timing analysis mitigation (immediate mode):**
-- Submitter address is meaningless (can be any account, fresh or reused)
+- Submitter address is meaningless: by default every client signs as the shared [public anonymous submitter](#public-anonymous-submitter), so all anonymous execs come from one address (any other account still works, fresh or reused, but stands out)
 - No funding transaction needed (shield pays gas)
-- Multiple users can share a submitter address without privacy loss
+- Multiple users share a submitter address without privacy loss; immediate execs have no per-address cap (the identity rate limit bounds them), so the shared address never throttles honest users
 - Client tooling should add random delays before submission
 
 **Timing analysis mitigation (encrypted batch mode):**
@@ -2210,6 +2548,9 @@ params:
   min_tle_validators: 5                       # min bonded validators to auto-open DKG
   dkg_window_blocks: 200                      # ~20 min DKG window (half reg, half contrib)
   max_validator_set_drift: 33                 # 33% drift triggers automatic re-keying
+
+  # Fees
+  max_fee_per_exec: "50000"                   # 0.05 SPARK: ~700k gas at 0.025 uspark/gas, ~3x headroom
 ```
 
 ## CLI Commands
@@ -2309,7 +2650,7 @@ x/shield performs all ZK proof verification and TLE operations internally — no
 
 ```go
 // ZK proof verification — native to x/shield
-k.verifyProof(ctx, msg, scope)  // uses stored Groth16 verification key (shield_v1)
+k.verifyProof(ctx, msg, binding)  // uses stored Groth16 verification key (shield_v1); binding = consumeBinding / ownedBinding
 
 // TLE — native to x/shield
 k.GetTLEMasterPublicKey(ctx)           // stored in TLEKeySet
@@ -2347,9 +2688,25 @@ anteHandler := ante.NewAnteHandler(ante.HandlerOptions{
 
 - `tools/zk/circuit/shield_circuit.go` — Unified ShieldCircuit (Groth16 over BN254, trust tree membership + trust level + nullifiers + rate limiting)
 - `tools/zk/circuit/shield_circuit_test.go` — Circuit tests
-- `tools/crypto/crypto.go` — Merkle tree, MiMC hashing, key management, nullifiers
+- `tools/crypto/crypto.go` — Merkle tree, MiMC hashing, key management, nullifiers (`ScopeElement`, `ComputeScopedNullifier`)
 - `tools/zk/prover/prover.go` — Client-side proof generation
 - `tools/zk/cmd/seed-tle/main.go` — TLE seed data generation CLI
+- `tools/crypto/sparse.go` - `SparseMerkleProof`, `DeriveSecretKeyFromSignature`, `ShieldMessageHash`, `ShieldOwnedMessageHash`
+- `tools/zk/cmd/ceremony/main.go` - Multi-party Groth16 trusted setup
+- `tools/zk/wasm/main.go`, `tools/zk/wasm/build.sh` - Browser shield client (WASM)
+
+### Client Tooling
+
+How a client produces an exec, using only public chain data:
+
+1. **Secret key.** `crypto.DeriveSecretKeyFromSignature(sig)` turns a wallet signature over a fixed message into the shield secret key, so it can be recovered on any device holding the wallet. Secret keys (this and `prover.GenerateSecretKey`) are always canonical BN254 scalars (`crypto.IsCanonicalFieldElement`): MiMC rejects larger values and `HashToField` discards that error, so a non-canonical key would derive a public key the circuit can never prove against. The member registers the derived public key with x/rep (`MsgRegisterZkPublicKey`).
+2. **Merkle path.** x/rep's `TrustTree` query (`/sparkdream/rep/v1/trust_tree`, paginated) exports the root, depth, leaf count and every non-empty leaf. The client rebuilds the tree locally and computes its own path with `crypto.SparseMerkleProof` (which hashes only occupied branches and matches x/rep's root), so it never reveals which leaf it wants by asking for a specific proof.
+3. **Proof.** The prover (`prover.ShieldProofInput`) takes the secret key, path, `min_trust_level`, the operation's nullifier `Domain`, the resolved raw nullifier `Scope` (two-field scopes packed as `(qualifier << 56) | id`), the current shield epoch and `crypto.ShieldMessageHash` of the exact inner `Any` the exec will carry. It computes the circuit's Scope input as `crypto.ScopeElement(Domain, Scope)` and the nullifier as `crypto.ComputeScopedNullifier(sk, Domain, Scope)`; a proof made with the wrong domain fails verification. For an ownership-mode op the domain and scope are the content's owner claim (not the op's registration), and the message hash is `crypto.ShieldOwnedMessageHash(type_url, value, owner_sequence)`; the resulting nullifier must equal the content's owner tag. A client finds the content it owns from public chain data alone by checking `ComputeScopedNullifier(sk, owner_domain, owner_scope) == owner_tag`, so a wallet-derived key restores management on a new device.
+4. **Submit.** Wrap in `MsgShieldedExec`, sign as the public anonymous submitter (unordered tx), fee in the bond denom at most `max_fee_per_exec`.
+
+**Trusted setup (`tools/zk/cmd/ceremony`).** Replaces the single-party `tools/zk/cmd/setup` for any key that goes on chain. Runs gnark's `mpcsetup` in five steps on a transcript directory handed from contributor to contributor: `contribute-phase1`, `seal-phase1 -beacon <hex>`, `contribute-phase2`, `seal-phase2 -beacon <hex>`, `verify [-genesis genesis.json]`. Sound as long as one contributor discarded their randomness; nothing secret is written to disk. Beacons should be public randomness fixed in advance (e.g. a future drand round). `seal-phase2` writes `proving_key.bin`, `circuit.r1cs`, `verifying_key.bin`, `verifying_key.hex` (for genesis `verification_keys`, circuit id `shield_v1`) and `proving_key.raw.bin` (uncompressed, for web clients). `verify` replays the transcript and checks the published VK - and optionally the one in a genesis file - matches. A circuit change (such as adding `MessageHash`) needs Phase 2 redone and a new VK.
+
+**Browser client (`tools/zk/wasm`).** Built by `tools/zk/wasm/build.sh [OUT] [KEYS]` into `shield.wasm` plus Go's `wasm_exec.js` (given the ceremony directory as `KEYS`, it also copies `proving_key.raw.bin` and `circuit.r1cs` and prints their sha256 for clients to pin), so web clients hash, build Merkle paths and prove with exactly the code the chain verifies against. It registers a global `sparkdreamShield` with `deriveSecret(signatureB64)`, `publicKey(secretKeyHex)`, `loadKeys(provingKey, r1cs)` and `prove(inputJSON)`; every call returns a JSON string (`{"error": ...}` on failure). `prove` takes the trust-tree data from the `TrustTree` query, the operation's nullifier `"domain"` and raw `"scope"`, and the inner Any's type URL and bytes. For an ownership-mode op it also takes `"owner_sequence"` (decimal string; the content's current owner sequence, e.g. a collection's `anon_owner_sequence`) and `"domain"`/`"scope"` are the content's owner claim; when `owner_sequence` is present the message hash is `ShieldOwnedMessageHash`. The result includes the nullifier, which for an ownership op must equal the content's owner tag. `loadKeys` uses `prover.NewShieldProverFromTrustedBytes`, which skips the proving key's curve-point checks (tens of seconds in a browser) - only for a key whose integrity is checked another way, such as a pinned hash; paired with `proving_key.raw.bin` it also skips point decompression.
 
 ### On-Chain Implementation
 
@@ -2365,7 +2722,9 @@ anteHandler := ante.NewAnteHandler(ante.HandlerOptions{
 - `x/shield/ante/shield_gas.go` — ShieldGasDecorator (module-paid gas)
 - `x/shield/ante/skip_fee_decorator.go` — SkipIfFeePaidDecorator
 - `x/shield/types/genesis.go` — Default genesis shielded operations
-- `x/shield/types/shield_aware.go` — ShieldAware interface definition
+- `x/shield/types/shield_aware.go` — ShieldAware interface definition, `ShieldOwnershipResolver`, `OwnershipClaim`
+- `x/shield/types/exec_context.go` - `WithExecNullifier`/`GetExecNullifier`, `WithOwnershipTag`/`GetOwnershipTag`
+- `x/shield/types/registration.go` - `ShieldedOpRegistration.Validate()` (ownership ops must be IMMEDIATE_ONLY)
 
 ### Legacy Anonymous Implementations (Replaced by x/shield)
 
@@ -2428,6 +2787,10 @@ x/shield/
 │   ├── errors.go                           # Typed errors
 │   ├── expected_keepers.go                 # Keeper interfaces (RepKeeper, SlashingKeeper, StakingKeeper)
 │   ├── shield_aware.go                     # ShieldAware interface (implemented by target modules)
+│   ├── public_submitter.go                 # Shared public anonymous submitter key/address
+│   ├── proven_trust.go                     # WithProvenTrustLevel / ProvenTrustLevel context helpers
+│   ├── proof_verified.go                   # Ante-to-msg-server "proof already verified" marker
+│   ├── scope.go                            # Two-field nullifier scope packing
 │   ├── events.go                           # Event types
 │   ├── genesis.go                          # Default genesis state and shielded operations
 │   ├── genesis_vals.go                     # Genesis parameter values (test vs production)

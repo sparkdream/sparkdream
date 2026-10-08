@@ -5,10 +5,12 @@ import (
 	"testing"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	"github.com/stretchr/testify/require"
 
 	"sparkdream/x/collect/types"
 	reptypes "sparkdream/x/rep/types"
+	shieldtypes "sparkdream/x/shield/types"
 )
 
 func TestSponsorCollection(t *testing.T) {
@@ -142,4 +144,24 @@ func TestSponsorCollection(t *testing.T) {
 			}
 		})
 	}
+}
+
+// A shield-signed message is held to collect's trust gates using the level its
+// ZK proof established. With no proven level it didn't come through a shield
+// exec, so the gate refuses it. (The collection doesn't exist: passing the
+// gate shows up as ErrCollectionNotFound.)
+func TestSponsorCollection_AnonymousUsesProvenTrustLevel(t *testing.T) {
+	f := initTestFixture(t)
+	shield := authtypes.NewModuleAddress("shield").String()
+	msg := &types.MsgSponsorCollection{Creator: shield, CollectionId: 999}
+	sdkCtx := sdk.UnwrapSDKContext(f.ctx)
+
+	_, err := f.msgServer.SponsorCollection(f.ctx, msg)
+	require.ErrorIs(t, err, types.ErrSponsorTrustLevelTooLow)
+
+	_, err = f.msgServer.SponsorCollection(shieldtypes.WithProvenTrustLevel(sdkCtx, uint32(reptypes.TrustLevel_TRUST_LEVEL_PROVISIONAL)), msg)
+	require.ErrorIs(t, err, types.ErrSponsorTrustLevelTooLow)
+
+	_, err = f.msgServer.SponsorCollection(shieldtypes.WithProvenTrustLevel(sdkCtx, uint32(reptypes.TrustLevel_TRUST_LEVEL_ESTABLISHED)), msg)
+	require.ErrorIs(t, err, types.ErrCollectionNotFound)
 }

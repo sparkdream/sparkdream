@@ -394,21 +394,44 @@ fi
 # =========================================================================
 echo "--- PART 9: Verify trust tree root ---"
 
-# The trust tree root is required for ZK proof generation
-# Members with registered ZK keys should be in the tree
+# The trust tree root is required for ZK proof generation. Anonymous clients
+# download the whole tree (rep trust-tree query) and compute their own Merkle
+# path locally, so fetching it reveals nothing about who is asking.
 MEMBER1_INFO=$($BINARY query rep get-member $MEMBER1_ADDR --output json 2>&1)
 MEMBER1_ZK=$(echo "$MEMBER1_INFO" | jq -r '.member.zk_public_key // ""')
 
-if [ -n "$MEMBER1_ZK" ] && [ "$MEMBER1_ZK" != "" ] && [ "$MEMBER1_ZK" != "null" ]; then
-    echo "  Member1 has ZK public key registered: ${MEMBER1_ZK:0:20}..."
-    echo "  Trust tree should include this member for proof generation"
-    record_result "Trust tree root" "PASS"
-else
-    echo "  Member1 does not have a ZK public key"
-    echo "  (ZK key registration may have failed in setup)"
-    # Still pass — the trust tree setup is tested in setup_test_accounts.sh
-    record_result "Trust tree root" "PASS"
+TREE=$($BINARY query rep trust-tree --output json 2>&1)
+TREE_DEPTH=$(echo "$TREE" | jq -r '.depth // 0' 2>/dev/null || echo "0")
+TREE_LEAVES=$(echo "$TREE" | jq -r '(.leaves // []) | length' 2>/dev/null || echo "0")
+TREE_SLOTS=$(echo "$TREE" | jq -r '.leaf_count // "0"' 2>/dev/null || echo "0")
+TREE_ROOT=$(echo "$TREE" | jq -r '.root // ""' 2>/dev/null || echo "")
+echo "  Trust tree: depth=$TREE_DEPTH leaves=$TREE_LEAVES slots=$TREE_SLOTS root=${TREE_ROOT:0:16}..."
+
+TREE_OK=true
+if [ "$TREE_DEPTH" -le 0 ] 2>/dev/null; then
+    echo "  ERROR: trust-tree query returned no depth (response: ${TREE:0:150})"
+    TREE_OK=false
 fi
+if [ "$TREE_LEAVES" -gt "$TREE_SLOTS" ] 2>/dev/null; then
+    echo "  ERROR: more non-empty leaves ($TREE_LEAVES) than allocated slots ($TREE_SLOTS)"
+    TREE_OK=false
+fi
+if [ -n "$MEMBER1_ZK" ] && [ "$MEMBER1_ZK" != "null" ]; then
+    echo "  Member1 has ZK public key registered: ${MEMBER1_ZK:0:20}..."
+    if [ "$TREE_LEAVES" -lt 1 ] 2>/dev/null || [ -z "$TREE_ROOT" ]; then
+        echo "  ERROR: a member has a ZK key but the tree has no leaves or no root"
+        TREE_OK=false
+    fi
+    # Leaves come back in index order. proto3 JSON omits a zero index.
+    UNSORTED=$(echo "$TREE" | jq -r '[(.leaves // [])[] | (.index // "0") | tonumber] | . != sort' 2>/dev/null || echo "true")
+    if [ "$UNSORTED" == "true" ]; then
+        echo "  ERROR: leaves are not in index order"
+        TREE_OK=false
+    fi
+else
+    echo "  [WARN] Member1 has no ZK public key (setup may have failed); leaf checks skipped"
+fi
+record_result "Trust tree root" "$([ "$TREE_OK" = true ] && echo PASS || echo FAIL)"
 
 # =========================================================================
 # PART 10: Verify autocli limitations documented

@@ -17,6 +17,7 @@ import (
 	module "sparkdream/x/blog/module"
 	"sparkdream/x/blog/types"
 	reptypes "sparkdream/x/rep/types"
+	shieldtypes "sparkdream/x/shield/types"
 )
 
 func TestReact(t *testing.T) {
@@ -522,4 +523,90 @@ func TestReact(t *testing.T) {
 		require.Equal(t, uint64(0), counts.DisagreeCount)
 		require.Equal(t, uint64(0), counts.FunnyCount)
 	})
+}
+
+// Anonymous reactions all carry the shield module as creator. Each must add to
+// the counts on its own (x/shield's nullifier limits each member to one per
+// post) rather than being treated as one creator changing its reaction.
+//
+// They also pay no reaction fee: the shield module account would be paying it
+// out of the gas reserve, not the anonymous member.
+func TestReact_AnonymousReactionsAreIndependent(t *testing.T) {
+	k, msgServer, ctx, bk := setupMsgServer(t)
+	shieldAddr := authtypes.NewModuleAddress("shield")
+	shield := sdk.MustBech32ifyAddressBytes("sprkdrm", shieldAddr)
+
+	postResp, err := msgServer.CreatePost(ctx, &types.MsgCreatePost{
+		Creator: "sprkdrm1afyuna8gqe55t7jztxcg0aleg0k5txep72pfan",
+		Title:   "Test Post",
+		Body:    "Test body",
+	})
+	require.NoError(t, err)
+
+	anonCtx := shieldtypes.WithProvenTrustLevel(ctx, 1)
+	for _, rt := range []types.ReactionType{
+		types.ReactionType_REACTION_TYPE_LIKE,
+		types.ReactionType_REACTION_TYPE_LIKE,
+		types.ReactionType_REACTION_TYPE_FUNNY,
+	} {
+		_, err := msgServer.React(anonCtx, &types.MsgReact{Creator: shield, PostId: postResp.Id, ReactionType: rt})
+		require.NoError(t, err)
+	}
+
+	counts := k.GetReactionCounts(ctx, postResp.Id, 0)
+	require.Equal(t, uint64(2), counts.LikeCount)
+	require.Equal(t, uint64(1), counts.FunnyCount)
+
+	for _, call := range bk.SendCoinsFromAccountToModuleCalls {
+		require.False(t, call.SenderAddr.Equals(shieldAddr), "anonymous reaction charged the shield module %s", call.Amt)
+	}
+}
+
+// An anonymous reaction on an anonymous post is not the thread author's: both
+// carry the shield address, but nothing says the same member wrote both. The
+// post's trust gate applies, and a message that didn't come through a shield
+// exec (no proven level) is refused.
+func TestReact_AnonymousOnAnonymousPostIsGated(t *testing.T) {
+	_, msgServer, ctx, _ := setupMsgServer(t)
+	shield := sdk.MustBech32ifyAddressBytes("sprkdrm", authtypes.NewModuleAddress("shield"))
+
+	postResp, err := msgServer.CreatePost(shieldtypes.WithProvenTrustLevel(ctx, 3), &types.MsgCreatePost{
+		Creator:            shield,
+		Title:              "Anonymous",
+		Body:               "Reactions need trust level 3",
+		MinReplyTrustLevel: 3,
+	})
+	require.NoError(t, err)
+
+	react := &types.MsgReact{Creator: shield, PostId: postResp.Id, ReactionType: types.ReactionType_REACTION_TYPE_LIKE}
+	_, err = msgServer.React(shieldtypes.WithProvenTrustLevel(ctx, 1), react)
+	require.ErrorIs(t, err, types.ErrInsufficientTrustLevel)
+
+	_, err = msgServer.React(ctx, react)
+	require.Error(t, err)
+
+	_, err = msgServer.React(shieldtypes.WithProvenTrustLevel(ctx, 3), react)
+	require.NoError(t, err)
+}
+
+// An anonymous reply is held to the post's reply trust level using the level
+// its ZK proof established, which x/shield passes in the context.
+func TestCreateReply_AnonymousUsesProvenTrustLevel(t *testing.T) {
+	_, msgServer, ctx, _ := setupMsgServer(t)
+	shield := sdk.MustBech32ifyAddressBytes("sprkdrm", authtypes.NewModuleAddress("shield"))
+
+	postResp, err := msgServer.CreatePost(ctx, &types.MsgCreatePost{
+		Creator:            "sprkdrm1afyuna8gqe55t7jztxcg0aleg0k5txep72pfan",
+		Title:              "Trusted only",
+		Body:               "Replies need trust level 3",
+		MinReplyTrustLevel: 3,
+	})
+	require.NoError(t, err)
+
+	reply := &types.MsgCreateReply{Creator: shield, PostId: postResp.Id, Body: "anonymous"}
+	_, err = msgServer.CreateReply(shieldtypes.WithProvenTrustLevel(ctx, 1), reply)
+	require.ErrorIs(t, err, types.ErrInsufficientTrustLevel)
+
+	_, err = msgServer.CreateReply(shieldtypes.WithProvenTrustLevel(ctx, 3), reply)
+	require.NoError(t, err)
 }

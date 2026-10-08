@@ -112,6 +112,35 @@ func TestPruneEpochScopedNullifiersGlobalUnaffected(t *testing.T) {
 	require.True(t, f.keeper.IsNullifierUsed(f.ctx, 41, 0, "global2"))
 }
 
+// Pruning removes exactly the epoch-scoped nullifiers below the cutoff:
+// scopes at or above it survive, and MESSAGE_FIELD domains (whose scopes are
+// ids, not epochs) are never touched even when their scopes are small.
+func TestPruneEpochScopedNullifiersRange(t *testing.T) {
+	f := initFixture(t)
+
+	// Domain 31 (anonymous proposals) is EPOCH scoped with a window of 1;
+	// 12 (forum votes) is MESSAGE_FIELD scoped on post_id.
+	for _, scope := range []uint64{0, 3, 4, 5, 6} {
+		require.NoError(t, f.keeper.RecordNullifier(f.ctx, 31, scope, "a", 1))
+		require.NoError(t, f.keeper.RecordNullifier(f.ctx, 31, scope, "ffff", 1))
+		require.NoError(t, f.keeper.RecordNullifier(f.ctx, 12, scope, "a", 1))
+	}
+
+	require.NoError(t, f.keeper.PruneEpochScopedNullifiers(f.ctx, 5))
+
+	for _, scope := range []uint64{0, 3, 4} {
+		require.False(t, f.keeper.IsNullifierUsed(f.ctx, 31, scope, "a"), "epoch %d", scope)
+		require.False(t, f.keeper.IsNullifierUsed(f.ctx, 31, scope, "ffff"), "epoch %d", scope)
+	}
+	for _, scope := range []uint64{5, 6} {
+		require.True(t, f.keeper.IsNullifierUsed(f.ctx, 31, scope, "a"), "epoch %d", scope)
+		require.True(t, f.keeper.IsNullifierUsed(f.ctx, 31, scope, "ffff"), "epoch %d", scope)
+	}
+	for _, scope := range []uint64{0, 3, 4, 5, 6} {
+		require.True(t, f.keeper.IsNullifierUsed(f.ctx, 12, scope, "a"), "post %d", scope)
+	}
+}
+
 func TestPendingNullifierIdempotent(t *testing.T) {
 	f := initFixture(t)
 
@@ -123,4 +152,25 @@ func TestPendingNullifierIdempotent(t *testing.T) {
 	// Deleting once should clear it
 	require.NoError(t, f.keeper.DeletePendingNullifier(f.ctx, "dup"))
 	require.False(t, f.keeper.IsPendingNullifier(f.ctx, "dup"))
+}
+
+// A windowed EPOCH domain stores window indices, so pruning cuts at
+// cutoffEpoch / epoch_window: the window holding the cutoff epoch survives.
+// Domain 1 (blog posts) has a window of 12 epochs in default genesis.
+func TestPruneEpochScopedNullifiersWindowed(t *testing.T) {
+	f := initFixture(t)
+
+	for _, window := range []uint64{0, 1, 2, 3} {
+		require.NoError(t, f.keeper.RecordNullifier(f.ctx, 1, window, "a", 1))
+	}
+
+	// Epoch 35 is in window 2 (epochs 24-35).
+	require.NoError(t, f.keeper.PruneEpochScopedNullifiers(f.ctx, 35))
+
+	for _, window := range []uint64{0, 1} {
+		require.False(t, f.keeper.IsNullifierUsed(f.ctx, 1, window, "a"), "window %d", window)
+	}
+	for _, window := range []uint64{2, 3} {
+		require.True(t, f.keeper.IsNullifierUsed(f.ctx, 1, window, "a"), "window %d", window)
+	}
 }

@@ -26,9 +26,12 @@ func SimulateMsgRegisterZkPublicKey(
 			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgRegisterZkPublicKey{}), "failed to get/create member"), nil, nil
 		}
 
-		// Generate a random 32-byte ZK public key
+		// Generate a random 32-byte ZK public key. The handler rejects values
+		// at or above the BN254 scalar modulus (just under 2^254), so clear the
+		// top three bits: anything below 2^253 is canonical.
 		zkPubKey := make([]byte, 32)
 		r.Read(zkPubKey)
+		zkPubKey[0] &= 0x1f
 
 		msg := &types.MsgRegisterZkPublicKey{
 			Member:      member.Address,

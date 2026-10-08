@@ -399,3 +399,46 @@ func setupMemberWithStatus(t *testing.T, f *fixture, addr sdk.AccAddress, status
 	}
 	require.NoError(t, f.keeper.Member.Set(f.ctx, addr.String(), member))
 }
+
+// ---------------------------------------------------------------------------
+// Export query
+// ---------------------------------------------------------------------------
+
+func TestTrustTreeQuery_LeavesRebuildRoot(t *testing.T) {
+	setTestTreeDepth(t, 4)
+	f := initFixture(t)
+	qs := keeper.NewQueryServerImpl(f.keeper)
+
+	// Before the tree is built: no root, no leaves.
+	resp, err := qs.TrustTree(f.ctx, &types.QueryTrustTreeRequest{})
+	require.NoError(t, err)
+	require.Empty(t, resp.Root)
+	require.Empty(t, resp.Leaves)
+
+	pk1 := make([]byte, 32)
+	copy(pk1, []byte("zkpubkey1_query_padx"))
+	pk2 := make([]byte, 32)
+	copy(pk2, []byte("zkpubkey2_query_padx"))
+	setupMemberWithZkKey(t, f, sdk.AccAddress([]byte("trust_query_member_1")), types.TrustLevel_TRUST_LEVEL_ESTABLISHED, pk1)
+	setupMemberWithZkKey(t, f, sdk.AccAddress([]byte("trust_query_member_2")), types.TrustLevel_TRUST_LEVEL_TRUSTED, pk2)
+	require.NoError(t, f.keeper.MaybeRebuildTrustTree(f.ctx))
+
+	resp, err = qs.TrustTree(f.ctx, &types.QueryTrustTreeRequest{})
+	require.NoError(t, err)
+	require.Equal(t, uint32(4), resp.Depth)
+	require.Equal(t, uint64(2), resp.LeafCount)
+	require.Len(t, resp.Leaves, 2)
+
+	// A client holding only the export can rebuild the on-chain root and
+	// find its own leaf.
+	tree := zkcrypto.NewMerkleTree(4)
+	for i, leaf := range resp.Leaves {
+		require.Equal(t, uint64(i), leaf.Index)
+		require.NoError(t, tree.AddLeaf(leaf.Hash))
+	}
+	require.NoError(t, tree.Build())
+	require.Equal(t, resp.Root, tree.Root())
+
+	myLeaf := zkcrypto.ComputeLeaf(pk2, uint64(types.TrustLevel_TRUST_LEVEL_TRUSTED))
+	require.GreaterOrEqual(t, tree.FindLeafIndex(myLeaf), 0)
+}

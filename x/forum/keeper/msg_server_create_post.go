@@ -169,8 +169,10 @@ func (k msgServer) CreatePost(ctx context.Context, msg *types.MsgCreatePost) (*t
 		return nil, errorsmod.Wrapf(types.ErrContentTooLarge, "max size is %d bytes", types.DefaultMaxContentSize)
 	}
 
-	// Charge cost_per_byte storage fee (applies to all posters, burned)
-	if !params.CostPerByteExempt && params.CostPerByteAmount.IsPositive() {
+	// Charge cost_per_byte storage fee (burned). An anonymous poster would be
+	// spending the shield module's gas reserve, not their own SPARK, so the
+	// fee doesn't apply.
+	if !params.CostPerByteExempt && params.CostPerByteAmount.IsPositive() && !k.isAnonymous(msg.Creator) {
 		contentBytes := int64(len(msg.Content))
 		storageFee := sdk.NewCoin(k.BondDenom(ctx),
 			params.CostPerByteAmount.MulRaw(contentBytes))
@@ -192,9 +194,12 @@ func (k msgServer) CreatePost(ctx context.Context, msg *types.MsgCreatePost) (*t
 		}
 	}
 
-	// Check rate limit
-	if err := k.checkAndUpdateRateLimit(ctx, msg.Creator, now, params.DailyPostLimit); err != nil {
-		return nil, err
+	// Check rate limit. Anonymous posts share the shield module address, so
+	// x/shield's per-identity rate limit applies to them instead.
+	if !k.isAnonymous(msg.Creator) {
+		if err := k.checkAndUpdateRateLimit(ctx, msg.Creator, now, params.DailyPostLimit); err != nil {
+			return nil, err
+		}
 	}
 
 	// Validate initiative reference before creating the post
@@ -214,8 +219,11 @@ func (k msgServer) CreatePost(ctx context.Context, msg *types.MsgCreatePost) (*t
 	var expirationTime int64
 	if !isMember {
 		expirationTime = now + params.EphemeralTtl
-		// Charge spam tax to non-members; split 50/50 burn / sentinel reward pool
-		if params.SpamTaxAmount.IsPositive() {
+		// Charge spam tax to non-members; split 50/50 burn / sentinel reward pool.
+		// Anonymous posters count as members (IsMember), so they never reach
+		// here; the explicit check keeps the shield gas reserve uncharged even
+		// if that changes.
+		if params.SpamTaxAmount.IsPositive() && !k.isAnonymous(msg.Creator) {
 			creatorAddr, _ := sdk.AccAddressFromBech32(msg.Creator)
 			spamTaxCoins := sdk.NewCoins(sdk.NewCoin(k.BondDenom(ctx), params.SpamTaxAmount))
 			if err := k.bankKeeper.SendCoinsFromAccountToModule(ctx, creatorAddr, types.ModuleName, spamTaxCoins); err != nil {

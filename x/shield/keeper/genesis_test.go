@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"cosmossdk.io/math"
+	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/stretchr/testify/require"
 
 	"sparkdream/x/shield/types"
@@ -185,4 +186,22 @@ func TestGenesisWithPendingOps(t *testing.T) {
 	ops := f2.keeper.GetPendingOpsForEpoch(f2.ctx, 5)
 	require.Len(t, ops, 1)
 	require.Equal(t, []byte("data"), ops[0].EncryptedPayload)
+}
+
+// InitGenesis creates the public anonymous submitter's account: clients sign
+// with its account number, which a just-created account wouldn't have yet.
+// An existing account (e.g. from an exported genesis) is left as it is.
+func TestInitGenesisCreatesPublicSubmitterAccount(t *testing.T) {
+	ak := mockAccountKeeper{accounts: map[string]sdk.AccountI{}}
+	f := initFixtureEmptyWithAccounts(t, ak)
+	submitter := types.PublicSubmitterAddress()
+
+	require.NoError(t, f.keeper.InitGenesis(f.ctx, *types.DefaultGenesis()))
+	acc := ak.GetAccount(f.ctx, submitter)
+	require.NotNil(t, acc)
+
+	require.NoError(t, acc.SetSequence(7))
+	ak.SetAccount(f.ctx, acc)
+	require.NoError(t, f.keeper.InitGenesis(f.ctx, *types.DefaultGenesis()))
+	require.Equal(t, uint64(7), ak.GetAccount(f.ctx, submitter).GetSequence(), "an existing account is kept")
 }

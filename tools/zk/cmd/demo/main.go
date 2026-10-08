@@ -139,6 +139,7 @@ func main() {
 			MinTrustLevel:      minTrustLevel,
 			Scope:              scope,
 			RateLimitEpoch:     epoch,
+			MessageHash:        0,
 			SecretKey:          crypto.BytesToFieldElement(member.SecretKey),
 			TrustLevel:         member.TrustLevel,
 		}
@@ -232,6 +233,7 @@ func main() {
 			MinTrustLevel:      minTrustLevel,
 			Scope:              action.Scope,
 			RateLimitEpoch:     epoch,
+			MessageHash:        0,
 		}
 
 		publicWitness, err := frontend.NewWitness(

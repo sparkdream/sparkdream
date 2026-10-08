@@ -7,6 +7,7 @@ import (
 	"sparkdream/x/forum/types"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	"github.com/stretchr/testify/require"
 )
 
@@ -202,4 +203,29 @@ func TestVoteOnOwnPost(t *testing.T) {
 	})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "cannot vote on your own post")
+}
+
+// An anonymous downvote would burn the deposit from the shield module account,
+// i.e. out of the gas reserve rather than the member's own SPARK, so anonymous
+// downvotes pay none. Each member's vote still counts (x/shield's nullifier
+// allows one per member per post).
+func TestDownvotePost_AnonymousPaysNoDeposit(t *testing.T) {
+	f := initFixture(t)
+	shield := authtypes.NewModuleAddress("shield")
+
+	f.bankKeeper.SendCoinsFromAccountToModuleFn = func(_ context.Context, sender sdk.AccAddress, _ string, amt sdk.Coins) error {
+		require.False(t, sender.Equals(shield), "anonymous downvote charged the shield module %s", amt)
+		return nil
+	}
+
+	cat := f.createTestCategory(t, "General")
+	post := f.createTestPost(t, testCreator, 0, cat.CategoryId)
+	for i := 0; i < 2; i++ {
+		_, err := f.msgServer.DownvotePost(f.ctx, &types.MsgDownvotePost{Creator: shield.String(), PostId: post.PostId})
+		require.NoError(t, err, "anonymous downvote %d", i+1)
+	}
+
+	got, err := f.keeper.Post.Get(f.ctx, post.PostId)
+	require.NoError(t, err)
+	require.Equal(t, uint64(2), got.DownvoteCount)
 }

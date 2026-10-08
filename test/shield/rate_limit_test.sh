@@ -220,7 +220,7 @@ fi
 echo ""
 echo "  Rate limit enforcement verified via parameter configuration:"
 echo "  - max_execs_per_identity_per_epoch = $MAX_EXECS"
-echo "  - CheckAndIncrementRateLimit() is called at step 7 of handleImmediate()"
+echo "  - CheckAndIncrementRateLimit() is called at step 8 of handleImmediate() (and checked in the ante handler first)"
 echo "  - Rate limit counter is per-epoch, per-identity (keyed by rate_limit_nullifier)"
 record_result "Rate limit exhaustion (param verification)" "PASS"
 
