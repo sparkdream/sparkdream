@@ -2062,7 +2062,7 @@ For use cases needing stronger moderation of anonymous or non-member content, x/
 4. **Integration with x/name**: Display author names instead of addresses
 5. **Reaction-Weighted Ranking**: Use reaction counts to surface popular posts/replies
 6. **Reply Notifications**: Notify post authors when new replies are posted (off-chain indexer)
-7. **Reaction Trust Gating**: Per-post minimum trust level for reactions (currently reactions require any active member)
+7. ~~**Reaction Trust Gating**: Per-post minimum trust level for reactions~~ — **Implemented** (reactions share the post's `min_reply_trust_level`, see Section 5.13)
 8. **Custom Reaction Sets**: Governance-configurable reaction types beyond the default four
 9. ~~**Reply Pinning**: Post author can pin important replies to the top~~ — **Implemented** (see Section 5.15, 5.16)
 10. **External Moderation & Author Bond Slashing**: x/blog currently uses author-only self-moderation. If a sentinel or council-driven moderation system is added, `SlashAuthorBond` can be wired into the hide flow (as x/forum and x/collect already do)
@@ -2095,6 +2095,16 @@ x/blog's `IsShieldCompatible` implementation (in `x/blog/keeper/shield_aware.go`
 
 All other message types (e.g., `MsgUpdatePost`, `MsgDeletePost`, `MsgHidePost`) return `false` from `IsShieldCompatible` and cannot be executed via `MsgShieldedExec`. This prevents anonymous users from performing operations that require author identity (updates, deletes, moderation).
 
+x/shield registers the three at genesis (`x/shield/types/genesis.go`), all `TRUST_TREE`, `NULLIFIER_MODE_CONSUME`, batch mode `EITHER`:
+
+| Message Type | Min Trust | Null. Domain | Scope | Effect |
+|-------------|-----------|-------------|-------|--------|
+| `MsgCreatePost` | 0 | 1 | EPOCH (window 12) | One anonymous post per member per 12 epochs (~1 hour) |
+| `MsgCreateReply` | 0 | 2 | MESSAGE_FIELD (`post_id`) | One anonymous reply per member per post |
+| `MsgReact` | 0 | 8 | MESSAGE_FIELD (`reply_id`, falling back to `post_id`) | One anonymous reaction per member per post and per reply |
+
+The registered floor of 0 means the proof shows membership and nothing else, so every member is in the anonymity set. A post's `min_reply_trust_level` is enforced by x/blog, not by the registration: to reply to or react on a post that asks for more, the client proves that level (`MsgShieldedExec.min_trust_level`) for that action only, and x/blog compares it with the post's requirement (see 23.4).
+
 ### 23.3. What x/blog No Longer Manages
 
 With the migration to x/shield, x/blog no longer:
@@ -2112,7 +2122,7 @@ When x/shield dispatches an inner message to x/blog, the resulting content behav
 
 - **Creator** is the shield module account address (`authtypes.NewModuleAddress("shield")`), shared by every anonymous member. The EndBlocker, `EphemeralByAuthorIndex`, and `PromotionQueue` recognise anonymous content by this address (not the blog module address)
 - **Ephemeral TTL** applies: `expires_at = block_time + params.ephemeral_content_ttl`. x/blog treats the shield address as an active member for gating, but explicitly keeps its posts and replies ephemeral
-- **Trust gates** compare the level the ZK proof established, which x/shield passes in the context (`shieldtypes.ProvenTrustLevel(ctx)`); with no proven level the action is refused. The thread-author exemption never applies
+- **Trust gates** compare the level the ZK proof established (the exec's `min_trust_level`), which x/shield passes in the context (`shieldtypes.ProvenTrustLevel(ctx)`); with no proven level the action is refused. A reply or reaction on a post with `min_reply_trust_level` 2 therefore needs a proof made at level 2 or higher. The thread-author exemption never applies
 - **Rate limits**: the per-address daily limits (`checkRateLimit`/`incrementRateLimit`) exempt the shield address; x/shield's per-identity rate limit bounds each member instead
 - **Fees**: none beyond module-paid gas — storage fees, edit delta fees, and reaction fees are all skipped for the shield module account (it would pay them from the gas reserve); x/shield's per-identity exec limit and per-op rate-limit windows bound volume instead
 - **Reactions** are count-only: no per-creator `Reaction` record, so they cannot be changed or removed (section 5.13)

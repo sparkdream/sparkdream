@@ -2998,7 +2998,7 @@ A shield-signed create with no exec nullifier in its context is rejected (`ErrAn
 
 **Limitations:**
 - **ZK key rotation loses management.** The tag is derived from the secret key; after `MsgRegisterZkPublicKey` with a new key the member can no longer prove membership with the old one, so old owner tags become unprovable. A transfer message to re-key ownership is a planned follow-up.
-- **Membership and trust are re-proven every time.** Each management op needs a fresh trust-tree proof at `min_trust_level` 1, so a member who loses membership or drops below PROVISIONAL loses management of their anonymous collections (they still expire normally).
+- **Membership is re-proven every time.** Each management op needs a fresh trust-tree proof (`min_trust_level` 0), so a member who loses membership loses management of their anonymous collections (they still expire normally). A drop in trust level does not.
 - **Linkable within one collection.** All management ops on a collection carry its tag, which is its creation nullifier, so they are linkable to each other and to the creation (inherent: they prove the same owner). They are not linkable to the member or to the member's other collections.
 - **Collaborators unsupported.** `MsgAddCollaborator` and the other collaborator messages are not shield-compatible; anonymous collections stay single-curator.
 
@@ -3046,7 +3046,7 @@ Anonymous collections have specific constraints that differ from regular collect
 > | `MsgAnonymousReact` (upvote) | `MsgShieldedExec` wrapping `MsgUpvoteContent` (domain 22, target-scoped) |
 > | `MsgAnonymousReact` (downvote) | `MsgShieldedExec` wrapping `MsgDownvoteContent` (domain 22, shared with upvotes) |
 >
-> The management messages are registered at shield genesis as `NULLIFIER_MODE_OWNERSHIP`, `IMMEDIATE_ONLY`, `min_trust_level=1`, nullifier domain 23 (a label; nothing is recorded under it). Their proof is made over the collection's owner claim, its nullifier must equal `anon_owner_tag`, and it binds `anon_owner_sequence` (section 18.3).
+> The management messages are registered at shield genesis as `NULLIFIER_MODE_OWNERSHIP`, `IMMEDIATE_ONLY`, `min_trust_level=0`, nullifier domain 23 (a label; nothing is recorded under it). Their proof is made over the collection's owner claim, its nullifier must equal `anon_owner_tag`, and it binds `anon_owner_sequence` (section 18.3).
 >
 > x/shield sets the inner message's `creator` field to the shield module account address before dispatching to x/collect, so an anonymously created collection's `owner` is the shield module account address. x/shield handles ZK proof verification, nullifier dedup, module-paid gas, and rate limiting. x/collect's standard message handlers execute the inner message as if it came from a regular sender, except that per-voter vote bookkeeping and the downvote cost are skipped (section 18.2), and trust gates (`meetsMinTrustLevel`) compare the level the ZK proof established (`shieldtypes.ProvenTrustLevel(ctx)`); with no proven level in the context the check fails. No SPARK is charged for anonymous collection creation or item adds: the shield module account's balance is the communal gas reserve (§18.13).
 >
@@ -3251,7 +3251,7 @@ Remaining anonymous-specific events:
 
 #### 18.19.1. Anonymity Set
 
-The anonymity set for anonymous collection creation is all active members at or above the proven trust level. With x/shield's registered shielded ops, x/collect uses `min_trust_level=1` (PROVISIONAL). x/shield governance can adjust the minimum trust level per registered operation if the anonymity set is too small or quality guarantees need tightening.
+The anonymity set for anonymous collection creation is all active members at or above the proven trust level. x/shield registers x/collect's ops at `min_trust_level=0`, so the set is every active member; only an action whose target asks for more (a curator or sponsor gate) proves a higher level. x/shield governance can adjust the minimum trust level per registered operation if the anonymity set is too small or quality guarantees need tightening.
 
 #### 18.19.2. Execution Mode Privacy
 

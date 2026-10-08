@@ -364,7 +364,7 @@ The collect management ops let the anonymous creator of a collection manage it: 
 - `ENCRYPTED_ONLY` — encrypted batch only (e.g., anonymous challenges require maximum privacy)
 - `EITHER` — both modes allowed (default for most operations; immediate works without TLE/DKG)
 
-All operations use `PROOF_DOMAIN_TRUST_TREE` and require minimum trust level of 1 (PROVISIONAL), except rep challenges and commons governance (trust level 0) and federation arbiter hashes (trust level 2).
+All operations use `PROOF_DOMAIN_TRUST_TREE`. The registered `min_trust_level` is a floor the exec's proven level must meet: 0 for everything except federation arbiter hashes (2). For content ops (blog, forum, collect) the proof then shows membership and nothing else, so every member is in the anonymity set; where the target asks for more (a blog post's `min_reply_trust_level`, collect's curator or sponsor gates), the client proves that level for that action only, and the target compares it via `types.ProvenTrustLevel`.
 
 ## Client
 
@@ -379,7 +379,7 @@ sparkdreamd tx shield shielded-exec \
   --rate-limit-nullifier <hex> \
   --merkle-root <hex> \
   --proof-domain 1 \
-  --min-trust-level 1 \
+  --min-trust-level 0 \
   --exec-mode 0 \
   --from <submitter>
 
@@ -390,7 +390,7 @@ sparkdreamd tx shield shielded-exec \
   --rate-limit-nullifier <hex> \
   --merkle-root <hex> \
   --proof-domain 1 \
-  --min-trust-level 1 \
+  --min-trust-level 0 \
   --exec-mode 1 \
   --target-epoch <epoch> \
   --from <submitter>

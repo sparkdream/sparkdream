@@ -11,13 +11,19 @@ func DefaultGenesis() *GenesisState {
 // defaultShieldedOps returns the default set of shielded operations registered
 // at genesis. These cover all existing anonymous functionality across modules.
 // See docs/x-shield-spec.md "Default Operations (Genesis)" for rationale.
+//
+// Content ops take MinTrustLevel 0: the proof only shows
+// membership, so the anonymity set is every member and a rarer trust level
+// never narrows it. A target that asks for more (a post's
+// min_reply_trust_level, a curator or sponsor gate) makes the client prove
+// that level for that action alone.
 func defaultShieldedOps() []ShieldedOpRegistration {
 	ops := []ShieldedOpRegistration{
 		// --- x/blog ---
 		{
 			MessageTypeUrl:     "/sparkdream.blog.v1.MsgCreatePost",
 			ProofDomain:        ProofDomain_PROOF_DOMAIN_TRUST_TREE,
-			MinTrustLevel:      1, // anon_min_trust
+			MinTrustLevel:      0,
 			NullifierDomain:    1,
 			NullifierScopeType: NullifierScopeType_NULLIFIER_SCOPE_EPOCH,
 			// One anonymous post per member per 12 epochs (~1 hour).
@@ -28,7 +34,7 @@ func defaultShieldedOps() []ShieldedOpRegistration {
 		{
 			MessageTypeUrl:     "/sparkdream.blog.v1.MsgCreateReply",
 			ProofDomain:        ProofDomain_PROOF_DOMAIN_TRUST_TREE,
-			MinTrustLevel:      1,
+			MinTrustLevel:      0,
 			NullifierDomain:    2,
 			NullifierScopeType: NullifierScopeType_NULLIFIER_SCOPE_MESSAGE_FIELD,
 			ScopeFieldPath:     "post_id",
@@ -38,7 +44,7 @@ func defaultShieldedOps() []ShieldedOpRegistration {
 		{
 			MessageTypeUrl: "/sparkdream.blog.v1.MsgReact",
 			ProofDomain:    ProofDomain_PROOF_DOMAIN_TRUST_TREE,
-			MinTrustLevel:  1,
+			MinTrustLevel:  0,
 			// One anonymous reaction per member per post and per reply:
 			// reply ids come from their own sequence, so a reply reaction is
 			// scoped to the reply and doesn't spend the post's.
@@ -52,7 +58,7 @@ func defaultShieldedOps() []ShieldedOpRegistration {
 		{
 			MessageTypeUrl:     "/sparkdream.forum.v1.MsgCreatePost",
 			ProofDomain:        ProofDomain_PROOF_DOMAIN_TRUST_TREE,
-			MinTrustLevel:      1,
+			MinTrustLevel:      0,
 			NullifierDomain:    11,
 			NullifierScopeType: NullifierScopeType_NULLIFIER_SCOPE_EPOCH,
 			// One anonymous post or reply per member per 3 epochs (~15 min).
@@ -63,7 +69,7 @@ func defaultShieldedOps() []ShieldedOpRegistration {
 		{
 			MessageTypeUrl:     "/sparkdream.forum.v1.MsgUpvotePost",
 			ProofDomain:        ProofDomain_PROOF_DOMAIN_TRUST_TREE,
-			MinTrustLevel:      1,
+			MinTrustLevel:      0,
 			NullifierDomain:    12,
 			NullifierScopeType: NullifierScopeType_NULLIFIER_SCOPE_MESSAGE_FIELD,
 			ScopeFieldPath:     "post_id",
@@ -73,7 +79,7 @@ func defaultShieldedOps() []ShieldedOpRegistration {
 		{
 			MessageTypeUrl: "/sparkdream.forum.v1.MsgDownvotePost",
 			ProofDomain:    ProofDomain_PROOF_DOMAIN_TRUST_TREE,
-			MinTrustLevel:  1,
+			MinTrustLevel:  0,
 			// Shares the upvote domain: one anonymous vote per member per
 			// post, either way, like the module's own per-voter record.
 			NullifierDomain:    12,
@@ -86,7 +92,7 @@ func defaultShieldedOps() []ShieldedOpRegistration {
 		{
 			MessageTypeUrl:     "/sparkdream.collect.v1.MsgCreateCollection",
 			ProofDomain:        ProofDomain_PROOF_DOMAIN_TRUST_TREE,
-			MinTrustLevel:      1,
+			MinTrustLevel:      0,
 			NullifierDomain:    21,
 			NullifierScopeType: NullifierScopeType_NULLIFIER_SCOPE_EPOCH,
 			// One anonymous collection per member per 288 epochs (~1 day).
@@ -97,7 +103,7 @@ func defaultShieldedOps() []ShieldedOpRegistration {
 		{
 			MessageTypeUrl:     "/sparkdream.collect.v1.MsgUpvoteContent",
 			ProofDomain:        ProofDomain_PROOF_DOMAIN_TRUST_TREE,
-			MinTrustLevel:      1,
+			MinTrustLevel:      0,
 			NullifierDomain:    22,
 			NullifierScopeType: NullifierScopeType_NULLIFIER_SCOPE_MESSAGE_FIELD,
 			ScopeFieldPath:     "target_type,target_id",
@@ -107,7 +113,7 @@ func defaultShieldedOps() []ShieldedOpRegistration {
 		{
 			MessageTypeUrl: "/sparkdream.collect.v1.MsgDownvoteContent",
 			ProofDomain:    ProofDomain_PROOF_DOMAIN_TRUST_TREE,
-			MinTrustLevel:  1,
+			MinTrustLevel:  0,
 			// Shares the upvote domain: one anonymous vote per member per
 			// target, either way, like the module's own per-voter record.
 			NullifierDomain:    22,
@@ -134,7 +140,7 @@ func defaultShieldedOps() []ShieldedOpRegistration {
 		ops = append(ops, ShieldedOpRegistration{
 			MessageTypeUrl:  typeURL,
 			ProofDomain:     ProofDomain_PROOF_DOMAIN_TRUST_TREE,
-			MinTrustLevel:   1,
+			MinTrustLevel:   0,
 			NullifierDomain: 23,
 			NullifierMode:   NullifierMode_NULLIFIER_MODE_OWNERSHIP,
 			Active:          true,

@@ -592,6 +592,15 @@ genesis:
         hide_appeal_cooldown: "3600"     # 1 hour (same as production)
         lock_appeal_cooldown: "3600"     # 1 hour (same as production)
         move_appeal_cooldown: "3600"     # 1 hour (same as production)
+    shield:
+      # Groth16 verifying key for the shield circuit. Production builds reject
+      # every MsgShieldedExec until one is stored, and only genesis or a chain
+      # upgrade can store it. From a single-contributor tools/zk/cmd/ceremony
+      # run (2026-10-08, drand beacons); the web client's proving_key.raw.bin
+      # (sha256 71177142...4ea3c) is its pair. Not for mainnet.
+      verification_keys:
+      - circuit_id: shield_v1
+        vk_bytes: hnp1sX/yJLp3+R/kGcgNPooH9WdbQDfr1HzJ97Q5l0CXFC0Z9+dX0sCrCESZjUS955SivGyJQ7abHyN38xjEOotxOjbkIzHo78F9T43qfytNMnoVMrRhHbE3DkAZVX2nMAH9P1rqLEOoJZsr7+uaafj9HZR4yqr/bk9Ph35Py7aZjpOTkg1IOnJgv7cx+10l8apJMzWp5xKX5IW3rvMSwhgA3u8SHx52QmoAZl5cRHlnQyLU917a3UbevVzZkvbt3faCDFiQZIO56WaC94XpnEJcCZZABbsMKt+xWWHbc4yc66SHJ6YbTC4H274dpPlhiJoZpkQv4cBoyAVdpOOfjCU5AQx7D/7vNU3RQ+PSOeC+U7ygrRYiPS78TT2wMCe2AAAACIb0zn/9ov/GFItEh3mhrO98alXKCxvUPr5TNJRHvIq+kCBOA83NdX6EwrthXBOEBOTM0CmCmhgQfS8RhDtVwiHVPa1qoJafQ40brlgRahMLx3GEme1ZDDjigqU/vceKYKVvGT5jVGRAx557afAqt77ffi5bhuMB2ykP3zV30PMajS60SYZpFBhyvpm9f+RWhlvD3Mjjb6k+cT09krxgBT+qvswp4eGdg0qBbig7U0iSWKSQNXHAi76cra4N9cgH8aLfm2xuG8okzrGOqPVrrAswc4JnqpuaGqltk1fLIQxQgZivwyK6ZMFfM4u+wcQOFgMMEs+9dlRaKXsE/12+BjQAAAAAAAAAAA==
 # Validators will be configured manually in the final genesis.json.
 validators:
 - name: kingofbitchain

@@ -1997,29 +1997,31 @@ The list of permitted shielded operations is a **governance-controlled whitelist
 
 The genesis set covers all existing anonymous functionality on the chain: 21 operations (13 consume-mode, 8 ownership-mode collect management ops). `GenesisState.Validate()` runs `ShieldedOpRegistration.Validate()` on every entry. Every row below is `NULLIFIER_MODE_CONSUME` unless its table says otherwise.
 
+Content ops (blog, forum, collect) register `min_trust_level = 0`: the proof shows membership and nothing else, so every member is in the anonymity set and holders of rarer trust levels are not singled out. Where the target itself asks for more (a post's `min_reply_trust_level`, collect's curator or sponsor gates), the client proves that level for that action only.
+
 #### x/blog
 
 | Message Type | Proof Domain | Min Trust | Null. Domain | Scope | Batch Mode |
 |-------------|-------------|-----------|-------------|-------|------------|
-| `MsgCreatePost` | TRUST_TREE | `anon_min_trust` | 1 | EPOCH (window 12) | EITHER |
-| `MsgCreateReply` | TRUST_TREE | `anon_min_trust` | 2 | MESSAGE_FIELD (post_id) | EITHER |
-| `MsgReact` | TRUST_TREE | `anon_min_trust` | 8 | MESSAGE_FIELD (reply_id\|post_id) | EITHER |
+| `MsgCreatePost` | TRUST_TREE | 0 | 1 | EPOCH (window 12) | EITHER |
+| `MsgCreateReply` | TRUST_TREE | 0 | 2 | MESSAGE_FIELD (post_id) | EITHER |
+| `MsgReact` | TRUST_TREE | 0 | 8 | MESSAGE_FIELD (reply_id\|post_id) | EITHER |
 
 #### x/forum
 
 | Message Type | Proof Domain | Min Trust | Null. Domain | Scope | Batch Mode |
 |-------------|-------------|-----------|-------------|-------|------------|
-| `MsgCreatePost` | TRUST_TREE | `anon_min_trust` | 11 | EPOCH (window 3) | EITHER |
-| `MsgUpvotePost` | TRUST_TREE | `anon_min_trust` | 12 | MESSAGE_FIELD (post_id) | EITHER |
-| `MsgDownvotePost` | TRUST_TREE | `anon_min_trust` | 12 | MESSAGE_FIELD (post_id) | EITHER |
+| `MsgCreatePost` | TRUST_TREE | 0 | 11 | EPOCH (window 3) | EITHER |
+| `MsgUpvotePost` | TRUST_TREE | 0 | 12 | MESSAGE_FIELD (post_id) | EITHER |
+| `MsgDownvotePost` | TRUST_TREE | 0 | 12 | MESSAGE_FIELD (post_id) | EITHER |
 
 #### x/collect
 
 | Message Type | Proof Domain | Min Trust | Null. Domain | Scope | Batch Mode |
 |-------------|-------------|-----------|-------------|-------|------------|
-| `MsgCreateCollection` | TRUST_TREE | `anon_min_trust` | 21 | EPOCH (window 288) | EITHER |
-| `MsgUpvoteContent` | TRUST_TREE | `anon_min_trust` | 22 | MESSAGE_FIELD (target_type,target_id) | EITHER |
-| `MsgDownvoteContent` | TRUST_TREE | `anon_min_trust` | 22 | MESSAGE_FIELD (target_type,target_id) | EITHER |
+| `MsgCreateCollection` | TRUST_TREE | 0 | 21 | EPOCH (window 288) | EITHER |
+| `MsgUpvoteContent` | TRUST_TREE | 0 | 22 | MESSAGE_FIELD (target_type,target_id) | EITHER |
+| `MsgDownvoteContent` | TRUST_TREE | 0 | 22 | MESSAGE_FIELD (target_type,target_id) | EITHER |
 
 Upvotes and downvotes share a nullifier domain (forum 12, collect 22): one anonymous vote per member per target, either direction, matching the modules' own per-voter record. A two-field scope path packs the first field into the top byte: raw scope = `(target_type << 56) | target_id` (`types.PackNullifierScope`; ids must fit in 56 bits). Clients pass that value as the prover's raw `Scope` (the prover hashes it with the domain into the scope element). Without the qualifier, a vote on collection 5 would block a vote on item 5.
 
@@ -2027,14 +2029,14 @@ Upvotes and downvotes share a nullifier domain (forum 12, collect 22): one anony
 
 | Message Type | Proof Domain | Min Trust | Null. Domain | Nullifier Mode | Batch Mode |
 |-------------|-------------|-----------|-------------|-------|------------|
-| `MsgUpdateCollection` | TRUST_TREE | 1 | 23 (label) | OWNERSHIP | IMMEDIATE_ONLY |
-| `MsgDeleteCollection` | TRUST_TREE | 1 | 23 (label) | OWNERSHIP | IMMEDIATE_ONLY |
-| `MsgAddItem` | TRUST_TREE | 1 | 23 (label) | OWNERSHIP | IMMEDIATE_ONLY |
-| `MsgAddItems` | TRUST_TREE | 1 | 23 (label) | OWNERSHIP | IMMEDIATE_ONLY |
-| `MsgUpdateItem` | TRUST_TREE | 1 | 23 (label) | OWNERSHIP | IMMEDIATE_ONLY |
-| `MsgRemoveItem` | TRUST_TREE | 1 | 23 (label) | OWNERSHIP | IMMEDIATE_ONLY |
-| `MsgRemoveItems` | TRUST_TREE | 1 | 23 (label) | OWNERSHIP | IMMEDIATE_ONLY |
-| `MsgReorderItem` | TRUST_TREE | 1 | 23 (label) | OWNERSHIP | IMMEDIATE_ONLY |
+| `MsgUpdateCollection` | TRUST_TREE | 0 | 23 (label) | OWNERSHIP | IMMEDIATE_ONLY |
+| `MsgDeleteCollection` | TRUST_TREE | 0 | 23 (label) | OWNERSHIP | IMMEDIATE_ONLY |
+| `MsgAddItem` | TRUST_TREE | 0 | 23 (label) | OWNERSHIP | IMMEDIATE_ONLY |
+| `MsgAddItems` | TRUST_TREE | 0 | 23 (label) | OWNERSHIP | IMMEDIATE_ONLY |
+| `MsgUpdateItem` | TRUST_TREE | 0 | 23 (label) | OWNERSHIP | IMMEDIATE_ONLY |
+| `MsgRemoveItem` | TRUST_TREE | 0 | 23 (label) | OWNERSHIP | IMMEDIATE_ONLY |
+| `MsgRemoveItems` | TRUST_TREE | 0 | 23 (label) | OWNERSHIP | IMMEDIATE_ONLY |
+| `MsgReorderItem` | TRUST_TREE | 0 | 23 (label) | OWNERSHIP | IMMEDIATE_ONLY |
 
 These let the anonymous creator of a collection manage it (see [Nullifier Modes](#nullifier-modes)). The proof is made over the collection's owner claim - `anon_owner_domain` (21, the `MsgCreateCollection` domain) and `anon_owner_scope` (the creation epoch) - so its nullifier reproduces `anon_owner_tag`, and it binds `anon_owner_sequence`. Domain 23 only labels the ops; nothing is recorded under it, and they have no scope type or scope field. x/collect's `ShieldOwnershipResolver` resolves the collection from the message id (item ops resolve it from the item; all `MsgRemoveItems` ids must be in one collection).
 

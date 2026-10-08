@@ -321,9 +321,9 @@ When a shielded operation executes, the inner message's `creator` field is set t
 - Persistent abuse from the same nullifier pattern can be flagged (same nullifier = same member, even if identity unknown)
 - In extreme cases (illegal content), the chain's governance can coordinate with law enforcement — the ZK proof guarantees the poster *is* a registered member, narrowing the search space
 
-### Recommended Default: PROVISIONAL (Trust Level 1)
+### Default: Any Member (Trust Level 0)
 
-Most genesis-registered operations require trust level 1 (PROVISIONAL). Modules can require higher trust levels by registering operations with a higher `min_trust_level`.
+Genesis registers the content operations (blog, forum, collect) at trust level 0: the proof shows membership and nothing else, so the anonymity set is every member. Where the target asks for more (a post's `min_reply_trust_level`, collect's curator or sponsor gates), the client proves that level for that action only. Operations that need a higher level for every use register a higher `min_trust_level` (e.g. federation's `MsgSubmitArbiterHash` at 2).
 
 ---
 

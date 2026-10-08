@@ -314,7 +314,7 @@ func TestShieldedOpRegistration(t *testing.T) {
 		reg, found := f.keeper.GetShieldedOp(f.ctx, "/sparkdream.blog.v1.MsgCreatePost")
 		require.True(t, found)
 		require.Equal(t, types.ProofDomain_PROOF_DOMAIN_TRUST_TREE, reg.ProofDomain)
-		require.Equal(t, uint32(1), reg.MinTrustLevel)
+		require.Equal(t, uint32(0), reg.MinTrustLevel)
 		require.True(t, reg.Active)
 	})
 

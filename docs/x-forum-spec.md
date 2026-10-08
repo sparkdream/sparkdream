@@ -6497,7 +6497,7 @@ Anonymous posts are always permanent because ephemeral posts require author inte
 
 ### 16.12. Security Considerations
 
-- **Anonymity set size:** The anonymity set equals all active members at or above the proven trust level. With `min_trust_level=1`, this includes most active members, providing strong anonymity.
+- **Anonymity set size:** The anonymity set equals all active members at or above the proven trust level. x/shield registers forum's ops at `min_trust_level=0`, so the set is every active member.
 - **Nullifier unlinkability:** Nullifiers from different scopes (different posts, different epochs) cannot be correlated to the same member. Nullifier management is centralized in x/shield.
 - **Module-paid gas:** x/shield's module account pays transaction fees for shielded operations, so the submitter needs zero balance. This eliminates balance-based deanonymization attacks.
 - **Encrypted Batch mode:** For maximum privacy, users can submit via TLE-encrypted batch mode. Content is encrypted until the epoch decryption key is released, preventing transaction ordering analysis.

@@ -2,6 +2,7 @@ package types_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"cosmossdk.io/math"
@@ -242,6 +243,21 @@ func TestDefaultGenesisOpsContent(t *testing.T) {
 		require.Equal(t, types.NullifierScopeType_NULLIFIER_SCOPE_MESSAGE_FIELD, op.NullifierScopeType)
 		require.Equal(t, "content_id", op.ScopeFieldPath)
 		require.Equal(t, uint32(2), op.MinTrustLevel, "must require ESTABLISHED+ to match identified bridge gate")
+	})
+
+	// Content ops prove membership only, so the anonymity set is every
+	// member; targets that want more make the client prove it per action.
+	t.Run("content ops take trust floor 0", func(t *testing.T) {
+		n := 0
+		for _, op := range gs.RegisteredOps {
+			for _, prefix := range []string{"/sparkdream.blog.", "/sparkdream.forum.", "/sparkdream.collect."} {
+				if strings.HasPrefix(op.MessageTypeUrl, prefix) {
+					require.Equal(t, uint32(0), op.MinTrustLevel, op.MessageTypeUrl)
+					n++
+				}
+			}
+		}
+		require.Equal(t, 17, n, "blog 3 + forum 3 + collect 3 consume + 8 ownership")
 	})
 
 	// Verify nullifier domains are unique

@@ -123,19 +123,44 @@ func TestShieldedExecImmediateInsufficientTrustLevel(t *testing.T) {
 	submitter, err := f.addressCodec.BytesToString(authtypes.NewModuleAddress("test"))
 	require.NoError(t, err)
 
-	// Blog posts require MinTrustLevel=1
+	// Arbiter hashes require MinTrustLevel=2
 	_, err = ms.ShieldedExec(f.ctx, &types.MsgShieldedExec{
 		Submitter: submitter,
 		ExecMode:  types.ShieldExecMode_SHIELD_EXEC_IMMEDIATE,
 		InnerMessage: &any.Any{
-			TypeUrl: "/sparkdream.blog.v1.MsgCreatePost",
+			TypeUrl: "/sparkdream.federation.v1.MsgSubmitArbiterHash",
 			Value:   []byte("data"),
 		},
 		ProofDomain:   types.ProofDomain_PROOF_DOMAIN_TRUST_TREE,
-		MinTrustLevel: 0, // Below required
+		MinTrustLevel: 1, // Below required
 	})
 	require.Error(t, err)
 	require.ErrorIs(t, err, types.ErrInsufficientTrustLevel)
+}
+
+// The registration's MinTrustLevel is a floor, not an exact match: a proof at
+// the floor (0 for content ops) or above it, made for a target that asks for
+// more, passes the trust check. The garbage inner message fails later.
+func TestShieldedExecImmediateTrustLevelAtOrAboveFloor(t *testing.T) {
+	f, ms := initMsgServer(t)
+
+	submitter, err := f.addressCodec.BytesToString(authtypes.NewModuleAddress("test"))
+	require.NoError(t, err)
+
+	for _, level := range []uint32{0, 2, 4} {
+		_, err = ms.ShieldedExec(f.ctx, &types.MsgShieldedExec{
+			Submitter: submitter,
+			ExecMode:  types.ShieldExecMode_SHIELD_EXEC_IMMEDIATE,
+			InnerMessage: &any.Any{
+				TypeUrl: "/sparkdream.blog.v1.MsgCreateReply",
+				Value:   []byte("data"),
+			},
+			ProofDomain:   types.ProofDomain_PROOF_DOMAIN_TRUST_TREE,
+			MinTrustLevel: level,
+		})
+		require.Error(t, err)
+		require.NotErrorIs(t, err, types.ErrInsufficientTrustLevel, "level %d", level)
+	}
 }
 
 func TestShieldedExecEncryptedBatchProofRejected(t *testing.T) {

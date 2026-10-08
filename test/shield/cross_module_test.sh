@@ -425,14 +425,18 @@ echo "--- TEST 12: Trust level requirements ---"
 echo "  Operation trust level requirements:"
 echo "$OPS" | jq -r '.registrations[]? | "    \(.message_type_url | split(".") | .[-1]): min_trust=\(.min_trust_level // 0)"' 2>/dev/null
 
-# Verify content operations require at least trust level 1
-CONTENT_OPS_LOW=$(echo "$OPS" | jq -r '[.registrations[]? | select((.message_type_url | contains("blog") or contains("forum") or contains("collect")) and (.min_trust_level // 0) < 1)] | length' 2>/dev/null || echo "0")
+# Content ops (blog, forum, collect) take floor 0: the proof shows membership
+# and nothing else, so the anonymity set is every member. Targets that ask for
+# more (a post's min_reply_trust_level, curator/sponsor gates) make the client
+# prove that level per action. Arbiter hashes keep their ESTABLISHED+ floor.
+CONTENT_OPS_RAISED=$(echo "$OPS" | jq -r '[.registrations[]? | select((.message_type_url | contains("blog") or contains("forum") or contains("collect")) and (.min_trust_level // 0) != 0)] | length' 2>/dev/null || echo "-1")
+ARBITER_TRUST=$(echo "$OPS" | jq -r '.registrations[]? | select(.message_type_url == "/sparkdream.federation.v1.MsgSubmitArbiterHash") | .min_trust_level // 0' 2>/dev/null)
 
-if [ "$CONTENT_OPS_LOW" == "0" ]; then
-    echo "  All content operations require min_trust_level >= 1"
+if [ "$CONTENT_OPS_RAISED" == "0" ] && [ "$ARBITER_TRUST" == "2" ]; then
+    echo "  Content operations take min_trust_level 0; MsgSubmitArbiterHash requires 2"
     record_result "Trust level requirements" "PASS"
 else
-    echo "  Some content ops have min_trust_level < 1 ($CONTENT_OPS_LOW ops)"
+    echo "  Unexpected floors: $CONTENT_OPS_RAISED content ops != 0, arbiter hash = ${ARBITER_TRUST:-missing} (want 2)"
     record_result "Trust level requirements" "FAIL"
 fi
 
