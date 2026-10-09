@@ -63,7 +63,7 @@ const publicNote = `{
   "id":"https://md.test/users/alice/statuses/10",
   "type":"Note",
   "attributedTo":"https://md.test/users/alice",
-  "content":"<p>hello federation</p>",
+  "content":"<p>hello federation #cc0</p>",
   "published":"2026-09-10T10:00:00Z",
   "to":["https://www.w3.org/ns/activitystreams#Public"]
 }`
@@ -73,7 +73,7 @@ const editedNote = `{
   "id":"https://md.test/users/alice/statuses/10",
   "type":"Note",
   "attributedTo":"https://md.test/users/alice",
-  "content":"<p>hello federation (edited)</p>",
+  "content":"<p>hello federation (edited) #cc0</p>",
   "published":"2026-09-10T10:00:00Z",
   "updated":"2026-09-10T11:00:00Z",
   "to":["https://www.w3.org/ns/activitystreams#Public"]
@@ -83,7 +83,7 @@ const followersOnly = `{
   "id":"https://md.test/users/alice/statuses/11",
   "type":"Note",
   "attributedTo":"https://md.test/users/alice",
-  "content":"<p>followers only</p>",
+  "content":"<p>followers only #cc0</p>",
   "published":"2026-09-10T10:05:00Z",
   "to":["https://md.test/users/alice/followers"]
 }`
@@ -92,7 +92,7 @@ const replyNote = `{
   "id":"https://md.test/users/bob/statuses/12",
   "type":"Note",
   "attributedTo":"https://md.test/users/bob",
-  "content":"<p>a reply</p>",
+  "content":"<p>a reply #cc0</p>",
   "published":"2026-09-10T10:10:00Z",
   "inReplyTo":"https://md.test/users/alice/statuses/10",
   "to":["https://www.w3.org/ns/activitystreams#Public"]
@@ -158,8 +158,11 @@ func TestIngestAnchorsNewPost(t *testing.T) {
 	if m.CreatorIdentity != "@alice@md.test" || m.CreatorName != "Alice" {
 		t.Fatalf("creator mapping wrong: %q / %q", m.CreatorIdentity, m.CreatorName)
 	}
-	if m.Body != "<p>hello federation</p>" || m.Title != "" {
+	if m.Body != "<p>hello federation #cc0</p>" || m.Title != "" {
 		t.Fatalf("body/title wrong: %q / %q", m.Body, m.Title)
+	}
+	if m.License != "CC0-1.0" {
+		t.Fatalf("license = %q, want CC0-1.0 from the #cc0 hashtag", m.License)
 	}
 	if m.ContentUri != "https://md.test/users/alice/statuses/10" {
 		t.Fatalf("content_uri wrong: %q", m.ContentUri)
@@ -404,7 +407,7 @@ func TestAnchorsAS2IdNotWebPermalink(t *testing.T) {
 	  "type":"Note",
 	  "attributedTo":"https://md.test/users/alice",
 	  "url":"https://md.test/@alice/10",
-	  "content":"<p>hello</p>",
+	  "content":"<p>hello #cc0</p>",
 	  "published":"2026-09-10T10:00:00Z",
 	  "to":["https://www.w3.org/ns/activitystreams#Public"]
 	}`

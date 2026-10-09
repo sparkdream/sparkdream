@@ -9,6 +9,7 @@ import (
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
 	"github.com/cosmos/cosmos-sdk/x/simulation"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/rep/keeper"
 	"sparkdream/x/rep/types"
 )
@@ -71,6 +72,8 @@ func SimulateMsgAcceptInvitation(
 		msg := &types.MsgAcceptInvitation{
 			Invitee:      inviteeAcc.Address.String(),
 			InvitationId: invitationID,
+			// Joining is agreeing to publish everything under CC0.
+			AcceptedContentLicense: commontypes.ChainContentLicense,
 		}
 
 		return simulation.GenAndDeliverTxWithRandFees(simulation.OperationInput{

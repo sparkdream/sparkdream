@@ -13,6 +13,8 @@ This module serves as:
 - A foundation for more complex content systems (e.g., x/forum)
 - A content source for retroactive public goods nominations (x/season) — blog posts and replies created during a season can be nominated for retroactive DREAM rewards
 
+**Content license.** Every post and reply is dedicated to the public domain under CC0 1.0 by the act of submitting it, anonymous ones included. It is the chain's license, not a per-post choice, so posts carry no license field. See [content-license.md](content-license.md).
+
 ---
 
 ## 2. Dependencies

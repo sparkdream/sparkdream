@@ -7,8 +7,12 @@
 //
 // Usage:
 //
-//	apcanon hash  [flags] <uri|->   # sha256 of the canonical form, hex
-//	apcanon canon [flags] <uri|->   # the canonical JSON itself
+//	apcanon hash    [flags] <uri|->   # sha256 of the canonical form, hex
+//	apcanon canon   [flags] <uri|->   # the canonical JSON itself
+//	apcanon license [flags] <uri|->   # the public-domain license the post
+//	                                  # declares (#cc0 -> CC0-1.0,
+//	                                  # #publicdomain -> PDM-1.0); exit 3
+//	                                  # when it declares none
 //
 // Flags precede the target (Go's flag package stops at the first
 // non-flag argument).
@@ -50,7 +54,7 @@ func main() {
 		os.Exit(2)
 	}
 	sub := os.Args[1]
-	if sub != "hash" && sub != "canon" {
+	if sub != "hash" && sub != "canon" && sub != "license" {
 		usage()
 		os.Exit(2)
 	}
@@ -82,6 +86,13 @@ func main() {
 		return apcanon.FetchMediaDigest(ctx, url, apcanon.FetchOptions{AllowPrivateHosts: *allowPrivate})
 	}
 	switch sub {
+	case "license":
+		license := apcanon.License(obj)
+		if license == "" {
+			fmt.Fprintln(os.Stderr, "apcanon: no #cc0 or #publicdomain hashtag; the chain will not accept this post")
+			os.Exit(3)
+		}
+		fmt.Println(license)
 	case "canon":
 		var canonical []byte
 		switch *rule {
@@ -147,8 +158,9 @@ func usage() {
 	// unparsed and fails the NArg check. The old usage line showed flags
 	// last, which is exactly backwards.
 	fmt.Fprintln(os.Stderr, `usage:
-  apcanon hash  [flags] <uri|->
-  apcanon canon [flags] <uri|->
+  apcanon hash    [flags] <uri|->
+  apcanon canon   [flags] <uri|->
+  apcanon license [flags] <uri|->   (CC0-1.0, PDM-1.0, or exit 3: not anchorable)
 
 flags:
   --base64            print the hash base64 (the chain's --content-hash takes base64, not hex)

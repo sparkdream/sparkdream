@@ -43,6 +43,11 @@ message ContentPacket {
   int64 created_at = 8;
   bytes content_hash = 9;
   bytes protocol_metadata = 10;
+  // license is the license the content is published under on the sending
+  // chain ("CC0-1.0" for Spark Dream content). The receiver accepts only
+  // public-domain licenses; a packet without one is refused. Appended, as
+  // every field here must be (wire-pinned, see packet_wire_compat_test.go).
+  string license = 11;
 }
 
 // IdentityVerificationPacket initiates identity verification on a remote chain (Phase 1).

@@ -17,6 +17,7 @@ import (
 func submitURI(ms types.MsgServer, f *fixture, op, peer, uri, body string, supersedes *types.ContentRef) (*types.MsgSubmitFederatedContentResponse, error) {
 	hash := sha256.Sum256([]byte(body))
 	return ms.SubmitFederatedContent(f.ctx, &types.MsgSubmitFederatedContent{
+		License:  "CC0-1.0",
 		Operator: op, PeerId: peer, RemoteContentId: "1", ContentType: "blog_post",
 		CreatorIdentity: "@alice@" + peer, Body: body, ContentUri: uri,
 		ContentHash: hash[:], Supersedes: supersedes,
@@ -219,6 +220,7 @@ func TestSubmitRejectsForeignCreatorHost(t *testing.T) {
 	submit := func(identity, body string) error {
 		hash := sha256.Sum256([]byte(body))
 		_, err := ms.SubmitFederatedContent(f.ctx, &types.MsgSubmitFederatedContent{
+			License:  "CC0-1.0",
 			Operator: op, PeerId: "phoenix.example", RemoteContentId: "1", ContentType: "blog_post",
 			CreatorIdentity: identity, ContentUri: "https://phoenix.example/users/a/statuses/1", ContentHash: hash[:],
 		})

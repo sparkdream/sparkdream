@@ -10,6 +10,7 @@ Full spec: [docs/x-federation-spec.md](../../docs/x-federation-spec.md). Service
 - **No cross-chain tokens.** SPARK and DREAM never cross a federation boundary.
 - **No binding reputation.** Bridged reputation is attested, heavily discounted (50%, capped at PROVISIONAL equivalent, 30-day TTL).
 - **Unilateral suspend/remove.** Either side can pause or terminate the relationship at any time.
+- **Public domain only.** Every inbound record carries a `license`, and only `CC0-1.0` (`#cc0` on Mastodon) and `PDM-1.0` (`#publicdomain`) are accepted, on bridge submissions and IBC packets alike (`ErrLicenseNotAccepted`, 2389). Outbound packets carry `CC0-1.0`, the license of everything on this chain. A compiled constant, not a policy setting: [docs/content-license.md](../../docs/content-license.md).
 
 ## Three Layers
 
@@ -194,7 +195,7 @@ SPARK on x/service.
 | Msg | Purpose |
 |---|---|
 | `MsgFederateContent` | Outbound — creator-signed |
-| `MsgSubmitFederatedContent` | Inbound from bridge. On ActivityPub peers, `content_uri` and `creator_identity` must be on the peer's host (errors 2382 / 2384); the author must pass the policy's `allowed_identities` and curation collection (2385 / 2386 / 2387); optional `supersedes` retires the same operator's pending record of the same `content_uri` (2383) |
+| `MsgSubmitFederatedContent` | Inbound from bridge. `license` must be `CC0-1.0` or `PDM-1.0`: only public-domain content enters the chain (2389). On ActivityPub peers, `content_uri` and `creator_identity` must be on the peer's host (errors 2382 / 2384); the author must pass the policy's `allowed_identities` and curation collection (2385 / 2386 / 2387); optional `supersedes` retires the same operator's pending record of the same `content_uri` (2383) |
 | `MsgAttestOutbound` | Attestation of relayed content |
 | `MsgModerateContent` | Hide / unhide federated content. Refuses the system-assigned terminal statuses `UNRESOLVED` and `SUPERSEDED` (2354) |
 | `MsgVerifyContent` | Verifier submits source-hash match |

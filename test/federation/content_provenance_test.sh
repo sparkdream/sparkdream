@@ -86,6 +86,7 @@ submit() {
         "$PEER" "prov-$SEED" "blog_post" "$CREATOR" "Provenance" "" \
         "provenance body $SEED" "$URI" "$(date +%s)" \
         --content-hash "$(sha256_base64 "provenance $SEED $RANDOM")" \
+        --license CC0-1.0 \
         "${EXTRA[@]}" \
         --from $OPERATOR_KEY --chain-id $CHAIN_ID --keyring-backend test \
         --fees 5000${BOND_DENOM} -y --output json

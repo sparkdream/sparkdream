@@ -125,6 +125,7 @@ const (
 	AttributeKeyRemainingBond   = "remaining_bond"
 	AttributeKeyLocalContentID  = "local_content_id"
 	AttributeKeyCreator         = "creator"
+	AttributeKeyLicense         = "license"
 	AttributeKeyError           = "error"
 	AttributeKeyPacketKind      = "packet_kind"
 	AttributeKeyServiceType     = "service_type"

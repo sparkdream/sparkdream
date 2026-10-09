@@ -14,7 +14,10 @@
 #       the account the ActivityPub bridge reads through (authors opt in by
 #       following it), and an API token for it (read + write:follows: it
 #       follows the authors its peers' curation admits); the same token on
-#       every call, replacing an older read-only one
+#       every call, replacing an older read-only one. Also (re)writes the
+#       account's bio and profile fields with the open-content rule, so
+#       every author who considers following it reads that only #cc0 /
+#       #publicdomain posts are relayed and that they become public domain
 #       -> {"token":"..."}
 #   mastodon-bootstrap login-chain sync '<json object>'
 #       wallet sign-in: replace the chains whose members may sign in (keyed
@@ -52,6 +55,20 @@ create_account() {  # <username> <email> [role name]
     " | tail -1
 }
 
+# The bridge account's profile: the chain accepts only public-domain
+# content (docs/content-license.md), so an author must know before opting in
+# that following means "my #cc0 posts are relayed, and nothing else". Plain
+# text; Mastodon links the hashtags. Bio limit 500 characters.
+BRIDGE_NOTE="I relay posts to the Spark Dream chain, where everything is public domain. \
+To take part, follow me, then tag a post #cc0 to dedicate your own work under CC0 1.0, \
+or #publicdomain for a work already free of copyright. Untagged posts are never relayed. \
+Relayed posts stay public domain for good; unfollow at any time to stop."
+BRIDGE_FIELDS='[
+  {"name":"License","value":"CC0 1.0 / public domain only"},
+  {"name":"Opt in","value":"Follow, then tag posts #cc0 or #publicdomain"},
+  {"name":"CC0","value":"https://creativecommons.org/publicdomain/zero/1.0/"}
+]'
+
 case "${1:-}" in
     owner)
         user=$2; email=$3
@@ -72,8 +89,19 @@ case "${1:-}" in
     bridge-token)
         user=$2; email=$3
         account_exists "$user" || create_account "$user" "$email" >/dev/null
-        as_mastodon bundle exec rails runner "
-            user = Account.find_local('$user').user
+        # profile through the environment, not the Ruby source: it is data
+        BRIDGE_NOTE="$BRIDGE_NOTE" BRIDGE_FIELDS="$BRIDGE_FIELDS" as_mastodon bundle exec rails runner "
+            account = Account.find_local('$user')
+            fields = JSON.parse(ENV.fetch('BRIDGE_FIELDS'))
+                         .each_with_index.to_h { |f, i| [i.to_s, f.with_indifferent_access] }
+            account.note = ENV.fetch('BRIDGE_NOTE')
+            account.fields_attributes = fields
+            if account.changed?
+              account.save!
+              # followers' instances refresh the profile
+              ActivityPub::UpdateDistributionWorker.perform_async(account.id)
+            end
+            user = account.user
             # read + write:follows: the bridge reads its home timeline and
             # follows exactly the authors its peers' curation admits
             scopes = 'read write:follows'

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/federation/types"
 
 	"cosmossdk.io/collections"
@@ -44,6 +45,13 @@ func (k msgServer) SubmitFederatedContent(ctx context.Context, msg *types.MsgSub
 	}
 	if !slices.Contains(policy.InboundContentTypes, msg.ContentType) {
 		return nil, errorsmod.Wrapf(types.ErrContentTypeNotAllowed, "content type %q not allowed for peer %s", msg.ContentType, msg.PeerId)
+	}
+
+	// 3b. Open content: the chain accepts only public-domain content. The
+	//     license is the operator's claim about the source; verifiers check
+	//     it against the fetched post before vouching for the record.
+	if !commontypes.IsUnencumberedLicense(msg.License) {
+		return nil, errorsmod.Wrapf(types.ErrLicenseNotAccepted, "license %q", msg.License)
 	}
 
 	// 4. Verify creator_identity is not in blocked_identities
@@ -182,6 +190,7 @@ func (k msgServer) SubmitFederatedContent(ctx context.Context, msg *types.MsgSub
 		ExpiresAt:        expiresAt,
 		ContentHash:      msg.ContentHash,
 		Supersedes:       msg.Supersedes,
+		License:          msg.License,
 	}
 
 	// 11. Store content and indexes
@@ -249,7 +258,8 @@ func (k msgServer) SubmitFederatedContent(ctx context.Context, msg *types.MsgSub
 			sdk.NewAttribute(types.AttributeKeyContentID, fmt.Sprintf("%d", contentID)),
 			sdk.NewAttribute(types.AttributeKeyPeerID, msg.PeerId),
 			sdk.NewAttribute(types.AttributeKeyContentType, msg.ContentType),
-			sdk.NewAttribute(types.AttributeKeyCreatorIdentity, msg.CreatorIdentity)),
+			sdk.NewAttribute(types.AttributeKeyCreatorIdentity, msg.CreatorIdentity),
+			sdk.NewAttribute(types.AttributeKeyLicense, msg.License)),
 	)
 
 	return &types.MsgSubmitFederatedContentResponse{ContentId: contentID}, nil

@@ -168,7 +168,7 @@ if echo "$MEMBER_INFO" | grep -q "not found"; then
             # Accept invitation
             echo "  session_granter accepting invitation #$INVITATION_ID..."
             TX_RES=$($BINARY tx rep accept-invitation --gas 400000 \
-                $INVITATION_ID \
+                $INVITATION_ID CC0-1.0 \
                 --from session_granter \
                 --chain-id $CHAIN_ID \
                 --keyring-backend test \

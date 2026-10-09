@@ -161,6 +161,12 @@ T2=$(jq -r .token <<<"$(B bridge-token bridge bridge@$DOMAIN)")
 if [ -n "$T1" ] && [ "$T1" = "$T2" ]; then ok "bridge token issued and stable"; else bad "bridge token: '$T1' vs '$T2'"; fi
 WHO=$(get -H "Authorization: Bearer $T1" "http://127.0.0.1:$PROXY_PORT/api/v1/accounts/verify_credentials" | jq -r '.username // empty')
 [ "$WHO" = "bridge" ] && ok "the token reads as @bridge" || bad "verify_credentials answered '$WHO'"
+# the bridge profile states the open-content rule before anyone opts in
+CREDS=$(get -H "Authorization: Bearer $T1" "http://127.0.0.1:$PROXY_PORT/api/v1/accounts/verify_credentials")
+if jq -r '.note // empty' <<<"$CREDS" | grep -qi 'cc0' \
+    && [ "$(jq -r '[.fields[]? | select(.name == "License")] | length' <<<"$CREDS")" = "1" ]; then
+    ok "bridge bio and License field state the CC0 rule"
+else bad "bridge profile lacks the CC0 rule: $(jq -c '{note, fields}' <<<"$CREDS")"; fi
 
 # 3. AS2 actor with https ids
 ACTOR=$(get -H 'Accept: application/activity+json' "http://127.0.0.1:$PROXY_PORT/users/admin" | jq -r '.id // empty')

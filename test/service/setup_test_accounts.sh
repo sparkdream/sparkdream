@@ -207,7 +207,7 @@ for i in "${!TO_INVITE[@]}"; do
         continue
     fi
     echo "  $ACCOUNT accepting invitation #$INVITATION_ID..."
-    TX_RES=$($BINARY tx rep accept-invitation --gas 400000 $INVITATION_ID \
+    TX_RES=$($BINARY tx rep accept-invitation --gas 400000 $INVITATION_ID CC0-1.0 \
         --from $ACCOUNT --chain-id $CHAIN_ID --keyring-backend test \
         --fees 5000${BOND_DENOM} -y --output json)
     TXHASH=$(echo "$TX_RES" | jq -r '.txhash')

@@ -97,7 +97,13 @@ control). See the daemon conventions in
    after the bridge first saw that follow; `#nobridge`/`#nobot` in a
    profile always refuses. For a local test, have the test account follow
    the bridge account first. `indexable` is the looser mode; `none` is for
-   test instances only. **Hash rule (`SDA_HASH_RULE`, default
+   test instances only. **Public domain only:** a post is anchored only
+   when its text carries `#cc0` (claimed as `CC0-1.0`) or `#publicdomain`
+   (`PDM-1.0`), whatever the consent mode; the chain refuses anything else
+   (code 2389) and the verifier refuses a record whose post lacks the tag.
+   Test statuses need the hashtag too, and the bridge account's bio should
+   say so (see [docs/content-license.md](../../../docs/content-license.md)).
+   `apcanon license <uri>` shows what a status declares. **Hash rule (`SDA_HASH_RULE`, default
    `ap-canonical-v2`):** v2 also hashes every attachment's file, so both
    daemons download media (up to 128 MiB per file); the verifier checks
    each record under the rule it names, and also refuses records whose

@@ -481,7 +481,7 @@ Project" section of [docs/x-rep-spec.md](../../docs/x-rep-spec.md).
 | Message | Description | Access |
 |---------|-------------|--------|
 | `MsgInviteMember` | Create invitation, lock DREAM stake | Members with invitation credits |
-| `MsgAcceptInvitation` | Accept invitation, create new member | Invitee |
+| `MsgAcceptInvitation` | Accept invitation, create new member. Requires `accepted_content_license = "CC0-1.0"`: joining is agreeing that everything you publish is public domain (error 1208 otherwise) | Invitee |
 | `MsgRegisterZkPublicKey` | Register ZK public key (32-byte canonical BN254 scalar) for anonymous operations | Any member |
 
 ### DREAM Transfers
@@ -945,7 +945,7 @@ All state-changing operations emit typed events for indexing and client notifica
 ```bash
 # Membership
 sparkdreamd tx rep invite-member [invitee] [stake] --from alice
-sparkdreamd tx rep accept-invitation [invitation_id] --from bob
+sparkdreamd tx rep accept-invitation [invitation_id] CC0-1.0 --from bob   # CC0-1.0 = agreeing to publish under CC0
 sparkdreamd tx rep register-zk-public-key [hex_key] --from alice
 
 # Initiatives

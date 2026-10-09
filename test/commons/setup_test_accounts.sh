@@ -120,7 +120,7 @@ provision_member() {
         return 1
     fi
 
-    TX=$($BINARY tx rep accept-invitation --gas 400000 "$INV" \
+    TX=$($BINARY tx rep accept-invitation --gas 400000 "$INV" CC0-1.0 \
         --from $NAME --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y \
         --output json 2>&1)
     H=$(echo "$TX" | jq -r '.txhash')

@@ -117,4 +117,7 @@ var (
 	ErrIdentityNotCurated     = errors.Register(ModuleName, 2386, "creator_identity is not in the peer's curation collection")
 	ErrCurationUnavailable    = errors.Register(ModuleName, 2387, "the peer's curation collection does not exist or is not active")
 	ErrInvalidAllowedIdentity = errors.Register(ModuleName, 2388, "allowed_identities entries must be \"*\", an @user@host handle or a profile URL")
+
+	// Open-content rule: only public-domain content enters the chain
+	ErrLicenseNotAccepted = errors.Register(ModuleName, 2389, "content must be dedicated to the public domain (license CC0-1.0 or PDM-1.0)")
 )

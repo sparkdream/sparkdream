@@ -34,8 +34,9 @@ func TestMsgServerAcceptInvitation(t *testing.T) {
 		require.NoError(t, err)
 
 		_, err = ms.AcceptInvitation(f.ctx, &types.MsgAcceptInvitation{
-			Invitee:      inviteeStr,
-			InvitationId: 99999,
+			Invitee:                inviteeStr,
+			InvitationId:           99999,
+			AcceptedContentLicense: "CC0-1.0",
 		})
 
 		require.Error(t, err)
@@ -81,10 +82,26 @@ func TestMsgServerAcceptInvitation(t *testing.T) {
 		err = k.Invitation.Set(ctx, invitationID, invitation)
 		require.NoError(t, err)
 
+		// Joining requires the content-license agreement; nothing is
+		// admitted without it.
+		for _, license := range []string{"", "cc0-1.0", "CC-BY-4.0", "PDM-1.0"} {
+			_, err = ms.AcceptInvitation(ctx, &types.MsgAcceptInvitation{
+				Invitee:                inviteeStr,
+				InvitationId:           invitationID,
+				AcceptedContentLicense: license,
+			})
+			require.ErrorIs(t, err, types.ErrContentLicenseNotAccepted, license)
+		}
+		_, err = k.Member.Get(ctx, inviteeStr)
+		require.Error(t, err, "a refused acceptance must not admit the invitee")
+
 		_, err = ms.AcceptInvitation(ctx, &types.MsgAcceptInvitation{
-			Invitee:      inviteeStr,
-			InvitationId: invitationID,
+			Invitee:                inviteeStr,
+			InvitationId:           invitationID,
+			AcceptedContentLicense: "CC0-1.0",
 		})
+		require.NoError(t, err)
+		_, err = k.Member.Get(ctx, inviteeStr)
 		require.NoError(t, err)
 	})
 }

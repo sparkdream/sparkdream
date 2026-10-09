@@ -218,6 +218,15 @@ message GiftRecord {
 }
 ```
 
+### The membership agreement
+
+`MsgAcceptInvitation` is the only way to become a member at runtime, and it
+carries the member's signed agreement to publish under CC0
+(`accepted_content_license = "CC0-1.0"`). Genesis members (the founders) are
+the people who set the policy and sign no message. Non-members who post
+ephemeral content are bound by the same dedication through the act of
+submitting it, which every client and CLI composer states.
+
 ### The new-member on-ramp
 
 A member created by `AcceptInvitation` starts with **zero of everything**: zero
@@ -1619,10 +1628,18 @@ message MsgInviteMember {
   repeated string vouched_tags = 4;
 }
 
+// Joining is agreeing to the chain's open-content commitment: everything the
+// member publishes is dedicated to the public domain (docs/content-license.md).
+// accepted_content_license must equal the chain's content license, "CC0-1.0",
+// or the acceptance is refused with ErrContentLicenseNotAccepted (1208) and
+// nobody is admitted. It is a signed field, not a UI checkbox, so the
+// agreement is on-chain and a Ledger shows it. Emits content_license_accepted
+// (member, license).
 message MsgAcceptInvitation {
   option (cosmos.msg.v1.signer) = "invitee";
   string invitee = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 invitation_id = 2;
+  string accepted_content_license = 3;
 }
 
 message MsgTransferDream {

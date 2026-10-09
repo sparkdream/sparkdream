@@ -123,7 +123,7 @@ for ACCT in collector1 collector2; do
 
     # Accept invitation with invitation ID
     echo "  $ACCT accepting invitation (ID=$INVITATION_ID)..."
-    TX_RES=$(send_tx rep accept-invitation --gas 400000 "$INVITATION_ID" --from "$ACCT")
+    TX_RES=$(send_tx rep accept-invitation --gas 400000 "$INVITATION_ID" CC0-1.0 --from "$ACCT")
     TXHASH=$(get_txhash "$TX_RES")
     if [ -z "$TXHASH" ]; then
         echo "  WARNING: Failed to accept invitation for $ACCT"

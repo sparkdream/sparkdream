@@ -54,6 +54,7 @@ var wireFields = map[string]map[string]int{
 		"created_at":        8,
 		"content_hash":      9,
 		"protocol_metadata": 10,
+		"license":           11,
 	},
 	"IdentityVerificationPacket": {
 		"claimed_address":  1,

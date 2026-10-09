@@ -11,6 +11,7 @@ This package provides:
 - **Content types** — standardized `ContentType` enum for post body format interpretation (text, HTML, markdown, compressed, off-chain references)
 - **Moderation vocabulary** — standardized `ModerationReason` enum and `FlagRecord` struct used by content modules
 - **Tag validation helpers** — pure format/length validators (`ValidateTagFormat`, `ValidateTagLength`) reused by every module that accepts tag input
+- **Content license** — the chain's open-content commitment: everything is published under CC0 1.0, and federated content must be public domain ([docs/content-license.md](../../docs/content-license.md))
 
 ## Types
 
@@ -61,7 +62,7 @@ message FlagRecord {
 | `POLICY_VIOLATION` | Violates platform policies |
 | `DUPLICATE` | Duplicate content |
 | `SCAM` | Scam or fraud |
-| `COPYRIGHT` | Copyright violation |
+| `COPYRIGHT` | Copyright violation, including work the submitter had no right to dedicate to the public domain |
 | `OTHER` | Other reason (see reason_text) |
 
 ## Helpers
@@ -81,6 +82,22 @@ func ValidateTagFormat(name string) bool
 func ValidateTagLength(name string, maxLen uint64) bool
 ```
 
+### Content License
+
+[`content_license.go`](types/content_license.go) holds the chain's content license as compiled constants. It is deliberately not a parameter: content contributed as a commons must not be relicensable by a vote.
+
+```go
+const LicenseCC0 = "CC0-1.0"          // CC0 1.0 Universal dedication
+const LicensePDM = "PDM-1.0"          // Public Domain Mark
+const ChainContentLicense = LicenseCC0 // everything published on this chain
+const ContentDedication = "..."       // the statement shown to participants
+
+// IsUnencumberedLicense reports whether content may enter the chain under
+// license (exact match on CC0-1.0 or PDM-1.0).
+func IsUnencumberedLicense(license string) bool
+func UnencumberedLicenses() []string
+```
+
 ## Consumers
 
 | Module | Uses |
@@ -88,4 +105,7 @@ func ValidateTagLength(name string, maxLen uint64) bool
 | `x/blog` | `ContentType` for post/reply body format |
 | `x/forum` | `ContentType`, `ModerationReason`, `FlagRecord`, tag-validation helpers |
 | `x/collect` | `ModerationReason`, `FlagRecord` for content flagging |
+| `x/federation` | `IsUnencumberedLicense` on inbound content; `ChainContentLicense` on outbound packets |
+| `x/sparkdream` | Content-license constants, served by the `ContentLicense` query |
+| `tools/apcanon` | License ids returned by `License` (the bridge/verifier hashtag rule) |
 | `x/rep` | Tag-validation helpers (for `MsgCreateTag`, initiative/reputation tag validation); `Tag`/`ReservedTag` storage now lives natively in `x/rep` |

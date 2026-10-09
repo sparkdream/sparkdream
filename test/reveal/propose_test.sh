@@ -33,6 +33,7 @@ QUERY_CONTRIBUTION_RESULT="FAIL"
 QUERY_BY_CONTRIBUTOR_RESULT="FAIL"
 QUERY_BY_STATUS_RESULT="FAIL"
 NEG_EMPTY_NAME_RESULT="FAIL"
+NEG_CLOSED_LICENSE_RESULT="FAIL"
 NEG_VALUATION_MISMATCH_RESULT="FAIL"
 NEG_TOO_HIGH_VALUATION_RESULT="FAIL"
 NEG_NO_TRANCHES_RESULT="FAIL"
@@ -257,6 +258,43 @@ fi
 echo ""
 
 # ========================================================================
+# TEST 5b: Negative - final license is not an open license
+# ========================================================================
+echo "--- TEST 5b: NEGATIVE - FINAL LICENSE NOT OPEN ---"
+
+# Revealed code must end up public domain or permissively licensed
+# (x/reveal ErrFinalLicenseNotOpen, code 1158). Copyleft is refused too.
+TX_RES=$($BINARY tx reveal propose \
+    "Closed Phoenix" \
+    "Code that would stay copyleft" \
+    "1000000000" \
+    "MIT" \
+    "GPL-3.0" \
+    --tranches '{"name":"T1","description":"d","components":["a"],"stakeThreshold":"1000000000","previewUri":""}' \
+    --from alice \
+    --chain-id $CHAIN_ID \
+    --keyring-backend test \
+    --fees 5000${BOND_DENOM} \
+    -y \
+    --output json 2>&1)
+
+TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
+if [ -z "$TXHASH" ] || [ "$TXHASH" == "null" ]; then
+    echo "  FAIL: rejected before reaching the chain: $(echo "$TX_RES" | head -c 200)"
+else
+    sleep 6
+    TX_RESULT=$(wait_for_tx $TXHASH)
+    CODE=$(echo "$TX_RESULT" | jq -r '.code // 0')
+    if [ "$CODE" == "1158" ]; then
+        NEG_CLOSED_LICENSE_RESULT="PASS"
+        echo "  PASS: GPL-3.0 final license rejected (code 1158)"
+    else
+        echo "  FAIL: want code 1158, got $CODE"
+    fi
+fi
+echo ""
+
+# ========================================================================
 # TEST 6: Negative - Valuation mismatch (sum != total)
 # ========================================================================
 echo "--- TEST 6: NEGATIVE - VALUATION MISMATCH ---"
@@ -424,7 +462,7 @@ TOTAL_COUNT=0
 PASS_COUNT=0
 FAIL_COUNT=0
 
-for RESULT in "$PROPOSE_BASIC_RESULT" "$QUERY_CONTRIBUTION_RESULT" "$QUERY_BY_CONTRIBUTOR_RESULT" "$QUERY_BY_STATUS_RESULT" "$NEG_EMPTY_NAME_RESULT" "$NEG_VALUATION_MISMATCH_RESULT" "$NEG_TOO_HIGH_VALUATION_RESULT" "$NEG_NO_TRANCHES_RESULT" "$NEG_TOO_MANY_TRANCHES_RESULT"; do
+for RESULT in "$PROPOSE_BASIC_RESULT" "$QUERY_CONTRIBUTION_RESULT" "$QUERY_BY_CONTRIBUTOR_RESULT" "$QUERY_BY_STATUS_RESULT" "$NEG_EMPTY_NAME_RESULT" "$NEG_CLOSED_LICENSE_RESULT" "$NEG_VALUATION_MISMATCH_RESULT" "$NEG_TOO_HIGH_VALUATION_RESULT" "$NEG_NO_TRANCHES_RESULT" "$NEG_TOO_MANY_TRANCHES_RESULT"; do
     TOTAL_COUNT=$((TOTAL_COUNT + 1))
     if [ "$RESULT" == "PASS" ]; then
         PASS_COUNT=$((PASS_COUNT + 1))
@@ -438,6 +476,7 @@ echo "  2. Query Contribution by ID:        $QUERY_CONTRIBUTION_RESULT"
 echo "  3. Query by Contributor:            $QUERY_BY_CONTRIBUTOR_RESULT"
 echo "  4. Query by Status:                 $QUERY_BY_STATUS_RESULT"
 echo "  5. Neg: Empty Project Name:         $NEG_EMPTY_NAME_RESULT"
+echo "  5b. Neg: Final License Not Open:    $NEG_CLOSED_LICENSE_RESULT"
 echo "  6. Neg: Valuation Mismatch:         $NEG_VALUATION_MISMATCH_RESULT"
 echo "  7. Neg: Valuation Too High:         $NEG_TOO_HIGH_VALUATION_RESULT"
 echo "  8. Neg: No Tranches:                $NEG_NO_TRANCHES_RESULT"

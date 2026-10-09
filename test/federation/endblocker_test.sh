@@ -256,6 +256,7 @@ HASH=$(sha256_base64 "$BODY")
 TX_RES=$($BINARY tx federation submit-federated-content \
     "$PEER_ID" "ttl-target-1" "blog_post" "@user@endblock.example" "User" "TTL target" "$BODY" "https://endblock.example/p/1" 1715000000 \
     --content-hash "$HASH" \
+    --license CC0-1.0 \
     --from "$HOOK_OP" -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} --output json)
 
 if ! submit_and_wait "$TX_RES" "submit content for prune"; then

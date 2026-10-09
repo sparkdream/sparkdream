@@ -31,6 +31,8 @@ The `x/forum` module implements a decentralized, censorship-resistant discussion
 
 The module outsources dispute resolution to `x/rep` and membership status to `x/commons`, focusing purely on content storage, organization, and optimistic moderation. Forum threads and replies are eligible for retroactive public goods nominations via `x/season` — community members can nominate outstanding forum contributions for DREAM rewards during the seasonal nomination window.
 
+**Content license.** Every thread and reply is dedicated to the public domain under CC0 1.0 by the act of submitting it, anonymous ones included. It is the chain's license, not a per-post choice. Content posted without the right to dedicate it is hidden with `MODERATION_REASON_COPYRIGHT`. See [content-license.md](content-license.md).
+
 ---
 
 ## 2. Dependencies

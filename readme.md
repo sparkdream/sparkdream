@@ -10,8 +10,21 @@ Spark Dream is an experiment in moving past pure token-voting. It combines:
 - **Privacy where it matters** — a unified shielded-execution layer (ZK proofs + threshold timelock encryption) for anonymous voting, posting, and reporting.
 - **No oracles** — every verification depends on internal actors and onchain mechanisms: stakers, jurors, council vote, futarchy markets, conviction thresholds.
 - **Accountability for the position, not the person** — reputation/balance reset if warranted, never a permanent address exclusion.
+- **Open content** — everything published on the chain is dedicated to the public domain under **CC0 1.0**, and federation admits only content that is already public domain (`#cc0` / `#publicdomain` on Mastodon). Fixed in code, not a governance setting.
 
 The full design is laid out in [docs/architecture.md](docs/architecture.md) and the per-module specs under [docs/](docs/).
+
+---
+
+## Open Content (CC0)
+
+**Everything published on Spark Dream is in the public domain.** Posts, replies, collections, profiles, proposals: submitting content dedicates it under [CC0 1.0 Universal](https://creativecommons.org/publicdomain/zero/1.0/), so anyone may copy, adapt and build on it for any purpose without asking. Content bridged in from other networks must already be public domain: a Mastodon post is anchored only when its author tags it `#cc0` or `#publicdomain`, and the chain refuses anything else. The license is a compiled constant, not a parameter, so no vote can enclose what was contributed as a commons.
+
+```bash
+sparkdreamd query sparkdream content-license
+```
+
+Why, and what participants agree to: [docs/content-license.md](docs/content-license.md).
 
 ---
 

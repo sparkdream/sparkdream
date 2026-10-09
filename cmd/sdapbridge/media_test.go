@@ -16,8 +16,16 @@ import (
 const mediaFixture = "../../test/federation/mastodon/accepted/p2-mastodon-v4.7.2-20260923/baseline/fixtures/" +
 	"http___localhost_3000_ap_users_117318268488994076_statuses_117320681131588860.as2.json"
 
-func TestAttachmentMetaFromRealMastodonObject(t *testing.T) {
+// readMediaFixture loads the recorded status with a #cc0 dedication added:
+// the bridge anchors only public-domain posts. The recorded file stays as
+// captured, since its hash is pinned by the determinism harness.
+func readMediaFixture() ([]byte, error) {
 	raw, err := os.ReadFile(mediaFixture)
+	return []byte(strings.Replace(string(raw), "status with a media attachment", "status with a media attachment #cc0", 1)), err
+}
+
+func TestAttachmentMetaFromRealMastodonObject(t *testing.T) {
+	raw, err := readMediaFixture()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,7 +103,7 @@ func TestFitAttachmentsStaysValidAndUnderBudget(t *testing.T) {
 
 // End to end: an anchored post carries its media list in protocol_metadata.
 func TestAnchoredPostCarriesAttachments(t *testing.T) {
-	raw, err := os.ReadFile(mediaFixture)
+	raw, err := readMediaFixture()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -124,7 +132,7 @@ func TestAnchoredPostCarriesAttachments(t *testing.T) {
 // Under ap-canonical-v2 the anchored hash covers each file's bytes, the
 // metadata names the rule, and each attachment carries its digest.
 func TestV2AnchorsFileDigests(t *testing.T) {
-	raw, err := os.ReadFile(mediaFixture)
+	raw, err := readMediaFixture()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -167,7 +175,7 @@ func TestV2AnchorsFileDigests(t *testing.T) {
 // A file that cannot be read fails the hash: the post is retried later,
 // never anchored with a guessed digest.
 func TestV2UnreadableMediaIsDeferredNotAnchored(t *testing.T) {
-	raw, err := os.ReadFile(mediaFixture)
+	raw, err := readMediaFixture()
 	if err != nil {
 		t.Fatal(err)
 	}

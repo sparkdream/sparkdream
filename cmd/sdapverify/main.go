@@ -293,9 +293,12 @@ type PendingContent struct {
 	// The displayed fields, checked against the fetched post (display.go):
 	// verification binds only the hash, so without the check a record could
 	// verify while showing text or links its operator made up.
-	Body            string `json:"body"`
-	Title           string `json:"title"`
-	ContentType     string `json:"content_type"`
+	Body        string `json:"body"`
+	Title       string `json:"title"`
+	ContentType string `json:"content_type"`
+	// License is the operator's claim that the post is public domain
+	// ("CC0-1.0" / "PDM-1.0"), checked against its hashtags (display.go).
+	License         string `json:"license"`
 	RemoteCreatedAt string `json:"remote_created_at"` // int64, quoted by the LCD
 	// ProtocolMetadataB64 is proto bytes, so base64 over the LCD. The bridge
 	// writes the anchored version's AS2 `updated` into it.

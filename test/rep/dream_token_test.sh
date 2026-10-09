@@ -101,7 +101,7 @@ ensure_member() {
         local invitations=$($BINARY query rep list-invitation -o json 2>/dev/null | jq -r ".invitation[] | select(.invitee_address==\"$addr\") | .id")
         if [ -n "$invitations" ]; then
             local inv_id=$(echo "$invitations" | head -1)
-            $BINARY tx rep accept-invitation --gas 400000 $inv_id --from $name --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y > /dev/null 2>&1
+            $BINARY tx rep accept-invitation --gas 400000 $inv_id CC0-1.0 --from $name --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y > /dev/null 2>&1
             sleep 2
 
             # Verify member was created

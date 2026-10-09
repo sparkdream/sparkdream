@@ -209,7 +209,8 @@ var ErrSupersedeRejected = errors.New("chain refused the supersedes link")
 
 // ErrPermanentRejection wraps a DeliverTx rejection that no retry of THIS
 // post can fix: the peer's policy refuses it (type not allowed, identity
-// blocked, content_uri host not the peer's), or the peer itself is not
+// blocked, content_uri host not the peer's), the post is not dedicated to
+// the public domain, or the peer itself is not
 // accepting content (not ACTIVE, or this operator's binding is gone).
 // Retrying would pin the timeline cursor behind it, and with several peers
 // on one cursor, one suspended peer would stall all the others; the caller
@@ -239,6 +240,7 @@ func classifyDeliverTx(res sdaptx.TxResult) error {
 		types.ErrIdentityNotCurated.ABCICode(),
 		types.ErrContentHostMismatch.ABCICode(),
 		types.ErrCreatorHostMismatch.ABCICode(),
+		types.ErrLicenseNotAccepted.ABCICode(),
 		types.ErrPeerNotActive.ABCICode(),
 		types.ErrBridgeNotFound.ABCICode():
 		return fmt.Errorf("%w (code %d): %s", ErrPermanentRejection, res.Code, res.RawLog)

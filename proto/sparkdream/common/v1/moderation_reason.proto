@@ -17,6 +17,6 @@ enum ModerationReason {
   MODERATION_REASON_POLICY_VIOLATION = 8; // Violates community guidelines
   MODERATION_REASON_DUPLICATE = 9; // Duplicate/cross-posted content
   MODERATION_REASON_SCAM = 10; // Fraudulent content, phishing attempts
-  MODERATION_REASON_COPYRIGHT = 11; // Copyright infringement
+  MODERATION_REASON_COPYRIGHT = 11; // Copyright infringement, incl. work the submitter could not dedicate to the public domain (docs/content-license.md)
   MODERATION_REASON_OTHER = 12; // Requires custom reason field
 }

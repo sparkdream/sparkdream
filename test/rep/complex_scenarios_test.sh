@@ -79,7 +79,7 @@ if [ -z "$BOB_MEMBER" ] || [ "$BOB_MEMBER" == "null" ]; then
             jq -r '.events[] | select(.type=="create_invitation") | .attributes[] | select(.key=="invitation_id") | .value' 2>/dev/null | \
             tr -d '"')
         if [ -n "$INV_ID" ] && [ "$INV_ID" != "null" ]; then
-            $BINARY tx rep accept-invitation --gas 400000 "$INV_ID" --from bob --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y > /dev/null 2>&1
+            $BINARY tx rep accept-invitation --gas 400000 "$INV_ID" CC0-1.0 --from bob --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y > /dev/null 2>&1
             sleep 1
         fi
     fi
@@ -99,7 +99,7 @@ if [ -z "$CAROL_MEMBER" ] || [ "$CAROL_MEMBER" == "null" ]; then
             jq -r '.events[] | select(.type=="create_invitation") | .attributes[] | select(.key=="invitation_id") | .value' 2>/dev/null | \
             tr -d '"')
         if [ -n "$INV_ID" ] && [ "$INV_ID" != "null" ]; then
-            $BINARY tx rep accept-invitation --gas 400000 "$INV_ID" --from carol --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y > /dev/null 2>&1
+            $BINARY tx rep accept-invitation --gas 400000 "$INV_ID" CC0-1.0 --from carol --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y > /dev/null 2>&1
             sleep 1
         fi
     fi
@@ -656,7 +656,7 @@ if [ "$NEW_CREDITS" != "0" ] && [ -n "$NEW_CREDITS" ]; then
                     echo "  Invitation #$INV_ID created"
 
                     # Accept invitation
-                    $BINARY tx rep accept-invitation --gas 400000 "$INV_ID" \
+                    $BINARY tx rep accept-invitation --gas 400000 "$INV_ID" CC0-1.0 \
                         --from ref_child1 \
                         --chain-id $CHAIN_ID \
                         --keyring-backend test \

@@ -15,6 +15,15 @@ service Query {
   rpc Params(QueryParamsRequest) returns (QueryParamsResponse) {
     option (google.api.http).get = "/sparkdream/sparkdream/v1/params";
   }
+
+  // ContentLicense returns the license every piece of content on this chain
+  // is published under (CC0 1.0: dedicated to the public domain), the
+  // dedication participants make by submitting content, and the licenses
+  // content bridged in from other networks must carry. Fixed in code, not a
+  // parameter: see docs/content-license.md.
+  rpc ContentLicense(QueryContentLicenseRequest) returns (QueryContentLicenseResponse) {
+    option (google.api.http).get = "/sparkdream/sparkdream/v1/content_license";
+  }
 }
 
 // QueryParamsRequest is request type for the Query/Params RPC method.
@@ -27,4 +36,25 @@ message QueryParamsResponse {
     (gogoproto.nullable) = false,
     (amino.dont_omitempty) = true
   ];
+}
+
+// QueryContentLicenseRequest is the request type for Query/ContentLicense.
+message QueryContentLicenseRequest {}
+
+// QueryContentLicenseResponse is the response type for Query/ContentLicense.
+message QueryContentLicenseResponse {
+  // license is the SPDX id of the license all content is published under
+  // ("CC0-1.0").
+  string license = 1;
+  // name is the license's display name.
+  string name = 2;
+  // url links to the license's legal text.
+  string url = 3;
+  // dedication is the statement a participant makes by submitting content.
+  // Clients should show it wherever content is composed.
+  string dedication = 4;
+  // accepted_federated_licenses are the licenses content bridged in through
+  // x/federation must carry ("CC0-1.0", "PDM-1.0"); everything else is
+  // refused.
+  repeated string accepted_federated_licenses = 5;
 }

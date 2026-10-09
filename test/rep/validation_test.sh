@@ -149,7 +149,7 @@ echo "--- TEST 2: Accept non-existent invitation ---"
 echo "  Trying to accept invitation ID 99999..."
 
 TX_RES=$($BINARY tx rep accept-invitation --gas 400000 \
-    99999 \
+    99999 CC0-1.0 \
     --from bob \
     --chain-id $CHAIN_ID \
     --keyring-backend test \

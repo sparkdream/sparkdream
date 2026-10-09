@@ -196,6 +196,7 @@ submit_rl_content() {
         "" \
         "1700000000" \
         --content-hash "$HASH" \
+        --license CC0-1.0 \
         --from "$OP_KEY" \
         --chain-id $CHAIN_ID \
         --keyring-backend test \

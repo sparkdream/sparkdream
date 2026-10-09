@@ -175,6 +175,7 @@ make_disputed_content() {
         "@nq@${PEER}" "No Quorum" "No Quorum $SEED" \
         "$BODY" "https://${PEER}/users/nq/statuses/$SEED" "1700050000" \
         --content-hash "$REAL_HASH" \
+        --license CC0-1.0 \
         --from operator2 --chain-id $CHAIN_ID --keyring-backend test \
         --fees 5000${BOND_DENOM} -y --output json)
     submit_and_wait "$TX_RES" "submit nq-$SEED" >&2 || return 1
@@ -359,6 +360,7 @@ TX_RES=$($BINARY tx federation submit-federated-content \
     "@nqchal@${PEER}" "Challenge Grief" "Challenge Grief" \
     "$CH_BODY" "https://${PEER}/users/nqchal/statuses/1" "1700050100" \
     --content-hash "$CH_HASH" \
+    --license CC0-1.0 \
     --from operator2 --chain-id $CHAIN_ID --keyring-backend test \
     --fees 5000${BOND_DENOM} -y --output json)
 
@@ -447,6 +449,7 @@ TX_RES=$($BINARY tx federation submit-federated-content \
     "@probe@${PEER}" "Probe" "Probe" \
     "$PROBE_BODY" "https://${PEER}/users/probe/statuses/1" "1700050200" \
     --content-hash "$PROBE_HASH" \
+    --license CC0-1.0 \
     --from operator2 --chain-id $CHAIN_ID --keyring-backend test \
     --fees 5000${BOND_DENOM} -y --output json)
 

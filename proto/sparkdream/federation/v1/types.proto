@@ -383,6 +383,10 @@ message FederatedContent {
   // 0 while none has. A successor is always allocated after its
   // predecessor, so it is never content id 0 and 0 is unambiguous here.
   uint64 superseded_by = 18;
+  // license is the public-domain license the content entered the chain
+  // under ("CC0-1.0" or "PDM-1.0"). Always set: content without one is
+  // rejected at submission and on IBC receive.
+  string license = 19;
 }
 
 // ContentRef points at a FederatedContent record. A message rather than a

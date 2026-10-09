@@ -65,6 +65,17 @@ func checkDisplay(c PendingContent, rule string, obj map[string]any, digests map
 	case len(c.Body) < len(content) && len(c.Body) < min(len(content), bodyLimit):
 		bad = append(bad, fmt.Sprintf("body cut at %d bytes, before the chain's %d-byte limit", len(c.Body), bodyLimit))
 	}
+	// License: the chain admits only public-domain content, on the
+	// operator's word that the post carries #cc0 or #publicdomain. The
+	// hashtag sits in `content`, which the hash binds, so the post read
+	// here is the one that was anchored.
+	if want := apcanon.License(obj); c.License != want {
+		if want == "" {
+			bad = append(bad, fmt.Sprintf("license %q claimed but the post carries no #cc0 or #publicdomain hashtag", c.License))
+		} else {
+			bad = append(bad, fmt.Sprintf("license %q is not the post's %q", c.License, want))
+		}
+	}
 	if c.Title != str(obj["summary"]) {
 		bad = append(bad, "title is not the post's content warning")
 	}

@@ -4,6 +4,7 @@ import (
 	autocliv1 "cosmossdk.io/api/cosmos/autocli/v1"
 
 	"sparkdream/x/blog/types"
+	commontypes "sparkdream/x/common/types"
 )
 
 // AutoCLIOptions implements the autocli.HasAutoCLIConfig interface.
@@ -115,6 +116,7 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					RpcMethod:      "CreatePost",
 					Use:            "create-post [title] [body]",
 					Short:          "Create a new blog post",
+					Long:           commontypes.ContentLicenseNotice,
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "title"}, {ProtoField: "body"}},
 					FlagOptions: map[string]*autocliv1.FlagOptions{
 						"content_type":          {Name: "content-type", Usage: "content type, lowercase enum value (e.g. text, markdown, html)"},
@@ -154,6 +156,7 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					RpcMethod:      "CreateReply",
 					Use:            "create-reply [post-id] [body]",
 					Short:          "Create a threaded reply to a post",
+					Long:           commontypes.ContentLicenseNotice,
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "post_id"}, {ProtoField: "body"}},
 					FlagOptions: map[string]*autocliv1.FlagOptions{
 						"parent_reply_id": {Name: "parent-reply-id", Usage: "parent reply ID for nesting (0 = top-level)"},

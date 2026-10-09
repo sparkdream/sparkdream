@@ -99,7 +99,7 @@ LOCKED → STAKING → BACKED → REVEALED → VERIFIED
 |-------|------|-------------|
 | `contributor` | string | Proposer address |
 | `project_name` / `description` | string | Metadata |
-| `initial_license` / `final_license` | string | License before and after reveal completion |
+| `initial_license` / `final_license` | string | License before and after reveal completion. `final_license` must be an open license by SPDX id (CC0-1.0, Unlicense, 0BSD, MIT, Apache-2.0, BSD-2-Clause, BSD-3-Clause, ISC; error 1158); `initial_license` is free text |
 | `tranches` | []RevealTranche | Sequential code chunks |
 | `current_tranche` | uint32 | Active tranche index |
 | `total_valuation` | Int | Total DREAM to be minted |
@@ -191,7 +191,7 @@ All state-changing operations emit typed events for indexing and client notifica
 
 ```bash
 # Propose (positional: project-name, description, total-valuation, initial-license, final-license)
-sparkdreamd tx reveal propose "Widget Engine" "Progressive reveal of rendering core" 30000 "proprietary" "apache-2.0" --from contributor
+sparkdreamd tx reveal propose "Widget Engine" "Progressive reveal of rendering core" 30000 "proprietary" "Apache-2.0" --from contributor
 
 # Staking (positional: contribution-id, tranche-id, amount)
 sparkdreamd tx reveal stake 1 0 500 --from staker

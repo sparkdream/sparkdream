@@ -156,7 +156,7 @@ func TestMultiPeerRouting(t *testing.T) {
 	b.peers = newPeerSet([]string{"md.test", "aurora.test"}, nil)
 	b.peers.hosts["aurora.test"] = []string{"social.aurora.test"}
 	note := func(id string) string {
-		return `{"id":"` + id + `","type":"Note","attributedTo":"x","content":"` + id + `",
+		return `{"id":"` + id + `","type":"Note","attributedTo":"x","content":"` + id + ` #cc0",
 			"to":["https://www.w3.org/ns/activitystreams#Public"]}`
 	}
 	uris := []string{
@@ -192,7 +192,7 @@ func TestSplitList(t *testing.T) {
 }
 
 func noteAt(id, published string) string {
-	return `{"id":"` + id + `","type":"Note","attributedTo":"x","content":"` + id + `","published":"` + published + `",
+	return `{"id":"` + id + `","type":"Note","attributedTo":"x","content":"` + id + ` #cc0","published":"` + published + `",
 		"to":["https://www.w3.org/ns/activitystreams#Public"]}`
 }
 

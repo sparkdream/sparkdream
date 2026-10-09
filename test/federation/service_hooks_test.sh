@@ -272,6 +272,7 @@ HASH_T3=$(sha256_base64 "Test body")
 TX_RES=$($BINARY tx federation submit-federated-content \
     "$PEER_ID" "remote-1" "blog_post" "@alice@hooks.example" "Alice" "Test title" "$BODY_T3" "https://hooks.example/p/1" 1715000000 \
     --content-hash "$HASH_T3" \
+    --license CC0-1.0 \
     --from "$HOOK_OP" -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} --output json)
 
 if submit_and_wait "$TX_RES" "submit while suspended"; then
@@ -323,6 +324,7 @@ HASH_T5=$(sha256_base64 "$BODY_T5")
 TX_RES=$($BINARY tx federation submit-federated-content \
     "$PEER_ID" "remote-2" "blog_post" "@alice@hooks.example" "Alice" "After resume title" "$BODY_T5" "https://hooks.example/p/2" 1715000100 \
     --content-hash "$HASH_T5" \
+    --license CC0-1.0 \
     --from "$HOOK_OP" -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} --output json)
 
 if submit_and_wait "$TX_RES" "submit after resume"; then
@@ -735,6 +737,7 @@ HASH_T12=$(sha256_base64 "$BODY_T12")
 TX_RES=$($BINARY tx federation submit-federated-content \
     "$DISSOLVE_PEER" "remote-100pct-001" "blog_post" "@v2@dissolve.example" "V2" "Title" "$BODY_T12" "https://dissolve.example/p/1" 1715000200 \
     --content-hash "$HASH_T12" \
+    --license CC0-1.0 \
     --from "$DISSOLVE_OP" -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} --output json)
 
 # Allow a content-type rejection too: the peer's policy may not allow blog_post.

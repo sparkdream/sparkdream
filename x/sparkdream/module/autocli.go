@@ -18,6 +18,15 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					Short:     "Shows the parameters of the module",
 				},
 				// this line is used by ignite scaffolding # autocli/query
+				{
+					RpcMethod: "ContentLicense",
+					Use:       "content-license",
+					Short:     "Show the license all content on this chain is published under (CC0)",
+					Long: "Everything published on this chain is dedicated to the public domain under CC0 1.0. " +
+						"Shows the license, the dedication a participant makes by submitting content, and the " +
+						"licenses content bridged in from other networks must carry.",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{},
+				},
 			},
 		},
 		Tx: &autocliv1.ServiceCommandDescriptor{

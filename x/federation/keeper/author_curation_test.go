@@ -39,6 +39,7 @@ func TestAuthorCuration(t *testing.T) {
 		n++
 		hash := sha256.Sum256([]byte{byte(n), byte(n >> 8)})
 		_, err := ms.SubmitFederatedContent(f.ctx, &types.MsgSubmitFederatedContent{
+			License:  "CC0-1.0",
 			Operator: op, PeerId: peer, RemoteContentId: "1", ContentType: "blog_post",
 			CreatorIdentity: identity, ContentUri: "https://phoenix.example/users/a/statuses/1", ContentHash: hash[:],
 		})

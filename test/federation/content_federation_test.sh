@@ -199,6 +199,7 @@ TX_RES=$($BINARY tx federation submit-federated-content \
     "https://mastodon.example/@testuser/12345" \
     "1700000000" \
     --content-hash "$CONTENT_HASH" \
+    --license CC0-1.0 \
     --from operator2 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
@@ -251,6 +252,7 @@ TX_RES=$($BINARY tx federation submit-federated-content \
     "" \
     "1700001000" \
     --content-hash "$CONTENT_HASH2" \
+    --license CC0-1.0 \
     --from operator2 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
@@ -284,6 +286,7 @@ TX_RES=$($BINARY tx federation submit-federated-content \
     "https://mastodon.example/@testuser/12345" \
     "1700000000" \
     --content-hash "$CONTENT_HASH" \
+    --license CC0-1.0 \
     --from operator2 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
@@ -326,6 +329,7 @@ TX_RES=$($BINARY tx federation submit-federated-content \
     "" \
     "1700002000" \
     --content-hash "$BLOCKED_HASH" \
+    --license CC0-1.0 \
     --from operator2 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
@@ -367,6 +371,7 @@ TX_RES=$($BINARY tx federation submit-federated-content \
     "" \
     "1700003000" \
     --content-hash "$FORUM_HASH" \
+    --license CC0-1.0 \
     --from operator2 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
@@ -405,6 +410,7 @@ TX_RES=$($BINARY tx federation submit-federated-content \
     "Body without hash" \
     "" \
     "1700004000" \
+    --license CC0-1.0 \
     --from operator2 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
@@ -427,6 +433,51 @@ else
 fi
 
 # ========================================================================
+# TEST 6b: Only public-domain content enters the chain
+# ========================================================================
+echo ""
+echo "--- TEST 6b: Content without a public-domain license is rejected ---"
+
+# x/federation ErrLicenseNotAccepted. Missing (a bridge that never read the
+# post's #cc0 / #publicdomain tag) and encumbered (CC BY) are refused alike.
+for LIC in "" "CC-BY-4.0"; do
+    LIC_BODY="Licensed body $LIC $RANDOM"
+    TX_RES=$($BINARY tx federation submit-federated-content \
+        mastodon.example \
+        "remote-license-$RANDOM" \
+        "blog_post" \
+        "@testuser@mastodon.example" \
+        "Test User" \
+        "License Post" \
+        "$LIC_BODY" \
+        "" \
+        "1700004500" \
+        --content-hash "$(sha256_base64 "$LIC_BODY")" \
+        --license "$LIC" \
+        --from operator2 \
+        --chain-id $CHAIN_ID \
+        --keyring-backend test \
+        --fees 5000${BOND_DENOM} \
+        -y \
+        --output json)
+
+    LABEL="Reject license '${LIC:-<none>}'"
+    if submit_and_wait "$TX_RES" "license $LIC"; then
+        echo "  Should have been rejected"
+        record_result "$LABEL" "FAIL"
+    else
+        CODE=$(echo "$TX_RESULT" | jq -r '.code // empty' 2>/dev/null)
+        if [ "$CODE" == "2389" ]; then
+            echo "  Correctly rejected (code 2389)"
+            record_result "$LABEL" "PASS"
+        else
+            echo "  Rejected with code $CODE, want 2389: $(echo "$TX_RESULT" | jq -r '.raw_log // empty' | head -c 160)"
+            record_result "$LABEL" "FAIL"
+        fi
+    fi
+done
+
+# ========================================================================
 # TEST 7: Non-operator cannot submit content
 # ========================================================================
 echo ""
@@ -446,6 +497,7 @@ TX_RES=$($BINARY tx federation submit-federated-content \
     "" \
     "1700005000" \
     --content-hash "$NON_OP_HASH" \
+    --license CC0-1.0 \
     --from verifier1 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
@@ -678,6 +730,7 @@ else
         "" \
         "1700006000" \
         --content-hash "$UNBOND_HASH" \
+        --license CC0-1.0 \
         --from operator1 \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
@@ -723,6 +776,7 @@ TX_RES=$($BINARY tx federation submit-federated-content \
     "" \
     "1700007000" \
     --content-hash "$NOEXIST_HASH" \
+    --license CC0-1.0 \
     --from operator2 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \

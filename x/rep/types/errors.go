@@ -28,13 +28,14 @@ var (
 	ErrExceedsInitiativeBountyLimit = errors.Register(ModuleName, 1113, "exceeds initiative bounty limit")
 
 	// Invitation errors
-	ErrNoInvitationCredits     = errors.Register(ModuleName, 1201, "no invitation credits available")
-	ErrMemberAlreadyExists     = errors.Register(ModuleName, 1202, "member already exists")
-	ErrInvitationAlreadyExists = errors.Register(ModuleName, 1203, "invitation already exists for this address")
-	ErrInvitationNotFound      = errors.Register(ModuleName, 1204, "invitation not found")
-	ErrInvitationNotPending    = errors.Register(ModuleName, 1205, "invitation is not pending")
-	ErrInviteeAddressMismatch  = errors.Register(ModuleName, 1206, "invitee address does not match invitation")
-	ErrNotMember               = errors.Register(ModuleName, 1207, "address is not a member")
+	ErrNoInvitationCredits       = errors.Register(ModuleName, 1201, "no invitation credits available")
+	ErrMemberAlreadyExists       = errors.Register(ModuleName, 1202, "member already exists")
+	ErrInvitationAlreadyExists   = errors.Register(ModuleName, 1203, "invitation already exists for this address")
+	ErrInvitationNotFound        = errors.Register(ModuleName, 1204, "invitation not found")
+	ErrInvitationNotPending      = errors.Register(ModuleName, 1205, "invitation is not pending")
+	ErrInviteeAddressMismatch    = errors.Register(ModuleName, 1206, "invitee address does not match invitation")
+	ErrNotMember                 = errors.Register(ModuleName, 1207, "address is not a member")
+	ErrContentLicenseNotAccepted = errors.Register(ModuleName, 1208, "membership requires accepting the chain's content license: accepted_content_license must be CC0-1.0")
 
 	// Project errors
 	ErrProjectNotFound          = errors.Register(ModuleName, 1301, "project not found")

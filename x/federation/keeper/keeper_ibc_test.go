@@ -136,3 +136,42 @@ func TestIsActivePeerChannel(t *testing.T) {
 		require.Equal(t, want, f.keeper.IsActivePeerChannel(f.ctx, ch), ch)
 	}
 }
+
+// A sister chain's content enters only with a public-domain license; a packet
+// from a peer predating the field (no license) is refused like an encumbered
+// one.
+func TestOnRecvContentPacket_License(t *testing.T) {
+	f := initFixture(t)
+	ms := keeper.NewMsgServerImpl(f.keeper)
+	setupIBCPeerForLink(t, f, ms, "phoenix-1", "channel-7")
+	require.NoError(t, f.keeper.PeerPolicies.Set(f.ctx, "phoenix-1", types.PeerPolicy{
+		PeerId: "phoenix-1", InboundContentTypes: []string{"blog_post"},
+	}))
+
+	for i, tc := range []struct {
+		license string
+		ok      bool
+	}{
+		{"CC0-1.0", true},
+		{"PDM-1.0", true},
+		{"", false},
+		{"CC-BY-SA-4.0", false},
+	} {
+		err := f.keeper.OnRecvContentPacket(f.ctx, "federation", "channel-7", &types.ContentPacket{
+			ContentType: "blog_post", RemoteContentId: "p", Creator: "phoenix1creator",
+			ContentHash: []byte{byte(i), 1, 2, 3}, License: tc.license,
+		})
+		if !tc.ok {
+			require.ErrorIs(t, err, types.ErrLicenseNotAccepted, tc.license)
+			continue
+		}
+		require.NoError(t, err, tc.license)
+	}
+
+	var licenses []string
+	require.NoError(t, f.keeper.Content.Walk(f.ctx, nil, func(_ uint64, c types.FederatedContent) (bool, error) {
+		licenses = append(licenses, c.License)
+		return false, nil
+	}))
+	require.ElementsMatch(t, []string{"CC0-1.0", "PDM-1.0"}, licenses)
+}

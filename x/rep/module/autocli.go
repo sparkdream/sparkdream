@@ -3,6 +3,7 @@ package rep
 import (
 	autocliv1 "cosmossdk.io/api/cosmos/autocli/v1"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/rep/types"
 )
 
@@ -520,10 +521,14 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "invitee_address"}, {ProtoField: "staked_dream"}},
 				},
 				{
-					RpcMethod:      "AcceptInvitation",
-					Use:            "accept-invitation [invitation-id]",
-					Short:          "Send a accept-invitation tx",
-					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "invitation_id"}},
+					RpcMethod: "AcceptInvitation",
+					Use:       "accept-invitation [invitation-id] [accepted-content-license]",
+					Short:     "Accept an invitation and join, agreeing to publish everything under CC0",
+					Long: "Becoming a member is agreeing to the chain's open-content commitment: " + commontypes.ContentDedication +
+						" Pass the chain's content license, " + commontypes.ChainContentLicense + ", as accepted-content-license to sign that agreement " +
+						"(see `sparkdreamd query sparkdream content-license`).",
+					Example:        "sparkdreamd tx rep accept-invitation 7 " + commontypes.ChainContentLicense + " --from alice",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "invitation_id"}, {ProtoField: "accepted_content_license"}},
 				},
 				{
 					RpcMethod:      "TransferDream",

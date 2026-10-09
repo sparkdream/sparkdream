@@ -695,6 +695,7 @@ func registerTestBridge(t *testing.T, f *fixture, ms types.MsgServer, peerID, op
 func submitTestContent(t *testing.T, f *fixture, ms types.MsgServer, operatorStr, peerID string, hash []byte) uint64 {
 	t.Helper()
 	resp, err := ms.SubmitFederatedContent(f.ctx, &types.MsgSubmitFederatedContent{
+		License:         "CC0-1.0",
 		Operator:        operatorStr,
 		PeerId:          peerID,
 		RemoteContentId: "post-" + string(hash[:4]),

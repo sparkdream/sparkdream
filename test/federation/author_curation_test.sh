@@ -121,6 +121,7 @@ submit() {
         "$PEER" "cur-$SEED" "blog_post" "$1" "Curation" "" \
         "curation body $SEED" "https://$PEER/users/x/statuses/$SEED" "$(date +%s)" \
         --content-hash "$(sha256_base64 "curation $SEED")" \
+        --license CC0-1.0 \
         --from $OPERATOR_KEY --chain-id $CHAIN_ID --keyring-backend test \
         --gas 500000 --fees 5000${BOND_DENOM} -y --output json)"
 }

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/federation/types"
 
 	"cosmossdk.io/collections"
@@ -116,6 +117,13 @@ func (k Keeper) OnRecvContentPacket(ctx context.Context, sourcePort, sourceChann
 		return errorsmod.Wrapf(types.ErrContentTypeNotAllowed, "content type %q not accepted from peer %s", packet.ContentType, peerID)
 	}
 
+	// Open content: only public-domain content enters the chain. A sister
+	// chain stamps its own content license; one that is missing (a peer on
+	// a binary predating the field) or encumbered is refused.
+	if !commontypes.IsUnencumberedLicense(packet.License) {
+		return errorsmod.Wrapf(types.ErrLicenseNotAccepted, "license %q from peer %s", packet.License, peerID)
+	}
+
 	// Deduplicate by content hash
 	hashHex := fmt.Sprintf("%x", packet.ContentHash)
 	if _, err := k.ContentByHash.Get(ctx, hashHex); err == nil {
@@ -146,6 +154,7 @@ func (k Keeper) OnRecvContentPacket(ctx context.Context, sourcePort, sourceChann
 		ReceivedAt:      blockTime,
 		ExpiresAt:       expiresAt,
 		Status:          types.FederatedContentStatus_FEDERATED_CONTENT_STATUS_ACTIVE,
+		License:         packet.License,
 	}
 	if err := k.Content.Set(ctx, contentID, content); err != nil {
 		return err
@@ -164,6 +173,7 @@ func (k Keeper) OnRecvContentPacket(ctx context.Context, sourcePort, sourceChann
 		sdk.NewAttribute(types.AttributeKeyContentType, packet.ContentType),
 		sdk.NewAttribute(types.AttributeKeyContentID, fmt.Sprintf("%d", contentID)),
 		sdk.NewAttribute(types.AttributeKeyCreator, packet.Creator),
+		sdk.NewAttribute(types.AttributeKeyLicense, packet.License),
 	))
 
 	return nil

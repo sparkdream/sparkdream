@@ -199,6 +199,13 @@ message MsgSubmitFederatedContent {
   // at the source). A PENDING_VERIFICATION predecessor is retired to
   // SUPERSEDED; one already past verification only gains the forward link.
   ContentRef supersedes = 13;
+  // license is the license the source carries for this content, as an
+  // SPDX-style id. Only public-domain content enters the chain: "CC0-1.0"
+  // (the author's #cc0 dedication) or "PDM-1.0" (#publicdomain, the Public
+  // Domain Mark). Anything else is rejected. Verifiers re-check the claim
+  // against the fetched post; a record whose source does not carry the
+  // marker is never verified.
+  string license = 14;
 }
 message MsgSubmitFederatedContentResponse {
   uint64 content_id = 1;

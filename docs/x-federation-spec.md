@@ -88,6 +88,15 @@ IBC peers can verify reputation cryptographically. Bridge peers rely on operator
 
 Federated content is stored in x/federation, not in content modules. Content modules remain unaware of federation. Frontends query both native content and federated content and merge for display.
 
+**Open content: public domain only.** Everything published on Spark Dream is dedicated to the public domain under CC0 1.0 (see [content-license.md](content-license.md)), and federation holds inbound content to the same standard. Every inbound record carries a `license`, and the chain accepts exactly two, a compiled constant rather than a parameter (`x/common/types.IsUnencumberedLicense`):
+
+| `license` | Meaning | Mastodon signal |
+|-----------|---------|-----------------|
+| `CC0-1.0` | The author waived all rights (CC0 1.0 Universal) | `#cc0` in the post |
+| `PDM-1.0` | The work is already free of known copyright (Public Domain Mark) | `#publicdomain` in the post |
+
+Anything else, including no license at all, is refused with `ErrLicenseNotAccepted` (2389), on `MsgSubmitFederatedContent` and on IBC receive alike. Outbound `ContentPacket`s carry `CC0-1.0`, the chain's own license. For bridged content the license is the operator's claim; the verifier checks it against the fetched post before vouching for the record (Section 6.15).
+
 **Content from x/reveal**: Reveal contributions (code proposals, tranches) are NOT eligible for federation. Reveal content involves IP licensing, contributor bonds, and holdback mechanics that are inherently local to the chain. The `outbound_content_types` allowlist in PeerPolicy should never include reveal-related types.
 
 ### 3.4. Identity Linking
@@ -929,6 +938,7 @@ message FederatedContent {
   bytes content_hash = 16;                         // SHA-256 hash of (title + body) for integrity verification and deduplication
   ContentRef supersedes = 17;                      // Earlier record of the same content_uri this one replaces (an edit); unset for a first version
   uint64 superseded_by = 18;                       // Newer record that replaced this one; 0 = none (a successor is never id 0)
+  string license = 19;                             // "CC0-1.0" or "PDM-1.0": the public-domain license it entered under (Section 3.3)
 }
 
 // Content ids start at 0, so "supersedes nothing" needs a nil ref, not a zero id.
@@ -1595,6 +1605,7 @@ message MsgSubmitFederatedContent {
   int64 remote_created_at = 11;
   bytes content_hash = 12;         // SHA-256 hash of original content (for integrity verification)
   ContentRef supersedes = 13;      // Optional: earlier record of the same content_uri this edit replaces
+  string license = 14;             // "CC0-1.0" (#cc0) or "PDM-1.0" (#publicdomain); anything else is refused
 }
 ```
 
@@ -1602,6 +1613,7 @@ message MsgSubmitFederatedContent {
 1. Verify a `BridgeBinding` exists for `(operator, peer_id)` and is not `suspended`. Federation does not re-query the `service.Operator` status on every content submission — the `suspended` flag is the authoritative gate, and it is kept in sync via `AfterOperatorUnderfunded`/`AfterOperatorReFunded` hooks. Dissolved/retired bindings are removed by `AfterOperatorDissolved`/`AfterOperatorRetired` so they cannot be found here.
 2. Verify peer is ACTIVE
 3. Verify `content_type` is in peer policy's `inbound_content_types`
+   - 3b. **Open content.** `license` must be `CC0-1.0` or `PDM-1.0`; otherwise `ErrLicenseNotAccepted`. Not configurable per peer: it is the chain's content license (Section 3.3).
 4. Verify `creator_identity` is not in `blocked_identities`
    - 4b. **Provenance (ActivityPub peers).** A non-empty `content_uri` must be an http(s) URL whose hostname (port and userinfo ignored) is the peer id or one of the policy's `content_hosts`; otherwise `ErrContentHostMismatch`. Without it a bridge bonded for one peer could anchor another instance's posts under that peer's name. AT Protocol ids are `at://` URIs whose authority is a DID, so the rule does not apply there. An empty `content_uri` is still accepted: nothing can fetch it, so no honest verifier can confirm it. The rule lives in `types.ContentURIHostAllowed`, which the bridge and verifier daemons call too.
    - 4c. **Attribution (ActivityPub peers).** A non-empty `creator_identity` (`@user@host`, leading `@` optional, port ignored) must have a host that is the peer id or one of its `content_hosts`; otherwise `ErrCreatorHostMismatch`. Without it a bridge could anchor the peer's own post as `@anyone@elsewhere`. An empty `creator_identity` is still accepted (unattributed). Rule: `types.CreatorIdentityHostAllowed`, also applied by both daemons.
@@ -1622,7 +1634,7 @@ message MsgSubmitFederatedContent {
 11. Store FederatedContent with `expires_at`, add to `ContentExpirationQueue`, `ContentByCreator`, and `ContentByHash` indexes
 12. Add to `VerificationWindowQueue` with expiry = block_time + `verification_window`
 13. Increment bridge's `content_submitted`, update `last_submission_at`
-14. Emit `federated_content_received` event
+14. Emit `federated_content_received` event (with `license`)
 
 **Bridge daemon conventions (inbound, external-protocol peers).** These are off-chain conventions, not chain rules — the chain does not interpret them — but they are normative for anyone building a bridge or verifier against this module (reference implementations: [cmd/sdapbridge](../cmd/sdapbridge), [cmd/sdapverify](../cmd/sdapverify)):
 
@@ -1634,6 +1646,7 @@ message MsgSubmitFederatedContent {
   invalidating a signature bound to `(request-target)`. The permalink belongs in
   `protocol_metadata.content_url`, informational. The same `id` is the key of the
   daemon's local dedupe cache, so anchoring anything else silently breaks warm-up.
+- **Only public-domain posts are anchored.** Mastodon has no license field, so the author dedicates a post with a hashtag in its text: `#cc0` (claimed as `CC0-1.0`) or `#publicdomain` (`PDM-1.0`); with both, `CC0-1.0`. The hashtag must be whole (`#cc0art` does not count) and is read from the AS2 `content`, never the `tag` array: `content` is hashed under every ap-canonical rule, so a record whose hash verifies is bound to the hashtag that licensed it, where `tag` is not hashed at all. The rule is `apcanon.License`, shared by both daemons like the hash rule. The check runs after consent and before hashing, so no media is downloaded for a post that will not be anchored. An undedicated timeline post stays on the edit-revisit list, so an author who adds `#cc0` in an edit is anchored then; an anchored post edited to drop the tag keeps its anchored version (a dedication cannot be withdrawn) and the edit is not anchored. The tag is the author's own statement and covers only what they hold the rights to; quoted or third-party material is a moderation matter (`MsgModerateContent`).
 - **Boosts are skipped** (`reblog != null` would anchor other people's posts under the booster), and **visibility is asserted from the AS2 audience** (`as#Public` present in `to` or `cc`), not from any REST field — followers-only posts reach a home timeline once the bridge is an accepted follower.
 - **Discovery carries a cursor.** The home-timeline poll passes `since_id` and advances
   it only over statuses actually processed, oldest-first. A fixed-size window with no
@@ -1661,11 +1674,11 @@ message MsgSubmitFederatedContent {
 - **Consent before content.** Anchoring puts a post on a public chain, a bigger step than federating it, and fediverse norms around bridging are opt-in. By default (`opt-in`) the bridge anchors only authors who follow the bridge account; `indexable` accepts Mastodon's indexable setting instead; `none` exists for test instances only. Every mode refuses an author whose bio or profile fields carry `#nobridge` or `#nobot`. The check runs before anything of the author's is fetched, outbox backfill included. Consent covers what comes after it: the daemon records when it first observes consent (backdated by its followers-cache TTL, never past the last observed refusal) and never anchors a post published earlier, so neither the reconcile lookback nor the outbox pass reaches an author's history. An unfollow or a `#nobridge` stops new anchors and edit re-anchors; content already anchored stays until `content_ttl`.
 - **Curation before consent, both required.** The daemon reads each peer's policy and curation collection over the LCD (cached 5 minutes, falling back to the last good read; an unreadable gate defers to the chain) and drops authors the chain would refuse (Section 4.2) before any consent check or fetch. Every `SDA_FOLLOW_SYNC` (default 5m) it follows each admitted author from the bridge account and unfollows those dropped from a curated list, so a curated author's posts reach the home timeline; it leaves follows alone on an open (`"*"`, no collection) or unreadable policy. Following an author is not consent: the author still has to follow back (or be indexable) before anything is anchored.
 - **Follow-back of member followers (open peer, own instance).** On an open peer the daemon manages no follows, so an author who opts in by following the bridge account would never reach its home timeline. For the bridge's own instance it therefore follows back, every `SDA_FOLLOW_SYNC`, each **local** follower whose wallet is an active x/rep member of **this** chain, and unfollows the ones it followed back once they unfollow it or stop being members. Only the follows it made itself (recorded in its state file) are ever undone; curated follows and follows made by hand are left alone, and an unreachable chain changes nothing. It runs only while the instance's sign-ups are closed (`/api/v2/instance` `registrations.enabled` false), when a local account can exist only through wallet sign-in, and never for remote followers, who would otherwise let any fediverse account anchor content on an open peer. The follower's address comes from the instance's `/api/v1/sparkdream/wallet_addresses` (the launcher's Mastodon image), which answers only a token of the bridge app and only for accounts that follow that bridge. `SDA_FOLLOW_BACK=false` turns it off. Being followed back is not consent either: the author's follow of the bridge is, and posts from before it are still never anchored.
-- **One process, many peers.** Each source instance is its own peer, and one operator may hold bindings on many under one bond. The daemon routes each post to the configured peer that owns its host by the provenance rule, skips every other instance, skips a post whose author handle is on a host the peer does not own (the chain would refuse it), and drops at startup any configured peer it holds no binding on. Rejections no retry of *that post* can fix (type not allowed, identity blocked, host mismatch, peer not ACTIVE, binding gone) are skipped, not retried, so they cannot pin the discovery cursor that all peers share.
+- **One process, many peers.** Each source instance is its own peer, and one operator may hold bindings on many under one bond. The daemon routes each post to the configured peer that owns its host by the provenance rule, skips every other instance, skips a post whose author handle is on a host the peer does not own (the chain would refuse it), and drops at startup any configured peer it holds no binding on. Rejections no retry of *that post* can fix (type not allowed, identity blocked, host mismatch, license not accepted, peer not ACTIVE, binding gone) are skipped, not retried, so they cannot pin the discovery cursor that all peers share.
 - **Size `inbound_rate_limit_per_epoch` to the follow set.** The limit is per peer and every mirrored author on the instance shares it: roughly authors × posts per author per `rate_limit_window` × 1.3 (edits re-anchor), plus newly seen authors × the backfill depth. A submission over the limit is not lost, but every rejected attempt pays its fee and delays the post.
 - **A retryable failure never stalls other peers.** A post that fails for a retryable reason (the peer's rate limit, its instance unreachable, a transient chain error) goes to a persistent per-post retry queue with exponential backoff (1 min doubling to 30 min, given up after 24 h, loudly), and discovery moves on. The failing peer is held until its next retry, and its new posts queue behind the earlier ones with no submit attempt, so a throttled peer costs one probe per backoff step rather than one fee per post. Only a global condition (the bridge's own instance throttling) or a full queue (2000 posts) holds the shared cursor, and then nothing is dropped.
 - **First sight of an account runs one outbox pass** (bounded), because the home timeline only carries what arrived after the follow.
-- **The verifier runner is a separate binary, separate account, separate host, and separate network vantage point** — independence is the anti-fraud property. It re-fetches `content_uri` anonymously (or HTTP-Signature-signed when the instance requires it), recomputes via the shared canonicalizer, and submits `MsgVerifyContent` on a match. During bring-up it **alarms on mismatch instead of auto-submitting**: a mismatch is more likely a canonicalizer bug than operator fraud, and a wrong DISPUTED strands the verifier's committed bond. It applies the provenance rule before fetching and alarms, without fetching or verifying, on a `content_uri` that is not the peer's. **A matching hash is not enough to verify:** `MsgVerifyContent` binds only the hash, and the body, title, content type, timestamps and `protocol_metadata` are the operator's claims, so the runner also checks that the record shows the post it fetched — body a byte-prefix of the content cut no earlier than `max_content_body_size`, title equal to the content warning, `blog_reply` exactly when there is an `inReplyTo`, `remote_created_at` equal to `published`, metadata links equal to the object's, attachment entries equal to the object's own in order (digests included), and the `creator_identity` username equal to the author actor's `preferredUsername`. Any difference raises a MISREPRESENTED alarm and the record is not verified. A mismatch whose fetched object has a later `updated` than the anchored `protocol_metadata.updated` is an edit, not fraud: it is logged once and neither verified nor alarmed, since the bridge anchors the new version as its own record.
+- **The verifier runner is a separate binary, separate account, separate host, and separate network vantage point** — independence is the anti-fraud property. It re-fetches `content_uri` anonymously (or HTTP-Signature-signed when the instance requires it), recomputes via the shared canonicalizer, and submits `MsgVerifyContent` on a match. During bring-up it **alarms on mismatch instead of auto-submitting**: a mismatch is more likely a canonicalizer bug than operator fraud, and a wrong DISPUTED strands the verifier's committed bond. It applies the provenance rule before fetching and alarms, without fetching or verifying, on a `content_uri` that is not the peer's. **A matching hash is not enough to verify:** `MsgVerifyContent` binds only the hash, and the body, title, content type, timestamps and `protocol_metadata` are the operator's claims, so the runner also checks that the record shows the post it fetched — body a byte-prefix of the content cut no earlier than `max_content_body_size`, title equal to the content warning, `blog_reply` exactly when there is an `inReplyTo`, `remote_created_at` equal to `published`, metadata links equal to the object's, attachment entries equal to the object's own in order (digests included), the `creator_identity` username equal to the author actor's `preferredUsername`, and the claimed `license` equal to what `apcanon.License` reads from the fetched post (a record admitted as `CC0-1.0` for a post with no `#cc0` was admitted on a false claim). Any difference raises a MISREPRESENTED alarm and the record is not verified. A mismatch whose fetched object has a later `updated` than the anchored `protocol_metadata.updated` is an edit, not fraud: it is logged once and neither verified nor alarmed, since the bridge anchors the new version as its own record.
 - Daemon credentials are two-key: the chain key (raw operator/verifier key, or an x/session key scoped to the allowlisted federation daemon messages) and the Mastodon OAuth app token (scopes `read write:follows`, independently rotated; the follow scope is only for keeping the bridge account's follows in sync with author curation). HTTP Signatures (draft-cavage — **not** RFC 9421, which is a wire-incompatible scheme the fediverse does not implement) are only needed for fetching from secure-mode instances.
 
 ### 6.16. FederateContent (Content Creator)
@@ -1690,7 +1703,7 @@ message MsgFederateContent {
 2. Verify `content_type` is in peer policy's `outbound_content_types`
 3. Verify `creator` meets `min_outbound_trust_level` from peer policy (query x/rep)
 4. Check outbound rate limits (see Section 10.3)
-5. Send `ContentPacket` via IBC to the peer's channel (with `creator` as the content creator)
+5. Send `ContentPacket` via IBC to the peer's channel (with `creator` as the content creator, and `license = "CC0-1.0"`: everything on this chain is published under CC0, and a receiving Spark Dream chain refuses content without a public-domain license)
 6. Store `OutboundAttestation` automatically
 7. Emit `content_federated` event
 
@@ -2189,12 +2202,14 @@ message ContentPacket {
   int64 created_at = 8;
   bytes content_hash = 9;          // SHA-256 hash of original content
   bytes protocol_metadata = 10;    // Protocol-specific metadata (e.g., chain-specific tags, categories)
+  string license = 11;             // License on the sending chain: "CC0-1.0" for Spark Dream content
 }
 ```
 
 **OnRecvPacket** (receiving chain):
 1. Identify source peer from channel
 2. Validate against peer policy (content type allowed, rate limits)
+   - 2b. `license` must be `CC0-1.0` or `PDM-1.0`, else `ErrLicenseNotAccepted`. A packet from a peer on a binary predating the field carries no license and is refused: the receiver cannot know the content is public domain.
 3. Store `content_hash` from the packet directly (hash covers full source content, computed by the sending chain)
 4. Truncate `body` to `max_content_body_size`, `content_uri` to `max_content_uri_size`, `protocol_metadata` to `max_protocol_metadata_size` (truncation is for storage only — hash covers full content)
 5. Check `ContentByHash` for duplicates from this peer — reject if same hash already exists
@@ -2664,6 +2679,7 @@ Bridge operators can be slashed for:
 | `ErrIdentityNotCurated` | 2386 | `MsgSubmitFederatedContent`: the author is not an active link item of the policy's curation collection |
 | `ErrCurationUnavailable` | 2387 | The policy's curation collection does not exist or is not ACTIVE |
 | `ErrInvalidAllowedIdentity` | 2388 | `allowed_identities` entry is neither `"*"` nor a recognizable author identity |
+| `ErrLicenseNotAccepted` | 2389 | `MsgSubmitFederatedContent` / `ContentPacket`: `license` is not `CC0-1.0` or `PDM-1.0` (Section 3.3) |
 
 > `ErrInsufficientStake`, `ErrSlashExceedsStake`, `ErrCooldownNotElapsed`, and `ErrInvalidStakeDenom` are retained in `errors.go` for legacy test fixtures but are no longer produced by federation handlers — bond enforcement runs on `x/service` and surfaces the corresponding service-side errors instead.
 
@@ -2691,7 +2707,7 @@ Bridge operators can be slashed for:
 > The legacy `bridge_revoked`, `bridge_auto_revoked`, `bridge_slashed`, `bridge_self_unbonded`, `bridge_stake_topped_up`, `bridge_unbonding_complete`, and `bridge_stake_insufficient` event constants remain in `events.go` for backward-compat with archived indexers but are no longer emitted by federation handlers. The equivalent signals now flow from x/service (`operator_slashed`, `operator_dissolved`, `operator_underfunded`, `operator_refunded`, `operator_unbonding_started`, `operator_unbond_completed`) — observers should subscribe there.
 >
 > **Re-registration event asymmetry**: first `MsgRegisterBridge` for a given `(address, service_type)` emits `service.operator_registered` (from x/service) AND `bridge_registered` (from federation). Subsequent registrations for additional peers under the same operator (Decision 1a) emit only `bridge_registered`. Indexers expecting paired events must handle this.
-| `federated_content_received` | id, peer_id, content_type, creator_identity | Inbound content stored |
+| `federated_content_received` | id, peer_id, content_type, creator_identity, license | Inbound content stored |
 | `federated_content_moderated` | id, new_status, reason, moderated_by | Content moderation action |
 | `content_federated` | peer_id, content_type, local_content_id, creator | Outbound IBC content sent |
 | `outbound_attested` | peer_id, content_type, local_content_id | Outbound bridge attestation |

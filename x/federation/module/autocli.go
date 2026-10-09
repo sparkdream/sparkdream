@@ -189,6 +189,9 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					Use:            "submit-federated-content [peer-id] [remote-content-id] [content-type] [creator-identity] [creator-name] [title] [body] [content-uri] [remote-created-at]",
 					Short:          "Send a SubmitFederatedContent tx",
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "peer_id"}, {ProtoField: "remote_content_id"}, {ProtoField: "content_type"}, {ProtoField: "creator_identity"}, {ProtoField: "creator_name"}, {ProtoField: "title"}, {ProtoField: "body"}, {ProtoField: "content_uri"}, {ProtoField: "remote_created_at"}},
+					FlagOptions: map[string]*autocliv1.FlagOptions{
+						"license": {Name: "license", Usage: "required: the public-domain license the post declares, CC0-1.0 (#cc0) or PDM-1.0 (#publicdomain); the chain refuses anything else"},
+					},
 				},
 				{
 					RpcMethod:      "FederateContent",

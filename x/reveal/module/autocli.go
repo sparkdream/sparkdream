@@ -1,8 +1,11 @@
 package reveal
 
 import (
+	"strings"
+
 	autocliv1 "cosmossdk.io/api/cosmos/autocli/v1"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/reveal/types"
 )
 
@@ -88,9 +91,11 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					Skip:      true, // skipped because authority gated
 				},
 				{
-					RpcMethod:      "Propose",
-					Use:            "propose [project-name] [description] [total-valuation] [initial-license] [final-license]",
-					Short:          "Propose a new contribution for progressive reveal",
+					RpcMethod: "Propose",
+					Use:       "propose [project-name] [description] [total-valuation] [initial-license] [final-license]",
+					Short:     "Propose a new contribution for progressive reveal",
+					Long: "final-license is the license the code is released under once fully revealed. It must be an open license, by SPDX id: " +
+						strings.Join(commontypes.OpenCodeLicenses(), ", ") + ". initial-license (the terms while tranches are revealed) is free text.",
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "project_name"}, {ProtoField: "description"}, {ProtoField: "total_valuation"}, {ProtoField: "initial_license"}, {ProtoField: "final_license"}},
 				},
 				{

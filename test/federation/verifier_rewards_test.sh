@@ -356,6 +356,7 @@ TX_RES=$($BINARY tx federation submit-federated-content \
     mastodon.example "cap-a-$(date +%s%N)" "blog_post" \
     "@cap-a@mastodon.example" "Cap A" "Cap Test A" "$BODY_A" "" "1700050000" \
     --content-hash "$HASH_A" \
+    --license CC0-1.0 \
     --from "$SUBMITTER" --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y --output json)
 CID_A=""
 if submit_and_wait_local "$TX_RES" "submit cap A"; then
@@ -376,6 +377,7 @@ if [ "$BOB_ELIGIBLE" == "true" ]; then
         mastodon.example "cap-b-$(date +%s%N)" "blog_post" \
         "@cap-b@mastodon.example" "Cap B" "Cap Test B" "$BODY_B" "" "1700050001" \
         --content-hash "$HASH_B" \
+        --license CC0-1.0 \
         --from "$SUBMITTER" --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y --output json)
     CID_B=""
     if submit_and_wait_local "$TX_RES" "submit cap B"; then
@@ -561,6 +563,7 @@ if [ "$REC_SKIP" != "true" ]; then
         mastodon.example "rec-ok-$(date +%s%N)" "blog_post" \
         "@recok@mastodon.example" "Rec OK" "Recovery OK" "$BODY_REC" "" "1700050200" \
         --content-hash "$HASH_REC" \
+        --license CC0-1.0 \
         --from "$SUBMITTER" --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y --output json)
     REC_CID=""
     if submit_and_wait_local "$TX_RES" "recovery content submit" && [ "$TX5_OK" == "true" ]; then

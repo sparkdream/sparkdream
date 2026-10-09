@@ -164,7 +164,7 @@ if [ -z "$INVITATION_ID" ]; then
 fi
 echo "  Invitation ID: $INVITATION_ID"
 
-TX_OUT=$(send_tx rep accept-invitation --gas 400000 "$INVITATION_ID" --from $PROMOTEE_ACCOUNT)
+TX_OUT=$(send_tx rep accept-invitation --gas 400000 "$INVITATION_ID" CC0-1.0 --from $PROMOTEE_ACCOUNT)
 assert_tx_success "Promotee accepts invitation" "$TX_OUT"
 
 # Wait two blocks for the EndBlocker drain (default cap 50, so both passes

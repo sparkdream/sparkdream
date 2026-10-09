@@ -8,6 +8,7 @@ import (
 	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/reveal/types"
 )
 
@@ -64,6 +65,12 @@ func (k msgServer) Propose(ctx context.Context, msg *types.MsgPropose) (*types.M
 	}
 	if uint32(len(msg.Tranches)) > params.MaxTranches {
 		return nil, types.ErrTooManyTranches.Wrapf("max %d, got %d", params.MaxTranches, len(msg.Tranches))
+	}
+	// Open code: revealed code ends up under a public-domain or permissive
+	// license. initial_license (the terms while tranches are still being
+	// revealed) stays the contributor's choice.
+	if !commontypes.IsOpenCodeLicense(msg.FinalLicense) {
+		return nil, types.ErrFinalLicenseNotOpen.Wrapf("got %q", msg.FinalLicense)
 	}
 	if msg.TotalValuation.GT(params.MaxTotalValuation) {
 		return nil, types.ErrValuationTooHigh.Wrapf("max %s, got %s", params.MaxTotalValuation, msg.TotalValuation)

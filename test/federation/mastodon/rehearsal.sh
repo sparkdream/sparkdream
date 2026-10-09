@@ -16,7 +16,9 @@
 # Env:
 #   STATUS_URI  the AS2 id of a real status (required). On Mastodon 4.7+
 #               that is http(s)://HOST/ap/users/<id>/statuses/<id>; the
-#               API returns it as the status's `uri`.
+#               API returns it as the status's `uri`. The status must
+#               carry #cc0 or #publicdomain in its text: the chain
+#               accepts only public-domain content.
 #   BINARY      sparkdreamd (default: GOPATH bin)
 #   NODE        --node flag (default: devnet RPC)
 #   CHAIN_ID    (default: sparkdream-dev-1)
@@ -114,6 +116,11 @@ HASH_HEX=$("${APCANON_BIN[@]}" hash "${SIGN[@]+"${SIGN[@]}"}" "$STATUS_URI")
 HASH_B64=$(printf '%s' "$HASH_HEX" | xxd -r -p | base64 -w0)
 echo "hash(hex)=$HASH_HEX"
 echo "hash(b64)=$HASH_B64   # --content-hash takes base64, not hex"
+# The chain accepts only public-domain posts: the status must carry #cc0
+# (CC0-1.0) or #publicdomain (PDM-1.0) in its text, as the bridge requires.
+LICENSE=$("${APCANON_BIN[@]}" license "${SIGN[@]+"${SIGN[@]}"}" "$STATUS_URI") \
+  || die "$STATUS_URI has no #cc0 or #publicdomain hashtag; post one that does"
+echo "license=$LICENSE"
 
 # Field mapping as the bridge daemon does it (cmd/sdapbridge buildMsg), read from the same AS2 object the
 # bridge would use. Only the hash above is load-bearing; these fields are
@@ -154,6 +161,7 @@ RES=$(run_tx submit federation submit-federated-content \
   "$STATUS_URI" \
   "$CREATED_AT" \
   --content-hash "$HASH_B64" \
+  --license "$LICENSE" \
   --protocol-metadata "$(printf '%s' "$META" | base64 -w0)" \
   --from "$FROM_SUBMIT")
 CONTENT_ID=$(echo "$RES" | jq -r '[.events[] | select(.type=="federated_content_received").attributes[] | select(.key=="content_id").value][0] // empty')

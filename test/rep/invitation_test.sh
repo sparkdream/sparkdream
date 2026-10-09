@@ -212,10 +212,41 @@ fi
 
 # Invitee1 accepts (skip if already a member)
 if [ -z "$EXISTING_MEMBER" ]; then
+    # Joining is agreeing to publish everything under CC0: an acceptance
+    # without that agreement (or with any other license) is refused with
+    # x/rep ErrContentLicenseNotAccepted and admits nobody.
     echo ""
-    echo "Invitee1 accepts invitation..."
+    echo "Invitee1 tries to join without the content-license agreement..."
+    for LIC in "" "CC-BY-4.0"; do
+        REFUSE_RES=$($BINARY tx rep accept-invitation --gas 400000 \
+          $INVITATION_ID1 "$LIC" \
+          --from invitee1 \
+          --chain-id $CHAIN_ID \
+          --keyring-backend test \
+          --fees 5000${BOND_DENOM} \
+          -y \
+          --output json 2>&1)
+        REFUSE_CODE=$(echo "$REFUSE_RES" | jq -r '.code // 0' 2>/dev/null)
+        REFUSE_HASH=$(echo "$REFUSE_RES" | jq -r '.txhash // empty' 2>/dev/null)
+        sleep 3
+        if [ "$REFUSE_CODE" = "0" ] && [ -n "$REFUSE_HASH" ]; then
+            REFUSE_CODE=$($BINARY query tx $REFUSE_HASH --output json 2>/dev/null | jq -r '.code // 0')
+        fi
+        if [ "$REFUSE_CODE" != "1208" ]; then
+            echo "[FAIL] FAILURE: accepting with license '${LIC:-<none>}' should fail with code 1208, got $REFUSE_CODE"
+            exit 1
+        fi
+        echo "[ OK ] Refused without the agreement (license '${LIC:-<none>}', code 1208)"
+    done
+    if $BINARY query rep get-member $INVITEE1_ADDR --output json > /dev/null 2>&1; then
+        echo "[FAIL] FAILURE: a refused acceptance admitted invitee1"
+        exit 1
+    fi
+
+    echo ""
+    echo "Invitee1 accepts invitation, agreeing to CC0..."
     ACCEPT_RES=$($BINARY tx rep accept-invitation --gas 400000 \
-      $INVITATION_ID1 \
+      $INVITATION_ID1 CC0-1.0 \
       --from invitee1 \
       --chain-id $CHAIN_ID \
       --keyring-backend test \
@@ -384,7 +415,7 @@ elif [ "$INV2_STATUS" = "INVITATION_STATUS_ACCEPTED" ]; then
     echo "[INFO]  Invitation already accepted but member record not found (may need investigation)"
 elif [ "$INV2_STATUS" = "null" ] || [ "$INV2_STATUS" = "INVITATION_STATUS_PENDING" ] || [ -z "$INV2_STATUS" ]; then
     echo "Invitee2 accepts invitation..."
-    ACCEPT_RES=$($BINARY tx rep accept-invitation --gas 400000 $INVITATION_ID2 --from invitee2 --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y --output json 2>&1)
+    ACCEPT_RES=$($BINARY tx rep accept-invitation --gas 400000 $INVITATION_ID2 CC0-1.0 --from invitee2 --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y --output json 2>&1)
     sleep 5
 
     # Check if response is valid JSON
@@ -497,7 +528,7 @@ INVITEE3_EXISTS=$($BINARY query rep get-member $INVITEE3_ADDR --output json 2>&1
 
 if [ "$INVITEE3_EXISTS" = "no" ] && [ -n "$INVITATION_ID3" ]; then
     echo "Invitee3 accepts invitation..."
-    ACCEPT3_RES=$($BINARY tx rep accept-invitation --gas 400000 $INVITATION_ID3 --from invitee3 --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y --output json 2>&1)
+    ACCEPT3_RES=$($BINARY tx rep accept-invitation --gas 400000 $INVITATION_ID3 CC0-1.0 --from invitee3 --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y --output json 2>&1)
     sleep 5
 
     # Check if transaction succeeded
@@ -598,7 +629,7 @@ elif [ "$INVITEE4_EXISTS" = "yes" ]; then
     echo "[INFO]  Invitee4 is already a member"
 else
     echo "Invitee4 accepts invitation..."
-    ACCEPT4_RES=$($BINARY tx rep accept-invitation --gas 400000 $INVITATION_ID4 --from invitee4 --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y --output json 2>&1)
+    ACCEPT4_RES=$($BINARY tx rep accept-invitation --gas 400000 $INVITATION_ID4 CC0-1.0 --from invitee4 --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y --output json 2>&1)
     sleep 5
 
     # Check if transaction succeeded

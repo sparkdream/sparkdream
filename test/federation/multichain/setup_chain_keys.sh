@@ -118,7 +118,7 @@ invite_and_accept() {
     fi
 
     echo "  Accepting invitation $INVITATION_ID..."
-    TX=$($cli_x tx rep accept-invitation --gas 400000 "$INVITATION_ID" \
+    TX=$($cli_x tx rep accept-invitation --gas 400000 "$INVITATION_ID" CC0-1.0 \
         --from "$KEY" -y --fees 5000${BOND_DENOM} --output json)
     $submit_x "$TX" "accept $INVITATION_ID" || return 1
 }

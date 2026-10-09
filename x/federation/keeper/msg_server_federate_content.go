@@ -4,6 +4,7 @@ import (
 	"context"
 	"slices"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/federation/types"
 
 	errorsmod "cosmossdk.io/errors"
@@ -91,6 +92,9 @@ func (k msgServer) FederateContent(ctx context.Context, msg *types.MsgFederateCo
 				Body:            msg.Body,
 				ContentUri:      msg.ContentUri,
 				ContentHash:     msg.ContentHash,
+				// Everything published on this chain is CC0; the peer
+				// refuses content without a public-domain license.
+				License: commontypes.ChainContentLicense,
 			},
 		},
 	}

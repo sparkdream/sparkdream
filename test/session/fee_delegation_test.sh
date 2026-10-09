@@ -209,7 +209,7 @@ if echo "$MEMBER_INFO" | grep -q "not found"; then
         if check_tx_success "$TX_RESULT"; then
             INVITATION_ID=$(echo "$TX_RESULT" | jq -r '.events[] | select(.type=="create_invitation") | .attributes[] | select(.key=="invitation_id") | .value' | tr -d '"')
             [ -z "$INVITATION_ID" ] && INVITATION_ID="1"
-            TX_RES=$($BINARY tx rep accept-invitation --gas 400000 "$INVITATION_ID" \
+            TX_RES=$($BINARY tx rep accept-invitation --gas 400000 "$INVITATION_ID" CC0-1.0 \
                 --from fee_granter --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y --output json 2>&1)
             TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
             if [ -n "$TXHASH" ] && [ "$TXHASH" != "null" ]; then

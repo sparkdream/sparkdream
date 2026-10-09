@@ -302,6 +302,20 @@ func (b *Bridge) ingestObject(ctx context.Context, uri, peerID string, obj map[s
 		log.Printf("sdapbridge: skip %s: published before its author's consent", uri)
 		return nil
 	}
+	// Open content: the chain accepts only posts their author dedicated to
+	// the public domain with #cc0 or #publicdomain. Checked before hashing,
+	// so no media is downloaded for a post that will not be anchored. A
+	// timeline status stays on the revisit list, so an author who adds the
+	// tag in an edit is picked up; an anchored post edited to drop it keeps
+	// its anchored version (a dedication cannot be withdrawn) and the new
+	// version is not anchored.
+	if apcanon.License(obj) == "" {
+		log.Printf("sdapbridge: skip %s: no #cc0 or #publicdomain hashtag", uri)
+		if statusID != "" {
+			b.state.Track(uri, statusID, as2String(obj["updated"], ""), time.Now().Unix(), false)
+		}
+		return b.state.Save()
+	}
 	// Media digests are recorded while hashing, so the metadata can carry
 	// them without fetching every file twice.
 	digests := map[string]string{}
@@ -552,6 +566,7 @@ func (b *Bridge) buildMsg(uri, peerID string, obj map[string]any, acct *Account,
 		ProtocolMetadata: metaJSON,
 		RemoteCreatedAt:  createdAt,
 		ContentHash:      hash,
+		License:          apcanon.License(obj),
 	}
 }
 

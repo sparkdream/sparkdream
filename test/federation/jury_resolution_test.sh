@@ -168,6 +168,7 @@ setup_escalated_challenge() {
         "@jury@$PEER_ID" "Jury Test $TAG" "Title $TAG" \
         "$BODY" "" "1700040000" \
         --content-hash "$HASH" \
+        --license CC0-1.0 \
         --from "$SUBMITTER" --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y --output json)
     if ! submit_and_wait "$TX_RES" "submit $TAG"; then return 1; fi
     if [ "$TX_OK" != "true" ]; then echo "  submit $TAG failed"; return 1; fi

@@ -98,6 +98,7 @@ mint_disputed_content() {
         "@fresh@mastodon.example" "Fresh" "Fresh $SEED" \
         "$FRESH_BODY" "" "1700060000" \
         --content-hash "$FRESH_HASH" \
+        --license CC0-1.0 \
         --from operator2 --chain-id $CHAIN_ID --keyring-backend test \
         --fees 5000${BOND_DENOM} -y --output json)
     submit_and_wait "$TX_RES" "mint disputed $SEED" || return 1
@@ -127,6 +128,7 @@ mint_challenged_content() {
         "@freshch@mastodon.example" "FreshCh" "FreshCh $SEED" \
         "$FRESH_BODY" "" "1700060100" \
         --content-hash "$FRESH_HASH" \
+        --license CC0-1.0 \
         --from operator2 --chain-id $CHAIN_ID --keyring-backend test \
         --fees 5000${BOND_DENOM} -y --output json)
     submit_and_wait "$TX_RES" "mint challenged $SEED" || return 1
@@ -385,6 +387,7 @@ if [ "$BRIDGE_CHECK" == "OPERATOR_STATUS_ACTIVE" ]; then
         "" \
         "1700010000" \
         --content-hash "$VERIFY_HASH" \
+        --license CC0-1.0 \
         --from operator2 \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
@@ -461,6 +464,7 @@ if [ -n "$VERIFY_CONTENT_ID" ]; then
         "" \
         "1700020000" \
         --content-hash "$NOVERIFY_HASH" \
+        --license CC0-1.0 \
         --from operator2 \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
@@ -582,6 +586,7 @@ if [ "$BRIDGE_CHECK" == "OPERATOR_STATUS_ACTIVE" ]; then
         "@selfchal@mastodon.example" "Self-Chal Test" "Self Challenge Test" \
         "$SELF_CHAL_BODY" "" "1700030000" \
         --content-hash "$SELF_CHAL_HASH" \
+        --license CC0-1.0 \
         --from operator2 --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y --output json)
 
     if submit_and_wait "$TX_RES" "submit self-chal content"; then
@@ -752,6 +757,7 @@ if [ "$BRIDGE_CHECK" == "OPERATOR_STATUS_ACTIVE" ]; then
         "@mismatch@mastodon.example" "Mismatch Test" "Hash Mismatch" \
         "$MISMATCH_BODY" "" "1700040000" \
         --content-hash "$MISMATCH_HASH" \
+        --license CC0-1.0 \
         --from operator2 --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y --output json)
 
     if submit_and_wait "$TX_RES" "submit for mismatch"; then

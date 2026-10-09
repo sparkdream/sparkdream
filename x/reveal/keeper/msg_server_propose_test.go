@@ -66,6 +66,7 @@ func TestMsgPropose_NotMember(t *testing.T) {
 		ProjectName:    "test",
 		TotalValuation: math.NewInt(1000),
 		Tranches:       []types.TrancheDef{{Name: "t", StakeThreshold: math.NewInt(1000)}},
+		FinalLicense:   "MIT",
 	})
 	require.ErrorIs(t, err, types.ErrNotMember)
 }
@@ -81,6 +82,7 @@ func TestMsgPropose_InsufficientTrustLevel(t *testing.T) {
 		ProjectName:    "test",
 		TotalValuation: math.NewInt(1000),
 		Tranches:       []types.TrancheDef{{Name: "t", StakeThreshold: math.NewInt(1000)}},
+		FinalLicense:   "MIT",
 	})
 	require.ErrorIs(t, err, types.ErrInsufficientTrustLevel)
 }
@@ -93,6 +95,7 @@ func TestMsgPropose_EmptyProjectName(t *testing.T) {
 		ProjectName:    "",
 		TotalValuation: math.NewInt(1000),
 		Tranches:       []types.TrancheDef{{Name: "t", StakeThreshold: math.NewInt(1000)}},
+		FinalLicense:   "MIT",
 	})
 	require.ErrorIs(t, err, types.ErrEmptyProjectName)
 }
@@ -105,6 +108,7 @@ func TestMsgPropose_NoTranches(t *testing.T) {
 		ProjectName:    "test",
 		TotalValuation: math.NewInt(1000),
 		Tranches:       []types.TrancheDef{},
+		FinalLicense:   "MIT",
 	})
 	require.ErrorIs(t, err, types.ErrNoTranches)
 }
@@ -122,6 +126,7 @@ func TestMsgPropose_TooManyTranches(t *testing.T) {
 		ProjectName:    "test",
 		TotalValuation: math.NewInt(1100),
 		Tranches:       defs,
+		FinalLicense:   "MIT",
 	})
 	require.ErrorIs(t, err, types.ErrTooManyTranches)
 }
@@ -134,6 +139,7 @@ func TestMsgPropose_ValuationTooHigh(t *testing.T) {
 		ProjectName:    "test",
 		TotalValuation: math.NewInt(999999),
 		Tranches:       []types.TrancheDef{{Name: "t", StakeThreshold: math.NewInt(999999)}},
+		FinalLicense:   "MIT",
 	})
 	require.ErrorIs(t, err, types.ErrValuationTooHigh)
 }
@@ -149,6 +155,7 @@ func TestMsgPropose_ValuationMismatch(t *testing.T) {
 			{Name: "t1", StakeThreshold: math.NewInt(5000)},
 			{Name: "t2", StakeThreshold: math.NewInt(4000)}, // sum = 9000, not 10000
 		},
+		FinalLicense: "MIT",
 	})
 	require.ErrorIs(t, err, types.ErrValuationMismatch)
 }
@@ -164,6 +171,7 @@ func TestMsgPropose_BondLockFailure(t *testing.T) {
 		ProjectName:    "test",
 		TotalValuation: math.NewInt(1000),
 		Tranches:       []types.TrancheDef{{Name: "t", StakeThreshold: math.NewInt(1000)}},
+		FinalLicense:   "MIT",
 	})
 	require.ErrorIs(t, err, types.ErrInsufficientBond)
 }
@@ -187,6 +195,40 @@ func TestMsgPropose_ProposalCooldown(t *testing.T) {
 		ProjectName:    "retry",
 		TotalValuation: math.NewInt(1000),
 		Tranches:       []types.TrancheDef{{Name: "t", StakeThreshold: math.NewInt(1000)}},
+		FinalLicense:   "MIT",
 	})
 	require.ErrorIs(t, err, types.ErrProposalCooldown)
+}
+
+// Revealed code must end up under a public-domain or permissive license.
+func TestMsgPropose_FinalLicenseMustBeOpen(t *testing.T) {
+	for _, tc := range []struct {
+		license string
+		ok      bool
+	}{
+		{"MIT", true},
+		{"Apache-2.0", true},
+		{"CC0-1.0", true},
+		{"BSD-3-Clause", true},
+		{"", false},
+		{"GPL-3.0", false},
+		{"BSL-1.1", false},
+		{"Proprietary", false},
+		{"mit", false},
+	} {
+		f := initTestFixture(t)
+		_, err := f.msgServer.Propose(f.ctx, &types.MsgPropose{
+			Contributor:    f.contributor,
+			ProjectName:    "aurora-lib",
+			TotalValuation: math.NewInt(1000),
+			Tranches:       []types.TrancheDef{{Name: "only", StakeThreshold: math.NewInt(1000)}},
+			InitialLicense: "BSL-1.1",
+			FinalLicense:   tc.license,
+		})
+		if tc.ok {
+			require.NoError(t, err, tc.license)
+		} else {
+			require.ErrorIs(t, err, types.ErrFinalLicenseNotOpen, tc.license)
+		}
+	}
 }

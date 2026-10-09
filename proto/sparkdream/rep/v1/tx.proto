@@ -263,6 +263,13 @@ message MsgAcceptInvitation {
   option (amino.name) = "sparkdream/x/rep/MsgAcceptInvitation";
   string invitee = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 invitation_id = 2;
+  // accepted_content_license is the invitee's agreement to the chain's
+  // open-content commitment: everything they publish is dedicated to the
+  // public domain. It must equal the chain's content license ("CC0-1.0",
+  // see Query/ContentLicense in x/sparkdream); anything else is refused, so
+  // no one becomes a member without signing the agreement, and a Ledger
+  // shows it on screen.
+  string accepted_content_license = 3;
 }
 
 // MsgAcceptInvitationResponse defines the MsgAcceptInvitationResponse message.

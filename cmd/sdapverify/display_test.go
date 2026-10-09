@@ -15,7 +15,7 @@ const mediaNote = `{
   "id":"https://md.test/users/alice/statuses/60",
   "type":"Note",
   "attributedTo":"https://md.test/users/alice",
-  "content":"<p>a picture</p>",
+  "content":"<p>a picture #cc0</p>",
   "summary":"cw",
   "published":"2026-09-12T10:00:00Z",
   "url":"https://md.test/@alice/60",
@@ -33,7 +33,7 @@ func b64(v any) string {
 func faithful() PendingContent {
 	return PendingContent{
 		ID: "9", ContentURI: "https://md.test/users/alice/statuses/60", PeerID: "md.test",
-		Body: "<p>a picture</p>", Title: "cw", ContentType: "blog_post", RemoteCreatedAt: "1789207200",
+		Body: "<p>a picture #cc0</p>", Title: "cw", License: "CC0-1.0", ContentType: "blog_post", RemoteCreatedAt: "1789207200",
 		CreatorIdentity: "@alice@md.test",
 		ProtocolMetadataB64: b64(map[string]any{
 			"hash_rule": apcanon.HashRuleV2, "object_id": "https://md.test/users/alice/statuses/60",
@@ -72,6 +72,8 @@ func TestCheckDisplay(t *testing.T) {
 		{"rewritten body", func() PendingContent { c := faithful(); c.Body = "<p>something else</p>"; return c }()},
 		{"empty body", func() PendingContent { c := faithful(); c.Body = ""; return c }()},
 		{"body cut before the limit", func() PendingContent { c := faithful(); c.Body = "<p>a pic"; return c }()},
+		{"no license claimed", func() PendingContent { c := faithful(); c.License = ""; return c }()},
+		{"wrong license claimed", func() PendingContent { c := faithful(); c.License = "PDM-1.0"; return c }()},
 		{"made-up title", func() PendingContent { c := faithful(); c.Title = "breaking news"; return c }()},
 		{"reply type on a non-reply", func() PendingContent { c := faithful(); c.ContentType = "blog_reply"; return c }()},
 		{"wrong created time", func() PendingContent { c := faithful(); c.RemoteCreatedAt = "1"; return c }()},
@@ -218,5 +220,21 @@ func TestPersistentMediaFailureRaisesMediaAlarm(t *testing.T) {
 	if len(h.submitted) != 0 || len(h.alarms) != 1 || !strings.Contains(h.alarms[0], "MEDIA UNFETCHABLE") ||
 		!strings.Contains(h.alarms[0], "SDA_MEDIA_TIMEOUT") {
 		t.Fatalf("want one MEDIA UNFETCHABLE alarm naming the remedy, got %d submissions, alarms %q", len(h.submitted), h.alarms)
+	}
+}
+
+// A record claiming a public-domain license for a post that never declared
+// one is misrepresented: the chain admitted it on that claim alone.
+func TestCheckDisplayLicenseWithoutHashtag(t *testing.T) {
+	obj, err := apcanon.Parse([]byte(strings.Replace(mediaNote, " #cc0", "", 1)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := faithful()
+	c.Body = "<p>a picture</p>"
+	digests := map[string]string{"https://md.test/system/1.png": "sha256:aa"}
+	bad := checkDisplay(c, apcanon.HashRuleV2, obj, digests, 4096)
+	if len(bad) != 1 || !strings.Contains(bad[0], "no #cc0 or #publicdomain") {
+		t.Fatalf("want exactly the license problem, got %v", bad)
 	}
 }

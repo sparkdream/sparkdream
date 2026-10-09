@@ -170,7 +170,7 @@ echo "Step 4: Accepting invitation..."
 
 if [ -n "$INVITATION_ID" ]; then
     TX_RES=$($BINARY tx rep accept-invitation --gas 400000 \
-        $INVITATION_ID \
+        $INVITATION_ID CC0-1.0 \
         --from $ACCOUNT \
         --chain-id $CHAIN_ID \
         --keyring-backend test \

@@ -50,6 +50,7 @@ var (
 	ErrInsufficientBond        = errors.Register(ModuleName, 1155, "insufficient DREAM for bond")
 	ErrEmptyProjectName        = errors.Register(ModuleName, 1156, "project name cannot be empty")
 	ErrNoTranches              = errors.Register(ModuleName, 1157, "at least one tranche is required")
+	ErrFinalLicenseNotOpen     = errors.Register(ModuleName, 1158, "final_license must be an open license (CC0-1.0, Unlicense, 0BSD, MIT, Apache-2.0, BSD-2-Clause, BSD-3-Clause or ISC)")
 
 	// Dispute errors
 	ErrInvalidVerdict = errors.Register(ModuleName, 1160, "verdict must be ACCEPT, IMPROVE, or REJECT")

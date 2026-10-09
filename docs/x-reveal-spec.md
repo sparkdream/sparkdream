@@ -44,8 +44,8 @@ message Contribution {
   // Remaining bond after any partial slashes (starts equal to bond_amount)
   string bond_remaining = 9 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
 
-  string initial_license = 10;     // license before full reveal (e.g., "Source Available")
-  string final_license = 11;       // license after all tranches verified (e.g., "Apache 2.0")
+  string initial_license = 10;     // license before full reveal, free text (e.g., "Source Available")
+  string final_license = 11;       // open license after all tranches verified, SPDX id (e.g., "Apache-2.0"; see MsgPropose)
 
   bool transitioned_to_project = 12;
   uint64 project_id = 13;          // x/rep Project ID after transition
@@ -218,6 +218,12 @@ service Msg {
 // - Each tranche: stake_threshold <= max_tranche_valuation
 // - sum(stake_threshold) across all tranches == total_valuation
 // - Contributor has no active proposal_cooldown
+// - final_license is an open license, by SPDX id: CC0-1.0, Unlicense, 0BSD,
+//   MIT, Apache-2.0, BSD-2-Clause, BSD-3-Clause or ISC (ErrFinalLicenseNotOpen,
+//   1158). Compiled constant (x/common IsOpenCodeLicense), not a param:
+//   revealed code ends up public domain or permissively licensed, in line
+//   with the chain's open-content commitment (docs/content-license.md).
+//   Copyleft is excluded. initial_license stays free text.
 // - Bond (bond_rate * total_valuation) deducted and locked
 message MsgPropose {
   string contributor = 1;
@@ -883,7 +889,7 @@ var NFTGalleryContribution = Contribution{
     BondAmount:     math.NewInt(5000),  // 10% of 50000
     BondRemaining:  math.NewInt(5000),  // no slashes yet
     InitialLicense: "Source Available",
-    FinalLicense:   "Apache 2.0",
+    FinalLicense:   "Apache-2.0",
     CouncilID:      1,                  // Commons Council that approved
     HoldbackAmount: math.ZeroInt(),     // accumulates as tranches are verified
     Tranches: []RevealTranche{

@@ -6,6 +6,8 @@ Spark Dream implements a hierarchical, reputation-based, and market-assisted gov
 
 This system moves beyond simple token-voting by delegating authority to specialized councils ("Pillars"), ensuring they have guaranteed funding, and holding them accountable via prediction markets ("Futarchy"). The architecture is extended with a reputation-based coordination layer, content platforms for community discourse, identity management, and privacy-preserving anonymous actions via zero-knowledge proofs.
 
+All content on the chain is public domain: submitting it dedicates it under CC0 1.0, and federation admits only content that is already public domain (CC0 or the Public Domain Mark). The license is a compiled constant, not a parameter. See [content-license.md](content-license.md).
+
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                           SPARK DREAM                                   │

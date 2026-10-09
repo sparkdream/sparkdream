@@ -3,6 +3,7 @@ package forum
 import (
 	autocliv1 "cosmossdk.io/api/cosmos/autocli/v1"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/forum/types"
 )
 
@@ -346,6 +347,7 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					RpcMethod:      "CreatePost",
 					Use:            "create-post [category-id] [parent-id] [content] [--tags tags] [--content-type type]",
 					Short:          "Send a create-post tx",
+					Long:           commontypes.ContentLicenseNotice,
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "category_id"}, {ProtoField: "parent_id"}, {ProtoField: "content"}},
 					FlagOptions: map[string]*autocliv1.FlagOptions{
 						"content_type": {Name: "content-type", Usage: "content type hint, lowercase enum value (e.g. text, markdown, html)"},

@@ -218,7 +218,7 @@ fi
 
 # Promotee accepts.
 TX_RES=$($BINARY tx rep accept-invitation --gas 400000 \
-    $INVITATION_ID \
+    $INVITATION_ID CC0-1.0 \
     --from $PROMOTEE_ACCOUNT \
     --chain-id $CHAIN_ID \
     --keyring-backend test \

@@ -4,6 +4,7 @@ import (
 	autocliv1 "cosmossdk.io/api/cosmos/autocli/v1"
 
 	"sparkdream/x/collect/types"
+	commontypes "sparkdream/x/common/types"
 )
 
 // AutoCLIOptions implements the autocli.HasAutoCLIConfig interface.
@@ -200,6 +201,7 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					RpcMethod:      "CreateCollection",
 					Use:            "create-collection [type] [visibility] [encrypted] [expires-at] [name] [description] [cover-uri] [tags]",
 					Short:          "Send a CreateCollection tx",
+					Long:           commontypes.ContentLicenseNotice,
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "type"}, {ProtoField: "visibility"}, {ProtoField: "encrypted"}, {ProtoField: "expires_at"}, {ProtoField: "name"}, {ProtoField: "description"}, {ProtoField: "cover_uri"}, {ProtoField: "tags"}},
 				},
 				{
@@ -218,12 +220,14 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					RpcMethod:      "AddItem",
 					Use:            "add-item [collection-id] [position] [title] [description] [image-uri] [reference-type]",
 					Short:          "Send a AddItem tx",
+					Long:           commontypes.ContentLicenseNotice,
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "collection_id"}, {ProtoField: "position"}, {ProtoField: "title"}, {ProtoField: "description"}, {ProtoField: "image_uri"}, {ProtoField: "reference_type"}},
 				},
 				{
 					RpcMethod:      "AddItems",
 					Use:            "add-items [collection-id]",
 					Short:          "Send a AddItems tx",
+					Long:           commontypes.ContentLicenseNotice,
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "collection_id"}},
 				},
 				{

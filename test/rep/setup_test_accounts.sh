@@ -264,7 +264,7 @@ for i in "${!ACCOUNTS[@]}"; do
     echo "  → $ACCOUNT accepting invitation #$INVITATION_ID..."
 
     TX_RES=$($BINARY tx rep accept-invitation --gas 400000 \
-        $INVITATION_ID \
+        $INVITATION_ID CC0-1.0 \
         --from $ACCOUNT \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
@@ -440,7 +440,7 @@ for i in "${!COMMUNITY_ACCOUNTS[@]}"; do
 
     echo "  → $ACCOUNT accepting invitation #$INVITATION_ID..."
     TX_RES=$($BINARY tx rep accept-invitation --gas 400000 \
-        $INVITATION_ID \
+        $INVITATION_ID CC0-1.0 \
         --from $ACCOUNT \
         --chain-id $CHAIN_ID \
         --keyring-backend test \

@@ -11,6 +11,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/federation/keeper"
 	"sparkdream/x/federation/types"
 )
@@ -79,6 +80,8 @@ func SimulateMsgSubmitFederatedContent(
 			Status:          types.FederatedContentStatus_FEDERATED_CONTENT_STATUS_PENDING_VERIFICATION,
 			ExpiresAt:       ctx.BlockTime().Unix() + int64(types.DefaultParams().ContentTtl.Seconds()),
 			ContentHash:     hash,
+			// The handler admits only public-domain content.
+			License: commontypes.UnencumberedLicenses()[r.Intn(len(commontypes.UnencumberedLicenses()))],
 		}
 
 		if predecessor != nil {
