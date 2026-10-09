@@ -22,7 +22,7 @@ func (q queryServer) ListPost(ctx context.Context, req *types.QueryAllPostReques
 		q.k.Post,
 		req.Pagination,
 		func(_ uint64, value types.Post) (types.Post, error) {
-			return value, nil
+			return withholdPostContent(value), nil
 		},
 	)
 	if err != nil {
@@ -46,5 +46,5 @@ func (q queryServer) GetPost(ctx context.Context, req *types.QueryGetPostRequest
 		return nil, status.Error(codes.Internal, "internal error")
 	}
 
-	return &types.QueryGetPostResponse{Post: val}, nil
+	return &types.QueryGetPostResponse{Post: withholdPostContent(val)}, nil
 }

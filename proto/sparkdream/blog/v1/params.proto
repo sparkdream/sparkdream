@@ -106,6 +106,32 @@ message Params {
   // Independent of max_pins_per_day and max_posts_per_day — promoting an
   // ephemeral to permanent is a distinct curator action with its own quota.
   uint32 max_make_permanent_per_day = 29;
+
+  // Media rules (docs/content-scanning.md §9). Apply to writes the chain
+  // labels as media (media_flags != 0); plain text is never affected.
+  //
+  // media_min_trust_level is the trust level (0-4) an active member needs to
+  // post media without a bond (default 1 = PROVISIONAL). Anonymous
+  // (shield-routed) content can never carry media.
+  uint32 media_min_trust_level = 30;
+
+  // media_author_bond_min is the DREAM author bond (micro-DREAM) that lets an
+  // active member below media_min_trust_level post media at creation. A
+  // confirmed abuse verdict costs the author this bond. 0 disables the bond
+  // path.
+  string media_author_bond_min = 31 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+
+  // media_scan_fee is a flat bond-denom fee, burned, charged on every write
+  // whose media labels are non-zero. It prices the off-chain scanning work
+  // media creates (and media spam); 0 disables it. Scanner pay itself comes
+  // from commons recurring spend (§8.5).
+  string media_scan_fee = 32 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
 }
 
 // BlogOperationalParams defines the operational parameters that can be updated

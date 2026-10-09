@@ -132,6 +132,21 @@ type Keeper struct {
 	// keeper can enforce max_system_reports_per_caller_per_window.
 	SystemReportRateLimit collections.Map[string, types.SystemReportRateLimit]
 
+	// Checkpoints: (service_type, op_address) → latest Checkpoint
+	// (MsgSubmitCheckpoint). Keyed service type first so clients can page
+	// one type's checkpoints.
+	Checkpoints collections.Map[collections.Pair[string, []byte], types.Checkpoint]
+
+	// CheckpointDeadlines: (deadline_height, service_type, op_address).
+	// One entry per tracked operator: the height by which it must have
+	// checkpointed past (deadline - checkpoint_max_lag_blocks). Swept by
+	// the EndBlocker liveness pass.
+	CheckpointDeadlines collections.KeySet[collections.Triple[int64, string, []byte]]
+
+	// CheckpointDeadlineByOperator: (service_type, op_address) →
+	// deadline_height; reverse index of CheckpointDeadlines.
+	CheckpointDeadlineByOperator collections.Map[collections.Pair[string, []byte], int64]
+
 	// ----- Counters -----
 
 	NextReportID collections.Sequence
@@ -321,6 +336,26 @@ func NewKeeper(
 			"system_report_rate_limit",
 			collections.StringKey,
 			codec.CollValue[types.SystemReportRateLimit](cdc),
+		),
+		Checkpoints: collections.NewMap(
+			sb,
+			types.CheckpointsKey,
+			"checkpoints",
+			collections.PairKeyCodec(collections.StringKey, collections.BytesKey),
+			codec.CollValue[types.Checkpoint](cdc),
+		),
+		CheckpointDeadlines: collections.NewKeySet(
+			sb,
+			types.CheckpointDeadlinesKey,
+			"checkpoint_deadlines",
+			collections.TripleKeyCodec(collections.Int64Key, collections.StringKey, collections.BytesKey),
+		),
+		CheckpointDeadlineByOperator: collections.NewMap(
+			sb,
+			types.CheckpointDeadlineByOperatorKey,
+			"checkpoint_deadline_by_operator",
+			collections.PairKeyCodec(collections.StringKey, collections.BytesKey),
+			collections.Int64Value,
 		),
 
 		// Counters.

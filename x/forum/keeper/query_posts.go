@@ -33,7 +33,7 @@ func (q queryServer) Posts(ctx context.Context, req *types.QueryPostsRequest) (*
 			return true, nil
 		},
 		func(_ uint64, post types.Post) (types.Post, error) {
-			return post, nil
+			return withholdPostContent(post), nil
 		},
 	)
 	if err != nil {

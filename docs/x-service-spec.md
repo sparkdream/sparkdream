@@ -94,6 +94,9 @@ ServiceTypeConfig {
   enabled                     // governance can disable without disturbing existing operators
   report_timeout_action       // ReportTimeoutAction enum: DISMISS (default) | ESCALATE — drives EndBlocker auto-action when a PENDING report ages past max_pending_blocks (§3.4.5)
   challenge_default_slash_bps // proposed slash (basis points) attached to system reports opened via OpenSystemReport when the caller passes slash_bps=0; capped at unilateral_slash_cap_bps via cross-field validation. Controllers can still adjust within the cap at MsgResolveReport time.
+  attestation_quorum          // how many independent ACTIVE operators must agree before clients accept an attestation as positive (content scanners: "clean"); 0 = the type does not attest. Read by clients, never by the keeper.
+  elevated_attestation_quorum // quorum for subjects from low-trust sources (content scanners: media by NEW/PROVISIONAL authors); 0 = attestation_quorum
+  checkpoint_max_lag_blocks   // how far an operator's MsgSubmitCheckpoint height may trail the chain before an automatic liveness system report (§3.8); 0 = no liveness tracking
 }
 ```
 
@@ -108,6 +111,7 @@ Adding, modifying, or disabling a service type is done via `MsgUpdateServiceType
 - `unbonding_period_blocks ≥ report_contest_window_blocks` (otherwise an operator could unbond before they could contest).
 - `tier1_cooldown_blocks > 0` (a value of zero would re-enable the drainage attack the cap is designed to prevent).
 - `report_timeout_action ∈ {REPORT_TIMEOUT_ACTION_DISMISS, REPORT_TIMEOUT_ACTION_ESCALATE}`.
+- `elevated_attestation_quorum` is 0 or `≥ attestation_quorum`; `checkpoint_max_lag_blocks ≥ 0`, and `> 0` requires `challenge_default_slash_bps > 0` (the liveness report's proposed slash).
 - `challenge_default_slash_bps ≤ unilateral_slash_cap_bps`, enforced **both directions** on every `MsgUpdateServiceTypeConfig`: raising the default above the cap is rejected, and lowering the cap below the existing default is also rejected. Governance must therefore split a cap-lowering update into two proposals (lower the default first, then the cap), or set both fields in a single update. Prevents the "lower the cap, default silently exceeds it" state.
 
 **Grandfathering & raised minimums.** When governance raises `min_bond` for an existing service type via `MsgUpdateServiceTypeConfig`:
@@ -352,7 +356,8 @@ Each block, the EndBlocker processes up to `endblocker_sweep_limit` records (def
 3. **Escalated timeout sweep.** Iterate `ESCALATED` reports where `current_height >= escalated_at + max_escalated_blocks`. Mark `AUTO_TIMEOUT`, release any contested-T1 escrow back to bond AND **delete the `Tier1Escrow` row + its release-queue entry** (so sweep 4 doesn't double-process it), refund the reporter/opener deposit. The parallel x/rep `JuryReview` is left in place — x/rep does not expose a cancel API, and an INCONCLUSIVE-or-PENDING JuryReview against an AUTO_TIMEOUT'd report is harmless (the resolver path checks the x/service report's status before applying any verdict). For controller-transfer cases, also delete the `ControllerTransferCases` row and its `OpenControllerTransferByOperator` index entry.
 4. **Tier-1 escrow release sweep.** Iterate `Tier1Escrow` entries where `current_height >= release_at` AND the parent report is in a terminal state (`RESOLVED_T1` finalized after contest window with no contest, `RESOLVED_T2`, or `AUTO_TIMEOUT`). For each entry: transfer escrowed SPARK to community pool via `FundCommunityPool` (unless `AUTO_TIMEOUT` — those return to bond), delete the escrow entry.
 5. **Reporter rate-limit pruning.** Lazy — entries are checked-and-pruned at next `MsgReportOperator` from the same reporter. A small EndBlocker sweep also walks the `(reporter, last_filed_at)` index and prunes expired counters to keep the index bounded.
-6. **Unbond completion sweep — NOT performed.** Unbonding completion is **lazy** — the operator must call `MsgClaimUnbondedBond`. This avoids unbounded EndBlocker work and is the same pattern used by x/staking. The `unbond_complete_at` field is informational; nothing happens at that height except that subsequent claim calls succeed.
+6. **Checkpoint liveness sweep.** Iterate `CheckpointDeadlines` entries with `deadline ≤ current_height` (§3.8). For each ACTIVE/UNDERFUNDED operator whose checkpoint height (or registration height) plus the type's `checkpoint_max_lag_blocks` is still behind, file a system report and reschedule one window later; otherwise reschedule or drop.
+7. **Unbond completion sweep — NOT performed.** Unbonding completion is **lazy** — the operator must call `MsgClaimUnbondedBond`. This avoids unbounded EndBlocker work and is the same pattern used by x/staking. The `unbond_complete_at` field is informational; nothing happens at that height except that subsequent claim calls succeed.
 
 **Gas-bounded ordering.** Sweeps iterate in deterministic key order (e.g., by `(underfunded_since, address)` for queue 1, by `(release_at, escrow_id)` for queue 3) and stop after `endblocker_sweep_limit` items. If more records are eligible than the limit allows, the remainder is processed next block. This bounds per-block gas and prevents an operator-spam attack from stalling the chain.
 
@@ -421,6 +426,16 @@ Tunable post-launch: the default 50/day is a starting guess. Calibrate from obse
 
 Module accounts cannot be slashed for false reports and have no reputation. The controller's tier-1 review is the only immediate check on a system report. `ReportTimeoutAction=ESCALATE` (paired with system-reporting consumers) ensures the jury is the effective failsafe.
 
+### 3.8. Checkpoints & liveness
+
+`MsgSubmitCheckpoint { operator, service_type, height, root }` lets an operator record how far its off-chain work has progressed: `height` is a block height (content scanners: scanned up to), `root` a 32-byte commitment to its output up to that point (content scanners: the RFC 6962 merkle root of the signed verdict feed). Service-agnostic: any type may use it.
+
+- Signer: the operator, ACTIVE or UNDERFUNDED under `service_type` (`ErrOperatorNotActive` otherwise). Delegable through x/session: the message moves no funds and sits in the default session allowlist, so unattended workers sign with a session key, never the bond key.
+- `height` in `(0, current_height]` and strictly above the operator's previous checkpoint; `len(root) == 32` (`ErrInvalidCheckpoint`).
+- One `Checkpoint` record per `(service_type, operator)`, replaced on each submission and kept after the operator archives (audit trail).
+
+**Liveness.** When the type sets `checkpoint_max_lag_blocks > 0`, every live operator has one `CheckpointDeadlines` entry at `base + lag`, where `base` is its latest checkpoint height or, before the first checkpoint, its registration height. Registration, each checkpoint and any change of the type's lag (re)schedule it; genesis import rebuilds the queue. When a deadline passes with the operator still behind, the EndBlocker files a system report against it through the internal path of §3.7 (reporter: the x/service module account; slash proposal: `challenge_default_slash_bps`; dedupe key per deadline) and emits `service.liveness_lapse`. It then reschedules at `current_height + lag`, so a stalled operator is reported once per window, not once per block. UNBONDING and archived operators are dropped from the queue. The controller resolves liveness reports like any other (T1 slash, dismiss or escalate). Content scanners use this as the coverage measure of [content-scanning.md](content-scanning.md) §8.2.
+
 ---
 
 ## 4. State
@@ -466,6 +481,8 @@ Module accounts cannot be slashed for false reports and have no reputation. The 
 **System-report stores** (consumed by `OpenSystemReport`, §3.7):
 
 - `SystemReportDedup` — keyed by `(caller_module, dedupe_key)` → `report_id`. Implements the idempotency guarantee: re-calls with the same dedupe key return the existing report_id instead of opening a duplicate. Lifetime = lifetime of the report it points at.
+- `Checkpoints` — keyed by `(service_type, operator_address)` → `Checkpoint { operator, service_type, height, root, submitted_at }` (§3.8).
+- `CheckpointDeadlines` — liveness queue keyed by `(deadline_height, service_type, operator_address)`; `CheckpointDeadlineByOperator` is its reverse index `(service_type, operator_address) → deadline_height`.
 - `SystemReportRateLimit` — keyed by `caller_module` → `SystemReportRateLimit { recent_filing_heights []int64 }`. Ring buffer of the most recent filing heights, capped at `max_system_reports_per_caller_per_window + 1`; older entries are overwritten on each new filing past the cap.
 
 **Counters:**
@@ -550,6 +567,7 @@ All signer Msgs MUST carry `option (amino.name) = "sparkdream/x/service/Msg<Name
 - `MsgUnbondOperator { operator }` — signer = operator. Transitions to `UNBONDING`; sets clock.
 - `MsgClaimUnbondedBond { operator }` — signer = operator. Bond returned iff conditions in §3.5 met; live record is archived as `RETIRED`.
 - `MsgTopUpBond { operator, additional_bond }` — signer = operator. `additional_bond.denom == "uspark"`. Updates bond and clears `UNDERFUNDED` if applicable.
+- `MsgSubmitCheckpoint { operator, service_type, height, root }` — signer = operator (session-delegable). Records a progress checkpoint and reschedules liveness (§3.8).
 
 ### 5.2. Reports & slashing
 
@@ -900,6 +918,7 @@ GenesisState {
   tier1_last_slash: [Tier1LastSlash]      // per-operator tier-1 history
   next_report_id: uint64                  // counter restore
   next_escrow_id: uint64                  // counter restore
+  checkpoints: [Checkpoint]               // latest checkpoint per (service_type, operator); liveness deadlines are rebuilt, not exported
 }
 ```
 
@@ -909,6 +928,8 @@ GenesisState {
 - `federation-bridge-atproto` — same settings.
 
 Both are seeded by **x/service**, NOT by x/federation. The rationale (Decision 1 / Phase 2 init-order constraint of the migration plan): federation's genesis loads `BridgeBinding` records that reference `service.Operator`s, so the operator's `ServiceTypeConfig` must already exist when x/federation's `InitGenesis` runs. Init order: x/gov → x/bank → x/commons → **x/service** (seeds these configs + any genesis operators) → x/federation (consumes via keeper API).
+
+**`content-scanner` is seeded too** ([content-scanning.md](content-scanning.md) §8): `enabled = true`, `min_bond = 100 SPARK`, `report_timeout_action = DISMISS` (liveness lapses are routine council matters), `challenge_default_slash_bps = 100`, `attestation_quorum = 1` (rollout phase 2: one council-controlled worker; gov raises it as independent workers join), `checkpoint_max_lag_blocks ≈ 1 day`.
 
 **Other service types still require governance enablement.** Adding `akash-funding`, `storage-pinning`, etc., requires a `MsgUpdateServiceTypeConfig` proposal post-launch.
 
@@ -952,6 +973,8 @@ Standard gRPC query service exposed on `sparkdream.service.v1.Query`:
 | `Report`                     | `{ report_id }`                                           | `{ report }`                            | Single report                                      |
 | `ReportsByOperator`          | `{ operator_address, service_type, pagination, status }`  | `{ reports, pagination }`               | All reports against an operator                    |
 | `OperatorReputationSnapshot` | `{ address }`                                             | `{ bond_blocks, effective_bond_blocks }`| Convenience: bond-block accrual visibility (§6.6)  |
+| `Checkpoint`                 | `{ operator, service_type }`                              | `{ checkpoint }`                        | Latest checkpoint (§3.8); NotFound if none          |
+| `CheckpointsByServiceType`   | `{ service_type, pagination }`                            | `{ checkpoints, pagination }`           | Every operator's latest checkpoint under a type     |
 
 REST endpoints follow Cosmos SDK conventions (`/sparkdream/service/v1/...`).
 
@@ -1009,6 +1032,8 @@ Standard SDK `Errors` registered under codespace `service`:
 | 42    | `ErrUnauthorizedSystemCaller`       | `OpenSystemReport` caller is not in the allowlist or the supplied `callerModuleAddr` does not match any allowlisted module account (§3.7.1) |
 | 43    | `ErrSystemReportRateLimited`        | `OpenSystemReport` per-caller sliding-window cap exceeded; emit `system_report_rate_limited` event and reject without state change (§3.7.3) |
 | 44    | `ErrInvalidDedupeKey`               | `OpenSystemReport` called with empty `dedupe_key`; idempotency requires a non-empty key (§3.7.2) |
+| 45    | `ErrInvalidCheckpoint`              | `MsgSubmitCheckpoint` with a non-32-byte root, a height outside `(0, current_height]`, or a height not above the previous checkpoint (§3.8) |
+| 46    | `ErrCheckpointNotFound`             | Reserved for checkpoint lookups (the query returns gRPC NotFound)       |
 
 ---
 
@@ -1087,6 +1112,8 @@ Jury-authority msgs are not exposed as user-facing CLI — they are emitted by x
 - `service.service_type_updated { service_type, enabled, changed_fields }`
 - `service.system_report_opened { report_id, caller_module, operator, service_type, evidence_uri, dedupe_key, idempotent }` (§3.7) — `idempotent=true` indicates the call returned an existing `report_id` for a repeated `dedupe_key`; `idempotent=false` indicates a new report was allocated.
 - `service.system_report_rate_limited { caller_module, operator, service_type }` (§3.7) — emitted on rejection when the per-caller sliding-window cap is exceeded; no state change accompanies this event.
+- `service.checkpoint_submitted { operator, service_type, height, root }` (§3.8).
+- `service.liveness_lapse { operator, service_type, checkpoint_height, max_lag_blocks, report_id }` (§3.8) — `report_id = 0` when the system report could not be filed (e.g. rate limited).
 
 The `operator_underfunded` and an `operator_refunded` companion (emitted from the `TopUpBond` recovery path) carry `{ address, service_type, current_bond, min_bond }` so off-chain consumers can react to the hooks without polling status.
 

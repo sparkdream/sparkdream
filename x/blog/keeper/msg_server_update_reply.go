@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"sparkdream/x/blog/types"
+	commontypes "sparkdream/x/common/types"
 
 	errorsmod "cosmossdk.io/errors"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -52,6 +53,11 @@ func (k msgServer) UpdateReply(ctx context.Context, msg *types.MsgUpdateReply) (
 			"body exceeds maximum length of %d characters", params.MaxReplyLength)
 	}
 
+	// Media rules + scan fee (docs/content-scanning.md §9).
+	if err := k.checkMediaWrite(ctx, creatorAddr, commontypes.LabelBody(msg.ContentType, msg.Body).Flags, nil, params); err != nil {
+		return nil, err
+	}
+
 	// High-water mark fee: only charge for bytes above the previous high water mark.
 	// An anonymous editor would be spending the shield module's gas reserve,
 	// not their own SPARK, so the fee doesn't apply.
@@ -75,6 +81,7 @@ func (k msgServer) UpdateReply(ctx context.Context, msg *types.MsgUpdateReply) (
 	// Update reply fields
 	reply.Body = msg.Body
 	reply.ContentType = msg.ContentType
+	applyReplyMediaLabels(&reply)
 	reply.Edited = true
 	reply.EditedAt = sdkCtx.BlockTime().Unix()
 	if newBytes > reply.FeeBytesHighWater {

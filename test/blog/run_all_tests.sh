@@ -513,6 +513,11 @@ fi
 # already handles the `--restore-setup --no-tests` case, but this defends
 # against `--no-tests` without `--restore-setup`.
 if [ "$RUN_TESTS" = true ]; then
+    # Media labels, withholding, body query, media rules (content-scanning.md)
+    if [ -f "$SCRIPT_DIR/media_test.sh" ]; then
+        run_test "Media Label Tests" "media_test.sh"
+    fi
+
     # Content status gates tests (P2)
     run_test "Content Status Gates Tests" "content_status_test.sh"
 

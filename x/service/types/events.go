@@ -36,7 +36,34 @@ const (
 	EventTypeServiceTypeUpdated              = "service.service_type_updated"
 	EventTypeSystemReportOpened              = "service.system_report_opened"
 	EventTypeSystemReportRateLimited         = "service.system_report_rate_limited"
+	EventTypeCheckpointSubmitted             = "service.checkpoint_submitted"
+	EventTypeLivenessLapse                   = "service.liveness_lapse"
 )
+
+// NewCheckpointSubmittedEvent is emitted by MsgSubmitCheckpoint.
+func NewCheckpointSubmittedEvent(addr, serviceType string, height int64, root []byte) sdk.Event {
+	return sdk.NewEvent(
+		EventTypeCheckpointSubmitted,
+		sdk.NewAttribute("operator", addr),
+		sdk.NewAttribute("service_type", serviceType),
+		sdk.NewAttribute("height", strconv.FormatInt(height, 10)),
+		sdk.NewAttribute("root", fmt.Sprintf("%x", root)),
+	)
+}
+
+// NewLivenessLapseEvent is emitted when the EndBlocker finds an operator's
+// checkpoint more than checkpoint_max_lag_blocks behind. report_id is 0 when
+// the system report could not be filed (e.g. rate limited).
+func NewLivenessLapseEvent(addr, serviceType string, checkpointHeight, lag int64, reportID uint64) sdk.Event {
+	return sdk.NewEvent(
+		EventTypeLivenessLapse,
+		sdk.NewAttribute("operator", addr),
+		sdk.NewAttribute("service_type", serviceType),
+		sdk.NewAttribute("checkpoint_height", strconv.FormatInt(checkpointHeight, 10)),
+		sdk.NewAttribute("max_lag_blocks", strconv.FormatInt(lag, 10)),
+		sdk.NewAttribute("report_id", strconv.FormatUint(reportID, 10)),
+	)
+}
 
 // Attribute keys. Stable identifiers — downstream indexers depend on
 // these so consider deprecation rather than renames once shipped.

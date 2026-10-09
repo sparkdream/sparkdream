@@ -6,6 +6,7 @@ import "amino/amino.proto";
 import "cosmos/base/query/v1beta1/pagination.proto";
 import "gogoproto/gogo.proto";
 import "google/api/annotations.proto";
+import "sparkdream/common/v1/content_type.proto";
 import "sparkdream/forum/v1/archive_metadata.proto";
 import "sparkdream/forum/v1/bounty.proto";
 import "sparkdream/forum/v1/hide_record.proto";
@@ -272,6 +273,13 @@ service Query {
   // PostConvictionStakesByPost lists all active stakes backing a post.
   rpc PostConvictionStakesByPost(QueryPostConvictionStakesByPostRequest) returns (QueryPostConvictionStakesByPostResponse) {
     option (google.api.http).get = "/sparkdream/forum/v1/post_conviction_stakes_by_post/{post_id}";
+  }
+
+  // PostContent returns the full content of one post. List and show queries
+  // return content as "" whenever media_flags != 0; clients fetch it here once
+  // scanner verdicts say it is clean (docs/content-scanning.md §3.4).
+  rpc PostContent(QueryPostContentRequest) returns (QueryPostContentResponse) {
+    option (google.api.http).get = "/sparkdream/forum/v1/post_content/{post_id}";
   }
 }
 
@@ -832,4 +840,18 @@ message QueryPostConvictionStakesByPostRequest {
 message QueryPostConvictionStakesByPostResponse {
   repeated PostConvictionStake stakes = 1 [(gogoproto.nullable) = false];
   cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryPostContentRequest defines the QueryPostContentRequest message.
+message QueryPostContentRequest {
+  uint64 post_id = 1;
+}
+
+// QueryPostContentResponse carries the stored content with the labels a
+// client needs to check it: body_hash must match sha256(content).
+message QueryPostContentResponse {
+  string content = 1;
+  sparkdream.common.v1.ContentType content_type = 2;
+  uint32 media_flags = 3;
+  bytes body_hash = 4;
 }

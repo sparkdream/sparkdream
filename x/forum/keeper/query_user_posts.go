@@ -27,7 +27,7 @@ func (q queryServer) UserPosts(ctx context.Context, req *types.QueryUserPostsReq
 			return post.Author == req.Author, nil
 		},
 		func(_ uint64, post types.Post) (types.Post, error) {
-			return post, nil
+			return withholdPostContent(post), nil
 		},
 	)
 	if err != nil {

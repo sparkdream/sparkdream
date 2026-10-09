@@ -23,13 +23,17 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 	// Import posts. Counters are floored at 1: ID 0 is reserved (reply_id=0 /
 	// parent_reply_id=0 are "post-level" / "top-level" sentinels), so legacy
 	// genesis files exported with count 0 are bumped to the new starting value.
+	// Media labels are recomputed rather than trusted, so a genesis exported by
+	// an older binary (or hand-edited) imports with correct labels.
 	for _, post := range genState.Posts {
+		applyPostMediaLabels(&post)
 		k.SetPost(ctx, post)
 	}
 	k.SetPostCount(ctx, max(genState.PostCount, 1))
 
 	// Import replies
 	for _, reply := range genState.Replies {
+		applyReplyMediaLabels(&reply)
 		k.SetReply(ctx, reply)
 	}
 	k.SetReplyCount(ctx, max(genState.ReplyCount, 1))

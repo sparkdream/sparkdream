@@ -1,6 +1,6 @@
 # BuildKit reads this for Dockerfile-sdap only (per-Dockerfile ignore), so
 # the repo-wide build context (~2 GB of snapshots and archives) is not sent.
-# Allowlist: exactly what `go list -deps ./cmd/sdapbridge ./cmd/sdapverify ./cmd/sdaplogin`
+# Allowlist: exactly what `go list -deps ./cmd/sdapbridge ./cmd/sdapverify ./cmd/sdaplogin ./cmd/contentscan`
 # needs from this module. Add a line here if the daemons grow a new import.
 *
 !go.mod
@@ -8,8 +8,11 @@
 !cmd/sdapbridge
 !cmd/sdapverify
 !cmd/sdaplogin
+!cmd/contentscan
 !internal/sdaptx
 !tools/apcanon
+!tools/contentscan
+!x/common/types
 !x/federation/types
 !x/identity/types
 !x/rep/types

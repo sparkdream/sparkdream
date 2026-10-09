@@ -9,6 +9,7 @@ The `x/common` package provides shared type definitions and utilities used acros
 This package provides:
 
 - **Content types** — standardized `ContentType` enum for post body format interpretation (text, HTML, markdown, compressed, off-chain references)
+- **Media labels** — `MediaFlag` bits and the deterministic labelling rule content modules apply at write time, plus the shared media posting gate
 - **Moderation vocabulary** — standardized `ModerationReason` enum and `FlagRecord` struct used by content modules
 - **Tag validation helpers** — pure format/length validators (`ValidateTagFormat`, `ValidateTagLength`) reused by every module that accepts tag input
 - **Content license** — the chain's open-content commitment: everything is published under CC0 1.0, and federated content must be public domain ([docs/content-license.md](../../docs/content-license.md))
@@ -98,14 +99,30 @@ func IsUnencumberedLicense(license string) bool
 func UnencumberedLicenses() []string
 ```
 
+### Media Labels
+
+[`media_labels.go`](types/media_labels.go) holds the chain's media labelling rule ([docs/content-scanning.md](../../docs/content-scanning.md) §3) and the shared media posting gate (§9):
+
+```go
+const MediaRulesVersion uint32 = 1
+func ContainsDataURI(s string) bool                          // RFC 2397 shape, RE2, deterministic
+func LabelBody(ct ContentType, body string) MediaLabels       // blog/forum bodies
+func LabelTombstone(body string) MediaLabels                  // chain-written placeholders
+func LabelFederatedContent(body, contentURI string) MediaLabels
+func CheckMediaPermitted(g MediaGate) string                   // "" = allowed, else the reason
+func ValidateMediaParams(minTrust uint32, bondMin, scanFee math.Int) error
+```
+
+`MediaFlag` (`media_flag.proto`) bits: `INLINE_DATA` (1), `COMPRESSED` (2), `OFFCHAIN_REF` (4), `EXTERNAL_URI` (8).
+
 ## Consumers
 
 | Module | Uses |
 |--------|------|
-| `x/blog` | `ContentType` for post/reply body format |
-| `x/forum` | `ContentType`, `ModerationReason`, `FlagRecord`, tag-validation helpers |
-| `x/collect` | `ModerationReason`, `FlagRecord` for content flagging |
-| `x/federation` | `IsUnencumberedLicense` on inbound content; `ChainContentLicense` on outbound packets |
+| `x/blog` | `ContentType` for post/reply body format; media labels + gate |
+| `x/forum` | `ContentType`, `ModerationReason`, `FlagRecord`, tag-validation helpers; media labels + gate |
+| `x/collect` | `ModerationReason`, `FlagRecord` for content flagging; `ContainsDataURI` (rejection), `MediaFlag` |
+| `x/federation` | `IsUnencumberedLicense` on inbound content; `ChainContentLicense` on outbound packets; `LabelFederatedContent` |
 | `x/sparkdream` | Content-license constants, served by the `ContentLicense` query |
 | `tools/apcanon` | License ids returned by `License` (the bridge/verifier hashtag rule) |
 | `x/rep` | Tag-validation helpers (for `MsgCreateTag`, initiative/reputation tag validation); `Tag`/`ReservedTag` storage now lives natively in `x/rep` |

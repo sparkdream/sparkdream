@@ -87,6 +87,7 @@ func (k msgServer) UpdateItem(ctx context.Context, msg *types.MsgUpdateItem) (*t
 	item.Custom = msg.Custom
 	item.Attributes = msg.Attributes
 	item.EncryptedData = msg.EncryptedData
+	applyItemMediaLabels(&item)
 
 	// Store updated item
 	if err := k.Item.Set(ctx, item.Id, item); err != nil {

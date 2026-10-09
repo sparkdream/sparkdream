@@ -92,14 +92,29 @@ func (k Keeper) OpenSystemReport(
 	evidenceURI string,
 	dedupeKey []byte,
 ) (reportID uint64, idempotent bool, err error) {
-	sdkCtx := sdk.UnwrapSDKContext(ctx)
-	currentHeight := sdkCtx.BlockHeight()
-
 	// 1. Authorize caller.
 	matchedModule, err := k.resolveSystemCaller(callerModuleAddr)
 	if err != nil {
 		return 0, false, err
 	}
+	return k.openSystemReport(ctx, matchedModule, callerModuleAddr, operatorAddr, serviceType, slashBps, evidenceURI, dedupeKey)
+}
+
+// openSystemReport is OpenSystemReport after caller authorization. x/service
+// calls it directly (matchedModule = its own module name) to file liveness
+// reports from the EndBlocker, which has no external caller to authorize.
+func (k Keeper) openSystemReport(
+	ctx context.Context,
+	matchedModule string,
+	callerModuleAddr sdk.AccAddress,
+	operatorAddr sdk.AccAddress,
+	serviceType string,
+	slashBps uint32,
+	evidenceURI string,
+	dedupeKey []byte,
+) (reportID uint64, idempotent bool, err error) {
+	sdkCtx := sdk.UnwrapSDKContext(ctx)
+	currentHeight := sdkCtx.BlockHeight()
 
 	if len(dedupeKey) == 0 {
 		return 0, false, types.ErrInvalidDedupeKey

@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"sparkdream/x/blog/types"
+	commontypes "sparkdream/x/common/types"
 
 	errorsmod "cosmossdk.io/errors"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -97,6 +98,11 @@ func (k msgServer) CreateReply(ctx context.Context, msg *types.MsgCreateReply) (
 		return nil, err
 	}
 
+	// Media rules + scan fee (docs/content-scanning.md §9).
+	if err := k.checkMediaWrite(ctx, creatorAddr, commontypes.LabelBody(msg.ContentType, msg.Body).Flags, msg.AuthorBond, params); err != nil {
+		return nil, err
+	}
+
 	// Charge cost_per_byte storage fee (burned). An anonymous replier would be
 	// spending the shield module's gas reserve, not their own SPARK, so the
 	// fee doesn't apply.
@@ -137,6 +143,7 @@ func (k msgServer) CreateReply(ctx context.Context, msg *types.MsgCreateReply) (
 		ExpiresAt:         expiresAt,
 		FeeBytesHighWater: uint64(len(msg.Body)),
 	}
+	applyReplyMediaLabels(&reply)
 
 	id := k.AppendReply(ctx, reply)
 

@@ -96,4 +96,25 @@ message ServiceTypeConfig {
   // or down within unilateral_slash_cap_bps at MsgResolveReport time;
   // this field is just the starting proposal.
   uint32 challenge_default_slash_bps = 12;
+
+  // attestation_quorum is how many independent ACTIVE operators of this
+  // type must agree before clients accept an attestation as positive
+  // (for content scanners: "clean" for the same hash, see
+  // docs/content-scanning.md §4.4). 0 means operators of this type do not
+  // attest. Read by clients from the chain so every frontend shares one
+  // baseline; a frontend may require more.
+  uint32 attestation_quorum = 13;
+
+  // elevated_attestation_quorum is the quorum for subjects from low-trust
+  // sources (content scanners: media authored by TRUST_LEVEL_NEW or
+  // TRUST_LEVEL_PROVISIONAL members, §9). 0 means attestation_quorum
+  // applies; otherwise MUST be >= attestation_quorum.
+  uint32 elevated_attestation_quorum = 14;
+
+  // checkpoint_max_lag_blocks is how far an ACTIVE operator's checkpoint
+  // height may trail the chain before x/service files an automatic
+  // liveness system report against it (MsgSubmitCheckpoint). 0 disables
+  // liveness tracking for the type. When enabled, challenge_default_slash_bps
+  // MUST be > 0 (it is the proposed slash of the liveness report).
+  int64 checkpoint_max_lag_blocks = 15;
 }

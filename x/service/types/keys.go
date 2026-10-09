@@ -118,6 +118,19 @@ var (
 	// Tier1EscrowReleaseQueueKey: (release_at, escrow_id) — EndBlocker
 	// release sweep (§3.6 queue 4).
 	Tier1EscrowReleaseQueueKey = collections.NewPrefix("idx/tier1_escrow_release/")
+
+	// CheckpointsKey: (service_type, op_address) → Checkpoint.
+	CheckpointsKey = collections.NewPrefix("checkpoints/value/")
+
+	// CheckpointDeadlinesKey: (deadline_height, service_type, op_address)
+	// — EndBlocker liveness queue for service types with
+	// checkpoint_max_lag_blocks > 0.
+	CheckpointDeadlinesKey = collections.NewPrefix("idx/checkpoint_deadlines/")
+
+	// CheckpointDeadlineByOperatorKey: (service_type, op_address) →
+	// deadline_height. Reverse of CheckpointDeadlines so rescheduling can
+	// drop the old queue entry without a scan.
+	CheckpointDeadlineByOperatorKey = collections.NewPrefix("idx/checkpoint_deadline_operator/")
 )
 
 // ---------------------------------------------------------------------------

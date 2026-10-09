@@ -50,6 +50,9 @@ message Reply {
   int64 pinned_at = 16; // Unix timestamp when pinned (0 if not pinned)
   uint64 fee_bytes_high_water = 17; // Highest byte count for which storage fees have been paid
   bool conviction_sustained = 18; // True if anonymous reply has entered conviction-sustained state
+  uint32 media_flags = 19; // OR of sparkdream.common.v1.MediaFlag bits; chain-computed, never author-set
+  uint32 media_rules_version = 20; // labelling rules that produced media_flags (common MediaRulesVersion)
+  bytes body_hash = 21; // sha256 of the body exactly as stored (post-encoding, pre-decompression)
 }
 
 // Reaction is an individual reaction record. One reaction per user per target.

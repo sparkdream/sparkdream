@@ -217,9 +217,11 @@ SPARK on x/service.
 
 `MsgUpdateParams`, `MsgUpdateOperationalParams`.
 
-## Queries (19)
+## Queries (20)
 
-`Params`, `GetPeer`, `ListPeers`, `GetPeerPolicy`, `GetBridgeBinding`, `ListBridgeBindings`, `GetFederatedContent`, `ListFederatedContent`, `GetIdentityLink`, `ListIdentityLinks`, `ResolveRemoteIdentity`, `GetPendingIdentityChallenge`, `ListPendingIdentityChallenges`, `GetReputationAttestation`, `ListOutboundAttestations`, `VerifierActivity` (federation-local counters; bond/status queried via `query rep bonded-role ROLE_TYPE_FEDERATION_VERIFIER <addr>`), `GetVerificationRecord`, `GetEscalatedChallenge`, `OperatorRewardPool`.
+`Params`, `GetPeer`, `ListPeers`, `GetPeerPolicy`, `GetBridgeBinding`, `ListBridgeBindings`, `GetFederatedContent`, `ListFederatedContent`, `GetIdentityLink`, `ListIdentityLinks`, `ResolveRemoteIdentity`, `GetPendingIdentityChallenge`, `ListPendingIdentityChallenges`, `GetReputationAttestation`, `ListOutboundAttestations`, `VerifierActivity` (federation-local counters; bond/status queried via `query rep bonded-role ROLE_TYPE_FEDERATION_VERIFIER <addr>`), `GetVerificationRecord`, `GetEscalatedChallenge`, `OperatorRewardPool`, `FederatedContentBody`.
+
+**Media labels.** Inbound content gets chain-computed `media_flags` (`INLINE_DATA` for a data URI in the body, `EXTERNAL_URI` when `content_uri` is set) on submission, IBC receive and genesis import. `GetFederatedContent` / `ListFederatedContent` return `body = ""` for labelled records (in practice every bridged post); `FederatedContentBody` returns the stored body. `sdapverify` reads bodies through it. See [docs/content-scanning.md](../../docs/content-scanning.md).
 
 `OperatorRewardPool` reports the bridge-operator SPARK pool's balance, cap,
 headroom, today's draw, the daily funding cap and the inflation share. Without

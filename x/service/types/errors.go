@@ -54,6 +54,8 @@ var (
 	ErrUnauthorizedSystemCaller          = errors.Register(ModuleName, 42, "caller is not in the system-report allowlist")
 	ErrSystemReportRateLimited           = errors.Register(ModuleName, 43, "system report rate limit exceeded for caller")
 	ErrInvalidDedupeKey                  = errors.Register(ModuleName, 44, "dedupe key must be non-empty")
+	ErrInvalidCheckpoint                 = errors.Register(ModuleName, 45, "invalid checkpoint")
+	ErrCheckpointNotFound                = errors.Register(ModuleName, 46, "checkpoint not found")
 
 	// ErrInvalidSigner is the ignite-scaffolded generic invalid-signer
 	// error retained from the module skeleton; retained as 1100 for

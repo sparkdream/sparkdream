@@ -5,6 +5,7 @@ import (
 
 	"cosmossdk.io/math"
 
+	commontypes "sparkdream/x/common/types"
 	reptypes "sparkdream/x/rep/types"
 )
 
@@ -275,6 +276,9 @@ func NewParams() Params {
 		CurationDreamReward:                    DefaultCurationDreamReward,
 		AcceptProposalTimeout:                  DefaultAcceptProposalTimeout,
 		MaxAcceptProposalsPerSentinelPerThread: DefaultMaxAcceptProposalsPerSentinelPerThread,
+		MediaMinTrustLevel:                     commontypes.DefaultMediaMinTrustLevel,
+		MediaAuthorBondMin:                     commontypes.DefaultMediaAuthorBondMin,
+		MediaScanFee:                           math.ZeroInt(),
 	}
 }
 
@@ -285,6 +289,9 @@ func DefaultParams() Params {
 
 // Validate validates the set of params.
 func (p Params) Validate() error {
+	if err := commontypes.ValidateMediaParams(p.MediaMinTrustLevel, p.MediaAuthorBondMin, p.MediaScanFee); err != nil {
+		return err
+	}
 	if !p.CostPerByteAmount.IsNil() && p.CostPerByteAmount.IsNegative() {
 		return fmt.Errorf("cost_per_byte_amount cannot be negative: %s", p.CostPerByteAmount)
 	}

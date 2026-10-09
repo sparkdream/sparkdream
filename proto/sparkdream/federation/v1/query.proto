@@ -81,6 +81,13 @@ service Query {
   rpc GetEscalatedChallenge(QueryGetEscalatedChallengeRequest) returns (QueryGetEscalatedChallengeResponse) {
     option (google.api.http).get = "/sparkdream/federation/v1/get_escalated_challenge/{content_id}";
   }
+
+  // FederatedContentBody returns the full body of one federated record. List
+  // and show queries return the body as "" whenever media_flags != 0
+  // (docs/content-scanning.md §3.4).
+  rpc FederatedContentBody(QueryFederatedContentBodyRequest) returns (QueryFederatedContentBodyResponse) {
+    option (google.api.http).get = "/sparkdream/federation/v1/federated_content_body/{id}";
+  }
 }
 
 // --- Params ---
@@ -294,4 +301,16 @@ message QueryGetEscalatedChallengeRequest {
 }
 message QueryGetEscalatedChallengeResponse {
   EscalatedChallenge escalated = 1 [(gogoproto.nullable) = false];
+}
+
+// --- Federated content body ---
+message QueryFederatedContentBodyRequest {
+  uint64 id = 1;
+}
+
+// QueryFederatedContentBodyResponse carries the stored body with its labels.
+message QueryFederatedContentBodyResponse {
+  string body = 1;
+  uint32 media_flags = 2;
+  bytes content_hash = 3;
 }

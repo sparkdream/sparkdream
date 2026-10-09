@@ -67,6 +67,9 @@ func (k msgServer) UpdateCollection(ctx context.Context, msg *types.MsgUpdateCol
 		if uint32(len(msg.CoverUri)) > params.MaxReferenceFieldLength {
 			return nil, types.ErrReferenceFieldTooLong
 		}
+		if err := rejectDataURIs(msg.CoverUri); err != nil {
+			return nil, err
+		}
 	}
 
 	// Validate the full new tag set (format, length, registry existence,
@@ -172,6 +175,7 @@ func (k msgServer) UpdateCollection(ctx context.Context, msg *types.MsgUpdateCol
 	coll.Name = msg.Name
 	coll.Description = msg.Description
 	coll.CoverUri = msg.CoverUri
+	applyCollectionMediaLabels(&coll)
 	coll.Tags = msg.Tags
 	coll.EncryptedData = msg.EncryptedData
 	coll.UpdatedAt = blockHeight

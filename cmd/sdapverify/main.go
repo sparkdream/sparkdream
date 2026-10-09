@@ -303,6 +303,16 @@ type PendingContent struct {
 	// ProtocolMetadataB64 is proto bytes, so base64 over the LCD. The bridge
 	// writes the anchored version's AS2 `updated` into it.
 	ProtocolMetadataB64 string `json:"protocol_metadata"`
+	// MediaFlags is the chain's media label (uint32; json.Number accepts it
+	// quoted or bare). Non-zero means list queries return body as "" and the
+	// real body must be read from federated_content_body (every record with a
+	// content_uri is labelled, so that is nearly all of them).
+	MediaFlags json.Number `json:"media_flags"`
+}
+
+// bodyWithheld reports whether the list query blanked this record's body.
+func (c PendingContent) bodyWithheld() bool {
+	return c.MediaFlags != "" && c.MediaFlags != "0"
 }
 
 // anchoredUpdated returns the AS2 `updated` of the version the bridge
@@ -740,6 +750,22 @@ func (v *Verifier) listPending(ctx context.Context, peerID string) ([]PendingCon
 			url.QueryEscape(peerID), offset, pageSize)
 		if err := v.chain.GetJSON(ctx, path, &out); err != nil {
 			return nil, err
+		}
+		// Media-labelled records come back with body "" (docs/content-scanning.md
+		// §3.4). checkDisplay compares the body to the fetched post, so read the
+		// stored body before judging, or every labelled record would look forged.
+		for i := range out.Content {
+			if !out.Content[i].bodyWithheld() {
+				continue
+			}
+			var body struct {
+				Body string `json:"body"`
+			}
+			bodyPath := "/sparkdream/federation/v1/federated_content_body/" + url.PathEscape(out.Content[i].ID)
+			if err := v.chain.GetJSON(ctx, bodyPath, &body); err != nil {
+				return nil, err
+			}
+			out.Content[i].Body = body.Body
 		}
 		all = append(all, out.Content...)
 		if uint64(len(out.Content)) < pageSize {

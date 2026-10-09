@@ -155,6 +155,10 @@ Anonymous posts, replies, and reactions are submitted via `x/shield`'s `MsgShiel
 | `ListReactions` | Individual reaction records for a target |
 | `ListReactionsByCreator` | All reactions by a specific user |
 | `ListExpiringContent` | Find ephemeral content expiring before a given timestamp |
+| `PostBody` | Stored body of one post, including a media-labelled body the queries above withhold |
+| `ReplyBody` | Stored body of one reply, including a media-labelled body |
+
+**Media labels.** Every post and reply carries chain-computed `media_flags`, `media_rules_version` and `body_hash` (recomputed on every body write and on genesis import). When `media_flags != 0` every query above returns `body = ""`; clients fetch it through `PostBody` / `ReplyBody` after scanner verdicts clear it, and check it against `body_hash`. See [docs/content-scanning.md](../../docs/content-scanning.md).
 
 ## Parameters
 
@@ -173,6 +177,11 @@ These can only be changed via `x/gov` proposal (`MsgUpdateParams`).
 | `min_ephemeral_content_ttl` | int64 | 86,400 | Floor for ephemeral TTL (seconds) |
 | `max_cost_per_byte` | Coin | 1,000 uspark | Ceiling for storage fee |
 | `max_reaction_fee` | Coin | 500 uspark | Ceiling for reaction fee |
+| `media_min_trust_level` | uint32 | 1 | Trust level an active member needs to post media (writes the chain labels as media) |
+| `media_author_bond_min` | Int (micro-DREAM) | 100 DREAM | Author bond that admits a lower-trust member's media at creation (0 disables) |
+| `media_scan_fee` | Int (uspark) | 0 | Flat fee, burned, on every media write |
+
+Media from non-members and anonymous (shield) authors is always refused (`ErrMediaNotPermitted`).
 
 ### Operationally-Controlled
 

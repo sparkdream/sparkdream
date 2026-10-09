@@ -60,12 +60,18 @@ message Post {
   int64 edited_at = 19;                                // Unix timestamp of last content edit (0 if never)
   uint64 initiative_id = 20;                            // x/rep initiative reference (0 = none, set at creation, immutable)
   bool conviction_sustained = 21;                       // True if anonymous content has entered conviction-sustained state (TTL extended by community conviction)
+  repeated string tags = 22;                            // Tags referenced against the shared x/rep tag registry
+  uint32 media_flags = 23;                              // OR of common.v1.MediaFlag bits; chain-computed (see Media labels)
+  uint32 media_rules_version = 24;                      // Labelling rules version that produced media_flags
+  bytes body_hash = 25;                                 // sha256 of body as stored (nil when body is empty)
 }
 ```
 
 The `initiative_id` field links a blog post to an x/rep initiative for conviction propagation. It is set once at creation via `MsgCreatePost` and cannot be changed. When a post is hidden, the initiative link is removed; when unhidden, it is re-registered. When a post is deleted, the link is permanently removed.
 
 The `content_type` field is an enum from `sparkdream.common.v1` indicating how to interpret the post content (e.g., `CONTENT_TYPE_TEXT`, `CONTENT_TYPE_MARKDOWN`, `CONTENT_TYPE_GZIP`, `CONTENT_TYPE_IPFS`).
+
+**Media labels.** `media_flags`, `media_rules_version` and `body_hash` are recomputed by the chain on every body write (create, update, delete, expiry tombstone, genesis import) and are never author-set. `GZIP`/`ZSTD` bodies get `MEDIA_FLAG_COMPRESSED`, `IPFS`/`ARWEAVE`/`FILECOIN`/`JACKAL` get `MEDIA_FLAG_OFFCHAIN_REF`, and every other type is scanned once for an RFC 2397 data URI (`MEDIA_FLAG_INLINE_DATA`). The chain never decompresses bodies or looks for links. Whenever `media_flags != 0`, every show and list query returns `body = ""`; clients fetch the body through `PostBody` once off-chain scanner verdicts clear it, and check it against `body_hash`. Replies follow the same rules (`ReplyBody`). See [content-scanning.md](content-scanning.md).
 
 **`min_reply_trust_level`** controls who can reply to **and react to** this post. The post author sets this value when creating or updating the post. Values map to `sparkdream.rep.v1.TrustLevel` with one additional sentinel:
 
@@ -117,6 +123,9 @@ message Reply {
   int64 pinned_at = 16;                                // Unix timestamp when pinned (0 if not pinned)
   uint64 fee_bytes_high_water = 17;                    // Highest byte count for which storage fees have been paid
   bool conviction_sustained = 18;                      // True if anonymous reply has entered conviction-sustained state
+  uint32 media_flags = 19;                             // Chain-computed media label (see Post: Media labels)
+  uint32 media_rules_version = 20;                     // Labelling rules version
+  bytes body_hash = 21;                                // sha256 of body as stored
 }
 ```
 
@@ -204,8 +213,13 @@ message Params {
   uint32 max_promotions_per_block = 27;                          // Per-block cap on the EndBlocker membership-promotion drain (default: 50; 0 disables eager drain — relies solely on lazy TTL-time promotion)
   uint32 make_permanent_min_trust_level = 28;                    // Minimum trust level to call MsgMakePostPermanent / MsgMakeReplyPermanent (default: 1 = PROVISIONAL; lower than pin gate because preservation is a smaller curator action than featuring)
   uint32 max_make_permanent_per_day = 29;                        // Max MsgMakePostPermanent + MsgMakeReplyPermanent calls per address per day (shared counter, default: 10; independent of max_pins_per_day and max_posts_per_day)
+  uint32 media_min_trust_level = 30;                             // Trust level to post media without a bond (default: 1 = PROVISIONAL)
+  string media_author_bond_min = 31;                             // DREAM author bond (micro-DREAM) admitting lower-trust members' media at creation (default: 100 DREAM; 0 = no bond path)
+  string media_scan_fee = 32;                                    // Flat bond-denom fee, burned, on every write labelled as media (default: 0 = off)
 }
 ```
+
+**Media rules.** A create or update whose media labels are non-zero (see §3.1, Media labels) is accepted only from an active member at `media_min_trust_level`, or, on `MsgCreatePost` / `MsgCreateReply`, one whose `author_bond` is at least `media_author_bond_min`. Edits that introduce media have no bond path; non-members and anonymous (shield) authors can never post media. Rejections are `ErrMediaNotPermitted`. Accepted media writes pay `media_scan_fee` (burned). See [content-scanning.md](content-scanning.md) §9.
 
 **Strict pin-vs-lifecycle separation (post-rework).** Two distinct curator actions sit on independent trust gates:
 
@@ -922,6 +936,10 @@ Mirror of `MsgUnpinPost` for replies. Emits `blog.reply.unpinned`.
 | `ListReactionsByCreator` | `/sparkdream/blog/v1/list_reactions_by_creator/{creator}` | creator, pagination | []Reaction |
 | `ListPostsByCreator` | `/sparkdream/blog/v1/list_posts_by_creator/{creator}` | creator, include_hidden, pagination | []Post |
 | `ListExpiringContent` | `/sparkdream/blog/v1/list_expiring_content` | expires_before, content_type, pagination | []Post + []Reply |
+| `PostBody` | `/sparkdream/blog/v1/post_body/{id}` | id (uint64) | body, content_type, media_flags, body_hash |
+| `ReplyBody` | `/sparkdream/blog/v1/reply_body/{id}` | id (uint64) | body, content_type, media_flags, body_hash |
+
+Every query that returns `Post` or `Reply` records returns `body = ""` for media-labelled content (`media_flags != 0`); `PostBody` / `ReplyBody` return the stored body (see §3.1, Media labels).
 
 ### 6.1. Params
 
@@ -1128,6 +1146,24 @@ message QueryListReactionsByCreatorResponse {
 - Uses prefix iteration on `ReactorIndex` (`Reaction/creator/{creator}/`), then fetches each `Reaction` record
 - Returns reactions on all targets (posts and replies) regardless of target status — reactions on tombstoned or hidden content are included
 - Creator address must be valid bech32
+
+### 6.12. PostBody / ReplyBody
+
+Return the stored body of one post or reply, including bodies the show and list queries withhold because `media_flags != 0`. Clients call these only after the combined scanner verdict for the record is clean, and must check `sha256(body) == body_hash`.
+
+```protobuf
+message QueryPostBodyRequest { uint64 id = 1; }
+
+message QueryPostBodyResponse {
+  string body = 1;
+  sparkdream.common.v1.ContentType content_type = 2;
+  uint32 media_flags = 3;
+  bytes body_hash = 4;
+}
+// QueryReplyBodyRequest / QueryReplyBodyResponse: same shape.
+```
+
+**Errors:** `ErrKeyNotFound` if the record doesn't exist.
 
 ---
 
@@ -1414,6 +1450,7 @@ Note: `BlogOperationalParams.Validate()` is a subset of `Params.Validate()` cove
 | `ErrReplyExpired` | 1223 | Reply has expired |
 | `ErrInvalidInitiativeRef` | 1224 | Invalid initiative reference for conviction propagation |
 | `ErrNotPinned` | 1230 | `MsgUnpinPost` / `MsgUnpinReply` target has no pin marker to clear |
+| `ErrMediaNotPermitted` | 1232 | A write labelled as media from an author who does not meet the media rules (§3.8): non-member, anonymous, or below `media_min_trust_level` without a large enough author bond |
 | `ErrCannotPinEphemeral` | 1231 | `MsgPinPost` / `MsgPinReply` target is still ephemeral (`expires_at > 0`); the caller must promote with `MsgMakePostPermanent` / `MsgMakeReplyPermanent` first. Strict-separation guard. |
 
 Standard SDK errors used inline:

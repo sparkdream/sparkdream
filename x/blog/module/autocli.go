@@ -98,6 +98,18 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					},
 				},
 				// this line is used by ignite scaffolding # autocli/query
+				{
+					RpcMethod:      "PostBody",
+					Use:            "post-body [id]",
+					Short:          "Full body of one blog post, including media-flagged bodies withheld from list and show queries",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "id"}},
+				},
+				{
+					RpcMethod:      "ReplyBody",
+					Use:            "reply-body [id]",
+					Short:          "Full body of one blog reply, including media-flagged bodies withheld from list and show queries",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "id"}},
+				},
 			},
 		},
 		Tx: &autocliv1.ServiceCommandDescriptor{

@@ -48,4 +48,14 @@ message Post {
   // promoted_at is the block-time (unix seconds) at which promoted_by called
   // MsgMakePostPermanent. Zero when promoted_by is empty.
   int64 promoted_at = 35;
+
+  // media_flags is the OR of sparkdream.common.v1.MediaFlag bits, computed by
+  // the chain on every content write. Non-zero withholds content from list
+  // and show queries (fetch it via PostContent). See docs/content-scanning.md.
+  uint32 media_flags = 36;
+  // media_rules_version is the labelling rules version that produced media_flags.
+  uint32 media_rules_version = 37;
+  // body_hash is the sha256 of content exactly as stored (post-encoding,
+  // pre-decompression).
+  bytes body_hash = 38;
 }

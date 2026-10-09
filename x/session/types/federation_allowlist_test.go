@@ -21,6 +21,8 @@ func TestFederationDaemonMsgsAllowlisted(t *testing.T) {
 		"/sparkdream.federation.v1.MsgSubmitFederatedContent",
 		"/sparkdream.federation.v1.MsgAttestOutbound",
 		"/sparkdream.federation.v1.MsgVerifyContent",
+		// Content-scanner workers (docs/content-scanning.md §8.2).
+		"/sparkdream.service.v1.MsgSubmitCheckpoint",
 	}
 
 	allowed := make(map[string]bool, len(types.DefaultAllowedMsgTypes))

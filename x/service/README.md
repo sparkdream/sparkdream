@@ -81,6 +81,7 @@ Stranded operators (controller Group dissolved or empty) recover via `MsgOpenCon
 | `MsgUnbondOperator` | Begin unbonding window |
 | `MsgClaimUnbondedBond` | Withdraw bond after `unbonding_period_blocks` |
 | `MsgTopUpBond` | Add SPARK to bring an UNDERFUNDED operator back to ACTIVE |
+| `MsgSubmitCheckpoint` | Record off-chain progress (`height` + 32-byte `root`); session-delegable; drives liveness |
 
 ### Reports & Slashing
 
@@ -124,15 +125,20 @@ Stranded operators (controller Group dissolved or empty) recover via `MsgOpenCon
 | `Report` | Single report by ID |
 | `ReportsByOperator` | Reports against an operator (paginated) |
 | `OperatorReputationSnapshot` | Lazy bond-block reputation accrual snapshot |
+| `Checkpoint` | Latest checkpoint for `(operator, service_type)` |
+| `CheckpointsByServiceType` | Every operator's latest checkpoint under a service_type (paginated) |
 
 ## EndBlocker
 
-Four sweeps, gas-bounded by `endblocker_sweep_limit`:
+Five sweeps, gas-bounded by `endblocker_sweep_limit`:
 
 1. **Underfunded sweep** — force-unbond operators whose grace window expired.
 2. **Pending report auto-action** — DISMISS or ESCALATE based on per-type `report_timeout_action`.
 3. **Escalated report auto-timeout** — REJECT-equivalent if no jury verdict within `max_escalated_blocks`; release contested-T1 escrow back to bond.
 4. **Tier-1 escrow release** — move uncontested escrowed slashes to community pool after `report_contest_window_blocks`.
+5. **Checkpoint liveness** — for types with `checkpoint_max_lag_blocks > 0`, file a system report (reporter: x/service) against an ACTIVE/UNDERFUNDED operator whose checkpoint (or registration) height trails the chain by more than the lag; at most once per lag window.
+
+`ServiceTypeConfig` also carries the client-read attestation knobs `attestation_quorum` and `elevated_attestation_quorum` (how many independent operators must agree; the elevated value applies to low-trust sources).
 
 ## Reputation Accrual
 
@@ -143,7 +149,9 @@ Lazy O(1) bond-block tracking on the `service-operator` tag in x/rep, with an an
 `DefaultGenesis` seeds:
 
 - `params`
-- **Two ServiceTypeConfigs** at genesis: `federation-bridge-activitypub` and `federation-bridge-atproto`, both with `ReportTimeoutAction=ESCALATE`. This is owned by x/service (not federation) so federation's `BridgeBinding` records can reference live `service.Operator`s at boot.
+- **Federation-bridge ServiceTypeConfigs** at genesis (`federation-bridge-activitypub`, `-atproto`, `-nostr`, `-lens`), all with `ReportTimeoutAction=ESCALATE`. This is owned by x/service (not federation) so federation's `BridgeBinding` records can reference live `service.Operator`s at boot.
+- **`content-scanner`** ([docs/content-scanning.md](../../docs/content-scanning.md)): 100 SPARK min bond, `attestation_quorum = 1`, liveness after ~1 day without a checkpoint, `ReportTimeoutAction=DISMISS`.
+- `checkpoints` are exported and imported; liveness deadlines are rebuilt at import.
 
 Init order: x/commons → x/service → x/federation.
 

@@ -38,7 +38,7 @@ func (q queryServer) ListPost(ctx context.Context, req *types.QueryListPostReque
 			return nil
 		}
 
-		posts = append(posts, post)
+		posts = append(posts, withholdPostBody(post))
 		return nil
 	})
 

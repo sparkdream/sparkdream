@@ -40,4 +40,8 @@ var (
 	ErrReservedTag      = errors.Register(ModuleName, 1229, "tag is reserved")
 
 	ErrCannotPinEphemeral = errors.Register(ModuleName, 1231, "content is ephemeral; promote with MakePermanent before pinning")
+
+	// ErrMediaNotPermitted: the write is labelled as media and the author
+	// does not meet the media rules (docs/content-scanning.md §9).
+	ErrMediaNotPermitted = errors.Register(ModuleName, 1232, "media not permitted for this author")
 )

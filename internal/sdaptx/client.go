@@ -50,6 +50,7 @@ import (
 	"github.com/cosmos/go-bip39"
 
 	"sparkdream/x/federation/types"
+	servicetypes "sparkdream/x/service/types"
 	sessiontypes "sparkdream/x/session/types"
 )
 
@@ -130,6 +131,8 @@ func New(cfg Config) (*Client, error) {
 	cryptocodec.RegisterInterfaces(ir)
 	types.RegisterInterfaces(ir)
 	sessiontypes.RegisterInterfaces(ir)
+	// x/service: content-scanner workers sign MsgSubmitCheckpoint.
+	servicetypes.RegisterInterfaces(ir)
 	cdc := codec.NewProtoCodec(ir)
 	c := &Client{
 		cfg:      cfg,

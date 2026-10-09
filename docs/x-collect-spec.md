@@ -116,6 +116,10 @@ message Collection {
   uint64 anon_owner_scope = 32;         // Raw nullifier scope of the creating exec (its shield epoch)
   bytes  anon_owner_tag = 33;           // The creating exec's nullifier; only the creator's secret key reproduces it over (domain, scope)
   uint64 anon_owner_sequence = 34;      // Bound into every ownership proof's message hash; advanced after each one so proofs can't be replayed
+
+  // --- Media labels (chain-computed; see section 3.4 "Media labels") ---
+  uint32 media_flags = 35;              // MEDIA_FLAG_EXTERNAL_URI when cover_uri is set
+  uint32 media_rules_version = 36;      // Labelling rules version that produced media_flags
 }
 ```
 
@@ -251,8 +255,14 @@ message Item {
   // --- Reactions (counter-only) ---
   uint64 upvote_count = 17;
   uint64 downvote_count = 18;
+
+  // --- Media labels (chain-computed) ---
+  uint32 media_flags = 19;             // MEDIA_FLAG_EXTERNAL_URI when image_uri is set or reference_type is LINK / NFT
+  uint32 media_rules_version = 20;     // Labelling rules version that produced media_flags
 }
 ```
+
+**Media labels and data URIs.** Collect records point at content elsewhere and never carry media bytes. Add, batch-add and update of items, and create and update of collections, reject an RFC 2397 data URI (`ErrDataURINotAllowed`) in `image_uri`, `cover_uri`, `link.uri`, `nft.token_uri`, `custom.value`, `custom.extra` values and `attributes` values. The chain does not look for links in these fields. Labels come only from which URI fields are set and are recomputed on every write and on genesis import; collect records are **not** withheld from queries. A record imported from a genesis that predates the rejection and still holds a data URI gets `MEDIA_FLAG_INLINE_DATA`, and clients do not render the affected fields. See [content-scanning.md](content-scanning.md) §3.3.
 
 **Public items** (parent `encrypted = false`): Use structured fields. Chain validates field lengths, attribute counts, reference type consistency, and reference field lengths.
 
@@ -2471,6 +2481,7 @@ Releases endorser DREAM stakes where `stake_release_at ≤ current_block` and `s
 | `ErrAnonymousAuthorBond` | 1268 | Anonymous (shield-signed) collection carries a positive `author_bond` |
 | `ErrAnonymousNoOwnerClaim` | 1269 | Anonymous collection has no owner claim: create ran without an x/shield exec nullifier in context, or an ownership-mode op targets a collection that is not anonymously owned |
 | `ErrAnonymousFixedField` | 1270 | Anonymous owner tried to change `expires_at` or disable community feedback via `MsgUpdateCollection` |
+| `ErrDataURINotAllowed` | 1271 | A data URI in `image_uri`, `cover_uri`, `link.uri`, `nft.token_uri`, `custom.value`, `custom.extra` or `attributes` values (section 3.4) |
 
 **Rate-limit error note:** Errors 1172 (`ErrFlagRateLimitExceeded`), 1173 (`ErrMaxDailyReactions`), and 1174 (`ErrDownvoteRateLimitExceeded`) cover distinct rate-limiting aspects: flagging, general daily reactions, and downvotes respectively. Each has an independent daily counter tracked in `ReactionLimit/{address}/{day}`.
 

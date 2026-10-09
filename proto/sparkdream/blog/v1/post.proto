@@ -30,4 +30,7 @@ message Post {
   uint64 initiative_id = 20; // x/rep initiative referenced by this post (0 = none, immutable)
   bool conviction_sustained = 21; // True if anonymous content has entered conviction-sustained state (TTL extended by community conviction)
   repeated string tags = 22; // Tags referenced against the shared x/rep tag registry
+  uint32 media_flags = 23; // OR of sparkdream.common.v1.MediaFlag bits; chain-computed, never author-set
+  uint32 media_rules_version = 24; // labelling rules that produced media_flags (common MediaRulesVersion)
+  bytes body_hash = 25; // sha256 of the body exactly as stored (post-encoding, pre-decompression)
 }

@@ -46,7 +46,7 @@ func (q queryServer) ListFederatedContent(ctx context.Context, req *types.QueryL
 	// No filters at all: keep the original whole-collection paginate.
 	if req.PeerId == "" && req.ContentType == "" && req.CreatorIdentity == "" && req.Status == "" {
 		content, pageRes, err := query.CollectionPaginate(ctx, q.k.Content, req.Pagination, func(key uint64, value types.FederatedContent) (types.FederatedContent, error) {
-			return value, nil
+			return withholdContentBody(value), nil
 		})
 		if err != nil {
 			return nil, status.Error(codes.Internal, err.Error())
@@ -84,7 +84,7 @@ func (q queryServer) ListFederatedContent(ctx context.Context, req *types.QueryL
 		if uint64(len(results)) >= limit {
 			return
 		}
-		results = append(results, content)
+		results = append(results, withholdContentBody(content))
 	}
 
 	appendIfMatch := func(contentID uint64) (bool, error) {

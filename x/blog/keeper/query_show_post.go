@@ -20,5 +20,5 @@ func (q queryServer) ShowPost(ctx context.Context, req *types.QueryShowPostReque
 		return nil, sdkerrors.ErrKeyNotFound
 	}
 
-	return &types.QueryShowPostResponse{Post: post}, nil
+	return &types.QueryShowPostResponse{Post: withholdPostBody(post)}, nil
 }

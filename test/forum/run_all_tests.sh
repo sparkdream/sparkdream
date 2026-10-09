@@ -490,6 +490,11 @@ if [ "$RUN_POST" = true ]; then
     # via forum CreatePost/EditPost. It depends on a category being present
     # (post_test.sh creates one if absent), so it lives in the same phase.
     run_test "Tag Tests" "tag_test.sh"
+    # Media labels / withholding / post-content / media rules
+    # (docs/content-scanning.md); needs the same category.
+    if [ -f "$SCRIPT_DIR/media_test.sh" ]; then
+        run_test "Media Label Tests" "media_test.sh"
+    fi
 else
     echo "Skipping post tests (--no-post)"
     echo ""

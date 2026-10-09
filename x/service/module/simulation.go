@@ -194,6 +194,21 @@ func (am AppModule) WeightedOperations(simState module.SimulationState) []simtyp
 		weightMsgFinalizeControllerTransfer,
 		servicesimulation.SimulateMsgFinalizeControllerTransfer(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
 	))
+	const (
+		opWeightMsgSubmitCheckpoint          = "op_weight_msg_service"
+		defaultWeightMsgSubmitCheckpoint int = 100
+	)
+
+	var weightMsgSubmitCheckpoint int
+	simState.AppParams.GetOrGenerate(opWeightMsgSubmitCheckpoint, &weightMsgSubmitCheckpoint, nil,
+		func(_ *rand.Rand) {
+			weightMsgSubmitCheckpoint = defaultWeightMsgSubmitCheckpoint
+		},
+	)
+	operations = append(operations, simulation.NewWeightedOperation(
+		weightMsgSubmitCheckpoint,
+		servicesimulation.SimulateMsgSubmitCheckpoint(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
+	))
 
 	return operations
 }

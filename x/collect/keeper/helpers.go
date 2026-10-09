@@ -1083,6 +1083,9 @@ func (k Keeper) validateItemFields(encrypted bool, title, description, imageUri 
 	if err := k.validateReferenceFields(refType, nft, link, onChain, custom, params.MaxReferenceFieldLength); err != nil {
 		return err
 	}
+	if err := rejectDataURIs(itemDataURIFields(imageUri, nft, link, custom, attributes)...); err != nil {
+		return err
+	}
 
 	// Count attributes (including custom reference extra)
 	attrCount := uint32(len(attributes))

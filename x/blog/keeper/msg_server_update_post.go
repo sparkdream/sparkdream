@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"sparkdream/x/blog/types"
+	commontypes "sparkdream/x/common/types"
 
 	errorsmod "cosmossdk.io/errors"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -64,6 +65,11 @@ func (k msgServer) UpdatePost(ctx context.Context, msg *types.MsgUpdatePost) (*t
 	if msg.MinReplyTrustLevel < -1 || msg.MinReplyTrustLevel > 4 {
 		return nil, errorsmod.Wrapf(sdkerrors.ErrInvalidRequest,
 			"min_reply_trust_level must be between -1 and 4, got %d", msg.MinReplyTrustLevel)
+	}
+
+	// Media rules + scan fee (docs/content-scanning.md §9).
+	if err := k.checkMediaWrite(ctx, creatorAddr, commontypes.LabelBody(msg.ContentType, msg.Body).Flags, nil, params); err != nil {
+		return nil, err
 	}
 
 	// High-water mark fee: only charge for bytes above the previous high water mark.
@@ -129,6 +135,7 @@ func (k msgServer) UpdatePost(ctx context.Context, msg *types.MsgUpdatePost) (*t
 	val.Title = msg.Title
 	val.Body = msg.Body
 	val.ContentType = msg.ContentType
+	applyPostMediaLabels(&val)
 	val.RepliesEnabled = msg.RepliesEnabled
 	val.MinReplyTrustLevel = msg.MinReplyTrustLevel
 	val.UpdatedAt = sdkCtx.BlockTime().Unix()

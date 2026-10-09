@@ -154,6 +154,7 @@ func (k msgServer) AddItems(ctx context.Context, msg *types.MsgAddItems) (*types
 			AddedAt:       blockHeight,
 			Status:        types.ItemStatus_ITEM_STATUS_ACTIVE,
 		}
+		applyItemMediaLabels(&item)
 
 		if err := k.Item.Set(ctx, itemID, item); err != nil {
 			return nil, errorsmod.Wrap(err, "failed to store item")

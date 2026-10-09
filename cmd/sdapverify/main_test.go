@@ -11,6 +11,7 @@ import (
 	"sync"
 	"testing"
 
+	"sparkdream/internal/sdaptx"
 	"sparkdream/tools/apcanon"
 	"sparkdream/x/federation/types"
 )
@@ -453,5 +454,57 @@ func TestValidateSigningKey(t *testing.T) {
 		if err := c.Validate(); (err == nil) != tc.ok {
 			t.Errorf("%s: Validate() = %v, want ok=%v", name, err, tc.ok)
 		}
+	}
+}
+
+// List queries return body "" for media-labelled records (every record with
+// a content_uri). listPending must read the stored body through
+// federated_content_body, or checkDisplay would judge every bridged post
+// forged.
+func TestListPendingFetchesWithheldBodies(t *testing.T) {
+	var bodyFetches []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasPrefix(r.URL.Path, "/sparkdream/federation/v1/list_federated_content"):
+			_, _ = w.Write([]byte(`{"content":[` +
+				`{"id":"7","content_uri":"https://md.test/s/7","body":"","media_flags":8},` +
+				`{"id":"8","body":"<p>plain</p>"},` +
+				`{"id":"9","content_uri":"https://md.test/s/9","body":"","media_flags":"9"}` +
+				`],"pagination":{"total":"3"}}`))
+		case strings.HasPrefix(r.URL.Path, "/sparkdream/federation/v1/federated_content_body/"):
+			id := strings.TrimPrefix(r.URL.Path, "/sparkdream/federation/v1/federated_content_body/")
+			bodyFetches = append(bodyFetches, id)
+			_, _ = w.Write([]byte(`{"body":"<p>stored ` + id + `</p>","media_flags":8}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(srv.Close)
+
+	chain, err := sdaptx.New(sdaptx.Config{
+		LCD: srv.URL, ChainID: "sparkdream-dev-1", Bech32Prefix: "sprkdrm",
+		Denom: "uspark", Mnemonic: "abandon abandon abandon abandon abandon abandon " +
+			"abandon abandon abandon abandon abandon about",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	v := &Verifier{chain: chain}
+
+	got, err := v.listPending(context.Background(), "md.test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{"7": "<p>stored 7</p>", "8": "<p>plain</p>", "9": "<p>stored 9</p>"}
+	if len(got) != len(want) {
+		t.Fatalf("got %d rows, want %d", len(got), len(want))
+	}
+	for _, c := range got {
+		if c.Body != want[c.ID] {
+			t.Errorf("content %s: body %q, want %q", c.ID, c.Body, want[c.ID])
+		}
+	}
+	if strings.Join(bodyFetches, ",") != "7,9" {
+		t.Errorf("body fetches %v, want only the labelled rows 7,9", bodyFetches)
 	}
 }

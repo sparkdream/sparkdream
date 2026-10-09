@@ -181,6 +181,25 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 		}
 	}
 
+	// Checkpoints, then liveness deadlines rebuilt from them (and from
+	// registration heights for operators that never checkpointed).
+	for _, cp := range genState.Checkpoints {
+		opBytes, err := k.addrBytes(cp.Operator)
+		if err != nil {
+			return err
+		}
+		if err := k.Checkpoints.Set(ctx, collections.Join(cp.ServiceType, opBytes), cp); err != nil {
+			return err
+		}
+	}
+	for _, cfg := range genState.ServiceTypes {
+		if cfg.CheckpointMaxLagBlocks > 0 {
+			if err := k.rescheduleServiceTypeLiveness(ctx, cfg.ServiceType, cfg.CheckpointMaxLagBlocks); err != nil {
+				return err
+			}
+		}
+	}
+
 	return nil
 }
 
@@ -239,6 +258,10 @@ func (k Keeper) ExportGenesis(ctx context.Context) (*types.GenesisState, error) 
 
 	// Tier1 last slash.
 	if err := collectMapValuesInto(ctx, k.Tier1LastSlash, &genesis.Tier1LastSlash); err != nil {
+		return nil, err
+	}
+
+	if err := collectMapValuesInto(ctx, k.Checkpoints, &genesis.Checkpoints); err != nil {
 		return nil, err
 	}
 

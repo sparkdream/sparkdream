@@ -20,5 +20,5 @@ func (q queryServer) GetFederatedContent(ctx context.Context, req *types.QueryGe
 		return nil, errorsmod.Wrapf(types.ErrContentNotFound, "content ID %d not found", req.Id)
 	}
 
-	return &types.QueryGetFederatedContentResponse{Content: content}, nil
+	return &types.QueryGetFederatedContentResponse{Content: withholdContentBody(content)}, nil
 }

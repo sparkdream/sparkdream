@@ -71,6 +71,14 @@ service Msg {
   // FinalizeControllerTransfer is the jury verdict path for controller-
   // transfer cases; signer is the x/rep module account (§5.4 + §6.2).
   rpc FinalizeControllerTransfer(MsgFinalizeControllerTransfer) returns (MsgFinalizeControllerTransferResponse);
+
+  // --- Checkpoints ---
+
+  // SubmitCheckpoint records how far the signing operator's off-chain work
+  // has progressed (height + output root). Generic across service types;
+  // drives liveness system reports when the service type sets
+  // checkpoint_max_lag_blocks (docs/content-scanning.md §8.2).
+  rpc SubmitCheckpoint(MsgSubmitCheckpoint) returns (MsgSubmitCheckpointResponse);
 }
 
 // ---------------------------------------------------------------------------
@@ -294,3 +302,22 @@ message MsgFinalizeControllerTransfer {
 }
 
 message MsgFinalizeControllerTransferResponse {}
+
+// ---------------------------------------------------------------------------
+// Checkpoints
+// ---------------------------------------------------------------------------
+
+// MsgSubmitCheckpoint is signed by the operator itself. The operator must be
+// ACTIVE or UNDERFUNDED under service_type; height must exceed its previous
+// checkpoint and must not exceed the current block height; root is 32 bytes.
+message MsgSubmitCheckpoint {
+  option (cosmos.msg.v1.signer) = "operator";
+  option (amino.name) = "sparkdream/x/service/MsgSubmitCheckpoint";
+
+  string operator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string service_type = 2;
+  int64 height = 3;
+  bytes root = 4;
+}
+
+message MsgSubmitCheckpointResponse {}

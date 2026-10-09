@@ -39,7 +39,7 @@ func (q queryServer) ListPostsByCreator(ctx context.Context, req *types.QueryLis
 		if post.Status == types.PostStatus_POST_STATUS_HIDDEN && !req.IncludeHidden {
 			return nil
 		}
-		posts = append(posts, post)
+		posts = append(posts, withholdPostBody(post))
 		return nil
 	})
 	if err != nil {

@@ -214,4 +214,7 @@ var (
 
 	// Conviction propagation errors (2400-2499)
 	ErrInvalidInitiativeRef = errors.Register(ModuleName, 2400, "invalid initiative reference")
+
+	// Media rules (docs/content-scanning.md §9)
+	ErrMediaNotPermitted = errors.Register(ModuleName, 2500, "media not permitted for this author")
 )

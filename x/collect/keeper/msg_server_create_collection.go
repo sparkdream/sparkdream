@@ -100,6 +100,9 @@ func (k msgServer) CreateCollection(ctx context.Context, msg *types.MsgCreateCol
 		if uint32(len(msg.CoverUri)) > params.MaxReferenceFieldLength {
 			return nil, types.ErrReferenceFieldTooLong
 		}
+		if err := rejectDataURIs(msg.CoverUri); err != nil {
+			return nil, err
+		}
 	}
 
 	// Validate tags against the shared x/rep tag registry and bump usage
@@ -214,6 +217,7 @@ func (k msgServer) CreateCollection(ctx context.Context, msg *types.MsgCreateCol
 		SeekingEndorsement:       status == types.CollectionStatus_COLLECTION_STATUS_PENDING,
 		InitiativeId:             msg.InitiativeId,
 	}
+	applyCollectionMediaLabels(&coll)
 
 	// Store collection
 	if err := k.Collection.Set(ctx, collID, coll); err != nil {

@@ -19,5 +19,5 @@ func (q queryServer) ShowReply(ctx context.Context, req *types.QueryShowReplyReq
 		return nil, status.Error(codes.NotFound, "reply not found")
 	}
 
-	return &types.QueryShowReplyResponse{Reply: reply}, nil
+	return &types.QueryShowReplyResponse{Reply: withholdReplyBody(reply)}, nil
 }

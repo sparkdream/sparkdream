@@ -373,6 +373,7 @@ func (k Keeper) ExpireHiddenPosts(ctx context.Context, now int64) error {
 		post.Status = types.PostStatus_POST_STATUS_DELETED
 		post.Content = "" // clear content to reclaim space
 		post.Tags = nil   // sever the (now-decremented) tag references
+		applyPostMediaLabels(&post)
 		if setErr := k.Post.Set(ctx, postID, post); setErr != nil {
 			sdkCtx.Logger().Error("failed to delete expired hidden post", "post_id", postID, "error", setErr)
 			return false, nil

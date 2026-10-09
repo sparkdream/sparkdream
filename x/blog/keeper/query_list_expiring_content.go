@@ -70,13 +70,13 @@ func (q queryServer) ListExpiringContent(ctx context.Context, req *types.QueryLi
 		if contentType == "post" {
 			post, found := q.k.GetPost(ctx, id)
 			if found && post.Status != types.PostStatus_POST_STATUS_DELETED {
-				posts = append(posts, post)
+				posts = append(posts, withholdPostBody(post))
 				resultCount++
 			}
 		} else {
 			reply, found := q.k.GetReply(ctx, id)
 			if found && reply.Status != types.ReplyStatus_REPLY_STATUS_DELETED {
-				replies = append(replies, reply)
+				replies = append(replies, withholdReplyBody(reply))
 				resultCount++
 			}
 		}

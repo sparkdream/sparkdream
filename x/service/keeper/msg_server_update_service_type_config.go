@@ -39,12 +39,22 @@ func (k msgServer) UpdateServiceTypeConfig(ctx context.Context, msg *types.MsgUp
 	// at the same string, that's an update. We only allow it (no rename).
 	// If the key doesn't exist yet, this is a create.
 	changedFields := "create"
-	if _, err := k.ServiceTypes.Get(ctx, msg.Config.ServiceType); err == nil {
+	var prevLag int64
+	if prev, err := k.ServiceTypes.Get(ctx, msg.Config.ServiceType); err == nil {
 		changedFields = "update"
+		prevLag = prev.CheckpointMaxLagBlocks
 	}
 
 	if err := k.ServiceTypes.Set(ctx, msg.Config.ServiceType, msg.Config); err != nil {
 		return nil, err
+	}
+
+	// A changed liveness lag applies to existing operators at once: enabling
+	// it starts tracking them, disabling it drops their deadlines.
+	if msg.Config.CheckpointMaxLagBlocks != prevLag {
+		if err := k.rescheduleServiceTypeLiveness(ctx, msg.Config.ServiceType, msg.Config.CheckpointMaxLagBlocks); err != nil {
+			return nil, err
+		}
 	}
 
 	sdk.UnwrapSDKContext(ctx).EventManager().EmitEvent(

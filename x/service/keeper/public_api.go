@@ -255,6 +255,10 @@ func (k Keeper) RegisterOperator(
 	if err := k.PutOperator(ctx, op); err != nil {
 		return types.Operator{}, err
 	}
+	// Liveness is measured from registration until the first checkpoint.
+	if err := k.scheduleLiveness(ctx, op, creatorBytes, cfg.CheckpointMaxLagBlocks); err != nil {
+		return types.Operator{}, err
+	}
 
 	sdkCtx.EventManager().EmitEvent(types.NewOperatorRegisteredEvent(creator, serviceType, controller, bond))
 

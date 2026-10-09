@@ -9,6 +9,7 @@ import "google/api/annotations.proto";
 import "sparkdream/blog/v1/params.proto";
 import "sparkdream/blog/v1/post.proto";
 import "sparkdream/blog/v1/types.proto";
+import "sparkdream/common/v1/content_type.proto";
 
 option go_package = "sparkdream/x/blog/types";
 
@@ -72,6 +73,18 @@ service Query {
   // ListPostsByTag returns paginated posts that carry a given tag.
   rpc ListPostsByTag(QueryListPostsByTagRequest) returns (QueryListPostsByTagResponse) {
     option (google.api.http).get = "/sparkdream/blog/v1/list_posts_by_tag/{tag}";
+  }
+
+  // PostBody returns the full body of one post. List and show queries return
+  // the body as "" whenever media_flags != 0; clients fetch it here once
+  // scanner verdicts say it is clean (docs/content-scanning.md §3.4).
+  rpc PostBody(QueryPostBodyRequest) returns (QueryPostBodyResponse) {
+    option (google.api.http).get = "/sparkdream/blog/v1/post_body/{id}";
+  }
+
+  // ReplyBody returns the full body of one reply (see PostBody).
+  rpc ReplyBody(QueryReplyBodyRequest) returns (QueryReplyBodyResponse) {
+    option (google.api.http).get = "/sparkdream/blog/v1/reply_body/{id}";
   }
 }
 
@@ -218,4 +231,32 @@ message QueryListPostsByTagRequest {
 message QueryListPostsByTagResponse {
   repeated Post posts = 1 [(gogoproto.nullable) = false];
   cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryPostBodyRequest defines the QueryPostBodyRequest message.
+message QueryPostBodyRequest {
+  uint64 id = 1;
+}
+
+// QueryPostBodyResponse carries the stored body with the labels a client
+// needs to check it: body_hash must match sha256(body).
+message QueryPostBodyResponse {
+  string body = 1;
+  sparkdream.common.v1.ContentType content_type = 2;
+  uint32 media_flags = 3;
+  bytes body_hash = 4;
+}
+
+// QueryReplyBodyRequest defines the QueryReplyBodyRequest message.
+message QueryReplyBodyRequest {
+  uint64 id = 1;
+}
+
+// QueryReplyBodyResponse carries the stored body with the labels a client
+// needs to check it: body_hash must match sha256(body).
+message QueryReplyBodyResponse {
+  string body = 1;
+  sparkdream.common.v1.ContentType content_type = 2;
+  uint32 media_flags = 3;
+  bytes body_hash = 4;
 }

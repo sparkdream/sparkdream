@@ -192,6 +192,7 @@ func (k msgServer) SubmitFederatedContent(ctx context.Context, msg *types.MsgSub
 		Supersedes:       msg.Supersedes,
 		License:          msg.License,
 	}
+	applyContentMediaLabels(&content)
 
 	// 11. Store content and indexes
 	if err := k.Content.Set(ctx, contentID, content); err != nil {

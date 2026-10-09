@@ -4,6 +4,8 @@ import (
 	"fmt"
 
 	"cosmossdk.io/math"
+
+	commontypes "sparkdream/x/common/types"
 )
 
 const (
@@ -99,6 +101,9 @@ func NewParams(maxTitleLength, maxBodyLength uint64) Params {
 		ConvictionRenewalPeriod:    DefaultConvictionRenewalPeriod,
 		MaxTagsPerPost:             DefaultMaxTagsPerPost,
 		MaxTagLength:               DefaultMaxTagLength,
+		MediaMinTrustLevel:         commontypes.DefaultMediaMinTrustLevel,
+		MediaAuthorBondMin:         commontypes.DefaultMediaAuthorBondMin,
+		MediaScanFee:               math.ZeroInt(),
 	}
 }
 
@@ -206,6 +211,9 @@ func (p Params) ExtractOperationalParams() BlogOperationalParams {
 
 // Validate validates the set of params.
 func (p Params) Validate() error {
+	if err := commontypes.ValidateMediaParams(p.MediaMinTrustLevel, p.MediaAuthorBondMin, p.MediaScanFee); err != nil {
+		return err
+	}
 	if p.MaxTitleLength == 0 {
 		return fmt.Errorf("max title length must be positive, got %d", p.MaxTitleLength)
 	}

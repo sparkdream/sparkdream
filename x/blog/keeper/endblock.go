@@ -192,6 +192,7 @@ func (k Keeper) processExpiredPost(ctx context.Context, sdkCtx sdk.Context, id u
 	creatorBeforeTombstone := post.Creator
 	post.Title = ""
 	post.Body = ""
+	applyPostMediaLabels(&post)
 	post.Status = types.PostStatus_POST_STATUS_DELETED
 	post.Tags = nil
 	k.SetPost(ctx, post)
@@ -288,6 +289,7 @@ func (k Keeper) processExpiredReply(ctx context.Context, sdkCtx sdk.Context, id 
 	wasActive := reply.Status == types.ReplyStatus_REPLY_STATUS_ACTIVE
 	creatorBeforeTombstone := reply.Creator
 	reply.Body = ""
+	applyReplyMediaLabels(&reply)
 	reply.Status = types.ReplyStatus_REPLY_STATUS_DELETED
 	k.SetReply(ctx, reply)
 	k.RemoveFromExpiryIndex(ctx, expiresAt, "reply", id)

@@ -84,6 +84,24 @@ func (c ServiceTypeConfig) Validate() error {
 		)
 	}
 
+	// Attestation quorum (docs/content-scanning.md §8.1, §9): the elevated
+	// quorum for low-trust sources can only raise the bar.
+	if c.ElevatedAttestationQuorum != 0 && c.ElevatedAttestationQuorum < c.AttestationQuorum {
+		return ErrInvalidServiceTypeConfig.Wrapf(
+			"elevated_attestation_quorum (%d) must be 0 or >= attestation_quorum (%d)",
+			c.ElevatedAttestationQuorum, c.AttestationQuorum,
+		)
+	}
+
+	// Liveness: a negative lag is meaningless, and a liveness report needs
+	// a proposed slash (OpenSystemReport rejects a zero one).
+	if c.CheckpointMaxLagBlocks < 0 {
+		return ErrInvalidServiceTypeConfig.Wrapf("checkpoint_max_lag_blocks must be >= 0, got %d", c.CheckpointMaxLagBlocks)
+	}
+	if c.CheckpointMaxLagBlocks > 0 && c.ChallengeDefaultSlashBps == 0 {
+		return ErrInvalidServiceTypeConfig.Wrap("checkpoint_max_lag_blocks > 0 requires challenge_default_slash_bps > 0 (the liveness report's proposed slash)")
+	}
+
 	// ReportTimeoutAction: anything outside the enum range is rejected.
 	if _, ok := ReportTimeoutAction_name[int32(c.ReportTimeoutAction)]; !ok {
 		return ErrInvalidServiceTypeConfig.Wrapf(

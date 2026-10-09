@@ -329,6 +329,12 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 				},
 
 				// this line is used by ignite scaffolding # autocli/query
+				{
+					RpcMethod:      "PostContent",
+					Use:            "post-content [post-id]",
+					Short:          "Full content of one forum post, including media-flagged content withheld from list and show queries",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "post_id"}},
+				},
 			},
 		},
 		Tx: &autocliv1.ServiceCommandDescriptor{

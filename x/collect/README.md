@@ -154,6 +154,8 @@ Anonymous collections are created via `x/shield`'s `MsgShieldedExec` wrapping `M
 | `MsgRemoveItems` | Batch remove items | Owner or EDITOR/ADMIN collaborator |
 | `MsgReorderItem` | Change item position; triggers compaction | Owner or EDITOR/ADMIN collaborator |
 
+Items and collections never hold media bytes: a data URI in `image_uri`, `cover_uri`, `link.uri`, `nft.token_uri`, `custom.value`, `custom.extra` or `attributes` values is rejected (`ErrDataURINotAllowed`). Each record carries chain-computed `media_flags` (`EXTERNAL_URI` when a URI field is set) and is never withheld from queries. See [docs/content-scanning.md](../../docs/content-scanning.md) §3.3.
+
 ### Collaborator Management
 
 | Message | Description | Access |

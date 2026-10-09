@@ -387,6 +387,13 @@ message FederatedContent {
   // under ("CC0-1.0" or "PDM-1.0"). Always set: content without one is
   // rejected at submission and on IBC receive.
   string license = 19;
+  // media_flags is the OR of sparkdream.common.v1.MediaFlag bits, computed on
+  // submission and IBC receive (body scanned for data URIs; content_uri set).
+  // Non-zero withholds body from list and show queries (fetch it via
+  // FederatedContentBody). content_hash already covers the body hash.
+  uint32 media_flags = 20;
+  // media_rules_version is the labelling rules version that produced media_flags.
+  uint32 media_rules_version = 21;
 }
 
 // ContentRef points at a FederatedContent record. A message rather than a

@@ -122,6 +122,10 @@ func (k msgServer) RegisterOperator(ctx context.Context, msg *types.MsgRegisterO
 	if err := k.PutOperator(ctx, op); err != nil {
 		return nil, err
 	}
+	// Liveness is measured from registration until the first checkpoint.
+	if err := k.scheduleLiveness(ctx, op, creatorBytes, cfg.CheckpointMaxLagBlocks); err != nil {
+		return nil, err
+	}
 
 	sdkCtx.EventManager().EmitEvent(types.NewOperatorRegisteredEvent(
 		msg.Creator, msg.ServiceType, msg.Controller, bondCoin,

@@ -42,7 +42,7 @@ func (q queryServer) ListReplies(ctx context.Context, req *types.QueryListReplie
 		if req.FilterByParent && reply.ParentReplyId != req.ParentReplyId {
 			return nil
 		}
-		replies = append(replies, reply)
+		replies = append(replies, withholdReplyBody(reply))
 		return nil
 	})
 	if err != nil {

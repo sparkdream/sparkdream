@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"sparkdream/x/blog/types"
+	commontypes "sparkdream/x/common/types"
 
 	errorsmod "cosmossdk.io/errors"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -53,6 +54,11 @@ func (k msgServer) CreatePost(ctx context.Context, msg *types.MsgCreatePost) (*t
 
 	// Rate limit check
 	if err := k.checkRateLimit(ctx, "post", creatorAddr, params.MaxPostsPerDay); err != nil {
+		return nil, err
+	}
+
+	// Media rules + scan fee (docs/content-scanning.md §9).
+	if err := k.checkMediaWrite(ctx, creatorAddr, commontypes.LabelBody(msg.ContentType, msg.Body).Flags, msg.AuthorBond, params); err != nil {
 		return nil, err
 	}
 
@@ -112,6 +118,7 @@ func (k msgServer) CreatePost(ctx context.Context, msg *types.MsgCreatePost) (*t
 		InitiativeId:       msg.InitiativeId,
 		Tags:               msg.Tags,
 	}
+	applyPostMediaLabels(&post)
 
 	id := k.AppendPost(ctx, post)
 

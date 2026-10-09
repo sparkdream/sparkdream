@@ -156,6 +156,7 @@ func (k Keeper) OnRecvContentPacket(ctx context.Context, sourcePort, sourceChann
 		Status:          types.FederatedContentStatus_FEDERATED_CONTENT_STATUS_ACTIVE,
 		License:         packet.License,
 	}
+	applyContentMediaLabels(&content)
 	if err := k.Content.Set(ctx, contentID, content); err != nil {
 		return err
 	}

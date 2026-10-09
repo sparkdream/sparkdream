@@ -41,7 +41,7 @@ func (q queryServer) Thread(ctx context.Context, req *types.QueryThreadRequest) 
 			return post.RootId == req.RootId, nil
 		},
 		func(_ uint64, post types.Post) (types.Post, error) {
-			return post, nil
+			return withholdPostContent(post), nil
 		},
 	)
 	if err != nil {

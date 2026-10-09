@@ -129,6 +129,14 @@ message Collection {
   uint64 anon_owner_scope = 32;
   bytes anon_owner_tag = 33;
   uint64 anon_owner_sequence = 34;
+
+  // media_flags is the OR of sparkdream.common.v1.MediaFlag bits, computed by
+  // the chain on every write: EXTERNAL_URI when cover_uri is set. Collect
+  // records are never withheld (they hold URI strings, never media bytes;
+  // data URIs are rejected at write). See docs/content-scanning.md §3.
+  uint32 media_flags = 35;
+  // media_rules_version is the labelling rules version that produced media_flags.
+  uint32 media_rules_version = 36;
 }
 
 // Item represents a single entry within a collection.
@@ -153,6 +161,12 @@ message Item {
   ItemStatus status = 16;
   uint64 upvote_count = 17;
   uint64 downvote_count = 18;
+  // media_flags is the OR of sparkdream.common.v1.MediaFlag bits, computed by
+  // the chain on every write: EXTERNAL_URI when image_uri is set or
+  // reference_type is LINK or NFT. See docs/content-scanning.md §3.
+  uint32 media_flags = 19;
+  // media_rules_version is the labelling rules version that produced media_flags.
+  uint32 media_rules_version = 20;
 }
 
 // KeyValuePair is a generic key-value entry used for extensible attributes.

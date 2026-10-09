@@ -149,6 +149,7 @@ func (k msgServer) AddItem(ctx context.Context, msg *types.MsgAddItem) (*types.M
 		AddedAt:       blockHeight,
 		Status:        types.ItemStatus_ITEM_STATUS_ACTIVE,
 	}
+	applyItemMediaLabels(&item)
 
 	// Store item
 	if err := k.Item.Set(ctx, itemID, item); err != nil {

@@ -22,8 +22,11 @@ import (
 //  2. Pending report auto-dismiss (controller stalls).
 //  3. Escalated report auto-timeout (jury inaction).
 //  4. Tier-1 escrow release (post-contest-window funds → community pool).
+//  5. Checkpoint liveness (operators whose checkpoint trails the chain by
+//     more than their type's checkpoint_max_lag_blocks get a system
+//     report; see checkpoints.go).
 //
-// Sweep 5 (unbond completion) is NOT performed — it's lazy via
+// Unbond completion is NOT swept — it's lazy via
 // MsgClaimUnbondedBond (§3.6).
 //
 // The function returns the first error encountered. Errors in a sweep
@@ -69,6 +72,9 @@ func (k Keeper) EndBlocker(ctx context.Context) error {
 	})
 	runSweep("tier1_escrow_release", func() (int, error) {
 		return k.sweepTier1EscrowRelease(ctx, currentHeight, limit)
+	})
+	runSweep("checkpoint_liveness", func() (int, error) {
+		return k.sweepCheckpointLiveness(ctx, currentHeight, limit)
 	})
 
 	return firstErr

@@ -11,6 +11,9 @@ import (
 // InitGenesis initializes the module's state from a provided genesis state.
 func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) error {
 	for _, elem := range genState.PostMap {
+		// Media labels are recomputed rather than trusted, so a genesis
+		// exported by an older binary (or hand-edited) imports correctly.
+		applyPostMediaLabels(&elem)
 		if err := k.Post.Set(ctx, elem.PostId, elem); err != nil {
 			return err
 		}

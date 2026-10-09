@@ -243,6 +243,7 @@ if [ "$RESTORE_SETUP" = true ]; then
         echo "    bash $SCRIPT_DIR/register_test.sh"
         echo "    bash $SCRIPT_DIR/lifecycle_test.sh"
         echo "    bash $SCRIPT_DIR/report_test.sh"
+        echo "    bash $SCRIPT_DIR/checkpoint_test.sh"
         echo ""
         echo "  Stop the chain when done:"
         echo "    pkill -f 'sparkdreamd start --home $HOME/.sparkdream'"
@@ -393,6 +394,12 @@ if [ "$RUN_REPORT" = true ]; then
 else
     echo "Skipping report tests (--no-report)"
     echo ""
+fi
+
+# Checkpoints (content-scanner seed, MsgSubmitCheckpoint, queries). Runs
+# last: it registers operator2 under a second service type.
+if [ "$RUN_TESTS" != false ] && [ -f "$SCRIPT_DIR/checkpoint_test.sh" ]; then
+    run_test "Checkpoint Tests" "checkpoint_test.sh"
 fi
 
 # ============================================================================

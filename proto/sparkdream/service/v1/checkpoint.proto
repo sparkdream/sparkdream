@@ -1,0 +1,26 @@
+syntax = "proto3";
+package sparkdream.service.v1;
+
+import "cosmos_proto/cosmos.proto";
+
+option go_package = "sparkdream/x/service/types";
+
+// Checkpoint is an operator's latest progress claim for its off-chain work
+// under one service type (MsgSubmitCheckpoint). Service-agnostic: for
+// content scanners `height` is the block height scanned up to and `root` the
+// merkle root of the operator's signed verdict feed up to that point
+// (docs/content-scanning.md §8.2). One record per (service_type, operator);
+// each submission replaces the previous one and must advance `height`.
+message Checkpoint {
+  string operator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string service_type = 2;
+  // height is how far the operator's work has progressed, in block height.
+  // Strictly increasing per operator; never above the block it lands in.
+  int64 height = 3;
+  // root commits to the operator's off-chain output up to `height`
+  // (32 bytes). Makes the output tamper-evident: a later feed that does not
+  // reproduce an earlier root has been rewritten.
+  bytes root = 4;
+  // submitted_at is the block height the checkpoint landed in.
+  int64 submitted_at = 5;
+}

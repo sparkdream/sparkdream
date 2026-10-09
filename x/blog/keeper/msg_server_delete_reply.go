@@ -53,6 +53,7 @@ func (k msgServer) DeleteReply(ctx context.Context, msg *types.MsgDeleteReply) (
 
 	// Tombstone the reply
 	reply.Body = ""
+	applyReplyMediaLabels(&reply)
 	reply.Status = types.ReplyStatus_REPLY_STATUS_DELETED
 	reply.HiddenBy = ""
 	reply.HiddenAt = 0

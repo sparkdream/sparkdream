@@ -286,6 +286,9 @@ Anonymous posts, replies, and reactions are submitted via `x/shield`'s `MsgShiel
 | `TopPosts` | Posts by score within time range |
 | `PinnedPosts` | Category's pinned posts |
 | `ForumStatus` | Paused/enabled flags |
+| `PostContent` | Stored content of one post, including media-labelled content the other queries withhold |
+
+**Media labels.** Every post carries chain-computed `media_flags`, `media_rules_version` and `body_hash`. When `media_flags != 0`, `GetPost`, `ListPost`, `Posts`, `Thread` and `UserPosts` return `content = ""`; clients read it through `PostContent` after scanner verdicts clear it. See [docs/content-scanning.md](../../docs/content-scanning.md).
 
 ### Thread Management
 
@@ -349,6 +352,9 @@ Anonymous posts, replies, and reactions are submitted via `x/shield`'s `MsgShiel
 | `forum_paused` | bool | false | Stop all new posts |
 | `moderation_paused` | bool | false | Stop moderation actions |
 | `appeals_paused` | bool | false | Stop appeal submissions |
+| `media_min_trust_level` | uint32 | 1 | Trust level an active member needs to post media |
+| `media_author_bond_min` | Int (micro-DREAM) | 100 DREAM | Author bond that admits a lower-trust member's media on create (0 disables) |
+| `media_scan_fee` | Int (uspark) | 0 | Flat fee, burned, on every media write |
 
 ### Operational (via `MsgUpdateOperationalParams`)
 

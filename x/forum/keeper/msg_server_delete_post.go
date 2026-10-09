@@ -66,6 +66,7 @@ func (k msgServer) DeletePost(ctx context.Context, msg *types.MsgDeletePost) (*t
 	// Soft delete: update status, clear content, drop tag references.
 	post.Status = types.PostStatus_POST_STATUS_DELETED
 	post.Content = "[deleted]"
+	applyPostMediaLabels(&post)
 	post.Tags = nil
 
 	// Store updated post

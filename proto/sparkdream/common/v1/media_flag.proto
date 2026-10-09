@@ -1,0 +1,18 @@
+syntax = "proto3";
+package sparkdream.common.v1;
+
+option go_package = "sparkdream/x/common/types";
+
+// MediaFlag bits, OR-ed into a content record's media_flags. The chain sets
+// them at write time from information it already has plus one deterministic
+// data-URI scan of uncompressed text; it never decompresses bodies and never
+// parses or fetches links. Any non-zero media_flags withholds the body from
+// list and show queries until a client fetches it through the module's body
+// query. See docs/content-scanning.md.
+enum MediaFlag {
+  MEDIA_FLAG_NONE = 0;
+  MEDIA_FLAG_INLINE_DATA = 1; // a text body contains a data URI
+  MEDIA_FLAG_COMPRESSED = 2; // content_type is GZIP or ZSTD; never inspected
+  MEDIA_FLAG_OFFCHAIN_REF = 4; // content_type is IPFS / ARWEAVE / FILECOIN / JACKAL
+  MEDIA_FLAG_EXTERNAL_URI = 8; // a structured URI field is set
+}

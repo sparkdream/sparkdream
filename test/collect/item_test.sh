@@ -151,6 +151,53 @@ ITEM_COLL_ID=$ITEM_COLL_ID
 ITEM1_ID=$ITEM1_ID
 EOF
 
+# =========================================================================
+# Media: data URIs rejected, URI fields labelled (docs/content-scanning.md §3.3)
+# =========================================================================
+echo ""
+echo "--- Media: data URI in image_uri is rejected ---"
+TX_OUT=$(send_tx collect add-item --gas 400000 \
+    "$ITEM_COLL_ID" 0 "Inline Image" "bytes hidden in a URI" "data:image/png;base64,iVBORw0KGgo=" unspecified \
+    --from collector1)
+DATA_TXHASH=$(get_txhash "$TX_OUT")
+if [ -z "$DATA_TXHASH" ]; then
+    DATA_LOG="$TX_OUT"
+else
+    DATA_LOG=$(wait_for_tx "$DATA_TXHASH" | jq -r '.raw_log // empty' 2>/dev/null)
+fi
+if echo "$DATA_LOG" | grep -q "data URIs are not allowed"; then
+    echo "PASS: data URI image_uri rejected (ErrDataURINotAllowed)"
+    TESTS_PASSED=$((TESTS_PASSED + 1))
+else
+    echo "FAIL: data URI image_uri not rejected with ErrDataURINotAllowed"
+    echo "  Log: $(echo "$DATA_LOG" | head -c 300)"
+    TESTS_FAILED=$((TESTS_FAILED + 1))
+fi
+
+echo ""
+echo "--- Media: an image_uri labels the item EXTERNAL_URI; plain items carry no flag ---"
+TX_OUT=$(send_tx collect add-item --gas 400000 \
+    "$ITEM_COLL_ID" 0 "Linked Image" "points elsewhere" "https://aurora.example/cover.png" unspecified \
+    --from collector1)
+if assert_tx_success "Add item with an https image_uri" "$TX_OUT"; then
+    URI_ITEM_ID=$(extract_event_attr "$TX_RESULT_OUT" "item_added" "id")
+    if [ -n "$URI_ITEM_ID" ]; then
+        URI_FLAGS=$(query collect item "$URI_ITEM_ID" | jq -r '.item.media_flags // "0"' 2>/dev/null)
+        assert_equal "image_uri item labelled EXTERNAL_URI (8)" "8" "$URI_FLAGS"
+    else
+        skip_test "image_uri item label" "item id not found in events"
+    fi
+fi
+# An item without any URI field (earlier tests remove some, so pick a
+# surviving one from the collection).
+PLAIN_ITEM=$(query collect items "$ITEM_COLL_ID" | jq -c '[.items[] | select((.image_uri // "") == "")][0] // empty' 2>/dev/null)
+if [ -n "$PLAIN_ITEM" ]; then
+    PLAIN_FLAGS=$(echo "$PLAIN_ITEM" | jq -r '.media_flags // "0"')
+    assert_equal "plain item carries no media flag" "0" "$PLAIN_FLAGS"
+else
+    skip_test "plain item label" "no URI-free item left in the collection"
+fi
+
 echo ""
 print_summary
 exit $?

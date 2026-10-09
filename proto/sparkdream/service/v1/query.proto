@@ -6,6 +6,7 @@ import "amino/amino.proto";
 import "cosmos/base/query/v1beta1/pagination.proto";
 import "gogoproto/gogo.proto";
 import "google/api/annotations.proto";
+import "sparkdream/service/v1/checkpoint.proto";
 import "sparkdream/service/v1/operator.proto";
 import "sparkdream/service/v1/params.proto";
 import "sparkdream/service/v1/report.proto";
@@ -68,6 +69,18 @@ service Query {
   // state write.
   rpc OperatorReputationSnapshot(QueryOperatorReputationSnapshotRequest) returns (QueryOperatorReputationSnapshotResponse) {
     option (google.api.http).get = "/sparkdream/service/v1/operator_reputation_snapshot/{address}";
+  }
+
+  // Checkpoint returns the latest checkpoint for (operator, service_type).
+  rpc Checkpoint(QueryCheckpointRequest) returns (QueryCheckpointResponse) {
+    option (google.api.http).get = "/sparkdream/service/v1/checkpoint/{operator}/{service_type}";
+  }
+
+  // CheckpointsByServiceType returns the latest checkpoint of every operator
+  // under a service type. Clients use it to find the effective scanned
+  // height of the attestation quorum (docs/content-scanning.md §4.4).
+  rpc CheckpointsByServiceType(QueryCheckpointsByServiceTypeRequest) returns (QueryCheckpointsByServiceTypeResponse) {
+    option (google.api.http).get = "/sparkdream/service/v1/checkpoints_by_service_type/{service_type}";
   }
 }
 
@@ -206,4 +219,28 @@ message QueryOperatorReputationSnapshotResponse {
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
+}
+
+// QueryCheckpointRequest selects one operator's checkpoint.
+message QueryCheckpointRequest {
+  string operator = 1;
+  string service_type = 2;
+}
+
+// QueryCheckpointResponse returns the operator's latest checkpoint.
+message QueryCheckpointResponse {
+  Checkpoint checkpoint = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryCheckpointsByServiceTypeRequest pages a service type's checkpoints.
+message QueryCheckpointsByServiceTypeRequest {
+  string service_type = 1;
+  cosmos.base.query.v1beta1.PageRequest pagination = 2;
+}
+
+// QueryCheckpointsByServiceTypeResponse lists checkpoints in operator
+// address byte order.
+message QueryCheckpointsByServiceTypeResponse {
+  repeated Checkpoint checkpoints = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
 }

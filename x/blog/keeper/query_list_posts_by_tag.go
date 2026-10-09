@@ -45,7 +45,7 @@ func (q queryServer) ListPostsByTag(ctx context.Context, req *types.QueryListPos
 		if post.Status == types.PostStatus_POST_STATUS_HIDDEN {
 			return nil
 		}
-		posts = append(posts, post)
+		posts = append(posts, withholdPostBody(post))
 		return nil
 	})
 	if err != nil {

@@ -182,6 +182,12 @@ var (
 		"/sparkdream.service.v1.MsgTopUpBond",
 		"/sparkdream.service.v1.MsgUpdateMetadata",
 		"/sparkdream.service.v1.MsgClaimUnbondedBond",
+		// MsgSubmitCheckpoint moves no funds: it records how far an
+		// operator's off-chain work has progressed. Content-scanner workers
+		// run unattended (possibly on decentralized compute whose host can
+		// read memory), so they must sign with a session key, never the
+		// wallet holding the SPARK bond (docs/content-scanning.md §4.1).
+		"/sparkdream.service.v1.MsgSubmitCheckpoint",
 		// x/federation — bridge-daemon and verifier-runner ergonomics
 		// (Mastodon live link, P0.2). The bridge daemon polls a home
 		// timeline and anchors inbound content unattended; the verifier

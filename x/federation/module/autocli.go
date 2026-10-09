@@ -125,6 +125,12 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					Short:          "Query the Phase 2 jury lifecycle record for an escalated challenge",
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "content_id"}},
 				},
+				{
+					RpcMethod:      "FederatedContentBody",
+					Use:            "federated-content-body [id]",
+					Short:          "Full body of one federated content record, including media-flagged bodies withheld from list and show queries",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "id"}},
+				},
 			},
 		},
 		Tx: &autocliv1.ServiceCommandDescriptor{

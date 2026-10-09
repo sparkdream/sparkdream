@@ -47,6 +47,9 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 
 	// FederatedContent
 	for _, content := range genState.FederatedContent {
+		// Media labels are recomputed rather than trusted, so a genesis
+		// exported by an older binary (or hand-edited) imports correctly.
+		applyContentMediaLabels(&content)
 		if err := k.Content.Set(ctx, content.Id, content); err != nil {
 			return err
 		}

@@ -63,6 +63,7 @@ func (k msgServer) DeletePost(ctx context.Context, msg *types.MsgDeletePost) (*t
 	// Tombstone the post instead of hard delete
 	val.Title = ""
 	val.Body = ""
+	applyPostMediaLabels(&val)
 	val.Status = types.PostStatus_POST_STATUS_DELETED
 	val.UpdatedAt = sdkCtx.BlockTime().Unix()
 	val.HiddenBy = ""

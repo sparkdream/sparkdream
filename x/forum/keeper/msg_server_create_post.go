@@ -169,6 +169,14 @@ func (k msgServer) CreatePost(ctx context.Context, msg *types.MsgCreatePost) (*t
 		return nil, errorsmod.Wrapf(types.ErrContentTooLarge, "max size is %d bytes", types.DefaultMaxContentSize)
 	}
 
+	// Media rules + scan fee (docs/content-scanning.md §9).
+	{
+		creatorAddr, _ := sdk.AccAddressFromBech32(msg.Creator)
+		if err := k.checkMediaWrite(ctx, msg.Creator, creatorAddr, commontypes.LabelBody(msg.ContentType, msg.Content).Flags, msg.AuthorBond, params); err != nil {
+			return nil, err
+		}
+	}
+
 	// Charge cost_per_byte storage fee (burned). An anonymous poster would be
 	// spending the shield module's gas reserve, not their own SPARK, so the
 	// fee doesn't apply.
@@ -251,6 +259,7 @@ func (k msgServer) CreatePost(ctx context.Context, msg *types.MsgCreatePost) (*t
 		ContentType:    msg.ContentType,
 		InitiativeId:   msg.InitiativeId,
 	}
+	applyPostMediaLabels(&post)
 
 	// Store post
 	if err := k.Post.Set(ctx, postID, post); err != nil {

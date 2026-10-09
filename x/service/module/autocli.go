@@ -71,6 +71,18 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					Short:          "Query operator-reputation-snapshot",
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "address"}},
 				},
+				{
+					RpcMethod:      "Checkpoint",
+					Use:            "checkpoint [operator] [service-type]",
+					Short:          "Latest checkpoint for one operator under a service type",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "operator"}, {ProtoField: "service_type"}},
+				},
+				{
+					RpcMethod:      "CheckpointsByServiceType",
+					Use:            "checkpoints-by-service-type [service-type]",
+					Short:          "Latest checkpoints of every operator under a service type",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "service_type"}},
+				},
 			},
 		},
 		Tx: &autocliv1.ServiceCommandDescriptor{
@@ -152,6 +164,12 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					// `tx gov submit-proposal` rather than direct CLI.
 					RpcMethod: "UpdateServiceTypeConfig",
 					Skip:      true,
+				},
+				{
+					RpcMethod:      "SubmitCheckpoint",
+					Use:            "submit-checkpoint [service-type] [height] [root]",
+					Short:          "Record operator progress: height scanned up to and a base64 32-byte output root",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "service_type"}, {ProtoField: "height"}, {ProtoField: "root"}},
 				},
 			},
 		},

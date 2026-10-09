@@ -8,8 +8,9 @@ import (
 
 // DefaultGenesis returns the default genesis state.
 //
-// Seeds four ServiceTypeConfig entries for the federation→service
-// migration (Phase 8 of the migration plan):
+// Seeds the content-scanner service type (docs/content-scanning.md §8) and
+// four ServiceTypeConfig entries for the federation→service migration
+// (Phase 8 of the migration plan):
 //   - federation-bridge-activitypub
 //   - federation-bridge-atproto
 //   - federation-bridge-nostr
@@ -24,7 +25,41 @@ func DefaultGenesis() *GenesisState {
 	params := DefaultParams()
 	return &GenesisState{
 		Params:       params,
-		ServiceTypes: defaultFederationBridgeServiceTypes(params),
+		ServiceTypes: append(defaultFederationBridgeServiceTypes(params), defaultContentScannerServiceType(params)),
+	}
+}
+
+// ContentScannerServiceType is the service type of content-scanner workers
+// (docs/content-scanning.md §8).
+const ContentScannerServiceType = "content-scanner"
+
+// defaultContentScannerServiceType seeds the content-scanner service type
+// in its rollout-phase-2 shape: attestation_quorum = 1, because the first
+// worker is one the council controls directly; gov raises it once several
+// independent workers run (phase 3). Liveness reports fire when a worker's
+// checkpoint trails the chain by about a day. Lapses are routine,
+// council-judged matters, so stalled reports DISMISS rather than escalate.
+func defaultContentScannerServiceType(params Params) ServiceTypeConfig {
+	// 100 SPARK: scanners are hired by a council and paid by recurring
+	// spend; the bond backs liveness and accuracy, not custody of funds.
+	const minBondUspark = int64(100_000_000)
+	// Roughly one day: the default unbonding period is ~14 days.
+	lag := params.DefaultUnbondingPeriodBlocks / 14
+	return ServiceTypeConfig{
+		ServiceType:              ContentScannerServiceType,
+		Description:              "Off-chain content scanner publishing signed media verdicts (docs/content-scanning.md)",
+		MinBondAmount:            math.NewInt(minBondUspark),
+		UnbondingPeriodBlocks:    params.DefaultUnbondingPeriodBlocks,
+		UnilateralSlashCapBps:    params.DefaultUnilateralSlashCapBps,
+		Tier1WindowBlocks:        params.DefaultTier1WindowBlocks,
+		Tier1AggregateCapBps:     params.DefaultTier1AggregateCapBps,
+		Tier1CooldownBlocks:      params.DefaultTier1CooldownBlocks,
+		UnderfundedGraceBlocks:   params.DefaultUnderfundedGraceBlocks,
+		Enabled:                  true,
+		ReportTimeoutAction:      ReportTimeoutAction_REPORT_TIMEOUT_ACTION_DISMISS,
+		ChallengeDefaultSlashBps: 100,
+		AttestationQuorum:        1,
+		CheckpointMaxLagBlocks:   lag,
 	}
 }
 
@@ -212,6 +247,24 @@ func (gs GenesisState) Validate() error {
 		if _, ok := allOps[key]; !ok {
 			return fmt.Errorf("genesis: controller-transfer case %d references unknown operator %s",
 				c.JuryCaseId, key)
+		}
+	}
+
+	// Checkpoints: one per (service_type, operator), for a known service
+	// type, with a positive height and a 32-byte root. The operator may be
+	// archived (checkpoints outlive their operator as an audit trail).
+	seenCheckpoints := make(map[string]struct{}, len(gs.Checkpoints))
+	for _, cp := range gs.Checkpoints {
+		key := cp.ServiceType + "/" + cp.Operator
+		if _, dup := seenCheckpoints[key]; dup {
+			return fmt.Errorf("genesis: duplicate checkpoint for %s", key)
+		}
+		seenCheckpoints[key] = struct{}{}
+		if _, ok := serviceTypes[cp.ServiceType]; !ok {
+			return fmt.Errorf("genesis: checkpoint for %s references unknown service_type", key)
+		}
+		if cp.Height <= 0 || len(cp.Root) != 32 {
+			return fmt.Errorf("genesis: checkpoint for %s needs height > 0 and a 32-byte root", key)
 		}
 	}
 

@@ -3,6 +3,7 @@ package sparkdream.service.v1;
 
 import "amino/amino.proto";
 import "gogoproto/gogo.proto";
+import "sparkdream/service/v1/checkpoint.proto";
 import "sparkdream/service/v1/controller_transfer_case.proto";
 import "sparkdream/service/v1/operator.proto";
 import "sparkdream/service/v1/params.proto";
@@ -66,4 +67,10 @@ message GenesisState {
 
   // next_escrow_id restores the Tier1Escrow auto-incrementing counter.
   uint64 next_escrow_id = 12;
+
+  // checkpoints are the latest MsgSubmitCheckpoint record per
+  // (service_type, operator). Liveness deadlines are not exported; they
+  // are rebuilt from checkpoints and each type's checkpoint_max_lag_blocks
+  // at import.
+  repeated Checkpoint checkpoints = 13 [(gogoproto.nullable) = false];
 }

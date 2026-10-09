@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/forum/types"
 
 	errorsmod "cosmossdk.io/errors"
@@ -60,6 +61,14 @@ func (k msgServer) EditPost(ctx context.Context, msg *types.MsgEditPost) (*types
 	}
 	if uint64(len(msg.NewContent)) > types.DefaultMaxContentSize {
 		return nil, errorsmod.Wrapf(types.ErrContentTooLarge, "max size is %d bytes", types.DefaultMaxContentSize)
+	}
+
+	// Media rules + scan fee (docs/content-scanning.md §9).
+	{
+		creatorAddr, _ := sdk.AccAddressFromBech32(msg.Creator)
+		if err := k.checkMediaWrite(ctx, msg.Creator, creatorAddr, commontypes.LabelBody(msg.ContentType, msg.NewContent).Flags, nil, params); err != nil {
+			return nil, err
+		}
 	}
 
 	// Charge cost_per_byte storage delta fee (burned). An anonymous editor
@@ -137,6 +146,7 @@ func (k msgServer) EditPost(ctx context.Context, msg *types.MsgEditPost) (*types
 	// Update post
 	post.Content = msg.NewContent
 	post.ContentType = msg.ContentType
+	applyPostMediaLabels(&post)
 	post.Tags = msg.Tags
 	post.Edited = true
 	post.EditedAt = now

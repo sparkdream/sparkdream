@@ -169,6 +169,11 @@ message Post {
   // Promoter accountability (set by MsgMakePostPermanent)
   string promoted_by = 34;                                // Member who promoted this ephemeral to permanent; empty if still ephemeral or promoted via author auto-promotion / self-promotion
   int64 promoted_at = 35;                                 // Block-time (unix seconds) of the MsgMakePostPermanent call; 0 when promoted_by is empty
+
+  // Media labels (chain-computed on every content write; never author-set)
+  uint32 media_flags = 36;                                // OR of common.v1.MediaFlag bits
+  uint32 media_rules_version = 37;                        // Labelling rules version that produced media_flags
+  bytes body_hash = 38;                                   // sha256 of content as stored (nil when empty)
 }
 
 // PostStatus is defined in types.proto
@@ -180,6 +185,10 @@ enum PostStatus {
   POST_STATUS_ARCHIVED    = 4; // Compressed (Root posts only)
 }
 ```
+
+**Media labels.** `media_flags`, `media_rules_version` and `body_hash` are recomputed on create, edit, delete, hidden-expiry tombstone and genesis import. `GZIP`/`ZSTD` content gets `MEDIA_FLAG_COMPRESSED`, `IPFS`/`ARWEAVE`/`FILECOIN`/`JACKAL` get `MEDIA_FLAG_OFFCHAIN_REF`, and any other type is scanned once for an RFC 2397 data URI (`MEDIA_FLAG_INLINE_DATA`). A deleted post's placeholder (`"[deleted]"` or `""`) is never labelled, whatever its original `content_type`. Whenever `media_flags != 0`, `GetPost`, `ListPost`, `Posts`, `Thread` and `UserPosts` return `content = ""`; clients fetch it through `PostContent` once off-chain scanner verdicts clear it, and check it against `body_hash`. See [content-scanning.md](content-scanning.md).
+
+**Media rules** (params `media_min_trust_level` = 68, default 1 = PROVISIONAL; `media_author_bond_min` = 69, default 100 DREAM, 0 disables the bond path; `media_scan_fee` = 70, default 0). `MsgCreatePost` / `MsgEditPost` content labelled as media is accepted only from an active member at `media_min_trust_level`, or, on create, one whose `author_bond` is at least `media_author_bond_min`. Edits into media have no bond path; non-members and anonymous (shield) authors can never post media (`ErrMediaNotPermitted`, 2500). Accepted media writes pay `media_scan_fee`, burned. See [content-scanning.md](content-scanning.md) §9.
 
 ### 4.2. Category
 
@@ -4501,7 +4510,8 @@ service Query {
   // ==========================================
   rpc Params(QueryParamsRequest) returns (QueryParamsResponse);
 
-  rpc GetPost / ListPost                                 // Post by ID / paginated list
+  rpc GetPost / ListPost                                 // Post by ID / paginated list (content withheld when media_flags != 0)
+  rpc PostContent                                        // Stored content of one post, incl. withheld media (content, content_type, media_flags, body_hash)
   rpc GetCategory / ListCategory                         // Category by ID / paginated list
   rpc GetTag / ListTag                                   // Tag by name / paginated list (sparkdream.common.v1.Tag)
   rpc GetReservedTag / ListReservedTag                   // Reserved tag by name / paginated list
@@ -4622,6 +4632,8 @@ service Query {
 - **DELETED posts:** Content is replaced with "[deleted by author]" for author-initiated deletions. For appeal-rejected posts (jury ruled content violated policy), the original content is **preserved** in state with `status = DELETED`. This allows historical verification while clearly marking the post as policy-violating.
 
 - **ARCHIVED posts:** Full content accessible via `MsgUnarchiveThread` or by decompressing the `ArchivedThread.compressed_data` blob directly.
+
+- **Media-labelled posts** (`media_flags != 0`): list and show queries return `content = ""`; the stored content is always available through `PostContent`. This is a fetch-order gate for opt-in frontends, not censorship.
 
 **Rationale:** Frontends may choose to hide or de-emphasize content based on status, but the on-chain data layer never censors. Anyone running a node or querying the chain can access all content. This ensures:
 1. Appeal evidence is always available
@@ -5758,6 +5770,8 @@ message EventInitiativeLinkRemoved {
 | | `ErrMembershipTooNew` | 2251 | Membership too recent for this operation |
 | **Conviction Propagation (2400-2499)** | | | |
 | | `ErrInvalidInitiativeRef` | 2400 | Invalid initiative reference |
+| **Media (2500-2599)** | | | |
+| | `ErrMediaNotPermitted` | 2500 | Content labelled as media from an author who does not meet the media rules (§4.1) |
 
 ---
 

@@ -3,6 +3,7 @@ package keeper_test
 import (
 	"testing"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/federation/types"
 	identitytypes "sparkdream/x/identity/types"
 
@@ -167,12 +168,18 @@ func TestGenesisRoundTripsSupersedeAndContentHosts(t *testing.T) {
 				SubmittedBy: "sprkdrm1operator", ContentHash: []byte{0x01},
 				Status:       types.FederatedContentStatus_FEDERATED_CONTENT_STATUS_SUPERSEDED,
 				SupersededBy: 1, ExpiresAt: 1_700_000_900,
+				// A content_uri labels the record EXTERNAL_URI (docs/content-scanning.md).
+				MediaFlags:        uint32(commontypes.MediaFlag_MEDIA_FLAG_EXTERNAL_URI),
+				MediaRulesVersion: commontypes.MediaRulesVersion,
 			},
 			{
 				Id: 1, PeerId: "phoenix.example", ContentType: "blog_post", ContentUri: uri,
 				SubmittedBy: "sprkdrm1operator", ContentHash: []byte{0x02},
 				Status:     types.FederatedContentStatus_FEDERATED_CONTENT_STATUS_PENDING_VERIFICATION,
 				Supersedes: &types.ContentRef{ContentId: 0}, ExpiresAt: 1_700_000_900,
+				// A content_uri labels the record EXTERNAL_URI (docs/content-scanning.md).
+				MediaFlags:        uint32(commontypes.MediaFlag_MEDIA_FLAG_EXTERNAL_URI),
+				MediaRulesVersion: commontypes.MediaRulesVersion,
 			},
 		},
 	}

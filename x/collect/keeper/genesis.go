@@ -30,7 +30,10 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 	}
 
 	// Import collections + rebuild secondary indexes
+	// Media labels are recomputed rather than trusted, so a genesis exported
+	// by an older binary (or hand-edited) imports with correct labels.
 	for _, coll := range genState.Collections {
+		applyCollectionMediaLabels(&coll)
 		if err := k.Collection.Set(ctx, coll.Id, coll); err != nil {
 			return err
 		}
@@ -54,6 +57,7 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 
 	// Import items + rebuild secondary indexes
 	for _, item := range genState.Items {
+		applyItemMediaLabels(&item)
 		if err := k.Item.Set(ctx, item.Id, item); err != nil {
 			return err
 		}

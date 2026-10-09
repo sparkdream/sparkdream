@@ -939,6 +939,8 @@ message FederatedContent {
   ContentRef supersedes = 17;                      // Earlier record of the same content_uri this one replaces (an edit); unset for a first version
   uint64 superseded_by = 18;                       // Newer record that replaced this one; 0 = none (a successor is never id 0)
   string license = 19;                             // "CC0-1.0" or "PDM-1.0": the public-domain license it entered under (Section 3.3)
+  uint32 media_flags = 20;                         // Chain-computed: INLINE_DATA if body holds a data URI, EXTERNAL_URI if content_uri is set
+  uint32 media_rules_version = 21;                 // Labelling rules version that produced media_flags
 }
 
 // Content ids start at 0, so "supersedes nothing" needs a nil ref, not a zero id.
@@ -2089,6 +2091,9 @@ message MsgPruneOrphanBindingsResponse {
 | `ListBridgeBindings` | peer_id filter, pagination | []BridgeBinding | List bindings (Phase 7 of the migration enriches with joined `service.Operator` status; current responses carry only the federation-side binding) |
 | `GetFederatedContent` | id | FederatedContent | Single content item |
 | `ListFederatedContent` | peer_id, content_type, creator_identity, status filters, pagination | []FederatedContent | List federated content |
+| `FederatedContentBody` | id | body, media_flags, content_hash | Stored body of one record, including bodies the queries above withhold |
+
+**Media labels.** `media_flags` is computed on `MsgSubmitFederatedContent`, on IBC receive and on genesis import, never set by the submitter. Whenever it is non-zero, `GetFederatedContent` and `ListFederatedContent` return `body = ""` and the body is read through `FederatedContentBody`. Every record with a `content_uri` (all bridged posts) is labelled, so consumers that need the body, such as `sdapverify`'s display check, fetch it there. See [content-scanning.md](content-scanning.md).
 | `GetIdentityLink` | local_address, peer_id | IdentityLink | Identity link details |
 | `ListIdentityLinks` | local_address or peer_id filter, pagination | []IdentityLink | List identity links |
 | `ResolveRemoteIdentity` | peer_id, remote_identity | local_address | Reverse lookup: remote → local |
