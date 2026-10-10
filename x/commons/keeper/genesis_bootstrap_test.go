@@ -184,3 +184,31 @@ func TestOpsCommitteeCanOwnCurationCollections(t *testing.T) {
 			"the Operations Committee cannot execute %s, so it cannot run a federation curation list", msg)
 	}
 }
+
+// x/artifact authorizes council-path moderation and operational params with
+// IsCouncilAuthorized(commons, operations), which accepts the committee
+// policy -- and badge classes are issued by council bodies. As above, the
+// keeper check is only half of the grant: the proposal must also clear the
+// AllowedMessages gate (docs/x-artifact-spec.md §7.14).
+func TestCouncilsCanRunArtifactBadges(t *testing.T) {
+	bootstrap, err := os.ReadFile("genesis_bootstrap.go")
+	require.NoError(t, err)
+	src := string(bootstrap)
+	block := func(name, endMarker string) string {
+		start := strings.Index(src, `Name:        "`+name+`"`)
+		require.NotEqual(t, -1, start, "%s block not found", name)
+		end := strings.Index(src[start:], endMarker)
+		require.NotEqual(t, -1, end, "end of %s block not found", name)
+		return src[start : start+end]
+	}
+	issuer := []string{"MsgCreateClass", "MsgMint", "MsgRevoke", "MsgSetMinters", "MsgCloseMinting", "MsgCancelOutgoing"}
+
+	council := block("Commons Council", "VetoPermissions")
+	for _, msg := range issuer {
+		require.Contains(t, council, `"/sparkdream.artifact.v1.`+msg+`"`, "Commons Council cannot execute artifact %s", msg)
+	}
+	ops := block("Commons Operations Committee", "MaxSpendPerEpoch")
+	for _, msg := range append(issuer, "MsgHideContent", "MsgUnhideContent", "MsgUpdateOperationalParams") {
+		require.Contains(t, ops, `"/sparkdream.artifact.v1.`+msg+`"`, "Operations Committee cannot execute artifact %s", msg)
+	}
+}

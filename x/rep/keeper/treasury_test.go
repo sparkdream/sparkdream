@@ -1,6 +1,7 @@
 package keeper_test
 
 import (
+	commontypes "sparkdream/x/common/types"
 	"testing"
 
 	"cosmossdk.io/math"
@@ -208,7 +209,7 @@ func TestPayDREAMFromTreasuryFirst_FiresReferralOnTotal(t *testing.T) {
 	invitee := sdk.AccAddress([]byte("invitee_treasur_"))
 	invitationID, err := k.CreateInvitation(ctx, inviter, invitee, math.NewInt(100_000_000), []string{"tag"})
 	require.NoError(t, err)
-	require.NoError(t, k.AcceptInvitation(ctx, invitationID, invitee))
+	require.NoError(t, k.AcceptInvitation(ctx, invitationID, invitee, commontypes.ChainContentLicense))
 
 	inviterBefore, _ := k.Member.Get(ctx, inviter.String())
 	initialBalance := *inviterBefore.DreamBalance
@@ -258,7 +259,7 @@ func TestPayDREAMFromTreasuryFirst_PartialCoverageReferralStillOnTotal(t *testin
 	invitee := sdk.AccAddress([]byte("invitee_partial_"))
 	invitationID, err := k.CreateInvitation(ctx, inviter, invitee, math.NewInt(100_000_000), []string{"tag"})
 	require.NoError(t, err)
-	require.NoError(t, k.AcceptInvitation(ctx, invitationID, invitee))
+	require.NoError(t, k.AcceptInvitation(ctx, invitationID, invitee, commontypes.ChainContentLicense))
 
 	inviterBefore, _ := k.Member.Get(ctx, inviter.String())
 	initialBalance := *inviterBefore.DreamBalance

@@ -19,6 +19,14 @@ enum GovActionType {
   // assignee; a successful appeal voids the rejection and records the
   // rejecting reviewers as overturned.
   GOV_ACTION_TYPE_REVIEW_REJECTION = 10;
+  // A content-sentinel or council hide of an x/collect collection or item.
+  // action_target is the collect HideRecord id. Filed only through
+  // x/collect MsgAppealHide (rep's MsgAppealGovAction rejects it).
+  GOV_ACTION_TYPE_COLLECT_HIDE = 11;
+  // A content-sentinel or council hide of an x/artifact class or token.
+  // action_target is the artifact HideRecord id. Filed only through
+  // x/artifact MsgAppealHide.
+  GOV_ACTION_TYPE_ARTIFACT_HIDE = 12;
 }
 
 // MemberReportStatus represents the status of a member report.

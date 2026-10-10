@@ -1,6 +1,7 @@
 package keeper_test
 
 import (
+	commontypes "sparkdream/x/common/types"
 	"testing"
 	"time"
 
@@ -287,7 +288,7 @@ func TestInvitationStakePartialBurn(t *testing.T) {
 	require.NoError(t, err)
 
 	// Accept invitation
-	err = k.AcceptInvitation(sdkCtx, invitationID, TestAddrInvitee)
+	err = k.AcceptInvitation(sdkCtx, invitationID, TestAddrInvitee, commontypes.ChainContentLicense)
 	require.NoError(t, err)
 
 	// Check inviter balance: should have lost 10% of stake
@@ -324,7 +325,7 @@ func TestInvitationStakeZeroBurnRate(t *testing.T) {
 	invitationID, err := k.CreateInvitation(sdkCtx, TestAddrInviter, TestAddrInvitee, stakeAmount, []string{TestTagBackend})
 	require.NoError(t, err)
 
-	err = k.AcceptInvitation(sdkCtx, invitationID, TestAddrInvitee)
+	err = k.AcceptInvitation(sdkCtx, invitationID, TestAddrInvitee, commontypes.ChainContentLicense)
 	require.NoError(t, err)
 
 	// With zero burn rate, full amount should be returned

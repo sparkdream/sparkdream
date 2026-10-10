@@ -55,6 +55,7 @@ Details: [x/federation spec](x-federation-spec.md), Sections 3.3 and 6.15.
 | [x/common/types/content_license.go](../x/common/types/content_license.go) | The constants every module and daemon uses |
 | `FederatedContent.license` | The license each federated record entered under |
 | `MsgAcceptInvitation.accepted_content_license` | Each member's signed agreement; event `content_license_accepted` |
+| `Member.content_license` | The agreement kept in state, agreed at the member's `joined_at_height` (x/rep `Member` query) |
 | `Contribution.final_license` (x/reveal) | The open license revealed code is released under |
 | The Mastodon bridge account's bio | The opt-in rule (`#cc0` / `#publicdomain`), set when the account is provisioned |
 

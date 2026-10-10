@@ -122,7 +122,7 @@ func (k Keeper) deductRepPerTag(ctx context.Context, addr sdk.AccAddress, tags [
 // restoreAuthorPenalties restores the author bond and per-tag rep penalty
 // snapshotted on a HideRecord at hide time. Called from every hide
 // reversal that favors the author: sentinel self-correct
-// (MsgUnhideContent), jury overturn (ResolveHideAppeal upheld), and
+// (MsgUnhideContent), appeal overturn (RepAppealTarget.ReverseSentinelAction), and
 // appeal timeout (handleAppealedHideExpiry). The unappealed-expiry path
 // deletes the content and deliberately does NOT restore.
 //
@@ -558,7 +558,7 @@ func (k Keeper) deleteCollectionFull(ctx context.Context, coll types.Collection)
 	// in flight (Appealed && !Resolved): the §10.1 TTL pruner skips such
 	// collections (defers until the appeal resolves), MsgDeleteCollection
 	// rejects HIDDEN status outright with ErrCannotDeleteHidden, and
-	// ResolveHideAppeal pre-persists Resolved=true before calling here. So
+	// The UPHELD appeal path (RepAppealTarget) pre-persists Resolved=true before calling here. So
 	// Status==HIDDEN at this point unambiguously means "sentinel hide stands
 	// AND the appeal lane is settled (no appeal, jury rejected, or appeal
 	// timed out in sentinel's favor — though the last doesn't currently
@@ -619,17 +619,15 @@ func (k Keeper) deleteCollectionFull(ctx context.Context, coll types.Collection)
 		k.SponsorshipRequest.Remove(ctx, coll.Id)                                           //nolint:errcheck
 	}
 
-	// Handle active hide appeals: burn appeal fee, release sentinel bond
+	// Close open hides: release the sentinel bond. An appeal in flight is
+	// owned by x/rep, which still settles its bond; the Resolved record makes
+	// collect's appeal callbacks no-ops (see appeal_target.go).
 	err = k.HideRecordByTarget.Walk(ctx,
 		collections.NewPrefixedPairRange[string, uint64](HideRecordTargetCompositeKey(types.FlagTargetType_FLAG_TARGET_TYPE_COLLECTION, coll.Id)),
 		func(key collections.Pair[string, uint64]) (bool, error) {
 			hr, err := k.HideRecord.Get(ctx, key.K2())
 			if err != nil {
 				return false, nil
-			}
-			if hr.Appealed && !hr.Resolved {
-				// Burn escrowed appeal fee
-				k.BurnSPARK(ctx, params.AppealFee) //nolint:errcheck
 			}
 			if !hr.Resolved && k.repKeeper != nil && hr.CommittedAmount.IsPositive() {
 				k.repKeeper.ReleaseBond(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, hr.Sentinel, hr.CommittedAmount) //nolint:errcheck
@@ -819,9 +817,6 @@ func (k Keeper) cleanupItemHideRecords(ctx context.Context, item types.Item, par
 			hr, err := k.HideRecord.Get(ctx, key.K2())
 			if err != nil {
 				return false, nil
-			}
-			if hr.Appealed && !hr.Resolved {
-				k.BurnSPARK(ctx, params.AppealFee) //nolint:errcheck
 			}
 			if !hr.Resolved && k.repKeeper != nil && hr.CommittedAmount.IsPositive() {
 				k.repKeeper.ReleaseBond(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, hr.Sentinel, hr.CommittedAmount) //nolint:errcheck

@@ -145,6 +145,23 @@ func (k Keeper) IsCouncilOrCommitteePolicy(ctx context.Context, addr string, cou
 	return false
 }
 
+// IsCouncilBodyPolicy reports whether addr is the gov authority or the
+// policy address of one of the three councils or one of their standing
+// (operations / governance) committees. Unlike IsGroupPolicyAddress it does
+// NOT match arbitrary sub-groups a council has registered, whose membership
+// is not bound by the council hierarchy. Used by x/artifact as the
+// "council body" trust check (class creation, trusted token sender).
+func (k Keeper) IsCouncilBodyPolicy(ctx context.Context, addr string) bool {
+	for _, council := range []string{"commons", "technical", "ecosystem"} {
+		for _, committee := range []string{"", "operations", "governance"} {
+			if k.IsCouncilOrCommitteePolicy(ctx, addr, council, committee) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // IsCouncilPolicyOrGov returns true only if addr is the gov authority or the
 // council's policy address. Unlike IsCouncilAuthorized, individual committee
 // membership does NOT satisfy this check — it is for handlers that require an

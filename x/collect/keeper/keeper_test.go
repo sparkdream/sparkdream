@@ -191,6 +191,14 @@ type mockRepKeeper struct {
 	// via SeedBondedRole to simulate a curator having bonded via x/rep.
 	bondedRoles       map[string]reptypes.BondedRole
 	bondedRoleConfigs map[reptypes.RoleType]reptypes.BondedRoleConfig
+
+	// Moderation appeals opened via CreateGovActionAppeal ("<type>:<target>").
+	appealCalls []string
+}
+
+func (m *mockRepKeeper) CreateGovActionAppeal(_ context.Context, actionType reptypes.GovActionType, target string, _ sdk.AccAddress, _ string) (uint64, uint64, error) {
+	m.appealCalls = append(m.appealCalls, actionType.String()+":"+target)
+	return uint64(len(m.appealCalls)), uint64(1000 + len(m.appealCalls)), nil
 }
 
 // SeedBondedRole inserts a BondedRole record into the mock keyed by

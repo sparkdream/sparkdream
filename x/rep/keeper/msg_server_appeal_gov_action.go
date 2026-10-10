@@ -28,6 +28,13 @@ func (k msgServer) AppealGovAction(ctx context.Context, msg *types.MsgAppealGovA
 	if actionType == types.GovActionType_GOV_ACTION_TYPE_UNSPECIFIED {
 		return nil, errorsmod.Wrap(types.ErrInvalidReasonCode, "invalid action type")
 	}
+	// Module-owned appeals (collect / artifact hides) carry the owning
+	// module's own appellant and state checks, so they must be filed through
+	// that module's MsgAppealHide, never directly.
+	if types.ModuleOwnedAppealTypes[actionType] {
+		return nil, errorsmod.Wrapf(types.ErrInvalidReasonCode,
+			"%s appeals must be filed through the owning module", actionType)
+	}
 
 	if _, _, err := k.CreateGovActionAppeal(ctx, actionType, msg.ActionTarget, creatorAddr, msg.AppealReason); err != nil {
 		return nil, err
@@ -89,7 +96,7 @@ func (k Keeper) CreateGovActionAppeal(ctx context.Context, actionType types.GovA
 	// seated the appeal still stands and falls back to committee resolution or
 	// timeout.
 	excludes := []string{appellant.String(), actionTarget}
-	if fk := k.late.forumKeeper; fk != nil {
+	if fk := k.appealTarget(actionType); fk != nil {
 		if sentinel, sErr := fk.GetActionSentinel(ctx, actionType, actionTarget); sErr == nil && sentinel != "" {
 			excludes = append(excludes, sentinel)
 		}

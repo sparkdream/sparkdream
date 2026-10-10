@@ -128,6 +128,15 @@ message Member {
   // max_initiative_bounty_per_funder_epoch.
   string initiative_bounty_funded_this_epoch = 37 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
   int64 last_initiative_bounty_epoch = 38;
+
+  // The content license this member agreed to publish under
+  // (docs/content-license.md). Set from MsgAcceptInvitation's signed
+  // accepted_content_license, or for genesis members from the genesis file,
+  // where GenesisState.Validate requires it. Never changed afterwards: a CC0
+  // dedication cannot be revoked, so zeroing and status changes leave it
+  // alone. An address joins only once, so the agreement was made at
+  // joined_at / joined_at_height.
+  string content_license = 39;
 }
 
 enum TrustLevel {

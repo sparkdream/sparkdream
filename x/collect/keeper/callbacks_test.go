@@ -2,12 +2,14 @@ package keeper_test
 
 import (
 	"context"
+	"strconv"
 	"testing"
 
 	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/stretchr/testify/require"
 
+	"sparkdream/x/collect/keeper"
 	"sparkdream/x/collect/types"
 	commontypes "sparkdream/x/common/types"
 	reptypes "sparkdream/x/rep/types"
@@ -291,14 +293,11 @@ func TestResolveChallengeResult_Rejected(t *testing.T) {
 	}}, f.repKeeper.roleOutcomeCalls)
 }
 
-func TestResolveHideAppeal_Upheld(t *testing.T) {
-	f := initTestFixture(t)
-	f.setBlockHeight(100)
-
-	// Create an ACTIVE collection
+// hideAndAppeal hides a fresh collection as the sentinel and appeals it as
+// the owner, returning (collectionID, hideRecordID).
+func hideAndAppeal(t *testing.T, f *testFixture) (uint64, uint64) {
+	t.Helper()
 	collID := f.createCollection(t, f.owner)
-
-	// Hide it (sentinel)
 	hideResp, err := f.msgServer.HideContent(f.ctx, &types.MsgHideContent{
 		Creator:    f.sentinel,
 		TargetType: types.FlagTargetType_FLAG_TARGET_TYPE_COLLECTION,
@@ -306,134 +305,105 @@ func TestResolveHideAppeal_Upheld(t *testing.T) {
 		ReasonCode: commontypes.ModerationReason_MODERATION_REASON_SPAM,
 	})
 	require.NoError(t, err)
-	hideRecordID := hideResp.HideRecordId
+	f.advanceBlockHeight(601) // past appeal cooldown
 
-	// Advance past appeal cooldown
-	f.advanceBlockHeight(601)
-
-	// Appeal (owner)
-	_, err = f.msgServer.AppealHide(f.ctx, &types.MsgAppealHide{
-		Creator:      f.owner,
-		HideRecordId: hideRecordID,
-	})
-	require.NoError(t, err)
-
-	// Track refund (80% appeal fee to appellant)
-	var refundCalled bool
-	var refundAddr sdk.AccAddress
-	var refundAmount sdk.Coins
-	f.bankKeeper.sendCoinsFromModuleToAccountFn = func(_ context.Context, _ string, recipient sdk.AccAddress, amt sdk.Coins) error {
-		refundCalled = true
-		refundAddr = recipient
-		refundAmount = amt
+	// Opening the appeal moves no funds through collect: x/rep charges its
+	// own appeal bond.
+	f.bankKeeper.sendCoinsFromAccountToModuleFn = func(context.Context, sdk.AccAddress, string, sdk.Coins) error {
+		t.Fatal("collect must not escrow an appeal fee")
 		return nil
 	}
+	_, err = f.msgServer.AppealHide(f.ctx, &types.MsgAppealHide{Creator: f.owner, HideRecordId: hideResp.HideRecordId})
+	require.NoError(t, err)
+	f.bankKeeper.sendCoinsFromAccountToModuleFn = nil
 
-	// Capture sentinel's pre-resolve bond so we can verify SlashBond fired.
+	hr, err := f.keeper.HideRecord.Get(f.ctx, hideResp.HideRecordId)
+	require.NoError(t, err)
+	require.True(t, hr.Appealed)
+	require.Equal(t, uint64(len(f.repKeeper.appealCalls)), hr.AppealId)
+	require.Equal(t, reptypes.GovActionType_GOV_ACTION_TYPE_COLLECT_HIDE.String()+":"+strconv.FormatUint(hr.Id, 10),
+		f.repKeeper.appealCalls[len(f.repKeeper.appealCalls)-1])
+	return collID, hideResp.HideRecordId
+}
+
+func TestRepAppeal_Overturned(t *testing.T) {
+	f := initTestFixture(t)
+	f.setBlockHeight(100)
+	collID, hideRecordID := hideAndAppeal(t, f)
 	preSentinelBond := f.repKeeper.bondedRoles[mockBondedRoleKey(reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, f.sentinel)].CurrentBond
 
-	// Track burn (20% of appeal fee)
-	var burnCalled bool
-	f.bankKeeper.burnCoinsFn = func(_ context.Context, _ string, _ sdk.Coins) error {
-		burnCalled = true
-		return nil
-	}
+	// x/rep verdict OVERTURNED: rep slashes, collect restores.
+	resolveAppealViaRep(t, f, hideRecordID, true)
 
-	// Resolve appeal as upheld (appellant wins, sentinel was wrong)
-	err = f.keeper.ResolveHideAppeal(f.ctx, hideRecordID, true)
-	require.NoError(t, err)
-
-	// Verify hide record is resolved
 	hr, err := f.keeper.HideRecord.Get(f.ctx, hideRecordID)
 	require.NoError(t, err)
 	require.True(t, hr.Resolved)
-
-	// Verify collection is restored to ACTIVE
 	coll, err := f.keeper.Collection.Get(f.ctx, collID)
 	require.NoError(t, err)
 	require.Equal(t, types.CollectionStatus_COLLECTION_STATUS_ACTIVE, coll.Status)
-
-	// Verify appellant got 80% refund
-	require.True(t, refundCalled)
-	require.Equal(t, f.ownerAddr.Bytes(), refundAddr.Bytes())
-	expectedRefund := types.DefaultAppealFee.MulRaw(80).Quo(math.NewInt(100))
-	require.Equal(t, sdk.NewCoins(sdk.NewCoin("uspark", expectedRefund)), refundAmount)
-
-	// Verify sentinel bond was slashed (CurrentBond decreased).
 	postSentinelBond := f.repKeeper.bondedRoles[mockBondedRoleKey(reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, f.sentinel)].CurrentBond
 	require.NotEqual(t, preSentinelBond, postSentinelBond, "expected SlashBond to reduce current_bond")
 
-	// Verify 20% was burned
-	require.True(t, burnCalled)
+	// A second verdict callback is a no-op and reports no sentinel.
+	target := keeper.NewRepAppealTarget(f.keeper)
+	sentinel, err := target.GetActionSentinel(f.ctx, reptypes.GovActionType_GOV_ACTION_TYPE_COLLECT_HIDE, strconv.FormatUint(hideRecordID, 10))
+	require.NoError(t, err)
+	require.Empty(t, sentinel)
 }
 
-func TestResolveHideAppeal_Rejected(t *testing.T) {
+func TestRepAppeal_Upheld(t *testing.T) {
 	f := initTestFixture(t)
 	f.setBlockHeight(100)
-
-	// Create an ACTIVE collection
-	collID := f.createCollection(t, f.owner)
-
-	// Hide it (sentinel)
-	hideResp, err := f.msgServer.HideContent(f.ctx, &types.MsgHideContent{
-		Creator:    f.sentinel,
-		TargetType: types.FlagTargetType_FLAG_TARGET_TYPE_COLLECTION,
-		TargetId:   collID,
-		ReasonCode: commontypes.ModerationReason_MODERATION_REASON_SPAM,
-	})
-	require.NoError(t, err)
-	hideRecordID := hideResp.HideRecordId
-
-	// Advance past appeal cooldown
-	f.advanceBlockHeight(601)
-
-	// Appeal (owner)
-	_, err = f.msgServer.AppealHide(f.ctx, &types.MsgAppealHide{
-		Creator:      f.owner,
-		HideRecordId: hideRecordID,
-	})
-	require.NoError(t, err)
-
-	// Capture sentinel's pre-resolve bond commitment so we can verify
-	// ReleaseBond fired (TotalCommittedBond decreases on release).
+	collID, hideRecordID := hideAndAppeal(t, f)
 	preSentinelCommitted := f.repKeeper.bondedRoles[mockBondedRoleKey(reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, f.sentinel)].TotalCommittedBond
 
-	// Track sentinel reward
-	var sentinelRewarded bool
-	f.bankKeeper.sendCoinsFromModuleToAccountFn = func(_ context.Context, _ string, recipient sdk.AccAddress, amt sdk.Coins) error {
-		if recipient.Equals(f.sentinelAddr) {
-			sentinelRewarded = true
-		}
-		return nil
-	}
+	// x/rep verdict UPHELD: rep releases the bond, collect deletes.
+	resolveAppealViaRep(t, f, hideRecordID, false)
 
-	// Track burn (jury + remaining)
-	var burnCalled bool
-	f.bankKeeper.burnCoinsFn = func(_ context.Context, _ string, _ sdk.Coins) error {
-		burnCalled = true
-		return nil
-	}
-
-	// Resolve appeal as rejected (sentinel wins, content should be deleted)
-	err = f.keeper.ResolveHideAppeal(f.ctx, hideRecordID, false)
-	require.NoError(t, err)
-
-	// Verify hide record is resolved
 	hr, err := f.keeper.HideRecord.Get(f.ctx, hideRecordID)
 	require.NoError(t, err)
 	require.True(t, hr.Resolved)
-
-	// Verify collection is deleted (sentinel was right)
 	_, err = f.keeper.Collection.Get(f.ctx, collID)
-	require.Error(t, err)
-
-	// Verify sentinel bond was released (TotalCommittedBond decreased).
+	require.Error(t, err, "collection deleted (sentinel was right)")
 	postSentinelCommitted := f.repKeeper.bondedRoles[mockBondedRoleKey(reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, f.sentinel)].TotalCommittedBond
 	require.NotEqual(t, preSentinelCommitted, postSentinelCommitted, "expected ReleaseBond to reduce total_committed_bond")
+}
 
-	// Verify sentinel was rewarded (50% of appeal fee)
-	require.True(t, sentinelRewarded)
+func TestRepAppeal_TimeoutRestoresAndReleases(t *testing.T) {
+	f := initTestFixture(t)
+	f.setBlockHeight(100)
+	collID, hideRecordID := hideAndAppeal(t, f)
+	role := f.repKeeper.bondedRoles[mockBondedRoleKey(reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, f.sentinel)]
+	preSentinelCommitted, preSentinelBond := role.TotalCommittedBond, role.CurrentBond
 
-	// Verify burn happened (jury 20% + burned 30%)
-	require.True(t, burnCalled)
+	// collect's own EndBlocker never expires an appealed hide.
+	params, err := f.keeper.Params.Get(f.ctx)
+	require.NoError(t, err)
+	f.advanceBlockHeight(params.HideExpiryBlocks + 10)
+	require.NoError(t, f.keeper.PruneExpired(f.ctx))
+	coll, err := f.keeper.Collection.Get(f.ctx, collID)
+	require.NoError(t, err)
+	require.Equal(t, types.CollectionStatus_COLLECTION_STATUS_HIDDEN, coll.Status)
+
+	timeoutAppealViaRep(t, f, hideRecordID)
+	coll, err = f.keeper.Collection.Get(f.ctx, collID)
+	require.NoError(t, err)
+	require.Equal(t, types.CollectionStatus_COLLECTION_STATUS_ACTIVE, coll.Status, "timeout favors the appellant")
+	hr, err := f.keeper.HideRecord.Get(f.ctx, hideRecordID)
+	require.NoError(t, err)
+	require.True(t, hr.Resolved)
+	postSentinelCommitted := f.repKeeper.bondedRoles[mockBondedRoleKey(reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, f.sentinel)].TotalCommittedBond
+	require.NotEqual(t, preSentinelCommitted, postSentinelCommitted, "collect releases the bond on timeout")
+	require.Equal(t, preSentinelBond, f.repKeeper.bondedRoles[mockBondedRoleKey(reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, f.sentinel)].CurrentBond, "a timeout slashes no one")
+}
+
+func TestRepAppealTarget_RejectsForeignTypes(t *testing.T) {
+	f := initTestFixture(t)
+	target := keeper.NewRepAppealTarget(f.keeper)
+	_, err := target.GetActionSentinel(f.ctx, reptypes.GovActionType_GOV_ACTION_TYPE_POST_HIDE, "1")
+	require.Error(t, err)
+	_, err = target.GetActionSentinel(f.ctx, reptypes.GovActionType_GOV_ACTION_TYPE_COLLECT_HIDE, "nope")
+	require.Error(t, err)
+	// Unknown record ids are a soft no-op.
+	require.NoError(t, target.ReverseSentinelAction(f.ctx, reptypes.GovActionType_GOV_ACTION_TYPE_COLLECT_HIDE, "424242"))
 }

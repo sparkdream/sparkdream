@@ -22,7 +22,7 @@ func TestLinkIdentity(t *testing.T) {
 	userStr := testAddr(t, f, "link-user")
 
 	_, err := ms.LinkIdentity(f.ctx, &types.MsgLinkIdentity{
-		Creator: userStr, PeerId: "link-peer", RemoteIdentity: "@alice@mastodon.social",
+		Creator: userStr, PeerId: "link-peer", RemoteIdentity: "@alice@mastodon.example",
 	})
 	require.NoError(t, err)
 
@@ -35,7 +35,7 @@ func TestLinkIdentity(t *testing.T) {
 	require.NotEmpty(t, link.Challenge, "expected stored challenge for echo-check")
 
 	// Reverse index
-	resolved, err := f.keeper.IdentityLinksByRemote.Get(f.ctx, collections.Join("link-peer", "@alice@mastodon.social"))
+	resolved, err := f.keeper.IdentityLinksByRemote.Get(f.ctx, collections.Join("link-peer", "@alice@mastodon.example"))
 	require.NoError(t, err)
 	require.Equal(t, userStr, resolved)
 

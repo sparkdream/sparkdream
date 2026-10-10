@@ -6,7 +6,7 @@ This directory contains end-to-end (e2e) integration bash test scripts for the `
 
 1. **Chain Running**: The sparkdream chain must be running
    ```bash
-   cd /home/chill/cosmos/sparkdream/sparkdream
+   cd <path-to-sparkdream-repo>
    ignite chain serve
    ```
 

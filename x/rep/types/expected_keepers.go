@@ -135,6 +135,47 @@ type ForumKeeper interface {
 	ReverseSentinelAction(ctx context.Context, actionType GovActionType, actionTarget string) error
 }
 
+// ModerationAppealTarget is the owning-module side of a moderation appeal
+// filed through CreateGovActionAppeal. x/rep holds the appellant bond, seats
+// the jury, applies the verdict to the sentinel's bond and RoleActivity
+// record, and calls back into the module that owns the moderated content.
+// ForumKeeper satisfies it (forum's action types fall back to the wired
+// forum keeper); other modules register one per action type with
+// Keeper.RegisterModerationAppealTarget.
+//
+// GetActionSentinel must return "" (and GetActionCommittedAmount zero) once
+// the module has closed the action on its own (e.g. the content was
+// destroyed), so a late verdict does not release or slash a bond twice.
+type ModerationAppealTarget interface {
+	GetActionSentinel(ctx context.Context, actionType GovActionType, actionTarget string) (string, error)
+	GetActionCommittedAmount(ctx context.Context, actionType GovActionType, actionTarget string) (math.Int, error)
+	OnSentinelActionResolved(ctx context.Context, actionType GovActionType, actionTarget string) error
+	ReverseSentinelAction(ctx context.Context, actionType GovActionType, actionTarget string) error
+}
+
+// ModerationAppealOutcomeHandler is optionally implemented by a
+// ModerationAppealTarget that must act on every terminal appeal outcome, not
+// only on OVERTURNED (which ReverseSentinelAction covers). Called after x/rep
+// has applied its own bond and accountability effects:
+//
+//   - UPHELD:     the hide stands; the module finalizes it (e.g. deletes or
+//     scrubs the content). x/rep has already released the sentinel's bond.
+//   - OVERTURNED: called after ReverseSentinelAction; usually a no-op.
+//   - TIMEOUT:    no verdict; x/rep blamed no one and did not touch the
+//     sentinel's bond, so the module applies its own timeout policy and
+//     releases the reservation.
+type ModerationAppealOutcomeHandler interface {
+	OnAppealOutcome(ctx context.Context, actionType GovActionType, actionTarget string, outcome GovAppealStatus) error
+}
+
+// ModuleOwnedAppealTypes are filed only by the owning module (which checks
+// who may appeal and marks its own record appealed); MsgAppealGovAction
+// rejects them.
+var ModuleOwnedAppealTypes = map[GovActionType]bool{
+	GovActionType_GOV_ACTION_TYPE_COLLECT_HIDE:  true,
+	GovActionType_GOV_ACTION_TYPE_ARTIFACT_HIDE: true,
+}
+
 // BlogKeeper defines the minimal blog surface area required by x/rep to
 // validate self-stake on blog content. Late-wired from app.go.
 type BlogKeeper interface {

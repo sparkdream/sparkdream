@@ -8,6 +8,7 @@ import (
 	"cosmossdk.io/core/address"
 	corestore "cosmossdk.io/core/store"
 	"github.com/cosmos/cosmos-sdk/codec"
+	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	"sparkdream/x/rep/types"
 )
@@ -24,6 +25,9 @@ type lateKeepers struct {
 	distrKeeper    types.DistrKeeper
 	mintKeeper     types.MintKeeper
 	hooks          types.RepHooks
+	// appealTargets maps module-owned moderation action types to the module
+	// that applies appeal verdicts to them (see appealTarget).
+	appealTargets map[types.GovActionType]types.ModerationAppealTarget
 }
 
 type Keeper struct {
@@ -381,6 +385,45 @@ func (k Keeper) SetMintKeeper(mk types.MintKeeper) {
 // into x/rep.
 func (k Keeper) SetForumKeeper(fk types.ForumKeeper) {
 	k.late.forumKeeper = fk
+}
+
+// RegisterModerationAppealTarget routes appeals of actionType to target.
+// Called from app.go after depinject (x/collect, x/artifact). Action types
+// without a registration fall back to the forum keeper.
+func (k Keeper) RegisterModerationAppealTarget(actionType types.GovActionType, target types.ModerationAppealTarget) {
+	if k.late.appealTargets == nil {
+		k.late.appealTargets = map[types.GovActionType]types.ModerationAppealTarget{}
+	}
+	k.late.appealTargets[actionType] = target
+}
+
+// appealTarget returns the module that owns actionType, or nil when none is
+// wired. Returns an untyped nil (never a typed-nil interface) so callers can
+// test it directly.
+func (k Keeper) appealTarget(actionType types.GovActionType) types.ModerationAppealTarget {
+	if t, ok := k.late.appealTargets[actionType]; ok && t != nil {
+		return t
+	}
+	if types.ModuleOwnedAppealTypes[actionType] {
+		return nil
+	}
+	if k.late.forumKeeper != nil {
+		return k.late.forumKeeper
+	}
+	return nil
+}
+
+// notifyAppealOutcome calls the owning module's optional outcome hook.
+// Best-effort: a module failure is logged and never undoes x/rep's verdict.
+func (k Keeper) notifyAppealOutcome(ctx context.Context, appeal types.GovActionAppeal, outcome types.GovAppealStatus) {
+	h, ok := k.appealTarget(appeal.ActionType).(types.ModerationAppealOutcomeHandler)
+	if !ok {
+		return
+	}
+	if err := h.OnAppealOutcome(ctx, appeal.ActionType, appeal.ActionTarget, outcome); err != nil {
+		sdk.UnwrapSDKContext(ctx).Logger().Error("moderation appeal outcome hook failed",
+			"appeal_id", appeal.Id, "action_type", appeal.ActionType.String(), "outcome", outcome.String(), "error", err)
+	}
 }
 
 // SetBlogKeeper sets the blog keeper after depinject initialization.

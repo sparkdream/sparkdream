@@ -358,6 +358,7 @@ genesis:
       # trust ladder. hal is deliberately absent: it is the non-member fixture.
       # Alice — CORE
       - address: sprkdrm1jct5shlz26j2qgdeyzj2nwe5e79djprhcgpwrc  # alice
+        content_license: "CC0-1.0"  # founder's open-content agreement (required)
         dream_balance: "5000000000"  # 5,000 DREAM
         staked_dream: "0"
         lifetime_earned: "5000000000"
@@ -380,6 +381,7 @@ genesis:
         completed_initiatives_count: 0
       # Bob — TRUSTED
       - address: sprkdrm1ctk6qnsg5rf7ddupvkxth8q6h7d49h80vcjgg0  # bob
+        content_license: "CC0-1.0"  # founder's open-content agreement (required)
         dream_balance: "3500000000"  # 3,500 DREAM
         staked_dream: "0"
         lifetime_earned: "3500000000"
@@ -402,6 +404,7 @@ genesis:
         completed_initiatives_count: 0
       # Carol — ESTABLISHED
       - address: sprkdrm17tce9p442054fkwl9zrntt7k7h3fs92fcwjxke  # carol
+        content_license: "CC0-1.0"  # founder's open-content agreement (required)
         dream_balance: "2500000000"  # 2,500 DREAM
         staked_dream: "0"
         lifetime_earned: "2500000000"
@@ -424,6 +427,7 @@ genesis:
         completed_initiatives_count: 0
       # Dave — ESTABLISHED
       - address: sprkdrm1m6xjdt97j9a67smsy6n6h4vqgdkjy7jm8hvq8x  # dave
+        content_license: "CC0-1.0"  # founder's open-content agreement (required)
         dream_balance: "2500000000"  # 2,500 DREAM
         staked_dream: "0"
         lifetime_earned: "2500000000"
@@ -446,6 +450,7 @@ genesis:
         completed_initiatives_count: 0
       # Erin — ESTABLISHED
       - address: sprkdrm1jzxgmcv3xgqlagkfrppaf8jvpvf3lyqpkhljn9  # erin
+        content_license: "CC0-1.0"  # founder's open-content agreement (required)
         dream_balance: "2500000000"  # 2,500 DREAM
         staked_dream: "0"
         lifetime_earned: "2500000000"
@@ -468,6 +473,7 @@ genesis:
         completed_initiatives_count: 0
       # Felix — ESTABLISHED
       - address: sprkdrm1tfl0ys2wws5shrfre259drs5llh4ug83ne7q9e  # felix
+        content_license: "CC0-1.0"  # founder's open-content agreement (required)
         dream_balance: "2500000000"  # 2,500 DREAM
         staked_dream: "0"
         lifetime_earned: "2500000000"
@@ -490,6 +496,7 @@ genesis:
         completed_initiatives_count: 0
       # Gwen — PROVISIONAL
       - address: sprkdrm1kllgzkzvjyq09r8unw4l69wl993u0tex5gd3v0  # gwen
+        content_license: "CC0-1.0"  # founder's open-content agreement (required)
         dream_balance: "2000000000"  # 2,000 DREAM
         staked_dream: "0"
         lifetime_earned: "2000000000"

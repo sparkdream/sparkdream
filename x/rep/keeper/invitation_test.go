@@ -2,6 +2,7 @@ package keeper_test
 
 import (
 	"context"
+	commontypes "sparkdream/x/common/types"
 	"testing"
 
 	"cosmossdk.io/math"
@@ -159,7 +160,7 @@ func TestAcceptInvitation(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test: Accept invitation
-	err = k.AcceptInvitation(ctx, invitationID, invitee)
+	err = k.AcceptInvitation(ctx, invitationID, invitee, commontypes.ChainContentLicense)
 	require.NoError(t, err)
 
 	// Verify new member created
@@ -167,6 +168,7 @@ func TestAcceptInvitation(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, invitee.String(), newMember.Address)
 	require.Equal(t, inviter.String(), newMember.InvitedBy)
+	require.Equal(t, commontypes.ChainContentLicense, newMember.ContentLicense)
 	require.Equal(t, types.MemberStatus_MEMBER_STATUS_ACTIVE, newMember.Status)
 	require.Equal(t, types.TrustLevel_TRUST_LEVEL_NEW, newMember.TrustLevel)
 
@@ -214,15 +216,15 @@ func TestAcceptInvitationErrors(t *testing.T) {
 
 	// Test: Wrong invitee address
 	wrongInvitee := sdk.AccAddress([]byte("wrong"))
-	err := k.AcceptInvitation(ctx, invitationID, wrongInvitee)
+	err := k.AcceptInvitation(ctx, invitationID, wrongInvitee, commontypes.ChainContentLicense)
 	require.ErrorIs(t, err, types.ErrInviteeAddressMismatch)
 
 	// Accept invitation
-	err = k.AcceptInvitation(ctx, invitationID, invitee)
+	err = k.AcceptInvitation(ctx, invitationID, invitee, commontypes.ChainContentLicense)
 	require.NoError(t, err)
 
 	// Test: Already accepted (not pending)
-	err = k.AcceptInvitation(ctx, invitationID, invitee)
+	err = k.AcceptInvitation(ctx, invitationID, invitee, commontypes.ChainContentLicense)
 	require.ErrorIs(t, err, types.ErrInvitationNotPending)
 }
 
@@ -245,7 +247,7 @@ func TestReferralReward(t *testing.T) {
 
 	invitee := sdk.AccAddress([]byte("invitee"))
 	invitationID, _ := k.CreateInvitation(ctx, inviter, invitee, math.NewInt(100000000), []string{"tag"})
-	err := k.AcceptInvitation(ctx, invitationID, invitee)
+	err := k.AcceptInvitation(ctx, invitationID, invitee, commontypes.ChainContentLicense)
 	require.NoError(t, err)
 
 	// Get inviter's initial balance
@@ -289,7 +291,7 @@ func TestReferralRewardAutomatic(t *testing.T) {
 
 	invitee := sdk.AccAddress([]byte("invitee"))
 	invitationID, _ := k.CreateInvitation(ctx, inviter, invitee, math.NewInt(100000000), []string{"dev"})
-	err := k.AcceptInvitation(ctx, invitationID, invitee)
+	err := k.AcceptInvitation(ctx, invitationID, invitee, commontypes.ChainContentLicense)
 	require.NoError(t, err)
 
 	// Get inviter's initial balance

@@ -1,6 +1,8 @@
 package app
 
 import (
+	_ "sparkdream/x/artifact/module"
+	artifactmoduletypes "sparkdream/x/artifact/types"
 	_ "sparkdream/x/blog/module"
 	blogmoduletypes "sparkdream/x/blog/types"
 	_ "sparkdream/x/collect/module"
@@ -133,7 +135,9 @@ var (
 		{Account: federationmoduletypes.ModuleName, Permissions: []string{authtypes.Burner}},
 		{Account: guardianmoduletypes.ModuleName},
 		// this line is used by starport scaffolding # stargate/app/maccPerms
-		{Account: servicemoduletypes.ModuleName, Permissions: []string{authtypes.Minter, authtypes.Burner, authtypes.Staking}}}
+		{Account: servicemoduletypes.ModuleName, Permissions: []string{authtypes.Minter, authtypes.Burner, authtypes.Staking}},
+		// x/artifact escrows token deposits and burns creation / inbox fees.
+		{Account: artifactmoduletypes.ModuleName, Permissions: []string{authtypes.Burner}}}
 
 	// blocked account addresses
 	blockAccAddrs = []string{
@@ -192,7 +196,7 @@ var (
 						gnovmmoduletypes.ModuleName,
 						sessionmoduletypes.ModuleName,
 						// this line is used by starport scaffolding # stargate/app/beginBlockers
-						servicemoduletypes.ModuleName},
+						servicemoduletypes.ModuleName, artifactmoduletypes.ModuleName},
 					EndBlockers: []string{
 						govtypes.ModuleName,
 						stakingtypes.ModuleName,
@@ -214,7 +218,7 @@ var (
 						sessionmoduletypes.ModuleName,
 						federationmoduletypes.ModuleName,
 						// this line is used by starport scaffolding # stargate/app/endBlockers
-						servicemoduletypes.ModuleName},
+						servicemoduletypes.ModuleName, artifactmoduletypes.ModuleName},
 					// The following is mostly only needed when ModuleName != StoreKey name.
 					OverrideStoreKeys: []*runtimev1alpha1.StoreKeyConfig{
 						{
@@ -266,7 +270,7 @@ var (
 						federationmoduletypes.ModuleName,
 						guardianmoduletypes.ModuleName,
 						// this line is used by starport scaffolding # stargate/app/initGenesis
-						servicemoduletypes.ModuleName},
+						servicemoduletypes.ModuleName, artifactmoduletypes.ModuleName},
 				}),
 			},
 			{
@@ -457,6 +461,9 @@ var (
 			}, {
 				Name:   guardianmoduletypes.ModuleName,
 				Config: appconfig.WrapAny(&guardianmoduletypes.Module{}),
+			}, {
+				Name:   artifactmoduletypes.ModuleName,
+				Config: appconfig.WrapAny(&artifactmoduletypes.Module{}),
 			}},
 	})
 )

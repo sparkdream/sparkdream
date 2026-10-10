@@ -1,0 +1,378 @@
+syntax = "proto3";
+package sparkdream.artifact.v1;
+
+import "amino/amino.proto";
+import "cosmos/base/query/v1beta1/pagination.proto";
+import "cosmos/base/v1beta1/coin.proto";
+import "gogoproto/gogo.proto";
+import "google/api/annotations.proto";
+import "sparkdream/artifact/v1/params.proto";
+import "sparkdream/artifact/v1/types.proto";
+
+option go_package = "sparkdream/x/artifact/types";
+
+// Query defines the gRPC querier service.
+service Query {
+  // Parameters queries the parameters of the module.
+  rpc Params(QueryParamsRequest) returns (QueryParamsResponse) {
+    option (google.api.http).get = "/sparkdream/artifact/v1/params";
+  }
+
+  // Class returns one class.
+  rpc Class(QueryClassRequest) returns (QueryClassResponse) {
+    option (google.api.http).get = "/sparkdream/artifact/v1/class/{class_id}";
+  }
+
+  // Classes lists all classes.
+  rpc Classes(QueryClassesRequest) returns (QueryClassesResponse) {
+    option (google.api.http).get = "/sparkdream/artifact/v1/classes";
+  }
+
+  // ClassesByOwner lists the classes an address owns.
+  rpc ClassesByOwner(QueryClassesByOwnerRequest) returns (QueryClassesByOwnerResponse) {
+    option (google.api.http).get = "/sparkdream/artifact/v1/classes_by_owner/{owner}";
+  }
+
+  // Token returns one token.
+  rpc Token(QueryTokenRequest) returns (QueryTokenResponse) {
+    option (google.api.http).get = "/sparkdream/artifact/v1/token/{class_id}/{token_id}";
+  }
+
+  // Tokens lists the tokens of a class.
+  rpc Tokens(QueryTokensRequest) returns (QueryTokensResponse) {
+    option (google.api.http).get = "/sparkdream/artifact/v1/tokens/{class_id}";
+  }
+
+  // TokensByOwner lists the tokens an address owns.
+  rpc TokensByOwner(QueryTokensByOwnerRequest) returns (QueryTokensByOwnerResponse) {
+    option (google.api.http).get = "/sparkdream/artifact/v1/tokens_by_owner/{owner}";
+  }
+
+  // Owner returns a token's owner.
+  rpc Owner(QueryOwnerRequest) returns (QueryOwnerResponse) {
+    option (google.api.http).get = "/sparkdream/artifact/v1/owner/{class_id}/{token_id}";
+  }
+
+  // Supply returns a class's supply counters.
+  rpc Supply(QuerySupplyRequest) returns (QuerySupplyResponse) {
+    option (google.api.http).get = "/sparkdream/artifact/v1/supply/{class_id}";
+  }
+
+  // Listing returns a token's active listing.
+  rpc Listing(QueryListingRequest) returns (QueryListingResponse) {
+    option (google.api.http).get = "/sparkdream/artifact/v1/listing/{class_id}/{token_id}";
+  }
+
+  // Listings lists active listings, optionally for one class.
+  rpc Listings(QueryListingsRequest) returns (QueryListingsResponse) {
+    option (google.api.http).get = "/sparkdream/artifact/v1/listings";
+  }
+
+  // ListingsBySeller lists a seller's active listings.
+  rpc ListingsBySeller(QueryListingsBySellerRequest) returns (QueryListingsBySellerResponse) {
+    option (google.api.http).get = "/sparkdream/artifact/v1/listings_by_seller/{seller}";
+  }
+
+  // Inbox lists an address's open incoming items.
+  rpc Inbox(QueryInboxRequest) returns (QueryInboxResponse) {
+    option (google.api.http).get = "/sparkdream/artifact/v1/inbox/{address}";
+  }
+
+  // Outbox lists an address's open outgoing items.
+  rpc Outbox(QueryOutboxRequest) returns (QueryOutboxResponse) {
+    option (google.api.http).get = "/sparkdream/artifact/v1/outbox/{address}";
+  }
+
+  // ReceivePolicy returns an address's effective receive policy.
+  rpc ReceivePolicy(QueryReceivePolicyRequest) returns (QueryReceivePolicyResponse) {
+    option (google.api.http).get = "/sparkdream/artifact/v1/receive_policy/{address}";
+  }
+
+  // PendingClassOwner returns a class's open handover proposal.
+  rpc PendingClassOwner(QueryPendingClassOwnerRequest) returns (QueryPendingClassOwnerResponse) {
+    option (google.api.http).get = "/sparkdream/artifact/v1/pending_class_owner/{class_id}";
+  }
+
+  // HideRecord returns one hide record.
+  rpc HideRecord(QueryHideRecordRequest) returns (QueryHideRecordResponse) {
+    option (google.api.http).get = "/sparkdream/artifact/v1/hide_record/{hide_id}";
+  }
+
+  // HideRecordsByTarget lists every hide record for a class (token_id 0) or token.
+  rpc HideRecordsByTarget(QueryHideRecordsByTargetRequest) returns (QueryHideRecordsByTargetResponse) {
+    option (google.api.http).get = "/sparkdream/artifact/v1/hide_records_by_target/{class_id}/{token_id}";
+  }
+
+  // PublicMintQuote prices a public mint.
+  rpc PublicMintQuote(QueryPublicMintQuoteRequest) returns (QueryPublicMintQuoteResponse) {
+    option (google.api.http).get = "/sparkdream/artifact/v1/public_mint_quote/{class_id}/{buyer}/{quantity}";
+  }
+}
+
+// QueryParamsRequest is request type for the Query/Params RPC method.
+message QueryParamsRequest {}
+
+// QueryParamsResponse is response type for the Query/Params RPC method.
+message QueryParamsResponse {
+  // params holds all the parameters of this module.
+  Params params = 1 [
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+}
+
+// ClassView is a class as served to clients. When withheld is true the
+// content fields have been blanked because the class is hidden.
+message ClassView {
+  Class class = 1 [(gogoproto.nullable) = false];
+  bool withheld = 2;
+}
+
+// TokenView is a token as served to clients. When withheld is true the
+// metadata has been blanked because the token or its class is hidden.
+message TokenView {
+  Token token = 1 [(gogoproto.nullable) = false];
+  bool withheld = 2;
+  string metadata_hash = 3;
+  ContentStatus class_status = 4;
+}
+
+// InboxItem is one open pending transfer or pending mint.
+message InboxItem {
+  InboxKind kind = 1;
+  uint64 class_id = 2;
+  uint64 token_id = 3;
+  // Transfer sender, or minter.
+  string from = 4;
+  string to = 5;
+  int64 created_at = 6;
+  int64 expires_at = 7;
+  // Metadata the recipient will receive (blanked when withheld).
+  TokenMetadata metadata = 8 [(gogoproto.nullable) = false];
+  string metadata_hash = 9;
+  bool withheld = 10;
+}
+
+// QueryClassRequest defines the QueryClassRequest message.
+message QueryClassRequest {
+  uint64 class_id = 1;
+}
+
+// QueryClassResponse defines the QueryClassResponse message.
+message QueryClassResponse {
+  ClassView class = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryClassesRequest defines the QueryClassesRequest message.
+message QueryClassesRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+// QueryClassesResponse defines the QueryClassesResponse message.
+message QueryClassesResponse {
+  repeated ClassView classes = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryClassesByOwnerRequest defines the QueryClassesByOwnerRequest message.
+message QueryClassesByOwnerRequest {
+  string owner = 1;
+  cosmos.base.query.v1beta1.PageRequest pagination = 2;
+}
+
+// QueryClassesByOwnerResponse defines the QueryClassesByOwnerResponse message.
+message QueryClassesByOwnerResponse {
+  repeated ClassView classes = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryTokenRequest defines the QueryTokenRequest message.
+message QueryTokenRequest {
+  uint64 class_id = 1;
+  uint64 token_id = 2;
+}
+
+// QueryTokenResponse defines the QueryTokenResponse message.
+message QueryTokenResponse {
+  TokenView token = 1 [(gogoproto.nullable) = false];
+  // Set when the token is listed.
+  Listing listing = 2;
+}
+
+// QueryTokensRequest defines the QueryTokensRequest message.
+message QueryTokensRequest {
+  uint64 class_id = 1;
+  cosmos.base.query.v1beta1.PageRequest pagination = 2;
+}
+
+// QueryTokensResponse defines the QueryTokensResponse message.
+message QueryTokensResponse {
+  repeated TokenView tokens = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryTokensByOwnerRequest defines the QueryTokensByOwnerRequest message.
+message QueryTokensByOwnerRequest {
+  string owner = 1;
+  // Optional class filter (0 = all classes).
+  uint64 class_id = 2;
+  cosmos.base.query.v1beta1.PageRequest pagination = 3;
+}
+
+// QueryTokensByOwnerResponse defines the QueryTokensByOwnerResponse message.
+message QueryTokensByOwnerResponse {
+  repeated TokenView tokens = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryOwnerRequest defines the QueryOwnerRequest message.
+message QueryOwnerRequest {
+  uint64 class_id = 1;
+  uint64 token_id = 2;
+}
+
+// QueryOwnerResponse defines the QueryOwnerResponse message.
+message QueryOwnerResponse {
+  string owner = 1;
+}
+
+// QuerySupplyRequest defines the QuerySupplyRequest message.
+message QuerySupplyRequest {
+  uint64 class_id = 1;
+}
+
+// QuerySupplyResponse defines the QuerySupplyResponse message.
+message QuerySupplyResponse {
+  uint64 supply = 1;
+  uint64 burned = 2;
+  uint64 reserved_supply = 3;
+  uint64 max_supply = 4;
+  bool minting_closed = 5;
+}
+
+// QueryListingRequest defines the QueryListingRequest message.
+message QueryListingRequest {
+  uint64 class_id = 1;
+  uint64 token_id = 2;
+}
+
+// QueryListingResponse defines the QueryListingResponse message.
+message QueryListingResponse {
+  Listing listing = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryListingsRequest defines the QueryListingsRequest message.
+message QueryListingsRequest {
+  // Optional class filter (0 = all classes).
+  uint64 class_id = 1;
+  cosmos.base.query.v1beta1.PageRequest pagination = 2;
+}
+
+// QueryListingsResponse defines the QueryListingsResponse message.
+message QueryListingsResponse {
+  repeated Listing listings = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryListingsBySellerRequest defines the QueryListingsBySellerRequest message.
+message QueryListingsBySellerRequest {
+  string seller = 1;
+  cosmos.base.query.v1beta1.PageRequest pagination = 2;
+}
+
+// QueryListingsBySellerResponse defines the QueryListingsBySellerResponse message.
+message QueryListingsBySellerResponse {
+  repeated Listing listings = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryInboxRequest defines the QueryInboxRequest message.
+message QueryInboxRequest {
+  string address = 1;
+  cosmos.base.query.v1beta1.PageRequest pagination = 2;
+}
+
+// QueryInboxResponse defines the QueryInboxResponse message.
+message QueryInboxResponse {
+  repeated InboxItem items = 1 [(gogoproto.nullable) = false];
+  uint32 inbox_count = 2;
+  cosmos.base.query.v1beta1.PageResponse pagination = 3;
+}
+
+// QueryOutboxRequest defines the QueryOutboxRequest message.
+message QueryOutboxRequest {
+  string address = 1;
+  cosmos.base.query.v1beta1.PageRequest pagination = 2;
+}
+
+// QueryOutboxResponse defines the QueryOutboxResponse message.
+message QueryOutboxResponse {
+  repeated InboxItem items = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryReceivePolicyRequest defines the QueryReceivePolicyRequest message.
+message QueryReceivePolicyRequest {
+  string address = 1;
+}
+
+// QueryReceivePolicyResponse defines the QueryReceivePolicyResponse message.
+message QueryReceivePolicyResponse {
+  ReceivePolicy policy = 1;
+  bool is_default = 2;
+}
+
+// QueryPendingClassOwnerRequest defines the QueryPendingClassOwnerRequest message.
+message QueryPendingClassOwnerRequest {
+  uint64 class_id = 1;
+}
+
+// QueryPendingClassOwnerResponse defines the QueryPendingClassOwnerResponse message.
+message QueryPendingClassOwnerResponse {
+  PendingClassOwner pending = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryHideRecordRequest defines the QueryHideRecordRequest message.
+message QueryHideRecordRequest {
+  uint64 hide_id = 1;
+}
+
+// QueryHideRecordResponse defines the QueryHideRecordResponse message.
+message QueryHideRecordResponse {
+  HideRecord record = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryHideRecordsByTargetRequest defines the QueryHideRecordsByTargetRequest message.
+message QueryHideRecordsByTargetRequest {
+  uint64 class_id = 1;
+  // 0 = the class itself.
+  uint64 token_id = 2;
+}
+
+// QueryHideRecordsByTargetResponse defines the QueryHideRecordsByTargetResponse message.
+message QueryHideRecordsByTargetResponse {
+  repeated HideRecord records = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryPublicMintQuoteRequest defines the QueryPublicMintQuoteRequest message.
+message QueryPublicMintQuoteRequest {
+  uint64 class_id = 1;
+  string buyer = 2;
+  uint32 quantity = 3;
+}
+
+// QueryPublicMintQuoteResponse defines the QueryPublicMintQuoteResponse message.
+message QueryPublicMintQuoteResponse {
+  // quantity x price
+  cosmos.base.v1beta1.Coin total_price = 1 [(gogoproto.nullable) = false];
+  // Part of total_price routed to the community pool.
+  cosmos.base.v1beta1.Coin fee = 2 [(gogoproto.nullable) = false];
+  // quantity x token_deposit (refundable).
+  cosmos.base.v1beta1.Coin deposit = 3 [(gogoproto.nullable) = false];
+  // Remaining per-address allowance; -1 = unlimited.
+  int64 remaining_allowance = 4;
+  // true when a public mint of this quantity would currently succeed.
+  bool available = 5;
+  // Why not, when available is false.
+  string reason = 6;
+}

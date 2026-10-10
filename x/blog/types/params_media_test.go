@@ -6,8 +6,8 @@ import (
 	"cosmossdk.io/math"
 	"github.com/stretchr/testify/require"
 
-	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/blog/types"
+	commontypes "sparkdream/x/common/types"
 )
 
 func TestParamsMediaDefaultsAndBounds(t *testing.T) {

@@ -114,12 +114,15 @@ submit_and_pass_gov_proposal() {
     GOV_PROPOSAL_RESULT="FAIL"
 
     echo "  Submitting governance proposal..."
+    # Proposal gas scales with the operational-params blob, which carries the
+    # full allowed_msg_types list. The restore proposal re-adds the whole
+    # ceiling (59 types and growing), which already needed ~529k gas.
     local TX_RES=$($BINARY tx gov submit-proposal "$PROPOSAL_FILE" \
         --from alice \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
         --fees 5000000${BOND_DENOM} \
-        --gas 500000 \
+        --gas 1000000 \
         -y \
         --output json 2>&1)
 

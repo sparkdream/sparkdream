@@ -1,0 +1,115 @@
+syntax = "proto3";
+package sparkdream.artifact.v1;
+
+import "amino/amino.proto";
+import "cosmos_proto/cosmos.proto";
+import "gogoproto/gogo.proto";
+import "sparkdream/artifact/v1/types.proto";
+
+option go_package = "sparkdream/x/artifact/types";
+
+// Params defines the parameters for the module. Fields 16-29 are the
+// operational subset (ArtifactOperationalParams). Every field is clamped by
+// the compiled hard bounds in x/artifact/types/params.go.
+message Params {
+  option (amino.name) = "sparkdream/x/artifact/Params";
+  option (gogoproto.equal) = true;
+
+  // --- Gates (governance) ---
+  // Minimum x/rep trust level (TrustLevel enum value) to create a class.
+  uint32 min_trust_level_create_class = 1;
+  uint32 max_classes_per_creator = 2;
+  ReceivePolicy default_receive_policy = 3;
+
+  // --- Size limits (governance) ---
+  uint32 max_name_length = 4;
+  uint32 max_symbol_length = 5;
+  uint32 max_description_length = 6;
+  uint32 max_uri_length = 7;
+  uint32 max_attributes = 8;
+  uint32 max_attribute_key_length = 9;
+  uint32 max_attribute_value_length = 10;
+  uint32 max_minters_per_class = 11;
+  uint32 max_batch_size = 12;
+  repeated string allowed_uri_schemes = 13;
+
+  // --- Market bounds (governance) ---
+  uint32 max_royalty_bps = 14;
+  uint32 sale_fee_bps = 15;
+
+  // --- Operational ---
+  // SPARK burned on class creation.
+  string class_creation_fee = 16 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  // SPARK held per token, refunded on burn/revoke.
+  string token_deposit = 17 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  // SPARK burned per inbox item created.
+  string inbox_fee = 18 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  // Seconds an inbox item / class-owner proposal stays open.
+  int64 pending_ttl = 19;
+  // Maximum listing duration in seconds.
+  int64 max_listing_duration = 20;
+  uint32 max_pending_per_pair = 21;
+  uint32 max_inbox_per_recipient = 22;
+  uint32 max_expirations_per_block = 23;
+  bool market_enabled = 24;
+  bool public_mint_enabled = 25;
+
+  // --- Moderation (operational; block heights) ---
+  uint32 max_hides_per_sentinel_per_day = 26;
+  int64 sentinel_unhide_window_blocks = 27;
+  int64 hide_expiry_blocks = 28;
+  // DREAM reserved on the sentinel bond per hide.
+  string sentinel_hide_commit_dream = 29 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+}
+
+// ArtifactOperationalParams is the subset of Params the Commons Operations
+// Committee may update (MsgUpdateOperationalParams). Full replacement: every
+// field must be supplied.
+message ArtifactOperationalParams {
+  string class_creation_fee = 1 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  string token_deposit = 2 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  string inbox_fee = 3 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  int64 pending_ttl = 4;
+  int64 max_listing_duration = 5;
+  uint32 max_pending_per_pair = 6;
+  uint32 max_inbox_per_recipient = 7;
+  uint32 max_expirations_per_block = 8;
+  bool market_enabled = 9;
+  bool public_mint_enabled = 10;
+  uint32 max_hides_per_sentinel_per_day = 11;
+  int64 sentinel_unhide_window_blocks = 12;
+  int64 hide_expiry_blocks = 13;
+  string sentinel_hide_commit_dream = 14 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+}

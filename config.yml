@@ -239,6 +239,7 @@ genesis:
         # To modify for testing, update x/rep/types/params.go DefaultParams()
       member_map:
       - address: sprkdrm1afyuna8gqe55t7jztxcg0aleg0k5txep72pfan  # alice
+        content_license: "CC0-1.0"  # founder's open-content agreement (required)
         dream_balance: "50000000000"  # 50000 DREAM (Tier 1 founder)
         staked_dream: "0"
         lifetime_earned: "50000000000"
@@ -260,6 +261,7 @@ genesis:
         completed_interims_count: 0
         completed_initiatives_count: 0
       - address: sprkdrm1g5ad4qmzqpfkfzgktx6za005qt2t0v56jy529y  # bob
+        content_license: "CC0-1.0"  # founder's open-content agreement (required)
         dream_balance: "25000000000"  # 25000 DREAM (Tier 2 founder)
         staked_dream: "0"
         lifetime_earned: "25000000000"
@@ -281,6 +283,7 @@ genesis:
         completed_interims_count: 0
         completed_initiatives_count: 0
       - address: sprkdrm1a0gkdyzcnsjrl2s5vlywkancparhp53fucz3zz  # carol
+        content_license: "CC0-1.0"  # founder's open-content agreement (required)
         dream_balance: "10000000000"  # 10000 DREAM (Tier 3 founder)
         staked_dream: "0"
         lifetime_earned: "10000000000"
@@ -461,15 +464,6 @@ genesis:
         # The appeal-deferral subtest needs the owner to file an appeal within
         # a couple of blocks of the sentinel hide.
         appeal_cooldown_blocks: "2"
-        # Appeal-deadline window - SHORT for testing (production: 201600
-        # ~14 days). The appeal-deferral subtest waits for an unresolved
-        # appeal to time out via §10.3a (handleAppealedHideExpiry) so the
-        # collection's status restores to ACTIVE and the §10.1 deferral
-        # finally drops. At ~1s/block this is ~60s — wide enough that the
-        # deferral assertion (~30s after the appeal) lands while the appeal is
-        # still in flight, then the subsequent 75s wait outlasts the deadline so
-        # the timeout-restore + delete completes.
-        appeal_deadline_blocks: "60"
         # Sentinel self-correct window - SHORT for testing (production: 14400
         # ~24 hours). MUST stay below hide_expiry_blocks (=40 here) or Params
         # validation rejects genesis. sentinel_unhide_test.sh unhides right

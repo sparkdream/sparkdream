@@ -413,9 +413,9 @@ func TestPruneExpiredCollections_HiddenEndorsed_AppealUpheld_Unlocks(t *testing.
 	_, err := f.keeper.Collection.Get(f.ctx, collID)
 	require.NoError(t, err)
 
-	// Jury upholds — sentinel was wrong. ResolveHideAppeal restores status
+	// Jury upholds — sentinel was wrong. RepAppealTarget restores status
 	// to ACTIVE without deleting.
-	require.NoError(t, f.keeper.ResolveHideAppeal(f.ctx, hideRecordID, true))
+	require.NoError(t, resolveAppealViaRepErr(t, f, hideRecordID, true))
 	coll, err := f.keeper.Collection.Get(f.ctx, collID)
 	require.NoError(t, err)
 	require.Equal(t, types.CollectionStatus_COLLECTION_STATUS_ACTIVE, coll.Status)
@@ -436,7 +436,7 @@ func TestPruneExpiredCollections_HiddenEndorsed_AppealUpheld_Unlocks(t *testing.
 }
 
 // Deferral resolves: appeal REJECTED (sentinel right) → collection deleted
-// via ResolveHideAppeal callback path with status still HIDDEN. Slash fires
+// via the RepAppealTarget UPHELD path with status still HIDDEN. Slash fires
 // on the endorser. Verifies the new ordering in callbacks.go (hr.Resolved
 // pre-persisted before deleteCollectionFull) so the slash gate doesn't see
 // this just-decided appeal as still in flight.
@@ -452,90 +452,18 @@ func TestPruneExpiredCollections_HiddenEndorsed_AppealRejected_Burns(t *testing.
 	_, err := f.keeper.Collection.Get(f.ctx, collID)
 	require.NoError(t, err)
 
-	// Jury rejects — sentinel was right. ResolveHideAppeal deletes the
+	// Jury rejects — sentinel was right. RepAppealTarget deletes the
 	// collection AND must trigger the slash (status still HIDDEN, appeal
 	// just resolved).
-	require.NoError(t, f.keeper.ResolveHideAppeal(f.ctx, hideRecordID, false))
+	require.NoError(t, resolveAppealViaRepErr(t, f, hideRecordID, false))
 	_, err = f.keeper.Collection.Get(f.ctx, collID)
 	require.Error(t, err)
 
 	assertEndorsementSlashed(t, f, stake)
 }
 
-func TestPruneAppealTimeouts(t *testing.T) {
-	f := initTestFixture(t)
-
-	// Start at block 100
-	f.setBlockHeight(100)
-
-	// Create an ACTIVE collection
-	collID := f.createCollection(t, f.owner)
-
-	// Hide it (sentinel)
-	resp, err := f.msgServer.HideContent(f.ctx, &types.MsgHideContent{
-		Creator:    f.sentinel,
-		TargetType: types.FlagTargetType_FLAG_TARGET_TYPE_COLLECTION,
-		TargetId:   collID,
-		ReasonCode: commontypes.ModerationReason_MODERATION_REASON_SPAM,
-	})
-	require.NoError(t, err)
-	hideRecordID := resp.HideRecordId
-
-	// Advance past appeal cooldown (default 600 blocks)
-	f.advanceBlockHeight(601)
-
-	// Appeal the hide (owner)
-	_, err = f.msgServer.AppealHide(f.ctx, &types.MsgAppealHide{
-		Creator:      f.owner,
-		HideRecordId: hideRecordID,
-	})
-	require.NoError(t, err)
-
-	// Verify appealed
-	hr, err := f.keeper.HideRecord.Get(f.ctx, hideRecordID)
-	require.NoError(t, err)
-	require.True(t, hr.Appealed)
-
-	// Track refund and burn
-	var refundCalled bool
-	var burnCalled bool
-	f.bankKeeper.sendCoinsFromModuleToAccountFn = func(_ context.Context, _ string, _ sdk.AccAddress, _ sdk.Coins) error {
-		refundCalled = true
-		return nil
-	}
-	f.bankKeeper.burnCoinsFn = func(_ context.Context, _ string, _ sdk.Coins) error {
-		burnCalled = true
-		return nil
-	}
-
-	// Capture pre-prune commitment so we can verify ReleaseBond fires.
-	preCommitted := f.repKeeper.bondedRoles[mockBondedRoleKey(reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, f.sentinel)].TotalCommittedBond
-
-	// Advance past appeal_deadline_blocks (default 201600)
-	// Appeal was filed, new deadline = current_block + 201600
-	f.advanceBlockHeight(201601)
-
-	err = f.keeper.PruneExpired(f.ctx)
-	require.NoError(t, err)
-
-	// Verify hide record is resolved
-	hr, err = f.keeper.HideRecord.Get(f.ctx, hideRecordID)
-	require.NoError(t, err)
-	require.True(t, hr.Resolved)
-
-	// Verify collection is restored to ACTIVE (appeal timeout favors appellant)
-	coll, err := f.keeper.Collection.Get(f.ctx, collID)
-	require.NoError(t, err)
-	require.Equal(t, types.CollectionStatus_COLLECTION_STATUS_ACTIVE, coll.Status)
-
-	// Verify refund and burn happened (50% refund, 50% burn)
-	require.True(t, refundCalled)
-	require.True(t, burnCalled)
-
-	// Verify sentinel bond released (TotalCommittedBond decreased).
-	postCommitted := f.repKeeper.bondedRoles[mockBondedRoleKey(reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, f.sentinel)].TotalCommittedBond
-	require.NotEqual(t, preCommitted, postCommitted, "expected ReleaseBond to reduce total_committed_bond")
-}
+// Appeal timeouts are owned by x/rep now; see TestRepAppeal_TimeoutRestoresAndReleases
+// (callbacks_test.go) for the timeout callback.
 
 func TestPruneExpiredFlags(t *testing.T) {
 	f := initTestFixture(t)

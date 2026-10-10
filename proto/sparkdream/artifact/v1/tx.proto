@@ -1,0 +1,640 @@
+syntax = "proto3";
+
+package sparkdream.artifact.v1;
+
+import "amino/amino.proto";
+import "cosmos/base/v1beta1/coin.proto";
+import "cosmos/msg/v1/msg.proto";
+import "cosmos_proto/cosmos.proto";
+import "gogoproto/gogo.proto";
+import "sparkdream/artifact/v1/params.proto";
+import "sparkdream/artifact/v1/types.proto";
+import "sparkdream/common/v1/moderation_reason.proto";
+
+option go_package = "sparkdream/x/artifact/types";
+
+// Msg defines the Msg service.
+service Msg {
+  option (cosmos.msg.v1.service) = true;
+
+  // UpdateParams defines a (governance) operation for updating the module
+  // parameters. The authority defaults to the x/gov module account.
+  rpc UpdateParams(MsgUpdateParams) returns (MsgUpdateParamsResponse);
+
+  // CreateClass creates a new class (member- or council-gated, fee burned).
+  rpc CreateClass(MsgCreateClass) returns (MsgCreateClassResponse);
+
+  // UpdateClass edits class metadata and payment routing.
+  rpc UpdateClass(MsgUpdateClass) returns (MsgUpdateClassResponse);
+
+  // FreezeClassMetadata freezes class and token metadata (one-way).
+  rpc FreezeClassMetadata(MsgFreezeClassMetadata) returns (MsgFreezeClassMetadataResponse);
+
+  // SetMintPolicy replaces the public mint policy.
+  rpc SetMintPolicy(MsgSetMintPolicy) returns (MsgSetMintPolicyResponse);
+
+  // SetMinters adds and removes class minters.
+  rpc SetMinters(MsgSetMinters) returns (MsgSetMintersResponse);
+
+  // SetMaxSupply lowers (or first sets) the class supply cap.
+  rpc SetMaxSupply(MsgSetMaxSupply) returns (MsgSetMaxSupplyResponse);
+
+  // CloseMinting permanently stops minting.
+  rpc CloseMinting(MsgCloseMinting) returns (MsgCloseMintingResponse);
+
+  // ProposeClassOwner proposes a class ownership handover.
+  rpc ProposeClassOwner(MsgProposeClassOwner) returns (MsgProposeClassOwnerResponse);
+
+  // AcceptClassOwner accepts a proposed handover.
+  rpc AcceptClassOwner(MsgAcceptClassOwner) returns (MsgAcceptClassOwnerResponse);
+
+  // CancelClassOwner withdraws a proposed handover.
+  rpc CancelClassOwner(MsgCancelClassOwner) returns (MsgCancelClassOwnerResponse);
+
+  // DeleteClass deletes an empty class.
+  rpc DeleteClass(MsgDeleteClass) returns (MsgDeleteClassResponse);
+
+  // Mint mints tokens as the class owner or a listed minter.
+  rpc Mint(MsgMint) returns (MsgMintResponse);
+
+  // PublicMint buys tokens under the class's public mint policy.
+  rpc PublicMint(MsgPublicMint) returns (MsgPublicMintResponse);
+
+  // Transfer moves tokens to recipients (or their inboxes).
+  rpc Transfer(MsgTransfer) returns (MsgTransferResponse);
+
+  // AcceptIncoming accepts inbox items.
+  rpc AcceptIncoming(MsgAcceptIncoming) returns (MsgAcceptIncomingResponse);
+
+  // RejectIncoming rejects inbox items.
+  rpc RejectIncoming(MsgRejectIncoming) returns (MsgRejectIncomingResponse);
+
+  // CancelOutgoing withdraws pending items the signer sent.
+  rpc CancelOutgoing(MsgCancelOutgoing) returns (MsgCancelOutgoingResponse);
+
+  // SetReceivePolicy sets the signer's receive policy.
+  rpc SetReceivePolicy(MsgSetReceivePolicy) returns (MsgSetReceivePolicyResponse);
+
+  // Burn destroys tokens and refunds their deposits to the burner.
+  rpc Burn(MsgBurn) returns (MsgBurnResponse);
+
+  // Revoke burns tokens as the class owner, when the class's
+  // burn_authorization allows the issuer.
+  rpc Revoke(MsgRevoke) returns (MsgRevokeResponse);
+
+  // UpdateToken replaces a token's metadata (mutable classes only).
+  rpc UpdateToken(MsgUpdateToken) returns (MsgUpdateTokenResponse);
+
+  // FreezeTokenMetadata freezes token metadata (class owner or holder).
+  rpc FreezeTokenMetadata(MsgFreezeTokenMetadata) returns (MsgFreezeTokenMetadataResponse);
+
+  // List offers a token for sale at a fixed SPARK price.
+  rpc List(MsgList) returns (MsgListResponse);
+
+  // UpdateListing changes a listing's price or duration.
+  rpc UpdateListing(MsgUpdateListing) returns (MsgUpdateListingResponse);
+
+  // Delist cancels a listing.
+  rpc Delist(MsgDelist) returns (MsgDelistResponse);
+
+  // Buy purchases a listed token.
+  rpc Buy(MsgBuy) returns (MsgBuyResponse);
+
+  // HideContent hides a class or token (sentinel or council).
+  rpc HideContent(MsgHideContent) returns (MsgHideContentResponse);
+
+  // UnhideContent reverses a hide before appeal.
+  rpc UnhideContent(MsgUnhideContent) returns (MsgUnhideContentResponse);
+
+  // AppealHide appeals a hide through the x/rep jury (ARTIFACT_HIDE).
+  rpc AppealHide(MsgAppealHide) returns (MsgAppealHideResponse);
+
+  // UpdateOperationalParams updates the operational parameter subset.
+  rpc UpdateOperationalParams(MsgUpdateOperationalParams) returns (MsgUpdateOperationalParamsResponse);
+}
+
+// MsgUpdateParams is the Msg/UpdateParams request type.
+message MsgUpdateParams {
+  option (cosmos.msg.v1.signer) = "authority";
+  option (amino.name) = "sparkdream/x/artifact/MsgUpdateParams";
+
+  // authority is the address that controls the module (defaults to x/gov unless overwritten).
+  string authority = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+
+  // params defines the module parameters to update.
+
+  // NOTE: All parameters must be supplied.
+  Params params = 2 [
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+}
+
+// MsgUpdateParamsResponse defines the response structure for executing a
+// MsgUpdateParams message.
+message MsgUpdateParamsResponse {}
+
+// MsgCreateClass creates a class.
+message MsgCreateClass {
+  option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/artifact/MsgCreateClass";
+  string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string name = 2;
+  string symbol = 3;
+  string description = 4;
+  string uri = 5;
+  string uri_hash = 6;
+  string token_uri_base = 7;
+  ClassFlags flags = 8 [
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+  uint64 max_supply = 9;
+  MintPolicy mint_policy = 10 [
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+  // Empty = creator.
+  string payout_address = 11;
+  uint32 royalty_bps = 12;
+  // Empty = the creator takes the whole royalty.
+  repeated RoyaltyShare royalty_recipients = 13 [(gogoproto.nullable) = false];
+  repeated string minters = 14;
+  // Must equal "CC0-1.0".
+  string accepted_content_license = 15;
+}
+
+// MsgCreateClassResponse returns the new class id.
+message MsgCreateClassResponse {
+  uint64 class_id = 1;
+}
+
+// MsgUpdateClass edits the fields named in update_mask.
+message MsgUpdateClass {
+  option (cosmos.msg.v1.signer) = "owner";
+  option (amino.name) = "sparkdream/x/artifact/MsgUpdateClass";
+  string owner = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 class_id = 2;
+  string name = 3;
+  string description = 4;
+  string uri = 5;
+  string uri_hash = 6;
+  string token_uri_base = 7;
+  string payout_address = 8;
+  repeated RoyaltyShare royalty_recipients = 9 [(gogoproto.nullable) = false];
+  uint32 royalty_bps = 10;
+  // Field names to update: name, description, uri, uri_hash, token_uri_base,
+  // payout_address, royalty_recipients, royalty_bps.
+  repeated string update_mask = 11;
+}
+
+// MsgUpdateClassResponse is empty.
+message MsgUpdateClassResponse {}
+
+// MsgFreezeClassMetadata freezes class (and all token) metadata.
+message MsgFreezeClassMetadata {
+  option (cosmos.msg.v1.signer) = "owner";
+  option (amino.name) = "sparkdream/x/artifact/MsgFreezeClassMetadata";
+  string owner = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 class_id = 2;
+}
+
+// MsgFreezeClassMetadataResponse is empty.
+message MsgFreezeClassMetadataResponse {}
+
+// MsgSetMintPolicy replaces the class mint policy.
+message MsgSetMintPolicy {
+  option (cosmos.msg.v1.signer) = "owner";
+  option (amino.name) = "sparkdream/x/artifact/MsgSetMintPolicy";
+  string owner = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 class_id = 2;
+  MintPolicy mint_policy = 3 [
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+}
+
+// MsgSetMintPolicyResponse is empty.
+message MsgSetMintPolicyResponse {}
+
+// MsgSetMinters adds and removes minters atomically.
+message MsgSetMinters {
+  option (cosmos.msg.v1.signer) = "owner";
+  option (amino.name) = "sparkdream/x/artifact/MsgSetMinters";
+  string owner = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 class_id = 2;
+  repeated string add = 3;
+  repeated string remove = 4;
+}
+
+// MsgSetMintersResponse is empty.
+message MsgSetMintersResponse {}
+
+// MsgSetMaxSupply lowers the supply cap or caps an unlimited class.
+message MsgSetMaxSupply {
+  option (cosmos.msg.v1.signer) = "owner";
+  option (amino.name) = "sparkdream/x/artifact/MsgSetMaxSupply";
+  string owner = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 class_id = 2;
+  uint64 max_supply = 3;
+}
+
+// MsgSetMaxSupplyResponse is empty.
+message MsgSetMaxSupplyResponse {}
+
+// MsgCloseMinting permanently closes minting.
+message MsgCloseMinting {
+  option (cosmos.msg.v1.signer) = "owner";
+  option (amino.name) = "sparkdream/x/artifact/MsgCloseMinting";
+  string owner = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 class_id = 2;
+}
+
+// MsgCloseMintingResponse is empty.
+message MsgCloseMintingResponse {}
+
+// MsgProposeClassOwner proposes a handover.
+message MsgProposeClassOwner {
+  option (cosmos.msg.v1.signer) = "owner";
+  option (amino.name) = "sparkdream/x/artifact/MsgProposeClassOwner";
+  string owner = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 class_id = 2;
+  string proposed_owner = 3 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+}
+
+// MsgProposeClassOwnerResponse is empty.
+message MsgProposeClassOwnerResponse {}
+
+// MsgAcceptClassOwner accepts a handover.
+message MsgAcceptClassOwner {
+  option (cosmos.msg.v1.signer) = "proposed_owner";
+  option (amino.name) = "sparkdream/x/artifact/MsgAcceptClassOwner";
+  string proposed_owner = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 class_id = 2;
+}
+
+// MsgAcceptClassOwnerResponse is empty.
+message MsgAcceptClassOwnerResponse {}
+
+// MsgCancelClassOwner withdraws a handover proposal.
+message MsgCancelClassOwner {
+  option (cosmos.msg.v1.signer) = "owner";
+  option (amino.name) = "sparkdream/x/artifact/MsgCancelClassOwner";
+  string owner = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 class_id = 2;
+}
+
+// MsgCancelClassOwnerResponse is empty.
+message MsgCancelClassOwnerResponse {}
+
+// MsgDeleteClass deletes an empty class.
+message MsgDeleteClass {
+  option (cosmos.msg.v1.signer) = "owner";
+  option (amino.name) = "sparkdream/x/artifact/MsgDeleteClass";
+  string owner = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 class_id = 2;
+}
+
+// MsgDeleteClassResponse is empty.
+message MsgDeleteClassResponse {}
+
+// MintEntry is one token to mint.
+message MintEntry {
+  // Empty = the minter.
+  string recipient = 1;
+  TokenMetadata metadata = 2 [
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+}
+
+// MintResult reports one minted token.
+message MintResult {
+  uint64 token_id = 1;
+  // true = delivered; false = waiting in the recipient's inbox.
+  bool live = 2;
+}
+
+// MsgMint mints tokens as the class owner or a listed minter.
+message MsgMint {
+  option (cosmos.msg.v1.signer) = "minter";
+  option (amino.name) = "sparkdream/x/artifact/MsgMint";
+  string minter = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 class_id = 2;
+  repeated MintEntry entries = 3 [
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+  // Must equal "CC0-1.0".
+  string accepted_content_license = 4;
+}
+
+// MsgMintResponse lists the minted tokens.
+message MsgMintResponse {
+  repeated MintResult results = 1 [(gogoproto.nullable) = false];
+}
+
+// MsgPublicMint buys tokens under the public mint policy.
+message MsgPublicMint {
+  option (cosmos.msg.v1.signer) = "buyer";
+  option (amino.name) = "sparkdream/x/artifact/MsgPublicMint";
+  string buyer = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 class_id = 2;
+  uint32 quantity = 3;
+  // Per-token maximum; rejected if the current price is higher.
+  cosmos.base.v1beta1.Coin max_price = 4 [
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+}
+
+// MsgPublicMintResponse lists the minted token ids.
+message MsgPublicMintResponse {
+  repeated uint64 token_ids = 1;
+}
+
+// TransferEntry is one token transfer.
+message TransferEntry {
+  uint64 class_id = 1;
+  uint64 token_id = 2;
+  string recipient = 3;
+}
+
+// MsgTransfer transfers tokens.
+message MsgTransfer {
+  option (cosmos.msg.v1.signer) = "sender";
+  option (amino.name) = "sparkdream/x/artifact/MsgTransfer";
+  string sender = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  repeated TransferEntry entries = 2 [
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+}
+
+// TransferResult reports one transfer.
+message TransferResult {
+  uint64 class_id = 1;
+  uint64 token_id = 2;
+  // true = delivered; false = waiting in the recipient's inbox.
+  bool delivered = 3;
+}
+
+// MsgTransferResponse lists the transfer outcomes.
+message MsgTransferResponse {
+  repeated TransferResult results = 1 [(gogoproto.nullable) = false];
+}
+
+// AcceptEntry is one inbox item to accept.
+message AcceptEntry {
+  uint64 class_id = 1;
+  uint64 token_id = 2;
+  // Optional; if set, must equal the item's current metadata hash.
+  string expected_metadata_hash = 3;
+}
+
+// MsgAcceptIncoming accepts inbox items.
+message MsgAcceptIncoming {
+  option (cosmos.msg.v1.signer) = "recipient";
+  option (amino.name) = "sparkdream/x/artifact/MsgAcceptIncoming";
+  string recipient = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  repeated AcceptEntry entries = 2 [
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+}
+
+// MsgAcceptIncomingResponse is empty.
+message MsgAcceptIncomingResponse {}
+
+// MsgRejectIncoming rejects inbox items.
+message MsgRejectIncoming {
+  option (cosmos.msg.v1.signer) = "recipient";
+  option (amino.name) = "sparkdream/x/artifact/MsgRejectIncoming";
+  string recipient = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  repeated TokenRef refs = 2 [
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+}
+
+// MsgRejectIncomingResponse is empty.
+message MsgRejectIncomingResponse {}
+
+// MsgCancelOutgoing withdraws pending items.
+message MsgCancelOutgoing {
+  option (cosmos.msg.v1.signer) = "signer";
+  option (amino.name) = "sparkdream/x/artifact/MsgCancelOutgoing";
+  string signer = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  repeated TokenRef refs = 2 [
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+}
+
+// MsgCancelOutgoingResponse is empty.
+message MsgCancelOutgoingResponse {}
+
+// MsgSetReceivePolicy sets the signer's receive policy.
+message MsgSetReceivePolicy {
+  option (cosmos.msg.v1.signer) = "owner";
+  option (amino.name) = "sparkdream/x/artifact/MsgSetReceivePolicy";
+  string owner = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  ReceivePolicy policy = 2;
+}
+
+// MsgSetReceivePolicyResponse is empty.
+message MsgSetReceivePolicyResponse {}
+
+// MsgBurn burns tokens the signer owns.
+message MsgBurn {
+  option (cosmos.msg.v1.signer) = "owner";
+  option (amino.name) = "sparkdream/x/artifact/MsgBurn";
+  string owner = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  repeated TokenRef refs = 2 [
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+}
+
+// MsgBurnResponse is empty.
+message MsgBurnResponse {}
+
+// MsgRevoke burns tokens as the class owner, when the class's
+// burn_authorization allows the issuer.
+message MsgRevoke {
+  option (cosmos.msg.v1.signer) = "owner";
+  option (amino.name) = "sparkdream/x/artifact/MsgRevoke";
+  string owner = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 class_id = 2;
+  repeated uint64 token_ids = 3;
+  string reason = 4;
+}
+
+// MsgRevokeResponse is empty.
+message MsgRevokeResponse {}
+
+// MsgUpdateToken replaces a token's metadata.
+message MsgUpdateToken {
+  option (cosmos.msg.v1.signer) = "owner";
+  option (amino.name) = "sparkdream/x/artifact/MsgUpdateToken";
+  string owner = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 class_id = 2;
+  uint64 token_id = 3;
+  TokenMetadata metadata = 4 [
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+}
+
+// MsgUpdateTokenResponse returns the new metadata hash.
+message MsgUpdateTokenResponse {
+  string metadata_hash = 1;
+}
+
+// MsgFreezeTokenMetadata freezes token metadata.
+message MsgFreezeTokenMetadata {
+  option (cosmos.msg.v1.signer) = "signer";
+  option (amino.name) = "sparkdream/x/artifact/MsgFreezeTokenMetadata";
+  string signer = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  repeated TokenRef refs = 2 [
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+}
+
+// MsgFreezeTokenMetadataResponse is empty.
+message MsgFreezeTokenMetadataResponse {}
+
+// MsgList lists a token for sale.
+message MsgList {
+  option (cosmos.msg.v1.signer) = "seller";
+  option (amino.name) = "sparkdream/x/artifact/MsgList";
+  string seller = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 class_id = 2;
+  uint64 token_id = 3;
+  cosmos.base.v1beta1.Coin price = 4 [
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+  // Seconds.
+  int64 duration = 5;
+}
+
+// MsgListResponse returns the listing nonce.
+message MsgListResponse {
+  uint64 nonce = 1;
+}
+
+// MsgUpdateListing changes price and/or duration.
+message MsgUpdateListing {
+  option (cosmos.msg.v1.signer) = "seller";
+  option (amino.name) = "sparkdream/x/artifact/MsgUpdateListing";
+  string seller = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 class_id = 2;
+  uint64 token_id = 3;
+  cosmos.base.v1beta1.Coin price = 4 [
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+  // Seconds from now.
+  int64 duration = 5;
+}
+
+// MsgUpdateListingResponse returns the new nonce.
+message MsgUpdateListingResponse {
+  uint64 nonce = 1;
+}
+
+// MsgDelist cancels a listing.
+message MsgDelist {
+  option (cosmos.msg.v1.signer) = "seller";
+  option (amino.name) = "sparkdream/x/artifact/MsgDelist";
+  string seller = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 class_id = 2;
+  uint64 token_id = 3;
+}
+
+// MsgDelistResponse is empty.
+message MsgDelistResponse {}
+
+// MsgBuy buys a listed token.
+message MsgBuy {
+  option (cosmos.msg.v1.signer) = "buyer";
+  option (amino.name) = "sparkdream/x/artifact/MsgBuy";
+  string buyer = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 class_id = 2;
+  uint64 token_id = 3;
+  cosmos.base.v1beta1.Coin expected_price = 4 [
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+  uint64 expected_nonce = 5;
+  // Optional; must equal the token's current metadata hash if set.
+  string expected_metadata_hash = 6;
+}
+
+// MsgBuyResponse reports the settlement split.
+message MsgBuyResponse {
+  string fee = 1;
+  string royalty = 2;
+  string proceeds = 3;
+}
+
+// MsgHideContent hides a class or token.
+message MsgHideContent {
+  option (cosmos.msg.v1.signer) = "authority";
+  option (amino.name) = "sparkdream/x/artifact/MsgHideContent";
+  string authority = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  HideTargetKind target_kind = 2;
+  uint64 class_id = 3;
+  uint64 token_id = 4;
+  sparkdream.common.v1.ModerationReason reason = 5;
+  string reason_text = 6;
+}
+
+// MsgHideContentResponse returns the hide record id.
+message MsgHideContentResponse {
+  uint64 hide_id = 1;
+}
+
+// MsgUnhideContent reverses a hide before appeal.
+message MsgUnhideContent {
+  option (cosmos.msg.v1.signer) = "authority";
+  option (amino.name) = "sparkdream/x/artifact/MsgUnhideContent";
+  string authority = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 hide_id = 2;
+}
+
+// MsgUnhideContentResponse is empty.
+message MsgUnhideContentResponse {}
+
+// MsgAppealHide appeals a hide. The appeal is opened in x/rep (which charges
+// its standard appeal bond and seats a jury); the verdict comes back through
+// x/rep's ModerationAppealTarget callbacks.
+message MsgAppealHide {
+  option (cosmos.msg.v1.signer) = "appellant";
+  option (amino.name) = "sparkdream/x/artifact/MsgAppealHide";
+  string appellant = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 hide_id = 2;
+  string reason = 3;
+}
+
+// MsgAppealHideResponse returns the x/rep appeal id.
+message MsgAppealHideResponse {
+  uint64 appeal_id = 1;
+}
+
+// MsgUpdateOperationalParams updates the operational parameter subset.
+message MsgUpdateOperationalParams {
+  option (cosmos.msg.v1.signer) = "authority";
+  option (amino.name) = "sparkdream/x/artifact/MsgUpdateOperationalParams";
+  string authority = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  // NOTE: All operational parameters must be supplied.
+  ArtifactOperationalParams operational_params = 2 [
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+}
+
+// MsgUpdateOperationalParamsResponse is empty.
+message MsgUpdateOperationalParamsResponse {}

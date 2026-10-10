@@ -49,6 +49,7 @@ import (
 
 	"sparkdream/app/relayrefund"
 	"sparkdream/docs"
+	artifactmodulekeeper "sparkdream/x/artifact/keeper"
 	blogmodulekeeper "sparkdream/x/blog/keeper"
 	collectmodulekeeper "sparkdream/x/collect/keeper"
 	commonsante "sparkdream/x/commons/ante"
@@ -152,6 +153,7 @@ type App struct {
 	ServiceKeeper    servicemodulekeeper.Keeper
 	IdentityKeeper   *identitymodulekeeper.Keeper
 	GuardianKeeper   *guardianmodulekeeper.Keeper
+	ArtifactKeeper   artifactmodulekeeper.Keeper
 }
 
 func init() {
@@ -248,6 +250,7 @@ func New(
 		&app.ServiceKeeper,
 		&app.IdentityKeeper,
 		&app.GuardianKeeper,
+		&app.ArtifactKeeper,
 	); err != nil {
 		panic(err)
 	}
@@ -398,6 +401,23 @@ func New(
 	// so this skim happens ahead of the councils' full-remainder distribution.
 	app.FederationKeeper.SetDistrKeeper(NewDistrKeeperAdapter(app.DistrKeeper))
 	app.FederationKeeper.SetMintKeeper(NewMintProvisionsAdapter(app.MintKeeper))
+
+	// Wire cross-module keepers into Artifact (NFTs) after depinject. The
+	// keeper holds them behind a shared pointer, so the AppModule's value
+	// copy sees this wiring too. Sale fees go to the community pool through
+	// the same FundCommunityPool adapter x/service uses.
+	app.ArtifactKeeper.SetIdentityKeeper(app.IdentityKeeper)
+	app.ArtifactKeeper.SetRepKeeper(app.RepKeeper)
+	app.ArtifactKeeper.SetCommonsKeeper(app.CommonsKeeper)
+	app.ArtifactKeeper.SetDistrKeeper(NewServiceDistributionAdapter(app.DistrKeeper))
+	// Artifact hide appeals run through x/rep's moderation-appeal machinery
+	// (bond, jury, verdict, timeout); x/rep calls back into artifact for
+	// GOV_ACTION_TYPE_ARTIFACT_HIDE.
+	app.RepKeeper.RegisterModerationAppealTarget(repmoduletypes.GovActionType_GOV_ACTION_TYPE_ARTIFACT_HIDE,
+		artifactmodulekeeper.NewRepAppealTarget(app.ArtifactKeeper))
+	// Collect hide appeals use the same x/rep machinery.
+	app.RepKeeper.RegisterModerationAppealTarget(repmoduletypes.GovActionType_GOV_ACTION_TYPE_COLLECT_HIDE,
+		collectmodulekeeper.NewRepAppealTarget(app.CollectKeeper))
 
 	// Wire cross-module keepers into Service after depinject (leaf module).
 	// Adapters in app/service_adapters.go bridge concrete keepers to the

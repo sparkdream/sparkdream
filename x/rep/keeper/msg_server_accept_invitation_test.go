@@ -101,7 +101,9 @@ func TestMsgServerAcceptInvitation(t *testing.T) {
 			AcceptedContentLicense: "CC0-1.0",
 		})
 		require.NoError(t, err)
-		_, err = k.Member.Get(ctx, inviteeStr)
+		member, err := k.Member.Get(ctx, inviteeStr)
 		require.NoError(t, err)
+		// The agreement outlives event pruning: it is kept on the member record.
+		require.Equal(t, "CC0-1.0", member.ContentLicense)
 	})
 }

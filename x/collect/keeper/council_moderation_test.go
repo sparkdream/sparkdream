@@ -198,7 +198,7 @@ func TestCouncilHide_AppealableAndJuryOverturnRestores(t *testing.T) {
 	appealHide(t, f, hrID)
 
 	// Jury overturn: content restored, penalties restored, nothing slashed.
-	require.NoError(t, f.keeper.ResolveHideAppeal(f.ctx, hrID, true))
+	require.NoError(t, resolveAppealViaRepErr(t, f, hrID, true))
 	coll, err := f.keeper.Collection.Get(f.ctx, collID)
 	require.NoError(t, err)
 	require.Equal(t, types.CollectionStatus_COLLECTION_STATUS_ACTIVE, coll.Status)

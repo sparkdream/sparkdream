@@ -5,6 +5,18 @@ echo "  X/REP INTEGRATION TESTS - MASTER TEST RUNNER"
 echo "========================================================================="
 echo ""
 
+# ============================================================================
+# The parallel runner (test/run_parallel.sh) reads the `# TEST_ORDER:` comment
+# below for this suite's execution order. Without it the runner falls back to
+# alphabetical order, which does not match this file: x/rep's tests share
+# accounts and accumulate state (interim_authorization_test, for one, runs last
+# here and must cope with an `assignee` already at its active-initiative cap).
+# Keep it in step with the `bash "$SCRIPT_DIR/<name>_test.sh"` calls below;
+# this runner refuses to start when the two disagree (see the check after
+# argument parsing).
+# ============================================================================
+# TEST_ORDER: member_test.sh genesis_test.sh content_challenge_test.sh invitation_test.sh dream_token_test.sh initiative_test.sh staking_test.sh interim_test.sh challenge_test.sh complex_scenarios_test.sh edge_cases_test.sh endblocker_test.sh operational_params_test.sh bond_locked_test.sh bonded_role_test.sh self_assign_test.sh staking_errors_test.sh validation_test.sh anon_challenge_test.sh trust_level_test.sh member_report_test.sh gov_action_appeal_test.sh jury_participation_test.sh initiative_review_test.sh review_bounty_test.sh initiative_bounty_test.sh role_reward_funding_test.sh jury_duty_test.sh tag_budget_test.sh tag_moderation_test.sh project_approval_test.sh project_lifecycle_test.sh interim_authorization_test.sh
+
 # ========================================================================
 # Configuration
 # ========================================================================
@@ -209,6 +221,19 @@ while [[ $# -gt 0 ]]; do
 done
 
 
+# The TEST_ORDER manifest at the top of this file must list exactly the tests
+# this runner invokes, in the same order -- the parallel runner trusts it.
+_MANIFEST_ORDER=$(grep -m1 -E '^# TEST_ORDER:' "$SCRIPT_DIR/run_all_tests.sh" \
+    | sed -E 's/^# TEST_ORDER:[[:space:]]*//')
+_INVOKED_ORDER=$(grep -oE 'bash "\$SCRIPT_DIR/[a-z_]+_test\.sh"' "$SCRIPT_DIR/run_all_tests.sh" \
+    | sed -E 's/.*\/([a-z_]+\.sh)"/\1/' | tr '\n' ' ' | sed 's/ $//')
+if [ "$_MANIFEST_ORDER" != "$_INVOKED_ORDER" ]; then
+    echo "[FAIL] # TEST_ORDER manifest is out of step with this runner's test calls"
+    echo "  manifest: $_MANIFEST_ORDER"
+    echo "  invoked:  $_INVOKED_ORDER"
+    exit 1
+fi
+
 # Auto-snapshot: when no explicit save/restore flag is passed, reuse an
 # existing fresh snapshot or save one after setup. See test/_auto_snapshot.sh.
 source "$SCRIPT_DIR/../_auto_snapshot.sh"
@@ -227,7 +252,7 @@ else
         echo "[FAIL] Chain is not running!"
         echo ""
         echo "Please start the chain first:"
-        echo "  cd /home/chill/cosmos/sparkdream/sparkdream"
+        echo "  cd $(cd "$SCRIPT_DIR/../.." && pwd)"
         echo "  ignite chain serve"
         echo ""
         exit 1
@@ -272,7 +297,7 @@ if [ "$RESET_CHAIN" = true ]; then
     echo ""
     echo "[WARN] To reset the chain:"
     echo "   1. Stop the running chain (Ctrl+C in ignite terminal)"
-    echo "   2. Run: cd /home/chill/cosmos/sparkdream/sparkdream && ignite chain serve --reset-once"
+    echo "   2. Run: cd $(cd "$SCRIPT_DIR/../.." && pwd) && ignite chain serve --reset-once"
     echo "   3. Wait for chain to start"
     echo "   4. Re-run this script"
     echo ""
@@ -667,6 +692,30 @@ else
     echo "STEP 3: MEMBER LIFECYCLE TEST (SKIPPED)"
     echo "========================================================================="
     echo ""
+fi
+
+# ========================================================================
+# Step 3b: Run Genesis Test (genesis members, params, founder content license)
+# ========================================================================
+# Read-only: queries genesis-seeded state and the chain's exported view of it,
+# so it runs early, before later steps reshape member balances.
+if [ "$RUN_TESTS" = true ] && [ -f "$SCRIPT_DIR/genesis_test.sh" ]; then
+    echo "========================================================================="
+    echo "STEP 3b: GENESIS TEST"
+    echo "========================================================================="
+    echo ""
+
+    bash "$SCRIPT_DIR/genesis_test.sh"
+    GENESIS_EXIT_CODE=$?
+
+    echo ""
+    if [ $GENESIS_EXIT_CODE -eq 0 ]; then
+        echo "[ OK ] Genesis test completed"
+    else
+        echo "[FAIL] Genesis test exited with code: $GENESIS_EXIT_CODE"
+    fi
+    echo ""
+    sleep 2
 fi
 
 # ========================================================================
@@ -1517,6 +1566,14 @@ print_row true                            "${TAG_BUDGET_EXIT_CODE:-0}"          
 print_row true                            "${TAG_MODERATION_EXIT_CODE:-0}"      "Tag Moderation Test"
 print_row true                            "${PROJECT_APPROVAL_EXIT_CODE:-0}"    "Project Approval"
 print_row true                            "${PROJECT_LIFECYCLE_EXIT_CODE:-0}"   "Project Lifecycle"
+print_row true                            "${GENESIS_EXIT_CODE:-0}" "Genesis Test"
+print_row true                            "${SELF_ASSIGN_EXIT_CODE:-0}" "Self-Assign Test"
+print_row true                            "${INITIATIVE_REVIEW_EXIT_CODE:-0}" "Initiative Review Test"
+print_row true                            "${REVIEW_BOUNTY_EXIT_CODE:-0}" "Review Bounty Test"
+print_row true                            "${INITIATIVE_BOUNTY_EXIT_CODE:-0}" "Initiative Bounty Test"
+print_row true                            "${ROLE_REWARD_FUNDING_EXIT_CODE:-0}" "Role Reward Funding"
+print_row true                            "${JURY_DUTY_EXIT_CODE:-0}" "Jury Duty Test"
+print_row true                            "${INTERIM_AUTH_EXIT_CODE:-0}" "Interim Authorization"
 echo ""
 
 check_test "$RUN_MEMBER_TEST"              "${MEMBER_EXIT_CODE:-1}"              "Member Test"
@@ -1544,6 +1601,14 @@ check_test true                            "${TAG_BUDGET_EXIT_CODE:-0}"         
 check_test true                            "${TAG_MODERATION_EXIT_CODE:-0}"      "Tag Moderation Test"
 check_test true                            "${PROJECT_APPROVAL_EXIT_CODE:-0}"    "Project Approval"
 check_test true                            "${PROJECT_LIFECYCLE_EXIT_CODE:-0}"   "Project Lifecycle"
+check_test true                            "${GENESIS_EXIT_CODE:-0}" "Genesis Test"
+check_test true                            "${SELF_ASSIGN_EXIT_CODE:-0}" "Self-Assign Test"
+check_test true                            "${INITIATIVE_REVIEW_EXIT_CODE:-0}" "Initiative Review Test"
+check_test true                            "${REVIEW_BOUNTY_EXIT_CODE:-0}" "Review Bounty Test"
+check_test true                            "${INITIATIVE_BOUNTY_EXIT_CODE:-0}" "Initiative Bounty Test"
+check_test true                            "${ROLE_REWARD_FUNDING_EXIT_CODE:-0}" "Role Reward Funding"
+check_test true                            "${JURY_DUTY_EXIT_CODE:-0}" "Jury Duty Test"
+check_test true                            "${INTERIM_AUTH_EXIT_CODE:-0}" "Interim Authorization"
 
 # Final Alice balance
 ALICE_MEMBER=$($BINARY query rep get-member $ALICE_ADDR -o json 2>/dev/null)

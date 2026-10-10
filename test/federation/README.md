@@ -40,7 +40,7 @@ The single-chain tests can validate that a `FederateContent` message is *constru
 ### Single-chain suite
 1. **sparkdreamd built with `testparams`:**
    ```bash
-   cd /home/chill/cosmos/sparkdream/sparkdream
+   cd <path-to-sparkdream-repo>
    ignite chain build --build.tags testparams
    ```
 2. **A running chain** (the suite expects it on `localhost:26657`). Start manually with `sparkdreamd start --home ~/.sparkdream` after `ignite chain init`, or use `--restore-setup` (below) which handles startup itself.

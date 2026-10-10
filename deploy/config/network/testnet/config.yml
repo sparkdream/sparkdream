@@ -335,6 +335,7 @@ genesis:
       member_map:
       # Tier 1 (Lead Vocal) - Recruited the others
       - address: sprkdrm19wsctgkpk93wkquu7t8g07gnvwzwdupshys9mu  # Valya
+        content_license: "CC0-1.0"  # founder's open-content agreement (required)
         dream_balance: "5000000000"  # 5000 DREAM (Tier 1 Lead Vocal)
         staked_dream: "0"
         lifetime_earned: "5000000000"
@@ -357,6 +358,7 @@ genesis:
         completed_initiatives_count: 0
       # Tier 2 (Vocal) - Second vocal founder
       - address: sprkdrm1emtnqs9qw9vrg5lsa58dyt8llq5fyenylmqy3p  # Cozmonika
+        content_license: "CC0-1.0"  # founder's open-content agreement (required)
         dream_balance: "3500000000"  # 3500 DREAM (Tier 2 Vocal)
         staked_dream: "0"
         lifetime_earned: "3500000000"
@@ -379,6 +381,7 @@ genesis:
         completed_initiatives_count: 0
       # Tier 3 (Public) - Public founders
       - address: sprkdrm1yhjdr8kxsrer3kcqpdrc2zd0kggvsj4c3vazkd  # King of Bitchain
+        content_license: "CC0-1.0"  # founder's open-content agreement (required)
         dream_balance: "2500000000"  # 2500 DREAM (Tier 3 Public)
         staked_dream: "0"
         lifetime_earned: "2500000000"
@@ -400,6 +403,7 @@ genesis:
         completed_interims_count: 0
         completed_initiatives_count: 0
       - address: sprkdrm1psq079p8erng2pf37nvvvmpqpetkknpmwxx4r8  # Viorika
+        content_license: "CC0-1.0"  # founder's open-content agreement (required)
         dream_balance: "2500000000"  # 2500 DREAM (Tier 3 Public)
         staked_dream: "0"
         lifetime_earned: "2500000000"
@@ -421,6 +425,7 @@ genesis:
         completed_interims_count: 0
         completed_initiatives_count: 0
       - address: sprkdrm1wk6eh9zrw7n6xqmyw2yqja58ekpwy3h5u4gkge  # Uyen
+        content_license: "CC0-1.0"  # founder's open-content agreement (required)
         dream_balance: "2500000000"  # 2500 DREAM (Tier 3 Public)
         staked_dream: "0"
         lifetime_earned: "2500000000"
@@ -442,6 +447,7 @@ genesis:
         completed_interims_count: 0
         completed_initiatives_count: 0
       - address: sprkdrm1crwfn2z2230jhtlaxwphyz0xrmuwc5ntc47vak  # Houri
+        content_license: "CC0-1.0"  # founder's open-content agreement (required)
         dream_balance: "2500000000"  # 2500 DREAM (Tier 3 Public)
         staked_dream: "0"
         lifetime_earned: "2500000000"
@@ -463,6 +469,7 @@ genesis:
         completed_interims_count: 0
         completed_initiatives_count: 0
       - address: sprkdrm1x39wrr0l8x5lvxzuwff65t7zkw23fyyeres2mu  # Gilda
+        content_license: "CC0-1.0"  # founder's open-content agreement (required)
         dream_balance: "2500000000"  # 2500 DREAM (Tier 3 Public)
         staked_dream: "0"
         lifetime_earned: "2500000000"
@@ -485,6 +492,7 @@ genesis:
         completed_initiatives_count: 0
       # Tier 4 (Anon) - Anonymous supporters
       - address: sprkdrm1dqpr060l2pxy08j7q4gaahnmchs7qlhmf2w4y9  # Anon 1
+        content_license: "CC0-1.0"  # founder's open-content agreement (required)
         dream_balance: "2000000000"  # 2000 DREAM (Tier 4 Anon)
         staked_dream: "0"
         lifetime_earned: "2000000000"
@@ -506,6 +514,7 @@ genesis:
         completed_interims_count: 0
         completed_initiatives_count: 0
       - address: sprkdrm1jqyzam9sewlmf704c84ysmkvhaqy8l0tpwysfs  # Anon 2
+        content_license: "CC0-1.0"  # founder's open-content agreement (required)
         dream_balance: "2000000000"  # 2000 DREAM (Tier 4 Anon)
         staked_dream: "0"
         lifetime_earned: "2000000000"

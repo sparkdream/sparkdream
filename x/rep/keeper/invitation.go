@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/rep/types"
 
+	errorsmod "cosmossdk.io/errors"
 	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 )
@@ -166,7 +168,14 @@ func (k Keeper) CreateInvitation(ctx context.Context, inviter, invitee sdk.AccAd
 }
 
 // AcceptInvitation processes an invitation acceptance and creates a new member.
-func (k Keeper) AcceptInvitation(ctx context.Context, invitationID uint64, invitee sdk.AccAddress) error {
+// contentLicense is the license the invitee signed (MsgAcceptInvitation's
+// accepted_content_license); it is stored on the member record as the
+// durable copy of the agreement.
+func (k Keeper) AcceptInvitation(ctx context.Context, invitationID uint64, invitee sdk.AccAddress, contentLicense string) error {
+	if contentLicense != commontypes.ChainContentLicense {
+		return errorsmod.Wrapf(types.ErrContentLicenseNotAccepted, "got %q", contentLicense)
+	}
+
 	// Get invitation
 	invitation, err := k.Invitation.Get(ctx, invitationID)
 	if err != nil {
@@ -238,6 +247,7 @@ func (k Keeper) AcceptInvitation(ctx context.Context, invitationID uint64, invit
 		ZeroedAt:          0,
 		ZeroedCount:       0,
 		LastDecayEpoch:    currentEpoch,
+		ContentLicense:    contentLicense,
 	}
 
 	// Initialize vouched tag reputations

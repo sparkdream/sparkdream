@@ -116,6 +116,10 @@ type RepKeeper interface {
 	RecordActivity(ctx context.Context, roleType reptypes.RoleType, addr string) error
 	SetBondStatus(ctx context.Context, roleType reptypes.RoleType, addr string, status reptypes.BondedRoleStatus, cooldownUntil int64) error
 	SetBondedRoleConfig(ctx context.Context, cfg reptypes.BondedRoleConfig) error
+
+	// CreateGovActionAppeal opens a moderation appeal (bond, jury, deadline)
+	// for a hide; x/rep applies the verdict through RepAppealTarget.
+	CreateGovActionAppeal(ctx context.Context, actionType reptypes.GovActionType, actionTarget string, appellant sdk.AccAddress, reason string) (uint64, uint64, error)
 }
 
 // CommonsKeeper defines the expected interface for the x/commons module.

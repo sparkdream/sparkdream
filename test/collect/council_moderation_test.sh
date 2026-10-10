@@ -10,7 +10,9 @@
 #           authority). HideRecord written with the empty-sentinel gov
 #           marker and zero committed bond; no sentinel bond moves.
 #   Test 2: Council hides ARE appealable (deviation from forum's gov
-#           hides): the owner's appeal-hide tx succeeds.
+#           hides): the owner's appeal-hide opens an x/rep COLLECT_HIDE
+#           appeal, which alice resolves OVERTURNED via x/rep, restoring
+#           the collection.
 #   Test 3: Council unhide overrides a SENTINEL hide with no window: content
 #           back to ACTIVE and the sentinel's committed bond released
 #           IMMEDIATELY (no waiting for the original appeal deadline —
@@ -31,8 +33,7 @@
 #
 # Requires config.yml params overrides (documented in
 # endorsement_slash_test.sh): hide_expiry_blocks=40,
-# appeal_cooldown_blocks=2, appeal_deadline_blocks=60,
-# sentinel_unhide_window_blocks=20.
+# appeal_cooldown_blocks=2, sentinel_unhide_window_blocks=20.
 # ============================================================================
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
@@ -164,8 +165,32 @@ assert_tx_success "carol appeals the COUNCIL hide" "$TX_OUT"
 
 HR_APPEALED=$(query collect hide-record "$T1_HIDE_REC" | jq -r '.hide_record.appealed // false')
 assert_equal "Council hide record marked appealed" "true" "$HR_APPEALED"
-# The appeal times out in carol's favor after appeal_deadline_blocks (=60);
-# no need to wait for the restore here.
+
+# The appeal is opened in x/rep (GOV_ACTION_TYPE_COLLECT_HIDE): rep charges
+# the appeal bond, seats a jury and owns the deadline. The hide record keeps
+# the rep appeal id (proto3 JSON omits a zero id, hence // "0").
+T1_APPEAL_ID=$(extract_event_attr "$TX_RESULT_OUT" "gov_action_appealed" "appeal_id")
+T1_APPEAL_ID=${T1_APPEAL_ID:-0}
+HR_APPEAL_ID=$(query collect hide-record "$T1_HIDE_REC" | jq -r '.hide_record.appeal_id // "0"')
+assert_equal "Hide record carries the x/rep appeal id" "$T1_APPEAL_ID" "$HR_APPEAL_ID"
+REP_APPEAL=$(query rep get-gov-action-appeal "$T1_APPEAL_ID")
+assert_equal "x/rep appeal is a COLLECT_HIDE appeal" "GOV_ACTION_TYPE_COLLECT_HIDE" \
+    "$(echo "$REP_APPEAL" | jq -r '.gov_action_appeal.action_type // empty')"
+assert_equal "x/rep appeal targets the hide record" "$T1_HIDE_REC" \
+    "$(echo "$REP_APPEAL" | jq -r '.gov_action_appeal.action_target // empty')"
+
+# A collect hide appeal cannot be filed directly through x/rep.
+TX_OUT=$(send_tx rep appeal-gov-action 11 "$T1_HIDE_REC" "bypass" --from carol)
+assert_tx_failure "MsgAppealGovAction rejects module-owned COLLECT_HIDE" "$TX_OUT"
+
+# alice (Commons Ops) resolves it OVERTURNED through x/rep; x/rep calls back
+# into collect, which restores the collection.
+TX_OUT=$(send_tx rep resolve-gov-action-appeal "$T1_APPEAL_ID" overturned "council hide was wrong" --from alice)
+assert_tx_success "alice overturns the appeal via x/rep" "$TX_OUT"
+assert_equal "Collection ACTIVE after the x/rep overturn" "COLLECTION_STATUS_ACTIVE" \
+    "$(query collect collection "$T1_COLL_ID" | jq -r '.collection.status // empty')"
+assert_equal "Hide record resolved by the x/rep verdict" "true" \
+    "$(query collect hide-record "$T1_HIDE_REC" | jq -r '.hide_record.resolved // false')"
 
 # ----------------------------------------------------------------------------
 # Test 3: Council unhide overrides a sentinel hide — immediate bond release.

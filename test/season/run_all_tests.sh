@@ -224,7 +224,7 @@ else
         echo "Chain is not running!"
         echo ""
         echo "Please start the chain first:"
-        echo "  cd /home/chill/cosmos/sparkdream/sparkdream"
+        echo "  cd $(cd "$SCRIPT_DIR/../.." && pwd)"
         echo "  ignite chain serve"
         echo ""
         exit 1

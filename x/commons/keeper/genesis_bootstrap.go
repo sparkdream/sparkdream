@@ -235,6 +235,16 @@ func (k Keeper) BootstrapGovernance(ctx context.Context, founders []types.Foundi
 			"/sparkdream.reveal.v1.MsgApprove",
 			"/sparkdream.reveal.v1.MsgReject",
 			"/sparkdream.reveal.v1.MsgResolveDispute",
+			// Council-issued x/artifact badge classes (docs/x-artifact-spec.md
+			// §7.14): create and run a class, issue and revoke badges. Routine
+			// issuance without a proposal per badge: add a minter key (or the
+			// Operations Committee policy) with MsgSetMinters.
+			"/sparkdream.artifact.v1.MsgCreateClass",
+			"/sparkdream.artifact.v1.MsgMint",
+			"/sparkdream.artifact.v1.MsgRevoke",
+			"/sparkdream.artifact.v1.MsgSetMinters",
+			"/sparkdream.artifact.v1.MsgCloseMinting",
+			"/sparkdream.artifact.v1.MsgCancelOutgoing",
 		},
 		VetoPermissions: []string{
 			"/sparkdream.commons.v1.MsgDeleteGroup",
@@ -567,6 +577,22 @@ func (k Keeper) BootstrapGovernance(ctx context.Context, founders []types.Foundi
 			"/sparkdream.collect.v1.MsgUpdateCollaboratorRole",
 			"/sparkdream.collect.v1.MsgAddItem",
 			"/sparkdream.collect.v1.MsgRemoveItem",
+			// x/artifact: badge issuance as a class owner or a minter of a
+			// council class (docs/x-artifact-spec.md §7.14), plus the
+			// council-path moderation and operational params the artifact
+			// keeper authorizes via IsCouncilAuthorized(commons, operations).
+			// Hide appeals resolve through x/rep MsgResolveGovActionAppeal.
+			// The keeper check alone is not enough -- a committee proposal
+			// must also clear this AllowedMessages gate.
+			"/sparkdream.artifact.v1.MsgCreateClass",
+			"/sparkdream.artifact.v1.MsgMint",
+			"/sparkdream.artifact.v1.MsgRevoke",
+			"/sparkdream.artifact.v1.MsgSetMinters",
+			"/sparkdream.artifact.v1.MsgCloseMinting",
+			"/sparkdream.artifact.v1.MsgCancelOutgoing",
+			"/sparkdream.artifact.v1.MsgHideContent",
+			"/sparkdream.artifact.v1.MsgUnhideContent",
+			"/sparkdream.artifact.v1.MsgUpdateOperationalParams",
 		},
 		MaxSpendPerEpoch: math.NewInt(10000000000),
 		UpdateCooldown:   int64(CommitteeUpdateCooldown.Seconds()),

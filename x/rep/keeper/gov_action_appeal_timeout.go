@@ -25,9 +25,10 @@ const maxAppealTimeoutsPerBlock = 50
 // decisively would otherwise expire un-decided.
 //
 // If no quorum voted (or the tally is inconclusive), the appeal TIMES OUT: half
-// of the appellant bond is refunded and the other half burned. No forum counter
-// update and no sentinel penalty — neither party is blamed for jurors failing to
-// reach a verdict.
+// of the appellant bond is refunded and the other half burned. No sentinel
+// penalty — neither party is blamed for jurors failing to reach a verdict. The
+// owning module's ModerationAppealOutcomeHandler (if any) is told so it can
+// apply its own timeout policy.
 //
 // Note: this is the only working deadline-resolution path for appeals. The
 // generic jury EndBlocker loop (IterateActiveJuryReviews in abci.go) cannot
@@ -137,6 +138,9 @@ func (k Keeper) TimeoutExpiredAppeals(ctx context.Context) error {
 				"appeal_id", p.id, "error", err)
 			continue
 		}
+		// The owning module applies its own timeout policy (x/collect and
+		// x/artifact restore the content and release the sentinel bond).
+		k.notifyAppealOutcome(ctx, p.appeal, types.GovAppealStatus_GOV_APPEAL_STATUS_TIMEOUT)
 
 		sdkCtx.EventManager().EmitEvent(sdk.NewEvent(
 			"gov_action_appeal_timeout",

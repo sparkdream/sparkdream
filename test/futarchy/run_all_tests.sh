@@ -5,6 +5,17 @@ echo "  X/FUTARCHY INTEGRATION TESTS - MASTER TEST RUNNER"
 echo "========================================================================="
 echo ""
 
+# ============================================================================
+# The parallel runner (test/run_parallel.sh) reads the `# TEST_ORDER:` comment
+# below for this suite's execution order. Without it the runner falls back to
+# alphabetical order, which does not match this file: the futarchy tests share
+# the chain's markets and accounts, and market_lifecycle_test runs first here.
+# Keep it in step with the `bash "$SCRIPT_DIR/<name>_test.sh"` calls below;
+# this runner refuses to start when the two disagree (see the check after
+# argument parsing).
+# ============================================================================
+# TEST_ORDER: market_lifecycle_test.sh governance_integration_test.sh params_update_test.sh liquidity_withdrawal_test.sh emergency_cancel_test.sh operational_params_test.sh trust_gating_test.sh
+
 # ========================================================================
 # Configuration
 # ========================================================================
@@ -143,6 +154,19 @@ while [[ $# -gt 0 ]]; do
 done
 
 
+# The TEST_ORDER manifest at the top of this file must list exactly the tests
+# this runner invokes, in the same order -- the parallel runner trusts it.
+_MANIFEST_ORDER=$(grep -m1 -E '^# TEST_ORDER:' "$SCRIPT_DIR/run_all_tests.sh" \
+    | sed -E 's/^# TEST_ORDER:[[:space:]]*//')
+_INVOKED_ORDER=$(grep -oE 'bash "\$SCRIPT_DIR/[a-z_]+_test\.sh"' "$SCRIPT_DIR/run_all_tests.sh" \
+    | sed -E 's/.*\/([a-z_]+\.sh)"/\1/' | tr '\n' ' ' | sed 's/ $//')
+if [ "$_MANIFEST_ORDER" != "$_INVOKED_ORDER" ]; then
+    echo "[FAIL] # TEST_ORDER manifest is out of step with this runner's test calls"
+    echo "  manifest: $_MANIFEST_ORDER"
+    echo "  invoked:  $_INVOKED_ORDER"
+    exit 1
+fi
+
 # Auto-snapshot: when no explicit save/restore flag is passed, reuse an
 # existing fresh snapshot or save one after setup. See test/_auto_snapshot.sh.
 source "$SCRIPT_DIR/../_auto_snapshot.sh"
@@ -161,7 +185,7 @@ else
         echo "  Chain is not running!"
         echo ""
         echo "Please start the chain first:"
-        echo "  cd /home/chill/cosmos/sparkdream/sparkdream"
+        echo "  cd $(cd "$SCRIPT_DIR/../.." && pwd)"
         echo "  ignite chain serve"
         echo ""
         exit 1
@@ -209,7 +233,7 @@ if [ "$RESET_CHAIN" = true ]; then
     echo ""
     echo "  To reset the chain:"
     echo "   1. Stop the running chain (Ctrl+C in ignite terminal)"
-    echo "   2. Run: cd /home/chill/cosmos/sparkdream/sparkdream && ignite chain serve --reset-once"
+    echo "   2. Run: cd $(cd "$SCRIPT_DIR/../.." && pwd) && ignite chain serve --reset-once"
     echo "   3. Wait for chain to start"
     echo "   4. Re-run this script"
     echo ""

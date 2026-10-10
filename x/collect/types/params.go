@@ -73,9 +73,7 @@ var (
 	// Sentinel moderation defaults
 	DefaultSentinelCommitAmount       = math.NewInt(100_000_000) // 100 DREAM (in udream)
 	DefaultHideExpiryBlocks     int64 = 100800                   // ~7 days
-	DefaultAppealFee                  = math.NewInt(5000000)     // 5 SPARK
 	DefaultAppealCooldownBlocks int64 = 600                      // ~1 hour
-	DefaultAppealDeadlineBlocks int64 = 201600                   // ~14 days
 
 	DefaultSentinelUnhideWindowBlocks int64 = 14400 // ~24 hours
 
@@ -180,9 +178,7 @@ func DefaultParams() Params {
 		MaxFlagReasonLength:             DefaultMaxFlagReasonLength,
 		SentinelCommitAmount:            DefaultSentinelCommitAmount,
 		HideExpiryBlocks:                DefaultHideExpiryBlocks,
-		AppealFee:                       DefaultAppealFee,
 		AppealCooldownBlocks:            DefaultAppealCooldownBlocks,
-		AppealDeadlineBlocks:            DefaultAppealDeadlineBlocks,
 		SentinelUnhideWindowBlocks:      DefaultSentinelUnhideWindowBlocks,
 		MaxHidesPerSentinelPerDay:       DefaultMaxHidesPerSentinelPerDay,
 		EndorsementCreationFee:          DefaultEndorsementCreationFee,
@@ -351,14 +347,8 @@ func (p Params) Validate() error {
 	if p.HideExpiryBlocks <= 0 {
 		return fmt.Errorf("hide_expiry_blocks must be positive: %d", p.HideExpiryBlocks)
 	}
-	if p.AppealFee.IsNil() || !p.AppealFee.IsPositive() {
-		return fmt.Errorf("appeal_fee must be positive: %s", p.AppealFee)
-	}
 	if p.AppealCooldownBlocks <= 0 {
 		return fmt.Errorf("appeal_cooldown_blocks must be positive: %d", p.AppealCooldownBlocks)
-	}
-	if p.AppealDeadlineBlocks <= 0 {
-		return fmt.Errorf("appeal_deadline_blocks must be positive: %d", p.AppealDeadlineBlocks)
 	}
 	if p.SentinelUnhideWindowBlocks <= 0 {
 		return fmt.Errorf("sentinel_unhide_window_blocks must be positive: %d", p.SentinelUnhideWindowBlocks)
@@ -456,9 +446,6 @@ func (op CollectOperationalParams) Validate() error {
 	}
 	if !op.SentinelCommitAmount.IsNil() && !op.SentinelCommitAmount.IsPositive() {
 		return fmt.Errorf("sentinel_commit_amount must be positive: %s", op.SentinelCommitAmount)
-	}
-	if !op.AppealFee.IsNil() && !op.AppealFee.IsPositive() {
-		return fmt.Errorf("appeal_fee must be positive: %s", op.AppealFee)
 	}
 	if !op.EndorsementCreationFee.IsNil() && !op.EndorsementCreationFee.IsPositive() {
 		return fmt.Errorf("endorsement_creation_fee must be positive: %s", op.EndorsementCreationFee)
@@ -582,14 +569,8 @@ func (p Params) ApplyOperationalParams(op CollectOperationalParams) Params {
 	if op.HideExpiryBlocks > 0 {
 		p.HideExpiryBlocks = op.HideExpiryBlocks
 	}
-	if !op.AppealFee.IsNil() {
-		p.AppealFee = op.AppealFee
-	}
 	if op.AppealCooldownBlocks > 0 {
 		p.AppealCooldownBlocks = op.AppealCooldownBlocks
-	}
-	if op.AppealDeadlineBlocks > 0 {
-		p.AppealDeadlineBlocks = op.AppealDeadlineBlocks
 	}
 	if op.SentinelUnhideWindowBlocks > 0 {
 		p.SentinelUnhideWindowBlocks = op.SentinelUnhideWindowBlocks

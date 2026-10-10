@@ -79,26 +79,26 @@ func (k msgServer) AppealHide(ctx context.Context, msg *types.MsgAppealHide) (*t
 		return nil, types.ErrHideRecordResolved
 	}
 
-	// Escrow appeal_fee SPARK from creator to module
-	if err := k.EscrowSPARK(ctx, creatorAddr, params.AppealFee); err != nil {
-		return nil, errorsmod.Wrap(types.ErrInsufficientFunds, err.Error())
+	// Open the appeal in x/rep (GOV_ACTION_TYPE_COLLECT_HIDE): x/rep charges
+	// its standard appeal bond, seats a jury, owns the deadline, and applies
+	// the verdict through RepAppealTarget (appeal_target.go).
+	if k.repKeeper == nil {
+		return nil, errorsmod.Wrap(types.ErrHideRecordNotFound, "rep keeper not wired")
+	}
+	appealID, _, err := k.repKeeper.CreateGovActionAppeal(ctx, reptypes.GovActionType_GOV_ACTION_TYPE_COLLECT_HIDE,
+		strconv.FormatUint(hideRecord.Id, 10), creatorAddr, "collect hide appeal: "+hideRecord.ReasonText)
+	if err != nil {
+		return nil, errorsmod.Wrap(err, "failed to open appeal")
 	}
 
-	// Remove old HideRecordExpiry entry
+	// x/rep owns the deadline now: drop collect's expiry entry so the
+	// EndBlocker never deletes content that is under appeal.
 	k.HideRecordExpiry.Remove(ctx, collections.Join(hideRecord.AppealDeadline, hideRecord.Id)) //nolint:errcheck
 
-	// Set appealed=true and update appeal_deadline
 	hideRecord.Appealed = true
-	newDeadline := blockHeight + params.AppealDeadlineBlocks
-	hideRecord.AppealDeadline = newDeadline
-
+	hideRecord.AppealId = appealID
 	if err := k.HideRecord.Set(ctx, hideRecord.Id, hideRecord); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to update hide record")
-	}
-
-	// Re-index in HideRecordExpiry with new deadline
-	if err := k.HideRecordExpiry.Set(ctx, collections.Join(newDeadline, hideRecord.Id)); err != nil {
-		return nil, errorsmod.Wrap(err, "failed to set hide record expiry")
 	}
 
 	// Count the appeal against the sentinel on rep's shared RoleActivity
@@ -114,7 +114,7 @@ func (k msgServer) AppealHide(ctx context.Context, msg *types.MsgAppealHide) (*t
 		sdk.NewAttribute("appellant", msg.Creator),
 		sdk.NewAttribute("target_id", strconv.FormatUint(hideRecord.TargetId, 10)),
 		sdk.NewAttribute("target_type", hideRecord.TargetType.String()),
-		sdk.NewAttribute("new_appeal_deadline", strconv.FormatInt(newDeadline, 10)),
+		sdk.NewAttribute("appeal_id", strconv.FormatUint(appealID, 10)),
 	))
 
 	return &types.MsgAppealHideResponse{}, nil

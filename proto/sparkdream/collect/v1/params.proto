@@ -47,110 +47,105 @@ message Params {
   ];
 
   // --- Sponsorship parameters — OPERATIONAL ---
-  string sponsor_fee = 22 [
+  string sponsor_fee = 21 [
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
-  string min_sponsor_trust_level = 23;
-  int64 sponsorship_request_ttl_blocks = 24;
+  string min_sponsor_trust_level = 22;
+  int64 sponsorship_request_ttl_blocks = 23;
 
   // --- Curation parameters — OPERATIONAL ---
-  string min_curator_bond = 25 [
+  string min_curator_bond = 24 [
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
-  string min_curator_trust_level = 26;
-  int64 min_curator_age_blocks = 27;
-  uint32 max_tags_per_review = 28;
-  uint32 max_review_comment_length = 29;
-  uint32 max_reviews_per_collection = 30;
-  string curator_slash_fraction = 31 [
+  string min_curator_trust_level = 25;
+  int64 min_curator_age_blocks = 26;
+  uint32 max_tags_per_review = 27;
+  uint32 max_review_comment_length = 28;
+  uint32 max_reviews_per_collection = 29;
+  string curator_slash_fraction = 30 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
-  int64 challenge_window_blocks = 32;
-  string challenge_deposit = 33 [
+  int64 challenge_window_blocks = 31;
+  string challenge_deposit = 32 [
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
-  uint32 max_challenge_reason_length = 34;
+  uint32 max_challenge_reason_length = 33;
 
   // --- EndBlocker — GOVERNANCE ONLY ---
-  uint32 max_prune_per_block = 35;
+  uint32 max_prune_per_block = 34;
 
-  string challenge_reward_fraction = 36 [
+  string challenge_reward_fraction = 35 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
 
   // --- Reaction parameters — OPERATIONAL ---
-  string downvote_cost = 37 [
+  string downvote_cost = 36 [
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
-  uint32 max_upvotes_per_day = 38;
-  uint32 max_downvotes_per_day = 39;
+  uint32 max_upvotes_per_day = 37;
+  uint32 max_downvotes_per_day = 38;
 
   // --- Flagging parameters — OPERATIONAL ---
-  uint32 flag_review_threshold = 40;
-  uint32 max_flags_per_day = 41;
-  uint32 max_flaggers_per_target = 42;
-  int64 flag_expiration_blocks = 43;
-  uint32 max_flag_reason_length = 44;
+  uint32 flag_review_threshold = 39;
+  uint32 max_flags_per_day = 40;
+  uint32 max_flaggers_per_target = 41;
+  int64 flag_expiration_blocks = 42;
+  uint32 max_flag_reason_length = 43;
 
   // --- Sentinel moderation parameters — OPERATIONAL ---
-  string sentinel_commit_amount = 45 [
+  string sentinel_commit_amount = 44 [
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
-  int64 hide_expiry_blocks = 46;
-  string appeal_fee = 47 [
-    (gogoproto.customtype) = "cosmossdk.io/math.Int",
-    (gogoproto.nullable) = false
-  ];
-  int64 appeal_cooldown_blocks = 48;
-  int64 appeal_deadline_blocks = 49;
+  int64 hide_expiry_blocks = 45;
+  int64 appeal_cooldown_blocks = 46;
   // Blocks after HiddenAt during which the hiding sentinel may
   // self-correct via MsgUnhideContent. Must be < hide_expiry_blocks.
   // Default 14400 (~24h at 6s blocks).
-  int64 sentinel_unhide_window_blocks = 76;
+  int64 sentinel_unhide_window_blocks = 70;
   // Max MsgHideContent actions per sentinel per day (block-height day,
   // BlocksPerDay = 14400). Collect's other hide throttle is the per-hide
   // bond reservation; this caps outright hide spam by a well-funded
   // sentinel. Default 50 (parity with forum's max_hides_per_epoch).
   // A self-correct unhide does NOT refund the day's slot.
-  uint32 max_hides_per_sentinel_per_day = 77;
+  uint32 max_hides_per_sentinel_per_day = 71;
 
   // --- Endorsement parameters — OPERATIONAL ---
-  string endorsement_creation_fee = 50 [
+  string endorsement_creation_fee = 47 [
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
-  string endorsement_dream_stake = 51 [
+  string endorsement_dream_stake = 48 [
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
-  int64 endorsement_stake_duration = 52;
-  int64 endorsement_expiry_blocks = 53;
-  string endorsement_fee_endorser_share = 54 [
+  int64 endorsement_stake_duration = 49;
+  int64 endorsement_expiry_blocks = 50;
+  string endorsement_fee_endorser_share = 51 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
-  string endorsement_deletion_burn_fraction = 55 [
+  string endorsement_deletion_burn_fraction = 52 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
 
   // --- Conviction renewal parameters — OPERATIONAL ---
-  string conviction_renewal_threshold = 56 [
+  string conviction_renewal_threshold = 53 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
-  int64 conviction_renewal_period = 57;
+  int64 conviction_renewal_period = 54;
 
   // --- Pinning parameters — OPERATIONAL ---
-  uint32 pin_min_trust_level = 61; // Min trust level to pin collections (default: 2 = ESTABLISHED)
-  uint32 max_pins_per_day = 62; // Max pins per address per day (default: 10)
+  uint32 pin_min_trust_level = 55; // Min trust level to pin collections (default: 2 = ESTABLISHED)
+  uint32 max_pins_per_day = 56; // Max pins per address per day (default: 10)
 
   // --- Curator bonded-role config (flattened) — OPERATIONAL ---
   //
@@ -163,11 +158,11 @@ message Params {
 
   // curator_demotion_cooldown is the number of seconds a DEMOTED curator
   // must wait before re-bonding.
-  int64 curator_demotion_cooldown = 63;
+  int64 curator_demotion_cooldown = 57;
 
   // curator_demotion_threshold is the bond floor (DREAM) below which a
   // curator transitions from RECOVERY to DEMOTED.
-  string curator_demotion_threshold = 64 [
+  string curator_demotion_threshold = 58 [
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
@@ -175,26 +170,26 @@ message Params {
   // curator_overturn_demotion_streak is the number of consecutive overturned
   // challenge outcomes against a curator before they are demoted. Zero = no
   // streak-based demotion.
-  uint64 curator_overturn_demotion_streak = 65;
+  uint64 curator_overturn_demotion_streak = 59;
 
   // curator_unbond_cooldown is the number of seconds a curator's bond stays
   // locked and slashable after MsgUnbondRole. During the cooldown the
   // BondedRole status is UNBONDING and MsgRateCollection refuses authority.
   // Propagated to x/rep BondedRoleConfig via SyncCuratorBondedRoleConfig.
   // Zero = immediate withdrawal (legacy behavior).
-  int64 curator_unbond_cooldown = 66;
+  int64 curator_unbond_cooldown = 60;
 
   // make_permanent_min_trust_level is the minimum trust level a caller of
   // MsgMakeCollectionPermanent must hold (0–4). Default PROVISIONAL (1) —
   // lower than pin_min_trust_level because preservation (committing the
   // deposit so the collection never expires) is a smaller curator action
   // than featuring it on the pinned list.
-  uint32 make_permanent_min_trust_level = 67;
+  uint32 make_permanent_min_trust_level = 61;
 
   // max_make_permanent_per_day caps MsgMakeCollectionPermanent calls per
   // address per UTC day. Independent of max_pins_per_day — promoting an
   // ephemeral to permanent is a distinct curator action with its own quota.
-  uint32 max_make_permanent_per_day = 75;
+  uint32 max_make_permanent_per_day = 69;
 
   // --- Non-member collaboration parameters — OPERATIONAL ---
   //
@@ -210,7 +205,7 @@ message Params {
 
   // non_member_collab_dream_stake is the DREAM amount the inviter locks per
   // non-member collaborator.
-  string non_member_collab_dream_stake = 68 [
+  string non_member_collab_dream_stake = 62 [
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
@@ -220,7 +215,7 @@ message Params {
   // HIDDEN. Must be in [0, 1]. Default 0.5 — heavier than
   // endorsement_deletion_burn_fraction because HIDDEN is an explicit
   // misconduct signal, not just abandonment.
-  string non_member_collab_burn_fraction = 69 [
+  string non_member_collab_burn_fraction = 63 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
@@ -228,14 +223,14 @@ message Params {
   // max_non_member_collaborators_per_collection caps how many slots within a
   // single collection may be held by non-member collaborators. Must be
   // <= max_collaborators_per_collection.
-  uint32 max_non_member_collaborators_per_collection = 70;
+  uint32 max_non_member_collaborators_per_collection = 64;
 
   // max_promotions_per_block caps the membership-driven promotion-queue drain
   // (Phase 0 in EndBlocker). Each unit of work — releasing an inviter's
   // collaborator stake or flipping an owned ephemeral collection to permanent
   // — counts against this cap. Zero disables the drain. Mirrors the matching
   // forum/blog parameter.
-  uint32 max_promotions_per_block = 71;
+  uint32 max_promotions_per_block = 65;
 
   // --- Slash rep-penalty parameters — OPERATIONAL ---
   //
@@ -248,7 +243,7 @@ message Params {
   // their endorsed collection is hidden and the hide stands (sentinel hide
   // unappealed or appeal rejected). Fires alongside the BurnDREAM of the
   // endorsement stake.
-  string endorser_rep_penalty = 72 [
+  string endorser_rep_penalty = 66 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
@@ -258,7 +253,7 @@ message Params {
   // the inviter's stake is fractionally burned. Lower than
   // endorser_rep_penalty because vouching for a person's future contributions
   // is a weaker claim than vouching for specific content quality.
-  string collab_inviter_rep_penalty = 73 [
+  string collab_inviter_rep_penalty = 67 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
@@ -266,7 +261,7 @@ message Params {
   // author_rep_penalty is the per-tag rep deduction on a collection creator
   // when a sentinel hides their collection (fires alongside SlashAuthorBond).
   // Highest of the three because the author authored the bad content.
-  string author_rep_penalty = 74 [
+  string author_rep_penalty = 68 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];

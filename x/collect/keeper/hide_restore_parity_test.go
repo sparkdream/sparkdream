@@ -69,7 +69,7 @@ func appealHide(t *testing.T, f *testFixture, hrID uint64) {
 	require.NoError(t, err)
 }
 
-func TestResolveHideAppeal_UpheldRestoresAuthorPenalties(t *testing.T) {
+func TestRepAppealOverturned_RestoresAuthorPenalties(t *testing.T) {
 	f := initTestFixture(t)
 	denyCouncil(f)
 	f.setBlockHeight(100)
@@ -77,11 +77,11 @@ func TestResolveHideAppeal_UpheldRestoresAuthorPenalties(t *testing.T) {
 	collID, hrID, bondAmount := setupHiddenCollectionWithPenalties(t, f)
 	appealHide(t, f, hrID)
 
-	require.NoError(t, f.keeper.ResolveHideAppeal(f.ctx, hrID, true))
+	require.NoError(t, resolveAppealViaRepErr(t, f, hrID, true))
 	requirePenaltiesRestored(t, f, collID, bondAmount)
 }
 
-func TestResolveHideAppeal_RejectedDoesNotRestore(t *testing.T) {
+func TestRepAppealUpheld_DoesNotRestore(t *testing.T) {
 	f := initTestFixture(t)
 	denyCouncil(f)
 	f.setBlockHeight(100)
@@ -90,12 +90,12 @@ func TestResolveHideAppeal_RejectedDoesNotRestore(t *testing.T) {
 	appealHide(t, f, hrID)
 
 	// Sentinel wins — content deleted, penalties stay burned.
-	require.NoError(t, f.keeper.ResolveHideAppeal(f.ctx, hrID, false))
+	require.NoError(t, resolveAppealViaRepErr(t, f, hrID, false))
 	require.Empty(t, f.repKeeper.restoreAuthorBondCalls)
 	require.Empty(t, f.repKeeper.addReputationCalls)
 }
 
-func TestPruneAppealTimeout_RestoresAuthorPenalties(t *testing.T) {
+func TestRepAppealTimeout_RestoresAuthorPenalties(t *testing.T) {
 	f := initTestFixture(t)
 	denyCouncil(f)
 	f.setBlockHeight(100)
@@ -103,11 +103,8 @@ func TestPruneAppealTimeout_RestoresAuthorPenalties(t *testing.T) {
 	collID, hrID, bondAmount := setupHiddenCollectionWithPenalties(t, f)
 	appealHide(t, f, hrID)
 
-	// Jury never resolves — advance past the (re-indexed) appeal deadline.
-	hr, err := f.keeper.HideRecord.Get(f.ctx, hrID)
-	require.NoError(t, err)
-	f.setBlockHeight(hr.AppealDeadline + 1)
-	require.NoError(t, f.keeper.PruneExpired(f.ctx))
+	// The x/rep jury never reaches a verdict: rep times the appeal out.
+	timeoutAppealViaRep(t, f, hrID)
 
 	// Timeout favors the appellant: content restored + penalties restored.
 	coll, err := f.keeper.Collection.Get(f.ctx, collID)

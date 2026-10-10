@@ -16,15 +16,42 @@ echo ""
 
 # Get account addresses
 ALICE_ADDR=$($BINARY keys show alice -a --keyring-backend test 2>/dev/null)
-ASSIGNEE_ADDR=$($BINARY keys show assignee -a --keyring-backend test 2>/dev/null)
 CHALLENGER_ADDR=$($BINARY keys show challenger -a --keyring-backend test 2>/dev/null)
 
 PROJECT_ID=${PROJECT_ID:-1}
 
+# The worker must have room for two more initiatives under
+# max_active_initiatives_per_member: this file assigns one per
+# setup_adjudication call. In the full suite this file runs last, after earlier
+# suites have filled the shared `assignee` account to the cap, and an assignment
+# over the cap is refused -- which used to go unnoticed, so TEST 4 ran against
+# the previous (already expired) interim. Pick the first member with room.
+MAX_ACTIVE=$($BINARY query rep params --output json 2>/dev/null \
+    | jq -r '.params.max_active_initiatives_per_member // "0"')
+ACTIVE_ASSIGNEES=$($BINARY query rep list-initiative --page-limit 1000 --output json 2>/dev/null \
+    | jq -r '.initiative[] | select(.status == null or .status == "INITIATIVE_STATUS_OPEN"
+        or .status == "INITIATIVE_STATUS_ASSIGNED" or .status == "INITIATIVE_STATUS_SUBMITTED"
+        or .status == "INITIATIVE_STATUS_IN_REVIEW" or .status == "INITIATIVE_STATUS_CHALLENGED")
+        | .assignee // empty')
+WORKER=""
+for CANDIDATE in assignee poster2 community1 community2 community3 community4 poster1; do
+    CANDIDATE_ADDR=$($BINARY keys show $CANDIDATE -a --keyring-backend test 2>/dev/null) || continue
+    ACTIVE=$(echo "$ACTIVE_ASSIGNEES" | grep -c "^$CANDIDATE_ADDR$" || true)
+    if [ "$MAX_ACTIVE" = "0" ] || [ $((ACTIVE + 2)) -le "$MAX_ACTIVE" ]; then
+        WORKER=$CANDIDATE
+        ASSIGNEE_ADDR=$CANDIDATE_ADDR
+        break
+    fi
+done
+if [ -z "$WORKER" ]; then
+    echo "[FAIL] No candidate worker has room for two initiatives (cap $MAX_ACTIVE)"
+    exit 1
+fi
+
 echo "Test Actors:"
 echo "  Alice (Committee):  $ALICE_ADDR"
-echo "  Assignee:          $ASSIGNEE_ADDR"
-echo "  Challenger:        $ANON_CHALLENGER_ADDR (anonymous_challenger)"
+echo "  Assignee:          $ASSIGNEE_ADDR ($WORKER)"
+echo "  Challenger:        first funded of anonymous_challenger, poster1, ... (per challenge)"
 echo ""
 
 # Each ADJUDICATION interim gets a deadline of default_review_period_epochs *
@@ -77,11 +104,11 @@ setup_adjudication() {
     INITIATIVE_ID=$($BINARY query rep list-initiative --output json 2>&1 | jq -r '.initiative[-1].id')
     echo "[ OK ] Initiative #$INITIATIVE_ID created"
 
-    # Assign to assignee
+    # Assign to the worker
     $BINARY tx rep assign-initiative \
         $INITIATIVE_ID \
         $ASSIGNEE_ADDR \
-        --from assignee \
+        --from $WORKER \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
         --fees 5000${BOND_DENOM} \
@@ -89,12 +116,19 @@ setup_adjudication() {
 
     sleep 6
 
+    ASSIGNED_TO=$($BINARY query rep get-initiative $INITIATIVE_ID --output json 2>/dev/null \
+        | jq -r '.initiative.assignee // empty')
+    if [ "$ASSIGNED_TO" != "$ASSIGNEE_ADDR" ]; then
+        echo "[FAIL] Initiative #$INITIATIVE_ID was not assigned to $WORKER"
+        exit 1
+    fi
+
     # Submit work
     $BINARY tx rep submit-initiative-work \
         $INITIATIVE_ID \
         "https://github.com/security/audit" \
         "Security audit complete" \
-        --from assignee \
+        --from $WORKER \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
         --fees 5000${BOND_DENOM} \
@@ -108,13 +142,31 @@ setup_adjudication() {
     # raises two, which is 100 of the 250 DREAM setup grants each account --
     # `challenger` is spent by five later suites in the alphabetical run order,
     # while anonymous_challenger is only ever drawn as a juror/reviewer
-    # candidate, where membership matters and balance does not.
+    # candidate, where membership matters and balance does not. It is only the
+    # first preference: once a burned stake leaves it short (a re-run of this
+    # file on the same chain), the next member with 50 spendable DREAM steps in.
+    CHALLENGER=""
+    for CANDIDATE in anonymous_challenger poster1 expert juror1 juror2 juror3 challenger; do
+        CANDIDATE_ADDR=$($BINARY keys show $CANDIDATE -a --keyring-backend test 2>/dev/null) || continue
+        [ "$CANDIDATE_ADDR" = "$ASSIGNEE_ADDR" ] && continue
+        SPENDABLE=$($BINARY query rep get-member $CANDIDATE_ADDR --output json 2>/dev/null \
+            | jq -r '((.member.dream_balance // "0") | tonumber) - ((.member.staked_dream // "0") | tonumber)')
+        if [ -n "$SPENDABLE" ] && [ "${SPENDABLE%.*}" -ge 50000000 ] 2>/dev/null; then
+            CHALLENGER=$CANDIDATE
+            break
+        fi
+    done
+    if [ -z "$CHALLENGER" ]; then
+        echo "[FAIL] No candidate challenger has 50 spendable DREAM"
+        exit 1
+    fi
+
     TX_RES=$($BINARY tx rep create-challenge \
         $INITIATIVE_ID \
         "Incomplete security analysis" \
         "50000000" \
         --evidence "https://example.com/issues" \
-        --from anonymous_challenger \
+        --from $CHALLENGER \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
         --fees 5000${BOND_DENOM} \
@@ -124,14 +176,20 @@ setup_adjudication() {
     sleep 6
 
     CHALLENGE_ID=$($BINARY query rep list-challenge --output json 2>&1 | jq -r '.challenge[-1].id')
-    echo "[ OK ] Challenge #$CHALLENGE_ID created"
+    CHALLENGED_INITIATIVE=$($BINARY query rep get-challenge $CHALLENGE_ID --output json 2>/dev/null \
+        | jq -r '.challenge.initiative_id // empty')
+    if [ "$CHALLENGED_INITIATIVE" != "$INITIATIVE_ID" ]; then
+        echo "[FAIL] No new challenge on initiative #$INITIATIVE_ID (latest is #$CHALLENGE_ID on #$CHALLENGED_INITIATIVE)"
+        exit 1
+    fi
+    echo "[ OK ] Challenge #$CHALLENGE_ID created (by $CHALLENGER)"
 
     # Assignee responds (triggers escalation)
     TX_RES=$($BINARY tx rep respond-to-challenge --gas 500000 \
         $CHALLENGE_ID \
         "Analysis is complete" \
         --evidence "https://example.com/response" \
-        --from assignee \
+        --from $WORKER \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
         --fees 5000${BOND_DENOM} \
@@ -169,7 +227,7 @@ echo "==========================================================================
 TX_RES=$($BINARY tx rep complete-interim --gas 500000 \
     $ADJUDICATION_ID \
     "REJECT - trying to self-resolve" \
-    --from assignee \
+    --from $WORKER \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
     --fees 5000${BOND_DENOM} \

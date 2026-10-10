@@ -311,106 +311,101 @@ message CollectOperationalParams {
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
-  string sponsor_fee = 5 [
+  string sponsor_fee = 4 [
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
-  string min_sponsor_trust_level = 6;
-  int64 sponsorship_request_ttl_blocks = 7;
-  string min_curator_bond = 8 [
+  string min_sponsor_trust_level = 5;
+  int64 sponsorship_request_ttl_blocks = 6;
+  string min_curator_bond = 7 [
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
-  string min_curator_trust_level = 9;
-  int64 min_curator_age_blocks = 10;
-  uint32 max_tags_per_review = 11;
-  uint32 max_review_comment_length = 12;
-  uint32 max_reviews_per_collection = 13;
-  string curator_slash_fraction = 14 [
+  string min_curator_trust_level = 8;
+  int64 min_curator_age_blocks = 9;
+  uint32 max_tags_per_review = 10;
+  uint32 max_review_comment_length = 11;
+  uint32 max_reviews_per_collection = 12;
+  string curator_slash_fraction = 13 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
-  int64 challenge_window_blocks = 15;
-  string challenge_deposit = 16 [
+  int64 challenge_window_blocks = 14;
+  string challenge_deposit = 15 [
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
-  uint32 max_challenge_reason_length = 17;
-  string challenge_reward_fraction = 18 [
+  uint32 max_challenge_reason_length = 16;
+  string challenge_reward_fraction = 17 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
-  string downvote_cost = 19 [
+  string downvote_cost = 18 [
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
-  uint32 max_upvotes_per_day = 20;
-  uint32 max_downvotes_per_day = 21;
-  uint32 flag_review_threshold = 22;
-  uint32 max_flags_per_day = 23;
-  uint32 max_flaggers_per_target = 24;
-  int64 flag_expiration_blocks = 25;
-  uint32 max_flag_reason_length = 26;
-  string sentinel_commit_amount = 27 [
+  uint32 max_upvotes_per_day = 19;
+  uint32 max_downvotes_per_day = 20;
+  uint32 flag_review_threshold = 21;
+  uint32 max_flags_per_day = 22;
+  uint32 max_flaggers_per_target = 23;
+  int64 flag_expiration_blocks = 24;
+  uint32 max_flag_reason_length = 25;
+  string sentinel_commit_amount = 26 [
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
-  int64 hide_expiry_blocks = 28;
-  string appeal_fee = 29 [
+  int64 hide_expiry_blocks = 27;
+  int64 appeal_cooldown_blocks = 28;
+  string endorsement_creation_fee = 29 [
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
-  int64 appeal_cooldown_blocks = 30;
-  int64 appeal_deadline_blocks = 31;
-  string endorsement_creation_fee = 32 [
+  string endorsement_dream_stake = 30 [
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
-  string endorsement_dream_stake = 33 [
-    (gogoproto.customtype) = "cosmossdk.io/math.Int",
-    (gogoproto.nullable) = false
-  ];
-  int64 endorsement_stake_duration = 34;
-  int64 endorsement_expiry_blocks = 35;
-  string endorsement_fee_endorser_share = 36 [
+  int64 endorsement_stake_duration = 31;
+  int64 endorsement_expiry_blocks = 32;
+  string endorsement_fee_endorser_share = 33 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
-  string endorsement_deletion_burn_fraction = 37 [
+  string endorsement_deletion_burn_fraction = 34 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
 
   // --- Conviction renewal parameters — OPERATIONAL ---
-  string conviction_renewal_threshold = 38 [
+  string conviction_renewal_threshold = 35 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
-  int64 conviction_renewal_period = 39;
+  int64 conviction_renewal_period = 36;
 
   // --- Pinning parameters — OPERATIONAL ---
-  uint32 pin_min_trust_level = 43;
-  uint32 max_pins_per_day = 44;
+  uint32 pin_min_trust_level = 37;
+  uint32 max_pins_per_day = 38;
 
   // --- Curator bonded-role config (flattened) — see Params for rationale ---
-  int64 curator_demotion_cooldown = 45;
-  string curator_demotion_threshold = 46 [
+  int64 curator_demotion_cooldown = 39;
+  string curator_demotion_threshold = 40 [
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
-  uint64 curator_overturn_demotion_streak = 47;
-  int64 curator_unbond_cooldown = 48;
+  uint64 curator_overturn_demotion_streak = 41;
+  int64 curator_unbond_cooldown = 42;
 
   // make_permanent_min_trust_level — see Params.make_permanent_min_trust_level.
-  uint32 make_permanent_min_trust_level = 49;
+  uint32 make_permanent_min_trust_level = 43;
 
   // max_make_permanent_per_day — see Params.max_make_permanent_per_day.
-  uint32 max_make_permanent_per_day = 55;
+  uint32 max_make_permanent_per_day = 49;
 
   // non_member_collab_dream_stake is the DREAM amount the inviter locks when
   // adding a non-member as an EDITOR collaborator. Mirrors the endorsement
   // stake model but per-collaborator. See Params.non_member_collab_dream_stake.
-  string non_member_collab_dream_stake = 50 [
+  string non_member_collab_dream_stake = 44 [
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
@@ -419,30 +414,30 @@ message CollectOperationalParams {
   // DREAM that is burned when the collaborator is removed (or the collection
   // is deleted) while the collection's status is HIDDEN. See
   // Params.non_member_collab_burn_fraction.
-  string non_member_collab_burn_fraction = 51 [
+  string non_member_collab_burn_fraction = 45 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
 
   // Slash rep-penalty parameters — see Params for rationale.
-  string endorser_rep_penalty = 52 [
+  string endorser_rep_penalty = 46 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
-  string collab_inviter_rep_penalty = 53 [
+  string collab_inviter_rep_penalty = 47 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
-  string author_rep_penalty = 54 [
+  string author_rep_penalty = 48 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
 
   // sentinel_unhide_window_blocks — see Params.sentinel_unhide_window_blocks.
-  int64 sentinel_unhide_window_blocks = 56;
+  int64 sentinel_unhide_window_blocks = 50;
 
   // max_hides_per_sentinel_per_day — see Params.max_hides_per_sentinel_per_day.
-  uint32 max_hides_per_sentinel_per_day = 57;
+  uint32 max_hides_per_sentinel_per_day = 51;
 }
 
 // CollectionFlag aggregates all flags on a single piece of content.
@@ -505,6 +500,11 @@ message HideRecord {
   // raw param instead would mint reputation from nothing on every
   // hide/reversal cycle for authors with less rep than the penalty.
   repeated string rep_penalty_amounts = 16;
+
+  // The x/rep GovActionAppeal id (GOV_ACTION_TYPE_COLLECT_HIDE) once
+  // appealed. x/rep holds the appeal bond, seats the jury and owns the
+  // deadline; the verdict comes back through RepAppealTarget.
+  uint64 appeal_id = 17;
 }
 
 // Endorsement records a member's endorsement of a non-member's collection.

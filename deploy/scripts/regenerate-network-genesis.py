@@ -408,6 +408,8 @@ def _check_founders(cfg, errors, bond_denom):
             errors.append(f"rep.member_map[{f['name']}].trust_level: config={m.get('trust_level')!r} script={f['trust_level']!r}")
         if m.get("invitation_credits") != f["invitation_credits"]:
             errors.append(f"rep.member_map[{f['name']}].invitation_credits: config={m.get('invitation_credits')!r} script={f['invitation_credits']!r}")
+        if m.get("content_license") != "CC0-1.0":
+            errors.append(f"rep.member_map[{f['name']}].content_license: config={m.get('content_license')!r} script='CC0-1.0'")
     for f in FOUNDERS:
         if f["address"] not in cfg_addrs:
             errors.append(f"rep.member_map: founder {f['name']!r} present in script but missing from config.yml")
@@ -477,7 +479,7 @@ def _check_devnet(cfg, errors, bond_denom):
             errors.append(f"rep.member_map: {addr} is not a devnet member in the script roster")
             continue
         ours = _devnet_member(by_addr[addr])
-        for key in ("dream_balance", "trust_level", "invitation_credits"):
+        for key in ("dream_balance", "trust_level", "invitation_credits", "content_license"):
             if m.get(key) != ours[key]:
                 errors.append(f"rep.member_map[{addr}].{key}: config={m.get(key)!r} script={ours[key]!r}")
     for a in devnet_members():
@@ -828,6 +830,9 @@ def _founder_member(f):
         "last_tip_epoch": 0,
         "completed_interims_count": 0,
         "completed_initiatives_count": 0,
+        # The founder's open-content agreement. x/rep GenesisState.Validate
+        # requires it on every genesis member; the chain never fills it in.
+        "content_license": "CC0-1.0",
     }
 
 

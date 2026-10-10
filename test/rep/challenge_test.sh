@@ -553,10 +553,14 @@ else
 
     STAKED_AFTER=$($BINARY query rep get-member "$ASSIGNEE_ADDR" --output json 2>/dev/null \
         | jq -r '.member.staked_dream // "0"')
-    if [ "$STAKED_AFTER" = "$STAKED_BEFORE" ]; then
-        echo "[ OK ] Staked DREAM unchanged ($STAKED_BEFORE) - gate ran before the lock"
+    # A challenge lock would RAISE staked_dream. It can legitimately FALL in
+    # between the two reads: the per-epoch staked decay (decayStakes) shrinks
+    # it when an epoch boundary lands between them. So assert "no increase",
+    # not exact equality.
+    if [ "$STAKED_AFTER" -le "$STAKED_BEFORE" ] 2>/dev/null; then
+        echo "[ OK ] Staked DREAM not increased ($STAKED_BEFORE -> $STAKED_AFTER) - gate ran before the lock"
     else
-        echo "[FAIL] Staked DREAM moved: $STAKED_BEFORE -> $STAKED_AFTER"
+        echo "[FAIL] Staked DREAM increased: $STAKED_BEFORE -> $STAKED_AFTER"
         TEST_4_RESULT="FAIL"
     fi
 

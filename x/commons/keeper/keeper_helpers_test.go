@@ -230,6 +230,31 @@ func TestIsCouncilAuthorized_Unauthorized(t *testing.T) {
 	require.False(t, k.IsCouncilAuthorized(ctx, random, "commons", "operations"))
 }
 
+// --- IsCouncilBodyPolicy Tests ---
+
+func TestIsCouncilBodyPolicy(t *testing.T) {
+	k, ctx, _ := setupCommonsKeeper(t)
+
+	council := sdk.AccAddress([]byte("tech_council_policy_")).String()
+	committee := sdk.AccAddress([]byte("eco_ops_policy______")).String()
+	subgroup := sdk.AccAddress([]byte("registered_subgroup_")).String()
+	member := sdk.AccAddress([]byte("ops_committee_mbr___"))
+	require.NoError(t, k.Groups.Set(ctx, "Technical Council", types.Group{PolicyAddress: council}))
+	require.NoError(t, k.Groups.Set(ctx, "Ecosystem Operations Committee", types.Group{PolicyAddress: committee}))
+	require.NoError(t, k.Groups.Set(ctx, "Phoenix Working Group", types.Group{PolicyAddress: subgroup}))
+	require.NoError(t, k.PolicyToName.Set(ctx, subgroup, "Phoenix Working Group"))
+	require.NoError(t, k.AddMember(ctx, "Commons Operations Committee", types.Member{Address: member.String(), Weight: "1"}))
+
+	require.True(t, k.IsCouncilBodyPolicy(ctx, k.GetAuthorityString()), "gov authority")
+	require.True(t, k.IsCouncilBodyPolicy(ctx, council), "council policy")
+	require.True(t, k.IsCouncilBodyPolicy(ctx, committee), "standing committee policy")
+	// A registered sub-group is a group policy but not a council body.
+	require.True(t, k.IsGroupPolicyAddress(ctx, subgroup))
+	require.False(t, k.IsCouncilBodyPolicy(ctx, subgroup), "arbitrary sub-group")
+	// Individual committee members are not policies.
+	require.False(t, k.IsCouncilBodyPolicy(ctx, member.String()), "individual member")
+}
+
 // --- IsCommitteeMember Tests ---
 
 func TestIsCommitteeMember_TechnicalOps(t *testing.T) {

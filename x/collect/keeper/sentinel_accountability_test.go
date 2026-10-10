@@ -1,10 +1,12 @@
 package keeper_test
 
 import (
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
+	"sparkdream/x/collect/keeper"
 	"sparkdream/x/collect/types"
 	commontypes "sparkdream/x/common/types"
 	reptypes "sparkdream/x/rep/types"
@@ -60,33 +62,33 @@ func TestHideContent_SharedOverturnCooldownBlocks(t *testing.T) {
 	require.ErrorIs(t, err, types.ErrSentinelCooldown)
 }
 
-func TestResolveHideAppeal_ReportsOutcomes(t *testing.T) {
-	t.Run("overturned reported as sentinelUpheld=false", func(t *testing.T) {
-		f := initTestFixture(t)
-		denyCouncil(f)
-		f.setBlockHeight(100)
+// Under the x/rep appeal path, the sentinel verdict (RecordRoleOutcome) and
+// the bond release/slash are applied by x/rep itself; collect's callbacks
+// must not report them a second time. Collect still counts the appeal filing
+// (Gate 4 appeal rate).
+func TestRepAppealCallbacks_DoNotDoubleReportOutcomes(t *testing.T) {
+	for _, outcome := range []reptypes.GovAppealStatus{
+		reptypes.GovAppealStatus_GOV_APPEAL_STATUS_OVERTURNED,
+		reptypes.GovAppealStatus_GOV_APPEAL_STATUS_UPHELD,
+	} {
+		t.Run(outcome.String(), func(t *testing.T) {
+			f := initTestFixture(t)
+			denyCouncil(f)
+			f.setBlockHeight(100)
 
-		_, hrID, _ := setupHiddenCollectionWithPenalties(t, f)
-		appealHide(t, f, hrID)
-		require.NoError(t, f.keeper.ResolveHideAppeal(f.ctx, hrID, true)) // appeal upheld = sentinel wrong
+			_, hrID, _ := setupHiddenCollectionWithPenalties(t, f)
+			appealHide(t, f, hrID)
+			require.Contains(t, f.repKeeper.roleActionCalls,
+				roleActionCall{addr: f.sentinel, kind: reptypes.ActionKindCollectAppealFiled})
 
-		require.Equal(t, []roleOutcomeCall{{roleType: reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, addr: f.sentinel, kind: reptypes.ActionKindCollectHide, upheld: false}},
-			f.repKeeper.roleOutcomeCalls)
-		// The appeal filing itself was also counted (Gate 4 appeal rate).
-		require.Contains(t, f.repKeeper.roleActionCalls,
-			roleActionCall{addr: f.sentinel, kind: reptypes.ActionKindCollectAppealFiled})
-	})
-
-	t.Run("rejected reported as sentinelUpheld=true", func(t *testing.T) {
-		f := initTestFixture(t)
-		denyCouncil(f)
-		f.setBlockHeight(100)
-
-		_, hrID, _ := setupHiddenCollectionWithPenalties(t, f)
-		appealHide(t, f, hrID)
-		require.NoError(t, f.keeper.ResolveHideAppeal(f.ctx, hrID, false)) // appeal rejected = sentinel right
-
-		require.Equal(t, []roleOutcomeCall{{roleType: reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, addr: f.sentinel, kind: reptypes.ActionKindCollectHide, upheld: true}},
-			f.repKeeper.roleOutcomeCalls)
-	})
+			target := keeper.NewRepAppealTarget(f.keeper)
+			id := strconv.FormatUint(hrID, 10)
+			at := reptypes.GovActionType_GOV_ACTION_TYPE_COLLECT_HIDE
+			if outcome == reptypes.GovAppealStatus_GOV_APPEAL_STATUS_OVERTURNED {
+				require.NoError(t, target.ReverseSentinelAction(f.ctx, at, id))
+			}
+			require.NoError(t, target.OnAppealOutcome(f.ctx, at, id, outcome))
+			require.Empty(t, f.repKeeper.roleOutcomeCalls)
+		})
+	}
 }

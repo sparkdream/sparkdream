@@ -19,7 +19,7 @@ Both chains are bootstrapped from the existing post-setup snapshot ([../snapshot
 ### 1. sparkdreamd, built with `testparams`
 
 ```bash
-cd /home/chill/cosmos/sparkdream/sparkdream
+cd <path-to-sparkdream-repo>
 ignite chain build --build.tags testparams
 ```
 

@@ -44,7 +44,6 @@
 # Requires config.yml params overrides (at ~1s/block these are ~40s/~2s/~60s):
 #   collect.hide_expiry_blocks:     "40"   # prod default 100800 ~7 days
 #   collect.appeal_cooldown_blocks: "2"    # prod default 600    ~1 hour
-#   collect.appeal_deadline_blocks: "60"   # prod default 201600 ~14 days
 # ============================================================================
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
@@ -106,7 +105,7 @@ alice_rep_for_tag() {
 # response that no longer decodes to a status. Returns 0 once deleted, 1 on
 # timeout. Used in place of fixed sleeps because this suite's block rate
 # degrades from ~1s/block early to ~2s/block late (LevelDB growth), so
-# block-count windows like hide_expiry_blocks / appeal_deadline_blocks map to a
+# block-count windows like hide_expiry_blocks / the TTL map to a
 # moving wall-clock target — a fixed sleep that is long enough early is too
 # short late. Polling tolerates the drift.
 # ----------------------------------------------------------------------------
@@ -378,12 +377,13 @@ fi
 # TestPruneExpiredCollections_HiddenEndorsed_AppealUpheld_Unlocks.
 #
 # Sequence:
-#   (a) Create short-TTL endorsed collection, sentinel hides it.
+#   (a) Create short-TTL endorsed collection; alice council-hides it.
 #   (b) Owner appeals after appeal_cooldown_blocks (=2).
 #   (c) TTL elapses while appeal is still in flight — §10.1 must SKIP this
 #       collection and emit collection_expiry_deferred (no delete, no burn).
-#   (d) appeal_deadline_blocks (=60) elapses → §10.3a restores status to
-#       ACTIVE (appellant wins by timeout — jury never ruled).
+#   (d) The appeal (an x/rep COLLECT_HIDE appeal) is resolved OVERTURNED by
+#       alice (Commons Ops) via `rep resolve-gov-action-appeal`; x/rep calls
+#       back into collect, which restores status to ACTIVE.
 #   (e) Next §10.1 pass deletes the now-ACTIVE collection via the normal
 #       unlock path. Alice's DREAM balance returns to the Test-3 baseline.
 #
@@ -406,9 +406,9 @@ BLOCK_HEIGHT=$(get_block_height)
 # TX_WAIT) + 18s appeal-cooldown sleep + appeal tx put us at ~+44 blocks when
 # the appeal lands. TTL must fire AFTER the appeal (so §10.1 sees an in-flight
 # appeal and DEFERS rather than deletes) but BEFORE the ~30s deferral check at
-# ~+78. TTL = +60 sits squarely in that window (16-block margin on each side),
-# and the appeal_deadline (appeal_block + 60 ≈ +104) stays well past the check
-# so the collection is still HIDDEN-deferred when we assert it.
+# ~+78. TTL = +60 sits squarely in that window (16-block margin on each side).
+# The appeal deadline is x/rep's (14 days), so the collection stays
+# HIDDEN-deferred until alice resolves the appeal below.
 T3_TTL=$((BLOCK_HEIGHT + 60))
 
 TX_OUT=$(send_tx collect create-collection --gas 400000 \
@@ -427,8 +427,13 @@ assert_tx_success "nonmember1 sets seeking-endorsement=true (Test 3)" "$TX_OUT"
 TX_OUT=$(send_tx collect endorse-collection "$T3_COLL_ID" --from alice)
 assert_tx_success "alice endorses (Test 3, locks 100 DREAM)" "$TX_OUT"
 
-TX_OUT=$(send_tx collect hide-content "$T3_COLL_ID" collection spam "spam" --from bob)
-assert_tx_success "bob hides the endorsed collection (Test 3)" "$TX_OUT"
+# A COUNCIL hide (alice): Test 3 resolves the appeal OVERTURNED, and
+# overturning a sentinel hide would put bob into the shared overturn cooldown,
+# blocking every later sentinel hide in the suite. A council hide has no
+# sentinel to penalize, and the endorser/deferral semantics are identical.
+TX_OUT=$(send_tx collect hide-content "$T3_COLL_ID" collection spam "spam" \
+    --authority council --from alice)
+assert_tx_success "alice council-hides the endorsed collection (Test 3)" "$TX_OUT"
 
 T3_HIDE_REC=$(extract_event_attr "$TX_RESULT_OUT" "content_hidden" "hide_record_id")
 if [ -z "$T3_HIDE_REC" ]; then
@@ -443,6 +448,9 @@ sleep 18
 
 TX_OUT=$(send_tx collect appeal-hide "$T3_HIDE_REC" --from "$SLASH_OWNER_ACCT")
 assert_tx_success "nonmember1 files appeal" "$TX_OUT"
+T3_APPEAL_ID=$(extract_event_attr "$TX_RESULT_OUT" "gov_action_appealed" "appeal_id")
+T3_APPEAL_ID=${T3_APPEAL_ID:-0}
+echo "  Test 3 x/rep appeal ID: $T3_APPEAL_ID"
 
 # Give §10.1 a window to encounter the TTL while the appeal is in flight and
 # DEFER (not delete). The collection stays HIDDEN throughout the appeal, so this
@@ -466,14 +474,14 @@ T3_DEFERRAL_DELTA=$((STAKED_DURING_T3 - STAKED_BEFORE_T3))
 assert_gt "Alice staked_dream up by ~100 DREAM during deferral (lock held)" \
     "85000000" "$T3_DEFERRAL_DELTA"
 
-# Now poll for appeal_deadline_blocks (=60) to elapse so §10.3a fires its
-# timeout-favors-appellant branch, restoring status to ACTIVE, after which the
-# next §10.1 pass deletes via the normal unlock path. The deadline is set to
-# appeal_block + 60; at the suite's late-run ~2s/block that is ~120s of
-# wall-clock after the appeal, so poll generously rather than sleep a fixed 75s.
-echo "  Polling up to ~200s for appeal-deadline timeout + subsequent §10.1 delete..."
-if poll_collection_deleted "$T3_COLL_ID" 200; then
-    echo "PASS: collection deleted after appeal-deadline timeout"
+# Resolve the appeal in the appellant's favor through x/rep: x/rep calls back
+# into collect, which restores status to ACTIVE; the next §10.1 pass then
+# deletes the (TTL-expired) collection via the normal unlock path.
+TX_OUT=$(send_tx rep resolve-gov-action-appeal "$T3_APPEAL_ID" overturned "hide was wrong" --from alice)
+assert_tx_success "alice overturns the Test 3 appeal via x/rep" "$TX_OUT"
+echo "  Polling up to ~120s for the subsequent §10.1 delete..."
+if poll_collection_deleted "$T3_COLL_ID" 120; then
+    echo "PASS: collection deleted after the appeal was overturned"
     TESTS_PASSED=$((TESTS_PASSED + 1))
 else
     POST_STATUS=$(query collect collection "$T3_COLL_ID" | jq -r '.collection.status // empty' 2>/dev/null)
@@ -481,7 +489,7 @@ else
     TESTS_FAILED=$((TESTS_FAILED + 1))
 fi
 
-# Appeal timed out in Alice's favor (sentinel didn't win), so the endorsement
+# The appeal was overturned (sentinel didn't win), so the endorsement
 # stake was UNLOCKED — staked_dream should drop back to the pre-Test-3 level
 # (within decay slack). Pre-deferral, the TTL-during-appeal race would have
 # burned the stake here.
@@ -490,7 +498,7 @@ STAKED_AFTER_T3=$(alice_staked_dream)
 echo "  Alice DREAM after Test 3 resolution: $BAL_AFTER_T3"
 echo "  Alice staked_dream after Test 3 resolution: $STAKED_AFTER_T3"
 T3_UNLOCK_DELTA=$((STAKED_DURING_T3 - STAKED_AFTER_T3))
-assert_gt "Alice staked_dream dropped by ~100 DREAM on appeal-timeout unlock" \
+assert_gt "Alice staked_dream dropped by ~100 DREAM on overturned-appeal unlock" \
     "85000000" "$T3_UNLOCK_DELTA"
 
 # ----------------------------------------------------------------------------

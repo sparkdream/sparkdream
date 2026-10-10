@@ -37,7 +37,7 @@ func (k msgServer) ResolveGovActionAppeal(ctx context.Context, msg *types.MsgRes
 }
 
 // applyGovActionAppealVerdict executes the bond flow, sentinel slashing/release,
-// forum counter update, and content reversal for an appeal verdict, then
+// owning-module bookkeeping, and content reversal for an appeal verdict, then
 // transitions the appeal to its terminal status. Shared by the manual committee
 // resolver (MsgResolveGovActionAppeal) and the automatic jury path
 // (TallyJuryVotes). Idempotent on appeal status: a non-PENDING appeal is
@@ -119,7 +119,7 @@ func (k Keeper) applyGovActionAppealVerdict(ctx context.Context, appealID uint64
 		// Release the sentinel's reserved bond (the action was upheld, so no
 		// slash applies — the reservation must be freed so future actions can
 		// draw on the same pool).
-		if fk := k.late.forumKeeper; fk != nil {
+		if fk := k.appealTarget(appeal.ActionType); fk != nil {
 			sentinelAddr, sErr := fk.GetActionSentinel(ctx, appeal.ActionType, appeal.ActionTarget)
 			if sErr != nil {
 				sdkCtx.Logger().Warn("failed to resolve sentinel for upheld appeal",
@@ -140,7 +140,7 @@ func (k Keeper) applyGovActionAppealVerdict(ctx context.Context, appealID uint64
 
 		// Shared accountability record (rep-local: streaks + ring) plus
 		// forum-local bookkeeping (pending-hide count). Best-effort.
-		if fk := k.late.forumKeeper; fk != nil {
+		if fk := k.appealTarget(appeal.ActionType); fk != nil {
 			if sentinelAddr, sErr := fk.GetActionSentinel(ctx, appeal.ActionType, appeal.ActionTarget); sErr == nil && sentinelAddr != "" {
 				if err := k.RecordRoleOutcome(ctx, types.RoleType_ROLE_TYPE_CONTENT_SENTINEL, sentinelAddr,
 					types.ActionKindForGovAction(appeal.ActionType), true); err != nil {
@@ -166,7 +166,7 @@ func (k Keeper) applyGovActionAppealVerdict(ctx context.Context, appealID uint64
 		// Resolve sentinel from forum records (before the forum adapter
 		// updates counters — lookup is idempotent).
 		var sentinelAddr string
-		if fk := k.late.forumKeeper; fk != nil {
+		if fk := k.appealTarget(appeal.ActionType); fk != nil {
 			sentinelAddr, err = fk.GetActionSentinel(ctx, appeal.ActionType, appeal.ActionTarget)
 			if err != nil {
 				sdkCtx.Logger().Warn("failed to resolve sentinel for overturned appeal",
@@ -184,7 +184,7 @@ func (k Keeper) applyGovActionAppealVerdict(ctx context.Context, appealID uint64
 		// (forum's record may have been GC'd) — skip the slash; the action is
 		// still reversed below.
 		if sentinelAddr != "" {
-			if fk := k.late.forumKeeper; fk != nil {
+			if fk := k.appealTarget(appeal.ActionType); fk != nil {
 				committed, cErr := fk.GetActionCommittedAmount(ctx, appeal.ActionType, appeal.ActionTarget)
 				if cErr != nil {
 					sdkCtx.Logger().Warn("failed to read sentinel committed amount on overturn",
@@ -207,7 +207,7 @@ func (k Keeper) applyGovActionAppealVerdict(ctx context.Context, appealID uint64
 					"appeal_id", appealID, "error", err)
 			}
 		}
-		if fk := k.late.forumKeeper; fk != nil {
+		if fk := k.appealTarget(appeal.ActionType); fk != nil {
 			if err := fk.OnSentinelActionResolved(ctx, appeal.ActionType, appeal.ActionTarget); err != nil {
 				sdkCtx.Logger().Warn("failed forum-local resolution bookkeeping (overturned)",
 					"appeal_id", appealID, "error", err)
@@ -234,6 +234,10 @@ func (k Keeper) applyGovActionAppealVerdict(ctx context.Context, appealID uint64
 	if err := k.GovActionAppeal.Set(ctx, appealID, appeal); err != nil {
 		return errorsmod.Wrap(err, "failed to update appeal")
 	}
+
+	// Let the owning module finalize its side (e.g. x/collect deletes, and
+	// x/artifact scrubs, content whose hide was UPHELD).
+	k.notifyAppealOutcome(ctx, appeal, verdict)
 
 	sdkCtx.EventManager().EmitEvent(
 		sdk.NewEvent(

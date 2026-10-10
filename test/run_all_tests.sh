@@ -12,9 +12,10 @@
 #   4. Starts the chain
 #   5. Verifies test params are active (not production)
 #   6. Runs legacy module tests (ecosystem, split, gov)
-#   7. Runs per-module tests (commons, name, futarchy, gnovm, rep, blog,
-#      forum, collect, shield, reveal, federation, season) plus the
-#      app-level `rest` suite — each with its own run_all_tests.sh
+#   7. Runs per-module tests (every module in MODULE_ORDER below: commons,
+#      name, futarchy, gnovm, rep, blog, forum, collect, session, shield,
+#      reveal, federation, season, service, artifact, identity, guardian) plus
+#      the app-level `rest` suite — each with its own run_all_tests.sh
 #   8. Runs destructive commons tests last (tech upgrade, fire council)
 #   9. Reports results
 #
@@ -73,6 +74,8 @@ ONLY_MODULE=""
 #   forum 39m  rep 25m  federation 24m  season 20m  commons 18m  collect 15m
 #   blog 12m   shield 10m  futarchy 9m  name 6m  service ~5m  reveal 5m
 #   gnovm 1m
+#   session ~12m (Oct 2026, fresh init; it was missing from this list until
+#   then, so neither the sequential nor the parallel full run executed it)
 #
 # With concurrency=6 and this order, batch 1 = forum/rep/federation/season/
 # commons/collect (bottleneck forum 39m), batch 2 = blog/shield/futarchy/
@@ -84,7 +87,7 @@ ONLY_MODULE=""
 # mtimes in e2e/latest/ after a full parallel run.
 # `rest` is app-level LCD wiring rather than a module, and runs in seconds —
 # it stays last so it never delays a batch.
-MODULE_ORDER="forum rep federation season commons collect blog shield futarchy name service reveal gnovm identity guardian rest"
+MODULE_ORDER="forum rep federation season commons collect blog session shield futarchy name service artifact reveal gnovm identity guardian rest"
 
 # Track results
 PASSED_TESTS=()

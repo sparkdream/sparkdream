@@ -20,8 +20,10 @@
 #
 #   Test 2: Only the hiding sentinel can unhide — the owner is rejected.
 #
-#   Test 3: Once appealed, self-correct is off the table — the jury owns
-#           the outcome (unhide on an appealed record is rejected).
+#   Test 3: Once appealed, self-correct is off the table — x/rep owns the
+#           outcome (unhide on an appealed record is rejected). alice then
+#           UPHOLDS the hide via x/rep: the collection is deleted and bob's
+#           committed bond released.
 #
 #   Test 4: The window is real — an unhide attempted after
 #           sentinel_unhide_window_blocks have elapsed is rejected.
@@ -34,7 +36,6 @@
 # Requires config.yml params overrides (at ~1s/block):
 #   collect.hide_expiry_blocks:            "40"  # prod default 100800 ~7 days
 #   collect.appeal_cooldown_blocks:        "2"   # prod default 600    ~1 hour
-#   collect.appeal_deadline_blocks:        "60"  # prod default 201600 ~14 days
 #   collect.sentinel_unhide_window_blocks: "20"  # prod default 14400  ~24 hours
 #
 # Timing note: Test 1's hide -> unhide gap must stay under the 20-block
@@ -301,14 +302,28 @@ assert_tx_failure "carol (owner) cannot unhide" "$TX_OUT"
 
 # Test 3: once appealed, the jury owns the outcome. appeal_cooldown_blocks=2
 # has long passed by the time the failed-unhide roundtrip (~12s) completes.
+COMMITTED_BEFORE_VERDICT_BASE=$(bob_committed_bond)
 TX_OUT=$(send_tx collect appeal-hide "$T2_HIDE_REC" --from carol)
 assert_tx_success "carol appeals the hide" "$TX_OUT"
+T2_APPEAL_ID=$(extract_event_attr "$TX_RESULT_OUT" "gov_action_appealed" "appeal_id")
+T2_APPEAL_ID=${T2_APPEAL_ID:-0}
 
 TX_OUT=$(send_tx collect unhide-content "$T2_HIDE_REC" --from bob)
 assert_tx_failure "bob cannot self-correct an appealed hide" "$TX_OUT"
 
-# The appeal times out in carol's favor after appeal_deadline_blocks (=60);
-# no need to wait for it here — the fixture resolves itself after the suite.
+# The appeal lives in x/rep. alice (Commons Ops) UPHOLDS the hide: x/rep
+# releases bob's committed bond and calls back into collect, which deletes
+# the hidden collection (the hide stands).
+TX_OUT=$(send_tx rep resolve-gov-action-appeal "$T2_APPEAL_ID" upheld "spam confirmed" --from alice)
+assert_tx_success "alice upholds the hide via x/rep" "$TX_OUT"
+assert_equal "Hide record resolved by the x/rep verdict" "true" \
+    "$(query collect hide-record "$T2_HIDE_REC" | jq -r '.hide_record.resolved // false')"
+T2_GONE=$(query collect collection "$T2_COLL_ID" | jq -r '.collection.id // "gone"' 2>/dev/null)
+T2_GONE=${T2_GONE:-gone}
+assert_equal "Upheld hide deletes the collection" "gone" "$T2_GONE"
+COMMITTED_AFTER_VERDICT=$(bob_committed_bond)
+assert_gt "x/rep released bob's committed bond on UPHELD" \
+    "$COMMITTED_AFTER_VERDICT" "$COMMITTED_BEFORE_VERDICT_BASE"
 
 # ----------------------------------------------------------------------------
 # Test 4: Window expiry — unhide after 20 blocks is rejected.

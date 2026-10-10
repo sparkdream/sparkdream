@@ -138,6 +138,13 @@ message Member {
   // max_initiative_bounty_per_funder_epoch
   string initiative_bounty_funded_this_epoch = 37 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
   int64 last_initiative_bounty_epoch = 38;
+
+  // The content license this member agreed to publish under (see The
+  // membership agreement). Set from MsgAcceptInvitation, or for genesis
+  // members from the genesis file, and never changed afterwards: not by
+  // zeroing, not by status changes. The agreement was made at joined_at /
+  // joined_at_height.
+  string content_license = 39;
 }
 
 enum TrustLevel {
@@ -223,9 +230,42 @@ message GiftRecord {
 `MsgAcceptInvitation` is the only way to become a member at runtime, and it
 carries the member's signed agreement to publish under CC0
 (`accepted_content_license = "CC0-1.0"`). Genesis members (the founders) are
-the people who set the policy and sign no message. Non-members who post
+the people who set the policy; they sign no message and instead state the
+agreement in the genesis file (below). Non-members who post
 ephemeral content are bound by the same dedication through the act of
 submitting it, which every client and CLI composer states.
+
+**The agreement is kept in state.** The signed transaction and its
+`content_license_accepted` event prove the agreement, but nodes prune both, so
+after pruning only an archive node could show it. The member record therefore
+stores what was agreed to, in `Member.content_license`:
+
+- `AcceptInvitation` writes `content_license = msg.accepted_content_license`
+  when it creates the member. The handler has already refused any other value,
+  so the field always holds the chain's content license
+  (`commontypes.ChainContentLicense`).
+- When it was agreed is not stored separately. An address can join only once
+  (`ErrMemberAlreadyExists`), so the agreement and the join are the same moment:
+  `joined_at` and `joined_at_height`.
+- The field is never rewritten. A CC0 dedication cannot be revoked, so zeroing,
+  inactivity and every other status change leave it alone. A zeroed person who
+  rejoins from a new address signs a new acceptance on a new record.
+- Genesis members state their agreement in the genesis file itself: every
+  entry in `member_map` carries `content_license: "CC0-1.0"`, and
+  `GenesisState.Validate` refuses a member whose field is anything other than
+  the chain's content license, empty included. The chain never fills the field
+  in on a member's behalf. The founders of each chain, including a federated
+  sister chain launched from this code, write the agreement into the genesis
+  every validator checks before starting, and a config that leaves it out fails
+  at init instead of recording an agreement nobody made. `InitGenesis` imports
+  the field as-is, so an export/import round trip changes nothing.
+- The `Member` query returns the field, so clients and indexers can show "agreed
+  to CC0 at block N" without replaying history.
+
+The field stores the license id, not the wording of the dedication statement.
+The id is what the member signed and what the chain checks; the statement
+clients show comes from the `x/sparkdream` `ContentLicense` query
+([content-license.md](content-license.md)).
 
 ### The new-member on-ramp
 
@@ -1572,7 +1612,8 @@ message GovActionAppeal {
 // GovActionAppeal is the SINGLE moderation/governance appeal mechanism, covering
 // both sentinel actions (hide/lock/move/pin) and committee actions. All x/forum
 // appeal entry points (MsgAppealPost, MsgAppealThreadLock, MsgAppealThreadMove,
-// MsgDisputePin) are facades that call CreateGovActionAppeal; it charges the
+// MsgDisputePin), x/collect MsgAppealHide and x/artifact MsgAppealHide are
+// facades that call CreateGovActionAppeal; it charges the
 // refundable appeal bond and seats a jury (selectModerationAppealJury — parties
 // excluded). Resolution runs applyGovActionAppealVerdict, reached either:
 //   - automatically by JURY VERDICT — TallyJuryVotes when a supermajority of
@@ -1633,8 +1674,9 @@ message MsgInviteMember {
 // accepted_content_license must equal the chain's content license, "CC0-1.0",
 // or the acceptance is refused with ErrContentLicenseNotAccepted (1208) and
 // nobody is admitted. It is a signed field, not a UI checkbox, so the
-// agreement is on-chain and a Ledger shows it. Emits content_license_accepted
-// (member, license).
+// agreement is on-chain and a Ledger shows it. The accepted license is stored
+// on the new member record (Member.content_license). Emits
+// content_license_accepted (member, license).
 message MsgAcceptInvitation {
   option (cosmos.msg.v1.signer) = "invitee";
   string invitee = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
@@ -3962,9 +4004,30 @@ Verdict effects:
 
 | Verdict | Appellant bond | Sentinel bond | Forum counters |
 |---|---|---|---|
-| `UPHELD` | 50% burned, 50% stays in the sentinel reward pool | unchanged | `RecordSentinelActionUpheld` increments `upheld_*`, resets `consecutive_overturns` |
+| `UPHELD` | 50% burned, 50% stays in the sentinel reward pool | committed amount released | `RecordSentinelActionUpheld` increments `upheld_*`, resets `consecutive_overturns` |
 | `OVERTURNED` | 100% refunded | `SlashBond(committed, "appeal_overturned")` where `committed = forumKeeper.GetActionCommittedAmount(...)` — the exact bond the action reserved, so slash == reserved (and the reservation is cleared by the same slash). Mirrors the UPHELD branch's committed-amount release. | `RecordSentinelActionOverturned` increments `overturned_*` and `consecutive_overturns`; at threshold (3) → `SetBondStatus(DEMOTED)` |
 | `TIMEOUT` | 50% refunded, 50% burned | unchanged | no counter update |
+
+### Module-Owned Appeal Targets
+
+Each action type's verdict effects on content are applied by the module that owns that content, through a `ModerationAppealTarget` (`x/rep/types/expected_keepers.go`):
+- `GetActionSentinel` and `GetActionCommittedAmount` supply the sentinel to exclude from the jury and the bond to release or slash.
+- `ReverseSentinelAction` reverses the action on OVERTURNED.
+- `OnSentinelActionResolved` handles module-local bookkeeping.
+
+Forum's action types fall back to the wired `ForumKeeper`. Other modules register a target per action type from `app.go` with `RegisterModerationAppealTarget`:
+
+| Action type | Owner | `action_target` | Filed by |
+|---|---|---|---|
+| `GOV_ACTION_TYPE_COLLECT_HIDE` (11) | x/collect `RepAppealTarget` | collect HideRecord id | x/collect `MsgAppealHide` |
+| `GOV_ACTION_TYPE_ARTIFACT_HIDE` (12) | x/artifact `RepAppealTarget` | artifact HideRecord id | x/artifact `MsgAppealHide` |
+
+Rules:
+- A target may also implement `ModerationAppealOutcomeHandler.OnAppealOutcome`. x/rep calls it after applying its own effects for UPHELD, OVERTURNED and TIMEOUT. Collect deletes and artifact scrubs on UPHELD; on TIMEOUT both restore the content and release the sentinel bond themselves, since x/rep does not touch it on a timeout. Hook failures are logged and never undo x/rep's verdict.
+- Both are `ModuleOwnedAppealTypes`. `MsgAppealGovAction` rejects them, because only the owning module can check who may appeal and mark its record appealed.
+- An unregistered module-owned type has no target and never falls back to the forum keeper, so a collect hide id is never reversed as a forum post.
+- A target whose record the module already closed (e.g. the content was deleted) reports no sentinel and no committed amount, so a late verdict cannot release or slash a bond twice.
+- `ActionKindForGovAction` maps the two types to `collect_hide` and `artifact_hide`, so `RecordRoleOutcome` lands on the right RoleActivity kind.
 
 These amounts/thresholds are sourced as compile-time constants (not operational params) from `x/rep/types/accountability_defaults.go`:
 

@@ -23,7 +23,7 @@ func (k msgServer) AcceptInvitation(ctx context.Context, msg *types.MsgAcceptInv
 	}
 
 	// Accept invitation
-	if err := k.Keeper.AcceptInvitation(ctx, msg.InvitationId, inviteeAddr); err != nil {
+	if err := k.Keeper.AcceptInvitation(ctx, msg.InvitationId, inviteeAddr, msg.AcceptedContentLicense); err != nil {
 		return nil, err
 	}
 

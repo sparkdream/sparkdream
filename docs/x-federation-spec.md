@@ -103,7 +103,7 @@ Anything else, including no license at all, is refused with `ErrLicenseNotAccept
 
 Users can voluntarily link their local identity to remote identities:
 - `alice` on Chain A links to `alice` on Chain B (verified via IBC)
-- `alice` links to `@alice@mastodon.social` (verified via bridge attestation)
+- `alice` links to `@alice@mastodon.example` (verified via bridge attestation)
 - `alice` links to `alice.bsky.social` (verified via bridge attestation)
 
 Identity links are self-asserted by the local user and optionally verified:

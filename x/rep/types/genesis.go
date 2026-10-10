@@ -1,6 +1,10 @@
 package types
 
-import "fmt"
+import (
+	"fmt"
+
+	commontypes "sparkdream/x/common/types"
+)
 
 // DefaultGenesis returns the default genesis state
 func DefaultGenesis() *GenesisState {
@@ -136,6 +140,12 @@ func (gs GenesisState) Validate() error {
 			return fmt.Errorf("duplicated index for member")
 		}
 		memberIndexMap[index] = struct{}{}
+		// Genesis members state their open-content agreement in the genesis
+		// file itself; the chain never fills it in on a member's behalf.
+		if elem.ContentLicense != commontypes.ChainContentLicense {
+			return fmt.Errorf("member %s: content_license must be %q, got %q",
+				elem.Address, commontypes.ChainContentLicense, elem.ContentLicense)
+		}
 	}
 	invitationIdMap := make(map[uint64]bool)
 	invitationCount := gs.GetInvitationCount()

@@ -172,6 +172,17 @@ for MEMBER in "alice" "bob" "carol"; do
             fail "$MEMBER has zero DREAM (dream_balance=$DREAM_BAL, staked_dream=$STAKED_DREAM)"
         fi
 
+        # Genesis members state their open-content agreement in the genesis
+        # file (x/rep GenesisState.Validate requires it), and the member
+        # record keeps it.
+        CONTENT_LICENSE=$(echo "$MEMBER_DATA" | jq -r '.member.content_license // ""')
+        echo "  Content License: ${CONTENT_LICENSE:-(none)}"
+        if [ "$CONTENT_LICENSE" = "CC0-1.0" ]; then
+            pass "$MEMBER content_license is CC0-1.0"
+        else
+            fail "$MEMBER content_license expected CC0-1.0, got '$CONTENT_LICENSE'"
+        fi
+
         # Check reputation scores
         REPUTATION=$(echo "$MEMBER_DATA" | jq -r '.member.reputation_scores // {}')
         if [ "$REPUTATION" != "{}" ] && [ "$REPUTATION" != "null" ]; then
@@ -205,6 +216,7 @@ echo "  - Staked DREAM initialized (if applicable)"
 echo "  - Reputation scores initialized"
 echo "  - Tags initialized (vouched skills)"
 echo "  - Invitation chain empty (genesis members)"
+echo "  - Content license CC0-1.0 (the founder's agreement, from genesis)"
 echo "  - Last decay epoch set to current epoch"
 
 # ========================================================================

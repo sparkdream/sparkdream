@@ -14,6 +14,8 @@ const (
 	ActionKindForumPin      = "forum_pin"
 	ActionKindForumCuration = "forum_curation"
 	ActionKindCollectHide   = "collect_hide"
+	// Hides of x/artifact classes and tokens by a content sentinel.
+	ActionKindArtifactHide = "artifact_hide"
 	// Curation ratings by a bonded collect curator. Reported by x/collect on
 	// challenge resolution so curator accuracy lives in the shared record
 	// rather than only in collect's local CuratorActivity — the curator SPARK
@@ -31,6 +33,8 @@ const (
 	// excluded from the activity gate; feeds the Gate 4 appeal-rate check.
 	ActionKindForumAppealFiled   = "forum_appeal_filed"
 	ActionKindCollectAppealFiled = "collect_appeal_filed"
+	// Appeals filed against an x/artifact hide.
+	ActionKindArtifactAppealFiled = "artifact_appeal_filed"
 )
 
 // RoleAccuracyRingSize is the fixed number of reward-epoch slots in a
@@ -52,15 +56,16 @@ var ActivityKinds = []string{
 	ActionKindForumPin,
 	ActionKindForumCuration,
 	ActionKindCollectHide,
+	ActionKindArtifactHide,
 	ActionKindFederationVerify,
 }
 
 // HideKinds are the hide-action kinds; together with AppealFiledKinds they
 // form the cross-surface Gate 4 appeal-rate check (appeals filed / hides).
-var HideKinds = []string{ActionKindForumHide, ActionKindCollectHide}
+var HideKinds = []string{ActionKindForumHide, ActionKindCollectHide, ActionKindArtifactHide}
 
 // AppealFiledKinds are the appeal-filed kinds (see Gate 4).
-var AppealFiledKinds = []string{ActionKindForumAppealFiled, ActionKindCollectAppealFiled}
+var AppealFiledKinds = []string{ActionKindForumAppealFiled, ActionKindCollectAppealFiled, ActionKindArtifactAppealFiled}
 
 // ScoreWeights maps action kinds to their reward-score bonus per epoch
 // action. Kinds absent from the map contribute activity (Gate 3) but no
@@ -72,9 +77,10 @@ var ScoreWeights = map[string]math.LegacyDec{
 	ActionKindForumMove:     math.LegacyNewDecWithPrec(3, 2), // 0.03
 	ActionKindForumCuration: math.LegacyNewDecWithPrec(2, 2), // 0.02
 	ActionKindCollectHide:   math.LegacyNewDecWithPrec(1, 2), // 0.01
+	ActionKindArtifactHide:  math.LegacyNewDecWithPrec(1, 2), // 0.01
 }
 
-// ActionKindForGovAction maps a jury-adjudicated forum gov-action type to
+// ActionKindForGovAction maps a jury-adjudicated moderation action type to
 // its RoleActivity action kind.
 func ActionKindForGovAction(t GovActionType) string {
 	switch t {
@@ -84,6 +90,10 @@ func ActionKindForGovAction(t GovActionType) string {
 		return ActionKindForumMove
 	case GovActionType_GOV_ACTION_TYPE_REPLY_PIN:
 		return ActionKindForumPin
+	case GovActionType_GOV_ACTION_TYPE_COLLECT_HIDE:
+		return ActionKindCollectHide
+	case GovActionType_GOV_ACTION_TYPE_ARTIFACT_HIDE:
+		return ActionKindArtifactHide
 	default:
 		return ActionKindForumHide
 	}
@@ -95,11 +105,12 @@ func ActionKindForGovAction(t GovActionType) string {
 // rejected curation proposal must not lock the role holder out of
 // moderation (the accuracy hit + demotion ratchet are the cost).
 var CooldownOnOverturn = map[string]bool{
-	ActionKindForumHide:   true,
-	ActionKindForumLock:   true,
-	ActionKindForumMove:   true,
-	ActionKindForumPin:    true,
-	ActionKindCollectHide: true,
+	ActionKindForumHide:    true,
+	ActionKindForumLock:    true,
+	ActionKindForumMove:    true,
+	ActionKindForumPin:     true,
+	ActionKindCollectHide:  true,
+	ActionKindArtifactHide: true,
 	// A verifier attested to a hash that turned out to be wrong. Cooldown
 	// applies, and for this role it ESCALATES per consecutive overturn --
 	// see BondedRoleConfig.overturn_cooldown_escalates, which x/federation

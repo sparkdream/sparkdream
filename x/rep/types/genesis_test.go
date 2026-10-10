@@ -3,6 +3,7 @@ package types_test
 import (
 	"testing"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/rep/types"
 
 	"github.com/stretchr/testify/require"
@@ -24,7 +25,7 @@ func TestGenesisState_Validate(t *testing.T) {
 			// Added Params: types.DefaultParams() to ensure EpochBlocks > 0
 			genState: &types.GenesisState{
 				Params:          types.DefaultParams(),
-				MemberMap:       []types.Member{{Address: "0"}, {Address: "1"}},
+				MemberMap:       []types.Member{{Address: "0", ContentLicense: commontypes.ChainContentLicense}, {Address: "1", ContentLicense: commontypes.ChainContentLicense}},
 				InvitationList:  []types.Invitation{{Id: 0}, {Id: 1}},
 				InvitationCount: 2,
 				ProjectList:     []types.Project{{Id: 0}, {Id: 1}},
@@ -46,14 +47,30 @@ func TestGenesisState_Validate(t *testing.T) {
 			genState: &types.GenesisState{
 				MemberMap: []types.Member{
 					{
-						Address: "0",
+						Address:        "0",
+						ContentLicense: commontypes.ChainContentLicense,
 					},
 					{
-						Address: "0",
+						Address:        "0",
+						ContentLicense: commontypes.ChainContentLicense,
 					},
 				},
 				InvitationList: []types.Invitation{{Id: 0}, {Id: 1}}, InvitationCount: 2,
 				ProjectList: []types.Project{{Id: 0}, {Id: 1}}, ProjectCount: 2, InitiativeList: []types.Initiative{{Id: 0}, {Id: 1}}, InitiativeCount: 2, StakeList: []types.Stake{{Id: 0}, {Id: 1}}, StakeCount: 2, ChallengeList: []types.Challenge{{Id: 0}, {Id: 1}}, ChallengeCount: 2, JuryReviewList: []types.JuryReview{{Id: 0}, {Id: 1}}, JuryReviewCount: 2, InterimList: []types.Interim{{Id: 0}, {Id: 1}}, InterimCount: 2}, valid: false,
+		}, {
+			desc: "member without a content license",
+			genState: &types.GenesisState{
+				Params:    types.DefaultParams(),
+				MemberMap: []types.Member{{Address: "0"}},
+			},
+			valid: false,
+		}, {
+			desc: "member with a license other than the chain's",
+			genState: &types.GenesisState{
+				Params:    types.DefaultParams(),
+				MemberMap: []types.Member{{Address: "0", ContentLicense: "MIT"}},
+			},
+			valid: false,
 		}, {
 			desc: "duplicated invitation",
 			genState: &types.GenesisState{

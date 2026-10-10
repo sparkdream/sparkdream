@@ -1,0 +1,34 @@
+syntax = "proto3";
+package sparkdream.artifact.v1;
+
+import "amino/amino.proto";
+import "gogoproto/gogo.proto";
+import "sparkdream/artifact/v1/params.proto";
+import "sparkdream/artifact/v1/types.proto";
+
+option go_package = "sparkdream/x/artifact/types";
+
+// GenesisState defines the artifact module's genesis state. Derived indexes
+// (owner indexes, inbox/outbox, counters, expiry indexes) are rebuilt on
+// import and never exported.
+message GenesisState {
+  // params defines all the parameters of the module.
+  Params params = 1 [
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+  uint64 class_seq = 2;
+  uint64 hide_seq = 3;
+  repeated Class classes = 4 [(gogoproto.nullable) = false];
+  repeated Token tokens = 5 [(gogoproto.nullable) = false];
+  repeated PublicMintCountEntry public_mint_counts = 6 [(gogoproto.nullable) = false];
+  repeated ReceivePolicyEntry receive_policies = 7 [(gogoproto.nullable) = false];
+  repeated PendingTransfer pending_transfers = 8 [(gogoproto.nullable) = false];
+  repeated PendingMint pending_mints = 9 [(gogoproto.nullable) = false];
+  repeated Listing listings = 10 [(gogoproto.nullable) = false];
+  repeated PendingClassOwner pending_class_owners = 11 [(gogoproto.nullable) = false];
+  repeated HideRecord hide_records = 12 [(gogoproto.nullable) = false];
+  repeated QueueCursor class_cancel_queue = 13 [(gogoproto.nullable) = false];
+  repeated QueueCursor class_scrub_queue = 14 [(gogoproto.nullable) = false];
+  repeated SentinelDailyHideEntry sentinel_daily_hides = 15 [(gogoproto.nullable) = false];
+}
