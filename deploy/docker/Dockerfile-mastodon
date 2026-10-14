@@ -13,6 +13,13 @@
 #     handles from x/name, and the hourly membership sweep scheduled below
 #   - mastodon-bootstrap: idempotent owner account / registrations / bridge
 #     token / wallet-login chain setup the launcher runs over lease-shell
+#   - backup tools for the launcher's Mastodon backups: pg_dump / pg_restore /
+#     psql, age and s5cmd. The database is dumped over the network from the
+#     postgres service, encrypted with age to the fleet's key and streamed to
+#     S3-compatible storage with s5cmd, as are the uploaded media; a restore
+#     reads them back with curl. The client's major version matches the
+#     launcher's postgres image (postgres:14-alpine), so a dump restores into
+#     the same server version it came from
 #
 # The streaming server needs none of this and runs the upstream
 # ghcr.io/mastodon/mastodon-streaming image as-is.
@@ -23,7 +30,26 @@
 ARG MASTODON_IMAGE=ghcr.io/mastodon/mastodon:v4.7.2
 FROM ${MASTODON_IMAGE}
 
+ARG S5CMD_VERSION=2.2.2
+ARG PG_CLIENT_MAJOR=14
+
 USER root
+RUN set -eux; \
+    . /etc/os-release; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends ca-certificates age; \
+    install -d /usr/share/postgresql-common/pgdg; \
+    curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc; \
+    echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt ${VERSION_CODENAME}-pgdg main" \
+      > /etc/apt/sources.list.d/pgdg.list; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends "postgresql-client-${PG_CLIENT_MAJOR}"; \
+    curl -fsSL -o /tmp/s5cmd.tar.gz "https://github.com/peak/s5cmd/releases/download/v${S5CMD_VERSION}/s5cmd_${S5CMD_VERSION}_Linux-64bit.tar.gz"; \
+    tar -xzf /tmp/s5cmd.tar.gz -C /usr/local/bin s5cmd; \
+    rm -rf /tmp/s5cmd.tar.gz /var/lib/apt/lists/*; \
+    pg_dump --version; \
+    age --version; \
+    s5cmd version
 COPY deploy/docker/mastodon/zz_sparkdream_proxy.rb /opt/mastodon/config/initializers/zz_sparkdream_proxy.rb
 COPY deploy/docker/mastodon/zz_sparkdream_wallet_login.rb /opt/mastodon/config/initializers/zz_sparkdream_wallet_login.rb
 COPY deploy/docker/mastodon/mastodon-run.sh /usr/local/bin/mastodon-run
