@@ -27,6 +27,10 @@
 //	CS_VERDICT_KEY_FILE   ed25519 verdict key (contentscan keygen)
 //	CS_FEED_DIR           feed directory to publish (default ./feed)
 //	CS_FEED_URL           public URL of the feed (for `metadata`)
+//	CS_LISTEN             serve CS_FEED_DIR read-only over HTTP on this
+//	                      address (e.g. :8080), for hosts with no separate
+//	                      static server; the state and key files must lie
+//	                      outside CS_FEED_DIR
 //	CS_STATE_FILE         private state file (default ./contentscan-state.json)
 //	CS_TAKEDOWN_LIST      takedown hash list (takedown-hashes.json or hex lines)
 //	CS_CANARY_LIST        council canary hash list (hex lines)
@@ -76,6 +80,7 @@ type Config struct {
 	VerdictKeyFile string
 	FeedDir        string
 	FeedURL        string
+	Listen         string
 	StateFile      string
 	TakedownList   string
 	CanaryList     string
@@ -132,6 +137,7 @@ func loadConfig() (Config, error) {
 		VerdictKeyFile: env("CS_VERDICT_KEY_FILE", "verdict.key"),
 		FeedDir:        env("CS_FEED_DIR", "feed"),
 		FeedURL:        os.Getenv("CS_FEED_URL"),
+		Listen:         os.Getenv("CS_LISTEN"),
 		StateFile:      env("CS_STATE_FILE", "contentscan-state.json"),
 		TakedownList:   os.Getenv("CS_TAKEDOWN_LIST"),
 		CanaryList:     os.Getenv("CS_CANARY_LIST"),
@@ -249,12 +255,20 @@ func main() {
 		}
 	}
 
+	if cfg.Listen != "" {
+		if err := checkServable(cfg); err != nil {
+			log.Fatalf("contentscan: %v", err)
+		}
+	}
 	w, err := newWorker(cfg)
 	if err != nil {
 		log.Fatalf("contentscan: %v", err)
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	if cfg.Listen != "" {
+		go serveFeed(ctx, cfg.Listen, cfg.FeedDir)
+	}
 	log.Printf("contentscan: worker %s scanning %s every %s", w.operator, cfg.LCD, cfg.Poll)
 	for {
 		if err := w.poll(ctx); err != nil && ctx.Err() == nil {

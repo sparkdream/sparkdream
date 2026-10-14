@@ -255,7 +255,9 @@ func ApplyDREAMDecay(member) {
         return
     }
 
-    // Unstaked decay: 0.2% per epoch
+    // Unstaked decay: 0.2% per epoch, on liquid DREAM only (StakedDREAM
+    // counts every lock: stakes, role bonds, invitation/challenge locks,
+    // bounty escrow)
     unstaked := member.Balance - member.StakedDREAM
     if unstaked > 0 {
         unstakedDecay := unstaked * UnstakedDecayRate * epochsElapsed
@@ -263,10 +265,18 @@ func ApplyDREAMDecay(member) {
         BurnDREAM(unstakedDecay)
     }
     
-    // Staked decay: 0.05% per epoch (~18% annualized)
-    if member.StakedDREAM > 0 {
-        stakedDecay := member.StakedDREAM * StakedDecayRate * epochsElapsed
-        member.StakedDREAM -= stakedDecay
+}
+
+// Staked decay: 0.05% per epoch (~18% annualized), once per epoch on each
+// reward-bearing stake record (initiative, project, member, tag), never on
+// the StakedDREAM aggregate: the record, its pool totals and the member's
+// aggregate shrink together. Escrow does not erode, so role bonds,
+// invitation and challenge locks, bounties and author bonds are exempt.
+func DecayStakes() {
+    for stake := range RewardBearingStakes() {
+        stakedDecay := stake.Amount * StakedDecayRate
+        stake.Amount -= stakedDecay
+        stake.Staker.StakedDREAM -= stakedDecay
         BurnDREAM(stakedDecay)
     }
 }
@@ -277,7 +287,9 @@ Purpose of decay:
   forcing panic-staking that would dilute conviction signals. 4:1 ratio vs staked decay
   is enough to incentivize staking without distorting it
 - **Staked decay** (0.05%/epoch): Prevents infinite compounding — active stakers earning
-  seasonal rewards easily outpace it, but idle/abandoned stakes erode over time
+  seasonal rewards easily outpace it, but idle/abandoned stakes erode over time. Applies
+  to stake records only: bonds and escrow (bonded roles, invitations, challenges,
+  bounties) keep their face value and shrink only when slashed
 - **Grace period** (30 epochs): Gives new members time to earn and stake DREAM before
   decay applies, preventing onboarding friction
 - Creates real system-wide burn pressure regardless of staking behavior

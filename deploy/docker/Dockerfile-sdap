@@ -14,9 +14,10 @@
 # contentscan is the reference content-scanner worker
 # (docs/content-scanning.md §5): run it as its own service with
 #   docker run ... sparkdreamnft/sdap:<ver> contentscan
-# and publish its CS_FEED_DIR (e.g. /data/feed) with any static host. It
-# keeps fetched media in memory only; its private state goes to
-# CS_STATE_FILE on /data.
+# and publish its CS_FEED_DIR (e.g. /data/feed) with any static host, or
+# set CS_LISTEN (e.g. :8080) to have the worker serve it itself. It keeps
+# fetched media in memory only; its private state goes to CS_STATE_FILE on
+# /data, outside the feed directory.
 #
 # All four are configured purely by env (see cmd/sdapbridge/config.go,
 # cmd/sdapverify/main.go, cmd/sdaplogin/main.go and cmd/contentscan/main.go). None depends on a
