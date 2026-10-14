@@ -21,6 +21,9 @@
 #      the one in each network's genesis. Web clients serve this directory at
 #      <zk assets>/<version>/ and refuse to prove when the wasm's version
 #      differs from the node's, so publish it alongside every chain release.
+#      The build is also copied to <zk publish dir>/<version>/, a web client's
+#      zk asset directory: ../sparkdream-ui/public/zk (beside this repo) when
+#      that checkout exists, or the directory given with --zk-publish.
 #   6. E2E SNAPSHOTS        — nothing to do; post-setup snapshots are
 #      fingerprinted on config.yml and the binary and refresh on their own.
 #
@@ -33,11 +36,14 @@
 #   deploy/scripts/prepare-release.sh <new-version> --no-regen  # skip step 3+4
 #   deploy/scripts/prepare-release.sh <new-version> --strict    # treat audit WARN as failure
 #   deploy/scripts/prepare-release.sh <new-version> --no-zk     # skip step 5
+#   deploy/scripts/prepare-release.sh <new-version> --zk-publish <dir>  # copy the prover to <dir>/<version>/
+#   deploy/scripts/prepare-release.sh <new-version> --no-zk-publish     # build the prover but don't copy it
 #   deploy/scripts/prepare-release.sh --help
 #
 # Examples:
 #   deploy/scripts/prepare-release.sh v1.0.7
 #   deploy/scripts/prepare-release.sh v1.0.7 --no-bump          # versions already bumped manually
+#   deploy/scripts/prepare-release.sh v1.0.7 --zk-publish /srv/ui/public/zk
 #
 # Environment:
 #   SKIP_DIRTY_CHECK=1   bypass the "working tree dirty" pre-flight check.
@@ -66,6 +72,10 @@ NEW_VERSION=""
 DO_BUMP=true
 DO_REGEN=true
 DO_ZK=true
+ZK_PUBLISH=""
+ZK_PUBLISH_OFF=false
+# The sparkdream-ui checkout beside this repo: the default --zk-publish target.
+ZK_PUBLISH_DEFAULT="$REPO_ROOT/../sparkdream-ui/public/zk"
 STRICT=false
 
 usage() {
@@ -81,6 +91,16 @@ while [ $# -gt 0 ]; do
         --no-bump) DO_BUMP=false ;;
         --no-regen) DO_REGEN=false ;;
         --no-zk) DO_ZK=false ;;
+        --zk-publish)
+            if [ $# -lt 2 ]; then
+                fail "--zk-publish needs a directory"
+                exit 2
+            fi
+            ZK_PUBLISH="$2"
+            shift
+            ;;
+        --zk-publish=*) ZK_PUBLISH="${1#--zk-publish=}" ;;
+        --no-zk-publish) ZK_PUBLISH_OFF=true ;;
         --strict) STRICT=true ;;
         v[0-9]*.[0-9]*.[0-9]*)
             NEW_VERSION="$1"
@@ -127,6 +147,31 @@ if pgrep -af 'sparkdreamd start --home /home' >/dev/null 2>&1 || \
     else
         note "sparkdreamd processes detected but not on ~/.sparkdream — fine"
     fi
+fi
+
+# --zk-publish target must exist (checked now, not after the regen). Without
+# the flag, the sparkdream-ui checkout beside this repo is used if present.
+if [ -n "$ZK_PUBLISH" ] && [ "$ZK_PUBLISH_OFF" = true ]; then
+    fail "--zk-publish and --no-zk-publish conflict"
+    exit 2
+fi
+if [ -z "$ZK_PUBLISH" ] && [ "$ZK_PUBLISH_OFF" = false ] && [ "$DO_ZK" = true ]; then
+    if [ -d "$ZK_PUBLISH_DEFAULT" ]; then
+        ZK_PUBLISH="$(cd "$ZK_PUBLISH_DEFAULT" && pwd)"
+    else
+        note "no sparkdream-ui checkout at $ZK_PUBLISH_DEFAULT — the prover will be built but not published"
+    fi
+fi
+if [ -n "$ZK_PUBLISH" ]; then
+    if [ "$DO_ZK" = false ]; then
+        fail "--zk-publish and --no-zk conflict"
+        exit 2
+    fi
+    if [ ! -d "$ZK_PUBLISH" ]; then
+        fail "--zk-publish: $ZK_PUBLISH is not a directory"
+        exit 2
+    fi
+    ok "prover will be published to $ZK_PUBLISH"
 fi
 
 # Required tools
@@ -268,6 +313,17 @@ if [ "$DO_ZK" = true ]; then
         fail "zk prover build failed"
         exit 1
     fi
+
+    if [ -n "$ZK_PUBLISH" ]; then
+        if [ -z "$ZK_KEYS" ]; then
+            warn "not publishing to $ZK_PUBLISH: the build has no ceremony keys, and a client can't prove without them"
+        else
+            ZK_DEST="$ZK_PUBLISH/$ZK_VERSION"
+            mkdir -p "$ZK_DEST"
+            cp "$ZK_OUT"/* "$ZK_DEST/"
+            ok "published to $ZK_DEST"
+        fi
+    fi
 fi
 
 # --- 6. e2e snapshots ------------------------------------------------------
@@ -294,7 +350,7 @@ fi
 if [ "$DO_REGEN" = true ]; then
     echo -e "  ${BOLD}Regenerate genesis files to match $NEW_VERSION.${RST}"
 fi
-if [ -n "$ZK_OUT" ]; then
+if [ -n "$ZK_OUT" ] && [ -z "${ZK_DEST:-}" ]; then
     echo ""
     note "publish $ZK_OUT/ at each web client's <zk assets>/$(basename "$ZK_OUT")/ and set its"
     note "ZK_DIGESTS to the manifest's \"files\" (build/zk/ is not tracked)"
