@@ -8,6 +8,7 @@
 // JSON string: the result on success, {"error": "..."} on failure. uint64
 // values travel as decimal strings and bytes as base64.
 //
+//	version()                         → {"version", "commit"}   (the chain build it matches)
 //	deriveSecret(signatureB64)        → {"secret_key": hex}
 //	publicKey(secretKeyHex)           → {"public_key": b64}
 //	loadKeys(provingKey, r1cs)        → {}                    (Uint8Arrays)
@@ -49,11 +50,23 @@ import (
 // maxTrustLevel is the highest x/rep TrustLevel (CORE).
 const maxTrustLevel = 4
 
+// version and commit are the chain release this client was built from, set by
+// build.sh with -ldflags -X (the same values the Makefile stamps into
+// sparkdreamd). Clients compare version against the node's
+// application_version: a prover from another release can make proofs over
+// public inputs the chain no longer derives the same way, and those fail only
+// at broadcast as "ZK proof verification failed".
+var (
+	version = "unknown"
+	commit  = "unknown"
+)
+
 var shieldProver *prover.ShieldProver
 
 func main() {
 	logger.Disable()
 	js.Global().Set("sparkdreamShield", js.ValueOf(map[string]any{
+		"version":      js.FuncOf(wrap(buildInfo)),
 		"deriveSecret": js.FuncOf(wrap(deriveSecret)),
 		"publicKey":    js.FuncOf(wrap(publicKey)),
 		"loadKeys":     js.FuncOf(wrap(loadKeys)),
@@ -84,6 +97,10 @@ func wrap(fn func(args []js.Value) (any, error)) func(js.Value, []js.Value) any 
 func errorJSON(err error) string {
 	bz, _ := json.Marshal(map[string]string{"error": err.Error()})
 	return string(bz)
+}
+
+func buildInfo([]js.Value) (any, error) {
+	return map[string]string{"version": version, "commit": commit}, nil
 }
 
 func deriveSecret(args []js.Value) (any, error) {
