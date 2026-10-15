@@ -781,6 +781,22 @@ func (f *testFixture) registerCurator(t *testing.T, creator string, bond int64) 
 	)
 }
 
+// setCuratorUnbonding queues `pending` of the member's curator bond for
+// withdrawal and seeds the curator BondedRoleConfig with the default
+// min_curator_bond so EligibleForRole's staying-bond rule has a floor.
+func (f *testFixture) setCuratorUnbonding(t *testing.T, creator string, pending int64) {
+	t.Helper()
+	require.NoError(t, f.repKeeper.SetBondedRoleConfig(f.ctx, reptypes.BondedRoleConfig{
+		RoleType: reptypes.RoleType_ROLE_TYPE_COLLECT_CURATOR,
+		MinBond:  types.DefaultMinCuratorBond.String(),
+	}))
+	br, err := f.repKeeper.GetBondedRole(f.ctx, reptypes.RoleType_ROLE_TYPE_COLLECT_CURATOR, creator)
+	require.NoError(t, err)
+	br.BondStatus = reptypes.BondedRoleStatus_BONDED_ROLE_STATUS_UNBONDING
+	br.PendingUnbondAmount = math.NewInt(pending).String()
+	f.repKeeper.SeedBondedRole(reptypes.RoleType_ROLE_TYPE_COLLECT_CURATOR, creator, br)
+}
+
 // addCollaborator adds a collaborator to a collection.
 func (f *testFixture) addCollaborator(t *testing.T, collectionID uint64, creator, collab string, role types.CollaboratorRole) {
 	t.Helper()

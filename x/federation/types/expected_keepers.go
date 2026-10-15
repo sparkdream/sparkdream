@@ -134,6 +134,11 @@ type RepKeeper interface {
 	// Bonded-role accountability (Phase 4). Federation verifier is the
 	// module role keyed as ROLE_TYPE_FEDERATION_VERIFIER.
 	GetBondedRole(ctx context.Context, roleType reptypes.RoleType, addr string) (reptypes.BondedRole, error)
+	// EligibleForRole is the shared action-time eligibility gate: NORMAL /
+	// RECOVERY pass, UNBONDING passes while the staying bond covers the
+	// role minimum, DEMOTED fails. Returns ErrBondedRoleNotFound when the
+	// address never bonded the role.
+	EligibleForRole(ctx context.Context, roleType reptypes.RoleType, addr string) (reptypes.BondedRole, error)
 	ReserveBond(ctx context.Context, roleType reptypes.RoleType, addr string, amount math.Int) error
 	ReleaseBond(ctx context.Context, roleType reptypes.RoleType, addr string, amount math.Int) error
 	SlashBond(ctx context.Context, roleType reptypes.RoleType, addr string, amount math.Int, reason string) error

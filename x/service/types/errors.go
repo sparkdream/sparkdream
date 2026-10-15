@@ -56,6 +56,8 @@ var (
 	ErrInvalidDedupeKey                  = errors.Register(ModuleName, 44, "dedupe key must be non-empty")
 	ErrInvalidCheckpoint                 = errors.Register(ModuleName, 45, "invalid checkpoint")
 	ErrCheckpointNotFound                = errors.Register(ModuleName, 46, "checkpoint not found")
+	ErrWithdrawExceedsAvailable          = errors.Register(ModuleName, 47, "withdrawal would leave the staying bond below min_bond")
+	ErrNoPendingWithdrawal               = errors.Register(ModuleName, 48, "no partial bond withdrawal is queued")
 
 	// ErrInvalidSigner is the ignite-scaffolded generic invalid-signer
 	// error retained from the module skeleton; retained as 1100 for

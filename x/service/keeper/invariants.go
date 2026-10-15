@@ -24,6 +24,42 @@ func RegisterInvariants(ir sdk.InvariantRegistry, k Keeper) {
 	ir.RegisterRoute(types.ModuleName, "escalated-report-queue-consistency", EscalatedReportQueueConsistencyInvariant(k))
 	ir.RegisterRoute(types.ModuleName, "tier1-escrow-queue-consistency", Tier1EscrowQueueConsistencyInvariant(k))
 	ir.RegisterRoute(types.ModuleName, "report-state-machine-sanity", ReportStateMachineSanityInvariant(k))
+	ir.RegisterRoute(types.ModuleName, "pending-withdrawal-sanity", PendingWithdrawalSanityInvariant(k))
+}
+
+// PendingWithdrawalSanityInvariant — for every live operator (§3.5a):
+// 0 <= pending_withdraw_amount <= bond_amount; a positive queued amount
+// exists only on ACTIVE or UNDERFUNDED records (a slash may underfund an
+// operator mid-wait; the exit paths clear the queue); withdraw_complete_at
+// > 0 iff an amount is queued. (§13.)
+func PendingWithdrawalSanityInvariant(k Keeper) sdk.Invariant {
+	return func(ctx sdk.Context) (string, bool) {
+		var broken []string
+		err := k.Operators.Walk(ctx, nil, func(_ collections.Pair[[]byte, string], op types.Operator) (bool, error) {
+			pending := pendingWithdraw(op)
+			switch {
+			case pending.IsNegative():
+				broken = append(broken, fmt.Sprintf("%s/%s: negative pending_withdraw_amount", op.Address, op.ServiceType))
+			case !op.BondAmount.IsNil() && pending.GT(op.BondAmount):
+				broken = append(broken, fmt.Sprintf("%s/%s: pending_withdraw_amount %s exceeds bond %s", op.Address, op.ServiceType, pending, op.BondAmount))
+			case pending.IsPositive() &&
+				op.Status != types.OperatorStatus_OPERATOR_STATUS_ACTIVE &&
+				op.Status != types.OperatorStatus_OPERATOR_STATUS_UNDERFUNDED:
+				broken = append(broken, fmt.Sprintf("%s/%s: pending withdrawal on %s record", op.Address, op.ServiceType, op.Status))
+			case pending.IsPositive() != (op.WithdrawCompleteAt > 0):
+				broken = append(broken, fmt.Sprintf("%s/%s: withdraw_complete_at=%d with pending=%s", op.Address, op.ServiceType, op.WithdrawCompleteAt, pending))
+			}
+			return false, nil
+		})
+		if err != nil {
+			return invariantErr("pending-withdrawal-sanity", err), true
+		}
+		if len(broken) > 0 {
+			return sdk.FormatInvariant(types.ModuleName, "pending-withdrawal-sanity",
+				fmt.Sprintf("%d inconsistent record(s): %v", len(broken), broken)), true
+		}
+		return sdk.FormatInvariant(types.ModuleName, "pending-withdrawal-sanity", "ok"), false
+	}
 }
 
 // BondPoolAccountingInvariant — bank.balance(module, bondDenom) ==

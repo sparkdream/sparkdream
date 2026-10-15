@@ -250,6 +250,7 @@ func (k Keeper) RegisterOperator(
 		Tier1WindowStartBond:    bondAmount,
 		RegisteredAt:            currentHeight,
 		TotalLifetimeBondBlocks: sdkmath.ZeroInt(),
+		PendingWithdrawAmount:   sdkmath.ZeroInt(),
 		LastBondBlockUpdateAt:   currentHeight,
 	}
 	if err := k.PutOperator(ctx, op); err != nil {

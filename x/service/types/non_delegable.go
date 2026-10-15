@@ -4,7 +4,7 @@ package types
 // via x/authz `MsgExec` or x/session `MsgExecSession`. See
 // x-service-spec.md §5.1 + §6.5. The rationale: SPARK-bond commitment
 // (MsgRegisterOperator) and significant lifecycle decisions
-// (MsgUnbondOperator) are operator-foundational acts; allowing a
+// (MsgUnbondOperator, MsgWithdrawBond) are operator-foundational acts; allowing a
 // session or authz key to bind someone else's SPARK to obligations
 // they didn't personally accept would break the accountability model.
 //
@@ -35,4 +35,5 @@ package types
 var NonDelegableMsgTypeURLs = []string{
 	"/sparkdream.service.v1.MsgRegisterOperator",
 	"/sparkdream.service.v1.MsgUnbondOperator",
+	"/sparkdream.service.v1.MsgWithdrawBond",
 }

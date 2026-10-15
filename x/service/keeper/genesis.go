@@ -2,6 +2,7 @@ package keeper
 
 import (
 	"context"
+	sdkmath "cosmossdk.io/math"
 
 	"cosmossdk.io/collections"
 
@@ -34,6 +35,9 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 	// Live operators — PutOperator hydrates all secondary indexes
 	// (OperatorsByController, OperatorsByServiceType, UnderfundedQueue).
 	for _, op := range genState.Operators {
+		if op.PendingWithdrawAmount.IsNil() {
+			op.PendingWithdrawAmount = sdkmath.ZeroInt()
+		}
 		if err := k.PutOperator(ctx, op); err != nil {
 			return err
 		}

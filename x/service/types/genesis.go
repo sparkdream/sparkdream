@@ -148,6 +148,24 @@ func (gs GenesisState) Validate() error {
 		if op.BondAmount.IsNil() || !op.BondAmount.IsPositive() {
 			return fmt.Errorf("genesis: live operator %s bond must be positive", op.Address)
 		}
+		// Partial withdrawal (§3.5a): queued amount is part of bond_amount,
+		// only ACTIVE / UNDERFUNDED operators carry one (UNBONDING clears
+		// it), and the clock is set iff an amount is queued.
+		if !op.PendingWithdrawAmount.IsNil() {
+			if op.PendingWithdrawAmount.IsNegative() {
+				return fmt.Errorf("genesis: live operator %s pending_withdraw_amount must not be negative", op.Address)
+			}
+			if op.PendingWithdrawAmount.GT(op.BondAmount) {
+				return fmt.Errorf("genesis: live operator %s pending_withdraw_amount exceeds bond", op.Address)
+			}
+		}
+		pendingQueued := !op.PendingWithdrawAmount.IsNil() && op.PendingWithdrawAmount.IsPositive()
+		if pendingQueued && op.Status == OperatorStatus_OPERATOR_STATUS_UNBONDING {
+			return fmt.Errorf("genesis: live operator %s has a pending withdrawal but status %s", op.Address, op.Status)
+		}
+		if pendingQueued != (op.WithdrawCompleteAt > 0) {
+			return fmt.Errorf("genesis: live operator %s withdraw_complete_at must be set iff pending_withdraw_amount > 0", op.Address)
+		}
 	}
 
 	// Archived operators: status must be terminal, retired_at > 0, bond

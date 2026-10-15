@@ -117,6 +117,7 @@ func (k msgServer) RegisterOperator(ctx context.Context, msg *types.MsgRegisterO
 		RegisteredAt:            currentHeight,
 		RetiredAt:               0,
 		TotalLifetimeBondBlocks: sdkmath.ZeroInt(),
+		PendingWithdrawAmount:   sdkmath.ZeroInt(),
 		LastBondBlockUpdateAt:   currentHeight,
 	}
 	if err := k.PutOperator(ctx, op); err != nil {

@@ -148,6 +148,7 @@ func (k Keeper) sweepUnderfunded(ctx context.Context, params types.Params, curre
 		op.Status = types.OperatorStatus_OPERATOR_STATUS_UNBONDING
 		op.UnbondCompleteAt = currentHeight + k.effectiveUnbondingPeriodBlocks(cfg, params)
 		op.UnderfundedSince = 0
+		clearPendingWithdrawal(&op)
 
 		_ = k.UnderfundedQueue.Remove(ctx, p.queueKey)
 		if err := k.PutOperator(ctx, op); err != nil {

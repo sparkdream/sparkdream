@@ -11,7 +11,9 @@ import (
 
 // ClaimUnbondedBond returns the bond to the operator and moves the
 // record to ArchivedOperators with status=RETIRED. See §3.5 claim
-// eligibility.
+// eligibility. For an operator that is not UNBONDING it instead releases
+// a matured partial withdrawal queued by MsgWithdrawBond (§3.5a) and
+// leaves the record live — see claimPartialWithdrawal.
 //
 // All §3.5 gates are enforced here: open-reports gate (bullet 3),
 // active-tier-1-escrow gate (bullet 4), and eager-release of expired-
@@ -32,7 +34,15 @@ func (k msgServer) ClaimUnbondedBond(ctx context.Context, msg *types.MsgClaimUnb
 		return nil, types.ErrOperatorNotFound.Wrapf("%s / %s", msg.Operator, msg.ServiceType)
 	}
 	if op.Status != types.OperatorStatus_OPERATOR_STATUS_UNBONDING {
-		return nil, types.ErrOperatorNotActive.Wrap("operator is not unbonding")
+		// Not exiting: the only thing claimable is a matured partial
+		// withdrawal (§3.5a). The operator stays live.
+		if pendingWithdraw(op).IsPositive() {
+			if err := k.claimPartialWithdrawal(ctx, op, opBytes); err != nil {
+				return nil, err
+			}
+			return &types.MsgClaimUnbondedBondResponse{}, nil
+		}
+		return nil, types.ErrOperatorNotActive.Wrap("operator is not unbonding and has no pending withdrawal")
 	}
 
 	currentHeight := sdkCtx.BlockHeight()

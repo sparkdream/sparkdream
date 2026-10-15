@@ -3,6 +3,7 @@ package keeper
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 
 	"sparkdream/x/federation/types"
@@ -23,15 +24,19 @@ func (k msgServer) VerifyContent(ctx context.Context, msg *types.MsgVerifyConten
 		return nil, errorsmod.Wrap(types.ErrVerifierNotFound, "rep keeper not wired")
 	}
 
-	// 1. Verify creator is a bonded verifier (ROLE_TYPE_FEDERATION_VERIFIER)
-	//    with NORMAL or RECOVERY status (DEMOTED cannot verify).
-	role, err := k.late.repKeeper.GetBondedRole(ctx, reptypes.RoleType_ROLE_TYPE_FEDERATION_VERIFIER, msg.Creator)
+	// 1. Verify creator is an eligible bonded verifier
+	//    (ROLE_TYPE_FEDERATION_VERIFIER) through rep's shared
+	//    EligibleForRole: NORMAL and RECOVERY verify outright; UNBONDING
+	//    verifies only while the staying bond (current - pending) still
+	//    covers the role minimum, so a partial unbond keeps the verifier
+	//    working and a full exit does not; DEMOTED cannot verify. Same gate
+	//    forum sentinels and collect curators use.
+	role, err := k.late.repKeeper.EligibleForRole(ctx, reptypes.RoleType_ROLE_TYPE_FEDERATION_VERIFIER, msg.Creator)
 	if err != nil {
-		return nil, errorsmod.Wrapf(types.ErrVerifierNotFound, "verifier %s not bonded", msg.Creator)
-	}
-	if role.BondStatus != reptypes.BondedRoleStatus_BONDED_ROLE_STATUS_NORMAL &&
-		role.BondStatus != reptypes.BondedRoleStatus_BONDED_ROLE_STATUS_RECOVERY {
-		return nil, errorsmod.Wrapf(types.ErrVerifierNotActive, "verifier bond status is %s", role.BondStatus)
+		if errors.Is(err, reptypes.ErrBondedRoleNotFound) {
+			return nil, errorsmod.Wrapf(types.ErrVerifierNotFound, "verifier %s not bonded", msg.Creator)
+		}
+		return nil, errorsmod.Wrapf(types.ErrVerifierNotActive, "verifier bond status is %s: %v", role.BondStatus, err)
 	}
 
 	sdkCtx := sdk.UnwrapSDKContext(ctx)

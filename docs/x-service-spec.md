@@ -52,6 +52,8 @@ Operator {
   retired_at                 // height the record transitioned to RETIRED (0 if not retired)
   total_lifetime_bond_blocks // running sum, for reputation accrual (see §6.6) — updated lazily
   last_bond_block_update_at  // height of last total_lifetime_bond_blocks update; used by lazy accrual
+  pending_withdraw_amount    // part of bond queued for partial withdrawal (§3.5a); 0 if none
+  withdraw_complete_at       // height from which the queued partial withdrawal is claimable (0 if none)
 }
 ```
 
@@ -326,6 +328,21 @@ On successful claim:
 
 The address may immediately submit a fresh `MsgRegisterOperator` for the same `(address, service_type)` if they wish to re-enter — the RETIRED archive does not block re-registration (only SLASHED does).
 
+### 3.5a. Partial withdrawal (stay ACTIVE)
+
+An operator that is over-bonded can take SPARK back without leaving the service. `MsgWithdrawBond { operator, service_type, amount }`:
+
+- Requires status `ACTIVE`. `UNDERFUNDED` has nothing to spare; `UNBONDING` is already returning the whole bond on the exit clock (`ErrOperatorUnbonding`).
+- Requires `bond - pending_withdraw_amount - amount >= min_bond` (`ErrWithdrawExceedsAvailable`), so an operator can never push itself into `UNDERFUNDED` through its own withdrawal. The staying bond is what keeps the operator discoverably active; it is never reduced by this path.
+- Adds `amount` to `pending_withdraw_amount` and resets `withdraw_complete_at = current_height + unbonding_period_blocks` (the same per-type or default period as a full exit). Calls are incremental: a second call grows the queue and restarts the single clock, so the lock only ever lengthens.
+- Moves nothing. The queued SPARK stays in the bond pool, inside `bond_amount`, and remains fully slashable until claimed. Bond-blocks keep accruing on the whole bond, since it is still standing behind the work.
+
+The queued amount is released by the same `MsgClaimUnbondedBond` an exiting operator uses. When the record is not `UNBONDING`, the claim handler treats the call as a partial claim and applies the §3.5 gates: `current_height >= withdraw_complete_at`, no `PENDING`/`ESCALATED` reports, no tier-1 escrow still within its contest window (expired escrows are eagerly released first). The release is additionally capped at `bond - min_bond`, so a slash taken during the wait can never drain the operator below the floor; whatever cannot be released stays queued on the existing clock and a later claim (after a top-up) finishes it. A slash during the wait can also push the operator into `UNDERFUNDED`; the queue survives that, but an `UNDERFUNDED` record cannot claim at all (`ErrOperatorNotActive`) — top up back to `ACTIVE` first, then claim. On success `bond_amount` shrinks by the released amount, the record stays live and `ACTIVE`, no hook fires, and `service.operator_bond_withdrawn` is emitted.
+
+Any exit from `ACTIVE` into `UNBONDING` (voluntary `MsgUnbondOperator` or the forced underfunded sweep) or into a terminal status clears the queue: the exit path returns or confiscates the whole bond, so the partial earmark is moot.
+
+`MsgWithdrawBond` is **not delegable** (§5.1), like `MsgUnbondOperator`: a compromised session key must not be able to start draining the bond.
+
 ---
 
 ### 3.6. State Transitions & EndBlocker
@@ -336,6 +353,8 @@ State transitions are split between **eager** (applied during message processing
 
 - `MsgRegisterOperator` → create record at `ACTIVE` (or reject if bond < min_bond, or if `(address, service_type)` exists in `ArchivedOperators` with status SLASHED).
 - `MsgTopUpBond` → `UNDERFUNDED → ACTIVE` if new bond ≥ min_bond.
+- `MsgWithdrawBond` → no status change; `pending_withdraw_amount` grows and `withdraw_complete_at` resets (§3.5a).
+- `MsgClaimUnbondedBond` on an `ACTIVE` record with a matured queue → bond reduced by the released amount; record stays live (§3.5a).
 - `MsgUnbondOperator` → `ACTIVE | UNDERFUNDED → UNBONDING`.
 - `MsgClaimUnbondedBond` → bond returned; live record removed; archived as `RETIRED` (§3.5).
 - `MsgResolveReport` (T1_SLASH verdict) → slash amount moved from `bond` to `Tier1Escrow`; if remaining bond < min_bond → `ACTIVE → UNDERFUNDED`; if remaining bond = 0 → eager move to `SLASHED` and archive (§3.4.9).
@@ -569,6 +588,7 @@ All signer Msgs MUST carry `option (amino.name) = "sparkdream/x/service/Msg<Name
 - `MsgUnbondOperator { operator }` — signer = operator. Transitions to `UNBONDING`; sets clock.
 - `MsgClaimUnbondedBond { operator }` — signer = operator. Bond returned iff conditions in §3.5 met; live record is archived as `RETIRED`.
 - `MsgTopUpBond { operator, additional_bond }` — signer = operator. `additional_bond.denom == "uspark"`. Updates bond and clears `UNDERFUNDED` if applicable.
+- `MsgWithdrawBond { operator, service_type, amount }` — signer = operator. Queues a partial withdrawal while staying `ACTIVE`; `bond - pending - amount >= min_bond`. Claimed via `MsgClaimUnbondedBond` after the unbonding period (§3.5a). Not delegable.
 - `MsgSubmitCheckpoint { operator, service_type, height, root }` — signer = operator (session-delegable). Records a progress checkpoint and reschedules liveness (§3.8).
 
 ### 5.2. Reports & slashing
@@ -808,10 +828,11 @@ Delegable from the operator key:
 **Not delegable** (must be signed by the operator key directly — **both x/session AND x/authz blocked**):
 - `MsgRegisterOperator` — initial bond commitment, requires cold signature
 - `MsgUnbondOperator` — significant lifecycle decision, prevents a compromised session key from forcing exit
+- `MsgWithdrawBond` — starts draining the bond; same reasoning as unbond (§3.5a)
 
 **Not delegable through x/session:** `MsgTopUpBond` — it moves SPARK from the operator's account into the bond, and a session's `SpendLimit` budgets fees only, so nothing would cap what a compromised daemon key could lock up. Top-ups are signed by the operator key.
 
-x/session's `Params.Validate` rejects all three in both `max_allowed_msg_types` and `allowed_msg_types` (`types.ForbiddenAllowlistMsgs`, built from `servicetypes.NonDelegableMsgTypeURLs` plus `MsgTopUpBond`), at genesis and on `MsgUpdateParams`.
+x/session's `Params.Validate` rejects all four in both `max_allowed_msg_types` and `allowed_msg_types` (`types.ForbiddenAllowlistMsgs`, built from `servicetypes.NonDelegableMsgTypeURLs` plus `MsgTopUpBond`), at genesis and on `MsgUpdateParams`.
 
 The session module's existing message-type allowlist (`max_allowed_msg_types` ceiling) is the enforcement mechanism for x/session — operators just create a session with the delegable subset above. For x/authz, x/service enforces the block at the msg-server level by checking `creator == tx_signer[0]` (no `MsgExec` indirection). This avoids depending on whether the chain admin happens to exclude these msgs from authz's `ForbiddenMessages`; the safety is enforced by the module itself.
 
@@ -914,7 +935,7 @@ SetHooks(hooks ServiceHooks) *Keeper                                            
 GenesisState {
   params: Params
   service_types: [ServiceTypeConfig]      // initial registry
-  operators: [Operator]                   // live records (ACTIVE | UNDERFUNDED | UNBONDING)
+  operators: [Operator]                   // live records (ACTIVE | UNDERFUNDED | UNBONDING); pending_withdraw_amount <= bond, never on UNBONDING, clock set iff queued (§3.5a)
   archived_operators: [Operator]          // SLASHED + RETIRED records (for audit retention)
   reports: [Report]                       // open and recently-resolved reports
   tier1_escrow: [Tier1EscrowEntry]        // in-flight tier-1 slashes awaiting contest window
@@ -1040,6 +1061,8 @@ Standard SDK `Errors` registered under codespace `service`:
 | 44    | `ErrInvalidDedupeKey`               | `OpenSystemReport` called with empty `dedupe_key`; idempotency requires a non-empty key (§3.7.2) |
 | 45    | `ErrInvalidCheckpoint`              | `MsgSubmitCheckpoint` with a non-32-byte root, a height outside `(0, current_height]`, or a height not above the previous checkpoint (§3.8) |
 | 46    | `ErrCheckpointNotFound`             | Reserved for checkpoint lookups (the query returns gRPC NotFound)       |
+| 47    | `ErrWithdrawExceedsAvailable`       | `MsgWithdrawBond` amount exceeds `bond - min_bond - pending_withdraw_amount`, or a partial claim finds nothing above `min_bond` to release (§3.5a) |
+| 48    | `ErrNoPendingWithdrawal`            | Partial claim path entered with an empty queue (internal guard, §3.5a)  |
 
 ---
 
@@ -1054,6 +1077,7 @@ Transaction subcommands under `sparkdreamd tx service ...`:
 | `unbond <service-type>`                                                                             | `MsgUnbondOperator`              |
 | `claim-bond <service-type>`                                                                         | `MsgClaimUnbondedBond`           |
 | `top-up <service-type> <amount>`                                                                    | `MsgTopUpBond`                   |
+| `withdraw-bond <service-type> <amount>`                                                             | `MsgWithdrawBond`                |
 | `report <operator> <service-type> --reason <text>`                                                  | `MsgReportOperator`              |
 | `resolve-report <report-id> <verdict> [--slash-bps N]`                                              | `MsgResolveReport`               |
 | `contest-slash <service-type> <report-id>`                                                          | `MsgContestSlash`                |
@@ -1098,6 +1122,8 @@ Jury-authority msgs are not exposed as user-facing CLI — they are emitted by x
 - `service.operator_underfunded { address, service_type, current_bond, min_bond, grace_until }`
 - `service.operator_unbond_started { address, service_type, complete_at, source }` (source ∈ VOLUNTARY | FORCED_UNDERFUNDED)
 - `service.operator_unbond_completed { address, service_type, returned_bond }`
+- `service.operator_withdraw_queued { address, service_type, amount, pending_withdraw, complete_at }` (§3.5a)
+- `service.operator_bond_withdrawn { address, service_type, withdrawn, new_bond }` (partial claim, record stays ACTIVE — §3.5a)
 - `service.operator_archived { address, service_type, final_status, retired_at }` (final_status ∈ RETIRED | SLASHED)
 - `service.operator_slashed { address, service_type, slash_amount, new_bond, tier, report_id }`
 - `service.operator_dissolved { address, service_type, confiscated_bond, report_id }` (consumed by x/commons OperatorDissolutionHook — §6.1)
@@ -1137,6 +1163,7 @@ Registered via `RegisterInvariants` (consulted by `simd q crisis invariant <modu
 - **`pending-report-queue-consistency`** — same as above for `PendingReportsQueue` ↔ PENDING reports.
 - **`tier1-escrow-queue-consistency`** — every entry in `Tier1EscrowReleaseQueue` resolves to a `Tier1Escrow` row.
 - **`report-state-machine-sanity`** — for every report, `status` is one of the documented values (`PENDING | RESOLVED_T1 | ESCALATED | RESOLVED_T2 | AUTO_DISMISSED | AUTO_TIMEOUT | CLOSED_OPERATOR_DISSOLVED`); if `status == ESCALATED`, `jury_case_id != 0` AND `escalated_at != 0`; if `status == RESOLVED_T2`, `verdict` and `slash_amount` are set; if `status == CLOSED_OPERATOR_DISSOLVED`, the referenced operator MUST exist in `ArchivedOperators` with `status == SLASHED`.
+- **`pending-withdrawal-sanity`** — for every live operator, `0 <= pending_withdraw_amount <= bond_amount`; a positive queue exists only on `ACTIVE` or `UNDERFUNDED` records (never `UNBONDING`); `withdraw_complete_at > 0` iff the queue is non-empty (§3.5a).
 - **`reputation-cap-soundness`** — at any given height, `effective_bond_blocks` per address (§6.6) equals `max(bond_blocks across all live ACTIVE operators of that address)`.
 
 Invariants are checked in simulation runs at every step and exposed via the crisis module for runtime auditing.

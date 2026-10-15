@@ -26,7 +26,10 @@ func TestComputeSettlement(t *testing.T) {
 
 func TestListAndBuy(t *testing.T) {
 	f := initFixture(t)
-	id := f.createClass(f.alice, func(m *types.MsgCreateClass) { m.RoyaltyBps = 500; m.RoyaltyRecipients = types.SoleRoyaltyRecipient(f.carol.String()) })
+	id := f.createClass(f.alice, func(m *types.MsgCreateClass) {
+		m.RoyaltyBps = 500
+		m.RoyaltyRecipients = types.SoleRoyaltyRecipient(f.carol.String())
+	})
 	f.mint(f.alice, id, f.bob, 1)
 
 	_, err := f.msg.List(f.ctx, &types.MsgList{Seller: f.alice.String(), ClassId: id, TokenId: 1, Price: spark(100), Duration: 3600})
@@ -181,7 +184,10 @@ func TestBuyPaysRoyaltySplit(t *testing.T) {
 
 func TestRoyaltyClampedToCurrentCeiling(t *testing.T) {
 	f := initFixture(t)
-	id := f.createClass(f.alice, func(m *types.MsgCreateClass) { m.RoyaltyBps = 1000; m.RoyaltyRecipients = types.SoleRoyaltyRecipient(f.carol.String()) })
+	id := f.createClass(f.alice, func(m *types.MsgCreateClass) {
+		m.RoyaltyBps = 1000
+		m.RoyaltyRecipients = types.SoleRoyaltyRecipient(f.carol.String())
+	})
 	f.mint(f.alice, id, f.bob, 1)
 	f.setParams(func(p *types.Params) { p.MaxRoyaltyBps = 200 })
 	_, err := f.msg.List(f.ctx, &types.MsgList{Seller: f.bob.String(), ClassId: id, TokenId: 1, Price: spark(100), Duration: 60})

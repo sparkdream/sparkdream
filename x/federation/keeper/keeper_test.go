@@ -417,6 +417,43 @@ func (m *mockRepKeeper) GetBondedRole(_ context.Context, roleType reptypes.RoleT
 	return reptypes.BondedRole{}, reptypes.ErrBondedRoleNotFound
 }
 
+// EligibleForRole mirrors x/rep's Keeper.EligibleForRole against the mock's
+// bondedRoles map: NORMAL/RECOVERY pass, UNBONDING passes while the staying
+// bond (current - pending) covers the role minimum (missing config = zero
+// minimum, matching the real keeper's lenient fallback), DEMOTED fails.
+func (m *mockRepKeeper) EligibleForRole(_ context.Context, roleType reptypes.RoleType, addr string) (reptypes.BondedRole, error) {
+	br, ok := m.bondedRoles[mockBondedRoleKey(roleType, addr)]
+	if !ok {
+		return reptypes.BondedRole{}, reptypes.ErrBondedRoleNotFound
+	}
+	switch br.BondStatus {
+	case reptypes.BondedRoleStatus_BONDED_ROLE_STATUS_NORMAL,
+		reptypes.BondedRoleStatus_BONDED_ROLE_STATUS_RECOVERY:
+		return br, nil
+	case reptypes.BondedRoleStatus_BONDED_ROLE_STATUS_UNBONDING:
+		current, cok := math.NewIntFromString(br.CurrentBond)
+		if !cok {
+			current = math.ZeroInt()
+		}
+		pending := math.ZeroInt()
+		if p, pok := math.NewIntFromString(br.PendingUnbondAmount); pok {
+			pending = p
+		}
+		minBond := math.ZeroInt()
+		if cfg, cok := m.bondedRoleConfigs[roleType]; cok {
+			if mb, mok := math.NewIntFromString(cfg.MinBond); mok {
+				minBond = mb
+			}
+		}
+		if current.Sub(pending).LT(minBond) {
+			return br, reptypes.ErrRoleUnbondingBelowMin
+		}
+		return br, nil
+	default:
+		return br, reptypes.ErrRoleDemoted
+	}
+}
+
 func (m *mockRepKeeper) ReserveBond(_ context.Context, roleType reptypes.RoleType, addr string, amount math.Int) error {
 	key := mockBondedRoleKey(roleType, addr)
 	br, ok := m.bondedRoles[key]

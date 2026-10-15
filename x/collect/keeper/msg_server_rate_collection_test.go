@@ -200,17 +200,14 @@ func TestRateCollection(t *testing.T) {
 			expErrContains: "DEMOTED",
 		},
 		{
-			// Liability-containment gate: curator that initiated unbond
-			// cannot rate fresh collections while the bond drains.
-			name: "error: curator unbonding",
+			// Full unbond: the staying bond (current - pending) is below
+			// min_curator_bond, so the curator is deauthorized while the
+			// bond drains.
+			name: "error: curator fully unbonding",
 			setup: func(f *testFixture) uint64 {
 				collID := f.createCollection(t, f.owner)
 				f.registerCurator(t, f.member, 500_000_000)
-				_ = f.repKeeper.SetBondStatus(f.ctx,
-					reptypes.RoleType_ROLE_TYPE_COLLECT_CURATOR,
-					f.member,
-					reptypes.BondedRoleStatus_BONDED_ROLE_STATUS_UNBONDING,
-					0)
+				f.setCuratorUnbonding(t, f.member, 500_000_000)
 				f.advanceBlockHeight(14401)
 				return collID
 			},
@@ -223,6 +220,26 @@ func TestRateCollection(t *testing.T) {
 			},
 			expErr:         true,
 			expErrContains: "UNBONDING",
+		},
+		{
+			// Partial unbond: the staying bond still covers min_curator_bond,
+			// so the curator keeps rating through the cooldown.
+			name: "success: curator partially unbonding keeps rating",
+			setup: func(f *testFixture) uint64 {
+				collID := f.createCollection(t, f.owner)
+				f.registerCurator(t, f.member, 1_000_000_000)
+				f.setCuratorUnbonding(t, f.member, 500_000_000)
+				f.advanceBlockHeight(14401)
+				return collID
+			},
+			msg: func(f *testFixture, collID uint64) *types.MsgRateCollection {
+				return &types.MsgRateCollection{
+					Creator:      f.member,
+					CollectionId: collID,
+					Verdict:      types.CurationVerdict_CURATION_VERDICT_UP,
+				}
+			},
+			expErr: false,
 		},
 	}
 

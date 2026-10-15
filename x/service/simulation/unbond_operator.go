@@ -1,6 +1,7 @@
 package simulation
 
 import (
+	sdkmath "cosmossdk.io/math"
 	"math/rand"
 
 	"github.com/cosmos/cosmos-sdk/baseapp"
@@ -42,6 +43,10 @@ func SimulateMsgUnbondOperator(
 		op.Status = types.OperatorStatus_OPERATOR_STATUS_UNBONDING
 		op.UnbondCompleteAt = ctx.BlockHeight() + cfg.UnbondingPeriodBlocks
 		op.UnderfundedSince = 0
+		// A full exit supersedes a queued partial withdrawal (§3.5a) —
+		// mirror the handler so pending-withdrawal-sanity holds.
+		op.PendingWithdrawAmount = sdkmath.ZeroInt()
+		op.WithdrawCompleteAt = 0
 		if err := k.PutOperator(ctx, op); err != nil {
 			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "failed to update operator"), nil, nil
 		}

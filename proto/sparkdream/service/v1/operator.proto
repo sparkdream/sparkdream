@@ -95,4 +95,21 @@ message Operator {
   // last_bond_block_update_at is the height of the last settleBondBlocks
   // call for this operator; used by lazy accrual (§6.6).
   int64 last_bond_block_update_at = 15;
+
+  // pending_withdraw_amount is the portion of bond_amount queued for
+  // partial withdrawal via MsgWithdrawBond (§3.5a); still inside
+  // bond_amount and slashable until claimed. Zero when nothing is queued.
+  // Cleared whenever the record leaves ACTIVE for UNBONDING or a terminal
+  // status, since the exit path returns or confiscates the whole bond.
+  string pending_withdraw_amount = 16 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+
+  // withdraw_complete_at is the height from which the queued partial
+  // withdrawal can be claimed with MsgClaimUnbondedBond; 0 when nothing
+  // is queued. Reset to now + unbonding_period_blocks on every
+  // MsgWithdrawBond.
+  int64 withdraw_complete_at = 17;
 }

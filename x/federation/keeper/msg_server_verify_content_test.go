@@ -153,3 +153,66 @@ func TestVerifyContentBlockedByRepOverturnCooldown(t *testing.T) {
 	})
 	require.ErrorIs(t, err, types.ErrVerifierOverturnCooldown)
 }
+
+// A verifier mid-partial-unbond keeps verifying as long as the staying bond
+// (current - pending) still covers min_bond: the role is UNBONDING but the
+// shared EligibleForRole gate admits it, matching forum sentinels.
+func TestVerifyContentPartialUnbondStillVerifies(t *testing.T) {
+	f := initFixture(t)
+	ms := keeper.NewMsgServerImpl(f.keeper)
+	registerTestPeer(t, f, ms, "partial-peer")
+	opStr := registerTestBridge(t, f, ms, "partial-peer", "partial-op")
+
+	hash := sha256.Sum256([]byte("partial unbond content"))
+	contentID := submitTestContent(t, f, ms, opStr, "partial-peer", hash[:])
+
+	minBond := types.DefaultParams().MinVerifierBond
+	require.NoError(t, f.repKeeper.SetBondedRoleConfig(f.ctx, reptypes.BondedRoleConfig{
+		RoleType: reptypes.RoleType_ROLE_TYPE_FEDERATION_VERIFIER,
+		MinBond:  minBond.String(),
+	}))
+
+	verifierStr := bondTestVerifier(t, f, ms, "partial-verifier")
+	br, err := f.repKeeper.GetBondedRole(f.ctx, reptypes.RoleType_ROLE_TYPE_FEDERATION_VERIFIER, verifierStr)
+	require.NoError(t, err)
+	// Bond 2x min, queue half for withdrawal: staying bond == min_bond.
+	br.CurrentBond = minBond.MulRaw(2).String()
+	br.PendingUnbondAmount = minBond.String()
+	br.BondStatus = reptypes.BondedRoleStatus_BONDED_ROLE_STATUS_UNBONDING
+	f.repKeeper.SeedBondedRole(reptypes.RoleType_ROLE_TYPE_FEDERATION_VERIFIER, verifierStr, br)
+
+	_, err = ms.VerifyContent(f.ctx, &types.MsgVerifyContent{
+		Creator: verifierStr, ContentId: contentID, ContentHash: hash[:],
+	})
+	require.NoError(t, err)
+}
+
+// A full unbond (staying bond below min_bond) deauthorizes the verifier for
+// the whole cooldown.
+func TestVerifyContentFullUnbondRefused(t *testing.T) {
+	f := initFixture(t)
+	ms := keeper.NewMsgServerImpl(f.keeper)
+	registerTestPeer(t, f, ms, "full-peer")
+	opStr := registerTestBridge(t, f, ms, "full-peer", "full-op")
+
+	hash := sha256.Sum256([]byte("full unbond content"))
+	contentID := submitTestContent(t, f, ms, opStr, "full-peer", hash[:])
+
+	minBond := types.DefaultParams().MinVerifierBond
+	require.NoError(t, f.repKeeper.SetBondedRoleConfig(f.ctx, reptypes.BondedRoleConfig{
+		RoleType: reptypes.RoleType_ROLE_TYPE_FEDERATION_VERIFIER,
+		MinBond:  minBond.String(),
+	}))
+
+	verifierStr := bondTestVerifier(t, f, ms, "full-verifier")
+	br, err := f.repKeeper.GetBondedRole(f.ctx, reptypes.RoleType_ROLE_TYPE_FEDERATION_VERIFIER, verifierStr)
+	require.NoError(t, err)
+	br.PendingUnbondAmount = br.CurrentBond
+	br.BondStatus = reptypes.BondedRoleStatus_BONDED_ROLE_STATUS_UNBONDING
+	f.repKeeper.SeedBondedRole(reptypes.RoleType_ROLE_TYPE_FEDERATION_VERIFIER, verifierStr, br)
+
+	_, err = ms.VerifyContent(f.ctx, &types.MsgVerifyContent{
+		Creator: verifierStr, ContentId: contentID, ContentHash: hash[:],
+	})
+	require.ErrorIs(t, err, types.ErrVerifierNotActive)
+}

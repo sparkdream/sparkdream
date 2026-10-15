@@ -32,7 +32,7 @@ snapshot exists (same pattern as other suites — see
 |---------------------|--------------------------------------------------------------------------------|
 | `setup_test_accounts.sh` | Fund accounts; invite to x/rep; submit single gov proposal that (a) enables the `test-akash` service type with short timing knobs and (b) lowers `min_reporter_trust_level` to `TRUST_LEVEL_NEW` so freshly-invited reporters can file. Exports `.test_env` |
 | `register_test.sh`  | `MsgRegisterOperator` happy path + every spec §5.1 rejection: self-controller, non-group controller, denom mismatch, insufficient bond, duplicate registration |
-| `lifecycle_test.sh` | `MsgUpdateMetadata`, `MsgTopUpBond`, `MsgUnbondOperator` → wait → `MsgClaimUnbondedBond`; verifies UNBONDING state, archived RETIRED record, bond return |
+| `lifecycle_test.sh` | `MsgUpdateMetadata`, `MsgTopUpBond`, `MsgWithdrawBond` (partial, stays ACTIVE; over-withdraw rejected), `MsgUnbondOperator` (clears the partial queue) → wait → `MsgClaimUnbondedBond`; verifies UNBONDING state, archived RETIRED record, bond return |
 | `report_test.sh`    | `MsgReportOperator` happy path + rejections: non-member reporter; controller-member reporter; rate-limit cap; `Query/Report` and `Query/ReportsByOperator` shape verification |
 
 ## Not yet covered

@@ -1833,7 +1833,7 @@ message MsgVerifyContent {
 ```
 
 **Logic:**
-1. Verify creator is a bonded verifier with status NORMAL or RECOVERY
+1. Verify creator passes rep's `EligibleForRole` for `ROLE_TYPE_FEDERATION_VERIFIER`: NORMAL or RECOVERY, or UNBONDING while the staying bond (`current_bond - pending_unbond_amount`) still covers `min_verifier_bond` (a partial unbond keeps verifying; a full exit does not)
 2. Verify creator is not in `overturn_cooldown_until`
 3. Verify content exists and is in PENDING_VERIFICATION status — **first-verifier-wins**: if another verifier already changed the status (to VERIFIED or DISPUTED) in an earlier transaction in the same block, this check fails with `ErrContentNotPendingVerification`. Only one verifier can verify each piece of content.
 4. Verify creator is NOT the bridge operator who submitted this content (`content.submitted_by != creator`) — reject with `ErrSelfVerification`. This prevents an entity from operating as both bridge operator and verifier for the same content, which would bypass the accountability layer entirely. Note: this is enforced per-content (not per-role), because the same person using two different addresses cannot be detected on-chain, but they cannot use the *same* address for both roles on the *same* content.
@@ -2459,7 +2459,7 @@ resets that record's per-epoch counters. See Section 3.9.4.
 What x/rep does at each `verifier_reward_epoch_blocks` boundary:
 
 1. Walk `BondedRoles` under `ROLE_TYPE_FEDERATION_VERIFIER` and apply the
-   eligibility gates in order: bond status NORMAL or RECOVERY;
+   eligibility gates in order: `EligibleForRole` (NORMAL / RECOVERY, or UNBONDING with staying bond ≥ `min_verifier_bond`);
    `epoch_actions["federation_verify"] >= min_epoch_verifications`; windowed
    accuracy ≥ `min_verifier_accuracy`; no slash stamped in the window being
    paid for. That last gate is a window test, not `last_slash_epoch ==
@@ -2654,7 +2654,7 @@ Bridge operators can be slashed for:
 | `ErrBridgeNotOwnedBySigner` | 2333 | Signer is not the bridge operator |
 | `ErrInvalidStakeDenom` | 2334 | Stake denomination must be uspark |
 | `ErrVerifierNotFound` | 2335 | Address is not a registered verifier |
-| `ErrVerifierNotActive` | 2336 | Verifier bond status is not NORMAL or RECOVERY |
+| `ErrVerifierNotActive` | 2336 | Verifier fails `EligibleForRole`: DEMOTED, or UNBONDING with the staying bond below `min_verifier_bond` |
 | `ErrInsufficientVerifierBond` | 2337 | Verifier bond too low for this operation |
 | `ErrBondCommitted` | 2338 | Cannot unbond — bond committed against pending challenges |
 | `ErrDemotionCooldown` | 2339 | Demotion cooldown has not elapsed |

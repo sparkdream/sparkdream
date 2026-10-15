@@ -81,6 +81,7 @@ Stranded operators (controller Group dissolved or empty) recover via `MsgOpenCon
 | `MsgUnbondOperator` | Begin unbonding window |
 | `MsgClaimUnbondedBond` | Withdraw bond after `unbonding_period_blocks` |
 | `MsgTopUpBond` | Add SPARK to bring an UNDERFUNDED operator back to ACTIVE |
+| `MsgWithdrawBond` | Queue a partial withdrawal while staying ACTIVE (staying bond must cover `min_bond`); released by `MsgClaimUnbondedBond` after `unbonding_period_blocks`; not delegable |
 | `MsgSubmitCheckpoint` | Record off-chain progress (`height` + 32-byte `root`); session-delegable; drives liveness |
 
 ### Reports & Slashing

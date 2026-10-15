@@ -159,7 +159,7 @@ func TestRegisterInvariants_Smoke(t *testing.T) {
 	f := initFixture(t)
 	stub := &stubInvariantRegistry{}
 	keeper.RegisterInvariants(stub, f.keeper)
-	require.Len(t, stub.routes, 9, "expected 9 invariants registered")
+	require.Len(t, stub.routes, 10, "expected 10 invariants registered")
 }
 
 type stubInvariantRegistry struct {

@@ -1,6 +1,6 @@
 #!/bin/bash
 
-echo "--- TESTING: x/service LIFECYCLE (update_metadata + top_up + unbond + claim) ---"
+echo "--- TESTING: x/service LIFECYCLE (update_metadata + top_up + withdraw_bond + unbond + claim) ---"
 
 # --- 0. SETUP ---
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
@@ -159,9 +159,146 @@ echo "OK: bond increased $BOND_BEFORE -> $BOND_AFTER"
 echo ""
 
 # ========================================================================
+# PART 2b: WithdrawBond — partial withdrawal queues while staying ACTIVE
+# ========================================================================
+echo "--- PART 2b: WithdrawBond (partial, stays ACTIVE) ---"
+
+MIN_BOND=$($BINARY query service service-type "$TEST_SERVICE_TYPE" --output json | jq -r '.config.min_bond_amount')
+SPARE=$((BOND_AFTER - MIN_BOND))
+if [ "$SPARE" -le 0 ]; then
+    echo "FAIL: operator2 has no spare bond above min_bond ($BOND_AFTER <= $MIN_BOND)"
+    exit 1
+fi
+
+# Over-withdrawing (anything above the spare amount) is rejected.
+TX_RES=$($BINARY tx service withdraw-bond "$TEST_SERVICE_TYPE" "$((SPARE + 1))" \
+    --from operator2 --chain-id $CHAIN_ID --keyring-backend test \
+    --fees 5000${BOND_DENOM} -y --output json)
+submit_and_wait "$TX_RES"
+if check_tx_success "$TX_RESULT"; then
+    echo "FAIL: withdraw-bond above spare bond should have been rejected"
+    exit 1
+fi
+echo "OK: withdraw-bond of $((SPARE + 1)) rejected (spare=$SPARE)"
+
+# Half the spare bond queues fine; bond_amount is untouched until claim.
+WITHDRAW_AMOUNT=$((SPARE / 2))
+TX_RES=$($BINARY tx service withdraw-bond "$TEST_SERVICE_TYPE" "$WITHDRAW_AMOUNT" \
+    --from operator2 --chain-id $CHAIN_ID --keyring-backend test \
+    --fees 5000${BOND_DENOM} -y --output json)
+submit_and_wait "$TX_RES"
+if ! check_tx_success "$TX_RESULT"; then
+    echo "FAIL: withdraw-bond failed"
+    exit 1
+fi
+
+OP2_INFO=$($BINARY query service operator "$OPERATOR2_ADDR" "$TEST_SERVICE_TYPE" --output json)
+OP2_STATUS=$(echo "$OP2_INFO" | jq -r '.operator.status')
+OP2_BOND=$(echo "$OP2_INFO" | jq -r '.operator.bond_amount')
+OP2_PENDING=$(echo "$OP2_INFO" | jq -r '.operator.pending_withdraw_amount // "0"')
+OP2_WITHDRAW_AT=$(echo "$OP2_INFO" | jq -r '.operator.withdraw_complete_at // "0"')
+if [ "$OP2_STATUS" != "OPERATOR_STATUS_ACTIVE" ]; then
+    echo "FAIL: expected status OPERATOR_STATUS_ACTIVE after partial withdraw, got $OP2_STATUS"
+    exit 1
+fi
+if [ "$OP2_BOND" != "$BOND_AFTER" ]; then
+    echo "FAIL: bond_amount changed at queue time: expected $BOND_AFTER, got $OP2_BOND"
+    exit 1
+fi
+if [ "$OP2_PENDING" != "$WITHDRAW_AMOUNT" ]; then
+    echo "FAIL: pending_withdraw_amount expected $WITHDRAW_AMOUNT, got $OP2_PENDING"
+    exit 1
+fi
+if [ "$OP2_WITHDRAW_AT" == "0" ]; then
+    echo "FAIL: withdraw_complete_at not set"
+    exit 1
+fi
+echo "OK: queued $WITHDRAW_AMOUNT, status=ACTIVE, bond=$OP2_BOND, withdraw_complete_at=$OP2_WITHDRAW_AT"
+
+# Claiming before the clock elapses is rejected (same claim msg as a full exit).
+CURRENT_HEIGHT=$($BINARY status 2>&1 | jq -r '.sync_info.latest_block_height')
+if [ "$CURRENT_HEIGHT" -lt "$OP2_WITHDRAW_AT" ]; then
+    TX_RES=$($BINARY tx service claim-unbonded-bond "$TEST_SERVICE_TYPE" \
+        --from operator2 --chain-id $CHAIN_ID --keyring-backend test \
+        --fees 5000${BOND_DENOM} -y --output json)
+    submit_and_wait "$TX_RES"
+    if check_tx_success "$TX_RESULT"; then
+        echo "FAIL: partial claim before withdraw_complete_at should have been rejected"
+        exit 1
+    fi
+    echo "OK: early partial claim rejected (height=$CURRENT_HEIGHT < withdraw_complete_at=$OP2_WITHDRAW_AT)"
+fi
+
+# Wait for the clock (unbonding_period_blocks, read at setup), then claim:
+# bond drops by the queued amount, the queue clears, status stays ACTIVE.
+echo "Waiting for partial-withdraw clock (target height $OP2_WITHDRAW_AT)..."
+MAX_WAIT_SECONDS=180
+WAITED=0
+while [ $WAITED -lt $MAX_WAIT_SECONDS ]; do
+    H=$($BINARY status 2>&1 | jq -r '.sync_info.latest_block_height')
+    if [ "$H" -ge "$OP2_WITHDRAW_AT" ]; then
+        break
+    fi
+    sleep 5
+    WAITED=$((WAITED + 5))
+done
+sleep 6
+
+BAL_BEFORE_CLAIM=$($BINARY query bank balances "$OPERATOR2_ADDR" --output json | jq -r --arg denom "$BOND_DENOM" '.balances[] | select(.denom==$denom) | .amount')
+TX_RES=$($BINARY tx service claim-unbonded-bond "$TEST_SERVICE_TYPE" \
+    --from operator2 --chain-id $CHAIN_ID --keyring-backend test \
+    --fees 5000${BOND_DENOM} -y --output json)
+submit_and_wait "$TX_RES"
+if ! check_tx_success "$TX_RESULT"; then
+    echo "FAIL: partial claim failed"
+    exit 1
+fi
+
+OP2_INFO=$($BINARY query service operator "$OPERATOR2_ADDR" "$TEST_SERVICE_TYPE" --output json)
+OP2_STATUS=$(echo "$OP2_INFO" | jq -r '.operator.status')
+OP2_BOND_AFTER_CLAIM=$(echo "$OP2_INFO" | jq -r '.operator.bond_amount')
+OP2_PENDING=$(echo "$OP2_INFO" | jq -r '.operator.pending_withdraw_amount // "0"')
+OP2_WITHDRAW_AT=$(echo "$OP2_INFO" | jq -r '.operator.withdraw_complete_at // "0"')
+EXPECTED_BOND=$((BOND_AFTER - WITHDRAW_AMOUNT))
+if [ "$OP2_STATUS" != "OPERATOR_STATUS_ACTIVE" ]; then
+    echo "FAIL: expected status OPERATOR_STATUS_ACTIVE after partial claim, got $OP2_STATUS"
+    exit 1
+fi
+if [ "$OP2_BOND_AFTER_CLAIM" != "$EXPECTED_BOND" ]; then
+    echo "FAIL: bond after partial claim expected $EXPECTED_BOND, got $OP2_BOND_AFTER_CLAIM"
+    exit 1
+fi
+if [ "$OP2_PENDING" != "0" ] || [ "$OP2_WITHDRAW_AT" != "0" ]; then
+    echo "FAIL: queue not cleared after partial claim (pending=$OP2_PENDING, withdraw_complete_at=$OP2_WITHDRAW_AT)"
+    exit 1
+fi
+BAL_AFTER_CLAIM=$($BINARY query bank balances "$OPERATOR2_ADDR" --output json | jq -r --arg denom "$BOND_DENOM" '.balances[] | select(.denom==$denom) | .amount')
+# Fee of 5000 was paid from the same account, so the delta is amount - fee.
+BAL_DELTA=$((BAL_AFTER_CLAIM - BAL_BEFORE_CLAIM + 5000))
+if [ "$BAL_DELTA" != "$WITHDRAW_AMOUNT" ]; then
+    echo "FAIL: operator2 balance delta expected $WITHDRAW_AMOUNT (net of fee), got $BAL_DELTA"
+    exit 1
+fi
+echo "OK: partial claim released $WITHDRAW_AMOUNT, bond $BOND_AFTER -> $OP2_BOND_AFTER_CLAIM, status=ACTIVE, queue cleared"
+# PART 3 expects the full exit to leave this reduced bond untouched.
+BOND_AFTER=$OP2_BOND_AFTER_CLAIM
+echo ""
+
+# ========================================================================
 # PART 3: UnbondOperator — status flips to UNBONDING + unbond_complete_at set
 # ========================================================================
 echo "--- PART 3: UnbondOperator ---"
+
+# Re-queue a small partial withdrawal so PART 3 can show the full exit
+# clearing it.
+TX_RES=$($BINARY tx service withdraw-bond "$TEST_SERVICE_TYPE" "1000" \
+    --from operator2 --chain-id $CHAIN_ID --keyring-backend test \
+    --fees 5000${BOND_DENOM} -y --output json)
+submit_and_wait "$TX_RES"
+if ! check_tx_success "$TX_RESULT"; then
+    echo "FAIL: re-queue withdraw-bond before unbond failed"
+    exit 1
+fi
 
 CURRENT_HEIGHT=$($BINARY status 2>&1 | jq -r '.sync_info.latest_block_height')
 TX_RES=$($BINARY tx service unbond-operator "$TEST_SERVICE_TYPE" \
@@ -185,7 +322,12 @@ if [ -z "$UNBOND_COMPLETE_AT" ] || [ "$UNBOND_COMPLETE_AT" == "0" ]; then
     echo "FAIL: unbond_complete_at not set (got '$UNBOND_COMPLETE_AT')"
     exit 1
 fi
-echo "OK: status=UNBONDING, unbond_complete_at=$UNBOND_COMPLETE_AT (height was $CURRENT_HEIGHT)"
+OP2_PENDING=$(echo "$OP2_INFO" | jq -r '.operator.pending_withdraw_amount // "0"')
+if [ "$OP2_PENDING" != "0" ]; then
+    echo "FAIL: full unbond should clear the partial-withdraw queue, pending=$OP2_PENDING"
+    exit 1
+fi
+echo "OK: status=UNBONDING, unbond_complete_at=$UNBOND_COMPLETE_AT (height was $CURRENT_HEIGHT), partial queue cleared"
 echo ""
 
 # ========================================================================

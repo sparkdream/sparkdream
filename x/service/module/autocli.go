@@ -171,6 +171,12 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					Short:          "Record operator progress: height scanned up to and a base64 32-byte output root",
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "service_type"}, {ProtoField: "height"}, {ProtoField: "root"}},
 				},
+				{
+					RpcMethod:      "WithdrawBond",
+					Use:            "withdraw-bond [service-type] [amount]",
+					Short:          "Queue a partial bond withdrawal while staying ACTIVE (staying bond must cover min_bond); claim it with claim-unbonded-bond after the unbonding period. amount is a bare Int in the chain's bond denom.",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "service_type"}, {ProtoField: "amount"}},
+				},
 			},
 		},
 	}

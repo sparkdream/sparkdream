@@ -110,7 +110,10 @@ func TestCreateClassTrustLevelAndCouncil(t *testing.T) {
 	require.ErrorIs(t, err, types.ErrInsufficientTrust)
 
 	// A council body may create classes without membership.
-	f.createClass(f.council, func(m *types.MsgCreateClass) { m.Flags = types.ClassFlags{BurnAuthorization: types.BurnAuthorization_BURN_AUTHORIZATION_HOLDER_OR_ISSUER}; m.RoyaltyBps = 0 })
+	f.createClass(f.council, func(m *types.MsgCreateClass) {
+		m.Flags = types.ClassFlags{BurnAuthorization: types.BurnAuthorization_BURN_AUTHORIZATION_HOLDER_OR_ISSUER}
+		m.RoyaltyBps = 0
+	})
 }
 
 func TestCreateClassPerCreatorCap(t *testing.T) {

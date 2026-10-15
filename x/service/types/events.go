@@ -16,6 +16,8 @@ const (
 	EventTypeOperatorUnderfunded             = "service.operator_underfunded"
 	EventTypeOperatorUnbondStarted           = "service.operator_unbond_started"
 	EventTypeOperatorUnbondCompleted         = "service.operator_unbond_completed"
+	EventTypeOperatorWithdrawQueued          = "service.operator_withdraw_queued"
+	EventTypeOperatorBondWithdrawn           = "service.operator_bond_withdrawn"
 	EventTypeOperatorArchived                = "service.operator_archived"
 	EventTypeOperatorSlashed                 = "service.operator_slashed"
 	EventTypeOperatorDissolved               = "service.operator_dissolved"
@@ -79,6 +81,8 @@ const (
 	AttrGraceUntil            = "grace_until"
 	AttrCompleteAt            = "complete_at"
 	AttrReturnedBond          = "returned_bond"
+	AttrPendingWithdraw       = "pending_withdraw"
+	AttrWithdrawn             = "withdrawn"
 	AttrFinalStatus           = "final_status"
 	AttrRetiredAt             = "retired_at"
 	AttrSlashAmount           = "slash_amount"
@@ -186,6 +190,31 @@ func NewOperatorUnbondCompletedEvent(addr, serviceType string, returned sdk.Coin
 		sdk.NewAttribute(AttrAddress, addr),
 		sdk.NewAttribute(AttrServiceType, serviceType),
 		sdk.NewAttribute(AttrReturnedBond, returned.String()),
+	)
+}
+
+// NewOperatorWithdrawQueuedEvent is emitted by MsgWithdrawBond (§3.5a):
+// `amount` was added to the queue, `pending` is the new queued total and
+// `completeAt` the (reset) height from which it can be claimed.
+func NewOperatorWithdrawQueuedEvent(addr, serviceType string, amount, pending sdk.Coin, completeAt int64) sdk.Event {
+	return sdk.NewEvent(EventTypeOperatorWithdrawQueued,
+		sdk.NewAttribute(AttrAddress, addr),
+		sdk.NewAttribute(AttrServiceType, serviceType),
+		sdk.NewAttribute(AttrAmount, amount.String()),
+		sdk.NewAttribute(AttrPendingWithdraw, pending.String()),
+		sdk.NewAttribute(AttrCompleteAt, fmt.Sprintf("%d", completeAt)),
+	)
+}
+
+// NewOperatorBondWithdrawnEvent is emitted when MsgClaimUnbondedBond
+// releases a matured partial withdrawal (§3.5a). The operator stays
+// ACTIVE with `newBond` still bonded.
+func NewOperatorBondWithdrawnEvent(addr, serviceType string, withdrawn, newBond sdk.Coin) sdk.Event {
+	return sdk.NewEvent(EventTypeOperatorBondWithdrawn,
+		sdk.NewAttribute(AttrAddress, addr),
+		sdk.NewAttribute(AttrServiceType, serviceType),
+		sdk.NewAttribute(AttrWithdrawn, withdrawn.String()),
+		sdk.NewAttribute(AttrNewBond, newBond.String()),
 	)
 }
 

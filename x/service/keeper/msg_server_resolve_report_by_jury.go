@@ -375,6 +375,7 @@ func (k Keeper) dissolveOperator(ctx context.Context, op *types.Operator, curren
 	op.BondAmount = sdkmath.ZeroInt()
 	op.Status = types.OperatorStatus_OPERATOR_STATUS_SLASHED
 	op.RetiredAt = currentHeight
+	clearPendingWithdrawal(op)
 
 	// Close any open reports against this operator with deposit refunds
 	// (§3.4.9).

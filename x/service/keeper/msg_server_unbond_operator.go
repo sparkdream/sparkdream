@@ -52,6 +52,9 @@ func (k msgServer) UnbondOperator(ctx context.Context, msg *types.MsgUnbondOpera
 
 	op.Status = types.OperatorStatus_OPERATOR_STATUS_UNBONDING
 	op.UnbondCompleteAt = currentHeight + k.effectiveUnbondingPeriodBlocks(cfg, params)
+	// A full exit supersedes any queued partial withdrawal (§3.5a): the
+	// whole bond now returns through the exit claim on the exit clock.
+	clearPendingWithdrawal(&op)
 	// UNDERFUNDED → UNBONDING: clear underfunded_since so PutOperator's
 	// index logic drops the UnderfundedQueue entry.
 	if op.UnderfundedSince > 0 {

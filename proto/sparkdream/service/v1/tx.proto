@@ -43,6 +43,13 @@ service Msg {
   // applicable.
   rpc TopUpBond(MsgTopUpBond) returns (MsgTopUpBondResponse);
 
+  // WithdrawBond queues a partial withdrawal of an ACTIVE operator's bond
+  // while keeping it ACTIVE: the staying bond must remain >= min_bond.
+  // The queued amount stays in the bond pool, slashable, for the
+  // service type's unbonding period and is then released through
+  // MsgClaimUnbondedBond (§3.5a). Not delegable.
+  rpc WithdrawBond(MsgWithdrawBond) returns (MsgWithdrawBondResponse);
+
   // --- Reports & slashing ---
 
   // ReportOperator files a new report; reporter posts `report_deposit`
@@ -199,6 +206,31 @@ message MsgTopUpBond {
 }
 
 message MsgTopUpBondResponse {}
+
+// MsgWithdrawBond queues `amount` of the operator's bond for withdrawal
+// without leaving the service (§3.5a). Allowed only for ACTIVE operators,
+// and only while bond - pending_withdraw_amount - amount >= min_bond, so the
+// operator never drops out of ACTIVE through its own withdrawal. Calls are
+// incremental: a second call adds to pending_withdraw_amount and resets the
+// single withdraw_complete_at clock to now + unbonding_period_blocks. The
+// SPARK stays in the module bond pool and remains slashable until the
+// operator claims it with MsgClaimUnbondedBond after the clock elapses.
+// MUST be signed by `operator` directly (not delegable).
+message MsgWithdrawBond {
+  option (cosmos.msg.v1.signer) = "operator";
+  option (amino.name) = "sparkdream/x/service/MsgWithdrawBond";
+
+  string operator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string service_type = 2;
+  // Amount to queue for withdrawal in the chain's bond denom.
+  string amount = 3 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+}
+
+message MsgWithdrawBondResponse {}
 
 // ---------------------------------------------------------------------------
 // Reports & slashing msgs

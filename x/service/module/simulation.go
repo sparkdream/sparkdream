@@ -209,6 +209,21 @@ func (am AppModule) WeightedOperations(simState module.SimulationState) []simtyp
 		weightMsgSubmitCheckpoint,
 		servicesimulation.SimulateMsgSubmitCheckpoint(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
 	))
+	const (
+		opWeightMsgWithdrawBond          = "op_weight_msg_service"
+		defaultWeightMsgWithdrawBond int = 100
+	)
+
+	var weightMsgWithdrawBond int
+	simState.AppParams.GetOrGenerate(opWeightMsgWithdrawBond, &weightMsgWithdrawBond, nil,
+		func(_ *rand.Rand) {
+			weightMsgWithdrawBond = defaultWeightMsgWithdrawBond
+		},
+	)
+	operations = append(operations, simulation.NewWeightedOperation(
+		weightMsgWithdrawBond,
+		servicesimulation.SimulateMsgWithdrawBond(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
+	))
 
 	return operations
 }

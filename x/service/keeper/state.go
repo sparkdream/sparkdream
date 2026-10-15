@@ -267,6 +267,23 @@ func (k Keeper) settleBondBlocks(op *types.Operator, currentHeight int64) {
 	op.LastBondBlockUpdateAt = currentHeight
 }
 
+// pendingWithdraw returns the operator's queued partial withdrawal,
+// treating a nil Int (pre-field records, hand-written genesis) as zero.
+func pendingWithdraw(op types.Operator) sdkmath.Int {
+	if op.PendingWithdrawAmount.IsNil() {
+		return sdkmath.ZeroInt()
+	}
+	return op.PendingWithdrawAmount
+}
+
+// clearPendingWithdrawal drops any queued partial withdrawal (§3.5a). Called
+// on every exit from ACTIVE into UNBONDING or a terminal status, where the
+// exit path returns or confiscates the whole bond instead.
+func clearPendingWithdrawal(op *types.Operator) {
+	op.PendingWithdrawAmount = sdkmath.ZeroInt()
+	op.WithdrawCompleteAt = 0
+}
+
 // resolveServiceTypeConfig fetches the per-type config or returns
 // ErrServiceTypeNotFound.
 func (k Keeper) resolveServiceTypeConfig(ctx context.Context, serviceType string) (types.ServiceTypeConfig, error) {
