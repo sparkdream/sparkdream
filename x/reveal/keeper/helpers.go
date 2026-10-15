@@ -19,10 +19,15 @@ func TrancheKey(contributionID uint64, trancheID uint32) string {
 	return fmt.Sprintf("%d/%d", contributionID, trancheID)
 }
 
+// udreamPerExtraVote is the tranche valuation that adds one required
+// verification vote: 5,000 DREAM expressed in udream (1 DREAM = 1e6 udream).
+var udreamPerExtraVote = math.NewInt(5_000_000_000)
+
 // EffectiveMinVotes calculates the scaled minimum votes for a tranche.
-// effective_min_votes = max(min_verification_votes, stake_threshold / 5000)
+// effective_min_votes = max(min_verification_votes, stake_threshold / 5000 DREAM),
+// with stakeThreshold in udream.
 func EffectiveMinVotes(minVerificationVotes uint32, stakeThreshold math.Int) uint32 {
-	scaled := stakeThreshold.Quo(math.NewInt(5000))
+	scaled := stakeThreshold.Quo(udreamPerExtraVote)
 	// Saturate at MaxUint32 to avoid silent narrowing when stakeThreshold is large.
 	if scaled.GT(math.NewInt(int64(stdmath.MaxUint32))) {
 		return stdmath.MaxUint32

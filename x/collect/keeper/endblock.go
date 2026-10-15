@@ -15,9 +15,9 @@ import (
 )
 
 // PruneExpired prunes expired collections, sponsorship requests, unappealed hides,
-// timed-out appeals, expired flags, unendorsed collections, and releases endorsement stakes.
-// Called by the EndBlocker each block. All 7 tasks share a single pruned counter
-// capped at params.MaxPrunePerBlock.
+// timed-out appeals, expired flags, unendorsed collections, releases endorsement stakes,
+// and times out unadjudicated curation challenges. Called by the EndBlocker each
+// block. These tasks share a single pruned counter capped at params.MaxPrunePerBlock.
 //
 // Phase 0 (membership-driven auto-promotion) runs first against its own
 // independent cap (params.MaxPromotionsPerBlock) so a busy prune cycle never
@@ -71,7 +71,16 @@ func (k Keeper) PruneExpired(ctx context.Context) error {
 	}
 
 	// §10.6 — Endorsement stake release
-	_, err = k.releaseExpiredEndorsementStakes(ctx, currentBlock, params, pruned, cap)
+	pruned, err = k.releaseExpiredEndorsementStakes(ctx, currentBlock, params, pruned, cap)
+	if err != nil {
+		return err
+	}
+
+	// §10.7 — Curation challenge timeout. The backfill (own fixed cap) indexes
+	// challenges filed before the deadline index existed; the sweep then
+	// resolves every challenge past its deadline as not adjudicated.
+	k.backfillChallengeDeadlines(ctx, params)
+	_, err = k.timeoutExpiredChallenges(ctx, currentBlock, params, pruned, cap)
 	if err != nil {
 		return err
 	}
@@ -123,8 +132,11 @@ func (k Keeper) pruneExpiredCollections(
 		// shield module account, which x/shield signs inner messages with) can be
 		// renewed if their conviction score meets the threshold.
 		if k.isAnonymous(coll.Owner) && k.repKeeper != nil && params.ConvictionRenewalThreshold.IsPositive() {
+			// Community conviction stakes sit on the content target (as the
+			// CollectionConviction query reads them); x/rep rejects the
+			// author-bond target here with ErrNotContentTargetType.
 			conviction, convErr := k.repKeeper.GetContentConviction(ctx,
-				reptypes.StakeTargetType_STAKE_TARGET_COLLECTION_AUTHOR_BOND, collID)
+				reptypes.StakeTargetType_STAKE_TARGET_COLLECTION_CONTENT, collID)
 			if convErr == nil && conviction.GTE(params.ConvictionRenewalThreshold) {
 				// Renew: extend TTL by conviction_renewal_period
 				renewalPeriod := params.ConvictionRenewalPeriod

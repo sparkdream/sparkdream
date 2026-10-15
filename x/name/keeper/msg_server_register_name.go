@@ -85,6 +85,16 @@ func (k msgServer) RegisterName(goCtx context.Context, msg *types.MsgRegisterNam
 				),
 			)
 
+			// End the old owner's resolver-target relationship. The fresh
+			// record below carries no target, so an accepted target left in
+			// place would keep reverse-resolving to a name the scavenger
+			// now controls.
+			if oldRecord, ok := k.GetName(ctx, name); ok {
+				if err := k.clearTargetConsent(ctx, oldRecord); err != nil {
+					return nil, err
+				}
+			}
+
 			// Remove the name from the old owner's index
 			if err := k.RemoveNameFromOwner(ctx, currentOwner, name); err != nil {
 				return nil, err

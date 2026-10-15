@@ -7,6 +7,8 @@ import (
 	sdkmath "cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
+
+	servicetypes "sparkdream/x/service/types"
 )
 
 // Default parameter values
@@ -165,21 +167,17 @@ var (
 		"/sparkdream.season.v1.MsgAbandonQuest",
 		"/sparkdream.season.v1.MsgClaimQuestReward",
 		// x/service — bridge-operator daemon ergonomics (federation→
-		// service migration, Phase 8). Three of these (UnbondOperator,
-		// UpdateMetadata, ClaimUnbondedBond) are purely
-		// state-machine/metadata changes with no SPARK transfer, so
-		// they fit the "ephemeral key UX" criterion cleanly.
-		// MsgTopUpBond IS a SPARK transfer and breaks the strict no-
-		// transfer rule above; we admit it anyway because the SpendLimit
-		// on the session bounds the maximum a compromised daemon can
-		// move (a granter setting up a session for a bridge daemon
-		// must size SpendLimit to their intended top-up budget; the
-		// daemon cannot exceed that). Without this entry, daemons that
-		// need to top up to recover from underfunded state would
-		// require an out-of-band human-signed tx, which defeats the
-		// session UX goal.
-		"/sparkdream.service.v1.MsgUnbondOperator",
-		"/sparkdream.service.v1.MsgTopUpBond",
+		// service migration, Phase 8). Both entries are pure
+		// state-machine/metadata changes with no SPARK transfer, so they
+		// fit the "ephemeral key UX" criterion cleanly. Deliberately
+		// excluded (see ForbiddenAllowlistMsgs):
+		//   - MsgUnbondOperator: x/service lists it as non-delegable
+		//     (servicetypes.NonDelegableMsgTypeURLs) — unbonding is an
+		//     operator-foundational lifecycle decision.
+		//   - MsgTopUpBond: moves SPARK out of the granter's account. A
+		//     session's SpendLimit only budgets fees, so nothing would
+		//     cap what a compromised daemon key could lock into the
+		//     bond. Top-ups are human-signed.
 		"/sparkdream.service.v1.MsgUpdateMetadata",
 		"/sparkdream.service.v1.MsgClaimUnbondedBond",
 		// MsgSubmitCheckpoint moves no funds: it records how far an
@@ -211,6 +209,23 @@ var (
 		"/sparkdream.federation.v1.MsgVerifyContent",
 	}
 )
+
+// ForbiddenAllowlistMsgs are other modules' msg types that may never appear
+// in max_allowed_msg_types or allowed_msg_types. Unlike
+// NonDelegableSessionMsgs (x/session's own anti-recursion denylist) these
+// are foreign msgs whose owning module forbids delegation, or which move
+// SPARK in a way a session's fee-only SpendLimit cannot cap. Built from
+// the owning module's exported list so a proto rename surfaces as a
+// compile error.
+var ForbiddenAllowlistMsgs = func() map[string]bool {
+	m := make(map[string]bool, len(servicetypes.NonDelegableMsgTypeURLs)+1)
+	for _, url := range servicetypes.NonDelegableMsgTypeURLs {
+		m[url] = true
+	}
+	// Bonds SPARK from the granter's account.
+	m[sdk.MsgTypeURL(&servicetypes.MsgTopUpBond{})] = true
+	return m
+}()
 
 // NewParams creates a new Params instance.
 func NewParams(
@@ -426,6 +441,18 @@ func (p Params) Validate() error {
 	for _, msgType := range p.AllowedMsgTypes {
 		if NonDelegableSessionMsgs[msgType] {
 			return fmt.Errorf("allowed_msg_types contains non-delegable message: %s", msgType)
+		}
+	}
+
+	// Check for foreign msgs that must never be delegable.
+	for _, msgType := range p.MaxAllowedMsgTypes {
+		if ForbiddenAllowlistMsgs[msgType] {
+			return fmt.Errorf("max_allowed_msg_types contains forbidden message: %s", msgType)
+		}
+	}
+	for _, msgType := range p.AllowedMsgTypes {
+		if ForbiddenAllowlistMsgs[msgType] {
+			return fmt.Errorf("allowed_msg_types contains forbidden message: %s", msgType)
 		}
 	}
 

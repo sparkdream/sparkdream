@@ -340,10 +340,12 @@ func TestFire_Transfer_HandlerErrorCaptured(t *testing.T) {
 	id, _ := createTransferOneshot(t, f, ms, granter, grantee, recipient,
 		sdk.NewInt64Coin("uspark", 5_000_000), fireAt, expiresAt)
 
-	// Bank send fails — fire path should capture the error and still
-	// transition to FIRED (granter authorized one attempt).
+	// Bank send fails for a reason other than insufficient funds — the
+	// fire path should capture the error and still transition to FIRED
+	// (granter authorized one attempt; a retry could not fix this).
+	// Insufficient funds pauses instead: see msg_server_oneshot_pause_test.go.
 	f.bankKeeper.SendCoinsFn = func(_ context.Context, _, _ sdk.AccAddress, _ sdk.Coins) error {
-		return testErr("insufficient funds at fire time")
+		return testErr("recipient is blocked")
 	}
 
 	futureCtx := withBlockTime(f.ctx, sdkCtx.BlockTime().Add(3*time.Hour))
@@ -354,7 +356,7 @@ func TestFire_Transfer_HandlerErrorCaptured(t *testing.T) {
 	require.Equal(t, types.GrantStatus_GRANT_STATUS_FIRED, g.Status)
 	so := g.GetScheduledOneshot()
 	require.NotNil(t, so)
-	require.Contains(t, so.FireError, "insufficient")
+	require.Contains(t, so.FireError, "blocked")
 }
 
 func TestRetryScheduledOneshot_TypeMismatch(t *testing.T) {

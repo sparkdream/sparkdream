@@ -171,7 +171,7 @@ message MsgRegisterName {
 3. Deduct `registration_fee` from registrant
 4. If name exists:
    - If owner active → reject with `ErrNameTaken`
-   - If owner expired → scavenge (transfer ownership)
+   - If owner expired → scavenge (transfer ownership): remove the old owner's index entry and primary, and end any resolver-target relationship — remove `(target, name)` from `AcceptedTargets` and clear the old target's primary if it is this name. The new record carries no target.
 5. Enforce `max_names_per_address` limit
 6. Store NameRecord, update OwnerInfo
 7. Auto-set as primary if first name for owner
@@ -499,8 +499,12 @@ To block this, reverse resolution requires the target's explicit consent:
   inserts `(target, name)` into `AcceptedTargets`.
 - `MsgSetPrimary` accepts either the owner or the *accepted* target — never
   an unaccepted one.
-- Any change to `target` (including clearing it) revokes acceptance and
-  clears the previous target's primary if it pointed at this name.
+- Any change to `target` (including clearing it), adversarial transfer
+  (dispute resolution) and scavenging revoke acceptance and clear the
+  previous target's primary if it pointed at this name.
+- `ReverseResolve` verifies the forward mapping before answering: the
+  primary name must still be owned by the address, or target it with
+  `target_accepted = true`; otherwise it returns NotFound.
 
 The result: forward pointers are unilateral; reverse identity always
 requires the target's signed opt-in.

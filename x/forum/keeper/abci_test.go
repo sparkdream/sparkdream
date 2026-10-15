@@ -2,6 +2,7 @@ package keeper_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -501,67 +502,209 @@ func TestExpireHiddenPosts_DecrementsTagUsage(t *testing.T) {
 }
 
 // An UNAPPEALED sentinel hide that expires is finalized as unchallenged: the
-// expiry path increments unchallenged_hides and clears the pending slot. An
-// APPEALED hide was already tallied (upheld/overturned) at appeal-resolve, so
-// expiry must not double-count it.
+// expiry path increments unchallenged_hides, clears the pending slot,
+// tombstones the post and releases the sentinel's reserved bond.
 func TestExpireHiddenPosts_RecordsUnchallengedHide(t *testing.T) {
-	run := func(t *testing.T, appealed bool) (uint64, uint64) {
-		t.Helper()
-		f := initFixture(t)
-		cat := f.createTestCategory(t, "General")
-		f.createTestSentinel(t, testSentinel, "2000000000")
+	f, postID, now := setupExpiredSentinelHide(t, false)
 
-		// Sentinel currently has one pending hide.
-		act, err := f.keeper.SentinelActivity.Get(f.ctx, testSentinel)
-		require.NoError(t, err)
-		act.PendingHideCount = 1
-		require.NoError(t, f.keeper.SentinelActivity.Set(f.ctx, testSentinel, act))
+	require.NoError(t, f.keeper.ExpireHiddenPosts(f.ctx, now))
 
-		hiddenAt := int64(1_000_000)
-		now := hiddenAt + types.DefaultHiddenExpiration + 1
-		f.ctx = f.sdkCtx().WithBlockTime(time.Unix(now, 0))
+	got, err := f.keeper.Post.Get(f.ctx, postID)
+	require.NoError(t, err)
+	require.Equal(t, types.PostStatus_POST_STATUS_DELETED, got.Status)
 
-		postID, err := f.keeper.PostSeq.Next(f.ctx)
-		require.NoError(t, err)
-		require.NoError(t, f.keeper.Post.Set(f.ctx, postID, types.Post{
-			PostId:     postID,
-			CategoryId: cat.CategoryId,
-			Author:     testCreator,
-			Content:    "Hidden post",
-			CreatedAt:  hiddenAt - 100,
-			Status:     types.PostStatus_POST_STATUS_HIDDEN,
-			HiddenAt:   hiddenAt,
-		}))
-		require.NoError(t, f.keeper.HideRecord.Set(f.ctx, postID, types.HideRecord{
-			PostId:          postID,
-			Sentinel:        testSentinel,
-			HiddenAt:        hiddenAt,
-			CommittedAmount: "100000000",
-			Appealed:        appealed,
-		}))
+	final, err := f.keeper.SentinelActivity.Get(f.ctx, testSentinel)
+	require.NoError(t, err)
+	require.Equal(t, uint64(1), final.UnchallengedHides)
+	require.Equal(t, uint64(0), final.PendingHideCount, "expiry must decrement the pending-hide slot (no leak)")
+	require.Equal(t, "0", f.repKeeper.sentinels[testSentinel].TotalCommittedBond, "expiry releases the reservation")
+}
 
-		require.NoError(t, f.keeper.ExpireHiddenPosts(f.ctx, now))
+// setupExpiredSentinelHide seeds a tagged, promoted, sentinel-hidden post whose
+// hidden_expiration has elapsed, with one pending hide and a 100 DREAM
+// reservation on the sentinel. Returns the fixture, the post id and "now".
+func setupExpiredSentinelHide(t *testing.T, appealed bool) (*fixture, uint64, int64) {
+	t.Helper()
+	f := initFixture(t)
+	cat := f.createTestCategory(t, "General")
+	f.createTestSentinel(t, testSentinel, "2000000000")
+	br := f.repKeeper.sentinels[testSentinel]
+	br.TotalCommittedBond = "100000000"
+	f.repKeeper.sentinels[testSentinel] = br
+	f.repKeeper.tags = map[string]reptypes.Tag{"alpha": {Name: "alpha", UsageCount: 1}}
 
-		got, err := f.keeper.Post.Get(f.ctx, postID)
-		require.NoError(t, err)
-		require.Equal(t, types.PostStatus_POST_STATUS_DELETED, got.Status)
+	act, err := f.keeper.SentinelActivity.Get(f.ctx, testSentinel)
+	require.NoError(t, err)
+	act.PendingHideCount = 1
+	require.NoError(t, f.keeper.SentinelActivity.Set(f.ctx, testSentinel, act))
 
-		final, err := f.keeper.SentinelActivity.Get(f.ctx, testSentinel)
-		require.NoError(t, err)
-		return final.UnchallengedHides, final.PendingHideCount
+	hiddenAt := int64(1_000_000)
+	now := hiddenAt + types.DefaultHiddenExpiration + 1
+	f.ctx = f.sdkCtx().WithBlockTime(time.Unix(now, 0))
+
+	postID, err := f.keeper.PostSeq.Next(f.ctx)
+	require.NoError(t, err)
+	require.NoError(t, f.keeper.Post.Set(f.ctx, postID, types.Post{
+		PostId:     postID,
+		CategoryId: cat.CategoryId,
+		Author:     testCreator,
+		Content:    "Hidden post",
+		CreatedAt:  hiddenAt - 100,
+		Status:     types.PostStatus_POST_STATUS_HIDDEN,
+		HiddenAt:   hiddenAt,
+		HiddenBy:   testSentinel,
+		Tags:       []string{"alpha"},
+		PromotedBy: sdk.AccAddress([]byte("aurora_promoter_")).String(),
+	}))
+	require.NoError(t, f.keeper.HideRecord.Set(f.ctx, postID, types.HideRecord{
+		PostId:          postID,
+		Sentinel:        testSentinel,
+		HiddenAt:        hiddenAt,
+		CommittedAmount: "100000000",
+		Appealed:        appealed,
+	}))
+	return f, postID, now
+}
+
+// An APPEALED hide is owned by the x/rep appeal (deadline 14d > the 7d
+// hidden_expiration): the expiry pass must leave the post, the HideRecord,
+// the pending slot and the sentinel reservation untouched, and fire none of
+// the tombstone consequences, so the verdict can still restore or finalize it.
+func TestExpireHiddenPosts_SkipsAppealedHide(t *testing.T) {
+	f, postID, now := setupExpiredSentinelHide(t, true)
+
+	require.NoError(t, f.keeper.ExpireHiddenPosts(f.ctx, now))
+
+	got, err := f.keeper.Post.Get(f.ctx, postID)
+	require.NoError(t, err)
+	require.Equal(t, types.PostStatus_POST_STATUS_HIDDEN, got.Status)
+	require.Equal(t, "Hidden post", got.Content)
+	_, err = f.keeper.HideRecord.Get(f.ctx, postID)
+	require.NoError(t, err, "appealed hide record must survive the expiry pass")
+
+	act, err := f.keeper.SentinelActivity.Get(f.ctx, testSentinel)
+	require.NoError(t, err)
+	require.Equal(t, uint64(0), act.UnchallengedHides)
+	require.Equal(t, uint64(1), act.PendingHideCount)
+	require.Equal(t, "100000000", f.repKeeper.sentinels[testSentinel].TotalCommittedBond)
+	require.Empty(t, f.repKeeper.deductCalls)
+	require.Empty(t, f.repKeeper.warningCalls)
+
+	// x/rep can still resolve the sentinel and the exact reservation.
+	target := fmt.Sprintf("%d", postID)
+	sentinel, err := f.keeper.GetActionSentinel(f.ctx, reptypes.GovActionType_GOV_ACTION_TYPE_POST_HIDE, target)
+	require.NoError(t, err)
+	require.Equal(t, testSentinel, sentinel)
+	committed, err := f.keeper.GetActionCommittedAmount(f.ctx, reptypes.GovActionType_GOV_ACTION_TYPE_POST_HIDE, target)
+	require.NoError(t, err)
+	require.Equal(t, "100000000", committed.String())
+}
+
+// replayRepVerdict drives the forum callbacks in the order x/rep's
+// applyGovActionAppealVerdict / TimeoutExpiredAppeals invoke them, including
+// x/rep's own bond move (release on UPHELD, slash on OVERTURNED, none on
+// TIMEOUT), against the mock rep keeper.
+func replayRepVerdict(t *testing.T, f *fixture, postID uint64, outcome reptypes.GovAppealStatus) (slashed string) {
+	t.Helper()
+	at := reptypes.GovActionType_GOV_ACTION_TYPE_POST_HIDE
+	target := fmt.Sprintf("%d", postID)
+	sentinel, err := f.keeper.GetActionSentinel(f.ctx, at, target)
+	require.NoError(t, err)
+	committed, err := f.keeper.GetActionCommittedAmount(f.ctx, at, target)
+	require.NoError(t, err)
+
+	switch outcome {
+	case reptypes.GovAppealStatus_GOV_APPEAL_STATUS_UPHELD:
+		require.NoError(t, f.repKeeper.ReleaseBond(f.ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, sentinel, committed))
+		require.NoError(t, f.keeper.OnSentinelActionResolved(f.ctx, at, target))
+	case reptypes.GovAppealStatus_GOV_APPEAL_STATUS_OVERTURNED:
+		require.Equal(t, testSentinel, sentinel, "overturn must find the sentinel to slash")
+		slashed = committed.String()
+		require.NoError(t, f.repKeeper.ReleaseBond(f.ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, sentinel, committed)) // SlashBond clears the reservation
+		require.NoError(t, f.keeper.OnSentinelActionResolved(f.ctx, at, target))
+		require.NoError(t, f.keeper.ReverseSentinelAction(f.ctx, at, target))
 	}
+	require.NoError(t, f.keeper.OnAppealOutcome(f.ctx, at, target, outcome))
+	return slashed
+}
 
-	t.Run("unappealed hide expiry counts unchallenged and clears pending", func(t *testing.T) {
-		unchallenged, pending := run(t, false)
-		require.Equal(t, uint64(1), unchallenged)
-		require.Equal(t, uint64(0), pending, "expiry must decrement the pending-hide slot (no leak)")
-	})
+// An appealed hide that survives the expiry pass and is then UPHELD gets the
+// same consequences an unappealed expiry applies (tombstone, author per-tag
+// rep slash, promoter warning) without a second bond release or a double
+// pending-slot decrement, and is not counted as unchallenged.
+func TestOnAppealOutcome_UpheldTombstonesHiddenPost(t *testing.T) {
+	f, postID, now := setupExpiredSentinelHide(t, true)
+	require.NoError(t, f.keeper.ExpireHiddenPosts(f.ctx, now))
 
-	t.Run("appealed hide expiry does not double-count", func(t *testing.T) {
-		unchallenged, pending := run(t, true)
-		require.Equal(t, uint64(0), unchallenged, "an appealed hide was already tallied as upheld/overturned")
-		require.Equal(t, uint64(1), pending, "an appealed hide's pending slot is cleared at appeal-resolve, not at expiry")
-	})
+	replayRepVerdict(t, f, postID, reptypes.GovAppealStatus_GOV_APPEAL_STATUS_UPHELD)
+
+	got, err := f.keeper.Post.Get(f.ctx, postID)
+	require.NoError(t, err)
+	require.Equal(t, types.PostStatus_POST_STATUS_DELETED, got.Status)
+	require.Empty(t, got.Content)
+	require.Nil(t, got.Tags)
+	_, err = f.keeper.HideRecord.Get(f.ctx, postID)
+	require.Error(t, err, "hide record must be removed after the upheld verdict")
+	require.Len(t, f.repKeeper.deductCalls, 1, "author rep slashed in the post's tag")
+	require.Len(t, f.repKeeper.warningCalls, 1, "promoter warned")
+	require.Equal(t, uint64(0), f.repKeeper.tags["alpha"].UsageCount)
+
+	act, err := f.keeper.SentinelActivity.Get(f.ctx, testSentinel)
+	require.NoError(t, err)
+	require.Equal(t, uint64(0), act.PendingHideCount)
+	require.Equal(t, uint64(0), act.UnchallengedHides)
+	require.Equal(t, "0", f.repKeeper.sentinels[testSentinel].TotalCommittedBond)
+
+	// A later expiry tick must not re-finalize anything.
+	require.NoError(t, f.keeper.ExpireHiddenPosts(f.ctx, now+1))
+	require.Len(t, f.repKeeper.deductCalls, 1)
+}
+
+// An appealed hide that survives the expiry pass and is then OVERTURNED is
+// restored (post ACTIVE, content intact) and x/rep can slash the sentinel's
+// exact reservation; no tombstone consequence fires.
+func TestOnAppealOutcome_OverturnedRestoresPostAndSlashesSentinel(t *testing.T) {
+	f, postID, now := setupExpiredSentinelHide(t, true)
+	require.NoError(t, f.keeper.ExpireHiddenPosts(f.ctx, now))
+
+	slashed := replayRepVerdict(t, f, postID, reptypes.GovAppealStatus_GOV_APPEAL_STATUS_OVERTURNED)
+	require.Equal(t, "100000000", slashed, "sentinel slashed by the reserved amount")
+
+	got, err := f.keeper.Post.Get(f.ctx, postID)
+	require.NoError(t, err)
+	require.Equal(t, types.PostStatus_POST_STATUS_ACTIVE, got.Status)
+	require.Equal(t, "Hidden post", got.Content)
+	require.Equal(t, []string{"alpha"}, got.Tags)
+	_, err = f.keeper.HideRecord.Get(f.ctx, postID)
+	require.Error(t, err)
+	require.Empty(t, f.repKeeper.deductCalls)
+	require.Empty(t, f.repKeeper.warningCalls)
+
+	act, err := f.keeper.SentinelActivity.Get(f.ctx, testSentinel)
+	require.NoError(t, err)
+	require.Equal(t, uint64(0), act.PendingHideCount)
+}
+
+// An appeal that TIMES OUT blames no one: x/rep leaves the sentinel bond
+// alone, so forum releases the reservation, clears the pending slot and
+// restores the post.
+func TestOnAppealOutcome_TimeoutRestoresPostAndReleasesBond(t *testing.T) {
+	f, postID, now := setupExpiredSentinelHide(t, true)
+	require.NoError(t, f.keeper.ExpireHiddenPosts(f.ctx, now))
+
+	replayRepVerdict(t, f, postID, reptypes.GovAppealStatus_GOV_APPEAL_STATUS_TIMEOUT)
+
+	got, err := f.keeper.Post.Get(f.ctx, postID)
+	require.NoError(t, err)
+	require.Equal(t, types.PostStatus_POST_STATUS_ACTIVE, got.Status)
+	_, err = f.keeper.HideRecord.Get(f.ctx, postID)
+	require.Error(t, err)
+	require.Empty(t, f.repKeeper.deductCalls)
+
+	act, err := f.keeper.SentinelActivity.Get(f.ctx, testSentinel)
+	require.NoError(t, err)
+	require.Equal(t, uint64(0), act.PendingHideCount)
+	require.Equal(t, "0", f.repKeeper.sentinels[testSentinel].TotalCommittedBond)
 }
 
 // Author per-tag rep slash (Tier 0): an unappealed sentinel hide must deduct

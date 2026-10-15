@@ -4,9 +4,8 @@ echo "--- TESTING: ANONYMOUS COMMONS ACTIONS VIA X/SHIELD ---"
 echo ""
 echo "Tests full-stack anonymous governance operations through MsgShieldedExec:"
 echo "  1. Anonymous proposal submission"
-echo "  2. Anonymous vote on a proposal"
-echo "  3. Nullifier replay prevention (double vote)"
-echo "  4. Anonymous vote tally verification"
+echo "  2. Anonymous vote on a proposal is refused (council votes are open)"
+echo "  3. Anonymous tally stays empty"
 echo ""
 
 # === 0. SETUP ===
@@ -246,19 +245,20 @@ else
 fi
 
 # =========================================================================
-# TEST 2: Anonymous vote on proposal via MsgShieldedExec
+# TEST 2: Anonymous vote on proposal is refused
 # =========================================================================
-echo "--- TEST 2: Anonymous vote on proposal ---"
+# Council votes are open: an anonymous vote proves only trust-tree membership,
+# not a council seat, and could be cast on top of the member's open vote, so
+# x/commons refuses MsgAnonymousVoteProposal (ErrAnonymousVotingDisabled).
+echo "--- TEST 2: Anonymous vote on proposal is refused ---"
 
 # Vote on the regular proposal (if available), otherwise the anonymous one
 VOTE_PROPOSAL_ID="${REGULAR_PROPOSAL_ID:-$ANON_PROPOSAL_ID}"
 
 if [ -z "$VOTE_PROPOSAL_ID" ]; then
     echo "  SKIP: No proposal available to vote on"
-    record_result "Anonymous vote on proposal" "FAIL"
+    record_result "Anonymous vote refused" "FAIL"
 else
-    # Per-run nullifier; TEST 3 reuses this exact value to verify the
-    # replay-prevention guard, so it's defined here once.
     NULLIFIER_VOTE=$(openssl rand -hex 32)
     RATE_NULL_VOTE=$(openssl rand -hex 32)
     # option 1 = VOTE_OPTION_YES
@@ -283,96 +283,36 @@ else
 
     submit_tx_and_wait "$TX_RES"
 
+    RAW_LOG=$(echo "$TX_RESULT" | jq -r '.raw_log // ""' 2>/dev/null)
     if check_tx_success "$TX_RESULT"; then
-        echo "  Anonymous YES vote submitted on proposal $VOTE_PROPOSAL_ID"
-        ANON_VOTE_OK=true
-        record_result "Anonymous vote on proposal" "PASS"
+        echo "  ERROR: anonymous vote was accepted"
+        record_result "Anonymous vote refused" "FAIL"
+    elif echo "$RAW_LOG" | grep -q "anonymous votes on council proposals are disabled"; then
+        echo "  Correctly refused: anonymous council votes are disabled"
+        record_result "Anonymous vote refused" "PASS"
     else
-        RAW_LOG=$(echo "$TX_RESULT" | jq -r '.raw_log // ""' 2>/dev/null)
-        echo "  Transaction failed: ${RAW_LOG:0:200}"
-        record_result "Anonymous vote on proposal" "FAIL"
+        echo "  ERROR: refused for another reason: ${RAW_LOG:0:200}"
+        record_result "Anonymous vote refused" "FAIL"
     fi
 fi
 
 # =========================================================================
-# TEST 3: Nullifier replay prevention (double vote)
+# TEST 3: Anonymous tally stays empty
 # =========================================================================
-echo "--- TEST 3: Nullifier replay prevention (double vote) ---"
+echo "--- TEST 3: Anonymous tally stays empty ---"
 
 if [ -z "$VOTE_PROPOSAL_ID" ]; then
     echo "  SKIP: No proposal available"
-    record_result "Nullifier replay prevention (double vote)" "FAIL"
+    record_result "Anonymous tally empty" "FAIL"
 else
-    RATE_NULL_REPLAY=$(openssl rand -hex 32)
-    # Same nullifier as TEST 2
-    INNER_MSG="{\"@type\":\"/sparkdream.commons.v1.MsgAnonymousVoteProposal\",\"voter\":\"$SHIELD_MODULE_ADDR\",\"proposal_id\":\"$VOTE_PROPOSAL_ID\",\"option\":2,\"metadata\":\"Double vote attempt\"}"
-
-    TX_RES=$($BINARY tx shield shielded-exec \
-        --inner-message "$INNER_MSG" \
-        --proof "$DUMMY_PROOF" \
-        --nullifier "$NULLIFIER_VOTE" \
-        --rate-limit-nullifier "$RATE_NULL_REPLAY" \
-        --merkle-root "$DUMMY_MERKLE_ROOT" \
-        --proof-domain 1 \
-        --min-trust-level 0 \
-        --exec-mode 0 \
-        --from alice \
-        --chain-id $CHAIN_ID \
-        --keyring-backend test \
-        --fees 25000${BOND_DENOM} \
-        --gas 500000 \
-        -y \
-        --output json 2>&1)
-
-    submit_tx_and_wait "$TX_RES"
-
-    if check_tx_success "$TX_RESULT"; then
-        echo "  ERROR: Double vote succeeded (should have failed)"
-        record_result "Nullifier replay prevention (double vote)" "FAIL"
-    else
-        RAW_LOG=$(echo "$TX_RESULT" | jq -r '.raw_log // ""' 2>/dev/null)
-        if echo "$RAW_LOG" | grep -qi "nullifier"; then
-            echo "  Correctly rejected: nullifier already used (no double voting)"
-        else
-            echo "  Rejected (reason: ${RAW_LOG:0:150})"
-        fi
-        record_result "Nullifier replay prevention (double vote)" "PASS"
-    fi
-fi
-
-# =========================================================================
-# TEST 4: Anonymous vote tally verification
-# =========================================================================
-echo "--- TEST 4: Anonymous vote tally verification ---"
-
-if [ -z "$VOTE_PROPOSAL_ID" ]; then
-    echo "  SKIP: No proposal available"
-    record_result "Anonymous vote tally" "FAIL"
-else
-    # Anonymous votes are tallied separately from member votes and reported
-    # as anon_tally on both proposal queries. TEST 2 cast one anonymous YES;
-    # TEST 3's double vote was rejected, so exactly one anonymous vote counts.
     PROP_QUERY=$($BINARY query commons get-proposal "$VOTE_PROPOSAL_ID" --output json 2>&1)
-    VOTES_QUERY=$($BINARY query commons get-proposal-votes "$VOTE_PROPOSAL_ID" --output json 2>&1)
-    echo "  Proposal $VOTE_PROPOSAL_ID status: $(echo "$PROP_QUERY" | jq -r '.proposal.status // "unknown"')"
-
-    anon_total() {
-        echo "$1" | jq -r '[.anon_tally.yes_count, .anon_tally.no_count, .anon_tally.abstain_count, .anon_tally.no_with_veto_count] | map(. // "0" | tonumber) | add' 2>/dev/null || echo "-1"
-    }
-    YES=$(echo "$PROP_QUERY" | jq -r '.anon_tally.yes_count // "0"' 2>/dev/null || echo "0")
-    TOTAL=$(anon_total "$PROP_QUERY")
-    VOTES_TOTAL=$(anon_total "$VOTES_QUERY")
-    echo "  anon_tally: yes=$YES total=$TOTAL (get-proposal-votes total=$VOTES_TOTAL)"
-
-    if [ "$ANON_VOTE_OK" != "true" ]; then
-        echo "  [WARN] TEST 2's anonymous vote did not land; tally not checked"
-        record_result "Anonymous vote tally" "FAIL"
-    elif [ "$YES" == "1" ] && [ "$TOTAL" == "1" ] && [ "$VOTES_TOTAL" == "1" ]; then
-        echo "  Anonymous tally shows exactly the one YES vote on both queries"
-        record_result "Anonymous vote tally" "PASS"
+    TOTAL=$(echo "$PROP_QUERY" | jq -r '[.anon_tally.yes_count, .anon_tally.no_count, .anon_tally.abstain_count, .anon_tally.no_with_veto_count] | map(. // "0" | tonumber) | add' 2>/dev/null || echo "-1")
+    echo "  anon_tally total=$TOTAL"
+    if [ "$TOTAL" == "0" ]; then
+        record_result "Anonymous tally empty" "PASS"
     else
-        echo "  ERROR: expected one anonymous YES vote on both queries"
-        record_result "Anonymous vote tally" "FAIL"
+        echo "  ERROR: expected no anonymous votes"
+        record_result "Anonymous tally empty" "FAIL"
     fi
 fi
 

@@ -136,6 +136,8 @@ var (
 	ErrNotInReviewQueue   = errors.Register(ModuleName, 1852, "post not in review queue")
 	ErrFlagExpired        = errors.Register(ModuleName, 1853, "flags have expired")
 	ErrMaxFlaggersReached = errors.Register(ModuleName, 1854, "maximum flaggers reached for this post")
+	ErrFlagReasonTooLong  = errors.Register(ModuleName, 1855, "flag reason exceeds maximum length")
+	ErrCannotFlagOwnPost  = errors.Register(ModuleName, 1856, "cannot flag your own post")
 
 	// Thread metadata errors (1900-1949)
 	ErrNoAcceptedReply        = errors.Register(ModuleName, 1900, "no accepted reply for this thread")

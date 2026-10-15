@@ -796,3 +796,66 @@ func TestFullTransitionFlow(t *testing.T) {
 	require.Equal(t, uint64(2), currentSeason.Number, "should still be Season 2")
 	require.Equal(t, types.SeasonStatus_SEASON_STATUS_ACTIVE, currentSeason.Status)
 }
+
+// TestSnapshotSurvivesResetXP runs SNAPSHOT -> ARCHIVE_REP -> RESET_REP ->
+// RESET_XP and checks the RESET_XP phase updates the XP fields in place
+// instead of replacing the full member snapshot with an XP-only record.
+func TestSnapshotSurvivesResetXP(t *testing.T) {
+	f := initBeginBlockFixture(t)
+
+	season := types.Season{
+		Number:     1,
+		Name:       "Test Season",
+		StartBlock: 0,
+		EndBlock:   100,
+		Status:     types.SeasonStatus_SEASON_STATUS_ENDING,
+	}
+	require.NoError(t, f.keeper.Season.Set(f.ctx, season))
+
+	addr, err := f.addressCodec.BytesToString(sdk.AccAddress([]byte("member1_________")))
+	require.NoError(t, err)
+	f.repKeeper.SetMember(addr, 1000, map[string]string{"backend": "100.5"}, 4)
+
+	profile := types.MemberProfile{
+		Address:      addr,
+		SeasonXp:     750,
+		SeasonLevel:  4,
+		LifetimeXp:   2000,
+		Achievements: []string{"first_post", "phoenix_rising"},
+	}
+	require.NoError(t, f.keeper.MemberProfile.Set(f.ctx, addr, profile))
+
+	require.NoError(t, f.keeper.SeasonTransitionState.Set(f.ctx, types.SeasonTransitionState{
+		Phase: types.TransitionPhase_TRANSITION_PHASE_SNAPSHOT,
+	}))
+
+	// Drive the transition until RESET_XP has completed.
+	for i := 0; i < 20; i++ {
+		state, err := f.keeper.SeasonTransitionState.Get(f.ctx)
+		require.NoError(t, err)
+		if state.Phase == types.TransitionPhase_TRANSITION_PHASE_TITLES {
+			break
+		}
+		f.ctx = f.ctx.WithBlockHeight(f.ctx.BlockHeight() + 1)
+		require.NoError(t, f.keeper.BeginBlocker(f.ctx))
+	}
+	state, err := f.keeper.SeasonTransitionState.Get(f.ctx)
+	require.NoError(t, err)
+	require.Equal(t, types.TransitionPhase_TRANSITION_PHASE_TITLES, state.Phase)
+
+	// XP was reset on the profile...
+	got, err := f.keeper.MemberProfile.Get(f.ctx, addr)
+	require.NoError(t, err)
+	require.Equal(t, uint64(0), got.SeasonXp)
+	require.Equal(t, uint64(1), got.SeasonLevel)
+
+	// ...and the snapshot still carries every field.
+	snap, err := f.keeper.MemberSeasonSnapshot.Get(f.ctx, fmt.Sprintf("1/%s", addr))
+	require.NoError(t, err)
+	require.Equal(t, int64(1000), snap.FinalDreamBalance.Int64())
+	require.Equal(t, "100.5", snap.FinalReputation["backend"])
+	require.Equal(t, uint64(4), snap.InitiativesCompleted)
+	require.Equal(t, []string{"first_post", "phoenix_rising"}, snap.AchievementsEarned)
+	require.Equal(t, uint64(750), snap.XpEarned)
+	require.Equal(t, uint64(4), snap.SeasonLevel)
+}

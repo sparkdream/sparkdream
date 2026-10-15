@@ -56,11 +56,15 @@ func TestEffectiveMinVotes(t *testing.T) {
 		stakeThreshold math.Int
 		expected       uint32
 	}{
-		{"base minimum used", 3, math.NewInt(10000), 3},
-		{"scaled exceeds base", 3, math.NewInt(20000), 4},
-		{"scaled exactly at base", 3, math.NewInt(15000), 3},
-		{"high threshold", 3, math.NewInt(100000), 20},
-		{"low threshold", 5, math.NewInt(5000), 5},
+		// stakeThreshold is in udream (1 DREAM = 1e6 udream).
+		{"base minimum used", 3, math.NewInt(10_000_000_000), 3},      // 10,000 DREAM
+		{"scaled exceeds base", 3, math.NewInt(20_000_000_000), 4},    // 20,000 DREAM
+		{"scaled exactly at base", 3, math.NewInt(15_000_000_000), 3}, // 15,000 DREAM (spec example)
+		{"spec max tranche", 3, math.NewInt(50_000_000_000), 10},      // 50,000 DREAM (spec example)
+		{"high threshold", 3, math.NewInt(100_000_000_000), 20},       // 100,000 DREAM
+		{"low threshold", 5, math.NewInt(5_000_000_000), 5},           // 5,000 DREAM
+		{"sub-step remainder truncates", 3, math.NewInt(24_999_999_999), 4},
+		{"small udream threshold", 3, math.NewInt(5000), 3}, // 0.005 DREAM, not 1 vote
 		{"zero threshold", 3, math.NewInt(0), 3},
 	}
 	for _, tc := range tests {

@@ -118,6 +118,14 @@ func (k Keeper) removeGrantIndexes(ctx context.Context, g types.Grant) error {
 			return err
 		}
 	}
+	// A paused oneshot is indexed under (fire_at, id) — fire_at holds the
+	// pause time while paused. Removing a missing key is a no-op, so this
+	// is safe for every oneshot status.
+	if so := g.GetScheduledOneshot(); so != nil {
+		if err := k.PausedOneshotByPauseTime.Remove(ctx, collections.Join(so.FireAt, g.Id)); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

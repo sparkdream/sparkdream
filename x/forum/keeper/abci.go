@@ -272,6 +272,8 @@ func (k Keeper) PruneExpiredPosts(ctx context.Context, now int64) error {
 
 // ExpireHiddenPosts checks posts in HIDDEN status and soft-deletes them
 // if they have been hidden longer than the configured hidden_expiration period.
+// Hides with a pending appeal (HideRecord.Appealed) are skipped; the appeal
+// outcome finalizes them via OnAppealOutcome.
 func (k Keeper) ExpireHiddenPosts(ctx context.Context, now int64) error {
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 
@@ -286,6 +288,16 @@ func (k Keeper) ExpireHiddenPosts(ctx context.Context, now int64) error {
 	err := k.HideRecord.Walk(ctx, nil, func(postID uint64, hr types.HideRecord) (bool, error) {
 		if expired >= maxHiddenExpiry {
 			return true, nil // stop
+		}
+
+		// Appealed hides are owned by x/rep until the appeal resolves: the
+		// appeal deadline (14d) outlives hidden_expiration (7d), and tombstoning
+		// here would leave an OVERTURNED verdict nothing to restore (and nothing
+		// to slash — the record carries the sentinel and committed amount). The
+		// verdict finalizes the hide instead: UPHELD tombstones it, OVERTURNED
+		// and TIMEOUT restore it (see OnAppealOutcome in forum_keeper_adapter.go).
+		if hr.Appealed {
+			return false, nil
 		}
 
 		// Check if hidden long enough
@@ -308,83 +320,9 @@ func (k Keeper) ExpireHiddenPosts(ctx context.Context, now int64) error {
 			return false, nil
 		}
 
-		// Accountability hooks fire here — BEFORE the post's tags are cleared
-		// and the post is soft-deleted, because both hooks read the
-		// pre-tombstone state. Failures log but never halt: a hide-finalize
-		// must always tombstone the post or the moderation flow stalls.
-
-		// Tier 0: author per-tag rep slash. The author put the post in these
-		// tags; an unappealed hide says the community rejected it, so claw back
-		// rep in each tag. DeductReputation floors at zero — no harm if the
-		// author has no rep in the tag (e.g. they never earned any).
-		if k.repKeeper != nil && len(post.Tags) > 0 {
-			paramsForSlash, paramsErr := k.Params.Get(ctx)
-			if paramsErr == nil && !paramsForSlash.AuthorRepSlash.IsNil() && paramsForSlash.AuthorRepSlash.IsPositive() {
-				authorBytes, addrErr := k.addressCodec.StringToBytes(post.Author)
-				if addrErr == nil {
-					for _, tag := range post.Tags {
-						if err := k.repKeeper.DeductReputation(ctx, sdk.AccAddress(authorBytes), tag, paramsForSlash.AuthorRepSlash); err != nil {
-							sdkCtx.Logger().Warn("failed to slash author rep on hide expiry",
-								"post_id", postID, "author", post.Author, "tag", tag, "error", err)
-						}
-					}
-				}
-			}
-		}
-
-		// Tier 0b: post conviction-stake slash. Every active (or
-		// recently-released-but-not-GC'd) PostConvictionStake on this post
-		// gets:
-		//   - exact author forum-rep clawback per tag (uses each stake's
-		//     accrued_rep_per_tag, so we deduct precisely what was credited
-		//     — no over-slashing the author beyond what stakes produced)
-		//   - staker_slash_bps burn on the staker's locked DREAM
-		//   - remaining locked DREAM unlocked + stake closed
-		// Best-effort: SlashStakesForPost logs per-stake errors but never
-		// halts the tombstone path.
-		if err := k.SlashStakesForPost(ctx, postID); err != nil {
-			sdkCtx.Logger().Warn("post conviction slash failed on hide expiry",
-				"post_id", postID, "error", err)
-		}
-
-		// Tier 1: promoter MemberWarning. The member who called
-		// MsgMakePostPermanent on this post vouched for content the community
-		// rejected. PromotedBy is only set when the promoter is different from
-		// the author (self-promote is not a vouching act).
-		if k.repKeeper != nil && post.PromotedBy != "" && post.PromotedBy != post.Author {
-			if err := k.repKeeper.IssueWarning(
-				ctx,
-				post.PromotedBy,
-				k.GetModuleAddress(),
-				"promoted_hidden_content",
-				[]uint64{postID},
-			); err != nil {
-				sdkCtx.Logger().Warn("failed to issue promoter warning on hide expiry",
-					"post_id", postID, "promoter", post.PromotedBy, "error", err)
-			}
-		}
-
-		// Drop rep-registry UsageCount for every tag the post carried — this is
-		// the second half of the "hidden post times out" tombstone path. Same
-		// rationale as the ephemeral-prune and explicit-delete paths.
-		k.decrementTagUsages(ctx, postID, post.Tags)
-
-		// Soft-delete the post
-		post.Status = types.PostStatus_POST_STATUS_DELETED
-		post.Content = "" // clear content to reclaim space
-		post.Tags = nil   // sever the (now-decremented) tag references
-		applyPostMediaLabels(&post)
-		if setErr := k.Post.Set(ctx, postID, post); setErr != nil {
-			sdkCtx.Logger().Error("failed to delete expired hidden post", "post_id", postID, "error", setErr)
+		if err := k.tombstoneHiddenPost(ctx, postID, post, "hide expiry"); err != nil {
+			sdkCtx.Logger().Error("failed to delete expired hidden post", "post_id", postID, "error", err)
 			return false, nil
-		}
-		// FORUM-S2-8: drop from secondary indexes; the post is no longer
-		// eligible for TopPosts/PinnedPosts.
-		if post.ParentId == 0 {
-			_ = k.PostsByUpvotes.Remove(ctx, collections.Join(post.UpvoteCount, post.PostId))
-			if post.Pinned {
-				_ = k.PostsByPinned.Remove(ctx, collections.Join(post.CategoryId, post.PostId))
-			}
 		}
 
 		// Release the sentinel's reserved bond before dropping the hide record.
@@ -399,13 +337,11 @@ func (k Keeper) ExpireHiddenPosts(ctx context.Context, now int64) error {
 			}
 		}
 
-		// Finalize sentinel counters for an UNAPPEALED hide that has now expired:
-		// the hide stood by default, so count it as unchallenged and clear it from
-		// the pending tally. An appealed hide was already tallied as
-		// upheld/overturned (and its pending slot decremented) at appeal-resolve,
-		// so skip those to avoid double-counting. Gov hides (Sentinel == "")
-		// carry no sentinel counters.
-		if hr.Sentinel != "" && !hr.Appealed {
+		// Finalize sentinel counters for an UNAPPEALED hide that has now expired
+		// (appealed hides never reach this point): the hide stood by default, so
+		// count it as unchallenged and clear it from the pending tally. Gov
+		// hides (Sentinel == "") carry no sentinel counters.
+		if hr.Sentinel != "" {
 			local, lerr := k.SentinelActivity.Get(ctx, hr.Sentinel)
 			if lerr == nil {
 				local.UnchallengedHides++
@@ -439,6 +375,95 @@ func (k Keeper) ExpireHiddenPosts(ctx context.Context, now int64) error {
 		sdkCtx.Logger().Info("expired hidden posts", "count", expired)
 	}
 
+	return nil
+}
+
+// tombstoneHiddenPost finalizes a hide that stood — an unappealed hide past
+// hidden_expiration (ExpireHiddenPosts) or an appealed hide whose appeal was
+// UPHELD (OnAppealOutcome). It applies the accountability consequences (author
+// per-tag rep slash, post-conviction stake slash, promoter warning) against the
+// pre-tombstone state, then soft-deletes the post. It does NOT touch the
+// sentinel bond, the sentinel counters or the HideRecord: those differ per
+// caller (x/rep already released the bond on UPHELD). cause labels the logs.
+func (k Keeper) tombstoneHiddenPost(ctx context.Context, postID uint64, post types.Post, cause string) error {
+	// Accountability hooks fire here — BEFORE the post's tags are cleared
+	// and the post is soft-deleted, because both hooks read the
+	// pre-tombstone state. Failures log but never halt: a hide-finalize
+	// must always tombstone the post or the moderation flow stalls.
+	sdkCtx := sdk.UnwrapSDKContext(ctx)
+
+	// Tier 0: author per-tag rep slash. The author put the post in these
+	// tags; a hide that stood (unappealed expiry or UPHELD appeal) says the
+	// community rejected it, so claw back rep in each tag. DeductReputation
+	// floors at zero — no harm if the author has no rep in the tag.
+	if k.repKeeper != nil && len(post.Tags) > 0 {
+		paramsForSlash, paramsErr := k.Params.Get(ctx)
+		if paramsErr == nil && !paramsForSlash.AuthorRepSlash.IsNil() && paramsForSlash.AuthorRepSlash.IsPositive() {
+			authorBytes, addrErr := k.addressCodec.StringToBytes(post.Author)
+			if addrErr == nil {
+				for _, tag := range post.Tags {
+					if err := k.repKeeper.DeductReputation(ctx, sdk.AccAddress(authorBytes), tag, paramsForSlash.AuthorRepSlash); err != nil {
+						sdkCtx.Logger().Warn("failed to slash author rep on hidden-post finalize", "cause", cause,
+							"post_id", postID, "author", post.Author, "tag", tag, "error", err)
+					}
+				}
+			}
+		}
+	}
+
+	// Tier 0b: post conviction-stake slash. Every active (or
+	// recently-released-but-not-GC'd) PostConvictionStake on this post
+	// gets:
+	//   - exact author forum-rep clawback per tag (uses each stake's
+	//     accrued_rep_per_tag, so we deduct precisely what was credited
+	//     — no over-slashing the author beyond what stakes produced)
+	//   - staker_slash_bps burn on the staker's locked DREAM
+	//   - remaining locked DREAM unlocked + stake closed
+	// Best-effort: SlashStakesForPost logs per-stake errors but never
+	// halts the tombstone path.
+	if err := k.SlashStakesForPost(ctx, postID); err != nil {
+		sdkCtx.Logger().Warn("post conviction slash failed on hidden-post finalize", "cause", cause,
+			"post_id", postID, "error", err)
+	}
+
+	// Tier 1: promoter MemberWarning. The member who called
+	// MsgMakePostPermanent on this post vouched for content the community
+	// rejected. PromotedBy is only set when the promoter is different from
+	// the author (self-promote is not a vouching act).
+	if k.repKeeper != nil && post.PromotedBy != "" && post.PromotedBy != post.Author {
+		if err := k.repKeeper.IssueWarning(
+			ctx,
+			post.PromotedBy,
+			k.GetModuleAddress(),
+			"promoted_hidden_content",
+			[]uint64{postID},
+		); err != nil {
+			sdkCtx.Logger().Warn("failed to issue promoter warning on hidden-post finalize", "cause", cause,
+				"post_id", postID, "promoter", post.PromotedBy, "error", err)
+		}
+	}
+
+	// Drop rep-registry UsageCount for every tag the post carried — this is
+	// the second half of the hidden-post tombstone path. Same
+	// rationale as the ephemeral-prune and explicit-delete paths.
+	k.decrementTagUsages(ctx, postID, post.Tags)
+
+	// Soft-delete the post
+	post.Status = types.PostStatus_POST_STATUS_DELETED
+	post.Content = "" // clear content to reclaim space
+	post.Tags = nil   // sever the (now-decremented) tag references
+	applyPostMediaLabels(&post)
+	if err := k.Post.Set(ctx, postID, post); err != nil {
+		return err
+	}
+	// FORUM-S2-8: drop from secondary indexes; the post is no longer
+	// eligible for TopPosts/PinnedPosts.
+	if post.ParentId == 0 {
+		_ = k.PostsByUpvotes.Remove(ctx, collections.Join(post.UpvoteCount, post.PostId))
+		if post.Pinned {
+			_ = k.PostsByPinned.Remove(ctx, collections.Join(post.CategoryId, post.PostId))
+		}
+	}
 	return nil
 }
 

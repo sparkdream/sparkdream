@@ -135,13 +135,14 @@ func (k msgServer) SubmitAnonymousProposal(goCtx context.Context, msg *types.Msg
 	return &types.MsgSubmitAnonymousProposalResponse{ProposalId: proposalID}, nil
 }
 
-// AnonymousVoteProposal casts an anonymous vote on a proposal through x/shield.
-// Each anonymous vote has uniform weight=1. The nullifier (handled by x/shield,
-// scoped to proposal_id) prevents double-voting.
+// AnonymousVoteProposal is disabled: every council and committee votes
+// openly. An anonymous vote proves only that the voter is in the x/rep trust
+// tree, not that they sit on the council, and a member could cast it on top
+// of their open vote (the two cannot be linked), so counting it let any rep
+// member move a council's tally. A secret ballot for the Commons Council
+// would need a tree of that council's members and no open votes; until one
+// exists the message is refused.
 func (k msgServer) AnonymousVoteProposal(goCtx context.Context, msg *types.MsgAnonymousVoteProposal) (*types.MsgAnonymousVoteProposalResponse, error) {
-	ctx := sdk.UnwrapSDKContext(goCtx)
-
-	// 0. Authenticate: only the x/shield module account may cast anonymous votes.
 	shieldModuleAddr := k.authKeeper.GetModuleAddress("shield")
 	if shieldModuleAddr == nil {
 		return nil, errorsmod.Wrap(sdkerrors.ErrLogic, "shield module address not found")
@@ -151,74 +152,5 @@ func (k msgServer) AnonymousVoteProposal(goCtx context.Context, msg *types.MsgAn
 			"only the shield module account can cast anonymous votes (got %s, want %s)",
 			msg.Voter, shieldModuleAddr.String())
 	}
-
-	// 1. Get proposal
-	proposal, err := k.Proposals.Get(ctx, msg.ProposalId)
-	if err != nil {
-		return nil, errorsmod.Wrapf(sdkerrors.ErrNotFound, "proposal %d not found", msg.ProposalId)
-	}
-
-	// 2. Check proposal is open for voting
-	if proposal.Status != types.ProposalStatus_PROPOSAL_STATUS_SUBMITTED {
-		return nil, errorsmod.Wrapf(sdkerrors.ErrInvalidRequest, "proposal %d is not open for voting (status: %s)", msg.ProposalId, proposal.Status)
-	}
-
-	// 3. Check voting deadline
-	if ctx.BlockTime().Unix() > proposal.VotingDeadline {
-		return nil, errorsmod.Wrapf(sdkerrors.ErrInvalidRequest, "voting period has ended for proposal %d", msg.ProposalId)
-	}
-
-	// 4. Validate vote option
-	if msg.Option == types.VoteOption_VOTE_OPTION_UNSPECIFIED {
-		return nil, errorsmod.Wrap(sdkerrors.ErrInvalidRequest, "vote option must be specified")
-	}
-
-	// 5. Increment anonymous vote tally.
-	// Double-vote prevention is handled by x/shield's nullifier (scoped to proposal_id).
-	tally, err := k.AnonVoteTallies.Get(ctx, msg.ProposalId)
-	if err != nil {
-		tally = types.AnonVoteTally{}
-	}
-
-	switch msg.Option {
-	case types.VoteOption_VOTE_OPTION_YES:
-		tally.YesCount++
-	case types.VoteOption_VOTE_OPTION_NO:
-		tally.NoCount++
-	case types.VoteOption_VOTE_OPTION_ABSTAIN:
-		tally.AbstainCount++
-	case types.VoteOption_VOTE_OPTION_NO_WITH_VETO:
-		tally.NoWithVetoCount++
-	}
-
-	if err := k.AnonVoteTallies.Set(ctx, msg.ProposalId, tally); err != nil {
-		return nil, err
-	}
-
-	// 6. Check if threshold is met (early acceptance)
-	// checkThreshold already includes anonymous votes from AnonVoteTallies.
-	accepted, err := k.checkThreshold(ctx, proposal)
-	if err != nil {
-		return nil, err
-	}
-	if accepted {
-		proposal.Status = types.ProposalStatus_PROPOSAL_STATUS_ACCEPTED
-		decPolicy, policyErr := k.DecisionPolicies.Get(ctx, proposal.PolicyAddress)
-		if policyErr == nil {
-			proposal.ExecutionTime = ctx.BlockTime().Unix() + decPolicy.MinExecutionPeriod
-		}
-		if err := k.Proposals.Set(ctx, msg.ProposalId, proposal); err != nil {
-			return nil, err
-		}
-	}
-
-	ctx.EventManager().EmitEvent(
-		sdk.NewEvent(
-			"anonymous_vote_proposal",
-			sdk.NewAttribute("proposal_id", fmt.Sprintf("%d", msg.ProposalId)),
-			sdk.NewAttribute("option", msg.Option.String()),
-		),
-	)
-
-	return &types.MsgAnonymousVoteProposalResponse{}, nil
+	return nil, types.ErrAnonymousVotingDisabled
 }

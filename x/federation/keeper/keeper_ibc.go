@@ -124,9 +124,10 @@ func (k Keeper) OnRecvContentPacket(ctx context.Context, sourcePort, sourceChann
 		return errorsmod.Wrapf(types.ErrLicenseNotAccepted, "license %q from peer %s", packet.License, peerID)
 	}
 
-	// Deduplicate by content hash
+	// Deduplicate by content hash (against live records only; a pruned
+	// record's hash may be received again)
 	hashHex := fmt.Sprintf("%x", packet.ContentHash)
-	if _, err := k.ContentByHash.Get(ctx, hashHex); err == nil {
+	if k.contentHashAnchored(ctx, hashHex) {
 		return nil // Already have this content — idempotent success
 	}
 

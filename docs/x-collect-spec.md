@@ -1292,7 +1292,8 @@ message MsgChallengeReviewResponse {}
 
 **Resolution** (via x/rep jury):
 - **Upheld**: Review marked `overturned = true`, CurationSummary recalculated. Curator `challenged_reviews` incremented. Curator bond slashed by `curator_slash_fraction`; of the slashed amount, `challenge_reward_fraction` (default 80%) is sent to the challenger as a reward and the remainder is burned. If remaining bond < `min_curator_bond`, curator deactivated (`active = false`). `pending_challenges` decremented. Challenge deposit refunded.
-- **Rejected**: Review stands. `pending_challenges` decremented. Challenge deposit burned.
+- **Rejected**: Review stands. `pending_challenges` decremented. Challenge deposit burned. `challenger` is cleared so neither collection deletion nor the timeout refunds the burned deposit.
+- **Not adjudicated** (timeout, §10.7): no x/rep jury is opened for a curation challenge today, so a challenge with no verdict `ChallengeResolutionTimeoutBlocks` (compiled constant, 201,600 blocks ≈ 14 days) after filing is resolved neutrally: the curator's `committed_slash` is released, the challenge deposit refunded, no curator outcome recorded. The review stays `challenged = true` (cannot be re-challenged) with `challenger` cleared; a later `ResolveChallengeResult` is refused.
 - **Review missing** (collection deleted or expired during jury deliberation): No-op — the deletion/expiry cleanup already refunded the challenge deposit and decremented `pending_challenges`. `ResolveChallengeResult` returns nil without modifying any state. This prevents double-refunds, unwarranted bond slashing, and `pending_challenges` underflow.
 
 ### 5.17. MsgRequestSponsorship
@@ -2057,7 +2058,7 @@ message GenesisState {
 | `InitGenesis` | Import params, collections, items, collaborators, curators, reviews, summaries, sponsorship requests, and all counters |
 | `ExportGenesis` | Export all state |
 | `BeginBlock` | None |
-| `EndBlock` | Drain membership-driven promotion queue (10.0), prune expired collections/sponsorship requests (10.1), unappealed hides (10.3), expired flags (10.4), unendorsed collections (10.5), release endorsement stakes (10.6) |
+| `EndBlock` | Drain membership-driven promotion queue (10.0), prune expired collections/sponsorship requests (10.1), unappealed hides (10.3), expired flags (10.4), unendorsed collections (10.5), release endorsement stakes (10.6), time out unadjudicated curation challenges (10.7) |
 
 ### 10.0. EndBlocker: Membership-Driven Promotion Queue (Phase 0)
 
@@ -2246,6 +2247,12 @@ Releases endorser DREAM stakes where `stake_release_at ≤ current_block` and `s
 2. Set `stake_released = true` on the Endorsement record
 3. Emit `endorsement_stake_released` event
 
+### 10.7. EndBlocker: Curation Challenge Timeout
+
+`MsgChallengeReview` writes `(filed_at + ChallengeResolutionTimeoutBlocks, review_id)` to the `CurationChallengeDeadline` index. Each block, entries with `deadline ≤ current_block` (sharing the `max_prune_per_block` budget) whose review is still pending (`challenged`, not `overturned`, `challenger` set) are resolved as not adjudicated (§5.16) and emit `challenge_timed_out`; stale entries (review deleted or already resolved) are dropped.
+
+Challenges filed before the index existed (or imported via genesis, which does not carry it) are picked up by a one-time backfill that scans `ChallengeBackfillScanPerBlock` (100) reviews per block from a stored cursor, using the latest possible deadline `created_at + challenge_window_blocks + ChallengeResolutionTimeoutBlocks`.
+
 ---
 
 ## 11. Access Control
@@ -2311,6 +2318,7 @@ Releases endorser DREAM stakes where `stake_release_at ≤ current_block` and `s
 | `collection_rated` | `review_id`, `collection_id`, `curator`, `verdict`, `tags` | MsgRateCollection |
 | `review_challenged` | `review_id`, `challenger` | MsgChallengeReview |
 | `challenge_resolved` | `review_id`, `upheld`, `curator`, `slash_amount`, `reward_amount`, `burn_amount`, `curator_demoted`, `challenger_refunded` | x/rep jury callback |
+| `challenge_timed_out` | `review_id`, `collection_id`, `curator`, `challenger`, `bond_released`, `challenger_refunded` | EndBlocker §10.7 |
 | `sponsorship_requested` | `collection_id`, `requester`, `escrowed_deposit`, `expires_at` | MsgRequestSponsorship |
 | `sponsorship_cancelled` | `collection_id`, `requester`, `deposit_refunded` | MsgCancelSponsorshipRequest |
 | `collection_sponsored` | `collection_id`, `owner`, `sponsored_by`, `sponsor_fee_burned`, `permanent_deposit_burned`, `ttl_deposit_refunded` | MsgSponsorCollection |

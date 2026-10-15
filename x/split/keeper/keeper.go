@@ -116,3 +116,10 @@ func (k Keeper) SetShareByAddress(ctx context.Context, address string, weight ui
 		sdkCtx.Logger().With("module", "x/split").Error("failed to set share in x/split", "address", address, "error", err)
 	}
 }
+
+// RemoveShareByAddress deletes the share registered for address, so the
+// address stops receiving distributions. Removing an address with no share
+// is a no-op. x/commons calls it when a group is deleted.
+func (k Keeper) RemoveShareByAddress(ctx context.Context, address string) error {
+	return k.Share.Remove(ctx, address)
+}

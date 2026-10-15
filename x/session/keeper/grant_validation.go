@@ -197,6 +197,47 @@ func (k Keeper) validateSpendingAllowancePayload(
 	return &out, nil
 }
 
+// validateSignInPayload runs SIGN_IN checks: a well-formed service
+// hostname, at most one active grant per (granter, grantee, service), and
+// the per-granter cap. Expiration is bounded by the universal
+// max_grant_lifetime_seconds alone, not the session key's narrower
+// max_expiration: a sign-in grant is a standing delegation to a key the
+// granter controls, not an ephemeral browser key. Nothing executes through
+// it, so it carries no budget or exec count.
+func (k Keeper) validateSignInPayload(
+	ctx context.Context,
+	granter, grantee string,
+	p *types.SignInPayload,
+) (*types.SignInPayload, error) {
+	if p == nil {
+		return nil, types.ErrInvalidPayload
+	}
+	if !types.ValidSignInService(p.Service) {
+		return nil, types.ErrInvalidSignInService.Wrapf("service: %q", p.Service)
+	}
+
+	existing, err := k.ListGrantsByGranter(ctx, granter, types.GrantType_GRANT_TYPE_SIGN_IN)
+	if err != nil {
+		return nil, err
+	}
+	active := 0
+	for _, g := range existing {
+		if !activeStatus(g.Status) {
+			continue
+		}
+		active++
+		if g.Grantee == grantee && g.GetSignIn().GetService() == p.Service {
+			return nil, types.ErrSignInGrantExists.Wrapf("grant %d", g.Id)
+		}
+	}
+	if active >= types.MaxSignInGrantsPerGranter {
+		return nil, types.ErrMaxSignInGrantsExceeded.Wrapf("max %d", types.MaxSignInGrantsPerGranter)
+	}
+
+	out := *p
+	return &out, nil
+}
+
 // denomAllowed reports whether denom is permitted for grant payloads:
 // the chain's bond denom is always allowed; additional denoms (e.g. IBC
 // vouchers) are sourced from params.allowed_denoms.

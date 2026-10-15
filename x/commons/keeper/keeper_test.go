@@ -91,6 +91,13 @@ func initFixture(t *testing.T) *fixture {
 
 // --- Setup Helper (Used by msg_server tests) ---
 func setupCommonsKeeper(t *testing.T) (keeper.Keeper, sdk.Context, *mockBankKeeperCommons) {
+	k, ctx, bk, _ := setupCommonsKeeperWithSplit(t)
+	return k, ctx, bk
+}
+
+// setupCommonsKeeperWithSplit is setupCommonsKeeper that also returns the
+// split mock, whose shares record what the keeper registered and removed.
+func setupCommonsKeeperWithSplit(t *testing.T) (keeper.Keeper, sdk.Context, *mockBankKeeperCommons, mockSplitKeeper) {
 	storeKey := storetypes.NewKVStoreKey(types.StoreKey)
 	memStoreKey := storetypes.NewMemoryStoreKey("mem_commons")
 	authKey := storetypes.NewKVStoreKey(authtypes.StoreKey)
@@ -137,6 +144,7 @@ func setupCommonsKeeper(t *testing.T) (keeper.Keeper, sdk.Context, *mockBankKeep
 	)
 
 	storeService := runtime.NewKVStoreService(storeKey)
+	split := mockSplitKeeper{shares: map[string]uint64{}}
 
 	k := keeper.NewKeeper(
 		storeService,
@@ -147,12 +155,12 @@ func setupCommonsKeeper(t *testing.T) (keeper.Keeper, sdk.Context, *mockBankKeep
 		mockBK,
 		mockFutarchyKeeper{},
 		nil,
-		mockSplitKeeper{},
+		split,
 		mockUpgradeKeeper{},
 	)
 	k.SetIdentityKeeper(&mockIdentityKeeperCommons{})
 
-	return k, ctx, mockBK
+	return k, ctx, mockBK, split
 }
 
 // --- Helper for tests that need full state setup ---
@@ -318,10 +326,20 @@ func (m mockFutarchyKeeper) CreateMarketInternal(ctx sdk.Context, creator sdk.Ac
 }
 
 // --- Mock Split Keeper ---
-type mockSplitKeeper struct{}
+// shares is nil for a mockSplitKeeper{} literal, which then records nothing.
+type mockSplitKeeper struct {
+	shares map[string]uint64
+}
 
 func (m mockSplitKeeper) SetShareByAddress(ctx context.Context, address string, weight uint64) {
-	// No-op for testing
+	if m.shares != nil && weight > 0 {
+		m.shares[address] = weight
+	}
+}
+
+func (m mockSplitKeeper) RemoveShareByAddress(ctx context.Context, address string) error {
+	delete(m.shares, address)
+	return nil
 }
 
 // --- Mock Upgrade Keeper ---

@@ -346,6 +346,7 @@ State transitions are split between **eager** (applied during message processing
 - `MsgOpenControllerTransferCase` → `ControllerTransferCases` row created; `OpenControllerTransferByOperator` index entry added; opener's `report_deposit` escrowed to the controller-transfer case deposit pool (§3.4.7); x/rep jury case opened.
 - `MsgFinalizeControllerTransfer` (ACCEPT, re-check passes) → `operator.controller` updated; opener's deposit refunded from module account; `ControllerTransferCases` row + index entry deleted.
 - `MsgFinalizeControllerTransfer` (REJECT, or ACCEPT with failed re-check) → opener's deposit forfeited to community pool via `FundCommunityPool`; case row + index entry deleted.
+- EndBlocker controller-transfer timeout (no verdict finalized by `opened_at + max_escalated_blocks`, §3.6 sweep 3) → opener's deposit refunded; case row + index entry deleted; controller unchanged.
 
 **EndBlocker sweeps (gas-bounded, deterministic order):**
 
@@ -353,7 +354,8 @@ Each block, the EndBlocker processes up to `endblocker_sweep_limit` records (def
 
 1. **Underfunded sweep.** Iterate `UNDERFUNDED` operators where `current_height >= underfunded_since + underfunded_grace_blocks`. Force-transition to `UNBONDING` with the standard clock.
 2. **Pending report sweep.** Iterate `PENDING` reports where `current_height >= filed_at + max_pending_blocks`. Mark `AUTO_DISMISSED`, refund deposit to reporter, record refile-cooldown entry.
-3. **Escalated timeout sweep.** Iterate `ESCALATED` reports where `current_height >= escalated_at + max_escalated_blocks`. Mark `AUTO_TIMEOUT`, release any contested-T1 escrow back to bond AND **delete the `Tier1Escrow` row + its release-queue entry** (so sweep 4 doesn't double-process it), refund the reporter/opener deposit. The parallel x/rep `JuryReview` is left in place — x/rep does not expose a cancel API, and an INCONCLUSIVE-or-PENDING JuryReview against an AUTO_TIMEOUT'd report is harmless (the resolver path checks the x/service report's status before applying any verdict). For controller-transfer cases, also delete the `ControllerTransferCases` row and its `OpenControllerTransferByOperator` index entry.
+3. **Escalated timeout sweep.** Iterate `ESCALATED` reports where `current_height >= escalated_at + max_escalated_blocks`. Mark `AUTO_TIMEOUT`, release any contested-T1 escrow back to bond AND **delete the `Tier1Escrow` row + its release-queue entry** (so sweep 4 doesn't double-process it), refund the reporter/opener deposit. The parallel x/rep `JuryReview` is left in place — x/rep does not expose a cancel API, and an INCONCLUSIVE-or-PENDING JuryReview against an AUTO_TIMEOUT'd report is harmless (the resolver path checks the x/service report's status before applying any verdict). 
+   **Controller-transfer cases** time out on the same deadline: any `ControllerTransferCases` row with `current_height >= opened_at + max_escalated_blocks` (the deadline handed to x/rep at open) and no finalized verdict is resolved as AUTO_TIMEOUT — the opener's deposit is refunded (the case went unadjudicated through no fault of theirs), the controller is unchanged, the row and its `OpenControllerTransferByOperator` entry are deleted (freeing the "one open case" slot), and `service.controller_transfer_case_finalized { verdict = AUTO_TIMEOUT, deposit_destination = OPENER_REFUNDED }` is emitted. There is no deadline index: the sweep walks `ControllerTransferCases` (at most one row per `(operator, service_type)`) and times out up to `endblocker_sweep_limit` per block, which also covers rows written before the sweep existed. A late `MsgFinalizeControllerTransfer` fails with `ErrControllerTransferCaseNotFound`.
 4. **Tier-1 escrow release sweep.** Iterate `Tier1Escrow` entries where `current_height >= release_at` AND the parent report is in a terminal state (`RESOLVED_T1` finalized after contest window with no contest, `RESOLVED_T2`, or `AUTO_TIMEOUT`). For each entry: transfer escrowed SPARK to community pool via `FundCommunityPool` (unless `AUTO_TIMEOUT` — those return to bond), delete the escrow entry.
 5. **Reporter rate-limit pruning.** Lazy — entries are checked-and-pruned at next `MsgReportOperator` from the same reporter. A small EndBlocker sweep also walks the `(reporter, last_filed_at)` index and prunes expired counters to keep the index bounded.
 6. **Checkpoint liveness sweep.** Iterate `CheckpointDeadlines` entries with `deadline ≤ current_height` (§3.8). For each ACTIVE/UNDERFUNDED operator whose checkpoint height (or registration height) plus the type's `checkpoint_max_lag_blocks` is still behind, file a system report and reschedule one window later; otherwise reschedule or drop.
@@ -801,11 +803,15 @@ Delegable from the operator key:
 - `MsgUpdateMetadata`
 - `MsgClaimUnbondedBond`
 - `MsgContestSlash` (time-sensitive — within the contest window)
-- `MsgTopUpBond`
+- `MsgSubmitCheckpoint`
 
 **Not delegable** (must be signed by the operator key directly — **both x/session AND x/authz blocked**):
 - `MsgRegisterOperator` — initial bond commitment, requires cold signature
 - `MsgUnbondOperator` — significant lifecycle decision, prevents a compromised session key from forcing exit
+
+**Not delegable through x/session:** `MsgTopUpBond` — it moves SPARK from the operator's account into the bond, and a session's `SpendLimit` budgets fees only, so nothing would cap what a compromised daemon key could lock up. Top-ups are signed by the operator key.
+
+x/session's `Params.Validate` rejects all three in both `max_allowed_msg_types` and `allowed_msg_types` (`types.ForbiddenAllowlistMsgs`, built from `servicetypes.NonDelegableMsgTypeURLs` plus `MsgTopUpBond`), at genesis and on `MsgUpdateParams`.
 
 The session module's existing message-type allowlist (`max_allowed_msg_types` ceiling) is the enforcement mechanism for x/session — operators just create a session with the delegable subset above. For x/authz, x/service enforces the block at the msg-server level by checking `creator == tx_signer[0]` (no `MsgExec` indirection). This avoids depending on whether the chain admin happens to exclude these msgs from authz's `ForbiddenMessages`; the safety is enforced by the module itself.
 
@@ -1106,7 +1112,7 @@ Jury-authority msgs are not exposed as user-facing CLI — they are emitted by x
 - `service.report_closed_dissolved { report_id, deposit_refunded }` (emitted when an open report is closed because the operator was SLASHED — §3.4.9)
 - `service.report_contested { report_id, restored_bond }`
 - `service.controller_transfer_case_opened { operator, service_type, opener, proposed_new_controller, jury_case_id }`
-- `service.controller_transfer_case_finalized { jury_case_id, verdict, deposit_destination }` (deposit_destination ∈ OPENER_REFUNDED | COMMUNITY_POOL)
+- `service.controller_transfer_case_finalized { jury_case_id, verdict, deposit_destination }` (verdict ∈ ACCEPT | REJECT | AUTO_TIMEOUT; deposit_destination ∈ OPENER_REFUNDED | COMMUNITY_POOL)
 - `service.metadata_updated { address, service_type }`
 - `service.controller_transferred { address, service_type, new_controller, jury_case_id }` (emitted only on ACCEPT finalize)
 - `service.service_type_updated { service_type, enabled, changed_fields }`

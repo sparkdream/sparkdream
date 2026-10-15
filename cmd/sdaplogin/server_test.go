@@ -34,6 +34,7 @@ type fakeLCD struct {
 	mu      sync.Mutex
 	members map[string]string // bech32 -> member JSON
 	names   map[string]string // bech32 -> primary name
+	grants  map[string]string // grant id -> x/session Grant JSON
 	down    bool
 }
 
@@ -61,6 +62,25 @@ func (f *fakeLCD) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		json.NewEncoder(w).Encode(map[string]string{"name": n})
+	case strings.HasPrefix(r.URL.Path, "/sparkdream/session/v1/grants/by_grantee/"):
+		grantee := strings.TrimPrefix(r.URL.Path, "/sparkdream/session/v1/grants/by_grantee/")
+		var list []json.RawMessage
+		for _, g := range f.grants {
+			var probe struct{ Grantee, Type string }
+			_ = json.Unmarshal([]byte(g), &probe)
+			if probe.Grantee == grantee && (r.URL.Query().Get("type") == "" || probe.Type == r.URL.Query().Get("type")) {
+				list = append(list, json.RawMessage(g))
+			}
+		}
+		json.NewEncoder(w).Encode(map[string]any{"grants": list})
+	case strings.HasPrefix(r.URL.Path, "/sparkdream/session/v1/grants/"):
+		g, ok := f.grants[strings.TrimPrefix(r.URL.Path, "/sparkdream/session/v1/grants/")]
+		if !ok {
+			w.WriteHeader(http.StatusNotFound)
+			io.WriteString(w, `{"code":5,"message":"grant not found"}`)
+			return
+		}
+		io.WriteString(w, `{"grant":`+g+`}`)
 	default:
 		http.NotFound(w, r)
 	}
@@ -77,7 +97,7 @@ type harness struct {
 
 func newHarness(t *testing.T, minTrust string) *harness {
 	t.Helper()
-	lcd := &fakeLCD{members: map[string]string{}, names: map[string]string{}}
+	lcd := &fakeLCD{members: map[string]string{}, names: map[string]string{}, grants: map[string]string{}}
 	lcdSrv := httptest.NewServer(lcd)
 	t.Cleanup(lcdSrv.Close)
 
@@ -182,7 +202,12 @@ func (h *harness) sign(t *testing.T, data string) WalletSignature {
 
 func (h *harness) verify(t *testing.T, request string, sig WalletSignature) (int, map[string]string) {
 	t.Helper()
-	body, _ := json.Marshal(verifyRequest{Request: request, Chain: "fleet-phoenix", Address: h.addr, Signature: sig})
+	return h.verifyAs(t, request, sig, "")
+}
+
+func (h *harness) verifyAs(t *testing.T, request string, sig WalletSignature, as string) (int, map[string]string) {
+	t.Helper()
+	body, _ := json.Marshal(verifyRequest{Request: request, Chain: "fleet-phoenix", Address: h.addr, Signature: sig, As: as})
 	resp, err := http.Post(h.http.URL+"/authorize/verify", "application/json", strings.NewReader(string(body)))
 	if err != nil {
 		t.Fatal(err)

@@ -61,6 +61,7 @@ type FutarchyKeeper interface {
 // SplitKeeper defines the expected interface for the Split module.
 type SplitKeeper interface {
 	SetShareByAddress(context.Context, string, uint64)
+	RemoveShareByAddress(context.Context, string) error
 }
 
 // UpgradeKeeper defines the expected interface for the Upgrade module.

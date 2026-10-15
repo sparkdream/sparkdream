@@ -113,6 +113,14 @@ func (gs GenesisState) Validate() error {
 			if so.FireAt <= 0 {
 				return fmt.Errorf("grant %d: fire_at must be > 0", i)
 			}
+		case GrantType_GRANT_TYPE_SIGN_IN:
+			si := g.GetSignIn()
+			if si == nil {
+				return fmt.Errorf("grant %d: SIGN_IN type requires sign_in payload", i)
+			}
+			if !ValidSignInService(si.Service) {
+				return fmt.Errorf("grant %d: sign_in.service %q is not a lowercase DNS hostname", i, si.Service)
+			}
 		default:
 			return fmt.Errorf("grant %d: unknown type %s", i, g.Type)
 		}

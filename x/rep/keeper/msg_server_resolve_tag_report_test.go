@@ -173,4 +173,35 @@ func TestMsgResolveTagReport(t *testing.T) {
 		require.Equal(t, "council1", rt.Authority)
 		require.True(t, rt.MembersCanUse)
 	})
+
+	t.Run("invalid action keeps report and tag", func(t *testing.T) {
+		f := newFixture(t)
+		f.commonsKeeper.IsCouncilAuthorizedFn = func(_ context.Context, _ string, _ string, _ string) bool {
+			return true
+		}
+		ms := keeper.NewMsgServerImpl(f.keeper)
+
+		report := types.TagReport{
+			TagName:   "zenith-tag",
+			Reporters: []string{authorityString(f)},
+			TotalBond: "1000",
+		}
+		require.NoError(t, f.keeper.SetTag(f.ctx, types.Tag{Name: "zenith-tag"}))
+		require.NoError(t, f.keeper.TagReport.Set(f.ctx, "zenith-tag", report))
+
+		_, err := ms.ResolveTagReport(f.ctx, &types.MsgResolveTagReport{
+			Creator: authorityString(f),
+			TagName: "zenith-tag",
+			Action:  3,
+		})
+		require.ErrorIs(t, err, types.ErrInvalidTagReportAction)
+
+		// Report (and the reporters' locked bond it tracks) survives.
+		got, err := f.keeper.TagReport.Get(f.ctx, "zenith-tag")
+		require.NoError(t, err)
+		require.Equal(t, report.Reporters, got.Reporters)
+		require.Equal(t, "1000", got.TotalBond)
+		_, err = f.keeper.GetTag(f.ctx, "zenith-tag")
+		require.NoError(t, err)
+	})
 }

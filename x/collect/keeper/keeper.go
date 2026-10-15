@@ -93,6 +93,13 @@ type Keeper struct {
 	// CollectRepHooks.AfterMemberAdmitted; drained in EndBlocker (Phase 0).
 	PromotionQueue collections.Map[string, int64]
 
+	// CurationChallengeDeadline: (deadline, reviewID) - pending curation
+	// challenges by not-adjudicated timeout (see ChallengeResolutionTimeoutBlocks).
+	CurationChallengeDeadline collections.KeySet[collections.Pair[int64, uint64]]
+	// CurationChallengeBackfill is the cursor of the one-time backfill that
+	// indexes challenges opened before CurationChallengeDeadline existed.
+	CurationChallengeBackfill collections.Item[uint64]
+
 	// External keepers (optional)
 	blogKeeper     types.BlogKeeper
 	forumKeeper    types.ForumKeeper
@@ -224,6 +231,14 @@ func NewKeeper(
 		PromotionQueue: collections.NewMap(
 			sb, types.PromotionQueueKey, "promotionQueue",
 			collections.StringKey, collections.Int64Value,
+		),
+		CurationChallengeDeadline: collections.NewKeySet(
+			sb, types.CurationChallengeDeadlineKey, "curationChallengeDeadline",
+			collections.PairKeyCodec(collections.Int64Key, collections.Uint64Key),
+		),
+		CurationChallengeBackfill: collections.NewItem(
+			sb, types.CurationChallengeBackfillKey, "curationChallengeBackfill",
+			collections.Uint64Value,
 		),
 	}
 

@@ -3991,7 +3991,7 @@ message MsgAppealGovAction {
 message MsgAppealGovActionResponse {}
 ```
 
-`MsgAppealGovAction` creates a `GovActionAppeal` record and an appeal initiative (via `CreateAppealInitiative`) with deadline = `now + DefaultAppealDeadline`. Appeal resolution is handled via the two paths described in "Appeal Resolution" below.
+`MsgAppealGovAction` creates a `GovActionAppeal` record and an appeal initiative (via `CreateAppealInitiative`) with deadline = `now + DefaultAppealDeadline`. It rejects `POST_HIDE`: post hides are appealed through x/forum's `MsgAppealPost`, which marks the hide appealed so the forum's 7-day hide expiry waits for the verdict (the forum keeper is still the appeal target). Appeal resolution is handled via the two paths described in "Appeal Resolution" below.
 
 ### Appeal Resolution
 

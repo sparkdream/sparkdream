@@ -127,6 +127,7 @@ var (
 	ErrTagReportAlreadyExists = errors.Register(ModuleName, 1916, "report already exists")
 	ErrMaxTagReporters        = errors.Register(ModuleName, 1917, "maximum tag reporters reached")
 	ErrTagReportNotAuthorized = errors.Register(ModuleName, 1918, "not governance authority")
+	ErrInvalidTagReportAction = errors.Register(ModuleName, 1927, "invalid tag report action")
 
 	// Tag budget errors
 	ErrTagBudgetNotFound      = errors.Register(ModuleName, 1919, "tag budget not found")

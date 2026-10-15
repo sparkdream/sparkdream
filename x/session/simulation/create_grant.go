@@ -32,7 +32,7 @@ import (
 //  1. Pick a random granter under the per-(granter, type) cap.
 //  2. Pick a different grantee (different from granter to satisfy
 //     `validateGrantCommon`'s self-delegation rejection).
-//  3. Pick a payload variant uniformly among the three covered types.
+//  3. Pick a payload variant uniformly among the four covered types.
 //  4. Construct a per-variant payload with random-but-valid amounts /
 //     periods / fire times bounded by `session.Params`.
 //  5. Deliver via the standard SimOp pipeline.
@@ -64,7 +64,7 @@ func SimulateMsgCreateGrant(
 
 		// Pick the payload variant first so we know which per-granter
 		// cap to consult when picking the granter.
-		variant := r.Intn(3) // 0=RecurringPull, 1=SpendingAllowance, 2=Oneshot.Transfer
+		variant := r.Intn(4) // 0=RecurringPull, 1=SpendingAllowance, 2=Oneshot.Transfer, 3=SignIn
 
 		var grantType types.GrantType
 		var typeCap uint32
@@ -78,6 +78,9 @@ func SimulateMsgCreateGrant(
 		case 2:
 			grantType = types.GrantType_GRANT_TYPE_SCHEDULED_ONESHOT
 			typeCap = params.MaxPendingOneshotsPerGranter
+		case 3:
+			grantType = types.GrantType_GRANT_TYPE_SIGN_IN
+			typeCap = types.MaxSignInGrantsPerGranter
 		}
 
 		// Find a granter under the per-type cap.
@@ -148,6 +151,17 @@ func SimulateMsgCreateGrant(
 				return simtypes.NoOpMsg(types.ModuleName, msgType, "could not build scheduled_oneshot payload"), nil, nil
 			}
 			msg.Payload = &types.MsgCreateGrant_ScheduledOneshot{ScheduledOneshot: so}
+		case 3:
+			service := simSignInServices[r.Intn(len(simSignInServices))]
+			// one active grant per (granter, grantee, service): a repeat
+			// would fail delivery, so skip it here
+			dup := walkGrantsByType(ctx, k, types.GrantType_GRANT_TYPE_SIGN_IN, func(g types.Grant) bool {
+				return g.Granter == msg.Granter && g.Grantee == msg.Grantee && g.GetSignIn().GetService() == service
+			})
+			if len(dup) > 0 {
+				return simtypes.NoOpMsg(types.ModuleName, msgType, "sign-in grant already exists"), nil, nil
+			}
+			msg.Payload = &types.MsgCreateGrant_SignIn{SignIn: &types.SignInPayload{Service: service}}
 		}
 
 		// Granter must cover gas + (oneshots only) the deposit escrow.
@@ -248,3 +262,6 @@ func buildOneshotTransferPayload(
 		},
 	}, true
 }
+
+// simSignInServices are the hostnames simulated SIGN_IN grants name.
+var simSignInServices = []string{"mstdn.example.org", "social.example.net"}

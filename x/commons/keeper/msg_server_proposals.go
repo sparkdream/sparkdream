@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"slices"
 	"strconv"
 
 	"sparkdream/x/commons/types"
@@ -276,6 +277,18 @@ func (k msgServer) ExecuteProposal(goCtx context.Context, msg *types.MsgExecuteP
 		}
 	}
 
+	// Re-check the policy's allowlist: permissions narrowed or deleted since
+	// the proposal was submitted must stop it, or an emergency de-scoping
+	// leaves every accepted proposal able to run the removed messages.
+	if len(proposal.Messages) > 0 {
+		if err := k.checkProposalPermissions(ctx, proposal); err != nil {
+			proposal.Status = types.ProposalStatus_PROPOSAL_STATUS_FAILED
+			proposal.FailedReason = err.Error()
+			_ = k.Proposals.Set(ctx, msg.ProposalId, proposal)
+			return nil, err
+		}
+	}
+
 	// Execute messages as the policy address via msg router
 	if len(proposal.Messages) > 0 && k.late.router == nil {
 		proposal.Status = types.ProposalStatus_PROPOSAL_STATUS_FAILED
@@ -358,6 +371,26 @@ func (k msgServer) ExecuteProposal(goCtx context.Context, msg *types.MsgExecuteP
 // This is the intended behavior for proposals that enable anonymous voting — it allows
 // broader democratic participation while maintaining the council's structural advantage
 // through weighted votes.
+// checkProposalPermissions reports whether every message in proposal is on
+// its policy's current allowlist.
+func (k Keeper) checkProposalPermissions(ctx context.Context, proposal types.Proposal) error {
+	perms, err := k.PolicyPermissions.Get(ctx, proposal.PolicyAddress)
+	if err != nil {
+		return errorsmod.Wrapf(sdkerrors.ErrUnauthorized, "no permissions found for %s", proposal.PolicyAddress)
+	}
+	for i, anyMsg := range proposal.Messages {
+		var sdkMsg sdk.Msg
+		if err := k.cdc.UnpackAny(anyMsg, &sdkMsg); err != nil {
+			return err
+		}
+		typeURL := sdk.MsgTypeURL(sdkMsg)
+		if !slices.Contains(perms.AllowedMessages, typeURL) {
+			return errorsmod.Wrapf(sdkerrors.ErrUnauthorized, "message %d: %s is no longer allowed for policy %s", i, typeURL, proposal.PolicyAddress)
+		}
+	}
+	return nil
+}
+
 func (k Keeper) checkThreshold(ctx context.Context, proposal types.Proposal) (bool, error) {
 	decPolicy, err := k.DecisionPolicies.Get(ctx, proposal.PolicyAddress)
 	if err != nil {
@@ -392,18 +425,6 @@ func (k Keeper) checkThreshold(ctx context.Context, proposal types.Proposal) (bo
 		return false, err
 	}
 
-	// Include anonymous votes (weight=1 each)
-	anonTally, anonErr := k.AnonVoteTallies.Get(ctx, proposal.Id)
-	if anonErr == nil {
-		yesDec := math.LegacyNewDecFromInt(math.NewIntFromUint64(anonTally.YesCount))
-		noDec := math.LegacyNewDecFromInt(math.NewIntFromUint64(anonTally.NoCount))
-		abstainDec := math.LegacyNewDecFromInt(math.NewIntFromUint64(anonTally.AbstainCount))
-		vetoDec := math.LegacyNewDecFromInt(math.NewIntFromUint64(anonTally.NoWithVetoCount))
-		anonTotalDec := yesDec.Add(noDec).Add(abstainDec).Add(vetoDec)
-		yesWeight = yesWeight.Add(yesDec)
-		totalWeight = totalWeight.Add(anonTotalDec)
-	}
-
 	if totalWeight.IsZero() {
 		return false, nil
 	}
@@ -414,7 +435,7 @@ func (k Keeper) checkThreshold(ctx context.Context, proposal types.Proposal) (bo
 	}
 
 	if decPolicy.PolicyType == "percentage" {
-		// Percentage: yesWeight / (totalGroupWeight + anonTotal) >= threshold
+		// Percentage: yesWeight / totalGroupWeight >= threshold
 		allMembers, err := k.GetCouncilMembers(ctx, proposal.CouncilName)
 		if err != nil {
 			return false, err
@@ -426,15 +447,6 @@ func (k Keeper) checkThreshold(ctx context.Context, proposal types.Proposal) (bo
 				continue
 			}
 			groupWeight = groupWeight.Add(w)
-		}
-		// Add anonymous votes to the denominator
-		if anonErr == nil {
-			yesDec := math.LegacyNewDecFromInt(math.NewIntFromUint64(anonTally.YesCount))
-			noDec := math.LegacyNewDecFromInt(math.NewIntFromUint64(anonTally.NoCount))
-			abstainDec := math.LegacyNewDecFromInt(math.NewIntFromUint64(anonTally.AbstainCount))
-			vetoDec := math.LegacyNewDecFromInt(math.NewIntFromUint64(anonTally.NoWithVetoCount))
-			anonTotalDec := yesDec.Add(noDec).Add(abstainDec).Add(vetoDec)
-			groupWeight = groupWeight.Add(anonTotalDec)
 		}
 		if groupWeight.IsZero() {
 			return false, nil

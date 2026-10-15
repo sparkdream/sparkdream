@@ -29,6 +29,8 @@ func TestRegisterName(t *testing.T) {
 	bobAddr := sdk.AccAddress([]byte("bob_test_address____"))
 	bob := bobAddr.String()
 
+	carol := sdk.AccAddress([]byte("carol_test_address__")).String()
+
 	// Helper function for the common setup required by RegisterName
 	commonSetup := func(c sdk.Context) {
 		mockRK.Reset()
@@ -139,6 +141,48 @@ func TestRegisterName(t *testing.T) {
 				rec, err := k.Names.Get(c, "expired-name")
 				require.NoError(t, err)
 				require.Equal(t, alice, rec.Owner, "Alice should have stolen the name")
+			},
+		},
+		{
+			// The old owner pointed the name at an accepted target that set it
+			// as primary. Scavenging writes a fresh record without a target,
+			// so the target's acceptance and primary must go with it —
+			// otherwise ReverseResolve(target) keeps showing a name the
+			// scavenger now controls.
+			desc: "Success - Scavenge Clears Old Accepted Target",
+			msg: &types.MsgRegisterName{
+				Authority: alice,
+				Name:      "hijacked",
+			},
+			runBefore: func(c sdk.Context) {
+				commonSetup(c)
+				_ = k.Names.Set(c, "hijacked", types.NameRecord{
+					Name: "hijacked", Owner: bob, Target: carol, TargetAccepted: true,
+				})
+				_ = k.OwnerNames.Set(c, collections.Join(bob, "hijacked"))
+				_ = k.AcceptedTargets.Set(c, collections.Join(carol, "hijacked"))
+				expiredTime := c.BlockTime().Add(-(24 * 365 * 10 * time.Hour)).Unix()
+				_ = k.Owners.Set(c, bob, types.OwnerInfo{Address: bob, LastActiveTime: expiredTime})
+				_ = k.Owners.Set(c, carol, types.OwnerInfo{
+					Address: carol, LastActiveTime: c.BlockTime().Unix(), PrimaryName: "hijacked",
+				})
+			},
+			check: func(t *testing.T, c sdk.Context) {
+				rec, err := k.Names.Get(c, "hijacked")
+				require.NoError(t, err)
+				require.Equal(t, alice, rec.Owner)
+				require.Empty(t, rec.Target)
+
+				has, err := k.AcceptedTargets.Has(c, collections.Join(carol, "hijacked"))
+				require.NoError(t, err)
+				require.False(t, has, "old accepted-target entry must be removed")
+
+				info, err := k.Owners.Get(c, carol)
+				require.NoError(t, err)
+				require.Empty(t, info.PrimaryName, "old target's primary must be cleared")
+
+				_, err = keeper.NewQueryServerImpl(k).ReverseResolve(c, &types.QueryReverseResolveRequest{Address: carol})
+				require.Equal(t, codes.NotFound, status.Code(err))
 			},
 		},
 		{

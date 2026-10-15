@@ -1,7 +1,10 @@
 package keeper_test
 
 import (
+	"strings"
 	"testing"
+
+	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 
 	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/forum/types"
@@ -164,4 +167,65 @@ func TestFlagPostWeight(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 2, len(flag.Flaggers))
 	require.Contains(t, flag.Flaggers, testSentinel)
+}
+
+// MsgFlagPost input validation: category must be a concrete ModerationReason,
+// OTHER needs reason text, the reason is length-capped, and authors cannot
+// flag their own posts (anonymous flags via the shield account are exempt).
+func TestFlagPost_Validation(t *testing.T) {
+	f := initFixture(t)
+	cat := f.createTestCategory(t, "General")
+	post := f.createTestPost(t, testCreator, 0, cat.CategoryId)
+	anonPost := f.createTestPost(t, testCreator, 0, cat.CategoryId)
+	shieldAddr := authtypes.NewModuleAddress("shield").String()
+	p, err := f.keeper.Post.Get(f.ctx, anonPost.PostId)
+	require.NoError(t, err)
+	p.Author = shieldAddr
+	require.NoError(t, f.keeper.Post.Set(f.ctx, anonPost.PostId, p))
+
+	spam := uint64(commontypes.ModerationReason_MODERATION_REASON_SPAM)
+	other := uint64(commontypes.ModerationReason_MODERATION_REASON_OTHER)
+
+	tests := []struct {
+		name    string
+		creator string
+		postID  uint64
+		cat     uint64
+		reason  string
+		wantErr error
+	}{
+		{"unspecified category", testCreator2, post.PostId, 0, "x", types.ErrInvalidReasonCode},
+		{"category past enum", testCreator2, post.PostId, other + 1, "x", types.ErrInvalidReasonCode},
+		{"category overflows int32", testCreator2, post.PostId, 1 << 32, "x", types.ErrInvalidReasonCode},
+		{"OTHER without reason", testCreator2, post.PostId, other, "", types.ErrReasonTextRequired},
+		{"OTHER with whitespace reason", testCreator2, post.PostId, other, "   ", types.ErrReasonTextRequired},
+		{"reason too long", testCreator2, post.PostId, spam, strings.Repeat("a", types.MaxFlagReasonLength+1), types.ErrFlagReasonTooLong},
+		{"self flag", testCreator, post.PostId, spam, "mine", types.ErrCannotFlagOwnPost},
+		{"reason at cap", testCreator2, post.PostId, spam, strings.Repeat("a", types.MaxFlagReasonLength), nil},
+		{"OTHER with reason", testCreator2, post.PostId, other, "explained", nil},
+		{"non-OTHER without reason", testCreator2, post.PostId, spam, "", nil},
+		{"anonymous flag on anonymous post", shieldAddr, anonPost.PostId, spam, "anon", nil},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_ = f.keeper.PostFlag.Remove(f.ctx, tt.postID)
+			_, err := f.msgServer.FlagPost(f.ctx, &types.MsgFlagPost{
+				Creator:  tt.creator,
+				PostId:   tt.postID,
+				Category: tt.cat,
+				Reason:   tt.reason,
+			})
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+				_, getErr := f.keeper.PostFlag.Get(f.ctx, tt.postID)
+				require.Error(t, getErr, "rejected flag must not write a PostFlag")
+				return
+			}
+			require.NoError(t, err)
+			flag, err := f.keeper.PostFlag.Get(f.ctx, tt.postID)
+			require.NoError(t, err)
+			require.Contains(t, flag.Flaggers, tt.creator)
+		})
+	}
 }

@@ -2,7 +2,7 @@
 
 ## 1. Abstract
 
-The `x/session` module is the chain's **unified registry for delegated authorization** — any "I authorize you to do X on my behalf, under these constraints" primitive. One `Grant` record carries four typed payload variants, sharing one storage backbone, one revocation surface, and one anti-recursion denylist:
+The `x/session` module is the chain's **unified registry for delegated authorization** — any "I authorize you to do X on my behalf, under these constraints" primitive. One `Grant` record carries five typed payload variants, sharing one storage backbone, one revocation surface, and one anti-recursion denylist:
 
 | Variant | Use case | Action message |
 |---|---|---|
@@ -10,12 +10,13 @@ The `x/session` module is the chain's **unified registry for delegated authoriza
 | `RecurringPull` | Periodic SendCoins from granter to grantee (subscriptions, salaries, allowances) | `MsgClaimRecurringPull` |
 | `SpendingAllowance` | Refilling per-period cap; grantee picks recipient + amount within budget | `MsgPullAllowance` |
 | `ScheduledOneshot` | Single fire-once action at `fire_at` (Transfer or any allowlisted msg) | EndBlocker-fired |
+| `SignIn` | Grantee may sign in to a named off-chain service (e.g. a Mastodon instance) as the granter | None on chain: the service reads the grant (§30) |
 
 Inspired by [EIP-7702 (Set Code for EOAs)](https://eips.ethereum.org/EIPS/eip-7702) and the [ERC-7710 / ERC-7715](https://eips.ethereum.org/EIPS/eip-7710) permission-delegation standards converging on the EVM side; Cosmos accounts can't host code so we host the policies in a module-resident registry instead.
 
 Universal lifecycle messages: `MsgCreateGrant` (payload-dispatching umbrella), `MsgRevokeGrant`, `MsgDeclineGrant`. Type-specific actions per the table above plus `MsgRetryScheduledOneshot` for the paused-oneshot recovery path. Legacy `MsgCreateSession` / `MsgRevokeSession` remain as wire-compatible facades, internally writing a SESSION_KEY-type `Grant`.
 
-**Design philosophy:** Build exactly what delegated authorization needs, nothing more. Unlike `x/authz` (general-purpose authorization with recursive execution, typed authorizations, and complex grant hierarchies), x/session is purpose-built for the four authorization patterns above.
+**Design philosophy:** Build exactly what delegated authorization needs, nothing more. Unlike `x/authz` (general-purpose authorization with recursive execution, typed authorizations, and complex grant hierarchies), x/session is purpose-built for the authorization patterns above.
 
 **Why not x/authz + x/feegrant?**
 - **Licensing risk**: Both are extracted Go modules (`cosmossdk.io/x/authz`, `cosmossdk.io/x/feegrant`) that can be independently relicensed, as has already happened with at least one other extracted SDK module.
@@ -433,6 +434,8 @@ var NonDelegableSessionMsgs = map[string]bool{
     "/sparkdream.session.v1.MsgUpdateOperationalParams": true,
 }
 ```
+
+**Foreign forbidden msgs.** `ForbiddenAllowlistMsgs` ([x/session/types/params.go](../x/session/types/params.go)) is the same kind of guard for other modules' msgs: `Params.Validate` (run at genesis and by `MsgUpdateParams`) rejects any of them in either list. It holds x/service's `NonDelegableMsgTypeURLs` (`MsgRegisterOperator`, `MsgUnbondOperator`) plus `/sparkdream.service.v1.MsgTopUpBond`, which moves SPARK into the bond — a session's `SpendLimit` budgets fees only, so it cannot cap that. Earlier genesis defaults admitted `MsgUnbondOperator` and `MsgTopUpBond`; networks dropped them with the reset that shipped this guard.
 
 **Emergency response flow:**
 
@@ -1145,7 +1148,7 @@ sparkdreamd query session allowed-msg-types
 
 # Part 2: Unified Grant Registry
 
-Sections 1-19 above describe the SessionKey variant — the original module surface, preserved for the post-refactor SESSION_KEY-type grant. Sections 20-26 below describe the other three payload variants (RecurringPull, SpendingAllowance, ScheduledOneshot), the unified lifecycle messages (`MsgCreateGrant`, `MsgRevokeGrant`, `MsgDeclineGrant`), the events stability declaration, the full CLI reference, and the migration/deprecation policy.
+Sections 1-19 above describe the SessionKey variant — the original module surface, preserved for the post-refactor SESSION_KEY-type grant. Sections 20-26 below describe the RecurringPull, SpendingAllowance and ScheduledOneshot payload variants, the unified lifecycle messages (`MsgCreateGrant`, `MsgRevokeGrant`, `MsgDeclineGrant`), the events stability declaration, the full CLI reference, and the migration/deprecation policy.
 
 ## 20. The `Grant` record
 
@@ -1168,6 +1171,7 @@ message Grant {
     RecurringPullPayload      recurring_pull     = 21;
     SpendingAllowancePayload  spending_allowance = 22;
     ScheduledOneshotPayload   scheduled_oneshot  = 23;
+    SignInPayload             sign_in            = 24;
   }
 }
 
@@ -1177,6 +1181,7 @@ enum GrantType {
   GRANT_TYPE_RECURRING_PULL = 2;
   GRANT_TYPE_SPENDING_ALLOWANCE = 3;
   GRANT_TYPE_SCHEDULED_ONESHOT = 4;
+  GRANT_TYPE_SIGN_IN = 5;
 }
 
 enum GrantStatus {
@@ -1270,7 +1275,7 @@ message ScheduledOneshotPayload {
     OneshotExec     exec     = 2;            // Dispatches an Any-encoded msg as if signed by granter
   }
   int64 fire_at = 10;
-  string fire_error = 11;                    // Captured failure reason (Exec only)
+  string fire_error = 11;                    // Captured failure reason of the last fire attempt
 }
 
 message OneshotTransfer {
@@ -1341,7 +1346,9 @@ A handler is **OneshotExec-safe** iff it satisfies all of:
 
 ### 23.4. Pause / retry
 
-If the Transfer variant's `bankKeeper.SendCoins` fails at fire time, the grant pauses (status → `PAUSED_INSUFFICIENT_FUNDS`). `MsgRetryScheduledOneshot { caller, grant_id }` (caller = granter OR grantee) sets `fire_at = block_time` and flips back to ACTIVE.
+If the Transfer variant's `bankKeeper.SendCoins` fails at fire time with `ErrInsufficientFunds`, the grant pauses (status → `PAUSED_INSUFFICIENT_FUNDS`, `grant_paused_underfunded` event) instead of firing: the gas deposit stays in escrow, the grant keeps its per-granter slot, `fire_error` records the failure, and `fire_at` is rewritten to the pause time. The grant is indexed in `PausedOneshotByPauseTime` under `(pause_time, id)`; because the key is derivable from the grant, InitGenesis rebuilds the index without exporting it. `MsgRetryScheduledOneshot { caller, grant_id }` (caller = granter OR grantee) drops that index entry, clears `fire_error`, sets `fire_at = block_time` and flips back to ACTIVE, so the same block's fire pass re-attempts it.
+
+Every other fire-time failure is terminal (FIRED-with-error, deposit to the fee collector): a claim-hook veto, a bank error other than insufficient funds, and every Exec-variant failure, since a retry could not change their outcome. A granter already holding `max_paused_oneshots_per_granter` paused oneshots also gets the terminal path, so paused grants stay bounded.
 
 Retry errors are distinct sentinels (Rev 3 §M1):
 
@@ -1352,7 +1359,7 @@ Retry errors are distinct sentinels (Rev 3 §M1):
 | `ErrGrantTerminal` | Grant is `REVOKED` / `DECLINED` / `COMPLETED` / `FIRED` |
 | `ErrUnauthorizedRetry` | Caller is neither granter nor grantee |
 
-The EndBlocker auto-revoke pass drops paused oneshots older than `paused_oneshot_ttl_seconds` (default 7d) and refunds the deposit.
+The EndBlocker auto-revoke pass walks `PausedOneshotByPauseTime` and drops oneshots paused for at least `paused_oneshot_ttl_seconds` (default 7d), counted from the pause, not from creation. It refunds the deposit, deletes the grant and releases its per-granter slot, and emits `grant_auto_revoked`. Revoke, decline and expiry of a paused oneshot clear its index entry along with the grant.
 
 ## 24. Anti-recursion + `allow_self_revoke`
 
@@ -1419,7 +1426,7 @@ Every state-changing operation emits a typed event. Event types and attribute ke
 | `grant_declined` | `MsgDeclineGrant` success | `id`, `type`, `granter`, `grantee`, `refund_amount` |
 | `grant_expired` | EndBlocker expire pass (non-SessionKey) | `id`, `type`, `granter`, `grantee` |
 | `session_expired` | EndBlocker expire pass (SessionKey, legacy) | `granter`, `grantee`, `exec_count`, `spent`, `grant_id` |
-| `grant_paused_underfunded` | RecurringPull / SpendingAllowance bank-send failure | `id`, `type`, `granter`, `grantee`, `attempted_amount` |
+| `grant_paused_underfunded` | RecurringPull / SpendingAllowance bank-send failure; ScheduledOneshot Transfer insufficient funds at fire time | `id`, `type`, `granter`, `grantee`, `attempted_amount` |
 | `grant_resumed` | PAUSED→ACTIVE on successful retry/claim | `id`, `type`, `granter`, `grantee` |
 | `grant_auto_revoked` | Paused-TTL auto-revoke pass | `id`, `granter`, `grantee`, `refund_amount` |
 | `session_created` | `MsgCreateSession` (legacy) | `granter`, `grantee`, `expiration`, `grant_id` |
@@ -1710,3 +1717,27 @@ landed:
 Two privileged keeper methods (`DeclineGrantInternal`,
 `ClaimRecurringPullForGrantee`) were added in M2 to support the
 wrappers — see [§28](#28-module-bypass-keeper-entrypoints-p8-foundation).
+
+## 30. SignIn variant
+
+A SignIn grant records that the grantee may sign in to one off-chain service as the granter. Nothing on chain executes through it: there is no action message, budget or exec count. The service enforces it, reading the grantee's grants and honouring only an active one naming its own hostname. The first consumer is the wallet sign-in of a Spark Dream Mastodon instance (sdaplogin): a member grants a second key of theirs, the second key signs the login challenge, and the instance signs them in to the granter's account.
+
+```protobuf
+message SignInPayload {
+  string service = 1; // lowercase DNS hostname, e.g. "mstdn.sparkdream.io"
+}
+```
+
+Enforced in `validateSignInPayload` ([x/session/keeper/grant_validation.go](../x/session/keeper/grant_validation.go)):
+
+- `service` passes `types.ValidSignInService`: a lowercase DNS hostname of at least two labels, each 1-63 letters, digits or inner hyphens, 253 characters at most. Uppercase, a trailing dot, a port, a scheme or a path is refused, not normalized, so a grant names its service in exactly one spelling and a service compares it byte for byte with its own hostname.
+- At most one active grant per `(granter, grantee, service)` (`ErrSignInGrantExists`); a revoked, declined or expired one frees the slot.
+- At most `types.MaxSignInGrantsPerGranter` (20) active SignIn grants per granter (`ErrMaxSignInGrantsExceeded`). A constant rather than a param, so a chain upgraded without a params migration does not read a zero cap and refuse every grant.
+- Expiration is bounded by the universal `max_grant_lifetime_seconds` only. The session key's narrower `max_expiration` does not apply: a sign-in grant is a standing delegation to a key the granter holds, not an ephemeral browser key.
+- The grantee need not be a member. A service checks the granter's standing (membership, trust level) at each sign-in, since that is the identity being used.
+
+Revoke (`MsgRevokeGrant`, granter), decline (`MsgDeclineGrant`, grantee) and expiry remove the grant like any other, emitting `grant_revoked`, `grant_declined` or `grant_expired` with `type = GRANT_TYPE_SIGN_IN`. Ending the grant does not end sessions a service already opened through it; the service is expected to re-check and close them (sdaplogin's consumer, the Mastodon image's hourly sweep, does).
+
+A service lists the grants it may honour with `GET /sparkdream/session/v1/grants/by_grantee/{grantee}?type=GRANT_TYPE_SIGN_IN` and keeps those with `status = GRANT_STATUS_ACTIVE`, `expires_at` in the future and `sign_in.service` equal to its hostname.
+
+The variant shipped with a network reset, not a software upgrade ([docs/chain-upgrades.md](chain-upgrades.md)).

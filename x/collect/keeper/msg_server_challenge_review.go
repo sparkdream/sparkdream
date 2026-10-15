@@ -4,6 +4,7 @@ import (
 	"context"
 	"strconv"
 
+	"cosmossdk.io/collections"
 	errorsmod "cosmossdk.io/errors"
 	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -114,6 +115,13 @@ func (k msgServer) ChallengeReview(ctx context.Context, msg *types.MsgChallengeR
 		return nil, errorsmod.Wrap(err, "failed to update review")
 	}
 
+	// Schedule the not-adjudicated timeout (EndBlocker §10.7) so neither the
+	// deposit nor the reservation can stay locked if no verdict arrives.
+	deadline := currentBlock + types.ChallengeResolutionTimeoutBlocks
+	if err := k.CurationChallengeDeadline.Set(ctx, collections.Join(deadline, msg.ReviewId)); err != nil {
+		return nil, errorsmod.Wrap(err, "failed to schedule challenge timeout")
+	}
+
 	// Bump per-module curator activity counters.
 	activity, _ := k.CuratorActivity.Get(ctx, review.Curator)
 	if activity.Address == "" {
@@ -132,6 +140,7 @@ func (k msgServer) ChallengeReview(ctx context.Context, msg *types.MsgChallengeR
 		sdk.NewAttribute("curator", review.Curator),
 		sdk.NewAttribute("challenge_deposit", params.ChallengeDeposit.String()),
 		sdk.NewAttribute("committed_slash", slashBudget.String()),
+		sdk.NewAttribute("timeout_at", strconv.FormatInt(deadline, 10)),
 	))
 
 	return &types.MsgChallengeReviewResponse{}, nil

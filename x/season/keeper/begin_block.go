@@ -491,14 +491,19 @@ func (k Keeper) processResetXPPhase(ctx context.Context, state *types.SeasonTran
 		profile := kv.Value
 		lastKey = kv.Key
 
-		// Create season history entry before reset
+		// Record the pre-reset XP/level in the season history entry. The
+		// SNAPSHOT phase already wrote the full record (DREAM balance,
+		// reputation, initiatives, achievements), so update only the XP
+		// fields in place; a fresh minimal record is written only when no
+		// snapshot exists (e.g. the SNAPSHOT phase was skipped).
 		if profile.SeasonXp > 0 {
 			snapshotKey := fmt.Sprintf("%d/%s", season.Number, profile.Address)
-			snapshot := types.MemberSeasonSnapshot{
-				SeasonAddress: snapshotKey,
-				XpEarned:      profile.SeasonXp,
-				SeasonLevel:   profile.SeasonLevel,
+			snapshot, err := k.MemberSeasonSnapshot.Get(ctx, snapshotKey)
+			if err != nil {
+				snapshot = types.MemberSeasonSnapshot{SeasonAddress: snapshotKey}
 			}
+			snapshot.XpEarned = profile.SeasonXp
+			snapshot.SeasonLevel = profile.SeasonLevel
 			_ = k.MemberSeasonSnapshot.Set(ctx, snapshotKey, snapshot)
 		}
 

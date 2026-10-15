@@ -6,7 +6,6 @@ import (
 
 	"sparkdream/x/name/types"
 
-	"cosmossdk.io/collections"
 	errorsmod "cosmossdk.io/errors"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
@@ -156,16 +155,9 @@ func (k Keeper) transferName(ctx context.Context, name string, newOwnerStr strin
 
 	// Clear any accepted-target relationship: the prior target's consent was
 	// tied to the prior owner's identity; the new owner must re-establish it.
-	if recordFound && record.Target != "" && record.TargetAccepted {
-		if err := k.AcceptedTargets.Remove(ctx, collections.Join(record.Target, name)); err != nil {
+	if recordFound {
+		if err := k.clearTargetConsent(ctx, record); err != nil {
 			return err
-		}
-		prevInfo, err := k.Owners.Get(ctx, record.Target)
-		if err == nil && prevInfo.PrimaryName == name {
-			prevInfo.PrimaryName = ""
-			if err := k.Owners.Set(ctx, record.Target, prevInfo); err != nil {
-				return err
-			}
 		}
 	}
 

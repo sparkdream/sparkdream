@@ -34,5 +34,19 @@ func (q queryServer) ReverseResolve(ctx context.Context, req *types.QueryReverse
 		return nil, status.Error(codes.NotFound, "account has no primary name set")
 	}
 
+	// Verify the forward mapping before answering: the primary must still be
+	// owned by the address, or name it as its accepted target. A primary
+	// left behind by a path that changed the record without clearing it must
+	// not let the address display a name it no longer resolves from.
+	record, found := q.k.GetName(ctx, ownerInfo.PrimaryName)
+	if !found {
+		return nil, status.Error(codes.NotFound, "account has no primary name set")
+	}
+	owns := record.Owner == req.Address
+	accepted := record.Target == req.Address && record.TargetAccepted
+	if !owns && !accepted {
+		return nil, status.Error(codes.NotFound, "account has no primary name set")
+	}
+
 	return &types.QueryReverseResolveResponse{Name: ownerInfo.PrimaryName}, nil
 }

@@ -154,6 +154,7 @@ Members of a linked chain sign in to the launcher's Mastodon with Keplr through 
 - Mastodon's request phase discovers the provider;
 - a non-member is refused;
 - a member's signature ends in a signed-in Mastodon session, with the account named from the x/name, confirmed, and with registrations still closed;
+- a second key holding the member's x/session SIGN_IN grant for the instance is offered the member's account, signs in to it without a second account appearing, and its session is recorded against the grant; once the grant is gone, the 10-minute delegated-session sweep signs that browser out and leaves the member's own session alone;
 - the hourly sweep disables the member once they leave the chain.
 
 It needs docker, curl, jq, openssl, python3 and go; `MASTODON_IMAGE` and `SDAP_IMAGE` skip the builds. The provider's own logic (signature checks, trust floor, codes, PKCE, tokens) is unit-tested in `go test ./cmd/sdaplogin`, against a sign-doc vector made with cosmjs.

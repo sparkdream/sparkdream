@@ -191,8 +191,10 @@ message Params {
 The `min_verification_votes` param is a **base minimum** (default 3). The effective minimum scales with tranche valuation to ensure larger payouts receive proportionally more scrutiny:
 
 ```
-effective_min_votes = max(min_verification_votes, tranche_stake_threshold / 5000)
+effective_min_votes = max(min_verification_votes, tranche_stake_threshold / 5000 DREAM)
 ```
+
+`stake_threshold` is stored in udream, so the divisor is `5_000_000_000` udream (integer division, remainder truncated).
 
 For example: a 15,000 DREAM tranche requires at least 3 votes (15000/5000 = 3), while a 50,000 DREAM tranche requires at least 10.
 

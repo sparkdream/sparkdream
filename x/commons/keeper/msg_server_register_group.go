@@ -123,6 +123,9 @@ func (k msgServer) RegisterGroup(goCtx context.Context, msg *types.MsgRegisterGr
 	if err != nil {
 		return nil, err
 	}
+	if err := k.validateMemberWeights(ctx, msg.Name, members, isGov); err != nil {
+		return nil, err
+	}
 
 	councilID, err := k.CouncilSeq.Next(ctx)
 	if err != nil {
@@ -217,6 +220,9 @@ func (k msgServer) RegisterGroup(goCtx context.Context, msg *types.MsgRegisterGr
 	}
 	if err := k.PolicyToName.Set(ctx, policyAddrStr, msg.Name); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to set policy index")
+	}
+	if err := k.syncGoldenShareWeight(ctx, msg.Name); err != nil {
+		return nil, err
 	}
 
 	if msg.FutarchyEnabled {

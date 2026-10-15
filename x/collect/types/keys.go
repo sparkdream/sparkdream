@@ -123,4 +123,31 @@ var (
 	// CollectRepHooks.AfterMemberAdmitted and drained in EndBlocker (Phase 0)
 	// up to params.max_promotions_per_block units of work per block.
 	PromotionQueueKey = collections.NewPrefix("promotion_queue/")
+
+	// CurationChallengeDeadlineKey: (deadline, reviewID) → empty - pending
+	// curation challenges ordered by their not-adjudicated timeout. Written by
+	// MsgChallengeReview, backfilled for older challenges by the EndBlocker.
+	CurationChallengeDeadlineKey = collections.NewPrefix("curation_review/challenge_deadline/")
+
+	// CurationChallengeBackfillKey: next review ID the EndBlocker backfill
+	// scans for challenges opened before CurationChallengeDeadline existed;
+	// ChallengeBackfillDone once the scan has covered every review.
+	CurationChallengeBackfillKey = collections.NewPrefix("curation_review/challenge_backfill/")
+)
+
+// Curation challenge timeout. No x/rep jury is opened for a curation challenge
+// today, so a challenge nobody adjudicates is resolved neutrally once this many
+// blocks have passed: the curator's committed slash is released and the
+// challenger's deposit is returned. Compiled constants, not params.
+const (
+	// ChallengeResolutionTimeoutBlocks is the window after a challenge is
+	// filed before it times out (~14 days at ~6s blocks).
+	ChallengeResolutionTimeoutBlocks int64 = 201600
+
+	// ChallengeBackfillScanPerBlock caps the reviews the one-time backfill
+	// reads per block.
+	ChallengeBackfillScanPerBlock = 100
+
+	// ChallengeBackfillDone is the backfill cursor value once it has finished.
+	ChallengeBackfillDone uint64 = ^uint64(0)
 )

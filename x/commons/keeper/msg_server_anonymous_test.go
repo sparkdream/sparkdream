@@ -180,87 +180,34 @@ func TestAnonymousVoteProposal_UnauthorizedVoter(t *testing.T) {
 	require.Contains(t, err.Error(), "only the shield module account")
 }
 
-func TestAnonymousVoteProposal_ProposalNotFound(t *testing.T) {
-	k, ctx, _ := setupCommonsKeeper(t)
-	msgServer := keeper.NewMsgServerImpl(k)
-
-	_, err := msgServer.AnonymousVoteProposal(ctx, &types.MsgAnonymousVoteProposal{
-		Voter:      shieldModuleAddr(),
-		ProposalId: 9999,
-		Option:     types.VoteOption_VOTE_OPTION_YES,
-	})
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "not found")
-}
-
-func TestAnonymousVoteProposal_UnspecifiedOption(t *testing.T) {
-	k, ctx, _ := setupCommonsKeeper(t)
-	msgServer := keeper.NewMsgServerImpl(k)
-
-	pid := submitAnonProposal(t, k, ctx)
-
-	_, err := msgServer.AnonymousVoteProposal(ctx, &types.MsgAnonymousVoteProposal{
-		Voter:      shieldModuleAddr(),
-		ProposalId: pid,
-		Option:     types.VoteOption_VOTE_OPTION_UNSPECIFIED,
-	})
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "vote option must be specified")
-}
-
-func TestAnonymousVoteProposal_TalliesIncrement(t *testing.T) {
+// Anonymous votes are refused on every proposal, and nothing is tallied.
+func TestAnonymousVoteProposal_Disabled(t *testing.T) {
 	k, ctx, _ := setupCommonsKeeper(t)
 	msgServer := keeper.NewMsgServerImpl(k)
 
 	pid := submitAnonProposal(t, k, ctx)
 
 	for _, opt := range []types.VoteOption{
+		types.VoteOption_VOTE_OPTION_YES,
 		types.VoteOption_VOTE_OPTION_NO,
-		types.VoteOption_VOTE_OPTION_ABSTAIN,
-		types.VoteOption_VOTE_OPTION_NO_WITH_VETO,
 	} {
 		_, err := msgServer.AnonymousVoteProposal(ctx, &types.MsgAnonymousVoteProposal{
 			Voter:      shieldModuleAddr(),
 			ProposalId: pid,
 			Option:     opt,
 		})
-		require.NoError(t, err)
+		require.ErrorIs(t, err, types.ErrAnonymousVotingDisabled)
 	}
 
-	tally, err := k.AnonVoteTallies.Get(ctx, pid)
+	has, err := k.AnonVoteTallies.Has(ctx, pid)
 	require.NoError(t, err)
-	require.Equal(t, uint64(0), tally.YesCount)
-	require.Equal(t, uint64(1), tally.NoCount)
-	require.Equal(t, uint64(1), tally.AbstainCount)
-	require.Equal(t, uint64(1), tally.NoWithVetoCount)
+	require.False(t, has)
 }
 
-func TestAnonymousVoteProposal_VotingDeadlinePassed(t *testing.T) {
-	k, ctx, _ := setupCommonsKeeper(t)
-	msgServer := keeper.NewMsgServerImpl(k)
-
-	pid := submitAnonProposal(t, k, ctx)
-
-	// Advance proposal's voting deadline into the past.
-	prop, err := k.Proposals.Get(ctx, pid)
-	require.NoError(t, err)
-	prop.VotingDeadline = ctx.BlockTime().Unix() - 1
-	require.NoError(t, k.Proposals.Set(ctx, pid, prop))
-
-	_, err = msgServer.AnonymousVoteProposal(ctx, &types.MsgAnonymousVoteProposal{
-		Voter:      shieldModuleAddr(),
-		ProposalId: pid,
-		Option:     types.VoteOption_VOTE_OPTION_YES,
-	})
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "voting period has ended")
-}
-
-// The proposal queries report anonymous votes alongside member votes: zeros
-// before any anonymous vote (no tally record yet), then the running counts.
+// The proposal queries still report a stored anonymous tally (one recorded
+// before anonymous votes were disabled): zeros when there is none.
 func TestProposalQueries_ReportAnonTally(t *testing.T) {
 	k, ctx, _ := setupCommonsKeeper(t)
-	msgServer := keeper.NewMsgServerImpl(k)
 	qs := keeper.NewQueryServerImpl(k)
 
 	pid := submitAnonProposal(t, k, ctx)
@@ -269,12 +216,8 @@ func TestProposalQueries_ReportAnonTally(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, types.AnonVoteTally{}, got.AnonTally)
 
-	// No YES majority, so the proposal stays open for all three votes.
-	for _, opt := range []types.VoteOption{types.VoteOption_VOTE_OPTION_NO, types.VoteOption_VOTE_OPTION_NO, types.VoteOption_VOTE_OPTION_ABSTAIN} {
-		_, err := msgServer.AnonymousVoteProposal(ctx, &types.MsgAnonymousVoteProposal{Voter: shieldModuleAddr(), ProposalId: pid, Option: opt})
-		require.NoError(t, err)
-	}
 	want := types.AnonVoteTally{NoCount: 2, AbstainCount: 1}
+	require.NoError(t, k.AnonVoteTallies.Set(ctx, pid, want))
 
 	got, err = qs.GetProposal(ctx, &types.QueryGetProposalRequest{ProposalId: pid})
 	require.NoError(t, err)

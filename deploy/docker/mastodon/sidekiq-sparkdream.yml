@@ -2,3 +2,7 @@
       every: ['1h', first_in: '10m']
       class: SparkdreamMembershipSweepWorker
       queue: scheduler
+    sparkdream_delegated_session_sweep:
+      every: ['10m', first_in: '5m']
+      class: SparkdreamDelegatedSessionSweepWorker
+      queue: scheduler

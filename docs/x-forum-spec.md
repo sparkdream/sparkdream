@@ -1931,7 +1931,7 @@ Flag a post for sentinel review. Free for members, SPARK fee for non-members.
 | `flagger` | `string` | User address (signer) |
 | `post_id` | `uint64` | Post to flag |
 | `category` | `FlagCategory` | Structured flag category (see enum) |
-| `reason` | `string` | Custom reason (required if category=OTHER, optional otherwise, max 256 chars) |
+| `reason` | `string` | Custom reason (required if category=OTHER, optional otherwise, max `MaxFlagReasonLength` = 512 bytes) |
 
 **Flag Categories:**
 | Category | Use Case |
@@ -1958,10 +1958,10 @@ Flag a post for sentinel review. Free for members, SPARK fee for non-members.
    - Load post by `post_id`
    - Fail with `ErrPostNotFound` if post does not exist
    - Fail with `ErrCannotFlagHiddenPost` if `post.status == HIDDEN`
-   - Fail with `ErrCannotFlagOwnPost` if `flagger == post.author`
-   - Fail with `ErrInvalidFlagCategory` if `category == UNSPECIFIED`
-   - Fail with `ErrFlagReasonRequired` if `category == OTHER` and `reason` is empty
-   - Fail with `ErrFlagReasonTooLong` if `len(reason) > 256`
+   - Fail with `ErrCannotFlagOwnPost` if `flagger == post.author` (skipped for anonymous flags, whose signer is the shield module account)
+   - Fail with `ErrInvalidReasonCode` if `category == UNSPECIFIED` or outside the `ModerationReason` enum
+   - Fail with `ErrReasonTextRequired` if `category == OTHER` and `reason` is empty/whitespace
+   - Fail with `ErrFlagReasonTooLong` if `len(reason) > MaxFlagReasonLength` (512 bytes)
    - Load `PostFlag` for post (or create new)
    - Fail with `ErrAlreadyFlagged` if flagger already in `flaggers` list
    - Fail with `ErrMaxFlaggers` if `len(flaggers) >= max_post_flaggers`
@@ -3234,6 +3234,7 @@ All state changes within `MsgAppealPost` are atomic. If any step fails, the enti
    - Remove post from `hidden_queue` (appeal supersedes auto-expiration)
    - **Delete appeal cooldown key** (consumed)
    - **Note:** This removal is essential. Without it, `hidden_expiration` (7d) would delete the post before `appeal_deadline` (14d) expires. Once appealed, the post's fate is determined solely by the jury verdict, not the hidden queue timer.
+   - **Implementation:** there is no separate queue; `MsgAppealPost` sets `HideRecord.appealed = true` and `ExpireHiddenPosts` skips appealed records. The verdict finalizes the hide through forum's `OnAppealOutcome` (x/rep `ModerationAppealOutcomeHandler`): **UPHELD** tombstones the post with the same consequences as an unappealed expiry (author per-tag rep slash, conviction-stake slash, promoter warning; x/rep already released the sentinel bond); **OVERTURNED** is restored by `ReverseSentinelAction` (x/rep slashes the sentinel's `committed_amount`); **TIMEOUT** releases the sentinel's reservation, clears the pending-hide slot and restores the post and author bond.
 
 5. **Track Appeal for Sentinel Metrics:**
    - Load `HideRecord` to get sentinel address
@@ -3588,7 +3589,7 @@ func (k Keeper) OnJuryInsufficientForAppeal(ctx sdk.Context, payload []byte) {
 Bounded passes per block (cursor/queue-driven so the remainder resumes next block):
 
 1. **Ephemeral pruning** (max 100/block) — walk `ExpirationQueue` up to `now`, hard-delete expired-TTL posts; check conviction renewal first (extend TTL instead of tombstoning when conviction ≥ threshold).
-2. **Hidden-post expiration** (`ExpireHiddenPosts`) — finalize posts hidden past `hidden_expiration` whose appeal window lapsed unappealed. Before tombstoning, three best-effort accountability hooks fire against the **pre-tombstone** state (failures log, never halt the tombstone):
+2. **Hidden-post expiration** (`ExpireHiddenPosts`) — finalize posts hidden past `hidden_expiration` that were never appealed (`HideRecord.appealed` records are skipped and finalized by the appeal outcome instead; an UPHELD verdict applies the same hooks). Before tombstoning, three best-effort accountability hooks fire against the **pre-tombstone** state (failures log, never halt the tombstone):
    - **Author rep slash** — for each tag the post carried, `repKeeper.DeductReputation(author, tag, params.author_rep_slash)`. Floored at zero, so an author with no rep in a tag takes no harm.
    - **Post-conviction slash** (`SlashStakesForPost`) — for every active (or recently-released-but-not-GC'd) `PostConvictionStake` on the post: claw back the exact per-tag rep the stake produced via `repKeeper.DeductForumRep`, burn `post_conviction_staker_slash_bps` of the staker's locked DREAM (UnlockDREAM → BurnDREAM), unlock the remainder, and close the stake.
    - **Promoter warning** — if `post.promoted_by` is set and differs from the author, `repKeeper.IssueWarning(promoted_by, forumModuleAddr, "promoted_hidden_content", [post_id])` — the promoter vouched for rejected content.

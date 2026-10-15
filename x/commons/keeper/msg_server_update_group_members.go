@@ -65,6 +65,9 @@ func (k msgServer) UpdateGroupMembers(goCtx context.Context, msg *types.MsgUpdat
 	if err != nil {
 		return nil, errorsmod.Wrapf(sdkerrors.ErrInvalidRequest, "invalid members_to_add: %s", err.Error())
 	}
+	if err := k.validateMemberWeights(ctx, councilName, adds, isGov); err != nil {
+		return nil, err
+	}
 
 	// 4. Calculate projected count using native Members collection
 	currentMembers, err := k.GetCouncilMembers(ctx, councilName)
@@ -81,6 +84,10 @@ func (k msgServer) UpdateGroupMembers(goCtx context.Context, msg *types.MsgUpdat
 	}
 	for _, addReq := range adds {
 		memberMap[addReq.Address] = true
+	}
+
+	if err := k.checkGoldenShareKept(ctx, councilName, isGov, func(addr string) bool { return memberMap[addr] }); err != nil {
+		return nil, err
 	}
 
 	projectedCount := uint64(len(memberMap))
@@ -108,6 +115,10 @@ func (k msgServer) UpdateGroupMembers(goCtx context.Context, msg *types.MsgUpdat
 		if err := k.Members.Set(ctx, collections.Join(councilName, m.Address), m); err != nil {
 			return nil, err
 		}
+	}
+
+	if err := k.syncGoldenShareWeight(ctx, councilName); err != nil {
+		return nil, err
 	}
 
 	// 6. Update cooldown

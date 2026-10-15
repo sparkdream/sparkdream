@@ -20,7 +20,10 @@ import (
 // Sweep order matters:
 //  1. Underfunded → forced-unbond (operators that missed the grace).
 //  2. Pending report auto-dismiss (controller stalls).
-//  3. Escalated report auto-timeout (jury inaction).
+//  3. Escalated report auto-timeout (jury inaction), and its
+//     controller-transfer twin: cases still open past
+//     opened_at + max_escalated_blocks time out (see
+//     sweepControllerTransferCases).
 //  4. Tier-1 escrow release (post-contest-window funds → community pool).
 //  5. Checkpoint liveness (operators whose checkpoint trails the chain by
 //     more than their type's checkpoint_max_lag_blocks get a system
@@ -69,6 +72,9 @@ func (k Keeper) EndBlocker(ctx context.Context) error {
 	})
 	runSweep("escalated_reports", func() (int, error) {
 		return k.sweepEscalatedReports(ctx, params, currentHeight, limit)
+	})
+	runSweep("controller_transfer_cases", func() (int, error) {
+		return k.sweepControllerTransferCases(ctx, params, currentHeight, limit)
 	})
 	runSweep("tier1_escrow_release", func() (int, error) {
 		return k.sweepTier1EscrowRelease(ctx, currentHeight, limit)
@@ -426,6 +432,74 @@ func (k Keeper) sweepEscalatedReports(ctx context.Context, params types.Params, 
 		processed++
 	}
 
+	return processed, nil
+}
+
+// sweepControllerTransferCases times out controller-transfer cases still
+// open at opened_at + max_escalated_blocks — the same deadline
+// OpenControllerTransferCase hands x/rep for the jury case. Without it a
+// case whose jury never reaches a verdict (FinalizeControllerTransfer
+// refuses a PENDING JuryReview) would hold the (operator, service_type)
+// "one open case" slot forever.
+//
+// AUTO_TIMEOUT mirrors sweep 3 for reports: the opener's deposit is
+// refunded (the case went unadjudicated through no fault of theirs), the
+// controller is unchanged, and the case row plus its
+// OpenControllerTransferByOperator entry are deleted. The parallel x/rep
+// JuryReview is left in place; a late FinalizeControllerTransfer against
+// it fails with ErrControllerTransferCaseNotFound.
+//
+// There is no deadline index, so this walks ControllerTransferCases in
+// jury_case_id order. The map holds at most one case per (operator,
+// service_type), and rows written before this sweep existed are covered
+// by the same walk, so no migration is needed. At most `limit` cases are
+// timed out per block; the rest go next block.
+func (k Keeper) sweepControllerTransferCases(ctx context.Context, params types.Params, currentHeight int64, limit int) (int, error) {
+	var expired []types.ControllerTransferCase
+	err := k.ControllerTransferCases.Walk(ctx, nil, func(_ uint64, c types.ControllerTransferCase) (bool, error) {
+		if currentHeight < c.OpenedAt+params.MaxEscalatedBlocks {
+			return false, nil
+		}
+		expired = append(expired, c)
+		return len(expired) >= limit, nil
+	})
+	if err != nil {
+		return 0, err
+	}
+
+	processed := 0
+	sdkCtx := sdk.UnwrapSDKContext(ctx)
+	for _, c := range expired {
+		if !c.Deposit.IsNil() && c.Deposit.IsPositive() {
+			openerBytes, err := k.addrBytes(c.Opener)
+			if err != nil {
+				return processed, err
+			}
+			depositCoin := sdk.NewCoin(k.BondDenom(ctx), c.Deposit)
+			if err := k.bankKeeper.SendCoinsFromModuleToAccount(
+				ctx, types.ModuleName, sdk.AccAddress(openerBytes), sdk.NewCoins(depositCoin),
+			); err != nil {
+				return processed, err
+			}
+		}
+
+		if err := k.ControllerTransferCases.Remove(ctx, c.JuryCaseId); err != nil {
+			return processed, err
+		}
+		if opBytes, err := k.addrBytes(c.OperatorAddress); err == nil {
+			idxKey := collections.Join(opBytes, c.ServiceType)
+			// Only drop the index if it still points at this case.
+			if id, err := k.OpenControllerTransferByOperator.Get(ctx, idxKey); err == nil && id == c.JuryCaseId {
+				_ = k.OpenControllerTransferByOperator.Remove(ctx, idxKey)
+			}
+		}
+
+		sdkCtx.EventManager().EmitEvent(types.NewControllerTransferCaseFinalizedEvent(
+			c.JuryCaseId, types.CtfVerdictAutoTimeout, types.CtfDepositOpenerRefunded,
+		))
+		emitControllerTransferCaseFinalized(c.ServiceType, types.CtfVerdictAutoTimeout)
+		processed++
+	}
 	return processed, nil
 }
 

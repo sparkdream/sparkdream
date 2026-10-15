@@ -15,6 +15,10 @@ import (
 // Compile-time assertion: Keeper satisfies the rep ForumKeeper contract.
 var _ reptypes.ForumKeeper = Keeper{}
 
+// Compile-time assertion: Keeper finalizes post hides on every terminal
+// appeal outcome (x/rep type-asserts its forum appeal target for this).
+var _ reptypes.ModerationAppealOutcomeHandler = Keeper{}
+
 // PruneTagReferences scans every post and removes the given tag name from
 // any post that references it. Invoked by x/rep's ResolveTagReport (action=1).
 // Best-effort: iteration or write errors are surfaced but individual post
@@ -428,6 +432,93 @@ func (k Keeper) OnSentinelActionResolved(ctx context.Context, actionType reptype
 	if local.PendingHideCount > 0 {
 		local.PendingHideCount--
 		return k.SentinelActivity.Set(ctx, sentinel, local)
+	}
+	return nil
+}
+
+// OnAppealOutcome finalizes an appealed post hide once x/rep has applied its
+// own bond and accountability effects. ExpireHiddenPosts skips appealed hide
+// records, so this is the only path that ends them:
+//
+//   - UPHELD: the hide stands — tombstone the post with the same consequences
+//     an unappealed expiry applies (author per-tag rep slash, conviction-stake
+//     slash, promoter warning), then drop the HideRecord. x/rep already
+//     released the sentinel's reserved bond and OnSentinelActionResolved
+//     already cleared the pending-hide slot, so neither is touched here.
+//   - OVERTURNED: ReverseSentinelAction already restored the post. If it had
+//     to skip (parent category deleted) the record is dropped here so it does
+//     not linger; x/rep slashed the reservation already.
+//   - TIMEOUT: no verdict, and x/rep neither moved the sentinel's bond nor
+//     called OnSentinelActionResolved. Neither party is blamed: release the
+//     reservation, clear the pending-hide slot, and restore the post and the
+//     author bond (timeout favors the appellant, as in x/collect).
+//
+// Only GOV_ACTION_TYPE_POST_HIDE is handled; lock / move / pin appeals keep
+// their existing behavior. A missing HideRecord (e.g. the council unhid the
+// post while the appeal was pending) is a no-op.
+func (k Keeper) OnAppealOutcome(ctx context.Context, actionType reptypes.GovActionType, actionTarget string, outcome reptypes.GovAppealStatus) error {
+	if actionType != reptypes.GovActionType_GOV_ACTION_TYPE_POST_HIDE {
+		return nil
+	}
+	sdkCtx := sdk.UnwrapSDKContext(ctx)
+	id, err := strconv.ParseUint(actionTarget, 10, 64)
+	if err != nil {
+		return fmt.Errorf("invalid action target %q: %w", actionTarget, err)
+	}
+	hr, err := k.HideRecord.Get(ctx, id)
+	if err != nil {
+		return nil
+	}
+
+	switch outcome {
+	case reptypes.GovAppealStatus_GOV_APPEAL_STATUS_UPHELD:
+		post, err := k.Post.Get(ctx, id)
+		if err == nil && post.Status == types.PostStatus_POST_STATUS_HIDDEN {
+			if err := k.tombstoneHiddenPost(ctx, id, post, "appeal upheld"); err != nil {
+				return fmt.Errorf("tombstone upheld hide: %w", err)
+			}
+		}
+		if err := k.HideRecord.Remove(ctx, id); err != nil {
+			return fmt.Errorf("remove upheld hide record: %w", err)
+		}
+		sdkCtx.EventManager().EmitEvent(sdk.NewEvent("hidden_post_appeal_upheld",
+			sdk.NewAttribute("post_id", fmt.Sprintf("%d", id)),
+			sdk.NewAttribute("sentinel", hr.Sentinel),
+			sdk.NewAttribute("hidden_at", fmt.Sprintf("%d", hr.HiddenAt)),
+		))
+
+	case reptypes.GovAppealStatus_GOV_APPEAL_STATUS_OVERTURNED:
+		// Record still present => ReverseSentinelAction skipped the restore.
+		if err := k.HideRecord.Remove(ctx, id); err != nil {
+			return fmt.Errorf("remove overturned hide record: %w", err)
+		}
+
+	case reptypes.GovAppealStatus_GOV_APPEAL_STATUS_TIMEOUT:
+		if k.repKeeper != nil && hr.Sentinel != "" && hr.CommittedAmount != "" {
+			if committed, ok := math.NewIntFromString(hr.CommittedAmount); ok && committed.IsPositive() {
+				if err := k.repKeeper.ReleaseBond(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, hr.Sentinel, committed); err != nil {
+					sdkCtx.Logger().Warn("failed to release sentinel bond on hide appeal timeout",
+						"post_id", id, "sentinel", hr.Sentinel, "error", err)
+				}
+			}
+		}
+		if err := k.OnSentinelActionResolved(ctx, actionType, actionTarget); err != nil {
+			sdkCtx.Logger().Warn("failed to clear pending hide on appeal timeout",
+				"post_id", id, "sentinel", hr.Sentinel, "error", err)
+		}
+		if err := k.ReverseSentinelAction(ctx, actionType, actionTarget); err != nil {
+			return fmt.Errorf("restore post on hide appeal timeout: %w", err)
+		}
+		// ReverseSentinelAction leaves the record when it cannot restore
+		// (parent category deleted); the bond is already released, so drop it.
+		if err := k.HideRecord.Remove(ctx, id); err != nil {
+			return fmt.Errorf("remove timed-out hide record: %w", err)
+		}
+		sdkCtx.EventManager().EmitEvent(sdk.NewEvent("hidden_post_appeal_timeout",
+			sdk.NewAttribute("post_id", fmt.Sprintf("%d", id)),
+			sdk.NewAttribute("sentinel", hr.Sentinel),
+			sdk.NewAttribute("outcome", "restored_timeout"),
+		))
 	}
 	return nil
 }

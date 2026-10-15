@@ -23,6 +23,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/cosmos/cosmos-sdk/types/bech32"
 )
 
 const (
@@ -67,11 +69,16 @@ type loginRequest struct {
 }
 
 // grant is who signed in: behind an authorization code, then an access token.
+// For a delegated sign-in, sub and name are the account owner's (the
+// granter's), and delegate, grantID and chainKey say which key came in
+// through which x/session SIGN_IN grant.
 type grant struct {
 	sub, name, nonce string
 	codeChallenge    string
 	authTime         time.Time
 	expires          time.Time
+
+	delegate, grantID, chainKey string
 }
 
 type membershipEntry struct {
@@ -101,11 +108,13 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /.well-known/openid-configuration", s.discovery)
 	mux.HandleFunc("GET /jwks", s.jwks)
 	mux.HandleFunc("GET /authorize", s.authorize)
+	mux.HandleFunc("GET /authorize/accounts", s.accounts)
 	mux.HandleFunc("POST /authorize/verify", s.verify)
 	mux.HandleFunc("POST /token", s.token)
 	mux.HandleFunc("GET /userinfo", s.userinfo)
 	mux.HandleFunc("POST /userinfo", s.userinfo)
 	mux.HandleFunc("GET /membership/{sub}", s.membershipStatus)
+	mux.HandleFunc("GET /sign-in-grant/{chain}/{id}", s.signInGrantStatus)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { io.WriteString(w, "ok") })
 	return mux
 }
@@ -151,8 +160,11 @@ func (s *Server) discovery(w http.ResponseWriter, _ *http.Request) {
 		"id_token_signing_alg_values_supported": []string{"RS256"},
 		"scopes_supported":                      []string{"openid", "profile", "email"},
 		"token_endpoint_auth_methods_supported": []string{"client_secret_basic", "client_secret_post"},
-		"claims_supported":                      []string{"sub", "preferred_username", "nickname", "name", "email", "email_verified"},
-		"code_challenge_methods_supported":      []string{"S256"},
+		"claims_supported": []string{
+			"sub", "preferred_username", "nickname", "name", "email", "email_verified",
+			"sparkdream_delegate", "sparkdream_grant", "sparkdream_chain",
+		},
+		"code_challenge_methods_supported": []string{"S256"},
 	})
 }
 
@@ -222,10 +234,11 @@ func (s *Server) authorize(w http.ResponseWriter, r *http.Request) {
 	err := pageTmpl.Execute(w, map[string]any{
 		"Host": hostOf(s.cfg.RedirectURI),
 		"Page": map[string]any{
-			"request":   id,
-			"challenge": req.challenge,
-			"chains":    chains,
-			"verifyUrl": s.cfg.Issuer + "/authorize/verify",
+			"request":     id,
+			"challenge":   req.challenge,
+			"chains":      chains,
+			"verifyUrl":   s.cfg.Issuer + "/authorize/verify",
+			"accountsUrl": s.cfg.Issuer + "/authorize/accounts",
 		},
 	})
 	if err != nil {
@@ -248,6 +261,9 @@ type verifyRequest struct {
 	Chain     string          `json:"chain"`
 	Address   string          `json:"address"`
 	Signature WalletSignature `json:"signature"`
+	// As is the bech32 address of the member whose account the signer signs
+	// in to through a SIGN_IN grant; empty for the signer's own account.
+	As string `json:"as,omitempty"`
 }
 
 func (s *Server) verify(w http.ResponseWriter, r *http.Request) {
@@ -281,16 +297,46 @@ func (s *Server) verify(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "unknown chain")
 		return
 	}
-	addr, err := verifyADR036(chain.Bech32Prefix, in.Address, req.challenge, in.Signature)
+	signer, err := verifyADR036(chain.Bech32Prefix, in.Address, signedText(req.challenge, in.As), in.Signature)
 	if err != nil {
 		writeError(w, http.StatusForbidden, "signature rejected: "+err.Error())
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
 	defer cancel()
+
+	// the account signed in to: the signer's own, or a granter's
+	addr := signer
+	var delegated signInGrant
+	if in.As != "" {
+		hrp, granter, err := bech32.DecodeAndConvert(in.As)
+		if err != nil || hrp != chain.Bech32Prefix || len(granter) != 20 {
+			writeError(w, http.StatusBadRequest, "the account to sign in as is not an address on "+chain.ChainName)
+			return
+		}
+		grantee, _ := bech32.ConvertAndEncode(chain.Bech32Prefix, signer)
+		canonical, _ := bech32.ConvertAndEncode(chain.Bech32Prefix, granter)
+		delegated, err = s.delegatedGrant(ctx, chain, canonical, grantee)
+		switch {
+		case errors.Is(err, errNoGrant):
+			writeError(w, http.StatusForbidden,
+				"this key has no active sign-in grant from "+canonical+" for "+s.service()+" on "+chain.ChainName)
+			return
+		case err != nil:
+			log.Printf("sdaplogin: sign-in grants on %s: %v", chain.ChainID, err)
+			writeError(w, http.StatusBadGateway, "could not reach "+chain.ChainName+": try again shortly")
+			return
+		}
+		addr = granter
+	}
+
 	switch err := s.lcd.CheckMember(ctx, chain, addr); {
 	case errors.Is(err, errNotMember):
-		writeError(w, http.StatusForbidden, notMemberMessage(chain))
+		msg := notMemberMessage(chain)
+		if in.As != "" {
+			msg = "the account you were granted is not an active member of " + chain.ChainName
+		}
+		writeError(w, http.StatusForbidden, msg)
 		return
 	case err != nil:
 		log.Printf("sdaplogin: member check on %s: %v", chain.ChainID, err)
@@ -303,6 +349,11 @@ func (s *Server) verify(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadGateway, "could not reach "+chain.ChainName+": try again shortly")
 		return
 	}
+	if name == "" && in.As != "" {
+		writeError(w, http.StatusForbidden,
+			"the account you were granted has no primary name on "+chain.ChainName+", so it has no handle here")
+		return
+	}
 	if name == "" {
 		writeError(w, http.StatusForbidden,
 			"your account has no primary name on "+chain.ChainName+": register one (x/name) and set it as primary, then sign in again. It becomes your handle here.")
@@ -312,7 +363,7 @@ func (s *Server) verify(w http.ResponseWriter, r *http.Request) {
 	code := randomToken()
 	s.mu.Lock()
 	delete(s.requests, in.Request)
-	s.codes[code] = &grant{
+	g := &grant{
 		sub:           hex.EncodeToString(addr),
 		name:          name,
 		nonce:         req.nonce,
@@ -320,6 +371,11 @@ func (s *Server) verify(w http.ResponseWriter, r *http.Request) {
 		authTime:      now,
 		expires:       now.Add(codeTTL),
 	}
+	if in.As != "" {
+		g.delegate, _ = bech32.ConvertAndEncode(chain.Bech32Prefix, signer)
+		g.grantID, g.chainKey = delegated.ID, in.Chain
+	}
+	s.codes[code] = g
 	s.mu.Unlock()
 
 	back, _ := url.Parse(s.cfg.RedirectURI)
@@ -329,7 +385,11 @@ func (s *Server) verify(w http.ResponseWriter, r *http.Request) {
 		v.Set("state", req.state)
 	}
 	back.RawQuery = v.Encode()
-	log.Printf("sdaplogin: %s signed in through %s as %s", in.Address, chain.ChainID, name)
+	if in.As != "" {
+		log.Printf("sdaplogin: %s signed in through %s as %s (%s), sign-in grant %s", in.Address, chain.ChainID, name, in.As, delegated.ID)
+	} else {
+		log.Printf("sdaplogin: %s signed in through %s as %s", in.Address, chain.ChainID, name)
+	}
 	writeJSON(w, http.StatusOK, map[string]string{"redirect": back.String()})
 }
 
@@ -388,7 +448,10 @@ func (s *Server) token(w http.ResponseWriter, r *http.Request) {
 	}
 	access := randomToken()
 	s.mu.Lock()
-	s.tokens[access] = &grant{sub: g.sub, name: g.name, authTime: g.authTime, expires: now.Add(tokenTTL)}
+	s.tokens[access] = &grant{
+		sub: g.sub, name: g.name, authTime: g.authTime, expires: now.Add(tokenTTL),
+		delegate: g.delegate, grantID: g.grantID, chainKey: g.chainKey,
+	}
 	s.mu.Unlock()
 	w.Header().Set("Pragma", "no-cache")
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -428,12 +491,15 @@ func (s *Server) userinfo(w http.ResponseWriter, r *http.Request) {
 
 // claims describe the member to Mastodon. preferred_username (omniauth's
 // info.nickname) is the x/name the image's initializer makes the handle.
+// A delegated sign-in adds the sparkdream_* claims, which the image's
+// initializer records against the session so its sweep can end the session
+// once the grant ends.
 // The email is a placeholder at a reserved domain: without one Mastodon
 // sends the member to a page that asks for an address and mails a
 // confirmation to it. External accounts skip the MX check, and nothing is
 // ever delivered there.
 func (s *Server) claims(g *grant) map[string]any {
-	return map[string]any{
+	c := map[string]any{
 		"sub":                g.sub,
 		"preferred_username": g.name,
 		"nickname":           g.name,
@@ -441,6 +507,12 @@ func (s *Server) claims(g *grant) map[string]any {
 		"email":              g.sub + "@" + s.cfg.EmailDomain,
 		"email_verified":     true,
 	}
+	if g.delegate != "" {
+		c["sparkdream_delegate"] = g.delegate
+		c["sparkdream_grant"] = g.grantID
+		c["sparkdream_chain"] = g.chainKey
+	}
+	return c
 }
 
 func (s *Server) signIDToken(g *grant, now time.Time) (string, error) {

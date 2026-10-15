@@ -334,7 +334,12 @@ func TestPruneExpired_AnonymousConvictionRenewal(t *testing.T) {
 	dropped := createAnonCollection(t, f, 2, expires)
 	_ = shield
 
-	f.repKeeper.getContentConvictionFn = func(_ context.Context, _ reptypes.StakeTargetType, id uint64) (math.LegacyDec, error) {
+	f.repKeeper.getContentConvictionFn = func(_ context.Context, targetType reptypes.StakeTargetType, id uint64) (math.LegacyDec, error) {
+		// Mirror x/rep: only content-conviction targets are accepted.
+		if !reptypes.IsContentConvictionType(targetType) {
+			return math.LegacyZeroDec(), reptypes.ErrNotContentTargetType
+		}
+		require.Equal(t, reptypes.StakeTargetType_STAKE_TARGET_COLLECTION_CONTENT, targetType)
 		if id == renewed {
 			return math.LegacyNewDec(10), nil
 		}

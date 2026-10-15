@@ -17,6 +17,10 @@ var (
 	ErrGroupNotActive    = errors.Register(ModuleName, 1603, "group is not yet active (shell group)")
 	ErrGroupExpired      = errors.Register(ModuleName, 1604, "group term has expired")
 
+	ErrInvalidMemberWeight     = errors.Register(ModuleName, 1605, "invalid member weight")
+	ErrGoldenShareSeat         = errors.Register(ModuleName, 1606, "the golden-share seat can only be changed by x/gov")
+	ErrAnonymousVotingDisabled = errors.Register(ModuleName, 1607, "anonymous votes on council proposals are disabled")
+
 	// Recurring Spend Errors
 	ErrRecurringSpendNotFound      = errors.Register(ModuleName, 1700, "recurring spend schedule not found")
 	ErrRecurringSpendInactive      = errors.Register(ModuleName, 1701, "recurring spend schedule is not active")

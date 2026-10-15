@@ -6,7 +6,6 @@ import (
 
 	"sparkdream/x/name/types"
 
-	"cosmossdk.io/collections"
 	errorsmod "cosmossdk.io/errors"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
@@ -35,20 +34,10 @@ func (k msgServer) SetTarget(goCtx context.Context, msg *types.MsgSetTarget) (*t
 		}
 	}
 
-	// Revoke previous acceptance if there was one.
-	if record.Target != "" && record.TargetAccepted {
-		if err := k.AcceptedTargets.Remove(ctx, collections.Join(record.Target, name)); err != nil {
-			return nil, err
-		}
-		// If the previous target had this name as their primary, clear it —
-		// reverse resolution must reflect current consent.
-		prevInfo, err := k.Owners.Get(ctx, record.Target)
-		if err == nil && prevInfo.PrimaryName == name {
-			prevInfo.PrimaryName = ""
-			if err := k.Owners.Set(ctx, record.Target, prevInfo); err != nil {
-				return nil, err
-			}
-		}
+	// Revoke previous acceptance if there was one; reverse resolution must
+	// reflect current consent.
+	if err := k.clearTargetConsent(ctx, record); err != nil {
+		return nil, err
 	}
 
 	record.Target = target

@@ -34,6 +34,7 @@ func SimulateMsgDeclineGrant(
 			types.GrantType_GRANT_TYPE_RECURRING_PULL,
 			types.GrantType_GRANT_TYPE_SPENDING_ALLOWANCE,
 			types.GrantType_GRANT_TYPE_SCHEDULED_ONESHOT,
+			types.GrantType_GRANT_TYPE_SIGN_IN,
 		}
 		r.Shuffle(len(typeOptions), func(i, j int) { typeOptions[i], typeOptions[j] = typeOptions[j], typeOptions[i] })
 

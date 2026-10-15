@@ -67,12 +67,11 @@ Key principles:
   `QueryGetRecurringSpend` post-migration (the grant is deleted from
   session; audit trail is in the `grant_revoked` / `grant_declined`
   events).
-- **Anonymous governance**: `MsgSubmitAnonymousProposal` and
-  `MsgAnonymousVoteProposal` are accepted only from the `x/shield` module
-  account. The shield module's ZK proof attests to voter registration; the
-  commons handler skips the membership check but still enforces every other
-  gate (term, allowed-messages, threshold). Anonymous votes have uniform
-  weight=1 and are tallied separately, then folded into the threshold check.
+- **Anonymous governance**: `MsgSubmitAnonymousProposal` is accepted only
+  from the `x/shield` module account. The shield module's ZK proof attests to
+  trust-tree membership; the commons handler skips the membership check but
+  still enforces every other gate (term, allowed-messages). Council votes are
+  open: `MsgAnonymousVoteProposal` is refused (§11).
 - **Veto by policy version bump**: `MsgVetoGroupProposals` does not iterate
   proposals — it bumps the policy's `version`. Every accepted proposal
   records the version at submit time; on execute, a mismatch flips the
@@ -153,9 +152,25 @@ message Member {
 }
 ```
 
-Weights are `LegacyDec` strings to support fractional or symbolic weights
-(e.g., the founder's golden share gets weight `3`, ordinary members get
-`1`). Threshold tallies sum these weights as decimals.
+Weights are positive `LegacyDec` strings; threshold tallies sum them as
+decimals. A group created by `MsgRegisterGroup` may give its members any
+positive weight, fractional included. The ten genesis governance bodies (§4)
+are one member, one vote:
+
+- **Weight 1.** Unless the signer is x/gov, a member added to (or renewed
+  in) a genesis body gets weight `1`, or keeps the weight they already hold.
+  That keeps the founder's genesis weight-3 seat on the Technical and
+  Ecosystem Councils; only x/gov may give anyone else a weight above 1.
+- **Golden share.** On the Technical and Ecosystem Councils the Commons
+  Council policy holds a seat whose weight always equals the summed weight
+  of every other member, recomputed after each membership change. The
+  Commons Council therefore holds half of either council's votes however
+  many members join, and nothing passes the 66% threshold without its yes.
+  Its veto policy (49%) passes on the Commons seat alone. Only x/gov may
+  remove the seat (`ErrGoldenShareSeat`); a weight given for it is ignored.
+
+The genesis bodies are a compiled list (`equalWeightGroups` in
+`x/commons/keeper/member_weights.go`), changed only by a chain upgrade.
 
 ### 3.3. DecisionPolicy
 
@@ -400,7 +415,8 @@ Three Pillars graph from the build-tag-selected `genesis_vals_*.go` constants
 The chain ships **ten** governance bodies (`Group` records) post-bootstrap:
 
 1. **Commons Council** (parent: gov) — top-level coordination, anonymous
-   proposal target.
+   proposal target. Holds the golden-share seat on the Technical and
+   Ecosystem Councils (§3.2).
 2. **Technical Council** (parent: gov) — implementation/upgrades.
 3. **Ecosystem Council** (parent: gov) — ecosystem programs.
 4. **Commons Supervisory Board** (parent: gov) — meta-governance over
@@ -578,25 +594,22 @@ SubmitProposal ───▶ SUBMITTED
 
 ### 6.3. Threshold check (`checkThreshold`)
 
-Two policy types, both folding in anonymous votes:
+Two policy types, counting member votes only:
 
 ```
-yesWeight    = sum(member_weight for each YES vote) + anon.yes_count
-totalWeight  = sum(member_weight for each vote)     + (anon.yes + anon.no + anon.abstain + anon.veto)
+yesWeight    = sum(member_weight for each YES vote)
+totalWeight  = sum(member_weight for each vote)
 
 if policy_type == "percentage":
     groupWeight = sum(member_weight for every council member)
-                + (anon.yes + anon.no + anon.abstain + anon.veto)
     accepted    = yesWeight / groupWeight >= threshold
 
 if policy_type == "threshold":
     accepted = yesWeight >= threshold   // threshold parsed as integer
 ```
 
-Anonymous votes (`AnonVoteTally`) get uniform weight=1 each. They expand
-both numerator (their YES count) and denominator (their total participation)
-without giving any individual anon voter outsized influence over a council
-member's weighted vote.
+An `AnonVoteTally` stored before anonymous votes were disabled is still
+reported by the queries but no longer counts toward either check.
 
 ### 6.4. Execute
 
@@ -653,9 +666,9 @@ proposals accumulate.
 | `MsgCreatePolicyPermissions` | gov OR the policy address itself (self-registration) | Create the allowlist for a new policy address |
 | `MsgUpdatePolicyPermissions` | gov OR the policy address itself | Replace the allowlist (bumps `PolicyVersion`); ratchet rules in `ValidatePermissions` block adding `Forbidden` messages |
 | `MsgDeletePolicyPermissions` | gov OR the policy address itself | Remove the allowlist record |
-| `MsgRegisterGroup` | gov OR Commons Council | Create a new sub-committee under a parent policy; fails on cycle, missing parent, or invalid member counts |
-| `MsgRenewGroup` | parent policy OR a registered electoral policy | Replace members and reset `current_term_expiration` to `now + term_duration`. Permitted on expired councils (this is the escape hatch the executor honours) |
-| `MsgUpdateGroupMembers` | parent policy OR the group's electoral policy | Add and/or remove members without resetting the term. The `update_cooldown` is enforced ONLY when the signer is the electoral policy; direct parent or gov calls bypass the cooldown |
+| `MsgRegisterGroup` | gov OR Commons Council | Create a new sub-committee under a parent policy; fails on cycle, missing parent, invalid member counts, or a non-positive weight |
+| `MsgRenewGroup` | parent policy OR a registered electoral policy | Replace members and reset `current_term_expiration` to `now + term_duration`. Permitted on expired councils (this is the escape hatch the executor honours). Weight rules of §3.2 apply; leaving out the golden-share seat is refused unless the signer is gov |
+| `MsgUpdateGroupMembers` | parent policy OR the group's electoral policy | Add and/or remove members without resetting the term. The `update_cooldown` is enforced ONLY when the signer is the electoral policy; direct parent or gov calls bypass the cooldown. Weight rules of §3.2 apply; removing the golden-share seat is refused unless the signer is gov |
 | `MsgUpdateGroupConfig` | parent policy | Mutate group-config knobs (`max_spend_per_epoch`, `vote_threshold`, `voting_period`, `min_execution_period`, `futarchy_enabled`, `min_members`, `max_members`, `term_duration`, `policy_type`, `electoral_policy_address`). Cycle-checked on parent change. Bumps `PolicyVersion`. Throttled by `update_cooldown` |
 | `MsgDeleteGroup` | parent policy OR gov | Remove a group from the registry. Members, decision policy, permissions, and policy-version are cleared |
 | `MsgVetoGroupProposals` | parent policy OR a sibling veto policy OR gov | Bump `PolicyVersion` for the target group's policy — every still-`ACCEPTED` proposal will fail to execute with `VETOED` |
@@ -664,7 +677,7 @@ proposals accumulate.
 | `MsgVoteProposal` | a current council member | Cast `YES`/`NO`/`ABSTAIN`/`NO_WITH_VETO`; triggers early acceptance if threshold met |
 | `MsgExecuteProposal` | anyone | Run an accepted proposal's inner messages after `execution_time` |
 | `MsgSubmitAnonymousProposal` | x/shield module account only | Same as `MsgSubmitProposal` but skips the membership check (ZK proof attests registration); identical fee, allowlist, and term gates |
-| `MsgAnonymousVoteProposal` | x/shield module account only | Increments `AnonVoteTally` for the proposal; weight=1, tallied separately from member votes |
+| `MsgAnonymousVoteProposal` | x/shield module account only | Refused with `ErrAnonymousVotingDisabled`: council votes are open (§11) |
 | `MsgCreateCategory` | gov OR Commons Council OR Commons Operations Committee | Register a new shared content category |
 | `MsgScheduleRecurringSpend` | a registered group policy | Create a recurring-disbursement schedule from the council's treasury. Wrapped in a `MsgSubmitProposal`. **Wrapper over [x/session](x-session-spec.md)** — constructs a session `MsgCreateGrant` carrying a `RecurringPullPayload` and calls `sessionKeeper.CreateGrantOnBehalfOf`. Per-granter active-grant cap is `session.params.max_recurring_pulls_per_granter` |
 | `MsgCancelRecurringSpend` | the schedule's authority (same group policy) | Terminate an active schedule. Wrapped in a `MsgSubmitProposal`; rejects with `ErrRecurringSpendUnauthorized` if the caller is a different council. **Wrapper over [x/session](x-session-spec.md)** — calls `sessionKeeper.RevokeGrantInternal` which DELETES the underlying grant (no tombstone). `ErrGrantNotFound`/`ErrGrantTerminal` are translated to `ErrRecurringSpendInactive` |
@@ -872,14 +885,18 @@ What the commons handler still enforces:
 - The proposal fee is paid (charged from the shield module account, which
   the shield module pre-funds via its community-pool integration).
 
-Anonymous votes accumulate into `AnonVoteTally` (uniform weight=1 per vote)
-and are folded into `checkThreshold` alongside member votes — the threshold
-check sees the combined tally so anonymous voters genuinely influence
-outcomes without leaking individual identities. Anonymous votes are not
-`Vote` records (every one shares the shield address), so they never appear in
-a proposal's `votes` list; `GetProposal` and `GetProposalVotes` return them as
-the separate `anon_tally` field (yes / no / abstain / no_with_veto counts,
-zeros when no anonymous vote was cast).
+**Anonymous votes are refused.** `MsgAnonymousVoteProposal` returns
+`ErrAnonymousVotingDisabled` and nothing is tallied. The proof shows only that
+the voter is in the x/rep trust tree, not that they sit on the council, and a
+member could cast it on top of their open vote: the two cannot be linked, so
+every member held two votes and any rep member could move a council's tally
+(on the Technical Council, the lead dev plus three anonymous votes cleared the
+66% threshold without the Commons Council). A secret ballot for the Commons
+Council, where it fits an assembly of equal members, would need a ZK tree of
+that council's members and no open votes; it is not built. The shield
+registration stays so that design can reuse the message. `GetProposal` and
+`GetProposalVotes` still return `anon_tally` (zeros unless one was stored
+before the change).
 
 ---
 
@@ -893,6 +910,9 @@ zeros when no anonymous vote was cast).
 | 1602 | `ErrRateLimitExceeded` | Vetoed by `SessionClaimHook.PreCheck` (council-policy claim) OR raised inline by `MsgSpendFromCommons` — both paths share the same `MaxSpendPerEpoch` ceiling via the EpochSpending bucket. Also raised by `MsgUpdateGroupConfig` on `update_cooldown` violations |
 | 1603 | `ErrGroupNotActive` | Group is in pre-launch (shell) phase; `activation_time > now`. Vetoed by `SessionClaimHook.PreCheck` for recurring claims |
 | 1604 | `ErrGroupExpired` | `current_term_expiration < now`. Vetoed by `SessionClaimHook.PreCheck` for recurring claims (the auto-pause path — schedule stays ACTIVE in session; on renewal the next claim passes) |
+| 1605 | `ErrInvalidMemberWeight` | A member weight is not a positive number, or a genesis governance body was given a weight other than 1 by a signer other than gov (§3.2) |
+| 1606 | `ErrGoldenShareSeat` | A membership change by a signer other than gov would remove the Commons Council's golden-share seat from the Technical or Ecosystem Council |
+| 1607 | `ErrAnonymousVotingDisabled` | `MsgAnonymousVoteProposal`: council votes are open |
 | 1700 | `ErrRecurringSpendNotFound` | Used internally; the wrapper layer now surfaces `codes.NotFound` for cancelled/declined schedules via projection (M9). Reserved for legacy use sites |
 | 1701 | `ErrRecurringSpendInactive` | Schedule is in a terminal state. Post-migration this is the translated error for session's `ErrGrantNotFound` and `ErrGrantTerminal` returned from cancel/decline on a grant that's been deleted or already COMPLETED |
 | 1705 | `ErrRecurringSpendInvalidWindow` | `start_time`/`end_time` malformed (past, out-of-order, shorter than one period). Other window errors (period below min, duration over max) bubble up as session errors — the wrapper does NOT translate them |
@@ -1015,7 +1035,7 @@ message GenesisState {
   pointers are validated against the existing graph before persisting.
   The chain cannot end up in a state where governance authority loops
   back on itself.
-- **Anonymous-proposal funnel**: `MsgSubmit/AnonymousVoteProposal` are
+- **Anonymous-proposal funnel**: `MsgSubmitAnonymousProposal` is
   *only* accepted when the on-tx signer is the x/shield module account.
   This is the gateway condition — no individual user can directly call
   these messages, even if they own the shield-bound DREAM stake.
@@ -1084,10 +1104,10 @@ E2E coverage lives in `test/commons/`:
 - `executive_veto_test.sh`, `social_veto_vote_test.sh`,
   `parent_veto_test.sh`, `veto_vote_test.sh` — every veto pathway.
 - `tech_upgrade_golden_share.sh` — Tech Council `MsgForceUpgrade` requires
-  the founder's golden-share veto-policy approval; verifies the upgrade
-  plan is staged via `x/upgrade`.
+  the Commons Council's golden-share vote; verifies the upgrade plan is
+  staged via `x/upgrade`.
 - `fire_council_test.sh` — gov-driven full council replacement.
-- `anon_test.sh` — anonymous proposal/vote round-trip via shield.
+- `anon_test.sh` — anonymous proposal via shield; anonymous votes refused.
 - `treasury_spend.sh` — `MsgSpendFromCommons` with cumulative cap
   enforcement.
 - `recurring_spend_test.sh` — full lifecycle: gov-lowers the period min,

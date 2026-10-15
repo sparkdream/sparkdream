@@ -263,6 +263,34 @@ func (k Keeper) SetPrimaryName(ctx context.Context, owner sdk.AccAddress, name s
 	return k.Owners.Set(ctx, owner.String(), info)
 }
 
+// clearTargetConsent ends a name's resolver-target relationship: the
+// accepted-target index entry is removed and, if the target had the name as
+// its primary, that primary is cleared, so reverse resolution of the old
+// target stops returning a name it no longer resolves from. Every path that
+// changes the target or replaces the record (SetTarget, adversarial
+// transfer, scavenging) must call this before writing the new record.
+// The record itself is left to the caller.
+func (k Keeper) clearTargetConsent(ctx context.Context, record types.NameRecord) error {
+	if record.Target == "" {
+		return nil
+	}
+	if record.TargetAccepted {
+		if err := k.AcceptedTargets.Remove(ctx, collections.Join(record.Target, record.Name)); err != nil {
+			return err
+		}
+	}
+	// Cleared regardless of acceptance: SetPrimary only lets an accepted
+	// target pick the name, so a match here is consent that is ending.
+	prevInfo, err := k.Owners.Get(ctx, record.Target)
+	if err == nil && prevInfo.PrimaryName == record.Name {
+		prevInfo.PrimaryName = ""
+		if err := k.Owners.Set(ctx, record.Target, prevInfo); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // SetDisplayName writes (or clears, when displayName == "") the free-form
 // display name on the OwnerInfo for the given bech32 address. The address
 // does not need to own a registered handle. Validation matches the

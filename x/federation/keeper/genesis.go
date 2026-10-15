@@ -2,6 +2,7 @@ package keeper
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 
 	"sparkdream/x/federation/types"
@@ -64,6 +65,11 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 		}
 		if content.CreatorIdentity != "" {
 			if err := k.ContentByCreator.Set(ctx, collections.Join(content.CreatorIdentity, content.Id)); err != nil {
+				return err
+			}
+		}
+		if len(content.ContentHash) > 0 {
+			if err := k.ContentByHash.Set(ctx, hex.EncodeToString(content.ContentHash), content.Id); err != nil {
 				return err
 			}
 		}

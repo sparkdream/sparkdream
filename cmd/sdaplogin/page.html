@@ -21,6 +21,7 @@
   button { background: var(--accent); color: var(--accent-text); border: 0; font-weight: 600; cursor: pointer; }
   button:disabled { opacity: .6; cursor: default; }
   #status { margin: 14px 0 0; min-height: 1.5em; }
+  [hidden] { display: none !important; }
   .error { color: var(--error); }
   .fine { font-size: .85rem; margin-top: 18px; }
 </style>
@@ -32,10 +33,15 @@
   <p class="error">{{.Error}}</p>
 {{else}}
   <h1>Sign in to {{.Host}}</h1>
-  <p>Members of a Spark Dream chain sign in with their wallet. Your handle here is your primary name on that chain.</p>
+  <p>Members of a Spark Dream chain sign in with their wallet. Your handle here is your primary name on that chain. A key another member granted sign-in to can also enter their account.</p>
   <label for="chain">Chain</label>
   <select id="chain"></select>
   <button id="go" type="button">Sign in with Keplr</button>
+  <div id="choose" hidden>
+    <label for="as">Account</label>
+    <select id="as"></select>
+    <button id="continue" type="button">Continue</button>
+  </div>
   <p id="status" role="status"></p>
   <p class="fine">Your wallet will ask you to sign a message. It is not a transaction and costs nothing.</p>
   <script id="page" type="application/json">{{.Page}}</script>
@@ -45,6 +51,9 @@
     var select = document.getElementById("chain");
     var button = document.getElementById("go");
     var statusEl = document.getElementById("status");
+    var chooseEl = document.getElementById("choose");
+    var asSelect = document.getElementById("as");
+    var continueButton = document.getElementById("continue");
 
     page.chains.forEach(function (c) {
       var opt = document.createElement("option");
@@ -88,6 +97,45 @@
       };
     }
 
+    // the accounts this key may also sign in to, through a sign-in grant from
+    // their owner; an empty list when there are none or the chain cannot say
+    async function grantedAccounts(chain, address) {
+      var q = new URLSearchParams({ request: page.request, chain: chain.id, address: address });
+      var resp = await fetch(page.accountsUrl + "?" + q.toString());
+      var body = await resp.json().catch(function () { return {}; });
+      return resp.ok && Array.isArray(body.accounts) ? body.accounts : [];
+    }
+
+    // offers the key's own account and the granted ones; resolves to the
+    // chosen granter's address, or "" for the key's own account
+    function chooseAccount(address, accounts) {
+      asSelect.textContent = "";
+      var own = document.createElement("option");
+      own.value = "";
+      own.textContent = "My own account (" + address.slice(0, 12) + "..." + address.slice(-6) + ")";
+      asSelect.appendChild(own);
+      accounts.forEach(function (a) {
+        var opt = document.createElement("option");
+        opt.value = a.address;
+        opt.textContent = "@" + a.name + " (granted to this key)";
+        asSelect.appendChild(opt);
+      });
+      asSelect.selectedIndex = 1;
+      button.hidden = true;
+      chooseEl.hidden = false;
+      say("This key may also sign in to the accounts below. Pick one.");
+      return new Promise(function (resolve) {
+        continueButton.onclick = function () {
+          continueButton.disabled = true;
+          resolve(asSelect.value);
+        };
+      });
+    }
+
+    function signedText(as) {
+      return as ? page.challenge + "\n\nSigning in as: " + as : page.challenge;
+    }
+
     async function signIn() {
       var chain = page.chains.find(function (c) { return c.id === select.value; });
       button.disabled = true;
@@ -102,12 +150,18 @@
           await wallet.enable(chain.chainId);
         }
         var key = await wallet.getKey(chain.chainId);
-        var signature = await wallet.signArbitrary(chain.chainId, key.bech32Address, page.challenge);
+        var as = "";
+        var accounts = await grantedAccounts(chain, key.bech32Address);
+        if (accounts.length) {
+          as = await chooseAccount(key.bech32Address, accounts);
+          say("Waiting for your wallet...");
+        }
+        var signature = await wallet.signArbitrary(chain.chainId, key.bech32Address, signedText(as));
         say("Checking membership...");
         var resp = await fetch(page.verifyUrl, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ request: page.request, chain: chain.id, address: key.bech32Address, signature: signature })
+          body: JSON.stringify({ request: page.request, chain: chain.id, address: key.bech32Address, signature: signature, as: as })
         });
         var body = await resp.json().catch(function () { return {}; });
         if (!resp.ok || !body.redirect) throw new Error(body.error || ("sign-in failed (" + resp.status + ")"));
@@ -116,6 +170,9 @@
       } catch (e) {
         say(e && e.message ? e.message : String(e), true);
         button.disabled = false;
+        button.hidden = false;
+        chooseEl.hidden = true;
+        continueButton.disabled = false;
       }
     }
 

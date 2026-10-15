@@ -31,7 +31,11 @@ func (k msgServer) AppealGovAction(ctx context.Context, msg *types.MsgAppealGovA
 	// Module-owned appeals (collect / artifact hides) carry the owning
 	// module's own appellant and state checks, so they must be filed through
 	// that module's MsgAppealHide, never directly.
-	if types.ModuleOwnedAppealTypes[actionType] {
+	// Post hides are filed through x/forum's MsgAppealPost, which marks the
+	// hide appealed so its expiry waits for the verdict; filed here the hide
+	// would expire, tombstoning the post, mid-appeal. (They still route to
+	// the forum keeper as their appeal target.)
+	if types.ModuleOwnedAppealTypes[actionType] || actionType == types.GovActionType_GOV_ACTION_TYPE_POST_HIDE {
 		return nil, errorsmod.Wrapf(types.ErrInvalidReasonCode,
 			"%s appeals must be filed through the owning module", actionType)
 	}

@@ -9,6 +9,7 @@ import (
 	storetypes "cosmossdk.io/store/types"
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 
 	"sparkdream/x/session/types"
@@ -32,10 +33,15 @@ const feeCollectorModule = authtypes.FeeCollectorName
 //     pays for its gas the same way a real tx would.
 //
 // Status -> FIRED on both success and error (the granter authorized one
-// attempt at creation time, and we don't loop). On PAUSE due to
-// insufficient funds (Transfer variant only) we keep the grant for the
-// retry path; oneshot pause is rare since the deposit covers gas only,
-// not the Transfer amount.
+// attempt at creation time, and we don't loop), with one exception: a
+// Transfer whose bank send fails for insufficient funds PAUSES instead
+// (status -> PAUSED_INSUFFICIENT_FUNDS, deposit kept, active count and
+// slot kept) so MsgRetryScheduledOneshot or the paused-TTL auto-revoke
+// pass can settle it. Every other failure class (hook veto, a bank error
+// other than insufficient funds, any Exec failure) is terminal: no retry
+// could change its outcome. A granter already holding
+// max_paused_oneshots_per_granter paused oneshots gets the terminal
+// FIRED-with-error path too, so paused grants stay bounded.
 func (k Keeper) fireScheduledOneshot(parentCtx sdk.Context, id uint64) (fireErr error) {
 	grant, err := k.Grants.Get(parentCtx, id)
 	if err != nil {
@@ -64,6 +70,10 @@ func (k Keeper) fireScheduledOneshot(parentCtx sdk.Context, id uint64) (fireErr 
 	// downstream bug) lands as FIRED-with-error and not as a chain halt.
 	var result string = "success"
 	var captured string
+	// underfunded is set when the Transfer variant's bank send failed
+	// with ErrInsufficientFunds — the one failure the retry path can
+	// fix, and therefore the one that pauses instead of firing.
+	var underfunded bool
 
 	doDispatch := func() (success bool) {
 		// Child context for rollback on failure. Override gas meter on
@@ -105,6 +115,7 @@ func (k Keeper) fireScheduledOneshot(parentCtx sdk.Context, id uint64) (fireErr 
 			}
 			if err := k.bankKeeper.SendCoins(childCtx, granterAddr, recipientAddr, sdk.NewCoins(a.Transfer.Amount)); err != nil {
 				captured = fmt.Sprintf("transfer failed: %v", err)
+				underfunded = errors.Is(err, sdkerrors.ErrInsufficientFunds)
 				return false
 			}
 			// PostCommit pass — runs inside the CacheContext so a
@@ -177,6 +188,17 @@ func (k Keeper) fireScheduledOneshot(parentCtx sdk.Context, id uint64) (fireErr 
 		so.FireError = captured
 	}
 
+	if !ok && underfunded {
+		paused, err := k.pauseUnderfundedOneshot(parentCtx, grant, so)
+		if err != nil {
+			return err
+		}
+		if paused {
+			return nil
+		}
+		// Paused cap reached — fall through to the terminal FIRED path.
+	}
+
 	// Transition to FIRED on the parent context regardless of inner
 	// success/failure — the granter authorized one attempt.
 	grant.Payload = &types.Grant_ScheduledOneshot{ScheduledOneshot: so}
@@ -219,6 +241,81 @@ func (k Keeper) fireScheduledOneshot(parentCtx sdk.Context, id uint64) (fireErr 
 		return errors.New(captured)
 	}
 	return nil
+}
+
+// pauseUnderfundedOneshot moves an ACTIVE Transfer oneshot whose fire-time
+// bank send failed for insufficient funds to PAUSED_INSUFFICIENT_FUNDS.
+// Returns false (and changes nothing) when the granter already holds
+// max_paused_oneshots_per_granter paused oneshots; the caller then fires
+// the grant terminally.
+//
+// The pause time is recorded in the payload's fire_at (the time of the
+// failed attempt; MsgRetryScheduledOneshot rewrites it again) and in
+// PausedOneshotByPauseTime under (fire_at, id), so the paused-TTL pass
+// counts from the pause, never from creation, and the index can be
+// rebuilt from the grant alone at InitGenesis. The deposit stays in
+// escrow and the active-count slot stays pinned (activeStatus counts
+// PAUSED), so nothing else moves.
+func (k Keeper) pauseUnderfundedOneshot(ctx sdk.Context, grant types.Grant, so *types.ScheduledOneshotPayload) (bool, error) {
+	params, err := k.Params.Get(ctx)
+	if err != nil {
+		return false, err
+	}
+	paused, err := k.countPausedOneshots(ctx, grant.Granter)
+	if err != nil {
+		return false, err
+	}
+	if paused >= params.MaxPausedOneshotsPerGranter {
+		return false, nil
+	}
+
+	pauseUnix := ctx.BlockTime().Unix()
+	so.FireAt = pauseUnix
+	grant.Payload = &types.Grant_ScheduledOneshot{ScheduledOneshot: so}
+	grant.Status = types.GrantStatus_GRANT_STATUS_PAUSED_INSUFFICIENT_FUNDS
+	if err := k.Grants.Set(ctx, grant.Id, grant); err != nil {
+		return false, fmt.Errorf("persist PAUSED status: %w", err)
+	}
+	if err := k.PausedOneshotByPauseTime.Set(ctx, collections.Join(pauseUnix, grant.Id)); err != nil {
+		return false, err
+	}
+
+	attempted := ""
+	if t := so.GetTransfer(); t != nil {
+		attempted = t.Amount.String()
+	}
+	ctx.EventManager().EmitEvent(sdk.NewEvent(
+		"grant_paused_underfunded",
+		sdk.NewAttribute("id", fmt.Sprintf("%d", grant.Id)),
+		sdk.NewAttribute("type", grant.Type.String()),
+		sdk.NewAttribute("granter", grant.Granter),
+		sdk.NewAttribute("grantee", grant.Grantee),
+		sdk.NewAttribute("attempted_amount", attempted),
+	))
+	return true, nil
+}
+
+// countPausedOneshots returns how many SCHEDULED_ONESHOT grants of
+// granter are PAUSED_INSUFFICIENT_FUNDS. Bounded by the creation cap
+// (max_pending + max_paused per granter).
+func (k Keeper) countPausedOneshots(ctx context.Context, granter string) (uint32, error) {
+	var n uint32
+	rng := collections.NewSuperPrefixedTripleRange[int32, string, uint64](
+		int32(types.GrantType_GRANT_TYPE_SCHEDULED_ONESHOT), granter)
+	err := k.GrantsByTypeAndGranter.Walk(ctx, rng, func(key collections.Triple[int32, string, uint64]) (bool, error) {
+		g, err := k.Grants.Get(ctx, key.K3())
+		if err != nil {
+			if errors.Is(err, collections.ErrNotFound) {
+				return false, nil
+			}
+			return true, err
+		}
+		if g.Status == types.GrantStatus_GRANT_STATUS_PAUSED_INSUFFICIENT_FUNDS {
+			n++
+		}
+		return false, nil
+	})
+	return n, err
 }
 
 // oneshotVariantString returns "transfer" or "exec" for the

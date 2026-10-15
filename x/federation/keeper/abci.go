@@ -136,14 +136,8 @@ func (k Keeper) pruneExpiredContent(ctx context.Context, now int64, maxPrune, pr
 			return true, nil
 		}
 		contentID := key.K2()
-		content, err := k.Content.Get(ctx, contentID)
-		if err == nil {
-			_ = k.ContentByPeer.Remove(ctx, collections.Join(content.PeerId, contentID))
-			_ = k.ContentByType.Remove(ctx, collections.Join(content.ContentType, contentID))
-			if content.CreatorIdentity != "" {
-				_ = k.ContentByCreator.Remove(ctx, collections.Join(content.CreatorIdentity, contentID))
-			}
-			_ = k.Content.Remove(ctx, contentID)
+		if content, err := k.Content.Get(ctx, contentID); err == nil {
+			k.removeContentRecord(ctx, content)
 		}
 		_ = k.ContentExpiration.Remove(ctx, key)
 		pruned++
@@ -411,6 +405,12 @@ func (k Keeper) finalizeAutoResolutions(ctx context.Context, now int64, maxPrune
 
 // --- Phase 9 ---
 
+// processPeerRemovalQueue drains the data of removed peers in the order spec
+// §9 Phase 9 lays down: content (cancelling active disputes), identity links
+// and pending identity challenges, reputation attestations, outbound
+// attestations, bridge bindings, the peer policy, and finally the peer
+// record itself. Every phase shares the EndBlocker prune budget; a phase
+// that runs out leaves its flag false and resumes next block.
 func (k Keeper) processPeerRemovalQueue(ctx context.Context, sdkCtx sdk.Context, maxPrune, pruned uint64) (uint64, error) {
 	if pruned >= maxPrune {
 		return pruned, nil
@@ -428,11 +428,8 @@ func (k Keeper) processPeerRemovalQueue(ctx context.Context, sdkCtx sdk.Context,
 				contentID := key.K2()
 				content, err := k.Content.Get(ctx, contentID)
 				if err == nil {
-					_ = k.ContentByType.Remove(ctx, collections.Join(content.ContentType, contentID))
-					if content.CreatorIdentity != "" {
-						_ = k.ContentByCreator.Remove(ctx, collections.Join(content.CreatorIdentity, contentID))
-					}
-					_ = k.Content.Remove(ctx, contentID)
+					k.cancelContentVerification(ctx, sdkCtx, content)
+					k.removeContentRecord(ctx, content)
 				}
 				_ = k.ContentByPeer.Remove(ctx, key)
 				pruned++
@@ -443,7 +440,27 @@ func (k Keeper) processPeerRemovalQueue(ctx context.Context, sdkCtx sdk.Context,
 				state.ContentDone = true
 			}
 		}
-		if state.ContentDone && !state.BridgesDone && pruned < maxPrune {
+		if state.ContentDone && !state.LinksDone && pruned < maxPrune {
+			// last_pruned_content_id is spent once content is done; the
+			// outbound phase reuses it as its id cursor, so it starts
+			// from zero here (this also resets a queue entry written by
+			// a binary that left the content id in it).
+			state.LastPrunedContentId = 0
+			if k.removePeerIdentityLinks(ctx, sdkCtx, peerID, maxPrune, &pruned) {
+				state.LinksDone = true
+			}
+		}
+		if state.LinksDone && !state.AttestationsDone && pruned < maxPrune {
+			if k.removePeerRepAttestations(ctx, peerID, maxPrune, &pruned) {
+				state.AttestationsDone = true
+			}
+		}
+		if state.AttestationsDone && !state.OutboundDone && pruned < maxPrune {
+			if k.removePeerOutboundAttestations(ctx, peerID, maxPrune, &pruned, &state.LastPrunedContentId) {
+				state.OutboundDone = true
+			}
+		}
+		if state.OutboundDone && !state.BridgesDone && pruned < maxPrune {
 			// Peer removal during the federation→service migration:
 			// bond return is owned by x/service (operator must unbond via
 			// service.MsgUnbondOperator first). Per the abandoned-peer
@@ -468,7 +485,8 @@ func (k Keeper) processPeerRemovalQueue(ctx context.Context, sdkCtx sdk.Context,
 			_ = k.PeerPolicies.Remove(ctx, peerID)
 			state.PolicyDone = true
 		}
-		if state.ContentDone && state.BridgesDone && state.PolicyDone {
+		if state.ContentDone && state.LinksDone && state.AttestationsDone &&
+			state.OutboundDone && state.BridgesDone && state.PolicyDone {
 			_ = k.Peers.Remove(ctx, peerID)
 			_ = k.PeerRemovalQueue.Remove(ctx, peerID)
 			sdkCtx.EventManager().EmitEvent(sdk.NewEvent(types.EventTypePeerCleanupComplete,
@@ -479,6 +497,137 @@ func (k Keeper) processPeerRemovalQueue(ctx context.Context, sdkCtx sdk.Context,
 		return false, nil
 	})
 	return pruned, err
+}
+
+// removePeerIdentityLinks deletes every identity link to peerID and every
+// pending identity challenge from it. Links are found through the
+// (peer_id, remote_identity) reverse index, so the walk only visits this
+// peer's links. Each link is deleted outright — the per-user link count is
+// decremented, so the user can link again (including to the same peer id
+// once it is re-registered) — and a verified link emits
+// identity_link_revoked as its audit trail. Reports whether both sets are
+// fully drained.
+func (k Keeper) removePeerIdentityLinks(ctx context.Context, sdkCtx sdk.Context, peerID string, maxPrune uint64, pruned *uint64) bool {
+	params, _ := k.Params.Get(ctx)
+	done := true
+	rng := collections.NewPrefixedPairRange[string, string](peerID)
+	_ = k.IdentityLinksByRemote.Walk(ctx, rng, func(key collections.Pair[string, string], localAddr string) (bool, error) {
+		if *pruned >= maxPrune {
+			done = false
+			return true, nil
+		}
+		k.removeIdentityLink(ctx, sdkCtx, localAddr, peerID, params)
+		_ = k.IdentityLinksByRemote.Remove(ctx, key)
+		*pruned++
+		return false, nil
+	})
+	if !done {
+		return false
+	}
+
+	// PendingIdChallenges is keyed (claimed_address, claimant_peer_id), so
+	// this peer's entries are found by filtering. The set is short-lived
+	// (challenge_ttl) and Phase 4 already walks it every block.
+	var challenges []collections.Pair[string, string]
+	_ = k.PendingIdChallenges.Walk(ctx, nil, func(key collections.Pair[string, string], _ types.PendingIdentityChallenge) (bool, error) {
+		if key.K2() != peerID {
+			return false, nil
+		}
+		if *pruned+uint64(len(challenges)) >= maxPrune {
+			done = false
+			return true, nil
+		}
+		challenges = append(challenges, key)
+		return false, nil
+	})
+	for _, key := range challenges {
+		_ = k.PendingIdChallenges.Remove(ctx, key)
+		*pruned++
+	}
+	return done
+}
+
+// removeIdentityLink deletes the (localAddr, peerID) link record, its
+// unverified-expiry entry and its share of the per-user link count. The
+// caller owns the reverse-index entry.
+func (k Keeper) removeIdentityLink(ctx context.Context, sdkCtx sdk.Context, localAddr, peerID string, params types.Params) {
+	linkKey := collections.Join(localAddr, peerID)
+	link, err := k.IdentityLinks.Get(ctx, linkKey)
+	if err != nil {
+		return
+	}
+	_ = k.IdentityLinks.Remove(ctx, linkKey)
+	if link.Status == types.IdentityLinkStatus_IDENTITY_LINK_STATUS_UNVERIFIED {
+		// Best effort: the queue key is linked_at + the TTL in force when
+		// the link was made. Phase 3 skips an entry whose link is gone,
+		// so a miss after a TTL change only leaves a harmless entry.
+		expiry := link.LinkedAt + int64(params.UnverifiedLinkTtl.Seconds())
+		_ = k.UnverifiedLinkExp.Remove(ctx, collections.Join3(expiry, localAddr, peerID))
+	}
+	if cnt, _ := k.IdentityLinkCount.Get(ctx, localAddr); cnt > 0 {
+		_ = k.IdentityLinkCount.Set(ctx, localAddr, cnt-1)
+	}
+	if link.Status == types.IdentityLinkStatus_IDENTITY_LINK_STATUS_VERIFIED {
+		sdkCtx.EventManager().EmitEvent(sdk.NewEvent(types.EventTypeIdentityLinkRevoked,
+			sdk.NewAttribute(types.AttributeKeyLocalAddress, localAddr),
+			sdk.NewAttribute(types.AttributeKeyPeerID, peerID),
+			sdk.NewAttribute(types.AttributeKeyRemoteIdentity, link.RemoteIdentity)))
+	}
+}
+
+// removePeerRepAttestations deletes every reputation attestation sourced
+// from peerID, with its expiry-queue entry. RepAttestations is keyed
+// (local_address, peer_id), so the peer's entries are found by filtering;
+// the set is bounded by users × Spark Dream peers and TTL-pruned. Reports
+// whether the peer's attestations are fully drained.
+func (k Keeper) removePeerRepAttestations(ctx context.Context, peerID string, maxPrune uint64, pruned *uint64) bool {
+	done := true
+	var atts []types.ReputationAttestation
+	_ = k.RepAttestations.Walk(ctx, nil, func(key collections.Pair[string, string], att types.ReputationAttestation) (bool, error) {
+		if key.K2() != peerID {
+			return false, nil
+		}
+		if *pruned+uint64(len(atts)) >= maxPrune {
+			done = false
+			return true, nil
+		}
+		att.LocalAddress, att.PeerId = key.K1(), key.K2()
+		atts = append(atts, att)
+		return false, nil
+	})
+	for _, att := range atts {
+		_ = k.RepAttestations.Remove(ctx, collections.Join(att.LocalAddress, att.PeerId))
+		_ = k.AttestationExp.Remove(ctx, collections.Join3(att.ExpiresAt, att.LocalAddress, att.PeerId))
+		*pruned++
+	}
+	return done
+}
+
+// removePeerOutboundAttestations deletes every outbound attestation naming
+// peerID. OutboundAttestations is keyed by a global sequence with no peer
+// index and can be large, so the walk resumes from *cursor and every entry
+// it visits — match or not — consumes budget, keeping the total work O(N)
+// across blocks. Reports whether the walk reached the end.
+func (k Keeper) removePeerOutboundAttestations(ctx context.Context, peerID string, maxPrune uint64, pruned *uint64, cursor *uint64) bool {
+	done := true
+	var matched []uint64
+	rng := new(collections.Range[uint64]).StartInclusive(*cursor)
+	_ = k.OutboundAttestations.Walk(ctx, rng, func(id uint64, att types.OutboundAttestation) (bool, error) {
+		if *pruned >= maxPrune {
+			done = false
+			return true, nil
+		}
+		if att.PeerId == peerID {
+			matched = append(matched, id)
+		}
+		*pruned++
+		*cursor = id + 1
+		return false, nil
+	})
+	for _, id := range matched {
+		_ = k.OutboundAttestations.Remove(ctx, id)
+	}
+	return done
 }
 
 // --- Phase 11 ---

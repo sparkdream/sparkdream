@@ -135,10 +135,10 @@ func (k msgServer) SubmitFederatedContent(ctx context.Context, msg *types.MsgSub
 		protocolMetadata = protocolMetadata[:params.MaxProtocolMetadataSize]
 	}
 
-	// 8. Check ContentByHash for duplicates
+	// 8. Check ContentByHash for duplicates. Only a live record counts: a
+	//    hash whose content was pruned may be anchored again.
 	hashHex := hex.EncodeToString(msg.ContentHash)
-	_, err = k.ContentByHash.Get(ctx, hashHex)
-	if err == nil {
+	if k.contentHashAnchored(ctx, hashHex) {
 		return nil, errorsmod.Wrapf(types.ErrDuplicateContent, "content with hash %s already exists", hashHex)
 	}
 

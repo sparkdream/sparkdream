@@ -113,44 +113,47 @@ func (k Keeper) firePass(ctx sdk.Context, blockTime time.Time, cap int) error {
 // autoRevokePausedPass auto-revokes paused oneshots whose pause has
 // exceeded ttlSeconds. Refunds the held deposit to the granter.
 //
-// We use the grant's CreatedAt as the conservative pause-age proxy here.
-// Since PausedOneshotByPauseTime would carry the exact pause unix, this
-// will be tightened in a follow-up. The conservative bound still
-// guarantees auto-revoke happens by `created_at + ttl` at the latest.
+// Walks PausedOneshotByPauseTime[(pause_unix, id) : pause_unix + ttl <=
+// block_time], so the TTL counts from the pause (written by
+// pauseUnderfundedOneshot), never from creation: a oneshot scheduled
+// weeks out still gets the full retry window after it pauses. An entry
+// whose grant is gone, no longer paused, or re-paused at a different
+// time is stale and is dropped without touching the grant.
 func (k Keeper) autoRevokePausedPass(ctx sdk.Context, blockTime time.Time, ttlSeconds int64, cap int) error {
-	type entry struct{ id uint64 }
+	type entry struct {
+		pauseUnix int64
+		id        uint64
+	}
 	var stale []entry
 
-	err := k.Grants.Walk(ctx, nil, func(id uint64, g types.Grant) (bool, error) {
-		if g.Type != types.GrantType_GRANT_TYPE_SCHEDULED_ONESHOT {
-			return false, nil
+	cutoff := blockTime.Unix() - ttlSeconds
+	rng := new(collections.Range[collections.Pair[int64, uint64]]).
+		EndExclusive(collections.Join[int64, uint64](cutoff+1, 0))
+	err := k.PausedOneshotByPauseTime.Walk(ctx, rng, func(key collections.Pair[int64, uint64]) (bool, error) {
+		if len(stale) >= cap {
+			return true, nil
 		}
-		if g.Status != types.GrantStatus_GRANT_STATUS_PAUSED_INSUFFICIENT_FUNDS {
-			return false, nil
-		}
-		// Conservative TTL: based on CreatedAt. A dedicated
-		// PausedOneshotByPauseTime index would carry the exact pause
-		// unix and enable tighter TTL, but this matches the plan's
-		// "auto-revoke after TTL" guarantee in worst case.
-		if g.CreatedAt.Unix()+ttlSeconds > blockTime.Unix() {
-			return false, nil
-		}
-		stale = append(stale, entry{id: id})
+		stale = append(stale, entry{pauseUnix: key.K1(), id: key.K2()})
 		return false, nil
 	})
 	if err != nil {
 		return err
 	}
 
-	revoked := 0
 	for _, e := range stale {
-		if revoked >= cap {
-			break
-		}
+		indexKey := collections.Join(e.pauseUnix, e.id)
 		grant, err := k.Grants.Get(ctx, e.id)
 		if err != nil {
+			_ = k.PausedOneshotByPauseTime.Remove(ctx, indexKey)
 			continue
 		}
+		so := grant.GetScheduledOneshot()
+		if grant.Status != types.GrantStatus_GRANT_STATUS_PAUSED_INSUFFICIENT_FUNDS ||
+			so == nil || so.FireAt != e.pauseUnix {
+			_ = k.PausedOneshotByPauseTime.Remove(ctx, indexKey)
+			continue
+		}
+
 		// Refund the deposit.
 		depositCoin, depErr := k.OneshotGasDeposit.Get(ctx, e.id)
 		if depErr == nil && !depositCoin.IsZero() {
@@ -164,20 +167,15 @@ func (k Keeper) autoRevokePausedPass(ctx sdk.Context, blockTime time.Time, ttlSe
 				}
 			}
 		}
-		// Status -> REVOKED, delete from primary + indexes (and decrement counter).
-		grant.Status = types.GrantStatus_GRANT_STATUS_REVOKED
-		// Use deleteGrant which clears the active counter — but since
-		// the grant was PAUSED (not ACTIVE in counter terms after our
-		// decrement on pause was applied), check the counter state.
-		// For now: persist the REVOKED state, then clear indexes.
-		if err := k.Grants.Set(ctx, grant.Id, grant); err != nil {
+
+		// deleteGrant sees the PAUSED status, so it releases the
+		// per-(granter, type) active slot the paused grant was pinning,
+		// and clears every index including the paused-TTL entry.
+		if err := k.deleteGrant(ctx, grant); err != nil {
+			ctx.Logger().Error("paused oneshot auto-revoke failed",
+				"grant_id", e.id, "err", err)
 			continue
 		}
-		if err := k.removeGrantIndexes(ctx, grant); err != nil {
-			ctx.Logger().Error("paused oneshot index removal failed",
-				"grant_id", e.id, "err", err)
-		}
-		_ = k.Grants.Remove(ctx, grant.Id)
 
 		ctx.EventManager().EmitEvent(sdk.NewEvent(
 			"grant_auto_revoked",
@@ -186,7 +184,6 @@ func (k Keeper) autoRevokePausedPass(ctx sdk.Context, blockTime time.Time, ttlSe
 			sdk.NewAttribute("grantee", grant.Grantee),
 			sdk.NewAttribute("refund_amount", depositCoin.String()),
 		))
-		revoked++
 	}
 	return nil
 }

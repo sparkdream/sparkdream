@@ -129,4 +129,8 @@ const (
 	AttributeKeyError           = "error"
 	AttributeKeyPacketKind      = "packet_kind"
 	AttributeKeyServiceType     = "service_type"
+
+	// AttributeKeyChallengerRefunded is the challenge fee returned to the
+	// challenger when peer removal cancels an active dispute ("0" if none).
+	AttributeKeyChallengerRefunded = "challenger_refunded"
 )

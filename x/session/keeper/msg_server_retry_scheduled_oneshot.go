@@ -66,20 +66,23 @@ func (k msgServer) RetryScheduledOneshot(ctx context.Context, msg *types.MsgRetr
 		return nil, errorsmod.Wrap(types.ErrInvalidPayload, "scheduled_oneshot payload missing")
 	}
 
+	// Drop the paused-TTL index entry so the auto-revoke pass doesn't
+	// hit this grant once it's back to ACTIVE. While paused, fire_at
+	// holds the pause time, so it is the entry's key.
+	if err := k.PausedOneshotByPauseTime.Remove(ctx, collections.Join(so.FireAt, grant.Id)); err != nil {
+		return nil, err
+	}
+
 	// Update fire_at to now so the next EndBlocker pass picks it up.
 	newFireAt := sdkCtx.BlockTime().Unix()
 	so.FireAt = newFireAt
+	so.FireError = ""
 	grant.Payload = &types.Grant_ScheduledOneshot{ScheduledOneshot: so}
 	grant.Status = types.GrantStatus_GRANT_STATUS_ACTIVE
 
 	if err := k.Grants.Set(ctx, grant.Id, grant); err != nil {
 		return nil, err
 	}
-
-	// Drop the paused-TTL index entry so the auto-revoke pass doesn't
-	// hit this grant once it's back to ACTIVE. The pause_unix used to
-	// register the entry isn't stored on-grant; the auto-revoke pass
-	// will tolerate the stale entry (skipping non-PAUSED status).
 
 	sdkCtx.EventManager().EmitEvent(sdk.NewEvent(
 		"oneshot_retry_requested",

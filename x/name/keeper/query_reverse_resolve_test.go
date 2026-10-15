@@ -25,6 +25,25 @@ func TestReverseResolve(t *testing.T) {
 		PrimaryName: primaryName,
 	})
 	require.NoError(t, err)
+	require.NoError(t, f.keeper.SetName(f.ctx, types.NameRecord{Name: primaryName, Owner: userWithPrimary}))
+
+	// Scenario 1b: accepted resolver target displaying a name it does not own
+	targetUser := "cosmos1aurora"
+	require.NoError(t, f.keeper.SetName(f.ctx, types.NameRecord{
+		Name: "aurora", Owner: "cosmos1zenith", Target: targetUser, TargetAccepted: true,
+	}))
+	require.NoError(t, f.keeper.Owners.Set(f.ctx, targetUser, types.OwnerInfo{Address: targetUser, PrimaryName: "aurora"}))
+
+	// Scenario 1c: stale primary — the name now belongs to someone else and
+	// does not target this address, so the forward mapping fails.
+	staleUser := "cosmos1phoenix"
+	require.NoError(t, f.keeper.SetName(f.ctx, types.NameRecord{Name: "phoenix", Owner: "cosmos1zenith"}))
+	require.NoError(t, f.keeper.Owners.Set(f.ctx, staleUser, types.OwnerInfo{Address: staleUser, PrimaryName: "phoenix"}))
+
+	// Scenario 1d: target set but not accepted
+	unacceptedUser := "cosmos1nova"
+	require.NoError(t, f.keeper.SetName(f.ctx, types.NameRecord{Name: "nova", Owner: "cosmos1zenith", Target: unacceptedUser}))
+	require.NoError(t, f.keeper.Owners.Set(f.ctx, unacceptedUser, types.OwnerInfo{Address: unacceptedUser, PrimaryName: "nova"}))
 
 	// Scenario 2: User exists but has NO primary name set
 	userNoPrimary := "cosmos1bob"
@@ -50,6 +69,21 @@ func TestReverseResolve(t *testing.T) {
 			response: &types.QueryReverseResolveResponse{
 				Name: primaryName,
 			},
+		},
+		{
+			desc:     "Success - Accepted Target",
+			request:  &types.QueryReverseResolveRequest{Address: targetUser},
+			response: &types.QueryReverseResolveResponse{Name: "aurora"},
+		},
+		{
+			desc:    "Failure - Stale Primary (forward mapping gone)",
+			request: &types.QueryReverseResolveRequest{Address: staleUser},
+			err:     status.Error(codes.NotFound, "account has no primary name set"),
+		},
+		{
+			desc:    "Failure - Target Not Accepted",
+			request: &types.QueryReverseResolveRequest{Address: unacceptedUser},
+			err:     status.Error(codes.NotFound, "account has no primary name set"),
 		},
 		{
 			desc: "Failure - Account Not Found (No Owner Info)",

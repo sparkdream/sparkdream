@@ -11,8 +11,8 @@ import (
 	"sparkdream/x/session/types"
 )
 
-// CreateGrant is the unified entrypoint for creating any of the four
-// typed grants. The handler:
+// CreateGrant is the unified entrypoint for creating any of the typed
+// grants. The handler:
 //  1. Runs cross-type validation (self-delegation, expiration, note
 //     length, lifetime cap).
 //  2. Dispatches on the payload oneof to per-type validation.
@@ -103,6 +103,14 @@ func (k msgServer) CreateGrant(ctx context.Context, msg *types.MsgCreateGrant) (
 		}
 		grant.Type = types.GrantType_GRANT_TYPE_SCHEDULED_ONESHOT
 		grant.Payload = &types.Grant_ScheduledOneshot{ScheduledOneshot: so}
+
+	case *types.MsgCreateGrant_SignIn:
+		si, err := k.validateSignInPayload(ctx, msg.Granter, msg.Grantee, payload.SignIn)
+		if err != nil {
+			return nil, err
+		}
+		grant.Type = types.GrantType_GRANT_TYPE_SIGN_IN
+		grant.Payload = &types.Grant_SignIn{SignIn: si}
 
 	default:
 		return nil, types.ErrInvalidPayload.Wrap("payload oneof must be set")

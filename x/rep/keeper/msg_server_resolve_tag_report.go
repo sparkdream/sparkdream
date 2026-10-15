@@ -28,6 +28,13 @@ func (k msgServer) ResolveTagReport(ctx context.Context, msg *types.MsgResolveTa
 			"only governance, council, or operations committee can resolve tag reports")
 	}
 
+	// Reject unknown actions before touching state: the report (and every
+	// reporter's locked bond) must survive a malformed resolution.
+	if msg.Action > 2 {
+		return nil, errorsmod.Wrapf(types.ErrInvalidTagReportAction,
+			"action %d is not one of 0 (dismiss), 1 (remove), 2 (reserve)", msg.Action)
+	}
+
 	report, err := k.TagReport.Get(ctx, msg.TagName)
 	if err != nil {
 		return nil, errorsmod.Wrap(types.ErrTagReportNotFound, fmt.Sprintf("no report found for tag %s", msg.TagName))
@@ -73,6 +80,11 @@ func (k msgServer) ResolveTagReport(ctx context.Context, msg *types.MsgResolveTa
 		if err := refundTagReportBonds(ctx, k.Keeper, report.Reporters, totalBond); err != nil {
 			return nil, errorsmod.Wrap(err, "failed to refund bonds to reporters")
 		}
+
+	default:
+		// Unreachable (validated above); kept so a future action added to the
+		// guard without a case here cannot silently drop the report.
+		return nil, errorsmod.Wrapf(types.ErrInvalidTagReportAction, "action %d", msg.Action)
 	}
 
 	if err := k.TagReport.Remove(ctx, msg.TagName); err != nil {

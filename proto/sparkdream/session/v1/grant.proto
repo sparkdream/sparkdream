@@ -10,17 +10,19 @@ import "google/protobuf/timestamp.proto";
 
 option go_package = "sparkdream/x/session/types";
 
-// GrantType enumerates the four typed payload variants of the unified grant
+// GrantType enumerates the typed payload variants of the unified grant
 // registry. The session-key variant preserves the legacy x/session model;
-// the other three are introduced by the delegated-authorization-registry
-// refactor and ship in subsequent phases (P3 RecurringPull, P4
-// SpendingAllowance, P5 ScheduledOneshot).
+// RecurringPull, SpendingAllowance and ScheduledOneshot came with the
+// delegated-authorization-registry refactor. SignIn is the one variant
+// nothing on chain executes: it records permission for an off-chain
+// service to let the grantee sign in as the granter.
 enum GrantType {
   GRANT_TYPE_UNSPECIFIED = 0;
   GRANT_TYPE_SESSION_KEY = 1;
   GRANT_TYPE_RECURRING_PULL = 2;
   GRANT_TYPE_SPENDING_ALLOWANCE = 3;
   GRANT_TYPE_SCHEDULED_ONESHOT = 4;
+  GRANT_TYPE_SIGN_IN = 5;
 }
 
 // GrantStatus is the state-machine label for a grant. Terminal states
@@ -38,7 +40,7 @@ enum GrantStatus {
 
 // Grant is the unified record for every delegated-authorization primitive
 // in x/session. One record carries the shared lifecycle fields (id,
-// granter, grantee, status, expires_at, note) and exactly one of the four
+// granter, grantee, status, expires_at, note) and exactly one of the
 // typed payloads.
 message Grant {
   uint64 id = 1;
@@ -62,6 +64,7 @@ message Grant {
     RecurringPullPayload recurring_pull = 21 [(amino.oneof_name) = "sparkdream/session/RecurringPullPayload"];
     SpendingAllowancePayload spending_allowance = 22 [(amino.oneof_name) = "sparkdream/session/SpendingAllowancePayload"];
     ScheduledOneshotPayload scheduled_oneshot = 23 [(amino.oneof_name) = "sparkdream/session/ScheduledOneshotPayload"];
+    SignInPayload sign_in = 24 [(amino.oneof_name) = "sparkdream/session/SignInPayload"];
   }
 }
 
@@ -145,4 +148,15 @@ message OneshotExec {
   // Per-fire gas cap; the granter pre-funds gas_limit * oneshot_gas_price
   // SPARK at MsgCreateGrant time.
   uint64 gas_limit = 2;
+}
+
+// SignInPayload lets the grantee sign in to an off-chain service as the
+// granter. The chain only records the permission: the service (e.g. a
+// Spark Dream Mastodon instance's wallet login) reads active SIGN_IN grants
+// to its own hostname and stops honouring one once it is revoked, declined
+// or expired. Nothing on chain executes through it.
+message SignInPayload {
+  // Lowercase DNS hostname of the service the grantee may sign in to as the
+  // granter, e.g. "mstdn.sparkdream.io".
+  string service = 1;
 }

@@ -128,6 +128,11 @@ const (
 const (
 	CtfDepositOpenerRefunded = "OPENER_REFUNDED"
 	CtfDepositCommunityPool  = "COMMUNITY_POOL"
+
+	// CtfVerdictAutoTimeout is the `verdict` attribute of a case the
+	// EndBlocker timed out because no jury verdict was finalized by
+	// opened_at + max_escalated_blocks (deposit refunded to the opener).
+	CtfVerdictAutoTimeout = "AUTO_TIMEOUT"
 )
 
 // Slash tier constants for service.operator_slashed.

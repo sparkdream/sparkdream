@@ -69,6 +69,12 @@ func (k msgServer) RenewGroup(goCtx context.Context, msg *types.MsgRenewGroup) (
 	for _, m := range newMembersParsed {
 		finalState[m.Address] = m.Weight
 	}
+	if err := k.validateMemberWeights(ctx, msg.GroupName, newMembersParsed, isGov); err != nil {
+		return nil, err
+	}
+	if err := k.checkGoldenShareKept(ctx, msg.GroupName, isGov, func(addr string) bool { return finalState[addr] != "0" }); err != nil {
+		return nil, err
+	}
 
 	// Sort for determinism
 	type memberUpdate struct {
@@ -98,6 +104,10 @@ func (k msgServer) RenewGroup(goCtx context.Context, msg *types.MsgRenewGroup) (
 				return nil, errorsmod.Wrap(err, "failed to update member")
 			}
 		}
+	}
+
+	if err := k.syncGoldenShareWeight(ctx, msg.GroupName); err != nil {
+		return nil, err
 	}
 
 	// Reset term

@@ -103,6 +103,11 @@ func (k Keeper) ResolveChallengeResult(ctx context.Context, reviewID uint64, uph
 	if !review.Challenged {
 		return errorsmod.Wrap(types.ErrReviewNotFound, "review is not challenged")
 	}
+	if !isChallengePending(review) {
+		// Already settled (verdict delivered or timed out, see
+		// challenge_timeout.go) — never pay out a challenge twice.
+		return errorsmod.Wrap(types.ErrReviewNotFound, "challenge already resolved")
+	}
 
 	params, err := k.Params.Get(ctx)
 	if err != nil {
@@ -227,8 +232,11 @@ func (k Keeper) ResolveChallengeResult(ctx context.Context, reviewID uint64, uph
 		// Burn challenge deposit.
 		k.repKeeper.BurnDREAM(ctx, challengerAddr, params.ChallengeDeposit) //nolint:errcheck
 
-		// Clear committed_slash on the review.
+		// Clear committed_slash on the review, and the challenger: the deposit
+		// is settled (burned), so collection deletion and the timeout sweep
+		// must not refund it again.
 		review.CommittedSlash = math.ZeroInt()
+		review.Challenger = ""
 		if err := k.CurationReview.Set(ctx, reviewID, review); err != nil {
 			return errorsmod.Wrap(err, "failed to update review")
 		}

@@ -107,7 +107,7 @@ func TestModuleOwnedAppealTypesRejectedFromMsgAppealGovAction(t *testing.T) {
 	f, ms, _, _, appellant := setupRegistry(t)
 	appellantStr, err := f.addressCodec.BytesToString(appellant)
 	require.NoError(t, err)
-	for _, at := range []types.GovActionType{types.GovActionType_GOV_ACTION_TYPE_COLLECT_HIDE, types.GovActionType_GOV_ACTION_TYPE_ARTIFACT_HIDE} {
+	for _, at := range []types.GovActionType{types.GovActionType_GOV_ACTION_TYPE_POST_HIDE, types.GovActionType_GOV_ACTION_TYPE_COLLECT_HIDE, types.GovActionType_GOV_ACTION_TYPE_ARTIFACT_HIDE} {
 		_, err := ms.AppealGovAction(f.ctx, &types.MsgAppealGovAction{
 			Creator: appellantStr, ActionType: uint64(at), ActionTarget: "1", AppealReason: "bypass",
 		})

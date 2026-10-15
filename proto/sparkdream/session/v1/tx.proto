@@ -41,7 +41,7 @@ service Msg {
   // ExecSession executes messages using a session key.
   rpc ExecSession(MsgExecSession) returns (MsgExecSessionResponse);
 
-  // CreateGrant is the unified entrypoint that creates any of the four typed
+  // CreateGrant is the unified entrypoint that creates any of the typed
   // grants. Type is inferred from the payload oneof.
   rpc CreateGrant(MsgCreateGrant) returns (MsgCreateGrantResponse);
 
@@ -72,7 +72,7 @@ service Msg {
   rpc RevokeGrant(MsgRevokeGrant) returns (MsgRevokeGrantResponse);
 
   // DeclineGrant lets the grantee opt out of any active grant by id.
-  // Applies uniformly across all four grant types. For ScheduledOneshot
+  // Applies uniformly across all grant types. For ScheduledOneshot
   // this is a pre-fire veto: the grant transitions to DECLINED, the
   // EndBlocker skips it, and the held deposit is refunded to the
   // granter. Decline is one-way — the granter must Revoke + CreateGrant
@@ -159,7 +159,7 @@ message MsgExecSession {
 
 message MsgExecSessionResponse {}
 
-// MsgCreateGrant is the unified entrypoint for creating any of the four
+// MsgCreateGrant is the unified entrypoint for creating any of the
 // typed grants. The grant type is inferred from the payload oneof; the
 // handler dispatches to type-specific validation. Signed by the granter.
 message MsgCreateGrant {
@@ -180,6 +180,7 @@ message MsgCreateGrant {
     RecurringPullPayload recurring_pull = 11 [(amino.oneof_name) = "sparkdream/session/RecurringPullPayload"];
     SpendingAllowancePayload spending_allowance = 12 [(amino.oneof_name) = "sparkdream/session/SpendingAllowancePayload"];
     ScheduledOneshotPayload scheduled_oneshot = 13 [(amino.oneof_name) = "sparkdream/session/ScheduledOneshotPayload"];
+    SignInPayload sign_in = 14 [(amino.oneof_name) = "sparkdream/session/SignInPayload"];
   }
 }
 

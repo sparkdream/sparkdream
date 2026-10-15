@@ -120,6 +120,10 @@ const (
 	DefaultMemberFlagWeight    = uint64(2)
 	DefaultNonmemberFlagWeight = uint64(1)
 	DefaultMaxPostFlaggers     = uint64(50)
+	// MaxFlagReasonLength caps MsgFlagPost.reason (bytes). Each flag's text is
+	// stored on the PostFlag record, so an uncapped reason is a state-bloat
+	// vector. Matches x/collect's default max_flag_reason_length.
+	MaxFlagReasonLength = 512
 
 	// Appeal default
 	DefaultAppealDefaultOutcome = uint32(0) // 0 = restore post

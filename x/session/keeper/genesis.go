@@ -109,6 +109,13 @@ func (k Keeper) writeGrantNoCount(ctx context.Context, g types.Grant) error {
 			return err
 		}
 	}
+	// A paused oneshot's fire_at holds its pause time, so the paused-TTL
+	// index is rebuilt from the grant alone.
+	if so := g.GetScheduledOneshot(); so != nil && g.Status == types.GrantStatus_GRANT_STATUS_PAUSED_INSUFFICIENT_FUNDS {
+		if err := k.PausedOneshotByPauseTime.Set(ctx, collections.Join(so.FireAt, g.Id)); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

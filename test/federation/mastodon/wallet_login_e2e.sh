@@ -20,7 +20,12 @@
 #      (token, id_token checked against the JWKS, userinfo) and signs in
 #   5. the account is named from the x/name (phoenix-one -> phoenix_one),
 #      keyed by the address hex, confirmed, and registrations stay closed
-#   6. once the member is gone from the chain, the sweep asks sdaplogin and
+#   6. a second key holding the member's x/session SIGN_IN grant for this
+#      host is offered the member's account, signs in to it (no second
+#      account appears), and the session is recorded against the grant;
+#      once the grant is gone, the delegated-session sweep signs that
+#      browser out and leaves the member's own session alone
+#   7. once the member is gone from the chain, the sweep asks sdaplogin and
 #      disables the login
 #
 # Usage: test/federation/mastodon/wallet_login_e2e.sh
@@ -230,7 +235,56 @@ ACCT=$(R 'i = Identity.find_by(provider: "openid_connect", uid: "'$SUB'"); u = i
 [ "$(jq -r '[.confirmed,.approved]|all' <<<"$ACCT")" = "true" ] && [ "$(jq -r .registrations <<<"$ACCT")" = "none" ] \
     && ok "confirmed and approved while registrations stay closed" || bad "account state: $ACCT"
 
-# 6. the member leaves the chain: the sweep asks sdaplogin and disables them
+# 6. delegated sign-in: another key (another browser) holds the member's
+#    SIGN_IN grant for this host
+DELEGATE=$("$WORK/walletsign" address phoenix-delegate sprkdrm)
+GRANT='{"id":"7","granter":"'$MEMBER'","grantee":"'$DELEGATE'","type":"GRANT_TYPE_SIGN_IN","status":"GRANT_STATUS_ACTIVE","expires_at":"2099-01-01T00:00:00Z","sign_in":{"service":"'$DOMAIN'"}}'
+lcd_put "sparkdream/session/v1/grants/by_grantee/$DELEGATE" '{"grants":['"$GRANT"']}'
+lcd_put "sparkdream/session/v1/grants/7" '{"grant":'"$GRANT"'}'
+MEMBER_JAR="$JAR"; JAR="$WORK/cookies-delegate"
+PAGE=$(C "https://$DOMAIN:$EDGE_PORT/auth/sign_in")
+CSRF=$(grep -o 'name="csrf-token" content="[^"]*"' <<<"$PAGE" | sed 's/.*content="//; s/"$//' || true)
+AUTHZ=$(C -o /dev/null -w '%{redirect_url}' -X POST --data-urlencode "authenticity_token=$CSRF" \
+    "https://$DOMAIN:$EDGE_PORT/auth/auth/openid_connect")
+LPAGE=$(C "$(viaEdge <<<"$AUTHZ")")
+PJSON=$(python3 -c 'import sys,re; m=re.search(r"<script id=\"page\" type=\"application/json\">(.*?)</script>", sys.stdin.read(), re.S); print(m.group(1) if m else "{}")' <<<"$LPAGE")
+REQ=$(jq -r .request <<<"$PJSON"); CHALLENGE=$(jq -r .challenge <<<"$PJSON")
+CHOICES=$(C -G "https://$LOGIN:$EDGE_PORT/authorize/accounts" --data-urlencode "request=$REQ" \
+    --data-urlencode "chain=fleet-phoenix" --data-urlencode "address=$DELEGATE")
+[ "$(jq -c '.accounts' <<<"$CHOICES")" = '[{"address":"'$MEMBER'","name":"phoenix-one"}]' ] \
+    && ok "login page offers the granted account" || bad "accounts: $CHOICES"
+SIGNED=$("$WORK/walletsign" sign phoenix-delegate sprkdrm "$CHALLENGE"$'\n\n'"Signing in as: $MEMBER")
+BODY=$(jq -c --arg r "$REQ" --arg as "$MEMBER" '{request:$r, chain:"fleet-phoenix", address:.address, signature:.signature, as:$as}' <<<"$SIGNED")
+OUT=$(C -H 'Content-Type: application/json' -d "$BODY" "https://$LOGIN:$EDGE_PORT/authorize/verify")
+BACK=$(jq -r '.redirect // empty' <<<"$OUT")
+[ -n "$BACK" ] && ok "the grantee's signature returns a code" || bad "delegated verify: $OUT"
+C -o /dev/null "$(viaEdge <<<"$BACK")"
+WHO=$(C "https://$DOMAIN:$EDGE_PORT/settings/profile" -o /dev/null -w '%{http_code}')
+[ "$WHO" = "200" ] && ok "the grantee's browser is signed in" || bad "delegated settings page answered $WHO"
+DSTATE=$(R 'u = Identity.find_by(provider: "openid_connect", uid: "'$SUB'").user
+  s = Setting["sparkdream_delegated_sessions"] || {}
+  puts({ identities: Identity.where(provider: "openid_connect").count, sessions: u.session_activations.count,
+         recorded: s.values.map { |r| [r["user"] == u.id, r["grantee"], r["grant"], r["chain"]] } }.to_json)')
+[ "$(jq -r .identities <<<"$DSTATE")" = "1" ] && [ "$(jq -r .sessions <<<"$DSTATE")" = "2" ] \
+    && ok "the grantee entered @phoenix_one itself (one account, two sessions)" || bad "delegated account state: $DSTATE"
+[ "$(jq -c .recorded <<<"$DSTATE")" = '[[true,"'$DELEGATE'","7","fleet-phoenix"]]' ] \
+    && ok "the delegated session is recorded against grant 7" || bad "recorded sessions: $DSTATE"
+
+# the grant is revoked (x/session deletes it): the sweep ends that session
+lcd_rm "sparkdream/session/v1/grants/7"
+lcd_put "sparkdream/session/v1/grants/by_grantee/$DELEGATE" '{"grants":[]}'
+SWEPT=$(R 'SparkdreamDelegatedSessionSweepWorker.new.perform
+  u = Identity.find_by(provider: "openid_connect", uid: "'$SUB'").user
+  puts({ sessions: u.session_activations.count, recorded: (Setting["sparkdream_delegated_sessions"] || {}).size }.to_json)')
+[ "$(jq -c . <<<"$SWEPT")" = '{"sessions":1,"recorded":0}' ] \
+    && ok "sweep ended the delegated session once the grant was gone" || bad "delegated sweep: $SWEPT"
+WHO=$(C "https://$DOMAIN:$EDGE_PORT/settings/profile" -o /dev/null -w '%{http_code}')
+[ "$WHO" = "302" ] && ok "the grantee's browser is signed out" || bad "after revoke the grantee's settings page answered $WHO"
+JAR="$MEMBER_JAR"
+WHO=$(C "https://$DOMAIN:$EDGE_PORT/settings/profile" -o /dev/null -w '%{http_code}')
+[ "$WHO" = "200" ] && ok "the member's own session is untouched" || bad "member's settings page answered $WHO"
+
+# 7. the member leaves the chain: the sweep asks sdaplogin and disables them
 lcd_rm "sparkdream/rep/v1/member/$MEMBER"
 GONE=$(R 'SparkdreamMembershipSweepWorker.new.perform
   puts({ disabled: Identity.find_by(provider: "openid_connect", uid: "'$SUB'").user.disabled? }.to_json)')

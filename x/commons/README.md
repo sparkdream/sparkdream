@@ -283,19 +283,20 @@ The module bootstraps the entire Three Pillars governance structure at genesis v
 The module implements `ShieldAware` for `x/shield` integration:
 
 - `MsgSubmitAnonymousProposal` — shield-compatible
-- `MsgAnonymousVoteProposal` — shield-compatible
+- `MsgAnonymousVoteProposal` — shield-compatible, but refused by the handler: council votes are open
 
 These messages are routed through `x/shield`'s `MsgShieldedExec` for ZK proof verification and nullifier management.
 
 ## Security
 
 - **Cycle detection** — prevents circular parent-child relationships via ancestry walk
-- **Golden shares** — Technical and Ecosystem councils have Commons Council as guardian veto
+- **Golden shares** — on the Technical and Ecosystem councils the Commons Council seat weighs as much as all other members together, so it holds half the votes however many join; only x/gov may remove it
+- **One member, one vote** — the genesis governance bodies take weight-1 members unless x/gov sets otherwise (the founder's genesis weight-3 seat is kept); other groups choose any positive weight
 - **Electoral separation** — governance committees are separate from operational committees
 - **Permission ratcheting** — groups can reduce but not expand their own permissions
 - **Rate limiting** — `SpendFromCommons` enforces per-epoch spending caps
 - **Policy versioning** — veto bumps version, invalidating all pending proposals under the old version
-- **Anonymous vote weight cap** — anonymous votes use uniform weight=1 to prevent weight manipulation
+- **Open council votes** — anonymous votes are refused: the proof shows trust-tree membership, not a council seat, and could be cast on top of an open vote
 
 ## Client
 

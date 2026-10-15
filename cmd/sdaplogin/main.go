@@ -24,6 +24,13 @@
 // the instance's hourly sweep, which disables the login of accounts that are
 // no longer members.
 //
+// Delegated sign-in (delegation.go): a member may give another key an
+// x/session SIGN_IN grant naming the instance's host. That key signs in to
+// the member's account (sub and name are the member's); the page offers the
+// granted accounts once the wallet is connected, and the signed text names
+// the account chosen. /sign-in-grant/{chain}/{id} answers the instance's
+// sweep, which ends a delegated session once its grant is gone.
+//
 // State (open login pages, codes, tokens) is in memory: a restart only
 // makes a member in the middle of signing in start again.
 package main

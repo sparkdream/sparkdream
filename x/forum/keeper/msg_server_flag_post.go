@@ -3,6 +3,8 @@ package keeper
 import (
 	"context"
 	"fmt"
+	stdmath "math"
+	"strings"
 
 	"sparkdream/x/forum/types"
 
@@ -18,6 +20,23 @@ func (k msgServer) FlagPost(ctx context.Context, msg *types.MsgFlagPost) (*types
 		return nil, errorsmod.Wrap(err, "invalid creator address")
 	}
 
+	// Category must be a concrete ModerationReason (UNSPECIFIED and values
+	// outside the enum are rejected); OTHER needs free-text, as for hides.
+	if msg.Category == 0 || msg.Category > uint64(stdmath.MaxInt32) {
+		return nil, errorsmod.Wrapf(types.ErrInvalidReasonCode, "invalid flag category %d", msg.Category)
+	}
+	if _, ok := commontypes.ModerationReason_name[int32(msg.Category)]; !ok {
+		return nil, errorsmod.Wrapf(types.ErrInvalidReasonCode, "invalid flag category %d", msg.Category)
+	}
+	if commontypes.ModerationReason(msg.Category) == commontypes.ModerationReason_MODERATION_REASON_OTHER &&
+		strings.TrimSpace(msg.Reason) == "" {
+		return nil, types.ErrReasonTextRequired
+	}
+	if len(msg.Reason) > types.MaxFlagReasonLength {
+		return nil, errorsmod.Wrapf(types.ErrFlagReasonTooLong,
+			"reason is %d bytes, max %d", len(msg.Reason), types.MaxFlagReasonLength)
+	}
+
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	now := sdkCtx.BlockTime().Unix()
 
@@ -25,6 +44,14 @@ func (k msgServer) FlagPost(ctx context.Context, msg *types.MsgFlagPost) (*types
 	post, err := k.Post.Get(ctx, msg.PostId)
 	if err != nil {
 		return nil, errorsmod.Wrap(types.ErrPostNotFound, fmt.Sprintf("post %d not found", msg.PostId))
+	}
+
+	// No self-flags: an author flagging their own post only inflates the
+	// review queue. Skipped for anonymous flags, whose signer is the shield
+	// module account (which is also the author of every anonymous post), so
+	// the comparison says nothing about the real identities.
+	if post.Author == msg.Creator && !k.isAnonymous(msg.Creator) {
+		return nil, types.ErrCannotFlagOwnPost
 	}
 
 	// Check post status - cannot flag hidden/deleted/archived posts

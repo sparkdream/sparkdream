@@ -100,4 +100,9 @@ var (
 	// --- Module-bypass errors (P8) ---
 	ErrModuleNotAuthorized = errors.Register(ModuleName, 1700, "caller module address is not in params.authorized_grant_creators")
 	ErrBypassDisabled      = errors.Register(ModuleName, 1701, "module-bypass keeper entrypoint requires a non-empty authorized_grant_creators allowlist")
+
+	// --- SignIn grants ---
+	ErrInvalidSignInService    = errors.Register(ModuleName, 1800, "sign_in.service must be a lowercase DNS hostname")
+	ErrSignInGrantExists       = errors.Register(ModuleName, 1801, "an active SIGN_IN grant already exists for this grantee and service")
+	ErrMaxSignInGrantsExceeded = errors.Register(ModuleName, 1802, "granter has too many active SIGN_IN grants")
 )

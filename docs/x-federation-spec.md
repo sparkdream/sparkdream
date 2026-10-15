@@ -1383,7 +1383,9 @@ message MsgRemovePeer {
 
 **Cleanup lifecycle** (handled by EndBlocker, see Section 9):
 - All FederatedContent for this peer: deleted (pruned from storage and all indexes)
-- All IdentityLinks for this peer: verified links marked REVOKED (preserved 90 days for audit), unverified links deleted immediately. Emit `identity_link_revoked` event for each verified link.
+- All IdentityLinks for this peer: deleted from the primary store and the reverse index, with the per-user `IdentityLinkCount` decremented, so a user can link again (including to the same peer id once it is re-registered). Each verified link emits `identity_link_revoked`, which is the audit trail; no REVOKED record is retained.
+- All PendingIdentityChallenges from this peer: deleted
+- Active disputes on this peer's content: cancelled — escrowed challenge fee refunded to the challenger, an open jury escalation's fee refunded to the escalator, verifier commitment released; `challenge_cancelled_peer_removed` emitted
 - All ReputationAttestations for this peer: deleted
 - All OutboundAttestations for this peer: deleted
 - BridgeBindings for this peer: by step 3 above, the only bindings still present at this point are those whose `service.Operator` reached `RETIRED` or `SLASHED` during the gap between `MsgRemovePeer` queueing and EndBlocker execution. Federation deletes those orphan bindings and their reverse-index entries; bond accounting is owned by x/service.
@@ -1629,7 +1631,7 @@ message MsgSubmitFederatedContent {
 
     In both cases the hash covers the **full, untruncated** source: verifiers independently re-fetch and recompute, so a bridge that hashed truncated content would force a false DISPUTED on every long item.
 7. Truncate `body` to `max_content_body_size`, `content_uri` to `max_content_uri_size`, `protocol_metadata` to `max_protocol_metadata_size`. Note: truncation happens AFTER the hash is stored — the on-chain body is a preview, but the hash covers the full source content.
-8. Check `ContentByHash` index for duplicates — if the same hash already exists for this peer, reject with `ErrDuplicateContent`. The daemon-side dedupe convention keys on `(uri, content_hash)`, **never** `uri` alone: an edit keeps the URI and changes the hash, and suppressing the re-anchor would kill edit detection — the most valuable thing the bridge produces. The chain's `ContentByHash` is the authority; a daemon's local store is a cache to avoid wasted transactions.
+8. Check `ContentByHash` index for duplicates — if the same hash already anchors a live content record, reject with `ErrDuplicateContent`. An index entry whose record has been pruned counts as absent, so pruned content may be anchored again. The daemon-side dedupe convention keys on `(uri, content_hash)`, **never** `uri` alone: an edit keeps the URI and changes the hash, and suppressing the re-anchor would kill edit detection — the most valuable thing the bridge produces. The chain's `ContentByHash` is the authority; a daemon's local store is a cache to avoid wasted transactions.
    - 8b. **Supersede.** If `supersedes` is set, it must name an existing record submitted by the **same operator** for the **same peer** with the **same** (non-empty) `content_uri`, not yet superseded; otherwise `ErrInvalidSupersede`. An operator can only retire its own records. After the new record is stored, the predecessor gets `superseded_by` = the new id, and if it was still PENDING_VERIFICATION it moves to `SUPERSEDED` (a predecessor past verification keeps its status and only gains the link). Emits `content_superseded` (`content_id`, `superseded_by`, `new_status`).
 9. Set status to `PENDING_VERIFICATION` (bridge content requires independent verification — see Section 3.9). If peer policy `require_review` is true, content will additionally need Operations Committee review after verification.
 10. Compute `expires_at` = current block time + `content_ttl`
@@ -2217,7 +2219,7 @@ message ContentPacket {
    - 2b. `license` must be `CC0-1.0` or `PDM-1.0`, else `ErrLicenseNotAccepted`. A packet from a peer on a binary predating the field carries no license and is refused: the receiver cannot know the content is public domain.
 3. Store `content_hash` from the packet directly (hash covers full source content, computed by the sending chain)
 4. Truncate `body` to `max_content_body_size`, `content_uri` to `max_content_uri_size`, `protocol_metadata` to `max_protocol_metadata_size` (truncation is for storage only — hash covers full content)
-5. Check `ContentByHash` for duplicates from this peer — reject if same hash already exists
+5. Check `ContentByHash` for duplicates — idempotent success if the same hash already anchors a live record (an entry whose record was pruned counts as absent)
 6. Store as FederatedContent with computed `expires_at`, add to `ContentExpirationQueue`, `ContentByCreator`, `ContentByHash`
 6. Return success/rejection ack
 
@@ -2332,7 +2334,7 @@ The EndBlocker handles periodic cleanup and monitoring. All pruning phases share
 ### Phase 1: Prune Expired Federated Content
 
 Walk `ContentExpirationQueue` from earliest entry. For each entry where `expires_at <= block_time`:
-1. Delete FederatedContent from primary store and all indexes (`ContentByPeer`, `ContentByType`, `ContentByCreator`, `ContentByHash`)
+1. Delete FederatedContent from primary store and all indexes (`ContentByPeer`, `ContentByType`, `ContentByCreator`, `ContentByHash` — the hash entry only while it still names this record)
 2. Delete the expiration queue entry
 3. Increment `pruned` counter
 4. Stop when `pruned >= max_prune_per_block` or queue is exhausted
@@ -2434,14 +2436,13 @@ message PeerRemovalState {
 
 For each peer in `PeerRemovalQueue` (bounded by remaining prune budget):
 1. **Content cleanup (cursor-based):** Walk `ContentByPeer` index starting from `last_pruned_content_id + 1`. For each content item, before deleting:
-   - If content is in CHALLENGED or DISPUTED status: cancel the dispute. Refund any escrowed `challenge_fee` to the challenger. Release verifier's `committed_bond`. Delete associated `VerificationRecord`, `ArbiterHashSubmissions`, and queue entries (`ArbiterResolutionQueue`, `ArbiterEscalationQueue`). Emit `challenge_cancelled_peer_removed` event.
-   - If content is in PENDING_VERIFICATION: delete `VerificationWindowQueue` entry.
+   - If content is in CHALLENGED or DISPUTED status: cancel the dispute. Refund any escrowed `challenge_fee` to the challenger. Release verifier's `committed_bond`. Refund an open jury escalation's fee to the escalator and delete the `EscalatedChallenge`. Delete associated `VerificationRecord` and `ArbiterHashSubmissions`. Emit `challenge_cancelled_peer_removed` event. Queue entries keyed on deadlines the record does not store (`ArbiterResolutionQueue`, `ArbiterEscalationQueue`, `VerificationWindowQueue`) are left to drain: their walks no-op on a missing record or content, and content ids are never reused.
    - If content is VERIFIED with active challenge window: release verifier's committed bond, delete `VerificationRecord` and `ChallengeWindowQueue` entry.
    - Delete the content from primary store and all indexes.
    Update `last_pruned_content_id` to the last deleted ID. Set `content_done = true` when the index walk finds no more items. This guarantees O(N) total operations across all blocks, not O(N^2).
-2. **Identity links** (if `content_done` and budget remains): Mark verified links as REVOKED with `verified_at` preserved (kept 90 days for audit trail), delete unverified links immediately. Emit events. Set `links_done = true`.
-3. **Reputation attestations** (if `links_done`): Delete all for this peer. Set `attestations_done = true`.
-4. **Outbound attestations** (if `attestations_done`): Delete all for this peer. Set `outbound_done = true`.
+2. **Identity links** (if `content_done` and budget remains): Walk `IdentityLinksByRemote` under the peer prefix; delete each link, its reverse-index and unverified-expiry entries, and decrement `IdentityLinkCount`. Emit `identity_link_revoked` for each verified link. Then delete the peer's `PendingIdentityChallenges`. Set `links_done = true`.
+3. **Reputation attestations** (if `links_done`): Delete all for this peer, with their `AttestationExpirationQueue` entries. Set `attestations_done = true`.
+4. **Outbound attestations** (if `attestations_done`): Delete all for this peer. The store has no peer index, so the walk is cursor-based: `last_pruned_content_id` (spent once `content_done`, reset to 0 on entering step 2) holds the next outbound attestation id, and every visited entry consumes budget. Set `outbound_done = true`.
 5. **Bridge bindings** (if `outbound_done`): by `MsgRemovePeer`'s step-3 precondition, peers reach this phase only after their bindings have been unbound via x/service (or force-dissolved by gov bundle). Any remaining bindings here are orphans whose `service.Operator` already moved to `RETIRED`/`SLASHED` — federation simply deletes them and their reverse-index entries; x/service owns bond accounting. Emit `bridge_unbound` events. Set `bridges_done = true`.
 6. **Peer policy** (if `bridges_done`): Delete. Set `policy_done = true`.
 7. If ALL flags are true, delete the Peer record itself and remove from `PeerRemovalQueue`. Emit `peer_cleanup_complete` event.

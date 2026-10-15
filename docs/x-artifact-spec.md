@@ -1405,7 +1405,7 @@ None of §16.1 has to ship at launch. Each item can arrive in its own chain upgr
 - **Defaults preserve behaviour.** Every new class field's zero value means "exactly as before the upgrade". Existing classes keep their rules, and only classes created afterwards can opt in. An upgrade never turns on a new issuer power for a class that already exists, because holders acquired their tokens under the old rules (§1.1).
 - **Additive wire changes.** New fields go on the end of their messages and new enum values on the end of their enums. After launch the dense-renumbering proto rule no longer applies to live state: a removed field is `reserved`, never renumbered.
 - **Fail closed on old clients.** Where a feature adds a protection field to a message (for example a contents hash on `MsgBuy` for nested tokens), a request that leaves it empty on a token that needs it is refused, not settled.
-- **Mechanics.** Bump the module's `ConsensusVersion`, register a store migration that sets defaults for any new params (the op-params full-replacement rule means e2e builders must list them too), and add an upgrade handler. The first upgrade after launch also has to add the upgrade-handler plumbing to `app/`, which does not exist yet.
+- **Mechanics.** Bump the module's `ConsensusVersion`, register a store migration that sets defaults for any new params (the op-params full-replacement rule means e2e builders must list them too), and add an upgrade entry to `upgrades.All` ([docs/chain-upgrades.md](chain-upgrades.md); the plumbing in `app/` is in place).
 
 **Decided at launch, so later upgrades need no migration:**
 

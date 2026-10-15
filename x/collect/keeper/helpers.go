@@ -650,7 +650,7 @@ func (k Keeper) deleteCollectionFull(ctx context.Context, coll types.Collection)
 				return false, nil
 			}
 			// Refund pending challenge deposits and release committed bond.
-			if review.Challenged && !review.Overturned {
+			if isChallengePending(review) {
 				challengerAddr, aerr := k.addressCodec.StringToBytes(review.Challenger)
 				if aerr == nil {
 					k.repKeeper.UnlockDREAM(ctx, challengerAddr, params.ChallengeDeposit) //nolint:errcheck

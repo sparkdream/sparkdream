@@ -263,6 +263,7 @@ func TestResolveChallengeResult_Rejected(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, review.Overturned)
 	require.True(t, review.Challenged) // still marked as challenged
+	require.Empty(t, review.Challenger, "settled deposit is not payable again on deletion/timeout")
 
 	// Verify challenge deposit was burned from challenger
 	require.Equal(t, challengerAddr.Bytes(), burnDREAMAddr.Bytes())

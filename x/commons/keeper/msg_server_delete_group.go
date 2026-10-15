@@ -43,8 +43,10 @@ func (k msgServer) DeleteGroup(goCtx context.Context, msg *types.MsgDeleteGroup)
 	}
 	_ = k.PolicyPermissions.Remove(ctx, groupInfo.PolicyAddress)
 
-	if groupInfo.FundingWeight > 0 {
-		k.splitKeeper.SetShareByAddress(ctx, groupInfo.PolicyAddress, 0)
+	// Stop x/split distributions to the deleted policy: nothing can spend
+	// from that address once the group is gone.
+	if err := k.splitKeeper.RemoveShareByAddress(ctx, groupInfo.PolicyAddress); err != nil {
+		return nil, errorsmod.Wrap(err, "failed to remove split share")
 	}
 
 	// Invalidate pending proposals via version bump.
