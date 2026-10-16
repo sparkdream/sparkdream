@@ -207,6 +207,24 @@ var (
 		// ErrSelfVerification already blocks the profitable version of
 		// that attack (verifying one's own submissions).
 		"/sparkdream.federation.v1.MsgVerifyContent",
+		// x/artifact — game-server ergonomics (the battle royale and any
+		// other application that mints records for its players from a
+		// host it does not control, such as decentralized compute). The
+		// game management account grants its server a session scoped to
+		// these two and keeps its own key at home.
+		//
+		// MsgUpdateToken edits metadata of a token the granter owns: no
+		// funds move. MsgMint is closer to the line: each minted token
+		// takes the class's deposit (0.1 SPARK) from the granter, which a
+		// session's fee-only SpendLimit does not cap — but the deposit is
+		// refunded when the token is burned, the key can only mint into
+		// classes the granter owns and only to the minter's own class
+		// supply, and the exposure is bounded by the granter's spendable
+		// balance until the grant is revoked. MsgCreateClass is
+		// deliberately excluded: it burns SPARK irreversibly, and a class
+		// is created once by the account's own key.
+		"/sparkdream.artifact.v1.MsgMint",
+		"/sparkdream.artifact.v1.MsgUpdateToken",
 	}
 )
 

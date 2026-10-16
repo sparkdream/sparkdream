@@ -180,6 +180,8 @@ func rewriteSignerField(msg sdk.Msg, granter string) error {
 		"Creator", "Sender", "Authority", "Proposer", "Validator",
 		"Delegator", "Granter", "FromAddress", "Signer", "Admin",
 		"Owner", "Operator",
+		// x/artifact MsgMint
+		"Minter",
 	} {
 		field := v.FieldByName(fieldName)
 		if field.IsValid() && field.Kind() == reflect.String && field.CanSet() {

@@ -2056,14 +2056,14 @@
           "/sparkdream.season.v1.MsgStartQuest",
           "/sparkdream.season.v1.MsgAbandonQuest",
           "/sparkdream.season.v1.MsgClaimQuestReward",
-          "/sparkdream.service.v1.MsgUnbondOperator",
-          "/sparkdream.service.v1.MsgTopUpBond",
           "/sparkdream.service.v1.MsgUpdateMetadata",
           "/sparkdream.service.v1.MsgClaimUnbondedBond",
           "/sparkdream.service.v1.MsgSubmitCheckpoint",
           "/sparkdream.federation.v1.MsgSubmitFederatedContent",
           "/sparkdream.federation.v1.MsgAttestOutbound",
-          "/sparkdream.federation.v1.MsgVerifyContent"
+          "/sparkdream.federation.v1.MsgVerifyContent",
+          "/sparkdream.artifact.v1.MsgMint",
+          "/sparkdream.artifact.v1.MsgUpdateToken"
         ],
         "authorized_grant_creators": [
           "sprkdrm1m0a2t448gsfxq5nr6el96jmm6svj43sym0derq"
@@ -2123,14 +2123,14 @@
           "/sparkdream.season.v1.MsgStartQuest",
           "/sparkdream.season.v1.MsgAbandonQuest",
           "/sparkdream.season.v1.MsgClaimQuestReward",
-          "/sparkdream.service.v1.MsgUnbondOperator",
-          "/sparkdream.service.v1.MsgTopUpBond",
           "/sparkdream.service.v1.MsgUpdateMetadata",
           "/sparkdream.service.v1.MsgClaimUnbondedBond",
           "/sparkdream.service.v1.MsgSubmitCheckpoint",
           "/sparkdream.federation.v1.MsgSubmitFederatedContent",
           "/sparkdream.federation.v1.MsgAttestOutbound",
-          "/sparkdream.federation.v1.MsgVerifyContent"
+          "/sparkdream.federation.v1.MsgVerifyContent",
+          "/sparkdream.artifact.v1.MsgMint",
+          "/sparkdream.artifact.v1.MsgUpdateToken"
         ],
         "max_endblocker_dispatches_per_pass": 100,
         "max_exec_count": "10000",

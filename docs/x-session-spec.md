@@ -84,6 +84,7 @@ Session keys use a **bounded allowlist** with two tiers:
 - **Default-deny**: Any message type not in the active `allowed_msg_types` cannot be delegated.
 - **No forbidden list to maintain** — security comes from the ceiling being a finite, reviewed set. Financial, governance, DREAM, params, and infrastructure messages are simply never in the ceiling.
 - **New modules** require a chain upgrade to add their messages to the ceiling. This is the right ceremony — the same review process as deploying the module itself.
+- **Application servers** (the battle royale game, and anything else that mints records for its users from a host it does not control) get `/sparkdream.artifact.v1.MsgMint` and `MsgUpdateToken`: the application's management account creates its classes with its own key, once, then grants the server a session scoped to those two. A mint takes the class deposit from the granter (refundable on burn), which the fee-only `spend_limit` does not cap, so the exposure of a leaked key is the granter's spendable balance until the grant is revoked. `MsgCreateClass` burns SPARK and is never delegable.
 - **Per-session scoping**: Each session specifies a subset of the active allowlist. A session for blogging doesn't need forum permissions.
 
 ### 3.3. Integrated Fee Delegation
