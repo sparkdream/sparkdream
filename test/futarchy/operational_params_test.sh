@@ -75,9 +75,12 @@ vote_and_execute() {
     local prop_id=$1
 
     echo "  Alice voting YES..."
+    # The vote that reaches threshold accepts the proposal in the same tx and
+    # rewrites it, including the full params message it carries, so it costs
+    # far more than the 200000 default gas.
     $BINARY tx commons vote-proposal $prop_id yes \
         --from alice -y --chain-id $CHAIN_ID --keyring-backend test \
-        --fees 5000000${BOND_DENOM} --output json > /dev/null 2>&1
+        --gas 600000 --fees 5000000${BOND_DENOM} --output json > /dev/null 2>&1
     sleep 6
 
     echo "  Executing proposal $prop_id..."

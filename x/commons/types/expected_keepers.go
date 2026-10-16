@@ -134,3 +134,11 @@ type ParamSubspace interface {
 
 // Ensure collections.ErrNotFound is usable
 var _ = collections.ErrNotFound
+
+// SeasonKeeper is the slice of x/season commons notifies about governance
+// participation so XP can be granted (x-season-spec "OnVoteCast"). Late-bound
+// via SetSeasonKeeper; calls are best-effort and never tx-halting.
+type SeasonKeeper interface {
+	OnVoteCast(ctx context.Context, voter sdk.AccAddress, proposalID uint64) error
+	OnProposalCreated(ctx context.Context, proposer sdk.AccAddress, proposalID uint64) error
+}

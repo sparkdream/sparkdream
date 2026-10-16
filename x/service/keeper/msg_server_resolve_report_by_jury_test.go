@@ -32,6 +32,9 @@ func TestMsgResolveReportByJury_Accept(t *testing.T) {
 	f := initFixture(t)
 	reportID := f.seedEscalatedReport(t, 300)
 
+	// Let bond-blocks accrue so the §6.6 reputation deduction is non-zero.
+	f.withBlockHeight(f.sdkCtx().BlockHeight() + 100)
+
 	preBond := math.ZeroInt()
 	if op, ok := f.keeper.GetOperator(f.ctx, testOperator1Addr.Bytes(), testServiceType); ok {
 		preBond = op.BondAmount
@@ -61,6 +64,19 @@ func TestMsgResolveReportByJury_Accept(t *testing.T) {
 	// Reporter deposit refunded.
 	require.Len(t, f.bankKeeper.ModToAcctCalls, 1)
 	require.Equal(t, testReporterAddr, f.bankKeeper.ModToAcctCalls[0].Recipient)
+
+	// §6.6: a jury slash deducts service-operator reputation, proportional
+	// to the share of the bond taken (300 bps of accrued reputation) times
+	// the jury multiplier.
+	require.Len(t, f.repKeeper.DeductReputationCalls, 1)
+	ded := f.repKeeper.DeductReputationCalls[0]
+	require.Equal(t, testOperator1Addr, ded.Address)
+	require.Equal(t, types.ReputationTagServiceOperator, ded.Tag)
+	require.True(t, ded.Amount.IsPositive())
+	params, err := f.keeper.Params.Get(f.ctx)
+	require.NoError(t, err)
+	accrued := params.ReputationGrantPerBondBlock.MulInt(op.TotalLifetimeBondBlocks)
+	require.Equal(t, accrued.MulInt64(300).QuoInt64(10000).MulInt64(types.JurySlashReputationMultiplier).String(), ded.Amount.String())
 }
 
 func TestMsgResolveReportByJury_AcceptDissolve(t *testing.T) {
@@ -139,6 +155,9 @@ func TestMsgResolveReportByJury_Reject(t *testing.T) {
 
 	// Reporter deposit forfeited to community pool.
 	require.NotEmpty(t, f.distributionKeeper.Calls)
+
+	// REJECT produces no reputation movement (§6.6).
+	require.Empty(t, f.repKeeper.DeductReputationCalls)
 }
 
 func TestMsgResolveReportByJury_UnauthorizedResolver(t *testing.T) {

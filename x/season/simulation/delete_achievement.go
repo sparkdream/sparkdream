@@ -30,7 +30,7 @@ func SimulateMsgDeleteAchievement(
 		}
 
 		// Delete the achievement via keeper
-		if err := k.Achievement.Remove(ctx, achievementId); err != nil {
+		if err := k.RemoveAchievement(ctx, achievementId); err != nil {
 			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgDeleteAchievement{}), "failed to delete achievement"), nil, nil
 		}
 

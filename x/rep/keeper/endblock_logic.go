@@ -3,10 +3,12 @@ package keeper
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"sparkdream/x/rep/types"
 
 	"cosmossdk.io/collections"
+	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 )
 
@@ -153,8 +155,99 @@ func (k Keeper) UpdateAllTrustLevels(ctx context.Context) error {
 	})
 }
 
-// ProcessExpiredAccountability checks for expired invitations
+// ProcessExpiredAccountability expires PENDING invitations whose acceptance
+// window has passed. Runs once per epoch (at the epoch-end block). Without
+// it a never-accepted invitation would lock the inviter's stake forever and
+// keep the invitee address permanently reserved. Accountability for
+// accepted invitations is passive (checked when the invitee is penalized).
 func (k Keeper) ProcessExpiredAccountability(ctx context.Context) error {
-	// No-op for now as accountability expiry is passive
+	params, err := k.Params.Get(ctx)
+	if err != nil {
+		return err
+	}
+	if params.InvitationAcceptanceEpochs <= 0 {
+		return nil
+	}
+	isEnd, err := k.IsEpochEnd(ctx)
+	if err != nil || !isEnd {
+		return err
+	}
+
+	sdkCtx := sdk.UnwrapSDKContext(ctx)
+	now := sdkCtx.BlockTime().Unix()
+	// Same seconds-per-epoch estimate CreateInvitation uses for
+	// accountability_end, so both deadlines move together.
+	window := params.InvitationAcceptanceEpochs * params.EpochBlocks * 6
+
+	var expired []types.Invitation
+	if err := k.Invitation.Walk(ctx, nil, func(_ uint64, inv types.Invitation) (bool, error) {
+		if inv.Status == types.InvitationStatus_INVITATION_STATUS_PENDING && now > inv.CreatedAt+window {
+			expired = append(expired, inv)
+		}
+		return false, nil
+	}); err != nil {
+		return err
+	}
+	for _, inv := range expired {
+		if err := k.closePendingInvitation(ctx, inv, types.InvitationStatus_INVITATION_STATUS_EXPIRED, "invitation_expired"); err != nil {
+			sdkCtx.Logger().Error("failed to expire invitation", "invitation_id", inv.Id, "error", err)
+		}
+	}
+	return nil
+}
+
+// closePendingInvitation ends a PENDING invitation without acceptance
+// (EXPIRED by the epoch sweep, REVOKED by the inviter): the status is
+// recorded, the inviter's stake is unlocked, the invitation credit it
+// consumed is restored and the invitee address is freed. The record is kept
+// for history.
+func (k Keeper) closePendingInvitation(ctx context.Context, inv types.Invitation, status types.InvitationStatus, eventType string) error {
+	if inv.Status != types.InvitationStatus_INVITATION_STATUS_PENDING {
+		return types.ErrInvitationNotPending
+	}
+	inv.Status = status
+	if err := k.Invitation.Set(ctx, inv.Id, inv); err != nil {
+		return err
+	}
+	// Free the invitee slot only if it still points at this invitation.
+	if id, err := k.InvitationsByInvitee.Get(ctx, inv.InviteeAddress); err == nil && id == inv.Id {
+		if err := k.InvitationsByInvitee.Remove(ctx, inv.InviteeAddress); err != nil {
+			return err
+		}
+	}
+
+	inviterAddr, err := sdk.AccAddressFromBech32(inv.Inviter)
+	if err != nil {
+		return err
+	}
+	unlocked := math.ZeroInt()
+	if _, err := k.Member.Get(ctx, inv.Inviter); err == nil {
+		if inv.StakedDream != nil && inv.StakedDream.IsPositive() {
+			// UnlockDREAM caps at the actual staked balance (decay may have
+			// reduced it).
+			if err := k.UnlockDREAM(ctx, inviterAddr, *inv.StakedDream); err != nil {
+				return err
+			}
+			unlocked = *inv.StakedDream
+		}
+		// Reload: UnlockDREAM rewrote the member.
+		inviter, err := k.Member.Get(ctx, inv.Inviter)
+		if err == nil {
+			inviter.InvitationCredits++
+			if err := k.Member.Set(ctx, inv.Inviter, inviter); err != nil {
+				return err
+			}
+		}
+	}
+
+	sdk.UnwrapSDKContext(ctx).EventManager().EmitEvent(
+		sdk.NewEvent(
+			eventType,
+			sdk.NewAttribute("invitation_id", fmt.Sprintf("%d", inv.Id)),
+			sdk.NewAttribute("inviter", inv.Inviter),
+			sdk.NewAttribute("invitee", inv.InviteeAddress),
+			sdk.NewAttribute("stake_unlocked", unlocked.String()),
+		),
+	)
 	return nil
 }

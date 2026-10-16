@@ -867,6 +867,12 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					Short:          "Reclaim your matured initiative bounty contributions while it is unassigned",
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "initiative_id"}},
 				},
+				{
+					RpcMethod:      "RevokeInvitation",
+					Use:            "revoke-invitation [invitation-id]",
+					Short:          "Withdraw a pending invitation you sent (unlocks the stake, restores the credit)",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "invitation_id"}},
+				},
 			},
 		},
 	}

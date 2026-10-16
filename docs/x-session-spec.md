@@ -1080,7 +1080,7 @@ The following features are **not in scope** for v1 but could be added later:
 
 ## 18. Module Invariants
 
-Registered with the `InvariantRegistry` for detection via `crisis` module:
+Specified for the `InvariantRegistry`; x/session does not register them today. The chain does not wire `x/crisis`; registered invariants run in `app/invariants_test.go` against every e2e post-setup genesis snapshot (`go test ./app -run TestInvariants`).
 
 ### 18.1. SpendLimitInvariant
 

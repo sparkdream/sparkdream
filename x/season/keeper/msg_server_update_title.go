@@ -48,7 +48,7 @@ func (k msgServer) UpdateTitle(ctx context.Context, msg *types.MsgUpdateTitle) (
 	title.Seasonal = msg.Seasonal
 
 	// Save the updated title
-	if err := k.Title.Set(ctx, title.TitleId, title); err != nil {
+	if err := k.SetTitle(ctx, title); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to update title")
 	}
 

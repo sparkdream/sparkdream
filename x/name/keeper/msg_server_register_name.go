@@ -71,11 +71,13 @@ func (k msgServer) RegisterName(goCtx context.Context, msg *types.MsgRegisterNam
 	}
 
 	// 5. Check Availability & Scavenge Logic
+	scavenged := false
 	currentOwner, found := k.GetNameOwner(ctx, name)
 	if found {
 		// Scavenge Logic: Check if current owner is expired
 		if k.IsOwnerExpired(ctx, currentOwner) {
 			// Expired! We can steal it.
+			scavenged = true
 			// Emit event to track the scavenge
 			ctx.EventManager().EmitEvent(
 				sdk.NewEvent("name_scavenged",
@@ -144,6 +146,17 @@ func (k msgServer) RegisterName(goCtx context.Context, msg *types.MsgRegisterNam
 		if err := k.SetPrimaryName(ctx, creatorAddr, name); err != nil {
 			return nil, err
 		}
+	}
+
+	// A scavenge already emitted name_scavenged above; a fresh registration
+	// emits name_registered (spec §2 step 8).
+	if !scavenged {
+		ctx.EventManager().EmitEvent(
+			sdk.NewEvent("name_registered",
+				sdk.NewAttribute("name", name),
+				sdk.NewAttribute("owner", msg.Authority),
+			),
+		)
 	}
 
 	return &types.MsgRegisterNameResponse{}, nil

@@ -21,14 +21,14 @@ func TestBootstrapTitlesAndAchievements(t *testing.T) {
 		reqType   types.RequirementType
 		threshold uint64
 	}{
-		"first_step":          {types.Rarity_RARITY_COMMON, 100, types.RequirementType_REQUIREMENT_TYPE_INVITATIONS_SUCCESSFUL, 1},
-		"proven_contributor":  {types.Rarity_RARITY_UNCOMMON, 400, types.RequirementType_REQUIREMENT_TYPE_INITIATIVES_COMPLETED, 5},
-		"veteran_contributor": {types.Rarity_RARITY_RARE, 800, types.RequirementType_REQUIREMENT_TYPE_INITIATIVES_COMPLETED, 20},
-		"master_contributor":  {types.Rarity_RARITY_EPIC, 2000, types.RequirementType_REQUIREMENT_TYPE_INITIATIVES_COMPLETED, 50},
-		"legendary_builder":   {types.Rarity_RARITY_LEGENDARY, 5000, types.RequirementType_REQUIREMENT_TYPE_INITIATIVES_COMPLETED, 100},
-		"first_season":        {types.Rarity_RARITY_UNIQUE, 1000, types.RequirementType_REQUIREMENT_TYPE_SEASONS_ACTIVE, 1},
-		"genesis_founder":     {types.Rarity_RARITY_UNIQUE, 10000, types.RequirementType_REQUIREMENT_TYPE_GENESIS, 0},
-		"first_spark":         {types.Rarity_RARITY_UNIQUE, 15000, types.RequirementType_REQUIREMENT_TYPE_GENESIS, 0},
+		"first_step":          {types.Rarity_RARITY_COMMON, 10, types.RequirementType_REQUIREMENT_TYPE_INVITATIONS_SUCCESSFUL, 1},
+		"proven_contributor":  {types.Rarity_RARITY_UNCOMMON, 25, types.RequirementType_REQUIREMENT_TYPE_INITIATIVES_COMPLETED, 5},
+		"veteran_contributor": {types.Rarity_RARITY_RARE, 50, types.RequirementType_REQUIREMENT_TYPE_INITIATIVES_COMPLETED, 20},
+		"master_contributor":  {types.Rarity_RARITY_EPIC, 100, types.RequirementType_REQUIREMENT_TYPE_INITIATIVES_COMPLETED, 50},
+		"legendary_builder":   {types.Rarity_RARITY_LEGENDARY, 150, types.RequirementType_REQUIREMENT_TYPE_INITIATIVES_COMPLETED, 100},
+		"first_season":        {types.Rarity_RARITY_UNIQUE, 150, types.RequirementType_REQUIREMENT_TYPE_SEASONS_ACTIVE, 1},
+		"genesis_founder":     {types.Rarity_RARITY_UNIQUE, 150, types.RequirementType_REQUIREMENT_TYPE_GENESIS, 0},
+		"first_spark":         {types.Rarity_RARITY_UNIQUE, 150, types.RequirementType_REQUIREMENT_TYPE_GENESIS, 0},
 	}
 
 	for id, expected := range expectedAchievements {

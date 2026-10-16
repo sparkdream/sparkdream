@@ -55,18 +55,32 @@ func (q queryServer) GetMarketPrice(goCtx context.Context, req *types.QueryGetMa
 
 	// Calculate current cost
 	maxExp := types.DefaultMaxExponent
+	var tradingFeeBps uint64
 	if params, err := q.k.Params.Get(ctx); err == nil {
 		if parsed, err := math.LegacyNewDecFromStr(params.MaxLmsrExponent); err == nil {
 			maxExp = parsed
 		}
+		tradingFeeBps = params.TradingFeeBps
 	}
 	currentCost, err := types.CalculateLMSRCost(ctx, bValue, poolYes, poolNo, maxExp)
 	if err != nil {
 		return nil, errorsmod.Wrap(sdkerrors.ErrInvalidRequest, err.Error())
 	}
 
-	// Calculate new cost with amount
-	newCost := currentCost.Add(math.LegacyNewDecFromInt(amountIn))
+	// Deduct the trading fee exactly as MsgTrade does, so the quoted
+	// shares_out matches what a trade of `amount` actually delivers. The
+	// price per share is still quoted against the gross amount paid.
+	amountAfterFee := amountIn
+	if tradingFeeBps > 0 {
+		feeDec := math.LegacyNewDecFromInt(amountIn).MulInt64(int64(tradingFeeBps)).QuoInt64(10000)
+		amountAfterFee = amountIn.Sub(feeDec.TruncateInt())
+		if amountAfterFee.LTE(math.ZeroInt()) {
+			return nil, errorsmod.Wrap(sdkerrors.ErrInvalidRequest, "trade amount too small after fee deduction")
+		}
+	}
+
+	// Calculate new cost with amount after fee
+	newCost := currentCost.Add(math.LegacyNewDecFromInt(amountAfterFee))
 
 	var sharesOut math.LegacyDec
 

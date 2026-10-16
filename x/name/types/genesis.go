@@ -5,10 +5,12 @@ import "fmt"
 // DefaultGenesis returns the default genesis state
 func DefaultGenesis() *GenesisState {
 	return &GenesisState{
-		Params:      DefaultParams(),
-		NameRecords: []NameRecord{},
-		OwnerInfos:  []OwnerInfo{},
-		DisputeMap:  []Dispute{},
+		Params:        DefaultParams(),
+		NameRecords:   []NameRecord{},
+		OwnerInfos:    []OwnerInfo{},
+		DisputeMap:    []Dispute{},
+		DisputeStakes: []DisputeStake{},
+		ContestStakes: []ContestStake{},
 	}
 }
 
@@ -43,6 +45,28 @@ func (gs GenesisState) Validate() error {
 			return fmt.Errorf("duplicated name for dispute")
 		}
 		disputeNameMap[name] = struct{}{}
+	}
+
+	// Validate stake records: unique challenge ids, non-negative amounts.
+	disputeStakeMap := make(map[string]struct{})
+	for _, elem := range gs.DisputeStakes {
+		if _, ok := disputeStakeMap[elem.ChallengeId]; ok {
+			return fmt.Errorf("duplicated challenge_id for disputeStake")
+		}
+		if elem.Amount.IsNil() || elem.Amount.IsNegative() {
+			return fmt.Errorf("invalid amount for disputeStake %s", elem.ChallengeId)
+		}
+		disputeStakeMap[elem.ChallengeId] = struct{}{}
+	}
+	contestStakeMap := make(map[string]struct{})
+	for _, elem := range gs.ContestStakes {
+		if _, ok := contestStakeMap[elem.ChallengeId]; ok {
+			return fmt.Errorf("duplicated challenge_id for contestStake")
+		}
+		if elem.Amount.IsNil() || elem.Amount.IsNegative() {
+			return fmt.Errorf("invalid amount for contestStake %s", elem.ChallengeId)
+		}
+		contestStakeMap[elem.ChallengeId] = struct{}{}
 	}
 
 	return gs.Params.Validate()

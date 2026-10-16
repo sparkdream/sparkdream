@@ -202,6 +202,7 @@ var (
 	ErrInitiativeTerminal      = errors.Register(ModuleName, 2109, "initiative is in a terminal status and can no longer accept stakes")
 	ErrInvalidInterimStatus    = errors.Register(ModuleName, 2110, "interim is not in a state that allows this action")
 	ErrInterimRewardCapReached = errors.Register(ModuleName, 2111, "interim rewards would exceed the per-season cap")
+	ErrMaintenanceMode         = errors.Register(ModuleName, 2112, "season transition in progress: reputation-moving actions are blocked")
 
 	// Keeper-internal validation
 	ErrEmptyWarningReason = errors.Register(ModuleName, 2201, "warning reason is required")

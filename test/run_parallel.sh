@@ -127,6 +127,8 @@ source "$TEST_DIR/_timing.sh"
 source "$TEST_DIR/_safe_rm.sh"
 # shellcheck source=./_snapshot_fingerprint.sh
 source "$TEST_DIR/_snapshot_fingerprint.sh"
+# shellcheck source=./_season_horizon.sh
+source "$TEST_DIR/_season_horizon.sh"
 
 # Workdir root, PID file, and run lock used by the cleanup trap and --stop flag.
 # (Set early so --stop can find the running run_parallel.sh — and release a
@@ -1640,6 +1642,9 @@ run_suite() {
         # shellcheck disable=SC1091
         BINARY="sparkdreamd" source "$TEST_DIR/lib/denoms.sh" || true
         echo "[$module] resolved denoms: BOND_DENOM=$BOND_DENOM DREAM_DENOM=$DREAM_DENOM"
+        # Keep every non-season suite inside season 1 (a rollover resets
+        # every member's reputation and XP). See test/_season_horizon.sh.
+        ensure_season_horizon "$module" 2>&1 | sed "s/^/[$module] /"
 
         # Run setup_test_accounts.sh — UNLESS the chain was restored from a
         # post-setup snapshot, in which case the accounts/membership are

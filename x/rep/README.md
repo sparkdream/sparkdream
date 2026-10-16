@@ -482,6 +482,7 @@ Project" section of [docs/x-rep-spec.md](../../docs/x-rep-spec.md).
 |---------|-------------|--------|
 | `MsgInviteMember` | Create invitation, lock DREAM stake | Members with invitation credits |
 | `MsgAcceptInvitation` | Accept invitation, create new member. Requires `accepted_content_license = "CC0-1.0"`: joining is agreeing that everything you publish is public domain (error 1208 otherwise) | Invitee |
+| `MsgRevokeInvitation` | Withdraw a PENDING invitation: stake unlocked, credit restored, invitee address freed; record kept as REVOKED | Inviter |
 | `MsgRegisterZkPublicKey` | Register ZK public key (32-byte canonical BN254 scalar) for anonymous operations | Any member |
 
 ### DREAM Transfers
@@ -850,6 +851,7 @@ Per-project review is configured by `MsgSetVerificationPolicy`;
 |-----------|------|---------|-------------|
 | `min_invitation_stake` | Int | 100 DREAM | Min stake per invitation |
 | `invitation_accountability_epochs` | uint64 | 150 | Accountability period (~1 season) |
+| `invitation_acceptance_epochs` | int64 | 30 | How long a PENDING invitation stays open; the epoch-end sweep expires it afterwards (stake unlocked, credit restored). 0 disables expiry |
 | `referral_reward_rate` | LegacyDec | 5% | Inviter receives from invitee earnings |
 | `invitation_cost_multiplier` | LegacyDec | 1.1x | Cost increase per additional invitation |
 | `invitation_stake_burn_rate` | LegacyDec | 10% | Burned on acceptance |

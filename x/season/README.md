@@ -213,7 +213,7 @@ Member-created groups:
 | `MsgStartQuest` | Begin a quest | Any member meeting prerequisites |
 | `MsgClaimQuestReward` | Claim XP on completion | Quest completer |
 | `MsgAbandonQuest` | Abandon in-progress quest | Quest participant |
-| `MsgCreateQuest` | Create quest | Governance |
+| `MsgCreateQuest` | Create quest; `objectives` (typed, positive targets) gate the claim and advance from votes, helpful marks, initiative completions and invitee milestones | Governance |
 | `MsgUpdateQuest` | Update quest | Governance |
 | `MsgDeactivateQuest` | Deactivate quest | Governance |
 

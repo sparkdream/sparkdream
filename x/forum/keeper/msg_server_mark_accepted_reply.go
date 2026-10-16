@@ -116,6 +116,11 @@ func (k msgServer) MarkAcceptedReply(ctx context.Context, msg *types.MsgMarkAcce
 		return nil, errorsmod.Wrap(err, "failed to update thread metadata")
 	}
 
+	// An accepted answer is the forum's "marked helpful" signal for XP.
+	k.notifySeason(ctx, "OnForumPostMarkedHelpful", func(sk types.SeasonKeeper) error {
+		return sk.OnForumPostMarkedHelpful(ctx, reply.Author, msg.Creator, msg.ReplyId, true)
+	})
+
 	// New acceptance emits accepted_reply_marked; replacing an existing one emits
 	// accepted_reply_changed (carrying the previous reply id).
 	eventType := "accepted_reply_marked"

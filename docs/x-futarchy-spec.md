@@ -306,7 +306,7 @@ message MsgUpdateOperationalParams {
 | `Params` | (none) | `Params` | Current module parameters |
 | `GetMarket` | `index` (market id) | `Market` | Single market by id |
 | `ListMarket` | pagination | `[]Market` | All markets (paginated) |
-| `GetMarketPrice` | `market_id`, `is_yes`, `amount` | `price`, `shares_out` | Quote for a hypothetical trade without mutating state |
+| `GetMarketPrice` | `market_id`, `is_yes`, `amount` | `price`, `shares_out` | Quote for a hypothetical trade without mutating state. Deducts `trading_fee_bps` from `amount` before the LMSR math exactly as `MsgTrade` does, so `shares_out` matches what the trade delivers; `price` is quoted against the gross amount |
 
 ---
 

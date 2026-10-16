@@ -1903,13 +1903,13 @@ Each state-changing message handler emits an event for off-chain indexers and fr
 
 ## 18. Invariants
 
-The module registers the following invariants for detection via `crisis` module:
+The module registers the following invariants via `RegisterInvariants`:
 
 ### 18.1. ReactionCounts Consistency
 
 For every target (post_id, reply_id), the stored `ReactionCounts` must equal the counts derived by iterating all individual `Reaction` records for that target. If drift is detected, the invariant fails.
 
-This invariant can be checked on-demand via `sparkdreamd query crisis invariants` or triggered automatically if the crisis module is configured.
+The chain does not wire `x/crisis`; registered invariants run in `app/invariants_test.go` against every e2e post-setup genesis snapshot (`go test ./app -run TestInvariants`).
 
 **Recovery:** If counts drift due to a bug, they can be reconciled via a chain upgrade migration that recomputes `ReactionCounts` from individual `Reaction` records.
 
@@ -1927,7 +1927,7 @@ Every entry in the `ExpiryIndex` must reference a post or reply that (a) exists 
 
 **EphemeralByAuthor consistency.** For every active post/reply with `expires_at > 0` AND a non-anonymous (non-shield) creator, there must be exactly one matching `EphemeralByAuthorIndex` entry keyed by `{creator}/{kind}/{id}`. Anonymous (shield-creator) ephemerals are tracked only in `ExpiryIndex`. The EndBlocker promotion drain and the keeper add/remove helpers maintain both indexes in lockstep at every state-mutating site (create, delete, pin/unpin is a no-op here, MakePermanent, EndBlock member-now path, EndBlock tombstone, EndBlock queue drain).
 
-**PromotionQueue is purely informational.** It may contain authors with no remaining `EphemeralByAuthorIndex` entries — the next EndBlock drain dequeues them as a no-op. There is no consistency relation between the queue and any other state worth checking via the crisis module; the queue is self-pruning.
+**PromotionQueue is purely informational.** It may contain authors with no remaining `EphemeralByAuthorIndex` entries — the next EndBlock drain dequeues them as a no-op. There is no consistency relation between the queue and any other state worth an invariant; the queue is self-pruning.
 
 ### 18.5. High-Water Mark Consistency
 

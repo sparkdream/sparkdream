@@ -30,7 +30,7 @@ func SimulateMsgDeleteTitle(
 		}
 
 		// Delete the title via keeper
-		if err := k.Title.Remove(ctx, titleId); err != nil {
+		if err := k.RemoveTitle(ctx, titleId); err != nil {
 			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgDeleteTitle{}), "failed to delete title"), nil, nil
 		}
 

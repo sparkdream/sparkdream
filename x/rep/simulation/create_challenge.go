@@ -23,6 +23,11 @@ func SimulateMsgCreateChallenge(
 ) simtypes.Operation {
 	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
 	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
+		// The handler refuses this message while x/season is in a blocking
+		// transition phase; a delivery failure fails the whole simulation.
+		if k.InMaintenanceMode(ctx) {
+			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgCreateChallenge{}), "season maintenance mode"), nil, nil
+		}
 		// Pull the chain's challenge-stake floor from params instead of
 		// hardcoding. The on-chain minimum is denominated in micro-DREAM
 		// (default 50 DREAM = 50_000_000 udream). A hardcoded `100` made

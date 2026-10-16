@@ -47,6 +47,10 @@ func (k msgServer) CreateQuest(ctx context.Context, msg *types.MsgCreateQuest) (
 			"XP reward %d exceeds max %d", msg.XpReward, params.MaxQuestXpReward)
 	}
 
+	if err := k.ValidateQuestObjectives(ctx, msg.Objectives); err != nil {
+		return nil, err
+	}
+
 	// Build the Quest from individual message fields
 	quest := types.Quest{
 		QuestId:             msg.QuestId,
@@ -63,7 +67,7 @@ func (k msgServer) CreateQuest(ctx context.Context, msg *types.MsgCreateQuest) (
 		PrerequisiteQuest:   msg.PrerequisiteQuest,
 		QuestChain:          msg.QuestChain,
 		Active:              true,
-		Objectives:          []*types.QuestObjective{}, // Start with empty objectives
+		Objectives:          msg.Objectives,
 	}
 
 	// Save the quest

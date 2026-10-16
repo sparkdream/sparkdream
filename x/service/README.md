@@ -178,7 +178,7 @@ x/service runs **before** x/federation in `app/app.go` so hook-fired binding sta
 
 ## Invariants
 
-`OperatorBondInvariant`, `Tier1EscrowInvariant`, `SystemReportRateLimitInvariant` — all registered with `crisis`.
+`OperatorBondInvariant`, `Tier1EscrowInvariant`, `SystemReportRateLimitInvariant` — all registered via `RegisterInvariants` and run by `app/invariants_test.go` (x/crisis is not wired).
 
 ## CLI
 

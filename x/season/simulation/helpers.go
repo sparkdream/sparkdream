@@ -366,7 +366,7 @@ func getOrCreateTitle(r *rand.Rand, ctx sdk.Context, k keeper.Keeper) (string, e
 		Description: "A simulation generated title",
 	}
 
-	return titleID, k.Title.Set(ctx, titleID, title)
+	return titleID, k.SetTitle(ctx, title)
 }
 
 // getOrCreateGuildMember creates a membership for a user in a guild
@@ -518,7 +518,7 @@ func getOrCreateAchievement(r *rand.Rand, ctx sdk.Context, k keeper.Keeper) (str
 		RequirementThreshold: uint64(1 + r.Intn(10)),
 	}
 
-	return achievementID, k.Achievement.Set(ctx, achievementID, achievement)
+	return achievementID, k.SetAchievement(ctx, achievement)
 }
 
 // getAccountForAddress finds a simulation account for the given address

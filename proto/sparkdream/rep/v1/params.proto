@@ -1004,6 +1004,13 @@ message Params {
   ];
   uint32 max_initiative_bounty_contributions = 147;
   uint64 initiative_bounty_reclaim_delay = 148;
+
+  // invitation_acceptance_epochs is how many epochs a PENDING invitation
+  // stays open. Once it passes, the epoch-end sweep marks it EXPIRED,
+  // unlocks the inviter's staked DREAM, restores the spent invitation
+  // credit and frees the invitee address for a new invitation. 0 disables
+  // expiry.
+  int64 invitation_acceptance_epochs = 149;
 }
 
 // RepOperationalParams defines the operational parameters that can be updated

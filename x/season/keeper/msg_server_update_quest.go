@@ -61,6 +61,14 @@ func (k msgServer) UpdateQuest(ctx context.Context, msg *types.MsgUpdateQuest) (
 	quest.PrerequisiteQuest = msg.PrerequisiteQuest
 	quest.QuestChain = msg.QuestChain
 	quest.Active = msg.Active
+	// Objectives are replaced only when supplied; an update that omits them
+	// keeps the existing list so in-flight progress stays aligned.
+	if len(msg.Objectives) > 0 {
+		if err := k.ValidateQuestObjectives(ctx, msg.Objectives); err != nil {
+			return nil, err
+		}
+		quest.Objectives = msg.Objectives
+	}
 
 	// Save the updated quest
 	if err := k.Quest.Set(ctx, msg.QuestId, quest); err != nil {

@@ -20,6 +20,11 @@ func SimulateMsgUnstake(
 ) simtypes.Operation {
 	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
 	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
+		// The handler refuses this message while x/season is in a blocking
+		// transition phase; a delivery failure fails the whole simulation.
+		if k.InMaintenanceMode(ctx) {
+			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgUnstake{}), "season maintenance mode"), nil, nil
+		}
 		// NOTE: The unstake simulation is complex because:
 		// 1. It requires a stake to exist with proper member balance tracking
 		// 2. The member's StakedDream must match what the Stake record expects

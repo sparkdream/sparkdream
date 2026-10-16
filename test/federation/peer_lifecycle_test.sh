@@ -300,6 +300,9 @@ fi
 echo ""
 echo "--- TEST 3: Register Spark Dream IBC peer ---"
 
+# peer_identity is optional, but a supplied one must pass ChainIdentity.Validate()
+# (every name, ticker, denom, symbol and founded_at), else the register is
+# refused with federation ErrInvalidRequest (1502).
 cat > "$PROPOSAL_DIR/register_ibc_peer.json" <<EOF
 {
   "policy_address": "$COMMONS_POLICY",
@@ -314,10 +317,17 @@ cat > "$PROPOSAL_DIR/register_ibc_peer.json" <<EOF
       "ibc_transfer_channel_id": "channel-1",
       "metadata": "test ibc peer",
       "peer_identity": {
+        "chain_human_name": "Phoenix",
+        "chain_ticker_prefix": "PHX",
         "bond_denom": "uspk.phoenix",
         "bond_display_symbol": "PSPK",
         "bond_display_name": "Phoenix Spark",
-        "bond_display_decimals": 6
+        "bond_display_decimals": 6,
+        "dream_denom": "udrm.phoenix",
+        "dream_display_symbol": "PDRM",
+        "dream_display_name": "Phoenix Dream",
+        "dream_display_decimals": 6,
+        "founded_at": "1735689600"
       }
     }
   ],

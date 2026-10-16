@@ -42,13 +42,8 @@ func (k msgServer) ClaimQuestReward(ctx context.Context, msg *types.MsgClaimQues
 	}
 
 	// Check all objectives are complete
-	for i, objective := range quest.Objectives {
-		if i >= len(progress.ObjectiveProgress) {
-			return nil, types.ErrQuestNotComplete
-		}
-		if progress.ObjectiveProgress[i] < objective.Target {
-			return nil, types.ErrQuestNotComplete
-		}
+	if !questObjectivesComplete(quest, progress) {
+		return nil, types.ErrQuestNotComplete
 	}
 
 	// Mark as completed
@@ -58,39 +53,30 @@ func (k msgServer) ClaimQuestReward(ctx context.Context, msg *types.MsgClaimQues
 		return nil, errorsmod.Wrap(err, "failed to update quest progress")
 	}
 
-	// Grant XP reward
-	profile, err := k.MemberProfile.Get(ctx, msg.Creator)
-	if err != nil {
+	// Grant the XP reward through the engine so the per-epoch cap and the
+	// quest bucket of the EpochXpTracker apply. A claim is still valid when
+	// the cap is already spent: the quest completes, the XP is forfeit.
+	if !k.HasMemberProfile(ctx, msg.Creator) {
 		return nil, errorsmod.Wrap(types.ErrProfileNotFound, "member profile not found")
 	}
-
+	creatorAddr, err := k.addressCodec.StringToBytes(msg.Creator)
+	if err != nil {
+		return nil, errorsmod.Wrap(err, "invalid creator address")
+	}
 	xpEarned := quest.XpReward
-	profile.SeasonXp += xpEarned
-	profile.LifetimeXp += xpEarned
-	profile.SeasonLevel = k.CalculateLevel(ctx, profile.SeasonXp)
-	profile.LastActiveEpoch = k.GetCurrentEpoch(ctx)
-
-	if err := k.MemberProfile.Set(ctx, msg.Creator, profile); err != nil {
-		return nil, errorsmod.Wrap(err, "failed to update profile")
+	if err := k.GrantXP(ctx, creatorAddr, xpEarned, types.XPSourceQuest, msg.QuestId); err != nil {
+		if !errorsmod.IsOf(err, types.ErrXPCapReached) {
+			return nil, errorsmod.Wrap(err, "failed to grant quest xp")
+		}
+		xpEarned = 0
 	}
 
-	// Emit events
 	sdkCtx.EventManager().EmitEvent(
 		sdk.NewEvent(
 			"quest_completed",
 			sdk.NewAttribute("member", msg.Creator),
 			sdk.NewAttribute("quest_id", msg.QuestId),
 			sdk.NewAttribute("xp_earned", fmt.Sprintf("%d", xpEarned)),
-		),
-	)
-
-	sdkCtx.EventManager().EmitEvent(
-		sdk.NewEvent(
-			"xp_granted",
-			sdk.NewAttribute("member", msg.Creator),
-			sdk.NewAttribute("amount", fmt.Sprintf("%d", xpEarned)),
-			sdk.NewAttribute("source", "quest"),
-			sdk.NewAttribute("reference", msg.QuestId),
 		),
 	)
 

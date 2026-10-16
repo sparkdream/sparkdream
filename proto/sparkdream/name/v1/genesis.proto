@@ -21,4 +21,11 @@ message GenesisState {
   repeated NameRecord name_records = 2 [(gogoproto.nullable) = false];
   repeated OwnerInfo owner_infos = 3 [(gogoproto.nullable) = false];
   repeated Dispute dispute_map = 4 [(gogoproto.nullable) = false];
+  // dispute_stakes are the claimants' locked DREAM stakes for open disputes,
+  // keyed by challenge_id. Exported so a chain export/import does not strand
+  // locked funds.
+  repeated DisputeStake dispute_stakes = 5 [(gogoproto.nullable) = false];
+  // contest_stakes are the owners' locked DREAM stakes for contested disputes,
+  // keyed by challenge_id.
+  repeated ContestStake contest_stakes = 6 [(gogoproto.nullable) = false];
 }

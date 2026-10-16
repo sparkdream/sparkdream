@@ -66,7 +66,22 @@ func (mockIdentityKeeper) DreamDenom(_ context.Context) string { return "udream"
 
 type mockSeasonKeeper struct {
 	GetCurrentSeasonFn func(ctx context.Context) (types.SeasonState, error)
+	MaintenanceMode    bool
 }
+
+func (m mockSeasonKeeper) IsInMaintenanceMode(_ context.Context) bool                { return m.MaintenanceMode }
+func (m mockSeasonKeeper) OnMemberCreated(context.Context, sdk.AccAddress) error     { return nil }
+func (m mockSeasonKeeper) OnMemberEstablished(context.Context, sdk.AccAddress) error { return nil }
+func (m mockSeasonKeeper) OnInitiativeCompleted(context.Context, sdk.AccAddress, uint64) error {
+	return nil
+}
+func (m mockSeasonKeeper) OnChallengeResolved(context.Context, sdk.AccAddress, sdk.AccAddress, bool) error {
+	return nil
+}
+func (m mockSeasonKeeper) OnJuryDutyCompleted(context.Context, sdk.AccAddress, uint64) error {
+	return nil
+}
+func (m mockSeasonKeeper) OnMemberZeroed(context.Context, sdk.AccAddress) error { return nil }
 
 func (m mockSeasonKeeper) GetCurrentSeason(ctx context.Context) (types.SeasonState, error) {
 	if m.GetCurrentSeasonFn != nil {

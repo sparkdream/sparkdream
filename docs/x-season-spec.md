@@ -817,6 +817,10 @@ message MsgCreateQuest {
   string required_achievement = 12;
   string prerequisite_quest = 13;
   string quest_chain = 14;
+  // objectives the member must complete before claiming; each needs a type
+  // and a positive target (ValidateQuestObjectives, at most
+  // max_quest_objectives). A quest with no objectives is claimable at once.
+  repeated QuestObjective objectives = 15;
 }
 
 message MsgCreateQuestResponse {}
@@ -837,6 +841,10 @@ message MsgUpdateQuest {
   string prerequisite_quest = 13;
   string quest_chain = 14;
   bool active = 15;
+  // objectives replaces the quest's objective list when non-empty; an update
+  // that omits them keeps the existing list so in-flight progress stays
+  // aligned.
+  repeated QuestObjective objectives = 16;
 }
 
 message MsgUpdateQuestResponse {}
@@ -1494,6 +1502,16 @@ type QuestProgressHooks interface {
 ```
 
 ### Hook Implementations
+
+> **Implementation notes** (`x/season/keeper/hooks.go`, `xp.go`, `achievements.go`, `quest_progress.go`, `seasonal_titles.go`):
+> - Callers reach these through narrow late-bound interfaces, never `RepHooks`: rep's `SeasonKeeper` (`x/rep/types/expected_keepers.go`) carries `OnMemberCreated` (from `AcceptInvitation`), `OnMemberEstablished` (from `UpdateTrustLevel` when a member first reaches ESTABLISHED), `OnInitiativeCompleted`, `OnChallengeResolved` (upheld challenges only), `OnJuryDutyCompleted` (every juror who voted, at tally) and `OnMemberZeroed`; commons' `SeasonKeeper` carries `OnVoteCast` and `OnProposalCreated`; forum's carries `OnForumReplyReceived` and `OnForumPostMarkedHelpful` (see [x-forum-spec.md §7.5](x-forum-spec.md)). Every call is best-effort: the caller logs a hook error and keeps its own state write.
+> - `GrantXP` creates the profile on first touch, so members admitted before the hook existed still earn XP. `ClaimQuestReward` goes through `GrantXP` (quest bucket, epoch cap applies; a claim at the cap completes the quest with zero XP).
+> - `OnVoteCast` returns early past `max_vote_xp_per_epoch`, so votes beyond the cap neither pay XP nor count toward vote achievements, exactly as written below. The per-epoch vote count is derived from the tracker's vote bucket rather than a separate counter.
+> - Achievements are evaluated against `MemberProfile` counters plus x/rep for `INITIATIVES_COMPLETED`, `REPUTATION_EARNED` (sum of current per-tag scores) and `SEASONS_ACTIVE` (`current season - joined season + 1`). `TOP_XP` is decided once per season in the SNAPSHOT phase; `GENESIS` is only ever seeded. Non-seasonal titles unlock in the same pass.
+> - `OnMemberZeroed` resets season XP and the progress counters, drops in-progress quests and removes the member from their guild: officer rank is dropped, the member count decremented, and a zeroed founder freezes the guild so any remaining member can take it over with `MsgClaimGuildFounder` (founders cannot pass through `MsgLeaveGuild`). The username release in the draft below is not done here; x/name's own inactivity scavenging covers it.
+> - Quests carry objectives from `MsgCreateQuest.objectives` / `MsgUpdateQuest.objectives` (`repeated QuestObjective`); every objective needs a type and a positive target. A quest without objectives is claimable immediately.
+> - **Gas.** Every hook runs inside another module's transaction (a council vote, a forum reply), so the voter or poster pays for it against a default 200000-gas limit that the accepting vote on a params proposal already nearly fills. The engine therefore loads `Params` once per hook (`xpEnv`), writes the profile once per hook (XP, counter and any unlocked achievement are applied in memory first), reads a member's quest progress by key prefix, and reads achievement and title definitions through `(requirement_type, id)` indexes (`AchievementsByRequirement`, `TitlesByRequirement`, kept by `SetAchievement`/`SetTitle`) so a vote touches the three VOTES_CAST definitions, not all 23. `TestVoteHookGas` pins the cost (about 36k steady, 44k when an achievement unlocks).
+> - Seasonal titles are permanent. `ComputeSeasonTitleEligibility` runs at the start of the SNAPSHOT phase (season XP still intact) and the TITLES phase grants `s<N>_<title>` from the stored `SeasonTitleEligibility`; `UnlockTitle` rolls the oldest titles into `archived_titles` past `max_displayable_titles`.
 
 ```go
 // OnVoteCast grants XP for governance participation

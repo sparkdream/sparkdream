@@ -53,6 +53,10 @@ _SNAPSHOT_DATADIR="$SCRIPT_DIR/../snapshot_datadir.sh"
 # Project root holds config.yml that ignite uses for chain init. Module dirs
 # live at <project>/test/<module>/, so go up two levels.
 _PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+# shellcheck source=./_season_horizon.sh
+source "$SCRIPT_DIR/../_season_horizon.sh"
+# The module this runner belongs to (test/<module>/run_all_tests.sh).
+_AUTO_MODULE="$(basename "$SCRIPT_DIR")"
 
 # Re-initializes the chain home from config.yml and starts the chain in the
 # background. Used when the runner is invoked in auto-mode but no chain is
@@ -133,6 +137,12 @@ _auto_init_and_start_chain() {
             local height
             height=$("$BINARY" status --home "$_ch" 2>&1 | jq -r '.sync_info.latest_block_height' 2>/dev/null)
             echo "  Chain is up (block height: ${height:-?})"
+            # Non-season suites must not cross a season rollover (see
+            # test/_season_horizon.sh). Give the SDK query path a moment.
+            if [ "$_AUTO_MODULE" != "season" ]; then
+                sleep 3
+                ensure_season_horizon "$_AUTO_MODULE"
+            fi
             return 0
         fi
         attempt=$((attempt + 1))

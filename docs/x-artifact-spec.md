@@ -1278,7 +1278,7 @@ Scrubbing removes abusive URIs and text from the *current* state that nodes serv
 
 ## 13. Invariants
 
-Registered with `crisis`:
+Registered via `RegisterInvariants`. The chain does not wire `x/crisis`; registered invariants run in `app/invariants_test.go` against every e2e post-setup genesis snapshot (`go test ./app -run TestInvariants`):
 
 1. **Owner index:** every token has exactly one `TokensByOwner[(owner, class, id)]`, and every index entry points at a token with that owner.
 2. **Supply:**

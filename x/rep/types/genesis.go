@@ -10,6 +10,7 @@ import (
 func DefaultGenesis() *GenesisState {
 	return &GenesisState{
 		Params:                 DefaultParams(),
+		ReservedTagMap:         DefaultReservedTags(),
 		MemberMap:              []Member{},
 		InvitationList:         []Invitation{},
 		InvitationCount:        1, // Start at 1 so first ID is 1 (0 is reserved for "unset")
@@ -379,4 +380,19 @@ func (gs GenesisState) Validate() error {
 	}
 
 	return gs.Params.Validate()
+}
+
+// ReservedTagServiceOperator is the tag x/service writes operator
+// reputation to (x-service-spec.md §6.6). It is reserved at genesis so no
+// member can create or squat it; x/service's constant mirrors this value.
+const ReservedTagServiceOperator = "service-operator"
+
+// DefaultReservedTags lists the tags other modules write reputation to and
+// that therefore must never be creatable through MsgCreateTag. Seeded by
+// DefaultGenesis; a network config.yml may add to the list but should keep
+// these.
+func DefaultReservedTags() []ReservedTag {
+	return []ReservedTag{
+		{Name: ReservedTagServiceOperator, Authority: "service", MembersCanUse: false},
+	}
 }

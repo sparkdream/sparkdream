@@ -85,6 +85,12 @@ func (am AppModule) RegisterServices(registrar grpc.ServiceRegistrar) error {
 	return nil
 }
 
+// RegisterInvariants registers the module's state-consistency invariants.
+// The chain does not wire x/crisis; they run from app/invariants_test.go.
+func (am AppModule) RegisterInvariants(ir sdk.InvariantRegistry) {
+	keeper.RegisterInvariants(ir, am.keeper)
+}
+
 // DefaultGenesis returns a default GenesisState for the module, marshalled to json.RawMessage.
 // The default GenesisState need to be defined by the module developer and is primarily used for testing.
 func (am AppModule) DefaultGenesis(codec.JSONCodec) json.RawMessage {

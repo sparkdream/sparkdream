@@ -44,7 +44,7 @@ func TestWeightedOperations(t *testing.T) {
 		TxConfig:  encCfg.TxConfig,
 	}
 	ops := am.WeightedOperations(simState)
-	require.Len(t, ops, 42)
+	require.Len(t, ops, 43) // +MsgRevokeInvitation
 }
 
 func TestProposalMsgs(t *testing.T) {

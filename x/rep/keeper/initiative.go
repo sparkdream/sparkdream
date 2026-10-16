@@ -1102,6 +1102,9 @@ func (k Keeper) CompleteInitiative(ctx context.Context, initiativeID uint64) err
 	if err := k.Member.Set(ctx, assigneeAddr.String(), member); err != nil {
 		return fmt.Errorf("failed to update member: %w", err)
 	}
+	k.notifySeason(ctx, "OnInitiativeCompleted", func(sk types.SeasonKeeper) error {
+		return sk.OnInitiativeCompleted(ctx, assigneeAddr, initiativeID)
+	})
 
 	// Check for trust level upgrade after reputation change (lazy evaluation)
 	// This is a trigger point - we only check when reputation actually changes

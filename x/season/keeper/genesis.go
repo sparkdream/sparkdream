@@ -60,12 +60,12 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 		}
 	}
 	for _, elem := range genState.AchievementMap {
-		if err := k.Achievement.Set(ctx, elem.AchievementId, elem); err != nil {
+		if err := k.SetAchievement(ctx, elem); err != nil {
 			return err
 		}
 	}
 	for _, elem := range genState.TitleMap {
-		if err := k.Title.Set(ctx, elem.TitleId, elem); err != nil {
+		if err := k.SetTitle(ctx, elem); err != nil {
 			return err
 		}
 	}

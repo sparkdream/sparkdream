@@ -888,6 +888,136 @@ fi
 # ========================================================================
 # SUMMARY
 # ========================================================================
+# ========================================================================
+# PART 11: REVOKE A PENDING INVITATION
+# ========================================================================
+echo ""
+echo "--- PART 11: REVOKE A PENDING INVITATION ---"
+
+# A fresh invitee that nobody accepts, so the invitation stays PENDING.
+if ! $BINARY keys show invitee5 --keyring-backend test > /dev/null 2>&1; then
+    $BINARY keys add invitee5 --keyring-backend test --output json > /dev/null
+fi
+INVITEE5_ADDR=$($BINARY keys show invitee5 -a --keyring-backend test)
+REVOKE_OK=false
+
+ALICE_BEFORE=$($BINARY query rep get-member $ALICE_ADDR --output json 2>/dev/null)
+ALICE_STAKED_BEFORE=$(echo "$ALICE_BEFORE" | jq -r '.member.staked_dream // "0"')
+ALICE_CREDITS_BEFORE=$(echo "$ALICE_BEFORE" | jq -r '.member.invitation_credits // "0"')
+
+EXISTING5=$($BINARY query rep list-invitation --output json 2>&1 | \
+  jq -r ".invitation[] | select(.invitee_address==\"$INVITEE5_ADDR\") | .id" | head -1)
+if [ -n "$EXISTING5" ] && [ "$EXISTING5" != "null" ]; then
+    echo "[WARN] Invitee5 already has invitation $EXISTING5 (leftover state); skipping revoke test"
+elif [ "$ALICE_CREDITS_BEFORE" -lt 1 ]; then
+    echo "[WARN] Alice has no invitation credits left; skipping revoke test"
+else
+    REQUIRED_STAKE5=$($BINARY query rep required-invitation-stake "$ALICE_ADDR" --output json 2>/dev/null \
+      | jq -r '.required_stake // "200000000"')
+    if [ "$REQUIRED_STAKE5" -lt 200000000 ]; then REQUIRED_STAKE5="200000000"; fi
+
+    INVITE5_RES=$($BINARY tx rep invite-member --gas 400000 \
+      "$INVITEE5_ADDR" \
+      "$REQUIRED_STAKE5" \
+      --from alice \
+      --chain-id $CHAIN_ID \
+      --keyring-backend test \
+      --fees 5000${BOND_DENOM} \
+      -y \
+      --output json)
+    INVITE5_CODE=$(echo "$INVITE5_RES" | jq -r '.code // 0')
+    if [ "$INVITE5_CODE" != "0" ]; then
+        echo "[FAIL] invite-member for invitee5 failed with code $INVITE5_CODE"
+        echo "$INVITE5_RES" | jq -r '.raw_log' 2>/dev/null
+        exit 1
+    fi
+    INVITE5_HASH=$(echo "$INVITE5_RES" | jq -r '.txhash')
+    sleep 6
+    INVITATION_ID5=$($BINARY query tx $INVITE5_HASH --output json 2>/dev/null | \
+      jq -r '.events[] | select(.type=="create_invitation") | .attributes[] | select(.key=="invitation_id") | .value' | head -1)
+    if [ -z "$INVITATION_ID5" ] || [ "$INVITATION_ID5" == "null" ]; then
+        INVITATION_ID5=$($BINARY query rep list-invitation --output json 2>&1 | \
+          jq -r ".invitation[] | select(.invitee_address==\"$INVITEE5_ADDR\") | .id" | head -1)
+    fi
+    if [ -z "$INVITATION_ID5" ] || [ "$INVITATION_ID5" == "null" ]; then
+        echo "[FAIL] Could not find invitation id for invitee5"
+        exit 1
+    fi
+    echo "Invitation $INVITATION_ID5 created for invitee5 (pending)"
+
+    # Someone other than the inviter cannot revoke it.
+    STRANGER_RES=$($BINARY tx rep revoke-invitation "$INVITATION_ID5" \
+      --from bob --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y --output json 2>&1)
+    STRANGER_HASH=$(echo "$STRANGER_RES" | jq -r '.txhash // empty' 2>/dev/null)
+    STRANGER_CODE=$(echo "$STRANGER_RES" | jq -r '.code // 0' 2>/dev/null)
+    if [ -n "$STRANGER_HASH" ] && [ "$STRANGER_CODE" = "0" ]; then
+        sleep 6
+        STRANGER_CODE=$($BINARY query tx $STRANGER_HASH --output json 2>/dev/null | jq -r '.code // 0')
+    fi
+    if [ "$STRANGER_CODE" != "0" ]; then
+        echo "[ OK ] Non-inviter cannot revoke (code $STRANGER_CODE)"
+    else
+        echo "[FAIL] Bob revoked Alice's invitation"
+        exit 1
+    fi
+
+    REVOKE_RES=$($BINARY tx rep revoke-invitation "$INVITATION_ID5" \
+      --from alice --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y --output json)
+    REVOKE_HASH=$(echo "$REVOKE_RES" | jq -r '.txhash')
+    sleep 6
+    REVOKE_CODE=$($BINARY query tx $REVOKE_HASH --output json 2>/dev/null | jq -r '.code // 0')
+    if [ "$REVOKE_CODE" != "0" ]; then
+        echo "[FAIL] revoke-invitation failed with code $REVOKE_CODE"
+        $BINARY query tx $REVOKE_HASH --output json 2>/dev/null | jq -r '.raw_log'
+        exit 1
+    fi
+
+    REVOKED_STATUS=$($BINARY query rep get-invitation "$INVITATION_ID5" --output json | jq -r '.invitation.status // "null"')
+    if [ "$REVOKED_STATUS" = "INVITATION_STATUS_REVOKED" ]; then
+        echo "[ OK ] Invitation $INVITATION_ID5 is REVOKED"
+    else
+        echo "[FAIL] Expected INVITATION_STATUS_REVOKED, got $REVOKED_STATUS"
+        exit 1
+    fi
+
+    ALICE_AFTER=$($BINARY query rep get-member $ALICE_ADDR --output json 2>/dev/null)
+    ALICE_STAKED_AFTER=$(echo "$ALICE_AFTER" | jq -r '.member.staked_dream // "0"')
+    ALICE_CREDITS_AFTER=$(echo "$ALICE_AFTER" | jq -r '.member.invitation_credits // "0"')
+    if [ "$ALICE_STAKED_AFTER" = "$ALICE_STAKED_BEFORE" ]; then
+        echo "[ OK ] Alice's staked DREAM is back to $ALICE_STAKED_BEFORE (stake unlocked)"
+    else
+        echo "[FAIL] Alice staked DREAM expected $ALICE_STAKED_BEFORE after revoke, got $ALICE_STAKED_AFTER"
+        exit 1
+    fi
+    if [ "$ALICE_CREDITS_AFTER" = "$ALICE_CREDITS_BEFORE" ]; then
+        echo "[ OK ] Alice's invitation credits restored to $ALICE_CREDITS_BEFORE"
+    else
+        echo "[FAIL] Alice credits expected $ALICE_CREDITS_BEFORE after revoke, got $ALICE_CREDITS_AFTER"
+        exit 1
+    fi
+
+    # A revoked invitation cannot be accepted.
+    echo "Funding invitee5 for the acceptance attempt..."
+    $BINARY tx bank send alice $INVITEE5_ADDR 1000000${BOND_DENOM} \
+      --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y --output json > /dev/null 2>&1
+    sleep 6
+    ACCEPT5_RES=$($BINARY tx rep accept-invitation --gas 400000 "$INVITATION_ID5" "CC0-1.0" \
+      --from invitee5 --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y --output json 2>&1)
+    ACCEPT5_HASH=$(echo "$ACCEPT5_RES" | jq -r '.txhash // empty' 2>/dev/null)
+    ACCEPT5_CODE=$(echo "$ACCEPT5_RES" | jq -r '.code // 0' 2>/dev/null)
+    if [ -n "$ACCEPT5_HASH" ] && [ "$ACCEPT5_CODE" = "0" ]; then
+        sleep 6
+        ACCEPT5_CODE=$($BINARY query tx $ACCEPT5_HASH --output json 2>/dev/null | jq -r '.code // 0')
+    fi
+    if [ "$ACCEPT5_CODE" != "0" ]; then
+        echo "[ OK ] Revoked invitation cannot be accepted (code $ACCEPT5_CODE)"
+    else
+        echo "[FAIL] Revoked invitation was accepted"
+        exit 1
+    fi
+    REVOKE_OK=true
+fi
+
 echo ""
 echo "--- INVITATION ACCOUNTABILITY TEST SUMMARY ---"
 echo ""
@@ -901,5 +1031,10 @@ echo "[ OK ] Part 7: Vouched tags verification       Tags: $INV1_TAGS"
 echo "[ OK ] Part 8: Failed invitation concept          Status: $INVITEE1_STATUS"
 echo "[ OK ] Part 9: Chain depth limit               Max: 5 ancestors"
 echo "[ OK ] Part 10: Referral reward concept          Rate: $REFERRAL_RATE"
+if [ "$REVOKE_OK" = true ]; then
+    echo "[ OK ] Part 11: Revoke pending invitation        ID $INVITATION_ID5 -> REVOKED"
+else
+    echo "[WARN] Part 11: Revoke pending invitation        skipped (see above)"
+fi
 echo ""
 echo "=== INVITATION ACCOUNTABILITY TEST COMPLETED ==="

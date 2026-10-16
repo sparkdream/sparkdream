@@ -201,6 +201,11 @@ service Msg {
 
   // ReclaimInitiativeBounty defines the ReclaimInitiativeBounty RPC.
   rpc ReclaimInitiativeBounty(MsgReclaimInitiativeBounty) returns (MsgReclaimInitiativeBountyResponse);
+
+  // RevokeInvitation lets an inviter withdraw a PENDING invitation before it
+  // is accepted: the stake unlocks, the credit is restored and the invitee
+  // address is freed. The record is kept with status REVOKED.
+  rpc RevokeInvitation(MsgRevokeInvitation) returns (MsgRevokeInvitationResponse);
 }
 
 // MsgUpdateParams is the Msg/UpdateParams request type.
@@ -1117,3 +1122,15 @@ message MsgReclaimInitiativeBountyResponse {
     (gogoproto.nullable) = false
   ];
 }
+
+// MsgRevokeInvitation withdraws a PENDING invitation. Only the inviter may
+// revoke; an accepted, expired or already-revoked invitation is rejected.
+message MsgRevokeInvitation {
+  option (cosmos.msg.v1.signer) = "inviter";
+  option (amino.name) = "sparkdream/x/rep/MsgRevokeInvitation";
+  string inviter = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 invitation_id = 2;
+}
+
+// MsgRevokeInvitationResponse defines the MsgRevokeInvitationResponse message.
+message MsgRevokeInvitationResponse {}

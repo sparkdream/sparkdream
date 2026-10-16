@@ -384,6 +384,25 @@ echo ""
 
 
 # ========================================================================
+# ------------------------------------------------------------------------
+# Capture pre-transition XP so the history/snapshot/reset checks compare
+# against what each member actually holds now, not the genesis seed. Earlier
+# tests in this suite earn XP legitimately (a submitted commons proposal
+# pays xp_proposal_created, votes pay xp_vote_cast), so a hardcoded seed
+# value would drift with every hook that fires before this test.
+# ------------------------------------------------------------------------
+capture_pre_xp() {
+    local NAME=$1 ADDR=$2 PROFILE
+    PROFILE=$($BINARY query season get-member-profile "$ADDR" --output json 2>/dev/null)
+    eval "PRE_XP_${NAME}=\$(echo \"\$PROFILE\" | jq -r '.member_profile.season_xp // \"0\"')"
+    eval "PRE_LVL_${NAME}=\$(echo \"\$PROFILE\" | jq -r '.member_profile.season_level // \"1\"')"
+    eval "PRE_LIFE_${NAME}=\$(echo \"\$PROFILE\" | jq -r '.member_profile.lifetime_xp // \"0\"')"
+}
+capture_pre_xp ALICE "$ALICE_ADDR"
+capture_pre_xp BOB "$BOB_ADDR"
+capture_pre_xp CAROL "$CAROL_ADDR"
+echo "Pre-transition XP: Alice=$PRE_XP_ALICE (L$PRE_LVL_ALICE, lifetime $PRE_LIFE_ALICE), Bob=$PRE_XP_BOB (L$PRE_LVL_BOB), Carol=$PRE_XP_CAROL (L$PRE_LVL_CAROL)"
+
 # ========================================================================
 # SECTION B: SEASON TRANSITION TESTING
 # ========================================================================
@@ -688,15 +707,13 @@ echo "--- Part 15: Member Season History ---"
 
 HISTORY_OK=true
 
-# Bob's stored season_xp is observed as either 1500 (raw seed) or 1600 (with
-# genesis-bonus from votes_cast=5 + forum_helpful=15 → +100 XP). Both land
-# on level 6, so we accept either via the multi-value EXPECTED_XPS list.
-# See test/season/xp_tracking_test.sh PART 2 for the same accommodation.
+# Expected values are what each member held just before the transition
+# (captured above), since earlier tests in the suite earn XP.
 for MEMBER_NAME in "Alice" "Bob" "Carol"; do
     case "$MEMBER_NAME" in
-        "Alice") ADDR=$ALICE_ADDR; EXPECTED_XPS="5000";        EXPECTED_LVL="8" ;;
-        "Bob")   ADDR=$BOB_ADDR;   EXPECTED_XPS="1500 1600";   EXPECTED_LVL="6" ;;
-        "Carol") ADDR=$CAROL_ADDR; EXPECTED_XPS="300";         EXPECTED_LVL="2" ;;
+        "Alice") ADDR=$ALICE_ADDR; EXPECTED_XPS="$PRE_XP_ALICE"; EXPECTED_LVL="$PRE_LVL_ALICE" ;;
+        "Bob")   ADDR=$BOB_ADDR;   EXPECTED_XPS="$PRE_XP_BOB";   EXPECTED_LVL="$PRE_LVL_BOB" ;;
+        "Carol") ADDR=$CAROL_ADDR; EXPECTED_XPS="$PRE_XP_CAROL"; EXPECTED_LVL="$PRE_LVL_CAROL" ;;
     esac
 
     HISTORY=$($BINARY query season member-season-history $ADDR --output json 2>&1)
@@ -752,9 +769,9 @@ else
     echo "  Alice's Season 2 profile:"
     echo "    Season XP: $CURRENT_XP (should be 0 after reset)"
     echo "    Season Level: $CURRENT_LVL (should be 1 after reset)"
-    echo "    Lifetime XP: $LIFETIME_XP (should be preserved at 5000)"
+    echo "    Lifetime XP: $LIFETIME_XP (should be preserved at $PRE_LIFE_ALICE)"
 
-    if [ "$CURRENT_XP" == "0" ] && [ "$LIFETIME_XP" == "5000" ]; then
+    if [ "$CURRENT_XP" == "0" ] && [ "$LIFETIME_XP" == "$PRE_LIFE_ALICE" ]; then
         pass_test "XP reset"
     else
         fail_test "XP reset" "season_xp=$CURRENT_XP lifetime_xp=$LIFETIME_XP"
@@ -780,14 +797,14 @@ else
     MS_ACHS=$(echo "$MEMBER_SNAP" | jq -r '.member_season_snapshot.achievements_earned | length' 2>/dev/null || echo "0")
 
     echo "  Alice's Season 1 Snapshot:"
-    echo "    XP Earned: $MS_XP (expected 5000)"
-    echo "    Level: $MS_LVL (expected 8)"
+    echo "    XP Earned: $MS_XP (expected $PRE_XP_ALICE)"
+    echo "    Level: $MS_LVL (expected $PRE_LVL_ALICE)"
     echo "    Achievements: $MS_ACHS"
 
-    if [ "$MS_XP" == "5000" ]; then
+    if [ "$MS_XP" == "$PRE_XP_ALICE" ]; then
         pass_test "Member season snapshot"
     else
-        fail_test "Member season snapshot" "xp=$MS_XP expected 5000"
+        fail_test "Member season snapshot" "xp=$MS_XP expected $PRE_XP_ALICE"
     fi
 fi
 

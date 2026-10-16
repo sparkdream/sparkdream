@@ -22,6 +22,11 @@ func SimulateMsgStake(
 ) simtypes.Operation {
 	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
 	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
+		// The handler refuses this message while x/season is in a blocking
+		// transition phase; a delivery failure fails the whole simulation.
+		if k.InMaintenanceMode(ctx) {
+			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgStake{}), "season maintenance mode"), nil, nil
+		}
 		// The stake floor is a param (min_stake_amount), not a constant: a
 		// hardcoded floor below it makes every op this function sends fail
 		// delivery with ErrStakeBelowMinimum, which fails the whole simulation.

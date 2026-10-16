@@ -52,7 +52,7 @@ func (k msgServer) CreateTitle(ctx context.Context, msg *types.MsgCreateTitle) (
 	}
 
 	// Save the title
-	if err := k.Title.Set(ctx, title.TitleId, title); err != nil {
+	if err := k.SetTitle(ctx, title); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to save title")
 	}
 

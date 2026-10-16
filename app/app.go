@@ -329,6 +329,9 @@ func New(
 
 	// Wire SeasonKeeper into Rep after depinject.
 	app.RepKeeper.SetSeasonKeeper(app.SeasonKeeper)
+	// Governance and forum engagement grant XP through x/season.
+	app.CommonsKeeper.SetSeasonKeeper(app.SeasonKeeper)
+	app.ForumKeeper.SetSeasonKeeper(app.SeasonKeeper)
 
 	// Wire ForumKeeper into Rep so tag-moderation can prune stale references.
 	// Retired when forum's sentinel state moves into x/rep (future commit).

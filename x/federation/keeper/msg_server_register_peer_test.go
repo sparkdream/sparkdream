@@ -103,12 +103,7 @@ func TestRegisterPeerVoucherMetadataUsesTransferChannel(t *testing.T) {
 	f := initFixture(t)
 	ms := keeper.NewMsgServerImpl(f.keeper)
 
-	identity := &identitytypes.ChainIdentity{
-		BondDenom:           "uspk.phoenix",
-		BondDisplaySymbol:   "PSPK",
-		BondDisplayName:     "Phoenix Spark",
-		BondDisplayDecimals: 6,
-	}
+	identity := testPeerIdentity("Phoenix", "PHX", "uspk.phoenix", "PSPK", "udrm.phoenix", "PDRM")
 	voucher := func(channel string) string {
 		return ibctransfertypes.Denom{
 			Base:  identity.BondDenom,
@@ -137,7 +132,7 @@ func TestRegisterPeerVoucherMetadataUsesTransferChannel(t *testing.T) {
 	_, err = ms.RegisterPeer(f.ctx, &types.MsgRegisterPeer{
 		Authority: f.authority, PeerId: "aurora-1", DisplayName: "Aurora",
 		Type: types.PeerType_PEER_TYPE_SPARK_DREAM, IbcChannelId: "channel-2",
-		PeerIdentity: &identitytypes.ChainIdentity{BondDenom: "uspk.aurora", BondDisplaySymbol: "ASPK"},
+		PeerIdentity: testPeerIdentity("Aurora", "AUR", "uspk.aurora", "ASPK", "udrm.aurora", "ADRM"),
 	})
 	require.NoError(t, err)
 	require.Len(t, f.bankKeeper.metadata, 1)
@@ -148,4 +143,37 @@ func TestRegisterPeerVoucherMetadataUsesTransferChannel(t *testing.T) {
 		Type: types.PeerType_PEER_TYPE_SPARK_DREAM, IbcTransferChannelId: "not-a-channel",
 	})
 	require.ErrorContains(t, err, "invalid ibc transfer channel id")
+}
+
+// testPeerIdentity builds a ChainIdentity that passes Validate.
+func testPeerIdentity(name, ticker, bondDenom, bondSym, dreamDenom, dreamSym string) *identitytypes.ChainIdentity {
+	return &identitytypes.ChainIdentity{
+		ChainHumanName:       name,
+		ChainTickerPrefix:    ticker,
+		BondDenom:            bondDenom,
+		BondDisplaySymbol:    bondSym,
+		BondDisplayName:      name + " Spark",
+		BondDisplayDecimals:  6,
+		DreamDenom:           dreamDenom,
+		DreamDisplaySymbol:   dreamSym,
+		DreamDisplayName:     name + " Dream",
+		DreamDisplayDecimals: 6,
+		FoundedAt:            1735689600,
+	}
+}
+
+// A supplied peer_identity must be well-formed; a partial record is
+// rejected instead of stored.
+func TestRegisterPeerRejectsMalformedIdentity(t *testing.T) {
+	f := initFixture(t)
+	ms := keeper.NewMsgServerImpl(f.keeper)
+
+	_, err := ms.RegisterPeer(f.ctx, &types.MsgRegisterPeer{
+		Authority: f.authority, PeerId: "nova-1", DisplayName: "Nova",
+		Type: types.PeerType_PEER_TYPE_SPARK_DREAM, IbcChannelId: "channel-7",
+		PeerIdentity: &identitytypes.ChainIdentity{BondDenom: "uspk.nova", BondDisplaySymbol: "NSPK"},
+	})
+	require.ErrorContains(t, err, "invalid peer_identity")
+	_, err = f.keeper.Peers.Get(f.ctx, "nova-1")
+	require.Error(t, err, "malformed registration must not be stored")
 }

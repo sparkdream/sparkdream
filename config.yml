@@ -120,6 +120,7 @@ genesis:
       params:
         epoch_blocks: "100"  # ~100 blocks per epoch (short for testing)
         season_duration_epochs: "10"  # 10 epochs per season (short for testing)
+        max_extension_epochs: "100000"  # e2e only (default 14): non-season suites extend season 1 once so they never cross a rollover; see test/_season_horizon.sh
         transition_batch_size: "1"  # 1 member per block per phase (slow for abort/skip testing)
         transition_grace_period: "10"  # 10 blocks grace after abort (short for testing)
         display_name_appeal_period_blocks: "20"  # ~20 seconds (short for testing; default 100800)

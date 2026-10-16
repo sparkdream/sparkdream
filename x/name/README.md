@@ -50,6 +50,10 @@ Any address can file a dispute by staking 50 DREAM. The current owner can contes
 |-------|---------|
 | `OwnerNames` (address, name) | List names owned by address |
 
+### Genesis
+
+`GenesisState` exports `params`, `name_records`, `owner_infos`, `dispute_map`, `dispute_stakes` and `contest_stakes`. The two stake tables carry the DREAM locked by claimants and owners of open disputes, so an export/import never strands locked funds. The `OwnerNames` and `AcceptedTargets` indexes are not exported; `InitGenesis` rebuilds them from each record's `owner` and `target`/`target_accepted` fields.
+
 ## Messages
 
 | Message | Description | Access |

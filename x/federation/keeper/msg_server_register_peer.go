@@ -71,6 +71,16 @@ func (k msgServer) RegisterPeer(ctx context.Context, msg *types.MsgRegisterPeer)
 		return nil, errorsmod.Wrapf(types.ErrInvalidRequest, "invalid ibc transfer channel id %q", msg.IbcTransferChannelId)
 	}
 
+	// 4d. peer_identity is optional (non-Spark-Dream peers have none), but
+	// when supplied it must be a well-formed ChainIdentity: it is served
+	// back by queries and drives the voucher metadata below, so a garbage
+	// record must be rejected here rather than stored.
+	if msg.PeerIdentity != nil {
+		if err := msg.PeerIdentity.Validate(); err != nil {
+			return nil, errorsmod.Wrap(types.ErrInvalidRequest, fmt.Sprintf("invalid peer_identity: %s", err))
+		}
+	}
+
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	blockTime := sdkCtx.BlockTime().Unix()
 

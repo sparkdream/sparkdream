@@ -38,9 +38,23 @@ func ownedBinding(claim types.OwnershipClaim, msg *types.MsgShieldedExec) proofB
 	}
 }
 
-// verifyProof verifies a ZK proof (Groth16 over BN254) for an immediate mode shielded execution.
-// The unified ShieldCircuit is used for all proof domains.
+// verifyProof verifies a ZK proof (Groth16 over BN254) for an immediate mode
+// shielded execution: the merkle root is checked against the live tree and the
+// rate-limit epoch is the current shield epoch. The unified ShieldCircuit is
+// used for all proof domains.
 func (k Keeper) verifyProof(ctx context.Context, msg *types.MsgShieldedExec, binding proofBinding) error {
+	return k.verifyProofAtEpoch(ctx, msg, binding, k.GetCurrentEpoch(ctx), true)
+}
+
+// verifyProofAtEpoch is the shared verifier. `epoch` is the shield epoch the
+// prover bound into RateLimitEpoch; for an immediate exec that is the current
+// epoch, for an encrypted-batch op it is the epoch the op was submitted in
+// (the EndBlocker advances the epoch before it runs the batch, so the current
+// epoch is always at least one past the prover's). `checkRoot` re-validates
+// the merkle root against the live tree; batch ops pass false because the
+// root was validated at submission and the tree may have rotated since
+// ("valid when submitted", spec §Merkle Root Validation).
+func (k Keeper) verifyProofAtEpoch(ctx context.Context, msg *types.MsgShieldedExec, binding proofBinding, epoch uint64, checkRoot bool) error {
 	// 1. Look up verification key — unified circuit for all domains.
 	// When no VK is stored (test mode / early startup), skip ALL verification
 	// including merkle root validation. Without proof verification the merkle
@@ -57,8 +71,10 @@ func (k Keeper) verifyProof(ctx context.Context, msg *types.MsgShieldedExec, bin
 	}
 
 	// 2. Validate merkle root is current or previous for the given proof domain
-	if err := k.validateMerkleRoot(ctx, msg.MerkleRoot, msg.ProofDomain); err != nil {
-		return err
+	if checkRoot {
+		if err := k.validateMerkleRoot(ctx, msg.MerkleRoot, msg.ProofDomain); err != nil {
+			return err
+		}
 	}
 
 	// 3. Deserialize the Groth16 verification key
@@ -77,8 +93,6 @@ func (k Keeper) verifyProof(ctx context.Context, msg *types.MsgShieldedExec, bin
 	}
 
 	// 5. Construct public witness and verify
-	epoch := k.GetCurrentEpoch(ctx)
-
 	return k.verifyShieldProof(vk, proof, msg, binding, epoch)
 }
 

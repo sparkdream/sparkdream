@@ -23,6 +23,11 @@ func SimulateMsgCreateInitiative(
 ) simtypes.Operation {
 	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
 	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
+		// The handler refuses this message while x/season is in a blocking
+		// transition phase; a delivery failure fails the whole simulation.
+		if k.InMaintenanceMode(ctx) {
+			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgCreateInitiative{}), "season maintenance mode"), nil, nil
+		}
 		// Get or create a creator
 		creator, creatorAcc, err := getOrCreateMember(r, ctx, k, accs)
 		if err != nil {

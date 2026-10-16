@@ -10,6 +10,9 @@ import (
 )
 
 func (k msgServer) Stake(ctx context.Context, msg *types.MsgStake) (*types.MsgStakeResponse, error) {
+	if err := k.assertNotInMaintenance(ctx); err != nil {
+		return nil, err
+	}
 	stakerAddr, err := k.addressCodec.StringToBytes(msg.Staker)
 	if err != nil {
 		return nil, errorsmod.Wrap(err, "invalid staker address")

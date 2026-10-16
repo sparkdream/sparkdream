@@ -174,7 +174,7 @@ SPARK on x/service.
 
 | Msg | Access | Purpose |
 |---|---|---|
-| `MsgRegisterPeer` | Ops Committee member | Register a peer (with optional `controller_group`, and for Spark Dream peers optional `peer_identity` + `ibc_transfer_channel_id`, which pre-register the peer's SPARK voucher metadata under the transfer channel's trace); lands PENDING |
+| `MsgRegisterPeer` | Ops Committee member | Register a peer (with optional `controller_group`, and for Spark Dream peers optional `peer_identity` (validated with `ChainIdentity.Validate()` when supplied) + `ibc_transfer_channel_id`, which pre-register the peer's SPARK voucher metadata under the transfer channel's trace); lands PENDING |
 | `MsgRemovePeer` | Ops Committee member | Tombstone a peer (cursor-based pruning in EndBlocker) |
 | `MsgSuspendPeer` | Ops Committee member | ACTIVE → SUSPENDED; the emergency brake, deliberately 1-of-N |
 | `MsgResumePeer` | Ops Committee **policy** (a passed vote), Council policy, or gov | PENDING/SUSPENDED → ACTIVE. Activation is the trust decision, so it takes a vote |
@@ -284,7 +284,7 @@ verifiers nothing.
 
 ## Invariants
 
-`OrphanBindingsInvariant` (every BridgeBinding references a live `service.Operator`) and `BindingsByOperatorIndexInvariant` (reverse index agrees with primary) — both registered with `crisis`. Drift from fail-soft hook panics is caught here. `MsgPruneOrphanBindings` and `MsgResyncBridgeCount` are the dual-authority (Ops Committee OR gov) recovery messages — pure cleanup, no value mutation.
+`OrphanBindingsInvariant` (every BridgeBinding references a live `service.Operator`) and `BindingsByOperatorIndexInvariant` (reverse index agrees with primary) — both registered via `RegisterInvariants` and run by `app/invariants_test.go` (x/crisis is not wired). Drift from fail-soft hook panics is caught here. `MsgPruneOrphanBindings` and `MsgResyncBridgeCount` are the dual-authority (Ops Committee OR gov) recovery messages — pure cleanup, no value mutation.
 
 ## Dependencies
 

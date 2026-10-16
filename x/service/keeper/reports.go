@@ -528,6 +528,65 @@ func (k Keeper) grantReputationOnClaim(
 	)
 }
 
+// deductReputationOnSlash applies the §6.6 reputation deduction for a
+// slash that has become final: a tier-1 slash whose escrow released to
+// the community pool uncontested, or a tier-2 jury ACCEPT/REDUCE. The
+// deduction is proportional to the slash: the share of the bond taken
+// (slashAmount / bondBefore) applied to the reputation the record has
+// accrued so far (total_lifetime_bond_blocks * reputation_grant_per_bond_block),
+// so it is denominated exactly like the grant paid at unbond claim.
+// `multiplier` is 1 for a tier-1 slash and
+// types.JurySlashReputationMultiplier for a jury slash; the result never
+// exceeds the accrued reputation.
+//
+// Best-effort like grantReputationOnClaim: the caller logs and proceeds
+// when rep is unwired, the param is zero, or the operator is not a rep
+// member (DeductReputation returns ErrMemberNotFound).
+func (k Keeper) deductReputationOnSlash(
+	ctx context.Context,
+	op types.Operator,
+	opAddrBytes []byte,
+	slashAmount sdkmath.Int,
+	bondBefore sdkmath.Int,
+	multiplier int64,
+) error {
+	if k.repKeeper() == nil || slashAmount.IsNil() || !slashAmount.IsPositive() ||
+		bondBefore.IsNil() || !bondBefore.IsPositive() {
+		return nil
+	}
+	params, err := k.Params.Get(ctx)
+	if err != nil {
+		return err
+	}
+	if params.ReputationGrantPerBondBlock.IsNil() || params.ReputationGrantPerBondBlock.IsZero() {
+		return nil
+	}
+	accrued := op.TotalLifetimeBondBlocks
+	if accrued.IsNil() || accrued.IsZero() {
+		return nil
+	}
+	if slashAmount.GT(bondBefore) {
+		slashAmount = bondBefore
+	}
+	accruedRep := params.ReputationGrantPerBondBlock.MulInt(accrued)
+	deduction := accruedRep.MulInt(slashAmount).QuoInt(bondBefore)
+	if multiplier > 1 {
+		deduction = deduction.MulInt64(multiplier)
+	}
+	if deduction.GT(accruedRep) {
+		deduction = accruedRep
+	}
+	if !deduction.IsPositive() {
+		return nil
+	}
+	return k.repKeeper().DeductReputation(
+		ctx,
+		sdk.AccAddress(opAddrBytes),
+		types.ReputationTagServiceOperator,
+		deduction,
+	)
+}
+
 // closeOpenReportsOnDissolve closes all PENDING and ESCALATED reports
 // against (op, serviceType) with status CLOSED_OPERATOR_DISSOLVED,
 // refunds reporter deposits, and cancels any open jury cases. Called

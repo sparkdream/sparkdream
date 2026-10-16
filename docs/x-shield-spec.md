@@ -242,7 +242,7 @@ For a `NULLIFIER_MODE_OWNERSHIP` operation (see [Nullifier Modes](#nullifier-mod
 
 The trust tree domain accepts the **current or previous** tree root. This allows proofs generated slightly before a tree update to remain valid.
 
-**Encrypted batch mode note**: Merkle roots are validated at submission time, not at execution time. If a batch op carries over multiple epochs (due to small batch or TLE failure), the root may be stale by execution time. A member removed from the tree after submission but before execution would still have their proof verify against the stored root. This is "valid when submitted" semantics — consistent with how traditional systems honor transactions valid at submission time. The `max_pending_epochs` parameter bounds how stale a root can be (default: 6 epochs ≈ 30 min).
+**Encrypted batch mode note**: Merkle roots are validated at submission time, not at execution time. If a batch op carries over multiple epochs (due to small batch or TLE failure), the root may be stale by execution time. A member removed from the tree after submission but before execution would still have their proof verify against the stored root. This is "valid when submitted" semantics — consistent with how traditional systems honor transactions valid at submission time. The `max_pending_epochs` parameter bounds how stale a root can be (default: 6 epochs ≈ 30 min). The same rule applies to the epoch: the prover binds `RateLimitEpoch` (and any EPOCH-scoped nullifier scope) to the epoch the op is submitted in (`target_epoch`, stored as `submitted_at_epoch`), and the EndBlocker verifies against that stored epoch, never the current one, since the epoch has always advanced by the time a batch runs.
 
 ### Verification Keys (SRS)
 

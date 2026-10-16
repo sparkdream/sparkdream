@@ -802,7 +802,11 @@ message FederationPeer {
 
 ### 9.1. Peer Registration Carries Identity
 
-`MsgRegisterPeer` payload gets a new `identity` field, mandatory:
+`MsgRegisterPeer` payload gets a `peer_identity` field. It is optional, since
+ActivityPub and AT Protocol peers have no chain identity, but when supplied it
+must pass `ChainIdentity.Validate()` or registration is rejected
+(`ErrInvalidRequest`). Spark Dream peers should always supply it: the voucher
+metadata pre-registration in §9.2 is skipped without it.
 
 ```protobuf
 message MsgRegisterPeer {
@@ -1260,7 +1264,7 @@ Native-denom metadata immutability is enforced by three coordinated mechanisms i
 
 Note: cosmos-sdk v0.53.6's bank module does not expose `MsgSetDenomMetadata` as a gov-routable msg, so a guardian filter for native-denom Symbol/Display protection is unnecessary in this SDK version. The wrapper (1) and invariant (3) cover all reachable write paths.
 
-**3. Invariant 4 (`BankMetadataCanonicalInvariant`, §16) defense in depth.** Compares every native denom's `Metadata.Symbol` and `Metadata.Display` against the sealed identity on every block via the crisis module's `BeginBlocker`. Catches any tampering that bypasses both (1) and (2) — for example a future cosmos-sdk release adding a metadata-writing msg type guardian's allowlist doesn't yet know about. Trips with `stop = true`, halting the chain with a clear diff message.
+**3. Invariant 4 (`BankMetadataCanonicalInvariant`, §16) defense in depth.** Compares every native denom's `Metadata.Symbol` and `Metadata.Display` against the sealed identity whenever the invariants run (x/crisis is not wired; `app/invariants_test.go` runs them over the e2e genesis snapshots). Catches any tampering that bypasses both (1) and (2) — for example a future cosmos-sdk release adding a metadata-writing msg type guardian's allowlist doesn't yet know about. Trips with `stop = true`, halting the chain with a clear diff message.
 
 #### Practical wiring
 
@@ -1398,7 +1402,7 @@ For `x/identity InvariantCheck`:
 4. **DenomMetadata Symbol/Display match sealed values.** For each native denom's `Metadata`, `Symbol == sealed.<BondOr Dream>DisplaySymbol` and `Display == lowercase(sealed.<BondOr Dream>DisplaySymbol)`. Catches any path that bypassed the bank-keeper wrapper from §14.6 (e.g., a future PR that wires raw `bankKeeper` to a new module instead of the guarded version, or forgets to call `SetBankKeeper`).
 5. **SDK params aligned.** `staking.Params.bond_denom == sealed.bond_denom` AND `mint.Params.mint_denom == sealed.bond_denom`. Surfaces a governance-update bug that re-pointed staking or mint to a different denom.
 
-   This invariant is *warning-grade*. Governance technically *can* update these params and might do so legitimately during an upgrade (e.g., a coordinated denom rename across staking and identity). Cosmos SDK invariants signal severity through their return value: `func(ctx sdk.Context) (string, bool)`, where the bool is `stop`. Invariant 5 returns `stop = false` on the params-drift case, which causes the crisis module to log the violation and emit it as an event but *not* halt the chain. Invariants 1-4 return `stop = true` because their violations represent actual state corruption or a defeated guard. Operators wire the `invariant_broken` event into their alerting pipeline to surface invariant-5 violations without chain halt.
+   This invariant is *warning-grade*. Governance technically *can* update these params and might do so legitimately during an upgrade (e.g., a coordinated denom rename across staking and identity). Cosmos SDK invariants signal severity through their return value: `func(ctx sdk.Context) (string, bool)`, where the bool is `stop`. Invariant 5 returns `stop = false` on the params-drift case, which a crisis-style runner would log without halting the chain. Invariants 1-4 return `stop = true` because their violations represent actual state corruption or a defeated guard. Without x/crisis there is no `invariant_broken` event; invariant 5 is exercised by the app-level snapshot test.
 
    **Split-severity within invariant 5.** The implementation below returns `stop = true` only when the sealed-identity lookup itself fails (an actual corruption: the seal collection should always exist on a live chain). For the params-drift case it returns `stop = false`. This keeps the invariant warning-grade for the case governance can legitimately cause, while preserving panic-grade response to actual state corruption.
 

@@ -55,6 +55,9 @@ The `x/authz` grant is scoped to specific message types. This means the session 
 | `MsgEditReply` | Editing own replies |
 | `MsgReact` | Adding/changing reactions |
 | `MsgRemoveReaction` | Removing own reactions |
+| `MsgHidePost` / `MsgUnhidePost` | Author-only self-curation, reversible, no bond or funds. In the allowlist so a moderation bot running on a session key can hide and unhide the author's own content |
+| `MsgHideReply` / `MsgUnhideReply` | Same: post author only, reversible. Bots may hide |
+| `MsgPinReply` / `MsgUnpinReply` | Display-only, reversible; the trust-level gate is re-checked against the granter at dispatch |
 
 **Keep behind main wallet (destructive or irreversible):**
 
@@ -62,8 +65,7 @@ The `x/authz` grant is scoped to specific message types. This means the session 
 |---------|-----------|
 | `MsgDeletePost` | Permanent tombstone (clears title/body; replies and reactions preserved) |
 | `MsgDeleteReply` | Permanent tombstone (clears body; child replies preserved) |
-| `MsgHideReply` | Moderation action (reversible, but deliberate) |
-| `MsgUnhideReply` | Moderation reversal |
+| `MsgMakePostPermanent` / `MsgMakeReplyPermanent` | Irreversible promotion that burns the granter's per-day quota |
 
 #### x/forum
 

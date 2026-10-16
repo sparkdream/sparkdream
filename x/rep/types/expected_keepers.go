@@ -79,6 +79,20 @@ type SeasonKeeper interface {
 	// Uses SeasonState (defined above) instead of seasontypes.Season to break
 	// the import cycle between rep/types and season/types.
 	GetCurrentSeason(ctx context.Context) (SeasonState, error)
+	// IsInMaintenanceMode reports whether the season transition is in one of
+	// its blocking phases (reputation archive/reset, XP reset). Rep refuses
+	// reputation-moving messages while it is set (x-season-spec Maintenance
+	// Mode).
+	IsInMaintenanceMode(ctx context.Context) bool
+
+	// Gamification hooks (x-season-spec "Hook Implementations"). Rep calls
+	// them after its own state write; errors are logged, never tx-halting.
+	OnMemberCreated(ctx context.Context, member sdk.AccAddress) error
+	OnMemberEstablished(ctx context.Context, member sdk.AccAddress) error
+	OnInitiativeCompleted(ctx context.Context, member sdk.AccAddress, initiativeID uint64) error
+	OnChallengeResolved(ctx context.Context, challenger, challengee sdk.AccAddress, challengerWon bool) error
+	OnJuryDutyCompleted(ctx context.Context, juror sdk.AccAddress, juryReviewID uint64) error
+	OnMemberZeroed(ctx context.Context, member sdk.AccAddress) error
 	// ResolveDisplayNameAppealInternal resolves a display name appeal after jury verdict
 	ResolveDisplayNameAppealInternal(ctx context.Context, member string, appealSucceeded bool) error
 }

@@ -841,8 +841,18 @@ The session module's existing message-type allowlist (`max_allowed_msg_types` ce
 Operator performance accrues reputation in a dedicated x/rep tag `service-operator`. Three trigger points:
 
 - **Successful unbond completion** with no slashing history: positive reputation grant computed from accrued bond-blocks (see anti-gaming rule below).
-- **Tier-1 slash resolved (final, not contested)**: reputation deduction proportional to slash size, sent to `RepKeeper.DeductReputation`.
-- **Tier-2 slash by jury verdict (Accept)**: larger reputation deduction; verdict `Reject` produces no reputation movement.
+- **Tier-1 slash resolved (final, not contested)**: when the `Tier1Escrow` entry releases to the community pool, a reputation deduction proportional to slash size is sent to `RepKeeper.DeductReputation`.
+- **Tier-2 slash by jury verdict (Accept or Reduce)**: the proportional deduction times `JurySlashReputationMultiplier` (compiled constant, 2), applied at resolution; verdict `Reject` produces no reputation movement. A jury verdict is an adjudicated finding rather than a controller's unilateral call, so it marks the record harder than a tier-1 slash of the same size; the jury's `slash_bps` is also not bounded by `unilateral_slash_cap_bps`.
+
+Deduction formula (same units as the grant):
+
+```
+deduction = min(accrued, accrued * slash_amount / bond_before_slash * multiplier)
+accrued   = total_lifetime_bond_blocks * reputation_grant_per_bond_block
+multiplier = 1 (tier-1) | JurySlashReputationMultiplier = 2 (tier-2)
+```
+
+`total_lifetime_bond_blocks` is the slashed record's own accrual, settled to the current height; `bond_before_slash` is the bond as it stood before any slash on the report. The deduction is best-effort: if the operator address is not an active x/rep member it is logged and skipped, exactly like the grant.
 
 **Bond-block accrual (lazy, O(1) per event — NOT per-block).** The naive approach — incrementing `total_lifetime_bond_blocks += current_bond` for every ACTIVE operator every block — is an O(N) scan per block and infeasible at any scale. Instead, accrual is updated only at events that change `current_bond` or the ACTIVE status:
 
@@ -1153,7 +1163,7 @@ The `operator_underfunded` and an `operator_refunded` companion (emitted from th
 
 ## 13. Invariants
 
-Registered via `RegisterInvariants` (consulted by `simd q crisis invariant <module>/<name>` and by simulation):
+Registered via `RegisterInvariants`. The chain does not wire `x/crisis`; registered invariants run in `app/invariants_test.go` against every e2e post-setup genesis snapshot (`go test ./app -run TestInvariants`).
 
 - **`bond-pool-accounting`** — `bank.GetBalance(serviceModule, uspark).Amount == sum(operators[].bond) + sum(reports where status ∈ {PENDING, ESCALATED}[].deposit) + sum(controller_transfer_cases[].deposit) + sum(tier1_escrow[].amount)`. The module account holds four categorically distinct pools (see §3.4.7) and their sum must equal the bank balance.
 - **`live-archive-disjoint`** — for every `(address, service_type)` pair, at most one record exists in `Operators`; any number may exist in `ArchivedOperators` but none with `retired_at` more recent than the live record's `registered_at`.
@@ -1166,7 +1176,7 @@ Registered via `RegisterInvariants` (consulted by `simd q crisis invariant <modu
 - **`pending-withdrawal-sanity`** — for every live operator, `0 <= pending_withdraw_amount <= bond_amount`; a positive queue exists only on `ACTIVE` or `UNDERFUNDED` records (never `UNBONDING`); `withdraw_complete_at > 0` iff the queue is non-empty (§3.5a).
 - **`reputation-cap-soundness`** — at any given height, `effective_bond_blocks` per address (§6.6) equals `max(bond_blocks across all live ACTIVE operators of that address)`.
 
-Invariants are checked in simulation runs at every step and exposed via the crisis module for runtime auditing.
+Invariants are checked in simulation runs at every step and by the app-level snapshot test; there is no on-chain crisis query.
 
 ---
 

@@ -222,6 +222,21 @@ func (k msgServer) ResolveReportByJury(ctx context.Context, msg *types.MsgResolv
 		}
 	}
 
+	// §6.6: a jury slash is final on resolution. bondBefore reconstructs
+	// the bond as it stood before any slash on this report: the bond now
+	// held (escrow refund already folded in) plus what was just taken.
+	if !slashAmount.IsZero() {
+		bondBefore := op.BondAmount.Add(slashAmount)
+		if err := k.deductReputationOnSlash(ctx, op, opBytes, slashAmount, bondBefore, types.JurySlashReputationMultiplier); err != nil {
+			sdkCtx.Logger().Warn(
+				"x/service: reputation deduction on jury slash failed (non-fatal)",
+				"operator", op.Address,
+				"service_type", op.ServiceType,
+				"error", err,
+			)
+		}
+	}
+
 	if !dissolveNow {
 		if err := k.PutOperator(ctx, op); err != nil {
 			return nil, err

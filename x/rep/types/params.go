@@ -115,6 +115,7 @@ func DefaultParams() Params {
 		// Invitations - PRODUCTION values (in micro-DREAM: 1 DREAM = 1e6 micro-DREAM)
 		MinInvitationStake:             math.NewInt(100000000),          // 100 DREAM
 		InvitationAccountabilityEpochs: 150,                             // 150 epochs = ~5 months (1 season)
+		InvitationAcceptanceEpochs:     30,                              // 30 epochs = ~1 month to accept, then stake unlocks
 		ReferralRewardRate:             math.LegacyNewDecWithPrec(5, 2), // 5%
 		InvitationCostMultiplier:       getInvitationCostMultiplier(),   // 1.1x prod, 1.0 in testparams (see params_vals_*.go)
 
@@ -454,6 +455,9 @@ func (p Params) Validate() error {
 	}
 	if p.SeasonDurationEpochs <= 0 {
 		return fmt.Errorf("season duration epochs must be positive: %d", p.SeasonDurationEpochs)
+	}
+	if p.InvitationAcceptanceEpochs < 0 {
+		return fmt.Errorf("invitation acceptance epochs cannot be negative: %d", p.InvitationAcceptanceEpochs)
 	}
 
 	// DREAM economics validation

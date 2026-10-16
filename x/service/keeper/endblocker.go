@@ -573,6 +573,26 @@ func (k Keeper) sweepTier1EscrowRelease(ctx context.Context, currentHeight int64
 		opBytes, err := k.addrBytes(escrow.OperatorAddress)
 		if err == nil {
 			_ = k.Tier1EscrowByOperator.Remove(ctx, collections.Join3(opBytes, escrow.ServiceType, p.escrowID))
+
+			// The tier-1 slash is final now (uncontested through the
+			// window): apply the §6.6 reputation deduction against the
+			// bond as it stood before the slash. A dissolved operator has
+			// no live record and gets no deduction.
+			if op, live := k.GetOperator(ctx, opBytes, escrow.ServiceType); live {
+				// Settle on a local copy so the deduction sees accrual up to
+				// this height; the stored record is left for the next mutation
+				// to settle from its own timestamp.
+				k.settleBondBlocks(&op, currentHeight)
+				bondBefore := op.BondAmount.Add(escrow.Amount)
+				if err := k.deductReputationOnSlash(ctx, op, opBytes, escrow.Amount, bondBefore, 1); err != nil {
+					sdk.UnwrapSDKContext(ctx).Logger().Warn(
+						"x/service: reputation deduction on tier-1 release failed (non-fatal)",
+						"operator", escrow.OperatorAddress,
+						"service_type", escrow.ServiceType,
+						"error", err,
+					)
+				}
+			}
 		}
 		_ = k.Tier1Escrow.Remove(ctx, p.escrowID)
 		_ = k.Tier1EscrowReleaseQueue.Remove(ctx, p.queueKey)

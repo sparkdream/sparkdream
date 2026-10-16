@@ -267,3 +267,68 @@ func TestPolicyPermissionsMsgServerDelete(t *testing.T) {
 		})
 	}
 }
+
+// TestPolicyPermissionsNarrowingBumpsPolicyVersion checks that removing a
+// permission (or deleting the allowlist) invalidates pending proposals by
+// bumping the policy version, while pure expansions leave it untouched.
+func TestPolicyPermissionsNarrowingBumpsPolicyVersion(t *testing.T) {
+	f := initFixture(t)
+	srv := keeper.NewMsgServerImpl(f.keeper)
+	govAddr := authtypes.NewModuleAddress(govtypes.ModuleName).String()
+
+	policyAddr, err := f.addressCodec.BytesToString([]byte("policyAddress_______________01"))
+	require.NoError(t, err)
+
+	_, err = srv.CreatePolicyPermissions(f.ctx, &types.MsgCreatePolicyPermissions{
+		Authority:       policyAddr,
+		PolicyAddress:   policyAddr,
+		AllowedMessages: []string{"/msg.A", "/msg.B"},
+	})
+	require.NoError(t, err)
+
+	v0, err := f.keeper.GetPolicyVersion(f.ctx, policyAddr)
+	require.NoError(t, err)
+
+	// Expansion by gov: no bump.
+	_, err = srv.UpdatePolicyPermissions(f.ctx, &types.MsgUpdatePolicyPermissions{
+		Authority:       govAddr,
+		PolicyAddress:   policyAddr,
+		AllowedMessages: []string{"/msg.A", "/msg.B", "/msg.C"},
+	})
+	require.NoError(t, err)
+	v1, err := f.keeper.GetPolicyVersion(f.ctx, policyAddr)
+	require.NoError(t, err)
+	require.Equal(t, v0, v1, "expansion must not bump the policy version")
+
+	// Narrowing: bump.
+	_, err = srv.UpdatePolicyPermissions(f.ctx, &types.MsgUpdatePolicyPermissions{
+		Authority:       policyAddr,
+		PolicyAddress:   policyAddr,
+		AllowedMessages: []string{"/msg.A"},
+	})
+	require.NoError(t, err)
+	v2, err := f.keeper.GetPolicyVersion(f.ctx, policyAddr)
+	require.NoError(t, err)
+	require.Equal(t, v1+1, v2, "narrowing must bump the policy version")
+
+	// Same set again: no bump.
+	_, err = srv.UpdatePolicyPermissions(f.ctx, &types.MsgUpdatePolicyPermissions{
+		Authority:       policyAddr,
+		PolicyAddress:   policyAddr,
+		AllowedMessages: []string{"/msg.A"},
+	})
+	require.NoError(t, err)
+	v3, err := f.keeper.GetPolicyVersion(f.ctx, policyAddr)
+	require.NoError(t, err)
+	require.Equal(t, v2, v3, "no-op update must not bump the policy version")
+
+	// Delete: bump.
+	_, err = srv.DeletePolicyPermissions(f.ctx, &types.MsgDeletePolicyPermissions{
+		Authority:     policyAddr,
+		PolicyAddress: policyAddr,
+	})
+	require.NoError(t, err)
+	v4, err := f.keeper.GetPolicyVersion(f.ctx, policyAddr)
+	require.NoError(t, err)
+	require.Equal(t, v3+1, v4, "delete must bump the policy version")
+}

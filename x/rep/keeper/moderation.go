@@ -108,6 +108,9 @@ func (k Keeper) ZeroMember(ctx context.Context, memberAddr sdk.AccAddress, reaso
 	member.TipsSentThisEpoch = nil
 
 	// Save member
+	k.notifySeason(ctx, "OnMemberZeroed", func(sk types.SeasonKeeper) error {
+		return sk.OnMemberZeroed(ctx, memberAddr)
+	})
 	if err := k.Member.Set(ctx, memberAddr.String(), member); err != nil {
 		return err
 	}

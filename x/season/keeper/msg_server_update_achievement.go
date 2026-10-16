@@ -49,7 +49,7 @@ func (k msgServer) UpdateAchievement(ctx context.Context, msg *types.MsgUpdateAc
 	achievement.RequirementThreshold = msg.RequirementThreshold
 
 	// Save the updated achievement
-	if err := k.Achievement.Set(ctx, achievement.AchievementId, achievement); err != nil {
+	if err := k.SetAchievement(ctx, achievement); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to update achievement")
 	}
 

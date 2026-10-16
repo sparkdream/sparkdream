@@ -10,9 +10,11 @@ import (
 // This data should be replaced with production values before mainnet launch.
 //
 // Design Notes:
-// - Achievements reward specific milestones (completed X things, earned Y reputation)
-// - Titles are prestigious designations (both seasonal and permanent)
-// - XP rewards follow rarity: Common=100-250, Uncommon=250-500, Rare=500-1000, Epic=1000-2500, Legendary=2500+
+//   - Achievements reward specific milestones (completed X things, earned Y reputation)
+//   - Titles are prestigious designations (both seasonal and permanent)
+//   - XP rewards follow rarity and every one fits under max_xp_per_epoch (200)
+//     so an achievement can always pay in full in a fresh epoch:
+//     Common=10, Uncommon=25, Rare=50, Epic=100, Legendary/Unique=150
 func (k Keeper) BootstrapTitlesAndAchievements(ctx context.Context) {
 	// =========================================================================
 	// ACHIEVEMENTS - Specific milestones that grant XP
@@ -25,7 +27,7 @@ func (k Keeper) BootstrapTitlesAndAchievements(ctx context.Context) {
 			Name:                 "First Step",
 			Description:          "Successfully invited your first member to the commons",
 			Rarity:               types.Rarity_RARITY_COMMON,
-			XpReward:             100,
+			XpReward:             10,
 			RequirementType:      types.RequirementType_REQUIREMENT_TYPE_INVITATIONS_SUCCESSFUL,
 			RequirementThreshold: 1,
 		},
@@ -34,7 +36,7 @@ func (k Keeper) BootstrapTitlesAndAchievements(ctx context.Context) {
 			Name:                 "Contributor",
 			Description:          "Completed your first initiative",
 			Rarity:               types.Rarity_RARITY_COMMON,
-			XpReward:             150,
+			XpReward:             10,
 			RequirementType:      types.RequirementType_REQUIREMENT_TYPE_INITIATIVES_COMPLETED,
 			RequirementThreshold: 1,
 		},
@@ -43,7 +45,7 @@ func (k Keeper) BootstrapTitlesAndAchievements(ctx context.Context) {
 			Name:                 "Voice Heard",
 			Description:          "Cast your first vote in governance",
 			Rarity:               types.Rarity_RARITY_COMMON,
-			XpReward:             100,
+			XpReward:             10,
 			RequirementType:      types.RequirementType_REQUIREMENT_TYPE_VOTES_CAST,
 			RequirementThreshold: 1,
 		},
@@ -52,7 +54,7 @@ func (k Keeper) BootstrapTitlesAndAchievements(ctx context.Context) {
 			Name:                 "Helping Hand",
 			Description:          "Received 10 helpful votes in the forum",
 			Rarity:               types.Rarity_RARITY_COMMON,
-			XpReward:             200,
+			XpReward:             10,
 			RequirementType:      types.RequirementType_REQUIREMENT_TYPE_FORUM_HELPFUL,
 			RequirementThreshold: 10,
 		},
@@ -63,7 +65,7 @@ func (k Keeper) BootstrapTitlesAndAchievements(ctx context.Context) {
 			Name:                 "Proven Contributor",
 			Description:          "Completed 5 initiatives",
 			Rarity:               types.Rarity_RARITY_UNCOMMON,
-			XpReward:             400,
+			XpReward:             25,
 			RequirementType:      types.RequirementType_REQUIREMENT_TYPE_INITIATIVES_COMPLETED,
 			RequirementThreshold: 5,
 		},
@@ -72,7 +74,7 @@ func (k Keeper) BootstrapTitlesAndAchievements(ctx context.Context) {
 			Name:                 "Community Builder",
 			Description:          "Successfully invited 5 members",
 			Rarity:               types.Rarity_RARITY_UNCOMMON,
-			XpReward:             350,
+			XpReward:             25,
 			RequirementType:      types.RequirementType_REQUIREMENT_TYPE_INVITATIONS_SUCCESSFUL,
 			RequirementThreshold: 5,
 		},
@@ -81,7 +83,7 @@ func (k Keeper) BootstrapTitlesAndAchievements(ctx context.Context) {
 			Name:                 "Active Voter",
 			Description:          "Cast votes in 10 governance proposals",
 			Rarity:               types.Rarity_RARITY_UNCOMMON,
-			XpReward:             300,
+			XpReward:             25,
 			RequirementType:      types.RequirementType_REQUIREMENT_TYPE_VOTES_CAST,
 			RequirementThreshold: 10,
 		},
@@ -90,7 +92,7 @@ func (k Keeper) BootstrapTitlesAndAchievements(ctx context.Context) {
 			Name:                 "Juror",
 			Description:          "Completed 3 jury duties",
 			Rarity:               types.Rarity_RARITY_UNCOMMON,
-			XpReward:             400,
+			XpReward:             25,
 			RequirementType:      types.RequirementType_REQUIREMENT_TYPE_JURY_DUTY,
 			RequirementThreshold: 3,
 		},
@@ -101,7 +103,7 @@ func (k Keeper) BootstrapTitlesAndAchievements(ctx context.Context) {
 			Name:                 "Veteran Contributor",
 			Description:          "Completed 20 initiatives",
 			Rarity:               types.Rarity_RARITY_RARE,
-			XpReward:             800,
+			XpReward:             50,
 			RequirementType:      types.RequirementType_REQUIREMENT_TYPE_INITIATIVES_COMPLETED,
 			RequirementThreshold: 20,
 		},
@@ -110,7 +112,7 @@ func (k Keeper) BootstrapTitlesAndAchievements(ctx context.Context) {
 			Name:                 "Talent Scout",
 			Description:          "Successfully invited 20 members",
 			Rarity:               types.Rarity_RARITY_RARE,
-			XpReward:             700,
+			XpReward:             50,
 			RequirementType:      types.RequirementType_REQUIREMENT_TYPE_INVITATIONS_SUCCESSFUL,
 			RequirementThreshold: 20,
 		},
@@ -119,7 +121,7 @@ func (k Keeper) BootstrapTitlesAndAchievements(ctx context.Context) {
 			Name:                 "Forum Sage",
 			Description:          "Received 100 helpful votes in the forum",
 			Rarity:               types.Rarity_RARITY_RARE,
-			XpReward:             750,
+			XpReward:             50,
 			RequirementType:      types.RequirementType_REQUIREMENT_TYPE_FORUM_HELPFUL,
 			RequirementThreshold: 100,
 		},
@@ -128,7 +130,7 @@ func (k Keeper) BootstrapTitlesAndAchievements(ctx context.Context) {
 			Name:                 "Justice Keeper",
 			Description:          "Completed 10 jury duties",
 			Rarity:               types.Rarity_RARITY_RARE,
-			XpReward:             900,
+			XpReward:             50,
 			RequirementType:      types.RequirementType_REQUIREMENT_TYPE_JURY_DUTY,
 			RequirementThreshold: 10,
 		},
@@ -137,7 +139,7 @@ func (k Keeper) BootstrapTitlesAndAchievements(ctx context.Context) {
 			Name:                 "Challenger",
 			Description:          "Won 5 challenge disputes",
 			Rarity:               types.Rarity_RARITY_RARE,
-			XpReward:             850,
+			XpReward:             50,
 			RequirementType:      types.RequirementType_REQUIREMENT_TYPE_CHALLENGES_WON,
 			RequirementThreshold: 5,
 		},
@@ -148,7 +150,7 @@ func (k Keeper) BootstrapTitlesAndAchievements(ctx context.Context) {
 			Name:                 "Master Contributor",
 			Description:          "Completed 50 initiatives",
 			Rarity:               types.Rarity_RARITY_EPIC,
-			XpReward:             2000,
+			XpReward:             100,
 			RequirementType:      types.RequirementType_REQUIREMENT_TYPE_INITIATIVES_COMPLETED,
 			RequirementThreshold: 50,
 		},
@@ -157,7 +159,7 @@ func (k Keeper) BootstrapTitlesAndAchievements(ctx context.Context) {
 			Name:                 "Recruitment Champion",
 			Description:          "Successfully invited 50 members",
 			Rarity:               types.Rarity_RARITY_EPIC,
-			XpReward:             1800,
+			XpReward:             100,
 			RequirementType:      types.RequirementType_REQUIREMENT_TYPE_INVITATIONS_SUCCESSFUL,
 			RequirementThreshold: 50,
 		},
@@ -166,7 +168,7 @@ func (k Keeper) BootstrapTitlesAndAchievements(ctx context.Context) {
 			Name:                 "Governance Pillar",
 			Description:          "Cast votes in 50 governance proposals",
 			Rarity:               types.Rarity_RARITY_EPIC,
-			XpReward:             1500,
+			XpReward:             100,
 			RequirementType:      types.RequirementType_REQUIREMENT_TYPE_VOTES_CAST,
 			RequirementThreshold: 50,
 		},
@@ -175,7 +177,7 @@ func (k Keeper) BootstrapTitlesAndAchievements(ctx context.Context) {
 			Name:                 "Supreme Juror",
 			Description:          "Completed 25 jury duties",
 			Rarity:               types.Rarity_RARITY_EPIC,
-			XpReward:             2200,
+			XpReward:             100,
 			RequirementType:      types.RequirementType_REQUIREMENT_TYPE_JURY_DUTY,
 			RequirementThreshold: 25,
 		},
@@ -186,7 +188,7 @@ func (k Keeper) BootstrapTitlesAndAchievements(ctx context.Context) {
 			Name:                 "Legendary Builder",
 			Description:          "Completed 100 initiatives",
 			Rarity:               types.Rarity_RARITY_LEGENDARY,
-			XpReward:             5000,
+			XpReward:             150,
 			RequirementType:      types.RequirementType_REQUIREMENT_TYPE_INITIATIVES_COMPLETED,
 			RequirementThreshold: 100,
 		},
@@ -195,7 +197,7 @@ func (k Keeper) BootstrapTitlesAndAchievements(ctx context.Context) {
 			Name:                 "Community Founder",
 			Description:          "Successfully invited 100 members",
 			Rarity:               types.Rarity_RARITY_LEGENDARY,
-			XpReward:             4500,
+			XpReward:             150,
 			RequirementType:      types.RequirementType_REQUIREMENT_TYPE_INVITATIONS_SUCCESSFUL,
 			RequirementThreshold: 100,
 		},
@@ -204,7 +206,7 @@ func (k Keeper) BootstrapTitlesAndAchievements(ctx context.Context) {
 			Name:                 "Eternal Veteran",
 			Description:          "Active for 10 seasons",
 			Rarity:               types.Rarity_RARITY_LEGENDARY,
-			XpReward:             6000,
+			XpReward:             150,
 			RequirementType:      types.RequirementType_REQUIREMENT_TYPE_SEASONS_ACTIVE,
 			RequirementThreshold: 10,
 		},
@@ -215,7 +217,7 @@ func (k Keeper) BootstrapTitlesAndAchievements(ctx context.Context) {
 			Name:                 "First Season",
 			Description:          "Active during the chain's first season",
 			Rarity:               types.Rarity_RARITY_UNIQUE,
-			XpReward:             1000,
+			XpReward:             150,
 			RequirementType:      types.RequirementType_REQUIREMENT_TYPE_SEASONS_ACTIVE,
 			RequirementThreshold: 1,
 		},
@@ -226,7 +228,7 @@ func (k Keeper) BootstrapTitlesAndAchievements(ctx context.Context) {
 			Name:                 "Genesis Founder",
 			Description:          "Present at the creation of the commons — block 1 signer",
 			Rarity:               types.Rarity_RARITY_UNIQUE,
-			XpReward:             10000,
+			XpReward:             150,
 			RequirementType:      types.RequirementType_REQUIREMENT_TYPE_GENESIS,
 			RequirementThreshold: 0,
 		},
@@ -236,7 +238,7 @@ func (k Keeper) BootstrapTitlesAndAchievements(ctx context.Context) {
 			Name:                 "First Spark",
 			Description:          "Struck the first spark — gathered the founding members",
 			Rarity:               types.Rarity_RARITY_UNIQUE,
-			XpReward:             15000,
+			XpReward:             150,
 			RequirementType:      types.RequirementType_REQUIREMENT_TYPE_GENESIS,
 			RequirementThreshold: 0,
 		},
@@ -244,7 +246,7 @@ func (k Keeper) BootstrapTitlesAndAchievements(ctx context.Context) {
 
 	// Store all achievements
 	for _, achievement := range achievements {
-		_ = k.Achievement.Set(ctx, achievement.AchievementId, achievement)
+		_ = k.SetAchievement(ctx, achievement)
 	}
 
 	// =========================================================================
@@ -358,6 +360,6 @@ func (k Keeper) BootstrapTitlesAndAchievements(ctx context.Context) {
 
 	// Store all titles
 	for _, title := range titles {
-		_ = k.Title.Set(ctx, title.TitleId, title)
+		_ = k.SetTitle(ctx, title)
 	}
 }

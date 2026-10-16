@@ -4406,7 +4406,7 @@ Called by x/rep when jury reaches verdict on Gov action appeal.
 
 ### 7.5. XP Integration via Hooks
 
-> **Implementation status:** The ForumHooks interface is **not yet implemented**. The design below is the target specification for integration with x/season. Currently, x/forum emits standard Cosmos SDK events that can be indexed off-chain.
+> **Implementation status:** Implemented as a narrow late-bound `SeasonKeeper` (`x/forum/types/expected_keepers.go`, wired by `ForumKeeper.SetSeasonKeeper` in `app/app.go`) rather than the broad `ForumHooks` interface below. Two signals are sent, both best-effort (a hook error is logged, never tx-halting): `OnForumReplyReceived(parentAuthor, replier, parentPostID)` after a reply is stored in `MsgCreatePost`, and `OnForumPostMarkedHelpful(replyAuthor, threadAuthor, replyID, true)` when the thread author accepts a reply in `MsgMarkAcceptedReply`. The accepted answer is the forum's "marked helpful" signal; upvotes are deliberately not an XP source. The anti-gaming rules (actor account age, reciprocal cooldown, per-epoch forum cap, no self-grant) live in x/season. The remaining methods in the interface below (`OnPostCreated`, `OnPostHidden`, ...) are not implemented; forum still emits standard events for them.
 
 x/forum provides a hooks interface for external modules (like x/season) to respond to forum events. This decouples x/forum from XP logic - the forum module simply emits engagement signals, and x/season decides how to award XP.
 

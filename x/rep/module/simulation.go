@@ -667,6 +667,21 @@ func (am AppModule) WeightedOperations(simState module.SimulationState) []simtyp
 		weightMsgReclaimInitiativeBounty,
 		repsimulation.SimulateMsgReclaimInitiativeBounty(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
 	))
+	const (
+		opWeightMsgRevokeInvitation          = "op_weight_msg_rep"
+		defaultWeightMsgRevokeInvitation int = 100
+	)
+
+	var weightMsgRevokeInvitation int
+	simState.AppParams.GetOrGenerate(opWeightMsgRevokeInvitation, &weightMsgRevokeInvitation, nil,
+		func(_ *rand.Rand) {
+			weightMsgRevokeInvitation = defaultWeightMsgRevokeInvitation
+		},
+	)
+	operations = append(operations, simulation.NewWeightedOperation(
+		weightMsgRevokeInvitation,
+		repsimulation.SimulateMsgRevokeInvitation(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
+	))
 
 	return operations
 }

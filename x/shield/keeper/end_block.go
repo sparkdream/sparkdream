@@ -242,12 +242,17 @@ func (k Keeper) processEncryptedOp(ctx context.Context, params types.Params, op 
 		return batchResultOtherFail
 	}
 
-	// 4. Resolve scope and verify ZK proof
-	scope, err := k.resolveNullifierScope(ctx, reg, &innerExec)
+	// 4. Resolve scope and verify ZK proof against the epoch the op was
+	// submitted in: the prover bound RateLimitEpoch (and any EPOCH scope)
+	// to that epoch, and the EndBlocker has already advanced the epoch by
+	// the time a batch runs. The merkle root was validated at submission
+	// and is not re-checked against the live tree ("valid when
+	// submitted"; the tree may have rotated several times since).
+	scope, err := k.resolveNullifierScopeAtEpoch(ctx, reg, &innerExec, op.SubmittedAtEpoch)
 	if err != nil {
 		return batchResultOtherFail
 	}
-	if err := k.verifyProof(ctx, &innerExec, consumeBinding(reg.NullifierDomain, scope, &innerExec)); err != nil {
+	if err := k.verifyProofAtEpoch(ctx, &innerExec, consumeBinding(reg.NullifierDomain, scope, &innerExec), op.SubmittedAtEpoch, false); err != nil {
 		return batchResultProofFail
 	}
 

@@ -31,7 +31,7 @@ func (k msgServer) DeleteAchievement(ctx context.Context, msg *types.MsgDeleteAc
 	}
 
 	// Delete the achievement
-	if err := k.Achievement.Remove(ctx, msg.AchievementId); err != nil {
+	if err := k.RemoveAchievement(ctx, msg.AchievementId); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to delete achievement")
 	}
 

@@ -205,3 +205,12 @@ type RepKeeper interface {
 	// caller again.
 	AddToSentinelRewardPool(ctx context.Context, sender sdk.AccAddress, amount math.Int) error
 }
+
+// SeasonKeeper is the slice of x/season forum notifies about engagement so
+// the post author can earn XP (x-season-spec "x/forum Integration"). The
+// anti-gaming rules (account age, reciprocal cooldown, per-epoch cap) live
+// in x/season. Late-bound via SetSeasonKeeper; calls are best-effort.
+type SeasonKeeper interface {
+	OnForumReplyReceived(ctx context.Context, postAuthor, replier string, postID uint64) error
+	OnForumPostMarkedHelpful(ctx context.Context, postAuthor, marker string, postID uint64, isReply bool) error
+}

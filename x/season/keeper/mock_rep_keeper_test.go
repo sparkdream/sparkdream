@@ -21,6 +21,8 @@ type mockRepKeeper struct {
 	CompletedInitiatives map[string]uint64
 	// Members tracks membership status
 	Members map[string]bool
+	// InvitedBy maps a member address to its inviter (optional; nil-safe).
+	InvitedBy map[string]string
 	// ArchiveCallCount tracks how many times ArchiveSeasonalReputation was called
 	ArchiveCallCount int
 	// LastArchivedAddresses tracks addresses that had reputation archived
@@ -105,7 +107,7 @@ func (m *mockRepKeeper) GetMember(ctx context.Context, addr sdk.AccAddress) (rep
 	if !m.Members[addrStr] {
 		return reptypes.Member{}, nil
 	}
-	return reptypes.Member{Address: addrStr}, nil
+	return reptypes.Member{Address: addrStr, InvitedBy: m.InvitedBy[addrStr], JoinedSeason: 1}, nil
 }
 
 // GetReputationScores returns all reputation scores for a member

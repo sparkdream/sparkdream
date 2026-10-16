@@ -138,6 +138,11 @@ func (k msgServer) SubmitProposal(goCtx context.Context, msg *types.MsgSubmitPro
 	}
 
 	// 9. Index by council
+	if proposerBytes, err := k.addressCodec.StringToBytes(msg.Proposer); err == nil {
+		k.notifySeason(ctx, "OnProposalCreated", func(sk types.SeasonKeeper) error {
+			return sk.OnProposalCreated(ctx, proposerBytes, proposalID)
+		})
+	}
 	if err := k.ProposalsByCouncil.Set(ctx, collections.Join(councilName, proposalID)); err != nil {
 		return nil, err
 	}
@@ -189,6 +194,11 @@ func (k msgServer) VoteProposal(goCtx context.Context, msg *types.MsgVoteProposa
 	}
 	if err := k.Votes.Set(ctx, collections.Join(msg.ProposalId, msg.Voter), vote); err != nil {
 		return nil, err
+	}
+	if voterBytes, err := k.addressCodec.StringToBytes(msg.Voter); err == nil {
+		k.notifySeason(ctx, "OnVoteCast", func(sk types.SeasonKeeper) error {
+			return sk.OnVoteCast(ctx, voterBytes, msg.ProposalId)
+		})
 	}
 
 	// Check if threshold is met (early acceptance)

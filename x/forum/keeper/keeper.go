@@ -8,6 +8,7 @@ import (
 	"cosmossdk.io/core/address"
 	corestore "cosmossdk.io/core/store"
 	"github.com/cosmos/cosmos-sdk/codec"
+	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	"sparkdream/x/forum/types"
 )
@@ -30,6 +31,7 @@ type Keeper struct {
 	// Used by BondDenom() to resolve the chain's bond denom for federated
 	// chains. Panics if unwired — see BondDenom() for rationale.
 	identityKeeper       types.IdentityKeeper
+	seasonKeeper         types.SeasonKeeper
 	Post                 collections.Map[uint64, types.Post]
 	PostSeq              collections.Sequence
 	UserRateLimit        collections.Map[string, types.UserRateLimit]
@@ -187,6 +189,23 @@ func NewKeeper(
 // resolution. Called from app.go post-depinject.
 func (k *Keeper) SetIdentityKeeper(idk types.IdentityKeeper) {
 	k.identityKeeper = idk
+}
+
+// SetSeasonKeeper late-binds x/season so replies and accepted answers grant
+// the author XP. Optional: unwired means no XP.
+func (k *Keeper) SetSeasonKeeper(sk types.SeasonKeeper) {
+	k.seasonKeeper = sk
+}
+
+// notifySeason runs one x/season hook best-effort: the forum write has
+// already happened, so a hook error is logged and swallowed.
+func (k Keeper) notifySeason(ctx context.Context, hook string, fn func(sk types.SeasonKeeper) error) {
+	if k.seasonKeeper == nil {
+		return
+	}
+	if err := fn(k.seasonKeeper); err != nil {
+		sdk.UnwrapSDKContext(ctx).Logger().Error("x/season hook failed (non-fatal)", "hook", hook, "error", err)
+	}
 }
 
 // BondDenom returns the chain's bond denom from the wired identity keeper.

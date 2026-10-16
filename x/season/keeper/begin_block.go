@@ -3,6 +3,7 @@ package keeper
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"sparkdream/x/season/types"
 
@@ -207,6 +208,11 @@ func (k Keeper) processSnapshotPhase(ctx context.Context, state *types.SeasonTra
 			SnapshotBlock: sdkCtx.BlockHeight(),
 		}
 		if err := k.SeasonSnapshot.Set(ctx, season.Number, seasonSnapshot); err != nil {
+			return false, err
+		}
+		// Decide seasonal titles now, while season XP and levels are still
+		// intact (RESET_XP runs before TITLES).
+		if err := k.ComputeSeasonTitleEligibility(ctx, season.Number); err != nil {
 			return false, err
 		}
 	}
@@ -523,13 +529,19 @@ func (k Keeper) processResetXPPhase(ctx context.Context, state *types.SeasonTran
 	return !iter.Valid(), nil
 }
 
-// processTitlesPhase handles title transitions.
-// This phase moves seasonal titles from UnlockedTitles to ArchivedTitles.
+// processTitlesPhase grants the season's titles. Eligibility was computed
+// in the SNAPSHOT phase; each eligible member receives the per-season
+// `s<N>_<title>` title, which is permanent (UnlockTitle rolls the oldest
+// titles into the archive past the display cap).
 func (k Keeper) processTitlesPhase(ctx context.Context, state *types.SeasonTransitionState, batchSize int) (bool, error) {
 	// Get current season to check season-specific titles
 	season, err := k.Season.Get(ctx)
 	if err != nil {
 		return false, err
+	}
+	eligibility, err := k.SeasonTitleEligibility.Get(ctx, season.Number)
+	if err != nil {
+		eligibility = types.SeasonTitleEligibility{TitleSeason: season.Number, Season: season.Number}
 	}
 
 	// Iterate through member profiles
@@ -566,42 +578,9 @@ func (k Keeper) processTitlesPhase(ctx context.Context, state *types.SeasonTrans
 			continue
 		}
 
-		profile := kv.Value
 		lastKey = kv.Key
-		modified := false
-
-		// Check each unlocked title and archive seasonal ones
-		var remainingTitles []string
-		for _, titleId := range profile.UnlockedTitles {
-			title, err := k.Title.Get(ctx, titleId)
-			if err != nil {
-				// Title doesn't exist, keep it anyway
-				remainingTitles = append(remainingTitles, titleId)
-				continue
-			}
-
-			// Check if title is seasonal and should be archived
-			if title.Seasonal {
-				// Archive the seasonal title with season info
-				archivedTitle := fmt.Sprintf("%d:%s", season.Number, titleId)
-				profile.ArchivedTitles = append(profile.ArchivedTitles, archivedTitle)
-				modified = true
-
-				// If this was the display title, clear it
-				if profile.DisplayTitle == titleId {
-					profile.DisplayTitle = ""
-				}
-			} else {
-				// Keep non-seasonal titles
-				remainingTitles = append(remainingTitles, titleId)
-			}
-		}
-
-		if modified {
-			profile.UnlockedTitles = remainingTitles
-			if err := k.MemberProfile.Set(ctx, kv.Key, profile); err != nil {
-				continue
-			}
+		if err := k.grantSeasonalTitles(ctx, season.Number, eligibility, kv.Key); err != nil {
+			sdk.UnwrapSDKContext(ctx).Logger().Error("seasonal title grant failed", "member", kv.Key, "error", err)
 		}
 
 		processed++
@@ -705,13 +684,11 @@ func (k Keeper) processCleanupPhase(ctx context.Context, state *types.SeasonTran
 	return !iter.Valid(), nil
 }
 
-// extractQuestIdFromKey extracts the quest ID from a composite key.
-// Key format: "member_address/quest_id"
+// extractQuestIdFromKey extracts the quest ID from a composite
+// MemberQuestProgress key, "member_address:quest_id" (see questProgressKey).
 func extractQuestIdFromKey(key string) string {
-	for i := len(key) - 1; i >= 0; i-- {
-		if key[i] == '/' {
-			return key[i+1:]
-		}
+	if i := strings.Index(key, ":"); i >= 0 {
+		return key[i+1:]
 	}
 	return ""
 }

@@ -143,7 +143,29 @@ func (k msgServer) UpdatePolicyPermissions(ctx context.Context, msg *types.MsgUp
 		return nil, errorsmod.Wrap(sdkerrors.ErrLogic, "failed to update policyPermissions")
 	}
 
+	// Narrowing invalidates pending proposals: a proposal created under the
+	// old allowlist may carry a message that is no longer permitted, and the
+	// execution-time check is on the policy version, not the allowlist. Bump
+	// only when something was removed so pure expansions (gov adding powers)
+	// leave in-flight proposals alone.
+	if removesPermissions(val.AllowedMessages, msg.AllowedMessages) {
+		if _, err := k.BumpPolicyVersion(ctx, msg.PolicyAddress); err != nil {
+			return nil, errorsmod.Wrap(sdkerrors.ErrLogic, "failed to bump policy version")
+		}
+	}
+
 	return &types.MsgUpdatePolicyPermissionsResponse{}, nil
+}
+
+// removesPermissions reports whether any message allowed under `old` is
+// absent from `updated`.
+func removesPermissions(old, updated []string) bool {
+	for _, m := range old {
+		if !slices.Contains(updated, m) {
+			return true
+		}
+	}
+	return false
 }
 
 func (k msgServer) DeletePolicyPermissions(ctx context.Context, msg *types.MsgDeletePolicyPermissions) (*types.MsgDeletePolicyPermissionsResponse, error) {
@@ -167,6 +189,12 @@ func (k msgServer) DeletePolicyPermissions(ctx context.Context, msg *types.MsgDe
 
 	if err := k.PolicyPermissions.Remove(ctx, msg.PolicyAddress); err != nil {
 		return nil, errorsmod.Wrap(sdkerrors.ErrLogic, "failed to remove policyPermissions")
+	}
+
+	// Deleting the allowlist is the strongest narrowing; invalidate pending
+	// proposals the same way UpdatePolicyPermissions does.
+	if _, err := k.BumpPolicyVersion(ctx, msg.PolicyAddress); err != nil {
+		return nil, errorsmod.Wrap(sdkerrors.ErrLogic, "failed to bump policy version")
 	}
 
 	return &types.MsgDeletePolicyPermissionsResponse{}, nil

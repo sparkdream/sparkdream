@@ -195,6 +195,14 @@ func (k Keeper) UpdateTrustLevel(ctx context.Context, memberAddr sdk.AccAddress)
 				sdk.NewAttribute("invitation_credits", fmt.Sprintf("%d", member.InvitationCredits)),
 			),
 		)
+
+		// Crossing into ESTABLISHED is the mentorship outcome the inviter
+		// earns XP for.
+		if oldLevel < types.TrustLevel_TRUST_LEVEL_ESTABLISHED && newLevel >= types.TrustLevel_TRUST_LEVEL_ESTABLISHED {
+			k.notifySeason(ctx, "OnMemberEstablished", func(sk types.SeasonKeeper) error {
+				return sk.OnMemberEstablished(ctx, memberAddr)
+			})
+		}
 	}
 
 	return nil

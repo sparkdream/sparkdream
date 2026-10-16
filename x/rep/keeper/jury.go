@@ -679,6 +679,16 @@ func (k Keeper) TallyJuryVotes(ctx context.Context, juryReviewID uint64) error {
 		return err
 	}
 
+	// Jurors who voted served their duty; season counts it toward
+	// achievements.
+	for _, vote := range juryReview.Votes {
+		if jurorAddr, err := sdk.AccAddressFromBech32(vote.Juror); err == nil {
+			k.notifySeason(ctx, "OnJuryDutyCompleted", func(sk types.SeasonKeeper) error {
+				return sk.OnJuryDutyCompleted(ctx, jurorAddr, juryReview.Id)
+			})
+		}
+	}
+
 	// Charge the jurors who never voted. This is the one point every resolution
 	// path passes through — the supermajority-triggered tally, the challenge
 	// deadline sweep, and the appeal timeout all land here — so the accounting

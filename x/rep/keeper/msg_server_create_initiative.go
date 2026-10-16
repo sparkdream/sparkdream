@@ -10,6 +10,9 @@ import (
 )
 
 func (k msgServer) CreateInitiative(ctx context.Context, msg *types.MsgCreateInitiative) (*types.MsgCreateInitiativeResponse, error) {
+	if err := k.assertNotInMaintenance(ctx); err != nil {
+		return nil, err
+	}
 	creatorAddr, err := k.addressCodec.StringToBytes(msg.Creator)
 	if err != nil {
 		return nil, errorsmod.Wrap(err, "invalid creator address")

@@ -7,6 +7,7 @@ import "cosmos/msg/v1/msg.proto";
 import "cosmos_proto/cosmos.proto";
 import "gogoproto/gogo.proto";
 import "sparkdream/season/v1/params.proto";
+import "sparkdream/season/v1/quest.proto";
 
 option go_package = "sparkdream/x/season/types";
 
@@ -429,6 +430,9 @@ message MsgCreateQuest {
   string required_achievement = 12;
   string prerequisite_quest = 13;
   string quest_chain = 14;
+  // objectives the member must complete before claiming; each needs a type
+  // and a positive target. A quest with no objectives is claimable at once.
+  repeated QuestObjective objectives = 15;
 }
 
 // MsgCreateQuestResponse defines the MsgCreateQuestResponse message.
@@ -661,6 +665,8 @@ message MsgUpdateQuest {
   string prerequisite_quest = 13;
   string quest_chain = 14;
   bool active = 15;
+  // objectives replaces the quest's objective list when non-empty.
+  repeated QuestObjective objectives = 16;
 }
 
 // MsgUpdateQuestResponse is the response for MsgUpdateQuest.

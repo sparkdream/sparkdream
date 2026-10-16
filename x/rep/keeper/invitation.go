@@ -317,6 +317,9 @@ func (k Keeper) AcceptInvitation(ctx context.Context, invitationID uint64, invit
 			"error", err,
 		)
 	}
+	k.notifySeason(ctx, "OnMemberCreated", func(sk types.SeasonKeeper) error {
+		return sk.OnMemberCreated(ctx, invitee)
+	})
 
 	return nil
 }

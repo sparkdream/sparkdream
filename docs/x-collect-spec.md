@@ -2563,9 +2563,9 @@ When a non-member who owns collections becomes an `x/rep` member, their existing
 
 ---
 
-## 14a. Crisis Module Invariants
+## 14a. Module Invariants
 
-The module registers the following invariants with the Cosmos SDK crisis module for state consistency verification:
+The module registers the following invariants via `RegisterInvariants` for state consistency verification:
 
 | Invariant | Check |
 |-----------|-------|
@@ -2575,7 +2575,7 @@ The module registers the following invariants with the Cosmos SDK crisis module 
 | `hide-record-consistency` | Every hide record references a target that exists in store |
 | `status-index-consistency` | Every collection in the status index has the matching status in its record |
 
-These can be triggered via `sparkdreamd query crisis invariants` during development or included in governance proposals for chain health checks.
+The chain does not wire `x/crisis`; registered invariants run in `app/invariants_test.go` against every e2e post-setup genesis snapshot (`go test ./app -run TestInvariants`).
 
 ---
 

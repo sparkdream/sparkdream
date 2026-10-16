@@ -940,8 +940,8 @@ accumulators are the half that cannot be recomputed from anything, which is why
 they have to travel. Regressions: `TestGenesisRoundTripsEconomicLedger`,
 `TestGenesisRoundTripsMemberAndTagPools`.
 
-**Registered invariants.** `RegisterInvariants` wires four checks into
-`x/crisis`, where the module previously registered none — so a drifted pool
+**Registered invariants.** `RegisterInvariants` registers four checks
+(run by `app/invariants_test.go`; x/crisis is not wired), where the module previously registered none — so a drifted pool
 denominator, an inverted staked/balance relation, a negative treasury, or an
 emission counter past its cap were all undetectable on-chain:
 >
@@ -1291,6 +1291,8 @@ enum CriteriaType {
 ```
 
 ### Tag and ReservedTag
+
+`DefaultGenesis()` seeds `reserved_tag_map` with `DefaultReservedTags()`: today the single `service-operator` tag that x/service writes operator reputation to (x-service-spec §6.6), so no member can create or squat it through `MsgCreateTag`. A network's `config.yml` may add reserved tags but should keep these.
 
 ```protobuf
 // proto/sparkdream/rep/v1/tag.proto
@@ -1708,6 +1710,19 @@ message MsgRegisterZkPublicKey {
   option (cosmos.msg.v1.signer) = "member";
   string member = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   bytes zk_public_key = 2;
+}
+```
+
+```protobuf
+// MsgRevokeInvitation withdraws a PENDING invitation. Only the inviter may
+// revoke; accepted, expired or already-revoked invitations are rejected
+// (ErrInvitationNotPending). Closing unlocks the stake, restores the
+// invitation credit and frees the invitee address, exactly like expiry; the
+// record is kept with status REVOKED and an `invitation_revoked` event is
+// emitted. CLI: `tx rep revoke-invitation [invitation-id]`.
+message MsgRevokeInvitation {
+  string inviter = 1;
+  uint64 invitation_id = 2;
 }
 ```
 
@@ -4559,6 +4574,10 @@ Interims are created automatically by the system in response to events:
 
 Located in `x/rep/keeper/abci.go`:
 
+**Pending-invitation expiry.** `ProcessExpiredAccountability` runs at every epoch-end block and walks `Invitation` for `PENDING` records older than `invitation_acceptance_epochs` (default 30, measured as `created_at + epochs * epoch_blocks * 6s`, the same clock `accountability_end` uses; 0 disables expiry). Each one becomes `EXPIRED`, its `InvitationsByInvitee` entry is removed so the address can be invited again, the inviter's staked DREAM is unlocked (`UnlockDREAM`, capped at what is actually staked) and the invitation credit it consumed is restored. The record is kept for history and an `invitation_expired` event carries `invitation_id`, `inviter`, `invitee`, `stake_unlocked`. `MsgRevokeInvitation` closes a pending invitation the same way on the inviter's request (status `REVOKED`, event `invitation_revoked`), so every `InvitationStatus` is now reachable. Accountability for accepted invitations stays passive (applied when the invitee is zeroed).
+
+**Maintenance-mode gate.** While x/season reports `IsInMaintenanceMode` (reputation archive/reset and XP reset phases of a season transition), `MsgStake`, `MsgUnstake`, `MsgCreateInitiative`, `MsgCompleteInitiative` and `MsgCreateChallenge` are refused up front with `ErrMaintenanceMode` (2112). Tips, gifts, governance, invitations and queries stay open. x/season gates its own quest and guild messages the same way.
+
 ```go
 func (k Keeper) EndBlocker(ctx context.Context) error {
     // 1. Recompute conviction for initiatives whose refresh is due, under a
@@ -4908,6 +4927,7 @@ var DefaultParams = Params{
     // Invitations
     MinInvitationStake:             math.NewInt(100),
     InvitationAccountabilityEpochs: 150,                                // 1 season
+    InvitationAcceptanceEpochs:     30,                                 // PENDING invitations expire after ~1 month (0 = never)
     ReferralRewardRate:             math.LegacyNewDecWithPrec(5, 2),    // 5%
     InvitationCostMultiplier:       math.LegacyNewDecWithPrec(110, 2), // 1.1x
 
@@ -5126,6 +5146,7 @@ naming the field the committee actually set.
 | 2109 | `ErrInitiativeTerminal` | Initiative is COMPLETED, REJECTED or CLOSED and can no longer accept stakes |
 | 2110 | `ErrInvalidInterimStatus` | Interim is not in a state that allows this action (e.g. completing an already-finalized one) |
 | 2111 | `ErrInterimRewardCapReached` | Paying this interim would exceed `max_interim_rewards_per_season` |
+| 2112 | `ErrMaintenanceMode` | x/season is archiving or resetting reputation/XP; stake, unstake, initiative and challenge messages are refused until the transition phase ends |
 
 > **Note:** this table is not exhaustive. `x/rep/types/errors.go` registers 120 errors; the rows above cover the ranges documented so far. The 2001–2007 (content challenge), 2101–2105 (activity caps, mint cap, proposal-time caps) and 2201 blocks are registered but not yet tabulated here.
 

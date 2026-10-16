@@ -29,7 +29,7 @@ All content on the chain is public domain: submitting it dedicates it under CC0 
 │  BankKeeperWithIdentityGuard      Hard-rejects MsgCommunityPoolSpend    │
 │    panics on post-seal             (spending must flow x/split)         │
 │    metadata mutation              Allowlist (not denylist), single      │
-│  Five crisis invariants             MsgExec entrypoint, immutable       │
+│  Five module invariants             MsgExec entrypoint, immutable       │
 │                                     field locks                         │
 └─────────────────────────────────────────────────────────────────────────┘
                               │
@@ -238,7 +238,7 @@ Separate from the `x/split` distribution pipeline, this module holds funds for e
 - **SDK params writethrough.** At genesis, writes `staking.bond_denom` and `mint.mint_denom` so off-the-shelf wallets and REST tooling work unchanged.
 - **DenomMetadata bootstrap.** Seeds `x/bank` `DenomMetadata` for both native tokens so wallets render `SPARK` / `DREAM` (uppercase Symbol) instead of raw denom strings.
 - **`BankKeeperWithIdentityGuard`** wrapper at the app layer (`app/bank_guard.go`) intercepts `SetDenomMetaData` and panics with `ErrIdentityImmutable` if any post-seal write mutates the native bond/dream `Symbol`/`Display`. Closes §14.6 attack where a gov upgrade-handler could rewrite the user-visible token name post-launch.
-- **Five crisis invariants:** `identity-initialized`, `canonical-fields` (mutable vs sealed), `bank-metadata-present`, `bank-metadata-canonical` (Symbol/Display drift), `sdk-params-aligned` (warning-grade).
+- **Five module invariants** (run by `app/invariants_test.go`; x/crisis is not wired): `identity-initialized`, `canonical-fields` (mutable vs sealed), `bank-metadata-present`, `bank-metadata-canonical` (Symbol/Display drift), `sdk-params-aligned` (warning-grade).
 - **Init ordering:** placed between `auth` and `bank` so the sealed record exists before bank's first `SetDenomMetaData`.
 - **Panic-on-pre-genesis-read.** Keeper accessors `BondDenom(ctx)` / `DreamDenom(ctx)` panic if called pre-genesis — deliberate, prevents silent fallback to hardcoded literals.
 
@@ -588,7 +588,7 @@ Separate from the `x/split` distribution pipeline, this module holds funds for e
 - **Creator-signed outbound:** `MsgFederateContent` requires the content creator's signature (or x/session delegation), preventing relayers from fabricating content
 - **Compensation:** Bridge operators and verifiers compensated via x/split (SPARK from Community Pool), weighted by verified submissions and verification accuracy respectively
 - **Token separation:** Bridge operators stake SPARK only (via x/service); verifiers bond DREAM only (via x/rep `BondedRole`). DREAM is never transferred cross-chain.
-- **Invariants + recovery:** `orphan-bindings` (every BridgeBinding references a live `service.Operator`) and `bindings-by-operator-index` (reverse index agrees with primary) crisis invariants catch state drift from fail-soft hook panics. `MsgPruneOrphanBindings` and `MsgResyncBridgeCount` are dual-authority (Operations Committee OR gov) recovery messages — pure cleanup, no value mutation.
+- **Invariants + recovery:** `orphan-bindings` (every BridgeBinding references a live `service.Operator`) and `bindings-by-operator-index` (reverse index agrees with primary) module invariants catch state drift from fail-soft hook panics. `MsgPruneOrphanBindings` and `MsgResyncBridgeCount` are dual-authority (Operations Committee OR gov) recovery messages — pure cleanup, no value mutation.
 
 **Messages (24):** `register_peer` (incl. optional `controller_group`), `remove_peer`, `suspend_peer`, `resume_peer`, `update_peer_policy`, `update_peer_controller` (gov), `register_bridge` (operator-signed), `update_bridge`, `resync_bridge_count` (dual-authority recovery), `prune_orphan_bindings` (dual-authority recovery), `link_identity`, `unlink_identity`, `confirm_identity_link`, `submit_federated_content`, `federate_content`, `attest_outbound`, `moderate_content`, `request_reputation_attestation`, `verify_content`, `challenge_verification`, `submit_arbiter_hash`, `escalate_challenge`, `update_params`, `update_operational_params` (arbiter hash also submittable anonymously via x/shield). Bridge operator unbond/top-up/slash are NOT federation messages — operators call `tx service unbond-operator`, `tx service top-up-bond`, and anyone files `tx service report-operator` directly against the x/service surface.
 

@@ -25,9 +25,18 @@ const (
 )
 
 // Service-operator "bonded" tag — written/deducted by x/service to grant
-// or deduct operator reputation (§6.6). The tag is registered in x/rep's
-// reserved-tag genesis so operators don't pay the creation fee.
+// or deduct operator reputation (§6.6). The tag is seeded in x/rep's
+// default genesis as a reserved tag (reptypes.ReservedTagServiceOperator)
+// so no member can create or squat it; keep the two constants in sync.
 const ReputationTagServiceOperator = "service-operator"
+
+// JurySlashReputationMultiplier scales the §6.6 reputation deduction for a
+// tier-2 (jury) slash relative to a tier-1 slash of the same size. A jury
+// verdict is an adjudicated finding, not a controller's unilateral call, so
+// it carries a heavier mark on the operator's record. Compiled rather than a
+// param: it is a policy constant, not an operating knob. The deduction is
+// still capped at the reputation the record has accrued.
+const JurySlashReputationMultiplier = 2
 
 // ParamsKey is the prefix used by the Params collections.Item.
 var ParamsKey = collections.NewPrefix("p_service")

@@ -52,7 +52,7 @@ func (k msgServer) CreateAchievement(ctx context.Context, msg *types.MsgCreateAc
 	}
 
 	// Save the achievement
-	if err := k.Achievement.Set(ctx, achievement.AchievementId, achievement); err != nil {
+	if err := k.SetAchievement(ctx, achievement); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to save achievement")
 	}
 

@@ -31,7 +31,7 @@ func (k msgServer) DeleteTitle(ctx context.Context, msg *types.MsgDeleteTitle) (
 	}
 
 	// Delete the title
-	if err := k.Title.Remove(ctx, msg.TitleId); err != nil {
+	if err := k.RemoveTitle(ctx, msg.TitleId); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to delete title")
 	}
 

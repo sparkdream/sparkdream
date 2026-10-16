@@ -41,7 +41,7 @@ func SimulateMsgUpdateTitle(
 		title.Seasonal = !title.Seasonal // Toggle seasonal flag
 
 		// Save the updated title via keeper
-		if err := k.Title.Set(ctx, titleId, title); err != nil {
+		if err := k.SetTitle(ctx, title); err != nil {
 			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgUpdateTitle{}), "failed to update title"), nil, nil
 		}
 

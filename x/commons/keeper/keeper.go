@@ -26,6 +26,7 @@ type lateKeepers struct {
 	forumKeeper    types.ForumKeeper
 	sessionKeeper  types.SessionKeeper
 	identityKeeper types.IdentityKeeper
+	seasonKeeper   types.SeasonKeeper
 }
 
 type Keeper struct {
@@ -218,6 +219,23 @@ func (k *Keeper) SetRouter(router baseapp.MessageRouter) {
 // depinject cycle (x/name already depends on x/commons).
 func (k Keeper) SetNameKeeper(nk types.NameKeeper) {
 	k.late.nameKeeper = nk
+}
+
+// SetSeasonKeeper wires x/season after depinject so proposals and votes
+// grant XP. Optional: unwired means no XP.
+func (k Keeper) SetSeasonKeeper(sk types.SeasonKeeper) {
+	k.late.seasonKeeper = sk
+}
+
+// notifySeason runs one x/season hook best-effort: the governance write has
+// already happened, so a hook error is logged and swallowed.
+func (k Keeper) notifySeason(ctx context.Context, hook string, fn func(sk types.SeasonKeeper) error) {
+	if k.late.seasonKeeper == nil {
+		return
+	}
+	if err := fn(k.late.seasonKeeper); err != nil {
+		sdk.UnwrapSDKContext(ctx).Logger().Error("x/season hook failed (non-fatal)", "hook", hook, "error", err)
+	}
 }
 
 // SetForumKeeper wires the ForumKeeper after depinject. Used by

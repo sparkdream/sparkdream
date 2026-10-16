@@ -3,6 +3,7 @@ package keeper_test
 import (
 	"testing"
 
+	"cosmossdk.io/collections"
 	"cosmossdk.io/math"
 
 	"sparkdream/x/name/types"
@@ -31,6 +32,13 @@ func TestGenesis(t *testing.T) {
 			{Name: "alice", Claimant: "cosmos1bob", StakeAmount: math.ZeroInt()},
 			{Name: "bob", Claimant: "cosmos1charlie", StakeAmount: math.ZeroInt()},
 		},
+
+		DisputeStakes: []types.DisputeStake{
+			{ChallengeId: "name_dispute:alice:10", Staker: "cosmos1bob", Amount: math.NewInt(500)},
+		},
+		ContestStakes: []types.ContestStake{
+			{ChallengeId: "name_contest:alice:12", Owner: "cosmos1alice", Amount: math.NewInt(500)},
+		},
 	}
 
 	f := initFixture(t)
@@ -46,4 +54,30 @@ func TestGenesis(t *testing.T) {
 	require.ElementsMatch(t, genesisState.NameRecords, got.NameRecords)
 	require.ElementsMatch(t, genesisState.OwnerInfos, got.OwnerInfos)
 	require.ElementsMatch(t, genesisState.DisputeMap, got.DisputeMap)
+	require.ElementsMatch(t, genesisState.DisputeStakes, got.DisputeStakes)
+	require.ElementsMatch(t, genesisState.ContestStakes, got.ContestStakes)
+}
+
+// TestGenesisRebuildsAcceptedTargets checks that the target -> name
+// reverse-resolution index is derived from each record's consent flag on
+// import, so an accepted target survives an export/import round-trip.
+func TestGenesisRebuildsAcceptedTargets(t *testing.T) {
+	genesisState := types.GenesisState{
+		Params: types.DefaultParams(),
+		NameRecords: []types.NameRecord{
+			{Name: "phoenix", Owner: "cosmos1alice", Target: "cosmos1zenith", TargetAccepted: true},
+			{Name: "aurora", Owner: "cosmos1alice", Target: "cosmos1zenith", TargetAccepted: false},
+		},
+	}
+
+	f := initFixture(t)
+	require.NoError(t, f.keeper.InitGenesis(f.ctx, genesisState))
+
+	has, err := f.keeper.AcceptedTargets.Has(f.ctx, collections.Join("cosmos1zenith", "phoenix"))
+	require.NoError(t, err)
+	require.True(t, has, "accepted target must be indexed on import")
+
+	has, err = f.keeper.AcceptedTargets.Has(f.ctx, collections.Join("cosmos1zenith", "aurora"))
+	require.NoError(t, err)
+	require.False(t, has, "unaccepted target must not be indexed")
 }

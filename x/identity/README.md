@@ -70,7 +70,7 @@ Empty identity in genesis is a no-op (legacy single-chain mode supported during 
 
 ## Invariants
 
-Five invariants registered with `crisis`:
+Five invariants registered via `RegisterInvariants` (run by `app/invariants_test.go`; x/crisis is not wired):
 
 | Invariant | Severity | Description |
 |---|---|---|

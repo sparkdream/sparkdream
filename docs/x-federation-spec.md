@@ -1354,6 +1354,7 @@ message MsgRegisterPeer {
 3. Check peer doesn't already exist (or is REMOVED — allow re-registration)
 4. If peer is REMOVED, verify it is NOT in `PeerRemovalQueue` — reject with `ErrPeerCleanupInProgress` if cleanup is still running. Re-registration is only allowed after all associated data has been fully cleaned up.
 5. If `controller_group` is non-empty, validate it via `commonsKeeper.IsGroupPolicyAddress(controller_group)` — reject garbage addresses up-front rather than silently falling back to OpsComm at bridge-registration time
+5a. If `peer_identity` is supplied it must pass `ChainIdentity.Validate()` (`ErrInvalidRequest` otherwise); it is optional because ActivityPub and AT Protocol peers have no chain identity, but a malformed record is rejected rather than stored and served.
 5b. If `ibc_channel_id` is non-empty, reject it when another non-REMOVED peer is already bound to it (`ErrInvalidRequest`). If `ibc_transfer_channel_id` is non-empty, it must be a well-formed channel id (`channel-N`), else `ErrInvalidRequest`; it is not checked for uniqueness, since vouchers are keyed per channel and two peers sharing one would only share a metadata entry.
 6. Set status to PENDING. **The only transition out of PENDING is `MsgResumePeer`** (Section 6.4) — neither the IBC channel handshake nor a first bridge binding activates a peer.
 6b. For a `PEER_TYPE_SPARK_DREAM` peer that supplies both `peer_identity` (with a `bond_denom`) and `ibc_transfer_channel_id`, pre-register bank `DenomMetadata` for the peer's SPARK voucher, `ibc/HASH(transfer/<ibc_transfer_channel_id>/<bond_denom>)`, with symbol `<bond_display_symbol>.ibc` ([x-identity-spec.md §9.2](x-identity-spec.md)). Keyed on the **transfer** channel, never on `ibc_channel_id`: the two channels are opened separately and rarely share a number. Skipped when either field is empty or the metadata already exists; a failure emits `federation_peer_metadata_skipped` rather than failing registration.
@@ -2964,7 +2965,7 @@ Bridge operator bonds are escrowed in the **`x/service` module account**, not th
 
 ### 14.10. State Invariants and Recovery
 
-Federation registers two invariants with `x/crisis` to catch state drift from fail-soft hook panics (`x/federation/keeper/invariants.go`):
+Federation registers two invariants via `RegisterInvariants` to catch state drift from fail-soft hook panics (`x/federation/keeper/invariants.go`). The chain does not wire `x/crisis`; registered invariants run in `app/invariants_test.go` against every e2e post-setup genesis snapshot (`go test ./app -run TestInvariants`).
 
 - **`orphan-bindings`**: every `BridgeBinding` must reference a live `service.Operator` (status `ACTIVE`, `UNDERFUNDED`, or `UNBONDING`) at the binding's derived `service_type`. Bindings pointing at a `SLASHED`/`RETIRED` or missing operator are orphans — they accumulate when a hook handler panics and the fail-soft `defer recover` swallows the cleanup. In standalone test mode (service keeper not wired), this invariant is a no-op.
 - **`bindings-by-operator-index`**: the `BindingsByOperator` reverse index `(service_type, address, peer_id)` must agree with the primary `BridgeBindings` map in both directions. The check is a two-way walk: every primary binding must have a reverse-index entry; every reverse-index entry must resolve to a primary binding. Catches index corruption from hook bugs.
@@ -2974,7 +2975,7 @@ Federation registers two invariants with `x/crisis` to catch state drift from fa
 - `MsgPruneOrphanBindings(peer_id)` re-runs the dissolve/retire cleanup for every binding whose operator is in a terminal state. Pure deletion; no value mutation.
 - `MsgResyncBridgeCount(peer_id)` re-counts `BridgesByPeer` by walking the primary index. Pure counter recovery.
 
-**Observability**: the fail-soft `defer recover` in every hook handler emits `federation_hook_failure` on a swallowed panic. Off-chain monitors subscribe to that event (and to `simd q crisis invariant federation/orphan-bindings` polling) so a stuck orphan triggers a human-initiated `MsgPruneOrphanBindings` within hours, not weeks.
+**Observability**: the fail-soft `defer recover` in every hook handler emits `federation_hook_failure` on a swallowed panic. Off-chain monitors subscribe to that event (there is no on-chain crisis query; `MsgPruneOrphanBindings` is idempotent and can be run on suspicion) so a stuck orphan triggers a human-initiated `MsgPruneOrphanBindings` within hours, not weeks.
 
 ### 14.11. IBC Gas Cost Model
 

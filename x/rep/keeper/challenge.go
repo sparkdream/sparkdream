@@ -354,6 +354,9 @@ func (k Keeper) UpholdChallenge(ctx context.Context, challengeID uint64) error {
 	if err := k.Challenge.Set(ctx, challenge.Id, challenge); err != nil {
 		return err
 	}
+	k.notifySeason(ctx, "OnChallengeResolved", func(sk types.SeasonKeeper) error {
+		return sk.OnChallengeResolved(ctx, challengerAddr, assigneeAddr, true)
+	})
 
 	// Update status index
 	_ = k.UpdateChallengeStatusIndex(ctx, oldStatus, challenge.Status, challenge.Id)

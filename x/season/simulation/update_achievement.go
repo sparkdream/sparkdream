@@ -41,7 +41,7 @@ func SimulateMsgUpdateAchievement(
 		achievement.XpReward = uint64(50 + r.Intn(200))
 
 		// Save the updated achievement via keeper
-		if err := k.Achievement.Set(ctx, achievementId, achievement); err != nil {
+		if err := k.SetAchievement(ctx, achievement); err != nil {
 			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgUpdateAchievement{}), "failed to update achievement"), nil, nil
 		}
 

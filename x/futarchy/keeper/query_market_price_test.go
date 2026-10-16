@@ -298,3 +298,48 @@ func TestGetMarketPrice_AfterTrade(t *testing.T) {
 	// YES price should have increased after buying YES shares
 	require.True(t, newPrice.GT(initialPrice), "YES price should increase after YES trade")
 }
+
+// TestGetMarketPriceAppliesTradingFee checks that the quote deducts the
+// trading fee before the LMSR math, matching what MsgTrade delivers.
+func TestGetMarketPriceAppliesTradingFee(t *testing.T) {
+	f := initFixture(t)
+	queryServer := keeper.NewQueryServerImpl(f.keeper)
+	ctx := sdk.UnwrapSDKContext(f.ctx)
+
+	creator := sdk.AccAddress("creator_____________")
+	liquidity := sdk.NewCoin("uspark", math.NewInt(100000))
+	f.bankKeeper.SetBalance(creator, liquidity)
+
+	marketId, err := f.keeper.CreateMarketInternal(ctx, creator, "FEE", "Fee Market", 1000, 0, liquidity)
+	require.NoError(t, err)
+
+	amount := math.NewInt(10000)
+	quote := func(feeBps uint64) math.Int {
+		params, err := f.keeper.Params.Get(ctx)
+		require.NoError(t, err)
+		params.TradingFeeBps = feeBps
+		require.NoError(t, f.keeper.Params.Set(ctx, params))
+
+		resp, err := queryServer.GetMarketPrice(ctx, &types.QueryGetMarketPriceRequest{
+			MarketId: marketId, IsYes: true, Amount: &amount,
+		})
+		require.NoError(t, err)
+		return *resp.SharesOut
+	}
+
+	noFee := quote(0)
+	withFee := quote(500) // 5%
+	require.True(t, withFee.LT(noFee), "fee-bearing quote %s must be below fee-free quote %s", withFee, noFee)
+
+	// A 5% fee on 10000 leaves 9500 in; the fee-free quote for 9500 must match.
+	net := math.NewInt(9500)
+	params, err := f.keeper.Params.Get(ctx)
+	require.NoError(t, err)
+	params.TradingFeeBps = 0
+	require.NoError(t, f.keeper.Params.Set(ctx, params))
+	resp, err := queryServer.GetMarketPrice(ctx, &types.QueryGetMarketPriceRequest{
+		MarketId: marketId, IsYes: true, Amount: &net,
+	})
+	require.NoError(t, err)
+	require.Equal(t, resp.SharesOut.String(), withFee.String())
+}

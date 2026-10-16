@@ -9,6 +9,9 @@ import (
 )
 
 func (k msgServer) CreateChallenge(ctx context.Context, msg *types.MsgCreateChallenge) (*types.MsgCreateChallengeResponse, error) {
+	if err := k.assertNotInMaintenance(ctx); err != nil {
+		return nil, err
+	}
 	challengerAddr, err := k.addressCodec.StringToBytes(msg.Challenger)
 	if err != nil {
 		return nil, errorsmod.Wrap(err, "invalid challenger address")

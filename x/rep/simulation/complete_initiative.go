@@ -20,6 +20,11 @@ func SimulateMsgCompleteInitiative(
 ) simtypes.Operation {
 	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
 	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
+		// The handler refuses this message while x/season is in a blocking
+		// transition phase; a delivery failure fails the whole simulation.
+		if k.InMaintenanceMode(ctx) {
+			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgCompleteInitiative{}), "season maintenance mode"), nil, nil
+		}
 		// NOTE: This operation cannot succeed in simulation because completing
 		// an initiative requires meeting complex requirements:
 		// 1. Sufficient conviction score from stakers

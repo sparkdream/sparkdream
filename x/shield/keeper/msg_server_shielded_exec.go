@@ -365,9 +365,18 @@ func (k msgServer) handleEncryptedBatch(ctx sdk.Context, params types.Params, ms
 // falling back to the epoch: the fallback would let one identity act once per
 // epoch on something meant to be once per target.
 func (k Keeper) resolveNullifierScope(ctx context.Context, reg types.ShieldedOpRegistration, msg *types.MsgShieldedExec) (uint64, error) {
+	return k.resolveNullifierScopeAtEpoch(ctx, reg, msg, k.GetCurrentEpoch(ctx))
+}
+
+// resolveNullifierScopeAtEpoch is resolveNullifierScope with an explicit epoch
+// for the EPOCH scope type. Encrypted-batch ops execute after the epoch has
+// advanced, so they must resolve against the epoch the prover bound at
+// submission, or the scope public input (and the nullifier's uniqueness
+// bucket) silently moves between submission and execution.
+func (k Keeper) resolveNullifierScopeAtEpoch(ctx context.Context, reg types.ShieldedOpRegistration, msg *types.MsgShieldedExec, epoch uint64) (uint64, error) {
 	switch reg.NullifierScopeType {
 	case types.NullifierScopeType_NULLIFIER_SCOPE_EPOCH:
-		return reg.EpochScope(k.GetCurrentEpoch(ctx)), nil
+		return reg.EpochScope(epoch), nil
 	case types.NullifierScopeType_NULLIFIER_SCOPE_MESSAGE_FIELD:
 		if msg.InnerMessage != nil && reg.ScopeFieldPath != "" {
 			if val, ok := k.extractScope(msg.InnerMessage, reg.ScopeFieldPath); ok {
@@ -378,7 +387,7 @@ func (k Keeper) resolveNullifierScope(ctx context.Context, reg types.ShieldedOpR
 	case types.NullifierScopeType_NULLIFIER_SCOPE_GLOBAL:
 		return 0, nil
 	default:
-		return k.GetCurrentEpoch(ctx), nil
+		return epoch, nil
 	}
 }
 

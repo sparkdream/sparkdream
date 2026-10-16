@@ -24,7 +24,8 @@ func TestQueryReservedTag_GetAndList(t *testing.T) {
 
 	listed, err := qs.ListReservedTag(f.ctx, &types.QueryAllReservedTagRequest{})
 	require.NoError(t, err)
-	require.Len(t, listed.ReservedTag, 2)
+	// Two seeded here plus whatever DefaultGenesis reserves (service-operator).
+	require.Len(t, listed.ReservedTag, 2+len(types.DefaultReservedTags()))
 }
 
 func TestQueryReservedTag_GetNotFound(t *testing.T) {

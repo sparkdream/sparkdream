@@ -153,6 +153,16 @@ func TestEndBlocker_Tier1EscrowReleaseToCommunityPool(t *testing.T) {
 
 	// Distribution keeper received the slashed amount.
 	require.NotEmpty(t, f.distributionKeeper.Calls)
+
+	// The tier-1 slash is final once released: service-operator reputation
+	// is deducted in proportion to the share of the bond taken (§6.6).
+	require.Len(t, f.repKeeper.DeductReputationCalls, 1)
+	ded := f.repKeeper.DeductReputationCalls[0]
+	require.Equal(t, types.ReputationTagServiceOperator, ded.Tag)
+	require.True(t, ded.Amount.IsPositive())
+	op, ok := f.keeper.GetOperator(f.ctx, testOperator1Addr.Bytes(), testServiceType)
+	require.True(t, ok)
+	require.Equal(t, escrow.OperatorAddress, op.Address)
 }
 
 // TestEndBlocker_RefileCooldownRecordedOnAutoDismiss ensures that

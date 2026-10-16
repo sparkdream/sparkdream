@@ -265,6 +265,13 @@ func (k msgServer) CreatePost(ctx context.Context, msg *types.MsgCreatePost) (*t
 	if err := k.Post.Set(ctx, postID, post); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to store post")
 	}
+
+	// A reply is engagement the parent's author may earn XP for.
+	if msg.ParentId != 0 {
+		k.notifySeason(ctx, "OnForumReplyReceived", func(sk types.SeasonKeeper) error {
+			return sk.OnForumReplyReceived(ctx, parentPost.Author, msg.Creator, parentPost.PostId)
+		})
+	}
 	// FORUM-S2-8: seed PostsByUpvotes (root posts only) so newly-created
 	// posts are eligible for the TopPosts query at zero votes.
 	if post.ParentId == 0 {

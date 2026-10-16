@@ -45,7 +45,7 @@ func SimulateMsgCreateAchievement(
 		}
 
 		// Save the achievement directly via keeper
-		if err := k.Achievement.Set(ctx, achievementId, achievement); err != nil {
+		if err := k.SetAchievement(ctx, achievement); err != nil {
 			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgCreateAchievement{}), "failed to create achievement"), nil, nil
 		}
 

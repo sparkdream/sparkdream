@@ -135,7 +135,7 @@ var (
 		{Account: federationmoduletypes.ModuleName, Permissions: []string{authtypes.Burner}},
 		{Account: guardianmoduletypes.ModuleName},
 		// this line is used by starport scaffolding # stargate/app/maccPerms
-		{Account: servicemoduletypes.ModuleName, Permissions: []string{authtypes.Minter, authtypes.Burner, authtypes.Staking}},
+		{Account: servicemoduletypes.ModuleName},
 		// x/artifact escrows token deposits and burns creation / inbox fees.
 		{Account: artifactmoduletypes.ModuleName, Permissions: []string{authtypes.Burner}}}
 

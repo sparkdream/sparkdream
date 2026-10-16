@@ -7,24 +7,33 @@
 **Threat Model:** Malicious governance proposals could alter inflation parameters,
 breaking economic assumptions and diluting existing token holders.
 
-**Mitigation:** Mint module authority set to burn address.
+**Mitigation:** Mint module authority routed through `x/guardian`.
 
 ```go
 // app/app_config.go
 {
     Name: minttypes.ModuleName,
     Config: appconfig.WrapAny(&mintmodulev1.Module{
-        Authority: "sprkdrm1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqn2ccpe",
+        Authority: guardianAuthority, // the x/guardian module account
     }),
 }
 ```
+
+x/gov never signs `mint.MsgUpdateParams` directly. A proposal carries a
+`guardian.MsgExec` whose inner message is the mint update; on execution
+guardian diffs the proposed params against the current ones and rejects any
+change to an immutable field with `ErrImmutableField` before forwarding to
+x/mint. The filter is compiled code ([x/guardian/keeper/msg_server.go](../x/guardian/keeper/msg_server.go)),
+so only a chain upgrade can change what is immutable. See
+[x/guardian/README.md](../x/guardian/README.md) for the full filter table.
 
 **Effect:**
 - ✅ `inflation_min: 0.02` (2%) - **immutable**
 - ✅ `inflation_max: 0.05` (5%) - **immutable**
 - ✅ `inflation_rate_change: 0.13` - **immutable**
 - ✅ `goal_bonded: 0.67` - **immutable**
-- ✅ `mint_denom: "uspark"` - **immutable**
+- ✅ `mint_denom` (the x/identity bond denom) - **immutable**
+- `blocks_per_year` remains governable through the same `MsgExec` path
 
 **Change Procedure:**
 1. Community discussion on forum
@@ -118,7 +127,7 @@ x/gov (Root Authority)
 
 ❌ **Never mutable via governance:**
 - Inflation parameters (x/mint)
-- Bond denom (`uspark` → must never change)
+- Bond denom (sealed at genesis by x/identity → must never change)
 - Module authority addresses (except via upgrade)
 - Committee size constraints
 
@@ -132,15 +141,14 @@ x/gov (Root Authority)
 # Query mint module params
 sparkdreamd query mint params
 
-# Check authority (should be burn address)
-sparkdreamd query auth module-account mint
+# The guardian module account is the mint authority
+sparkdreamd query auth module-account guardian
 
-# Attempt to update params (should fail)
-sparkdreamd tx gov submit-proposal \
-  /cosmos.mint.v1beta1.MsgUpdateParams \
-  --from alice \
-  --authority sprkdrm1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqn2ccpe
-# ERROR: unauthorized - authority cannot sign
+# A gov proposal that submits mint.MsgUpdateParams directly fails at
+# execution: its authority must equal the guardian address, which gov
+# cannot sign for. A proposal wrapping it in guardian.MsgExec with a
+# changed inflation_min/inflation_max/goal_bonded/mint_denom fails the
+# guardian filter with ErrImmutableField. Only blocks_per_year passes.
 ```
 
 ### How to Verify Committee Constraints
@@ -160,9 +168,9 @@ sparkdreamd query commons group "Technical Operations Committee"
 - [x] Mint parameters immutable via governance
 - [x] Committee size constraints enforced
 - [x] Three Pillars hierarchy cannot be bypassed
-- [ ] Rate limits on council spending (TODO: x/rep)
-- [ ] Anonymous challenge mechanism (TODO: x/vote)
-- [ ] Jury selection randomness (TODO: x/rep)
+- [x] Rate limits on council spending (x/commons per-epoch spend gates)
+- [x] Anonymous challenge mechanism (x/shield)
+- [x] Jury selection randomness (x/rep)
 - [ ] Founder vesting enforcement (TODO: x/reveal)
 
 ---
@@ -171,7 +179,7 @@ sparkdreamd query commons group "Technical Operations Committee"
 
 If a critical vulnerability is discovered in the immutability logic:
 
-1. **DO NOT** attempt governance param change (will fail by design)
+1. **DO NOT** attempt a governance param change on an immutable field (the guardian filter rejects it by design)
 2. Coordinate emergency chain upgrade via validator communication
 3. Prepare upgrade handler with fix
 4. Execute coordinated upgrade at agreed height

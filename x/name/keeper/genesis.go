@@ -24,6 +24,13 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 		if err := k.OwnerNames.Set(ctx, collections.Join(elem.Owner, elem.Name)); err != nil {
 			return err
 		}
+		// Rebuild the Target -> Name reverse-resolution index from the
+		// record's own consent flag (same derivation MsgAcceptTarget uses).
+		if elem.TargetAccepted && elem.Target != "" {
+			if err := k.AcceptedTargets.Set(ctx, collections.Join(elem.Target, elem.Name)); err != nil {
+				return err
+			}
+		}
 	}
 
 	// 3. Set Owner Infos
@@ -36,6 +43,18 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 	// 4. Set Disputes
 	for _, elem := range genState.DisputeMap {
 		if err := k.Disputes.Set(ctx, elem.Name, elem); err != nil {
+			return err
+		}
+	}
+
+	// 5. Set locked stakes (claimant dispute stakes, owner contest stakes)
+	for _, elem := range genState.DisputeStakes {
+		if err := k.DisputeStakes.Set(ctx, elem.ChallengeId, elem); err != nil {
+			return err
+		}
+	}
+	for _, elem := range genState.ContestStakes {
+		if err := k.ContestStakes.Set(ctx, elem.ChallengeId, elem); err != nil {
 			return err
 		}
 	}
@@ -73,6 +92,20 @@ func (k Keeper) ExportGenesis(ctx context.Context) (*types.GenesisState, error) 
 	// 4. Export Disputes
 	if err := k.Disputes.Walk(ctx, nil, func(_ string, val types.Dispute) (stop bool, err error) {
 		genesis.DisputeMap = append(genesis.DisputeMap, val)
+		return false, nil
+	}); err != nil {
+		return nil, err
+	}
+
+	// 5. Export locked stakes
+	if err := k.DisputeStakes.Walk(ctx, nil, func(_ string, val types.DisputeStake) (stop bool, err error) {
+		genesis.DisputeStakes = append(genesis.DisputeStakes, val)
+		return false, nil
+	}); err != nil {
+		return nil, err
+	}
+	if err := k.ContestStakes.Walk(ctx, nil, func(_ string, val types.ContestStake) (stop bool, err error) {
+		genesis.ContestStakes = append(genesis.ContestStakes, val)
 		return false, nil
 	}); err != nil {
 		return nil, err
