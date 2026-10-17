@@ -2,6 +2,7 @@ package types
 
 import (
 	"context"
+	"time"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
@@ -49,6 +50,7 @@ type RepKeeper interface {
 // Used for TLE liveness jailing.
 type SlashingKeeper interface {
 	Jail(ctx context.Context, consAddr sdk.ConsAddress) error
+	JailUntil(ctx context.Context, consAddr sdk.ConsAddress, jailTime time.Time) error
 }
 
 // StakingKeeper defines the expected interface for the Staking module.

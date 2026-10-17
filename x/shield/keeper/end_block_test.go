@@ -160,10 +160,10 @@ func TestEndBlockerPendingOpsExpired(t *testing.T) {
 
 	// Add a pending op from epoch 1 (very old)
 	require.NoError(t, f.keeper.SetPendingOp(f.ctx, types.PendingShieldedOp{
-		Id:               1,
-		TargetEpoch:      1,
-		SubmittedAtEpoch: 1,
-		Nullifier:        []byte("null1"),
+		Id:                  1,
+		TargetEpoch:         1,
+		SubmittedAtEpoch:    1,
+		SubmissionNullifier: []byte("null1"),
 	}))
 	require.NoError(t, f.keeper.RecordPendingNullifier(f.ctx, "6e756c6c31")) // hex of "null1"
 

@@ -1,5 +1,11 @@
 package types
 
+import (
+	"fmt"
+
+	"sparkdream/tools/tle"
+)
+
 // DefaultGenesis returns the default genesis state
 func DefaultGenesis() *GenesisState {
 	return &GenesisState{
@@ -204,10 +210,71 @@ func defaultShieldedOps() []ShieldedOpRegistration {
 // Validate performs basic genesis state validation returning an error upon any
 // failure.
 func (gs GenesisState) Validate() error {
+	seenOps := make(map[string]bool, len(gs.RegisteredOps))
 	for _, reg := range gs.RegisteredOps {
 		if err := reg.Validate(); err != nil {
 			return err
 		}
+		if seenOps[reg.MessageTypeUrl] {
+			return fmt.Errorf("duplicate registered op %s", reg.MessageTypeUrl)
+		}
+		seenOps[reg.MessageTypeUrl] = true
+	}
+	if err := gs.TleKeySet.Validate(); err != nil {
+		return err
 	}
 	return gs.Params.Validate()
+}
+
+// BN256 marshaled point sizes (kyber).
+const (
+	G1PointLen = 64
+	G2PointLen = 128
+)
+
+// Validate checks a seeded key set is complete and self-consistent: a G1 and
+// a G2 master key encoding the same scalar (clients encrypt to the G2 one)
+// and, per validator, a unique 1-based share index and G1/G2 public shares
+// encoding the same scalar (decryption shares are verified against the G2
+// one). A G2 key that does not match its G1 twin would have clients encrypt
+// to a key no reconstruction can open. An empty key set is valid (no DKG yet).
+func (ks TLEKeySet) Validate() error {
+	if len(ks.MasterPublicKey) == 0 && len(ks.ValidatorShares) == 0 && len(ks.MasterPublicKeyG2) == 0 {
+		return nil
+	}
+	if len(ks.MasterPublicKey) != G1PointLen {
+		return fmt.Errorf("tle_key_set.master_public_key must be a %d-byte G1 point", G1PointLen)
+	}
+	if len(ks.MasterPublicKeyG2) != G2PointLen {
+		return fmt.Errorf("tle_key_set.master_public_key_g2 must be a %d-byte G2 point", G2PointLen)
+	}
+	if ks.ThresholdDenominator == 0 || ks.ThresholdNumerator == 0 || ks.ThresholdNumerator > ks.ThresholdDenominator {
+		return fmt.Errorf("tle_key_set threshold %d/%d is invalid", ks.ThresholdNumerator, ks.ThresholdDenominator)
+	}
+	if err := tle.VerifyG1G2Pair(ks.MasterPublicKey, ks.MasterPublicKeyG2); err != nil {
+		return fmt.Errorf("tle_key_set master keys: %w", err)
+	}
+	seen := map[uint32]bool{}
+	for _, vs := range ks.ValidatorShares {
+		if vs == nil {
+			return fmt.Errorf("tle_key_set has a nil validator share")
+		}
+		if vs.ValidatorAddress == "" {
+			return fmt.Errorf("tle_key_set validator share without address")
+		}
+		if vs.ShareIndex == 0 || seen[vs.ShareIndex] {
+			return fmt.Errorf("tle_key_set share index %d for %s must be unique and 1-based", vs.ShareIndex, vs.ValidatorAddress)
+		}
+		seen[vs.ShareIndex] = true
+		if len(vs.PublicShare) != G1PointLen {
+			return fmt.Errorf("tle_key_set public_share for %s must be a %d-byte G1 point", vs.ValidatorAddress, G1PointLen)
+		}
+		if len(vs.PublicShareG2) != G2PointLen {
+			return fmt.Errorf("tle_key_set public_share_g2 for %s must be a %d-byte G2 point", vs.ValidatorAddress, G2PointLen)
+		}
+		if err := tle.VerifyG1G2Pair(vs.PublicShare, vs.PublicShareG2); err != nil {
+			return fmt.Errorf("tle_key_set public shares for %s: %w", vs.ValidatorAddress, err)
+		}
+	}
+	return nil
 }

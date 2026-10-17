@@ -22,9 +22,10 @@
 // (curl https://api.drand.sh/public/<round>).
 //
 // Outputs of seal-phase2, in the same formats tools/zk/cmd/setup writes:
-// proving_key.bin, verifying_key.bin, verifying_key.hex (for genesis
-// shield.verification_keys, circuit_id "shield_v1") and circuit.r1cs, plus
-// proving_key.raw.bin (uncompressed, what web clients load).
+// proving_key.bin, verifying_key.bin, verifying_key.hex and circuit.r1cs, plus
+// proving_key.raw.bin (uncompressed, what web clients load). Genesis
+// shield.verification_keys takes the key base64-encoded, not the .hex file:
+// seal-phase2 prints the ready entry (circuit_id "shield_v1").
 //
 // More contributors can be added later by contributing on top of the unsealed
 // transcript and sealing again with a new beacon; the result is a new VK.

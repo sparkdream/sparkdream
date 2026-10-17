@@ -36,14 +36,6 @@ func (k Keeper) SetTLEMissCount(ctx context.Context, validatorAddr string, count
 	return k.TLEMissCounters.Set(ctx, validatorAddr, count)
 }
 
-// IncrementTLEMissCount increments the TLE miss count for a validator and returns the new count.
-func (k Keeper) IncrementTLEMissCount(ctx context.Context, validatorAddr string) uint64 {
-	count := k.GetTLEMissCount(ctx, validatorAddr)
-	count++
-	_ = k.SetTLEMissCount(ctx, validatorAddr, count)
-	return count
-}
-
 // ResetTLEMissCount resets the TLE miss count for a validator.
 func (k Keeper) ResetTLEMissCount(ctx context.Context, validatorAddr string) error {
 	return k.TLEMissCounters.Remove(ctx, validatorAddr)
@@ -66,20 +58,14 @@ func (k Keeper) SetDecryptionShare(ctx context.Context, share types.ShieldDecryp
 // CountDecryptionShares returns the number of shares submitted for an epoch.
 func (k Keeper) CountDecryptionShares(ctx context.Context, epoch uint64) uint32 {
 	var count uint32
-	iter, err := k.ShieldDecryptionShares.Iterate(ctx, nil)
+	iter, err := k.ShieldDecryptionShares.Iterate(ctx, collections.NewPrefixedPairRange[uint64, string](epoch))
 	if err != nil {
 		return 0
 	}
 	defer iter.Close()
 
 	for ; iter.Valid(); iter.Next() {
-		kv, err := iter.KeyValue()
-		if err != nil {
-			continue
-		}
-		if kv.Key.K1() == epoch {
-			count++
-		}
+		count++
 	}
 	return count
 }
@@ -87,20 +73,18 @@ func (k Keeper) CountDecryptionShares(ctx context.Context, epoch uint64) uint32 
 // GetDecryptionSharesForEpoch returns all decryption shares for a given epoch.
 func (k Keeper) GetDecryptionSharesForEpoch(ctx context.Context, epoch uint64) []types.ShieldDecryptionShare {
 	var shares []types.ShieldDecryptionShare
-	iter, err := k.ShieldDecryptionShares.Iterate(ctx, nil)
+	iter, err := k.ShieldDecryptionShares.Iterate(ctx, collections.NewPrefixedPairRange[uint64, string](epoch))
 	if err != nil {
 		return nil
 	}
 	defer iter.Close()
 
 	for ; iter.Valid(); iter.Next() {
-		kv, err := iter.KeyValue()
+		v, err := iter.Value()
 		if err != nil {
 			continue
 		}
-		if kv.Key.K1() == epoch {
-			shares = append(shares, kv.Value)
-		}
+		shares = append(shares, v)
 	}
 	return shares
 }

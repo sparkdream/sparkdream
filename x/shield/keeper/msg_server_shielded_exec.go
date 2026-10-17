@@ -16,6 +16,7 @@ import (
 
 	any "github.com/cosmos/gogoproto/types/any"
 
+	zkcrypto "sparkdream/tools/crypto"
 	"sparkdream/x/shield/types"
 )
 
@@ -267,88 +268,137 @@ func (k msgServer) handleImmediate(ctx sdk.Context, params types.Params, msg *ty
 	return &types.MsgShieldedExecResponse{InnerResponse: resp}, nil
 }
 
-// handleEncryptedBatch validates cleartext fields and queues the encrypted payload.
-func (k msgServer) handleEncryptedBatch(ctx sdk.Context, params types.Params, msg *types.MsgShieldedExec) (*types.MsgShieldedExecResponse, error) {
+// batchBinding is what a submission proof binds to: the payload-derived
+// scope in the batch-submission domain and the hash of the ciphertext.
+func batchBinding(msg *types.MsgShieldedExec) proofBinding {
+	return proofBinding{
+		scope:       zkcrypto.ScopeElement(types.BatchSubmissionDomain, types.BatchSubmissionScope(msg.EncryptedPayload)),
+		messageHash: zkcrypto.ShieldMessageHash(types.BatchSubmissionTypeURL, msg.EncryptedPayload),
+	}
+}
+
+// validateBatch runs every check of an encrypted-batch submission that does
+// not write state: batch mode on, no cleartext inner message, payload
+// present and within size, 32-byte nullifiers, target epoch current, queue
+// headroom, merkle root current, submission nullifier not pending, identity
+// under its rate limit and, last, the submission proof (bound to the
+// ciphertext, proving the rate-limit nullifier). The ante handler runs it
+// before the module pays, so a submission the msg server would reject costs
+// the reserve nothing, and the module pays only for proven members under
+// their quota.
+func (k Keeper) validateBatch(ctx context.Context, params types.Params, msg *types.MsgShieldedExec) error {
 	if !params.EncryptedBatchEnabled {
-		return nil, types.ErrEncryptedBatchDisabled
+		return types.ErrEncryptedBatchDisabled
 	}
-
-	// 1. Reject cleartext fields in encrypted batch mode
+	// 1. Reject a cleartext inner message: it would leak the operation.
 	if msg.InnerMessage != nil {
-		return nil, types.ErrCleartextFieldInBatchMode
+		return types.ErrCleartextFieldInBatchMode
 	}
-	if len(msg.Proof) > 0 {
-		return nil, types.ErrCleartextFieldInBatchMode
-	}
-
 	// 2. Validate encrypted payload
 	if len(msg.EncryptedPayload) == 0 {
-		return nil, types.ErrMissingEncryptedPayload
+		return types.ErrMissingEncryptedPayload
 	}
 	if uint32(len(msg.EncryptedPayload)) > params.MaxEncryptedPayloadSize {
-		return nil, types.ErrPayloadTooLarge
+		return types.ErrPayloadTooLarge
 	}
-
+	if len(msg.Nullifier) != 32 || len(msg.RateLimitNullifier) != 32 {
+		return types.ErrInvalidNullifierLength
+	}
 	// 3. Validate target epoch is current
 	epochState, found := k.GetShieldEpochStateVal(ctx)
 	if !found {
-		return nil, types.ErrEncryptedBatchDisabled
+		return types.ErrEncryptedBatchDisabled
 	}
 	if msg.TargetEpoch != epochState.CurrentEpoch {
-		return nil, types.ErrInvalidTargetEpoch
+		return types.ErrInvalidTargetEpoch
 	}
-
 	// 4. Check pending queue capacity
-	pendingCount := k.GetPendingOpCountVal(ctx)
-	if pendingCount >= uint64(params.MaxPendingQueueSize) {
-		return nil, types.ErrPendingQueueFull
+	if k.GetPendingOpCountVal(ctx) >= uint64(params.MaxPendingQueueSize) {
+		return types.ErrPendingQueueFull
 	}
+	// 5. Submission nullifier not already pending
+	if k.IsPendingNullifier(ctx, hex.EncodeToString(msg.Nullifier)) {
+		return types.ErrInvalidSubmissionNullifier
+	}
+	// 6. Identity under its rate limit (proven by the submission proof below)
+	if k.GetIdentityRateLimitCount(ctx, hex.EncodeToString(msg.RateLimitNullifier)) >= params.MaxExecsPerIdentityPerEpoch {
+		return types.ErrRateLimitExceeded
+	}
+	// 7. The submission proof: merkle root (checked inside), membership,
+	// rate-limit nullifier for the current epoch, bound to this ciphertext.
+	if !types.ProofVerified(ctx, msg) {
+		if err := k.verifyProof(ctx, msg, batchBinding(msg)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
 
-	// 5. Validate merkle root
-	if err := k.validateMerkleRoot(ctx, msg.MerkleRoot, msg.ProofDomain); err != nil {
+// PrecheckExec validates an exec of either mode for the ante handler, before
+// the shield module pays gas. In CheckTx (not simulate) it also marks the
+// exec spent in the check state, which is discarded at every commit: a
+// consumed nullifier or advanced owner sequence (immediate), or a pending
+// submission nullifier (batch). Anyone can sign as the public submitter, so
+// anyone can rewrap a pending exec in new outer txs; without the mark every
+// copy would enter the mempool and take block space until the first landed.
+func (k Keeper) PrecheckExec(ctx sdk.Context, msg *types.MsgShieldedExec) error {
+	if msg.ExecMode == types.ShieldExecMode_SHIELD_EXEC_ENCRYPTED_BATCH {
+		return k.precheckBatch(ctx, msg)
+	}
+	return k.PrecheckImmediate(ctx, msg)
+}
+
+func (k Keeper) precheckBatch(ctx sdk.Context, msg *types.MsgShieldedExec) error {
+	params, err := k.Params.Get(ctx)
+	if err != nil {
+		return err
+	}
+	if err := k.validateBatch(ctx, params, msg); err != nil {
+		return err
+	}
+	if !ctx.IsCheckTx() || ctx.ExecMode() == sdk.ExecModeSimulate {
+		return nil
+	}
+	return k.RecordPendingNullifier(ctx, hex.EncodeToString(msg.Nullifier))
+}
+
+// handleEncryptedBatch validates the submission and queues the encrypted payload.
+func (k msgServer) handleEncryptedBatch(ctx sdk.Context, params types.Params, msg *types.MsgShieldedExec) (*types.MsgShieldedExecResponse, error) {
+	if err := k.validateBatch(ctx, params, msg); err != nil {
 		return nil, err
 	}
+	epochState, _ := k.GetShieldEpochStateVal(ctx)
 
-	// 6. Check nullifier not already pending
+	// Record the submission nullifier (released when the op executes or expires)
 	nullifierHex := hex.EncodeToString(msg.Nullifier)
-	if k.IsPendingNullifier(ctx, nullifierHex) {
-		return nil, types.ErrNullifierUsed
-	}
 	if err := k.RecordPendingNullifier(ctx, nullifierHex); err != nil {
 		return nil, err
 	}
 
-	// 7. Check per-identity rate limit.
-	// KNOWN LIMITATION: In encrypted batch mode, the rate limit nullifier is submitted in
-	// cleartext and checked here, but it cannot be cryptographically verified against the
-	// ZK proof until after decryption (when the proof becomes available). A malicious submitter
-	// could provide a forged rate_limit_nullifier to bypass per-identity rate limiting while
-	// the payload is encrypted. The nullifier and proof are verified post-decryption during
-	// batch processing, at which point invalid entries are discarded. This is an inherent
-	// tradeoff of the encrypted batch privacy model — full verification requires the decrypted
-	// payload. The cleartext nullifier check provides best-effort spam prevention.
-	rateLimitHex := hex.EncodeToString(msg.RateLimitNullifier)
-	if !k.CheckAndIncrementRateLimit(ctx, rateLimitHex, params.MaxExecsPerIdentityPerEpoch) {
+	// Count against the per-identity rate limit. The rate-limit nullifier was
+	// just proven for the current epoch, so this is as unforgeable as in
+	// immediate mode.
+	if !k.CheckAndIncrementRateLimit(ctx, hex.EncodeToString(msg.RateLimitNullifier), params.MaxExecsPerIdentityPerEpoch) {
 		return nil, types.ErrRateLimitExceeded
 	}
 
-	// 8. Store pending operation
+	// Store pending operation
 	opID := k.GetNextPendingOpID(ctx)
 	if err := k.SetPendingOp(ctx, types.PendingShieldedOp{
-		Id:                opID,
-		TargetEpoch:       msg.TargetEpoch,
-		Nullifier:         msg.Nullifier,
-		MerkleRoot:        msg.MerkleRoot,
-		ProofDomain:       msg.ProofDomain,
-		MinTrustLevel:     msg.MinTrustLevel,
-		EncryptedPayload:  msg.EncryptedPayload,
-		SubmittedAtHeight: ctx.BlockHeight(),
-		SubmittedAtEpoch:  epochState.CurrentEpoch,
+		Id:                  opID,
+		TargetEpoch:         msg.TargetEpoch,
+		SubmissionNullifier: msg.Nullifier,
+		MerkleRoot:          msg.MerkleRoot,
+		ProofDomain:         msg.ProofDomain,
+		MinTrustLevel:       msg.MinTrustLevel,
+		EncryptedPayload:    msg.EncryptedPayload,
+		SubmittedAtHeight:   ctx.BlockHeight(),
+		SubmittedAtEpoch:    epochState.CurrentEpoch,
+		RateLimitNullifier:  msg.RateLimitNullifier,
 	}); err != nil {
 		return nil, err
 	}
 
-	// 9. Emit queued event
 	ctx.EventManager().EmitEvent(sdk.NewEvent(
 		types.EventTypeShieldedQueued,
 		sdk.NewAttribute(types.AttributeKeyPendingOpId, fmt.Sprintf("%d", opID)),
@@ -547,9 +597,12 @@ func (k Keeper) executeInnerMessage(ctx sdk.Context, params types.Params, innerM
 		return nil, types.ErrIncompatibleOperation
 	}
 
-	// Execute with gas limit
+	// Execute under a per-exec gas cap, then charge whatever the inner
+	// handler used to the outer tx so the fee and the block gas accounting
+	// cover the inner work, not just the dispatch.
 	childCtx := ctx.WithGasMeter(storetypes.NewGasMeter(params.MaxGasPerExec))
 	result, err := handler(childCtx, innerMsg)
+	ctx.GasMeter().ConsumeGas(childCtx.GasMeter().GasConsumed(), "shield: inner message")
 	if err != nil {
 		return nil, err
 	}

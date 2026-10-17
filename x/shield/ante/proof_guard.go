@@ -71,20 +71,20 @@ func newProofGuard() *proofGuard {
 	}
 }
 
-// precheckImmediate runs the keeper's PrecheckImmediate behind the guard.
-func (d ShieldGasDecorator) precheckImmediate(ctx sdk.Context, msg *shieldtypes.MsgShieldedExec, simulate bool) error {
+// precheckExec runs the keeper's PrecheckExec behind the guard.
+func (d ShieldGasDecorator) precheckExec(ctx sdk.Context, msg *shieldtypes.MsgShieldedExec, simulate bool) error {
 	// DeliverTx (FinalizeBlock): consensus must not depend on node-local
 	// memory, so always verify.
 	consensus := !simulate && !ctx.IsCheckTx() && ctx.ExecMode() != sdk.ExecModeSimulate
 	if consensus || d.guard == nil {
-		return d.shieldKeeper.PrecheckImmediate(ctx, msg)
+		return d.shieldKeeper.PrecheckExec(ctx, msg)
 	}
 
 	// Without a verification key (test-mode builds) nothing is verified, so
 	// there is nothing to guard.
 	vk, found := d.shieldKeeper.GetVerificationKeyVal(ctx, shieldCircuitID)
 	if !found || len(vk.VkBytes) == 0 {
-		return d.shieldKeeper.PrecheckImmediate(ctx, msg)
+		return d.shieldKeeper.PrecheckExec(ctx, msg)
 	}
 
 	key, cacheable := d.rejectedProofKey(ctx, msg, vk.VkBytes)
@@ -97,11 +97,11 @@ func (d ShieldGasDecorator) precheckImmediate(ctx sdk.Context, msg *shieldtypes.
 		return shieldtypes.ErrProofVerificationThrottled
 	}
 
-	err := d.shieldKeeper.PrecheckImmediate(ctx, msg)
+	err := d.shieldKeeper.PrecheckExec(ctx, msg)
 	switch {
 	case err == nil:
 	case errors.Is(err, shieldtypes.ErrInvalidProof):
-		// In the PrecheckImmediate path ErrInvalidProof comes only from
+		// In the PrecheckExec path ErrInvalidProof comes only from
 		// verifying the proof (decoding the VK or proof, building the
 		// witness, the pairing check), which is a pure function of what the
 		// key covers. Every state-dependent failure (disabled shield, unknown
@@ -124,30 +124,38 @@ func (d ShieldGasDecorator) precheckImmediate(ctx sdk.Context, msg *shieldtypes.
 //   - the full MsgShieldedExec bytes (the proof and every public input the
 //     message carries: merkle root, nullifiers, min trust level, proof domain
 //     and the inner message the MessageHash input binds);
-//   - the verification key bytes, so a governance VK change invalidates every
-//     entry;
+//   - the verification key bytes, so a VK change (chain upgrade only)
+//     invalidates every entry;
 //   - the current shield epoch (the RateLimitEpoch public input, and the scope
 //     of epoch-scoped ops);
 //   - the op registration, which decides the nullifier domain and how the
 //     Scope public input is derived from the message.
 //
+// An encrypted-batch submission proof's Scope and MessageHash derive from the
+// payload (in the message), so its key is the message, VK and epoch alone.
+//
 // Ownership-mode ops are not cacheable: their Scope and MessageHash inputs
 // come from the target content's owner record (scope, sequence), which is
 // state the key cannot cover. Neither is an exec whose op isn't registered
-// (PrecheckImmediate rejects it before verifying anyway).
+// (PrecheckExec rejects it before verifying anyway).
 func (d ShieldGasDecorator) rejectedProofKey(ctx sdk.Context, msg *shieldtypes.MsgShieldedExec, vkBytes []byte) ([32]byte, bool) {
-	if msg.InnerMessage == nil {
-		return [32]byte{}, false
-	}
-	reg, found := d.shieldKeeper.GetShieldedOp(ctx, msg.InnerMessage.TypeUrl)
-	if !found || reg.NullifierMode == shieldtypes.NullifierMode_NULLIFIER_MODE_OWNERSHIP {
-		return [32]byte{}, false
+	var regBz []byte
+	if msg.ExecMode == shieldtypes.ShieldExecMode_SHIELD_EXEC_ENCRYPTED_BATCH {
+		regBz = []byte("batch-submission")
+	} else {
+		if msg.InnerMessage == nil {
+			return [32]byte{}, false
+		}
+		reg, found := d.shieldKeeper.GetShieldedOp(ctx, msg.InnerMessage.TypeUrl)
+		if !found || reg.NullifierMode == shieldtypes.NullifierMode_NULLIFIER_MODE_OWNERSHIP {
+			return [32]byte{}, false
+		}
+		var err error
+		if regBz, err = reg.Marshal(); err != nil {
+			return [32]byte{}, false
+		}
 	}
 	msgBz, err := msg.Marshal()
-	if err != nil {
-		return [32]byte{}, false
-	}
-	regBz, err := reg.Marshal()
 	if err != nil {
 		return [32]byte{}, false
 	}

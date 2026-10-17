@@ -18,3 +18,19 @@ func (k Keeper) ResolveNullifierScope(ctx context.Context, reg types.ShieldedOpR
 func (k Keeper) ExecuteInnerMessage(ctx sdk.Context, params types.Params, inner *any.Any) (*any.Any, error) {
 	return k.executeInnerMessage(ctx, params, inner)
 }
+
+// ProcessEncryptedOp exposes processEncryptedOp and its result codes to the
+// keeper_test package.
+func (k Keeper) ProcessEncryptedOp(ctx context.Context, params types.Params, op *types.PendingShieldedOp, decryptionKey []byte) int {
+	return k.processEncryptedOp(ctx, params, op, decryptionKey)
+}
+
+const (
+	BatchResultOK        = batchResultOK
+	BatchResultOtherFail = batchResultOtherFail
+)
+
+// VerifyConsumeProof exposes verifyProofAtEpoch with a consume-mode binding.
+func (k Keeper) VerifyConsumeProof(ctx context.Context, msg *types.MsgShieldedExec, domain uint32, scope, epoch uint64) error {
+	return k.verifyProofAtEpoch(ctx, msg, consumeBinding(domain, scope, msg), epoch, false)
+}

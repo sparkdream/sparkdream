@@ -428,10 +428,12 @@ func TestMsgShieldedExecEncryptedBatchWrongEpoch(t *testing.T) {
 	require.NoError(t, f.keeper.SetShieldEpochStateVal(f.ctx, types.ShieldEpochState{CurrentEpoch: 5}))
 
 	_, err = ms.ShieldedExec(f.ctx, &types.MsgShieldedExec{
-		Submitter:        submitter,
-		ExecMode:         types.ShieldExecMode_SHIELD_EXEC_ENCRYPTED_BATCH,
-		EncryptedPayload: []byte("encrypted_data"),
-		TargetEpoch:      3, // Wrong epoch
+		Submitter:          submitter,
+		ExecMode:           types.ShieldExecMode_SHIELD_EXEC_ENCRYPTED_BATCH,
+		EncryptedPayload:   []byte("encrypted_data"),
+		TargetEpoch:        3, // Wrong epoch
+		Nullifier:          make([]byte, 32),
+		RateLimitNullifier: make([]byte, 32),
 	})
 	require.Error(t, err)
 	require.ErrorIs(t, err, types.ErrInvalidTargetEpoch)
@@ -645,12 +647,14 @@ func TestIteratePendingOps(t *testing.T) {
 	})
 
 	t.Run("get ops before epoch", func(t *testing.T) {
-		// Set submitted_at_epoch to test GetPendingOpsBeforeEpoch
-		require.NoError(t, f.keeper.SetPendingOp(f.ctx, types.PendingShieldedOp{Id: 1, TargetEpoch: 5, SubmittedAtEpoch: 3}))
+		// Ops are keyed by target epoch (always the submission epoch).
+		require.NoError(t, f.keeper.SetPendingOp(f.ctx, types.PendingShieldedOp{Id: 1, TargetEpoch: 3, SubmittedAtEpoch: 3}))
 		require.NoError(t, f.keeper.SetPendingOp(f.ctx, types.PendingShieldedOp{Id: 2, TargetEpoch: 5, SubmittedAtEpoch: 5}))
 		require.NoError(t, f.keeper.SetPendingOp(f.ctx, types.PendingShieldedOp{Id: 3, TargetEpoch: 6, SubmittedAtEpoch: 6}))
 
 		ops := f.keeper.GetPendingOpsBeforeEpoch(f.ctx, 5)
-		require.Len(t, ops, 1) // Only op with SubmittedAtEpoch=3
+		require.Len(t, ops, 1) // Only the op from epoch 3
+		counts := f.keeper.CountPendingOpsBeforeEpoch(f.ctx, 6)
+		require.Equal(t, map[uint64]int{3: 1, 5: 2}, counts)
 	})
 }

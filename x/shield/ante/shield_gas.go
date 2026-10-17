@@ -21,21 +21,13 @@ const (
 
 	// nullifierByteLength is the expected byte length for nullifiers (32 bytes = 256 bits).
 	nullifierByteLength = 32
-
-	// maxSubmitterExecsPerEpoch is the per-submitter address rate limit.
-	// This is a hardcoded anti-spam measure at the ante handler level,
-	// separate from the per-identity ZK rate limit. Set conservatively high
-	// to avoid blocking legitimate relayers, but low enough to bound spam.
-	maxSubmitterExecsPerEpoch uint64 = 200
 )
 
 // ShieldKeeper defines the interface needed by the ante handler.
 type ShieldKeeper interface {
 	GetShieldParams(ctx sdk.Context) (shieldtypes.Params, error)
 	GetCurrentEpoch(ctx context.Context) uint64
-	GetSubmitterExecCount(ctx context.Context, epoch uint64, submitter string) uint64
-	IncrementSubmitterExecCount(ctx context.Context, epoch uint64, submitter string)
-	PrecheckImmediate(ctx sdk.Context, msg *shieldtypes.MsgShieldedExec) error
+	PrecheckExec(ctx sdk.Context, msg *shieldtypes.MsgShieldedExec) error
 	GetVerificationKeyVal(ctx context.Context, circuitID string) (shieldtypes.VerificationKey, bool)
 	GetShieldedOp(ctx context.Context, typeURL string) (shieldtypes.ShieldedOpRegistration, bool)
 	BondDenom(ctx context.Context) string
@@ -50,8 +42,10 @@ type BankKeeper interface {
 // and deducts fees from the shield module account instead of the submitter.
 //
 // SHIELD-8: This decorator validates the exec BEFORE paying gas to prevent
-// draining the shield gas reserve with invalid submissions. Immediate-mode execs
-// get their ZK proof verified here, so only a real member's exec is paid for.
+// draining the shield gas reserve with invalid submissions. Both modes get a
+// ZK proof verified here (the operation proof for an immediate exec, the
+// submission proof for an encrypted-batch exec), so only a real member's exec,
+// under its identity rate limit, is paid for.
 //
 // In CheckTx / ReCheckTx / simulate the verification sits behind a node-local
 // rejected-proof cache and token bucket (see proof_guard.go); DeliverTx always
@@ -109,52 +103,32 @@ func (d ShieldGasDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool
 		return ctx, shieldtypes.ErrShieldDisabled
 	}
 
-	// --- SHIELD-8: Lightweight anti-spam checks BEFORE paying gas ---
+	// --- SHIELD-8: validation BEFORE paying gas ---
 
-	// 1. Validate nullifier format: must be exactly 32 bytes (256-bit hash output).
-	if len(shieldMsg.Nullifier) != nullifierByteLength {
+	// 1. Format: 32-byte nullifiers and a proof of at least a Groth16
+	//    proof's size, in both modes (a batch exec carries the submission
+	//    proof in cleartext).
+	if len(shieldMsg.Nullifier) != nullifierByteLength || len(shieldMsg.RateLimitNullifier) != nullifierByteLength {
 		return ctx, shieldtypes.ErrInvalidNullifierLength
 	}
-
-	immediate := shieldMsg.ExecMode == shieldtypes.ShieldExecMode_SHIELD_EXEC_IMMEDIATE
-
-	// 2. Validate rate limit nullifier format for immediate mode.
-	if immediate {
-		if len(shieldMsg.RateLimitNullifier) != nullifierByteLength {
-			return ctx, shieldtypes.ErrInvalidNullifierLength
-		}
-		// 3. Validate proof has minimum byte length (immediate mode requires proof).
-		if len(shieldMsg.Proof) < minProofByteLength {
-			return ctx, shieldtypes.ErrInvalidProof
-		}
-	} else if !params.EncryptedBatchEnabled {
-		// Batch execs can't be verified until decryption; don't pay for one
-		// that the msg server is going to reject anyway.
+	if len(shieldMsg.Proof) < minProofByteLength {
+		return ctx, shieldtypes.ErrInvalidProof
+	}
+	if shieldMsg.ExecMode == shieldtypes.ShieldExecMode_SHIELD_EXEC_ENCRYPTED_BATCH && !params.EncryptedBatchEnabled {
 		return ctx, shieldtypes.ErrEncryptedBatchDisabled
 	}
 
-	if immediate {
-		// 4. Verify the proof, nullifier and identity rate limit before the
-		// module pays. The identity rate limit bounds spend per member, so
-		// immediate execs need no per-address cap (and anonymous clients
-		// share one submitter address).
-		if err := d.precheckImmediate(ctx, shieldMsg, simulate); err != nil {
-			return ctx, err
-		}
-		// The msg server runs against the same state, so it needn't verify
-		// the proof again.
-		ctx = shieldtypes.WithProofVerified(ctx, shieldMsg)
-	} else {
-		// 4. Batch execs can't be verified until decryption: bound total gas
-		// spend per submitter address per epoch instead.
-		epoch := d.shieldKeeper.GetCurrentEpoch(ctx)
-		if d.shieldKeeper.GetSubmitterExecCount(ctx, epoch, shieldMsg.Submitter) >= maxSubmitterExecsPerEpoch {
-			return ctx, shieldtypes.ErrRateLimitExceeded
-		}
-		d.shieldKeeper.IncrementSubmitterExecCount(ctx, epoch, shieldMsg.Submitter)
+	// 2. Full validation: every check the msg server would fail on, then the
+	//    proof (incl. MessageHash and the identity rate limit, which the
+	//    proof makes unforgeable in both modes). Outside DeliverTx this runs
+	//    behind the node-local proof guard (rejected-proof cache +
+	//    verification throttle; see proof_guard.go).
+	if err := d.precheckExec(ctx, shieldMsg, simulate); err != nil {
+		return ctx, err
 	}
-
-	// --- End anti-spam checks ---
+	// The msg server runs against the same state, so it needn't verify the
+	// proof again.
+	ctx = shieldtypes.WithProofVerified(ctx, shieldMsg)
 
 	// Calculate fee from gas
 	feeTx, ok := tx.(sdk.FeeTx)

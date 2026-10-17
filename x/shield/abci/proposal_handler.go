@@ -10,117 +10,109 @@ import (
 	"sparkdream/x/shield/types"
 )
 
+// injectionBudgetDivisor bounds the DKG injection to this fraction of
+// MaxTxBytes. Extensions that do not fit are left out; their validators keep
+// re-sending them in every vote until they are stored, so a large validator
+// set's ceremony spreads over several blocks instead of never landing.
+const injectionBudgetDivisor = 2
+
 // PrepareProposalHandler returns a PrepareProposalHandler that aggregates
 // DKG vote extensions from the previous block's commit into an InjectedDKGData
-// pseudo-transaction at position 0 of the block.
+// pseudo-transaction at position 0 of the block, then lets `next` (the SDK's
+// default handler: byte and block-gas limits over the mempool) fill the rest.
 //
-// If no DKG is active or no extensions are present, the block is unmodified.
-func PrepareProposalHandler(k keeper.Keeper) sdk.PrepareProposalHandler {
+// Each extension is checked against the phase's acceptance rule with the
+// state ProcessProposal will use, so an honest proposer never injects
+// something that would get its block rejected. If no DKG is active or no
+// extension qualifies, the block is whatever `next` returns.
+func PrepareProposalHandler(k keeper.Keeper, next sdk.PrepareProposalHandler) sdk.PrepareProposalHandler {
 	return func(ctx sdk.Context, req *abci.RequestPrepareProposal) (*abci.ResponsePrepareProposal, error) {
-		txs := req.Txs
-
-		// Check if DKG is in an active phase that needs vote extension processing
 		dkgState, found := k.GetDKGStateVal(ctx)
-		if !found || dkgState.Phase == types.DKGPhase_DKG_PHASE_INACTIVE {
-			return &abci.ResponsePrepareProposal{Txs: txs}, nil
+		if !found || dkgState.Phase == types.DKGPhase_DKG_PHASE_INACTIVE || ceremonyFrozen(ctx, k, dkgState.Phase) {
+			return next(ctx, req)
 		}
 
-		// Collect DKG vote extensions from the previous block's commit
-		var extensions []*types.ValidatorDKGExtension
-		var decryptionShares []*types.InjectedDecryptionShare
+		budget := req.MaxTxBytes / injectionBudgetDivisor
+		injected := &types.InjectedDKGData{Round: dkgState.Round, Phase: dkgState.Phase}
+		size := int64(len(DKGInjectionPrefix)) + 16 // prefix + round/phase varints, generous
+		skipped := 0
 
 		for _, vote := range req.LocalLastCommit.Votes {
 			if len(vote.VoteExtension) == 0 {
 				continue
 			}
-
 			var ext types.DKGVoteExtension
 			if err := ext.Unmarshal(vote.VoteExtension); err != nil {
 				continue // Skip malformed extensions
 			}
-
-			// Must match current DKG round
-			if ext.Round != dkgState.Round {
+			opAddr, err := consAddrToOperator(ctx, k, vote.Validator.Address)
+			if err != nil {
+				continue
+			}
+			if err := validateExtension(ctx, k, &ext, dkgState, opAddr); err != nil {
+				ctx.Logger().With("module", "x/shield").Debug("DKG vote extension left out of proposal", "validator", opAddr, "err", err)
 				continue
 			}
 
-			switch ext.Phase {
-			case types.DKGPhase_DKG_PHASE_REGISTERING, types.DKGPhase_DKG_PHASE_CONTRIBUTING:
-				// Only include registration/contribution extensions if phase matches
-				if ext.Phase != dkgState.Phase {
-					continue
-				}
-				extensions = append(extensions, &types.ValidatorDKGExtension{
-					ValidatorAddress: vote.Validator.Address,
-					Extension:        ext,
-				})
-
-			case types.DKGPhase_DKG_PHASE_ACTIVE:
-				// Collect decryption shares during ACTIVE phase
-				if dkgState.Phase != types.DKGPhase_DKG_PHASE_ACTIVE {
-					continue
-				}
-				if len(ext.DecryptionShare) == 0 {
-					continue
-				}
-				decryptionShares = append(decryptionShares, &types.InjectedDecryptionShare{
+			var item interface{ Size() int }
+			if ext.Phase == types.DKGPhase_DKG_PHASE_ACTIVE {
+				share := &types.InjectedDecryptionShare{
 					ValidatorAddress: vote.Validator.Address,
 					Epoch:            ext.DecryptionEpoch,
 					Share:            ext.DecryptionShare,
-				})
+				}
+				if size+int64(share.Size())+8 > budget {
+					skipped++
+					continue
+				}
+				item = share
+				injected.DecryptionShares = append(injected.DecryptionShares, share)
+			} else {
+				ve := &types.ValidatorDKGExtension{ValidatorAddress: vote.Validator.Address, Extension: ext}
+				if size+int64(ve.Size())+8 > budget {
+					skipped++
+					continue
+				}
+				item = ve
+				injected.Extensions = append(injected.Extensions, ve)
 			}
+			size += int64(item.Size()) + 8
 		}
 
-		// No DKG extensions or decryption shares to inject
-		if len(extensions) == 0 && len(decryptionShares) == 0 {
-			return &abci.ResponsePrepareProposal{Txs: txs}, nil
+		if skipped > 0 {
+			ctx.Logger().With("module", "x/shield").Warn(
+				"DKG injection budget reached; extensions deferred to a later block",
+				"round", dkgState.Round, "phase", dkgState.Phase.String(),
+				"included", len(injected.Extensions)+len(injected.DecryptionShares), "deferred", skipped,
+			)
 		}
-
-		// Build the injection
-		injected := &types.InjectedDKGData{
-			Round:            dkgState.Round,
-			Phase:            dkgState.Phase,
-			Extensions:       extensions,
-			DecryptionShares: decryptionShares,
+		if len(injected.Extensions) == 0 && len(injected.DecryptionShares) == 0 {
+			return next(ctx, req)
 		}
 
 		injectionBz, err := EncodeDKGInjection(injected)
 		if err != nil {
-			ctx.Logger().With("module", "x/shield").Error(
-				"failed to encode DKG injection", "err", err)
-			return &abci.ResponsePrepareProposal{Txs: txs}, nil
+			ctx.Logger().With("module", "x/shield").Error("failed to encode DKG injection", "err", err)
+			return next(ctx, req)
 		}
 
-		// Check size: injection must fit within MaxTxBytes
-		injectionSize := int64(len(injectionBz))
-		if injectionSize > req.MaxTxBytes {
-			ctx.Logger().With("module", "x/shield").Warn(
-				"DKG injection exceeds MaxTxBytes, skipping",
-				"injection_size", injectionSize,
-				"max_tx_bytes", req.MaxTxBytes,
-			)
-			return &abci.ResponsePrepareProposal{Txs: txs}, nil
+		// Let the default handler select the block's txs within what is left.
+		rest := *req
+		rest.MaxTxBytes = req.MaxTxBytes - int64(len(injectionBz))
+		resp, err := next(ctx, &rest)
+		if err != nil {
+			return nil, err
 		}
-
-		// Prepend injection as tx[0], trimming normal txs if needed
-		result := make([][]byte, 0, 1+len(txs))
+		result := make([][]byte, 0, 1+len(resp.Txs))
 		result = append(result, injectionBz)
-
-		remainingBytes := req.MaxTxBytes - injectionSize
-		for _, tx := range txs {
-			txSize := int64(len(tx))
-			if remainingBytes < txSize {
-				break // Can't fit more txs
-			}
-			result = append(result, tx)
-			remainingBytes -= txSize
-		}
+		result = append(result, resp.Txs...)
 
 		ctx.Logger().With("module", "x/shield").Info(
 			"injected DKG data into proposal",
 			"round", dkgState.Round,
 			"phase", dkgState.Phase.String(),
-			"extensions_count", len(extensions),
+			"extensions_count", len(injected.Extensions),
+			"shares_count", len(injected.DecryptionShares),
 		)
 
 		return &abci.ResponsePrepareProposal{Txs: result}, nil
@@ -128,24 +120,15 @@ func PrepareProposalHandler(k keeper.Keeper) sdk.PrepareProposalHandler {
 }
 
 // ProcessProposalHandler returns a ProcessProposalHandler that validates
-// the DKG injection pseudo-transaction at position 0.
+// the DKG injection pseudo-transaction at position 0, then hands the
+// remaining txs to `next` (the SDK's default handler).
 //
 // If tx[0] has the DKG magic prefix, it's validated for correctness.
-// Invalid injections cause proposal rejection. Remaining txs are accepted.
-func ProcessProposalHandler(k keeper.Keeper) sdk.ProcessProposalHandler {
+// Invalid injections cause proposal rejection.
+func ProcessProposalHandler(k keeper.Keeper, next sdk.ProcessProposalHandler) sdk.ProcessProposalHandler {
 	return func(ctx sdk.Context, req *abci.RequestProcessProposal) (*abci.ResponseProcessProposal, error) {
-		if len(req.Txs) == 0 {
-			return &abci.ResponseProcessProposal{
-				Status: abci.ResponseProcessProposal_ACCEPT,
-			}, nil
-		}
-
-		// Check if tx[0] is a DKG injection
-		if !HasDKGInjectionPrefix(req.Txs[0]) {
-			// No DKG injection — accept as normal
-			return &abci.ResponseProcessProposal{
-				Status: abci.ResponseProcessProposal_ACCEPT,
-			}, nil
+		if len(req.Txs) == 0 || !HasDKGInjectionPrefix(req.Txs[0]) {
+			return next(ctx, req)
 		}
 
 		// Validate the DKG injection
@@ -168,13 +151,14 @@ func ProcessProposalHandler(k keeper.Keeper) sdk.ProcessProposalHandler {
 			}, nil
 		}
 
-		return &abci.ResponseProcessProposal{
-			Status: abci.ResponseProcessProposal_ACCEPT,
-		}, nil
+		rest := *req
+		rest.Txs = req.Txs[1:]
+		return next(ctx, &rest)
 	}
 }
 
-// validateInjectedDKGData validates the aggregated DKG data from the proposer.
+// validateInjectedDKGData validates the aggregated DKG data from the proposer
+// with the same rules VerifyVoteExtension applied to each extension.
 func validateInjectedDKGData(ctx sdk.Context, k keeper.Keeper, data *types.InjectedDKGData) error {
 	dkgState, found := k.GetDKGStateVal(ctx)
 	if !found {
@@ -189,70 +173,38 @@ func validateInjectedDKGData(ctx sdk.Context, k keeper.Keeper, data *types.Injec
 		return fmt.Errorf("phase mismatch: injected=%s, state=%s", data.Phase, dkgState.Phase)
 	}
 
-	// Validate each extension is well-formed
+	if ceremonyFrozen(ctx, k, dkgState.Phase) {
+		return fmt.Errorf("shield disabled during DKG phase %s", dkgState.Phase)
+	}
+
 	for i, ve := range data.Extensions {
-		if len(ve.ValidatorAddress) == 0 {
+		if ve == nil || len(ve.ValidatorAddress) == 0 {
 			return fmt.Errorf("extension %d: empty validator address", i)
 		}
-
-		ext := &ve.Extension
-		if ext.Round != data.Round || ext.Phase != data.Phase {
-			return fmt.Errorf("extension %d: round/phase mismatch", i)
+		opAddr, err := consAddrToOperator(ctx, k, ve.ValidatorAddress)
+		if err != nil {
+			return fmt.Errorf("extension %d: %w", i, err)
 		}
-
-		switch ext.Phase {
-		case types.DKGPhase_DKG_PHASE_REGISTERING:
-			if len(ext.RegistrationPubKey) == 0 {
-				return fmt.Errorf("extension %d: empty pub key", i)
-			}
-			// Validate G1 point
-			point := tleSuite.G1().Point()
-			if err := point.UnmarshalBinary(ext.RegistrationPubKey); err != nil {
-				return fmt.Errorf("extension %d: invalid pub key: %w", i, err)
-			}
-
-		case types.DKGPhase_DKG_PHASE_CONTRIBUTING:
-			threshold := computeThreshold(dkgState)
-			if uint64(len(ext.FeldmanCommitments)) != threshold {
-				return fmt.Errorf("extension %d: expected %d commitments, got %d",
-					i, threshold, len(ext.FeldmanCommitments))
-			}
-			// Validate each commitment is a valid G1 point
-			for j, c := range ext.FeldmanCommitments {
-				point := tleSuite.G1().Point()
-				if err := point.UnmarshalBinary(c); err != nil {
-					return fmt.Errorf("extension %d commitment %d: invalid: %w", i, j, err)
-				}
-			}
-			// G2 well-formedness + G1/G2 pairing consistency. Without these
-			// the proposer can include a Byzantine contribution whose G2
-			// commitments don't match its G1 commitments, deferring the
-			// failure to decryption-share verification (which then blames
-			// honest validators).
-			if err := keeper.ValidateFeldmanCommitmentsG2(ext.FeldmanCommitmentsG2, int(threshold)); err != nil {
-				return fmt.Errorf("extension %d: invalid G2 commitments: %w", i, err)
-			}
-			if err := keeper.ValidateFeldmanCommitmentsConsistency(ext.FeldmanCommitments, ext.FeldmanCommitmentsG2); err != nil {
-				return fmt.Errorf("extension %d: G1/G2 commitment mismatch: %w", i, err)
-			}
+		if err := validateExtension(ctx, k, &ve.Extension, dkgState, opAddr); err != nil {
+			return fmt.Errorf("extension %d from %s: %w", i, opAddr, err)
 		}
 	}
 
-	// Validate decryption shares
+	// Validate decryption shares with the same rule VerifyVoteExtension
+	// applied: an honest proposer never includes one that fails it.
 	for i, ds := range data.DecryptionShares {
-		if len(ds.ValidatorAddress) == 0 {
+		if ds == nil || len(ds.ValidatorAddress) == 0 {
 			return fmt.Errorf("decryption share %d: empty validator address", i)
 		}
 		if len(ds.Share) == 0 {
 			return fmt.Errorf("decryption share %d: empty share", i)
 		}
-		// Validate it's a valid BN256 G1 point
-		point := tleSuite.G1().Point()
-		if err := point.UnmarshalBinary(ds.Share); err != nil {
-			return fmt.Errorf("decryption share %d: invalid G1 point: %w", i, err)
+		opAddr, err := consAddrToOperator(ctx, k, ds.ValidatorAddress)
+		if err != nil {
+			return fmt.Errorf("decryption share %d: %w", i, err)
 		}
-		if point.Equal(tleSuite.G1().Point().Null()) {
-			return fmt.Errorf("decryption share %d: identity element", i)
+		if err := k.VerifyValidatorDecryptionShare(ctx, opAddr, ds.Epoch, ds.Share); err != nil {
+			return fmt.Errorf("decryption share %d from %s: %w", i, opAddr, err)
 		}
 	}
 

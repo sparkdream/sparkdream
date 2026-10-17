@@ -24,7 +24,6 @@ func (k Keeper) pruneStaleState(ctx context.Context, currentEpoch uint64) {
 	// 1. Prune identity rate limits from old epochs.
 	if currentEpoch > 1 {
 		_ = k.PruneIdentityRateLimits(ctx, currentEpoch-1)
-		_ = k.PruneSubmitterRateLimits(ctx, currentEpoch-1)
 	}
 
 	// 2. Prune epoch-scoped nullifiers.
@@ -33,8 +32,8 @@ func (k Keeper) pruneStaleState(ctx context.Context, currentEpoch uint64) {
 	}
 
 	// 3. Prune old DayFunding entries (keep current and previous day only).
-	currentDay := uint64(sdkCtx.BlockHeight()) / 14400
-	if currentDay > 1 {
+	//    Days are bucketed by block time, like the funding ledger itself.
+	if currentDay := fundingDay(sdkCtx); currentDay > 1 {
 		_ = k.PruneDayFundings(ctx, currentDay-1)
 	}
 

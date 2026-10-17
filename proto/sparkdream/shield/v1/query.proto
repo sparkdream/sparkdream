@@ -168,6 +168,8 @@ message QueryPendingOpCountResponse {
 message QueryTLEMasterPublicKeyRequest {}
 message QueryTLEMasterPublicKeyResponse {
   bytes master_public_key = 1;
+  // The key clients encrypt batch payloads to (see tools/tle).
+  bytes master_public_key_g2 = 2;
 }
 
 message QueryTLEKeySetRequest {}

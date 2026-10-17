@@ -42,7 +42,9 @@ func TestTLELivenessCounterIncrement(t *testing.T) {
 		Share:     []byte("decryption_share"),
 	}))
 
-	// Advance epoch (EndBlocker checks liveness for previous epoch)
+	// Shares were demanded for epoch 1 a full interval ago: the boundary
+	// EndBlocker judges it.
+	require.NoError(t, f.keeper.SetDecryptionDemand(f.ctx, 1, 0))
 	f.ctx = f.ctx.WithBlockHeight(10)
 	err = f.keeper.EndBlocker(f.ctx)
 	require.NoError(t, err)
@@ -87,6 +89,7 @@ func TestTLELivenessResetOnParticipation(t *testing.T) {
 		Share:     []byte("share"),
 	}))
 
+	require.NoError(t, f.keeper.SetDecryptionDemand(f.ctx, 1, 0))
 	f.ctx = f.ctx.WithBlockHeight(10)
 	err = f.keeper.EndBlocker(f.ctx)
 	require.NoError(t, err)
@@ -177,6 +180,7 @@ func TestTLELivenessMultipleMisses(t *testing.T) {
 			EpochStartHeight: int64(epoch * 10),
 		}))
 
+		require.NoError(t, f.keeper.SetDecryptionDemand(f.ctx, epoch, int64(epoch*10)))
 		f.ctx = f.ctx.WithBlockHeight(int64((epoch + 1) * 10))
 		err = f.keeper.EndBlocker(f.ctx)
 		require.NoError(t, err)
@@ -214,6 +218,7 @@ func TestTLELivenessSlidingWindowWraparound(t *testing.T) {
 			CurrentEpoch:     epoch,
 			EpochStartHeight: int64(epoch * 10),
 		}))
+		require.NoError(t, f.keeper.SetDecryptionDemand(f.ctx, epoch, int64(epoch*10)))
 		f.ctx = f.ctx.WithBlockHeight(int64((epoch + 1) * 10))
 		require.NoError(t, f.keeper.EndBlocker(f.ctx))
 	}
@@ -230,6 +235,7 @@ func TestTLELivenessSlidingWindowWraparound(t *testing.T) {
 		CurrentEpoch:     3,
 		EpochStartHeight: 30,
 	}))
+	require.NoError(t, f.keeper.SetDecryptionDemand(f.ctx, 3, 30))
 	f.ctx = f.ctx.WithBlockHeight(40)
 	require.NoError(t, f.keeper.EndBlocker(f.ctx))
 
@@ -265,6 +271,7 @@ func TestTLELivenessToleranceExceededClearsWindow(t *testing.T) {
 			CurrentEpoch:     epoch,
 			EpochStartHeight: int64(epoch * 10),
 		}))
+		require.NoError(t, f.keeper.SetDecryptionDemand(f.ctx, epoch, int64(epoch*10)))
 		f.ctx = f.ctx.WithBlockHeight(int64((epoch + 1) * 10))
 		require.NoError(t, f.keeper.EndBlocker(f.ctx))
 	}
@@ -275,6 +282,7 @@ func TestTLELivenessToleranceExceededClearsWindow(t *testing.T) {
 		CurrentEpoch:     3,
 		EpochStartHeight: 30,
 	}))
+	require.NoError(t, f.keeper.SetDecryptionDemand(f.ctx, 3, 30))
 	f.ctx = f.ctx.WithBlockHeight(40)
 	require.NoError(t, f.keeper.EndBlocker(f.ctx))
 

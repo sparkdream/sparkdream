@@ -3,8 +3,44 @@ package keeper
 import (
 	"context"
 
+	"cosmossdk.io/collections"
+
 	"sparkdream/x/shield/types"
 )
+
+// newDKGState opens a round in REGISTERING with the DKG window split into
+// the four ceremony phases: register keys, deal contributions, complain,
+// justify.
+func newDKGState(round uint64, height int64, windowBlocks, numerator, denominator uint64, expected []string) types.DKGState {
+	quarter := int64(windowBlocks / 4)
+	if quarter < 1 {
+		quarter = 1
+	}
+	return types.DKGState{
+		Round:                 round,
+		Phase:                 types.DKGPhase_DKG_PHASE_REGISTERING,
+		OpenAtHeight:          height,
+		RegistrationDeadline:  height + quarter,
+		ContributionDeadline:  height + 2*quarter,
+		ComplaintDeadline:     height + 3*quarter,
+		JustificationDeadline: height + 4*quarter,
+		ThresholdNumerator:    numerator,
+		ThresholdDenominator:  denominator,
+		ExpectedValidators:    expected,
+	}
+}
+
+// clearDKGRound removes every per-round record: registrations,
+// contributions and complaints.
+func (k Keeper) clearDKGRound(ctx context.Context) error {
+	if err := k.ClearDKGContributions(ctx); err != nil {
+		return err
+	}
+	if err := k.ClearDKGRegistrations(ctx); err != nil {
+		return err
+	}
+	return k.ClearDKGComplaints(ctx)
+}
 
 // GetDKGStateVal returns the DKG state.
 func (k Keeper) GetDKGStateVal(ctx context.Context) (types.DKGState, bool) {
@@ -151,6 +187,91 @@ func GetDKGRegistrationPubKey(r types.DKGContribution) []byte {
 		return r.FeldmanCommitments[0]
 	}
 	return nil
+}
+
+// --- DKG complaints ---
+
+// GetDKGComplaint returns complainer's complaint against dealer, if any.
+func (k Keeper) GetDKGComplaint(ctx context.Context, dealer, complainer string) (types.DKGComplaint, bool) {
+	c, err := k.DKGComplaints.Get(ctx, collections.Join(dealer, complainer))
+	if err != nil {
+		return types.DKGComplaint{}, false
+	}
+	return c, true
+}
+
+// SetDKGComplaint stores a complaint (or its justification).
+func (k Keeper) SetDKGComplaint(ctx context.Context, c types.DKGComplaint) error {
+	return k.DKGComplaints.Set(ctx, collections.Join(c.DealerAddress, c.ComplainerAddress), c)
+}
+
+// GetAllDKGComplaints returns every complaint of the current round.
+func (k Keeper) GetAllDKGComplaints(ctx context.Context) []types.DKGComplaint {
+	iter, err := k.DKGComplaints.Iterate(ctx, nil)
+	if err != nil {
+		return nil
+	}
+	defer iter.Close()
+	vals, err := iter.Values()
+	if err != nil {
+		return nil
+	}
+	return vals
+}
+
+// ComplaintsAgainst returns the complaints filed against one dealer.
+func (k Keeper) ComplaintsAgainst(ctx context.Context, dealer string) []types.DKGComplaint {
+	iter, err := k.DKGComplaints.Iterate(ctx, collections.NewPrefixedPairRange[string, string](dealer))
+	if err != nil {
+		return nil
+	}
+	defer iter.Close()
+	vals, err := iter.Values()
+	if err != nil {
+		return nil
+	}
+	return vals
+}
+
+// ClearDKGComplaints removes every complaint (new round).
+func (k Keeper) ClearDKGComplaints(ctx context.Context) error {
+	iter, err := k.DKGComplaints.Iterate(ctx, nil)
+	if err != nil {
+		return err
+	}
+	keys, err := iter.Keys()
+	iter.Close()
+	if err != nil {
+		return err
+	}
+	for _, key := range keys {
+		if err := k.DKGComplaints.Remove(ctx, key); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// isDisqualifiedDealer reports whether a dealer was excluded from the key set.
+func isDisqualifiedDealer(state types.DKGState, valAddr string) bool {
+	for _, d := range state.DisqualifiedDealers {
+		if d == valAddr {
+			return true
+		}
+	}
+	return false
+}
+
+// QualifiedDKGContributions returns the stored contributions minus the
+// disqualified dealers': what the key set is aggregated from.
+func (k Keeper) QualifiedDKGContributions(ctx context.Context, state types.DKGState) []types.DKGContribution {
+	var out []types.DKGContribution
+	for _, c := range k.GetAllDKGContributions(ctx) {
+		if !isDisqualifiedDealer(state, c.ValidatorAddress) {
+			out = append(out, c)
+		}
+	}
+	return out
 }
 
 // isValidatorInDKG checks if a validator address is in the expected DKG participant set.

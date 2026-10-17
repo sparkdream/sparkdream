@@ -1,38 +1,30 @@
-// Command seed-tle generates test TLE key material for E2E testing of x/shield
-// encrypted batch mode. It bypasses the DKG ceremony by directly producing
-// a master keypair, a single-validator share, and pre-computed epoch decryption
-// keys that can be injected into genesis.json.
+// Command seed-tle seeds and exercises x/shield encrypted batch mode without
+// a multi-validator DKG: it produces a master keypair, a single-validator
+// share and pre-computed epoch decryption keys for genesis, and encrypts
+// payloads the way any client does (to the G2 master public key only).
 //
 // Subcommands:
 //
-//	keygen   - Generate TLE key material (master key, validator share, decryption keys)
-//	encrypt  - ECIES-encrypt a payload using an epoch's decryption key
+//	keygen   - Generate TLE key material (master keys, validator share, decryption keys)
+//	encrypt  - Encrypt raw bytes for a given epoch
 //	payload  - Build + encrypt a MsgShieldedExec fragment containing a blog CreatePost
+//	decrypt  - Open a payload with an epoch decryption key (debugging)
+//
+// encrypt and payload take the master public key either from the keygen
+// file (--key-file) or straight from the chain (--mpk-g2, the
+// master_public_key_g2 of `q shield tle-master-public-key`); they never need
+// secret material. The crypto is tools/tle, shared with the chain.
 //
 // Usage:
 //
-//	# 1. Generate key material
-//	go run ./tools/zk/cmd/seed-tle keygen \
-//	    --validator-addr=<valoper_addr> \
-//	    --epochs=10 \
-//	    --output=tle_keys.json
-//
-//	# 2. Encrypt raw bytes (hex) for a given epoch
-//	go run ./tools/zk/cmd/seed-tle encrypt \
-//	    --key-file=tle_keys.json \
-//	    --epoch=0 \
-//	    --input-hex=deadbeef
-//
-//	# 3. Build an encrypted blog CreatePost payload
-//	go run ./tools/zk/cmd/seed-tle payload \
-//	    --key-file=tle_keys.json \
-//	    --epoch=0 \
-//	    --shield-addr=<shield_module_addr> \
-//	    --title="Test Post" \
-//	    --body="Hello from encrypted batch"
+//	go run ./tools/zk/cmd/seed-tle keygen --validator-addr=<valoper> --epochs=10 --output=tle_keys.json
+//	go run ./tools/zk/cmd/seed-tle encrypt --mpk-g2=<b64> --epoch=0 --input-hex=deadbeef
+//	go run ./tools/zk/cmd/seed-tle payload --mpk-g2=<b64> --epoch=0 --shield-addr=<addr> \
+//	    --title="Test Post" --body="Hello from encrypted batch" [--proof-b64=<b64>]
 package main
 
 import (
+	"crypto/rand"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -40,31 +32,28 @@ import (
 	"os"
 
 	"github.com/cosmos/gogoproto/proto"
-	any "github.com/cosmos/gogoproto/types/any"
-	"go.dedis.ch/kyber/v4"
-	"go.dedis.ch/kyber/v4/encrypt/ecies"
-	"go.dedis.ch/kyber/v4/pairing/bn256"
+	"go.dedis.ch/kyber/v4/util/random"
 
+	"sparkdream/tools/tle"
 	blogtypes "sparkdream/x/blog/types"
 	shieldtypes "sparkdream/x/shield/types"
 )
 
-var suite = bn256.NewSuiteG1()
-
 // KeygenOutput is the JSON output of the keygen subcommand.
 type KeygenOutput struct {
-	MasterSecretHex    string                `json:"master_secret_hex"`
-	MasterPublicKeyB64 string                `json:"master_public_key_b64"`
-	ValidatorAddress   string                `json:"validator_address"`
-	PublicShareB64     string                `json:"public_share_b64"`
-	ShareIndex         uint32                `json:"share_index"`
-	DecryptionKeys     map[string]DecKeyInfo `json:"decryption_keys"`
+	MasterSecretHex      string                `json:"master_secret_hex"`
+	MasterPublicKeyB64   string                `json:"master_public_key_b64"`
+	MasterPublicKeyG2B64 string                `json:"master_public_key_g2_b64"`
+	ValidatorAddress     string                `json:"validator_address"`
+	PublicShareB64       string                `json:"public_share_b64"`
+	PublicShareG2B64     string                `json:"public_share_g2_b64"`
+	ShareIndex           uint32                `json:"share_index"`
+	DecryptionKeys       map[string]DecKeyInfo `json:"decryption_keys"`
 }
 
-// DecKeyInfo holds a decryption key and its derived ECIES public key.
+// DecKeyInfo holds an epoch's decryption key s*H1(epoch).
 type DecKeyInfo struct {
-	DecryptionKeyB64  string `json:"decryption_key_b64"`
-	ECIESPublicKeyB64 string `json:"ecies_public_key_b64"`
+	DecryptionKeyB64 string `json:"decryption_key_b64"`
 }
 
 func main() {
@@ -80,6 +69,8 @@ func main() {
 		cmdEncrypt(os.Args[2:])
 	case "payload":
 		cmdPayload(os.Args[2:])
+	case "decrypt":
+		cmdDecrypt(os.Args[2:])
 	default:
 		fmt.Fprintf(os.Stderr, "unknown subcommand: %s\n", os.Args[1])
 		usage()
@@ -88,10 +79,11 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprintf(os.Stderr, "Usage: seed-tle <keygen|encrypt|payload> [flags]\n")
+	fmt.Fprintf(os.Stderr, "Usage: seed-tle <keygen|encrypt|payload|decrypt> [flags]\n")
 	fmt.Fprintf(os.Stderr, "  keygen   Generate TLE key material\n")
-	fmt.Fprintf(os.Stderr, "  encrypt  ECIES-encrypt raw bytes for a given epoch\n")
-	fmt.Fprintf(os.Stderr, "  payload  Build + encrypt a MsgShieldedExec blog CreatePost\n")
+	fmt.Fprintf(os.Stderr, "  encrypt  Encrypt raw bytes for a given epoch (--key-file or --mpk-g2)\n")
+	fmt.Fprintf(os.Stderr, "  payload  Build + encrypt a MsgShieldedExec blog CreatePost (--key-file or --mpk-g2)\n")
+	fmt.Fprintf(os.Stderr, "  decrypt  Open a payload with an epoch decryption key\n")
 }
 
 // cmdKeygen generates TLE key material.
@@ -100,7 +92,6 @@ func cmdKeygen(args []string) {
 	var epochs int
 	var outputFile string
 
-	// Simple flag parsing (no flag package to keep it minimal)
 	for i := 0; i < len(args); i++ {
 		switch {
 		case matchFlag(args, i, "--validator-addr"):
@@ -124,86 +115,95 @@ func cmdKeygen(args []string) {
 		outputFile = "tle_keys.json"
 	}
 
-	// Generate master secret key (random BN256 scalar)
-	masterSecret := suite.Scalar().Pick(suite.RandomStream())
-
-	// Compute master public key = masterSecret * G
-	masterPublicKey := suite.Point().Mul(masterSecret, nil)
-
+	masterSecret := tle.Suite.G1().Scalar().Pick(random.New())
 	masterSecretBytes, err := masterSecret.MarshalBinary()
 	if err != nil {
 		fatal("marshal master secret: %v", err)
 	}
-	masterPubBytes, err := masterPublicKey.MarshalBinary()
-	if err != nil {
-		fatal("marshal master public key: %v", err)
-	}
+	mpkG1 := tle.MasterPublicKeyG1(masterSecret)
+	mpkG2 := tle.MasterPublicKeyG2(masterSecret)
 
-	// For a single-validator setup with threshold 1/1, the validator's
-	// public share at index 1 equals the master public key.
-	// (Feldman with degree-0 polynomial: C_0 = masterSecret * G)
-	pubShareBytes := masterPubBytes // Same as master key for single validator
-
-	// Compute epoch decryption keys for epochs 0..N-1
-	decKeys := make(map[string]DecKeyInfo)
+	// Single validator, threshold 1/1: a degree-0 polynomial, so the
+	// validator's share is the master secret and its public shares are the
+	// master public keys.
+	decKeys := make(map[string]DecKeyInfo, epochs)
 	for epoch := 0; epoch < epochs; epoch++ {
-		epochTag := computeEpochTag(uint64(epoch))
-		// decryption_key = masterSecret * H_to_G1("shield_epoch_<N>")
-		decryptionKeyPoint := suite.Point().Mul(masterSecret, epochTag)
-		decKeyBytes, err := decryptionKeyPoint.MarshalBinary()
-		if err != nil {
-			fatal("marshal decryption key for epoch %d: %v", epoch, err)
-		}
-
-		// Derive the ECIES public key from the decryption key
-		// (matches decryptPayload: scalar = XOF(decKeyBytes), pub = scalar * G)
-		eciesScalar := suite.Scalar().Pick(suite.XOF(decKeyBytes))
-		eciesPub := suite.Point().Mul(eciesScalar, nil)
-		eciesPubBytes, err := eciesPub.MarshalBinary()
-		if err != nil {
-			fatal("marshal ECIES pub key for epoch %d: %v", epoch, err)
-		}
-
 		decKeys[fmt.Sprintf("%d", epoch)] = DecKeyInfo{
-			DecryptionKeyB64:  base64.StdEncoding.EncodeToString(decKeyBytes),
-			ECIESPublicKeyB64: base64.StdEncoding.EncodeToString(eciesPubBytes),
+			DecryptionKeyB64: base64.StdEncoding.EncodeToString(tle.EpochDecryptionKey(masterSecret, uint64(epoch))),
 		}
 	}
 
 	output := KeygenOutput{
-		MasterSecretHex:    hex.EncodeToString(masterSecretBytes),
-		MasterPublicKeyB64: base64.StdEncoding.EncodeToString(masterPubBytes),
-		ValidatorAddress:   validatorAddr,
-		PublicShareB64:     base64.StdEncoding.EncodeToString(pubShareBytes),
-		ShareIndex:         1,
-		DecryptionKeys:     decKeys,
+		MasterSecretHex:      hex.EncodeToString(masterSecretBytes),
+		MasterPublicKeyB64:   base64.StdEncoding.EncodeToString(mpkG1),
+		MasterPublicKeyG2B64: base64.StdEncoding.EncodeToString(mpkG2),
+		ValidatorAddress:     validatorAddr,
+		PublicShareB64:       base64.StdEncoding.EncodeToString(mpkG1),
+		PublicShareG2B64:     base64.StdEncoding.EncodeToString(mpkG2),
+		ShareIndex:           1,
+		DecryptionKeys:       decKeys,
 	}
 
 	data, err := json.MarshalIndent(output, "", "  ")
 	if err != nil {
 		fatal("marshal output: %v", err)
 	}
-
-	if err := os.WriteFile(outputFile, data, 0644); err != nil {
+	// 0600: the file holds the master secret.
+	if err := os.WriteFile(outputFile, data, 0o600); err != nil {
 		fatal("write output: %v", err)
 	}
 
 	fmt.Fprintf(os.Stderr, "Key material written to %s\n", outputFile)
-	fmt.Fprintf(os.Stderr, "  Master public key: %s\n", output.MasterPublicKeyB64)
+	fmt.Fprintf(os.Stderr, "  Master public key (G2, encrypt to this): %s\n", output.MasterPublicKeyG2B64)
 	fmt.Fprintf(os.Stderr, "  Validator: %s (share index %d)\n", validatorAddr, output.ShareIndex)
 	fmt.Fprintf(os.Stderr, "  Decryption keys: epochs 0-%d\n", epochs-1)
 }
 
-// cmdEncrypt ECIES-encrypts raw bytes for a given epoch.
+// keySource resolves the G2 master public key from --key-file or --mpk-g2.
+type keySource struct {
+	keyFile string
+	mpkG2   string
+}
+
+func (k *keySource) match(args []string, i *int) bool {
+	switch {
+	case matchFlag(args, *i, "--key-file"):
+		k.keyFile = flagVal(args, i)
+	case matchFlag(args, *i, "--mpk-g2"):
+		k.mpkG2 = flagVal(args, i)
+	default:
+		return false
+	}
+	return true
+}
+
+func (k *keySource) masterPublicKeyG2() []byte {
+	b64 := k.mpkG2
+	if b64 == "" {
+		if k.keyFile == "" {
+			fatal("--key-file or --mpk-g2 is required")
+		}
+		b64 = loadKeys(k.keyFile).MasterPublicKeyG2B64
+		if b64 == "" {
+			fatal("key file has no master_public_key_g2_b64; re-run keygen")
+		}
+	}
+	bz, err := base64.StdEncoding.DecodeString(b64)
+	if err != nil {
+		fatal("decode master public key: %v", err)
+	}
+	return bz
+}
+
+// cmdEncrypt encrypts raw bytes for a given epoch.
 func cmdEncrypt(args []string) {
-	var keyFile string
+	var ks keySource
 	var epoch int
 	var inputHex string
 
 	for i := 0; i < len(args); i++ {
 		switch {
-		case matchFlag(args, i, "--key-file"):
-			keyFile = flagVal(args, &i)
+		case ks.match(args, &i):
 		case matchFlag(args, i, "--epoch"):
 			fmt.Sscanf(flagVal(args, &i), "%d", &epoch)
 		case matchFlag(args, i, "--input-hex"):
@@ -212,35 +212,38 @@ func cmdEncrypt(args []string) {
 			fatal("unknown flag: %s", args[i])
 		}
 	}
-
-	if keyFile == "" {
-		fatal("--key-file is required")
-	}
 	if inputHex == "" {
 		fatal("--input-hex is required")
 	}
-
-	keys := loadKeys(keyFile)
 	plaintext, err := hex.DecodeString(inputHex)
 	if err != nil {
 		fatal("decode input hex: %v", err)
 	}
-
-	ciphertext := encryptForEpoch(keys, uint64(epoch), plaintext)
-	fmt.Print(base64.StdEncoding.EncodeToString(ciphertext))
+	ct, err := tle.Encrypt(ks.masterPublicKeyG2(), uint64(epoch), plaintext)
+	if err != nil {
+		fatal("encrypt: %v", err)
+	}
+	fmt.Print(base64.StdEncoding.EncodeToString(ct))
 }
 
-// cmdPayload builds and encrypts a MsgShieldedExec containing a blog CreatePost.
+// cmdPayload builds and encrypts a MsgShieldedExec fragment containing a
+// blog CreatePost. --proof-b64 attaches the operation's Groth16 proof and
+// --nullifier-hex its nullifier (on a chain with a verifying key the batch
+// verifies both at execution; test builds without one accept an empty proof
+// and any 32-byte nullifier, which is generated when the flag is absent).
+// The submission proof the outer MsgShieldedExec needs is bound to the
+// printed payload: prove with domain BatchSubmissionDomain, scope
+// BatchSubmissionScope(payload) and the payload as the message; both are
+// printed to stderr.
 func cmdPayload(args []string) {
-	var keyFile string
+	var ks keySource
 	var epoch int
 	var shieldAddr string
-	var title, body string
+	var title, body, proofB64, nullifierHex string
 
 	for i := 0; i < len(args); i++ {
 		switch {
-		case matchFlag(args, i, "--key-file"):
-			keyFile = flagVal(args, &i)
+		case ks.match(args, &i):
 		case matchFlag(args, i, "--epoch"):
 			fmt.Sscanf(flagVal(args, &i), "%d", &epoch)
 		case matchFlag(args, i, "--shield-addr"):
@@ -249,13 +252,13 @@ func cmdPayload(args []string) {
 			title = flagVal(args, &i)
 		case matchFlag(args, i, "--body"):
 			body = flagVal(args, &i)
+		case matchFlag(args, i, "--proof-b64"):
+			proofB64 = flagVal(args, &i)
+		case matchFlag(args, i, "--nullifier-hex"):
+			nullifierHex = flagVal(args, &i)
 		default:
 			fatal("unknown flag: %s", args[i])
 		}
-	}
-
-	if keyFile == "" {
-		fatal("--key-file is required")
 	}
 	if shieldAddr == "" {
 		fatal("--shield-addr is required")
@@ -266,72 +269,91 @@ func cmdPayload(args []string) {
 	if body == "" {
 		body = "Encrypted batch test post"
 	}
-
-	keys := loadKeys(keyFile)
-
-	// Build inner message: MsgCreatePost with shield module as creator
-	innerMsg := &blogtypes.MsgCreatePost{
-		Creator: shieldAddr,
-		Title:   title,
-		Body:    body,
+	var proof []byte
+	if proofB64 != "" {
+		var err error
+		if proof, err = base64.StdEncoding.DecodeString(proofB64); err != nil {
+			fatal("decode proof: %v", err)
+		}
 	}
 
-	innerMsgBytes, err := proto.Marshal(innerMsg)
+	var nullifier []byte
+	if nullifierHex != "" {
+		var err error
+		if nullifier, err = hex.DecodeString(nullifierHex); err != nil || len(nullifier) != 32 {
+			fatal("--nullifier-hex must be 32 bytes of hex")
+		}
+	} else {
+		nullifier = make([]byte, 32)
+		if _, err := rand.Read(nullifier); err != nil {
+			fatal("random nullifier: %v", err)
+		}
+	}
+
+	innerMsg := &blogtypes.MsgCreatePost{Creator: shieldAddr, Title: title, Body: body}
+	innerBytes, err := proto.Marshal(innerMsg)
 	if err != nil {
 		fatal("marshal inner message: %v", err)
 	}
-
-	// Build MsgShieldedExec fragment (only InnerMessage — other fields
-	// are cleartext and restored from the PendingShieldedOp at execution time)
-	execFragment := &shieldtypes.MsgShieldedExec{
-		InnerMessage: &any.Any{
-			TypeUrl: "/sparkdream.blog.v1.MsgCreatePost",
-			Value:   innerMsgBytes,
-		},
-	}
-
-	fragmentBytes, err := proto.Marshal(execFragment)
+	fragment, err := tle.EncodeExecFragment("/sparkdream.blog.v1.MsgCreatePost", innerBytes, proof, nullifier)
 	if err != nil {
-		fatal("marshal exec fragment: %v", err)
+		fatal("encode fragment: %v", err)
 	}
-
-	// Encrypt with the epoch's ECIES key
-	ciphertext := encryptForEpoch(keys, uint64(epoch), fragmentBytes)
-
-	// Output as base64
-	fmt.Print(base64.StdEncoding.EncodeToString(ciphertext))
+	ct, err := tle.Encrypt(ks.masterPublicKeyG2(), uint64(epoch), fragment)
+	if err != nil {
+		fatal("encrypt: %v", err)
+	}
+	fmt.Fprintf(os.Stderr, "  Operation nullifier (sealed): %x\n", nullifier)
+	fmt.Fprintf(os.Stderr, "  Submission proof: domain %d, scope %d, message type %s over the payload\n",
+		shieldtypes.BatchSubmissionDomain, shieldtypes.BatchSubmissionScope(ct), shieldtypes.BatchSubmissionTypeURL)
+	fmt.Print(base64.StdEncoding.EncodeToString(ct))
 }
 
-// encryptForEpoch ECIES-encrypts plaintext using the derived public key for an epoch.
-func encryptForEpoch(keys KeygenOutput, epoch uint64, plaintext []byte) []byte {
-	epochStr := fmt.Sprintf("%d", epoch)
-	dk, ok := keys.DecryptionKeys[epochStr]
-	if !ok {
-		fatal("no decryption key for epoch %d", epoch)
+// cmdDecrypt opens a payload with an epoch decryption key (from --key-file
+// or --dec-key-b64) and prints the plaintext as hex.
+func cmdDecrypt(args []string) {
+	var keyFile, decKeyB64, payloadB64 string
+	var epoch int
+	for i := 0; i < len(args); i++ {
+		switch {
+		case matchFlag(args, i, "--key-file"):
+			keyFile = flagVal(args, &i)
+		case matchFlag(args, i, "--dec-key-b64"):
+			decKeyB64 = flagVal(args, &i)
+		case matchFlag(args, i, "--epoch"):
+			fmt.Sscanf(flagVal(args, &i), "%d", &epoch)
+		case matchFlag(args, i, "--payload-b64"):
+			payloadB64 = flagVal(args, &i)
+		default:
+			fatal("unknown flag: %s", args[i])
+		}
 	}
-
-	eciesPubBytes, err := base64.StdEncoding.DecodeString(dk.ECIESPublicKeyB64)
+	if payloadB64 == "" {
+		fatal("--payload-b64 is required")
+	}
+	if decKeyB64 == "" {
+		if keyFile == "" {
+			fatal("--key-file or --dec-key-b64 is required")
+		}
+		dk, ok := loadKeys(keyFile).DecryptionKeys[fmt.Sprintf("%d", epoch)]
+		if !ok {
+			fatal("no decryption key for epoch %d in %s", epoch, keyFile)
+		}
+		decKeyB64 = dk.DecryptionKeyB64
+	}
+	decKey, err := base64.StdEncoding.DecodeString(decKeyB64)
 	if err != nil {
-		fatal("decode ECIES public key: %v", err)
+		fatal("decode decryption key: %v", err)
 	}
-
-	eciesPub := suite.Point()
-	if err := eciesPub.UnmarshalBinary(eciesPubBytes); err != nil {
-		fatal("unmarshal ECIES public key: %v", err)
-	}
-
-	ciphertext, err := ecies.Encrypt(suite, eciesPub, plaintext, nil)
+	payload, err := base64.StdEncoding.DecodeString(payloadB64)
 	if err != nil {
-		fatal("ECIES encrypt: %v", err)
+		fatal("decode payload: %v", err)
 	}
-
-	return ciphertext
-}
-
-// computeEpochTag computes H_to_G1("shield_epoch_<N>") matching tle_crypto.go.
-func computeEpochTag(epoch uint64) kyber.Point {
-	data := fmt.Appendf(nil, "shield_epoch_%d", epoch)
-	return suite.Point().Pick(suite.XOF(data))
+	pt, err := tle.Decrypt(decKey, uint64(epoch), payload)
+	if err != nil {
+		fatal("decrypt: %v", err)
+	}
+	fmt.Print(hex.EncodeToString(pt))
 }
 
 // loadKeys reads the keygen output JSON file.

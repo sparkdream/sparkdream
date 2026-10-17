@@ -143,3 +143,40 @@ func TestTriggerDKGSetsDeadlines(t *testing.T) {
 	require.Greater(t, dkgState.RegistrationDeadline, int64(100))
 	require.Greater(t, dkgState.ContributionDeadline, dkgState.RegistrationDeadline)
 }
+
+// TestTriggerDKGRefusedDuringComplaintPhases: a governance re-key must not
+// silently discard a round that is between CONTRIBUTING and ACTIVE.
+func TestTriggerDKGRefusedDuringComplaintPhases(t *testing.T) {
+	f, ms := initMsgServer(t)
+	authority, err := f.addressCodec.BytesToString(authtypes.NewModuleAddress("gov"))
+	require.NoError(t, err)
+	for _, phase := range []types.DKGPhase{types.DKGPhase_DKG_PHASE_COMPLAINING, types.DKGPhase_DKG_PHASE_JUSTIFYING} {
+		require.NoError(t, f.keeper.SetDKGStateVal(f.ctx, types.DKGState{Round: 1, Phase: phase, ExpectedValidators: []string{"val1"}}))
+		_, err := ms.TriggerDKG(f.ctx, &types.MsgTriggerDkg{Authority: authority})
+		require.ErrorIs(t, err, types.ErrDKGInProgress, "phase %s", phase)
+	}
+}
+
+// TestTriggerDKGRejectsUnreachableThreshold: a threshold above the
+// participant count could never be met, so the round could only fail.
+func TestTriggerDKGRejectsUnreachableThreshold(t *testing.T) {
+	f, ms := initMsgServer(t)
+	authority, err := f.addressCodec.BytesToString(authtypes.NewModuleAddress("gov"))
+	require.NoError(t, err)
+
+	for _, tc := range []struct{ num, den uint64 }{
+		{4, 3},             // above one
+		{5, 0},             // above the default denominator 3
+		{1, 101},           // denominator over the bound
+		{1 << 62, 1 << 63}, // overflow-scale
+	} {
+		_, err := ms.TriggerDKG(f.ctx, &types.MsgTriggerDkg{
+			Authority:            authority,
+			ThresholdNumerator:   tc.num,
+			ThresholdDenominator: tc.den,
+		})
+		require.ErrorIs(t, err, types.ErrInvalidDKGThreshold, "%d/%d", tc.num, tc.den)
+	}
+	_, found := f.keeper.GetDKGStateVal(f.ctx)
+	require.False(t, found, "no round opened")
+}

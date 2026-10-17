@@ -7,7 +7,8 @@
 # Tests the full encrypted batch lifecycle:
 #   1. Verify TLE key material is seeded and encrypted batch mode is enabled
 #   2. Query current epoch and trust tree root
-#   3. Build encrypted payload (blog CreatePost via seed-tle tool)
+#   3. Build encrypted payload (blog CreatePost via seed-tle, encrypted to the
+#      chain's G2 master public key exactly as a browser client would)
 #   4. Submit encrypted batch MsgShieldedExec
 #   5. Verify the op is queued as pending
 #   6. Wait for epoch advancement (EndBlocker batch processing)
@@ -40,6 +41,11 @@ if [ ! -f "$SCRIPT_DIR/.test_env" ]; then
 fi
 
 source "$SCRIPT_DIR/.test_env"
+# .test_env may predate the shield account (or the query raced the first
+# block at setup); resolve the address live when it is missing.
+if [ -z "${SHIELD_MODULE_ADDR:-}" ]; then
+    SHIELD_MODULE_ADDR=$($BINARY query auth module-account shield --output json 2>/dev/null | jq -r '.account.base_account.address // .account.value.address // ""' 2>/dev/null)
+fi
 
 # === PASS/FAIL TRACKING ===
 PASS_COUNT=0
@@ -47,6 +53,7 @@ FAIL_COUNT=0
 RESULTS=()
 TEST_NAMES=()
 
+SKIP_COUNT=0
 record_result() {
     local NAME=$1
     local RESULT=$2
@@ -54,6 +61,8 @@ record_result() {
     RESULTS+=("$RESULT")
     if [ "$RESULT" == "PASS" ]; then
         PASS_COUNT=$((PASS_COUNT + 1))
+    elif [ "$RESULT" == "SKIP" ]; then
+        SKIP_COUNT=$((SKIP_COUNT + 1))
     else
         FAIL_COUNT=$((FAIL_COUNT + 1))
     fi
@@ -124,9 +133,8 @@ if [ "$BATCH_ENABLED" != "true" ]; then
     echo "  Run: bash test/shield/patch_genesis_tle.sh (before chain start)"
     echo ""
     echo "--- TEST SUMMARY ---"
-    echo "  Encrypted batch tests skipped (batch mode disabled)"
-    echo "  Tests: 0 passed, 0 failed"
-    exit 0
+    echo "  SKIPPED: encrypted batch tests need a TLE-patched genesis (batch mode disabled)"
+    exit 3
 fi
 
 # Check TLE key set exists
@@ -149,8 +157,8 @@ fi
 echo "--- PART 2: Query shield epoch state ---"
 
 EPOCH_STATE=$($BINARY query shield shield-epoch --output json 2>&1)
-CURRENT_EPOCH=$(echo "$EPOCH_STATE" | jq -r '.state.current_epoch // "0"' 2>/dev/null)
-EPOCH_START=$(echo "$EPOCH_STATE" | jq -r '.state.epoch_start_height // "0"' 2>/dev/null)
+CURRENT_EPOCH=$(echo "$EPOCH_STATE" | jq -r '.epoch_state.current_epoch // "0"' 2>/dev/null)
+EPOCH_START=$(echo "$EPOCH_STATE" | jq -r '.epoch_state.epoch_start_height // "0"' 2>/dev/null)
 
 echo "  Current epoch: $CURRENT_EPOCH"
 echo "  Epoch start height: $EPOCH_START"
@@ -213,16 +221,49 @@ fi
 echo "  Key file: $KEY_FILE"
 record_result "TLE key file exists" "PASS"
 
+
+# ensure_shield_reserve: the shield module pays the gas for every shielded
+# exec, and a fresh test chain's community pool is empty, so the BeginBlocker
+# has nothing to draw from. Top the pool up from alice and poll (bounded) until
+# the module account holds SPARK.
+ensure_shield_reserve() {
+    local BAL
+    BAL=$($BINARY query shield module-balance --output json 2>/dev/null | jq -r '.balance.amount // "0"')
+    if [ "${BAL:-0}" -ge 10000000 ] 2>/dev/null; then
+        return 0
+    fi
+    echo "  Shield reserve is ${BAL:-0}; funding the community pool from alice..."
+    $BINARY tx distribution fund-community-pool 300000000${BOND_DENOM} --from alice -y \
+        --chain-id "$CHAIN_ID" --keyring-backend test --fees 5000${BOND_DENOM} --output json >/dev/null 2>&1
+    local i
+    for i in $(seq 1 40); do
+        sleep 2
+        BAL=$($BINARY query shield module-balance --output json 2>/dev/null | jq -r '.balance.amount // "0"')
+        if [ "${BAL:-0}" -ge 10000000 ] 2>/dev/null; then
+            echo "  Shield reserve funded: $BAL"
+            return 0
+        fi
+    done
+    echo "  WARNING: shield reserve still ${BAL:-0} after funding the pool"
+    return 1
+}
+
 # =========================================================================
 # PART 5: Build and submit encrypted batch MsgShieldedExec
 # =========================================================================
 echo "--- PART 5: Submit encrypted batch ---"
+ensure_shield_reserve
+# Re-read the epoch after the funding wait: the ante handler refuses a
+# target_epoch that is not the current one, and epochs are short here.
+CURRENT_EPOCH=$($BINARY query shield shield-epoch --output json 2>/dev/null | jq -r '.epoch_state.current_epoch // "0"')
+echo "  Current epoch (post-funding): $CURRENT_EPOCH"
 
 # Get the current trust tree root (for merkle_root)
 TRUST_ROOT_HEX=""
-TRUST_ROOT_RESULT=$($BINARY query rep trust-tree-root --output json 2>&1)
+# The trust-tree query returns the root base64-encoded; the CLI wants hex.
+TRUST_ROOT_RESULT=$($BINARY query rep trust-tree --output json 2>&1)
 if echo "$TRUST_ROOT_RESULT" | jq -e '.root' > /dev/null 2>&1; then
-    TRUST_ROOT_HEX=$(echo "$TRUST_ROOT_RESULT" | jq -r '.root // ""' | tr -d '"')
+    TRUST_ROOT_HEX=$(echo "$TRUST_ROOT_RESULT" | jq -r '.root // ""' | base64 -d 2>/dev/null | od -An -tx1 | tr -d ' \n')
 fi
 
 # If no trust tree root available, use a dummy 32-byte value
@@ -234,16 +275,61 @@ fi
 
 echo "  Trust tree root: ${TRUST_ROOT_HEX:0:16}..."
 
-# Generate the encrypted payload using seed-tle tool
+# Encrypt exactly as a client does: to the G2 master public key read from
+# the chain, with no secret material (the key file is only used to seed
+# genesis). The payload is an inner MsgCreatePost fragment; this test build
+# has no verifying key, so the fragment carries no proof.
 echo "  Building encrypted payload for epoch $CURRENT_EPOCH..."
 
-cd "$PROJECT_ROOT"
-ENCRYPTED_PAYLOAD_B64=$(go run ./tools/zk/cmd/seed-tle payload \
-    --key-file="$KEY_FILE" \
-    --epoch="$CURRENT_EPOCH" \
-    --shield-addr="$SHIELD_MODULE_ADDR" \
-    --title="EncBatchTest$(date +%s)" \
-    --body="Encrypted batch lifecycle test post" 2>/dev/null)
+MPK_G2_B64=$($BINARY query shield tle-master-public-key --output json 2>/dev/null | jq -r '.master_public_key_g2 // empty')
+if [ -z "$MPK_G2_B64" ]; then
+    echo "  Chain reports no G2 master public key (tle-master-public-key)"
+    record_result "Chain exposes G2 master public key" "FAIL"
+else
+    echo "  G2 master public key: ${MPK_G2_B64:0:20}..."
+    record_result "Chain exposes G2 master public key" "PASS"
+fi
+
+# This test build has no verifying key, so neither the submission proof
+# (cleartext, bound to the ciphertext) nor the operation proof (sealed) is
+# verified; the ante handler still requires a proof-sized blob. The
+# operation nullifier is sealed inside the payload; the cleartext nullifier
+# is the per-payload submission nullifier.
+DUMMY_PROOF_HEX=$(openssl rand -hex 128)
+OP_NULLIFIER_HEX=$(openssl rand -hex 32)
+
+# Build the payload tool once: `go run` can take longer than a test epoch
+# (10 blocks), and a payload is sealed to the epoch it targets.
+SEED_TLE="$(mktemp -d)/seed-tle"
+(cd "$PROJECT_ROOT" && go build -o "$SEED_TLE" ./tools/zk/cmd/seed-tle) || { echo "  Failed to build seed-tle"; exit 1; }
+
+# build_payload <op-nullifier-hex> <title> <body>: seals a payload to the
+# current epoch, rebuilding if the epoch rolls over meanwhile. Sets
+# PAYLOAD_B64 and PAYLOAD_EPOCH.
+build_payload() {
+    local attempt
+    for attempt in 1 2 3; do
+        PAYLOAD_EPOCH=$($BINARY query shield shield-epoch --output json 2>/dev/null | jq -r '.epoch_state.current_epoch // "0"')
+        PAYLOAD_B64=$("$SEED_TLE" payload \
+            --mpk-g2="$MPK_G2_B64" \
+            --epoch="$PAYLOAD_EPOCH" \
+            --shield-addr="$SHIELD_MODULE_ADDR" \
+            --nullifier-hex="$1" \
+            --title="$2" \
+            --body="$3" 2>/dev/null)
+        local now
+        now=$($BINARY query shield shield-epoch --output json 2>/dev/null | jq -r '.epoch_state.current_epoch // "0"')
+        if [ -n "$PAYLOAD_B64" ] && [ "$now" == "$PAYLOAD_EPOCH" ]; then
+            return 0
+        fi
+        echo "  Epoch moved while sealing ($PAYLOAD_EPOCH -> $now); resealing"
+    done
+    return 1
+}
+
+build_payload "$OP_NULLIFIER_HEX" "EncBatchTest$(date +%s)" "Encrypted batch lifecycle test post"
+ENCRYPTED_PAYLOAD_B64="$PAYLOAD_B64"
+CURRENT_EPOCH="$PAYLOAD_EPOCH"
 
 if [ -z "$ENCRYPTED_PAYLOAD_B64" ]; then
     echo "  Failed to generate encrypted payload"
@@ -253,26 +339,26 @@ else
     record_result "Build encrypted payload" "PASS"
 fi
 
-# Generate unique nullifier and rate-limit nullifier (32-byte random values)
+# Submission nullifier and rate-limit nullifier (32-byte random values; a
+# real client takes both from the submission proof)
 NULLIFIER_HEX=$(openssl rand -hex 32)
 RATE_NULLIFIER_HEX=$(openssl rand -hex 32)
 
-# Convert to base64 for proto JSON
-NULLIFIER_B64=$(echo "$NULLIFIER_HEX" | xxd -r -p | base64)
-RATE_NULLIFIER_B64=$(echo "$RATE_NULLIFIER_HEX" | xxd -r -p | base64)
-MERKLE_ROOT_B64=$(echo "$TRUST_ROOT_HEX" | xxd -r -p | base64)
+# The CLI takes hex for every byte field (payload included); exec-mode 1 = ENCRYPTED_BATCH.
+ENCRYPTED_PAYLOAD_HEX=$(echo "$ENCRYPTED_PAYLOAD_B64" | base64 -d | od -An -tx1 | tr -d ' \n')
 
 echo "  Nullifier: ${NULLIFIER_HEX:0:16}..."
 echo "  Submitting encrypted batch tx..."
 
 # Submit the encrypted batch via autocli
 TX_RES=$($BINARY tx shield shielded-exec \
-    --exec-mode=2 \
-    --encrypted-payload="$ENCRYPTED_PAYLOAD_B64" \
+    --exec-mode=1 \
+    --encrypted-payload="$ENCRYPTED_PAYLOAD_HEX" \
     --target-epoch="$CURRENT_EPOCH" \
-    --merkle-root="$MERKLE_ROOT_B64" \
-    --nullifier="$NULLIFIER_B64" \
-    --rate-limit-nullifier="$RATE_NULLIFIER_B64" \
+    --proof="$DUMMY_PROOF_HEX" \
+    --merkle-root="$TRUST_ROOT_HEX" \
+    --nullifier="$NULLIFIER_HEX" \
+    --rate-limit-nullifier="$RATE_NULLIFIER_HEX" \
     --proof-domain=1 \
     --min-trust-level=0 \
     --from submitter1 \
@@ -284,17 +370,48 @@ TX_RES=$($BINARY tx shield shielded-exec \
     --output json 2>&1)
 
 TXHASH=$(echo "$TX_RES" | jq -r '.txhash // empty')
+BROADCAST_CODE=$(echo "$TX_RES" | jq -r '.code // "0"' 2>/dev/null)
+
+# Immediately resubmit under the same submission nullifier (the first one is
+# pending in the mempool/check state): refused in CheckTx with
+# ErrInvalidSubmissionNullifier (shield code 52). Sent before waiting for the
+# first tx so both fall in the same epoch on a fast chain. A distinct memo
+# keeps the bytes different, or CometBFT's tx cache would refuse it first.
+DUP_TX_RES=$($BINARY tx shield shielded-exec \
+    --note "dup-$(date +%s%N)" \
+    --exec-mode=1 \
+    --encrypted-payload="$ENCRYPTED_PAYLOAD_HEX" \
+    --target-epoch="$CURRENT_EPOCH" \
+    --proof="$DUMMY_PROOF_HEX" \
+    --merkle-root="$TRUST_ROOT_HEX" \
+    --nullifier="$NULLIFIER_HEX" \
+    --rate-limit-nullifier="$RATE_NULLIFIER_HEX" \
+    --proof-domain=1 \
+    --min-trust-level=0 \
+    --from submitter1 \
+    --chain-id $CHAIN_ID \
+    --keyring-backend test \
+    --fees 5000${BOND_DENOM} \
+    --gas 500000 \
+    -y \
+    --output json 2>&1)
 
 if [ -z "$TXHASH" ] || [ "$TXHASH" == "null" ]; then
     echo "  Failed to submit encrypted batch: no txhash"
     echo "  Response: $TX_RES"
+    record_result "Submit encrypted batch tx" "FAIL"
+elif [ "$BROADCAST_CODE" != "0" ]; then
+    # Rejected in CheckTx (ante handler): never indexed, so report the
+    # broadcast response instead of waiting for a tx that will not land.
+    echo "  Rejected at broadcast (code $BROADCAST_CODE): $(echo "$TX_RES" | jq -r '.raw_log // empty')"
     record_result "Submit encrypted batch tx" "FAIL"
 else
     sleep 6
     TX_RESULT=$(wait_for_tx $TXHASH)
 
     if check_tx_success "$TX_RESULT"; then
-        PENDING_OP_ID=$(echo "$TX_RESULT" | jq -r '.events[] | select(.type=="shield_queued") | .attributes[] | select(.key=="pending_op_id") | .value' 2>/dev/null | head -1)
+        SUBMIT_HEIGHT=$(echo "$TX_RESULT" | jq -r '.height // "0"')
+        PENDING_OP_ID=$(echo "$TX_RESULT" | jq -r '.events[] | select(.type=="shielded_queued") | .attributes[] | select(.key=="pending_op_id") | .value' 2>/dev/null | head -1)
         echo "  Encrypted batch queued successfully"
         echo "  Pending op ID: $PENDING_OP_ID"
         record_result "Submit encrypted batch tx" "PASS"
@@ -303,6 +420,28 @@ else
         echo "  Encrypted batch submission failed: $RAW_LOG"
         record_result "Submit encrypted batch tx" "FAIL"
     fi
+fi
+
+# =========================================================================
+# PART 5b: The same submission nullifier cannot be queued twice
+# =========================================================================
+echo "--- PART 5b: Duplicate submission nullifier rejected ---"
+
+DUP_CODE=$(echo "$DUP_TX_RES" | jq -r '.code // empty' 2>/dev/null)
+DUP_TXHASH=$(echo "$DUP_TX_RES" | jq -r '.txhash // empty' 2>/dev/null)
+if [ "$DUP_CODE" == "0" ] && [ -n "$DUP_TXHASH" ]; then
+    sleep 6
+    DUP_CODE=$(wait_for_tx "$DUP_TXHASH" | jq -r '.code // "0"')
+fi
+if [ "$DUP_CODE" == "52" ]; then
+    echo "  Duplicate rejected with code 52 (submission nullifier already pending)"
+    record_result "Duplicate submission nullifier rejected" "PASS"
+elif [ "$DUP_CODE" == "21" ]; then
+    echo "  Epoch rolled over between the two submissions (code 21): the dedup was not exercised"
+    record_result "Duplicate submission nullifier rejected" "SKIP"
+else
+    echo "  Expected code 52, got '${DUP_CODE:-none}': $(echo "$DUP_TX_RES" | head -c 200)"
+    record_result "Duplicate submission nullifier rejected" "FAIL"
 fi
 
 # =========================================================================
@@ -323,13 +462,23 @@ if [ "$PENDING_COUNT" -ge 1 ]; then
     echo "  Last pending op: id=$LAST_OP_ID, target_epoch=$LAST_OP_EPOCH"
     record_result "Pending operation queued" "PASS"
 else
-    echo "  No pending operations found"
-    echo "  (May have already been processed if epoch advanced)"
-    # Check if the epoch has already advanced past the target
-    NEW_EPOCH_STATE=$($BINARY query shield shield-epoch --output json 2>&1)
-    NEW_EPOCH=$(echo "$NEW_EPOCH_STATE" | jq -r '.state.current_epoch // "0"' 2>/dev/null)
-    if [ "$NEW_EPOCH" != "$CURRENT_EPOCH" ]; then
-        echo "  Epoch has advanced ($CURRENT_EPOCH -> $NEW_EPOCH) — op may have been processed"
+    # With seeded epoch keys a batch runs one block after its epoch closes,
+    # so an op submitted at the end of an epoch may already be gone. That
+    # only counts if a batch actually executed since the submission height;
+    # an advanced epoch on its own proves nothing.
+    echo "  No pending operations found; looking for a batch executed since height ${SUBMIT_HEIGHT:-?}"
+    ALREADY_RAN=false
+    if [ -n "$SUBMIT_HEIGHT" ] && [ "$SUBMIT_HEIGHT" -gt 0 ] 2>/dev/null; then
+        for h in $(seq "$SUBMIT_HEIGHT" "$(get_block_height)"); do
+            if $BINARY query block-results "$h" --output json 2>/dev/null | grep -q shield_batch_executed; then
+                echo "  Batch executed at height $h"
+                ALREADY_RAN=true
+                BATCH_HEIGHT=$h
+                break
+            fi
+        done
+    fi
+    if [ "$ALREADY_RAN" = true ]; then
         record_result "Pending operation queued" "PASS"
     else
         record_result "Pending operation queued" "FAIL"
@@ -351,11 +500,12 @@ echo "  Current height: $START_HEIGHT"
 echo "  Epoch interval: $EPOCH_INTERVAL blocks"
 echo "  Waiting up to $MAX_WAIT_BLOCKS blocks for epoch advancement..."
 
-BATCH_EXECUTED=false
+BATCH_EXECUTED=${ALREADY_RAN:-false}
 WAIT_ATTEMPT=0
 MAX_WAIT_SECONDS=$((MAX_WAIT_BLOCKS * 7))  # ~7 seconds per block
 
-while [ $WAIT_ATTEMPT -lt $MAX_WAIT_SECONDS ]; do
+[ "$BATCH_EXECUTED" = true ] && echo "  Batch already executed at height ${BATCH_HEIGHT:-?} (fast chain)"
+while [ "$BATCH_EXECUTED" != true ] && [ $WAIT_ATTEMPT -lt $MAX_WAIT_SECONDS ]; do
     CURRENT_HEIGHT=$(get_block_height)
 
     if [ "$CURRENT_HEIGHT" -ge "$TARGET_HEIGHT" ]; then
@@ -373,27 +523,30 @@ while [ $WAIT_ATTEMPT -lt $MAX_WAIT_SECONDS ]; do
         break
     fi
 
-    # Also check epoch advancement
+    # Report epoch advancement, but only an executed batch (queue drained)
+    # passes: the epoch rolling over on its own proves nothing.
     EPOCH_NOW=$($BINARY query shield shield-epoch --output json 2>&1)
-    EPOCH_NUM=$(echo "$EPOCH_NOW" | jq -r '.state.current_epoch // "0"' 2>/dev/null)
-    if [ "$EPOCH_NUM" != "$CURRENT_EPOCH" ] && [ "$EPOCH_NUM" -gt "$CURRENT_EPOCH" ]; then
-        echo "  Epoch advanced: $CURRENT_EPOCH -> $EPOCH_NUM at height $CURRENT_HEIGHT"
-        # Give a few more blocks for batch processing
-        sleep 12
-        BATCH_EXECUTED=true
-        break
+    EPOCH_NUM=$(echo "$EPOCH_NOW" | jq -r '.epoch_state.current_epoch // "0"' 2>/dev/null)
+    if [ "$EPOCH_NUM" -gt "$CURRENT_EPOCH" ] && [ "${EPOCH_REPORTED:-}" != "1" ]; then
+        echo "  Epoch advanced: $CURRENT_EPOCH -> $EPOCH_NUM at height $CURRENT_HEIGHT; waiting for the batch"
+        EPOCH_REPORTED=1
     fi
 
-    WAIT_ATTEMPT=$((WAIT_ATTEMPT + 6))
-    sleep 6
+    WAIT_ATTEMPT=$((WAIT_ATTEMPT + 3))
+    sleep 3
 done
 
 if [ "$BATCH_EXECUTED" = true ]; then
-    echo "  Batch processing triggered"
+    echo "  Batch executed (pending queue drained)"
     record_result "Epoch advancement and batch processing" "PASS"
 else
-    echo "  Batch was not processed within the wait period"
-    echo "  This may be expected if epoch_interval is very long"
+    echo "  Batch was not executed within $MAX_WAIT_BLOCKS blocks (pending: ${COUNT_NOW:-?})"
+    # On a seeded (no-DKG) chain a batch can only run if genesis seeded a key
+    # for the op's epoch; say so when that is the cause.
+    if ! $BINARY query shield decryption-shares "$CURRENT_EPOCH" --output json >/dev/null 2>&1 || \
+       [ "$(sparkdreamd query shield pending-op-count --output json 2>/dev/null | jq -r '.count // 0')" != "0" ]; then
+        echo "  Hint: with patch_genesis_tle.sh the chain holds pre-seeded epoch keys only; epoch $CURRENT_EPOCH may be beyond the seeded range (NUM_EPOCHS)"
+    fi
     record_result "Epoch advancement and batch processing" "FAIL"
 fi
 
@@ -406,7 +559,8 @@ echo "--- PART 8: Verify batch execution results ---"
 # Query the most recent blocks for the event
 BATCH_EVENT_FOUND=false
 CURRENT_HEIGHT=$(get_block_height)
-SEARCH_FROM=$((CURRENT_HEIGHT > 20 ? CURRENT_HEIGHT - 20 : 1))
+SEARCH_FROM=${SUBMIT_HEIGHT:-$((CURRENT_HEIGHT > 20 ? CURRENT_HEIGHT - 20 : 1))}
+[ "$SEARCH_FROM" -lt 1 ] 2>/dev/null && SEARCH_FROM=1
 
 echo "  Searching for batch execution events (blocks $SEARCH_FROM-$CURRENT_HEIGHT)..."
 
@@ -450,34 +604,47 @@ else
 fi
 
 # =========================================================================
-# PART 10: Test nullifier replay rejection
+# PART 10: Operation nullifier replay is dropped at execution
 # =========================================================================
-echo "--- PART 10: Nullifier replay rejection ---"
+echo "--- PART 10: Operation nullifier replay ---"
 
-# Try to submit the SAME nullifier again — should fail with ErrNullifierUsed
-# or ErrNullifierPending
+# The operation nullifier travels inside the ciphertext, so a replay cannot
+# be refused at submission (fresh submission nullifier, different payload):
+# it queues, and the batch drops it because the nullifier is already in the
+# permanent store for that scope. A second blog post must not appear.
 
-echo "  Re-submitting with same nullifier..."
+echo "  Re-submitting a new payload sealed with the same operation nullifier..."
 
-# Generate a new encrypted payload (different content) but reuse the nullifier
-NEW_PAYLOAD_B64=$(go run "$PROJECT_ROOT/tools/zk/cmd/seed-tle" payload \
-    --key-file="$KEY_FILE" \
-    --epoch="$CURRENT_EPOCH" \
-    --shield-addr="$SHIELD_MODULE_ADDR" \
-    --title="ReplayTest$(date +%s)" \
-    --body="This should fail due to nullifier replay" 2>/dev/null)
+# Posts from earlier runs on the same chain must not count: compare deltas.
+REPLAY_POSTS_BEFORE=$($BINARY query blog list-post --output json 2>/dev/null | jq -r '[.post[]? | select(.title | startswith("ReplayTest"))] | length' 2>/dev/null || echo 0)
 
-# Get the current epoch (may have advanced)
-REPLAY_EPOCH_STATE=$($BINARY query shield shield-epoch --output json 2>&1)
-REPLAY_EPOCH=$(echo "$REPLAY_EPOCH_STATE" | jq -r '.state.current_epoch // "0"' 2>/dev/null)
+build_payload "$OP_NULLIFIER_HEX" "ReplayTest$(date +%s)" "This should be dropped: operation nullifier replay"
+NEW_PAYLOAD_B64="$PAYLOAD_B64"
+REPLAY_EPOCH="$PAYLOAD_EPOCH"
 
+# Blog posts are EPOCH-scoped with a 12-epoch window: the nullifier is only
+# a replay if both submissions fall in the same window (a real prover's
+# nullifier changes with the scope anyway). Across a window boundary this
+# is a fresh action, not a replay, so the check cannot run.
+POST_WINDOW=$($BINARY query shield shielded-op "/sparkdream.blog.v1.MsgCreatePost" --output json 2>/dev/null | jq -r '.registration.epoch_window // "1"')
+[ "${POST_WINDOW:-0}" -lt 1 ] 2>/dev/null && POST_WINDOW=1
+if [ $((CURRENT_EPOCH / POST_WINDOW)) -ne $((REPLAY_EPOCH / POST_WINDOW)) ]; then
+    echo "  Original (epoch $CURRENT_EPOCH) and replay (epoch $REPLAY_EPOCH) fall in different $POST_WINDOW-epoch windows: not a replay"
+    record_result "Operation nullifier replay dropped" "SKIP"
+    SKIP_REPLAY=true
+fi
+
+if [ "${SKIP_REPLAY:-false}" != true ]; then
+NEW_PAYLOAD_HEX=$(echo "$NEW_PAYLOAD_B64" | base64 -d | od -An -tx1 | tr -d ' \n')
+REPLAY_SUBMISSION_NULLIFIER=$(openssl rand -hex 32)
 REPLAY_TX_RES=$($BINARY tx shield shielded-exec \
-    --exec-mode=2 \
-    --encrypted-payload="$NEW_PAYLOAD_B64" \
+    --exec-mode=1 \
+    --encrypted-payload="$NEW_PAYLOAD_HEX" \
     --target-epoch="$REPLAY_EPOCH" \
-    --merkle-root="$MERKLE_ROOT_B64" \
-    --nullifier="$NULLIFIER_B64" \
-    --rate-limit-nullifier="$RATE_NULLIFIER_B64" \
+    --proof="$DUMMY_PROOF_HEX" \
+    --merkle-root="$TRUST_ROOT_HEX" \
+    --nullifier="$REPLAY_SUBMISSION_NULLIFIER" \
+    --rate-limit-nullifier="$RATE_NULLIFIER_HEX" \
     --proof-domain=1 \
     --min-trust-level=0 \
     --from submitter1 \
@@ -489,24 +656,49 @@ REPLAY_TX_RES=$($BINARY tx shield shielded-exec \
     --output json 2>&1)
 
 REPLAY_TXHASH=$(echo "$REPLAY_TX_RES" | jq -r '.txhash // empty')
+REPLAY_BROADCAST_CODE=$(echo "$REPLAY_TX_RES" | jq -r '.code // "0"' 2>/dev/null)
 
-if [ -z "$REPLAY_TXHASH" ] || [ "$REPLAY_TXHASH" == "null" ]; then
-    echo "  Replay tx rejected at broadcast (no txhash) — EXPECTED"
-    record_result "Nullifier replay rejected" "PASS"
+if [ -z "$REPLAY_TXHASH" ] || [ "$REPLAY_BROADCAST_CODE" != "0" ]; then
+    echo "  Replay submission unexpectedly refused at broadcast (code $REPLAY_BROADCAST_CODE): $(echo "$REPLAY_TX_RES" | jq -r '.raw_log // empty' | head -c 200)"
+    record_result "Operation nullifier replay dropped" "FAIL"
 else
     sleep 6
     REPLAY_RESULT=$(wait_for_tx $REPLAY_TXHASH)
     REPLAY_CODE=$(echo "$REPLAY_RESULT" | jq -r '.code')
 
     if [ "$REPLAY_CODE" != "0" ]; then
-        RAW_LOG=$(echo "$REPLAY_RESULT" | jq -r '.raw_log // "unknown"')
-        echo "  Replay tx failed with code $REPLAY_CODE — EXPECTED"
-        echo "  Error: $RAW_LOG"
-        record_result "Nullifier replay rejected" "PASS"
+        echo "  Replay submission failed on-chain (code $REPLAY_CODE): $(echo "$REPLAY_RESULT" | jq -r '.raw_log // "unknown"' | head -c 200)"
+        record_result "Operation nullifier replay dropped" "FAIL"
     else
-        echo "  WARNING: Replay tx SUCCEEDED — nullifier not properly checked"
-        record_result "Nullifier replay rejected" "FAIL"
+        echo "  Replay queued (nullifier sealed until decryption); waiting for its batch to drop it..."
+        EPOCH_INTERVAL=$($BINARY query shield params --output json 2>/dev/null | jq -r '.params.shield_epoch_interval // "10"')
+        MAX_WAIT_BLOCKS=$((EPOCH_INTERVAL * 3 + 10))
+        START_H=$(get_block_height)
+        REPLAY_PENDING="1"
+        while :; do
+            CUR_H=$(get_block_height)
+            if [ $((CUR_H - START_H)) -ge "$MAX_WAIT_BLOCKS" ]; then
+                break
+            fi
+            REPLAY_PENDING=$($BINARY query shield pending-op-count --output json 2>/dev/null | jq -r '.count // "0"')
+            if [ "$REPLAY_PENDING" == "0" ]; then
+                break
+            fi
+            sleep 2
+        done
+        REPLAY_POSTS_AFTER=$($BINARY query blog list-post --output json 2>/dev/null | jq -r '[.post[]? | select(.title | startswith("ReplayTest"))] | length' 2>/dev/null || echo 0)
+        REPLAY_POSTS=$(( ${REPLAY_POSTS_AFTER:-0} - ${REPLAY_POSTS_BEFORE:-0} ))
+        echo "  Pending after wait: $REPLAY_PENDING; new posts from the replay: $REPLAY_POSTS"
+        if [ "$REPLAY_PENDING" == "0" ] && [ "$REPLAY_POSTS" == "0" ]; then
+            echo "  Replay dropped at execution (operation nullifier already used) — EXPECTED"
+            record_result "Operation nullifier replay dropped" "PASS"
+        else
+            echo "  WARNING: replayed nullifier produced a post or never executed"
+            record_result "Operation nullifier replay dropped" "FAIL"
+        fi
     fi
+fi
+
 fi
 
 # =========================================================================
@@ -516,16 +708,17 @@ echo "--- PART 11: Wrong target epoch rejection ---"
 
 # Submit with a wrong epoch number
 WRONG_EPOCH=$((REPLAY_EPOCH + 999))
-WRONG_NULLIFIER_B64=$(openssl rand 32 | base64)
-WRONG_RATE_B64=$(openssl rand 32 | base64)
+WRONG_NULLIFIER_HEX=$(openssl rand -hex 32)
+WRONG_RATE_HEX=$(openssl rand -hex 32)
 
 WRONG_TX_RES=$($BINARY tx shield shielded-exec \
-    --exec-mode=2 \
-    --encrypted-payload="$ENCRYPTED_PAYLOAD_B64" \
+    --exec-mode=1 \
+    --encrypted-payload="$ENCRYPTED_PAYLOAD_HEX" \
     --target-epoch="$WRONG_EPOCH" \
-    --merkle-root="$MERKLE_ROOT_B64" \
-    --nullifier="$WRONG_NULLIFIER_B64" \
-    --rate-limit-nullifier="$WRONG_RATE_B64" \
+    --proof="$DUMMY_PROOF_HEX" \
+    --merkle-root="$TRUST_ROOT_HEX" \
+    --nullifier="$WRONG_NULLIFIER_HEX" \
+    --rate-limit-nullifier="$WRONG_RATE_HEX" \
     --proof-domain=1 \
     --min-trust-level=0 \
     --from submitter1 \
@@ -536,25 +729,20 @@ WRONG_TX_RES=$($BINARY tx shield shielded-exec \
     -y \
     --output json 2>&1)
 
+# ErrInvalidTargetEpoch is shield code 21; the ante handler returns it in
+# CheckTx (broadcast code) before anything is paid.
 WRONG_TXHASH=$(echo "$WRONG_TX_RES" | jq -r '.txhash // empty')
-
-if [ -z "$WRONG_TXHASH" ] || [ "$WRONG_TXHASH" == "null" ]; then
-    echo "  Wrong epoch tx rejected at broadcast — EXPECTED"
+WRONG_CODE=$(echo "$WRONG_TX_RES" | jq -r '.code // empty')
+if [ "$WRONG_CODE" == "0" ] && [ -n "$WRONG_TXHASH" ]; then
+    sleep 6
+    WRONG_CODE=$(wait_for_tx $WRONG_TXHASH | jq -r '.code // "0"')
+fi
+if [ "$WRONG_CODE" == "21" ]; then
+    echo "  Wrong epoch tx rejected with code 21 (target_epoch must be the current shield epoch)"
     record_result "Wrong target epoch rejected" "PASS"
 else
-    sleep 6
-    WRONG_RESULT=$(wait_for_tx $WRONG_TXHASH)
-    WRONG_CODE=$(echo "$WRONG_RESULT" | jq -r '.code')
-
-    if [ "$WRONG_CODE" != "0" ]; then
-        RAW_LOG=$(echo "$WRONG_RESULT" | jq -r '.raw_log // "unknown"')
-        echo "  Wrong epoch tx failed with code $WRONG_CODE — EXPECTED"
-        echo "  Error: $RAW_LOG"
-        record_result "Wrong target epoch rejected" "PASS"
-    else
-        echo "  WARNING: Wrong epoch tx SUCCEEDED"
-        record_result "Wrong target epoch rejected" "FAIL"
-    fi
+    echo "  Expected code 21, got '${WRONG_CODE:-none}': $(echo "$WRONG_TX_RES" | head -c 200)"
+    record_result "Wrong target epoch rejected" "FAIL"
 fi
 
 # =========================================================================
@@ -562,15 +750,16 @@ fi
 # =========================================================================
 echo "--- PART 12: Empty encrypted payload rejection ---"
 
-EMPTY_NULLIFIER_B64=$(openssl rand 32 | base64)
-EMPTY_RATE_B64=$(openssl rand 32 | base64)
+EMPTY_NULLIFIER_HEX=$(openssl rand -hex 32)
+EMPTY_RATE_HEX=$(openssl rand -hex 32)
 
 EMPTY_TX_RES=$($BINARY tx shield shielded-exec \
-    --exec-mode=2 \
-    --target-epoch="$REPLAY_EPOCH" \
-    --merkle-root="$MERKLE_ROOT_B64" \
-    --nullifier="$EMPTY_NULLIFIER_B64" \
-    --rate-limit-nullifier="$EMPTY_RATE_B64" \
+    --exec-mode=1 \
+    --target-epoch="$($BINARY query shield shield-epoch --output json 2>/dev/null | jq -r '.epoch_state.current_epoch // "0"')" \
+    --proof="$DUMMY_PROOF_HEX" \
+    --merkle-root="$TRUST_ROOT_HEX" \
+    --nullifier="$EMPTY_NULLIFIER_HEX" \
+    --rate-limit-nullifier="$EMPTY_RATE_HEX" \
     --proof-domain=1 \
     --min-trust-level=0 \
     --from submitter1 \
@@ -581,23 +770,19 @@ EMPTY_TX_RES=$($BINARY tx shield shielded-exec \
     -y \
     --output json 2>&1)
 
+# ErrMissingEncryptedPayload is shield code 19.
 EMPTY_TXHASH=$(echo "$EMPTY_TX_RES" | jq -r '.txhash // empty')
-
-if [ -z "$EMPTY_TXHASH" ] || [ "$EMPTY_TXHASH" == "null" ]; then
-    echo "  Empty payload tx rejected at broadcast — EXPECTED"
+EMPTY_CODE=$(echo "$EMPTY_TX_RES" | jq -r '.code // empty')
+if [ "$EMPTY_CODE" == "0" ] && [ -n "$EMPTY_TXHASH" ]; then
+    sleep 6
+    EMPTY_CODE=$(wait_for_tx $EMPTY_TXHASH | jq -r '.code // "0"')
+fi
+if [ "$EMPTY_CODE" == "19" ]; then
+    echo "  Empty payload tx rejected with code 19 (encrypted_payload is required)"
     record_result "Empty encrypted payload rejected" "PASS"
 else
-    sleep 6
-    EMPTY_RESULT=$(wait_for_tx $EMPTY_TXHASH)
-    EMPTY_CODE=$(echo "$EMPTY_RESULT" | jq -r '.code')
-
-    if [ "$EMPTY_CODE" != "0" ]; then
-        echo "  Empty payload tx failed with code $EMPTY_CODE — EXPECTED"
-        record_result "Empty encrypted payload rejected" "PASS"
-    else
-        echo "  WARNING: Empty payload tx SUCCEEDED"
-        record_result "Empty encrypted payload rejected" "FAIL"
-    fi
+    echo "  Expected code 19, got '${EMPTY_CODE:-none}': $(echo "$EMPTY_TX_RES" | head -c 200)"
+    record_result "Empty encrypted payload rejected" "FAIL"
 fi
 
 # =========================================================================
@@ -609,6 +794,7 @@ echo "============================================="
 echo ""
 echo "  Tests Passed: $PASS_COUNT"
 echo "  Tests Failed: $FAIL_COUNT"
+echo "  Tests Skipped: $SKIP_COUNT"
 echo ""
 
 for i in "${!TEST_NAMES[@]}"; do

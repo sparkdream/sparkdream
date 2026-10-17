@@ -61,16 +61,22 @@ message MsgShieldedExec {
   // REQUIRED for IMMEDIATE mode, EMPTY for ENCRYPTED_BATCH mode.
   google.protobuf.Any inner_message = 2;
 
-  // ZK proof bytes (Groth16 over BN254).
-  // REQUIRED for IMMEDIATE mode, EMPTY for ENCRYPTED_BATCH mode.
+  // ZK proof bytes (Groth16 over BN254), always required. IMMEDIATE: the
+  // operation proof, bound to inner_message. ENCRYPTED_BATCH: the submission
+  // proof, bound to encrypted_payload (MessageHash =
+  // ShieldMessageHash(BatchSubmissionTypeURL, encrypted_payload), Scope =
+  // ScopeElement(BatchSubmissionDomain, BatchSubmissionScope(payload))); the
+  // operation proof travels inside the ciphertext.
   bytes proof = 3;
 
   // --- Always cleartext (both modes) ---
 
-  // 32-byte nullifier (prevents replay)
+  // 32-byte nullifier. IMMEDIATE: the operation nullifier (prevents replay).
+  // ENCRYPTED_BATCH: the submission nullifier (one per payload and member;
+  // the operation nullifier is inside the ciphertext).
   bytes nullifier = 4;
 
-  // 32-byte rate-limit nullifier: H(secret, "rate_limit", epoch)
+  // 32-byte rate-limit nullifier: MiMC(secret_key, MaxUint64, epoch)
   bytes rate_limit_nullifier = 5;
 
   // Merkle root the proof was generated against
@@ -87,7 +93,8 @@ message MsgShieldedExec {
 
   // --- Encrypted batch mode fields ---
 
-  // IBE-encrypted payload containing (inner_message + proof)
+  // IBE-encrypted payload containing (inner_message + operation proof +
+  // operation nullifier), see tools/tle.EncodeExecFragment
   // REQUIRED for ENCRYPTED_BATCH mode, EMPTY for IMMEDIATE mode
   bytes encrypted_payload = 10;
 
@@ -107,7 +114,9 @@ message MsgTriggerDkg {
   option (cosmos.msg.v1.signer) = "authority";
   option (amino.name) = "sparkdream/x/shield/MsgTriggerDkg";
   string authority = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  // Optional threshold numerator (0 = default 2)
   uint64 threshold_numerator = 2;
+  // Optional threshold denominator (0 = default 3)
   uint64 threshold_denominator = 3;
 }
 message MsgTriggerDkgResponse {}

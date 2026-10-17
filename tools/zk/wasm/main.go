@@ -13,6 +13,8 @@
 //	publicKey(secretKeyHex)           → {"public_key": b64}
 //	loadKeys(provingKey, r1cs)        → {}                    (Uint8Arrays)
 //	prove(inputJSON)                  → {"proof", "nullifier", "rate_limit_nullifier", "merkle_root": b64, "trust_level": n}
+//	encrypt(inputJSON)                → {"encrypted_payload": b64, "submission_domain": n,
+//	                                     "submission_scope": "n", "submission_type_url": s}
 //
 // prove input: {"secret_key": hex, "root": b64, "depth": n,
 // "leaves": [{"index": "n", "hash": b64}], "min_trust_level": n,
@@ -29,6 +31,20 @@
 // "target_type,target_id" it is (target_type << 56) | target_id; for a
 // fallback path such as blog reactions' "reply_id|post_id" it is
 // (1 << 56) | reply_id when reply_id is non-zero, else post_id.
+//
+// encrypt input: {"master_public_key_g2": b64, "epoch": "n",
+// "inner_type_url": s, "inner_value": b64, "proof": b64, "nullifier": b64}
+// builds an encrypted-batch payload: the inner Any plus the operation proof
+// and nullifier from prove(), sealed to the chain's TLE master public key
+// (master_public_key_g2 of /sparkdream/shield/v1/tle_master_public_key) for
+// the current shield epoch. Prove the operation with rate_limit_epoch = that
+// epoch. Then prove the *submission*: call prove() again with domain =
+// submission_domain, scope = submission_scope, inner_type_url =
+// submission_type_url, inner_value = encrypted_payload and the same
+// rate_limit_epoch; submit MsgShieldedExec with exec_mode ENCRYPTED_BATCH,
+// target_epoch = epoch, encrypted_payload, and that second proof's proof,
+// nullifier, rate_limit_nullifier and merkle_root, leaving inner_message
+// empty. Nothing secret is needed to encrypt.
 package main
 
 import (
@@ -44,6 +60,7 @@ import (
 	"github.com/consensys/gnark/logger"
 
 	"sparkdream/tools/crypto"
+	"sparkdream/tools/tle"
 	"sparkdream/tools/zk/prover"
 )
 
@@ -71,6 +88,7 @@ func main() {
 		"publicKey":    js.FuncOf(wrap(publicKey)),
 		"loadKeys":     js.FuncOf(wrap(loadKeys)),
 		"prove":        js.FuncOf(wrap(prove)),
+		"encrypt":      js.FuncOf(wrap(encrypt)),
 	}))
 	select {}
 }
@@ -258,6 +276,50 @@ func prove(args []js.Value) (any, error) {
 		"rate_limit_nullifier": out.RateLimitNullifier,
 		"merkle_root":          out.MerkleRoot,
 		"trust_level":          trustLevel,
+	}, nil
+}
+
+type encryptInput struct {
+	MasterPublicKeyG2 []byte `json:"master_public_key_g2"`
+	Epoch             string `json:"epoch"`
+	InnerTypeURL      string `json:"inner_type_url"`
+	InnerValue        []byte `json:"inner_value"`
+	Proof             []byte `json:"proof"`
+	Nullifier         []byte `json:"nullifier"`
+}
+
+// encrypt seals an inner message and its proof for encrypted-batch
+// submission. The plaintext is the MsgShieldedExec fragment the chain
+// decodes at execution (tle.EncodeExecFragment); the ciphertext format and
+// KDF are tools/tle's, shared with the chain.
+func encrypt(args []js.Value) (any, error) {
+	if len(args) != 1 {
+		return nil, errors.New("encrypt(inputJSON)")
+	}
+	var in encryptInput
+	if err := json.Unmarshal([]byte(args[0].String()), &in); err != nil {
+		return nil, fmt.Errorf("input: %w", err)
+	}
+	epoch, err := strconv.ParseUint(in.Epoch, 10, 64)
+	if err != nil {
+		return nil, fmt.Errorf("epoch: %w", err)
+	}
+	if len(in.Proof) == 0 || len(in.Nullifier) != 32 {
+		return nil, errors.New("proof and 32-byte nullifier are required (prove() first)")
+	}
+	fragment, err := tle.EncodeExecFragment(in.InnerTypeURL, in.InnerValue, in.Proof, in.Nullifier)
+	if err != nil {
+		return nil, err
+	}
+	payload, err := tle.Encrypt(in.MasterPublicKeyG2, epoch, fragment)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{
+		"encrypted_payload":   payload,
+		"submission_domain":   tle.BatchSubmissionDomain,
+		"submission_scope":    strconv.FormatUint(tle.BatchSubmissionScope(payload), 10),
+		"submission_type_url": tle.BatchSubmissionTypeURL,
 	}, nil
 }
 

@@ -67,8 +67,9 @@ type Keeper struct {
 	// TLE miss counters (key: validator_address → miss count)
 	TLEMissCounters collections.Map[string, uint64]
 
-	// Pending shielded operations (key: op_id)
-	PendingOps collections.Map[uint64, types.PendingShieldedOp]
+	// Pending shielded operations (key: target_epoch + op_id). One epoch's
+	// batch is a prefix range, and counting per epoch walks keys only.
+	PendingOps collections.Map[collections.Pair[uint64, uint64], types.PendingShieldedOp]
 
 	// Pending op ID sequence
 	NextPendingOpId collections.Sequence
@@ -92,16 +93,27 @@ type Keeper struct {
 	// Reuses DKGContribution proto: FeldmanCommitments[0] = pub key, ProofOfPossession = PoP
 	DKGRegistrations collections.Map[string, types.DKGContribution]
 
-	// Per-submitter address rate limits for ante handler anti-spam (key: epoch + submitter → count)
-	SubmitterRateLimits collections.Map[collections.Pair[uint64, string], uint64]
-
 	// Pending op counter — maintained by SetPendingOp/DeletePendingOp to avoid full iteration
 	PendingOpCount collections.Item[uint64]
 
 	// TLE epoch participation ring buffer for sliding window liveness.
-	// Key: (validator_address, epoch_slot) → participated (true/false)
-	// epoch_slot = epoch % TleMissWindow, forming a ring buffer.
+	// Key: (validator_address, slot) → participated (true/false), where slot
+	// is TLEJudgedEpochs % tle_miss_window at judgement time, so the ring
+	// holds the last tle_miss_window *judged* epochs however sparse demands
+	// are. Reset whenever the key set changes.
 	TLEEpochParticipation collections.Map[collections.Pair[string, uint64], bool]
+
+	// TLEJudgedEpochs counts demanded epochs judged under the current key set.
+	TLEJudgedEpochs collections.Item[uint64]
+
+	// DKG complaints for the current round (key: dealer + complainer)
+	DKGComplaints collections.Map[collections.Pair[string, string], types.DKGComplaint]
+
+	// DecryptionDemands records, per closed epoch, the height at which the
+	// EndBlocker first asked validators for decryption shares (the batch
+	// became ready). Validators only release shares for demanded epochs, and
+	// TLE liveness judges an epoch one interval after its demand.
+	DecryptionDemands collections.Map[uint64, int64]
 }
 
 func NewKeeper(
@@ -157,7 +169,8 @@ func NewKeeper(
 			collections.StringKey, collections.Uint64Value),
 
 		PendingOps: collections.NewMap(sb, types.PendingOpsKey, "pendingOps",
-			collections.Uint64Key, codec.CollValue[types.PendingShieldedOp](cdc)),
+			collections.PairKeyCodec(collections.Uint64Key, collections.Uint64Key),
+			codec.CollValue[types.PendingShieldedOp](cdc)),
 
 		NextPendingOpId: collections.NewSequence(sb, types.NextPendingOpIdKey, "nextPendingOpId"),
 
@@ -180,16 +193,19 @@ func NewKeeper(
 		DKGRegistrations: collections.NewMap(sb, types.DKGRegistrationsKey, "dkgRegistrations",
 			collections.StringKey, codec.CollValue[types.DKGContribution](cdc)),
 
-		SubmitterRateLimits: collections.NewMap(sb, types.SubmitterRateLimitsKey, "submitterRateLimits",
-			collections.PairKeyCodec(collections.Uint64Key, collections.StringKey),
-			collections.Uint64Value),
-
 		PendingOpCount: collections.NewItem(sb, types.PendingOpCountKey, "pendingOpCount",
 			collections.Uint64Value),
 
 		TLEEpochParticipation: collections.NewMap(sb, types.TLEEpochParticipationKey, "tleEpochParticipation",
 			collections.PairKeyCodec(collections.StringKey, collections.Uint64Key),
 			collections.BoolValue),
+		DecryptionDemands: collections.NewMap(sb, types.DecryptionDemandsKey, "decryptionDemands",
+			collections.Uint64Key, collections.Int64Value),
+		TLEJudgedEpochs: collections.NewItem(sb, types.TLEJudgedEpochsKey, "tleJudgedEpochs",
+			collections.Uint64Value),
+		DKGComplaints: collections.NewMap(sb, types.DKGComplaintsKey, "dkgComplaints",
+			collections.PairKeyCodec(collections.StringKey, collections.StringKey),
+			codec.CollValue[types.DKGComplaint](cdc)),
 	}
 
 	schema, err := sb.Build()
@@ -262,7 +278,9 @@ func (k Keeper) getShieldAware(typeURL string) (types.ShieldAware, bool) {
 	if k.late.shieldAwareModules == nil {
 		return nil, false
 	}
-	// Match by longest prefix
+	// First matching prefix. Map order is random, so this is deterministic
+	// only because the registered prefixes are disjoint module namespaces
+	// ("/sparkdream.<module>.v1.").
 	for prefix, sa := range k.late.shieldAwareModules {
 		if len(typeURL) >= len(prefix) && typeURL[:len(prefix)] == prefix {
 			return sa, true
@@ -284,23 +302,4 @@ func (k Keeper) GetStakingKeeper() types.StakingKeeper {
 // GetAddressCodec returns the address codec. Used by ABCI handlers.
 func (k Keeper) GetAddressCodec() address.Codec {
 	return k.addressCodec
-}
-
-// GetSubmitterExecCount returns the number of MsgShieldedExec submissions by
-// a given submitter address in a given epoch. Used by the ante handler for
-// per-submitter anti-spam rate limiting (SHIELD-8).
-func (k Keeper) GetSubmitterExecCount(ctx context.Context, epoch uint64, submitter string) uint64 {
-	count, err := k.SubmitterRateLimits.Get(ctx, collections.Join(epoch, submitter))
-	if err != nil {
-		return 0
-	}
-	return count
-}
-
-// IncrementSubmitterExecCount increments the per-submitter exec count for the
-// given epoch. Used by the ante handler (SHIELD-8).
-func (k Keeper) IncrementSubmitterExecCount(ctx context.Context, epoch uint64, submitter string) {
-	key := collections.Join(epoch, submitter)
-	current := k.GetSubmitterExecCount(ctx, epoch, submitter)
-	_ = k.SubmitterRateLimits.Set(ctx, key, current+1)
 }

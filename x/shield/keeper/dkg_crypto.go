@@ -51,6 +51,28 @@ func aggregateFeldmanMasterKey(contributions []types.DKGContribution) ([]byte, e
 	return sum.MarshalBinary()
 }
 
+// aggregateFeldmanMasterKeyG2 computes the G2 master public key clients
+// encrypt to: MPK2 = Σ_i C_{i,0}^{G2} = s·G2 (same scalar as the G1 key,
+// which the G1/G2 consistency pairing check on every contribution enforces).
+func aggregateFeldmanMasterKeyG2(contributions []types.DKGContribution) ([]byte, error) {
+	if len(contributions) == 0 {
+		return nil, fmt.Errorf("no contributions")
+	}
+	g2 := dkgG2Suite.G2()
+	sum := g2.Point().Null()
+	for _, c := range contributions {
+		if len(c.FeldmanCommitmentsG2) == 0 {
+			return nil, fmt.Errorf("contribution from %s has no G2 commitments", c.ValidatorAddress)
+		}
+		point := g2.Point()
+		if err := point.UnmarshalBinary(c.FeldmanCommitmentsG2[0]); err != nil {
+			return nil, fmt.Errorf("invalid G2 C_0 from %s: %w", c.ValidatorAddress, err)
+		}
+		sum = sum.Add(sum, point)
+	}
+	return sum.MarshalBinary()
+}
+
 // computePublicShareFromCommitments computes the aggregate public share for validator at 1-based index j.
 // PubShare_j = Σ_i Eval(C_i, j) where Eval(C_i, j) = Σ_k C_{i,k} * j^k
 func computePublicShareFromCommitments(contributions []types.DKGContribution, j uint32) ([]byte, error) {
@@ -92,6 +114,28 @@ func evalCommitmentsAtIndex(commitments [][]byte, j uint32) (kyber.Point, error)
 	}
 
 	return result, nil
+}
+
+// VerifyEvaluation checks that evaluation is p(j) for the polynomial behind
+// the Feldman commitments: eval·G1 == Σ_k C_k · j^k. This is what a
+// validator checks on each evaluation dealt to it, and what the chain checks
+// on a dealer's justification.
+func VerifyEvaluation(commitments [][]byte, j uint32, evaluation []byte) error {
+	if j == 0 {
+		return fmt.Errorf("share index must be 1-based, got 0")
+	}
+	eval := tleSuite.Scalar()
+	if err := eval.UnmarshalBinary(evaluation); err != nil {
+		return fmt.Errorf("evaluation is not a scalar: %w", err)
+	}
+	want, err := evalCommitmentsAtIndex(commitments, j)
+	if err != nil {
+		return err
+	}
+	if !tleSuite.G1().Point().Mul(eval, nil).Equal(want) {
+		return fmt.Errorf("evaluation does not match the dealer's commitments at index %d", j)
+	}
+	return nil
 }
 
 // ValidateFeldmanCommitmentsG2 checks that each G2 commitment is a valid BN256 G2 point.
@@ -194,13 +238,13 @@ func AggregateFeldmanDKGFromContributions(contributions []types.DKGContribution,
 		return nil, fmt.Errorf("master key aggregation failed: %w", err)
 	}
 
-	// Check if all contributions include G2 commitments
-	hasG2 := true
-	for _, c := range contributions {
-		if len(c.FeldmanCommitmentsG2) == 0 {
-			hasG2 = false
-			break
-		}
+	// G2 commitments are mandatory: the G2 master key is what clients
+	// encrypt to and the G2 public shares are what decryption shares are
+	// verified against. The vote-extension and proposal checks reject
+	// contributions without them, so this only guards direct callers.
+	masterKeyG2, err := aggregateFeldmanMasterKeyG2(contributions)
+	if err != nil {
+		return nil, fmt.Errorf("G2 master key aggregation failed: %w", err)
 	}
 
 	var valShares []*types.TLEValidatorPublicShare
@@ -211,12 +255,9 @@ func AggregateFeldmanDKGFromContributions(contributions []types.DKGContribution,
 			return nil, fmt.Errorf("public share computation failed for %s: %w", valAddr, err)
 		}
 
-		var pubShareG2 []byte
-		if hasG2 {
-			pubShareG2, err = computePublicShareG2FromCommitments(contributions, idx)
-			if err != nil {
-				return nil, fmt.Errorf("G2 public share computation failed for %s: %w", valAddr, err)
-			}
+		pubShareG2, err := computePublicShareG2FromCommitments(contributions, idx)
+		if err != nil {
+			return nil, fmt.Errorf("G2 public share computation failed for %s: %w", valAddr, err)
 		}
 
 		valShares = append(valShares, &types.TLEValidatorPublicShare{
@@ -229,6 +270,7 @@ func AggregateFeldmanDKGFromContributions(contributions []types.DKGContribution,
 
 	return &types.TLEKeySet{
 		MasterPublicKey:      masterKey,
+		MasterPublicKeyG2:    masterKeyG2,
 		ThresholdNumerator:   dkgState.ThresholdNumerator,
 		ThresholdDenominator: dkgState.ThresholdDenominator,
 		ValidatorShares:      valShares,

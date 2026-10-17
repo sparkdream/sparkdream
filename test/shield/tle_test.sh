@@ -144,8 +144,8 @@ echo "--- PART 4: Query DKG state ---"
 DKG_STATE=$($BINARY query shield dkg-state --output json 2>&1)
 
 if echo "$DKG_STATE" | jq -e '.' > /dev/null 2>&1; then
-    PHASE=$(echo "$DKG_STATE" | jq -r '.state.phase // .phase // "unknown"')
-    ROUND=$(echo "$DKG_STATE" | jq -r '.state.round // .round // "0"')
+    PHASE=$(echo "$DKG_STATE" | jq -r '.dkg_state.phase // .phase // "unknown"')
+    ROUND=$(echo "$DKG_STATE" | jq -r '.dkg_state.round // .round // "0"')
 
     echo "  DKG phase: $PHASE"
     echo "  DKG round: $ROUND"
@@ -197,17 +197,23 @@ fi
 # =========================================================================
 # PART 6: Query TLE miss count for alice
 # =========================================================================
-echo "--- PART 6: Query TLE miss count for alice ---"
+echo "--- PART 6: Query TLE miss count for the validator ---"
 
-MISS_RESULT=$($BINARY query shield tle-miss-count "$ALICE_ADDR" --output json 2>&1)
-
-if echo "$MISS_RESULT" | jq -e '.' > /dev/null 2>&1; then
-    MISS_COUNT=$(echo "$MISS_RESULT" | jq -r '.miss_count // "0"')
-    echo "  Alice TLE miss count: $MISS_COUNT"
-    record_result "TLE miss count query" "PASS"
+# Miss counters are keyed by validator operator address (valoper), not by a
+# member account. A validator that never missed has a zero counter.
+VALOPER=$($BINARY query staking validators --output json 2>/dev/null | jq -r '.validators[0].operator_address // empty')
+if [ -z "$VALOPER" ]; then
+    echo "  No validator found in the staking set"
+    record_result "TLE miss count query" "FAIL"
 else
-    if echo "$MISS_RESULT" | grep -qi "not found"; then
-        echo "  TLE miss count: not found (expected — no TLE participation tracking yet)"
+    MISS_RESULT=$($BINARY query shield tle-miss-count "$VALOPER" --output json 2>&1)
+    MISS_COUNT=$(echo "$MISS_RESULT" | jq -r '.miss_count // empty' 2>/dev/null)
+    if echo "$MISS_RESULT" | jq -e 'has("miss_count")' > /dev/null 2>&1 || [ -n "$MISS_COUNT" ]; then
+        echo "  $VALOPER TLE miss count: ${MISS_COUNT:-0}"
+        record_result "TLE miss count query" "PASS"
+    elif echo "$MISS_RESULT" | jq -e '.' > /dev/null 2>&1; then
+        # proto3 omits a zero uint64 from JSON: an empty object is a zero count.
+        echo "  $VALOPER TLE miss count: 0"
         record_result "TLE miss count query" "PASS"
     else
         echo "  Failed to query TLE miss count"

@@ -72,8 +72,8 @@ if echo "$DKG_STATE" | grep -qi "not found\|error"; then
     echo "  DKG state: not found (expected on fresh chain — no ceremony triggered)"
     record_result "DKG state query (no ceremony)" "PASS"
 else
-    DKG_PHASE=$(echo "$DKG_STATE" | jq -r '.state.phase // "unknown"')
-    DKG_ROUND=$(echo "$DKG_STATE" | jq -r '.state.round // "0"')
+    DKG_PHASE=$(echo "$DKG_STATE" | jq -r '.dkg_state.phase // "unknown"')
+    DKG_ROUND=$(echo "$DKG_STATE" | jq -r '.dkg_state.round // "0"')
     echo "  DKG phase: $DKG_PHASE"
     echo "  DKG round: $DKG_ROUND"
 
@@ -132,11 +132,19 @@ fi
 # =========================================================================
 echo "--- TEST 4: Encrypted batch exec rejected (DKG not complete) ---"
 
+# A well-formed batch submission (hex payload, 32-byte nullifiers, a
+# proof-sized blob): the only thing wrong with it is that batch mode is off,
+# so the ante handler must refuse it with exactly ErrEncryptedBatchDisabled
+# (shield code 17) before anything is paid.
+CURRENT_EPOCH_T4=$($BINARY query shield shield-epoch --output json 2>/dev/null | jq -r '.epoch_state.current_epoch // "0"')
 TX_RES=$($BINARY tx shield shielded-exec \
     --exec-mode 1 \
-    --encrypted-payload "dGVzdHBheWxvYWQ=" \
-    --target-epoch 1 \
-    --nullifier "aaaa000000000000000000000000000000000000000000000000000000001111" \
+    --encrypted-payload "$(openssl rand -hex 160)" \
+    --target-epoch "$CURRENT_EPOCH_T4" \
+    --proof "$(openssl rand -hex 128)" \
+    --nullifier "$(openssl rand -hex 32)" \
+    --rate-limit-nullifier "$(openssl rand -hex 32)" \
+    --merkle-root "$(openssl rand -hex 32)" \
     --from submitter1 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
@@ -145,28 +153,26 @@ TX_RES=$($BINARY tx shield shielded-exec \
     --output json 2>&1)
 
 TEST4_PASS=false
-TXHASH=$(echo "$TX_RES" | jq -r '.txhash' 2>/dev/null)
+TXHASH=$(echo "$TX_RES" | jq -r '.txhash // empty' 2>/dev/null)
+BCAST_CODE=$(echo "$TX_RES" | jq -r '.code // empty' 2>/dev/null)
 
-if [ -z "$TXHASH" ] || [ "$TXHASH" == "null" ]; then
-    # Rejected at broadcast — check for encrypted batch disabled error
-    if echo "$TX_RES" | grep -qi "batch.*disabled\|not.*enabled\|encrypted\|disabled\|DKG\|invalid"; then
-        echo "  Correctly rejected: encrypted batch not available"
-        TEST4_PASS=true
-    else
-        echo "  Rejected (possibly bad args), checking response..."
-        echo "  Response: $(echo "$TX_RES" | head -c 200)"
-        # Any rejection is acceptable here — encrypted batch with no DKG should never succeed
-        TEST4_PASS=true
-    fi
+if [ -n "$TXHASH" ] && [ "$BCAST_CODE" == "17" ]; then
+    echo "  Correctly rejected in CheckTx with code 17 (encrypted batch mode is disabled)"
+    TEST4_PASS=true
+elif [ -z "$TXHASH" ]; then
+    echo "  Tx never reached the chain (client-side error, not the on-chain check):"
+    echo "  Response: $(echo "$TX_RES" | head -c 300)"
+    TEST4_PASS=false
 else
     sleep 6
     TX_RESULT=$(wait_for_tx "$TXHASH")
     CODE=$(echo "$TX_RESULT" | jq -r '.code')
-    if [ "$CODE" != "0" ]; then
-        RAW_LOG=$(echo "$TX_RESULT" | jq -r '.raw_log // ""')
-        echo "  Correctly failed on-chain (code=$CODE)"
-        echo "  Error: ${RAW_LOG:0:150}"
+    if [ "$CODE" == "17" ]; then
+        echo "  Correctly failed on-chain with code 17 (encrypted batch mode is disabled)"
         TEST4_PASS=true
+    elif [ "$CODE" != "0" ]; then
+        echo "  Failed with code $CODE, expected 17 (encrypted batch disabled): $(echo "$TX_RESULT" | jq -r '.raw_log // ""' | head -c 200)"
+        TEST4_PASS=false
     else
         echo "  ERROR: Encrypted batch exec succeeded without DKG!"
         TEST4_PASS=false
@@ -186,18 +192,20 @@ echo "--- TEST 5: TLE master public key unavailable ---"
 
 MPK_RESULT=$($BINARY query shield tle-master-public-key --output json 2>&1)
 
-if echo "$MPK_RESULT" | grep -qi "not found\|error\|empty\|null"; then
-    echo "  TLE master public key: not available (expected — no DKG)"
-    record_result "TLE master key unavailable (no DKG)" "PASS"
+# Without a DKG the query answers with an empty key set: both master keys
+# must be empty (clients encrypt to master_public_key_g2).
+if ! echo "$MPK_RESULT" | jq -e '.' > /dev/null 2>&1; then
+    echo "  Query failed: $(echo "$MPK_RESULT" | head -c 200)"
+    record_result "TLE master key unavailable (no DKG)" "FAIL"
 else
     MPK=$(echo "$MPK_RESULT" | jq -r '.master_public_key // ""')
-    if [ -z "$MPK" ] || [ "$MPK" == "null" ] || [ "$MPK" == "" ]; then
-        echo "  TLE master public key: empty (expected — no DKG)"
+    MPK_G2=$(echo "$MPK_RESULT" | jq -r '.master_public_key_g2 // ""')
+    if [ -z "$MPK" ] && [ -z "$MPK_G2" ]; then
+        echo "  TLE master public keys: empty (expected — no DKG)"
         record_result "TLE master key unavailable (no DKG)" "PASS"
     else
-        echo "  TLE master public key found: ${MPK:0:40}..."
-        echo "  (DKG may have been run previously)"
-        record_result "TLE master key unavailable (no DKG)" "PASS"
+        echo "  A master public key is present without a DKG: g1=${MPK:0:20} g2=${MPK_G2:0:20}"
+        record_result "TLE master key unavailable (no DKG)" "FAIL"
     fi
 fi
 
@@ -208,18 +216,18 @@ echo "--- TEST 6: TLE key set unavailable ---"
 
 KEY_SET=$($BINARY query shield tle-key-set --output json 2>&1)
 
-if echo "$KEY_SET" | grep -qi "not found\|error"; then
-    echo "  TLE key set: not found (expected — no DKG)"
-    record_result "TLE key set unavailable (no DKG)" "PASS"
+if ! echo "$KEY_SET" | jq -e '.' > /dev/null 2>&1; then
+    echo "  Query failed: $(echo "$KEY_SET" | head -c 200)"
+    record_result "TLE key set unavailable (no DKG)" "FAIL"
 else
-    KEY_COUNT=$(echo "$KEY_SET" | jq -r '.key_set.shares | length' 2>/dev/null || echo "0")
+    KEY_COUNT=$(echo "$KEY_SET" | jq -r '.key_set.validator_shares | length' 2>/dev/null || echo "0")
     echo "  TLE key set shares: $KEY_COUNT"
     if [ "$KEY_COUNT" == "0" ] || [ "$KEY_COUNT" == "null" ]; then
         echo "  No shares (expected — no DKG)"
         record_result "TLE key set unavailable (no DKG)" "PASS"
     else
-        echo "  Shares found (DKG may have been run)"
-        record_result "TLE key set unavailable (no DKG)" "PASS"
+        echo "  Validator shares present without a DKG"
+        record_result "TLE key set unavailable (no DKG)" "FAIL"
     fi
 fi
 
@@ -230,8 +238,10 @@ echo "--- TEST 7: Non-authority DKG trigger rejection ---"
 echo "  TriggerDKG is authority-gated and skipped in autocli."
 echo "  Verifying that submitter1 cannot invoke it..."
 
-# TriggerDKG is skipped in autocli, so the command won't exist.
-# Try to call it anyway — should get "unknown command" or similar
+# TriggerDKG is governance-only: autocli skips it, so no user-facing command
+# exists at all (the on-chain authority check is covered by the keeper unit
+# test TestTriggerDKGInvalidAuthority). Assert the command is really absent;
+# anything else (a flag error, a broadcast) would mean it was exposed.
 TX_RES=$($BINARY tx shield trigger-dkg \
     --from submitter1 \
     --chain-id $CHAIN_ID \
@@ -240,26 +250,12 @@ TX_RES=$($BINARY tx shield trigger-dkg \
     -y \
     --output json 2>&1)
 
-if echo "$TX_RES" | grep -qi "unknown command\|unknown flag\|not found\|invalid\|authority\|error"; then
-    echo "  Correctly rejected: trigger-dkg not accessible to non-authority"
+if echo "$TX_RES" | grep -qi "unknown command"; then
+    echo "  trigger-dkg is not a CLI command (governance-only message)"
     record_result "Non-authority DKG trigger rejected" "PASS"
 else
-    TXHASH=$(echo "$TX_RES" | jq -r '.txhash' 2>/dev/null)
-    if [ -z "$TXHASH" ] || [ "$TXHASH" == "null" ]; then
-        echo "  Rejected at broadcast level (expected)"
-        record_result "Non-authority DKG trigger rejected" "PASS"
-    else
-        sleep 6
-        TX_RESULT=$(wait_for_tx "$TXHASH")
-        CODE=$(echo "$TX_RESULT" | jq -r '.code')
-        if [ "$CODE" != "0" ]; then
-            echo "  Failed on-chain (code=$CODE) — authority check passed"
-            record_result "Non-authority DKG trigger rejected" "PASS"
-        else
-            echo "  ERROR: Non-authority DKG trigger succeeded!"
-            record_result "Non-authority DKG trigger rejected" "FAIL"
-        fi
-    fi
+    echo "  Unexpected response (command exposed?): $(echo "$TX_RES" | head -c 200)"
+    record_result "Non-authority DKG trigger rejected" "FAIL"
 fi
 
 # =========================================================================
@@ -269,25 +265,38 @@ echo "--- TEST 8: DKG-related params verification ---"
 
 MIN_TLE_VALIDATORS=$(echo "$PARAMS" | jq -r '.params.min_tle_validators // "0"')
 DKG_WINDOW=$(echo "$PARAMS" | jq -r '.params.dkg_window_blocks // "0"')
-TLE_LIVENESS_WINDOW=$(echo "$PARAMS" | jq -r '.params.tle_liveness_window // "0"')
+TLE_LIVENESS_WINDOW=$(echo "$PARAMS" | jq -r '.params.tle_miss_window // "0"')
 
 echo "  min_tle_validators:  $MIN_TLE_VALIDATORS"
 echo "  dkg_window_blocks:   $DKG_WINDOW"
-echo "  tle_liveness_window: $TLE_LIVENESS_WINDOW"
+echo "  tle_miss_window:     $TLE_LIVENESS_WINDOW"
 
 TEST8_PASS=true
 
+# min_tle_validators = 0 disables the ceremony; this suite expects it on.
 if [ "$MIN_TLE_VALIDATORS" == "0" ] || [ "$MIN_TLE_VALIDATORS" == "null" ]; then
-    echo "  WARNING: min_tle_validators is 0 or unset"
-    # Still pass — params may be set to 0 for testing
+    echo "  min_tle_validators is 0 or unset: DKG auto-trigger is disabled"
+    TEST8_PASS=false
 fi
 
-if [ "$DKG_WINDOW" == "0" ] || [ "$DKG_WINDOW" == "null" ]; then
-    echo "  WARNING: dkg_window_blocks is 0 or unset"
+# The window is split into four phases (register, deal, complain, justify);
+# fewer than 4 blocks would collapse a phase to nothing.
+if [ "$DKG_WINDOW" == "null" ] || [ "${DKG_WINDOW:-0}" -lt 4 ]; then
+    echo "  dkg_window_blocks ($DKG_WINDOW) is below the 4-block minimum for the four ceremony phases"
+    TEST8_PASS=false
 fi
 
-echo "  DKG-related params are accessible and well-formed"
-record_result "DKG params verification" "PASS"
+if [ "$TLE_LIVENESS_WINDOW" == "null" ] || [ "${TLE_LIVENESS_WINDOW:-0}" -lt 1 ]; then
+    echo "  tle_miss_window ($TLE_LIVENESS_WINDOW) must be at least 1"
+    TEST8_PASS=false
+fi
+
+if [ "$TEST8_PASS" == "true" ]; then
+    echo "  DKG-related params are set for a running ceremony"
+    record_result "DKG params verification" "PASS"
+else
+    record_result "DKG params verification" "FAIL"
+fi
 
 # =========================================================================
 # SUMMARY

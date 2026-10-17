@@ -24,8 +24,6 @@ const (
 	EventTypeShieldedOpDeregistered = "shielded_op_deregistered"
 
 	// DKG lifecycle
-	EventTypeShieldDKGTriggered    = "shield_dkg_triggered"
-	EventTypeShieldTLERegistered   = "shield_tle_registered"
 	EventTypeShieldDKGOpened       = "shield_dkg_opened"
 	EventTypeShieldDKGRegistration = "shield_dkg_registration"
 	EventTypeShieldDKGContribution = "shield_dkg_contribution"
@@ -33,10 +31,19 @@ const (
 	EventTypeShieldDKGActivated    = "shield_dkg_activated"
 	EventTypeShieldDKGFailed       = "shield_dkg_failed"
 	EventTypeShieldValidatorDrift  = "shield_validator_set_drift"
+	// A validator reported a dealer whose evaluation for it is missing or bad.
+	EventTypeShieldDKGComplaint = "shield_dkg_complaint"
+	// A dealer answered a complaint with a valid evaluation.
+	EventTypeShieldDKGJustification = "shield_dkg_justification"
+	// A dealer left a complaint unanswered and is excluded from the key set.
+	EventTypeShieldDKGDisqualified = "shield_dkg_disqualified"
 
 	// TLE liveness
 	EventTypeTLEMiss = "shield_tle_miss"
 	EventTypeTLEJail = "shield_tle_jail"
+	// A validator's decryption share failed verification (wrong epoch, not
+	// demanded, or the pairing check): it is dropped and counts as a miss.
+	EventTypeTLEInvalidShare = "shield_tle_invalid_share"
 
 	// Attribute keys
 	AttributeKeyMessageType        = "message_type"
@@ -61,7 +68,6 @@ const (
 	AttributeKeyCap                = "cap"
 	AttributeKeyError              = "error"
 	AttributeKeyValidator          = "validator"
-	AttributeKeyMissCount          = "miss_count"
 	AttributeKeyJailDuration       = "jail_duration"
 	AttributeKeyDecryptFailed      = "decrypt_failed"
 	AttributeKeyProofFailed        = "proof_failed"
@@ -69,4 +75,6 @@ const (
 	AttributeKeyDKGPhase           = "dkg_phase"
 	AttributeKeyContributionsCount = "contributions_count"
 	AttributeKeyDriftPercent       = "drift_percent"
+	AttributeKeyDealer             = "dealer"
+	AttributeKeyComplainer         = "complainer"
 )

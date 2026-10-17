@@ -45,7 +45,8 @@ var (
 	// TLE miss counters (key: validator_address)
 	TLEMissCountersKey = collections.NewPrefix("shield/tle_miss/")
 
-	// Pending shielded operations (key: op_id)
+	// Pending shielded operations (key: target_epoch + op_id, so one epoch's
+	// batch is a prefix range)
 	PendingOpsKey = collections.NewPrefix("shield/pending_ops/")
 
 	// Pending op ID sequence
@@ -69,13 +70,21 @@ var (
 	// DKG registrations — pub keys registered during REGISTERING phase (key: validator_operator_address)
 	DKGRegistrationsKey = collections.NewPrefix("shield/dkg_reg/")
 
-	// Per-submitter address rate limits for anti-spam (key: epoch + submitter_address → count)
-	SubmitterRateLimitsKey = collections.NewPrefix("shield/submitter_rate/")
-
 	// Pending op counter (singleton — avoids full iteration to count pending ops)
 	PendingOpCountKey = collections.NewPrefix("shield/pending_op_count")
 
 	// TLE epoch participation tracking for sliding window liveness.
 	// Key: (validator_address, epoch_mod_window) → bool (participated)
 	TLEEpochParticipationKey = collections.NewPrefix("shield/tle_part/")
+
+	// Decryption demands: closed epochs whose shares validators were asked for
+	// (key: epoch → height the demand was recorded at)
+	DecryptionDemandsKey = collections.NewPrefix("shield/dec_demand/")
+
+	// DKG complaints for the current round (key: dealer + complainer)
+	DKGComplaintsKey = collections.NewPrefix("shield/dkg_complaint/")
+
+	// Number of demanded epochs TLE liveness has judged under the current
+	// key set; its value mod tle_miss_window is the participation ring slot.
+	TLEJudgedEpochsKey = collections.NewPrefix("shield/tle_judged")
 )

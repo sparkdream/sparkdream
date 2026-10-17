@@ -152,8 +152,8 @@ func TestEncryptedBatchSubmissionHappyPath(t *testing.T) {
 	require.Equal(t, uint64(1), count)
 }
 
-// TestEncryptedBatchNullifierReplay verifies that submitting the same nullifier
-// twice in encrypted batch mode is rejected (ErrNullifierUsed).
+// TestEncryptedBatchNullifierReplay verifies that submitting the same
+// submission nullifier twice in encrypted batch mode is rejected.
 func TestEncryptedBatchNullifierReplay(t *testing.T) {
 	f, ms := initMsgServer(t)
 
@@ -197,7 +197,7 @@ func TestEncryptedBatchNullifierReplay(t *testing.T) {
 		ProofDomain:        types.ProofDomain_PROOF_DOMAIN_TRUST_TREE,
 	})
 	require.Error(t, err)
-	require.ErrorIs(t, err, types.ErrNullifierUsed)
+	require.ErrorIs(t, err, types.ErrInvalidSubmissionNullifier)
 }
 
 // TestEncryptedBatchRateLimitExhaustion verifies rate limits work in

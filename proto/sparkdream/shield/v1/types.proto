@@ -89,7 +89,8 @@ message ShieldedOpRegistration {
 
   // For NULLIFIER_SCOPE_EPOCH: the scope is current_epoch / epoch_window, so
   // each member gets one action per window of this many shield epochs instead
-  // of one per epoch. 0 or 1 = every epoch. Must be 0 for other scope types.
+  // of one per epoch. 0 or 1 = every epoch. Must be 0 or 1 for other scope
+  // types and for ownership ops.
   uint64 epoch_window = 10;
 }
 
@@ -103,7 +104,7 @@ message UsedNullifier {
 }
 
 // DayFunding tracks funding per day to enforce the daily cap.
-// Day is calculated as block_height / 14400 (at 6s/block = 1 day).
+// Day is the UTC day of the block time (block_time / 86400).
 message DayFunding {
   uint64 day = 1;
   string amount_funded = 2 [
@@ -113,17 +114,25 @@ message DayFunding {
   ];
 }
 
-// PendingShieldedOp is stored in queue until the shield epoch boundary triggers batch execution.
+// PendingShieldedOp is stored in queue until its epoch has closed, its batch was
+// demanded and the epoch key exists; it then executes in that block.
 message PendingShieldedOp {
   uint64 id = 1;
   uint64 target_epoch = 2;
-  bytes nullifier = 3;
+  // Submission nullifier proven at submission: MiMC(secret, ScopeElement(
+  // BatchSubmissionDomain, BatchSubmissionScope(encrypted_payload))). One per
+  // payload and member; it deduplicates submissions and is unrelated to the
+  // operation's own nullifier, which travels inside the ciphertext.
+  bytes submission_nullifier = 3;
   bytes merkle_root = 4;
   ProofDomain proof_domain = 5;
   uint32 min_trust_level = 6;
   bytes encrypted_payload = 7;
   int64 submitted_at_height = 8;
   uint64 submitted_at_epoch = 9;
+  // Rate-limit nullifier proven by the submission proof (same member, same
+  // epoch); the decrypted operation proof must reproduce it.
+  bytes rate_limit_nullifier = 10;
 }
 
 // ShieldEpochState tracks the current shield epoch and decryption key availability.
@@ -154,6 +163,10 @@ message TLEKeySet {
   uint64 threshold_denominator = 3; // e.g. 3 -> 2/3 threshold
   repeated TLEValidatorPublicShare validator_shares = 4;
   int64 created_at_height = 5;
+  // BN256 G2 point s*G2: what clients encrypt to (tools/tle). The G1 key
+  // above cannot be encrypted to on a type-3 pairing; it stays for share
+  // bookkeeping.
+  bytes master_public_key_g2 = 6;
 }
 
 // TLEValidatorPublicShare stores a validator's public key share from the DKG.
@@ -172,8 +185,15 @@ enum DKGPhase {
   DKG_PHASE_REGISTERING = 1;
   // Key registration closed; accepting Feldman DKG contributions
   DKG_PHASE_CONTRIBUTING = 2;
-  // DKG complete, master key available, encrypted batch enabled
+  // DKG complete, master key available
   DKG_PHASE_ACTIVE = 3;
+  // Contributions closed; validators report dealers whose evaluation for
+  // them is missing, undecryptable or inconsistent with the commitments
+  DKG_PHASE_COMPLAINING = 4;
+  // Complaints closed; accused dealers publish the disputed evaluations in
+  // clear. A dealer with an unjustified complaint at the deadline is
+  // disqualified from the key set.
+  DKG_PHASE_JUSTIFYING = 5;
 }
 
 // DKGState tracks the current state of the on-chain Feldman DKG ceremony.
@@ -197,11 +217,24 @@ message DKGState {
   uint64 threshold_numerator = 6;
   uint64 threshold_denominator = 7;
 
-  // Snapshot of bonded validator addresses at DKG start
+  // DKG participants, 1-based Shamir index = position + 1. Snapshot of the
+  // bonded set at open; narrowed to the validators that registered a key
+  // when CONTRIBUTING starts (a validator without a registered key could
+  // never receive its evaluations).
   repeated string expected_validators = 8;
 
   // Number of contributions received so far
   uint64 contributions_received = 9;
+
+  // Block height when COMPLAINING ends and JUSTIFYING starts
+  int64 complaint_deadline = 10;
+
+  // Block height when JUSTIFYING ends and the key set is aggregated
+  int64 justification_deadline = 11;
+
+  // Dealers excluded from aggregation: a complaint against them stood
+  // unjustified at the justification deadline.
+  repeated string disqualified_dealers = 12;
 }
 
 // DKGContribution is a validator's Feldman DKG contribution.
@@ -277,6 +310,37 @@ message DKGVoteExtension {
   uint64 decryption_epoch = 9;
   // Epoch decryption share: secret_share_i * H_to_G1(epoch)
   bytes decryption_share = 10;
+
+  // --- COMPLAINING phase data ---
+  // 1-based indices of dealers whose evaluation for this validator is
+  // missing, does not decrypt, or does not match their commitments
+  repeated uint32 complaints = 11;
+
+  // --- JUSTIFYING phase data ---
+  // The dealer's answers to complaints against it: the disputed evaluations
+  // in clear, verifiable against its Feldman commitments
+  repeated DKGJustification justifications = 12;
+}
+
+// DKGJustification is a dealer's public answer to a complaint: p_i(j) for the
+// complaining validator j, which anyone checks against the dealer's Feldman
+// commitments.
+message DKGJustification {
+  // 1-based index of the complaining validator
+  uint32 complainer_index = 1;
+  // p_i(complainer_index) as a BN256 scalar
+  bytes evaluation = 2;
+}
+
+// DKGComplaint records a complaint by complainer_address against
+// dealer_address in the current round and, once the dealer answers with a
+// valid evaluation, that evaluation (the complainer uses it in place of the
+// ciphertext it could not open).
+message DKGComplaint {
+  string dealer_address = 1;
+  string complainer_address = 2;
+  bool justified = 3;
+  bytes evaluation = 4;
 }
 
 // InjectedDKGData is the aggregated shield data injected by the block proposer
@@ -334,4 +398,12 @@ message IdentityRateLimitEntry {
 message TLEMissCounterEntry {
   string validator_address = 1;
   uint64 miss_count = 2;
+}
+
+// DecryptionDemandEntry records that the EndBlocker asked validators for
+// decryption shares of a closed epoch (its batch became ready) at a height.
+// TLE liveness for that epoch is judged one full epoch interval later.
+message DecryptionDemandEntry {
+  uint64 epoch = 1;
+  int64 height = 2;
 }

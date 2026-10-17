@@ -91,7 +91,7 @@ func TestShieldVerificationKeysParse(t *testing.T) {
 	for _, network := range networks {
 		t.Run(network, func(t *testing.T) {
 			// Mainnet ships none until its ceremony; an empty list is valid
-			// (production builds then refuse every exec).
+			// only with shield disabled (TestShieldEnabledHasVerificationKey).
 			for _, elem := range shieldField(t, network, "verification_keys") {
 				var vk shieldtypes.VerificationKey
 				u := &jsonpb.Unmarshaler{AllowUnknownFields: false}
@@ -113,6 +113,47 @@ func TestShieldVerificationKeysParse(t *testing.T) {
 						network, vk.CircuitId, len(vk.VkBytes)-int(n))
 				}
 			}
+		})
+	}
+}
+
+// TestShieldEnabledHasVerificationKey mirrors the InitGenesis launch gate: a
+// production build refuses to start a genesis that enables shield without a
+// shield_v1 key, so catch it here rather than at chain start.
+func TestShieldEnabledHasVerificationKey(t *testing.T) {
+	for _, network := range networks {
+		t.Run(network, func(t *testing.T) {
+			appState, ok, err := audit.LoadGenesis(baseDir, network)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !ok {
+				t.Skipf("%s/genesis.json not yet present", network)
+			}
+			raw, _, err := audit.ModuleField(appState, "shield", "params")
+			if err != nil {
+				t.Fatal(err)
+			}
+			var params struct {
+				Enabled bool `json:"enabled"`
+			}
+			if err := json.Unmarshal(raw, &params); err != nil {
+				t.Fatalf("parse shield.params on %s: %v", network, err)
+			}
+			if !params.Enabled {
+				return
+			}
+			for _, elem := range shieldField(t, network, "verification_keys") {
+				var vk struct {
+					CircuitID string `json:"circuit_id"`
+					VkBytes   string `json:"vk_bytes"`
+				}
+				if err := json.Unmarshal(elem, &vk); err == nil && vk.CircuitID == shieldtypes.ShieldCircuitID && vk.VkBytes != "" {
+					return
+				}
+			}
+			t.Errorf("%s enables shield without a %s verification key; production builds refuse to start it",
+				network, shieldtypes.ShieldCircuitID)
 		})
 	}
 }

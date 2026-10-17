@@ -7,11 +7,10 @@ import (
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/stretchr/testify/require"
-	"go.dedis.ch/kyber/v4/encrypt/ecies"
-	"go.dedis.ch/kyber/v4/pairing/bn256"
 	"go.dedis.ch/kyber/v4/util/random"
 
 	zkcrypto "sparkdream/tools/crypto"
+	"sparkdream/tools/tle"
 	"sparkdream/tools/zk/prover"
 	"sparkdream/x/shield/keeper"
 	"sparkdream/x/shield/types"
@@ -63,13 +62,12 @@ func TestEncryptedBatchVerifiesAgainstSubmissionEpoch(t *testing.T) {
 	}))
 	msgHash := zkcrypto.ShieldMessageHash(inner.TypeUrl, inner.Value)
 
-	// Epoch key material: the chain stores a G1 point; the ECIES scalar is
-	// derived from its bytes exactly as decryptPayload does.
-	suite := bn256.NewSuiteG1()
-	epochPoint := suite.Point().Mul(suite.Scalar().Pick(random.New()), nil)
-	keyBytes, err := epochPoint.MarshalBinary()
-	require.NoError(t, err)
-	eciesPub := suite.Point().Mul(suite.Scalar().Pick(suite.XOF(keyBytes)), nil)
+	// Key material as a real client sees it: only the G2 master public key.
+	// The chain later holds the epoch key s*H1(epoch) (here computed from s;
+	// on a live chain reconstructed from validator shares).
+	master := tle.Suite.G1().Scalar().Pick(random.New())
+	mpkG2 := tle.MasterPublicKeyG2(master)
+	keyBytes := tle.EpochDecryptionKey(master, submitEpoch)
 
 	ms2 := members(t, 4, 5)
 	submitter, err := f.addressCodec.BytesToString([]byte("batch_submitter_____"))
@@ -89,26 +87,61 @@ func TestEncryptedBatchVerifiesAgainstSubmissionEpoch(t *testing.T) {
 			MerkleProof:    m.path,
 		})
 		require.NoError(t, err)
-		plaintext, err := (&types.MsgShieldedExec{
-			InnerMessage:       inner,
-			Proof:              out.ProofBytes,
-			RateLimitNullifier: out.RateLimitNullifier,
-		}).Marshal()
+		// The web client's hand-rolled fragment must decode as the SDK type.
+		plaintext, err := tle.EncodeExecFragment(inner.TypeUrl, inner.Value, out.ProofBytes, out.Nullifier)
 		require.NoError(t, err)
-		payload, err := ecies.Encrypt(suite, eciesPub, plaintext, nil)
+		sdkPlain, err := (&types.MsgShieldedExec{InnerMessage: inner, Proof: out.ProofBytes, Nullifier: out.Nullifier}).Marshal()
 		require.NoError(t, err)
+		require.Equal(t, sdkPlain, plaintext, "fragment encoding drifted from the SDK codec")
+		payload, err := tle.Encrypt(mpkG2, submitEpoch, plaintext)
+		require.NoError(t, err)
+		// The submission proof: same member, current epoch, bound to the
+		// ciphertext (domain/scope/message as the web client derives them).
+		sub, err := z.prover.GenerateProof(&prover.ShieldProofInput{
+			SecretKey:      m.sk,
+			TrustLevel:     2,
+			MinTrustLevel:  1,
+			Domain:         tle.BatchSubmissionDomain,
+			Scope:          tle.BatchSubmissionScope(payload),
+			RateLimitEpoch: submitEpoch,
+			MessageHash:    zkcrypto.ShieldMessageHash(tle.BatchSubmissionTypeURL, payload),
+			MerkleRoot:     m.path.Root,
+			MerkleProof:    m.path,
+		})
+		require.NoError(t, err)
+		require.NotEqual(t, out.Nullifier, sub.Nullifier, "submission and operation nullifiers are unlinkable")
+		// A submission whose proof was made for a different payload, or by
+		// someone who merely copied the payload, is refused before anything is
+		// queued: the submission nullifier belongs to the prover and payload.
+		tampered := append([]byte(nil), payload...)
+		tampered[len(tampered)-1] ^= 1
+		_, err = ms.ShieldedExec(f.ctx, &types.MsgShieldedExec{
+			Submitter:          submitter,
+			ExecMode:           types.ShieldExecMode_SHIELD_EXEC_ENCRYPTED_BATCH,
+			EncryptedPayload:   tampered,
+			TargetEpoch:        submitEpoch,
+			Proof:              sub.ProofBytes,
+			Nullifier:          sub.Nullifier,
+			RateLimitNullifier: sub.RateLimitNullifier,
+			MerkleRoot:         sub.MerkleRoot,
+			ProofDomain:        types.ProofDomain_PROOF_DOMAIN_TRUST_TREE,
+			MinTrustLevel:      1,
+		})
+		require.ErrorIs(t, err, types.ErrInvalidProof)
 		_, err = ms.ShieldedExec(f.ctx, &types.MsgShieldedExec{
 			Submitter:          submitter,
 			ExecMode:           types.ShieldExecMode_SHIELD_EXEC_ENCRYPTED_BATCH,
 			EncryptedPayload:   payload,
 			TargetEpoch:        submitEpoch,
-			Nullifier:          out.Nullifier,
-			RateLimitNullifier: out.RateLimitNullifier,
-			MerkleRoot:         out.MerkleRoot,
+			Proof:              sub.ProofBytes,
+			Nullifier:          sub.Nullifier,
+			RateLimitNullifier: sub.RateLimitNullifier,
+			MerkleRoot:         sub.MerkleRoot,
 			ProofDomain:        types.ProofDomain_PROOF_DOMAIN_TRUST_TREE,
 			MinTrustLevel:      1,
 		})
 		require.NoError(t, err)
+
 		return out
 	}
 	good := submit(ms2[0], submitEpoch)    // bound to the epoch it is submitted in

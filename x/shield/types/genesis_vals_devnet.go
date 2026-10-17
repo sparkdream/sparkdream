@@ -29,5 +29,6 @@ func getShieldGenesisParams() Params {
 		DkgWindowBlocks:             100, // ~10 min (production: 200)
 		MaxValidatorSetDrift:        33,
 		MaxFeePerExec:               math.NewInt(50_000), // 0.05 SPARK per exec
+		EnableBatchAfterDkg:         false,               // governance enables batch mode after the DKG
 	}
 }

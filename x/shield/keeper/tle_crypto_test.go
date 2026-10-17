@@ -4,10 +4,10 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"go.dedis.ch/kyber/v4/encrypt/ecies"
 	"go.dedis.ch/kyber/v4/pairing/bn256"
 	"go.dedis.ch/kyber/v4/sign/schnorr"
 
+	"sparkdream/tools/tle"
 	"sparkdream/x/shield/types"
 )
 
@@ -69,82 +69,61 @@ func TestComputeEpochTag(t *testing.T) {
 
 func TestVerifyDecryptionShare(t *testing.T) {
 	privKey := tleSuite.Scalar().Pick(tleSuite.RandomStream())
-	pubKey := tleSuite.Point().Mul(privKey, nil)
-	pubKeyBytes, _ := pubKey.MarshalBinary()
-
-	// Compute G2 public share: pubKey_G2 = privKey * G2_gen
 	g2Suite := bn256.NewSuiteG2()
-	pubKeyG2 := g2Suite.G2().Point().Mul(privKey, nil)
-	pubKeyG2Bytes, _ := pubKeyG2.MarshalBinary()
+	pubKeyG2Bytes, _ := g2Suite.G2().Point().Mul(privKey, nil).MarshalBinary()
 
-	epochTagPoint := tleSuite.Point().Pick(tleSuite.XOF([]byte("shield_epoch_1")))
-	epochTagBytes, _ := epochTagPoint.MarshalBinary()
-
-	sharePoint := tleSuite.Point().Mul(privKey, epochTagPoint)
-	shareBytes, _ := sharePoint.MarshalBinary()
+	const epoch = uint64(1)
+	shareBytes := tle.DecryptionShare(privKey, epoch)
 
 	t.Run("valid share passes pairing check", func(t *testing.T) {
-		err := verifyDecryptionShare(shareBytes, pubKeyBytes, pubKeyG2Bytes, epochTagBytes, 1, 1)
-		require.NoError(t, err)
+		require.NoError(t, verifyDecryptionShare(shareBytes, pubKeyG2Bytes, epoch))
 	})
 
 	t.Run("nil G2 share rejected", func(t *testing.T) {
-		err := verifyDecryptionShare(shareBytes, pubKeyBytes, nil, epochTagBytes, 1, 1)
+		err := verifyDecryptionShare(shareBytes, nil, epoch)
 		require.Error(t, err)
-		require.Contains(t, err.Error(), "G2 public key share is required")
+		require.Contains(t, err.Error(), "no G2 public share")
 	})
 
 	t.Run("pairing check rejects wrong share", func(t *testing.T) {
 		wrongKey := tleSuite.Scalar().Pick(tleSuite.RandomStream())
-		wrongSharePoint := tleSuite.Point().Mul(wrongKey, epochTagPoint)
-		wrongShareBytes, _ := wrongSharePoint.MarshalBinary()
-		err := verifyDecryptionShare(wrongShareBytes, pubKeyBytes, pubKeyG2Bytes, epochTagBytes, 1, 1)
+		err := verifyDecryptionShare(tle.DecryptionShare(wrongKey, epoch), pubKeyG2Bytes, epoch)
 		require.Error(t, err)
-		require.Contains(t, err.Error(), "pairing check failed")
+		require.Contains(t, err.Error(), "does not match")
 	})
 
 	t.Run("pairing check rejects mismatched G2 key", func(t *testing.T) {
-		// G2 key for a DIFFERENT private key
 		wrongPriv := tleSuite.Scalar().Pick(tleSuite.RandomStream())
-		wrongG2 := g2Suite.G2().Point().Mul(wrongPriv, nil)
-		wrongG2Bytes, _ := wrongG2.MarshalBinary()
-		err := verifyDecryptionShare(shareBytes, pubKeyBytes, wrongG2Bytes, epochTagBytes, 1, 1)
+		wrongG2Bytes, _ := g2Suite.G2().Point().Mul(wrongPriv, nil).MarshalBinary()
+		err := verifyDecryptionShare(shareBytes, wrongG2Bytes, epoch)
 		require.Error(t, err)
-		require.Contains(t, err.Error(), "pairing check failed")
+		require.Contains(t, err.Error(), "does not match")
 	})
 
-	t.Run("share index mismatch rejected", func(t *testing.T) {
-		err := verifyDecryptionShare(shareBytes, pubKeyBytes, pubKeyG2Bytes, epochTagBytes, 2, 1)
+	t.Run("share for another epoch rejected", func(t *testing.T) {
+		err := verifyDecryptionShare(shareBytes, pubKeyG2Bytes, epoch+1)
 		require.Error(t, err)
-		require.Contains(t, err.Error(), "share index mismatch")
+		require.Contains(t, err.Error(), "does not match")
 	})
 
 	t.Run("invalid share bytes rejected", func(t *testing.T) {
-		err := verifyDecryptionShare([]byte("not a point"), pubKeyBytes, pubKeyG2Bytes, epochTagBytes, 1, 1)
+		err := verifyDecryptionShare([]byte("not a point"), pubKeyG2Bytes, epoch)
 		require.Error(t, err)
-		require.Contains(t, err.Error(), "not a valid G1 point")
+		require.Contains(t, err.Error(), "not a G1 point")
 	})
 
 	t.Run("identity element share rejected", func(t *testing.T) {
-		identity := tleSuite.G1().Point().Null()
-		identityBytes, _ := identity.MarshalBinary()
-		err := verifyDecryptionShare(identityBytes, pubKeyBytes, pubKeyG2Bytes, epochTagBytes, 1, 1)
+		identityBytes, _ := tleSuite.G1().Point().Null().MarshalBinary()
+		err := verifyDecryptionShare(identityBytes, pubKeyG2Bytes, epoch)
 		require.Error(t, err)
-		require.Contains(t, err.Error(), "identity element")
-	})
-
-	t.Run("invalid epoch tag rejected", func(t *testing.T) {
-		err := verifyDecryptionShare(shareBytes, pubKeyBytes, pubKeyG2Bytes, []byte("bad"), 1, 1)
-		require.Error(t, err)
-		require.Contains(t, err.Error(), "invalid epoch tag")
+		require.Contains(t, err.Error(), "identity")
 	})
 
 	t.Run("identity G2 share rejected", func(t *testing.T) {
-		identityG2 := g2Suite.G2().Point().Null()
-		identityG2Bytes, _ := identityG2.MarshalBinary()
-		err := verifyDecryptionShare(shareBytes, pubKeyBytes, identityG2Bytes, epochTagBytes, 1, 1)
+		identityG2Bytes, _ := g2Suite.G2().Point().Null().MarshalBinary()
+		err := verifyDecryptionShare(shareBytes, identityG2Bytes, epoch)
 		require.Error(t, err)
-		require.Contains(t, err.Error(), "G2 public key share is the identity element")
+		require.Contains(t, err.Error(), "identity")
 	})
 }
 
@@ -153,22 +132,28 @@ func TestVerifyProofOfPossession(t *testing.T) {
 	pubKey := tleSuite.Point().Mul(privKey, nil)
 	pubKeyBytes, _ := pubKey.MarshalBinary()
 	validatorAddr := "sprkdrmvaloper1testval"
-	pop, err := schnorr.Sign(tleSuite, privKey, []byte(validatorAddr))
+	const round = uint64(3)
+	pop, err := schnorr.Sign(tleSuite, privKey, PoPMessage(validatorAddr, round))
 	require.NoError(t, err)
 
 	t.Run("valid PoP passes", func(t *testing.T) {
-		err := verifyProofOfPossession(pubKeyBytes, pop, validatorAddr)
+		err := VerifyProofOfPossession(pubKeyBytes, pop, validatorAddr, round)
 		require.NoError(t, err)
 	})
 
 	t.Run("empty PoP rejected", func(t *testing.T) {
-		err := verifyProofOfPossession(pubKeyBytes, nil, validatorAddr)
+		err := VerifyProofOfPossession(pubKeyBytes, nil, validatorAddr, round)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "empty")
 	})
 
 	t.Run("wrong address fails", func(t *testing.T) {
-		err := verifyProofOfPossession(pubKeyBytes, pop, "sprkdrmvaloper1other")
+		err := VerifyProofOfPossession(pubKeyBytes, pop, "sprkdrmvaloper1other", round)
+		require.Error(t, err)
+	})
+
+	t.Run("another round fails (no replay across rounds)", func(t *testing.T) {
+		err := VerifyProofOfPossession(pubKeyBytes, pop, validatorAddr, round+1)
 		require.Error(t, err)
 	})
 
@@ -176,12 +161,18 @@ func TestVerifyProofOfPossession(t *testing.T) {
 		otherPriv := tleSuite.Scalar().Pick(tleSuite.RandomStream())
 		otherPub := tleSuite.Point().Mul(otherPriv, nil)
 		otherPubBytes, _ := otherPub.MarshalBinary()
-		err := verifyProofOfPossession(otherPubBytes, pop, validatorAddr)
+		err := VerifyProofOfPossession(otherPubBytes, pop, validatorAddr, round)
+		require.Error(t, err)
+	})
+
+	t.Run("identity key rejected", func(t *testing.T) {
+		id, _ := tleSuite.G1().Point().Null().MarshalBinary()
+		err := VerifyProofOfPossession(id, pop, validatorAddr, round)
 		require.Error(t, err)
 	})
 
 	t.Run("invalid pub share bytes rejected", func(t *testing.T) {
-		err := verifyProofOfPossession([]byte("bad"), pop, validatorAddr)
+		err := VerifyProofOfPossession([]byte("bad"), pop, validatorAddr, round)
 		require.Error(t, err)
 	})
 }
@@ -248,84 +239,34 @@ func TestReconstructEpochDecryptionKey(t *testing.T) {
 	})
 }
 
-func TestComputeMasterPublicKey(t *testing.T) {
-	t.Run("no shares returns error", func(t *testing.T) {
-		_, err := computeMasterPublicKey(nil, 1)
-		require.Error(t, err)
-		require.Contains(t, err.Error(), "no validator shares")
-	})
-
-	t.Run("insufficient valid shares returns error", func(t *testing.T) {
-		shares := []*types.TLEValidatorPublicShare{
-			{ValidatorAddress: "val1", PublicShare: []byte("bad"), ShareIndex: 1},
-		}
-		_, err := computeMasterPublicKey(shares, 1)
-		require.Error(t, err)
-		require.Contains(t, err.Error(), "insufficient valid shares")
-	})
-
-	t.Run("valid shares produce master key", func(t *testing.T) {
-		p1 := tleSuite.G1().Point().Pick(tleSuite.RandomStream())
-		p1Bytes, _ := p1.MarshalBinary()
-		p2 := tleSuite.G1().Point().Pick(tleSuite.RandomStream())
-		p2Bytes, _ := p2.MarshalBinary()
-
-		shares := []*types.TLEValidatorPublicShare{
-			{ValidatorAddress: "val1", PublicShare: p1Bytes, ShareIndex: 1},
-			{ValidatorAddress: "val2", PublicShare: p2Bytes, ShareIndex: 2},
-		}
-		mpk, err := computeMasterPublicKey(shares, 1)
-		require.NoError(t, err)
-		require.NotEmpty(t, mpk)
-
-		result := tleSuite.G1().Point()
-		require.NoError(t, result.UnmarshalBinary(mpk))
-	})
-}
-
 func TestDecryptPayload(t *testing.T) {
+	master := tleSuite.Scalar().Pick(tleSuite.RandomStream())
+	mpkG2 := tle.MasterPublicKeyG2(master)
+
 	t.Run("invalid decryption key rejected", func(t *testing.T) {
-		_, err := decryptPayload([]byte("encrypted"), []byte("not a G1 point"))
+		ct, err := tle.Encrypt(mpkG2, 3, []byte("x"))
+		require.NoError(t, err)
+		_, err = decryptPayload(ct, []byte("not a G1 point"), 3)
 		require.Error(t, err)
-		require.Contains(t, err.Error(), "invalid decryption key")
+		require.Contains(t, err.Error(), "not a G1 point")
 	})
 
 	t.Run("decryption fails with wrong key", func(t *testing.T) {
-		// Generate two different key points
-		keyPoint := tleSuite.G1().Point().Pick(tleSuite.RandomStream())
-		keyBytes, _ := keyPoint.MarshalBinary()
-
-		wrongKeyPoint := tleSuite.G1().Point().Pick(tleSuite.RandomStream())
-		wrongKeyBytes, _ := wrongKeyPoint.MarshalBinary()
-
-		// Derive the scalar from the correct key and encrypt with it
-		derivedScalar := tleSuite.Scalar().Pick(tleSuite.XOF(keyBytes))
-		derivedPub := tleSuite.Point().Mul(derivedScalar, nil)
-		encrypted, err := ecies.Encrypt(tleSuite, derivedPub, []byte("test"), nil)
+		ct, err := tle.Encrypt(mpkG2, 3, []byte("test"))
 		require.NoError(t, err)
-
-		// Try to decrypt with the wrong key — should fail
-		_, err = decryptPayload(encrypted, wrongKeyBytes)
-		require.Error(t, err)
-		require.Contains(t, err.Error(), "ECIES decryption failed")
+		other := tleSuite.Scalar().Pick(tleSuite.RandomStream())
+		_, err = decryptPayload(ct, tle.EpochDecryptionKey(other, 3), 3)
+		require.ErrorIs(t, err, tle.ErrDecrypt)
+		// The right master secret, another epoch's key.
+		_, err = decryptPayload(ct, tle.EpochDecryptionKey(master, 4), 3)
+		require.ErrorIs(t, err, tle.ErrDecrypt)
 	})
 
-	t.Run("round trip encrypt then decrypt", func(t *testing.T) {
-		// Generate a "decryption key" as a G1 point
-		keyPoint := tleSuite.G1().Point().Pick(tleSuite.RandomStream())
-		keyBytes, _ := keyPoint.MarshalBinary()
-
-		// Derive the scalar the same way decryptPayload does
-		derivedScalar := tleSuite.Scalar().Pick(tleSuite.XOF(keyBytes))
-		derivedPub := tleSuite.Point().Mul(derivedScalar, nil)
-
-		// Encrypt with the derived public key
+	t.Run("round trip: client encrypts to the G2 master key, chain decrypts with the epoch key", func(t *testing.T) {
 		plaintext := []byte("hello shield world")
-		encrypted, err := ecies.Encrypt(tleSuite, derivedPub, plaintext, nil)
+		ct, err := tle.Encrypt(mpkG2, 3, plaintext)
 		require.NoError(t, err)
-
-		// Decrypt should recover the plaintext
-		recovered, err := decryptPayload(encrypted, keyBytes)
+		recovered, err := decryptPayload(ct, tle.EpochDecryptionKey(master, 3), 3)
 		require.NoError(t, err)
 		require.Equal(t, plaintext, recovered)
 	})

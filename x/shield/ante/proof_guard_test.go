@@ -14,14 +14,14 @@ import (
 )
 
 // guardKeeper is a shield keeper with a stored VK, a registered op and a
-// PrecheckImmediate call counter, so tests can see when a proof is verified.
+// PrecheckExec call counter, so tests can see when a proof is verified.
 type guardKeeper struct {
 	mockShieldKeeper
 	vk     []byte
 	reg    *shieldtypes.ShieldedOpRegistration
 	epoch  uint64
-	result error // PrecheckImmediate's result
-	calls  int   // PrecheckImmediate calls, i.e. verifications
+	result error // PrecheckExec's result
+	calls  int   // PrecheckExec calls, i.e. verifications
 }
 
 func newGuardKeeper() *guardKeeper {
@@ -37,7 +37,7 @@ func newGuardKeeper() *guardKeeper {
 	}
 }
 
-func (g *guardKeeper) PrecheckImmediate(_ sdk.Context, _ *shieldtypes.MsgShieldedExec) error {
+func (g *guardKeeper) PrecheckExec(_ sdk.Context, _ *shieldtypes.MsgShieldedExec) error {
 	g.calls++
 	return g.result
 }

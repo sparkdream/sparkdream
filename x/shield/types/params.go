@@ -29,6 +29,9 @@ var (
 	// DefaultMaxFeePerExec covers a max_gas_per_exec inner message plus the
 	// outer tx overhead (~700k gas) at 0.025 uspark/gas with ~3x headroom.
 	DefaultMaxFeePerExec = math.NewInt(50_000) // 0.05 SPARK
+	// A completed DKG does not switch batch mode on by itself; governance
+	// does, once it is satisfied with the ceremony.
+	DefaultEnableBatchAfterDKG = false
 )
 
 // NewParams creates a new Params instance.
@@ -53,6 +56,7 @@ func NewParams() Params {
 		DkgWindowBlocks:             DefaultDKGWindowBlocks,
 		MaxValidatorSetDrift:        DefaultMaxValidatorSetDrift,
 		MaxFeePerExec:               DefaultMaxFeePerExec,
+		EnableBatchAfterDkg:         DefaultEnableBatchAfterDKG,
 	}
 }
 

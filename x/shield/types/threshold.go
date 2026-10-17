@@ -20,3 +20,7 @@ func ComputeThreshold(numerator, denominator, total uint64) uint64 {
 	}
 	return t
 }
+
+// MaxDKGThresholdDenominator bounds a MsgTriggerDkg threshold fraction. A
+// percentage is the finest resolution any sane threshold needs.
+const MaxDKGThresholdDenominator = 100

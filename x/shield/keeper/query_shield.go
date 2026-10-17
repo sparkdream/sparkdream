@@ -150,7 +150,8 @@ func (q queryServer) TLEMasterPublicKey(ctx context.Context, req *types.QueryTLE
 		return &types.QueryTLEMasterPublicKeyResponse{}, nil
 	}
 	return &types.QueryTLEMasterPublicKeyResponse{
-		MasterPublicKey: ks.MasterPublicKey,
+		MasterPublicKey:   ks.MasterPublicKey,
+		MasterPublicKeyG2: ks.MasterPublicKeyG2,
 	}, nil
 }
 

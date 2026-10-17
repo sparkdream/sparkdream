@@ -31,7 +31,9 @@
 
 set -e
 
-GENESIS="$HOME/.sparkdream/config/genesis.json"
+# SPARKDREAM_HOME overrides the chain home (test/run_parallel.sh patches a
+# per-suite home); `sparkdreamd` on PATH must then point at the same home.
+GENESIS="${SPARKDREAM_HOME:-$HOME/.sparkdream}/config/genesis.json"
 
 echo "============================================================================"
 echo "  PATCHING GENESIS FOR LIVE DKG CEREMONY"
@@ -99,10 +101,13 @@ echo "  GENESIS PATCH COMPLETE"
 echo "============================================================================"
 echo ""
 echo "  DKG will auto-trigger when the chain starts (1 bonded validator >= min 1)."
-echo "  DKG timeline (~$DKG_WINDOW blocks = ~$((DKG_WINDOW * 6))s at 6s/block):"
+echo "  DKG timeline (~$DKG_WINDOW blocks = ~$((DKG_WINDOW * 6))s at 6s/block, four equal phases):"
 echo "    Block N:    REGISTERING phase begins"
-echo "    Block N+$((DKG_WINDOW / 2)): CONTRIBUTING phase begins"
+echo "    Block N+$((DKG_WINDOW / 4)): CONTRIBUTING phase begins"
+echo "    Block N+$((DKG_WINDOW / 2)): COMPLAINING phase begins"
+echo "    Block N+$((DKG_WINDOW * 3 / 4)): JUSTIFYING phase begins"
 echo "    Block N+$DKG_WINDOW: ACTIVE phase (DKG complete)"
+echo "  Batch mode turns on at ACTIVE only when enable_batch_after_dkg is true (testparams default)."
 echo ""
 echo "  Next steps:"
 echo "    sparkdreamd start --home ~/.sparkdream"

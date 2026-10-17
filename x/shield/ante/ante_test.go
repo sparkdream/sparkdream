@@ -23,10 +23,9 @@ import (
 // --- Mock types ---
 
 type mockShieldKeeper struct {
-	params          shieldtypes.Params
-	err             error
-	submitterCounts map[string]uint64
-	precheckErr     error
+	params      shieldtypes.Params
+	err         error
+	precheckErr error
 }
 
 func (m mockShieldKeeper) GetShieldParams(ctx sdk.Context) (shieldtypes.Params, error) {
@@ -40,14 +39,7 @@ func (m mockShieldKeeper) GetCurrentEpoch(_ context.Context) uint64 {
 	return 1
 }
 
-func (m mockShieldKeeper) GetSubmitterExecCount(_ context.Context, _ uint64, _ string) uint64 {
-	return 0
-}
-
-func (m mockShieldKeeper) IncrementSubmitterExecCount(_ context.Context, _ uint64, _ string) {
-}
-
-func (m mockShieldKeeper) PrecheckImmediate(_ sdk.Context, _ *shieldtypes.MsgShieldedExec) error {
+func (m mockShieldKeeper) PrecheckExec(_ sdk.Context, _ *shieldtypes.MsgShieldedExec) error {
 	return m.precheckErr
 }
 
@@ -111,7 +103,7 @@ var testSubmitter = shieldtypes.PublicSubmitterAddress().String()
 
 // validShieldedExec returns an immediate-mode MsgShieldedExec that passes the
 // ante handler's format checks. Proof validity comes from the mock keeper's
-// PrecheckImmediate.
+// PrecheckExec.
 func validShieldedExec() *shieldtypes.MsgShieldedExec {
 	return &shieldtypes.MsgShieldedExec{
 		Submitter:          testSubmitter,
@@ -353,6 +345,57 @@ type mockInnerDecorator struct {
 func (m *mockInnerDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (sdk.Context, error) {
 	m.called = true
 	return next(ctx, tx, simulate)
+}
+
+// A batch exec is validated like an immediate one before the module pays:
+// format checks here, then the keeper's PrecheckExec (every msg-server check
+// plus the submission proof). A rejected submission costs the reserve nothing.
+func TestShieldGasDecorator_BatchPrechecksBeforePayment(t *testing.T) {
+	params := shieldtypes.DefaultParams()
+	params.EncryptedBatchEnabled = true
+
+	batchMsg := func() *shieldtypes.MsgShieldedExec {
+		msg := validShieldedExec()
+		msg.ExecMode = shieldtypes.ShieldExecMode_SHIELD_EXEC_ENCRYPTED_BATCH
+		msg.TargetEpoch = 1 // the mock keeper's current epoch
+		msg.EncryptedPayload = make([]byte, 32)
+		return msg
+	}
+	fees := sdk.NewCoins(sdk.NewCoin("uspark", math.NewInt(1000)))
+
+	cases := []struct {
+		name        string
+		mutate      func(*shieldtypes.MsgShieldedExec)
+		precheckErr error
+		wantErr     error
+	}{
+		{"valid batch exec is paid for", func(*shieldtypes.MsgShieldedExec) {}, nil, nil},
+		{"submission proof too short", func(m *shieldtypes.MsgShieldedExec) { m.Proof = make([]byte, 64) }, nil, shieldtypes.ErrInvalidProof},
+		{"short rate-limit nullifier", func(m *shieldtypes.MsgShieldedExec) { m.RateLimitNullifier = make([]byte, 16) }, nil, shieldtypes.ErrInvalidNullifierLength},
+		{"keeper precheck fails (wrong epoch)", func(*shieldtypes.MsgShieldedExec) {}, shieldtypes.ErrInvalidTargetEpoch, shieldtypes.ErrInvalidTargetEpoch},
+		{"keeper precheck fails (queue full)", func(*shieldtypes.MsgShieldedExec) {}, shieldtypes.ErrPendingQueueFull, shieldtypes.ErrPendingQueueFull},
+		{"keeper precheck fails (bad submission proof)", func(*shieldtypes.MsgShieldedExec) {}, shieldtypes.ErrInvalidProof, shieldtypes.ErrInvalidProof},
+		{"keeper precheck fails (identity over quota)", func(*shieldtypes.MsgShieldedExec) {}, shieldtypes.ErrRateLimitExceeded, shieldtypes.ErrRateLimitExceeded},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := makeTestContext(t)
+			sk := mockShieldKeeper{params: params, precheckErr: tc.precheckErr}
+			bk := &mockBankKeeper{}
+			decorator := shieldante.NewShieldGasDecorator(sk, bk)
+			msg := batchMsg()
+			tc.mutate(msg)
+			ctx, err := decorator.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}, fees: fees}, false, terminalHandler)
+			if tc.wantErr == nil {
+				require.NoError(t, err)
+				require.True(t, bk.sent, "fee paid by the module")
+				require.True(t, shieldtypes.ProofVerified(ctx, msg), "msg server skips the second verification")
+				return
+			}
+			require.ErrorIs(t, err, tc.wantErr)
+			require.False(t, bk.sent, "nothing paid for a rejected submission")
+		})
+	}
 }
 
 func TestSkipIfFeePaid_SkipsWhenPaid(t *testing.T) {

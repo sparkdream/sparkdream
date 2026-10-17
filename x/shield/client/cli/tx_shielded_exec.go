@@ -121,6 +121,19 @@ Example (immediate mode):
 				ExecMode:           execMode,
 			}
 
+			// The proof is required in both modes: the operation proof for an
+			// immediate exec, the submission proof (bound to the encrypted
+			// payload) for an encrypted-batch exec.
+			proofHex, err := cmd.Flags().GetString(FlagProof)
+			if err != nil {
+				return err
+			}
+			proof, err := hex.DecodeString(proofHex)
+			if err != nil {
+				return fmt.Errorf("invalid proof hex: %w", err)
+			}
+			msg.Proof = proof
+
 			// Handle immediate mode fields
 			if execMode == types.ShieldExecMode_SHIELD_EXEC_IMMEDIATE {
 				// Parse inner message JSON -> Any
@@ -148,16 +161,6 @@ Example (immediate mode):
 					Value:   anyMsg.Value,
 				}
 
-				// Parse proof (hex)
-				proofHex, err := cmd.Flags().GetString(FlagProof)
-				if err != nil {
-					return err
-				}
-				proof, err := hex.DecodeString(proofHex)
-				if err != nil {
-					return fmt.Errorf("invalid proof hex: %w", err)
-				}
-				msg.Proof = proof
 			} else {
 				// Handle encrypted batch mode fields
 				encPayloadHex, err := cmd.Flags().GetString(FlagEncryptedPayload)
@@ -190,7 +193,7 @@ Example (immediate mode):
 	}
 
 	cmd.Flags().String(FlagInnerMessage, "", "Inner message as JSON with @type (immediate mode)")
-	cmd.Flags().String(FlagProof, "", "ZK proof bytes as hex (immediate mode)")
+	cmd.Flags().String(FlagProof, "", "ZK proof bytes as hex (operation proof in immediate mode, submission proof in encrypted batch mode)")
 	cmd.Flags().String(FlagNullifier, "", "32-byte nullifier as hex")
 	cmd.Flags().String(FlagRateLimitNullifier, "", "32-byte rate-limit nullifier as hex")
 	cmd.Flags().String(FlagMerkleRoot, "", "Merkle root as hex")

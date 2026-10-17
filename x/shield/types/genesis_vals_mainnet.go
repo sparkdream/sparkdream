@@ -10,7 +10,10 @@ import (
 // Build with: go build -tags mainnet
 func getShieldGenesisParams() Params {
 	return Params{
-		Enabled:                     true,
+		// Off until the MPC ceremony's shield_v1 verification key is in
+		// genesis: a production build refuses to start with shield enabled
+		// and no key (InitGenesis launch gate). Flip both together.
+		Enabled:                     false,
 		MaxFundingPerDay:            math.NewInt(200_000_000), // 200 SPARK/day
 		MinGasReserve:               math.NewInt(100_000_000), // 100 SPARK
 		MaxGasPerExec:               500_000,
@@ -29,5 +32,6 @@ func getShieldGenesisParams() Params {
 		DkgWindowBlocks:             200,                 // ~20 minutes at 6s blocks
 		MaxValidatorSetDrift:        33,                  // 33% drift triggers re-keying
 		MaxFeePerExec:               math.NewInt(50_000), // 0.05 SPARK per exec
+		EnableBatchAfterDkg:         false,               // governance enables batch mode after the DKG
 	}
 }

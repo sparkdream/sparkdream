@@ -3,6 +3,7 @@ package keeper
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"cosmossdk.io/collections"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -10,11 +11,37 @@ import (
 	"sparkdream/x/shield/types"
 )
 
-// checkTLELiveness checks whether TLE validators submitted their decryption shares
-// for the completed epoch. Uses a sliding window ring buffer (similar to x/slashing's
-// signed_blocks_window) to track participation over the last TleMissWindow epochs.
-//
-// Called from EndBlocker at each epoch boundary, after batch processing.
+// judgeTLELiveness runs every block while batch mode is on and judges every
+// demanded epoch that validators have had a full epoch interval to serve: a
+// bonded validator in the key set without a stored (verified) share for it
+// missed. Idle epochs, and epochs whose batch never became ready, demand
+// nothing and count against no one. Each demand is judged once; it stays
+// recorded (see demandHeight) so late shares are still accepted until the
+// epoch's ops expire. Validators are asked for their share until the demand
+// is judged (NextEpochNeedingShare), so nobody is judged for a share the
+// chain stopped asking for.
+func (k Keeper) judgeTLELiveness(ctx context.Context, params types.Params, currentHeight int64) {
+	var due []uint64
+	_ = k.IterateDecryptionDemands(ctx, func(epoch uint64, raw int64) bool {
+		height, judged := demandHeight(raw)
+		if !judged && currentHeight >= height+int64(params.ShieldEpochInterval) {
+			due = append(due, epoch)
+		}
+		return false
+	})
+	for _, epoch := range due {
+		height, _ := k.GetDecryptionDemand(ctx, epoch)
+		k.checkTLELiveness(ctx, epoch)
+		_ = k.DecryptionDemands.Set(ctx, epoch, -(height + 1))
+	}
+}
+
+// checkTLELiveness records, for one demanded epoch, which TLE validators
+// submitted their decryption share, in a ring buffer over the last
+// TleMissWindow *judged* epochs (slot = judged count mod window, so sparse
+// demands do not keep a miss alive indefinitely); more than TleMissTolerance
+// misses in the ring jails. Validators that are no longer bonded are not
+// judged: they cannot vote, so they cannot serve, and jailing them is moot.
 func (k Keeper) checkTLELiveness(ctx context.Context, completedEpoch uint64) {
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	params, err := k.Params.Get(ctx)
@@ -33,10 +60,15 @@ func (k Keeper) checkTLELiveness(ctx context.Context, completedEpoch uint64) {
 	}
 
 	window := params.TleMissWindow
-	slot := completedEpoch % window // ring buffer position
+	judged, _ := k.TLEJudgedEpochs.Get(ctx)
+	slot := judged % window
+	_ = k.TLEJudgedEpochs.Set(ctx, judged+1)
 
 	// For each registered TLE validator, record participation and count misses
 	for _, vs := range ks.ValidatorShares {
+		if !k.isBondedValidator(ctx, vs.ValidatorAddress) {
+			continue
+		}
 		_, submitted := k.GetDecryptionShare(ctx, completedEpoch, vs.ValidatorAddress)
 
 		// Record participation in the ring buffer at the current slot
@@ -53,7 +85,7 @@ func (k Keeper) checkTLELiveness(ctx context.Context, completedEpoch uint64) {
 		// Count misses across the full window
 		missCount := k.countTLEMissesInWindow(ctx, vs.ValidatorAddress, window)
 
-		// Update the legacy miss counter for query compatibility
+		// Keep the queryable miss counter in step with the ring
 		_ = k.SetTLEMissCount(ctx, vs.ValidatorAddress, missCount)
 
 		if missCount > params.TleMissTolerance {
@@ -64,13 +96,31 @@ func (k Keeper) checkTLELiveness(ctx context.Context, completedEpoch uint64) {
 	}
 }
 
+// isBondedValidator reports whether the operator is currently in the bonded
+// set. Without a staking keeper (unit tests) or with an address the staking
+// keeper cannot parse, the validator is judged.
+func (k Keeper) isBondedValidator(ctx context.Context, validatorAddr string) bool {
+	if k.late.stakingKeeper == nil {
+		return true
+	}
+	valAddr, err := sdk.ValAddressFromBech32(validatorAddr)
+	if err != nil {
+		return true
+	}
+	validator, err := k.late.stakingKeeper.GetValidator(ctx, valAddr)
+	if err != nil {
+		return false
+	}
+	return validator.IsBonded()
+}
+
 // countTLEMissesInWindow counts the number of missed epochs in the sliding window.
 func (k Keeper) countTLEMissesInWindow(ctx context.Context, validatorAddr string, window uint64) uint64 {
 	var misses uint64
 	for slot := uint64(0); slot < window; slot++ {
 		participated, err := k.TLEEpochParticipation.Get(ctx, collections.Join(validatorAddr, slot))
 		if err != nil {
-			// Slot not yet written (epoch hasn't reached this slot) — not a miss
+			// Slot not yet written (fewer than `window` epochs judged) — not a miss
 			continue
 		}
 		if !participated {
@@ -85,6 +135,40 @@ func (k Keeper) clearTLEParticipation(ctx context.Context, validatorAddr string,
 	for slot := uint64(0); slot < window; slot++ {
 		_ = k.TLEEpochParticipation.Remove(ctx, collections.Join(validatorAddr, slot))
 	}
+}
+
+// ResetTLELiveness forgets every validator's participation ring, miss
+// counter and the judged-epoch counter. Called whenever the key set changes:
+// misses under a retired key set must not carry into the new one, and
+// validators dropped by a re-key would otherwise keep stale entries forever.
+func (k Keeper) ResetTLELiveness(ctx context.Context) error {
+	iter, err := k.TLEEpochParticipation.Iterate(ctx, nil)
+	if err != nil {
+		return err
+	}
+	keys, err := iter.Keys()
+	iter.Close()
+	if err != nil {
+		return err
+	}
+	for _, key := range keys {
+		if err := k.TLEEpochParticipation.Remove(ctx, key); err != nil {
+			return err
+		}
+	}
+	var vals []string
+	if err := k.IterateTLEMissCounters(ctx, func(addr string, _ uint64) bool {
+		vals = append(vals, addr)
+		return false
+	}); err != nil {
+		return err
+	}
+	for _, v := range vals {
+		if err := k.TLEMissCounters.Remove(ctx, v); err != nil {
+			return err
+		}
+	}
+	return k.TLEJudgedEpochs.Remove(ctx)
 }
 
 // jailTLEValidator jails a validator for TLE liveness failure.
@@ -116,6 +200,11 @@ func (k Keeper) jailTLEValidator(ctx context.Context, params types.Params, valid
 	// Jail the validator
 	if err := k.late.slashingKeeper.Jail(ctx, consAddr); err != nil {
 		return // Jailing failed — log event but don't halt
+	}
+	// tle_jail_duration: MsgUnjail is refused until this time passes.
+	if params.TleJailDuration > 0 {
+		until := sdkCtx.BlockTime().Add(time.Duration(params.TleJailDuration) * time.Second)
+		_ = k.late.slashingKeeper.JailUntil(ctx, consAddr, until)
 	}
 
 	// Reset miss counter after jailing

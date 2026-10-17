@@ -354,6 +354,7 @@ var allowedVariations = map[string]string{
 	"federation.params.verifier_overturn_base_cooldown": "build-tag conditional",
 
 	// === shield: TLE/DKG cadence + capacity hardening ===
+	"shield.params.enabled":                "mainnet off until its ceremony verification key is in genesis (InitGenesis launch gate)",
 	"shield.params.dkg_window_blocks":      "DKG window varies per network",
 	"shield.params.shield_epoch_interval":  "epoch interval varies per network",
 	"shield.params.tle_jail_duration":      "jail duration varies per network",

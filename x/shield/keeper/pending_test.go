@@ -31,11 +31,11 @@ func TestPendingOpSetDeleteIdempotent(t *testing.T) {
 	require.Equal(t, uint64(1), f.keeper.GetPendingOpCountVal(f.ctx))
 
 	// Deleting should reduce count
-	require.NoError(t, f.keeper.DeletePendingOp(f.ctx, 42))
+	require.NoError(t, f.keeper.DeletePendingOp(f.ctx, 5, 42))
 	require.Equal(t, uint64(0), f.keeper.GetPendingOpCountVal(f.ctx))
 
 	// Deleting again should not error
-	require.NoError(t, f.keeper.DeletePendingOp(f.ctx, 42))
+	require.NoError(t, f.keeper.DeletePendingOp(f.ctx, 5, 42))
 	require.Equal(t, uint64(0), f.keeper.GetPendingOpCountVal(f.ctx))
 }
 
@@ -66,21 +66,21 @@ func TestGetPendingOpsBeforeEpochFiltering(t *testing.T) {
 	f := initFixture(t)
 
 	require.NoError(t, f.keeper.SetPendingOp(f.ctx, types.PendingShieldedOp{
-		Id: 1, TargetEpoch: 10, SubmittedAtEpoch: 1,
+		Id: 1, TargetEpoch: 1, SubmittedAtEpoch: 1,
 	}))
 	require.NoError(t, f.keeper.SetPendingOp(f.ctx, types.PendingShieldedOp{
-		Id: 2, TargetEpoch: 10, SubmittedAtEpoch: 5,
+		Id: 2, TargetEpoch: 5, SubmittedAtEpoch: 5,
 	}))
 	require.NoError(t, f.keeper.SetPendingOp(f.ctx, types.PendingShieldedOp{
 		Id: 3, TargetEpoch: 10, SubmittedAtEpoch: 10,
 	}))
 
-	// cutoff=5 means SubmittedAtEpoch < 5, so only op 1 (epoch 1)
+	// cutoff=5 means target epoch < 5, so only op 1 (epoch 1)
 	ops := f.keeper.GetPendingOpsBeforeEpoch(f.ctx, 5)
 	require.Len(t, ops, 1)
 	require.Equal(t, uint64(1), ops[0].Id)
 
-	// cutoff=10 means SubmittedAtEpoch < 10, so ops 1 and 2
+	// cutoff=10 means target epoch < 10, so ops 1 and 2
 	ops = f.keeper.GetPendingOpsBeforeEpoch(f.ctx, 10)
 	require.Len(t, ops, 2)
 }
@@ -97,14 +97,14 @@ func TestPendingOpOverwrite(t *testing.T) {
 
 	require.NoError(t, f.keeper.SetPendingOp(f.ctx, types.PendingShieldedOp{
 		Id:               1,
-		TargetEpoch:      7,
+		TargetEpoch:      5,
 		EncryptedPayload: []byte("updated"),
 	}))
 
-	// Should still be count 1 (same key)
+	// Should still be count 1 (same key: an op's epoch never changes)
 	require.Equal(t, uint64(1), f.keeper.GetPendingOpCountVal(f.ctx))
 
-	ops := f.keeper.GetPendingOpsForEpoch(f.ctx, 7)
+	ops := f.keeper.GetPendingOpsForEpoch(f.ctx, 5)
 	require.Len(t, ops, 1)
 	require.Equal(t, []byte("updated"), ops[0].EncryptedPayload)
 }

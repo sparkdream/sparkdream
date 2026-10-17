@@ -1,6 +1,7 @@
 package keeper
 
 import (
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -11,6 +12,8 @@ import (
 	"go.dedis.ch/kyber/v4"
 	"go.dedis.ch/kyber/v4/encrypt/ecies"
 	"go.dedis.ch/kyber/v4/sign/schnorr"
+
+	"sparkdream/tools/tle"
 )
 
 // DKGLocalKeyStore manages the validator's local DKG key material.
@@ -21,6 +24,16 @@ import (
 type DKGLocalKeyStore struct {
 	mu      sync.RWMutex
 	homeDir string
+
+	// shareCache holds the aggregated Shamir share per round, keyed by a
+	// digest of the evaluations it was built from, so a validator decrypts
+	// its n-1 incoming evaluations once per key set rather than once per vote.
+	shareCache map[uint64]cachedShare
+}
+
+type cachedShare struct {
+	inputs [32]byte
+	share  kyber.Scalar
 }
 
 // dkgLocalKeyData is the on-disk format for DKG secrets.
@@ -35,9 +48,23 @@ type dkgLocalKeyData struct {
 	PolynomialHex []string `json:"polynomial_hex,omitempty"`
 }
 
+// IncomingEvaluation is one dealer's evaluation for this validator, as the
+// ABCI handler assembles it from on-chain DKG state: the dealer's Feldman
+// commitments (to verify against), and either the ECIES ciphertext the
+// dealer published or, when this validator complained and the dealer
+// answered, the evaluation in clear. A dealer that published no evaluation
+// for this validator appears with neither.
+type IncomingEvaluation struct {
+	Dealer      string
+	DealerIndex uint32
+	Commitments [][]byte
+	Ciphertext  []byte
+	Plaintext   []byte
+}
+
 // NewDKGLocalKeyStore creates a key store rooted at the given home directory.
 func NewDKGLocalKeyStore(homeDir string) *DKGLocalKeyStore {
-	return &DKGLocalKeyStore{homeDir: homeDir}
+	return &DKGLocalKeyStore{homeDir: homeDir, shareCache: map[uint64]cachedShare{}}
 }
 
 func (s *DKGLocalKeyStore) keyDir() string {
@@ -85,7 +112,7 @@ func (s *DKGLocalKeyStore) EnsureRegistrationKey(round uint64) (kyber.Scalar, ky
 
 // GeneratePolynomial creates random polynomial coefficients for the CONTRIBUTING phase.
 // The constant term (index 0) is the validator's private key from the REGISTERING phase.
-// Returns (commitments as G1 points, polynomial scalars, error).
+// Returns (polynomial scalars, commitments as G1 points, error).
 func (s *DKGLocalKeyStore) GeneratePolynomial(round uint64, threshold int) ([]kyber.Scalar, []kyber.Point, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -147,32 +174,17 @@ func (s *DKGLocalKeyStore) EvaluatePolynomial(round uint64, j uint32) (kyber.Sca
 	if err != nil {
 		return nil, fmt.Errorf("no key for round %d: %w", round, err)
 	}
+	return s.evaluatePolynomialFromData(data, j)
+}
 
-	if len(data.PolynomialHex) == 0 {
-		return nil, fmt.Errorf("no polynomial stored for round %d", round)
+// Justify is the dealer's answer to a complaint from validator j: p(j) in
+// clear, which anyone verifies against the published commitments.
+func (s *DKGLocalKeyStore) Justify(round uint64, j uint32) ([]byte, error) {
+	eval, err := s.EvaluatePolynomial(round, j)
+	if err != nil {
+		return nil, err
 	}
-
-	poly := make([]kyber.Scalar, len(data.PolynomialHex))
-	for i, h := range data.PolynomialHex {
-		b, err := hex.DecodeString(h)
-		if err != nil {
-			return nil, fmt.Errorf("invalid polynomial coeff %d: %w", i, err)
-		}
-		poly[i] = tleSuite.Scalar()
-		if err := poly[i].UnmarshalBinary(b); err != nil {
-			return nil, fmt.Errorf("invalid polynomial coeff %d: %w", i, err)
-		}
-	}
-
-	// Horner's method: p(j) = a_0 + j*(a_1 + j*(a_2 + ...))
-	jScalar := tleSuite.Scalar().SetInt64(int64(j))
-	result := tleSuite.Scalar().Zero()
-	for i := len(poly) - 1; i >= 0; i-- {
-		result = result.Mul(result, jScalar)
-		result = result.Add(result, poly[i])
-	}
-
-	return result, nil
+	return eval.MarshalBinary()
 }
 
 // GetPolynomialCoefficient returns the k-th polynomial coefficient for the given DKG round.
@@ -201,8 +213,9 @@ func (s *DKGLocalKeyStore) GetPolynomialCoefficient(round uint64, k int) (kyber.
 	return scalar, nil
 }
 
-// SignPoP creates a Schnorr proof of possession over the validator address
-// using the private key (or constant term polynomial coefficient) for the given round.
+// SignPoP creates a Schnorr proof of possession over PoPMessage(validator
+// address, round) using the private key (the constant term of the
+// polynomial) for the given round.
 func (s *DKGLocalKeyStore) SignPoP(round uint64, validatorAddr string) ([]byte, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -212,49 +225,62 @@ func (s *DKGLocalKeyStore) SignPoP(round uint64, validatorAddr string) ([]byte, 
 		return nil, fmt.Errorf("no key for round %d: %w", round, err)
 	}
 
-	privBytes, err := hex.DecodeString(data.PrivateKeyHex)
+	privKey, err := parsePrivateKey(data)
 	if err != nil {
-		return nil, fmt.Errorf("invalid private key hex: %w", err)
-	}
-	privKey := tleSuite.Scalar()
-	if err := privKey.UnmarshalBinary(privBytes); err != nil {
-		return nil, fmt.Errorf("invalid private key: %w", err)
+		return nil, err
 	}
 
-	return schnorr.Sign(tleSuite, privKey, []byte(validatorAddr))
+	return schnorr.Sign(tleSuite, privKey, PoPMessage(validatorAddr, round))
 }
 
-// ComputeDecryptionShare computes this validator's epoch decryption share:
-//
-//	share_j = s_j * H_to_G1(epoch_tag)
-//
-// where s_j is the validator's AGGREGATED Shamir share — the sum of every
-// dealer i's polynomial evaluated at j:
-//
-//	s_j = Σ_i p_i(j) = p_self(j) + Σ_{i ≠ self} decrypt(eval_i_to_j)
-//
-// Lagrange reconstruction at x=0 over {(j, share_j)} then yields
-//
-//	Σ_j L_j(0) * share_j = (Σ_j L_j(0) * s_j) * tag = (Σ_i a_{i,0}) * tag = master * tag
-//
-// which is the epoch decryption key. SHIELD-S2-2: the prior implementation
-// returned `a_{self,0} * tag` (registration key only), which fails Lagrange
-// reconstruction for any non-trivial subset and is rejected by the G2
-// pairing check in verifyDecryptionShare.
-//
-// `incomingCiphertexts` is the list of ECIES ciphertexts targeting selfIdx,
-// one per other validator's CONTRIBUTING vote extension. The caller assembles
-// this list from on-chain DKG contributions before invoking.
-func (s *DKGLocalKeyStore) ComputeDecryptionShare(
-	round uint64,
-	epoch uint64,
-	selfIdx uint32,
-	incomingCiphertexts [][]byte,
-) ([]byte, error) {
-	if selfIdx == 0 {
-		return nil, fmt.Errorf("selfIdx must be 1-based, got 0")
-	}
+// eciesMinLen is the shortest ECIES ciphertext kyber can parse: an ephemeral
+// G1 point plus the AEAD tag. kyber's Decrypt slices without checking and
+// panics on anything shorter, which a dealer could use to crash every
+// validator's ExtendVote; so the length is checked and the call recovered.
+const eciesMinLen = tle.G1PointLen + 16
 
+func decryptEvaluation(privKey kyber.Scalar, ciphertext []byte) (plaintext []byte, err error) {
+	if len(ciphertext) < eciesMinLen {
+		return nil, fmt.Errorf("ciphertext too short (%d bytes)", len(ciphertext))
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			plaintext, err = nil, fmt.Errorf("decrypt panicked: %v", r)
+		}
+	}()
+	return ecies.Decrypt(tleSuite, privKey, ciphertext, nil)
+}
+
+// openEvaluation returns dealer's evaluation for selfIdx: the plaintext a
+// justification published, or the decrypted ciphertext. It fails when the
+// dealer published nothing for this validator, the ciphertext does not open,
+// or the value does not match the dealer's commitments.
+func openEvaluation(privKey kyber.Scalar, selfIdx uint32, ev IncomingEvaluation) (kyber.Scalar, error) {
+	var evalBytes []byte
+	switch {
+	case len(ev.Plaintext) > 0:
+		evalBytes = ev.Plaintext
+	case len(ev.Ciphertext) > 0:
+		plaintext, err := decryptEvaluation(privKey, ev.Ciphertext)
+		if err != nil {
+			return nil, fmt.Errorf("decrypt: %w", err)
+		}
+		evalBytes = plaintext
+	default:
+		return nil, fmt.Errorf("no evaluation published for index %d", selfIdx)
+	}
+	if err := VerifyEvaluation(ev.Commitments, selfIdx, evalBytes); err != nil {
+		return nil, err
+	}
+	eval := tleSuite.Scalar()
+	_ = eval.UnmarshalBinary(evalBytes) // verified above
+	return eval, nil
+}
+
+// FindComplaints returns the dealer indices this validator should complain
+// about in the COMPLAINING phase: dealers whose evaluation for selfIdx is
+// missing, does not decrypt, or does not match their commitments.
+func (s *DKGLocalKeyStore) FindComplaints(round uint64, selfIdx uint32, incoming []IncomingEvaluation) ([]uint32, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -262,14 +288,81 @@ func (s *DKGLocalKeyStore) ComputeDecryptionShare(
 	if err != nil {
 		return nil, fmt.Errorf("no key for round %d: %w", round, err)
 	}
-
-	privBytes, err := hex.DecodeString(data.PrivateKeyHex)
+	privKey, err := parsePrivateKey(data)
 	if err != nil {
-		return nil, fmt.Errorf("invalid private key hex: %w", err)
+		return nil, err
 	}
-	privKey := tleSuite.Scalar()
-	if err := privKey.UnmarshalBinary(privBytes); err != nil {
-		return nil, fmt.Errorf("invalid private key: %w", err)
+	var complaints []uint32
+	for _, ev := range incoming {
+		if ev.DealerIndex == selfIdx {
+			continue
+		}
+		if _, err := openEvaluation(privKey, selfIdx, ev); err != nil {
+			complaints = append(complaints, ev.DealerIndex)
+		}
+	}
+	return complaints, nil
+}
+
+// ComputeDecryptionShare computes this validator's epoch decryption share:
+//
+//	share_j = s_j * H1(epoch)
+//
+// where s_j is the validator's AGGREGATED Shamir share — the sum of every
+// qualified dealer i's polynomial evaluated at j:
+//
+//	s_j = Σ_i p_i(j) = p_self(j) + Σ_{i ≠ self} open(eval_i_to_j)
+//
+// Lagrange reconstruction at x=0 over {(j, share_j)} then yields
+//
+//	Σ_j L_j(0) * share_j = (Σ_j L_j(0) * s_j) * tag = (Σ_i a_{i,0}) * tag = master * tag
+//
+// which is the epoch decryption key. Every incoming evaluation is verified
+// against its dealer's commitments before it is added: an evaluation that
+// fails would make this validator's share inconsistent with its public share
+// (the caller should have complained about it during the ceremony), so the
+// computation fails with the dealer named instead of producing a share the
+// chain would reject. The aggregated share is cached per round and input set.
+func (s *DKGLocalKeyStore) ComputeDecryptionShare(
+	round uint64,
+	epoch uint64,
+	selfIdx uint32,
+	incoming []IncomingEvaluation,
+) ([]byte, error) {
+	if selfIdx == 0 {
+		return nil, fmt.Errorf("selfIdx must be 1-based, got 0")
+	}
+	aggregated, err := s.aggregatedShare(round, selfIdx, incoming)
+	if err != nil {
+		return nil, err
+	}
+	sharePoint := tleSuite.Point().Mul(aggregated, tle.EpochTag(epoch))
+	return sharePoint.MarshalBinary()
+}
+
+func (s *DKGLocalKeyStore) aggregatedShare(round uint64, selfIdx uint32, incoming []IncomingEvaluation) (kyber.Scalar, error) {
+	digest := evaluationDigest(selfIdx, incoming)
+
+	s.mu.RLock()
+	if c, ok := s.shareCache[round]; ok && c.inputs == digest {
+		s.mu.RUnlock()
+		return c.share, nil
+	}
+	s.mu.RUnlock()
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if c, ok := s.shareCache[round]; ok && c.inputs == digest {
+		return c.share, nil
+	}
+
+	data, err := s.loadRound(round)
+	if err != nil {
+		return nil, fmt.Errorf("no key for round %d: %w", round, err)
+	}
+	privKey, err := parsePrivateKey(data)
+	if err != nil {
+		return nil, err
 	}
 
 	// Start with our own polynomial evaluated at our own index.
@@ -279,26 +372,38 @@ func (s *DKGLocalKeyStore) ComputeDecryptionShare(
 	}
 	aggregated := tleSuite.Scalar().Set(selfEval)
 
-	// Add each decrypted incoming evaluation. These are p_i(selfIdx) for i ≠ self.
-	for n, ciphertext := range incomingCiphertexts {
-		plaintext, err := ecies.Decrypt(tleSuite, privKey, ciphertext, nil)
+	for _, ev := range incoming {
+		if ev.DealerIndex == selfIdx {
+			continue
+		}
+		eval, err := openEvaluation(privKey, selfIdx, ev)
 		if err != nil {
-			return nil, fmt.Errorf("decrypt evaluation %d: %w", n, err)
+			return nil, fmt.Errorf("evaluation from dealer %s (index %d): %w", ev.Dealer, ev.DealerIndex, err)
 		}
-		evalScalar := tleSuite.Scalar()
-		if err := evalScalar.UnmarshalBinary(plaintext); err != nil {
-			return nil, fmt.Errorf("unmarshal evaluation %d: %w", n, err)
-		}
-		aggregated = aggregated.Add(aggregated, evalScalar)
+		aggregated = aggregated.Add(aggregated, eval)
 	}
 
-	// Compute the epoch tag: H_to_G1("shield_epoch_<N>")
-	epochData := fmt.Appendf(nil, "shield_epoch_%d", epoch)
-	epochTag := tleSuite.Point().Pick(tleSuite.XOF(epochData))
+	s.shareCache[round] = cachedShare{inputs: digest, share: aggregated}
+	return aggregated, nil
+}
 
-	// share_j = s_j * epochTag
-	sharePoint := tleSuite.Point().Mul(aggregated, epochTag)
-	return sharePoint.MarshalBinary()
+func evaluationDigest(selfIdx uint32, incoming []IncomingEvaluation) [32]byte {
+	h := sha256.New()
+	fmt.Fprintf(h, "%d|", selfIdx)
+	for _, ev := range incoming {
+		fmt.Fprintf(h, "%s|%d|", ev.Dealer, ev.DealerIndex)
+		for _, c := range ev.Commitments {
+			h.Write(c)
+		}
+		h.Write([]byte{0})
+		h.Write(ev.Ciphertext)
+		h.Write([]byte{0})
+		h.Write(ev.Plaintext)
+		h.Write([]byte{0})
+	}
+	var out [32]byte
+	copy(out[:], h.Sum(nil))
+	return out
 }
 
 // evaluatePolynomialFromData evaluates the polynomial loaded from data at j.
@@ -320,6 +425,7 @@ func (s *DKGLocalKeyStore) evaluatePolynomialFromData(data *dkgLocalKeyData, j u
 		}
 	}
 
+	// Horner's method: p(j) = a_0 + j*(a_1 + j*(a_2 + ...))
 	jScalar := tleSuite.Scalar().SetInt64(int64(j))
 	result := tleSuite.Scalar().Zero()
 	for i := len(poly) - 1; i >= 0; i-- {
@@ -329,7 +435,10 @@ func (s *DKGLocalKeyStore) evaluatePolynomialFromData(data *dkgLocalKeyData, j u
 	return result, nil
 }
 
-// Cleanup removes key files for rounds older than keepRound.
+// Cleanup removes key files for rounds older than keepRound. A retired
+// round's share can still open every payload sealed to its key set that sits
+// in block history, so validators drop it as soon as the next key set is
+// active.
 func (s *DKGLocalKeyStore) Cleanup(keepRound uint64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -342,11 +451,24 @@ func (s *DKGLocalKeyStore) Cleanup(keepRound uint64) {
 		var r uint64
 		if _, err := fmt.Sscanf(e.Name(), "round_%d.json", &r); err == nil && r < keepRound {
 			_ = os.Remove(filepath.Join(s.keyDir(), e.Name()))
+			delete(s.shareCache, r)
 		}
 	}
 }
 
 // --- internal helpers ---
+
+func parsePrivateKey(data *dkgLocalKeyData) (kyber.Scalar, error) {
+	privBytes, err := hex.DecodeString(data.PrivateKeyHex)
+	if err != nil {
+		return nil, fmt.Errorf("invalid private key hex: %w", err)
+	}
+	privKey := tleSuite.Scalar()
+	if err := privKey.UnmarshalBinary(privBytes); err != nil {
+		return nil, fmt.Errorf("invalid private key: %w", err)
+	}
+	return privKey, nil
+}
 
 func (s *DKGLocalKeyStore) loadRound(round uint64) (*dkgLocalKeyData, error) {
 	path := s.keyPath(round)
@@ -374,12 +496,8 @@ func (s *DKGLocalKeyStore) saveRound(data *dkgLocalKeyData) error {
 }
 
 func (s *DKGLocalKeyStore) parseKeyPair(data *dkgLocalKeyData) (kyber.Scalar, kyber.Point, error) {
-	privBytes, err := hex.DecodeString(data.PrivateKeyHex)
+	privKey, err := parsePrivateKey(data)
 	if err != nil {
-		return nil, nil, err
-	}
-	privKey := tleSuite.Scalar()
-	if err := privKey.UnmarshalBinary(privBytes); err != nil {
 		return nil, nil, err
 	}
 

@@ -23,6 +23,7 @@ func TestUpdateParamsAllFields(t *testing.T) {
 	newParams.MaxFundingPerDay = math.NewInt(500_000_000)
 	newParams.MinGasReserve = math.NewInt(50_000_000)
 	newParams.ShieldEpochInterval = 100
+	newParams.EnableBatchAfterDkg = !types.DefaultParams().EnableBatchAfterDkg
 
 	resp, err := ms.UpdateParams(f.ctx, &types.MsgUpdateParams{
 		Authority: authority,
@@ -39,6 +40,8 @@ func TestUpdateParamsAllFields(t *testing.T) {
 	require.Equal(t, math.NewInt(500_000_000), got.MaxFundingPerDay)
 	require.Equal(t, math.NewInt(50_000_000), got.MinGasReserve)
 	require.Equal(t, uint64(100), got.ShieldEpochInterval)
+	require.Equal(t, newParams.EnableBatchAfterDkg, got.EnableBatchAfterDkg)
+	require.Equal(t, newParams, got)
 }
 
 func TestUpdateParamsInvalidAuthority(t *testing.T) {

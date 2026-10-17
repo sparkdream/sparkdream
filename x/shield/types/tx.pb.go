@@ -129,12 +129,18 @@ type MsgShieldedExec struct {
 	// The inner message's signer field MUST be set to the shield module account address.
 	// REQUIRED for IMMEDIATE mode, EMPTY for ENCRYPTED_BATCH mode.
 	InnerMessage *any.Any `protobuf:"bytes,2,opt,name=inner_message,json=innerMessage,proto3" json:"inner_message,omitempty"`
-	// ZK proof bytes (Groth16 over BN254).
-	// REQUIRED for IMMEDIATE mode, EMPTY for ENCRYPTED_BATCH mode.
+	// ZK proof bytes (Groth16 over BN254), always required. IMMEDIATE: the
+	// operation proof, bound to inner_message. ENCRYPTED_BATCH: the submission
+	// proof, bound to encrypted_payload (MessageHash =
+	// ShieldMessageHash(BatchSubmissionTypeURL, encrypted_payload), Scope =
+	// ScopeElement(BatchSubmissionDomain, BatchSubmissionScope(payload))); the
+	// operation proof travels inside the ciphertext.
 	Proof []byte `protobuf:"bytes,3,opt,name=proof,proto3" json:"proof,omitempty"`
-	// 32-byte nullifier (prevents replay)
+	// 32-byte nullifier. IMMEDIATE: the operation nullifier (prevents replay).
+	// ENCRYPTED_BATCH: the submission nullifier (one per payload and member;
+	// the operation nullifier is inside the ciphertext).
 	Nullifier []byte `protobuf:"bytes,4,opt,name=nullifier,proto3" json:"nullifier,omitempty"`
-	// 32-byte rate-limit nullifier: H(secret, "rate_limit", epoch)
+	// 32-byte rate-limit nullifier: MiMC(secret_key, MaxUint64, epoch)
 	RateLimitNullifier []byte `protobuf:"bytes,5,opt,name=rate_limit_nullifier,json=rateLimitNullifier,proto3" json:"rate_limit_nullifier,omitempty"`
 	// Merkle root the proof was generated against
 	MerkleRoot []byte `protobuf:"bytes,6,opt,name=merkle_root,json=merkleRoot,proto3" json:"merkle_root,omitempty"`
@@ -144,7 +150,8 @@ type MsgShieldedExec struct {
 	MinTrustLevel uint32 `protobuf:"varint,8,opt,name=min_trust_level,json=minTrustLevel,proto3" json:"min_trust_level,omitempty"`
 	// --- Execution mode selection ---
 	ExecMode ShieldExecMode `protobuf:"varint,9,opt,name=exec_mode,json=execMode,proto3,enum=sparkdream.shield.v1.ShieldExecMode" json:"exec_mode,omitempty"`
-	// IBE-encrypted payload containing (inner_message + proof)
+	// IBE-encrypted payload containing (inner_message + operation proof +
+	// operation nullifier), see tools/tle.EncodeExecFragment
 	// REQUIRED for ENCRYPTED_BATCH mode, EMPTY for IMMEDIATE mode
 	EncryptedPayload []byte `protobuf:"bytes,10,opt,name=encrypted_payload,json=encryptedPayload,proto3" json:"encrypted_payload,omitempty"`
 	// Target shield epoch for batch execution
@@ -317,8 +324,10 @@ func (m *MsgShieldedExecResponse) GetPendingOpId() uint64 {
 
 // MsgTriggerDkg manually triggers a new DKG ceremony (governance-gated).
 type MsgTriggerDkg struct {
-	Authority            string `protobuf:"bytes,1,opt,name=authority,proto3" json:"authority,omitempty"`
-	ThresholdNumerator   uint64 `protobuf:"varint,2,opt,name=threshold_numerator,json=thresholdNumerator,proto3" json:"threshold_numerator,omitempty"`
+	Authority string `protobuf:"bytes,1,opt,name=authority,proto3" json:"authority,omitempty"`
+	// Optional threshold numerator (0 = default 2)
+	ThresholdNumerator uint64 `protobuf:"varint,2,opt,name=threshold_numerator,json=thresholdNumerator,proto3" json:"threshold_numerator,omitempty"`
+	// Optional threshold denominator (0 = default 3)
 	ThresholdDenominator uint64 `protobuf:"varint,3,opt,name=threshold_denominator,json=thresholdDenominator,proto3" json:"threshold_denominator,omitempty"`
 }
 

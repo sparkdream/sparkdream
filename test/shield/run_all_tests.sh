@@ -371,6 +371,10 @@ fi
 TESTS_RUN=0
 TESTS_PASSED=0
 TESTS_FAILED=0
+# A script exits 3 when its preconditions (a patched genesis) are absent:
+# reported as SKIP, never as a pass.
+TESTS_SKIPPED=0
+declare -a SKIPPED_TESTS=()
 declare -a FAILED_TESTS
 
 # Per-test timing — populated by run_test, consumed by the summary block.
@@ -389,9 +393,12 @@ run_test() {
 
     TESTS_RUN=$((TESTS_RUN + 1))
 
-    local _t0 _t1 _dur_s _dur
+    local _t0 _t1 _dur_s _dur _rc
     _t0=$(timing_now_epoch)
-    if bash "$SCRIPT_DIR/$TEST_SCRIPT"; then
+    # `|| _rc=$?` keeps a failing test from tripping the runner's set -e.
+    _rc=0
+    bash "$SCRIPT_DIR/$TEST_SCRIPT" || _rc=$?
+    if [ "$_rc" -eq 0 ]; then
         _t1=$(timing_now_epoch)
         _dur_s=$((_t1 - _t0))
         _dur=$(timing_format_duration "$_dur_s")
@@ -401,6 +408,17 @@ run_test() {
         TIMED_DURATIONS_S+=("$_dur_s")
         echo ""
         echo ">>> $TEST_NAME: PASSED ($_dur) <<<"
+    elif [ "$_rc" -eq 3 ]; then
+        _t1=$(timing_now_epoch)
+        _dur_s=$((_t1 - _t0))
+        _dur=$(timing_format_duration "$_dur_s")
+        TESTS_SKIPPED=$((TESTS_SKIPPED + 1))
+        SKIPPED_TESTS+=("$TEST_NAME")
+        TIMED_NAMES+=("$TEST_NAME")
+        TIMED_RESULTS+=("SKIP")
+        TIMED_DURATIONS_S+=("$_dur_s")
+        echo ""
+        echo ">>> $TEST_NAME: SKIPPED ($_dur) <<<"
     else
         _t1=$(timing_now_epoch)
         _dur_s=$((_t1 - _t0))
@@ -635,6 +653,10 @@ echo ""
 echo "  Tests Run:    $TESTS_RUN"
 echo "  Tests Passed: $TESTS_PASSED"
 echo "  Tests Failed: $TESTS_FAILED"
+echo "  Tests Skipped: $TESTS_SKIPPED"
+for _s in "${SKIPPED_TESTS[@]}"; do
+    echo "    SKIP: $_s (needs a patched genesis: patch_genesis_tle.sh / patch_genesis_dkg.sh)"
+done
 echo ""
 
 # Per-test timings table (in execution order).

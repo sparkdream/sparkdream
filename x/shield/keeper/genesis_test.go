@@ -205,3 +205,33 @@ func TestInitGenesisCreatesPublicSubmitterAccount(t *testing.T) {
 	require.NoError(t, f.keeper.InitGenesis(f.ctx, *types.DefaultGenesis()))
 	require.Equal(t, uint64(7), ak.GetAccount(f.ctx, submitter).GetSequence(), "an existing account is kept")
 }
+
+// TestGenesisExportKeepsDeregistrations: the export lists exactly the stored
+// registrations, so an op governance deregistered stays gone across an
+// export/import and no op is listed twice.
+func TestGenesisExportKeepsDeregistrations(t *testing.T) {
+	f := initFixture(t)
+	defaults := types.DefaultGenesis().RegisteredOps
+	require.NotEmpty(t, defaults)
+	removed := defaults[0].MessageTypeUrl
+	require.NoError(t, f.keeper.DeleteShieldedOp(f.ctx, removed))
+
+	exported, err := f.keeper.ExportGenesis(f.ctx)
+	require.NoError(t, err)
+	require.NoError(t, exported.Validate())
+	require.Len(t, exported.RegisteredOps, len(defaults)-1)
+	for _, reg := range exported.RegisteredOps {
+		require.NotEqual(t, removed, reg.MessageTypeUrl, "deregistered op resurrected by export")
+	}
+
+	f2 := initFixtureEmpty(t)
+	require.NoError(t, f2.keeper.InitGenesis(f2.ctx, *exported))
+	_, found := f2.keeper.GetShieldedOp(f2.ctx, removed)
+	require.False(t, found)
+}
+
+func TestGenesisValidateRejectsDuplicateOps(t *testing.T) {
+	gs := types.DefaultGenesis()
+	gs.RegisteredOps = append(gs.RegisteredOps, gs.RegisteredOps[0])
+	require.ErrorContains(t, gs.Validate(), "duplicate registered op")
+}

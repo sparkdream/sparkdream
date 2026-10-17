@@ -18,9 +18,15 @@ import (
 // If tx[0] is a DKG injection (identified by the magic prefix), it:
 //  1. Decodes the InjectedDKGData
 //  2. Maps each validator's consensus address to their operator address
-//  3. For REGISTERING: stores pub keys as DKG registrations
-//  4. For CONTRIBUTING: stores as DKG contributions + updates contribution count
-//  5. Strips tx[0] from req.Txs so it doesn't go through normal tx delivery
+//  3. Re-applies the phase's acceptance rule (validate.go) and stores what
+//     passes: registrations, contributions, complaints, justifications, or
+//     verified decryption shares (reconstructing epoch keys at threshold)
+//
+// req.Txs is left untouched: CometBFT requires one tx result per tx in the
+// block, so the pseudo-tx must stay and fall through normal delivery, where
+// it fails to decode (the magic prefix is not a valid tx) and is recorded as a
+// failed tx. Removing it here halts consensus with "expected tx results
+// length to match size of transactions in block".
 func ProcessDKGInjection(ctx sdk.Context, k keeper.Keeper, req *abci.RequestFinalizeBlock) {
 	if len(req.Txs) == 0 {
 		return
@@ -34,8 +40,6 @@ func ProcessDKGInjection(ctx sdk.Context, k keeper.Keeper, req *abci.RequestFina
 	if err != nil || injected == nil {
 		ctx.Logger().With("module", "x/shield").Error(
 			"failed to decode DKG injection in PreBlocker", "err", err)
-		// Strip the bad injection so it doesn't pollute tx delivery
-		req.Txs = req.Txs[1:]
 		return
 	}
 
@@ -43,11 +47,13 @@ func ProcessDKGInjection(ctx sdk.Context, k keeper.Keeper, req *abci.RequestFina
 	dkgState, found := k.GetDKGStateVal(ctx)
 	if !found || injected.Round != dkgState.Round || injected.Phase != dkgState.Phase {
 		ctx.Logger().With("module", "x/shield").Warn(
-			"DKG injection round/phase mismatch, stripping",
+			"DKG injection round/phase mismatch, ignoring",
 			"injected_round", injected.Round,
 			"injected_phase", injected.Phase,
 		)
-		req.Txs = req.Txs[1:]
+		return
+	}
+	if ceremonyFrozen(ctx, k, dkgState.Phase) {
 		return
 	}
 
@@ -75,6 +81,18 @@ func ProcessDKGInjection(ctx sdk.Context, k keeper.Keeper, req *abci.RequestFina
 			"total_contributions", dkgState.ContributionsReceived,
 		)
 
+	case types.DKGPhase_DKG_PHASE_COMPLAINING:
+		applied := processComplaints(ctx, k, dkgState, injected.Extensions)
+		if applied > 0 {
+			logger.Info("processed DKG complaints from vote extensions", "round", injected.Round, "applied", applied)
+		}
+
+	case types.DKGPhase_DKG_PHASE_JUSTIFYING:
+		applied := processJustifications(ctx, k, dkgState, injected.Extensions)
+		if applied > 0 {
+			logger.Info("processed DKG justifications from vote extensions", "round", injected.Round, "applied", applied)
+		}
+
 	case types.DKGPhase_DKG_PHASE_ACTIVE:
 		applied := processDecryptionShares(ctx, k, dkgState, injected.DecryptionShares)
 		if applied > 0 {
@@ -85,9 +103,20 @@ func ProcessDKGInjection(ctx sdk.Context, k keeper.Keeper, req *abci.RequestFina
 			)
 		}
 	}
+}
 
-	// Strip tx[0] so it doesn't go through normal tx delivery
-	req.Txs = req.Txs[1:]
+// operatorFor maps an injected extension's consensus address to its operator
+// and re-runs the acceptance rule; nil opAddr means skip.
+func operatorFor(ctx sdk.Context, k keeper.Keeper, dkgState types.DKGState, ve *types.ValidatorDKGExtension) (string, bool) {
+	opAddr, err := consAddrToOperator(ctx, k, ve.ValidatorAddress)
+	if err != nil {
+		return "", false
+	}
+	if err := validateExtension(ctx, k, &ve.Extension, dkgState, opAddr); err != nil {
+		ctx.Logger().With("module", "x/shield").Debug("DKG extension rejected in PreBlocker", "validator", opAddr, "err", err)
+		return "", false
+	}
+	return opAddr, true
 }
 
 // processRegistrations stores BN256 pub keys from REGISTERING phase extensions.
@@ -96,39 +125,13 @@ func processRegistrations(ctx sdk.Context, k keeper.Keeper, dkgState types.DKGSt
 	applied := 0
 
 	for _, ve := range extensions {
-		// Map consensus address to operator address
-		opAddr, err := consAddrToOperator(ctx, k, ve.ValidatorAddress)
-		if err != nil {
+		opAddr, ok := operatorFor(ctx, k, dkgState, ve)
+		if !ok {
 			continue
 		}
-
-		// Must be in the DKG participant set
-		if !isValInDKG(dkgState, opAddr) {
-			continue
-		}
-
 		ext := &ve.Extension
-		if len(ext.RegistrationPubKey) == 0 || len(ext.RegistrationPop) == 0 {
-			continue
-		}
 
-		// Validate the pub key is a valid G1 point
-		point := tleSuite.G1().Point()
-		if err := point.UnmarshalBinary(ext.RegistrationPubKey); err != nil {
-			continue
-		}
-
-		// Verify PoP (Schnorr signature over operator address)
-		if err := verifyPoP(ext.RegistrationPubKey, ext.RegistrationPop, opAddr); err != nil {
-			ctx.Logger().With("module", "x/shield").Debug(
-				"DKG registration PoP verification failed",
-				"validator", opAddr,
-				"err", err,
-			)
-			continue
-		}
-
-		// Skip if already registered for this round
+		// Skip if already registered for this round (first key wins)
 		if existing, found := k.GetDKGRegistration(ctx, opAddr); found && existing.Round == dkgState.Round {
 			continue
 		}
@@ -160,78 +163,19 @@ func processRegistrations(ctx sdk.Context, k keeper.Keeper, dkgState types.DKGSt
 // Returns the number of new contributions applied.
 func processContributions(ctx sdk.Context, k keeper.Keeper, dkgState types.DKGState, extensions []*types.ValidatorDKGExtension) int {
 	applied := 0
-	threshold := computeThreshold(dkgState)
 
 	for _, ve := range extensions {
-		opAddr, err := consAddrToOperator(ctx, k, ve.ValidatorAddress)
-		if err != nil {
+		opAddr, ok := operatorFor(ctx, k, dkgState, ve)
+		if !ok {
 			continue
 		}
-
-		if !isValInDKG(dkgState, opAddr) {
-			continue
-		}
-
 		ext := &ve.Extension
 
-		// Skip if already contributed for this round
+		// Skip if already contributed for this round (first contribution wins)
 		if _, exists := k.GetDKGContributionVal(ctx, opAddr); exists {
 			continue
 		}
 
-		// Validate Feldman commitments count
-		if uint64(len(ext.FeldmanCommitments)) != threshold {
-			continue
-		}
-
-		// Verify all commitments are valid G1 points
-		valid := true
-		for _, c := range ext.FeldmanCommitments {
-			point := tleSuite.G1().Point()
-			if err := point.UnmarshalBinary(c); err != nil {
-				valid = false
-				break
-			}
-		}
-		if !valid {
-			continue
-		}
-
-		// Validate G2 commitments and G1/G2 pairing consistency before storing.
-		// A contribution that survives ProcessProposal but fails these checks here
-		// would still be stored verbatim and cause honest validators to be blamed
-		// during decryption-share verification.
-		if err := keeper.ValidateFeldmanCommitmentsG2(ext.FeldmanCommitmentsG2, int(threshold)); err != nil {
-			ctx.Logger().With("module", "x/shield").Debug(
-				"DKG contribution G2 validation failed",
-				"validator", opAddr,
-				"err", err,
-			)
-			continue
-		}
-		if err := keeper.ValidateFeldmanCommitmentsConsistency(ext.FeldmanCommitments, ext.FeldmanCommitmentsG2); err != nil {
-			ctx.Logger().With("module", "x/shield").Debug(
-				"DKG contribution G1/G2 consistency check failed",
-				"validator", opAddr,
-				"err", err,
-			)
-			continue
-		}
-
-		// Verify PoP (Schnorr signature over operator address using a₀)
-		if len(ext.ContributionPop) == 0 || len(ext.FeldmanCommitments) == 0 {
-			continue
-		}
-		if err := verifyPoP(ext.FeldmanCommitments[0], ext.ContributionPop, opAddr); err != nil {
-			ctx.Logger().With("module", "x/shield").Debug(
-				"DKG contribution PoP verification failed",
-				"validator", opAddr,
-				"err", err,
-			)
-			continue
-		}
-
-		// Store the contribution (including G2 commitments for pairing-based verification)
 		contribution := types.DKGContribution{
 			ValidatorAddress:     opAddr,
 			Round:                dkgState.Round,
@@ -257,120 +201,104 @@ func processContributions(ctx sdk.Context, k keeper.Keeper, dkgState types.DKGSt
 	return applied
 }
 
+// processComplaints records complaints from COMPLAINING phase extensions.
+// Returns the number of new complaints recorded.
+func processComplaints(ctx sdk.Context, k keeper.Keeper, dkgState types.DKGState, extensions []*types.ValidatorDKGExtension) int {
+	applied := 0
+	for _, ve := range extensions {
+		opAddr, ok := operatorFor(ctx, k, dkgState, ve)
+		if !ok {
+			continue
+		}
+		for _, idx := range ve.Extension.Complaints {
+			dealer := dkgState.ExpectedValidators[idx-1]
+			if _, found := k.GetDKGComplaint(ctx, dealer, opAddr); found {
+				continue
+			}
+			if err := k.SetDKGComplaint(ctx, types.DKGComplaint{DealerAddress: dealer, ComplainerAddress: opAddr}); err != nil {
+				continue
+			}
+			applied++
+			ctx.EventManager().EmitEvent(sdk.NewEvent(
+				types.EventTypeShieldDKGComplaint,
+				sdk.NewAttribute(types.AttributeKeyDealer, dealer),
+				sdk.NewAttribute(types.AttributeKeyComplainer, opAddr),
+				sdk.NewAttribute(types.AttributeKeyDKGRound, fmt.Sprintf("%d", dkgState.Round)),
+			))
+		}
+	}
+	return applied
+}
+
+// processJustifications records valid answers to complaints from JUSTIFYING
+// phase extensions (the evaluation was verified against the dealer's
+// commitments by validateExtension). Returns the number applied.
+func processJustifications(ctx sdk.Context, k keeper.Keeper, dkgState types.DKGState, extensions []*types.ValidatorDKGExtension) int {
+	applied := 0
+	for _, ve := range extensions {
+		opAddr, ok := operatorFor(ctx, k, dkgState, ve)
+		if !ok {
+			continue
+		}
+		for _, j := range ve.Extension.Justifications {
+			complainer := dkgState.ExpectedValidators[j.ComplainerIndex-1]
+			complaint, found := k.GetDKGComplaint(ctx, opAddr, complainer)
+			if !found || complaint.Justified {
+				continue
+			}
+			complaint.Justified = true
+			complaint.Evaluation = j.Evaluation
+			if err := k.SetDKGComplaint(ctx, complaint); err != nil {
+				continue
+			}
+			applied++
+			ctx.EventManager().EmitEvent(sdk.NewEvent(
+				types.EventTypeShieldDKGJustification,
+				sdk.NewAttribute(types.AttributeKeyDealer, opAddr),
+				sdk.NewAttribute(types.AttributeKeyComplainer, complainer),
+				sdk.NewAttribute(types.AttributeKeyDKGRound, fmt.Sprintf("%d", dkgState.Round)),
+			))
+		}
+	}
+	return applied
+}
+
 // processDecryptionShares stores validator decryption shares from ACTIVE phase vote extensions
 // and attempts to reconstruct the epoch decryption key when the threshold is met.
 // Returns the number of new shares applied.
-func processDecryptionShares(ctx sdk.Context, k keeper.Keeper, dkgState types.DKGState, shares []*types.InjectedDecryptionShare) int {
+func processDecryptionShares(ctx sdk.Context, k keeper.Keeper, _ types.DKGState, shares []*types.InjectedDecryptionShare) int {
 	applied := 0
-
-	ks, found := k.GetTLEKeySetVal(ctx)
-	if !found || len(ks.MasterPublicKey) == 0 {
-		return 0
-	}
+	epochSeen := map[uint64]bool{}
 
 	for _, ds := range shares {
-		// Map consensus address to operator address
 		opAddr, err := consAddrToOperator(ctx, k, ds.ValidatorAddress)
 		if err != nil {
 			continue
 		}
-
-		// Must be in the DKG participant set
-		if !isValInDKG(dkgState, opAddr) {
-			continue
-		}
-
-		// Must have a registered TLE public key share
-		hasShare := false
-		for _, vs := range ks.ValidatorShares {
-			if vs.ValidatorAddress == opAddr {
-				hasShare = true
-				break
-			}
-		}
-		if !hasShare {
-			continue
-		}
-
-		// Skip duplicate shares for same epoch+validator
-		if _, found := k.GetDecryptionShare(ctx, ds.Epoch, opAddr); found {
-			continue
-		}
-
-		// Validate the share is a valid G1 point (already done in ProcessProposal,
-		// but belt-and-suspenders for safety)
-		point := tleSuite.G1().Point()
-		if err := point.UnmarshalBinary(ds.Share); err != nil {
-			continue
-		}
-		if point.Equal(tleSuite.G1().Point().Null()) {
-			continue
-		}
-
-		// Store the decryption share
-		if err := k.SetDecryptionShare(ctx, types.ShieldDecryptionShare{
-			Epoch:     ds.Epoch,
-			Validator: opAddr,
-			Share:     ds.Share,
-		}); err != nil {
-			continue
-		}
-
-		applied++
-	}
-
-	if applied == 0 {
-		return 0
-	}
-
-	// Check if threshold is met for any epoch that received shares —
-	// group by epoch and try reconstruction.
-	epochSeen := make(map[uint64]bool)
-	for _, ds := range shares {
-		epochSeen[ds.Epoch] = true
-	}
-
-	threshold := computeThreshold(dkgState)
-	for epoch := range epochSeen {
-		// Skip if decryption key already exists
-		if _, found := k.GetShieldEpochDecryptionKeyVal(ctx, epoch); found {
-			continue
-		}
-
-		shareCount := k.CountDecryptionShares(ctx, epoch)
-		if uint64(shareCount) < threshold {
-			continue
-		}
-
-		// Reconstruct epoch decryption key via Lagrange interpolation
-		allShares := k.GetDecryptionSharesForEpoch(ctx, epoch)
-		reconstructedKey, err := keeper.ReconstructEpochDecryptionKey(allShares, ks)
-		if err != nil {
+		// Re-verify before storing. VerifyVoteExtension and ProcessProposal
+		// already applied this rule, but reconstruction interpolates whatever
+		// is in state, and one bad share would silently corrupt the epoch key
+		// for everyone: never store an unverified share.
+		if err := k.VerifyValidatorDecryptionShare(ctx, opAddr, ds.Epoch, ds.Share); err != nil {
 			ctx.EventManager().EmitEvent(sdk.NewEvent(
-				types.EventTypeShieldDecryptionKeyFailed,
-				sdk.NewAttribute(types.AttributeKeyEpoch, fmt.Sprintf("%d", epoch)),
+				types.EventTypeTLEInvalidShare,
+				sdk.NewAttribute(types.AttributeKeyValidator, opAddr),
+				sdk.NewAttribute(types.AttributeKeyEpoch, fmt.Sprintf("%d", ds.Epoch)),
 				sdk.NewAttribute(types.AttributeKeyError, err.Error()),
 			))
 			continue
 		}
-
-		sdkCtx := sdk.UnwrapSDKContext(ctx)
-		if err := k.SetShieldEpochDecryptionKey(ctx, types.ShieldEpochDecryptionKey{
-			Epoch:                 epoch,
-			DecryptionKey:         reconstructedKey,
-			ReconstructedAtHeight: sdkCtx.BlockHeight(),
-		}); err != nil {
+		stored, err := k.StoreVerifiedDecryptionShare(ctx, opAddr, ds.Epoch, ds.Share)
+		if err != nil || !stored {
 			continue
 		}
-
-		ctx.EventManager().EmitEvent(sdk.NewEvent(
-			types.EventTypeShieldDecryptionKeyAvailable,
-			sdk.NewAttribute(types.AttributeKeyEpoch, fmt.Sprintf("%d", epoch)),
-			sdk.NewAttribute(types.AttributeKeySharesSubmitted, fmt.Sprintf("%d", shareCount)),
-			sdk.NewAttribute(types.AttributeKeyThresholdRequired, fmt.Sprintf("%d", threshold)),
-		))
+		applied++
+		epochSeen[ds.Epoch] = true
 	}
 
+	for epoch := range epochSeen {
+		k.TryReconstructEpochKey(ctx, epoch)
+	}
 	return applied
 }
 
@@ -389,15 +317,4 @@ func consAddrToOperator(ctx sdk.Context, k keeper.Keeper, consAddrBytes []byte) 
 	}
 
 	return val.GetOperator(), nil
-}
-
-// verifyPoP verifies a Schnorr proof of possession.
-func verifyPoP(pubKeyBytes, popBytes []byte, validatorAddr string) error {
-	pubPoint := tleSuite.Point()
-	if err := pubPoint.UnmarshalBinary(pubKeyBytes); err != nil {
-		return fmt.Errorf("invalid pub key: %w", err)
-	}
-
-	msg := []byte(validatorAddr)
-	return schnorrVerify(pubPoint, msg, popBytes)
 }

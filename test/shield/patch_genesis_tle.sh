@@ -16,8 +16,13 @@
 # The script:
 #   - Queries the validator operator address from genesis
 #   - Generates TLE key material using tools/zk/cmd/seed-tle
-#   - Patches shield genesis state: encrypted_batch_enabled, tle_key_set,
-#     decryption_keys, shield_epoch_state, min_tle_validators=1
+#   - Patches shield genesis state: encrypted_batch_enabled, tle_key_set
+#     (G1 + G2 master keys, one validator share with its G2 twin),
+#     decryption_keys, shield_epoch_state, min_tle_validators=1, and a TLE
+#     liveness window the seeded validator cannot exhaust (it holds no DKG
+#     key store, so it never serves a share and every demanded epoch is a
+#     miss for it; with the default tolerance the EndBlocker would jail the
+#     chain's only validator after a handful of batches)
 #   - Saves the key file for later use by encrypted_batch_test.sh
 #
 # Prerequisites:
@@ -30,9 +35,13 @@ set -e
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 PROJECT_ROOT="$SCRIPT_DIR/../.."
-GENESIS="$HOME/.sparkdream/config/genesis.json"
+# SPARKDREAM_HOME overrides the chain home (test/run_parallel.sh patches a
+# per-suite home); `sparkdreamd` on PATH must then point at the same home.
+GENESIS="${SPARKDREAM_HOME:-$HOME/.sparkdream}/config/genesis.json"
 KEY_FILE="$SCRIPT_DIR/.tle_keys.json"
-NUM_EPOCHS=10
+# Blocks run ~1s apart in the test build (10-block epochs roll every ~10s), so
+# seed enough epoch keys for a long session; a key is 64 bytes.
+NUM_EPOCHS=3000
 
 echo "============================================================================"
 echo "  PATCHING GENESIS FOR TLE-ENABLED ENCRYPTED BATCH MODE"
@@ -60,8 +69,12 @@ echo "  Genesis file: $GENESIS"
 # ========================================================================
 echo "  Extracting validator address from genesis..."
 
-# The validator operator address is in the staking genesis state
+# `ignite chain init` genesis carries the validator in its gentx (genutil),
+# not in staking.validators; accept either.
 VALOPER_ADDR=$(jq -r '.app_state.staking.validators[0].operator_address // empty' "$GENESIS")
+if [ -z "$VALOPER_ADDR" ]; then
+    VALOPER_ADDR=$(jq -r '.app_state.genutil.gen_txs[0].body.messages[0].validator_address // empty' "$GENESIS")
+fi
 
 if [ -z "$VALOPER_ADDR" ]; then
     echo "ERROR: No validator found in genesis"
@@ -92,7 +105,9 @@ echo "  Key material saved to: $KEY_FILE"
 # 4. Read key material for genesis patching
 # ========================================================================
 MASTER_PUB_B64=$(jq -r '.master_public_key_b64' "$KEY_FILE")
+MASTER_PUB_G2_B64=$(jq -r '.master_public_key_g2_b64' "$KEY_FILE")
 PUB_SHARE_B64=$(jq -r '.public_share_b64' "$KEY_FILE")
+PUB_SHARE_G2_B64=$(jq -r '.public_share_g2_b64' "$KEY_FILE")
 SHARE_INDEX=$(jq -r '.share_index' "$KEY_FILE")
 
 echo ""
@@ -101,16 +116,11 @@ echo "  Patching genesis.json..."
 # ========================================================================
 # 5. Build the jq patch
 # ========================================================================
-# Build decryption_keys array
-DEC_KEYS_JSON="["
-for epoch in $(seq 0 $((NUM_EPOCHS - 1))); do
-    DEC_KEY_B64=$(jq -r ".decryption_keys.\"$epoch\".decryption_key_b64" "$KEY_FILE")
-    if [ "$epoch" -gt 0 ]; then
-        DEC_KEYS_JSON="$DEC_KEYS_JSON,"
-    fi
-    DEC_KEYS_JSON="$DEC_KEYS_JSON{\"epoch\":\"$epoch\",\"decryption_key\":\"$DEC_KEY_B64\"}"
-done
-DEC_KEYS_JSON="$DEC_KEYS_JSON]"
+# Build the decryption_keys array in a file: thousands of keys do not fit
+# in a jq argument (E2BIG), so they are read with --slurpfile.
+DEC_KEYS_FILE="${GENESIS}.deckeys.json"
+jq --argjson n "$NUM_EPOCHS" '[.decryption_keys | to_entries[] | select((.key|tonumber) < $n)
+   | {epoch: .key, decryption_key: .value.decryption_key_b64}] | sort_by(.epoch|tonumber)' "$KEY_FILE" > "$DEC_KEYS_FILE"
 
 # ========================================================================
 # 6. Apply the patch using jq
@@ -125,31 +135,41 @@ DEC_KEYS_JSON="$DEC_KEYS_JSON]"
 TMP_GENESIS="${GENESIS}.tmp"
 
 jq --arg mpk "$MASTER_PUB_B64" \
+   --arg mpkg2 "$MASTER_PUB_G2_B64" \
    --arg valaddr "$VALOPER_ADDR" \
    --arg pubshare "$PUB_SHARE_B64" \
+   --arg pubshareg2 "$PUB_SHARE_G2_B64" \
    --argjson sidx "$SHARE_INDEX" \
-   --argjson deckeys "$DEC_KEYS_JSON" \
+   --slurpfile deckeys "$DEC_KEYS_FILE" \
    '
    # Enable encrypted batch mode
    .app_state.shield.params.encrypted_batch_enabled = true |
    # Lower min_tle_validators to 1 for single-validator testing
    .app_state.shield.params.min_tle_validators = 1 |
+   # The seeded validator has no local DKG share, so it misses every
+   # demanded epoch: keep the liveness judge from jailing the only validator.
+   .app_state.shield.params.tle_miss_window = "100000" |
+   .app_state.shield.params.tle_miss_tolerance = "100000" |
 
    # Set TLE key set with single validator share
+   # Clients encrypt to master_public_key_g2; decryption shares are
+   # verified against public_share_g2 (see tools/tle).
    .app_state.shield.tle_key_set = {
      "master_public_key": $mpk,
+     "master_public_key_g2": $mpkg2,
      "threshold_numerator": "1",
      "threshold_denominator": "1",
      "validator_shares": [{
        "validator_address": $valaddr,
        "public_share": $pubshare,
-       "share_index": $sidx
+       "share_index": $sidx,
+       "public_share_g2": $pubshareg2
      }],
      "created_at_height": "0"
    } |
 
    # Pre-seed decryption keys for first N epochs
-   .app_state.shield.decryption_keys = $deckeys |
+   .app_state.shield.decryption_keys = $deckeys[0] |
 
    # Initialize epoch state
    .app_state.shield.shield_epoch_state = {
@@ -165,11 +185,13 @@ if [ $? -ne 0 ]; then
 fi
 
 mv "$TMP_GENESIS" "$GENESIS"
+rm -f "$DEC_KEYS_FILE"
 
 echo ""
 echo "  Genesis patched successfully:"
 echo "    - encrypted_batch_enabled: true"
 echo "    - min_tle_validators: 1"
+echo "    - tle_miss_window/tolerance: 100000 (seeded validator never serves shares)"
 echo "    - TLE key set: 1 validator, threshold 1/1"
 echo "    - Decryption keys: epochs 0-$((NUM_EPOCHS - 1))"
 echo "    - Epoch state: epoch 0, start height 1"

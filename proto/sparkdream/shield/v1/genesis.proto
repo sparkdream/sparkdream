@@ -63,4 +63,10 @@ message GenesisState {
 
   // DKG registrations (pub keys from REGISTERING phase)
   repeated DKGContributionEntry dkg_registrations = 17 [(gogoproto.nullable) = false];
+
+  // Closed epochs whose decryption shares have been requested from validators
+  repeated DecryptionDemandEntry decryption_demands = 18 [(gogoproto.nullable) = false];
+
+  // DKG complaints for the current round
+  repeated DKGComplaint dkg_complaints = 19 [(gogoproto.nullable) = false];
 }

@@ -41,7 +41,15 @@ bench:
 	@echo Running unit tests with benchmarking...
 	@go test -mod=readonly -p 4 -v -timeout 30m -bench=. ./...
 
-test: govet test-unit
+# Production-build paths that untagged tests never reach: x/shield's
+# verification-key enforcement (InitGenesis launch gate, no-key rejection) and
+# the network build guard in app. Everything else assumes the testparams build.
+test-production:
+	@echo Running production-build tests...
+	@go test -mod=readonly -count=1 -tags devnet -run 'TestProduction' ./x/shield/keeper/
+	@for net in devnet testnet mainnet; do go test -mod=readonly -count=1 -tags $$net -run 'TestCheckNetworkBuild' ./app/ || exit 1; done
+
+test: govet test-unit test-production
 
 # Purge per-module E2E `post-setup` snapshots so the next run of any
 # `test/<module>/run_all_tests.sh` rebuilds them against current config.yml /
@@ -51,7 +59,7 @@ test: govet test-unit
 clean-snapshots:
 	@test/clean-test-snapshots.sh $(MODULES)
 
-.PHONY: test test-unit test-race test-cover bench clean-snapshots
+.PHONY: test test-unit test-production test-race test-cover bench clean-snapshots
 
 #################
 ###  Install  ###

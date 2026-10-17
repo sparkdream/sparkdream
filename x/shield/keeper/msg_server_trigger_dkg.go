@@ -23,9 +23,13 @@ func (k msgServer) TriggerDKG(ctx context.Context, msg *types.MsgTriggerDkg) (*t
 
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 
-	// Check no DKG is already in progress (REGISTERING or CONTRIBUTING)
+	// Refuse while a ceremony is running (any phase between REGISTERING and
+	// ACTIVE); a re-key during COMPLAINING/JUSTIFYING would silently discard
+	// the round's complaints and contributions.
 	if existing, found := k.GetDKGStateVal(ctx); found {
-		if existing.Phase == types.DKGPhase_DKG_PHASE_REGISTERING || existing.Phase == types.DKGPhase_DKG_PHASE_CONTRIBUTING {
+		switch existing.Phase {
+		case types.DKGPhase_DKG_PHASE_REGISTERING, types.DKGPhase_DKG_PHASE_CONTRIBUTING,
+			types.DKGPhase_DKG_PHASE_COMPLAINING, types.DKGPhase_DKG_PHASE_JUSTIFYING:
 			return nil, errorsmod.Wrap(types.ErrDKGInProgress, fmt.Sprintf("round %d is in phase %s", existing.Round, existing.Phase.String()))
 		}
 	}
@@ -69,6 +73,12 @@ func (k msgServer) TriggerDKG(ctx context.Context, msg *types.MsgTriggerDkg) (*t
 	if denominator == 0 {
 		denominator = 3
 	}
+	// A threshold above the participant count can never be met, so the round
+	// could only fail; the denominator bound keeps ComputeThreshold's
+	// numerator*total product far from overflow.
+	if numerator > denominator || denominator > types.MaxDKGThresholdDenominator {
+		return nil, errorsmod.Wrapf(types.ErrInvalidDKGThreshold, "got %d/%d", numerator, denominator)
+	}
 
 	// Determine the round number
 	var round uint64 = 1
@@ -78,29 +88,34 @@ func (k msgServer) TriggerDKG(ctx context.Context, msg *types.MsgTriggerDkg) (*t
 
 	height := sdkCtx.BlockHeight()
 
-	halfWindow := int64(params.DkgWindowBlocks / 2)
-
-	// Create DKG state in REGISTERING phase.
-	// First half of the DKG window is for key registration, second half for contributions.
-	dkgState := types.DKGState{
-		Round:                 round,
-		Phase:                 types.DKGPhase_DKG_PHASE_REGISTERING,
-		OpenAtHeight:          height,
-		RegistrationDeadline:  height + halfWindow,
-		ContributionDeadline:  height + halfWindow*2,
-		ThresholdNumerator:    numerator,
-		ThresholdDenominator:  denominator,
-		ExpectedValidators:    expectedValidators,
-		ContributionsReceived: 0,
-	}
-
+	// Create DKG state in REGISTERING phase; the window is split into the
+	// four ceremony phases (see newDKGState).
+	dkgState := newDKGState(round, height, params.DkgWindowBlocks, numerator, denominator, expectedValidators)
 	if err := k.SetDKGStateVal(ctx, dkgState); err != nil {
 		return nil, err
 	}
 
-	// Clear any old contributions from a previous round
-	if err := k.ClearDKGContributions(ctx); err != nil {
+	// Clear every per-round record of the previous round: a stale
+	// registration would have dealers encrypt evaluations to a key the
+	// validator no longer uses.
+	if err := k.clearDKGRound(ctx); err != nil {
 		return nil, err
+	}
+
+	// Retire everything derived from the previous key set: its decryption
+	// shares and epoch keys are useless under the new one, and pending ops
+	// encrypted to it can never be opened, so they are dropped now with an
+	// expiry event rather than lingering until max_pending_epochs.
+	dropped, err := k.RetireKeySetMaterial(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if dropped > 0 {
+		sdkCtx.EventManager().EmitEvent(sdk.NewEvent(
+			types.EventTypeShieldBatchExpired,
+			sdk.NewAttribute(types.AttributeKeyCount, fmt.Sprintf("%d", dropped)),
+			sdk.NewAttribute(types.AttributeKeyDKGRound, fmt.Sprintf("%d", round)),
+		))
 	}
 
 	// Disable encrypted batch mode until DKG completes

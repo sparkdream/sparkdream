@@ -9,7 +9,9 @@ import (
 	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/stretchr/testify/require"
+	"go.dedis.ch/kyber/v4/util/random"
 
+	"sparkdream/tools/tle"
 	"sparkdream/x/shield/types"
 )
 
@@ -296,6 +298,9 @@ func TestNewParams(t *testing.T) {
 	require.Equal(t, types.DefaultTLEMissWindow, p.TleMissWindow)
 	require.Equal(t, types.DefaultTLEMissTolerance, p.TleMissTolerance)
 	require.Equal(t, types.DefaultTLEJailDuration, p.TleJailDuration)
+	// A completed DKG does not turn batch mode on by itself.
+	require.False(t, types.DefaultEnableBatchAfterDKG)
+	require.Equal(t, types.DefaultEnableBatchAfterDKG, p.EnableBatchAfterDkg)
 }
 
 // --- Error Codes ---
@@ -396,4 +401,68 @@ func TestProvenTrustLevel(t *testing.T) {
 	level, ok = types.ProvenTrustLevel(types.WithProvenTrustLevel(ctx, 0))
 	require.True(t, ok)
 	require.Zero(t, level)
+}
+
+// --- TLEKeySet validation ---
+
+func TestTLEKeySetValidate(t *testing.T) {
+	// Real key material: Validate pairs every G1 point with its G2 twin.
+	pair := func() ([]byte, []byte) {
+		s := tle.Suite.G1().Scalar().Pick(random.New())
+		return tle.MasterPublicKeyG1(s), tle.MasterPublicKeyG2(s)
+	}
+	g1, g2 := pair()
+	s1g1, s1g2 := pair()
+	s2g1, s2g2 := pair()
+	valid := func() types.TLEKeySet {
+		return types.TLEKeySet{
+			MasterPublicKey:      g1,
+			MasterPublicKeyG2:    g2,
+			ThresholdNumerator:   2,
+			ThresholdDenominator: 3,
+			ValidatorShares: []*types.TLEValidatorPublicShare{
+				{ValidatorAddress: "phoenix", PublicShare: s1g1, PublicShareG2: s1g2, ShareIndex: 1},
+				{ValidatorAddress: "aurora", PublicShare: s2g1, PublicShareG2: s2g2, ShareIndex: 2},
+			},
+		}
+	}
+	tests := []struct {
+		name    string
+		modify  func(*types.TLEKeySet)
+		wantErr string
+	}{
+		{"empty key set (no DKG yet) is valid", func(ks *types.TLEKeySet) { *ks = types.TLEKeySet{} }, ""},
+		{"complete key set is valid", func(*types.TLEKeySet) {}, ""},
+		{"missing G2 master key", func(ks *types.TLEKeySet) { ks.MasterPublicKeyG2 = nil }, "master_public_key_g2"},
+		{"G1 master key wrong size", func(ks *types.TLEKeySet) { ks.MasterPublicKey = []byte("short") }, "master_public_key must"},
+		{"zero threshold", func(ks *types.TLEKeySet) { ks.ThresholdDenominator = 0 }, "threshold"},
+		{"threshold above one", func(ks *types.TLEKeySet) { ks.ThresholdNumerator = 4 }, "threshold"},
+		{"share without G2 twin", func(ks *types.TLEKeySet) { ks.ValidatorShares[0].PublicShareG2 = nil }, "public_share_g2"},
+		{"zero share index", func(ks *types.TLEKeySet) { ks.ValidatorShares[0].ShareIndex = 0 }, "1-based"},
+		{"duplicate share index", func(ks *types.TLEKeySet) { ks.ValidatorShares[1].ShareIndex = 1 }, "unique"},
+		{"share without address", func(ks *types.TLEKeySet) { ks.ValidatorShares[1].ValidatorAddress = "" }, "without address"},
+		{"G2 master key for another scalar", func(ks *types.TLEKeySet) { ks.MasterPublicKeyG2 = s1g2 }, "different scalars"},
+		{"G2 public share for another scalar", func(ks *types.TLEKeySet) { ks.ValidatorShares[0].PublicShareG2 = s2g2 }, "different scalars"},
+		{"identity master key", func(ks *types.TLEKeySet) {
+			ks.MasterPublicKey, _ = tle.Suite.G1().Point().Null().MarshalBinary()
+		}, "identity"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ks := valid()
+			tt.modify(&ks)
+			err := ks.Validate()
+			if tt.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorContains(t, err, tt.wantErr)
+		})
+	}
+
+	// Genesis validation runs it.
+	gs := types.DefaultGenesis()
+	gs.TleKeySet = valid()
+	gs.TleKeySet.MasterPublicKeyG2 = nil
+	require.ErrorContains(t, gs.Validate(), "master_public_key_g2")
 }

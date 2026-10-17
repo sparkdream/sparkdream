@@ -240,8 +240,12 @@ func TestDKGRegistrationToContributing(t *testing.T) {
 		Phase:                types.DKGPhase_DKG_PHASE_REGISTERING,
 		RegistrationDeadline: 50,
 		ContributionDeadline: 100,
-		ExpectedValidators:   []string{"val1", "val2", "val3"},
+		ExpectedValidators:   []string{"val1", "val2", "val3", "val4"},
 	}))
+	// val1..val3 register a key this round; val4 never does.
+	for _, v := range []string{"val1", "val2", "val3"} {
+		require.NoError(t, f.keeper.SetDKGRegistration(f.ctx, types.DKGContribution{ValidatorAddress: v, Round: 1, FeldmanCommitments: [][]byte{[]byte("pk")}}))
+	}
 
 	// Block height < deadline — should stay in REGISTERING
 	err := f.keeper.BeginBlocker(f.ctx) // default block height is 0
@@ -255,10 +259,31 @@ func TestDKGRegistrationToContributing(t *testing.T) {
 	err = f.keeper.BeginBlocker(f.ctx)
 	require.NoError(t, err)
 
-	// Should transition to CONTRIBUTING
+	// Should transition to CONTRIBUTING with only the registrants: a
+	// validator without a key could never receive its evaluations.
 	dkgState, found := f.keeper.GetDKGStateVal(f.ctx)
 	require.True(t, found)
 	require.Equal(t, types.DKGPhase_DKG_PHASE_CONTRIBUTING, dkgState.Phase)
+	require.Equal(t, []string{"val1", "val2", "val3"}, dkgState.ExpectedValidators)
+}
+
+func TestDKGRegistrationTooFewFails(t *testing.T) {
+	f := initFixture(t)
+	params, err := f.keeper.Params.Get(f.ctx)
+	require.NoError(t, err)
+	params.MinTleValidators = 3
+	require.NoError(t, f.keeper.Params.Set(f.ctx, params))
+	require.NoError(t, f.keeper.SetDKGStateVal(f.ctx, types.DKGState{
+		Round: 1, Phase: types.DKGPhase_DKG_PHASE_REGISTERING, RegistrationDeadline: 50, ContributionDeadline: 100,
+		ExpectedValidators: []string{"val1", "val2", "val3"},
+	}))
+	require.NoError(t, f.keeper.SetDKGRegistration(f.ctx, types.DKGContribution{ValidatorAddress: "val1", Round: 1, FeldmanCommitments: [][]byte{[]byte("pk")}}))
+	// A registration left over from an earlier round does not count.
+	require.NoError(t, f.keeper.SetDKGRegistration(f.ctx, types.DKGContribution{ValidatorAddress: "val2", Round: 0, FeldmanCommitments: [][]byte{[]byte("pk")}}))
+	f.ctx = f.ctx.WithBlockHeight(51)
+	require.NoError(t, f.keeper.BeginBlocker(f.ctx))
+	dkgState, _ := f.keeper.GetDKGStateVal(f.ctx)
+	require.Equal(t, types.DKGPhase_DKG_PHASE_INACTIVE, dkgState.Phase)
 }
 
 func TestDKGContributingInsufficientFails(t *testing.T) {

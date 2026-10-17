@@ -401,7 +401,13 @@ echo ""
 echo "Step 9: Getting shield module address..."
 
 # The shield module account address (derived from module name)
-SHIELD_MODULE_ADDR=$($BINARY query auth module-account shield --output json 2>&1 | jq -r '.account.base_account.address // .account.value.address // ""')
+# Retry: a node that just (re)started answers "wait for first block" at first.
+SHIELD_MODULE_ADDR=""
+for _attempt in $(seq 1 15); do
+    SHIELD_MODULE_ADDR=$($BINARY query auth module-account shield --output json 2>/dev/null | jq -r '.account.base_account.address // .account.value.address // ""' 2>/dev/null)
+    [ -n "$SHIELD_MODULE_ADDR" ] && [ "$SHIELD_MODULE_ADDR" != "null" ] && break
+    sleep 2
+done
 if [ -z "$SHIELD_MODULE_ADDR" ] || [ "$SHIELD_MODULE_ADDR" == "null" ]; then
     echo "  Warning: Could not get shield module address"
     SHIELD_MODULE_ADDR=""

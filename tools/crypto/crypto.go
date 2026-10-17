@@ -61,13 +61,18 @@ func DerivePublicKey(secretKey []byte) []byte {
 // HASHING
 // =====================================
 
-// HashToField computes MiMC hash of inputs and returns a 32-byte field element
+// HashToField computes MiMC hash of inputs and returns a 32-byte field element.
+//
+// Each input is left-padded to 32 bytes and reduced mod r, the value the
+// circuit sees for it. MiMC's Write refuses a non-canonical block (>= r) and
+// would silently drop it from the hash otherwise.
 func HashToField(inputs ...[]byte) []byte {
 	h := mimc.NewMiMC()
 	for _, input := range inputs {
-		// Pad each input to 32 bytes (field element size)
-		padded := PadTo32(input)
-		h.Write(padded)
+		var e fr.Element
+		e.SetBytes(PadTo32(input))
+		b := e.Bytes()
+		_, _ = h.Write(b[:]) // canonical by construction
 	}
 	return h.Sum(nil)
 }

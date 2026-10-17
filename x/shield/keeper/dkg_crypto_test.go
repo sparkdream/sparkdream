@@ -4,7 +4,10 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"go.dedis.ch/kyber/v4"
+	"go.dedis.ch/kyber/v4/pairing/bn256"
 
+	"sparkdream/tools/tle"
 	"sparkdream/x/shield/types"
 )
 
@@ -22,6 +25,26 @@ func makeValidCommitments(n int) [][]byte {
 		cs[i] = makeValidG1Point()
 	}
 	return cs
+}
+
+// makeConsistentContribution builds a contribution whose G1 and G2 Feldman
+// commitments encode the same random polynomial, and returns its constant
+// term so tests can check the aggregated master keys.
+func makeConsistentContribution(addr string, threshold int) (types.DKGContribution, kyber.Scalar) {
+	g2 := bn256.NewSuiteG2()
+	c := types.DKGContribution{ValidatorAddress: addr}
+	var a0 kyber.Scalar
+	for k := 0; k < threshold; k++ {
+		a := tleSuite.Scalar().Pick(tleSuite.RandomStream())
+		if k == 0 {
+			a0 = a
+		}
+		g1, _ := tleSuite.G1().Point().Mul(a, nil).MarshalBinary()
+		g2c, _ := g2.G2().Point().Mul(a, nil).MarshalBinary()
+		c.FeldmanCommitments = append(c.FeldmanCommitments, g1)
+		c.FeldmanCommitmentsG2 = append(c.FeldmanCommitmentsG2, g2c)
+	}
+	return c, a0
 }
 
 func TestValidateFeldmanCommitments(t *testing.T) {
@@ -192,11 +215,11 @@ func TestAggregateFeldmanDKGFromContributions(t *testing.T) {
 	})
 
 	t.Run("successful aggregation", func(t *testing.T) {
-		// Create contributions with valid G1 points for 2 validators, threshold polynomial degree 1 (2 commitments each)
-		contributions := []types.DKGContribution{
-			{ValidatorAddress: "val1", FeldmanCommitments: makeValidCommitments(2)},
-			{ValidatorAddress: "val2", FeldmanCommitments: makeValidCommitments(2)},
-		}
+		// 2 validators, threshold polynomial degree 1 (2 commitments each),
+		// G1 and G2 commitments from the same coefficients.
+		c1, a1 := makeConsistentContribution("val1", 2)
+		c2, a2 := makeConsistentContribution("val2", 2)
+		contributions := []types.DKGContribution{c1, c2}
 		dkgState := types.DKGState{
 			ThresholdNumerator:   2,
 			ThresholdDenominator: 3,
@@ -207,10 +230,10 @@ func TestAggregateFeldmanDKGFromContributions(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, result)
 
-		// Verify master key is valid
-		require.NotEmpty(t, result.MasterPublicKey)
-		mpk := tleSuite.G1().Point()
-		require.NoError(t, mpk.UnmarshalBinary(result.MasterPublicKey))
+		// Master keys: G1 and G2 encodings of s = a1 + a2.
+		s := tleSuite.Scalar().Add(a1, a2)
+		require.Equal(t, tle.MasterPublicKeyG1(s), result.MasterPublicKey)
+		require.Equal(t, tle.MasterPublicKeyG2(s), result.MasterPublicKeyG2)
 
 		// Verify threshold is preserved
 		require.Equal(t, uint64(2), result.ThresholdNumerator)
@@ -223,11 +246,33 @@ func TestAggregateFeldmanDKGFromContributions(t *testing.T) {
 		require.Equal(t, "val2", result.ValidatorShares[1].ValidatorAddress)
 		require.Equal(t, uint32(2), result.ValidatorShares[1].ShareIndex)
 
-		// Each share should be a valid G1 point
+		// Each share is a G1 point with a matching G2 twin.
+		g2 := bn256.NewSuiteG2()
 		for _, vs := range result.ValidatorShares {
 			p := tleSuite.G1().Point()
 			require.NoError(t, p.UnmarshalBinary(vs.PublicShare))
+			require.Len(t, vs.PublicShareG2, types.G2PointLen)
+			q := g2.G2().Point()
+			require.NoError(t, q.UnmarshalBinary(vs.PublicShareG2))
 		}
+
+		// The key set passes genesis validation and a client can encrypt to it.
+		require.NoError(t, result.Validate())
+		ct, err := tle.Encrypt(result.MasterPublicKeyG2, 1, []byte("m"))
+		require.NoError(t, err)
+		pt, err := tle.Decrypt(tle.EpochDecryptionKey(s, 1), 1, ct)
+		require.NoError(t, err)
+		require.Equal(t, []byte("m"), pt)
+	})
+
+	t.Run("missing G2 commitments rejected", func(t *testing.T) {
+		contributions := []types.DKGContribution{
+			{ValidatorAddress: "val1", FeldmanCommitments: makeValidCommitments(2)},
+		}
+		dkgState := types.DKGState{ThresholdNumerator: 1, ThresholdDenominator: 1, ExpectedValidators: []string{"val1"}}
+		_, err := AggregateFeldmanDKGFromContributions(contributions, dkgState)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "G2")
 	})
 
 	t.Run("invalid commitment causes error", func(t *testing.T) {

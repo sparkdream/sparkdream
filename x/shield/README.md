@@ -23,7 +23,7 @@ This module provides:
 
 **Immediate mode**: Inner message and ZK proof are submitted in cleartext. The operation executes in the same block. Best for latency-sensitive actions (posts, reactions) where content visibility is acceptable.
 
-**Encrypted Batch mode**: The inner message and proof are encrypted with the TLE master public key. The encrypted payload is queued. At epoch boundaries, validators produce decryption shares; once threshold is reached, the batch is decrypted, shuffled deterministically, and executed. Best for voting and actions where both identity AND content must be hidden.
+**Encrypted Batch mode**: The inner message and proof are sealed to the TLE master public key (identity-based encryption keyed by the shield epoch; `tools/tle`) and queued. Once the epoch closes and its batch is ready (`min_batch_size`, or `max_pending_epochs` of waiting), the EndBlocker records a *decryption demand*; validators then release pairing-verified decryption shares for that epoch in their vote extensions, the PreBlocker reconstructs the epoch key at threshold, and the EndBlocker decrypts, verifies, shuffles and executes the batch in that block. Best for voting and actions where both identity AND content must be hidden.
 
 ### ZK Proof Verification
 
@@ -58,42 +58,59 @@ Each registered operation specifies its `nullifier_domain` (a small integer per 
 - **`NULLIFIER_MODE_CONSUME`** (default): a one-time action token, checked unused and recorded under `(domain, raw_scope)`. Both exec paths run the inner message with `types.WithExecNullifier(ctx, ExecNullifier{Domain, Scope, Nullifier})`, so a module can keep the creating exec's nullifier as an owner tag for anonymously created content.
 - **`NULLIFIER_MODE_OWNERSHIP`**: proves the submitter is the anonymous creator of the target content; the nullifier is reused, never recorded. The target module implements the optional `ShieldOwnershipResolver` (`ResolveOwnership(ctx, msg) (OwnershipClaim, error)`, `AdvanceOwnership(ctx, msg) error`; `OwnershipClaim{Domain, Scope, Tag, Sequence}`, all stored with the content). The exec's nullifier must equal `claim.Tag` (`ErrOwnershipMismatch`), and the proof is verified with `Scope = ScopeElement(claim.Domain, claim.Scope)` and `MessageHash = ShieldOwnedMessageHash(type_url, value, claim.Sequence)`; `nullifier_scope_type`/`scope_field_path` are ignored. After validation, `AdvanceOwnership` bumps the sequence (retiring the proof), the rate limit is counted, and the inner message runs with `types.WithOwnershipTag(ctx, tag)`; the target module compares that tag with its stored one before letting the shield address manage the content. In CheckTx (not simulate) the ante precheck advances the sequence in the check state so rewrapped copies leave the mempool. A module without the resolver fails with `ErrNotOwnable`.
 
-Ownership ops must be `IMMEDIATE_ONLY` - the sequence is bound at execution, which a batch submitter can't predict. `ShieldedOpRegistration.Validate()` (run by genesis validation and `MsgRegisterShieldedOp`) rejects anything else with `ErrOwnershipBatchMode`, and the batch executor drops ownership ops. A re-randomized (mauled) Groth16 proof has the same public inputs, so it can only run the owner's own pending op once; after that the sequence has moved on. Management ops on one piece of content are linkable to each other and to its creation (same tag) but not to the member's other activity.
+Ownership ops must be `IMMEDIATE_ONLY` - the sequence is bound at execution, which a batch submitter can't predict. `ShieldedOpRegistration.Validate()` (run by genesis validation and `MsgRegisterShieldedOp`) rejects anything else with `ErrOwnershipBatchMode` (it also rejects `epoch_window > 1` outside EPOCH-scoped consume ops; genesis validation additionally rejects a duplicate `message_type_url`), and the batch executor drops ownership ops. A re-randomized (mauled) Groth16 proof has the same public inputs, so it can only run the owner's own pending op once; after that the sequence has moved on. Management ops on one piece of content are linkable to each other and to its creation (same tag) but not to the member's other activity.
 
 ### DKG State Machine
 
 The Distributed Key Generation ceremony creates the TLE master key:
 
 ```
-INACTIVE → REGISTERING → CONTRIBUTING → ACTIVE
-    │            │             │            │
-    │     deadline passes   deadline     drift detected
-    │            │          passes          │
-    └────────────┴──── INACTIVE ◄───────────┘
+INACTIVE → REGISTERING → CONTRIBUTING → COMPLAINING → JUSTIFYING → ACTIVE
+    ▲           │              │             │             │          │
+    │     too few keys   below threshold     │     below threshold    │ drift detected
+    │           │              │             │     after disqualif.   │ (or MsgTriggerDKG)
+    └───────────┴──────────────┴─────────────┴─────────────┴──────────┘
 ```
 
-- **INACTIVE**: No DKG in progress
-- **REGISTERING**: Validators register public keys with proof of possession
-- **CONTRIBUTING**: Validators submit Feldman VSS commitments and encrypted evaluations
-- **ACTIVE**: Master key assembled, TLE operational
+The `dkg_window_blocks` window is split into four equal phases.
 
-Auto-trigger: BeginBlocker starts DKG when bonded validators >= `min_tle_validators` and no TLE key set exists. Drift detection resets DKG if validator set diverges beyond `max_validator_set_drift` threshold.
+- **INACTIVE**: No DKG in progress
+- **REGISTERING**: Validators register BN256 keys with a proof of possession over (operator, round). At the deadline the participant set is narrowed to the registrants (a validator without a key could never receive its evaluations); fewer than `min_tle_validators` fails the round
+- **CONTRIBUTING**: Validators deal Feldman VSS commitments (G1 + G2) and ECIES-encrypted evaluations to every other participant; the threshold of contributions must be met
+- **COMPLAINING**: Each validator checks the evaluations dealt to it against the dealers' commitments and names the dealers whose evaluation is missing, undecryptable or inconsistent
+- **JUSTIFYING**: Accused dealers publish the disputed evaluations in clear, verified on chain against their commitments. At the deadline a dealer with an unanswered complaint is disqualified; the qualified contributions (still at least the threshold) are aggregated into the key set
+- **ACTIVE**: Master key assembled, TLE operational. Batch mode turns on by itself only when `enable_batch_after_dkg` is set; otherwise governance enables it
+
+Auto-trigger: BeginBlocker starts DKG when bonded validators >= `min_tle_validators` and no TLE key set exists. Drift detection (validator set diverging beyond `max_validator_set_drift`) and `MsgTriggerDkg` retire the key set and everything sealed to it (shares, epoch keys, demands, pending ops, the liveness record) and reopen the ceremony; every per-round record (registrations, contributions, complaints) is cleared at each open.
 
 ### TLE Epoch Lifecycle
 
 ```
-Epoch N starts → Validators submit decryption shares for epoch N-1
-                → Threshold reached → Reconstruct decryption key
-                → Decrypt + shuffle + execute pending ops from epoch N-1
-                → Prune stale state
-                → Check TLE liveness (increment miss counters, jail violators)
+Epoch N closes (boundary block B)
+  → EndBlocker: is epoch N's batch ready?  (>= min_batch_size alone or together
+    with other closed epochs, or waited max_pending_epochs)
+      yes → record DecryptionDemand(N, B)
+  → Validators (ExtendVote): for the oldest demanded epoch they have not
+    served (until its liveness is judged, even once a key exists), embed
+    share_i = s_i * H1(N)   (H1 = hash-to-curve, tools/tle.EpochTag)
+  → VerifyVoteExtension / ProcessProposal / PreBlocker: pairing check
+    e(share_i, G2) == e(H1(N), pubShare_i_G2); bad shares are dropped and
+    emit shield_tle_invalid_share (they count as misses)
+  → PreBlocker: threshold reached → reconstruct epoch key N
+  → EndBlocker (same block): decrypt + verify proofs + shuffle + execute N's ops
+Height B + interval (every block, before expiry)
+  → judge TLE liveness for epoch N: bonded key-set validators without a
+    stored share missed; misses live in a ring of the last tle_miss_window
+    judged epochs, reset whenever the key set changes
 ```
+
+A key is never reconstructed for an epoch whose batch is not ready, so a small batch waits *encrypted* rather than decryptable on chain. Idle epochs demand nothing and count against nobody.
 
 ### Module-Paid Gas
 
-The shield module account holds gas reserves (uspark). A custom ante decorator (`ShieldGasDecorator`) detects `MsgShieldedExec` transactions and deducts fees from the module account instead of the submitter. A companion `SkipIfFeePaidDecorator` wraps the standard `DeductFeeDecorator` to prevent double-deduction when fees have already been paid by the shield module. BeginBlocker auto-refills from the community pool when balance drops below `min_gas_reserve`, capped at `max_funding_per_day` (tracked per day, where day = `block_height / 14400`).
+The shield module account holds gas reserves in the chain's bond denom (from x/identity). A custom ante decorator (`ShieldGasDecorator`) detects `MsgShieldedExec` transactions and deducts fees from the module account instead of the submitter. A companion `SkipIfFeePaidDecorator` wraps the standard `DeductFeeDecorator` to prevent double-deduction when fees have already been paid by the shield module. BeginBlocker auto-refills from the community pool when balance drops below `min_gas_reserve`, capped at `max_funding_per_day` (tracked per UTC day of the block time).
 
-Because the module pays, it pays only for execs that will run: immediate-mode execs have their proof, nullifier and identity rate limit checked in the ante handler (`PrecheckImmediate`) before any fee moves, and the fee itself must be in the bond denom and at most `max_fee_per_exec` (otherwise `ErrFeeTooHigh`). The identity rate limit bounds immediate execs, so they have no per-submitter-address cap. Encrypted batch execs can't be verified until decryption, so they keep a per-address cap per epoch, and are rejected in the ante handler (`ErrEncryptedBatchDisabled`) while `encrypted_batch_enabled` is false. In CheckTx the precheck also marks the exec spent in the check state (discarded at commit) - recording a consume-mode nullifier or advancing an ownership-mode owner sequence - so copies of a pending exec rewrapped in new outer txs never enter the mempool. The msg server skips re-verifying a proof the ante handler already verified for the same message.
+Because the module pays, it pays only for execs that will run: both modes have a proof, a nullifier and the identity rate limit checked in the ante handler (`PrecheckExec`) before any fee moves — the operation proof for an immediate exec, the cleartext *submission proof* for an encrypted-batch exec (bound to the ciphertext; the operation proof and nullifier stay sealed) — and the fee itself must be in the bond denom and at most `max_fee_per_exec` (otherwise `ErrFeeTooHigh`). The identity rate limit, now proven in both modes, bounds spend per member, so there is no per-submitter-address cap. Batch execs are rejected in the ante handler (`ErrEncryptedBatchDisabled`) while `encrypted_batch_enabled` is false. In CheckTx the precheck also marks the exec spent in the check state (discarded at commit) - recording a consume-mode nullifier, advancing an ownership-mode owner sequence, or recording a pending submission nullifier - so copies of a pending exec rewrapped in new outer txs never enter the mempool. The msg server skips re-verifying a proof the ante handler already verified for the same message. The inner handler runs under a `max_gas_per_exec` meter and what it uses is charged to the outer tx.
 
 Verifying in CheckTx costs every node a Groth16 pairing check (~1.5-3 ms) per admitted exec, and public-submitter txs are free to submit, so the ante handler guards it with two node-local, non-consensus defences (review finding M4 - mitigated; `x/shield/ante/proof_guard.go`):
 
@@ -141,10 +158,15 @@ Both gates must pass for a shielded operation to execute. Ownership-mode operati
 | `VerificationKey` | `shield/vk/{circuit_id}` | On-chain ZK verification key |
 | `TLEKeySet` | `shield/tle_keyset` | Master public key + validator shares (singleton) |
 | `TLEMissCounter` | `shield/tle_miss/{validator}` | Validator decryption share miss count |
-| `PendingShieldedOp` | `shield/pending_ops/{id}` | Queued encrypted operation |
+| `PendingShieldedOp` | `shield/pending_ops/{target_epoch}/{id}` | Queued encrypted operation (submission nullifier in cleartext; operation nullifier sealed) |
+| `PendingOpCount` | `shield/pending_op_count` | Queue size (singleton) |
+| `TLEEpochParticipation` | `shield/tle_part/{validator}/{slot}` | Ring of the last `tle_miss_window` judged epochs |
+| `TLEJudgedEpochs` | `shield/tle_judged` | Judged-epoch counter under the current key set (singleton) |
+| `DKGComplaint` | `shield/dkg_complaint/{dealer}/{complainer}` | Complaint and, once answered, the justified evaluation |
 | `ShieldEpochState` | `shield/epoch_state` | Current epoch and start height (singleton) |
 | `ShieldEpochDecryptionKey` | `shield/dec_keys/{epoch}` | Reconstructed epoch decryption key |
-| `ShieldDecryptionShare` | `shield/dec_shares/{epoch}/{validator}` | Individual validator share |
+| `ShieldDecryptionShare` | `shield/dec_shares/{epoch}/{validator}` | Individual validator share (pairing-verified before storage) |
+| `DecryptionDemand` | `shield/dec_demand/{epoch}` | Height the EndBlocker asked validators for a closed epoch's shares (negative once liveness judged) |
 | `DKGState` | `shield/dkg_state` | DKG ceremony state (singleton) |
 | `DKGContribution` | `shield/dkg_contrib/{validator}` | Feldman VSS contribution |
 | `DKGRegistration` | `shield/dkg_reg/{validator}` | BN256 G1 public key + Schnorr PoP |
@@ -158,7 +180,7 @@ Both gates must pass for a shielded operation to execute. Ownership-mode operati
 | `MsgUpdateParams` | Update module parameters | `x/gov` authority |
 | `MsgRegisterShieldedOp` | Register or update a shielded operation whitelist entry | `x/gov` authority |
 | `MsgDeregisterShieldedOp` | Remove a shielded operation from the whitelist | `x/gov` authority |
-| `MsgTriggerDkg` | Manually trigger a new DKG ceremony | `x/gov` authority |
+| `MsgTriggerDkg` | Manually trigger a new DKG ceremony; refused while a round is running, with fewer than `min_tle_validators` bonded validators, or unless `numerator <= denominator <= 100` (`ErrInvalidDKGThreshold`) | `x/gov` authority |
 
 ## Queries
 
@@ -173,7 +195,7 @@ Both gates must pass for a shielded operation to execute. Ownership-mode operati
 | `ShieldEpoch` | Current epoch state |
 | `PendingOps` | Pending encrypted operations (optional epoch filter) |
 | `PendingOpCount` | Count of pending operations |
-| `TLEMasterPublicKey` | Master public key for client-side encryption |
+| `TLEMasterPublicKey` | Master public keys; clients encrypt to `master_public_key_g2` (`tools/tle`) |
 | `TLEKeySet` | Full TLE key set (master key + validator shares) |
 | `VerificationKey` | ZK verification key by circuit ID |
 | `TLEMissCount` | Validator's TLE miss count |
@@ -183,6 +205,8 @@ Both gates must pass for a shielded operation to execute. Ownership-mode operati
 | `DKGContributions` | All DKG contributions for current round |
 
 ## Parameters
+
+Defaults below are the production (`mainnet`/`testnet` build) values; `DefaultParams()` returns the build tag's values (`x/shield/types/genesis_vals_*.go`), and `testparams`/`devnet` use shorter windows and smaller minimums. Mainnet ships `enabled: false` until its ceremony verification key is in genesis: a production build refuses to start a genesis that enables shield without one (see `deploy/README.md`, "Shield verification key").
 
 ### Core
 
@@ -211,17 +235,18 @@ Both gates must pass for a shielded operation to execute. Ownership-mode operati
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `tle_miss_window` | 100 | Epoch window for miss tracking |
-| `tle_miss_tolerance` | 10 | Misses before jailing |
-| `tle_jail_duration` | 600s | Jail duration for TLE violations |
+| `tle_miss_window` | 100 | Ring of the last N *judged* epochs misses are counted over (reset on every key set change) |
+| `tle_miss_tolerance` | 10 | Misses in the ring before jailing |
+| `tle_jail_duration` | 600s | Seconds a TLE-jailed validator stays jailed (`JailUntil`) before `MsgUnjail` is accepted |
 
 ### DKG
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
 | `min_tle_validators` | 5 | Minimum validators for DKG |
-| `dkg_window_blocks` | 200 | Total ceremony duration (~20 min at 6s blocks); split equally between registration and contribution phases |
+| `dkg_window_blocks` | 200 | Total ceremony duration (~20 min at 6s blocks); four equal phases: registration, dealing, complaints, justifications |
 | `max_validator_set_drift` | 33 | % drift threshold for re-keying |
+| `enable_batch_after_dkg` | false | Whether a completed DKG turns `encrypted_batch_enabled` on by itself (true in `testparams`); a re-key always turns it off |
 
 ## Dependencies
 
@@ -233,6 +258,7 @@ Both gates must pass for a shielded operation to execute. Ownership-mode operati
 | `x/distribution` | No | Community pool draws for auto-funding |
 | `x/staking` | No | Bonded validator set for DKG and TLE liveness |
 | `x/slashing` | No | Jail TLE-violating validators |
+| `x/identity` | Yes (late-wired) | Bond denom; the keeper panics on first denom lookup if unwired |
 
 ### Cyclic Dependency Breaking
 
@@ -241,13 +267,16 @@ All optional keepers are wired manually in `app.go` via `Set*Keeper()` methods a
 - `SetDistrKeeper()` — community pool funding
 - `SetStakingKeeper()` — validator set queries
 - `SetSlashingKeeper()` — TLE liveness jailing
+- `SetIdentityKeeper()` — bond denom
 - `SetRouter()` — inner message dispatch
 
-Additionally, `RegisterShieldAwareModule(prefix, impl)` is called for each target module (blog, forum, collect, rep, commons) to register their `ShieldAware` implementations.
+Additionally, `RegisterShieldAwareModule(prefix, impl)` is called for each target module (blog, forum, collect, rep, commons, federation) to register their `ShieldAware` implementations.
 
 All held in shared `lateKeepers` struct so value-copies of Keeper (in msgServer, AppModule) see updates.
 
 ## BeginBlocker
+
+Nothing runs while `params.enabled` is false (no funding, no DKG phase advance; the ABCI handlers then also refuse ceremony-phase data).
 
 1. **Auto-fund module account** — if balance < `min_gas_reserve`, draw from community pool (up to day cap)
 2. **DKG state machine** — advance DKG phases, auto-trigger on startup, detect validator set drift
@@ -256,21 +285,21 @@ All held in shared `lateKeepers` struct so value-copies of Keeper (in msgServer,
 ## EndBlocker
 
 1. **Epoch advancement** — advance shield epoch when interval reached, whether or not encrypted batch mode is enabled (immediate mode uses it for EPOCH-scoped nullifiers and per-epoch rate limits; a frozen epoch would make those lifetime limits)
-2. **Batch execution** *(batch mode only)* — decrypt, shuffle, verify, and execute pending ops from previous epoch
-3. **Carry-over processing** *(batch mode only)* — handle ops from older epochs with late-arrived keys
-4. **Expired op cleanup** *(batch mode only)* — drop ops past `max_pending_epochs`
-5. **TLE liveness** *(batch mode only)* — increment miss counters and jail violating validators
+2. **TLE liveness** *(batch mode, every block)* — judge each demand exactly one full interval after it was recorded, before expiry can forget it: bonded key-set validators without a stored share for that epoch missed; past `tle_miss_tolerance` misses in the ring the validator is jailed and `JailUntil` is set `tle_jail_duration` seconds ahead
+3. **Expired op cleanup** *(every block, batch mode on or off)* — drop ops past `max_pending_epochs` and forget their demands
+4. **Decryption demands** *(batch mode, every block)* — mark each closed epoch whose batch is ready (a key-only count per epoch); validators only release shares for demanded epochs
+5. **Batch execution** *(batch mode, every block)* — for every demanded closed epoch whose key exists: decrypt, verify the operation proofs (against the submission epoch, the cleartext fields stored on the pending op and the submission's rate-limit nullifier), shuffle, execute, at most `max_ops_per_batch` per block
 6. **State pruning** — every epoch: identity rate limits, EPOCH-scoped nullifiers (one range scan per EPOCH-scoped domain), day fundings, stale decryption keys and shares
 
 ## ABCI Extensions
 
 ### Vote Extensions (CometBFT)
 
-Validators include TLE decryption shares in their vote extensions during `ExtendVote`. Other validators verify shares during `VerifyVoteExtension`. The `PrepareProposal` handler aggregates shares into the block proposal.
+Validators carry the DKG ceremony (registrations, contributions, complaints, justifications) and, once ACTIVE, TLE decryption shares in their vote extensions during `ExtendVote` — one share per vote, for the oldest demanded closed epoch they have not served. `VerifyVoteExtension`, `PrepareProposal`, `ProcessProposal` and the PreBlocker all apply one per-phase acceptance rule (`x/shield/abci/validate.go`; for shares `VerifyValidatorDecryptionShare`: key-set membership, closed and demanded epoch inside the `max_pending_epochs` window, and the pairing check against the validator's G2 public share), so an invalid share never reaches Lagrange reconstruction and is attributable to its submitter, and an honest proposer never injects what `ProcessProposal` would reject. The `PrepareProposal` handler aggregates the extensions into a pseudo-tx at position 0 within half of `MaxTxBytes` (the rest is re-sent in later votes) and delegates the remaining block to the SDK's default proposal handler. Vote extensions must be enabled in consensus params (`abci.vote_extensions_enable_height`, 1 in every network's `config.yml`).
 
 ### Ante Handlers
 
-- **`ShieldGasDecorator`** — detects `MsgShieldedExec` transactions (must be single-message), prechecks immediate execs (nullifier, identity rate limit, then the proof, behind a node-local rejected-proof cache and verification throttle in CheckTx), caps the fee at `max_fee_per_exec`, transfers fees from shield module account to fee pool, and sets `ContextKeyFeePaid` flag. Also refuses any non-shield tx signed by the public anonymous submitter
+- **`ShieldGasDecorator`** — detects `MsgShieldedExec` transactions (must be single-message), prechecks both modes (nullifiers, identity rate limit, then the operation or submission proof, behind a node-local rejected-proof cache and verification throttle in CheckTx), caps the fee at `max_fee_per_exec`, transfers fees from shield module account to fee pool, and sets `ContextKeyFeePaid` flag. Also refuses any non-shield tx signed by the public anonymous submitter
 - **`SkipIfFeePaidDecorator`** — wraps the standard `DeductFeeDecorator`; if `ContextKeyFeePaid` flag is set, skips inner fee deduction to prevent double-charging
 
 ## Events
@@ -281,16 +310,16 @@ All state-changing operations emit typed events:
 
 | Event | Description |
 |-------|-------------|
-| `shielded_exec` | Immediate mode execution (success/failure); attributes include `nullifier_domain`, `nullifier_hex`, `exec_mode` and `nullifier_mode` |
+| `shielded_exec` | Successful immediate mode execution; attributes include `nullifier_domain`, `nullifier_hex`, `exec_mode` and `nullifier_mode` |
 | `shielded_queued` | Operation queued for encrypted batch |
 
 ### Batch Processing
 
 | Event | Description |
 |-------|-------------|
-| `shield_batch_executed` | Batch processed (executed, dropped, decrypt-fail counts) |
-| `shield_batch_skipped` | Batch skipped (missing decryption key, etc.) |
-| `shield_batch_expired` | Stale ops expired past `max_pending_epochs` |
+| `shield_batch_executed` | Batch processed (`batch_size`, `executed`, `dropped`, `decrypt_failed`, `proof_failed`) |
+| `shield_batch_skipped` | Batch skipped: the epoch's stored decryption key is empty |
+| `shield_batch_expired` | Stale ops expired past `max_pending_epochs` (`cutoff_epoch`), or dropped by a re-key (`dkg_round`) |
 
 ### Decryption
 
@@ -317,11 +346,13 @@ All state-changing operations emit typed events:
 
 | Event | Description |
 |-------|-------------|
-| `shield_dkg_triggered` | DKG ceremony manually triggered |
-| `shield_dkg_opened` | DKG ceremony opened (auto-trigger) |
-| `shield_dkg_registration` | Registration phase details |
-| `shield_dkg_contribution` | Validator contribution submitted |
-| `shield_dkg_complete` | DKG ceremony succeeded |
+| `shield_dkg_opened` | Round opened (auto-trigger or `MsgTriggerDkg`) and every phase transition (`dkg_phase`, `count`; no `count` on the COMPLAINING transition) |
+| `shield_dkg_registration` | Validator key registered |
+| `shield_dkg_contribution` | Validator contribution recorded |
+| `shield_dkg_complaint` | Complaint recorded (`dealer`, `complainer`) |
+| `shield_dkg_justification` | Complaint answered with a valid evaluation |
+| `shield_dkg_disqualified` | Dealer excluded from the key set (unanswered complaint) |
+| `shield_dkg_complete` | DKG ceremony succeeded (`contributions_count` qualified) |
 | `shield_dkg_activated` | Master key activated |
 | `shield_dkg_failed` | DKG ceremony failed |
 
@@ -329,9 +360,9 @@ All state-changing operations emit typed events:
 
 | Event | Description |
 |-------|-------------|
-| `shield_tle_registered` | Validator registered for TLE |
-| `shield_tle_miss` | Validator missed decryption share submission |
-| `shield_tle_jail` | Validator jailed for exceeding miss tolerance |
+| `shield_tle_miss` | Bonded key-set validator had no share for a judged epoch (`validator`, `epoch`) |
+| `shield_tle_jail` | Validator jailed for exceeding miss tolerance (`JailUntil` = now + `tle_jail_duration`) |
+| `shield_tle_invalid_share` | A validator's decryption share failed verification and was dropped |
 | `shield_validator_set_drift` | Validator set drift triggered re-keying |
 
 ## Genesis Registered Operations
@@ -383,9 +414,10 @@ sparkdreamd tx shield shielded-exec \
   --exec-mode 0 \
   --from <submitter>
 
-# Anonymous execution (encrypted batch mode)
+# Anonymous execution (encrypted batch mode; --proof is the submission proof)
 sparkdreamd tx shield shielded-exec \
   --encrypted-payload <hex> \
+  --proof <hex> \
   --nullifier <hex> \
   --rate-limit-nullifier <hex> \
   --merkle-root <hex> \
@@ -417,9 +449,13 @@ sparkdreamd q shield dkg-contributions
 
 **Note:** `MsgRegisterShieldedOp`, `MsgDeregisterShieldedOp`, `MsgTriggerDkg`, and `MsgUpdateParams` are authority-gated (require `x/gov` proposals) and are not exposed via CLI.
 
+### E2E genesis flavours
+
+`test/shield/run_all_tests.sh` runs against a default genesis (no DKG, batch mode off). Two scripts patch `~/.sparkdream/config/genesis.json` after `ignite chain init` for the TLE paths: `patch_genesis_dkg.sh` (min_tle_validators=1; `dkg_ceremony_test.sh` then watches the live ceremony and pushes a sealed op through the resulting key) and `patch_genesis_tle.sh` (seeded single-validator key set with G1+G2 keys and pre-computed epoch keys; `encrypted_batch_test.sh`). Both need `setup_test_accounts.sh` first; the scripts fund the community pool so the shield gas reserve is non-zero.
+
 ### Proving Tools
 
-- **Browser client** - `tools/zk/wasm` (built by `tools/zk/wasm/build.sh`) exposes `sparkdreamShield.deriveSecret/publicKey/loadKeys/prove`, using the same code the chain verifies against. `prove` input takes the operation's nullifier `"domain"` and raw `"scope"`; for an ownership-mode op pass the content's owner domain and scope plus `"owner_sequence"` (decimal string), and check the returned nullifier equals the content's owner tag.
+- **Browser client** - `tools/zk/wasm` (built by `tools/zk/wasm/build.sh`) exposes `sparkdreamShield.version/deriveSecret/publicKey/loadKeys/prove/encrypt`, using the same code the chain verifies against; `encrypt` seals the inner Any with the operation proof and nullifier and returns the submission-proof inputs for a second `prove()`. `prove` input takes the operation's nullifier `"domain"` and raw `"scope"`; for an ownership-mode op pass the content's owner domain and scope plus `"owner_sequence"` (decimal string), and check the returned nullifier equals the content's owner tag.
 - **Prover** - `prover.ShieldProofInput` carries `Domain` and the raw `Scope`; it derives the scope element and the nullifier (`crypto.ComputeScopedNullifier`) itself.
 - **Merkle path** - clients rebuild the trust tree from x/rep's `TrustTree` query (`/sparkdream/rep/v1/trust_tree`) and compute their own path with `crypto.SparseMerkleProof`, so they never reveal which leaf they want. Fetch all pages at one pinned height (`x-cosmos-block-height` header) and refetch if the rebuilt root differs from the response's `root`: pages read at different heights can straddle a leaf change.
 - **Secret key** - `crypto.DeriveSecretKeyFromSignature` derives it from a wallet signature; secret keys are always canonical BN254 field elements.

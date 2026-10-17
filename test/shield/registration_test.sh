@@ -64,7 +64,13 @@ check_query_success() {
 # =========================================================================
 echo "--- PART 1: List all registered shielded operations ---"
 
-OPS_RESULT=$($BINARY query shield shielded-ops --output json 2>&1)
+# A node that was just (re)started answers "not ready; please wait for first
+# block" until it commits one: retry briefly instead of failing on it.
+for _attempt in $(seq 1 15); do
+    OPS_RESULT=$($BINARY query shield shielded-ops --output json 2>&1)
+    echo "$OPS_RESULT" | grep -q "wait for first block" || break
+    sleep 2
+done
 
 PART1_OK=true
 

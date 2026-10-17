@@ -39,7 +39,9 @@ Target module (e.g., x/blog):
 
 **Immediate mode**: Inner message and ZK proof are submitted in cleartext. The operation executes in the same block. Best for latency-sensitive actions (posts, reactions) where content visibility is acceptable — the submitter address is visible, but every anonymous client signs with the same shared public submitter (see Client Workflow), so it has no link to the anonymous author.
 
-**Encrypted Batch mode**: The inner message and proof are encrypted with the TLE master public key. The encrypted payload is queued. At epoch boundaries, validators produce decryption shares; once threshold is reached, the batch is decrypted, shuffled deterministically, and executed. Best for voting and actions where both identity AND content must be hidden until decryption.
+**Encrypted Batch mode**: The inner message and proof are sealed to the TLE master public key for the current shield epoch (`tools/tle`; the browser client's `encrypt()`), and only cleartext fields that reveal nothing about the content travel with it. The payload is queued; once the epoch closes and enough ops have gathered (`min_batch_size`, or `max_pending_epochs` of waiting), validators release decryption shares, the epoch key is reconstructed, and the batch is decrypted, verified, shuffled deterministically and executed. Best for voting and actions where both identity AND content must be hidden until decryption.
+
+Client steps for a batch exec: read `current_epoch` from `shield_epoch` and `master_public_key_g2` from `tle_master_public_key`; `prove()` the operation with `rate_limit_epoch` = that epoch (it is verified against the submission epoch, however long the op waits); `encrypt()` with the master key, the epoch, the inner Any, and the operation proof and nullifier from that `prove()` — they are sealed in the payload, so nothing public at submission links to the executed operation; then `prove()` a second time for the *submission*, with the `submission_domain`, `submission_scope` and `submission_type_url` that `encrypt()` returned, `inner_value` = the encrypted payload and the same `rate_limit_epoch`; submit `MsgShieldedExec` with `exec_mode` ENCRYPTED_BATCH, `target_epoch` = that epoch, `encrypted_payload`, and the second proof's `proof`, `nullifier`, `rate_limit_nullifier` and `merkle_root` in cleartext, leaving `inner_message` empty. The submission proof is what the chain verifies before paying for the submission (it proves your membership and rate-limit quota and binds the ciphertext); the operation proof is verified when the batch executes. An op submitted in the last blocks of an epoch simply targets that epoch; nothing has to be timed.
 
 ---
 
@@ -73,7 +75,7 @@ Hash function: MiMC (SNARK-friendly)
 **RepKeeper interface (used by x/shield):**
 ```go
 func (k Keeper) GetTrustTreeRoot(ctx context.Context) ([]byte, error)
-func (k Keeper) GetPreviousTrustTreeRoot(ctx context.Context) []byte
+func (k Keeper) GetPreviousTrustTreeRoot(ctx context.Context) ([]byte, error)
 ```
 
 **x/rep query for client support:**
@@ -177,7 +179,7 @@ Every operation above except domain 23 is `NULLIFIER_MODE_CONSUME`: the nullifie
 
 ## Module-Paid Gas
 
-The x/shield module account holds gas reserves (uspark) and pays transaction fees for all `MsgShieldedExec` transactions. Submitters need zero balance. This replaces the old per-module anonymous posting subsidy.
+The x/shield module account holds gas reserves in the chain's bond denom (from x/identity; `uspark` on Spark Dream) and pays transaction fees for all `MsgShieldedExec` transactions. Submitters need zero balance. This replaces the old per-module anonymous posting subsidy.
 
 **Funding:** BeginBlocker auto-refills from the community pool when balance drops below `min_gas_reserve`, capped at `max_funding_per_day`.
 

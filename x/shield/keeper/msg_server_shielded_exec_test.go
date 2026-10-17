@@ -177,15 +177,32 @@ func TestShieldedExecEncryptedBatchProofRejected(t *testing.T) {
 
 	require.NoError(t, f.keeper.SetShieldEpochStateVal(f.ctx, types.ShieldEpochState{CurrentEpoch: 1}))
 
-	// Proof should be empty in encrypted batch mode
+	// The cleartext proof is the submission proof and is required; a
+	// cleartext inner message is what leaks the operation and is refused.
 	_, err = ms.ShieldedExec(f.ctx, &types.MsgShieldedExec{
-		Submitter:        submitter,
-		ExecMode:         types.ShieldExecMode_SHIELD_EXEC_ENCRYPTED_BATCH,
-		Proof:            []byte("proof_data"),
-		EncryptedPayload: []byte("encrypted"),
+		Submitter:          submitter,
+		ExecMode:           types.ShieldExecMode_SHIELD_EXEC_ENCRYPTED_BATCH,
+		Proof:              []byte("proof_data"),
+		InnerMessage:       &any.Any{TypeUrl: "/sparkdream.blog.v1.MsgCreatePost"},
+		EncryptedPayload:   []byte("encrypted"),
+		Nullifier:          make([]byte, 32),
+		RateLimitNullifier: make([]byte, 32),
+		TargetEpoch:        1,
 	})
 	require.Error(t, err)
 	require.ErrorIs(t, err, types.ErrCleartextFieldInBatchMode)
+
+	// Nullifiers must be 32 bytes in batch mode too.
+	_, err = ms.ShieldedExec(f.ctx, &types.MsgShieldedExec{
+		Submitter:          submitter,
+		ExecMode:           types.ShieldExecMode_SHIELD_EXEC_ENCRYPTED_BATCH,
+		Proof:              []byte("proof_data"),
+		EncryptedPayload:   []byte("encrypted"),
+		Nullifier:          make([]byte, 32),
+		RateLimitNullifier: make([]byte, 8),
+		TargetEpoch:        1,
+	})
+	require.ErrorIs(t, err, types.ErrInvalidNullifierLength)
 }
 
 func TestPrecheckImmediateWritesNothing(t *testing.T) {

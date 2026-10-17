@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 
 	abci "github.com/cometbft/cometbft/abci/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -25,6 +26,9 @@ type DKGVoteExtensionHandler struct {
 	keeper   keeper.Keeper
 	keyStore *keeper.DKGLocalKeyStore
 	consAddr sdk.ConsAddress // This validator's CometBFT consensus address
+
+	cleanupMu    sync.Mutex
+	cleanedRound uint64 // last round whose predecessors' key files were removed
 }
 
 // NewDKGVoteExtensionHandler creates a handler wired to the shield keeper.
@@ -39,12 +43,15 @@ func NewDKGVoteExtensionHandler(k keeper.Keeper, homeDir string) *DKGVoteExtensi
 }
 
 // ExtendVoteHandler returns the sdk.ExtendVoteHandler for BaseApp.
-// During REGISTERING: embeds BN256 public key + Schnorr PoP.
-// During CONTRIBUTING: embeds Feldman commitments + ECIES-encrypted evaluations + PoP.
-// Returns empty extension outside of active DKG or on any error (never blocks consensus).
+// Returns an empty extension outside an active DKG round, when this
+// validator has nothing to say in the current phase, or on any error (never
+// blocks consensus).
 func (h *DKGVoteExtensionHandler) ExtendVoteHandler() sdk.ExtendVoteHandler {
 	return func(ctx sdk.Context, req *abci.RequestExtendVote) (*abci.ResponseExtendVote, error) {
 		ext, err := h.buildExtension(ctx)
+		if err != nil {
+			ctx.Logger().With("module", "x/shield").Error("building DKG vote extension failed", "err", err)
+		}
 		if err != nil || ext == nil {
 			return &abci.ResponseExtendVote{}, nil
 		}
@@ -59,9 +66,10 @@ func (h *DKGVoteExtensionHandler) ExtendVoteHandler() sdk.ExtendVoteHandler {
 }
 
 // VerifyVoteExtensionHandler returns the sdk.VerifyVoteExtensionHandler for BaseApp.
-// Validates that the DKG data embedded in a vote extension is well-formed.
 // ACCEPT for empty extensions (validator not participating or no DKG active).
-// REJECT only for malformed data that indicates a Byzantine validator.
+// REJECT for anything that fails the phase's acceptance rule (validate.go):
+// an honest validator never produces it, and rejecting keeps it out of the
+// commit entirely.
 func (h *DKGVoteExtensionHandler) VerifyVoteExtensionHandler() sdk.VerifyVoteExtensionHandler {
 	return func(ctx sdk.Context, req *abci.RequestVerifyVoteExtension) (*abci.ResponseVerifyVoteExtension, error) {
 		// Empty extension is always valid (validator may not participate)
@@ -78,7 +86,7 @@ func (h *DKGVoteExtensionHandler) VerifyVoteExtensionHandler() sdk.VerifyVoteExt
 			}, nil
 		}
 
-		if err := h.verifyExtension(ctx, &ext); err != nil {
+		if err := h.verifyExtension(ctx, &ext, req.ValidatorAddress); err != nil {
 			ctx.Logger().With("module", "x/shield").Debug(
 				"rejected DKG vote extension",
 				"validator", hex.EncodeToString(req.ValidatorAddress),
@@ -102,7 +110,7 @@ func (h *DKGVoteExtensionHandler) buildExtension(ctx sdk.Context) (*types.DKGVot
 	}
 
 	dkgState, found := h.keeper.GetDKGStateVal(ctx)
-	if !found {
+	if !found || ceremonyFrozen(ctx, h.keeper, dkgState.Phase) {
 		return nil, nil
 	}
 
@@ -122,6 +130,10 @@ func (h *DKGVoteExtensionHandler) buildExtension(ctx sdk.Context) (*types.DKGVot
 		return h.buildRegistrationExtension(dkgState, opAddr)
 	case types.DKGPhase_DKG_PHASE_CONTRIBUTING:
 		return h.buildContributionExtension(ctx, dkgState, opAddr)
+	case types.DKGPhase_DKG_PHASE_COMPLAINING:
+		return h.buildComplaintExtension(ctx, dkgState, opAddr)
+	case types.DKGPhase_DKG_PHASE_JUSTIFYING:
+		return h.buildJustificationExtension(ctx, dkgState, opAddr)
 	case types.DKGPhase_DKG_PHASE_ACTIVE:
 		return h.buildDecryptionShareExtension(ctx, dkgState, opAddr)
 	default:
@@ -130,7 +142,7 @@ func (h *DKGVoteExtensionHandler) buildExtension(ctx sdk.Context) (*types.DKGVot
 }
 
 // buildRegistrationExtension creates a REGISTERING phase extension:
-// BN256 G1 public key + Schnorr proof of possession.
+// BN256 G1 public key + Schnorr proof of possession over (operator, round).
 func (h *DKGVoteExtensionHandler) buildRegistrationExtension(dkgState types.DKGState, opAddr string) (*types.DKGVoteExtension, error) {
 	_, pubKey, err := h.keyStore.EnsureRegistrationKey(dkgState.Round)
 	if err != nil {
@@ -164,11 +176,10 @@ func (h *DKGVoteExtensionHandler) buildContributionExtension(ctx sdk.Context, dk
 	}
 
 	// Generate or reload our polynomial
-	poly, commitments, err := h.keyStore.GeneratePolynomial(dkgState.Round, int(threshold))
+	_, commitments, err := h.keyStore.GeneratePolynomial(dkgState.Round, int(threshold))
 	if err != nil {
 		return nil, fmt.Errorf("polynomial generation failed: %w", err)
 	}
-	_ = poly // used below for evaluations
 
 	// Marshal Feldman commitments (G1)
 	feldmanCommitments := make([][]byte, len(commitments))
@@ -185,12 +196,10 @@ func (h *DKGVoteExtensionHandler) buildContributionExtension(ctx sdk.Context, dk
 	g2Suite := bn256.NewSuiteG2()
 	feldmanCommitmentsG2 := make([][]byte, len(commitments))
 	for i := range commitments {
-		// Retrieve the scalar coefficient for this term
 		coeff, err := h.keyStore.GetPolynomialCoefficient(dkgState.Round, i)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get polynomial coefficient %d: %w", i, err)
 		}
-		// Compute a_k * G2_gen
 		g2Point := g2Suite.G2().Point().Mul(coeff, nil)
 		bz, err := g2Point.MarshalBinary()
 		if err != nil {
@@ -199,7 +208,10 @@ func (h *DKGVoteExtensionHandler) buildContributionExtension(ctx sdk.Context, dk
 		feldmanCommitmentsG2[i] = bz
 	}
 
-	// Build encrypted evaluations for each OTHER validator
+	// Build encrypted evaluations for each OTHER participant. Every
+	// participant registered a key this round (the set was narrowed to
+	// registrants when CONTRIBUTING opened), so a missing evaluation here is
+	// a bug on our side, not theirs.
 	selfIdx := valDKGIndex(dkgState, opAddr)
 	var encryptedEvals []*types.EncryptedEvaluation
 
@@ -209,18 +221,12 @@ func (h *DKGVoteExtensionHandler) buildContributionExtension(ctx sdk.Context, dk
 			continue // Don't encrypt for ourselves
 		}
 
-		// Look up the target's registered pub key
 		reg, found := h.keeper.GetDKGRegistration(ctx, targetAddr)
-		if !found {
-			// Target hasn't registered yet — skip (they won't get our share)
+		if !found || reg.Round != dkgState.Round {
+			ctx.Logger().With("module", "x/shield").Error("DKG participant has no registration for this round", "validator", targetAddr, "round", dkgState.Round)
 			continue
 		}
 		targetPubKeyBytes := keeper.GetDKGRegistrationPubKey(reg)
-		if len(targetPubKeyBytes) == 0 {
-			continue
-		}
-
-		// Parse the target's BN256 G1 public key
 		targetPubKey := tleSuite.Point()
 		if err := targetPubKey.UnmarshalBinary(targetPubKeyBytes); err != nil {
 			continue // Skip malformed registrations
@@ -229,17 +235,17 @@ func (h *DKGVoteExtensionHandler) buildContributionExtension(ctx sdk.Context, dk
 		// Evaluate our polynomial at the target's index
 		evalScalar, err := h.keyStore.EvaluatePolynomial(dkgState.Round, targetIdx)
 		if err != nil {
-			continue
+			return nil, fmt.Errorf("evaluate polynomial at %d: %w", targetIdx, err)
 		}
 		evalBytes, err := evalScalar.MarshalBinary()
 		if err != nil {
-			continue
+			return nil, err
 		}
 
 		// ECIES-encrypt the evaluation with the target's public key
 		ciphertext, err := ecies.Encrypt(tleSuite, targetPubKey, evalBytes, nil)
 		if err != nil {
-			continue
+			return nil, fmt.Errorf("encrypt evaluation for %d: %w", targetIdx, err)
 		}
 
 		encryptedEvals = append(encryptedEvals, &types.EncryptedEvaluation{
@@ -248,7 +254,7 @@ func (h *DKGVoteExtensionHandler) buildContributionExtension(ctx sdk.Context, dk
 		})
 	}
 
-	// Sign PoP over our operator address using our polynomial constant term
+	// Sign PoP over (operator, round) using our polynomial constant term
 	pop, err := h.keyStore.SignPoP(dkgState.Round, opAddr)
 	if err != nil {
 		return nil, fmt.Errorf("contribution PoP failed: %w", err)
@@ -264,62 +270,119 @@ func (h *DKGVoteExtensionHandler) buildContributionExtension(ctx sdk.Context, dk
 	}, nil
 }
 
-// buildDecryptionShareExtension creates an ACTIVE phase extension:
-// epoch decryption share for the current shield epoch (when pending ops exist).
+// incomingEvaluations assembles, from on-chain DKG state, every other
+// qualified dealer's evaluation for this validator: the dealer's commitments
+// (to verify against) plus the ciphertext it published for our index or, if
+// we complained and the dealer answered, the evaluation in clear.
+func (h *DKGVoteExtensionHandler) incomingEvaluations(ctx sdk.Context, dkgState types.DKGState, opAddr string, selfIdx uint32) []keeper.IncomingEvaluation {
+	var incoming []keeper.IncomingEvaluation
+	for _, c := range h.keeper.QualifiedDKGContributions(ctx, dkgState) {
+		if c.ValidatorAddress == opAddr {
+			continue // covered by our local polynomial evaluation
+		}
+		ev := keeper.IncomingEvaluation{
+			Dealer:      c.ValidatorAddress,
+			DealerIndex: valDKGIndex(dkgState, c.ValidatorAddress),
+			Commitments: c.FeldmanCommitments,
+		}
+		for _, e := range c.EncryptedEvaluations {
+			if e.TargetIndex == selfIdx {
+				ev.Ciphertext = e.Ciphertext
+				break
+			}
+		}
+		if complaint, found := h.keeper.GetDKGComplaint(ctx, c.ValidatorAddress, opAddr); found && complaint.Justified {
+			ev.Plaintext = complaint.Evaluation
+		}
+		incoming = append(incoming, ev)
+	}
+	return incoming
+}
+
+// buildComplaintExtension creates a COMPLAINING phase extension listing the
+// dealers whose evaluation for us is missing, does not open, or does not
+// match their commitments. Nothing to complain about: no extension.
+func (h *DKGVoteExtensionHandler) buildComplaintExtension(ctx sdk.Context, dkgState types.DKGState, opAddr string) (*types.DKGVoteExtension, error) {
+	selfIdx := valDKGIndex(dkgState, opAddr)
+	if selfIdx == 0 {
+		return nil, nil
+	}
+	complaints, err := h.keyStore.FindComplaints(dkgState.Round, selfIdx, h.incomingEvaluations(ctx, dkgState, opAddr, selfIdx))
+	if err != nil {
+		return nil, fmt.Errorf("checking dealt evaluations: %w", err)
+	}
+	// Only complaints the chain does not have yet.
+	var fresh []uint32
+	for _, idx := range complaints {
+		dealer := dkgState.ExpectedValidators[idx-1]
+		if _, found := h.keeper.GetDKGComplaint(ctx, dealer, opAddr); !found {
+			fresh = append(fresh, idx)
+		}
+	}
+	if len(fresh) == 0 {
+		return nil, nil
+	}
+	return &types.DKGVoteExtension{
+		Round:      dkgState.Round,
+		Phase:      types.DKGPhase_DKG_PHASE_COMPLAINING,
+		Complaints: fresh,
+	}, nil
+}
+
+// buildJustificationExtension creates a JUSTIFYING phase extension answering
+// every open complaint against us with the disputed evaluation in clear.
+func (h *DKGVoteExtensionHandler) buildJustificationExtension(ctx sdk.Context, dkgState types.DKGState, opAddr string) (*types.DKGVoteExtension, error) {
+	var justifications []*types.DKGJustification
+	for _, c := range h.keeper.ComplaintsAgainst(ctx, opAddr) {
+		if c.Justified {
+			continue
+		}
+		idx := valDKGIndex(dkgState, c.ComplainerAddress)
+		if idx == 0 {
+			continue
+		}
+		eval, err := h.keyStore.Justify(dkgState.Round, idx)
+		if err != nil {
+			return nil, fmt.Errorf("justify complaint from %s: %w", c.ComplainerAddress, err)
+		}
+		justifications = append(justifications, &types.DKGJustification{ComplainerIndex: idx, Evaluation: eval})
+	}
+	if len(justifications) == 0 {
+		return nil, nil
+	}
+	return &types.DKGVoteExtension{
+		Round:          dkgState.Round,
+		Phase:          types.DKGPhase_DKG_PHASE_JUSTIFYING,
+		Justifications: justifications,
+	}, nil
+}
+
+// buildDecryptionShareExtension creates an ACTIVE phase extension: the
+// decryption share for the oldest demanded closed epoch we have not served.
 func (h *DKGVoteExtensionHandler) buildDecryptionShareExtension(ctx sdk.Context, dkgState types.DKGState, opAddr string) (*types.DKGVoteExtension, error) {
+	// The round is active: key files of earlier rounds are no longer needed
+	// and could open every payload ever sealed to their key sets.
+	h.cleanupRetiredRounds(dkgState.Round)
+
 	// Only produce shares when encrypted batch is enabled
 	params, err := h.keeper.Params.Get(ctx)
 	if err != nil || !params.EncryptedBatchEnabled {
 		return nil, nil
 	}
 
-	epochState, found := h.keeper.GetShieldEpochStateVal(ctx)
-	if !found {
+	// Shares are released for closed epochs only, and only once the
+	// EndBlocker has demanded them (the batch is ready): a key reconstructed
+	// mid-epoch would let anyone read every later submission to that epoch.
+	epoch, needed := h.keeper.NextEpochNeedingShare(ctx, opAddr)
+	if !needed {
 		return nil, nil
 	}
 
-	epoch := epochState.CurrentEpoch
-
-	// Only produce shares when there are pending ops that need decryption
-	pendingCount := h.keeper.GetPendingOpCountVal(ctx)
-	if pendingCount == 0 {
-		return nil, nil
-	}
-
-	// Check if decryption key already exists for this epoch (no need to share again)
-	if _, found := h.keeper.GetShieldEpochDecryptionKeyVal(ctx, epoch); found {
-		return nil, nil
-	}
-
-	// Check if we already submitted a share for this epoch
-	if _, found := h.keeper.GetDecryptionShare(ctx, epoch, opAddr); found {
-		return nil, nil
-	}
-
-	// SHIELD-S2-2: assemble the encrypted evaluations from every other
-	// validator's CONTRIBUTING contribution that targeted our index. The
-	// keystore decrypts these with our registration private key and sums
-	// them with our own polynomial evaluation at selfIdx to form the
-	// aggregated Shamir share s_self that Lagrange reconstruction expects.
 	selfIdx := valDKGIndex(dkgState, opAddr)
 	if selfIdx == 0 {
 		return nil, fmt.Errorf("operator %s not in expected_validators", opAddr)
 	}
-	contribs := h.keeper.GetAllDKGContributions(ctx)
-	var incomingCiphertexts [][]byte
-	for _, c := range contribs {
-		if c.ValidatorAddress == opAddr {
-			continue // skip self; covered by our local polynomial evaluation
-		}
-		for _, e := range c.EncryptedEvaluations {
-			if e.TargetIndex == selfIdx {
-				incomingCiphertexts = append(incomingCiphertexts, e.Ciphertext)
-				break
-			}
-		}
-	}
-
-	share, err := h.keyStore.ComputeDecryptionShare(dkgState.Round, epoch, selfIdx, incomingCiphertexts)
+	share, err := h.keyStore.ComputeDecryptionShare(dkgState.Round, epoch, selfIdx, h.incomingEvaluations(ctx, dkgState, opAddr, selfIdx))
 	if err != nil {
 		return nil, fmt.Errorf("decryption share computation failed: %w", err)
 	}
@@ -332,128 +395,32 @@ func (h *DKGVoteExtensionHandler) buildDecryptionShareExtension(ctx sdk.Context,
 	}, nil
 }
 
-// verifyExtension validates a DKG vote extension is well-formed.
-func (h *DKGVoteExtensionHandler) verifyExtension(ctx sdk.Context, ext *types.DKGVoteExtension) error {
+func (h *DKGVoteExtensionHandler) cleanupRetiredRounds(round uint64) {
+	h.cleanupMu.Lock()
+	defer h.cleanupMu.Unlock()
+	if h.cleanedRound == round {
+		return
+	}
+	h.keyStore.Cleanup(round)
+	h.cleanedRound = round
+}
+
+// verifyExtension validates a DKG vote extension against the phase's
+// acceptance rule. consAddr is the voting validator's consensus address
+// (from the request), mapped to its operator address.
+func (h *DKGVoteExtensionHandler) verifyExtension(ctx sdk.Context, ext *types.DKGVoteExtension, consAddr []byte) error {
 	dkgState, found := h.keeper.GetDKGStateVal(ctx)
 	if !found {
 		return fmt.Errorf("no DKG state")
 	}
-
-	// Round must match
-	if ext.Round != dkgState.Round {
-		return fmt.Errorf("round mismatch: ext=%d, state=%d", ext.Round, dkgState.Round)
+	if ceremonyFrozen(ctx, h.keeper, dkgState.Phase) {
+		return fmt.Errorf("shield disabled during DKG phase %s", dkgState.Phase)
 	}
-
-	// Phase must match
-	if ext.Phase != dkgState.Phase {
-		return fmt.Errorf("phase mismatch: ext=%s, state=%s", ext.Phase, dkgState.Phase)
+	opAddr, err := consAddrToOperator(ctx, h.keeper, consAddr)
+	if err != nil {
+		return err
 	}
-
-	switch ext.Phase {
-	case types.DKGPhase_DKG_PHASE_REGISTERING:
-		return h.verifyRegistrationExtension(ext)
-	case types.DKGPhase_DKG_PHASE_CONTRIBUTING:
-		return h.verifyContributionExtension(ext, dkgState)
-	case types.DKGPhase_DKG_PHASE_ACTIVE:
-		return h.verifyDecryptionShareExtension(ext)
-	default:
-		return fmt.Errorf("unexpected phase: %s", ext.Phase)
-	}
-}
-
-// verifyRegistrationExtension validates a REGISTERING phase extension.
-func (h *DKGVoteExtensionHandler) verifyRegistrationExtension(ext *types.DKGVoteExtension) error {
-	if len(ext.RegistrationPubKey) == 0 {
-		return fmt.Errorf("empty pub key")
-	}
-
-	// Validate it's a valid BN256 G1 point
-	point := tleSuite.G1().Point()
-	if err := point.UnmarshalBinary(ext.RegistrationPubKey); err != nil {
-		return fmt.Errorf("invalid pub key: %w", err)
-	}
-
-	// Reject identity element
-	if point.Equal(tleSuite.G1().Point().Null()) {
-		return fmt.Errorf("pub key is identity element")
-	}
-
-	// PoP must be non-empty (full verification happens in PreBlocker when we know the operator address)
-	if len(ext.RegistrationPop) == 0 {
-		return fmt.Errorf("empty PoP")
-	}
-
-	return nil
-}
-
-// verifyContributionExtension validates a CONTRIBUTING phase extension.
-func (h *DKGVoteExtensionHandler) verifyContributionExtension(ext *types.DKGVoteExtension, dkgState types.DKGState) error {
-	threshold := computeThreshold(dkgState)
-
-	// Validate Feldman commitments count
-	if uint64(len(ext.FeldmanCommitments)) != threshold {
-		return fmt.Errorf("expected %d commitments, got %d", threshold, len(ext.FeldmanCommitments))
-	}
-
-	// Validate each commitment is a valid G1 point
-	for i, c := range ext.FeldmanCommitments {
-		point := tleSuite.G1().Point()
-		if err := point.UnmarshalBinary(c); err != nil {
-			return fmt.Errorf("commitment %d invalid: %w", i, err)
-		}
-		if point.Equal(tleSuite.G1().Point().Null()) {
-			return fmt.Errorf("commitment %d is identity", i)
-		}
-	}
-
-	// Validate G2 commitments and pairing consistency: a Byzantine validator
-	// could submit consistent G1 commitments paired with malformed/inconsistent
-	// G2 commitments, which would later cause decryption-share verification to
-	// blame honest validators. Enforce both checks here so verification rejects
-	// the proposal at the source.
-	if err := keeper.ValidateFeldmanCommitmentsG2(ext.FeldmanCommitmentsG2, int(threshold)); err != nil {
-		return fmt.Errorf("invalid G2 commitments: %w", err)
-	}
-	if err := keeper.ValidateFeldmanCommitmentsConsistency(ext.FeldmanCommitments, ext.FeldmanCommitmentsG2); err != nil {
-		return fmt.Errorf("G1/G2 commitment mismatch: %w", err)
-	}
-
-	// Validate encrypted evaluations have non-empty ciphertexts
-	for i, eval := range ext.EncryptedEvaluations {
-		if eval.TargetIndex == 0 || eval.TargetIndex > uint32(len(dkgState.ExpectedValidators)) {
-			return fmt.Errorf("eval %d: invalid target index %d", i, eval.TargetIndex)
-		}
-		if len(eval.Ciphertext) == 0 {
-			return fmt.Errorf("eval %d: empty ciphertext", i)
-		}
-	}
-
-	// PoP must be present
-	if len(ext.ContributionPop) == 0 {
-		return fmt.Errorf("empty contribution PoP")
-	}
-
-	return nil
-}
-
-// verifyDecryptionShareExtension validates an ACTIVE phase extension (decryption share).
-func (h *DKGVoteExtensionHandler) verifyDecryptionShareExtension(ext *types.DKGVoteExtension) error {
-	if len(ext.DecryptionShare) == 0 {
-		return fmt.Errorf("empty decryption share")
-	}
-
-	// Validate decryption share is a valid BN256 G1 point
-	point := tleSuite.G1().Point()
-	if err := point.UnmarshalBinary(ext.DecryptionShare); err != nil {
-		return fmt.Errorf("invalid decryption share: not a valid G1 point: %w", err)
-	}
-
-	// Reject identity element
-	if point.Equal(tleSuite.G1().Point().Null()) {
-		return fmt.Errorf("decryption share is the identity element")
-	}
-
-	return nil
+	return validateExtension(ctx, h.keeper, ext, dkgState, opAddr)
 }
 
 // getOperatorAddr maps this validator's consensus address to their operator address.

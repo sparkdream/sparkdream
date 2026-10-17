@@ -189,6 +189,78 @@ Two consequences worth knowing when editing a genesis here:
   those values, or dropping a trust level from the roster, silently changes
   what every launched chain's members of that level receive.
 
+## Shield verification key (mainnet launch)
+
+Mainnet genesis ships with x/shield **off** (`enabled: false`) and no
+verification key, because the multi-party trusted setup has not run yet. Two
+guards keep it that way until both arrive together:
+
+- A production build's `InitGenesis` refuses a genesis that enables shield
+  without a `shield_v1` key: no message can add one later, only a chain upgrade.
+  `make verify-genesis` (`TestShieldEnabledHasVerificationKey`) catches the
+  mismatch before chain start.
+- A binary refuses to start on `sparkdream-1`, `sparkdream-test-1` or
+  `sparkdream-dev-1` unless it was built with that network's tag
+  (`make build-<net>`). An untagged test build skips proof verification.
+
+The devnet and testnet keys come from a single-contributor ceremony run
+(2026-10-08) and are not for mainnet. One ceremony serves every network and
+sister chain (the key depends on the circuit, not the chain), so replace them
+with the mainnet key at their next reset.
+
+Steps, in order:
+
+1. **Run the ceremony** ([tools/zk/cmd/ceremony](../tools/zk/cmd/ceremony/main.go)).
+   Several independent contributors, each running `contribute-phase1` and later
+   `contribute-phase2` on the transcript directory the previous one handed over;
+   the setup is sound as long as one of them discarded their randomness. Fix
+   both beacons in advance (a future drand round) and seal each phase with it:
+
+   ```bash
+   go run ./tools/zk/cmd/ceremony contribute-phase1 -dir ceremony   # each contributor
+   go run ./tools/zk/cmd/ceremony seal-phase1 -dir ceremony -beacon <drand round randomness, hex>
+   go run ./tools/zk/cmd/ceremony contribute-phase2 -dir ceremony   # each contributor
+   go run ./tools/zk/cmd/ceremony seal-phase2 -dir ceremony -beacon <drand round randomness, hex>
+   ```
+
+2. **Put the key in mainnet's config.** `seal-phase2` prints the genesis entry,
+   `{"circuit_id": "shield_v1", "vk_bytes": "<base64>"}`. Add it to
+   `config/network/mainnet/config.yml` (and devnet/testnet at their reset):
+
+   ```yaml
+   genesis:
+     app_state:
+       shield:
+         verification_keys:
+         - circuit_id: shield_v1
+           vk_bytes: <base64 from seal-phase2>
+   ```
+
+   `vk_bytes` is base64. `verifying_key.hex` holds the same bytes in hex and is
+   not what genesis takes.
+
+3. **Turn shield on** in [x/shield/types/genesis_vals_mainnet.go](../x/shield/types/genesis_vals_mainnet.go)
+   (`Enabled: true`), and remove `shield.params.enabled` from
+   `allowedVariations` in `config/network/crossnetwork/invariants_test.go`
+   once every network has it on.
+
+4. **Regenerate and verify:**
+
+   ```bash
+   deploy/scripts/regenerate-network-genesis.py
+   make verify-genesis
+   go run ./tools/zk/cmd/ceremony verify -dir ceremony -genesis deploy/config/network/mainnet/genesis.json
+   ```
+
+5. **Ship the client keys.** Copy the ceremony directory to `build/ceremony`;
+   `deploy/scripts/prepare-release.sh` checks its verifying key against each
+   network's genesis and bundles `proving_key.raw.bin` and `circuit.r1cs` with
+   the release's web prover. CLI provers need `proving_key.bin` and
+   `circuit.r1cs`.
+
+6. **Publish the transcript** (the whole ceremony directory, both beacons'
+   drand rounds) so anyone can re-run `ceremony verify`.
+
 ## Config Templates
 
 Template files in `config/template/` contain `${VAR}` placeholders that are resolved using variables from `config/network/<network>/chain.env`. To generate concrete config files, source the env file and run `envsubst`:

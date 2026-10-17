@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
+	"sort"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
@@ -14,7 +15,9 @@ import (
 //
 // The epoch advances whether or not encrypted batch mode is enabled: immediate
 // mode reads it for EPOCH-scoped nullifiers and per-epoch rate limits, so a
-// frozen epoch would turn those into lifetime limits.
+// frozen epoch would turn those into lifetime limits. Pending ops expire
+// whether or not batch mode is enabled, so disabling it (governance, a re-key)
+// drains the queue instead of freezing it.
 func (k Keeper) EndBlocker(ctx context.Context) error {
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	params, err := k.Params.Get(ctx)
@@ -33,71 +36,120 @@ func (k Keeper) EndBlocker(ctx context.Context) error {
 	}
 
 	currentHeight := sdkCtx.BlockHeight()
+	currentEpoch := epochState.CurrentEpoch
 
-	// Check if we've crossed an epoch boundary
-	if currentHeight < epochState.EpochStartHeight+int64(params.ShieldEpochInterval) {
-		return nil
+	// Advance the epoch at the boundary, batch mode or not: immediate mode
+	// reads it for EPOCH-scoped nullifiers and per-epoch rate limits.
+	atBoundary := currentHeight >= epochState.EpochStartHeight+int64(params.ShieldEpochInterval)
+	if atBoundary {
+		currentEpoch++
+		_ = k.SetShieldEpochStateVal(ctx, types.ShieldEpochState{
+			CurrentEpoch:     currentEpoch,
+			EpochStartHeight: currentHeight,
+		})
 	}
-
-	// Advance to next epoch
-	newEpoch := epochState.CurrentEpoch + 1
-	_ = k.SetShieldEpochStateVal(ctx, types.ShieldEpochState{
-		CurrentEpoch:     newEpoch,
-		EpochStartHeight: currentHeight,
-	})
 
 	if params.EncryptedBatchEnabled {
-		// Try to process the PREVIOUS epoch's pending ops
-		prevEpoch := epochState.CurrentEpoch
-		k.tryProcessBatch(ctx, params, prevEpoch, currentHeight)
-
-		// Also try to process any carried-over ops from older epochs
-		k.processCarriedOverBatches(ctx, params, prevEpoch, currentHeight)
-
-		// Check TLE liveness — increment miss counters and jail violators
-		k.checkTLELiveness(ctx, prevEpoch)
+		// Liveness first, every block: a demand is judged exactly one epoch
+		// interval after it was recorded, before expiry can forget it (a
+		// force-demanded lone op's epoch falls out of the window at the very
+		// boundary it would be judged at).
+		k.judgeTLELiveness(ctx, params, currentHeight)
+	}
+	k.expirePendingOps(ctx, params, currentEpoch)
+	if params.EncryptedBatchEnabled {
+		// Every block, not just at boundaries: a closed epoch's key arrives
+		// whenever enough validators' shares land, and the batch should run
+		// in that block rather than wait for the next boundary.
+		k.recordDecryptionDemands(ctx, params, currentEpoch, currentHeight)
+		k.processReadyBatches(ctx, params, currentEpoch)
 	}
 
-	// Prune stale state
-	k.pruneStaleState(ctx, newEpoch)
+	if atBoundary {
+		k.pruneStaleState(ctx, currentEpoch)
+	}
 
 	return nil
 }
 
-// tryProcessBatch attempts to decrypt and execute pending ops for a given epoch.
-func (k Keeper) tryProcessBatch(ctx context.Context, params types.Params, epoch uint64, currentHeight int64) {
+// pendingCutoff is the oldest epoch whose ops are still allowed to wait.
+func pendingCutoff(params types.Params, currentEpoch uint64) uint64 {
+	if currentEpoch > uint64(params.MaxPendingEpochs) {
+		return currentEpoch - uint64(params.MaxPendingEpochs)
+	}
+	return 0
+}
+
+// pendingByEpoch counts pending ops per closed epoch (target epoch strictly
+// before currentEpoch), walking keys only.
+func (k Keeper) pendingByEpoch(ctx context.Context, currentEpoch uint64) map[uint64]int {
+	return k.CountPendingOpsBeforeEpoch(ctx, currentEpoch)
+}
+
+// recordDecryptionDemands decides, per closed epoch, whether its batch is
+// ready to be decrypted, and records the demand validators act on. Shares
+// (and therefore the epoch key) are only released once a batch is ready, so
+// a small batch keeps waiting encrypted rather than sitting decryptable on
+// chain while it waits for company.
+//
+// An epoch is ready when it alone meets min_batch_size, when every closed
+// epoch together does (they execute in the same block and form one
+// anonymity set), or when it has waited max_pending_epochs.
+func (k Keeper) recordDecryptionDemands(ctx context.Context, params types.Params, currentEpoch uint64, currentHeight int64) {
+	counts := k.pendingByEpoch(ctx, currentEpoch)
+	if len(counts) == 0 {
+		return
+	}
+	total := 0
+	for _, c := range counts {
+		total += c
+	}
+	for epoch, c := range counts {
+		if _, demanded := k.GetDecryptionDemand(ctx, epoch); demanded {
+			continue
+		}
+		ready := c >= int(params.MinBatchSize) ||
+			total >= int(params.MinBatchSize) ||
+			currentEpoch-epoch >= uint64(params.MaxPendingEpochs)
+		if ready {
+			_ = k.SetDecryptionDemand(ctx, epoch, currentHeight)
+		}
+	}
+}
+
+// processReadyBatches executes every closed epoch whose key has been
+// reconstructed (or seeded) and whose batch was demanded.
+func (k Keeper) processReadyBatches(ctx context.Context, params types.Params, currentEpoch uint64) {
+	counts := k.pendingByEpoch(ctx, currentEpoch)
+	if len(counts) == 0 {
+		return
+	}
+	epochs := make([]uint64, 0, len(counts))
+	for epoch := range counts {
+		epochs = append(epochs, epoch)
+	}
+	sort.Slice(epochs, func(i, j int) bool { return epochs[i] < epochs[j] })
+	for _, epoch := range epochs {
+		if _, demanded := k.GetDecryptionDemand(ctx, epoch); !demanded {
+			continue
+		}
+		decKey, found := k.GetShieldEpochDecryptionKeyVal(ctx, epoch)
+		if !found {
+			continue
+		}
+		k.executeBatch(ctx, params, epoch, decKey)
+	}
+}
+
+// executeBatch decrypts, verifies, shuffles and executes one epoch's pending
+// ops (at most max_ops_per_batch per block; the rest run next block).
+func (k Keeper) executeBatch(ctx context.Context, params types.Params, epoch uint64, decKey types.ShieldEpochDecryptionKey) {
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 
-	// Get decryption key for this epoch
-	_, found := k.GetShieldEpochDecryptionKeyVal(ctx, epoch)
-	if !found {
-		return // validators haven't produced the key yet; ops carry over
-	}
-
-	// Collect all pending ops for this epoch
 	pendingOps := k.GetPendingOpsForEpoch(ctx, epoch)
 	if len(pendingOps) == 0 {
 		return
 	}
-
-	// Check min_batch_size (unless max_pending_epochs forces execution)
-	oldestSubmittedEpoch := k.getOldestPendingEpoch(pendingOps)
-	epochsWaiting := epoch - oldestSubmittedEpoch
-	forceExecute := epochsWaiting >= uint64(params.MaxPendingEpochs)
-
-	if len(pendingOps) < int(params.MinBatchSize) && !forceExecute {
-		return // batch too small, carry over
-	}
-
-	// Limit ops processed per block
-	if uint32(len(pendingOps)) > params.MaxOpsPerBatch {
-		pendingOps = pendingOps[:params.MaxOpsPerBatch]
-	}
-
-	// Decrypt, verify, shuffle, and execute
-	decKey, _ := k.GetShieldEpochDecryptionKeyVal(ctx, epoch)
-
-	// Validate decryption key is non-empty
 	if len(decKey.DecryptionKey) == 0 {
 		sdkCtx.EventManager().EmitEvent(sdk.NewEvent(
 			types.EventTypeShieldBatchSkipped,
@@ -105,6 +157,9 @@ func (k Keeper) tryProcessBatch(ctx context.Context, params types.Params, epoch 
 			sdk.NewAttribute(types.AttributeKeyError, "empty decryption key"),
 		))
 		return
+	}
+	if uint32(len(pendingOps)) > params.MaxOpsPerBatch {
+		pendingOps = pendingOps[:params.MaxOpsPerBatch]
 	}
 
 	// Deterministic shuffle for unlinkability
@@ -116,7 +171,6 @@ func (k Keeper) tryProcessBatch(ctx context.Context, params types.Params, epoch 
 	proofFailed := 0
 	otherFailed := 0
 	for _, op := range pendingOps {
-		// Attempt to decrypt and execute each op
 		result := k.processEncryptedOp(ctx, params, &op, decKey.DecryptionKey)
 		switch result {
 		case batchResultOK:
@@ -128,9 +182,9 @@ func (k Keeper) tryProcessBatch(ctx context.Context, params types.Params, epoch 
 		default:
 			otherFailed++
 		}
-		// Clean up pending op and its nullifier regardless of outcome
-		_ = k.DeletePendingOp(ctx, op.Id)
-		_ = k.DeletePendingNullifier(ctx, hex.EncodeToString(op.Nullifier))
+		// Clean up pending op and its submission nullifier regardless of outcome
+		_ = k.DeletePendingOp(ctx, op.TargetEpoch, op.Id)
+		_ = k.DeletePendingNullifier(ctx, hex.EncodeToString(op.SubmissionNullifier))
 	}
 
 	dropped := decryptFailed + proofFailed + otherFailed
@@ -145,31 +199,30 @@ func (k Keeper) tryProcessBatch(ctx context.Context, params types.Params, epoch 
 	))
 }
 
-// processCarriedOverBatches handles ops from older epochs and expires stale ones.
-func (k Keeper) processCarriedOverBatches(ctx context.Context, params types.Params, currentEpoch uint64, currentHeight int64) {
+// expirePendingOps drops ops that waited longer than max_pending_epochs
+// without their epoch's key, and forgets those epochs' demands.
+func (k Keeper) expirePendingOps(ctx context.Context, params types.Params, currentEpoch uint64) {
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
-
-	// Guard against underflow on early chain startup
-	var cutoffEpoch uint64
-	if currentEpoch > uint64(params.MaxPendingEpochs) {
-		cutoffEpoch = currentEpoch - uint64(params.MaxPendingEpochs)
+	cutoffEpoch := pendingCutoff(params, currentEpoch)
+	if cutoffEpoch == 0 {
+		return
 	}
 
-	// 1. Try to process older epochs that now have late-arrived decryption keys
-	for epoch := cutoffEpoch; epoch < currentEpoch; epoch++ {
-		if _, found := k.GetShieldEpochDecryptionKeyVal(ctx, epoch); found {
-			pendingOps := k.GetPendingOpsForEpoch(ctx, epoch)
-			if len(pendingOps) > 0 {
-				k.tryProcessBatch(ctx, params, epoch, currentHeight)
-			}
-		}
-	}
-
-	// 2. Expire ops from epochs older than max_pending_epochs
 	expiredOps := k.GetPendingOpsBeforeEpoch(ctx, cutoffEpoch)
 	for _, op := range expiredOps {
-		_ = k.DeletePendingOp(ctx, op.Id)
-		_ = k.DeletePendingNullifier(ctx, hex.EncodeToString(op.Nullifier))
+		_ = k.DeletePendingOp(ctx, op.TargetEpoch, op.Id)
+		_ = k.DeletePendingNullifier(ctx, hex.EncodeToString(op.SubmissionNullifier))
+	}
+	var stale []uint64
+	_ = k.IterateDecryptionDemands(ctx, func(epoch uint64, _ int64) bool {
+		if epoch < cutoffEpoch {
+			stale = append(stale, epoch)
+			return false
+		}
+		return true
+	})
+	for _, epoch := range stale {
+		_ = k.RemoveDecryptionDemand(ctx, epoch)
 	}
 
 	if len(expiredOps) > 0 {
@@ -191,11 +244,25 @@ const (
 
 // processEncryptedOp decrypts, verifies, and executes a single pending shielded op.
 // Returns a result code for diagnostic tracking.
-func (k Keeper) processEncryptedOp(ctx context.Context, params types.Params, op *types.PendingShieldedOp, decryptionKey []byte) int {
+//
+// It runs in the EndBlocker, where no runTx recovery exists: a panic here
+// (the inner handler running out of its max_gas_per_exec meter, or any
+// downstream bug) would propagate out of FinalizeBlock and halt every node at
+// the same height. Every panic is therefore recovered into a failed op, and
+// the inner message runs on a cache context written back only on success, so
+// a handler that errors or panics part-way leaves no partial state.
+func (k Keeper) processEncryptedOp(ctx context.Context, params types.Params, op *types.PendingShieldedOp, decryptionKey []byte) (result int) {
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
+	defer func() {
+		if r := recover(); r != nil {
+			sdkCtx.Logger().With("module", "x/"+types.ModuleName).Error(
+				"shielded batch op panicked; dropped", "pending_op_id", op.Id, "panic", fmt.Sprintf("%v", r))
+			result = batchResultOtherFail
+		}
+	}()
 
 	// 1. Decrypt the payload
-	plaintext, err := decryptPayload(op.EncryptedPayload, decryptionKey)
+	plaintext, err := decryptPayload(op.EncryptedPayload, decryptionKey, op.TargetEpoch)
 	if err != nil {
 		return batchResultDecryptFail
 	}
@@ -210,11 +277,19 @@ func (k Keeper) processEncryptedOp(ctx context.Context, params types.Params, op 
 		return batchResultDecryptFail
 	}
 
-	// 3. Validate inner message and look up registration
+	// 3. The fragment carries the inner message, the operation proof and the
+	// operation nullifier; restore the rest from the pending op. The
+	// operation proof's public inputs must reproduce every one of them,
+	// including the rate-limit nullifier the submission proof established
+	// (so the operation was made by the member who paid for the submission,
+	// in the epoch it was submitted).
+	if len(innerExec.Nullifier) != 32 {
+		return batchResultOtherFail
+	}
 	innerExec.MerkleRoot = op.MerkleRoot
 	innerExec.ProofDomain = op.ProofDomain
 	innerExec.MinTrustLevel = op.MinTrustLevel
-	innerExec.Nullifier = op.Nullifier
+	innerExec.RateLimitNullifier = op.RateLimitNullifier
 
 	if innerExec.InnerMessage == nil {
 		return batchResultOtherFail
@@ -256,37 +331,26 @@ func (k Keeper) processEncryptedOp(ctx context.Context, params types.Params, op 
 		return batchResultProofFail
 	}
 
-	// 5. Check and record nullifier in the permanent store
-	nullifierHex := hex.EncodeToString(op.Nullifier)
+	// 5. Check and record the operation nullifier in the permanent store
+	nullifierHex := hex.EncodeToString(innerExec.Nullifier)
 	if k.IsNullifierUsed(ctx, reg.NullifierDomain, scope, nullifierHex) {
 		return batchResultOtherFail
 	}
 	_ = k.RecordNullifier(ctx, reg.NullifierDomain, scope, nullifierHex, sdkCtx.BlockHeight())
 
-	// 6. Execute the inner message
-	execCtx := types.WithExecNullifier(types.WithProvenTrustLevel(sdkCtx, op.MinTrustLevel), types.ExecNullifier{
+	// 6. Execute the inner message on a cache context. The nullifier above
+	// stays recorded on failure: the op was proven and consumed.
+	cacheCtx, writeCache := sdkCtx.CacheContext()
+	execCtx := types.WithExecNullifier(types.WithProvenTrustLevel(cacheCtx, op.MinTrustLevel), types.ExecNullifier{
 		Domain:    reg.NullifierDomain,
 		Scope:     scope,
-		Nullifier: op.Nullifier,
+		Nullifier: innerExec.Nullifier,
 	})
 	_, err = k.executeInnerMessage(execCtx, params, innerExec.InnerMessage)
 	if err != nil {
 		return batchResultOtherFail
 	}
+	writeCache()
 
 	return batchResultOK
-}
-
-// getOldestPendingEpoch returns the earliest submitted epoch among pending ops.
-func (k Keeper) getOldestPendingEpoch(ops []types.PendingShieldedOp) uint64 {
-	if len(ops) == 0 {
-		return 0
-	}
-	oldest := ops[0].SubmittedAtEpoch
-	for _, op := range ops[1:] {
-		if op.SubmittedAtEpoch < oldest {
-			oldest = op.SubmittedAtEpoch
-		}
-	}
-	return oldest
 }

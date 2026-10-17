@@ -29,5 +29,6 @@ func getShieldGenesisParams() Params {
 		DkgWindowBlocks:             20, // Short window for testing (production: 200)
 		MaxValidatorSetDrift:        33,
 		MaxFeePerExec:               math.NewInt(50_000), // 0.05 SPARK per exec
+		EnableBatchAfterDkg:         true,                // auto-enable so single-validator DKG e2e tests exercise batch mode
 	}
 }

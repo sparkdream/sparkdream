@@ -15,7 +15,7 @@ message Params {
   // Whether shielded execution is enabled globally
   bool enabled = 1;
 
-  // Maximum uspark to skim from community pool per day (14400 blocks at 6s/block)
+  // Maximum bond-denom amount to draw from the community pool per UTC day (day = block time / 86400)
   string max_funding_per_day = 2 [
     (cosmos_proto.scalar) = "cosmossdk.io/math.Int",
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
@@ -72,7 +72,7 @@ message Params {
   // Minimum bonded validators required to auto-open a DKG ceremony
   uint32 min_tle_validators = 16;
 
-  // Total DKG window in blocks (split: first half = key registration, second half = contributions)
+  // Total DKG window in blocks, split into four equal phases: key registration, dealing, complaints, justifications
   uint64 dkg_window_blocks = 17;
 
   // Validator set drift percentage (0-100) that triggers automatic re-keying.
@@ -89,4 +89,9 @@ message Params {
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
+
+  // Whether a completed DKG turns encrypted_batch_enabled on by itself.
+  // Off by default: governance enables batch mode explicitly once it is
+  // satisfied with the ceremony. A re-key always turns batch mode off.
+  bool enable_batch_after_dkg = 20;
 }

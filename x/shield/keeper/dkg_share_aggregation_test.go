@@ -1,12 +1,14 @@
 package keeper
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"go.dedis.ch/kyber/v4"
 	"go.dedis.ch/kyber/v4/encrypt/ecies"
 	"go.dedis.ch/kyber/v4/share"
+
+	"sparkdream/tools/tle"
 )
 
 // TestDKGShareAggregationRoundTrip pins SHIELD-S2-2: a multi-dealer Feldman
@@ -39,10 +41,19 @@ func TestDKGShareAggregationRoundTrip(t *testing.T) {
 	privB, pubB, err := storeB.EnsureRegistrationKey(round)
 	require.NoError(t, err)
 
-	_, _, err = storeA.GeneratePolynomial(round, threshold)
+	_, commA, err := storeA.GeneratePolynomial(round, threshold)
 	require.NoError(t, err)
-	_, _, err = storeB.GeneratePolynomial(round, threshold)
+	_, commB, err := storeB.GeneratePolynomial(round, threshold)
 	require.NoError(t, err)
+	marshal := func(points []kyber.Point) [][]byte {
+		out := make([][]byte, len(points))
+		for i, p := range points {
+			out[i], err = p.MarshalBinary()
+			require.NoError(t, err)
+		}
+		return out
+	}
+	commABytes, commBBytes := marshal(commA), marshal(commB)
 
 	// A computes its evaluation at B's index (2) and ECIES-encrypts to B's
 	// registration pubkey. Symmetrically B encrypts to A.
@@ -62,10 +73,42 @@ func TestDKGShareAggregationRoundTrip(t *testing.T) {
 
 	// Each validator now computes their decryption share. A aggregates
 	// p_A(1) + decrypt(ctBtoA); B aggregates p_B(2) + decrypt(ctAtoB).
-	shareABytes, err := storeA.ComputeDecryptionShare(round, epoch, 1, [][]byte{ctBtoA})
+	// Each verifies the other's evaluation against its commitments first.
+	fromB := IncomingEvaluation{Dealer: "B", DealerIndex: 2, Commitments: commBBytes, Ciphertext: ctBtoA}
+	fromA := IncomingEvaluation{Dealer: "A", DealerIndex: 1, Commitments: commABytes, Ciphertext: ctAtoB}
+	noComplaints, err := storeA.FindComplaints(round, 1, []IncomingEvaluation{fromB})
 	require.NoError(t, err)
-	shareBBytes, err := storeB.ComputeDecryptionShare(round, epoch, 2, [][]byte{ctAtoB})
+	require.Empty(t, noComplaints)
+	shareABytes, err := storeA.ComputeDecryptionShare(round, epoch, 1, []IncomingEvaluation{fromB})
 	require.NoError(t, err)
+	shareBBytes, err := storeB.ComputeDecryptionShare(round, epoch, 2, []IncomingEvaluation{fromA})
+	require.NoError(t, err)
+
+	// A wrong or missing evaluation is detected locally: a complaint, and no
+	// share that the chain would have to reject.
+	wrongEval, err := storeB.EvaluatePolynomial(round, 2) // p_B(2), not p_B(1)
+	require.NoError(t, err)
+	wrongBytes, _ := wrongEval.MarshalBinary()
+	ctWrong, err := ecies.Encrypt(tleSuite, pubA, wrongBytes, nil)
+	require.NoError(t, err)
+	bad := IncomingEvaluation{Dealer: "B", DealerIndex: 2, Commitments: commBBytes, Ciphertext: ctWrong}
+	complaints, err := storeA.FindComplaints(round, 1, []IncomingEvaluation{bad})
+	require.NoError(t, err)
+	require.Equal(t, []uint32{2}, complaints)
+	_, err = storeA.ComputeDecryptionShare(round, epoch, 1, []IncomingEvaluation{bad})
+	require.ErrorContains(t, err, "dealer B")
+	missing := IncomingEvaluation{Dealer: "B", DealerIndex: 2, Commitments: commBBytes}
+	complaints, err = storeA.FindComplaints(round, 1, []IncomingEvaluation{missing})
+	require.NoError(t, err)
+	require.Equal(t, []uint32{2}, complaints)
+	// B's justification (the evaluation in clear) repairs A's share.
+	just, err := storeB.Justify(round, 1)
+	require.NoError(t, err)
+	require.NoError(t, VerifyEvaluation(commBBytes, 1, just))
+	repaired := IncomingEvaluation{Dealer: "B", DealerIndex: 2, Commitments: commBBytes, Ciphertext: ctWrong, Plaintext: just}
+	shareAAgain, err := storeA.ComputeDecryptionShare(round, epoch, 1, []IncomingEvaluation{repaired})
+	require.NoError(t, err)
+	require.Equal(t, shareABytes, shareAAgain)
 
 	// Lagrange-interpolate at x=0 to recover master * epoch_tag.
 	pointA := tleSuite.Point()
@@ -82,9 +125,7 @@ func TestDKGShareAggregationRoundTrip(t *testing.T) {
 
 	// Expected: master * epoch_tag where master = a_{A,0} + a_{B,0}.
 	master := tleSuite.Scalar().Add(privA, privB)
-	epochData := fmt.Appendf(nil, "shield_epoch_%d", epoch)
-	epochTag := tleSuite.Point().Pick(tleSuite.XOF(epochData))
-	expected := tleSuite.Point().Mul(master, epochTag)
+	expected := tleSuite.Point().Mul(master, tle.EpochTag(epoch))
 
 	require.True(t, recovered.Equal(expected),
 		"Lagrange-recovered point must equal master*epoch_tag")

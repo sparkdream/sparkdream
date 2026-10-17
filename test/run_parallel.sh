@@ -387,7 +387,7 @@ e2e_keep_n() {
 #   4. Newest parallel-* dir by mtime (last resort)
 #
 # Per-suite state is derived from the per-module log:
-#   DONE     - log contains "[<mod>] === SUITE DONE: P passed, F failed ==="
+#   DONE     - log contains "[<mod>] === SUITE DONE: P passed, F failed[, S skipped] ==="
 #   RUNNING  - log non-empty, no SUITE DONE line, chain process alive
 #   ABORTED  - log non-empty, no SUITE DONE line, chain not alive (run killed
 #              mid-suite — failure logs preserved for post-mortem)
@@ -1190,6 +1190,31 @@ SUITE_GRPCS=()
 SUITE_GRPC_WEBS=()
 SUITE_APIS=()
 
+# write_home_wrapper <bin_dir> <home>: a `sparkdreamd` that injects --home.
+write_home_wrapper() {
+    local bin="$1" home="$2"
+    mkdir -p "$bin"
+    cat > "$bin/sparkdreamd" <<EOF
+#!/bin/bash
+exec "$REAL_SPARKDREAMD" --home "$home" "\$@"
+EOF
+    chmod +x "$bin/sparkdreamd"
+}
+
+# ----------------------------------------------------------------------------
+# Tests that need a chain whose genesis was patched before start. Each entry
+# is "<test>.sh:<patch script>", both in the module's test dir. They are left
+# out of the suite's main loop and run at its end, each on a fresh chain of
+# its own (home-<test>/, bin-<test>/ beside the suite home, same ports, the
+# main chain stopped first). The patch script gets SPARKDREAM_HOME and a
+# wrapper on PATH for that home.
+# ----------------------------------------------------------------------------
+patched_genesis_tests() {
+    case "$1" in
+        shield) echo "encrypted_batch_test.sh:patch_genesis_tle.sh dkg_ceremony_test.sh:patch_genesis_dkg.sh" ;;
+    esac
+}
+
 allocate_suite() {
     local idx="$1"       # 1-based suite index
     local module="$2"
@@ -1212,11 +1237,7 @@ allocate_suite() {
     # root flag in Cosmos SDK so all subcommands accept it. The wrapper also
     # ensures every CLI lookup (keys, tx, query) hits the suite's keyring and
     # client.toml — meaning --node is read from the patched client.toml.
-    cat > "$bin/sparkdreamd" <<EOF
-#!/bin/bash
-exec "$REAL_SPARKDREAMD" --home "$home" "\$@"
-EOF
-    chmod +x "$bin/sparkdreamd"
+    write_home_wrapper "$bin" "$home"
 
     SUITE_HOMES+=("$home")
     SUITE_BINS+=("$bin")
@@ -1481,6 +1502,107 @@ prepare_suite_chain() {
 
     patch_suite_ports "$home" "$rpc" "$p2p" "$grpc" "$grpc_web" "$api" \
         || { echo "ERROR: port patch failed for $module" >&2; return 1; }
+
+    # Patched-genesis homes, built here (serially, before any chain runs)
+    # because ignite chain init must not run beside live suites.
+    local entry test patch vhome vbin plog
+    for entry in $(patched_genesis_tests "$module"); do
+        test="${entry%%:*}"; patch="${entry#*:}"
+        vhome="$(dirname "$home")/home-${test%.sh}"
+        vbin="$(dirname "$home")/bin-${test%.sh}"
+        plog="$PARALLEL_DIR/patch-$module-${test%.sh}.log"
+        echo "    → $test: fresh ignite chain init + $patch"
+        ignite_init_into_home "$vhome" || return 1
+        patch_suite_ports "$vhome" "$rpc" "$p2p" "$grpc" "$grpc_web" "$api" \
+            || { echo "ERROR: port patch failed for $module/$test" >&2; return 1; }
+        write_home_wrapper "$vbin" "$vhome"
+        (cd "$TEST_DIR/$module" && PATH="$vbin:$PATH" SPARKDREAM_HOME="$vhome" bash "./$patch") > "$plog" 2>&1 \
+            || { echo "ERROR: $patch failed for $module — see $plog" >&2; return 1; }
+    done
+    return 0
+}
+
+# ----------------------------------------------------------------------------
+# Start the chain of the home the `sparkdreamd` wrapper on PATH points at and
+# wait until it produces blocks and answers SDK queries. Sets SUITE_CHAIN_PID.
+# Returns 0 when ready, 99 (chain stopped) otherwise.
+# ----------------------------------------------------------------------------
+start_suite_chain() {
+    local module="$1"
+    local home="$2"
+    local rpc="$3"
+    # Start chain via wrapper (--home injected). Log to suite's own file.
+    sparkdreamd start > "$home/chain.log" 2>&1 &
+    SUITE_CHAIN_PID=$!
+    local chain_pid=$SUITE_CHAIN_PID
+    echo "[$module] chain pid=$chain_pid (log: $home/chain.log)"
+
+    # Wait for the chain to produce blocks (height > 0)
+    local up=0
+    for i in $(seq 1 90); do
+        local h
+        h=$(curl -s --max-time 2 "http://127.0.0.1:$rpc/status" 2>/dev/null \
+            | jq -r '.result.sync_info.latest_block_height // "0"' 2>/dev/null)
+        if [ -n "$h" ] && [ "$h" -gt 0 ] 2>/dev/null; then
+            echo "[$module] chain producing blocks (height=$h) after ${i}s"
+            up=1
+            break
+        fi
+        # Bail early if chain crashed
+        if ! kill -0 $chain_pid 2>/dev/null; then
+            echo "[$module] ERROR: chain process exited unexpectedly"
+            echo "[$module] last 30 lines of chain.log:"
+            tail -30 "$home/chain.log" 2>/dev/null | sed 's/^/[chain] /'
+            return 99
+        fi
+        sleep 1
+    done
+
+    if [ "$up" != "1" ]; then
+        echo "[$module] ERROR: chain did not produce blocks within 90s"
+        kill $chain_pid 2>/dev/null
+        wait $chain_pid 2>/dev/null
+        return 99
+    fi
+
+    # Second readiness check: wait for the cosmos-SDK auth-query path
+    # to be live. CometBFT RPC (above) typically starts BEFORE the SDK's
+    # gRPC server and api-server (the chain log shows "Starting RPC HTTP
+    # server" several lines before "starting gRPC server"). Without this
+    # second poll, tests that broadcast a tx in the gap can hit a race:
+    # the CLI's `--from <key>` auto-fetch silently fails, falls back to
+    # account_number=0 sequence=0, the chain rejects with
+    # `signature verification failed; please verify account number (0)`,
+    # and the test sees an unexplained CheckTx code=4. Symptom seen in
+    # season/profile_test (May 9 2026, parallel run 11:03).
+    #
+    # We probe the same path the CLI uses for --from auto-fetch: the
+    # auth params query, routed through ABCI -> gRPC router -> auth
+    # keeper. Once `query auth params` succeeds, account fetches will
+    # too. Using the wrapper means --home + per-suite client.toml's
+    # `node = tcp://127.0.0.1:<rpc>` are picked up automatically.
+    local sdk_up=0
+    for i in $(seq 1 30); do
+        if sparkdreamd query auth params --output json > /dev/null 2>&1; then
+            echo "[$module] cosmos-SDK auth-query path responding after ${i}s"
+            sdk_up=1
+            break
+        fi
+        if ! kill -0 $chain_pid 2>/dev/null; then
+            echo "[$module] ERROR: chain process exited unexpectedly during SDK readiness wait"
+            tail -30 "$home/chain.log" 2>/dev/null | sed 's/^/[chain] /'
+            return 99
+        fi
+        sleep 1
+    done
+
+    if [ "$sdk_up" != "1" ]; then
+        echo "[$module] ERROR: cosmos-SDK auth-query path not responding within 30s"
+        echo "[$module] (CometBFT RPC was up but auth ABCI query never succeeded — tests would race)"
+        kill $chain_pid 2>/dev/null
+        wait $chain_pid 2>/dev/null
+        return 99
+    fi
     return 0
 }
 
@@ -1562,76 +1684,8 @@ run_suite() {
         echo "=== [$module] starting at $_suite_start_human (home=$home rpc=$rpc) ==="
 
         # Start chain via wrapper (--home injected). Log to suite's own file.
-        sparkdreamd start > "$home/chain.log" 2>&1 &
-        local chain_pid=$!
-        echo "[$module] chain pid=$chain_pid (log: $home/chain.log)"
-
-        # Wait for the chain to produce blocks (height > 0)
-        local up=0
-        for i in $(seq 1 90); do
-            local h
-            h=$(curl -s --max-time 2 "http://127.0.0.1:$rpc/status" 2>/dev/null \
-                | jq -r '.result.sync_info.latest_block_height // "0"' 2>/dev/null)
-            if [ -n "$h" ] && [ "$h" -gt 0 ] 2>/dev/null; then
-                echo "[$module] chain producing blocks (height=$h) after ${i}s"
-                up=1
-                break
-            fi
-            # Bail early if chain crashed
-            if ! kill -0 $chain_pid 2>/dev/null; then
-                echo "[$module] ERROR: chain process exited unexpectedly"
-                echo "[$module] last 30 lines of chain.log:"
-                tail -30 "$home/chain.log" 2>/dev/null | sed 's/^/[chain] /'
-                return 99
-            fi
-            sleep 1
-        done
-
-        if [ "$up" != "1" ]; then
-            echo "[$module] ERROR: chain did not produce blocks within 90s"
-            kill $chain_pid 2>/dev/null
-            wait $chain_pid 2>/dev/null
-            return 99
-        fi
-
-        # Second readiness check: wait for the cosmos-SDK auth-query path
-        # to be live. CometBFT RPC (above) typically starts BEFORE the SDK's
-        # gRPC server and api-server (the chain log shows "Starting RPC HTTP
-        # server" several lines before "starting gRPC server"). Without this
-        # second poll, tests that broadcast a tx in the gap can hit a race:
-        # the CLI's `--from <key>` auto-fetch silently fails, falls back to
-        # account_number=0 sequence=0, the chain rejects with
-        # `signature verification failed; please verify account number (0)`,
-        # and the test sees an unexplained CheckTx code=4. Symptom seen in
-        # season/profile_test (May 9 2026, parallel run 11:03).
-        #
-        # We probe the same path the CLI uses for --from auto-fetch: the
-        # auth params query, routed through ABCI -> gRPC router -> auth
-        # keeper. Once `query auth params` succeeds, account fetches will
-        # too. Using the wrapper means --home + per-suite client.toml's
-        # `node = tcp://127.0.0.1:<rpc>` are picked up automatically.
-        local sdk_up=0
-        for i in $(seq 1 30); do
-            if sparkdreamd query auth params --output json > /dev/null 2>&1; then
-                echo "[$module] cosmos-SDK auth-query path responding after ${i}s"
-                sdk_up=1
-                break
-            fi
-            if ! kill -0 $chain_pid 2>/dev/null; then
-                echo "[$module] ERROR: chain process exited unexpectedly during SDK readiness wait"
-                tail -30 "$home/chain.log" 2>/dev/null | sed 's/^/[chain] /'
-                return 99
-            fi
-            sleep 1
-        done
-
-        if [ "$sdk_up" != "1" ]; then
-            echo "[$module] ERROR: cosmos-SDK auth-query path not responding within 30s"
-            echo "[$module] (CometBFT RPC was up but auth ABCI query never succeeded — tests would race)"
-            kill $chain_pid 2>/dev/null
-            wait $chain_pid 2>/dev/null
-            return 99
-        fi
+        start_suite_chain "$module" "$home" "$rpc" || return 99
+        local chain_pid=$SUITE_CHAIN_PID
 
         # Resolve BOND_DENOM/DREAM_DENOM once from the running chain via
         # test/lib/denoms.sh and export so every test script in this suite
@@ -1652,8 +1706,8 @@ run_suite() {
         # be wasteful or actively fail (e.g. "invitation already exists").
         # Pseudo-modules (legacy) skip setup entirely — their tests rely on
         # genesis-bootstrapped state only.
-        local pass=0 fail=0
-        local -a failed=()
+        local pass=0 fail=0 skip=0
+        local -a failed=() skipped=()
 
         if [ "$kind" = "legacy" ]; then
             echo "[$module] (legacy pseudo-module — skipping setup_test_accounts.sh)"
@@ -1723,10 +1777,23 @@ run_suite() {
                 continue
             fi
             test_name=$(basename "$test_script" .sh)
+            case " $(patched_genesis_tests "$module") " in
+                *" $test_name.sh:"*) continue ;;  # runs on its own chain below
+            esac
             echo "[$module] --- $test_name ---"
-            if (cd "$test_dir" && bash "$test_script"); then
+            local test_rc=0
+            (cd "$test_dir" && bash "$test_script") || test_rc=$?
+            if [ "$test_rc" -eq 0 ]; then
                 pass=$((pass + 1))
                 echo "[$module] PASS: $test_name"
+            elif [ "$test_rc" -eq 3 ]; then
+                # Exit 3 = the test found a chain it cannot run on (e.g. a
+                # genesis without the patch it needs; see
+                # patched_genesis_tests). Same convention as
+                # test/shield/run_all_tests.sh.
+                skip=$((skip + 1))
+                skipped+=("$test_name")
+                echo "[$module] SKIP: $test_name"
             else
                 fail=$((fail + 1))
                 failed+=("$test_name")
@@ -1734,10 +1801,52 @@ run_suite() {
             fi
         done
 
-        echo "[$module] === SUITE DONE: $pass passed, $fail failed ==="
+        # Patched-genesis tests: stop the main chain, then one fresh chain per
+        # test on the same ports (see patched_genesis_tests).
+        local entry vname vhome vbin vrc
+        for entry in $(patched_genesis_tests "$module"); do
+            vname="${entry%%:*}"; vname="${vname%.sh}"
+            vhome="$(dirname "$home")/home-$vname"
+            vbin="$(dirname "$home")/bin-$vname"
+            kill $chain_pid 2>/dev/null
+            wait $chain_pid 2>/dev/null
+            echo "[$module] --- $vname (own chain, ${entry#*:}) ---"
+            vrc=0
+            (
+                export PATH="$vbin:$PATH"
+                start_suite_chain "$module" "$vhome" "$rpc" || exit 99
+                rc=0
+                (cd "$module_dir" && bash ./setup_test_accounts.sh) > "$vhome/setup.log" 2>&1 \
+                    || { echo "[$module] setup_test_accounts failed on $vname's chain (log: $vhome/setup.log)"; rc=1; }
+                [ $rc -eq 0 ] && { (cd "$module_dir" && bash "./$vname.sh") || rc=$?; }
+                kill $SUITE_CHAIN_PID 2>/dev/null
+                wait $SUITE_CHAIN_PID 2>/dev/null
+                exit $rc
+            ) || vrc=$?
+            if [ "$vrc" -eq 0 ]; then
+                pass=$((pass + 1))
+                echo "[$module] PASS: $vname"
+            elif [ "$vrc" -eq 3 ]; then
+                skip=$((skip + 1))
+                skipped+=("$vname")
+                echo "[$module] SKIP: $vname"
+            else
+                fail=$((fail + 1))
+                failed+=("$vname")
+                echo "[$module] FAIL: $vname"
+            fi
+        done
+
+        echo "[$module] === SUITE DONE: $pass passed, $fail failed, $skip skipped ==="
         if [ ${#failed[@]} -gt 0 ]; then
             echo "[$module] Failed:"
             for t in "${failed[@]}"; do
+                echo "[$module]   - $t"
+            done
+        fi
+        if [ ${#skipped[@]} -gt 0 ]; then
+            echo "[$module] Skipped (exit 3):"
+            for t in "${skipped[@]}"; do
                 echo "[$module]   - $t"
             done
         fi

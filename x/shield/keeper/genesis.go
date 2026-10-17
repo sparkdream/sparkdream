@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"cosmossdk.io/collections"
+	errorsmod "cosmossdk.io/errors"
 
 	"sparkdream/x/shield/types"
 )
@@ -46,6 +47,16 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 	for _, vk := range genState.VerificationKeys {
 		if err := k.SetVerificationKey(ctx, vk); err != nil {
 			return err
+		}
+	}
+	// Launch gate: a production build refuses every exec without the circuit
+	// key, and no message can add one later (only a chain upgrade), so an
+	// enabled shield with no key is a misconfigured genesis. Fail at chain
+	// start rather than run a network where shielded execution never works.
+	if genState.Params.Enabled && requireVerificationKey() {
+		if vk, found := k.GetVerificationKeyVal(ctx, types.ShieldCircuitID); !found || len(vk.VkBytes) == 0 {
+			return errorsmod.Wrapf(types.ErrNoVerificationKey,
+				"genesis enables shield without a %s verification key; add the ceremony key or set params.enabled=false", types.ShieldCircuitID)
 		}
 	}
 
@@ -113,6 +124,13 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 		}
 	}
 
+	// Decryption demands
+	for _, d := range genState.DecryptionDemands {
+		if err := k.DecryptionDemands.Set(ctx, d.Epoch, d.Height); err != nil {
+			return err
+		}
+	}
+
 	// DKG state
 	if genState.DkgState.Round > 0 {
 		if err := k.SetDKGStateVal(ctx, genState.DkgState); err != nil {
@@ -134,6 +152,13 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 		}
 	}
 
+	// DKG complaints
+	for _, c := range genState.DkgComplaints {
+		if err := k.SetDKGComplaint(ctx, c); err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 
@@ -147,7 +172,10 @@ func (k Keeper) ExportGenesis(ctx context.Context) (*types.GenesisState, error) 
 		return nil, err
 	}
 
-	// Registered operations
+	// Registered operations: exactly what is stored. DefaultGenesis seeds the
+	// default set, which would duplicate every op and bring back any that
+	// governance deregistered.
+	genesis.RegisteredOps = nil
 	_ = k.IterateShieldedOps(ctx, func(_ string, reg types.ShieldedOpRegistration) bool {
 		genesis.RegisteredOps = append(genesis.RegisteredOps, reg)
 		return false
@@ -259,6 +287,15 @@ func (k Keeper) ExportGenesis(ctx context.Context) (*types.GenesisState, error) 
 		return false
 	})
 
+	// Decryption demands (raw value: keeps the judged sentinel, see demandHeight)
+	_ = k.IterateDecryptionDemands(ctx, func(epoch uint64, raw int64) bool {
+		genesis.DecryptionDemands = append(genesis.DecryptionDemands, types.DecryptionDemandEntry{
+			Epoch:  epoch,
+			Height: raw,
+		})
+		return false
+	})
+
 	// DKG state
 	dkgState, found := k.GetDKGStateVal(ctx)
 	if found {
@@ -280,6 +317,9 @@ func (k Keeper) ExportGenesis(ctx context.Context) (*types.GenesisState, error) 
 			Contribution:     r,
 		})
 	}
+
+	// DKG complaints
+	genesis.DkgComplaints = append(genesis.DkgComplaints, k.GetAllDKGComplaints(ctx)...)
 
 	return genesis, nil
 }

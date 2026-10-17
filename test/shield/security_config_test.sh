@@ -31,6 +31,11 @@ if [ ! -f "$SCRIPT_DIR/.test_env" ]; then
 fi
 
 source "$SCRIPT_DIR/.test_env"
+# .test_env may predate the shield account (or the query raced the first
+# block at setup); resolve the address live when it is missing.
+if [ -z "${SHIELD_MODULE_ADDR:-}" ]; then
+    SHIELD_MODULE_ADDR=$($BINARY query auth module-account shield --output json 2>/dev/null | jq -r '.account.base_account.address // .account.value.address // ""' 2>/dev/null)
+fi
 
 echo "Alice:          $ALICE_ADDR"
 echo "Shield Module:  $SHIELD_MODULE_ADDR"

@@ -42,7 +42,8 @@ cmd/sdapbridge/sdapbridge
 cmd/sdapverify/sdapverify
 cmd/sdaplogin/sdaplogin
 tools/apcanon/cmd/apcanon/apcanon
-seed-tle
+/seed-tle
+tools/zk/cmd/seed-tle/seed-tle
 # ZK ceremony binary: `go build ./tools/zk/cmd/ceremony` from the repo root.
 # Anchored so the tools/zk/cmd/ceremony/ source dir stays tracked.
 /ceremony
@@ -64,6 +65,7 @@ test/*/snapshots
 test/federation/mastodon/runs/
 test/federation/mastodon/proposals/
 .test_env
+.tle_keys.json
 # Parallel E2E runner workdir (per-run isolated chain homes + logs)
 /e2e/
 

@@ -457,6 +457,12 @@ func New(
 	// build app
 	app.App = appBuilder.Build(db, traceStore, baseAppOptions...)
 
+	// A binary built for one network (or an untagged test build) must never
+	// run on another canonical network.
+	if err := checkNetworkBuild(app.ChainID()); err != nil {
+		panic(err)
+	}
+
 	// Wire MsgServiceRouter into Commons for proposal message execution.
 	app.CommonsKeeper.SetRouter(app.MsgServiceRouter())
 
@@ -562,12 +568,17 @@ func New(
 	dkgHandler := shieldabci.NewDKGVoteExtensionHandler(app.ShieldKeeper, homeDir)
 	app.SetExtendVoteHandler(dkgHandler.ExtendVoteHandler())
 	app.SetVerifyVoteExtensionHandler(dkgHandler.VerifyVoteExtensionHandler())
-	app.SetPrepareProposal(shieldabci.PrepareProposalHandler(app.ShieldKeeper))
-	app.SetProcessProposal(shieldabci.ProcessProposalHandler(app.ShieldKeeper))
+	// The shield handlers inject/validate the DKG pseudo-tx at position 0 and
+	// delegate the rest of the block (byte and block-gas limits) to the SDK's
+	// default proposal handler.
+	defaultProposals := baseapp.NewDefaultProposalHandler(app.Mempool(), app.BaseApp)
+	app.SetPrepareProposal(shieldabci.PrepareProposalHandler(app.ShieldKeeper, defaultProposals.PrepareProposalHandler()))
+	app.SetProcessProposal(shieldabci.ProcessProposalHandler(app.ShieldKeeper, defaultProposals.ProcessProposalHandler()))
 
-	// Custom PreBlocker: process DKG vote extension injections (tx[0] with magic prefix),
-	// then run module-level PreBlockers. The injection is stripped from req.Txs so it
-	// doesn't go through normal tx delivery.
+	// Custom PreBlocker: process DKG vote extension injections (tx[0] with magic
+	// prefix), then run module-level PreBlockers. The injection stays in
+	// req.Txs (CometBFT needs one result per tx) and fails decoding in normal
+	// delivery as a no-op failed tx.
 	app.SetPreBlocker(func(ctx sdk.Context, req *abci.RequestFinalizeBlock) (*sdk.ResponsePreBlock, error) {
 		shieldabci.ProcessDKGInjection(ctx, app.ShieldKeeper, req)
 		return app.ModuleManager.PreBlock(ctx)

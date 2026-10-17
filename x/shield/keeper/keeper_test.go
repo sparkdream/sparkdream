@@ -504,13 +504,13 @@ func TestPendingOps(t *testing.T) {
 
 	t.Run("set and get pending op", func(t *testing.T) {
 		op := types.PendingShieldedOp{
-			Id:                1,
-			TargetEpoch:       5,
-			Nullifier:         []byte("null1"),
-			MerkleRoot:        []byte("root1"),
-			EncryptedPayload:  []byte("encrypted_data"),
-			SubmittedAtHeight: 100,
-			SubmittedAtEpoch:  5,
+			Id:                  1,
+			TargetEpoch:         5,
+			SubmissionNullifier: []byte("null1"),
+			MerkleRoot:          []byte("root1"),
+			EncryptedPayload:    []byte("encrypted_data"),
+			SubmittedAtHeight:   100,
+			SubmittedAtEpoch:    5,
 		}
 		err := f.keeper.SetPendingOp(f.ctx, op)
 		require.NoError(t, err)
@@ -525,7 +525,7 @@ func TestPendingOps(t *testing.T) {
 	})
 
 	t.Run("delete pending op", func(t *testing.T) {
-		err := f.keeper.DeletePendingOp(f.ctx, 1)
+		err := f.keeper.DeletePendingOp(f.ctx, 5, 1)
 		require.NoError(t, err)
 
 		require.Equal(t, uint64(0), f.keeper.GetPendingOpCountVal(f.ctx))
@@ -616,13 +616,6 @@ func TestTLEMissCounters(t *testing.T) {
 		require.NoError(t, f.keeper.SetTLEMissCount(f.ctx, "val1", 5))
 		count := f.keeper.GetTLEMissCount(f.ctx, "val1")
 		require.Equal(t, uint64(5), count)
-	})
-
-	t.Run("increment", func(t *testing.T) {
-		newCount := f.keeper.IncrementTLEMissCount(f.ctx, "val1")
-		require.Equal(t, uint64(6), newCount)
-		count := f.keeper.GetTLEMissCount(f.ctx, "val1")
-		require.Equal(t, uint64(6), count)
 	})
 
 	t.Run("reset", func(t *testing.T) {

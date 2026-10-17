@@ -338,16 +338,22 @@ def deep_merge(base, overrides):
 
 
 def apply_config_overrides(genesis, config_path):
-    """Overlay the network's config.yml `genesis.app_state` onto the fresh
-    genesis. Captures per-network overrides that fresh `sparkdreamd init`
-    output misses — mint inflation, gov timings, season cadence, forum
-    archive windows, denom_metadata, commons.category_map, and more.
-    Mirrors what `ignite chain init` would do."""
+    """Overlay the network's config.yml `genesis.app_state` and
+    `genesis.consensus` onto the fresh genesis. Captures per-network
+    overrides that fresh `sparkdreamd init` output misses — mint inflation,
+    gov timings, season cadence, forum archive windows, denom_metadata,
+    commons.category_map, and the consensus params (notably
+    `abci.vote_extensions_enable_height`, without which the x/shield DKG
+    vote extensions never run). Mirrors what `ignite chain init` would do."""
     with open(config_path) as f:
         cfg = yaml.safe_load(f) or {}
-    overrides = (cfg.get("genesis") or {}).get("app_state") or {}
+    gen_cfg = cfg.get("genesis") or {}
+    overrides = gen_cfg.get("app_state") or {}
     if overrides:
         genesis["app_state"] = deep_merge(genesis["app_state"], overrides)
+    consensus = gen_cfg.get("consensus") or {}
+    if consensus:
+        genesis["consensus"] = deep_merge(genesis.get("consensus") or {}, consensus)
 
 
 # -------------------------- consistency check --------------------------
