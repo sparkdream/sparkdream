@@ -24,6 +24,9 @@ const (
 	signInGrantType   = "GRANT_TYPE_SIGN_IN"
 	grantStatusActive = "GRANT_STATUS_ACTIVE"
 	maxAccountChoices = 20 // x/session's per-granter cap bounds one granter, not a grantee
+	// The REST gateway parses an enum query parameter as its number only:
+	// "?type=GRANT_TYPE_SIGN_IN" is refused with code 3.
+	signInGrantTypeNum = "5"
 )
 
 // signInGrant is the part of an x/session Grant this service reads.
@@ -53,7 +56,7 @@ func (q LCD) SignInGrantsTo(ctx context.Context, c Chain, grantee string) ([]sig
 	var resp struct {
 		Grants []signInGrant `json:"grants"`
 	}
-	path := "/sparkdream/session/v1/grants/by_grantee/" + url.PathEscape(grantee) + "?type=" + signInGrantType
+	path := "/sparkdream/session/v1/grants/by_grantee/" + url.PathEscape(grantee) + "?type=" + signInGrantTypeNum
 	if _, err := q.lcdGet(ctx, c, path, &resp); err != nil {
 		return nil, err
 	}

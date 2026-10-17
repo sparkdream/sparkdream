@@ -64,11 +64,19 @@ func (f *fakeLCD) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]string{"name": n})
 	case strings.HasPrefix(r.URL.Path, "/sparkdream/session/v1/grants/by_grantee/"):
 		grantee := strings.TrimPrefix(r.URL.Path, "/sparkdream/session/v1/grants/by_grantee/")
+		// like the real gateway, the type filter takes the enum's number only
+		typeNames := map[string]string{"": "", "1": "GRANT_TYPE_SESSION_KEY", "5": signInGrantType}
+		want, ok := typeNames[r.URL.Query().Get("type")]
+		if !ok {
+			w.WriteHeader(http.StatusBadRequest)
+			io.WriteString(w, `{"code":3,"message":"strconv.ParseInt: invalid syntax"}`)
+			return
+		}
 		var list []json.RawMessage
 		for _, g := range f.grants {
 			var probe struct{ Grantee, Type string }
 			_ = json.Unmarshal([]byte(g), &probe)
-			if probe.Grantee == grantee && (r.URL.Query().Get("type") == "" || probe.Type == r.URL.Query().Get("type")) {
+			if probe.Grantee == grantee && (want == "" || probe.Type == want) {
 				list = append(list, json.RawMessage(g))
 			}
 		}
