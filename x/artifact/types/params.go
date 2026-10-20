@@ -38,6 +38,10 @@ const (
 	HardMaxAttrValueLength   uint32 = 1024
 	HardMaxMintersPerClass   uint32 = 50
 	HardMaxTrustLevel        uint32 = 4 // TRUST_LEVEL_CORE
+	MaxIssueBatchSizeCeiling uint32 = 1000
+	HardMaxScheduleStages    uint32 = 32
+	HardMaxMediaProposals    uint32 = 16
+	HardMaxMediaVersions     uint32 = 32
 	// RevokeReasonMaxLength bounds MsgRevoke.reason; HideReasonMaxLength bounds
 	// MsgHideContent.reason_text.
 	RevokeReasonMaxLength = 256
@@ -101,6 +105,12 @@ func DefaultParams() Params {
 		SentinelUnhideWindowBlocks: defaultUnhideWindowBlocks(),
 		HideExpiryBlocks:           defaultHideExpiryBlocks(),
 		SentinelHideCommitDream:    spark(100),
+
+		MaxIssueBatchSize:         200,
+		MaxScheduleStages:         8,
+		MaxMediaProposalsPerToken: 5,
+		MaxMediaVersionsPerToken:  8,
+		RenderersEnabled:          true,
 	}
 }
 
@@ -121,6 +131,7 @@ func (p Params) OperationalParams() ArtifactOperationalParams {
 		SentinelUnhideWindowBlocks: p.SentinelUnhideWindowBlocks,
 		HideExpiryBlocks:           p.HideExpiryBlocks,
 		SentinelHideCommitDream:    p.SentinelHideCommitDream,
+		RenderersEnabled:           p.RenderersEnabled,
 	}
 }
 
@@ -141,6 +152,7 @@ func (p Params) ApplyOperationalParams(op ArtifactOperationalParams) Params {
 	p.SentinelUnhideWindowBlocks = op.SentinelUnhideWindowBlocks
 	p.HideExpiryBlocks = op.HideExpiryBlocks
 	p.SentinelHideCommitDream = op.SentinelHideCommitDream
+	p.RenderersEnabled = op.RenderersEnabled
 	return p
 }
 
@@ -221,6 +233,10 @@ func (p Params) Validate() error {
 		checkU32("max_batch_size", p.MaxBatchSize, MinBatchSize, MaxBatchSizeCeiling),
 		checkU32("max_royalty_bps", p.MaxRoyaltyBps, 0, MaxRoyaltyBpsCeiling),
 		checkU32("sale_fee_bps", p.SaleFeeBps, 0, MaxSaleFeeBpsCeiling),
+		checkU32("max_issue_batch_size", p.MaxIssueBatchSize, MinBatchSize, MaxIssueBatchSizeCeiling),
+		checkU32("max_schedule_stages", p.MaxScheduleStages, 0, HardMaxScheduleStages),
+		checkU32("max_media_proposals_per_token", p.MaxMediaProposalsPerToken, 0, HardMaxMediaProposals),
+		checkU32("max_media_versions_per_token", p.MaxMediaVersionsPerToken, 0, HardMaxMediaVersions),
 	}
 	for _, err := range limits {
 		if err != nil {

@@ -30,7 +30,76 @@ func (k Keeper) EndBlocker(ctx context.Context) error {
 	k.expireOwnerProposals(sdkCtx, t, limit)
 	k.expireHides(sdkCtx, h, limit)
 	k.drainScrubQueues(sdkCtx, limit)
+	k.expireTokens(sdkCtx, t, limit)
+	k.drainReleaseQueues(sdkCtx, limit)
 	return nil
+}
+
+// expireTokens burns EXPIRY_MODE_BURN tokens whose expires_at has passed,
+// refunding the deposit (and any escrowed mint price) to the holder. A
+// pending transfer is cancelled first; a listing is removed by destroyToken.
+func (k Keeper) expireTokens(ctx sdk.Context, cutoff int64, limit int) {
+	for _, key := range dueTimeTokens(ctx, k.TokenExpiry, cutoff, limit) {
+		classID, tokenID := key.K2(), key.K3()
+		k.safely(ctx, "token_expiry", fmt.Sprintf("%d/%d", classID, tokenID), func(c sdk.Context) error {
+			t, err := k.getToken(c, classID, tokenID)
+			if err != nil {
+				return k.TokenExpiry.Remove(c, key)
+			}
+			if t.ExpiresAt != key.K1() {
+				// Renewed under a stale index entry; drop it.
+				return k.TokenExpiry.Remove(c, key)
+			}
+			cls, err := k.getClass(c, classID)
+			if err != nil {
+				return err
+			}
+			if t.Lock == types.TokenLock_TOKEN_LOCK_PENDING_TRANSFER {
+				if err := k.resolvePending(c, classID, tokenID, OutcomeCancelled); err != nil {
+					return err
+				}
+				if t, err = k.getToken(c, classID, tokenID); err != nil {
+					return err
+				}
+			}
+			if err := k.destroyToken(c, &cls, t, t.Owner, true); err != nil {
+				return err
+			}
+			if err := k.saveClass(c, cls); err != nil {
+				return err
+			}
+			emit(c, types.EventTokenExpired, classAttr(classID), tokenAttr(tokenID),
+				sdk.NewAttribute("holder", t.Owner), sdk.NewAttribute("refund", t.Deposit.String()))
+			return nil
+		}, func() { _ = k.TokenExpiry.Remove(ctx, key) })
+	}
+}
+
+// drainReleaseQueues pays out the escrowed public-mint prices of a
+// generative class after its seed reveal, capped per block like the other
+// class queues.
+func (k Keeper) drainReleaseQueues(ctx sdk.Context, limit int) {
+	k.drainQueue(ctx, k.ClassReleaseQueue, "release", limit,
+		func(c sdk.Context, classID, cursor uint64, n int) ([]uint64, bool) {
+			return tokenIDsFrom(c, k.Tokens, classID, cursor, n)
+		},
+		func(c sdk.Context, classID, tokenID uint64) error {
+			t, err := k.getToken(c, classID, tokenID)
+			if err != nil {
+				return nil
+			}
+			if t.Paid.IsNil() || !t.Paid.IsPositive() {
+				return nil
+			}
+			cls, err := k.getClass(c, classID)
+			if err != nil {
+				return err
+			}
+			if err := k.releasePayment(c, cls, &t); err != nil {
+				return err
+			}
+			return k.saveToken(c, t)
+		})
 }
 
 // safely runs fn in a cached context. On error or panic it logs, emits

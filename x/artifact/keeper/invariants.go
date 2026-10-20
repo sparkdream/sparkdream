@@ -1,6 +1,7 @@
 package keeper
 
 import (
+	"encoding/hex"
 	"fmt"
 	"strings"
 
@@ -21,6 +22,8 @@ func RegisterInvariants(ir sdk.InvariantRegistry, k Keeper) {
 	ir.RegisterRoute(types.ModuleName, "flags", FlagsInvariant(k))
 	ir.RegisterRoute(types.ModuleName, "inbox-counters", InboxCounterInvariant(k))
 	ir.RegisterRoute(types.ModuleName, "hide-consistency", HideConsistencyInvariant(k))
+	ir.RegisterRoute(types.ModuleName, "token-expiry-index", TokenExpiryIndexInvariant(k))
+	ir.RegisterRoute(types.ModuleName, "policies", PolicyInvariant(k))
 }
 
 // AllInvariants runs every invariant (tests and simulation).
@@ -29,6 +32,7 @@ func AllInvariants(k Keeper) sdk.Invariant {
 		for _, inv := range []sdk.Invariant{
 			OwnerIndexInvariant(k), SupplyInvariant(k), LockInvariant(k), EscrowInvariant(k),
 			FlagsInvariant(k), InboxCounterInvariant(k), HideConsistencyInvariant(k),
+			TokenExpiryIndexInvariant(k), PolicyInvariant(k),
 		} {
 			if msg, broken := inv(ctx); broken {
 				return msg, true
@@ -145,8 +149,9 @@ func LockInvariant(k Keeper) sdk.Invariant {
 	}
 }
 
-// EscrowInvariant: the module balance covers every recorded deposit.
-// (Appeal bonds are held by x/rep, not here.)
+// EscrowInvariant: the module balance covers every recorded deposit and
+// every public-mint price escrowed until reveal. (Appeal bonds are held by
+// x/rep, not here.)
 func EscrowInvariant(k Keeper) sdk.Invariant {
 	return func(ctx sdk.Context) (string, bool) {
 		if k.late.identity == nil {
@@ -155,6 +160,9 @@ func EscrowInvariant(k Keeper) sdk.Invariant {
 		need := math.ZeroInt()
 		_ = k.Tokens.Walk(ctx, nil, func(_ U64Pair, t types.Token) (bool, error) {
 			need = need.Add(t.Deposit)
+			if !t.Paid.IsNil() {
+				need = need.Add(t.Paid)
+			}
 			return false, nil
 		})
 		_ = k.PendingMints.Walk(ctx, nil, func(_ U64Pair, pm types.PendingMint) (bool, error) {
@@ -298,4 +306,109 @@ func hiddenByClosedRecord(ctx sdk.Context, k Keeper, classID, tokenID uint64) bo
 			return false, nil
 		})
 	return found
+}
+
+// TokenExpiryIndexInvariant: every token of an EXPIRY_MODE_BURN class with
+// an expiry has its (expires_at, class, token) entry, and every entry points
+// at a live token with that expiry.
+func TokenExpiryIndexInvariant(k Keeper) sdk.Invariant {
+	return func(ctx sdk.Context) (string, bool) {
+		var problems []string
+		classes := map[uint64]types.Class{}
+		classOf := func(id uint64) (types.Class, bool) {
+			if c, ok := classes[id]; ok {
+				return c, true
+			}
+			c, err := k.Classes.Get(ctx, id)
+			if err != nil {
+				return c, false
+			}
+			classes[id] = c
+			return c, true
+		}
+		_ = k.Tokens.Walk(ctx, nil, func(_ U64Pair, t types.Token) (bool, error) {
+			c, ok := classOf(t.ClassId)
+			if !ok {
+				return false, nil
+			}
+			if c.Expiry.Mode == types.ExpiryMode_EXPIRY_MODE_BURN && t.ExpiresAt > 0 {
+				if has, _ := k.TokenExpiry.Has(ctx, collections.Join3(t.ExpiresAt, t.ClassId, t.Id)); !has {
+					problems = append(problems, fmt.Sprintf("token %d/%d missing expiry index", t.ClassId, t.Id))
+				}
+			}
+			if c.Expiry.Expires() && t.ExpiresAt == 0 {
+				problems = append(problems, fmt.Sprintf("token %d/%d of an expiring class has no expires_at", t.ClassId, t.Id))
+			}
+			return false, nil
+		})
+		_ = k.TokenExpiry.Walk(ctx, nil, func(key TimeTokenKey) (bool, error) {
+			t, err := k.Tokens.Get(ctx, collections.Join(key.K2(), key.K3()))
+			if err != nil || t.ExpiresAt != key.K1() {
+				problems = append(problems, fmt.Sprintf("stale expiry index %d %d/%d", key.K1(), key.K2(), key.K3()))
+			}
+			return false, nil
+		})
+		return report("token-expiry-index", problems)
+	}
+}
+
+// PolicyInvariant: class policies are well-formed (expiry, pricing, reveal
+// input shape), escrowed payments and unrevealed tokens appear only on
+// commit-reveal classes, displayed_version points at an accepted media
+// version, and every media proposal has its token.
+func PolicyInvariant(k Keeper) sdk.Invariant {
+	return func(ctx sdk.Context) (string, bool) {
+		var problems []string
+		classes := map[uint64]types.Class{}
+		_ = k.Classes.Walk(ctx, nil, func(id uint64, c types.Class) (bool, error) {
+			classes[id] = c
+			if err := c.Expiry.Validate(); err != nil {
+				problems = append(problems, fmt.Sprintf("class %d: %v", id, err))
+			}
+			if err := types.ValidatePricing(c.MintPolicy); err != nil {
+				problems = append(problems, fmt.Sprintf("class %d: %v", id, err))
+			}
+			if _, ok := types.RevealKind_name[int32(c.Reveal.Kind)]; !ok {
+				problems = append(problems, fmt.Sprintf("class %d: unknown reveal kind", id))
+			}
+			if !c.Reveal.Reveals() && (c.Reveal.Commitment != "" || c.Reveal.Deadline != 0 || c.Reveal.RevealedAt != 0 || c.Reveal.Seed != "") {
+				problems = append(problems, fmt.Sprintf("class %d: reveal fields without a reveal kind", id))
+			}
+			if c.Reveal.Kind == types.RevealKind_REVEAL_KIND_GENERATIVE_SEED && c.Reveal.RevealedAt != 0 {
+				if seed, err := hex.DecodeString(c.Reveal.Seed); err != nil || types.SeedCommitment(seed) != c.Reveal.Commitment {
+					problems = append(problems, fmt.Sprintf("class %d: revealed seed does not match commitment", id))
+				}
+			}
+			if c.Renderer.SourceHash != "" && c.Renderer.PkgPath == "" {
+				problems = append(problems, fmt.Sprintf("class %d: renderer hash without path", id))
+			}
+			return false, nil
+		})
+		_ = k.Tokens.Walk(ctx, nil, func(_ U64Pair, t types.Token) (bool, error) {
+			c, ok := classes[t.ClassId]
+			if !ok {
+				return false, nil
+			}
+			if t.Unrevealed && c.Reveal.Kind != types.RevealKind_REVEAL_KIND_BLIND_METADATA {
+				problems = append(problems, fmt.Sprintf("token %d/%d unrevealed on a non-blind class", t.ClassId, t.Id))
+			}
+			if !t.Paid.IsNil() && t.Paid.IsPositive() && !c.Reveal.Reveals() {
+				problems = append(problems, fmt.Sprintf("token %d/%d escrows a payment on a plain class", t.ClassId, t.Id))
+			}
+			if int(t.DisplayedVersion) > len(t.MediaVersions) {
+				problems = append(problems, fmt.Sprintf("token %d/%d displayed_version %d > %d versions", t.ClassId, t.Id, t.DisplayedVersion, len(t.MediaVersions)))
+			}
+			if t.RedeemedAt != 0 && !c.Flags.Redeemable {
+				problems = append(problems, fmt.Sprintf("token %d/%d redeemed on a non-redeemable class", t.ClassId, t.Id))
+			}
+			return false, nil
+		})
+		_ = k.MediaProposals.Walk(ctx, nil, func(key collections.Triple[uint64, uint64, uint64], mp types.MediaProposal) (bool, error) {
+			if has, _ := k.Tokens.Has(ctx, collections.Join(key.K1(), key.K2())); !has {
+				problems = append(problems, fmt.Sprintf("media proposal %d/%d #%d without token", key.K1(), key.K2(), key.K3()))
+			}
+			return false, nil
+		})
+		return report("policies", problems)
+	}
 }

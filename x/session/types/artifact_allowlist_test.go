@@ -24,6 +24,7 @@ func TestArtifactGameMsgsAllowlisted(t *testing.T) {
 	for _, m := range []string{
 		"/sparkdream.artifact.v1.MsgMint",
 		"/sparkdream.artifact.v1.MsgUpdateToken",
+		"/sparkdream.artifact.v1.MsgRedeem",
 	} {
 		require.True(t, allowed[m], "%s must be in DefaultAllowedMsgTypes", m)
 		require.False(t, types.NonDelegableSessionMsgs[m], "%s must be delegable", m)

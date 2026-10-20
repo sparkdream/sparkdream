@@ -41,6 +41,21 @@ func (gs GenesisState) Validate() error {
 		if c.NextTokenId == 0 {
 			return fmt.Errorf("class %d next_token_id must be >= 1", c.Id)
 		}
+		if err := c.Expiry.Validate(); err != nil {
+			return fmt.Errorf("class %d: %w", c.Id, err)
+		}
+		if err := ValidatePricing(c.MintPolicy); err != nil {
+			return fmt.Errorf("class %d: %w", c.Id, err)
+		}
+		if _, ok := RevealKind_name[int32(c.Reveal.Kind)]; !ok {
+			return fmt.Errorf("class %d: unknown reveal kind %d", c.Id, c.Reveal.Kind)
+		}
+		if c.Reveal.Reveals() && !hexHashPattern.MatchString(c.Reveal.Commitment) {
+			return fmt.Errorf("class %d: reveal commitment is not a SHA-256", c.Id)
+		}
+		if c.Renderer.SourceHash != "" && c.Renderer.PkgPath == "" {
+			return fmt.Errorf("class %d: renderer source_hash without pkg_path", c.Id)
+		}
 		classes[c.Id] = c
 	}
 
@@ -63,6 +78,24 @@ func (gs GenesisState) Validate() error {
 		}
 		if t.Deposit.IsNil() || t.Deposit.IsNegative() {
 			return fmt.Errorf("token %d/%d has an invalid deposit", t.ClassId, t.Id)
+		}
+		if !t.Paid.IsNil() && t.Paid.IsNegative() {
+			return fmt.Errorf("token %d/%d has a negative escrowed payment", t.ClassId, t.Id)
+		}
+		if !t.Paid.IsNil() && t.Paid.IsPositive() && !c.Reveal.Reveals() {
+			return fmt.Errorf("token %d/%d escrows a payment on a plain class", t.ClassId, t.Id)
+		}
+		if t.Unrevealed && c.Reveal.Kind != RevealKind_REVEAL_KIND_BLIND_METADATA {
+			return fmt.Errorf("token %d/%d is unrevealed on a non-blind class", t.ClassId, t.Id)
+		}
+		if c.Expiry.Expires() && t.ExpiresAt == 0 {
+			return fmt.Errorf("token %d/%d of an expiring class has no expires_at", t.ClassId, t.Id)
+		}
+		if int(t.DisplayedVersion) > len(t.MediaVersions) {
+			return fmt.Errorf("token %d/%d displayed_version out of range", t.ClassId, t.Id)
+		}
+		if t.RedeemedAt != 0 && !c.Flags.Redeemable {
+			return fmt.Errorf("token %d/%d redeemed on a non-redeemable class", t.ClassId, t.Id)
 		}
 		tokens[k] = t
 		live[t.ClassId]++
@@ -154,6 +187,23 @@ func (gs GenesisState) Validate() error {
 				return fmt.Errorf("two open hide records for %d/%d", hr.ClassId, hr.TokenId)
 			}
 			openTargets[k] = true
+		}
+	}
+
+	seenProposal := map[[3]uint64]bool{}
+	for _, mp := range gs.MediaProposals {
+		if _, ok := tokens[tokenKey{mp.ClassId, mp.TokenId}]; !ok {
+			return fmt.Errorf("media proposal %d/%d #%d without token", mp.ClassId, mp.TokenId, mp.Id)
+		}
+		pk := [3]uint64{mp.ClassId, mp.TokenId, mp.Id}
+		if mp.Id == 0 || seenProposal[pk] {
+			return fmt.Errorf("invalid or duplicate media proposal %d/%d #%d", mp.ClassId, mp.TokenId, mp.Id)
+		}
+		seenProposal[pk] = true
+	}
+	for _, q := range gs.ClassReleaseQueue {
+		if _, ok := classes[q.ClassId]; !ok {
+			return fmt.Errorf("release queue for unknown class %d", q.ClassId)
 		}
 	}
 

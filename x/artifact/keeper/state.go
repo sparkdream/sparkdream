@@ -59,29 +59,104 @@ func checkSupply(c types.Class, n uint64) error {
 // Tokens
 // ---------------------------------------------------------------------------
 
+// tokenFrozen is the metadata_frozen a class mints with.
+func tokenFrozen(c types.Class) bool { return !c.Flags.TokenMetadataMutable || c.MetadataFrozen }
+
+// isBlind reports whether a class mints unrevealed tokens.
+func isBlind(c types.Class) bool { return c.Reveal.Kind == types.RevealKind_REVEAL_KIND_BLIND_METADATA }
+
 // createToken is the single path that brings a token into existence. The
-// caller increments class supply and saves the class.
-func (k Keeper) createToken(ctx context.Context, classID, tokenID uint64, owner, minter string,
-	meta types.TokenMetadata, frozen bool, deposit math.Int,
+// caller increments class supply and saves the class. Expiry and the expiry
+// index follow the class policies; unrevealed marks a blind-minted token
+// whose metadata is still committed; paid is the public-mint price escrowed
+// until reveal (zero otherwise).
+func (k Keeper) createToken(ctx context.Context, c types.Class, tokenID uint64, owner, minter string,
+	meta types.TokenMetadata, schedule []types.MetadataStage, unrevealed bool, deposit, paid math.Int,
 ) (types.Token, error) {
+	blind := unrevealed && isBlind(c)
 	t := types.Token{
-		ClassId:           classID,
+		ClassId:           c.Id,
 		Id:                tokenID,
 		Owner:             owner,
 		Minter:            minter,
 		Metadata:          meta,
-		MetadataFrozen:    frozen,
+		MetadataFrozen:    tokenFrozen(c) && !blind,
 		Lock:              types.TokenLock_TOKEN_LOCK_NONE,
 		Deposit:           deposit,
 		Status:            types.ContentStatus_CONTENT_STATUS_ACTIVE,
-		MediaFlags:        types.LabelToken(meta),
 		MediaRulesVersion: commontypes.MediaRulesVersion,
 		MintedAt:          now(ctx),
+		Schedule:          schedule,
+		Unrevealed:        blind,
+		Paid:              paid,
 	}
-	if err := k.Tokens.Set(ctx, collections.Join(classID, tokenID), t); err != nil {
+	if t.Paid.IsNil() {
+		t.Paid = math.ZeroInt()
+	}
+	t.MediaFlags = types.LabelTokenAll(t)
+	if c.Expiry.Expires() {
+		t.ExpiresAt = now(ctx) + c.Expiry.Term
+	}
+	if err := k.indexTokenExpiry(ctx, c, t); err != nil {
 		return t, err
 	}
-	return t, k.TokensByOwner.Set(ctx, collections.Join3(owner, classID, tokenID))
+	if err := k.Tokens.Set(ctx, collections.Join(c.Id, tokenID), t); err != nil {
+		return t, err
+	}
+	return t, k.TokensByOwner.Set(ctx, collections.Join3(owner, c.Id, tokenID))
+}
+
+// indexTokenExpiry adds the (expires_at, class, token) entry for a token the
+// EndBlocker must burn when it expires.
+func (k Keeper) indexTokenExpiry(ctx context.Context, c types.Class, t types.Token) error {
+	if c.Expiry.Mode != types.ExpiryMode_EXPIRY_MODE_BURN || t.ExpiresAt == 0 {
+		return nil
+	}
+	return k.TokenExpiry.Set(ctx, collections.Join3(t.ExpiresAt, t.ClassId, t.Id))
+}
+
+func (k Keeper) unindexTokenExpiry(ctx context.Context, c types.Class, t types.Token) error {
+	if c.Expiry.Mode != types.ExpiryMode_EXPIRY_MODE_BURN || t.ExpiresAt == 0 {
+		return nil
+	}
+	return k.TokenExpiry.Remove(ctx, collections.Join3(t.ExpiresAt, t.ClassId, t.Id))
+}
+
+// releasePayment pays out a token's escrowed public-mint price: the sale
+// fee (at the current rate) to the community pool and the rest to the
+// class payout address. The caller saves the token.
+func (k Keeper) releasePayment(ctx context.Context, c types.Class, t *types.Token) error {
+	if t.Paid.IsNil() || !t.Paid.IsPositive() {
+		return nil
+	}
+	fee := t.Paid.MulRaw(int64(k.GetParams(ctx).SaleFeeBps)).QuoRaw(10000)
+	if err := k.fundCommunityPool(ctx, k.ModuleAddress(), fee); err != nil {
+		return err
+	}
+	if err := k.send(ctx, k.ModuleAddress(), c.PayoutAddress, t.Paid.Sub(fee)); err != nil {
+		return err
+	}
+	emit(ctx, types.EventPaymentReleased, classAttr(t.ClassId), tokenAttr(t.Id),
+		sdk.NewAttribute("amount", t.Paid.String()), sdk.NewAttribute("fee", fee.String()),
+		sdk.NewAttribute("payout_address", c.PayoutAddress))
+	t.Paid = math.ZeroInt()
+	return nil
+}
+
+// revealOverdue reports whether a token's holder may reclaim its mint price:
+// the class reveal deadline passed and the token (BLIND_METADATA) or the
+// class seed (GENERATIVE_SEED) is still unrevealed.
+func revealOverdue(c types.Class, t types.Token, now int64) bool {
+	if !c.Reveal.Reveals() || now < c.Reveal.Deadline {
+		return false
+	}
+	switch c.Reveal.Kind {
+	case types.RevealKind_REVEAL_KIND_BLIND_METADATA:
+		return t.Unrevealed
+	case types.RevealKind_REVEAL_KIND_GENERATIVE_SEED:
+		return c.Reveal.RevealedAt == 0
+	}
+	return false
 }
 
 // moveToken is the only code path that changes Token.owner on an existing
@@ -104,10 +179,13 @@ func (k Keeper) saveToken(ctx context.Context, t types.Token) error {
 	return k.Tokens.Set(ctx, collections.Join(t.ClassId, t.Id), t)
 }
 
-// destroyToken removes a token (burn or revoke), refunding its deposit to
-// refundTo. Any listing is removed first; a pending transfer must already be
+// destroyToken removes a token (burn, revoke or expiry), refunding its
+// deposit to refundTo. An escrowed public-mint price is refunded to the
+// holder when paidToHolder is set (issuer revoke, expiry, or a holder burn
+// after the reveal deadline), otherwise released to the class. Any listing
+// and media proposals are removed first; a pending transfer must already be
 // resolved. Resolves an open hide record as TARGET_BURNED.
-func (k Keeper) destroyToken(ctx context.Context, c *types.Class, t types.Token, refundTo string) error {
+func (k Keeper) destroyToken(ctx context.Context, c *types.Class, t types.Token, refundTo string, paidToHolder bool) error {
 	if t.Lock == types.TokenLock_TOKEN_LOCK_LISTED {
 		if err := k.removeListing(ctx, t.ClassId, t.Id, "burned"); err != nil {
 			return err
@@ -123,12 +201,33 @@ func (k Keeper) destroyToken(ctx context.Context, c *types.Class, t types.Token,
 	if err := k.TokensByOwner.Remove(ctx, collections.Join3(t.Owner, t.ClassId, t.Id)); err != nil {
 		return err
 	}
+	if err := k.unindexTokenExpiry(ctx, *c, t); err != nil {
+		return err
+	}
+	if err := k.clearMediaProposals(ctx, t.ClassId, t.Id); err != nil {
+		return err
+	}
 	c.Supply--
 	c.Burned++
 	if err := k.refund(ctx, refundTo, t.Deposit); err != nil {
 		return err
 	}
+	if !t.Paid.IsNil() && t.Paid.IsPositive() {
+		if paidToHolder {
+			if err := k.refund(ctx, t.Owner, t.Paid); err != nil {
+				return err
+			}
+		} else if err := k.releasePayment(ctx, *c, &t); err != nil {
+			return err
+		}
+	}
 	return k.resolveHideOnBurn(ctx, t.ClassId, t.Id)
+}
+
+// clearMediaProposals drops every open media proposal of a token (bounded
+// by max_media_proposals_per_token).
+func (k Keeper) clearMediaProposals(ctx context.Context, classID, tokenID uint64) error {
+	return k.MediaProposals.Clear(ctx, collections.NewSuperPrefixedTripleRange[uint64, uint64, uint64](classID, tokenID))
 }
 
 // ---------------------------------------------------------------------------
@@ -255,8 +354,7 @@ func (k Keeper) resolvePendingMint(ctx context.Context, pm types.PendingMint, ou
 	c.ReservedSupply--
 	refund := math.ZeroInt()
 	if outcome == OutcomeAccepted {
-		frozen := !c.Flags.TokenMetadataMutable || c.MetadataFrozen
-		if _, err := k.createToken(ctx, pm.ClassId, pm.TokenId, pm.To, pm.Minter, pm.Metadata, frozen, pm.Deposit); err != nil {
+		if _, err := k.createToken(ctx, c, pm.TokenId, pm.To, pm.Minter, pm.Metadata, pm.Schedule, pm.Unrevealed, pm.Deposit, math.ZeroInt()); err != nil {
 			return err
 		}
 		c.Supply++

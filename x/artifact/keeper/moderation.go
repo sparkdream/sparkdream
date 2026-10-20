@@ -116,16 +116,25 @@ func (k Keeper) scrubTarget(ctx context.Context, hr types.HideRecord) error {
 		if err := k.saveToken(ctx, t); err != nil {
 			return err
 		}
+		if err := k.clearMediaProposals(ctx, t.ClassId, t.Id); err != nil {
+			return err
+		}
 	}
 	emit(ctx, types.EventMetadataScrubbed, sdk.NewAttribute("hide_id", u64(hr.Id)),
 		sdk.NewAttribute("target_kind", hr.TargetKind.String()))
 	return nil
 }
 
+// scrubToken blanks everything a token can display: stored metadata, the
+// schedule and every accepted media version. The caller drops its open
+// media proposals (clearMediaProposals).
 func scrubToken(t *types.Token) {
 	t.Metadata = types.ScrubbedMetadata()
+	t.Schedule = nil
+	t.MediaVersions = nil
+	t.DisplayedVersion = 0
 	t.MetadataFrozen = true
-	t.MediaFlags = types.LabelToken(t.Metadata)
+	t.MediaFlags = types.LabelTokenAll(*t)
 }
 
 // expireHide handles an unappealed hide whose expiry passed: the metadata is

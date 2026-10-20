@@ -61,6 +61,9 @@ var (
 	SentinelDailyHidesKey  = collections.NewPrefix(27)
 	HidesByTargetAllKey    = collections.NewPrefix(28)
 	FailedExpiryKey        = collections.NewPrefix(29)
+	TokenExpiryKey         = collections.NewPrefix(30)
+	MediaProposalsKey      = collections.NewPrefix(31)
+	ClassReleaseQueueKey   = collections.NewPrefix(32)
 )
 
 // MintOrigin is the inbox-cap origin for pending mints of a class

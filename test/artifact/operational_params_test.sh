@@ -11,7 +11,7 @@ PARAMS=$(q params | jq '.params')
 OP=$(echo "$PARAMS" | jq -c '{class_creation_fee, token_deposit, inbox_fee, pending_ttl, max_listing_duration,
     max_pending_per_pair, max_inbox_per_recipient, max_expirations_per_block, market_enabled, public_mint_enabled,
     max_hides_per_sentinel_per_day, sentinel_unhide_window_blocks, hide_expiry_blocks,
-    sentinel_hide_commit_dream}')
+    sentinel_hide_commit_dream, renderers_enabled}')
 ORIG_FEE=$(echo "$OP" | jq -r '.inbox_fee')
 
 NEW=$(echo "$OP" | jq -c '.inbox_fee = "30000"')

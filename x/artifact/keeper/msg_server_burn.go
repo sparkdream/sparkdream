@@ -41,14 +41,22 @@ func (k msgServer) Burn(ctx context.Context, msg *types.MsgBurn) (*types.MsgBurn
 		if t.Lock == types.TokenLock_TOKEN_LOCK_PENDING_TRANSFER {
 			return nil, types.ErrTokenLocked
 		}
-		if err := k.destroyToken(ctx, &c, t, msg.Owner); err != nil {
+		// An unrevealed token past the reveal deadline refunds what the
+		// holder paid as well as the deposit (docs/x-artifact-spec.md §7.15).
+		overdue := revealOverdue(c, t, now(ctx))
+		if err := k.destroyToken(ctx, &c, t, msg.Owner, overdue); err != nil {
 			return nil, err
 		}
 		if err := k.saveClass(ctx, c); err != nil {
 			return nil, err
 		}
+		refund := t.Deposit
+		if overdue && !t.Paid.IsNil() {
+			refund = refund.Add(t.Paid)
+		}
 		emit(ctx, types.EventBurned, classAttr(t.ClassId), tokenAttr(t.Id),
-			sdk.NewAttribute("owner", msg.Owner), sdk.NewAttribute("refund", t.Deposit.String()))
+			sdk.NewAttribute("owner", msg.Owner), sdk.NewAttribute("refund", refund.String()),
+			sdk.NewAttribute("reveal_overdue", boolStr(overdue)))
 	}
 	return &types.MsgBurnResponse{}, nil
 }

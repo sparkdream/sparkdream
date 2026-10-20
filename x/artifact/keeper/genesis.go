@@ -38,6 +38,21 @@ func (k Keeper) InitGenesis(ctx context.Context, gs types.GenesisState) error {
 		if err := k.TokensByOwner.Set(ctx, collections.Join3(t.Owner, t.ClassId, t.Id)); err != nil {
 			return err
 		}
+		if c, err := k.Classes.Get(ctx, t.ClassId); err == nil {
+			if err := k.indexTokenExpiry(ctx, c, t); err != nil {
+				return err
+			}
+		}
+	}
+	for _, mp := range gs.MediaProposals {
+		if err := k.MediaProposals.Set(ctx, collections.Join3(mp.ClassId, mp.TokenId, mp.Id), mp); err != nil {
+			return err
+		}
+	}
+	for _, q := range gs.ClassReleaseQueue {
+		if err := k.ClassReleaseQueue.Set(ctx, q.ClassId, q.Cursor); err != nil {
+			return err
+		}
 	}
 	for _, e := range gs.PublicMintCounts {
 		if err := k.PublicMintCount.Set(ctx, collections.Join(e.ClassId, e.Address), uint64(e.Count)); err != nil {
@@ -220,6 +235,18 @@ func (k Keeper) ExportGenesis(ctx context.Context) (*types.GenesisState, error) 
 	walk(func() error {
 		return k.SentinelDailyHides.Walk(ctx, nil, func(key collections.Pair[string, int64], v uint64) (bool, error) {
 			gs.SentinelDailyHides = append(gs.SentinelDailyHides, types.SentinelDailyHideEntry{Sentinel: key.K1(), Day: key.K2(), Count: uint32(v)})
+			return false, nil
+		})
+	})
+	walk(func() error {
+		return k.MediaProposals.Walk(ctx, nil, func(_ collections.Triple[uint64, uint64, uint64], mp types.MediaProposal) (bool, error) {
+			gs.MediaProposals = append(gs.MediaProposals, mp)
+			return false, nil
+		})
+	})
+	walk(func() error {
+		return k.ClassReleaseQueue.Walk(ctx, nil, func(id, cursor uint64) (bool, error) {
+			gs.ClassReleaseQueue = append(gs.ClassReleaseQueue, types.QueueCursor{ClassId: id, Cursor: cursor})
 			return false, nil
 		})
 	})

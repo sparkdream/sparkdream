@@ -14,6 +14,13 @@ const (
 	// Block heights.
 	MinModerationBlocks int64 = 14400
 	MaxModerationBlocks int64 = 90 * 14400
+
+	// Expiring tokens: class term bounds (seconds).
+	MinTokenTerm int64 = 3600
+	MaxTokenTerm int64 = 100 * 365 * 24 * 3600
+	// Commit-reveal: a reveal deadline must be at least this far after
+	// class creation (seconds).
+	MinRevealWindow int64 = 24 * 3600
 )
 
 func defaultPendingTTL() int64         { return 7 * 24 * 3600 }

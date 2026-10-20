@@ -50,6 +50,9 @@ func (k msgServer) Transfer(ctx context.Context, msg *types.MsgTransfer) (*types
 		if t.Lock != types.TokenLock_TOKEN_LOCK_NONE {
 			return nil, errorsmod.Wrapf(types.ErrTokenLocked, "token %d/%d is %s", t.ClassId, t.Id, t.Lock)
 		}
+		if t.RedeemedAt != 0 && !c.Flags.RedeemedTransferable {
+			return nil, types.ErrRedeemedNotTransferable
+		}
 		if e.Recipient == msg.Sender {
 			return nil, errorsmod.Wrap(types.ErrInvalidRecipient, "cannot transfer to yourself")
 		}

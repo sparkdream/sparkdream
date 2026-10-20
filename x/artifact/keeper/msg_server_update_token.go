@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"cosmossdk.io/collections"
+	errorsmod "cosmossdk.io/errors"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	"sparkdream/x/artifact/types"
@@ -31,6 +32,9 @@ func (k msgServer) UpdateToken(ctx context.Context, msg *types.MsgUpdateToken) (
 	// A pending mint is updated in place; the recipient can pin the hash.
 	key := collections.Join(msg.ClassId, msg.TokenId)
 	if pm, err := k.PendingMints.Get(ctx, key); err == nil {
+		if pm.Unrevealed {
+			return nil, errorsmod.Wrap(types.ErrNotRevealed, "reveal the token with MsgReveal")
+		}
 		pm.Metadata = msg.Metadata
 		if err := k.PendingMints.Set(ctx, key, pm); err != nil {
 			return nil, err
@@ -46,8 +50,11 @@ func (k msgServer) UpdateToken(ctx context.Context, msg *types.MsgUpdateToken) (
 		if t.Status == types.ContentStatus_CONTENT_STATUS_HIDDEN {
 			return nil, types.ErrContentHidden
 		}
+		if t.Unrevealed {
+			return nil, errorsmod.Wrap(types.ErrNotRevealed, "reveal the token with MsgReveal")
+		}
 		t.Metadata = msg.Metadata
-		t.MediaFlags = types.LabelToken(t.Metadata)
+		t.MediaFlags = types.LabelTokenAll(t)
 		if err := k.saveToken(ctx, t); err != nil {
 			return nil, err
 		}

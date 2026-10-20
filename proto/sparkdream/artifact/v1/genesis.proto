@@ -31,4 +31,6 @@ message GenesisState {
   repeated QueueCursor class_cancel_queue = 13 [(gogoproto.nullable) = false];
   repeated QueueCursor class_scrub_queue = 14 [(gogoproto.nullable) = false];
   repeated SentinelDailyHideEntry sentinel_daily_hides = 15 [(gogoproto.nullable) = false];
+  repeated MediaProposal media_proposals = 16 [(gogoproto.nullable) = false];
+  repeated QueueCursor class_release_queue = 17 [(gogoproto.nullable) = false];
 }

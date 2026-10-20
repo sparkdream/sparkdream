@@ -210,6 +210,28 @@ func (d *mockDistr) FundCommunityPool(_ context.Context, amt sdk.Coins, from sdk
 	return nil
 }
 
+// --- GnoVM mock -------------------------------------------------------------
+
+// mockGnoVM holds stored packages and a programmable renderer.
+type mockGnoVM struct {
+	pkgs  map[string]types.GnoPackage
+	eval  func(pkgPath, expr string) (string, error)
+	calls []string
+}
+
+func (g *mockGnoVM) Package(_ context.Context, pkgPath string) (types.GnoPackage, bool, error) {
+	pkg, ok := g.pkgs[pkgPath]
+	return pkg, ok, nil
+}
+
+func (g *mockGnoVM) EvalString(_ context.Context, pkgPath, expr string) (string, error) {
+	g.calls = append(g.calls, expr)
+	if g.eval == nil {
+		return "", fmt.Errorf("no renderer")
+	}
+	return g.eval(pkgPath, expr)
+}
+
 // --- Fixture ----------------------------------------------------------------
 
 type fixture struct {
@@ -223,6 +245,7 @@ type fixture struct {
 	rep     *mockRep
 	commons *mockCommons
 	distr   *mockDistr
+	gnovm   *mockGnoVM
 	gov     string
 
 	alice, bob, carol, dave, ops, council, sentinel sdk.AccAddress
@@ -251,17 +274,19 @@ func initFixture(t *testing.T) *fixture {
 	rep := newMockRep()
 	commons := &mockCommons{ops: map[string]bool{}, council: map[string]bool{}}
 	distr := &mockDistr{bank: bank}
+	gnovm := &mockGnoVM{pkgs: map[string]types.GnoPackage{}}
 
 	k := keeper.NewKeeper(runtime.NewKVStoreService(storeKey), cdc, ac, gov, nil, bank)
 	k.SetIdentityKeeper(mockIdentity{})
 	k.SetRepKeeper(rep)
 	k.SetCommonsKeeper(commons)
 	k.SetDistrKeeper(distr)
+	k.SetGnoVMKeeper(gnovm)
 	require.NoError(t, k.Params.Set(ctx, types.DefaultParams()))
 
 	f := &fixture{
 		t: t, ctx: ctx, keeper: k, msg: keeper.NewMsgServerImpl(k), query: keeper.NewQueryServerImpl(k),
-		codec: ac, bank: bank, rep: rep, commons: commons, distr: distr, gov: gov.String(),
+		codec: ac, bank: bank, rep: rep, commons: commons, distr: distr, gnovm: gnovm, gov: gov.String(),
 		alice: addr("alice"), bob: addr("bob"), carol: addr("carol"), dave: addr("dave"),
 		ops: addr("ops"), council: addr("council"), sentinel: addr("sentinel"),
 	}

@@ -211,7 +211,7 @@ if [ "$RESTORE_SETUP" = true ]; then
         echo "  Chain log:    /tmp/chain_after_restore.log"
         echo ""
         echo "  Run any specific test against the freshly restored state:"
-        for t in class_lifecycle_test transfer_inbox_test market_test public_mint_soulbound_test moderation_test operational_params_test; do
+        for t in class_lifecycle_test transfer_inbox_test market_test public_mint_soulbound_test moderation_test attestation_lifecycle_test mint_pricing_reveal_test presentation_test operational_params_test; do
             echo "    bash $SCRIPT_DIR/$t.sh"
         done
         echo ""
@@ -348,6 +348,9 @@ if [ "$RUN_TESTS" = true ]; then
     run_test "Market" "market_test.sh"
     run_test "Public Mint & Soulbound" "public_mint_soulbound_test.sh"
     run_test "Moderation" "moderation_test.sh"
+    run_test "Attestations, Expiry, Redemption, Royalty Lock" "attestation_lifecycle_test.sh"
+    run_test "Price Curves, Blind & Generative Mints" "mint_pricing_reveal_test.sh"
+    run_test "Schedules, Media Versions, Renderers" "presentation_test.sh"
     run_test "Operational Params" "operational_params_test.sh"
 else
     echo "Skipping tests"

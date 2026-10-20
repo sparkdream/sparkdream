@@ -104,6 +104,11 @@ service Query {
   }
 
   // PublicMintQuote prices a public mint.
+  // MediaProposals lists the open media proposals of a token.
+  rpc MediaProposals(QueryMediaProposalsRequest) returns (QueryMediaProposalsResponse) {
+    option (google.api.http).get = "/sparkdream/artifact/v1/media_proposals/{class_id}/{token_id}";
+  }
+
   rpc PublicMintQuote(QueryPublicMintQuoteRequest) returns (QueryPublicMintQuoteResponse) {
     option (google.api.http).get = "/sparkdream/artifact/v1/public_mint_quote/{class_id}/{buyer}/{quantity}";
   }
@@ -135,6 +140,19 @@ message TokenView {
   bool withheld = 2;
   string metadata_hash = 3;
   ContentStatus class_status = 4;
+  // What clients should show: the holder's displayed media version, the
+  // renderer output, the schedule stage in effect, or the stored metadata.
+  // Blank when withheld.
+  TokenMetadata displayed_metadata = 5 [(gogoproto.nullable) = false];
+  // "stored" | "schedule" | "media_version" | "renderer" | "unrevealed".
+  string display_source = 6;
+  // Why a renderer fell back to stored metadata, when it did.
+  string render_error = 7;
+  // true when expires_at has passed.
+  bool expired = 8;
+  // GENERATIVE_SEED classes: the token seed (lowercase hex) once the class
+  // seed is revealed.
+  string seed = 9;
 }
 
 // InboxItem is one open pending transfer or pending mint.
@@ -375,4 +393,19 @@ message QueryPublicMintQuoteResponse {
   bool available = 5;
   // Why not, when available is false.
   string reason = 6;
+  // Price of the first token in this quote under the class price curve.
+  cosmos.base.v1beta1.Coin unit_price = 7 [(gogoproto.nullable) = false];
+  // Price of the most expensive token in this quote (what max_price must cover).
+  cosmos.base.v1beta1.Coin max_unit_price = 8 [(gogoproto.nullable) = false];
+}
+
+// QueryMediaProposalsRequest defines the QueryMediaProposalsRequest message.
+message QueryMediaProposalsRequest {
+  uint64 class_id = 1;
+  uint64 token_id = 2;
+}
+
+// QueryMediaProposalsResponse defines the QueryMediaProposalsResponse message.
+message QueryMediaProposalsResponse {
+  repeated MediaProposal proposals = 1 [(gogoproto.nullable) = false];
 }

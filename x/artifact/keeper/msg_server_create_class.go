@@ -32,15 +32,64 @@ func (k Keeper) validateMintPolicy(ctx context.Context, mp types.MintPolicy, fla
 	if !flags.Transferable && !mp.Price.Amount.IsNil() && mp.Price.Amount.IsPositive() {
 		return errorsmod.Wrap(types.ErrInvalidFlags, "soulbound classes cannot sell public mints")
 	}
-	return nil
+	if !flags.Transferable && mp.Pricing != types.MintPricing_MINT_PRICING_FIXED {
+		return errorsmod.Wrap(types.ErrInvalidFlags, "soulbound classes cannot run a price curve")
+	}
+	if flags.Mutual && mp.PublicMintEnabled {
+		return errorsmod.Wrap(types.ErrInvalidFlags, "mutual classes cannot enable public mint")
+	}
+	return types.ValidatePricing(k.normalizePolicy(ctx, mp))
 }
 
-// normalizePolicy fills an unset price with a zero bond-denom coin.
+// normalizePolicy fills an unset price with a zero bond-denom coin and nil
+// curve amounts with zero.
 func (k Keeper) normalizePolicy(ctx context.Context, mp types.MintPolicy) types.MintPolicy {
 	if mp.Price.Denom == "" {
 		mp.Price = sdk.NewInt64Coin(k.BondDenom(ctx), 0)
 	}
-	return mp
+	return types.NormalizePricing(mp)
+}
+
+// validateExpiryPolicy checks the policy shape and its price denom.
+func (k Keeper) validateExpiryPolicy(ctx context.Context, e types.ExpiryPolicy) (types.ExpiryPolicy, error) {
+	if err := e.Validate(); err != nil {
+		return e, err
+	}
+	if e.RenewalPrice.Denom == "" {
+		if !e.RenewalPrice.Amount.IsNil() && !e.RenewalPrice.Amount.IsZero() {
+			return e, errorsmod.Wrap(types.ErrInvalidDenom, "renewal_price denom is required")
+		}
+		e.RenewalPrice = sdk.NewInt64Coin(k.BondDenom(ctx), 0)
+	} else if err := k.validatePrice(ctx, e.RenewalPrice, true); err != nil {
+		return e, err
+	}
+	return e, nil
+}
+
+// validateRenderer checks a renderer against the package x/gnovm stores
+// (docs/x-artifact-spec.md §7.16). Without a wired gnovm keeper every
+// renderer is refused, so a class can never name a package nobody can run.
+func (k Keeper) validateRenderer(ctx context.Context, r types.Renderer) error {
+	if !r.HasRenderer() {
+		if r.SourceHash != "" {
+			return errorsmod.Wrap(types.ErrInvalidRenderer, "source_hash without pkg_path")
+		}
+		return nil
+	}
+	if len(r.PkgPath) > types.MaxRendererPathLength {
+		return errorsmod.Wrapf(types.ErrInvalidRenderer, "pkg_path exceeds %d bytes", types.MaxRendererPathLength)
+	}
+	if k.late.gnovm == nil {
+		return types.ErrRendererUnavailable
+	}
+	pkg, found, err := k.late.gnovm.Package(ctx, r.PkgPath)
+	if err != nil {
+		return errorsmod.Wrapf(types.ErrInvalidRenderer, "reading %s: %v", r.PkgPath, err)
+	}
+	if !found {
+		return errorsmod.Wrapf(types.ErrInvalidRenderer, "package %s is not deployed", r.PkgPath)
+	}
+	return types.ValidateRendererPackage(r, pkg)
 }
 
 // validateMinterSet deduplicates and validates a minter list.
@@ -121,6 +170,19 @@ func (k msgServer) CreateClass(ctx context.Context, msg *types.MsgCreateClass) (
 	if err := k.validateMintPolicy(ctx, msg.MintPolicy, msg.Flags); err != nil {
 		return nil, err
 	}
+	expiry, err := k.validateExpiryPolicy(ctx, msg.Expiry)
+	if err != nil {
+		return nil, err
+	}
+	if err := types.ValidateRevealInput(msg.Reveal, now(ctx)); err != nil {
+		return nil, err
+	}
+	if msg.Reveal.Reveals() && msg.Flags.Mutual {
+		return nil, errorsmod.Wrap(types.ErrInvalidFlags, "mutual classes cannot use commit-reveal")
+	}
+	if err := k.validateRenderer(ctx, msg.Renderer); err != nil {
+		return nil, err
+	}
 	minters, err := k.validateMinterSet(msg.Minters, msg.Creator, p)
 	if err != nil {
 		return nil, err
@@ -171,6 +233,9 @@ func (k msgServer) CreateClass(ctx context.Context, msg *types.MsgCreateClass) (
 		MediaRulesVersion: commontypes.MediaRulesVersion,
 		CreatedAt:         t,
 		UpdatedAt:         t,
+		Expiry:            expiry,
+		Reveal:            msg.Reveal,
+		Renderer:          msg.Renderer,
 	}
 	c.MediaFlags = types.LabelClass(c)
 	if err := k.Classes.Set(ctx, c.Id, c); err != nil {
@@ -188,6 +253,11 @@ func (k msgServer) CreateClass(ctx context.Context, msg *types.MsgCreateClass) (
 		sdk.NewAttribute("transferable", strconv.FormatBool(c.Flags.Transferable)),
 		sdk.NewAttribute("burn_authorization", c.Flags.BurnAuthorization.String()),
 		sdk.NewAttribute("token_metadata_mutable", strconv.FormatBool(c.Flags.TokenMetadataMutable)),
-		sdk.NewAttribute("max_supply", u64(c.MaxSupply)))
+		sdk.NewAttribute("max_supply", u64(c.MaxSupply)),
+		sdk.NewAttribute("mutual", strconv.FormatBool(c.Flags.Mutual)),
+		sdk.NewAttribute("redeemable", strconv.FormatBool(c.Flags.Redeemable)),
+		sdk.NewAttribute("expiry_mode", c.Expiry.Mode.String()),
+		sdk.NewAttribute("reveal_kind", c.Reveal.Kind.String()),
+		sdk.NewAttribute("renderer", c.Renderer.PkgPath))
 	return &types.MsgCreateClassResponse{ClassId: c.Id}, nil
 }

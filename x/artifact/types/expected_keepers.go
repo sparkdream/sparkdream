@@ -74,3 +74,16 @@ type ParamSubspace interface {
 	Get(context.Context, []byte, interface{})
 	Set(context.Context, []byte, interface{})
 }
+
+// GnoVMKeeper is the slice of x/gnovm renderers use (docs/x-artifact-spec.md
+// §7.16). Late-wired from app.go; nil means renderers are refused at class
+// creation and never evaluated.
+type GnoVMKeeper interface {
+	// Package returns the stored source and exported function signatures of
+	// pkgPath, or found == false.
+	Package(ctx context.Context, pkgPath string) (GnoPackage, bool, error)
+	// EvalString evaluates expr in pkgPath read-only, under x/gnovm's query
+	// gas and allocation caps, and returns its single string result. A panic
+	// or out-of-gas inside the VM comes back as an error.
+	EvalString(ctx context.Context, pkgPath, expr string) (string, error)
+}

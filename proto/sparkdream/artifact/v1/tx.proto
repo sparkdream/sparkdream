@@ -111,6 +111,39 @@ service Msg {
 
   // UpdateOperationalParams updates the operational parameter subset.
   rpc UpdateOperationalParams(MsgUpdateOperationalParams) returns (MsgUpdateOperationalParamsResponse);
+
+  // Issue mints one shared metadata to many recipients (attendance and
+  // participation badges). Cheaper than MsgMint for large batches.
+  rpc Issue(MsgIssue) returns (MsgIssueResponse);
+
+  // Renew extends an expiring token's term, by the holder (paying the
+  // class) or by the class owner or a listed minter (free).
+  rpc Renew(MsgRenew) returns (MsgRenewResponse);
+
+  // Redeem marks tokens of a redeemable class as redeemed (one-way).
+  rpc Redeem(MsgRedeem) returns (MsgRedeemResponse);
+
+  // LockRoyalty freezes the class royalty split (irreversible).
+  rpc LockRoyalty(MsgLockRoyalty) returns (MsgLockRoyaltyResponse);
+
+  // Reveal discloses a blind-minted token's metadata against the class
+  // commitment.
+  rpc Reveal(MsgReveal) returns (MsgRevealResponse);
+
+  // RevealSeed discloses a generative class's seed secret.
+  rpc RevealSeed(MsgRevealSeed) returns (MsgRevealSeedResponse);
+
+  // ProposeMedia offers the holder an additional media version of a token.
+  rpc ProposeMedia(MsgProposeMedia) returns (MsgProposeMediaResponse);
+
+  // AcceptMedia adds a proposed media version to the token.
+  rpc AcceptMedia(MsgAcceptMedia) returns (MsgAcceptMediaResponse);
+
+  // RejectMedia discards a media proposal (holder or class owner).
+  rpc RejectMedia(MsgRejectMedia) returns (MsgRejectMediaResponse);
+
+  // SetDisplayedMedia picks which accepted version the token shows.
+  rpc SetDisplayedMedia(MsgSetDisplayedMedia) returns (MsgSetDisplayedMediaResponse);
 }
 
 // MsgUpdateParams is the Msg/UpdateParams request type.
@@ -162,6 +195,22 @@ message MsgCreateClass {
   repeated string minters = 14;
   // Must equal "CC0-1.0".
   string accepted_content_license = 15;
+  // Token expiry rules; fixed for the life of the class (mode NONE = never).
+  ExpiryPolicy expiry = 16 [
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+  // Blind-mint or generative commit-reveal; fixed at creation (kind NONE =
+  // plain class). Only kind, commitment and deadline may be set.
+  RevealPolicy reveal = 17 [
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+  // Query-time renderer; fixed at creation (empty pkg_path = none).
+  Renderer renderer = 18 [
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
 }
 
 // MsgCreateClassResponse returns the new class id.
@@ -303,6 +352,13 @@ message MintEntry {
   // Empty = the minter.
   string recipient = 1;
   TokenMetadata metadata = 2 [
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+  // Optional metadata schedule: later stages shown from from_time on.
+  // Strictly increasing from_time, all in the future, at most
+  // params.max_schedule_stages. Fixed at mint.
+  repeated MetadataStage schedule = 3 [
     (gogoproto.nullable) = false,
     (amino.dont_omitempty) = true
   ];
@@ -638,3 +694,171 @@ message MsgUpdateOperationalParams {
 
 // MsgUpdateOperationalParamsResponse is empty.
 message MsgUpdateOperationalParamsResponse {}
+
+// MsgIssue mints one shared metadata to a list of recipients as the class
+// owner or a listed minter. Each recipient gets its own token under the
+// usual receive-policy, inbox and deposit rules.
+message MsgIssue {
+  option (cosmos.msg.v1.signer) = "minter";
+  option (amino.name) = "sparkdream/x/artifact/MsgIssue";
+  string minter = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 class_id = 2;
+  // 1..max_issue_batch_size distinct recipients.
+  repeated string recipients = 3;
+  // Metadata every issued token carries.
+  TokenMetadata metadata = 4 [
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+  // Must equal "CC0-1.0".
+  string accepted_content_license = 5;
+}
+
+// MsgIssueResponse lists the issued tokens in recipient order.
+message MsgIssueResponse {
+  repeated MintResult results = 1 [(gogoproto.nullable) = false];
+}
+
+// MsgRenew extends an expiring token by the class term.
+message MsgRenew {
+  option (cosmos.msg.v1.signer) = "signer";
+  option (amino.name) = "sparkdream/x/artifact/MsgRenew";
+  // The holder (pays renewal_price to the class) or the class owner or a
+  // listed minter (free).
+  string signer = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 class_id = 2;
+  uint64 token_id = 3;
+  // Holder renewals: rejected if the class renewal_price is higher.
+  cosmos.base.v1beta1.Coin max_price = 4 [
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+}
+
+// MsgRenewResponse carries the new expiry.
+message MsgRenewResponse {
+  int64 expires_at = 1;
+}
+
+// MsgRedeem marks tokens as redeemed. Signed by the class owner or a
+// listed minter (the venue). Never moves ownership.
+message MsgRedeem {
+  option (cosmos.msg.v1.signer) = "signer";
+  option (amino.name) = "sparkdream/x/artifact/MsgRedeem";
+  string signer = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 class_id = 2;
+  repeated uint64 token_ids = 3;
+}
+
+// MsgRedeemResponse is empty.
+message MsgRedeemResponse {}
+
+// MsgLockRoyalty freezes royalty_bps and royalty_recipients forever.
+message MsgLockRoyalty {
+  option (cosmos.msg.v1.signer) = "owner";
+  option (amino.name) = "sparkdream/x/artifact/MsgLockRoyalty";
+  string owner = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 class_id = 2;
+}
+
+// MsgLockRoyaltyResponse is empty.
+message MsgLockRoyaltyResponse {}
+
+// MsgReveal sets a blind-minted token's metadata. Signed by the class owner
+// or a listed minter; the leaf built from (class, token, salt, metadata)
+// must prove into the class commitment.
+message MsgReveal {
+  option (cosmos.msg.v1.signer) = "signer";
+  option (amino.name) = "sparkdream/x/artifact/MsgReveal";
+  string signer = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 class_id = 2;
+  uint64 token_id = 3;
+  TokenMetadata metadata = 4 [
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+  // Lowercase hex, 1..64 bytes.
+  string salt = 5;
+  // Sibling hashes from the leaf up, lowercase hex, at most 32.
+  repeated string proof = 6;
+}
+
+// MsgRevealResponse carries the revealed metadata hash.
+message MsgRevealResponse {
+  string metadata_hash = 1;
+}
+
+// MsgRevealSeed discloses the seed secret committed at class creation.
+message MsgRevealSeed {
+  option (cosmos.msg.v1.signer) = "owner";
+  option (amino.name) = "sparkdream/x/artifact/MsgRevealSeed";
+  string owner = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 class_id = 2;
+  // Lowercase hex, 1..64 bytes; SHA-256 must equal the commitment.
+  string seed = 3;
+}
+
+// MsgRevealSeedResponse is empty.
+message MsgRevealSeedResponse {}
+
+// MsgProposeMedia offers the holder an additional media version.
+message MsgProposeMedia {
+  option (cosmos.msg.v1.signer) = "owner";
+  option (amino.name) = "sparkdream/x/artifact/MsgProposeMedia";
+  string owner = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 class_id = 2;
+  uint64 token_id = 3;
+  TokenMetadata metadata = 4 [
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+}
+
+// MsgProposeMediaResponse carries the proposal id.
+message MsgProposeMediaResponse {
+  uint64 proposal_id = 1;
+}
+
+// MsgAcceptMedia moves a proposal into the token's accepted versions.
+message MsgAcceptMedia {
+  option (cosmos.msg.v1.signer) = "owner";
+  option (amino.name) = "sparkdream/x/artifact/MsgAcceptMedia";
+  string owner = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 class_id = 2;
+  uint64 token_id = 3;
+  uint64 proposal_id = 4;
+  // true = also make it the displayed version.
+  bool display = 5;
+}
+
+// MsgAcceptMediaResponse carries the new version number (1-based).
+message MsgAcceptMediaResponse {
+  uint32 version = 1;
+}
+
+// MsgRejectMedia discards a proposal (holder) or withdraws it (class owner).
+message MsgRejectMedia {
+  option (cosmos.msg.v1.signer) = "signer";
+  option (amino.name) = "sparkdream/x/artifact/MsgRejectMedia";
+  string signer = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 class_id = 2;
+  uint64 token_id = 3;
+  uint64 proposal_id = 4;
+}
+
+// MsgRejectMediaResponse is empty.
+message MsgRejectMediaResponse {}
+
+// MsgSetDisplayedMedia picks the displayed version: 0 = the stored
+// metadata, n = media_versions[n-1].
+message MsgSetDisplayedMedia {
+  option (cosmos.msg.v1.signer) = "owner";
+  option (amino.name) = "sparkdream/x/artifact/MsgSetDisplayedMedia";
+  string owner = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 class_id = 2;
+  uint64 token_id = 3;
+  uint32 version = 4;
+}
+
+// MsgSetDisplayedMediaResponse is empty.
+message MsgSetDisplayedMediaResponse {}

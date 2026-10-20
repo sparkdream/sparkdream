@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"cosmossdk.io/collections"
+	errorsmod "cosmossdk.io/errors"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	"sparkdream/x/artifact/types"
@@ -19,12 +20,17 @@ func (k msgServer) Revoke(ctx context.Context, msg *types.MsgRevoke) (*types.Msg
 	if err := types.ValidateText("reason", msg.Reason, types.RevokeReasonMaxLength, false); err != nil {
 		return nil, err
 	}
-	c, err := k.getOwnedClass(ctx, msg.ClassId, msg.Owner)
+	c, err := k.getClass(ctx, msg.ClassId)
 	if err != nil {
 		return nil, err
 	}
 	if !c.Flags.IssuerMayBurn() {
 		return nil, types.ErrNotRevocable
+	}
+	// Either party may burn a mutual attestation: the class owner, or the
+	// minter who signed it (checked per token below).
+	if c.Owner != msg.Owner && !c.Flags.Mutual {
+		return nil, types.ErrNotClassOwner
 	}
 	refs := make([]U64Pair, len(msg.TokenIds))
 	for i, id := range msg.TokenIds {
@@ -38,8 +44,12 @@ func (k msgServer) Revoke(ctx context.Context, msg *types.MsgRevoke) (*types.Msg
 		if err != nil {
 			return nil, err
 		}
-		// The deposit goes to the holder, never the revoker.
-		if err := k.destroyToken(ctx, &c, t, t.Owner); err != nil {
+		if c.Owner != msg.Owner && t.Minter != msg.Owner {
+			return nil, errorsmod.Wrap(types.ErrNotAuthorized, "only the class owner or the attesting minter may revoke a mutual attestation")
+		}
+		// The deposit (and any escrowed mint price) goes to the holder, never
+		// the revoker.
+		if err := k.destroyToken(ctx, &c, t, t.Owner, true); err != nil {
 			return nil, err
 		}
 		emit(ctx, types.EventRevoked, classAttr(c.Id), tokenAttr(id),

@@ -29,6 +29,7 @@ type lateKeepers struct {
 	rep      types.RepKeeper
 	commons  types.CommonsKeeper
 	distr    types.DistrKeeper
+	gnovm    types.GnoVMKeeper
 }
 
 type Keeper struct {
@@ -88,6 +89,15 @@ type Keeper struct {
 	// FailedExpiry records EndBlocker entries that errored, keyed by
 	// (pass, key), so they never block the queue.
 	FailedExpiry collections.KeySet[collections.Pair[string, string]]
+
+	// TokenExpiry indexes EXPIRY_MODE_BURN tokens by (expires_at, class, token).
+	TokenExpiry collections.KeySet[TimeTokenKey]
+	// MediaProposals holds open media versions offered to a token's holder,
+	// keyed (class_id, token_id, proposal_id).
+	MediaProposals collections.Map[collections.Triple[uint64, uint64, uint64], types.MediaProposal]
+	// ClassReleaseQueue drains escrowed public-mint payments of a generative
+	// class after its seed reveal (class_id -> next token id to visit).
+	ClassReleaseQueue collections.Map[uint64, uint64]
 }
 
 func NewKeeper(
@@ -154,6 +164,10 @@ func NewKeeper(
 		SentinelDailyHides: collections.NewMap(sb, types.SentinelDailyHidesKey, "sentinel_daily_hides", collections.PairKeyCodec(collections.StringKey, collections.Int64Key), collections.Uint64Value),
 
 		FailedExpiry: collections.NewKeySet(sb, types.FailedExpiryKey, "failed_expiry", collections.PairKeyCodec(collections.StringKey, collections.StringKey)),
+
+		TokenExpiry:       collections.NewKeySet(sb, types.TokenExpiryKey, "token_expiry", timeToken),
+		MediaProposals:    collections.NewMap(sb, types.MediaProposalsKey, "media_proposals", collections.TripleKeyCodec(collections.Uint64Key, collections.Uint64Key, collections.Uint64Key), codec.CollValue[types.MediaProposal](cdc)),
+		ClassReleaseQueue: collections.NewMap(sb, types.ClassReleaseQueueKey, "class_release_queue", collections.Uint64Key, collections.Uint64Value),
 	}
 
 	schema, err := sb.Build()
@@ -181,6 +195,9 @@ func (k Keeper) SetCommonsKeeper(ck types.CommonsKeeper) { k.late.commons = ck }
 
 // SetDistrKeeper wires the distribution adapter post-depinject.
 func (k Keeper) SetDistrKeeper(dk types.DistrKeeper) { k.late.distr = dk }
+
+// SetGnoVMKeeper wires the x/gnovm adapter renderers evaluate through.
+func (k Keeper) SetGnoVMKeeper(gk types.GnoVMKeeper) { k.late.gnovm = gk }
 
 // GetRepKeeper returns the rep keeper (simulation use).
 func (k Keeper) GetRepKeeper() types.RepKeeper { return k.late.rep }

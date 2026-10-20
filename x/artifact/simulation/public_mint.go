@@ -23,9 +23,12 @@ func SimulateMsgPublicMint(
 	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
 	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
 		msg := &types.MsgPublicMint{}
+		now := ctx.BlockTime().Unix()
 		var classes []types.Class
 		_ = k.Classes.Walk(ctx, nil, func(_ uint64, c types.Class) (bool, error) {
-			if c.MintPolicy.PublicMintEnabled && !c.MintingClosed && c.Status == types.ContentStatus_CONTENT_STATUS_ACTIVE &&
+			mp := c.MintPolicy
+			if mp.PublicMintEnabled && !c.MintingClosed && !c.Flags.Mutual && c.Status == types.ContentStatus_CONTENT_STATUS_ACTIVE &&
+				(mp.StartTime == 0 || mp.StartTime <= now) && (mp.EndTime == 0 || now < mp.EndTime) &&
 				(c.MaxSupply == 0 || c.Supply+c.Burned+c.ReservedSupply < c.MaxSupply) {
 				classes = append(classes, c)
 			}
@@ -42,7 +45,9 @@ func SimulateMsgPublicMint(
 				return noop(msg, "per-address limit reached")
 			}
 		}
-		msg = &types.MsgPublicMint{Buyer: buyer.Address.String(), ClassId: c.Id, Quantity: 1, MaxPrice: c.MintPolicy.Price}
-		return deliver(r, app, ctx, ak, bk, txGen, buyer, msg, c.MintPolicy.Price.Amount.Add(k.GetParams(ctx).TokenDeposit))
+		// Price along the curve; max_price must cover the unit sold now.
+		total, maxUnit := types.BatchPrice(c.MintPolicy, c.PublicMinted, 1, now)
+		msg = &types.MsgPublicMint{Buyer: buyer.Address.String(), ClassId: c.Id, Quantity: 1, MaxPrice: sdk.NewCoin(c.MintPolicy.Price.Denom, maxUnit)}
+		return deliver(r, app, ctx, ak, bk, txGen, buyer, msg, total.Add(k.GetParams(ctx).TokenDeposit))
 	}
 }

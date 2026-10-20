@@ -34,6 +34,9 @@ func (k msgServer) DeleteClass(ctx context.Context, msg *types.MsgDeleteClass) (
 	if err := k.ClassScrubQueue.Remove(ctx, c.Id); err != nil {
 		return nil, err
 	}
+	if err := k.ClassReleaseQueue.Remove(ctx, c.Id); err != nil {
+		return nil, err
+	}
 	if err := k.ClassesByOwner.Remove(ctx, collections.Join(c.Owner, c.Id)); err != nil {
 		return nil, err
 	}

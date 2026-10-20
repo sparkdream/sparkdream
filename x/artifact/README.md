@@ -11,11 +11,15 @@ Spark Dream's NFT module: mint, hold, transfer, trade and burn non-fungible toke
 - **Moderation**: content sentinels (x/rep `BondedRole`) or the Commons Operations authority hide classes or tokens. Hidden content is withheld from queries, but ownership never changes.
   - An unappealed hide ends with the metadata scrubbed from state.
   - Appeals are resolved by the Commons Operations authority (`MsgResolveHideAppeal`). If nobody resolves one in time, the appellant wins.
+- **Issuance and attestation**: `MsgIssue` mints one metadata to many recipients (attendance badges). A `mutual` class makes every mint wait for the recipient's acceptance, and either party may burn it.
+- **Expiry and redemption**: a class `expiry` policy gives tokens a term; `MARK` tokens are flagged expired (no listing or redemption until `MsgRenew`), `BURN` tokens are burned by the EndBlocker with the deposit refunded. `redeemable` classes let the owner or a minter `MsgRedeem` tickets without moving ownership. `MsgLockRoyalty` freezes the royalty split forever.
+- **Price curves and commit-reveal**: public mints can follow a `LINEAR_SUPPLY` or `DUTCH` curve, fixed once minting opens. Blind classes commit a Merkle root over per-token metadata and reveal with `MsgReveal`; generative classes commit `SHA-256(seed)` and reveal with `MsgRevealSeed`. Prices are escrowed until reveal and refunded to holders who burn an unrevealed token after the deadline. `cmd/artifactcommit` builds commitments.
+- **Presentation**: a metadata `schedule` fixed at mint, holder-accepted media versions (`MsgProposeMedia` / `MsgAcceptMedia` / `MsgSetDisplayedMedia`), and class renderers: a pure Gno package `x/gnovm` evaluates in the `Token` query, falling back to stored metadata on any error. Stored state never changes; `TokenView.displayed_metadata` says what to show and `display_source` why.
 - **Licensing**: all content is CC0. Creating a class or minting requires `accepted_content_license = "CC0-1.0"`. A token confers no copyright.
 
 ## Wiring
 
-`app.go` late-wires `IdentityKeeper`, `RepKeeper`, `CommonsKeeper` and a `FundCommunityPool` distribution adapter. The keeper holds them behind a shared pointer, so the AppModule's value copy sees the wiring. The EndBlocker drains expiries (inbox, listings, ownership proposals, hides) and the class-hide queues. Every pass is capped per block.
+`app.go` late-wires `IdentityKeeper`, `RepKeeper`, `CommonsKeeper`, a `FundCommunityPool` distribution adapter and the `GnoVMKeeper` renderer adapter (`app/gnovm_adapter.go`). The keeper holds them behind a shared pointer, so the AppModule's value copy sees the wiring. The EndBlocker drains expiries (inbox, listings, ownership proposals, hides, burning tokens) and the class queues (hide drains, escrow release after a seed reveal). Every pass is capped per block.
 
 ## CLI examples
 
@@ -30,6 +34,22 @@ sparkdreamd tx artifact list 1 1 10000000uspark 86400 --from bob
 sparkdreamd tx artifact buy 1 1 10000000uspark 1 --from carol
 sparkdreamd query artifact tokens-by-owner <addr>
 sparkdreamd query artifact inbox <addr>
+
+# Wave 1-2
+sparkdreamd tx artifact issue 1 CC0-1.0 --recipients <a> --recipients <b> --metadata '{"name":"attended"}' --from alice
+sparkdreamd tx artifact create-class "Pass" CC0-1.0 --flags '{"transferable":true}' \
+  --expiry '{"mode":"EXPIRY_MODE_MARK","term":"2592000","renewal_price":{"denom":"uspark","amount":"1000000"}}' --from alice
+sparkdreamd tx artifact renew 2 1 --max-price 1000000uspark --from bob
+sparkdreamd tx artifact redeem 3 --token-ids 1 --from venue
+sparkdreamd tx artifact lock-royalty 1 --from alice
+go run ./cmd/artifactcommit tree <next-class-id> entries.json      # root + proofs for a blind mint
+sparkdreamd tx artifact reveal 4 1 <salt> --metadata '{"name":"#1"}' --proof <h1> --proof <h2> --from alice
+sparkdreamd tx artifact reveal-seed 5 <hex-seed> --from alice
+go run ./cmd/artifactcommit source-hash ./pkg                      # renderer source hash
+sparkdreamd tx artifact create-class "Rendered" CC0-1.0 --flags '{"transferable":true}' \
+  --renderer '{"pkg_path":"gno.land/p/demo/aurorarender","source_hash":"<hash>"}' --from alice
+sparkdreamd tx artifact propose-media 1 1 --metadata '{"name":"remaster"}' --from alice
+sparkdreamd tx artifact accept-media 1 1 1 --display --from bob
 ```
 
 ## Tests

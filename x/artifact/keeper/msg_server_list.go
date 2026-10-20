@@ -33,6 +33,12 @@ func (k Keeper) listingPreconditions(ctx context.Context, seller string, classID
 	if t.Owner != seller {
 		return c, t, types.ErrNotTokenOwner
 	}
+	if types.IsExpired(t, now(ctx)) {
+		return c, t, types.ErrTokenExpired
+	}
+	if t.RedeemedAt != 0 && !c.Flags.RedeemedTransferable {
+		return c, t, types.ErrRedeemedNotTransferable
+	}
 	if err := k.validatePrice(ctx, price, false); err != nil {
 		return c, t, err
 	}

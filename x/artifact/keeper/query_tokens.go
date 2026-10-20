@@ -17,7 +17,7 @@ func (q queryServer) Tokens(ctx context.Context, req *types.QueryTokensRequest) 
 	cache := map[uint64]types.ContentStatus{}
 	views, page, err := query.CollectionPaginate(ctx, q.k.Tokens, capPage(req.Pagination),
 		func(_ U64Pair, t types.Token) (types.TokenView, error) {
-			return TokenView(q.classStatus(ctx, cache, t.ClassId), t), nil
+			return TokenView(ctx, q.classStatus(ctx, cache, t.ClassId), t), nil
 		},
 		query.WithCollectionPaginationPairPrefix[uint64, uint64](req.ClassId))
 	if err != nil {

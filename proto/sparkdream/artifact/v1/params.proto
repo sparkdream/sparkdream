@@ -76,6 +76,17 @@ message Params {
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
+
+  // Recipients per MsgIssue.
+  uint32 max_issue_batch_size = 30;
+  // Stages per token metadata schedule (0 disables schedules).
+  uint32 max_schedule_stages = 31;
+  // Open media proposals per token (0 disables proposals).
+  uint32 max_media_proposals_per_token = 32;
+  // Accepted media versions per token.
+  uint32 max_media_versions_per_token = 33;
+  // Query-time renderer evaluation switch (operational).
+  bool renderers_enabled = 34;
 }
 
 // ArtifactOperationalParams is the subset of Params the Commons Operations
@@ -112,4 +123,5 @@ message ArtifactOperationalParams {
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
+  bool renderers_enabled = 15;
 }

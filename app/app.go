@@ -413,6 +413,10 @@ func New(
 	app.ArtifactKeeper.SetRepKeeper(app.RepKeeper)
 	app.ArtifactKeeper.SetCommonsKeeper(app.CommonsKeeper)
 	app.ArtifactKeeper.SetDistrKeeper(NewServiceDistributionAdapter(app.DistrKeeper))
+	// Renderer classes evaluate a pure Gno package at query time through
+	// x/gnovm (docs/x-artifact-spec.md §7.16); the adapter holds the keeper
+	// by pointer because its VM is built lazily.
+	app.ArtifactKeeper.SetGnoVMKeeper(NewArtifactGnoVMAdapter(&app.GnoVMKeeper))
 	// Artifact hide appeals run through x/rep's moderation-appeal machinery
 	// (bond, jury, verdict, timeout); x/rep calls back into artifact for
 	// GOV_ACTION_TYPE_ARTIFACT_HIDE.

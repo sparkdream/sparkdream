@@ -84,6 +84,103 @@ enum BurnAuthorization {
   BURN_AUTHORIZATION_HOLDER_OR_ISSUER = 2;
 }
 
+// ExpiryMode says what happens to a token whose expires_at has passed.
+enum ExpiryMode {
+  // Tokens never expire. The default.
+  EXPIRY_MODE_NONE = 0;
+  // The token stays with its holder, marked expired: it cannot be redeemed,
+  // listed or bought until renewed, but may be held or given away.
+  EXPIRY_MODE_MARK = 1;
+  // The EndBlocker burns the token and refunds its deposit to the holder.
+  EXPIRY_MODE_BURN = 2;
+}
+
+// MintPricing is how the public mint price is derived.
+enum MintPricing {
+  // Every token costs mint_policy.price.
+  MINT_PRICING_FIXED = 0;
+  // The k-th public mint (0-based) costs price + k * price_step.
+  MINT_PRICING_LINEAR_SUPPLY = 1;
+  // Dutch auction: price falls linearly from price at start_time to
+  // floor_price at end_time. Both times are required.
+  MINT_PRICING_DUTCH = 2;
+}
+
+// RevealKind is the commit-reveal scheme a class uses.
+enum RevealKind {
+  // Metadata is set at mint. The default.
+  REVEAL_KIND_NONE = 0;
+  // Blind mint: every token's metadata is committed in a Merkle root at
+  // class creation and revealed per token (MsgReveal).
+  REVEAL_KIND_BLIND_METADATA = 1;
+  // Generative: the class commits SHA-256(seed) at creation and reveals the
+  // seed once (MsgRevealSeed); each token's seed derives from it.
+  REVEAL_KIND_GENERATIVE_SEED = 2;
+}
+
+// ExpiryPolicy is a class's token expiry rule, fixed at creation.
+message ExpiryPolicy {
+  ExpiryMode mode = 1;
+  // Seconds a token lives from mint (and per renewal). Required when mode
+  // is not NONE.
+  int64 term = 2;
+  // What a holder pays the class per renewal; denom must be the bond denom.
+  // May be zero. Issuer renewals are free.
+  cosmos.base.v1beta1.Coin renewal_price = 3 [
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+}
+
+// RevealPolicy is a class's commit-reveal state.
+message RevealPolicy {
+  RevealKind kind = 1;
+  // Lowercase hex SHA-256: the Merkle root (BLIND_METADATA) or the seed
+  // hash (GENERATIVE_SEED). Fixed at creation.
+  string commitment = 2;
+  // Unix seconds. After it, the holder of an unrevealed token may burn it
+  // for a full refund of the mint price and deposit. Fixed at creation.
+  int64 deadline = 3;
+  // GENERATIVE_SEED only: block time of MsgRevealSeed, 0 until revealed.
+  int64 revealed_at = 4;
+  // GENERATIVE_SEED only: the revealed seed (lowercase hex).
+  string seed = 5;
+}
+
+// Renderer names the pure Gno package x/gnovm evaluates at query time to
+// produce a token's displayed metadata. Fixed at creation.
+message Renderer {
+  // Pure package path (gno.land/p/...); "" = no renderer.
+  string pkg_path = 1;
+  // Lowercase hex SHA-256 over the package's source files (see
+  // RendererSourceHash); must match the stored package.
+  string source_hash = 2;
+}
+
+// MetadataStage is one step of a token's metadata schedule.
+message MetadataStage {
+  // Unix seconds from which this stage is displayed.
+  int64 from_time = 1;
+  TokenMetadata metadata = 2 [
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+}
+
+// MediaProposal is a media version the class owner offered a token's holder.
+message MediaProposal {
+  uint64 class_id = 1;
+  uint64 token_id = 2;
+  // Per token, from Token.next_media_proposal_id.
+  uint64 id = 3;
+  string proposer = 4 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  TokenMetadata metadata = 5 [
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+  int64 created_at = 6;
+}
+
 // ClassFlags are fixed at class creation and never change.
 message ClassFlags {
   // false = soulbound: no transfer, listing or pending transfer.
@@ -93,6 +190,17 @@ message ClassFlags {
   BurnAuthorization burn_authorization = 2;
   // true = the class owner may edit token metadata until frozen.
   bool token_metadata_mutable = 3;
+  // true = mutual attestation: every mint waits for the recipient's
+  // acceptance and either party may burn. Requires
+  // burn_authorization == HOLDER_OR_ISSUER (hence non-transferable) and a
+  // recipient other than the minter.
+  bool mutual = 4;
+  // true = the class owner or a listed minter may redeem tokens (MsgRedeem).
+  bool redeemable = 5;
+  // true = redeemed tokens stay transferable as souvenirs; false = a
+  // redeemed token can no longer be transferred or listed. Requires
+  // redeemable and transferable.
+  bool redeemed_transferable = 6;
 }
 
 // MintPolicy configures public minting (MsgPublicMint).
@@ -109,6 +217,20 @@ message MintPolicy {
   int64 end_time = 4;
   // 0 = unlimited; counted per (class, address) over the class's life.
   uint32 per_address_limit = 5;
+  // Price curve. Fixed once public minting has opened.
+  MintPricing pricing = 6;
+  // LINEAR_SUPPLY: bond-denom amount added per public mint so far.
+  string price_step = 7 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  // DUTCH: bond-denom amount the price falls to at end_time (<= price).
+  string floor_price = 8 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
 }
 
 // Class groups tokens issued under one set of rules.
@@ -148,6 +270,25 @@ message Class {
   uint32 media_rules_version = 25;
   int64 created_at = 26;
   int64 updated_at = 27;
+  // Fixed at creation.
+  ExpiryPolicy expiry = 28 [
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+  // Kind, commitment and deadline fixed at creation; seed set by reveal.
+  RevealPolicy reveal = 29 [
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+  // Fixed at creation.
+  Renderer renderer = 30 [
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+  // One-way: false -> true. Freezes royalty_bps and royalty_recipients.
+  bool royalty_locked = 31;
+  // Tokens sold through MsgPublicMint so far; drives LINEAR_SUPPLY pricing.
+  uint64 public_minted = 32;
 }
 
 // RoyaltyShare is one recipient's part of a class royalty.
@@ -199,6 +340,28 @@ message Token {
   uint32 media_flags = 11;
   uint32 media_rules_version = 12;
   int64 minted_at = 13;
+  // Unix seconds; 0 = never expires.
+  int64 expires_at = 14;
+  // Unix seconds of MsgRedeem; 0 = not redeemed.
+  int64 redeemed_at = 15;
+  // Metadata schedule fixed at mint; metadata is the stage before the
+  // first from_time.
+  repeated MetadataStage schedule = 16 [(gogoproto.nullable) = false];
+  // Media versions the holder accepted, in acceptance order.
+  repeated TokenMetadata media_versions = 17 [(gogoproto.nullable) = false];
+  // 0 = metadata (or schedule); n = media_versions[n-1].
+  uint32 displayed_version = 18;
+  // true until a BLIND_METADATA class reveals this token.
+  bool unrevealed = 19;
+  // Public-mint price held in the module account until the class or token
+  // is revealed; refunded with the deposit if the holder burns an
+  // unrevealed token after the reveal deadline. 0 otherwise.
+  string paid = 20 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  uint64 next_media_proposal_id = 21;
 }
 
 // TokenRef addresses one token.
@@ -235,6 +398,8 @@ message PendingMint {
   ];
   int64 created_at = 7;
   int64 expires_at = 8;
+  repeated MetadataStage schedule = 9 [(gogoproto.nullable) = false];
+  bool unrevealed = 10;
 }
 
 // Listing is a fixed-price offer to sell. Nothing is escrowed.

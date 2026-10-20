@@ -17,7 +17,11 @@ func (q queryServer) Token(ctx context.Context, req *types.QueryTokenRequest) (*
 	if err != nil {
 		return nil, notFound(err, "token")
 	}
-	resp := &types.QueryTokenResponse{Token: TokenView(q.classStatus(ctx, map[uint64]types.ContentStatus{}, req.ClassId), t)}
+	c, err := q.k.Classes.Get(ctx, req.ClassId)
+	if err != nil {
+		return nil, notFound(err, "class")
+	}
+	resp := &types.QueryTokenResponse{Token: q.k.tokenView(ctx, c, t, true)}
 	if l, err := q.k.Listings.Get(ctx, key); err == nil {
 		resp.Listing = &l
 	}

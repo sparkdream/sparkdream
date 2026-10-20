@@ -182,5 +182,10 @@ func LabelToken(m TokenMetadata) uint32 {
 	return uint32(commontypes.MediaFlag_MEDIA_FLAG_NONE)
 }
 
+// IsEmpty reports whether no metadata field is set.
+func (m TokenMetadata) IsEmpty() bool {
+	return m.Name == "" && m.Description == "" && m.Uri == "" && m.UriHash == "" && len(m.Attributes) == 0
+}
+
 // ScrubbedMetadata is what a scrubbed token's metadata becomes.
 func ScrubbedMetadata() TokenMetadata { return TokenMetadata{} }

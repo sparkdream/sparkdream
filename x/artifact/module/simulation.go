@@ -63,6 +63,36 @@ var simOps = []simOp{
 	{"op_weight_msg_artifact_buy", 25, func(am AppModule, s module.SimulationState) simtypes.Operation {
 		return artifactsimulation.SimulateMsgBuy(am.authKeeper, am.bankKeeper, am.keeper, s.TxConfig)
 	}},
+	{"op_weight_msg_artifact_issue", 20, func(am AppModule, s module.SimulationState) simtypes.Operation {
+		return artifactsimulation.SimulateMsgIssue(am.authKeeper, am.bankKeeper, am.keeper, s.TxConfig)
+	}},
+	{"op_weight_msg_artifact_renew", 15, func(am AppModule, s module.SimulationState) simtypes.Operation {
+		return artifactsimulation.SimulateMsgRenew(am.authKeeper, am.bankKeeper, am.keeper, s.TxConfig)
+	}},
+	{"op_weight_msg_artifact_redeem", 15, func(am AppModule, s module.SimulationState) simtypes.Operation {
+		return artifactsimulation.SimulateMsgRedeem(am.authKeeper, am.bankKeeper, am.keeper, s.TxConfig)
+	}},
+	{"op_weight_msg_artifact_lock_royalty", 5, func(am AppModule, s module.SimulationState) simtypes.Operation {
+		return artifactsimulation.SimulateMsgLockRoyalty(am.authKeeper, am.bankKeeper, am.keeper, s.TxConfig)
+	}},
+	{"op_weight_msg_artifact_reveal", 20, func(am AppModule, s module.SimulationState) simtypes.Operation {
+		return artifactsimulation.SimulateMsgReveal(am.authKeeper, am.bankKeeper, am.keeper, s.TxConfig)
+	}},
+	{"op_weight_msg_artifact_reveal_seed", 10, func(am AppModule, s module.SimulationState) simtypes.Operation {
+		return artifactsimulation.SimulateMsgRevealSeed(am.authKeeper, am.bankKeeper, am.keeper, s.TxConfig)
+	}},
+	{"op_weight_msg_artifact_propose_media", 15, func(am AppModule, s module.SimulationState) simtypes.Operation {
+		return artifactsimulation.SimulateMsgProposeMedia(am.authKeeper, am.bankKeeper, am.keeper, s.TxConfig)
+	}},
+	{"op_weight_msg_artifact_accept_media", 15, func(am AppModule, s module.SimulationState) simtypes.Operation {
+		return artifactsimulation.SimulateMsgAcceptMedia(am.authKeeper, am.bankKeeper, am.keeper, s.TxConfig)
+	}},
+	{"op_weight_msg_artifact_reject_media", 5, func(am AppModule, s module.SimulationState) simtypes.Operation {
+		return artifactsimulation.SimulateMsgRejectMedia(am.authKeeper, am.bankKeeper, am.keeper, s.TxConfig)
+	}},
+	{"op_weight_msg_artifact_set_displayed_media", 10, func(am AppModule, s module.SimulationState) simtypes.Operation {
+		return artifactsimulation.SimulateMsgSetDisplayedMedia(am.authKeeper, am.bankKeeper, am.keeper, s.TxConfig)
+	}},
 }
 
 // WeightedOperations returns the module operations with their respective

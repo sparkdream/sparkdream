@@ -8,6 +8,46 @@ import (
 
 func RegisterInterfaces(registrar codectypes.InterfaceRegistry) {
 	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgSetDisplayedMedia{},
+	)
+
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgRejectMedia{},
+	)
+
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgAcceptMedia{},
+	)
+
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgProposeMedia{},
+	)
+
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgRevealSeed{},
+	)
+
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgReveal{},
+	)
+
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgLockRoyalty{},
+	)
+
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgRedeem{},
+	)
+
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgRenew{},
+	)
+
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgIssue{},
+	)
+
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
 		&MsgUpdateOperationalParams{},
 	)
 

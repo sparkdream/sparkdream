@@ -39,6 +39,12 @@ func (k msgServer) Buy(ctx context.Context, msg *types.MsgBuy) (*types.MsgBuyRes
 	if isTargetHidden(c, t) {
 		return nil, types.ErrContentHidden
 	}
+	if types.IsExpired(t, now(ctx)) {
+		return nil, types.ErrTokenExpired
+	}
+	if t.RedeemedAt != 0 && !c.Flags.RedeemedTransferable {
+		return nil, types.ErrRedeemedNotTransferable
+	}
 	if msg.Buyer == l.Seller {
 		return nil, errorsmod.Wrap(types.ErrInvalidRecipient, "cannot buy your own listing")
 	}

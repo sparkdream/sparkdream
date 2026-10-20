@@ -225,6 +225,10 @@ var (
 		// is created once by the account's own key.
 		"/sparkdream.artifact.v1.MsgMint",
 		"/sparkdream.artifact.v1.MsgUpdateToken",
+		// MsgRedeem marks a ticket as used: the venue's door scanner runs
+		// on a session key of the class owner or a listed minter. No funds
+		// move and ownership never changes.
+		"/sparkdream.artifact.v1.MsgRedeem",
 	}
 )
 

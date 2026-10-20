@@ -41,6 +41,9 @@ func (k msgServer) UpdateClass(ctx context.Context, msg *types.MsgUpdateClass) (
 		if contentFields[f] && c.MetadataFrozen {
 			return nil, errorsmod.Wrapf(types.ErrMetadataFrozen, "field %q", f)
 		}
+		if (f == "royalty_recipients" || f == "royalty_bps") && c.RoyaltyLocked {
+			return nil, errorsmod.Wrapf(types.ErrRoyaltyLocked, "field %q", f)
+		}
 		mask[f] = true
 	}
 

@@ -23,14 +23,22 @@ func ClassView(c types.Class) types.ClassView {
 	return types.ClassView{Class: c, Withheld: true}
 }
 
-// TokenView blanks a token's metadata when it or its class is hidden.
-func TokenView(classStatus types.ContentStatus, t types.Token) types.TokenView {
+// TokenView blanks a token's metadata when it or its class is hidden and
+// otherwise picks the displayed metadata from stored state (media version,
+// schedule stage or stored metadata). Renderers run only in the single-token
+// query (Keeper.tokenView).
+func TokenView(ctx context.Context, classStatus types.ContentStatus, t types.Token) types.TokenView {
 	hash := types.MetadataHash(t.Metadata)
+	view := types.TokenView{Token: t, MetadataHash: hash, ClassStatus: classStatus, Expired: types.IsExpired(t, now(ctx))}
 	if classStatus == types.ContentStatus_CONTENT_STATUS_HIDDEN || t.Status == types.ContentStatus_CONTENT_STATUS_HIDDEN {
-		t.Metadata = types.TokenMetadata{}
-		return types.TokenView{Token: t, Withheld: true, MetadataHash: hash, ClassStatus: classStatus}
+		view.Token.Metadata = types.TokenMetadata{}
+		view.Token.Schedule = nil
+		view.Token.MediaVersions = nil
+		view.Withheld = true
+		return view
 	}
-	return types.TokenView{Token: t, MetadataHash: hash, ClassStatus: classStatus}
+	view.DisplayedMetadata, view.DisplaySource = types.StoredDisplay(t, now(ctx))
+	return view
 }
 
 func (q queryServer) classStatus(ctx context.Context, cache map[uint64]types.ContentStatus, classID uint64) types.ContentStatus {
@@ -66,7 +74,7 @@ func (q queryServer) inboxItem(ctx context.Context, classID, tokenID uint64, kin
 		if err != nil {
 			return item, false
 		}
-		view := TokenView(classStatus, tok)
+		view := TokenView(ctx, classStatus, tok)
 		item.From, item.To, item.CreatedAt, item.ExpiresAt = pt.From, pt.To, pt.CreatedAt, pt.ExpiresAt
 		item.Metadata, item.MetadataHash, item.Withheld = view.Token.Metadata, view.MetadataHash, view.Withheld
 	default:

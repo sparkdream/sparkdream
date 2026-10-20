@@ -6,6 +6,7 @@ import (
 
 	"cosmossdk.io/collections"
 	errorsmod "cosmossdk.io/errors"
+	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	"sparkdream/x/artifact/types"
@@ -18,6 +19,9 @@ func (k Keeper) publicMintCheck(ctx context.Context, c types.Class, buyer string
 	}
 	if err := mintable(c); err != nil {
 		return err
+	}
+	if c.Flags.Mutual {
+		return errorsmod.Wrap(types.ErrMintWindow, "mutual classes have no public mint")
 	}
 	t := now(ctx)
 	if c.MintPolicy.StartTime > 0 && t < c.MintPolicy.StartTime {
@@ -35,6 +39,11 @@ func (k Keeper) publicMintCheck(ctx context.Context, c types.Class, buyer string
 	return checkSupply(c, uint64(quantity))
 }
 
+// PublicMint sells quantity tokens under the class mint policy
+// (docs/x-artifact-spec.md §5.2.2, pricing §7.18). Under a price curve each
+// token in the batch is priced in turn and max_price must cover the most
+// expensive one. For commit-reveal classes the price is escrowed per token
+// until the token (blind) or the class seed (generative) is revealed.
 func (k msgServer) PublicMint(ctx context.Context, msg *types.MsgPublicMint) (*types.MsgPublicMintResponse, error) {
 	buyer, err := k.decodeAddr("buyer", msg.Buyer)
 	if err != nil {
@@ -54,18 +63,26 @@ func (k msgServer) PublicMint(ctx context.Context, msg *types.MsgPublicMint) (*t
 	if err := k.publicMintCheck(ctx, c, msg.Buyer, msg.Quantity, p); err != nil {
 		return nil, err
 	}
-	price := c.MintPolicy.Price
-	if price.Amount.GT(msg.MaxPrice.Amount) {
-		return nil, errorsmod.Wrapf(types.ErrPriceExceeded, "price %s > max %s", price, msg.MaxPrice)
+	total, maxUnit := types.BatchPrice(c.MintPolicy, c.PublicMinted, msg.Quantity, now(ctx))
+	if maxUnit.GT(msg.MaxPrice.Amount) {
+		return nil, errorsmod.Wrapf(types.ErrPriceExceeded, "price %s > max %s", maxUnit, msg.MaxPrice.Amount)
 	}
 
-	total := price.Amount.MulRaw(int64(msg.Quantity))
-	fee := total.MulRaw(int64(p.SaleFeeBps)).QuoRaw(10000)
-	if err := k.fundCommunityPool(ctx, buyer, fee); err != nil {
-		return nil, err
-	}
-	if err := k.send(ctx, buyer, c.PayoutAddress, total.Sub(fee)); err != nil {
-		return nil, err
+	escrow := c.Reveal.Reveals()
+	fee := math.ZeroInt()
+	if escrow {
+		// Held per token until reveal; the fee is taken at release.
+		if err := k.collect(ctx, buyer, total); err != nil {
+			return nil, err
+		}
+	} else {
+		fee = total.MulRaw(int64(p.SaleFeeBps)).QuoRaw(10000)
+		if err := k.fundCommunityPool(ctx, buyer, fee); err != nil {
+			return nil, err
+		}
+		if err := k.send(ctx, buyer, c.PayoutAddress, total.Sub(fee)); err != nil {
+			return nil, err
+		}
 	}
 	if err := k.collect(ctx, buyer, p.TokenDeposit.MulRaw(int64(msg.Quantity))); err != nil {
 		return nil, err
@@ -75,11 +92,15 @@ func (k msgServer) PublicMint(ctx context.Context, msg *types.MsgPublicMint) (*t
 	for i := uint32(0); i < msg.Quantity; i++ {
 		tokenID := c.NextTokenId
 		c.NextTokenId++
-		frozen := !c.Flags.TokenMetadataMutable || c.MetadataFrozen
-		if _, err := k.createToken(ctx, c.Id, tokenID, msg.Buyer, msg.Buyer, types.TokenMetadata{}, frozen, p.TokenDeposit); err != nil {
+		paid := math.ZeroInt()
+		if escrow {
+			paid = types.UnitPrice(c.MintPolicy, c.PublicMinted, now(ctx))
+		}
+		if _, err := k.createToken(ctx, c, tokenID, msg.Buyer, msg.Buyer, types.TokenMetadata{}, nil, isBlind(c), p.TokenDeposit, paid); err != nil {
 			return nil, err
 		}
 		c.Supply++
+		c.PublicMinted++
 		ids = append(ids, tokenID)
 	}
 	// Counted for the class's life, so a limit set later still sees past mints.
@@ -97,6 +118,14 @@ func (k msgServer) PublicMint(ctx context.Context, msg *types.MsgPublicMint) (*t
 	}
 	emit(ctx, types.EventPublicMinted, classAttr(c.Id),
 		sdk.NewAttribute("buyer", msg.Buyer), sdk.NewAttribute("token_ids", strings.Join(idStrs, ",")),
-		sdk.NewAttribute("price", price.String()), sdk.NewAttribute("fee", fee.String()))
+		sdk.NewAttribute("price", sdk.NewCoin(k.BondDenom(ctx), total).String()), sdk.NewAttribute("fee", fee.String()),
+		sdk.NewAttribute("escrowed", boolStr(escrow)))
 	return &types.MsgPublicMintResponse{TokenIds: ids}, nil
+}
+
+func boolStr(b bool) string {
+	if b {
+		return "true"
+	}
+	return "false"
 }

@@ -201,7 +201,8 @@ func TestCouncilsCanRunArtifactBadges(t *testing.T) {
 		require.NotEqual(t, -1, end, "end of %s block not found", name)
 		return src[start : start+end]
 	}
-	issuer := []string{"MsgCreateClass", "MsgMint", "MsgRevoke", "MsgSetMinters", "MsgCloseMinting", "MsgCancelOutgoing"}
+	issuer := []string{"MsgCreateClass", "MsgMint", "MsgRevoke", "MsgSetMinters", "MsgCloseMinting", "MsgCancelOutgoing",
+		"MsgIssue", "MsgRedeem", "MsgRenew", "MsgLockRoyalty", "MsgReveal", "MsgRevealSeed", "MsgProposeMedia"}
 
 	council := block("Commons Council", "VetoPermissions")
 	for _, msg := range issuer {

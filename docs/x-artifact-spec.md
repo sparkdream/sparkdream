@@ -400,7 +400,69 @@ Compiled constants, checked by both `Params.Validate()` and `ArtifactOperational
 
 ---
 
+### 3.14. Wave 1 and 2 Policies
+
+Shipped from the §16.2 build order: attendance issuance, mutual attestations, expiring and redeemable tokens, locked royalty splits (wave 1); price curves, blind and generative mints, metadata schedules, renderers and multi-asset tokens (wave 2). Every new field's zero value means "exactly as before", so a class that sets nothing behaves as a v1 class.
+
+```protobuf
+message ClassFlags {                      // additions; fixed at creation
+  bool mutual = 4;                        // Every mint waits for the recipient's acceptance; either party may burn.
+                                          // Requires burn_authorization == HOLDER_OR_ISSUER (hence soulbound)
+  bool redeemable = 5;                    // The class owner or a listed minter may MsgRedeem
+  bool redeemed_transferable = 6;         // Redeemed tokens keep trading as souvenirs; requires redeemable && transferable
+}
+
+message ExpiryPolicy {                    // Class.expiry; fixed at creation
+  ExpiryMode mode = 1;                    // NONE (default) | MARK (stays, marked expired) | BURN (EndBlocker burns, deposit refunded)
+  int64 term = 2;                         // Seconds per mint and per renewal; [MinTokenTerm, MaxTokenTerm]
+  cosmos.base.v1beta1.Coin renewal_price = 3; // What a holder pays the class per renewal (bond denom; may be 0). Issuer renewals are free
+}
+
+message MintPolicy {                      // additions
+  MintPricing pricing = 6;                // FIXED (default) | LINEAR_SUPPLY | DUTCH; fixed once public minting has opened (§7.18)
+  string price_step = 7;                  // LINEAR_SUPPLY: added per public mint so far
+  string floor_price = 8;                 // DUTCH: the price at end_time (<= price); start_time and end_time required
+}
+
+message RevealPolicy {                    // Class.reveal; kind, commitment and deadline fixed at creation
+  RevealKind kind = 1;                    // NONE | BLIND_METADATA | GENERATIVE_SEED
+  string commitment = 2;                  // Merkle root (blind) or SHA-256(seed) (generative), lowercase hex
+  int64 deadline = 3;                     // After it, an unrevealed token's holder may burn for a full refund (§7.15)
+  int64 revealed_at = 4;                  // GENERATIVE_SEED: block time of MsgRevealSeed
+  string seed = 5;                        // GENERATIVE_SEED: the revealed seed
+}
+
+message Renderer {                        // Class.renderer; fixed at creation (§7.16)
+  string pkg_path = 1;                    // Pure gno.land/p/... package; "" = none
+  string source_hash = 2;                 // SHA-256 over the package's .gno files; must match the stored package
+}
+
+message MetadataStage { int64 from_time = 1; TokenMetadata metadata = 2; }   // Token.schedule / MintEntry.schedule
+message MediaProposal { uint64 class_id = 1; uint64 token_id = 2; uint64 id = 3; string proposer = 4; TokenMetadata metadata = 5; int64 created_at = 6; }
+
+message Class {                           // additions
+  ExpiryPolicy expiry = 28;  RevealPolicy reveal = 29;  Renderer renderer = 30;
+  bool royalty_locked = 31;               // One-way; freezes royalty_bps and royalty_recipients
+  uint64 public_minted = 32;              // Public mints so far; drives LINEAR_SUPPLY
+}
+
+message Token {                           // additions
+  int64 expires_at = 14;                  // 0 = never
+  int64 redeemed_at = 15;                 // 0 = not redeemed
+  repeated MetadataStage schedule = 16;   // Fixed at mint; metadata is the stage before the first from_time
+  repeated TokenMetadata media_versions = 17; // Holder-accepted versions, in acceptance order
+  uint32 displayed_version = 18;          // 0 = metadata/schedule; n = media_versions[n-1]
+  bool unrevealed = 19;                   // BLIND_METADATA: metadata still committed
+  string paid = 20;                       // Public-mint price escrowed until reveal (math.Int)
+  uint64 next_media_proposal_id = 21;
+}
+```
+
+`PendingMint` gains `schedule` and `unrevealed`, so an inbox mint carries the same future as a live one. New params: `max_issue_batch_size` (recipients per `MsgIssue`), `max_schedule_stages`, `max_media_proposals_per_token`, `max_media_versions_per_token`, and the operational `renderers_enabled`. Compiled bounds: `MinTokenTerm`/`MaxTokenTerm`, `MinRevealWindow` (build-tagged), `MaxRevealProofDepth = 32`, `MaxRevealSecretBytes = 64`, `MaxRenderOutputBytes = 64 KiB`.
+
 ## 4. Storage Schema
+
+Wave 1–2 collections: `TokenExpiry` (prefix 30, `(expires_at, class, token)` for `EXPIRY_MODE_BURN` tokens), `MediaProposals` (31, `(class, token, proposal_id) → MediaProposal`), `ClassReleaseQueue` (32, `class_id → cursor`, drains escrowed payments after a seed reveal).
 
 Cosmos SDK `collections`:
 
@@ -539,6 +601,10 @@ The new owner needs no membership: the creator's membership gated the class's cr
 
 Owner only. Requires `supply == 0`, `reserved_supply == 0` and no PENDING hide record on the class (`ErrClassNotEmpty` / `ErrContentHidden`). Deletes the class (including its inline minters and mint policy), its `ClassesByOwner` entry, its `PublicMintCount` entries, any `PendingClassOwner` and its expiry entry, and any `ClassCancelQueue`/`ClassScrubQueue` entry. Decrements `ClassCountByCreator[creator]`. The class id is never reused, and the creation fee stays burned.
 
+#### 5.1.12. MsgLockRoyalty
+
+`MsgLockRoyalty{owner, class_id}` sets `royalty_locked` (one-way, like `metadata_frozen`). Afterwards `MsgUpdateClass` refuses `royalty_recipients` and `royalty_bps` (`ErrRoyaltyLocked`); content fields stay editable and a class handover does not unlock. A collaborator's share no longer depends on the owner's word.
+
 ### 5.2. Minting
 
 #### 5.2.1. MsgMint
@@ -594,6 +660,12 @@ message MsgPublicMint {
 5. Collect `quantity × token_deposit` from the buyer.
 6. Mint `quantity` tokens **to the buyer** with empty per-token metadata. Clients render class metadata and `token_uri_base + token_id`. The buyer's own receive policy does not apply; they asked for the tokens.
 7. Emit `artifact_public_minted` with the ids, the price paid and the fee.
+
+#### 5.2.3. MsgIssue
+
+`MsgIssue{minter, class_id, recipients, metadata, accepted_content_license}` mints one shared metadata to 1..`max_issue_batch_size` distinct recipients (attendance and participation badges). Each recipient's token follows the §5.2.1 rules exactly (deposit, receive policy, inbox caps and fee, mutual and `ISSUER` consent), through the same `mintOne` path; the metadata is validated once. Response: one `MintResult` per recipient. Blind classes refuse it (their metadata is committed, §7.15).
+
+**Mutual attestations.** On a class with `flags.mutual`, every `MsgMint`/`MsgIssue` waits in the recipient's inbox whatever their receive policy and whoever the minter is: the acceptance is the recipient's signature. The minter cannot name itself. Public mint is refused. Either party may end it: the holder with `MsgBurn`, and the class owner **or the minter who signed that token** with `MsgRevoke`.
 
 ### 5.3. Ownership
 
@@ -687,6 +759,14 @@ It also works on a pending mint, by updating `PendingMint.metadata`. The recipie
 
 `MsgFreezeTokenMetadata{signer, refs[]}` freezes individual tokens (one-way). Either the **class owner** or the **token holder** may sign. A buyer can lock in what they bought, so the issuer can no longer change it.
 
+#### 5.3.7. MsgRenew
+
+`MsgRenew{signer, class_id, token_id, max_price}` extends an expiring token by the class `term` from `max(now, expires_at)`. The holder pays `expiry.renewal_price` to the class (`sale_fee_bps` to the community pool, the rest to `payout_address`) and is protected by `max_price` (`ErrPriceExceeded`); the class owner or a listed minter renews for free. An expired `MARK` token, or a `BURN` token the EndBlocker has not reached yet, can still be renewed. Hidden tokens and non-expiring classes are refused.
+
+#### 5.3.8. MsgRedeem
+
+`MsgRedeem{signer, class_id, token_ids}` by the class owner or a listed minter (the venue) sets `redeemed_at` (one-way). Ownership never moves. An active listing is cancelled so nobody buys a spent ticket; expired, hidden, already-redeemed and pending-transfer tokens are refused. Unless the class has `redeemed_transferable`, a redeemed token can no longer be transferred or listed (`ErrRedeemedNotTransferable`); it can always be burned for its deposit.
+
 ### 5.4. Market
 
 The market is a convenience layer for trustless sales. It holds no funds. Royalties are enforced **only** on sales through it (§7.8).
@@ -768,6 +848,13 @@ The appellant is the **token holder** for a token hide and the **class owner** f
 
 ---
 
+### 5.7. Reveal and Presentation
+
+- `MsgReveal{signer, class_id, token_id, metadata, salt, proof}` (class owner or listed minter): sets a blind-minted token's metadata when `RevealLeaf(class, token, salt, metadata)` proves into the class commitment (§7.15). Works on pending (inbox) mints too. Releases the token's escrowed price to the class. Errors: `ErrInvalidReveal`, `ErrAlreadyRevealed`, `ErrNotMinter`.
+- `MsgRevealSeed{owner, class_id, seed}`: `SHA-256(seed)` must equal the commitment; sets `revealed_at` and `seed`, and queues the class in `ClassReleaseQueue` so the EndBlocker pays out escrowed prices capped per block.
+- `MsgProposeMedia{owner, class_id, token_id, metadata}` (class owner): offers the holder a media version; validated like metadata; at most `max_media_proposals_per_token` open; refused on unrevealed or hidden tokens.
+- `MsgAcceptMedia{owner, class_id, token_id, proposal_id, display}` (holder): appends the version (cap `max_media_versions_per_token`) and optionally displays it. `MsgRejectMedia{signer, ...}` (holder or class owner) drops a proposal. `MsgSetDisplayedMedia{owner, class_id, token_id, version}` (holder) picks `0` (stored/schedule) or `n`.
+
 ## 6. Queries
 
 All list queries are paginated (`cosmos.base.query.v1beta1.PageRequest`) with a server-side page limit of 100. Every class and token response includes `withheld` (bool, §7.11). Every token and pending-mint response includes `metadata_hash`.
@@ -791,7 +878,10 @@ All list queries are paginated (`cosmos.base.query.v1beta1.PageRequest`) with a 
 | `ReceivePolicy` | `address` | effective policy + `is_default` |
 | `PendingClassOwner` | `class_id` | `PendingClassOwner`, or not-found when expired |
 | `HideRecord` / `HideRecordsByTarget` | id / `(class_id, token_id)` | `HideRecord` |
-| `PublicMintQuote` | `class_id, buyer, quantity` | total price, fee, deposit, remaining per-address allowance, mint-window state |
+| `PublicMintQuote` | `class_id, buyer, quantity` | total price under the curve, `unit_price`, `max_unit_price` (what `max_price` must cover), fee, deposit, remaining per-address allowance, mint-window state |
+| `MediaProposals` | `class_id, token_id` | `[]MediaProposal` |
+
+Every `TokenView` also carries `displayed_metadata` and `display_source` (`stored` / `schedule` / `media_version` / `renderer` / `unrevealed`), `render_error` when a renderer fell back, `expired`, and `seed` for revealed generative classes (§7.17). Only the single-token `Token` query evaluates renderers.
 
 Queries never write state. Expired records the EndBlocker has not yet drained are filtered from query responses.
 
@@ -988,6 +1078,36 @@ Routine issuance without a proposal per badge: the owning council passes **one**
 
 ---
 
+### 7.15. Commit-Reveal (Blind and Generative Mints)
+
+A class with `reveal.kind != NONE` escrows every public-mint price on the token (`Token.paid`) instead of paying the class, so a collector who never gets a reveal is made whole.
+
+- **Blind metadata.** The creator commits a Merkle root over `leaf = SHA-256(0x00 || be64(class_id) || be64(token_id) || salt || SHA-256(metadata))`, with nodes `SHA-256(0x01 || min(a,b) || max(a,b))` (sorted pairs, so a proof is just sibling hashes). Minters mint empty metadata (`ErrInvalidReveal` otherwise), tokens carry `unrevealed = true`, `MsgUpdateToken` and `MsgProposeMedia` are refused until `MsgReveal`. A reveal validates the metadata (§7.9), binds it to that token id (no swapping between tokens) and releases the escrow: sale fee at the current rate to the community pool, the rest to `payout_address`. `cmd/artifactcommit tree` builds the root and proofs off-chain.
+- **Generative seed.** The creator commits `SHA-256(seed)`; tokens carry their stored metadata, and every token's seed `SHA-256("sparkdream/artifact/seed/v1" || seed || be64(class) || be64(token))` becomes visible once `MsgRevealSeed` lands. Ids are sequential and the seed unknown, so neither side can pick rarities (no oracle randomness). Payouts drain through `ClassReleaseQueue`.
+- **Deadline.** After `reveal.deadline`, while the token (blind) or the class seed (generative) is unrevealed, `MsgBurn` by the holder refunds `paid` **and** the deposit. Before the deadline a voluntary burn releases `paid` to the class. `MsgRevoke` and expiry burns always refund `paid` to the holder. The escrow invariant (§13) counts `paid`.
+
+### 7.16. Renderers
+
+A class may name a Gno package that `x/gnovm` evaluates **at query time** (never in a tx) to produce the displayed metadata. Checked once, at `MsgCreateClass`, against the package `x/gnovm` has stored:
+
+1. a pure `p/` path (`gnolang.IsPPackagePath`), not `private` in `gnomod.toml`, importing no `r/` or `e/` path;
+2. `func Render(classID uint64, tokenID uint64, seed string, blockTime int64, height int64) string` exported;
+3. `source_hash == RendererSourceHash(files)`: SHA-256 over the `.gno` files sorted by name (`name || 0 || body || 0`). Module files are excluded because `x/gnovm` rewrites them on deploy. `cmd/artifactcommit source-hash <dir>` computes it.
+
+Gno refuses to redeploy a public package path, so the code a collector read at purchase is the code that runs. The `Token` query calls `Render(class, token, seed, blockTime, height)` through the narrow `GnoVMKeeper` adapter (late-wired in `app.go`; without it renderer classes cannot be created, `ErrRendererUnavailable`), under the VM's query gas and allocation caps, with panics recovered. The output must be `TokenMetadata` JSON under `MaxRenderOutputBytes` and pass §7.9; otherwise the view falls back to stored metadata and reports `render_error`. Hidden tokens are withheld before rendering; the operational `renderers_enabled` switch turns evaluation off chain-wide. Renderers that read only their arguments work with today's bindings; chain-state bindings arrive in the gnovm repo, append-only (§16.2).
+
+### 7.17. Query-Time Display
+
+Stored state never changes for a schedule or a media choice. `TokenView.displayed_metadata` is chosen, in order: the holder's `displayed_version` (`media_version`), the renderer (`Token` query only), the schedule stage with the largest `from_time <= block time` (`schedule`), else the stored metadata (`stored`). Unrevealed tokens show nothing (`unrevealed`). `metadata_hash` still pins the stored metadata only, so `MsgBuy`/`MsgAcceptIncoming` pins are unaffected; clients show the schedule, the renderer path and hash beside the token. `media_flags` is the OR over stored metadata, every stage and every accepted version, and moderation scrubs all of them plus open proposals.
+
+### 7.18. Price Curves
+
+`UnitPrice(policy, public_minted, now)`: `FIXED` = `price`; `LINEAR_SUPPLY` = `price + price_step × public_minted`; `DUTCH` = linear fall from `price` at `start_time` to `floor_price` at `end_time` (floor division on the drop, clamped outside the window). A batch prices each token in turn; `MsgPublicMint.max_price` must cover the most expensive one. Once the curve has **opened** (`public_minted > 0`, or `public_mint_enabled` with `start_time` reached) `MsgSetMintPolicy` may change `per_address_limit` and `public_mint_enabled` but no pricing field (`ErrMintPolicyLocked`). Soulbound classes run no curve.
+
+### 7.19. Expiry
+
+A token of an expiring class gets `expires_at = minted_at + term` (pending mints: at acceptance). `MARK`: the token stays, `TokenView.expired` is set, it cannot be listed, bought or redeemed, but can be transferred or burned, and renewed at any time. `BURN`: indexed in `TokenExpiry`; the EndBlocker pass `expireTokens` cancels a pending transfer, removes a listing, burns the token and refunds the deposit (and any escrowed price) to the holder. Renewals re-index; a stale index entry (expiry moved) is dropped when visited.
+
 ## 8. Default Parameters
 
 | Parameter | Default | Authority |
@@ -1080,6 +1200,25 @@ Codespace `artifact`. Codes start at 1100 (1100 is the scaffolded `ErrInvalidSig
 | 50 | `ErrInvalidReason` | Unknown moderation reason |
 | 51 | `ErrHolderBurnNotAllowed` | `burn_authorization = ISSUER` |
 | 52 | `ErrInvalidRoyaltySplit` | Empty, more than 10 recipients, duplicate, zero weight, or weights not summing to 10000 |
+| 53 | `ErrRoyaltyLocked` | |
+| 54 | `ErrInvalidExpiry` | Term outside the bounds, or fields without a mode |
+| 55 | `ErrTokenExpired` | List, buy or redeem of an expired token |
+| 56 | `ErrNotExpiring` | Renew on a class without expiry |
+| 57 | `ErrNotRedeemable` | |
+| 58 | `ErrAlreadyRedeemed` | |
+| 59 | `ErrRedeemedNotTransferable` | |
+| 60 | `ErrInvalidMintPricing` | Curve fields inconsistent with `pricing` |
+| 61 | `ErrMintPolicyLocked` | Pricing change after the curve opened |
+| 62 | `ErrInvalidReveal` | Bad commitment/salt/proof, metadata on a blind mint, wrong seed |
+| 63 | `ErrAlreadyRevealed` | |
+| 64 | `ErrNotRevealed` | Edit or media proposal on an unrevealed token |
+| 65 | `ErrInvalidSchedule` | |
+| 66 | `ErrInvalidRenderer` | Not pure, private, realm import, missing `Render`, hash mismatch, not deployed |
+| 67 | `ErrRendererUnavailable` | gnovm not wired, or `renderers_enabled` off |
+| 68 | `ErrMediaProposalNotFound` | |
+| 69 | `ErrTooManyMediaProposals` | |
+| 70 | `ErrTooManyMediaVersions` | |
+| 71 | `ErrInvalidMediaVersion` | |
 
 ---
 
@@ -1118,6 +1257,18 @@ Every state change emits an event. Attributes always include `class_id`, plus `t
 | `artifact_metadata_scrubbed` | `hide_id`, `target_kind` |
 | `artifact_class_drain_progress` | `queue` (`cancel` / `scrub`), `cursor`, `done` |
 | `artifact_expiry_error` | `pass`, `key`, `error` |
+| `artifact_issued` | `minter`, `count`, `live`, `metadata_hash` |
+| `artifact_renewed` | `by`, `expires_at`, `paid` |
+| `artifact_redeemed` | `by`, `holder` |
+| `artifact_token_expired` | `holder`, `refund` |
+| `artifact_royalty_locked` | |
+| `artifact_revealed` | `by`, `metadata_hash` |
+| `artifact_seed_revealed` | `seed` |
+| `artifact_payment_released` | `amount`, `fee`, `payout_address` |
+| `artifact_media_proposed` / `_accepted` / `_rejected` | `proposal_id`, plus `proposer` / `version`, `displayed` / `by` |
+| `artifact_displayed_media_set` | `version` |
+
+`artifact_class_created` also carries `mutual`, `redeemable`, `expiry_mode`, `reveal_kind`, `renderer`; `artifact_public_minted` carries `escrowed`; `artifact_burned` carries `reveal_overdue`.
 
 ---
 
@@ -1294,6 +1445,9 @@ Registered via `RegisterInvariants`. The chain does not wire `x/crisis`; registe
 7. **Inbox counters:** `PendingPairCount` and `InboxCount` equal the counts derived from the pending stores.
 8. **No DREAM:** no listing, mint-policy price or deposit is in `DreamDenom`.
 9. **Hide consistency:** every HIDDEN class or token has a hide record that is not `UNHIDDEN`/`OVERTURNED`. Every `HideByTarget` entry points at a PENDING record.
+10. **Escrowed payments:** item 5 counts Σ `Token.paid` as well; `paid > 0` and `unrevealed` appear only on commit-reveal classes.
+11. **Token expiry index:** every `EXPIRY_MODE_BURN` token with an expiry has its `TokenExpiry` entry, every entry points at a live token with that expiry, and every token of an expiring class has `expires_at`.
+12. **Policies:** every class's expiry, pricing and reveal fields are well-formed (revealed seeds match their commitment); `displayed_version ≤ len(media_versions)`; redeemed tokens sit on redeemable classes; every media proposal has its token.
 
 ---
 
@@ -1344,6 +1498,9 @@ Derived indexes are not exported. `ValidateGenesis` checks every §13 invariant 
   - A soulbound badge is issued by a council proposal and then revoked.
   - A class hide drains listings, the class owner appeals, the jury verdict lands, and the class is restored.
   - Expiry passes, polled against block time rather than wall-clock sleeps.
+  - `attestation_lifecycle_test.sh`: batch issuance, a mutual attestation signed by both sides and withdrawn, a MARK pass expiring and renewed by holder and issuer, a BURN pass burned by the EndBlocker, a ticket redeemed by the venue, a locked royalty split.
+  - `mint_pricing_reveal_test.sh`: linear and Dutch curves with the lock after opening, a blind mint revealed with a Merkle proof and refunded after the deadline, a generative seed reveal draining the escrow.
+  - `presentation_test.sh`: a metadata schedule, holder-accepted media versions, and a renderer package deployed through x/gnovm.
 
 ---
 
@@ -1417,8 +1574,8 @@ None of §16.1 has to ship at launch. Each item can arrive in its own chain upgr
 
 | Wave | Items, in order | What changes |
 |------|-----------------|--------------|
-| 1. Additive, mission-aligned | Attendance batch issuance; mutual attestations; expiring and redeemable tokens; locked royalty splits | A class flag or new messages; no existing records rewritten. Pairs with the first upgrade, which also builds the upgrade-handler plumbing |
-| 2. Minting and presentation | Curve and Dutch mints; blind mints → generative; schedules → renderers; multi-asset | Mint-policy variants, commit-reveal, query-time display. Renderers call x/gnovm, which is already wired into the app with a query-time `Eval`; they need a late-wired gnovm interface in x/artifact, a gas-capped render with fallback to stored metadata, and the pure-package and source-hash checks at class creation. Renderers that read only time and block height work with today's bindings |
+| 1. Additive, mission-aligned — **shipped** (§3.14, §5.1.12, §5.2.3, §5.3.7–8, §7.19) | Attendance batch issuance; mutual attestations; expiring and redeemable tokens; locked royalty splits | A class flag or new messages; no existing records rewritten. Shipped before launch, so no upgrade handler was needed |
+| 2. Minting and presentation — **shipped** (§5.7, §7.15–7.18) | Curve and Dutch mints; blind mints → generative; schedules → renderers; multi-asset | Mint-policy variants, commit-reveal, query-time display. Renderers call x/gnovm through the late-wired `GnoVMKeeper` adapter, render under the VM's query caps with fallback to stored metadata, and are checked for purity and source hash at class creation. Renderers that read only time and block height work with today's bindings |
 | 3. New ownership model | Semi-fungible tokens → impact certificates; crafting | A parallel balance store with its own messages, not a retrofit of `Token`; certificates also need the x/season and x/rep integrations |
 | 4. Locks and market | Rentals → nesting; Harberger tokens | New `TokenLock` values, a contents-hash pin on `MsgBuy`, x/session RecurringPull, forced sales |
 | Any time | `NEITHER` burn mode; renderer chain-state bindings | `NEITHER` waits only on a deposit rule. Bindings that read Spark Dream state (a token's own fields, x/rep, x/season) are added in the gnovm repo one at a time, versioned and append-only |
@@ -1436,7 +1593,12 @@ Fixed dependencies: blind mints before generative tokens, schedules before rende
 | `x/artifact/keeper/settlement.go` | §7.7 |
 | `x/artifact/keeper/receive_policy.go` | §7.6 |
 | `x/artifact/keeper/moderation.go` | Hide lifecycle, drain queues, jury callback (§7.11) |
-| `x/artifact/keeper/endblock.go` | §7.12 |
+| `x/artifact/keeper/endblock.go` | §7.12, plus `expireTokens` (§7.19) and `drainReleaseQueues` (§7.15) |
+| `x/artifact/keeper/mint_common.go` | `mintOne`, shared by `MsgMint` and `MsgIssue` (§5.2) |
+| `x/artifact/keeper/display.go` | Query-time display and renderer evaluation (§7.16, §7.17) |
+| `x/artifact/types/commitment.go`, `pricing.go`, `renderer.go`, `display.go` | Merkle commit-reveal, price curves, renderer checks, display selection |
+| `app/gnovm_adapter.go` | `GnoVMKeeper` adapter over the x/gnovm keeper |
+| `cmd/artifactcommit/` | Off-chain tool: blind-mint trees, seed commitments, renderer source hashes |
 | `x/artifact/keeper/invariants.go` | §13 |
 | `x/artifact/keeper/msg_server_*.go` | One per message |
 | `x/artifact/types/params.go` | Hard bounds (§3.13) |

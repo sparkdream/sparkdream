@@ -19,8 +19,7 @@ func (q queryServer) PublicMintQuote(ctx context.Context, req *types.QueryPublic
 	}
 	p := q.k.GetParams(ctx)
 	denom := q.k.BondDenom(ctx)
-	price := c.MintPolicy.Price.Amount
-	total := price.MulRaw(int64(req.Quantity))
+	total, maxUnit := types.BatchPrice(c.MintPolicy, c.PublicMinted, req.Quantity, now(ctx))
 	fee := total.MulRaw(int64(p.SaleFeeBps)).QuoRaw(10000)
 	resp := &types.QueryPublicMintQuoteResponse{
 		TotalPrice:         sdk.NewCoin(denom, total),
@@ -28,6 +27,8 @@ func (q queryServer) PublicMintQuote(ctx context.Context, req *types.QueryPublic
 		Deposit:            sdk.NewCoin(denom, p.TokenDeposit.MulRaw(int64(req.Quantity))),
 		RemainingAllowance: -1,
 		Available:          true,
+		UnitPrice:          sdk.NewCoin(denom, types.UnitPrice(c.MintPolicy, c.PublicMinted, now(ctx))),
+		MaxUnitPrice:       sdk.NewCoin(denom, maxUnit),
 	}
 	if c.MintPolicy.PerAddressLimit > 0 {
 		used, _ := q.k.PublicMintCount.Get(ctx, collections.Join(c.Id, req.Buyer))
