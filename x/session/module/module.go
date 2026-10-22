@@ -12,8 +12,10 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/module"
 	"github.com/grpc-ecosystem/grpc-gateway/runtime"
+	"github.com/spf13/cobra"
 	"google.golang.org/grpc"
 
+	"sparkdream/x/session/client/cli"
 	"sparkdream/x/session/keeper"
 	"sparkdream/x/session/types"
 )
@@ -60,6 +62,12 @@ func (AppModule) Name() string {
 
 // RegisterLegacyAminoCodec registers the amino codec
 func (AppModule) RegisterLegacyAminoCodec(*codec.LegacyAmino) {}
+
+// GetTxCmd returns the custom transaction commands autocli cannot build
+// (payload-typed MsgCreateGrant variants such as create-recurring-pull).
+func (AppModule) GetTxCmd() *cobra.Command {
+	return cli.GetTxCmd()
+}
 
 // RegisterGRPCGatewayRoutes registers the gRPC Gateway routes for the module.
 func (AppModule) RegisterGRPCGatewayRoutes(clientCtx client.Context, mux *runtime.ServeMux) {

@@ -204,6 +204,12 @@ message MsgClaimRecurringPullResponse {
   uint64 claim_number = 1;
   // Unix timestamp at which the next claim becomes eligible.
   int64 next_claim_time = 2;
+  // true when the granter could not cover the period: nothing moved and the
+  // grant is now PAUSED_INSUFFICIENT_FUNDS (a later claim resumes it).
+  bool paused = 3;
+  // true when the grant's window had closed: nothing moved and the grant
+  // is now COMPLETED.
+  bool completed = 4;
 }
 
 // MsgPullAllowance withdraws `amount` from a SPENDING_ALLOWANCE grant
@@ -225,6 +231,9 @@ message MsgPullAllowanceResponse {
   cosmos.base.v1beta1.Coin transferred = 1 [(gogoproto.nullable) = false];
   // Total spent in the current rolling-window period after this pull.
   cosmos.base.v1beta1.Coin spent_in_period = 2 [(gogoproto.nullable) = false];
+  // true when the granter could not cover the pull: nothing moved and the
+  // grant is now PAUSED_INSUFFICIENT_FUNDS (a later pull resumes it).
+  bool paused = 3;
 }
 
 // MsgRetryScheduledOneshot flips a PAUSED_INSUFFICIENT_FUNDS oneshot

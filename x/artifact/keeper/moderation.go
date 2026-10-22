@@ -47,8 +47,24 @@ func (k Keeper) setTargetStatus(ctx context.Context, hr types.HideRecord, status
 			}
 			t.Lock = types.TokenLock_TOKEN_LOCK_NONE
 		}
+		if status == types.ContentStatus_CONTENT_STATUS_HIDDEN && t.Lock == types.TokenLock_TOKEN_LOCK_AUCTION {
+			// A hidden token is never sold: the auction ends, the bid returns.
+			if err := k.abortAuctionOf(ctx, t.ClassId, t.Id, "hidden"); err != nil {
+				return err
+			}
+			t.Lock = types.TokenLock_TOKEN_LOCK_NONE
+		}
 		t.Status = status
 		return k.saveToken(ctx, t)
+	case types.HideTargetKind_HIDE_TARGET_KIND_EDITION:
+		// Unit listings stay open but cannot be bought while hidden
+		// (MsgBuyUnits checks the status); sellers may delist.
+		e, err := k.getEdition(ctx, hr.ClassId, hr.TokenId)
+		if err != nil {
+			return err
+		}
+		e.Status = status
+		return k.saveEdition(ctx, e)
 	}
 	return errorsmod.Wrap(types.ErrHideNotFound, "unknown target kind")
 }
@@ -119,6 +135,15 @@ func (k Keeper) scrubTarget(ctx context.Context, hr types.HideRecord) error {
 		if err := k.clearMediaProposals(ctx, t.ClassId, t.Id); err != nil {
 			return err
 		}
+	case types.HideTargetKind_HIDE_TARGET_KIND_EDITION:
+		e, err := k.getEdition(ctx, hr.ClassId, hr.TokenId)
+		if err != nil {
+			return nil
+		}
+		scrubEdition(&e)
+		if err := k.saveEdition(ctx, e); err != nil {
+			return err
+		}
 	}
 	emit(ctx, types.EventMetadataScrubbed, sdk.NewAttribute("hide_id", u64(hr.Id)),
 		sdk.NewAttribute("target_kind", hr.TargetKind.String()))
@@ -135,6 +160,14 @@ func scrubToken(t *types.Token) {
 	t.DisplayedVersion = 0
 	t.MetadataFrozen = true
 	t.MediaFlags = types.LabelTokenAll(*t)
+}
+
+// scrubEdition blanks an edition's metadata and claim scope and freezes it.
+func scrubEdition(e *types.Edition) {
+	e.Metadata = types.ScrubbedMetadata()
+	e.Claim.Scope = ""
+	e.MetadataFrozen = true
+	e.MediaFlags = types.LabelToken(e.Metadata)
 }
 
 // expireHide handles an unappealed hide whose expiry passed: the metadata is
@@ -219,8 +252,17 @@ func (k Keeper) openHide(ctx context.Context, msg *types.MsgHideContent) (uint64
 			return 0, types.ErrAlreadyHidden
 		}
 		tokenID = t.Id
+	case types.HideTargetKind_HIDE_TARGET_KIND_EDITION:
+		e, err := k.getEdition(ctx, msg.ClassId, msg.TokenId)
+		if err != nil {
+			return 0, err
+		}
+		if e.Status == types.ContentStatus_CONTENT_STATUS_HIDDEN {
+			return 0, types.ErrAlreadyHidden
+		}
+		tokenID = e.Id
 	default:
-		return 0, errorsmod.Wrap(types.ErrInvalidMetadata, "target_kind must be CLASS or TOKEN")
+		return 0, errorsmod.Wrap(types.ErrInvalidMetadata, "target_kind must be CLASS, TOKEN or EDITION")
 	}
 	if has, _ := k.HideByTarget.Has(ctx, targetKey(msg.ClassId, tokenID)); has {
 		return 0, types.ErrAlreadyHidden

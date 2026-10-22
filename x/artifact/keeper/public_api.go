@@ -36,3 +36,14 @@ func (k Keeper) GetOwner(ctx context.Context, classID, tokenID uint64) (sdk.AccA
 	}
 	return k.addressCodec.StringToBytes(t.Owner)
 }
+
+// IsImpactCertificate reports whether an edition carries an impact claim
+// and is visible (x/season nominations, docs/x-artifact-spec.md §7.21).
+func (k Keeper) IsImpactCertificate(ctx context.Context, classID, editionID uint64) bool {
+	e, err := k.Editions.Get(ctx, collections.Join(classID, editionID))
+	if err != nil || e.Claim.IsEmpty() || e.Status == types.ContentStatus_CONTENT_STATUS_HIDDEN {
+		return false
+	}
+	c, err := k.Classes.Get(ctx, classID)
+	return err == nil && c.Status != types.ContentStatus_CONTENT_STATUS_HIDDEN
+}

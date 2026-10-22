@@ -89,4 +89,38 @@ check "stored metadata untouched" "$(echo "$TOK" | jq -r '.token.token.metadata.
 check "list queries show stored metadata" "$(q tokens "$RENDER_ID" | jq -r '.tokens[0].display_source')" "stored"
 check "class carries the renderer pin" "$(q class "$RENDER_ID" | jq -r '.class.class.renderer.source_hash')" "$SRC_HASH"
 
+echo ""
+echo "=== State renderer (state_version 2: season and nested contents) ==="
+PKG_DIR2="$SCRIPT_DIR/contracts/zenith"
+PKG_PATH2=$(grep '^module' "$PKG_DIR2/gnomod.toml" | sed 's/.*"\(.*\)".*/\1/')
+SRC_HASH2=$("$COMMIT" source-hash "$PKG_DIR2")
+RES=$($BINARY tx gnovm add-package "$PKG_DIR2" --send 1000${BOND_DENOM} --max-deposit 10000${BOND_DENOM} \
+    --from alice --gas 5000000 --fees 50000${BOND_DENOM} -y --keyring-backend test --chain-id "$CHAIN_ID" --output json 2>&1)
+HASH=$(echo "$RES" | jq -r '.txhash // empty' 2>/dev/null)
+if [ -n "$HASH" ] && [ "$(wait_for_tx "$HASH" | jq -r '.code')" = "0" ]; then
+    pass "state renderer package deployed"
+elif $BINARY query gnovm info "$PKG_PATH2" > /dev/null 2>&1; then
+    pass "state renderer package already deployed"
+else
+    fail "state renderer package deploy -- $(echo "$RES" | head -c 300)"
+fi
+expect_fail "a RenderState package needs a state version" "renderer" create-class "Zenith" "$LICENSE" \
+    --flags '{"transferable":true}' --renderer "{\"pkg_path\":\"$PKG_PATH2\",\"source_hash\":\"$SRC_HASH2\"}" --from alice
+expect_ok "alice creates a state-rendered class" create-class "Zenith" "$LICENSE" \
+    --flags '{"transferable":true}' --renderer "{\"pkg_path\":\"$PKG_PATH2\",\"source_hash\":\"$SRC_HASH2\",\"state_version\":2}" --from alice
+ZENITH_ID=$(tx_event class_id artifact_class_created)
+expect_ok "alice mints a zenith and a gem to bob" mint "$ZENITH_ID" "$LICENSE" \
+    --entries "{\"recipient\":\"$BOB_ADDR\",\"metadata\":{\"name\":\"zenith\"}}" \
+    --entries "{\"recipient\":\"$BOB_ADDR\",\"metadata\":{\"name\":\"gem\"}}" --from alice
+expect_ok "bob sets the gem in the zenith" nest --child "{\"class_id\":\"$ZENITH_ID\",\"token_id\":\"2\"}" \
+    --parent "{\"class_id\":\"$ZENITH_ID\",\"token_id\":\"1\"}" --from bob
+TOK=$(q token "$ZENITH_ID" 1)
+SEASON=$($BINARY query season current-season --output json 2>/dev/null | jq -r '.season.number // .number // empty')
+check "the state renderer ran" "$(echo "$TOK" | jq -r '.token.display_source')" "renderer"
+check "it read state version 2" "$(echo "$TOK" | jq -r '.token.displayed_metadata.attributes[0].value')" "2"
+check "it read the nested contents" "$(echo "$TOK" | jq -r '.token.displayed_metadata.description' | sed 's/.*holding //')" "1"
+if [ -n "$SEASON" ]; then
+    check "it read the current season" "$(echo "$TOK" | jq -r '.token.displayed_metadata.description' | sed 's/season \([0-9]*\),.*/\1/')" "$SEASON"
+fi
+
 finish

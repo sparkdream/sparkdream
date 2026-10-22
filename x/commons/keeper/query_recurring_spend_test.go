@@ -144,9 +144,8 @@ func TestQueryGetRecurringSpend_CompletedStillQueryable(t *testing.T) {
 func TestQueryGetRecurringSpend_PausedProjectsAsActive(t *testing.T) {
 	// PAUSED_INSUFFICIENT_FUNDS isn't surfaced through the legacy
 	// commons enum; projection collapses it to ACTIVE so the response
-	// stays well-formed. (Note that PAUSED itself isn't durably
-	// observable in production today — pre-existing session concern;
-	// see §4.)
+	// stays well-formed. (A claim against an underfunded council now
+	// succeeds with paused = true, so the PAUSED status persists.)
 	f := setupQueryFixture(t)
 	recipient := sdk.AccAddress([]byte("recipient_q_________")).String()
 	id := f.seedGrant(t, f.council.String(), recipient, 10,

@@ -65,9 +65,10 @@ type Keeper struct {
 	RetroRewardRecord         collections.Map[string, types.RetroRewardRecord] // key: "season/nominationId"
 
 	// Optional content-module keepers for retroactive public goods funding
-	blogKeeper    types.BlogKeeper
-	forumKeeper   types.ForumKeeper
-	collectKeeper types.CollectKeeper
+	blogKeeper     types.BlogKeeper
+	forumKeeper    types.ForumKeeper
+	collectKeeper  types.CollectKeeper
+	artifactKeeper types.ArtifactKeeper
 }
 
 func NewKeeper(
@@ -144,6 +145,11 @@ func (k *Keeper) SetCollectKeeper(ck types.CollectKeeper) {
 	k.collectKeeper = ck
 }
 
+// SetArtifactKeeper sets the ArtifactKeeper after depinject.
+func (k *Keeper) SetArtifactKeeper(ak types.ArtifactKeeper) {
+	k.artifactKeeper = ak
+}
+
 // GetAuthority returns the module's authority.
 func (k Keeper) GetAuthority() []byte {
 	return k.authority
@@ -162,3 +168,6 @@ func (k Keeper) GetForumKeeper() types.ForumKeeper { return k.forumKeeper }
 
 // GetCollectKeeper returns the optional collect keeper.
 func (k Keeper) GetCollectKeeper() types.CollectKeeper { return k.collectKeeper }
+
+// GetArtifactKeeper returns the optional artifact keeper.
+func (k Keeper) GetArtifactKeeper() types.ArtifactKeeper { return k.artifactKeeper }

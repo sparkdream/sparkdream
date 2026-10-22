@@ -27,7 +27,19 @@ func (k msgServer) CancelOutgoing(ctx context.Context, msg *types.MsgCancelOutgo
 		key := collections.Join(r.ClassId, r.TokenId)
 		var expiresAt int64
 		authorized := false
-		if pt, err := k.PendingTransfers.Get(ctx, key); err == nil {
+		if r.ClassId == unitNamespace {
+			pu, err := k.PendingUnits.Get(ctx, r.TokenId)
+			if err != nil {
+				return nil, errorsmod.Wrapf(types.ErrPendingNotFound, "pending units %d", r.TokenId)
+			}
+			authorized = pu.From == msg.Signer
+			if !authorized && pu.Kind == types.InboxKind_INBOX_KIND_UNIT_MINT {
+				if c, err := k.getClass(ctx, pu.ClassId); err == nil && c.Owner == msg.Signer {
+					authorized = true
+				}
+			}
+			expiresAt = pu.ExpiresAt
+		} else if pt, err := k.PendingTransfers.Get(ctx, key); err == nil {
 			authorized = pt.From == msg.Signer
 			expiresAt = pt.ExpiresAt
 		} else if pm, err := k.PendingMints.Get(ctx, key); err == nil {

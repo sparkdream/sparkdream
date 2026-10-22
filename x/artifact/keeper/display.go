@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 
+	"cosmossdk.io/collections"
 	errorsmod "cosmossdk.io/errors"
 
 	"sparkdream/x/artifact/types"
@@ -18,7 +19,19 @@ import (
 func (k Keeper) tokenView(ctx context.Context, c types.Class, t types.Token, withRenderer bool) types.TokenView {
 	hash := types.MetadataHash(t.Metadata)
 	view := types.TokenView{Token: t, MetadataHash: hash, ClassStatus: c.Status, Expired: types.IsExpired(t, now(ctx))}
-	if c.Status == types.ContentStatus_CONTENT_STATUS_HIDDEN || t.Status == types.ContentStatus_CONTENT_STATUS_HIDDEN {
+	if t.Lock == types.TokenLock_TOKEN_LOCK_RENTED {
+		if r, err := k.Rentals.Get(ctx, collections.Join(t.ClassId, t.Id)); err == nil {
+			view.User = r.User
+		}
+	}
+	if t.Harberger != nil {
+		price, _ := types.CurrentHarbergerPrice(c.Harberger, *t.Harberger, now(ctx))
+		view.HarbergerPrice = price.String()
+	}
+	if t.Descendants > 0 {
+		view.ContentsHash, _ = k.ContentsHash(ctx, t)
+	}
+	if k.treeWithheld(ctx, t) || c.Status == types.ContentStatus_CONTENT_STATUS_HIDDEN || t.Status == types.ContentStatus_CONTENT_STATUS_HIDDEN {
 		view.Token.Metadata = types.TokenMetadata{}
 		view.Token.Schedule = nil
 		view.Token.MediaVersions = nil
@@ -36,7 +49,7 @@ func (k Keeper) tokenView(ctx context.Context, c types.Class, t types.Token, wit
 	if !withRenderer || !c.Renderer.HasRenderer() || view.DisplaySource == types.DisplayMediaVersion || t.Unrevealed {
 		return view
 	}
-	meta, err := k.render(ctx, c, t, view.Seed)
+	meta, err := k.render(ctx, c, t, view.Seed, view.User)
 	if err != nil {
 		view.RenderError = err.Error()
 		return view
@@ -49,7 +62,7 @@ func (k Keeper) tokenView(ctx context.Context, c types.Class, t types.Token, wit
 // like stored metadata. Any failure (gnovm unwired, renderers disabled,
 // VM panic or out-of-gas, bad JSON, metadata rule) is returned so the
 // caller falls back to stored metadata.
-func (k Keeper) render(ctx context.Context, c types.Class, t types.Token, seed string) (types.TokenMetadata, error) {
+func (k Keeper) render(ctx context.Context, c types.Class, t types.Token, seed, user string) (types.TokenMetadata, error) {
 	var meta types.TokenMetadata
 	p := k.GetParams(ctx)
 	if !p.RenderersEnabled {
@@ -58,7 +71,11 @@ func (k Keeper) render(ctx context.Context, c types.Class, t types.Token, seed s
 	if k.late.gnovm == nil {
 		return meta, types.ErrRendererUnavailable
 	}
-	out, err := k.evalRenderer(ctx, c.Renderer.PkgPath, types.RenderExpr(c.Id, t.Id, seed, now(ctx), height(ctx)))
+	expr := types.RenderExpr(c.Id, t.Id, seed, now(ctx), height(ctx))
+	if c.Renderer.StateVersion != 0 {
+		expr = types.RenderStateExpr(c.Id, t.Id, seed, now(ctx), height(ctx), k.renderState(ctx, c, t, user))
+	}
+	out, err := k.evalRenderer(ctx, c.Renderer.PkgPath, expr)
 	if err != nil {
 		return meta, fmt.Errorf("renderer eval: %w", err)
 	}
@@ -83,4 +100,40 @@ func (k Keeper) evalRenderer(ctx context.Context, pkgPath, expr string) (out str
 	}()
 	out, err = k.late.gnovm.EvalString(ctx, pkgPath, expr)
 	return out, err
+}
+
+// renderState builds the state document of the class's renderer version:
+// v1 is the token's own fields, its renter and its owner's x/rep standing;
+// v2 adds the current season, the owner's season standing and the token's
+// nested contents (direct children and the contents hash).
+func (k Keeper) renderState(ctx context.Context, c types.Class, t types.Token, user string) string {
+	member, level := false, int32(0)
+	if owner, err := k.addressCodec.StringToBytes(t.Owner); err == nil && k.isActiveMember(ctx, owner) {
+		member = true
+		if lvl, err := k.late.rep.GetTrustLevel(ctx, owner); err == nil {
+			level = int32(lvl)
+		}
+	}
+	v1 := types.NewRenderStateV1(c, t, user, member, level)
+	if c.Renderer.StateVersion == types.RenderStateV1 {
+		return v1.JSON()
+	}
+	var season types.SeasonInfo
+	var standing types.MemberSeason
+	if k.late.season != nil {
+		if s, err := k.late.season.CurrentSeason(ctx); err == nil {
+			season = s
+		}
+		if m, found, err := k.late.season.MemberSeason(ctx, t.Owner); err == nil && found {
+			standing = m
+		}
+	}
+	var children []string
+	if kids, err := k.directChildren(ctx, t.ClassId, t.Id); err == nil {
+		for _, r := range kids {
+			children = append(children, refString(r))
+		}
+	}
+	hash, _ := k.ContentsHash(ctx, t)
+	return types.NewRenderStateV2(v1, season, standing, children, hash).JSON()
 }

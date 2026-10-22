@@ -24,7 +24,8 @@ func SimulateMsgTransfer(
 	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
 		msg := &types.MsgTransfer{}
 		t, owner, ok := randomToken(r, ctx, k, accs, func(c types.Class, t types.Token) bool {
-			return c.Flags.Transferable && t.Lock == types.TokenLock_TOKEN_LOCK_NONE
+			return c.Flags.Transferable && t.Lock == types.TokenLock_TOKEN_LOCK_NONE &&
+				(t.RedeemedAt == 0 || c.Flags.RedeemedTransferable)
 		})
 		if !ok {
 			return noop(msg, "no transferable token")
@@ -38,7 +39,8 @@ func SimulateMsgTransfer(
 	}
 }
 
-// SimulateMsgBurn burns a random unlocked token or one that is listed.
+// SimulateMsgBurn burns a random unlocked token or one that is listed
+// (rented, nested and pending tokens cannot be burned by their holder).
 func SimulateMsgBurn(
 	ak types.AuthKeeper,
 	bk types.BankKeeper,
@@ -49,7 +51,7 @@ func SimulateMsgBurn(
 	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
 		msg := &types.MsgBurn{}
 		t, owner, ok := randomToken(r, ctx, k, accs, func(c types.Class, t types.Token) bool {
-			return c.Flags.HolderMayBurn() && t.Lock != types.TokenLock_TOKEN_LOCK_PENDING_TRANSFER
+			return c.Flags.HolderMayBurn() && (t.Lock == types.TokenLock_TOKEN_LOCK_NONE || t.Lock == types.TokenLock_TOKEN_LOCK_LISTED)
 		})
 		if !ok {
 			return noop(msg, "no burnable token")

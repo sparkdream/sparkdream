@@ -26,7 +26,7 @@ func (q queryServer) TokensByOwner(ctx context.Context, req *types.QueryTokensBy
 			if err != nil {
 				return types.TokenView{}, err
 			}
-			return TokenView(ctx, q.classStatus(ctx, cache, t.ClassId), t), nil
+			return TokenView(ctx, q.classStatus(ctx, cache, t.ClassId), t, q.k.treeWithheld(ctx, t)), nil
 		}, prefix)
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())

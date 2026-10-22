@@ -50,6 +50,15 @@ func (k Keeper) ZeroMember(ctx context.Context, memberAddr sdk.AccAddress, reaso
 		return err
 	}
 
+	// Drop the member's self-assign bonds for the same reason: the bond is
+	// staked DREAM, burned below with the rest. Left in place, releasing it
+	// (unassign, close, cancel cascade, completion) would try to unlock
+	// staked DREAM the member no longer has and wedge the initiative and
+	// its project.
+	if err := k.dropSelfAssignBonds(ctx, memberAddr.String()); err != nil {
+		return err
+	}
+
 	// Burn all DREAM. Zeroing writes the member record directly rather than
 	// routing through BurnDREAM, so it counts its own burn against the season.
 	if dreamBurned.IsPositive() {

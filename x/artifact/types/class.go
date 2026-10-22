@@ -15,7 +15,8 @@ const RoyaltyWeightTotal uint32 = 10000
 
 // HolderMayBurn reports whether the holder may burn a token (MsgBurn).
 func (f ClassFlags) HolderMayBurn() bool {
-	return f.BurnAuthorization != BurnAuthorization_BURN_AUTHORIZATION_ISSUER
+	return f.BurnAuthorization == BurnAuthorization_BURN_AUTHORIZATION_HOLDER ||
+		f.BurnAuthorization == BurnAuthorization_BURN_AUTHORIZATION_HOLDER_OR_ISSUER
 }
 
 // IssuerMayBurn reports whether the class owner may burn a token (MsgRevoke).

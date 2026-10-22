@@ -94,6 +94,9 @@ func (k Keeper) createToken(ctx context.Context, c types.Class, tokenID uint64, 
 		t.Paid = math.ZeroInt()
 	}
 	t.MediaFlags = types.LabelTokenAll(t)
+	if c.IsHarberger() {
+		t.Harberger = types.NewHarbergerState(c.Harberger, math.ZeroInt(), now(ctx))
+	}
 	if c.Expiry.Expires() {
 		t.ExpiresAt = now(ctx) + c.Expiry.Term
 	}
@@ -161,10 +164,20 @@ func revealOverdue(c types.Class, t types.Token, now int64) bool {
 
 // moveToken is the only code path that changes Token.owner on an existing
 // token (docs/x-artifact-spec.md §7.1). The caller clears any lock first.
+// Everything nested in the token moves with it (§7.23), an open rental
+// offer is dropped, and a Harberger token restarts its tax state for the
+// new holder at its current price (§7.24).
 func (k Keeper) moveToken(ctx context.Context, t *types.Token, newOwner string) error {
+	return k.moveTokenAt(ctx, t, newOwner, math.Int{})
+}
+
+// moveTokenAt is moveToken for a Harberger token bought at price (nil =
+// the token's current price).
+func (k Keeper) moveTokenAt(ctx context.Context, t *types.Token, newOwner string, price math.Int) error {
 	if t.Lock != types.TokenLock_TOKEN_LOCK_NONE {
 		return errorsmod.Wrap(types.ErrTokenLocked, "moveToken requires an unlocked token")
 	}
+	oldOwner := t.Owner
 	if err := k.TokensByOwner.Remove(ctx, collections.Join3(t.Owner, t.ClassId, t.Id)); err != nil {
 		return err
 	}
@@ -172,7 +185,28 @@ func (k Keeper) moveToken(ctx context.Context, t *types.Token, newOwner string) 
 	if err := k.TokensByOwner.Set(ctx, collections.Join3(newOwner, t.ClassId, t.Id)); err != nil {
 		return err
 	}
-	return k.Tokens.Set(ctx, collections.Join(t.ClassId, t.Id), *t)
+	if t.Harberger != nil {
+		c, err := k.getClass(ctx, t.ClassId)
+		if err != nil {
+			return err
+		}
+		if price.IsNil() {
+			price, _ = types.CurrentHarbergerPrice(c.Harberger, *t.Harberger, now(ctx))
+		}
+		if err := k.resetHarberger(ctx, c, t, price); err != nil {
+			return err
+		}
+	}
+	if err := k.clearRentalOffer(ctx, t.ClassId, t.Id, "moved"); err != nil {
+		return err
+	}
+	if err := k.Tokens.Set(ctx, collections.Join(t.ClassId, t.Id), *t); err != nil {
+		return err
+	}
+	if t.Descendants > 0 {
+		return k.moveDescendants(ctx, *t, oldOwner, newOwner)
+	}
+	return nil
 }
 
 func (k Keeper) saveToken(ctx context.Context, t types.Token) error {
@@ -186,14 +220,42 @@ func (k Keeper) saveToken(ctx context.Context, t types.Token) error {
 // and media proposals are removed first; a pending transfer must already be
 // resolved. Resolves an open hide record as TARGET_BURNED.
 func (k Keeper) destroyToken(ctx context.Context, c *types.Class, t types.Token, refundTo string, paidToHolder bool) error {
-	if t.Lock == types.TokenLock_TOKEN_LOCK_LISTED {
+	switch t.Lock {
+	case types.TokenLock_TOKEN_LOCK_LISTED:
 		if err := k.removeListing(ctx, t.ClassId, t.Id, "burned"); err != nil {
+			return err
+		}
+		t.Lock = types.TokenLock_TOKEN_LOCK_NONE
+	case types.TokenLock_TOKEN_LOCK_RENTED:
+		// Only revocation and expiry reach here; the holder cannot burn a
+		// rented token.
+		if err := k.endRentalOf(ctx, t.ClassId, t.Id, "burned"); err != nil {
+			return err
+		}
+		t.Lock = types.TokenLock_TOKEN_LOCK_NONE
+	case types.TokenLock_TOKEN_LOCK_NESTED:
+		if err := k.detachFromParent(ctx, &t); err != nil {
+			return err
+		}
+	case types.TokenLock_TOKEN_LOCK_AUCTION:
+		// Expiry burns reach here: the high bid goes back to its bidder.
+		if err := k.abortAuctionOf(ctx, t.ClassId, t.Id, "burned"); err != nil {
 			return err
 		}
 		t.Lock = types.TokenLock_TOKEN_LOCK_NONE
 	}
 	if t.Lock != types.TokenLock_TOKEN_LOCK_NONE {
 		return errorsmod.Wrap(types.ErrTokenLocked, "cancel the pending transfer first")
+	}
+	// Children stay with the holder as roots (§7.23).
+	if err := k.releaseChildren(ctx, t); err != nil {
+		return err
+	}
+	if err := k.clearRentalOffer(ctx, t.ClassId, t.Id, "burned"); err != nil {
+		return err
+	}
+	if err := k.unindexHarbergerDue(ctx, t); err != nil {
+		return err
 	}
 	if err := k.Tokens.Remove(ctx, collections.Join(t.ClassId, t.Id)); err != nil {
 		return err
@@ -354,7 +416,16 @@ func (k Keeper) resolvePendingMint(ctx context.Context, pm types.PendingMint, ou
 	c.ReservedSupply--
 	refund := math.ZeroInt()
 	if outcome == OutcomeAccepted {
-		if _, err := k.createToken(ctx, c, pm.TokenId, pm.To, pm.Minter, pm.Metadata, pm.Schedule, pm.Unrevealed, pm.Deposit, math.ZeroInt()); err != nil {
+		deposit := pm.Deposit
+		if c.Flags.NobodyMayBurn() {
+			// A permanent token can never refund its deposit: the escrow
+			// becomes the burned fee (§7.26).
+			if err := k.burnHeld(ctx, pm.Deposit); err != nil {
+				return err
+			}
+			deposit = math.ZeroInt()
+		}
+		if _, err := k.createToken(ctx, c, pm.TokenId, pm.To, pm.Minter, pm.Metadata, pm.Schedule, pm.Unrevealed, deposit, math.ZeroInt()); err != nil {
 			return err
 		}
 		c.Supply++
@@ -374,8 +445,16 @@ func (k Keeper) resolvePendingMint(ctx context.Context, pm types.PendingMint, ou
 	return nil
 }
 
-// resolvePending dispatches on the item kind.
+// resolvePending dispatches on the item kind. Pending unit items live in
+// the reserved class 0 namespace, keyed by pending id.
 func (k Keeper) resolvePending(ctx context.Context, classID, tokenID uint64, outcome PendingOutcome) error {
+	if classID == unitNamespace {
+		pu, err := k.PendingUnits.Get(ctx, tokenID)
+		if err != nil {
+			return errorsmod.Wrapf(types.ErrPendingNotFound, "pending units %d", tokenID)
+		}
+		return k.resolvePendingUnits(ctx, pu, outcome)
+	}
 	key := collections.Join(classID, tokenID)
 	if pt, err := k.PendingTransfers.Get(ctx, key); err == nil {
 		return k.resolvePendingTransfer(ctx, pt, outcome)
@@ -416,6 +495,57 @@ func (k Keeper) removeListing(ctx context.Context, classID, tokenID uint64, reas
 	emit(ctx, types.EventDelisted, classAttr(classID), tokenAttr(tokenID),
 		sdk.NewAttribute("seller", l.Seller), sdk.NewAttribute("reason", reason))
 	return nil
+}
+
+// takeDeposit collects a delivered token's storage deposit from payer and
+// returns what the token records. A NEITHER token can never be burned, so
+// its deposit is burned as a fee and it records none (§7.26).
+func (k Keeper) takeDeposit(ctx context.Context, c types.Class, payer sdk.AccAddress, p types.Params) (math.Int, error) {
+	if c.Flags.NobodyMayBurn() {
+		return math.ZeroInt(), k.burnFrom(ctx, payer, p.TokenDeposit)
+	}
+	return p.TokenDeposit, k.collect(ctx, payer, p.TokenDeposit)
+}
+
+// settleSale pays a sale of price from buyer to seller (docs/x-artifact-spec.md
+// §7.7): the fee to the community pool, the royalty across the class split
+// (a share whose recipient has become unpayable goes to the seller) and the
+// proceeds to the seller. It returns the split, the paid royalty shares
+// ("addr=amount") and whether a share was redirected. MsgBuy, MsgBuyUnits,
+// MsgAcceptRental and MsgForceBuy all settle through it.
+func (k Keeper) settleSale(ctx context.Context, c types.Class, buyer sdk.AccAddress, seller string, price math.Int) (Settlement, []string, bool, error) {
+	p := k.GetParams(ctx)
+	s := ComputeSettlement(price, p.SaleFeeBps, c.RoyaltyBps, p.MaxRoyaltyBps)
+	royaltyParts := SplitRoyalty(s.Royalty, c.RoyaltyRecipients)
+	royaltyTo := make([]string, len(royaltyParts))
+	redirected := false
+	for i, share := range c.RoyaltyRecipients {
+		royaltyTo[i] = share.Address
+		if !royaltyParts[i].IsPositive() {
+			continue
+		}
+		if addr, err := k.addressCodec.StringToBytes(share.Address); err != nil || k.bankKeeper.BlockedAddr(addr) {
+			royaltyTo[i] = seller
+			redirected = true
+		}
+	}
+	if err := k.fundCommunityPool(ctx, buyer, s.Fee); err != nil {
+		return s, nil, false, err
+	}
+	paid := make([]string, 0, len(royaltyParts))
+	for i, part := range royaltyParts {
+		if !part.IsPositive() {
+			continue
+		}
+		if err := k.send(ctx, buyer, royaltyTo[i], part); err != nil {
+			return s, nil, false, err
+		}
+		paid = append(paid, royaltyTo[i]+"="+part.String())
+	}
+	if err := k.send(ctx, buyer, seller, s.Proceeds); err != nil {
+		return s, nil, false, err
+	}
+	return s, paid, redirected, nil
 }
 
 // Settlement is the split of one sale (docs/x-artifact-spec.md §7.7).

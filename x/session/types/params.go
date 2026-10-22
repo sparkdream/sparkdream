@@ -62,12 +62,21 @@ var (
 	// unified registry. A post-launch gov proposal would race against
 	// any in-flight schedules.
 	//
-	// `authtypes.NewModuleAddress("commons").String()` is
-	// deterministic, so this default is reproducible across genesis
-	// imports. Returns a fresh slice each call to avoid alias-mutation
-	// across DefaultParams() invocations.
+	// The x/artifact module address is seeded too: Harberger tokens pay
+	// their tax through a RecurringPull granted to the artifact module,
+	// which claims each period with ClaimRecurringPullForGrantee (the
+	// grantee must equal the grant's, so it can only pull grants made to
+	// itself). See docs/x-artifact-spec.md §7.24.
+	//
+	// `authtypes.NewModuleAddress(...).String()` is deterministic, so
+	// this default is reproducible across genesis imports. Returns a
+	// fresh slice each call to avoid alias-mutation across
+	// DefaultParams() invocations.
 	DefaultAuthorizedGrantCreators = func() []string {
-		return []string{authtypes.NewModuleAddress("commons").String()}
+		return []string{
+			authtypes.NewModuleAddress("commons").String(),
+			authtypes.NewModuleAddress("artifact").String(),
+		}
 	}
 
 	// DefaultAllowedMsgTypes is the genesis ceiling and initial active allowlist.
@@ -229,6 +238,46 @@ var (
 		// on a session key of the class owner or a listed minter. No funds
 		// move and ownership never changes.
 		"/sparkdream.artifact.v1.MsgRedeem",
+		// MsgIssue (one metadata to many recipients) and MsgMintUnits
+		// (edition units) are MsgMint's siblings with the same exposure:
+		// refundable per-token / per-balance-record deposits from the
+		// granter, only into classes the granter owns or mints for.
+		// MsgCreateEdition stays out: its fee is burned irreversibly.
+		"/sparkdream.artifact.v1.MsgIssue",
+		"/sparkdream.artifact.v1.MsgMintUnits",
+		// Inbox triage (docs/x-artifact-spec.md §7.13): moves nothing out
+		// of the account. The worst a leaked key does is accept unwanted
+		// tokens (burnable for their deposits) or reject wanted ones (the
+		// sender can resend).
+		"/sparkdream.artifact.v1.MsgAcceptIncoming",
+		"/sparkdream.artifact.v1.MsgRejectIncoming",
+		"/sparkdream.artifact.v1.MsgSetReceivePolicy",
+		// Presentation: the class owner offers media versions (as with
+		// MsgUpdateToken, no funds move) and the holder triages them and
+		// picks what is displayed. Stored metadata is never touched.
+		"/sparkdream.artifact.v1.MsgProposeMedia",
+		"/sparkdream.artifact.v1.MsgAcceptMedia",
+		"/sparkdream.artifact.v1.MsgRejectMedia",
+		"/sparkdream.artifact.v1.MsgSetDisplayedMedia",
+		// Equipment and lending in games: nesting and detaching keep every
+		// token with its owner, and MsgEndRental lets the renter hand an
+		// item back (the owner can end early only if the offer allowed it).
+		"/sparkdream.artifact.v1.MsgNest",
+		"/sparkdream.artifact.v1.MsgDetach",
+		"/sparkdream.artifact.v1.MsgEndRental",
+		// Retro-funding claims pay the granter; nothing leaves the account.
+		"/sparkdream.artifact.v1.MsgClaimEditionRewards",
+		// Withdrawals: each undoes something the granter put up (a listing,
+		// a unit listing, a rental offer, an escrowed offer whose SPARK
+		// returns to the granter, an inbox item), so a leaked key can only
+		// take the granter's own items off the market. Everything that
+		// sells, buys, prices, bids, transfers, burns, freezes, reveals or
+		// renews (holder renewals pay) stays out.
+		"/sparkdream.artifact.v1.MsgDelist",
+		"/sparkdream.artifact.v1.MsgDelistUnits",
+		"/sparkdream.artifact.v1.MsgCancelRentalOffer",
+		"/sparkdream.artifact.v1.MsgCancelOffer",
+		"/sparkdream.artifact.v1.MsgCancelOutgoing",
 	}
 )
 

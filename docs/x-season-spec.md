@@ -420,7 +420,7 @@ This rewards the unexpected contributions that were never pre-planned as initiat
 message Nomination {
   uint64 id = 1;
   string nominator = 2;                    // Address of the nominator
-  string content_ref = 3;                  // e.g. "blog/post/42", "forum/post/7", "collect/collection/3", "rep/initiative/5", "rep/jury/addr"
+  string content_ref = 3;                  // e.g. "blog/post/42", "forum/post/7", "collect/collection/3", "rep/initiative/5", "rep/jury/addr", "artifact/certificate/3/7"
   string rationale = 4;
   int64 created_at_block = 5;
   uint64 season = 6;
@@ -453,6 +453,8 @@ message RetroRewardRecord {
   int64 distributed_at_block = 7;
 }
 ```
+
+**Impact certificates:** `artifact/certificate/{class_id}/{edition_id}` nominates an x/artifact impact certificate (an edition carrying an impact claim, [x-artifact-spec.md](x-artifact-spec.md) §7.21); the ref is checked against x/artifact when it is wired. The DREAM reward goes to the nominator as for any other content and never to the certificate's holders, who are paid only in SPARK by retro funders, so DREAM never becomes tradeable through a certificate.
 
 **Content eligibility:** Nominated content must have been created during the current season and must be in an active (non-hidden, non-deleted) state at nomination time. The content creator must be an active member. Self-nomination is allowed (someone might have written a great answer that nobody else thought to nominate), but self-staking on own nominations is not allowed (same anti-gaming rule as content conviction).
 

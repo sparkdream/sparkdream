@@ -100,13 +100,24 @@ type mockRep struct {
 	outcomes  []string
 	cooldown  map[string]int64
 	appeals   []string // "<action type>:<target>" opened via CreateGovActionAppeal
+	// initiatives backs impact-certificate claims (GetInitiative).
+	initiatives map[uint64]reptypes.Initiative
 }
 
 func newMockRep() *mockRep {
 	return &mockRep{
 		members: map[string]reptypes.TrustLevel{}, sentinels: map[string]math.Int{},
 		reserved: map[string]math.Int{}, slashed: map[string]math.Int{}, cooldown: map[string]int64{},
+		initiatives: map[uint64]reptypes.Initiative{},
 	}
+}
+
+func (r *mockRep) GetInitiative(_ context.Context, id uint64) (reptypes.Initiative, error) {
+	init, ok := r.initiatives[id]
+	if !ok {
+		return init, fmt.Errorf("initiative %d not found", id)
+	}
+	return init, nil
 }
 
 func (r *mockRep) IsActiveMember(_ context.Context, a sdk.AccAddress) bool {

@@ -39,10 +39,10 @@ func mintable(c types.Class) error {
 }
 
 // forcesInbox reports whether every mint of the class waits for the
-// recipient: tokens the holder cannot burn (ISSUER) need consent, and a
-// mutual attestation exists only once both parties sign.
+// recipient: tokens the holder cannot burn (ISSUER, NEITHER) need consent,
+// and a mutual attestation exists only once both parties sign.
 func forcesInbox(c types.Class) bool {
-	return !c.Flags.HolderMayBurn() || c.Flags.Mutual
+	return c.Flags.NeedsConsent()
 }
 
 // validateMintContent checks what a minter supplies for one token against
@@ -74,23 +74,29 @@ func (k Keeper) mintOne(ctx context.Context, c *types.Class, minter sdk.AccAddre
 	if c.Flags.Mutual && recipient == minterStr {
 		return types.MintResult{}, errorsmod.Wrap(types.ErrInvalidRecipient, "a mutual attestation needs a recipient other than the minter")
 	}
-	if err := k.collect(ctx, minter, p.TokenDeposit); err != nil {
-		return types.MintResult{}, err
-	}
 	tokenID := c.NextTokenId
 	c.NextTokenId++
 
 	if recipient == minterStr || (!forcesInbox(*c) && k.deliversDirectly(ctx, minterStr, recipient)) {
-		if _, err := k.createToken(ctx, *c, tokenID, recipient, minterStr, meta, schedule, isBlind(*c), p.TokenDeposit, math.ZeroInt()); err != nil {
+		deposit, err := k.takeDeposit(ctx, *c, minter, p)
+		if err != nil {
+			return types.MintResult{}, err
+		}
+		if _, err := k.createToken(ctx, *c, tokenID, recipient, minterStr, meta, schedule, isBlind(*c), deposit, math.ZeroInt()); err != nil {
 			return types.MintResult{}, err
 		}
 		c.Supply++
 		emit(ctx, types.EventMinted, classAttr(c.Id), tokenAttr(tokenID),
 			sdk.NewAttribute("minter", minterStr), sdk.NewAttribute("owner", recipient),
-			sdk.NewAttribute("deposit", p.TokenDeposit.String()))
+			sdk.NewAttribute("deposit", deposit.String()))
 		return types.MintResult{TokenId: tokenID, Live: true}, nil
 	}
 
+	// The deposit is escrowed until the recipient answers (and, for a
+	// NEITHER class, burned on acceptance).
+	if err := k.collect(ctx, minter, p.TokenDeposit); err != nil {
+		return types.MintResult{}, err
+	}
 	if err := k.reserveInboxSlot(ctx, types.MintOrigin(c.Id), recipient, p); err != nil {
 		return types.MintResult{}, err
 	}

@@ -23,14 +23,15 @@ func ClassView(c types.Class) types.ClassView {
 	return types.ClassView{Class: c, Withheld: true}
 }
 
-// TokenView blanks a token's metadata when it or its class is hidden and
-// otherwise picks the displayed metadata from stored state (media version,
-// schedule stage or stored metadata). Renderers run only in the single-token
-// query (Keeper.tokenView).
-func TokenView(ctx context.Context, classStatus types.ContentStatus, t types.Token) types.TokenView {
+// TokenView blanks a token's metadata when it, its class or (treeHidden)
+// a token it is nested in is hidden, and otherwise picks the displayed
+// metadata from stored state (media version, schedule stage or stored
+// metadata). Renderers run only in the single-token query
+// (Keeper.tokenView).
+func TokenView(ctx context.Context, classStatus types.ContentStatus, t types.Token, treeHidden bool) types.TokenView {
 	hash := types.MetadataHash(t.Metadata)
 	view := types.TokenView{Token: t, MetadataHash: hash, ClassStatus: classStatus, Expired: types.IsExpired(t, now(ctx))}
-	if classStatus == types.ContentStatus_CONTENT_STATUS_HIDDEN || t.Status == types.ContentStatus_CONTENT_STATUS_HIDDEN {
+	if treeHidden || classStatus == types.ContentStatus_CONTENT_STATUS_HIDDEN || t.Status == types.ContentStatus_CONTENT_STATUS_HIDDEN {
 		view.Token.Metadata = types.TokenMetadata{}
 		view.Token.Schedule = nil
 		view.Token.MediaVersions = nil
@@ -65,6 +66,19 @@ func (q queryServer) inboxItem(ctx context.Context, classID, tokenID uint64, kin
 		classStatus = c.Status
 	}
 	switch kind {
+	case types.InboxKind_INBOX_KIND_UNIT_TRANSFER, types.InboxKind_INBOX_KIND_UNIT_MINT:
+		pu, err := q.k.PendingUnits.Get(ctx, tokenID)
+		if err != nil || pu.ExpiresAt <= t {
+			return item, false
+		}
+		e, err := q.k.Editions.Get(ctx, collections.Join(pu.ClassId, pu.EditionId))
+		if err != nil {
+			return item, false
+		}
+		view := EditionView(q.classStatus(ctx, map[uint64]types.ContentStatus{}, pu.ClassId), e)
+		item.From, item.To, item.CreatedAt, item.ExpiresAt = pu.From, pu.To, pu.CreatedAt, pu.ExpiresAt
+		item.UnitClassId, item.EditionId, item.Amount = pu.ClassId, pu.EditionId, pu.Amount
+		item.Metadata, item.MetadataHash, item.Withheld = view.Edition.Metadata, view.MetadataHash, view.Withheld
 	case types.InboxKind_INBOX_KIND_TRANSFER:
 		pt, err := q.k.PendingTransfers.Get(ctx, key)
 		if err != nil || pt.ExpiresAt <= t {
@@ -74,7 +88,7 @@ func (q queryServer) inboxItem(ctx context.Context, classID, tokenID uint64, kin
 		if err != nil {
 			return item, false
 		}
-		view := TokenView(ctx, classStatus, tok)
+		view := TokenView(ctx, classStatus, tok, q.k.treeWithheld(ctx, tok))
 		item.From, item.To, item.CreatedAt, item.ExpiresAt = pt.From, pt.To, pt.CreatedAt, pt.ExpiresAt
 		item.Metadata, item.MetadataHash, item.Withheld = view.Token.Metadata, view.MetadataHash, view.Withheld
 	default:

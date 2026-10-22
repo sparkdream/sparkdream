@@ -560,6 +560,28 @@ func (k Keeper) ReleaseSelfAssignBond(ctx context.Context, initiative *types.Ini
 	return nil
 }
 
+// dropSelfAssignBonds clears the self-assign bond of every initiative addr
+// is assigned to, without unlocking anything: member zeroing burns the
+// staked DREAM behind them with the rest of the balance.
+func (k Keeper) dropSelfAssignBonds(ctx context.Context, addr string) error {
+	var held []types.Initiative
+	if err := k.Initiative.Walk(ctx, nil, func(_ uint64, init types.Initiative) (bool, error) {
+		if init.Assignee == addr && DerefInt(init.SelfAssignBond).IsPositive() {
+			held = append(held, init)
+		}
+		return false, nil
+	}); err != nil {
+		return err
+	}
+	for _, init := range held {
+		init.SelfAssignBond = PtrInt(math.ZeroInt())
+		if err := k.Initiative.Set(ctx, init.Id, init); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // BurnSelfAssignBond burns a held self-assign bond (upheld-challenge slash)
 // and clears it on the passed initiative. No-op when no bond is held. The
 // caller is responsible for persisting the initiative afterwards.

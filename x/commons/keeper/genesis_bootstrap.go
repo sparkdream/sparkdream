@@ -252,6 +252,12 @@ func (k Keeper) BootstrapGovernance(ctx context.Context, founders []types.Foundi
 			"/sparkdream.artifact.v1.MsgReveal",
 			"/sparkdream.artifact.v1.MsgRevealSeed",
 			"/sparkdream.artifact.v1.MsgProposeMedia",
+			// Council badge editions and retroactive funding of impact
+			// certificates (docs/x-artifact-spec.md §5.8, §7.21).
+			"/sparkdream.artifact.v1.MsgCreateEdition",
+			"/sparkdream.artifact.v1.MsgMintUnits",
+			"/sparkdream.artifact.v1.MsgRevokeUnits",
+			"/sparkdream.artifact.v1.MsgFundEdition",
 		},
 		VetoPermissions: []string{
 			"/sparkdream.commons.v1.MsgDeleteGroup",
@@ -604,6 +610,10 @@ func (k Keeper) BootstrapGovernance(ctx context.Context, founders []types.Foundi
 			"/sparkdream.artifact.v1.MsgReveal",
 			"/sparkdream.artifact.v1.MsgRevealSeed",
 			"/sparkdream.artifact.v1.MsgProposeMedia",
+			"/sparkdream.artifact.v1.MsgCreateEdition",
+			"/sparkdream.artifact.v1.MsgMintUnits",
+			"/sparkdream.artifact.v1.MsgRevokeUnits",
+			"/sparkdream.artifact.v1.MsgFundEdition",
 			"/sparkdream.artifact.v1.MsgHideContent",
 			"/sparkdream.artifact.v1.MsgUnhideContent",
 			"/sparkdream.artifact.v1.MsgUpdateOperationalParams",

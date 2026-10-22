@@ -4,6 +4,7 @@ import (
 	"context"
 	"strconv"
 
+	errorsmod "cosmossdk.io/errors"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	"sparkdream/x/artifact/types"
@@ -22,6 +23,9 @@ func (k msgServer) SetMintPolicy(ctx context.Context, msg *types.MsgSetMintPolic
 	}
 	if c.Status == types.ContentStatus_CONTENT_STATUS_HIDDEN {
 		return nil, types.ErrContentHidden
+	}
+	if c.IsEditions() && msg.MintPolicy.PublicMintEnabled {
+		return nil, errorsmod.Wrap(types.ErrWrongTokenModel, "editions classes have no public mint")
 	}
 	if err := k.validateMintPolicy(ctx, msg.MintPolicy, c.Flags); err != nil {
 		return nil, err

@@ -3,6 +3,8 @@ package simulation
 import (
 	"math/rand"
 
+	"cosmossdk.io/collections"
+	sdkmath "cosmossdk.io/math"
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -54,7 +56,19 @@ func SimulateMsgClaimRecurringPull(
 				if rp.LastClaimAdvance+rp.PeriodSeconds > g.ExpiresAt.Unix() {
 					return false
 				}
-				return true
+				// Mirror the handler's per-UTC-day self-throttle: catch-up
+				// claims inside one day can exhaust max_per_epoch.
+				maxPerEpoch, ok := sdkmath.NewIntFromString(rp.MaxPerEpoch)
+				if !ok {
+					return false
+				}
+				spent := sdkmath.ZeroInt()
+				if stored, err := k.EpochSpendByGrant.Get(ctx, collections.Join(g.Id, now/86400)); err == nil {
+					if v, ok := sdkmath.NewIntFromString(stored); ok {
+						spent = v
+					}
+				}
+				return !spent.Add(rp.AmountPerPeriod.Amount).GT(maxPerEpoch)
 			},
 		)
 		if !found {

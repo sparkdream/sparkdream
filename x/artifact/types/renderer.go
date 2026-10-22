@@ -135,17 +135,27 @@ func ValidateRendererPackage(r Renderer, pkg GnoPackage) error {
 	if got := RendererSourceHash(pkg.Files); got != r.SourceHash {
 		return errorsmod.Wrapf(ErrInvalidRenderer, "source_hash %s does not match stored package %s", r.SourceHash, got)
 	}
+	// state_version picks the entry point: Render, or RenderState with the
+	// token's state document (render_state.go).
+	name, params := RendererFuncName, rendererParams
+	switch r.StateVersion {
+	case 0:
+	case RenderStateV1, RenderStateV2:
+		name, params = RendererStateFuncName, rendererStateParams
+	default:
+		return errorsmod.Wrapf(ErrInvalidRenderer, "unknown state_version %d (max %d)", r.StateVersion, MaxRenderStateVersion)
+	}
 	for _, f := range pkg.Funcs {
-		if f.Name != RendererFuncName {
+		if f.Name != name {
 			continue
 		}
-		if !equalStrings(f.Params, rendererParams) || !equalStrings(f.Results, []string{"string"}) {
-			return errorsmod.Wrapf(ErrInvalidRenderer, "%s must be func Render(uint64, uint64, string, int64, int64) string, got (%s) (%s)",
-				RendererFuncName, strings.Join(f.Params, ", "), strings.Join(f.Results, ", "))
+		if !equalStrings(f.Params, params) || !equalStrings(f.Results, []string{"string"}) {
+			return errorsmod.Wrapf(ErrInvalidRenderer, "%s must be func %s(%s) string, got (%s) (%s)",
+				name, name, strings.Join(params, ", "), strings.Join(f.Params, ", "), strings.Join(f.Results, ", "))
 		}
 		return nil
 	}
-	return errorsmod.Wrapf(ErrInvalidRenderer, "%s exports no %s", r.PkgPath, RendererFuncName)
+	return errorsmod.Wrapf(ErrInvalidRenderer, "%s exports no %s", r.PkgPath, name)
 }
 
 func equalStrings(a, b []string) bool {

@@ -30,6 +30,8 @@ type lateKeepers struct {
 	commons  types.CommonsKeeper
 	distr    types.DistrKeeper
 	gnovm    types.GnoVMKeeper
+	session  types.SessionKeeper
+	season   types.SeasonKeeper
 }
 
 type Keeper struct {
@@ -98,6 +100,54 @@ type Keeper struct {
 	// ClassReleaseQueue drains escrowed public-mint payments of a generative
 	// class after its seed reveal (class_id -> next token id to visit).
 	ClassReleaseQueue collections.Map[uint64, uint64]
+
+	// Editions (docs/x-artifact-spec.md §7.20): (class, edition) records,
+	// (class, edition, owner) balances with an owner index, pending unit
+	// items keyed by id, and unit listings with edition, seller and expiry
+	// indexes. CertificatesByInitiative is (initiative, class, edition).
+	Editions                 collections.Map[U64Pair, types.Edition]
+	Balances                 collections.Map[BalanceKey, types.Balance]
+	BalancesByOwner          collections.KeySet[AddrTokenKey]
+	PendingUnitSeq           collections.Sequence
+	PendingUnits             collections.Map[uint64, types.PendingUnits]
+	UnitListingSeq           collections.Sequence
+	UnitListings             collections.Map[uint64, types.UnitListing]
+	UnitListingsByEdition    collections.KeySet[collections.Triple[uint64, uint64, uint64]]
+	UnitListingsBySeller     collections.KeySet[collections.Pair[string, uint64]]
+	UnitListingExpiry        collections.KeySet[collections.Pair[int64, uint64]]
+	CertificatesByInitiative collections.KeySet[collections.Triple[uint64, uint64, uint64]]
+
+	// CraftRecipes are keyed (target class, recipe id).
+	CraftRecipes collections.Map[U64Pair, types.CraftRecipe]
+
+	// Rentals and rental offers, keyed by token, with renter and expiry
+	// indexes.
+	Rentals           collections.Map[U64Pair, types.Rental]
+	RentalsByUser     collections.KeySet[AddrTokenKey]
+	RentalExpiry      collections.KeySet[TimeTokenKey]
+	RentalOffers      collections.Map[U64Pair, types.RentalOffer]
+	RentalOfferExpiry collections.KeySet[TimeTokenKey]
+
+	// Children lists each token's direct children: (parent, child).
+	Children collections.KeySet[ChildKey]
+
+	// HarbergerDue indexes the next tax pull of each Harberger token.
+	HarbergerDue collections.KeySet[TimeTokenKey]
+
+	// Escrowed offers, keyed by id, with (class, token, id) (token 0 =
+	// collection offers), (bidder, id) and (expires_at, id) indexes.
+	OfferSeq       collections.Sequence
+	Offers         collections.Map[uint64, types.Offer]
+	OffersByToken  collections.KeySet[collections.Triple[uint64, uint64, uint64]]
+	OffersByBidder collections.KeySet[collections.Pair[string, uint64]]
+	OfferExpiry    collections.KeySet[collections.Pair[int64, uint64]]
+
+	// Auctions, keyed by id, with token, end-time and seller indexes.
+	AuctionSeq       collections.Sequence
+	Auctions         collections.Map[uint64, types.Auction]
+	AuctionByToken   collections.Map[U64Pair, uint64]
+	AuctionEnds      collections.KeySet[collections.Pair[int64, uint64]]
+	AuctionsBySeller collections.KeySet[collections.Pair[string, uint64]]
 }
 
 func NewKeeper(
@@ -168,6 +218,42 @@ func NewKeeper(
 		TokenExpiry:       collections.NewKeySet(sb, types.TokenExpiryKey, "token_expiry", timeToken),
 		MediaProposals:    collections.NewMap(sb, types.MediaProposalsKey, "media_proposals", collections.TripleKeyCodec(collections.Uint64Key, collections.Uint64Key, collections.Uint64Key), codec.CollValue[types.MediaProposal](cdc)),
 		ClassReleaseQueue: collections.NewMap(sb, types.ClassReleaseQueueKey, "class_release_queue", collections.Uint64Key, collections.Uint64Value),
+
+		Editions:                 collections.NewMap(sb, types.EditionsKey, "editions", u64pair, codec.CollValue[types.Edition](cdc)),
+		Balances:                 collections.NewMap(sb, types.BalancesKey, "balances", collections.TripleKeyCodec(collections.Uint64Key, collections.Uint64Key, collections.StringKey), codec.CollValue[types.Balance](cdc)),
+		BalancesByOwner:          collections.NewKeySet(sb, types.BalancesByOwnerKey, "balances_by_owner", addrToken),
+		PendingUnitSeq:           collections.NewSequence(sb, types.PendingUnitSeqKey, "pending_unit_seq"),
+		PendingUnits:             collections.NewMap(sb, types.PendingUnitsKey, "pending_units", collections.Uint64Key, codec.CollValue[types.PendingUnits](cdc)),
+		UnitListingSeq:           collections.NewSequence(sb, types.UnitListingSeqKey, "unit_listing_seq"),
+		UnitListings:             collections.NewMap(sb, types.UnitListingsKey, "unit_listings", collections.Uint64Key, codec.CollValue[types.UnitListing](cdc)),
+		UnitListingsByEdition:    collections.NewKeySet(sb, types.UnitListingsByEditionKey, "unit_listings_by_edition", collections.TripleKeyCodec(collections.Uint64Key, collections.Uint64Key, collections.Uint64Key)),
+		UnitListingsBySeller:     collections.NewKeySet(sb, types.UnitListingsBySellerKey, "unit_listings_by_seller", collections.PairKeyCodec(collections.StringKey, collections.Uint64Key)),
+		UnitListingExpiry:        collections.NewKeySet(sb, types.UnitListingExpiryKey, "unit_listing_expiry", collections.PairKeyCodec(collections.Int64Key, collections.Uint64Key)),
+		CertificatesByInitiative: collections.NewKeySet(sb, types.CertificatesByInitiativeKey, "certificates_by_initiative", collections.TripleKeyCodec(collections.Uint64Key, collections.Uint64Key, collections.Uint64Key)),
+
+		CraftRecipes: collections.NewMap(sb, types.CraftRecipesKey, "craft_recipes", u64pair, codec.CollValue[types.CraftRecipe](cdc)),
+
+		Rentals:           collections.NewMap(sb, types.RentalsKey, "rentals", u64pair, codec.CollValue[types.Rental](cdc)),
+		RentalsByUser:     collections.NewKeySet(sb, types.RentalsByUserKey, "rentals_by_user", addrToken),
+		RentalExpiry:      collections.NewKeySet(sb, types.RentalExpiryKey, "rental_expiry", timeToken),
+		RentalOffers:      collections.NewMap(sb, types.RentalOffersKey, "rental_offers", u64pair, codec.CollValue[types.RentalOffer](cdc)),
+		RentalOfferExpiry: collections.NewKeySet(sb, types.RentalOfferExpiryKey, "rental_offer_expiry", timeToken),
+
+		Children: collections.NewKeySet(sb, types.ChildrenKey, "children", collections.PairKeyCodec(u64pair, u64pair)),
+
+		HarbergerDue: collections.NewKeySet(sb, types.HarbergerDueKey, "harberger_due", timeToken),
+
+		OfferSeq:       collections.NewSequence(sb, types.OfferSeqKey, "offer_seq"),
+		Offers:         collections.NewMap(sb, types.OffersKey, "offers", collections.Uint64Key, codec.CollValue[types.Offer](cdc)),
+		OffersByToken:  collections.NewKeySet(sb, types.OffersByTokenKey, "offers_by_token", collections.TripleKeyCodec(collections.Uint64Key, collections.Uint64Key, collections.Uint64Key)),
+		OffersByBidder: collections.NewKeySet(sb, types.OffersByBidderKey, "offers_by_bidder", collections.PairKeyCodec(collections.StringKey, collections.Uint64Key)),
+		OfferExpiry:    collections.NewKeySet(sb, types.OfferExpiryKey, "offer_expiry", collections.PairKeyCodec(collections.Int64Key, collections.Uint64Key)),
+
+		AuctionSeq:       collections.NewSequence(sb, types.AuctionSeqKey, "auction_seq"),
+		Auctions:         collections.NewMap(sb, types.AuctionsKey, "auctions", collections.Uint64Key, codec.CollValue[types.Auction](cdc)),
+		AuctionByToken:   collections.NewMap(sb, types.AuctionByTokenKey, "auction_by_token", u64pair, collections.Uint64Value),
+		AuctionEnds:      collections.NewKeySet(sb, types.AuctionEndsKey, "auction_ends", collections.PairKeyCodec(collections.Int64Key, collections.Uint64Key)),
+		AuctionsBySeller: collections.NewKeySet(sb, types.AuctionsBySellerKey, "auctions_by_seller", collections.PairKeyCodec(collections.StringKey, collections.Uint64Key)),
 	}
 
 	schema, err := sb.Build()
@@ -198,6 +284,13 @@ func (k Keeper) SetDistrKeeper(dk types.DistrKeeper) { k.late.distr = dk }
 
 // SetGnoVMKeeper wires the x/gnovm adapter renderers evaluate through.
 func (k Keeper) SetGnoVMKeeper(gk types.GnoVMKeeper) { k.late.gnovm = gk }
+
+// SetSessionKeeper wires the x/session adapter Harberger taxes are pulled
+// through.
+func (k Keeper) SetSessionKeeper(sk types.SessionKeeper) { k.late.session = sk }
+
+// SetSeasonKeeper wires the x/season adapter renderer state v2 reads.
+func (k Keeper) SetSeasonKeeper(sk types.SeasonKeeper) { k.late.season = sk }
 
 // GetRepKeeper returns the rep keeper (simulation use).
 func (k Keeper) GetRepKeeper() types.RepKeeper { return k.late.rep }

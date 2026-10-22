@@ -1233,7 +1233,9 @@ message RecurringPullPayload {
 2. Logical clock `last_claim_advance` advances by exactly `period_seconds` per claim — catch-up requires multiple txs (each rate-limited independently).
 3. Per-grant `max_per_epoch_uspark` self-throttle: each claim adds `amount_per_period` to the current UTC-day bucket; rejected if it would breach `max_per_epoch_uspark`. **Epoch = UTC calendar day**, `floor(block_time / 86400)` — no dependency on any other module's epoch concept. Stale day-buckets lazily pruned.
 4. `bankKeeper.SendCoins(granter → grantee)` — failure flips to `PAUSED_INSUFFICIENT_FUNDS` with a `grant_paused_underfunded` event; next successful retry flips back to `ACTIVE` atomically (no separate resume message).
-5. COMPLETED when `last_claim_advance + period_seconds > expires_at`.
+5. COMPLETED when `last_claim_advance + period_seconds > expires_at`, with a `grant_completed` event.
+
+**Pause and completion succeed.** A claim that pauses the grant (step 4) or finds its window closed (step 5) returns success with `MsgClaimRecurringPullResponse.paused` / `.completed` set and nothing transferred. Returning an error would revert the tx and with it the status change, leaving the grant ACTIVE and the event unseen. Module callers must read the flags: x/commons passes them through `MsgClaimRecurringSpendResponse`, and x/artifact's Harberger adapter treats either as a failed tax pull.
 
 **Caps:** `min_recurring_period_seconds` (default 86_400 / 1d), `max_recurring_duration_seconds` (default 31_536_000 / 1y), `max_recurring_pulls_per_granter` (default 50).
 
@@ -1260,7 +1262,7 @@ message SpendingAllowancePayload {
 1. **Authorization checks**: `recipient != granter` (anti self-roundtrip), `amount.denom == grant.denom` and in `params.allowed_denoms`, `amount >= params.min_pull_amount`, `recipient ∈ allowed_recipients` (skip if empty).
 2. **In-memory rolling-window reset** if `block_time >= current_period_start + period_seconds`. **Only committed on successful pull** — a failed pull leaves `current_period_start` untouched, so a malicious recipient cannot trigger a no-op reset to wipe the granter's used budget (Rev 2 fix).
 3. **Per-period budget check**: `spent_in_current_period + amount <= max_per_period`.
-4. `bankKeeper.SendCoins(granter → recipient)` — failure flips to `PAUSED_INSUFFICIENT_FUNDS`; next successful retry flips back to `ACTIVE`.
+4. `bankKeeper.SendCoins(granter → recipient)` — failure flips to `PAUSED_INSUFFICIENT_FUNDS`; next successful retry flips back to `ACTIVE`. As for RecurringPull, the pausing pull succeeds with `MsgPullAllowanceResponse.paused` set and a zero `transferred`, so the pause persists.
 5. `spent_in_current_period += amount`; emit `allowance_pulled`.
 
 **Caps:** `min_allowance_period_seconds` (default 3_600 / 1h), `max_allowances_per_granter` (default 20), `max_allowance_recipient_list` (default 50), `min_pull_amount` (default "1000" uspark / 0.001 SPARK).
@@ -1461,6 +1463,20 @@ sparkdreamd tx session claim-recurring-pull [grant-id] --from [grantee]
 sparkdreamd tx session pull-allowance [grant-id] [recipient] [amount] --from [grantee]
 ```
 
+### 26.2a. Creating a RecurringPull
+
+autocli cannot build `MsgCreateGrant`'s payload oneof, so x/session ships one hand-written command ([x/session/client/cli/tx.go](../x/session/client/cli/tx.go)):
+
+```
+sparkdreamd tx session create-recurring-pull [grantee] [amount-per-period] [period-seconds] [expires-at] --from [granter]
+  # expires-at: RFC 3339 time, or +duration from now (e.g. +720h)
+  # --max-per-epoch  UTC-day ceiling (default: amount-per-period)
+  # --start-time     unix seconds; default now (first claim one period later)
+  # --grant-note     the grant's note (--note is the SDK tx memo flag)
+```
+
+A Harberger holder grants the x/artifact module address with it to pay their tax ([x-artifact-spec.md](x-artifact-spec.md) §7.24).
+
 ### 26.3. Legacy commands (deprecated; still functional)
 
 ```
@@ -1554,6 +1570,8 @@ Each address listed in `authorized_grant_creators` is a **strict trust grant**. 
 - Synthesize grants from arbitrary user addresses by guessing the bech32 — but those grants have no funding behind them since the granter never signed, so they're either inert (zero balance fails at first claim) or instantly revertible via the user's own `MsgRevokeGrant`.
 
 The defense is the gov-only allowlist + the security review at the time of adding an entry, not a technical containment. This matches Cosmos SDK convention for module-to-module trust (e.g. x/bank's module-account minting permissions list).
+
+Genesis seeds two entries: `commons` (council recurring spends, §29.6) and `artifact`. x/artifact uses only `ClaimRecurringPullForGrantee` with itself as the grantee, to take the Harberger tax its holders grant it as RecurringPulls ([x-artifact-spec.md](x-artifact-spec.md) §7.24); the grantee check confines it to grants made to the artifact module.
 
 ### 28.5. Privileged claim + decline helpers (M2)
 

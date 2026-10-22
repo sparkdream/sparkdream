@@ -59,5 +59,7 @@ func (k msgServer) ClaimRecurringSpend(goCtx context.Context, msg *types.MsgClai
 	return &types.MsgClaimRecurringSpendResponse{
 		ClaimNumber:   resp.ClaimNumber,
 		NextClaimTime: resp.NextClaimTime,
+		Paused:        resp.Paused,
+		Completed:     resp.Completed,
 	}, nil
 }

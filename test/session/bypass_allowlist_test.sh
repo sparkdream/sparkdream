@@ -15,9 +15,10 @@
 #      is in the allowlist — confirming the deterministic
 #      `authtypes.NewModuleAddress("commons").String()` seed.
 #   3. The allowlist contains exactly the expected genesis entries
-#      (currently: just commons). This catches accidental drift if a
-#      future PR adds a new module to the bypass surface without
-#      updating the migration plan.
+#      (currently: commons, and artifact for Harberger tax claims --
+#      docs/x-artifact-spec.md §7.24). This catches accidental drift if
+#      a future PR adds a new module to the bypass surface without
+#      updating this test.
 #
 # Coverage map:
 #   - Unit tests (x/session/keeper/public_api_test.go) cover the
@@ -104,29 +105,28 @@ fi
 # ========================================================================
 # TEST 3: Allowlist size matches the expected genesis-default
 # ========================================================================
-# At genesis the only allowlisted module is commons (the M3 default
-# `DefaultAuthorizedGrantCreators()` returns a single-element slice).
-# If this test fails with size > 1, either:
+# At genesis the allowlisted modules are commons and artifact
+# (`DefaultAuthorizedGrantCreators()`). If this test fails with any
+# other set, either:
 #   - a follow-up migration added a new module to the bypass surface
 #     and forgot to update this test, OR
 #   - a gov proposal post-launch widened the allowlist (in which case
 #     the chain isn't pristine and this isn't a fresh genesis snapshot)
 # Both warrant a human eyeball. The bypass surface is a strict trust
 # grant and accidental drift here matters.
-echo "--- TEST 3: Allowlist size matches genesis default (expect 1) ---"
+echo "--- TEST 3: Allowlist matches genesis default (commons + artifact) ---"
 
-if [ "$ALLOWLIST_LEN" -eq 1 ]; then
-    echo "  authorized_grant_creators has exactly 1 entry (expected genesis default)"
-    record_result "Allowlist size = 1" "PASS"
-elif [ "$ALLOWLIST_LEN" -gt 1 ]; then
-    echo "  WARNING: authorized_grant_creators has $ALLOWLIST_LEN entries — drift detected:"
-    echo "$PARAMS" | jq -r '.params.authorized_grant_creators[]' | sed 's/^/    /'
-    echo "  Either a follow-up migration added a new bypass caller (update this test),"
-    echo "  or this isn't a fresh-genesis snapshot."
-    record_result "Allowlist size = 1" "FAIL"
+ARTIFACT_MODULE_ADDR=$($BINARY query auth module-account artifact --output json 2>&1 | jq -r '.account.value.address // .account.base_account.address // .account.address // empty')
+HAS_ARTIFACT=$(echo "$PARAMS" | jq -r --arg addr "$ARTIFACT_MODULE_ADDR" '.params.authorized_grant_creators[] | select(. == $addr)' | head -n1)
+if [ "$ALLOWLIST_LEN" -eq 2 ] && [ -n "$ARTIFACT_MODULE_ADDR" ] && [ "$HAS_ARTIFACT" == "$ARTIFACT_MODULE_ADDR" ]; then
+    echo "  authorized_grant_creators is exactly commons + artifact (expected genesis default)"
+    record_result "Allowlist = genesis default" "PASS"
 else
-    echo "  authorized_grant_creators is empty (covered by TEST 1)"
-    record_result "Allowlist size = 1" "FAIL"
+    echo "  WARNING: authorized_grant_creators differs from the genesis default ($ALLOWLIST_LEN entries):"
+    echo "$PARAMS" | jq -r '.params.authorized_grant_creators[]' | sed 's/^/    /'
+    echo "  Either a follow-up change added a new bypass caller (update this test),"
+    echo "  or this isn't a fresh-genesis snapshot."
+    record_result "Allowlist = genesis default" "FAIL"
 fi
 
 # ========================================================================

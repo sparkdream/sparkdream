@@ -51,6 +51,42 @@ type RepKeeper interface {
 	// CreateGovActionAppeal opens a moderation appeal (bond, jury, deadline)
 	// whose verdict comes back through RepAppealTarget.
 	CreateGovActionAppeal(ctx context.Context, actionType reptypes.GovActionType, actionTarget string, appellant sdk.AccAddress, reason string) (uint64, uint64, error)
+
+	// GetInitiative reads an initiative an impact certificate claims
+	// (docs/x-artifact-spec.md §7.21). Read-only: x/rep never calls back.
+	GetInitiative(ctx context.Context, initiativeID uint64) (reptypes.Initiative, error)
+}
+
+// SessionKeeper is the slice of x/session Harberger taxes use
+// (docs/x-artifact-spec.md §7.24). Late-wired from app.go; nil means no
+// Harberger token can name a tax grant.
+type SessionKeeper interface {
+	// RecurringPull describes a RecurringPull grant, or found == false.
+	RecurringPull(ctx context.Context, grantID uint64) (RecurringPullInfo, bool, error)
+	// ClaimRecurringPull claims one due period of a RecurringPull granted
+	// to the artifact module and returns what was pulled.
+	ClaimRecurringPull(ctx context.Context, grantID uint64) (sdk.Coin, error)
+}
+
+// SeasonKeeper is the slice of x/season renderer state v2 reads
+// (docs/x-artifact-spec.md §7.16). Late-wired from app.go; nil leaves the
+// season fields zero.
+type SeasonKeeper interface {
+	// CurrentSeason returns the current season's number and status.
+	CurrentSeason(ctx context.Context) (SeasonInfo, error)
+	// MemberSeason returns a member's level and XP this season, or found
+	// == false without a profile.
+	MemberSeason(ctx context.Context, addr string) (MemberSeason, bool, error)
+}
+
+// RecurringPullInfo is what Harberger taxes need to know about a grant.
+type RecurringPullInfo struct {
+	Granter, Grantee string
+	// Active is false for a paused, revoked, completed or expired grant.
+	Active bool
+	Amount sdk.Coin
+	// PeriodSeconds between pulls; NextClaim is when the next one is due.
+	PeriodSeconds, NextClaim, ExpiresAt int64
 }
 
 // CommonsKeeper is the subset of x/commons used for authorization.

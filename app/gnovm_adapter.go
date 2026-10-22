@@ -2,12 +2,18 @@ package app
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"strconv"
 	"strings"
 
+	abci "github.com/cometbft/cometbft/abci/types"
+	"github.com/cosmos/cosmos-sdk/baseapp"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/gnolang/gno/gnovm/pkg/gnolang"
 	"github.com/gnolang/gno/gnovm/pkg/gnomod"
 	gnovmmodulekeeper "github.com/sparkdream/gnovm/x/gnovm/keeper"
+	gnovmtypes "github.com/sparkdream/gnovm/x/gnovm/types"
 
 	artifacttypes "sparkdream/x/artifact/types"
 )
@@ -16,13 +22,26 @@ import (
 // artifacttypes.GnoVMKeeper renderers use (docs/x-artifact-spec.md §7.16).
 // It holds the keeper by pointer because the VM inside it is built lazily on
 // first use.
+//
+// Package reads only persisted state (files, docs), so the app's keeper copy
+// serves it. Eval must run on the gnovm module's own VM: Gno keeps
+// preprocessed block nodes in the VM's memory only (they are rebuilt at VM
+// initialisation, never persisted), so a second VM built before a package
+// was deployed cannot evaluate that package. The module's VM is the one that
+// executes deploys, and the only handle on it is its query service.
 type ArtifactGnoVMAdapter struct {
 	keeper *gnovmmodulekeeper.Keeper
+	// queries resolves the app's query router, which exists only once the
+	// BaseApp is built (after keepers are wired).
+	queries func() *baseapp.GRPCQueryRouter
 }
 
-// NewArtifactGnoVMAdapter wraps the app's gnovm keeper.
-func NewArtifactGnoVMAdapter(k *gnovmmodulekeeper.Keeper) *ArtifactGnoVMAdapter {
-	return &ArtifactGnoVMAdapter{keeper: k}
+// gnovmEvalRoute is x/gnovm's Query/Eval method.
+const gnovmEvalRoute = "/gnovm.gnovm.v1.Query/Eval"
+
+// NewArtifactGnoVMAdapter wraps the app's gnovm keeper and query router.
+func NewArtifactGnoVMAdapter(k *gnovmmodulekeeper.Keeper, queries func() *baseapp.GRPCQueryRouter) *ArtifactGnoVMAdapter {
+	return &ArtifactGnoVMAdapter{keeper: k, queries: queries}
 }
 
 var _ artifacttypes.GnoVMKeeper = (*ArtifactGnoVMAdapter)(nil)
@@ -78,13 +97,46 @@ func (a *ArtifactGnoVMAdapter) Package(ctx context.Context, pkgPath string) (art
 	return pkg, true, nil
 }
 
-// EvalString runs expr read-only under the VM's query gas and allocation
-// caps; VM panics surface as errors.
+// EvalString runs expr read-only on the gnovm module's VM, under the VM's
+// query gas and allocation caps; VM panics surface as errors. The expression
+// must yield exactly one string.
 func (a *ArtifactGnoVMAdapter) EvalString(ctx context.Context, pkgPath, expr string) (string, error) {
-	sdkCtx := sdk.UnwrapSDKContext(ctx)
-	gnoCtx, err := a.keeper.BuildGnoContext(sdkCtx)
+	var handler baseapp.GRPCQueryHandler
+	if router := a.queries(); router != nil {
+		handler = router.Route(gnovmEvalRoute)
+	}
+	if handler == nil {
+		return "", errors.New("gnovm eval query is not registered")
+	}
+	bz, err := (&gnovmtypes.QueryEvalRequest{PkgPath: pkgPath, Expr: expr}).Marshal()
 	if err != nil {
 		return "", err
 	}
-	return a.keeper.VMKeeper.QueryEvalString(gnoCtx, pkgPath, expr)
+	res, err := handler(sdk.UnwrapSDKContext(ctx), &abci.RequestQuery{Path: gnovmEvalRoute, Data: bz})
+	if err != nil {
+		return "", err
+	}
+	var out gnovmtypes.QueryEvalResponse
+	if err := out.Unmarshal(res.Value); err != nil {
+		return "", err
+	}
+	return parseGnoString(out.Result)
+}
+
+// parseGnoString reads the one string result QueryEval prints as
+// `("<Go-quoted string>" string)`; anything else (several results, another
+// type) is an error.
+func parseGnoString(result string) (string, error) {
+	inner, ok := strings.CutPrefix(result, "(")
+	if ok {
+		inner, ok = strings.CutSuffix(inner, " string)")
+	}
+	if !ok {
+		return "", fmt.Errorf("expected 1 string result, got %.80q", result)
+	}
+	s, err := strconv.Unquote(inner)
+	if err != nil {
+		return "", fmt.Errorf("expected 1 string result, got %.80q", result)
+	}
+	return s, nil
 }

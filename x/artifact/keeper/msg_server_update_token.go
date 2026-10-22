@@ -29,6 +29,28 @@ func (k msgServer) UpdateToken(ctx context.Context, msg *types.MsgUpdateToken) (
 	}
 	hash := types.MetadataHash(msg.Metadata)
 
+	// On an EDITIONS class token_id names an edition.
+	if c.IsEditions() {
+		e, err := k.getEdition(ctx, msg.ClassId, msg.TokenId)
+		if err != nil {
+			return nil, err
+		}
+		if e.MetadataFrozen {
+			return nil, types.ErrMetadataFrozen
+		}
+		if e.Status == types.ContentStatus_CONTENT_STATUS_HIDDEN {
+			return nil, types.ErrContentHidden
+		}
+		e.Metadata = msg.Metadata
+		e.MediaFlags = types.LabelToken(e.Metadata)
+		if err := k.saveEdition(ctx, e); err != nil {
+			return nil, err
+		}
+		emit(ctx, types.EventTokenUpdated, classAttr(msg.ClassId), editionAttr(msg.TokenId),
+			sdk.NewAttribute("by", msg.Owner), sdk.NewAttribute("metadata_hash", hash))
+		return &types.MsgUpdateTokenResponse{MetadataHash: hash}, nil
+	}
+
 	// A pending mint is updated in place; the recipient can pin the hash.
 	key := collections.Join(msg.ClassId, msg.TokenId)
 	if pm, err := k.PendingMints.Get(ctx, key); err == nil {

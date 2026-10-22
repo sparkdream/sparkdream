@@ -42,7 +42,7 @@ func TestWeightedOperations(t *testing.T) {
 		Cdc:       encCfg.Codec,
 		TxConfig:  encCfg.TxConfig,
 	})
-	require.Len(t, ops, 21)
+	require.Len(t, ops, 50)
 	for _, op := range ops {
 		require.Positive(t, op.Weight())
 	}

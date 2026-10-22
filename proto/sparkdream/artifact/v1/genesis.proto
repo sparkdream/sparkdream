@@ -9,7 +9,8 @@ import "sparkdream/artifact/v1/types.proto";
 option go_package = "sparkdream/x/artifact/types";
 
 // GenesisState defines the artifact module's genesis state. Derived indexes
-// (owner indexes, inbox/outbox, counters, expiry indexes) are rebuilt on
+// (owner indexes, inbox/outbox, counters, expiry indexes, the Children
+// index, Harberger due dates, initiative certificates) are rebuilt on
 // import and never exported.
 message GenesisState {
   // params defines all the parameters of the module.
@@ -33,4 +34,17 @@ message GenesisState {
   repeated SentinelDailyHideEntry sentinel_daily_hides = 15 [(gogoproto.nullable) = false];
   repeated MediaProposal media_proposals = 16 [(gogoproto.nullable) = false];
   repeated QueueCursor class_release_queue = 17 [(gogoproto.nullable) = false];
+  repeated Edition editions = 18 [(gogoproto.nullable) = false];
+  repeated Balance balances = 19 [(gogoproto.nullable) = false];
+  uint64 pending_unit_seq = 20;
+  repeated PendingUnits pending_units = 21 [(gogoproto.nullable) = false];
+  uint64 unit_listing_seq = 22;
+  repeated UnitListing unit_listings = 23 [(gogoproto.nullable) = false];
+  repeated CraftRecipe craft_recipes = 24 [(gogoproto.nullable) = false];
+  repeated Rental rentals = 25 [(gogoproto.nullable) = false];
+  repeated RentalOffer rental_offers = 26 [(gogoproto.nullable) = false];
+  uint64 offer_seq = 27;
+  repeated Offer offers = 28 [(gogoproto.nullable) = false];
+  uint64 auction_seq = 29;
+  repeated Auction auctions = 30 [(gogoproto.nullable) = false];
 }

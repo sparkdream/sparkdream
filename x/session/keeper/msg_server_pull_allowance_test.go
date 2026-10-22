@@ -391,14 +391,17 @@ func TestPullAllowance_PausedOnUnderfunded(t *testing.T) {
 		return nil
 	}
 
-	_, err := ms.PullAllowance(f.ctx, &types.MsgPullAllowance{
+	// The pull succeeds without moving funds so the PAUSED transition
+	// persists (an error would revert it with the tx).
+	paused, err := ms.PullAllowance(f.ctx, &types.MsgPullAllowance{
 		Grantee:   grantee,
 		GrantId:   id,
 		Recipient: recipient,
 		Amount:    sdk.NewInt64Coin("uspark", 1_500_000),
 	})
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "insufficient")
+	require.NoError(t, err)
+	require.True(t, paused.Paused)
+	require.True(t, paused.Transferred.IsZero())
 
 	g, err := f.keeper.Grants.Get(f.ctx, id)
 	require.NoError(t, err)

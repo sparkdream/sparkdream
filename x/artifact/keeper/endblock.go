@@ -12,7 +12,7 @@ import (
 	"sparkdream/x/artifact/types"
 )
 
-// EndBlocker runs the six ordered, capped passes of docs/x-artifact-spec.md
+// EndBlocker runs the ordered, capped passes of docs/x-artifact-spec.md
 // §7.12. No pass is needed for safety (every message checks expiry and
 // hidden status at use); a backlog only delays lock, deposit and record
 // release. A failing record is logged, recorded in FailedExpiry and skipped,
@@ -30,9 +30,118 @@ func (k Keeper) EndBlocker(ctx context.Context) error {
 	k.expireOwnerProposals(sdkCtx, t, limit)
 	k.expireHides(sdkCtx, h, limit)
 	k.drainScrubQueues(sdkCtx, limit)
+	k.expireRentals(sdkCtx, t, limit)
+	k.expireRentalOffers(sdkCtx, t, limit)
+	k.expireUnitListings(sdkCtx, t, limit)
 	k.expireTokens(sdkCtx, t, limit)
 	k.drainReleaseQueues(sdkCtx, limit)
+	k.collectHarbergerTax(sdkCtx, t, limit)
+	k.expireOffers(sdkCtx, t, limit)
+	k.settleEndedAuctions(sdkCtx, t, limit)
 	return nil
+}
+
+// dueIDs collects up to limit entries of a (time, id) index with
+// time <= cutoff.
+func dueIDs(ctx context.Context, ks collections.KeySet[collections.Pair[int64, uint64]], cutoff int64, limit int) []collections.Pair[int64, uint64] {
+	rng := new(collections.Range[collections.Pair[int64, uint64]]).EndInclusive(collections.Join(cutoff, uint64(math.MaxUint64)))
+	var due []collections.Pair[int64, uint64]
+	iter, err := ks.Iterate(ctx, rng)
+	if err != nil {
+		return nil
+	}
+	defer iter.Close()
+	for ; iter.Valid() && len(due) < limit; iter.Next() {
+		if key, err := iter.Key(); err == nil {
+			due = append(due, key)
+		}
+	}
+	return due
+}
+
+// expireOffers refunds offers past their expiry.
+func (k Keeper) expireOffers(ctx sdk.Context, cutoff int64, limit int) {
+	for _, key := range dueIDs(ctx, k.OfferExpiry, cutoff, limit) {
+		id := key.K2()
+		k.safely(ctx, "offer", u64(id), func(c sdk.Context) error {
+			o, err := k.Offers.Get(c, id)
+			if err != nil {
+				return k.OfferExpiry.Remove(c, key)
+			}
+			return k.removeOffer(c, o, true, "expired")
+		}, func() { _ = k.OfferExpiry.Remove(ctx, key) })
+	}
+}
+
+// settleEndedAuctions settles auctions whose end has passed.
+func (k Keeper) settleEndedAuctions(ctx sdk.Context, cutoff int64, limit int) {
+	for _, key := range dueIDs(ctx, k.AuctionEnds, cutoff, limit) {
+		id := key.K2()
+		k.safely(ctx, "auction", u64(id), func(c sdk.Context) error {
+			a, err := k.Auctions.Get(c, id)
+			if err != nil || a.EndsAt != key.K1() {
+				return k.AuctionEnds.Remove(c, key)
+			}
+			_, err = k.settleAuction(c, a)
+			return err
+		}, func() { _ = k.AuctionEnds.Remove(ctx, key) })
+	}
+}
+
+// expireRentals ends rentals whose term has run out. It runs before
+// expireTokens so an expiring token's rental is over first.
+func (k Keeper) expireRentals(ctx sdk.Context, cutoff int64, limit int) {
+	for _, key := range dueTimeTokens(ctx, k.RentalExpiry, cutoff, limit) {
+		classID, tokenID := key.K2(), key.K3()
+		k.safely(ctx, "rental", fmt.Sprintf("%d/%d", classID, tokenID), func(c sdk.Context) error {
+			r, err := k.Rentals.Get(c, collections.Join(classID, tokenID))
+			if err != nil || r.ExpiresAt != key.K1() {
+				return k.RentalExpiry.Remove(c, key)
+			}
+			return k.endRental(c, r, "expired")
+		}, func() { _ = k.RentalExpiry.Remove(ctx, key) })
+	}
+}
+
+// expireRentalOffers drops rental offers past their offer window.
+func (k Keeper) expireRentalOffers(ctx sdk.Context, cutoff int64, limit int) {
+	for _, key := range dueTimeTokens(ctx, k.RentalOfferExpiry, cutoff, limit) {
+		classID, tokenID := key.K2(), key.K3()
+		k.safely(ctx, "rental_offer", fmt.Sprintf("%d/%d", classID, tokenID), func(c sdk.Context) error {
+			o, err := k.RentalOffers.Get(c, collections.Join(classID, tokenID))
+			if err != nil || o.ExpiresAt != key.K1() {
+				return k.RentalOfferExpiry.Remove(c, key)
+			}
+			return k.clearRentalOffer(c, classID, tokenID, "expired")
+		}, func() { _ = k.RentalOfferExpiry.Remove(ctx, key) })
+	}
+}
+
+// expireUnitListings removes unit listings past their expiry and unlocks
+// their units.
+func (k Keeper) expireUnitListings(ctx sdk.Context, cutoff int64, limit int) {
+	rng := new(collections.Range[collections.Pair[int64, uint64]]).EndInclusive(collections.Join(cutoff, uint64(math.MaxUint64)))
+	var due []collections.Pair[int64, uint64]
+	iter, err := k.UnitListingExpiry.Iterate(ctx, rng)
+	if err != nil {
+		return
+	}
+	for ; iter.Valid() && len(due) < limit; iter.Next() {
+		if key, err := iter.Key(); err == nil {
+			due = append(due, key)
+		}
+	}
+	iter.Close()
+	for _, key := range due {
+		id := key.K2()
+		k.safely(ctx, "unit_listing", u64(id), func(c sdk.Context) error {
+			l, err := k.UnitListings.Get(c, id)
+			if err != nil {
+				return k.UnitListingExpiry.Remove(c, key)
+			}
+			return k.removeUnitListing(c, l, "expired")
+		}, func() { _ = k.UnitListingExpiry.Remove(ctx, key) })
+	}
 }
 
 // expireTokens burns EXPIRY_MODE_BURN tokens whose expires_at has passed,
@@ -310,23 +419,26 @@ func (k Keeper) drainScrubQueues(ctx sdk.Context, limit int) {
 		func(c sdk.Context, classID, cursor uint64, n int) ([]uint64, bool) {
 			tIDs, tDone := tokenIDsFrom(c, k.Tokens, classID, cursor, n)
 			pIDs, pDone := tokenIDsFrom(c, k.PendingMints, classID, cursor, n)
+			eIDs, eDone := tokenIDsFrom(c, k.Editions, classID, cursor, n)
 			frontier := uint64(math.MaxUint64)
-			if !tDone && len(tIDs) > 0 {
-				frontier = tIDs[len(tIDs)-1]
-			}
-			if !pDone && len(pIDs) > 0 && pIDs[len(pIDs)-1] < frontier {
-				frontier = pIDs[len(pIDs)-1]
+			for _, part := range []struct {
+				ids  []uint64
+				done bool
+			}{{tIDs, tDone}, {pIDs, pDone}, {eIDs, eDone}} {
+				if !part.done && len(part.ids) > 0 && part.ids[len(part.ids)-1] < frontier {
+					frontier = part.ids[len(part.ids)-1]
+				}
 			}
 			seen := map[uint64]bool{}
 			var ids []uint64
-			for _, id := range append(tIDs, pIDs...) {
+			for _, id := range append(append(tIDs, pIDs...), eIDs...) {
 				if id <= frontier && !seen[id] {
 					seen[id] = true
 					ids = append(ids, id)
 				}
 			}
 			slices.Sort(ids)
-			return ids, tDone && pDone
+			return ids, tDone && pDone && eDone
 		},
 		func(c sdk.Context, classID, tokenID uint64) error {
 			key := collections.Join(classID, tokenID)
@@ -337,6 +449,10 @@ func (k Keeper) drainScrubQueues(ctx sdk.Context, limit int) {
 			if pm, err := k.PendingMints.Get(c, key); err == nil {
 				pm.Metadata = types.ScrubbedMetadata()
 				return k.PendingMints.Set(c, key, pm)
+			}
+			if e, err := k.Editions.Get(c, key); err == nil {
+				scrubEdition(&e)
+				return k.saveEdition(c, e)
 			}
 			return nil
 		})

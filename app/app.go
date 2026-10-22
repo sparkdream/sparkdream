@@ -318,6 +318,7 @@ func New(
 	app.SeasonKeeper.SetBlogKeeper(app.BlogKeeper)
 	app.SeasonKeeper.SetForumKeeper(app.ForumKeeper)
 	app.SeasonKeeper.SetCollectKeeper(app.CollectKeeper)
+	app.SeasonKeeper.SetArtifactKeeper(app.ArtifactKeeper)
 
 	// Wire cross-module keepers into Blog after depinject.
 	app.BlogKeeper.SetRepKeeper(app.RepKeeper)
@@ -415,8 +416,16 @@ func New(
 	app.ArtifactKeeper.SetDistrKeeper(NewServiceDistributionAdapter(app.DistrKeeper))
 	// Renderer classes evaluate a pure Gno package at query time through
 	// x/gnovm (docs/x-artifact-spec.md §7.16); the adapter holds the keeper
-	// by pointer because its VM is built lazily.
-	app.ArtifactKeeper.SetGnoVMKeeper(NewArtifactGnoVMAdapter(&app.GnoVMKeeper))
+	// by pointer because its VM is built lazily, and evaluates through the
+	// module's query service so it runs on the VM that executed the deploys.
+	app.ArtifactKeeper.SetGnoVMKeeper(NewArtifactGnoVMAdapter(&app.GnoVMKeeper, func() *baseapp.GRPCQueryRouter {
+		return app.GRPCQueryRouter()
+	}))
+	// Harberger tokens pay their tax through x/session RecurringPulls granted
+	// to the artifact module (docs/x-artifact-spec.md §7.24).
+	app.ArtifactKeeper.SetSessionKeeper(NewArtifactSessionAdapter(app.SessionKeeper))
+	// Renderer state v2 reads the current season and its holder's standing.
+	app.ArtifactKeeper.SetSeasonKeeper(NewArtifactSeasonAdapter(&app.SeasonKeeper))
 	// Artifact hide appeals run through x/rep's moderation-appeal machinery
 	// (bond, jury, verdict, timeout); x/rep calls back into artifact for
 	// GOV_ACTION_TYPE_ARTIFACT_HIDE.

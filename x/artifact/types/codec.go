@@ -8,6 +8,122 @@ import (
 
 func RegisterInterfaces(registrar codectypes.InterfaceRegistry) {
 	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgCancelAuction{},
+	)
+
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgSettleAuction{},
+	)
+
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgBid{},
+	)
+
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgStartAuction{},
+	)
+
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgAcceptOffer{},
+	)
+
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgCancelOffer{},
+	)
+
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgMakeOffer{},
+	)
+
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgUpdateUnitListing{},
+	)
+
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgForceBuy{},
+	)
+
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgSetHarbergerPrice{},
+	)
+
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgDetach{},
+	)
+
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgNest{},
+	)
+
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgEndRental{},
+	)
+
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgAcceptRental{},
+	)
+
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgCancelRentalOffer{},
+	)
+
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgOfferRental{},
+	)
+
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgCraft{},
+	)
+
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgRemoveCraftRecipe{},
+	)
+
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgAddCraftRecipe{},
+	)
+
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgClaimEditionRewards{},
+	)
+
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgFundEdition{},
+	)
+
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgBuyUnits{},
+	)
+
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgDelistUnits{},
+	)
+
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgListUnits{},
+	)
+
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgRevokeUnits{},
+	)
+
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgBurnUnits{},
+	)
+
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgTransferUnits{},
+	)
+
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgMintUnits{},
+	)
+
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgCreateEdition{},
+	)
+
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
 		&MsgSetDisplayedMedia{},
 	)
 

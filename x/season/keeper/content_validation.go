@@ -9,7 +9,8 @@ import (
 )
 
 // ValidateContentRef validates a content reference string.
-// Supported formats: blog/post/{id}, forum/post/{id}, collect/collection/{id}, rep/initiative/{id}, rep/jury/{address}
+// Supported formats: blog/post/{id}, forum/post/{id}, collect/collection/{id}, rep/initiative/{id}, rep/jury/{address},
+// artifact/certificate/{class_id}/{edition_id}
 func (k Keeper) ValidateContentRef(ctx context.Context, contentRef string) error {
 	parts := strings.Split(contentRef, "/")
 	if len(parts) < 3 {
@@ -74,6 +75,24 @@ func (k Keeper) ValidateContentRef(ctx context.Context, contentRef string) error
 			// Address validation is sufficient
 		} else {
 			return types.ErrInvalidContentRef.Wrapf("unsupported rep content type: %s", contentType)
+		}
+	case "artifact":
+		if contentType != "certificate" {
+			return types.ErrInvalidContentRef.Wrapf("unsupported artifact content type: %s", contentType)
+		}
+		ids := strings.Split(identifier, "/")
+		if len(ids) != 2 {
+			return types.ErrInvalidContentRef.Wrapf("expected artifact/certificate/{class_id}/{edition_id}, got: %s", contentRef)
+		}
+		classID, err1 := strconv.ParseUint(ids[0], 10, 64)
+		editionID, err2 := strconv.ParseUint(ids[1], 10, 64)
+		if err1 != nil || err2 != nil {
+			return types.ErrInvalidContentRef.Wrapf("invalid certificate ID: %s", identifier)
+		}
+		if k.artifactKeeper != nil {
+			if !k.artifactKeeper.IsImpactCertificate(ctx, classID, editionID) {
+				return types.ErrContentNotFound.Wrapf("impact certificate %d/%d not found", classID, editionID)
+			}
 		}
 	default:
 		return types.ErrInvalidContentRef.Wrapf("unsupported module: %s", module)

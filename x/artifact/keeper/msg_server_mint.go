@@ -3,6 +3,8 @@ package keeper
 import (
 	"context"
 
+	errorsmod "cosmossdk.io/errors"
+
 	"sparkdream/x/artifact/types"
 )
 
@@ -18,6 +20,9 @@ func (k msgServer) Mint(ctx context.Context, msg *types.MsgMint) (*types.MsgMint
 	c, err := k.mintPreconditions(ctx, msg.ClassId, msg.Minter, msg.AcceptedContentLicense, uint64(len(msg.Entries)))
 	if err != nil {
 		return nil, err
+	}
+	if c.IsEditions() {
+		return nil, errorsmod.Wrap(types.ErrWrongTokenModel, "editions classes mint with MsgCreateEdition and MsgMintUnits")
 	}
 
 	results := make([]types.MintResult, 0, len(msg.Entries))

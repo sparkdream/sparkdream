@@ -1,6 +1,7 @@
 package keeper_test
 
 import (
+	"context"
 	"testing"
 
 	"sparkdream/x/season/types"
@@ -101,6 +102,26 @@ func TestValidateContentRef(t *testing.T) {
 			contentRef: "rep/stake/1",
 			wantErr:    types.ErrInvalidContentRef,
 		},
+		{
+			name:       "artifact/certificate valid",
+			contentRef: "artifact/certificate/3/7",
+			wantErr:    nil,
+		},
+		{
+			name:       "artifact/certificate missing edition",
+			contentRef: "artifact/certificate/3",
+			wantErr:    types.ErrInvalidContentRef,
+		},
+		{
+			name:       "artifact/certificate invalid id",
+			contentRef: "artifact/certificate/3/x",
+			wantErr:    types.ErrInvalidContentRef,
+		},
+		{
+			name:       "artifact unsupported type",
+			contentRef: "artifact/token/3",
+			wantErr:    types.ErrInvalidContentRef,
+		},
 	}
 
 	for _, tc := range tests {
@@ -113,4 +134,19 @@ func TestValidateContentRef(t *testing.T) {
 			}
 		})
 	}
+}
+
+type stubArtifact map[[2]uint64]bool
+
+func (s stubArtifact) IsImpactCertificate(_ context.Context, classID, editionID uint64) bool {
+	return s[[2]uint64{classID, editionID}]
+}
+
+// TestValidateContentRefCertificateExists checks certificate refs against
+// x/artifact once it is wired.
+func TestValidateContentRefCertificateExists(t *testing.T) {
+	f := initFixture(t)
+	f.keeper.SetArtifactKeeper(stubArtifact{{3, 7}: true})
+	require.NoError(t, f.keeper.ValidateContentRef(f.ctx, "artifact/certificate/3/7"))
+	require.ErrorIs(t, f.keeper.ValidateContentRef(f.ctx, "artifact/certificate/3/8"), types.ErrContentNotFound)
 }

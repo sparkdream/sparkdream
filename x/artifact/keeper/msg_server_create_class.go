@@ -71,8 +71,8 @@ func (k Keeper) validateExpiryPolicy(ctx context.Context, e types.ExpiryPolicy) 
 // renderer is refused, so a class can never name a package nobody can run.
 func (k Keeper) validateRenderer(ctx context.Context, r types.Renderer) error {
 	if !r.HasRenderer() {
-		if r.SourceHash != "" {
-			return errorsmod.Wrap(types.ErrInvalidRenderer, "source_hash without pkg_path")
+		if r.SourceHash != "" || r.StateVersion != 0 {
+			return errorsmod.Wrap(types.ErrInvalidRenderer, "source_hash and state_version need a pkg_path")
 		}
 		return nil
 	}
@@ -138,6 +138,46 @@ func validateClassContent(name, symbol, description, uri, uriHash, tokenURIBase 
 	return types.ValidateURI("token_uri_base", tokenURIBase, p)
 }
 
+// validateClassShape checks the wave 3 and 4 combinations
+// (docs/x-artifact-spec.md §3.15): what an EDITIONS class, a Harberger
+// class and a NEITHER class may not be combined with.
+func validateClassShape(msg *types.MsgCreateClass) error {
+	if _, ok := types.TokenModel_name[int32(msg.TokenModel)]; !ok {
+		return errorsmod.Wrapf(types.ErrInvalidFlags, "unknown token_model %d", msg.TokenModel)
+	}
+	if err := msg.Harberger.Validate(); err != nil {
+		return err
+	}
+	f := msg.Flags
+	if msg.TokenModel == types.TokenModel_TOKEN_MODEL_EDITIONS {
+		switch {
+		case f.Mutual || f.Redeemable:
+			return errorsmod.Wrap(types.ErrInvalidFlags, "editions classes cannot be mutual or redeemable")
+		case msg.Expiry.Expires() || msg.Reveal.Reveals() || msg.Renderer.HasRenderer():
+			return errorsmod.Wrap(types.ErrInvalidFlags, "editions classes take no expiry, commit-reveal or renderer")
+		case msg.Harberger.Enabled():
+			return errorsmod.Wrap(types.ErrInvalidFlags, "editions classes cannot be harberger classes")
+		case msg.MintPolicy.PublicMintEnabled:
+			return errorsmod.Wrap(types.ErrInvalidFlags, "editions classes have no public mint")
+		}
+	}
+	if msg.Harberger.Enabled() {
+		switch {
+		case !f.Transferable || f.BurnAuthorization != types.BurnAuthorization_BURN_AUTHORIZATION_HOLDER:
+			return errorsmod.Wrap(types.ErrInvalidFlags, "harberger classes must be transferable and holder-burnable")
+		case f.Mutual || f.Redeemable || msg.Expiry.Expires() || msg.Reveal.Reveals():
+			return errorsmod.Wrap(types.ErrInvalidFlags, "harberger classes cannot be mutual, redeemable, expiring or commit-reveal")
+		}
+	}
+	if f.NobodyMayBurn() {
+		// Both need a burn: the expiry burn and the overdue-reveal refund.
+		if msg.Expiry.Mode == types.ExpiryMode_EXPIRY_MODE_BURN || msg.Reveal.Reveals() {
+			return errorsmod.Wrap(types.ErrInvalidFlags, "permanent (NEITHER) classes cannot burn on expiry or use commit-reveal")
+		}
+	}
+	return nil
+}
+
 func (k msgServer) CreateClass(ctx context.Context, msg *types.MsgCreateClass) (*types.MsgCreateClassResponse, error) {
 	creator, err := k.decodeAddr("creator", msg.Creator)
 	if err != nil {
@@ -181,6 +221,9 @@ func (k msgServer) CreateClass(ctx context.Context, msg *types.MsgCreateClass) (
 		return nil, errorsmod.Wrap(types.ErrInvalidFlags, "mutual classes cannot use commit-reveal")
 	}
 	if err := k.validateRenderer(ctx, msg.Renderer); err != nil {
+		return nil, err
+	}
+	if err := validateClassShape(msg); err != nil {
 		return nil, err
 	}
 	minters, err := k.validateMinterSet(msg.Minters, msg.Creator, p)
@@ -236,6 +279,8 @@ func (k msgServer) CreateClass(ctx context.Context, msg *types.MsgCreateClass) (
 		Expiry:            expiry,
 		Reveal:            msg.Reveal,
 		Renderer:          msg.Renderer,
+		TokenModel:        msg.TokenModel,
+		Harberger:         msg.Harberger,
 	}
 	c.MediaFlags = types.LabelClass(c)
 	if err := k.Classes.Set(ctx, c.Id, c); err != nil {
@@ -258,6 +303,8 @@ func (k msgServer) CreateClass(ctx context.Context, msg *types.MsgCreateClass) (
 		sdk.NewAttribute("redeemable", strconv.FormatBool(c.Flags.Redeemable)),
 		sdk.NewAttribute("expiry_mode", c.Expiry.Mode.String()),
 		sdk.NewAttribute("reveal_kind", c.Reveal.Kind.String()),
-		sdk.NewAttribute("renderer", c.Renderer.PkgPath))
+		sdk.NewAttribute("renderer", c.Renderer.PkgPath),
+		sdk.NewAttribute("token_model", c.TokenModel.String()),
+		sdk.NewAttribute("harberger", strconv.FormatBool(c.IsHarberger())))
 	return &types.MsgCreateClassResponse{ClassId: c.Id}, nil
 }

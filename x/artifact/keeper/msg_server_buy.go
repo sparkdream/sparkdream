@@ -17,8 +17,7 @@ func (k msgServer) Buy(ctx context.Context, msg *types.MsgBuy) (*types.MsgBuyRes
 	if err != nil {
 		return nil, err
 	}
-	p := k.GetParams(ctx)
-	if !p.MarketEnabled {
+	if !k.GetParams(ctx).MarketEnabled {
 		return nil, types.ErrMarketDisabled
 	}
 	l, err := k.Listings.Get(ctx, collections.Join(msg.ClassId, msg.TokenId))
@@ -58,36 +57,13 @@ func (k msgServer) Buy(ctx context.Context, msg *types.MsgBuy) (*types.MsgBuyRes
 		return nil, types.ErrMetadataChanged
 	}
 
-	s := ComputeSettlement(l.Price.Amount, p.SaleFeeBps, c.RoyaltyBps, p.MaxRoyaltyBps)
-	// Each share is paid to its recipient, or to the seller if the recipient
-	// has become unpayable (§7.7).
-	royaltyParts := SplitRoyalty(s.Royalty, c.RoyaltyRecipients)
-	royaltyTo := make([]string, len(royaltyParts))
-	redirected := false
-	for i, share := range c.RoyaltyRecipients {
-		royaltyTo[i] = share.Address
-		if !royaltyParts[i].IsPositive() {
-			continue
-		}
-		if addr, err := k.addressCodec.StringToBytes(share.Address); err != nil || k.bankKeeper.BlockedAddr(addr) {
-			royaltyTo[i] = l.Seller
-			redirected = true
-		}
-	}
-	if err := k.fundCommunityPool(ctx, buyer, s.Fee); err != nil {
+	// A token holding nested tokens needs the contents pin (fail closed).
+	if err := k.checkContentsPin(ctx, t, msg.ExpectedContentsHash); err != nil {
 		return nil, err
 	}
-	paid := make([]string, 0, len(royaltyParts))
-	for i, part := range royaltyParts {
-		if !part.IsPositive() {
-			continue
-		}
-		if err := k.send(ctx, buyer, royaltyTo[i], part); err != nil {
-			return nil, err
-		}
-		paid = append(paid, royaltyTo[i]+"="+part.String())
-	}
-	if err := k.send(ctx, buyer, l.Seller, s.Proceeds); err != nil {
+
+	s, paid, redirected, err := k.settleSale(ctx, c, buyer, l.Seller, l.Price.Amount)
+	if err != nil {
 		return nil, err
 	}
 

@@ -27,6 +27,9 @@ func SimulateMsgIssue(
 		if !ok {
 			return noop(msg, "no open class owned by a sim account")
 		}
+		if c.IsEditions() {
+			return noop(msg, "editions classes mint through MsgCreateEdition and MsgMintUnits")
+		}
 		if c.Reveal.Kind == types.RevealKind_REVEAL_KIND_BLIND_METADATA {
 			return noop(msg, "blind classes mint empty metadata through MsgMint")
 		}

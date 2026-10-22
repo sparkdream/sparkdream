@@ -27,9 +27,11 @@ func SimulateMsgList(
 		if !k.GetParams(ctx).MarketEnabled {
 			return noop(msg, "market disabled")
 		}
+		now := ctx.BlockTime().Unix()
 		t, owner, ok := randomToken(r, ctx, k, accs, func(c types.Class, t types.Token) bool {
-			return c.Flags.Transferable && t.Lock == types.TokenLock_TOKEN_LOCK_NONE &&
-				c.Status == types.ContentStatus_CONTENT_STATUS_ACTIVE && t.Status == types.ContentStatus_CONTENT_STATUS_ACTIVE
+			return c.Flags.Transferable && !c.IsHarberger() && t.Lock == types.TokenLock_TOKEN_LOCK_NONE &&
+				c.Status == types.ContentStatus_CONTENT_STATUS_ACTIVE && t.Status == types.ContentStatus_CONTENT_STATUS_ACTIVE &&
+				!types.IsExpired(t, now) && (t.RedeemedAt == 0 || c.Flags.RedeemedTransferable)
 		})
 		if !ok {
 			return noop(msg, "no listable token")

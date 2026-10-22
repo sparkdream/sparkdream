@@ -598,6 +598,8 @@ func TestDefaultParams_SeedsCommonsModuleInAllowlist(t *testing.T) {
 	expected := authtypes.NewModuleAddress("commons").String()
 	require.Contains(t, params.AuthorizedGrantCreators, expected,
 		"commons module address must be in the genesis-default allowlist")
+	require.Contains(t, params.AuthorizedGrantCreators, authtypes.NewModuleAddress("artifact").String(),
+		"artifact claims Harberger tax pulls granted to it")
 }
 
 // TestDefaultParams_ValidateIncludesSeededAllowlist confirms the

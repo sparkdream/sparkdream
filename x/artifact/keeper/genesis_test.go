@@ -137,3 +137,178 @@ func TestUpdateParamsAndOperationalParams(t *testing.T) {
 	_, err = f.msg.UpdateOperationalParams(f.ctx, &types.MsgUpdateOperationalParams{Authority: f.ops.String(), OperationalParams: zero})
 	require.ErrorIs(t, err, types.ErrInvalidParams)
 }
+
+// populateWave34 builds editions (with a pending unit transfer, a unit
+// listing and retro funding), a crafting recipe, a rental, a rental offer,
+// a nested tree and a Harberger token with a tax grant.
+func populateWave34(f *fixture) {
+	sess := f.withSession()
+	ed := f.createEditionsClass(f.alice)
+	cert := f.createEdition(f.alice, ed, 100, types.ImpactClaim{Scope: "aurora survey", Contributors: []string{f.alice.String()}})
+	f.mintUnits(f.alice, ed, cert, f.bob, 10)
+	f.mintUnits(f.alice, ed, cert, f.dave, 4)
+	_, err := f.msg.TransferUnits(f.ctx, &types.MsgTransferUnits{Sender: f.dave.String(),
+		Entries: []types.UnitTransferEntry{{ClassId: ed, EditionId: cert, Recipient: f.carol.String(), Amount: 1}}})
+	require.NoError(f.t, err) // pending: dave is untrusted
+	_, err = f.msg.ListUnits(f.ctx, &types.MsgListUnits{Seller: f.bob.String(), ClassId: ed, EditionId: cert, Quantity: 3, UnitPrice: spark(1), Duration: 600})
+	require.NoError(f.t, err)
+	_, err = f.msg.FundEdition(f.ctx, &types.MsgFundEdition{Funder: f.carol.String(), ClassId: ed, EditionId: cert, Amount: spark(7)})
+	require.NoError(f.t, err)
+
+	gear := f.createClass(f.alice)
+	g := f.mint(f.alice, gear, f.bob, 3)
+	_, err = f.msg.AddCraftRecipe(f.ctx, &types.MsgAddCraftRecipe{Owner: f.alice.String(), ClassId: gear,
+		Inputs: []types.CraftInput{{ClassId: gear, Quantity: 2}}, OutputMetadata: meta("forged"), AcceptedContentLicense: types.ContentLicense})
+	require.NoError(f.t, err)
+	_, err = f.msg.Nest(f.ctx, &types.MsgNest{Owner: f.bob.String(), Child: types.TokenRef{ClassId: gear, TokenId: g[1].TokenId},
+		Parent: types.TokenRef{ClassId: gear, TokenId: g[0].TokenId}})
+	require.NoError(f.t, err)
+	offer, err := f.msg.OfferRental(f.ctx, &types.MsgOfferRental{Owner: f.bob.String(), ClassId: gear, TokenId: g[0].TokenId,
+		Price: spark(1), Duration: 600, OfferDuration: 600})
+	require.NoError(f.t, err)
+	hash, err := f.keeper.ContentsHash(f.ctx, f.token(gear, g[0].TokenId))
+	require.NoError(f.t, err)
+	_, err = f.msg.AcceptRental(f.ctx, &types.MsgAcceptRental{Renter: f.carol.String(), ClassId: gear, TokenId: g[0].TokenId,
+		ExpectedPrice: spark(1), ExpectedNonce: offer.Nonce, ExpectedContentsHash: hash})
+	require.NoError(f.t, err)
+	_, err = f.msg.OfferRental(f.ctx, &types.MsgOfferRental{Owner: f.bob.String(), ClassId: gear, TokenId: g[2].TokenId,
+		Price: spark(1), Duration: 600, OfferDuration: 600})
+	require.NoError(f.t, err)
+
+	policy := types.HarbergerPolicy{TaxBpsPerYear: 1000, TaxPeriod: 86400, ForeclosureDuration: 86400}
+	plots := f.createClass(f.alice, func(m *types.MsgCreateClass) { m.Harberger = policy })
+	plot := f.mint(f.alice, plots, f.bob, 1)[0].TokenId
+	now := f.ctx.BlockTime().Unix()
+	sess.grants[1] = &types.RecurringPullInfo{Granter: f.bob.String(), Grantee: moduleAddress(), Active: true,
+		Amount: sdkCoin(bond, 1_000_000), PeriodSeconds: 86400, NextClaim: now + 86400, ExpiresAt: now + 30*86400}
+	_, err = f.msg.SetHarbergerPrice(f.ctx, &types.MsgSetHarbergerPrice{Owner: f.bob.String(), ClassId: plots, TokenId: plot,
+		Price: spark(10).Amount, GrantId: 1})
+	require.NoError(f.t, err)
+	f.checkInvariants()
+}
+
+func TestGenesisRoundTripWave34(t *testing.T) {
+	f := initFixture(t)
+	populateWave34(f)
+	exported, err := f.keeper.ExportGenesis(f.ctx)
+	require.NoError(t, err)
+	require.NoError(t, exported.Validate())
+	require.Len(t, exported.Editions, 1)
+	require.Len(t, exported.Balances, 2) // bob and dave; carol's units are pending
+	require.Len(t, exported.PendingUnits, 1)
+	require.Len(t, exported.UnitListings, 1)
+	require.Len(t, exported.CraftRecipes, 1)
+	require.Len(t, exported.Rentals, 1)
+	require.Len(t, exported.RentalOffers, 1)
+
+	g := initFixture(t)
+	g.withSession()
+	g.bank.balances[moduleAddr(types.ModuleName)] = f.bank.balances[moduleAddr(types.ModuleName)]
+	require.NoError(t, g.keeper.InitGenesis(g.ctx, *exported))
+	g.checkInvariants()
+	reexported, err := g.keeper.ExportGenesis(g.ctx)
+	require.NoError(t, err)
+	require.Equal(t, exported, reexported)
+
+	// Rebuilt indexes work: the pending units sit in carol's inbox, the
+	// tree still has its child link, the tax pull is scheduled.
+	inbox, err := g.query.Inbox(g.ctx, &types.QueryInboxRequest{Address: g.carol.String()})
+	require.NoError(t, err)
+	require.Len(t, inbox.Items, 1)
+	require.Equal(t, uint64(1), inbox.Items[0].Amount)
+	children, err := g.query.Children(g.ctx, &types.QueryChildrenRequest{ClassId: 2, TokenId: 1})
+	require.NoError(t, err)
+	require.Len(t, children.Children, 1)
+	rentals, err := g.query.RentalsByUser(g.ctx, &types.QueryRentalsByUserRequest{User: g.carol.String()})
+	require.NoError(t, err)
+	require.Len(t, rentals.Rentals, 1)
+}
+
+func TestGenesisValidateWave34(t *testing.T) {
+	f := initFixture(t)
+	populateWave34(f)
+	cases := []struct {
+		name string
+		mut  func(gs *types.GenesisState)
+	}{
+		{"edition supply mismatch", func(gs *types.GenesisState) { gs.Editions[0].Supply++ }},
+		{"edition holders mismatch", func(gs *types.GenesisState) { gs.Editions[0].Holders = 0 }},
+		{"edition in a unique class", func(gs *types.GenesisState) { gs.Editions[0].ClassId = 2 }},
+		{"balance locked mismatch", func(gs *types.GenesisState) { gs.Balances[0].Locked++ }},
+		{"pending units above seq", func(gs *types.GenesisState) { gs.PendingUnitSeq = 0 }},
+		{"unit listing above seq", func(gs *types.GenesisState) { gs.UnitListingSeq = 0 }},
+		{"recipe above class counter", func(gs *types.GenesisState) { gs.CraftRecipes[0].Id = 9 }},
+		{"rental without lock", func(gs *types.GenesisState) {
+			for i := range gs.Tokens {
+				if gs.Tokens[i].Lock == types.TokenLock_TOKEN_LOCK_RENTED {
+					gs.Tokens[i].Lock = types.TokenLock_TOKEN_LOCK_NONE
+				}
+			}
+		}},
+		{"descendants mismatch", func(gs *types.GenesisState) {
+			for i := range gs.Tokens {
+				if gs.Tokens[i].Descendants > 0 {
+					gs.Tokens[i].Descendants++
+				}
+			}
+		}},
+		{"harberger state on a plain token", func(gs *types.GenesisState) {
+			for i := range gs.Tokens {
+				if gs.Tokens[i].Harberger != nil {
+					gs.Tokens[i].Harberger = nil
+				}
+			}
+		}},
+		{"unknown token model", func(gs *types.GenesisState) { gs.Classes[0].TokenModel = 9 }},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			gs, err := f.keeper.ExportGenesis(f.ctx)
+			require.NoError(t, err)
+			tc.mut(gs)
+			require.Error(t, gs.Validate())
+		})
+	}
+}
+
+func TestGenesisRoundTripOffersAuctions(t *testing.T) {
+	f := initFixture(t)
+	classID := f.createClass(f.alice)
+	toks := f.mint(f.alice, classID, f.bob, 2)
+	_, err := f.msg.MakeOffer(f.ctx, &types.MsgMakeOffer{Bidder: f.carol.String(), ClassId: classID, TokenId: toks[0].TokenId, Price: spark(2), Duration: 600})
+	require.NoError(t, err)
+	_, err = f.msg.MakeOffer(f.ctx, &types.MsgMakeOffer{Bidder: f.dave.String(), ClassId: classID, Price: spark(1), Duration: 600})
+	require.NoError(t, err)
+	a, err := f.msg.StartAuction(f.ctx, &types.MsgStartAuction{Seller: f.bob.String(), ClassId: classID, TokenId: toks[1].TokenId, ReservePrice: spark(1), Duration: 600})
+	require.NoError(t, err)
+	_, err = f.msg.Bid(f.ctx, &types.MsgBid{Bidder: f.carol.String(), AuctionId: a.AuctionId, Amount: spark(3)})
+	require.NoError(t, err)
+	f.checkInvariants()
+
+	exported, err := f.keeper.ExportGenesis(f.ctx)
+	require.NoError(t, err)
+	require.NoError(t, exported.Validate())
+	require.Len(t, exported.Offers, 2)
+	require.Len(t, exported.Auctions, 1)
+
+	g := initFixture(t)
+	g.bank.balances[moduleAddr(types.ModuleName)] = f.bank.balances[moduleAddr(types.ModuleName)]
+	require.NoError(t, g.keeper.InitGenesis(g.ctx, *exported))
+	g.checkInvariants()
+	reexported, err := g.keeper.ExportGenesis(g.ctx)
+	require.NoError(t, err)
+	require.Equal(t, exported, reexported)
+	offers, err := g.query.Offers(g.ctx, &types.QueryOffersRequest{ClassId: classID, TokenId: 0})
+	require.NoError(t, err)
+	require.Len(t, offers.Offers, 1, "the collection offer is indexed under token 0")
+
+	bad, err := f.keeper.ExportGenesis(f.ctx)
+	require.NoError(t, err)
+	bad.AuctionSeq = 0
+	require.Error(t, bad.Validate())
+	bad, _ = f.keeper.ExportGenesis(f.ctx)
+	for i := range bad.Tokens {
+		bad.Tokens[i].Lock = types.TokenLock_TOKEN_LOCK_NONE
+	}
+	require.Error(t, bad.Validate(), "an auction needs its AUCTION lock")
+}

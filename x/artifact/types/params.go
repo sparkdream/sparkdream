@@ -42,6 +42,10 @@ const (
 	HardMaxScheduleStages    uint32 = 32
 	HardMaxMediaProposals    uint32 = 16
 	HardMaxMediaVersions     uint32 = 32
+	HardMaxNestDepth         uint32 = 8
+	HardMaxNestedTokens      uint32 = 100
+	HardMaxCraftRecipes      uint32 = 50
+	HardMaxOffersPerBidder   uint32 = 500
 	// RevokeReasonMaxLength bounds MsgRevoke.reason; HideReasonMaxLength bounds
 	// MsgHideContent.reason_text.
 	RevokeReasonMaxLength = 256
@@ -111,6 +115,13 @@ func DefaultParams() Params {
 		MaxMediaProposalsPerToken: 5,
 		MaxMediaVersionsPerToken:  8,
 		RenderersEnabled:          true,
+
+		MaxNestDepth:            3,
+		MaxNestedTokens:         20,
+		MaxRentalDuration:       90 * 24 * 3600,
+		MaxCraftRecipesPerClass: 10,
+		MaxOffersPerBidder:      50,
+		AuctionExtension:        defaultAuctionExtension(),
 	}
 }
 
@@ -237,6 +248,12 @@ func (p Params) Validate() error {
 		checkU32("max_schedule_stages", p.MaxScheduleStages, 0, HardMaxScheduleStages),
 		checkU32("max_media_proposals_per_token", p.MaxMediaProposalsPerToken, 0, HardMaxMediaProposals),
 		checkU32("max_media_versions_per_token", p.MaxMediaVersionsPerToken, 0, HardMaxMediaVersions),
+		checkU32("max_nest_depth", p.MaxNestDepth, 1, HardMaxNestDepth),
+		checkU32("max_nested_tokens", p.MaxNestedTokens, 1, HardMaxNestedTokens),
+		checkI64("max_rental_duration", p.MaxRentalDuration, MinRentalDuration, MaxRentalDurationCap),
+		checkU32("max_craft_recipes_per_class", p.MaxCraftRecipesPerClass, 0, HardMaxCraftRecipes),
+		checkU32("max_offers_per_bidder", p.MaxOffersPerBidder, 1, HardMaxOffersPerBidder),
+		checkI64("auction_extension", p.AuctionExtension, MinAuctionExtension, MaxAuctionExtension),
 	}
 	for _, err := range limits {
 		if err != nil {

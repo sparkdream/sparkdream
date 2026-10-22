@@ -144,6 +144,96 @@ service Msg {
 
   // SetDisplayedMedia picks which accepted version the token shows.
   rpc SetDisplayedMedia(MsgSetDisplayedMedia) returns (MsgSetDisplayedMediaResponse);
+
+  // CreateEdition adds an edition to an EDITIONS class; with a claim it is
+  // an impact certificate.
+  rpc CreateEdition(MsgCreateEdition) returns (MsgCreateEditionResponse);
+
+  // MintUnits mints units of an edition.
+  rpc MintUnits(MsgMintUnits) returns (MsgMintUnitsResponse);
+
+  // TransferUnits moves edition units to recipients (or their inboxes).
+  rpc TransferUnits(MsgTransferUnits) returns (MsgTransferUnitsResponse);
+
+  // BurnUnits burns units the signer holds.
+  rpc BurnUnits(MsgBurnUnits) returns (MsgBurnUnitsResponse);
+
+  // RevokeUnits burns a holder's units as the class owner, when the class
+  // lets the issuer burn.
+  rpc RevokeUnits(MsgRevokeUnits) returns (MsgRevokeUnitsResponse);
+
+  // ListUnits offers edition units at a fixed per-unit price.
+  rpc ListUnits(MsgListUnits) returns (MsgListUnitsResponse);
+
+  // DelistUnits cancels a unit listing.
+  rpc DelistUnits(MsgDelistUnits) returns (MsgDelistUnitsResponse);
+
+  // BuyUnits buys some or all of a unit listing.
+  rpc BuyUnits(MsgBuyUnits) returns (MsgBuyUnitsResponse);
+
+  // FundEdition pays SPARK to an edition's holders, pro rata (retroactive
+  // funding of an impact certificate).
+  rpc FundEdition(MsgFundEdition) returns (MsgFundEditionResponse);
+
+  // ClaimEditionRewards pays out accrued retro funding.
+  rpc ClaimEditionRewards(MsgClaimEditionRewards) returns (MsgClaimEditionRewardsResponse);
+
+  // AddCraftRecipe adds a crafting recipe to a class (until its first craft).
+  rpc AddCraftRecipe(MsgAddCraftRecipe) returns (MsgAddCraftRecipeResponse);
+
+  // RemoveCraftRecipe removes a crafting recipe.
+  rpc RemoveCraftRecipe(MsgRemoveCraftRecipe) returns (MsgRemoveCraftRecipeResponse);
+
+  // Craft burns a recipe's inputs and mints its output to the crafter.
+  rpc Craft(MsgCraft) returns (MsgCraftResponse);
+
+  // OfferRental offers a token's user right for rent.
+  rpc OfferRental(MsgOfferRental) returns (MsgOfferRentalResponse);
+
+  // CancelRentalOffer withdraws a rental offer.
+  rpc CancelRentalOffer(MsgCancelRentalOffer) returns (MsgCancelRentalOfferResponse);
+
+  // AcceptRental rents a token, paying the offer's price.
+  rpc AcceptRental(MsgAcceptRental) returns (MsgAcceptRentalResponse);
+
+  // EndRental ends a rental.
+  rpc EndRental(MsgEndRental) returns (MsgEndRentalResponse);
+
+  // Nest places a token inside another token the signer owns.
+  rpc Nest(MsgNest) returns (MsgNestResponse);
+
+  // Detach takes a nested token out of its parent.
+  rpc Detach(MsgDetach) returns (MsgDetachResponse);
+
+  // SetHarbergerPrice self-assesses a Harberger token's price.
+  rpc SetHarbergerPrice(MsgSetHarbergerPrice) returns (MsgSetHarbergerPriceResponse);
+
+  // ForceBuy buys a Harberger token at its current price.
+  rpc ForceBuy(MsgForceBuy) returns (MsgForceBuyResponse);
+
+  // UpdateUnitListing changes a unit listing's quantity, price and duration.
+  rpc UpdateUnitListing(MsgUpdateUnitListing) returns (MsgUpdateUnitListingResponse);
+
+  // MakeOffer escrows a SPARK offer for a token or any token of a class.
+  rpc MakeOffer(MsgMakeOffer) returns (MsgMakeOfferResponse);
+
+  // CancelOffer withdraws an offer and refunds its escrow.
+  rpc CancelOffer(MsgCancelOffer) returns (MsgCancelOfferResponse);
+
+  // AcceptOffer sells a token to an offer's bidder.
+  rpc AcceptOffer(MsgAcceptOffer) returns (MsgAcceptOfferResponse);
+
+  // StartAuction puts a token up for an English auction.
+  rpc StartAuction(MsgStartAuction) returns (MsgStartAuctionResponse);
+
+  // Bid places an escrowed bid on an auction.
+  rpc Bid(MsgBid) returns (MsgBidResponse);
+
+  // SettleAuction settles an ended auction (anyone may sign).
+  rpc SettleAuction(MsgSettleAuction) returns (MsgSettleAuctionResponse);
+
+  // CancelAuction withdraws an auction nobody has bid on.
+  rpc CancelAuction(MsgCancelAuction) returns (MsgCancelAuctionResponse);
 }
 
 // MsgUpdateParams is the Msg/UpdateParams request type.
@@ -208,6 +298,13 @@ message MsgCreateClass {
   ];
   // Query-time renderer; fixed at creation (empty pkg_path = none).
   Renderer renderer = 18 [
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+  // UNIQUE (default) or EDITIONS; fixed at creation.
+  TokenModel token_model = 19;
+  // Harberger tokens; fixed at creation (tax_bps_per_year 0 = none).
+  HarbergerPolicy harberger = 20 [
     (gogoproto.nullable) = false,
     (amino.dont_omitempty) = true
   ];
@@ -286,6 +383,8 @@ message MsgSetMaxSupply {
   string owner = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 class_id = 2;
   uint64 max_supply = 3;
+  // 0 = the class cap; otherwise the unit cap of that edition.
+  uint64 edition_id = 4;
 }
 
 // MsgSetMaxSupplyResponse is empty.
@@ -627,6 +726,9 @@ message MsgBuy {
   uint64 expected_nonce = 5;
   // Optional; must equal the token's current metadata hash if set.
   string expected_metadata_hash = 6;
+  // Required when the token holds nested tokens; must equal its contents
+  // hash (Children query).
+  string expected_contents_hash = 7;
 }
 
 // MsgBuyResponse reports the settlement split.
@@ -862,3 +964,556 @@ message MsgSetDisplayedMedia {
 
 // MsgSetDisplayedMediaResponse is empty.
 message MsgSetDisplayedMediaResponse {}
+
+// MsgCreateEdition creates an edition of an EDITIONS class (class owner or
+// listed minter). With a claim it is an impact certificate.
+message MsgCreateEdition {
+  option (cosmos.msg.v1.signer) = "minter";
+  option (amino.name) = "sparkdream/x/artifact/MsgCreateEdition";
+  string minter = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 class_id = 2;
+  TokenMetadata metadata = 3 [
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+  // 0 = unlimited units.
+  uint64 max_supply = 4;
+  // Optional impact claim (scope, contributors, period, initiative).
+  ImpactClaim claim = 5 [
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+  // Must equal "CC0-1.0".
+  string accepted_content_license = 6;
+}
+
+// MsgCreateEditionResponse returns the new edition id.
+message MsgCreateEditionResponse {
+  uint64 edition_id = 1;
+}
+
+// UnitMintEntry is one recipient of a unit mint.
+message UnitMintEntry {
+  // Empty = the minter.
+  string recipient = 1;
+  uint64 amount = 2;
+}
+
+// UnitResult reports one unit delivery: delivered directly, or parked in
+// the recipient's inbox as pending_id (inbox ref (0, pending_id)).
+message UnitResult {
+  string recipient = 1;
+  uint64 amount = 2;
+  bool delivered = 3;
+  uint64 pending_id = 4;
+}
+
+// MsgMintUnits mints units of an edition (class owner or listed minter).
+message MsgMintUnits {
+  option (cosmos.msg.v1.signer) = "minter";
+  option (amino.name) = "sparkdream/x/artifact/MsgMintUnits";
+  string minter = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 class_id = 2;
+  uint64 edition_id = 3;
+  repeated UnitMintEntry entries = 4 [
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+}
+
+// MsgMintUnitsResponse reports each entry.
+message MsgMintUnitsResponse {
+  repeated UnitResult results = 1 [(gogoproto.nullable) = false];
+}
+
+// UnitTransferEntry moves units of one edition to one recipient.
+message UnitTransferEntry {
+  uint64 class_id = 1;
+  uint64 edition_id = 2;
+  string recipient = 3;
+  uint64 amount = 4;
+}
+
+// MsgTransferUnits moves units to recipients (or their inboxes).
+message MsgTransferUnits {
+  option (cosmos.msg.v1.signer) = "sender";
+  option (amino.name) = "sparkdream/x/artifact/MsgTransferUnits";
+  string sender = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  repeated UnitTransferEntry entries = 2 [
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+}
+
+// MsgTransferUnitsResponse reports each entry.
+message MsgTransferUnitsResponse {
+  repeated UnitResult results = 1 [(gogoproto.nullable) = false];
+}
+
+// MsgBurnUnits burns free units the signer holds.
+message MsgBurnUnits {
+  option (cosmos.msg.v1.signer) = "owner";
+  option (amino.name) = "sparkdream/x/artifact/MsgBurnUnits";
+  string owner = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 class_id = 2;
+  uint64 edition_id = 3;
+  uint64 amount = 4;
+}
+
+// MsgBurnUnitsResponse is empty.
+message MsgBurnUnitsResponse {}
+
+// MsgRevokeUnits burns a holder's units as the class owner, when the
+// class's burn_authorization allows the issuer.
+message MsgRevokeUnits {
+  option (cosmos.msg.v1.signer) = "owner";
+  option (amino.name) = "sparkdream/x/artifact/MsgRevokeUnits";
+  string owner = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 class_id = 2;
+  uint64 edition_id = 3;
+  string holder = 4;
+  uint64 amount = 5;
+  string reason = 6;
+}
+
+// MsgRevokeUnitsResponse is empty.
+message MsgRevokeUnitsResponse {}
+
+// MsgListUnits offers units at a fixed per-unit SPARK price.
+message MsgListUnits {
+  option (cosmos.msg.v1.signer) = "seller";
+  option (amino.name) = "sparkdream/x/artifact/MsgListUnits";
+  string seller = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 class_id = 2;
+  uint64 edition_id = 3;
+  uint64 quantity = 4;
+  cosmos.base.v1beta1.Coin unit_price = 5 [
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+  // Seconds.
+  int64 duration = 6;
+}
+
+// MsgListUnitsResponse returns the listing id.
+message MsgListUnitsResponse {
+  uint64 listing_id = 1;
+}
+
+// MsgDelistUnits cancels a unit listing and unlocks its units.
+message MsgDelistUnits {
+  option (cosmos.msg.v1.signer) = "seller";
+  option (amino.name) = "sparkdream/x/artifact/MsgDelistUnits";
+  string seller = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 listing_id = 2;
+}
+
+// MsgDelistUnitsResponse is empty.
+message MsgDelistUnitsResponse {}
+
+// MsgBuyUnits buys some or all of a unit listing.
+message MsgBuyUnits {
+  option (cosmos.msg.v1.signer) = "buyer";
+  option (amino.name) = "sparkdream/x/artifact/MsgBuyUnits";
+  string buyer = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 listing_id = 2;
+  uint64 quantity = 3;
+  // Must equal the listing's unit price exactly.
+  cosmos.base.v1beta1.Coin expected_unit_price = 4 [
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+  // Optional; must equal the edition's current metadata hash if set.
+  string expected_metadata_hash = 5;
+}
+
+// MsgBuyUnitsResponse reports the settlement split.
+message MsgBuyUnitsResponse {
+  string fee = 1;
+  string royalty = 2;
+  string proceeds = 3;
+}
+
+// MsgFundEdition pays SPARK to an edition's current holders, pro rata to
+// the units they hold (retroactive funding of an impact certificate).
+message MsgFundEdition {
+  option (cosmos.msg.v1.signer) = "funder";
+  option (amino.name) = "sparkdream/x/artifact/MsgFundEdition";
+  string funder = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 class_id = 2;
+  uint64 edition_id = 3;
+  cosmos.base.v1beta1.Coin amount = 4 [
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+}
+
+// MsgFundEditionResponse is empty.
+message MsgFundEditionResponse {}
+
+// MsgClaimEditionRewards pays out the signer's accrued retro funding.
+message MsgClaimEditionRewards {
+  option (cosmos.msg.v1.signer) = "holder";
+  option (amino.name) = "sparkdream/x/artifact/MsgClaimEditionRewards";
+  string holder = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  repeated EditionRef refs = 2 [
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+}
+
+// MsgClaimEditionRewardsResponse returns the total paid.
+message MsgClaimEditionRewardsResponse {
+  string claimed = 1;
+}
+
+// MsgAddCraftRecipe adds a crafting recipe to a class (owner only, until
+// the class's first craft).
+message MsgAddCraftRecipe {
+  option (cosmos.msg.v1.signer) = "owner";
+  option (amino.name) = "sparkdream/x/artifact/MsgAddCraftRecipe";
+  string owner = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 class_id = 2;
+  repeated CraftInput inputs = 3 [
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+  TokenMetadata output_metadata = 4 [
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+  uint64 output_edition_id = 5;
+  uint64 output_quantity = 6;
+  // Must equal "CC0-1.0" (the recipe carries the crafted token's content).
+  string accepted_content_license = 7;
+}
+
+// MsgAddCraftRecipeResponse returns the recipe id.
+message MsgAddCraftRecipeResponse {
+  uint64 recipe_id = 1;
+}
+
+// MsgRemoveCraftRecipe removes a recipe (owner only, at any time).
+message MsgRemoveCraftRecipe {
+  option (cosmos.msg.v1.signer) = "owner";
+  option (amino.name) = "sparkdream/x/artifact/MsgRemoveCraftRecipe";
+  string owner = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 class_id = 2;
+  uint64 recipe_id = 3;
+}
+
+// MsgRemoveCraftRecipeResponse is empty.
+message MsgRemoveCraftRecipeResponse {}
+
+// MsgCraft burns a recipe's inputs and mints its output to the crafter.
+message MsgCraft {
+  option (cosmos.msg.v1.signer) = "crafter";
+  option (amino.name) = "sparkdream/x/artifact/MsgCraft";
+  string crafter = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 class_id = 2;
+  uint64 recipe_id = 3;
+  // The UNIQUE-class inputs, matching the recipe's quantities per class.
+  repeated TokenRef input_tokens = 4 [(gogoproto.nullable) = false];
+}
+
+// MsgCraftResponse reports the output: the new token id (UNIQUE target) or
+// the units credited (EDITIONS target).
+message MsgCraftResponse {
+  uint64 token_id = 1;
+  uint64 edition_id = 2;
+  uint64 amount = 3;
+}
+
+// MsgOfferRental offers a token's user right for a period.
+message MsgOfferRental {
+  option (cosmos.msg.v1.signer) = "owner";
+  option (amino.name) = "sparkdream/x/artifact/MsgOfferRental";
+  string owner = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 class_id = 2;
+  uint64 token_id = 3;
+  // Who may accept; empty = anyone.
+  string user = 4;
+  cosmos.base.v1beta1.Coin price = 5 [
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+  // Seconds the rental lasts once accepted.
+  int64 duration = 6;
+  // Whether the owner may end the rental early.
+  bool owner_may_end = 7;
+  // Seconds the offer stays open.
+  int64 offer_duration = 8;
+}
+
+// MsgOfferRentalResponse returns the offer nonce.
+message MsgOfferRentalResponse {
+  uint64 nonce = 1;
+}
+
+// MsgCancelRentalOffer withdraws a rental offer.
+message MsgCancelRentalOffer {
+  option (cosmos.msg.v1.signer) = "owner";
+  option (amino.name) = "sparkdream/x/artifact/MsgCancelRentalOffer";
+  string owner = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 class_id = 2;
+  uint64 token_id = 3;
+}
+
+// MsgCancelRentalOfferResponse is empty.
+message MsgCancelRentalOfferResponse {}
+
+// MsgAcceptRental accepts a rental offer, paying its price.
+message MsgAcceptRental {
+  option (cosmos.msg.v1.signer) = "renter";
+  option (amino.name) = "sparkdream/x/artifact/MsgAcceptRental";
+  string renter = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 class_id = 2;
+  uint64 token_id = 3;
+  cosmos.base.v1beta1.Coin expected_price = 4 [
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+  uint64 expected_nonce = 5;
+  // Optional; must equal the token's current metadata hash if set.
+  string expected_metadata_hash = 6;
+  // Required when the token holds nested tokens; must equal its
+  // contents hash.
+  string expected_contents_hash = 7;
+}
+
+// MsgAcceptRentalResponse returns the rental end.
+message MsgAcceptRentalResponse {
+  int64 expires_at = 1;
+}
+
+// MsgEndRental ends a rental: the renter at any time, the owner when the
+// offer allowed it or once it has expired.
+message MsgEndRental {
+  option (cosmos.msg.v1.signer) = "signer";
+  option (amino.name) = "sparkdream/x/artifact/MsgEndRental";
+  string signer = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 class_id = 2;
+  uint64 token_id = 3;
+}
+
+// MsgEndRentalResponse is empty.
+message MsgEndRentalResponse {}
+
+// MsgNest places a token (with anything nested in it) inside another token
+// the signer owns. The child is NESTED-locked and moves with its parent.
+message MsgNest {
+  option (cosmos.msg.v1.signer) = "owner";
+  option (amino.name) = "sparkdream/x/artifact/MsgNest";
+  string owner = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  TokenRef child = 2 [(gogoproto.nullable) = false];
+  TokenRef parent = 3 [(gogoproto.nullable) = false];
+}
+
+// MsgNestResponse is empty.
+message MsgNestResponse {}
+
+// MsgDetach takes a nested token (and its own children) out of its parent.
+message MsgDetach {
+  option (cosmos.msg.v1.signer) = "owner";
+  option (amino.name) = "sparkdream/x/artifact/MsgDetach";
+  string owner = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  TokenRef child = 2 [(gogoproto.nullable) = false];
+}
+
+// MsgDetachResponse is empty.
+message MsgDetachResponse {}
+
+// MsgSetHarbergerPrice self-assesses a Harberger token's price and names
+// the x/session RecurringPull that pays its tax.
+message MsgSetHarbergerPrice {
+  option (cosmos.msg.v1.signer) = "owner";
+  option (amino.name) = "sparkdream/x/artifact/MsgSetHarbergerPrice";
+  string owner = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 class_id = 2;
+  uint64 token_id = 3;
+  // Bond denom; 0 abandons the token (anyone may take it for free).
+  string price = 4 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  // RecurringPull granted by the owner to the artifact module address,
+  // paying at least the tax per period; 0 with a zero price.
+  uint64 grant_id = 5;
+}
+
+// MsgSetHarbergerPriceResponse returns the tax per period.
+message MsgSetHarbergerPriceResponse {
+  string tax_per_period = 1;
+}
+
+// MsgForceBuy buys a Harberger token at its current price, with or without
+// the holder's consent.
+message MsgForceBuy {
+  option (cosmos.msg.v1.signer) = "buyer";
+  option (amino.name) = "sparkdream/x/artifact/MsgForceBuy";
+  string buyer = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 class_id = 2;
+  uint64 token_id = 3;
+  // Reject if the current price is higher.
+  cosmos.base.v1beta1.Coin max_price = 4 [
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+  // Optional; must equal the token's current metadata hash if set.
+  string expected_metadata_hash = 5;
+}
+
+// MsgForceBuyResponse reports the settlement split.
+message MsgForceBuyResponse {
+  string price = 1;
+  string fee = 2;
+  string royalty = 3;
+  string proceeds = 4;
+}
+
+// MsgUpdateUnitListing changes a unit listing's price, quantity and
+// duration. The listed units are re-locked to the new quantity.
+message MsgUpdateUnitListing {
+  option (cosmos.msg.v1.signer) = "seller";
+  option (amino.name) = "sparkdream/x/artifact/MsgUpdateUnitListing";
+  string seller = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 listing_id = 2;
+  uint64 quantity = 3;
+  cosmos.base.v1beta1.Coin unit_price = 4 [
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+  // Seconds from now.
+  int64 duration = 5;
+}
+
+// MsgUpdateUnitListingResponse is empty.
+message MsgUpdateUnitListingResponse {}
+
+// MsgMakeOffer escrows a SPARK offer for a token (token_id set) or for any
+// token of a class (token_id 0).
+message MsgMakeOffer {
+  option (cosmos.msg.v1.signer) = "bidder";
+  option (amino.name) = "sparkdream/x/artifact/MsgMakeOffer";
+  string bidder = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 class_id = 2;
+  // 0 = a collection offer: any token of the class.
+  uint64 token_id = 3;
+  cosmos.base.v1beta1.Coin price = 4 [
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+  // Seconds the offer stays open.
+  int64 duration = 5;
+  // Token offers only, optional.
+  string expected_metadata_hash = 6;
+  // Token offers only: required when the token holds nested tokens.
+  string expected_contents_hash = 7;
+}
+
+// MsgMakeOfferResponse returns the offer id.
+message MsgMakeOfferResponse {
+  uint64 offer_id = 1;
+}
+
+// MsgCancelOffer withdraws an offer and refunds its escrow.
+message MsgCancelOffer {
+  option (cosmos.msg.v1.signer) = "bidder";
+  option (amino.name) = "sparkdream/x/artifact/MsgCancelOffer";
+  string bidder = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 offer_id = 2;
+}
+
+// MsgCancelOfferResponse is empty.
+message MsgCancelOfferResponse {}
+
+// MsgAcceptOffer sells a token the signer holds to an offer's bidder.
+message MsgAcceptOffer {
+  option (cosmos.msg.v1.signer) = "seller";
+  option (amino.name) = "sparkdream/x/artifact/MsgAcceptOffer";
+  string seller = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 offer_id = 2;
+  // The token sold; required for a collection offer, and must match a
+  // token offer's token.
+  uint64 token_id = 3;
+  // Must equal the offer's price exactly.
+  cosmos.base.v1beta1.Coin expected_price = 4 [
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+}
+
+// MsgAcceptOfferResponse reports the settlement split.
+message MsgAcceptOfferResponse {
+  string fee = 1;
+  string royalty = 2;
+  string proceeds = 3;
+}
+
+// MsgStartAuction puts a token up for an English auction.
+message MsgStartAuction {
+  option (cosmos.msg.v1.signer) = "seller";
+  option (amino.name) = "sparkdream/x/artifact/MsgStartAuction";
+  string seller = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 class_id = 2;
+  uint64 token_id = 3;
+  cosmos.base.v1beta1.Coin reserve_price = 4 [
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+  // Basis points each bid must beat the last by; 0 = any higher bid.
+  uint32 min_increment_bps = 5;
+  // Seconds.
+  int64 duration = 6;
+}
+
+// MsgStartAuctionResponse returns the auction id.
+message MsgStartAuctionResponse {
+  uint64 auction_id = 1;
+}
+
+// MsgBid places an escrowed bid; the previous high bid is refunded.
+message MsgBid {
+  option (cosmos.msg.v1.signer) = "bidder";
+  option (amino.name) = "sparkdream/x/artifact/MsgBid";
+  string bidder = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 auction_id = 2;
+  cosmos.base.v1beta1.Coin amount = 3 [
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+  // Optional; must equal the token's current metadata hash if set.
+  string expected_metadata_hash = 4;
+  // Required when the token holds nested tokens.
+  string expected_contents_hash = 5;
+}
+
+// MsgBidResponse returns when the auction now ends.
+message MsgBidResponse {
+  int64 ends_at = 1;
+}
+
+// MsgSettleAuction settles an ended auction (anyone may sign).
+message MsgSettleAuction {
+  option (cosmos.msg.v1.signer) = "signer";
+  option (amino.name) = "sparkdream/x/artifact/MsgSettleAuction";
+  string signer = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 auction_id = 2;
+}
+
+// MsgSettleAuctionResponse reports whether the token was sold.
+message MsgSettleAuctionResponse {
+  bool sold = 1;
+}
+
+// MsgCancelAuction withdraws an auction that has no bids.
+message MsgCancelAuction {
+  option (cosmos.msg.v1.signer) = "seller";
+  option (amino.name) = "sparkdream/x/artifact/MsgCancelAuction";
+  string seller = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 auction_id = 2;
+}
+
+// MsgCancelAuctionResponse is empty.
+message MsgCancelAuctionResponse {}

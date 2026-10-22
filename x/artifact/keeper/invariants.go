@@ -24,6 +24,10 @@ func RegisterInvariants(ir sdk.InvariantRegistry, k Keeper) {
 	ir.RegisterRoute(types.ModuleName, "hide-consistency", HideConsistencyInvariant(k))
 	ir.RegisterRoute(types.ModuleName, "token-expiry-index", TokenExpiryIndexInvariant(k))
 	ir.RegisterRoute(types.ModuleName, "policies", PolicyInvariant(k))
+	ir.RegisterRoute(types.ModuleName, "editions", EditionInvariant(k))
+	ir.RegisterRoute(types.ModuleName, "trees-and-rentals", TreeInvariant(k))
+	ir.RegisterRoute(types.ModuleName, "harberger", HarbergerInvariant(k))
+	ir.RegisterRoute(types.ModuleName, "market-escrow", MarketEscrowInvariant(k))
 }
 
 // AllInvariants runs every invariant (tests and simulation).
@@ -32,7 +36,8 @@ func AllInvariants(k Keeper) sdk.Invariant {
 		for _, inv := range []sdk.Invariant{
 			OwnerIndexInvariant(k), SupplyInvariant(k), LockInvariant(k), EscrowInvariant(k),
 			FlagsInvariant(k), InboxCounterInvariant(k), HideConsistencyInvariant(k),
-			TokenExpiryIndexInvariant(k), PolicyInvariant(k),
+			TokenExpiryIndexInvariant(k), PolicyInvariant(k), EditionInvariant(k), TreeInvariant(k),
+			HarbergerInvariant(k), MarketEscrowInvariant(k),
 		} {
 			if msg, broken := inv(ctx); broken {
 				return msg, true
@@ -94,9 +99,19 @@ func SupplyInvariant(k Keeper) sdk.Invariant {
 				}
 				return false, nil
 			})
-			if live != c.Supply {
+			// An EDITIONS class's supply counts editions (EditionInvariant).
+			if !c.IsEditions() && live != c.Supply {
 				problems = append(problems, fmt.Sprintf("class %d supply %d != %d tokens", id, c.Supply, live))
 			}
+			_ = k.Editions.Walk(ctx, collections.NewPrefixedPairRange[uint64, uint64](id), func(key U64Pair, e types.Edition) (bool, error) {
+				if e.Id >= c.NextTokenId {
+					problems = append(problems, fmt.Sprintf("edition %d/%d >= next_token_id %d", id, e.Id, c.NextTokenId))
+				}
+				if has, _ := k.Tokens.Has(ctx, key); has {
+					problems = append(problems, fmt.Sprintf("edition %d/%d collides with a token", id, e.Id))
+				}
+				return false, nil
+			})
 			if reserved != c.ReservedSupply {
 				problems = append(problems, fmt.Sprintf("class %d reserved %d != %d pending mints", id, c.ReservedSupply, reserved))
 			}
@@ -149,9 +164,10 @@ func LockInvariant(k Keeper) sdk.Invariant {
 	}
 }
 
-// EscrowInvariant: the module balance covers every recorded deposit and
-// every public-mint price escrowed until reveal. (Appeal bonds are held by
-// x/rep, not here.)
+// EscrowInvariant: the module balance covers every recorded deposit, every
+// public-mint price escrowed until reveal, and every edition balance
+// deposit, pending-unit escrow and unclaimed or accrued retro reward.
+// (Appeal bonds are held by x/rep, not here.)
 func EscrowInvariant(k Keeper) sdk.Invariant {
 	return func(ctx sdk.Context) (string, bool) {
 		if k.late.identity == nil {
@@ -169,6 +185,7 @@ func EscrowInvariant(k Keeper) sdk.Invariant {
 			need = need.Add(pm.Deposit)
 			return false, nil
 		})
+		need = need.Add(k.editionEscrow(ctx))
 		have := k.bankKeeper.GetBalance(ctx, k.ModuleAddress(), k.BondDenom(ctx)).Amount
 		var problems []string
 		if have.LT(need) {
@@ -257,6 +274,11 @@ func (k Keeper) deriveInboxCounters(ctx sdk.Context) (map[[2]string]uint64, map[
 		totals[pm.To]++
 		return false, nil
 	})
+	_ = k.PendingUnits.Walk(ctx, nil, func(_ uint64, pu types.PendingUnits) (bool, error) {
+		pairs[[2]string{unitOriginOf(pu), pu.To}]++
+		totals[pu.To]++
+		return false, nil
+	})
 	return pairs, totals
 }
 
@@ -284,6 +306,14 @@ func HideConsistencyInvariant(k Keeper) sdk.Invariant {
 			if t.Status == types.ContentStatus_CONTENT_STATUS_HIDDEN {
 				if has, _ := k.HideByTarget.Has(ctx, key); !has && !hiddenByClosedRecord(ctx, k, t.ClassId, t.Id) {
 					problems = append(problems, fmt.Sprintf("token %d/%d hidden without a hide record", t.ClassId, t.Id))
+				}
+			}
+			return false, nil
+		})
+		_ = k.Editions.Walk(ctx, nil, func(key U64Pair, e types.Edition) (bool, error) {
+			if e.Status == types.ContentStatus_CONTENT_STATUS_HIDDEN {
+				if has, _ := k.HideByTarget.Has(ctx, key); !has && !hiddenByClosedRecord(ctx, k, e.ClassId, e.Id) {
+					problems = append(problems, fmt.Sprintf("edition %d/%d hidden without a hide record", e.ClassId, e.Id))
 				}
 			}
 			return false, nil

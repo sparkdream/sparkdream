@@ -103,14 +103,106 @@ service Query {
     option (google.api.http).get = "/sparkdream/artifact/v1/hide_records_by_target/{class_id}/{token_id}";
   }
 
-  // PublicMintQuote prices a public mint.
   // MediaProposals lists the open media proposals of a token.
   rpc MediaProposals(QueryMediaProposalsRequest) returns (QueryMediaProposalsResponse) {
     option (google.api.http).get = "/sparkdream/artifact/v1/media_proposals/{class_id}/{token_id}";
   }
 
+  // PublicMintQuote prices a public mint.
   rpc PublicMintQuote(QueryPublicMintQuoteRequest) returns (QueryPublicMintQuoteResponse) {
     option (google.api.http).get = "/sparkdream/artifact/v1/public_mint_quote/{class_id}/{buyer}/{quantity}";
+  }
+
+  // Edition shows one edition of an EDITIONS class.
+  rpc Edition(QueryEditionRequest) returns (QueryEditionResponse) {
+    option (google.api.http).get = "/sparkdream/artifact/v1/edition/{class_id}/{edition_id}";
+  }
+
+  // Editions lists the editions of a class.
+  rpc Editions(QueryEditionsRequest) returns (QueryEditionsResponse) {
+    option (google.api.http).get = "/sparkdream/artifact/v1/editions/{class_id}";
+  }
+
+  // Balance shows one address's units of an edition and its claimable
+  // retro funding.
+  rpc Balance(QueryBalanceRequest) returns (QueryBalanceResponse) {
+    option (google.api.http).get = "/sparkdream/artifact/v1/balance/{class_id}/{edition_id}/{owner}";
+  }
+
+  // BalancesByOwner lists every edition balance an address holds.
+  rpc BalancesByOwner(QueryBalancesByOwnerRequest) returns (QueryBalancesByOwnerResponse) {
+    option (google.api.http).get = "/sparkdream/artifact/v1/balances_by_owner/{owner}";
+  }
+
+  // EditionHolders lists the balances of one edition.
+  rpc EditionHolders(QueryEditionHoldersRequest) returns (QueryEditionHoldersResponse) {
+    option (google.api.http).get = "/sparkdream/artifact/v1/edition_holders/{class_id}/{edition_id}";
+  }
+
+  // UnitListing shows one unit listing.
+  rpc UnitListing(QueryUnitListingRequest) returns (QueryUnitListingResponse) {
+    option (google.api.http).get = "/sparkdream/artifact/v1/unit_listing/{listing_id}";
+  }
+
+  // UnitListings lists the active unit listings of an edition.
+  rpc UnitListings(QueryUnitListingsRequest) returns (QueryUnitListingsResponse) {
+    option (google.api.http).get = "/sparkdream/artifact/v1/unit_listings/{class_id}/{edition_id}";
+  }
+
+  // CraftRecipes lists a class's crafting recipes.
+  rpc CraftRecipes(QueryCraftRecipesRequest) returns (QueryCraftRecipesResponse) {
+    option (google.api.http).get = "/sparkdream/artifact/v1/craft_recipes/{class_id}";
+  }
+
+  // Rental shows a token's active rental.
+  rpc Rental(QueryRentalRequest) returns (QueryRentalResponse) {
+    option (google.api.http).get = "/sparkdream/artifact/v1/rental/{class_id}/{token_id}";
+  }
+
+  // RentalOffer shows a token's open rental offer.
+  rpc RentalOffer(QueryRentalOfferRequest) returns (QueryRentalOfferResponse) {
+    option (google.api.http).get = "/sparkdream/artifact/v1/rental_offer/{class_id}/{token_id}";
+  }
+
+  // RentalsByUser lists the active rentals an address holds as renter.
+  rpc RentalsByUser(QueryRentalsByUserRequest) returns (QueryRentalsByUserResponse) {
+    option (google.api.http).get = "/sparkdream/artifact/v1/rentals_by_user/{user}";
+  }
+
+  // Children lists the tokens nested directly in a token, with the
+  // contents hash MsgBuy and MsgAcceptRental pin.
+  rpc Children(QueryChildrenRequest) returns (QueryChildrenResponse) {
+    option (google.api.http).get = "/sparkdream/artifact/v1/children/{class_id}/{token_id}";
+  }
+
+  // HarbergerQuote shows a Harberger token's current price and tax.
+  rpc HarbergerQuote(QueryHarbergerQuoteRequest) returns (QueryHarbergerQuoteResponse) {
+    option (google.api.http).get = "/sparkdream/artifact/v1/harberger_quote/{class_id}/{token_id}";
+  }
+
+  // Offer shows one escrowed offer.
+  rpc Offer(QueryOfferRequest) returns (QueryOfferResponse) {
+    option (google.api.http).get = "/sparkdream/artifact/v1/offer/{offer_id}";
+  }
+
+  // Offers lists the open offers on a token (token_id 0 = collection offers).
+  rpc Offers(QueryOffersRequest) returns (QueryOffersResponse) {
+    option (google.api.http).get = "/sparkdream/artifact/v1/offers/{class_id}/{token_id}";
+  }
+
+  // OffersByBidder lists an address's open offers.
+  rpc OffersByBidder(QueryOffersByBidderRequest) returns (QueryOffersByBidderResponse) {
+    option (google.api.http).get = "/sparkdream/artifact/v1/offers_by_bidder/{bidder}";
+  }
+
+  // Auction shows one auction and the lowest bid it accepts now.
+  rpc Auction(QueryAuctionRequest) returns (QueryAuctionResponse) {
+    option (google.api.http).get = "/sparkdream/artifact/v1/auction/{auction_id}";
+  }
+
+  // Auctions lists open auctions (class_id 0 = every class).
+  rpc Auctions(QueryAuctionsRequest) returns (QueryAuctionsResponse) {
+    option (google.api.http).get = "/sparkdream/artifact/v1/auctions/{class_id}";
   }
 }
 
@@ -153,6 +245,13 @@ message TokenView {
   // GENERATIVE_SEED classes: the token seed (lowercase hex) once the class
   // seed is revealed.
   string seed = 9;
+  // Single-token query, for a token holding nested tokens: the hash
+  // MsgBuy, MsgAcceptRental, offers and bids pin.
+  string contents_hash = 10;
+  // Single-token query, while rented: the renter.
+  string user = 11;
+  // Single-token query, Harberger tokens: what MsgForceBuy pays now.
+  string harberger_price = 12;
 }
 
 // InboxItem is one open pending transfer or pending mint.
@@ -169,6 +268,11 @@ message InboxItem {
   TokenMetadata metadata = 8 [(gogoproto.nullable) = false];
   string metadata_hash = 9;
   bool withheld = 10;
+  // Unit items (kind UNIT_*): class_id is 0 and token_id the pending id,
+  // which is the ref to accept, reject or cancel; these name the edition.
+  uint64 unit_class_id = 11;
+  uint64 edition_id = 12;
+  uint64 amount = 13;
 }
 
 // QueryClassRequest defines the QueryClassRequest message.
@@ -215,6 +319,8 @@ message QueryTokenResponse {
   TokenView token = 1 [(gogoproto.nullable) = false];
   // Set when the token is listed.
   Listing listing = 2;
+  // Set while the token is up for auction.
+  Auction auction = 3;
 }
 
 // QueryTokensRequest defines the QueryTokensRequest message.
@@ -408,4 +514,246 @@ message QueryMediaProposalsRequest {
 // QueryMediaProposalsResponse defines the QueryMediaProposalsResponse message.
 message QueryMediaProposalsResponse {
   repeated MediaProposal proposals = 1 [(gogoproto.nullable) = false];
+}
+
+// EditionView is an edition as served to clients. When withheld is true the
+// metadata and claim scope are blanked because the edition or its class is
+// hidden.
+message EditionView {
+  Edition edition = 1 [(gogoproto.nullable) = false];
+  bool withheld = 2;
+  string metadata_hash = 3;
+  ContentStatus class_status = 4;
+}
+
+// BalanceView is a balance with what its holder could claim now.
+message BalanceView {
+  Balance balance = 1 [(gogoproto.nullable) = false];
+  // unclaimed plus rewards accrued since the last settlement.
+  string claimable = 2;
+}
+
+// QueryEditionRequest defines the QueryEditionRequest message.
+message QueryEditionRequest {
+  uint64 class_id = 1;
+  uint64 edition_id = 2;
+}
+
+// QueryEditionResponse defines the QueryEditionResponse message.
+message QueryEditionResponse {
+  EditionView edition = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryEditionsRequest defines the QueryEditionsRequest message.
+message QueryEditionsRequest {
+  uint64 class_id = 1;
+  cosmos.base.query.v1beta1.PageRequest pagination = 2;
+}
+
+// QueryEditionsResponse defines the QueryEditionsResponse message.
+message QueryEditionsResponse {
+  repeated EditionView editions = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryBalanceRequest defines the QueryBalanceRequest message.
+message QueryBalanceRequest {
+  uint64 class_id = 1;
+  uint64 edition_id = 2;
+  string owner = 3;
+}
+
+// QueryBalanceResponse defines the QueryBalanceResponse message.
+message QueryBalanceResponse {
+  BalanceView balance = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryBalancesByOwnerRequest defines the QueryBalancesByOwnerRequest message.
+message QueryBalancesByOwnerRequest {
+  string owner = 1;
+  cosmos.base.query.v1beta1.PageRequest pagination = 2;
+}
+
+// QueryBalancesByOwnerResponse defines the QueryBalancesByOwnerResponse message.
+message QueryBalancesByOwnerResponse {
+  repeated BalanceView balances = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryEditionHoldersRequest defines the QueryEditionHoldersRequest message.
+message QueryEditionHoldersRequest {
+  uint64 class_id = 1;
+  uint64 edition_id = 2;
+  cosmos.base.query.v1beta1.PageRequest pagination = 3;
+}
+
+// QueryEditionHoldersResponse defines the QueryEditionHoldersResponse message.
+message QueryEditionHoldersResponse {
+  repeated BalanceView balances = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryUnitListingRequest defines the QueryUnitListingRequest message.
+message QueryUnitListingRequest {
+  uint64 listing_id = 1;
+}
+
+// QueryUnitListingResponse defines the QueryUnitListingResponse message.
+message QueryUnitListingResponse {
+  UnitListing listing = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryUnitListingsRequest defines the QueryUnitListingsRequest message.
+message QueryUnitListingsRequest {
+  uint64 class_id = 1;
+  uint64 edition_id = 2;
+  cosmos.base.query.v1beta1.PageRequest pagination = 3;
+}
+
+// QueryUnitListingsResponse defines the QueryUnitListingsResponse message.
+message QueryUnitListingsResponse {
+  repeated UnitListing listings = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryCraftRecipesRequest defines the QueryCraftRecipesRequest message.
+message QueryCraftRecipesRequest {
+  uint64 class_id = 1;
+}
+
+// QueryCraftRecipesResponse defines the QueryCraftRecipesResponse message.
+message QueryCraftRecipesResponse {
+  repeated CraftRecipe recipes = 1 [(gogoproto.nullable) = false];
+  // true once the class has been crafted into: recipes can then only be
+  // removed.
+  bool locked = 2;
+}
+
+// QueryRentalRequest defines the QueryRentalRequest message.
+message QueryRentalRequest {
+  uint64 class_id = 1;
+  uint64 token_id = 2;
+}
+
+// QueryRentalResponse defines the QueryRentalResponse message.
+message QueryRentalResponse {
+  Rental rental = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryRentalOfferRequest defines the QueryRentalOfferRequest message.
+message QueryRentalOfferRequest {
+  uint64 class_id = 1;
+  uint64 token_id = 2;
+}
+
+// QueryRentalOfferResponse defines the QueryRentalOfferResponse message.
+message QueryRentalOfferResponse {
+  RentalOffer offer = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryRentalsByUserRequest defines the QueryRentalsByUserRequest message.
+message QueryRentalsByUserRequest {
+  string user = 1;
+  cosmos.base.query.v1beta1.PageRequest pagination = 2;
+}
+
+// QueryRentalsByUserResponse defines the QueryRentalsByUserResponse message.
+message QueryRentalsByUserResponse {
+  repeated Rental rentals = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryChildrenRequest defines the QueryChildrenRequest message.
+message QueryChildrenRequest {
+  uint64 class_id = 1;
+  uint64 token_id = 2;
+}
+
+// QueryChildrenResponse defines the QueryChildrenResponse message.
+message QueryChildrenResponse {
+  // Direct children, in key order.
+  repeated TokenRef children = 1 [(gogoproto.nullable) = false];
+  // Hash over the whole tree under the token ("" when it holds nothing).
+  string contents_hash = 2;
+  // Tokens nested under it at any depth.
+  uint32 descendants = 3;
+}
+
+// QueryHarbergerQuoteRequest defines the QueryHarbergerQuoteRequest message.
+message QueryHarbergerQuoteRequest {
+  uint64 class_id = 1;
+  uint64 token_id = 2;
+}
+
+// QueryHarbergerQuoteResponse defines the QueryHarbergerQuoteResponse message.
+message QueryHarbergerQuoteResponse {
+  HarbergerState state = 1 [(gogoproto.nullable) = false];
+  // What MsgForceBuy would pay now (falls during foreclosure).
+  string current_price = 2;
+  // Tax per period on the assessed price.
+  string tax_per_period = 3;
+  bool foreclosed = 4;
+  // false while the token cannot be bought (a zero price inside the grace
+  // period, or a hidden token or class).
+  bool for_sale = 5;
+}
+
+// QueryOfferRequest defines the QueryOfferRequest message.
+message QueryOfferRequest {
+  uint64 offer_id = 1;
+}
+
+// QueryOfferResponse defines the QueryOfferResponse message.
+message QueryOfferResponse {
+  Offer offer = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryOffersRequest lists the open offers on a token, or (token_id 0) the
+// collection offers on a class.
+message QueryOffersRequest {
+  uint64 class_id = 1;
+  uint64 token_id = 2;
+  cosmos.base.query.v1beta1.PageRequest pagination = 3;
+}
+
+// QueryOffersResponse defines the QueryOffersResponse message.
+message QueryOffersResponse {
+  repeated Offer offers = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryOffersByBidderRequest defines the QueryOffersByBidderRequest message.
+message QueryOffersByBidderRequest {
+  string bidder = 1;
+  cosmos.base.query.v1beta1.PageRequest pagination = 2;
+}
+
+// QueryOffersByBidderResponse defines the QueryOffersByBidderResponse message.
+message QueryOffersByBidderResponse {
+  repeated Offer offers = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryAuctionRequest defines the QueryAuctionRequest message.
+message QueryAuctionRequest {
+  uint64 auction_id = 1;
+}
+
+// QueryAuctionResponse defines the QueryAuctionResponse message.
+message QueryAuctionResponse {
+  Auction auction = 1 [(gogoproto.nullable) = false];
+  // The lowest bid MsgBid accepts now.
+  string min_next_bid = 2;
+}
+
+// QueryAuctionsRequest lists open auctions (class_id 0 = every class).
+message QueryAuctionsRequest {
+  uint64 class_id = 1;
+  cosmos.base.query.v1beta1.PageRequest pagination = 2;
+}
+
+// QueryAuctionsResponse defines the QueryAuctionsResponse message.
+message QueryAuctionsResponse {
+  repeated Auction auctions = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
 }

@@ -128,6 +128,12 @@ func SimulateMsgAssignInitiative(
 		if k.HasInitiativeBountyContribution(ctx, initID, assignee.Address) {
 			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgAssignInitiative{}), "assignee funds the initiative's bounty"), nil, nil
 		}
+		// Mirror the handler's active-initiative cap.
+		if params, perr := k.Params.Get(ctx); perr == nil && params.MaxActiveInitiativesPerMember > 0 {
+			if active, cerr := k.CountActiveInitiativesForAssignee(ctx, assignee.Address); cerr != nil || active >= params.MaxActiveInitiativesPerMember {
+				return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgAssignInitiative{}), "assignee at the active-initiative cap"), nil, nil
+			}
+		}
 
 		msg := &types.MsgAssignInitiative{
 			Creator:      signerAddr,

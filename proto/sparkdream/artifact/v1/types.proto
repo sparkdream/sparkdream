@@ -18,12 +18,17 @@ enum ContentStatus {
 
 // TokenLock is the single lock a token can hold at a time. Every lock is
 // exclusive: a locked token cannot be transferred, listed, burned or take a
-// second lock. Future locks (rentals, nesting) are appended here; see
-// docs/x-artifact-spec.md §16.2.
+// second lock (docs/x-artifact-spec.md §7.2, §16.2).
 enum TokenLock {
   TOKEN_LOCK_NONE = 0;
   TOKEN_LOCK_LISTED = 1;
   TOKEN_LOCK_PENDING_TRANSFER = 2;
+  // A renter holds the token's user right until the rental ends.
+  TOKEN_LOCK_RENTED = 3;
+  // The token sits inside another token (Token.parent) and moves with it.
+  TOKEN_LOCK_NESTED = 4;
+  // The token is up for an English auction (Auction).
+  TOKEN_LOCK_AUCTION = 5;
 }
 
 // ReceivePolicy controls whether incoming tokens are delivered directly or
@@ -45,6 +50,9 @@ enum InboxKind {
   INBOX_KIND_UNSPECIFIED = 0;
   INBOX_KIND_TRANSFER = 1;
   INBOX_KIND_MINT = 2;
+  // Edition units (PendingUnits); inbox ref (0, pending_id).
+  INBOX_KIND_UNIT_TRANSFER = 3;
+  INBOX_KIND_UNIT_MINT = 4;
 }
 
 // HideTargetKind is what a hide record targets.
@@ -52,6 +60,8 @@ enum HideTargetKind {
   HIDE_TARGET_KIND_UNSPECIFIED = 0;
   HIDE_TARGET_KIND_CLASS = 1;
   HIDE_TARGET_KIND_TOKEN = 2;
+  // An edition of an EDITIONS class; token_id is the edition id.
+  HIDE_TARGET_KIND_EDITION = 3;
 }
 
 // HideOutcome is the lifecycle state of a hide record.
@@ -82,6 +92,9 @@ enum BurnAuthorization {
   BURN_AUTHORIZATION_ISSUER = 1;
   // Either the holder (MsgBurn) or the class owner (MsgRevoke), alone.
   BURN_AUTHORIZATION_HOLDER_OR_ISSUER = 2;
+  // Nobody: the token is permanent. Its deposit is burned as a fee, and it
+  // reaches nobody without their acceptance.
+  BURN_AUTHORIZATION_NEITHER = 3;
 }
 
 // ExpiryMode says what happens to a token whose expires_at has passed.
@@ -155,6 +168,10 @@ message Renderer {
   // Lowercase hex SHA-256 over the package's source files (see
   // RendererSourceHash); must match the stored package.
   string source_hash = 2;
+  // 0 = Render(classID, tokenID, seed, blockTime, height); 1 or 2 =
+  // RenderState with the token's state document of that version as a
+  // sixth argument (v2 adds x/season state and the nested contents).
+  uint32 state_version = 3;
 }
 
 // MetadataStage is one step of a token's metadata schedule.
@@ -289,6 +306,18 @@ message Class {
   bool royalty_locked = 31;
   // Tokens sold through MsgPublicMint so far; drives LINEAR_SUPPLY pricing.
   uint64 public_minted = 32;
+  // Fixed at creation.
+  TokenModel token_model = 33;
+  // Fixed at creation; tax_bps_per_year 0 = plain class.
+  HarbergerPolicy harberger = 34 [
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+  // Set by the first craft into the class: recipes can then only be
+  // removed.
+  bool crafting_locked = 35;
+  // Last assigned recipe id.
+  uint64 next_recipe_id = 36;
 }
 
 // RoyaltyShare is one recipient's part of a class royalty.
@@ -362,6 +391,12 @@ message Token {
     (gogoproto.nullable) = false
   ];
   uint64 next_media_proposal_id = 21;
+  // Harberger classes only: the self-assessment and tax status.
+  HarbergerState harberger = 22;
+  // Set while nested (lock = NESTED): the token this one sits in.
+  TokenRef parent = 23;
+  // Tokens nested under this one, at any depth.
+  uint32 descendants = 24;
 }
 
 // TokenRef addresses one token.
@@ -477,4 +512,306 @@ message SentinelDailyHideEntry {
   string sentinel = 1;
   int64 day = 2;
   uint32 count = 3;
+}
+
+// TokenModel is how a class holds its tokens. Fixed at creation.
+enum TokenModel {
+  // One owner per token id (Token). The default.
+  TOKEN_MODEL_UNIQUE = 0;
+  // Semi-fungible: the class issues editions, and each edition id is held
+  // as per-address balances of identical units (Edition, Balance).
+  TOKEN_MODEL_EDITIONS = 1;
+}
+
+// HarbergerPolicy makes a class's tokens partially commonly owned: each
+// holder self-assesses a price, anyone may buy the token at that price at
+// any time, and the holder pays a yearly tax on it to the community pool
+// through an x/session RecurringPull. Fixed at creation; tax_bps_per_year 0
+// means a plain class.
+message HarbergerPolicy {
+  // Yearly tax on the assessed price, in basis points.
+  uint32 tax_bps_per_year = 1;
+  // Seconds between tax pulls; the RecurringPull period must equal it.
+  int64 tax_period = 2;
+  // Seconds over which the price falls linearly to zero after a missed
+  // payment (foreclosure).
+  int64 foreclosure_duration = 3;
+}
+
+// HarbergerState is a Harberger token's self-assessment and tax status.
+message HarbergerState {
+  // The self-assessed price buyers pay (bond denom).
+  string price = 1 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  // The x/session RecurringPull that pays the tax; 0 = none.
+  uint64 grant_id = 2;
+  // Unix seconds of the next tax pull; 0 when no grant is set.
+  int64 next_due = 3;
+  // Unix seconds until which a holder without a grant is not foreclosed
+  // (one tax period after the token arrived).
+  int64 grace_until = 4;
+  // Unix seconds from which the price falls; 0 = not foreclosed.
+  int64 foreclosed_at = 5;
+  // Tax paid by the current holder so far.
+  string tax_paid = 6 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+}
+
+// Rental is an active time-limited user right on one token. The token is
+// RENTED-locked: it cannot move, be listed, burned or nested until the
+// rental ends.
+message Rental {
+  uint64 class_id = 1;
+  uint64 token_id = 2;
+  string owner = 3 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  // The renter.
+  string user = 4 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  int64 started_at = 5;
+  int64 expires_at = 6;
+  // Whether the owner may end the rental before expires_at.
+  bool owner_may_end = 7;
+  cosmos.base.v1beta1.Coin price = 8 [
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+}
+
+// RentalOffer is an owner's standing offer to rent a token out. Nothing is
+// locked or escrowed; MsgAcceptRental settles it atomically.
+message RentalOffer {
+  uint64 class_id = 1;
+  uint64 token_id = 2;
+  string owner = 3 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  // Who may accept; "" = anyone.
+  string user = 4;
+  // Paid by the renter at acceptance; may be zero.
+  cosmos.base.v1beta1.Coin price = 5 [
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+  // Seconds the rental lasts from acceptance.
+  int64 duration = 6;
+  bool owner_may_end = 7;
+  int64 created_at = 8;
+  int64 expires_at = 9;
+  // Equals Token.listing_seq when the offer was made; MsgAcceptRental must
+  // match it.
+  uint64 nonce = 10;
+}
+
+// ImpactClaim describes a piece of work an edition certifies (an impact
+// certificate). Holders of the edition's units share whatever retroactive
+// funders pay to it (MsgFundEdition); DREAM never touches a certificate.
+message ImpactClaim {
+  // What was done.
+  string scope = 1;
+  // Who did it; at most MaxImpactContributors addresses.
+  repeated string contributors = 2;
+  // Unix seconds; 0 = unset. work_start <= work_end when both are set.
+  int64 work_start = 3;
+  int64 work_end = 4;
+  // A completed x/rep initiative this certificate is for; 0 = none. The
+  // initiative's assignee issues it, at most once per initiative.
+  uint64 initiative_id = 5;
+}
+
+// Edition is one semi-fungible token id of an EDITIONS class: identical
+// units held as per-address balances.
+message Edition {
+  uint64 class_id = 1;
+  // From Class.next_token_id (editions and tokens share the id space).
+  uint64 id = 2;
+  string creator = 3 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  TokenMetadata metadata = 4 [
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+  bool metadata_frozen = 5;
+  // 0 = unlimited. Counts units ever issued (supply + burned + reserved);
+  // may only be lowered.
+  uint64 max_supply = 6;
+  // Units in balances (free or locked in listings and pending transfers).
+  uint64 supply = 7;
+  uint64 burned = 8;
+  // Units in pending mints.
+  uint64 reserved = 9;
+  ContentStatus status = 10;
+  uint32 media_flags = 11;
+  uint32 media_rules_version = 12;
+  int64 created_at = 13;
+  ImpactClaim claim = 14 [
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+  // Retro-funding accumulator: SPARK per unit, scaled by RewardScale.
+  string reward_per_unit = 15 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  // Lifetime SPARK paid to the edition's holders by retro funders.
+  string rewards_funded = 16 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  // Addresses holding a balance record.
+  uint64 holders = 17;
+}
+
+// Balance is one address's units of one edition.
+message Balance {
+  uint64 class_id = 1;
+  uint64 edition_id = 2;
+  string owner = 3 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  // Units free to move.
+  uint64 amount = 4;
+  // Units locked in listings and pending transfers.
+  uint64 locked = 5;
+  // Storage deposit for this record, refunded to the holder who empties it.
+  string deposit = 6 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  // Edition.reward_per_unit when the record was last settled.
+  string reward_debt = 7 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  // Settled retro-funding rewards not yet claimed (bond denom).
+  string unclaimed = 8 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+}
+
+// EditionRef addresses one edition.
+message EditionRef {
+  uint64 class_id = 1;
+  uint64 edition_id = 2;
+}
+
+// PendingUnits is a unit transfer or mint awaiting the recipient. Its inbox
+// ref is (class_id 0, token_id = id): class 0 is never a real class.
+message PendingUnits {
+  uint64 id = 1;
+  // INBOX_KIND_UNIT_TRANSFER or INBOX_KIND_UNIT_MINT.
+  InboxKind kind = 2;
+  uint64 class_id = 3;
+  uint64 edition_id = 4;
+  // Transfer sender, or minter.
+  string from = 5 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string to = 6 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 amount = 7;
+  // Record deposit escrowed for the recipient; refunded to from if the
+  // recipient already holds a record at acceptance, or on rejection.
+  string deposit = 8 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  int64 created_at = 9;
+  int64 expires_at = 10;
+}
+
+// UnitListing offers units of an edition at a fixed per-unit price. The
+// listed units are locked in the seller's balance; buyers may take part.
+message UnitListing {
+  uint64 id = 1;
+  uint64 class_id = 2;
+  uint64 edition_id = 3;
+  string seller = 4 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  // Units still for sale.
+  uint64 quantity = 5;
+  cosmos.base.v1beta1.Coin unit_price = 6 [
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+  int64 created_at = 7;
+  int64 expires_at = 8;
+}
+
+// CraftInput is one ingredient of a recipe: quantity tokens of a UNIQUE
+// class (edition_id 0), or quantity units of an edition.
+message CraftInput {
+  uint64 class_id = 1;
+  uint64 edition_id = 2;
+  uint64 quantity = 3;
+}
+
+// CraftRecipe burns its inputs to mint into the class it belongs to.
+// Recipes can be removed at any time but none can be added after the
+// class's first craft.
+message CraftRecipe {
+  uint64 class_id = 1;
+  uint64 id = 2;
+  repeated CraftInput inputs = 3 [(gogoproto.nullable) = false];
+  // UNIQUE target: the crafted token's metadata.
+  TokenMetadata output_metadata = 4 [
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+  // EDITIONS target: the edition and units crafted.
+  uint64 output_edition_id = 5;
+  uint64 output_quantity = 6;
+  // Times crafted.
+  uint64 crafts = 7;
+}
+
+// Offer is an escrowed SPARK bid to buy a token (token_id set) or any
+// token of a class (token_id 0, a collection offer). The price waits in the
+// module account until the offer is accepted, cancelled or expires.
+message Offer {
+  uint64 id = 1;
+  string bidder = 2 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 class_id = 3;
+  // 0 = any token of the class.
+  uint64 token_id = 4;
+  cosmos.base.v1beta1.Coin price = 5 [
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+  int64 created_at = 6;
+  int64 expires_at = 7;
+  // Token offers only, optional: the stored metadata the bidder saw.
+  string expected_metadata_hash = 8;
+  // Token offers only: the contents hash of a token holding nested
+  // tokens. A collection offer never buys a token holding anything.
+  string expected_contents_hash = 9;
+}
+
+// Auction is an English auction of one token: SPARK bids escrowed in the
+// module, each outbidding the last by min_increment_bps, the highest bid
+// settled at ends_at. A bid near the end extends it (anti-sniping).
+message Auction {
+  uint64 id = 1;
+  uint64 class_id = 2;
+  uint64 token_id = 3;
+  string seller = 4 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  // The lowest acceptable first bid.
+  cosmos.base.v1beta1.Coin reserve_price = 5 [
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+  // Each bid must beat the current one by at least this much.
+  uint32 min_increment_bps = 6;
+  int64 created_at = 7;
+  int64 ends_at = 8;
+  // "" until the first bid.
+  string high_bidder = 9;
+  string high_bid = 10 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  uint32 bids = 11;
 }

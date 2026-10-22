@@ -508,6 +508,11 @@ message MsgClaimRecurringSpend {
 message MsgClaimRecurringSpendResponse {
   uint64 claim_number = 1;
   int64 next_claim_time = 2;
+  // The council could not cover the period: nothing moved and the schedule
+  // is paused until a later claim succeeds.
+  bool paused = 3;
+  // The schedule's window had closed: nothing moved and it is complete.
+  bool completed = 4;
 }
 
 // MsgDeclineRecurringSpend lets the recipient permanently opt out of a

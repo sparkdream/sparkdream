@@ -23,9 +23,19 @@ const (
 	// Commit-reveal: a reveal deadline must be at least this far after
 	// class creation (seconds).
 	MinRevealWindow int64 = 5
+	// Harberger tax period and foreclosure bounds (seconds).
+	MinHarbergerPeriod int64 = 5
+	MaxHarbergerPeriod int64 = 365 * 24 * 3600
+	// Rental duration bounds for max_rental_duration (seconds).
+	MinRentalDuration    int64 = 5
+	MaxRentalDurationCap int64 = 365 * 24 * 3600
+	// Anti-sniping extension bounds (seconds).
+	MinAuctionExtension int64 = 1
+	MaxAuctionExtension int64 = 24 * 3600
 )
 
 func defaultPendingTTL() int64         { return 30 }
 func defaultMaxListingDuration() int64 { return 90 * 24 * 3600 }
 func defaultUnhideWindowBlocks() int64 { return 5 }
 func defaultHideExpiryBlocks() int64   { return 10 }
+func defaultAuctionExtension() int64   { return 5 }

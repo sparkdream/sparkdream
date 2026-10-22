@@ -399,26 +399,54 @@ func getOrCreateMember(r *rand.Rand, ctx sdk.Context, k keeper.Keeper, accs []si
 
 	// Create new member
 	simAccount, _ := simtypes.RandomAcc(r, accs)
-	if err := ensureMemberExists(ctx, k, simAccount.Address); err != nil {
+	newMember, err := upsertSimMember(ctx, k, r, simAccount.Address.String(), math.NewInt(int64(r.Intn(9000)+1000)), nil)
+	if err != nil {
 		return nil, simtypes.Account{}, err
 	}
-
-	newMember := &types.Member{
-		Address:           simAccount.Address.String(),
-		DreamBalance:      PtrInt(math.NewInt(int64(r.Intn(9000) + 1000))), // 1000-10000 DREAM
-		StakedDream:       PtrInt(math.ZeroInt()),
-		TrustLevel:        types.TrustLevel_TRUST_LEVEL_PROVISIONAL,
-		InvitationCredits: uint32(r.Intn(5) + 2), // 2-6 invitation credits
-		ReputationScores:  make(map[string]string),
-		LifetimeEarned:    PtrInt(math.ZeroInt()),
-		LifetimeBurned:    PtrInt(math.ZeroInt()),
-	}
-
-	if err := k.Member.Set(ctx, simAccount.Address.String(), *newMember); err != nil {
-		return nil, simtypes.Account{}, err
-	}
-
 	return newMember, simAccount, nil
+}
+
+// upsertSimMember makes addr a member with at least minDream DREAM and the
+// given reputation scores (raised, never lowered). An existing record is
+// topped up, never replaced: resetting it would wipe staked_dream while the
+// member's stakes, challenges, invitations and bonds still count on it, and
+// every later unlock would fail or drain someone else's obligation.
+func upsertSimMember(ctx sdk.Context, k keeper.Keeper, r *rand.Rand, addr string, minDream math.Int, reputation map[string]string) (*types.Member, error) {
+	member, err := k.Member.Get(ctx, addr)
+	if err != nil {
+		member = types.Member{
+			Address:           addr,
+			DreamBalance:      PtrInt(math.ZeroInt()),
+			StakedDream:       PtrInt(math.ZeroInt()),
+			TrustLevel:        types.TrustLevel_TRUST_LEVEL_PROVISIONAL,
+			InvitationCredits: uint32(r.Intn(5) + 2), // 2-6 invitation credits
+			ReputationScores:  make(map[string]string),
+			LifetimeEarned:    PtrInt(math.ZeroInt()),
+			LifetimeBurned:    PtrInt(math.ZeroInt()),
+		}
+	}
+	// The unlocked part of the balance must reach minDream.
+	unlocked := keeper.DerefInt(member.DreamBalance).Sub(keeper.DerefInt(member.StakedDream))
+	if unlocked.LT(minDream) {
+		member.DreamBalance = PtrInt(keeper.DerefInt(member.DreamBalance).Add(minDream.Sub(unlocked)))
+	}
+	if member.ReputationScores == nil {
+		member.ReputationScores = make(map[string]string)
+	}
+	for tag, want := range reputation {
+		wantDec, werr := math.LegacyNewDecFromStr(want)
+		if werr != nil {
+			continue
+		}
+		if have, herr := math.LegacyNewDecFromStr(member.ReputationScores[tag]); herr == nil && have.GTE(wantDec) {
+			continue
+		}
+		member.ReputationScores[tag] = want
+	}
+	if err := k.Member.Set(ctx, addr, member); err != nil {
+		return nil, err
+	}
+	return &member, nil
 }
 
 // getOrCreateMemberWithDream returns a member with sufficient DREAM or creates one
@@ -435,23 +463,11 @@ func getOrCreateMemberWithDream(r *rand.Rand, ctx sdk.Context, k keeper.Keeper, 
 	// Create new member with sufficient DREAM
 	simAccount, _ := simtypes.RandomAcc(r, accs)
 	dreamAmount := minAmount.MulRaw(int64(r.Intn(10) + 2)) // 2x-12x minimum
-
-	newMember := types.Member{
-		Address:           simAccount.Address.String(),
-		DreamBalance:      PtrInt(dreamAmount),
-		StakedDream:       PtrInt(math.ZeroInt()),
-		TrustLevel:        types.TrustLevel_TRUST_LEVEL_PROVISIONAL,
-		InvitationCredits: uint32(r.Intn(5) + 2), // 2-6 invitation credits
-		ReputationScores:  make(map[string]string),
-		LifetimeEarned:    PtrInt(math.ZeroInt()),
-		LifetimeBurned:    PtrInt(math.ZeroInt()),
-	}
-
-	if err := k.Member.Set(ctx, simAccount.Address.String(), newMember); err != nil {
+	newMember, err := upsertSimMember(ctx, k, r, simAccount.Address.String(), dreamAmount, nil)
+	if err != nil {
 		return nil, simtypes.Account{}, err
 	}
-
-	return &newMember, simAccount, nil
+	return newMember, simAccount, nil
 }
 
 // getOrCreateDistinctMemberWithDream returns a member with sufficient DREAM
@@ -561,22 +577,11 @@ func getOrCreateMemberWithReputation(r *rand.Rand, ctx sdk.Context, k keeper.Kee
 		repScores[tag] = repValue.String()
 	}
 
-	newMember := types.Member{
-		Address:           simAccount.Address.String(),
-		DreamBalance:      PtrInt(math.NewInt(int64(r.Intn(9000) + 1000))), // 1000-10000 DREAM
-		StakedDream:       PtrInt(math.ZeroInt()),
-		TrustLevel:        types.TrustLevel_TRUST_LEVEL_PROVISIONAL,
-		InvitationCredits: uint32(r.Intn(5) + 2), // 2-6 invitation credits
-		ReputationScores:  repScores,
-		LifetimeEarned:    PtrInt(math.ZeroInt()),
-		LifetimeBurned:    PtrInt(math.ZeroInt()),
-	}
-
-	if err := k.Member.Set(ctx, simAccount.Address.String(), newMember); err != nil {
+	newMember, err := upsertSimMember(ctx, k, r, simAccount.Address.String(), math.NewInt(int64(r.Intn(9000)+1000)), repScores)
+	if err != nil {
 		return nil, simtypes.Account{}, err
 	}
-
-	return &newMember, simAccount, nil
+	return newMember, simAccount, nil
 }
 
 // createInvitation creates a new invitation and locks the inviter's DREAM
@@ -597,13 +602,13 @@ func createInvitation(ctx sdk.Context, k keeper.Keeper, r *rand.Rand, inviter *t
 		}
 	}
 
-	// Lock the staked DREAM by updating the inviter's member record
-	if inviter.StakedDream == nil {
-		inviter.StakedDream = PtrInt(stakeAmount)
-	} else {
-		*inviter.StakedDream = inviter.StakedDream.Add(stakeAmount)
+	// Lock the staked DREAM through the keeper (checks the unlocked part of
+	// the balance, as MsgInviteMember does).
+	inviterAddr, err := sdk.AccAddressFromBech32(inviter.Address)
+	if err != nil {
+		return 0, err
 	}
-	if err := k.Member.Set(ctx, inviter.Address, *inviter); err != nil {
+	if err := k.LockDREAM(ctx, inviterAddr, stakeAmount); err != nil {
 		return 0, err
 	}
 
@@ -763,6 +768,18 @@ func createStake(ctx sdk.Context, k keeper.Keeper, r *rand.Rand, staker *types.M
 		stakeAmount = minStake
 	}
 
+	// Lock through the keeper, exactly as MsgStake does: staked DREAM is a
+	// subset of the balance (LockDREAM checks the unlocked part), so the
+	// aggregate always covers the record and later unlocks never drain
+	// other obligations.
+	stakerAddr, err := sdk.AccAddressFromBech32(staker.Address)
+	if err != nil {
+		return 0, err
+	}
+	if err := k.LockDREAM(ctx, stakerAddr, stakeAmount); err != nil {
+		return 0, err
+	}
+
 	stake := types.Stake{
 		Id:            stakeID,
 		Staker:        staker.Address,
@@ -786,13 +803,6 @@ func createStake(ctx sdk.Context, k keeper.Keeper, r *rand.Rand, staker *types.M
 		return 0, err
 	}
 
-	// Update member's staked dream and balance
-	staker.DreamBalance = PtrInt(staker.DreamBalance.Sub(stakeAmount))
-	staker.StakedDream = PtrInt(staker.StakedDream.Add(stakeAmount))
-	if err := k.Member.Set(ctx, staker.Address, *staker); err != nil {
-		return 0, err
-	}
-
 	return stakeID, nil
 }
 
@@ -804,6 +814,17 @@ func createChallenge(ctx sdk.Context, k keeper.Keeper, r *rand.Rand, challenger 
 	}
 
 	stakeAmount := math.NewInt(int64(r.Intn(400) + 100)) // 100-500 DREAM
+
+	// The challenger's stake is locked on the member, as MsgCreateChallenge
+	// does; a challenge whose stake was never locked would drain the
+	// challenger's other obligations from the aggregate when it resolves.
+	challengerAddr, err := sdk.AccAddressFromBech32(challenger.Address)
+	if err != nil {
+		return 0, err
+	}
+	if err := k.LockDREAM(ctx, challengerAddr, stakeAmount); err != nil {
+		return 0, err
+	}
 
 	challenge := types.Challenge{
 		Id:           challengeID,

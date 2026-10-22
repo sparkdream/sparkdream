@@ -147,12 +147,15 @@ func TestClaimRecurringPull_PausedOnUnderfunded(t *testing.T) {
 	}
 
 	futureCtx := withBlockTime(f.ctx, sdkCtx.BlockTime().Add(time.Duration(period+1)*time.Second))
-	_, err := ms.ClaimRecurringPull(futureCtx, &types.MsgClaimRecurringPull{
+	// The claim succeeds without moving funds so the PAUSED transition
+	// persists (an error would revert it with the tx).
+	paused, err := ms.ClaimRecurringPull(futureCtx, &types.MsgClaimRecurringPull{
 		Grantee: grantee,
 		GrantId: id,
 	})
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "insufficient")
+	require.NoError(t, err)
+	require.True(t, paused.Paused)
+	require.Equal(t, uint64(0), paused.ClaimNumber)
 
 	// Grant should be PAUSED.
 	g, err := f.keeper.Grants.Get(futureCtx, id)
@@ -222,4 +225,39 @@ func TestClaimRecurringPull_EpochCeilingExceeded(t *testing.T) {
 	_, err = ms.ClaimRecurringPull(ctx2, &types.MsgClaimRecurringPull{Grantee: grantee, GrantId: id})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "max_per_epoch")
+}
+
+// TestClaimRecurringPull_WindowClosedCompletes: a claim whose next period
+// would end after the grant succeeds without moving funds and reports
+// completed, so the COMPLETED status persists (an error would revert it).
+func TestClaimRecurringPull_WindowClosedCompletes(t *testing.T) {
+	f := initFixture(t)
+	ms := keeper.NewMsgServerImpl(f.keeper)
+	sdkCtx := sdk.UnwrapSDKContext(f.ctx)
+
+	granter := testAddr("granter", f.addressCodec)
+	grantee := testAddr("grantee", f.addressCodec)
+	amount := sdk.NewInt64Coin("uspark", 1_000_000)
+	period := int64(86_400)
+
+	// The grant ends before its first period does.
+	id := createRecurringPullGrant(t, f, ms, granter, grantee, amount, period, sdkCtx.BlockTime().Add(time.Duration(period/2)*time.Second))
+	sends := 0
+	f.bankKeeper.SendCoinsFn = func(_ context.Context, _, _ sdk.AccAddress, _ sdk.Coins) error {
+		sends++
+		return nil
+	}
+
+	futureCtx := withBlockTime(f.ctx, sdkCtx.BlockTime().Add(time.Duration(period+1)*time.Second))
+	resp, err := ms.ClaimRecurringPull(futureCtx, &types.MsgClaimRecurringPull{Grantee: grantee, GrantId: id})
+	require.NoError(t, err)
+	require.True(t, resp.Completed)
+	require.Zero(t, sends, "nothing moves")
+	g, err := f.keeper.Grants.Get(futureCtx, id)
+	require.NoError(t, err)
+	require.Equal(t, types.GrantStatus_GRANT_STATUS_COMPLETED, g.Status)
+
+	// A completed grant can no longer be claimed.
+	_, err = ms.ClaimRecurringPull(futureCtx, &types.MsgClaimRecurringPull{Grantee: grantee, GrantId: id})
+	require.Error(t, err)
 }

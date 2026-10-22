@@ -39,6 +39,17 @@ func TestParamsBounds(t *testing.T) {
 		{"unspecified policy", func(p *types.Params) { p.DefaultReceivePolicy = types.ReceivePolicy_RECEIVE_POLICY_UNSPECIFIED }},
 		{"trust level", func(p *types.Params) { p.MinTrustLevelCreateClass = 5 }},
 		{"no classes", func(p *types.Params) { p.MaxClassesPerCreator = 0 }},
+		{"nest depth zero", func(p *types.Params) { p.MaxNestDepth = 0 }},
+		{"nest depth ceiling", func(p *types.Params) { p.MaxNestDepth = types.HardMaxNestDepth + 1 }},
+		{"nested tokens zero", func(p *types.Params) { p.MaxNestedTokens = 0 }},
+		{"nested tokens ceiling", func(p *types.Params) { p.MaxNestedTokens = types.HardMaxNestedTokens + 1 }},
+		{"rental too short", func(p *types.Params) { p.MaxRentalDuration = types.MinRentalDuration - 1 }},
+		{"rental too long", func(p *types.Params) { p.MaxRentalDuration = types.MaxRentalDurationCap + 1 }},
+		{"recipes ceiling", func(p *types.Params) { p.MaxCraftRecipesPerClass = types.HardMaxCraftRecipes + 1 }},
+		{"no offers", func(p *types.Params) { p.MaxOffersPerBidder = 0 }},
+		{"offers ceiling", func(p *types.Params) { p.MaxOffersPerBidder = types.HardMaxOffersPerBidder + 1 }},
+		{"extension too short", func(p *types.Params) { p.AuctionExtension = types.MinAuctionExtension - 1 }},
+		{"extension too long", func(p *types.Params) { p.AuctionExtension = types.MaxAuctionExtension + 1 }},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

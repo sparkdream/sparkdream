@@ -202,7 +202,8 @@ func TestCouncilsCanRunArtifactBadges(t *testing.T) {
 		return src[start : start+end]
 	}
 	issuer := []string{"MsgCreateClass", "MsgMint", "MsgRevoke", "MsgSetMinters", "MsgCloseMinting", "MsgCancelOutgoing",
-		"MsgIssue", "MsgRedeem", "MsgRenew", "MsgLockRoyalty", "MsgReveal", "MsgRevealSeed", "MsgProposeMedia"}
+		"MsgIssue", "MsgRedeem", "MsgRenew", "MsgLockRoyalty", "MsgReveal", "MsgRevealSeed", "MsgProposeMedia",
+		"MsgCreateEdition", "MsgMintUnits", "MsgRevokeUnits", "MsgFundEdition"}
 
 	council := block("Commons Council", "VetoPermissions")
 	for _, msg := range issuer {

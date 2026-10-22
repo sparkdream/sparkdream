@@ -12,6 +12,17 @@ import (
 // pendingFor returns the pending item addressed to recipient, its expiry,
 // and its metadata hash.
 func (k Keeper) pendingFor(ctx context.Context, recipient string, classID, tokenID uint64) (int64, string, error) {
+	if classID == unitNamespace {
+		pu, err := k.PendingUnits.Get(ctx, tokenID)
+		if err != nil || pu.To != recipient {
+			return 0, "", errorsmod.Wrapf(types.ErrPendingNotFound, "pending units %d", tokenID)
+		}
+		e, err := k.getEdition(ctx, pu.ClassId, pu.EditionId)
+		if err != nil {
+			return 0, "", err
+		}
+		return pu.ExpiresAt, types.MetadataHash(e.Metadata), nil
+	}
 	key := collections.Join(classID, tokenID)
 	if pt, err := k.PendingTransfers.Get(ctx, key); err == nil && pt.To == recipient {
 		t, err := k.getToken(ctx, classID, tokenID)

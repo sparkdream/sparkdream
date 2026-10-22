@@ -446,6 +446,11 @@ else
     echo ""
 fi
 
+# create-recurring-pull CLI (payload-typed MsgCreateGrant).
+if [ "$RUN_BYPASS" = true ]; then
+    run_test "Recurring Pull CLI Tests" "recurring_pull_cli_test.sh"
+fi
+
 # ============================================================================
 # Final Summary
 # ============================================================================

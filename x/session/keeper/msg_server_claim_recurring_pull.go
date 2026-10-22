@@ -100,8 +100,15 @@ func (k Keeper) claimRecurringPullCommon(ctx context.Context, grantID uint64, gr
 		if err := k.decActiveGrantCount(ctx, grant.Granter, grant.Type); err != nil {
 			return nil, err
 		}
-		return nil, errorsmod.Wrapf(types.ErrRecurringPullWindowClosed,
-			"grant %d ended at %d", grant.Id, grant.ExpiresAt.Unix())
+		// Succeed so the COMPLETED transition persists: an error would
+		// revert it with the rest of the tx.
+		sdkCtx.EventManager().EmitEvent(sdk.NewEvent(
+			"grant_completed",
+			sdk.NewAttribute("id", fmt.Sprintf("%d", grant.Id)),
+			sdk.NewAttribute("type", grant.Type.String()),
+			sdk.NewAttribute("reason", "window_closed"),
+		))
+		return &types.MsgClaimRecurringPullResponse{ClaimNumber: rp.ClaimsMade, NextClaimTime: nextEligible, Completed: true}, nil
 	}
 
 	// Epoch self-throttle: debit the current UTC-day bucket. Reject if
@@ -160,7 +167,9 @@ func (k Keeper) claimRecurringPullCommon(ctx context.Context, grantID uint64, gr
 				sdk.NewAttribute("attempted_amount", rp.AmountPerPeriod.String()),
 			))
 		}
-		return nil, errorsmod.Wrap(types.ErrInsufficientGranterBalance, err.Error())
+		// Succeed so the PAUSED transition persists: an error would revert
+		// it with the rest of the tx. Nothing moved; the next claim retries.
+		return &types.MsgClaimRecurringPullResponse{ClaimNumber: rp.ClaimsMade, NextClaimTime: nextEligible, Paused: true}, nil
 	}
 
 	// Bank send succeeded — commit the epoch-bucket debit.

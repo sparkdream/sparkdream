@@ -55,7 +55,8 @@ func simBlindTree(classID uint64) ([]byte, [][][]byte) {
 // SimulateMsgCreateClass creates a class from a random sim account that is
 // an active x/rep member (class creation is member-gated). A share of the
 // classes exercise the wave-1/2 policies: expiring, redeemable, mutual,
-// price curves, blind mints and generative seeds.
+// price curves, blind mints and generative seeds; and the wave-3/4 shapes:
+// editions, Harberger and permanent (NEITHER) classes.
 func SimulateMsgCreateClass(
 	ak types.AuthKeeper,
 	bk types.BankKeeper,
@@ -147,6 +148,23 @@ func SimulateMsgCreateClass(
 				case 2:
 					msg.Reveal = types.RevealPolicy{Kind: types.RevealKind_REVEAL_KIND_GENERATIVE_SEED, Commitment: types.SeedCommitment(simSeed(nextID)), Deadline: now + types.MinRevealWindow + int64(r.Intn(600))}
 				}
+			}
+		}
+		// Waves 3 and 4: some plain classes become editions, Harberger or
+		// permanent (NEITHER) classes instead.
+		plain := !msg.Flags.Mutual && !msg.Flags.Redeemable && !msg.Expiry.Expires() && !msg.Reveal.Reveals()
+		if plain {
+			switch r.Intn(4) {
+			case 0:
+				msg.TokenModel = types.TokenModel_TOKEN_MODEL_EDITIONS
+				msg.MintPolicy = types.MintPolicy{}
+			case 1:
+				if msg.Flags.Transferable {
+					msg.Harberger = types.HarbergerPolicy{TaxBpsPerYear: uint32(100 + r.Intn(2000)),
+						TaxPeriod: types.MinHarbergerPeriod + int64(r.Intn(600)), ForeclosureDuration: types.MinHarbergerPeriod + int64(r.Intn(600))}
+				}
+			case 2:
+				msg.Flags.BurnAuthorization = types.BurnAuthorization_BURN_AUTHORIZATION_NEITHER
 			}
 		}
 		return deliver(r, app, ctx, ak, bk, txGen, acc, msg, p.ClassCreationFee)

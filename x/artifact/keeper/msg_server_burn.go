@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"cosmossdk.io/collections"
+	errorsmod "cosmossdk.io/errors"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	"sparkdream/x/artifact/types"
@@ -38,8 +39,10 @@ func (k msgServer) Burn(ctx context.Context, msg *types.MsgBurn) (*types.MsgBurn
 		if !c.Flags.HolderMayBurn() {
 			return nil, types.ErrHolderBurnNotAllowed
 		}
-		if t.Lock == types.TokenLock_TOKEN_LOCK_PENDING_TRANSFER {
-			return nil, types.ErrTokenLocked
+		// A listing is cancelled implicitly; a pending transfer, rental or
+		// nesting must end first.
+		if t.Lock != types.TokenLock_TOKEN_LOCK_NONE && t.Lock != types.TokenLock_TOKEN_LOCK_LISTED {
+			return nil, errorsmod.Wrapf(types.ErrTokenLocked, "token is %s", t.Lock)
 		}
 		// An unrevealed token past the reveal deadline refunds what the
 		// holder paid as well as the deposit (docs/x-artifact-spec.md §7.15).

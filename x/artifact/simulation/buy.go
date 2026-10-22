@@ -3,6 +3,7 @@ package simulation
 import (
 	"math/rand"
 
+	"cosmossdk.io/collections"
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -33,11 +34,21 @@ func SimulateMsgBuy(
 		if err != nil || c.Status != types.ContentStatus_CONTENT_STATUS_ACTIVE {
 			return noop(msg, "class not active")
 		}
+		t, err := k.Tokens.Get(ctx, collections.Join(l.ClassId, l.TokenId))
+		if err != nil || t.Status != types.ContentStatus_CONTENT_STATUS_ACTIVE || types.IsExpired(t, ctx.BlockTime().Unix()) {
+			return noop(msg, "token hidden, expired or gone")
+		}
 		buyer, _ := simtypes.RandomAcc(r, accs)
 		if buyer.Address.String() == l.Seller {
 			return noop(msg, "picked the seller")
 		}
-		msg = &types.MsgBuy{Buyer: buyer.Address.String(), ClassId: l.ClassId, TokenId: l.TokenId, ExpectedPrice: l.Price, ExpectedNonce: l.Nonce}
+		// A token holding nested tokens needs the contents pin.
+		hash, err := k.ContentsHash(ctx, t)
+		if err != nil {
+			return noop(msg, "contents unreadable")
+		}
+		msg = &types.MsgBuy{Buyer: buyer.Address.String(), ClassId: l.ClassId, TokenId: l.TokenId, ExpectedPrice: l.Price, ExpectedNonce: l.Nonce,
+			ExpectedContentsHash: hash}
 		return deliver(r, app, ctx, ak, bk, txGen, buyer, msg, l.Price.Amount)
 	}
 }

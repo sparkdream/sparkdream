@@ -26,6 +26,9 @@ func SimulateMsgMint(
 		if !ok {
 			return noop(msg, "no open class owned by a sim account")
 		}
+		if c.IsEditions() {
+			return noop(msg, "editions classes mint through MsgCreateEdition and MsgMintUnits")
+		}
 		n := 1 + r.Intn(3)
 		if c.MaxSupply > 0 && c.Supply+c.Burned+c.ReservedSupply+uint64(n) > c.MaxSupply {
 			return noop(msg, "class supply exhausted")
@@ -34,6 +37,12 @@ func SimulateMsgMint(
 		for i := range entries {
 			to, _ := simtypes.RandomAcc(r, accs)
 			entries[i] = types.MintEntry{Recipient: to.Address.String(), Metadata: randomMetadata(r)}
+			if c.Reveal.Kind == types.RevealKind_REVEAL_KIND_BLIND_METADATA {
+				entries[i].Metadata = types.TokenMetadata{} // committed in the class root
+			}
+			if c.Flags.Mutual && to.Address.Equals(owner.Address) {
+				return noop(msg, "a mutual attestation needs another recipient")
+			}
 		}
 		msg = &types.MsgMint{Minter: owner.Address.String(), ClassId: c.Id, Entries: entries, AcceptedContentLicense: types.ContentLicense}
 		p := k.GetParams(ctx)

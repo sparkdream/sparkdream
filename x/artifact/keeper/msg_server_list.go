@@ -27,6 +27,9 @@ func (k Keeper) listingPreconditions(ctx context.Context, seller string, classID
 	if !c.Flags.Transferable {
 		return c, t, types.ErrNotTransferable
 	}
+	if c.IsHarberger() {
+		return c, t, types.ErrHarbergerToken
+	}
 	if isTargetHidden(c, t) {
 		return c, t, types.ErrContentHidden
 	}

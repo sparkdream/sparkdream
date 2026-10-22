@@ -36,6 +36,9 @@ func (k msgServer) Issue(ctx context.Context, msg *types.MsgIssue) (*types.MsgIs
 	if err != nil {
 		return nil, err
 	}
+	if c.IsEditions() {
+		return nil, errorsmod.Wrap(types.ErrWrongTokenModel, "editions classes issue units with MsgMintUnits")
+	}
 	if err := validateMintContent(ctx, c, msg.Metadata, nil, p); err != nil {
 		return nil, err
 	}

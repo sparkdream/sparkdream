@@ -164,7 +164,13 @@ func (k msgServer) PullAllowance(ctx context.Context, msg *types.MsgPullAllowanc
 				sdk.NewAttribute("attempted_amount", msg.Amount.String()),
 			))
 		}
-		return nil, errorsmod.Wrap(types.ErrInsufficientGranterBalance, err.Error())
+		// Succeed so the PAUSED transition persists: an error would revert
+		// it with the rest of the tx. Nothing moved.
+		return &types.MsgPullAllowanceResponse{
+			Transferred:   sdk.NewCoin(msg.Amount.Denom, sdkmath.ZeroInt()),
+			SpentInPeriod: sa.SpentInCurrentPeriod,
+			Paused:        true,
+		}, nil
 	}
 
 	// Bank send succeeded — commit period clock + spent_in_current_period

@@ -56,6 +56,11 @@ func SimulateMsgInviteToGuild(
 		if err := getOrCreateMemberProfile(r, ctx, k, inviteeAccount.Address.String()); err != nil {
 			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgInviteToGuild{}), "failed to create invitee profile"), nil, nil
 		}
+		// The handler reads the profile's guild, which can be set without a
+		// GuildMembership record (e.g. a profile seeded inside a guild).
+		if profile, err := k.MemberProfile.Get(ctx, inviteeAccount.Address.String()); err == nil && profile.GuildId != 0 {
+			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgInviteToGuild{}), "invitee profile already in a guild"), nil, nil
+		}
 
 		msg := &types.MsgInviteToGuild{
 			Creator: simAccount.Address.String(),

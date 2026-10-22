@@ -43,6 +43,14 @@ func (k Keeper) InitGenesis(ctx context.Context, gs types.GenesisState) error {
 				return err
 			}
 		}
+		if t.IsNested() {
+			if err := k.Children.Set(ctx, collections.Join(refKey(*t.Parent), refKey(tokenRef(t)))); err != nil {
+				return err
+			}
+		}
+		if err := k.indexHarbergerDue(ctx, t); err != nil {
+			return err
+		}
 	}
 	for _, mp := range gs.MediaProposals {
 		if err := k.MediaProposals.Set(ctx, collections.Join3(mp.ClassId, mp.TokenId, mp.Id), mp); err != nil {
@@ -142,6 +150,120 @@ func (k Keeper) InitGenesis(ctx context.Context, gs types.GenesisState) error {
 	}
 	for _, e := range gs.SentinelDailyHides {
 		if err := k.SentinelDailyHides.Set(ctx, collections.Join(e.Sentinel, e.Day), uint64(e.Count)); err != nil {
+			return err
+		}
+	}
+	return k.initWave34Genesis(ctx, gs, bump)
+}
+
+// initWave34Genesis imports editions, balances, pending units, unit
+// listings, recipes, rentals and rental offers, rebuilding their indexes
+// and the inbox counters.
+func (k Keeper) initWave34Genesis(ctx context.Context, gs types.GenesisState, bump func(origin, to string) error) error {
+	for _, e := range gs.Editions {
+		if err := k.Editions.Set(ctx, collections.Join(e.ClassId, e.Id), e); err != nil {
+			return err
+		}
+		if e.Claim.InitiativeId != 0 {
+			if err := k.CertificatesByInitiative.Set(ctx, collections.Join3(e.Claim.InitiativeId, e.ClassId, e.Id)); err != nil {
+				return err
+			}
+		}
+	}
+	for _, b := range gs.Balances {
+		if err := k.Balances.Set(ctx, balanceKey(b.ClassId, b.EditionId, b.Owner), b); err != nil {
+			return err
+		}
+		if err := k.BalancesByOwner.Set(ctx, collections.Join3(b.Owner, b.ClassId, b.EditionId)); err != nil {
+			return err
+		}
+	}
+	if err := k.PendingUnitSeq.Set(ctx, gs.PendingUnitSeq); err != nil {
+		return err
+	}
+	for _, pu := range gs.PendingUnits {
+		if err := k.PendingUnits.Set(ctx, pu.Id, pu); err != nil {
+			return err
+		}
+		if err := k.indexPending(ctx, pu.Kind, unitNamespace, pu.Id, pu.From, pu.To, pu.ExpiresAt); err != nil {
+			return err
+		}
+		if err := bump(unitOriginOf(pu), pu.To); err != nil {
+			return err
+		}
+	}
+	if err := k.UnitListingSeq.Set(ctx, gs.UnitListingSeq); err != nil {
+		return err
+	}
+	for _, l := range gs.UnitListings {
+		if err := k.UnitListings.Set(ctx, l.Id, l); err != nil {
+			return err
+		}
+		if err := k.UnitListingsByEdition.Set(ctx, collections.Join3(l.ClassId, l.EditionId, l.Id)); err != nil {
+			return err
+		}
+		if err := k.UnitListingsBySeller.Set(ctx, collections.Join(l.Seller, l.Id)); err != nil {
+			return err
+		}
+		if err := k.UnitListingExpiry.Set(ctx, collections.Join(l.ExpiresAt, l.Id)); err != nil {
+			return err
+		}
+	}
+	for _, r := range gs.CraftRecipes {
+		if err := k.CraftRecipes.Set(ctx, collections.Join(r.ClassId, r.Id), r); err != nil {
+			return err
+		}
+	}
+	for _, r := range gs.Rentals {
+		if err := k.Rentals.Set(ctx, collections.Join(r.ClassId, r.TokenId), r); err != nil {
+			return err
+		}
+		if err := k.RentalsByUser.Set(ctx, collections.Join3(r.User, r.ClassId, r.TokenId)); err != nil {
+			return err
+		}
+		if err := k.RentalExpiry.Set(ctx, collections.Join3(r.ExpiresAt, r.ClassId, r.TokenId)); err != nil {
+			return err
+		}
+	}
+	for _, o := range gs.RentalOffers {
+		if err := k.RentalOffers.Set(ctx, collections.Join(o.ClassId, o.TokenId), o); err != nil {
+			return err
+		}
+		if err := k.RentalOfferExpiry.Set(ctx, collections.Join3(o.ExpiresAt, o.ClassId, o.TokenId)); err != nil {
+			return err
+		}
+	}
+	if err := k.OfferSeq.Set(ctx, gs.OfferSeq); err != nil {
+		return err
+	}
+	for _, o := range gs.Offers {
+		if err := k.Offers.Set(ctx, o.Id, o); err != nil {
+			return err
+		}
+		if err := k.OffersByToken.Set(ctx, collections.Join3(o.ClassId, o.TokenId, o.Id)); err != nil {
+			return err
+		}
+		if err := k.OffersByBidder.Set(ctx, collections.Join(o.Bidder, o.Id)); err != nil {
+			return err
+		}
+		if err := k.OfferExpiry.Set(ctx, collections.Join(o.ExpiresAt, o.Id)); err != nil {
+			return err
+		}
+	}
+	if err := k.AuctionSeq.Set(ctx, gs.AuctionSeq); err != nil {
+		return err
+	}
+	for _, a := range gs.Auctions {
+		if err := k.Auctions.Set(ctx, a.Id, a); err != nil {
+			return err
+		}
+		if err := k.AuctionByToken.Set(ctx, collections.Join(a.ClassId, a.TokenId), a.Id); err != nil {
+			return err
+		}
+		if err := k.AuctionEnds.Set(ctx, collections.Join(a.EndsAt, a.Id)); err != nil {
+			return err
+		}
+		if err := k.AuctionsBySeller.Set(ctx, collections.Join(a.Seller, a.Id)); err != nil {
 			return err
 		}
 	}
@@ -247,6 +369,72 @@ func (k Keeper) ExportGenesis(ctx context.Context) (*types.GenesisState, error) 
 	walk(func() error {
 		return k.ClassReleaseQueue.Walk(ctx, nil, func(id, cursor uint64) (bool, error) {
 			gs.ClassReleaseQueue = append(gs.ClassReleaseQueue, types.QueueCursor{ClassId: id, Cursor: cursor})
+			return false, nil
+		})
+	})
+	if gs.PendingUnitSeq, err = k.PendingUnitSeq.Peek(ctx); err != nil {
+		return nil, err
+	}
+	if gs.UnitListingSeq, err = k.UnitListingSeq.Peek(ctx); err != nil {
+		return nil, err
+	}
+	walk(func() error {
+		return k.Editions.Walk(ctx, nil, func(_ U64Pair, e types.Edition) (bool, error) {
+			gs.Editions = append(gs.Editions, e)
+			return false, nil
+		})
+	})
+	walk(func() error {
+		return k.Balances.Walk(ctx, nil, func(_ BalanceKey, b types.Balance) (bool, error) {
+			gs.Balances = append(gs.Balances, b)
+			return false, nil
+		})
+	})
+	walk(func() error {
+		return k.PendingUnits.Walk(ctx, nil, func(_ uint64, pu types.PendingUnits) (bool, error) {
+			gs.PendingUnits = append(gs.PendingUnits, pu)
+			return false, nil
+		})
+	})
+	walk(func() error {
+		return k.UnitListings.Walk(ctx, nil, func(_ uint64, l types.UnitListing) (bool, error) {
+			gs.UnitListings = append(gs.UnitListings, l)
+			return false, nil
+		})
+	})
+	walk(func() error {
+		return k.CraftRecipes.Walk(ctx, nil, func(_ U64Pair, r types.CraftRecipe) (bool, error) {
+			gs.CraftRecipes = append(gs.CraftRecipes, r)
+			return false, nil
+		})
+	})
+	walk(func() error {
+		return k.Rentals.Walk(ctx, nil, func(_ U64Pair, r types.Rental) (bool, error) {
+			gs.Rentals = append(gs.Rentals, r)
+			return false, nil
+		})
+	})
+	walk(func() error {
+		return k.RentalOffers.Walk(ctx, nil, func(_ U64Pair, o types.RentalOffer) (bool, error) {
+			gs.RentalOffers = append(gs.RentalOffers, o)
+			return false, nil
+		})
+	})
+	if gs.OfferSeq, err = k.OfferSeq.Peek(ctx); err != nil {
+		return nil, err
+	}
+	if gs.AuctionSeq, err = k.AuctionSeq.Peek(ctx); err != nil {
+		return nil, err
+	}
+	walk(func() error {
+		return k.Offers.Walk(ctx, nil, func(_ uint64, o types.Offer) (bool, error) {
+			gs.Offers = append(gs.Offers, o)
+			return false, nil
+		})
+	})
+	walk(func() error {
+		return k.Auctions.Walk(ctx, nil, func(_ uint64, a types.Auction) (bool, error) {
+			gs.Auctions = append(gs.Auctions, a)
 			return false, nil
 		})
 	})

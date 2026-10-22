@@ -20,6 +20,9 @@ func (k Keeper) publicMintCheck(ctx context.Context, c types.Class, buyer string
 	if err := mintable(c); err != nil {
 		return err
 	}
+	if c.IsEditions() {
+		return types.ErrWrongTokenModel
+	}
 	if c.Flags.Mutual {
 		return errorsmod.Wrap(types.ErrMintWindow, "mutual classes have no public mint")
 	}
@@ -84,7 +87,14 @@ func (k msgServer) PublicMint(ctx context.Context, msg *types.MsgPublicMint) (*t
 			return nil, err
 		}
 	}
-	if err := k.collect(ctx, buyer, p.TokenDeposit.MulRaw(int64(msg.Quantity))); err != nil {
+	// A NEITHER token is permanent: its deposit is burned as a fee (§7.26).
+	deposit := p.TokenDeposit
+	if c.Flags.NobodyMayBurn() {
+		if err := k.burnFrom(ctx, buyer, deposit.MulRaw(int64(msg.Quantity))); err != nil {
+			return nil, err
+		}
+		deposit = math.ZeroInt()
+	} else if err := k.collect(ctx, buyer, deposit.MulRaw(int64(msg.Quantity))); err != nil {
 		return nil, err
 	}
 
@@ -96,8 +106,17 @@ func (k msgServer) PublicMint(ctx context.Context, msg *types.MsgPublicMint) (*t
 		if escrow {
 			paid = types.UnitPrice(c.MintPolicy, c.PublicMinted, now(ctx))
 		}
-		if _, err := k.createToken(ctx, c, tokenID, msg.Buyer, msg.Buyer, types.TokenMetadata{}, nil, isBlind(c), p.TokenDeposit, paid); err != nil {
+		unit := types.UnitPrice(c.MintPolicy, c.PublicMinted, now(ctx))
+		t, err := k.createToken(ctx, c, tokenID, msg.Buyer, msg.Buyer, types.TokenMetadata{}, nil, isBlind(c), deposit, paid)
+		if err != nil {
 			return nil, err
+		}
+		if t.Harberger != nil {
+			// A Harberger token starts assessed at what it was bought for.
+			t.Harberger.Price = unit
+			if err := k.saveToken(ctx, t); err != nil {
+				return nil, err
+			}
 		}
 		c.Supply++
 		c.PublicMinted++

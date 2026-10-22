@@ -60,7 +60,8 @@ func (k msgServer) Transfer(ctx context.Context, msg *types.MsgTransfer) (*types
 			return nil, err
 		}
 
-		if k.deliversDirectly(ctx, msg.Sender, e.Recipient) {
+		// A token nobody can burn (NEITHER) only ever arrives with consent.
+		if !c.Flags.NeedsConsent() && k.deliversDirectly(ctx, msg.Sender, e.Recipient) {
 			if err := k.moveToken(ctx, &t, e.Recipient); err != nil {
 				return nil, err
 			}

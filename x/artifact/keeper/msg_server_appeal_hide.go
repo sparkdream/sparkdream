@@ -32,7 +32,8 @@ func (k msgServer) AppealHide(ctx context.Context, msg *types.MsgAppealHide) (*t
 		return nil, types.ErrAppealWindowClosed
 	}
 	switch hr.TargetKind {
-	case types.HideTargetKind_HIDE_TARGET_KIND_CLASS:
+	// An edition has many holders: like the class, the class owner appeals.
+	case types.HideTargetKind_HIDE_TARGET_KIND_CLASS, types.HideTargetKind_HIDE_TARGET_KIND_EDITION:
 		c, err := k.getClass(ctx, hr.ClassId)
 		if err != nil || c.Owner != msg.Appellant {
 			return nil, types.ErrNotAppellant

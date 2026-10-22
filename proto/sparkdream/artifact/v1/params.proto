@@ -87,6 +87,20 @@ message Params {
   uint32 max_media_versions_per_token = 33;
   // Query-time renderer evaluation switch (operational).
   bool renderers_enabled = 34;
+
+  // --- Waves 3 and 4 (governance) ---
+  // Levels a nested tree may have below its root.
+  uint32 max_nest_depth = 35;
+  // Tokens a nested tree may hold under its root.
+  uint32 max_nested_tokens = 36;
+  // Longest rental, in seconds.
+  int64 max_rental_duration = 37;
+  // Crafting recipes per class.
+  uint32 max_craft_recipes_per_class = 38;
+  // Open escrowed offers per bidder.
+  uint32 max_offers_per_bidder = 39;
+  // Seconds a late bid pushes an auction's end out to (anti-sniping).
+  int64 auction_extension = 40;
 }
 
 // ArtifactOperationalParams is the subset of Params the Commons Operations

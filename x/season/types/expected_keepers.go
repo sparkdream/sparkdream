@@ -111,6 +111,14 @@ type CollectKeeper interface {
 	HasCollection(ctx context.Context, id uint64) bool
 }
 
+// ArtifactKeeper defines the expected interface for the x/artifact module:
+// impact certificates (editions carrying an impact claim) can be nominated
+// for retroactive rewards, which go to the nominator like any other
+// content's, never to the certificate's holders.
+type ArtifactKeeper interface {
+	IsImpactCertificate(ctx context.Context, classID, editionID uint64) bool
+}
+
 // CommonsKeeper defines the expected interface for the x/commons module.
 // This enables cross-module integration for committee membership checks and council lookups.
 type CommonsKeeper interface {

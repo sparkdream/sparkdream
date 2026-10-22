@@ -28,6 +28,13 @@ func (k msgServer) FreezeTokenMetadata(ctx context.Context, msg *types.MsgFreeze
 		if err != nil {
 			return nil, err
 		}
+		if c.IsEditions() {
+			// An edition has many holders; only the class owner freezes it.
+			if err := k.freezeEdition(ctx, c, r.TokenId, msg.Signer); err != nil {
+				return nil, err
+			}
+			continue
+		}
 		t, err := k.getToken(ctx, r.ClassId, r.TokenId)
 		if err != nil {
 			return nil, err
@@ -47,4 +54,25 @@ func (k msgServer) FreezeTokenMetadata(ctx context.Context, msg *types.MsgFreeze
 			sdk.NewAttribute("by", msg.Signer), sdk.NewAttribute("metadata_hash", types.MetadataHash(t.Metadata)))
 	}
 	return &types.MsgFreezeTokenMetadataResponse{}, nil
+}
+
+// freezeEdition freezes an edition's metadata (class owner only).
+func (k msgServer) freezeEdition(ctx context.Context, c types.Class, editionID uint64, signer string) error {
+	if c.Owner != signer {
+		return types.ErrNotClassOwner
+	}
+	e, err := k.getEdition(ctx, c.Id, editionID)
+	if err != nil {
+		return err
+	}
+	if e.MetadataFrozen {
+		return types.ErrMetadataFrozen
+	}
+	e.MetadataFrozen = true
+	if err := k.saveEdition(ctx, e); err != nil {
+		return err
+	}
+	emit(ctx, types.EventTokenMetadataFrozen, classAttr(c.Id), editionAttr(e.Id),
+		sdk.NewAttribute("by", signer), sdk.NewAttribute("metadata_hash", types.MetadataHash(e.Metadata)))
+	return nil
 }

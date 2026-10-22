@@ -25,5 +25,10 @@ func (q queryServer) Token(ctx context.Context, req *types.QueryTokenRequest) (*
 	if l, err := q.k.Listings.Get(ctx, key); err == nil {
 		resp.Listing = &l
 	}
+	if id, err := q.k.AuctionByToken.Get(ctx, key); err == nil {
+		if a, err := q.k.Auctions.Get(ctx, id); err == nil {
+			resp.Auction = &a
+		}
+	}
 	return resp, nil
 }

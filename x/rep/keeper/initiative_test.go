@@ -866,3 +866,35 @@ func TestSeasonCapGateCountsMemberAndTagStakeShares(t *testing.T) {
 	require.Equal(t, math.NewInt(105).String(), minted.String(),
 		"the member and tag revenue shares must count against the season cap")
 }
+
+// TestZeroedSelfAssigneeDoesNotWedgeTheProject: zeroing burns staked DREAM,
+// self-assign bond included. The bond must go with it; left in place,
+// releasing it (cancel cascade, unassign, close) tried to unlock DREAM the
+// member no longer had, and cancelling the project failed every time.
+func TestZeroedSelfAssigneeDoesNotWedgeTheProject(t *testing.T) {
+	fixture := initFixture(t)
+	k := fixture.keeper
+	ctx := fixture.ctx
+
+	creator := sdk.AccAddress([]byte("creator"))
+	k.Member.Set(ctx, creator.String(), types.Member{
+		Address:          creator.String(),
+		DreamBalance:     PtrInt(math.NewInt(1000)),
+		StakedDream:      PtrInt(math.ZeroInt()),
+		LifetimeEarned:   PtrInt(math.ZeroInt()),
+		LifetimeBurned:   PtrInt(math.ZeroInt()),
+		ReputationScores: map[string]string{"tag": "100.0"},
+		TrustLevel:       types.TrustLevel_TRUST_LEVEL_ESTABLISHED,
+	})
+	projectID, _ := k.CreateProject(ctx, creator, "Proj", "Desc", []string{"tag"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical", math.NewInt(10000), math.NewInt(1000), false)
+	k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(10000), math.NewInt(1000))
+	initID, _ := k.CreateInitiative(ctx, creator, projectID, "Task", "D", []string{"tag"}, types.InitiativeTier_INITIATIVE_TIER_STANDARD, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, math.NewInt(100))
+	require.NoError(t, k.AssignInitiativeToMember(ctx, initID, creator))
+
+	require.NoError(t, k.ZeroMember(ctx, creator, "misconduct"))
+	initiative, err := k.GetInitiative(ctx, initID)
+	require.NoError(t, err)
+	require.True(t, initiative.SelfAssignBond.IsZero(), "zeroing burns the bond with the rest of the balance")
+
+	require.NoError(t, k.UnassignInitiative(ctx, initID, "assignee zeroed", true))
+}
