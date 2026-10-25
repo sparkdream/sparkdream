@@ -30,7 +30,7 @@ func (k msgServer) ContestDispute(goCtx context.Context, msg *types.MsgContestDi
 
 	// 3. Verify caller is the current name owner
 	record, found := k.GetName(ctx, msg.Name)
-	if !found || record.Owner != msg.Authority {
+	if !found || !k.canActAs(ctx, msg.Authority, record.Owner) {
 		return nil, errorsmod.Wrapf(types.ErrNotNameOwner, "only the owner of %q can contest", msg.Name)
 	}
 

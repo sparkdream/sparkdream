@@ -44,7 +44,10 @@ func (k msgServer) ListUnits(ctx context.Context, msg *types.MsgListUnits) (*typ
 	if msg.Duration <= 0 || msg.Duration > p.MaxListingDuration {
 		return nil, errorsmod.Wrapf(types.ErrInvalidMetadata, "duration must be in (0, %d] seconds", p.MaxListingDuration)
 	}
-	if err := k.lockUnits(ctx, &e, msg.Seller, msg.Quantity, false); err != nil {
+	// The listing names the address that holds the units (a predecessor of
+	// the seller after a key migration) so later unlock/debit find them.
+	seller := k.balanceHolder(ctx, c.Id, e.Id, msg.Seller)
+	if err := k.lockUnits(ctx, &e, seller, msg.Quantity, false); err != nil {
 		return nil, err
 	}
 	seq, err := k.UnitListingSeq.Next(ctx)
@@ -55,7 +58,7 @@ func (k msgServer) ListUnits(ctx context.Context, msg *types.MsgListUnits) (*typ
 		Id:        seq + 1,
 		ClassId:   c.Id,
 		EditionId: e.Id,
-		Seller:    msg.Seller,
+		Seller:    seller,
 		Quantity:  msg.Quantity,
 		UnitPrice: msg.UnitPrice,
 		CreatedAt: now(ctx),

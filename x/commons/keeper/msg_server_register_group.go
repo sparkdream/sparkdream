@@ -87,6 +87,9 @@ func (k msgServer) RegisterGroup(goCtx context.Context, msg *types.MsgRegisterGr
 	if msg.VotingPeriod <= 0 {
 		return nil, errorsmod.Wrap(sdkerrors.ErrInvalidRequest, "voting_period must be greater than 0")
 	}
+	if err := k.checkVotingPeriodCap(ctx, int64(msg.VotingPeriod)); err != nil {
+		return nil, errorsmod.Wrap(sdkerrors.ErrInvalidRequest, err.Error())
+	}
 
 	if !isGov {
 		for _, allowedMsg := range msg.AllowedMessages {

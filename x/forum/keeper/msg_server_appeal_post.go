@@ -40,7 +40,7 @@ func (k msgServer) AppealPost(ctx context.Context, msg *types.MsgAppealPost) (*t
 	}
 
 	// Verify appellant is the post author
-	if post.Author != msg.Creator {
+	if !k.canActAs(ctx, msg.Creator, post.Author) {
 		return nil, errorsmod.Wrap(types.ErrNotPostAuthor, "only the post author can appeal")
 	}
 

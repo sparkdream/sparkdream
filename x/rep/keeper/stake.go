@@ -72,7 +72,7 @@ func (k Keeper) CreateStake(
 
 	// Self-stake prevention for member staking
 	if targetType == types.StakeTargetType_STAKE_TARGET_MEMBER {
-		if targetIdentifier == staker.String() && !params.AllowSelfMemberStake {
+		if k.SameMember(ctx, targetIdentifier, staker.String()) && !params.AllowSelfMemberStake {
 			return 0, fmt.Errorf("cannot stake on yourself")
 		}
 	}
@@ -159,7 +159,7 @@ func (k Keeper) CreateStake(
 		// Self-stake prevention: resolve the true author/owner from the owning
 		// module's keeper. The user-supplied targetIdentifier cannot be trusted
 		// for security checks (an empty or forged value would bypass).
-		if author := k.resolveContentAuthor(ctx, targetType, targetID); author != "" && author == staker.String() {
+		if author := k.resolveContentAuthor(ctx, targetType, targetID); author != "" && k.SameMember(ctx, author, staker.String()) {
 			return 0, types.ErrSelfContentStake
 		}
 		// Per-member cap: sum existing stakes by this member on this target
@@ -303,7 +303,7 @@ func (k Keeper) RemoveStake(ctx context.Context, stakeID uint64, stakerAddr sdk.
 	}
 
 	// Validate staker
-	if stake.Staker != stakerAddr.String() {
+	if !k.CanActAs(ctx, stakerAddr.String(), stake.Staker) {
 		return fmt.Errorf("only staker can remove stake")
 	}
 
@@ -476,11 +476,13 @@ func (k Keeper) stakerTotalsOnTarget(
 		return math.ZeroInt(), 0, fmt.Errorf("failed to check existing stakes: %w", err)
 	}
 
-	stakerStr := staker.String()
+	// Per-member caps union over the staker's recent aliases, so a migration
+	// does not reset the tranche count or the per-target cap.
+	stakerAddrs := k.RecentAddressesOf(ctx, staker.String())
 	total := math.ZeroInt()
 	tranches := 0
 	for _, s := range existingStakes {
-		if s.Staker != stakerStr {
+		if !AddressesMatch(stakerAddrs, s.Staker) {
 			continue
 		}
 		total = total.Add(s.Amount)
@@ -509,13 +511,17 @@ func (k Keeper) HasMemberStakeOn(ctx context.Context, stakerAddr, targetAddr str
 	memberType := int32(types.StakeTargetType_STAKE_TARGET_MEMBER)
 	rng := collections.NewSuperPrefixedTripleRange[int32, uint64, uint64](memberType, 0)
 	found := false
+	// Compare canonical addresses so a migration on either side cannot open
+	// an A->B + B->A loop.
+	stakerCanon := k.Canonical(ctx, stakerAddr)
+	targetCanon := k.Canonical(ctx, targetAddr)
 	err := k.StakesByTarget.Walk(ctx, rng, func(key collections.Triple[int32, uint64, uint64]) (stop bool, err error) {
 		stakeID := key.K3()
 		stake, err := k.Stake.Get(ctx, stakeID)
 		if err != nil {
 			return false, nil // Skip stale index entries
 		}
-		if stake.Staker == stakerAddr && stake.TargetIdentifier == targetAddr {
+		if k.Canonical(ctx, stake.Staker) == stakerCanon && k.Canonical(ctx, stake.TargetIdentifier) == targetCanon {
 			found = true
 			return true, nil // Stop walking
 		}

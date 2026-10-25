@@ -94,3 +94,35 @@ func getInvitationCostMultiplier() math.LegacyDec {
 func getMaxInterimRewardsPerSeason() math.Int {
 	return math.NewInt(100_000_000_000_000) // 100,000,000 DREAM — effectively unbounded for tests
 }
+
+// getMigrationTimings returns the member key migration windows for the test
+// build: seconds instead of days, so an e2e suite can request, accept,
+// finalize, object and reveal within one run. The relative order the
+// validator enforces (recovery_change_delay > key_migration_delay,
+// key_migration_window >= 2 * migration_cooldown) is preserved.
+func getMigrationTimings() migrationTimings {
+	return migrationTimings{
+		keyDelay:              20,  // production: 7 days
+		recoveryDelay:         10,  // production: 2 days
+		councilDelay:          40,  // production: 21 days
+		acceptWindow:          120, // production: 7 days
+		cooldown:              30,  // production: 30 days
+		keyWindow:             60,  // production: 365 days
+		recoveryChangeDelay:   30,  // production: 30 days
+		revealMinBlocks:       2,   // production: 20 blocks
+		commitTTL:             60,  // production: 7 days
+		zkKeyActivationEpochs: 2,   // production: 14 epochs
+	}
+}
+
+// getAliasDedupHorizonEpochs is widened in the test build so the e2e season
+// pin (season.max_extension_epochs = 100000 in config.yml, which lets the
+// non-season suites extend season 1 past their whole run) passes the
+// x/season horizon validator. Production is 240.
+func getAliasDedupHorizonEpochs() int64 { return 1 << 40 }
+
+// getVotingPeriodCapEnabled is off in the test build: the e2e suites register
+// groups with hour-long voting periods while the ZK key activation delay is
+// shortened to two epochs so the activation path can be exercised in minutes.
+// The cap itself is covered by unit tests (x/commons and x/rep).
+func getVotingPeriodCapEnabled() bool { return false }

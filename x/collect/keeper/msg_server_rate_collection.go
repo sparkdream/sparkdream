@@ -79,7 +79,7 @@ func (k msgServer) RateCollection(ctx context.Context, msg *types.MsgRateCollect
 	}
 
 	// Creator must not be owner or collaborator
-	if coll.Owner == msg.Creator {
+	if k.sameMember(ctx, coll.Owner, msg.Creator) {
 		return nil, errorsmod.Wrap(types.ErrCannotRateOwnCollection, "curator is collection owner")
 	}
 	isCollab, _, err := k.IsCollaborator(ctx, coll.Id, msg.Creator)
@@ -102,7 +102,7 @@ func (k msgServer) RateCollection(ctx context.Context, msg *types.MsgRateCollect
 			}
 			if !review.Overturned {
 				activeReviewCount++
-				if review.Curator == msg.Creator {
+				if k.sameMember(ctx, review.Curator, msg.Creator) {
 					hasExistingReview = true
 					return true, nil // stop walking
 				}

@@ -25,7 +25,7 @@ func (k msgServer) UnhideContent(ctx context.Context, msg *types.MsgUnhideConten
 		return nil, errorsmod.Wrap(types.ErrAppealWindowClosed, "hide is resolved or under appeal")
 	}
 	p := k.GetParams(ctx)
-	selfCorrect := hr.Sentinel != "" && hr.Sentinel == msg.Authority &&
+	selfCorrect := hr.Sentinel != "" && k.canActAs(ctx, msg.Authority, hr.Sentinel) &&
 		height(ctx) <= hr.HiddenAt+p.SentinelUnhideWindowBlocks
 	council := k.isOpsAuthority(ctx, msg.Authority)
 	if !selfCorrect && !council {

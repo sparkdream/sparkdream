@@ -635,28 +635,53 @@ if [ $((CURRENT_EPOCH / POST_WINDOW)) -ne $((REPLAY_EPOCH / POST_WINDOW)) ]; the
 fi
 
 if [ "${SKIP_REPLAY:-false}" != true ]; then
-NEW_PAYLOAD_HEX=$(echo "$NEW_PAYLOAD_B64" | base64 -d | od -An -tx1 | tr -d ' \n')
-REPLAY_SUBMISSION_NULLIFIER=$(openssl rand -hex 32)
-REPLAY_TX_RES=$($BINARY tx shield shielded-exec \
-    --exec-mode=1 \
-    --encrypted-payload="$NEW_PAYLOAD_HEX" \
-    --target-epoch="$REPLAY_EPOCH" \
-    --proof="$DUMMY_PROOF_HEX" \
-    --merkle-root="$TRUST_ROOT_HEX" \
-    --nullifier="$REPLAY_SUBMISSION_NULLIFIER" \
-    --rate-limit-nullifier="$RATE_NULLIFIER_HEX" \
-    --proof-domain=1 \
-    --min-trust-level=0 \
-    --from submitter1 \
-    --chain-id $CHAIN_ID \
-    --keyring-backend test \
-    --fees 5000${BOND_DENOM} \
-    --gas 500000 \
-    -y \
-    --output json 2>&1)
+# The epoch can advance between sealing and CheckTx on a fast chain under
+# load (code 21: target_epoch must be the current shield epoch). That is the
+# submission guard working, not the replay check, so reseal against the
+# current epoch and resubmit a bounded number of times.
+for attempt in 1 2 3; do
+    NEW_PAYLOAD_HEX=$(echo "$NEW_PAYLOAD_B64" | base64 -d | od -An -tx1 | tr -d ' \n')
+    REPLAY_SUBMISSION_NULLIFIER=$(openssl rand -hex 32)
+    REPLAY_TX_RES=$($BINARY tx shield shielded-exec \
+        --exec-mode=1 \
+        --encrypted-payload="$NEW_PAYLOAD_HEX" \
+        --target-epoch="$REPLAY_EPOCH" \
+        --proof="$DUMMY_PROOF_HEX" \
+        --merkle-root="$TRUST_ROOT_HEX" \
+        --nullifier="$REPLAY_SUBMISSION_NULLIFIER" \
+        --rate-limit-nullifier="$RATE_NULLIFIER_HEX" \
+        --proof-domain=1 \
+        --min-trust-level=0 \
+        --from submitter1 \
+        --chain-id $CHAIN_ID \
+        --keyring-backend test \
+        --fees 5000${BOND_DENOM} \
+        --gas 500000 \
+        -y \
+        --output json 2>&1)
+    REPLAY_TXHASH=$(echo "$REPLAY_TX_RES" | jq -r '.txhash // empty')
+    REPLAY_BROADCAST_CODE=$(echo "$REPLAY_TX_RES" | jq -r '.code // "0"' 2>/dev/null)
+    if [ "$REPLAY_BROADCAST_CODE" == "21" ] && [ $attempt -lt 3 ]; then
+        echo "  Epoch moved before broadcast (attempt $attempt); resealing against the current epoch"
+        build_payload "$OP_NULLIFIER_HEX" "ReplayTest$(date +%s)" "This should be dropped: operation nullifier replay"
+        NEW_PAYLOAD_B64="$PAYLOAD_B64"
+        REPLAY_EPOCH="$PAYLOAD_EPOCH"
+        if [ $((CURRENT_EPOCH / POST_WINDOW)) -ne $((REPLAY_EPOCH / POST_WINDOW)) ]; then
+            echo "  Replay now falls in a different $POST_WINDOW-epoch window: not a replay"
+            REPLAY_BROADCAST_CODE="window"
+            break
+        fi
+        continue
+    fi
+    break
+done
+if [ "$REPLAY_BROADCAST_CODE" == "window" ]; then
+    record_result "Operation nullifier replay dropped" "SKIP"
+    SKIP_REPLAY=true
+fi
+fi
 
-REPLAY_TXHASH=$(echo "$REPLAY_TX_RES" | jq -r '.txhash // empty')
-REPLAY_BROADCAST_CODE=$(echo "$REPLAY_TX_RES" | jq -r '.code // "0"' 2>/dev/null)
+if [ "${SKIP_REPLAY:-false}" != true ]; then
 
 if [ -z "$REPLAY_TXHASH" ] || [ "$REPLAY_BROADCAST_CODE" != "0" ]; then
     echo "  Replay submission unexpectedly refused at broadcast (code $REPLAY_BROADCAST_CODE): $(echo "$REPLAY_TX_RES" | jq -r '.raw_log // empty' | head -c 200)"

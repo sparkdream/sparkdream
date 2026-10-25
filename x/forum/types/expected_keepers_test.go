@@ -77,6 +77,10 @@ func (stubRepKeeper) GetTrustLevel(context.Context, sdk.AccAddress) (reptypes.Tr
 func (stubRepKeeper) GetReputationTier(context.Context, sdk.AccAddress) (uint64, error) {
 	return 0, nil
 }
+func (stubRepKeeper) CanActAs(_ context.Context, signer, stored string) bool     { return signer == stored }
+func (stubRepKeeper) SameMember(_ context.Context, a, b string) bool             { return a == b }
+func (stubRepKeeper) RecentAddressesOf(_ context.Context, m string) []string     { return []string{m} }
+func (stubRepKeeper) AllAddressesOf(_ context.Context, m string) []string        { return []string{m} }
 func (stubRepKeeper) ZeroMember(context.Context, sdk.AccAddress, string) error   { return nil }
 func (stubRepKeeper) DemoteMember(context.Context, sdk.AccAddress, string) error { return nil }
 func (stubRepKeeper) CreateAppealInitiative(context.Context, string, []byte, int64) (uint64, error) {

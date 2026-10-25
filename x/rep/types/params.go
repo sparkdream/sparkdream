@@ -126,6 +126,25 @@ func DefaultParams() Params {
 		// See x/commons/keeper/genesis_vals.go for the same pattern.
 		TrustLevelConfig: getTrustLevelConfig(),
 
+		// Member key migration. Delays are build-tag dependent (days in
+		// production, seconds in the test build); the caps and amounts are
+		// not. See docs/x-rep-spec.md, "Member key migration".
+		MigrationEnabled:          true,
+		KeyPathEnabled:            true,
+		KeyMigrationDelay:         getMigrationTimings().keyDelay,
+		RecoveryMigrationDelay:    getMigrationTimings().recoveryDelay,
+		CouncilMigrationDelay:     getMigrationTimings().councilDelay,
+		MigrationAcceptWindow:     getMigrationTimings().acceptWindow,
+		MigrationCooldown:         getMigrationTimings().cooldown,
+		MaxKeyMigrationsPerWindow: 2,
+		KeyMigrationWindow:        getMigrationTimings().keyWindow,
+		RecoveryChangeDelay:       getMigrationTimings().recoveryChangeDelay,
+		RecoveryRevealMinBlocks:   getMigrationTimings().revealMinBlocks,
+		RecoveryCommitTtl:         getMigrationTimings().commitTTL,
+		RecoveryCommitDeposit:     math.NewInt(1_000_000),  // 1 SPARK, like the x/collect base deposit
+		MigrationObjectionBond:    math.NewInt(10_000_000), // 10 SPARK, equal to DefaultAppealBondAmount
+		ZkKeyActivationDelay:      getMigrationTimings().zkKeyActivationEpochs,
+
 		// Challenges (stake in micro-DREAM: 1 DREAM = 1e6 micro-DREAM)
 		MinChallengeStake:    math.NewInt(50000000),            // 50 DREAM
 		ChallengerRewardRate: math.LegacyNewDecWithPrec(20, 2), // 20%
@@ -458,6 +477,9 @@ func (p Params) Validate() error {
 	}
 	if p.InvitationAcceptanceEpochs < 0 {
 		return fmt.Errorf("invitation acceptance epochs cannot be negative: %d", p.InvitationAcceptanceEpochs)
+	}
+	if err := p.validateMigrationParams(); err != nil {
+		return err
 	}
 
 	// DREAM economics validation
@@ -1956,4 +1978,95 @@ func validateInitiativeBountyParams(ratio math.LegacyDec, perFunderEpoch, minCon
 		return fmt.Errorf("max initiative bounty contributions must be positive")
 	}
 	return nil
+}
+
+// migrationTimings groups the build-tag dependent windows of the member key
+// migration. Seconds except zkKeyActivationEpochs (rep epochs) and
+// revealMinBlocks (blocks).
+type migrationTimings struct {
+	keyDelay              int64
+	recoveryDelay         int64
+	councilDelay          int64
+	acceptWindow          int64
+	cooldown              int64
+	keyWindow             int64
+	recoveryChangeDelay   int64
+	revealMinBlocks       int64
+	commitTTL             int64
+	zkKeyActivationEpochs int64
+}
+
+// productionMigrationTimings are the plan's defaults: 7d key delay, 2d
+// recovery delay, 21d council delay, 7d accept window, 30d cooldown, 365d
+// rolling window, 30d commitment change delay, 20-block seal age, 7d seal
+// TTL, 14-epoch ZK key activation delay.
+func productionMigrationTimings() migrationTimings {
+	const day = int64(86400)
+	return migrationTimings{
+		keyDelay:              7 * day,
+		recoveryDelay:         2 * day,
+		councilDelay:          21 * day,
+		acceptWindow:          7 * day,
+		cooldown:              30 * day,
+		keyWindow:             365 * day,
+		recoveryChangeDelay:   30 * day,
+		revealMinBlocks:       20,
+		commitTTL:             7 * day,
+		zkKeyActivationEpochs: 14,
+	}
+}
+
+// validateMigrationParams checks the member key migration parameters.
+func (p Params) validateMigrationParams() error {
+	for name, v := range map[string]int64{
+		"key_migration_delay":        p.KeyMigrationDelay,
+		"recovery_migration_delay":   p.RecoveryMigrationDelay,
+		"council_migration_delay":    p.CouncilMigrationDelay,
+		"migration_accept_window":    p.MigrationAcceptWindow,
+		"migration_cooldown":         p.MigrationCooldown,
+		"key_migration_window":       p.KeyMigrationWindow,
+		"recovery_change_delay":      p.RecoveryChangeDelay,
+		"recovery_reveal_min_blocks": p.RecoveryRevealMinBlocks,
+		"recovery_commit_ttl":        p.RecoveryCommitTtl,
+	} {
+		if v < 0 {
+			return fmt.Errorf("%s cannot be negative: %d", name, v)
+		}
+	}
+	if p.MigrationAcceptWindow == 0 {
+		return fmt.Errorf("migration_accept_window must be positive")
+	}
+	if p.RecoveryCommitTtl == 0 {
+		return fmt.Errorf("recovery_commit_ttl must be positive")
+	}
+	if p.MaxKeyMigrationsPerWindow == 0 {
+		return fmt.Errorf("max_key_migrations_per_window must be positive")
+	}
+	// The window cap has to mean something on top of the cooldown.
+	if p.KeyMigrationWindow < 2*p.MigrationCooldown {
+		return fmt.Errorf("key_migration_window (%d) must be at least 2 * migration_cooldown (%d)", p.KeyMigrationWindow, p.MigrationCooldown)
+	}
+	// The recovery path must never be a faster key path for whoever holds
+	// the key: a commitment set today must take longer to become active than
+	// a key migration takes to finalize.
+	if p.RecoveryChangeDelay <= p.KeyMigrationDelay {
+		return fmt.Errorf("recovery_change_delay (%d) must exceed key_migration_delay (%d)", p.RecoveryChangeDelay, p.KeyMigrationDelay)
+	}
+	if p.RecoveryCommitDeposit.IsNil() || p.RecoveryCommitDeposit.IsNegative() {
+		return fmt.Errorf("recovery_commit_deposit cannot be negative")
+	}
+	if p.MigrationObjectionBond.IsNil() || p.MigrationObjectionBond.IsNegative() {
+		return fmt.Errorf("migration_objection_bond cannot be negative")
+	}
+	if p.ZkKeyActivationDelay <= 0 {
+		return fmt.Errorf("zk_key_activation_delay must be positive: %d", p.ZkKeyActivationDelay)
+	}
+	return nil
+}
+
+// ZkKeyActivationDelaySeconds converts the epoch-denominated activation
+// delay to seconds with the chain's block-time assumption, so x/commons can
+// compare it with voting periods.
+func (p Params) ZkKeyActivationDelaySeconds() int64 {
+	return p.ZkKeyActivationDelay * p.EpochBlocks * AssumedBlockTimeSeconds
 }

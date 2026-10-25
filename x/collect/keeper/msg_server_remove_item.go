@@ -42,7 +42,7 @@ func (k msgServer) RemoveItem(ctx context.Context, msg *types.MsgRemoveItem) (*t
 	}
 
 	// If collaborator (not owner), must be member
-	if coll.Owner != msg.Creator {
+	if !k.canActAs(ctx, msg.Creator, coll.Owner) {
 		if !k.isMember(ctx, msg.Creator) {
 			return nil, types.ErrNotMember
 		}

@@ -2,9 +2,11 @@ package keeper
 
 import (
 	"context"
+	"fmt"
 
 	"sparkdream/x/rep/types"
 
+	"cosmossdk.io/collections"
 	errorsmod "cosmossdk.io/errors"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
@@ -40,19 +42,83 @@ func (k msgServer) RegisterZkPublicKey(ctx context.Context, msg *types.MsgRegist
 		return nil, errorsmod.Wrap(types.ErrMemberNotActive, "only active members can register ZK public keys")
 	}
 
-	// Store the ZK public key on the member record.
-	member.ZkPublicKey = msg.ZkPublicKey
+	// A tombstone can never re-register a key: the identity lives elsewhere.
+	if k.IsTombstoned(ctx, msg.Member) {
+		return nil, types.ErrMemberTombstoned
+	}
+
+	sdkCtx := sdk.UnwrapSDKContext(ctx)
+
+	// First registration (no key, nothing pending) takes effect at once.
+	if len(member.ZkPublicKey) == 0 && len(member.PendingZkPublicKey) == 0 {
+		member.ZkPublicKey = msg.ZkPublicKey
+		if member.ZkKeyCooldownExempt {
+			// The first registration after a RECOVERY or COUNCIL migration
+			// cleared the key: it still waits out the activation delay so
+			// a fresh nullifier cannot double-act inside an open window,
+			// but it is exempt from the season cooldown.
+			member.ZkPublicKey = nil
+			if err := k.scheduleZkKeyActivation(ctx, &member, msg.Member, msg.ZkPublicKey, false); err != nil {
+				return nil, err
+			}
+		}
+		if err := k.Member.Set(ctx, msg.Member, member); err != nil {
+			return nil, err
+		}
+		k.MarkMemberDirty(ctx, msg.Member)
+		sdkCtx.EventManager().EmitEvent(sdk.NewEvent("rep.zk_public_key_registered",
+			sdk.NewAttribute("member", msg.Member),
+			sdk.NewAttribute("activates_at_epoch", fmt.Sprintf("%d", member.ZkKeyActivatesAtEpoch)),
+		))
+		return &types.MsgRegisterZkPublicKeyResponse{}, nil
+	}
+
+	// A change of an existing key: at most one per season (unless a
+	// migration cleared the key), the old leaf is zeroed now and the new key
+	// activates after zk_key_activation_delay. Both rules close the
+	// double-action hole a fresh nullifier would otherwise open
+	// (member-key-migration plan, section 9).
+	if len(member.PendingZkPublicKey) > 0 {
+		return nil, types.ErrZkKeyPending
+	}
+	if err := k.scheduleZkKeyActivation(ctx, &member, msg.Member, msg.ZkPublicKey, true); err != nil {
+		return nil, err
+	}
+	member.ZkPublicKey = nil
 	if err := k.Member.Set(ctx, msg.Member, member); err != nil {
 		return nil, err
 	}
-
-	// Mark member dirty so the trust tree is rebuilt in the next EndBlocker.
 	k.MarkMemberDirty(ctx, msg.Member)
-
-	sdkCtx := sdk.UnwrapSDKContext(ctx)
-	sdkCtx.EventManager().EmitEvent(sdk.NewEvent("rep.zk_public_key_registered",
+	sdkCtx.EventManager().EmitEvent(sdk.NewEvent("rep.zk_public_key_change_scheduled",
 		sdk.NewAttribute("member", msg.Member),
+		sdk.NewAttribute("activates_at_epoch", fmt.Sprintf("%d", member.ZkKeyActivatesAtEpoch)),
 	))
-
 	return &types.MsgRegisterZkPublicKeyResponse{}, nil
+}
+
+// scheduleZkKeyActivation parks newKey on the member as pending, enforcing
+// the once-per-season cooldown when applyCooldown is set, and enqueues the
+// activation. The caller persists the member.
+func (k Keeper) scheduleZkKeyActivation(ctx context.Context, member *types.Member, addr string, newKey []byte, applyCooldown bool) error {
+	params, err := k.Params.Get(ctx)
+	if err != nil {
+		return err
+	}
+	season, err := k.GetCurrentSeason(ctx)
+	if err != nil {
+		return err
+	}
+	if applyCooldown && !member.ZkKeyCooldownExempt && member.ZkKeyChanged && member.LastZkKeyChangeSeason == season {
+		return errorsmod.Wrapf(types.ErrZkKeyCooldown, "already changed in season %d", season)
+	}
+	epoch, err := k.GetCurrentEpoch(ctx)
+	if err != nil {
+		return err
+	}
+	member.PendingZkPublicKey = newKey
+	member.ZkKeyActivatesAtEpoch = epoch + params.ZkKeyActivationDelay
+	member.ZkKeyChanged = true
+	member.LastZkKeyChangeSeason = season
+	member.ZkKeyCooldownExempt = false
+	return k.ZkKeyActivationQueue.Set(ctx, collections.Join(member.ZkKeyActivatesAtEpoch, addr))
 }

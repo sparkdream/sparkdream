@@ -34,7 +34,7 @@ func (k msgServer) DemoteOfficer(ctx context.Context, msg *types.MsgDemoteOffice
 	}
 
 	// Verify creator is the founder
-	if guild.Founder != msg.Creator {
+	if !k.canActAs(ctx, msg.Creator, guild.Founder) {
 		return nil, types.ErrNotGuildFounder
 	}
 
@@ -46,7 +46,7 @@ func (k msgServer) DemoteOfficer(ctx context.Context, msg *types.MsgDemoteOffice
 	// Remove from officers
 	newOfficers := make([]string, 0, len(guild.Officers)-1)
 	for _, officer := range guild.Officers {
-		if officer != msg.Officer {
+		if !k.sameMember(ctx, officer, msg.Officer) {
 			newOfficers = append(newOfficers, officer)
 		}
 	}

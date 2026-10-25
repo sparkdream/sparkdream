@@ -34,7 +34,7 @@ func (k msgServer) HideReply(ctx context.Context, msg *types.MsgHideReply) (*typ
 	if !postFound {
 		return nil, errorsmod.Wrap(types.ErrPostNotFound, fmt.Sprintf("parent post %d doesn't exist", reply.PostId))
 	}
-	if msg.Creator != post.Creator {
+	if !k.canActAs(ctx, msg.Creator, post.Creator) {
 		return nil, errorsmod.Wrap(types.ErrUnauthorized, "only post author can hide a reply")
 	}
 

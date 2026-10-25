@@ -20,8 +20,9 @@ func (q queryServer) MemberWarnings(ctx context.Context, req *types.QueryMemberW
 
 	var memberWarning *types.MemberWarning
 
+	memberAddrs := q.k.AllAddressesOf(ctx, req.Member)
 	err := q.k.MemberWarning.Walk(ctx, nil, func(key uint64, warning types.MemberWarning) (bool, error) {
-		if warning.Member == req.Member {
+		if AddressesMatch(memberAddrs, warning.Member) {
 			memberWarning = &warning
 			return true, nil
 		}

@@ -40,7 +40,7 @@ func (k msgServer) AppealThreadLock(ctx context.Context, msg *types.MsgAppealThr
 	}
 
 	// Verify appellant is the thread author
-	if post.Author != msg.Creator {
+	if !k.canActAs(ctx, msg.Creator, post.Author) {
 		return nil, errorsmod.Wrap(types.ErrNotThreadAuthor, "only the thread author can appeal a lock")
 	}
 

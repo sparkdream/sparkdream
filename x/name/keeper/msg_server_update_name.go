@@ -29,7 +29,7 @@ func (k msgServer) UpdateName(goCtx context.Context, msg *types.MsgUpdateName) (
 
 	// 2. Check Ownership
 	// Only the current owner can update the metadata.
-	if msg.Creator != val.Owner {
+	if !k.canActAs(ctx, msg.Creator, val.Owner) {
 		return nil, errorsmod.Wrap(sdkerrors.ErrUnauthorized, "incorrect owner")
 	}
 

@@ -47,7 +47,7 @@ func (k msgServer) UnpinReply(ctx context.Context, msg *types.MsgUnpinReply) (*t
 	// Gov can unpin anything
 	// Sentinel can only unpin their own pins (and only if not disputed/resolved)
 	if !isGov {
-		if foundRecord.PinnedBy != msg.Creator {
+		if !k.canActAs(ctx, msg.Creator, foundRecord.PinnedBy) {
 			return nil, errorsmod.Wrap(types.ErrNotAuthorized, "sentinels can only unpin their own pins")
 		}
 		if foundRecord.Disputed {

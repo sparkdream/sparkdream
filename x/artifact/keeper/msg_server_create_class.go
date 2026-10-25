@@ -93,7 +93,7 @@ func (k Keeper) validateRenderer(ctx context.Context, r types.Renderer) error {
 }
 
 // validateMinterSet deduplicates and validates a minter list.
-func (k Keeper) validateMinterSet(minters []string, owner string, p types.Params) ([]string, error) {
+func (k Keeper) validateMinterSet(ctx context.Context, minters []string, owner string, p types.Params) ([]string, error) {
 	if uint32(len(minters)) > p.MaxMintersPerClass {
 		return nil, errorsmod.Wrapf(types.ErrInvalidBatch, "at most %d minters", p.MaxMintersPerClass)
 	}
@@ -103,7 +103,7 @@ func (k Keeper) validateMinterSet(minters []string, owner string, p types.Params
 		if _, err := k.decodeAddr("minter", m); err != nil {
 			return nil, err
 		}
-		if m == owner {
+		if k.sameMember(ctx, m, owner) {
 			return nil, errorsmod.Wrap(types.ErrInvalidBatch, "the owner is implicitly a minter")
 		}
 		if seen[m] {
@@ -226,7 +226,7 @@ func (k msgServer) CreateClass(ctx context.Context, msg *types.MsgCreateClass) (
 	if err := validateClassShape(msg); err != nil {
 		return nil, err
 	}
-	minters, err := k.validateMinterSet(msg.Minters, msg.Creator, p)
+	minters, err := k.validateMinterSet(ctx, msg.Minters, msg.Creator, p)
 	if err != nil {
 		return nil, err
 	}

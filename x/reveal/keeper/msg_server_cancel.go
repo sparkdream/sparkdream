@@ -22,7 +22,7 @@ func (k msgServer) Cancel(ctx context.Context, msg *types.MsgCancel) (*types.Msg
 		return nil, types.ErrContributionNotFound.Wrapf("contribution %d", msg.ContributionId)
 	}
 
-	isContributor := msg.Authority == contrib.Contributor
+	isContributor := k.canActAs(ctx, msg.Authority, contrib.Contributor)
 
 	// If contributor is cancelling, verify no tranche has reached BACKED or beyond
 	if isContributor {

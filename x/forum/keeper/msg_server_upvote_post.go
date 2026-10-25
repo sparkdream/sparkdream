@@ -47,18 +47,23 @@ func (k msgServer) UpvotePost(ctx context.Context, msg *types.MsgUpvotePost) (*t
 	anonymous := k.isAnonymous(msg.Creator)
 
 	// Cannot vote on your own post (an anonymous author can't be identified)
-	if post.Author == msg.Creator && !anonymous {
+	if !anonymous && k.sameMember(ctx, post.Author, msg.Creator) {
 		return nil, types.ErrCannotVoteOwnPost
 	}
 
 	// Check if user already voted on this post (prevents duplicate voting)
+	// A vote cast from a pre-migration address still counts (alias dedup).
 	voteKey := collections.Join(msg.PostId, msg.Creator)
-	hasVoted, err := k.PostVote.Has(ctx, voteKey)
-	if err != nil {
-		return nil, errorsmod.Wrap(err, "failed to check vote record")
-	}
-	if hasVoted && !anonymous {
-		return nil, types.ErrAlreadyVoted
+	if !anonymous {
+		for _, alias := range k.recentAddressesOf(ctx, msg.Creator) {
+			hasVoted, err := k.PostVote.Has(ctx, collections.Join(msg.PostId, alias))
+			if err != nil {
+				return nil, errorsmod.Wrap(err, "failed to check vote record")
+			}
+			if hasVoted {
+				return nil, types.ErrAlreadyVoted
+			}
+		}
 	}
 
 	// Check and update reaction rate limit

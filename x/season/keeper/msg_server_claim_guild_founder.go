@@ -46,7 +46,7 @@ func (k msgServer) ClaimGuildFounder(ctx context.Context, msg *types.MsgClaimGui
 	// If the new founder was an officer, remove from officers
 	newOfficers := make([]string, 0, len(guild.Officers))
 	for _, officer := range guild.Officers {
-		if officer != msg.Creator {
+		if !k.canActAs(ctx, msg.Creator, officer) {
 			newOfficers = append(newOfficers, officer)
 		}
 	}

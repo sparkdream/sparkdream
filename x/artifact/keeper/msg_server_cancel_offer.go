@@ -16,7 +16,7 @@ func (k msgServer) CancelOffer(ctx context.Context, msg *types.MsgCancelOffer) (
 	if err != nil {
 		return nil, err
 	}
-	if o.Bidder != msg.Bidder {
+	if !k.canActAs(ctx, msg.Bidder, o.Bidder) {
 		return nil, types.ErrNotAuthorized
 	}
 	if err := k.removeOffer(ctx, o, true, "cancelled"); err != nil {

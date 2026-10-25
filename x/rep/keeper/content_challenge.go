@@ -43,7 +43,7 @@ func (k Keeper) CreateContentChallenge(
 	}
 
 	// Cannot challenge your own content
-	if bond.Staker == challengerAddr.String() {
+	if k.SameMember(ctx, bond.Staker, challengerAddr.String()) {
 		return 0, types.ErrCannotChallengeOwnContent
 	}
 
@@ -156,7 +156,7 @@ func (k Keeper) RespondToContentChallenge(
 	}
 
 	// Verify the responder is the author
-	if cc.Author != authorAddr.String() {
+	if !k.CanActAs(ctx, authorAddr.String(), cc.Author) {
 		return types.ErrNotContentAuthor
 	}
 
@@ -524,11 +524,9 @@ func (k Keeper) SelectContentJury(
 		return nil, err
 	}
 
-	// Build exclude set
-	excludeSet := make(map[string]bool)
-	for _, addr := range excludeAddrs {
-		excludeSet[addr] = true
-	}
+	// Build exclude set over canonical addresses: Member is keyed by the
+	// canonical address, the parties may be recorded under an old one.
+	excludeSet := k.canonicalSet(ctx, excludeAddrs...)
 
 	minReputation := params.MinJurorReputation
 
@@ -541,7 +539,7 @@ func (k Keeper) SelectContentJury(
 
 	err = k.Member.Walk(ctx, nil, func(addr string, member types.Member) (stop bool, err error) {
 		// Skip excluded addresses
-		if excludeSet[addr] {
+		if _, skip := excludeSet[addr]; skip {
 			return false, nil
 		}
 

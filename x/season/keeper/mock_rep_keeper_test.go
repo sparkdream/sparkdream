@@ -203,3 +203,19 @@ func (m *mockRepKeeper) InitSeasonalPool(ctx context.Context, season uint64) err
 	m.SeasonalPoolInitialisedFor = season
 	return nil
 }
+
+// Alias contract: no migrations in unit tests, every address is its own
+// canonical address.
+func (m *mockRepKeeper) CanActAs(ctx context.Context, signer, stored string) bool {
+	return signer == stored
+}
+
+func (m *mockRepKeeper) SameMember(ctx context.Context, a, b string) bool { return a == b }
+
+func (m *mockRepKeeper) RecentAddressesOf(ctx context.Context, member string) []string {
+	return []string{member}
+}
+
+func (m *mockRepKeeper) AllAddressesOf(ctx context.Context, member string) []string {
+	return []string{member}
+}

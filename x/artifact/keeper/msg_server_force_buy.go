@@ -42,7 +42,7 @@ func (k msgServer) ForceBuy(ctx context.Context, msg *types.MsgForceBuy) (*types
 	if isTargetHidden(c, t) {
 		return nil, types.ErrContentHidden
 	}
-	if msg.Buyer == t.Owner {
+	if k.sameMember(ctx, msg.Buyer, t.Owner) {
 		return nil, errorsmod.Wrap(types.ErrInvalidRecipient, "you already hold this token")
 	}
 	if _, err := k.validateRecipient("buyer", msg.Buyer); err != nil {

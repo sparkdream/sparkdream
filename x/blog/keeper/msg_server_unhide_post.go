@@ -28,7 +28,7 @@ func (k msgServer) UnhidePost(ctx context.Context, msg *types.MsgUnhidePost) (*t
 	}
 
 	// Sender must be post author
-	if msg.Creator != post.Creator {
+	if !k.canActAs(ctx, msg.Creator, post.Creator) {
 		return nil, errorsmod.Wrap(types.ErrUnauthorized, "only post author can unhide a post")
 	}
 

@@ -39,9 +39,18 @@ func (k msgServer) UnstakeNomination(ctx context.Context, msg *types.MsgUnstakeN
 	}
 
 	// 3. Find the staker's NominationStake record
-	stakeKey := fmt.Sprintf("%d/%s", msg.NominationId, msg.Creator)
-	stake, err := k.NominationStake.Get(ctx, stakeKey)
-	if err != nil {
+	// The record may sit under a predecessor address of a migrated member.
+	var stake types.NominationStake
+	var stakeKey string
+	found := false
+	for _, alias := range k.recentAddressesOf(ctx, msg.Creator) {
+		key := fmt.Sprintf("%d/%s", msg.NominationId, alias)
+		if s, err := k.NominationStake.Get(ctx, key); err == nil {
+			stake, stakeKey, found = s, key, true
+			break
+		}
+	}
+	if !found {
 		// 4. If not found, return ErrNominationStakeNotFound
 		return nil, types.ErrNominationStakeNotFound
 	}

@@ -48,7 +48,7 @@ func (k Keeper) HasInitiativeBountyContribution(ctx context.Context, initiativeI
 		return false
 	}
 	for _, c := range b.Contributions {
-		if c.Funder == addr {
+		if k.SameMember(ctx, c.Funder, addr) {
 			return true
 		}
 	}
@@ -181,7 +181,7 @@ func (k Keeper) WithdrawInitiativeBounty(ctx context.Context, funder sdk.AccAddr
 	remaining := make([]types.InitiativeBountyContribution, 0, len(bounty.Contributions))
 	for _, c := range bounty.Contributions {
 		matured := height >= c.FundedAt+int64(params.InitiativeBountyReclaimDelay)
-		if c.Funder == funder.String() && matured {
+		if k.CanActAs(ctx, funder.String(), c.Funder) && matured {
 			refund = refund.Add(c.Amount)
 			continue
 		}

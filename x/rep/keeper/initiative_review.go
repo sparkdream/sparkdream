@@ -162,7 +162,7 @@ func (k Keeper) QualifiedReviewer(ctx context.Context, initiative types.Initiati
 	stakes, sErr := k.GetInitiativeStakes(ctx, initiative.Id)
 	if sErr == nil {
 		for _, st := range stakes {
-			if st.Staker == reviewer {
+			if k.SameMember(ctx, st.Staker, reviewer) {
 				return fmt.Errorf("%w: %s has staked on this initiative and may not review it",
 					types.ErrConflictOfInterest, reviewer)
 			}
@@ -265,7 +265,7 @@ func (k Keeper) ReviewGateSatisfied(ctx context.Context, params types.Params, in
 			continue
 		}
 		approvals++
-		if r.Reviewer == project.Creator {
+		if k.SameMember(ctx, r.Reviewer, project.Creator) {
 			creatorApproved = true
 		}
 	}
@@ -321,11 +321,15 @@ func (k Keeper) SubmitInitiativeReview(
 		return err
 	}
 
-	key := collections.Join3(initiativeID, initiative.ReviewRound, reviewer)
-	if _, has := k.InitiativeReview.Get(ctx, key); has == nil {
-		return fmt.Errorf("%w: %s has already reviewed round %d of initiative %d",
-			types.ErrInvalidRequest, reviewer, initiative.ReviewRound, initiativeID)
+	// One verdict per member per round, whichever of their recent addresses
+	// filed it.
+	for _, alias := range k.RecentAddressesOf(ctx, reviewer) {
+		if _, has := k.InitiativeReview.Get(ctx, collections.Join3(initiativeID, initiative.ReviewRound, alias)); has == nil {
+			return fmt.Errorf("%w: %s has already reviewed round %d of initiative %d",
+				types.ErrInvalidRequest, reviewer, initiative.ReviewRound, initiativeID)
+		}
 	}
+	key := collections.Join3(initiativeID, initiative.ReviewRound, reviewer)
 
 	bond, err := k.ReviewerBondForInitiative(ctx, initiative)
 	if err != nil {
@@ -951,7 +955,7 @@ func (k Keeper) HasReviewedInitiative(ctx context.Context, initiativeID uint64, 
 	found := false
 	rng := collections.NewPrefixedTripleRange[uint64, uint32, string](initiativeID)
 	err := k.InitiativeReview.Walk(ctx, rng, func(_ collections.Triple[uint64, uint32, string], v types.InitiativeReview) (bool, error) {
-		if v.Reviewer == addr {
+		if k.SameMember(ctx, v.Reviewer, addr) {
 			found = true
 			return true, nil
 		}

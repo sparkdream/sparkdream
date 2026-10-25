@@ -19,7 +19,7 @@ func (k msgServer) UpdateListing(ctx context.Context, msg *types.MsgUpdateListin
 	}
 	key := collections.Join(msg.ClassId, msg.TokenId)
 	l, err := k.Listings.Get(ctx, key)
-	if err != nil || l.Seller != msg.Seller {
+	if err != nil || !k.canActAs(ctx, msg.Seller, l.Seller) {
 		return nil, types.ErrListingNotFound
 	}
 	if err := k.ListingExpiry.Remove(ctx, collections.Join3(l.ExpiresAt, l.ClassId, l.TokenId)); err != nil {

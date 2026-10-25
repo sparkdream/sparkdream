@@ -3,6 +3,7 @@ package keeper
 import (
 	"context"
 
+	repkeeper "sparkdream/x/rep/keeper"
 	"sparkdream/x/season/types"
 
 	"google.golang.org/grpc/codes"
@@ -25,13 +26,16 @@ func (q queryServer) ListNominationsByCreator(ctx context.Context, req *types.Qu
 	}
 	defer iter.Close()
 
+	// Union over every address the member has used (no pagination here,
+	// the list is built in memory).
+	aliases := q.k.allAddressesOf(ctx, req.Creator)
 	var nominations []types.Nomination
 	for ; iter.Valid(); iter.Next() {
 		nomination, err := iter.Value()
 		if err != nil {
 			continue
 		}
-		if nomination.Nominator == req.Creator {
+		if repkeeper.AddressesMatch(aliases, nomination.Nominator) {
 			nominations = append(nominations, nomination)
 		}
 	}

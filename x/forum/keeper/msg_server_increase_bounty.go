@@ -32,7 +32,7 @@ func (k msgServer) IncreaseBounty(ctx context.Context, msg *types.MsgIncreaseBou
 	}
 
 	// Verify creator is the bounty creator
-	if bounty.Creator != msg.Creator {
+	if !k.canActAs(ctx, msg.Creator, bounty.Creator) {
 		return nil, errorsmod.Wrap(types.ErrNotBountyCreator, "only the bounty creator can increase it")
 	}
 

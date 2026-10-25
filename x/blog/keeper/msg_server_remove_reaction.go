@@ -16,7 +16,8 @@ func (k msgServer) RemoveReaction(ctx context.Context, msg *types.MsgRemoveReact
 	}
 
 	// Check reaction exists
-	existing, found := k.GetReaction(ctx, msg.PostId, msg.ReplyId, msg.Creator)
+	// The reaction may be stored under a pre-migration address (alias contract).
+	existing, found := k.getReactionByAliases(ctx, msg.PostId, msg.ReplyId, k.recentAddressesOf(ctx, msg.Creator))
 	if !found {
 		return nil, errorsmod.Wrap(types.ErrReactionNotFound, fmt.Sprintf("no reaction found for %s on post %d reply %d", msg.Creator, msg.PostId, msg.ReplyId))
 	}
@@ -27,7 +28,7 @@ func (k msgServer) RemoveReaction(ctx context.Context, msg *types.MsgRemoveReact
 	k.SetReactionCounts(ctx, msg.PostId, msg.ReplyId, counts)
 
 	// Remove reaction record
-	k.Keeper.RemoveReaction(ctx, msg.PostId, msg.ReplyId, msg.Creator)
+	k.Keeper.RemoveReaction(ctx, msg.PostId, msg.ReplyId, existing.Creator)
 
 	// Emit event
 	sdkCtx := sdk.UnwrapSDKContext(ctx)

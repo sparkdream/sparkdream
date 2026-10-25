@@ -122,7 +122,7 @@ func (k Keeper) WithdrawReviewBounty(ctx context.Context, funder sdk.AccAddress,
 	remaining := make([]types.ReviewBountyContribution, 0, len(bounty.Contributions))
 	for _, c := range bounty.Contributions {
 		matured := height >= c.FundedAt+int64(params.ReviewBountyReclaimDelay)
-		if c.Funder == funder.String() && matured {
+		if k.CanActAs(ctx, funder.String(), c.Funder) && matured {
 			refund = refund.Add(c.Amount)
 			continue
 		}

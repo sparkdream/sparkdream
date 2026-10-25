@@ -22,6 +22,10 @@ type mockCommonsKeeper struct {
 	IsCommitteeMemberFn     func(ctx context.Context, address sdk.AccAddress, council string, committee string) (bool, error)
 	GetCommitteeGroupInfoFn func(ctx context.Context, council string, committee string) (interface{}, error)
 	IsCouncilAuthorizedFn   func(ctx context.Context, addr string, council string, committee string) bool
+	// IsGroupPolicyAddressFn overrides the permissive default (every address
+	// is a group policy) for tests where that matters, e.g. migration target
+	// freshness.
+	IsGroupPolicyAddressFn func(ctx context.Context, addr string) bool
 }
 
 func (m mockCommonsKeeper) IsCommitteeMember(ctx context.Context, address sdk.AccAddress, council string, committee string) (bool, error) {
@@ -52,8 +56,28 @@ func (m mockCommonsKeeper) IsGroupPolicyMember(ctx context.Context, policyAddr s
 }
 
 func (m mockCommonsKeeper) IsGroupPolicyAddress(ctx context.Context, addr string) bool {
+	if m.IsGroupPolicyAddressFn != nil {
+		return m.IsGroupPolicyAddressFn(ctx, addr)
+	}
 	return true
 }
+
+// IsCouncilOrCommitteePolicy delegates to the authorization policy, so a
+// fixture that authorizes an address treats it as the HR committee policy.
+func (m mockCommonsKeeper) IsCouncilOrCommitteePolicy(ctx context.Context, addr string, council string, committee string) bool {
+	if m.IsCouncilAuthorizedFn != nil {
+		return m.IsCouncilAuthorizedFn(ctx, addr, council, committee)
+	}
+	if m.IsCommitteeMemberFn != nil {
+		if bz, err := sdk.AccAddressFromBech32(addr); err == nil {
+			ok, _ := m.IsCommitteeMemberFn(ctx, bz, council, committee)
+			return ok
+		}
+	}
+	return false
+}
+
+func (m mockCommonsKeeper) MaxLiveVotingPeriodSeconds(ctx context.Context) int64 { return 0 }
 
 // mockIdentityKeeper implements types.IdentityKeeper for unit tests.
 // Unit-test fixtures use the legacy denoms; e2e suites exercise the real

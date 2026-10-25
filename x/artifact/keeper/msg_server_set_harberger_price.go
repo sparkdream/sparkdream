@@ -29,7 +29,7 @@ func (k msgServer) SetHarbergerPrice(ctx context.Context, msg *types.MsgSetHarbe
 	if err != nil {
 		return nil, err
 	}
-	if t.Owner != msg.Owner {
+	if !k.canActAs(ctx, msg.Owner, t.Owner) {
 		return nil, types.ErrNotTokenOwner
 	}
 	if msg.Price.IsNil() || msg.Price.IsNegative() {

@@ -72,7 +72,7 @@ func (k msgServer) UnhideContent(ctx context.Context, msg *types.MsgUnhideConten
 
 	isSelfCorrect := false
 	if !isCouncil {
-		if hr.Sentinel == "" || hr.Sentinel != msg.Creator {
+		if hr.Sentinel == "" || !k.canActAs(ctx, msg.Creator, hr.Sentinel) {
 			return nil, errorsmod.Wrap(sdkerrors.ErrUnauthorized,
 				"only the sentinel who hid the content, the Commons Operations Committee, or governance can unhide")
 		}

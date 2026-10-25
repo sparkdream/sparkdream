@@ -314,7 +314,7 @@ assert_tx_failure "bob cannot self-correct an appealed hide" "$TX_OUT"
 # The appeal lives in x/rep. alice (Commons Ops) UPHOLDS the hide: x/rep
 # releases bob's committed bond and calls back into collect, which deletes
 # the hidden collection (the hide stands).
-TX_OUT=$(send_tx rep resolve-gov-action-appeal "$T2_APPEAL_ID" upheld "spam confirmed" --from alice)
+TX_OUT=$(send_tx rep resolve-gov-action-appeal "$T2_APPEAL_ID" upheld "spam confirmed" --gas 400000 --from alice)
 assert_tx_success "alice upholds the hide via x/rep" "$TX_OUT"
 assert_equal "Hide record resolved by the x/rep verdict" "true" \
     "$(query collect hide-record "$T2_HIDE_REC" | jq -r '.hide_record.resolved // false')"

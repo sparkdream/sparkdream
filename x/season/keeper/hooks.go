@@ -288,6 +288,10 @@ func (k Keeper) OnVoteCast(ctx context.Context, voter sdk.AccAddress, proposalID
 	if err != nil {
 		return err
 	}
+	// Checked under the signing address only: this hook runs inside a
+	// council vote with ~50k gas of headroom (TestVoteHookGas), so no
+	// RecentAddressesOf scan. Commons re-keys open-proposal votes on
+	// migration, so a member cannot vote the same proposal twice anyway.
 	if k.hasVoteXPRecord(ctx, season.Number, voterStr, proposalID) {
 		return nil
 	}

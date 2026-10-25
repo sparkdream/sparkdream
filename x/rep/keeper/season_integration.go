@@ -13,6 +13,7 @@ import (
 // GetReputationScores returns all reputation scores for a member (tag -> score string).
 // This is used by x/season during season transitions to snapshot reputation.
 func (k Keeper) GetReputationScores(ctx context.Context, addr string) (map[string]string, error) {
+	addr = k.Canonical(ctx, addr) // value lookup resolves the alias (alias.go)
 	member, err := k.Member.Get(ctx, addr)
 	if err != nil {
 		return nil, types.ErrMemberNotFound
@@ -31,6 +32,7 @@ func (k Keeper) GetReputationScores(ctx context.Context, addr string) (map[strin
 // and resets the seasonal scores. Returns the archived reputation scores.
 // This is called by x/season during the ARCHIVE_REPUTATION and RESET_REPUTATION phases.
 func (k Keeper) ArchiveSeasonalReputation(ctx context.Context, addr string) (map[string]string, error) {
+	addr = k.Canonical(ctx, addr) // value lookup resolves the alias (alias.go)
 	member, err := k.Member.Get(ctx, addr)
 	if err != nil {
 		return nil, types.ErrMemberNotFound
@@ -116,6 +118,7 @@ func (k Keeper) ArchiveSeasonalReputation(ctx context.Context, addr string) (map
 // GetCompletedInitiativesCount returns the cached count of completed initiatives for a member.
 // This is used by x/season for snapshot data.
 func (k Keeper) GetCompletedInitiativesCount(ctx context.Context, addr string) (uint64, error) {
+	addr = k.Canonical(ctx, addr) // value lookup resolves the alias (alias.go)
 	member, err := k.Member.Get(ctx, addr)
 	if err != nil {
 		return 0, types.ErrMemberNotFound

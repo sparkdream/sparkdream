@@ -137,6 +137,36 @@ message Member {
   // alone. An address joins only once, so the agreement was made at
   // joined_at / joined_at_height.
   string content_license = 39;
+
+  // key_migration_times are the finalization times of the KEY-path
+  // migrations still inside key_migration_window, oldest first. At most
+  // max_key_migrations_per_window entries; older ones are dropped when the
+  // next is recorded. Travels with the record, so a migration cannot reset
+  // the rolling-window cap.
+  repeated int64 key_migration_times = 40;
+  // last_migrated_at is the finalization time of the most recent migration
+  // into this address, on any path. The KEY-path cooldown counts from it.
+  int64 last_migrated_at = 41;
+
+  // ZK key change discipline (member-key-migration plan, section 9). A
+  // change of an existing zk_public_key does not take effect at once: the
+  // old leaf is zeroed immediately and the new key waits in
+  // pending_zk_public_key until zk_key_activates_at_epoch, so an old-key
+  // action and a new-key action can never land on the same target. First
+  // registration is immediate.
+  bytes pending_zk_public_key = 42;
+  int64 zk_key_activates_at_epoch = 43;
+  // last_zk_key_change_season / zk_key_changed implement the once-per-season
+  // change cooldown: a change is refused while zk_key_changed is true and
+  // last_zk_key_change_season equals the current season.
+  int64 last_zk_key_change_season = 44;
+  bool zk_key_changed = 45;
+  // zk_key_cooldown_exempt is set when a RECOVERY or COUNCIL migration
+  // cleared the key at finalization. The next registration still waits out
+  // the activation delay but is exempt from the season cooldown, so a
+  // recovery never leaves a member without anonymous access for the rest of
+  // the season. Consumed by that registration.
+  bool zk_key_cooldown_exempt = 46;
 }
 
 enum TrustLevel {

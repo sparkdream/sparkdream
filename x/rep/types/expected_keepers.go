@@ -71,6 +71,17 @@ type CommonsKeeper interface {
 	// account. Used by tag-budget creation to ensure only group accounts can
 	// escrow funds.
 	IsGroupPolicyAddress(ctx context.Context, addr string) bool
+
+	// IsCouncilOrCommitteePolicy accepts the gov authority, the council's
+	// policy address or the named committee's policy address, but not an
+	// individual committee member. MsgForceMigration requires the Commons HR
+	// committee as a body, so it uses this rather than IsCouncilAuthorized.
+	IsCouncilOrCommitteePolicy(ctx context.Context, addr string, council string, committee string) bool
+
+	// MaxLiveVotingPeriodSeconds returns the longest voting period any
+	// registered group policy uses. zk_key_activation_delay may not be
+	// lowered below it (member-key-migration plan, decision 17).
+	MaxLiveVotingPeriodSeconds(ctx context.Context) int64
 }
 
 // SeasonKeeper defines the expected interface for the Season module.
@@ -212,6 +223,10 @@ type CollectKeeper interface {
 // too much to take one safely.
 type DistrKeeper interface {
 	DistributeFromFeePool(ctx context.Context, amount sdk.Coins, receiveAddr sdk.AccAddress) error
+	// SetWithdrawAddr points a delegator's staking rewards at another
+	// address. Migration finalization sets the tombstone's withdraw address
+	// to the canonical address so rewards keep reaching the member.
+	SetWithdrawAddr(ctx context.Context, delegatorAddr, withdrawAddr sdk.AccAddress) error
 	GetCommunityPool(ctx context.Context) (sdk.DecCoins, error)
 	// GetCommunityTax is the fraction of block rewards routed to the community
 	// pool. Together with annual provisions it gives the pool's income rate,

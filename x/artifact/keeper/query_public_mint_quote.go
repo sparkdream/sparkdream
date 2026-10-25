@@ -3,7 +3,6 @@ package keeper
 import (
 	"context"
 
-	"cosmossdk.io/collections"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	"sparkdream/x/artifact/types"
@@ -31,7 +30,7 @@ func (q queryServer) PublicMintQuote(ctx context.Context, req *types.QueryPublic
 		MaxUnitPrice:       sdk.NewCoin(denom, maxUnit),
 	}
 	if c.MintPolicy.PerAddressLimit > 0 {
-		used, _ := q.k.PublicMintCount.Get(ctx, collections.Join(c.Id, req.Buyer))
+		used := q.k.publicMintUsed(ctx, c.Id, req.Buyer)
 		remaining := int64(c.MintPolicy.PerAddressLimit) - int64(used)
 		if remaining < 0 {
 			remaining = 0

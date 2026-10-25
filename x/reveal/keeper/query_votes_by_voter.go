@@ -17,19 +17,23 @@ func (q queryServer) VotesByVoter(ctx context.Context, req *types.QueryVotesByVo
 	}
 
 	var votes []types.VerificationVote
-	err := q.k.VotesByVoter.Walk(ctx,
-		collections.NewPrefixedPairRange[string, string](req.Voter),
-		func(key collections.Pair[string, string]) (bool, error) {
-			vote, err := q.k.Vote.Get(ctx, key.K2())
-			if err != nil {
-				return false, nil // skip missing
-			}
-			votes = append(votes, vote)
-			return false, nil
-		},
-	)
-	if err != nil {
-		return nil, status.Error(codes.Internal, err.Error())
+	// Records stay indexed under the address that wrote them; a migrated
+	// member's are gathered across every alias (unpaginated, as before).
+	for _, voter := range q.k.allAddressesOf(ctx, req.Voter) {
+		err := q.k.VotesByVoter.Walk(ctx,
+			collections.NewPrefixedPairRange[string, string](voter),
+			func(key collections.Pair[string, string]) (bool, error) {
+				vote, err := q.k.Vote.Get(ctx, key.K2())
+				if err != nil {
+					return false, nil // skip missing
+				}
+				votes = append(votes, vote)
+				return false, nil
+			},
+		)
+		if err != nil {
+			return nil, status.Error(codes.Internal, err.Error())
+		}
 	}
 
 	return &types.QueryVotesByVoterResponse{

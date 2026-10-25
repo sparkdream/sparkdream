@@ -41,7 +41,7 @@ func (k msgServer) Transfer(ctx context.Context, msg *types.MsgTransfer) (*types
 		if err != nil {
 			return nil, err
 		}
-		if t.Owner != msg.Sender {
+		if !k.canActAs(ctx, msg.Sender, t.Owner) {
 			return nil, types.ErrNotTokenOwner
 		}
 		if !c.Flags.Transferable {
@@ -53,7 +53,7 @@ func (k msgServer) Transfer(ctx context.Context, msg *types.MsgTransfer) (*types
 		if t.RedeemedAt != 0 && !c.Flags.RedeemedTransferable {
 			return nil, types.ErrRedeemedNotTransferable
 		}
-		if e.Recipient == msg.Sender {
+		if k.sameMember(ctx, e.Recipient, msg.Sender) {
 			return nil, errorsmod.Wrap(types.ErrInvalidRecipient, "cannot transfer to yourself")
 		}
 		if _, err := k.validateRecipient("recipient", e.Recipient); err != nil {

@@ -75,7 +75,7 @@ func (k Keeper) OpenPostConvictionStake(
 	if post.Status != types.PostStatus_POST_STATUS_ACTIVE {
 		return 0, fmt.Errorf("cannot stake on non-active post %d (status=%s)", postID, post.Status)
 	}
-	if post.Author == staker.String() {
+	if k.sameMember(ctx, post.Author, staker.String()) {
 		return 0, fmt.Errorf("staker cannot stake on their own post")
 	}
 	if len(post.Tags) == 0 {

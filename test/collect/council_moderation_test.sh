@@ -185,7 +185,7 @@ assert_tx_failure "MsgAppealGovAction rejects module-owned COLLECT_HIDE" "$TX_OU
 
 # alice (Commons Ops) resolves it OVERTURNED through x/rep; x/rep calls back
 # into collect, which restores the collection.
-TX_OUT=$(send_tx rep resolve-gov-action-appeal "$T1_APPEAL_ID" overturned "council hide was wrong" --from alice)
+TX_OUT=$(send_tx rep resolve-gov-action-appeal "$T1_APPEAL_ID" overturned "council hide was wrong" --gas 400000 --from alice)
 assert_tx_success "alice overturns the appeal via x/rep" "$TX_OUT"
 assert_equal "Collection ACTIVE after the x/rep overturn" "COLLECTION_STATUS_ACTIVE" \
     "$(query collect collection "$T1_COLL_ID" | jq -r '.collection.status // empty')"

@@ -44,7 +44,7 @@ func (k msgServer) AppealHide(ctx context.Context, msg *types.MsgAppealHide) (*t
 		if err != nil {
 			return nil, errorsmod.Wrap(err, "failed to resolve target collection")
 		}
-		if coll.Owner != msg.Creator {
+		if !k.canActAs(ctx, msg.Creator, coll.Owner) {
 			return nil, types.ErrNotContentOwner
 		}
 	case types.FlagTargetType_FLAG_TARGET_TYPE_ITEM:
@@ -53,9 +53,9 @@ func (k msgServer) AppealHide(ctx context.Context, msg *types.MsgAppealHide) (*t
 			return nil, errorsmod.Wrap(err, "failed to resolve target item")
 		}
 		// Item adder can appeal, OR collection owner can appeal on their behalf
-		if item.AddedBy != msg.Creator {
+		if !k.canActAs(ctx, msg.Creator, item.AddedBy) {
 			coll, err := k.Collection.Get(ctx, item.CollectionId)
-			if err != nil || coll.Owner != msg.Creator {
+			if err != nil || !k.canActAs(ctx, msg.Creator, coll.Owner) {
 				return nil, types.ErrNotContentOwner
 			}
 		}

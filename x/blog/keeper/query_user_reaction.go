@@ -14,7 +14,7 @@ func (q queryServer) UserReaction(ctx context.Context, req *types.QueryUserReact
 		return nil, status.Error(codes.InvalidArgument, "invalid request")
 	}
 
-	reaction, found := q.k.GetReaction(ctx, req.PostId, req.ReplyId, req.Creator)
+	reaction, found := q.k.getReactionByAliases(ctx, req.PostId, req.ReplyId, q.k.allAddressesOf(ctx, req.Creator))
 	if !found {
 		return &types.QueryUserReactionResponse{Reaction: nil}, nil
 	}

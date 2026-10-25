@@ -39,12 +39,12 @@ func (k msgServer) KickFromGuild(ctx context.Context, msg *types.MsgKickFromGuil
 	}
 
 	// Cannot kick founder
-	if guild.Founder == msg.Member {
+	if k.sameMember(ctx, guild.Founder, msg.Member) {
 		return nil, types.ErrCannotKickFounder
 	}
 
 	// Cannot kick self
-	if msg.Creator == msg.Member {
+	if k.sameMember(ctx, msg.Creator, msg.Member) {
 		return nil, errorsmod.Wrap(types.ErrNotGuildMember, "cannot kick self")
 	}
 
@@ -54,7 +54,7 @@ func (k msgServer) KickFromGuild(ctx context.Context, msg *types.MsgKickFromGuil
 	}
 
 	// Officers cannot kick other officers (only founder can)
-	if k.IsGuildOfficer(ctx, msg.GuildId, msg.Member) && msg.Creator != guild.Founder {
+	if k.IsGuildOfficer(ctx, msg.GuildId, msg.Member) && !k.canActAs(ctx, msg.Creator, guild.Founder) {
 		return nil, errorsmod.Wrap(types.ErrNotGuildFounder, "only founder can kick officers")
 	}
 
@@ -62,7 +62,7 @@ func (k msgServer) KickFromGuild(ctx context.Context, msg *types.MsgKickFromGuil
 	if k.IsGuildOfficer(ctx, msg.GuildId, msg.Member) {
 		newOfficers := make([]string, 0, len(guild.Officers)-1)
 		for _, officer := range guild.Officers {
-			if officer != msg.Member {
+			if !k.sameMember(ctx, officer, msg.Member) {
 				newOfficers = append(newOfficers, officer)
 			}
 		}

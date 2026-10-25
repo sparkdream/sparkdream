@@ -21,8 +21,9 @@ func (q queryServer) MemberStanding(ctx context.Context, req *types.QueryMemberS
 
 	var warningCount uint64
 
+	memberAddrs := q.k.AllAddressesOf(ctx, req.Member)
 	err := q.k.MemberWarning.Walk(ctx, nil, func(key uint64, warning types.MemberWarning) (bool, error) {
-		if warning.Member == req.Member {
+		if AddressesMatch(memberAddrs, warning.Member) {
 			warningCount++
 		}
 		return false, nil
@@ -31,8 +32,9 @@ func (q queryServer) MemberStanding(ctx context.Context, req *types.QueryMemberS
 		return nil, status.Error(codes.Internal, err.Error())
 	}
 
+	// MemberReport is re-keyed to the canonical address at migration.
 	activeReport := false
-	report, err := q.k.MemberReport.Get(ctx, req.Member)
+	report, err := q.k.MemberReport.Get(ctx, q.k.Canonical(ctx, req.Member))
 	if err == nil && report.Status == types.MemberReportStatus_MEMBER_REPORT_STATUS_PENDING {
 		activeReport = true
 	}

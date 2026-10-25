@@ -39,7 +39,7 @@ func (k msgServer) CompleteInterim(ctx context.Context, msg *types.MsgCompleteIn
 		// Regular interims can only be completed by assignees
 		isAssignee := false
 		for _, assigneeStr := range interim.Assignees {
-			if assigneeStr == msg.Creator {
+			if k.Keeper.CanActAs(ctx, msg.Creator, assigneeStr) {
 				isAssignee = true
 				break
 			}

@@ -79,6 +79,23 @@ func (k Keeper) getBalance(ctx context.Context, classID, editionID uint64, owner
 	return b, err == nil, err
 }
 
+// balanceHolder resolves which of signer's addresses a handler should debit
+// or lock units from: signer itself when it holds a record in the edition,
+// else the first recent predecessor that does (a balance written before the
+// member migrated its key stays keyed by the old address; nothing is
+// re-keyed). Only addresses signer may act as count. Falls back to signer.
+func (k Keeper) balanceHolder(ctx context.Context, classID, editionID uint64, signer string) string {
+	for _, a := range k.recentAddressesOf(ctx, signer) {
+		if !k.canActAs(ctx, signer, a) {
+			continue
+		}
+		if has, _ := k.Balances.Has(ctx, balanceKey(classID, editionID, a)); has {
+			return a
+		}
+	}
+	return signer
+}
+
 // settle folds what a balance accrued into unclaimed. Call it before any
 // change to the balance's units.
 func settle(b *types.Balance, e types.Edition) {
@@ -231,7 +248,7 @@ func (k Keeper) validateImpactClaim(ctx context.Context, claim types.ImpactClaim
 	if init.Status != reptypes.InitiativeStatus_INITIATIVE_STATUS_COMPLETED {
 		return claim, errorsmod.Wrapf(types.ErrInitiativeNotEligible, "initiative %d is %s", claim.InitiativeId, init.Status)
 	}
-	if init.Assignee != signer {
+	if !k.canActAs(ctx, signer, init.Assignee) {
 		return claim, errorsmod.Wrap(types.ErrInitiativeNotEligible, "only the initiative's assignee may issue its certificate")
 	}
 	if has, err := k.hasInitiativeCertificate(ctx, claim.InitiativeId); err != nil {

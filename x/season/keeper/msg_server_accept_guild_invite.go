@@ -91,7 +91,7 @@ func (k msgServer) AcceptGuildInvite(ctx context.Context, msg *types.MsgAcceptGu
 	// Remove from pending invites list
 	newInvites := make([]string, 0, len(guild.PendingInvites)-1)
 	for _, inv := range guild.PendingInvites {
-		if inv != msg.Creator {
+		if !k.canActAs(ctx, msg.Creator, inv) {
 			newInvites = append(newInvites, inv)
 		}
 	}

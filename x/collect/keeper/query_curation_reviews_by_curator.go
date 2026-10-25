@@ -29,28 +29,33 @@ func (q queryServer) CurationReviewsByCurator(ctx context.Context, req *types.Qu
 	offset := pageReq.Offset
 	var count uint64
 
-	err := q.k.CurationReviewsByCurator.Walk(ctx,
-		collections.NewPrefixedPairRange[string, uint64](req.Curator),
-		func(key collections.Pair[string, uint64]) (bool, error) {
-			if count < offset {
+	// Reviews stay indexed under the address that wrote them; the
+	// offset/limit window runs across every alias of a migrated member in
+	// sequence (canonical address first).
+	for _, curator := range q.k.allAddressesOf(ctx, req.Curator) {
+		err := q.k.CurationReviewsByCurator.Walk(ctx,
+			collections.NewPrefixedPairRange[string, uint64](curator),
+			func(key collections.Pair[string, uint64]) (bool, error) {
+				if count < offset {
+					count++
+					return false, nil
+				}
+				if uint64(len(results)) >= limit {
+					return true, nil
+				}
+				review, err := q.k.CurationReview.Get(ctx, key.K2())
+				if err != nil {
+					count++
+					return false, nil
+				}
+				results = append(results, review)
 				count++
 				return false, nil
-			}
-			if uint64(len(results)) >= limit {
-				return true, nil
-			}
-			review, err := q.k.CurationReview.Get(ctx, key.K2())
-			if err != nil {
-				count++
-				return false, nil
-			}
-			results = append(results, review)
-			count++
-			return false, nil
-		},
-	)
-	if err != nil {
-		return nil, status.Error(codes.Internal, err.Error())
+			},
+		)
+		if err != nil {
+			return nil, status.Error(codes.Internal, err.Error())
+		}
 	}
 
 	return &types.QueryCurationReviewsByCuratorResponse{

@@ -14,6 +14,9 @@ import (
 // This is the harshest penalty - the member can restart with a new address and invitation.
 // Per spec: "Punish position, not person"
 func (k Keeper) ZeroMember(ctx context.Context, memberAddr sdk.AccAddress, reason string) error {
+	// Value lookup: a stored (possibly tombstoned) address resolves to the
+	// member that now carries it (alias.go).
+	memberAddr = k.resolveMember(ctx, memberAddr)
 	member, err := k.Member.Get(ctx, memberAddr.String())
 	if err != nil {
 		return types.ErrMemberNotFound
@@ -145,6 +148,9 @@ func (k Keeper) ZeroMember(ctx context.Context, memberAddr sdk.AccAddress, reaso
 // This is a medium-level penalty that doesn't affect DREAM balance or member status.
 // penaltyRate should be between 0 and 1 (e.g., 0.3 for 30% slash)
 func (k Keeper) SlashReputation(ctx context.Context, memberAddr sdk.AccAddress, penaltyRate math.LegacyDec, tags []string, reason string) error {
+	// Value lookup: a stored (possibly tombstoned) address resolves to the
+	// member that now carries it (alias.go).
+	memberAddr = k.resolveMember(ctx, memberAddr)
 	member, err := k.Member.Get(ctx, memberAddr.String())
 	if err != nil {
 		return types.ErrMemberNotFound
@@ -213,6 +219,9 @@ func (k Keeper) SlashReputation(ctx context.Context, memberAddr sdk.AccAddress, 
 // AddReputation increases a member's reputation for a specific tag by an absolute amount.
 // Used by other modules (e.g. x/reveal) to reward contributions.
 func (k Keeper) AddReputation(ctx context.Context, memberAddr sdk.AccAddress, tag string, amount math.LegacyDec) error {
+	// Value lookup: a stored (possibly tombstoned) address resolves to the
+	// member that now carries it (alias.go).
+	memberAddr = k.resolveMember(ctx, memberAddr)
 	member, err := k.Member.Get(ctx, memberAddr.String())
 	if err != nil {
 		return types.ErrMemberNotFound
@@ -259,6 +268,9 @@ func (k Keeper) AddReputation(ctx context.Context, memberAddr sdk.AccAddress, ta
 // DeductReputation decreases a member's reputation for a specific tag by an absolute amount.
 // The score is floored at zero. Used by other modules (e.g. x/reveal) to penalize failures.
 func (k Keeper) DeductReputation(ctx context.Context, memberAddr sdk.AccAddress, tag string, amount math.LegacyDec) error {
+	// Value lookup: a stored (possibly tombstoned) address resolves to the
+	// member that now carries it (alias.go).
+	memberAddr = k.resolveMember(ctx, memberAddr)
 	member, err := k.Member.Get(ctx, memberAddr.String())
 	if err != nil {
 		return types.ErrMemberNotFound
@@ -309,6 +321,9 @@ func (k Keeper) DeductReputation(ctx context.Context, memberAddr sdk.AccAddress,
 // Per the spec, trust levels never decrease, so "demotion" is actually a reputation slash.
 // The member keeps their trust level but loses reputation, making it harder to participate in tier-gated activities.
 func (k Keeper) DemoteMember(ctx context.Context, memberAddr sdk.AccAddress, reason string) error {
+	// Value lookup: a stored (possibly tombstoned) address resolves to the
+	// member that now carries it (alias.go).
+	memberAddr = k.resolveMember(ctx, memberAddr)
 	params, err := k.Params.Get(ctx)
 	if err != nil {
 		return err
@@ -339,6 +354,9 @@ func (k Keeper) IsActiveMember(ctx context.Context, addr sdk.AccAddress) bool {
 
 // GetTrustLevel returns the trust level for a member.
 func (k Keeper) GetTrustLevel(ctx context.Context, addr sdk.AccAddress) (types.TrustLevel, error) {
+	// Value lookup: a stored (possibly tombstoned) address resolves to the
+	// member that now carries it (alias.go).
+	addr = k.resolveMember(ctx, addr)
 	member, err := k.Member.Get(ctx, addr.String())
 	if err != nil {
 		return types.TrustLevel_TRUST_LEVEL_NEW, types.ErrMemberNotFound
@@ -349,6 +367,9 @@ func (k Keeper) GetTrustLevel(ctx context.Context, addr sdk.AccAddress) (types.T
 // GetReputationTier returns a tier (0-5) based on total reputation across tags.
 // This is used by other modules for reputation-gated access control.
 func (k Keeper) GetReputationTier(ctx context.Context, addr sdk.AccAddress) (uint64, error) {
+	// Value lookup: a stored (possibly tombstoned) address resolves to the
+	// member that now carries it (alias.go).
+	addr = k.resolveMember(ctx, addr)
 	member, err := k.Member.Get(ctx, addr.String())
 	if err != nil {
 		return 0, types.ErrMemberNotFound

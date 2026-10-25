@@ -28,7 +28,7 @@ func (k msgServer) MintUnits(ctx context.Context, msg *types.MsgMintUnits) (*typ
 	if err := mintable(c); err != nil {
 		return nil, err
 	}
-	if !isMinter(c, msg.Minter) {
+	if !k.isMinter(ctx, c, msg.Minter) {
 		return nil, types.ErrNotMinter
 	}
 	e, err := k.getEdition(ctx, c.Id, msg.EditionId)

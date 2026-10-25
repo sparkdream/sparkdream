@@ -15,12 +15,28 @@ func (q queryServer) OffersByBidder(ctx context.Context, req *types.QueryOffersB
 	if req == nil || req.Bidder == "" {
 		return nil, errInvalidRequest
 	}
+	addrs := q.k.allAddressesOf(ctx, req.Bidder)
 	offers, page, err := query.CollectionPaginate(ctx, q.k.OffersByBidder, capPage(req.Pagination),
 		func(key collections.Pair[string, uint64], _ collections.NoValue) (types.Offer, error) {
 			return q.k.Offers.Get(ctx, key.K2())
-		}, query.WithCollectionPaginationPairPrefix[string, uint64](req.Bidder))
+		}, query.WithCollectionPaginationPairPrefix[string, uint64](addrs[0]))
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
+	}
+	if lastPage(page) {
+		for _, a := range addrs[1:] {
+			err = q.k.OffersByBidder.Walk(ctx, collections.NewPrefixedPairRange[string, uint64](a), func(key collections.Pair[string, uint64]) (bool, error) {
+				o, err := q.k.Offers.Get(ctx, key.K2())
+				if err != nil {
+					return true, err
+				}
+				offers = append(offers, o)
+				return false, nil
+			})
+			if err != nil {
+				return nil, status.Error(codes.Internal, err.Error())
+			}
+		}
 	}
 	return &types.QueryOffersByBidderResponse{Offers: offers, Pagination: page}, nil
 }

@@ -14,7 +14,7 @@ import (
 func (k Keeper) pendingFor(ctx context.Context, recipient string, classID, tokenID uint64) (int64, string, error) {
 	if classID == unitNamespace {
 		pu, err := k.PendingUnits.Get(ctx, tokenID)
-		if err != nil || pu.To != recipient {
+		if err != nil || !k.canActAs(ctx, recipient, pu.To) {
 			return 0, "", errorsmod.Wrapf(types.ErrPendingNotFound, "pending units %d", tokenID)
 		}
 		e, err := k.getEdition(ctx, pu.ClassId, pu.EditionId)
@@ -24,14 +24,14 @@ func (k Keeper) pendingFor(ctx context.Context, recipient string, classID, token
 		return pu.ExpiresAt, types.MetadataHash(e.Metadata), nil
 	}
 	key := collections.Join(classID, tokenID)
-	if pt, err := k.PendingTransfers.Get(ctx, key); err == nil && pt.To == recipient {
+	if pt, err := k.PendingTransfers.Get(ctx, key); err == nil && k.canActAs(ctx, recipient, pt.To) {
 		t, err := k.getToken(ctx, classID, tokenID)
 		if err != nil {
 			return 0, "", err
 		}
 		return pt.ExpiresAt, types.MetadataHash(t.Metadata), nil
 	}
-	if pm, err := k.PendingMints.Get(ctx, key); err == nil && pm.To == recipient {
+	if pm, err := k.PendingMints.Get(ctx, key); err == nil && k.canActAs(ctx, recipient, pm.To) {
 		return pm.ExpiresAt, types.MetadataHash(pm.Metadata), nil
 	}
 	return 0, "", errorsmod.Wrapf(types.ErrPendingNotFound, "%d/%d", classID, tokenID)

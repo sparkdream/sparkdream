@@ -52,7 +52,7 @@ func (k Keeper) ClaimStakingRewards(ctx context.Context, stakeID uint64, stakerA
 	}
 
 	// Verify staker owns the stake
-	if stake.Staker != stakerAddr.String() {
+	if !k.CanActAs(ctx, stakerAddr.String(), stake.Staker) {
 		return math.ZeroInt(), fmt.Errorf("only stake owner can claim rewards")
 	}
 
@@ -114,7 +114,7 @@ func (k Keeper) CompoundStakingRewards(ctx context.Context, stakeID uint64, stak
 	}
 
 	// Verify staker owns the stake
-	if stake.Staker != stakerAddr.String() {
+	if !k.CanActAs(ctx, stakerAddr.String(), stake.Staker) {
 		return math.ZeroInt(), fmt.Errorf("only stake owner can compound rewards")
 	}
 

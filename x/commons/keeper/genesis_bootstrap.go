@@ -641,8 +641,13 @@ func (k Keeper) BootstrapGovernance(ctx context.Context, founders []types.Foundi
 		StandardWindow:       WindowGovernance,
 		StandardMinExecution: CommonsMembershipMinExecution,
 
+		// The HR committee is also the council authority of the member key
+		// migration (x/rep): it may force a migration for a member who lost
+		// their key and cancel key or council migrations.
 		StandardPermissions: []string{
 			"/sparkdream.commons.v1.MsgUpdateGroupMembers",
+			"/sparkdream.rep.v1.MsgForceMigration",
+			"/sparkdream.rep.v1.MsgCancelMigration",
 		},
 		MaxSpendPerEpoch: math.NewInt(0),
 		UpdateCooldown:   int64(CommitteeUpdateCooldown.Seconds()),

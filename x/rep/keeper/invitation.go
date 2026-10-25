@@ -71,9 +71,11 @@ func (k Keeper) CreateInvitation(ctx context.Context, inviter, invitee sdk.AccAd
 		return 0, fmt.Errorf("insufficient stake: %s, required: %s", stakedAmount, requiredStake)
 	}
 
-	// Check if invitee already exists or has pending invitation
+	// Check if invitee already exists or has pending invitation. A tombstone
+	// (an address a member migrated away from, the inviter's own included)
+	// can never be invited again.
 	_, err = k.Member.Get(ctx, invitee.String())
-	if err == nil {
+	if err == nil || k.IsTombstoned(ctx, invitee.String()) {
 		return 0, types.ErrMemberAlreadyExists
 	}
 
@@ -172,8 +174,24 @@ func (k Keeper) CreateInvitation(ctx context.Context, inviter, invitee sdk.AccAd
 // accepted_content_license); it is stored on the member record as the
 // durable copy of the agreement.
 func (k Keeper) AcceptInvitation(ctx context.Context, invitationID uint64, invitee sdk.AccAddress, contentLicense string) error {
+	return k.AcceptInvitationWithRecovery(ctx, invitationID, invitee, contentLicense, nil)
+}
+
+// AcceptInvitationWithRecovery is AcceptInvitation with the optional
+// onboarding recovery commitment (MsgAcceptInvitation.recovery_commitment).
+// It is the only commitment that becomes active without waiting out
+// recovery_change_delay: there is nothing to steal yet.
+func (k Keeper) AcceptInvitationWithRecovery(ctx context.Context, invitationID uint64, invitee sdk.AccAddress, contentLicense string, recoveryCommitment []byte) error {
 	if contentLicense != commontypes.ChainContentLicense {
 		return errorsmod.Wrapf(types.ErrContentLicenseNotAccepted, "got %q", contentLicense)
+	}
+	if len(recoveryCommitment) > 0 && !validCommitment(recoveryCommitment) {
+		return errorsmod.Wrapf(types.ErrRecoveryCommitmentInvalid, "recovery_commitment must be %d bytes", types.RecoveryCommitmentSize)
+	}
+	// A tombstone is forever: an address that migrated away can never be
+	// invited again (plan §7.2).
+	if k.IsTombstoned(ctx, invitee.String()) {
+		return types.ErrMemberTombstoned
 	}
 
 	// Get invitation
@@ -263,6 +281,12 @@ func (k Keeper) AcceptInvitation(ctx context.Context, invitationID uint64, invit
 
 	// Mark trust tree dirty — new member joined
 	k.MarkMemberDirty(ctx, invitee.String())
+
+	if len(recoveryCommitment) > 0 {
+		if err := k.SetRecoveryCommitment(ctx, invitee.String(), recoveryCommitment, nil, true); err != nil {
+			return err
+		}
+	}
 
 	// Update invitation status
 	invitation.Status = types.InvitationStatus_INVITATION_STATUS_ACCEPTED
@@ -356,8 +380,9 @@ func (k Keeper) ProcessInviterAccountability(ctx context.Context, invitee sdk.Ac
 		return nil // Accountability period has ended, no penalty
 	}
 
-	// Get inviter
-	inviterAddr, err := sdk.AccAddressFromBech32(invitation.Inviter)
+	// Get inviter. The invitation records the address the inviter held at
+	// the time; the liability follows the member to its current address.
+	inviterAddr, err := sdk.AccAddressFromBech32(k.Canonical(ctx, invitation.Inviter))
 	if err != nil {
 		return err
 	}

@@ -127,7 +127,7 @@ func (k msgServer) React(ctx context.Context, msg *types.MsgReact) (*types.MsgRe
 	// still apply. Narrowly scoped to this thread's own author. Never for
 	// anonymous content: every anonymous post and reaction shares the shield
 	// address, so matching creators says nothing about who wrote the post.
-	isThreadAuthor := msg.Creator == post.Creator && !isShieldModuleAddress(creatorAddr)
+	isThreadAuthor := !isShieldModuleAddress(creatorAddr) && k.canActAs(ctx, msg.Creator, post.Creator)
 	if !isThreadAuthor && !k.meetsReplyTrustLevel(ctx, creatorAddr, post.MinReplyTrustLevel) {
 		return nil, k.trustLevelError(ctx, creatorAddr, post.MinReplyTrustLevel, "reactions on this post")
 	}
@@ -143,8 +143,9 @@ func (k msgServer) React(ctx context.Context, msg *types.MsgReact) (*types.MsgRe
 	// x/shield's nullifier allows one per member per post and per reply.
 	anonymous := isShieldModuleAddress(creatorAddr)
 
-	// Check existing reaction
-	existing, found := k.GetReaction(ctx, msg.PostId, msg.ReplyId, msg.Creator)
+	// Check existing reaction, including one left from a pre-migration
+	// address (alias dedup); it is updated in place under its stored key.
+	existing, found := k.getReactionByAliases(ctx, msg.PostId, msg.ReplyId, k.recentAddressesOf(ctx, msg.Creator))
 	if found && !anonymous {
 		if existing.ReactionType == msg.ReactionType {
 			// Same type - no-op

@@ -333,6 +333,14 @@ func (k Keeper) EndBlocker(ctx context.Context) error {
 		sdkCtx.Logger().Error("error maturing bonded-role unbonds", "error", err)
 	}
 
+	// 18. Member key migration: finalize due migrations, expire unaccepted
+	// ones and stale recovery seals, tally overdue objection juries and
+	// activate pending ZK keys. Every pass is capped and contained; see
+	// migration_endblock.go. Runs before the trust tree rebuild would be
+	// ideal, but step 12 already ran: a finalized migration marks the new
+	// address dirty and the next block's rebuild picks it up.
+	k.ProcessMigrations(ctx)
+
 	return nil
 }
 

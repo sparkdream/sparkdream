@@ -16,7 +16,7 @@ func (k msgServer) DelistUnits(ctx context.Context, msg *types.MsgDelistUnits) (
 	if err != nil {
 		return nil, err
 	}
-	if l.Seller != msg.Seller {
+	if !k.canActAs(ctx, msg.Seller, l.Seller) {
 		return nil, types.ErrNotTokenOwner
 	}
 	if err := k.removeUnitListing(ctx, l, "seller"); err != nil {

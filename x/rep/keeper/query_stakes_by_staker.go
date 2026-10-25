@@ -14,10 +14,12 @@ func (q queryServer) StakesByStaker(ctx context.Context, req *types.QueryStakesB
 		return nil, status.Error(codes.InvalidArgument, "invalid request")
 	}
 
-	// Collect all stakes owned by the specified staker.
+	// Collect all stakes owned by the specified staker, under any address the
+	// member has held.
+	stakerAddrs := q.k.AllAddressesOf(ctx, req.Staker)
 	var stakes []*types.Stake
 	err := q.k.Stake.Walk(ctx, nil, func(id uint64, stake types.Stake) (bool, error) {
-		if stake.Staker == req.Staker {
+		if AddressesMatch(stakerAddrs, stake.Staker) {
 			stakeCopy := stake
 			stakes = append(stakes, &stakeCopy)
 		}

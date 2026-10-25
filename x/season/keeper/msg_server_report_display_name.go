@@ -23,7 +23,7 @@ func (k msgServer) ReportDisplayName(ctx context.Context, msg *types.MsgReportDi
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 
 	// Cannot report own display name
-	if msg.Creator == msg.Target {
+	if k.sameMember(ctx, msg.Creator, msg.Target) {
 		return nil, types.ErrCannotReportOwnDisplayName
 	}
 

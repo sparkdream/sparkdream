@@ -42,6 +42,9 @@ func (k Keeper) IssueWarning(ctx context.Context, member string, issuedBy string
 	// O(N) over all warnings; matches the existing msg_server_resolve_member_report
 	// pattern. Acceptable while volume is low; revisit with a per-member
 	// counter index if it becomes a hotspot.
+	// Escalation must see the member's full history, so warnings issued
+	// against any earlier address count (AllAddressesOf: gas slack here).
+	memberAddrs := k.AllAddressesOf(ctx, member)
 	var warningCount uint64
 	iter, err := k.MemberWarning.Iterate(ctx, nil)
 	if err == nil {
@@ -51,7 +54,7 @@ func (k Keeper) IssueWarning(ctx context.Context, member string, issuedBy string
 			if valErr != nil {
 				continue
 			}
-			if w.Member == member {
+			if AddressesMatch(memberAddrs, w.Member) {
 				warningCount++
 			}
 		}

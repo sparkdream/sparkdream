@@ -26,7 +26,7 @@ func (k msgServer) TransferName(goCtx context.Context, msg *types.MsgTransferNam
 	if !found {
 		return nil, errorsmod.Wrapf(types.ErrNameNotFound, "name '%s' not found", name)
 	}
-	if record.Owner != msg.Authority {
+	if !k.canActAs(ctx, msg.Authority, record.Owner) {
 		return nil, errorsmod.Wrapf(sdkerrors.ErrUnauthorized, "you do not own name '%s'", name)
 	}
 
@@ -34,7 +34,7 @@ func (k msgServer) TransferName(goCtx context.Context, msg *types.MsgTransferNam
 	if err != nil {
 		return nil, errorsmod.Wrap(sdkerrors.ErrInvalidAddress, "invalid new_owner address")
 	}
-	if msg.NewOwner == msg.Authority {
+	if k.sameMember(ctx, msg.NewOwner, msg.Authority) {
 		return nil, types.ErrCannotTransferToSelf
 	}
 

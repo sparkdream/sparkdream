@@ -190,6 +190,42 @@ func (k Keeper) isActiveMember(ctx context.Context, addr sdk.AccAddress) bool {
 	return k.late.rep != nil && k.late.rep.IsActiveMember(ctx, addr)
 }
 
+// Alias helpers (member key migration). The rep keeper is late-wired and nil
+// in some unit tests, where they degrade to plain address equality.
+
+// canActAs: signer may exercise rights recorded against stored (not
+// tombstoned, and stored resolves to signer).
+func (k Keeper) canActAs(ctx context.Context, signer, stored string) bool {
+	if k.late.rep == nil {
+		return signer == stored
+	}
+	return k.late.rep.CanActAs(ctx, signer, stored)
+}
+
+// sameMember: two stored addresses belong to one member (self-dealing bans).
+func (k Keeper) sameMember(ctx context.Context, a, b string) bool {
+	if k.late.rep == nil {
+		return a == b
+	}
+	return k.late.rep.SameMember(ctx, a, b)
+}
+
+// recentAddressesOf: canonical + predecessors inside the dedup horizon.
+func (k Keeper) recentAddressesOf(ctx context.Context, member string) []string {
+	if k.late.rep == nil {
+		return []string{member}
+	}
+	return k.late.rep.RecentAddressesOf(ctx, member)
+}
+
+// allAddressesOf: canonical + every predecessor (queries only).
+func (k Keeper) allAddressesOf(ctx context.Context, member string) []string {
+	if k.late.rep == nil {
+		return []string{member}
+	}
+	return k.late.rep.AllAddressesOf(ctx, member)
+}
+
 // isTrustedSender: an active x/rep member or a council-body policy (§7.6).
 func (k Keeper) isTrustedSender(ctx context.Context, addr string) bool {
 	if k.isCouncilBody(ctx, addr) {
@@ -269,7 +305,7 @@ func (k Keeper) getOwnedClass(ctx context.Context, id uint64, owner string) (typ
 	if err != nil {
 		return c, err
 	}
-	if c.Owner != owner {
+	if !k.canActAs(ctx, owner, c.Owner) {
 		return c, types.ErrNotClassOwner
 	}
 	return c, nil

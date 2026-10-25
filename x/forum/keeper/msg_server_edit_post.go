@@ -35,7 +35,7 @@ func (k msgServer) EditPost(ctx context.Context, msg *types.MsgEditPost) (*types
 	}
 
 	// Verify author ownership
-	if post.Author != msg.Creator {
+	if !k.canActAs(ctx, msg.Creator, post.Author) {
 		return nil, errorsmod.Wrap(types.ErrNotPostAuthor, "only the author can edit their post")
 	}
 

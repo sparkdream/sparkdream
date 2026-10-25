@@ -26,7 +26,7 @@ func (k msgServer) FileDispute(goCtx context.Context, msg *types.MsgFileDispute)
 	if record.Owner == "" {
 		return nil, errorsmod.Wrapf(types.ErrNameNotFound, "name %q has no owner", msg.Name)
 	}
-	if msg.Authority == record.Owner {
+	if k.sameMember(ctx, msg.Authority, record.Owner) {
 		return nil, errorsmod.Wrapf(types.ErrCannotDisputeOwnName, "name %q", msg.Name)
 	}
 

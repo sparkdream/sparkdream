@@ -1,6 +1,7 @@
 package keeper
 
 import (
+	"context"
 	"fmt"
 
 	"cosmossdk.io/collections"
@@ -130,4 +131,42 @@ func (k Keeper) GetAuthority() []byte {
 func (k Keeper) GetAuthorityString() string {
 	addr, _ := k.addressCodec.BytesToString(k.authority)
 	return addr
+}
+
+// --- Member key migration alias helpers ---
+//
+// Records keep the address they were written with; a member who migrated to
+// a fresh key is matched through x/rep's alias contract. The rep keeper is
+// nil in some unit tests, where plain equality is the answer.
+
+// canActAs reports whether signer may exercise rights recorded against stored.
+func (k Keeper) canActAs(ctx context.Context, signer, stored string) bool {
+	if k.repKeeper == nil {
+		return signer == stored
+	}
+	return k.repKeeper.CanActAs(ctx, signer, stored)
+}
+
+// sameMember reports whether two stored addresses belong to the same member.
+func (k Keeper) sameMember(ctx context.Context, a, b string) bool {
+	if k.repKeeper == nil {
+		return a == b
+	}
+	return k.repKeeper.SameMember(ctx, a, b)
+}
+
+// recentAddressesOf is the in-tx alias set (dedup checks).
+func (k Keeper) recentAddressesOf(ctx context.Context, member string) []string {
+	if k.repKeeper == nil {
+		return []string{member}
+	}
+	return k.repKeeper.RecentAddressesOf(ctx, member)
+}
+
+// allAddressesOf is the full alias set (list queries only).
+func (k Keeper) allAddressesOf(ctx context.Context, member string) []string {
+	if k.repKeeper == nil {
+		return []string{member}
+	}
+	return k.repKeeper.AllAddressesOf(ctx, member)
 }

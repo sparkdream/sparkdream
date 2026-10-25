@@ -25,7 +25,7 @@
 #                its own batch (its `ignite chain init` walks the project tree
 #                and trips over LevelDB temp files in concurrent suites' homes).
 #
-# Concurrency defaults to 6 (safe for typical dev machines). Pass
+# Concurrency defaults to 4 (more overloads the WSL2 dev VM). Pass
 # --concurrency K to override the cap, or --full-parallel to disable it
 # entirely and launch every suite at once.
 #
@@ -45,7 +45,7 @@
 # later propose-heavy tests.
 #
 # Examples:
-#   bash test/run_parallel.sh                          # all discovered, 6 at a time
+#   bash test/run_parallel.sh                          # all discovered, 4 at a time
 #   bash test/run_parallel.sh --full-parallel          # all, no cap
 #   bash test/run_parallel.sh --concurrency 2          # all, 2 at a time
 #   bash test/run_parallel.sh blog forum               # just two
@@ -755,14 +755,12 @@ Build options:
   --no-build        Skip the build entirely; fail if the binary is missing.
 
 Concurrency options:
-  (default)         Run at most 7 suites at a time, in sequential batches.
-                    Tuned so the 14-suite default lineup (12 normal modules
-                    + legacy + multichain) splits into exactly 2 batches.
-                    With the duration-descending MODULE_ORDER (longest
-                    first) the slow suites land in batch 1 and the fast
-                    ones (plus pseudo-modules) in batch 2, keeping batch-2
-                    wall time well under batch-1's bottleneck. Holds
-                    ~2.5 GB RSS / 7 chain processes.
+  (default)         Run at most 4 suites at a time, in sequential batches.
+                    More than 4 concurrent chains overloads the WSL2 dev
+                    VM (block-time drift, timeouts, spurious failures).
+                    The duration-descending MODULE_ORDER (longest first)
+                    puts the slow suites in the early batches. Holds
+                    ~1.4 GB RSS / 4 chain processes.
   --concurrency K   Run at most K suites at a time (positive integer).
   --full-parallel   Disable the concurrency cap; launch every suite at once.
                     Equivalent to --concurrency=N where N = number of suites.
@@ -797,7 +795,7 @@ Control options:
                     any time, including while the run is still going.
 
 Examples:
-  $0                                       # all discovered modules, 7 at a time
+  $0                                       # all discovered modules, 4 at a time
   $0 forum                                 # just one module (full isolation, 1 batch of 1)
   $0 blog forum                            # just two — full parallel since 2 <= 7
   $0 --concurrency 2                       # all modules, 2 at a time
@@ -825,8 +823,8 @@ Test ordering:
   can't be parsed for a module, falls back to alphabetical *_test.sh glob.
 
 Resource note: each suite holds an in-memory chain (~350 MB RSS). The default
-cap of 7 holds total chain RSS to ~2.5 GB; raise it via --concurrency for
-faster wall-clock when you have headroom. --full-parallel maximizes throughput
+cap of 4 holds total chain RSS to ~1.4 GB; raise it via --concurrency for
+faster wall-clock only on a machine with headroom (not the WSL2 dev VM). --full-parallel maximizes throughput
 but on 14 suites will spike CPU and produce very noisy live output. Full
 per-module logs are always preserved at <project>/e2e/latest/<module>.log.
 Each run takes ~4 GB on disk; use --keep N or --clean-stale to manage growth.
@@ -840,12 +838,11 @@ BUILD_MODE="auto"   # auto | force | skip
 #
 # Tuning rationale: the bottleneck is the longest single suite (forum at
 # ~39 min on this codebase). The default lineup is 14 suites (12 normal
-# modules + legacy + multichain pseudo-modules). Concurrency=4 produced 3
-# batches with wall time ~88 min; concurrency=7 produces exactly 2 batches
-# and — combined with the duration-descending MODULE_ORDER (slowest first)
-# — yields wall time ~50 min on a machine with 8+ cores and 8+ GB RAM.
-# Seven chains hold ~2.5 GB RSS, which is comfortable on a typical dev box.
-CONCURRENCY=7
+# modules + legacy + multichain pseudo-modules). Concurrency=7 gave ~50 min
+# wall time in 2 batches but overloads the WSL2 dev VM, producing block-time
+# drift and spurious failures; concurrency=4 takes ~88 min in 3+ batches and
+# stays stable. Keep 4 as the default; raise it only on a bigger machine.
+CONCURRENCY=4
 # Disk-management flags (default off; never destructive without explicit opt-in).
 CLEAN_BEFORE_RUN=false
 KEEP_N=""           # empty = no post-run pruning
@@ -1933,7 +1930,7 @@ for ((i=0; i<NUM_SUITES; i++)); do
     : > "$log"
 done
 
-# Determine the effective batch size. CONCURRENCY=0 (the default) means
+# Determine the effective batch size. CONCURRENCY=0 (--full-parallel) means
 # "no limit" — launch every suite at once. Otherwise launch up to that many
 # suites concurrently and wait for the batch before starting the next.
 EFFECTIVE_CONCURRENCY=$CONCURRENCY
@@ -1943,9 +1940,9 @@ fi
 
 # NUM_BATCHES is a lower-bound estimate. The actual count may be higher
 # because the multichain pseudo-module is forced into its own batch (see
-# the isolation rule in the batch loop), so a 14-suite + concurrency=7
-# layout that "should" be 2 batches becomes 3 (batch 1: 7 normal, batch 2:
-# 6 normal, batch 3: multichain alone).
+# the isolation rule in the batch loop), so a 14-suite + concurrency=4
+# layout that "should" be 4 batches becomes 5 (batches 1-3: 4, 4, 4 normal,
+# batch 4: 1 normal, batch 5: multichain alone).
 NUM_BATCHES=$(( (NUM_SUITES + EFFECTIVE_CONCURRENCY - 1) / EFFECTIVE_CONCURRENCY ))
 HAS_MULTICHAIN=false
 for m in "${MODULES[@]}"; do

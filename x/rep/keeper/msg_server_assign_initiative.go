@@ -30,7 +30,7 @@ func (k msgServer) AssignInitiative(ctx context.Context, msg *types.MsgAssignIni
 		return nil, errorsmod.Wrap(err, "failed to get parent project")
 	}
 
-	if msg.Creator != msg.Assignee && msg.Creator != project.Creator {
+	if msg.Creator != msg.Assignee && !k.Keeper.CanActAs(ctx, msg.Creator, project.Creator) {
 		isOps, opsErr := k.Keeper.commonsKeeper.IsCommitteeMember(ctx, sdk.AccAddress(creatorBytes), "commons", "operations")
 		if opsErr != nil {
 			return nil, errorsmod.Wrap(opsErr, "failed to check operations committee membership")

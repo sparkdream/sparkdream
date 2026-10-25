@@ -26,7 +26,7 @@ func (k msgServer) Reveal(ctx context.Context, msg *types.MsgReveal) (*types.Msg
 	}
 
 	// Only the contributor can reveal
-	if msg.Contributor != contrib.Contributor {
+	if !k.canActAs(ctx, msg.Contributor, contrib.Contributor) {
 		return nil, types.ErrNotContributor
 	}
 

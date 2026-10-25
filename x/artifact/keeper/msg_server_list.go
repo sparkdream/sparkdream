@@ -33,7 +33,7 @@ func (k Keeper) listingPreconditions(ctx context.Context, seller string, classID
 	if isTargetHidden(c, t) {
 		return c, t, types.ErrContentHidden
 	}
-	if t.Owner != seller {
+	if !k.canActAs(ctx, seller, t.Owner) {
 		return c, t, types.ErrNotTokenOwner
 	}
 	if types.IsExpired(t, now(ctx)) {

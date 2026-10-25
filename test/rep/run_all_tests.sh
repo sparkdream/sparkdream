@@ -15,7 +15,7 @@ echo ""
 # this runner refuses to start when the two disagree (see the check after
 # argument parsing).
 # ============================================================================
-# TEST_ORDER: member_test.sh genesis_test.sh content_challenge_test.sh invitation_test.sh dream_token_test.sh initiative_test.sh staking_test.sh interim_test.sh challenge_test.sh complex_scenarios_test.sh edge_cases_test.sh endblocker_test.sh operational_params_test.sh bond_locked_test.sh bonded_role_test.sh self_assign_test.sh staking_errors_test.sh validation_test.sh anon_challenge_test.sh trust_level_test.sh member_report_test.sh gov_action_appeal_test.sh jury_participation_test.sh initiative_review_test.sh review_bounty_test.sh initiative_bounty_test.sh role_reward_funding_test.sh jury_duty_test.sh tag_budget_test.sh tag_moderation_test.sh project_approval_test.sh project_lifecycle_test.sh interim_authorization_test.sh
+# TEST_ORDER: member_test.sh genesis_test.sh content_challenge_test.sh invitation_test.sh dream_token_test.sh initiative_test.sh staking_test.sh interim_test.sh challenge_test.sh complex_scenarios_test.sh edge_cases_test.sh endblocker_test.sh operational_params_test.sh bond_locked_test.sh bonded_role_test.sh self_assign_test.sh staking_errors_test.sh validation_test.sh anon_challenge_test.sh trust_level_test.sh member_report_test.sh gov_action_appeal_test.sh jury_participation_test.sh initiative_review_test.sh review_bounty_test.sh initiative_bounty_test.sh role_reward_funding_test.sh jury_duty_test.sh tag_budget_test.sh tag_moderation_test.sh project_approval_test.sh project_lifecycle_test.sh interim_authorization_test.sh member_migration_test.sh
 
 # ========================================================================
 # Configuration
@@ -1481,6 +1481,31 @@ if [ -f "$SCRIPT_DIR/interim_authorization_test.sh" ]; then
     sleep 2
 fi
 
+# ========================================================================
+# Step 28: Member key migration (key / recovery / council paths, alias
+# contract, tombstone ante backstop, SPARK redirect, ZK key discipline).
+# Runs last: it tombstones addresses it creates itself and leaves the
+# genesis accounts untouched.
+# ========================================================================
+if [ -f "$SCRIPT_DIR/member_migration_test.sh" ]; then
+    echo "========================================================================="
+    echo "STEP 28: MEMBER MIGRATION TEST (key, recovery and council paths)"
+    echo "========================================================================="
+    echo ""
+
+    bash "$SCRIPT_DIR/member_migration_test.sh"
+    MEMBER_MIGRATION_EXIT_CODE=$?
+
+    echo ""
+    if [ $MEMBER_MIGRATION_EXIT_CODE -eq 0 ]; then
+        echo "Member migration test completed"
+    else
+        echo "[FAIL] Member migration test exited with code: $MEMBER_MIGRATION_EXIT_CODE"
+    fi
+    echo ""
+    sleep 2
+fi
+
 fi  # end of RUN_TESTS guard wrapping steps 16-24
 
 # ========================================================================
@@ -1609,6 +1634,7 @@ check_test true                            "${INITIATIVE_BOUNTY_EXIT_CODE:-0}" "
 check_test true                            "${ROLE_REWARD_FUNDING_EXIT_CODE:-0}" "Role Reward Funding"
 check_test true                            "${JURY_DUTY_EXIT_CODE:-0}" "Jury Duty Test"
 check_test true                            "${INTERIM_AUTH_EXIT_CODE:-0}" "Interim Authorization"
+check_test true                            "${MEMBER_MIGRATION_EXIT_CODE:-0}" "Member Migration"
 
 # Final Alice balance
 ALICE_MEMBER=$($BINARY query rep get-member $ALICE_ADDR -o json 2>/dev/null)

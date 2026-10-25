@@ -75,13 +75,14 @@ func (k msgServer) StakeNomination(ctx context.Context, msg *types.MsgStakeNomin
 
 	// 5. Check staker hasn't already staked on this nomination
 	stakeKey := fmt.Sprintf("%d/%s", msg.NominationId, msg.Creator)
-	_, err = k.NominationStake.Get(ctx, stakeKey)
-	if err == nil {
-		return nil, types.ErrNominationStakeExists
+	for _, alias := range k.recentAddressesOf(ctx, msg.Creator) {
+		if has, _ := k.NominationStake.Has(ctx, fmt.Sprintf("%d/%s", msg.NominationId, alias)); has {
+			return nil, types.ErrNominationStakeExists
+		}
 	}
 
 	// 6. Check staker is not the nominator (can't self-stake)
-	if msg.Creator == nomination.Nominator {
+	if k.sameMember(ctx, msg.Creator, nomination.Nominator) {
 		return nil, errorsmod.Wrap(types.ErrNominationStakeExists, "cannot stake on own nomination")
 	}
 

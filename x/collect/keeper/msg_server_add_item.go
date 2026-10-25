@@ -37,7 +37,7 @@ func (k msgServer) AddItem(ctx context.Context, msg *types.MsgAddItem) (*types.M
 	}
 
 	// If collaborator (not owner), must be x/rep member
-	if coll.Owner != msg.Creator {
+	if !k.canActAs(ctx, msg.Creator, coll.Owner) {
 		if !k.isMember(ctx, msg.Creator) {
 			return nil, types.ErrNotMember
 		}

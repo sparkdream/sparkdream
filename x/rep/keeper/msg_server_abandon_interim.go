@@ -22,7 +22,7 @@ func (k msgServer) AbandonInterim(ctx context.Context, msg *types.MsgAbandonInte
 	// Validate creator is an assignee
 	found := false
 	for _, assignee := range interim.Assignees {
-		if assignee == msg.Creator {
+		if k.Keeper.CanActAs(ctx, msg.Creator, assignee) {
 			found = true
 			break
 		}

@@ -36,7 +36,7 @@ func (k msgServer) MarkAcceptedReply(ctx context.Context, msg *types.MsgMarkAcce
 
 	// Non-authors take the sentinel-proposal path; the author takes the
 	// immediate-accept path below.
-	if thread.Author != msg.Creator {
+	if !k.canActAs(ctx, msg.Creator, thread.Author) {
 		return k.proposeAcceptedReply(ctx, msg, thread, now)
 	}
 

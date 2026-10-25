@@ -17,8 +17,9 @@ func (q queryServer) InitiativesByCreator(ctx context.Context, req *types.QueryI
 		return nil, status.Error(codes.InvalidArgument, "creator cannot be empty")
 	}
 
+	creatorAddrs := q.k.AllAddressesOf(ctx, req.Creator)
 	initiatives, err := q.collectInitiatives(ctx, func(ini types.Initiative) bool {
-		return ini.Creator == req.Creator
+		return AddressesMatch(creatorAddrs, ini.Creator)
 	})
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())

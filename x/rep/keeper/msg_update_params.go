@@ -23,6 +23,9 @@ func (k msgServer) UpdateParams(ctx context.Context, req *types.MsgUpdateParams)
 	if err := req.Params.Validate(); err != nil {
 		return nil, err
 	}
+	if err := k.checkZkDelayAgainstVotingPeriods(ctx, req.Params); err != nil {
+		return nil, err
+	}
 
 	if err := k.Params.Set(ctx, req.Params); err != nil {
 		return nil, err

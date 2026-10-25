@@ -32,7 +32,7 @@ func (k msgServer) DisputePin(ctx context.Context, msg *types.MsgDisputePin) (*t
 	}
 
 	// Only thread author can dispute pins
-	if thread.Author != msg.Creator {
+	if !k.canActAs(ctx, msg.Creator, thread.Author) {
 		return nil, errorsmod.Wrap(types.ErrNotThreadAuthor, "only thread author can dispute pins")
 	}
 

@@ -309,6 +309,9 @@ if [ "$TEST_2_RESULT" = "PASS" ] && [ -n "$JURY_REVIEW_ID" ] && [ "$JURY_REVIEW_
         ["juror3"]="Error handling looks reasonable in the linked diff."
     )
 
+    # The deciding vote also runs the tally (juror rewards, no-show
+    # accounting, alias-aware seat checks), which is why every vote carries
+    # more than the 500k a plain vote would need.
     VOTE_TX_HASHES=()
     for JADDR in $JURY_ADDRS; do
         JNAME="${JUROR_NAME_BY_ADDR[$JADDR]:-}"
@@ -318,7 +321,7 @@ if [ "$TEST_2_RESULT" = "PASS" ] && [ -n "$JURY_REVIEW_ID" ] && [ "$JURY_REVIEW_
         fi
         VERDICT="${VERDICT_FOR_JUROR[$JNAME]}"
         REASON="${REASONING_FOR_JUROR[$JNAME]}"
-        TX_RES=$($BINARY tx rep submit-juror-vote --gas 500000 \
+        TX_RES=$($BINARY tx rep submit-juror-vote --gas 800000 \
             $JURY_REVIEW_ID "$VERDICT" "0.9" "$REASON" \
             --from "$JNAME" --chain-id $CHAIN_ID --keyring-backend test \
             --fees 5000${BOND_DENOM} -y --output json 2>&1)

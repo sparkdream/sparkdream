@@ -15,7 +15,7 @@ func (k msgServer) Delist(ctx context.Context, msg *types.MsgDelist) (*types.Msg
 		return nil, err
 	}
 	l, err := k.Listings.Get(ctx, collections.Join(msg.ClassId, msg.TokenId))
-	if err != nil || l.Seller != msg.Seller {
+	if err != nil || !k.canActAs(ctx, msg.Seller, l.Seller) {
 		return nil, types.ErrListingNotFound
 	}
 	if err := k.removeListing(ctx, msg.ClassId, msg.TokenId, "seller"); err != nil {

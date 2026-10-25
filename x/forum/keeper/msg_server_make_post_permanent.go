@@ -82,7 +82,7 @@ func (k msgServer) MakePostPermanent(ctx context.Context, msg *types.MsgMakePost
 	// against them if the post is later hidden and unappealed. Skip when the
 	// promoter is the post author — promoting one's own post is not a
 	// vouching act on someone else's content.
-	if msg.Creator != post.Author {
+	if !k.canActAs(ctx, msg.Creator, post.Author) {
 		post.PromotedBy = msg.Creator
 		post.PromotedAt = now
 	}

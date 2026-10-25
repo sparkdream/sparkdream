@@ -31,7 +31,7 @@ func (k msgServer) UnhideReply(ctx context.Context, msg *types.MsgUnhideReply) (
 	if !postFound {
 		return nil, errorsmod.Wrap(types.ErrPostNotFound, fmt.Sprintf("parent post %d doesn't exist", reply.PostId))
 	}
-	if msg.Creator != post.Creator {
+	if !k.canActAs(ctx, msg.Creator, post.Creator) {
 		return nil, errorsmod.Wrap(types.ErrUnauthorized, "only post author can unhide a reply")
 	}
 

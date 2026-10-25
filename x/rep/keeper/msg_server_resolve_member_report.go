@@ -56,13 +56,16 @@ func (k msgServer) ResolveMemberReport(ctx context.Context, msg *types.MsgResolv
 				return nil, errorsmod.Wrap(err, "failed to generate warning ID")
 			}
 
+			// Escalation sees the member's full history (AllAddressesOf:
+			// gas slack here).
+			memberAddrs := k.AllAddressesOf(ctx, msg.Member)
 			var warningCount uint64
 			warningIter, err := k.MemberWarning.Iterate(ctx, nil)
 			if err == nil {
 				defer warningIter.Close()
 				for ; warningIter.Valid(); warningIter.Next() {
 					warning, _ := warningIter.Value()
-					if warning.Member == msg.Member {
+					if AddressesMatch(memberAddrs, warning.Member) {
 						warningCount++
 					}
 				}

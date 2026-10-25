@@ -35,7 +35,7 @@ func (k msgServer) SetVerificationPolicy(goCtx context.Context, msg *types.MsgSe
 	}
 	// Authorization lives in the message server throughout this module, which
 	// keeps the keeper callable as trusted internal API.
-	if msg.Creator != project.Creator && !k.Keeper.isOpsCommitteeAddr(ctx, msg.Creator) {
+	if !k.Keeper.CanActAs(ctx, msg.Creator, project.Creator) && !k.Keeper.isOpsCommitteeAddr(ctx, msg.Creator) {
 		return nil, errorsmod.Wrapf(types.ErrUnauthorized,
 			"only the project creator or the Operations Committee may set the verification policy")
 	}

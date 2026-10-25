@@ -39,8 +39,11 @@ func (k msgServer) CosignMemberReport(ctx context.Context, msg *types.MsgCosignM
 		return nil, errorsmod.Wrap(types.ErrInsufficientSentinelBond, "insufficient sentinel bond to co-sign reports")
 	}
 
+	// A member who reported or co-signed under an earlier address has
+	// already signed.
+	recent := k.RecentAddressesOf(ctx, msg.Creator)
 	for _, reporter := range report.Reporters {
-		if reporter == msg.Creator {
+		if AddressesMatch(recent, reporter) {
 			return nil, errorsmod.Wrap(types.ErrAlreadyCosigned, "already co-signed this report")
 		}
 	}

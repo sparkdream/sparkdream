@@ -29,7 +29,7 @@ func (k msgServer) RemoveCollaborator(ctx context.Context, msg *types.MsgRemoveC
 		return nil, types.ErrCollectionNotFound
 	}
 
-	isSelfRemoval := msg.Creator == msg.Address
+	isSelfRemoval := k.canActAs(ctx, msg.Creator, msg.Address)
 
 	// Check immutability (exception for self-removal)
 	if coll.Immutable && !isSelfRemoval {
@@ -45,7 +45,7 @@ func (k msgServer) RemoveCollaborator(ctx context.Context, msg *types.MsgRemoveC
 
 	if isSelfRemoval {
 		// Self-removal always allowed
-	} else if coll.Owner == msg.Creator {
+	} else if k.canActAs(ctx, msg.Creator, coll.Owner) {
 		// Owner can remove anyone
 	} else {
 		// ADMIN can remove non-ADMINs

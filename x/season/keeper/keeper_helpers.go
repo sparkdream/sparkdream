@@ -287,7 +287,7 @@ func (k Keeper) IsGuildFounder(ctx context.Context, guildID uint64, addr string)
 	if err != nil {
 		return false
 	}
-	return guild.Founder == addr
+	return k.canActAs(ctx, addr, guild.Founder)
 }
 
 // IsGuildOfficer checks if the address is an officer of the guild
@@ -297,7 +297,7 @@ func (k Keeper) IsGuildOfficer(ctx context.Context, guildID uint64, addr string)
 		return false
 	}
 	for _, officer := range guild.Officers {
-		if officer == addr {
+		if k.canActAs(ctx, addr, officer) {
 			return true
 		}
 	}

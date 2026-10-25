@@ -33,7 +33,7 @@ func (k msgServer) UpdateCollaboratorRole(ctx context.Context, msg *types.MsgUpd
 	}
 
 	// Only owner can grant/revoke ADMIN
-	if msg.Role == types.CollaboratorRole_COLLABORATOR_ROLE_ADMIN && coll.Owner != msg.Creator {
+	if msg.Role == types.CollaboratorRole_COLLABORATOR_ROLE_ADMIN && !k.canActAs(ctx, msg.Creator, coll.Owner) {
 		return nil, types.ErrAdminOnlyOwner
 	}
 
@@ -44,7 +44,7 @@ func (k msgServer) UpdateCollaboratorRole(ctx context.Context, msg *types.MsgUpd
 		return nil, errorsmod.Wrapf(types.ErrUnauthorized, "address %s is not a collaborator", msg.Address)
 	}
 
-	if collab.Role == types.CollaboratorRole_COLLABORATOR_ROLE_ADMIN && coll.Owner != msg.Creator {
+	if collab.Role == types.CollaboratorRole_COLLABORATOR_ROLE_ADMIN && !k.canActAs(ctx, msg.Creator, coll.Owner) {
 		return nil, types.ErrAdminOnlyOwner
 	}
 

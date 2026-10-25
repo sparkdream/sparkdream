@@ -36,11 +36,11 @@ func (k msgServer) SetPrimary(goCtx context.Context, msg *types.MsgSetPrimary) (
 	}
 
 	switch {
-	case record.Owner == msg.Authority:
+	case k.canActAs(ctx, msg.Authority, record.Owner):
 		// owner path — always allowed
-	case record.Target == msg.Authority && record.TargetAccepted:
+	case k.canActAs(ctx, msg.Authority, record.Target) && record.TargetAccepted:
 		// accepted-target path — explicit consent already recorded
-	case record.Target == msg.Authority && !record.TargetAccepted:
+	case k.canActAs(ctx, msg.Authority, record.Target) && !record.TargetAccepted:
 		return nil, errorsmod.Wrapf(types.ErrTargetNotAccepted, "you must call AcceptTarget before setting '%s' as primary", name)
 	default:
 		return nil, errorsmod.Wrapf(sdkerrors.ErrUnauthorized, "you neither own nor are the accepted target of '%s'", name)

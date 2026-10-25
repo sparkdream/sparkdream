@@ -76,7 +76,7 @@ func (k msgServer) Craft(ctx context.Context, msg *types.MsgCraft) (*types.MsgCr
 		if err != nil {
 			return nil, err
 		}
-		if t.Owner != msg.Crafter {
+		if !k.canActAs(ctx, msg.Crafter, t.Owner) {
 			return nil, types.ErrNotTokenOwner
 		}
 		if t.Lock != types.TokenLock_TOKEN_LOCK_NONE {
@@ -101,7 +101,7 @@ func (k msgServer) Craft(ctx context.Context, msg *types.MsgCraft) (*types.MsgCr
 		if err != nil {
 			return nil, err
 		}
-		if err := k.debit(ctx, &e, msg.Crafter, in.Quantity, false); err != nil {
+		if err := k.debit(ctx, &e, k.balanceHolder(ctx, e.ClassId, e.Id, msg.Crafter), in.Quantity, false); err != nil {
 			return nil, err
 		}
 		e.Supply -= in.Quantity

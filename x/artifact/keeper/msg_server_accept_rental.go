@@ -50,7 +50,7 @@ func (k msgServer) AcceptRental(ctx context.Context, msg *types.MsgAcceptRental)
 	if types.IsExpired(t, now(ctx)) {
 		return nil, types.ErrTokenExpired
 	}
-	if msg.Renter == o.Owner || (o.User != "" && o.User != msg.Renter) {
+	if k.sameMember(ctx, msg.Renter, o.Owner) || (o.User != "" && !k.canActAs(ctx, msg.Renter, o.User)) {
 		return nil, errorsmod.Wrap(types.ErrNotAuthorized, "this offer is not open to you")
 	}
 	if !msg.ExpectedPrice.Equal(o.Price) || msg.ExpectedNonce != o.Nonce {

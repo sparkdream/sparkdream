@@ -14,13 +14,14 @@ import (
 // Shared issuance path for MsgMint and MsgIssue (docs/x-artifact-spec.md
 // §5.2).
 
-// isMinter: the class owner or a listed minter.
-func isMinter(c types.Class, addr string) bool {
-	if c.Owner == addr {
+// isMinter: the class owner or a listed minter (either may be a migrated
+// predecessor of addr).
+func (k Keeper) isMinter(ctx context.Context, c types.Class, addr string) bool {
+	if k.canActAs(ctx, addr, c.Owner) {
 		return true
 	}
 	for _, m := range c.Minters {
-		if m == addr {
+		if k.canActAs(ctx, addr, m) {
 			return true
 		}
 	}
@@ -71,13 +72,13 @@ func (k Keeper) mintOne(ctx context.Context, c *types.Class, minter sdk.AccAddre
 	if _, err := k.validateRecipient("recipient", recipient); err != nil {
 		return types.MintResult{}, err
 	}
-	if c.Flags.Mutual && recipient == minterStr {
+	if c.Flags.Mutual && k.sameMember(ctx, recipient, minterStr) {
 		return types.MintResult{}, errorsmod.Wrap(types.ErrInvalidRecipient, "a mutual attestation needs a recipient other than the minter")
 	}
 	tokenID := c.NextTokenId
 	c.NextTokenId++
 
-	if recipient == minterStr || (!forcesInbox(*c) && k.deliversDirectly(ctx, minterStr, recipient)) {
+	if k.sameMember(ctx, recipient, minterStr) || (!forcesInbox(*c) && k.deliversDirectly(ctx, minterStr, recipient)) {
 		deposit, err := k.takeDeposit(ctx, *c, minter, p)
 		if err != nil {
 			return types.MintResult{}, err
@@ -140,7 +141,7 @@ func (k Keeper) mintPreconditions(ctx context.Context, classID uint64, minter, l
 	if err := mintable(c); err != nil {
 		return c, err
 	}
-	if !isMinter(c, minter) {
+	if !k.isMinter(ctx, c, minter) {
 		return c, types.ErrNotMinter
 	}
 	return c, checkSupply(c, n)

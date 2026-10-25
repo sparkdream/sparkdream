@@ -24,6 +24,17 @@ func (k Keeper) SetReaction(ctx context.Context, reaction types.Reaction) {
 }
 
 // GetReaction retrieves a user's reaction on a target.
+// getReactionByAliases returns the first reaction on (postId, replyId) stored
+// under any of creators (a member's canonical address and its aliases).
+func (k Keeper) getReactionByAliases(ctx context.Context, postId uint64, replyId uint64, creators []string) (types.Reaction, bool) {
+	for _, c := range creators {
+		if r, found := k.GetReaction(ctx, postId, replyId, c); found {
+			return r, true
+		}
+	}
+	return types.Reaction{}, false
+}
+
 func (k Keeper) GetReaction(ctx context.Context, postId uint64, replyId uint64, creator string) (val types.Reaction, found bool) {
 	storeAdapter := runtime.KVStoreAdapter(k.storeService.OpenKVStore(ctx))
 	store := prefix.NewStore(storeAdapter, []byte(types.ReactionKey))

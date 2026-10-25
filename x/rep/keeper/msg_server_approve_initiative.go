@@ -55,7 +55,7 @@ func (k msgServer) ApproveInitiative(ctx context.Context, msg *types.MsgApproveI
 	if err != nil {
 		return nil, errorsmod.Wrap(err, "failed to get parent project")
 	}
-	if msg.Creator == initiative.Assignee || msg.Creator == project.Creator {
+	if k.Keeper.SameMember(ctx, msg.Creator, initiative.Assignee) || k.Keeper.SameMember(ctx, msg.Creator, project.Creator) {
 		return nil, errorsmod.Wrap(types.ErrConflictOfInterest, "initiative assignee and project creator cannot approve their own initiative")
 	}
 
@@ -66,7 +66,7 @@ func (k msgServer) ApproveInitiative(ctx context.Context, msg *types.MsgApproveI
 	if err != nil {
 		return nil, errorsmod.Wrap(err, "failed to get initiative stakes")
 	}
-	isStaker := slices.ContainsFunc(stakes, func(s types.Stake) bool { return s.Staker == msg.Creator })
+	isStaker := slices.ContainsFunc(stakes, func(s types.Stake) bool { return k.Keeper.CanActAs(ctx, msg.Creator, s.Staker) })
 
 	isOps, err := k.Keeper.commonsKeeper.IsCommitteeMember(ctx, sdk.AccAddress(creatorBytes), "commons", "operations")
 	if err != nil {
@@ -110,7 +110,10 @@ func (k msgServer) ApproveInitiative(ctx context.Context, msg *types.MsgApproveI
 		// Approval is advisory: recorded and displayed, consulted by nothing.
 		// Re-approving is idempotent — appending on every signature let one
 		// staker pad the list without bound for the price of repeated gas.
-		if !slices.Contains(initiative.Approvals, msg.Creator) {
+		// Dedup over the signer's recent aliases so a migration cannot add a
+		// second entry for the same member.
+		recent := k.Keeper.RecentAddressesOf(ctx, msg.Creator)
+		if !slices.ContainsFunc(initiative.Approvals, func(a string) bool { return AddressesMatch(recent, a) }) {
 			initiative.Approvals = append(initiative.Approvals, msg.Creator)
 		}
 		if err := k.Keeper.UpdateInitiative(ctx, initiative); err != nil {
@@ -119,7 +122,9 @@ func (k msgServer) ApproveInitiative(ctx context.Context, msg *types.MsgApproveI
 		return &types.MsgApproveInitiativeResponse{}, nil
 	}
 
-	initiative.Approvals = removeAddress(initiative.Approvals, msg.Creator)
+	for _, alias := range k.Keeper.RecentAddressesOf(ctx, msg.Creator) {
+		initiative.Approvals = removeAddress(initiative.Approvals, alias)
+	}
 
 	// Disapproval is committee-only. The stake-weighted staker veto that used
 	// to live here is retired: stakers are paid on completion, so the veto was

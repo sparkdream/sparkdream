@@ -8,6 +8,46 @@ import (
 
 func RegisterInterfaces(registrar codectypes.InterfaceRegistry) {
 	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgForceMigration{},
+	)
+
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgSweepTombstone{},
+	)
+
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgObjectMigration{},
+	)
+
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgRevealRecovery{},
+	)
+
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgCommitRecovery{},
+	)
+
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgRemoveRecoveryCommitment{},
+	)
+
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgSetRecoveryCommitment{},
+	)
+
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgCancelMigration{},
+	)
+
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgAcceptMigration{},
+	)
+
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgRequestMigration{},
+	)
+
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
 		&MsgRevokeInvitation{},
 	)
 

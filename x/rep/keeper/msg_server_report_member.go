@@ -25,7 +25,7 @@ func (k msgServer) ReportMember(ctx context.Context, msg *types.MsgReportMember)
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	now := sdkCtx.BlockTime().Unix()
 
-	if msg.Creator == msg.Member {
+	if k.SameMember(ctx, msg.Creator, msg.Member) {
 		return nil, errorsmod.Wrap(types.ErrCannotReportSelf, "cannot report yourself")
 	}
 

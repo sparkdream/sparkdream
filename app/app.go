@@ -64,6 +64,7 @@ import (
 	identitymodulekeeper "sparkdream/x/identity/keeper"
 	identitytypes "sparkdream/x/identity/types"
 	namemodulekeeper "sparkdream/x/name/keeper"
+	repante "sparkdream/x/rep/ante"
 	repmodulekeeper "sparkdream/x/rep/keeper"
 	repmoduletypes "sparkdream/x/rep/types"
 	revealmodulekeeper "sparkdream/x/reveal/keeper"
@@ -74,6 +75,7 @@ import (
 	sessionmodulekeeper "sparkdream/x/session/keeper"
 	shieldabci "sparkdream/x/shield/abci"
 	shieldante "sparkdream/x/shield/ante"
+	shieldmoduletypes "sparkdream/x/shield/types"
 	shieldmodulekeeper "sparkdream/x/shield/keeper"
 
 	sparkdreammodulekeeper "sparkdream/x/sparkdream/keeper"
@@ -497,6 +499,31 @@ func New(
 	// flag.
 	app.CommonsKeeper.SetSessionKeeper(app.SessionKeeper)
 
+	// Member key migration (x/rep, docs/x-rep-spec.md "Member key migration").
+	// Cross-module hooks: each module vetoes a migration that would strand
+	// its state or re-keys its bounded core state at finalization. Late-wired
+	// here because every one of these modules already depends on x/rep.
+	app.RepKeeper.SetMigrationHooks(repmoduletypes.NewMultiMemberMigrationHooks(
+		servicemodulekeeper.NewMigrationHooks(&app.ServiceKeeper),
+		artifactmodulekeeper.NewMigrationHooks(&app.ArtifactKeeper),
+		namemodulekeeper.NewMigrationHooks(&app.NameKeeper),
+		commonsmodulekeeper.NewMigrationHooks(&app.CommonsKeeper),
+		seasonmodulekeeper.NewMigrationHooks(&app.SeasonKeeper),
+		sessionmodulekeeper.NewMigrationHooks(&app.SessionKeeper),
+		federationmodulekeeper.NewMigrationHooks(&app.FederationKeeper),
+	))
+	// Addresses that can never be a migration target: every module account
+	// and the x/shield public submitter, whose private key is public.
+	for name := range GetMaccPerms() {
+		app.RepKeeper.AddReservedAddress(authtypes.NewModuleAddress(name).String())
+	}
+	app.RepKeeper.AddReservedAddress(shieldmoduletypes.PublicSubmitterAddress().String())
+	// SPARK follows the identity: every bank transfer to a tombstone lands on
+	// the canonical address (escrow refunds, role pay, plain sends).
+	app.BankKeeper.AppendSendRestriction(app.RepKeeper.SendRestriction)
+	// Council voting periods are capped by the ZK key activation delay.
+	app.CommonsKeeper.SetRepKeeper(app.RepKeeper)
+
 	// Register x/commons's SessionClaimHook into x/session. The hook runs
 	// activation + term + per-epoch rate-limit gates against any grant
 	// whose granter is a registered council policy address — applying the
@@ -527,6 +554,11 @@ func New(
 		cosmos_ante.NewSetUpContextDecorator(), // outermost
 		cosmos_ante.NewExtensionOptionsDecorator(anteOptions.ExtensionOptionChecker),
 		cosmos_ante.NewValidateBasicDecorator(),
+		// A tombstoned signer (an address that migrated away) may only
+		// undelegate, redelegate, withdraw rewards and, on the key path,
+		// MsgSend. The backstop for any authorization site the alias
+		// conversion missed.
+		repante.NewTombstonedSignerDecorator(app.RepKeeper),
 		cosmos_ante.NewTxTimeoutHeightDecorator(),
 		cosmos_ante.NewValidateMemoDecorator(app.AuthKeeper),
 		cosmos_ante.NewConsumeGasForTxSizeDecorator(app.AuthKeeper),

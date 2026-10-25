@@ -66,7 +66,7 @@ func (k msgServer) CreateReply(ctx context.Context, msg *types.MsgCreateReply) (
 	// non-member author's self-replies are throttled, charged, and GC'd just
 	// like their post. The exemption is narrowly scoped to this thread's own
 	// author; replying into anyone else's thread stays gated.
-	isThreadAuthor := msg.Creator == post.Creator
+	isThreadAuthor := k.canActAs(ctx, msg.Creator, post.Creator)
 	if !isThreadAuthor && !k.meetsReplyTrustLevel(ctx, creatorAddr, post.MinReplyTrustLevel) {
 		return nil, k.trustLevelError(ctx, creatorAddr, post.MinReplyTrustLevel, "replies on this post")
 	}

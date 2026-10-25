@@ -116,7 +116,7 @@ create_hide_appeal() {
 }
 
 # resolve <appeal-id> <upheld|overturned>
-resolve() { run_tx alice rep resolve-gov-action-appeal "$1" "$2" "e2e accuracy window test"; }
+resolve() { run_tx alice rep resolve-gov-action-appeal "$1" "$2" "e2e accuracy window test" --gas 400000; }
 
 # ========================================================================
 # PART 0: DERIVE EPOCH CADENCE + BOND SENTINEL

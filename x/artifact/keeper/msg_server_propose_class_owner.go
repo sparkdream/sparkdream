@@ -30,7 +30,7 @@ func (k msgServer) ProposeClassOwner(ctx context.Context, msg *types.MsgProposeC
 	if err != nil {
 		return nil, err
 	}
-	if msg.ProposedOwner == msg.Owner {
+	if k.sameMember(ctx, msg.ProposedOwner, msg.Owner) {
 		return nil, errorsmod.Wrap(types.ErrInvalidRecipient, "proposed owner is the current owner")
 	}
 	if _, err := k.validateRecipient("proposed_owner", msg.ProposedOwner); err != nil {

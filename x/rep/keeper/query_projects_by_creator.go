@@ -17,8 +17,9 @@ func (q queryServer) ProjectsByCreator(ctx context.Context, req *types.QueryProj
 		return nil, status.Error(codes.InvalidArgument, "creator cannot be empty")
 	}
 
+	creatorAddrs := q.k.AllAddressesOf(ctx, req.Creator)
 	projects, err := q.collectProjects(ctx, func(p types.Project) bool {
-		return p.Creator == req.Creator
+		return AddressesMatch(creatorAddrs, p.Creator)
 	})
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())

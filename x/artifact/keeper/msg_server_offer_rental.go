@@ -31,7 +31,7 @@ func (k msgServer) OfferRental(ctx context.Context, msg *types.MsgOfferRental) (
 	if err != nil {
 		return nil, err
 	}
-	if t.Owner != msg.Owner {
+	if !k.canActAs(ctx, msg.Owner, t.Owner) {
 		return nil, types.ErrNotTokenOwner
 	}
 	if t.Lock == types.TokenLock_TOKEN_LOCK_NESTED {
@@ -41,7 +41,7 @@ func (k msgServer) OfferRental(ctx context.Context, msg *types.MsgOfferRental) (
 		return nil, types.ErrContentHidden
 	}
 	if msg.User != "" {
-		if msg.User == msg.Owner {
+		if k.sameMember(ctx, msg.User, msg.Owner) {
 			return nil, errorsmod.Wrap(types.ErrInvalidRecipient, "cannot rent to yourself")
 		}
 		if _, err := k.validateRecipient("user", msg.User); err != nil {

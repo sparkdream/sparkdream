@@ -42,8 +42,9 @@ func (q queryServer) ReverseResolve(ctx context.Context, req *types.QueryReverse
 	if !found {
 		return nil, status.Error(codes.NotFound, "account has no primary name set")
 	}
-	owns := record.Owner == req.Address
-	accepted := record.Target == req.Address && record.TargetAccepted
+	// A migrated member's names stay recorded under the old address.
+	owns := q.k.sameMember(ctx, record.Owner, req.Address)
+	accepted := q.k.sameMember(ctx, record.Target, req.Address) && record.TargetAccepted
 	if !owns && !accepted {
 		return nil, status.Error(codes.NotFound, "account has no primary name set")
 	}

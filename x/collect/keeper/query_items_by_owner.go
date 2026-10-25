@@ -29,28 +29,33 @@ func (q queryServer) ItemsByOwner(ctx context.Context, req *types.QueryItemsByOw
 	offset := pageReq.Offset
 	var count uint64
 
-	err := q.k.ItemsByOwner.Walk(ctx,
-		collections.NewPrefixedPairRange[string, uint64](req.Owner),
-		func(key collections.Pair[string, uint64]) (bool, error) {
-			if count < offset {
+	// Items stay indexed under the address that added them; the offset/limit
+	// window runs across every alias of a migrated member in sequence
+	// (canonical address first).
+	for _, owner := range q.k.allAddressesOf(ctx, req.Owner) {
+		err := q.k.ItemsByOwner.Walk(ctx,
+			collections.NewPrefixedPairRange[string, uint64](owner),
+			func(key collections.Pair[string, uint64]) (bool, error) {
+				if count < offset {
+					count++
+					return false, nil
+				}
+				if uint64(len(results)) >= limit {
+					return true, nil
+				}
+				item, err := q.k.Item.Get(ctx, key.K2())
+				if err != nil {
+					count++
+					return false, nil
+				}
+				results = append(results, item)
 				count++
 				return false, nil
-			}
-			if uint64(len(results)) >= limit {
-				return true, nil
-			}
-			item, err := q.k.Item.Get(ctx, key.K2())
-			if err != nil {
-				count++
-				return false, nil
-			}
-			results = append(results, item)
-			count++
-			return false, nil
-		},
-	)
-	if err != nil {
-		return nil, status.Error(codes.Internal, err.Error())
+			},
+		)
+		if err != nil {
+			return nil, status.Error(codes.Internal, err.Error())
+		}
 	}
 
 	return &types.QueryItemsByOwnerResponse{

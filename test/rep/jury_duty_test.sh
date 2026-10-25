@@ -61,7 +61,11 @@ extract_event_value() {
 # Broadcast, wait, and echo the delivered tx result.
 send_tx() {
     local TX_RES TXHASH
-    TX_RES=$("$@" --chain-id $CHAIN_ID --keyring-backend test \
+    # Explicit gas: assign-initiative sits within ~100 gas of the 200k default
+    # (alias-aware self-assign and affiliation checks each cost a store read).
+    local GAS_FLAG=(--gas 400000)
+    case " $* " in *" --gas "*) GAS_FLAG=() ;; esac
+    TX_RES=$("$@" "${GAS_FLAG[@]}" --chain-id $CHAIN_ID --keyring-backend test \
         --fees 5000${BOND_DENOM} -y --output json 2>&1)
     TXHASH=$(echo "$TX_RES" | jq -r '.txhash // empty')
     if [ -z "$TXHASH" ] || [ "$TXHASH" == "null" ]; then

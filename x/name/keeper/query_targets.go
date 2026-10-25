@@ -22,6 +22,11 @@ func (q queryServer) Targets(ctx context.Context, req *types.QueryTargetsRequest
 		return nil, status.Error(codes.InvalidArgument, "address cannot be empty")
 	}
 
+	// Names stay indexed under the address they were written with. The page
+	// is taken over the member's canonical address and, on a migrated
+	// member, every older alias's full list is appended after it (the
+	// collection paginator cannot span prefixes; alias lists are small).
+	aliases := q.k.allAddressesOf(ctx, req.Address)
 	names, pageRes, err := query.CollectionPaginate(
 		ctx,
 		q.k.AcceptedTargets,
@@ -34,10 +39,27 @@ func (q queryServer) Targets(ctx context.Context, req *types.QueryTargetsRequest
 			}
 			return record, nil
 		},
-		query.WithCollectionPaginationPairPrefix[string, string](req.Address),
+		query.WithCollectionPaginationPairPrefix[string, string](aliases[0]),
 	)
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
+	}
+
+	for _, alias := range aliases[1:] {
+		err := q.k.AcceptedTargets.Walk(ctx,
+			collections.NewPrefixedPairRange[string, string](alias),
+			func(key collections.Pair[string, string]) (bool, error) {
+				record, err := q.k.Names.Get(ctx, key.K2())
+				if err != nil {
+					return false, nil
+				}
+				names = append(names, record)
+				return false, nil
+			},
+		)
+		if err != nil {
+			return nil, status.Error(codes.Internal, err.Error())
+		}
 	}
 
 	return &types.QueryTargetsResponse{Names: names, Pagination: pageRes}, nil

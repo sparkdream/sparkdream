@@ -50,6 +50,10 @@ type CommonsKeeper interface {
 // Used for trust-level gating on market creation.
 type RepKeeper interface {
 	GetTrustLevel(ctx context.Context, addr sdk.AccAddress) (reptypes.TrustLevel, error)
+	// CanActAs is the member key migration alias contract (docs/x-rep-spec.md,
+	// "Member key migration"): signer may exercise rights recorded against the
+	// stored address.
+	CanActAs(ctx context.Context, signer, stored string) bool
 }
 
 // ParamSubspace defines the expected Subspace interface for parameters.

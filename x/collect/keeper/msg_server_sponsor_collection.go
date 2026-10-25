@@ -34,7 +34,7 @@ func (k msgServer) SponsorCollection(ctx context.Context, msg *types.MsgSponsorC
 	}
 
 	// Creator must NOT be collection owner
-	if coll.Owner == msg.Creator {
+	if k.sameMember(ctx, coll.Owner, msg.Creator) {
 		return nil, errorsmod.Wrap(types.ErrCannotSponsorOwn, "sponsor cannot be the collection owner")
 	}
 

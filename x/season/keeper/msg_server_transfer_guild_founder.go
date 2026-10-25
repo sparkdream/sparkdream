@@ -34,7 +34,7 @@ func (k msgServer) TransferGuildFounder(ctx context.Context, msg *types.MsgTrans
 	}
 
 	// Verify the creator is the current founder
-	if guild.Founder != msg.Creator {
+	if !k.canActAs(ctx, msg.Creator, guild.Founder) {
 		return nil, types.ErrNotGuildFounder
 	}
 
@@ -44,14 +44,14 @@ func (k msgServer) TransferGuildFounder(ctx context.Context, msg *types.MsgTrans
 	}
 
 	// Cannot transfer to self
-	if msg.Creator == msg.NewFounder {
+	if k.sameMember(ctx, msg.Creator, msg.NewFounder) {
 		return nil, errorsmod.Wrap(types.ErrNotGuildMember, "cannot transfer to self")
 	}
 
 	// If new founder was an officer, remove from officers list
 	newOfficers := make([]string, 0, len(guild.Officers))
 	for _, officer := range guild.Officers {
-		if officer != msg.NewFounder {
+		if !k.sameMember(ctx, officer, msg.NewFounder) {
 			newOfficers = append(newOfficers, officer)
 		}
 	}

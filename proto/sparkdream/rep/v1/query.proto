@@ -21,6 +21,7 @@ import "sparkdream/rep/v1/jury_review.proto";
 import "sparkdream/rep/v1/member.proto";
 import "sparkdream/rep/v1/member_report.proto";
 import "sparkdream/rep/v1/member_warning.proto";
+import "sparkdream/rep/v1/migration.proto";
 import "sparkdream/rep/v1/params.proto";
 import "sparkdream/rep/v1/project.proto";
 import "sparkdream/rep/v1/reserved_tag.proto";
@@ -487,6 +488,36 @@ service Query {
   // 32 zero bytes and are omitted.
   rpc TrustTree(QueryTrustTreeRequest) returns (QueryTrustTreeResponse) {
     option (google.api.http).get = "/sparkdream/rep/v1/trust_tree";
+  }
+
+  // Canonical Queries a list of Canonical items.
+  rpc Canonical(QueryCanonicalRequest) returns (QueryCanonicalResponse) {
+    option (google.api.http).get = "/sparkdream/rep/v1/canonical/{address}";
+  }
+
+  // Aliases Queries a list of Aliases items.
+  rpc Aliases(QueryAliasesRequest) returns (QueryAliasesResponse) {
+    option (google.api.http).get = "/sparkdream/rep/v1/aliases/{member}";
+  }
+
+  // MemberMigration Queries a list of MemberMigration items.
+  rpc MemberMigration(QueryMemberMigrationRequest) returns (QueryMemberMigrationResponse) {
+    option (google.api.http).get = "/sparkdream/rep/v1/member_migration/{id}";
+  }
+
+  // MemberMigrations Queries a list of MemberMigrations items.
+  rpc MemberMigrations(QueryMemberMigrationsRequest) returns (QueryMemberMigrationsResponse) {
+    option (google.api.http).get = "/sparkdream/rep/v1/member_migrations";
+  }
+
+  // PendingMigration Queries a list of PendingMigration items.
+  rpc PendingMigration(QueryPendingMigrationRequest) returns (QueryPendingMigrationResponse) {
+    option (google.api.http).get = "/sparkdream/rep/v1/pending_migration/{member}";
+  }
+
+  // RecoveryCommitments Queries a list of RecoveryCommitments items.
+  rpc RecoveryCommitments(QueryRecoveryCommitmentsRequest) returns (QueryRecoveryCommitmentsResponse) {
+    option (google.api.http).get = "/sparkdream/rep/v1/recovery_commitments/{member}";
   }
 }
 
@@ -1740,8 +1771,10 @@ message InitiativeBountyReclaimStatus {
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
+
   // Height at which the reclaim delay elapses for this contribution.
   int64 reclaimable_at_height = 3;
+
   // False whenever the initiative is not OPEN, regardless of height: an
   // assignee is working on the strength of the bounty.
   bool reclaimable = 4;
@@ -1762,10 +1795,82 @@ message TrustTreeLeaf {
 message QueryTrustTreeResponse {
   // root is the current Merkle root; empty before the tree is first built.
   bytes root = 1;
+
   // depth is the tree depth (number of levels above the leaves).
   uint32 depth = 2;
+
   // leaf_count is the number of leaf slots allocated so far.
   uint64 leaf_count = 3;
   repeated TrustTreeLeaf leaves = 4 [(gogoproto.nullable) = false];
   cosmos.base.query.v1beta1.PageResponse pagination = 5;
+}
+
+// QueryCanonicalRequest defines the QueryCanonicalRequest message.
+message QueryCanonicalRequest {
+  string address = 1;
+}
+
+// QueryCanonicalResponse defines the QueryCanonicalResponse message.
+message QueryCanonicalResponse {
+  // canonical is the current address of the identity (address itself when it
+  // never migrated).
+  string canonical = 1;
+  // tombstoned is true when address migrated away.
+  bool tombstoned = 2;
+  // path is the path of the migration that tombstoned address.
+  MigrationPath path = 3;
+}
+
+// QueryAliasesRequest defines the QueryAliasesRequest message.
+message QueryAliasesRequest {
+  string member = 1;
+}
+
+// QueryAliasesResponse defines the QueryAliasesResponse message.
+message QueryAliasesResponse {
+  string canonical = 1;
+  repeated string addresses = 2;
+  repeated string recent = 3;
+}
+
+// QueryMemberMigrationRequest defines the QueryMemberMigrationRequest message.
+message QueryMemberMigrationRequest {
+  uint64 id = 1;
+}
+
+// QueryMemberMigrationResponse defines the QueryMemberMigrationResponse message.
+message QueryMemberMigrationResponse {
+  MemberMigration migration = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryMemberMigrationsRequest defines the QueryMemberMigrationsRequest message.
+message QueryMemberMigrationsRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+// QueryMemberMigrationsResponse defines the QueryMemberMigrationsResponse message.
+message QueryMemberMigrationsResponse {
+  repeated MemberMigration migrations = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryPendingMigrationRequest defines the QueryPendingMigrationRequest message.
+message QueryPendingMigrationRequest {
+  string member = 1;
+}
+
+// QueryPendingMigrationResponse defines the QueryPendingMigrationResponse message.
+message QueryPendingMigrationResponse {
+  // migration is the member's pending migration; id 0 when there is none.
+  MemberMigration migration = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryRecoveryCommitmentsRequest defines the QueryRecoveryCommitmentsRequest message.
+message QueryRecoveryCommitmentsRequest {
+  string member = 1;
+}
+
+// QueryRecoveryCommitmentsResponse defines the QueryRecoveryCommitmentsResponse message.
+message QueryRecoveryCommitmentsResponse {
+  RecoveryCommitmentSet set = 1 [(gogoproto.nullable) = false];
 }

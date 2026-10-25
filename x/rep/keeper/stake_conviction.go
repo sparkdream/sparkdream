@@ -369,11 +369,14 @@ func (k Keeper) InvitationNeighborhoodOf(ctx context.Context, affiliated ...stri
 		affiliates: make(map[string]struct{}, len(affiliated)),
 		inviters:   make(map[string]struct{}, len(affiliated)),
 	}
+	// The neighborhood is keyed by canonical addresses: affiliates are
+	// recorded under whatever address they held at the time, and Member is
+	// keyed by the current one.
 	for _, addr := range affiliated {
 		if addr == "" {
 			continue
 		}
-		n.affiliates[addr] = struct{}{}
+		n.affiliates[k.Canonical(ctx, addr)] = struct{}{}
 	}
 	for addr := range n.affiliates {
 		// Read the member record directly rather than through GetMember:
@@ -386,7 +389,7 @@ func (k Keeper) InvitationNeighborhoodOf(ctx context.Context, affiliated ...stri
 			continue
 		}
 		if member.InvitedBy != "" {
-			n.inviters[member.InvitedBy] = struct{}{}
+			n.inviters[k.Canonical(ctx, member.InvitedBy)] = struct{}{}
 		}
 	}
 	return n
@@ -404,6 +407,7 @@ func (k Keeper) IsStakerExternalTo(ctx context.Context, stakerAddr string, n Inv
 	if stakerAddr == "" {
 		return false
 	}
+	stakerAddr = k.Canonical(ctx, stakerAddr)
 	if _, ok := n.affiliates[stakerAddr]; ok {
 		return false
 	}
@@ -421,7 +425,7 @@ func (k Keeper) IsStakerExternalTo(ctx context.Context, stakerAddr string, n Inv
 	if member.InvitedBy == "" {
 		return true
 	}
-	_, invitedByAffiliate := n.affiliates[member.InvitedBy]
+	_, invitedByAffiliate := n.affiliates[k.Canonical(ctx, member.InvitedBy)]
 	return !invitedByAffiliate
 }
 
@@ -479,7 +483,7 @@ func (k Keeper) CanCompleteInitiative(ctx context.Context, initiativeID uint64) 
 		return false, nil
 	}
 	externalRatio := params.ExternalConvictionRatio
-	if IsSelfAssigned(initiative, project, initiative.Assignee) {
+	if k.isSelfAssigned(ctx, initiative, project, initiative.Assignee) {
 		externalRatio = params.SelfAssignedExternalConvictionRatio
 	}
 	minExternalConviction := DerefDec(initiative.RequiredConviction).Mul(externalRatio)

@@ -40,7 +40,7 @@ func (k msgServer) MakeOffer(ctx context.Context, msg *types.MsgMakeOffer) (*typ
 		if err != nil {
 			return nil, err
 		}
-		if t.Owner == msg.Bidder {
+		if k.sameMember(ctx, t.Owner, msg.Bidder) {
 			return nil, errorsmod.Wrap(types.ErrInvalidRecipient, "you already hold this token")
 		}
 		if t.Status == types.ContentStatus_CONTENT_STATUS_HIDDEN {

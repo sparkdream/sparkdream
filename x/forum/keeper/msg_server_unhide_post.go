@@ -85,7 +85,7 @@ func (k msgServer) UnhidePost(ctx context.Context, msg *types.MsgUnhidePost) (*t
 
 	isSelfCorrect := false
 	if !isCouncil {
-		if !haveRecord || hideRecord.Sentinel != msg.Creator {
+		if !haveRecord || !k.canActAs(ctx, msg.Creator, hideRecord.Sentinel) {
 			return nil, errorsmod.Wrap(sdkerrors.ErrUnauthorized,
 				"only the sentinel who hid the post, the Commons Operations Committee, or governance can unhide")
 		}

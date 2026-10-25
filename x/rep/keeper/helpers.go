@@ -104,17 +104,47 @@ func InitiativeAffiliates(initiative types.Initiative, project types.Project) []
 }
 
 // IsAffiliatedWithProject checks if an address is affiliated with an initiative,
-// including checking whether the address is the project creator.
+// including checking whether the address is the project creator. Compares
+// canonical addresses (SameMember), so a migrated insider stays an insider.
 func (k Keeper) IsAffiliatedWithProject(ctx context.Context, initiative types.Initiative, addr string) bool {
-	if IsAffiliated(initiative, addr) {
+	if addr == "" {
+		return false
+	}
+	if k.SameMember(ctx, initiative.Assignee, addr) ||
+		k.SameMember(ctx, initiative.Apprentice, addr) ||
+		k.SameMember(ctx, initiative.Creator, addr) {
 		return true
 	}
 	// Check project creator
 	project, err := k.GetProject(ctx, initiative.ProjectId)
-	if err == nil && project.Creator == addr {
+	if err == nil && k.SameMember(ctx, project.Creator, addr) {
 		return true
 	}
 	return false
+}
+
+// isSelfAssigned is IsSelfAssigned over canonical addresses: an assignee who
+// migrated away from the address that authored the initiative or the project
+// is still judging their own commission.
+func (k Keeper) isSelfAssigned(ctx context.Context, initiative types.Initiative, project types.Project, assignee string) bool {
+	if assignee == "" {
+		return false
+	}
+	return k.SameMember(ctx, assignee, initiative.Creator) || k.SameMember(ctx, assignee, project.Creator)
+}
+
+// canonicalSet returns the canonical form of every non-empty address in addrs.
+// Used by the jury selectors, which walk Member (keyed by canonical address)
+// and must skip parties recorded under an address they have since migrated
+// away from.
+func (k Keeper) canonicalSet(ctx context.Context, addrs ...string) map[string]struct{} {
+	set := make(map[string]struct{}, len(addrs))
+	for _, a := range addrs {
+		if a != "" {
+			set[k.Canonical(ctx, a)] = struct{}{}
+		}
+	}
+	return set
 }
 
 // IsGovAuthority checks if the given address is the governance authority.
@@ -202,6 +232,7 @@ func (k Keeper) IsHRCommittee(ctx context.Context, address sdk.AccAddress) bool 
 // If no tags are provided or the member has no reputation in those tags, returns zero.
 // This is used for tag-weighted conviction calculation where only relevant skills matter.
 func (k Keeper) GetReputationForTags(ctx context.Context, memberAddr sdk.AccAddress, tags []string) (math.LegacyDec, error) {
+	memberAddr = k.resolveMember(ctx, memberAddr)
 	if len(tags) == 0 {
 		return math.LegacyZeroDec(), nil
 	}

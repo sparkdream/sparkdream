@@ -34,7 +34,7 @@ func (k msgServer) DownvoteContent(ctx context.Context, msg *types.MsgDownvoteCo
 
 	// Creator must not be collection owner or collaborator (an anonymous
 	// owner can't be identified)
-	if coll.Owner == msg.Creator && !anonymous {
+	if !anonymous && k.sameMember(ctx, coll.Owner, msg.Creator) {
 		return nil, types.ErrCannotVoteOwnContent
 	}
 	isCollab, _, err := k.IsCollaborator(ctx, coll.Id, msg.Creator)
@@ -47,8 +47,7 @@ func (k msgServer) DownvoteContent(ctx context.Context, msg *types.MsgDownvoteCo
 
 	// Check ReactionDedup - creator must not have already voted on this target
 	dedupKey := ReactionDedupCompositeKey(msg.Creator, msg.TargetType, msg.TargetId)
-	_, err = k.ReactionDedup.Get(ctx, dedupKey)
-	if err == nil && !anonymous {
+	if !anonymous && k.hasReacted(ctx, msg.Creator, msg.TargetType, msg.TargetId) {
 		return nil, types.ErrAlreadyVoted
 	}
 

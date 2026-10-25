@@ -27,7 +27,7 @@ func (k msgServer) Redeem(ctx context.Context, msg *types.MsgRedeem) (*types.Msg
 	if !c.Flags.Redeemable {
 		return nil, types.ErrNotRedeemable
 	}
-	if !isMinter(c, msg.Signer) {
+	if !k.isMinter(ctx, c, msg.Signer) {
 		return nil, types.ErrNotMinter
 	}
 	refs := make([]U64Pair, len(msg.TokenIds))

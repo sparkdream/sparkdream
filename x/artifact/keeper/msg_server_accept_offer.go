@@ -49,10 +49,10 @@ func (k msgServer) AcceptOffer(ctx context.Context, msg *types.MsgAcceptOffer) (
 	if err != nil {
 		return nil, err
 	}
-	if t.Owner != msg.Seller {
+	if !k.canActAs(ctx, msg.Seller, t.Owner) {
 		return nil, types.ErrNotTokenOwner
 	}
-	if t.Owner == o.Bidder {
+	if k.sameMember(ctx, t.Owner, o.Bidder) {
 		return nil, errorsmod.Wrap(types.ErrInvalidRecipient, "the bidder already holds this token")
 	}
 	if err := sellable(c, t, now(ctx)); err != nil {

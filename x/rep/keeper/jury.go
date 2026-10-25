@@ -183,12 +183,18 @@ func (k Keeper) SelectJury(
 		return nil, err
 	}
 
-	excludeSet := make(map[string]struct{}, len(excludeAddrs))
-	for _, a := range excludeAddrs {
-		if a != "" {
-			excludeSet[a] = struct{}{}
-		}
+	// Parties to the dispute (e.g. the challenger) and everyone affiliated
+	// with the initiative (assignee / apprentice / author / project creator —
+	// see InitiativeAffiliates). Resolved to canonical addresses once, up
+	// front: Member is keyed by the canonical address, so a juror cannot sit
+	// on a case they are party to under an address they migrated away from.
+	skipAddrs := append([]string{}, excludeAddrs...)
+	if project, pErr := k.GetProject(ctx, initiative.ProjectId); pErr == nil {
+		skipAddrs = append(skipAddrs, InitiativeAffiliates(initiative, project)...)
+	} else {
+		skipAddrs = append(skipAddrs, initiative.Assignee, initiative.Apprentice, initiative.Creator)
 	}
+	excludeSet := k.canonicalSet(ctx, skipAddrs...)
 
 	// Get all eligible members
 	eligibleMembers := []types.Member{}
@@ -196,13 +202,7 @@ func (k Keeper) SelectJury(
 
 	// Iterate through all members
 	err = k.Member.Walk(ctx, nil, func(addr string, member types.Member) (stop bool, err error) {
-		// Skip parties to the dispute (e.g. the challenger).
 		if _, skip := excludeSet[addr]; skip {
-			return false, nil
-		}
-		// Skip if affiliated with initiative (assignee / apprentice / author /
-		// project creator — see InitiativeAffiliates).
-		if k.IsAffiliatedWithProject(ctx, initiative, addr) {
 			return false, nil
 		}
 
@@ -323,12 +323,9 @@ func (k Keeper) selectModerationAppealJury(ctx context.Context, juryReviewID uin
 	}
 	minReputation := params.MinJurorReputation
 
-	excludeSet := make(map[string]struct{}, len(excludes))
-	for _, e := range excludes {
-		if e != "" {
-			excludeSet[e] = struct{}{}
-		}
-	}
+	// Canonical addresses: Member is keyed by the current address, the
+	// parties may be recorded under an old one.
+	excludeSet := k.canonicalSet(ctx, excludes...)
 
 	var (
 		eligible []string
@@ -452,16 +449,13 @@ func (k Keeper) SubmitJurorVote(
 		return fmt.Errorf("jury review %d is already resolved (verdict %s)", juryReviewID, juryReview.Verdict.String())
 	}
 
-	// Verify juror is on the jury
-	jurorAddrStr := jurorAddr.String()
-	isJuror := false
-	for _, j := range juryReview.Jurors {
-		if j == jurorAddrStr {
-			isJuror = true
-			break
-		}
-	}
-	if !isJuror {
+	// Verify juror is on the jury. The seat may be recorded under an address
+	// the juror has since migrated away from; the vote is filed under the seat
+	// address so the tally, no-show and reward paths keep matching it against
+	// Jurors.
+	signer := jurorAddr.String()
+	jurorAddrStr, seated := k.jurorSeatFor(ctx, juryReview, signer)
+	if !seated {
 		return fmt.Errorf("address is not a juror on this review")
 	}
 
@@ -513,8 +507,9 @@ func (k Keeper) SubmitJurorVote(
 	// Credit participation before any tally runs. The vote that reaches the
 	// supermajority triggers TallyJuryVotes inline, and the tally charges every
 	// seated juror who has not voted — so crediting afterwards would book the
-	// deciding juror as a no-show on their own vote.
-	if err := k.RecordJuryVote(ctx, jurorAddrStr); err != nil {
+	// deciding juror as a no-show on their own vote. JuryParticipation is
+	// re-keyed to the canonical address at migration, hence the signer.
+	if err := k.RecordJuryVote(ctx, signer); err != nil {
 		return err
 	}
 
@@ -557,7 +552,7 @@ func (k Keeper) SubmitExpertTestimony(
 	expertAddrStr := expertAddr.String()
 	isExpert := false
 	for _, e := range juryReview.ExpertWitnesses {
-		if e == expertAddrStr {
+		if k.CanActAs(ctx, expertAddrStr, e) {
 			isExpert = true
 			break
 		}
@@ -707,6 +702,18 @@ func (k Keeper) TallyJuryVotes(ctx context.Context, juryReviewID uint64) error {
 	//   REJECT_CHALLENGE  -> appellant loses               -> action UPHELD
 	//   INCONCLUSIVE      -> leave the appeal PENDING; TimeoutExpiredAppeals
 	//                        gives it a terminal TIMEOUT (no party penalized).
+	// Member-migration objections (COUNCIL path) are juried the same way:
+	// the objector is the challenger. resolveMigrationObjection maps the
+	// verdict onto the migration and settles the bond.
+	if juryReview.ChallengerClaim == types.MigrationObjectionInitiativeType {
+		if err := k.resolveMigrationObjection(ctx, juryReview, finalVerdict); err != nil {
+			sdk.UnwrapSDKContext(ctx).Logger().Error(
+				"failed to apply jury verdict to migration objection",
+				"jury_review_id", juryReview.Id, "error", err)
+		}
+		return k.RewardJurors(ctx, juryReview)
+	}
+
 	if juryReview.ChallengerClaim == govActionAppealInitiativeType {
 		if appeal, ok := k.findGovActionAppealByInitiative(ctx, juryReview.Id); ok {
 			var verdict types.GovAppealStatus

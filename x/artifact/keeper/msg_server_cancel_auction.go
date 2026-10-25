@@ -18,7 +18,7 @@ func (k msgServer) CancelAuction(ctx context.Context, msg *types.MsgCancelAuctio
 	if err != nil {
 		return nil, err
 	}
-	if a.Seller != msg.Seller {
+	if !k.canActAs(ctx, msg.Seller, a.Seller) {
 		return nil, types.ErrNotTokenOwner
 	}
 	if a.HighBidder != "" {

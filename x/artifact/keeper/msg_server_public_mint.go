@@ -34,7 +34,7 @@ func (k Keeper) publicMintCheck(ctx context.Context, c types.Class, buyer string
 		return errorsmod.Wrap(types.ErrMintWindow, "public mint has ended")
 	}
 	if c.MintPolicy.PerAddressLimit > 0 {
-		used, _ := k.PublicMintCount.Get(ctx, collections.Join(c.Id, buyer))
+		used := k.publicMintUsed(ctx, c.Id, buyer)
 		if used+uint64(quantity) > uint64(c.MintPolicy.PerAddressLimit) {
 			return errorsmod.Wrapf(types.ErrPerAddressLimit, "used %d of %d", used, c.MintPolicy.PerAddressLimit)
 		}
@@ -47,6 +47,17 @@ func (k Keeper) publicMintCheck(ctx context.Context, c types.Class, buyer string
 // token in the batch is priced in turn and max_price must cover the most
 // expensive one. For commit-reveal classes the price is escrowed per token
 // until the token (blind) or the class seed (generative) is revealed.
+// publicMintUsed sums the per-address mint count over the buyer's recent
+// addresses, so a key migration does not reset the limit (plan §6.2).
+func (k Keeper) publicMintUsed(ctx context.Context, classID uint64, buyer string) uint64 {
+	var used uint64
+	for _, a := range k.recentAddressesOf(ctx, buyer) {
+		n, _ := k.PublicMintCount.Get(ctx, collections.Join(classID, a))
+		used += n
+	}
+	return used
+}
+
 func (k msgServer) PublicMint(ctx context.Context, msg *types.MsgPublicMint) (*types.MsgPublicMintResponse, error) {
 	buyer, err := k.decodeAddr("buyer", msg.Buyer)
 	if err != nil {

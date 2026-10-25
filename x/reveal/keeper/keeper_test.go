@@ -101,6 +101,18 @@ type mockRepKeeper struct {
 	createProjectFn    func(ctx context.Context, creator sdk.AccAddress, name, description string, tags []string, category reptypes.ProjectCategory, council string, requestedBudget, requestedSpark math.Int) (uint64, error)
 }
 
+// Alias contract defaults: no migrations in unit tests.
+func (m *mockRepKeeper) CanActAs(_ context.Context, signer, stored string) bool {
+	return signer == stored
+}
+func (m *mockRepKeeper) SameMember(_ context.Context, a, b string) bool { return a == b }
+func (m *mockRepKeeper) RecentAddressesOf(_ context.Context, member string) []string {
+	return []string{member}
+}
+func (m *mockRepKeeper) AllAddressesOf(_ context.Context, member string) []string {
+	return []string{member}
+}
+
 func (m *mockRepKeeper) IsMember(ctx context.Context, addr sdk.AccAddress) bool {
 	if m.isMemberFn != nil {
 		return m.isMemberFn(ctx, addr)

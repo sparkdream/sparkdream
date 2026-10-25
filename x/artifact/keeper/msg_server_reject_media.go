@@ -24,7 +24,7 @@ func (k msgServer) RejectMedia(ctx context.Context, msg *types.MsgRejectMedia) (
 	if err != nil {
 		return nil, err
 	}
-	if t.Owner != msg.Signer && c.Owner != msg.Signer {
+	if !k.canActAs(ctx, msg.Signer, t.Owner) && !k.canActAs(ctx, msg.Signer, c.Owner) {
 		return nil, errorsmod.Wrap(types.ErrNotAuthorized, "only the holder or the class owner may reject a media proposal")
 	}
 	key := collections.Join3(t.ClassId, t.Id, msg.ProposalId)

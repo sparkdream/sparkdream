@@ -29,6 +29,14 @@ type RepKeeper interface {
 	IsMember(ctx context.Context, addr sdk.AccAddress) bool
 	GetTrustLevel(ctx context.Context, addr sdk.AccAddress) (reptypes.TrustLevel, error)
 
+	// Member key migration alias contract (docs/x-rep-spec.md, "Member key
+	// migration"). Records keep storing the address they were written with;
+	// these resolve it against the member's current address.
+	CanActAs(ctx context.Context, signer, stored string) bool
+	SameMember(ctx context.Context, a, b string) bool
+	RecentAddressesOf(ctx context.Context, member string) []string
+	AllAddressesOf(ctx context.Context, member string) []string
+
 	// DREAM token operations
 	MintDREAM(ctx context.Context, addr sdk.AccAddress, amount math.Int) error
 	BurnDREAM(ctx context.Context, addr sdk.AccAddress, amount math.Int) error

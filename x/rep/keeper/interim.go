@@ -114,10 +114,12 @@ func (k Keeper) CountActiveInterimsForMember(ctx context.Context, member string)
 	if member == "" {
 		return 0, nil
 	}
+	// Work held under a recent alias still counts against the cap.
+	memberAddrs := k.RecentAddressesOf(ctx, member)
 	var count uint32
 	k.IteratePendingInterims(ctx, func(_ int64, interim types.Interim) bool {
 		for _, a := range interim.Assignees {
-			if a == member {
+			if AddressesMatch(memberAddrs, a) {
 				count++
 				break
 			}
@@ -176,10 +178,10 @@ func (k Keeper) AssignInterimToMember(
 		return fmt.Errorf("assignee is not a member: %w", err)
 	}
 
-	// Add assignee if not already in list
+	// Add assignee if not already in list (under any of their addresses)
 	found := false
 	for _, existing := range interim.Assignees {
-		if existing == assignee.String() {
+		if k.SameMember(ctx, existing, assignee.String()) {
 			found = true
 			break
 		}
@@ -225,7 +227,7 @@ func (k Keeper) SubmitInterimWork(
 	// Validate assignee
 	found := false
 	for _, existing := range interim.Assignees {
-		if existing == assignee.String() {
+		if k.CanActAs(ctx, assignee.String(), existing) {
 			found = true
 			break
 		}

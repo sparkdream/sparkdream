@@ -27,6 +27,7 @@ type lateKeepers struct {
 	sessionKeeper  types.SessionKeeper
 	identityKeeper types.IdentityKeeper
 	seasonKeeper   types.SeasonKeeper
+	repKeeper      types.MigrationRepKeeper
 }
 
 type Keeper struct {
@@ -295,4 +296,20 @@ func DeriveCouncilAddress(councilID uint64, policyType string) sdk.AccAddress {
 	binary.BigEndian.PutUint64(buf, councilID)
 	key := append([]byte("council/"+policyType+"/"), buf...)
 	return sdkaddress.Module(types.ModuleName, key)
+}
+
+// SetRepKeeper late-wires the slice of x/rep that caps council voting
+// periods by the ZK key activation delay (member-key-migration plan,
+// decision 17). Wired from app.go after depinject.
+func (k Keeper) SetRepKeeper(rk types.MigrationRepKeeper) {
+	k.late.repKeeper = rk
+}
+
+// canActAs is the nil-safe form of the rep alias check: the rep keeper is
+// late-wired and absent in unit tests, where it degrades to equality.
+func (k Keeper) canActAs(ctx context.Context, signer, stored string) bool {
+	if k.late.repKeeper == nil {
+		return signer == stored
+	}
+	return k.late.repKeeper.CanActAs(ctx, signer, stored)
 }

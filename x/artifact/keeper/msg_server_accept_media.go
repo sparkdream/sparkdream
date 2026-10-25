@@ -24,7 +24,7 @@ func (k msgServer) AcceptMedia(ctx context.Context, msg *types.MsgAcceptMedia) (
 	if err != nil {
 		return nil, err
 	}
-	if t.Owner != msg.Owner {
+	if !k.canActAs(ctx, msg.Owner, t.Owner) {
 		return nil, types.ErrNotTokenOwner
 	}
 	if isTargetHidden(c, t) {

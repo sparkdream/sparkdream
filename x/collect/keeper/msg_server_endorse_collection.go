@@ -58,7 +58,7 @@ func (k msgServer) EndorseCollection(ctx context.Context, msg *types.MsgEndorseC
 	}
 
 	// Creator must NOT be collection owner
-	if coll.Owner == msg.Creator {
+	if k.sameMember(ctx, coll.Owner, msg.Creator) {
 		return nil, types.ErrCannotEndorseSelf
 	}
 

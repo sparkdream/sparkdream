@@ -29,7 +29,7 @@ func (k msgServer) Nest(ctx context.Context, msg *types.MsgNest) (*types.MsgNest
 	if err != nil {
 		return nil, err
 	}
-	if child.Owner != msg.Owner || parent.Owner != msg.Owner {
+	if !k.canActAs(ctx, msg.Owner, child.Owner) || !k.canActAs(ctx, msg.Owner, parent.Owner) {
 		return nil, types.ErrNotTokenOwner
 	}
 	if child.Lock != types.TokenLock_TOKEN_LOCK_NONE {

@@ -23,7 +23,7 @@ func (k msgServer) Detach(ctx context.Context, msg *types.MsgDetach) (*types.Msg
 	if !child.IsNested() {
 		return nil, errorsmod.Wrap(types.ErrNestNotAllowed, "token is not nested")
 	}
-	if child.Owner != msg.Owner {
+	if !k.canActAs(ctx, msg.Owner, child.Owner) {
 		return nil, types.ErrNotTokenOwner
 	}
 	root, err := k.rootOf(ctx, child)

@@ -74,6 +74,15 @@ type RepKeeper interface {
 	// x/rep's per-season economic counters for the incoming season. Called once
 	// at the end of a season transition.
 	InitSeasonalPool(ctx context.Context, season uint64) error
+
+	// Alias contract (member key migration). Stored addresses are
+	// interpreted through these: CanActAs for authorization, SameMember for
+	// self-dealing bans, RecentAddressesOf for in-tx dedup, AllAddressesOf
+	// for by-address list queries.
+	CanActAs(ctx context.Context, signer, stored string) bool
+	SameMember(ctx context.Context, a, b string) bool
+	RecentAddressesOf(ctx context.Context, member string) []string
+	AllAddressesOf(ctx context.Context, member string) []string
 }
 
 // NameKeeper defines the expected interface for the x/name module.

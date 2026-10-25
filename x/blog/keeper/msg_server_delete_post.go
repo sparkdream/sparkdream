@@ -23,7 +23,7 @@ func (k msgServer) DeletePost(ctx context.Context, msg *types.MsgDeletePost) (*t
 	if !found {
 		return nil, errorsmod.Wrap(types.ErrPostNotFound, fmt.Sprintf("post %d doesn't exist", msg.Id))
 	}
-	if msg.Creator != val.Creator {
+	if !k.canActAs(ctx, msg.Creator, val.Creator) {
 		return nil, errorsmod.Wrap(types.ErrUnauthorized, "incorrect owner")
 	}
 	if val.Status == types.PostStatus_POST_STATUS_DELETED {

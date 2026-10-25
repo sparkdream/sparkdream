@@ -33,7 +33,7 @@ func (k msgServer) StartAuction(ctx context.Context, msg *types.MsgStartAuction)
 	if err != nil {
 		return nil, err
 	}
-	if t.Owner != msg.Seller {
+	if !k.canActAs(ctx, msg.Seller, t.Owner) {
 		return nil, types.ErrNotTokenOwner
 	}
 	if t.Lock != types.TokenLock_TOKEN_LOCK_NONE {

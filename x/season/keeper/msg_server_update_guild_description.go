@@ -36,7 +36,7 @@ func (k msgServer) UpdateGuildDescription(ctx context.Context, msg *types.MsgUpd
 	}
 
 	// Verify creator is the founder
-	if guild.Founder != msg.Creator {
+	if !k.canActAs(ctx, msg.Creator, guild.Founder) {
 		return nil, types.ErrNotGuildFounder
 	}
 

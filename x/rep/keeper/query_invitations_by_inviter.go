@@ -15,12 +15,15 @@ func (q queryServer) InvitationsByInviter(ctx context.Context, req *types.QueryI
 		return nil, status.Error(codes.InvalidArgument, "invalid request")
 	}
 
+	// Filtered walk over the whole collection, so matching every address the
+	// inviter has held keeps pagination consistent.
+	inviterAddrs := q.k.AllAddressesOf(ctx, req.Inviter)
 	invitations, pageRes, err := query.CollectionFilteredPaginate(
 		ctx,
 		q.k.Invitation,
 		req.Pagination,
 		func(_ uint64, value types.Invitation) (bool, error) {
-			return value.Inviter == req.Inviter, nil
+			return AddressesMatch(inviterAddrs, value.Inviter), nil
 		},
 		func(_ uint64, value types.Invitation) (types.Invitation, error) {
 			return value, nil

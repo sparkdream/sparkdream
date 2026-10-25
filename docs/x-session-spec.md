@@ -232,7 +232,7 @@ message MsgCreateSession {
 3. Granter has not exceeded `max_sessions_per_granter`
 4. `len(allowed_msg_types) <= max_msg_types_per_session`
 5. Every type in `allowed_msg_types` is in `Params.allowed_msg_types`
-6. No type in `allowed_msg_types` is in `NonDelegableSessionMsgs`
+6. No type in `allowed_msg_types` is in `NonDelegableSessionMsgs` or in `ForbiddenAllowlistMsgs` (x/service's non-delegable msgs, `MsgTopUpBond`, and every x/rep member key migration message from `reptypes.MigrationMsgTypeURLs()`: a session key must never move an identity)
 7. `expiration > current_time`
 8. `expiration - current_time <= max_expiration`
 9. `spend_limit <= max_spend_limit` (if non-zero)

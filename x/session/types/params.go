@@ -8,6 +8,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 
+	reptypes "sparkdream/x/rep/types"
 	servicetypes "sparkdream/x/service/types"
 )
 
@@ -289,12 +290,18 @@ var (
 // the owning module's exported list so a proto rename surfaces as a
 // compile error.
 var ForbiddenAllowlistMsgs = func() map[string]bool {
-	m := make(map[string]bool, len(servicetypes.NonDelegableMsgTypeURLs)+1)
+	m := make(map[string]bool, len(servicetypes.NonDelegableMsgTypeURLs)+len(reptypes.MigrationMsgTypeURLs())+1)
 	for _, url := range servicetypes.NonDelegableMsgTypeURLs {
 		m[url] = true
 	}
 	// Bonds SPARK from the granter's account.
 	m[sdk.MsgTypeURL(&servicetypes.MsgTopUpBond{})] = true
+	// Member key migration: a session key must never be able to move an
+	// identity, register a recovery commitment, reveal one, object to or
+	// sweep a migration (member-key-migration plan §4).
+	for _, url := range reptypes.MigrationMsgTypeURLs() {
+		m[url] = true
+	}
 	return m
 }()
 

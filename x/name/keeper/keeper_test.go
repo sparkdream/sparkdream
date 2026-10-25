@@ -247,6 +247,15 @@ func (m *MockRepKeeper) SetActiveMember(addr string) {
 	m.ActiveMembers[addr] = true
 }
 
+// Alias contract defaults: no migrations in unit tests.
+func (m *MockRepKeeper) CanActAs(_ context.Context, signer, stored string) bool {
+	return signer == stored
+}
+func (m *MockRepKeeper) SameMember(_ context.Context, a, b string) bool { return a == b }
+func (m *MockRepKeeper) AllAddressesOf(_ context.Context, member string) []string {
+	return []string{member}
+}
+
 func (m *MockRepKeeper) IsActiveMember(_ context.Context, addr sdk.AccAddress) bool {
 	return m.ActiveMembers[addr.String()]
 }

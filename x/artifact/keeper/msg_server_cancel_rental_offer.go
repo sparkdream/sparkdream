@@ -18,9 +18,9 @@ func (k msgServer) CancelRentalOffer(ctx context.Context, msg *types.MsgCancelRe
 	if err != nil {
 		return nil, types.ErrRentalOfferNotFound
 	}
-	if o.Owner != msg.Owner {
+	if !k.canActAs(ctx, msg.Owner, o.Owner) {
 		t, err := k.getToken(ctx, msg.ClassId, msg.TokenId)
-		if err != nil || t.Owner != msg.Owner {
+		if err != nil || !k.canActAs(ctx, msg.Owner, t.Owner) {
 			return nil, types.ErrNotTokenOwner
 		}
 	}

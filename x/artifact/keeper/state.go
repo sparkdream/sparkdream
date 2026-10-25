@@ -305,8 +305,16 @@ func (k Keeper) getCount(ctx context.Context, m collections.Map[string, uint64],
 func (k Keeper) reserveInboxSlot(ctx context.Context, origin, to string, p types.Params) error {
 	pairKey := collections.Join(origin, to)
 	pair, _ := k.PendingPairCount.Get(ctx, pairKey)
-	if pair >= uint64(p.MaxPendingPerPair) {
-		return errorsmod.Wrapf(types.ErrInboxFull, "%d open items from this origin", pair)
+	// The cap counts every recent address of the origin member (a mint
+	// origin is not an address and has no aliases); the counter itself
+	// stays keyed by origin so releaseInboxSlot finds it.
+	var open uint64
+	for _, a := range k.recentAddressesOf(ctx, origin) {
+		n, _ := k.PendingPairCount.Get(ctx, collections.Join(a, to))
+		open += n
+	}
+	if open >= uint64(p.MaxPendingPerPair) {
+		return errorsmod.Wrapf(types.ErrInboxFull, "%d open items from this origin", open)
 	}
 	total := k.getCount(ctx, k.InboxCount, to)
 	if total >= uint64(p.MaxInboxPerRecipient) {

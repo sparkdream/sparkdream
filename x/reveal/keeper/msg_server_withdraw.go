@@ -23,7 +23,7 @@ func (k msgServer) Withdraw(ctx context.Context, msg *types.MsgWithdraw) (*types
 	}
 
 	// Verify caller owns the stake
-	if stake.Staker != msg.Staker {
+	if !k.canActAs(ctx, msg.Staker, stake.Staker) {
 		return nil, types.ErrUnauthorized.Wrapf("stake belongs to %s, not %s", stake.Staker, msg.Staker)
 	}
 

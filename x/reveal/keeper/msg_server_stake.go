@@ -38,7 +38,7 @@ func (k msgServer) Stake(ctx context.Context, msg *types.MsgStake) (*types.MsgSt
 	}
 
 	// Self-stake prevention: contributor cannot stake on own contribution
-	if msg.Staker == contrib.Contributor {
+	if k.sameMember(ctx, msg.Staker, contrib.Contributor) {
 		return nil, types.ErrSelfStake
 	}
 

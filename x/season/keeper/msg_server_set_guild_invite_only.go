@@ -31,7 +31,7 @@ func (k msgServer) SetGuildInviteOnly(ctx context.Context, msg *types.MsgSetGuil
 	}
 
 	// Verify creator is the founder
-	if guild.Founder != msg.Creator {
+	if !k.canActAs(ctx, msg.Creator, guild.Founder) {
 		return nil, types.ErrNotGuildFounder
 	}
 

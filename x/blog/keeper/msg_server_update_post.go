@@ -25,7 +25,7 @@ func (k msgServer) UpdatePost(ctx context.Context, msg *types.MsgUpdatePost) (*t
 	if !found {
 		return nil, errorsmod.Wrap(types.ErrPostNotFound, fmt.Sprintf("post %d doesn't exist", msg.Id))
 	}
-	if msg.Creator != val.Creator {
+	if !k.canActAs(ctx, msg.Creator, val.Creator) {
 		return nil, errorsmod.Wrap(types.ErrUnauthorized, "incorrect owner")
 	}
 

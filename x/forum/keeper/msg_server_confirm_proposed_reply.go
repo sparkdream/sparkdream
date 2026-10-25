@@ -32,7 +32,7 @@ func (k msgServer) ConfirmProposedReply(ctx context.Context, msg *types.MsgConfi
 	}
 
 	// Only thread author can confirm proposed reply
-	if thread.Author != msg.Creator {
+	if !k.canActAs(ctx, msg.Creator, thread.Author) {
 		return nil, errorsmod.Wrap(types.ErrNotThreadAuthor, "only thread author can confirm proposed reply")
 	}
 

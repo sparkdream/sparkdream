@@ -25,7 +25,7 @@ func (k msgServer) UpdateUnitListing(ctx context.Context, msg *types.MsgUpdateUn
 	if err != nil {
 		return nil, err
 	}
-	if l.Seller != msg.Seller {
+	if !k.canActAs(ctx, msg.Seller, l.Seller) {
 		return nil, types.ErrNotTokenOwner
 	}
 	c, err := k.getEditionsClass(ctx, l.ClassId)

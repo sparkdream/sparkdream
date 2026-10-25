@@ -15,11 +15,13 @@ func (q queryServer) InterimsByAssignee(ctx context.Context, req *types.QueryInt
 	}
 
 	// Collect first interim assigned to the specified assignee (proto response is singular)
+	assigneeAddrs := q.k.AllAddressesOf(ctx, req.Assignee)
 	var foundInterim *types.Interim
 	err := q.k.Interim.Walk(ctx, nil, func(id uint64, interim types.Interim) (bool, error) {
-		// Check if the assignee is in the assignees list
+		// Check if the assignee is in the assignees list, under any address
+		// the member has held
 		for _, assignee := range interim.Assignees {
-			if assignee == req.Assignee {
+			if AddressesMatch(assigneeAddrs, assignee) {
 				foundInterim = &interim
 				return true, nil // stop iteration
 			}

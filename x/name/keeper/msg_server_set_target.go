@@ -23,7 +23,7 @@ func (k msgServer) SetTarget(goCtx context.Context, msg *types.MsgSetTarget) (*t
 	if !found {
 		return nil, errorsmod.Wrapf(types.ErrNameNotFound, "name '%s' not found", name)
 	}
-	if record.Owner != msg.Authority {
+	if !k.canActAs(ctx, msg.Authority, record.Owner) {
 		return nil, errorsmod.Wrapf(sdkerrors.ErrUnauthorized, "you do not own name '%s'", name)
 	}
 

@@ -24,7 +24,7 @@ func (k msgServer) SetSeekingEndorsement(ctx context.Context, msg *types.MsgSetS
 	}
 
 	// Creator must be collection owner
-	if coll.Owner != msg.Creator {
+	if !k.canActAs(ctx, msg.Creator, coll.Owner) {
 		return nil, types.ErrUnauthorized
 	}
 

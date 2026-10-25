@@ -44,7 +44,7 @@ func (k msgServer) LeaveGuild(ctx context.Context, msg *types.MsgLeaveGuild) (*t
 	}
 
 	// Check if founder - founders cannot leave
-	if guild.Founder == msg.Creator {
+	if k.canActAs(ctx, msg.Creator, guild.Founder) {
 		return nil, types.ErrCannotLeaveAsFounder
 	}
 
@@ -52,7 +52,7 @@ func (k msgServer) LeaveGuild(ctx context.Context, msg *types.MsgLeaveGuild) (*t
 	if k.IsGuildOfficer(ctx, guildID, msg.Creator) {
 		newOfficers := make([]string, 0, len(guild.Officers)-1)
 		for _, officer := range guild.Officers {
-			if officer != msg.Creator {
+			if !k.canActAs(ctx, msg.Creator, officer) {
 				newOfficers = append(newOfficers, officer)
 			}
 		}

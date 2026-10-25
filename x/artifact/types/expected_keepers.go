@@ -55,6 +55,14 @@ type RepKeeper interface {
 	// GetInitiative reads an initiative an impact certificate claims
 	// (docs/x-artifact-spec.md §7.21). Read-only: x/rep never calls back.
 	GetInitiative(ctx context.Context, initiativeID uint64) (reptypes.Initiative, error)
+
+	// Member key migration alias contract (docs/x-rep-spec.md, "Member key
+	// migration"). Stored addresses are interpreted through these; artifact
+	// never re-keys its records.
+	CanActAs(ctx context.Context, signer, stored string) bool
+	SameMember(ctx context.Context, a, b string) bool
+	RecentAddressesOf(ctx context.Context, member string) []string
+	AllAddressesOf(ctx context.Context, member string) []string
 }
 
 // SessionKeeper is the slice of x/session Harberger taxes use

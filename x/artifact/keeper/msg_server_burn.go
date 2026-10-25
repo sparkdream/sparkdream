@@ -33,7 +33,7 @@ func (k msgServer) Burn(ctx context.Context, msg *types.MsgBurn) (*types.MsgBurn
 		if err != nil {
 			return nil, err
 		}
-		if t.Owner != msg.Owner {
+		if !k.canActAs(ctx, msg.Owner, t.Owner) {
 			return nil, types.ErrNotTokenOwner
 		}
 		if !c.Flags.HolderMayBurn() {

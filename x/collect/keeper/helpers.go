@@ -63,16 +63,81 @@ func HideRecordTargetCompositeKey(targetType types.FlagTargetType, targetID uint
 	return fmt.Sprintf("%d/%d", int32(targetType), targetID)
 }
 
+// --- Member key migration alias helpers ---
+//
+// Records keep the address they were written with; a member who migrated to
+// a fresh key is matched through x/rep's alias contract. The rep keeper is
+// late-wired and nil in some unit tests, where plain equality is the answer.
+
+// canActAs reports whether signer may exercise rights recorded against stored.
+func (k Keeper) canActAs(ctx context.Context, signer, stored string) bool {
+	if k.repKeeper == nil {
+		return signer == stored
+	}
+	return k.repKeeper.CanActAs(ctx, signer, stored)
+}
+
+// sameMember reports whether two stored addresses belong to the same member.
+func (k Keeper) sameMember(ctx context.Context, a, b string) bool {
+	if k.repKeeper == nil {
+		return a == b
+	}
+	return k.repKeeper.SameMember(ctx, a, b)
+}
+
+// recentAddressesOf is the in-tx alias set (dedup checks).
+func (k Keeper) recentAddressesOf(ctx context.Context, member string) []string {
+	if k.repKeeper == nil {
+		return []string{member}
+	}
+	return k.repKeeper.RecentAddressesOf(ctx, member)
+}
+
+// allAddressesOf is the full alias set (list queries only).
+func (k Keeper) allAddressesOf(ctx context.Context, member string) []string {
+	if k.repKeeper == nil {
+		return []string{member}
+	}
+	return k.repKeeper.AllAddressesOf(ctx, member)
+}
+
+// findCollaborator returns the collaborator record on collectionID that
+// address may act for: the record is keyed by the address it was added
+// with, so each recent alias of address is tried and the hit must pass
+// canActAs (a tombstoned signer never matches).
+func (k Keeper) findCollaborator(ctx context.Context, collectionID uint64, address string) (types.Collaborator, bool) {
+	for _, alias := range k.recentAddressesOf(ctx, address) {
+		collab, err := k.Collaborator.Get(ctx, CollaboratorCompositeKey(collectionID, alias))
+		if err != nil {
+			continue
+		}
+		if k.canActAs(ctx, address, alias) {
+			return collab, true
+		}
+	}
+	return types.Collaborator{}, false
+}
+
+// hasReacted reports whether any recent alias of address already reacted to
+// the target (ReactionDedup is keyed by the address that reacted).
+func (k Keeper) hasReacted(ctx context.Context, address string, targetType types.FlagTargetType, targetID uint64) bool {
+	for _, alias := range k.recentAddressesOf(ctx, address) {
+		if _, err := k.ReactionDedup.Get(ctx, ReactionDedupCompositeKey(alias, targetType, targetID)); err == nil {
+			return true
+		}
+	}
+	return false
+}
+
 // --- Access control helpers ---
 
 // HasWriteAccess returns true if the address is the collection owner or an EDITOR/ADMIN collaborator.
 func (k Keeper) HasWriteAccess(ctx context.Context, coll types.Collection, address string) (bool, error) {
-	if coll.Owner == address {
+	if k.canActAs(ctx, address, coll.Owner) {
 		return k.isCollectionOwner(ctx, coll, address), nil
 	}
-	key := CollaboratorCompositeKey(coll.Id, address)
-	collab, err := k.Collaborator.Get(ctx, key)
-	if err != nil {
+	collab, found := k.findCollaborator(ctx, coll.Id, address)
+	if !found {
 		return false, nil
 	}
 	if collab.Role == types.CollaboratorRole_COLLABORATOR_ROLE_EDITOR ||
@@ -84,12 +149,11 @@ func (k Keeper) HasWriteAccess(ctx context.Context, coll types.Collection, addre
 
 // IsOwnerOrAdmin returns true if the address is the collection owner or an ADMIN collaborator.
 func (k Keeper) IsOwnerOrAdmin(ctx context.Context, coll types.Collection, address string) (bool, error) {
-	if coll.Owner == address {
+	if k.canActAs(ctx, address, coll.Owner) {
 		return k.isCollectionOwner(ctx, coll, address), nil
 	}
-	key := CollaboratorCompositeKey(coll.Id, address)
-	collab, err := k.Collaborator.Get(ctx, key)
-	if err != nil {
+	collab, found := k.findCollaborator(ctx, coll.Id, address)
+	if !found {
 		return false, nil
 	}
 	return collab.Role == types.CollaboratorRole_COLLABORATOR_ROLE_ADMIN, nil
@@ -97,9 +161,8 @@ func (k Keeper) IsOwnerOrAdmin(ctx context.Context, coll types.Collection, addre
 
 // IsCollaborator checks if the address is a collaborator (any role) on the collection.
 func (k Keeper) IsCollaborator(ctx context.Context, collectionID uint64, address string) (bool, types.CollaboratorRole, error) {
-	key := CollaboratorCompositeKey(collectionID, address)
-	collab, err := k.Collaborator.Get(ctx, key)
-	if err != nil {
+	collab, found := k.findCollaborator(ctx, collectionID, address)
+	if !found {
 		return false, types.CollaboratorRole_COLLABORATOR_ROLE_UNSPECIFIED, nil
 	}
 	return true, collab.Role, nil
@@ -876,7 +939,7 @@ func (k Keeper) isAnonymous(address string) bool {
 // ownership proof for this collection's owner tag in the context; without one
 // the shield address owns nothing.
 func (k Keeper) isCollectionOwner(ctx context.Context, coll types.Collection, address string) bool {
-	if coll.Owner != address {
+	if !k.canActAs(ctx, address, coll.Owner) {
 		return false
 	}
 	if !k.isAnonymous(address) {

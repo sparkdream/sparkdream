@@ -54,6 +54,51 @@ func (k Keeper) isAnonymous(addr string) bool {
 	return err == nil && sdk.AccAddress(addrBytes).Equals(shieldModuleAddress)
 }
 
+// Alias contract helpers (member key migration). Nil rep keeper (standalone
+// unit tests) degrades to plain address equality.
+
+// canActAs reports whether signer may exercise rights recorded against stored.
+func (k Keeper) canActAs(ctx context.Context, signer, stored string) bool {
+	if k.repKeeper == nil {
+		return signer == stored
+	}
+	return k.repKeeper.CanActAs(ctx, signer, stored)
+}
+
+// sameMember reports whether two stored addresses belong to the same member.
+func (k Keeper) sameMember(ctx context.Context, a, b string) bool {
+	if k.repKeeper == nil {
+		return a == b
+	}
+	return k.repKeeper.SameMember(ctx, a, b)
+}
+
+// recentAddressesOf is the in-tx alias set for dedup checks.
+func (k Keeper) recentAddressesOf(ctx context.Context, member string) []string {
+	if k.repKeeper == nil {
+		return []string{member}
+	}
+	return k.repKeeper.RecentAddressesOf(ctx, member)
+}
+
+// allAddressesOf is the full alias set for list queries (never in a tx).
+func (k Keeper) allAddressesOf(ctx context.Context, member string) []string {
+	if k.repKeeper == nil {
+		return []string{member}
+	}
+	return k.repKeeper.AllAddressesOf(ctx, member)
+}
+
+// addressesMatch reports whether target is one of addrs (an alias set).
+func addressesMatch(addrs []string, target string) bool {
+	for _, a := range addrs {
+		if a == target {
+			return true
+		}
+	}
+	return false
+}
+
 // Cross-module integration with x/rep
 // These methods delegate to the RepKeeper for DREAM token operations and member management
 

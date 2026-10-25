@@ -45,7 +45,7 @@ func (k msgServer) AddCollaborator(ctx context.Context, msg *types.MsgAddCollabo
 	}
 
 	// Not owner
-	if msg.Address == coll.Owner {
+	if k.sameMember(ctx, msg.Address, coll.Owner) {
 		return nil, types.ErrCannotCollaborateSelf
 	}
 
@@ -69,7 +69,7 @@ func (k msgServer) AddCollaborator(ctx context.Context, msg *types.MsgAddCollabo
 	}
 
 	// Only owner can grant ADMIN role
-	if msg.Role == types.CollaboratorRole_COLLABORATOR_ROLE_ADMIN && coll.Owner != msg.Creator {
+	if msg.Role == types.CollaboratorRole_COLLABORATOR_ROLE_ADMIN && !k.canActAs(ctx, msg.Creator, coll.Owner) {
 		return nil, types.ErrAdminOnlyOwner
 	}
 

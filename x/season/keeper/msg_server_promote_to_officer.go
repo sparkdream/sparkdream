@@ -37,12 +37,12 @@ func (k msgServer) PromoteToOfficer(ctx context.Context, msg *types.MsgPromoteTo
 	}
 
 	// Verify creator is the founder
-	if guild.Founder != msg.Creator {
+	if !k.canActAs(ctx, msg.Creator, guild.Founder) {
 		return nil, types.ErrNotGuildFounder
 	}
 
 	// Cannot promote self (founder)
-	if msg.Member == msg.Creator {
+	if k.sameMember(ctx, msg.Member, msg.Creator) {
 		return nil, types.ErrFounderCannotBeOfficer
 	}
 

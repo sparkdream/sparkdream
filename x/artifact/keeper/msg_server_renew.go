@@ -32,8 +32,8 @@ func (k msgServer) Renew(ctx context.Context, msg *types.MsgRenew) (*types.MsgRe
 	if isTargetHidden(c, t) {
 		return nil, types.ErrContentHidden
 	}
-	issuer := isMinter(c, msg.Signer)
-	if !issuer && t.Owner != msg.Signer {
+	issuer := k.isMinter(ctx, c, msg.Signer)
+	if !issuer && !k.canActAs(ctx, msg.Signer, t.Owner) {
 		return nil, errorsmod.Wrap(types.ErrNotAuthorized, "only the holder, the class owner or a listed minter may renew")
 	}
 	price := c.Expiry.RenewalPrice.Amount

@@ -33,20 +33,25 @@ func (q queryServer) CollectionsByOwner(ctx context.Context, req *types.QueryCol
 	// pinned-rank in this index — see index_collections_by_status.go for why the
 	// public, unbounded list earns a denormalized rank instead.
 	var matched []types.Collection
-	err := q.k.CollectionsByOwner.Walk(ctx,
-		collections.NewPrefixedPairRange[string, uint64](req.Owner),
-		func(key collections.Pair[string, uint64]) (bool, error) {
-			coll, err := q.k.Collection.Get(ctx, key.K2())
-			if err != nil {
-				// Skip entries where collection was deleted but index remains
+	// Collections stay indexed under the address that created them; a
+	// migrated member's are gathered across every alias, then paginated in
+	// memory as before.
+	for _, owner := range q.k.allAddressesOf(ctx, req.Owner) {
+		err := q.k.CollectionsByOwner.Walk(ctx,
+			collections.NewPrefixedPairRange[string, uint64](owner),
+			func(key collections.Pair[string, uint64]) (bool, error) {
+				coll, err := q.k.Collection.Get(ctx, key.K2())
+				if err != nil {
+					// Skip entries where collection was deleted but index remains
+					return false, nil
+				}
+				matched = append(matched, coll)
 				return false, nil
-			}
-			matched = append(matched, coll)
-			return false, nil
-		},
-	)
-	if err != nil {
-		return nil, status.Error(codes.Internal, err.Error())
+			},
+		)
+		if err != nil {
+			return nil, status.Error(codes.Internal, err.Error())
+		}
 	}
 
 	ordered := pinnedFirst(matched)

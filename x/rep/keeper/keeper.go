@@ -28,6 +28,14 @@ type lateKeepers struct {
 	// appealTargets maps module-owned moderation action types to the module
 	// that applies appeal verdicts to them (see appealTarget).
 	appealTargets map[types.GovActionType]types.ModerationAppealTarget
+	// migrationHooks are the cross-module member-migration hooks (veto +
+	// bounded re-key), wired from app.go.
+	migrationHooks types.MemberMigrationHooks
+	// reservedAddresses can never be a migration target (module accounts,
+	// module-derived escrows, the x/shield public submitter).
+	reservedAddresses map[string]bool
+	// isVault reports x/vault addresses (nil until x/vault exists).
+	isVault func(ctx context.Context, addr string) bool
 }
 
 type Keeper struct {
@@ -164,6 +172,20 @@ type Keeper struct {
 	MemberWarningSeq   collections.Sequence
 	GovActionAppeal    collections.Map[uint64, types.GovActionAppeal]
 	GovActionAppealSeq collections.Sequence
+
+	// Member key migration (alias.go, migration.go, recovery.go).
+	Tombstones               collections.Map[string, types.Tombstone]
+	MigratedFrom             collections.KeySet[collections.Triple[string, int64, string]]
+	MemberMigrations         collections.Map[uint64, types.MemberMigration]
+	MemberMigrationSeq       collections.Sequence
+	PendingMigrationByMember collections.Map[string, uint64]
+	PendingMigrationByTarget collections.Map[string, uint64]
+	MigrationQueue           collections.KeySet[collections.Pair[int64, uint64]]
+	MigrationAcceptExpiry    collections.KeySet[collections.Pair[int64, uint64]]
+	RecoveryCommitments      collections.Map[string, types.RecoveryCommitmentSet]
+	RecoveryCommits          collections.Map[[]byte, types.RecoveryCommit]
+	RecoveryCommitExpiry     collections.KeySet[collections.Pair[int64, []byte]]
+	ZkKeyActivationQueue     collections.KeySet[collections.Pair[int64, string]]
 }
 
 func NewKeeper(
@@ -349,6 +371,25 @@ func NewKeeper(
 		MemberWarningSeq:   collections.NewSequence(sb, types.MemberWarningCountKey, "memberWarningSequence"),
 		GovActionAppeal:    collections.NewMap(sb, types.GovActionAppealKey, "govActionAppeal", collections.Uint64Key, codec.CollValue[types.GovActionAppeal](cdc)),
 		GovActionAppealSeq: collections.NewSequence(sb, types.GovActionAppealCountKey, "govActionAppealSequence"),
+
+		// Member key migration
+		Tombstones: collections.NewMap(sb, types.TombstoneKey, "tombstones", collections.StringKey, codec.CollValue[types.Tombstone](cdc)),
+		MigratedFrom: collections.NewKeySet(sb, types.MigratedFromKey, "migratedFrom",
+			collections.TripleKeyCodec(collections.StringKey, collections.Int64Key, collections.StringKey)),
+		MemberMigrations:         collections.NewMap(sb, types.MemberMigrationKey, "memberMigrations", collections.Uint64Key, codec.CollValue[types.MemberMigration](cdc)),
+		MemberMigrationSeq:       collections.NewSequence(sb, types.MemberMigrationCountKey, "memberMigrationSequence"),
+		PendingMigrationByMember: collections.NewMap(sb, types.PendingMigrationByMemberKey, "pendingMigrationByMember", collections.StringKey, collections.Uint64Value),
+		PendingMigrationByTarget: collections.NewMap(sb, types.PendingMigrationByTargetKey, "pendingMigrationByTarget", collections.StringKey, collections.Uint64Value),
+		MigrationQueue: collections.NewKeySet(sb, types.MigrationQueueKey, "migrationQueue",
+			collections.PairKeyCodec(collections.Int64Key, collections.Uint64Key)),
+		MigrationAcceptExpiry: collections.NewKeySet(sb, types.MigrationAcceptExpiryKey, "migrationAcceptExpiry",
+			collections.PairKeyCodec(collections.Int64Key, collections.Uint64Key)),
+		RecoveryCommitments: collections.NewMap(sb, types.RecoveryCommitmentKey, "recoveryCommitments", collections.StringKey, codec.CollValue[types.RecoveryCommitmentSet](cdc)),
+		RecoveryCommits:     collections.NewMap(sb, types.RecoveryCommitKey, "recoveryCommits", collections.BytesKey, codec.CollValue[types.RecoveryCommit](cdc)),
+		RecoveryCommitExpiry: collections.NewKeySet(sb, types.RecoveryCommitExpiryKey, "recoveryCommitExpiry",
+			collections.PairKeyCodec(collections.Int64Key, collections.BytesKey)),
+		ZkKeyActivationQueue: collections.NewKeySet(sb, types.ZkKeyActivationQueueKey, "zkKeyActivationQueue",
+			collections.PairKeyCodec(collections.Int64Key, collections.StringKey)),
 	}
 	schema, err := sb.Build()
 	if err != nil {

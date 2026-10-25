@@ -19,12 +19,17 @@ func (q queryServer) UserPosts(ctx context.Context, req *types.QueryUserPostsReq
 		return nil, status.Error(codes.InvalidArgument, "author address required")
 	}
 
+	// Posts written from any of the member's past addresses belong to the
+	// same author (alias contract). The filter already scans in memory, so
+	// matching against the full alias set keeps pagination unchanged.
+	authorAliases := q.k.allAddressesOf(ctx, req.Author)
+
 	posts, pageRes, err := query.CollectionFilteredPaginate(
 		ctx,
 		q.k.Post,
 		req.Pagination,
 		func(_ uint64, post types.Post) (bool, error) {
-			return post.Author == req.Author, nil
+			return addressesMatch(authorAliases, post.Author), nil
 		},
 		func(_ uint64, post types.Post) (types.Post, error) {
 			return withholdPostContent(post), nil

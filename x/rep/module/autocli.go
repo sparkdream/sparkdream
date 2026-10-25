@@ -500,6 +500,42 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					Use:       "trust-tree",
 					Short:     "Export the member trust tree root and its non-empty leaves",
 				},
+				{
+					RpcMethod:      "Canonical",
+					Use:            "canonical [address]",
+					Short:          "Query Canonical",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "address"}},
+				},
+				{
+					RpcMethod:      "Aliases",
+					Use:            "aliases [member]",
+					Short:          "Query Aliases",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "member"}},
+				},
+				{
+					RpcMethod:      "MemberMigration",
+					Use:            "member-migration [id]",
+					Short:          "Query MemberMigration",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "id"}},
+				},
+				{
+					RpcMethod:      "MemberMigrations",
+					Use:            "member-migrations ",
+					Short:          "Query MemberMigrations",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{},
+				},
+				{
+					RpcMethod:      "PendingMigration",
+					Use:            "pending-migration [member]",
+					Short:          "Query PendingMigration",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "member"}},
+				},
+				{
+					RpcMethod:      "RecoveryCommitments",
+					Use:            "recovery-commitments [member]",
+					Short:          "Query RecoveryCommitments",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "member"}},
+				},
 			},
 		},
 		Tx: &autocliv1.ServiceCommandDescriptor{
@@ -527,8 +563,14 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					Long: "Becoming a member is agreeing to the chain's open-content commitment: " + commontypes.ContentDedication +
 						" Pass the chain's content license, " + commontypes.ChainContentLicense + ", as accepted-content-license to sign that agreement " +
 						"(see `sparkdreamd query sparkdream content-license`).",
-					Example:        "sparkdreamd tx rep accept-invitation 7 " + commontypes.ChainContentLicense + " --from alice",
+					Example:        "sparkdreamd tx rep accept-invitation 7 " + commontypes.ChainContentLicense + " --from alice --recovery-commitment <sha256 hex>",
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "invitation_id"}, {ProtoField: "accepted_content_license"}},
+					FlagOptions: map[string]*autocliv1.FlagOptions{
+						"recovery_commitment": {
+							Name:  "recovery-commitment",
+							Usage: "Optional SHA-256(\"sparkdream/recovery/commit/v1\" || preimage) registered at onboarding as an immediately active recovery commitment (hex or base64)",
+						},
+					},
 				},
 				{
 					RpcMethod:      "TransferDream",
@@ -872,6 +914,66 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					Use:            "revoke-invitation [invitation-id]",
 					Short:          "Withdraw a pending invitation you sent (unlocks the stake, restores the credit)",
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "invitation_id"}},
+				},
+				{
+					RpcMethod:      "RequestMigration",
+					Use:            "request-migration [new-address]",
+					Short:          "Send a RequestMigration tx",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "new_address"}},
+				},
+				{
+					RpcMethod:      "AcceptMigration",
+					Use:            "accept-migration [migration-id]",
+					Short:          "Send a AcceptMigration tx",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "migration_id"}},
+				},
+				{
+					RpcMethod:      "CancelMigration",
+					Use:            "cancel-migration [migration-id]",
+					Short:          "Send a CancelMigration tx",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "migration_id"}},
+				},
+				{
+					RpcMethod:      "SetRecoveryCommitment",
+					Use:            "set-recovery-commitment [commitment] [replaces]",
+					Short:          "Send a SetRecoveryCommitment tx",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "commitment"}, {ProtoField: "replaces", Varargs: true}},
+				},
+				{
+					RpcMethod:      "RemoveRecoveryCommitment",
+					Use:            "remove-recovery-commitment [commitment]",
+					Short:          "Send a RemoveRecoveryCommitment tx",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "commitment", Varargs: true}},
+				},
+				{
+					RpcMethod:      "CommitRecovery",
+					Use:            "commit-recovery [sealed]",
+					Short:          "Send a CommitRecovery tx",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "sealed", Varargs: true}},
+				},
+				{
+					RpcMethod:      "RevealRecovery",
+					Use:            "reveal-recovery [member] [new-address] [preimage]",
+					Short:          "Send a RevealRecovery tx",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "member"}, {ProtoField: "new_address"}, {ProtoField: "preimage", Varargs: true}},
+				},
+				{
+					RpcMethod:      "ObjectMigration",
+					Use:            "object-migration [migration-id] [reason]",
+					Short:          "Send a ObjectMigration tx",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "migration_id"}, {ProtoField: "reason"}},
+				},
+				{
+					RpcMethod:      "SweepTombstone",
+					Use:            "sweep-tombstone [tombstone]",
+					Short:          "Send a SweepTombstone tx",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "tombstone"}},
+				},
+				{
+					RpcMethod:      "ForceMigration",
+					Use:            "force-migration [member] [new-address] [evidence-uri]",
+					Short:          "Open a council-path member migration (Commons HR committee policy or gov signs)",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "member"}, {ProtoField: "new_address"}, {ProtoField: "evidence_uri"}},
 				},
 			},
 		},

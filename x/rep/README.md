@@ -608,6 +608,21 @@ DREAM-bonded role primitive only. SPARK-staked roles (e.g. federation bridge ope
 | `MsgAppealGovAction` | Appeal a governance action (creates appeal initiative) | Affected member |
 | `MsgResolveGovActionAppeal` | Resolve a gov-action appeal (UPHELD / OVERTURNED) | Operations Committee on commons council |
 
+### Member Key Migration
+
+| Message | Description | Access |
+|---------|-------------|--------|
+| `MsgRequestMigration` | Open a KEY-path migration of the signer's identity to a fresh address (cooldown, rolling-window cap, no open report, key path enabled) | Active member (old address) |
+| `MsgAcceptMigration` | Prove control of the new address; starts the path's delay and enqueues finalization. Completes every path | New address |
+| `MsgCancelMigration` | Cancel a pending migration | Old/new address (KEY); HR committee policy (KEY, COUNCIL); gov (any) |
+| `MsgSetRecoveryCommitment` | Add/replace a SHA-256 recovery commitment (active after `recovery_change_delay`; up to 4) | Active member |
+| `MsgRemoveRecoveryCommitment` | Schedule a commitment's removal after `recovery_change_delay` | Active member |
+| `MsgCommitRecovery` | Seal `(preimage, old, new)` against `recovery_commit_deposit` (front-running guard) | Anyone |
+| `MsgRevealRecovery` | Reveal a preimage: consumes the commitment, cancels lower-precedence migrations, opens a RECOVERY migration | Anyone (revealer) |
+| `MsgForceMigration` | Open a COUNCIL migration on off-chain evidence | Commons Governance (HR) committee policy, gov |
+| `MsgObjectMigration` | Contest a COUNCIL migration during its delay; posts `migration_objection_bond`, jury decides | Old address |
+| `MsgSweepTombstone` | Move a tombstone's spendable SPARK to its canonical address | Canonical address |
+
 ### Parameter Updates
 
 | Message | Description | Access |
@@ -616,6 +631,16 @@ DREAM-bonded role primitive only. SPARK-staked roles (e.g. federation bridge ope
 | `MsgUpdateOperationalParams` | Update operational parameters | Committee authority |
 
 ## Queries
+
+### Member Key Migration
+
+| Query | Description |
+|-------|-------------|
+| `Canonical` | Current address of an identity, whether the address is a tombstone and the migration path |
+| `Aliases` | Canonical address plus every address the identity used (`addresses`) and those inside the dedup horizon (`recent`) |
+| `MemberMigration` / `MemberMigrations` | One migration by id / paginated list |
+| `PendingMigration` | The member's pending migration |
+| `RecoveryCommitments` | A member's recovery commitment set (hashes only) |
 
 ### Core Lookups
 
@@ -711,6 +736,16 @@ These parameters are excluded from `RepOperationalParams` and can only be change
 | `completer_share` | 90% | Initiative reward to completer |
 | `treasury_share` | 10% | Initiative reward to treasury |
 | `trust_level_config` | See trust levels table | Trust level thresholds and invitation credits |
+
+| `migration_enabled` / `key_path_enabled` | true / true | Member key migration master switch / key-path ("Q-day") switch |
+| `key_migration_delay` / `recovery_migration_delay` / `council_migration_delay` | 7d / 2d / 21d | Accept-to-finalization delay per path (test build: 20s / 10s / 40s) |
+| `migration_accept_window` | 7d | Time the new address has to accept |
+| `migration_cooldown` | 30d | Key-path cooldown after any migration |
+| `max_key_migrations_per_window` / `key_migration_window` | 2 / 365d | Rolling key-path cap (window >= 2 x cooldown) |
+| `recovery_change_delay` | 30d | Delay before a set/replaced/removed commitment takes effect (> key delay) |
+| `recovery_reveal_min_blocks` / `recovery_commit_ttl` | 20 / 7d | Seal minimum age / seal lifetime (deposit burned on expiry) |
+| `recovery_commit_deposit` / `migration_objection_bond` | 1 SPARK / 10 SPARK | Seal deposit (refunded on reveal) / council objection bond (paid to the new address or refunded, never burned) |
+| `zk_key_activation_delay` | 14 epochs | Delay before a changed ZK key enters the trust tree; caps council voting periods |
 
 ### Operational (via `MsgUpdateOperationalParams`)
 
@@ -906,6 +941,19 @@ Per-project review is configured by `MsgSetVerificationPolicy`;
 | `x/commons` | Yes | Committee/council authorization checks |
 | `x/season` | No | Current season number for reputation resets |
 | `x/forum` | No | Narrow `ForumKeeper` surface (`PruneTagReferences`, `GetPostAuthor`, `GetPostTags`) for tag moderation + tag-budget award validation; x/rep now owns tag storage itself |
+
+### Member key migration
+
+A member moves their identity to a fresh address through the key path
+(`MsgRequestMigration` + `MsgAcceptMigration`), a pre-registered recovery
+commitment (`MsgCommitRecovery` / `MsgRevealRecovery`, survives a key
+compromise or signature-scheme break) or the Commons HR committee
+(`MsgForceMigration`, objectable to a jury). Bounded core state is re-keyed
+at finalization; everything else is read through the alias contract
+(`Canonical`, `CanActAs`, `SameMember`, `RecentAddressesOf`,
+`AllAddressesOf`). The old address is a tombstone: a bank send restriction
+redirects SPARK sent to it and an ante decorator limits what it may sign.
+Full contract: docs/x-rep-spec.md, "Member key migration".
 
 ### Shield-Aware Messages
 

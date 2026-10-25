@@ -318,6 +318,9 @@ func (k Keeper) decayStakes(ctx context.Context) error {
 // GetBalance returns the balance of a member, applying any pending decay first.
 // It persists the updated member state to the store.
 func (k Keeper) GetBalance(ctx context.Context, addr sdk.AccAddress) (math.Int, error) {
+	// Value lookup: a stored (possibly tombstoned) address resolves to the
+	// member that now carries it (alias.go).
+	addr = k.resolveMember(ctx, addr)
 	member, err := k.Member.Get(ctx, addr.String())
 	if err != nil {
 		// Member not found, return 0
@@ -348,6 +351,9 @@ var referralMintingKey = referralMintingKeyType{}
 // This updates the member's balance and lifetime earned tracking.
 // The member must already exist in the system.
 func (k Keeper) MintDREAM(ctx context.Context, addr sdk.AccAddress, amount math.Int) error {
+	// Value lookup: a stored (possibly tombstoned) address resolves to the
+	// member that now carries it (alias.go).
+	addr = k.resolveMember(ctx, addr)
 	if amount.IsNegative() || amount.IsZero() {
 		return types.ErrInvalidAmount
 	}
@@ -424,6 +430,9 @@ func (k Keeper) MintDREAM(ctx context.Context, addr sdk.AccAddress, amount math.
 // payout. The lifetime-earned counter is incremented so members still see
 // the income in their history.
 func (k Keeper) CreditDREAM(ctx context.Context, addr sdk.AccAddress, amount math.Int) error {
+	// Value lookup: a stored (possibly tombstoned) address resolves to the
+	// member that now carries it (alias.go).
+	addr = k.resolveMember(ctx, addr)
 	if amount.IsNegative() || amount.IsZero() {
 		return types.ErrInvalidAmount
 	}
@@ -473,6 +482,9 @@ func (k Keeper) CreditDREAM(ctx context.Context, addr sdk.AccAddress, amount mat
 // treasury overflow. SPARK burns — the bonded-role reward-pool overflows — are
 // deliberately excluded; SeasonBurned counts DREAM.
 func (k Keeper) BurnDREAM(ctx context.Context, addr sdk.AccAddress, amount math.Int) error {
+	// Value lookup: a stored (possibly tombstoned) address resolves to the
+	// member that now carries it (alias.go).
+	addr = k.resolveMember(ctx, addr)
 	if amount.IsNegative() || amount.IsZero() {
 		return types.ErrInvalidAmount
 	}
@@ -523,6 +535,9 @@ func (k Keeper) BurnDREAM(ctx context.Context, addr sdk.AccAddress, amount math.
 // instead decay at the lower StakedDecayRate via decayStakes, which shrinks
 // the stake records and this aggregate together.
 func (k Keeper) LockDREAM(ctx context.Context, addr sdk.AccAddress, amount math.Int) error {
+	// Value lookup: a stored (possibly tombstoned) address resolves to the
+	// member that now carries it (alias.go).
+	addr = k.resolveMember(ctx, addr)
 	if amount.IsNegative() || amount.IsZero() {
 		return types.ErrInvalidAmount
 	}
@@ -567,6 +582,9 @@ func (k Keeper) LockDREAM(ctx context.Context, addr sdk.AccAddress, amount math.
 // UnlockDREAM unlocks DREAM tokens (moves from staked to available balance).
 // Unlocked tokens begin decaying at the unstaked rate if not re-staked.
 func (k Keeper) UnlockDREAM(ctx context.Context, addr sdk.AccAddress, amount math.Int) error {
+	// Value lookup: a stored (possibly tombstoned) address resolves to the
+	// member that now carries it (alias.go).
+	addr = k.resolveMember(ctx, addr)
 	if amount.IsNegative() || amount.IsZero() {
 		return types.ErrInvalidAmount
 	}
@@ -626,6 +644,9 @@ func (k Keeper) UnlockDREAM(ctx context.Context, addr sdk.AccAddress, amount mat
 // All limit checks run before any state is written, so a refused transfer
 // leaves no trace even when called from another module outside a tx.
 func (k Keeper) TransferDREAM(ctx context.Context, sender, recipient sdk.AccAddress, amount math.Int, purpose types.TransferPurpose) error {
+	// A transfer to a tombstone reaches the member that now carries it; a
+	// tombstoned sender is refused by the membership gate below.
+	recipient = k.resolveMember(ctx, recipient)
 	if amount.IsNil() || !amount.IsPositive() {
 		return types.ErrInvalidAmount
 	}

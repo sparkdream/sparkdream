@@ -33,7 +33,7 @@ func (k msgServer) AssignBountyToReply(ctx context.Context, msg *types.MsgAssign
 	}
 
 	// Verify creator is the bounty creator
-	if bounty.Creator != msg.Creator {
+	if !k.canActAs(ctx, msg.Creator, bounty.Creator) {
 		return nil, errorsmod.Wrap(types.ErrNotBountyCreator, "only the bounty creator can assign awards")
 	}
 
@@ -76,7 +76,7 @@ func (k msgServer) AssignBountyToReply(ctx context.Context, msg *types.MsgAssign
 	}
 
 	// Creators cannot pay the escrow back to themselves through their own reply
-	if reply.Author == bounty.Creator {
+	if k.sameMember(ctx, reply.Author, bounty.Creator) {
 		return nil, errorsmod.Wrap(types.ErrCannotAwardSelf, "bounty creator cannot accept their own reply")
 	}
 

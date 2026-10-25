@@ -43,6 +43,14 @@ type RepKeeper interface {
 	// Returns 0 if the address is not a member.
 	GetTrustLevel(ctx context.Context, addr sdk.AccAddress) (reptypes.TrustLevel, error)
 
+	// Alias contract (member key migration, docs/x-rep-spec.md). Stored
+	// creators are interpreted through these; a tombstoned signer never
+	// passes CanActAs.
+	CanActAs(ctx context.Context, signer, stored string) bool
+	SameMember(ctx context.Context, a, b string) bool
+	RecentAddressesOf(ctx context.Context, member string) []string
+	AllAddressesOf(ctx context.Context, member string) []string
+
 	// Content conviction staking & author bonds
 	GetContentConviction(ctx context.Context, targetType reptypes.StakeTargetType, targetID uint64) (math.LegacyDec, error)
 	GetContentStakes(ctx context.Context, targetType reptypes.StakeTargetType, targetID uint64) ([]reptypes.Stake, error)

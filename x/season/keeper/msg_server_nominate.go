@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	repkeeper "sparkdream/x/rep/keeper"
 	reptypes "sparkdream/x/rep/types"
 	"sparkdream/x/season/types"
 
@@ -76,11 +77,12 @@ func (k msgServer) Nominate(ctx context.Context, msg *types.MsgNominate) (*types
 	// (duplicate found OR creator count exceeds max), we stop early.
 	var creatorNomCount uint64
 	var maxReached bool
+	creatorAliases := k.recentAddressesOf(ctx, msg.Creator)
 	err = k.Nomination.Walk(ctx, nil, func(id uint64, nom types.Nomination) (bool, error) {
 		if nom.Season != season.Number {
 			return false, nil
 		}
-		if nom.Nominator == msg.Creator {
+		if repkeeper.AddressesMatch(creatorAliases, nom.Nominator) {
 			creatorNomCount++
 			if creatorNomCount >= params.MaxNominationsPerMember {
 				maxReached = true

@@ -29,6 +29,10 @@ type mockDistrKeeper struct {
 	failOn bool
 }
 
+func (m *mockDistrKeeper) SetWithdrawAddr(ctx context.Context, delegatorAddr, withdrawAddr sdk.AccAddress) error {
+	return nil
+}
+
 func (m *mockDistrKeeper) GetCommunityPool(_ context.Context) (sdk.DecCoins, error) {
 	return sdk.NewDecCoins(sdk.NewDecCoin(m.denom, m.pool)), nil
 }

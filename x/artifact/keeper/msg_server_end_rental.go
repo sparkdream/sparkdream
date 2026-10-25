@@ -21,9 +21,9 @@ func (k msgServer) EndRental(ctx context.Context, msg *types.MsgEndRental) (*typ
 	}
 	reason := ""
 	switch {
-	case msg.Signer == r.User:
+	case k.canActAs(ctx, msg.Signer, r.User):
 		reason = "user"
-	case msg.Signer == r.Owner && (r.OwnerMayEnd || r.ExpiresAt <= now(ctx)):
+	case k.canActAs(ctx, msg.Signer, r.Owner) && (r.OwnerMayEnd || r.ExpiresAt <= now(ctx)):
 		reason = "owner"
 	default:
 		return nil, types.ErrRentalActive

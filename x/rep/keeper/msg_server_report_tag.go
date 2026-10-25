@@ -40,8 +40,9 @@ func (k msgServer) ReportTag(ctx context.Context, msg *types.MsgReportTag) (*typ
 
 	existingReport, err := k.TagReport.Get(ctx, msg.TagName)
 	if err == nil {
+		recent := k.RecentAddressesOf(ctx, msg.Creator)
 		for _, reporter := range existingReport.Reporters {
-			if reporter == msg.Creator {
+			if AddressesMatch(recent, reporter) {
 				return nil, errorsmod.Wrap(types.ErrTagReportAlreadyExists, "already reported this tag")
 			}
 		}

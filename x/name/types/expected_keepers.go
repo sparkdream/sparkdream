@@ -54,6 +54,13 @@ type RepKeeper interface {
 	// IsActiveMember reports whether addr is a registered x/rep member with
 	// status MEMBER_STATUS_ACTIVE. Used as the registration / transfer gate.
 	IsActiveMember(ctx context.Context, addr sdk.AccAddress) bool
+
+	// Member key migration alias contract (docs/x-rep-spec.md, "Member key
+	// migration"). Records keep storing the address they were written with;
+	// these resolve it against the member's current address.
+	CanActAs(ctx context.Context, signer, stored string) bool
+	SameMember(ctx context.Context, a, b string) bool
+	AllAddressesOf(ctx context.Context, member string) []string
 }
 
 // ParamSubspace defines the expected Subspace interface for parameters.

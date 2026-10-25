@@ -54,5 +54,30 @@ func (q queryServer) JuryReviewsByJuror(ctx context.Context, req *types.QueryJur
 		return nil, status.Error(codes.Internal, err.Error())
 	}
 
+	// Seats drawn under an address the juror has since migrated away from are
+	// indexed under that address. The page above is the requested address's
+	// prefix; the other aliases' seatings are appended in full after it
+	// (pagination stays per-alias-naive: the index is prefix-paged, so a
+	// cross-alias cursor would have to be invented).
+	for _, alias := range q.k.AllAddressesOf(ctx, req.Juror) {
+		if alias == req.Juror {
+			continue
+		}
+		rng := collections.NewPrefixedPairRange[string, uint64](alias)
+		if err := q.k.JuryReviewsByJuror.Walk(ctx, rng, func(key collections.Pair[string, uint64]) (bool, error) {
+			review, gErr := q.k.JuryReview.Get(ctx, key.K2())
+			if gErr != nil {
+				return false, nil
+			}
+			if req.PendingOnly && review.Verdict != types.Verdict_VERDICT_PENDING {
+				return false, nil
+			}
+			reviews = append(reviews, review)
+			return false, nil
+		}); err != nil {
+			return nil, status.Error(codes.Internal, err.Error())
+		}
+	}
+
 	return &types.QueryJuryReviewsByJurorResponse{JuryReview: reviews, Pagination: pageRes}, nil
 }

@@ -404,10 +404,103 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 			"rebased stake reward debt against the imported seasonal accumulator",
 			"stakes", rebased)
 	}
-	return nil
+	return k.initMigrationGenesis(ctx, genState)
 }
 
 // ExportGenesis returns the module's exported genesis.
+// initMigrationGenesis imports the member key migration state and rebuilds
+// its derived indexes (reverse alias index, pending pointers, queues).
+func (k Keeper) initMigrationGenesis(ctx context.Context, genState types.GenesisState) error {
+	params := genState.Params
+	for _, t := range genState.TombstoneList {
+		if err := k.Tombstones.Set(ctx, t.Address, t); err != nil {
+			return err
+		}
+		if err := k.MigratedFrom.Set(ctx, collections.Join3(t.Canonical, t.FinalizedEpoch, t.Address)); err != nil {
+			return err
+		}
+	}
+	for _, m := range genState.MemberMigrationList {
+		if err := k.MemberMigrations.Set(ctx, m.Id, m); err != nil {
+			return err
+		}
+		if !types.IsPendingMigrationStatus(m.Status) {
+			continue
+		}
+		if err := k.PendingMigrationByMember.Set(ctx, m.FromAddress, m.Id); err != nil {
+			return err
+		}
+		if err := k.PendingMigrationByTarget.Set(ctx, m.ToAddress, m.Id); err != nil {
+			return err
+		}
+		switch m.Status {
+		case types.MigrationStatus_MIGRATION_STATUS_REQUESTED:
+			if err := k.MigrationAcceptExpiry.Set(ctx, collections.Join(m.RequestedAt+params.MigrationAcceptWindow, m.Id)); err != nil {
+				return err
+			}
+		case types.MigrationStatus_MIGRATION_STATUS_ACCEPTED:
+			if err := k.MigrationQueue.Set(ctx, collections.Join(m.ExecutesAt, m.Id)); err != nil {
+				return err
+			}
+		}
+	}
+	if err := k.MemberMigrationSeq.Set(ctx, genState.MemberMigrationCount); err != nil {
+		return err
+	}
+	for _, e := range genState.RecoveryCommitmentList {
+		if err := k.RecoveryCommitments.Set(ctx, e.Member, e.Set); err != nil {
+			return err
+		}
+	}
+	for _, c := range genState.RecoveryCommitList {
+		if err := k.RecoveryCommits.Set(ctx, c.Sealed, c); err != nil {
+			return err
+		}
+		if err := k.RecoveryCommitExpiry.Set(ctx, collections.Join(c.ExpiresAt, c.Sealed)); err != nil {
+			return err
+		}
+	}
+	for _, m := range genState.MemberMap {
+		if len(m.PendingZkPublicKey) > 0 {
+			if err := k.ZkKeyActivationQueue.Set(ctx, collections.Join(m.ZkKeyActivatesAtEpoch, m.Address)); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// exportMigrationGenesis exports the member key migration state.
+func (k Keeper) exportMigrationGenesis(ctx context.Context, genesis *types.GenesisState) error {
+	if err := k.Tombstones.Walk(ctx, nil, func(_ string, t types.Tombstone) (bool, error) {
+		genesis.TombstoneList = append(genesis.TombstoneList, t)
+		return false, nil
+	}); err != nil {
+		return err
+	}
+	if err := k.MemberMigrations.Walk(ctx, nil, func(_ uint64, m types.MemberMigration) (bool, error) {
+		genesis.MemberMigrationList = append(genesis.MemberMigrationList, m)
+		return false, nil
+	}); err != nil {
+		return err
+	}
+	count, err := k.MemberMigrationSeq.Peek(ctx)
+	if err != nil {
+		return err
+	}
+	genesis.MemberMigrationCount = count
+	if err := k.RecoveryCommitments.Walk(ctx, nil, func(member string, set types.RecoveryCommitmentSet) (bool, error) {
+		genesis.RecoveryCommitmentList = append(genesis.RecoveryCommitmentList, types.RecoveryCommitmentEntry{Member: member, Set: set})
+		return false, nil
+	}); err != nil {
+		return err
+	}
+	return k.RecoveryCommits.Walk(ctx, nil, func(_ []byte, c types.RecoveryCommit) (bool, error) {
+		genesis.RecoveryCommitList = append(genesis.RecoveryCommitList, c)
+		return false, nil
+	})
+}
+
 func (k Keeper) ExportGenesis(ctx context.Context) (*types.GenesisState, error) {
 	var err error
 
@@ -719,6 +812,9 @@ func (k Keeper) ExportGenesis(ctx context.Context) (*types.GenesisState, error) 
 	}
 	genesis.EconomicState = econ
 
+	if err := k.exportMigrationGenesis(ctx, genesis); err != nil {
+		return nil, err
+	}
 	return genesis, nil
 }
 

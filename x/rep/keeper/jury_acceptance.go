@@ -26,42 +26,57 @@ import (
 // decline surfaces it in the acceptance window instead, while there is still
 // time to seat somebody who will actually read the work.
 
-// jurorSeatGuard resolves a juror's seat on a review and rejects the calls that
-// cannot apply: a review already decided, a juror not seated on it, or one who
-// has already voted.
-func (k Keeper) jurorSeatGuard(ctx context.Context, juryReviewID uint64, juror string) (types.JuryReview, error) {
-	review, err := k.GetJuryReview(ctx, juryReviewID)
-	if err != nil {
-		return types.JuryReview{}, err
-	}
-	if review.Verdict != types.Verdict_VERDICT_PENDING {
-		return types.JuryReview{}, errorsmod.Wrapf(types.ErrJuryReviewResolved,
-			"jury review %d already returned %s", juryReviewID, review.Verdict)
-	}
-	if !slices.Contains(review.Jurors, juror) {
-		return types.JuryReview{}, errorsmod.Wrapf(types.ErrNotSeatedJuror,
-			"%s is not seated on jury review %d", juror, juryReviewID)
-	}
-	for _, v := range review.Votes {
-		if v != nil && v.Juror == juror {
-			return types.JuryReview{}, errorsmod.Wrapf(types.ErrJurorAlreadyVoted,
-				"%s has already voted on jury review %d", juror, juryReviewID)
+// jurorSeatFor returns the Jurors entry signer may act for: a seat is drawn
+// under the address the member held at the time, and a member who migrated
+// since still holds it. Votes, acceptances and declines are recorded under
+// the seat address so every path that matches them against Jurors keeps
+// working.
+func (k Keeper) jurorSeatFor(ctx context.Context, review types.JuryReview, signer string) (string, bool) {
+	for _, j := range review.Jurors {
+		if k.CanActAs(ctx, signer, j) {
+			return j, true
 		}
 	}
-	return review, nil
+	return "", false
+}
+
+// jurorSeatGuard resolves a juror's seat on a review and rejects the calls that
+// cannot apply: a review already decided, a juror not seated on it, or one who
+// has already voted. Returns the seat address the signer acts for.
+func (k Keeper) jurorSeatGuard(ctx context.Context, juryReviewID uint64, signer string) (types.JuryReview, string, error) {
+	review, err := k.GetJuryReview(ctx, juryReviewID)
+	if err != nil {
+		return types.JuryReview{}, "", err
+	}
+	if review.Verdict != types.Verdict_VERDICT_PENDING {
+		return types.JuryReview{}, "", errorsmod.Wrapf(types.ErrJuryReviewResolved,
+			"jury review %d already returned %s", juryReviewID, review.Verdict)
+	}
+	seat, seated := k.jurorSeatFor(ctx, review, signer)
+	if !seated {
+		return types.JuryReview{}, "", errorsmod.Wrapf(types.ErrNotSeatedJuror,
+			"%s is not seated on jury review %d", signer, juryReviewID)
+	}
+	for _, v := range review.Votes {
+		if v != nil && v.Juror == seat {
+			return types.JuryReview{}, "", errorsmod.Wrapf(types.ErrJurorAlreadyVoted,
+				"%s has already voted on jury review %d", signer, juryReviewID)
+		}
+	}
+	return review, seat, nil
 }
 
 // AcceptJuryDuty records a juror's commitment to vote on a review.
 func (k Keeper) AcceptJuryDuty(ctx context.Context, juryReviewID uint64, juror string) error {
-	review, err := k.jurorSeatGuard(ctx, juryReviewID, juror)
+	review, seat, err := k.jurorSeatGuard(ctx, juryReviewID, juror)
 	if err != nil {
 		return err
 	}
-	if slices.Contains(review.Accepted, juror) {
+	if slices.Contains(review.Accepted, seat) {
 		return nil // idempotent
 	}
 
-	review.Accepted = append(review.Accepted, juror)
+	review.Accepted = append(review.Accepted, seat)
 	if err := k.JuryReview.Set(ctx, review.Id, review); err != nil {
 		return err
 	}
@@ -69,7 +84,7 @@ func (k Keeper) AcceptJuryDuty(ctx context.Context, juryReviewID uint64, juror s
 	sdk.UnwrapSDKContext(ctx).EventManager().EmitEvent(sdk.NewEvent(
 		"jury_duty_accepted",
 		sdk.NewAttribute("jury_review_id", fmt.Sprintf("%d", juryReviewID)),
-		sdk.NewAttribute("juror", juror),
+		sdk.NewAttribute("juror", seat),
 	))
 	return nil
 }
@@ -132,14 +147,14 @@ func (k Keeper) maxJuryRedraws(ctx context.Context) uint32 {
 // for jurors who never asked to be drawn, and an early decline is strictly more
 // useful to the dispute than a silent absence.
 func (k Keeper) DeclineJuryDuty(ctx context.Context, juryReviewID uint64, juror string) error {
-	review, err := k.jurorSeatGuard(ctx, juryReviewID, juror)
+	review, seat, err := k.jurorSeatGuard(ctx, juryReviewID, juror)
 	if err != nil {
 		return err
 	}
 
 	seatsWanted := len(review.Jurors)
 
-	if err := k.vacateJurySeat(ctx, &review, juror); err != nil {
+	if err := k.vacateJurySeat(ctx, &review, seat); err != nil {
 		return err
 	}
 
@@ -147,7 +162,7 @@ func (k Keeper) DeclineJuryDuty(ctx context.Context, juryReviewID uint64, juror 
 	// with the most review time left to act on. Refill immediately rather than
 	// waiting for the acceptance sweep, which only runs after the acceptance
 	// deadline and cannot vacate at all when jury_size equals MinSeatedJurors.
-	replacements := k.refillJurySeats(ctx, &review, seatsWanted, juror)
+	replacements := k.refillJurySeats(ctx, &review, seatsWanted, seat, juror)
 	review.Jurors = append(review.Jurors, replacements...)
 	for _, addr := range replacements {
 		if err := k.JuryReviewsByJuror.Set(ctx, collections.Join(addr, review.Id)); err != nil {
@@ -170,7 +185,8 @@ func (k Keeper) DeclineJuryDuty(ctx context.Context, juryReviewID uint64, juror 
 	}
 	// Take the seat back out of the participation denominator. RecordJurySeating
 	// counted it when the lot drew them; leaving it counted would make a decline
-	// cost the same as silence.
+	// cost the same as silence. JuryParticipation is re-keyed to the canonical
+	// address at migration, hence the signer rather than the seat.
 	if err := k.recordJuryDecline(ctx, juror); err != nil {
 		return err
 	}
@@ -178,7 +194,7 @@ func (k Keeper) DeclineJuryDuty(ctx context.Context, juryReviewID uint64, juror 
 	sdk.UnwrapSDKContext(ctx).EventManager().EmitEvent(sdk.NewEvent(
 		"jury_duty_declined",
 		sdk.NewAttribute("jury_review_id", fmt.Sprintf("%d", juryReviewID)),
-		sdk.NewAttribute("juror", juror),
+		sdk.NewAttribute("juror", seat),
 		sdk.NewAttribute("replacements", strings.Join(replacements, ",")),
 		sdk.NewAttribute("seated", fmt.Sprintf("%d", len(review.Jurors))),
 	))

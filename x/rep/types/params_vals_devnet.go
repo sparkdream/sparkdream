@@ -82,3 +82,17 @@ func getInvitationCostMultiplier() math.LegacyDec {
 func getMaxInterimRewardsPerSeason() math.Int {
 	return math.NewInt(50_000_000_000) // 50,000 DREAM
 }
+
+// getMigrationTimings returns the member key migration windows (production
+// defaults, see productionMigrationTimings).
+func getMigrationTimings() migrationTimings { return productionMigrationTimings() }
+
+// getAliasDedupHorizonEpochs is the production dedup horizon of the member
+// key migration: 240 epochs, which covers a 150-epoch season with its 7-epoch
+// transition and 14-epoch extension cap.
+func getAliasDedupHorizonEpochs() int64 { return 240 }
+
+// getVotingPeriodCapEnabled reports whether council voting periods are capped
+// by the ZK key activation delay (member-key-migration plan, decision 17).
+// Always on in production builds.
+func getVotingPeriodCapEnabled() bool { return true }

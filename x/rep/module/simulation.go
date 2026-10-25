@@ -682,6 +682,141 @@ func (am AppModule) WeightedOperations(simState module.SimulationState) []simtyp
 		weightMsgRevokeInvitation,
 		repsimulation.SimulateMsgRevokeInvitation(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
 	))
+	const (
+		opWeightMsgRequestMigration          = "op_weight_msg_rep"
+		defaultWeightMsgRequestMigration int = 100
+	)
+
+	var weightMsgRequestMigration int
+	simState.AppParams.GetOrGenerate(opWeightMsgRequestMigration, &weightMsgRequestMigration, nil,
+		func(_ *rand.Rand) {
+			weightMsgRequestMigration = defaultWeightMsgRequestMigration
+		},
+	)
+	operations = append(operations, simulation.NewWeightedOperation(
+		weightMsgRequestMigration,
+		repsimulation.SimulateMsgRequestMigration(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
+	))
+	const (
+		opWeightMsgAcceptMigration          = "op_weight_msg_rep"
+		defaultWeightMsgAcceptMigration int = 100
+	)
+
+	var weightMsgAcceptMigration int
+	simState.AppParams.GetOrGenerate(opWeightMsgAcceptMigration, &weightMsgAcceptMigration, nil,
+		func(_ *rand.Rand) {
+			weightMsgAcceptMigration = defaultWeightMsgAcceptMigration
+		},
+	)
+	operations = append(operations, simulation.NewWeightedOperation(
+		weightMsgAcceptMigration,
+		repsimulation.SimulateMsgAcceptMigration(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
+	))
+	const (
+		opWeightMsgCancelMigration          = "op_weight_msg_rep"
+		defaultWeightMsgCancelMigration int = 100
+	)
+
+	var weightMsgCancelMigration int
+	simState.AppParams.GetOrGenerate(opWeightMsgCancelMigration, &weightMsgCancelMigration, nil,
+		func(_ *rand.Rand) {
+			weightMsgCancelMigration = defaultWeightMsgCancelMigration
+		},
+	)
+	operations = append(operations, simulation.NewWeightedOperation(
+		weightMsgCancelMigration,
+		repsimulation.SimulateMsgCancelMigration(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
+	))
+	const (
+		opWeightMsgSetRecoveryCommitment          = "op_weight_msg_rep"
+		defaultWeightMsgSetRecoveryCommitment int = 100
+	)
+
+	var weightMsgSetRecoveryCommitment int
+	simState.AppParams.GetOrGenerate(opWeightMsgSetRecoveryCommitment, &weightMsgSetRecoveryCommitment, nil,
+		func(_ *rand.Rand) {
+			weightMsgSetRecoveryCommitment = defaultWeightMsgSetRecoveryCommitment
+		},
+	)
+	operations = append(operations, simulation.NewWeightedOperation(
+		weightMsgSetRecoveryCommitment,
+		repsimulation.SimulateMsgSetRecoveryCommitment(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
+	))
+	const (
+		opWeightMsgRemoveRecoveryCommitment          = "op_weight_msg_rep"
+		defaultWeightMsgRemoveRecoveryCommitment int = 100
+	)
+
+	var weightMsgRemoveRecoveryCommitment int
+	simState.AppParams.GetOrGenerate(opWeightMsgRemoveRecoveryCommitment, &weightMsgRemoveRecoveryCommitment, nil,
+		func(_ *rand.Rand) {
+			weightMsgRemoveRecoveryCommitment = defaultWeightMsgRemoveRecoveryCommitment
+		},
+	)
+	operations = append(operations, simulation.NewWeightedOperation(
+		weightMsgRemoveRecoveryCommitment,
+		repsimulation.SimulateMsgRemoveRecoveryCommitment(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
+	))
+	const (
+		opWeightMsgCommitRecovery          = "op_weight_msg_rep"
+		defaultWeightMsgCommitRecovery int = 100
+	)
+
+	var weightMsgCommitRecovery int
+	simState.AppParams.GetOrGenerate(opWeightMsgCommitRecovery, &weightMsgCommitRecovery, nil,
+		func(_ *rand.Rand) {
+			weightMsgCommitRecovery = defaultWeightMsgCommitRecovery
+		},
+	)
+	operations = append(operations, simulation.NewWeightedOperation(
+		weightMsgCommitRecovery,
+		repsimulation.SimulateMsgCommitRecovery(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
+	))
+	const (
+		opWeightMsgRevealRecovery          = "op_weight_msg_rep"
+		defaultWeightMsgRevealRecovery int = 100
+	)
+
+	var weightMsgRevealRecovery int
+	simState.AppParams.GetOrGenerate(opWeightMsgRevealRecovery, &weightMsgRevealRecovery, nil,
+		func(_ *rand.Rand) {
+			weightMsgRevealRecovery = defaultWeightMsgRevealRecovery
+		},
+	)
+	operations = append(operations, simulation.NewWeightedOperation(
+		weightMsgRevealRecovery,
+		repsimulation.SimulateMsgRevealRecovery(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
+	))
+	const (
+		opWeightMsgObjectMigration          = "op_weight_msg_rep"
+		defaultWeightMsgObjectMigration int = 100
+	)
+
+	var weightMsgObjectMigration int
+	simState.AppParams.GetOrGenerate(opWeightMsgObjectMigration, &weightMsgObjectMigration, nil,
+		func(_ *rand.Rand) {
+			weightMsgObjectMigration = defaultWeightMsgObjectMigration
+		},
+	)
+	operations = append(operations, simulation.NewWeightedOperation(
+		weightMsgObjectMigration,
+		repsimulation.SimulateMsgObjectMigration(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
+	))
+	const (
+		opWeightMsgSweepTombstone          = "op_weight_msg_rep"
+		defaultWeightMsgSweepTombstone int = 100
+	)
+
+	var weightMsgSweepTombstone int
+	simState.AppParams.GetOrGenerate(opWeightMsgSweepTombstone, &weightMsgSweepTombstone, nil,
+		func(_ *rand.Rand) {
+			weightMsgSweepTombstone = defaultWeightMsgSweepTombstone
+		},
+	)
+	operations = append(operations, simulation.NewWeightedOperation(
+		weightMsgSweepTombstone,
+		repsimulation.SimulateMsgSweepTombstone(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
+	))
 
 	return operations
 }

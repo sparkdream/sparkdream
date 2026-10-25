@@ -22,7 +22,7 @@ func (k msgServer) CancelSponsorshipRequest(ctx context.Context, msg *types.MsgC
 	if err != nil {
 		return nil, errorsmod.Wrap(types.ErrCollectionNotFound, "collection not found")
 	}
-	if coll.Owner != msg.Creator {
+	if !k.canActAs(ctx, msg.Creator, coll.Owner) {
 		return nil, errorsmod.Wrap(types.ErrUnauthorized, "only collection owner can cancel sponsorship request")
 	}
 

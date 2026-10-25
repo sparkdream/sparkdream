@@ -264,9 +264,11 @@ func (k Keeper) CountActiveInitiativesForAssignee(ctx context.Context, assignee 
 	if assignee == "" {
 		return 0, nil
 	}
+	// Work held under a recent alias still counts against the cap.
+	assigneeAddrs := k.RecentAddressesOf(ctx, assignee)
 	var count uint32
 	k.IterateActiveInitiatives(ctx, func(_ int64, initiative types.Initiative) bool {
-		if initiative.Assignee == assignee {
+		if AddressesMatch(assigneeAddrs, initiative.Assignee) {
 			count++
 		}
 		return false
@@ -408,7 +410,7 @@ func (k Keeper) AssignInitiativeToMember(
 	if err != nil {
 		return err
 	}
-	if IsSelfAssigned(initiative, project, assignee.String()) {
+	if k.isSelfAssigned(ctx, initiative, project, assignee.String()) {
 		bondRate := params.SelfAssignedBondRate
 		if project.Permissionless {
 			bondRate = params.PermissionlessSelfAssignedBondRate
@@ -460,7 +462,7 @@ func (k Keeper) SubmitInitiativeWork(
 	}
 
 	// Validate assignee
-	if initiative.Assignee != assignee.String() {
+	if !k.CanActAs(ctx, assignee.String(), initiative.Assignee) {
 		return fmt.Errorf("only assignee can submit work")
 	}
 
@@ -1204,6 +1206,9 @@ func (k Keeper) CompleteInitiative(ctx context.Context, initiativeID uint64) err
 // Note: This applies and persists decay. For read-only access without persistence,
 // use Member.Get directly and call ApplyPendingDecay without saving.
 func (k Keeper) GetMember(ctx context.Context, address sdk.AccAddress) (types.Member, error) {
+	// Value lookup: a stored (possibly tombstoned) address resolves to the
+	// member that now carries it (alias.go).
+	address = k.resolveMember(ctx, address)
 	member, err := k.Member.Get(ctx, address.String())
 	if err != nil {
 		if err == collections.ErrNotFound {

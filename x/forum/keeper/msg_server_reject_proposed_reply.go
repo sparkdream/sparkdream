@@ -31,7 +31,7 @@ func (k msgServer) RejectProposedReply(ctx context.Context, msg *types.MsgReject
 	}
 
 	// Only thread author can reject proposed reply
-	if thread.Author != msg.Creator {
+	if !k.canActAs(ctx, msg.Creator, thread.Author) {
 		return nil, errorsmod.Wrap(types.ErrNotThreadAuthor, "only thread author can reject proposed reply")
 	}
 

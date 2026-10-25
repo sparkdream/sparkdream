@@ -33,7 +33,7 @@ func (k msgServer) Verify(ctx context.Context, msg *types.MsgVerify) (*types.Msg
 	}
 
 	// Self-vote prevention: contributor cannot vote on own contribution
-	if msg.Voter == contrib.Contributor {
+	if k.sameMember(ctx, msg.Voter, contrib.Contributor) {
 		return nil, types.ErrSelfVote
 	}
 
@@ -50,12 +50,16 @@ func (k msgServer) Verify(ctx context.Context, msg *types.MsgVerify) (*types.Msg
 
 	// Check voter hasn't already voted
 	vk := VoteKey(msg.ContributionId, msg.TrancheId, msg.Voter)
-	hasVoted, err := k.Vote.Has(ctx, vk)
-	if err != nil {
-		return nil, err
-	}
-	if hasVoted {
-		return nil, types.ErrAlreadyVoted
+	// Votes are keyed by the address that cast them: a migrated member must
+	// not vote again from the new key.
+	for _, alias := range k.recentAddressesOf(ctx, msg.Voter) {
+		hasVoted, err := k.Vote.Has(ctx, VoteKey(msg.ContributionId, msg.TrancheId, alias))
+		if err != nil {
+			return nil, err
+		}
+		if hasVoted {
+			return nil, types.ErrAlreadyVoted
+		}
 	}
 
 	// Voter must be a staker for this tranche (skin in the game)
@@ -68,7 +72,7 @@ func (k msgServer) Verify(ctx context.Context, msg *types.MsgVerify) (*types.Msg
 			if err != nil {
 				return true, err
 			}
-			if s.Staker == msg.Voter {
+			if k.canActAs(ctx, msg.Voter, s.Staker) {
 				stakeWeight = stakeWeight.Add(s.Amount)
 			}
 			return false, nil

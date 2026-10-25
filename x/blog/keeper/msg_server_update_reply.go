@@ -34,7 +34,7 @@ func (k msgServer) UpdateReply(ctx context.Context, msg *types.MsgUpdateReply) (
 	}
 
 	// Sender must be reply author
-	if msg.Creator != reply.Creator {
+	if !k.canActAs(ctx, msg.Creator, reply.Creator) {
 		return nil, errorsmod.Wrap(types.ErrUnauthorized, "only reply author can update a reply")
 	}
 

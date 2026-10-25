@@ -26,6 +26,18 @@ func SimulateMsgRegisterZkPublicKey(
 			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgRegisterZkPublicKey{}), "failed to get/create member"), nil, nil
 		}
 
+		// ZK key change discipline (member key migration, plan section 9): a
+		// change is refused while another is waiting for activation, and at
+		// most one change lands per season unless a migration cleared the key.
+		if len(member.PendingZkPublicKey) > 0 {
+			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgRegisterZkPublicKey{}), "zk key change pending activation"), nil, nil
+		}
+		if len(member.ZkPublicKey) > 0 && member.ZkKeyChanged && !member.ZkKeyCooldownExempt {
+			if season, err := k.GetCurrentSeason(ctx); err != nil || member.LastZkKeyChangeSeason == season {
+				return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgRegisterZkPublicKey{}), "zk key already changed this season"), nil, nil
+			}
+		}
+
 		// Generate a random 32-byte ZK public key. The handler rejects values
 		// at or above the BN254 scalar modulus (just under 2^254), so clear the
 		// top three bits: anything below 2^253 is canonical.

@@ -66,7 +66,7 @@ func (k Keeper) validateTaxGrant(ctx context.Context, c types.Class, owner strin
 	}
 	tax := c.Harberger.TaxPerPeriod(price)
 	switch {
-	case info.Granter != owner:
+	case !k.canActAs(ctx, owner, info.Granter):
 		return 0, errorsmod.Wrap(types.ErrInvalidHarbergerGrant, "the grant must come from the holder")
 	case info.Grantee != k.ModuleAddress().String():
 		return 0, errorsmod.Wrapf(types.ErrInvalidHarbergerGrant, "the grantee must be the artifact module %s", k.ModuleAddress())

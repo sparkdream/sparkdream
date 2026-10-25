@@ -5,6 +5,8 @@ import (
 
 	"cosmossdk.io/errors"
 	"cosmossdk.io/math"
+
+	reptypes "sparkdream/x/rep/types"
 )
 
 // Default parameter values from spec
@@ -181,6 +183,15 @@ func (p Params) Validate() error {
 	}
 	if p.UsernameMinLength > p.UsernameMaxLength {
 		return errors.Wrapf(ErrInvalidParams, "username_min_length (%d) must be <= username_max_length (%d)", p.UsernameMinLength, p.UsernameMaxLength)
+	}
+
+	// Member key migration: every season-scoped dedup record must stay inside
+	// x/rep's alias dedup horizon, or a member could act twice on one
+	// season-scoped item with two addresses (member-key-migration plan §3).
+	if total := p.SeasonDurationEpochs + p.SeasonTransitionEpochs + int64(p.MaxExtensionEpochs); total > reptypes.AliasDedupHorizonEpochs {
+		return errors.Wrapf(ErrInvalidParams,
+			"season_duration_epochs + season_transition_epochs + max_extension_epochs (%d) exceeds the x/rep alias dedup horizon (%d epochs)",
+			total, reptypes.AliasDedupHorizonEpochs)
 	}
 
 	// Transition driver params: 0 stalls or silently substitutes magic defaults.

@@ -24,7 +24,7 @@ func (k msgServer) CancelProject(ctx context.Context, msg *types.MsgCancelProjec
 		return nil, errorsmod.Wrap(err, "failed to get project")
 	}
 
-	if msg.Creator != project.Creator {
+	if !k.Keeper.CanActAs(ctx, msg.Creator, project.Creator) {
 		isOps, opsErr := k.Keeper.commonsKeeper.IsCommitteeMember(ctx, sdk.AccAddress(creatorBytes), project.Council, "operations")
 		if opsErr != nil {
 			return nil, errorsmod.Wrap(opsErr, "failed to check operations committee membership")

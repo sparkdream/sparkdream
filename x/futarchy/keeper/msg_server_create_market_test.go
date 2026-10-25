@@ -22,6 +22,11 @@ type stubRepKeeper struct {
 	tracked map[string]reptypes.TrustLevel
 }
 
+// CanActAs: no migrations in unit tests.
+func (s *stubRepKeeper) CanActAs(_ context.Context, signer, stored string) bool {
+	return signer == stored
+}
+
 func (s *stubRepKeeper) GetTrustLevel(_ context.Context, addr sdk.AccAddress) (reptypes.TrustLevel, error) {
 	if s.lookup != nil {
 		return reptypes.TrustLevel_TRUST_LEVEL_NEW, s.lookup

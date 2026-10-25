@@ -371,6 +371,14 @@ func (m *mockRepKeeper) GetReputationTier(ctx context.Context, addr sdk.AccAddre
 	return 5, nil // Return high tier to allow sentinel operations
 }
 
+// Alias contract: no migrations in unit tests, every address is its own canonical.
+func (m *mockRepKeeper) CanActAs(_ context.Context, signer, stored string) bool {
+	return signer == stored
+}
+func (m *mockRepKeeper) SameMember(_ context.Context, a, b string) bool         { return a == b }
+func (m *mockRepKeeper) RecentAddressesOf(_ context.Context, a string) []string { return []string{a} }
+func (m *mockRepKeeper) AllAddressesOf(_ context.Context, a string) []string    { return []string{a} }
+
 func (m *mockRepKeeper) ZeroMember(ctx context.Context, memberAddr sdk.AccAddress, reason string) error {
 	return nil
 }

@@ -30,7 +30,7 @@ func (k msgServer) SetThreadProposalsLock(ctx context.Context, msg *types.MsgSet
 	if thread.ParentId != 0 {
 		return nil, errorsmod.Wrap(types.ErrNotRootPost, "thread_id must be a root post")
 	}
-	if thread.Author != msg.Creator {
+	if !k.canActAs(ctx, msg.Creator, thread.Author) {
 		return nil, errorsmod.Wrap(types.ErrNotThreadAuthor, "only the thread author can lock proposals")
 	}
 

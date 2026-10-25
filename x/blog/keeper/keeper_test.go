@@ -124,6 +124,14 @@ func (m *mockRepKeeper) IsActiveMember(ctx context.Context, addr sdk.AccAddress)
 	return true
 }
 
+// Alias contract: no migrations in unit tests, every address is its own canonical.
+func (m *mockRepKeeper) CanActAs(_ context.Context, signer, stored string) bool {
+	return signer == stored
+}
+func (m *mockRepKeeper) SameMember(_ context.Context, a, b string) bool         { return a == b }
+func (m *mockRepKeeper) RecentAddressesOf(_ context.Context, a string) []string { return []string{a} }
+func (m *mockRepKeeper) AllAddressesOf(_ context.Context, a string) []string    { return []string{a} }
+
 func (m *mockRepKeeper) GetTrustLevel(ctx context.Context, addr sdk.AccAddress) (reptypes.TrustLevel, error) {
 	if m.GetTrustLevelFn != nil {
 		return m.GetTrustLevelFn(ctx, addr)

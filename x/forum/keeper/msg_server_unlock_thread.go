@@ -36,7 +36,7 @@ func (k msgServer) UnlockThread(ctx context.Context, msg *types.MsgUnlockThread)
 
 	if !isGovAuthority {
 		// Sentinel can only unlock threads they locked
-		if post.LockedBy != msg.Creator {
+		if !k.canActAs(ctx, msg.Creator, post.LockedBy) {
 			return nil, errorsmod.Wrap(types.ErrUnauthorized, "sentinels can only unlock threads they locked")
 		}
 

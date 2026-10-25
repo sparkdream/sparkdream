@@ -27,7 +27,7 @@ func (k msgServer) Reveal(ctx context.Context, msg *types.MsgReveal) (*types.Msg
 	if c.Reveal.Kind != types.RevealKind_REVEAL_KIND_BLIND_METADATA {
 		return nil, errorsmod.Wrap(types.ErrInvalidReveal, "class is not a blind mint")
 	}
-	if !isMinter(c, msg.Signer) {
+	if !k.isMinter(ctx, c, msg.Signer) {
 		return nil, types.ErrNotMinter
 	}
 	if c.Status == types.ContentStatus_CONTENT_STATUS_HIDDEN {

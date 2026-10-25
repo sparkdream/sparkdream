@@ -24,7 +24,7 @@ func (k msgServer) RevokeUnits(ctx context.Context, msg *types.MsgRevokeUnits) (
 	if err != nil {
 		return nil, err
 	}
-	if c.Owner != msg.Owner {
+	if !k.canActAs(ctx, msg.Owner, c.Owner) {
 		return nil, types.ErrNotClassOwner
 	}
 	if !c.Flags.IssuerMayBurn() {

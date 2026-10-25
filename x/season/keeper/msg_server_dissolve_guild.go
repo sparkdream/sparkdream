@@ -31,7 +31,7 @@ func (k msgServer) DissolveGuild(ctx context.Context, msg *types.MsgDissolveGuil
 	}
 
 	// Verify the creator is the founder
-	if guild.Founder != msg.Creator {
+	if !k.canActAs(ctx, msg.Creator, guild.Founder) {
 		return nil, types.ErrNotGuildFounder
 	}
 

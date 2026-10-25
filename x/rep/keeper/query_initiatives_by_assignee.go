@@ -17,8 +17,9 @@ func (q queryServer) InitiativesByAssignee(ctx context.Context, req *types.Query
 		return nil, status.Error(codes.InvalidArgument, "assignee cannot be empty")
 	}
 
+	assigneeAddrs := q.k.AllAddressesOf(ctx, req.Assignee)
 	initiatives, err := q.collectInitiatives(ctx, func(ini types.Initiative) bool {
-		return ini.Assignee == req.Assignee
+		return AddressesMatch(assigneeAddrs, ini.Assignee)
 	})
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())

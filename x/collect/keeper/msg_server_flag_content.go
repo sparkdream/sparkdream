@@ -77,7 +77,7 @@ func (k msgServer) FlagContent(ctx context.Context, msg *types.MsgFlagContent) (
 		prevLastFlagAt = flag.LastFlagAt
 		// Check if creator already flagged this target
 		for _, record := range flag.FlagRecords {
-			if record.Flagger == msg.Creator {
+			if k.sameMember(ctx, record.Flagger, msg.Creator) {
 				return nil, types.ErrAlreadyFlagged
 			}
 		}

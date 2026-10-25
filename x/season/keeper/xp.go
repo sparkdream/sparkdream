@@ -218,11 +218,20 @@ func forumXPCooldownKey(beneficiary, actor string) string {
 // forumXPCooldownPassed reports whether `actor` may grant forum XP to
 // `beneficiary` again (the last grant is older than the cooldown).
 func (k Keeper) forumXPCooldownPassed(ctx context.Context, beneficiary, actor string, epoch int64, cooldownEpochs uint64) bool {
-	cd, err := k.ForumXpCooldown.Get(ctx, forumXPCooldownKey(beneficiary, actor))
-	if err != nil {
-		return true
+	// Forum hooks run inside forum txs, which have gas slack: check every
+	// (beneficiary alias, actor alias) pair inside the dedup horizon.
+	for _, b := range k.recentAddressesOf(ctx, beneficiary) {
+		for _, a := range k.recentAddressesOf(ctx, actor) {
+			cd, err := k.ForumXpCooldown.Get(ctx, forumXPCooldownKey(b, a))
+			if err != nil {
+				continue
+			}
+			if epoch-cd.LastGrantedEpoch < int64(cooldownEpochs) {
+				return false
+			}
+		}
 	}
-	return epoch-cd.LastGrantedEpoch >= int64(cooldownEpochs)
+	return true
 }
 
 func (k Keeper) setForumXPCooldown(ctx context.Context, beneficiary, actor string, epoch int64) error {
@@ -237,7 +246,7 @@ func (k Keeper) setForumXPCooldown(ctx context.Context, beneficiary, actor strin
 // actor account age, reciprocal cooldown, per-epoch forum cap) and grants
 // `amount` to the author. Returns false when nothing was granted.
 func (k Keeper) grantForumXP(ctx context.Context, env xpEnv, author, actor string, amount uint64, source types.XPSource, reference string) (bool, error) {
-	if author == actor || amount == 0 {
+	if amount == 0 || k.sameMember(ctx, author, actor) {
 		return false, nil
 	}
 	if !k.isAccountOldEnough(ctx, actor, env.epoch, env.params.ForumXpMinAccountAgeEpochs) {

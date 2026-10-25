@@ -30,7 +30,7 @@ func (k msgServer) Bid(ctx context.Context, msg *types.MsgBid) (*types.MsgBidRes
 	if now(ctx) >= a.EndsAt {
 		return nil, types.ErrAuctionEnded
 	}
-	if msg.Bidder == a.Seller {
+	if k.sameMember(ctx, msg.Bidder, a.Seller) {
 		return nil, errorsmod.Wrap(types.ErrInvalidRecipient, "cannot bid on your own auction")
 	}
 	if _, err := k.validateRecipient("bidder", msg.Bidder); err != nil {

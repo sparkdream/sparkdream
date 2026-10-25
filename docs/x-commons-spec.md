@@ -426,7 +426,7 @@ The chain ships **ten** governance bodies (`Group` records) post-bootstrap:
 7. **Ecosystem Operations Committee** (parent: Ecosystem Council).
 8. **Ecosystem Governance Committee** (parent: Ecosystem Council).
 9. **Commons Operations Committee** (parent: Commons Council).
-10. **Commons Governance Committee** (parent: Commons Council).
+10. **Commons Governance Committee** (parent: Commons Council). Besides `MsgUpdateGroupMembers`, its bootstrap permissions include x/rep's `MsgForceMigration` and `MsgCancelMigration`: it is the HR authority of the member key migration (council path), see docs/x-rep-spec.md "Member key migration". `MsgRegisterGroup` and `MsgUpdateGroupConfig` refuse a `voting_period` longer than x/rep's `zk_key_activation_delay` (in seconds, network builds only), so a council window can never outlive the anonymous double-vote protection.
 
 Each top-level council additionally has a **veto policy address** — a
 second policy on the same `Group` record, with its own `DecisionPolicy`

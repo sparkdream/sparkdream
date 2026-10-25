@@ -102,13 +102,46 @@ type mockRep struct {
 	appeals   []string // "<action type>:<target>" opened via CreateGovActionAppeal
 	// initiatives backs impact-certificate claims (GetInitiative).
 	initiatives map[uint64]reptypes.Initiative
+	// migrated maps a tombstoned address to its canonical successor
+	// (member key migration alias contract).
+	migrated map[string]string
+}
+
+func (r *mockRep) canonical(a string) string {
+	if c, ok := r.migrated[a]; ok {
+		return c
+	}
+	return a
+}
+
+func (r *mockRep) CanActAs(_ context.Context, signer, stored string) bool {
+	if _, tomb := r.migrated[signer]; tomb {
+		return false
+	}
+	return r.canonical(stored) == signer
+}
+func (r *mockRep) SameMember(_ context.Context, a, b string) bool {
+	return r.canonical(a) == r.canonical(b)
+}
+func (r *mockRep) RecentAddressesOf(_ context.Context, m string) []string {
+	c := r.canonical(m)
+	out := []string{c}
+	for old, canon := range r.migrated {
+		if canon == c {
+			out = append(out, old)
+		}
+	}
+	return out
+}
+func (r *mockRep) AllAddressesOf(ctx context.Context, m string) []string {
+	return r.RecentAddressesOf(ctx, m)
 }
 
 func newMockRep() *mockRep {
 	return &mockRep{
 		members: map[string]reptypes.TrustLevel{}, sentinels: map[string]math.Int{},
 		reserved: map[string]math.Int{}, slashed: map[string]math.Int{}, cooldown: map[string]int64{},
-		initiatives: map[uint64]reptypes.Initiative{},
+		initiatives: map[uint64]reptypes.Initiative{}, migrated: map[string]string{},
 	}
 }
 

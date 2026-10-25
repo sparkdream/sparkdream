@@ -145,6 +145,20 @@ message Member {
   // zeroing, not by status changes. The agreement was made at joined_at /
   // joined_at_height.
   string content_license = 39;
+
+  // Member key migration (see "Member key migration"). Finalization times of
+  // KEY-path migrations inside key_migration_window (rolling cap), and the
+  // time of the last migration into this address (cooldown).
+  repeated int64 key_migration_times = 40;
+  int64 last_migrated_at = 41;
+  // ZK key change discipline: a changed key waits in pending_zk_public_key
+  // until zk_key_activates_at_epoch; one change per season unless a
+  // RECOVERY/COUNCIL migration cleared the key (zk_key_cooldown_exempt).
+  bytes pending_zk_public_key = 42;
+  int64 zk_key_activates_at_epoch = 43;
+  int64 last_zk_key_change_season = 44;
+  bool zk_key_changed = 45;
+  bool zk_key_cooldown_exempt = 46;
 }
 
 enum TrustLevel {
@@ -4773,6 +4787,226 @@ These are thin wrappers (in `merkle_trees.go`) over the underlying `GetMemberTru
 
 x/rep implements the `IsShieldCompatible()` method (in `shield_aware.go`) which identifies `MsgCreateChallenge` as eligible for shielded execution. This allows x/shield to route anonymous challenges through x/rep's message server.
 
+## Member key migration
+
+A member can move their on-chain identity from address `A` to a fresh address
+`B` without loss of standing and without opening an accountability-evasion
+path. Design rationale and threat model: the member-key-migration plan
+(`docs/untracked/member-key-migration-plan.md`); this section is the
+implemented contract.
+
+### Model: eager core + forward alias
+
+- **Eager core.** At finalization a bounded set of authority-bearing state is
+  re-keyed from `A` to `B`: the `Member` record (DREAM balance, staked DREAM,
+  reputation, lifetime archive, trust level, per-epoch/season counters,
+  `key_migration_times`, `last_migrated_at`), the trust-tree leaf index,
+  `InvitationsByInvitee`, `BondedRoles` and `RoleActivities` for every role type,
+  `JuryParticipation`, `MemberStakePool`, an open `MemberReport`, the gift
+  record from the inviter, and the `RecoveryCommitments` set. Module hooks
+  (`MemberMigrationHooks`, wired in `app.go`) re-key their own bounded state:
+  commons seats and votes on open proposals, names and `OwnerInfo`, the season
+  profile / registration / guild references / open-epoch XP tracker / quest
+  progress, session grants (path-aware, below). Federation drops identity links,
+  attestations and pending challenges (peers attested `A`; `B` re-links). Service
+  vetoes while `A` is a live operator; artifact vetoes while a class-owner
+  handover names `A`.
+- **Forward alias.** `A` becomes a permanent `Tombstone{canonical, path,
+  migration_id, finalized_epoch}`. Everything unbounded (authorship, stakes,
+  votes, escrows, listings) keeps storing `A` and is read through the alias
+  contract. Tombstones are path-compressed: when `B` later migrates to `C`,
+  every predecessor is rewritten to `C`, so `Canonical` is one read.
+- **Value follows identity.** Every DREAM primitive (`MintDREAM`, `CreditDREAM`,
+  `BurnDREAM`, `LockDREAM`, `UnlockDREAM`, the recipient of `TransferDREAM`) and
+  every value lookup (`GetMember`, `GetTrustLevel`, `GetReputationTier`,
+  `AddReputation`, `DeductReputation`, `SlashReputation`, `ZeroMember`,
+  `DemoteMember`, the season-integration getters) resolve the alias first, so a
+  liability recorded against `A` settles against `B`. A bank
+  `SendRestrictionFn` (`Keeper.SendRestriction`, appended in `app.go`) rewrites
+  any transfer recipient that is a tombstone to its canonical address, so SPARK
+  escrow refunds, bounty refunds and role pay reach `B`. Gates
+  (`IsMember`, `IsActiveMember`, `CanActAs`) refuse tombstones.
+
+### Alias contract (keeper API, bech32 strings)
+
+```go
+Canonical(ctx, addr) string              // current address; addr itself if never migrated
+IsTombstoned(ctx, addr) bool
+CanActAs(ctx, signer, stored) bool       // !IsTombstoned(signer) && Canonical(stored) == signer
+SameMember(ctx, a, b) bool               // Canonical(a) == Canonical(b)      (self-dealing bans)
+RecentAddressesOf(ctx, member) []string  // canonical + predecessors inside AliasDedupHorizonEpochs, <= MaxRecentAliases+1
+AllAddressesOf(ctx, member) []string     // canonical + every predecessor, <= MaxLifetimeAliases+1
+```
+
+Every module replaced `stored != signer` authorization comparisons with
+`!CanActAs(signer, stored)`, dedup checks ("already voted / reacted / staked")
+with a lookup over `RecentAddressesOf`, self-dealing bans with `SameMember`,
+and by-address list queries with a union over `AllAddressesOf`.
+`RecentAddressesOf` is the only form allowed inside gas-tight transactions
+(a council vote has ~50k gas of headroom); x/commons re-keys votes on open
+proposals eagerly instead. Compiled constants (`x/rep/types/migration.go`):
+`AliasDedupHorizonEpochs` 240 (test build: effectively unbounded, so the e2e
+season pin stays valid), `MaxRecentAliases` 8, `AliasRecoveryReserve` 2,
+`MaxLifetimeAliases` 64, `MaxRecoveryCommitments` 4. The x/season params
+validator keeps `season_duration_epochs + season_transition_epochs +
+max_extension_epochs` inside the horizon.
+
+### Paths and precedence
+
+| Path | Opened by | Delay | Cancellable by |
+|---|---|---|---|
+| KEY | `MsgRequestMigration` signed by `A` | `key_migration_delay` (7d) | `A`, `B`, HR committee policy, gov |
+| RECOVERY | `MsgRevealRecovery` (any account) against an active commitment | `recovery_migration_delay` (2d) | gov only |
+| COUNCIL | `MsgForceMigration` by the Commons Governance (HR) committee policy or gov | `council_migration_delay` (21d) | HR committee policy, gov |
+
+Every path ends with `MsgAcceptMigration` signed by `B` within
+`migration_accept_window` (7d; a multisig `B` multisigns it), which sets
+`executes_at` and enqueues finalization. Precedence is RECOVERY > COUNCIL >
+KEY: opening a higher-ranked migration cancels a pending lower-ranked one, a
+lower-ranked request is refused while a higher-ranked one is pending, and a
+member has at most one pending migration.
+
+KEY-path request checks: `migration_enabled` and `key_path_enabled` (the
+"Q-day switch": gov turns the key path off if the account signature scheme is
+considered broken; recovery and council keep working), `A` is an active
+non-zeroed member, no open `MemberReport` against `A`, `migration_cooldown`
+elapsed since the last migration, fewer than `max_key_migrations_per_window`
+finalizations inside `key_migration_window` (rolling, stored on the member),
+fewer than `MaxRecentAliases - AliasRecoveryReserve` recent aliases, `B`
+fresh. RECOVERY and COUNCIL skip the report, cooldown and window checks and
+use the full `MaxRecentAliases`.
+
+**Freshness of `B`** (`checkTargetFresh` + the `BeforeMemberMigration` hooks):
+not a member, no pending invitation, not a tombstone, not the target of another
+pending migration, not a reserved address (every module account and the x/shield
+public submitter, registered from `app.go`), not a module account, not a group
+policy address, not a vault (late-wired check, false until x/vault exists), no
+x/name owner record or names, no x/season profile, no x/session grants as
+granter (grantee-side fee grants and allowances are allowed: they are how a
+fresh `B` pays gas), no live x/service operator record, no federation identity
+links. Zeroed members cannot migrate on any path; a zeroing during the delay
+cancels the migration at finalization.
+
+### Recovery commitments
+
+`RecoveryCommitmentSet` holds up to `MaxRecoveryCommitments` SHA-256
+commitments (`SHA-256("sparkdream/recovery/commit/v1" || preimage)`). Every
+commitment set, replaced or removed by an existing member
+(`MsgSetRecoveryCommitment`, `MsgRemoveRecoveryCommitment`) waits out
+`recovery_change_delay` (30d, validated longer than `key_migration_delay`);
+only the commitment carried by `MsgAcceptInvitation.recovery_commitment` is
+immediate. Reveal is commit-reveal: `MsgCommitRecovery` stores
+`sealed = SHA-256("sparkdream/recovery/seal/v1" || preimage || A || B)` against
+`recovery_commit_deposit` (refunded when a reveal consumes it, burned when it
+expires after `recovery_commit_ttl`); `MsgRevealRecovery` is valid once the
+seal has aged `recovery_reveal_min_blocks`, consumes the matched commitment,
+voids every pending commitment change, cancels any pending KEY or COUNCIL
+migration and opens a RECOVERY migration. Nothing on this path relies on a
+signature by `A`.
+
+### Council path and objections
+
+`MsgObjectMigration`, signed by `A` while the COUNCIL migration is ACCEPTED,
+posts `migration_objection_bond` and opens an x/rep jury review
+(`ChallengerClaim = "member_migration_objection"`, jurors seated like a
+moderation appeal, parties excluded). The objector is the challenger:
+REJECT_CHALLENGE upholds the migration (finalizes at the next EndBlock, bond
+paid to `B`); UPHOLD_CHALLENGE cancels it (bond refunded); INCONCLUSIVE or a
+deadline without quorum cancels and refunds, so no identity moves without a
+positive jury decision (the committee may file again). The bond is never
+burned: on the stolen-key path it is the victim's SPARK.
+
+### Finalization and tombstones
+
+`ProcessMigrations` runs at the end of the x/rep EndBlocker with capped,
+contained passes: finalize due migrations (each in a child cache context; a
+failure marks the migration FAILED with the reason and frees the pending slot),
+expire unaccepted requests, tally overdue objection juries, burn expired seal
+deposits, activate pending ZK keys. Finalization re-verifies the preconditions
+and hooks, re-keys the core, writes and path-compresses the alias, runs
+`AfterMemberMigration`, sweeps `A`'s spendable SPARK to `B` and sets `A`'s
+x/distribution withdraw address to `B`. Delegations stay at `A`; unbonding pays
+out to `A` outside the send restriction, and `MsgSweepTombstone` (signed by the
+canonical address) collects it.
+
+The ZK key is path-aware: KEY keeps `zk_public_key` (the leaf is unchanged, so
+proofs and nullifiers stay continuous); RECOVERY and COUNCIL clear it and set
+`zk_key_cooldown_exempt`, because a signature-derived shield secret is
+compromised with `A`. Session grants with `A` as granter are re-keyed on the
+KEY path and revoked on the others; session keys with `A` as grantee are
+revoked on every path, other grantee-side grants are re-keyed.
+
+`TombstonedSignerDecorator` (`x/rep/ante`, early in the ante chain) refuses any
+transaction signed by a tombstone unless every message is staking
+undelegate / redelegate / cancel-unbonding or a distribution withdrawal, plus
+`bank.MsgSend` only when the tombstoning migration was a KEY migration. This is
+the backstop for any authorization site the alias conversion missed. A
+tombstone can never be invited again or register a ZK key.
+
+### ZK key change discipline
+
+Independently of migration, a change of an existing `zk_public_key` zeroes the
+old leaf at once and parks the new key in `pending_zk_public_key` until
+`zk_key_activates_at_epoch = now + zk_key_activation_delay` (14 epochs); the
+EndBlocker activates it (`ZkKeyActivationQueue`). At most one change per season
+(`last_zk_key_change_season`), except the first registration after a migration
+cleared the key, which still waits out the delay. The delay must exceed every
+`MESSAGE_FIELD` action window: x/commons refuses a `voting_period` longer than
+`zk_key_activation_delay * epoch_blocks * 6s` on `MsgRegisterGroup` and
+`MsgUpdateGroupConfig`, and `MsgUpdateParams` refuses to lower the delay below
+the longest live voting period. Both checks are on in the network builds and off
+in the test build (`VotingPeriodCapEnabled`), whose e2e suites register
+hour-long windows against a two-epoch delay.
+
+### Migration messages
+
+`MsgRequestMigration{member, new_address}`, `MsgAcceptMigration{new_address,
+migration_id}`, `MsgCancelMigration{signer, migration_id}`,
+`MsgSetRecoveryCommitment{member, commitment, replaces}`,
+`MsgRemoveRecoveryCommitment{member, commitment}`, `MsgCommitRecovery{submitter,
+sealed}`, `MsgRevealRecovery{revealer, member, new_address, preimage}`,
+`MsgForceMigration{authority, member, new_address, evidence_uri}`,
+`MsgObjectMigration{member, migration_id, reason}`, `MsgSweepTombstone{signer,
+tombstone}`. All carry `(amino.name)`, none is shield-compatible, and all are in
+x/session's `ForbiddenAllowlistMsgs` (built from `reptypes.MigrationMsgTypeURLs()`;
+guarded by `x/rep/types/migration_guard_test.go`, which walks the Msg service).
+The Commons Governance Committee's bootstrap permissions include
+`MsgForceMigration` and `MsgCancelMigration`. No fee on any of them: safety
+actions pay gas only.
+
+### Queries
+
+`Canonical(address)` → canonical, tombstoned, path; `Aliases(member)` →
+canonical, addresses (all), recent; `MemberMigration(id)`;
+`MemberMigrations` (paginated); `PendingMigration(member)`;
+`RecoveryCommitments(member)`.
+
+### Parameters
+
+| Param | Default | Test build |
+|---|---|---|
+| `migration_enabled` / `key_path_enabled` | true | true |
+| `key_migration_delay` | 7d | 20s |
+| `recovery_migration_delay` | 2d | 10s |
+| `council_migration_delay` | 21d | 40s |
+| `migration_accept_window` | 7d | 120s |
+| `migration_cooldown` | 30d | 30s |
+| `max_key_migrations_per_window` / `key_migration_window` | 2 / 365d (>= 2 x cooldown) | 2 / 60s |
+| `recovery_change_delay` | 30d (> key delay) | 30s |
+| `recovery_reveal_min_blocks` / `recovery_commit_ttl` | 20 / 7d | 2 / 60s |
+| `recovery_commit_deposit` / `migration_objection_bond` | 1 SPARK / 10 SPARK | same |
+| `zk_key_activation_delay` | 14 epochs | 2 epochs |
+
+Genesis exports `tombstone_list`, `member_migration_list`,
+`member_migration_count`, `recovery_commitment_list`, `recovery_commit_list`;
+the reverse alias index, pending pointers and queues are rebuilt at import.
+Events: `member_migration_requested/accepted/cancelled/failed/objected`,
+`member_migrated`, `recovery_commitment_set`, `recovery_commit`,
+`recovery_revealed`, `tombstone_swept`, `rep.zk_public_key_change_scheduled`,
+`rep.zk_public_key_activated`, plus `council_seat_migrated`, `names_migrated`,
+`season_profile_migrated`, `grant_migrated` from the hooks.
+
+
 ## Genesis State
 
 ```protobuf
@@ -5328,3 +5562,34 @@ type ModuleInputs struct {
 - `x/rep/types/errors.go` — All error codes
 - `x/rep/types/expected_keepers.go` — External keeper interfaces
 - `x/rep/module/depinject.go` — Dependency injection wiring
+
+| 2300 | `ErrMigrationDisabled` | Member migration is disabled |
+| 2301 | `ErrKeyPathDisabled` | Key migration path disabled |
+| 2302 | `ErrMemberTombstoned` | Address migrated away |
+| 2303 | `ErrMigrationZeroedMember` | Zeroed members cannot migrate |
+| 2304 | `ErrMigrationOpenReport` | Key path refused while a member report is open |
+| 2305 | `ErrMigrationCooldown` | Migration cooldown not elapsed |
+| 2306 | `ErrMigrationWindowCap` | Rolling-window key migration cap reached |
+| 2307 | `ErrMigrationAliasCap` | Alias ceiling reached |
+| 2308 | `ErrMigrationPending` | Equal or higher precedence migration pending |
+| 2309 | `ErrMigrationTargetNotFresh` | New address is not fresh |
+| 2310 | `ErrMigrationNotFound` | Migration not found |
+| 2311 | `ErrMigrationWrongStatus` | Migration status does not allow this action |
+| 2312 | `ErrMigrationNotAuthorized` | Signer may not act on the migration |
+| 2313 | `ErrMigrationVetoed` | A module vetoed the migration |
+| 2320 | `ErrRecoveryCommitmentInvalid` | Recovery commitment is invalid |
+| 2321 | `ErrRecoveryCommitmentExists` | Recovery commitment already registered |
+| 2322 | `ErrRecoveryCommitmentNotFound` | Recovery commitment not found |
+| 2323 | `ErrRecoveryCommitmentCap` | Maximum number of recovery commitments held |
+| 2324 | `ErrRecoveryCommitmentInactive` | No active recovery commitment matches the preimage |
+| 2325 | `ErrRecoverySealInvalid` | Sealed recovery commit is invalid |
+| 2326 | `ErrRecoverySealExists` | Sealed recovery commit already exists |
+| 2327 | `ErrRecoverySealNotFound` | No sealed commit binds this preimage and address pair |
+| 2328 | `ErrRecoverySealTooYoung` | Sealed commit has not aged recovery_reveal_min_blocks |
+| 2329 | `ErrRecoverySealExpired` | Sealed recovery commit has expired |
+| 2330 | `ErrMigrationObjectionBond` | Objection bond could not be posted |
+| 2331 | `ErrNotTombstoneOwner` | Signer is not the tombstone's canonical address |
+| 2332 | `ErrTombstoneMsgForbidden` | Message not allowed from a tombstoned signer |
+| 2340 | `ErrZkKeyCooldown` | ZK key changed once per season |
+| 2341 | `ErrZkKeyPending` | ZK key change already waiting for activation |
+| 2342 | `ErrVotingPeriodExceedsZkDelay` | ZK delay cannot go below a live voting period |

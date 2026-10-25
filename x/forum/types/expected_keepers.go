@@ -83,6 +83,14 @@ type RepKeeper interface {
 	GetTrustLevel(ctx context.Context, addr sdk.AccAddress) (reptypes.TrustLevel, error)
 	GetReputationTier(ctx context.Context, addr sdk.AccAddress) (uint64, error)
 
+	// Alias contract (member key migration, docs/x-rep-spec.md). Stored
+	// addresses (authors, bounty creators, voters) are interpreted through
+	// these; a tombstoned signer never passes CanActAs.
+	CanActAs(ctx context.Context, signer, stored string) bool
+	SameMember(ctx context.Context, a, b string) bool
+	RecentAddressesOf(ctx context.Context, member string) []string
+	AllAddressesOf(ctx context.Context, member string) []string
+
 	// Member moderation
 	ZeroMember(ctx context.Context, memberAddr sdk.AccAddress, reason string) error
 	DemoteMember(ctx context.Context, memberAddr sdk.AccAddress, reason string) error

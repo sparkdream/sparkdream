@@ -39,15 +39,18 @@ func (k msgServer) TransferUnits(ctx context.Context, msg *types.MsgTransferUnit
 		if entry.Amount == 0 {
 			return nil, errorsmod.Wrap(types.ErrInvalidBatch, "amount must be positive")
 		}
-		if entry.Recipient == msg.Sender {
+		if k.sameMember(ctx, entry.Recipient, msg.Sender) {
 			return nil, errorsmod.Wrap(types.ErrInvalidRecipient, "cannot transfer to yourself")
 		}
 		if _, err := k.validateRecipient("recipient", entry.Recipient); err != nil {
 			return nil, err
 		}
 		res := types.UnitResult{Recipient: entry.Recipient, Amount: entry.Amount}
+		// Units may sit under a predecessor address of the sender; the
+		// pending record then names that holder so resolution finds them.
+		holder := k.balanceHolder(ctx, c.Id, e.Id, msg.Sender)
 		if !c.Flags.NeedsConsent() && k.deliversDirectly(ctx, msg.Sender, entry.Recipient) {
-			if err := k.debit(ctx, &e, msg.Sender, entry.Amount, false); err != nil {
+			if err := k.debit(ctx, &e, holder, entry.Amount, false); err != nil {
 				return nil, err
 			}
 			if err := k.credit(ctx, &e, entry.Recipient, entry.Amount, sender, false, math.Int{}, ""); err != nil {
@@ -58,10 +61,10 @@ func (k msgServer) TransferUnits(ctx context.Context, msg *types.MsgTransferUnit
 				sdk.NewAttribute("from", msg.Sender), sdk.NewAttribute("to", entry.Recipient),
 				sdk.NewAttribute("amount", u64(entry.Amount)), sdk.NewAttribute("via", "transfer"))
 		} else {
-			if err := k.lockUnits(ctx, &e, msg.Sender, entry.Amount, false); err != nil {
+			if err := k.lockUnits(ctx, &e, holder, entry.Amount, false); err != nil {
 				return nil, err
 			}
-			id, err := k.parkUnits(ctx, types.InboxKind_INBOX_KIND_UNIT_TRANSFER, c, &e, sender, msg.Sender, entry.Recipient, entry.Amount, msg.Sender, p)
+			id, err := k.parkUnits(ctx, types.InboxKind_INBOX_KIND_UNIT_TRANSFER, c, &e, sender, holder, entry.Recipient, entry.Amount, holder, p)
 			if err != nil {
 				return nil, err
 			}

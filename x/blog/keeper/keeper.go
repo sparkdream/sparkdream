@@ -83,6 +83,33 @@ func (k *Keeper) SetRepKeeper(rk types.RepKeeper) {
 	k.repKeeper = rk
 }
 
+// Alias contract helpers (member key migration). The rep keeper is late-wired
+// and nil in standalone unit tests, where these degrade to address equality.
+
+// canActAs reports whether signer may exercise rights recorded against stored.
+func (k Keeper) canActAs(ctx context.Context, signer, stored string) bool {
+	if k.repKeeper == nil {
+		return signer == stored
+	}
+	return k.repKeeper.CanActAs(ctx, signer, stored)
+}
+
+// recentAddressesOf is the in-tx alias set for dedup checks.
+func (k Keeper) recentAddressesOf(ctx context.Context, member string) []string {
+	if k.repKeeper == nil {
+		return []string{member}
+	}
+	return k.repKeeper.RecentAddressesOf(ctx, member)
+}
+
+// allAddressesOf is the full alias set for list queries (never in a tx).
+func (k Keeper) allAddressesOf(ctx context.Context, member string) []string {
+	if k.repKeeper == nil {
+		return []string{member}
+	}
+	return k.repKeeper.AllAddressesOf(ctx, member)
+}
+
 // SetIdentityKeeper wires the x/identity keeper post-depinject so the keeper
 // can resolve the chain's bond denom at runtime.
 func (k *Keeper) SetIdentityKeeper(ik types.IdentityKeeper) {

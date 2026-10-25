@@ -40,7 +40,7 @@ func (k msgServer) FreezeTokenMetadata(ctx context.Context, msg *types.MsgFreeze
 			return nil, err
 		}
 		// The class owner or the holder may freeze (§5.3.7).
-		if c.Owner != msg.Signer && t.Owner != msg.Signer {
+		if !k.canActAs(ctx, msg.Signer, c.Owner) && !k.canActAs(ctx, msg.Signer, t.Owner) {
 			return nil, types.ErrNotTokenOwner
 		}
 		if t.MetadataFrozen {
@@ -58,7 +58,7 @@ func (k msgServer) FreezeTokenMetadata(ctx context.Context, msg *types.MsgFreeze
 
 // freezeEdition freezes an edition's metadata (class owner only).
 func (k msgServer) freezeEdition(ctx context.Context, c types.Class, editionID uint64, signer string) error {
-	if c.Owner != signer {
+	if !k.canActAs(ctx, signer, c.Owner) {
 		return types.ErrNotClassOwner
 	}
 	e, err := k.getEdition(ctx, c.Id, editionID)

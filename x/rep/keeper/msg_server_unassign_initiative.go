@@ -35,7 +35,7 @@ func (k msgServer) UnassignInitiative(ctx context.Context, msg *types.MsgUnassig
 	// apprentice pairing is wired up later, this is where the signer would
 	// select which of the two assignments is being released, and clearing an
 	// apprentice would leave the status at ASSIGNED rather than reopening.
-	forced := msg.Creator != initiative.Assignee
+	forced := !k.Keeper.CanActAs(ctx, msg.Creator, initiative.Assignee)
 	if forced {
 		isOps, opsErr := k.Keeper.commonsKeeper.IsCommitteeMember(ctx, sdk.AccAddress(creatorBytes), "commons", "operations")
 		if opsErr != nil {

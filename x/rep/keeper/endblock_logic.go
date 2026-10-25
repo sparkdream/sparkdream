@@ -58,7 +58,7 @@ func (k Keeper) TransitionToChallengePeriod(ctx context.Context, initiativeID ui
 	if err != nil {
 		return err
 	}
-	if IsSelfAssigned(initiative, project, initiative.Assignee) {
+	if k.isSelfAssigned(ctx, initiative, project, initiative.Assignee) {
 		challengeDuration *= params.SelfAssignedChallengeMultiplier
 	}
 	initiative.ChallengePeriodEnd = initiative.ReviewPeriodEnd + challengeDuration

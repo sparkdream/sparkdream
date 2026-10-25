@@ -50,7 +50,7 @@ func (k msgServer) FlagPost(ctx context.Context, msg *types.MsgFlagPost) (*types
 	// review queue. Skipped for anonymous flags, whose signer is the shield
 	// module account (which is also the author of every anonymous post), so
 	// the comparison says nothing about the real identities.
-	if post.Author == msg.Creator && !k.isAnonymous(msg.Creator) {
+	if !k.isAnonymous(msg.Creator) && k.sameMember(ctx, post.Author, msg.Creator) {
 		return nil, types.ErrCannotFlagOwnPost
 	}
 
@@ -84,9 +84,10 @@ func (k msgServer) FlagPost(ctx context.Context, msg *types.MsgFlagPost) (*types
 		}
 	}
 
-	// Check if user already flagged this post
+	// Check if user already flagged this post (from any recent alias)
+	flaggerAliases := k.recentAddressesOf(ctx, msg.Creator)
 	for _, flagger := range postFlag.Flaggers {
-		if flagger == msg.Creator {
+		if addressesMatch(flaggerAliases, flagger) {
 			return nil, types.ErrAlreadyFlagged
 		}
 	}

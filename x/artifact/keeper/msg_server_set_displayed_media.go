@@ -23,7 +23,7 @@ func (k msgServer) SetDisplayedMedia(ctx context.Context, msg *types.MsgSetDispl
 	if err != nil {
 		return nil, err
 	}
-	if t.Owner != msg.Owner {
+	if !k.canActAs(ctx, msg.Owner, t.Owner) {
 		return nil, types.ErrNotTokenOwner
 	}
 	if isTargetHidden(c, t) {

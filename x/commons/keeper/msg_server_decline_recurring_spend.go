@@ -51,7 +51,7 @@ func (k msgServer) DeclineRecurringSpend(goCtx context.Context, msg *types.MsgDe
 		}
 		return nil, err
 	}
-	if grant.Grantee != msg.Recipient {
+	if !k.canActAs(ctx, msg.Recipient, grant.Grantee) {
 		return nil, errorsmod.Wrapf(types.ErrRecurringSpendUnauthorized,
 			"caller %s is not the schedule's recipient %s", msg.Recipient, grant.Grantee)
 	}

@@ -133,6 +133,9 @@ func DefaultBondedRoleConfigs() []BondedRoleConfig {
 // Validate performs basic genesis state validation returning an error upon any
 // failure.
 func (gs GenesisState) Validate() error {
+	if err := gs.validateMigrationState(); err != nil {
+		return err
+	}
 	memberIndexMap := make(map[string]struct{})
 
 	for _, elem := range gs.MemberMap {
@@ -395,4 +398,85 @@ func DefaultReservedTags() []ReservedTag {
 	return []ReservedTag{
 		{Name: ReservedTagServiceOperator, Authority: "service", MembersCanUse: false},
 	}
+}
+
+// validateMigrationState checks the member key migration lists: unique
+// tombstones that never point at another tombstone or at a member address
+// that does not exist, migration ids below the sequence, at most one pending
+// migration per member, and well-formed commitments and seals.
+func (gs GenesisState) validateMigrationState() error {
+	members := make(map[string]struct{}, len(gs.MemberMap))
+	for _, m := range gs.MemberMap {
+		members[m.Address] = struct{}{}
+	}
+	tombstones := make(map[string]struct{}, len(gs.TombstoneList))
+	for _, t := range gs.TombstoneList {
+		if t.Address == "" || t.Canonical == "" || t.Address == t.Canonical {
+			return fmt.Errorf("tombstone %q: address and canonical must be set and differ", t.Address)
+		}
+		if _, dup := tombstones[t.Address]; dup {
+			return fmt.Errorf("duplicated tombstone for %s", t.Address)
+		}
+		tombstones[t.Address] = struct{}{}
+		if _, isMember := members[t.Address]; isMember {
+			return fmt.Errorf("tombstone %s is still a member", t.Address)
+		}
+	}
+	for _, t := range gs.TombstoneList {
+		if _, pointsAtTombstone := tombstones[t.Canonical]; pointsAtTombstone {
+			return fmt.Errorf("tombstone %s points at tombstone %s (aliases must be path-compressed)", t.Address, t.Canonical)
+		}
+	}
+	ids := make(map[uint64]struct{}, len(gs.MemberMigrationList))
+	pendingFrom := make(map[string]struct{})
+	for _, m := range gs.MemberMigrationList {
+		if _, dup := ids[m.Id]; dup {
+			return fmt.Errorf("duplicated id for member migration %d", m.Id)
+		}
+		if m.Id == 0 || m.Id > gs.MemberMigrationCount {
+			return fmt.Errorf("member migration id %d must be in 1..member_migration_count (%d)", m.Id, gs.MemberMigrationCount)
+		}
+		ids[m.Id] = struct{}{}
+		if m.FromAddress == "" || m.ToAddress == "" || m.FromAddress == m.ToAddress {
+			return fmt.Errorf("member migration %d: from and to must be set and differ", m.Id)
+		}
+		if m.Path == MigrationPath_MIGRATION_PATH_UNSPECIFIED {
+			return fmt.Errorf("member migration %d: path unspecified", m.Id)
+		}
+		if IsPendingMigrationStatus(m.Status) {
+			if _, dup := pendingFrom[m.FromAddress]; dup {
+				return fmt.Errorf("member %s has more than one pending migration", m.FromAddress)
+			}
+			pendingFrom[m.FromAddress] = struct{}{}
+		}
+	}
+	seenMembers := make(map[string]struct{}, len(gs.RecoveryCommitmentList))
+	for _, e := range gs.RecoveryCommitmentList {
+		if _, dup := seenMembers[e.Member]; dup {
+			return fmt.Errorf("duplicated recovery commitment set for %s", e.Member)
+		}
+		seenMembers[e.Member] = struct{}{}
+		if len(e.Set.Commitments) > MaxRecoveryCommitments {
+			return fmt.Errorf("member %s holds %d recovery commitments (max %d)", e.Member, len(e.Set.Commitments), MaxRecoveryCommitments)
+		}
+		for _, c := range e.Set.Commitments {
+			if len(c.Commitment) != RecoveryCommitmentSize {
+				return fmt.Errorf("member %s: recovery commitment must be %d bytes", e.Member, RecoveryCommitmentSize)
+			}
+		}
+	}
+	seals := make(map[string]struct{}, len(gs.RecoveryCommitList))
+	for _, c := range gs.RecoveryCommitList {
+		if len(c.Sealed) != RecoveryCommitmentSize {
+			return fmt.Errorf("sealed recovery commit must be %d bytes", RecoveryCommitmentSize)
+		}
+		if _, dup := seals[string(c.Sealed)]; dup {
+			return fmt.Errorf("duplicated sealed recovery commit")
+		}
+		seals[string(c.Sealed)] = struct{}{}
+		if c.Deposit.IsNil() || c.Deposit.IsNegative() {
+			return fmt.Errorf("sealed recovery commit deposit cannot be negative")
+		}
+	}
+	return nil
 }

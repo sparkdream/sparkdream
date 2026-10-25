@@ -1011,6 +1011,76 @@ message Params {
   // credit and frees the invitee address for a new invitation. 0 disables
   // expiry.
   int64 invitation_acceptance_epochs = 149;
+
+  // ---------------------------------------------------------------------
+  // Member key migration (docs/x-rep-spec.md, "Member key migration").
+  // Economic-security knobs: Params-only, never operational params, so a
+  // committee cannot shorten a delay.
+  // ---------------------------------------------------------------------
+
+  // migration_enabled is the master switch for every migration path.
+  bool migration_enabled = 150;
+  // key_path_enabled is the "Q-day switch": governance flips it off if the
+  // account signature scheme is considered broken. Recovery and council
+  // migrations keep working.
+  bool key_path_enabled = 151;
+  // key_migration_delay is the seconds between the new address accepting a
+  // KEY migration and finalization (default 7 days).
+  int64 key_migration_delay = 152;
+  // recovery_migration_delay is the same for RECOVERY migrations (default
+  // 2 days).
+  int64 recovery_migration_delay = 153;
+  // council_migration_delay is the same for COUNCIL migrations (default 21
+  // days); the window in which the old address may object.
+  int64 council_migration_delay = 154;
+  // migration_accept_window is the seconds the new address has to accept a
+  // requested migration before it expires (default 7 days, so a multisig
+  // can collect signatures).
+  int64 migration_accept_window = 155;
+  // migration_cooldown is the seconds after a migration before the member
+  // may request another KEY migration (default 30 days). Recovery and
+  // council migrations are exempt.
+  int64 migration_cooldown = 156;
+  // max_key_migrations_per_window caps KEY migrations finalized within
+  // key_migration_window (default 2): a rolling window, not a lifetime cap.
+  uint32 max_key_migrations_per_window = 157;
+  // key_migration_window is the rolling window in seconds (default 365
+  // days). Validated >= 2 * migration_cooldown.
+  int64 key_migration_window = 158;
+  // recovery_change_delay is the seconds a commitment set, replaced or
+  // removed by an existing member waits before it takes effect (default
+  // 30 days). Longer than the KEY-path delay, so the recovery path can not
+  // be used as a faster key path by whoever holds the key.
+  int64 recovery_change_delay = 159;
+  // recovery_reveal_min_blocks is the minimum age of the sealed commit at
+  // reveal (default 20 blocks): the front-running guard.
+  int64 recovery_reveal_min_blocks = 160;
+  // recovery_commit_ttl is the seconds a sealed commit lives before it
+  // expires and its deposit is burned (default 7 days).
+  int64 recovery_commit_ttl = 161;
+  // recovery_commit_deposit is the SPARK (micro-denom) locked with a sealed
+  // commit; refunded on a successful reveal, burned on expiry (default 1
+  // SPARK). MsgCommitRecovery is the only permissionless write on the
+  // path, so spam has to lock capital.
+  string recovery_commit_deposit = 162 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  // migration_objection_bond is the SPARK (micro-denom) the old address
+  // posts with MsgObjectMigration (default 10 SPARK, the appeal bond). Paid
+  // to the new address if the jury upholds the migration, refunded if the
+  // objector wins; never burned, because on the stolen-key path it is the
+  // victim's SPARK.
+  string migration_objection_bond = 163 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  // zk_key_activation_delay is the epochs a changed ZK public key waits
+  // before its leaf enters the trust tree (default 14). It must exceed every
+  // MESSAGE_FIELD action window (council voting periods, challenge and
+  // arbiter windows) so one member cannot act twice on one target with two
+  // keys. x/commons refuses voting periods longer than it.
+  int64 zk_key_activation_delay = 164;
 }
 
 // RepOperationalParams defines the operational parameters that can be updated

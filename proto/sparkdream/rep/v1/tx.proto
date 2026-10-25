@@ -206,6 +206,36 @@ service Msg {
   // is accepted: the stake unlocks, the credit is restored and the invitee
   // address is freed. The record is kept with status REVOKED.
   rpc RevokeInvitation(MsgRevokeInvitation) returns (MsgRevokeInvitationResponse);
+
+  // RequestMigration defines the RequestMigration RPC.
+  rpc RequestMigration(MsgRequestMigration) returns (MsgRequestMigrationResponse);
+
+  // AcceptMigration defines the AcceptMigration RPC.
+  rpc AcceptMigration(MsgAcceptMigration) returns (MsgAcceptMigrationResponse);
+
+  // CancelMigration defines the CancelMigration RPC.
+  rpc CancelMigration(MsgCancelMigration) returns (MsgCancelMigrationResponse);
+
+  // SetRecoveryCommitment defines the SetRecoveryCommitment RPC.
+  rpc SetRecoveryCommitment(MsgSetRecoveryCommitment) returns (MsgSetRecoveryCommitmentResponse);
+
+  // RemoveRecoveryCommitment defines the RemoveRecoveryCommitment RPC.
+  rpc RemoveRecoveryCommitment(MsgRemoveRecoveryCommitment) returns (MsgRemoveRecoveryCommitmentResponse);
+
+  // CommitRecovery defines the CommitRecovery RPC.
+  rpc CommitRecovery(MsgCommitRecovery) returns (MsgCommitRecoveryResponse);
+
+  // RevealRecovery defines the RevealRecovery RPC.
+  rpc RevealRecovery(MsgRevealRecovery) returns (MsgRevealRecoveryResponse);
+
+  // ObjectMigration defines the ObjectMigration RPC.
+  rpc ObjectMigration(MsgObjectMigration) returns (MsgObjectMigrationResponse);
+
+  // SweepTombstone defines the SweepTombstone RPC.
+  rpc SweepTombstone(MsgSweepTombstone) returns (MsgSweepTombstoneResponse);
+
+  // ForceMigration defines the ForceMigration RPC (COUNCIL path).
+  rpc ForceMigration(MsgForceMigration) returns (MsgForceMigrationResponse);
 }
 
 // MsgUpdateParams is the Msg/UpdateParams request type.
@@ -268,6 +298,7 @@ message MsgAcceptInvitation {
   option (amino.name) = "sparkdream/x/rep/MsgAcceptInvitation";
   string invitee = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 invitation_id = 2;
+
   // accepted_content_license is the invitee's agreement to the chain's
   // open-content commitment: everything they publish is dedicated to the
   // public domain. It must equal the chain's content license ("CC0-1.0",
@@ -275,6 +306,13 @@ message MsgAcceptInvitation {
   // no one becomes a member without signing the agreement, and a Ledger
   // shows it on screen.
   string accepted_content_license = 3;
+
+  // recovery_commitment optionally registers a recovery commitment
+  // (SHA-256("sparkdream/recovery/commit/v1" || preimage)) at onboarding.
+  // It is the only commitment that takes effect immediately: there is
+  // nothing to steal yet. Optional in the protocol, on by default in
+  // wallets. Empty means none.
+  bytes recovery_commitment = 4;
 }
 
 // MsgAcceptInvitationResponse defines the MsgAcceptInvitationResponse message.
@@ -1134,3 +1172,169 @@ message MsgRevokeInvitation {
 
 // MsgRevokeInvitationResponse defines the MsgRevokeInvitationResponse message.
 message MsgRevokeInvitationResponse {}
+
+// MsgRequestMigration opens a KEY-path migration of the signer's identity to
+// new_address (member key migration, docs/x-rep-spec.md). Refused while the
+// key path is disabled, the member is zeroed or tombstoned, a member report
+// against them is open, the cooldown or the rolling-window cap applies, a
+// migration of equal or higher precedence is pending, or new_address is not
+// fresh. The new address must accept with MsgAcceptMigration within
+// migration_accept_window. No fee: safety actions pay gas only.
+message MsgRequestMigration {
+  option (cosmos.msg.v1.signer) = "member";
+  option (amino.name) = "sparkdream/x/rep/MsgRequestMigration";
+  string member = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string new_address = 2 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+}
+
+// MsgRequestMigrationResponse defines the MsgRequestMigrationResponse message.
+message MsgRequestMigrationResponse {
+  uint64 migration_id = 1;
+}
+
+// MsgAcceptMigration is signed by the new address and completes every path
+// (key, recovery, council): it proves control of the target so nobody
+// migrates into a typo, starts the path's delay and enqueues finalization. A
+// native multisig target multisigns it.
+message MsgAcceptMigration {
+  option (cosmos.msg.v1.signer) = "new_address";
+  option (amino.name) = "sparkdream/x/rep/MsgAcceptMigration";
+  string new_address = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 migration_id = 2;
+}
+
+// MsgAcceptMigrationResponse defines the MsgAcceptMigrationResponse message.
+message MsgAcceptMigrationResponse {}
+
+// MsgCancelMigration cancels a pending migration. The old or new address may
+// cancel a KEY migration; the Commons HR committee policy may cancel KEY and
+// COUNCIL migrations; governance may cancel any path and is the only
+// authority over a RECOVERY migration.
+message MsgCancelMigration {
+  option (cosmos.msg.v1.signer) = "signer";
+  option (amino.name) = "sparkdream/x/rep/MsgCancelMigration";
+  string signer = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 migration_id = 2;
+}
+
+// MsgCancelMigrationResponse defines the MsgCancelMigrationResponse message.
+message MsgCancelMigrationResponse {}
+
+// MsgSetRecoveryCommitment adds (or replaces) one of the member's recovery
+// commitments, at most MaxRecoveryCommitments (4). It takes effect after
+// recovery_change_delay, so whoever holds the key cannot swap in their own
+// commitment or use the recovery path as a faster key path. The only
+// immediate commitment is the one carried by MsgAcceptInvitation.
+message MsgSetRecoveryCommitment {
+  option (cosmos.msg.v1.signer) = "member";
+  option (amino.name) = "sparkdream/x/rep/MsgSetRecoveryCommitment";
+  string member = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  // commitment = SHA-256("sparkdream/recovery/commit/v1" || preimage).
+  bytes commitment = 2;
+  // replaces optionally names an existing commitment to retire when the new
+  // one becomes active.
+  bytes replaces = 3;
+}
+
+// MsgSetRecoveryCommitmentResponse defines the MsgSetRecoveryCommitmentResponse message.
+message MsgSetRecoveryCommitmentResponse {}
+
+// MsgRemoveRecoveryCommitment schedules the removal of a commitment after
+// recovery_change_delay; it stays usable for a reveal until then.
+message MsgRemoveRecoveryCommitment {
+  option (cosmos.msg.v1.signer) = "member";
+  option (amino.name) = "sparkdream/x/rep/MsgRemoveRecoveryCommitment";
+  string member = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  bytes commitment = 2;
+}
+
+// MsgRemoveRecoveryCommitmentResponse defines the MsgRemoveRecoveryCommitmentResponse message.
+message MsgRemoveRecoveryCommitmentResponse {}
+
+// MsgCommitRecovery stores a sealed commit, the front-running guard of a
+// reveal, against recovery_commit_deposit (refunded when a reveal consumes
+// the seal, burned when it expires after recovery_commit_ttl). Any account
+// may submit it; it reveals nothing about the member, the preimage or the
+// target.
+message MsgCommitRecovery {
+  option (cosmos.msg.v1.signer) = "submitter";
+  option (amino.name) = "sparkdream/x/rep/MsgCommitRecovery";
+  string submitter = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  // sealed = SHA-256("sparkdream/recovery/seal/v1" || preimage || old_address || new_address).
+  bytes sealed = 2;
+}
+
+// MsgCommitRecoveryResponse defines the MsgCommitRecoveryResponse message.
+message MsgCommitRecoveryResponse {}
+
+// MsgRevealRecovery opens a RECOVERY migration of member to new_address by
+// revealing the preimage of one of member's active commitments. The sealed
+// commit binding (preimage, member, new_address) must exist and have aged
+// recovery_reveal_min_blocks. Signed by any account: the seal already binds
+// the target, and new_address confirms control afterwards with
+// MsgAcceptMigration. The matched commitment is consumed, pending commitment
+// changes are voided and any pending KEY or COUNCIL migration is cancelled.
+message MsgRevealRecovery {
+  option (cosmos.msg.v1.signer) = "revealer";
+  option (amino.name) = "sparkdream/x/rep/MsgRevealRecovery";
+  string revealer = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string member = 2 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string new_address = 3 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  bytes preimage = 4;
+}
+
+// MsgRevealRecoveryResponse defines the MsgRevealRecoveryResponse message.
+message MsgRevealRecoveryResponse {
+  uint64 migration_id = 1;
+}
+
+// MsgObjectMigration lets the old address contest a COUNCIL migration
+// during its delay. It does not cancel the migration: the objector posts
+// migration_objection_bond and an x/rep jury decides. The bond is paid to
+// the new address if the migration is upheld and refunded otherwise, never
+// burned.
+message MsgObjectMigration {
+  option (cosmos.msg.v1.signer) = "member";
+  option (amino.name) = "sparkdream/x/rep/MsgObjectMigration";
+  string member = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 migration_id = 2;
+  string reason = 3;
+}
+
+// MsgObjectMigrationResponse defines the MsgObjectMigrationResponse message.
+message MsgObjectMigrationResponse {}
+
+// MsgSweepTombstone moves a tombstone's spendable SPARK to its canonical
+// address, which signs. Unbonding completes to the old address outside the
+// bank send restriction; on the recovery and council paths the old key may
+// not MsgSend it, so this is how the member collects it.
+message MsgSweepTombstone {
+  option (cosmos.msg.v1.signer) = "signer";
+  option (amino.name) = "sparkdream/x/rep/MsgSweepTombstone";
+  string signer = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string tombstone = 2 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+}
+
+// MsgSweepTombstoneResponse defines the MsgSweepTombstoneResponse message.
+message MsgSweepTombstoneResponse {}
+
+// MsgForceMigration opens a COUNCIL migration of member to new_address on
+// off-chain evidence (a lost key with no recovery commitment). The authority
+// is the Commons HR (governance) committee policy or x/gov. new_address must
+// still accept; the old address may object to a jury during
+// council_migration_delay. An open member report does not block it.
+message MsgForceMigration {
+  option (cosmos.msg.v1.signer) = "authority";
+  option (amino.name) = "sparkdream/x/rep/MsgForceMigration";
+  string authority = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string member = 2 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string new_address = 3 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  // evidence_uri references the off-chain evidence (inviter attestation,
+  // guild officers' statements, prior federation links).
+  string evidence_uri = 4;
+}
+
+// MsgForceMigrationResponse defines the MsgForceMigrationResponse message.
+message MsgForceMigrationResponse {
+  uint64 migration_id = 1;
+}

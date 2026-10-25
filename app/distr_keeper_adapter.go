@@ -24,6 +24,13 @@ func (a *DistrKeeperAdapter) DistributeFromFeePool(ctx context.Context, amount s
 	return a.keeper.DistributeFromFeePool(ctx, amount, receiveAddr)
 }
 
+// SetWithdrawAddr redirects a delegator's staking rewards. x/rep calls it at
+// migration finalization so a tombstone's rewards reach the canonical
+// address.
+func (a *DistrKeeperAdapter) SetWithdrawAddr(ctx context.Context, delegatorAddr, withdrawAddr sdk.AccAddress) error {
+	return a.keeper.SetWithdrawAddr(ctx, delegatorAddr, withdrawAddr)
+}
+
 func (a *DistrKeeperAdapter) GetCommunityPool(ctx context.Context) (sdk.DecCoins, error) {
 	feePool, err := a.keeper.FeePool.Get(ctx)
 	if err != nil {

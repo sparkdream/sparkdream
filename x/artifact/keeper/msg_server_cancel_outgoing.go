@@ -32,20 +32,20 @@ func (k msgServer) CancelOutgoing(ctx context.Context, msg *types.MsgCancelOutgo
 			if err != nil {
 				return nil, errorsmod.Wrapf(types.ErrPendingNotFound, "pending units %d", r.TokenId)
 			}
-			authorized = pu.From == msg.Signer
+			authorized = k.canActAs(ctx, msg.Signer, pu.From)
 			if !authorized && pu.Kind == types.InboxKind_INBOX_KIND_UNIT_MINT {
-				if c, err := k.getClass(ctx, pu.ClassId); err == nil && c.Owner == msg.Signer {
+				if c, err := k.getClass(ctx, pu.ClassId); err == nil && k.canActAs(ctx, msg.Signer, c.Owner) {
 					authorized = true
 				}
 			}
 			expiresAt = pu.ExpiresAt
 		} else if pt, err := k.PendingTransfers.Get(ctx, key); err == nil {
-			authorized = pt.From == msg.Signer
+			authorized = k.canActAs(ctx, msg.Signer, pt.From)
 			expiresAt = pt.ExpiresAt
 		} else if pm, err := k.PendingMints.Get(ctx, key); err == nil {
-			authorized = pm.Minter == msg.Signer
+			authorized = k.canActAs(ctx, msg.Signer, pm.Minter)
 			if !authorized {
-				if c, err := k.getClass(ctx, pm.ClassId); err == nil && c.Owner == msg.Signer {
+				if c, err := k.getClass(ctx, pm.ClassId); err == nil && k.canActAs(ctx, msg.Signer, c.Owner) {
 					authorized = true
 				}
 			}

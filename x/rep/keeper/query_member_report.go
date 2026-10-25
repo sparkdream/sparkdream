@@ -37,7 +37,8 @@ func (q queryServer) GetMemberReport(ctx context.Context, req *types.QueryGetMem
 		return nil, status.Error(codes.InvalidArgument, "invalid request")
 	}
 
-	val, err := q.k.MemberReport.Get(ctx, req.Member)
+	// MemberReport is re-keyed to the canonical address at migration.
+	val, err := q.k.MemberReport.Get(ctx, q.k.Canonical(ctx, req.Member))
 	if err != nil {
 		if errors.Is(err, collections.ErrNotFound) {
 			return nil, status.Error(codes.NotFound, "not found")

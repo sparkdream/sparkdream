@@ -29,7 +29,8 @@ func (k msgServer) Revoke(ctx context.Context, msg *types.MsgRevoke) (*types.Msg
 	}
 	// Either party may burn a mutual attestation: the class owner, or the
 	// minter who signed it (checked per token below).
-	if c.Owner != msg.Owner && !c.Flags.Mutual {
+	isOwner := k.canActAs(ctx, msg.Owner, c.Owner)
+	if !isOwner && !c.Flags.Mutual {
 		return nil, types.ErrNotClassOwner
 	}
 	refs := make([]U64Pair, len(msg.TokenIds))
@@ -44,7 +45,7 @@ func (k msgServer) Revoke(ctx context.Context, msg *types.MsgRevoke) (*types.Msg
 		if err != nil {
 			return nil, err
 		}
-		if c.Owner != msg.Owner && t.Minter != msg.Owner {
+		if !isOwner && !k.canActAs(ctx, msg.Owner, t.Minter) {
 			return nil, errorsmod.Wrap(types.ErrNotAuthorized, "only the class owner or the attesting minter may revoke a mutual attestation")
 		}
 		// The deposit (and any escrowed mint price) goes to the holder, never

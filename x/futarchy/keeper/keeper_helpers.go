@@ -46,6 +46,16 @@ func (k Keeper) GetRepKeeper() types.RepKeeper {
 	return k.late.repKeeper
 }
 
+// canActAs reports whether signer may exercise rights recorded against
+// stored (x/rep member key migration alias contract). The rep keeper is
+// late-wired and nil in unit tests, where plain equality is the answer.
+func (k Keeper) canActAs(ctx context.Context, signer, stored string) bool {
+	if k.late.repKeeper == nil {
+		return signer == stored
+	}
+	return k.late.repKeeper.CanActAs(ctx, signer, stored)
+}
+
 // SetHooks sets the hooks for the futarchy module.
 // Note: It must be a pointer receiver to update the struct.
 func (k *Keeper) SetHooks(hooks types.FutarchyHooks) {

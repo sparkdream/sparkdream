@@ -21,7 +21,7 @@ func (k msgServer) RevokeInvitation(ctx context.Context, msg *types.MsgRevokeInv
 	if err != nil {
 		return nil, types.ErrInvitationNotFound
 	}
-	if inv.Inviter != msg.Inviter {
+	if !k.Keeper.CanActAs(ctx, msg.Inviter, inv.Inviter) {
 		return nil, errorsmod.Wrap(types.ErrUnauthorized, "only the inviter can revoke an invitation")
 	}
 	if inv.Status != types.InvitationStatus_INVITATION_STATUS_PENDING {

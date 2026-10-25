@@ -18,6 +18,7 @@ import "sparkdream/rep/v1/jury_review.proto";
 import "sparkdream/rep/v1/member.proto";
 import "sparkdream/rep/v1/member_report.proto";
 import "sparkdream/rep/v1/member_warning.proto";
+import "sparkdream/rep/v1/migration.proto";
 import "sparkdream/rep/v1/params.proto";
 import "sparkdream/rep/v1/project.proto";
 import "sparkdream/rep/v1/reserved_tag.proto";
@@ -122,6 +123,14 @@ message GenesisState {
   // Initiative bounties are a lock on each funder's DREAM; dropping them on
   // import would strand the escrow with nothing able to pay or refund it.
   repeated InitiativeBounty initiative_bounty_list = 45 [(gogoproto.nullable) = false];
+
+  // Member key migration. The queue, the per-member pending pointer and the
+  // reverse alias index are derived from these lists at InitGenesis.
+  repeated Tombstone tombstone_list = 46 [(gogoproto.nullable) = false];
+  repeated MemberMigration member_migration_list = 47 [(gogoproto.nullable) = false];
+  uint64 member_migration_count = 48;
+  repeated RecoveryCommitmentEntry recovery_commitment_list = 49 [(gogoproto.nullable) = false];
+  repeated RecoveryCommit recovery_commit_list = 50 [(gogoproto.nullable) = false];
 }
 
 // EconomicState carries x/rep's token ledger across a genesis round trip.

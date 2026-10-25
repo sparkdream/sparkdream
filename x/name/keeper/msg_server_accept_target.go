@@ -25,7 +25,7 @@ func (k msgServer) AcceptTarget(goCtx context.Context, msg *types.MsgAcceptTarge
 	if record.Target == "" {
 		return nil, errorsmod.Wrapf(types.ErrTargetNotSet, "name '%s' has no resolver target", name)
 	}
-	if record.Target != msg.Authority {
+	if !k.canActAs(ctx, msg.Authority, record.Target) {
 		return nil, errorsmod.Wrapf(types.ErrNotTarget, "you are not the current target of '%s'", name)
 	}
 	if record.TargetAccepted {

@@ -1,0 +1,157 @@
+syntax = "proto3";
+
+package sparkdream.rep.v1;
+
+import "gogoproto/gogo.proto";
+
+option go_package = "sparkdream/x/rep/types";
+
+// MigrationPath is how a member migration was authorized. Precedence is
+// RECOVERY > COUNCIL > KEY: opening a higher-precedence migration for a
+// member cancels any pending lower-precedence one.
+enum MigrationPath {
+  MIGRATION_PATH_UNSPECIFIED = 0;
+  // KEY: the old address signed the request. The cheap routine path, subject
+  // to the cooldown, the rolling window cap and the open-report block. Can
+  // be switched off by governance (key_path_enabled) if the account
+  // signature scheme is considered broken.
+  MIGRATION_PATH_KEY = 1;
+  // RECOVERY: a pre-registered SHA-256 commitment was revealed. Relies on
+  // nothing signed by the old address, so it survives a signature-scheme
+  // break and outranks a thief holding the old key.
+  MIGRATION_PATH_RECOVERY = 2;
+  // COUNCIL: the Commons HR committee (or x/gov) forced the migration on
+  // off-chain evidence; the old address may object to a jury.
+  MIGRATION_PATH_COUNCIL = 3;
+}
+
+// MigrationStatus is the lifecycle of a MemberMigration.
+enum MigrationStatus {
+  MIGRATION_STATUS_UNSPECIFIED = 0;
+  // REQUESTED: created, waiting for the new address to accept within
+  // migration_accept_window.
+  MIGRATION_STATUS_REQUESTED = 1;
+  // ACCEPTED: the new address accepted; executes_at is set and the
+  // migration sits in the EndBlocker queue.
+  MIGRATION_STATUS_ACCEPTED = 2;
+  // OBJECTED: (COUNCIL path) the old address objected during the delay and
+  // a jury review decides. The queue entry is removed until the verdict.
+  MIGRATION_STATUS_OBJECTED = 3;
+  // FINALIZED: the identity moved; the old address is a tombstone.
+  MIGRATION_STATUS_FINALIZED = 4;
+  // CANCELLED: cancelled by a party, by precedence, by a jury verdict, or at
+  // finalization because the member was zeroed during the delay.
+  MIGRATION_STATUS_CANCELLED = 5;
+  // EXPIRED: the new address never accepted within the window.
+  MIGRATION_STATUS_EXPIRED = 6;
+  // FAILED: finalization raised an error (a hook veto or a re-key failure);
+  // the chain did not halt and nothing moved. failure_reason says why.
+  MIGRATION_STATUS_FAILED = 7;
+}
+
+// MemberMigration moves a member identity from from_address to to_address.
+message MemberMigration {
+  uint64 id = 1;
+  string from_address = 2;
+  string to_address = 3;
+  MigrationPath path = 4;
+  MigrationStatus status = 5;
+  // requested_at is the block time of the request / reveal / force.
+  int64 requested_at = 6;
+  // accepted_at is the block time of MsgAcceptMigration (0 until then).
+  int64 accepted_at = 7;
+  // executes_at = accepted_at + the path's delay. Set on accept.
+  int64 executes_at = 8;
+  // jury_review_id is the x/rep jury review opened by an objection
+  // (COUNCIL path only; 0 otherwise).
+  uint64 jury_review_id = 9;
+  // evidence_uri references the off-chain evidence a COUNCIL migration was
+  // filed on (inviter attestation, guild officers' statements, ...).
+  string evidence_uri = 10;
+  // objector is the address that posted the objection bond (COUNCIL path).
+  string objector = 11;
+  // objection_bond is the SPARK bond held while the jury decides, as a
+  // micro-denom integer string. Paid to to_address when the migration is
+  // upheld, refunded to the objector otherwise; never burned.
+  string objection_bond = 12 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+  // failure_reason is set when status is FAILED or CANCELLED by the chain.
+  string failure_reason = 13;
+  // finalized_at is the block time of finalization (0 until then).
+  int64 finalized_at = 14;
+}
+
+// Tombstone is the forward alias left behind at from_address once a
+// migration finalizes. canonical always points at the CURRENT address: when
+// the canonical address migrates again, every predecessor is rewritten
+// (path compression), so one lookup is enough.
+message Tombstone {
+  // address is the tombstoned (old) address; the map key in state.
+  string address = 1;
+  string canonical = 2;
+  // path is the path of the migration that tombstoned this address. The
+  // ante decorator reads it: a KEY tombstone may still MsgSend, a RECOVERY
+  // or COUNCIL tombstone (presumed compromised) may not.
+  MigrationPath path = 3;
+  uint64 migration_id = 4;
+  // finalized_epoch is the rep epoch in which this address stopped being
+  // canonical. The dedup horizon (AliasDedupHorizonEpochs) is measured from
+  // it, so it is never rewritten by a later path compression.
+  int64 finalized_epoch = 5;
+}
+
+// RecoveryCommitment is one SHA-256 commitment to a secret preimage. A reveal
+// of the preimage opens a RECOVERY migration without any signature from the
+// member's account key.
+message RecoveryCommitment {
+  // commitment = SHA-256("sparkdream/recovery/commit/v1" || preimage).
+  bytes commitment = 1;
+  // effective_at is the block time from which the commitment is active;
+  // 0 means active now. Every commitment set by an existing member waits out
+  // recovery_change_delay; only the one carried by MsgAcceptInvitation at
+  // onboarding is immediate.
+  int64 effective_at = 2;
+}
+
+// RecoveryCommitmentSet is a member's commitments, at most
+// MaxRecoveryCommitments, in no particular order. A failed reveal burns one
+// commitment, never the member's only recovery.
+message RecoveryCommitmentSet {
+  repeated RecoveryCommitment commitments = 1 [(gogoproto.nullable) = false];
+  // pending_removals are commitments whose removal is waiting out
+  // recovery_change_delay: the commitment stays active until removal_at.
+  repeated PendingCommitmentRemoval pending_removals = 2 [(gogoproto.nullable) = false];
+}
+
+// PendingCommitmentRemoval schedules the removal of a commitment.
+message PendingCommitmentRemoval {
+  bytes commitment = 1;
+  int64 removal_at = 2;
+}
+
+// RecoveryCommit is the front-running guard for a reveal: a sealed hash of
+// (preimage, old address, new address) that must have aged
+// recovery_reveal_min_blocks before the reveal is accepted. Anyone can submit
+// one; it says nothing about the member, the preimage or the target.
+message RecoveryCommit {
+  // sealed = SHA-256("sparkdream/recovery/seal/v1" || preimage || A || B);
+  // the map key in state.
+  bytes sealed = 1;
+  string submitter = 2;
+  int64 height = 3;
+  int64 expires_at = 4;
+  // deposit is the SPARK locked by the submitter, refunded when a reveal
+  // consumes the seal and burned when the seal expires.
+  string deposit = 5 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+}
+
+// RecoveryCommitmentEntry is the genesis form of the RecoveryCommitments map.
+message RecoveryCommitmentEntry {
+  string member = 1;
+  RecoveryCommitmentSet set = 2 [(gogoproto.nullable) = false];
+}

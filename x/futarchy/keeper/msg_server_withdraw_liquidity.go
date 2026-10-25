@@ -26,7 +26,7 @@ func (k msgServer) WithdrawLiquidity(goCtx context.Context, msg *types.MsgWithdr
 	}
 
 	// Only market creator can withdraw liquidity
-	if market.Creator != msg.Creator {
+	if !k.canActAs(ctx, msg.Creator, market.Creator) {
 		return nil, errorsmod.Wrapf(sdkerrors.ErrUnauthorized, "only market creator can withdraw liquidity")
 	}
 

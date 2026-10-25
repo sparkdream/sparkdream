@@ -42,7 +42,7 @@ func (k msgServer) BuyUnits(ctx context.Context, msg *types.MsgBuyUnits) (*types
 	if isEditionHidden(c, e) {
 		return nil, types.ErrContentHidden
 	}
-	if msg.Buyer == l.Seller {
+	if k.sameMember(ctx, msg.Buyer, l.Seller) {
 		return nil, errorsmod.Wrap(types.ErrInvalidRecipient, "cannot buy your own listing")
 	}
 	if _, err := k.validateRecipient("buyer", msg.Buyer); err != nil {

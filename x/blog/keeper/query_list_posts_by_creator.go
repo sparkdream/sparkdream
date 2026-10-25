@@ -20,30 +20,46 @@ func (q queryServer) ListPostsByCreator(ctx context.Context, req *types.QueryLis
 
 	storeAdapter := runtime.KVStoreAdapter(q.k.storeService.OpenKVStore(ctx))
 	creatorStore := prefix.NewStore(storeAdapter, []byte(types.CreatorPostKey))
-	creatorPrefix := []byte(req.Creator + "/")
-	creatorPrefixStore := prefix.NewStore(creatorStore, creatorPrefix)
 
-	var posts []types.Post
-	pageRes, err := query.Paginate(creatorPrefixStore, req.Pagination, func(key []byte, value []byte) error {
+	collect := func(posts []types.Post, key []byte) []types.Post {
 		if len(key) < 8 {
-			return nil
+			return posts
 		}
 		postId := binary.BigEndian.Uint64(key[:8])
 		post, found := q.k.GetPost(ctx, postId)
 		if !found {
-			return nil
+			return posts
 		}
 		if post.Status == types.PostStatus_POST_STATUS_DELETED {
-			return nil
+			return posts
 		}
 		if post.Status == types.PostStatus_POST_STATUS_HIDDEN && !req.IncludeHidden {
-			return nil
+			return posts
 		}
-		posts = append(posts, withholdPostBody(post))
+		return append(posts, withholdPostBody(post))
+	}
+
+	// Alias contract: the canonical address is paginated as before; posts
+	// written from the member's past addresses (pre-migration) are appended
+	// in full after it, since each alias has its own store prefix.
+	aliases := q.k.allAddressesOf(ctx, req.Creator)
+	creatorPrefixStore := prefix.NewStore(creatorStore, []byte(aliases[0]+"/"))
+
+	var posts []types.Post
+	pageRes, err := query.Paginate(creatorPrefixStore, req.Pagination, func(key []byte, value []byte) error {
+		posts = collect(posts, key)
 		return nil
 	})
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
+	}
+	for _, alias := range aliases[1:] {
+		aliasStore := prefix.NewStore(creatorStore, []byte(alias+"/"))
+		it := aliasStore.Iterator(nil, nil)
+		for ; it.Valid(); it.Next() {
+			posts = collect(posts, it.Key())
+		}
+		it.Close()
 	}
 
 	return &types.QueryListPostsByCreatorResponse{Posts: posts, Pagination: pageRes}, nil

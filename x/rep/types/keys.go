@@ -228,3 +228,39 @@ var (
 	// Enforces one active challenge per content item
 	ContentChallengesByTargetKey = collections.NewPrefix("contentchallenge/by_target/")
 )
+
+// Member key migration (docs/x-rep-spec.md, "Member key migration").
+var (
+	// TombstoneKey: old address -> Tombstone (forward alias to the canonical
+	// address). Written once at finalization, path-compressed afterwards.
+	TombstoneKey = collections.NewPrefix("migration/tombstone/")
+	// MigratedFromKey: (canonical, finalized_epoch, old) -> exists. Reverse of
+	// the tombstone map, ordered by the epoch the old address stopped being
+	// canonical so RecentAddressesOf is a bounded range scan.
+	MigratedFromKey = collections.NewPrefix("migration/from/")
+	// MemberMigrationKey / MemberMigrationCountKey: id -> MemberMigration and
+	// its sequence.
+	MemberMigrationKey      = collections.NewPrefix("migration/value/")
+	MemberMigrationCountKey = collections.NewPrefix("migration/count/")
+	// PendingMigrationByMemberKey: from address -> migration id. At most one
+	// pending migration per member.
+	PendingMigrationByMemberKey = collections.NewPrefix("migration/pending_by_member/")
+	// PendingMigrationByTargetKey: to address -> migration id. Freshness of a
+	// target also means nobody else is migrating into it.
+	PendingMigrationByTargetKey = collections.NewPrefix("migration/pending_by_target/")
+	// MigrationQueueKey: (executes_at, id) -> exists. The EndBlocker
+	// finalization queue; ACCEPTED migrations only.
+	MigrationQueueKey = collections.NewPrefix("migration/queue/")
+	// MigrationAcceptExpiryKey: (expires_at, id) -> exists. REQUESTED
+	// migrations the new address has not accepted yet.
+	MigrationAcceptExpiryKey = collections.NewPrefix("migration/accept_expiry/")
+	// RecoveryCommitmentKey: member -> RecoveryCommitmentSet.
+	RecoveryCommitmentKey = collections.NewPrefix("recovery/commitment/")
+	// RecoveryCommitKey: sealed hash -> RecoveryCommit (front-running guard).
+	RecoveryCommitKey = collections.NewPrefix("recovery/commit/")
+	// RecoveryCommitExpiryKey: (expires_at, sealed) -> exists.
+	RecoveryCommitExpiryKey = collections.NewPrefix("recovery/commit_expiry/")
+	// ZkKeyActivationQueueKey: (activates_at_epoch, member) -> exists. Pending
+	// ZK public keys waiting out zk_key_activation_delay.
+	ZkKeyActivationQueueKey = collections.NewPrefix("zk/activation_queue/")
+)

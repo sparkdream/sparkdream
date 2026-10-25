@@ -39,7 +39,7 @@ check "record keeps the x/rep appeal id" "$(q hide-record "$HIDE_ID" | jq -r '.r
 check "x/rep appeal is ARTIFACT_HIDE" "$($BINARY q rep get-gov-action-appeal "$APPEAL_ID" --output json | jq -r '.gov_action_appeal.action_type')" "GOV_ACTION_TYPE_ARTIFACT_HIDE"
 check "x/rep charged its 10 SPARK appeal bond (plus gas)" "$((BOB_BEFORE_APPEAL - $(balance "$BOB_ADDR")))" "$((10000000 + 60000))"
 # Resolving goes through x/rep; an outsider is not the Ops authority.
-RES=$($BINARY tx rep resolve-gov-action-appeal "$APPEAL_ID" overturned "x" --from artifact_outsider \
+RES=$($BINARY tx rep resolve-gov-action-appeal "$APPEAL_ID" overturned "x" --gas 400000 --from artifact_outsider \
     --chain-id "$CHAIN_ID" --keyring-backend test --fees 60000"$BOND_DENOM" -y --output json 2>&1)
 RES_HASH=$(echo "$RES" | jq -r '.txhash // empty' 2>/dev/null)
 if [ -n "$RES_HASH" ] && [ "$(wait_for_tx "$RES_HASH" | jq -r '.code')" = "0" ]; then
@@ -47,7 +47,7 @@ if [ -n "$RES_HASH" ] && [ "$(wait_for_tx "$RES_HASH" | jq -r '.code')" = "0" ];
 else
     pass "outsider cannot resolve via x/rep"
 fi
-RES=$($BINARY tx rep resolve-gov-action-appeal "$APPEAL_ID" overturned "token was fine" --from alice \
+RES=$($BINARY tx rep resolve-gov-action-appeal "$APPEAL_ID" overturned "token was fine" --gas 400000 --from alice \
     --chain-id "$CHAIN_ID" --keyring-backend test --fees 60000"$BOND_DENOM" -y --output json 2>&1)
 check "alice overturns via x/rep" "$(wait_for_tx "$(echo "$RES" | jq -r '.txhash')" | jq -r '.code')" "0"
 check "outcome OVERTURNED" "$(q hide-record "$HIDE_ID" | jq -r '.record.outcome')" "HIDE_OUTCOME_OVERTURNED"
@@ -60,7 +60,7 @@ HIDE2=$(tx_event hide_id artifact_hidden)
 expect_ok "bob appeals" appeal-hide "$HIDE2" --from bob
 APPEAL2=$(tx_event appeal_id gov_action_appealed)
 APPEAL2=${APPEAL2:-0}
-RES=$($BINARY tx rep resolve-gov-action-appeal "$APPEAL2" upheld "spam confirmed" --from alice \
+RES=$($BINARY tx rep resolve-gov-action-appeal "$APPEAL2" upheld "spam confirmed" --gas 400000 --from alice \
     --chain-id "$CHAIN_ID" --keyring-backend test --fees 60000"$BOND_DENOM" -y --output json 2>&1)
 check "alice upholds via x/rep" "$(wait_for_tx "$(echo "$RES" | jq -r '.txhash')" | jq -r '.code')" "0"
 check "outcome UPHELD" "$(q hide-record "$HIDE2" | jq -r '.record.outcome')" "HIDE_OUTCOME_UPHELD"

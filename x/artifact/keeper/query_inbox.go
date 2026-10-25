@@ -14,6 +14,7 @@ func (q queryServer) Inbox(ctx context.Context, req *types.QueryInboxRequest) (*
 	if req == nil || req.Address == "" {
 		return nil, errInvalidRequest
 	}
+	addrs := q.k.allAddressesOf(ctx, req.Address)
 	items, page, err := query.CollectionFilteredPaginate(ctx, q.k.InboxByRecipient, capPage(req.Pagination),
 		func(key AddrTokenKey, kind uint64) (bool, error) {
 			_, ok := q.inboxItem(ctx, key.K2(), key.K3(), types.InboxKind(kind))
@@ -22,9 +23,22 @@ func (q queryServer) Inbox(ctx context.Context, req *types.QueryInboxRequest) (*
 		func(key AddrTokenKey, kind uint64) (types.InboxItem, error) {
 			item, _ := q.inboxItem(ctx, key.K2(), key.K3(), types.InboxKind(kind))
 			return item, nil
-		}, addrPrefix(req.Address))
+		}, addrPrefix(addrs[0]))
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
+	}
+	if lastPage(page) {
+		for _, a := range addrs[1:] {
+			err = q.k.InboxByRecipient.Walk(ctx, addrRange(a, 0), func(key AddrTokenKey, kind uint64) (bool, error) {
+				if item, ok := q.inboxItem(ctx, key.K2(), key.K3(), types.InboxKind(kind)); ok {
+					items = append(items, item)
+				}
+				return false, nil
+			})
+			if err != nil {
+				return nil, status.Error(codes.Internal, err.Error())
+			}
+		}
 	}
 	count, _ := q.k.InboxCount.Get(ctx, req.Address)
 	return &types.QueryInboxResponse{Items: items, InboxCount: uint32(count), Pagination: page}, nil

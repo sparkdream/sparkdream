@@ -32,7 +32,7 @@ func (k msgServer) SetMinters(ctx context.Context, msg *types.MsgSetMinters) (*t
 		}
 	}
 	next = append(next, msg.Add...)
-	minters, err := k.validateMinterSet(next, c.Owner, k.GetParams(ctx))
+	minters, err := k.validateMinterSet(ctx, next, c.Owner, k.GetParams(ctx))
 	if err != nil {
 		return nil, err
 	}
