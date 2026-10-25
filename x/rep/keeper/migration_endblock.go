@@ -169,6 +169,7 @@ func (k Keeper) ActivatePendingZkKeys(ctx context.Context, maxN int) error {
 		member.ZkPublicKey = member.PendingZkPublicKey
 		member.PendingZkPublicKey = nil
 		member.ZkKeyActivatesAtEpoch = 0
+		member.ZkKeyCleared = false // a MsgClearZkPublicKey flag is consumed by the activation
 		if err := k.Member.Set(ctx, e.addr, member); err != nil {
 			return err
 		}

@@ -42,6 +42,7 @@ func initRootCmd(
 		pruning.Cmd(newApp, app.DefaultNodeHome),
 		snapshot.Cmd(newApp),
 		ReplayFromArchiveCmd(),
+		ZkKeyFingerprintCmd(txConfig),
 	)
 
 	server.AddCommandsWithStartCmdOptions(rootCmd, app.DefaultNodeHome, newApp, appExport, server.StartCmdOptions{

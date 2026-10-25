@@ -106,8 +106,7 @@ func (k Keeper) checkTargetFresh(ctx context.Context, from, to string) error {
 	if to == from {
 		return errorsmod.Wrap(types.ErrMigrationTargetNotFresh, "new address equals the old one")
 	}
-	toBytes, err := k.addressCodec.StringToBytes(to)
-	if err != nil {
+	if _, err := k.addressCodec.StringToBytes(to); err != nil {
 		return errorsmod.Wrap(types.ErrMigrationTargetNotFresh, "invalid new address")
 	}
 	if has, _ := k.Member.Has(ctx, to); has {
@@ -124,21 +123,37 @@ func (k Keeper) checkTargetFresh(ctx context.Context, from, to string) error {
 	if has, _ := k.PendingMigrationByTarget.Has(ctx, to); has {
 		return errorsmod.Wrap(types.ErrMigrationTargetNotFresh, "new address is already the target of a pending migration")
 	}
-	if k.late.reservedAddresses[to] {
-		return errorsmod.Wrap(types.ErrMigrationTargetNotFresh, "new address is a reserved module or system address")
+	if err := k.IsPersonalAddress(ctx, to); err != nil {
+		return errorsmod.Wrapf(types.ErrMigrationTargetNotFresh, "new address %v", err)
+	}
+	return nil
+}
+
+// IsPersonalAddress fails when addr cannot belong to a person: a reserved
+// module or system address, a module account, a council or committee policy
+// or an x/vault shared account. Membership is a person, so every entry point
+// that creates or moves an identity (invitation, acceptance, migration target)
+// runs this gate; x/vault runs it on signer sets.
+func (k Keeper) IsPersonalAddress(ctx context.Context, addr string) error {
+	addrBytes, err := k.addressCodec.StringToBytes(addr)
+	if err != nil {
+		return fmt.Errorf("is not a valid address: %w", err)
+	}
+	if k.late.reservedAddresses[addr] {
+		return fmt.Errorf("is a reserved module or system address")
 	}
 	if k.authKeeper != nil {
-		if acc := k.authKeeper.GetAccount(ctx, toBytes); acc != nil {
+		if acc := k.authKeeper.GetAccount(ctx, addrBytes); acc != nil {
 			if _, isModule := acc.(sdk.ModuleAccountI); isModule {
-				return errorsmod.Wrap(types.ErrMigrationTargetNotFresh, "new address is a module account")
+				return fmt.Errorf("is a module account")
 			}
 		}
 	}
-	if k.commonsKeeper != nil && k.commonsKeeper.IsGroupPolicyAddress(ctx, to) {
-		return errorsmod.Wrap(types.ErrMigrationTargetNotFresh, "new address is a group policy")
+	if k.commonsKeeper != nil && k.commonsKeeper.IsGroupPolicyAddress(ctx, addr) {
+		return fmt.Errorf("is a group policy")
 	}
-	if k.late.isVault != nil && k.late.isVault(ctx, to) {
-		return errorsmod.Wrap(types.ErrMigrationTargetNotFresh, "new address is a vault")
+	if k.late.isVault != nil && k.late.isVault(ctx, addr) {
+		return fmt.Errorf("is a vault")
 	}
 	return nil
 }

@@ -652,6 +652,18 @@ func TestExecRejectsZeroSigVerifyEd(t *testing.T) {
 	require.Contains(t, err.Error(), "sig_verify_cost_ed25519")
 }
 
+func TestExecRejectsLowTxSigLimit(t *testing.T) {
+	ctx, k := setupGuardian(t, guardianDeps{})
+	ms := guardiankeeper.NewMsgServerImpl(k)
+	p := validAuthParams()
+	p.TxSigLimit = 6 // a 7-key multisig would no longer be able to sign
+	any, _ := codectypes.NewAnyWithValue(&authtypes.MsgUpdateParams{Params: p})
+	_, err := ms.Exec(ctx, &guardiantypes.MsgExec{Authority: govAuth(), Inner: any})
+	require.Error(t, err)
+	require.ErrorIs(t, err, guardiantypes.ErrImmutableField)
+	require.Contains(t, err.Error(), "tx_sig_limit")
+}
+
 // --- consensus.MsgUpdateParams floors --------------------------------------
 
 func validConsensusMsg() *consensustypes.MsgUpdateParams {

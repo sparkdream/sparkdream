@@ -182,6 +182,27 @@ func MigrationMsgTypeURLs() []string {
 	return urls
 }
 
+// IdentityMsgs is the rep identity surface: the migration messages plus the
+// ZK key messages. A session hot key that could register or clear a ZK key
+// would bypass the account's signing threshold on the member's anonymous
+// identity (multisig-accounts plan §3.2), so none of these may ever appear in
+// an x/session allowlist, be shield-compatible, or be executable by a shared
+// vault. x/session's ForbiddenAllowlistMsgs builds from IdentityMsgTypeURLs.
+var IdentityMsgs = append(append([]sdk.Msg{}, MigrationMsgs...),
+	&MsgRegisterZkPublicKey{},
+	&MsgClearZkPublicKey{},
+)
+
+// IdentityMsgTypeURLs returns the type URLs of IdentityMsgs (a function for
+// the same init-order reason as MigrationMsgTypeURLs).
+func IdentityMsgTypeURLs() []string {
+	urls := make([]string, 0, len(IdentityMsgs))
+	for _, m := range IdentityMsgs {
+		urls = append(urls, sdk.MsgTypeURL(m))
+	}
+	return urls
+}
+
 // IsMigrationMsgTypeURL reports whether url names a migration message.
 func IsMigrationMsgTypeURL(url string) bool {
 	for _, u := range MigrationMsgTypeURLs() {

@@ -44,7 +44,7 @@ func TestWeightedOperations(t *testing.T) {
 		TxConfig:  encCfg.TxConfig,
 	}
 	ops := am.WeightedOperations(simState)
-	require.Len(t, ops, 52) // +MsgRevokeInvitation, +9 member key migration ops (ForceMigration is authority-only and not simulated)
+	require.Len(t, ops, 53) // +MsgRevokeInvitation, +9 member key migration ops (ForceMigration is authority-only and not simulated), +MsgClearZkPublicKey
 }
 
 func TestProposalMsgs(t *testing.T) {

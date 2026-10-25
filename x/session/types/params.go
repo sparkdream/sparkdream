@@ -10,6 +10,7 @@ import (
 
 	reptypes "sparkdream/x/rep/types"
 	servicetypes "sparkdream/x/service/types"
+	vaulttypes "sparkdream/x/vault/types"
 )
 
 // Default parameter values
@@ -290,16 +291,24 @@ var (
 // the owning module's exported list so a proto rename surfaces as a
 // compile error.
 var ForbiddenAllowlistMsgs = func() map[string]bool {
-	m := make(map[string]bool, len(servicetypes.NonDelegableMsgTypeURLs)+len(reptypes.MigrationMsgTypeURLs())+1)
+	m := make(map[string]bool, len(servicetypes.NonDelegableMsgTypeURLs)+len(reptypes.IdentityMsgTypeURLs())+1)
 	for _, url := range servicetypes.NonDelegableMsgTypeURLs {
 		m[url] = true
 	}
 	// Bonds SPARK from the granter's account.
 	m[sdk.MsgTypeURL(&servicetypes.MsgTopUpBond{})] = true
-	// Member key migration: a session key must never be able to move an
-	// identity, register a recovery commitment, reveal one, object to or
-	// sweep a migration (member-key-migration plan §4).
-	for _, url := range reptypes.MigrationMsgTypeURLs() {
+	// Member identity: a session key must never be able to move an identity,
+	// register a recovery commitment, reveal one, object to or sweep a
+	// migration (member-key-migration plan §4), nor register or clear the
+	// member's ZK key — a hot key that could would bypass a multisig account's
+	// threshold on the anonymous identity (multisig-accounts plan §3.2).
+	for _, url := range reptypes.IdentityMsgTypeURLs() {
+		m[url] = true
+	}
+	// x/vault: a session hot key must never cast a co-signer's approval, open
+	// or execute a vault proposal, or create a vault (multisig-accounts plan
+	// §4.4). Built from x/vault's exported list.
+	for _, url := range vaulttypes.NonDelegableMsgTypeURLs() {
 		m[url] = true
 	}
 	return m

@@ -40,7 +40,7 @@ The inner Msg's response is packed back into `Any` in `MsgExecResponse`.
 | `distribution.MsgCommunityPoolSpend` | **Hard reject.** Community pool spending must flow through x/split. |
 | `gov.MsgUpdateParams` | Floors: `voting_period ≥ 6h`, `expedited_voting_period ≥ 1h`, `quorum ≥ 0.2`, `threshold ≥ 0.5`, `veto_threshold ≥ 0.2` |
 | `slashing.MsgUpdateParams` | Floors: `slash_fraction_double_sign ≥ 0.01`, `slash_fraction_downtime ≥ 1e-5`. Ceiling: `signed_blocks_window ≤ 1M` |
-| `auth.MsgUpdateParams` | Floors on `tx_size_cost_per_byte`, `sig_verify_cost_ed25519`, `sig_verify_cost_secp256k1` |
+| `auth.MsgUpdateParams` | Floors on `tx_size_cost_per_byte`, `sig_verify_cost_ed25519`, `sig_verify_cost_secp256k1`, and `tx_sig_limit ≥ 7` (every sub-key of a multisig account counts, so a lower limit would lock out existing native-multisig members) |
 | `consensus.MsgUpdateParams` | Floors: `block.max_bytes ≥ 200k`, `block.max_gas` (1M or `-1`), `evidence.max_age_num_blocks ≥ 1k`, `evidence.max_age_duration ≥ 1h` |
 
 On accept, the filter overwrites the inner msg's `Authority` field with guardian's module address and dispatches via the message router. Failures inside the filter return typed errors and roll back the tx.

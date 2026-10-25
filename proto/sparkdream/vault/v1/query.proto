@@ -1,0 +1,166 @@
+syntax = "proto3";
+
+package sparkdream.vault.v1;
+
+import "amino/amino.proto";
+import "cosmos/base/query/v1beta1/pagination.proto";
+import "gogoproto/gogo.proto";
+import "google/api/annotations.proto";
+import "sparkdream/vault/v1/params.proto";
+import "sparkdream/vault/v1/vault.proto";
+import "sparkdream/vault/v1/vault_proposal.proto";
+
+option go_package = "sparkdream/x/vault/types";
+
+// Query defines the gRPC querier service.
+service Query {
+  // Parameters queries the parameters of the module.
+  rpc Params(QueryParamsRequest) returns (QueryParamsResponse) {
+    option (google.api.http).get = "/sparkdream/vault/v1/params";
+  }
+
+  // VaultByAddress Queries a list of VaultByAddress items.
+  rpc VaultByAddress(QueryVaultByAddressRequest) returns (QueryVaultByAddressResponse) {
+    option (google.api.http).get = "/sparkdream/vault/v1/vault_by_address/{address}";
+  }
+
+  // VaultsBySigner Queries a list of VaultsBySigner items.
+  rpc VaultsBySigner(QueryVaultsBySignerRequest) returns (QueryVaultsBySignerResponse) {
+    option (google.api.http).get = "/sparkdream/vault/v1/vaults_by_signer/{address}";
+  }
+
+  // ProposalsByVault Queries a list of ProposalsByVault items.
+  rpc ProposalsByVault(QueryProposalsByVaultRequest) returns (QueryProposalsByVaultResponse) {
+    option (google.api.http).get = "/sparkdream/vault/v1/proposals_by_vault/{vault_id}";
+  }
+
+  // Tally Queries a list of Tally items.
+  rpc Tally(QueryTallyRequest) returns (QueryTallyResponse) {
+    option (google.api.http).get = "/sparkdream/vault/v1/tally/{proposal_id}";
+  }
+
+  // ListVault Queries a list of Vault items.
+  rpc GetVault(QueryGetVaultRequest) returns (QueryGetVaultResponse) {
+    option (google.api.http).get = "/sparkdream/vault/v1/vault/{vault_id}";
+  }
+
+  // ListVault defines the ListVault RPC.
+  rpc ListVault(QueryAllVaultRequest) returns (QueryAllVaultResponse) {
+    option (google.api.http).get = "/sparkdream/vault/v1/vault";
+  }
+
+  // ListVaultProposal Queries a list of VaultProposal items.
+  rpc GetVaultProposal(QueryGetVaultProposalRequest) returns (QueryGetVaultProposalResponse) {
+    option (google.api.http).get = "/sparkdream/vault/v1/vault_proposal/{proposal_id}";
+  }
+
+  // ListVaultProposal defines the ListVaultProposal RPC.
+  rpc ListVaultProposal(QueryAllVaultProposalRequest) returns (QueryAllVaultProposalResponse) {
+    option (google.api.http).get = "/sparkdream/vault/v1/vault_proposal";
+  }
+}
+
+// QueryParamsRequest is request type for the Query/Params RPC method.
+message QueryParamsRequest {}
+
+// QueryParamsResponse is response type for the Query/Params RPC method.
+message QueryParamsResponse {
+  // params holds all the parameters of this module.
+  Params params = 1 [
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+}
+
+// QueryVaultByAddressRequest defines the QueryVaultByAddressRequest message.
+message QueryVaultByAddressRequest {
+  string address = 1;
+}
+
+// QueryVaultByAddressResponse defines the QueryVaultByAddressResponse message.
+message QueryVaultByAddressResponse {
+  Vault vault = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryVaultsBySignerRequest defines the QueryVaultsBySignerRequest message.
+message QueryVaultsBySignerRequest {
+  string address = 1;
+  cosmos.base.query.v1beta1.PageRequest pagination = 2;
+}
+
+// QueryVaultsBySignerResponse lists the vaults the address (or any of its
+// x/rep alias addresses) is a signer of.
+message QueryVaultsBySignerResponse {
+  repeated Vault vaults = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryProposalsByVaultRequest defines the QueryProposalsByVaultRequest message.
+message QueryProposalsByVaultRequest {
+  uint64 vault_id = 1;
+  // Optional filter; UNSPECIFIED returns every status.
+  ProposalStatus status = 2;
+  cosmos.base.query.v1beta1.PageRequest pagination = 3;
+}
+
+// QueryProposalsByVaultResponse defines the QueryProposalsByVaultResponse message.
+message QueryProposalsByVaultResponse {
+  repeated VaultProposal proposals = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryTallyRequest defines the QueryTallyRequest message.
+message QueryTallyRequest {
+  uint64 proposal_id = 1;
+}
+
+// QueryTallyResponse is the live tally of a proposal: the summed weight of
+// approvers who are still current signers, the vault's threshold, and whether
+// the proposal would execute now.
+message QueryTallyResponse {
+  uint64 approved_weight = 1;
+  uint64 threshold = 2;
+  bool met = 3;
+}
+
+// QueryGetVaultRequest defines the QueryGetVaultRequest message.
+message QueryGetVaultRequest {
+  uint64 vault_id = 1;
+}
+
+// QueryGetVaultResponse defines the QueryGetVaultResponse message.
+message QueryGetVaultResponse {
+  Vault vault = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryAllVaultRequest defines the QueryAllVaultRequest message.
+message QueryAllVaultRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+// QueryAllVaultResponse defines the QueryAllVaultResponse message.
+message QueryAllVaultResponse {
+  repeated Vault vault = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryGetVaultProposalRequest defines the QueryGetVaultProposalRequest message.
+message QueryGetVaultProposalRequest {
+  uint64 proposal_id = 1;
+}
+
+// QueryGetVaultProposalResponse defines the QueryGetVaultProposalResponse message.
+message QueryGetVaultProposalResponse {
+  VaultProposal vault_proposal = 1 [(gogoproto.nullable) = false];
+}
+
+// QueryAllVaultProposalRequest defines the QueryAllVaultProposalRequest message.
+message QueryAllVaultProposalRequest {
+  cosmos.base.query.v1beta1.PageRequest pagination = 1;
+}
+
+// QueryAllVaultProposalResponse defines the QueryAllVaultProposalResponse message.
+message QueryAllVaultProposalResponse {
+  repeated VaultProposal vault_proposal = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}

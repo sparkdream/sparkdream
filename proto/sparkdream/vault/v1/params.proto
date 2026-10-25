@@ -1,0 +1,26 @@
+syntax = "proto3";
+
+package sparkdream.vault.v1;
+
+import "amino/amino.proto";
+import "cosmos_proto/cosmos.proto";
+import "gogoproto/gogo.proto";
+
+option go_package = "sparkdream/x/vault/types";
+
+// Params defines the parameters for the module.
+message Params {
+  option (amino.name) = "sparkdream/x/vault/Params";
+  option (gogoproto.equal) = true;
+  // creation_enabled gates MsgCreateVault only. Approve, revoke-approval,
+  // execute, cancel and update keep working for existing vaults whatever its
+  // value, so governance can never freeze funds already held in a vault.
+  bool creation_enabled = 1;
+  // creation_fee_amount is burned by MsgCreateVault, in bond-denom micro-units
+  // (SPARK; spam pricing like tag creation). Default 10 SPARK.
+  string creation_fee_amount = 2 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+}

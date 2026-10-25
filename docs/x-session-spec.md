@@ -232,7 +232,7 @@ message MsgCreateSession {
 3. Granter has not exceeded `max_sessions_per_granter`
 4. `len(allowed_msg_types) <= max_msg_types_per_session`
 5. Every type in `allowed_msg_types` is in `Params.allowed_msg_types`
-6. No type in `allowed_msg_types` is in `NonDelegableSessionMsgs` or in `ForbiddenAllowlistMsgs` (x/service's non-delegable msgs, `MsgTopUpBond`, and every x/rep member key migration message from `reptypes.MigrationMsgTypeURLs()`: a session key must never move an identity)
+6. No type in `allowed_msg_types` is in `NonDelegableSessionMsgs` or in `ForbiddenAllowlistMsgs` (x/service's non-delegable msgs, `MsgTopUpBond`, and every x/rep identity message from `reptypes.IdentityMsgTypeURLs()`: the member key migration messages plus `MsgRegisterZkPublicKey` / `MsgClearZkPublicKey`; a session key must never move an identity nor re-point its anonymous key)
 7. `expiration > current_time`
 8. `expiration - current_time <= max_expiration`
 9. `spend_limit <= max_spend_limit` (if non-zero)
@@ -436,7 +436,7 @@ var NonDelegableSessionMsgs = map[string]bool{
 }
 ```
 
-**Foreign forbidden msgs.** `ForbiddenAllowlistMsgs` ([x/session/types/params.go](../x/session/types/params.go)) is the same kind of guard for other modules' msgs: `Params.Validate` (run at genesis and by `MsgUpdateParams`) rejects any of them in either list. It holds x/service's `NonDelegableMsgTypeURLs` (`MsgRegisterOperator`, `MsgUnbondOperator`) plus `/sparkdream.service.v1.MsgTopUpBond`, which moves SPARK into the bond — a session's `SpendLimit` budgets fees only, so it cannot cap that. Earlier genesis defaults admitted `MsgUnbondOperator` and `MsgTopUpBond`; networks dropped them with the reset that shipped this guard.
+**Foreign forbidden msgs.** `ForbiddenAllowlistMsgs` ([x/session/types/params.go](../x/session/types/params.go)) is the same kind of guard for other modules' msgs: `Params.Validate` (run at genesis and by `MsgUpdateParams`) rejects any of them in either list. It holds x/service's `NonDelegableMsgTypeURLs` (`MsgRegisterOperator`, `MsgUnbondOperator`) plus `/sparkdream.service.v1.MsgTopUpBond`, which moves SPARK into the bond — a session's `SpendLimit` budgets fees only, so it cannot cap that. It also holds every x/rep identity message (`reptypes.IdentityMsgTypeURLs()`: the member key migration messages plus `MsgRegisterZkPublicKey` and `MsgClearZkPublicKey`), because a hot key that could move an identity or re-point its ZK key would bypass a multisig granter's threshold ([multisig-accounts.md](multisig-accounts.md)), and every x/vault message (`vaulttypes.NonDelegableMsgTypeURLs()`), because a hot key must never cast a co-signer's approval ([x-vault-spec.md](x-vault-spec.md) §3). Earlier genesis defaults admitted `MsgUnbondOperator` and `MsgTopUpBond`; networks dropped them with the reset that shipped this guard.
 
 **Emergency response flow:**
 

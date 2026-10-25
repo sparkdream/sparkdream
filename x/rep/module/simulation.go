@@ -817,6 +817,21 @@ func (am AppModule) WeightedOperations(simState module.SimulationState) []simtyp
 		weightMsgSweepTombstone,
 		repsimulation.SimulateMsgSweepTombstone(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
 	))
+	const (
+		opWeightMsgClearZkPublicKey          = "op_weight_msg_rep"
+		defaultWeightMsgClearZkPublicKey int = 5
+	)
+
+	var weightMsgClearZkPublicKey int
+	simState.AppParams.GetOrGenerate(opWeightMsgClearZkPublicKey, &weightMsgClearZkPublicKey, nil,
+		func(_ *rand.Rand) {
+			weightMsgClearZkPublicKey = defaultWeightMsgClearZkPublicKey
+		},
+	)
+	operations = append(operations, simulation.NewWeightedOperation(
+		weightMsgClearZkPublicKey,
+		repsimulation.SimulateMsgClearZkPublicKey(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
+	))
 
 	return operations
 }

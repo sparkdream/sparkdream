@@ -299,6 +299,10 @@ var (
 	authTxSizeCostPerByteFloor      = uint64(1)
 	authSigVerifyCostEd25519Floor   = uint64(100)
 	authSigVerifyCostSecp256k1Floor = uint64(100)
+	// tx_sig_limit counts every sub-key of a multisig account (CountSubKeys),
+	// so lowering it below the genesis value of 7 would lock out existing
+	// native-multisig members (multisig-accounts plan §3.2).
+	authTxSigLimitFloor = uint64(7)
 
 	// consensus floors / ceilings. block.max_gas == -1 (unlimited) is
 	// allowed; any other value must be at least minMaxGas. max_bytes must
@@ -395,7 +399,8 @@ func (ms msgServer) filterSlashingUpdateParams(ctx context.Context, m *slashingt
 }
 
 // filterAuthUpdateParams enforces minimum gas costs so gov cannot make
-// txs effectively free (a DOS surface).
+// txs effectively free (a DOS surface), and a tx_sig_limit floor so gov
+// cannot lock out native-multisig accounts.
 func (ms msgServer) filterAuthUpdateParams(ctx context.Context, m *authtypes.MsgUpdateParams) error {
 	if m.Params.TxSizeCostPerByte < authTxSizeCostPerByteFloor {
 		return errorsmod.Wrapf(guardiantypes.ErrImmutableField,
@@ -411,6 +416,11 @@ func (ms msgServer) filterAuthUpdateParams(ctx context.Context, m *authtypes.Msg
 		return errorsmod.Wrapf(guardiantypes.ErrImmutableField,
 			"auth.MsgUpdateParams: sig_verify_cost_secp256k1 below floor (proposed=%d, floor=%d)",
 			m.Params.SigVerifyCostSecp256k1, authSigVerifyCostSecp256k1Floor)
+	}
+	if m.Params.TxSigLimit < authTxSigLimitFloor {
+		return errorsmod.Wrapf(guardiantypes.ErrImmutableField,
+			"auth.MsgUpdateParams: tx_sig_limit below floor (proposed=%d, floor=%d)",
+			m.Params.TxSigLimit, authTxSigLimitFloor)
 	}
 	return nil
 }

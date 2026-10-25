@@ -1,0 +1,15 @@
+syntax = "proto3";
+package sparkdream.vault.module.v1;
+
+import "cosmos/app/v1alpha1/module.proto";
+
+option go_package = "sparkdream/x/vault/types";
+
+// Module is the config object for the module.
+message Module {
+  option (cosmos.app.v1alpha1.module) = {go_import: "sparkdream/x/vault"};
+
+  // authority defines the custom module authority.
+  // If not set, defaults to the governance module.
+  string authority = 1;
+}

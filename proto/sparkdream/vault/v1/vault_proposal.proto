@@ -1,0 +1,51 @@
+syntax = "proto3";
+package sparkdream.vault.v1;
+
+import "cosmos_proto/cosmos.proto";
+import "google/protobuf/any.proto";
+
+option go_package = "sparkdream/x/vault/types";
+
+// ProposalStatus is the lifecycle of a VaultProposal.
+enum ProposalStatus {
+  PROPOSAL_STATUS_UNSPECIFIED = 0;
+  // Collecting approvals; executable once the threshold is met.
+  PROPOSAL_STATUS_PENDING = 1;
+  // Every inner message ran successfully.
+  PROPOSAL_STATUS_EXECUTED = 2;
+  // Cancelled by the proposer or by the vault itself (executed MsgCancelProposal).
+  PROPOSAL_STATUS_CANCELLED = 3;
+  // expires_at passed before execution (EndBlocker).
+  PROPOSAL_STATUS_EXPIRED = 4;
+  // The vault's signer set or threshold changed after creation.
+  PROPOSAL_STATUS_INVALIDATED = 5;
+}
+
+// VaultProposal is a batch of messages a vault's signers approve. Every inner
+// message is signed by the vault address and runs atomically through the msg
+// router when the approving weight reaches the vault's threshold.
+message VaultProposal {
+  uint64 proposal_id = 1;
+  uint64 vault_id = 2;
+  // Canonical (x/rep alias) address of the proposer.
+  string proposer = 3 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  // Inner messages; each GetSigners() must be exactly [vault.address]; at most
+  // MaxMessagesPerProposal; denylisted types (identity, shield exec, vault
+  // recursion, session exec) are refused at propose and at execute.
+  repeated google.protobuf.Any messages = 4 [(cosmos_proto.accepts_interface) = "cosmos.base.v1beta1.Msg"];
+  // sha256 over the deterministic proto encoding of `messages`; MsgApprove must
+  // repeat it so a hardware wallet shows what is being approved.
+  bytes messages_hash = 5;
+  // Vault config_version at creation; a mismatch means INVALIDATED.
+  uint64 config_version = 6;
+  // Canonical addresses of approvers (the proposer approves implicitly). Only
+  // approvers who are current signers count toward the tally.
+  repeated string approvals = 7;
+  ProposalStatus status = 8;
+  // Unix seconds after which a PENDING proposal becomes EXPIRED.
+  int64 expires_at = 9;
+  // Display only, <= MaxMemoLength chars.
+  string memo = 10;
+  // Unix seconds when the proposal left PENDING; drives retention pruning.
+  int64 resolved_at = 11;
+}

@@ -241,7 +241,7 @@ When a shielded operation executes, the inner message's `creator` field is set t
 
 **Proof generation (client-side, ~2-3 seconds on modern hardware):**
 
-1. **Register ZK public key** (one-time): Call `MsgRegisterZkPublicKey` in x/rep to store the public key on-chain and add to the trust tree.
+1. **Register ZK public key** (one-time): Call `MsgRegisterZkPublicKey` in x/rep to store the public key on-chain and add to the trust tree. A member whose account is a native multisig derives the secret from a dedicated 256-bit shield seed rather than a co-signer's signature, and co-signers compare the key's fingerprint (`sparkdreamd zk-key-fingerprint`) before signing; anonymous actions stay 1-of-1 whatever the account's threshold. A leaked secret is cleared at once with `MsgClearZkPublicKey` (no cooldown; the next registration waits the activation delay). See [multisig-accounts.md](multisig-accounts.md).
 
 2. **Fetch trust tree data** from x/rep:
    - Download the whole tree with `sparkdreamd q rep trust-tree` (all pages): root, depth, and non-empty leaves

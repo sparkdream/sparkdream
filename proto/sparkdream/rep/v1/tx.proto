@@ -236,6 +236,9 @@ service Msg {
 
   // ForceMigration defines the ForceMigration RPC (COUNCIL path).
   rpc ForceMigration(MsgForceMigration) returns (MsgForceMigrationResponse);
+
+  // ClearZkPublicKey zeroes the member's ZK key at once (leaked shield secret).
+  rpc ClearZkPublicKey(MsgClearZkPublicKey) returns (MsgClearZkPublicKeyResponse);
 }
 
 // MsgUpdateParams is the Msg/UpdateParams request type.
@@ -1338,3 +1341,20 @@ message MsgForceMigration {
 message MsgForceMigrationResponse {
   uint64 migration_id = 1;
 }
+
+// MsgClearZkPublicKey zeroes the member's zk_public_key and any
+// pending_zk_public_key at once and registers nothing in their place. It is
+// the remedy for a leaked shield secret: unlike a key change it has no
+// cooldown and no per-season limit, because zeroing can only take capability
+// away. It sets zk_key_cleared, so the next MsgRegisterZkPublicKey is never
+// immediate (it waits zk_key_activation_delay) and still honours the
+// once-per-season change cap; clear-then-register is not a free key swap.
+// Never session-delegable, never shield-compatible (rep identity list).
+message MsgClearZkPublicKey {
+  option (cosmos.msg.v1.signer) = "member";
+  option (amino.name) = "sparkdream/x/rep/MsgClearZkPublicKey";
+  string member = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+}
+
+// MsgClearZkPublicKeyResponse defines the MsgClearZkPublicKeyResponse message.
+message MsgClearZkPublicKeyResponse {}

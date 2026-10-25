@@ -86,3 +86,56 @@ func TestMigrationMsgsNotInSessionDefaults(t *testing.T) {
 		}
 	}
 }
+
+// TestIdentityMsgsAreGuarded pins the wider identity surface (multisig-accounts
+// plan §3.2): the migration messages plus the ZK key messages. Every one must
+// be forbidden from x/session allowlists — a hot key that could register or
+// clear a ZK key would bypass a multisig account's threshold on the anonymous
+// identity — and absent from the session defaults; params naming one in
+// either list must fail validation.
+func TestIdentityMsgsAreGuarded(t *testing.T) {
+	urls := reptypes.IdentityMsgTypeURLs()
+	want := map[string]bool{
+		"/sparkdream.rep.v1.MsgRegisterZkPublicKey": true,
+		"/sparkdream.rep.v1.MsgClearZkPublicKey":    true,
+	}
+	for _, u := range reptypes.MigrationMsgTypeURLs() {
+		want[u] = true
+	}
+	if len(urls) != len(want) {
+		t.Errorf("IdentityMsgTypeURLs has %d entries, want %d", len(urls), len(want))
+	}
+	for _, u := range urls {
+		if !want[u] {
+			t.Errorf("unexpected identity msg %s", u)
+		}
+		if !sessiontypes.ForbiddenAllowlistMsgs[u] {
+			t.Errorf("%s is not in x/session ForbiddenAllowlistMsgs", u)
+		}
+		if strings.HasPrefix(u, "/sparkdream.rep.v1.Msg") == false {
+			t.Errorf("%s is not a rep message", u)
+		}
+	}
+
+	params := sessiontypes.DefaultParams()
+	for _, list := range [][]string{params.MaxAllowedMsgTypes, params.AllowedMsgTypes} {
+		for _, u := range list {
+			if sessiontypes.ForbiddenAllowlistMsgs[u] {
+				t.Errorf("x/session default allowlists contain identity message %s", u)
+			}
+		}
+	}
+	for _, u := range urls {
+		inCeiling := sessiontypes.DefaultParams()
+		inCeiling.MaxAllowedMsgTypes = append(inCeiling.MaxAllowedMsgTypes, u)
+		if err := inCeiling.Validate(); err == nil {
+			t.Errorf("params accepted %s in max_allowed_msg_types", u)
+		}
+		inActive := sessiontypes.DefaultParams()
+		inActive.MaxAllowedMsgTypes = append(inActive.MaxAllowedMsgTypes, u)
+		inActive.AllowedMsgTypes = append(inActive.AllowedMsgTypes, u)
+		if err := inActive.Validate(); err == nil {
+			t.Errorf("params accepted %s in allowed_msg_types", u)
+		}
+	}
+}

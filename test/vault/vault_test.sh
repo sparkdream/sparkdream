@@ -1,0 +1,260 @@
+#!/bin/bash
+# ============================================================================
+# X/VAULT E2E: create, propose, approve, execute, rotate, expire, prune,
+# personhood refusal, spending allowance from the vault, session keys refused.
+# ============================================================================
+echo "--- TESTING: X/VAULT ---"
+echo ""
+
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+BINARY="${BINARY:-sparkdreamd}"
+CHAIN_ID="${CHAIN_ID:-sparkdream}"
+WORK="${TMPDIR:-/tmp}/sparkdream-vault-e2e-$$"
+mkdir -p "$WORK"
+
+PASS_COUNT=0
+FAIL_COUNT=0
+RESULTS=()
+TEST_NAMES=()
+
+record_result() {
+    TEST_NAMES+=("$1"); RESULTS+=("$2")
+    if [ "$2" == "PASS" ]; then PASS_COUNT=$((PASS_COUNT + 1)); else FAIL_COUNT=$((FAIL_COUNT + 1)); fi
+    echo "  => $2"; echo ""
+}
+
+wait_for_tx() {
+    local TXHASH=$1 ATTEMPT=0
+    while [ $ATTEMPT -lt 30 ]; do
+        RESULT=$($BINARY q tx "$TXHASH" --output json 2>&1)
+        if echo "$RESULT" | jq -e '.code' > /dev/null 2>&1; then echo "$RESULT"; return 0; fi
+        ATTEMPT=$((ATTEMPT + 1)); sleep 1
+    done
+    echo '{"code":98,"raw_log":"tx not found"}'; return 1
+}
+
+# tx <key> <args...> -> TX_RESULT (delivered result)
+run_tx() {
+    local KEY=$1; shift
+    local TX_RES TXHASH
+    TX_RES=$($BINARY tx "$@" --from "$KEY" --chain-id $CHAIN_ID --keyring-backend test \
+        --gas 400000 --fees 50000${BOND_DENOM} -y --output json 2>&1)
+    TXHASH=$(echo "$TX_RES" | jq -r '.txhash // empty' 2>/dev/null)
+    if [ -z "$TXHASH" ]; then TX_RESULT=$(jq -n --arg log "$TX_RES" '{code:99, raw_log:$log}'); return 0; fi
+    if [ "$(echo "$TX_RES" | jq -r '.code // "0"')" != "0" ]; then TX_RESULT="$TX_RES"; return 0; fi
+    sleep 6
+    TX_RESULT=$(wait_for_tx "$TXHASH")
+}
+tx_ok()  { [ "$(echo "$1" | jq -r '.code')" = "0" ]; }
+tx_log() { echo "$1" | jq -r '.raw_log // "unknown"' 2>/dev/null | cut -c1-220; }
+event_attr() { echo "$1" | jq -r --arg t "$2" --arg k "$3" '[.events[] | select(.type==$t) | .attributes[] | select(.key==$k) | .value][0] // empty'; }
+
+ensure_key() {
+    if ! $BINARY keys show "$1" --keyring-backend test > /dev/null 2>&1; then
+        $BINARY keys add "$1" --keyring-backend test --output json > /dev/null 2>&1
+    fi
+}
+# poll until a jq expression over a query is true, or N attempts pass
+wait_until() { # <attempts> <sleep> <cmd...> ; the command must exit 0 when satisfied
+    local N=$1 S=$2; shift 2
+    for _ in $(seq 1 "$N"); do if "$@" > /dev/null 2>&1; then return 0; fi; sleep "$S"; done
+    return 1
+}
+
+BOND_DENOM=$($BINARY q identity bond-denom --output json | jq -r '.denom // .bond_denom')
+ALICE_ADDR=$($BINARY keys show alice -a --keyring-backend test)
+BOB_ADDR=$($BINARY keys show bob -a --keyring-backend test)
+ensure_key vault_carol; ensure_key vault_dave; ensure_key vault_hot
+CAROL_ADDR=$($BINARY keys show vault_carol -a --keyring-backend test)
+DAVE_ADDR=$($BINARY keys show vault_dave -a --keyring-backend test)
+HOT_ADDR=$($BINARY keys show vault_hot -a --keyring-backend test)
+for A in "$CAROL_ADDR" "$DAVE_ADDR" "$HOT_ADDR"; do
+    run_tx alice bank send "$ALICE_ADDR" "$A" 50000000${BOND_DENOM}
+    tx_ok "$TX_RESULT" || { echo "funding $A failed: $(tx_log "$TX_RESULT")"; exit 1; }
+done
+MIN_TTL=$($BINARY q vault params --output json > /dev/null 2>&1 && echo 10)
+echo "  alice=$ALICE_ADDR bob=$BOB_ADDR carol=$CAROL_ADDR dave=$DAVE_ADDR"
+echo ""
+
+# ----------------------------------------------------------------- TEST 1 ---
+echo "--- TEST 1: create a 2-of-3 vault (fee burned, keyless account) ---"
+FEE=$($BINARY q vault params --output json | jq -r '.params.creation_fee_amount // "0"')
+SUPPLY_BEFORE=$($BINARY q bank total-supply-of "$BOND_DENOM" --output json 2>/dev/null | jq -r '.amount.amount // empty')
+run_tx alice vault create-vault "$ALICE_ADDR:1,$BOB_ADDR:1,$CAROL_ADDR:1" 2 60 "phoenix treasury"
+VAULT_ID=$(event_attr "$TX_RESULT" vault_created vault_id)
+VAULT_ADDR=$(event_attr "$TX_RESULT" vault_created address)
+SUPPLY_AFTER=$($BINARY q bank total-supply-of "$BOND_DENOM" --output json 2>/dev/null | jq -r '.amount.amount // empty')
+if tx_ok "$TX_RESULT" && [ -n "$VAULT_ID" ] && [ -n "$VAULT_ADDR" ]; then
+    V=$($BINARY q vault get-vault "$VAULT_ID" --output json)
+    BYADDR=$($BINARY q vault vault-by-address "$VAULT_ADDR" --output json | jq -r '.vault.vault_id // "0"')
+    if [ "$(echo "$V" | jq -r '.vault.threshold')" = "2" ] && [ "$BYADDR" = "$VAULT_ID" ] \
+       && { [ -z "$SUPPLY_BEFORE" ] || [ "$SUPPLY_BEFORE" -gt "$SUPPLY_AFTER" ]; }; then
+        echo "  vault #$VAULT_ID at $VAULT_ADDR (fee $FEE burned)"
+        record_result "create 2-of-3 vault" "PASS"
+    else
+        echo "  unexpected: $V by_address=$BYADDR supply $SUPPLY_BEFORE -> $SUPPLY_AFTER"
+        record_result "create 2-of-3 vault" "FAIL"
+    fi
+else
+    echo "  create failed: $(tx_log "$TX_RESULT")"; record_result "create 2-of-3 vault" "FAIL"; exit 1
+fi
+run_tx alice bank send "$ALICE_ADDR" "$VAULT_ADDR" 10000000${BOND_DENOM}
+tx_ok "$TX_RESULT" || { echo "funding the vault failed"; exit 1; }
+
+# ----------------------------------------------------------------- TEST 2 ---
+echo "--- TEST 2: propose a send, approve with the hash, execute ---"
+cat > "$WORK/send.json" <<JSON
+{"messages":[{"@type":"/cosmos.bank.v1beta1.MsgSend","from_address":"$VAULT_ADDR","to_address":"$DAVE_ADDR","amount":[{"denom":"$BOND_DENOM","amount":"1000000"}]}],"memo":"pay dave"}
+JSON
+run_tx alice vault propose "$VAULT_ID" "$WORK/send.json"
+PID=$(event_attr "$TX_RESULT" vault_proposal_created proposal_id)
+HASH=$(event_attr "$TX_RESULT" vault_proposal_created messages_hash)
+TALLY=$($BINARY q vault tally "$PID" --output json 2>/dev/null)
+echo "  proposal #$PID hash=$HASH tally=$(echo "$TALLY" | jq -c .)"
+# wrong hash refused
+run_tx bob vault approve "$PID" "00"
+WRONG_REFUSED=$(! tx_ok "$TX_RESULT" && echo yes || echo no)
+# a non-signer cannot approve
+run_tx vault_dave vault approve "$PID" "$HASH"
+OUTSIDER_REFUSED=$(! tx_ok "$TX_RESULT" && echo yes || echo no)
+# execute below threshold refused
+run_tx alice vault execute "$PID"
+EARLY_REFUSED=$(! tx_ok "$TX_RESULT" && echo yes || echo no)
+DAVE_BEFORE=$($BINARY q bank balance "$DAVE_ADDR" "$BOND_DENOM" --output json | jq -r '.balance.amount')
+run_tx bob vault approve "$PID" "$HASH" --execute
+DAVE_AFTER=$($BINARY q bank balance "$DAVE_ADDR" "$BOND_DENOM" --output json | jq -r '.balance.amount')
+STATUS=$($BINARY q vault get-vault-proposal "$PID" --output json | jq -r '.vault_proposal.status')
+if tx_ok "$TX_RESULT" && [ "$STATUS" = "PROPOSAL_STATUS_EXECUTED" ] && [ $((DAVE_AFTER - DAVE_BEFORE)) -eq 1000000 ] \
+   && [ "$WRONG_REFUSED" = yes ] && [ "$OUTSIDER_REFUSED" = yes ] && [ "$EARLY_REFUSED" = yes ]; then
+    echo "  executed on the second approval; wrong hash / outsider / early execute refused"
+    record_result "propose, approve, execute" "PASS"
+else
+    echo "  status=$STATUS dave=$DAVE_BEFORE->$DAVE_AFTER wrong=$WRONG_REFUSED outsider=$OUTSIDER_REFUSED early=$EARLY_REFUSED log=$(tx_log "$TX_RESULT")"
+    record_result "propose, approve, execute" "FAIL"
+fi
+
+# ----------------------------------------------------------------- TEST 3 ---
+echo "--- TEST 3: rotate a signer; other pending proposals are INVALIDATED ---"
+run_tx bob vault propose "$VAULT_ID" "$WORK/send.json"
+VICTIM=$(event_attr "$TX_RESULT" vault_proposal_created proposal_id)
+cat > "$WORK/rotate.json" <<JSON
+{"messages":[{"@type":"/sparkdream.vault.v1.MsgUpdateVault","vault":"$VAULT_ADDR","signers":[{"address":"$ALICE_ADDR","weight":"1"},{"address":"$BOB_ADDR","weight":"1"},{"address":"$DAVE_ADDR","weight":"2"}],"threshold":"3","proposal_ttl":"20","label":"rotated"}],"memo":"carol out, dave in"}
+JSON
+run_tx alice vault propose "$VAULT_ID" "$WORK/rotate.json"
+RPID=$(event_attr "$TX_RESULT" vault_proposal_created proposal_id)
+RHASH=$(event_attr "$TX_RESULT" vault_proposal_created messages_hash)
+run_tx vault_carol vault approve "$RPID" "$RHASH" --execute
+V=$($BINARY q vault get-vault "$VAULT_ID" --output json)
+VER=$(echo "$V" | jq -r '.vault.config_version')
+THR=$(echo "$V" | jq -r '.vault.threshold')
+VSTATUS=$($BINARY q vault get-vault-proposal "$VICTIM" --output json | jq -r '.vault_proposal.status')
+RSTATUS=$($BINARY q vault get-vault-proposal "$RPID" --output json | jq -r '.vault_proposal.status')
+BYSIGNER=$($BINARY q vault vaults-by-signer "$DAVE_ADDR" --output json | jq -r --arg id "$VAULT_ID" '[.vaults[]? | select((.vault_id // "0") == $id)] | length')
+run_tx vault_carol vault propose "$VAULT_ID" "$WORK/send.json"
+CAROL_REFUSED=$(! tx_ok "$TX_RESULT" && echo yes || echo no)
+if [ "$VER" = "2" ] && [ "$THR" = "3" ] && [ "$VSTATUS" = "PROPOSAL_STATUS_INVALIDATED" ] && [ "$RSTATUS" = "PROPOSAL_STATUS_EXECUTED" ] \
+   && [ "$BYSIGNER" = "1" ] && [ "$CAROL_REFUSED" = yes ]; then
+    echo "  config_version=2 threshold=3; #$VICTIM invalidated, rotation itself executed; carol is out, dave is in"
+    record_result "rotation invalidates pending" "PASS"
+else
+    echo "  ver=$VER thr=$THR victim=$VSTATUS rot=$RSTATUS by_signer=$BYSIGNER carol_refused=$CAROL_REFUSED"
+    record_result "rotation invalidates pending" "FAIL"
+fi
+
+# ----------------------------------------------------------------- TEST 4 ---
+echo "--- TEST 4: an expired proposal cannot execute; it is pruned after retention ---"
+run_tx alice vault propose "$VAULT_ID" "$WORK/send.json"
+EPID=$(event_attr "$TX_RESULT" vault_proposal_created proposal_id)
+EHASH=$(event_attr "$TX_RESULT" vault_proposal_created messages_hash)
+EXP=$($BINARY q vault get-vault-proposal "$EPID" --output json | jq -r '.vault_proposal.expires_at')
+echo "  proposal #$EPID expires_at=$EXP (ttl 20s); waiting on block time"
+is_expired() { [ "$($BINARY q vault get-vault-proposal "$EPID" --output json 2>/dev/null | jq -r '.vault_proposal.status')" = "PROPOSAL_STATUS_EXPIRED" ]; }
+wait_until 40 2 is_expired
+ESTATUS=$($BINARY q vault get-vault-proposal "$EPID" --output json | jq -r '.vault_proposal.status')
+run_tx bob vault approve "$EPID" "$EHASH" --execute
+LATE_REFUSED=$(! tx_ok "$TX_RESULT" && echo yes || echo no)
+is_pruned() { ! $BINARY q vault get-vault-proposal "$EPID" --output json > /dev/null 2>&1; }
+wait_until 60 2 is_pruned
+PRUNED=$(is_pruned && echo yes || echo no)
+if [ "$ESTATUS" = "PROPOSAL_STATUS_EXPIRED" ] && [ "$LATE_REFUSED" = yes ] && [ "$PRUNED" = yes ]; then
+    echo "  expired by the EndBlocker, refused afterwards, pruned after retention"
+    record_result "expiry and retention" "PASS"
+else
+    echo "  status=$ESTATUS late_refused=$LATE_REFUSED pruned=$PRUNED"
+    record_result "expiry and retention" "FAIL"
+fi
+
+# ----------------------------------------------------------------- TEST 5 ---
+echo "--- TEST 5: a vault has no personhood: it cannot be invited ---"
+REQ=$($BINARY q rep required-invitation-stake "$ALICE_ADDR" --output json 2>/dev/null | jq -r '.required_stake // "100000000"')
+run_tx alice rep invite-member "$VAULT_ADDR" "$REQ"
+if ! tx_ok "$TX_RESULT" && echo "$(tx_log "$TX_RESULT")" | grep -qi "vault"; then
+    echo "  refused: $(tx_log "$TX_RESULT")"
+    record_result "vault refused as invitee" "PASS"
+else
+    echo "  code=$(echo "$TX_RESULT" | jq -r .code) log=$(tx_log "$TX_RESULT")"
+    record_result "vault refused as invitee" "FAIL"
+fi
+
+# ----------------------------------------------------------------- TEST 6 ---
+echo "--- TEST 6: a vault grants a SpendingAllowance to a signer, who pulls it ---"
+EXPIRES=$(date -u -d "+2 hours" +"%Y-%m-%dT%H:%M:%SZ")
+cat > "$WORK/allowance.json" <<JSON
+{"messages":[{"@type":"/sparkdream.session.v1.MsgCreateGrant","granter":"$VAULT_ADDR","grantee":"$DAVE_ADDR","expires_at":"$EXPIRES","note":"dave's allowance",
+  "spending_allowance":{"max_per_period":{"denom":"$BOND_DENOM","amount":"500000"},"period_seconds":"3600","current_period_start":"0","spent_in_current_period":{"denom":"$BOND_DENOM","amount":"0"},"allowed_recipients":[],"denom":"$BOND_DENOM"}}],"memo":"allowance"}
+JSON
+run_tx alice vault propose "$VAULT_ID" "$WORK/allowance.json"
+APID=$(event_attr "$TX_RESULT" vault_proposal_created proposal_id)
+AHASH=$(event_attr "$TX_RESULT" vault_proposal_created messages_hash)
+run_tx vault_dave vault approve "$APID" "$AHASH" --execute
+GRANT_ID=$($BINARY q session grants-by-grantee "$DAVE_ADDR" --output json 2>/dev/null | jq -r '[.grants[]? | select(.type=="GRANT_TYPE_SPENDING_ALLOWANCE" and .granter=="'"$VAULT_ADDR"'")][0].id // empty')
+if [ -n "$GRANT_ID" ]; then
+    HOT_BEFORE=$($BINARY q bank balance "$HOT_ADDR" "$BOND_DENOM" --output json | jq -r '.balance.amount')
+    run_tx vault_dave session pull-allowance "$GRANT_ID" "$HOT_ADDR" 100000${BOND_DENOM}
+    HOT_AFTER=$($BINARY q bank balance "$HOT_ADDR" "$BOND_DENOM" --output json | jq -r '.balance.amount')
+    if tx_ok "$TX_RESULT" && [ $((HOT_AFTER - HOT_BEFORE)) -eq 100000 ]; then
+        echo "  grant #$GRANT_ID created by the vault; dave pulled 0.1 SPARK to the hot key"
+        record_result "spending allowance from a vault" "PASS"
+    else
+        echo "  pull failed: $(tx_log "$TX_RESULT")"; record_result "spending allowance from a vault" "FAIL"
+    fi
+else
+    echo "  grant missing: $(tx_log "$TX_RESULT")"; record_result "spending allowance from a vault" "FAIL"
+fi
+
+# ----------------------------------------------------------------- TEST 7 ---
+echo "--- TEST 7: vault messages are never session-delegable ---"
+ALLOWED=$($BINARY q session allowed-msg-types --output json 2>/dev/null | jq -r '.. | strings' | grep -c "sparkdream.vault" || true)
+EXPIRATION=$(date -u -d "+1 hours" +"%Y-%m-%dT%H:%M:%SZ")
+run_tx bob session create-session "$HOT_ADDR" "/sparkdream.vault.v1.MsgApprove" "1000000${BOND_DENOM}" "$EXPIRATION" "3"
+if [ "$ALLOWED" = "0" ] && ! tx_ok "$TX_RESULT"; then
+    echo "  session with MsgApprove refused: $(tx_log "$TX_RESULT")"
+    record_result "vault msgs not delegable" "PASS"
+else
+    echo "  allowed_matches=$ALLOWED code=$(echo "$TX_RESULT" | jq -r .code)"
+    record_result "vault msgs not delegable" "FAIL"
+fi
+
+# ----------------------------------------------------------------- TEST 8 ---
+echo "--- TEST 8: proposer cancels; a non-proposer cannot ---"
+run_tx bob vault propose "$VAULT_ID" "$WORK/send.json"
+CPID=$(event_attr "$TX_RESULT" vault_proposal_created proposal_id)
+run_tx alice vault cancel-proposal "$CPID"
+OTHER_REFUSED=$(! tx_ok "$TX_RESULT" && echo yes || echo no)
+run_tx bob vault cancel-proposal "$CPID"
+CSTATUS=$($BINARY q vault get-vault-proposal "$CPID" --output json | jq -r '.vault_proposal.status')
+if [ "$OTHER_REFUSED" = yes ] && [ "$CSTATUS" = "PROPOSAL_STATUS_CANCELLED" ]; then
+    echo "  cancelled by the proposer only"
+    record_result "cancel by proposer" "PASS"
+else
+    echo "  other_refused=$OTHER_REFUSED status=$CSTATUS"
+    record_result "cancel by proposer" "FAIL"
+fi
+
+rm -rf "$WORK"
+echo "============================================"
+echo "X/VAULT TEST RESULTS"
+echo "============================================"
+for i in "${!TEST_NAMES[@]}"; do printf "  %-45s %s\n" "${TEST_NAMES[$i]}" "${RESULTS[$i]}"; done
+echo ""; echo "  Passed: $PASS_COUNT / $((PASS_COUNT + FAIL_COUNT))"; echo ""
+if [ $FAIL_COUNT -gt 0 ]; then echo ">>> SOME TESTS FAILED <<<"; exit 1; else echo ">>> ALL TESTS PASSED <<<"; exit 0; fi

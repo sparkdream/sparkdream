@@ -22,9 +22,10 @@ type mockCommonsKeeper struct {
 	IsCommitteeMemberFn     func(ctx context.Context, address sdk.AccAddress, council string, committee string) (bool, error)
 	GetCommitteeGroupInfoFn func(ctx context.Context, council string, committee string) (interface{}, error)
 	IsCouncilAuthorizedFn   func(ctx context.Context, addr string, council string, committee string) bool
-	// IsGroupPolicyAddressFn overrides the permissive default (every address
-	// is a group policy) for tests where that matters, e.g. migration target
-	// freshness.
+	// IsGroupPolicyAddressFn overrides the default (no address is a group
+	// policy). The default used to be permissive; since IsPersonalAddress
+	// gates every invitation, a stub that calls every invitee a policy would
+	// refuse all of them.
 	IsGroupPolicyAddressFn func(ctx context.Context, addr string) bool
 }
 
@@ -59,7 +60,7 @@ func (m mockCommonsKeeper) IsGroupPolicyAddress(ctx context.Context, addr string
 	if m.IsGroupPolicyAddressFn != nil {
 		return m.IsGroupPolicyAddressFn(ctx, addr)
 	}
-	return true
+	return false
 }
 
 // IsCouncilOrCommitteePolicy delegates to the authorization policy, so a

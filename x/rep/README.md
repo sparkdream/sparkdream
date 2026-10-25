@@ -484,6 +484,7 @@ Project" section of [docs/x-rep-spec.md](../../docs/x-rep-spec.md).
 | `MsgAcceptInvitation` | Accept invitation, create new member. Requires `accepted_content_license = "CC0-1.0"`: joining is agreeing that everything you publish is public domain (error 1208 otherwise) | Invitee |
 | `MsgRevokeInvitation` | Withdraw a PENDING invitation: stake unlocked, credit restored, invitee address freed; record kept as REVOKED | Inviter |
 | `MsgRegisterZkPublicKey` | Register ZK public key (32-byte canonical BN254 scalar) for anonymous operations | Any member |
+| `MsgClearZkPublicKey` | Zero the ZK key (and any pending key) at once after a leaked shield secret; no cooldown. The next registration waits the activation delay and still honours the season cap (`zk_key_cleared`) | Any member |
 
 ### DREAM Transfers
 

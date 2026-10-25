@@ -975,6 +975,11 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					Short:          "Open a council-path member migration (Commons HR committee policy or gov signs)",
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "member"}, {ProtoField: "new_address"}, {ProtoField: "evidence_uri"}},
 				},
+				{
+					RpcMethod: "ClearZkPublicKey",
+					Use:       "clear-zk-public-key",
+					Short:     "Zero your ZK public key at once (leaked shield secret); no cooldown, the next registration waits the activation delay",
+				},
 			},
 		},
 	}

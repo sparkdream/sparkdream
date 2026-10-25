@@ -78,6 +78,11 @@ func (k Keeper) CreateInvitation(ctx context.Context, inviter, invitee sdk.AccAd
 	if err == nil || k.IsTombstoned(ctx, invitee.String()) {
 		return 0, types.ErrMemberAlreadyExists
 	}
+	// Membership is a person: no module account, council policy, reserved
+	// address or x/vault shared account can be invited.
+	if err := k.IsPersonalAddress(ctx, invitee.String()); err != nil {
+		return 0, errorsmod.Wrapf(types.ErrInvalidRequest, "invitee %v", err)
+	}
 
 	// Check if there's already an invitation for this address (via secondary index)
 	_, err = k.InvitationsByInvitee.Get(ctx, invitee.String())
@@ -192,6 +197,12 @@ func (k Keeper) AcceptInvitationWithRecovery(ctx context.Context, invitationID u
 	// invited again (plan §7.2).
 	if k.IsTombstoned(ctx, invitee.String()) {
 		return types.ErrMemberTombstoned
+	}
+	// The gate at invitation time is re-run at acceptance: a vault or policy
+	// created in between, or an executed proposal signing as the invitee,
+	// must not turn a non-person into a member.
+	if err := k.IsPersonalAddress(ctx, invitee.String()); err != nil {
+		return errorsmod.Wrapf(types.ErrInvalidRequest, "invitee %v", err)
 	}
 
 	// Get invitation

@@ -1,0 +1,31 @@
+syntax = "proto3";
+package sparkdream.vault.v1;
+
+import "gogoproto/gogo.proto";
+import "sparkdream/vault/v1/vault_signer.proto";
+
+option go_package = "sparkdream/x/vault/types";
+
+// Vault is a shared account with a stable, keyless, module-derived address and
+// a rotatable weighted signer set. Signers propose and approve on chain with
+// ordinary single-signer txs; a proposal executes once the approving weight
+// reaches threshold (docs/x-vault-spec.md). A vault is never a member: it has
+// no personhood anywhere in x/rep.
+message Vault {
+  uint64 vault_id = 1;
+  // address = sdkaddress.Module("vault", "vault/" || bigEndian(vault_id)); no key exists for it.
+  string address = 2;
+  // Weighted signers; no duplicates, every weight in [1, MaxSignerWeight].
+  repeated VaultSigner signers = 3 [(gogoproto.nullable) = false];
+  // Sum of approving weights needed to execute; 1 <= threshold <= sum(weights).
+  uint64 threshold = 4;
+  // Bumped on every signer/threshold change; pending proposals created under an
+  // older version are INVALIDATED (approvals never combine across signer sets).
+  uint64 config_version = 5;
+  // Seconds a new proposal stays PENDING; MinProposalTTL <= proposal_ttl <= MaxProposalTTL.
+  int64 proposal_ttl = 6;
+  // Display only, <= MaxLabelLength chars.
+  string label = 7;
+  // Block time (unix seconds) of creation.
+  int64 created_at = 8;
+}

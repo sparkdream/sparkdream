@@ -1,0 +1,176 @@
+syntax = "proto3";
+
+package sparkdream.vault.v1;
+
+import "amino/amino.proto";
+import "cosmos/msg/v1/msg.proto";
+import "cosmos_proto/cosmos.proto";
+import "gogoproto/gogo.proto";
+import "google/protobuf/any.proto";
+import "sparkdream/vault/v1/params.proto";
+import "sparkdream/vault/v1/vault_signer.proto";
+
+option go_package = "sparkdream/x/vault/types";
+
+// Msg defines the Msg service.
+service Msg {
+  option (cosmos.msg.v1.service) = true;
+
+  // UpdateParams defines a (governance) operation for updating the module
+  // parameters. The authority defaults to the x/gov module account.
+  rpc UpdateParams(MsgUpdateParams) returns (MsgUpdateParamsResponse);
+
+  // CreateVault defines the CreateVault RPC.
+  rpc CreateVault(MsgCreateVault) returns (MsgCreateVaultResponse);
+
+  // Propose defines the Propose RPC.
+  rpc Propose(MsgPropose) returns (MsgProposeResponse);
+
+  // Approve defines the Approve RPC.
+  rpc Approve(MsgApprove) returns (MsgApproveResponse);
+
+  // RevokeApproval defines the RevokeApproval RPC.
+  rpc RevokeApproval(MsgRevokeApproval) returns (MsgRevokeApprovalResponse);
+
+  // Execute defines the Execute RPC.
+  rpc Execute(MsgExecute) returns (MsgExecuteResponse);
+
+  // CancelProposal defines the CancelProposal RPC.
+  rpc CancelProposal(MsgCancelProposal) returns (MsgCancelProposalResponse);
+
+  // UpdateVault defines the UpdateVault RPC.
+  rpc UpdateVault(MsgUpdateVault) returns (MsgUpdateVaultResponse);
+}
+
+// MsgUpdateParams is the Msg/UpdateParams request type.
+message MsgUpdateParams {
+  option (cosmos.msg.v1.signer) = "authority";
+  option (amino.name) = "sparkdream/x/vault/MsgUpdateParams";
+
+  // authority is the address that controls the module (defaults to x/gov unless overwritten).
+  string authority = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+
+  // params defines the module parameters to update.
+
+  // NOTE: All parameters must be supplied.
+  Params params = 2 [
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+}
+
+// MsgUpdateParamsResponse defines the response structure for executing a
+// MsgUpdateParams message.
+message MsgUpdateParamsResponse {}
+
+// MsgCreateVault creates a vault. Burns params.creation_fee from the creator,
+// who need not be a signer. Refused while params.creation_enabled is false.
+message MsgCreateVault {
+  option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/vault/MsgCreateVault";
+  string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  repeated VaultSigner signers = 2 [(gogoproto.nullable) = false];
+  uint64 threshold = 3;
+  int64 proposal_ttl = 4;
+  string label = 5;
+}
+
+// MsgCreateVaultResponse defines the MsgCreateVaultResponse message.
+message MsgCreateVaultResponse {
+  uint64 vault_id = 1;
+  string address = 2;
+}
+
+// MsgPropose opens a proposal on a vault. Signed by a current signer; records
+// the proposer's approval and executes at once when `execute` is set and the
+// threshold is already met (1-of-n vaults). Refused when the proposer has
+// MaxPendingProposalsPerProposer pending proposals in this vault; a proposal
+// whose only message is MsgUpdateVault counts against
+// MaxPendingUpdateProposalsPerProposer instead, so rotation is always possible.
+message MsgPropose {
+  option (cosmos.msg.v1.signer) = "signer";
+  option (amino.name) = "sparkdream/x/vault/MsgPropose";
+  string signer = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 vault_id = 2;
+  repeated google.protobuf.Any messages = 3 [(cosmos_proto.accepts_interface) = "cosmos.base.v1beta1.Msg"];
+  string memo = 4;
+  bool execute = 5;
+}
+
+// MsgProposeResponse defines the MsgProposeResponse message.
+message MsgProposeResponse {
+  uint64 proposal_id = 1;
+  bool executed = 2;
+}
+
+// MsgApprove adds a current signer's approval. messages_hash must equal the
+// proposal's hash (wallets fill it, so a hardware wallet displays what is
+// approved). Executes at once when `execute` is set and the threshold is met.
+message MsgApprove {
+  option (cosmos.msg.v1.signer) = "signer";
+  option (amino.name) = "sparkdream/x/vault/MsgApprove";
+  string signer = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 proposal_id = 2;
+  bytes messages_hash = 3;
+  bool execute = 4;
+}
+
+// MsgApproveResponse defines the MsgApproveResponse message.
+message MsgApproveResponse {
+  bool executed = 1;
+}
+
+// MsgRevokeApproval withdraws the signer's approval from a PENDING proposal.
+message MsgRevokeApproval {
+  option (cosmos.msg.v1.signer) = "signer";
+  option (amino.name) = "sparkdream/x/vault/MsgRevokeApproval";
+  string signer = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 proposal_id = 2;
+}
+
+// MsgRevokeApprovalResponse defines the MsgRevokeApprovalResponse message.
+message MsgRevokeApprovalResponse {}
+
+// MsgExecute runs a PENDING proposal whose tally meets the threshold. Signed
+// by any current signer, who pays the gas. A failing inner message reverts the
+// whole tx and leaves the proposal PENDING for a retry until it expires.
+message MsgExecute {
+  option (cosmos.msg.v1.signer) = "signer";
+  option (amino.name) = "sparkdream/x/vault/MsgExecute";
+  string signer = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 proposal_id = 2;
+}
+
+// MsgExecuteResponse defines the MsgExecuteResponse message.
+message MsgExecuteResponse {}
+
+// MsgCancelProposal cancels a PENDING proposal. Signed by the proposer, or by
+// the vault address itself through an executed proposal (one of the two vault
+// messages allowed as an inner message, so a threshold of signers can clear a
+// proposal nobody wants).
+message MsgCancelProposal {
+  option (cosmos.msg.v1.signer) = "signer";
+  option (amino.name) = "sparkdream/x/vault/MsgCancelProposal";
+  string signer = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 proposal_id = 2;
+}
+
+// MsgCancelProposalResponse defines the MsgCancelProposalResponse message.
+message MsgCancelProposalResponse {}
+
+// MsgUpdateVault replaces the signer set, threshold, proposal TTL and label.
+// Its signer is the vault address, so it only ever runs as an inner message of
+// an executed proposal. Bumps config_version and INVALIDATES every other
+// pending proposal of the vault (the executing one is marked EXECUTED first).
+message MsgUpdateVault {
+  option (cosmos.msg.v1.signer) = "vault";
+  option (amino.name) = "sparkdream/x/vault/MsgUpdateVault";
+  string vault = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  repeated VaultSigner signers = 2 [(gogoproto.nullable) = false];
+  uint64 threshold = 3;
+  int64 proposal_ttl = 4;
+  string label = 5;
+}
+
+// MsgUpdateVaultResponse defines the MsgUpdateVaultResponse message.
+message MsgUpdateVaultResponse {}

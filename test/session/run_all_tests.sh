@@ -35,6 +35,7 @@ RUN_EXPIRATION=true
 RUN_BATCH=true
 RUN_OPPARAMS=true
 RUN_BYPASS=true
+RUN_MULTISIG=true
 SAVE_SETUP=false
 RESTORE_SETUP=false
 
@@ -71,6 +72,9 @@ for arg in "$@"; do
         --no-bypass)
             RUN_BYPASS=false
             ;;
+        --no-multisig)
+            RUN_MULTISIG=false
+            ;;
         --only-setup)
             RUN_CREATE=false
             RUN_QUERY=false
@@ -81,6 +85,7 @@ for arg in "$@"; do
             RUN_BATCH=false
             RUN_OPPARAMS=false
             RUN_BYPASS=false
+            RUN_MULTISIG=false
             ;;
         --save-setup)
             SAVE_SETUP=true
@@ -94,6 +99,7 @@ for arg in "$@"; do
             RUN_BATCH=false
             RUN_OPPARAMS=false
             RUN_BYPASS=false
+            RUN_MULTISIG=false
             ;;
         --restore-setup)
             RESTORE_SETUP=true
@@ -109,6 +115,7 @@ for arg in "$@"; do
             RUN_BATCH=false
             RUN_OPPARAMS=false
             RUN_BYPASS=false
+            RUN_MULTISIG=false
             ;;
         --help|-h)
             echo "Usage: $0 [OPTIONS]"
@@ -124,6 +131,7 @@ for arg in "$@"; do
             echo "  --no-batch       Skip batch execution tests"
             echo "  --no-opparams    Skip operational params tests"
             echo "  --no-bypass      Skip module-bypass allowlist tests"
+    echo "  --no-multisig    Skip native multisig account tests"
             echo "  --only-setup     Run only setup (skip all tests)"
             echo "  --save-setup     Run setup, save chain state, then exit"
             echo "  --restore-setup  Restore saved setup state, then run tests"
@@ -449,6 +457,16 @@ fi
 # create-recurring-pull CLI (payload-typed MsgCreateGrant).
 if [ "$RUN_BYPASS" = true ]; then
     run_test "Recurring Pull CLI Tests" "recurring_pull_cli_test.sh"
+fi
+
+# Native multisig account: CLI multisign flow, membership, ZK key
+# register/clear with the fingerprint helper, hot-key session, SignIn grant
+# (docs/multisig-accounts.md).
+if [ "$RUN_MULTISIG" = true ]; then
+    run_test "Multisig Account Tests" "multisig_account_test.sh"
+else
+    echo "Skipping multisig account tests (--no-multisig)"
+    echo ""
 fi
 
 # ============================================================================

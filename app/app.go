@@ -75,8 +75,9 @@ import (
 	sessionmodulekeeper "sparkdream/x/session/keeper"
 	shieldabci "sparkdream/x/shield/abci"
 	shieldante "sparkdream/x/shield/ante"
-	shieldmoduletypes "sparkdream/x/shield/types"
 	shieldmodulekeeper "sparkdream/x/shield/keeper"
+	shieldmoduletypes "sparkdream/x/shield/types"
+	vaultmodulekeeper "sparkdream/x/vault/keeper"
 
 	sparkdreammodulekeeper "sparkdream/x/sparkdream/keeper"
 	splitmodulekeeper "sparkdream/x/split/keeper"
@@ -156,6 +157,7 @@ type App struct {
 	IdentityKeeper   *identitymodulekeeper.Keeper
 	GuardianKeeper   *guardianmodulekeeper.Keeper
 	ArtifactKeeper   artifactmodulekeeper.Keeper
+	VaultKeeper      vaultmodulekeeper.Keeper
 }
 
 func init() {
@@ -253,6 +255,7 @@ func New(
 		&app.IdentityKeeper,
 		&app.GuardianKeeper,
 		&app.ArtifactKeeper,
+		&app.VaultKeeper,
 	); err != nil {
 		panic(err)
 	}
@@ -486,6 +489,16 @@ func New(
 
 	// Wire MsgServiceRouter into Session for ExecSession inner message dispatch.
 	app.SessionKeeper.SetRouter(app.MsgServiceRouter())
+
+	// x/vault: proposal execution goes through the router; signer checks go
+	// through x/rep's alias contract and personal-address gate; the creation
+	// fee is in the identity's bond denom. x/rep in turn asks x/vault whether
+	// an address is a vault, so no vault can ever be invited or become a
+	// migration target (never depinject: rep <-> vault would be a cycle).
+	app.VaultKeeper.SetRouter(app.MsgServiceRouter())
+	app.VaultKeeper.SetRepKeeper(app.RepKeeper)
+	app.VaultKeeper.SetIdentityKeeper(app.IdentityKeeper)
+	app.RepKeeper.SetVaultChecker(app.VaultKeeper.IsVault)
 
 	// Wire CommonsKeeper into Session so Commons Operations Committee can update
 	// operational params alongside governance authority.

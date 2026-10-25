@@ -87,7 +87,7 @@ ONLY_MODULE=""
 # mtimes in e2e/latest/ after a full parallel run.
 # `rest` is app-level LCD wiring rather than a module, and runs in seconds —
 # it stays last so it never delays a batch.
-MODULE_ORDER="forum rep federation season commons collect blog session shield futarchy name service artifact reveal gnovm identity guardian rest"
+MODULE_ORDER="forum rep federation season commons collect blog session shield futarchy name service artifact reveal gnovm identity guardian vault rest"
 
 # Track results
 PASSED_TESTS=()

@@ -39,6 +39,8 @@ import (
 	sparkdreammoduletypes "sparkdream/x/sparkdream/types"
 	_ "sparkdream/x/split/module"
 	splitmoduletypes "sparkdream/x/split/types"
+	_ "sparkdream/x/vault/module"
+	vaultmoduletypes "sparkdream/x/vault/types"
 
 	runtimev1alpha1 "cosmossdk.io/api/cosmos/app/runtime/v1alpha1"
 	appv1alpha1 "cosmossdk.io/api/cosmos/app/v1alpha1"
@@ -137,7 +139,7 @@ var (
 		// this line is used by starport scaffolding # stargate/app/maccPerms
 		{Account: servicemoduletypes.ModuleName},
 		// x/artifact escrows token deposits and burns creation / inbox fees.
-		{Account: artifactmoduletypes.ModuleName, Permissions: []string{authtypes.Burner}}}
+		{Account: artifactmoduletypes.ModuleName, Permissions: []string{authtypes.Burner}}, {Account: vaultmoduletypes.ModuleName, Permissions: []string{authtypes.Burner}}}
 
 	// blocked account addresses
 	blockAccAddrs = []string{
@@ -196,7 +198,7 @@ var (
 						gnovmmoduletypes.ModuleName,
 						sessionmoduletypes.ModuleName,
 						// this line is used by starport scaffolding # stargate/app/beginBlockers
-						servicemoduletypes.ModuleName, artifactmoduletypes.ModuleName},
+						servicemoduletypes.ModuleName, artifactmoduletypes.ModuleName, vaultmoduletypes.ModuleName},
 					EndBlockers: []string{
 						govtypes.ModuleName,
 						stakingtypes.ModuleName,
@@ -218,7 +220,7 @@ var (
 						sessionmoduletypes.ModuleName,
 						federationmoduletypes.ModuleName,
 						// this line is used by starport scaffolding # stargate/app/endBlockers
-						servicemoduletypes.ModuleName, artifactmoduletypes.ModuleName},
+						servicemoduletypes.ModuleName, artifactmoduletypes.ModuleName, vaultmoduletypes.ModuleName},
 					// The following is mostly only needed when ModuleName != StoreKey name.
 					OverrideStoreKeys: []*runtimev1alpha1.StoreKeyConfig{
 						{
@@ -270,7 +272,7 @@ var (
 						federationmoduletypes.ModuleName,
 						guardianmoduletypes.ModuleName,
 						// this line is used by starport scaffolding # stargate/app/initGenesis
-						servicemoduletypes.ModuleName, artifactmoduletypes.ModuleName},
+						servicemoduletypes.ModuleName, artifactmoduletypes.ModuleName, vaultmoduletypes.ModuleName},
 				}),
 			},
 			{
@@ -464,6 +466,9 @@ var (
 			}, {
 				Name:   artifactmoduletypes.ModuleName,
 				Config: appconfig.WrapAny(&artifactmoduletypes.Module{}),
+			}, {
+				Name:   vaultmoduletypes.ModuleName,
+				Config: appconfig.WrapAny(&vaultmoduletypes.Module{}),
 			}},
 	})
 )

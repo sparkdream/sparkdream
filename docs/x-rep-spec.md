@@ -159,6 +159,11 @@ message Member {
   int64 last_zk_key_change_season = 44;
   bool zk_key_changed = 45;
   bool zk_key_cooldown_exempt = 46;
+  // zk_key_cleared is set by MsgClearZkPublicKey (leaked shield secret). While
+  // set, MsgRegisterZkPublicKey never takes the immediate first-registration
+  // path: the new key waits out zk_key_activation_delay and the once-per-season
+  // change cap still applies. Cleared when a key activates.
+  bool zk_key_cleared = 47;
 }
 
 enum TrustLevel {
@@ -1745,6 +1750,24 @@ canonical BN254 scalar: its big-endian value must be below the field modulus,
 or the message fails with `ErrInvalidRequest`. The key is hashed into the trust
 tree as a field element, so an out-of-range value would produce a leaf no proof
 can open and lock the member out of every anonymous action.
+
+```protobuf
+// MsgClearZkPublicKey zeroes zk_public_key and pending_zk_public_key at once
+// and registers nothing in their place (leaked shield secret). No cooldown, no
+// per-season limit. Sets zk_key_cleared. CLI: `tx rep clear-zk-public-key`.
+message MsgClearZkPublicKey {
+  option (cosmos.msg.v1.signer) = "member";
+  string member = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+}
+```
+
+`MsgClearZkPublicKey` is the remedy for a leaked shield secret: a key *change*
+is capped at one per season, so a member who already rotated and then leaks
+would otherwise have no remedy until the season ends. Clearing only takes
+capability away, so it is unlimited; it removes any `ZkKeyActivationQueue`
+entry, marks the member dirty and emits `rep.zk_public_key_cleared`. It refuses
+tombstones and members with no key. See the ZK key change discipline below for
+what the next registration may do.
 
 #### DREAM Transfer Limits
 
@@ -4950,13 +4973,28 @@ old leaf at once and parks the new key in `pending_zk_public_key` until
 `zk_key_activates_at_epoch = now + zk_key_activation_delay` (14 epochs); the
 EndBlocker activates it (`ZkKeyActivationQueue`). At most one change per season
 (`last_zk_key_change_season`), except the first registration after a migration
-cleared the key, which still waits out the delay. The delay must exceed every
+cleared the key, which still waits out the delay. After `MsgClearZkPublicKey`
+(`zk_key_cleared` set) the next registration is never the immediate
+first-registration path: it goes through the activation delay and still honours
+the season cap, so a member who already used their change stays without a key
+until the next season rather than gaining an instant swap. Activation consumes
+the flag. The delay must exceed every
 `MESSAGE_FIELD` action window: x/commons refuses a `voting_period` longer than
 `zk_key_activation_delay * epoch_blocks * 6s` on `MsgRegisterGroup` and
 `MsgUpdateGroupConfig`, and `MsgUpdateParams` refuses to lower the delay below
 the longest live voting period. Both checks are on in the network builds and off
 in the test build (`VotingPeriodCapEnabled`), whose e2e suites register
 hour-long windows against a two-epoch delay.
+
+### Personal addresses
+
+Membership is a person. `IsPersonalAddress(addr)` fails for a reserved module or system address,
+a module account, a council or committee policy and an x/vault shared account (learned through the
+late-wired `SetVaultChecker`). It gates `CreateInvitation`, `AcceptInvitationWithRecovery` (re-run
+at acceptance, so an address that became a vault or policy in between, or an executed proposal
+signing as the invitee, is still refused with error 1600) and migration-target freshness
+(`checkTargetFresh`, error `ErrMigrationTargetNotFresh`). x/vault runs the same gate on its signer
+sets. Guard: `x/rep/keeper/personal_address_test.go`.
 
 ### Migration messages
 
@@ -4968,8 +5006,13 @@ sealed}`, `MsgRevealRecovery{revealer, member, new_address, preimage}`,
 `MsgForceMigration{authority, member, new_address, evidence_uri}`,
 `MsgObjectMigration{member, migration_id, reason}`, `MsgSweepTombstone{signer,
 tombstone}`. All carry `(amino.name)`, none is shield-compatible, and all are in
-x/session's `ForbiddenAllowlistMsgs` (built from `reptypes.MigrationMsgTypeURLs()`;
-guarded by `x/rep/types/migration_guard_test.go`, which walks the Msg service).
+x/session's `ForbiddenAllowlistMsgs`, which is built from the wider **identity
+list** `reptypes.IdentityMsgTypeURLs()` = the migration messages plus
+`MsgRegisterZkPublicKey` and `MsgClearZkPublicKey` (a session hot key that could
+register or clear a ZK key would bypass a multisig account's threshold on the
+anonymous identity; [docs/multisig-accounts.md](multisig-accounts.md)). Guarded
+by `x/rep/types/migration_guard_test.go`, which walks the Msg service and checks
+params validation refuses every identity message in either session list.
 The Commons Governance Committee's bootstrap permissions include
 `MsgForceMigration` and `MsgCancelMigration`. No fee on any of them: safety
 actions pay gas only.
@@ -5003,7 +5046,7 @@ the reverse alias index, pending pointers and queues are rebuilt at import.
 Events: `member_migration_requested/accepted/cancelled/failed/objected`,
 `member_migrated`, `recovery_commitment_set`, `recovery_commit`,
 `recovery_revealed`, `tombstone_swept`, `rep.zk_public_key_change_scheduled`,
-`rep.zk_public_key_activated`, plus `council_seat_migrated`, `names_migrated`,
+`rep.zk_public_key_activated`, `rep.zk_public_key_cleared`, plus `council_seat_migrated`, `names_migrated`,
 `season_profile_migrated`, `grant_migrated` from the hooks.
 
 
@@ -5557,6 +5600,7 @@ type ModuleInputs struct {
 - `x/rep/keeper/shield_aware.go` — IsShieldCompatible() for x/shield integration
 - `x/rep/keeper/content_challenge.go` — Content challenge creation, response, and resolution logic
 - `x/rep/keeper/msg_server_register_zk_public_key.go` — MsgRegisterZkPublicKey handler
+- `x/rep/keeper/msg_server_clear_zk_public_key.go` — MsgClearZkPublicKey handler (leaked shield secret; sets `zk_key_cleared`)
 - `x/rep/types/params.go` — DefaultParams, Validate, ApplyOperationalParams
 - `x/rep/types/params_vals.go` — TrustLevelConfig (production vs testing values)
 - `x/rep/types/errors.go` — All error codes

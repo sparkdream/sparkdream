@@ -167,6 +167,12 @@ message Member {
   // recovery never leaves a member without anonymous access for the rest of
   // the season. Consumed by that registration.
   bool zk_key_cooldown_exempt = 46;
+  // zk_key_cleared is set by MsgClearZkPublicKey (leaked shield secret). While
+  // set, MsgRegisterZkPublicKey never takes the immediate first-registration
+  // path: the new key waits out zk_key_activation_delay and the once-per-season
+  // change cap still applies, so clear-then-register cannot become a free key
+  // swap. Cleared when a key activates.
+  bool zk_key_cleared = 47;
 }
 
 enum TrustLevel {

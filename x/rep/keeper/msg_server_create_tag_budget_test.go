@@ -1,6 +1,7 @@
 package keeper_test
 
 import (
+	"context"
 	"testing"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -13,6 +14,7 @@ import (
 func TestMsgServerCreateTagBudget(t *testing.T) {
 	t.Run("invalid creator address", func(t *testing.T) {
 		f := initFixture(t)
+		f.commonsKeeper.IsGroupPolicyAddressFn = func(context.Context, string) bool { return true } // tag budgets are created by group accounts
 		ms := keeper.NewMsgServerImpl(f.keeper)
 
 		_, err := ms.CreateTagBudget(f.ctx, &types.MsgCreateTagBudget{
@@ -26,6 +28,7 @@ func TestMsgServerCreateTagBudget(t *testing.T) {
 
 	t.Run("tag not found", func(t *testing.T) {
 		f := initFixture(t)
+		f.commonsKeeper.IsGroupPolicyAddressFn = func(context.Context, string) bool { return true } // tag budgets are created by group accounts
 		ms := keeper.NewMsgServerImpl(f.keeper)
 
 		creator := sdk.AccAddress([]byte("tb-create-1..........")[:20])
@@ -42,6 +45,7 @@ func TestMsgServerCreateTagBudget(t *testing.T) {
 
 	t.Run("invalid initial pool amount", func(t *testing.T) {
 		f := initFixture(t)
+		f.commonsKeeper.IsGroupPolicyAddressFn = func(context.Context, string) bool { return true } // tag budgets are created by group accounts
 		ms := keeper.NewMsgServerImpl(f.keeper)
 
 		creator := sdk.AccAddress([]byte("tb-create-2..........")[:20])
@@ -59,6 +63,7 @@ func TestMsgServerCreateTagBudget(t *testing.T) {
 
 	t.Run("successful creation", func(t *testing.T) {
 		f := initFixture(t)
+		f.commonsKeeper.IsGroupPolicyAddressFn = func(context.Context, string) bool { return true } // tag budgets are created by group accounts
 		ms := keeper.NewMsgServerImpl(f.keeper)
 
 		creator := sdk.AccAddress([]byte("tb-create-3..........")[:20])
@@ -91,6 +96,7 @@ func TestMsgServerCreateTagBudget(t *testing.T) {
 
 	t.Run("duplicate active budget", func(t *testing.T) {
 		f := initFixture(t)
+		f.commonsKeeper.IsGroupPolicyAddressFn = func(context.Context, string) bool { return true } // tag budgets are created by group accounts
 		ms := keeper.NewMsgServerImpl(f.keeper)
 
 		creator := sdk.AccAddress([]byte("tb-create-4..........")[:20])

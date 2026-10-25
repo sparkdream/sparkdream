@@ -1,0 +1,22 @@
+syntax = "proto3";
+
+package sparkdream.vault.v1;
+
+import "amino/amino.proto";
+import "gogoproto/gogo.proto";
+import "sparkdream/vault/v1/params.proto";
+import "sparkdream/vault/v1/vault.proto";
+import "sparkdream/vault/v1/vault_proposal.proto";
+
+option go_package = "sparkdream/x/vault/types";
+
+// GenesisState defines the vault module's genesis state.
+message GenesisState {
+  // params defines all the parameters of the module.
+  Params params = 1 [
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+  repeated Vault vault_map = 2 [(gogoproto.nullable) = false];
+  repeated VaultProposal vault_proposal_map = 3 [(gogoproto.nullable) = false];
+}

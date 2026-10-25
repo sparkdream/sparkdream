@@ -162,6 +162,26 @@ Tx {
 - **Revoke on logout**: Call MsgRevoke when the user explicitly logs out (don't rely solely on expiration)
 - **Display active grants**: Show the user what their session key can do and when it expires
 
+## Multisig Accounts as Granters
+
+A native k-of-n multisig account ([multisig-accounts.md](multisig-accounts.md))
+is the recommended cold root for a session key: the multisig signs one grant
+(threshold-signed through the CLI multisign flow), and the hot key acts day to
+day with no further signature collection. Two rules follow from the account
+being a multisig:
+
+- **Identity messages are never delegable.** `MsgRegisterZkPublicKey` and
+  `MsgClearZkPublicKey` join the member-key-migration messages on rep's
+  identity list (`reptypes.IdentityMsgTypeURLs()`), which x/session's
+  `ForbiddenAllowlistMsgs` is built from: a hot key must not be able to
+  re-point the member's anonymous identity around the account's threshold.
+- **Sign-in goes through a `SignIn` grant.** sdaplogin's ADR-036 sign-in
+  accepts a single secp256k1 key only, so a multisig member grants `SignIn` to a
+  single-key grantee for the service and signs in with that key.
+
+Multisig signers should pass `--gas 300000` on governance txs: a 3-of-5 tx
+costs about 25k gas more than a single-key tx.
+
 ---
 
 ## Implementation Notes

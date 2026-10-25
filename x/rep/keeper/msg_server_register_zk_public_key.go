@@ -49,8 +49,11 @@ func (k msgServer) RegisterZkPublicKey(ctx context.Context, msg *types.MsgRegist
 
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 
-	// First registration (no key, nothing pending) takes effect at once.
-	if len(member.ZkPublicKey) == 0 && len(member.PendingZkPublicKey) == 0 {
+	// First registration (no key, nothing pending) takes effect at once,
+	// unless MsgClearZkPublicKey emptied the slot: then the new key waits out
+	// the activation delay and the once-per-season cap still applies, so a
+	// clear followed by a registration is never an instant key swap.
+	if len(member.ZkPublicKey) == 0 && len(member.PendingZkPublicKey) == 0 && !member.ZkKeyCleared {
 		member.ZkPublicKey = msg.ZkPublicKey
 		if member.ZkKeyCooldownExempt {
 			// The first registration after a RECOVERY or COUNCIL migration
