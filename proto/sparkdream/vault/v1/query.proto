@@ -58,6 +58,13 @@ service Query {
   rpc ListVaultProposal(QueryAllVaultProposalRequest) returns (QueryAllVaultProposalResponse) {
     option (google.api.http).get = "/sparkdream/vault/v1/vault_proposal";
   }
+
+  // ProposalsByProposer lists the proposals a signer opened across every
+  // vault, so a client can show how much of the per-proposer pending cap is
+  // used.
+  rpc ProposalsByProposer(QueryProposalsByProposerRequest) returns (QueryProposalsByProposerResponse) {
+    option (google.api.http).get = "/sparkdream/vault/v1/proposals_by_proposer/{proposer}";
+  }
 }
 
 // QueryParamsRequest is request type for the Query/Params RPC method.
@@ -98,6 +105,7 @@ message QueryVaultsBySignerResponse {
 // QueryProposalsByVaultRequest defines the QueryProposalsByVaultRequest message.
 message QueryProposalsByVaultRequest {
   uint64 vault_id = 1;
+
   // Optional filter; UNSPECIFIED returns every status.
   ProposalStatus status = 2;
   cosmos.base.query.v1beta1.PageRequest pagination = 3;
@@ -162,5 +170,20 @@ message QueryAllVaultProposalRequest {
 // QueryAllVaultProposalResponse defines the QueryAllVaultProposalResponse message.
 message QueryAllVaultProposalResponse {
   repeated VaultProposal vault_proposal = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryProposalsByProposerRequest defines the QueryProposalsByProposerRequest message.
+message QueryProposalsByProposerRequest {
+  string proposer = 1;
+
+  // Optional filter; UNSPECIFIED returns every status.
+  ProposalStatus status = 2;
+  cosmos.base.query.v1beta1.PageRequest pagination = 3;
+}
+
+// QueryProposalsByProposerResponse defines the QueryProposalsByProposerResponse message.
+message QueryProposalsByProposerResponse {
+  repeated VaultProposal proposals = 1 [(gogoproto.nullable) = false];
   cosmos.base.query.v1beta1.PageResponse pagination = 2;
 }

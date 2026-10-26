@@ -5,19 +5,29 @@
     "06-solomachine": null,
     "07-tendermint": null,
     "artifact": {
+      "auction_seq": "0",
+      "auctions": [],
+      "balances": [],
       "class_cancel_queue": [],
+      "class_release_queue": [],
       "class_scrub_queue": [],
       "class_seq": "0",
       "classes": [],
+      "craft_recipes": [],
+      "editions": [],
       "hide_records": [],
       "hide_seq": "0",
       "listings": [],
+      "media_proposals": [],
+      "offer_seq": "0",
+      "offers": [],
       "params": {
         "allowed_uri_schemes": [
           "ipfs",
           "ar",
           "https"
         ],
+        "auction_extension": "600",
         "class_creation_fee": "10000000",
         "default_receive_policy": "RECEIVE_POLICY_MEMBERS",
         "hide_expiry_blocks": "100800",
@@ -28,20 +38,30 @@
         "max_attributes": 16,
         "max_batch_size": 50,
         "max_classes_per_creator": 50,
+        "max_craft_recipes_per_class": 10,
         "max_description_length": 2048,
         "max_expirations_per_block": 200,
         "max_hides_per_sentinel_per_day": 50,
         "max_inbox_per_recipient": 100,
+        "max_issue_batch_size": 200,
         "max_listing_duration": "7776000",
+        "max_media_proposals_per_token": 5,
+        "max_media_versions_per_token": 8,
         "max_minters_per_class": 10,
         "max_name_length": 128,
+        "max_nest_depth": 3,
+        "max_nested_tokens": 20,
+        "max_offers_per_bidder": 50,
         "max_pending_per_pair": 5,
+        "max_rental_duration": "7776000",
         "max_royalty_bps": 1000,
+        "max_schedule_stages": 8,
         "max_symbol_length": 16,
         "max_uri_length": 512,
         "min_trust_level_create_class": 1,
         "pending_ttl": "604800",
         "public_mint_enabled": true,
+        "renderers_enabled": true,
         "sale_fee_bps": 100,
         "sentinel_hide_commit_dream": "100000000",
         "sentinel_unhide_window_blocks": "14400",
@@ -50,10 +70,16 @@
       "pending_class_owners": [],
       "pending_mints": [],
       "pending_transfers": [],
+      "pending_unit_seq": "0",
+      "pending_units": [],
       "public_mint_counts": [],
       "receive_policies": [],
+      "rental_offers": [],
+      "rentals": [],
       "sentinel_daily_hides": [],
-      "tokens": []
+      "tokens": [],
+      "unit_listing_seq": "0",
+      "unit_listings": []
     },
     "auth": {
       "accounts": [
@@ -2493,6 +2519,14 @@
       "total_escrowed": []
     },
     "upgrade": {},
+    "vault": {
+      "params": {
+        "creation_enabled": true,
+        "creation_fee_amount": "10000000"
+      },
+      "vault_map": [],
+      "vault_proposal_map": []
+    },
     "vesting": {}
   },
   "app_version": "",

@@ -2,6 +2,7 @@ package keeper_test
 
 import (
 	"context"
+	"encoding/hex"
 	"testing"
 	"time"
 
@@ -570,4 +571,111 @@ func TestMigrationParamsValidation(t *testing.T) {
 	p = types.DefaultParams()
 	p.MaxKeyMigrationsPerWindow = 0
 	require.Error(t, p.Validate())
+}
+
+func TestMigrationQueries_TargetAndPredecessor(t *testing.T) {
+	f := migrationFixture(t)
+	qs := keeper.NewQueryServerImpl(f.keeper)
+	a := sdk.AccAddress([]byte("migrant-a__________"))
+	b := sdk.AccAddress([]byte("migrant-b__________"))
+	seedMigrant(t, f, a, 5_000_000)
+
+	_, err := qs.PendingMigrationByTarget(f.ctx, &types.QueryPendingMigrationByTargetRequest{Address: b.String()})
+	require.Error(t, err, "no migration targets b yet")
+
+	// The new address finds the migration it must accept.
+	id, err := f.keeper.RequestKeyMigration(f.ctx, a.String(), b.String())
+	require.NoError(t, err)
+	resp, err := qs.PendingMigrationByTarget(f.ctx, &types.QueryPendingMigrationByTargetRequest{Address: b.String()})
+	require.NoError(t, err)
+	require.Equal(t, id, resp.Migration.Id)
+	require.Equal(t, a.String(), resp.Migration.FromAddress)
+
+	// Finalized migrations are no longer pending.
+	require.NoError(t, f.keeper.AcceptMigration(f.ctx, b.String(), id))
+	advance(f, mustParams(t, f).KeyMigrationDelay+1, 1)
+	f.keeper.ProcessMigrations(f.ctx)
+	_, err = qs.PendingMigrationByTarget(f.ctx, &types.QueryPendingMigrationByTargetRequest{Address: b.String()})
+	require.Error(t, err)
+
+	// The member query follows the predecessor address to the moved record.
+	got, err := qs.GetMember(f.ctx, &types.QueryGetMemberRequest{Address: a.String()})
+	require.NoError(t, err)
+	require.Equal(t, b.String(), got.Member.Address)
+}
+
+func TestMemberMigrationsFilters(t *testing.T) {
+	f := migrationFixture(t)
+	qs := keeper.NewQueryServerImpl(f.keeper)
+	a := sdk.AccAddress([]byte("migrant-a__________"))
+	b := sdk.AccAddress([]byte("migrant-b__________"))
+	c := sdk.AccAddress([]byte("migrant-c__________"))
+	d := sdk.AccAddress([]byte("migrant-d__________"))
+	seedMigrant(t, f, a, 5_000_000)
+	seedMigrant(t, f, c, 5_000_000)
+
+	finalized := finalizeKeyMigration(t, f, a, b)
+	pending, err := f.keeper.RequestKeyMigration(f.ctx, c.String(), d.String())
+	require.NoError(t, err)
+	ids := func(ms []types.MemberMigration) []uint64 {
+		out := []uint64{}
+		for _, m := range ms {
+			out = append(out, m.Id)
+		}
+		return out
+	}
+
+	all, err := qs.MemberMigrations(f.ctx, &types.QueryMemberMigrationsRequest{})
+	require.NoError(t, err)
+	require.ElementsMatch(t, []uint64{finalized, pending}, ids(all.Migrations))
+
+	byStatus, err := qs.MemberMigrations(f.ctx, &types.QueryMemberMigrationsRequest{Status: types.MigrationStatus_MIGRATION_STATUS_REQUESTED})
+	require.NoError(t, err)
+	require.Equal(t, []uint64{pending}, ids(byStatus.Migrations))
+
+	// Either side of the migration matches.
+	byFrom, err := qs.MemberMigrations(f.ctx, &types.QueryMemberMigrationsRequest{Address: a.String()})
+	require.NoError(t, err)
+	require.Equal(t, []uint64{finalized}, ids(byFrom.Migrations))
+	byTo, err := qs.MemberMigrations(f.ctx, &types.QueryMemberMigrationsRequest{Address: d.String()})
+	require.NoError(t, err)
+	require.Equal(t, []uint64{pending}, ids(byTo.Migrations))
+}
+
+func TestRecoveryCommitQueries(t *testing.T) {
+	f := migrationFixture(t)
+	qs := keeper.NewQueryServerImpl(f.keeper)
+	a := sdk.AccAddress([]byte("recover-a__________"))
+	b := sdk.AccAddress([]byte("recover-b__________"))
+	submitter := sdk.AccAddress([]byte("recover-revealer___"))
+	other := sdk.AccAddress([]byte("recover-other______"))
+
+	sealed := types.RecoverySeal([]byte("printed recovery code #1"), a.String(), b.String())
+	sealedHex := hex.EncodeToString(sealed)
+	_, err := qs.RecoveryCommit(f.ctx, &types.QueryRecoveryCommitRequest{SealedHex: sealedHex})
+	require.Error(t, err, "nothing sealed yet")
+
+	require.NoError(t, f.keeper.CommitRecovery(f.ctx, submitter.String(), sealed))
+	got, err := qs.RecoveryCommit(f.ctx, &types.QueryRecoveryCommitRequest{SealedHex: sealedHex})
+	require.NoError(t, err)
+	require.Equal(t, submitter.String(), got.Commit.Submitter)
+	require.Equal(t, f.ctx.BlockHeight(), got.Commit.Height)
+
+	mine, err := qs.RecoveryCommitsBySubmitter(f.ctx, &types.QueryRecoveryCommitsBySubmitterRequest{Submitter: submitter.String()})
+	require.NoError(t, err)
+	require.Len(t, mine.Commits, 1)
+	theirs, err := qs.RecoveryCommitsBySubmitter(f.ctx, &types.QueryRecoveryCommitsBySubmitterRequest{Submitter: other.String()})
+	require.NoError(t, err)
+	require.Empty(t, theirs.Commits)
+
+	_, err = qs.RecoveryCommit(f.ctx, &types.QueryRecoveryCommitRequest{SealedHex: "zz"})
+	require.Error(t, err, "malformed seal")
+
+	// Past its TTL a seal is gone from both queries, even before the sweep.
+	advance(f, mustParams(t, f).RecoveryCommitTtl+1, 1)
+	_, err = qs.RecoveryCommit(f.ctx, &types.QueryRecoveryCommitRequest{SealedHex: sealedHex})
+	require.Error(t, err)
+	mine, err = qs.RecoveryCommitsBySubmitter(f.ctx, &types.QueryRecoveryCommitsBySubmitterRequest{Submitter: submitter.String()})
+	require.NoError(t, err)
+	require.Empty(t, mine.Commits)
 }

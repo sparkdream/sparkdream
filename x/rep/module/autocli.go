@@ -536,6 +536,24 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					Short:          "Query RecoveryCommitments",
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "member"}},
 				},
+				{
+					RpcMethod:      "PendingMigrationByTarget",
+					Use:            "pending-migration-by-target [address]",
+					Short:          "Query PendingMigrationByTarget",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "address"}},
+				},
+				{
+					RpcMethod:      "RecoveryCommit",
+					Use:            "recovery-commit [sealed-hex]",
+					Short:          "Query an unexpired sealed recovery commit by its seal (hex)",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "sealed_hex"}},
+				},
+				{
+					RpcMethod:      "RecoveryCommitsBySubmitter",
+					Use:            "recovery-commits-by-submitter [submitter]",
+					Short:          "List the unexpired sealed recovery commits an address submitted",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "submitter"}},
+				},
 			},
 		},
 		Tx: &autocliv1.ServiceCommandDescriptor{

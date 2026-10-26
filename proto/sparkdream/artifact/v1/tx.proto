@@ -308,6 +308,11 @@ message MsgCreateClass {
     (gogoproto.nullable) = false,
     (amino.dont_omitempty) = true
   ];
+  // Optional: the id the client expects the class to get (NextClassId). When
+  // set, the tx fails unless the class gets exactly this id. A blind-mint
+  // commitment binds the class id into every leaf, so a class created under
+  // another id could never reveal; failing is the safe outcome. 0 = any id.
+  uint64 expected_class_id = 21;
 }
 
 // MsgCreateClassResponse returns the new class id.

@@ -133,3 +133,18 @@ func TestMemberProfileQueryPaginated(t *testing.T) {
 		require.ErrorIs(t, err, status.Error(codes.InvalidArgument, "invalid request"))
 	})
 }
+
+func TestMemberProfileQueryFollowsMigration(t *testing.T) {
+	f := initFixture(t)
+	mockRep := newMockRepKeeper()
+	mockRep.CanonicalOf = map[string]string{"old": "0"}
+	f.keeper.SetRepKeeper(mockRep)
+	qs := keeper.NewQueryServerImpl(f.keeper)
+	msgs := createNMemberProfile(f.keeper, f.ctx, 1)
+
+	// A predecessor address resolves to the profile re-keyed to the member's
+	// canonical address.
+	resp, err := qs.GetMemberProfile(f.ctx, &types.QueryGetMemberProfileRequest{Address: "old"})
+	require.NoError(t, err)
+	require.Equal(t, msgs[0], resp.MemberProfile)
+}

@@ -37,7 +37,9 @@ func (q queryServer) GetMemberProfile(ctx context.Context, req *types.QueryGetMe
 		return nil, status.Error(codes.InvalidArgument, "invalid request")
 	}
 
-	val, err := q.k.MemberProfile.Get(ctx, req.Address)
+	// Profiles are re-keyed at migration; a predecessor address resolves to
+	// the member it moved to.
+	val, err := q.k.MemberProfile.Get(ctx, q.k.canonical(ctx, req.Address))
 	if err != nil {
 		if errors.Is(err, collections.ErrNotFound) {
 			return nil, status.Error(codes.NotFound, "not found")

@@ -7,6 +7,12 @@ import "context"
 // nil in unit tests, where every helper degrades to the plain string
 // comparison it replaces.
 
+// canonical returns the member's current address (addr itself when it never
+// migrated).
+func (k Keeper) canonical(ctx context.Context, addr string) string {
+	return k.recentAddressesOf(ctx, addr)[0]
+}
+
 // canActAs reports whether signer may exercise rights recorded against the
 // stored address (not tombstoned, and stored resolves to signer).
 func (k Keeper) canActAs(ctx context.Context, signer, stored string) bool {

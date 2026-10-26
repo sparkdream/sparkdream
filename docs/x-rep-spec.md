@@ -5021,8 +5021,15 @@ actions pay gas only.
 
 `Canonical(address)` → canonical, tombstoned, path; `Aliases(member)` →
 canonical, addresses (all), recent; `MemberMigration(id)`;
-`MemberMigrations` (paginated); `PendingMigration(member)`;
-`RecoveryCommitments(member)`.
+`MemberMigrations` (paginated); `PendingMigration(member)` (by the old
+address); `PendingMigrationByTarget(address)` (by the new address, so the
+new key can find the migration it must accept, including a recovery reveal
+someone else submitted); `RecoveryCommitments(member)`; `RecoveryCommit(sealed_hex)` and
+`RecoveryCommitsBySubmitter(submitter)` (paginated) return unexpired sealed
+commits with their height and expiry, so a recovery can resume from any
+device. Both pending queries
+return NotFound when nothing is pending. `GetMember` and x/season's
+`GetMemberProfile` resolve a predecessor address to the canonical record.
 
 ### Parameters
 

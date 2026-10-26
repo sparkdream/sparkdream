@@ -709,6 +709,20 @@ func (k Keeper) GetPendingMigration(ctx context.Context, member string) (types.M
 	return m, true
 }
 
+// GetPendingMigrationByTarget returns the pending migration whose new address
+// is to.
+func (k Keeper) GetPendingMigrationByTarget(ctx context.Context, to string) (types.MemberMigration, bool) {
+	id, err := k.PendingMigrationByTarget.Get(ctx, to)
+	if err != nil {
+		return types.MemberMigration{}, false
+	}
+	m, err := k.MemberMigrations.Get(ctx, id)
+	if err != nil || !types.IsPendingMigrationStatus(m.Status) {
+		return types.MemberMigration{}, false
+	}
+	return m, true
+}
+
 // ZkKeyActivationDelaySeconds is the ZK key activation delay converted to
 // seconds, the ceiling x/commons applies to council voting periods.
 func (k Keeper) ZkKeyActivationDelaySeconds(ctx context.Context) int64 {

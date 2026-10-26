@@ -245,6 +245,19 @@ func (k msgServer) CreateClass(ctx context.Context, msg *types.MsgCreateClass) (
 		return nil, err
 	}
 
+	// A blind-mint commitment binds the class id into its leaves; refuse,
+	// before any state change, rather than create a class whose tokens could
+	// never reveal.
+	if msg.ExpectedClassId != 0 {
+		next, err := k.ClassSeq.Peek(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if msg.ExpectedClassId != next+1 {
+			return nil, errorsmod.Wrapf(types.ErrClassIdMismatch, "expected class id %d, would be %d", msg.ExpectedClassId, next+1)
+		}
+	}
+
 	if err := k.burnFrom(ctx, creator, p.ClassCreationFee); err != nil {
 		return nil, err
 	}

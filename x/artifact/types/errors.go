@@ -111,4 +111,5 @@ var (
 	ErrAuctionActive             = errors.Register(ModuleName, 1200, "auction is still running")
 	ErrBidTooLow                 = errors.Register(ModuleName, 1201, "bid too low")
 	ErrTaxPullFailed             = errors.Register(ModuleName, 1202, "harberger tax pull moved nothing")
+	ErrClassIdMismatch           = errors.Register(ModuleName, 1203, "class would not get the expected id")
 )

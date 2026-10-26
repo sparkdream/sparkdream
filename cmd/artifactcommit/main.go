@@ -2,6 +2,8 @@
 // renderer classes (docs/x-artifact-spec.md §7.15, §7.16):
 //
 //	artifactcommit tree <class-id> <entries.json>   Merkle root and per-token proofs for a blind mint
+//	                                                 (class-id: `sparkdreamd query artifact next-class-id`;
+//	                                                 create with expected_class_id set to it)
 //	artifactcommit seed <hex-seed>                   commitment of a generative class seed
 //	artifactcommit source-hash <package-dir>         renderer source hash of a Gno package directory
 //

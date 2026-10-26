@@ -1,4 +1,5 @@
 syntax = "proto3";
+
 package sparkdream.artifact.v1;
 
 import "amino/amino.proto";
@@ -204,6 +205,26 @@ service Query {
   rpc Auctions(QueryAuctionsRequest) returns (QueryAuctionsResponse) {
     option (google.api.http).get = "/sparkdream/artifact/v1/auctions/{class_id}";
   }
+
+  // AuctionsBySeller lists the open auctions started by seller (and the
+  // seller's predecessor addresses).
+  rpc AuctionsBySeller(QueryAuctionsBySellerRequest) returns (QueryAuctionsBySellerResponse) {
+    option (google.api.http).get = "/sparkdream/artifact/v1/auctions_by_seller/{seller}";
+  }
+
+  // RentalOffers lists unexpired rental offers. With user set, only the
+  // offers addressed to that user (or a predecessor address); otherwise every
+  // offer, including the open ones anyone may accept.
+  rpc RentalOffers(QueryRentalOffersRequest) returns (QueryRentalOffersResponse) {
+    option (google.api.http).get = "/sparkdream/artifact/v1/rental_offers";
+  }
+
+  // NextClassId returns the id the next created class will get. Clients that
+  // bind the id into data before creating (blind-mint commitments) pass it as
+  // MsgCreateClass.expected_class_id.
+  rpc NextClassId(QueryNextClassIdRequest) returns (QueryNextClassIdResponse) {
+    option (google.api.http).get = "/sparkdream/artifact/v1/next_class_id";
+  }
 }
 
 // QueryParamsRequest is request type for the Query/Params RPC method.
@@ -232,24 +253,32 @@ message TokenView {
   bool withheld = 2;
   string metadata_hash = 3;
   ContentStatus class_status = 4;
+
   // What clients should show: the holder's displayed media version, the
   // renderer output, the schedule stage in effect, or the stored metadata.
   // Blank when withheld.
   TokenMetadata displayed_metadata = 5 [(gogoproto.nullable) = false];
+
   // "stored" | "schedule" | "media_version" | "renderer" | "unrevealed".
   string display_source = 6;
+
   // Why a renderer fell back to stored metadata, when it did.
   string render_error = 7;
+
   // true when expires_at has passed.
   bool expired = 8;
+
   // GENERATIVE_SEED classes: the token seed (lowercase hex) once the class
   // seed is revealed.
   string seed = 9;
+
   // Single-token query, for a token holding nested tokens: the hash
   // MsgBuy, MsgAcceptRental, offers and bids pin.
   string contents_hash = 10;
+
   // Single-token query, while rented: the renter.
   string user = 11;
+
   // Single-token query, Harberger tokens: what MsgForceBuy pays now.
   string harberger_price = 12;
 }
@@ -259,15 +288,18 @@ message InboxItem {
   InboxKind kind = 1;
   uint64 class_id = 2;
   uint64 token_id = 3;
+
   // Transfer sender, or minter.
   string from = 4;
   string to = 5;
   int64 created_at = 6;
   int64 expires_at = 7;
+
   // Metadata the recipient will receive (blanked when withheld).
   TokenMetadata metadata = 8 [(gogoproto.nullable) = false];
   string metadata_hash = 9;
   bool withheld = 10;
+
   // Unit items (kind UNIT_*): class_id is 0 and token_id the pending id,
   // which is the ref to accept, reject or cancel; these name the edition.
   uint64 unit_class_id = 11;
@@ -317,8 +349,10 @@ message QueryTokenRequest {
 // QueryTokenResponse defines the QueryTokenResponse message.
 message QueryTokenResponse {
   TokenView token = 1 [(gogoproto.nullable) = false];
+
   // Set when the token is listed.
   Listing listing = 2;
+
   // Set while the token is up for auction.
   Auction auction = 3;
 }
@@ -338,6 +372,7 @@ message QueryTokensResponse {
 // QueryTokensByOwnerRequest defines the QueryTokensByOwnerRequest message.
 message QueryTokensByOwnerRequest {
   string owner = 1;
+
   // Optional class filter (0 = all classes).
   uint64 class_id = 2;
   cosmos.base.query.v1beta1.PageRequest pagination = 3;
@@ -469,6 +504,7 @@ message QueryHideRecordResponse {
 // QueryHideRecordsByTargetRequest defines the QueryHideRecordsByTargetRequest message.
 message QueryHideRecordsByTargetRequest {
   uint64 class_id = 1;
+
   // 0 = the class itself.
   uint64 token_id = 2;
 }
@@ -489,18 +525,25 @@ message QueryPublicMintQuoteRequest {
 message QueryPublicMintQuoteResponse {
   // quantity x price
   cosmos.base.v1beta1.Coin total_price = 1 [(gogoproto.nullable) = false];
+
   // Part of total_price routed to the community pool.
   cosmos.base.v1beta1.Coin fee = 2 [(gogoproto.nullable) = false];
+
   // quantity x token_deposit (refundable).
   cosmos.base.v1beta1.Coin deposit = 3 [(gogoproto.nullable) = false];
+
   // Remaining per-address allowance; -1 = unlimited.
   int64 remaining_allowance = 4;
+
   // true when a public mint of this quantity would currently succeed.
   bool available = 5;
+
   // Why not, when available is false.
   string reason = 6;
+
   // Price of the first token in this quote under the class price curve.
   cosmos.base.v1beta1.Coin unit_price = 7 [(gogoproto.nullable) = false];
+
   // Price of the most expensive token in this quote (what max_price must cover).
   cosmos.base.v1beta1.Coin max_unit_price = 8 [(gogoproto.nullable) = false];
 }
@@ -529,6 +572,7 @@ message EditionView {
 // BalanceView is a balance with what its holder could claim now.
 message BalanceView {
   Balance balance = 1 [(gogoproto.nullable) = false];
+
   // unclaimed plus rewards accrued since the last settlement.
   string claimable = 2;
 }
@@ -624,6 +668,7 @@ message QueryCraftRecipesRequest {
 // QueryCraftRecipesResponse defines the QueryCraftRecipesResponse message.
 message QueryCraftRecipesResponse {
   repeated CraftRecipe recipes = 1 [(gogoproto.nullable) = false];
+
   // true once the class has been crafted into: recipes can then only be
   // removed.
   bool locked = 2;
@@ -673,8 +718,10 @@ message QueryChildrenRequest {
 message QueryChildrenResponse {
   // Direct children, in key order.
   repeated TokenRef children = 1 [(gogoproto.nullable) = false];
+
   // Hash over the whole tree under the token ("" when it holds nothing).
   string contents_hash = 2;
+
   // Tokens nested under it at any depth.
   uint32 descendants = 3;
 }
@@ -688,11 +735,14 @@ message QueryHarbergerQuoteRequest {
 // QueryHarbergerQuoteResponse defines the QueryHarbergerQuoteResponse message.
 message QueryHarbergerQuoteResponse {
   HarbergerState state = 1 [(gogoproto.nullable) = false];
+
   // What MsgForceBuy would pay now (falls during foreclosure).
   string current_price = 2;
+
   // Tax per period on the assessed price.
   string tax_per_period = 3;
   bool foreclosed = 4;
+
   // false while the token cannot be bought (a zero price inside the grace
   // period, or a hidden token or class).
   bool for_sale = 5;
@@ -742,6 +792,7 @@ message QueryAuctionRequest {
 // QueryAuctionResponse defines the QueryAuctionResponse message.
 message QueryAuctionResponse {
   Auction auction = 1 [(gogoproto.nullable) = false];
+
   // The lowest bid MsgBid accepts now.
   string min_next_bid = 2;
 }
@@ -756,4 +807,37 @@ message QueryAuctionsRequest {
 message QueryAuctionsResponse {
   repeated Auction auctions = 1 [(gogoproto.nullable) = false];
   cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryAuctionsBySellerRequest defines the QueryAuctionsBySellerRequest message.
+message QueryAuctionsBySellerRequest {
+  string seller = 1;
+  cosmos.base.query.v1beta1.PageRequest pagination = 2;
+}
+
+// QueryAuctionsBySellerResponse defines the QueryAuctionsBySellerResponse message.
+message QueryAuctionsBySellerResponse {
+  repeated Auction auctions = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryRentalOffersRequest defines the QueryRentalOffersRequest message.
+message QueryRentalOffersRequest {
+  // Optional; empty lists every unexpired offer.
+  string user = 1;
+  cosmos.base.query.v1beta1.PageRequest pagination = 2;
+}
+
+// QueryRentalOffersResponse defines the QueryRentalOffersResponse message.
+message QueryRentalOffersResponse {
+  repeated RentalOffer offers = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+}
+
+// QueryNextClassIdRequest defines the QueryNextClassIdRequest message.
+message QueryNextClassIdRequest {}
+
+// QueryNextClassIdResponse defines the QueryNextClassIdResponse message.
+message QueryNextClassIdResponse {
+  uint64 next_class_id = 1;
 }

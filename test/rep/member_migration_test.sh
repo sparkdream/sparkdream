@@ -166,6 +166,8 @@ echo "  migration id: $MIG1"
 [ "$(migration_status $MIG1)" = "MIGRATION_STATUS_REQUESTED" ] && pass "status REQUESTED" || fail "status $(migration_status $MIG1)"
 PEND=$($BINARY query rep pending-migration "$A" --output json 2>/dev/null | jq -r '.migration.id')
 [ "$PEND" = "$MIG1" ] && pass "pending-migration query" || fail "pending-migration returned $PEND"
+PEND_B=$($BINARY query rep pending-migration-by-target "$B" --output json 2>/dev/null | jq -r '.migration.id')
+[ "$PEND_B" = "$MIG1" ] && pass "pending-migration-by-target query" || fail "pending-migration-by-target returned $PEND_B"
 run_tx "a second request while one is pending is refused" fail rep request-migration --gas 300000 "$X" --from $KA
 run_tx "only the new address may accept" fail rep accept-migration --gas 300000 "$MIG1" --from $KC
 run_tx "B accepts" ok rep accept-migration --gas 300000 "$MIG1" --from $KB
@@ -176,7 +178,8 @@ B_BAL_BEFORE=$(spark_balance $B)
 echo "  waiting for the 20s key delay..."
 wait_status "$MIG1" "MIGRATION_STATUS_FINALIZED" 60 && pass "finalized after the delay" || fail "not finalized"
 
-$BINARY query rep get-member "$A" --output json > /dev/null 2>&1 && fail "old member record still exists" || pass "Member[A] gone"
+OLDADDR=$($BINARY query rep get-member "$A" --output json 2>/dev/null | jq -r '.member.address')
+[ "$OLDADDR" = "$B" ] && pass "get-member(A) resolves to B's record" || fail "get-member(A) address $OLDADDR"
 NEWADDR=$($BINARY query rep get-member "$B" --output json 2>/dev/null | jq -r '.member.address')
 [ "$NEWADDR" = "$B" ] && pass "Member[B] carries the record" || fail "Member[B] address $NEWADDR"
 CAN=$($BINARY query rep canonical "$A" --output json 2>/dev/null)

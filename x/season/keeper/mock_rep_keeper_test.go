@@ -11,6 +11,8 @@ import (
 
 // mockRepKeeper mocks the x/rep keeper for testing season transitions
 type mockRepKeeper struct {
+	// CanonicalOf maps a migrated-away address to its canonical address
+	CanonicalOf map[string]string
 	// Balances maps address to DREAM balance
 	Balances map[string]math.Int
 	// ReputationScores maps address to tag -> score
@@ -213,6 +215,9 @@ func (m *mockRepKeeper) CanActAs(ctx context.Context, signer, stored string) boo
 func (m *mockRepKeeper) SameMember(ctx context.Context, a, b string) bool { return a == b }
 
 func (m *mockRepKeeper) RecentAddressesOf(ctx context.Context, member string) []string {
+	if canonical, ok := m.CanonicalOf[member]; ok {
+		return []string{canonical, member}
+	}
 	return []string{member}
 }
 

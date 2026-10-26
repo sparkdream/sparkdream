@@ -38,7 +38,9 @@ func (q queryServer) GetMember(ctx context.Context, req *types.QueryGetMemberReq
 		return nil, status.Error(codes.InvalidArgument, "invalid request")
 	}
 
-	val, err := q.k.Member.Get(ctx, req.Address)
+	// A migrated member's record is re-keyed to its canonical address, so a
+	// predecessor address resolves to the member it moved to.
+	val, err := q.k.Member.Get(ctx, q.k.Canonical(ctx, req.Address))
 	if err != nil {
 		if errors.Is(err, collections.ErrNotFound) {
 			return nil, status.Error(codes.NotFound, "not found")

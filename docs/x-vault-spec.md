@@ -237,7 +237,8 @@ non-member signer has no alias and every helper degrades to equality.
 
 `get-vault [id]`, `list-vault`, `vault-by-address [addr]`, `vaults-by-signer [addr]` (paginated,
 alias-aware), `get-vault-proposal [id]`, `list-vault-proposal`, `proposals-by-vault [vault-id]
-[--status]` (paginated), `tally [proposal-id]` (`approved_weight`, `threshold`, `met`), `params`.
+[--status]` (paginated), `proposals-by-proposer [addr] [--status]` (paginated, alias-aware, across
+vaults: shows a signer's use of the per-proposer pending caps), `tally [proposal-id]` (`approved_weight`, `threshold`, `met`), `params`.
 
 Hand-written tx commands (autocli cannot build signer sets or `repeated Any`):
 `tx vault create-vault <addr:weight,...> <threshold> <ttl-seconds> [label]`,

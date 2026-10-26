@@ -65,6 +65,18 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 				{RpcMethod: "OffersByBidder", Use: "offers-by-bidder [bidder]", Short: "List an address's open offers", PositionalArgs: pos("bidder")},
 				{RpcMethod: "Auction", Use: "auction [auction-id]", Short: "Show an auction and the lowest bid it accepts now", PositionalArgs: pos("auction_id")},
 				{RpcMethod: "Auctions", Use: "auctions", Short: "List open auctions (--class-id to filter)"},
+				{
+					RpcMethod:      "AuctionsBySeller",
+					Use:            "auctions-by-seller [seller]",
+					Short:          "List open auctions started by an address",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "seller"}},
+				},
+				{RpcMethod: "RentalOffers", Use: "rental-offers", Short: "List unexpired rental offers (--user for the ones an address may accept)"},
+				{
+					RpcMethod: "NextClassId",
+					Use:       "next-class-id",
+					Short:     "The id the next created class will get",
+				},
 			},
 		},
 		Tx: &autocliv1.ServiceCommandDescriptor{

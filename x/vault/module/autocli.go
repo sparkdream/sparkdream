@@ -65,6 +65,12 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					Alias:          []string{"show-vault-proposal"},
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "proposal_id"}},
 				},
+				{
+					RpcMethod:      "ProposalsByProposer",
+					Use:            "proposals-by-proposer [proposer]",
+					Short:          "List the proposals an address opened, across vaults (--status filters)",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "proposer"}},
+				},
 			},
 		},
 		Tx: &autocliv1.ServiceCommandDescriptor{

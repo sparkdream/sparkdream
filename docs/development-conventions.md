@@ -119,6 +119,7 @@ Additional rationale worth knowing:
 - Amino names are part of the signing contract with wallets — never rename one once clients depend on it; the regression test pins the exact strings.
 - Client side: `@sparkdreamnft/sparkdreamjs` must be regenerated/republished after amino-name additions so its amino converters emit the same `type` strings the chain produces.
 - Messages that nest `repeated google.protobuf.Any` (e.g. `MsgSubmitProposal`, `MsgSubmitAnonymousProposal`) need CUSTOM client-side amino converters: the default `Any` encoder base64-dumps proto bytes, which Ledger's strict validator rejects. Each inner message must be recursively amino-encoded as `{type: <amino.name>, value: <amino-form>}` with alphabetically sorted keys at every nesting level.
+- [cmd/aminogolden](../cmd/aminogolden/main.go) exports what a client needs to sign exactly as the chain renders: `schema` (descriptors of every sparkdream Msg with the options aminojson acts on), `golden` (sample messages as bytes next to the chain's amino JSON, five variants each) and `verify` (checks amino-signed txs from stdin with the SDK's own sign-mode handler). sparkdreamjs (0.0.47+) builds every module's amino converters from the schema and tests them against the golden records, and sparkdream-ui tests its signing setup against them, so rerun `schema` and `golden` after any proto change (the sparkdreamjs sync-protos skill does; commands in the tool's header comment).
 
 ---
 
