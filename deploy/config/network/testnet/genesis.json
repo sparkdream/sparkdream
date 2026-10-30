@@ -329,6 +329,7 @@
           "updated_at": 0
         }
       ],
+      "promotion_queue": [],
       "reaction_counts": [],
       "reactions": [],
       "replies": [],
@@ -422,6 +423,7 @@
         "sponsor_fee": "1000000",
         "sponsorship_request_ttl_blocks": "100800"
       },
+      "promotion_queue": [],
       "reaction_dedups": [],
       "reaction_limits": [],
       "sponsorship_requests": []
@@ -679,6 +681,7 @@
       "post_flag_map": [],
       "post_map": [],
       "post_vote_list": [],
+      "promotion_queue": [],
       "proposal_count_map": [],
       "sentinel_activity_map": [],
       "thread_follow_count_map": [],
@@ -2225,7 +2228,7 @@
         ],
         "max_endblocker_dispatches_per_pass": 100,
         "max_exec_count": "10000",
-        "max_expiration": "7776000s",
+        "max_expiration": "604800s",
         "max_grant_lifetime_seconds": "31536000",
         "max_msg_types_per_session": "20",
         "max_oneshot_exec_gas": "200000",
@@ -2242,6 +2245,7 @@
         "min_pull_amount": "1000",
         "min_recurring_period_seconds": "86400",
         "min_schedule_delay_seconds": "60",
+        "narrow_session_max_expiration": "2592000s",
         "oneshot_creation_fee": "1000",
         "oneshot_gas_price": "0.0025",
         "paused_oneshot_ttl_seconds": "604800"

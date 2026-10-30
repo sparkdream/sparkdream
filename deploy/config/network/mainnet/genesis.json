@@ -304,6 +304,7 @@
       },
       "post_count": "1",
       "posts": [],
+      "promotion_queue": [],
       "reaction_counts": [],
       "reactions": [],
       "replies": [],
@@ -397,6 +398,7 @@
         "sponsor_fee": "1000000",
         "sponsorship_request_ttl_blocks": "100800"
       },
+      "promotion_queue": [],
       "reaction_dedups": [],
       "reaction_limits": [],
       "sponsorship_requests": []
@@ -654,6 +656,7 @@
       "post_flag_map": [],
       "post_map": [],
       "post_vote_list": [],
+      "promotion_queue": [],
       "proposal_count_map": [],
       "sentinel_activity_map": [],
       "thread_follow_count_map": [],
@@ -2147,6 +2150,7 @@
         "min_pull_amount": "1000",
         "min_recurring_period_seconds": "86400",
         "min_schedule_delay_seconds": "60",
+        "narrow_session_max_expiration": "2592000s",
         "oneshot_creation_fee": "1000",
         "oneshot_gas_price": "0.0025",
         "paused_oneshot_ttl_seconds": "604800"
