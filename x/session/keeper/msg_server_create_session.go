@@ -73,9 +73,9 @@ func (k msgServer) CreateSession(ctx context.Context, msg *types.MsgCreateSessio
 	if !msg.Expiration.After(blockTime) {
 		return nil, types.ErrInvalidExpiration
 	}
-	maxExp := blockTime.Add(params.MaxExpiration)
-	if msg.Expiration.After(maxExp) {
-		return nil, types.ErrExpirationTooLong
+	expCap := params.SessionMaxExpiration(len(msg.AllowedMsgTypes), false)
+	if msg.Expiration.After(blockTime.Add(expCap)) {
+		return nil, types.ErrExpirationTooLong.Wrapf("at most %s for this session", expCap)
 	}
 
 	// 9. Spend limit must be positive (SESSION-4 fix: zero SpendLimit disables

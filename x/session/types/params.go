@@ -20,6 +20,10 @@ var (
 	DefaultMaxSessionsPerGranter uint64 = 10
 	DefaultMaxMsgTypesPerSession uint64 = 20
 	DefaultMaxExpiration                = 7 * 24 * time.Hour // 7 days
+	// DefaultNarrowSessionMaxExpiration caps narrow sessions (see
+	// NarrowSessionMaxMsgTypes): 30 days, the rotation interval the
+	// federation spec recommends for daemon keys.
+	DefaultNarrowSessionMaxExpiration = 30 * 24 * time.Hour
 	// DefaultMaxSpendLimitAmount is the default per-session fee budget in
 	// bond-denom micro-units (100 SPARK).
 	DefaultMaxSpendLimitAmount        = sdkmath.NewInt(100_000_000)
@@ -345,6 +349,7 @@ func NewParams(
 		MaxSessionsPerGranter:          maxSessionsPerGranter,
 		MaxMsgTypesPerSession:          maxMsgTypesPerSession,
 		MaxExpiration:                  maxExpiration,
+		NarrowSessionMaxExpiration:     DefaultNarrowSessionMaxExpiration,
 		MaxSpendLimitAmount:            maxSpendLimitAmount,
 		MaxExecCount:                   maxExecCount,
 		MinRecurringPeriodSeconds:      DefaultMinRecurringPeriodSeconds,
@@ -411,6 +416,23 @@ const (
 	MaxParamGrantLifetimeSeconds        int64  = 5 * 31_536_000 // 5 years
 )
 
+// NarrowSessionMaxMsgTypes is the most message types a session key may name
+// and still count as narrow. A narrow session that also leaves
+// allow_self_revoke unset may live up to narrow_session_max_expiration
+// instead of max_expiration: a leaked key scoped to one or two messages
+// does far less than a broad browser key, and the unattended daemons that
+// use one renew it with a key kept off their host (x-session-spec §8.3).
+const NarrowSessionMaxMsgTypes = 2
+
+// SessionMaxExpiration returns how long a session key naming numMsgTypes
+// message types may live.
+func (p Params) SessionMaxExpiration(numMsgTypes int, allowSelfRevoke bool) time.Duration {
+	if numMsgTypes <= NarrowSessionMaxMsgTypes && !allowSelfRevoke {
+		return p.NarrowSessionMaxExpiration
+	}
+	return p.MaxExpiration
+}
+
 // MaxParamSpendLimitAmount caps max_spend_limit_amount (10,000 SPARK in
 // micro-units): a session's fee budget, not a treasury.
 var MaxParamSpendLimitAmount = sdkmath.NewInt(10_000_000_000)
@@ -432,6 +454,10 @@ func (p Params) Validate() error {
 	}
 	if p.MaxExpiration <= 0 {
 		return fmt.Errorf("max_expiration must be > 0")
+	}
+	if p.NarrowSessionMaxExpiration < p.MaxExpiration {
+		return fmt.Errorf("narrow_session_max_expiration (%s) must be >= max_expiration (%s)",
+			p.NarrowSessionMaxExpiration, p.MaxExpiration)
 	}
 	if p.MaxSpendLimitAmount.IsNil() || !p.MaxSpendLimitAmount.IsPositive() {
 		return fmt.Errorf("max_spend_limit_amount must be positive, got %s", p.MaxSpendLimitAmount)
@@ -626,6 +652,7 @@ func DefaultSessionOperationalParams() SessionOperationalParams {
 		MaxSessionsPerGranter:          DefaultMaxSessionsPerGranter,
 		MaxMsgTypesPerSession:          DefaultMaxMsgTypesPerSession,
 		MaxExpiration:                  DefaultMaxExpiration,
+		NarrowSessionMaxExpiration:     DefaultNarrowSessionMaxExpiration,
 		MaxSpendLimitAmount:            DefaultMaxSpendLimitAmount,
 		MaxExecCount:                   DefaultMaxExecCount,
 		MinRecurringPeriodSeconds:      DefaultMinRecurringPeriodSeconds,
@@ -659,6 +686,7 @@ func (p Params) ApplyOperationalParams(op SessionOperationalParams) Params {
 	p.MaxSessionsPerGranter = op.MaxSessionsPerGranter
 	p.MaxMsgTypesPerSession = op.MaxMsgTypesPerSession
 	p.MaxExpiration = op.MaxExpiration
+	p.NarrowSessionMaxExpiration = op.NarrowSessionMaxExpiration
 	p.MaxSpendLimitAmount = op.MaxSpendLimitAmount
 	p.MaxExecCount = op.MaxExecCount
 	p.MinRecurringPeriodSeconds = op.MinRecurringPeriodSeconds
@@ -692,6 +720,7 @@ func (p Params) ExtractOperationalParams() SessionOperationalParams {
 		MaxSessionsPerGranter:          p.MaxSessionsPerGranter,
 		MaxMsgTypesPerSession:          p.MaxMsgTypesPerSession,
 		MaxExpiration:                  p.MaxExpiration,
+		NarrowSessionMaxExpiration:     p.NarrowSessionMaxExpiration,
 		MaxSpendLimitAmount:            p.MaxSpendLimitAmount,
 		MaxExecCount:                   p.MaxExecCount,
 		MinRecurringPeriodSeconds:      p.MinRecurringPeriodSeconds,
@@ -727,6 +756,8 @@ func (p Params) validateCeilings() error {
 		return fmt.Errorf("max_msg_types_per_session %d exceeds ceiling %d", p.MaxMsgTypesPerSession, MaxParamMsgTypesPerSession)
 	case p.MaxExpiration > MaxParamExpiration:
 		return fmt.Errorf("max_expiration %s exceeds ceiling %s", p.MaxExpiration, MaxParamExpiration)
+	case p.NarrowSessionMaxExpiration > MaxParamExpiration:
+		return fmt.Errorf("narrow_session_max_expiration %s exceeds ceiling %s", p.NarrowSessionMaxExpiration, MaxParamExpiration)
 	case p.MaxExecCount > MaxParamExecCount:
 		return fmt.Errorf("max_exec_count %d exceeds ceiling %d", p.MaxExecCount, MaxParamExecCount)
 	case p.MaxOneshotExecGas > MaxParamOneshotExecGas:

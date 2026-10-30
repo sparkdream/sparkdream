@@ -169,7 +169,19 @@ func TestCreateSession(t *testing.T) {
 				Grantee:         testAddr("grantee6", f.addressCodec),
 				AllowedMsgTypes: validTypes,
 				SpendLimit:      spendLimit,
-				Expiration:      sdkCtx.BlockTime().Add(30 * 24 * time.Hour), // 30 days > 7 day max
+				Expiration:      sdkCtx.BlockTime().Add(31 * 24 * time.Hour), // 31 days > 30-day narrow max
+			},
+			expectError: true,
+			errContains: "exceeds max_expiration",
+		},
+		{
+			name: "broad session past 7 days",
+			msg: &types.MsgCreateSession{
+				Granter:         testAddr("granter6b", f.addressCodec),
+				Grantee:         testAddr("grantee6b", f.addressCodec),
+				AllowedMsgTypes: types.DefaultAllowedMsgTypes[:3],
+				SpendLimit:      spendLimit,
+				Expiration:      sdkCtx.BlockTime().Add(8 * 24 * time.Hour), // 3 types: 7-day max
 			},
 			expectError: true,
 			errContains: "exceeds max_expiration",

@@ -1228,3 +1228,6 @@ fi
 echo ""
 echo "ARCHIVE TEST COMPLETED"
 echo ""
+
+[ "$FAIL_COUNT" -gt 0 ] && exit 1
+exit 0

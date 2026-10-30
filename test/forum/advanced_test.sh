@@ -430,7 +430,7 @@ echo ""
 echo "Testing confirm-proposed-reply (may fail without sentinel proposal)..."
 
 if [ -n "$REPLY_THREAD_ID" ]; then
-    TX_RES=$($BINARY tx forum confirm-proposed-reply \
+    TX_RES=$($BINARY tx forum confirm-proposed-reply --gas 500000 \
         "$REPLY_THREAD_ID" \
         --from poster1 \
         --chain-id $CHAIN_ID \
@@ -954,6 +954,22 @@ echo ""
 # ErrNotSentinel a non-sentinel caller gets.
 echo "--- PART 25: MARK ACCEPTED REPLY - NON-AUTHOR CANNOT ACCEPT DIRECTLY ---"
 
+# thread_metadata_field THREAD FIELD: print a ThreadMetadata field, or 0 when
+# the thread has no metadata record yet (a fresh thread gets one only once a
+# reply is accepted or proposed, and the query answers NotFound until then).
+# Any other query error prints "ERR" so it cannot pass for 0.
+thread_metadata_field() {
+    local out
+    out=$($BINARY query forum get-thread-metadata "$1" --output json 2>&1)
+    if echo "$out" | jq -e . >/dev/null 2>&1; then
+        echo "$out" | jq -r --arg f "$2" '.thread_metadata[$f] // "0"'
+    elif echo "$out" | grep -qi "not found"; then
+        echo "0"
+    else
+        echo "ERR"
+    fi
+}
+
 PART25_RESULT="FAIL"
 
 # Create a new thread and reply for this test (previous thread already has accepted reply)
@@ -1040,9 +1056,7 @@ if [ -n "$AUTHOR_ERR_THREAD_ID" ] && [ -n "$AUTHOR_ERR_REPLY_ID" ]; then
         RAW_LOG=$(echo "$TX_RESULT" | jq -r '.raw_log // ""')
 
         # Whatever the branch, the reply must not have become accepted.
-        ACCEPTED=$($BINARY query forum get-thread-metadata "$AUTHOR_ERR_THREAD_ID" --output json 2>&1 \
-            | jq -r '.thread_metadata.accepted_reply_id // "0"')
-        [ "$ACCEPTED" == "null" ] && ACCEPTED="0"
+        ACCEPTED=$(thread_metadata_field "$AUTHOR_ERR_THREAD_ID" accepted_reply_id)
 
         if [ "$CODE" != "0" ]; then
             if echo "$RAW_LOG" | grep -qi "not a registered sentinel\|not.*sentinel"; then
@@ -1057,9 +1071,7 @@ if [ -n "$AUTHOR_ERR_THREAD_ID" ] && [ -n "$AUTHOR_ERR_REPLY_ID" ]; then
         else
             # If poster2 ever becomes a sentinel this branch runs: the call is
             # accepted as a *proposal*, which still must not accept the reply.
-            PROPOSED=$($BINARY query forum get-thread-metadata "$AUTHOR_ERR_THREAD_ID" --output json 2>&1 \
-                | jq -r '.thread_metadata.proposed_reply_id // "0"')
-            [ "$PROPOSED" == "null" ] && PROPOSED="0"
+            PROPOSED=$(thread_metadata_field "$AUTHOR_ERR_THREAD_ID" proposed_reply_id)
             if [ "$ACCEPTED" == "0" ] && [ "$PROPOSED" == "$AUTHOR_ERR_REPLY_ID" ]; then
                 echo "  Non-author created a proposal, not an acceptance (reply $PROPOSED pending)"
                 PART25_RESULT="PASS"
@@ -1875,3 +1887,8 @@ fi
 echo ""
 echo "ADVANCED FORUM FEATURES TEST COMPLETED"
 echo ""
+
+# Report failures to the runner: without a non-zero exit it counts this
+# script as passed whatever the summary above says.
+[ "$FAIL_COUNT" -gt 0 ] && exit 1
+exit 0

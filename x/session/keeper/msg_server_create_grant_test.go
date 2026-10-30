@@ -239,6 +239,54 @@ func TestCreateGrant_NoteTooLong(t *testing.T) {
 	require.Contains(t, err.Error(), "exceeds 256 characters")
 }
 
+// TestCreateGrant_SessionKeyExpirationCaps: a session key naming at most
+// NarrowSessionMaxMsgTypes types without allow_self_revoke may live up to
+// narrow_session_max_expiration (30 days); any other is held to
+// max_expiration (7 days).
+func TestCreateGrant_SessionKeyExpirationCaps(t *testing.T) {
+	day := 24 * time.Hour
+	tests := []struct {
+		name       string
+		types      []string
+		selfRevoke bool
+		lifetime   time.Duration
+		wantErr    bool
+	}{
+		{"narrow 1 type, 30 days", types.DefaultAllowedMsgTypes[:1], false, 30 * day, false},
+		{"narrow 2 types, 30 days", types.DefaultAllowedMsgTypes[:2], false, 30 * day, false},
+		{"narrow past 30 days", types.DefaultAllowedMsgTypes[:1], false, 31 * day, true},
+		{"3 types, 7 days", types.DefaultAllowedMsgTypes[:3], false, 7 * day, false},
+		{"3 types, 8 days", types.DefaultAllowedMsgTypes[:3], false, 8 * day, true},
+		{"self-revoke, 8 days", types.DefaultAllowedMsgTypes[:1], true, 8 * day, true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			f := initFixture(t)
+			ms := keeper.NewMsgServerImpl(f.keeper)
+			sdkCtx := sdk.UnwrapSDKContext(f.ctx)
+
+			_, err := ms.CreateGrant(f.ctx, &types.MsgCreateGrant{
+				Granter:   testAddr("granter", f.addressCodec),
+				Grantee:   testAddr("grantee", f.addressCodec),
+				ExpiresAt: sdkCtx.BlockTime().Add(tc.lifetime),
+				Payload: &types.MsgCreateGrant_SessionKey{
+					SessionKey: &types.SessionKeyPayload{
+						AllowedMsgTypes: tc.types,
+						SpendLimit:      sdk.NewInt64Coin("uspark", 1_000_000),
+						MaxExecCount:    100,
+						AllowSelfRevoke: tc.selfRevoke,
+					},
+				},
+			})
+			if tc.wantErr {
+				require.ErrorIs(t, err, types.ErrExpirationTooLong)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
+
 func TestCreateGrant_LifetimeTooLong(t *testing.T) {
 	f := initFixture(t)
 	ms := keeper.NewMsgServerImpl(f.keeper)

@@ -1433,3 +1433,6 @@ fi
 echo ""
 echo "APPEALS TEST COMPLETED"
 echo ""
+
+[ "$FAIL_COUNT" -gt 0 ] && exit 1
+exit 0

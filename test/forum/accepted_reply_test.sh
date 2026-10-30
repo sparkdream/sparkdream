@@ -54,10 +54,13 @@ tx_code() { echo "$1" | jq -r '.code'; }
 
 submit() {
     # submit <from> <args...> ; echo the wait_for_tx result
+    # Explicit gas: a confirm runs the upheld-verdict bookkeeping and mints
+    # the curation reward, which lands right at the 200k CLI default and
+    # ran out of gas by a few dozen units in some runs.
     local FROM=$1; shift
     local R TXHASH
     R=$($BINARY tx forum "$@" --from "$FROM" --chain-id "$CHAIN_ID" \
-        --keyring-backend test --fees 5000${BOND_DENOM} -y --output json 2>&1)
+        --keyring-backend test --gas 500000 --fees 5000${BOND_DENOM} -y --output json 2>&1)
     TXHASH=$(echo "$R" | jq -r '.txhash // empty')
     if [ -z "$TXHASH" ] || [ "$TXHASH" = "null" ]; then
         echo "{\"code\":98,\"raw_log\":$(echo "$R" | jq -Rs .)}"; return 0
@@ -403,7 +406,7 @@ if [ "$(tx_code "$R")" != "0" ]; then pass "proposal past the per-sentinel cap r
 read -r T8C R8C <<<"$(create_thread_and_reply)"
 R=$(submit sentinel1 mark-accepted-reply "$T8C" "$R8C")
 [ "$(tx_code "$R")" = "0" ] && { R=$(submit poster1 confirm-proposed-reply "$T8C"); }
-[ "$(tx_code "$R")" = "0" ] && pass "overturn streak reset via clean confirm" || fail "streak-reset confirm failed"
+[ "$(tx_code "$R")" = "0" ] && pass "overturn streak reset via clean confirm" || { echo "  $(echo "$R" | jq -r '.raw_log')"; fail "streak-reset confirm failed"; }
 
 echo ""
 if [ "$FAILED" = "0" ]; then

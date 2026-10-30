@@ -12,7 +12,7 @@ Use an x/session **SessionKey** grant: a scoped, time-limited delegation with in
 
 1. User connects wallet to the frontend
 2. Frontend generates an **ephemeral session key** (keypair stored in browser memory)
-3. User signs **one** `MsgCreateGrant` with a `session_key` payload (or the legacy `MsgCreateSession`) — the **only wallet popup** for the session. It names the message types the key may send (a subset of the chain's `allowed_msg_types`), a fee `spend_limit`, a `max_exec_count` and an expiration (at most `max_expiration`, 7 days by default)
+3. User signs **one** `MsgCreateGrant` with a `session_key` payload (or the legacy `MsgCreateSession`) — the **only wallet popup** for the session. It names the message types the key may send (a subset of the chain's `allowed_msg_types`), a fee `spend_limit`, a `max_exec_count` and an expiration (at most `max_expiration`, 7 days by default; a key naming at most 2 message types without `allow_self_revoke` may run to `narrow_session_max_expiration`, 30 days by default)
 4. For the rest of the session the frontend wraps each action in `MsgExecSession { granter, grantee, msgs }` and signs it with the session key — **zero wallet popups**. The chain rewrites each inner message's signer field to the granter
 5. On logout the user revokes the grant (`MsgRevokeGrant`); on expiry it stops working by itself
 

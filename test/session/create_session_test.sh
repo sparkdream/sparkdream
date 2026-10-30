@@ -361,9 +361,11 @@ else
 fi
 
 # ========================================================================
-# TEST 8: Error - expiration too long (>7 days)
+# TEST 8: Error - expiration too long (broad session, >7 days)
 # ========================================================================
-echo "--- TEST 8: Error - expiration too long ---"
+# A session naming more than NarrowSessionMaxMsgTypes (2) types is held
+# to max_expiration (7 days).
+echo "--- TEST 8: Error - expiration too long (broad session) ---"
 
 if ! $BINARY keys show session_temp4 --keyring-backend test > /dev/null 2>&1; then
     $BINARY keys add session_temp4 --keyring-backend test > /dev/null 2>&1
@@ -371,7 +373,42 @@ fi
 TEMP4_ADDR=$($BINARY keys show session_temp4 -a --keyring-backend test)
 
 # 8 days = 192 hours, exceeds 7-day max
-EXPIRATION=$(date -u -d "+192 hours" +"%Y-%m-%dT%H:%M:%SZ")
+EXPIRATION=$(get_future_expiration 192)
+TX_RES=$($BINARY tx session create-session \
+    "$TEMP4_ADDR" \
+    "/sparkdream.blog.v1.MsgCreatePost,/sparkdream.blog.v1.MsgUpdatePost,/sparkdream.blog.v1.MsgReact" \
+    "50000000${BOND_DENOM}" \
+    "$EXPIRATION" \
+    "100" \
+    --from session_granter \
+    --chain-id $CHAIN_ID \
+    --keyring-backend test \
+    --fees 50000${BOND_DENOM} \
+    --gas 300000 \
+    -y \
+    --output json 2>&1)
+
+if submit_tx_and_wait "$TX_RES" && check_tx_failure "$TX_RESULT"; then
+    RAW_LOG=$(echo "$TX_RESULT" | jq -r '.raw_log // ""')
+    if echo "$RAW_LOG" | grep -qi "exceeds.*max_expiration"; then
+        echo "  Correctly rejected: expiration too long"
+        record_result "Error: expiration too long (broad)" "PASS"
+    else
+        echo "  TX failed with unexpected error: $RAW_LOG"
+        record_result "Error: expiration too long (broad)" "FAIL"
+    fi
+else
+    echo "  Expected failure but TX succeeded"
+    record_result "Error: expiration too long (broad)" "FAIL"
+fi
+
+# ========================================================================
+# TEST 8b: Narrow session (1 type) may outlive max_expiration
+# ========================================================================
+# Up to narrow_session_max_expiration (30 days): the daemon-key case.
+echo "--- TEST 8b: Narrow session past 7 days ---"
+
+EXPIRATION=$(get_future_expiration 192)
 TX_RES=$($BINARY tx session create-session \
     "$TEMP4_ADDR" \
     "/sparkdream.blog.v1.MsgCreatePost" \
@@ -386,17 +423,52 @@ TX_RES=$($BINARY tx session create-session \
     -y \
     --output json 2>&1)
 
+if submit_tx_and_wait "$TX_RES" && check_tx_success "$TX_RESULT"; then
+    echo "  Narrow 8-day session created"
+    record_result "Narrow session past 7 days" "PASS"
+else
+    echo "  TX failed: $(echo "$TX_RESULT" | jq -r '.raw_log // .txhash // "unknown"' 2>/dev/null)"
+    record_result "Narrow session past 7 days" "FAIL"
+fi
+
+# ========================================================================
+# TEST 8c: Error - narrow session past narrow_session_max_expiration
+# ========================================================================
+echo "--- TEST 8c: Error - narrow session past 30 days ---"
+
+if ! $BINARY keys show session_temp4b --keyring-backend test > /dev/null 2>&1; then
+    $BINARY keys add session_temp4b --keyring-backend test > /dev/null 2>&1
+fi
+TEMP4B_ADDR=$($BINARY keys show session_temp4b -a --keyring-backend test)
+
+# 31 days = 744 hours
+EXPIRATION=$(get_future_expiration 744)
+TX_RES=$($BINARY tx session create-session \
+    "$TEMP4B_ADDR" \
+    "/sparkdream.blog.v1.MsgCreatePost" \
+    "50000000${BOND_DENOM}" \
+    "$EXPIRATION" \
+    "100" \
+    --from session_granter \
+    --chain-id $CHAIN_ID \
+    --keyring-backend test \
+    --fees 50000${BOND_DENOM} \
+    --gas 300000 \
+    -y \
+    --output json 2>&1)
+
 if submit_tx_and_wait "$TX_RES" && check_tx_failure "$TX_RESULT"; then
     RAW_LOG=$(echo "$TX_RESULT" | jq -r '.raw_log // ""')
-    if echo "$RAW_LOG" | grep -qi "expiration.*too.long\|exceeds.*max_expiration"; then
-        echo "  Correctly rejected: expiration too long"
+    if echo "$RAW_LOG" | grep -qi "exceeds.*max_expiration"; then
+        echo "  Correctly rejected: narrow session past 30 days"
+        record_result "Error: narrow session past 30 days" "PASS"
     else
-        echo "  TX failed (expected): $RAW_LOG"
+        echo "  TX failed with unexpected error: $RAW_LOG"
+        record_result "Error: narrow session past 30 days" "FAIL"
     fi
-    record_result "Error: expiration too long" "PASS"
 else
     echo "  Expected failure but TX succeeded"
-    record_result "Error: expiration too long" "FAIL"
+    record_result "Error: narrow session past 30 days" "FAIL"
 fi
 
 # ========================================================================

@@ -43,6 +43,16 @@ message Params {
   // a finite cap (1 <= session.max_exec_count <= params.max_exec_count).
   uint64 max_exec_count = 7;
 
+  // Maximum duration of a narrow session: one that names at most
+  // NarrowSessionMaxMsgTypes (2) message types and does not set
+  // allow_self_revoke. Unattended daemons (bridge, verifier, content
+  // scanner) sign through such keys; renewing one needs the granter's main
+  // key, which stays off the daemon's host. Must be >= max_expiration.
+  google.protobuf.Duration narrow_session_max_expiration = 8 [
+    (gogoproto.nullable) = false,
+    (gogoproto.stdduration) = true
+  ];
+
   // --- RecurringPull (P3) ---
   // Minimum period_seconds on a RECURRING_PULL grant. Default 86_400 (1 day);
   // prevents abusive sub-second polling.
@@ -160,6 +170,11 @@ message SessionOperationalParams {
   ];
 
   uint64 max_exec_count = 6;
+
+  google.protobuf.Duration narrow_session_max_expiration = 7 [
+    (gogoproto.nullable) = false,
+    (gogoproto.stdduration) = true
+  ];
 
   // --- RecurringPull + cross-type (P3) ---
   int64 min_recurring_period_seconds = 10;

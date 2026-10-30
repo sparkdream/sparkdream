@@ -167,6 +167,11 @@ message Params {
   // Prevents permanent delegations (use x/commons governance for that).
   google.protobuf.Duration max_expiration = 5;   // Default: 7 days
 
+  // Maximum duration of a narrow session: at most NarrowSessionMaxMsgTypes
+  // (2, compiled) message types and allow_self_revoke unset. Must be >=
+  // max_expiration. Section 8.3.
+  google.protobuf.Duration narrow_session_max_expiration = 8;  // Default: 30 days
+
   // Maximum gas budget per session.
   // Caps the financial exposure from a compromised session key.
   cosmos.base.v1beta1.Coin max_spend_limit = 6;  // Default: 100_000_000 uspark (100 SPARK)
@@ -188,6 +193,7 @@ message SessionOperationalParams {
   uint64 max_msg_types_per_session = 3;
   google.protobuf.Duration max_expiration = 4;
   cosmos.base.v1beta1.Coin max_spend_limit = 5;
+  google.protobuf.Duration narrow_session_max_expiration = 7;
 }
 ```
 
@@ -234,7 +240,7 @@ message MsgCreateSession {
 5. Every type in `allowed_msg_types` is in `Params.allowed_msg_types`
 6. No type in `allowed_msg_types` is in `NonDelegableSessionMsgs` or in `ForbiddenAllowlistMsgs` (x/service's non-delegable msgs, `MsgTopUpBond`, and every x/rep identity message from `reptypes.IdentityMsgTypeURLs()`: the member key migration messages plus `MsgRegisterZkPublicKey` / `MsgClearZkPublicKey`; a session key must never move an identity nor re-point its anonymous key)
 7. `expiration > current_time`
-8. `expiration - current_time <= max_expiration`
+8. `expiration - current_time <= max_expiration`, or `<= narrow_session_max_expiration` when `len(allowed_msg_types) <= 2` (and, for a `MsgCreateGrant` session key, `allow_self_revoke` is unset; Section 8.3)
 9. `spend_limit <= max_spend_limit` (if non-zero)
 10. `spend_limit.denom == "uspark"` (if non-zero)
 
@@ -461,7 +467,7 @@ var NonDelegableSessionMsgs = map[string]bool{
 | **Malicious frontend** | User reviews the `MsgCreateSession` grant before signing. Only allowlisted content messages can be delegated — financial, governance, and DREAM operations are not on the allowlist. |
 | **Gas drain / spam** | `spend_limit` caps total gas. `max_exec_count` caps total executions. Both are enforced per-session. |
 | **Recursion / privilege escalation** | `MsgExecSession` cannot contain `MsgExecSession` or `MsgCreateSession`. Hardcoded in `NonDelegableSessionMsgs`, not parameterized. |
-| **Permanent delegation** | `max_expiration` parameter (default: 7 days) prevents indefinite sessions. For longer-term delegation, use `x/commons` governance. |
+| **Permanent delegation** | `max_expiration` parameter (default: 7 days) prevents indefinite sessions; a narrow session (at most 2 message types, no `allow_self_revoke`) may run to `narrow_session_max_expiration` (default: 30 days, Section 8.3). For longer-term delegation, use `x/commons` governance. |
 | **State bloat** | `max_sessions_per_granter` limits active sessions. EndBlocker prunes expired sessions (100/block cap). |
 | **Fee payer confusion** | `SessionFeeDecorator` only activates for transactions containing exclusively `MsgExecSession` messages. Mixed transactions rejected. Multiple `MsgExecSession` with different granters rejected. |
 | **DREAM token exposure** | DREAM financial messages (transfer, stake, bond, challenge, bounty, etc.) are not in the ceiling (`max_allowed_msg_types`) — no governance proposal or committee action can add them. Optional DREAM fields on allowlisted messages (e.g., `author_bond`) are zeroed at dispatch. |
@@ -486,6 +492,16 @@ Arguments for keeping 7 days:
 4. **Mobile and long-lived devices are exactly the wrong case for a longer ceiling.** Stolen-phone scenarios are the most common physical-compromise vector. A short ceiling forces theft-recovery via re-auth instead of leaving keys live for weeks.
 
 Acceptable upper bound if revisited: **14 days**. Anything longer should be a chain-upgrade decision with explicit governance review, not a parameter change.
+
+#### Why narrow sessions get 30 days
+
+The argument above is about broad keys held by browsers and phones. Unattended daemons (the federation bridge `sdapbridge`, the verifier `sdapverify`, the content scanner `contentscan`) also sign through session keys, so the operator's main key never sits on the daemon's host. For them a 7-day ceiling is the wrong trade:
+
+1. **Renewal needs the key the session exists to keep away.** A new grant is signed by the granter's main wallet, so the operator must sign one by hand every week. Automating it would put the main key back on the host.
+2. **A lapse has a cost.** The daemon holds its work while its grant is expired: bridged content waits, verifier activity (and pay) drops, and a content scanner stops checkpointing, so x/service files a liveness report against it within `checkpoint_max_lag_blocks` (about a day).
+3. **A daemon key is the narrow case §8.3 worries least about.** It names one message (`MsgSubmitFederatedContent`, `MsgVerifyContent`) or two, carries a fee budget, and cannot reach the bond-moving or identity messages (`ForbiddenAllowlistMsgs`). Point 1 above scales damage by duration *and* breadth; a one-message key is the minimum breadth.
+
+So a session key naming at most `NarrowSessionMaxMsgTypes` (2, compiled) message types and leaving `allow_self_revoke` unset may live up to `narrow_session_max_expiration` (default 30 days, the rotation interval the federation spec recommends). Every other session key keeps `max_expiration`. `allow_self_revoke` disqualifies a key because it lets the key revoke the granter's other grants, a power that should not outlive a week. `Params.Validate` requires `narrow_session_max_expiration >= max_expiration` and holds it under the same 365-day compiled ceiling. A UI that wants long sessions cannot get them by splitting a broad key into many narrow ones without many wallet popups and `max_sessions_per_granter` slots, which is the purpose-scoping §8.3 asks for anyway.
 
 #### Why `max_msg_types_per_session` is 20
 
@@ -883,6 +899,7 @@ At genesis the ceiling and active list are identical. Both lists below are abbre
     "max_sessions_per_granter": 10,
     "max_msg_types_per_session": 20,
     "max_expiration": "604800s",
+    "narrow_session_max_expiration": "2592000s",
     "max_spend_limit": { "denom": "uspark", "amount": "100000000" }
   },
   "sessions": []

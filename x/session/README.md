@@ -64,7 +64,7 @@ Key design properties:
 Ephemeral grantee key that signs `MsgExecSession` for scoped delegation with integrated fee delegation.
 
 - `spend_limit` (Coin, uspark only): gas budget; granter pays gas via `SessionFeeDecorator`.
-- `expires_at` (Timestamp): hard expiry.
+- `expires_at` (Timestamp): hard expiry, at most `max_expiration` (7 days) ahead, or `narrow_session_max_expiration` (30 days) for a key naming at most 2 message types with `allow_self_revoke` unset (daemon keys).
 - `max_exec_count` (uint64): required, at least 1 (0 is rejected at creation).
 - `allowed_msg_types` ([]string): subset of the global active allowlist; checked at exec time.
 - `allow_self_revoke` (bool, Rev 2): when true, the grantee can revoke other grants under the **same granter** (cross-granter revoke remains impossible).

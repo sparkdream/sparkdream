@@ -200,10 +200,12 @@ func (k Keeper) validateSessionKeyPayload(
 	}
 
 	// Expiration upper bound — SessionKey gets its own narrower cap on
-	// top of the universal max_grant_lifetime_seconds.
-	maxExp := blockTime.Add(params.MaxExpiration)
-	if expiresAt.After(maxExp) {
-		return nil, types.ErrExpirationTooLong
+	// top of the universal max_grant_lifetime_seconds: max_expiration, or
+	// narrow_session_max_expiration for a key scoped to at most
+	// NarrowSessionMaxMsgTypes types without allow_self_revoke.
+	expCap := params.SessionMaxExpiration(len(p.AllowedMsgTypes), p.AllowSelfRevoke)
+	if expiresAt.After(blockTime.Add(expCap)) {
+		return nil, types.ErrExpirationTooLong.Wrapf("at most %s for this session", expCap)
 	}
 
 	// Spend limit sanity.
