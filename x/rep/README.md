@@ -23,7 +23,7 @@ This module provides:
 - **Sentinel accountability** — generic bond/bond-status/activity record shared across content modules; forum holds the per-action counters
 - **Sentinel reward pool** — SPARK pool funded by forum spam-tax splits and UPHELD appeal bonds; accuracy-weighted epoch distribution (see "Sentinel Accountability")
 - **Automatic bonded-role funding** — one capped daily claim on the community pool in `BeginBlock`, divided across the bonded-role SPARK pools by headroom (see "Automatic Bonded-Role Funding")
-- **Gov-action appeal resolution** — Operations-Committee `MsgResolveGovActionAppeal` + EndBlocker timeout path; verdicts drive appellant-bond burn/refund and, on OVERTURNED, slash the sentinel by the exact bond the action reserved (its per-action committed amount, read back from the forum record — slash == reserved)
+- **Gov-action appeal resolution** — `MsgResolveGovActionAppeal` from the Commons Operations Committee policy (an executed proposal, never a single member), the Commons Council policy or x/gov, plus the jury and EndBlocker timeout paths; verdicts drive appellant-bond burn/refund and, on OVERTURNED, slash the sentinel by the exact bond the action reserved (its per-action committed amount, read back from the forum record — slash == reserved)
 - **Member accountability** — `MemberReport`, `MemberWarning`, `GovActionAppeal`, `JuryParticipation`; salvation counters live on the Member proto
 
 ## Concepts
@@ -387,7 +387,7 @@ Messages:
 | `MsgReportMember` | File a member report with recommended action | Members |
 | `MsgCosignMemberReport` | Cosign an existing report (threshold gates escalation) | Members |
 | `MsgDefendMemberReport` | Reported member submits defense | Reported member |
-| `MsgResolveMemberReport` | Authority resolves (warn / demote / zero / dismiss) | Governance / sentinel |
+| `MsgResolveMemberReport` | Authority resolves (warn / demote / zero / dismiss) | Commons Operations Committee policy (a proposal), Commons Council policy or x/gov |
 | `MsgAppealGovAction` | Appeal an applied action; creates appeal initiative | Affected member |
 
 Member salvation state is absorbed into the `Member` proto (`epoch_salvations`, `last_salvation_epoch`) rather than a standalone message.
@@ -497,8 +497,9 @@ Project" section of [docs/x-rep-spec.md](../../docs/x-rep-spec.md).
 | Message | Description | Access |
 |---------|-------------|--------|
 | `MsgProposeProject` | Propose project with budget and tags | Any member |
-| `MsgApproveProjectBudget` | Approve and fund project | Committee authority |
-| `MsgCancelProject` | Cancel project with reason. Cascades to open initiatives and releases every project stake — rewards paid, principal returned, denominators shrunk | Project creator or council Operations Committee |
+| `MsgApproveProjectBudget` | Approve and fund project | Policy of the project council or its Operations Committee, or x/gov; a single Operations Committee member only up to `large_project_budget_threshold` |
+| `MsgCancelProject` | Cancel project with reason. Cascades to open initiatives and releases every project stake — rewards paid, principal returned, denominators shrunk | Policy of the project council or its Operations Committee (executed proposal), or x/gov; the creator only while PROPOSED, or for an ACTIVE permissionless project with no open work |
+| `MsgCompleteProject` | Record an ACTIVE project as COMPLETED: pays the staker completion bonus and releases every project stake. Refused while any initiative is non-terminal or any challenge on one is active (`ErrProjectHasOpenWork`) | Policy of the project council or its Operations Committee (executed proposal), or x/gov — never a single member |
 
 ### Initiatives
 
@@ -543,8 +544,9 @@ Creator self-assignment is allowed but hardened: a raised external-conviction ra
 |---------|-------------|--------|
 | `MsgCreateChallenge` | Challenge initiative work (named or anonymous via x/shield) | Members |
 | `MsgRespondToChallenge` | Respond to prevent auto-uphold | Assignee |
-| `MsgSubmitJurorVote` | Cast jury vote with verdict and confidence (PENDING reviews only) | Selected juror |
-| `MsgSubmitExpertTestimony` | Provide expert context during review | Domain experts |
+| `MsgSubmitJurorVote` | Cast jury vote with verdict and confidence (PENDING reviews only; verdict UPHOLD or REJECT, confidence in [0, 1], else `ErrInvalidJurorVote`) | Selected juror |
+| `MsgInviteExpertWitness` | Call an expert witness onto a pending initiative jury review (at most 2 per review); opens an `EXPERT_TESTIMONY` interim paid on testimony. Expert: active ESTABLISHED+, reputation in the initiative's tags, not a party or juror | Seated juror |
+| `MsgSubmitExpertTestimony` | Testify once while the review is PENDING; completes and pays the expert's `EXPERT_TESTIMONY` interim | Invited expert witness |
 
 Challenges resolve to `UPHELD` or `REJECTED` — or `VOIDED` when the parent
 project is cancelled out from under the dispute: the challenger's stake is
@@ -566,9 +568,9 @@ Project" section of [docs/x-rep-spec.md](../../docs/x-rep-spec.md).
 | `MsgCreateInterim` | Create delegated work; the creator becomes its sole assignee | Member |
 | `MsgAssignInterim` | Add an assignee (a share of the budget) | Operations Committee |
 | `MsgSubmitInterimWork` | Submit deliverable | Assignee |
-| `MsgApproveInterim` | Approve completion. Refused on `ADJUDICATION` interims, which carry a verdict a bool cannot express — settle those with `MsgCompleteInterim` | Operations Committee |
+| `MsgApproveInterim` | Approve completion. Refused on `ADJUDICATION` interims, which carry a verdict a bool cannot express — settle those with `MsgCompleteInterim` | Commons Operations Committee policy (proposal), Commons Council policy or x/gov |
 | `MsgAbandonInterim` | Abandon assigned interim | Assignee |
-| `MsgCompleteInterim` | Finalize, mint rewards, grant reputation. Self-certified by the assignee, so bounded by `max_interim_rewards_per_season` and refused on an already-finalized interim. On an `ADJUDICATION` interim, `decision` (UPHOLD/REJECT) is required and resolves the challenge the interim was raised to settle | Assignee (ADJUDICATION: Operations Committee) |
+| `MsgCompleteInterim` | Settle an `ADJUDICATION` interim: `decision` (UPHOLD/REJECT) is required and resolves the challenge the interim was raised to settle. Every other type is refused (`ErrInterimNeedsApproval`; it is paid through `MsgApproveInterim`), as is an already-finalized interim | ADJUDICATION only: Commons Operations Committee policy (proposal), Commons Council policy or x/gov |
 
 ### Tag Registry and Moderation
 
@@ -605,9 +607,9 @@ DREAM-bonded role primitive only. SPARK-staked roles (e.g. federation bridge ope
 | `MsgReportMember` | File a report against a member | Members |
 | `MsgCosignMemberReport` | Cosign an existing report (threshold for escalation) | Members |
 | `MsgDefendMemberReport` | Reported member submits defense | Reported member |
-| `MsgResolveMemberReport` | Apply a resolution (warn / demote / zero / dismiss) | Authority |
+| `MsgResolveMemberReport` | Apply a resolution (warn / demote / zero / dismiss) | Commons Operations Committee policy (a proposal), Commons Council policy or x/gov |
 | `MsgAppealGovAction` | Appeal a governance action (creates appeal initiative) | Affected member |
-| `MsgResolveGovActionAppeal` | Resolve a gov-action appeal (UPHELD / OVERTURNED) | Operations Committee on commons council |
+| `MsgResolveGovActionAppeal` | Resolve a gov-action appeal (UPHELD / OVERTURNED) | Commons Operations Committee policy (a proposal), Commons Council policy or x/gov; never a single member |
 
 ### Member Key Migration
 

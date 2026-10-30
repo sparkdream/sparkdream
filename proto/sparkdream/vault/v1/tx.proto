@@ -40,6 +40,12 @@ service Msg {
 
   // UpdateVault defines the UpdateVault RPC.
   rpc UpdateVault(MsgUpdateVault) returns (MsgUpdateVaultResponse);
+
+  // AcceptVaultSigner accepts the signer's own listing in a vault.
+  rpc AcceptVaultSigner(MsgAcceptVaultSigner) returns (MsgAcceptVaultSignerResponse);
+
+  // LeaveVault removes the signer's own entry from a vault.
+  rpc LeaveVault(MsgLeaveVault) returns (MsgLeaveVaultResponse);
 }
 
 // MsgUpdateParams is the Msg/UpdateParams request type.
@@ -174,3 +180,38 @@ message MsgUpdateVault {
 
 // MsgUpdateVaultResponse defines the MsgUpdateVaultResponse message.
 message MsgUpdateVaultResponse {}
+
+// MsgAcceptVaultSigner accepts the signer's own entry in a vault. An entry
+// listed by someone else (at create, or added by MsgUpdateVault) starts
+// unaccepted: it has no weight in the tally, cannot propose, approve or
+// execute, and does not count toward MaxVaultsPerSigner. Signed by the listed
+// address or, after a member migration, by the member's current address
+// (alias contract). Refused when it would exceed MaxVaultsPerSigner or when
+// another accepted entry of the vault already resolves to the same member.
+message MsgAcceptVaultSigner {
+  option (cosmos.msg.v1.signer) = "signer";
+  option (amino.name) = "sparkdream/x/vault/MsgAcceptVaultSigner";
+  string signer = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 vault_id = 2;
+}
+
+// MsgAcceptVaultSignerResponse defines the MsgAcceptVaultSignerResponse message.
+message MsgAcceptVaultSignerResponse {}
+
+// MsgLeaveVault removes the signer's own entry from a vault (an unaccepted
+// entry is declined this way). Refused when the remaining weight could no
+// longer reach the threshold, or when the leaver is accepted and the vault's
+// accepted weight would drop below the threshold (a vault never bricks
+// itself); the remedy is a MsgUpdateVault by the remaining signers first.
+// Leaving an accepted entry bumps config_version and invalidates the vault's
+// pending proposals; declining an unaccepted entry does not (it never had
+// weight).
+message MsgLeaveVault {
+  option (cosmos.msg.v1.signer) = "signer";
+  option (amino.name) = "sparkdream/x/vault/MsgLeaveVault";
+  string signer = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 vault_id = 2;
+}
+
+// MsgLeaveVaultResponse defines the MsgLeaveVaultResponse message.
+message MsgLeaveVaultResponse {}

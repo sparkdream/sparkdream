@@ -35,7 +35,7 @@ func TestCreateChallengeRejectsSelfChallenge(t *testing.T) {
 
 	creator := sdk.AccAddress([]byte("sc-proj-creator--"))
 	mkMember(creator.String())
-	k.MintDREAM(ctx, creator, math.NewInt(1000000000))
+	require.NoError(t, k.MintDREAM(ctx, creator, math.NewInt(1000000000)))
 	creatorMember, err := k.GetMember(ctx, creator)
 	require.NoError(t, err)
 	creatorMember.TrustLevel = types.TrustLevel_TRUST_LEVEL_ESTABLISHED
@@ -55,7 +55,7 @@ func TestCreateChallengeRejectsSelfChallenge(t *testing.T) {
 
 	// Fund the assignee so the rejection is attributable to the self gate,
 	// not to an empty balance.
-	k.MintDREAM(ctx, assignee, math.NewInt(1000000000))
+	require.NoError(t, k.MintDREAM(ctx, assignee, math.NewInt(1000000000)))
 
 	_, err = k.CreateChallenge(ctx, assignee, initID, "my own work", nil, math.NewInt(50000000))
 	require.ErrorIs(t, err, types.ErrSelfChallenge)
@@ -69,7 +69,7 @@ func TestCreateChallengeRejectsSelfChallenge(t *testing.T) {
 	// Control: a different member may challenge the same submitted work.
 	challenger := sdk.AccAddress([]byte("sc-challenger-aa"))
 	mkMember(challenger.String())
-	k.MintDREAM(ctx, challenger, math.NewInt(1000000000))
+	require.NoError(t, k.MintDREAM(ctx, challenger, math.NewInt(1000000000)))
 	chalID, err := k.CreateChallenge(ctx, challenger, initID, "not done", nil, math.NewInt(50000000))
 	require.NoError(t, err)
 	require.NotZero(t, chalID)
@@ -148,7 +148,7 @@ func TestShieldedChallengePathFailsClosed(t *testing.T) {
 
 	creator := sdk.AccAddress([]byte("sh-proj-creator--"))
 	mkMember(creator.String())
-	k.MintDREAM(ctx, creator, math.NewInt(1000000000))
+	require.NoError(t, k.MintDREAM(ctx, creator, math.NewInt(1000000000)))
 	creatorMember, err := k.GetMember(ctx, creator)
 	require.NoError(t, err)
 	creatorMember.TrustLevel = types.TrustLevel_TRUST_LEVEL_ESTABLISHED

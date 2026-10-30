@@ -35,7 +35,6 @@ func (k msgServer) WithdrawLiquidity(goCtx context.Context, msg *types.MsgWithdr
 		return nil, errorsmod.Wrapf(sdkerrors.ErrInvalidRequest, "Market must be resolved before withdrawing liquidity (current status: %s)", market.Status)
 	}
 
-	initialLiquidity := *market.InitialLiquidity
 	liquidityWithdrawn := *market.LiquidityWithdrawn
 
 	// FUTARCHY-S2-1: refund the LMSR-correct creator residual, not the full
@@ -45,11 +44,6 @@ func (k msgServer) WithdrawLiquidity(goCtx context.Context, msg *types.MsgWithdr
 	residual, err := k.computeCreatorResidual(ctx, market)
 	if err != nil {
 		return nil, errorsmod.Wrap(sdkerrors.ErrInvalidRequest, err.Error())
-	}
-	// Cap at InitialLiquidity defensively; the math should never exceed it
-	// but rounding could otherwise let the creator over-withdraw.
-	if residual.GT(initialLiquidity) {
-		residual = initialLiquidity
 	}
 
 	availableLiquidity := residual.Sub(liquidityWithdrawn)

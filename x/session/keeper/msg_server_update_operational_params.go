@@ -13,10 +13,12 @@ func (k msgServer) UpdateOperationalParams(ctx context.Context, msg *types.MsgUp
 		return nil, errorsmod.Wrap(err, "invalid authority address")
 	}
 
-	// Accept governance authority or Commons Council Operations Committee.
-	if !k.isCouncilAuthorized(ctx, msg.Authority, "commons", "operations") {
+	// Accept governance authority or a Commons Council / Operations
+	// Committee policy address (an executed proposal). A single committee
+	// member cannot retune session limits on their own (SES-07).
+	if !k.isCouncilPolicy(ctx, msg.Authority, "commons", "operations") {
 		expectedAuthorityStr, _ := k.addressCodec.BytesToString(k.GetAuthority())
-		return nil, errorsmod.Wrapf(types.ErrInvalidSigner, "invalid authority; expected %s or Commons Operations Committee, got %s", expectedAuthorityStr, msg.Authority)
+		return nil, errorsmod.Wrapf(types.ErrInvalidSigner, "invalid authority; expected %s or the Commons Operations Committee policy, got %s", expectedAuthorityStr, msg.Authority)
 	}
 
 	currentParams, err := k.Params.Get(ctx)
@@ -39,6 +41,19 @@ func (k msgServer) UpdateOperationalParams(ctx context.Context, msg *types.MsgUp
 	for _, t := range msg.OperationalParams.AllowedMsgTypes {
 		if types.NonDelegableSessionMsgs[t] {
 			return nil, types.ErrMsgTypeForbidden.Wrapf("type: %s", t)
+		}
+	}
+
+	// allowed_denoms is add-only on this path: removing a denom strands
+	// every SpendingAllowance in it, so removal is governance-only
+	// (MsgUpdateParams).
+	newDenoms := make(map[string]bool, len(msg.OperationalParams.AllowedDenoms))
+	for _, d := range msg.OperationalParams.AllowedDenoms {
+		newDenoms[d] = true
+	}
+	for _, d := range currentParams.AllowedDenoms {
+		if !newDenoms[d] {
+			return nil, types.ErrDenomRemovalForbidden.Wrapf("denom: %s", d)
 		}
 	}
 

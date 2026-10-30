@@ -21,7 +21,7 @@ func TestMsgServerStakeNomination(t *testing.T) {
 		_, err := ms.StakeNomination(f.ctx, &types.MsgStakeNomination{
 			Creator:      "invalid-address",
 			NominationId: 1,
-			Amount:       "100",
+			Amount:       "100000000",
 		})
 
 		require.Error(t, err)
@@ -39,7 +39,7 @@ func TestMsgServerStakeNomination(t *testing.T) {
 		_, err = ms.StakeNomination(f.ctx, &types.MsgStakeNomination{
 			Creator:      stakerStr,
 			NominationId: 1,
-			Amount:       "100",
+			Amount:       "100000000",
 		})
 
 		require.Error(t, err)
@@ -67,7 +67,7 @@ func TestMsgServerStakeNomination(t *testing.T) {
 		_, err = ms.StakeNomination(f.ctx, &types.MsgStakeNomination{
 			Creator:      stakerStr,
 			NominationId: 1,
-			Amount:       "100",
+			Amount:       "100000000",
 		})
 
 		require.Error(t, err)
@@ -96,7 +96,7 @@ func TestMsgServerStakeNomination(t *testing.T) {
 		_, err = ms.StakeNomination(f.ctx, &types.MsgStakeNomination{
 			Creator:      stakerStr,
 			NominationId: 999,
-			Amount:       "100",
+			Amount:       "100000000",
 		})
 
 		require.Error(t, err)
@@ -133,7 +133,7 @@ func TestMsgServerStakeNomination(t *testing.T) {
 			Conviction:   math.LegacyZeroDec(),
 			RewardAmount: math.LegacyZeroDec(),
 		}
-		err = f.keeper.Nomination.Set(f.ctx, 1, nomination)
+		err = f.keeper.SetNomination(f.ctx, nomination)
 		require.NoError(t, err)
 
 		// Do NOT register staker as a member in the mock
@@ -142,7 +142,7 @@ func TestMsgServerStakeNomination(t *testing.T) {
 		_, err = ms.StakeNomination(f.ctx, &types.MsgStakeNomination{
 			Creator:      stakerStr,
 			NominationId: 1,
-			Amount:       "100",
+			Amount:       "100000000",
 		})
 
 		require.Error(t, err)
@@ -179,7 +179,7 @@ func TestMsgServerStakeNomination(t *testing.T) {
 			Conviction:   math.LegacyZeroDec(),
 			RewardAmount: math.LegacyZeroDec(),
 		}
-		err = f.keeper.Nomination.Set(f.ctx, 1, nomination)
+		err = f.keeper.SetNomination(f.ctx, nomination)
 		require.NoError(t, err)
 
 		// Register staker as member (mock returns trust level 2)
@@ -195,7 +195,7 @@ func TestMsgServerStakeNomination(t *testing.T) {
 		_, err = ms.StakeNomination(f.ctx, &types.MsgStakeNomination{
 			Creator:      stakerStr,
 			NominationId: 1,
-			Amount:       "100",
+			Amount:       "100000000",
 		})
 
 		require.Error(t, err)
@@ -233,7 +233,7 @@ func TestMsgServerStakeNomination(t *testing.T) {
 			Conviction:   math.LegacyZeroDec(),
 			RewardAmount: math.LegacyZeroDec(),
 		}
-		err = f.keeper.Nomination.Set(f.ctx, 1, nomination)
+		err = f.keeper.SetNomination(f.ctx, nomination)
 		require.NoError(t, err)
 
 		// Register staker as member
@@ -279,7 +279,7 @@ func TestMsgServerStakeNomination(t *testing.T) {
 			Conviction:   math.LegacyZeroDec(),
 			RewardAmount: math.LegacyZeroDec(),
 		}
-		err = f.keeper.Nomination.Set(f.ctx, 1, nomination)
+		err = f.keeper.SetNomination(f.ctx, nomination)
 		require.NoError(t, err)
 
 		// Register staker as member
@@ -327,7 +327,7 @@ func TestMsgServerStakeNomination(t *testing.T) {
 			Conviction:   math.LegacyZeroDec(),
 			RewardAmount: math.LegacyZeroDec(),
 		}
-		err = f.keeper.Nomination.Set(f.ctx, 1, nomination)
+		err = f.keeper.SetNomination(f.ctx, nomination)
 		require.NoError(t, err)
 
 		// Register staker as member
@@ -347,7 +347,7 @@ func TestMsgServerStakeNomination(t *testing.T) {
 		_, err = ms.StakeNomination(f.ctx, &types.MsgStakeNomination{
 			Creator:      stakerStr,
 			NominationId: 1,
-			Amount:       "100",
+			Amount:       "100000000",
 		})
 
 		require.Error(t, err)
@@ -383,7 +383,7 @@ func TestMsgServerStakeNomination(t *testing.T) {
 			Conviction:   math.LegacyZeroDec(),
 			RewardAmount: math.LegacyZeroDec(),
 		}
-		err = f.keeper.Nomination.Set(f.ctx, 1, nomination)
+		err = f.keeper.SetNomination(f.ctx, nomination)
 		require.NoError(t, err)
 
 		// Register nominator as member so they pass the membership check
@@ -393,7 +393,7 @@ func TestMsgServerStakeNomination(t *testing.T) {
 		_, err = ms.StakeNomination(f.ctx, &types.MsgStakeNomination{
 			Creator:      nominatorStr,
 			NominationId: 1,
-			Amount:       "100",
+			Amount:       "100000000",
 		})
 
 		require.Error(t, err)
@@ -434,7 +434,7 @@ func TestMsgServerStakeNomination(t *testing.T) {
 			Conviction:   math.LegacyZeroDec(),
 			RewardAmount: math.LegacyZeroDec(),
 		}
-		err = f.keeper.Nomination.Set(f.ctx, 1, nomination)
+		err = f.keeper.SetNomination(f.ctx, nomination)
 		require.NoError(t, err)
 
 		// Register staker as member
@@ -443,7 +443,7 @@ func TestMsgServerStakeNomination(t *testing.T) {
 		resp, err := ms.StakeNomination(f.ctx, &types.MsgStakeNomination{
 			Creator:      stakerStr,
 			NominationId: 1,
-			Amount:       "100",
+			Amount:       "100000000",
 		})
 
 		require.NoError(t, err)
@@ -455,14 +455,14 @@ func TestMsgServerStakeNomination(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, uint64(1), stake.NominationId)
 		require.Equal(t, stakerStr, stake.Staker)
-		require.True(t, stake.Amount.Equal(math.LegacyNewDec(100)), "stake amount should be 100, got %s", stake.Amount.String())
+		require.True(t, stake.Amount.Equal(math.LegacyNewDec(100000000)), "stake amount should be 100 DREAM, got %s", stake.Amount.String())
 		require.Equal(t, int64(50), stake.StakedAtBlock)
 
 		// Verify the nomination's TotalStaked was updated
 		updatedNomination, err := f.keeper.Nomination.Get(f.ctx, 1)
 		require.NoError(t, err)
-		require.True(t, updatedNomination.TotalStaked.Equal(math.LegacyNewDec(100)),
-			"nomination TotalStaked should be 100, got %s", updatedNomination.TotalStaked.String())
+		require.True(t, updatedNomination.TotalStaked.Equal(math.LegacyNewDec(100000000)),
+			"nomination TotalStaked should be 100 DREAM, got %s", updatedNomination.TotalStaked.String())
 
 		// Verify conviction was recalculated (should be >= 0, since the stake was just created)
 		require.False(t, updatedNomination.Conviction.IsNegative(),
@@ -481,8 +481,8 @@ func TestMsgServerStakeNomination(t *testing.T) {
 				}
 				require.Equal(t, "1", attrs["nomination_id"])
 				require.Equal(t, stakerStr, attrs["staker"])
-				require.Equal(t, "100.000000000000000000", attrs["amount"])
-				require.Equal(t, "100.000000000000000000", attrs["total_staked"])
+				require.Equal(t, "100000000.000000000000000000", attrs["amount"])
+				require.Equal(t, "100000000.000000000000000000", attrs["total_staked"])
 				break
 			}
 		}
@@ -523,7 +523,7 @@ func TestMsgServerStakeNomination(t *testing.T) {
 			Conviction:   math.LegacyNewDec(50),
 			RewardAmount: math.LegacyZeroDec(),
 		}
-		err = f.keeper.Nomination.Set(f.ctx, 1, nomination)
+		err = f.keeper.SetNomination(f.ctx, nomination)
 		require.NoError(t, err)
 
 		// Pre-create first staker's stake (to simulate a previous stake)
@@ -544,23 +544,23 @@ func TestMsgServerStakeNomination(t *testing.T) {
 		resp, err := ms.StakeNomination(f.ctx, &types.MsgStakeNomination{
 			Creator:      staker2Str,
 			NominationId: 1,
-			Amount:       "150",
+			Amount:       "150000000",
 		})
 
 		require.NoError(t, err)
 		require.NotNil(t, resp)
 
-		// Verify nomination TotalStaked = 200 + 150 = 350
+		// Verify nomination TotalStaked = 200 + 150_000_000
 		updatedNomination, err := f.keeper.Nomination.Get(f.ctx, 1)
 		require.NoError(t, err)
-		require.True(t, updatedNomination.TotalStaked.Equal(math.LegacyNewDec(350)),
-			"nomination TotalStaked should be 350, got %s", updatedNomination.TotalStaked.String())
+		require.True(t, updatedNomination.TotalStaked.Equal(math.LegacyNewDec(150000200)),
+			"nomination TotalStaked should be 150000200, got %s", updatedNomination.TotalStaked.String())
 
 		// Verify second staker's stake record exists
 		stakeKey2 := fmt.Sprintf("%d/%s", 1, staker2Str)
 		stake2, err := f.keeper.NominationStake.Get(f.ctx, stakeKey2)
 		require.NoError(t, err)
-		require.True(t, stake2.Amount.Equal(math.LegacyNewDec(150)))
+		require.True(t, stake2.Amount.Equal(math.LegacyNewDec(150000000)))
 		require.Equal(t, int64(10), stake2.StakedAtBlock)
 	})
 
@@ -582,7 +582,7 @@ func TestMsgServerStakeNomination(t *testing.T) {
 		_, err = ms.StakeNomination(f.ctx, &types.MsgStakeNomination{
 			Creator:      stakerStr,
 			NominationId: 1,
-			Amount:       "100",
+			Amount:       "100000000",
 		})
 
 		require.Error(t, err)

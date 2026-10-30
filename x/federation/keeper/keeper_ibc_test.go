@@ -1,6 +1,7 @@
 package keeper_test
 
 import (
+	"context"
 	"testing"
 
 	"cosmossdk.io/collections"
@@ -27,6 +28,9 @@ func setupIBCPeerForLink(t *testing.T, f *fixture, ms types.MsgServer, peerID, c
 	peer, _ := f.keeper.Peers.Get(f.ctx, peerID)
 	peer.Status = types.PeerStatus_PEER_STATUS_ACTIVE
 	require.NoError(t, f.keeper.Peers.Set(f.ctx, peerID, peer))
+	// The fixture has no open IBC channel; MsgLinkIdentity fails on a send
+	// error (FED-30), so stand in a send that succeeds.
+	f.keeper.SetSendPacketOverrideForTest(func(context.Context, string, []byte) (uint64, error) { return 1, nil })
 }
 
 func TestOnRecvIdentityConfirmPacket_HappyPath(t *testing.T) {
@@ -47,7 +51,7 @@ func TestOnRecvIdentityConfirmPacket_HappyPath(t *testing.T) {
 
 	// Honest confirmation packet from the remote chain echoes the challenge
 	// and the claimed address.
-	err = f.keeper.OnRecvIdentityConfirmPacket(f.ctx, "channel-1", &types.IdentityVerificationConfirmPacket{
+	err = f.keeper.OnRecvIdentityConfirmPacket(f.ctx, "federation", "channel-1", &types.IdentityVerificationConfirmPacket{
 		ClaimedAddress:  "sprkdrm1remote",
 		ClaimantAddress: user,
 		Challenge:       link.Challenge,
@@ -73,7 +77,7 @@ func TestOnRecvIdentityConfirmPacket_RejectsClaimedAddressMismatch(t *testing.T)
 	link, _ := f.keeper.IdentityLinks.Get(f.ctx, collections.Join(user, "ibc-peer"))
 
 	// Confirmation packet swaps in a different remote identity.
-	err = f.keeper.OnRecvIdentityConfirmPacket(f.ctx, "channel-2", &types.IdentityVerificationConfirmPacket{
+	err = f.keeper.OnRecvIdentityConfirmPacket(f.ctx, "federation", "channel-2", &types.IdentityVerificationConfirmPacket{
 		ClaimedAddress:  "sprkdrm1evil",
 		ClaimantAddress: user,
 		Challenge:       link.Challenge,
@@ -98,7 +102,7 @@ func TestOnRecvIdentityConfirmPacket_RejectsChallengeMismatch(t *testing.T) {
 	require.NoError(t, err)
 
 	// Forged challenge bytes.
-	err = f.keeper.OnRecvIdentityConfirmPacket(f.ctx, "channel-3", &types.IdentityVerificationConfirmPacket{
+	err = f.keeper.OnRecvIdentityConfirmPacket(f.ctx, "federation", "channel-3", &types.IdentityVerificationConfirmPacket{
 		ClaimedAddress:  "sprkdrm1remote",
 		ClaimantAddress: user,
 		Challenge:       []byte("not-the-real-challenge"),
@@ -159,7 +163,7 @@ func TestOnRecvContentPacket_License(t *testing.T) {
 	} {
 		err := f.keeper.OnRecvContentPacket(f.ctx, "federation", "channel-7", &types.ContentPacket{
 			ContentType: "blog_post", RemoteContentId: "p", Creator: "phoenix1creator",
-			ContentHash: []byte{byte(i), 1, 2, 3}, License: tc.license,
+			ContentHash: testHash(byte(i)), License: tc.license,
 		})
 		if !tc.ok {
 			require.ErrorIs(t, err, types.ErrLicenseNotAccepted, tc.license)

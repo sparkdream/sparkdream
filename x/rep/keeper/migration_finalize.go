@@ -83,7 +83,9 @@ func (k Keeper) FinalizeMigration(ctx context.Context, id uint64) error {
 		// waits out the activation delay but skips the season cooldown.
 		if len(member.ZkPublicKey) > 0 || len(member.PendingZkPublicKey) > 0 {
 			if len(member.PendingZkPublicKey) > 0 {
-				_ = k.ZkKeyActivationQueue.Remove(ctx, collections.Join(member.ZkKeyActivatesAtEpoch, from))
+				if err := k.ZkKeyActivationQueue.Remove(ctx, collections.Join(member.ZkKeyActivatesAtEpoch, from)); err != nil {
+					return err
+				}
 			}
 			member.ZkPublicKey = nil
 			member.PendingZkPublicKey = nil
@@ -99,7 +101,9 @@ func (k Keeper) FinalizeMigration(ctx context.Context, id uint64) error {
 	}
 	// Pending ZK key activation (KEY path keeps it) follows the record.
 	if len(member.PendingZkPublicKey) > 0 {
-		_ = k.ZkKeyActivationQueue.Remove(ctx, collections.Join(member.ZkKeyActivatesAtEpoch, from))
+		if err := k.ZkKeyActivationQueue.Remove(ctx, collections.Join(member.ZkKeyActivatesAtEpoch, from)); err != nil {
+			return err
+		}
 		if err := k.ZkKeyActivationQueue.Set(ctx, collections.Join(member.ZkKeyActivatesAtEpoch, to)); err != nil {
 			return err
 		}
@@ -123,10 +127,15 @@ func (k Keeper) FinalizeMigration(ctx context.Context, id uint64) error {
 		key := collections.Join(int32(rt), from)
 		if role, err := k.BondedRoles.Get(ctx, key); err == nil {
 			role.Address = to
+			if role.UnbondCompletionTime != 0 {
+				if err := k.BondedRoleUnbondQueue.Remove(ctx, collections.Join3(role.UnbondCompletionTime, int32(rt), from)); err != nil {
+					return err
+				}
+			}
 			if err := k.BondedRoles.Remove(ctx, key); err != nil {
 				return err
 			}
-			if err := k.BondedRoles.Set(ctx, collections.Join(int32(rt), to), role); err != nil {
+			if err := k.setBondedRoleAt(ctx, collections.Join(int32(rt), to), role); err != nil {
 				return err
 			}
 		}
@@ -167,16 +176,30 @@ func (k Keeper) FinalizeMigration(ctx context.Context, id uint64) error {
 			return err
 		}
 	}
+	if rest, err := k.MemberActionRestorations.Get(ctx, from); err == nil {
+		if err := k.removeMemberActionRestoration(ctx, rest); err != nil {
+			return err
+		}
+		rest.Member = to
+		if err := k.setMemberActionRestoration(ctx, rest); err != nil {
+			return err
+		}
+	}
 	// Gifts are only ever sent by the inviter, so the records where the
-	// member is the recipient are exactly (invited_by, from).
+	// member is the recipient are (any address of the inviter, from): the
+	// inviter may itself have migrated since (bounded by MaxLifetimeAliases).
 	if member.InvitedBy != "" {
-		giftKey := collections.Join(member.InvitedBy, from)
-		if gift, err := k.GiftRecord.Get(ctx, giftKey); err == nil {
+		for _, giver := range k.AllAddressesOf(ctx, member.InvitedBy) {
+			giftKey := collections.Join(giver, from)
+			gift, err := k.GiftRecord.Get(ctx, giftKey)
+			if err != nil {
+				continue
+			}
 			gift.Recipient = to
 			if err := k.GiftRecord.Remove(ctx, giftKey); err != nil {
 				return err
 			}
-			if err := k.GiftRecord.Set(ctx, collections.Join(member.InvitedBy, to), gift); err != nil {
+			if err := k.GiftRecord.Set(ctx, collections.Join(giver, to), gift); err != nil {
 				return err
 			}
 		}
@@ -235,7 +258,10 @@ func (k Keeper) FinalizeMigration(ctx context.Context, id uint64) error {
 	}
 
 	// 5. SPARK clean-up: sweep the spendable balance and point staking
-	//    rewards at the new address. Delegations stay where they are.
+	//    rewards at the new address. On the KEY path delegations stay where
+	//    they are (the owner still holds the old key). On RECOVERY and
+	//    COUNCIL the old key is lost or stolen, so every delegation starts
+	//    unbonding now; MsgSweepTombstone collects the matured SPARK.
 	if spendable := k.bankKeeper.SpendableCoins(ctx, fromAddr); !spendable.IsZero() {
 		if err := k.bankKeeper.SendCoins(ctx, fromAddr, toAddr, spendable); err != nil {
 			return errorsmod.Wrap(err, "sweep spendable balance")
@@ -245,6 +271,9 @@ func (k Keeper) FinalizeMigration(ctx context.Context, id uint64) error {
 		if err := k.late.distrKeeper.SetWithdrawAddr(ctx, fromAddr, toAddr); err != nil {
 			sdkCtx.Logger().Info("could not redirect staking rewards of migrated member", "from", from, "to", to, "error", err)
 		}
+	}
+	if m.Path != types.MigrationPath_MIGRATION_PATH_KEY {
+		k.undelegateTombstone(ctx, fromAddr, "migration")
 	}
 
 	// Close the migration.

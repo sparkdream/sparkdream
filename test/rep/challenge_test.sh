@@ -16,6 +16,7 @@ TEST_1_RESULT="PASS"
 TEST_2_RESULT="PASS"
 TEST_3_RESULT="PASS"
 TEST_4_RESULT="PASS"
+TEST_5_RESULT="PASS"
 
 # Helper functions
 wait_for_tx() {
@@ -334,7 +335,8 @@ if [ "$TEST_2_RESULT" = "PASS" ] && [ -n "$JURY_REVIEW_ID" ] && [ "$JURY_REVIEW_
         fi
     done
 
-    sleep 8
+    # No fixed sleep: wait_for_tx polls each vote, and the jury window is
+    # only 10 blocks on the test chain.
     echo "   Confirming votes..."
     VOTE_PASS=0 VOTE_FAIL=0
     for ENTRY in "${VOTE_TX_HASHES[@]}"; do
@@ -591,6 +593,239 @@ else
 fi
 
 echo ""
+# ========================================================================
+# TEST 5: Expert witnesses
+# A seated juror calls an expert on a pending initiative jury review; the
+# expert testifies and is paid through an EXPERT_TESTIMONY interim. It runs
+# on its own challenge so its block rounds never share TEST 2's jury window
+# (one review epoch, 10 blocks on the test chain) with the votes.
+# ========================================================================
+echo "================================================================================"
+echo "TEST 5: TestExpertWitness"
+echo "================================================================================"
+
+echo "Step 1: Funding the challenger and creating a SUBMITTED initiative..."
+TX_RES=$($BINARY tx rep transfer-dream \
+    $CHALLENGER_ADDR "50000000" "gift" "funding-for-expert-witness-test" \
+    --from alice --chain-id $CHAIN_ID --keyring-backend test \
+    --fees 5000${BOND_DENOM} -y --output json 2>&1)
+TX_RESULT=$(wait_for_tx "$(echo "$TX_RES" | jq -r '.txhash')")
+check_tx_success "$TX_RESULT" || echo "[WARN] Top-up to challenger failed: $(echo "$TX_RESULT" | jq -r '.raw_log' | head -c 200)"
+
+INITIATIVE5_ID=$(make_submitted_initiative \
+    "Expert witness initiative" \
+    "This initiative's jury calls an expert witness" \
+    "jury,test,challenge")
+if [ -z "$INITIATIVE5_ID" ] || [ "$INITIATIVE5_ID" = "null" ]; then
+    echo "[FAIL] Could not create SUBMITTED initiative for expert witness test"
+    TEST_5_RESULT="FAIL"
+else
+    echo "[ OK ] Initiative #$INITIATIVE5_ID submitted"
+fi
+
+CHALLENGE5_ID=""
+if [ "$TEST_5_RESULT" = "PASS" ]; then
+    TX_RES=$($BINARY tx rep create-challenge \
+        $INITIATIVE5_ID \
+        "The deliverable needs a specialist's assessment." \
+        "50000000" \
+        --from challenger --chain-id $CHAIN_ID --keyring-backend test \
+        --fees 5000${BOND_DENOM} -y --output json 2>&1)
+    TX_RESULT=$(wait_for_tx "$(echo "$TX_RES" | jq -r '.txhash')")
+    if check_tx_success "$TX_RESULT"; then
+        CHALLENGE5_ID=$(extract_event_value "$TX_RESULT" "challenge_created" "challenge_id")
+        echo "[ OK ] Challenge #$CHALLENGE5_ID created"
+    else
+        echo "[FAIL] Failed to create challenge: $(echo "$TX_RESULT" | jq -r '.raw_log' | head -c 300) $(echo "$TX_RES" | head -c 200)"
+        TEST_5_RESULT="FAIL"
+    fi
+fi
+
+# Everything that does not depend on the review is read before the jury
+# window opens: the expert pick and their balance.
+BOB_KEY_ADDR=$($BINARY keys show bob -a --keyring-backend test)
+declare -A JUROR_NAME_BY_ADDR=(
+    ["$JUROR1_ADDR"]="juror1"
+    ["$JUROR2_ADDR"]="juror2"
+    ["$JUROR3_ADDR"]="juror3"
+)
+# An eligible expert is an active ESTABLISHED+ member with positive
+# reputation in one of the initiative's tags who is not a party (challenger,
+# assignee, project creator alice). config.yml seeds bob with "jury"
+# reputation below min_juror_reputation, so bob is never seated as a juror.
+EXPERT_KEY="" EXPERT_PICK_ADDR=""
+for CAND in bob expert; do
+    CADDR=$($BINARY keys show $CAND -a --keyring-backend test 2>/dev/null)
+    [ -z "$CADDR" ] && continue
+    CMEM=$($BINARY query rep get-member $CADDR --output json 2>/dev/null)
+    CTRUST=$(echo "$CMEM" | jq -r '.member.trust_level // "TRUST_LEVEL_NEW"')
+    # MEMBER_STATUS_ACTIVE is enum 0, omitted from JSON.
+    CSTATUS=$(echo "$CMEM" | jq -r '.member.status // "MEMBER_STATUS_ACTIVE"')
+    CREP=$(echo "$CMEM" | jq -r '[.member.reputation_scores // {} | to_entries[] | select(.key=="jury" or .key=="test" or .key=="challenge") | .value | tonumber] | add // 0')
+    case "$CTRUST" in
+        TRUST_LEVEL_ESTABLISHED|TRUST_LEVEL_TRUSTED|TRUST_LEVEL_CORE) ;;
+        *) continue ;;
+    esac
+    if [ "$CSTATUS" = "MEMBER_STATUS_ACTIVE" ] && python3 -c "import sys; sys.exit(0 if float('$CREP') > 0 else 1)" 2>/dev/null; then
+        EXPERT_KEY=$CAND EXPERT_PICK_ADDR=$CADDR
+        break
+    fi
+done
+if [ "$TEST_5_RESULT" = "PASS" ] && [ -z "$EXPERT_KEY" ]; then
+    echo "[FAIL] No ESTABLISHED+ member with reputation in jury/test/challenge (bob is seeded with it in config.yml)"
+    TEST_5_RESULT="FAIL"
+fi
+BAL_BEFORE=""
+[ -n "$EXPERT_PICK_ADDR" ] && BAL_BEFORE=$($BINARY query rep get-member $EXPERT_PICK_ADDR --output json | jq -r '.member.dream_balance // "0"')
+
+# broadcast_invite <from> <expert>: prints "<code>|<txhash>|<raw>".
+broadcast_invite() {
+    local RES HASH CODE
+    RES=$($BINARY tx rep invite-expert-witness $JURY_REVIEW5_ID $2 --gas 600000 \
+        --from $1 --chain-id $CHAIN_ID --keyring-backend test \
+        --fees 5000${BOND_DENOM} -y --output json 2>&1)
+    HASH=$(echo "$RES" | jq -r '.txhash // ""' 2>/dev/null)
+    CODE=$(echo "$RES" | jq -r '.code // 0' 2>/dev/null)
+    echo "${CODE:-x}|${HASH}|$(echo "$RES" | head -c 200 | tr '\n|' '  ')"
+}
+# settle_invite "<code>|<txhash>|<raw>": the delivered code (the CheckTx code
+# if the broadcast was refused).
+settle_invite() {
+    local CODE HASH
+    CODE=${1%%|*}; HASH=$(echo "$1" | cut -d'|' -f2)
+    if [ -n "$HASH" ] && [ "$CODE" = "0" ]; then
+        CODE=$(wait_for_tx "$HASH" | jq -r '.code')
+    fi
+    echo "$CODE"
+}
+
+JURY_REVIEW5_ID=""
+if [ "$TEST_5_RESULT" = "PASS" ]; then
+    echo ""
+    echo "Step 2: Assignee responds (opens the jury review)..."
+    TX_RES=$($BINARY tx rep respond-to-challenge --gas 500000 \
+        $CHALLENGE5_ID "The deliverable meets its requirements." \
+        --from assignee --chain-id $CHAIN_ID --keyring-backend test \
+        --fees 5000${BOND_DENOM} -y --output json 2>&1)
+    TX_RESULT=$(wait_for_tx "$(echo "$TX_RES" | jq -r '.txhash')")
+    if check_tx_success "$TX_RESULT"; then
+        JURY_REVIEW5_ID=$(extract_event_value "$TX_RESULT" "jury_review_created" "jury_review_id")
+        echo "[ OK ] Jury review #$JURY_REVIEW5_ID opened"
+    else
+        echo "[FAIL] Assignee response failed: $(echo "$TX_RESULT" | jq -r '.raw_log' | head -c 300)"
+        TEST_5_RESULT="FAIL"
+    fi
+fi
+
+if [ "$TEST_5_RESULT" = "PASS" ] && [ -n "$JURY_REVIEW5_ID" ] && [ "$JURY_REVIEW5_ID" != "null" ]; then
+    JURY_ADDRS=$($BINARY query rep get-jury-review $JURY_REVIEW5_ID --output json | jq -r '.jury_review.jurors[]')
+    INVITER="" REFUSER=""
+    for JADDR in $JURY_ADDRS; do
+        JNAME="${JUROR_NAME_BY_ADDR[$JADDR]:-}"
+        [ -z "$JNAME" ] && continue
+        if [ -z "$INVITER" ]; then INVITER=$JNAME; elif [ -z "$REFUSER" ]; then REFUSER=$JNAME; fi
+    done
+
+    echo ""
+    echo "Step 3: Invitations (one block: non-juror, ineligible expert, eligible expert)..."
+    # Distinct signers, so all three land in the same block.
+    R_NONJUROR=$(broadcast_invite challenger $BOB_KEY_ADDR)
+    R_INELIGIBLE="" R_INVITE=""
+    [ -n "$REFUSER" ] && R_INELIGIBLE=$(broadcast_invite $REFUSER $EXPERT_ADDR)
+    [ -n "$INVITER" ] && R_INVITE=$(broadcast_invite $INVITER $EXPERT_PICK_ADDR)
+
+    # Only a seated juror may call an expert: ErrNotSeatedJuror (rep 1708).
+    INV_CODE=$(settle_invite "$R_NONJUROR")
+    if [ "$INV_CODE" = "1708" ]; then
+        echo "[ OK ] Non-juror invitation refused (code 1708)"
+    else
+        echo "[FAIL] Non-juror invitation expected code 1708, got: $INV_CODE ($(echo "$R_NONJUROR" | cut -d'|' -f3))"
+        TEST_5_RESULT="FAIL"
+    fi
+    # The expert account has no reputation in the initiative's tags:
+    # ErrExpertIneligible (rep 2418).
+    if [ -n "$R_INELIGIBLE" ]; then
+        INV_CODE=$(settle_invite "$R_INELIGIBLE")
+        if [ "$INV_CODE" = "2418" ]; then
+            echo "[ OK ] Ineligible expert refused (code 2418)"
+        else
+            echo "[FAIL] Ineligible expert expected code 2418, got: $INV_CODE ($(echo "$R_INELIGIBLE" | cut -d'|' -f3))"
+            TEST_5_RESULT="FAIL"
+        fi
+    else
+        echo "[WARN] Fewer than two seated jurors with local keys -- skipping the ineligible-expert check"
+    fi
+
+    if [ -z "$INVITER" ]; then
+        echo "[FAIL] No seated juror is one of juror1/2/3"
+        TEST_5_RESULT="FAIL"
+    else
+        INV_HASH=$(echo "$R_INVITE" | cut -d'|' -f2)
+        INV_TX=$(wait_for_tx "$INV_HASH")
+        if [ -n "$INV_HASH" ] && check_tx_success "$INV_TX"; then
+            EXPERT_INTERIM=$(extract_event_value "$INV_TX" "expert_witness_invited" "interim_id")
+            echo "[ OK ] $INVITER invited $EXPERT_KEY as expert witness (interim #$EXPERT_INTERIM)"
+
+            echo ""
+            echo "Step 4: Expert testifies and is paid..."
+            TEST_RES=$($BINARY tx rep submit-expert-testimony $JURY_REVIEW5_ID "sound" "The deliverable meets its stated criteria." \
+                --gas 800000 --from $EXPERT_KEY --chain-id $CHAIN_ID --keyring-backend test \
+                --fees 5000${BOND_DENOM} -y --output json 2>&1)
+            TEST_TX=$(wait_for_tx "$(echo "$TEST_RES" | jq -r '.txhash')")
+            if check_tx_success "$TEST_TX"; then
+                ISTATUS=$($BINARY query rep get-interim $EXPERT_INTERIM --output json 2>/dev/null | jq -r '.interim.status')
+                BAL_AFTER=$($BINARY query rep get-member $EXPERT_PICK_ADDR --output json | jq -r '.member.dream_balance // "0"')
+                if [ "$ISTATUS" = "INTERIM_STATUS_COMPLETED" ] && python3 -c "import sys; sys.exit(0 if int('$BAL_AFTER') > int('$BAL_BEFORE') else 1)"; then
+                    echo "[ OK ] Testimony recorded, interim COMPLETED, expert paid ($BAL_BEFORE -> $BAL_AFTER)"
+                elif [ -n "$(extract_event_value "$TEST_TX" "expert_testimony_unpaid" "error")" ]; then
+                    echo "[WARN] Testimony recorded but unpaid: $(extract_event_value "$TEST_TX" "expert_testimony_unpaid" "error")"
+                else
+                    echo "[FAIL] Testimony did not pay: interim status $ISTATUS, balance $BAL_BEFORE -> $BAL_AFTER"
+                    TEST_5_RESULT="FAIL"
+                fi
+                WITNESSES=$($BINARY query rep get-jury-review $JURY_REVIEW5_ID --output json | jq -r '.jury_review.expert_witnesses // [] | join(",")')
+                if [ "$WITNESSES" = "$EXPERT_PICK_ADDR" ]; then
+                    echo "[ OK ] Review lists the expert as its only witness"
+                else
+                    echo "[FAIL] Review expert_witnesses = '$WITNESSES', expected $EXPERT_PICK_ADDR"
+                    TEST_5_RESULT="FAIL"
+                fi
+            else
+                echo "[FAIL] Expert testimony rejected: $(echo "$TEST_TX" | jq -r '.raw_log')"
+                TEST_5_RESULT="FAIL"
+            fi
+        else
+            echo "[FAIL] Expert invitation rejected: $(echo "$INV_TX" | jq -r '.raw_log') ($(echo "$R_INVITE" | cut -d'|' -f3))"
+            TEST_5_RESULT="FAIL"
+        fi
+    fi
+
+    echo ""
+    echo "Step 5: Jurors close the review (best effort)..."
+    # Only to spare the jurors a no-show at the deadline tally. The verdict is
+    # TEST 2's subject, so a vote that misses the window is a WARN here.
+    VOTE5_HASHES=()
+    for JADDR in $JURY_ADDRS; do
+        JNAME="${JUROR_NAME_BY_ADDR[$JADDR]:-}"
+        [ -z "$JNAME" ] && continue
+        TX_RES=$($BINARY tx rep submit-juror-vote --gas 800000 \
+            $JURY_REVIEW5_ID "reject-challenge" "0.9" "The expert's assessment is persuasive." \
+            --from "$JNAME" --chain-id $CHAIN_ID --keyring-backend test \
+            --fees 5000${BOND_DENOM} -y --output json 2>&1)
+        VOTE5_HASHES+=("$JNAME:$(echo "$TX_RES" | jq -r '.txhash // ""' 2>/dev/null)")
+    done
+    for ENTRY in "${VOTE5_HASHES[@]}"; do
+        IFS=":" read -r JNAME VTXHASH <<<"$ENTRY"
+        VRES=$(wait_for_tx "$VTXHASH")
+        if check_tx_success "$VRES"; then
+            echo "[ OK ] $JNAME voted"
+        else
+            echo "[WARN] $JNAME vote did not land: $(echo "$VRES" | jq -r '.raw_log' | head -c 160)"
+        fi
+    done
+fi
+echo ""
+
 
 # ========================================================================
 # SUMMARY
@@ -612,12 +847,13 @@ print_result "TEST 1: Anonymous Challenge (moved to x/shield)" "$TEST_1_RESULT"
 print_result "TEST 2: Jury Review (votes + verdict tally)"     "$TEST_2_RESULT"
 print_result "TEST 3: Auto-Uphold (deadline + EndBlocker)"     "$TEST_3_RESULT"
 print_result "TEST 4: Self-Challenge Rejected (ErrSelfChallenge)" "$TEST_4_RESULT"
+print_result "TEST 5: Expert Witness (invite, testify, pay)"   "$TEST_5_RESULT"
 echo ""
 echo "================================================================================"
 
 # Exit non-zero on any FAIL so the parent runner picks it up. SKIP does not
 # count as failure (TEST 1 is intentionally skipped).
-if [ "$TEST_2_RESULT" = "FAIL" ] || [ "$TEST_3_RESULT" = "FAIL" ] || [ "$TEST_4_RESULT" = "FAIL" ]; then
+if [ "$TEST_2_RESULT" = "FAIL" ] || [ "$TEST_3_RESULT" = "FAIL" ] || [ "$TEST_4_RESULT" = "FAIL" ] || [ "$TEST_5_RESULT" = "FAIL" ]; then
     exit 1
 fi
 exit 0

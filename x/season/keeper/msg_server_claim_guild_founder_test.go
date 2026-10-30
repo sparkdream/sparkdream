@@ -60,7 +60,7 @@ func TestMsgServerClaimGuildFounder(t *testing.T) {
 		// Set guild to dissolved
 		guild, _ := k.Guild.Get(ctx, guildID)
 		guild.Status = types.GuildStatus_GUILD_STATUS_DISSOLVED
-		k.Guild.Set(ctx, guildID, guild)
+		require.NoError(t, k.Guild.Set(ctx, guildID, guild))
 
 		_, err := ms.ClaimGuildFounder(ctx, &types.MsgClaimGuildFounder{
 			Creator: memberStr,
@@ -115,7 +115,7 @@ func TestMsgServerClaimGuildFounder(t *testing.T) {
 		// Freeze the guild
 		guild, _ := k.Guild.Get(ctx, guildID)
 		guild.Status = types.GuildStatus_GUILD_STATUS_FROZEN
-		k.Guild.Set(ctx, guildID, guild)
+		require.NoError(t, k.Guild.Set(ctx, guildID, guild))
 
 		_, err := ms.ClaimGuildFounder(ctx, &types.MsgClaimGuildFounder{
 			Creator: outsiderStr,
@@ -145,7 +145,7 @@ func TestMsgServerClaimGuildFounder(t *testing.T) {
 		// Freeze the guild (simulating founder leaving)
 		guild, _ := k.Guild.Get(ctx, guildID)
 		guild.Status = types.GuildStatus_GUILD_STATUS_FROZEN
-		k.Guild.Set(ctx, guildID, guild)
+		require.NoError(t, k.Guild.Set(ctx, guildID, guild))
 
 		_, err := ms.ClaimGuildFounder(ctx, &types.MsgClaimGuildFounder{
 			Creator: memberStr,
@@ -179,7 +179,7 @@ func TestMsgServerClaimGuildFounder(t *testing.T) {
 		guild, _ := k.Guild.Get(ctx, guildID)
 		guild.Officers = []string{officerStr}
 		guild.Status = types.GuildStatus_GUILD_STATUS_FROZEN
-		k.Guild.Set(ctx, guildID, guild)
+		require.NoError(t, k.Guild.Set(ctx, guildID, guild))
 
 		_, err := ms.ClaimGuildFounder(ctx, &types.MsgClaimGuildFounder{
 			Creator: officerStr,
@@ -215,7 +215,7 @@ func TestMsgServerClaimGuildFounder(t *testing.T) {
 		// Freeze the guild
 		guild, _ := k.Guild.Get(ctx, guildID)
 		guild.Status = types.GuildStatus_GUILD_STATUS_FROZEN
-		k.Guild.Set(ctx, guildID, guild)
+		require.NoError(t, k.Guild.Set(ctx, guildID, guild))
 
 		_, err := ms.ClaimGuildFounder(ctx, &types.MsgClaimGuildFounder{
 			Creator: member1Str,

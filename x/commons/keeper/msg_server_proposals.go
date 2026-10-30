@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	commontypes "sparkdream/x/common/types"
 	"strconv"
 
 	"sparkdream/x/commons/types"
@@ -32,7 +33,7 @@ func (k msgServer) SubmitProposal(goCtx context.Context, msg *types.MsgSubmitPro
 	}
 
 	// 3. Check term expiration
-	if ctx.BlockTime().Unix() > extGroup.CurrentTermExpiration {
+	if isTermExpired(extGroup, ctx.BlockTime().Unix()) {
 		// Allow only MsgRenewGroup when expired. A signaling proposal (no
 		// executable messages) doesn't carry MsgRenewGroup either, so reject
 		// it here rather than letting the empty for-loop below silently pass.
@@ -56,6 +57,10 @@ func (k msgServer) SubmitProposal(goCtx context.Context, msg *types.MsgSubmitPro
 				)
 			}
 		}
+	}
+
+	if err := checkProposalSize(msg.Messages, msg.Metadata); err != nil {
+		return nil, err
 	}
 
 	// 4. Check proposer is a member
@@ -133,7 +138,15 @@ func (k msgServer) SubmitProposal(goCtx context.Context, msg *types.MsgSubmitPro
 		ExecutionTime:  now + decPolicy.VotingPeriod + decPolicy.MinExecutionPeriod,
 	}
 
+	// 8b. Secret ballot: snapshot the voters.
+	if err := k.setupBallot(ctx, extGroup, &proposal, msg.SecretBallot); err != nil {
+		return nil, err
+	}
+
 	if err := k.Proposals.Set(ctx, proposalID, proposal); err != nil {
+		return nil, err
+	}
+	if err := k.enqueueProposal(ctx, proposal); err != nil {
 		return nil, err
 	}
 
@@ -153,6 +166,7 @@ func (k msgServer) SubmitProposal(goCtx context.Context, msg *types.MsgSubmitPro
 			sdk.NewAttribute("proposal_id", fmt.Sprintf("%d", proposalID)),
 			sdk.NewAttribute("council_name", councilName),
 			sdk.NewAttribute("proposer", msg.Proposer),
+			sdk.NewAttribute("secret_ballot", strconv.FormatBool(proposal.SecretBallot)),
 		),
 	)
 
@@ -174,6 +188,12 @@ func (k msgServer) VoteProposal(goCtx context.Context, msg *types.MsgVoteProposa
 	// Check voting deadline
 	if ctx.BlockTime().Unix() > proposal.VotingDeadline {
 		return nil, errorsmod.Wrapf(sdkerrors.ErrInvalidRequest, "voting period has ended for proposal %d", msg.ProposalId)
+	}
+
+	// A secret ballot takes only anonymous votes: an open vote on top of an
+	// anonymous one would count the member twice.
+	if proposal.SecretBallot {
+		return nil, errorsmod.Wrapf(types.ErrBallotMode, "proposal %d is a secret ballot; vote with MsgAnonymousVoteProposal through x/shield", msg.ProposalId)
 	}
 
 	// Check voter is a member
@@ -201,22 +221,8 @@ func (k msgServer) VoteProposal(goCtx context.Context, msg *types.MsgVoteProposa
 		})
 	}
 
-	// Check if threshold is met (early acceptance)
-	accepted, err := k.checkThreshold(ctx, proposal)
-	if err != nil {
+	if err := k.acceptIfThresholdMet(ctx, proposal); err != nil {
 		return nil, err
-	}
-	if accepted {
-		proposal.Status = types.ProposalStatus_PROPOSAL_STATUS_ACCEPTED
-		// For early acceptance, set execution_time to now + min_execution_period
-		// instead of waiting for the full voting period to elapse.
-		decPolicy, policyErr := k.DecisionPolicies.Get(ctx, proposal.PolicyAddress)
-		if policyErr == nil {
-			proposal.ExecutionTime = ctx.BlockTime().Unix() + decPolicy.MinExecutionPeriod
-		}
-		if err := k.Proposals.Set(ctx, msg.ProposalId, proposal); err != nil {
-			return nil, err
-		}
 	}
 
 	ctx.EventManager().EmitEvent(
@@ -250,6 +256,13 @@ func (k msgServer) ExecuteProposal(goCtx context.Context, msg *types.MsgExecuteP
 			proposal.ExecutionTime, ctx.BlockTime().Unix())
 	}
 
+	// An accepted proposal is executable only within its execution window;
+	// the EndBlocker then marks it EXPIRED.
+	if ctx.BlockTime().Unix() > executionDeadline(proposal) {
+		return nil, errorsmod.Wrapf(sdkerrors.ErrInvalidRequest,
+			"execution window of proposal %d closed at %d", msg.ProposalId, executionDeadline(proposal))
+	}
+
 	// Check policy version hasn't changed (veto check)
 	currentVersion, err := k.GetPolicyVersion(ctx, proposal.PolicyAddress)
 	if err != nil {
@@ -258,7 +271,9 @@ func (k msgServer) ExecuteProposal(goCtx context.Context, msg *types.MsgExecuteP
 	if currentVersion != proposal.PolicyVersion {
 		proposal.Status = types.ProposalStatus_PROPOSAL_STATUS_VETOED
 		proposal.FailedReason = "policy version changed (vetoed)"
-		_ = k.Proposals.Set(ctx, msg.ProposalId, proposal)
+		if err := k.Proposals.Set(ctx, msg.ProposalId, proposal); err != nil {
+			return nil, err
+		}
 		return nil, errorsmod.Wrapf(sdkerrors.ErrUnauthorized,
 			"proposal %d was invalidated by a policy version change (veto)", msg.ProposalId)
 	}
@@ -266,7 +281,7 @@ func (k msgServer) ExecuteProposal(goCtx context.Context, msg *types.MsgExecuteP
 	// Check term expiration
 	councilName := proposal.CouncilName
 	extGroup, err := k.Groups.Get(ctx, councilName)
-	if err == nil && ctx.BlockTime().Unix() > extGroup.CurrentTermExpiration {
+	if err == nil && isTermExpired(extGroup, ctx.BlockTime().Unix()) {
 		// Allow MsgRenewGroup execution even when expired
 		allowExecution := true
 		for _, anyMsg := range proposal.Messages {
@@ -294,7 +309,9 @@ func (k msgServer) ExecuteProposal(goCtx context.Context, msg *types.MsgExecuteP
 		if err := k.checkProposalPermissions(ctx, proposal); err != nil {
 			proposal.Status = types.ProposalStatus_PROPOSAL_STATUS_FAILED
 			proposal.FailedReason = err.Error()
-			_ = k.Proposals.Set(ctx, msg.ProposalId, proposal)
+			if err := k.Proposals.Set(ctx, msg.ProposalId, proposal); err != nil {
+				return nil, err
+			}
 			return nil, err
 		}
 	}
@@ -303,7 +320,9 @@ func (k msgServer) ExecuteProposal(goCtx context.Context, msg *types.MsgExecuteP
 	if len(proposal.Messages) > 0 && k.late.router == nil {
 		proposal.Status = types.ProposalStatus_PROPOSAL_STATUS_FAILED
 		proposal.FailedReason = "msg router not wired"
-		_ = k.Proposals.Set(ctx, msg.ProposalId, proposal)
+		if err := k.Proposals.Set(ctx, msg.ProposalId, proposal); err != nil {
+			return nil, err
+		}
 		return nil, errorsmod.Wrap(sdkerrors.ErrLogic, "msg router not wired into commons keeper")
 	}
 
@@ -312,7 +331,9 @@ func (k msgServer) ExecuteProposal(goCtx context.Context, msg *types.MsgExecuteP
 		if err := k.cdc.UnpackAny(anyMsg, &sdkMsg); err != nil {
 			proposal.Status = types.ProposalStatus_PROPOSAL_STATUS_FAILED
 			proposal.FailedReason = fmt.Sprintf("failed to unpack message %d: %v", i, err)
-			_ = k.Proposals.Set(ctx, msg.ProposalId, proposal)
+			if err := k.Proposals.Set(ctx, msg.ProposalId, proposal); err != nil {
+				return nil, err
+			}
 			return nil, err
 		}
 
@@ -323,7 +344,9 @@ func (k msgServer) ExecuteProposal(goCtx context.Context, msg *types.MsgExecuteP
 		if err := k.validateMsgAuthority(sdkMsg, proposal.PolicyAddress); err != nil {
 			proposal.Status = types.ProposalStatus_PROPOSAL_STATUS_FAILED
 			proposal.FailedReason = fmt.Sprintf("message %d authority mismatch: %v", i, err)
-			_ = k.Proposals.Set(ctx, msg.ProposalId, proposal)
+			if err := k.Proposals.Set(ctx, msg.ProposalId, proposal); err != nil {
+				return nil, err
+			}
 			return nil, errorsmod.Wrapf(sdkerrors.ErrUnauthorized, "message %d: %v", i, err)
 		}
 
@@ -331,7 +354,9 @@ func (k msgServer) ExecuteProposal(goCtx context.Context, msg *types.MsgExecuteP
 		if handler == nil {
 			proposal.Status = types.ProposalStatus_PROPOSAL_STATUS_FAILED
 			proposal.FailedReason = fmt.Sprintf("no handler for message %d: %s", i, sdk.MsgTypeURL(sdkMsg))
-			_ = k.Proposals.Set(ctx, msg.ProposalId, proposal)
+			if err := k.Proposals.Set(ctx, msg.ProposalId, proposal); err != nil {
+				return nil, err
+			}
 			return nil, errorsmod.Wrapf(sdkerrors.ErrUnknownRequest, "no handler for %s", sdk.MsgTypeURL(sdkMsg))
 		}
 
@@ -346,7 +371,9 @@ func (k msgServer) ExecuteProposal(goCtx context.Context, msg *types.MsgExecuteP
 		if err != nil {
 			proposal.Status = types.ProposalStatus_PROPOSAL_STATUS_FAILED
 			proposal.FailedReason = fmt.Sprintf("message %d execution failed: %v", i, err)
-			_ = k.Proposals.Set(ctx, msg.ProposalId, proposal)
+			if err := k.Proposals.Set(ctx, msg.ProposalId, proposal); err != nil {
+				return nil, err
+			}
 			return nil, errorsmod.Wrapf(err, "message %d execution failed", i)
 		}
 		if res != nil {
@@ -354,6 +381,9 @@ func (k msgServer) ExecuteProposal(goCtx context.Context, msg *types.MsgExecuteP
 		}
 	}
 
+	if err := k.dequeueProposal(ctx, proposal); err != nil {
+		return nil, err
+	}
 	proposal.Status = types.ProposalStatus_PROPOSAL_STATUS_EXECUTED
 	if err := k.Proposals.Set(ctx, msg.ProposalId, proposal); err != nil {
 		return nil, err
@@ -371,16 +401,44 @@ func (k msgServer) ExecuteProposal(goCtx context.Context, msg *types.MsgExecuteP
 	return &types.MsgExecuteProposalResponse{}, nil
 }
 
-// checkThreshold checks if a proposal has met its decision policy threshold.
-// Includes both regular council votes (weighted) and anonymous votes (weight=1 each).
-//
-// DESIGN NOTE (COMMONS-7): Anonymous votes (via x/shield) are counted with weight=1 each
-// and are added to both the numerator (if YES) and denominator of percentage-based thresholds.
-// This intentionally dilutes council member weighted votes, reflecting a democratic design
-// choice: anonymous community participation can influence proposal outcomes proportionally.
-// This is the intended behavior for proposals that enable anonymous voting — it allows
-// broader democratic participation while maintaining the council's structural advantage
-// through weighted votes.
+// acceptIfThresholdMet accepts a proposal early once its threshold is met
+// (after a vote, open or anonymous).
+func (k Keeper) acceptIfThresholdMet(ctx sdk.Context, proposal types.Proposal) error {
+	accepted, err := k.checkThreshold(ctx, proposal)
+	if err != nil || !accepted {
+		return err
+	}
+	if err := k.dequeueProposal(ctx, proposal); err != nil {
+		return err
+	}
+	proposal.Status = types.ProposalStatus_PROPOSAL_STATUS_ACCEPTED
+	// For early acceptance, set execution_time to now + min_execution_period
+	// instead of waiting for the full voting period to elapse.
+	decPolicy, policyErr := k.DecisionPolicies.Get(ctx, proposal.PolicyAddress)
+	if policyErr == nil {
+		proposal.ExecutionTime = ctx.BlockTime().Unix() + decPolicy.MinExecutionPeriod
+	}
+	if err := k.Proposals.Set(ctx, proposal.Id, proposal); err != nil {
+		return err
+	}
+	k.dropProposalVoterTree(ctx, proposal.Id)
+	return k.enqueueProposal(ctx, proposal)
+}
+
+// setupBallot decides whether a new proposal to g is a secret ballot and,
+// if so, snapshots its voters onto it and stores the tree under its ID.
+func (k Keeper) setupBallot(ctx context.Context, g types.Group, proposal *types.Proposal, requested bool) error {
+	secret, err := resolveSecretBallot(g, requested)
+	if err != nil || !secret {
+		return err
+	}
+	tree, err := k.startSecretBallot(ctx, proposal)
+	if err != nil {
+		return err
+	}
+	return k.ProposalVoterTrees.Set(ctx, proposal.Id, tree)
+}
+
 // checkProposalPermissions reports whether every message in proposal is on
 // its policy's current allowlist.
 func (k Keeper) checkProposalPermissions(ctx context.Context, proposal types.Proposal) error {
@@ -401,10 +459,26 @@ func (k Keeper) checkProposalPermissions(ctx context.Context, proposal types.Pro
 	return nil
 }
 
+// checkThreshold checks if a proposal has met its decision policy threshold.
+// An open proposal counts its member votes; a secret ballot counts its
+// anonymous tally at the snapshot's member weight, against the snapshot's
+// body (spec §11). A proposal that changes membership additionally needs a
+// strict majority of the body's total weight.
 func (k Keeper) checkThreshold(ctx context.Context, proposal types.Proposal) (bool, error) {
 	decPolicy, err := k.DecisionPolicies.Get(ctx, proposal.PolicyAddress)
 	if err != nil {
 		return false, err
+	}
+
+	if proposal.SecretBallot {
+		yes, cast, body, err := k.secretBallotWeights(ctx, proposal)
+		if err != nil {
+			return false, err
+		}
+		if cast.IsZero() || body.IsZero() {
+			return false, nil
+		}
+		return thresholdMet(decPolicy, proposalChangesMembership(proposal), yes, body), nil
 	}
 
 	// Tally regular (council member) votes
@@ -439,38 +513,75 @@ func (k Keeper) checkThreshold(ctx context.Context, proposal types.Proposal) (bo
 		return false, nil
 	}
 
-	threshold, err := math.LegacyNewDecFromStr(decPolicy.Threshold)
-	if err != nil {
-		return false, nil
-	}
+	changesMembership := proposalChangesMembership(proposal)
 
-	if decPolicy.PolicyType == "percentage" {
-		// Percentage: yesWeight / totalGroupWeight >= threshold
+	// groupWeight is the summed weight of every current member. Needed for a
+	// percentage policy, and for the strict-majority rule on membership
+	// changes under either policy type.
+	groupWeight := math.LegacyZeroDec()
+	if decPolicy.PolicyType == "percentage" || changesMembership {
 		allMembers, err := k.GetCouncilMembers(ctx, proposal.CouncilName)
 		if err != nil {
 			return false, err
 		}
-		groupWeight := math.LegacyZeroDec()
-		for _, m := range allMembers {
-			w, err := math.LegacyNewDecFromStr(m.Weight)
-			if err != nil {
-				continue
-			}
-			groupWeight = groupWeight.Add(w)
-		}
+		groupWeight = totalMemberWeight(allMembers)
 		if groupWeight.IsZero() {
 			return false, nil
 		}
-		ratio := yesWeight.Quo(groupWeight)
-		return ratio.GTE(threshold), nil
+	}
+	return thresholdMet(decPolicy, changesMembership, yesWeight, groupWeight), nil
+}
+
+// thresholdMet applies a decision policy to a yes weight. groupWeight is
+// the whole body's weight; it is read only by a percentage policy and by the
+// strict-majority rule on membership changes.
+func thresholdMet(decPolicy types.DecisionPolicy, changesMembership bool, yesWeight, groupWeight math.LegacyDec) bool {
+	threshold, err := math.LegacyNewDecFromStr(decPolicy.Threshold)
+	if err != nil {
+		return false
+	}
+
+	// Membership changes (who sits on a body, or on a body this one
+	// elects) need a strict majority of the whole body's weight. Under the
+	// committees' 0.5 policy a single member of a two-member committee
+	// could otherwise pass them alone: replace their peer with a second key
+	// of their own, or pack the council the committee elects.
+	if changesMembership && !yesWeight.MulInt64(2).GT(groupWeight) {
+		return false
+	}
+
+	if decPolicy.PolicyType == "percentage" {
+		// Percentage: yesWeight / totalGroupWeight >= threshold
+		if groupWeight.IsZero() {
+			return false
+		}
+		return yesWeight.Quo(groupWeight).GTE(threshold)
 	}
 
 	// Threshold: yesWeight >= threshold
 	thresholdInt, err := strconv.ParseUint(decPolicy.Threshold, 10, 64)
 	if err != nil {
-		return false, nil
+		return false
 	}
-	return yesWeight.GTE(math.LegacyNewDec(int64(thresholdInt))), nil
+	return yesWeight.GTE(math.LegacyNewDec(commontypes.Saturate[int64](thresholdInt)))
+}
+
+// membershipMsgTypeURLs are the messages that change who sits on a body.
+var membershipMsgTypeURLs = map[string]bool{
+	"/sparkdream.commons.v1.MsgUpdateGroupMembers": true,
+	"/sparkdream.commons.v1.MsgRenewGroup":         true,
+}
+
+// proposalChangesMembership reports whether the proposal carries a
+// membership-changing message. It reads the Any type URLs only (no unpack),
+// so it stays cheap inside MsgVoteProposal.
+func proposalChangesMembership(proposal types.Proposal) bool {
+	for _, anyMsg := range proposal.Messages {
+		if anyMsg != nil && membershipMsgTypeURLs[anyMsg.TypeUrl] {
+			return true
+		}
+	}
+	return false
 }
 
 // validateMsgAuthority checks that every signer declared on a proposal message

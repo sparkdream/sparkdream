@@ -178,8 +178,8 @@ echo ""
 # =========================================================================
 echo "--- TEST 1: Anonymous forum post creation ---"
 
-NULLIFIER_POST="fc01000000000000000000000000000000000000000000000000000000000001"
-RATE_NULL_POST=$(openssl rand -hex 32)
+NULLIFIER_POST="0001000000000000000000000000000000000000000000000000000000000001"
+RATE_NULL_POST=00$(openssl rand -hex 31)
 ANON_POST_CONTENT="Anonymous forum post created via x/shield shielded exec"
 INNER_MSG="{\"@type\":\"/sparkdream.forum.v1.MsgCreatePost\",\"creator\":\"$SHIELD_MODULE_ADDR\",\"category_id\":\"$CATEGORY_ID\",\"parent_id\":\"0\",\"content\":\"$ANON_POST_CONTENT\",\"tags\":[\"commons-council\"]}"
 
@@ -236,8 +236,8 @@ fi
 # =========================================================================
 echo "--- TEST 2: Anonymous forum upvote ---"
 
-NULLIFIER_UP="fc02000000000000000000000000000000000000000000000000000000000002"
-RATE_NULL_UP=$(openssl rand -hex 32)
+NULLIFIER_UP="0002000000000000000000000000000000000000000000000000000000000002"
+RATE_NULL_UP=00$(openssl rand -hex 31)
 INNER_MSG="{\"@type\":\"/sparkdream.forum.v1.MsgUpvotePost\",\"creator\":\"$SHIELD_MODULE_ADDR\",\"post_id\":\"$VOTE_TARGET_POST_ID\"}"
 
 TX_RES=$($BINARY tx shield shielded-exec \
@@ -284,8 +284,8 @@ INNER_MSG="{\"@type\":\"/sparkdream.forum.v1.MsgUpvotePost\",\"creator\":\"$SHIE
 TX_RES=$($BINARY tx shield shielded-exec \
     --inner-message "$INNER_MSG" \
     --proof "$DUMMY_PROOF" \
-    --nullifier "$(openssl rand -hex 32)" \
-    --rate-limit-nullifier "$(openssl rand -hex 32)" \
+    --nullifier "00$(openssl rand -hex 31)" \
+    --rate-limit-nullifier "00$(openssl rand -hex 31)" \
     --merkle-root "$DUMMY_MERKLE_ROOT" \
     --proof-domain 1 \
     --min-trust-level 1 \
@@ -333,8 +333,8 @@ if [ -z "$DOWNVOTE_TARGET" ] || [ "$DOWNVOTE_TARGET" == "null" ]; then
 fi
 echo "  Downvote target post: $DOWNVOTE_TARGET"
 
-NULLIFIER_DOWN="fc03000000000000000000000000000000000000000000000000000000000003"
-RATE_NULL_DOWN=$(openssl rand -hex 32)
+NULLIFIER_DOWN="0003000000000000000000000000000000000000000000000000000000000003"
+RATE_NULL_DOWN=00$(openssl rand -hex 31)
 INNER_MSG="{\"@type\":\"/sparkdream.forum.v1.MsgDownvotePost\",\"creator\":\"$SHIELD_MODULE_ADDR\",\"post_id\":\"$DOWNVOTE_TARGET\"}"
 
 TX_RES=$($BINARY tx shield shielded-exec \
@@ -382,7 +382,7 @@ fi
 echo "--- TEST 4: Nullifier replay prevention ---"
 
 # Reuse the same nullifier from TEST 2 (upvote)
-RATE_NULL_REPLAY=$(openssl rand -hex 32)
+RATE_NULL_REPLAY=00$(openssl rand -hex 31)
 INNER_MSG="{\"@type\":\"/sparkdream.forum.v1.MsgUpvotePost\",\"creator\":\"$SHIELD_MODULE_ADDR\",\"post_id\":\"$VOTE_TARGET_POST_ID\"}"
 
 TX_RES=$($BINARY tx shield shielded-exec \

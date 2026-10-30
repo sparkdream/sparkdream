@@ -7,12 +7,15 @@ import (
 	"github.com/cosmos/cosmos-sdk/client"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
-	"github.com/cosmos/cosmos-sdk/x/simulation"
 
 	"sparkdream/x/season/keeper"
 	"sparkdream/x/season/types"
 )
 
+// SimulateMsgRevokeGuildInvite delivers MsgRevokeGuildInvite for a random
+// pending invite, signed by the guild's founder or an officer (revoke) or by
+// the invitee (decline). Skips invites whose possible signers are not sim
+// accounts.
 func SimulateMsgRevokeGuildInvite(
 	ak types.AuthKeeper,
 	bk types.BankKeeper,
@@ -21,46 +24,35 @@ func SimulateMsgRevokeGuildInvite(
 ) simtypes.Operation {
 	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
 	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		simAccount, _ := simtypes.RandomAcc(r, accs)
+		msg := &types.MsgRevokeGuildInvite{}
 
-		// Find or create a guild where this account is the founder
-		guild, guildID, err := findGuildByFounder(r, ctx, k, simAccount.Address.String())
-		if err != nil || guild == nil {
-			guildID, err = getOrCreateGuild(r, ctx, k, simAccount.Address.String())
-			if err != nil {
-				return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgRevokeGuildInvite{}), "failed to get/create guild"), nil, nil
-			}
+		var invites []types.GuildInvite
+		if err := k.GuildInvite.Walk(ctx, nil, func(_ string, inv types.GuildInvite) (bool, error) {
+			invites = append(invites, inv)
+			return false, nil
+		}); err != nil {
+			return noOpErr(msg, err)
 		}
-
-		// Find or create an invite to revoke
-		inviteeAccount, _ := simtypes.RandomAcc(r, accs)
-		if inviteeAccount.Address.String() == simAccount.Address.String() {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgRevokeGuildInvite{}), "cannot revoke own invite"), nil, nil
+		invite, ok := pick(r, invites)
+		if !ok {
+			return noOp(msg, "no guild invite")
 		}
+		msg.GuildId, msg.Invitee = invite.GuildId, invite.GuildInvitee
 
-		// Create invite if needed
-		if err := getOrCreateGuildInvite(r, ctx, k, guildID, simAccount.Address.String(), inviteeAccount.Address.String()); err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgRevokeGuildInvite{}), "failed to create invite"), nil, nil
+		guild, err := k.Guild.Get(ctx, invite.GuildId)
+		if err != nil {
+			return noOp(msg, "guild not found")
 		}
-
-		msg := &types.MsgRevokeGuildInvite{
-			Creator: simAccount.Address.String(),
-			GuildId: guildID,
-			Invitee: inviteeAccount.Address.String(),
-		}
-
-		return simulation.GenAndDeliverTxWithRandFees(simulation.OperationInput{
-			R:               r,
-			App:             app,
-			TxGen:           txGen,
-			Cdc:             nil,
-			Msg:             msg,
-			CoinsSpentInMsg: sdk.NewCoins(),
-			Context:         ctx,
-			SimAccount:      simAccount,
-			AccountKeeper:   ak,
-			Bankkeeper:      bk,
-			ModuleName:      types.ModuleName,
+		signers := accountsWhere(accs, func(a simtypes.Account) bool {
+			s := a.Address.String()
+			return s == invite.GuildInvitee || s == guild.Founder || isOfficer(guild, s)
 		})
+		signer, ok := pick(r, signers)
+		if !ok {
+			return noOp(msg, "no sim account may revoke or decline this invite")
+		}
+		msg.Creator = signer.Address.String()
+
+		return deliver(r, app, ctx, txGen, ak, bk, signer, msg)
 	}
 }

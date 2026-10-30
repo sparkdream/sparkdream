@@ -80,8 +80,22 @@ func (k Keeper) GetParams(ctx context.Context) types.Params {
 
 // --- Dispute Helpers ---
 
+// SetDispute stores a dispute and keeps the PendingDisputes index in step:
+// an active, uncontested dispute not yet left to council review is indexed at
+// its filing height, anything else is not.
 func (k Keeper) SetDispute(ctx context.Context, dispute types.Dispute) error {
-	return k.Disputes.Set(ctx, dispute.Name, dispute)
+	if old, err := k.Disputes.Get(ctx, dispute.Name); err == nil {
+		if err := k.PendingDisputes.Remove(ctx, collections.Join(old.FiledAt, old.Name)); err != nil {
+			return err
+		}
+	}
+	if err := k.Disputes.Set(ctx, dispute.Name, dispute); err != nil {
+		return err
+	}
+	if dispute.Active && dispute.ContestChallengeId == "" && !dispute.AwaitingReview {
+		return k.PendingDisputes.Set(ctx, collections.Join(dispute.FiledAt, dispute.Name))
+	}
+	return nil
 }
 
 func (k Keeper) GetDispute(ctx context.Context, name string) (types.Dispute, bool) {
@@ -93,6 +107,11 @@ func (k Keeper) GetDispute(ctx context.Context, name string) (types.Dispute, boo
 }
 
 func (k Keeper) RemoveDispute(ctx context.Context, name string) error {
+	if old, err := k.Disputes.Get(ctx, name); err == nil {
+		if err := k.PendingDisputes.Remove(ctx, collections.Join(old.FiledAt, old.Name)); err != nil {
+			return err
+		}
+	}
 	return k.Disputes.Remove(ctx, name)
 }
 
@@ -153,10 +172,11 @@ func (k Keeper) ClaimName(ctx context.Context, name string, owner string, data s
 	}
 
 	// Check blocked names
-	for _, blocked := range params.BlockedNames {
-		if name == blocked {
-			return types.ErrNameReserved
-		}
+	if isBlockedName(name, params.BlockedNames) {
+		return types.ErrNameReserved
+	}
+	if len(data) > MaxNameDataLen {
+		return errorsmod.Wrapf(types.ErrInvalidName, "data is at most %d bytes", MaxNameDataLen)
 	}
 
 	ownerAddr, err := sdk.AccAddressFromBech32(owner)
@@ -186,13 +206,82 @@ func (k Keeper) ClaimName(ctx context.Context, name string, owner string, data s
 	return k.AddNameToOwner(ctx, ownerAddr, name)
 }
 
+// SetName stores a name record and keeps the TargetNames index in step with
+// its resolver target.
 func (k Keeper) SetName(ctx context.Context, record types.NameRecord) error {
-	return k.Names.Set(ctx, record.Name, record)
+	if old, err := k.Names.Get(ctx, record.Name); err == nil && old.Target != "" && old.Target != record.Target {
+		if err := k.TargetNames.Remove(ctx, collections.Join(old.Target, record.Name)); err != nil {
+			return err
+		}
+	}
+	if err := k.Names.Set(ctx, record.Name, record); err != nil {
+		return err
+	}
+	if record.Target != "" {
+		return k.TargetNames.Set(ctx, collections.Join(record.Target, record.Name))
+	}
+	return nil
+}
+
+// isBlockedName compares against the blocked list case-insensitively, so an
+// entry written with capitals still blocks the (lowercase) name.
+func isBlockedName(name string, blocked []string) bool {
+	for _, b := range blocked {
+		if strings.ToLower(strings.TrimSpace(b)) == name {
+			return true
+		}
+	}
+	return false
+}
+
+// MaxNameDataLen caps NameRecord.data; it is stored forever.
+const MaxNameDataLen = 2048
+
+// normalizeName is the canonical form every name message uses.
+func normalizeName(name string) string {
+	return strings.ToLower(strings.TrimSpace(name))
 }
 
 func (k Keeper) RemoveNameFromOwner(ctx context.Context, owner sdk.AccAddress, name string) error {
 	// Remove from Secondary Index
 	return k.OwnerNames.Remove(ctx, collections.Join(owner.String(), name))
+}
+
+// ReleaseName frees a name another module reserved through ClaimName (an
+// x/season username or guild name) once it is no longer needed: the record is
+// deleted with its owner, target and accepted-target index entries and any
+// primary-name pointer to it, so the name can be claimed again. A name now
+// held by someone else (transferred, scavenged, disputed away) is left alone.
+func (k Keeper) ReleaseName(ctx context.Context, name string, owner string) error {
+	name = normalizeName(name)
+	record, err := k.Names.Get(ctx, name)
+	if errors.Is(err, collections.ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if !k.sameMember(ctx, record.Owner, owner) {
+		return nil
+	}
+	if err := k.clearTargetConsent(ctx, record); err != nil {
+		return err
+	}
+	if record.Target != "" {
+		if err := k.TargetNames.Remove(ctx, collections.Join(record.Target, name)); err != nil {
+			return err
+		}
+	}
+	if err := k.OwnerNames.Remove(ctx, collections.Join(record.Owner, name)); err != nil {
+		return err
+	}
+	if info, err := k.Owners.Get(ctx, record.Owner); err == nil && info.PrimaryName == name {
+		info.PrimaryName = ""
+		if err := k.Owners.Set(ctx, record.Owner, info); err != nil {
+			return err
+		}
+	}
+	return k.Names.Remove(ctx, name)
 }
 
 func (k Keeper) AddNameToOwner(ctx context.Context, owner sdk.AccAddress, name string) error {
@@ -336,15 +425,18 @@ func (k Keeper) IsGovAuthority(addr string) bool {
 	return bytes.Equal(k.authority, addrBytes)
 }
 
-// IsCouncilAuthorized checks if the address is authorized via governance authority,
-// council policy address, or committee membership.
-// Delegates to x/commons IsCouncilAuthorized when available.
-// Falls back to IsGovAuthority when x/commons is not wired.
-func (k Keeper) isCouncilAuthorized(ctx context.Context, addr string, council string, committee string) bool {
-	if k.commonsKeeper == nil {
-		return k.IsGovAuthority(addr)
+// isCouncilOrCommitteePolicy reports whether addr is the governance
+// authority, the council's policy address or the named committee's policy
+// address: an executed proposal, never one member's signature. Falls back to
+// IsGovAuthority when x/commons is not wired.
+func (k Keeper) isCouncilOrCommitteePolicy(ctx context.Context, addr string, council string, committee string) bool {
+	if k.IsGovAuthority(addr) {
+		return true
 	}
-	return k.commonsKeeper.IsCouncilAuthorized(ctx, addr, council, committee)
+	if k.commonsKeeper == nil {
+		return false
+	}
+	return k.commonsKeeper.IsCouncilOrCommitteePolicy(ctx, addr, council, committee)
 }
 
 // IsActiveRepMember reports whether the bech32 address is an active x/rep
@@ -384,6 +476,16 @@ func (k Keeper) sameMember(ctx context.Context, a, b string) bool {
 		return a == b
 	}
 	return k.repKeeper.SameMember(ctx, a, b)
+}
+
+// canonicalMember is the current address of a possibly migrated member
+// (the first entry of its alias set). Used where a stored address receives
+// something, so a name never moves to a tombstone.
+func (k Keeper) canonicalMember(ctx context.Context, addr string) string {
+	if all := k.allAddressesOf(ctx, addr); len(all) > 0 {
+		return all[0]
+	}
+	return addr
 }
 
 // allAddressesOf is the full alias set (list queries only).

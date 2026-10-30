@@ -106,6 +106,9 @@ message MsgTrade {
   uint64 market_id = 2;
   bool is_yes = 3;
   string amount_in = 4 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
+  // Optional slippage bound: the trade fails if it would mint fewer shares.
+  // Empty or zero means no bound.
+  string min_shares_out = 5 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
 }
 
 // MsgTradeResponse defines the MsgTradeResponse message.

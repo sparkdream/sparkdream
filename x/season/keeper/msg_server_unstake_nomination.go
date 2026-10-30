@@ -82,7 +82,7 @@ func (k msgServer) UnstakeNomination(ctx context.Context, msg *types.MsgUnstakeN
 	nomination.Conviction = conviction
 
 	// 9. Save updated nomination
-	if err := k.Nomination.Set(ctx, msg.NominationId, nomination); err != nil {
+	if err := k.SetNomination(ctx, nomination); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to update nomination")
 	}
 

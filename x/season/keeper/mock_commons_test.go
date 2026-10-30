@@ -16,6 +16,15 @@ type mockCommonsKeeper struct {
 	GetGroupFn func(ctx context.Context, name string) (commonstypes.Group, error)
 	// IsCouncilAuthorizedFn can be set to control council authorization checks
 	IsCouncilAuthorizedFn func(ctx context.Context, addr string, council string, committee string) bool
+	// IsCouncilOrCommitteePolicyFn controls the policy-address-only check
+	IsCouncilOrCommitteePolicyFn func(ctx context.Context, addr string, council string, committee string) bool
+}
+
+func (m *mockCommonsKeeper) IsCouncilOrCommitteePolicy(ctx context.Context, addr string, council string, committee string) bool {
+	if m.IsCouncilOrCommitteePolicyFn != nil {
+		return m.IsCouncilOrCommitteePolicyFn(ctx, addr, council, committee)
+	}
+	return false
 }
 
 func (m *mockCommonsKeeper) IsCommitteeMember(ctx context.Context, address sdk.AccAddress, council string, committee string) (bool, error) {
@@ -61,6 +70,11 @@ func newMockCommonsKeeper(authorizedAddresses ...string) *mockCommonsKeeper {
 		IsCouncilAuthorizedFn: func(ctx context.Context, addr string, council string, committee string) bool {
 			return authorizedSet[addr]
 		},
+		// The authorized addresses stand in for executed committee
+		// proposals (policy addresses) in tests that use this helper.
+		IsCouncilOrCommitteePolicyFn: func(ctx context.Context, addr string, council string, committee string) bool {
+			return authorizedSet[addr]
+		},
 	}
 }
 
@@ -89,6 +103,11 @@ func newMockCommonsKeeperWithCouncil(councilPolicyAddr string, authorizedAddress
 				return true
 			}
 			return authorizedSet[addr]
+		},
+		// Only the council policy address passes: the authorized addresses
+		// here are individual committee members.
+		IsCouncilOrCommitteePolicyFn: func(ctx context.Context, addr string, council string, committee string) bool {
+			return addr == councilPolicyAddr
 		},
 	}
 }

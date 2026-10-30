@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/rep/types"
 
 	"cosmossdk.io/collections"
@@ -44,6 +45,15 @@ func (k msgServer) AwardFromTagBudget(ctx context.Context, msg *types.MsgAwardFr
 		return nil, errorsmod.Wrap(types.ErrPostNotFound, fmt.Sprintf("post %d not found", msg.PostId))
 	}
 
+	// A group member cannot award the group's SPARK to their own post
+	// (REP-E-19). Each award is capped at 25% of the pool, but one member
+	// acting alone could otherwise take 1-0.75^k of it with k posts of
+	// their own. Compared canonically, so a migrated author is still the
+	// awarder.
+	if k.SameMember(ctx, author, msg.Creator) {
+		return nil, errorsmod.Wrap(types.ErrSelfAward, "the awarder wrote this post")
+	}
+
 	postTags, err := k.late.forumKeeper.GetPostTags(ctx, msg.PostId)
 	if err != nil {
 		return nil, errorsmod.Wrap(types.ErrPostNotFound, fmt.Sprintf("post %d not found", msg.PostId))
@@ -62,8 +72,8 @@ func (k msgServer) AwardFromTagBudget(ctx context.Context, msg *types.MsgAwardFr
 
 	if budget.MembersOnly {
 		authorBytes, err := k.addressCodec.StringToBytes(author)
-		if err != nil || !k.IsMember(ctx, sdk.AccAddress(authorBytes)) {
-			return nil, errorsmod.Wrap(types.ErrNotMember, "budget is members-only and post author is not a member")
+		if err != nil || !k.IsActiveMember(ctx, sdk.AccAddress(authorBytes)) {
+			return nil, errorsmod.Wrap(types.ErrNotMember, "budget is members-only and post author is not an active member")
 		}
 	}
 
@@ -92,6 +102,36 @@ func (k msgServer) AwardFromTagBudget(ctx context.Context, msg *types.MsgAwardFr
 				"post %d was awarded from budget %d at height %d; cooldown of %d blocks not yet elapsed",
 				msg.PostId, msg.BudgetId, lastHeight, types.TagBudgetAwardCooldownBlocks)
 		}
+	}
+
+	// Per-awarder epoch cap: one group member may award at most
+	// tag_budget_awarder_epoch_cap_bps of the pool as it stood before their
+	// own awards this epoch, however many posts (by other authors) they
+	// spread it over. Keyed by the canonical awarder so a migrated key does
+	// not get a fresh allowance.
+	params, err := k.Params.Get(ctx)
+	if err != nil {
+		return nil, errorsmod.Wrap(err, "failed to get params")
+	}
+	epoch, err := k.GetCurrentEpoch(ctx)
+	if err != nil {
+		return nil, errorsmod.Wrap(err, "failed to get current epoch")
+	}
+	awarder := k.Canonical(ctx, msg.Creator)
+	usageKey := collections.Join3(msg.BudgetId, awarder, epoch)
+	awardedThisEpoch, err := k.TagBudgetAwarderEpoch.Get(ctx, usageKey)
+	if err != nil {
+		awardedThisEpoch = math.ZeroInt()
+	}
+	capBps := params.TagBudgetAwarderEpochCapBpsOrDefault()
+	awarderCap := poolBalance.Add(awardedThisEpoch).MulRaw(commontypes.Saturate[int64](capBps)).QuoRaw(10000)
+	if awardedThisEpoch.Add(awardAmount).GT(awarderCap) {
+		return nil, errorsmod.Wrapf(types.ErrTagBudgetAwarderCap,
+			"awarder %s already awarded %s from budget %d this epoch; cap is %s (%d bps of the pool)",
+			msg.Creator, awardedThisEpoch.String(), msg.BudgetId, awarderCap.String(), capBps)
+	}
+	if err := k.recordAwarderEpochUsage(ctx, msg.BudgetId, awarder, epoch, awardedThisEpoch.Add(awardAmount)); err != nil {
+		return nil, errorsmod.Wrap(err, "failed to record awarder epoch usage")
 	}
 
 	newBalance := poolBalance.Sub(awardAmount)
@@ -145,4 +185,26 @@ func (k msgServer) AwardFromTagBudget(ctx context.Context, msg *types.MsgAwardFr
 	)
 
 	return &types.MsgAwardFromTagBudgetResponse{}, nil
+}
+
+// recordAwarderEpochUsage stores the awarder's running total for the epoch
+// and drops their entries for earlier epochs of the same budget, so the map
+// holds at most one row per (budget, awarder).
+func (k Keeper) recordAwarderEpochUsage(ctx context.Context, budgetID uint64, awarder string, epoch int64, total math.Int) error {
+	var stale []collections.Triple[uint64, string, int64]
+	rng := collections.NewSuperPrefixedTripleRange[uint64, string, int64](budgetID, awarder)
+	if err := k.TagBudgetAwarderEpoch.Walk(ctx, rng, func(key collections.Triple[uint64, string, int64], _ math.Int) (bool, error) {
+		if key.K3() < epoch {
+			stale = append(stale, key)
+		}
+		return false, nil
+	}); err != nil {
+		return err
+	}
+	for _, key := range stale {
+		if err := k.TagBudgetAwarderEpoch.Remove(ctx, key); err != nil {
+			return err
+		}
+	}
+	return k.TagBudgetAwarderEpoch.Set(ctx, collections.Join3(budgetID, awarder, epoch), total)
 }

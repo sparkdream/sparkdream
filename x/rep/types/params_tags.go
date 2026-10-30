@@ -10,5 +10,8 @@ const (
 	DefaultMaxTagReporters = uint64(50)
 )
 
-// DefaultTagReportBond is the DREAM bond each reporter escrows to back a tag report.
-var DefaultTagReportBond = math.NewInt(10)
+// DefaultTagReportBond is the DREAM bond each reporter escrows to back a tag
+// report: 1 DREAM. It is forfeited when the report is dismissed, so a report
+// costs something if it is unfounded (REP-E-11; it was 10 micro-DREAM and
+// always refunded).
+var DefaultTagReportBond = math.NewInt(1_000_000)

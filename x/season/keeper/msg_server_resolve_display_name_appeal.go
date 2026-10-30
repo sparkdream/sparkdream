@@ -66,15 +66,15 @@ func (k Keeper) ResolveDisplayNameAppealInternal(ctx context.Context, member str
 		// Appeal succeeded: name was fine, reporter was wrong
 		// Winner = appellant (stake returned), Loser = reporter (stake burned)
 		if appealStakeErr == nil && reportStakeErr == nil {
-			if err := k.dreamOps.SettleStakes(ctx, appealStake.Appellant, appealStake.Amount.Uint64(), reportStake.Reporter, reportStake.Amount.Uint64()); err != nil {
+			if err := k.late.dreamOps.SettleStakes(ctx, appealStake.Appellant, appealStake.Amount.Uint64(), reportStake.Reporter, reportStake.Amount.Uint64()); err != nil {
 				return errorsmod.Wrapf(types.ErrDREAMOperationFailed, "failed to settle stakes: %s", err)
 			}
 		} else if appealStakeErr == nil {
-			if err := k.dreamOps.Unlock(ctx, appealStake.Appellant, appealStake.Amount.Uint64()); err != nil {
+			if err := k.late.dreamOps.Unlock(ctx, appealStake.Appellant, appealStake.Amount.Uint64()); err != nil {
 				return errorsmod.Wrapf(types.ErrDREAMOperationFailed, "failed to unlock appellant stake: %s", err)
 			}
 		} else if reportStakeErr == nil {
-			if err := k.dreamOps.Burn(ctx, reportStake.Reporter, reportStake.Amount.Uint64()); err != nil {
+			if err := k.late.dreamOps.BurnLocked(ctx, reportStake.Reporter, reportStake.Amount.Uint64()); err != nil {
 				return errorsmod.Wrapf(types.ErrDREAMOperationFailed, "failed to burn reporter stake: %s", err)
 			}
 		}
@@ -91,34 +91,42 @@ func (k Keeper) ResolveDisplayNameAppealInternal(ctx context.Context, member str
 		// Appeal failed: name was indeed bad, appellant was wrong
 		// Winner = reporter (stake returned), Loser = appellant (stake burned)
 		if reportStakeErr == nil && appealStakeErr == nil {
-			if err := k.dreamOps.SettleStakes(ctx, reportStake.Reporter, reportStake.Amount.Uint64(), appealStake.Appellant, appealStake.Amount.Uint64()); err != nil {
+			if err := k.late.dreamOps.SettleStakes(ctx, reportStake.Reporter, reportStake.Amount.Uint64(), appealStake.Appellant, appealStake.Amount.Uint64()); err != nil {
 				return errorsmod.Wrapf(types.ErrDREAMOperationFailed, "failed to settle stakes: %s", err)
 			}
 		} else if appealStakeErr == nil {
-			if err := k.dreamOps.Burn(ctx, appealStake.Appellant, appealStake.Amount.Uint64()); err != nil {
+			if err := k.late.dreamOps.BurnLocked(ctx, appealStake.Appellant, appealStake.Amount.Uint64()); err != nil {
 				return errorsmod.Wrapf(types.ErrDREAMOperationFailed, "failed to burn appellant stake: %s", err)
 			}
 		} else if reportStakeErr == nil {
-			if err := k.dreamOps.Unlock(ctx, reportStake.Reporter, reportStake.Amount.Uint64()); err != nil {
+			if err := k.late.dreamOps.Unlock(ctx, reportStake.Reporter, reportStake.Amount.Uint64()); err != nil {
 				return errorsmod.Wrapf(types.ErrDREAMOperationFailed, "failed to unlock reporter stake: %s", err)
 			}
 		}
 		// Display name stays cleared (already cleared during report)
 	}
 
-	// 7. Update moderation record
+	// 7. Update moderation record. An upheld report blocks the rejected
+	// name for this member for good (SEA-23).
 	moderation.Active = false
 	moderation.AppealSucceeded = appealSucceeded
-	if err := k.DisplayNameModeration.Set(ctx, member, moderation); err != nil {
+	if !appealSucceeded {
+		blockName(&moderation, moderation.RejectedName)
+	}
+	if err := k.SetDisplayNameModeration(ctx, member, moderation); err != nil {
 		return errorsmod.Wrap(err, "failed to update moderation record")
 	}
 
 	// 8. Clean up stake records
 	if reportStakeErr == nil {
-		_ = k.DisplayNameReportStake.Remove(ctx, reportChallengeID)
+		if err := k.DisplayNameReportStake.Remove(ctx, reportChallengeID); err != nil {
+			return err
+		}
 	}
 	if appealStakeErr == nil {
-		_ = k.DisplayNameAppealStake.Remove(ctx, moderation.AppealChallengeId)
+		if err := k.DisplayNameAppealStake.Remove(ctx, moderation.AppealChallengeId); err != nil {
+			return err
+		}
 	}
 
 	// 9. Emit event
@@ -136,5 +144,68 @@ func (k Keeper) ResolveDisplayNameAppealInternal(ctx context.Context, member str
 		),
 	)
 
+	return nil
+}
+
+// ResolveAppealTimeoutInternal closes an appeal that nobody resolved within
+// AppealResolutionPeriodMultiplier x display_name_appeal_period_blocks of
+// the appeal (SEA-23). With no verdict
+// neither side is penalised: both stakes are returned, the name is restored
+// (it was only ever hidden pending review) and it is NOT blocked. Called by
+// the BeginBlocker.
+func (k Keeper) ResolveAppealTimeoutInternal(ctx context.Context, member string) error {
+	sdkCtx := sdk.UnwrapSDKContext(ctx)
+
+	moderation, err := k.DisplayNameModeration.Get(ctx, member)
+	if err != nil {
+		return types.ErrDisplayNameNotModerated
+	}
+	if !appealQueued(moderation) {
+		return types.ErrNoAppealToResolve
+	}
+	params, err := k.Params.Get(ctx)
+	if err != nil {
+		return err
+	}
+	if sdkCtx.BlockHeight() <= appealDeadline(moderation.AppealedAt, params) {
+		return types.ErrAppealPeriodNotExpired
+	}
+
+	reportChallengeID := fmt.Sprintf("dn:%s:%d", moderation.Member, moderation.ModeratedAt)
+	if reportStake, err := k.DisplayNameReportStake.Get(ctx, reportChallengeID); err == nil {
+		if err := k.late.dreamOps.Unlock(ctx, reportStake.Reporter, reportStake.Amount.Uint64()); err != nil {
+			return errorsmod.Wrapf(types.ErrDREAMOperationFailed, "failed to unlock reporter stake: %s", err)
+		}
+		if err := k.DisplayNameReportStake.Remove(ctx, reportChallengeID); err != nil {
+			return err
+		}
+	}
+	if appealStake, err := k.DisplayNameAppealStake.Get(ctx, moderation.AppealChallengeId); err == nil {
+		if err := k.late.dreamOps.Unlock(ctx, appealStake.Appellant, appealStake.Amount.Uint64()); err != nil {
+			return errorsmod.Wrapf(types.ErrDREAMOperationFailed, "failed to unlock appellant stake: %s", err)
+		}
+		if err := k.DisplayNameAppealStake.Remove(ctx, moderation.AppealChallengeId); err != nil {
+			return err
+		}
+	}
+
+	if profile, err := k.MemberProfile.Get(ctx, member); err == nil && profile.DisplayName == "" {
+		profile.DisplayName = moderation.RejectedName
+		if err := k.MemberProfile.Set(ctx, member, profile); err != nil {
+			return errorsmod.Wrap(err, "failed to restore display name")
+		}
+	}
+
+	moderation.Active = false
+	moderation.AppealSucceeded = true
+	if err := k.SetDisplayNameModeration(ctx, member, moderation); err != nil {
+		return errorsmod.Wrap(err, "failed to update moderation record")
+	}
+
+	sdkCtx.EventManager().EmitEvent(sdk.NewEvent("display_name_appeal_timed_out",
+		sdk.NewAttribute("member", member),
+		sdk.NewAttribute("rejected_name", moderation.RejectedName),
+		sdk.NewAttribute("stakes", "returned"),
+	))
 	return nil
 }

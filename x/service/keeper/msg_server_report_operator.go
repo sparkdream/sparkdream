@@ -46,7 +46,7 @@ func (k msgServer) ReportOperator(ctx context.Context, msg *types.MsgReportOpera
 		return nil, err
 	}
 
-	if uint32(len(msg.Reason)) > params.MaxReasonBytes {
+	if len(msg.Reason) > int(params.MaxReasonBytes) {
 		return nil, types.ErrInvalidReasonSize.Wrapf("%d > %d", len(msg.Reason), params.MaxReasonBytes)
 	}
 
@@ -64,6 +64,11 @@ func (k msgServer) ReportOperator(ctx context.Context, msg *types.MsgReportOpera
 		}
 	}
 
+	// A raised min_bond takes effect when the operator is next touched
+	// (§3.6), a report against it included.
+	if err := k.reconcileMinBond(ctx, opBytes, msg.ServiceType); err != nil {
+		return nil, err
+	}
 	op, exists := k.GetOperator(ctx, opBytes, msg.ServiceType)
 	if !exists {
 		return nil, types.ErrOperatorNotFound.Wrapf("%s / %s", msg.Operator, msg.ServiceType)
@@ -81,14 +86,10 @@ func (k msgServer) ReportOperator(ctx context.Context, msg *types.MsgReportOpera
 		}
 	}
 
-	// Refile cooldown is keyed on the operator's CURRENT controller —
-	// if a prior report from the same controller was AUTO_DISMISSED
-	// recently, block re-filing for `report_refile_cooldown_blocks`.
-	controllerBytes, err := k.addrBytes(op.Controller)
-	if err != nil {
-		return nil, err
-	}
-	cooldownActive, err := k.isRefileCooldownActive(ctx, params, controllerBytes, opBytes, msg.ServiceType, currentHeight)
+	// Refile cooldown is per reporter: a reporter whose own report against
+	// this operator AUTO_DISMISSED recently cannot re-file it for
+	// `report_refile_cooldown_blocks`; other members are unaffected.
+	cooldownActive, err := k.isRefileCooldownActive(ctx, params, reporterBytes, opBytes, msg.ServiceType, currentHeight)
 	if err != nil {
 		return nil, err
 	}

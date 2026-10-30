@@ -105,7 +105,7 @@ func (k msgServer) UnbondRole(ctx context.Context, msg *types.MsgUnbondRole) (*t
 		br.UnbondCompletionTime = now + cooldown
 		br.BondStatus = types.BondedRoleStatus_BONDED_ROLE_STATUS_UNBONDING
 
-		if err := k.BondedRoles.Set(ctx, key, br); err != nil {
+		if err := k.setBondedRoleAt(ctx, key, br); err != nil {
 			return nil, errorsmod.Wrap(err, "failed to store bonded role")
 		}
 
@@ -145,7 +145,7 @@ func (k msgServer) UnbondRole(ctx context.Context, msg *types.MsgUnbondRole) (*t
 		br.DemotionCooldownUntil = now + cfg.DemotionCooldown
 	}
 
-	if err := k.BondedRoles.Set(ctx, key, br); err != nil {
+	if err := k.setBondedRoleAt(ctx, key, br); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to store bonded role")
 	}
 

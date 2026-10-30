@@ -20,8 +20,8 @@ func TestReplyPinAppealResolution(t *testing.T) {
 	const pinType = reptypes.GovActionType_GOV_ACTION_TYPE_REPLY_PIN
 	target := func(id uint64) string { return strconv.FormatUint(id, 10) }
 
-	// setup builds a thread with one sentinel-pinned reply (committed bond 1000)
-	// and returns the thread + reply posts.
+	// setup builds a thread with one disputed sentinel-pinned reply (committed
+	// bond 1000) and returns the thread + reply posts.
 	setup := func(t *testing.T) (types.Post, types.Post) {
 		t.Helper()
 		thread := f.createTestPost(t, testCreator, 0, 0)
@@ -36,6 +36,7 @@ func TestReplyPinAppealResolution(t *testing.T) {
 					PinnedBy:        testSentinel,
 					PinnedAt:        now,
 					IsSentinelPin:   true,
+					Disputed:        true, // under a forum-filed dispute
 					CommittedAmount: "1000",
 				},
 			},

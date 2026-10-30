@@ -1,0 +1,20 @@
+syntax = "proto3";
+package sparkdream.season.v1;
+
+option go_package = "sparkdream/x/season/types";
+
+// SeasonStatsCounters holds the running aggregates of one season, updated
+// where the events happen so the SeasonStats query reads them instead of
+// scanning every profile and quest (SEA-35).
+message SeasonStatsCounters {
+  uint64 season = 1;
+  // Sum of season XP held by members (XP granted this season, less XP
+  // removed by zeroing).
+  uint64 total_xp_earned = 2;
+  // Members holding season XP > 0.
+  uint64 active_members = 3;
+  // Initiatives completed this season (x/rep completion hook).
+  uint64 initiatives_completed = 4;
+  // Quest rewards claimed this season.
+  uint64 quests_completed = 5;
+}

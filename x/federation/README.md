@@ -15,7 +15,7 @@ Full spec: [docs/x-federation-spec.md](../../docs/x-federation-spec.md). Service
 ## Three Layers
 
 1. **On-chain primitives** — peer registry, peer policies, identity links, federated content records.
-2. **IBC protocol** — chain-to-chain, trustless. Port `federation`, version `federation-1`, UNORDERED.
+2. **IBC protocol** — chain-to-chain, trustless. Port `federation`, version `federation-1`, UNORDERED. An inbound packet is attributed to the peer whose `ibc_channel_id` (this chain's end) equals the packet's **destination** channel — never the sender-chosen source channel — and only an ACTIVE peer's packets are accepted. IBC content passes the same blocked-identity, rate-limit and truncation rules as bridged content and must carry a 32-byte SHA-256 hash.
 3. **Off-chain bridges** — ActivityPub / AT Protocol relayers. SPARK-staked operators owned by x/service.
 
 ## Peers
@@ -57,13 +57,15 @@ Bridge operators are **x/service Operators** keyed by `(address, service_type)` 
 
 Federation owns the per-peer **`BridgeBinding`** record: endpoint URL, content statistics, `suspended` flag. The `suspended` flag is toggled by `AfterOperatorUnderfunded` / `AfterOperatorReFunded` hooks — federation refuses content submissions from suspended bindings.
 
+Bridge operators must be **active x/rep members** (`ErrOperatorNotMember`, 2404): checked by `MsgRegisterBridge` and again on every submission, outbound or identity attestation, identified arbiter vote and pay epoch. The alias-aware `SameMember` self-verification ban then sees the person behind a bridge, so one person cannot run a bridge from a fresh address and verify its content from their member address. A zeroed (or migrated-away) operator's bridge stops working without a hook. Run the daemon on an x/session key: `MsgSubmitFederatedContent` and `MsgAttestOutbound` are delegable.
+
 Bridge operators top up via `service.MsgTopUpBond`, unbond via `service.MsgUnbondOperator`; slashing flows through `service.MsgReportOperator`. **Bridge operator unbond/top-up/slash are NOT federation messages.**
 
 ## Content Verification
 
 Bridge content enters as `PENDING_VERIFICATION`. Resolution paths:
 
-1. **Anonymous community quorum (fast).** Verifiers fetch source content and submit hashes via x/shield (ZK-proven membership, scoped nullifiers). Quorum-based auto-resolution.
+1. **Anonymous community quorum (fast).** Verifiers fetch source content and submit hashes via x/shield (ZK-proven membership, scoped nullifiers). Quorum-based auto-resolution. A quorum need not include an identified (non-shield) arbiter (decided; spec §3.9.7).
 2. **Human jury (fallback).** Via x/rep when quorum fails.
 3. **IBC content.** Verified by light client — no verifier needed.
 
@@ -131,7 +133,7 @@ hard cap are redundant when the cap is 1 of 4 levels, so
 
 ## Identity Linking
 
-Two-phase IBC challenge-response proving key ownership. Bridge-verified links for external protocols.
+Two-phase IBC challenge-response proving key ownership, for Spark Dream peers. Links to bridge peers (ActivityPub, AT Protocol, NOSTR, Lens) are verified by **bridge attestation** (spec §3.4.1). The member publishes `sparkdream-identity-link:<chain_id>:<local_address>:<hex(challenge)>` from the remote identity; the string is in the `identity_linked` event's `link_proof` attribute and is rebuilt by `types.IdentityLinkProofString`. A bridge operator with an active, non-suspended binding for the peer checks the post off-chain and signs `MsgAttestIdentityLink`. The link records `attested_by` and `attestation_evidence`. A false attestation is reported with x/service `MsgReportOperator` against that operator's SPARK bond. If the operator ends SLASHED, EndBlocker Phase 3b returns its attested links to UNVERIFIED with a fresh TTL. Only a VERIFIED link reserves a remote identity and resolves through `ResolveRemoteIdentity`; several members may hold unverified claims to the same identity, so a claim cannot squat it.
 
 ## Creator-Signed Outbound
 
@@ -175,7 +177,7 @@ SPARK on x/service.
 | Msg | Access | Purpose |
 |---|---|---|
 | `MsgRegisterPeer` | Ops Committee member | Register a peer (with optional `controller_group`, and for Spark Dream peers optional `peer_identity` (validated with `ChainIdentity.Validate()` when supplied) + `ibc_transfer_channel_id`, which pre-register the peer's SPARK voucher metadata under the transfer channel's trace); lands PENDING |
-| `MsgRemovePeer` | Ops Committee member | Tombstone a peer (cursor-based pruning in EndBlocker) |
+| `MsgRemovePeer` | Gov or Council / Ops Committee policy | Tombstone a peer (cursor-based pruning in EndBlocker) |
 | `MsgSuspendPeer` | Ops Committee member | ACTIVE → SUSPENDED; the emergency brake, deliberately 1-of-N |
 | `MsgResumePeer` | Ops Committee **policy** (a passed vote), Council policy, or gov | PENDING/SUSPENDED → ACTIVE. Activation is the trust decision, so it takes a vote |
 | `MsgUpdatePeerPolicy` | Ops Committee member | Content type allowlists, rate limits, moderation, `content_hosts` (ActivityPub peers: extra hosts allowed in a `content_uri` / `creator_identity`, max 8), author curation (`allowed_identities` max 256 / `"*"`, `curation` collection: must be ACTIVE, not on Spark Dream peers) |
@@ -197,12 +199,12 @@ SPARK on x/service.
 | `MsgFederateContent` | Outbound — creator-signed |
 | `MsgSubmitFederatedContent` | Inbound from bridge. `license` must be `CC0-1.0` or `PDM-1.0`: only public-domain content enters the chain (2389). On ActivityPub peers, `content_uri` and `creator_identity` must be on the peer's host (errors 2382 / 2384); the author must pass the policy's `allowed_identities` and curation collection (2385 / 2386 / 2387); optional `supersedes` retires the same operator's pending record of the same `content_uri` (2383) |
 | `MsgAttestOutbound` | Attestation of relayed content |
-| `MsgModerateContent` | Hide / unhide federated content. Refuses the system-assigned terminal statuses `UNRESOLVED` and `SUPERSEDED` (2354) |
+| `MsgModerateContent` | Hide (any Ops Committee member), reject or restore (committee policy) federated content. Never sets VERIFIED; refuses terminal statuses `UNRESOLVED` / `SUPERSEDED` (2354) and open disputes (2394) |
 | `MsgVerifyContent` | Verifier submits source-hash match |
 | `MsgChallengeVerification` | Challenge a verification |
-| `MsgSubmitArbiterHash` | Anonymous arbiter quorum (via x/shield) |
-| `MsgEscalateChallenge` | Escalate to x/rep jury |
-| `MsgResolveEscalatedChallenge` | Apply jury verdict |
+| `MsgSubmitArbiterHash` | Arbiter quorum (bridge operators, or anonymous via x/shield); refused after the round's resolution deadline, once a quorum is reached (the first quorum is final) or once escalated |
+| `MsgEscalateChallenge` | Escalate to the Operations Committee (refused after a stashed auto-verdict's escalation deadline) |
+| `MsgResolveEscalatedChallenge` | Apply jury verdict (committee policy only; parties refused) |
 
 ### Identity & Reputation
 
@@ -210,6 +212,7 @@ SPARK on x/service.
 |---|---|
 | `MsgLinkIdentity` | Begin two-phase challenge-response link |
 | `MsgConfirmIdentityLink` | Complete the link |
+| `MsgAttestIdentityLink` | Bridge operator (bound to the peer, ACTIVE in x/service, not the member) verifies an unexpired UNVERIFIED link to a bridge peer; the challenge must match the link's, ActivityPub evidence and identity must be on the peer's hosts, the remote identity must not be verified to someone else (errors 2399-2403). Never session-delegable |
 | `MsgUnlinkIdentity` | Sever an existing link |
 | `MsgRequestReputationAttestation` | IBC request to the peer chain. Requires a VERIFIED identity link to that peer |
 
@@ -258,12 +261,13 @@ a module that skims must skim first or find an empty pool.
 1. Prune expired federated content
 2. Prune expired reputation attestations
 3. Prune expired unverified identity links
+   - 3b. Return links attested by a slashed (dissolved) bridge operator to UNVERIFIED (`AttesterRevocations`, budgeted, resumes next block)
 4. Prune expired identity challenges
 5. *(removed — x/service owns operator unbonding; federation reacts via `AfterOperatorRetired` hook)*
 6. Expire unverified content (`PENDING_VERIFICATION → HIDDEN` after verification_window)
 7. Release verifier bond commitments (challenge_window expired without challenge)
-8. Expire arbiter resolution windows (no quorum → escalate to jury)
-9. Finalize auto-resolutions (escalation window expired → verdict final)
+8. Expire arbiter resolution windows (no quorum → settle content, release the verifier commitment, half-refund / half-burn the challenge fee); only the entry of the record's current round acts, and arbiter-data cleanup is charged to the prune budget and resumes next block
+9. Finalize auto-resolutions (escalation window expired → verdict final, unless the dispute was escalated: then only the Operations Committee verdict or its TIMEOUT settles it). Every settlement is single-shot: it zeroes the escrow and moves the content out of dispute. Then retry operator reports x/service refused under its rate limit
 10. Process peer removal queue (cursor-based)
 11. Bridge-operator reward distribution, then residual overflow burn
     — distribution runs first so the pool drains to the operators who earned

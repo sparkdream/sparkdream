@@ -1,18 +1,24 @@
 package simulation
 
 import (
+	"fmt"
 	"math/rand"
 
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
-	"github.com/cosmos/cosmos-sdk/x/simulation"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/season/keeper"
 	"sparkdream/x/season/types"
 )
 
+// SimulateMsgInviteToGuild delivers MsgInviteToGuild from the founder or an
+// officer of an active guild to a random account outside any guild
+// (creating the invitee's profile first when needed). Skips invitees with a
+// live invite and guilds at max_pending_invites (after the handler's
+// expired-invite pruning).
 func SimulateMsgInviteToGuild(
 	ak types.AuthKeeper,
 	bk types.BankKeeper,
@@ -21,65 +27,65 @@ func SimulateMsgInviteToGuild(
 ) simtypes.Operation {
 	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
 	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		simAccount, _ := simtypes.RandomAcc(r, accs)
+		msg := &types.MsgInviteToGuild{}
 
-		// Find or create a guild where this account is the founder (or officer)
-		guild, guildID, err := findGuildByFounder(r, ctx, k, simAccount.Address.String())
-		if err != nil || guild == nil {
-			guildID, err = getOrCreateGuild(r, ctx, k, simAccount.Address.String())
-			if err != nil {
-				return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgInviteToGuild{}), "failed to get/create guild"), nil, nil
-			}
-			// Load the guild to check status
-			guildVal, _ := k.Guild.Get(ctx, guildID)
-			guild = &guildVal
-		}
-
-		// Check if guild is active
-		if guild.Status != types.GuildStatus_GUILD_STATUS_ACTIVE {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgInviteToGuild{}), "guild not active"), nil, nil
-		}
-
-		// Find someone to invite
-		inviteeAccount, _ := simtypes.RandomAcc(r, accs)
-		if inviteeAccount.Address.String() == simAccount.Address.String() {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgInviteToGuild{}), "cannot invite self"), nil, nil
-		}
-
-		// Check if they're already a member
-		_, err = k.GuildMembership.Get(ctx, inviteeAccount.Address.String())
-		if err == nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgInviteToGuild{}), "invitee already in a guild"), nil, nil
-		}
-
-		// Ensure invitee has a profile
-		if err := getOrCreateMemberProfile(r, ctx, k, inviteeAccount.Address.String()); err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgInviteToGuild{}), "failed to create invitee profile"), nil, nil
-		}
-		// The handler reads the profile's guild, which can be set without a
-		// GuildMembership record (e.g. a profile seeded inside a guild).
-		if profile, err := k.MemberProfile.Get(ctx, inviteeAccount.Address.String()); err == nil && profile.GuildId != 0 {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgInviteToGuild{}), "invitee profile already in a guild"), nil, nil
-		}
-
-		msg := &types.MsgInviteToGuild{
-			Creator: simAccount.Address.String(),
-			GuildId: guildID,
-			Invitee: inviteeAccount.Address.String(),
-		}
-
-		return simulation.GenAndDeliverTxWithRandFees(simulation.OperationInput{
-			R:               r,
-			App:             app,
-			TxGen:           txGen,
-			Cdc:             nil,
-			Msg:             msg,
-			CoinsSpentInMsg: sdk.NewCoins(),
-			Context:         ctx,
-			SimAccount:      simAccount,
-			AccountKeeper:   ak,
-			Bankkeeper:      bk,
-			ModuleName:      types.ModuleName,
+		guilds, err := guildsWhere(ctx, k, func(g types.Guild) bool {
+			return g.Status == types.GuildStatus_GUILD_STATUS_ACTIVE
 		})
+		if err != nil {
+			return noOpErr(msg, err)
+		}
+		guild, ok := pick(r, guilds)
+		if !ok {
+			return noOp(msg, "no active guild")
+		}
+		inviters := accountsWhere(accs, func(a simtypes.Account) bool {
+			return a.Address.String() == guild.Founder || isOfficer(guild, a.Address.String())
+		})
+		inviter, ok := pick(r, inviters)
+		if !ok {
+			return noOp(msg, "guild founder/officers are not sim accounts")
+		}
+		invitee, _ := simtypes.RandomAcc(r, accs)
+		inviteeAddr := invitee.Address.String()
+		msg.Creator, msg.GuildId, msg.Invitee = inviter.Address.String(), guild.Id, inviteeAddr
+
+		if p, ok := getProfile(ctx, k, inviteeAddr); ok && p.GuildId != 0 {
+			return noOp(msg, "invitee already in a guild")
+		}
+
+		// Live pending invites after the handler prunes expired and
+		// dangling ones.
+		epoch := k.GetCurrentEpoch(ctx)
+		live := 0
+		for _, a := range guild.PendingInvites {
+			inv, err := k.GuildInvite.Get(ctx, fmt.Sprintf("%d:%s", guild.Id, a))
+			if err != nil || (inv.ExpiresEpoch > 0 && epoch > inv.ExpiresEpoch) {
+				continue
+			}
+			live++
+			if a == inviteeAddr {
+				return noOp(msg, "invitee already invited")
+			}
+		}
+		if k.HasPendingGuildInvite(ctx, guild.Id, inviteeAddr) {
+			return noOp(msg, "invitee already has an invite record")
+		}
+		params, err := k.Params.Get(ctx)
+		if err != nil {
+			return noOpErr(msg, err)
+		}
+		if commontypes.Saturate[uint32](live) >= params.MaxPendingInvites {
+			return noOp(msg, "max pending invites")
+		}
+
+		if ok, err := ensureProfile(r, app, ctx, txGen, ak, bk, k, invitee); err != nil || !ok {
+			if err != nil {
+				return noOpErr(msg, err)
+			}
+			return noOp(msg, "could not create invitee profile")
+		}
+
+		return deliver(r, app, ctx, txGen, ak, bk, inviter, msg)
 	}
 }

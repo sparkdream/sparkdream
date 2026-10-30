@@ -3,7 +3,9 @@ package keeper
 import (
 	"context"
 	"fmt"
+	"sort"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/rep/types"
 
 	"cosmossdk.io/collections"
@@ -32,7 +34,7 @@ func (k Keeper) GetCurrentEpoch(ctx context.Context) (int64, error) {
 // value, so the aggregate drifts below the sum of its claims and
 // UnlockDREAM's cap-to-actual shortfall lands entirely on whoever unlocks
 // last. Instead, staked decay is applied to the stake records themselves once
-// per epoch by decayStakes (MaybeApplyBulkDecay), which shrinks the record,
+// per epoch by decayStakesBatch (MaybeApplyBulkDecay), which shrinks the record,
 // its pool denominators, its reward debt, and the member aggregate in
 // lockstep. Obligations that are not stake records — invitations, challenges,
 // bonds, bounties — do not decay at all; escrow should not erode.
@@ -79,7 +81,7 @@ func (k Keeper) ApplyPendingDecay(ctx context.Context, member *types.Member) err
 	unstakedRate := params.UnstakedDecayRate
 	unstaked := member.DreamBalance.Sub(*member.StakedDream)
 	if unstaked.IsPositive() && unstakedRate.IsPositive() {
-		multiplier := one.Sub(unstakedRate).Power(uint64(elapsed))
+		multiplier := one.Sub(unstakedRate).Power(commontypes.Saturate[uint64](elapsed))
 		newUnstaked := math.LegacyNewDecFromInt(unstaked).Mul(multiplier).TruncateInt()
 		decayAmount := unstaked.Sub(newUnstaked)
 		if decayAmount.IsPositive() {
@@ -118,66 +120,46 @@ func memberWithinDecayGrace(member types.Member, params types.Params, currentEpo
 	return currentEpoch-joinEpoch < params.NewMemberDecayGraceEpochs
 }
 
-// decayStakes applies one epoch of staked decay to every reward-bearing stake
-// record (initiative, project, member, tag), shrinking each stake's Amount by
-// StakedDecayRate and moving every dependent ledger in lockstep:
-//
-//   - the stake's reward_debt is scaled with the principal, so a decaying
-//     stake's pending claim shrinks proportionally instead of clamping to zero;
-//   - the pool denominators (seasonal pool, per-project info, member/tag
-//     pools) drop by the same amount via updateStakePoolTotals, keeping the
-//     reward math's share weights equal to the economic stake;
-//   - the staker's member aggregates (StakedDream, DreamBalance,
-//     LifetimeBurned) absorb the burn, so the aggregate always equals the sum
-//     of the obligations backing it and any unlock can be paid in full.
-//
-// Author bonds keep their face value: slashable escrow cannot erode. Content
-// conviction stakes do NOT — they were exempt on the stated grounds that their
-// conviction "already time-decays through the conviction half-life", which is
-// not true of either conviction formula (both ramp time_factor to a cap of 1.0
-// and hold it), and the exemption made them a costless shelter. Non-stake
-// obligations (invitation locks, challenge stakes, bonded roles, bounties)
-// never had their own decay and are unaffected.
-//
-// Runs once per epoch from MaybeApplyBulkDecay, after the member unstaked
-// decay pass. Cost: O(all stake records) per epoch — every record is walked
-// even where skipped (author bonds, PROPOSED-project stakes) — the same order
-// the member walk already accepts, and amortized across the epoch's blocks.
-//
-// Terminal-project stakes decay with everything else: staked decay is the cost
-// of holding a staked position, not merely a brake on reward compounding, and
-// exempting them would make them a decay-free store of value dominating both
-// unstaked DREAM (0.2%/epoch) and live stakes as a place to park DREAM. Their
-// principal is freely withdrawable, so decay is simply the nudge to withdraw.
-// PROPOSED-project stakes are the one exemption, and are bounded rather than
-// permanent — see the case body below.
-//
-// Conviction is deliberately NOT refreshed per stake here: the shrink is
-// 0.05%/epoch of the principal, and the conviction queue recomputes on its own
-// schedule, so the drift self-corrects without an O(stakes) conviction pass.
-func (k Keeper) decayStakes(ctx context.Context) error {
+// decayStakesBatch decays stake records with id >= from, reading at most
+// budget records (0 = no limit), by `epochs` epochs of staked decay. It
+// returns the id to resume at and whether the walk reached the last record.
+// The per-member burn of the batch is settled before it returns, so a pass
+// split across blocks leaves every member consistent between batches.
+func (k Keeper) decayStakesBatch(ctx context.Context, from uint64, budget int, epochs uint64) (uint64, bool, error) {
 	params, err := k.Params.Get(ctx)
 	if err != nil {
-		return err
+		return from, false, err
 	}
 	stakedRate := params.StakedDecayRate
 	if stakedRate.IsNil() || !stakedRate.IsPositive() {
-		return nil
+		return from, true, nil
 	}
-	multiplier := math.LegacyOneDec().Sub(stakedRate)
+	if epochs == 0 {
+		epochs = 1
+	}
+	multiplier := math.LegacyOneDec().Sub(stakedRate).Power(epochs)
 
 	currentEpoch, err := k.GetCurrentEpoch(ctx)
 	if err != nil {
-		return err
+		return from, false, err
 	}
 
 	graceCache := make(map[string]bool)
 	projectExempt := make(map[uint64]bool) // project id -> exempt because PROPOSED
 	memberDecay := make(map[string]math.Int)
 	decayedStakes := 0
+	visited := 0
+	next := from
+	done := true
 
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
-	err = k.Stake.Walk(ctx, nil, func(id uint64, stake types.Stake) (bool, error) {
+	err = k.Stake.Walk(ctx, new(collections.Range[uint64]).StartInclusive(from), func(id uint64, stake types.Stake) (bool, error) {
+		if budget > 0 && visited >= budget {
+			done = false
+			return true, nil
+		}
+		visited++
+		next = id + 1
 		switch stake.TargetType {
 		case types.StakeTargetType_STAKE_TARGET_INITIATIVE,
 			types.StakeTargetType_STAKE_TARGET_MEMBER,
@@ -203,6 +185,7 @@ func (k Keeper) decayStakes(ctx context.Context) error {
 			}
 
 		case types.StakeTargetType_STAKE_TARGET_BLOG_CONTENT,
+			types.StakeTargetType_STAKE_TARGET_BLOG_REPLY_CONTENT,
 			types.StakeTargetType_STAKE_TARGET_FORUM_CONTENT,
 			types.StakeTargetType_STAKE_TARGET_COLLECTION_CONTENT:
 			// Content conviction decays with everything else. It was exempt on
@@ -230,15 +213,19 @@ func (k Keeper) decayStakes(ctx context.Context) error {
 			return false, nil
 		}
 
-		inGrace, cached := graceCache[stake.Staker]
+		// Stake records keep the address they were opened under; the member
+		// that now carries it is found through the alias (REP-E-07), so a
+		// migrated staker's decay is charged to the member that holds the lock.
+		owner := k.Canonical(ctx, stake.Staker)
+		inGrace, cached := graceCache[owner]
 		if !cached {
-			member, mErr := k.Member.Get(ctx, stake.Staker)
+			member, mErr := k.Member.Get(ctx, owner)
 			if mErr == nil {
 				inGrace = memberWithinDecayGrace(member, params, currentEpoch)
 			}
 			// A missing member record cannot be looked up for grace; decay the
 			// stake anyway — its DREAM is locked regardless.
-			graceCache[stake.Staker] = inGrace
+			graceCache[owner] = inGrace
 		}
 		if inGrace {
 			return false, nil
@@ -263,20 +250,29 @@ func (k Keeper) decayStakes(ctx context.Context) error {
 		if err := k.updateStakePoolTotals(ctx, stake, burned.Neg()); err != nil {
 			return true, err
 		}
-		if cur, ok := memberDecay[stake.Staker]; ok {
-			memberDecay[stake.Staker] = cur.Add(burned)
+		if cur, ok := memberDecay[owner]; ok {
+			memberDecay[owner] = cur.Add(burned)
 		} else {
-			memberDecay[stake.Staker] = burned
+			memberDecay[owner] = burned
 		}
 		decayedStakes++
 		return false, nil
 	})
 	if err != nil {
-		return err
+		return from, false, err
 	}
 
+	// Sorted keys: map iteration order is random, and the writes below must be
+	// the same on every node.
+	stakers := make([]string, 0, len(memberDecay))
+	for staker := range memberDecay {
+		stakers = append(stakers, staker)
+	}
+	sort.Strings(stakers)
+
 	totalBurned := math.ZeroInt()
-	for staker, burned := range memberDecay {
+	for _, staker := range stakers {
+		burned := memberDecay[staker]
 		member, mErr := k.Member.Get(ctx, staker)
 		if mErr != nil {
 			// The stake walk already decayed the stake and its pools; skipping
@@ -285,11 +281,24 @@ func (k Keeper) decayStakes(ctx context.Context) error {
 			sdkCtx.Logger().Error("failed to load member for stake decay burn", "staker", staker, "error", mErr)
 			continue
 		}
+		// Floored at zero: an aggregate that is already short of its records
+		// (a member whose DREAM was taken some other way) must never go
+		// negative, which would corrupt `unlocked = balance - staked`
+		// everywhere it is read. The burn charged is what was actually there.
+		if burned.GT(*member.StakedDream) {
+			burned = math.MaxInt(*member.StakedDream, math.ZeroInt())
+		}
+		if burned.GT(*member.DreamBalance) {
+			burned = math.MaxInt(*member.DreamBalance, math.ZeroInt())
+		}
+		if !burned.IsPositive() {
+			continue
+		}
 		*member.StakedDream = member.StakedDream.Sub(burned)
 		*member.DreamBalance = member.DreamBalance.Sub(burned)
 		*member.LifetimeBurned = member.LifetimeBurned.Add(burned)
 		if err := k.Member.Set(ctx, staker, member); err != nil {
-			return err
+			return from, false, err
 		}
 		totalBurned = totalBurned.Add(burned)
 	}
@@ -298,7 +307,7 @@ func (k Keeper) decayStakes(ctx context.Context) error {
 	// burn total is already accumulated above for the event.
 	if totalBurned.IsPositive() {
 		if err := k.TrackBurn(ctx, totalBurned); err != nil {
-			return err
+			return from, false, err
 		}
 	}
 
@@ -312,7 +321,7 @@ func (k Keeper) decayStakes(ctx context.Context) error {
 			),
 		)
 	}
-	return nil
+	return next, done, nil
 }
 
 // GetBalance returns the balance of a member, applying any pending decay first.
@@ -466,9 +475,17 @@ func (k Keeper) CreditDREAM(ctx context.Context, addr sdk.AccAddress, amount mat
 	return nil
 }
 
-// BurnDREAM burns DREAM tokens from a member's balance.
+// BurnDREAM burns DREAM tokens from a member's UNLOCKED balance.
 // This updates the member's balance, lifetime burned tracking, and the
 // per-season burn counter.
+//
+// Only the unlocked part of the balance can be burned (REP-E-03). Locked
+// DREAM backs an escrow somewhere (a stake record, a challenge stake, an
+// invitation, a bond), and a fee paid out of it left DreamBalance below
+// StakedDream: the escrow's later slash then failed and wedged whatever was
+// waiting on it. Slashing a specific escrow goes through BurnLockedDREAM; the
+// cross-module "unlock, then burn" pairs keep working because the unlock
+// makes the amount unlocked first.
 //
 // Season tracking lives here for the same reason TrackMint lives in MintDREAM:
 // TrackBurn previously had exactly one call site, the treasury-overflow burn,
@@ -478,7 +495,7 @@ func (k Keeper) CreditDREAM(ctx context.Context, addr sdk.AccAddress, amount mat
 // cross-module burns from x/forum, x/collect, x/reveal, x/name and x/season.
 //
 // The paths that do NOT route through here track their own burns: decay
-// (ApplyPendingDecay and decayStakes), the transfer tax, zeroing, and the
+// (ApplyPendingDecay and decayStakesBatch), the transfer tax, zeroing, and the
 // treasury overflow. SPARK burns — the bonded-role reward-pool overflows — are
 // deliberately excluded; SeasonBurned counts DREAM.
 func (k Keeper) BurnDREAM(ctx context.Context, addr sdk.AccAddress, amount math.Int) error {
@@ -499,8 +516,8 @@ func (k Keeper) BurnDREAM(ctx context.Context, addr sdk.AccAddress, amount math.
 		return err
 	}
 
-	// Check sufficient balance
-	if member.DreamBalance.LT(amount) {
+	// Check sufficient unlocked balance
+	if member.DreamBalance.Sub(DerefInt(member.StakedDream)).LT(amount) {
 		return types.ErrInsufficientBalance
 	}
 
@@ -530,9 +547,62 @@ func (k Keeper) BurnDREAM(ctx context.Context, addr sdk.AccAddress, amount math.
 	return nil
 }
 
+// BurnLockedDREAM slashes an escrow: it releases amount from the member's
+// locked DREAM and burns it in one step. Every slash of a specific escrow
+// (a rejected challenge stake, a slashed bond, a forfeited invitation stake)
+// goes through here instead of an UnlockDREAM + BurnDREAM pair, so the burn
+// can never be paid out of some other escrow's lock and the amount locked
+// never exceeds the balance behind it.
+//
+// Fails with ErrInsufficientStake when less than amount is locked: the escrow
+// is not there (the member was zeroed, which already burned it), and the
+// caller decides whether that is fatal.
+func (k Keeper) BurnLockedDREAM(ctx context.Context, addr sdk.AccAddress, amount math.Int) error {
+	addr = k.resolveMember(ctx, addr)
+	if amount.IsNil() || !amount.IsPositive() {
+		return types.ErrInvalidAmount
+	}
+
+	member, err := k.Member.Get(ctx, addr.String())
+	if err != nil {
+		return types.ErrMemberNotFound
+	}
+	if err := k.ApplyPendingDecay(ctx, &member); err != nil {
+		return err
+	}
+	if DerefInt(member.StakedDream).LT(amount) {
+		return errorsmod.Wrapf(types.ErrInsufficientStake, "%s locked, %s to burn", DerefInt(member.StakedDream), amount)
+	}
+	if member.DreamBalance.LT(amount) {
+		// Locked DREAM is a subset of the balance; this only trips on a
+		// corrupted record, which must not be burned into negative.
+		return errorsmod.Wrapf(types.ErrInsufficientBalance, "%s balance, %s to burn", member.DreamBalance, amount)
+	}
+
+	*member.StakedDream = member.StakedDream.Sub(amount)
+	*member.DreamBalance = member.DreamBalance.Sub(amount)
+	*member.LifetimeBurned = member.LifetimeBurned.Add(amount)
+	if err := k.TrackBurn(ctx, amount); err != nil {
+		return err
+	}
+	if err := k.Member.Set(ctx, addr.String(), member); err != nil {
+		return err
+	}
+
+	sdk.UnwrapSDKContext(ctx).EventManager().EmitEvent(
+		sdk.NewEvent(
+			"burn_dream",
+			sdk.NewAttribute("from", addr.String()),
+			sdk.NewAttribute("amount", amount.String()),
+			sdk.NewAttribute("locked", "true"),
+		),
+	)
+	return nil
+}
+
 // LockDREAM locks DREAM tokens (moves from available balance to staked).
 // Staked DREAM stops decaying at the unstaked rate; reward-bearing stakes
-// instead decay at the lower StakedDecayRate via decayStakes, which shrinks
+// instead decay at the lower StakedDecayRate via decayStakesBatch, which shrinks
 // the stake records and this aggregate together.
 func (k Keeper) LockDREAM(ctx context.Context, addr sdk.AccAddress, amount math.Int) error {
 	// Value lookup: a stored (possibly tombstoned) address resolves to the
@@ -545,6 +615,14 @@ func (k Keeper) LockDREAM(ctx context.Context, addr sdk.AccAddress, amount math.
 	member, err := k.Member.Get(ctx, addr.String())
 	if err != nil {
 		return types.ErrMemberNotFound
+	}
+
+	// A zeroed member never locks again. Zeroing burns every lock along with
+	// the balance, and an escrow record another module still holds against the
+	// member then unlocks against nothing (ErrInsufficientStake) instead of
+	// against a fresh lock that backs something else (REP-E-06).
+	if member.Status != types.MemberStatus_MEMBER_STATUS_ACTIVE {
+		return types.ErrMemberNotActive
 	}
 
 	// Apply pending decay before checking balance
@@ -581,6 +659,12 @@ func (k Keeper) LockDREAM(ctx context.Context, addr sdk.AccAddress, amount math.
 
 // UnlockDREAM unlocks DREAM tokens (moves from staked to available balance).
 // Unlocked tokens begin decaying at the unstaked rate if not re-staked.
+//
+// Strict: when less than amount is locked it fails with ErrInsufficientStake
+// and releases nothing. It used to cap the release at whatever was locked,
+// which on a shortfall released other escrows' locks to pay this one. With
+// per-stake decay the aggregate equals the sum of the escrows behind it, so a
+// shortfall only means the escrow is gone (the member was zeroed).
 func (k Keeper) UnlockDREAM(ctx context.Context, addr sdk.AccAddress, amount math.Int) error {
 	// Value lookup: a stored (possibly tombstoned) address resolves to the
 	// member that now carries it (alias.go).
@@ -599,18 +683,10 @@ func (k Keeper) UnlockDREAM(ctx context.Context, addr sdk.AccAddress, amount mat
 		return err
 	}
 
-	// Check sufficient staked balance. With per-stake decay the aggregate
-	// tracks the sum of the underlying obligations exactly, so a full unlock
-	// of any one obligation succeeds; the cap below is defense against
-	// pre-fix aggregate drift, where staked DREAM had decayed below the
-	// originally locked amount.
-	unlockAmount := amount
 	if member.StakedDream.LT(amount) {
-		if member.StakedDream.IsZero() {
-			return types.ErrInsufficientStake
-		}
-		unlockAmount = *member.StakedDream
+		return errorsmod.Wrapf(types.ErrInsufficientStake, "%s locked, %s to unlock", member.StakedDream, amount)
 	}
+	unlockAmount := amount
 
 	// Unlock the tokens
 	*member.StakedDream = member.StakedDream.Sub(unlockAmount)
@@ -692,7 +768,7 @@ func (k Keeper) TransferDREAM(ctx context.Context, sender, recipient sdk.AccAddr
 	netAmount := amount.Sub(tax)
 
 	giftKey := collections.Join(sender.String(), recipient.String())
-	var giftTotal math.Int
+	var giftTotal, giftKeyTotal math.Int
 
 	switch purpose {
 	case types.TransferPurpose_TRANSFER_PURPOSE_TIP:
@@ -716,14 +792,26 @@ func (k Keeper) TransferDREAM(ctx context.Context, sender, recipient sdk.AccAddr
 		senderMember.TipsSentThisEpoch = PtrInt(sent)
 
 	case types.TransferPurpose_TRANSFER_PURPOSE_GIFT:
-		if params.GiftOnlyToInvitees && recipientMember.InvitedBy != sender.String() {
+		// InvitedBy is never re-keyed, so a migrated inviter is matched
+		// through the alias (REP-R-11); a tombstone never passes CanActAs.
+		if params.GiftOnlyToInvitees && !k.CanActAs(ctx, sender.String(), recipientMember.InvitedBy) {
 			return types.ErrGiftOnlyToInvitees
 		}
-		giftTotal = math.ZeroInt()
-		if rec, gErr := k.GiftRecord.Get(ctx, giftKey); gErr == nil {
-			giftTotal = DerefInt(rec.TotalGifted)
+		// The lifetime cap counts what the sender gave under every address
+		// it ever had: records stay keyed by the address that sent them, so
+		// reading only (sender, recipient) would reset the cap on migration.
+		giftTotal, giftKeyTotal = math.ZeroInt(), math.ZeroInt()
+		for _, from := range k.AllAddressesOf(ctx, sender.String()) {
+			if rec, gErr := k.GiftRecord.Get(ctx, collections.Join(from, recipient.String())); gErr == nil {
+				v := DerefInt(rec.TotalGifted)
+				giftTotal = giftTotal.Add(v)
+				if from == sender.String() {
+					giftKeyTotal = v
+				}
+			}
 		}
 		giftTotal = giftTotal.Add(amount)
+		giftKeyTotal = giftKeyTotal.Add(amount)
 		if giftTotal.GT(params.MaxGiftPerInvitee) {
 			return errorsmod.Wrapf(types.ErrExceedsGiftAllowance, "lifetime allowance is %s", params.MaxGiftPerInvitee)
 		}
@@ -739,7 +827,7 @@ func (k Keeper) TransferDREAM(ctx context.Context, sender, recipient sdk.AccAddr
 		if err := k.GiftRecord.Set(ctx, giftKey, types.GiftRecord{
 			Sender:      sender.String(),
 			Recipient:   recipient.String(),
-			TotalGifted: PtrInt(giftTotal),
+			TotalGifted: PtrInt(giftKeyTotal),
 		}); err != nil {
 			return err
 		}

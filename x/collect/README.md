@@ -11,7 +11,7 @@ This module provides:
 - **Preservation vs. pinning (strict separation)** — `MsgMakeCollectionPermanent` owns the lifecycle (burn deposits, clear TTL), while `MsgPinCollection`/`MsgUnpinCollection` are display-only markers that require an already-permanent target
 - **Privacy-first design** — client-side encryption for private collections; single opaque blob model
 - **Two-tier content system** — members create permanent collections; non-members create TTL (ephemeral) collections with sponsorship pathway to permanence
-- **Quality curation** — bonded curators rate public collections with verdicts and tags; challenges via `x/rep` jury system
+- **Quality curation** — bonded curators rate public collections with verdicts and tags; challenges resolved by an Operations Committee verdict (`MsgResolveCurationChallenge`) or a neutral timeout
 - **Community reactions** — members upvote (free) or downvote (25 SPARK cost) public collections and items
 - **Sentinel moderation** — x/forum sentinels can hide inappropriate content with appeal mechanism; bond commit/release/slash flows through x/rep's `BondedRole(ROLE_TYPE_CONTENT_SENTINEL)` API (no collect-local bond store)
 - **Tiered collection limits** — capacity scales with `x/rep` trust level
@@ -82,8 +82,9 @@ inviter's stake in full.
 - Curators register by staking DREAM bond (minimum `min_curator_bond`, default 500 DREAM)
 - Curators rate public collections with verdict (UP/DOWN) and descriptive tags
 - One active review per curator per collection
-- Reviews can be challenged by jury members; challenge window ~7 days
-- Successful challenges slash curator bond (10% default)
+- Reviews can be challenged by members (DREAM deposit); challenge window ~7 days
+- The Operations Committee (policy, via proposal) delivers the verdict with `MsgResolveCurationChallenge`; unresolved challenges time out neutrally after ~14 days
+- Successful challenges slash the curator's committed bond (10% of the minimum bond); the challenger is minted 80% of it
 
 ### Sponsorship Pathway
 
@@ -169,7 +170,8 @@ Items and collections never hold media bytes: a data URI in `image_uri`, `cover_
 | Message | Description | Access |
 |---------|-------------|--------|
 | `MsgRateCollection` | Submit review with verdict, tags, comment | Active curator (one per collection) |
-| `MsgChallengeReview` | Challenge curator review within window | Jury members via `x/rep` |
+| `MsgChallengeReview` | Challenge curator review within window | Active `x/rep` members |
+| `MsgResolveCurationChallenge` | Deliver a curation-challenge verdict | Gov, Commons Council or Operations Committee policy |
 
 > Curator bonding flows through x/rep's generic `MsgBondRole` / `MsgUnbondRole` with `role_type = ROLE_TYPE_COLLECT_CURATOR`. Unbond is **queued** for `curator_unbond_cooldown` (default 7 days): DREAM stays locked and slashable, `bond_status` flips to `UNBONDING`, and `MsgRateCollection` rejects on this status to contain new liability while the bond drains. The rep EndBlocker matures pending unbonds via `MatureUnbonds`. See the [x/rep spec](../../docs/x-rep-spec.md).
 

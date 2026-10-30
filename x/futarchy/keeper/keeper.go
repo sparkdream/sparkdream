@@ -18,6 +18,9 @@ type lateKeepers struct {
 	commonsKeeper  types.CommonsKeeper
 	repKeeper      types.RepKeeper
 	identityKeeper types.IdentityKeeper
+	// hooks are set in app.go after depinject; kept here so the AppModule's
+	// value copy (which runs the EndBlocker market resolution) sees them.
+	hooks types.FutarchyHooks
 }
 
 type Keeper struct {
@@ -38,8 +41,6 @@ type Keeper struct {
 	Market        collections.Map[uint64, types.Market]
 	MarketSeq     collections.Sequence
 	ActiveMarkets collections.KeySet[collections.Pair[int64, uint64]]
-
-	Hooks types.FutarchyHooks
 }
 
 func NewKeeper(

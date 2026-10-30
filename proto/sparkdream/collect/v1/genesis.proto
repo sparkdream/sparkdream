@@ -22,7 +22,7 @@ message GenesisState {
   repeated Item items = 4 [(gogoproto.nullable) = false];
   uint64 item_count = 5;
   repeated Collaborator collaborators = 6 [(gogoproto.nullable) = false];
-  repeated CuratorActivity curator_activities = 16 [(gogoproto.nullable) = false];
+  repeated CuratorActivity curator_activities = 7 [(gogoproto.nullable) = false];
   repeated CurationReview curation_reviews = 8 [(gogoproto.nullable) = false];
   uint64 curation_review_count = 9;
   repeated CurationSummary curation_summaries = 10 [(gogoproto.nullable) = false];
@@ -31,4 +31,37 @@ message GenesisState {
   repeated HideRecord hide_records = 13 [(gogoproto.nullable) = false];
   uint64 hide_record_count = 14;
   repeated Endorsement endorsements = 15 [(gogoproto.nullable) = false];
+  // reaction_dedups persists the per-(voter, target) reaction marker
+  // (1 = upvote, 2 = downvote) so a voter cannot react again after import.
+  repeated ReactionCounterEntry reaction_dedups = 16 [(gogoproto.nullable) = false];
+  // reaction_limits persists the per-(address, day, category) daily counters.
+  repeated ReactionCounterEntry reaction_limits = 17 [(gogoproto.nullable) = false];
+  // Not-adjudicated timeout schedule of the pending curation challenges.
+  // A pending challenge without an entry gets the latest possible deadline
+  // (review creation + challenge window + resolution timeout).
+  repeated CurationChallengeDeadline curation_challenge_deadlines = 18 [(gogoproto.nullable) = false];
+  // Members queued for eager promotion of their ephemeral content (admitted
+  // after posting). Hook-driven, so carried verbatim with the enqueue height;
+  // without it an import would leave that content to the lazy TTL-time path.
+  repeated PromotionQueueEntry promotion_queue = 19 [(gogoproto.nullable) = false];
+}
+
+// CurationChallengeDeadline is the block height at which the pending
+// challenge on review_id resolves as not adjudicated.
+message CurationChallengeDeadline {
+  int64 deadline = 1;
+  uint64 review_id = 2;
+}
+
+// ReactionCounterEntry is one string-keyed uint32 counter (ReactionDedup or
+// ReactionLimit), flattened for genesis import/export.
+message ReactionCounterEntry {
+  string key = 1;
+  uint32 value = 2;
+}
+
+// PromotionQueueEntry is one queued author and the height it was enqueued.
+message PromotionQueueEntry {
+  string address = 1;
+  int64 enqueued_at = 2;
 }

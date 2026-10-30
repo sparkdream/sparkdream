@@ -17,9 +17,21 @@ var (
 	ErrGroupNotActive    = errors.Register(ModuleName, 1603, "group is not yet active (shell group)")
 	ErrGroupExpired      = errors.Register(ModuleName, 1604, "group term has expired")
 
-	ErrInvalidMemberWeight     = errors.Register(ModuleName, 1605, "invalid member weight")
-	ErrGoldenShareSeat         = errors.Register(ModuleName, 1606, "the golden-share seat can only be changed by x/gov")
-	ErrAnonymousVotingDisabled = errors.Register(ModuleName, 1607, "anonymous votes on council proposals are disabled")
+	ErrInvalidMemberWeight = errors.Register(ModuleName, 1605, "invalid member weight")
+	ErrGoldenShareSeat     = errors.Register(ModuleName, 1606, "the golden-share seat can only be changed by x/gov")
+	ErrBallotMode          = errors.Register(ModuleName, 1607, "the ballot mode does not allow this vote")
+
+	// Secret ballots and polls
+	ErrSecretBallotUnavailable = errors.Register(ModuleName, 1608, "a secret ballot needs equal member weights and enough members with registered ZK keys")
+	ErrPollNotFound            = errors.Register(ModuleName, 1609, "poll not found")
+	ErrPollNotOpen             = errors.Register(ModuleName, 1610, "poll is not open for voting")
+	ErrInvalidPoll             = errors.Register(ModuleName, 1611, "invalid poll")
+	ErrPollLimit               = errors.Register(ModuleName, 1612, "too many open polls")
+	ErrAlreadyVoted            = errors.Register(ModuleName, 1613, "already voted on this poll")
+	ErrPollHasVotes            = errors.Register(ModuleName, 1614, "a poll with votes cannot be cancelled")
+	// A group that is another group's parent or electoral authority cannot
+	// be deleted: the dependent would keep a policy that no longer exists.
+	ErrGroupHasDependents = errors.Register(ModuleName, 1615, "group is the parent or electoral authority of another group")
 
 	// Recurring Spend Errors
 	ErrRecurringSpendNotFound      = errors.Register(ModuleName, 1700, "recurring spend schedule not found")

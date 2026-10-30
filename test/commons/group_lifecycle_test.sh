@@ -75,9 +75,9 @@ echo '{
       "authority": "'$COMMONS_POLICY'",
       "name": "Digital Art DAO",
       "description": "Sub-committee for NFT grants",
-      "members": ["'$DAVE_ADDR'"],
-      "member_weights": ["4"],
-      "min_members": 1,
+      "members": ["'$DAVE_ADDR'", "'$BOB_ADDR'"],
+      "member_weights": ["4", "1"],
+      "min_members": 2,
       "max_members": 5,
       "term_duration": 60,
       "vote_threshold": "1",
@@ -209,8 +209,8 @@ echo '{
       "@type": "/sparkdream.commons.v1.MsgRenewGroup",
       "authority": "'$COMMONS_POLICY'",
       "group_name": "Digital Art DAO",
-      "new_members": ["'$CAROL_ADDR'"],
-      "new_member_weights": ["4"]
+      "new_members": ["'$CAROL_ADDR'", "'$BOB_ADDR'"],
+      "new_member_weights": ["4", "1"]
     }
   ],
   "metadata": "Rotate members: Dave out, Carol in"

@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	commontypes "sparkdream/x/common/types"
 	shieldtypes "sparkdream/x/shield/types"
 
+	"cosmossdk.io/collections"
 	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
@@ -111,9 +113,12 @@ func (k Keeper) IsGovAuthority(ctx context.Context, addr string) bool {
 	return bytes.Equal(k.authority, addrBytes)
 }
 
-// IsMember checks if the given address is a registered member via x/rep.
-// The shield module address is always considered a member because the ZK proof
-// verified membership before routing the message.
+// IsMember reports whether the address gets member treatment in the forum:
+// an ACTIVE x/rep member. A zeroed or inactive member keeps its Member record
+// but not its standing, so it is treated as a non-member (ephemeral posts,
+// spam tax, non-member flag weight, no members-only writes). The shield module
+// address is always a member because the ZK proof verified membership before
+// routing the message.
 func (k Keeper) IsMember(ctx context.Context, addr string) bool {
 	if k.repKeeper == nil {
 		return true // Fallback: permissive mode when x/rep not wired
@@ -125,7 +130,7 @@ func (k Keeper) IsMember(ctx context.Context, addr string) bool {
 	if sdk.AccAddress(addrBytes).Equals(shieldModuleAddress) {
 		return true
 	}
-	return k.repKeeper.IsMember(ctx, sdk.AccAddress(addrBytes))
+	return k.repKeeper.IsActiveMember(ctx, sdk.AccAddress(addrBytes))
 }
 
 // IsActiveMember checks if the given address is an active member (not zeroed).
@@ -244,6 +249,16 @@ func (k Keeper) isCouncilAuthorized(ctx context.Context, addr string, council st
 	return k.commonsKeeper.IsCouncilAuthorized(ctx, addr, council, committee)
 }
 
+// isCouncilOrCommitteePolicy accepts only an executed council / committee
+// decision (policy address) or governance, never a single committee member.
+// Falls back to IsGovAuthority when x/commons is not wired.
+func (k Keeper) isCouncilOrCommitteePolicy(ctx context.Context, addr string, council string, committee string) bool {
+	if k.commonsKeeper == nil {
+		return k.IsGovAuthority(ctx, addr)
+	}
+	return k.commonsKeeper.IsCouncilOrCommitteePolicy(ctx, addr, council, committee)
+}
+
 // CreateAppealInitiative creates an x/rep initiative for jury-based appeal resolution.
 // initiativeType: type of appeal ("moderation_appeal", "sentinel_appeal", etc.)
 // payload: JSON-encoded appeal data containing case details
@@ -265,11 +280,8 @@ func (k Keeper) SlashSentinelBond(ctx context.Context, addr string, amount math.
 	if err != nil {
 		return err
 	}
-	// First unlock the staked DREAM, then burn it
-	if err := k.repKeeper.UnlockDREAM(ctx, sdk.AccAddress(addrBytes), amount); err != nil {
-		return err
-	}
-	return k.repKeeper.BurnDREAM(ctx, sdk.AccAddress(addrBytes), amount)
+	// Burn the staked DREAM straight out of the lock.
+	return k.repKeeper.BurnLockedDREAM(ctx, sdk.AccAddress(addrBytes), amount)
 }
 
 // MintDREAM mints DREAM tokens to a member via x/rep.
@@ -471,5 +483,42 @@ func (k Keeper) GetTrustLevel(ctx context.Context, addr string) uint64 {
 	if err != nil {
 		return 0
 	}
-	return uint64(trustLevel)
+	return commontypes.Saturate[uint64](trustLevel)
+}
+
+// requireForumNotPaused refuses user-content writes while params.forum_paused
+// is set (the emergency stop). Moderation, appeals and fund exits (bounty
+// cancel / award, stake release) stay open so a pause never strands value.
+func (k Keeper) requireForumNotPaused(ctx context.Context) error {
+	params, err := k.Params.Get(ctx)
+	if err == nil && params.ForumPaused {
+		return types.ErrForumPaused
+	}
+	return nil
+}
+
+// setRootCategory moves a thread root to another category, re-keying its
+// PostsByPinned entry when it is pinned: the index is keyed (category,
+// post), so a move that only changed CategoryId left the pin listed under
+// the old category and leaked the entry on unpin (FRM-31). RootsByCategory
+// is re-keyed the same way. The caller stores the post.
+func (k Keeper) setRootCategory(ctx context.Context, post *types.Post, categoryID uint64) error {
+	if post.CategoryId != categoryID {
+		if err := k.RootsByCategory.Remove(ctx, collections.Join(post.CategoryId, post.PostId)); err != nil {
+			return err
+		}
+		if err := k.RootsByCategory.Set(ctx, collections.Join(categoryID, post.PostId)); err != nil {
+			return err
+		}
+	}
+	if post.Pinned && post.CategoryId != categoryID {
+		if err := k.PostsByPinned.Remove(ctx, collections.Join(post.CategoryId, post.PostId)); err != nil {
+			return err
+		}
+		if err := k.PostsByPinned.Set(ctx, collections.Join(categoryID, post.PostId)); err != nil {
+			return err
+		}
+	}
+	post.CategoryId = categoryID
+	return nil
 }

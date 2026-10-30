@@ -10,6 +10,9 @@ import (
 	storetypes "cosmossdk.io/store/types"
 	abcitypes "github.com/cometbft/cometbft/abci/types"
 	addresscodec "github.com/cosmos/cosmos-sdk/codec/address"
+	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
+	"github.com/cosmos/cosmos-sdk/crypto/keys/ed25519"
+	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	"github.com/cosmos/cosmos-sdk/runtime"
 	"github.com/cosmos/cosmos-sdk/testutil"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -59,9 +62,11 @@ func (identityStub) IsIdentityKeeper()                 {}
 func (identityStub) BondDenom(context.Context) string  { return "uspark" }
 func (identityStub) DreamDenom(context.Context) string { return "udream" }
 
-// stakingStub maps consensus addresses to operator addresses.
+// stakingStub maps consensus addresses to operator addresses and consensus
+// public keys.
 type stakingStub struct {
 	byCons map[string]string
+	pubs   map[string]cryptotypes.PubKey
 }
 
 func (s stakingStub) GetValidator(context.Context, sdk.ValAddress) (stakingtypes.Validator, error) {
@@ -73,7 +78,15 @@ func (s stakingStub) GetValidatorByConsAddr(_ context.Context, cons sdk.ConsAddr
 	if !ok {
 		return stakingtypes.Validator{}, fmt.Errorf("unknown validator")
 	}
-	return stakingtypes.Validator{OperatorAddress: op}, nil
+	val := stakingtypes.Validator{OperatorAddress: op}
+	if pk, ok := s.pubs[string(cons)]; ok {
+		pkAny, err := codectypes.NewAnyWithValue(pk)
+		if err != nil {
+			return stakingtypes.Validator{}, err
+		}
+		val.ConsensusPubkey = pkAny
+	}
+	return val, nil
 }
 
 func (s stakingStub) GetBondedValidatorsByPower(context.Context) ([]stakingtypes.Validator, error) {
@@ -85,8 +98,52 @@ type shareFixture struct {
 	k       keeper.Keeper
 	master  kyber.Scalar
 	secrets map[string]kyber.Scalar
-	cons    map[string][]byte // operator → consensus address
+	cons    map[string][]byte              // operator → consensus address
+	privs   map[string]cryptotypes.PrivKey // operator → consensus key
+	pubs    map[string]cryptotypes.PubKey  // consensus address → consensus key
 	ks      types.TLEKeySet
+}
+
+// The ABCI requests in these tests carry no height and round 0, so the
+// handlers check signatures made at height -1, round 0.
+const testSignedHeight, testSignedRound = int64(-1), int32(0)
+
+// sign signs ext's bytes as validator v's vote extension.
+func (f *shareFixture) sign(v string, extBz []byte) []byte {
+	priv, ok := f.privs[v]
+	if !ok {
+		return nil
+	}
+	signBytes, err := extensionSignBytes(extBz, testSignedHeight, testSignedRound, f.ctx.ChainID())
+	if err != nil {
+		panic(err)
+	}
+	sig, err := priv.Sign(signBytes)
+	if err != nil {
+		panic(err)
+	}
+	return sig
+}
+
+// vote is v's committed vote carrying ext, signed by v.
+func (f *shareFixture) vote(v string, ext []byte) abcitypes.ExtendedVoteInfo {
+	vi := commitVote(f.cons[v], ext)
+	vi.ExtensionSignature = f.sign(v, ext)
+	return vi
+}
+
+// signedExt is ext attributed to v, with v's signature.
+func (f *shareFixture) signedExt(v string, ext *types.DKGVoteExtension) *types.ValidatorDKGExtension {
+	bz, err := ext.Marshal()
+	if err != nil {
+		panic(err)
+	}
+	return &types.ValidatorDKGExtension{ValidatorAddress: f.cons[v], Extension: *ext, ExtensionSignature: f.sign(v, bz)}
+}
+
+// validateInjected runs validateInjectedDKGData at the test signing point.
+func validateInjected(ctx sdk.Context, k keeper.Keeper, data *types.InjectedDKGData) error {
+	return validateInjectedDKGData(ctx, k, data, testSignedHeight, testSignedRound)
 }
 
 func newShareFixture(t *testing.T, vals []string, threshold int) *shareFixture {
@@ -100,7 +157,8 @@ func newShareFixture(t *testing.T, vals []string, threshold int) *shareFixture {
 	k.SetIdentityKeeper(identityStub{})
 	require.NoError(t, k.InitGenesis(testCtx.Ctx, *types.DefaultGenesis()))
 
-	f := &shareFixture{ctx: testCtx.Ctx, k: k, secrets: map[string]kyber.Scalar{}, cons: map[string][]byte{}}
+	f := &shareFixture{ctx: testCtx.Ctx, k: k, secrets: map[string]kyber.Scalar{}, cons: map[string][]byte{},
+		privs: map[string]cryptotypes.PrivKey{}, pubs: map[string]cryptotypes.PubKey{}}
 	byCons := map[string]string{}
 	f.master = tle.Suite.G1().Scalar().Pick(random.New())
 	poly := share.NewPriPoly(tle.Suite.G1(), threshold, f.master, random.New())
@@ -114,8 +172,11 @@ func newShareFixture(t *testing.T, vals []string, threshold int) *shareFixture {
 	for i, v := range vals {
 		f.secrets[v] = pri[i].V
 		sum := sha256.Sum256([]byte(fmt.Sprintf("cons-%02d-%s", i, v)))
-		cons := sum[:20]
+		priv := ed25519.GenPrivKeyFromSecret(sum[:])
+		cons := []byte(priv.PubKey().Address())
 		f.cons[v] = cons
+		f.privs[v] = priv
+		f.pubs[string(cons)] = priv.PubKey()
 		byCons[string(cons)] = v
 		g1, _ := tle.Suite.G1().Point().Mul(pri[i].V, nil).MarshalBinary()
 		g2, _ := tle.Suite.G2().Point().Mul(pri[i].V, nil).MarshalBinary()
@@ -123,7 +184,7 @@ func newShareFixture(t *testing.T, vals []string, threshold int) *shareFixture {
 			ValidatorAddress: v, PublicShare: g1, PublicShareG2: g2, ShareIndex: uint32(i + 1),
 		})
 	}
-	k.SetStakingKeeper(stakingStub{byCons: byCons})
+	k.SetStakingKeeper(stakingStub{byCons: byCons, pubs: f.pubs})
 	require.NoError(t, k.SetTLEKeySetVal(f.ctx, f.ks))
 	require.NoError(t, k.SetDKGStateVal(f.ctx, types.DKGState{Round: 1, Phase: types.DKGPhase_DKG_PHASE_ACTIVE, ExpectedValidators: vals}))
 	params, err := k.Params.Get(f.ctx)

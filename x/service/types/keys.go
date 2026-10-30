@@ -89,6 +89,11 @@ var (
 	// caller_module. Powers the per-caller cap on OpenSystemReport
 	// filings.
 	SystemReportRateLimitKey = collections.NewPrefix("system_report_rate_limit/value/")
+
+	// SystemReportDedupExpiryKey: (eligible_at_height, caller_module,
+	// dedupe_key). The EndBlocker drops a dedup entry once its report is
+	// no longer PENDING/ESCALATED and the retention has elapsed.
+	SystemReportDedupExpiryKey = collections.NewPrefix("idx/system_report_dedup_expiry/")
 )
 
 // ---------------------------------------------------------------------------
@@ -105,6 +110,15 @@ var (
 	// UnderfundedQueueKey: (underfunded_since, address, service_type) —
 	// EndBlocker sweep ordering (§3.6 queue 1).
 	UnderfundedQueueKey = collections.NewPrefix("idx/underfunded_queue/")
+
+	// UnderfundedDueKey: (grace_deadline, address, service_type) — the
+	// forced-unbond sweep walks it up to the current height, so it visits
+	// only operators whose grace has run out (SVC-07).
+	// UnderfundedDueAtKey: (address, service_type) -> grace_deadline, the
+	// reverse entry that lets a status change drop the due key.
+	// Derived state: PutOperator maintains both, InitGenesis rebuilds them.
+	UnderfundedDueKey   = collections.NewPrefix("idx/underfunded_due/")
+	UnderfundedDueAtKey = collections.NewPrefix("idx/underfunded_due_at/")
 
 	// ReportsByOperatorKey: (operator, service_type, report_id).
 	ReportsByOperatorKey = collections.NewPrefix("idx/reports_operator/")
@@ -140,6 +154,11 @@ var (
 	// deadline_height. Reverse of CheckpointDeadlines so rescheduling can
 	// drop the old queue entry without a scan.
 	CheckpointDeadlineByOperatorKey = collections.NewPrefix("idx/checkpoint_deadline_operator/")
+
+	// ControllerTransferCasesByOpenedAtKey: (opened_at, jury_case_id).
+	// The timeout sweep reads it in opened_at order and stops at the first
+	// case not yet due, so it never walks undue cases.
+	ControllerTransferCasesByOpenedAtKey = collections.NewPrefix("idx/controller_transfer_opened_at/")
 )
 
 // ---------------------------------------------------------------------------

@@ -2,10 +2,13 @@ package keeper
 
 import (
 	"context"
+	"errors"
+	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	"cosmossdk.io/collections"
 
 	"sparkdream/x/artifact/types"
+	commontypes "sparkdream/x/common/types"
 )
 
 // InitGenesis initializes the module's state from a provided genesis state.
@@ -68,17 +71,23 @@ func (k Keeper) InitGenesis(ctx context.Context, gs types.GenesisState) error {
 		}
 	}
 	for _, e := range gs.ReceivePolicies {
-		if err := k.ReceivePolicies.Set(ctx, e.Address, uint64(e.Policy)); err != nil {
+		if err := k.ReceivePolicies.Set(ctx, e.Address, commontypes.Saturate[uint64](e.Policy)); err != nil {
 			return err
 		}
 	}
 	bump := func(origin, to string) error {
 		pk := collections.Join(origin, to)
-		pair, _ := k.PendingPairCount.Get(ctx, pk)
+		pair, getErr := k.PendingPairCount.Get(ctx, pk)
+		if getErr != nil && !errors.Is(getErr, collections.ErrNotFound) {
+			sdk.UnwrapSDKContext(ctx).Logger().Error("InitGenesis: PendingPairCount.Get failed", "err", getErr)
+		}
 		if err := k.PendingPairCount.Set(ctx, pk, pair+1); err != nil {
 			return err
 		}
-		total, _ := k.InboxCount.Get(ctx, to)
+		total, getErr := k.InboxCount.Get(ctx, to)
+		if getErr != nil && !errors.Is(getErr, collections.ErrNotFound) {
+			sdk.UnwrapSDKContext(ctx).Logger().Error("InitGenesis: InboxCount.Get failed", "err", getErr)
+		}
 		return k.InboxCount.Set(ctx, to, total+1)
 	}
 	for _, pt := range gs.PendingTransfers {
@@ -283,6 +292,9 @@ func (k Keeper) ExportGenesis(ctx context.Context) (*types.GenesisState, error) 
 	if gs.HideSeq, err = k.HideSeq.Peek(ctx); err != nil {
 		return nil, err
 	}
+	// walk runs fn only while nothing has failed; every step after the
+	// first walk (sequence peeks included) goes through it, so an earlier
+	// error is never overwritten.
 	walk := func(fn func() error) {
 		if err == nil {
 			err = fn()
@@ -302,13 +314,13 @@ func (k Keeper) ExportGenesis(ctx context.Context) (*types.GenesisState, error) 
 	})
 	walk(func() error {
 		return k.PublicMintCount.Walk(ctx, nil, func(key collections.Pair[uint64, string], v uint64) (bool, error) {
-			gs.PublicMintCounts = append(gs.PublicMintCounts, types.PublicMintCountEntry{ClassId: key.K1(), Address: key.K2(), Count: uint32(v)})
+			gs.PublicMintCounts = append(gs.PublicMintCounts, types.PublicMintCountEntry{ClassId: key.K1(), Address: key.K2(), Count: commontypes.Saturate[uint32](v)})
 			return false, nil
 		})
 	})
 	walk(func() error {
 		return k.ReceivePolicies.Walk(ctx, nil, func(addr string, v uint64) (bool, error) {
-			gs.ReceivePolicies = append(gs.ReceivePolicies, types.ReceivePolicyEntry{Address: addr, Policy: types.ReceivePolicy(v)})
+			gs.ReceivePolicies = append(gs.ReceivePolicies, types.ReceivePolicyEntry{Address: addr, Policy: commontypes.Saturate[types.ReceivePolicy](v)})
 			return false, nil
 		})
 	})
@@ -356,7 +368,7 @@ func (k Keeper) ExportGenesis(ctx context.Context) (*types.GenesisState, error) 
 	})
 	walk(func() error {
 		return k.SentinelDailyHides.Walk(ctx, nil, func(key collections.Pair[string, int64], v uint64) (bool, error) {
-			gs.SentinelDailyHides = append(gs.SentinelDailyHides, types.SentinelDailyHideEntry{Sentinel: key.K1(), Day: key.K2(), Count: uint32(v)})
+			gs.SentinelDailyHides = append(gs.SentinelDailyHides, types.SentinelDailyHideEntry{Sentinel: key.K1(), Day: key.K2(), Count: commontypes.Saturate[uint32](v)})
 			return false, nil
 		})
 	})
@@ -372,12 +384,8 @@ func (k Keeper) ExportGenesis(ctx context.Context) (*types.GenesisState, error) 
 			return false, nil
 		})
 	})
-	if gs.PendingUnitSeq, err = k.PendingUnitSeq.Peek(ctx); err != nil {
-		return nil, err
-	}
-	if gs.UnitListingSeq, err = k.UnitListingSeq.Peek(ctx); err != nil {
-		return nil, err
-	}
+	walk(func() (e error) { gs.PendingUnitSeq, e = k.PendingUnitSeq.Peek(ctx); return e })
+	walk(func() (e error) { gs.UnitListingSeq, e = k.UnitListingSeq.Peek(ctx); return e })
 	walk(func() error {
 		return k.Editions.Walk(ctx, nil, func(_ U64Pair, e types.Edition) (bool, error) {
 			gs.Editions = append(gs.Editions, e)
@@ -420,12 +428,8 @@ func (k Keeper) ExportGenesis(ctx context.Context) (*types.GenesisState, error) 
 			return false, nil
 		})
 	})
-	if gs.OfferSeq, err = k.OfferSeq.Peek(ctx); err != nil {
-		return nil, err
-	}
-	if gs.AuctionSeq, err = k.AuctionSeq.Peek(ctx); err != nil {
-		return nil, err
-	}
+	walk(func() (e error) { gs.OfferSeq, e = k.OfferSeq.Peek(ctx); return e })
+	walk(func() (e error) { gs.AuctionSeq, e = k.AuctionSeq.Peek(ctx); return e })
 	walk(func() error {
 		return k.Offers.Walk(ctx, nil, func(_ uint64, o types.Offer) (bool, error) {
 			gs.Offers = append(gs.Offers, o)

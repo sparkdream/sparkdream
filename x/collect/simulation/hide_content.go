@@ -1,71 +1,90 @@
 package simulation
 
 import (
-	"math/rand"
-
-	"github.com/cosmos/cosmos-sdk/baseapp"
+	"cosmossdk.io/math"
 	"github.com/cosmos/cosmos-sdk/client"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
+
+	commontypes "sparkdream/x/common/types"
+	reptypes "sparkdream/x/rep/types"
 
 	"sparkdream/x/collect/keeper"
 	"sparkdream/x/collect/types"
 )
 
+// SimulateMsgHideContent delivers MsgHideContent on the sentinel path: a
+// CONTENT_SENTINEL bonded-role holder (bonding one first through x/rep's
+// MsgBondRole when no sim account holds the role) under its daily hide cap
+// and outside the overturn cooldown, whose available bond covers
+// sentinel_commit_amount, hides a public, active collection or non-hidden
+// item with no unresolved hide record that it does not own. The council
+// path (a Commons Operations Committee member) is not simulated here.
 func SimulateMsgHideContent(
 	ak types.AuthKeeper,
 	bk types.BankKeeper,
 	k keeper.Keeper,
 	txGen client.TxConfig,
 ) simtypes.Operation {
-	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
-	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		simAccount, _ := simtypes.RandomAcc(r, accs)
-		msg := &types.MsgHideContent{
-			Creator: simAccount.Address.String(),
+	return operation(ak, bk, k, txGen, &types.MsgHideContent{}, func(e *simEnv) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
+		msg := &types.MsgHideContent{}
+		p := e.params
+		sentinels, err := e.ensureRoleHolder(reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL)
+		if err != nil {
+			return noOpErr(msg, err)
 		}
-
-		// Pick a different account as the collection owner
-		ownerAccount, ok := pickDifferentAccount(r, accs, simAccount.Address.String())
+		if len(sentinels) == 0 {
+			return noOp(msg, "no sim account holds or can bond CONTENT_SENTINEL")
+		}
+		sentinels = accountsWhere(sentinels, func(a simtypes.Account) bool {
+			return e.dailyCount(a.Address.String(), "sentinel_hide") < p.MaxHidesPerSentinelPerDay
+		})
+		sentinel, ok := pick(e.r, sentinels)
 		if !ok {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "not enough accounts"), nil, nil
+			return noOp(msg, "no sentinel under its daily hide cap")
 		}
-
-		collID, err := getOrCreateCollection(r, ctx, k, ownerAccount.Address.String())
+		targets, err := e.publicTargets(false)
 		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "failed to create collection: "+err.Error()), nil, nil
+			return noOpErr(msg, err)
 		}
-
-		// Create flag for the collection
-		_, err = getOrCreateFlag(r, ctx, k, types.FlagTargetType_FLAG_TARGET_TYPE_COLLECTION, collID, simAccount.Address.String())
+		// A sentinel cannot hide its own collection or an item it added
+		// (ErrSelfModeration).
+		addr := sentinel.Address.String()
+		var others []target
+		for _, t := range targets {
+			if t.coll.Owner == addr {
+				continue
+			}
+			if t.typ == types.FlagTargetType_FLAG_TARGET_TYPE_ITEM {
+				if it, err := e.k.Item.Get(e.ctx, t.id); err != nil || it.AddedBy == addr {
+					continue
+				}
+			}
+			others = append(others, t)
+		}
+		t, ok := pick(e.r, others)
+		if !ok {
+			return noOp(msg, "no public active target the sentinel does not own")
+		}
+		hidden, err := e.hasUnresolvedHide(t.typ, t.id)
 		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "failed to create flag: "+err.Error()), nil, nil
+			return noOpErr(msg, err)
 		}
-
-		// Create hide record
-		_, err = getOrCreateHideRecord(r, ctx, k, types.FlagTargetType_FLAG_TARGET_TYPE_COLLECTION, collID, simAccount.Address.String())
-		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "failed to create hide record: "+err.Error()), nil, nil
+		if hidden {
+			return noOp(msg, "target has an unresolved hide record")
 		}
-
-		// Update collection status to HIDDEN
-		coll, err := k.Collection.Get(ctx, collID)
-		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "failed to get collection: "+err.Error()), nil, nil
+		msg.Creator, msg.TargetId, msg.TargetType = sentinel.Address.String(), t.id, t.typ
+		msg.ReasonCode = randomModerationReason(e.r)
+		msg.Authority = types.ModerationAuthority_MODERATION_AUTHORITY_SENTINEL
+		if e.r.Intn(2) == 0 {
+			msg.Authority = types.ModerationAuthority_MODERATION_AUTHORITY_AUTO
 		}
-
-		oldStatus := coll.Status
-		coll.Status = types.CollectionStatus_COLLECTION_STATUS_HIDDEN
-
-		// Update status index: old → HIDDEN (pinned unchanged).
-		if err := k.MoveCollectionStatusIndex(ctx, oldStatus, coll.Pinned, coll.Status, coll.Pinned, collID); err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "failed to update status index: "+err.Error()), nil, nil
+		if e.r.Intn(5) == 0 && p.MaxFlagReasonLength > 0 {
+			msg.ReasonCode = commontypes.ModerationReason_MODERATION_REASON_OTHER
+			msg.ReasonText = "phoenix policy"
+			if commontypes.Saturate[uint32](len(msg.ReasonText)) > p.MaxFlagReasonLength {
+				msg.ReasonText = msg.ReasonText[:p.MaxFlagReasonLength]
+			}
 		}
-
-		if err := k.Collection.Set(ctx, collID, coll); err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "failed to update collection: "+err.Error()), nil, nil
-		}
-
-		return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "ok (direct keeper call)"), nil, nil
-	}
+		return e.submit(sentinel, msg, math.ZeroInt())
+	})
 }

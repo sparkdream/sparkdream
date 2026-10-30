@@ -98,7 +98,14 @@ func (k Keeper) BootstrapGovernance(ctx context.Context, founders []types.Foundi
 	var foundingMembers []MemberRequest
 	var founderMembers []MemberRequest
 
-	for addr, name := range genesisNames {
+	// Address order, never map order: the member lists feed group creation.
+	genesisAddrs := make([]string, 0, len(genesisNames))
+	for addr := range genesisNames {
+		genesisAddrs = append(genesisAddrs, addr)
+	}
+	sort.Strings(genesisAddrs)
+	for _, addr := range genesisAddrs {
+		name := genesisNames[addr]
 		accAddr, err := sdk.AccAddressFromBech32(addr)
 		if err != nil {
 			logger.Error("Invalid address in GenesisNames", "address", addr, "error", err)
@@ -301,9 +308,11 @@ func (k Keeper) BootstrapGovernance(ctx context.Context, founders []types.Foundi
 		VetoWindow:       WindowVeto,
 		VetoMinExecution: 0,
 
+		// No MsgRegisterGroup: only x/gov and the Commons Council register
+		// groups (spec §7). No "/cosmos.gov.v1.MsgUpdateParams" either: its
+		// signer must be the gov authority, which a council policy never is.
 		StandardPermissions: []string{
 			"/sparkdream.commons.v1.MsgDeleteGroup",
-			"/sparkdream.commons.v1.MsgRegisterGroup",
 			"/sparkdream.commons.v1.MsgRenewGroup",
 			"/sparkdream.commons.v1.MsgSpendFromCommons",
 			"/sparkdream.commons.v1.MsgScheduleRecurringSpend",
@@ -311,7 +320,6 @@ func (k Keeper) BootstrapGovernance(ctx context.Context, founders []types.Foundi
 			"/sparkdream.commons.v1.MsgUpdateGroupConfig",
 			"/sparkdream.commons.v1.MsgUpdateGroupMembers",
 			"/sparkdream.commons.v1.MsgUpdatePolicyPermissions",
-			"/cosmos.gov.v1.MsgUpdateParams",
 			"/sparkdream.commons.v1.MsgForceUpgrade",
 		},
 		VetoPermissions: []string{
@@ -347,6 +355,9 @@ func (k Keeper) BootstrapGovernance(ctx context.Context, founders []types.Foundi
 			"/sparkdream.commons.v1.MsgCancelRecurringSpend",
 			"/sparkdream.commons.v1.MsgVoteProposal",
 			"/sparkdream.commons.v1.MsgUpdateGroupMembers",
+			"/sparkdream.rep.v1.MsgApproveProjectBudget",
+			"/sparkdream.rep.v1.MsgCancelProject",
+			"/sparkdream.rep.v1.MsgCompleteProject",
 		},
 		MaxSpendPerEpoch: math.NewInt(10000000000),
 		UpdateCooldown:   int64(CommitteeUpdateCooldown.Seconds()),
@@ -401,9 +412,10 @@ func (k Keeper) BootstrapGovernance(ctx context.Context, founders []types.Foundi
 		VetoWindow:       WindowVeto,
 		VetoMinExecution: 0,
 
+		// No MsgRegisterGroup: only x/gov and the Commons Council register
+		// groups (spec §7).
 		StandardPermissions: []string{
 			"/sparkdream.commons.v1.MsgDeleteGroup",
-			"/sparkdream.commons.v1.MsgRegisterGroup",
 			"/sparkdream.commons.v1.MsgRenewGroup",
 			"/sparkdream.commons.v1.MsgSpendFromCommons",
 			"/sparkdream.commons.v1.MsgScheduleRecurringSpend",
@@ -443,6 +455,9 @@ func (k Keeper) BootstrapGovernance(ctx context.Context, founders []types.Foundi
 			"/sparkdream.commons.v1.MsgCancelRecurringSpend",
 			"/sparkdream.commons.v1.MsgUpdateGroupConfig",
 			"/sparkdream.commons.v1.MsgUpdateGroupMembers",
+			"/sparkdream.rep.v1.MsgApproveProjectBudget",
+			"/sparkdream.rep.v1.MsgCancelProject",
+			"/sparkdream.rep.v1.MsgCompleteProject",
 		},
 		MaxSpendPerEpoch: math.NewInt(10000000000),
 		UpdateCooldown:   int64(CommitteeUpdateCooldown.Seconds()),
@@ -511,7 +526,7 @@ func (k Keeper) BootstrapGovernance(ctx context.Context, founders []types.Foundi
 	// STEP 4: CREATE & WIRE COMMONS COMMITTEES
 	// =========================================================================
 
-	commOpsPolicy := k.createGroup(ctx, GroupConfig{
+	k.createGroup(ctx, GroupConfig{
 		Name:        "Commons Operations Committee",
 		Description: "Day-to-day spending for Commons",
 		// 5% of the Commons pillar (25/1000 of community pool). Largest of
@@ -539,11 +554,54 @@ func (k Keeper) BootstrapGovernance(ctx context.Context, founders []types.Foundi
 			"/sparkdream.rep.v1.MsgCreateTagBudget",
 			"/sparkdream.rep.v1.MsgToggleTagBudget",
 			"/sparkdream.rep.v1.MsgWithdrawTagBudget",
+			// Member-report and moderation-appeal resolutions zero members
+			// and slash bonds; x/rep accepts them only from this committee's
+			// policy address (or its council, or x/gov), never from a single
+			// member.
+			"/sparkdream.rep.v1.MsgResolveMemberReport",
+			"/sparkdream.rep.v1.MsgResolveGovActionAppeal",
+			// Interim payouts (MsgApproveInterim) and adjudication verdicts
+			// (MsgCompleteInterim on an ADJUDICATION interim) are accepted
+			// only from the same policy addresses.
+			"/sparkdream.rep.v1.MsgApproveInterim",
+			"/sparkdream.rep.v1.MsgCompleteInterim",
+			// Project budget approval above large_project_budget_threshold,
+			// cancellation of an approved project (closes its initiatives,
+			// settles its stakes) and completion (mints the staker bonus)
+			// are accepted only from the project council's or its
+			// Operations Committee's policy (or x/gov).
+			"/sparkdream.rep.v1.MsgApproveProjectBudget",
+			"/sparkdream.rep.v1.MsgCancelProject",
+			"/sparkdream.rep.v1.MsgCompleteProject",
 			"/sparkdream.forum.v1.MsgUpdateOperationalParams",
 			"/sparkdream.futarchy.v1.MsgUpdateOperationalParams",
 			"/sparkdream.name.v1.MsgUpdateOperationalParams",
 			"/sparkdream.rep.v1.MsgUpdateOperationalParams",
 			"/sparkdream.season.v1.MsgUpdateOperationalParams",
+			// Season state machine and calendar. x/season accepts these
+			// only from a committee/council policy address, never a single
+			// member (x/season SEA-10), so the committee must be able to
+			// execute them through a proposal.
+			"/sparkdream.season.v1.MsgAbortSeasonTransition",
+			"/sparkdream.season.v1.MsgSkipTransitionPhase",
+			"/sparkdream.season.v1.MsgRetrySeasonTransition",
+			"/sparkdream.season.v1.MsgExtendSeason",
+			"/sparkdream.season.v1.MsgSetNextSeasonInfo",
+			// Gamification definitions (quests, achievements, titles) and
+			// display-name moderation resolutions: x/season accepts them
+			// only from this committee's policy address (or its council,
+			// or x/gov), never a single member (x/season SEA-23 decision).
+			"/sparkdream.season.v1.MsgCreateQuest",
+			"/sparkdream.season.v1.MsgUpdateQuest",
+			"/sparkdream.season.v1.MsgDeactivateQuest",
+			"/sparkdream.season.v1.MsgCreateAchievement",
+			"/sparkdream.season.v1.MsgUpdateAchievement",
+			"/sparkdream.season.v1.MsgDeleteAchievement",
+			"/sparkdream.season.v1.MsgCreateTitle",
+			"/sparkdream.season.v1.MsgUpdateTitle",
+			"/sparkdream.season.v1.MsgDeleteTitle",
+			"/sparkdream.season.v1.MsgResolveDisplayNameAppeal",
+			"/sparkdream.season.v1.MsgResolveUnappealedModeration",
 			"/sparkdream.federation.v1.MsgUpdateBridge",
 			"/sparkdream.federation.v1.MsgUpdatePeerPolicy",
 			"/sparkdream.federation.v1.MsgModerateContent",
@@ -590,11 +648,15 @@ func (k Keeper) BootstrapGovernance(ctx context.Context, founders []types.Foundi
 			"/sparkdream.collect.v1.MsgUpdateCollaboratorRole",
 			"/sparkdream.collect.v1.MsgAddItem",
 			"/sparkdream.collect.v1.MsgRemoveItem",
+			// Deliver curation-challenge verdicts (x/collect gates the
+			// message on IsCouncilOrCommitteePolicy).
+			"/sparkdream.collect.v1.MsgResolveCurationChallenge",
 			// x/artifact: badge issuance as a class owner or a minter of a
 			// council class (docs/x-artifact-spec.md §7.14), plus the
 			// council-path moderation and operational params the artifact
 			// keeper authorizes via IsCouncilAuthorized(commons, operations).
-			// Hide appeals resolve through x/rep MsgResolveGovActionAppeal.
+			// Hide appeals resolve through x/rep MsgResolveGovActionAppeal
+			// (listed above).
 			// The keeper check alone is not enough -- a committee proposal
 			// must also clear this AllowedMessages gate.
 			"/sparkdream.artifact.v1.MsgCreateClass",
@@ -626,9 +688,10 @@ func (k Keeper) BootstrapGovernance(ctx context.Context, founders []types.Foundi
 		TermDuration:     TermDuration5Months,
 	}, founderMembers)
 
-	if err := k.SetElectoralDelegation(ctx, "Commons Operations Committee", commOpsPolicy); err != nil {
-		panic(err)
-	}
+	// No electoral delegation: the parent Commons Council elects this
+	// committee (MsgUpdateGroupMembers / MsgRenewGroup from the council
+	// policy). A committee that elected itself could let one member of a
+	// two-member committee swap out the other.
 
 	commonsGovPolicy := k.createGroup(ctx, GroupConfig{
 		Name:          "Commons Governance Committee",
@@ -800,7 +863,9 @@ func (k Keeper) createGroup(ctx context.Context, cfg GroupConfig, members []Memb
 
 	// 8. Funding
 	if cfg.FundingWeight > 0 {
-		k.splitKeeper.SetShareByAddress(ctx, mainPolicyAddr, cfg.FundingWeight)
+		if err := k.splitKeeper.SetShareByAddress(ctx, mainPolicyAddr, cfg.FundingWeight); err != nil {
+			panic(fmt.Sprintf("Failed to register split share for %s: %v", cfg.Name, err))
+		}
 	}
 
 	// 9. Store Group
@@ -809,6 +874,7 @@ func (k Keeper) createGroup(ctx context.Context, cfg GroupConfig, members []Memb
 		vetoPolicyAddr = DeriveCouncilAddress(councilID, "veto").String()
 	}
 	group := types.Group{
+		Index:                 cfg.Name,
 		GroupId:               councilID,
 		PolicyAddress:         mainPolicyAddr,
 		ParentPolicyAddress:   cfg.ParentPolicy,

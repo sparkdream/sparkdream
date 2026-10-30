@@ -2,10 +2,13 @@ package keeper
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/season/types"
 
+	"cosmossdk.io/collections"
 	errorsmod "cosmossdk.io/errors"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 )
@@ -36,40 +39,40 @@ func (k msgServer) DissolveGuild(ctx context.Context, msg *types.MsgDissolveGuil
 	}
 
 	// Check guild age (cannot dissolve brand new guild)
-	params, _ := k.Params.Get(ctx)
+	params, getErr := k.Params.Get(ctx)
+	if getErr != nil && !errors.Is(getErr, collections.ErrNotFound) {
+		return nil, getErr
+	}
 	currentEpoch := k.GetCurrentEpoch(ctx)
 	guildAgeEpochs := currentEpoch - k.BlockToEpoch(ctx, guild.CreatedBlock)
-	if uint64(guildAgeEpochs) < params.MinGuildAgeEpochs {
+	if commontypes.Saturate[uint64](guildAgeEpochs) < params.MinGuildAgeEpochs {
 		return nil, errorsmod.Wrapf(types.ErrGuildTooYoung,
 			"guild must be at least %d epochs old", params.MinGuildAgeEpochs)
 	}
 
-	// Remove all members from the guild
-	iter, err := k.GuildMembership.Iterate(ctx, nil)
-	if err != nil {
-		return nil, errorsmod.Wrap(err, "failed to iterate memberships")
-	}
-	defer iter.Close()
-
-	for ; iter.Valid(); iter.Next() {
-		membership, err := iter.Value()
-		if err != nil {
-			continue
+	// Remove all members from the guild: one walk of the guild's ByGuild
+	// index (bounded by max_guild_members), never the whole membership
+	// table (SEA-28). The counter ends at zero (SEA-24).
+	for _, member := range k.guildMembers(ctx, msg.GuildId) {
+		if _, err := k.leaveGuildMembership(ctx, member, currentEpoch); err != nil {
+			return nil, errorsmod.Wrap(err, "failed to update membership")
 		}
-		if membership.GuildId == msg.GuildId && membership.LeftEpoch == 0 {
-			// Update membership
-			membership.GuildId = 0
-			membership.LeftEpoch = currentEpoch
-			if err := k.GuildMembership.Set(ctx, membership.Member, membership); err != nil {
-				continue
+		profile, err := k.MemberProfile.Get(ctx, member)
+		if err == nil {
+			profile.GuildId = 0
+			if err := k.MemberProfile.Set(ctx, member, profile); err != nil {
+				return nil, errorsmod.Wrap(err, "failed to update profile")
 			}
+		}
+	}
+	if err := k.setGuildMemberCount(ctx, msg.GuildId, 0); err != nil {
+		return nil, errorsmod.Wrap(err, "failed to reset member count")
+	}
 
-			// Update member profile
-			profile, err := k.MemberProfile.Get(ctx, membership.Member)
-			if err == nil {
-				profile.GuildId = 0
-				_ = k.MemberProfile.Set(ctx, membership.Member, profile)
-			}
+	// Drop the guild's pending invites with it.
+	for _, invitee := range guild.PendingInvites {
+		if err := k.GuildInvite.Remove(ctx, guildInviteKey(msg.GuildId, invitee)); err != nil && !errors.Is(err, collections.ErrNotFound) {
+			return nil, errorsmod.Wrap(err, "failed to remove invite")
 		}
 	}
 

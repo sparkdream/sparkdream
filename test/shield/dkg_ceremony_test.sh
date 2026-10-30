@@ -524,7 +524,7 @@ else
                 --mpk-g2="$MPK_G2_B64" \
                 --epoch="$SUBMIT_EPOCH" \
                 --shield-addr="$SHIELD_MODULE_ADDR" \
-                --nullifier-hex="$(openssl rand -hex 32)" \
+                --nullifier-hex="00$(openssl rand -hex 31)" \
                 --title="DkgBatch${i}_$(date +%s)" \
                 --body="Encrypted batch op $i through the DKG key" 2>/dev/null)
             NOW_EPOCH=$($BINARY query shield shield-epoch --output json 2>/dev/null | jq -r '.epoch_state.current_epoch // "0"')
@@ -532,8 +532,8 @@ else
         done
         # The CLI takes hex for every byte field; exec-mode 1 = ENCRYPTED_BATCH.
         PAYLOAD_HEX=$(echo "$PAYLOAD_B64" | base64 -d | od -An -tx1 | tr -d ' \n')
-        NULL_HEX=$(openssl rand -hex 32)
-        RL_HEX=$(openssl rand -hex 32)
+        NULL_HEX=00$(openssl rand -hex 31)
+        RL_HEX=00$(openssl rand -hex 31)
         TX_RES=$($BINARY tx shield shielded-exec \
             --exec-mode=1 \
             --encrypted-payload="$PAYLOAD_HEX" \

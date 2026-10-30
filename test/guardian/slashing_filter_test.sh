@@ -27,10 +27,23 @@ DJD=$(echo "$ORIG"  | jq -r '.downtime_jail_duration')
 SFDS=$(echo "$ORIG" | jq -r '.slash_fraction_double_sign')
 SFD=$(echo "$ORIG"  | jq -r '.slash_fraction_downtime')
 
-# Bump downtime_jail_duration by 1s for the passthrough test. Format must
-# match the CLI's duration shape (e.g. "600s", "10m0s"). Easiest: parse
-# the trailing 's' and bump.
-NEW_DJD_SECS=$(echo "$DJD" | sed 's/s$//' | awk '{print $1 + 1}')
+# dur_secs converts a Go duration as the query prints it ("600s", "10m0s",
+# "1h2m3s") to whole seconds.
+dur_secs() {
+    echo "$1" | awk '{
+        s = 0; str = $0
+        while (match(str, /^[0-9.]+[hms]/)) {
+            u = substr(str, RLENGTH, 1); n = substr(str, 1, RLENGTH - 1) + 0
+            s += (u == "h") ? n * 3600 : (u == "m") ? n * 60 : n
+            str = substr(str, RLENGTH + 1)
+        }
+        printf "%d", s
+    }'
+}
+
+# Bump downtime_jail_duration by 1s for the passthrough test (it must stay
+# at or above the guardian's 10-minute floor, which genesis sits on).
+NEW_DJD_SECS=$(( $(dur_secs "$DJD") + 1 ))
 NEW_DJD="${NEW_DJD_SECS}s"
 
 slashing_inner() {
@@ -106,7 +119,7 @@ F_DJD=$(echo "$FINAL"  | jq -r '.downtime_jail_duration')
 [ "$F_SBW"  = "$SBW"  ] || { echo "FAIL: signed_blocks_window drift"; exit 1; }
 echo "  immutable-direction fields unchanged"
 
-if [ "$F_DJD" != "$NEW_DJD" ]; then
+if [ "$(dur_secs "$F_DJD")" != "$NEW_DJD_SECS" ]; then
     echo "FAIL: downtime_jail_duration did not update: got=$F_DJD expected=$NEW_DJD"
     exit 1
 fi

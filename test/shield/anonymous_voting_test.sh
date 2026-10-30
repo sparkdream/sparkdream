@@ -104,8 +104,10 @@ extract_event_value() {
     echo "$TX_RESULT" | jq -r ".events[] | select(.type==\"$EVENT_TYPE\") | .attributes[] | select(.key==\"$ATTR_KEY\") | .value" | tr -d '"' | head -n 1
 }
 
+# The leading byte is zeroed so the value is a canonical BN254 field element
+# (below the scalar modulus); the chain refuses non-canonical public inputs.
 gen_nullifier_hex() {
-    echo -n "$1" | sha256sum | cut -c1-64
+    echo -n "$1" | sha256sum | cut -c1-64 | sed 's/^../00/'
 }
 
 # =========================================================================
@@ -138,13 +140,16 @@ else
 
     PART1_OK=true
 
+    # Secret-ballot votes (x/commons spec §11) are active and proven against
+    # the proposal's voter snapshot (PROOF_DOMAIN_GROUP_TREE), not the trust
+    # tree, so only the group's members can vote.
     if [ "$VO_ACTIVE" != "true" ]; then
-        echo "  ERROR: Operation is not active"
+        echo "  ERROR: Operation should be registered active"
         PART1_OK=false
     fi
 
-    if [ "$VO_DOMAIN" != "PROOF_DOMAIN_TRUST_TREE" ] && [ "$VO_DOMAIN" != "1" ]; then
-        echo "  ERROR: Expected PROOF_DOMAIN_TRUST_TREE"
+    if [ "$VO_DOMAIN" != "PROOF_DOMAIN_GROUP_TREE" ] && [ "$VO_DOMAIN" != "2" ]; then
+        echo "  ERROR: Expected PROOF_DOMAIN_GROUP_TREE, got $VO_DOMAIN"
         PART1_OK=false
     fi
 
@@ -371,7 +376,8 @@ record_result "Rate limits allow voting" "$([ "$PART7_OK" = true ] && echo PASS 
 # =========================================================================
 echo "--- PART 8: Verify batch mode for anonymous vote ---"
 
-VOTE_BATCH=$(echo "$VOTE_OP" | jq -r '.registration.batch_mode // "null"')
+# IMMEDIATE_ONLY is enum 0, which proto3 JSON omits.
+VOTE_BATCH=$(echo "$VOTE_OP" | jq -r '.registration.batch_mode // "SHIELD_BATCH_MODE_IMMEDIATE_ONLY"')
 
 echo "  Vote operation batch mode: $VOTE_BATCH"
 

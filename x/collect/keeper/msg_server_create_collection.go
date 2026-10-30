@@ -10,6 +10,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	"sparkdream/x/collect/types"
+	commontypes "sparkdream/x/common/types"
 	shieldtypes "sparkdream/x/shield/types"
 
 	reptypes "sparkdream/x/rep/types"
@@ -81,23 +82,23 @@ func (k msgServer) CreateCollection(ctx context.Context, msg *types.MsgCreateCol
 
 	// Validate content fields based on encrypted flag
 	if msg.Encrypted {
-		if uint32(len(msg.EncryptedData)) > params.MaxEncryptedDataSize {
+		if commontypes.Saturate[uint32](len(msg.EncryptedData)) > params.MaxEncryptedDataSize {
 			return nil, types.ErrEncryptedDataTooLarge
 		}
 		if msg.Name != "" || msg.Description != "" || msg.CoverUri != "" {
 			return nil, types.ErrEncryptedFieldMismatch
 		}
 	} else {
-		if msg.EncryptedData != nil && len(msg.EncryptedData) > 0 {
+		if len(msg.EncryptedData) > 0 {
 			return nil, types.ErrEncryptedFieldMismatch
 		}
-		if msg.Name == "" || uint32(len(msg.Name)) > params.MaxNameLength {
+		if msg.Name == "" || commontypes.Saturate[uint32](len(msg.Name)) > params.MaxNameLength {
 			return nil, types.ErrInvalidName
 		}
-		if uint32(len(msg.Description)) > params.MaxDescriptionLength {
+		if commontypes.Saturate[uint32](len(msg.Description)) > params.MaxDescriptionLength {
 			return nil, types.ErrInvalidDescription
 		}
-		if uint32(len(msg.CoverUri)) > params.MaxReferenceFieldLength {
+		if commontypes.Saturate[uint32](len(msg.CoverUri)) > params.MaxReferenceFieldLength {
 			return nil, types.ErrReferenceFieldTooLong
 		}
 		if err := rejectDataURIs(msg.CoverUri); err != nil {
@@ -172,14 +173,16 @@ func (k msgServer) CreateCollection(ctx context.Context, msg *types.MsgCreateCol
 		// Escrow endorsement creation fee
 		if err := k.EscrowSPARK(ctx, creatorAddr, params.EndorsementCreationFee); err != nil {
 			// Refund the collection deposit we already escrowed
-			k.RefundSPARK(ctx, creatorAddr, deposit) //nolint:errcheck
+			if err := k.RefundSPARK(ctx, creatorAddr, deposit); err != nil {
+				return nil, err
+			}
 			return nil, errorsmod.Wrap(types.ErrInsufficientFunds, err.Error())
 		}
 	}
 
 	// Validate initiative reference before creating the collection
-	if msg.InitiativeId > 0 && k.repKeeper != nil {
-		if err := k.repKeeper.ValidateInitiativeReference(ctx, msg.InitiativeId); err != nil {
+	if msg.InitiativeId > 0 && k.late.repKeeper != nil {
+		if err := k.late.repKeeper.ValidateInitiativeReference(ctx, msg.InitiativeId); err != nil {
 			return nil, errorsmod.Wrapf(types.ErrInvalidInitiativeRef, "initiative %d: %s", msg.InitiativeId, err.Error())
 		}
 	}
@@ -216,6 +219,14 @@ func (k msgServer) CreateCollection(ctx context.Context, msg *types.MsgCreateCol
 		Status:                   status,
 		SeekingEndorsement:       status == types.CollectionStatus_COLLECTION_STATUS_PENDING,
 		InitiativeId:             msg.InitiativeId,
+		EndorsementFeeEscrowed:   math.ZeroInt(),
+	}
+	// PENDING collections record the endorsement deadline and the fee actually
+	// escrowed: every later path (endorse, promotion, prune, delete) uses these
+	// stored values, never the current operational params.
+	if status == types.CollectionStatus_COLLECTION_STATUS_PENDING {
+		coll.EndorsementPendingUntil = blockHeight + params.EndorsementExpiryBlocks
+		coll.EndorsementFeeEscrowed = params.EndorsementCreationFee
 	}
 	applyCollectionMediaLabels(&coll)
 
@@ -241,30 +252,29 @@ func (k msgServer) CreateCollection(ctx context.Context, msg *types.MsgCreateCol
 	}
 
 	// Create author bond if requested (requires repKeeper)
-	if msg.AuthorBond != nil && msg.AuthorBond.IsPositive() && k.repKeeper != nil {
-		if _, err := k.repKeeper.CreateAuthorBond(ctx, creatorAddr, reptypes.StakeTargetType_STAKE_TARGET_COLLECTION_AUTHOR_BOND, collID, *msg.AuthorBond); err != nil {
+	if msg.AuthorBond != nil && msg.AuthorBond.IsPositive() && k.late.repKeeper != nil {
+		if _, err := k.late.repKeeper.CreateAuthorBond(ctx, creatorAddr, reptypes.StakeTargetType_STAKE_TARGET_COLLECTION_AUTHOR_BOND, collID, *msg.AuthorBond); err != nil {
 			return nil, errorsmod.Wrap(err, "failed to create author bond")
 		}
 	}
 
 	// Register initiative reference link for conviction propagation
-	if msg.InitiativeId > 0 && k.repKeeper != nil {
-		if err := k.repKeeper.RegisterContentInitiativeLink(ctx, msg.InitiativeId, int32(reptypes.StakeTargetType_STAKE_TARGET_COLLECTION_CONTENT), collID); err != nil {
+	if msg.InitiativeId > 0 && k.late.repKeeper != nil {
+		if err := k.late.repKeeper.RegisterContentInitiativeLink(ctx, msg.InitiativeId, int32(reptypes.StakeTargetType_STAKE_TARGET_COLLECTION_CONTENT), collID); err != nil {
 			return nil, errorsmod.Wrap(err, "failed to register content initiative link")
 		}
 	}
 
 	// For PENDING: add EndorsementPending index entry
 	if status == types.CollectionStatus_COLLECTION_STATUS_PENDING {
-		expiryBlock := blockHeight + params.EndorsementExpiryBlocks
-		if err := k.EndorsementPending.Set(ctx, collections.Join(expiryBlock, collID)); err != nil {
+		if err := k.EndorsementPending.Set(ctx, collections.Join(coll.EndorsementPendingUntil, collID)); err != nil {
 			return nil, errorsmod.Wrap(err, "failed to set endorsement pending index")
 		}
 	}
 
 	endorsementFeeEscrowed := "0"
 	if status == types.CollectionStatus_COLLECTION_STATUS_PENDING {
-		endorsementFeeEscrowed = params.EndorsementCreationFee.String()
+		endorsementFeeEscrowed = coll.EndorsementFeeEscrowed.String()
 	}
 	sdkCtx.EventManager().EmitEvent(sdk.NewEvent("collection_created",
 		sdk.NewAttribute("id", strconv.FormatUint(collID, 10)),

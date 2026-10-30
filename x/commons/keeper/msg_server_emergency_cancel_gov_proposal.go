@@ -67,6 +67,24 @@ func (k msgServer) EmergencyCancelGovProposal(goCtx context.Context, msg *types.
 		}
 	}
 
+	// STEP 4b: NO SELF-PROTECTION. A council's veto may not cancel a gov
+	// proposal that disciplines that same council or a body under it
+	// (delete it, change its members, config or permissions, veto its
+	// proposals): gov is the remedy against a captured council.
+	cancellerCouncil, err := k.PolicyToName.Get(ctx, msg.Authority)
+	if err == nil {
+		if cancellerGroup, err := k.Groups.Get(ctx, cancellerCouncil); err == nil {
+			for _, propMsg := range msgs {
+				target := k.govMsgTargetPolicy(ctx, propMsg)
+				if target != "" && k.isPolicyInSubtree(ctx, target, cancellerGroup.PolicyAddress) {
+					return nil, errorsmod.Wrapf(sdkerrors.ErrUnauthorized,
+						"PERMISSION DENIED: %s targets %s's own council or a body under it",
+						sdk.MsgTypeURL(propMsg), cancellerCouncil)
+				}
+			}
+		}
+	}
+
 	// STEP 5: TALLY
 	origStatus := prop.Status
 	_, _, tallyResult, err := k.late.govKeeper.Tally(ctx, prop)
@@ -97,6 +115,13 @@ func (k msgServer) EmergencyCancelGovProposal(goCtx context.Context, msg *types.
 			return nil, err
 		}
 	}
+	// A deposit-period proposal sits in the inactive queue instead; left
+	// there, gov's EndBlocker would later delete the FAILED record.
+	if origStatus == v1.StatusDepositPeriod && prop.DepositEndTime != nil {
+		if err := k.late.govKeeper.InactiveProposalsQueueRemove(ctx, prop.Id, *prop.DepositEndTime); err != nil {
+			return nil, err
+		}
+	}
 
 	// STEP 8: CHARGE DEPOSITS
 	destination := k.authKeeper.GetModuleAddress(distrtypes.ModuleName).String()
@@ -116,4 +141,60 @@ func (k msgServer) EmergencyCancelGovProposal(goCtx context.Context, msg *types.
 	)
 
 	return &types.MsgEmergencyCancelGovProposalResponse{}, nil
+}
+
+// govMsgTargetPolicy returns the policy address of the group a gov proposal
+// message disciplines, or "" when it targets none.
+func (k Keeper) govMsgTargetPolicy(ctx context.Context, m sdk.Msg) string {
+	byName := func(name string) string {
+		g, err := k.Groups.Get(ctx, name)
+		if err != nil {
+			return ""
+		}
+		return g.PolicyAddress
+	}
+	switch t := m.(type) {
+	case *types.MsgDeleteGroup:
+		return byName(t.GroupName)
+	case *types.MsgUpdateGroupConfig:
+		return byName(t.GroupName)
+	case *types.MsgRenewGroup:
+		return byName(t.GroupName)
+	case *types.MsgVetoGroupProposals:
+		return byName(t.GroupName)
+	case *types.MsgUpdateGroupMembers:
+		return t.GroupPolicyAddress
+	case *types.MsgUpdatePolicyPermissions:
+		return t.PolicyAddress
+	case *types.MsgDeletePolicyPermissions:
+		return t.PolicyAddress
+	case *types.MsgCreatePolicyPermissions:
+		return t.PolicyAddress
+	}
+	return ""
+}
+
+// isPolicyInSubtree reports whether policy is ancestor itself, the veto
+// policy of ancestor's group, or a descendant of ancestor along parent links.
+func (k Keeper) isPolicyInSubtree(ctx context.Context, policy, ancestor string) bool {
+	cursor := policy
+	for i := 0; i < 64 && cursor != ""; i++ {
+		if cursor == ancestor {
+			return true
+		}
+		name, err := k.PolicyToName.Get(ctx, cursor)
+		if err != nil {
+			return false
+		}
+		g, err := k.Groups.Get(ctx, name)
+		if err != nil {
+			return false
+		}
+		if g.PolicyAddress == ancestor {
+			// cursor is the veto policy of ancestor's group
+			return true
+		}
+		cursor = g.ParentPolicyAddress
+	}
+	return false
 }

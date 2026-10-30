@@ -1,43 +1,34 @@
 package simulation
 
 import (
-	"math/rand"
-
-	"github.com/cosmos/cosmos-sdk/baseapp"
+	"cosmossdk.io/math"
 	"github.com/cosmos/cosmos-sdk/client"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
 
 	"sparkdream/x/forum/keeper"
 	"sparkdream/x/forum/types"
 )
 
-// SimulateMsgSetModerationPaused simulates a MsgSetModerationPaused message using direct keeper calls.
-// This bypasses the operations committee requirement for simulation purposes.
-// Full integration testing should be done in integration tests.
-// NOTE: We always set paused=false to avoid breaking other simulations.
+// SimulateMsgSetModerationPaused delivers MsgSetModerationPaused from a sim
+// account that is a Commons Operations Committee member and is a NoOp when
+// none is. Paused moderation is always resumed; active moderation is paused
+// rarely.
 func SimulateMsgSetModerationPaused(
 	ak types.AuthKeeper,
 	bk types.BankKeeper,
 	k keeper.Keeper,
 	txGen client.TxConfig,
 ) simtypes.Operation {
-	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
-	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		// Get current params
-		params, err := k.Params.Get(ctx)
-		if err != nil {
-			params = types.DefaultParams()
+	return operation(ak, bk, k, txGen, &types.MsgSetModerationPaused{}, func(e *simEnv) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
+		msg := &types.MsgSetModerationPaused{}
+		signer, ok := pick(e.r, e.opsCommittee())
+		if !ok {
+			return noOp(msg, "no sim account is a Commons Operations Committee member")
 		}
-
-		// Always set paused=false to not break other moderation simulations
-		params.ModerationPaused = false
-
-		if err := k.Params.Set(ctx, params); err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgSetModerationPaused{}), "failed to set params"), nil, nil
+		if !e.params.ModerationPaused && e.r.Intn(5) != 0 {
+			return noOp(msg, "leaving moderation active")
 		}
-
-		// Return success
-		return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgSetModerationPaused{}), "ok (direct keeper call)"), nil, nil
-	}
+		msg.Creator, msg.Paused = signer.Address.String(), !e.params.ModerationPaused
+		return e.submit(signer, msg, math.ZeroInt())
+	})
 }

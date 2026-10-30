@@ -1,62 +1,56 @@
 package simulation
 
 import (
-	"fmt"
-	"math/rand"
-
-	"github.com/cosmos/cosmos-sdk/baseapp"
+	"cosmossdk.io/math"
 	"github.com/cosmos/cosmos-sdk/client"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
 
 	"sparkdream/x/forum/keeper"
 	"sparkdream/x/forum/types"
 )
 
-// SimulateMsgUnarchiveThread simulates a MsgUnarchiveThread message using direct keeper calls.
-// This bypasses fee requirements and cooldown checks for simulation purposes.
-// Full integration testing should be done in integration tests.
+// SimulateMsgUnarchiveThread delivers MsgUnarchiveThread from a random
+// account on an archived thread whose category still exists, once
+// unarchive_cooldown has passed since it was archived. Threads are only
+// archived by MsgFreezeThread, which cannot succeed in a 200-block run (see
+// SimulateMsgFreezeThread), so this op is a NoOp there.
 func SimulateMsgUnarchiveThread(
 	ak types.AuthKeeper,
 	bk types.BankKeeper,
 	k keeper.Keeper,
 	txGen client.TxConfig,
 ) simtypes.Operation {
-	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
-	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		simAccount, _ := simtypes.RandomAcc(r, accs)
-
-		// Get or create an archived thread (status-flag based)
-		archiveID, err := getOrCreateArchivedThread(r, ctx, k, simAccount.Address.String())
-		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgUnarchiveThread{}), "failed to get/create archived thread"), nil, nil
+	return operation(ak, bk, k, txGen, &types.MsgUnarchiveThread{}, func(e *simEnv) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
+		msg := &types.MsgUnarchiveThread{}
+		if e.params.ForumPaused {
+			return noOp(msg, "forum is paused")
 		}
-
-		// Load the archived root post
-		rootPost, err := k.Post.Get(ctx, archiveID)
-		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgUnarchiveThread{}), "root post not found"), nil, nil
+		cooldown := e.params.UnarchiveCooldown
+		if cooldown == 0 {
+			cooldown = types.DefaultUnarchiveCooldown
 		}
-
-		// Restore root post status
-		rootPost.Status = types.PostStatus_POST_STATUS_ACTIVE
-		if err := k.Post.Set(ctx, archiveID, rootPost); err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgUnarchiveThread{}), "failed to restore root post"), nil, nil
-		}
-
-		// Restore all thread posts
-		iter, err := k.Post.Iterate(ctx, nil)
-		if err == nil {
-			defer iter.Close()
-			for ; iter.Valid(); iter.Next() {
-				post, _ := iter.Value()
-				if post.RootId == archiveID && post.PostId != archiveID && post.Status == types.PostStatus_POST_STATUS_ARCHIVED {
-					post.Status = types.PostStatus_POST_STATUS_ACTIVE
-					k.Post.Set(ctx, post.PostId, post)
-				}
+		roots, err := e.postsWhere(func(p types.Post) bool {
+			if p.ParentId != 0 || p.Status != types.PostStatus_POST_STATUS_ARCHIVED {
+				return false
 			}
+			if _, ok := e.category(p.CategoryId); !ok {
+				return false
+			}
+			am, err := e.k.ArchiveMetadata.Get(e.ctx, p.PostId)
+			return err != nil || e.now()-am.LastArchivedAt >= cooldown
+		})
+		if err != nil {
+			return noOpErr(msg, err)
 		}
-
-		return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgUnarchiveThread{}), fmt.Sprintf("ok (direct keeper call, thread %d)", archiveID)), nil, nil
-	}
+		root, ok := pick(e.r, roots)
+		if !ok {
+			return noOp(msg, "no archived thread past unarchive_cooldown")
+		}
+		acc, ok := pick(e.r, e.live())
+		if !ok {
+			return noOp(msg, "no live signer")
+		}
+		msg.Creator, msg.RootId = acc.Address.String(), root.PostId
+		return e.submit(acc, msg, math.ZeroInt())
+	})
 }

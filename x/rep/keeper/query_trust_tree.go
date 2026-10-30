@@ -3,6 +3,7 @@ package keeper
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 
 	"cosmossdk.io/store/prefix"
 	"github.com/cosmos/cosmos-sdk/runtime"
@@ -10,6 +11,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/rep/types"
 )
 
@@ -40,11 +42,14 @@ func (q queryServer) TrustTree(ctx context.Context, req *types.QueryTrustTreeReq
 	}
 
 	// A tree that hasn't been built yet has no root; report it as empty.
-	root, _ := q.k.GetMemberTrustTreeRoot(ctx)
+	root, getErr := q.k.GetMemberTrustTreeRoot(ctx)
+	if getErr != nil && !errors.Is(getErr, types.ErrTrustTreeNotBuilt) {
+		return nil, getErr
+	}
 
 	return &types.QueryTrustTreeResponse{
 		Root:       root,
-		Depth:      uint32(trustTreeDepth),
+		Depth:      commontypes.Saturate[uint32](trustTreeDepth),
 		LeafCount:  q.k.peekNextLeafIndex(ctx),
 		Leaves:     leaves,
 		Pagination: pageRes,

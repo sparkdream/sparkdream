@@ -10,39 +10,16 @@ import (
 )
 
 func (k msgServer) UpdateOperationalParams(ctx context.Context, msg *types.MsgUpdateOperationalParams) (*types.MsgUpdateOperationalParamsResponse, error) {
-	// 1. Verify authority via Operations Committee
-	if !k.IsCouncilAuthorized(ctx, msg.Authority, "commons", "operations") {
-		return nil, errorsmod.Wrap(types.ErrNotAuthorized, "must be governance or Operations Committee")
+	// 1. Verify authority: x/gov or the Operations Committee POLICY
+	//    address. A single committee member could otherwise set
+	//    content_ttl to minutes (censoring federation) or lift every
+	//    state-growth limit with no proposal.
+	if !k.isCouncilPolicy(ctx, msg.Authority) {
+		return nil, errorsmod.Wrap(types.ErrNotAuthorized, "must be governance or the Operations Committee policy address")
 	}
 
-	// 2. Validate operational params against reasonable bounds
+	// 2. Merge into current params (only overwrite the operational subset)
 	op := msg.OperationalParams
-	if op.MaxInboundPerBlock == 0 {
-		return nil, errorsmod.Wrap(types.ErrInvalidParamValue, "max_inbound_per_block must be > 0")
-	}
-	if op.MaxOutboundPerBlock == 0 {
-		return nil, errorsmod.Wrap(types.ErrInvalidParamValue, "max_outbound_per_block must be > 0")
-	}
-	if op.MaxContentBodySize == 0 {
-		return nil, errorsmod.Wrap(types.ErrInvalidParamValue, "max_content_body_size must be > 0")
-	}
-	if op.MaxContentUriSize == 0 {
-		return nil, errorsmod.Wrap(types.ErrInvalidParamValue, "max_content_uri_size must be > 0")
-	}
-	if op.MaxProtocolMetadataSize == 0 {
-		return nil, errorsmod.Wrap(types.ErrInvalidParamValue, "max_protocol_metadata_size must be > 0")
-	}
-	if op.ContentTtl.Seconds() <= 0 {
-		return nil, errorsmod.Wrap(types.ErrInvalidParamValue, "content_ttl must be > 0")
-	}
-	if op.AttestationTtl.Seconds() <= 0 {
-		return nil, errorsmod.Wrap(types.ErrInvalidParamValue, "attestation_ttl must be > 0")
-	}
-	if op.MaxPrunePerBlock == 0 {
-		return nil, errorsmod.Wrap(types.ErrInvalidParamValue, "max_prune_per_block must be > 0")
-	}
-
-	// 3. Merge into current params (only overwrite the operational subset)
 	currentParams, err := k.Params.Get(ctx)
 	if err != nil {
 		return nil, err
@@ -58,6 +35,13 @@ func (k msgServer) UpdateOperationalParams(ctx context.Context, msg *types.MsgUp
 	currentParams.GlobalMaxTrustCredit = op.GlobalMaxTrustCredit
 	currentParams.BridgeInactivityThreshold = op.BridgeInactivityThreshold
 	currentParams.MaxPrunePerBlock = op.MaxPrunePerBlock
+
+	// 3. Validate the merged params: the same range table MsgUpdateParams
+	//    enforces (spec §4.13), so the operational path cannot reach values
+	//    governance itself could not set.
+	if err := currentParams.Validate(); err != nil {
+		return nil, errorsmod.Wrap(types.ErrInvalidParamValue, err.Error())
+	}
 
 	if err := k.Params.Set(ctx, currentParams); err != nil {
 		return nil, err

@@ -22,6 +22,7 @@ echo "--- TESTING: FORUM POST CONVICTION STAKE (accrual + slash) ---"
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 source "$SCRIPT_DIR/../lib/denoms.sh"
+source "$SCRIPT_DIR/../lib/ops_committee.sh"
 source "$SCRIPT_DIR/_lib_params.sh"
 BINARY="sparkdreamd"
 CHAIN_ID="sparkdream"
@@ -43,11 +44,11 @@ bump_ephemeral_ttl 600 || {
 }
 
 # Lock=30s lets the Release happy path finish in a reasonable window.
-# Rate=100 rep/DREAM/day means a 100-DREAM stake credits ~0.116/day per
-# second of elapsed time — visible as a positive delta after a few blocks.
-# Cap=1000 effectively disables the per-epoch cap for the duration of the
-# test (we have a unit test for the cap path).
-bump_post_conviction_params 30 "100" "1000" || {
+# Rate=1 rep/DREAM/day (the committee ceiling) means a 100-DREAM stake
+# credits ~0.0012 rep per second — a positive LegacyDec delta after a few
+# blocks. Cap=100 (the committee ceiling) keeps the per-epoch cap out of
+# the way for the duration of the test (a unit test covers the cap path).
+bump_post_conviction_params 30 "1" "100" || {
     echo "Failed to bump post_conviction params; aborting."
     exit 1
 }
@@ -131,15 +132,10 @@ bootstrap_reputation() {
         fi
         INTERIM_ID=$(extract_event_value "$TX_RESULT" "interim_created" "interim_id")
 
-        TX_RES=$($BINARY tx rep complete-interim --gas 500000 $INTERIM_ID "post-conviction test setup" \
-            --from $ACCOUNT \
-            --chain-id $CHAIN_ID \
-            --keyring-backend test \
-            --fees 5000${BOND_DENOM} \
-            -y \
-            --output json 2>&1)
-        if ! submit_tx_and_wait "$TX_RES" || ! check_tx_success "$TX_RESULT"; then
-            echo "    Failed to complete interim $i"
+        # Approved by an Operations Committee proposal (a single member is
+        # refused); an assignee can no longer complete and pay its own interim.
+        if ! ops_approve_interim "$INTERIM_ID" "post-conviction test setup"; then
+            echo "    Failed to approve interim $INTERIM_ID: $OPS_COMMITTEE_ERROR"
             return 1
         fi
         echo "    Completed interim $i/$COUNT (ID: $INTERIM_ID)"

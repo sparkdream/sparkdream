@@ -5,6 +5,7 @@ package types
 
 import (
 	fmt "fmt"
+	types "github.com/cosmos/cosmos-sdk/types"
 	_ "github.com/cosmos/cosmos-sdk/types/tx/amino"
 	_ "github.com/cosmos/gogoproto/gogoproto"
 	proto "github.com/cosmos/gogoproto/proto"
@@ -42,6 +43,17 @@ type GenesisState struct {
 	// time, and so InitGenesis can validate the counter matches the actual
 	// active grants.
 	ActiveGrantCounts []ActiveGrantCount `protobuf:"bytes,4,rep,name=active_grant_counts,json=activeGrantCounts,proto3" json:"active_grant_counts"`
+	// SPARK gas deposits escrowed in the session module account for
+	// SCHEDULED_ONESHOT grants. Exported so an export/import round-trip never
+	// strands escrow with no claimant.
+	OneshotGasDeposits []OneshotDeposit `protobuf:"bytes,5,rep,name=oneshot_gas_deposits,json=oneshotGasDeposits,proto3" json:"oneshot_gas_deposits"`
+	// Per-UTC-day spend buckets backing RECURRING_PULL max_per_epoch_uspark.
+	// Exported so a round-trip does not reset the per-day throttle.
+	EpochSpends []EpochSpendEntry `protobuf:"bytes,6,rep,name=epoch_spends,json=epochSpends,proto3" json:"epoch_spends"`
+	// Module that created each grant through the module-bypass entrypoint
+	// (CreateGrantOnBehalfOf). Binds the bypass decline and claim paths to
+	// the creating module.
+	GrantCreators []GrantCreator `protobuf:"bytes,7,rep,name=grant_creators,json=grantCreators,proto3" json:"grant_creators"`
 }
 
 func (m *GenesisState) Reset()         { *m = GenesisState{} }
@@ -105,6 +117,197 @@ func (m *GenesisState) GetActiveGrantCounts() []ActiveGrantCount {
 	return nil
 }
 
+func (m *GenesisState) GetOneshotGasDeposits() []OneshotDeposit {
+	if m != nil {
+		return m.OneshotGasDeposits
+	}
+	return nil
+}
+
+func (m *GenesisState) GetEpochSpends() []EpochSpendEntry {
+	if m != nil {
+		return m.EpochSpends
+	}
+	return nil
+}
+
+func (m *GenesisState) GetGrantCreators() []GrantCreator {
+	if m != nil {
+		return m.GrantCreators
+	}
+	return nil
+}
+
+// OneshotDeposit is one escrowed ScheduledOneshot gas deposit.
+type OneshotDeposit struct {
+	GrantId uint64     `protobuf:"varint,1,opt,name=grant_id,json=grantId,proto3" json:"grant_id,omitempty"`
+	Amount  types.Coin `protobuf:"bytes,2,opt,name=amount,proto3" json:"amount"`
+}
+
+func (m *OneshotDeposit) Reset()         { *m = OneshotDeposit{} }
+func (m *OneshotDeposit) String() string { return proto.CompactTextString(m) }
+func (*OneshotDeposit) ProtoMessage()    {}
+func (*OneshotDeposit) Descriptor() ([]byte, []int) {
+	return fileDescriptor_7178a1842bd71405, []int{1}
+}
+func (m *OneshotDeposit) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *OneshotDeposit) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_OneshotDeposit.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *OneshotDeposit) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_OneshotDeposit.Merge(m, src)
+}
+func (m *OneshotDeposit) XXX_Size() int {
+	return m.Size()
+}
+func (m *OneshotDeposit) XXX_DiscardUnknown() {
+	xxx_messageInfo_OneshotDeposit.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_OneshotDeposit proto.InternalMessageInfo
+
+func (m *OneshotDeposit) GetGrantId() uint64 {
+	if m != nil {
+		return m.GrantId
+	}
+	return 0
+}
+
+func (m *OneshotDeposit) GetAmount() types.Coin {
+	if m != nil {
+		return m.Amount
+	}
+	return types.Coin{}
+}
+
+// EpochSpendEntry is one (grant, UTC day) spend bucket.
+type EpochSpendEntry struct {
+	GrantId uint64 `protobuf:"varint,1,opt,name=grant_id,json=grantId,proto3" json:"grant_id,omitempty"`
+	// UTC day index (unix seconds / 86400).
+	Day int64 `protobuf:"varint,2,opt,name=day,proto3" json:"day,omitempty"`
+	// Amount spent in that day, base units (sdk.Int string).
+	Amount string `protobuf:"bytes,3,opt,name=amount,proto3" json:"amount,omitempty"`
+}
+
+func (m *EpochSpendEntry) Reset()         { *m = EpochSpendEntry{} }
+func (m *EpochSpendEntry) String() string { return proto.CompactTextString(m) }
+func (*EpochSpendEntry) ProtoMessage()    {}
+func (*EpochSpendEntry) Descriptor() ([]byte, []int) {
+	return fileDescriptor_7178a1842bd71405, []int{2}
+}
+func (m *EpochSpendEntry) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *EpochSpendEntry) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_EpochSpendEntry.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *EpochSpendEntry) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_EpochSpendEntry.Merge(m, src)
+}
+func (m *EpochSpendEntry) XXX_Size() int {
+	return m.Size()
+}
+func (m *EpochSpendEntry) XXX_DiscardUnknown() {
+	xxx_messageInfo_EpochSpendEntry.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_EpochSpendEntry proto.InternalMessageInfo
+
+func (m *EpochSpendEntry) GetGrantId() uint64 {
+	if m != nil {
+		return m.GrantId
+	}
+	return 0
+}
+
+func (m *EpochSpendEntry) GetDay() int64 {
+	if m != nil {
+		return m.Day
+	}
+	return 0
+}
+
+func (m *EpochSpendEntry) GetAmount() string {
+	if m != nil {
+		return m.Amount
+	}
+	return ""
+}
+
+// GrantCreator records the module address that created a grant through
+// the module-bypass entrypoint.
+type GrantCreator struct {
+	GrantId       uint64 `protobuf:"varint,1,opt,name=grant_id,json=grantId,proto3" json:"grant_id,omitempty"`
+	ModuleAddress string `protobuf:"bytes,2,opt,name=module_address,json=moduleAddress,proto3" json:"module_address,omitempty"`
+}
+
+func (m *GrantCreator) Reset()         { *m = GrantCreator{} }
+func (m *GrantCreator) String() string { return proto.CompactTextString(m) }
+func (*GrantCreator) ProtoMessage()    {}
+func (*GrantCreator) Descriptor() ([]byte, []int) {
+	return fileDescriptor_7178a1842bd71405, []int{3}
+}
+func (m *GrantCreator) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *GrantCreator) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_GrantCreator.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *GrantCreator) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_GrantCreator.Merge(m, src)
+}
+func (m *GrantCreator) XXX_Size() int {
+	return m.Size()
+}
+func (m *GrantCreator) XXX_DiscardUnknown() {
+	xxx_messageInfo_GrantCreator.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_GrantCreator proto.InternalMessageInfo
+
+func (m *GrantCreator) GetGrantId() uint64 {
+	if m != nil {
+		return m.GrantId
+	}
+	return 0
+}
+
+func (m *GrantCreator) GetModuleAddress() string {
+	if m != nil {
+		return m.ModuleAddress
+	}
+	return ""
+}
+
 // ActiveGrantCount carries one (granter, type) -> active count entry for
 // the genesis export round-trip.
 type ActiveGrantCount struct {
@@ -117,7 +320,7 @@ func (m *ActiveGrantCount) Reset()         { *m = ActiveGrantCount{} }
 func (m *ActiveGrantCount) String() string { return proto.CompactTextString(m) }
 func (*ActiveGrantCount) ProtoMessage()    {}
 func (*ActiveGrantCount) Descriptor() ([]byte, []int) {
-	return fileDescriptor_7178a1842bd71405, []int{1}
+	return fileDescriptor_7178a1842bd71405, []int{4}
 }
 func (m *ActiveGrantCount) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -169,6 +372,9 @@ func (m *ActiveGrantCount) GetCount() uint32 {
 
 func init() {
 	proto.RegisterType((*GenesisState)(nil), "sparkdream.session.v1.GenesisState")
+	proto.RegisterType((*OneshotDeposit)(nil), "sparkdream.session.v1.OneshotDeposit")
+	proto.RegisterType((*EpochSpendEntry)(nil), "sparkdream.session.v1.EpochSpendEntry")
+	proto.RegisterType((*GrantCreator)(nil), "sparkdream.session.v1.GrantCreator")
 	proto.RegisterType((*ActiveGrantCount)(nil), "sparkdream.session.v1.ActiveGrantCount")
 }
 
@@ -177,30 +383,44 @@ func init() {
 }
 
 var fileDescriptor_7178a1842bd71405 = []byte{
-	// 357 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xe2, 0x52, 0x2e, 0x2e, 0x48, 0x2c,
-	0xca, 0x4e, 0x29, 0x4a, 0x4d, 0xcc, 0xd5, 0x2f, 0x4e, 0x2d, 0x2e, 0xce, 0xcc, 0xcf, 0xd3, 0x2f,
-	0x33, 0xd4, 0x4f, 0x4f, 0xcd, 0x4b, 0x2d, 0xce, 0x2c, 0xd6, 0x2b, 0x28, 0xca, 0x2f, 0xc9, 0x17,
-	0x12, 0x45, 0x28, 0xd2, 0x83, 0x2a, 0xd2, 0x2b, 0x33, 0x94, 0x12, 0x4c, 0xcc, 0xcd, 0xcc, 0xcb,
-	0xd7, 0x07, 0x93, 0x10, 0x95, 0x52, 0x22, 0xe9, 0xf9, 0xe9, 0xf9, 0x60, 0xa6, 0x3e, 0x88, 0x05,
-	0x15, 0x55, 0xc4, 0x61, 0x49, 0x51, 0x62, 0x5e, 0x09, 0x54, 0x89, 0x12, 0x76, 0x25, 0x05, 0x89,
-	0x45, 0x89, 0xb9, 0x50, 0x67, 0x28, 0x75, 0x30, 0x71, 0xf1, 0xb8, 0x43, 0x1c, 0x16, 0x5c, 0x92,
-	0x58, 0x92, 0x2a, 0xe4, 0xc0, 0xc5, 0x06, 0x51, 0x20, 0xc1, 0xa8, 0xc0, 0xa8, 0xc1, 0x6d, 0x24,
-	0xab, 0x87, 0xd5, 0xa1, 0x7a, 0x01, 0x60, 0x45, 0x4e, 0x9c, 0x27, 0xee, 0xc9, 0x33, 0xac, 0x78,
-	0xbe, 0x41, 0x8b, 0x31, 0x08, 0xaa, 0x4f, 0xc8, 0x8a, 0x8b, 0x0d, 0xec, 0x8a, 0x62, 0x09, 0x26,
-	0x05, 0x66, 0x0d, 0x6e, 0x23, 0x19, 0x1c, 0x26, 0xb8, 0x83, 0x14, 0x39, 0xb1, 0x80, 0x0c, 0x08,
-	0x82, 0xea, 0x10, 0x92, 0xe6, 0xe2, 0x04, 0xb3, 0xe2, 0x8b, 0x53, 0x0b, 0x25, 0x98, 0x15, 0x18,
-	0x35, 0x58, 0x82, 0x38, 0xc0, 0x02, 0xc1, 0xa9, 0x85, 0x42, 0xb1, 0x5c, 0xc2, 0x89, 0xc9, 0x25,
-	0x99, 0x65, 0xa9, 0xf1, 0x10, 0x35, 0xc9, 0xf9, 0xa5, 0x20, 0x5b, 0x58, 0xc0, 0xb6, 0xa8, 0xe3,
-	0xb0, 0xc5, 0x11, 0xac, 0x03, 0x6c, 0x97, 0x33, 0x48, 0x3d, 0xd4, 0x42, 0xc1, 0x44, 0x34, 0xf1,
-	0x62, 0xa5, 0x0a, 0x2e, 0x01, 0x74, 0xc5, 0x42, 0x12, 0x5c, 0xec, 0x60, 0xbb, 0x52, 0x8b, 0xc0,
-	0xc1, 0xc1, 0x19, 0x04, 0xe3, 0x0a, 0x99, 0x70, 0xb1, 0x94, 0x54, 0x16, 0xa4, 0x4a, 0x30, 0x29,
-	0x30, 0x6a, 0xf0, 0x19, 0x29, 0xe0, 0xf3, 0x63, 0x48, 0x65, 0x41, 0x6a, 0x10, 0x58, 0xb5, 0x90,
-	0x08, 0x17, 0x2b, 0xd8, 0xd5, 0x60, 0xbf, 0xf1, 0x06, 0x41, 0x38, 0x4e, 0x26, 0x27, 0x1e, 0xc9,
-	0x31, 0x5e, 0x78, 0x24, 0xc7, 0xf8, 0xe0, 0x91, 0x1c, 0xe3, 0x84, 0xc7, 0x72, 0x0c, 0x17, 0x1e,
-	0xcb, 0x31, 0xdc, 0x78, 0x2c, 0xc7, 0x10, 0x25, 0x85, 0x14, 0x85, 0x15, 0xf0, 0x48, 0x04, 0x19,
-	0x55, 0x9c, 0xc4, 0x06, 0x8e, 0x41, 0x63, 0x40, 0x00, 0x00, 0x00, 0xff, 0xff, 0x09, 0x23, 0xdb,
-	0xc9, 0x6f, 0x02, 0x00, 0x00,
+	// 584 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0x7c, 0x93, 0xcd, 0x6e, 0xd3, 0x4e,
+	0x14, 0xc5, 0xe3, 0xc6, 0x4d, 0xff, 0x99, 0x7c, 0xfc, 0xdb, 0x21, 0x20, 0x37, 0x80, 0x09, 0xa9,
+	0x0a, 0x11, 0x0b, 0x5b, 0x09, 0x5d, 0x21, 0x16, 0x34, 0xa1, 0x8a, 0x58, 0x35, 0x72, 0x10, 0x0b,
+	0xa4, 0xca, 0x9a, 0xd8, 0xa3, 0xd4, 0x02, 0x7b, 0x5c, 0xdf, 0x69, 0xd4, 0xbc, 0x02, 0x2b, 0x1e,
+	0x83, 0x25, 0x8f, 0xd1, 0x65, 0x97, 0xac, 0x10, 0x4a, 0x16, 0xbc, 0x06, 0x9a, 0x0f, 0x42, 0x1a,
+	0x35, 0xd9, 0x44, 0x33, 0xd7, 0xe7, 0xfe, 0xce, 0xdc, 0xc9, 0x19, 0x74, 0x00, 0x29, 0xc9, 0x3e,
+	0x85, 0x19, 0x25, 0xb1, 0x0b, 0x14, 0x20, 0x62, 0x89, 0x3b, 0x69, 0xbb, 0x63, 0x9a, 0x50, 0x88,
+	0xc0, 0x49, 0x33, 0xc6, 0x19, 0xbe, 0xff, 0x4f, 0xe4, 0x68, 0x91, 0x33, 0x69, 0xd7, 0xf7, 0x48,
+	0x1c, 0x25, 0xcc, 0x95, 0xbf, 0x4a, 0x59, 0xb7, 0x03, 0x06, 0x31, 0x03, 0x77, 0x44, 0x80, 0xba,
+	0x93, 0xf6, 0x88, 0x72, 0xd2, 0x76, 0x03, 0x16, 0x25, 0xfa, 0x7b, 0x6d, 0xcc, 0xc6, 0x4c, 0x2e,
+	0x5d, 0xb1, 0xd2, 0xd5, 0xa7, 0x6b, 0x0e, 0x91, 0x91, 0x84, 0x6b, 0x49, 0xf3, 0x6e, 0x49, 0x4a,
+	0x32, 0x12, 0xeb, 0x63, 0x36, 0xbf, 0x98, 0xa8, 0xdc, 0x57, 0x07, 0x1f, 0x72, 0xc2, 0x29, 0x7e,
+	0x83, 0x0a, 0x4a, 0x60, 0x19, 0x0d, 0xa3, 0x55, 0xea, 0x3c, 0x76, 0xee, 0x1c, 0xc4, 0x19, 0x48,
+	0x51, 0xb7, 0x78, 0xfd, 0xf3, 0x49, 0xee, 0xdb, 0xef, 0xef, 0x2f, 0x0c, 0x4f, 0xf7, 0xe1, 0x57,
+	0xa8, 0x20, 0x4f, 0x01, 0xd6, 0x56, 0x23, 0xdf, 0x2a, 0x75, 0x1e, 0xad, 0x21, 0xf4, 0x85, 0xa8,
+	0x6b, 0x0a, 0x80, 0xa7, 0x3b, 0xf0, 0x43, 0x54, 0x94, 0x2b, 0x1f, 0xe8, 0x85, 0x95, 0x6f, 0x18,
+	0x2d, 0xd3, 0xfb, 0x4f, 0x16, 0x86, 0xf4, 0x02, 0x9f, 0xa1, 0x7b, 0x24, 0xe0, 0xd1, 0x84, 0xfa,
+	0x4a, 0x13, 0xb0, 0x4b, 0xe1, 0x62, 0x4a, 0x97, 0xe7, 0x6b, 0x5c, 0x8e, 0x65, 0x87, 0xf4, 0xea,
+	0x09, 0xbd, 0x36, 0xdc, 0x23, 0x2b, 0x75, 0xc0, 0x67, 0xa8, 0xc6, 0x12, 0x0a, 0xe7, 0x8c, 0xfb,
+	0x63, 0x02, 0x7e, 0x48, 0x53, 0x06, 0x11, 0x07, 0x6b, 0x5b, 0xf2, 0x0f, 0xd7, 0xf0, 0x4f, 0x55,
+	0xcb, 0x5b, 0xa5, 0xd6, 0x74, 0xac, 0x41, 0x7d, 0x02, 0xfa, 0x03, 0xe0, 0x53, 0x54, 0xa6, 0x29,
+	0x0b, 0xce, 0x7d, 0x48, 0x69, 0x12, 0x82, 0x55, 0x90, 0xd8, 0x67, 0x6b, 0xb0, 0x27, 0x42, 0x3a,
+	0x14, 0xca, 0x93, 0x84, 0x67, 0x53, 0xcd, 0x2d, 0xd1, 0x45, 0x19, 0xf0, 0x00, 0x55, 0xf5, 0x3d,
+	0x64, 0x94, 0x70, 0x96, 0x81, 0xb5, 0x23, 0x91, 0x07, 0x9b, 0xee, 0xbb, 0xa7, 0xb4, 0x9a, 0x57,
+	0x19, 0x2f, 0xd5, 0xa0, 0x19, 0xa1, 0xea, 0xed, 0x71, 0xf0, 0x3e, 0x52, 0xd7, 0xef, 0x47, 0xa1,
+	0xcc, 0x83, 0xe9, 0xed, 0xc8, 0xfd, 0xbb, 0x10, 0xbf, 0x46, 0x05, 0x12, 0x8b, 0x9b, 0xb3, 0xb6,
+	0x64, 0x50, 0xf6, 0x1d, 0x95, 0x63, 0x47, 0xe4, 0xd8, 0xd1, 0x39, 0x76, 0x7a, 0x2c, 0x4a, 0x6e,
+	0x85, 0x44, 0xf5, 0x34, 0x3f, 0xa0, 0xff, 0x57, 0x46, 0xdc, 0xe4, 0xb5, 0x8b, 0xf2, 0x21, 0x99,
+	0x4a, 0xa3, 0xbc, 0x27, 0x96, 0xf8, 0xc1, 0xc2, 0x5d, 0xa4, 0xa4, 0xb8, 0xe0, 0x0e, 0x50, 0x79,
+	0x79, 0xce, 0x4d, 0xd0, 0x43, 0x54, 0x8d, 0x59, 0x78, 0xf9, 0x99, 0xfa, 0x24, 0x0c, 0x33, 0x0a,
+	0x20, 0xf9, 0x45, 0xaf, 0xa2, 0xaa, 0xc7, 0xaa, 0xd8, 0xbc, 0x42, 0xbb, 0xab, 0x19, 0xc2, 0x16,
+	0x52, 0x14, 0x9a, 0x49, 0x68, 0xd1, 0xfb, 0xbb, 0xc5, 0x47, 0xc8, 0xe4, 0xd3, 0x94, 0x4a, 0x54,
+	0xb5, 0xd3, 0xd8, 0xf4, 0x57, 0xbc, 0x9f, 0xa6, 0xd4, 0x93, 0x6a, 0x5c, 0x43, 0xdb, 0xc1, 0x62,
+	0x98, 0x8a, 0xa7, 0x36, 0xdd, 0xa3, 0xeb, 0x99, 0x6d, 0xdc, 0xcc, 0x6c, 0xe3, 0xd7, 0xcc, 0x36,
+	0xbe, 0xce, 0xed, 0xdc, 0xcd, 0xdc, 0xce, 0xfd, 0x98, 0xdb, 0xb9, 0x8f, 0xf5, 0xa5, 0x97, 0x7d,
+	0xb5, 0x78, 0xdb, 0x02, 0x05, 0xa3, 0x82, 0x7c, 0xd8, 0x2f, 0xff, 0x04, 0x00, 0x00, 0xff, 0xff,
+	0x61, 0xc3, 0x04, 0x0d, 0xa6, 0x04, 0x00, 0x00,
 }
 
 func (m *GenesisState) Marshal() (dAtA []byte, err error) {
@@ -223,6 +443,48 @@ func (m *GenesisState) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	_ = i
 	var l int
 	_ = l
+	if len(m.GrantCreators) > 0 {
+		for iNdEx := len(m.GrantCreators) - 1; iNdEx >= 0; iNdEx-- {
+			{
+				size, err := m.GrantCreators[iNdEx].MarshalToSizedBuffer(dAtA[:i])
+				if err != nil {
+					return 0, err
+				}
+				i -= size
+				i = encodeVarintGenesis(dAtA, i, uint64(size))
+			}
+			i--
+			dAtA[i] = 0x3a
+		}
+	}
+	if len(m.EpochSpends) > 0 {
+		for iNdEx := len(m.EpochSpends) - 1; iNdEx >= 0; iNdEx-- {
+			{
+				size, err := m.EpochSpends[iNdEx].MarshalToSizedBuffer(dAtA[:i])
+				if err != nil {
+					return 0, err
+				}
+				i -= size
+				i = encodeVarintGenesis(dAtA, i, uint64(size))
+			}
+			i--
+			dAtA[i] = 0x32
+		}
+	}
+	if len(m.OneshotGasDeposits) > 0 {
+		for iNdEx := len(m.OneshotGasDeposits) - 1; iNdEx >= 0; iNdEx-- {
+			{
+				size, err := m.OneshotGasDeposits[iNdEx].MarshalToSizedBuffer(dAtA[:i])
+				if err != nil {
+					return 0, err
+				}
+				i -= size
+				i = encodeVarintGenesis(dAtA, i, uint64(size))
+			}
+			i--
+			dAtA[i] = 0x2a
+		}
+	}
 	if len(m.ActiveGrantCounts) > 0 {
 		for iNdEx := len(m.ActiveGrantCounts) - 1; iNdEx >= 0; iNdEx-- {
 			{
@@ -266,6 +528,119 @@ func (m *GenesisState) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	}
 	i--
 	dAtA[i] = 0xa
+	return len(dAtA) - i, nil
+}
+
+func (m *OneshotDeposit) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *OneshotDeposit) MarshalTo(dAtA []byte) (int, error) {
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *OneshotDeposit) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	{
+		size, err := m.Amount.MarshalToSizedBuffer(dAtA[:i])
+		if err != nil {
+			return 0, err
+		}
+		i -= size
+		i = encodeVarintGenesis(dAtA, i, uint64(size))
+	}
+	i--
+	dAtA[i] = 0x12
+	if m.GrantId != 0 {
+		i = encodeVarintGenesis(dAtA, i, uint64(m.GrantId))
+		i--
+		dAtA[i] = 0x8
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *EpochSpendEntry) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *EpochSpendEntry) MarshalTo(dAtA []byte) (int, error) {
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *EpochSpendEntry) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if len(m.Amount) > 0 {
+		i -= len(m.Amount)
+		copy(dAtA[i:], m.Amount)
+		i = encodeVarintGenesis(dAtA, i, uint64(len(m.Amount)))
+		i--
+		dAtA[i] = 0x1a
+	}
+	if m.Day != 0 {
+		i = encodeVarintGenesis(dAtA, i, uint64(m.Day))
+		i--
+		dAtA[i] = 0x10
+	}
+	if m.GrantId != 0 {
+		i = encodeVarintGenesis(dAtA, i, uint64(m.GrantId))
+		i--
+		dAtA[i] = 0x8
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *GrantCreator) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *GrantCreator) MarshalTo(dAtA []byte) (int, error) {
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *GrantCreator) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if len(m.ModuleAddress) > 0 {
+		i -= len(m.ModuleAddress)
+		copy(dAtA[i:], m.ModuleAddress)
+		i = encodeVarintGenesis(dAtA, i, uint64(len(m.ModuleAddress)))
+		i--
+		dAtA[i] = 0x12
+	}
+	if m.GrantId != 0 {
+		i = encodeVarintGenesis(dAtA, i, uint64(m.GrantId))
+		i--
+		dAtA[i] = 0x8
+	}
 	return len(dAtA) - i, nil
 }
 
@@ -342,6 +717,73 @@ func (m *GenesisState) Size() (n int) {
 			l = e.Size()
 			n += 1 + l + sovGenesis(uint64(l))
 		}
+	}
+	if len(m.OneshotGasDeposits) > 0 {
+		for _, e := range m.OneshotGasDeposits {
+			l = e.Size()
+			n += 1 + l + sovGenesis(uint64(l))
+		}
+	}
+	if len(m.EpochSpends) > 0 {
+		for _, e := range m.EpochSpends {
+			l = e.Size()
+			n += 1 + l + sovGenesis(uint64(l))
+		}
+	}
+	if len(m.GrantCreators) > 0 {
+		for _, e := range m.GrantCreators {
+			l = e.Size()
+			n += 1 + l + sovGenesis(uint64(l))
+		}
+	}
+	return n
+}
+
+func (m *OneshotDeposit) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if m.GrantId != 0 {
+		n += 1 + sovGenesis(uint64(m.GrantId))
+	}
+	l = m.Amount.Size()
+	n += 1 + l + sovGenesis(uint64(l))
+	return n
+}
+
+func (m *EpochSpendEntry) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if m.GrantId != 0 {
+		n += 1 + sovGenesis(uint64(m.GrantId))
+	}
+	if m.Day != 0 {
+		n += 1 + sovGenesis(uint64(m.Day))
+	}
+	l = len(m.Amount)
+	if l > 0 {
+		n += 1 + l + sovGenesis(uint64(l))
+	}
+	return n
+}
+
+func (m *GrantCreator) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if m.GrantId != 0 {
+		n += 1 + sovGenesis(uint64(m.GrantId))
+	}
+	l = len(m.ModuleAddress)
+	if l > 0 {
+		n += 1 + l + sovGenesis(uint64(l))
 	}
 	return n
 }
@@ -519,6 +961,431 @@ func (m *GenesisState) Unmarshal(dAtA []byte) error {
 			if err := m.ActiveGrantCounts[len(m.ActiveGrantCounts)-1].Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
 				return err
 			}
+			iNdEx = postIndex
+		case 5:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field OneshotGasDeposits", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowGenesis
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthGenesis
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthGenesis
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.OneshotGasDeposits = append(m.OneshotGasDeposits, OneshotDeposit{})
+			if err := m.OneshotGasDeposits[len(m.OneshotGasDeposits)-1].Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 6:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field EpochSpends", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowGenesis
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthGenesis
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthGenesis
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.EpochSpends = append(m.EpochSpends, EpochSpendEntry{})
+			if err := m.EpochSpends[len(m.EpochSpends)-1].Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 7:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field GrantCreators", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowGenesis
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthGenesis
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthGenesis
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.GrantCreators = append(m.GrantCreators, GrantCreator{})
+			if err := m.GrantCreators[len(m.GrantCreators)-1].Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipGenesis(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthGenesis
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *OneshotDeposit) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowGenesis
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: OneshotDeposit: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: OneshotDeposit: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field GrantId", wireType)
+			}
+			m.GrantId = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowGenesis
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.GrantId |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Amount", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowGenesis
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthGenesis
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthGenesis
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if err := m.Amount.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipGenesis(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthGenesis
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *EpochSpendEntry) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowGenesis
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: EpochSpendEntry: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: EpochSpendEntry: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field GrantId", wireType)
+			}
+			m.GrantId = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowGenesis
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.GrantId |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 2:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Day", wireType)
+			}
+			m.Day = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowGenesis
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.Day |= int64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 3:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Amount", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowGenesis
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthGenesis
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthGenesis
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Amount = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipGenesis(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthGenesis
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *GrantCreator) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowGenesis
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: GrantCreator: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: GrantCreator: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field GrantId", wireType)
+			}
+			m.GrantId = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowGenesis
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.GrantId |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ModuleAddress", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowGenesis
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthGenesis
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthGenesis
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.ModuleAddress = string(dAtA[iNdEx:postIndex])
 			iNdEx = postIndex
 		default:
 			iNdEx = preIndex

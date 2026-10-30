@@ -70,7 +70,9 @@ func (k msgServer) AppealHide(ctx context.Context, msg *types.MsgAppealHide) (*t
 		return nil, err
 	}
 	if hr.Sentinel != "" {
-		_ = k.late.rep.RecordRoleAction(ctx, sentinelRole, hr.Sentinel, reptypes.ActionKindArtifactAppealFiled)
+		if err := k.late.rep.RecordRoleAction(ctx, sentinelRole, hr.Sentinel, reptypes.ActionKindArtifactAppealFiled); err != nil {
+			return nil, err
+		}
 	}
 	emit(ctx, types.EventHideAppealed, sdk.NewAttribute("hide_id", u64(hr.Id)),
 		sdk.NewAttribute("appellant", msg.Appellant), sdk.NewAttribute("appeal_id", u64(appealID)))

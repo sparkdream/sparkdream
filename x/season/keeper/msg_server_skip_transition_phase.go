@@ -11,7 +11,8 @@ import (
 
 // SkipTransitionPhase skips the current phase of a transition.
 // Emergency action - cannot skip critical phases (reputation archival/reset).
-// Authorized: Commons Council policy address or Commons Operations Committee members.
+// Authorized: governance, the Commons Council policy address or the Commons
+// Operations Committee policy address (never a single committee member).
 func (k msgServer) SkipTransitionPhase(ctx context.Context, msg *types.MsgSkipTransitionPhase) (*types.MsgSkipTransitionPhaseResponse, error) {
 	if _, err := k.addressCodec.StringToBytes(msg.Authority); err != nil {
 		return nil, errorsmod.Wrap(err, "invalid authority address")
@@ -19,8 +20,8 @@ func (k msgServer) SkipTransitionPhase(ctx context.Context, msg *types.MsgSkipTr
 
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 
-	// Check authority (Commons Council or Operations Committee)
-	if !k.IsAuthorizedForGamification(ctx, msg.Authority) {
+	// Check authority (gov, Commons Council or Operations Committee policy)
+	if !k.IsAuthorizedForTransition(ctx, msg.Authority) {
 		return nil, types.ErrNotAuthorized
 	}
 
@@ -70,7 +71,9 @@ func (k msgServer) SkipTransitionPhase(ctx context.Context, msg *types.MsgSkipTr
 	recovery, err := k.TransitionRecoveryState.Get(ctx)
 	if err == nil && recovery.RecoveryMode {
 		recovery.RecoveryMode = false
-		_ = k.TransitionRecoveryState.Set(ctx, recovery)
+		if err := k.TransitionRecoveryState.Set(ctx, recovery); err != nil {
+			return nil, err
+		}
 	}
 
 	// Emit event

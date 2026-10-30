@@ -34,3 +34,14 @@ func TestExportGenesisBeforeInitErrors(t *testing.T) {
 	_, err := f.keeper.ExportGenesis(f.ctx)
 	require.Error(t, err)
 }
+
+// IDN-03: an empty identity is refused at InitGenesis with a message naming
+// the genesis as the cause, instead of writing nothing and leaving every
+// later BondDenom read to panic.
+func TestInitGenesisRejectsEmptyIdentity(t *testing.T) {
+	f := initFixture(t)
+	err := f.keeper.InitGenesis(f.ctx, types.GenesisState{AllowChainIdMismatch: true})
+	require.ErrorIs(t, err, types.ErrIdentityNotInitialized)
+	_, err = f.keeper.GetSealedIdentity(f.ctx)
+	require.Error(t, err, "nothing sealed")
+}

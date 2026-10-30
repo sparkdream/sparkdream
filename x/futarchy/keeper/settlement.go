@@ -27,19 +27,12 @@ import (
 // CANCELLED here is callable from CancelMarket *before* it persists status,
 // so the function takes a marketStatus override-equivalent: the market struct
 // passed in must already have its eventual SettlementPriceYes (if applicable).
+// The result is already capped where the math bounds it, so callers must not
+// cap it at InitialLiquidity again.
 func (k Keeper) computeCreatorResidual(ctx sdk.Context, market types.Market) (math.Int, error) {
 	if market.BValue == nil || market.PoolYes == nil || market.PoolNo == nil ||
 		market.InitialLiquidity == nil {
 		return math.ZeroInt(), fmt.Errorf("market %d missing LMSR fields", market.Index)
-	}
-
-	params, err := k.Params.Get(ctx)
-	if err != nil {
-		return math.ZeroInt(), err
-	}
-	maxExp, err := math.LegacyNewDecFromStr(params.MaxLmsrExponent)
-	if err != nil {
-		maxExp = types.DefaultMaxExponent
 	}
 
 	b := *market.BValue
@@ -47,19 +40,25 @@ func (k Keeper) computeCreatorResidual(ctx sdk.Context, market types.Market) (ma
 	qNo := math.LegacyNewDecFromInt(*market.PoolNo)
 
 	switch market.Status {
-	case "RESOLVED_YES":
-		residual, err := types.CreatorResidualResolved(ctx, b, qYes, qNo, maxExp)
+	case "RESOLVED_YES", "RESOLVED_NO":
+		qWin, qLose := qYes, qNo
+		if market.Status == "RESOLVED_NO" {
+			qWin, qLose = qNo, qYes
+		}
+		residual, err := types.CreatorResidualResolved(ctx, b, qWin, qLose)
 		if err != nil {
 			return math.ZeroInt(), err
 		}
-		return residual.TruncateInt(), nil
-
-	case "RESOLVED_NO":
-		residual, err := types.CreatorResidualResolved(ctx, b, qNo, qYes, maxExp)
-		if err != nil {
-			return math.ZeroInt(), err
+		out := residual.TruncateInt()
+		// With the winner holding at least as many shares as the loser the
+		// residual is mathematically <= InitialLiquidity; cap defensively
+		// against rounding. Under time-weighted resolution (FUT-01) the
+		// winner may hold fewer shares, and then the residual C(q) - q_win
+		// legitimately exceeds the subsidy; it is still backed by C(q).
+		if qWin.GTE(qLose) && out.GT(*market.InitialLiquidity) {
+			out = *market.InitialLiquidity
 		}
-		return residual.TruncateInt(), nil
+		return out, nil
 
 	case "CANCELLED", "RESOLVED_INVALID":
 		// Zero pools: trivial — full subsidy refund. Settlement price is
@@ -75,7 +74,12 @@ func (k Keeper) computeCreatorResidual(ctx sdk.Context, market types.Market) (ma
 		if err != nil {
 			return math.ZeroInt(), err
 		}
-		return residual.TruncateInt(), nil
+		// b*H(p) <= b*ln(2) = InitialLiquidity; cap against rounding.
+		out := residual.TruncateInt()
+		if out.GT(*market.InitialLiquidity) {
+			out = *market.InitialLiquidity
+		}
+		return out, nil
 
 	default:
 		return math.ZeroInt(), fmt.Errorf("market %d status %q is not eligible for withdrawal", market.Index, market.Status)

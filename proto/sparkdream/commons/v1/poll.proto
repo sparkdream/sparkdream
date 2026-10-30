@@ -1,0 +1,43 @@
+syntax = "proto3";
+package sparkdream.commons.v1;
+
+option go_package = "sparkdream/x/commons/types";
+
+// PollStatus is a poll's lifecycle state.
+enum PollStatus {
+  POLL_STATUS_UNSPECIFIED = 0;
+  // OPEN: voting is open until the deadline.
+  POLL_STATUS_OPEN = 1;
+  // CLOSED: the deadline passed; tallies are final.
+  POLL_STATUS_CLOSED = 2;
+  // CANCELLED: the creator withdrew it before any vote.
+  POLL_STATUS_CANCELLED = 3;
+}
+
+// Poll is a non-binding, single-choice question put to a group's members.
+// It never executes anything.
+message Poll {
+  uint64 id = 1;
+  // council_name is the group whose members vote.
+  string council_name = 2;
+  string creator = 3;
+  string question = 4;
+  repeated string options = 5;
+  // secret_ballot polls are voted with MsgAnonymousVotePoll against the
+  // voter snapshot taken at opening.
+  bool secret_ballot = 6;
+  int64 opened_at = 7;
+  // deadline is the unix time voting closes.
+  int64 deadline = 8;
+  PollStatus status = 9;
+  // tallies[i] counts the votes for options[i] (one member, one vote).
+  repeated uint64 tallies = 10;
+  // voter_root is the Merkle root of the voter snapshot (secret ballots).
+  bytes voter_root = 11;
+  // eligible_voters is the number of members who could vote at opening:
+  // the group's member count for an open poll, the snapshot's leaf count
+  // (members with a registered ZK key) for a secret one.
+  uint64 eligible_voters = 12;
+  // closed_at is when the poll closed or was cancelled (0 while open).
+  int64 closed_at = 13;
+}

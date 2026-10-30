@@ -15,6 +15,7 @@ if [ ! -f "$SCRIPT_DIR/.test_env" ]; then
 fi
 
 source "$SCRIPT_DIR/.test_env"
+source "$SCRIPT_DIR/../lib/ops_committee.sh"
 
 # Sanity check: the CLI command must be registered by autocli — otherwise
 # every tx call below returns YAML help text, jq fails to parse it,
@@ -137,15 +138,10 @@ bootstrap_reputation() {
         fi
         INTERIM_ID=$(extract_event_value "$TX_RESULT" "interim_created" "interim_id")
 
-        TX_RES=$($BINARY tx rep complete-interim --gas 500000 $INTERIM_ID "unhide-test setup" \
-            --from $ACCOUNT \
-            --chain-id $CHAIN_ID \
-            --keyring-backend test \
-            --fees 5000${BOND_DENOM} \
-            -y \
-            --output json 2>&1)
-        if ! submit_tx_and_wait "$TX_RES" || ! check_tx_success "$TX_RESULT"; then
-            echo "    Failed to complete interim $i"
+        # Approved by an Operations Committee proposal (a single member is
+        # refused); an assignee can no longer complete and pay its own interim.
+        if ! ops_approve_interim "$INTERIM_ID" "unhide-test setup"; then
+            echo "    Failed to approve interim $INTERIM_ID: $OPS_COMMITTEE_ERROR"
             return 1
         fi
         echo "    Completed interim $i/$COUNT (ID: $INTERIM_ID)"

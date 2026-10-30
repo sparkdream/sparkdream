@@ -94,11 +94,24 @@ func (a Attestation) Validate() error {
 	default:
 		return fmt.Errorf("contentscan: invalid category %q", a.Category)
 	}
+	// Times are signed in one canonical form every implementation can
+	// reproduce from the parsed JSON: UTC ("Z") and whole seconds, so they
+	// always read YYYY-MM-DDTHH:MM:SSZ (Go would otherwise write a numeric
+	// offset or a trimmed fraction).
+	if !canonicalTime(a.IssuedAt) || (!a.ExpiresAt.IsZero() && !canonicalTime(a.ExpiresAt)) {
+		return errors.New("contentscan: issued_at and expires_at must be UTC whole seconds")
+	}
 	if a.Subject.URI != "" && a.Subject.Record == "" && a.ExpiresAt.IsZero() {
 		// Plain-URI content can change under the same URL.
 		return errors.New("contentscan: plain-URI subjects need expires_at")
 	}
 	return nil
+}
+
+// canonicalTime reports whether t is at a zero UTC offset with no fraction.
+func canonicalTime(t time.Time) bool {
+	_, offset := t.Zone()
+	return offset == 0 && t.Nanosecond() == 0
 }
 
 // SigningBytes is the canonical JSON of the attestation without its

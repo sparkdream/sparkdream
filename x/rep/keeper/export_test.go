@@ -35,3 +35,13 @@ func (k Keeper) SetSeasonalPoolStartEpochForTest(ctx context.Context, epoch uint
 func (k Keeper) SetBondedRoleForTest(ctx context.Context, br types.BondedRole) error {
 	return k.BondedRoles.Set(ctx, bondedRoleKey(br.RoleType, br.Address), br)
 }
+
+// JurorCandidatesForTest lists the members a jury draw would read.
+func (k Keeper) JurorCandidatesForTest(ctx context.Context, minRep math.LegacyDec) ([]string, error) {
+	var out []string
+	err := k.walkJurorCandidates(ctx, minRep, func(addr string, _ types.Member) error {
+		out = append(out, addr)
+		return nil
+	})
+	return out, err
+}

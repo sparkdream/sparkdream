@@ -1,6 +1,7 @@
 package abci
 
 import (
+	"bytes"
 	"fmt"
 
 	abci "github.com/cometbft/cometbft/abci/types"
@@ -55,6 +56,19 @@ func PrepareProposalHandler(k keeper.Keeper, next sdk.PrepareProposalHandler) sd
 			}
 
 			var item interface{ Size() int }
+			if ext.Phase != types.DKGPhase_DKG_PHASE_ACTIVE {
+				// Ceremony data is authenticated by the validator's
+				// vote-extension signature over the marshaled extension:
+				// leave out an extension whose bytes don't re-marshal
+				// identically, or ProcessProposal would reject the block.
+				if bz, err := ext.Marshal(); err != nil || !bytes.Equal(bz, vote.VoteExtension) {
+					continue
+				}
+				if err := verifyExtensionSignature(ctx, k, vote.Validator.Address, &ext, vote.ExtensionSignature, req.Height-1, req.LocalLastCommit.Round); err != nil {
+					ctx.Logger().With("module", "x/shield").Debug("DKG vote extension signature check failed", "validator", opAddr, "err", err)
+					continue
+				}
+			}
 			if ext.Phase == types.DKGPhase_DKG_PHASE_ACTIVE {
 				share := &types.InjectedDecryptionShare{
 					ValidatorAddress: vote.Validator.Address,
@@ -68,7 +82,7 @@ func PrepareProposalHandler(k keeper.Keeper, next sdk.PrepareProposalHandler) sd
 				item = share
 				injected.DecryptionShares = append(injected.DecryptionShares, share)
 			} else {
-				ve := &types.ValidatorDKGExtension{ValidatorAddress: vote.Validator.Address, Extension: ext}
+				ve := &types.ValidatorDKGExtension{ValidatorAddress: vote.Validator.Address, Extension: ext, ExtensionSignature: vote.ExtensionSignature}
 				if size+int64(ve.Size())+8 > budget {
 					skipped++
 					continue
@@ -141,7 +155,7 @@ func ProcessProposalHandler(k keeper.Keeper, next sdk.ProcessProposalHandler) sd
 			}, nil
 		}
 
-		if err := validateInjectedDKGData(ctx, k, injected); err != nil {
+		if err := validateInjectedDKGData(ctx, k, injected, req.Height-1, req.ProposedLastCommit.Round); err != nil {
 			ctx.Logger().With("module", "x/shield").Warn(
 				"rejecting proposal: invalid DKG injection",
 				"err", err,
@@ -158,8 +172,10 @@ func ProcessProposalHandler(k keeper.Keeper, next sdk.ProcessProposalHandler) sd
 }
 
 // validateInjectedDKGData validates the aggregated DKG data from the proposer
-// with the same rules VerifyVoteExtension applied to each extension.
-func validateInjectedDKGData(ctx sdk.Context, k keeper.Keeper, data *types.InjectedDKGData) error {
+// with the same rules VerifyVoteExtension applied to each extension, and
+// checks that each ceremony extension carries the named validator's
+// vote-extension signature from the last commit (signedHeight, round).
+func validateInjectedDKGData(ctx sdk.Context, k keeper.Keeper, data *types.InjectedDKGData, signedHeight int64, round int32) error {
 	dkgState, found := k.GetDKGStateVal(ctx)
 	if !found {
 		return fmt.Errorf("no DKG state")
@@ -177,6 +193,7 @@ func validateInjectedDKGData(ctx sdk.Context, k keeper.Keeper, data *types.Injec
 		return fmt.Errorf("shield disabled during DKG phase %s", dkgState.Phase)
 	}
 
+	seen := map[string]bool{}
 	for i, ve := range data.Extensions {
 		if ve == nil || len(ve.ValidatorAddress) == 0 {
 			return fmt.Errorf("extension %d: empty validator address", i)
@@ -185,7 +202,14 @@ func validateInjectedDKGData(ctx sdk.Context, k keeper.Keeper, data *types.Injec
 		if err != nil {
 			return fmt.Errorf("extension %d: %w", i, err)
 		}
+		if seen[string(ve.ValidatorAddress)] {
+			return fmt.Errorf("extension %d: second extension from %s", i, opAddr)
+		}
+		seen[string(ve.ValidatorAddress)] = true
 		if err := validateExtension(ctx, k, &ve.Extension, dkgState, opAddr); err != nil {
+			return fmt.Errorf("extension %d from %s: %w", i, opAddr, err)
+		}
+		if err := verifyExtensionSignature(ctx, k, ve.ValidatorAddress, &ve.Extension, ve.ExtensionSignature, signedHeight, round); err != nil {
 			return fmt.Errorf("extension %d from %s: %w", i, opAddr, err)
 		}
 	}

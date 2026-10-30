@@ -38,7 +38,7 @@ func TestQueryFlagReviewQueue(t *testing.T) {
 			TotalWeight:   "100",
 			InReviewQueue: true,
 		}
-		f.keeper.PostFlag.Set(f.ctx, post.PostId, flag)
+		require.NoError(t, f.keeper.PostFlag.Set(f.ctx, post.PostId, flag))
 
 		resp, err := qs.FlagReviewQueue(f.ctx, &types.QueryFlagReviewQueueRequest{})
 		require.NoError(t, err)
@@ -54,7 +54,7 @@ func TestQueryFlagReviewQueue(t *testing.T) {
 			TotalWeight:   "50",
 			InReviewQueue: false,
 		}
-		f.keeper.PostFlag.Set(f.ctx, post.PostId, flag)
+		require.NoError(t, f.keeper.PostFlag.Set(f.ctx, post.PostId, flag))
 
 		// Clear any previous flags
 		resp, err := qs.FlagReviewQueue(f.ctx, &types.QueryFlagReviewQueueRequest{})

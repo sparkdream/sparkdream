@@ -3,12 +3,14 @@ package keeper
 import (
 	"context"
 	"encoding/binary"
+	commontypes "sparkdream/x/common/types"
 	"strings"
 
 	"sparkdream/x/blog/types"
 
 	"cosmossdk.io/store/prefix"
 	"github.com/cosmos/cosmos-sdk/runtime"
+	"github.com/cosmos/cosmos-sdk/types/query"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -21,26 +23,42 @@ func (q queryServer) ListExpiringContent(ctx context.Context, req *types.QueryLi
 	storeAdapter := runtime.KVStoreAdapter(q.k.storeService.OpenKVStore(ctx))
 	store := prefix.NewStore(storeAdapter, []byte(types.ExpiryKey))
 
-	// Hard cap to prevent unbounded iteration over the entire expiry index.
-	const maxResults = 100
+	// Key-based pagination over the expiry index (ordered by expiry time).
+	// limit caps the results; every visited index key, including ones the
+	// content-type filter or a tombstone skips, counts against a scan budget,
+	// so one query never walks the whole index. When the query stops early
+	// it returns next_key to resume from. Offsets are not supported.
+	limit := uint64(maxExpiringResults)
+	var startKey []byte
+	if req.Pagination != nil {
+		if req.Pagination.Limit > 0 && req.Pagination.Limit < limit {
+			limit = req.Pagination.Limit
+		}
+		startKey = req.Pagination.Key
+	}
+	scanBudget := limit * expiringScanFactor
 
 	var posts []types.Post
 	var replies []types.Reply
-	resultCount := 0
+	resultCount := uint64(0)
+	scanned := uint64(0)
+	var nextKey []byte
 
-	iterator := store.Iterator(nil, nil)
+	iterator := store.Iterator(startKey, nil)
 	defer iterator.Close()
 
 	for ; iterator.Valid(); iterator.Next() {
-		if resultCount >= maxResults {
+		if resultCount >= limit || scanned >= scanBudget {
+			nextKey = append([]byte{}, iterator.Key()...)
 			break
 		}
+		scanned++
 		key := iterator.Key()
 		if len(key) < 8 {
 			continue
 		}
 		ts := binary.BigEndian.Uint64(key[:8])
-		if req.ExpiresBefore > 0 && int64(ts) > req.ExpiresBefore {
+		if req.ExpiresBefore > 0 && commontypes.Saturate[int64](ts) > req.ExpiresBefore {
 			break
 		}
 
@@ -82,5 +100,17 @@ func (q queryServer) ListExpiringContent(ctx context.Context, req *types.QueryLi
 		}
 	}
 
-	return &types.QueryListExpiringContentResponse{Posts: posts, Replies: replies}, nil
+	return &types.QueryListExpiringContentResponse{
+		Posts:      posts,
+		Replies:    replies,
+		Pagination: &query.PageResponse{NextKey: nextKey},
+	}, nil
 }
+
+const (
+	// maxExpiringResults caps one page of ListExpiringContent.
+	maxExpiringResults = 100
+	// expiringScanFactor bounds the index keys one page may visit: limit x
+	// this factor.
+	expiringScanFactor = 10
+)

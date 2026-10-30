@@ -208,3 +208,24 @@ func TestProposalFeeDecorator(t *testing.T) {
 		})
 	}
 }
+
+// CMN-12: N proposals in one tx pay N times the proposal fee.
+func TestProposalFeeDecorator_ChargesPerProposal(t *testing.T) {
+	k, ctx := setupKeeper(t)
+	bz := make([]byte, 20)
+	copy(bz, []byte("policy______________"))
+	policyAddr, err := bech32.ConvertAndEncode("cosmos", bz)
+	require.NoError(t, err)
+
+	submit := &types.MsgSubmitProposal{PolicyAddress: policyAddr, Proposer: policyAddr}
+	decorator := ante.NewProposalFeeDecorator(k)
+	next := func(ctx sdk.Context, tx sdk.Tx, simulate bool) (sdk.Context, error) { return ctx, nil }
+
+	oneFee := sdk.NewCoins(sdk.NewCoin("stake", math.NewInt(1000)))
+	twoFees := sdk.NewCoins(sdk.NewCoin("stake", math.NewInt(2000)))
+
+	_, err = decorator.AnteHandle(ctx, &mockFeeTx{msgs: []sdk.Msg{submit, submit}, fee: oneFee}, false, next)
+	require.Error(t, err, "two proposals cannot share one fee")
+	_, err = decorator.AnteHandle(ctx, &mockFeeTx{msgs: []sdk.Msg{submit, submit}, fee: twoFees}, false, next)
+	require.NoError(t, err)
+}

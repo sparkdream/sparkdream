@@ -92,7 +92,12 @@ func (k Keeper) releaseSentinelBond(ctx context.Context, hr types.HideRecord) {
 		return
 	}
 	if err := k.late.rep.ReleaseBond(ctx, sentinelRole, hr.Sentinel, hr.CommittedAmount); err != nil {
+		// Best effort (the hide still closes), but never silent: indexers
+		// and operators see the stranded reservation through the event.
 		sdk.UnwrapSDKContext(ctx).Logger().Warn("artifact: release sentinel bond failed", "hide_id", hr.Id, "error", err)
+		emit(ctx, types.EventSentinelBondReleaseFailed, sdk.NewAttribute("hide_id", u64(hr.Id)),
+			sdk.NewAttribute("sentinel", hr.Sentinel), sdk.NewAttribute("amount", hr.CommittedAmount.String()),
+			sdk.NewAttribute("error", err.Error()))
 	}
 }
 
@@ -102,6 +107,9 @@ func (k Keeper) recordSentinelOutcome(ctx context.Context, hr types.HideRecord, 
 	}
 	if err := k.late.rep.RecordRoleOutcome(ctx, sentinelRole, hr.Sentinel, reptypes.ActionKindArtifactHide, upheld); err != nil {
 		sdk.UnwrapSDKContext(ctx).Logger().Warn("artifact: record sentinel outcome failed", "hide_id", hr.Id, "error", err)
+		emit(ctx, types.EventSentinelOutcomeFailed, sdk.NewAttribute("hide_id", u64(hr.Id)),
+			sdk.NewAttribute("sentinel", hr.Sentinel), sdk.NewAttribute("upheld", boolStr(upheld)),
+			sdk.NewAttribute("error", err.Error()))
 	}
 }
 
@@ -277,7 +285,10 @@ func (k Keeper) openHide(ctx context.Context, msg *types.MsgHideContent) (uint64
 		}
 		day := height(ctx) / 14400
 		dayKey := collections.Join(msg.Authority, day)
-		used, _ := k.SentinelDailyHides.Get(ctx, dayKey)
+		used, getErr := k.SentinelDailyHides.Get(ctx, dayKey)
+		if getErr != nil && !errors.Is(getErr, collections.ErrNotFound) {
+			return 0, getErr
+		}
 		if used >= uint64(p.MaxHidesPerSentinelPerDay) {
 			return 0, types.ErrSentinelRateLimit
 		}

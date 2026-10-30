@@ -7,7 +7,6 @@ import (
 
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/backend/groth16"
-	"github.com/consensys/gnark/constraint"
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/frontend/cs/r1cs"
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
@@ -54,7 +53,7 @@ func newZKSetup(t *testing.T) zkSetup {
 	var pkBuf, ccsBuf bytes.Buffer
 	_, err = pk.WriteTo(&pkBuf)
 	require.NoError(t, err)
-	_, err = ccs.(constraint.ConstraintSystem).WriteTo(&ccsBuf)
+	_, err = ccs.WriteTo(&ccsBuf)
 	require.NoError(t, err)
 	p, err := prover.NewShieldProverFromBytes(pkBuf.Bytes(), ccsBuf.Bytes())
 	require.NoError(t, err)
@@ -157,30 +156,30 @@ func TestOwnershipModeWithRealProofs(t *testing.T) {
 	// The creator, bound to the current sequence: accepted.
 	good := z.exec(t, creator, ownerDomain, ownerScope, inner, owned(0))
 	require.Equal(t, tag, good.Nullifier)
-	require.NoError(t, f.keeper.PrecheckImmediate(f.ctx, good))
+	require.NoError(t, f.keeper.PrecheckImmediateErr(f.ctx, good))
 
 	// Bound to a plain message hash instead of the sequence: rejected.
 	plain := z.exec(t, creator, ownerDomain, ownerScope, inner, zkcrypto.ShieldMessageHash(inner.TypeUrl, inner.Value))
-	require.ErrorIs(t, f.keeper.PrecheckImmediate(f.ctx, plain), types.ErrInvalidProof)
+	require.ErrorIs(t, f.keeper.PrecheckImmediateErr(f.ctx, plain), types.ErrInvalidProof)
 
 	// Another member's proof yields another nullifier: not the owner.
 	other := z.exec(t, stranger, ownerDomain, ownerScope, inner, owned(0))
-	require.ErrorIs(t, f.keeper.PrecheckImmediate(f.ctx, other), types.ErrOwnershipMismatch)
+	require.ErrorIs(t, f.keeper.PrecheckImmediateErr(f.ctx, other), types.ErrOwnershipMismatch)
 	// Claiming the tag with their own proof doesn't verify.
 	other.Nullifier = tag
-	require.ErrorIs(t, f.keeper.PrecheckImmediate(f.ctx, other), types.ErrInvalidProof)
+	require.ErrorIs(t, f.keeper.PrecheckImmediateErr(f.ctx, other), types.ErrInvalidProof)
 
 	// Once the sequence advances, the accepted proof can't be replayed.
 	require.NoError(t, mod.AdvanceOwnership(f.ctx, nil))
-	require.ErrorIs(t, f.keeper.PrecheckImmediate(f.ctx, good), types.ErrInvalidProof)
-	require.NoError(t, f.keeper.PrecheckImmediate(f.ctx, z.exec(t, creator, ownerDomain, ownerScope, inner, owned(1))))
+	require.ErrorIs(t, f.keeper.PrecheckImmediateErr(f.ctx, good), types.ErrInvalidProof)
+	require.NoError(t, f.keeper.PrecheckImmediateErr(f.ctx, z.exec(t, creator, ownerDomain, ownerScope, inner, owned(1))))
 
 	// In CheckTx the precheck advances the sequence, so a rewrapped copy of a
 	// pending exec is refused from the mempool.
 	pending := z.exec(t, creator, ownerDomain, ownerScope, inner, owned(1))
 	checkCtx := f.ctx.WithIsCheckTx(true)
-	require.NoError(t, f.keeper.PrecheckImmediate(checkCtx, pending))
-	require.ErrorIs(t, f.keeper.PrecheckImmediate(checkCtx, pending), types.ErrInvalidProof)
+	require.NoError(t, f.keeper.PrecheckImmediateErr(checkCtx, pending))
+	require.ErrorIs(t, f.keeper.PrecheckImmediateErr(checkCtx, pending), types.ErrInvalidProof)
 }
 
 // TestScopeIsDomainSeparated: a proof made for one nullifier domain doesn't
@@ -212,9 +211,9 @@ func TestScopeIsDomainSeparated(t *testing.T) {
 	msgHash := zkcrypto.ShieldMessageHash(inner.TypeUrl, inner.Value)
 
 	wrongDomain := z.exec(t, m, 1, 0, inner, msgHash)
-	require.ErrorIs(t, f.keeper.PrecheckImmediate(f.ctx, wrongDomain), types.ErrInvalidProof)
+	require.ErrorIs(t, f.keeper.PrecheckImmediateErr(f.ctx, wrongDomain), types.ErrInvalidProof)
 
 	right := z.exec(t, m, 11, 0, inner, msgHash)
-	require.NoError(t, f.keeper.PrecheckImmediate(f.ctx, right))
+	require.NoError(t, f.keeper.PrecheckImmediateErr(f.ctx, right))
 	require.NotEqual(t, wrongDomain.Nullifier, right.Nullifier, "same raw scope, different domains")
 }

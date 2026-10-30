@@ -41,6 +41,11 @@ type CommonsKeeper interface {
 	// committee: "operations"/"governance"/"hr".
 	IsCouncilAuthorized(ctx context.Context, addr string, council string, committee string) bool
 
+	// IsCouncilOrCommitteePolicy accepts the gov authority or the council /
+	// committee policy address (an executed proposal), never an individual
+	// committee member. Used for value-moving and clock-setting operations.
+	IsCouncilOrCommitteePolicy(ctx context.Context, addr string, council string, committee string) bool
+
 	// GetCategory returns a shared content category by id and whether it exists.
 	GetCategory(ctx context.Context, id uint64) (commonstypes.Category, bool)
 
@@ -73,11 +78,15 @@ type RepKeeper interface {
 	BurnDREAM(ctx context.Context, addr sdk.AccAddress, amount math.Int) error
 	LockDREAM(ctx context.Context, addr sdk.AccAddress, amount math.Int) error
 	UnlockDREAM(ctx context.Context, addr sdk.AccAddress, amount math.Int) error
+	// BurnLockedDREAM slashes locked DREAM: releases the lock and burns the
+	// same amount in one step (a failed burn never leaves the lock released).
+	BurnLockedDREAM(ctx context.Context, addr sdk.AccAddress, amount math.Int) error
 	GetBalance(ctx context.Context, addr sdk.AccAddress) (math.Int, error)
 	TransferDREAM(ctx context.Context, sender, recipient sdk.AccAddress, amount math.Int, purpose reptypes.TransferPurpose) error
 
 	// Member queries
-	IsMember(ctx context.Context, addr sdk.AccAddress) bool
+	// Member treatment is gated on IsActiveMember (a zeroed member keeps its
+	// record); IsMember is deliberately not part of this interface.
 	IsActiveMember(ctx context.Context, addr sdk.AccAddress) bool
 	GetMember(ctx context.Context, addr sdk.AccAddress) (reptypes.Member, error)
 	GetTrustLevel(ctx context.Context, addr sdk.AccAddress) (reptypes.TrustLevel, error)

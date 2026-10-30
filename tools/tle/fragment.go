@@ -52,7 +52,7 @@ func appendBytesField(dst []byte, field int, v []byte) []byte {
 	if len(v) == 0 {
 		return dst
 	}
-	dst = appendVarint(dst, uint64(field)<<3|2)
+	dst = appendVarint(dst, uint64(field)<<3|2) //nolint:gosec // field is a small positive proto field number
 	dst = appendVarint(dst, uint64(len(v)))
 	return append(dst, v...)
 }
@@ -75,7 +75,7 @@ func parseFields(bz []byte) (map[int][]byte, error) {
 			return nil, errors.New("tle: bad tag")
 		}
 		bz = bz[n:]
-		field, wire := int(tag>>3), tag&7
+		field, wire := int(tag>>3), tag&7 //nolint:gosec // tag>>3 has at most 61 bits, which fits int
 		switch wire {
 		case 0:
 			_, n = readVarint(bz)
@@ -90,11 +90,12 @@ func parseFields(bz []byte) (map[int][]byte, error) {
 			bz = bz[8:]
 		case 2:
 			l, n := readVarint(bz)
-			if n <= 0 || uint64(len(bz)-n) < l {
+			if n <= 0 || uint64(len(bz)-n) < l { //nolint:gosec // readVarint consumed n <= len(bz) bytes
 				return nil, errors.New("tle: bad length")
 			}
-			fields[field] = bz[n : n+int(l)]
-			bz = bz[n+int(l):]
+			end := n + int(l) //nolint:gosec // l <= len(bz)-n, checked above
+			fields[field] = bz[n:end]
+			bz = bz[end:]
 		case 5:
 			if len(bz) < 4 {
 				return nil, errors.New("tle: short fixed32")
@@ -110,7 +111,7 @@ func parseFields(bz []byte) (map[int][]byte, error) {
 func readVarint(bz []byte) (uint64, int) {
 	var v uint64
 	for i := 0; i < len(bz) && i < 10; i++ {
-		v |= uint64(bz[i]&0x7f) << (7 * uint(i))
+		v |= uint64(bz[i]&0x7f) << (7 * uint(i)) //nolint:gosec // i < 10
 		if bz[i] < 0x80 {
 			return v, i + 1
 		}

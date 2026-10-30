@@ -35,7 +35,7 @@ func TestMsgServerUpvotePost(t *testing.T) {
 	t.Run("cannot vote on hidden post", func(t *testing.T) {
 		post := f.createTestPost(t, testCreator, 0, 0)
 		post.Status = types.PostStatus_POST_STATUS_HIDDEN
-		f.keeper.Post.Set(f.ctx, post.PostId, post)
+		require.NoError(t, f.keeper.Post.Set(f.ctx, post.PostId, post))
 
 		msg := &types.MsgUpvotePost{
 			Creator: testCreator2,
@@ -49,7 +49,7 @@ func TestMsgServerUpvotePost(t *testing.T) {
 	t.Run("cannot vote on deleted post", func(t *testing.T) {
 		post := f.createTestPost(t, testCreator, 0, 0)
 		post.Status = types.PostStatus_POST_STATUS_DELETED
-		f.keeper.Post.Set(f.ctx, post.PostId, post)
+		require.NoError(t, f.keeper.Post.Set(f.ctx, post.PostId, post))
 
 		msg := &types.MsgUpvotePost{
 			Creator: testCreator2,
@@ -92,7 +92,7 @@ func TestMsgServerUpvotePost(t *testing.T) {
 	t.Run("reactions disabled", func(t *testing.T) {
 		params := types.DefaultParams()
 		params.ReactionsEnabled = false
-		f.keeper.Params.Set(f.ctx, params)
+		require.NoError(t, f.keeper.Params.Set(f.ctx, params))
 
 		post := f.createTestPost(t, testCreator, 0, 0)
 
@@ -105,7 +105,7 @@ func TestMsgServerUpvotePost(t *testing.T) {
 		require.ErrorIs(t, err, types.ErrReactionsDisabled)
 
 		// Reset params
-		f.keeper.Params.Set(f.ctx, types.DefaultParams())
+		require.NoError(t, f.keeper.Params.Set(f.ctx, types.DefaultParams()))
 	})
 }
 

@@ -8,6 +8,7 @@ import (
 	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/rep/types"
 )
 
@@ -78,7 +79,7 @@ func (k Keeper) DistributeSentinelRewards(ctx context.Context) error {
 	}
 
 	epochBlocks := params.SentinelRewardEpochBlocks
-	epochNum := uint64(sdkCtx.BlockHeight()) / epochBlocks
+	epochNum := commontypes.Saturate[uint64](sdkCtx.BlockHeight()) / epochBlocks
 
 	// Walk all sentinels once: collect addrs + evaluate eligibility.
 	var (
@@ -142,16 +143,16 @@ func (k Keeper) DistributeSentinelRewards(ctx context.Context) error {
 			epochAppealsFiled += ra.EpochActions[kind]
 		}
 		if epochHides > 0 {
-			appealRate := math.LegacyNewDec(int64(epochAppealsFiled)).
-				Quo(math.LegacyNewDec(int64(epochHides)))
+			appealRate := math.LegacyNewDec(commontypes.Saturate[int64](epochAppealsFiled)).
+				Quo(math.LegacyNewDec(commontypes.Saturate[int64](epochHides)))
 			if appealRate.LT(params.MinAppealRate) {
 				return false, nil
 			}
 		}
 
 		// Gate 5: Accuracy — windowed upheld / windowed decided.
-		accuracyRate := math.LegacyNewDec(int64(windowUpheld)).
-			Quo(math.LegacyNewDec(int64(totalDecided)))
+		accuracyRate := math.LegacyNewDec(commontypes.Saturate[int64](windowUpheld)).
+			Quo(math.LegacyNewDec(commontypes.Saturate[int64](totalDecided)))
 		if accuracyRate.LT(params.MinSentinelAccuracy) {
 			return false, nil
 		}
@@ -165,7 +166,7 @@ func (k Keeper) DistributeSentinelRewards(ctx context.Context) error {
 		//       + sum(epoch_actions[kind] * ScoreWeights[kind])
 		// (weights preserved from the pre-migration formula; kinds without a
 		// weight — pins, appeal-filed — contribute no bonus).
-		resolvedDec := math.LegacyNewDec(int64(ra.EpochAppealsResolved))
+		resolvedDec := math.LegacyNewDec(commontypes.Saturate[int64](ra.EpochAppealsResolved))
 		sqrtResolved, serr := resolvedDec.ApproxSqrt()
 		if serr != nil {
 			sdkCtx.Logger().Warn("sentinel reward: sqrt failed",
@@ -176,7 +177,7 @@ func (k Keeper) DistributeSentinelRewards(ctx context.Context) error {
 
 		for kind, weight := range types.ScoreWeights {
 			if n := ra.EpochActions[kind]; n > 0 {
-				score = score.Add(math.LegacyNewDec(int64(n)).Mul(weight))
+				score = score.Add(math.LegacyNewDec(commontypes.Saturate[int64](n)).Mul(weight))
 			}
 		}
 
@@ -269,7 +270,7 @@ func (k Keeper) payoutSentinelReward(
 		return fmt.Errorf("invalid cumulative_rewards on bonded role: %w", err)
 	}
 	br.CumulativeRewards = prev.Add(amount).String()
-	br.LastRewardEpoch = int64(epochNum)
+	br.LastRewardEpoch = commontypes.Saturate[int64](epochNum)
 	if err := k.BondedRoles.Set(ctx, key, br); err != nil {
 		return fmt.Errorf("persist bonded role: %w", err)
 	}

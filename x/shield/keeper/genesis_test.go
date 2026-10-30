@@ -3,10 +3,13 @@ package keeper_test
 import (
 	"testing"
 
+	"cosmossdk.io/collections"
 	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/stretchr/testify/require"
+	"go.dedis.ch/kyber/v4/util/random"
 
+	"sparkdream/tools/tle"
 	"sparkdream/x/shield/types"
 )
 
@@ -122,8 +125,19 @@ func TestGenesisWithDayFundings(t *testing.T) {
 func TestGenesisWithDecryptionShares(t *testing.T) {
 	f := initFixture(t)
 
+	secret := tle.Suite.G1().Scalar().Pick(random.New())
+	pubG2, err := tle.Suite.G2().Point().Mul(secret, nil).MarshalBinary()
+	require.NoError(t, err)
+	require.NoError(t, f.keeper.SetTLEKeySetVal(f.ctx, types.TLEKeySet{
+		MasterPublicKey:      tle.MasterPublicKeyG1(secret),
+		MasterPublicKeyG2:    tle.MasterPublicKeyG2(secret),
+		ThresholdNumerator:   1,
+		ThresholdDenominator: 1,
+		ValidatorShares:      []*types.TLEValidatorPublicShare{{ValidatorAddress: "val1", PublicShareG2: pubG2, ShareIndex: 1}},
+	}))
+	share := tle.DecryptionShare(secret, 1)
 	require.NoError(t, f.keeper.SetDecryptionShare(f.ctx, types.ShieldDecryptionShare{
-		Epoch: 1, Validator: "val1", Share: []byte("share_data"),
+		Epoch: 1, Validator: "val1", Share: share,
 	}))
 
 	exported, err := f.keeper.ExportGenesis(f.ctx)
@@ -135,7 +149,53 @@ func TestGenesisWithDecryptionShares(t *testing.T) {
 
 	got, found := f2.keeper.GetDecryptionShare(f2.ctx, 1, "val1")
 	require.True(t, found)
-	require.Equal(t, []byte("share_data"), got.Share)
+	require.Equal(t, share, got.Share)
+
+	// SHD-16: a share that fails the pairing check (or comes from a
+	// validator outside the key set) is refused on import.
+	bad := *exported
+	bad.DecryptionShares = []types.ShieldDecryptionShare{{Epoch: 1, Validator: "val1", Share: tle.DecryptionShare(secret, 2)}}
+	f3 := initFixtureEmpty(t)
+	require.ErrorIs(t, f3.keeper.InitGenesis(f3.ctx, bad), types.ErrInvalidDecryptionShare)
+	bad.DecryptionShares = []types.ShieldDecryptionShare{{Epoch: 1, Validator: "val9", Share: share}}
+	f4 := initFixtureEmpty(t)
+	require.ErrorIs(t, f4.keeper.InitGenesis(f4.ctx, bad), types.ErrInvalidDecryptionShare)
+}
+
+// TestGenesisTLELivenessAndFeeLedgerRoundTrip (SHD-13): the TLE participation
+// ring, the judged-epoch counter and the epoch fee ledger survive an
+// export/import, and the pending-op sequence is restored in one write.
+func TestGenesisTLELivenessAndFeeLedgerRoundTrip(t *testing.T) {
+	f := initFixture(t)
+	require.NoError(t, f.keeper.TLEEpochParticipation.Set(f.ctx, collections.Join("val1", uint64(3)), false))
+	require.NoError(t, f.keeper.TLEEpochParticipation.Set(f.ctx, collections.Join("val2", uint64(3)), true))
+	require.NoError(t, f.keeper.TLEJudgedEpochs.Set(f.ctx, 42))
+	require.NoError(t, f.keeper.ChargeEpochFee(f.ctx, math.NewInt(1234), math.NewInt(10_000)))
+	require.NoError(t, f.keeper.NextPendingOpId.Set(f.ctx, 1_000_000))
+
+	exported, err := f.keeper.ExportGenesis(f.ctx)
+	require.NoError(t, err)
+	require.Len(t, exported.TleParticipation, 2)
+
+	f2 := initFixtureEmpty(t)
+	require.NoError(t, f2.keeper.InitGenesis(f2.ctx, *exported))
+	missed, err := f2.keeper.TLEEpochParticipation.Get(f2.ctx, collections.Join("val1", uint64(3)))
+	require.NoError(t, err)
+	require.False(t, missed)
+	part, err := f2.keeper.TLEEpochParticipation.Get(f2.ctx, collections.Join("val2", uint64(3)))
+	require.NoError(t, err)
+	require.True(t, part)
+	judged, err := f2.keeper.TLEJudgedEpochs.Get(f2.ctx)
+	require.NoError(t, err)
+	require.Equal(t, uint64(42), judged)
+	require.Equal(t, math.NewInt(1234), f2.keeper.EpochFeesPaid(f2.ctx))
+	next, err := f2.keeper.NextPendingOpId.Peek(f2.ctx)
+	require.NoError(t, err)
+	require.Equal(t, uint64(1_000_000), next)
+
+	again, err := f2.keeper.ExportGenesis(f2.ctx)
+	require.NoError(t, err)
+	require.Equal(t, exported, again, "export-import-export is a fixed point")
 }
 
 func TestGenesisWithTLEMissCounters(t *testing.T) {

@@ -16,17 +16,6 @@ func newDeterministicRand(seed int64) *rand.Rand {
 	return rand.New(rand.NewSource(seed))
 }
 
-// buildSimAccount creates a simtypes.Account from a secp256k1 private key.
-func buildSimAccount(privKey *secp256k1.PrivKey) simtypes.Account {
-	pubKey := privKey.PubKey()
-	addr := sdk.AccAddress(pubKey.Address())
-	return simtypes.Account{
-		PrivKey: privKey,
-		PubKey:  pubKey,
-		Address: addr,
-	}
-}
-
 // ---------------------------------------------------------------------------
 // randomGuildName
 // ---------------------------------------------------------------------------
@@ -41,21 +30,23 @@ func TestRandomGuildName_NonEmpty(t *testing.T) {
 	}
 }
 
-func TestRandomGuildName_HasExpectedPrefix(t *testing.T) {
-	// All names are formatted as "The <word> <number>".
+func TestRandomGuildName_XNameCharset(t *testing.T) {
+	// Guild names are reserved in x/name, which accepts only a-z, 0-9, '-'
+	// and '_' and at most 30 characters.
+	valid := regexp.MustCompile(`^[a-z0-9_]([a-z0-9_-]*[a-z0-9_])?$`)
 	r := newDeterministicRand(7)
 	for i := 0; i < 100; i++ {
 		name := randomGuildName(r)
-		if !strings.HasPrefix(name, "The ") {
-			t.Fatalf("iteration %d: expected name to start with 'The ', got %q", i, name)
+		if !valid.MatchString(name) || len(name) < 3 || len(name) > 30 {
+			t.Fatalf("iteration %d: guild name %q is not a valid x/name name", i, name)
 		}
 	}
 }
 
 func TestRandomGuildName_ContainsKnownWord(t *testing.T) {
 	known := []string{
-		"Warriors", "Explorers", "Guardians", "Pioneers",
-		"Champions", "Legends", "Defenders", "Builders",
+		"warriors", "explorers", "guardians", "pioneers",
+		"champions", "legends", "defenders", "builders",
 	}
 	r := newDeterministicRand(99)
 	for i := 0; i < 200; i++ {
@@ -256,94 +247,6 @@ func TestRandomQuestId_Deterministic(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// randomTitleId
-// ---------------------------------------------------------------------------
-
-func TestRandomTitleId_NonEmpty(t *testing.T) {
-	r := newDeterministicRand(42)
-	for i := 0; i < 50; i++ {
-		id := randomTitleId(r)
-		if id == "" {
-			t.Fatalf("iteration %d: randomTitleId returned empty string", i)
-		}
-	}
-}
-
-func TestRandomTitleId_HasPrefix(t *testing.T) {
-	r := newDeterministicRand(8)
-	for i := 0; i < 50; i++ {
-		id := randomTitleId(r)
-		if !strings.HasPrefix(id, "title_") {
-			t.Fatalf("iteration %d: title ID %q does not have 'title_' prefix", i, id)
-		}
-	}
-}
-
-func TestRandomTitleId_NumericSuffix(t *testing.T) {
-	numericRe := regexp.MustCompile(`^title_\d+$`)
-	r := newDeterministicRand(9)
-	for i := 0; i < 50; i++ {
-		id := randomTitleId(r)
-		if !numericRe.MatchString(id) {
-			t.Fatalf("iteration %d: title ID %q does not match expected pattern", i, id)
-		}
-	}
-}
-
-func TestRandomTitleId_Deterministic(t *testing.T) {
-	seed := int64(222)
-	id1 := randomTitleId(newDeterministicRand(seed))
-	id2 := randomTitleId(newDeterministicRand(seed))
-	if id1 != id2 {
-		t.Fatalf("same seed produced different results: %q vs %q", id1, id2)
-	}
-}
-
-// ---------------------------------------------------------------------------
-// randomAchievementId
-// ---------------------------------------------------------------------------
-
-func TestRandomAchievementId_NonEmpty(t *testing.T) {
-	r := newDeterministicRand(42)
-	for i := 0; i < 50; i++ {
-		id := randomAchievementId(r)
-		if id == "" {
-			t.Fatalf("iteration %d: randomAchievementId returned empty string", i)
-		}
-	}
-}
-
-func TestRandomAchievementId_HasPrefix(t *testing.T) {
-	r := newDeterministicRand(3)
-	for i := 0; i < 50; i++ {
-		id := randomAchievementId(r)
-		if !strings.HasPrefix(id, "achievement_") {
-			t.Fatalf("iteration %d: achievement ID %q does not have 'achievement_' prefix", i, id)
-		}
-	}
-}
-
-func TestRandomAchievementId_NumericSuffix(t *testing.T) {
-	numericRe := regexp.MustCompile(`^achievement_\d+$`)
-	r := newDeterministicRand(4)
-	for i := 0; i < 50; i++ {
-		id := randomAchievementId(r)
-		if !numericRe.MatchString(id) {
-			t.Fatalf("iteration %d: achievement ID %q does not match expected pattern", i, id)
-		}
-	}
-}
-
-func TestRandomAchievementId_Deterministic(t *testing.T) {
-	seed := int64(333)
-	id1 := randomAchievementId(newDeterministicRand(seed))
-	id2 := randomAchievementId(newDeterministicRand(seed))
-	if id1 != id2 {
-		t.Fatalf("same seed produced different results: %q vs %q", id1, id2)
-	}
-}
-
-// ---------------------------------------------------------------------------
 // getAccountForAddress
 // ---------------------------------------------------------------------------
 
@@ -477,26 +380,5 @@ func TestGetAccountForAddress_TableDriven(t *testing.T) {
 				t.Fatalf("expected zero-value Account on miss, got non-nil Address=%s", got.Address)
 			}
 		})
-	}
-}
-
-// ---------------------------------------------------------------------------
-// Cross-function consistency: random ID functions produce distinct namespaces
-// ---------------------------------------------------------------------------
-
-func TestRandomIds_DistinctNamespaces(t *testing.T) {
-	r := newDeterministicRand(500)
-	questID := randomQuestId(r)
-	titleID := randomTitleId(r)
-	achievementID := randomAchievementId(r)
-
-	if questID == titleID {
-		t.Fatalf("quest ID and title ID collided: %q", questID)
-	}
-	if questID == achievementID {
-		t.Fatalf("quest ID and achievement ID collided: %q", questID)
-	}
-	if titleID == achievementID {
-		t.Fatalf("title ID and achievement ID collided: %q", titleID)
 	}
 }

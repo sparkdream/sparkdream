@@ -46,6 +46,50 @@ func sellable(c types.Class, t types.Token, now int64) error {
 	return nil
 }
 
+// treeSellable applies sellable to everything nested under t: a tree is
+// sold whole, so a hidden or expired descendant, or a spent
+// non-transferable ticket inside it, must not ride along with a sellable
+// root (bounded by max_nested_tokens).
+func (k Keeper) treeSellable(ctx context.Context, t types.Token) error {
+	if t.Descendants == 0 {
+		return nil
+	}
+	desc, err := k.descendantsOf(ctx, t)
+	if err != nil {
+		return err
+	}
+	for _, d := range desc {
+		dc, err := k.getClass(ctx, d.ClassId)
+		if err != nil {
+			return err
+		}
+		if err := sellable(dc, d, now(ctx)); err != nil {
+			return errorsmod.Wrapf(err, "nested token %d/%d", d.ClassId, d.Id)
+		}
+	}
+	return nil
+}
+
+// treeExpiry is the earliest expires_at of t and everything nested under
+// it (0 when nothing in the tree expires). An auction must end at least
+// auction_extension seconds before it.
+func (k Keeper) treeExpiry(ctx context.Context, t types.Token) (int64, error) {
+	earliest := t.ExpiresAt
+	if t.Descendants == 0 {
+		return earliest, nil
+	}
+	desc, err := k.descendantsOf(ctx, t)
+	if err != nil {
+		return 0, err
+	}
+	for _, d := range desc {
+		if d.ExpiresAt > 0 && (earliest == 0 || d.ExpiresAt < earliest) {
+			earliest = d.ExpiresAt
+		}
+	}
+	return earliest, nil
+}
+
 func (k Keeper) getOffer(ctx context.Context, id uint64) (types.Offer, error) {
 	o, err := k.Offers.Get(ctx, id)
 	if errors.Is(err, collections.ErrNotFound) {
@@ -191,7 +235,9 @@ func (k Keeper) abortAuctionOf(ctx context.Context, classID, tokenID uint64, rea
 
 // settleAuction finishes an ended auction: a high bid buys the token if it
 // is still sellable (otherwise the bid is refunded); without bids the token
-// simply unlocks.
+// simply unlocks. An auction ends at least auction_extension seconds before
+// anything in the tree expires (StartAuction and the anti-sniping cap in
+// Bid), so the settling block normally finds the token live.
 func (k Keeper) settleAuction(ctx context.Context, a types.Auction) (bool, error) {
 	c, err := k.getClass(ctx, a.ClassId)
 	if err != nil {
@@ -201,12 +247,17 @@ func (k Keeper) settleAuction(ctx context.Context, a types.Auction) (bool, error
 	if err != nil {
 		return false, err
 	}
-	if a.HighBidder == "" || sellable(c, t, now(ctx)) != nil || !k.GetParams(ctx).MarketEnabled {
+	if a.HighBidder == "" || sellable(c, t, now(ctx)) != nil || k.treeSellable(ctx, t) != nil || !k.GetParams(ctx).MarketEnabled {
 		reason := "no_bids"
 		if a.HighBidder != "" {
 			reason = "unsellable"
 		}
 		return false, k.abortAuction(ctx, a, reason)
+	}
+	// The token (or the tree under it) changed since the winning bid pinned
+	// it: refund rather than sell the bidder something else.
+	if !k.auctionPinsHold(ctx, a, t) {
+		return false, k.abortAuction(ctx, a, "pin_mismatch")
 	}
 	if err := k.closeAuction(ctx, a); err != nil {
 		return false, err
@@ -225,6 +276,15 @@ func (k Keeper) settleAuction(ctx context.Context, a types.Auction) (bool, error
 		sdk.NewAttribute("royalty", s.Royalty.String()), sdk.NewAttribute("royalty_recipients", joinParts(paid)),
 		sdk.NewAttribute("royalty_redirected", boolStr(redirected)))
 	return true, nil
+}
+
+// auctionPinsHold reports whether the token still matches the high bid's
+// metadata and contents pins (empty pins always hold).
+func (k Keeper) auctionPinsHold(ctx context.Context, a types.Auction, t types.Token) bool {
+	if a.HighBidMetadataHash != "" && a.HighBidMetadataHash != types.MetadataHash(t.Metadata) {
+		return false
+	}
+	return k.checkContentsPin(ctx, t, a.HighBidContentsHash) == nil
 }
 
 func joinParts(parts []string) string {

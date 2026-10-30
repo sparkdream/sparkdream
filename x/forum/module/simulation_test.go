@@ -33,7 +33,10 @@ func TestGenerateGenesisState(t *testing.T) {
 	require.NoError(t, encCfg.Codec.UnmarshalJSON(raw, &genesis))
 
 	expected := types.DefaultParams()
+	expected.ArchiveThreshold = 7 * 24 * 60 * 60
+	expected.HideAppealCooldown = 0
 	require.Equal(t, expected, genesis.Params)
+	require.NoError(t, genesis.Validate())
 }
 
 func TestWeightedOperations(t *testing.T) {

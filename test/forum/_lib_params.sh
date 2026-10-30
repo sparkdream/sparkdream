@@ -45,7 +45,8 @@ bump_ephemeral_ttl() {
 
     local params_json op_params
     params_json=$($BINARY query forum params --output json 2>/dev/null)
-    op_params=$(echo "$params_json" | jq --arg ttl "$target_ttl" '.params | {
+    op_params=$(echo "$params_json" | jq --arg ttl "$target_ttl" 'def dec: tostring | if test("[.]") then . else (if length < 19 then ("0" * (19 - length)) + . else . end) | .[0:length-18] + "." + .[length-18:] end;
+      .params | {
       bounties_enabled: (.bounties_enabled // false),
       reactions_enabled: (.reactions_enabled // false),
       editing_enabled: (.editing_enabled // false),
@@ -53,9 +54,6 @@ bump_ephemeral_ttl() {
       reaction_spam_tax_amount: (.reaction_spam_tax_amount // "0"),
       flag_spam_tax_amount: (.flag_spam_tax_amount // "0"),
       downvote_deposit_amount: (.downvote_deposit_amount // "0"),
-      appeal_fee_amount: (.appeal_fee_amount // "0"),
-      lock_appeal_fee_amount: (.lock_appeal_fee_amount // "0"),
-      move_appeal_fee_amount: (.move_appeal_fee_amount // "0"),
       edit_fee_amount: (.edit_fee_amount // "0"),
       cost_per_byte_amount: (.cost_per_byte_amount // "0"),
       cost_per_byte_exempt: (.cost_per_byte_exempt // false),
@@ -92,12 +90,12 @@ bump_ephemeral_ttl() {
         if (.max_promotions_per_block // 0) > 0
         then .max_promotions_per_block else 50 end
       ),
-      author_rep_slash: (.author_rep_slash // "5000000000000000000"),
+      author_rep_slash: (.author_rep_slash // "5" | dec),
       ephemeral_ttl: $ttl,
       min_post_conviction_stake: (.min_post_conviction_stake // "10000000"),
       post_conviction_lock_seconds: (.post_conviction_lock_seconds // "1209600"),
-      post_conviction_stream_rate_per_block: (.post_conviction_stream_rate_per_block // "50000000000000000"),
-      max_forum_rep_per_tag_per_epoch: (.max_forum_rep_per_tag_per_epoch // "5000000000000000000"),
+      post_conviction_stream_rate_per_block: (.post_conviction_stream_rate_per_block // "0.05" | dec),
+      max_forum_rep_per_tag_per_epoch: (.max_forum_rep_per_tag_per_epoch // "5" | dec),
       post_conviction_staker_slash_bps: (.post_conviction_staker_slash_bps // "2500"),
       accept_proposal_timeout: (.accept_proposal_timeout // "172800"),
       curation_dream_reward: (.curation_dream_reward // "5000000"),
@@ -174,8 +172,9 @@ bump_post_conviction_params() {
         return 1
     fi
 
-    # Encode decimal strings to 18-decimal-shifted integers (math.LegacyDec
-    # wire format). Uses awk for portable bignum-ish handling on small ints.
+    # The params query prints math.LegacyDec as its 18-decimal-shifted integer,
+    # so the idempotency check compares against that form; the proposal itself
+    # carries the plain decimals (the tx JSON parses LegacyDec as a decimal).
     local target_rate_enc target_cap_enc
     target_rate_enc=$(awk -v v="$target_rate_plain" 'BEGIN{printf "%.0f", v * 1e18}')
     target_cap_enc=$(awk -v v="$target_cap_plain" 'BEGIN{printf "%.0f", v * 1e18}')
@@ -206,9 +205,10 @@ bump_post_conviction_params() {
     local op_params
     op_params=$(echo "$params_json" \
       | jq --arg lock "$target_lock" \
-           --arg rate "$target_rate_enc" \
-           --arg cap "$target_cap_enc" \
-        '.params | {
+           --arg rate "$target_rate_plain" \
+           --arg cap "$target_cap_plain" \
+        'def dec: tostring | if test("[.]") then . else (if length < 19 then ("0" * (19 - length)) + . else . end) | .[0:length-18] + "." + .[length-18:] end;
+      .params | {
       bounties_enabled: (.bounties_enabled // false),
       reactions_enabled: (.reactions_enabled // false),
       editing_enabled: (.editing_enabled // false),
@@ -216,9 +216,6 @@ bump_post_conviction_params() {
       reaction_spam_tax_amount: (.reaction_spam_tax_amount // "0"),
       flag_spam_tax_amount: (.flag_spam_tax_amount // "0"),
       downvote_deposit_amount: (.downvote_deposit_amount // "0"),
-      appeal_fee_amount: (.appeal_fee_amount // "0"),
-      lock_appeal_fee_amount: (.lock_appeal_fee_amount // "0"),
-      move_appeal_fee_amount: (.move_appeal_fee_amount // "0"),
       edit_fee_amount: (.edit_fee_amount // "0"),
       cost_per_byte_amount: (.cost_per_byte_amount // "0"),
       cost_per_byte_exempt: (.cost_per_byte_exempt // false),
@@ -255,7 +252,7 @@ bump_post_conviction_params() {
         if (.max_promotions_per_block // 0) > 0
         then .max_promotions_per_block else 50 end
       ),
-      author_rep_slash: (.author_rep_slash // "5000000000000000000"),
+      author_rep_slash: (.author_rep_slash // "5" | dec),
       ephemeral_ttl: (.ephemeral_ttl // "15"),
       min_post_conviction_stake: (.min_post_conviction_stake // "10000000"),
       post_conviction_lock_seconds: $lock,

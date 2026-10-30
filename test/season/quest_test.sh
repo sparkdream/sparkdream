@@ -15,6 +15,10 @@ if [ ! -f "$SCRIPT_DIR/.test_env" ]; then
 fi
 
 source "$SCRIPT_DIR/.test_env"
+# Quest/achievement/title definitions and display-name moderation
+# resolutions need a Commons Operations Committee proposal (policy address),
+# never a single committee member (x/season SEA-23 decision).
+source "$SCRIPT_DIR/../lib/ops_committee.sh"
 
 PASS_COUNT=0
 FAIL_COUNT=0
@@ -116,47 +120,34 @@ CURRENT_HEIGHT=$($BINARY status 2>&1 | jq -r '.sync_info.latest_block_height // 
 START_BLOCK=0
 END_BLOCK=$((CURRENT_HEIGHT + 10000))
 
-# Try to create quest with chain_id for Part 8 testing
-TX_RES=$($BINARY tx season create-quest \
-    "$QUEST_ID" \
-    "$QUEST_NAME" \
-    "$QUEST_DESC" \
-    "50" \
-    "false" \
-    "0" \
-    "0" \
-    "$START_BLOCK" \
-    "$END_BLOCK" \
-    "0" \
-    "" \
-    "" \
-    "$QUEST_CHAIN" \
-    --from alice \
-    --chain-id $CHAIN_ID \
-    --keyring-backend test \
-    --fees 5000${BOND_DENOM} \
-    -y \
-    --output json 2>&1)
-
-TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
-
-if [ -z "$TXHASH" ] || [ "$TXHASH" == "null" ]; then
-    echo "  Failed to submit transaction (expected - requires authority)"
-    echo "  Note: Quest creation requires Commons Operations Committee membership"
-    pass "create-quest correctly requires authority (no txhash)"
+# Create the quest through an Operations Committee proposal (the keeper
+# accepts only the committee policy address).
+QUEST_MSG=$(jq -nc --arg id "$QUEST_ID" --arg name "$QUEST_NAME" --arg desc "$QUEST_DESC" \
+    --arg end "$END_BLOCK" --arg chain "$QUEST_CHAIN" \
+    '{"@type":"/sparkdream.season.v1.MsgCreateQuest",quest_id:$id,name:$name,description:$desc,xp_reward:"50",start_block:"0",end_block:$end,quest_chain:$chain}')
+if ops_committee_exec "$QUEST_MSG"; then
+    echo "  Quest created successfully (proposal $OPS_COMMITTEE_PROPOSAL_ID)"
+    CREATED_QUEST_ID="$QUEST_ID"
+    CREATED_CHAIN_ID="$QUEST_CHAIN"
+    pass "create-quest via Operations Committee proposal"
 else
-    echo "  Transaction: $TXHASH"
+    echo "  Quest creation failed: $OPS_COMMITTEE_ERROR"
+    fail "create-quest via Operations Committee proposal"
+fi
+
+# A single member (alice) signing directly is refused.
+TX_RES=$($BINARY tx season create-quest "${QUEST_ID}_direct" "Direct" "d" "10" "false" "0" "0" "0" "$END_BLOCK" "0" "" "" "" \
+    --from alice --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y --output json 2>&1)
+TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
+if [ -z "$TXHASH" ] || [ "$TXHASH" == "null" ]; then
+    pass "direct create-quest by a member is refused (no txhash)"
+else
     sleep 6
     TX_RESULT=$(wait_for_tx $TXHASH)
-
     if check_tx_success "$TX_RESULT"; then
-        echo "  Quest created successfully"
-        CREATED_QUEST_ID="$QUEST_ID"
-        CREATED_CHAIN_ID="$QUEST_CHAIN"
-        pass "create-quest transaction succeeded"
+        fail "direct create-quest by a member must be refused"
     else
-        echo "  Quest creation failed (expected without authority)"
-        pass "create-quest correctly requires authority"
+        pass "direct create-quest by a member is refused"
     fi
 fi
 
@@ -216,11 +207,11 @@ AVAILABLE=$($BINARY query season available-quests $QUEST_USER_ADDR --output json
 if echo "$AVAILABLE" | grep -q "error"; then
     echo "  Failed to query available quests"
 else
-    # Response is a single quest with .id, .name, .xp_reward at root level
-    AVAILABLE_ID=$(echo "$AVAILABLE" | jq -r '.id // empty' 2>/dev/null)
+    # Response is a paginated list: .quests[] (SEA-35)
+    AVAILABLE_ID=$(echo "$AVAILABLE" | jq -r '.quests[0].quest_id // empty' 2>/dev/null)
     if [ -n "$AVAILABLE_ID" ]; then
-        AVAILABLE_NAME=$(echo "$AVAILABLE" | jq -r '.name // "unknown"' 2>/dev/null)
-        AVAILABLE_XP=$(echo "$AVAILABLE" | jq -r '.xp_reward // "0"' 2>/dev/null)
+        AVAILABLE_NAME=$(echo "$AVAILABLE" | jq -r '.quests[0].name // "unknown"' 2>/dev/null)
+        AVAILABLE_XP=$(echo "$AVAILABLE" | jq -r '.quests[0].xp_reward // "0"' 2>/dev/null)
         echo "  Available quest for quest_user: $AVAILABLE_ID ($AVAILABLE_NAME, $AVAILABLE_XP XP)"
         FIRST_QUEST="$AVAILABLE_ID"
         pass "available-quests returned a quest"
@@ -517,34 +508,13 @@ if [ -n "$TEST_QUEST_ID" ]; then
     echo "Attempting to deactivate quest: $TEST_QUEST_ID"
     echo "Note: This requires Commons Operations Committee authority"
 
-    TX_RES=$($BINARY tx season deactivate-quest \
-        "$TEST_QUEST_ID" \
-        --from alice \
-        --chain-id $CHAIN_ID \
-        --keyring-backend test \
-        --fees 5000${BOND_DENOM} \
-        -y \
-        --output json 2>&1)
-
-    TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
-
-    if [ -z "$TXHASH" ] || [ "$TXHASH" == "null" ]; then
-        echo "  Failed to submit transaction (expected - requires authority)"
+    if ops_committee_exec "$(jq -nc --arg id "$TEST_QUEST_ID" '{"@type":"/sparkdream.season.v1.MsgDeactivateQuest",quest_id:$id}')"; then
+        echo "  Quest deactivated (proposal $OPS_COMMITTEE_PROPOSAL_ID)"
+        pass "deactivate-quest via Operations Committee proposal"
     else
-        echo "  Transaction: $TXHASH"
-        sleep 6
-        TX_RESULT=$(wait_for_tx $TXHASH)
-
-        if check_tx_success "$TX_RESULT"; then
-            echo "  Quest deactivated"
-            pass "deactivate-quest transaction succeeded"
-        else
-            echo "  Quest deactivation failed (expected without authority)"
-            pass "deactivate-quest correctly requires authority"
-        fi
+        echo "  Quest deactivation failed: $OPS_COMMITTEE_ERROR"
+        fail "deactivate-quest via Operations Committee proposal"
     fi
-else
-    echo "  No quest to deactivate"
 fi
 
 echo ""

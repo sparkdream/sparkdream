@@ -79,4 +79,8 @@ const (
 	EventAuctionStarted        = "artifact_auction_started"
 	EventBidPlaced             = "artifact_bid_placed"
 	EventAuctionSettled        = "artifact_auction_settled"
+
+	// Best-effort x/rep calls that failed (the hide still closes).
+	EventSentinelBondReleaseFailed = "artifact_bond_release_failed"
+	EventSentinelOutcomeFailed     = "artifact_sentinel_outcome_failed"
 )

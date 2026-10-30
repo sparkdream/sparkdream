@@ -254,7 +254,10 @@ func (k msgServer) handleT1Slash(
 		types.NewReportResolvedT1Event(report.ReportId, "SLASH", slashCoin),
 	}
 	if emitOperatorUnderfunded {
-		cfg, _ := k.resolveServiceTypeConfig(ctx, op.ServiceType)
+		cfg, err := k.resolveServiceTypeConfig(ctx, op.ServiceType)
+		if err != nil {
+			return nil, err
+		}
 		events = append(events, types.NewOperatorUnderfundedEvent(
 			op.Address, op.ServiceType, bondCoin, sdk.NewCoin(bondDenom, cfg.MinBondAmount), currentHeight+k.effectiveUnderfundedGraceBlocks(cfg, params),
 		))
@@ -296,8 +299,9 @@ func (k msgServer) handleEscalateToJury(
 //
 // Performs:
 //   - PENDING → ESCALATED state transition;
-//   - Opens an x/rep jury case via CreateAppealInitiative (skipped if
-//     repKeeper is nil, e.g. in standalone-mode tests);
+//   - Opens an x/rep jury case with its jury seated via
+//     CreateSeatedAppeal (skipped if repKeeper is nil, e.g. in
+//     standalone-mode tests);
 //   - Moves the report from PendingReportsQueue to EscalatedReportsQueue;
 //   - Emits service.report_escalated.
 func (k Keeper) escalateReportToJury(
@@ -320,8 +324,10 @@ func (k Keeper) escalateReportToJury(
 			report.ReportId, report.OperatorAddress, report.ServiceType,
 			report.Reporter, report.Reason, proposedSlashBps,
 		))
-		deadline := currentHeight + params.MaxEscalatedBlocks
-		caseID, err := k.repKeeper().CreateAppealInitiative(ctx, "service.slash", payload, deadline)
+		// Seat the jury now (excluding the parties) so the case can
+		// actually reach a verdict; see juryVotingDeadline.
+		caseID, err := k.repKeeper().CreateSeatedAppeal(ctx, "service.slash", payload,
+			juryVotingDeadline(currentHeight, params), k.slashCaseParties(ctx, *report))
 		if err != nil {
 			return err
 		}

@@ -1,50 +1,55 @@
 package simulation
 
 import (
-	"math/rand"
-
-	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
 
 	"sparkdream/x/forum/keeper"
 	"sparkdream/x/forum/types"
 )
 
-// SimulateMsgAppealThreadMove simulates a MsgAppealThreadMove message using direct keeper calls.
-// This bypasses fee and cooldown requirements for simulation purposes.
-// Full integration testing should be done in integration tests.
+// SimulateMsgAppealThreadMove delivers MsgAppealThreadMove from the author
+// of a thread a sentinel moved, after move_appeal_cooldown and before the
+// move appeal deadline, while no appeal is pending. The appellant escrows
+// x/rep's appeal bond. Moves only come from sentinels, so this op succeeds
+// only in runs that bond one.
 func SimulateMsgAppealThreadMove(
 	ak types.AuthKeeper,
 	bk types.BankKeeper,
 	k keeper.Keeper,
 	txGen client.TxConfig,
 ) simtypes.Operation {
-	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
-	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		simAccount, _ := simtypes.RandomAcc(r, accs)
-
-		// Get or create a moved thread
-		rootID, err := getOrCreateMovedThread(r, ctx, k, simAccount.Address.String())
+	return operation(ak, bk, k, txGen, &types.MsgAppealThreadMove{}, func(e *simEnv) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
+		msg := &types.MsgAppealThreadMove{}
+		if e.params.AppealsPaused {
+			return noOp(msg, "appeals are paused")
+		}
+		var roots []types.Post
+		err := e.k.ThreadMoveRecord.Walk(e.ctx, nil, func(id uint64, mr types.ThreadMoveRecord) (bool, error) {
+			// Only sentinel moves are appealed here: a council move goes
+			// through x/rep's governance-action appeal.
+			if mr.Sentinel == "" || mr.AppealPending || e.now() < mr.MovedAt+e.params.MoveAppealCooldown ||
+				e.now() >= mr.MovedAt+types.DefaultMoveAppealDeadline {
+				return false, nil
+			}
+			p, ok := e.post(id)
+			if !ok {
+				return false, nil
+			}
+			if _, ok := e.account(p.Author); ok {
+				roots = append(roots, p)
+			}
+			return false, nil
+		})
 		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgAppealThreadMove{}), "failed to get/create moved thread"), nil, nil
+			return noOpErr(msg, err)
 		}
-
-		// Use direct keeper calls to file appeal (bypasses fee and cooldown)
-		moveRecord, err := k.ThreadMoveRecord.Get(ctx, rootID)
-		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgAppealThreadMove{}), "no move record to appeal"), nil, nil
+		root, ok := pick(e.r, roots)
+		if !ok {
+			return noOp(msg, "no appealable sentinel move on a sim account's thread")
 		}
-
-		// Set appeal as pending (only AppealPending field exists)
-		moveRecord.AppealPending = true
-
-		if err := k.ThreadMoveRecord.Set(ctx, rootID, moveRecord); err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgAppealThreadMove{}), "failed to file appeal"), nil, nil
-		}
-
-		// Return success
-		return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgAppealThreadMove{}), "ok (direct keeper call)"), nil, nil
-	}
+		author, _ := e.account(root.Author)
+		msg.Creator, msg.RootId = root.Author, root.PostId
+		return e.submit(author, msg, appealBond())
+	})
 }

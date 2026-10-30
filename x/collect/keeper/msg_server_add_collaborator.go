@@ -20,6 +20,9 @@ func (k msgServer) AddCollaborator(ctx context.Context, msg *types.MsgAddCollabo
 	if _, err := k.addressCodec.StringToBytes(msg.Address); err != nil {
 		return nil, errorsmod.Wrap(err, "invalid collaborator address")
 	}
+	if msg.Role != types.CollaboratorRole_COLLABORATOR_ROLE_EDITOR && msg.Role != types.CollaboratorRole_COLLABORATOR_ROLE_ADMIN {
+		return nil, errorsmod.Wrapf(types.ErrInvalidCollaboratorRole, "got %s", msg.Role)
+	}
 
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	blockHeight := sdkCtx.BlockHeight()
@@ -96,7 +99,7 @@ func (k msgServer) AddCollaborator(ctx context.Context, msg *types.MsgAddCollabo
 			return nil, types.ErrMaxNonMemberCollaborators
 		}
 		// Lock stake from the inviter.
-		if err := k.repKeeper.LockDREAM(ctx, creatorAddr, params.NonMemberCollabDreamStake); err != nil {
+		if err := k.late.repKeeper.LockDREAM(ctx, creatorAddr, params.NonMemberCollabDreamStake); err != nil {
 			return nil, errorsmod.Wrap(err, "failed to lock inviter DREAM stake")
 		}
 		inviter = msg.Creator

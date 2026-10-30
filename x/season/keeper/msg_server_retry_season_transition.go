@@ -11,7 +11,8 @@ import (
 )
 
 // RetrySeasonTransition retries the current phase of a failed transition.
-// Authorized: Commons Council policy address or Commons Operations Committee members.
+// Authorized: governance, the Commons Council policy address or the Commons
+// Operations Committee policy address (never a single committee member).
 func (k msgServer) RetrySeasonTransition(ctx context.Context, msg *types.MsgRetrySeasonTransition) (*types.MsgRetrySeasonTransitionResponse, error) {
 	if _, err := k.addressCodec.StringToBytes(msg.Authority); err != nil {
 		return nil, errorsmod.Wrap(err, "invalid authority address")
@@ -19,8 +20,8 @@ func (k msgServer) RetrySeasonTransition(ctx context.Context, msg *types.MsgRetr
 
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 
-	// Check authority (Commons Council or Operations Committee)
-	if !k.IsAuthorizedForGamification(ctx, msg.Authority) {
+	// Check authority (gov, Commons Council or Operations Committee policy)
+	if !k.IsAuthorizedForTransition(ctx, msg.Authority) {
 		return nil, types.ErrNotAuthorized
 	}
 
@@ -55,8 +56,10 @@ func (k msgServer) RetrySeasonTransition(ctx context.Context, msg *types.MsgRetr
 		return nil, errorsmod.Wrap(err, "failed to update transition state")
 	}
 
-	// Clear recovery mode flag
+	// Clear recovery mode flag and give the phase a fresh retry budget
+	previousFailures := recovery.FailureCount
 	recovery.RecoveryMode = false
+	recovery.FailureCount = 0
 	if err := k.TransitionRecoveryState.Set(ctx, recovery); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to update recovery state")
 	}
@@ -67,7 +70,7 @@ func (k msgServer) RetrySeasonTransition(ctx context.Context, msg *types.MsgRetr
 			"season_transition_retry",
 			sdk.NewAttribute("phase", state.Phase.String()),
 			sdk.NewAttribute("retry_by", msg.Authority),
-			sdk.NewAttribute("previous_failures", fmt.Sprintf("%d", recovery.FailureCount)),
+			sdk.NewAttribute("previous_failures", fmt.Sprintf("%d", previousFailures)),
 		),
 	)
 

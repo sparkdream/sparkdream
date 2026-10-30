@@ -26,141 +26,32 @@ func (AppModule) GenerateGenesisState(simState *module.SimulationState) {
 // RegisterStoreDecoder registers a decoder.
 func (am AppModule) RegisterStoreDecoder(_ simtypes.StoreDecoderRegistry) {}
 
-// WeightedOperations returns the all the gov module operations with their respective weights.
+// WeightedOperations returns the module's simulation operations with their
+// weights. Each weight has its own app-params key (op_weight_msg_<name>),
+// so a -Params file can weight the operations one by one.
 func (am AppModule) WeightedOperations(simState module.SimulationState) []simtypes.WeightedOperation {
-	operations := make([]simtypes.WeightedOperation, 0)
-	const (
-		opWeightMsgCreateSession          = "op_weight_msg_session"
-		defaultWeightMsgCreateSession int = 100
-	)
-
-	var weightMsgCreateSession int
-	simState.AppParams.GetOrGenerate(opWeightMsgCreateSession, &weightMsgCreateSession, nil,
-		func(_ *rand.Rand) {
-			weightMsgCreateSession = defaultWeightMsgCreateSession
-		},
-	)
-	operations = append(operations, simulation.NewWeightedOperation(
-		weightMsgCreateSession,
-		sessionsimulation.SimulateMsgCreateSession(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
-	))
-	const (
-		opWeightMsgRevokeSession          = "op_weight_msg_session"
-		defaultWeightMsgRevokeSession int = 100
-	)
-
-	var weightMsgRevokeSession int
-	simState.AppParams.GetOrGenerate(opWeightMsgRevokeSession, &weightMsgRevokeSession, nil,
-		func(_ *rand.Rand) {
-			weightMsgRevokeSession = defaultWeightMsgRevokeSession
-		},
-	)
-	operations = append(operations, simulation.NewWeightedOperation(
-		weightMsgRevokeSession,
-		sessionsimulation.SimulateMsgRevokeSession(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
-	))
-	const (
-		opWeightMsgExecSession          = "op_weight_msg_session"
-		defaultWeightMsgExecSession int = 100
-	)
-
-	var weightMsgExecSession int
-	simState.AppParams.GetOrGenerate(opWeightMsgExecSession, &weightMsgExecSession, nil,
-		func(_ *rand.Rand) {
-			weightMsgExecSession = defaultWeightMsgExecSession
-		},
-	)
-	operations = append(operations, simulation.NewWeightedOperation(
-		weightMsgExecSession,
-		sessionsimulation.SimulateMsgExecSession(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
-	))
-
-	// --- Unified grant-registry operations (P3-P8) ---
-	// Each registration follows the same shape: a single `op_weight_msg_session`
-	// label (the param-shaping is unique-per-handler; the shared label is just
-	// a default-weight bucket) plus a non-zero default weight. Default weights
-	// are tuned so creation outpaces destruction (Create=80, Claim/Pull=60,
-	// Revoke/Decline=20, Retry=10 — Retry only fires on a paused oneshot,
-	// which is rare in random sims).
-
-	const (
-		opWeightMsgCreateGrant          = "op_weight_msg_session"
-		defaultWeightMsgCreateGrant int = 80
-	)
-	var weightMsgCreateGrant int
-	simState.AppParams.GetOrGenerate(opWeightMsgCreateGrant, &weightMsgCreateGrant, nil,
-		func(_ *rand.Rand) { weightMsgCreateGrant = defaultWeightMsgCreateGrant },
-	)
-	operations = append(operations, simulation.NewWeightedOperation(
-		weightMsgCreateGrant,
-		sessionsimulation.SimulateMsgCreateGrant(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
-	))
-
-	const (
-		opWeightMsgClaimRecurringPull          = "op_weight_msg_session"
-		defaultWeightMsgClaimRecurringPull int = 60
-	)
-	var weightMsgClaimRecurringPull int
-	simState.AppParams.GetOrGenerate(opWeightMsgClaimRecurringPull, &weightMsgClaimRecurringPull, nil,
-		func(_ *rand.Rand) { weightMsgClaimRecurringPull = defaultWeightMsgClaimRecurringPull },
-	)
-	operations = append(operations, simulation.NewWeightedOperation(
-		weightMsgClaimRecurringPull,
-		sessionsimulation.SimulateMsgClaimRecurringPull(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
-	))
-
-	const (
-		opWeightMsgPullAllowance          = "op_weight_msg_session"
-		defaultWeightMsgPullAllowance int = 60
-	)
-	var weightMsgPullAllowance int
-	simState.AppParams.GetOrGenerate(opWeightMsgPullAllowance, &weightMsgPullAllowance, nil,
-		func(_ *rand.Rand) { weightMsgPullAllowance = defaultWeightMsgPullAllowance },
-	)
-	operations = append(operations, simulation.NewWeightedOperation(
-		weightMsgPullAllowance,
-		sessionsimulation.SimulateMsgPullAllowance(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
-	))
-
-	const (
-		opWeightMsgRevokeGrant          = "op_weight_msg_session"
-		defaultWeightMsgRevokeGrant int = 20
-	)
-	var weightMsgRevokeGrant int
-	simState.AppParams.GetOrGenerate(opWeightMsgRevokeGrant, &weightMsgRevokeGrant, nil,
-		func(_ *rand.Rand) { weightMsgRevokeGrant = defaultWeightMsgRevokeGrant },
-	)
-	operations = append(operations, simulation.NewWeightedOperation(
-		weightMsgRevokeGrant,
-		sessionsimulation.SimulateMsgRevokeGrant(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
-	))
-
-	const (
-		opWeightMsgDeclineGrant          = "op_weight_msg_session"
-		defaultWeightMsgDeclineGrant int = 20
-	)
-	var weightMsgDeclineGrant int
-	simState.AppParams.GetOrGenerate(opWeightMsgDeclineGrant, &weightMsgDeclineGrant, nil,
-		func(_ *rand.Rand) { weightMsgDeclineGrant = defaultWeightMsgDeclineGrant },
-	)
-	operations = append(operations, simulation.NewWeightedOperation(
-		weightMsgDeclineGrant,
-		sessionsimulation.SimulateMsgDeclineGrant(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
-	))
-
-	const (
-		opWeightMsgRetryScheduledOneshot          = "op_weight_msg_session"
-		defaultWeightMsgRetryScheduledOneshot int = 10
-	)
-	var weightMsgRetryScheduledOneshot int
-	simState.AppParams.GetOrGenerate(opWeightMsgRetryScheduledOneshot, &weightMsgRetryScheduledOneshot, nil,
-		func(_ *rand.Rand) { weightMsgRetryScheduledOneshot = defaultWeightMsgRetryScheduledOneshot },
-	)
-	operations = append(operations, simulation.NewWeightedOperation(
-		weightMsgRetryScheduledOneshot,
-		sessionsimulation.SimulateMsgRetryScheduledOneshot(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
-	))
-
+	type opDef struct {
+		key    string
+		weight int
+		op     simtypes.Operation
+	}
+	defs := []opDef{
+		{"op_weight_msg_create_session", 40, sessionsimulation.SimulateMsgCreateSession(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig)},
+		{"op_weight_msg_revoke_session", 15, sessionsimulation.SimulateMsgRevokeSession(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig)},
+		{"op_weight_msg_exec_session", 60, sessionsimulation.SimulateMsgExecSession(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig)},
+		{"op_weight_msg_create_grant", 80, sessionsimulation.SimulateMsgCreateGrant(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig)},
+		{"op_weight_msg_claim_recurring_pull", 50, sessionsimulation.SimulateMsgClaimRecurringPull(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig)},
+		{"op_weight_msg_pull_allowance", 50, sessionsimulation.SimulateMsgPullAllowance(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig)},
+		{"op_weight_msg_revoke_grant", 20, sessionsimulation.SimulateMsgRevokeGrant(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig)},
+		{"op_weight_msg_decline_grant", 20, sessionsimulation.SimulateMsgDeclineGrant(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig)},
+		{"op_weight_msg_retry_scheduled_oneshot", 25, sessionsimulation.SimulateMsgRetryScheduledOneshot(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig)},
+	}
+	operations := make([]simtypes.WeightedOperation, 0, len(defs))
+	for _, d := range defs {
+		weight := d.weight
+		simState.AppParams.GetOrGenerate(d.key, &weight, nil, func(_ *rand.Rand) { weight = d.weight })
+		operations = append(operations, simulation.NewWeightedOperation(weight, d.op))
+	}
 	return operations
 }
 

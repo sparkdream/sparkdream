@@ -372,3 +372,52 @@ func TestSessionUnusable(t *testing.T) {
 		}
 	}
 }
+
+// An unset Denom resolves to the chain's own bond denom from x/identity,
+// once, so a daemon pointed at any Spark Dream chain pays its token; a
+// failed lookup is retried and an explicit Denom never queries.
+func TestFeeDenomResolvesFromChainIdentity(t *testing.T) {
+	calls, fail := 0, true
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/sparkdream/identity/v1/bond-denom" {
+			http.NotFound(w, r)
+			return
+		}
+		calls++
+		if fail {
+			http.Error(w, "unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		_, _ = w.Write([]byte(`{"denom":"uaurora.zenith"}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	c, err := New(Config{LCD: srv.URL, ChainID: "zenith-1", Bech32Prefix: "sprkdrm", Mnemonic: testMnemonic})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.FeeDenom(context.Background()); err == nil {
+		t.Fatal("want error while the LCD is failing")
+	}
+	fail = false
+	for i := 0; i < 2; i++ {
+		got, err := c.FeeDenom(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != "uaurora.zenith" {
+			t.Fatalf("FeeDenom = %q, want uaurora.zenith", got)
+		}
+	}
+	if calls != 2 {
+		t.Fatalf("LCD queried %d times, want 2 (one failure, then cached)", calls)
+	}
+
+	explicit, err := New(Config{LCD: srv.URL, Bech32Prefix: "sprkdrm", Denom: "uphoenix.aurora", Mnemonic: testMnemonic})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := explicit.FeeDenom(context.Background()); got != "uphoenix.aurora" || calls != 2 {
+		t.Fatalf("explicit Denom: got %q after %d LCD calls", got, calls)
+	}
+}

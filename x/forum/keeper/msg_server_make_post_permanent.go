@@ -3,6 +3,7 @@ package keeper
 import (
 	"context"
 	"fmt"
+	commontypes "sparkdream/x/common/types"
 
 	"sparkdream/x/forum/types"
 
@@ -29,6 +30,9 @@ import (
 func (k msgServer) MakePostPermanent(ctx context.Context, msg *types.MsgMakePostPermanent) (*types.MsgMakePostPermanentResponse, error) {
 	if _, err := k.addressCodec.StringToBytes(msg.Creator); err != nil {
 		return nil, errorsmod.Wrap(err, "invalid creator address")
+	}
+	if err := k.requireForumNotPaused(ctx); err != nil {
+		return nil, err
 	}
 
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
@@ -59,18 +63,20 @@ func (k msgServer) MakePostPermanent(ctx context.Context, msg *types.MsgMakePost
 	if callerTrust < uint64(params.MakePermanentMinTrustLevel) {
 		return nil, errorsmod.Wrapf(types.ErrInsufficientTrustLevel,
 			"need trust level %s (got %s) to make a post permanent",
-			reptypes.TrustLevel_name[int32(params.MakePermanentMinTrustLevel)],
-			reptypes.TrustLevel_name[int32(callerTrust)])
+			reptypes.TrustLevel_name[commontypes.Saturate[int32](params.MakePermanentMinTrustLevel)],
+			reptypes.TrustLevel_name[commontypes.Saturate[int32](callerTrust)])
+	}
+
+	// Idempotent on already-permanent posts, and free: the no-op must not
+	// burn one of the caller's daily slots ("upgrade then pin" callers send it
+	// blindly).
+	if post.ExpirationTime == 0 {
+		return &types.MsgMakePostPermanentResponse{}, nil
 	}
 
 	// Dedicated MakePermanent daily counter — independent of DailyPostLimit.
 	if err := k.checkAndUpdateMakePermanentRateLimit(ctx, msg.Creator, now, params.MaxMakePermanentPerDay); err != nil {
 		return nil, err
-	}
-
-	// Idempotent on already-permanent posts.
-	if post.ExpirationTime == 0 {
-		return &types.MsgMakePostPermanentResponse{}, nil
 	}
 
 	oldExpiresAt := post.ExpirationTime
@@ -89,8 +95,12 @@ func (k msgServer) MakePostPermanent(ctx context.Context, msg *types.MsgMakePost
 	if err := k.Post.Set(ctx, msg.PostId, post); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to update post")
 	}
-	_ = k.ExpirationQueue.Remove(ctx, collections.Join(oldExpiresAt, msg.PostId))
-	_ = k.EphemeralByAuthor.Remove(ctx, collections.Join(post.Author, msg.PostId))
+	if err := k.ExpirationQueue.Remove(ctx, collections.Join(oldExpiresAt, msg.PostId)); err != nil {
+		return nil, err
+	}
+	if err := k.EphemeralByAuthor.Remove(ctx, collections.Join(post.Author, msg.PostId)); err != nil {
+		return nil, err
+	}
 
 	sdkCtx.EventManager().EmitEvent(sdk.NewEvent("forum.post.upgraded",
 		sdk.NewAttribute("post_id", fmt.Sprintf("%d", msg.PostId)),

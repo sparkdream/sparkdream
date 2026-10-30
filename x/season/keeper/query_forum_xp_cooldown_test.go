@@ -19,7 +19,9 @@ func createNForumXpCooldown(keeper keeper.Keeper, ctx context.Context, n int) []
 	for i := range items {
 		items[i].BeneficiaryActor = strconv.Itoa(i)
 		items[i].LastGrantedEpoch = int64(i)
-		_ = keeper.ForumXpCooldown.Set(ctx, items[i].BeneficiaryActor, items[i])
+		if err := keeper.ForumXpCooldown.Set(ctx, items[i].BeneficiaryActor, items[i]); err != nil {
+			panic(err)
+		}
 	}
 	return items
 }

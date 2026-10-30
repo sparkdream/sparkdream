@@ -179,7 +179,7 @@ func TestInvariantsRegistered(t *testing.T) {
 	for _, r := range collectInvariants(app) {
 		modules[r.module]++
 	}
-	for _, m := range []string{"artifact", "blog", "collect", "federation", "forum", "identity", "rep", "service"} {
+	for _, m := range []string{"artifact", "blog", "collect", "federation", "forum", "futarchy", "identity", "rep", "season", "service", "session", "shield", "vault"} {
 		require.Greater(t, modules[m], 0, "module %s registers no invariants", m)
 	}
 }

@@ -47,8 +47,8 @@ func (k msgServer) AppealPost(ctx context.Context, msg *types.MsgAppealPost) (*t
 	// Check if a hide record exists and was created by a sentinel. Gov-
 	// authority hides write a minimal HideRecord with Sentinel == "" so the
 	// council can later restore the slashed author bond on unhide — but
-	// they're still not appealable via this path (gov hides must use
-	// MsgAppealGovAction).
+	// they're not appealable: a council hide is reversed by MsgUnhidePost
+	// (x/rep's MsgAppealGovAction refuses forum action types).
 	hideRecord, err := k.HideRecord.Get(ctx, msg.PostId)
 	if err != nil {
 		return nil, errorsmod.Wrap(types.ErrGovLockNotAppealable,
@@ -57,6 +57,11 @@ func (k msgServer) AppealPost(ctx context.Context, msg *types.MsgAppealPost) (*t
 	if hideRecord.Sentinel == "" {
 		return nil, errorsmod.Wrap(types.ErrGovLockNotAppealable,
 			"governance authority hides must be appealed via governance action appeal")
+	}
+
+	// One appeal per hide.
+	if hideRecord.Appealed {
+		return nil, errorsmod.Wrap(types.ErrAppealPending, "this hide has already been appealed")
 	}
 
 	// Check appeal cooldown
@@ -79,6 +84,20 @@ func (k msgServer) AppealPost(ctx context.Context, msg *types.MsgAppealPost) (*t
 	if err != nil {
 		return nil, errorsmod.Wrap(err, "invalid creator address")
 	}
+
+	// Mark the hide appealed BEFORE opening the rep appeal. x/rep reads the
+	// record back through the appeal-target adapter (to exclude the sentinel
+	// from the jury), and the adapter only honors POST_HIDE appeals whose
+	// record carries this flag: that is what keeps an appeal filed straight
+	// through x/rep from acting on a forum hide. Appealed hides leave the
+	// expiry index; the verdict finalizes them. A failure below reverts the
+	// whole message, flag included.
+	hideRecord.Appealed = true
+	if err := k.HideRecord.Set(ctx, msg.PostId, hideRecord); err != nil {
+		return nil, errorsmod.Wrap(err, "failed to mark hide record appealed")
+	}
+	k.unindexHideExpiry(ctx, msg.PostId, hideRecord)
+
 	_, initiativeID, err := k.repKeeper.CreateGovActionAppeal(
 		ctx,
 		reptypes.GovActionType_GOV_ACTION_TYPE_POST_HIDE,
@@ -90,17 +109,12 @@ func (k msgServer) AppealPost(ctx context.Context, msg *types.MsgAppealPost) (*t
 		return nil, errorsmod.Wrap(err, "failed to create hide appeal")
 	}
 
-	// Mark the hide as appealed so the hide-expiry EndBlocker does not later
-	// count it as unchallenged (it will be tallied as upheld/overturned instead).
-	hideRecord.Appealed = true
-	if err := k.HideRecord.Set(ctx, msg.PostId, hideRecord); err != nil {
-		return nil, errorsmod.Wrap(err, "failed to mark hide record appealed")
-	}
-
 	// Count the appeal against the sentinel on rep's shared RoleActivity
 	// record (feeds the reward Gate 4 appeal-rate check).
 	if k.repKeeper != nil {
-		_ = k.repKeeper.RecordRoleAction(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, hideRecord.Sentinel, reptypes.ActionKindForumAppealFiled)
+		if err := k.repKeeper.RecordRoleAction(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, hideRecord.Sentinel, reptypes.ActionKindForumAppealFiled); err != nil {
+			return nil, err
+		}
 	}
 
 	// Emit event

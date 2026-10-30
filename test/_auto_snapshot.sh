@@ -177,8 +177,19 @@ auto_snapshot_pre() {
     if [ "$AUTO_SNAPSHOT" != "true" ]; then
         return 0
     fi
-    if [ "$SAVE_SETUP" = "true" ] || [ "$RESTORE_SETUP" = "true" ]; then
+    if [ "$SAVE_SETUP" = "true" ]; then
         return 0
+    fi
+    if [ "$RESTORE_SETUP" = "true" ]; then
+        # An explicit --restore-setup of a stale snapshot restores a data dir
+        # the current binary may refuse to load (a store added since panics
+        # with "version of store ... mismatch"), leaving the runner waiting on
+        # a chain that crashed at start. Refresh it instead, as auto-mode does.
+        _snapshot_is_fresh && return 0
+        echo "AUTO-SNAPSHOT: --restore-setup: snapshot cannot be restored, running setup to refresh it."
+        RESTORE_SETUP=false
+        RUN_SETUP=true
+        _AUTO_REFRESHED_RESTORE=true
     fi
 
     if _snapshot_is_fresh; then
@@ -296,6 +307,12 @@ auto_snapshot_post() {
             local height
             height=$("$BINARY" status --home "$_ch" 2>&1 | jq -r '.sync_info.latest_block_height' 2>/dev/null)
             echo "Chain restarted (block height: ${height:-unknown})"
+            # A refreshed `--restore-setup --no-tests` stops here, on the fresh
+            # post-setup chain, as an up-to-date restore would have.
+            if [ "${_AUTO_REFRESHED_RESTORE:-}" = "true" ] && [ "${RUN_TESTS:-true}" = "false" ]; then
+                echo "AUTO-SNAPSHOT: snapshot refreshed; test execution skipped (--no-tests)"
+                exit 0
+            fi
             return 0
         fi
         attempt=$((attempt + 1))

@@ -134,7 +134,7 @@ A single record per chain, set at genesis, immutable thereafter. Fields:
 | `bond_display_symbol` | `PSPK` | `ASPK` | 3-8 uppercase ASCII letters/digits |
 | `bond_display_name` | `Phoenix Spark` | `Aurora Spark` | 1-64 chars; printable ASCII |
 | `bond_display_decimals` | `6` | `6` | typically 6 (micro-units); allowed range `[0, 18]` |
-| `dream_denom` | `udream.phoenix` | `uwish.aurora` | matches `u[a-z]{2,5}\.[a-z][a-z0-9-]{2,15}` (same shape as `bond_denom`; `udream.<chainname>` is the conventional default) |
+| `dream_denom` | `udream.phoenix` | `uwish.aurora` | matches `u[a-z]{2,5}\.[a-z][a-z0-9-]{2,15}` (same shape as `bond_denom`; the genesis CLI derives `u<dream-symbol>.<chainname>` by default) |
 | `dream_display_symbol` | `PDRM` | `ADRM` | 3-8 uppercase ASCII letters/digits |
 | `dream_display_name` | `Phoenix Dream` | `Aurora Dream` | 1-64 chars |
 | `dream_display_decimals` | `6` | `6` | `[0, 18]` |
@@ -162,7 +162,7 @@ If both chains used bare `uspark`, the trace would be ambiguous without joining 
 
 DREAM is non-IBC-transferable (enforced in [x/rep](x-rep-spec.md)), so cross-chain confusion in production is impossible. But developers running multiple federated chains side-by-side (testnet, mainnet, peer chain in dev, simulator) constantly confuse them. The cost of giving DREAM the same per-chain treatment as SPARK is small (mostly the same migration), and the dev-ergonomics gain is real.
 
-The dream denom follows the *same* shape rule as the bond denom (`u<2-5 letters>.<chain suffix>`) rather than a fixed `udream.` prefix: a sovereign chain can fully brand its internal token (Aurora's `uwish.aurora` with display symbol `WISH`), exactly as it brands its bond token. `udream.<chainname>` remains the conventional default derived by the genesis CLI and tooling when no explicit dream denom is given. Nothing at runtime pattern-matches the prefix; every consumer resolves the denom via `IdentityKeeper.DreamDenom(ctx)` (§3.5), and the reputation module's non-transferability is what marks the token as internal, not its name.
+The dream denom follows the *same* shape rule as the bond denom (`u<2-5 letters>.<chain suffix>`) rather than a fixed `udream.` prefix: a sovereign chain can fully brand its internal token (Aurora's `uwish.aurora` with display symbol `WISH`), exactly as it brands its bond token. When no explicit dream denom is given, the genesis CLI derives it from the dream symbol the same way it derives the bond denom (`u<lowercase dream symbol>.<chainname>`, e.g. `PDRM` → `updrm.phoenix`), so neither token carries a fixed name. Nothing at runtime pattern-matches the prefix; every consumer resolves the denom via `IdentityKeeper.DreamDenom(ctx)` (§3.5), and the reputation module's non-transferability is what marks the token as internal, not its name.
 
 ### 3.4. Genesis-Only Immutability
 
@@ -261,8 +261,11 @@ message GenesisState {
   // allow_chain_id_mismatch bypasses the soft consistency check between
   // `identity.chain_human_name` and the consensus-level `chain_id` (§11.1).
   // Init-time only: this field is read by InitGenesis and never persisted to
-  // state. Default false. Set to true only for the rare legitimate case
-  // where a chain reuses an existing chain_id from a forked predecessor.
+  // state. The default genesis sets it to false on network builds (mainnet,
+  // testnet, devnet), whose chain ids match their names, and to true on
+  // local and test builds, which use arbitrary chain ids. Set to true on a
+  // network only for the rare legitimate case where a chain reuses an
+  // existing chain_id from a forked predecessor.
   bool allow_chain_id_mismatch = 2;
 }
 ```
@@ -312,7 +315,7 @@ Two distinct `collections.Item[ChainIdentity]` instances under different key pre
 
 ### 6.2. InitGenesis Flow
 
-By the time `InitGenesis` runs, the sentinel rewrite in [§7.3](#73-implementation-surface) has already substituted denoms throughout the genesis JSON. The keeper's job is now narrowly scoped to persisting the canonical record, sealing it for invariant enforcement, and seeding bank metadata.
+By the time `InitGenesis` runs, the sentinel rewrite in [§7.3](#73-implementation-surface) has already substituted denoms throughout the genesis JSON. An empty identity (neither native denom set) is refused by both `GenesisState.Validate` and `InitGenesis` with `ErrIdentityNotInitialized`: every module reads its denoms through `IdentityKeeper.BondDenom`, so there is no single-chain mode without an identity. The keeper's job is now narrowly scoped to persisting the canonical record, sealing it for invariant enforcement, and seeding bank metadata.
 
 ```go
 // x/identity/keeper/genesis.go
@@ -478,7 +481,7 @@ func (k Keeper) sealGenesisIdentity(ctx sdk.Context, id types.ChainIdentity) err
 - `chain_human_name`, `chain_ticker_prefix`
 - `founded_at`
 
-All nine `ChainIdentity` fields are treated as canonical, with the exception of `bond_display_name` and `dream_display_name` which the future `MsgUpdateNonCanonicalMetadata` (§18) is intended to allow updating. `founded_at` is included so that a state-migration handler cannot silently default it to `0` and leak that divergence into the mutable-vs-sealed gap. Migration handlers must preserve `founded_at` through restorations; one extra line of code in any migration handler buys complete consistency between the live and sealed records.
+Every `ChainIdentity` field is treated as canonical, `bond_display_name` and `dream_display_name` included: the sealed bank metadata fixes `Name` to them, so a comparison that skipped them would let export accept, and import seal, an identity whose metadata the guard then refuses. A future `MsgUpdateNonCanonicalMetadata` (§18) that updates them must change both rules together. `founded_at` is included so that a state-migration handler cannot silently default it to `0` and leak that divergence into the mutable-vs-sealed gap. Migration handlers must preserve `founded_at` through restorations; one extra line of code in any migration handler buys complete consistency between the live and sealed records.
 
 `DiffCanonical(other)` returns a human-readable diff of those same fields for the error message (e.g., `"bond_denom: upspk.phoenix -> upspk.firebird"`).
 
@@ -506,7 +509,6 @@ The propagation mechanism is **rewriting the raw genesis JSON in memory before a
 |---|---|
 | `app_state.staking.params.bond_denom` | `%BOND_DENOM%` -> `identity.bond_denom` |
 | `app_state.mint.params.mint_denom` | `%BOND_DENOM%` -> `identity.bond_denom` |
-| `app_state.crisis.constant_fee.denom` | `%BOND_DENOM%` -> `identity.bond_denom` |
 | `app_state.gov.params.min_deposit[*].denom` | `%BOND_DENOM%` -> `identity.bond_denom` |
 | `app_state.gov.params.expedited_min_deposit[*].denom` | `%BOND_DENOM%` -> `identity.bond_denom` |
 | `app_state.<sparkdream-module>.params.*denom` (e.g. `rep`, `name`, `forum`, `futarchy`, `federation`, `commons`) | both sentinels -> identity values |
@@ -737,9 +739,9 @@ The cleanup is performed by `purgeLegacyBankMetadata` inside the sentinel-rewrit
 - Running it *from* `identity.InitGenesis` *before* `bank.InitGenesis` would operate on an empty bank store (bank hasn't loaded the legacy entries yet) and silently do nothing.
 - Running it as a `BeginBlocker` of block 1 leaves the legacy entries visible to clients between InitChain and the first commit, which is observable corruption.
 
-The rewrite-hook approach has none of these problems: the legacy entries simply never enter the bank store. The purge is conservative: only the literal set `{uspark, udream, dream, stake}` is removed, and an entry whose `Base` happens to equal the chain's chosen denom is preserved.
+The rewrite-hook approach has none of these problems: the legacy entries simply never enter the bank store. The purge removes the literal set `{uspark, udream, dream, stake}` (unless one is the chain's own denom) and every entry for the two native denoms: x/identity's InitGenesis is the only writer of the native metadata, because bank's InitGenesis runs after it through the raw keeper and would overwrite the seal. A native entry that disagrees with the identity (ticker, name, display or decimals) is refused rather than dropped, since it means the genesis contradicts its own identity.
 
-The companion `validate-genesis` helper (§15) emits a hard error when `app_state.bank.denom_metadata` contains a known-legacy literal that differs from the chosen denoms, so operators see the problem at genesis-construction time rather than relying on the silent runtime purge.
+The companion `sparkdreamd genesis identity validate` helper (§15) emits a hard error when `app_state.bank.denom_metadata` contains a known-legacy literal that differs from the chosen denoms, and runs the same pre-init rewrite, so operators see the problem at genesis-construction time rather than at InitChain.
 
 ### 8.2. Registering native DenomMetadata
 
@@ -859,7 +861,7 @@ The `.ibc` suffix convention signals "wrapped foreign asset, not native local SP
 
 **Single-hop only in v1.** Pre-registration covers only the canonical direct-link voucher denom `ibc/HASH(transfer/<channel>/u<bond-symbol>.<peer>)`. If the same peer SPARK arrives via a multi-hop relay path (`transfer/A/transfer/B/u<bond-symbol>.<peer>`), the resulting hash differs and no metadata exists for it; wallets will fall back to rendering `ibc/<hash>`. This is consistent with Spark Dream's bilateral-only sovereignty model, where federation peers connect directly rather than through relay chains. Multi-hop metadata pre-registration is deferred to [§18](#18-future-extensions) and would require either (a) operator-supplied alternate paths in `MsgRegisterPeer`, or (b) a packet-receive observer that opportunistically registers metadata on first sighting.
 
-**Channel re-binding cleanup.** If a peer is re-registered against a new IBC channel (operator response to a channel timeout or relayer rotation), the old `ibcSparkDenom` metadata becomes stale (still indexed under the old hash, no future supply). The re-registration handler in `x/federation` is responsible for unsetting the prior metadata before pre-registering the new one. Implementing this as a no-op when the prior channel is unset preserves the first-registration path.
+**Channel re-binding keeps the old metadata.** If a peer is re-registered against a new IBC channel (operator response to a channel timeout or relayer rotation), the handler pre-registers metadata for the new `ibc/<hash>` and leaves the old entry in place. Vouchers minted over the old channel still exist and still need their label, so the old metadata is not stale. (SDK v0.53.6's bank keeper has no metadata delete either.)
 
 ### 9.3. Peer Identity Updates
 
@@ -1186,8 +1188,9 @@ import (
 )
 
 // BankKeeperWithIdentityGuard wraps a bank Keeper and rejects DenomMetadata
-// writes that would alter the canonical Symbol/Display/Base of x/identity-
-// managed denoms. Description and unit-alias edits are allowed.
+// writes that would alter the sealed fields of x/identity-managed denoms:
+// Base, Symbol, Display, Name and the denom units with their exponents.
+// Description, URI and unit-alias edits are allowed.
 //
 // Implements bankkeeper.Keeper (the project's chosen interface for bank-keeper
 // consumers). All methods other than SetDenomMetaData are forwarded unchanged
@@ -1224,26 +1227,21 @@ func (w BankKeeperWithIdentityGuard) SetDenomMetaData(ctx context.Context, meta 
         // guard. Halt instead.
         panic(fmt.Errorf("identity guard: sealed-identity lookup failed: %w", err))
     }
-    if meta.Base != sealed.BondDenom && meta.Base != sealed.DreamDenom {
+    want, native := sealed.CanonicalMetadataFor(meta.Base) // types.ChainIdentity.NativeDenomMetadata
+    if !native {
         w.Keeper.SetDenomMetaData(ctx, meta)
         return
     }
-    wantSym := sealed.BondDisplaySymbol
-    wantDisp := strings.ToLower(sealed.BondDisplaySymbol)
-    if meta.Base == sealed.DreamDenom {
-        wantSym = sealed.DreamDisplaySymbol
-        wantDisp = strings.ToLower(sealed.DreamDisplaySymbol)
-    }
-    if meta.Symbol != wantSym || meta.Display != wantDisp {
+    // CheckSealedMetadata compares Base, Symbol, Display, Name and every
+    // denom unit's denom and exponent (count and order too), so neither the
+    // ticker nor the decimals a wallet renders can be rewritten.
+    if reason := identitytypes.CheckSealedMetadata(meta, want); reason != "" {
         // Panic, not return-error: SetDenomMetaData has no error return in
         // the bank Keeper interface. Gov's executeProposal wraps msg
         // execution in defer-recover and marks the proposal failed on
-        // panic; upgrade handlers halt and surface the bug. This matches
-        // how the staking module guards bond_denom writes when called from
-        // outside its own genesis path.
+        // panic; upgrade handlers halt and surface the bug.
         panic(errorsmod.Wrapf(identitytypes.ErrIdentityImmutable,
-            "denom %q: cannot alter Symbol (%q -> %q) or Display (%q -> %q) of x/identity-managed denom",
-            meta.Base, wantSym, meta.Symbol, wantDisp, meta.Display))
+            "denom %q: cannot alter the sealed metadata of an x/identity-managed denom: %s", meta.Base, reason))
     }
     // identity's own InitGenesis writes match (because both derive from `id`),
     // so the seed values pass cleanly here.
@@ -1262,9 +1260,9 @@ Native-denom metadata immutability is enforced by three coordinated mechanisms i
   - `staking.MsgUpdateParams`: rejects changes to `bond_denom`.
   - `bank.MsgUpdateParams`, `bank.MsgSetSendEnabled`: no field filter (gov retains full control).
 
-Note: cosmos-sdk v0.53.6's bank module does not expose `MsgSetDenomMetadata` as a gov-routable msg, so a guardian filter for native-denom Symbol/Display protection is unnecessary in this SDK version. The wrapper (1) and invariant (3) cover all reachable write paths.
+Note: cosmos-sdk v0.53.6's bank module does not expose `MsgSetDenomMetadata` as a gov-routable msg, so a guardian filter for native-denom metadata protection is unnecessary in this SDK version. The wrapper (1) and invariant (3) cover all reachable write paths.
 
-**3. Invariant 4 (`BankMetadataCanonicalInvariant`, §16) defense in depth.** Compares every native denom's `Metadata.Symbol` and `Metadata.Display` against the sealed identity whenever the invariants run (x/crisis is not wired; `app/invariants_test.go` runs them over the e2e genesis snapshots). Catches any tampering that bypasses both (1) and (2) — for example a future cosmos-sdk release adding a metadata-writing msg type guardian's allowlist doesn't yet know about. Trips with `stop = true`, halting the chain with a clear diff message.
+**3. Invariant 4 (`BankMetadataCanonicalInvariant`, §16) defense in depth.** Compares every native denom's metadata (`Base`, `Symbol`, `Display`, `Name`, denom units and exponents) against the canonical metadata derived from the sealed identity whenever the invariants run (x/crisis is not wired; `app/invariants_test.go` runs them over the e2e genesis snapshots). Catches any tampering that bypasses both (1) and (2) — for example a future cosmos-sdk release adding a metadata-writing msg type guardian's allowlist doesn't yet know about. Trips with `stop = true`, halting the chain with a clear diff message.
 
 #### Practical wiring
 
@@ -1379,13 +1377,13 @@ sparkdreamd genesis identity validate
 `init` semantics:
 
 - Refuses to overwrite an existing `app_state.identity.identity` by default. Overwrite requires **both** `--force` and `--i-mean-it`, with `--i-mean-it` printing a warning to stderr explaining the chain-restart implications. Neither flag is aliased to `-f` / `-y`, so accidental confirmation prompts cannot trigger the path.
-- Derives `bond_denom` = `u<lowercase(bond-symbol)>.<lowercase(chain-name)>` and `dream_denom` = `udream.<lowercase(chain-name)>` if `--bond-denom` / `--dream-denom` are not explicitly passed. The bond-symbol must be length 3-5 for the derivation to fit the `bond_denom` regex (2-5 chars between `u` and `.`); longer symbols (6-8) require `--bond-denom` explicitly.
+- Derives `bond_denom` = `u<lowercase(bond-symbol)>.<lowercase(chain-name)>` and `dream_denom` = `u<lowercase(dream-symbol)>.<lowercase(chain-name)>` if `--bond-denom` / `--dream-denom` are not explicitly passed. Each symbol must be letter-only and length 3-5 for the derivation to fit the denom regex (2-5 letters between `u` and `.`); other symbols (longer, or with digits) require the explicit flag.
 - Sets `founded_at` to the current Unix time unless `--founded-at <unix>` is passed.
 - Requires `--confirm-non-default-decimals` when `--decimals` is anything other than `6`, to surface the irreversibility of the choice (see §14.7).
 
 `init` side-effects in the same edit:
 
-- If `app_state.staking.params.bond_denom` is unset or equal to `"uspark"` / `"stake"`, sets it to `identitytypes.BondDenomSentinel` (so the sentinel rewrite at chain start does the right thing). Same for `app_state.mint.params.mint_denom`, `app_state.crisis.constant_fee.denom`, and the denoms in `app_state.gov.params.min_deposit` / `expedited_min_deposit`.
+- If `app_state.staking.params.bond_denom` is unset or equal to `"uspark"` / `"stake"`, sets it to `identitytypes.BondDenomSentinel` (so the sentinel rewrite at chain start does the right thing). Same for `app_state.mint.params.mint_denom` and the denoms in `app_state.gov.params.min_deposit` / `expedited_min_deposit`.
 - Does **not** auto-set sentinels in Spark Dream module params (operator must edit those, or use a future `genesis identity wire-sparkdream-modules` subcommand if they prefer mechanical edits).
 
 `validate` exit codes follow Cosmos `validate-genesis` convention: `0` on success, `1` on any failure (hard validation error or chain-id mismatch without `--allow-chain-id-mismatch`). The chain-id consistency warning surfaces in stderr at exit-`1` time so CI logs show the cause without requiring a separate exit code to distinguish "definitely broken" from "probably broken but might be intentional." Operators who legitimately need the mismatch pass `--allow-chain-id-mismatch` to the `validate` subcommand (which sets `GenesisState.allow_chain_id_mismatch = true` in the genesis being validated).
@@ -1399,7 +1397,7 @@ For `x/identity InvariantCheck`:
 1. **Identity initialized.** Both the mutable `Identity` and the `SealedGenesisIdentity` collections contain exactly one record. Empty state on a running chain is a corruption indicator.
 2. **Canonical fields never changed.** `Identity.EqualCanonical(SealedGenesisIdentity)` returns true, covering all nine canonical fields enumerated in §6.5 (`bond_denom`, `dream_denom`, `bond_display_symbol`, `dream_display_symbol`, `bond_display_decimals`, `dream_display_decimals`, `chain_human_name`, `chain_ticker_prefix`, `founded_at`). The two collections live under different key prefixes (§5), so this is a comparison between independent storage entries, not a self-comparison. Violation triggers a panic (`stop = true`) and dumps the field-level diff via `Identity.DiffCanonical(sealed)` so operators see exactly which field drifted.
 3. **DenomMetadata present.** `x/bank` contains `Metadata` records keyed by `SealedGenesisIdentity.bond_denom` and `SealedGenesisIdentity.dream_denom`. Surfaces an upgrade-handler bug if the metadata is somehow dropped.
-4. **DenomMetadata Symbol/Display match sealed values.** For each native denom's `Metadata`, `Symbol == sealed.<BondOr Dream>DisplaySymbol` and `Display == lowercase(sealed.<BondOr Dream>DisplaySymbol)`. Catches any path that bypassed the bank-keeper wrapper from §14.6 (e.g., a future PR that wires raw `bankKeeper` to a new module instead of the guarded version, or forgets to call `SetBankKeeper`).
+4. **DenomMetadata matches sealed values.** For each native denom's `Metadata`, `Base`, `Symbol`, `Display`, `Name` and the denom units (count, order, denom, exponent) equal the canonical metadata `ChainIdentity.NativeDenomMetadata()` derives from the sealed identity (`types.CheckSealedMetadata`); `Description`, `URI` and unit aliases are free. Catches any path that bypassed the bank-keeper wrapper from §14.6 (e.g., a future PR that wires raw `bankKeeper` to a new module instead of the guarded version, or forgets to call `SetBankKeeper`).
 5. **SDK params aligned.** `staking.Params.bond_denom == sealed.bond_denom` AND `mint.Params.mint_denom == sealed.bond_denom`. Surfaces a governance-update bug that re-pointed staking or mint to a different denom.
 
    This invariant is *warning-grade*. Governance technically *can* update these params and might do so legitimately during an upgrade (e.g., a coordinated denom rename across staking and identity). Cosmos SDK invariants signal severity through their return value: `func(ctx sdk.Context) (string, bool)`, where the bool is `stop`. Invariant 5 returns `stop = false` on the params-drift case, which a crisis-style runner would log without halting the chain. Invariants 1-4 return `stop = true` because their violations represent actual state corruption or a defeated guard. Without x/crisis there is no `invariant_broken` event; invariant 5 is exercised by the app-level snapshot test.
@@ -1497,11 +1495,12 @@ Tests are scattered through the spec by feature; this section is the central ind
 | Test | Asserts | Spec ref |
 |---|---|---|
 | `TestWrapperRejectsNativeSymbolTamper` | Directly calling wrapped `SetDenomMetaData` with `meta.Base = sealed.BondDenom` and altered `Symbol` panics with `ErrIdentityImmutable` | §14.6 |
-| `TestWrapperAllowsDescriptionEdit` | Same call with original `Symbol`/`Display` but altered `Description` succeeds | §14.6 |
+| `TestWrapperAllowsDescriptionEdit` | Same call with the canonical sealed fields but altered `Description`, `URI` or unit aliases succeeds | §14.6 |
+| `TestWrapperRejectsSealedFieldTamper` | A native denom's display exponent, base exponent, unit denom, unit count or `Name` change panics with `ErrIdentityImmutable` (decimals are sealed, not only the ticker) | §14.6 |
 | `TestWrapperAllowsForeignDenom` | Setting metadata for a non-native denom (e.g., an IBC voucher) is unrestricted | §14.6 |
 | `TestWrapperPanicsOnStorageError` | A mock identity keeper returning a non-`NotFound` error from `GetSealedIdentity` causes `SetDenomMetaData` to panic (not silently pass through) | §14.6 |
 | `TestWrapperPassesThroughPreSeal` | Before `InitGenesis` runs, any metadata write succeeds (the legitimate seed window) | §14.6 |
-| **`TestGovProposalCannotAlterIdentityDenomSymbol`** | A passing gov proposal containing `bank.MsgSetDenomMetadata` with the chain's `bond_denom` and a tampered `Symbol` fails proposal execution AND leaves the bank store unchanged. **This is the load-bearing test for the wrapper's security claim.** | §14.6 |
+| `TestGovProposalCannotAlterIdentityDenomSymbol` | **Not implemented: unreachable in SDK v0.53.6**, which has no gov-routable metadata msg. Add it if an SDK upgrade introduces one (guardian rejects unknown msg types meanwhile). | §14.6 |
 | `TestWrapperSatisfiesAllUpstreamBankInterfaces` | Reflection check: for each consumer module in `go.mod`, its locally-declared bank interface is satisfied by `BankKeeperWithIdentityGuard` | §14.6 |
 | `TestBankKeeperHasNoOtherMetadataWriterMethods` | Reflection check: the wrapped `bankkeeper.Keeper` interface contains exactly one method whose name starts with `SetDenomMetaData` (catches upstream additions) | §14.6 |
 
@@ -1519,14 +1518,13 @@ Tests are scattered through the spec by feature; this section is the central ind
 | Test | Asserts | Spec ref |
 |---|---|---|
 | `TestPeerActivationRegistersIBCDenomMetadata` | After `MsgRegisterPeer` succeeds and channel activates, bank metadata for the computed `ibc/<hash>` denom exists with `Symbol = "PSPK.ibc"` | §9.2 |
-| `TestPeerReRegistrationUnsetsOldMetadata` | Re-registering a peer against a new channel removes the old `ibc/<hash>` metadata before writing the new entry | §9.2 |
 
 ### 20.7. CLI helpers (§15)
 
 | Test | Asserts | Spec ref |
 |---|---|---|
 | `TestGenesisIdentityInitRefusesOverwrite` | `genesis identity init` without `--force --i-mean-it` against a populated genesis exits non-zero | §15 |
-| `TestGenesisIdentityInitDerivesDenoms` | `--chain-name Phoenix --bond-symbol PSPK` produces `bond_denom = upspk.phoenix`, `dream_denom = udream.phoenix` | §15 |
+| `TestGenesisIdentityInitDerivesDenoms` | `--chain-name Phoenix --bond-symbol PSPK --dream-symbol PDRM` produces `bond_denom = upspk.phoenix`, `dream_denom = updrm.phoenix` | §15 |
 | `TestGenesisIdentityValidateExitCodes` | Valid genesis exits 0; bad genesis exits 1; chain-id mismatch without override exits 1 with stderr warning | §15 |
 | `TestGenesisIdentityInitWiresSentinels` | After `init`, `app_state.staking.params.bond_denom == BondDenomSentinel` and friends | §15 |
 

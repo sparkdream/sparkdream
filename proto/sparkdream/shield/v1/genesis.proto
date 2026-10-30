@@ -69,4 +69,18 @@ message GenesisState {
 
   // DKG complaints for the current round
   repeated DKGComplaint dkg_complaints = 19 [(gogoproto.nullable) = false];
+
+  // TLE liveness ring buffer (validator, slot) -> participated.
+  repeated TLEParticipationEntry tle_participation = 20 [(gogoproto.nullable) = false];
+
+  // Demanded epochs judged under the current key set (slot = count % window).
+  uint64 tle_judged_epochs = 21;
+
+  // Fees paid in the current shield epoch (params.max_fees_per_epoch).
+  EpochFeeLedger epoch_fee_ledger = 22 [(gogoproto.nullable) = false];
+
+  // Nullifier domains no live op uses any more, each with the registration
+  // of the last op that used it: its scoping rule stays binding (pruning,
+  // re-registration compatibility) while the domain still holds nullifiers.
+  repeated ShieldedOpRegistration retired_domains = 23 [(gogoproto.nullable) = false];
 }

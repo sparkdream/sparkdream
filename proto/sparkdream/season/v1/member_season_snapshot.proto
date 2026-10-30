@@ -4,6 +4,9 @@ package sparkdream.season.v1;
 import "gogoproto/gogo.proto";
 
 option go_package = "sparkdream/x/season/types";
+// Map fields are encoded in sorted key order: an unsorted encoding differs
+// between nodes and would split the app hash.
+option (gogoproto.stable_marshaler_all) = true;
 
 // MemberSeasonSnapshot stores a member's state at the end of a season.
 message MemberSeasonSnapshot {
@@ -30,4 +33,10 @@ message MemberSeasonSnapshot {
 
   // Achievements earned during this season
   repeated string achievements_earned = 7;
+
+  // Seasonal title definitions (threshold requirements) this member met
+  // when the SNAPSHOT phase evaluated them, before RESET_XP. The TITLES
+  // phase grants `s<N>_<title_id>` from this list. TOP_XP titles are
+  // ranked across members and live in SeasonTitleEligibility instead.
+  repeated string eligible_title_ids = 8;
 }

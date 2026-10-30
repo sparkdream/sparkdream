@@ -28,6 +28,12 @@ var (
 	KeyDisputeStakes   = collections.NewPrefix("dispute_stakes")
 	KeyContestStakes   = collections.NewPrefix("contest_stakes")
 	KeyAcceptedTargets = collections.NewPrefix("accepted_targets")
+	// KeyTargetNames: (target_address, name) for every name whose resolver
+	// target is set (accepted or not).
+	KeyTargetNames = collections.NewPrefix("target_names")
+	// KeyPendingDisputes: (filed_at_height, name) for every active,
+	// uncontested dispute the BeginBlocker may auto-resolve.
+	KeyPendingDisputes = collections.NewPrefix("pending_disputes")
 )
 
 // Parameter keys

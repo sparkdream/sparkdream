@@ -2,8 +2,10 @@ package app
 
 import (
 	"context"
+	"fmt"
 
 	"cosmossdk.io/math"
+	storetypes "cosmossdk.io/store/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	distrkeeper "github.com/cosmos/cosmos-sdk/x/distribution/keeper"
 
@@ -94,6 +96,13 @@ func (a *ServiceRepAdapter) CreateAppealInitiative(ctx context.Context, initiati
 	return a.keeper.CreateAppealInitiative(ctx, initiativeType, payload, deadline)
 }
 
+// CreateSeatedAppeal opens an x/rep jury case with its jury seated at once
+// (excluding the parties) and indexed for tallying. x/service uses it for
+// service.slash and service.controller_transfer cases.
+func (a *ServiceRepAdapter) CreateSeatedAppeal(ctx context.Context, initiativeType string, payload []byte, deadline int64, excludes []string) (uint64, error) {
+	return a.keeper.CreateSeatedAppeal(ctx, initiativeType, payload, deadline, excludes)
+}
+
 // GetJuryVerdictName returns the canonical enum name for the given
 // JuryReview's verdict, e.g. "VERDICT_UPHOLD_CHALLENGE". x/service
 // callers compare this against the resolver's submitted verdict to
@@ -125,9 +134,9 @@ func (a *ServiceRepAdapter) MeetsTrustLevel(ctx context.Context, address sdk.Acc
 	}
 	minVal, ok := reptypes.TrustLevel_value[minLevelName]
 	if !ok {
-		// Unknown name — treat as no gate (defensive). Spec validator
-		// rejects unknown values upstream via Params.Validate.
-		return true, nil
+		// Params.Validate rejects unknown names; a stored one (from before
+		// that check) must not read as "no gate", so fail closed.
+		return false, nil
 	}
 	current, err := a.keeper.GetTrustLevel(ctx, address)
 	if err != nil {
@@ -162,15 +171,38 @@ var _ servicetypes.ServiceHooks = (*CommonsServiceHooks)(nil)
 // `recipient == operator.address`. Without this, slashed operators
 // would continue receiving scheduled payments until a human notices
 // (§6.1).
+//
+// The sweep runs in a cache context behind a recover, like federation's
+// runIsolated: an error or a panic in commons discards only the sweep and
+// never rolls back the service slash or jury verdict that fired the hook.
+// Out-of-gas is re-panicked so gas accounting stays intact.
 func (h *CommonsServiceHooks) AfterOperatorDissolved(ctx context.Context, operator sdk.AccAddress, serviceType string) {
-	// Errors from the cancel sweep are intentionally swallowed: the
-	// dissolution txn has already committed and any failure here would
-	// be advisory (the canceled-event/state-change). Logging via the
-	// SDK context is the right venue — and the SDK's emit framework
-	// will surface the work via the per-cancel `recurring_spend_canceled`
-	// events that did succeed.
+	sdkCtx := sdk.UnwrapSDKContext(ctx)
+	cacheCtx, write := sdkCtx.CacheContext()
 	reason := "operator_dissolved:" + serviceType
-	_, _ = h.commons.CancelActiveSchedulesForRecipient(ctx, operator.String(), reason)
+	ok := func() (ok bool) {
+		defer func() {
+			if r := recover(); r != nil {
+				if _, oog := r.(storetypes.ErrorOutOfGas); oog {
+					panic(r)
+				}
+				sdkCtx.Logger().Error("commons service hook panic recovered",
+					"hook", "AfterOperatorDissolved", "operator", operator.String(),
+					"service_type", serviceType, "panic", fmt.Sprintf("%v", r))
+				ok = false
+			}
+		}()
+		if _, err := h.commons.CancelActiveSchedulesForRecipient(cacheCtx, operator.String(), reason); err != nil {
+			sdkCtx.Logger().Error("commons service hook failed",
+				"hook", "AfterOperatorDissolved", "operator", operator.String(),
+				"service_type", serviceType, "err", err)
+			return false
+		}
+		return true
+	}()
+	if ok {
+		write()
+	}
 }
 
 // AfterOperatorRetired is a no-op for x/commons: a voluntarily-exiting

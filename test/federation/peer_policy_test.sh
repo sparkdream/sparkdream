@@ -426,6 +426,23 @@ else
     record_result "Blocked identities" "FAIL"
 fi
 
+# require_review is enforced: content from a peer under review lands HIDDEN
+# until an Operations Committee restore publishes it. Turn it back off so
+# the later suites (content, verifier, jury) that federate content through
+# mastodon.example see it VERIFIED as before.
+sed 's/"require_review": true/"require_review": false/' "$PROPOSAL_DIR/update_policy_blocked.json" \
+    > "$PROPOSAL_DIR/update_policy_review_off.json"
+if submit_ops_proposal "$PROPOSAL_DIR/update_policy_review_off.json" "turn require_review off"; then
+    REQUIRE_REVIEW=$($BINARY query federation get-peer-policy mastodon.example --output json | jq -r 'if .policy.require_review then "true" else "false" end')
+    if [ "$REQUIRE_REVIEW" == "false" ]; then
+        record_result "require_review restored" "PASS"
+    else
+        record_result "require_review restored" "FAIL"
+    fi
+else
+    record_result "require_review restored" "FAIL"
+fi
+
 # ========================================================================
 # TEST 7: Unauthorized user cannot update policy directly
 # ========================================================================

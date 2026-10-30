@@ -2,6 +2,8 @@ package keeper
 
 import (
 	"context"
+	sdk "github.com/cosmos/cosmos-sdk/types"
+	commontypes "sparkdream/x/common/types"
 
 	"cosmossdk.io/collections"
 
@@ -12,7 +14,7 @@ import (
 // the four ceremony phases: register keys, deal contributions, complain,
 // justify.
 func newDKGState(round uint64, height int64, windowBlocks, numerator, denominator uint64, expected []string) types.DKGState {
-	quarter := int64(windowBlocks / 4)
+	quarter := commontypes.Saturate[int64](windowBlocks / 4)
 	if quarter < 1 {
 		quarter = 1
 	}
@@ -101,7 +103,9 @@ func (k Keeper) ClearDKGContributions(ctx context.Context) error {
 		keys = append(keys, key)
 	}
 	for _, key := range keys {
-		_ = k.DKGContributions.Remove(ctx, key)
+		if err := k.DKGContributions.Remove(ctx, key); err != nil {
+			sdk.UnwrapSDKContext(ctx).Logger().Error("ClearDKGContributions: DKGContributions.Remove failed", "err", err)
+		}
 	}
 	return nil
 }
@@ -176,7 +180,9 @@ func (k Keeper) ClearDKGRegistrations(ctx context.Context) error {
 		keys = append(keys, key)
 	}
 	for _, key := range keys {
-		_ = k.DKGRegistrations.Remove(ctx, key)
+		if err := k.DKGRegistrations.Remove(ctx, key); err != nil {
+			sdk.UnwrapSDKContext(ctx).Logger().Error("ClearDKGRegistrations: DKGRegistrations.Remove failed", "err", err)
+		}
 	}
 	return nil
 }
@@ -274,26 +280,6 @@ func (k Keeper) QualifiedDKGContributions(ctx context.Context, state types.DKGSt
 	return out
 }
 
-// isValidatorInDKG checks if a validator address is in the expected DKG participant set.
-func isValidatorInDKG(state types.DKGState, valAddr string) bool {
-	for _, v := range state.ExpectedValidators {
-		if v == valAddr {
-			return true
-		}
-	}
-	return false
-}
-
-// validatorDKGIndex returns the 1-based index of a validator in the DKG participant set.
-func validatorDKGIndex(state types.DKGState, valAddr string) uint32 {
-	for i, v := range state.ExpectedValidators {
-		if v == valAddr {
-			return uint32(i + 1)
-		}
-	}
-	return 0
-}
-
 // computeDKGThreshold returns the threshold for the current DKG round.
 func computeDKGThreshold(state types.DKGState) uint64 {
 	return computeThreshold(state.ThresholdNumerator, state.ThresholdDenominator, uint64(len(state.ExpectedValidators)))
@@ -334,5 +320,5 @@ func (k Keeper) detectValidatorSetDrift(ctx context.Context, dkgState types.DKGS
 	}
 
 	departed := total - overlap
-	return uint32(departed * 100 / total)
+	return commontypes.Saturate[uint32](departed * 100 / total)
 }

@@ -49,126 +49,120 @@ type Params struct {
 	FlagSpamTaxAmount cosmossdk_io_math.Int `protobuf:"bytes,9,opt,name=flag_spam_tax_amount,json=flagSpamTaxAmount,proto3,customtype=cosmossdk.io/math.Int" json:"flag_spam_tax_amount"`
 	// downvote_deposit_amount burned when downvoting, in bond-denom micro-units.
 	DownvoteDepositAmount cosmossdk_io_math.Int `protobuf:"bytes,10,opt,name=downvote_deposit_amount,json=downvoteDepositAmount,proto3,customtype=cosmossdk.io/math.Int" json:"downvote_deposit_amount"`
-	// appeal_fee_amount charged for appeals, in bond-denom micro-units.
-	AppealFeeAmount cosmossdk_io_math.Int `protobuf:"bytes,11,opt,name=appeal_fee_amount,json=appealFeeAmount,proto3,customtype=cosmossdk.io/math.Int" json:"appeal_fee_amount"`
-	// lock_appeal_fee_amount charged for thread lock appeals, in bond-denom micro-units.
-	LockAppealFeeAmount cosmossdk_io_math.Int `protobuf:"bytes,12,opt,name=lock_appeal_fee_amount,json=lockAppealFeeAmount,proto3,customtype=cosmossdk.io/math.Int" json:"lock_appeal_fee_amount"`
-	// move_appeal_fee_amount charged for thread move appeals, in bond-denom micro-units.
-	MoveAppealFeeAmount cosmossdk_io_math.Int `protobuf:"bytes,13,opt,name=move_appeal_fee_amount,json=moveAppealFeeAmount,proto3,customtype=cosmossdk.io/math.Int" json:"move_appeal_fee_amount"`
 	// edit_fee_amount charged for edits past grace period, in bond-denom micro-units.
-	EditFeeAmount cosmossdk_io_math.Int `protobuf:"bytes,14,opt,name=edit_fee_amount,json=editFeeAmount,proto3,customtype=cosmossdk.io/math.Int" json:"edit_fee_amount"`
+	EditFeeAmount cosmossdk_io_math.Int `protobuf:"bytes,11,opt,name=edit_fee_amount,json=editFeeAmount,proto3,customtype=cosmossdk.io/math.Int" json:"edit_fee_amount"`
 	// bounty_cancellation_fee_percent percentage of bounty taken on cancellation (0-100)
-	BountyCancellationFeePercent uint64 `protobuf:"varint,15,opt,name=bounty_cancellation_fee_percent,json=bountyCancellationFeePercent,proto3" json:"bounty_cancellation_fee_percent,omitempty"`
+	BountyCancellationFeePercent uint64 `protobuf:"varint,12,opt,name=bounty_cancellation_fee_percent,json=bountyCancellationFeePercent,proto3" json:"bounty_cancellation_fee_percent,omitempty"`
 	// max_content_size in bytes
-	MaxContentSize uint64 `protobuf:"varint,16,opt,name=max_content_size,json=maxContentSize,proto3" json:"max_content_size,omitempty"`
+	MaxContentSize uint64 `protobuf:"varint,13,opt,name=max_content_size,json=maxContentSize,proto3" json:"max_content_size,omitempty"`
 	// daily_post_limit per user
-	DailyPostLimit uint64 `protobuf:"varint,17,opt,name=daily_post_limit,json=dailyPostLimit,proto3" json:"daily_post_limit,omitempty"`
+	DailyPostLimit uint64 `protobuf:"varint,14,opt,name=daily_post_limit,json=dailyPostLimit,proto3" json:"daily_post_limit,omitempty"`
 	// max_reply_depth for thread nesting
-	MaxReplyDepth uint32 `protobuf:"varint,18,opt,name=max_reply_depth,json=maxReplyDepth,proto3" json:"max_reply_depth,omitempty"`
+	MaxReplyDepth uint32 `protobuf:"varint,15,opt,name=max_reply_depth,json=maxReplyDepth,proto3" json:"max_reply_depth,omitempty"`
 	// edit_grace_period in seconds (no fee during this time)
-	EditGracePeriod int64 `protobuf:"varint,19,opt,name=edit_grace_period,json=editGracePeriod,proto3" json:"edit_grace_period,omitempty"`
+	EditGracePeriod int64 `protobuf:"varint,16,opt,name=edit_grace_period,json=editGracePeriod,proto3" json:"edit_grace_period,omitempty"`
 	// edit_max_window in seconds (cannot edit after this time)
-	EditMaxWindow int64 `protobuf:"varint,20,opt,name=edit_max_window,json=editMaxWindow,proto3" json:"edit_max_window,omitempty"`
+	EditMaxWindow int64 `protobuf:"varint,17,opt,name=edit_max_window,json=editMaxWindow,proto3" json:"edit_max_window,omitempty"`
 	// max_follows_per_day per user
-	MaxFollowsPerDay uint64 `protobuf:"varint,21,opt,name=max_follows_per_day,json=maxFollowsPerDay,proto3" json:"max_follows_per_day,omitempty"`
+	MaxFollowsPerDay uint64 `protobuf:"varint,18,opt,name=max_follows_per_day,json=maxFollowsPerDay,proto3" json:"max_follows_per_day,omitempty"`
 	// archive_threshold in seconds (thread must be inactive this long before archiving)
-	ArchiveThreshold int64 `protobuf:"varint,22,opt,name=archive_threshold,json=archiveThreshold,proto3" json:"archive_threshold,omitempty"`
+	ArchiveThreshold int64 `protobuf:"varint,19,opt,name=archive_threshold,json=archiveThreshold,proto3" json:"archive_threshold,omitempty"`
 	// unarchive_cooldown in seconds (must wait this long after archive before unarchiving)
-	UnarchiveCooldown int64 `protobuf:"varint,23,opt,name=unarchive_cooldown,json=unarchiveCooldown,proto3" json:"unarchive_cooldown,omitempty"`
+	UnarchiveCooldown int64 `protobuf:"varint,20,opt,name=unarchive_cooldown,json=unarchiveCooldown,proto3" json:"unarchive_cooldown,omitempty"`
 	// archive_cooldown in seconds (must wait this long after unarchive before re-archiving)
-	ArchiveCooldown int64 `protobuf:"varint,24,opt,name=archive_cooldown,json=archiveCooldown,proto3" json:"archive_cooldown,omitempty"`
+	ArchiveCooldown int64 `protobuf:"varint,21,opt,name=archive_cooldown,json=archiveCooldown,proto3" json:"archive_cooldown,omitempty"`
 	// hide_appeal_cooldown in seconds (must wait this long after hide before appeal)
-	HideAppealCooldown int64 `protobuf:"varint,25,opt,name=hide_appeal_cooldown,json=hideAppealCooldown,proto3" json:"hide_appeal_cooldown,omitempty"`
+	HideAppealCooldown int64 `protobuf:"varint,22,opt,name=hide_appeal_cooldown,json=hideAppealCooldown,proto3" json:"hide_appeal_cooldown,omitempty"`
 	// lock_appeal_cooldown in seconds (must wait this long after lock before appeal)
-	LockAppealCooldown int64 `protobuf:"varint,26,opt,name=lock_appeal_cooldown,json=lockAppealCooldown,proto3" json:"lock_appeal_cooldown,omitempty"`
+	LockAppealCooldown int64 `protobuf:"varint,23,opt,name=lock_appeal_cooldown,json=lockAppealCooldown,proto3" json:"lock_appeal_cooldown,omitempty"`
 	// move_appeal_cooldown in seconds (must wait this long after move before appeal)
-	MoveAppealCooldown int64 `protobuf:"varint,27,opt,name=move_appeal_cooldown,json=moveAppealCooldown,proto3" json:"move_appeal_cooldown,omitempty"`
+	MoveAppealCooldown int64 `protobuf:"varint,24,opt,name=move_appeal_cooldown,json=moveAppealCooldown,proto3" json:"move_appeal_cooldown,omitempty"`
 	// cost_per_byte_amount charged for on-chain content storage (applies to all
 	// posts, burned), in bond-denom micro-units.
-	CostPerByteAmount cosmossdk_io_math.Int `protobuf:"bytes,28,opt,name=cost_per_byte_amount,json=costPerByteAmount,proto3,customtype=cosmossdk.io/math.Int" json:"cost_per_byte_amount"`
+	CostPerByteAmount cosmossdk_io_math.Int `protobuf:"bytes,25,opt,name=cost_per_byte_amount,json=costPerByteAmount,proto3,customtype=cosmossdk.io/math.Int" json:"cost_per_byte_amount"`
 	// cost_per_byte_exempt when true, disables cost_per_byte fee collection
-	CostPerByteExempt bool `protobuf:"varint,29,opt,name=cost_per_byte_exempt,json=costPerByteExempt,proto3" json:"cost_per_byte_exempt,omitempty"`
+	CostPerByteExempt bool `protobuf:"varint,26,opt,name=cost_per_byte_exempt,json=costPerByteExempt,proto3" json:"cost_per_byte_exempt,omitempty"`
 	// ephemeral_ttl in seconds (TTL for non-member posts, default 86400 = 24h)
-	EphemeralTtl int64 `protobuf:"varint,30,opt,name=ephemeral_ttl,json=ephemeralTtl,proto3" json:"ephemeral_ttl,omitempty"`
+	EphemeralTtl int64 `protobuf:"varint,27,opt,name=ephemeral_ttl,json=ephemeralTtl,proto3" json:"ephemeral_ttl,omitempty"`
 	// conviction_renewal_threshold is the minimum conviction score for TTL renewal
-	ConvictionRenewalThreshold cosmossdk_io_math.LegacyDec `protobuf:"bytes,37,opt,name=conviction_renewal_threshold,json=convictionRenewalThreshold,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"conviction_renewal_threshold"`
+	ConvictionRenewalThreshold cosmossdk_io_math.LegacyDec `protobuf:"bytes,28,opt,name=conviction_renewal_threshold,json=convictionRenewalThreshold,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"conviction_renewal_threshold"`
 	// conviction_renewal_period is the TTL extension in seconds when conviction threshold is met
-	ConvictionRenewalPeriod int64 `protobuf:"varint,38,opt,name=conviction_renewal_period,json=convictionRenewalPeriod,proto3" json:"conviction_renewal_period,omitempty"`
+	ConvictionRenewalPeriod int64 `protobuf:"varint,29,opt,name=conviction_renewal_period,json=convictionRenewalPeriod,proto3" json:"conviction_renewal_period,omitempty"`
 	// min_sentinel_bond — see ForumOperationalParams.min_sentinel_bond.
-	MinSentinelBond string `protobuf:"bytes,40,opt,name=min_sentinel_bond,json=minSentinelBond,proto3" json:"min_sentinel_bond,omitempty"`
+	MinSentinelBond string `protobuf:"bytes,30,opt,name=min_sentinel_bond,json=minSentinelBond,proto3" json:"min_sentinel_bond,omitempty"`
 	// min_sentinel_rep_tier — see ForumOperationalParams.min_sentinel_rep_tier.
-	MinSentinelRepTier uint64 `protobuf:"varint,41,opt,name=min_sentinel_rep_tier,json=minSentinelRepTier,proto3" json:"min_sentinel_rep_tier,omitempty"`
+	MinSentinelRepTier uint64 `protobuf:"varint,31,opt,name=min_sentinel_rep_tier,json=minSentinelRepTier,proto3" json:"min_sentinel_rep_tier,omitempty"`
 	// min_sentinel_trust_level — see ForumOperationalParams.min_sentinel_trust_level.
-	MinSentinelTrustLevel string `protobuf:"bytes,42,opt,name=min_sentinel_trust_level,json=minSentinelTrustLevel,proto3" json:"min_sentinel_trust_level,omitempty"`
+	MinSentinelTrustLevel string `protobuf:"bytes,32,opt,name=min_sentinel_trust_level,json=minSentinelTrustLevel,proto3" json:"min_sentinel_trust_level,omitempty"`
 	// min_sentinel_age_blocks — see ForumOperationalParams.min_sentinel_age_blocks.
-	MinSentinelAgeBlocks int64 `protobuf:"varint,43,opt,name=min_sentinel_age_blocks,json=minSentinelAgeBlocks,proto3" json:"min_sentinel_age_blocks,omitempty"`
+	MinSentinelAgeBlocks int64 `protobuf:"varint,33,opt,name=min_sentinel_age_blocks,json=minSentinelAgeBlocks,proto3" json:"min_sentinel_age_blocks,omitempty"`
 	// sentinel_demotion_cooldown — see ForumOperationalParams.sentinel_demotion_cooldown.
-	SentinelDemotionCooldown int64 `protobuf:"varint,44,opt,name=sentinel_demotion_cooldown,json=sentinelDemotionCooldown,proto3" json:"sentinel_demotion_cooldown,omitempty"`
+	SentinelDemotionCooldown int64 `protobuf:"varint,34,opt,name=sentinel_demotion_cooldown,json=sentinelDemotionCooldown,proto3" json:"sentinel_demotion_cooldown,omitempty"`
 	// sentinel_demotion_threshold — see ForumOperationalParams.sentinel_demotion_threshold.
-	SentinelDemotionThreshold string `protobuf:"bytes,45,opt,name=sentinel_demotion_threshold,json=sentinelDemotionThreshold,proto3" json:"sentinel_demotion_threshold,omitempty"`
+	SentinelDemotionThreshold string `protobuf:"bytes,35,opt,name=sentinel_demotion_threshold,json=sentinelDemotionThreshold,proto3" json:"sentinel_demotion_threshold,omitempty"`
 	// sentinel_unhide_window in seconds. A sentinel who hid a post may
 	// self-correct (call MsgUnhidePost) within this window of the original
 	// hide; after it expires, only the Commons Operations Committee or
 	// governance can unhide. Analogous to edit_max_window for authors.
-	SentinelUnhideWindow int64 `protobuf:"varint,46,opt,name=sentinel_unhide_window,json=sentinelUnhideWindow,proto3" json:"sentinel_unhide_window,omitempty"`
+	SentinelUnhideWindow int64 `protobuf:"varint,36,opt,name=sentinel_unhide_window,json=sentinelUnhideWindow,proto3" json:"sentinel_unhide_window,omitempty"`
 	// sentinel_unbond_cooldown is the number of seconds a sentinel's bond stays
 	// locked and slashable after MsgUnbondRole. During the cooldown, the
 	// BondedRole status is UNBONDING and forum action gates refuse authority.
 	// Propagated to x/rep BondedRoleConfig via SyncSentinelBondedRoleConfig.
 	// Zero = immediate withdrawal (legacy behavior).
-	SentinelUnbondCooldown int64 `protobuf:"varint,47,opt,name=sentinel_unbond_cooldown,json=sentinelUnbondCooldown,proto3" json:"sentinel_unbond_cooldown,omitempty"`
+	SentinelUnbondCooldown int64 `protobuf:"varint,37,opt,name=sentinel_unbond_cooldown,json=sentinelUnbondCooldown,proto3" json:"sentinel_unbond_cooldown,omitempty"`
 	// make_permanent_min_trust_level is the minimum trust level a caller of
 	// MsgMakePostPermanent must hold (0–4). Default PROVISIONAL (1) — lower
 	// than the sentinel-pin gate because preservation is a smaller curator
 	// action than featuring.
-	MakePermanentMinTrustLevel uint32 `protobuf:"varint,48,opt,name=make_permanent_min_trust_level,json=makePermanentMinTrustLevel,proto3" json:"make_permanent_min_trust_level,omitempty"`
+	MakePermanentMinTrustLevel uint32 `protobuf:"varint,38,opt,name=make_permanent_min_trust_level,json=makePermanentMinTrustLevel,proto3" json:"make_permanent_min_trust_level,omitempty"`
 	// max_promotions_per_block bounds how many ephemeral posts the EndBlocker
 	// membership-promotion drain may flip per block. Bounds block gas; the
 	// remaining queue is processed in subsequent blocks.
-	MaxPromotionsPerBlock uint32 `protobuf:"varint,49,opt,name=max_promotions_per_block,json=maxPromotionsPerBlock,proto3" json:"max_promotions_per_block,omitempty"`
+	MaxPromotionsPerBlock uint32 `protobuf:"varint,39,opt,name=max_promotions_per_block,json=maxPromotionsPerBlock,proto3" json:"max_promotions_per_block,omitempty"`
 	// author_rep_slash is the per-tag reputation deduction applied to a post's
 	// author when ExpireHiddenPosts finalizes an unappealed sentinel hide.
 	// Deducted from the author's score in each tag the post carried.
 	// DeductReputation floors at zero, so authors with no rep in the tag take
 	// no harm — safe to ship before any forum-side rep-grant flow exists.
-	AuthorRepSlash cosmossdk_io_math.LegacyDec `protobuf:"bytes,50,opt,name=author_rep_slash,json=authorRepSlash,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"author_rep_slash"`
+	AuthorRepSlash cosmossdk_io_math.LegacyDec `protobuf:"bytes,40,opt,name=author_rep_slash,json=authorRepSlash,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"author_rep_slash"`
 	// max_make_permanent_per_day caps MsgMakePostPermanent calls per address per
 	// UTC day. Independent of daily_post_limit — promoting an ephemeral to
 	// permanent is a distinct curator action with its own quota.
-	MaxMakePermanentPerDay uint64 `protobuf:"varint,51,opt,name=max_make_permanent_per_day,json=maxMakePermanentPerDay,proto3" json:"max_make_permanent_per_day,omitempty"`
+	MaxMakePermanentPerDay uint64 `protobuf:"varint,41,opt,name=max_make_permanent_per_day,json=maxMakePermanentPerDay,proto3" json:"max_make_permanent_per_day,omitempty"`
 	// max_hides_per_epoch caps sentinel MsgHidePost actions per address per UTC
 	// day. 0 = use the default (50).
-	MaxHidesPerEpoch uint64 `protobuf:"varint,52,opt,name=max_hides_per_epoch,json=maxHidesPerEpoch,proto3" json:"max_hides_per_epoch,omitempty"`
+	MaxHidesPerEpoch uint64 `protobuf:"varint,42,opt,name=max_hides_per_epoch,json=maxHidesPerEpoch,proto3" json:"max_hides_per_epoch,omitempty"`
 	// max_sentinel_locks_per_epoch caps sentinel MsgLockThread actions per
 	// address per UTC day. 0 = use the default (5).
-	MaxSentinelLocksPerEpoch uint64 `protobuf:"varint,53,opt,name=max_sentinel_locks_per_epoch,json=maxSentinelLocksPerEpoch,proto3" json:"max_sentinel_locks_per_epoch,omitempty"`
+	MaxSentinelLocksPerEpoch uint64 `protobuf:"varint,43,opt,name=max_sentinel_locks_per_epoch,json=maxSentinelLocksPerEpoch,proto3" json:"max_sentinel_locks_per_epoch,omitempty"`
 	// max_sentinel_moves_per_epoch caps sentinel MsgMoveThread actions per
 	// address per UTC day. 0 = use the default (10).
-	MaxSentinelMovesPerEpoch uint64 `protobuf:"varint,54,opt,name=max_sentinel_moves_per_epoch,json=maxSentinelMovesPerEpoch,proto3" json:"max_sentinel_moves_per_epoch,omitempty"`
+	MaxSentinelMovesPerEpoch uint64 `protobuf:"varint,44,opt,name=max_sentinel_moves_per_epoch,json=maxSentinelMovesPerEpoch,proto3" json:"max_sentinel_moves_per_epoch,omitempty"`
 	// sentinel_slash_amount is the DREAM reserved-then-slashed per moderation
 	// action that is later overturned on appeal (math.Int string, udream).
 	// Bounded to (0, min_sentinel_bond]. Empty/"0" = use the default (100 DREAM).
-	SentinelSlashAmount string `protobuf:"bytes,55,opt,name=sentinel_slash_amount,json=sentinelSlashAmount,proto3" json:"sentinel_slash_amount,omitempty"`
+	SentinelSlashAmount string `protobuf:"bytes,45,opt,name=sentinel_slash_amount,json=sentinelSlashAmount,proto3" json:"sentinel_slash_amount,omitempty"`
 	// lock_bond_multiplier: a sentinel must have bonded at least
 	// lock_bond_multiplier × min_sentinel_bond to lock a thread. Bounded >= 1
 	// (lock can never be weaker than the base bond). 0 = use the default (4).
-	LockBondMultiplier uint64 `protobuf:"varint,56,opt,name=lock_bond_multiplier,json=lockBondMultiplier,proto3" json:"lock_bond_multiplier,omitempty"`
+	LockBondMultiplier uint64 `protobuf:"varint,46,opt,name=lock_bond_multiplier,json=lockBondMultiplier,proto3" json:"lock_bond_multiplier,omitempty"`
 	// lock_backing_amount is the minimum DREAM backing (total balance) a sentinel
 	// must hold to lock a thread (math.Int string, udream). Bounded >= the
 	// derived lock bond. Empty/"0" = use the default (20000 DREAM).
-	LockBackingAmount string `protobuf:"bytes,57,opt,name=lock_backing_amount,json=lockBackingAmount,proto3" json:"lock_backing_amount,omitempty"`
+	LockBackingAmount string `protobuf:"bytes,47,opt,name=lock_backing_amount,json=lockBackingAmount,proto3" json:"lock_backing_amount,omitempty"`
 	// lock_min_rep_tier is the minimum reputation tier required to lock a thread.
 	// Bounded to [min_sentinel_rep_tier, 5]. 0 = use the default (4).
-	LockMinRepTier uint64 `protobuf:"varint,58,opt,name=lock_min_rep_tier,json=lockMinRepTier,proto3" json:"lock_min_rep_tier,omitempty"`
+	LockMinRepTier uint64 `protobuf:"varint,48,opt,name=lock_min_rep_tier,json=lockMinRepTier,proto3" json:"lock_min_rep_tier,omitempty"`
 	// min_post_conviction_stake is the minimum DREAM amount required to open a
 	// PostConvictionStake (math.Int string, e.g. "10000000" = 10 DREAM). Floors
 	// out sybil dust stakes that would otherwise farm the per-tag epoch cap with
 	// many tiny accounts.
-	MinPostConvictionStake cosmossdk_io_math.Int `protobuf:"bytes,60,opt,name=min_post_conviction_stake,json=minPostConvictionStake,proto3,customtype=cosmossdk.io/math.Int" json:"min_post_conviction_stake"`
+	MinPostConvictionStake cosmossdk_io_math.Int `protobuf:"bytes,49,opt,name=min_post_conviction_stake,json=minPostConvictionStake,proto3,customtype=cosmossdk.io/math.Int" json:"min_post_conviction_stake"`
 	// post_conviction_lock_seconds is the DREAM-lock duration in seconds. A
 	// staker cannot call MsgReleasePostConviction before staked_at + this many
 	// seconds. Longer lock = more skin-in-the-game per uDREAM committed.
-	PostConvictionLockSeconds int64 `protobuf:"varint,61,opt,name=post_conviction_lock_seconds,json=postConvictionLockSeconds,proto3" json:"post_conviction_lock_seconds,omitempty"`
+	PostConvictionLockSeconds int64 `protobuf:"varint,50,opt,name=post_conviction_lock_seconds,json=postConvictionLockSeconds,proto3" json:"post_conviction_lock_seconds,omitempty"`
 	// post_conviction_stream_rate_per_block is the per-DREAM-per-day rep
 	// accrual rate (math.LegacyDec). Despite the historical "per_block"
 	// suffix in the field name, the formula is unit-clean and time-based, not
@@ -179,31 +173,31 @@ type Params struct {
 	//   rep_credited_per_tag = rep_credited_total / len(post.tags)
 	// The author's per-tag credit is then capped by
 	// max_forum_rep_per_tag_per_epoch (one epoch = one UTC day).
-	PostConvictionStreamRatePerBlock cosmossdk_io_math.LegacyDec `protobuf:"bytes,62,opt,name=post_conviction_stream_rate_per_block,json=postConvictionStreamRatePerBlock,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"post_conviction_stream_rate_per_block"`
+	PostConvictionStreamRatePerBlock cosmossdk_io_math.LegacyDec `protobuf:"bytes,51,opt,name=post_conviction_stream_rate_per_block,json=postConvictionStreamRatePerBlock,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"post_conviction_stream_rate_per_block"`
 	// max_forum_rep_per_tag_per_epoch caps the per-tag forum rep an author may
 	// earn from conviction stakes in a single epoch (math.LegacyDec). Prevents
 	// a single tag from being flooded by many simultaneous stakes — excess
 	// accrual is silently dropped (no error, no refund) so honest stakers do not
 	// suffer from saturation they could not have foreseen.
-	MaxForumRepPerTagPerEpoch cosmossdk_io_math.LegacyDec `protobuf:"bytes,63,opt,name=max_forum_rep_per_tag_per_epoch,json=maxForumRepPerTagPerEpoch,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"max_forum_rep_per_tag_per_epoch"`
+	MaxForumRepPerTagPerEpoch cosmossdk_io_math.LegacyDec `protobuf:"bytes,52,opt,name=max_forum_rep_per_tag_per_epoch,json=maxForumRepPerTagPerEpoch,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"max_forum_rep_per_tag_per_epoch"`
 	// post_conviction_staker_slash_bps is the basis-points slash applied to the
 	// staker's locked DREAM when ExpireHiddenPosts finalizes a hide on the post
 	// (0-10000; 2500 = 25%). The slashed DREAM is burned. The non-slashed
 	// portion is unlocked back to the staker on the next MsgReleasePostConviction
 	// and the stake is closed.
-	PostConvictionStakerSlashBps uint64 `protobuf:"varint,64,opt,name=post_conviction_staker_slash_bps,json=postConvictionStakerSlashBps,proto3" json:"post_conviction_staker_slash_bps,omitempty"`
+	PostConvictionStakerSlashBps uint64 `protobuf:"varint,53,opt,name=post_conviction_staker_slash_bps,json=postConvictionStakerSlashBps,proto3" json:"post_conviction_staker_slash_bps,omitempty"`
 	// curation_dream_reward is the DREAM minted to a sentinel when their accepted-
 	// reply proposal is confirmed (by the author or via auto-confirm), in
 	// micro-DREAM (math.Int string). Read directly (no unset/default fallback):
 	// a non-positive value disables the reward, matching the IsPositive fee guards
 	// in x/rep / x/blog. Seeded by the genesis defaults.
-	CurationDreamReward cosmossdk_io_math.Int `protobuf:"bytes,65,opt,name=curation_dream_reward,json=curationDreamReward,proto3,customtype=cosmossdk.io/math.Int" json:"curation_dream_reward"`
+	CurationDreamReward cosmossdk_io_math.Int `protobuf:"bytes,54,opt,name=curation_dream_reward,json=curationDreamReward,proto3,customtype=cosmossdk.io/math.Int" json:"curation_dream_reward"`
 	// accept_proposal_timeout is the number of seconds after which a pending
 	// sentinel accepted-reply proposal auto-confirms if the author has not acted.
 	// Must be positive (Validate rejects 0/negative — a 0 timeout would
 	// auto-confirm on the next block, never an intended config). Seeded by the
 	// genesis defaults (48h).
-	AcceptProposalTimeout int64 `protobuf:"varint,66,opt,name=accept_proposal_timeout,json=acceptProposalTimeout,proto3" json:"accept_proposal_timeout,omitempty"`
+	AcceptProposalTimeout int64 `protobuf:"varint,55,opt,name=accept_proposal_timeout,json=acceptProposalTimeout,proto3" json:"accept_proposal_timeout,omitempty"`
 	// max_accept_proposals_per_sentinel_per_thread caps how many accepted-reply
 	// proposals a single sentinel may make on a given thread (counting all
 	// proposals, confirmed or rejected). Once a sentinel hits the cap on a thread,
@@ -211,24 +205,24 @@ type Params struct {
 	// done proposing there, permanently. Per-sentinel (not a thread-global cap) so
 	// one bad actor cannot exhaust a thread's quota and lock out honest curators.
 	// 0 disables the cap. Seeded by the genesis defaults (2).
-	MaxAcceptProposalsPerSentinelPerThread uint32 `protobuf:"varint,67,opt,name=max_accept_proposals_per_sentinel_per_thread,json=maxAcceptProposalsPerSentinelPerThread,proto3" json:"max_accept_proposals_per_sentinel_per_thread,omitempty"`
+	MaxAcceptProposalsPerSentinelPerThread uint32 `protobuf:"varint,56,opt,name=max_accept_proposals_per_sentinel_per_thread,json=maxAcceptProposalsPerSentinelPerThread,proto3" json:"max_accept_proposals_per_sentinel_per_thread,omitempty"`
 	// Media rules (docs/content-scanning.md §9). Apply to writes the chain
 	// labels as media (media_flags != 0); plain text is never affected.
 	//
 	// media_min_trust_level is the trust level (0-4) an active member needs to
 	// post media without a bond (default 1 = PROVISIONAL). Anonymous
 	// (shield-routed) content can never carry media.
-	MediaMinTrustLevel uint32 `protobuf:"varint,68,opt,name=media_min_trust_level,json=mediaMinTrustLevel,proto3" json:"media_min_trust_level,omitempty"`
+	MediaMinTrustLevel uint32 `protobuf:"varint,57,opt,name=media_min_trust_level,json=mediaMinTrustLevel,proto3" json:"media_min_trust_level,omitempty"`
 	// media_author_bond_min is the DREAM author bond (micro-DREAM) that lets an
 	// active member below media_min_trust_level post media at creation. A
 	// confirmed abuse verdict costs the author this bond. 0 disables the bond
 	// path.
-	MediaAuthorBondMin cosmossdk_io_math.Int `protobuf:"bytes,69,opt,name=media_author_bond_min,json=mediaAuthorBondMin,proto3,customtype=cosmossdk.io/math.Int" json:"media_author_bond_min"`
+	MediaAuthorBondMin cosmossdk_io_math.Int `protobuf:"bytes,58,opt,name=media_author_bond_min,json=mediaAuthorBondMin,proto3,customtype=cosmossdk.io/math.Int" json:"media_author_bond_min"`
 	// media_scan_fee is a flat bond-denom fee, burned, charged on every write
 	// whose media labels are non-zero. It prices the off-chain scanning work
 	// media creates (and media spam); 0 disables it. Scanner pay itself comes
 	// from commons recurring spend (§8.5).
-	MediaScanFee cosmossdk_io_math.Int `protobuf:"bytes,70,opt,name=media_scan_fee,json=mediaScanFee,proto3,customtype=cosmossdk.io/math.Int" json:"media_scan_fee"`
+	MediaScanFee cosmossdk_io_math.Int `protobuf:"bytes,59,opt,name=media_scan_fee,json=mediaScanFee,proto3,customtype=cosmossdk.io/math.Int" json:"media_scan_fee"`
 }
 
 func (m *Params) Reset()         { *m = Params{} }
@@ -593,95 +587,92 @@ type ForumOperationalParams struct {
 	ReactionSpamTaxAmount cosmossdk_io_math.Int `protobuf:"bytes,5,opt,name=reaction_spam_tax_amount,json=reactionSpamTaxAmount,proto3,customtype=cosmossdk.io/math.Int" json:"reaction_spam_tax_amount"`
 	FlagSpamTaxAmount     cosmossdk_io_math.Int `protobuf:"bytes,6,opt,name=flag_spam_tax_amount,json=flagSpamTaxAmount,proto3,customtype=cosmossdk.io/math.Int" json:"flag_spam_tax_amount"`
 	DownvoteDepositAmount cosmossdk_io_math.Int `protobuf:"bytes,7,opt,name=downvote_deposit_amount,json=downvoteDepositAmount,proto3,customtype=cosmossdk.io/math.Int" json:"downvote_deposit_amount"`
-	AppealFeeAmount       cosmossdk_io_math.Int `protobuf:"bytes,8,opt,name=appeal_fee_amount,json=appealFeeAmount,proto3,customtype=cosmossdk.io/math.Int" json:"appeal_fee_amount"`
-	LockAppealFeeAmount   cosmossdk_io_math.Int `protobuf:"bytes,9,opt,name=lock_appeal_fee_amount,json=lockAppealFeeAmount,proto3,customtype=cosmossdk.io/math.Int" json:"lock_appeal_fee_amount"`
-	MoveAppealFeeAmount   cosmossdk_io_math.Int `protobuf:"bytes,10,opt,name=move_appeal_fee_amount,json=moveAppealFeeAmount,proto3,customtype=cosmossdk.io/math.Int" json:"move_appeal_fee_amount"`
-	EditFeeAmount         cosmossdk_io_math.Int `protobuf:"bytes,11,opt,name=edit_fee_amount,json=editFeeAmount,proto3,customtype=cosmossdk.io/math.Int" json:"edit_fee_amount"`
-	CostPerByteAmount     cosmossdk_io_math.Int `protobuf:"bytes,12,opt,name=cost_per_byte_amount,json=costPerByteAmount,proto3,customtype=cosmossdk.io/math.Int" json:"cost_per_byte_amount"`
-	CostPerByteExempt     bool                  `protobuf:"varint,13,opt,name=cost_per_byte_exempt,json=costPerByteExempt,proto3" json:"cost_per_byte_exempt,omitempty"`
+	EditFeeAmount         cosmossdk_io_math.Int `protobuf:"bytes,8,opt,name=edit_fee_amount,json=editFeeAmount,proto3,customtype=cosmossdk.io/math.Int" json:"edit_fee_amount"`
+	CostPerByteAmount     cosmossdk_io_math.Int `protobuf:"bytes,9,opt,name=cost_per_byte_amount,json=costPerByteAmount,proto3,customtype=cosmossdk.io/math.Int" json:"cost_per_byte_amount"`
+	CostPerByteExempt     bool                  `protobuf:"varint,10,opt,name=cost_per_byte_exempt,json=costPerByteExempt,proto3" json:"cost_per_byte_exempt,omitempty"`
 	// Limits
-	MaxContentSize               uint64 `protobuf:"varint,14,opt,name=max_content_size,json=maxContentSize,proto3" json:"max_content_size,omitempty"`
-	DailyPostLimit               uint64 `protobuf:"varint,15,opt,name=daily_post_limit,json=dailyPostLimit,proto3" json:"daily_post_limit,omitempty"`
-	MaxReplyDepth                uint32 `protobuf:"varint,16,opt,name=max_reply_depth,json=maxReplyDepth,proto3" json:"max_reply_depth,omitempty"`
-	MaxFollowsPerDay             uint64 `protobuf:"varint,17,opt,name=max_follows_per_day,json=maxFollowsPerDay,proto3" json:"max_follows_per_day,omitempty"`
-	BountyCancellationFeePercent uint64 `protobuf:"varint,18,opt,name=bounty_cancellation_fee_percent,json=bountyCancellationFeePercent,proto3" json:"bounty_cancellation_fee_percent,omitempty"`
+	MaxContentSize               uint64 `protobuf:"varint,11,opt,name=max_content_size,json=maxContentSize,proto3" json:"max_content_size,omitempty"`
+	DailyPostLimit               uint64 `protobuf:"varint,12,opt,name=daily_post_limit,json=dailyPostLimit,proto3" json:"daily_post_limit,omitempty"`
+	MaxReplyDepth                uint32 `protobuf:"varint,13,opt,name=max_reply_depth,json=maxReplyDepth,proto3" json:"max_reply_depth,omitempty"`
+	MaxFollowsPerDay             uint64 `protobuf:"varint,14,opt,name=max_follows_per_day,json=maxFollowsPerDay,proto3" json:"max_follows_per_day,omitempty"`
+	BountyCancellationFeePercent uint64 `protobuf:"varint,15,opt,name=bounty_cancellation_fee_percent,json=bountyCancellationFeePercent,proto3" json:"bounty_cancellation_fee_percent,omitempty"`
 	// Time windows
-	EditGracePeriod    int64 `protobuf:"varint,19,opt,name=edit_grace_period,json=editGracePeriod,proto3" json:"edit_grace_period,omitempty"`
-	EditMaxWindow      int64 `protobuf:"varint,20,opt,name=edit_max_window,json=editMaxWindow,proto3" json:"edit_max_window,omitempty"`
-	ArchiveThreshold   int64 `protobuf:"varint,21,opt,name=archive_threshold,json=archiveThreshold,proto3" json:"archive_threshold,omitempty"`
-	UnarchiveCooldown  int64 `protobuf:"varint,22,opt,name=unarchive_cooldown,json=unarchiveCooldown,proto3" json:"unarchive_cooldown,omitempty"`
-	ArchiveCooldown    int64 `protobuf:"varint,23,opt,name=archive_cooldown,json=archiveCooldown,proto3" json:"archive_cooldown,omitempty"`
-	HideAppealCooldown int64 `protobuf:"varint,24,opt,name=hide_appeal_cooldown,json=hideAppealCooldown,proto3" json:"hide_appeal_cooldown,omitempty"`
-	LockAppealCooldown int64 `protobuf:"varint,25,opt,name=lock_appeal_cooldown,json=lockAppealCooldown,proto3" json:"lock_appeal_cooldown,omitempty"`
-	MoveAppealCooldown int64 `protobuf:"varint,26,opt,name=move_appeal_cooldown,json=moveAppealCooldown,proto3" json:"move_appeal_cooldown,omitempty"`
-	EphemeralTtl       int64 `protobuf:"varint,27,opt,name=ephemeral_ttl,json=ephemeralTtl,proto3" json:"ephemeral_ttl,omitempty"`
+	EditGracePeriod    int64 `protobuf:"varint,16,opt,name=edit_grace_period,json=editGracePeriod,proto3" json:"edit_grace_period,omitempty"`
+	EditMaxWindow      int64 `protobuf:"varint,17,opt,name=edit_max_window,json=editMaxWindow,proto3" json:"edit_max_window,omitempty"`
+	ArchiveThreshold   int64 `protobuf:"varint,18,opt,name=archive_threshold,json=archiveThreshold,proto3" json:"archive_threshold,omitempty"`
+	UnarchiveCooldown  int64 `protobuf:"varint,19,opt,name=unarchive_cooldown,json=unarchiveCooldown,proto3" json:"unarchive_cooldown,omitempty"`
+	ArchiveCooldown    int64 `protobuf:"varint,20,opt,name=archive_cooldown,json=archiveCooldown,proto3" json:"archive_cooldown,omitempty"`
+	HideAppealCooldown int64 `protobuf:"varint,21,opt,name=hide_appeal_cooldown,json=hideAppealCooldown,proto3" json:"hide_appeal_cooldown,omitempty"`
+	LockAppealCooldown int64 `protobuf:"varint,22,opt,name=lock_appeal_cooldown,json=lockAppealCooldown,proto3" json:"lock_appeal_cooldown,omitempty"`
+	MoveAppealCooldown int64 `protobuf:"varint,23,opt,name=move_appeal_cooldown,json=moveAppealCooldown,proto3" json:"move_appeal_cooldown,omitempty"`
+	EphemeralTtl       int64 `protobuf:"varint,24,opt,name=ephemeral_ttl,json=ephemeralTtl,proto3" json:"ephemeral_ttl,omitempty"`
 	// conviction_renewal_threshold is the minimum conviction score for TTL renewal
-	ConvictionRenewalThreshold cosmossdk_io_math.LegacyDec `protobuf:"bytes,31,opt,name=conviction_renewal_threshold,json=convictionRenewalThreshold,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"conviction_renewal_threshold"`
+	ConvictionRenewalThreshold cosmossdk_io_math.LegacyDec `protobuf:"bytes,25,opt,name=conviction_renewal_threshold,json=convictionRenewalThreshold,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"conviction_renewal_threshold"`
 	// conviction_renewal_period is the TTL extension in seconds when conviction threshold is met
-	ConvictionRenewalPeriod int64 `protobuf:"varint,32,opt,name=conviction_renewal_period,json=convictionRenewalPeriod,proto3" json:"conviction_renewal_period,omitempty"`
+	ConvictionRenewalPeriod int64 `protobuf:"varint,26,opt,name=conviction_renewal_period,json=convictionRenewalPeriod,proto3" json:"conviction_renewal_period,omitempty"`
 	// min_sentinel_bond is the minimum DREAM required to bond as a sentinel
 	// (math.Int string, e.g. "1000").
-	MinSentinelBond string `protobuf:"bytes,40,opt,name=min_sentinel_bond,json=minSentinelBond,proto3" json:"min_sentinel_bond,omitempty"`
+	MinSentinelBond string `protobuf:"bytes,27,opt,name=min_sentinel_bond,json=minSentinelBond,proto3" json:"min_sentinel_bond,omitempty"`
 	// min_sentinel_rep_tier is the minimum reputation tier required to bond as
 	// a sentinel. 0 = no rep-tier gate.
-	MinSentinelRepTier uint64 `protobuf:"varint,41,opt,name=min_sentinel_rep_tier,json=minSentinelRepTier,proto3" json:"min_sentinel_rep_tier,omitempty"`
+	MinSentinelRepTier uint64 `protobuf:"varint,28,opt,name=min_sentinel_rep_tier,json=minSentinelRepTier,proto3" json:"min_sentinel_rep_tier,omitempty"`
 	// min_sentinel_trust_level is the minimum trust level required to bond as a
 	// sentinel, as an enum name (e.g. "TRUST_LEVEL_ESTABLISHED"). Empty = no
 	// trust-level gate.
-	MinSentinelTrustLevel string `protobuf:"bytes,42,opt,name=min_sentinel_trust_level,json=minSentinelTrustLevel,proto3" json:"min_sentinel_trust_level,omitempty"`
+	MinSentinelTrustLevel string `protobuf:"bytes,29,opt,name=min_sentinel_trust_level,json=minSentinelTrustLevel,proto3" json:"min_sentinel_trust_level,omitempty"`
 	// min_sentinel_age_blocks is enforced by forum at action time (the sentinel
 	// must have been bonded for this many blocks before taking an action). Zero
 	// = no age gate.
-	MinSentinelAgeBlocks int64 `protobuf:"varint,43,opt,name=min_sentinel_age_blocks,json=minSentinelAgeBlocks,proto3" json:"min_sentinel_age_blocks,omitempty"`
+	MinSentinelAgeBlocks int64 `protobuf:"varint,30,opt,name=min_sentinel_age_blocks,json=minSentinelAgeBlocks,proto3" json:"min_sentinel_age_blocks,omitempty"`
 	// sentinel_demotion_cooldown is the number of seconds a DEMOTED sentinel
 	// must wait before re-bonding.
-	SentinelDemotionCooldown int64 `protobuf:"varint,44,opt,name=sentinel_demotion_cooldown,json=sentinelDemotionCooldown,proto3" json:"sentinel_demotion_cooldown,omitempty"`
+	SentinelDemotionCooldown int64 `protobuf:"varint,31,opt,name=sentinel_demotion_cooldown,json=sentinelDemotionCooldown,proto3" json:"sentinel_demotion_cooldown,omitempty"`
 	// sentinel_demotion_threshold is the bond floor below which the sentinel
 	// transitions from RECOVERY to DEMOTED (math.Int string).
-	SentinelDemotionThreshold string `protobuf:"bytes,45,opt,name=sentinel_demotion_threshold,json=sentinelDemotionThreshold,proto3" json:"sentinel_demotion_threshold,omitempty"`
+	SentinelDemotionThreshold string `protobuf:"bytes,32,opt,name=sentinel_demotion_threshold,json=sentinelDemotionThreshold,proto3" json:"sentinel_demotion_threshold,omitempty"`
 	// sentinel_unhide_window in seconds. A sentinel who hid a post may
 	// self-correct (call MsgUnhidePost) within this window of the original
 	// hide; after it expires, only the Commons Operations Committee or
 	// governance can unhide.
-	SentinelUnhideWindow int64 `protobuf:"varint,46,opt,name=sentinel_unhide_window,json=sentinelUnhideWindow,proto3" json:"sentinel_unhide_window,omitempty"`
+	SentinelUnhideWindow int64 `protobuf:"varint,33,opt,name=sentinel_unhide_window,json=sentinelUnhideWindow,proto3" json:"sentinel_unhide_window,omitempty"`
 	// sentinel_unbond_cooldown is the number of seconds a sentinel's bond stays
 	// locked and slashable after MsgUnbondRole. During the cooldown the
 	// BondedRole is in UNBONDING status and forum action gates refuse
 	// authority. Zero = immediate withdrawal.
-	SentinelUnbondCooldown int64 `protobuf:"varint,47,opt,name=sentinel_unbond_cooldown,json=sentinelUnbondCooldown,proto3" json:"sentinel_unbond_cooldown,omitempty"`
+	SentinelUnbondCooldown int64 `protobuf:"varint,34,opt,name=sentinel_unbond_cooldown,json=sentinelUnbondCooldown,proto3" json:"sentinel_unbond_cooldown,omitempty"`
 	// make_permanent_min_trust_level — see Params.make_permanent_min_trust_level.
-	MakePermanentMinTrustLevel uint32 `protobuf:"varint,48,opt,name=make_permanent_min_trust_level,json=makePermanentMinTrustLevel,proto3" json:"make_permanent_min_trust_level,omitempty"`
+	MakePermanentMinTrustLevel uint32 `protobuf:"varint,35,opt,name=make_permanent_min_trust_level,json=makePermanentMinTrustLevel,proto3" json:"make_permanent_min_trust_level,omitempty"`
 	// max_promotions_per_block — see Params.max_promotions_per_block.
-	MaxPromotionsPerBlock uint32 `protobuf:"varint,49,opt,name=max_promotions_per_block,json=maxPromotionsPerBlock,proto3" json:"max_promotions_per_block,omitempty"`
+	MaxPromotionsPerBlock uint32 `protobuf:"varint,36,opt,name=max_promotions_per_block,json=maxPromotionsPerBlock,proto3" json:"max_promotions_per_block,omitempty"`
 	// author_rep_slash — see Params.author_rep_slash.
-	AuthorRepSlash cosmossdk_io_math.LegacyDec `protobuf:"bytes,50,opt,name=author_rep_slash,json=authorRepSlash,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"author_rep_slash"`
+	AuthorRepSlash cosmossdk_io_math.LegacyDec `protobuf:"bytes,37,opt,name=author_rep_slash,json=authorRepSlash,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"author_rep_slash"`
 	// max_make_permanent_per_day — see Params.max_make_permanent_per_day.
-	MaxMakePermanentPerDay uint64 `protobuf:"varint,51,opt,name=max_make_permanent_per_day,json=maxMakePermanentPerDay,proto3" json:"max_make_permanent_per_day,omitempty"`
+	MaxMakePermanentPerDay uint64 `protobuf:"varint,38,opt,name=max_make_permanent_per_day,json=maxMakePermanentPerDay,proto3" json:"max_make_permanent_per_day,omitempty"`
 	// max_hides_per_epoch — see Params.max_hides_per_epoch.
-	MaxHidesPerEpoch uint64 `protobuf:"varint,52,opt,name=max_hides_per_epoch,json=maxHidesPerEpoch,proto3" json:"max_hides_per_epoch,omitempty"`
+	MaxHidesPerEpoch uint64 `protobuf:"varint,39,opt,name=max_hides_per_epoch,json=maxHidesPerEpoch,proto3" json:"max_hides_per_epoch,omitempty"`
 	// max_sentinel_locks_per_epoch — see Params.max_sentinel_locks_per_epoch.
-	MaxSentinelLocksPerEpoch uint64 `protobuf:"varint,53,opt,name=max_sentinel_locks_per_epoch,json=maxSentinelLocksPerEpoch,proto3" json:"max_sentinel_locks_per_epoch,omitempty"`
+	MaxSentinelLocksPerEpoch uint64 `protobuf:"varint,40,opt,name=max_sentinel_locks_per_epoch,json=maxSentinelLocksPerEpoch,proto3" json:"max_sentinel_locks_per_epoch,omitempty"`
 	// max_sentinel_moves_per_epoch — see Params.max_sentinel_moves_per_epoch.
-	MaxSentinelMovesPerEpoch uint64 `protobuf:"varint,54,opt,name=max_sentinel_moves_per_epoch,json=maxSentinelMovesPerEpoch,proto3" json:"max_sentinel_moves_per_epoch,omitempty"`
+	MaxSentinelMovesPerEpoch uint64 `protobuf:"varint,41,opt,name=max_sentinel_moves_per_epoch,json=maxSentinelMovesPerEpoch,proto3" json:"max_sentinel_moves_per_epoch,omitempty"`
 	// sentinel_slash_amount — see Params.sentinel_slash_amount.
-	SentinelSlashAmount string `protobuf:"bytes,55,opt,name=sentinel_slash_amount,json=sentinelSlashAmount,proto3" json:"sentinel_slash_amount,omitempty"`
+	SentinelSlashAmount string `protobuf:"bytes,42,opt,name=sentinel_slash_amount,json=sentinelSlashAmount,proto3" json:"sentinel_slash_amount,omitempty"`
 	// min_post_conviction_stake — see Params.min_post_conviction_stake.
-	MinPostConvictionStake cosmossdk_io_math.Int `protobuf:"bytes,60,opt,name=min_post_conviction_stake,json=minPostConvictionStake,proto3,customtype=cosmossdk.io/math.Int" json:"min_post_conviction_stake"`
+	MinPostConvictionStake cosmossdk_io_math.Int `protobuf:"bytes,43,opt,name=min_post_conviction_stake,json=minPostConvictionStake,proto3,customtype=cosmossdk.io/math.Int" json:"min_post_conviction_stake"`
 	// post_conviction_lock_seconds — see Params.post_conviction_lock_seconds.
-	PostConvictionLockSeconds int64 `protobuf:"varint,61,opt,name=post_conviction_lock_seconds,json=postConvictionLockSeconds,proto3" json:"post_conviction_lock_seconds,omitempty"`
+	PostConvictionLockSeconds int64 `protobuf:"varint,44,opt,name=post_conviction_lock_seconds,json=postConvictionLockSeconds,proto3" json:"post_conviction_lock_seconds,omitempty"`
 	// post_conviction_stream_rate_per_block — see Params.post_conviction_stream_rate_per_block.
-	PostConvictionStreamRatePerBlock cosmossdk_io_math.LegacyDec `protobuf:"bytes,62,opt,name=post_conviction_stream_rate_per_block,json=postConvictionStreamRatePerBlock,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"post_conviction_stream_rate_per_block"`
+	PostConvictionStreamRatePerBlock cosmossdk_io_math.LegacyDec `protobuf:"bytes,45,opt,name=post_conviction_stream_rate_per_block,json=postConvictionStreamRatePerBlock,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"post_conviction_stream_rate_per_block"`
 	// max_forum_rep_per_tag_per_epoch — see Params.max_forum_rep_per_tag_per_epoch.
-	MaxForumRepPerTagPerEpoch cosmossdk_io_math.LegacyDec `protobuf:"bytes,63,opt,name=max_forum_rep_per_tag_per_epoch,json=maxForumRepPerTagPerEpoch,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"max_forum_rep_per_tag_per_epoch"`
+	MaxForumRepPerTagPerEpoch cosmossdk_io_math.LegacyDec `protobuf:"bytes,46,opt,name=max_forum_rep_per_tag_per_epoch,json=maxForumRepPerTagPerEpoch,proto3,customtype=cosmossdk.io/math.LegacyDec" json:"max_forum_rep_per_tag_per_epoch"`
 	// post_conviction_staker_slash_bps — see Params.post_conviction_staker_slash_bps.
-	PostConvictionStakerSlashBps uint64 `protobuf:"varint,64,opt,name=post_conviction_staker_slash_bps,json=postConvictionStakerSlashBps,proto3" json:"post_conviction_staker_slash_bps,omitempty"`
+	PostConvictionStakerSlashBps uint64 `protobuf:"varint,47,opt,name=post_conviction_staker_slash_bps,json=postConvictionStakerSlashBps,proto3" json:"post_conviction_staker_slash_bps,omitempty"`
 	// curation_dream_reward — see Params.curation_dream_reward.
-	CurationDreamReward cosmossdk_io_math.Int `protobuf:"bytes,65,opt,name=curation_dream_reward,json=curationDreamReward,proto3,customtype=cosmossdk.io/math.Int" json:"curation_dream_reward"`
+	CurationDreamReward cosmossdk_io_math.Int `protobuf:"bytes,48,opt,name=curation_dream_reward,json=curationDreamReward,proto3,customtype=cosmossdk.io/math.Int" json:"curation_dream_reward"`
 	// accept_proposal_timeout — see Params.accept_proposal_timeout.
-	AcceptProposalTimeout int64 `protobuf:"varint,66,opt,name=accept_proposal_timeout,json=acceptProposalTimeout,proto3" json:"accept_proposal_timeout,omitempty"`
+	AcceptProposalTimeout int64 `protobuf:"varint,49,opt,name=accept_proposal_timeout,json=acceptProposalTimeout,proto3" json:"accept_proposal_timeout,omitempty"`
 	// max_accept_proposals_per_sentinel_per_thread —
 	// see Params.max_accept_proposals_per_sentinel_per_thread.
-	MaxAcceptProposalsPerSentinelPerThread uint32 `protobuf:"varint,67,opt,name=max_accept_proposals_per_sentinel_per_thread,json=maxAcceptProposalsPerSentinelPerThread,proto3" json:"max_accept_proposals_per_sentinel_per_thread,omitempty"`
+	MaxAcceptProposalsPerSentinelPerThread uint32 `protobuf:"varint,50,opt,name=max_accept_proposals_per_sentinel_per_thread,json=maxAcceptProposalsPerSentinelPerThread,proto3" json:"max_accept_proposals_per_sentinel_per_thread,omitempty"`
 }
 
 func (m *ForumOperationalParams) Reset()         { *m = ForumOperationalParams{} }
@@ -991,119 +982,120 @@ func init() {
 func init() { proto.RegisterFile("sparkdream/forum/v1/params.proto", fileDescriptor_b3a4b297b70e2838) }
 
 var fileDescriptor_b3a4b297b70e2838 = []byte{
-	// 1778 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xec, 0x59, 0xdd, 0x6e, 0xdb, 0xd8,
-	0x11, 0x8e, 0x36, 0xd9, 0x6c, 0x72, 0x62, 0x5b, 0x16, 0x6d, 0xc9, 0x47, 0x8a, 0x23, 0xab, 0x59,
-	0x24, 0x75, 0xb2, 0x1b, 0x6b, 0x93, 0xfd, 0xad, 0xb1, 0xcd, 0xd6, 0xf2, 0x4f, 0xbb, 0x80, 0xbd,
-	0x55, 0x65, 0x6f, 0x5b, 0x14, 0x05, 0x88, 0x63, 0x72, 0x2c, 0x11, 0x26, 0x79, 0x08, 0xf2, 0xc8,
-	0x96, 0xf6, 0x11, 0x7a, 0xd5, 0x47, 0xe8, 0x23, 0xf4, 0x31, 0xf6, 0xa2, 0x17, 0x7b, 0x59, 0xf4,
-	0x62, 0x51, 0x24, 0x17, 0xed, 0x33, 0xf4, 0xaa, 0x98, 0x39, 0x24, 0x45, 0xfd, 0x18, 0xa0, 0x17,
-	0xce, 0x02, 0x0b, 0xf8, 0xc6, 0x10, 0x66, 0xbe, 0xef, 0xe3, 0x70, 0x38, 0x67, 0xc8, 0x0f, 0x66,
-	0x8d, 0x28, 0x10, 0xe1, 0xa9, 0x1d, 0x82, 0xf0, 0x9a, 0x27, 0x32, 0xec, 0x7b, 0xcd, 0xb3, 0xe7,
-	0xcd, 0x40, 0x84, 0xc2, 0x8b, 0x36, 0x82, 0x50, 0x2a, 0x69, 0x2c, 0x8d, 0x10, 0x1b, 0x84, 0xd8,
-	0x38, 0x7b, 0x5e, 0x2b, 0x09, 0xcf, 0xf1, 0x65, 0x93, 0xfe, 0x6a, 0x5c, 0x6d, 0xb9, 0x2b, 0xbb,
-	0x92, 0x7e, 0x36, 0xf1, 0x97, 0x8e, 0x3e, 0xfc, 0xdf, 0x03, 0x76, 0xbb, 0x4d, 0x72, 0xc6, 0xcf,
-	0xd8, 0x1c, 0xf1, 0xcd, 0x40, 0xf4, 0x23, 0xb0, 0x79, 0xa1, 0x51, 0x58, 0xbf, 0xd3, 0xb9, 0x47,
-	0xb1, 0x36, 0x85, 0x8c, 0xf7, 0x58, 0xc9, 0x93, 0x36, 0x84, 0x42, 0x39, 0xd2, 0x4f, 0x70, 0x6f,
-	0x11, 0x6e, 0x71, 0x94, 0x88, 0xc1, 0x4f, 0xd8, 0xe2, 0xb1, 0xec, 0xfb, 0xca, 0x81, 0xc8, 0x04,
-	0x5f, 0x1c, 0xbb, 0x60, 0xf3, 0x9b, 0x84, 0x2d, 0x26, 0xf1, 0x5d, 0x1d, 0x46, 0xdd, 0x10, 0x84,
-	0x85, 0xe4, 0x11, 0xf6, 0x96, 0xd6, 0x4d, 0x13, 0x09, 0xf8, 0x11, 0x5b, 0x10, 0x41, 0x00, 0xc2,
-	0x8d, 0x92, 0x0a, 0xde, 0x26, 0xe4, 0x7c, 0x1c, 0x8d, 0x2f, 0xff, 0x73, 0x56, 0x04, 0xdb, 0x51,
-	0x8e, 0xdf, 0x4d, 0x15, 0x6f, 0x13, 0x6e, 0x21, 0x0e, 0x27, 0x7a, 0xbb, 0xac, 0x18, 0x05, 0xc2,
-	0x33, 0x95, 0x18, 0x98, 0xc2, 0xc3, 0xca, 0xf8, 0x3b, 0x8d, 0xc2, 0xfa, 0xdd, 0xd6, 0x83, 0x6f,
-	0xbf, 0x5f, 0xbb, 0xf1, 0xaf, 0xef, 0xd7, 0xca, 0x96, 0x8c, 0x3c, 0x19, 0x45, 0xf6, 0xe9, 0x86,
-	0x23, 0x9b, 0x9e, 0x50, 0xbd, 0x8d, 0x2f, 0x7d, 0xd5, 0x99, 0x47, 0xd6, 0x91, 0x18, 0x6c, 0x11,
-	0xc7, 0xf8, 0x3d, 0xe3, 0x49, 0xa9, 0xe6, 0xa4, 0xde, 0x9d, 0x3c, 0x7a, 0xe5, 0x84, 0x7e, 0x38,
-	0xa6, 0xfb, 0x15, 0x5b, 0x3e, 0x71, 0x45, 0x77, 0x4a, 0xf3, 0x6e, 0x1e, 0xcd, 0x12, 0x52, 0xc7,
-	0xf5, 0xbe, 0x66, 0x2b, 0xb6, 0x3c, 0xf7, 0xcf, 0xa4, 0x02, 0xd3, 0x86, 0x40, 0x46, 0x8e, 0x4a,
-	0x24, 0x59, 0xae, 0x32, 0x13, 0xf6, 0x8e, 0x26, 0xc7, 0xb2, 0x5f, 0xb2, 0x92, 0xee, 0xbf, 0x79,
-	0x02, 0x90, 0x08, 0xde, 0xcb, 0x23, 0x58, 0xd4, 0xbc, 0x3d, 0x80, 0x58, 0xaa, 0xc3, 0x2a, 0xae,
-	0xb4, 0x4e, 0xcd, 0x69, 0xbd, 0xb9, 0x3c, 0x7a, 0x4b, 0x48, 0xde, 0x9a, 0xd6, 0xf4, 0xe4, 0x19,
-	0xcc, 0xd0, 0x9c, 0xcf, 0xa5, 0x89, 0xe4, 0x49, 0xcd, 0x5d, 0x3d, 0x61, 0x59, 0xb1, 0x85, 0x5c,
-	0x83, 0x83, 0xac, 0xac, 0xcc, 0x1a, 0x9d, 0x87, 0xa1, 0x69, 0x09, 0xdf, 0x02, 0xd7, 0xd5, 0xa7,
-	0x0b, 0x55, 0x03, 0x08, 0x2d, 0xf0, 0x15, 0x2f, 0x36, 0x0a, 0xeb, 0xb7, 0x3a, 0xab, 0x1a, 0xb6,
-	0x9d, 0x41, 0xed, 0x01, 0xb4, 0x35, 0xc6, 0x58, 0x67, 0x8b, 0x9e, 0x18, 0x98, 0x96, 0xf4, 0x15,
-	0xf8, 0xca, 0x8c, 0x9c, 0x6f, 0x80, 0x2f, 0x12, 0x6f, 0xc1, 0x13, 0x83, 0x6d, 0x1d, 0x3e, 0x74,
-	0xbe, 0x01, 0x44, 0xda, 0xc2, 0x71, 0x87, 0x66, 0x20, 0x23, 0x65, 0xba, 0x8e, 0xe7, 0x28, 0x5e,
-	0xd2, 0x48, 0x8a, 0xb7, 0x65, 0xa4, 0xf6, 0x31, 0x6a, 0x3c, 0x66, 0x45, 0xd4, 0x0c, 0x21, 0x70,
-	0x87, 0x38, 0x2c, 0xaa, 0xc7, 0x8d, 0x46, 0x61, 0x7d, 0xbe, 0x33, 0xef, 0x89, 0x41, 0x07, 0xa3,
-	0x3b, 0x18, 0x34, 0x9e, 0xb2, 0x12, 0x75, 0xa2, 0x1b, 0x0a, 0x8b, 0xaa, 0x76, 0xa4, 0xcd, 0x97,
-	0x1a, 0x85, 0xf5, 0x9b, 0x1d, 0x6a, 0xd1, 0xaf, 0x31, 0xde, 0xa6, 0x30, 0x6a, 0x12, 0x16, 0x85,
-	0xcf, 0x1d, 0xdf, 0x96, 0xe7, 0x7c, 0x99, 0x90, 0xd4, 0x96, 0x03, 0x31, 0xf8, 0x03, 0x05, 0x8d,
-	0x67, 0x6c, 0x09, 0x21, 0x27, 0xd2, 0x75, 0xe5, 0x79, 0x84, 0xa2, 0xa6, 0x2d, 0x86, 0xbc, 0x4c,
-	0x85, 0xe2, 0xad, 0xee, 0xe9, 0x4c, 0x1b, 0xc2, 0x1d, 0x31, 0xc4, 0x15, 0x22, 0x42, 0xab, 0xe7,
-	0x9c, 0x81, 0xa9, 0x7a, 0x21, 0x44, 0x3d, 0xe9, 0xda, 0xbc, 0x42, 0xc2, 0x8b, 0x71, 0xe2, 0x28,
-	0x89, 0x1b, 0xcf, 0x98, 0xd1, 0xf7, 0x13, 0xb8, 0x25, 0xa5, 0x8b, 0x33, 0xcd, 0x57, 0x08, 0x5d,
-	0x4a, 0x33, 0xdb, 0x71, 0x02, 0x37, 0xd9, 0x14, 0x98, 0xeb, 0xbb, 0x9b, 0x84, 0x7e, 0xc0, 0x96,
-	0x7b, 0x8e, 0x9d, 0xce, 0x59, 0x0a, 0xaf, 0x12, 0xdc, 0xc0, 0x9c, 0x1e, 0xa3, 0x2c, 0x23, 0x3b,
-	0xed, 0x29, 0xa3, 0xa6, 0x19, 0xa3, 0x61, 0xce, 0x32, 0xb2, 0xb3, 0x9c, 0x32, 0xee, 0x6b, 0xc6,
-	0x68, 0x54, 0x53, 0xc6, 0x57, 0x6c, 0xd9, 0xc2, 0x67, 0x8d, 0x4d, 0x3c, 0x1e, 0xaa, 0x74, 0x5c,
-	0x57, 0x73, 0xed, 0x10, 0xa4, 0xb6, 0x21, 0x6c, 0x0d, 0x55, 0x32, 0xb2, 0xcd, 0x49, 0x3d, 0x18,
-	0x80, 0x17, 0x28, 0xfe, 0x80, 0x16, 0x6c, 0x96, 0xb0, 0x4b, 0x09, 0xe3, 0x5d, 0x36, 0x0f, 0x41,
-	0x0f, 0x3c, 0x08, 0x85, 0x6b, 0x2a, 0xe5, 0xf2, 0x3a, 0xd5, 0x3a, 0x97, 0x06, 0x8f, 0x94, 0x6b,
-	0x00, 0x5b, 0xb5, 0xa4, 0x7f, 0xe6, 0xe8, 0x1d, 0x1a, 0x82, 0x0f, 0xe7, 0x88, 0x4e, 0x9f, 0xe6,
-	0x23, 0xaa, 0xf6, 0xdd, 0xb8, 0xda, 0xfb, 0xd3, 0xd5, 0xee, 0x43, 0x57, 0x58, 0xc3, 0x1d, 0xb0,
-	0x3a, 0xb5, 0x91, 0x50, 0x47, 0xeb, 0x8c, 0x1e, 0xfe, 0x26, 0xab, 0xce, 0xb8, 0x4c, 0x3c, 0xb4,
-	0x8f, 0xa9, 0xae, 0x95, 0x29, 0x7a, 0x3c, 0xbc, 0x4f, 0x59, 0xc9, 0x73, 0x7c, 0x33, 0x02, 0x5f,
-	0x39, 0x3e, 0xb8, 0xe6, 0xb1, 0xf4, 0x6d, 0xbe, 0x8e, 0x75, 0x75, 0x8a, 0x9e, 0xe3, 0x1f, 0xc6,
-	0xf1, 0x96, 0xf4, 0x6d, 0xe3, 0x39, 0x2b, 0x8f, 0x61, 0x43, 0x08, 0x4c, 0xe5, 0x40, 0xc8, 0x9f,
-	0xd0, 0x08, 0x1b, 0x19, 0x7c, 0x07, 0x82, 0x23, 0x07, 0x42, 0xe3, 0x53, 0xc6, 0xc7, 0x28, 0x2a,
-	0xec, 0xe3, 0x09, 0x85, 0x33, 0x70, 0xf9, 0x53, 0xba, 0x4a, 0x39, 0xc3, 0x3a, 0xc2, 0xec, 0x3e,
-	0x26, 0x8d, 0x8f, 0xd9, 0xca, 0x18, 0x51, 0x74, 0xc1, 0x3c, 0xc6, 0xd1, 0x89, 0xf8, 0x7b, 0x74,
-	0x47, 0xcb, 0x19, 0xde, 0x56, 0x17, 0x5a, 0x94, 0x33, 0x3e, 0x67, 0xb5, 0x94, 0x62, 0x83, 0x27,
-	0xa9, 0x23, 0xe9, 0x3c, 0xbd, 0x4f, 0x4c, 0x9e, 0x20, 0x76, 0x62, 0x40, 0x3a, 0x55, 0x2f, 0xd9,
-	0xfd, 0x69, 0xf6, 0xe8, 0x71, 0x3d, 0xa3, 0x82, 0xab, 0x93, 0xf4, 0xd1, 0x83, 0xf8, 0x88, 0x55,
-	0x52, 0x7e, 0xdf, 0xa7, 0x63, 0x13, 0x2f, 0x84, 0x0d, 0x5d, 0x73, 0x92, 0xfd, 0x9a, 0x92, 0xf1,
-	0x5e, 0xf8, 0x8c, 0xf1, 0x0c, 0x0b, 0x1f, 0xc0, 0xa8, 0xe2, 0x26, 0xf1, 0x2a, 0x23, 0x1e, 0xa6,
-	0xd3, 0x7a, 0x5b, 0xac, 0xee, 0x89, 0x53, 0xda, 0x4f, 0x9e, 0xf0, 0x71, 0x49, 0x62, 0xcf, 0xb2,
-	0x3d, 0xfe, 0x80, 0x96, 0x5b, 0x0d, 0x51, 0xed, 0x04, 0x74, 0xe0, 0xf8, 0x99, 0x46, 0xe3, 0x13,
-	0x12, 0x03, 0x33, 0x08, 0xa5, 0xbe, 0x1b, 0xbd, 0x98, 0xa8, 0xd5, 0xfc, 0x39, 0xb1, 0xcb, 0x9e,
-	0x18, 0xb4, 0xd3, 0x34, 0x1e, 0x03, 0x4c, 0x1a, 0x07, 0x6c, 0x51, 0xf4, 0x55, 0x4f, 0x86, 0x34,
-	0x07, 0x91, 0x2b, 0xa2, 0x1e, 0x7f, 0x91, 0x7f, 0xa0, 0x17, 0x34, 0xb9, 0x03, 0xc1, 0x21, 0x52,
-	0x8d, 0x4d, 0x56, 0xc3, 0x3a, 0x26, 0xee, 0x27, 0x59, 0x92, 0x1f, 0xd2, 0x84, 0x55, 0x3c, 0x31,
-	0x38, 0xc8, 0xde, 0x4a, 0xbc, 0x2a, 0xe3, 0xcd, 0x8a, 0x3d, 0xd5, 0xe5, 0x43, 0x20, 0xad, 0x1e,
-	0xff, 0x28, 0xdd, 0xac, 0xbf, 0xc1, 0x4c, 0x1b, 0xc2, 0x5d, 0x8c, 0x1b, 0x2f, 0xd9, 0x2a, 0xc2,
-	0xd3, 0xa6, 0xd3, 0xe8, 0x64, 0x78, 0x1f, 0x13, 0x0f, 0xdb, 0x92, 0x0c, 0xd8, 0x3e, 0x22, 0x2e,
-	0xe4, 0xe3, 0x7e, 0xca, 0xf2, 0x3f, 0x99, 0xe2, 0x1f, 0x20, 0x22, 0xe5, 0xbf, 0x60, 0xe5, 0x94,
-	0x4b, 0x7d, 0x4b, 0xb6, 0xd7, 0xa7, 0x34, 0x60, 0x4b, 0x49, 0x92, 0x1a, 0x13, 0x2f, 0xa8, 0x64,
-	0xa9, 0xd2, 0x78, 0x78, 0x7d, 0x57, 0x39, 0x81, 0x8b, 0x47, 0xef, 0x33, 0x7d, 0xf4, 0x30, 0x87,
-	0x67, 0xf4, 0x20, 0xcd, 0x18, 0x1b, 0x6c, 0x49, 0x33, 0x84, 0x75, 0x8a, 0xdf, 0x8c, 0xf1, 0x35,
-	0x7e, 0x41, 0xd7, 0x28, 0x11, 0x41, 0x67, 0xe2, 0x2b, 0x3c, 0x61, 0x14, 0xa4, 0x11, 0x4a, 0x4f,
-	0xf6, 0xa6, 0x7e, 0x8b, 0x62, 0xe2, 0xc0, 0xf1, 0x93, 0x53, 0xfd, 0x47, 0x56, 0x45, 0x14, 0xbd,
-	0x6d, 0x33, 0x9b, 0x27, 0x52, 0xe2, 0x14, 0xf8, 0xe7, 0x79, 0x56, 0x70, 0xc5, 0x73, 0x7c, 0x7c,
-	0x2b, 0x6f, 0xa7, 0xec, 0x43, 0x24, 0x1b, 0x5f, 0xb0, 0xd5, 0x49, 0x55, 0x2a, 0x2a, 0x02, 0x4b,
-	0xfa, 0x76, 0xc4, 0x7f, 0x49, 0xe7, 0xa1, 0x1a, 0x8c, 0x51, 0xf1, 0xe9, 0x1c, 0x6a, 0x80, 0xa1,
-	0xd8, 0xa3, 0xe9, 0xb2, 0xd0, 0x4a, 0x98, 0xa1, 0x50, 0x90, 0x99, 0xed, 0x97, 0xf9, 0x47, 0xb5,
-	0x11, 0x4c, 0x54, 0x8a, 0x7a, 0x1d, 0xa1, 0x20, 0x3d, 0x0b, 0x5d, 0xb6, 0xa6, 0x5f, 0xed, 0xe8,
-	0x36, 0xb0, 0x79, 0x78, 0x1d, 0x25, 0xba, 0x99, 0xa1, 0xf8, 0x22, 0xff, 0xf5, 0xaa, 0xf4, 0x2d,
-	0x10, 0xf6, 0xbd, 0x0e, 0x04, 0x6d, 0x08, 0x8f, 0x44, 0x37, 0x1d, 0x9d, 0x3d, 0xd6, 0x98, 0xd9,
-	0xf5, 0x30, 0x1e, 0xa4, 0xe3, 0x20, 0xe2, 0xbf, 0xd2, 0xdf, 0x56, 0xc1, 0x74, 0x7b, 0x43, 0x9a,
-	0xa8, 0x56, 0x10, 0x19, 0xbf, 0x63, 0x65, 0xab, 0x1f, 0xbb, 0x1e, 0x5b, 0xb7, 0x07, 0xce, 0x45,
-	0x68, 0xf3, 0xad, 0x5c, 0x1f, 0x8f, 0x09, 0x77, 0x87, 0x3a, 0x41, 0x4c, 0xe3, 0x13, 0xb6, 0x22,
-	0x2c, 0x0b, 0x02, 0x85, 0xbb, 0x24, 0x90, 0x11, 0xbe, 0xe9, 0x1c, 0x0f, 0x64, 0x5f, 0xf1, 0x16,
-	0x3d, 0xb5, 0xb2, 0x4e, 0xb7, 0xe3, 0xec, 0x91, 0x4e, 0x1a, 0x7f, 0x66, 0xef, 0x63, 0xef, 0x26,
-	0xb8, 0xfa, 0x3c, 0xa5, 0xc7, 0x84, 0xfa, 0xd9, 0x0b, 0x41, 0xd8, 0x7c, 0x9b, 0x96, 0xd2, 0x63,
-	0x4f, 0x0c, 0xb6, 0xc6, 0xf4, 0xf0, 0x7c, 0x25, 0xe7, 0x0d, 0xbb, 0x46, 0x68, 0x7a, 0x67, 0x81,
-	0xed, 0x88, 0xa9, 0xcd, 0xb8, 0x43, 0x32, 0x06, 0x25, 0xc7, 0x37, 0x62, 0x3b, 0xa1, 0xc4, 0xeb,
-	0x4d, 0x1f, 0x39, 0xc7, 0xe7, 0xbb, 0x79, 0x7a, 0xa3, 0x15, 0xb7, 0x88, 0x4a, 0x27, 0xd2, 0xf1,
-	0x8d, 0x6d, 0xb6, 0xa0, 0x15, 0x23, 0x4b, 0xd0, 0x77, 0x30, 0xdf, 0xcb, 0x23, 0x35, 0x47, 0xa4,
-	0x43, 0x4b, 0xe0, 0x57, 0xf1, 0xe6, 0xc3, 0xff, 0xfe, 0x6d, 0xad, 0xf0, 0x97, 0xff, 0xfc, 0xfd,
-	0x69, 0x35, 0xe3, 0xa0, 0x07, 0xb1, 0x87, 0xd6, 0x8e, 0xf7, 0xe1, 0x3f, 0x6a, 0xac, 0x42, 0x93,
-	0xf3, 0xdb, 0x20, 0xb6, 0xae, 0xc2, 0x8d, 0xcd, 0xf0, 0x2c, 0xf3, 0x5a, 0xb8, 0x84, 0x79, 0x7d,
-	0xeb, 0x02, 0xf3, 0x3a, 0xc3, 0x95, 0xde, 0xcc, 0xeb, 0x4a, 0x6f, 0x5d, 0xb1, 0x2b, 0x7d, 0xfb,
-	0x0d, 0xb8, 0xd2, 0xdb, 0x57, 0xef, 0x4a, 0xdf, 0xb9, 0x6a, 0x57, 0x7a, 0xe7, 0x8a, 0x5d, 0xe9,
-	0xdd, 0x37, 0xe0, 0x4a, 0xd9, 0x55, 0xba, 0xd2, 0x7b, 0x3f, 0xc0, 0x95, 0x5e, 0x64, 0x19, 0xe6,
-	0xae, 0xd8, 0x32, 0xcc, 0x5f, 0x64, 0x19, 0x66, 0xf9, 0xd9, 0x85, 0xdc, 0x7e, 0xb6, 0x98, 0xd7,
-	0xcf, 0x2e, 0xce, 0xf2, 0xb3, 0x17, 0x78, 0xcf, 0xd2, 0x05, 0xde, 0x33, 0x87, 0x83, 0x37, 0x72,
-	0x38, 0xf8, 0x37, 0xe1, 0xa2, 0x67, 0xda, 0xe2, 0xf2, 0xa5, 0x6c, 0x71, 0xe5, 0x32, 0xb6, 0x78,
-	0xe5, 0x72, 0xb6, 0x98, 0x5f, 0xda, 0x16, 0x57, 0x2f, 0x6d, 0x8b, 0x6b, 0x17, 0xda, 0xe2, 0x29,
-	0x57, 0x7a, 0xff, 0x07, 0xb8, 0xd2, 0xb5, 0x1f, 0xc1, 0x95, 0x36, 0xae, 0x5d, 0xe9, 0xb5, 0x2b,
-	0xbd, 0x76, 0xa5, 0x3f, 0x75, 0x57, 0x7a, 0x6d, 0x04, 0xaf, 0x8d, 0xe0, 0x4f, 0xc3, 0x08, 0x6e,
-	0xbe, 0x48, 0xec, 0xd3, 0x93, 0x19, 0xf6, 0x69, 0xb6, 0x67, 0x6a, 0xbd, 0xf8, 0xf6, 0x55, 0xbd,
-	0xf0, 0xdd, 0xab, 0x7a, 0xe1, 0xdf, 0xaf, 0xea, 0x85, 0xbf, 0xbe, 0xae, 0xdf, 0xf8, 0xee, 0x75,
-	0xfd, 0xc6, 0x3f, 0x5f, 0xd7, 0x6f, 0xfc, 0x89, 0xcf, 0x10, 0x51, 0xc3, 0x00, 0xa2, 0xe3, 0xdb,
-	0xf4, 0x6f, 0xc8, 0x0f, 0xff, 0x1f, 0x00, 0x00, 0xff, 0xff, 0x34, 0x81, 0x5e, 0xb9, 0xe8, 0x1c,
-	0x00, 0x00,
+	// 1804 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xbc, 0x59, 0xdd, 0x6e, 0xdb, 0xd8,
+	0x11, 0x8e, 0x36, 0xd9, 0x6c, 0x72, 0xe2, 0x5f, 0xda, 0xb2, 0x8f, 0x1d, 0x47, 0x56, 0x9c, 0x4d,
+	0x62, 0x3b, 0x89, 0x15, 0x7b, 0x7f, 0xeb, 0x16, 0x5b, 0xf8, 0x2f, 0x6d, 0x81, 0x78, 0xab, 0xca,
+	0xde, 0xb6, 0x28, 0x0a, 0x10, 0xc7, 0xe4, 0x44, 0x22, 0x4c, 0xf2, 0x10, 0xe4, 0x91, 0x2d, 0xed,
+	0x0b, 0x14, 0xe8, 0x55, 0x1f, 0xa1, 0x8f, 0xd0, 0xc7, 0xd8, 0xcb, 0xbd, 0x6c, 0x7b, 0x11, 0x14,
+	0xc9, 0x45, 0xfb, 0x18, 0xc5, 0xcc, 0x21, 0x29, 0x5a, 0x3f, 0x0b, 0x4a, 0xb6, 0x73, 0x63, 0x08,
+	0x33, 0xdf, 0x37, 0x1c, 0xce, 0x99, 0x19, 0x9e, 0x0f, 0x66, 0xe5, 0x28, 0x10, 0xe1, 0xa9, 0x1d,
+	0x82, 0xf0, 0x2a, 0x6f, 0x64, 0xd8, 0xf4, 0x2a, 0x67, 0x9b, 0x95, 0x40, 0x84, 0xc2, 0x8b, 0x36,
+	0x82, 0x50, 0x2a, 0x69, 0xcc, 0x74, 0x10, 0x1b, 0x84, 0xd8, 0x38, 0xdb, 0x5c, 0x9c, 0x16, 0x9e,
+	0xe3, 0xcb, 0x0a, 0xfd, 0xd5, 0xb8, 0xc5, 0xd9, 0xba, 0xac, 0x4b, 0xfa, 0x59, 0xc1, 0x5f, 0xda,
+	0xba, 0xf2, 0x97, 0x25, 0x76, 0xbb, 0x4a, 0xe1, 0x8c, 0x87, 0x6c, 0x8c, 0xf8, 0x66, 0x20, 0x9a,
+	0x11, 0xd8, 0xbc, 0x50, 0x2e, 0xac, 0xde, 0xa9, 0xdd, 0x23, 0x5b, 0x95, 0x4c, 0xc6, 0x33, 0x36,
+	0xed, 0x49, 0x1b, 0x42, 0xa1, 0x1c, 0xe9, 0x27, 0xb8, 0x8f, 0x08, 0x37, 0xd5, 0x71, 0xc4, 0xe0,
+	0x35, 0x36, 0x75, 0x22, 0x9b, 0xbe, 0x72, 0x20, 0x32, 0xc1, 0x17, 0x27, 0x2e, 0xd8, 0xfc, 0x26,
+	0x61, 0x27, 0x13, 0xfb, 0x81, 0x36, 0x63, 0xdc, 0x10, 0x84, 0x85, 0xe4, 0x0e, 0xf6, 0x96, 0x8e,
+	0x9b, 0x3a, 0x12, 0xf0, 0x63, 0x36, 0x21, 0x82, 0x00, 0x84, 0x1b, 0x25, 0x19, 0x7c, 0x4c, 0xc8,
+	0xf1, 0xd8, 0x1a, 0x3f, 0xfe, 0x29, 0x9b, 0x04, 0xdb, 0x51, 0x8e, 0x5f, 0x4f, 0x23, 0xde, 0x26,
+	0xdc, 0x44, 0x6c, 0x4e, 0xe2, 0x1d, 0xb0, 0xc9, 0x28, 0x10, 0x9e, 0xa9, 0x44, 0xcb, 0x14, 0x1e,
+	0x66, 0xc6, 0x3f, 0x29, 0x17, 0x56, 0xef, 0xee, 0x3e, 0xf8, 0xe1, 0xed, 0xf2, 0x8d, 0x7f, 0xbf,
+	0x5d, 0x2e, 0x5a, 0x32, 0xf2, 0x64, 0x14, 0xd9, 0xa7, 0x1b, 0x8e, 0xac, 0x78, 0x42, 0x35, 0x36,
+	0x7e, 0xe3, 0xab, 0xda, 0x38, 0xb2, 0x8e, 0x45, 0x6b, 0x87, 0x38, 0xc6, 0xef, 0x19, 0x4f, 0x52,
+	0x35, 0xbb, 0xe3, 0xdd, 0xc9, 0x13, 0xaf, 0x98, 0xd0, 0x8f, 0x2e, 0xc4, 0xfd, 0x96, 0xcd, 0xbe,
+	0x71, 0x45, 0xbd, 0x27, 0xe6, 0xdd, 0x3c, 0x31, 0xa7, 0x91, 0x7a, 0x31, 0xde, 0x77, 0x6c, 0xde,
+	0x96, 0xe7, 0xfe, 0x99, 0x54, 0x60, 0xda, 0x10, 0xc8, 0xc8, 0x51, 0x49, 0x48, 0x96, 0x2b, 0xcd,
+	0x84, 0xbd, 0xaf, 0xc9, 0x71, 0xd8, 0x03, 0x5d, 0x6e, 0xf3, 0x0d, 0x40, 0x12, 0xee, 0x5e, 0xae,
+	0x2a, 0x22, 0xeb, 0x15, 0x40, 0x1a, 0x66, 0x99, 0x9a, 0xa3, 0x6d, 0x5a, 0xc2, 0xb7, 0xc0, 0x75,
+	0x75, 0xab, 0x61, 0xd4, 0x00, 0x42, 0x0b, 0x7c, 0xc5, 0xc7, 0xca, 0x85, 0xd5, 0x5b, 0xb5, 0x25,
+	0x0d, 0xdb, 0xcb, 0xa0, 0x5e, 0x01, 0x54, 0x35, 0xc6, 0x58, 0x65, 0x53, 0x9e, 0x68, 0x99, 0x96,
+	0xf4, 0x15, 0xf8, 0xca, 0x8c, 0x9c, 0xef, 0x81, 0x8f, 0x13, 0x6f, 0xc2, 0x13, 0xad, 0x3d, 0x6d,
+	0x3e, 0x72, 0xbe, 0x07, 0x44, 0xda, 0xc2, 0x71, 0xdb, 0x66, 0x20, 0x23, 0x65, 0xba, 0x8e, 0xe7,
+	0x28, 0x3e, 0xa1, 0x91, 0x64, 0xaf, 0xca, 0x48, 0xbd, 0x46, 0xab, 0xf1, 0x84, 0x4d, 0x62, 0xcc,
+	0x10, 0x02, 0xb7, 0x8d, 0x95, 0x53, 0x0d, 0x3e, 0x59, 0x2e, 0xac, 0x8e, 0xd7, 0xc6, 0x3d, 0xd1,
+	0xaa, 0xa1, 0x75, 0x1f, 0x8d, 0xc6, 0x3a, 0x9b, 0xa6, 0x4a, 0xd4, 0x43, 0x61, 0x51, 0xd6, 0x8e,
+	0xb4, 0xf9, 0x54, 0xb9, 0xb0, 0x7a, 0xb3, 0x46, 0x25, 0xfa, 0x15, 0xda, 0xab, 0x64, 0xc6, 0x98,
+	0x84, 0xc5, 0xc0, 0xe7, 0x8e, 0x6f, 0xcb, 0x73, 0x3e, 0x4d, 0x48, 0x2a, 0xcb, 0xa1, 0x68, 0xfd,
+	0x81, 0x8c, 0xc6, 0x0b, 0x36, 0x83, 0x90, 0x37, 0xd2, 0x75, 0xe5, 0x79, 0x84, 0x41, 0x4d, 0x5b,
+	0xb4, 0xb9, 0x41, 0x89, 0xe2, 0xab, 0xbe, 0xd2, 0x9e, 0x2a, 0x84, 0xfb, 0xa2, 0x8d, 0xf3, 0x24,
+	0x42, 0xab, 0xe1, 0x9c, 0x81, 0xa9, 0x1a, 0x21, 0x44, 0x0d, 0xe9, 0xda, 0x7c, 0x86, 0x02, 0x4f,
+	0xc5, 0x8e, 0xe3, 0xc4, 0x6e, 0xbc, 0x60, 0x46, 0xd3, 0x4f, 0xe0, 0x96, 0x94, 0x2e, 0x1e, 0x30,
+	0x9f, 0x25, 0xf4, 0x74, 0xea, 0xd9, 0x8b, 0x1d, 0x38, 0xd6, 0x3d, 0xe0, 0xa2, 0x7e, 0xbb, 0x6e,
+	0xe8, 0x4b, 0x36, 0xdb, 0x70, 0x6c, 0x30, 0xf5, 0x60, 0x76, 0xe0, 0x73, 0x04, 0x37, 0xd0, 0xb7,
+	0x43, 0xae, 0x2c, 0xc3, 0x95, 0xd6, 0x69, 0x0f, 0x63, 0x5e, 0x33, 0xd0, 0xd7, 0xcb, 0xf0, 0xe4,
+	0x59, 0xef, 0x33, 0xb8, 0x66, 0xa0, 0xaf, 0x8b, 0xf1, 0x2d, 0x9b, 0xb5, 0xf0, 0xac, 0xb1, 0x88,
+	0x27, 0x6d, 0x95, 0xb6, 0xeb, 0x42, 0xae, 0x81, 0x42, 0x6a, 0x15, 0xc2, 0xdd, 0xb6, 0x4a, 0x5a,
+	0xb6, 0xd2, 0x1d, 0x0f, 0x5a, 0xe0, 0x05, 0x8a, 0x2f, 0xd2, 0xb6, 0xc9, 0x12, 0x0e, 0xc8, 0x61,
+	0x3c, 0x62, 0xe3, 0x10, 0x34, 0xc0, 0x83, 0x50, 0xb8, 0xa6, 0x52, 0x2e, 0xbf, 0x4f, 0xb9, 0x8e,
+	0xa5, 0xc6, 0x63, 0xe5, 0x1a, 0xc0, 0x96, 0x2c, 0xe9, 0x9f, 0x39, 0x7a, 0xa1, 0x84, 0xe0, 0xc3,
+	0x39, 0xa2, 0xd3, 0xd3, 0x5c, 0xa2, 0x6c, 0x1f, 0xc5, 0xd9, 0xde, 0xef, 0xcd, 0xf6, 0x35, 0xd4,
+	0x85, 0xd5, 0xde, 0x07, 0xab, 0xb6, 0xd8, 0x09, 0x54, 0xd3, 0x71, 0x3a, 0x87, 0xbf, 0xcd, 0x16,
+	0xfa, 0x3c, 0x26, 0x6e, 0xda, 0x07, 0x94, 0xd7, 0x7c, 0x0f, 0x3d, 0x6e, 0xde, 0x75, 0x36, 0xed,
+	0x39, 0xbe, 0x19, 0x81, 0xaf, 0x1c, 0x1f, 0x5c, 0xf3, 0x44, 0xfa, 0x36, 0x2f, 0x61, 0x5e, 0xb5,
+	0x49, 0xcf, 0xf1, 0x8f, 0x62, 0xfb, 0xae, 0xf4, 0x6d, 0x63, 0x93, 0x15, 0x2f, 0x60, 0x43, 0x08,
+	0x4c, 0xe5, 0x40, 0xc8, 0x97, 0xa9, 0x85, 0x8d, 0x0c, 0xbe, 0x06, 0xc1, 0xb1, 0x03, 0xa1, 0xf1,
+	0x15, 0xe3, 0x17, 0x28, 0x2a, 0x6c, 0xe2, 0x84, 0xc2, 0x19, 0xb8, 0xbc, 0x4c, 0x4f, 0x29, 0x66,
+	0x58, 0xc7, 0xe8, 0x7d, 0x8d, 0x4e, 0xe3, 0x0b, 0x36, 0x7f, 0x81, 0x28, 0xea, 0x60, 0x9e, 0x60,
+	0xeb, 0x44, 0xfc, 0x21, 0xbd, 0xd1, 0x6c, 0x86, 0xb7, 0x53, 0x87, 0x5d, 0xf2, 0x19, 0xbf, 0x60,
+	0x8b, 0x29, 0xc5, 0x06, 0x4f, 0x52, 0x45, 0xd2, 0x7e, 0x5a, 0x21, 0x26, 0x4f, 0x10, 0xfb, 0x31,
+	0x20, 0xed, 0xaa, 0x6f, 0xd8, 0xfd, 0x5e, 0x76, 0xe7, 0xb8, 0x1e, 0x51, 0xc2, 0x0b, 0xdd, 0xf4,
+	0xce, 0x41, 0x7c, 0xce, 0xe6, 0x52, 0x7e, 0xd3, 0xa7, 0xb1, 0x89, 0x17, 0xc2, 0xa7, 0x3a, 0xe7,
+	0xc4, 0xfb, 0x1d, 0x39, 0xe3, 0xbd, 0xf0, 0x35, 0xe3, 0x19, 0x16, 0x1e, 0x40, 0x27, 0xe3, 0xc7,
+	0xc4, 0x9b, 0xeb, 0xf0, 0xd0, 0x9d, 0xe6, 0xbb, 0xcb, 0x4a, 0x9e, 0x38, 0xa5, 0xfd, 0xe4, 0x09,
+	0x1f, 0x97, 0x24, 0xd6, 0x2c, 0x5b, 0xe3, 0x27, 0xb4, 0xdc, 0x16, 0x11, 0x55, 0x4d, 0x40, 0x87,
+	0x8e, 0x9f, 0x29, 0x34, 0x9e, 0x90, 0x68, 0x99, 0x41, 0x28, 0xf5, 0xdb, 0xe8, 0xc5, 0x44, 0xa5,
+	0xe6, 0x4f, 0x89, 0x5d, 0xf4, 0x44, 0xab, 0x9a, 0xba, 0x71, 0x0c, 0xd0, 0x69, 0x1c, 0xb2, 0x29,
+	0xd1, 0x54, 0x0d, 0x19, 0x52, 0x1f, 0x44, 0xae, 0x88, 0x1a, 0x7c, 0x35, 0x7f, 0x43, 0x4f, 0x68,
+	0x72, 0x0d, 0x82, 0x23, 0xa4, 0x1a, 0xdb, 0x6c, 0x11, 0xf3, 0xe8, 0x7a, 0x9f, 0x64, 0x49, 0xae,
+	0x51, 0x87, 0xcd, 0x79, 0xa2, 0x75, 0x98, 0x7d, 0x95, 0x78, 0x55, 0xc6, 0x9b, 0x15, 0x6b, 0xaa,
+	0xd3, 0x87, 0x40, 0x5a, 0x0d, 0xbe, 0x9e, 0x6e, 0xd6, 0x5f, 0xa3, 0xa7, 0x0a, 0xe1, 0x01, 0xda,
+	0x8d, 0x6f, 0xd8, 0x12, 0xc2, 0xd3, 0xa2, 0x53, 0xeb, 0x64, 0x78, 0xcf, 0x88, 0x87, 0x65, 0x49,
+	0x1a, 0xec, 0x35, 0x22, 0x06, 0xf2, 0x71, 0x3f, 0x65, 0xf9, 0xcf, 0x7b, 0xf8, 0x87, 0x88, 0x48,
+	0xf9, 0x5b, 0xac, 0x98, 0x72, 0xa9, 0x6e, 0xc9, 0xf6, 0x7a, 0x41, 0x0d, 0x36, 0x93, 0x38, 0xa9,
+	0x30, 0xf1, 0x82, 0x4a, 0x96, 0x2a, 0xb5, 0x87, 0xd7, 0x74, 0x95, 0x13, 0xb8, 0x38, 0x7a, 0x1b,
+	0x7a, 0xf4, 0xd0, 0x87, 0x33, 0x7a, 0x98, 0x7a, 0x8c, 0x0d, 0x36, 0xa3, 0x19, 0xc2, 0x3a, 0xc5,
+	0x0b, 0x54, 0xfc, 0x8c, 0x0a, 0x3d, 0x63, 0x9a, 0x08, 0xda, 0x13, 0x3f, 0x61, 0x8d, 0x91, 0x91,
+	0x5a, 0x28, 0x9d, 0xec, 0x97, 0xfa, 0x2b, 0x8a, 0x8e, 0x43, 0xc7, 0x4f, 0xa6, 0xfa, 0x8f, 0x6c,
+	0x01, 0x51, 0xf4, 0xb5, 0xcd, 0x6c, 0x9e, 0x48, 0x89, 0x53, 0xe0, 0x9b, 0x79, 0x56, 0xf0, 0x9c,
+	0xe7, 0xf8, 0xf8, 0x55, 0xde, 0x4b, 0xd9, 0x47, 0x48, 0x36, 0x7e, 0xc9, 0x96, 0xba, 0xa3, 0x52,
+	0x52, 0x11, 0x58, 0xd2, 0xb7, 0x23, 0xbe, 0x45, 0xf3, 0xb0, 0x10, 0x5c, 0xa0, 0xe2, 0xe9, 0x1c,
+	0x69, 0x80, 0xa1, 0xd8, 0xe3, 0xde, 0xb4, 0xf0, 0x5e, 0x6d, 0x86, 0x42, 0x41, 0xa6, 0xb7, 0x3f,
+	0xcb, 0xdf, 0xaa, 0xe5, 0xa0, 0x2b, 0x53, 0x8c, 0x57, 0x13, 0x0a, 0xd2, 0x59, 0xa8, 0xb3, 0x65,
+	0xfd, 0x69, 0xc7, 0xab, 0x37, 0x16, 0x0f, 0x9f, 0xa3, 0x44, 0x3d, 0xd3, 0x14, 0x9f, 0xe7, 0x7f,
+	0xde, 0x02, 0xdd, 0x05, 0xc2, 0xa6, 0x57, 0x83, 0xa0, 0x0a, 0xe1, 0xb1, 0xa8, 0xa7, 0xad, 0xf3,
+	0x8a, 0x95, 0xfb, 0x56, 0x3d, 0x8c, 0x1b, 0xe9, 0x24, 0x88, 0xf8, 0x17, 0xfa, 0x6e, 0x15, 0xf4,
+	0x96, 0x37, 0xa4, 0x8e, 0xda, 0x0d, 0x22, 0xe3, 0x77, 0xac, 0x68, 0x35, 0x63, 0x09, 0x60, 0xeb,
+	0xf2, 0xc0, 0xb9, 0x08, 0x6d, 0xfe, 0x65, 0x9e, 0xd3, 0x9b, 0x49, 0xb8, 0xfb, 0x54, 0x09, 0x62,
+	0x1a, 0x5f, 0xb2, 0x79, 0x61, 0x59, 0x10, 0x28, 0xdc, 0x25, 0x81, 0x8c, 0xf0, 0x4b, 0xe7, 0x78,
+	0x20, 0x9b, 0x8a, 0x7f, 0x45, 0xa7, 0x56, 0xd4, 0xee, 0x6a, 0xec, 0x3d, 0xd6, 0x4e, 0xe3, 0xcf,
+	0xec, 0x39, 0xd6, 0xae, 0x8b, 0xab, 0xe7, 0x29, 0x1d, 0x13, 0xaa, 0x67, 0x23, 0x04, 0x61, 0xf3,
+	0xaf, 0x69, 0x29, 0x3d, 0xf1, 0x44, 0x6b, 0xe7, 0x42, 0x3c, 0x9c, 0xaf, 0x64, 0xde, 0xb0, 0x6a,
+	0x84, 0xa6, 0x6f, 0x16, 0xd8, 0x8e, 0xe8, 0xd9, 0x8c, 0x3f, 0xa3, 0x30, 0x06, 0x39, 0x2f, 0x6e,
+	0xc4, 0x6a, 0x42, 0x89, 0xd7, 0x9b, 0x1e, 0x39, 0xc7, 0xe7, 0xdb, 0x79, 0x6a, 0xa3, 0x23, 0xee,
+	0x10, 0x95, 0x26, 0xd2, 0xf1, 0x8d, 0x3d, 0x36, 0xa1, 0x23, 0x46, 0x96, 0xa0, 0x7b, 0x30, 0xff,
+	0x79, 0x9e, 0x50, 0x63, 0x44, 0x3a, 0xb2, 0x04, 0xde, 0x8a, 0xb7, 0x57, 0xfe, 0xf7, 0xf7, 0xe5,
+	0xc2, 0x5f, 0xff, 0xfb, 0x8f, 0xf5, 0x85, 0x8c, 0x9c, 0x6c, 0xc5, 0x82, 0x52, 0xcb, 0xbf, 0x95,
+	0x7f, 0x71, 0x36, 0x47, 0x9d, 0xf3, 0xdb, 0x20, 0xd6, 0x71, 0xc2, 0x8d, 0x95, 0x61, 0x3f, 0x25,
+	0x57, 0x18, 0x42, 0xc9, 0x7d, 0x34, 0x40, 0xc9, 0xf5, 0x91, 0x68, 0x37, 0xf3, 0x4a, 0xb4, 0x5b,
+	0x57, 0x2c, 0xd1, 0x3e, 0xbe, 0x06, 0x89, 0x76, 0xfb, 0xea, 0x25, 0xda, 0x27, 0x57, 0x2b, 0xd1,
+	0xee, 0x8c, 0x20, 0xd1, 0x06, 0xdd, 0x9f, 0xef, 0x5e, 0xf1, 0xfd, 0x99, 0x0d, 0xba, 0x3f, 0xf7,
+	0x13, 0x77, 0xf7, 0x72, 0x8b, 0xbb, 0xb1, 0xbc, 0xe2, 0x6e, 0xbc, 0x9f, 0xb8, 0x1b, 0x20, 0xc4,
+	0x26, 0x06, 0x08, 0xb1, 0x1c, 0x72, 0x76, 0x32, 0x87, 0x9c, 0xbd, 0x0e, 0x49, 0xd9, 0x57, 0x23,
+	0x1a, 0x43, 0x69, 0xc4, 0x99, 0x61, 0x34, 0xe2, 0xec, 0x70, 0x1a, 0xb1, 0x38, 0xb4, 0x46, 0x9c,
+	0x1b, 0x5a, 0x23, 0xce, 0x0f, 0xd4, 0x88, 0x3d, 0x12, 0x8d, 0x8f, 0x20, 0xd1, 0x16, 0x3e, 0x80,
+	0x44, 0x5b, 0x1c, 0x41, 0xa2, 0xdd, 0x1f, 0x52, 0xa2, 0x2d, 0x8d, 0x24, 0xd1, 0x1e, 0x8c, 0x28,
+	0xd1, 0x4a, 0x23, 0x4b, 0xb4, 0xe5, 0xcb, 0x49, 0xb4, 0xf2, 0xe8, 0x12, 0xed, 0xe1, 0x88, 0x12,
+	0x6d, 0xe5, 0x92, 0x12, 0xed, 0xd1, 0xa5, 0x24, 0xda, 0xa7, 0xc3, 0x4a, 0xb4, 0xc7, 0xd7, 0x25,
+	0xd1, 0x9e, 0x8c, 0x22, 0xd1, 0x9e, 0x8e, 0x28, 0xd1, 0x56, 0x2f, 0x29, 0xd1, 0xd6, 0x46, 0x95,
+	0x68, 0xeb, 0x83, 0x25, 0xda, 0x4f, 0xaa, 0xa2, 0x67, 0xd7, 0xa9, 0x8a, 0x9e, 0x5f, 0x99, 0x2a,
+	0x7a, 0xf1, 0x81, 0x55, 0xd1, 0xc6, 0x07, 0x53, 0x45, 0x95, 0xcb, 0xa8, 0xa2, 0x97, 0xd7, 0xa1,
+	0x8a, 0x36, 0xaf, 0x52, 0x15, 0x6d, 0x0d, 0xa3, 0x8a, 0xb6, 0xb7, 0x12, 0x2d, 0xb1, 0xd6, 0x47,
+	0x4b, 0xf4, 0x17, 0x10, 0xbb, 0x5b, 0x3f, 0xbc, 0x2b, 0x15, 0x7e, 0x7c, 0x57, 0x2a, 0xfc, 0xe7,
+	0x5d, 0xa9, 0xf0, 0xb7, 0xf7, 0xa5, 0x1b, 0x3f, 0xbe, 0x2f, 0xdd, 0xf8, 0xe7, 0xfb, 0xd2, 0x8d,
+	0x3f, 0xf1, 0x3e, 0x41, 0x54, 0x3b, 0x80, 0xe8, 0xe4, 0x36, 0xfd, 0x83, 0xea, 0xb3, 0xff, 0x07,
+	0x00, 0x00, 0xff, 0xff, 0xb9, 0xac, 0x9b, 0x18, 0x02, 0x1b, 0x00, 0x00,
 }
 
 func (this *Params) Equal(that interface{}) bool {
@@ -1153,15 +1145,6 @@ func (this *Params) Equal(that interface{}) bool {
 		return false
 	}
 	if !this.DownvoteDepositAmount.Equal(that1.DownvoteDepositAmount) {
-		return false
-	}
-	if !this.AppealFeeAmount.Equal(that1.AppealFeeAmount) {
-		return false
-	}
-	if !this.LockAppealFeeAmount.Equal(that1.LockAppealFeeAmount) {
-		return false
-	}
-	if !this.MoveAppealFeeAmount.Equal(that1.MoveAppealFeeAmount) {
 		return false
 	}
 	if !this.EditFeeAmount.Equal(that1.EditFeeAmount) {
@@ -1353,15 +1336,6 @@ func (this *ForumOperationalParams) Equal(that interface{}) bool {
 	if !this.DownvoteDepositAmount.Equal(that1.DownvoteDepositAmount) {
 		return false
 	}
-	if !this.AppealFeeAmount.Equal(that1.AppealFeeAmount) {
-		return false
-	}
-	if !this.LockAppealFeeAmount.Equal(that1.LockAppealFeeAmount) {
-		return false
-	}
-	if !this.MoveAppealFeeAmount.Equal(that1.MoveAppealFeeAmount) {
-		return false
-	}
 	if !this.EditFeeAmount.Equal(that1.EditFeeAmount) {
 		return false
 	}
@@ -1522,9 +1496,9 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 		i = encodeVarintParams(dAtA, i, uint64(size))
 	}
 	i--
-	dAtA[i] = 0x4
+	dAtA[i] = 0x3
 	i--
-	dAtA[i] = 0xb2
+	dAtA[i] = 0xda
 	{
 		size := m.MediaAuthorBondMin.Size()
 		i -= size
@@ -1534,29 +1508,29 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 		i = encodeVarintParams(dAtA, i, uint64(size))
 	}
 	i--
-	dAtA[i] = 0x4
+	dAtA[i] = 0x3
 	i--
-	dAtA[i] = 0xaa
+	dAtA[i] = 0xd2
 	if m.MediaMinTrustLevel != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.MediaMinTrustLevel))
 		i--
-		dAtA[i] = 0x4
+		dAtA[i] = 0x3
 		i--
-		dAtA[i] = 0xa0
+		dAtA[i] = 0xc8
 	}
 	if m.MaxAcceptProposalsPerSentinelPerThread != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.MaxAcceptProposalsPerSentinelPerThread))
 		i--
-		dAtA[i] = 0x4
+		dAtA[i] = 0x3
 		i--
-		dAtA[i] = 0x98
+		dAtA[i] = 0xc0
 	}
 	if m.AcceptProposalTimeout != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.AcceptProposalTimeout))
 		i--
-		dAtA[i] = 0x4
+		dAtA[i] = 0x3
 		i--
-		dAtA[i] = 0x90
+		dAtA[i] = 0xb8
 	}
 	{
 		size := m.CurationDreamReward.Size()
@@ -1567,15 +1541,15 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 		i = encodeVarintParams(dAtA, i, uint64(size))
 	}
 	i--
-	dAtA[i] = 0x4
+	dAtA[i] = 0x3
 	i--
-	dAtA[i] = 0x8a
+	dAtA[i] = 0xb2
 	if m.PostConvictionStakerSlashBps != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.PostConvictionStakerSlashBps))
 		i--
-		dAtA[i] = 0x4
+		dAtA[i] = 0x3
 		i--
-		dAtA[i] = 0x80
+		dAtA[i] = 0xa8
 	}
 	{
 		size := m.MaxForumRepPerTagPerEpoch.Size()
@@ -1588,7 +1562,7 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x3
 	i--
-	dAtA[i] = 0xfa
+	dAtA[i] = 0xa2
 	{
 		size := m.PostConvictionStreamRatePerBlock.Size()
 		i -= size
@@ -1600,13 +1574,13 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x3
 	i--
-	dAtA[i] = 0xf2
+	dAtA[i] = 0x9a
 	if m.PostConvictionLockSeconds != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.PostConvictionLockSeconds))
 		i--
 		dAtA[i] = 0x3
 		i--
-		dAtA[i] = 0xe8
+		dAtA[i] = 0x90
 	}
 	{
 		size := m.MinPostConvictionStake.Size()
@@ -1619,66 +1593,66 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x3
 	i--
-	dAtA[i] = 0xe2
+	dAtA[i] = 0x8a
 	if m.LockMinRepTier != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.LockMinRepTier))
 		i--
 		dAtA[i] = 0x3
 		i--
-		dAtA[i] = 0xd0
+		dAtA[i] = 0x80
 	}
 	if len(m.LockBackingAmount) > 0 {
 		i -= len(m.LockBackingAmount)
 		copy(dAtA[i:], m.LockBackingAmount)
 		i = encodeVarintParams(dAtA, i, uint64(len(m.LockBackingAmount)))
 		i--
-		dAtA[i] = 0x3
+		dAtA[i] = 0x2
 		i--
-		dAtA[i] = 0xca
+		dAtA[i] = 0xfa
 	}
 	if m.LockBondMultiplier != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.LockBondMultiplier))
 		i--
-		dAtA[i] = 0x3
+		dAtA[i] = 0x2
 		i--
-		dAtA[i] = 0xc0
+		dAtA[i] = 0xf0
 	}
 	if len(m.SentinelSlashAmount) > 0 {
 		i -= len(m.SentinelSlashAmount)
 		copy(dAtA[i:], m.SentinelSlashAmount)
 		i = encodeVarintParams(dAtA, i, uint64(len(m.SentinelSlashAmount)))
 		i--
-		dAtA[i] = 0x3
+		dAtA[i] = 0x2
 		i--
-		dAtA[i] = 0xba
+		dAtA[i] = 0xea
 	}
 	if m.MaxSentinelMovesPerEpoch != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.MaxSentinelMovesPerEpoch))
 		i--
-		dAtA[i] = 0x3
+		dAtA[i] = 0x2
 		i--
-		dAtA[i] = 0xb0
+		dAtA[i] = 0xe0
 	}
 	if m.MaxSentinelLocksPerEpoch != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.MaxSentinelLocksPerEpoch))
 		i--
-		dAtA[i] = 0x3
+		dAtA[i] = 0x2
 		i--
-		dAtA[i] = 0xa8
+		dAtA[i] = 0xd8
 	}
 	if m.MaxHidesPerEpoch != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.MaxHidesPerEpoch))
 		i--
-		dAtA[i] = 0x3
+		dAtA[i] = 0x2
 		i--
-		dAtA[i] = 0xa0
+		dAtA[i] = 0xd0
 	}
 	if m.MaxMakePermanentPerDay != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.MaxMakePermanentPerDay))
 		i--
-		dAtA[i] = 0x3
+		dAtA[i] = 0x2
 		i--
-		dAtA[i] = 0x98
+		dAtA[i] = 0xc8
 	}
 	{
 		size := m.AuthorRepSlash.Size()
@@ -1689,36 +1663,36 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 		i = encodeVarintParams(dAtA, i, uint64(size))
 	}
 	i--
-	dAtA[i] = 0x3
+	dAtA[i] = 0x2
 	i--
-	dAtA[i] = 0x92
+	dAtA[i] = 0xc2
 	if m.MaxPromotionsPerBlock != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.MaxPromotionsPerBlock))
 		i--
-		dAtA[i] = 0x3
+		dAtA[i] = 0x2
 		i--
-		dAtA[i] = 0x88
+		dAtA[i] = 0xb8
 	}
 	if m.MakePermanentMinTrustLevel != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.MakePermanentMinTrustLevel))
 		i--
-		dAtA[i] = 0x3
+		dAtA[i] = 0x2
 		i--
-		dAtA[i] = 0x80
+		dAtA[i] = 0xb0
 	}
 	if m.SentinelUnbondCooldown != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.SentinelUnbondCooldown))
 		i--
 		dAtA[i] = 0x2
 		i--
-		dAtA[i] = 0xf8
+		dAtA[i] = 0xa8
 	}
 	if m.SentinelUnhideWindow != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.SentinelUnhideWindow))
 		i--
 		dAtA[i] = 0x2
 		i--
-		dAtA[i] = 0xf0
+		dAtA[i] = 0xa0
 	}
 	if len(m.SentinelDemotionThreshold) > 0 {
 		i -= len(m.SentinelDemotionThreshold)
@@ -1727,21 +1701,21 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 		i--
 		dAtA[i] = 0x2
 		i--
-		dAtA[i] = 0xea
+		dAtA[i] = 0x9a
 	}
 	if m.SentinelDemotionCooldown != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.SentinelDemotionCooldown))
 		i--
 		dAtA[i] = 0x2
 		i--
-		dAtA[i] = 0xe0
+		dAtA[i] = 0x90
 	}
 	if m.MinSentinelAgeBlocks != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.MinSentinelAgeBlocks))
 		i--
 		dAtA[i] = 0x2
 		i--
-		dAtA[i] = 0xd8
+		dAtA[i] = 0x88
 	}
 	if len(m.MinSentinelTrustLevel) > 0 {
 		i -= len(m.MinSentinelTrustLevel)
@@ -1750,30 +1724,30 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 		i--
 		dAtA[i] = 0x2
 		i--
-		dAtA[i] = 0xd2
+		dAtA[i] = 0x82
 	}
 	if m.MinSentinelRepTier != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.MinSentinelRepTier))
 		i--
-		dAtA[i] = 0x2
+		dAtA[i] = 0x1
 		i--
-		dAtA[i] = 0xc8
+		dAtA[i] = 0xf8
 	}
 	if len(m.MinSentinelBond) > 0 {
 		i -= len(m.MinSentinelBond)
 		copy(dAtA[i:], m.MinSentinelBond)
 		i = encodeVarintParams(dAtA, i, uint64(len(m.MinSentinelBond)))
 		i--
-		dAtA[i] = 0x2
+		dAtA[i] = 0x1
 		i--
-		dAtA[i] = 0xc2
+		dAtA[i] = 0xf2
 	}
 	if m.ConvictionRenewalPeriod != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.ConvictionRenewalPeriod))
 		i--
-		dAtA[i] = 0x2
+		dAtA[i] = 0x1
 		i--
-		dAtA[i] = 0xb0
+		dAtA[i] = 0xe8
 	}
 	{
 		size := m.ConvictionRenewalThreshold.Size()
@@ -1784,15 +1758,15 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 		i = encodeVarintParams(dAtA, i, uint64(size))
 	}
 	i--
-	dAtA[i] = 0x2
+	dAtA[i] = 0x1
 	i--
-	dAtA[i] = 0xaa
+	dAtA[i] = 0xe2
 	if m.EphemeralTtl != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.EphemeralTtl))
 		i--
 		dAtA[i] = 0x1
 		i--
-		dAtA[i] = 0xf0
+		dAtA[i] = 0xd8
 	}
 	if m.CostPerByteExempt {
 		i--
@@ -1804,7 +1778,7 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 		i--
 		dAtA[i] = 0x1
 		i--
-		dAtA[i] = 0xe8
+		dAtA[i] = 0xd0
 	}
 	{
 		size := m.CostPerByteAmount.Size()
@@ -1817,130 +1791,94 @@ func (m *Params) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	i--
 	dAtA[i] = 0x1
 	i--
-	dAtA[i] = 0xe2
+	dAtA[i] = 0xca
 	if m.MoveAppealCooldown != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.MoveAppealCooldown))
 		i--
 		dAtA[i] = 0x1
 		i--
-		dAtA[i] = 0xd8
+		dAtA[i] = 0xc0
 	}
 	if m.LockAppealCooldown != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.LockAppealCooldown))
 		i--
 		dAtA[i] = 0x1
 		i--
-		dAtA[i] = 0xd0
+		dAtA[i] = 0xb8
 	}
 	if m.HideAppealCooldown != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.HideAppealCooldown))
 		i--
 		dAtA[i] = 0x1
 		i--
-		dAtA[i] = 0xc8
+		dAtA[i] = 0xb0
 	}
 	if m.ArchiveCooldown != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.ArchiveCooldown))
 		i--
 		dAtA[i] = 0x1
 		i--
-		dAtA[i] = 0xc0
+		dAtA[i] = 0xa8
 	}
 	if m.UnarchiveCooldown != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.UnarchiveCooldown))
 		i--
 		dAtA[i] = 0x1
 		i--
-		dAtA[i] = 0xb8
+		dAtA[i] = 0xa0
 	}
 	if m.ArchiveThreshold != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.ArchiveThreshold))
 		i--
 		dAtA[i] = 0x1
 		i--
-		dAtA[i] = 0xb0
+		dAtA[i] = 0x98
 	}
 	if m.MaxFollowsPerDay != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.MaxFollowsPerDay))
 		i--
 		dAtA[i] = 0x1
 		i--
-		dAtA[i] = 0xa8
+		dAtA[i] = 0x90
 	}
 	if m.EditMaxWindow != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.EditMaxWindow))
 		i--
 		dAtA[i] = 0x1
 		i--
-		dAtA[i] = 0xa0
+		dAtA[i] = 0x88
 	}
 	if m.EditGracePeriod != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.EditGracePeriod))
 		i--
 		dAtA[i] = 0x1
 		i--
-		dAtA[i] = 0x98
+		dAtA[i] = 0x80
 	}
 	if m.MaxReplyDepth != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.MaxReplyDepth))
 		i--
-		dAtA[i] = 0x1
-		i--
-		dAtA[i] = 0x90
+		dAtA[i] = 0x78
 	}
 	if m.DailyPostLimit != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.DailyPostLimit))
 		i--
-		dAtA[i] = 0x1
-		i--
-		dAtA[i] = 0x88
+		dAtA[i] = 0x70
 	}
 	if m.MaxContentSize != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.MaxContentSize))
 		i--
-		dAtA[i] = 0x1
-		i--
-		dAtA[i] = 0x80
+		dAtA[i] = 0x68
 	}
 	if m.BountyCancellationFeePercent != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.BountyCancellationFeePercent))
 		i--
-		dAtA[i] = 0x78
+		dAtA[i] = 0x60
 	}
 	{
 		size := m.EditFeeAmount.Size()
 		i -= size
 		if _, err := m.EditFeeAmount.MarshalTo(dAtA[i:]); err != nil {
-			return 0, err
-		}
-		i = encodeVarintParams(dAtA, i, uint64(size))
-	}
-	i--
-	dAtA[i] = 0x72
-	{
-		size := m.MoveAppealFeeAmount.Size()
-		i -= size
-		if _, err := m.MoveAppealFeeAmount.MarshalTo(dAtA[i:]); err != nil {
-			return 0, err
-		}
-		i = encodeVarintParams(dAtA, i, uint64(size))
-	}
-	i--
-	dAtA[i] = 0x6a
-	{
-		size := m.LockAppealFeeAmount.Size()
-		i -= size
-		if _, err := m.LockAppealFeeAmount.MarshalTo(dAtA[i:]); err != nil {
-			return 0, err
-		}
-		i = encodeVarintParams(dAtA, i, uint64(size))
-	}
-	i--
-	dAtA[i] = 0x62
-	{
-		size := m.AppealFeeAmount.Size()
-		i -= size
-		if _, err := m.AppealFeeAmount.MarshalTo(dAtA[i:]); err != nil {
 			return 0, err
 		}
 		i = encodeVarintParams(dAtA, i, uint64(size))
@@ -2073,16 +2011,16 @@ func (m *ForumOperationalParams) MarshalToSizedBuffer(dAtA []byte) (int, error) 
 	if m.MaxAcceptProposalsPerSentinelPerThread != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.MaxAcceptProposalsPerSentinelPerThread))
 		i--
-		dAtA[i] = 0x4
+		dAtA[i] = 0x3
 		i--
-		dAtA[i] = 0x98
+		dAtA[i] = 0x90
 	}
 	if m.AcceptProposalTimeout != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.AcceptProposalTimeout))
 		i--
-		dAtA[i] = 0x4
+		dAtA[i] = 0x3
 		i--
-		dAtA[i] = 0x90
+		dAtA[i] = 0x88
 	}
 	{
 		size := m.CurationDreamReward.Size()
@@ -2093,15 +2031,15 @@ func (m *ForumOperationalParams) MarshalToSizedBuffer(dAtA []byte) (int, error) 
 		i = encodeVarintParams(dAtA, i, uint64(size))
 	}
 	i--
-	dAtA[i] = 0x4
+	dAtA[i] = 0x3
 	i--
-	dAtA[i] = 0x8a
+	dAtA[i] = 0x82
 	if m.PostConvictionStakerSlashBps != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.PostConvictionStakerSlashBps))
 		i--
-		dAtA[i] = 0x4
+		dAtA[i] = 0x2
 		i--
-		dAtA[i] = 0x80
+		dAtA[i] = 0xf8
 	}
 	{
 		size := m.MaxForumRepPerTagPerEpoch.Size()
@@ -2112,9 +2050,9 @@ func (m *ForumOperationalParams) MarshalToSizedBuffer(dAtA []byte) (int, error) 
 		i = encodeVarintParams(dAtA, i, uint64(size))
 	}
 	i--
-	dAtA[i] = 0x3
+	dAtA[i] = 0x2
 	i--
-	dAtA[i] = 0xfa
+	dAtA[i] = 0xf2
 	{
 		size := m.PostConvictionStreamRatePerBlock.Size()
 		i -= size
@@ -2124,15 +2062,15 @@ func (m *ForumOperationalParams) MarshalToSizedBuffer(dAtA []byte) (int, error) 
 		i = encodeVarintParams(dAtA, i, uint64(size))
 	}
 	i--
-	dAtA[i] = 0x3
+	dAtA[i] = 0x2
 	i--
-	dAtA[i] = 0xf2
+	dAtA[i] = 0xea
 	if m.PostConvictionLockSeconds != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.PostConvictionLockSeconds))
 		i--
-		dAtA[i] = 0x3
+		dAtA[i] = 0x2
 		i--
-		dAtA[i] = 0xe8
+		dAtA[i] = 0xe0
 	}
 	{
 		size := m.MinPostConvictionStake.Size()
@@ -2143,45 +2081,45 @@ func (m *ForumOperationalParams) MarshalToSizedBuffer(dAtA []byte) (int, error) 
 		i = encodeVarintParams(dAtA, i, uint64(size))
 	}
 	i--
-	dAtA[i] = 0x3
+	dAtA[i] = 0x2
 	i--
-	dAtA[i] = 0xe2
+	dAtA[i] = 0xda
 	if len(m.SentinelSlashAmount) > 0 {
 		i -= len(m.SentinelSlashAmount)
 		copy(dAtA[i:], m.SentinelSlashAmount)
 		i = encodeVarintParams(dAtA, i, uint64(len(m.SentinelSlashAmount)))
 		i--
-		dAtA[i] = 0x3
+		dAtA[i] = 0x2
 		i--
-		dAtA[i] = 0xba
+		dAtA[i] = 0xd2
 	}
 	if m.MaxSentinelMovesPerEpoch != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.MaxSentinelMovesPerEpoch))
 		i--
-		dAtA[i] = 0x3
+		dAtA[i] = 0x2
 		i--
-		dAtA[i] = 0xb0
+		dAtA[i] = 0xc8
 	}
 	if m.MaxSentinelLocksPerEpoch != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.MaxSentinelLocksPerEpoch))
 		i--
-		dAtA[i] = 0x3
+		dAtA[i] = 0x2
 		i--
-		dAtA[i] = 0xa8
+		dAtA[i] = 0xc0
 	}
 	if m.MaxHidesPerEpoch != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.MaxHidesPerEpoch))
 		i--
-		dAtA[i] = 0x3
+		dAtA[i] = 0x2
 		i--
-		dAtA[i] = 0xa0
+		dAtA[i] = 0xb8
 	}
 	if m.MaxMakePermanentPerDay != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.MaxMakePermanentPerDay))
 		i--
-		dAtA[i] = 0x3
+		dAtA[i] = 0x2
 		i--
-		dAtA[i] = 0x98
+		dAtA[i] = 0xb0
 	}
 	{
 		size := m.AuthorRepSlash.Size()
@@ -2192,36 +2130,36 @@ func (m *ForumOperationalParams) MarshalToSizedBuffer(dAtA []byte) (int, error) 
 		i = encodeVarintParams(dAtA, i, uint64(size))
 	}
 	i--
-	dAtA[i] = 0x3
+	dAtA[i] = 0x2
 	i--
-	dAtA[i] = 0x92
+	dAtA[i] = 0xaa
 	if m.MaxPromotionsPerBlock != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.MaxPromotionsPerBlock))
 		i--
-		dAtA[i] = 0x3
+		dAtA[i] = 0x2
 		i--
-		dAtA[i] = 0x88
+		dAtA[i] = 0xa0
 	}
 	if m.MakePermanentMinTrustLevel != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.MakePermanentMinTrustLevel))
 		i--
-		dAtA[i] = 0x3
+		dAtA[i] = 0x2
 		i--
-		dAtA[i] = 0x80
+		dAtA[i] = 0x98
 	}
 	if m.SentinelUnbondCooldown != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.SentinelUnbondCooldown))
 		i--
 		dAtA[i] = 0x2
 		i--
-		dAtA[i] = 0xf8
+		dAtA[i] = 0x90
 	}
 	if m.SentinelUnhideWindow != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.SentinelUnhideWindow))
 		i--
 		dAtA[i] = 0x2
 		i--
-		dAtA[i] = 0xf0
+		dAtA[i] = 0x88
 	}
 	if len(m.SentinelDemotionThreshold) > 0 {
 		i -= len(m.SentinelDemotionThreshold)
@@ -2230,53 +2168,53 @@ func (m *ForumOperationalParams) MarshalToSizedBuffer(dAtA []byte) (int, error) 
 		i--
 		dAtA[i] = 0x2
 		i--
-		dAtA[i] = 0xea
+		dAtA[i] = 0x82
 	}
 	if m.SentinelDemotionCooldown != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.SentinelDemotionCooldown))
 		i--
-		dAtA[i] = 0x2
+		dAtA[i] = 0x1
 		i--
-		dAtA[i] = 0xe0
+		dAtA[i] = 0xf8
 	}
 	if m.MinSentinelAgeBlocks != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.MinSentinelAgeBlocks))
 		i--
-		dAtA[i] = 0x2
+		dAtA[i] = 0x1
 		i--
-		dAtA[i] = 0xd8
+		dAtA[i] = 0xf0
 	}
 	if len(m.MinSentinelTrustLevel) > 0 {
 		i -= len(m.MinSentinelTrustLevel)
 		copy(dAtA[i:], m.MinSentinelTrustLevel)
 		i = encodeVarintParams(dAtA, i, uint64(len(m.MinSentinelTrustLevel)))
 		i--
-		dAtA[i] = 0x2
+		dAtA[i] = 0x1
 		i--
-		dAtA[i] = 0xd2
+		dAtA[i] = 0xea
 	}
 	if m.MinSentinelRepTier != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.MinSentinelRepTier))
 		i--
-		dAtA[i] = 0x2
+		dAtA[i] = 0x1
 		i--
-		dAtA[i] = 0xc8
+		dAtA[i] = 0xe0
 	}
 	if len(m.MinSentinelBond) > 0 {
 		i -= len(m.MinSentinelBond)
 		copy(dAtA[i:], m.MinSentinelBond)
 		i = encodeVarintParams(dAtA, i, uint64(len(m.MinSentinelBond)))
 		i--
-		dAtA[i] = 0x2
+		dAtA[i] = 0x1
 		i--
-		dAtA[i] = 0xc2
+		dAtA[i] = 0xda
 	}
 	if m.ConvictionRenewalPeriod != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.ConvictionRenewalPeriod))
 		i--
-		dAtA[i] = 0x2
+		dAtA[i] = 0x1
 		i--
-		dAtA[i] = 0x80
+		dAtA[i] = 0xd0
 	}
 	{
 		size := m.ConvictionRenewalThreshold.Size()
@@ -2289,100 +2227,94 @@ func (m *ForumOperationalParams) MarshalToSizedBuffer(dAtA []byte) (int, error) 
 	i--
 	dAtA[i] = 0x1
 	i--
-	dAtA[i] = 0xfa
+	dAtA[i] = 0xca
 	if m.EphemeralTtl != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.EphemeralTtl))
 		i--
 		dAtA[i] = 0x1
 		i--
-		dAtA[i] = 0xd8
+		dAtA[i] = 0xc0
 	}
 	if m.MoveAppealCooldown != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.MoveAppealCooldown))
 		i--
 		dAtA[i] = 0x1
 		i--
-		dAtA[i] = 0xd0
+		dAtA[i] = 0xb8
 	}
 	if m.LockAppealCooldown != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.LockAppealCooldown))
 		i--
 		dAtA[i] = 0x1
 		i--
-		dAtA[i] = 0xc8
+		dAtA[i] = 0xb0
 	}
 	if m.HideAppealCooldown != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.HideAppealCooldown))
 		i--
 		dAtA[i] = 0x1
 		i--
-		dAtA[i] = 0xc0
+		dAtA[i] = 0xa8
 	}
 	if m.ArchiveCooldown != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.ArchiveCooldown))
 		i--
 		dAtA[i] = 0x1
 		i--
-		dAtA[i] = 0xb8
+		dAtA[i] = 0xa0
 	}
 	if m.UnarchiveCooldown != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.UnarchiveCooldown))
 		i--
 		dAtA[i] = 0x1
 		i--
-		dAtA[i] = 0xb0
+		dAtA[i] = 0x98
 	}
 	if m.ArchiveThreshold != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.ArchiveThreshold))
 		i--
 		dAtA[i] = 0x1
 		i--
-		dAtA[i] = 0xa8
+		dAtA[i] = 0x90
 	}
 	if m.EditMaxWindow != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.EditMaxWindow))
 		i--
 		dAtA[i] = 0x1
 		i--
-		dAtA[i] = 0xa0
+		dAtA[i] = 0x88
 	}
 	if m.EditGracePeriod != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.EditGracePeriod))
 		i--
 		dAtA[i] = 0x1
 		i--
-		dAtA[i] = 0x98
+		dAtA[i] = 0x80
 	}
 	if m.BountyCancellationFeePercent != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.BountyCancellationFeePercent))
 		i--
-		dAtA[i] = 0x1
-		i--
-		dAtA[i] = 0x90
+		dAtA[i] = 0x78
 	}
 	if m.MaxFollowsPerDay != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.MaxFollowsPerDay))
 		i--
-		dAtA[i] = 0x1
-		i--
-		dAtA[i] = 0x88
+		dAtA[i] = 0x70
 	}
 	if m.MaxReplyDepth != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.MaxReplyDepth))
 		i--
-		dAtA[i] = 0x1
-		i--
-		dAtA[i] = 0x80
+		dAtA[i] = 0x68
 	}
 	if m.DailyPostLimit != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.DailyPostLimit))
 		i--
-		dAtA[i] = 0x78
+		dAtA[i] = 0x60
 	}
 	if m.MaxContentSize != 0 {
 		i = encodeVarintParams(dAtA, i, uint64(m.MaxContentSize))
 		i--
-		dAtA[i] = 0x70
+		dAtA[i] = 0x58
 	}
 	if m.CostPerByteExempt {
 		i--
@@ -2392,7 +2324,7 @@ func (m *ForumOperationalParams) MarshalToSizedBuffer(dAtA []byte) (int, error) 
 			dAtA[i] = 0
 		}
 		i--
-		dAtA[i] = 0x68
+		dAtA[i] = 0x50
 	}
 	{
 		size := m.CostPerByteAmount.Size()
@@ -2403,41 +2335,11 @@ func (m *ForumOperationalParams) MarshalToSizedBuffer(dAtA []byte) (int, error) 
 		i = encodeVarintParams(dAtA, i, uint64(size))
 	}
 	i--
-	dAtA[i] = 0x62
+	dAtA[i] = 0x4a
 	{
 		size := m.EditFeeAmount.Size()
 		i -= size
 		if _, err := m.EditFeeAmount.MarshalTo(dAtA[i:]); err != nil {
-			return 0, err
-		}
-		i = encodeVarintParams(dAtA, i, uint64(size))
-	}
-	i--
-	dAtA[i] = 0x5a
-	{
-		size := m.MoveAppealFeeAmount.Size()
-		i -= size
-		if _, err := m.MoveAppealFeeAmount.MarshalTo(dAtA[i:]); err != nil {
-			return 0, err
-		}
-		i = encodeVarintParams(dAtA, i, uint64(size))
-	}
-	i--
-	dAtA[i] = 0x52
-	{
-		size := m.LockAppealFeeAmount.Size()
-		i -= size
-		if _, err := m.LockAppealFeeAmount.MarshalTo(dAtA[i:]); err != nil {
-			return 0, err
-		}
-		i = encodeVarintParams(dAtA, i, uint64(size))
-	}
-	i--
-	dAtA[i] = 0x4a
-	{
-		size := m.AppealFeeAmount.Size()
-		i -= size
-		if _, err := m.AppealFeeAmount.MarshalTo(dAtA[i:]); err != nil {
 			return 0, err
 		}
 		i = encodeVarintParams(dAtA, i, uint64(size))
@@ -2560,25 +2462,19 @@ func (m *Params) Size() (n int) {
 	n += 1 + l + sovParams(uint64(l))
 	l = m.DownvoteDepositAmount.Size()
 	n += 1 + l + sovParams(uint64(l))
-	l = m.AppealFeeAmount.Size()
-	n += 1 + l + sovParams(uint64(l))
-	l = m.LockAppealFeeAmount.Size()
-	n += 1 + l + sovParams(uint64(l))
-	l = m.MoveAppealFeeAmount.Size()
-	n += 1 + l + sovParams(uint64(l))
 	l = m.EditFeeAmount.Size()
 	n += 1 + l + sovParams(uint64(l))
 	if m.BountyCancellationFeePercent != 0 {
 		n += 1 + sovParams(uint64(m.BountyCancellationFeePercent))
 	}
 	if m.MaxContentSize != 0 {
-		n += 2 + sovParams(uint64(m.MaxContentSize))
+		n += 1 + sovParams(uint64(m.MaxContentSize))
 	}
 	if m.DailyPostLimit != 0 {
-		n += 2 + sovParams(uint64(m.DailyPostLimit))
+		n += 1 + sovParams(uint64(m.DailyPostLimit))
 	}
 	if m.MaxReplyDepth != 0 {
-		n += 2 + sovParams(uint64(m.MaxReplyDepth))
+		n += 1 + sovParams(uint64(m.MaxReplyDepth))
 	}
 	if m.EditGracePeriod != 0 {
 		n += 2 + sovParams(uint64(m.EditGracePeriod))
@@ -2734,12 +2630,6 @@ func (m *ForumOperationalParams) Size() (n int) {
 	n += 1 + l + sovParams(uint64(l))
 	l = m.DownvoteDepositAmount.Size()
 	n += 1 + l + sovParams(uint64(l))
-	l = m.AppealFeeAmount.Size()
-	n += 1 + l + sovParams(uint64(l))
-	l = m.LockAppealFeeAmount.Size()
-	n += 1 + l + sovParams(uint64(l))
-	l = m.MoveAppealFeeAmount.Size()
-	n += 1 + l + sovParams(uint64(l))
 	l = m.EditFeeAmount.Size()
 	n += 1 + l + sovParams(uint64(l))
 	l = m.CostPerByteAmount.Size()
@@ -2754,13 +2644,13 @@ func (m *ForumOperationalParams) Size() (n int) {
 		n += 1 + sovParams(uint64(m.DailyPostLimit))
 	}
 	if m.MaxReplyDepth != 0 {
-		n += 2 + sovParams(uint64(m.MaxReplyDepth))
+		n += 1 + sovParams(uint64(m.MaxReplyDepth))
 	}
 	if m.MaxFollowsPerDay != 0 {
-		n += 2 + sovParams(uint64(m.MaxFollowsPerDay))
+		n += 1 + sovParams(uint64(m.MaxFollowsPerDay))
 	}
 	if m.BountyCancellationFeePercent != 0 {
-		n += 2 + sovParams(uint64(m.BountyCancellationFeePercent))
+		n += 1 + sovParams(uint64(m.BountyCancellationFeePercent))
 	}
 	if m.EditGracePeriod != 0 {
 		n += 2 + sovParams(uint64(m.EditGracePeriod))
@@ -3161,108 +3051,6 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 			iNdEx = postIndex
 		case 11:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field AppealFeeAmount", wireType)
-			}
-			var stringLen uint64
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowParams
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				stringLen |= uint64(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			intStringLen := int(stringLen)
-			if intStringLen < 0 {
-				return ErrInvalidLengthParams
-			}
-			postIndex := iNdEx + intStringLen
-			if postIndex < 0 {
-				return ErrInvalidLengthParams
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			if err := m.AppealFeeAmount.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
-				return err
-			}
-			iNdEx = postIndex
-		case 12:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field LockAppealFeeAmount", wireType)
-			}
-			var stringLen uint64
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowParams
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				stringLen |= uint64(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			intStringLen := int(stringLen)
-			if intStringLen < 0 {
-				return ErrInvalidLengthParams
-			}
-			postIndex := iNdEx + intStringLen
-			if postIndex < 0 {
-				return ErrInvalidLengthParams
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			if err := m.LockAppealFeeAmount.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
-				return err
-			}
-			iNdEx = postIndex
-		case 13:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field MoveAppealFeeAmount", wireType)
-			}
-			var stringLen uint64
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowParams
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				stringLen |= uint64(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			intStringLen := int(stringLen)
-			if intStringLen < 0 {
-				return ErrInvalidLengthParams
-			}
-			postIndex := iNdEx + intStringLen
-			if postIndex < 0 {
-				return ErrInvalidLengthParams
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			if err := m.MoveAppealFeeAmount.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
-				return err
-			}
-			iNdEx = postIndex
-		case 14:
-			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field EditFeeAmount", wireType)
 			}
 			var stringLen uint64
@@ -3295,7 +3083,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 15:
+		case 12:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field BountyCancellationFeePercent", wireType)
 			}
@@ -3314,7 +3102,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 16:
+		case 13:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MaxContentSize", wireType)
 			}
@@ -3333,7 +3121,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 17:
+		case 14:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field DailyPostLimit", wireType)
 			}
@@ -3352,7 +3140,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 18:
+		case 15:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MaxReplyDepth", wireType)
 			}
@@ -3371,7 +3159,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 19:
+		case 16:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field EditGracePeriod", wireType)
 			}
@@ -3390,7 +3178,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 20:
+		case 17:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field EditMaxWindow", wireType)
 			}
@@ -3409,7 +3197,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 21:
+		case 18:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MaxFollowsPerDay", wireType)
 			}
@@ -3428,7 +3216,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 22:
+		case 19:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field ArchiveThreshold", wireType)
 			}
@@ -3447,7 +3235,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 23:
+		case 20:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field UnarchiveCooldown", wireType)
 			}
@@ -3466,7 +3254,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 24:
+		case 21:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field ArchiveCooldown", wireType)
 			}
@@ -3485,7 +3273,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 25:
+		case 22:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field HideAppealCooldown", wireType)
 			}
@@ -3504,7 +3292,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 26:
+		case 23:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field LockAppealCooldown", wireType)
 			}
@@ -3523,7 +3311,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 27:
+		case 24:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MoveAppealCooldown", wireType)
 			}
@@ -3542,7 +3330,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 28:
+		case 25:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field CostPerByteAmount", wireType)
 			}
@@ -3576,7 +3364,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 29:
+		case 26:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field CostPerByteExempt", wireType)
 			}
@@ -3596,7 +3384,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				}
 			}
 			m.CostPerByteExempt = bool(v != 0)
-		case 30:
+		case 27:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field EphemeralTtl", wireType)
 			}
@@ -3615,7 +3403,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 37:
+		case 28:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field ConvictionRenewalThreshold", wireType)
 			}
@@ -3649,7 +3437,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 38:
+		case 29:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field ConvictionRenewalPeriod", wireType)
 			}
@@ -3668,7 +3456,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 40:
+		case 30:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MinSentinelBond", wireType)
 			}
@@ -3700,7 +3488,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 			}
 			m.MinSentinelBond = string(dAtA[iNdEx:postIndex])
 			iNdEx = postIndex
-		case 41:
+		case 31:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MinSentinelRepTier", wireType)
 			}
@@ -3719,7 +3507,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 42:
+		case 32:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MinSentinelTrustLevel", wireType)
 			}
@@ -3751,7 +3539,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 			}
 			m.MinSentinelTrustLevel = string(dAtA[iNdEx:postIndex])
 			iNdEx = postIndex
-		case 43:
+		case 33:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MinSentinelAgeBlocks", wireType)
 			}
@@ -3770,7 +3558,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 44:
+		case 34:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field SentinelDemotionCooldown", wireType)
 			}
@@ -3789,7 +3577,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 45:
+		case 35:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field SentinelDemotionThreshold", wireType)
 			}
@@ -3821,7 +3609,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 			}
 			m.SentinelDemotionThreshold = string(dAtA[iNdEx:postIndex])
 			iNdEx = postIndex
-		case 46:
+		case 36:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field SentinelUnhideWindow", wireType)
 			}
@@ -3840,7 +3628,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 47:
+		case 37:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field SentinelUnbondCooldown", wireType)
 			}
@@ -3859,7 +3647,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 48:
+		case 38:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MakePermanentMinTrustLevel", wireType)
 			}
@@ -3878,7 +3666,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 49:
+		case 39:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MaxPromotionsPerBlock", wireType)
 			}
@@ -3897,7 +3685,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 50:
+		case 40:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field AuthorRepSlash", wireType)
 			}
@@ -3931,7 +3719,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 51:
+		case 41:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MaxMakePermanentPerDay", wireType)
 			}
@@ -3950,7 +3738,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 52:
+		case 42:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MaxHidesPerEpoch", wireType)
 			}
@@ -3969,7 +3757,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 53:
+		case 43:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MaxSentinelLocksPerEpoch", wireType)
 			}
@@ -3988,7 +3776,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 54:
+		case 44:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MaxSentinelMovesPerEpoch", wireType)
 			}
@@ -4007,7 +3795,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 55:
+		case 45:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field SentinelSlashAmount", wireType)
 			}
@@ -4039,7 +3827,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 			}
 			m.SentinelSlashAmount = string(dAtA[iNdEx:postIndex])
 			iNdEx = postIndex
-		case 56:
+		case 46:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field LockBondMultiplier", wireType)
 			}
@@ -4058,7 +3846,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 57:
+		case 47:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field LockBackingAmount", wireType)
 			}
@@ -4090,7 +3878,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 			}
 			m.LockBackingAmount = string(dAtA[iNdEx:postIndex])
 			iNdEx = postIndex
-		case 58:
+		case 48:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field LockMinRepTier", wireType)
 			}
@@ -4109,7 +3897,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 60:
+		case 49:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MinPostConvictionStake", wireType)
 			}
@@ -4143,7 +3931,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 61:
+		case 50:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field PostConvictionLockSeconds", wireType)
 			}
@@ -4162,7 +3950,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 62:
+		case 51:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field PostConvictionStreamRatePerBlock", wireType)
 			}
@@ -4196,7 +3984,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 63:
+		case 52:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MaxForumRepPerTagPerEpoch", wireType)
 			}
@@ -4230,7 +4018,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 64:
+		case 53:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field PostConvictionStakerSlashBps", wireType)
 			}
@@ -4249,7 +4037,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 65:
+		case 54:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field CurationDreamReward", wireType)
 			}
@@ -4283,7 +4071,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 66:
+		case 55:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field AcceptProposalTimeout", wireType)
 			}
@@ -4302,7 +4090,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 67:
+		case 56:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MaxAcceptProposalsPerSentinelPerThread", wireType)
 			}
@@ -4321,7 +4109,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 68:
+		case 57:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MediaMinTrustLevel", wireType)
 			}
@@ -4340,7 +4128,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 69:
+		case 58:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MediaAuthorBondMin", wireType)
 			}
@@ -4374,7 +4162,7 @@ func (m *Params) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 70:
+		case 59:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MediaScanFee", wireType)
 			}
@@ -4656,108 +4444,6 @@ func (m *ForumOperationalParams) Unmarshal(dAtA []byte) error {
 			iNdEx = postIndex
 		case 8:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field AppealFeeAmount", wireType)
-			}
-			var stringLen uint64
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowParams
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				stringLen |= uint64(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			intStringLen := int(stringLen)
-			if intStringLen < 0 {
-				return ErrInvalidLengthParams
-			}
-			postIndex := iNdEx + intStringLen
-			if postIndex < 0 {
-				return ErrInvalidLengthParams
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			if err := m.AppealFeeAmount.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
-				return err
-			}
-			iNdEx = postIndex
-		case 9:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field LockAppealFeeAmount", wireType)
-			}
-			var stringLen uint64
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowParams
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				stringLen |= uint64(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			intStringLen := int(stringLen)
-			if intStringLen < 0 {
-				return ErrInvalidLengthParams
-			}
-			postIndex := iNdEx + intStringLen
-			if postIndex < 0 {
-				return ErrInvalidLengthParams
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			if err := m.LockAppealFeeAmount.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
-				return err
-			}
-			iNdEx = postIndex
-		case 10:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field MoveAppealFeeAmount", wireType)
-			}
-			var stringLen uint64
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowParams
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				stringLen |= uint64(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			intStringLen := int(stringLen)
-			if intStringLen < 0 {
-				return ErrInvalidLengthParams
-			}
-			postIndex := iNdEx + intStringLen
-			if postIndex < 0 {
-				return ErrInvalidLengthParams
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			if err := m.MoveAppealFeeAmount.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
-				return err
-			}
-			iNdEx = postIndex
-		case 11:
-			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field EditFeeAmount", wireType)
 			}
 			var stringLen uint64
@@ -4790,7 +4476,7 @@ func (m *ForumOperationalParams) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 12:
+		case 9:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field CostPerByteAmount", wireType)
 			}
@@ -4824,7 +4510,7 @@ func (m *ForumOperationalParams) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 13:
+		case 10:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field CostPerByteExempt", wireType)
 			}
@@ -4844,7 +4530,7 @@ func (m *ForumOperationalParams) Unmarshal(dAtA []byte) error {
 				}
 			}
 			m.CostPerByteExempt = bool(v != 0)
-		case 14:
+		case 11:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MaxContentSize", wireType)
 			}
@@ -4863,7 +4549,7 @@ func (m *ForumOperationalParams) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 15:
+		case 12:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field DailyPostLimit", wireType)
 			}
@@ -4882,7 +4568,7 @@ func (m *ForumOperationalParams) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 16:
+		case 13:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MaxReplyDepth", wireType)
 			}
@@ -4901,7 +4587,7 @@ func (m *ForumOperationalParams) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 17:
+		case 14:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MaxFollowsPerDay", wireType)
 			}
@@ -4920,7 +4606,7 @@ func (m *ForumOperationalParams) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 18:
+		case 15:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field BountyCancellationFeePercent", wireType)
 			}
@@ -4939,7 +4625,7 @@ func (m *ForumOperationalParams) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 19:
+		case 16:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field EditGracePeriod", wireType)
 			}
@@ -4958,7 +4644,7 @@ func (m *ForumOperationalParams) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 20:
+		case 17:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field EditMaxWindow", wireType)
 			}
@@ -4977,7 +4663,7 @@ func (m *ForumOperationalParams) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 21:
+		case 18:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field ArchiveThreshold", wireType)
 			}
@@ -4996,7 +4682,7 @@ func (m *ForumOperationalParams) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 22:
+		case 19:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field UnarchiveCooldown", wireType)
 			}
@@ -5015,7 +4701,7 @@ func (m *ForumOperationalParams) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 23:
+		case 20:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field ArchiveCooldown", wireType)
 			}
@@ -5034,7 +4720,7 @@ func (m *ForumOperationalParams) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 24:
+		case 21:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field HideAppealCooldown", wireType)
 			}
@@ -5053,7 +4739,7 @@ func (m *ForumOperationalParams) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 25:
+		case 22:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field LockAppealCooldown", wireType)
 			}
@@ -5072,7 +4758,7 @@ func (m *ForumOperationalParams) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 26:
+		case 23:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MoveAppealCooldown", wireType)
 			}
@@ -5091,7 +4777,7 @@ func (m *ForumOperationalParams) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 27:
+		case 24:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field EphemeralTtl", wireType)
 			}
@@ -5110,7 +4796,7 @@ func (m *ForumOperationalParams) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 31:
+		case 25:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field ConvictionRenewalThreshold", wireType)
 			}
@@ -5144,7 +4830,7 @@ func (m *ForumOperationalParams) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 32:
+		case 26:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field ConvictionRenewalPeriod", wireType)
 			}
@@ -5163,7 +4849,7 @@ func (m *ForumOperationalParams) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 40:
+		case 27:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MinSentinelBond", wireType)
 			}
@@ -5195,7 +4881,7 @@ func (m *ForumOperationalParams) Unmarshal(dAtA []byte) error {
 			}
 			m.MinSentinelBond = string(dAtA[iNdEx:postIndex])
 			iNdEx = postIndex
-		case 41:
+		case 28:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MinSentinelRepTier", wireType)
 			}
@@ -5214,7 +4900,7 @@ func (m *ForumOperationalParams) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 42:
+		case 29:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MinSentinelTrustLevel", wireType)
 			}
@@ -5246,7 +4932,7 @@ func (m *ForumOperationalParams) Unmarshal(dAtA []byte) error {
 			}
 			m.MinSentinelTrustLevel = string(dAtA[iNdEx:postIndex])
 			iNdEx = postIndex
-		case 43:
+		case 30:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MinSentinelAgeBlocks", wireType)
 			}
@@ -5265,7 +4951,7 @@ func (m *ForumOperationalParams) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 44:
+		case 31:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field SentinelDemotionCooldown", wireType)
 			}
@@ -5284,7 +4970,7 @@ func (m *ForumOperationalParams) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 45:
+		case 32:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field SentinelDemotionThreshold", wireType)
 			}
@@ -5316,7 +5002,7 @@ func (m *ForumOperationalParams) Unmarshal(dAtA []byte) error {
 			}
 			m.SentinelDemotionThreshold = string(dAtA[iNdEx:postIndex])
 			iNdEx = postIndex
-		case 46:
+		case 33:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field SentinelUnhideWindow", wireType)
 			}
@@ -5335,7 +5021,7 @@ func (m *ForumOperationalParams) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 47:
+		case 34:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field SentinelUnbondCooldown", wireType)
 			}
@@ -5354,7 +5040,7 @@ func (m *ForumOperationalParams) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 48:
+		case 35:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MakePermanentMinTrustLevel", wireType)
 			}
@@ -5373,7 +5059,7 @@ func (m *ForumOperationalParams) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 49:
+		case 36:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MaxPromotionsPerBlock", wireType)
 			}
@@ -5392,7 +5078,7 @@ func (m *ForumOperationalParams) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 50:
+		case 37:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field AuthorRepSlash", wireType)
 			}
@@ -5426,7 +5112,7 @@ func (m *ForumOperationalParams) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 51:
+		case 38:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MaxMakePermanentPerDay", wireType)
 			}
@@ -5445,7 +5131,7 @@ func (m *ForumOperationalParams) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 52:
+		case 39:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MaxHidesPerEpoch", wireType)
 			}
@@ -5464,7 +5150,7 @@ func (m *ForumOperationalParams) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 53:
+		case 40:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MaxSentinelLocksPerEpoch", wireType)
 			}
@@ -5483,7 +5169,7 @@ func (m *ForumOperationalParams) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 54:
+		case 41:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MaxSentinelMovesPerEpoch", wireType)
 			}
@@ -5502,7 +5188,7 @@ func (m *ForumOperationalParams) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 55:
+		case 42:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field SentinelSlashAmount", wireType)
 			}
@@ -5534,7 +5220,7 @@ func (m *ForumOperationalParams) Unmarshal(dAtA []byte) error {
 			}
 			m.SentinelSlashAmount = string(dAtA[iNdEx:postIndex])
 			iNdEx = postIndex
-		case 60:
+		case 43:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MinPostConvictionStake", wireType)
 			}
@@ -5568,7 +5254,7 @@ func (m *ForumOperationalParams) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 61:
+		case 44:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field PostConvictionLockSeconds", wireType)
 			}
@@ -5587,7 +5273,7 @@ func (m *ForumOperationalParams) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 62:
+		case 45:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field PostConvictionStreamRatePerBlock", wireType)
 			}
@@ -5621,7 +5307,7 @@ func (m *ForumOperationalParams) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 63:
+		case 46:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MaxForumRepPerTagPerEpoch", wireType)
 			}
@@ -5655,7 +5341,7 @@ func (m *ForumOperationalParams) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 64:
+		case 47:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field PostConvictionStakerSlashBps", wireType)
 			}
@@ -5674,7 +5360,7 @@ func (m *ForumOperationalParams) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 65:
+		case 48:
 			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field CurationDreamReward", wireType)
 			}
@@ -5708,7 +5394,7 @@ func (m *ForumOperationalParams) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
-		case 66:
+		case 49:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field AcceptProposalTimeout", wireType)
 			}
@@ -5727,7 +5413,7 @@ func (m *ForumOperationalParams) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		case 67:
+		case 50:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field MaxAcceptProposalsPerSentinelPerThread", wireType)
 			}

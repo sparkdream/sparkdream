@@ -25,24 +25,24 @@ func TestExtendedStaking_MemberStaking(t *testing.T) {
 	target := sdk.AccAddress([]byte("target"))
 
 	// Create staker with DREAM
-	k.Member.Set(ctx, staker.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, staker.String(), types.Member{
 		Address:          staker.String(),
 		DreamBalance:     PtrInt(math.NewInt(10000)),
 		StakedDream:      PtrInt(math.ZeroInt()),
 		LifetimeEarned:   PtrInt(math.ZeroInt()),
 		LifetimeBurned:   PtrInt(math.ZeroInt()),
 		ReputationScores: map[string]string{"backend": "50.0"},
-	})
+	}))
 
 	// Create target member
-	k.Member.Set(ctx, target.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, target.String(), types.Member{
 		Address:          target.String(),
 		DreamBalance:     PtrInt(math.NewInt(5000)),
 		StakedDream:      PtrInt(math.ZeroInt()),
 		LifetimeEarned:   PtrInt(math.ZeroInt()),
 		LifetimeBurned:   PtrInt(math.ZeroInt()),
 		ReputationScores: map[string]string{"backend": "100.0"},
-	})
+	}))
 
 	// Test: Create stake on member
 	stakeAmount := math.NewInt(2000)
@@ -71,14 +71,14 @@ func TestExtendedStaking_TagStaking(t *testing.T) {
 
 	// Setup: Create staker
 	staker := sdk.AccAddress([]byte("staker"))
-	k.Member.Set(ctx, staker.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, staker.String(), types.Member{
 		Address:          staker.String(),
 		DreamBalance:     PtrInt(math.NewInt(10000)),
 		StakedDream:      PtrInt(math.ZeroInt()),
 		LifetimeEarned:   PtrInt(math.ZeroInt()),
 		LifetimeBurned:   PtrInt(math.ZeroInt()),
 		ReputationScores: map[string]string{},
-	})
+	}))
 
 	// Test: Create stake on tag
 	tagName := "backend"
@@ -108,14 +108,14 @@ func TestExtendedStaking_SelfStakeDisallowed(t *testing.T) {
 
 	// Setup: Create member
 	member := sdk.AccAddress([]byte("member"))
-	k.Member.Set(ctx, member.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, member.String(), types.Member{
 		Address:          member.String(),
 		DreamBalance:     PtrInt(math.NewInt(10000)),
 		StakedDream:      PtrInt(math.ZeroInt()),
 		LifetimeEarned:   PtrInt(math.ZeroInt()),
 		LifetimeBurned:   PtrInt(math.ZeroInt()),
 		ReputationScores: map[string]string{},
-	})
+	}))
 
 	// Test: Try to stake on self (should fail with default params)
 	_, err := k.CreateStake(ctx, member, types.StakeTargetType_STAKE_TARGET_MEMBER, 0, member.String(), math.NewInt(2000))
@@ -131,14 +131,14 @@ func TestExtendedStaking_RevenueAccumulation(t *testing.T) {
 
 	// Setup: Create target member pool
 	target := sdk.AccAddress([]byte("target"))
-	k.Member.Set(ctx, target.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, target.String(), types.Member{
 		Address:          target.String(),
 		DreamBalance:     PtrInt(math.NewInt(5000)),
 		StakedDream:      PtrInt(math.ZeroInt()),
 		LifetimeEarned:   PtrInt(math.ZeroInt()),
 		LifetimeBurned:   PtrInt(math.ZeroInt()),
 		ReputationScores: map[string]string{},
-	})
+	}))
 
 	// Create initial stake pool
 	pool := types.MemberStakePool{
@@ -169,18 +169,18 @@ func TestExtendedStaking_ClaimRewards(t *testing.T) {
 
 	// Setup: Create staker with a stake
 	staker := sdk.AccAddress([]byte("staker"))
-	k.Member.Set(ctx, staker.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, staker.String(), types.Member{
 		Address:          staker.String(),
 		DreamBalance:     PtrInt(math.NewInt(10000)),
 		StakedDream:      PtrInt(math.NewInt(100)),
 		LifetimeEarned:   PtrInt(math.ZeroInt()),
 		LifetimeBurned:   PtrInt(math.ZeroInt()),
 		ReputationScores: map[string]string{},
-	})
+	}))
 
 	// Create project and initiative for stake target
 	projectID, _ := k.CreateProject(ctx, staker, "Proj", "Desc", []string{"tag"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical", math.NewInt(10000), math.NewInt(1000), false)
-	k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(10000), math.NewInt(1000))
+	require.NoError(t, k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(10000), math.NewInt(1000)))
 	initID, _ := k.CreateInitiative(ctx, staker, projectID, "Task", "D", []string{"tag"}, types.InitiativeTier_INITIATIVE_TIER_STANDARD, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, math.NewInt(100))
 
 	// Create stake
@@ -222,18 +222,18 @@ func TestExtendedStaking_CompoundRewards(t *testing.T) {
 
 	// Setup: Create staker with a stake
 	staker := sdk.AccAddress([]byte("staker"))
-	k.Member.Set(ctx, staker.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, staker.String(), types.Member{
 		Address:          staker.String(),
 		DreamBalance:     PtrInt(math.NewInt(10000)),
 		StakedDream:      PtrInt(math.NewInt(100)),
 		LifetimeEarned:   PtrInt(math.ZeroInt()),
 		LifetimeBurned:   PtrInt(math.ZeroInt()),
 		ReputationScores: map[string]string{},
-	})
+	}))
 
 	// Create project and initiative
 	projectID, _ := k.CreateProject(ctx, staker, "Proj", "Desc", []string{"tag"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical", math.NewInt(10000), math.NewInt(1000), false)
-	k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(10000), math.NewInt(1000))
+	require.NoError(t, k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(10000), math.NewInt(1000)))
 	initID, _ := k.CreateInitiative(ctx, staker, projectID, "Task", "D", []string{"tag"}, types.InitiativeTier_INITIATIVE_TIER_STANDARD, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, math.NewInt(100))
 
 	// Create stake
@@ -260,18 +260,18 @@ func TestExtendedStaking_PendingRewardsQuery(t *testing.T) {
 
 	// Setup: Create stake
 	staker := sdk.AccAddress([]byte("staker"))
-	k.Member.Set(ctx, staker.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, staker.String(), types.Member{
 		Address:          staker.String(),
 		DreamBalance:     PtrInt(math.NewInt(10000)),
 		StakedDream:      PtrInt(math.ZeroInt()),
 		LifetimeEarned:   PtrInt(math.ZeroInt()),
 		LifetimeBurned:   PtrInt(math.ZeroInt()),
 		ReputationScores: map[string]string{},
-	})
+	}))
 
 	// Create project and initiative
 	projectID, _ := k.CreateProject(ctx, staker, "Proj", "Desc", []string{"tag"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical", math.NewInt(10000), math.NewInt(1000), false)
-	k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(10000), math.NewInt(1000))
+	require.NoError(t, k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(10000), math.NewInt(1000)))
 	initID, _ := k.CreateInitiative(ctx, staker, projectID, "Task", "D", []string{"tag"}, types.InitiativeTier_INITIATIVE_TIER_STANDARD, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, math.NewInt(100))
 
 	// Create stake
@@ -310,19 +310,19 @@ func TestExtendedStaking_ProjectStaking(t *testing.T) {
 
 	// Setup: Create staker
 	staker := sdk.AccAddress([]byte("staker"))
-	k.Member.Set(ctx, staker.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, staker.String(), types.Member{
 		Address:          staker.String(),
 		DreamBalance:     PtrInt(math.NewInt(10000)),
 		StakedDream:      PtrInt(math.ZeroInt()),
 		LifetimeEarned:   PtrInt(math.ZeroInt()),
 		LifetimeBurned:   PtrInt(math.ZeroInt()),
 		ReputationScores: map[string]string{},
-	})
+	}))
 
 	// Create project
 	projectID, err := k.CreateProject(ctx, staker, "Proj", "Desc", []string{"tag"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical", math.NewInt(10000), math.NewInt(1000), false)
 	require.NoError(t, err)
-	k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(10000), math.NewInt(1000))
+	require.NoError(t, k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(10000), math.NewInt(1000)))
 
 	// Test: Create stake on project
 	stakeAmount := math.NewInt(5000)
@@ -433,28 +433,28 @@ func TestDistributeInitiativeCompletionBonus(t *testing.T) {
 
 	// Create the project creator / initiative assignee
 	creator := sdk.AccAddress([]byte("creator_addr________"))
-	k.Member.Set(ctx, creator.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, creator.String(), types.Member{
 		Address:          creator.String(),
 		DreamBalance:     PtrInt(math.NewInt(50000)),
 		StakedDream:      PtrInt(math.ZeroInt()),
 		LifetimeEarned:   PtrInt(math.ZeroInt()),
 		LifetimeBurned:   PtrInt(math.ZeroInt()),
 		ReputationScores: map[string]string{"backend": "100.0"},
-	})
+	}))
 
 	// Create external stakers
 	staker1 := sdk.AccAddress([]byte("external_staker1____"))
 	staker2 := sdk.AccAddress([]byte("external_staker2____"))
 
 	for _, s := range []sdk.AccAddress{staker1, staker2} {
-		k.Member.Set(ctx, s.String(), types.Member{
+		require.NoError(t, k.Member.Set(ctx, s.String(), types.Member{
 			Address:          s.String(),
 			DreamBalance:     PtrInt(math.NewInt(10000)),
 			StakedDream:      PtrInt(math.ZeroInt()),
 			LifetimeEarned:   PtrInt(math.ZeroInt()),
 			LifetimeBurned:   PtrInt(math.ZeroInt()),
 			ReputationScores: map[string]string{"backend": "50.0"},
-		})
+		}))
 	}
 
 	// Create and approve project
@@ -564,28 +564,28 @@ func TestDistributeProjectCompletionBonus(t *testing.T) {
 
 	// Create project creator
 	creator := sdk.AccAddress([]byte("proj_creator________"))
-	k.Member.Set(ctx, creator.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, creator.String(), types.Member{
 		Address:          creator.String(),
 		DreamBalance:     PtrInt(math.NewInt(50000)),
 		StakedDream:      PtrInt(math.ZeroInt()),
 		LifetimeEarned:   PtrInt(math.ZeroInt()),
 		LifetimeBurned:   PtrInt(math.ZeroInt()),
 		ReputationScores: map[string]string{},
-	})
+	}))
 
 	// Create stakers
 	stakerA := sdk.AccAddress([]byte("project_stakerA_____"))
 	stakerB := sdk.AccAddress([]byte("project_stakerB_____"))
 
 	for _, s := range []sdk.AccAddress{stakerA, stakerB} {
-		k.Member.Set(ctx, s.String(), types.Member{
+		require.NoError(t, k.Member.Set(ctx, s.String(), types.Member{
 			Address:          s.String(),
 			DreamBalance:     PtrInt(math.NewInt(10000)),
 			StakedDream:      PtrInt(math.ZeroInt()),
 			LifetimeEarned:   PtrInt(math.ZeroInt()),
 			LifetimeBurned:   PtrInt(math.ZeroInt()),
 			ReputationScores: map[string]string{},
-		})
+		}))
 	}
 
 	// Create and approve project
@@ -679,14 +679,14 @@ func TestDistributeProjectCompletionBonus(t *testing.T) {
 // initiative id, ready for external stakers to be added.
 func bonusFixture(t *testing.T, k keeper.Keeper, ctx sdk.Context, creator sdk.AccAddress, budget math.Int) uint64 {
 	t.Helper()
-	k.Member.Set(ctx, creator.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, creator.String(), types.Member{
 		Address:          creator.String(),
 		DreamBalance:     PtrInt(math.NewInt(100_000_000)),
 		StakedDream:      PtrInt(math.ZeroInt()),
 		LifetimeEarned:   PtrInt(math.ZeroInt()),
 		LifetimeBurned:   PtrInt(math.ZeroInt()),
 		ReputationScores: map[string]string{"backend": "100.0"},
-	})
+	}))
 	projectID, err := k.CreateProject(ctx, creator, "P", "D", []string{"backend"},
 		types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical",
 		math.NewInt(100_000_000), math.NewInt(10000), false)
@@ -703,14 +703,14 @@ func bonusFixture(t *testing.T, k keeper.Keeper, ctx sdk.Context, creator sdk.Ac
 func bonusStaker(t *testing.T, k keeper.Keeper, ctx sdk.Context, name string, balance math.Int) sdk.AccAddress {
 	t.Helper()
 	addr := sdk.AccAddress([]byte(name))
-	k.Member.Set(ctx, addr.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, addr.String(), types.Member{
 		Address:          addr.String(),
 		DreamBalance:     PtrInt(balance),
 		StakedDream:      PtrInt(math.ZeroInt()),
 		LifetimeEarned:   PtrInt(math.ZeroInt()),
 		LifetimeBurned:   PtrInt(math.ZeroInt()),
 		ReputationScores: map[string]string{},
-	})
+	}))
 	return addr
 }
 
@@ -1027,6 +1027,7 @@ func TestCreateStake_ContentAggregateCap(t *testing.T) {
 	ctx := f.ctx
 
 	staker := projectBonusStaker(t, k, ctx, "content_park_staker_", math.NewInt(1_000_000))
+	wireContentAuthor(k)
 
 	// Two items, fully under the aggregate.
 	_, err := k.CreateStake(ctx, staker, types.StakeTargetType_STAKE_TARGET_BLOG_CONTENT, 1, "", math.NewInt(10_000))

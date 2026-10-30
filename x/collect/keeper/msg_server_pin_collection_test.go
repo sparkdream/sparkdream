@@ -130,7 +130,7 @@ func TestPinCollection_RateLimit(t *testing.T) {
 
 	params, _ := f.keeper.Params.Get(f.ctx)
 	params.MaxPinsPerDay = 1
-	f.keeper.Params.Set(f.ctx, params) //nolint:errcheck
+	require.NoError(t, f.keeper.Params.Set(f.ctx, params))
 
 	collID1 := f.createCollection(t, f.owner)
 	collID2 := f.createCollection(t, f.owner)
@@ -156,7 +156,7 @@ func TestPinCollection_HiddenNotActive(t *testing.T) {
 	collID := f.createCollection(t, f.owner)
 	coll, _ := f.keeper.Collection.Get(f.ctx, collID)
 	coll.Status = types.CollectionStatus_COLLECTION_STATUS_HIDDEN
-	f.keeper.Collection.Set(f.ctx, collID, coll) //nolint:errcheck
+	require.NoError(t, f.keeper.Collection.Set(f.ctx, collID, coll))
 
 	_, err := f.msgServer.PinCollection(f.ctx, &types.MsgPinCollection{
 		Creator:      f.owner,
@@ -171,7 +171,7 @@ func TestPinCollection_HighTrustLevel(t *testing.T) {
 
 	params, _ := f.keeper.Params.Get(f.ctx)
 	params.PinMinTrustLevel = 3
-	f.keeper.Params.Set(f.ctx, params) //nolint:errcheck
+	require.NoError(t, f.keeper.Params.Set(f.ctx, params))
 
 	collID := f.createCollection(t, f.owner)
 

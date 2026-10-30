@@ -2,6 +2,8 @@ package keeper
 
 import (
 	"context"
+	"cosmossdk.io/collections"
+	"errors"
 
 	"sparkdream/x/season/types"
 
@@ -42,7 +44,10 @@ func (q queryServer) QuestChain(ctx context.Context, req *types.QueryQuestChainR
 	}
 
 	// Return the first quest in chain as representative
-	firstQuest, _ := q.k.Quest.Get(ctx, chainQuests[0])
+	firstQuest, getErr := q.k.Quest.Get(ctx, chainQuests[0])
+	if getErr != nil && !errors.Is(getErr, collections.ErrNotFound) {
+		return nil, getErr
+	}
 	return &types.QueryQuestChainResponse{
 		QuestId:           chainQuests[0],
 		Name:              firstQuest.Name,

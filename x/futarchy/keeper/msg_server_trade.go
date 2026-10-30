@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/futarchy/types"
 
 	"cosmossdk.io/collections"
@@ -33,6 +34,13 @@ func (k msgServer) Trade(goCtx context.Context, msg *types.MsgTrade) (*types.Msg
 
 	if market.Status != "ACTIVE" {
 		return nil, errorsmod.Wrapf(sdkerrors.ErrInvalidRequest, "Market %d is not active (status: %s)", msg.MarketId, market.Status)
+	}
+
+	// FUT-01: no trades at or after end_block. The market resolves at the
+	// end of end_block on the time-weighted price, and a trade in that
+	// block would otherwise run after the window closed.
+	if ctx.BlockHeight() >= market.EndBlock {
+		return nil, errorsmod.Wrapf(sdkerrors.ErrInvalidRequest, "Market %d trading closed at block %d", msg.MarketId, market.EndBlock)
 	}
 
 	// 2. Setup Math Variables (No parsing needed)
@@ -68,7 +76,7 @@ func (k msgServer) Trade(goCtx context.Context, msg *types.MsgTrade) (*types.Msg
 
 	if params.TradingFeeBps > 0 {
 		// Calculate fee: amount * bps / 10000
-		feeDec := math.LegacyNewDecFromInt(amountIn.Amount).MulInt64(int64(params.TradingFeeBps)).QuoInt64(10000)
+		feeDec := math.LegacyNewDecFromInt(amountIn.Amount).MulInt64(commontypes.Saturate[int64](params.TradingFeeBps)).QuoInt64(10000)
 		feeAmount = feeDec.TruncateInt()
 		amountAfterFee = amountIn.Amount.Sub(feeAmount)
 
@@ -81,69 +89,39 @@ func (k msgServer) Trade(goCtx context.Context, msg *types.MsgTrade) (*types.Msg
 		amountAfterFee = amountIn.Amount
 	}
 
-	// 4. Calculate "Current Cost" (Pass ctx)
+	// 4. Accumulate the time-weighted price up to this block BEFORE the
+	// pools move (FUT-01): the price set by the last trade of a block is the
+	// price in effect for the following blocks.
+	if err := k.accumulateTWAP(ctx, &market); err != nil {
+		return nil, errorsmod.Wrap(sdkerrors.ErrInvalidRequest, err.Error())
+	}
+
+	// 5. Solve for the new pool value (exact LMSR, no exponent clamp: FUT-03)
 	maxExp, err := math.LegacyNewDecFromStr(params.MaxLmsrExponent)
 	if err != nil {
 		maxExp = types.DefaultMaxExponent
 	}
-	currentCost, err := types.CalculateLMSRCost(ctx, bValue, poolYes, poolNo, maxExp)
+	newPool, sharesOut, err := types.SharesForAmount(ctx, bValue, poolYes, poolNo, math.LegacyNewDecFromInt(amountAfterFee), msg.IsYes)
 	if err != nil {
 		return nil, errorsmod.Wrap(sdkerrors.ErrInvalidRequest, err.Error())
 	}
+	if !sharesOut.IsPositive() {
+		return nil, errorsmod.Wrap(sdkerrors.ErrInvalidRequest, "trade amount too low to buy 1 share")
+	}
 
-	// 5. Calculate "New Cost" using amount after fee
-	newCost := currentCost.Add(math.LegacyNewDecFromInt(amountAfterFee))
-
-	var newPoolYes, newPoolNo math.LegacyDec
-	var sharesOut math.LegacyDec
-
+	// Update Market State (Convert Dec back to Int pointer). Truncation
+	// leaves the trader with slightly fewer shares, never more.
+	val := newPool.TruncateInt()
 	if msg.IsYes {
-		// Solve for newYes: q1 = C + b * ln(1 - e^((q2 - C)/b))
-		// Use stable formula to avoid overflow in Exp(C/b)
-		exponent := poolNo.Sub(newCost).Quo(bValue)
-		// Clamp exponent for numerical stability
-		exponent = types.ClampExponent(exponent, maxExp)
-		expTerm := types.Exp(ctx, exponent)
-		oneMinus := math.LegacyOneDec().Sub(expTerm)
-
-		if oneMinus.LTE(math.LegacyZeroDec()) {
-			return nil, errorsmod.Wrap(sdkerrors.ErrInvalidRequest,
-				"trade too large: would deplete market liquidity")
-		}
-
-		lnTerm, err := types.Ln(ctx, oneMinus)
-		if err != nil {
-			return nil, errorsmod.Wrap(sdkerrors.ErrInvalidRequest, err.Error())
-		}
-		newPoolYes = newCost.Add(bValue.Mul(lnTerm))
-		sharesOut = newPoolYes.Sub(poolYes)
-
-		// Update Market State (Convert Dec back to Int pointer)
-		val := newPoolYes.TruncateInt()
 		market.PoolYes = &val
 	} else {
-		// Solve for newNo
-		exponent := poolYes.Sub(newCost).Quo(bValue)
-		// Clamp exponent for numerical stability
-		exponent = types.ClampExponent(exponent, maxExp)
-		expTerm := types.Exp(ctx, exponent)
-		oneMinus := math.LegacyOneDec().Sub(expTerm)
-
-		if oneMinus.LTE(math.LegacyZeroDec()) {
-			return nil, errorsmod.Wrap(sdkerrors.ErrInvalidRequest,
-				"trade too large: would deplete market liquidity")
-		}
-
-		lnTerm, err := types.Ln(ctx, oneMinus)
-		if err != nil {
-			return nil, errorsmod.Wrap(sdkerrors.ErrInvalidRequest, err.Error())
-		}
-		newPoolNo = newCost.Add(bValue.Mul(lnTerm))
-		sharesOut = newPoolNo.Sub(poolNo)
-
-		// Update Market State (Convert Dec back to Int pointer)
-		val := newPoolNo.TruncateInt()
 		market.PoolNo = &val
+	}
+
+	// max_lmsr_exponent bounds how far the price may be pushed; a trade that
+	// would cross it is rejected rather than mispriced (FUT-03).
+	if err := types.CheckPriceBound(bValue, math.LegacyNewDecFromInt(*market.PoolYes), math.LegacyNewDecFromInt(*market.PoolNo), maxExp); err != nil {
+		return nil, errorsmod.Wrap(sdkerrors.ErrInvalidRequest, err.Error())
 	}
 
 	// 6. Transfer Funds (User -> Module)
@@ -180,6 +158,10 @@ func (k msgServer) Trade(goCtx context.Context, msg *types.MsgTrade) (*types.Msg
 	if sharesInt.IsZero() {
 		return nil, errorsmod.Wrap(sdkerrors.ErrInvalidRequest, "trade amount too low to buy 1 share")
 	}
+	// FUT-06: optional slippage bound.
+	if msg.MinSharesOut != nil && !msg.MinSharesOut.IsNil() && sharesInt.LT(*msg.MinSharesOut) {
+		return nil, errorsmod.Wrapf(sdkerrors.ErrInvalidRequest, "slippage: %s shares out < min_shares_out %s", sharesInt.String(), msg.MinSharesOut.String())
+	}
 
 	sharesCoin := sdk.NewCoin(shareDenom, sharesInt)
 
@@ -199,6 +181,20 @@ func (k msgServer) Trade(goCtx context.Context, msg *types.MsgTrade) (*types.Msg
 	if err != nil {
 		return nil, err
 	}
+
+	ctx.EventManager().EmitEvent(
+		sdk.NewEvent(
+			"market_trade",
+			sdk.NewAttribute("market_id", fmt.Sprintf("%d", msg.MarketId)),
+			sdk.NewAttribute("trader", msg.Creator),
+			sdk.NewAttribute("outcome", outcomeStr),
+			sdk.NewAttribute("amount_in", amountIn.String()),
+			sdk.NewAttribute("fee", feeAmount.String()),
+			sdk.NewAttribute("shares_out", sharesInt.String()),
+			sdk.NewAttribute("pool_yes", market.PoolYes.String()),
+			sdk.NewAttribute("pool_no", market.PoolNo.String()),
+		),
+	)
 
 	return &types.MsgTradeResponse{
 		SharesOut: &sharesInt,

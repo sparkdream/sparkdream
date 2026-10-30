@@ -24,11 +24,12 @@ type mockSession struct {
 	bank   *mockBank
 	grants map[uint64]*types.RecurringPullInfo
 	fail   map[uint64]bool
+	panics map[uint64]bool
 	claims []uint64
 }
 
 func newMockSession(b *mockBank) *mockSession {
-	return &mockSession{bank: b, grants: map[uint64]*types.RecurringPullInfo{}, fail: map[uint64]bool{}}
+	return &mockSession{bank: b, grants: map[uint64]*types.RecurringPullInfo{}, fail: map[uint64]bool{}, panics: map[uint64]bool{}}
 }
 
 func (s *mockSession) RecurringPull(_ context.Context, id uint64) (types.RecurringPullInfo, bool, error) {
@@ -46,6 +47,9 @@ func (s *mockSession) ClaimRecurringPull(_ context.Context, id uint64) (sdk.Coin
 	}
 	if s.fail[id] {
 		return sdk.Coin{}, fmt.Errorf("insufficient funds")
+	}
+	if s.panics[id] {
+		panic("session adapter bug")
 	}
 	if err := s.bank.move(g.Granter, g.Grantee, sdk.NewCoins(g.Amount)); err != nil {
 		return sdk.Coin{}, err

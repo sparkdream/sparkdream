@@ -82,7 +82,7 @@ func TestMsgServerInviteToGuild(t *testing.T) {
 		// Mark as dissolved
 		guild, _ := k.Guild.Get(ctx, guildID)
 		guild.Status = types.GuildStatus_GUILD_STATUS_DISSOLVED
-		k.Guild.Set(ctx, guildID, guild)
+		require.NoError(t, k.Guild.Set(ctx, guildID, guild))
 
 		_, err := ms.InviteToGuild(ctx, &types.MsgInviteToGuild{
 			Creator: founderStr,
@@ -188,11 +188,11 @@ func TestMsgServerInviteToGuild(t *testing.T) {
 		// Add existing invite
 		guild, _ := k.Guild.Get(ctx, guildID)
 		guild.PendingInvites = []string{inviteeStr}
-		k.Guild.Set(ctx, guildID, guild)
+		require.NoError(t, k.Guild.Set(ctx, guildID, guild))
 
 		key := fmt.Sprintf("%d:%s", guildID, inviteeStr)
 		invite := types.GuildInvite{GuildInvitee: inviteeStr}
-		k.GuildInvite.Set(ctx, key, invite)
+		require.NoError(t, k.GuildInvite.Set(ctx, key, invite))
 
 		_, err := ms.InviteToGuild(ctx, &types.MsgInviteToGuild{
 			Creator: founderStr,
@@ -239,6 +239,40 @@ func TestMsgServerInviteToGuild(t *testing.T) {
 		require.Contains(t, guild.PendingInvites, inviteeStr)
 	})
 
+	// A pending slot whose invite record is gone (a dangling slot) is freed
+	// by the expiry pass instead of failing every later invite to the guild.
+	t.Run("dangling pending slot is freed", func(t *testing.T) {
+		f := initFixture(t)
+		ctx := sdk.UnwrapSDKContext(f.ctx)
+		k := f.keeper
+		ms := keeper.NewMsgServerImpl(k)
+
+		founder := TestAddrFounder
+		invitee := TestAddrMember2
+		founderStr, _ := f.addressCodec.BytesToString(founder)
+		inviteeStr, _ := f.addressCodec.BytesToString(invitee)
+		danglingStr, _ := f.addressCodec.BytesToString(TestAddrMember3)
+
+		SetupBasicMemberProfile(t, k, ctx, founder)
+		SetupBasicMemberProfile(t, k, ctx, invitee)
+		guildID := SetupGuild(t, k, ctx, founder, "Dangling Guild", TestGuildDesc)
+		guild, err := k.Guild.Get(ctx, guildID)
+		require.NoError(t, err)
+		guild.PendingInvites = append(guild.PendingInvites, danglingStr)
+		require.NoError(t, k.Guild.Set(ctx, guildID, guild))
+
+		_, err = ms.InviteToGuild(ctx, &types.MsgInviteToGuild{
+			Creator: founderStr,
+			Invitee: inviteeStr,
+			GuildId: guildID,
+		})
+		require.NoError(t, err)
+
+		guild, _ = k.Guild.Get(ctx, guildID)
+		require.NotContains(t, guild.PendingInvites, danglingStr)
+		require.Contains(t, guild.PendingInvites, inviteeStr)
+	})
+
 	t.Run("successful invite by officer", func(t *testing.T) {
 		f := initFixture(t)
 		ctx := sdk.UnwrapSDKContext(f.ctx)
@@ -259,7 +293,7 @@ func TestMsgServerInviteToGuild(t *testing.T) {
 		// Make officer
 		guild, _ := k.Guild.Get(ctx, guildID)
 		guild.Officers = []string{officerStr}
-		k.Guild.Set(ctx, guildID, guild)
+		require.NoError(t, k.Guild.Set(ctx, guildID, guild))
 
 		_, err := ms.InviteToGuild(ctx, &types.MsgInviteToGuild{
 			Creator: officerStr,

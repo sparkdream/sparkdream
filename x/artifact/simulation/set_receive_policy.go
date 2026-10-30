@@ -11,6 +11,7 @@ import (
 
 	"sparkdream/x/artifact/keeper"
 	"sparkdream/x/artifact/types"
+	commontypes "sparkdream/x/common/types"
 )
 
 // SimulateMsgSetReceivePolicy sets a random receive policy.
@@ -23,7 +24,7 @@ func SimulateMsgSetReceivePolicy(
 	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
 	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
 		acc, _ := simtypes.RandomAcc(r, accs)
-		msg := &types.MsgSetReceivePolicy{Owner: acc.Address.String(), Policy: types.ReceivePolicy(r.Intn(4))}
+		msg := &types.MsgSetReceivePolicy{Owner: acc.Address.String(), Policy: commontypes.Saturate[types.ReceivePolicy](r.Intn(4))}
 		return deliver(r, app, ctx, ak, bk, txGen, acc, msg, math.ZeroInt())
 	}
 }

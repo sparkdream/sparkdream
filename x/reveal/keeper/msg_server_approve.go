@@ -22,6 +22,11 @@ func (k msgServer) Approve(ctx context.Context, msg *types.MsgApprove) (*types.M
 		return nil, types.ErrUnauthorized.Wrapf("unauthorized: must be governance or Commons Council")
 	}
 
+	approver, err := k.checkCouncilProposer(ctx, msg.Authority, msg.Proposer)
+	if err != nil {
+		return nil, err
+	}
+
 	// Get the contribution
 	contrib, err := k.Contribution.Get(ctx, msg.ContributionId)
 	if err != nil {
@@ -47,7 +52,7 @@ func (k msgServer) Approve(ctx context.Context, msg *types.MsgApprove) (*types.M
 	}
 
 	contrib.Status = types.ContributionStatus_CONTRIBUTION_STATUS_IN_PROGRESS
-	contrib.ApprovedBy = msg.Proposer
+	contrib.ApprovedBy = approver
 	contrib.ApprovedAt = currentEpoch
 
 	// Set tranche 0 to STAKING with deadline
@@ -57,7 +62,7 @@ func (k msgServer) Approve(ctx context.Context, msg *types.MsgApprove) (*types.M
 	}
 
 	// Save updated contribution and new status index
-	if err := k.Contribution.Set(ctx, contrib.Id, contrib); err != nil {
+	if err := k.saveContribution(ctx, &contrib); err != nil {
 		return nil, err
 	}
 	if err := k.ContributionsByStatus.Set(ctx, collections.Join(int32(contrib.Status), contrib.Id)); err != nil {

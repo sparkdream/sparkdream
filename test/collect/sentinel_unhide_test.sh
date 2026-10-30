@@ -111,7 +111,7 @@ poll_committed_back_to() {
 # hide_collection <coll_id> — bob hides; sets HIDE_REC_ID from the event.
 hide_collection() {
     local coll_id=$1 label=$2
-    TX_OUT=$(send_tx collect hide-content "$coll_id" collection spam "spam" --from bob)
+    TX_OUT=$(send_tx collect hide-content "$coll_id" collection spam --from bob)
     assert_tx_success "$label" "$TX_OUT"
     HIDE_REC_ID=$(extract_event_attr "$TX_RESULT_OUT" "content_hidden" "hide_record_id")
     if [ -z "$HIDE_REC_ID" ]; then
@@ -311,11 +311,11 @@ T2_APPEAL_ID=${T2_APPEAL_ID:-0}
 TX_OUT=$(send_tx collect unhide-content "$T2_HIDE_REC" --from bob)
 assert_tx_failure "bob cannot self-correct an appealed hide" "$TX_OUT"
 
-# The appeal lives in x/rep. alice (Commons Ops) UPHOLDS the hide: x/rep
-# releases bob's committed bond and calls back into collect, which deletes
-# the hidden collection (the hide stands).
-TX_OUT=$(send_tx rep resolve-gov-action-appeal "$T2_APPEAL_ID" upheld "spam confirmed" --gas 400000 --from alice)
-assert_tx_success "alice upholds the hide via x/rep" "$TX_OUT"
+# The appeal lives in x/rep. The Commons Operations Committee (a proposal,
+# not alice alone) UPHOLDS the hide: x/rep releases bob's committed bond and
+# calls back into collect, which deletes the hidden collection (the hide
+# stands).
+assert_ops_resolve "Ops Committee upholds the hide via x/rep" "$T2_APPEAL_ID" upheld "spam confirmed"
 assert_equal "Hide record resolved by the x/rep verdict" "true" \
     "$(query collect hide-record "$T2_HIDE_REC" | jq -r '.hide_record.resolved // false')"
 T2_GONE=$(query collect collection "$T2_COLL_ID" | jq -r '.collection.id // "gone"' 2>/dev/null)

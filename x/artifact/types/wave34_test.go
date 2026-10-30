@@ -178,3 +178,17 @@ func TestRenderStateV2(t *testing.T) {
 	require.True(t, strings.HasSuffix(js, `"season_number":3,"season_status":"SEASON_STATUS_ACTIVE","owner_season_level":5,"owner_season_xp":900,"children":[],"contents_hash":""}`))
 	require.Equal(t, types.RenderStateV2, types.MaxRenderStateVersion)
 }
+
+// AddUnits never wraps and never passes the compiled edition ceiling.
+func TestAddUnits(t *testing.T) {
+	n, err := types.AddUnits(2, 3)
+	require.NoError(t, err)
+	require.Equal(t, uint64(5), n)
+	n, err = types.AddUnits(types.HardMaxEditionSupply-1, 1)
+	require.NoError(t, err)
+	require.Equal(t, types.HardMaxEditionSupply, n)
+	for _, c := range [][2]uint64{{types.HardMaxEditionSupply, 1}, {1, ^uint64(0)}, {^uint64(0), 2}, {0, types.HardMaxEditionSupply + 1}} {
+		_, err = types.AddUnits(c[0], c[1])
+		require.ErrorIs(t, err, types.ErrSupplyExceeded, "%d + %d", c[0], c[1])
+	}
+}

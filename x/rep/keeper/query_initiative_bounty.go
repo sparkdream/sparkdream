@@ -3,6 +3,7 @@ package keeper
 import (
 	"context"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/rep/types"
 
 	"cosmossdk.io/math"
@@ -31,7 +32,7 @@ func (q queryServer) InitiativeBounty(ctx context.Context, req *types.QueryIniti
 
 	statuses := make([]types.InitiativeBountyReclaimStatus, 0, len(bounty.Contributions))
 	for _, c := range bounty.Contributions {
-		matureAt := c.FundedAt + int64(params.InitiativeBountyReclaimDelay)
+		matureAt := c.FundedAt + commontypes.Saturate[int64](params.InitiativeBountyReclaimDelay)
 		amount := c.Amount
 		if amount.IsNil() {
 			amount = math.ZeroInt()

@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"cosmossdk.io/collections"
+	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	"sparkdream/x/session/types"
 )
@@ -42,10 +43,11 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 	}
 
 	// Seed GrantSeq: prefer the exported value, falling back to the max
-	// observed grant id + 1.
+	// observed grant id (nextGrantID returns sequence+1, so a sequence equal
+	// to the highest id allocates the next free id).
 	seqValue := genState.GrantSeq
-	if seqValue == 0 && maxID > 0 {
-		seqValue = maxID + 1
+	if seqValue < maxID {
+		seqValue = maxID
 	}
 	if seqValue > 0 {
 		if err := k.GrantSeq.Set(ctx, seqValue); err != nil {
@@ -53,30 +55,35 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 		}
 	}
 
-	// Seed ActiveGrantCountByType. Prefer the exported snapshot when
-	// non-empty (so the count and the grant list cross-validate); fall
-	// back to recomputing.
-	if len(genState.ActiveGrantCounts) > 0 {
-		for _, c := range genState.ActiveGrantCounts {
-			if c.Count == 0 {
-				continue
-			}
-			if err := k.ActiveGrantCountByType.Set(
-				ctx,
-				collections.Join(c.Granter, int32(c.Type)),
-				c.Count,
-			); err != nil {
-				return err
-			}
+	// Seed ActiveGrantCountByType from the grants themselves. The exported
+	// counts are checked against them in GenesisState.Validate (SES-19) and
+	// never trusted on their own: an inflated count would refuse new grants,
+	// an understated one would bypass the per-granter caps.
+	for _, g := range genState.Grants {
+		if !activeStatus(g.Status) {
+			continue
 		}
-	} else {
-		for _, g := range genState.Grants {
-			if !activeStatus(g.Status) {
-				continue
-			}
-			if err := k.incActiveGrantCount(ctx, g.Granter, g.Type); err != nil {
-				return err
-			}
+		if err := k.incActiveGrantCount(ctx, g.Granter, g.Type); err != nil {
+			return err
+		}
+	}
+
+	// Escrowed oneshot deposits, per-day spend buckets and bypass
+	// creators (SES-11): without them an import strands deposits in the
+	// module account and resets the per-day pull throttle.
+	for _, d := range genState.OneshotGasDeposits {
+		if err := k.OneshotGasDeposit.Set(ctx, d.GrantId, d.Amount); err != nil {
+			return err
+		}
+	}
+	for _, e := range genState.EpochSpends {
+		if err := k.EpochSpendByGrant.Set(ctx, collections.Join(e.GrantId, e.Day), e.Amount); err != nil {
+			return err
+		}
+	}
+	for _, c := range genState.GrantCreators {
+		if err := k.GrantCreatorModule.Set(ctx, c.GrantId, c.ModuleAddress); err != nil {
+			return err
 		}
 	}
 
@@ -109,14 +116,9 @@ func (k Keeper) writeGrantNoCount(ctx context.Context, g types.Grant) error {
 			return err
 		}
 	}
-	// A paused oneshot's fire_at holds its pause time, so the paused-TTL
-	// index is rebuilt from the grant alone.
-	if so := g.GetScheduledOneshot(); so != nil && g.Status == types.GrantStatus_GRANT_STATUS_PAUSED_INSUFFICIENT_FUNDS {
-		if err := k.PausedOneshotByPauseTime.Set(ctx, collections.Join(so.FireAt, g.Id)); err != nil {
-			return err
-		}
-	}
-	return nil
+	// The fire-time (ACTIVE) and paused-TTL (PAUSED, fire_at holds the
+	// pause time) indexes are rebuilt from the grant alone.
+	return k.setOneshotTimeIndexes(ctx, g)
 }
 
 // ExportGenesis returns the module's exported genesis state.
@@ -152,6 +154,28 @@ func (k Keeper) ExportGenesis(ctx context.Context) (*types.GenesisState, error) 
 			Type:    types.GrantType(key.K2()),
 			Count:   count,
 		})
+		return false, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	err = k.OneshotGasDeposit.Walk(ctx, nil, func(id uint64, c sdk.Coin) (bool, error) {
+		genesis.OneshotGasDeposits = append(genesis.OneshotGasDeposits, types.OneshotDeposit{GrantId: id, Amount: c})
+		return false, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	err = k.EpochSpendByGrant.Walk(ctx, nil, func(key collections.Pair[uint64, int64], v string) (bool, error) {
+		genesis.EpochSpends = append(genesis.EpochSpends, types.EpochSpendEntry{GrantId: key.K1(), Day: key.K2(), Amount: v})
+		return false, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	err = k.GrantCreatorModule.Walk(ctx, nil, func(id uint64, addr string) (bool, error) {
+		genesis.GrantCreators = append(genesis.GrantCreators, types.GrantCreator{GrantId: id, ModuleAddress: addr})
 		return false, nil
 	})
 	if err != nil {

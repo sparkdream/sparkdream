@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"cosmossdk.io/collections"
+
 	"sparkdream/x/forum/types"
 	reptypes "sparkdream/x/rep/types"
 
@@ -39,12 +41,13 @@ func (k msgServer) AppealThreadMove(ctx context.Context, msg *types.MsgAppealThr
 		return nil, errorsmod.Wrap(types.ErrNotThreadAuthor, "only the thread author can appeal a move")
 	}
 
-	// Check move record exists (sentinel move vs gov move)
+	// Every move (sentinel, committee or council) writes a move record; the
+	// record is dropped once the appeal window closes or an appeal settles,
+	// so a missing record means no appealable move.
 	moveRecord, err := k.ThreadMoveRecord.Get(ctx, msg.RootId)
 	if err != nil {
-		// No move record means governance authority moved this thread or no move occurred
 		return nil, errorsmod.Wrap(types.ErrGovLockNotAppealable,
-			"governance authority moves must be appealed via governance action appeal")
+			"no appealable move record: the thread was not moved, the appeal window closed or the move was already appealed")
 	}
 
 	// Check appeal not already filed
@@ -58,6 +61,9 @@ func (k msgServer) AppealThreadMove(ctx context.Context, msg *types.MsgAppealThr
 		return nil, errorsmod.Wrapf(types.ErrAppealCooldown,
 			"must wait until %d to appeal", cooldownEnd)
 	}
+	if deadline := moveExpiryAt(moveRecord); now >= deadline {
+		return nil, errorsmod.Wrapf(types.ErrMoveAppealExpired, "move appeal window closed at %d", deadline)
+	}
 
 	// Open a moderation appeal through the unified x/rep GovActionAppeal path
 	// (ActionType THREAD_MOVE, ActionTarget = root id). Charges the rep appeal
@@ -70,6 +76,15 @@ func (k msgServer) AppealThreadMove(ctx context.Context, msg *types.MsgAppealThr
 	if err != nil {
 		return nil, errorsmod.Wrap(err, "invalid creator address")
 	}
+	// Mark the record BEFORE opening the rep appeal (see AppealThreadLock).
+	moveRecord.AppealPending = true
+	if err := k.ThreadMoveRecord.Set(ctx, msg.RootId, moveRecord); err != nil {
+		return nil, errorsmod.Wrap(err, "failed to update move record")
+	}
+	if err := k.MoveRecordExpiry.Remove(ctx, collections.Join(moveExpiryAt(moveRecord), msg.RootId)); err != nil {
+		return nil, err
+	}
+
 	_, initiativeID, err := k.repKeeper.CreateGovActionAppeal(
 		ctx,
 		reptypes.GovActionType_GOV_ACTION_TYPE_THREAD_MOVE,
@@ -82,7 +97,6 @@ func (k msgServer) AppealThreadMove(ctx context.Context, msg *types.MsgAppealThr
 	}
 
 	// Update move record with appeal info
-	moveRecord.AppealPending = true
 	moveRecord.InitiativeId = initiativeID
 
 	if err := k.ThreadMoveRecord.Set(ctx, msg.RootId, moveRecord); err != nil {

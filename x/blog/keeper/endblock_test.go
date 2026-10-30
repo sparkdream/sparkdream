@@ -13,6 +13,7 @@ import (
 	"sparkdream/x/blog/keeper"
 	"sparkdream/x/blog/types"
 	reptypes "sparkdream/x/rep/types"
+	shieldtypes "sparkdream/x/shield/types"
 )
 
 // Regression: when EndBlock tombstones an ephemeral post that carried tags,
@@ -338,4 +339,105 @@ func TestEndBlockAnonymousPostConvictionLifecycle(t *testing.T) {
 
 	post, _ = f.keeper.GetPost(f.ctx, resp.Id)
 	require.Equal(t, types.PostStatus_POST_STATUS_DELETED, post.Status)
+}
+
+// BLG-02: reply ids and post ids are separate sequences, so an anonymous
+// reply's conviction renewal must read STAKE_TARGET_BLOG_REPLY_CONTENT.
+// Conviction staked on the post that shares the reply's id must not keep the
+// reply alive; conviction on the reply itself does.
+func TestEndBlockAnonymousReplyConvictionUsesReplyTarget(t *testing.T) {
+	f := initFixture(t)
+	msgServer := keeper.NewMsgServerImpl(f.keeper)
+	shieldAddr := authtypes.NewModuleAddress("shield").String()
+
+	params, err := f.keeper.Params.Get(f.ctx)
+	require.NoError(t, err)
+	params.MaxPostsPerDay = 100
+	params.MaxRepliesPerDay = 100
+	params.CostPerByteExempt = true
+	params.ConvictionRenewalThreshold = math.LegacyNewDec(10)
+	require.NoError(t, f.keeper.Params.Set(f.ctx, params))
+	f.ctx = sdk.UnwrapSDKContext(f.ctx).WithBlockTime(time.Unix(4_000_000, 0))
+
+	postResp, err := msgServer.CreatePost(f.ctx, &types.MsgCreatePost{
+		Creator: "sprkdrm1afyuna8gqe55t7jztxcg0aleg0k5txep72pfan", Title: "Open", Body: "replies welcome", MinReplyTrustLevel: -1,
+	})
+	require.NoError(t, err)
+	replyResp, err := msgServer.CreateReply(shieldtypes.WithProvenTrustLevel(sdk.UnwrapSDKContext(f.ctx), 1), &types.MsgCreateReply{
+		Creator: shieldAddr, PostId: postResp.Id, Body: "anonymous reply",
+	})
+	require.NoError(t, err)
+	replyID := replyResp.Id
+	reply, found := f.keeper.GetReply(f.ctx, replyID)
+	require.True(t, found)
+	require.NotZero(t, reply.ExpiresAt, "anonymous replies are ephemeral")
+
+	staked := map[reptypes.StakeTargetType]uint64{}
+	f.repKeeper.GetContentConvictionFn = func(_ context.Context, tt reptypes.StakeTargetType, id uint64) (math.LegacyDec, error) {
+		if target, ok := staked[tt]; ok && target == id {
+			return math.LegacyNewDec(50), nil
+		}
+		return math.LegacyZeroDec(), nil
+	}
+
+	// Conviction on the post with the reply's id: not the reply's.
+	staked[reptypes.StakeTargetType_STAKE_TARGET_BLOG_CONTENT] = replyID
+	expiry := reply.ExpiresAt
+	f.ctx = sdk.UnwrapSDKContext(f.ctx).WithBlockTime(time.Unix(expiry+1, 0))
+
+	// Run on a branch first: with only post conviction the reply dies.
+	branch, _ := sdk.UnwrapSDKContext(f.ctx).CacheContext()
+	require.NoError(t, f.keeper.EndBlock(branch))
+	got, _ := f.keeper.GetReply(branch, replyID)
+	require.Equal(t, types.ReplyStatus_REPLY_STATUS_DELETED, got.Status, "post conviction must not renew a reply")
+
+	// Conviction on the reply itself renews it.
+	staked[reptypes.StakeTargetType_STAKE_TARGET_BLOG_REPLY_CONTENT] = replyID
+	require.NoError(t, f.keeper.EndBlock(f.ctx))
+	got, _ = f.keeper.GetReply(f.ctx, replyID)
+	require.NotEqual(t, types.ReplyStatus_REPLY_STATUS_DELETED, got.Status)
+	require.True(t, got.ConvictionSustained)
+}
+
+// BLG-03: the expiry pass handles at most MaxExpiriesPerBlock entries per
+// block, oldest first; the rest wait for the next blocks.
+func TestEndBlockExpiryPassIsCapped(t *testing.T) {
+	f := initFixture(t)
+	old := keeper.MaxExpiriesPerBlock
+	keeper.MaxExpiriesPerBlock = 3
+	defer func() { keeper.MaxExpiriesPerBlock = old }()
+
+	msgServer := keeper.NewMsgServerImpl(f.keeper)
+	f.repKeeper.IsActiveMemberFn = func(_ context.Context, _ sdk.AccAddress) bool { return false }
+	params, err := f.keeper.Params.Get(f.ctx)
+	require.NoError(t, err)
+	params.MaxPostsPerDay = 100
+	params.CostPerByteExempt = true
+	require.NoError(t, f.keeper.Params.Set(f.ctx, params))
+	f.ctx = sdk.UnwrapSDKContext(f.ctx).WithBlockTime(time.Unix(5_000_000, 0))
+
+	var ids []uint64
+	for i := 0; i < 5; i++ {
+		resp, err := msgServer.CreatePost(f.ctx, &types.MsgCreatePost{Creator: "sprkdrm1afyuna8gqe55t7jztxcg0aleg0k5txep72pfan", Title: "Ephemeral", Body: "expires"})
+		require.NoError(t, err)
+		ids = append(ids, resp.Id)
+	}
+	post, _ := f.keeper.GetPost(f.ctx, ids[0])
+	require.NotZero(t, post.ExpiresAt)
+	f.ctx = sdk.UnwrapSDKContext(f.ctx).WithBlockTime(time.Unix(post.ExpiresAt+1, 0))
+
+	deleted := func() int {
+		n := 0
+		for _, id := range ids {
+			p, _ := f.keeper.GetPost(f.ctx, id)
+			if p.Status == types.PostStatus_POST_STATUS_DELETED {
+				n++
+			}
+		}
+		return n
+	}
+	require.NoError(t, f.keeper.EndBlock(f.ctx))
+	require.Equal(t, 3, deleted())
+	require.NoError(t, f.keeper.EndBlock(f.ctx))
+	require.Equal(t, 5, deleted())
 }

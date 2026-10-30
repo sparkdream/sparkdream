@@ -88,7 +88,7 @@ func TestAddItem(t *testing.T) {
 				collID := f.createCollection(t, f.owner)
 				coll, _ := f.keeper.Collection.Get(f.ctx, collID)
 				coll.Immutable = true
-				f.keeper.Collection.Set(f.ctx, collID, coll)
+				require.NoError(t, f.keeper.Collection.Set(f.ctx, collID, coll))
 				return collID
 			},
 			msg: func(f *testFixture, collID uint64) *types.MsgAddItem {
@@ -109,7 +109,7 @@ func TestAddItem(t *testing.T) {
 				params, _ := f.keeper.Params.Get(f.ctx)
 				coll, _ := f.keeper.Collection.Get(f.ctx, collID)
 				coll.ItemCount = uint64(params.MaxItemsPerCollection)
-				f.keeper.Collection.Set(f.ctx, collID, coll)
+				require.NoError(t, f.keeper.Collection.Set(f.ctx, collID, coll))
 				return collID
 			},
 			msg: func(f *testFixture, collID uint64) *types.MsgAddItem {
@@ -127,13 +127,13 @@ func TestAddItem(t *testing.T) {
 			setup: func(f *testFixture) uint64 {
 				collID := f.createCollection(t, f.owner)
 				// Store a SponsorshipRequest to block item operations
-				f.keeper.SponsorshipRequest.Set(f.ctx, collID, types.SponsorshipRequest{
+				require.NoError(t, f.keeper.SponsorshipRequest.Set(f.ctx, collID, types.SponsorshipRequest{
 					CollectionId:      collID,
 					Requester:         f.owner,
 					CollectionDeposit: math.NewInt(1000000),
 					ItemDepositTotal:  math.ZeroInt(),
 					ExpiresAt:         99999,
-				})
+				}))
 				return collID
 			},
 			msg: func(f *testFixture, collID uint64) *types.MsgAddItem {

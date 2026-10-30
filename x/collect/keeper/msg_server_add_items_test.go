@@ -57,7 +57,7 @@ func TestAddItems(t *testing.T) {
 				// Set max_batch_size to 2
 				params, _ := f.keeper.Params.Get(f.ctx)
 				params.MaxBatchSize = 2
-				f.keeper.Params.Set(f.ctx, params)
+				require.NoError(t, f.keeper.Params.Set(f.ctx, params))
 				return f.createCollection(t, f.owner)
 			},
 			msg: func(f *testFixture, collID uint64) *types.MsgAddItems {
@@ -94,7 +94,7 @@ func TestAddItems(t *testing.T) {
 			setup: func(f *testFixture) uint64 {
 				params, _ := f.keeper.Params.Get(f.ctx)
 				params.MaxItemsPerCollection = 2
-				f.keeper.Params.Set(f.ctx, params)
+				require.NoError(t, f.keeper.Params.Set(f.ctx, params))
 				collID := f.createCollection(t, f.owner)
 				f.addItem(t, collID, f.owner) // 1 item
 				return collID

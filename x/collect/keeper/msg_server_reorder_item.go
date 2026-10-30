@@ -39,9 +39,19 @@ func (k msgServer) ReorderItem(ctx context.Context, msg *types.MsgReorderItem) (
 		return nil, types.ErrUnauthorized
 	}
 
+	// If collaborator (not owner), must be member (spec §5.9, as add/update/remove)
+	if !k.canActAs(ctx, msg.Creator, coll.Owner) {
+		if !k.isMember(ctx, msg.Creator) {
+			return nil, types.ErrNotMember
+		}
+	}
+
 	// Collection must not be immutable
 	if coll.Immutable {
 		return nil, types.ErrCollectionImmutable
+	}
+	if err := checkNotHidden(coll, &item); err != nil {
+		return nil, err
 	}
 
 	// new_position must be in range [0, item_count-1]

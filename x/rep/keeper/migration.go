@@ -9,7 +9,9 @@ import (
 	errorsmod "cosmossdk.io/errors"
 	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	icatypes "github.com/cosmos/ibc-go/v10/modules/apps/27-interchain-accounts/types"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/rep/types"
 )
 
@@ -103,6 +105,15 @@ func (k Keeper) checkMigrationSource(ctx context.Context, from string) (types.Me
 // session grants as granter, operator records, federation links) is checked
 // by the BeforeMemberMigration hooks the caller runs next.
 func (k Keeper) checkTargetFresh(ctx context.Context, from, to string) error {
+	return k.checkTargetFreshOpts(ctx, from, to, false)
+}
+
+// checkTargetFreshOpts is checkTargetFresh with the pending-invitation rule
+// optional. RECOVERY and COUNCIL opens pass allowPendingInvitation: their
+// target is public before the open (a recovery reveal in the mempool, a force
+// in a commons proposal), so an invitation filed in that window must not be
+// able to fail the open; openMigration voids it instead (REP-R-02).
+func (k Keeper) checkTargetFreshOpts(ctx context.Context, from, to string, allowPendingInvitation bool) error {
 	if to == from {
 		return errorsmod.Wrap(types.ErrMigrationTargetNotFresh, "new address equals the old one")
 	}
@@ -112,8 +123,8 @@ func (k Keeper) checkTargetFresh(ctx context.Context, from, to string) error {
 	if has, _ := k.Member.Has(ctx, to); has {
 		return errorsmod.Wrap(types.ErrMigrationTargetNotFresh, "new address is already a member")
 	}
-	if invID, err := k.InvitationsByInvitee.Get(ctx, to); err == nil {
-		if inv, err := k.Invitation.Get(ctx, invID); err == nil && inv.Status == types.InvitationStatus_INVITATION_STATUS_PENDING {
+	if !allowPendingInvitation {
+		if _, pending := k.pendingInvitationTo(ctx, to); pending {
 			return errorsmod.Wrap(types.ErrMigrationTargetNotFresh, "new address has a pending invitation")
 		}
 	}
@@ -129,9 +140,37 @@ func (k Keeper) checkTargetFresh(ctx context.Context, from, to string) error {
 	return nil
 }
 
+// pendingInvitationTo returns the PENDING invitation addressed to addr, if any.
+func (k Keeper) pendingInvitationTo(ctx context.Context, addr string) (types.Invitation, bool) {
+	invID, err := k.InvitationsByInvitee.Get(ctx, addr)
+	if err != nil {
+		return types.Invitation{}, false
+	}
+	inv, err := k.Invitation.Get(ctx, invID)
+	if err != nil || inv.Status != types.InvitationStatus_INVITATION_STATUS_PENDING {
+		return types.Invitation{}, false
+	}
+	return inv, true
+}
+
+// voidPendingInvitationTo closes a PENDING invitation to a RECOVERY or COUNCIL
+// migration target as REVOKED (REP-R-02): the inviter gets the stake and the
+// invitation credit back and the invitee slot is freed, exactly as if the
+// inviter had revoked it, and an invitation_voided_by_migration event names
+// the migration. The invitee never accepted, so nothing is lost but the
+// inviter's intent, which a migration of a proven member outranks.
+func (k Keeper) voidPendingInvitationTo(ctx context.Context, to string, migrationID uint64) error {
+	inv, pending := k.pendingInvitationTo(ctx, to)
+	if !pending {
+		return nil
+	}
+	return k.closePendingInvitation(ctx, inv, types.InvitationStatus_INVITATION_STATUS_REVOKED, "invitation_voided_by_migration",
+		sdk.NewAttribute("migration_id", fmt.Sprintf("%d", migrationID)))
+}
+
 // IsPersonalAddress fails when addr cannot belong to a person: a reserved
-// module or system address, a module account, a council or committee policy
-// or an x/vault shared account. Membership is a person, so every entry point
+// module or system address, a module account, an interchain account, a
+// council or committee policy or an x/vault shared account. Membership is a person, so every entry point
 // that creates or moves an identity (invitation, acceptance, migration target)
 // runs this gate; x/vault runs it on signer sets.
 func (k Keeper) IsPersonalAddress(ctx context.Context, addr string) error {
@@ -146,6 +185,11 @@ func (k Keeper) IsPersonalAddress(ctx context.Context, addr string) error {
 		if acc := k.authKeeper.GetAccount(ctx, addrBytes); acc != nil {
 			if _, isModule := acc.(sdk.ModuleAccountI); isModule {
 				return fmt.Errorf("is a module account")
+			}
+			// An interchain account is driven by a controller chain's
+			// module, not by a person holding a key here.
+			if _, isICA := acc.(*icatypes.InterchainAccount); isICA {
+				return fmt.Errorf("is an interchain account")
 			}
 		}
 	}
@@ -206,7 +250,7 @@ func (k Keeper) RequestKeyMigration(ctx context.Context, from, to string) (uint6
 			inWindow++
 		}
 	}
-	if uint32(inWindow) >= params.MaxKeyMigrationsPerWindow {
+	if commontypes.Saturate[uint32](inWindow) >= params.MaxKeyMigrationsPerWindow {
 		return 0, errorsmod.Wrapf(types.ErrMigrationWindowCap, "%d within key_migration_window", inWindow)
 	}
 	return k.openMigration(ctx, from, to, types.MigrationPath_MIGRATION_PATH_KEY, "")
@@ -215,7 +259,9 @@ func (k Keeper) RequestKeyMigration(ctx context.Context, from, to string) (uint6
 // ForceMigration opens a COUNCIL migration on behalf of the HR committee or
 // governance. An open member report does not block it: a theft victim should
 // not wait on a report. The new address must still accept, and the old
-// address may object to a jury during the delay.
+// address may object to a jury during the delay. Signed by x/gov for the
+// member and new address of a migration whose objection is escalated to
+// governance, it rejects that objection instead of opening a new migration.
 func (k Keeper) ForceMigration(ctx context.Context, authority, from, to, evidenceURI string) (uint64, error) {
 	if !k.IsHRCommitteePolicy(ctx, authority) {
 		return 0, errorsmod.Wrap(types.ErrMigrationNotAuthorized, "only the Commons HR committee policy or governance may force a migration")
@@ -226,6 +272,25 @@ func (k Keeper) ForceMigration(ctx context.Context, authority, from, to, evidenc
 	}
 	if !params.MigrationEnabled {
 		return 0, types.ErrMigrationDisabled
+	}
+	// Governance re-forcing the migration an inconclusive jury escalated to
+	// it rejects the objection: the bond goes to the new address and the
+	// migration finalizes. Only x/gov decides an escalation; the HR committee
+	// filed the migration and cannot overrule the objection to it.
+	if pendingID, err := k.PendingMigrationByMember.Get(ctx, from); err == nil {
+		if pending, err := k.MemberMigrations.Get(ctx, pendingID); err == nil && isEscalatedObjection(pending) {
+			if !k.IsGovAuthority(authority) {
+				return 0, errorsmod.Wrap(types.ErrMigrationNotAuthorized, "the objection to this migration is escalated to governance")
+			}
+			if pending.ToAddress != to {
+				return 0, errorsmod.Wrapf(types.ErrMigrationPending,
+					"migration %d to %s awaits a governance decision; cancel it first to force another target", pending.Id, pending.ToAddress)
+			}
+			if err := k.rejectMigrationObjection(ctx, &pending, "gov"); err != nil {
+				return 0, err
+			}
+			return pending.Id, nil
+		}
 	}
 	if _, err := k.checkMigrationSource(ctx, from); err != nil {
 		return 0, err
@@ -245,7 +310,11 @@ func (k Keeper) openMigration(ctx context.Context, from, to string, path types.M
 	if _, err := k.checkMigrationSource(ctx, from); err != nil {
 		return 0, err
 	}
-	if err := k.checkTargetFresh(ctx, from, to); err != nil {
+	// RECOVERY and COUNCIL targets are public before the open, so a pending
+	// invitation to the target does not fail them: it is voided below once
+	// every other check has passed. The KEY path keeps the refusal.
+	nonKey := path != types.MigrationPath_MIGRATION_PATH_KEY
+	if err := k.checkTargetFreshOpts(ctx, from, to, nonKey); err != nil {
 		return 0, err
 	}
 	if err := k.checkAliasCaps(ctx, from, path); err != nil {
@@ -285,6 +354,11 @@ func (k Keeper) openMigration(ctx context.Context, from, to string, path types.M
 		return 0, err
 	}
 	id++ // ids start at 1; 0 is "none" in queries and events
+	if nonKey {
+		if err := k.voidPendingInvitationTo(ctx, to, id); err != nil {
+			return 0, err
+		}
+	}
 	m := types.MemberMigration{
 		Id:            id,
 		FromAddress:   from,
@@ -294,6 +368,7 @@ func (k Keeper) openMigration(ctx context.Context, from, to string, path types.M
 		RequestedAt:   now,
 		EvidenceUri:   evidenceURI,
 		ObjectionBond: math.ZeroInt(),
+		AcceptBy:      now + params.MigrationAcceptWindow,
 	}
 	if err := k.MemberMigrations.Set(ctx, id, m); err != nil {
 		return 0, err
@@ -301,10 +376,14 @@ func (k Keeper) openMigration(ctx context.Context, from, to string, path types.M
 	if err := k.PendingMigrationByMember.Set(ctx, from, id); err != nil {
 		return 0, err
 	}
-	if err := k.PendingMigrationByTarget.Set(ctx, to, id); err != nil {
+	// The request does not reserve the target: nobody has proven control of
+	// it yet, and a reservation here would let any member (or a thief holding
+	// the old key) squat a victim's recovery target with a request of their
+	// own. The target is reserved when it accepts.
+	if err := k.MigrationRequestsByTarget.Set(ctx, collections.Join(to, id)); err != nil {
 		return 0, err
 	}
-	if err := k.MigrationAcceptExpiry.Set(ctx, collections.Join(now+params.MigrationAcceptWindow, id)); err != nil {
+	if err := k.MigrationAcceptExpiry.Set(ctx, collections.Join(m.AcceptBy, id)); err != nil {
 		return 0, err
 	}
 	sdkCtx.EventManager().EmitEvent(sdk.NewEvent("member_migration_requested",
@@ -312,7 +391,7 @@ func (k Keeper) openMigration(ctx context.Context, from, to string, path types.M
 		sdk.NewAttribute("from", from),
 		sdk.NewAttribute("to", to),
 		sdk.NewAttribute("path", path.String()),
-		sdk.NewAttribute("accept_by", fmt.Sprintf("%d", now+params.MigrationAcceptWindow)),
+		sdk.NewAttribute("accept_by", fmt.Sprintf("%d", m.AcceptBy)),
 	))
 	return id, nil
 }
@@ -356,7 +435,14 @@ func (k Keeper) AcceptMigration(ctx context.Context, signer string, id uint64) e
 	case types.MigrationPath_MIGRATION_PATH_COUNCIL:
 		delay = params.CouncilMigrationDelay
 	}
-	if err := k.MigrationAcceptExpiry.Remove(ctx, collections.Join(m.RequestedAt+params.MigrationAcceptWindow, id)); err != nil {
+	if err := k.MigrationAcceptExpiry.Remove(ctx, collections.Join(acceptBy(m, params), id)); err != nil {
+		return err
+	}
+	if err := k.MigrationRequestsByTarget.Remove(ctx, collections.Join(m.ToAddress, id)); err != nil {
+		return err
+	}
+	// The new address proved control: reserve it.
+	if err := k.PendingMigrationByTarget.Set(ctx, m.ToAddress, id); err != nil {
 		return err
 	}
 	m.Status = types.MigrationStatus_MIGRATION_STATUS_ACCEPTED
@@ -381,20 +467,64 @@ func (k Keeper) AcceptMigration(ctx context.Context, signer string, id uint64) e
 // checkTargetFreshAtAccept re-runs the freshness check for an existing
 // migration, ignoring the migration's own pending-target entry.
 func (k Keeper) checkTargetFreshAtAccept(ctx context.Context, m types.MemberMigration) error {
-	if err := k.PendingMigrationByTarget.Remove(ctx, m.ToAddress); err != nil {
-		return err
+	owned := false
+	if cur, err := k.PendingMigrationByTarget.Get(ctx, m.ToAddress); err == nil && cur == m.Id {
+		owned = true
+		if err := k.PendingMigrationByTarget.Remove(ctx, m.ToAddress); err != nil {
+			return err
+		}
 	}
 	freshErr := k.checkTargetFresh(ctx, m.FromAddress, m.ToAddress)
-	if err := k.PendingMigrationByTarget.Set(ctx, m.ToAddress, m.Id); err != nil {
-		return err
+	if owned {
+		if err := k.PendingMigrationByTarget.Set(ctx, m.ToAddress, m.Id); err != nil {
+			return err
+		}
 	}
 	return freshErr
+}
+
+// acceptBy returns the migration's accept deadline. Migrations written
+// before accept_by existed fall back to the param-derived value.
+func acceptBy(m types.MemberMigration, params types.Params) int64 {
+	if m.AcceptBy != 0 {
+		return m.AcceptBy
+	}
+	return m.RequestedAt + params.MigrationAcceptWindow
+}
+
+// IsReservedMigrationTarget reports whether addr must not take on an identity
+// of its own because a migration is about to move one into it: it has
+// accepted a migration, or it is named by a pending RECOVERY or COUNCIL
+// request. Those requests need a recovery preimage or the HR committee, so
+// nobody can reserve an address for free; KEY requests do not count, since
+// any member can name any address in one. x/rep refuses invitations to a
+// reserved address (a thief must not void a recovery by inviting its target).
+func (k Keeper) IsReservedMigrationTarget(ctx context.Context, addr string) bool {
+	if has, _ := k.PendingMigrationByTarget.Has(ctx, addr); has {
+		return true
+	}
+	reserved := false
+	if err := k.MigrationRequestsByTarget.Walk(ctx, collections.NewPrefixedPairRange[string, uint64](addr),
+		func(key collections.Pair[string, uint64]) (bool, error) {
+			if m, err := k.MemberMigrations.Get(ctx, key.K2()); err == nil &&
+				m.Status == types.MigrationStatus_MIGRATION_STATUS_REQUESTED &&
+				m.Path != types.MigrationPath_MIGRATION_PATH_KEY {
+				reserved = true
+				return true, nil
+			}
+			return false, nil
+		}); err != nil {
+		sdk.UnwrapSDKContext(ctx).Logger().Error("IsReservedMigrationTarget: MigrationRequestsByTarget.Walk failed", "err", err)
+	}
+	return reserved
 }
 
 // CancelMigration cancels a pending migration. Who may cancel: the old or new
 // address for KEY migrations; the HR committee policy for KEY and COUNCIL
 // migrations; governance for any path (the only authority over a RECOVERY
-// migration, whose commitment predates any compromise).
+// migration, whose commitment predates any compromise). Cancelling an
+// OBJECTED migration refunds the objector, so governance cancelling a
+// migration whose objection was escalated to it upholds the objection.
 func (k Keeper) CancelMigration(ctx context.Context, signer string, id uint64) error {
 	m, err := k.MemberMigrations.Get(ctx, id)
 	if err != nil {
@@ -452,10 +582,15 @@ func (k Keeper) clearPendingIndexes(ctx context.Context, m types.MemberMigration
 	if err := k.PendingMigrationByMember.Remove(ctx, m.FromAddress); err != nil {
 		return err
 	}
-	if err := k.PendingMigrationByTarget.Remove(ctx, m.ToAddress); err != nil {
+	if cur, err := k.PendingMigrationByTarget.Get(ctx, m.ToAddress); err == nil && cur == m.Id {
+		if err := k.PendingMigrationByTarget.Remove(ctx, m.ToAddress); err != nil {
+			return err
+		}
+	}
+	if err := k.MigrationRequestsByTarget.Remove(ctx, collections.Join(m.ToAddress, m.Id)); err != nil {
 		return err
 	}
-	if err := k.MigrationAcceptExpiry.Remove(ctx, collections.Join(m.RequestedAt+params.MigrationAcceptWindow, m.Id)); err != nil {
+	if err := k.MigrationAcceptExpiry.Remove(ctx, collections.Join(acceptBy(m, params), m.Id)); err != nil {
 		return err
 	}
 	if m.ExecutesAt > 0 {
@@ -463,7 +598,7 @@ func (k Keeper) clearPendingIndexes(ctx context.Context, m types.MemberMigration
 			return err
 		}
 	}
-	return nil
+	return k.ObjectedMigrations.Remove(ctx, m.Id)
 }
 
 // payObjectionBond releases the escrowed objection bond to recipient.
@@ -488,8 +623,9 @@ func (k Keeper) payObjectionBond(ctx context.Context, m *types.MemberMigration, 
 // ObjectMigration lets the old address contest a COUNCIL migration during
 // its delay. It does not cancel the migration: in the stolen-key case the
 // thief holds the key, so a veto would let the thief block recovery. The
-// objector posts migration_objection_bond and an x/rep jury decides. The
-// bond is paid to the new address if the migration is upheld and refunded
+// objector posts migration_objection_bond and an x/rep jury decides; an
+// inconclusive jury escalates to x/gov (resolveMigrationObjection). The bond
+// is paid to the new address if the migration is upheld and refunded
 // otherwise, never burned (on the stolen-key path it is the victim's SPARK).
 func (k Keeper) ObjectMigration(ctx context.Context, member string, id uint64, reason string) error {
 	m, err := k.MemberMigrations.Get(ctx, id)
@@ -543,10 +679,14 @@ func (k Keeper) ObjectMigration(ctx context.Context, member string, id uint64, r
 	} else if len(jurors) > 0 {
 		if review, rErr := k.GetJuryReview(ctx, reviewID); rErr == nil {
 			review.Jurors = jurors
-			review.RequiredVotes = uint32(k.appealRequiredVotes(ctx, len(jurors)))
+			review.RequiredVotes = commontypes.Saturate[uint32](k.appealRequiredVotes(ctx, len(jurors)))
 			if err := k.JuryReview.Set(ctx, reviewID, review); err == nil {
-				_ = k.AddJuryReviewToJurorIndex(ctx, review)
-				_ = k.RecordJurySeating(ctx, jurors)
+				if err := k.AddJuryReviewToJurorIndex(ctx, review); err != nil {
+					return err
+				}
+				if err := k.RecordJurySeating(ctx, jurors); err != nil {
+					return err
+				}
 			}
 		}
 	}
@@ -563,6 +703,9 @@ func (k Keeper) ObjectMigration(ctx context.Context, member string, id uint64, r
 	if err := k.MemberMigrations.Set(ctx, id, m); err != nil {
 		return err
 	}
+	if err := k.ObjectedMigrations.Set(ctx, id); err != nil {
+		return err
+	}
 	sdkCtx.EventManager().EmitEvent(sdk.NewEvent("member_migration_objected",
 		sdk.NewAttribute("migration_id", fmt.Sprintf("%d", id)),
 		sdk.NewAttribute("from", m.FromAddress),
@@ -576,9 +719,11 @@ func (k Keeper) ObjectMigration(ctx context.Context, member string, id uint64, r
 // resolveMigrationObjection applies a jury verdict to an OBJECTED migration.
 // The objector is the "challenger": UPHOLD_CHALLENGE sustains the objection
 // (migration cancelled, bond refunded); REJECT_CHALLENGE upholds the
-// migration (finalizes at the next EndBlock, bond paid to the new address);
-// INCONCLUSIVE cancels and refunds, so no identity ever moves without a
-// positive jury decision. The HR committee may file again.
+// migration (finalizes at the next EndBlock, bond paid to the new address).
+// INCONCLUSIVE (including a jury that could not be seated) neither cancels
+// nor refunds: on a chain too thin to seat a jury that would let a thief
+// holding the old key stall every council migration for free. The objection
+// is escalated to x/gov instead (escalateMigrationObjection).
 func (k Keeper) resolveMigrationObjection(ctx context.Context, review types.JuryReview, verdict types.Verdict) error {
 	var payload struct {
 		MigrationID uint64 `json:"migration_id"`
@@ -590,47 +735,99 @@ func (k Keeper) resolveMigrationObjection(ctx context.Context, review types.Jury
 	if err != nil {
 		return types.ErrMigrationNotFound
 	}
-	if m.Status != types.MigrationStatus_MIGRATION_STATUS_OBJECTED || m.JuryReviewId != review.Id {
-		return nil // already resolved or superseded; nothing to apply
+	if m.Status != types.MigrationStatus_MIGRATION_STATUS_OBJECTED || m.JuryReviewId != review.Id || m.EscalatedUntil != 0 {
+		return nil // already resolved, superseded or escalated; nothing to apply
 	}
-	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	switch verdict {
 	case types.Verdict_VERDICT_REJECT_CHALLENGE:
-		if m.ObjectionBond.IsPositive() {
-			if err := k.payObjectionBond(ctx, &m, m.ToAddress); err != nil {
-				return err
-			}
-		}
-		m.Status = types.MigrationStatus_MIGRATION_STATUS_ACCEPTED
-		m.ExecutesAt = sdkCtx.BlockTime().Unix()
-		if err := k.MemberMigrations.Set(ctx, m.Id, m); err != nil {
-			return err
-		}
-		if err := k.MigrationQueue.Set(ctx, collections.Join(m.ExecutesAt, m.Id)); err != nil {
-			return err
-		}
-		sdkCtx.EventManager().EmitEvent(sdk.NewEvent("member_migration_objection_rejected",
-			sdk.NewAttribute("migration_id", fmt.Sprintf("%d", m.Id)),
-			sdk.NewAttribute("jury_review_id", fmt.Sprintf("%d", review.Id)),
-		))
-		return nil
+		return k.rejectMigrationObjection(ctx, &m, fmt.Sprintf("jury:%d", review.Id))
 	case types.Verdict_VERDICT_UPHOLD_CHALLENGE:
 		return k.cancelMigration(ctx, &m, types.MigrationStatus_MIGRATION_STATUS_CANCELLED,
 			fmt.Sprintf("objection upheld by jury review %d", review.Id))
 	default:
-		return k.cancelMigration(ctx, &m, types.MigrationStatus_MIGRATION_STATUS_CANCELLED,
-			fmt.Sprintf("objection jury review %d inconclusive", review.Id))
+		return k.escalateMigrationObjection(ctx, &m)
 	}
 }
 
+// rejectMigrationObjection settles an objection against the objector: the
+// bond is paid to the new address and the migration re-enters the queue to
+// finalize at the next EndBlock. by names the deciding authority ("jury:<id>",
+// "gov" or "escalation_expired") on the event.
+func (k Keeper) rejectMigrationObjection(ctx context.Context, m *types.MemberMigration, by string) error {
+	sdkCtx := sdk.UnwrapSDKContext(ctx)
+	if m.ObjectionBond.IsPositive() {
+		if err := k.payObjectionBond(ctx, m, m.ToAddress); err != nil {
+			return err
+		}
+	}
+	m.Status = types.MigrationStatus_MIGRATION_STATUS_ACCEPTED
+	m.ExecutesAt = sdkCtx.BlockTime().Unix()
+	m.EscalatedUntil = 0
+	if err := k.MemberMigrations.Set(ctx, m.Id, *m); err != nil {
+		return err
+	}
+	if err := k.ObjectedMigrations.Remove(ctx, m.Id); err != nil {
+		return err
+	}
+	if err := k.MigrationQueue.Set(ctx, collections.Join(m.ExecutesAt, m.Id)); err != nil {
+		return err
+	}
+	sdkCtx.EventManager().EmitEvent(sdk.NewEvent("member_migration_objection_rejected",
+		sdk.NewAttribute("migration_id", fmt.Sprintf("%d", m.Id)),
+		sdk.NewAttribute("jury_review_id", fmt.Sprintf("%d", m.JuryReviewId)),
+		sdk.NewAttribute("by", by),
+	))
+	return nil
+}
+
+// escalateMigrationObjection hands an objection the jury could not decide to
+// x/gov. The migration stays OBJECTED (out of the finalization queue) and the
+// objector's bond stays in escrow. Governance decides with the existing
+// messages: MsgCancelMigration upholds the objection (cancel, bond refunded),
+// MsgForceMigration naming the same member and new address rejects it
+// (finalize, bond paid to the new address). If governance has not decided
+// within MigrationObjectionEscalationWindow, SweepObjectedMigrations rejects
+// the objection.
+func (k Keeper) escalateMigrationObjection(ctx context.Context, m *types.MemberMigration) error {
+	sdkCtx := sdk.UnwrapSDKContext(ctx)
+	m.EscalatedUntil = sdkCtx.BlockTime().Unix() + types.MigrationObjectionEscalationWindow
+	if err := k.MemberMigrations.Set(ctx, m.Id, *m); err != nil {
+		return err
+	}
+	sdkCtx.EventManager().EmitEvent(sdk.NewEvent("member_migration_objection_escalated",
+		sdk.NewAttribute("migration_id", fmt.Sprintf("%d", m.Id)),
+		sdk.NewAttribute("from", m.FromAddress),
+		sdk.NewAttribute("to", m.ToAddress),
+		sdk.NewAttribute("jury_review_id", fmt.Sprintf("%d", m.JuryReviewId)),
+		sdk.NewAttribute("escalated_until", fmt.Sprintf("%d", m.EscalatedUntil)),
+	))
+	return nil
+}
+
+// isEscalatedObjection reports whether m is an OBJECTED council migration
+// whose objection waits on x/gov.
+func isEscalatedObjection(m types.MemberMigration) bool {
+	return m.Status == types.MigrationStatus_MIGRATION_STATUS_OBJECTED && m.EscalatedUntil != 0
+}
+
 // SweepObjectedMigrations tallies objection reviews whose deadline passed
-// without a verdict, so a silent jury cannot park a migration forever.
+// without a verdict, so a silent jury cannot park a migration forever, and
+// rejects escalated objections governance left undecided past their
+// escalation window. It walks only the OBJECTED migrations
+// (ObjectedMigrations), not every pending one.
 func (k Keeper) SweepObjectedMigrations(ctx context.Context) error {
-	now := sdk.UnwrapSDKContext(ctx).BlockTime().Unix()
-	var due []uint64
-	err := k.PendingMigrationByMember.Walk(ctx, nil, func(_ string, id uint64) (bool, error) {
+	sdkCtx := sdk.UnwrapSDKContext(ctx)
+	now := sdkCtx.BlockTime().Unix()
+	var due, expired []uint64
+	err := k.ObjectedMigrations.Walk(ctx, nil, func(id uint64) (bool, error) {
 		m, err := k.MemberMigrations.Get(ctx, id)
 		if err != nil || m.Status != types.MigrationStatus_MIGRATION_STATUS_OBJECTED {
+			return false, nil
+		}
+		if m.EscalatedUntil != 0 {
+			if m.EscalatedUntil <= now {
+				expired = append(expired, id)
+			}
 			return false, nil
 		}
 		review, err := k.GetJuryReview(ctx, m.JuryReviewId)
@@ -645,17 +842,41 @@ func (k Keeper) SweepObjectedMigrations(ctx context.Context) error {
 	}
 	for _, reviewID := range due {
 		if err := k.TallyJuryVotes(ctx, reviewID); err != nil {
-			sdk.UnwrapSDKContext(ctx).Logger().Error("failed to tally expired migration objection", "review_id", reviewID, "error", err)
+			sdkCtx.Logger().Error("failed to tally expired migration objection", "review_id", reviewID, "error", err)
 		}
 	}
+	for _, id := range expired {
+		cacheCtx, write := sdkCtx.CacheContext()
+		m, err := k.MemberMigrations.Get(cacheCtx, id)
+		if err == nil {
+			err = k.rejectMigrationObjection(cacheCtx, &m, "escalation_expired")
+		}
+		if err != nil {
+			sdkCtx.Logger().Error("failed to expire escalated migration objection", "migration_id", id, "error", err)
+			continue
+		}
+		write()
+	}
 	return nil
+}
+
+// AddTombstoneSweeper registers a module callback that MsgSweepTombstone runs
+// before moving the tombstone's spendable SPARK: it collects module-held
+// funds of the tombstone (x/service: matured exit bonds) for the canonical
+// address. Wired from app.go.
+func (k Keeper) AddTombstoneSweeper(fn func(ctx context.Context, tombstone, canonical sdk.AccAddress) error) {
+	k.late.tombstoneSweepers = append(k.late.tombstoneSweepers, fn)
 }
 
 // SweepTombstone moves a tombstone's spendable SPARK to its canonical
 // address. Unbonding completes to the tombstone through UndelegateCoins,
 // which bypasses the send restriction, so SPARK keeps landing there after
 // finalization; on the RECOVERY and COUNCIL paths the tombstone cannot
-// MsgSend it, so the canonical address collects it here.
+// MsgSend it, so the canonical address collects it here. On those paths it
+// also starts unbonding any delegation still at the tombstone (finalization
+// starts them all, but a validator at its unbonding-entry cap, or more than
+// MaxTombstoneUndelegations delegations, leaves some behind); once that
+// unbonding matures, the next sweep collects the released SPARK.
 func (k Keeper) SweepTombstone(ctx context.Context, signer, tombstone string) (sdk.Coins, error) {
 	t, found := k.GetTombstone(ctx, tombstone)
 	if !found {
@@ -671,6 +892,14 @@ func (k Keeper) SweepTombstone(ctx context.Context, signer, tombstone string) (s
 	to, err := k.addressCodec.StringToBytes(signer)
 	if err != nil {
 		return nil, err
+	}
+	if t.Path != types.MigrationPath_MIGRATION_PATH_KEY {
+		k.undelegateTombstone(ctx, from, "sweep")
+	}
+	for _, sweep := range k.late.tombstoneSweepers {
+		if err := sweep(ctx, from, to); err != nil {
+			return nil, err
+		}
 	}
 	spendable := k.bankKeeper.SpendableCoins(ctx, from)
 	if spendable.IsZero() {
@@ -710,17 +939,26 @@ func (k Keeper) GetPendingMigration(ctx context.Context, member string) (types.M
 }
 
 // GetPendingMigrationByTarget returns the pending migration whose new address
-// is to.
+// is to: the accepted one if any, otherwise the most recent request naming
+// it.
 func (k Keeper) GetPendingMigrationByTarget(ctx context.Context, to string) (types.MemberMigration, bool) {
-	id, err := k.PendingMigrationByTarget.Get(ctx, to)
-	if err != nil {
-		return types.MemberMigration{}, false
+	if id, err := k.PendingMigrationByTarget.Get(ctx, to); err == nil {
+		if m, err := k.MemberMigrations.Get(ctx, id); err == nil && types.IsPendingMigrationStatus(m.Status) {
+			return m, true
+		}
 	}
-	m, err := k.MemberMigrations.Get(ctx, id)
-	if err != nil || !types.IsPendingMigrationStatus(m.Status) {
-		return types.MemberMigration{}, false
+	var found types.MemberMigration
+	ok := false
+	if err := k.MigrationRequestsByTarget.Walk(ctx, collections.NewPrefixedPairRange[string, uint64](to),
+		func(key collections.Pair[string, uint64]) (bool, error) {
+			if m, err := k.MemberMigrations.Get(ctx, key.K2()); err == nil && types.IsPendingMigrationStatus(m.Status) {
+				found, ok = m, true // ascending ids: the last match is the newest
+			}
+			return false, nil
+		}); err != nil {
+		sdk.UnwrapSDKContext(ctx).Logger().Error("GetPendingMigrationByTarget: MigrationRequestsByTarget.Walk failed", "err", err)
 	}
-	return m, true
+	return found, ok
 }
 
 // ZkKeyActivationDelaySeconds is the ZK key activation delay converted to

@@ -67,13 +67,13 @@ The `x/season` module depends on:
 The `x/name` module (see [x-name-spec.md](x-name-spec.md)) provides name registration and uniqueness enforcement. `x/season` uses it for:
 
 1. **Usernames**: Reserved via `ReserveName(ctx, name, NameTypeUsername, owner)` - unique @handles
-2. **Guild names**: Reserved via `ReserveName(ctx, name, NameTypeGuild, founder)` - unique guild identifiers
+2. **Guild names**: Reserved via `ReserveName(ctx, name, NameTypeGuild, founder)` - unique guild identifiers. Because the name goes through x/name's `ClaimName`, `ValidateGuildName` enforces x/name's format up front: 3-30 characters of `a-z`, `0-9`, `_` and `-`, not starting or ending with `-` (`ErrGuildNameTooShort`/`ErrGuildNameTooLong`/`ErrGuildNameInvalidChars`, 1121/1122/1148). A display-style name such as "Phoenix Guild" would otherwise pass season validation and then always fail the reservation.
 
 **Note:** Display names are NOT reserved via x/name - they are non-unique cosmetic names.
 
 **Owned Names:** If a member already owns a name in x/name (e.g., registered their identity), they can use it as their username without additional reservation or cost via `IsNameOwner()` check.
 
-Both reserved names are released when no longer needed (username change, guild dissolution, member zeroed).
+Both reserved names are released when no longer needed (username change, guild dissolution, member zeroed). Release is `NameKeeper.ReleaseName(name, owner)`: x/name deletes the record with its owner, target and accepted-target index entries and any primary-name pointer, so the name can be claimed again; a name now held by someone else is left alone.
 
 ### x/forum Integration
 
@@ -108,7 +108,7 @@ The module validates authority for admin messages via `x/commons`:
 
 | Authority | Messages | Check Method |
 |-----------|----------|--------------|
-| Commons Operations Committee | Quest CRUD | `commonsKeeper.IsCommitteeMember(ctx, sender, "commons", "operations")` |
+| Commons Operations Committee **policy address** (an executed committee proposal), the Commons Council policy address, or x/gov | Quest, achievement and title create/update/delete; display-name moderation resolutions | `commonsKeeper.IsCouncilOrCommitteePolicy(ctx, sender, "commons", "operations")` (never a single committee member) |
 | Commons Council | Season extension, naming | `commonsKeeper.IsCouncilMember(ctx, sender, "commons")` or via commons proposal |
 
 ## State
@@ -128,11 +128,11 @@ message Season {
   uint32 extensions_count = 7;
   uint64 total_extension_epochs = 8;
   int64 original_end_block = 9;
+  int64 start_time = 10;              // unix seconds at season start (0: started at genesis)
 
-  // Note: Season stats (total_initiatives_completed, total_members_joined, etc.)
-  // are NOT stored on-chain. Indexers compute these from events:
-  // - EventMemberProfileCreated -> total_members_joined
-  // - EventInitiativeCompleted (from x/rep) -> total_initiatives_completed
+  // Season aggregates live in SeasonStatsCounters (running counters, see
+  // the SeasonStats query); total_members_joined is computed by indexers
+  // from member_profile_created events.
 }
 
 enum SeasonStatus {
@@ -302,6 +302,7 @@ message GuildMembership {
   int64 joined_epoch = 3;
   int64 left_epoch = 4;
   uint32 guilds_joined_this_season = 5;
+  uint64 guilds_joined_season = 6;  // season the count belongs to; another season reads as 0
 }
 
 message GuildInvite {
@@ -312,6 +313,12 @@ message GuildInvite {
   int64 expires_epoch = 5;  // 0 = never expires (if guild_invite_ttl_epochs param is 0)
 }
 ```
+
+> **Implementation notes (guilds).**
+> - **Active-member counter (SEA-24).** `GuildMemberCount` is kept in step by every membership change through one pair of helpers (`joinGuildMembership` / `leaveGuildMembership`): create (the founder is the first counted member), join, accept invite, leave, kick, zeroing, and dissolve (which also sets it to 0). Capacity (`max_guild_members`, including accepted invites), the below-minimum freeze and founder succession read it.
+> - **Per-season cap (SEA-27).** `GuildMembership` stores `guilds_joined_season` next to the count; a record from an earlier season counts as zero, so `max_guilds_per_season` resets every season without a transition walk.
+> - **Indexes (SEA-28).** Memberships are indexed by guild (active only), invites by invitee, guilds by lowercase name (dissolved guilds free their name) and usernames by lowercase name (`UsernameOwner`). Dissolve, the guild-name and username uniqueness checks, the member-key migration hook and the guild queries read these instead of scanning every record. All are derived state (rebuilt at InitGenesis or maintained by the indexed maps).
+> - **Invite keys (SEA-25).** Invites are stored under `"<guild_id>:<invitee>"` in every path, including InitGenesis (which rebuilds the key from `GuildInvite.guild_id`); genesis validation de-duplicates on the pair, so one member may hold invites from several guilds. `GetGuildInvite` takes `guild_id` and `invitee`.
 
 ### Quest
 
@@ -460,7 +467,7 @@ message RetroRewardRecord {
 
 **Nomination limit:** Each member may submit up to `max_nominations_per_member` nominations per season (default 5). This prevents nomination spam while allowing members to champion multiple contributions they found valuable.
 
-**Conviction staking on nominations:** During the nomination window, members stake DREAM on nominations using `MsgStakeNomination`. This uses the same conviction formula as content conviction staking (`conviction(t) = stake_amount * (1 - 2^(-t / half_life))`), with the `nomination_conviction_half_life_epochs` parameter. Since the nomination window is shorter than a full season, a shorter half-life (default 3 epochs) ensures conviction can build meaningfully within the window. Stakes are returned after the season transition completes.
+**Conviction staking on nominations:** During the nomination window, members stake DREAM on nominations using `MsgStakeNomination`. This uses the same linear conviction ramp as x/rep content conviction staking (`conviction(t) = stake_amount * min(1, t / (2 * half_life))`, `t` and `half_life` in blocks), with the `nomination_conviction_half_life_epochs` parameter: half weight at one half-life, full weight at two. Since the nomination window is shorter than a full season, a shorter half-life (default 3 epochs) ensures conviction can build meaningfully within the window. Stakes are returned after the season transition completes.
 
 **Reward distribution:** During the season transition, the top nominations by conviction score (up to `retro_reward_max_recipients`) receive DREAM rewards. The budget is calculated as `retro_reward_budget_ratio` (25%) of total DREAM minted from initiative completions that season, clamped to [`retro_reward_budget_min` (10,000 DREAM), `retro_reward_budget_max` (75,000 DREAM)]. The budget is funded from the x/rep treasury first; only the remainder (if treasury < budget) is freshly minted. Distribution is conviction-weighted: each rewarded nomination receives a share proportional to its conviction score relative to the total conviction across all rewarded nominations. A minimum conviction threshold (`retro_reward_min_conviction`) prevents low-effort nominations from receiving rewards.
 
@@ -570,7 +577,7 @@ message Params {
   string retro_reward_budget_ratio = 59 [(gogoproto.customtype) = "cosmossdk.io/math.LegacyDec"];  // Fraction of season's initiative minting allocated to retro PGF (default: 0.25 = 25%)
   string retro_reward_budget_min = 66 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];  // Floor for retro PGF budget (default: 10,000 DREAM = 10_000_000_000 micro-DREAM)
   string retro_reward_budget_max = 67 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];  // Ceiling for retro PGF budget (default: 75,000 DREAM = 75_000_000_000 micro-DREAM)
-  string retro_reward_min_conviction = 60 [(gogoproto.customtype) = "cosmossdk.io/math.LegacyDec"];  // Min conviction to qualify for reward (default: 50.0)
+  string retro_reward_min_conviction = 60 [(gogoproto.customtype) = "cosmossdk.io/math.LegacyDec"];  // Min conviction to qualify for reward, micro-DREAM (default: 50 DREAM = 50_000_000)
   uint64 nomination_conviction_half_life_epochs = 61;    // Half-life for nomination conviction (default: 3 epochs, shorter than content conviction)
   uint32 nomination_rationale_max_length = 62;           // Max chars for nomination rationale (default: 500)
   uint32 nomination_min_trust_level = 63;                // Min trust level to nominate (default: 1 = PROVISIONAL)
@@ -578,6 +585,9 @@ message Params {
   string nomination_min_stake = 65 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];  // Min DREAM to stake on a nomination (default: 10 DREAM = 10_000_000 micro-DREAM)
 }
 ```
+
+> **Pruning (implementation).** Every block the BeginBlocker examines up to 50 records of each history collection from a persisted rolling cursor and deletes those past retention: `EpochXpTracker` older than `epoch_tracker_retention_epochs`, `VoteXpRecord` older than `vote_xp_record_retention_seasons` seasons, `ForumXpCooldown` older than the longer of `forum_cooldown_retention_epochs` and the forum cooldowns, and `MemberSeasonSnapshot` older than `snapshot_retention_seasons` seasons. The same `snapshot_retention_seasons` bounds the retro-PGF history: `RetroRewardRecord` of older seasons is deleted, and so are older `Nomination` records (with their `NominationsBySeason` entry) once no `NominationStake` is left on them (a stake keeps its nomination until its owner unstakes). Closed `DisplayNameModeration` records (not active, no appeal stake outstanding) are deleted about 90 days (1,296,000 blocks) after `moderated_at`. `GuildMemberCount` is derived state and is rebuilt at InitGenesis from the imported memberships. Every `invite_cleanup_interval_blocks` blocks it expires up to `invite_cleanup_batch_size` guild invites past their expiry and frees the guild's pending slot; `MsgInviteToGuild` also frees the guild's expired slots before its capacity check. Display-name moderations auto-resolve from a `(moderated_at, member)` queue of active unappealed records, each in its own cache context. A failed auto-resolution commits nothing and is re-queued in `ModerationRetryQueue` at `(auto_resolve_retry_at, member)` with doubling backoff (100, 200, 400, 800 blocks; `display_name_moderation_auto_resolve_deferred`); after `MaxModerationAutoResolveAttempts = 5` failures the record stays active with its report stake, leaves the queues (`display_name_moderation_auto_resolve_abandoned`) and waits for `MsgResolveUnappealedModeration`. First attempts and retries share the 50-per-block budget. Quest prerequisites (`prerequisite_quest`, `required_achievement`) must exist and must not loop.
+
 
 ## Timing Units: Epochs
 
@@ -792,15 +802,19 @@ Authority is split between the Commons Operations Committee (routine tasks) and 
 | `MsgCreateTitle` | Operations Committee | Title management |
 | `MsgUpdateTitle` | Operations Committee | Title management |
 | `MsgDeleteTitle` | Operations Committee | Title management |
-| `MsgExtendSeason` | Commons Council | Significant scheduling decision |
-| `MsgSetNextSeasonInfo` | Commons Council | Community-wide visibility |
-| `MsgAbortSeasonTransition` | Commons Council | Emergency transition recovery |
-| `MsgRetrySeasonTransition` | Commons Council | Emergency transition recovery |
-| `MsgSkipTransitionPhase` | Commons Council | Emergency transition recovery |
+| `MsgExtendSeason` | Commons Council or its Operations / Governance Committee (policy address) | Significant scheduling decision |
+| `MsgSetNextSeasonInfo` | Commons Council or its Operations / Governance Committee (policy address) | Community-wide visibility |
+| `MsgAbortSeasonTransition` | Commons Council or Operations Committee (policy address) | Emergency transition recovery |
+| `MsgRetrySeasonTransition` | Commons Council or Operations Committee (policy address) | Emergency transition recovery |
+| `MsgSkipTransitionPhase` | Commons Council or Operations Committee (policy address) | Emergency transition recovery |
 | `MsgResolveDisplayNameAppeal` | Commons Council / Operations Committee | Moderation resolution |
 | `MsgResolveUnappealedModeration` | Commons Council / Operations Committee | Moderation resolution |
 
-**Note:** Frozen guilds are handled by `MsgClaimGuildFounder` (any member can claim), not governance. This avoids delays and governance overhead for a common guild lifecycle event.
+**Authority (user decision, 2026-10-26).** Every authority-gated season message needs a committee decision. The transition-control messages, `MsgExtendSeason`, `MsgSetNextSeasonInfo` and season `MsgUpdateOperationalParams` (which carries `epoch_blocks`, the clock x/rep's pools run on), and also the content-management messages (`MsgCreateQuest`/`MsgUpdateQuest`/`MsgDeactivateQuest`, `MsgCreateAchievement`/`MsgUpdateAchievement`/`MsgDeleteAchievement`, `MsgCreateTitle`/`MsgUpdateTitle`/`MsgDeleteTitle`) and the display-name moderation resolutions (`MsgResolveDisplayNameAppeal`, `MsgResolveUnappealedModeration`) are accepted from governance or a council/committee **policy address** only (`IsCouncilOrCommitteePolicy`): an executed proposal, never a single committee member. The Commons Operations Committee's `AllowedMessages` (x/commons genesis bootstrap) include all of them so the committee can execute them by proposal. A quest's `xp_reward` is also capped by the compiled ceiling `HardMaxQuestXpReward = 200` (= the default `max_xp_per_epoch`: one quest is never worth more than an epoch of capped XP), enforced on create and update, in genesis validation, and as the upper bound of the `max_quest_xp_reward` operational param.
+
+**Definition rules.** Achievement and title definitions (create and update, checked on the resulting record) need a name of 1-64 bytes, a description of at most 512 bytes, and a `rarity` and `requirement_type` that are defined enum values (UNSPECIFIED allowed; an undefined requirement type would be indexed and could never be earned): `ErrInvalidAchievementId` / `ErrInvalidTitleId`. `MsgDeleteAchievement` is refused while a quest's `required_achievement` names it (the quest would become unstartable; `ValidateQuestPrerequisites` refuses the same on create and update). `MsgDeleteTitle` does not walk every profile (unbounded work in one tx): a deleted title is dropped from a profile's unlocked, archived and displayed titles the next time the profile gains a title or sets its display title, and `MemberTitles` never reports it.
+
+**Note:** Frozen guilds are handled by `MsgClaimGuildFounder` (any member can claim), not governance. This avoids delays and governance overhead for a common guild lifecycle event. The guild's current founder cannot claim (`ErrAlreadyGuildFounder`, 1149): a guild frozen below `min_guild_members` keeps its founder, and a claim would change nothing.
 
 ```protobuf
 // Quest management (Operations Committee)
@@ -1272,6 +1286,8 @@ message QueryListRetroRewardHistoryResponse {
 }
 ```
 
+> **Implementation notes (queries, SEA-35).** `AvailableQuests` returns a paginated `quests` list judged by the same predicate as `MsgStartQuest`. `ListRetroRewardHistory` walks only the requested season's key range with key-based pagination (`pagination.key` / `limit`, default 100, max 1000). `SeasonStats` does no store scans: it reads running counters (`SeasonStatsCounters`: `total_xp_earned`, `active_members`, `initiatives_completed`, `quests_completed`) maintained where the events happen, and `guilds_active` from a counting index on the guild map. `total_xp_earned` is the season XP members hold (grants add, member zeroing removes); `active_members` counts members holding season XP > 0 (a profile with no XP this season is not active); `initiatives_completed` counts x/rep `OnInitiativeCompleted` hooks this season; `quests_completed` counts quest rewards claimed this season. The current season's counters are one item (`CurrentSeasonStats`), updated unmetered because the XP grant runs inside council votes (constant-size read and write, so no griefing vector); season finalisation archives them under the finished season number. A past season returns its archived counters with `guilds_active = 0` and `blocks_remaining = 0` (zero for seasons that ended before the counters existed). The counters are exported in genesis (`season_stats_counters_list`); on import the current season's `total_xp_earned` and `active_members` are re-derived from the imported profiles (so a genesis that seeds season XP is counted), and the guild counter is derived and rebuilt. `GetGuildInvite` is keyed by `guild_id` and `guild_invitee`.
+
 ## Keeper Interface
 
 ```go
@@ -1508,12 +1524,14 @@ type QuestProgressHooks interface {
 > **Implementation notes** (`x/season/keeper/hooks.go`, `xp.go`, `achievements.go`, `quest_progress.go`, `seasonal_titles.go`):
 > - Callers reach these through narrow late-bound interfaces, never `RepHooks`: rep's `SeasonKeeper` (`x/rep/types/expected_keepers.go`) carries `OnMemberCreated` (from `AcceptInvitation`), `OnMemberEstablished` (from `UpdateTrustLevel` when a member first reaches ESTABLISHED), `OnInitiativeCompleted`, `OnChallengeResolved` (upheld challenges only), `OnJuryDutyCompleted` (every juror who voted, at tally) and `OnMemberZeroed`; commons' `SeasonKeeper` carries `OnVoteCast` and `OnProposalCreated`; forum's carries `OnForumReplyReceived` and `OnForumPostMarkedHelpful` (see [x-forum-spec.md §7.5](x-forum-spec.md)). Every call is best-effort: the caller logs a hook error and keeps its own state write.
 > - `GrantXP` creates the profile on first touch, so members admitted before the hook existed still earn XP. `ClaimQuestReward` goes through `GrantXP` (quest bucket, epoch cap applies; a claim at the cap completes the quest with zero XP).
-> - `OnVoteCast` returns early past `max_vote_xp_per_epoch`, so votes beyond the cap neither pay XP nor count toward vote achievements, exactly as written below. The per-epoch vote count is derived from the tracker's vote bucket rather than a separate counter.
+> - `OnVoteCast` returns early past `max_vote_xp_per_epoch`, so votes beyond the cap neither pay XP nor count toward vote achievements, exactly as written below. The per-epoch vote count is `EpochXpTracker.votes_counted`, incremented on each accepted vote grant (SEA-33), so proposal XP and a cap-truncated grant no longer skew it. The field rides on the tracker write the hook already makes (TestVoteHookGas).
 > - Achievements are evaluated against `MemberProfile` counters plus x/rep for `INITIATIVES_COMPLETED`, `REPUTATION_EARNED` (sum of current per-tag scores) and `SEASONS_ACTIVE` (`current season - joined season + 1`). `TOP_XP` is decided once per season in the SNAPSHOT phase; `GENESIS` is only ever seeded. Non-seasonal titles unlock in the same pass.
 > - `OnMemberZeroed` resets season XP and the progress counters, drops in-progress quests and removes the member from their guild: officer rank is dropped, the member count decremented, and a zeroed founder freezes the guild so any remaining member can take it over with `MsgClaimGuildFounder` (founders cannot pass through `MsgLeaveGuild`). The username release in the draft below is not done here; x/name's own inactivity scavenging covers it.
 > - Quests carry objectives from `MsgCreateQuest.objectives` / `MsgUpdateQuest.objectives` (`repeated QuestObjective`); every objective needs a type and a positive target. A quest without objectives is claimable immediately.
-> - **Gas.** Every hook runs inside another module's transaction (a council vote, a forum reply), so the voter or poster pays for it against a default 200000-gas limit that the accepting vote on a params proposal already nearly fills. The engine therefore loads `Params` once per hook (`xpEnv`), writes the profile once per hook (XP, counter and any unlocked achievement are applied in memory first), reads a member's quest progress by key prefix, and reads achievement and title definitions through `(requirement_type, id)` indexes (`AchievementsByRequirement`, `TitlesByRequirement`, kept by `SetAchievement`/`SetTitle`) so a vote touches the three VOTES_CAST definitions, not all 23. `TestVoteHookGas` pins the cost (about 36k steady, 44k when an achievement unlocks).
-> - Seasonal titles are permanent. `ComputeSeasonTitleEligibility` runs at the start of the SNAPSHOT phase (season XP still intact) and the TITLES phase grants `s<N>_<title>` from the stored `SeasonTitleEligibility`; `UnlockTitle` rolls the oldest titles into `archived_titles` past `max_displayable_titles`.
+> - **Gas.** Every hook runs inside another module's transaction (a council vote, a forum reply), so the voter or poster pays for it against a default 200000-gas limit that the accepting vote on a params proposal already nearly fills. The engine therefore loads `Params` once per hook (`xpEnv`), writes the profile once per hook (XP, counter and any unlocked achievement are applied in memory first), reads only a member's open (not completed) quest progress through the `MemberQuestProgress` `Open` index (`(member|open, key)`, maintained by the IndexedMap on every write), so completed and claimed quests cost the voter nothing, and reads achievement and title definitions through `(requirement_type, id)` indexes (`AchievementsByRequirement`, `TitlesByRequirement`, kept by `SetAchievement`/`SetTitle`) so a vote touches the three VOTES_CAST definitions, not all 23. `TestVoteHookGas` pins the cost (about 36k steady, 44k when an achievement unlocks).
+> - Seasonal titles are permanent. Eligibility is decided in the SNAPSHOT phase (season XP still intact), one batch of profiles per block: threshold titles are recorded per member on `MemberSeasonSnapshot.eligible_title_ids`, and `TOP_XP` titles keep a running top-K list in `SeasonTitleEligibility` (K = the title's threshold, capped at 100). The TITLES phase grants `s<N>_<title>` from both; `UnlockTitle` rolls the oldest titles into `archived_titles` past `max_displayable_titles`.
+> - Only **base** definitions (`seasonal && requirement_season == 0`) are evaluated. The per-season copy `s<N>_<title>` carries `requirement_season = N`, so it is never treated as a base and the definitions do not multiply from season to season.
+> - Every hook runs in a cache context and commits only on success, so a hook that fails part-way leaves no partial XP, counter or quest write behind (the caller still only logs the error).
 
 ```go
 // OnVoteCast grants XP for governance participation
@@ -2066,7 +2084,7 @@ Season ENDING ────── PhaseRetroRewards ─────────�
 
 During the nomination window, members stake DREAM on nominations to signal quality conviction:
 
-- Uses the same conviction formula: `conviction(t) = stake_amount * (1 - 2^(-t / half_life))`
+- Uses the same linear ramp as x/rep content conviction: `conviction(t) = stake_amount * min(1, t / (2 * half_life))`
 - Shorter half-life (`nomination_conviction_half_life_epochs`, default 3 epochs) ensures conviction builds meaningfully within the ~2 week window
 - Min stake: `nomination_min_stake` (default: 10 DREAM)
 - No self-staking: members cannot stake on nominations for content they created
@@ -2077,15 +2095,15 @@ During the nomination window, members stake DREAM on nominations to signal quali
 During the season transition:
 
 1. **Rank** all nominations by conviction score (descending)
-2. **Filter** nominations below `retro_reward_min_conviction` (default: 50.0)
+2. **Filter** nominations below `retro_reward_min_conviction` (default: 50 DREAM of conviction = 50_000_000 micro-DREAM)
 3. **Select** top `retro_reward_max_recipients` (default: 20) nominations
-4. **Calculate budget**: `retro_reward_budget_ratio` (25%) of total initiative DREAM minted this season, clamped to [`retro_reward_budget_min` (10K), `retro_reward_budget_max` (75K)]
+4. **Calculate budget**: `retro_reward_budget_ratio` (25%) of the DREAM minted this season for completed initiatives (x/rep `GetSeasonInitiativeRewardsMinted`, not every season mint), clamped to [`retro_reward_budget_min` (10K), `retro_reward_budget_max` (75K)]
 5. **Fund from treasury first**: draw from x/rep treasury; mint only the remainder
 6. **Distribute** proportionally by conviction:
    ```
    reward_i = budget * (conviction_i / sum(conviction_all_rewarded))
    ```
-7. **Pay** DREAM to each content creator (from treasury or via `repKeeper.MintDream`)
+7. **Pay** DREAM to each nominator (from treasury or via `repKeeper.MintDream`). Each payment runs in its own cache context and commits only on success, so a mint that fails after a treasury draw leaves no partial, unrecorded credit. A failed positive payment keeps its `reward_amount`, counts `payout_attempts` and is queued in `RetroPayoutRetry`; the BeginBlocker retries it on epoch boundaries outside transitions (at most 10 per block; the x/rep mint ceiling is per epoch) until it is paid (`retro_reward_distributed` + `RetroRewardRecord`) or `MaxRetroPayoutAttempts` (10) is reached (`payout_abandoned`, `retro_reward_abandoned`). This retry policy (once per epoch, at most 10 attempts, compiled constant) is a decided default (user decision, 2026-10-26). A share that truncates to zero is a deliberate zero (`retro_reward_zero`), never retried. Nominations owed a payout are not pruned. The queue is derived from the nominations and rebuilt at InitGenesis (SEA-21).
 6. **Emit** `EventRetroRewardGranted` for each rewarded nomination
 7. **Emit** `EventRetroRewardsProcessed` with aggregate totals
 
@@ -2096,7 +2114,17 @@ During the season transition:
 - **Per-member nomination limit:** Prevents nomination spam
 - **Minimum conviction threshold:** Filters out low-quality nominations
 - **DREAM cost:** Staking locks real DREAM, creating economic cost for manipulation
-- **Seasonal scope:** Only content created during the current season is eligible, preventing re-nomination of old content
+- **Seasonal scope:** Only content created during the current season is eligible, preventing re-nomination of old content. Blog and forum posts compare their unix `created_at` with the new `Season.start_time` (set when a season starts; 0 for season 1 from genesis, which admits everything); collections compare their creation block height with `Season.start_block`.
+
+> **Implementation notes (content refs and stakes):**
+> - Ids must be canonical decimals (`blog/post/01` and `blog/post/+1` are rejected), so one piece of content has exactly one ref and the per-season duplicate check cannot be dodged.
+> - `rep/initiative/{id}` must name a **completed** x/rep initiative whose `completed_at` (unix seconds, must be set) is not before the current season's `start_time`; its assignee is the content author. `rep/jury/{address}` must be a canonical address of an x/rep member who completed a jury duty **in the current season** (`MemberProfile.last_jury_duty_season`, stamped by the jury-duty hook); that member is the author. `artifact/certificate/{class}/{edition}` must be a visible impact certificate created in the current season; its creator is the author (`ArtifactKeeper.ImpactCertificateInfo`). Blog and forum posts resolve their author through `GetPostAuthor`; collections through their owner (SEA-30).
+> - Blog and forum posts must be ACTIVE (`LivePostCreatedAt`: not hidden, deleted or archived) and collections ACTIVE (`LiveCollection`: not pending or hidden), and all three must be created in the current season (see Seasonal scope). Initiatives are checked by completion time, certificates by creation time, jury refs by the season of the duty.
+> - When the author is known, `MsgNominate` requires an active member as author and stores it on the nomination (`Nomination.author`). `MsgStakeNomination` refuses a stake by that author (alias-aware) as well as by the nominator. A nomination without a stored author re-resolves its ref, and a ref that no longer resolves (hidden, deleted) refuses the stake: the ban fails closed (SEA-30).
+> - Stake amounts must be whole micro-DREAM (`ErrStakeAmountFractional`): only the integer part is locked, so only it may score conviction (SEA-31).
+> - `MsgStakeNomination` stores `total_staked` only; it does not recompute conviction (that walks every stake on the nomination). The nomination queries compute live conviction while the season takes stakes, and the retro phase stores the final value. `MsgNominate` checks duplicates and the per-member cap with point reads of a `(season, content_ref)` set and a `(season, nominator)` counter, both derived and rebuilt at InitGenesis (SEA-20). The payout block still reads and sorts the season's unpaid nominations once (bounded by `max_nominations_per_member` x members).
+> - `MsgStakeNomination` refuses nominations from an earlier season.
+> - Stakes are refunded in full and do not decay, so conviction costs only the lock. This is decided (2026-10-26): conviction is a signal, not a cost; the self-stake ban and the active-member and season-scoped content checks carry the anti-gaming load.
 
 ### Content Validation
 
@@ -2392,6 +2420,17 @@ func (k Keeper) BeginBlocker(ctx sdk.Context) {
 ## Transition Recovery
 
 The season transition can fail mid-process due to various reasons (unexpected state, bugs, resource exhaustion). The following mechanisms handle stuck transitions:
+
+> **Implementation notes** (`x/season/keeper/begin_block.go`, `transition_retro_rewards.go`, `msg_server_abort_season_transition.go`, `msg_server_retry_season_transition.go`):
+> - **A transition never fails a block.** Each batch runs in a cache context. On error the batch is discarded, the failure is recorded in `TransitionRecoveryState` (count, last error, block) and the block continues; `BeginBlocker` itself never returns an error. A successful batch clears a non-recovery failure record.
+> - **Recovery mode halts processing.** After `transition_max_retries` consecutive failures `recovery_mode` is set and the BeginBlocker skips the transition entirely until `MsgRetrySeasonTransition` (resets the phase cursor and the failure count), `MsgSkipTransitionPhase` or `MsgAbortSeasonTransition`.
+> - **Watchdog.** When a transition has run for more than `max_transition_epochs`, `season_transition_overdue` is emitted once. It only signals; recovery stays a human decision.
+> - **Abort window.** Abort is accepted only in `RETRO_REWARDS`. That phase tallies convictions in batches and pays out in the block that finishes the tally, advancing the phase in the same block, so an abort can only land before any payout. Any later abort would re-run the retro payout after the grace period. Nominations already marked `rewarded` are skipped on any re-run as a second guard. Each season accepts at most `MaxTransitionAbortsPerSeason` (2) aborts.
+> - **Maintenance mode** is on from SNAPSHOT through RESET_XP, so the reputation and DREAM the snapshot records stop moving while it is taken.
+> - **Bounded batches.** Every multi-block phase resumes strictly after its cursor (no rescan from the first key). RETRO_REWARDS walks only the season's nominations through a `(season, id)` index and each nomination's own stakes by key prefix. RETURN_NOMINATION_STAKES also returns stakes left on earlier seasons' nominations. An unlock failure there is reported as `nomination_stake_return_failed`, never as a return: if x/rep says the lock is already gone (zeroed or missing member) the record is dropped, otherwise it is kept for the next transition.
+> - **Reset coverage.** ARCHIVE/RESET_REPUTATION walk season profiles, so a rep member without a season profile is not reset; archive errors are logged and emitted (`reputation_archive_failed`). Driving the reset from x/rep's member set needs a rep iteration API (tracked for the x/rep work).
+> - **Not implemented (known gaps, decided 2026-10-26 to leave as is).** `SEASON_STATUS_MAINTENANCE` and `SEASON_STATUS_COMPLETED` are never set (maintenance is the `SeasonTransitionState.maintenance_mode` flag); past seasons are not stored (`Season` is a single item; history lives in `SeasonSnapshot` / `MemberSeasonSnapshot`); `baseline_reputation` is unused; genesis does not bootstrap Season 1 (the network genesis files seed it).
+> - **Alias horizon.** `Params.Validate` requires `season_duration_epochs + season_transition_epochs + max_season_extensions * max_extension_epochs + 2 * ceil(transition_grace_period / epoch_blocks)` to stay inside x/rep's alias dedup horizon.
 
 ### TransitionRecoveryState
 
@@ -2963,6 +3002,12 @@ func (k Keeper) HandleSeasonalQuestExpiration(ctx sdk.Context, season uint32) er
 }
 ```
 
+> **Implementation (SEA-26).** The CLEANUP transition phase does this: its first batch deactivates every active quest whose `season` is the ending season or earlier (`quest_expired`), and its batched walk over quest progress keeps every **completed** record (history: non-repeatable quests read it to refuse a second claim, repeatable ones for the cooldown, later quests for prerequisites) and deletes **open** progress whose quest is gone, inactive, past its `end_block` or bound to the ending (or an earlier) season. `MsgClaimQuestReward` applies the same open-quest checks as `MsgStartQuest` (active, inside its block window, in its season), and objective progress is not credited to inactive or ended quests.
+>
+> **Objective versions (SEA-32).** `MsgUpdateQuest` bumps `Quest.objectives_version` whenever the objective list changes (type or target, by position). Progress carries the version it was recorded against; stale progress is never complete and restarts from zero on its next objective event, so a reorder or retarget cannot reuse old counters.
+>
+> **Starting and listing (SEA-35).** `MsgStartQuest` and the `AvailableQuests` query share one predicate (`canStartQuest`: open, level, required achievement, prerequisite, completed/cooldown state, active-quest cap); the query returns a paginated list of every quest the member can start. The active-quest cap reads only the member's open-progress index (SEA-28).
+
 ## Default Achievements
 
 ```go
@@ -3150,6 +3195,14 @@ Display names are not pre-moderated - offensive content is handled through commu
 3. Report triggers a jury challenge in x/rep
 4. If jury upholds report, display name is forcibly cleared with moderation reason
 5. Member can set a new display name but the rejected name is blocked for that member
+
+> **Implementation (SEA-23).** The chain implements "hide on report, appeal to the Operations Committee": a report locks the reporter's stake and clears the name at once; no x/rep challenge is opened.
+> - **Unappealed** reports are upheld after `display_name_appeal_period_blocks` (BeginBlocker, or `MsgResolveUnappealedModeration`): the reporter's stake is returned.
+> - **Appealed** reports are resolved by `MsgResolveDisplayNameAppeal` from the Commons Operations Committee policy address (or the Commons Council policy address, or x/gov), never one member. An appeal nobody resolves within `AppealResolutionPeriodMultiplier` (3) x `display_name_appeal_period_blocks` of the appeal **times out** (`AppealQueue`, `display_name_appeal_timed_out`): with no verdict neither side is penalised, both stakes are returned, the name is restored and not blocked. Stakes and the member's ability to set a name are therefore never locked for good.
+> - **Decided defaults (user decision, 2026-10-26).** Both behaviours above are deliberate and stay: a timed-out appeal refunds both stakes and restores the name (no verdict means no penalty), and the appeal resolution window is a compiled constant, `AppealResolutionPeriodMultiplier` (3) times the report-appeal window `display_name_appeal_period_blocks`, not a separate param.
+> - **Blocked names.** Whenever a report is upheld (appeal rejected or unappealed), the rejected name (trimmed, case-folded) is added to `DisplayNameModeration.blocked_names` (at most `MaxBlockedDisplayNames` = 5, oldest dropped). The list survives the case's closure and later reports, and `MsgSetDisplayName` refuses those names for that member (`ErrDisplayNameModerated`).
+> - **Migration (SEA-29).** x/rep member migration is vetoed while the member has an active moderation; a closed record (with its blocked names) moves to the new address.
+> - **Characters (SEA-34).** Display names must be valid UTF-8 without control characters (`unicode.IsControl`) or Unicode format characters (category Cf: bidi overrides, zero-width joiners), `ErrDisplayNameInvalidChars`.
 
 ```protobuf
 message MsgReportDisplayName {
@@ -3397,6 +3450,9 @@ message DisplayNameModeration {
     string appeal_challenge_id = 6;  // x/rep challenge ID for pending appeal (empty if no appeal)
     int64 appealed_at = 7;       // Block height when appeal was created (0 if no appeal)
     bool appeal_succeeded = 8;   // True if appeal was successful
+    repeated string blocked_names = 9;   // Names upheld as rejected for this member (SEA-23)
+    uint32 auto_resolve_attempts = 10;   // Failed automatic resolutions (SEA-09)
+    int64 auto_resolve_retry_at = 11;    // Height of the next retry (0: none queued)
 }
 
 // Stake tracking for display name reports (escrowed during jury review)
@@ -4380,7 +4436,8 @@ func (k Keeper) ResetGuildXPForSeason(ctx sdk.Context) {
 
 ### Guild Security
 
-- Hop cooldown between guilds (prevents rapid switching for benefits)
+- Hop cooldown between guilds (prevents rapid switching for benefits). It applies to every membership record with no active guild, including one left in epoch 0 (`left_epoch` 0), on `MsgCreateGuild`, `MsgJoinGuild` and `MsgAcceptGuildInvite`
+- An expired invite grants nothing: `MsgJoinGuild` refuses it with `ErrGuildInviteExpired` exactly as `MsgAcceptGuildInvite` does
 - Max guilds per season (prevents guild hopping abuse)
 - Min age before dissolution (prevents flash guild attacks)
 - Name uniqueness via x/name module
@@ -4782,6 +4839,14 @@ message NextSeasonInfo {
   string theme = 2;
 }
 ```
+
+> **Implementation notes (genesis and invariants, SEA-25, SEA-36).**
+> - The generated `GenesisState` also exports `transition_abort_list` (the per-season `MsgAbortSeasonTransition` count, so the `MaxTransitionAbortsPerSeason` cap survives export/import) and `pending_seasonal_pool_init`. The rolling prune cursor is not exported; after an import pruning restarts from the first key.
+> - Derived state is rebuilt at InitGenesis: guild member counters, the guild/invite/username/name indexes, the nomination duplicate-ref set and per-nominator counters, the moderation and appeal queues, and the failed-payout retry queue.
+> - The round trip is exact apart from the prune cursor. `season_transition_state`, `transition_recovery_state` and `next_season_info` export as nil when the item is unset (not as an empty record, which the import would store). A guild's member counter and the active-guild counter are removed when they reach zero rather than stored as 0, as InitGenesis rebuilds only non-zero counters; an absent member counter reads as a recount of the guild's (empty) membership index. Covered by `TestGenesisRoundTripIsExact` and the app-level `TestAppImportExport`.
+> - `Validate` checks relations as well as duplicates: active memberships and invites point at existing guilds (memberships at non-dissolved ones), invites de-duplicate on `(guild_id, invitee)`, nomination stakes point at existing nominations and sum to their `total_staked`, display-name stakes belong to active moderations, the transition phase is a defined value, and quest `xp_reward` is at most `HardMaxQuestXpReward`. Guild ids start at 1, so the highest id may equal `guild_count`.
+> - `RegisterInvariants` registers `guild-membership` (memberships agree with guilds and profiles; counters equal active memberships), `guild-invites` (store key matches the invite's fields), `nomination-stakes` and `display-name-moderation` (no orphan stakes). x/crisis is not wired; `app/invariants_test.go` runs them on every e2e snapshot.
+> - Transition side effects fail loudly (SEA-22): a store or decode error in SNAPSHOT/ARCHIVE/RESET_REPUTATION/RESET_XP/TITLES/CLEANUP fails the batch (discarded, retried, then recovery mode) instead of skipping a member; the snapshot records zeros only for `ErrMemberNotFound`. `InitSeasonalPool` runs in its own cache context; a failure sets `PendingSeasonalPoolInit`, which the BeginBlocker retries until it succeeds or a later season supersedes it.
 
 ### Genesis Initialization
 

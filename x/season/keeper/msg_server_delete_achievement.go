@@ -30,6 +30,23 @@ func (k msgServer) DeleteAchievement(ctx context.Context, msg *types.MsgDeleteAc
 		return nil, errorsmod.Wrapf(types.ErrAchievementNotFound, "achievement %s not found", msg.AchievementId)
 	}
 
+	// A quest that requires the achievement would become unstartable for
+	// everyone who has not earned it (ValidateQuestPrerequisites refuses the
+	// same on create and update). Quest definitions are a small catalog.
+	var dependent string
+	if err := k.Quest.Walk(ctx, nil, func(id string, q types.Quest) (bool, error) {
+		if q.RequiredAchievement == msg.AchievementId {
+			dependent = id
+			return true, nil
+		}
+		return false, nil
+	}); err != nil {
+		return nil, err
+	}
+	if dependent != "" {
+		return nil, errorsmod.Wrapf(types.ErrInvalidAchievementId, "quest %s requires achievement %s; update or delete the quest first", dependent, msg.AchievementId)
+	}
+
 	// Delete the achievement
 	if err := k.RemoveAchievement(ctx, msg.AchievementId); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to delete achievement")

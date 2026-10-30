@@ -1,9 +1,6 @@
 package simulation
 
 import (
-	"math/rand"
-
-	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
@@ -12,31 +9,39 @@ import (
 	"sparkdream/x/season/types"
 )
 
-// SimulateMsgDeactivateQuest simulates a MsgDeactivateQuest message using direct keeper calls.
-// This bypasses the governance authority requirement for simulation purposes.
-// Full authority testing should be done in integration tests.
+// SimulateMsgDeactivateQuest deactivates an active quest through an
+// executed x/commons proposal (council.go), one step per call, while more
+// than simQuestTarget active quests remain (counting deactivations already
+// proposed), so the quest start and claim ops keep something to work on.
 func SimulateMsgDeactivateQuest(
 	ak types.AuthKeeper,
 	bk types.BankKeeper,
 	k keeper.Keeper,
 	txGen client.TxConfig,
 ) simtypes.Operation {
-	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
-	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		// Find an active quest to deactivate
-		quest, questId, err := findActiveQuest(r, ctx, k)
-		if err != nil || quest == nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgDeactivateQuest{}), "no active quest found"), nil, nil
-		}
-
-		// Deactivate the quest using direct keeper call
-		quest.Active = false
-
-		if err := k.Quest.Set(ctx, questId, *quest); err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgDeactivateQuest{}), "failed to deactivate quest"), nil, nil
-		}
-
-		// Return success
-		return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgDeactivateQuest{}), "ok (direct keeper call)"), nil, nil
-	}
+	return authorityOp(ak, bk, k, txGen, &types.MsgDeactivateQuest{}, decodeAs[types.MsgDeactivateQuest](),
+		func(e *simEnv, policy string, taken []sdk.Msg) (sdk.Msg, string, error) {
+			quests, err := allQuests(e.ctx, e.k)
+			if err != nil {
+				return nil, "", err
+			}
+			pending := map[string]bool{}
+			for _, m := range taken {
+				pending[m.(*types.MsgDeactivateQuest).QuestId] = true
+			}
+			if activeQuestCount(quests)-len(pending) <= simQuestTarget {
+				return nil, "too few active quests to deactivate one", nil
+			}
+			var ids []string
+			for _, id := range sortedKeys(quests) {
+				if quests[id].Active && !pending[id] {
+					ids = append(ids, id)
+				}
+			}
+			id, ok := pick(e.r, ids)
+			if !ok {
+				return nil, "no active quest", nil
+			}
+			return &types.MsgDeactivateQuest{Authority: policy, QuestId: id}, "", nil
+		})
 }

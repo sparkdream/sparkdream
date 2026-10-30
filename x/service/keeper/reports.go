@@ -92,72 +92,70 @@ func (k Keeper) recordReporterFiling(
 // Refile-cooldown (§3.4.5)
 // ---------------------------------------------------------------------------
 
-// isRefileCooldownActive reports whether the (controller, op, serviceType)
-// tuple is currently within a refile-cooldown window (set when a prior
-// PENDING report from this controller against this operator was
-// AUTO_DISMISSED — §3.4.5). Returns true if any active entry exists.
+// isRefileCooldownActive reports whether reporter is barred from filing
+// against (operator, serviceType): one of their own member reports against
+// it was AUTO_DISMISSED within report_refile_cooldown_blocks (§3.4.5).
 //
-// Note: the controller for an unfiled report is "any" — the spec is
-// per-controller, but since reports don't carry a controller field
-// (they're filed by reporters, and the controller is the operator's
-// controller looked up at resolve time), the cooldown is effectively
-// per-(operator, serviceType) in practice. We key on
-// (operator_controller, operator, service_type) and store the
-// dismissed_at so future logic can support per-controller granularity.
-//
-// Design note: the cooldown is checked at MsgReportOperator time
-// against the operator's CURRENT controller. If the controller has
-// changed since the cooldown was recorded, the new controller is not
-// blocked — this is intentional. §3.4.5's cooldown protects an
-// operator from repeated AUTO_DISMISSED filings against the same
-// controller-reporter pair; a controller swap legitimately resets the
-// review chain. The dismissed_at key persists so future per-pair
-// policy refinements can use the historical record.
+// The cooldown is per reporter. It used to be keyed on the operator's
+// controller and checked against EVERY reporter, so a single lapsed report
+// — or a liveness report the controller let lapse — locked all members out
+// of reporting the operator, exactly while it was misbehaving. Now the
+// reporter whose allegation lapsed cannot re-file it, which is what stops
+// the "file, let it lapse, re-file" loop that holds an operator's bond
+// exit hostage; everyone else can still report.
 func (k Keeper) isRefileCooldownActive(
 	ctx context.Context,
 	params types.Params,
-	controllerBytes, opBytes []byte,
+	reporterBytes, opBytes []byte,
 	serviceType string,
 	currentHeight int64,
 ) (bool, error) {
-	// RefileCooldowns keyed by (controller, op, service_type, dismissed_at).
-	// Iterate by (controller, op, service_type) prefix using a Quad range
-	// with K1=controller (Quad ranges only prefix on K1; filter K2/K3 in
-	// loop). Small per-controller scan.
-	rng := collections.NewPrefixedQuadRange[[]byte, []byte, string, int64](controllerBytes)
+	// RefileCooldowns keyed by (reporter, op, service_type, dismissed_at).
+	// Quad ranges only prefix on K1; filter K2/K3 in the loop. Small
+	// per-reporter scan.
+	rng := collections.NewPrefixedQuadRange[[]byte, []byte, string, int64](reporterBytes)
 	iter, err := k.RefileCooldowns.Iterate(ctx, rng)
 	if err != nil {
 		return false, err
 	}
-	defer iter.Close()
 
+	var expired []collections.Quad[[]byte, []byte, string, int64]
+	active := false
 	for ; iter.Valid(); iter.Next() {
 		key, err := iter.Key()
 		if err != nil {
+			iter.Close()
 			return false, err
 		}
 		if string(key.K2()) != string(opBytes) || key.K3() != serviceType {
 			continue
 		}
-		dismissedAt := key.K4()
-		if currentHeight < dismissedAt+params.ReportRefileCooldownBlocks {
-			return true, nil
+		if currentHeight < key.K4()+params.ReportRefileCooldownBlocks {
+			active = true
+			break
 		}
-		// Expired — lazy prune.
-		_ = k.RefileCooldowns.Remove(ctx, key)
+		expired = append(expired, key)
 	}
-	return false, nil
+	// Expired — lazy prune, after the iterator is done with the store.
+	iter.Close()
+	for _, key := range expired {
+		if err := k.RefileCooldowns.Remove(ctx, key); err != nil {
+			return false, err
+		}
+	}
+	return active, nil
 }
 
-// recordRefileCooldown adds a cooldown entry for (controller, op,
-// serviceType, dismissed_at). Called from the EndBlocker pending sweep
-// when a PENDING report is AUTO_DISMISSED (§3.6 queue 2).
+// recordRefileCooldown bars reporter from re-filing against (op,
+// serviceType) from dismissedAt. Called from the EndBlocker pending sweep
+// when a member report is AUTO_DISMISSED (§3.6 queue 2); system reports
+// record none.
 func (k Keeper) recordRefileCooldown(
 	ctx context.Context,
-	controllerStr, opStr, serviceType string,
+	controllerStr, reporterStr, opStr, serviceType string,
 	dismissedAt int64,
 ) error {
-	controllerBytes, err := k.addrBytes(controllerStr)
+	reporterBytes, err := k.addrBytes(reporterStr)
 	if err != nil {
 		return err
 	}
@@ -167,14 +165,23 @@ func (k Keeper) recordRefileCooldown(
 	}
 	return k.RefileCooldowns.Set(
 		ctx,
-		collections.Join4(controllerBytes, opBytes, serviceType, dismissedAt),
+		collections.Join4(reporterBytes, opBytes, serviceType, dismissedAt),
 		types.RefileCooldown{
 			Controller:      controllerStr,
 			OperatorAddress: opStr,
 			ServiceType:     serviceType,
 			DismissedAt:     dismissedAt,
+			Reporter:        reporterStr,
 		},
 	)
+}
+
+// isSystemReport reports whether report was filed through OpenSystemReport
+// (a caller module or x/service's own liveness sweep) rather than by a
+// member. Member reports always escrow a positive deposit
+// (report_deposit_amount must be positive); system reports never do.
+func isSystemReport(report types.Report) bool {
+	return report.Deposit.IsNil() || report.Deposit.IsZero()
 }
 
 // ---------------------------------------------------------------------------
@@ -367,11 +374,12 @@ func (k Keeper) HasOpenReports(ctx context.Context, opBytes []byte, serviceType 
 	return false, nil
 }
 
-// eagerReleaseExpiredEscrowsForOperator drops any Tier1Escrow rows for
+// eagerReleaseExpiredEscrowsForOperator finalizes any Tier1Escrow rows for
 // (op, serviceType) whose release_at has passed and that are linked to
-// a terminally-resolved report, transferring the escrowed SPARK to the
-// community pool inline. Called by MsgClaimUnbondedBond so an operator
-// isn't blocked waiting for the EndBlocker sweep (§3.5).
+// a terminally-resolved report, through releaseTier1Escrow (community pool
+// plus the reputation deduction, exactly as the EndBlocker sweep does).
+// Called by MsgClaimUnbondedBond and the partial-withdrawal claim so an
+// operator isn't blocked waiting for the EndBlocker sweep (§3.5).
 //
 // Only releases entries whose parent report is in a terminal state
 // (RESOLVED_T1 with contest window passed, RESOLVED_T2, or
@@ -422,25 +430,9 @@ func (k Keeper) eagerReleaseExpiredEscrowsForOperator(
 	}
 
 	for _, p := range toRelease {
-		// Pay out escrowed amount to community pool. If distribution
-		// keeper is wired; otherwise leave funds in module account
-		// (standalone dev mode).
-		escrowCoin := sdk.NewCoin(k.BondDenom(ctx), p.escrow.Amount)
-		if k.distributionKeeper() != nil && !p.escrow.Amount.IsZero() {
-			moduleAddr := k.bankModuleAddress()
-			if err := k.distributionKeeper().FundCommunityPool(ctx, sdk.NewCoins(escrowCoin), moduleAddr); err != nil {
-				return err
-			}
-		}
-		if err := k.Tier1Escrow.Remove(ctx, p.escrowID); err != nil {
+		if err := k.releaseTier1Escrow(ctx, p.escrowID, p.escrow, currentHeight); err != nil {
 			return err
 		}
-		_ = k.Tier1EscrowByOperator.Remove(ctx, collections.Join3(opBytes, serviceType, p.escrowID))
-		_ = k.Tier1EscrowReleaseQueue.Remove(ctx, collections.Join(p.escrow.ReleaseAt, p.escrowID))
-		sdk.UnwrapSDKContext(ctx).EventManager().EmitEvent(types.NewTier1EscrowReleasedEvent(
-			p.escrowID, p.escrow.ReportId, p.escrow.OperatorAddress, p.escrow.ServiceType,
-			escrowCoin, types.EscrowDestCommunityPool,
-		))
 	}
 	return nil
 }
@@ -651,9 +643,13 @@ func (k Keeper) closeOpenReportsOnDissolve(
 		// Drop queue index entries.
 		switch report.Status {
 		case types.ReportStatus_REPORT_STATUS_PENDING:
-			_ = k.PendingReportsQueue.Remove(ctx, collections.Join(report.FiledAt, report.ReportId))
+			if err := k.PendingReportsQueue.Remove(ctx, collections.Join(report.FiledAt, report.ReportId)); err != nil {
+				return err
+			}
 		case types.ReportStatus_REPORT_STATUS_ESCALATED:
-			_ = k.EscalatedReportsQueue.Remove(ctx, collections.Join(report.EscalatedAt, report.ReportId))
+			if err := k.EscalatedReportsQueue.Remove(ctx, collections.Join(report.EscalatedAt, report.ReportId)); err != nil {
+				return err
+			}
 		}
 
 		// Mark CLOSED_OPERATOR_DISSOLVED.
@@ -700,4 +696,30 @@ func (k Keeper) HasActiveTier1Escrow(ctx context.Context, opBytes []byte, servic
 		}
 	}
 	return false, nil
+}
+
+// juryVotingDeadline is the block height by which a service jury must vote:
+// the first half of max_escalated_blocks. The second half is left for the
+// resolver to relay the tallied verdict (MsgResolveReportByJury /
+// MsgFinalizeControllerTransfer) before the escalated sweep auto-times the
+// case out at escalated_at + max_escalated_blocks. With both deadlines equal
+// a verdict tallied at the deadline could never be relayed.
+func juryVotingDeadline(currentHeight int64, params types.Params) int64 {
+	half := params.MaxEscalatedBlocks / 2
+	if half < 1 {
+		half = 1
+	}
+	return currentHeight + half
+}
+
+// slashCaseParties lists the addresses kept off a service.slash jury: the
+// operator, the reporter and the operator's controller.
+func (k Keeper) slashCaseParties(ctx context.Context, report types.Report) []string {
+	parties := []string{report.OperatorAddress, report.Reporter}
+	if opBytes, err := k.addrBytes(report.OperatorAddress); err == nil {
+		if op, ok := k.GetOperator(ctx, opBytes, report.ServiceType); ok {
+			parties = append(parties, op.Controller)
+		}
+	}
+	return parties
 }

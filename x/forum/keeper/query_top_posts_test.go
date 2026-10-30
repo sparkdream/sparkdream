@@ -19,7 +19,7 @@ func reupvote(t *testing.T, f *fixture, oldUpvotes uint64, post types.Post) {
 	if post.ParentId != 0 {
 		return
 	}
-	_ = f.keeper.PostsByUpvotes.Remove(f.ctx, collections.Join(oldUpvotes, post.PostId))
+	require.NoError(t, f.keeper.PostsByUpvotes.Remove(f.ctx, collections.Join(oldUpvotes, post.PostId)))
 	if err := f.keeper.PostsByUpvotes.Set(f.ctx, collections.Join(post.UpvoteCount, post.PostId)); err != nil {
 		t.Fatalf("reindex PostsByUpvotes: %v", err)
 	}
@@ -51,15 +51,15 @@ func TestQueryTopPosts(t *testing.T) {
 
 		// Set upvote counts
 		post1.UpvoteCount = 10
-		f.keeper.Post.Set(f.ctx, post1.PostId, post1)
+		require.NoError(t, f.keeper.Post.Set(f.ctx, post1.PostId, post1))
 		reupvote(t, f, 0, post1)
 
 		post2.UpvoteCount = 50 // Highest
-		f.keeper.Post.Set(f.ctx, post2.PostId, post2)
+		require.NoError(t, f.keeper.Post.Set(f.ctx, post2.PostId, post2))
 		reupvote(t, f, 0, post2)
 
 		post3.UpvoteCount = 25
-		f.keeper.Post.Set(f.ctx, post3.PostId, post3)
+		require.NoError(t, f.keeper.Post.Set(f.ctx, post3.PostId, post3))
 		reupvote(t, f, 0, post3)
 
 		resp, err := qs.TopPosts(f.ctx, &types.QueryTopPostsRequest{})
@@ -74,10 +74,10 @@ func TestQueryTopPosts(t *testing.T) {
 
 		// Give reply higher upvotes (reply has no PostsByUpvotes index, by design)
 		reply.UpvoteCount = 100
-		f.keeper.Post.Set(f.ctx, reply.PostId, reply)
+		require.NoError(t, f.keeper.Post.Set(f.ctx, reply.PostId, reply))
 
 		rootPost.UpvoteCount = 5
-		f.keeper.Post.Set(f.ctx, rootPost.PostId, rootPost)
+		require.NoError(t, f.keeper.Post.Set(f.ctx, rootPost.PostId, rootPost))
 		reupvote(t, f, 0, rootPost)
 
 		resp, err := qs.TopPosts(f.ctx, &types.QueryTopPostsRequest{})
@@ -91,12 +91,12 @@ func TestQueryTopPosts(t *testing.T) {
 		deletedPost := f.createTestPost(t, testCreator, 0, 0)
 
 		activePost.UpvoteCount = 5
-		f.keeper.Post.Set(f.ctx, activePost.PostId, activePost)
+		require.NoError(t, f.keeper.Post.Set(f.ctx, activePost.PostId, activePost))
 		reupvote(t, f, 0, activePost)
 
 		deletedPost.UpvoteCount = 100
 		deletedPost.Status = types.PostStatus_POST_STATUS_DELETED
-		f.keeper.Post.Set(f.ctx, deletedPost.PostId, deletedPost)
+		require.NoError(t, f.keeper.Post.Set(f.ctx, deletedPost.PostId, deletedPost))
 		reupvote(t, f, 0, deletedPost)
 
 		resp, err := qs.TopPosts(f.ctx, &types.QueryTopPostsRequest{})

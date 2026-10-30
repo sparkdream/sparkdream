@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/season/types"
 
 	errorsmod "cosmossdk.io/errors"
@@ -26,21 +27,9 @@ func (k msgServer) SetUsername(ctx context.Context, msg *types.MsgSetUsername) (
 		return nil, err
 	}
 
-	// Check username uniqueness by scanning all profiles
-	iter, err := k.MemberProfile.Iterate(ctx, nil)
-	if err != nil {
-		return nil, errorsmod.Wrap(err, "failed to iterate profiles")
-	}
-	defer iter.Close()
-
-	for ; iter.Valid(); iter.Next() {
-		profile, err := iter.Value()
-		if err != nil {
-			continue
-		}
-		if profile.Address != msg.Creator && strings.ToLower(profile.Username) == username {
-			return nil, types.ErrUsernameAlreadyTaken
-		}
+	// Username uniqueness: one read of the UsernameOwner index (SEA-28).
+	if owner, err := k.UsernameOwner.Get(ctx, username); err == nil && owner != msg.Creator {
+		return nil, types.ErrUsernameAlreadyTaken
 	}
 
 	// Get member profile (must exist)
@@ -58,9 +47,9 @@ func (k msgServer) SetUsername(ctx context.Context, msg *types.MsgSetUsername) (
 	currentEpoch := k.GetCurrentEpoch(ctx)
 	if profile.LastUsernameChangeEpoch > 0 {
 		epochsSinceChange := currentEpoch - profile.LastUsernameChangeEpoch
-		if uint64(epochsSinceChange) < params.UsernameChangeCooldownEpochs {
+		if commontypes.Saturate[uint64](epochsSinceChange) < params.UsernameChangeCooldownEpochs {
 			return nil, errorsmod.Wrapf(types.ErrUsernameCooldown,
-				"must wait %d more epochs", params.UsernameChangeCooldownEpochs-uint64(epochsSinceChange))
+				"must wait %d more epochs", params.UsernameChangeCooldownEpochs-commontypes.Saturate[uint64](epochsSinceChange))
 		}
 	}
 
@@ -90,6 +79,14 @@ func (k msgServer) SetUsername(ctx context.Context, msg *types.MsgSetUsername) (
 
 	if err := k.MemberProfile.Set(ctx, msg.Creator, profile); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to save profile")
+	}
+	if oldUsername != "" && oldUsername != username {
+		if err := k.UsernameOwner.Remove(ctx, strings.ToLower(oldUsername)); err != nil {
+			return nil, errorsmod.Wrap(err, "failed to release username index")
+		}
+	}
+	if err := k.UsernameOwner.Set(ctx, username, msg.Creator); err != nil {
+		return nil, errorsmod.Wrap(err, "failed to index username")
 	}
 
 	// Emit event

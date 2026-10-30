@@ -13,9 +13,11 @@ import (
 // through the shield module.
 func (k Keeper) IsShieldCompatible(_ context.Context, msg sdk.Msg) bool {
 	switch msg.(type) {
-	case *types.MsgSubmitAnonymousProposal:
-		return true
-	case *types.MsgAnonymousVoteProposal:
+	case *types.MsgSubmitAnonymousProposal,
+		*types.MsgAnonymousVoteProposal,
+		*types.MsgAnonymousVotePoll:
+		// The votes are proven against a secret ballot's voter snapshot
+		// (ShieldMerkleRoot, secret_ballot.go), not the x/rep trust tree.
 		return true
 	default:
 		return false

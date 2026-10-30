@@ -86,7 +86,7 @@ func TestUpdateOperationalParams(t *testing.T) {
 				// Add to ceiling first to bypass ceiling check
 				params, _ := f.keeper.Params.Get(f.ctx)
 				params.MaxAllowedMsgTypes = append(params.MaxAllowedMsgTypes, "/sparkdream.session.v1.MsgExecSession")
-				_ = f.keeper.Params.Set(f.ctx, params)
+				require.NoError(t, f.keeper.Params.Set(f.ctx, params))
 			},
 			expectError: true,
 			errContains: "NonDelegableSessionMsgs",
@@ -104,7 +104,7 @@ func TestUpdateOperationalParams(t *testing.T) {
 				}),
 			},
 			setup: func() {
-				_ = f.keeper.Params.Set(f.ctx, types.DefaultParams())
+				require.NoError(t, f.keeper.Params.Set(f.ctx, types.DefaultParams()))
 			},
 			expectError: false,
 		},

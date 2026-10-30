@@ -77,14 +77,14 @@ func TestMsgServerInviteMember(t *testing.T) {
 
 		// Setup: create inviter with DREAM balance
 		inviter := sdk.AccAddress([]byte("inviter"))
-		k.Member.Set(ctx, inviter.String(), types.Member{
+		require.NoError(t, k.Member.Set(ctx, inviter.String(), types.Member{
 			Address:           inviter.String(),
 			DreamBalance:      keeper.PtrInt(math.NewInt(1000000000)), // 1000 DREAM
 			StakedDream:       keeper.PtrInt(math.ZeroInt()),
 			LifetimeBurned:    keeper.PtrInt(math.ZeroInt()),
 			ReputationScores:  map[string]string{"tag": "100.0"},
 			InvitationCredits: 5,
-		})
+		}))
 
 		inviterStr, err := f.addressCodec.BytesToString(inviter)
 		require.NoError(t, err)
@@ -105,11 +105,11 @@ func TestMsgServerInviteMember(t *testing.T) {
 		// Verify invitation exists
 		var invitation types.Invitation
 		found := false
-		k.Invitation.Walk(ctx, nil, func(id uint64, inv types.Invitation) (bool, error) {
+		require.NoError(t, k.Invitation.Walk(ctx, nil, func(id uint64, inv types.Invitation) (bool, error) {
 			invitation = inv
 			found = true
 			return true, nil
-		})
+		}))
 		require.True(t, found)
 		require.Equal(t, inviterStr, invitation.Inviter)
 	})

@@ -1,51 +1,50 @@
 package simulation
 
 import (
-	"math/rand"
-
-	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
 
 	"sparkdream/x/blog/keeper"
 	"sparkdream/x/blog/types"
+	commontypes "sparkdream/x/common/types"
 )
 
-// SimulateMsgUpdateReply simulates a MsgUpdateReply message using direct keeper calls.
+// SimulateMsgUpdateReply delivers MsgUpdateReply from the author (by alias)
+// of a random active reply, creating a reply first when none has a live sim
+// author. The signer pays the storage fee for bytes above the reply's fee
+// high-water mark, plus the media scan fee when the new body is media.
 func SimulateMsgUpdateReply(
 	ak types.AuthKeeper,
 	bk types.BankKeeper,
 	k keeper.Keeper,
 	txGen client.TxConfig,
 ) simtypes.Operation {
-	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
-	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		simAccount, _ := simtypes.RandomAcc(r, accs)
-		msgType := sdk.MsgTypeURL(&types.MsgUpdateReply{})
-
-		// Find or create a post, then a reply to update
-		postID, err := getOrCreateAnyActivePost(r, ctx, k, simAccount.Address.String())
+	return operation(ak, bk, k, txGen, &types.MsgUpdateReply{}, func(e *simEnv) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
+		label := &types.MsgUpdateReply{}
+		owned := func(rp types.Reply) bool {
+			_, ok := e.owner(rp.Creator)
+			return activeReply(rp) && ok
+		}
+		rp, ok, err := e.replyOrCreate(owned, anyone)
 		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, msgType, "failed to get-or-create active post"), nil, nil
+			return noOpErr(label, err)
 		}
-
-		replyID, err := getOrCreateReplyOnPost(r, ctx, k, postID, simAccount.Address.String())
-		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, msgType, "failed to get-or-create reply"), nil, nil
+		if !ok {
+			return noOp(label, "no active reply with a live author and none could be created")
 		}
-
-		reply, found := k.GetReply(ctx, replyID)
-		if !found {
-			return simtypes.NoOpMsg(types.ModuleName, msgType, "reply not found"), nil, nil
+		acc, _ := e.owner(rp.Creator)
+		ct, body, _ := e.randomContent(acc.Address.String(), e.params.MaxReplyLength, false)
+		msg := &types.MsgUpdateReply{
+			Creator:     acc.Address.String(),
+			Id:          rp.Id,
+			Body:        body,
+			ContentType: ct,
 		}
-
-		// Update the reply body
-		reply.Body = randomBody(r)
-		reply.Edited = true
-		reply.EditedAt = ctx.BlockTime().Unix()
-		k.SetReply(ctx, reply)
-
-		return simtypes.NoOpMsg(types.ModuleName, msgType, "ok (direct keeper call)"), nil, nil
-	}
+		spent := e.scanFee(ct, body)
+		newBytes := commontypes.Saturate[uint64](len(msg.Body))
+		if newBytes > rp.FeeBytesHighWater {
+			spent = spent.Add(e.storageFee(commontypes.Saturate[int](newBytes - rp.FeeBytesHighWater)))
+		}
+		return e.submit(acc, msg, spent)
+	})
 }

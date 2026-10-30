@@ -1,46 +1,45 @@
 package simulation
 
 import (
-	"math/rand"
-
-	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
 
 	"sparkdream/x/blog/keeper"
 	"sparkdream/x/blog/types"
 )
 
-// SimulateMsgUnhidePost simulates a MsgUnhidePost message using direct keeper calls.
+// SimulateMsgUnhidePost delivers MsgUnhidePost from the author (by alias) of
+// a random hidden post. With none, the author of an active post hides it
+// first (a real MsgHidePost) and then unhides it.
 func SimulateMsgUnhidePost(
 	ak types.AuthKeeper,
 	bk types.BankKeeper,
 	k keeper.Keeper,
 	txGen client.TxConfig,
 ) simtypes.Operation {
-	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
-	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		simAccount, _ := simtypes.RandomAcc(r, accs)
-		msgType := sdk.MsgTypeURL(&types.MsgUnhidePost{})
-
-		// Find or create a hidden post to unhide
-		postID, err := getOrCreateHiddenPost(r, ctx, k, simAccount.Address.String())
+	return operation(ak, bk, k, txGen, &types.MsgUnhidePost{}, func(e *simEnv) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
+		label := &types.MsgUnhidePost{}
+		hidden := func(p types.Post) bool { return p.Status == types.PostStatus_POST_STATUS_HIDDEN }
+		post, acc, ok, err := e.ownedPostOrCreate(hidden, func(simtypes.Account) bool { return false })
 		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, msgType, "failed to get-or-create hidden post"), nil, nil
+			return noOpErr(label, err)
 		}
-
-		post, found := k.GetPost(ctx, postID)
-		if !found {
-			return simtypes.NoOpMsg(types.ModuleName, msgType, "post not found"), nil, nil
+		if !ok {
+			post, acc, ok, err = e.ownedPostOrCreate(activePost, anyone)
+			if err != nil {
+				return noOpErr(label, err)
+			}
+			if !ok {
+				return noOp(label, "no hidden or active post with a live author")
+			}
+			hid, err := e.ensure(acc, &types.MsgHidePost{Creator: acc.Address.String(), Id: post.Id}, zero())
+			if err != nil {
+				return noOpErr(label, err)
+			}
+			if !hid {
+				return noOp(label, "no hidden post and none could be hidden")
+			}
 		}
-
-		// Unhide the post
-		post.Status = types.PostStatus_POST_STATUS_ACTIVE
-		post.HiddenBy = ""
-		post.HiddenAt = 0
-		k.SetPost(ctx, post)
-
-		return simtypes.NoOpMsg(types.ModuleName, msgType, "ok (direct keeper call)"), nil, nil
-	}
+		return e.submit(acc, &types.MsgUnhidePost{Creator: acc.Address.String(), Id: post.Id}, zero())
+	})
 }

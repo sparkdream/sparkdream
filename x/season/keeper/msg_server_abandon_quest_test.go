@@ -65,7 +65,7 @@ func TestMsgServerAbandonQuest(t *testing.T) {
 			Completed:      true,
 			CompletedBlock: 100,
 		}
-		k.MemberQuestProgress.Set(ctx, key, progress)
+		require.NoError(t, k.MemberQuestProgress.Set(ctx, key, progress))
 
 		_, err := ms.AbandonQuest(ctx, &types.MsgAbandonQuest{
 			Creator: creatorStr,
@@ -95,7 +95,7 @@ func TestMsgServerAbandonQuest(t *testing.T) {
 			Active:     true,
 			Repeatable: false,
 		}
-		k.Quest.Set(ctx, "non_repeatable", quest)
+		require.NoError(t, k.Quest.Set(ctx, "non_repeatable", quest))
 
 		// Create in-progress
 		key := fmt.Sprintf("%s:%s", creatorStr, "non_repeatable")
@@ -104,7 +104,7 @@ func TestMsgServerAbandonQuest(t *testing.T) {
 			ObjectiveProgress: []uint64{5},
 			Completed:         false,
 		}
-		k.MemberQuestProgress.Set(ctx, key, progress)
+		require.NoError(t, k.MemberQuestProgress.Set(ctx, key, progress))
 
 		_, err := ms.AbandonQuest(ctx, &types.MsgAbandonQuest{
 			Creator: creatorStr,
@@ -139,7 +139,7 @@ func TestMsgServerAbandonQuest(t *testing.T) {
 			CooldownEpochs: 5,
 			Objectives:     []*types.QuestObjective{{Description: "Objective 1", Target: 10}},
 		}
-		k.Quest.Set(ctx, "repeatable_cooldown", quest)
+		require.NoError(t, k.Quest.Set(ctx, "repeatable_cooldown", quest))
 
 		// Create in-progress
 		key := fmt.Sprintf("%s:%s", creatorStr, "repeatable_cooldown")
@@ -148,7 +148,7 @@ func TestMsgServerAbandonQuest(t *testing.T) {
 			ObjectiveProgress: []uint64{3}, // Partial progress
 			Completed:         false,
 		}
-		k.MemberQuestProgress.Set(ctx, key, progress)
+		require.NoError(t, k.MemberQuestProgress.Set(ctx, key, progress))
 
 		_, err := ms.AbandonQuest(ctx, &types.MsgAbandonQuest{
 			Creator: creatorStr,
@@ -187,7 +187,7 @@ func TestMsgServerAbandonQuest(t *testing.T) {
 			Repeatable:     true,
 			CooldownEpochs: 0, // No cooldown
 		}
-		k.Quest.Set(ctx, "repeatable_no_cooldown", quest)
+		require.NoError(t, k.Quest.Set(ctx, "repeatable_no_cooldown", quest))
 
 		// Create in-progress
 		key := fmt.Sprintf("%s:%s", creatorStr, "repeatable_no_cooldown")
@@ -196,7 +196,7 @@ func TestMsgServerAbandonQuest(t *testing.T) {
 			ObjectiveProgress: []uint64{},
 			Completed:         false,
 		}
-		k.MemberQuestProgress.Set(ctx, key, progress)
+		require.NoError(t, k.MemberQuestProgress.Set(ctx, key, progress))
 
 		_, err := ms.AbandonQuest(ctx, &types.MsgAbandonQuest{
 			Creator: creatorStr,

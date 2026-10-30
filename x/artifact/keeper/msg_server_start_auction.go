@@ -42,6 +42,9 @@ func (k msgServer) StartAuction(ctx context.Context, msg *types.MsgStartAuction)
 	if err := sellable(c, t, now(ctx)); err != nil {
 		return nil, err
 	}
+	if err := k.treeSellable(ctx, t); err != nil {
+		return nil, err
+	}
 	if err := k.validatePrice(ctx, msg.ReservePrice, false); err != nil {
 		return nil, err
 	}
@@ -51,8 +54,16 @@ func (k msgServer) StartAuction(ctx context.Context, msg *types.MsgStartAuction)
 	if msg.Duration <= 0 || msg.Duration > p.MaxListingDuration {
 		return nil, errorsmod.Wrapf(types.ErrInvalidMetadata, "duration must be in (0, %d] seconds", p.MaxListingDuration)
 	}
-	if t.ExpiresAt > 0 && now(ctx)+msg.Duration > t.ExpiresAt {
-		return nil, errorsmod.Wrap(types.ErrTokenExpired, "the auction would outlast the token; renew it first")
+	// The auction must end at least auction_extension seconds before
+	// anything in the tree expires, so the settling block finds a live
+	// token (the anti-sniping extension is capped the same way in Bid).
+	expiry, err := k.treeExpiry(ctx, t)
+	if err != nil {
+		return nil, err
+	}
+	if expiry > 0 && now(ctx)+msg.Duration > expiry-p.AuctionExtension {
+		return nil, errorsmod.Wrapf(types.ErrTokenExpired,
+			"the auction must end at least %d seconds before the token expires; renew it first", p.AuctionExtension)
 	}
 	seq, err := k.AuctionSeq.Next(ctx)
 	if err != nil {

@@ -151,8 +151,8 @@ storage_fee_charged() {
 # =========================================================================
 echo "--- TEST 1: Anonymous blog post creation ---"
 
-NULLIFIER_POST="ab01000000000000000000000000000000000000000000000000000000000001"
-RATE_NULL_POST=$(openssl rand -hex 32)
+NULLIFIER_POST="0001000000000000000000000000000000000000000000000000000000000001"
+RATE_NULL_POST=00$(openssl rand -hex 31)
 ANON_POST_TITLE="Anonymous Test Post"
 ANON_POST_BODY="This post was created anonymously via x/shield"
 INNER_MSG="{\"@type\":\"/sparkdream.blog.v1.MsgCreatePost\",\"creator\":\"$SHIELD_MODULE_ADDR\",\"title\":\"$ANON_POST_TITLE\",\"body\":\"$ANON_POST_BODY\"}"
@@ -233,8 +233,8 @@ if [ -z "$ANON_POST_ID" ]; then
     fi
 fi
 
-NULLIFIER_REPLY="ab02000000000000000000000000000000000000000000000000000000000002"
-RATE_NULL_REPLY=$(openssl rand -hex 32)
+NULLIFIER_REPLY="0002000000000000000000000000000000000000000000000000000000000002"
+RATE_NULL_REPLY=00$(openssl rand -hex 31)
 ANON_REPLY_BODY="Anonymous reply via x/shield"
 INNER_MSG="{\"@type\":\"/sparkdream.blog.v1.MsgCreateReply\",\"creator\":\"$SHIELD_MODULE_ADDR\",\"post_id\":\"$ANON_POST_ID\",\"body\":\"$ANON_REPLY_BODY\"}"
 
@@ -278,8 +278,8 @@ fi
 # =========================================================================
 echo "--- TEST 3: Anonymous blog reaction ---"
 
-NULLIFIER_REACT="ab03000000000000000000000000000000000000000000000000000000000003"
-RATE_NULL_REACT=$(openssl rand -hex 32)
+NULLIFIER_REACT="0003000000000000000000000000000000000000000000000000000000000003"
+RATE_NULL_REACT=00$(openssl rand -hex 31)
 # reaction_type 1 = REACTION_TYPE_LIKE
 INNER_MSG="{\"@type\":\"/sparkdream.blog.v1.MsgReact\",\"creator\":\"$SHIELD_MODULE_ADDR\",\"post_id\":\"$ANON_POST_ID\",\"reply_id\":\"0\",\"reaction_type\":1}"
 
@@ -330,7 +330,7 @@ fi
 echo "--- TEST 4: Nullifier replay prevention ---"
 
 # Reuse the same nullifier from TEST 1
-RATE_NULL_REPLAY=$(openssl rand -hex 32)
+RATE_NULL_REPLAY=00$(openssl rand -hex 31)
 INNER_MSG="{\"@type\":\"/sparkdream.blog.v1.MsgCreatePost\",\"creator\":\"$SHIELD_MODULE_ADDR\",\"title\":\"Replay Attack\",\"body\":\"This should fail\"}"
 
 TX_RES=$($BINARY tx shield shielded-exec \

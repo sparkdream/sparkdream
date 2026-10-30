@@ -1,87 +1,47 @@
 package simulation
 
 import (
-	"math/rand"
-
-	"cosmossdk.io/collections"
-	"github.com/cosmos/cosmos-sdk/baseapp"
+	"cosmossdk.io/math"
 	"github.com/cosmos/cosmos-sdk/client"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
 
 	"sparkdream/x/collect/keeper"
 	"sparkdream/x/collect/types"
 )
 
+// SimulateMsgRemoveItems delivers MsgRemoveItems: up to three distinct
+// non-hidden items (within max_batch_size) of one mutable, non-hidden
+// collection with no pending sponsorship request, from a writer of it.
 func SimulateMsgRemoveItems(
 	ak types.AuthKeeper,
 	bk types.BankKeeper,
 	k keeper.Keeper,
 	txGen client.TxConfig,
 ) simtypes.Operation {
-	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
-	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		simAccount, _ := simtypes.RandomAcc(r, accs)
-		msg := &types.MsgRemoveItems{
-			Creator: simAccount.Address.String(),
+	return operation(ak, bk, k, txGen, &types.MsgRemoveItems{}, func(e *simEnv) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
+		msg := &types.MsgRemoveItems{}
+		items, err := e.editableItems(true, func(c types.Collection) bool { return !e.hasSponsorshipRequest(c.Id) })
+		if err != nil {
+			return noOpErr(msg, err)
 		}
-
-		// Find a mutable collection owned by simAccount
-		coll, collID, err := findMutableCollectionByOwner(r, ctx, k, simAccount.Address.String())
-		if err != nil || coll == nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "no mutable collection found"), nil, nil
+		first, ok := pick(e.r, items)
+		if !ok {
+			return noOp(msg, "no items a sim account can remove")
 		}
-
-		// Walk items in this collection
-		type itemEntry struct {
-			id   uint64
-			item types.Item
+		if e.params.MaxBatchSize == 0 {
+			return noOp(msg, "max_batch_size is zero")
 		}
-		var items []itemEntry
-		_ = k.ItemsByCollection.Walk(ctx,
-			collections.NewPrefixedPairRange[uint64, uint64](collID),
-			func(key collections.Pair[uint64, uint64]) (bool, error) {
-				itemID := key.K2()
-				item, err := k.Item.Get(ctx, itemID)
-				if err != nil {
-					return false, nil
-				}
-				items = append(items, itemEntry{itemID, item})
-				return false, nil
-			},
-		)
-
-		if len(items) == 0 {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "no items in collection"), nil, nil
+		msg.Creator = first.writer.Address.String()
+		msg.Ids = []uint64{first.item.Id}
+		want := 1 + e.r.Intn(3)
+		for _, it := range items {
+			if len(msg.Ids) >= want || len(msg.Ids) >= int(e.params.MaxBatchSize) {
+				break
+			}
+			if it.coll.Id == first.coll.Id && it.item.Id != first.item.Id && it.writer.Address.Equals(first.writer.Address) {
+				msg.Ids = append(msg.Ids, it.item.Id)
+			}
 		}
-
-		// Remove 1-2 items (up to what's available)
-		numToRemove := r.Intn(2) + 1
-		if numToRemove > len(items) {
-			numToRemove = len(items)
-		}
-
-		// Shuffle and pick first numToRemove
-		r.Shuffle(len(items), func(i, j int) { items[i], items[j] = items[j], items[i] })
-
-		for i := 0; i < numToRemove; i++ {
-			entry := items[i]
-			_ = k.Item.Remove(ctx, entry.id)
-			_ = k.ItemsByCollection.Remove(ctx, collections.Join(collID, entry.id))
-			_ = k.ItemsByOwner.Remove(ctx, collections.Join(entry.item.AddedBy, entry.id))
-		}
-
-		// Decrement ItemCount
-		if coll.ItemCount >= uint64(numToRemove) {
-			coll.ItemCount -= uint64(numToRemove)
-		} else {
-			coll.ItemCount = 0
-		}
-		coll.UpdatedAt = ctx.BlockHeight()
-		if err := k.Collection.Set(ctx, collID, *coll); err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "failed to update collection: "+err.Error()), nil, nil
-		}
-
-		return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "ok (direct keeper call)"), nil, nil
-	}
+		return e.submit(first.writer, msg, math.ZeroInt())
+	})
 }

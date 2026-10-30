@@ -2,6 +2,7 @@ package keeper
 
 import (
 	"context"
+	"errors"
 	"strings"
 
 	"cosmossdk.io/collections"
@@ -52,14 +53,17 @@ func (k Keeper) publicMintCheck(ctx context.Context, c types.Class, buyer string
 func (k Keeper) publicMintUsed(ctx context.Context, classID uint64, buyer string) uint64 {
 	var used uint64
 	for _, a := range k.recentAddressesOf(ctx, buyer) {
-		n, _ := k.PublicMintCount.Get(ctx, collections.Join(classID, a))
+		n, getErr := k.PublicMintCount.Get(ctx, collections.Join(classID, a))
+		if getErr != nil && !errors.Is(getErr, collections.ErrNotFound) {
+			sdk.UnwrapSDKContext(ctx).Logger().Error("publicMintUsed: PublicMintCount.Get failed", "err", getErr)
+		}
 		used += n
 	}
 	return used
 }
 
 func (k msgServer) PublicMint(ctx context.Context, msg *types.MsgPublicMint) (*types.MsgPublicMintResponse, error) {
-	buyer, err := k.decodeAddr("buyer", msg.Buyer)
+	buyer, err := k.validateRecipient("buyer", msg.Buyer)
 	if err != nil {
 		return nil, err
 	}
@@ -135,7 +139,10 @@ func (k msgServer) PublicMint(ctx context.Context, msg *types.MsgPublicMint) (*t
 	}
 	// Counted for the class's life, so a limit set later still sees past mints.
 	key := collections.Join(c.Id, msg.Buyer)
-	used, _ := k.PublicMintCount.Get(ctx, key)
+	used, getErr := k.PublicMintCount.Get(ctx, key)
+	if getErr != nil && !errors.Is(getErr, collections.ErrNotFound) {
+		return nil, getErr
+	}
 	if err := k.PublicMintCount.Set(ctx, key, used+uint64(msg.Quantity)); err != nil {
 		return nil, err
 	}

@@ -121,13 +121,13 @@ func (gs GenesisState) Validate() error {
 
 	// Live operators: bond > 0, valid status, no self-controller,
 	// (address, service_type) unique.
-	liveOps := make(map[string]struct{}, len(gs.Operators))
+	liveOps := make(map[string]int64, len(gs.Operators)) // key -> registered_at
 	for _, op := range gs.Operators {
 		key := op.Address + "/" + op.ServiceType
 		if _, dup := liveOps[key]; dup {
 			return fmt.Errorf("genesis: duplicate live operator %s", key)
 		}
-		liveOps[key] = struct{}{}
+		liveOps[key] = op.RegisteredAt
 
 		if _, exists := serviceTypes[op.ServiceType]; !exists {
 			return fmt.Errorf("genesis: operator %s references unknown service_type %q",
@@ -169,12 +169,18 @@ func (gs GenesisState) Validate() error {
 	}
 
 	// Archived operators: status must be terminal, retired_at > 0, bond
-	// must be zero, NO collision with live operators on
-	// (address, service_type).
+	// must be zero. An archive may share (address, service_type) with a
+	// live record only as a RETIRED history that ended before the live
+	// record was registered (retire, then re-register: spec §3.1); this is
+	// the rule LiveArchiveDisjointInvariant checks. A SLASHED history can
+	// never sit beside a live record, since re-registration after a slash
+	// is refused.
 	for _, op := range gs.ArchivedOperators {
 		key := op.Address + "/" + op.ServiceType
-		if _, collision := liveOps[key]; collision {
-			return fmt.Errorf("genesis: archived operator %s collides with live record", key)
+		if registeredAt, live := liveOps[key]; live {
+			if op.Status != OperatorStatus_OPERATOR_STATUS_RETIRED || op.RetiredAt >= registeredAt {
+				return fmt.Errorf("genesis: archived operator %s collides with live record", key)
+			}
 		}
 		if _, exists := serviceTypes[op.ServiceType]; !exists {
 			return fmt.Errorf("genesis: archived operator %s references unknown service_type %q",

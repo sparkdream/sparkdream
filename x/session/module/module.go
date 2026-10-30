@@ -149,3 +149,9 @@ func (am AppModule) EndBlock(ctx context.Context) error {
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	return am.keeper.EndBlocker(sdkCtx)
 }
+
+// RegisterInvariants registers the x/session invariants (run by app's
+// TestInvariants; x/crisis is not wired).
+func (am AppModule) RegisterInvariants(ir sdk.InvariantRegistry) {
+	keeper.RegisterInvariants(ir, am.keeper)
+}

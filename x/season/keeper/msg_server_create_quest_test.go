@@ -78,7 +78,7 @@ func TestMsgServerCreateQuest(t *testing.T) {
 			XpReward: 50,
 			Active:   true,
 		}
-		k.Quest.Set(ctx, "existing_quest", existingQuest)
+		require.NoError(t, k.Quest.Set(ctx, "existing_quest", existingQuest))
 
 		_, err := ms.CreateQuest(ctx, &types.MsgCreateQuest{
 			Authority: authority,
@@ -147,6 +147,9 @@ func TestMsgServerCreateQuest(t *testing.T) {
 		k := f.keeper
 		ms := keeper.NewMsgServerImpl(k)
 
+		// Prerequisites must exist (SEA-19).
+		require.NoError(t, k.Quest.Set(ctx, "intro_quest", types.Quest{QuestId: "intro_quest", Name: "Intro", Active: true}))
+		require.NoError(t, k.Achievement.Set(ctx, "first_steps", types.Achievement{AchievementId: "first_steps", Name: "First Steps"}))
 		authority, _ := f.addressCodec.BytesToString(k.GetAuthority())
 
 		_, err := ms.CreateQuest(ctx, &types.MsgCreateQuest{

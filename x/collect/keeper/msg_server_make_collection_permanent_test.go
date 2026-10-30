@@ -89,7 +89,7 @@ func TestMakeCollectionPermanent_ZeroDepositsNoBurn(t *testing.T) {
 	coll, _ := f.keeper.Collection.Get(f.ctx, collID)
 	coll.DepositAmount = math.ZeroInt()
 	coll.ItemDepositTotal = math.ZeroInt()
-	f.keeper.Collection.Set(f.ctx, collID, coll) //nolint:errcheck
+	require.NoError(t, f.keeper.Collection.Set(f.ctx, collID, coll))
 
 	var burnCalled bool
 	f.bankKeeper.burnCoinsFn = func(_ context.Context, _ string, _ sdk.Coins) error {
@@ -134,7 +134,7 @@ func TestMakeCollectionPermanent_TrustLevelTooLow(t *testing.T) {
 	// Raise the gate above ESTABLISHED so the default mock falls under.
 	params, _ := f.keeper.Params.Get(f.ctx)
 	params.MakePermanentMinTrustLevel = 3 // TRUSTED
-	f.keeper.Params.Set(f.ctx, params)    //nolint:errcheck
+	require.NoError(t, f.keeper.Params.Set(f.ctx, params))
 
 	collID := f.createTTLCollection(t, f.owner, 500)
 
@@ -171,7 +171,7 @@ func TestMakeCollectionPermanent_RateLimitIndependentOfPin(t *testing.T) {
 	params, _ := f.keeper.Params.Get(f.ctx)
 	params.MaxPinsPerDay = 1
 	params.MaxMakePermanentPerDay = 2
-	f.keeper.Params.Set(f.ctx, params) //nolint:errcheck
+	require.NoError(t, f.keeper.Params.Set(f.ctx, params))
 
 	permCollID := f.createCollection(t, f.owner)
 	ttlCollID1 := f.createTTLCollection(t, f.owner, 500)
@@ -202,7 +202,7 @@ func TestMakeCollectionPermanent_RateLimitOwnCap(t *testing.T) {
 
 	params, _ := f.keeper.Params.Get(f.ctx)
 	params.MaxMakePermanentPerDay = 1
-	f.keeper.Params.Set(f.ctx, params) //nolint:errcheck
+	require.NoError(t, f.keeper.Params.Set(f.ctx, params))
 
 	id1 := f.createTTLCollection(t, f.owner, 500)
 	id2 := f.createTTLCollection(t, f.owner, 500)

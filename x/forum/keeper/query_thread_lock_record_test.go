@@ -25,7 +25,9 @@ func createNThreadLockRecord(keeper keeper.Keeper, ctx context.Context, n int) [
 		items[i].LockReason = strconv.Itoa(i)
 		items[i].AppealPending = true
 		items[i].InitiativeId = uint64(i)
-		_ = keeper.ThreadLockRecord.Set(ctx, items[i].RootId, items[i])
+		if err := keeper.ThreadLockRecord.Set(ctx, items[i].RootId, items[i]); err != nil {
+			panic(err)
+		}
 	}
 	return items
 }

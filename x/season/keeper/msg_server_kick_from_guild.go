@@ -2,6 +2,8 @@ package keeper
 
 import (
 	"context"
+	"cosmossdk.io/collections"
+	"errors"
 	"fmt"
 
 	"sparkdream/x/season/types"
@@ -60,7 +62,7 @@ func (k msgServer) KickFromGuild(ctx context.Context, msg *types.MsgKickFromGuil
 
 	// Remove from officers if applicable
 	if k.IsGuildOfficer(ctx, msg.GuildId, msg.Member) {
-		newOfficers := make([]string, 0, len(guild.Officers)-1)
+		newOfficers := make([]string, 0, len(guild.Officers))
 		for _, officer := range guild.Officers {
 			if !k.sameMember(ctx, officer, msg.Member) {
 				newOfficers = append(newOfficers, officer)
@@ -77,18 +79,21 @@ func (k msgServer) KickFromGuild(ctx context.Context, msg *types.MsgKickFromGuil
 	if err == nil {
 		profile.GuildId = 0
 		profile.LastActiveEpoch = k.GetCurrentEpoch(ctx)
-		_ = k.MemberProfile.Set(ctx, msg.Member, profile)
+		if err := k.MemberProfile.Set(ctx, msg.Member, profile); err != nil {
+			return nil, err
+		}
 	}
 
-	// Update membership record
-	currentEpoch := k.GetCurrentEpoch(ctx)
-	membership, _ := k.GuildMembership.Get(ctx, msg.Member)
-	membership.GuildId = 0
-	membership.LeftEpoch = currentEpoch
-	_ = k.GuildMembership.Set(ctx, msg.Member, membership)
+	// Update membership record and the active member counter (SEA-24)
+	if _, err := k.leaveGuildMembership(ctx, msg.Member, k.GetCurrentEpoch(ctx)); err != nil {
+		return nil, errorsmod.Wrap(err, "failed to update membership")
+	}
 
 	// Check if guild drops below minimum - freeze if so
-	params, _ := k.Params.Get(ctx)
+	params, getErr := k.Params.Get(ctx)
+	if getErr != nil && !errors.Is(getErr, collections.ErrNotFound) {
+		return nil, getErr
+	}
 	memberCount := k.GetGuildMemberCount(ctx, msg.GuildId)
 	if memberCount < uint64(params.MinGuildMembers) && guild.Status == types.GuildStatus_GUILD_STATUS_ACTIVE {
 		guild.Status = types.GuildStatus_GUILD_STATUS_FROZEN

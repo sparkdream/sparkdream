@@ -155,8 +155,8 @@ echo ""
 # =========================================================================
 echo "--- TEST 1: Anonymous collection creation ---"
 
-NULLIFIER_COLL="cc01000000000000000000000000000000000000000000000000000000000001"
-RATE_NULL_COLL=$(openssl rand -hex 32)
+NULLIFIER_COLL="0001000000000000000000000000000000000000000000000000000000000001"
+RATE_NULL_COLL=00$(openssl rand -hex 31)
 # type=1 (CURATED), visibility=1 (PUBLIC), encrypted=false
 # Anonymous collections must have a TTL (expires_at is a block height, at
 # most max_ttl_blocks ahead).
@@ -254,7 +254,7 @@ else
             --inner-message "$1" \
             --proof "$DUMMY_PROOF" \
             --nullifier "$2" \
-            --rate-limit-nullifier "$(openssl rand -hex 32)" \
+            --rate-limit-nullifier "00$(openssl rand -hex 31)" \
             --merkle-root "$DUMMY_MERKLE_ROOT" \
             --proof-domain 1 \
             --min-trust-level 1 \
@@ -269,7 +269,7 @@ else
     }
 
     # Someone else's nullifier is not the owner tag: refused before paying.
-    TX_RES=$(owner_exec "$ADD_INNER" "$(openssl rand -hex 32)")
+    TX_RES=$(owner_exec "$ADD_INNER" "00$(openssl rand -hex 31)")
     submit_tx_and_wait "$TX_RES"
     if check_tx_success "$TX_RESULT"; then
         echo "  ERROR: a non-owner added an item to the anonymous collection"
@@ -322,8 +322,8 @@ record_result "Anonymous owner manages collection" "$([ "$OWNER_PASS" = true ] &
 # =========================================================================
 echo "--- TEST 2: Anonymous collection upvote ---"
 
-NULLIFIER_UP="cc02000000000000000000000000000000000000000000000000000000000002"
-RATE_NULL_UP=$(openssl rand -hex 32)
+NULLIFIER_UP="0002000000000000000000000000000000000000000000000000000000000002"
+RATE_NULL_UP=00$(openssl rand -hex 31)
 # target_type=1 (FLAG_TARGET_TYPE_COLLECTION)
 INNER_MSG="{\"@type\":\"/sparkdream.collect.v1.MsgUpvoteContent\",\"creator\":\"$SHIELD_MODULE_ADDR\",\"target_id\":\"$VOTE_TARGET_ID\",\"target_type\":1}"
 
@@ -371,8 +371,8 @@ INNER_MSG="{\"@type\":\"/sparkdream.collect.v1.MsgUpvoteContent\",\"creator\":\"
 TX_RES=$($BINARY tx shield shielded-exec \
     --inner-message "$INNER_MSG" \
     --proof "$DUMMY_PROOF" \
-    --nullifier "$(openssl rand -hex 32)" \
-    --rate-limit-nullifier "$(openssl rand -hex 32)" \
+    --nullifier "00$(openssl rand -hex 31)" \
+    --rate-limit-nullifier "00$(openssl rand -hex 31)" \
     --merkle-root "$DUMMY_MERKLE_ROOT" \
     --proof-domain 1 \
     --min-trust-level 1 \
@@ -431,8 +431,8 @@ if [ -z "$DOWNVOTE_TARGET" ] || [ "$DOWNVOTE_TARGET" == "null" ]; then
 fi
 echo "  Downvote target collection: $DOWNVOTE_TARGET"
 
-NULLIFIER_DOWN="cc03000000000000000000000000000000000000000000000000000000000003"
-RATE_NULL_DOWN=$(openssl rand -hex 32)
+NULLIFIER_DOWN="0003000000000000000000000000000000000000000000000000000000000003"
+RATE_NULL_DOWN=00$(openssl rand -hex 31)
 INNER_MSG="{\"@type\":\"/sparkdream.collect.v1.MsgDownvoteContent\",\"creator\":\"$SHIELD_MODULE_ADDR\",\"target_id\":\"$DOWNVOTE_TARGET\",\"target_type\":1}"
 
 TX_RES=$($BINARY tx shield shielded-exec \
@@ -480,7 +480,7 @@ fi
 echo "--- TEST 4: Nullifier replay prevention ---"
 
 # Reuse the same nullifier from TEST 2 (upvote)
-RATE_NULL_REPLAY=$(openssl rand -hex 32)
+RATE_NULL_REPLAY=00$(openssl rand -hex 31)
 INNER_MSG="{\"@type\":\"/sparkdream.collect.v1.MsgUpvoteContent\",\"creator\":\"$SHIELD_MODULE_ADDR\",\"target_id\":\"$VOTE_TARGET_ID\",\"target_type\":1}"
 
 TX_RES=$($BINARY tx shield shielded-exec \

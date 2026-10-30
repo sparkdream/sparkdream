@@ -24,7 +24,7 @@ func TestUpdateTrustLevel_ForumRepCountsForProvisional(t *testing.T) {
 	minRep := params.TrustLevelConfig.ProvisionalMinRep
 
 	// All rep is from forum activity (no ReputationScores).
-	k.Member.Set(ctx, member.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, member.String(), types.Member{
 		Address:                member.String(),
 		DreamBalance:           PtrInt(math.ZeroInt()),
 		StakedDream:            PtrInt(math.ZeroInt()),
@@ -33,7 +33,7 @@ func TestUpdateTrustLevel_ForumRepCountsForProvisional(t *testing.T) {
 		ForumRepPerTag:         map[string]string{"backend": minRep.String()},
 		TrustLevel:             types.TrustLevel_TRUST_LEVEL_NEW,
 		CompletedInterimsCount: params.TrustLevelConfig.ProvisionalMinInterims,
-	})
+	}))
 
 	require.NoError(t, k.UpdateTrustLevel(ctx, member))
 	m, _ := k.Member.Get(ctx, member.String())
@@ -55,7 +55,7 @@ func TestUpdateTrustLevel_ForumRepCountsForEstablished(t *testing.T) {
 
 	// Split rep: half from interim/initiative work, half from forum activity.
 	half := threshold.Quo(math.LegacyNewDec(2))
-	k.Member.Set(ctx, member.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, member.String(), types.Member{
 		Address:                member.String(),
 		DreamBalance:           PtrInt(math.ZeroInt()),
 		StakedDream:            PtrInt(math.ZeroInt()),
@@ -65,7 +65,7 @@ func TestUpdateTrustLevel_ForumRepCountsForEstablished(t *testing.T) {
 		ForumRepPerTag:         map[string]string{"backend": half.String()},
 		TrustLevel:             types.TrustLevel_TRUST_LEVEL_PROVISIONAL,
 		CompletedInterimsCount: params.TrustLevelConfig.EstablishedMinInterims,
-	})
+	}))
 
 	require.NoError(t, k.UpdateTrustLevel(ctx, member))
 	m, _ := k.Member.Get(ctx, member.String())
@@ -91,7 +91,7 @@ func TestUpdateTrustLevel_ForumRepExcludedFromTrusted(t *testing.T) {
 	// verified-work rep alone is well below threshold.
 	verifiedShare := trustedMinRep.Quo(math.LegacyNewDec(100)) // 1%
 	forumShare := trustedMinRep.Sub(verifiedShare).Add(math.LegacyNewDec(1000))
-	k.Member.Set(ctx, member.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, member.String(), types.Member{
 		Address:          member.String(),
 		DreamBalance:     PtrInt(math.ZeroInt()),
 		StakedDream:      PtrInt(math.ZeroInt()),
@@ -101,7 +101,7 @@ func TestUpdateTrustLevel_ForumRepExcludedFromTrusted(t *testing.T) {
 		ForumRepPerTag:   map[string]string{"backend": forumShare.String()},
 		TrustLevel:       types.TrustLevel_TRUST_LEVEL_ESTABLISHED,
 		JoinedSeason:     0,
-	})
+	}))
 
 	require.NoError(t, k.UpdateTrustLevel(ctx, member))
 	m, _ := k.Member.Get(ctx, member.String())
@@ -124,7 +124,7 @@ func TestUpdateTrustLevel_ForumRepExcludedFromCore(t *testing.T) {
 
 	verifiedShare := coreMinRep.Quo(math.LegacyNewDec(100)) // 1%
 	forumShare := coreMinRep.Sub(verifiedShare).Add(math.LegacyNewDec(1000))
-	k.Member.Set(ctx, member.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, member.String(), types.Member{
 		Address:          member.String(),
 		DreamBalance:     PtrInt(math.ZeroInt()),
 		StakedDream:      PtrInt(math.ZeroInt()),
@@ -134,7 +134,7 @@ func TestUpdateTrustLevel_ForumRepExcludedFromCore(t *testing.T) {
 		ForumRepPerTag:   map[string]string{"backend": forumShare.String()},
 		TrustLevel:       types.TrustLevel_TRUST_LEVEL_TRUSTED,
 		JoinedSeason:     0,
-	})
+	}))
 
 	require.NoError(t, k.UpdateTrustLevel(ctx, member))
 	m, _ := k.Member.Get(ctx, member.String())
@@ -150,14 +150,14 @@ func TestForumRep_AddAndDeductFloors(t *testing.T) {
 	ctx := fixture.ctx
 
 	member := sdk.AccAddress([]byte("forum-rep-addr"))
-	k.Member.Set(ctx, member.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, member.String(), types.Member{
 		Address:        member.String(),
 		DreamBalance:   PtrInt(math.ZeroInt()),
 		StakedDream:    PtrInt(math.ZeroInt()),
 		LifetimeEarned: PtrInt(math.ZeroInt()),
 		LifetimeBurned: PtrInt(math.ZeroInt()),
 		Status:         types.MemberStatus_MEMBER_STATUS_ACTIVE,
-	})
+	}))
 
 	require.NoError(t, k.AddForumRep(ctx, member, "backend", math.LegacyNewDec(3)))
 	require.NoError(t, k.AddForumRep(ctx, member, "backend", math.LegacyNewDec(2)))
@@ -175,7 +175,7 @@ func TestForumRep_SumAcrossTags(t *testing.T) {
 	ctx := fixture.ctx
 
 	member := sdk.AccAddress([]byte("forum-rep-sum"))
-	k.Member.Set(ctx, member.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, member.String(), types.Member{
 		Address:        member.String(),
 		DreamBalance:   PtrInt(math.ZeroInt()),
 		StakedDream:    PtrInt(math.ZeroInt()),
@@ -187,7 +187,7 @@ func TestForumRep_SumAcrossTags(t *testing.T) {
 			"docs":     "5.0",
 		},
 		Status: types.MemberStatus_MEMBER_STATUS_ACTIVE,
-	})
+	}))
 
 	require.Equal(t, "25.000000000000000000", k.SumForumRep(ctx, member).String())
 }

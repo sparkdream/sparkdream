@@ -121,7 +121,7 @@ func TestMsgRedeem(t *testing.T) {
 				RedemptionBlocks: 0,
 				ResolutionHeight: 100,
 			}
-			_ = f.keeper.Market.Set(ctx, 1, m1)
+			require.NoError(t, f.keeper.Market.Set(ctx, 1, m1))
 
 			// Market 2: Resolved NO, With Delay
 			m2 := types.Market{
@@ -131,7 +131,7 @@ func TestMsgRedeem(t *testing.T) {
 				RedemptionBlocks: 50,
 				ResolutionHeight: 100,
 			}
-			_ = f.keeper.Market.Set(ctx, 2, m2)
+			require.NoError(t, f.keeper.Market.Set(ctx, 2, m2))
 
 			// Market 3: Active
 			m3 := types.Market{
@@ -139,7 +139,7 @@ func TestMsgRedeem(t *testing.T) {
 				Status: "ACTIVE",
 				Denom:  "uspark",
 			}
-			_ = f.keeper.Market.Set(ctx, 3, m3)
+			require.NoError(t, f.keeper.Market.Set(ctx, 3, m3))
 
 			// 3. Set Context Height
 			ctx = ctx.WithBlockHeight(tc.blockHeight)

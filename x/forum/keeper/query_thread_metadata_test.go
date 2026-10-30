@@ -24,7 +24,9 @@ func createNThreadMetadata(keeper keeper.Keeper, ctx context.Context, n int) []t
 		items[i].ProposedReplyId = uint64(i)
 		items[i].ProposedBy = strconv.Itoa(i)
 		items[i].ProposedAt = int64(i)
-		_ = keeper.ThreadMetadata.Set(ctx, items[i].ThreadId, items[i])
+		if err := keeper.ThreadMetadata.Set(ctx, items[i].ThreadId, items[i]); err != nil {
+			panic(err)
+		}
 	}
 	return items
 }

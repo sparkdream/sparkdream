@@ -57,7 +57,7 @@ func TestQueryMemberSeasonHistory(t *testing.T) {
 			AchievementsEarned:   []string{"first_quest"},
 		}
 		key := "2/" + memberStr
-		k.MemberSeasonSnapshot.Set(ctx, key, snapshot)
+		require.NoError(t, k.MemberSeasonSnapshot.Set(ctx, key, snapshot))
 
 		resp, err := qs.MemberSeasonHistory(ctx, &types.QueryMemberSeasonHistoryRequest{Address: memberStr})
 		require.NoError(t, err)

@@ -33,6 +33,16 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 		if err := k.ContributionsByContributor.Set(ctx, collections.Join(contrib.Contributor, contrib.Id)); err != nil {
 			return err
 		}
+		// Rebuild the deadline index (derived state, not exported).
+		if err := k.refreshDeadlineIndex(ctx, &contrib); err != nil {
+			return err
+		}
+		// Re-queue a completed contribution still without its project.
+		if contrib.Status == types.ContributionStatus_CONTRIBUTION_STATUS_COMPLETED && !contrib.TransitionedToProject {
+			if err := k.queueProjectTransition(ctx, contrib.Id, 0); err != nil {
+				return err
+			}
+		}
 	}
 
 	// Import stakes and their indexes

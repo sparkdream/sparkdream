@@ -2,6 +2,7 @@ package keeper
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"sparkdream/x/rep/types"
@@ -20,7 +21,8 @@ func (k msgServer) CosignMemberReport(ctx context.Context, msg *types.MsgCosignM
 
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 
-	report, err := k.MemberReport.Get(ctx, msg.Member)
+	member := k.Canonical(ctx, msg.Member)
+	report, err := k.MemberReport.Get(ctx, member)
 	if err != nil {
 		return nil, errorsmod.Wrap(types.ErrReportNotFound, fmt.Sprintf("no report found for member %s", msg.Member))
 	}
@@ -29,7 +31,11 @@ func (k msgServer) CosignMemberReport(ctx context.Context, msg *types.MsgCosignM
 		return nil, errorsmod.Wrap(types.ErrReportNotPending, "report is not pending")
 	}
 
-	tier, _ := k.GetReputationTier(ctx, sdk.AccAddress(creatorBytes))
+	// A non-member has tier 0 (refused below); only a store error fails here.
+	tier, getErr := k.GetReputationTier(ctx, sdk.AccAddress(creatorBytes))
+	if getErr != nil && !errors.Is(getErr, types.ErrMemberNotFound) {
+		return nil, getErr
+	}
 	if tier < types.DefaultMinRepTierSentinel {
 		return nil, errorsmod.Wrap(types.ErrInsufficientReputation, "insufficient reputation tier to co-sign reports")
 	}
@@ -52,32 +58,38 @@ func (k msgServer) CosignMemberReport(ctx context.Context, msg *types.MsgCosignM
 		return nil, errorsmod.Wrap(types.ErrMaxReportersReached, "maximum reporters reached")
 	}
 
-	if err := k.LockDREAM(ctx, sdk.AccAddress(creatorBytes), sentinelBond); err != nil {
+	if k.SameMember(ctx, msg.Creator, member) {
+		return nil, errorsmod.Wrap(types.ErrCannotReportSelf, "cannot co-sign a report against yourself")
+	}
+
+	// Co-signers lock the same capped bond as the reporter.
+	cosignBond := math.MinInt(sentinelBond, types.DefaultMaxMemberReportBond)
+	if err := k.LockDREAM(ctx, sdk.AccAddress(creatorBytes), cosignBond); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to lock DREAM bond")
 	}
 
 	report.Reporters = append(report.Reporters, msg.Creator)
 	report.ReporterBonds = append(report.ReporterBonds, &types.ReporterBondEntry{
 		Address: msg.Creator,
-		Amount:  sentinelBond.String(),
+		Amount:  cosignBond.String(),
 	})
 
 	totalBond, _ := math.NewIntFromString(report.TotalBond)
-	newTotal := totalBond.Add(sentinelBond)
+	newTotal := totalBond.Add(cosignBond)
 	report.TotalBond = newTotal.String()
 
 	if uint64(len(report.Reporters)) >= types.DefaultMemberReportCosignThreshold {
 		report.Status = types.MemberReportStatus_MEMBER_REPORT_STATUS_ESCALATED
 	}
 
-	if err := k.MemberReport.Set(ctx, msg.Member, report); err != nil {
+	if err := k.MemberReport.Set(ctx, member, report); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to update member report")
 	}
 
 	sdkCtx.EventManager().EmitEvent(
 		sdk.NewEvent(
 			"member_report_cosigned",
-			sdk.NewAttribute("member", msg.Member),
+			sdk.NewAttribute("member", member),
 			sdk.NewAttribute("cosigner", msg.Creator),
 			sdk.NewAttribute("total_reporters", fmt.Sprintf("%d", len(report.Reporters))),
 			sdk.NewAttribute("status", report.Status.String()),

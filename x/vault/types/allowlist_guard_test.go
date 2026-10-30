@@ -14,11 +14,11 @@ import (
 )
 
 // TestVaultMsgsAreNeverDelegable walks the sparkdream.vault.v1 Msg service:
-// every signer message is in NonDelegableMsgs and in (amino names are covered
-// by x/collect's service-walking amino_name_test)
-// x/session's ForbiddenAllowlistMsgs (a hot key must never cast a co-signer's
-// approval). Only MsgUpdateVault and MsgCancelProposal may run as inner
-// messages of a vault proposal.
+// every signer message is in NonDelegableMsgs and in x/session's
+// ForbiddenAllowlistMsgs (a hot key must never cast a co-signer's approval).
+// Only MsgUpdateVault and MsgCancelProposal may run as inner messages of a
+// vault proposal. This test does not check amino names: those are covered by
+// the repo-wide service-walking guard in app/amino_name_test.go.
 func TestVaultMsgsAreNeverDelegable(t *testing.T) {
 	listed := map[string]bool{}
 	for _, u := range vaulttypes.NonDelegableMsgTypeURLs() {

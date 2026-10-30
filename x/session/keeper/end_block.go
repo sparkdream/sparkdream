@@ -2,7 +2,6 @@ package keeper
 
 import (
 	"fmt"
-	"sort"
 	"time"
 
 	"cosmossdk.io/collections"
@@ -56,47 +55,39 @@ func (k Keeper) EndBlocker(ctx sdk.Context) error {
 	return nil
 }
 
-// firePass walks ScheduledOneshot grants whose fire_at <= block_time and
-// fires them in (fire_at ASC, id ASC) order via fireScheduledOneshot.
-// Caps at `cap` dispatches per block — backlog drains over subsequent
-// blocks per Rev 2 §4.4.4(e).
+// firePass fires ScheduledOneshot grants whose fire_at <= block_time in
+// (fire_at ASC, id ASC) order via fireScheduledOneshot, capped at `cap`
+// dispatches per block — backlog drains over subsequent blocks per Rev 2
+// §4.4.4(e).
 //
-// We walk the primary Grants collection here rather than a dedicated
-// GrantsByFireTime index. With max_pending_oneshots_per_granter = 100
-// the worst-case scan per granter is bounded and the operation is
-// rare-per-block. A dedicated index can land later as a perf
-// optimization without a breaking change.
+// It range-walks the GrantsByFireTime index, which holds only ACTIVE
+// oneshots, so per-block work is bounded by the cap and never by the
+// number of grants in the store (SES-02). The index key order is the
+// dispatch order. An entry whose grant is gone, inactive or rescheduled
+// is stale: it is dropped (and counted against the cap) without firing.
 func (k Keeper) firePass(ctx sdk.Context, blockTime time.Time, cap int) error {
 	var due []fireEntry
-
-	err := k.Grants.Walk(ctx, nil, func(id uint64, g types.Grant) (bool, error) {
-		if g.Type != types.GrantType_GRANT_TYPE_SCHEDULED_ONESHOT {
-			return false, nil
+	rng := new(collections.Range[collections.Pair[int64, uint64]]).
+		EndExclusive(collections.Join[int64, uint64](blockTime.Unix()+1, 0))
+	err := k.GrantsByFireTime.Walk(ctx, rng, func(key collections.Pair[int64, uint64]) (bool, error) {
+		if len(due) >= cap {
+			return true, nil
 		}
-		if g.Status != types.GrantStatus_GRANT_STATUS_ACTIVE {
-			return false, nil
-		}
-		so := g.GetScheduledOneshot()
-		if so == nil {
-			return false, nil
-		}
-		if so.FireAt > blockTime.Unix() {
-			return false, nil
-		}
-		due = append(due, fireEntry{id: id, fireAt: so.FireAt})
+		due = append(due, fireEntry{id: key.K2(), fireAt: key.K1()})
 		return false, nil
 	})
 	if err != nil {
 		return err
 	}
 
-	// Sort by (fire_at ASC, id ASC) for deterministic replay.
-	sortFireEntries(due)
-
-	fired := 0
 	for _, e := range due {
-		if fired >= cap {
-			break
+		g, err := k.Grants.Get(ctx, e.id)
+		so := g.GetScheduledOneshot()
+		if err != nil || g.Status != types.GrantStatus_GRANT_STATUS_ACTIVE || so == nil || so.FireAt != e.fireAt {
+			if err := k.GrantsByFireTimeRemove(ctx, e.fireAt, e.id); err != nil {
+				sdk.UnwrapSDKContext(ctx).Logger().Error("firePass: k.GrantsByFireTimeRemove failed", "err", err)
+			}
+			continue
 		}
 		if err := k.fireScheduledOneshot(ctx, e.id); err != nil {
 			// fireScheduledOneshot returns nil on contained handler
@@ -105,7 +96,6 @@ func (k Keeper) firePass(ctx sdk.Context, blockTime time.Time, cap int) error {
 			// bad grant doesn't stall the whole pass.
 			ctx.Logger().Error("oneshot fire error", "grant_id", e.id, "err", err)
 		}
-		fired++
 	}
 	return nil
 }
@@ -144,28 +134,24 @@ func (k Keeper) autoRevokePausedPass(ctx sdk.Context, blockTime time.Time, ttlSe
 		indexKey := collections.Join(e.pauseUnix, e.id)
 		grant, err := k.Grants.Get(ctx, e.id)
 		if err != nil {
-			_ = k.PausedOneshotByPauseTime.Remove(ctx, indexKey)
+			if err := k.PausedOneshotByPauseTime.Remove(ctx, indexKey); err != nil {
+				ctx.Logger().Error("autoRevokePausedPass: PausedOneshotByPauseTime.Remove failed", "err", err)
+			}
 			continue
 		}
 		so := grant.GetScheduledOneshot()
 		if grant.Status != types.GrantStatus_GRANT_STATUS_PAUSED_INSUFFICIENT_FUNDS ||
 			so == nil || so.FireAt != e.pauseUnix {
-			_ = k.PausedOneshotByPauseTime.Remove(ctx, indexKey)
+			if err := k.PausedOneshotByPauseTime.Remove(ctx, indexKey); err != nil {
+				ctx.Logger().Error("autoRevokePausedPass: PausedOneshotByPauseTime.Remove failed", "err", err)
+			}
 			continue
 		}
 
 		// Refund the deposit.
 		depositCoin, depErr := k.OneshotGasDeposit.Get(ctx, e.id)
 		if depErr == nil && !depositCoin.IsZero() {
-			granterAddr, addrErr := k.addressCodec.StringToBytes(grant.Granter)
-			if addrErr == nil {
-				if sendErr := k.bankKeeper.SendCoinsFromModuleToAccount(ctx, types.ModuleName, granterAddr, sdk.NewCoins(depositCoin)); sendErr != nil {
-					ctx.Logger().Error("paused oneshot deposit refund failed",
-						"grant_id", e.id, "err", sendErr)
-				} else {
-					_ = k.OneshotGasDeposit.Remove(ctx, e.id)
-				}
-			}
+			k.settleDeposit(ctx, grant, depositCoin)
 		}
 
 		// deleteGrant sees the PAUSED status, so it releases the
@@ -207,7 +193,9 @@ func (k Keeper) expirePass(ctx sdk.Context, blockTime time.Time, cap int) error 
 		if err != nil {
 			ctx.Logger().Debug("session pruner: stale expiration index entry",
 				"id", id, "expiration", key.K1(), "err", err)
-			_ = k.GrantsByExpiration.Remove(ctx, key)
+			if err := k.GrantsByExpiration.Remove(ctx, key); err != nil {
+				ctx.Logger().Error("expirePass: GrantsByExpiration.Remove failed", "err", err)
+			}
 			pruned++
 			return false, nil
 		}
@@ -216,12 +204,7 @@ func (k Keeper) expirePass(ctx sdk.Context, blockTime time.Time, cap int) error 
 		// the deposit to the granter.
 		if grant.Type == types.GrantType_GRANT_TYPE_SCHEDULED_ONESHOT {
 			if depositCoin, depErr := k.OneshotGasDeposit.Get(ctx, id); depErr == nil && !depositCoin.IsZero() {
-				granterAddr, addrErr := k.addressCodec.StringToBytes(grant.Granter)
-				if addrErr == nil {
-					if sendErr := k.bankKeeper.SendCoinsFromModuleToAccount(ctx, types.ModuleName, granterAddr, sdk.NewCoins(depositCoin)); sendErr == nil {
-						_ = k.OneshotGasDeposit.Remove(ctx, id)
-					}
-				}
+				k.settleDeposit(ctx, grant, depositCoin)
 			}
 		}
 
@@ -244,7 +227,7 @@ func (k Keeper) expirePass(ctx sdk.Context, blockTime time.Time, cap int) error 
 				"grant_expired",
 				sdk.NewAttribute("granter", grant.Granter),
 				sdk.NewAttribute("grantee", grant.Grantee),
-				sdk.NewAttribute("type", grant.Type.String()),
+				sdk.NewAttribute("type", types.GrantTypeEventValue(grant.Type)),
 				sdk.NewAttribute("grant_id", fmt.Sprintf("%d", grant.Id)),
 			))
 		}
@@ -254,13 +237,21 @@ func (k Keeper) expirePass(ctx sdk.Context, blockTime time.Time, cap int) error 
 	})
 }
 
-// sortFireEntries sorts in (fire_at ASC, id ASC) order — required for
-// deterministic replay (Rev 2 §M7).
-func sortFireEntries(entries []fireEntry) {
-	sort.Slice(entries, func(i, j int) bool {
-		if entries[i].fireAt != entries[j].fireAt {
-			return entries[i].fireAt < entries[j].fireAt
+// settleDeposit returns an escrowed oneshot deposit to the granter on a
+// pass that deletes the grant. If the refund cannot be paid (e.g. the
+// granter is a blocked module account) the deposit goes to the fee
+// collector instead, so the grant is never deleted with an escrow entry
+// left behind that nothing could ever claim. The entry is removed either
+// way.
+func (k Keeper) settleDeposit(ctx sdk.Context, grant types.Grant, dep sdk.Coin) {
+	if err := k.refundOneshotDeposit(ctx, grant.Granter, dep); err != nil {
+		ctx.Logger().Error("oneshot deposit refund failed; sending to fee collector",
+			"grant_id", grant.Id, "err", err)
+		if err := k.bankKeeper.SendCoinsFromModuleToModule(ctx, types.ModuleName, feeCollectorModule, sdk.NewCoins(dep)); err != nil {
+			ctx.Logger().Error("oneshot deposit settlement failed", "grant_id", grant.Id, "err", err)
 		}
-		return entries[i].id < entries[j].id
-	})
+	}
+	if err := k.OneshotGasDeposit.Remove(ctx, grant.Id); err != nil {
+		ctx.Logger().Error("settleDeposit: OneshotGasDeposit.Remove failed", "err", err)
+	}
 }

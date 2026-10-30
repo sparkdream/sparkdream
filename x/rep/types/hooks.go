@@ -46,3 +46,16 @@ func (m MultiRepHooks) AfterMemberAdmitted(ctx context.Context, member sdk.AccAd
 	}
 	return firstErr
 }
+
+// MemberZeroingHook lets a module that holds DREAM lock records drop the ones
+// a zeroed member owns. ZeroMember burns the member's whole balance, locks
+// included, so such a record no longer has DREAM behind it: kept, it would
+// keep counting toward a total (a tranche's stake, a nomination's
+// conviction) and its later unlock would fail.
+//
+// addresses is every address the member ever held (records keep the address
+// they were written under). Called after the member is zeroed, in its own
+// cache context; an error is logged and discarded.
+type MemberZeroingHook interface {
+	AfterMemberZeroed(ctx context.Context, member string, addresses []string) error
+}

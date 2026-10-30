@@ -196,7 +196,7 @@ func TestPayDREAMFromTreasuryFirst_FiresReferralOnTotal(t *testing.T) {
 	// Inviter has invitation credit; invitee is registered via AcceptInvitation
 	// so the invitation is in the ACCEPTED state with an unexpired referral period.
 	inviter := sdk.AccAddress([]byte("inviter_treasur_"))
-	k.Member.Set(ctx, inviter.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, inviter.String(), types.Member{
 		Address:           inviter.String(),
 		DreamBalance:      PtrInt(math.NewInt(1_000_000_000)),
 		StakedDream:       PtrInt(math.ZeroInt()),
@@ -204,7 +204,7 @@ func TestPayDREAMFromTreasuryFirst_FiresReferralOnTotal(t *testing.T) {
 		LifetimeBurned:    PtrInt(math.ZeroInt()),
 		ReputationScores:  make(map[string]string),
 		InvitationCredits: 1,
-	})
+	}))
 
 	invitee := sdk.AccAddress([]byte("invitee_treasur_"))
 	invitationID, err := k.CreateInvitation(ctx, inviter, invitee, math.NewInt(100_000_000), []string{"tag"})
@@ -246,7 +246,7 @@ func TestPayDREAMFromTreasuryFirst_PartialCoverageReferralStillOnTotal(t *testin
 	ctx := f.ctx
 
 	inviter := sdk.AccAddress([]byte("inviter_partial_"))
-	k.Member.Set(ctx, inviter.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, inviter.String(), types.Member{
 		Address:           inviter.String(),
 		DreamBalance:      PtrInt(math.NewInt(1_000_000_000)),
 		StakedDream:       PtrInt(math.ZeroInt()),
@@ -254,7 +254,7 @@ func TestPayDREAMFromTreasuryFirst_PartialCoverageReferralStillOnTotal(t *testin
 		LifetimeBurned:    PtrInt(math.ZeroInt()),
 		ReputationScores:  make(map[string]string),
 		InvitationCredits: 1,
-	})
+	}))
 
 	invitee := sdk.AccAddress([]byte("invitee_partial_"))
 	invitationID, err := k.CreateInvitation(ctx, inviter, invitee, math.NewInt(100_000_000), []string{"tag"})

@@ -85,7 +85,7 @@ func TestCreateSession(t *testing.T) {
 				// Set max to 1 so the existing session from "success" test blocks new ones
 				params, _ := f.keeper.Params.Get(f.ctx)
 				params.MaxSessionsPerGranter = 1
-				_ = f.keeper.Params.Set(f.ctx, params)
+				require.NoError(t, f.keeper.Params.Set(f.ctx, params))
 			},
 			expectError: true,
 			errContains: "too many active sessions",
@@ -105,7 +105,7 @@ func TestCreateSession(t *testing.T) {
 				params, _ := f.keeper.Params.Get(f.ctx)
 				params.MaxSessionsPerGranter = 10
 				params.MaxMsgTypesPerSession = 2 // only allow 2
-				_ = f.keeper.Params.Set(f.ctx, params)
+				require.NoError(t, f.keeper.Params.Set(f.ctx, params))
 			},
 			expectError: true,
 			errContains: "too many message types",
@@ -122,7 +122,7 @@ func TestCreateSession(t *testing.T) {
 			setup: func() {
 				params, _ := f.keeper.Params.Get(f.ctx)
 				params.MaxMsgTypesPerSession = 20
-				_ = f.keeper.Params.Set(f.ctx, params)
+				require.NoError(t, f.keeper.Params.Set(f.ctx, params))
 			},
 			expectError: true,
 			errContains: "not in current Params.allowed_msg_types",
@@ -142,7 +142,7 @@ func TestCreateSession(t *testing.T) {
 				params, _ := f.keeper.Params.Get(f.ctx)
 				params.AllowedMsgTypes = append(params.AllowedMsgTypes, "/sparkdream.session.v1.MsgExecSession")
 				params.MaxAllowedMsgTypes = append(params.MaxAllowedMsgTypes, "/sparkdream.session.v1.MsgExecSession")
-				_ = f.keeper.Params.Set(f.ctx, params)
+				require.NoError(t, f.keeper.Params.Set(f.ctx, params))
 			},
 			expectError: true,
 			errContains: "NonDelegableSessionMsgs",
@@ -157,7 +157,7 @@ func TestCreateSession(t *testing.T) {
 				Expiration:      sdkCtx.BlockTime().Add(-1 * time.Hour),
 			},
 			setup: func() {
-				_ = f.keeper.Params.Set(f.ctx, types.DefaultParams())
+				require.NoError(t, f.keeper.Params.Set(f.ctx, types.DefaultParams()))
 			},
 			expectError: true,
 			errContains: "expiration is in the past",

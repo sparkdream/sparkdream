@@ -20,7 +20,7 @@ func onChainRefKey(ref *types.OnChainReference) string {
 func (k Keeper) validateOnChainReference(ctx context.Context, ref *types.OnChainReference) error {
 	switch ref.Module {
 	case "blog":
-		if k.blogKeeper == nil {
+		if k.late.blogKeeper == nil {
 			return nil // skip validation if keeper not wired
 		}
 		id, err := strconv.ParseUint(ref.EntityId, 10, 64)
@@ -29,18 +29,18 @@ func (k Keeper) validateOnChainReference(ctx context.Context, ref *types.OnChain
 		}
 		switch ref.EntityType {
 		case "post":
-			if !k.blogKeeper.HasPost(ctx, id) {
+			if !k.late.blogKeeper.HasPost(ctx, id) {
 				return types.ErrOnChainRefNotFound
 			}
 		case "reply":
-			if !k.blogKeeper.HasReply(ctx, id) {
+			if !k.late.blogKeeper.HasReply(ctx, id) {
 				return types.ErrOnChainRefNotFound
 			}
 		default:
 			return types.ErrInvalidOnChainRef
 		}
 	case "forum":
-		if k.forumKeeper == nil {
+		if k.late.forumKeeper == nil {
 			return nil
 		}
 		id, err := strconv.ParseUint(ref.EntityId, 10, 64)
@@ -50,7 +50,7 @@ func (k Keeper) validateOnChainReference(ctx context.Context, ref *types.OnChain
 		// Forum replies are posts with ParentId > 0; both stored in Post collection
 		switch ref.EntityType {
 		case "post", "reply":
-			if !k.forumKeeper.HasPost(ctx, id) {
+			if !k.late.forumKeeper.HasPost(ctx, id) {
 				return types.ErrOnChainRefNotFound
 			}
 		default:

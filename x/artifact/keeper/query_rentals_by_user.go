@@ -16,7 +16,14 @@ func (q queryServer) RentalsByUser(ctx context.Context, req *types.QueryRentalsB
 		return nil, errInvalidRequest
 	}
 	addrs := q.k.allAddressesOf(ctx, req.User)
-	rentals, page, err := query.CollectionPaginate(ctx, q.k.RentalsByUser, capPage(req.Pagination),
+	// Rentals past their term the EndBlocker has not ended yet are
+	// filtered (§6).
+	t := now(ctx)
+	rentals, page, err := query.CollectionFilteredPaginate(ctx, q.k.RentalsByUser, capPage(req.Pagination),
+		func(key AddrTokenKey, _ collections.NoValue) (bool, error) {
+			r, err := q.k.Rentals.Get(ctx, collections.Join(key.K2(), key.K3()))
+			return err == nil && r.ExpiresAt > t, nil
+		},
 		func(key AddrTokenKey, _ collections.NoValue) (types.Rental, error) {
 			return q.k.Rentals.Get(ctx, collections.Join(key.K2(), key.K3()))
 		}, addrPrefix(addrs[0]))
@@ -30,7 +37,9 @@ func (q queryServer) RentalsByUser(ctx context.Context, req *types.QueryRentalsB
 				if err != nil {
 					return true, err
 				}
-				rentals = append(rentals, r)
+				if r.ExpiresAt > t {
+					rentals = append(rentals, r)
+				}
 				return false, nil
 			})
 			if err != nil {

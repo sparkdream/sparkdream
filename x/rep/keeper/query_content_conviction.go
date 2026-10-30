@@ -3,6 +3,7 @@ package keeper
 import (
 	"context"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/rep/types"
 
 	"cosmossdk.io/math"
@@ -15,7 +16,7 @@ func (q queryServer) ContentConviction(ctx context.Context, req *types.QueryCont
 		return nil, status.Error(codes.InvalidArgument, "invalid request")
 	}
 
-	targetType := types.StakeTargetType(req.TargetType)
+	targetType := commontypes.Saturate[types.StakeTargetType](req.TargetType)
 	if !types.IsContentConvictionType(targetType) {
 		return nil, status.Errorf(codes.InvalidArgument, "target_type must be a content conviction type (4, 5, or 6), got %d", req.TargetType)
 	}

@@ -29,9 +29,10 @@ func getShieldGenesisParams() Params {
 		TleMissTolerance:            10,
 		TleJailDuration:             600, // 10 minutes
 		MinTleValidators:            5,
-		DkgWindowBlocks:             200,                 // ~20 minutes at 6s blocks
-		MaxValidatorSetDrift:        33,                  // 33% drift triggers re-keying
-		MaxFeePerExec:               math.NewInt(50_000), // 0.05 SPARK per exec
-		EnableBatchAfterDkg:         false,               // governance enables batch mode after the DKG
+		DkgWindowBlocks:             200,                  // ~20 minutes at 6s blocks
+		MaxValidatorSetDrift:        33,                   // 33% drift triggers re-keying
+		MaxFeePerExec:               math.NewInt(50_000),  // 0.05 SPARK per exec
+		EnableBatchAfterDkg:         false,                // governance enables batch mode after the DKG
+		MaxFeesPerEpoch:             math.NewInt(650_000), // 0.65 SPARK x 288 epochs/day = 187 SPARK/day < max_funding_per_day
 	}
 }

@@ -132,5 +132,11 @@ expect_fail "the split cannot be re-cut" "locked" update-class "$DUET_ID" --upda
 expect_fail "the royalty cannot be lowered either" "locked" update-class "$DUET_ID" --update-mask royalty_bps --royalty-bps 100 --from alice
 expect_ok "content stays editable" update-class "$DUET_ID" --update-mask description --description "split locked in" --from alice
 expect_fail "the lock is one-way" "locked" lock-royalty "$DUET_ID" --from alice
+expect_ok "alice proposes bob as the new owner" propose-class-owner "$DUET_ID" "$BOB_ADDR" --from alice
+expect_ok "bob accepts the class" accept-class-owner "$DUET_ID" --from bob
+check "the locked split survives the handover" \
+    "$(q class "$DUET_ID" | jq -r '[.class.class.royalty_recipients[] | .address + "=" + (.weight_bps|tostring)] | join(",")')" \
+    "$ALICE_ADDR=7000,$CAROL_ADDR=3000"
+check "payout routing moved to bob" "$(q class "$DUET_ID" | jq -r '.class.class.payout_address')" "$BOB_ADDR"
 
 finish

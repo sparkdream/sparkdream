@@ -89,3 +89,13 @@ func (k Keeper) GetPostAuthor(ctx context.Context, id uint64) (string, error) {
 	}
 	return post.Creator, nil
 }
+
+// GetReplyAuthor returns the creator address of the given blog reply. Used by
+// x/rep to resolve the author of a STAKE_TARGET_BLOG_REPLY_CONTENT stake.
+func (k Keeper) GetReplyAuthor(ctx context.Context, id uint64) (string, error) {
+	reply, found := k.GetReply(ctx, id)
+	if !found {
+		return "", fmt.Errorf("blog reply %d not found", id)
+	}
+	return reply.Creator, nil
+}

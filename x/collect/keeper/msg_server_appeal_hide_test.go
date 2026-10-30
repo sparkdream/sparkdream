@@ -19,7 +19,6 @@ func TestAppealHide(t *testing.T) {
 			TargetId:   collID,
 			TargetType: types.FlagTargetType_FLAG_TARGET_TYPE_COLLECTION,
 			ReasonCode: commontypes.ModerationReason_MODERATION_REASON_SPAM,
-			ReasonText: "spam",
 		})
 		require.NoError(t, err)
 		return collID, resp.HideRecordId

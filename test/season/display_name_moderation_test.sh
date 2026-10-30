@@ -15,6 +15,10 @@ if [ ! -f "$SCRIPT_DIR/.test_env" ]; then
 fi
 
 source "$SCRIPT_DIR/.test_env"
+# Quest/achievement/title definitions and display-name moderation
+# resolutions need a Commons Operations Committee proposal (policy address),
+# never a single committee member (x/season SEA-23 decision).
+source "$SCRIPT_DIR/../lib/ops_committee.sh"
 
 # Override addresses from keyring (in case .test_env is stale after snapshot restore)
 DISPLAY_USER_ADDR=$($BINARY keys show display_user -a --keyring-backend test 2>/dev/null || echo "$DISPLAY_USER_ADDR")
@@ -30,8 +34,25 @@ echo ""
 # Helper Functions
 # ========================================================================
 
+# ops_tx runs a resolution through a Commons Operations Committee proposal
+# (x/season accepts display-name resolutions only from the committee policy
+# address) and prints a stand-in tx JSON whose txhash wait_for_tx below
+# understands, so the callers keep their submit / wait / check shape.
+ops_tx() {
+    if ops_committee_exec "$1"; then
+        echo '{"txhash":"OPS_OK"}'
+    else
+        echo "  Operations Committee proposal failed: $OPS_COMMITTEE_ERROR" >&2
+        echo '{"txhash":"OPS_FAIL"}'
+    fi
+}
+
 wait_for_tx() {
     local TXHASH=$1
+    case "$TXHASH" in
+        OPS_OK) echo '{"code":0,"raw_log":""}'; return 0 ;;
+        OPS_FAIL) echo '{"code":1,"raw_log":"operations committee proposal failed"}'; return 0 ;;
+    esac
     local MAX_ATTEMPTS=60
     local ATTEMPT=0
 
@@ -343,14 +364,7 @@ else
 
         echo "  Resolving appeal with appeal_succeeded=true..."
 
-        TX_RES=$($BINARY tx season resolve-display-name-appeal \
-            "$DISPLAY_USER_ADDR" true \
-            --from alice \
-            --chain-id $CHAIN_ID \
-            --keyring-backend test \
-            --fees 5000${BOND_DENOM} \
-            -y \
-            --output json 2>&1)
+        TX_RES=$(ops_tx "$(jq -nc --arg m "$DISPLAY_USER_ADDR" '{"@type":"/sparkdream.season.v1.MsgResolveDisplayNameAppeal",member:$m,appeal_succeeded:true}')")
 
         TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
 
@@ -516,14 +530,7 @@ if [ "$PART9_READY" == "true" ]; then
 
     # 9d. Resolve with appeal_succeeded=false (appeal fails, name stays cleared)
     echo "  Resolving appeal with appeal_succeeded=false..."
-    TX_RES=$($BINARY tx season resolve-display-name-appeal \
-        "$DISPLAY_USER_ADDR" false \
-        --from alice \
-        --chain-id $CHAIN_ID \
-        --keyring-backend test \
-        --fees 5000${BOND_DENOM} \
-        -y \
-        --output json 2>&1)
+    TX_RES=$(ops_tx "$(jq -nc --arg m "$DISPLAY_USER_ADDR" '{"@type":"/sparkdream.season.v1.MsgResolveDisplayNameAppeal",member:$m,appeal_succeeded:false}')")
 
     TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
 
@@ -589,14 +596,10 @@ if ! echo "$PRE_MOD" | grep -q "error\|not found"; then
         PRE_APPEAL_ID=$(echo "$PRE_MOD" | jq -r '.display_name_moderation.appeal_challenge_id // ""')
         if [ -n "$PRE_APPEAL_ID" ] && [ "$PRE_APPEAL_ID" != "" ]; then
             # Has an appeal — resolve it
-            TX_RES=$($BINARY tx season resolve-display-name-appeal \
-                "$PART10_TARGET_ADDR" false \
-                --from alice --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y --output json 2>&1)
+            TX_RES=$(ops_tx "$(jq -nc --arg m "$PART10_TARGET_ADDR" '{"@type":"/sparkdream.season.v1.MsgResolveDisplayNameAppeal",member:$m,appeal_succeeded:false}')")
         else
             # No appeal — resolve as unappealed (may fail if appeal period not expired)
-            TX_RES=$($BINARY tx season resolve-unappealed-moderation \
-                "$PART10_TARGET_ADDR" \
-                --from alice --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y --output json 2>&1)
+            TX_RES=$(ops_tx "$(jq -nc --arg m "$PART10_TARGET_ADDR" '{"@type":"/sparkdream.season.v1.MsgResolveUnappealedModeration",member:$m}')")
         fi
         TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
         if [ -n "$TXHASH" ] && [ "$TXHASH" != "null" ]; then
@@ -692,14 +695,7 @@ fi
 if [ "$PART10_READY" == "true" ]; then
     echo ""
     echo "  Attempting resolve-unappealed-moderation (expect failure: period not expired)..."
-    TX_RES=$($BINARY tx season resolve-unappealed-moderation \
-        "$PART10_TARGET_ADDR" \
-        --from alice \
-        --chain-id $CHAIN_ID \
-        --keyring-backend test \
-        --fees 5000${BOND_DENOM} \
-        -y \
-        --output json 2>&1)
+    TX_RES=$(ops_tx "$(jq -nc --arg m "$PART10_TARGET_ADDR" '{"@type":"/sparkdream.season.v1.MsgResolveUnappealedModeration",member:$m}')")
 
     TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
 
@@ -727,23 +723,34 @@ if [ "$PART10_READY" == "true" ]; then
     fi
 fi
 
-# 10d. Verify moderation is still active (not resolved by the failed attempt)
+# 10d. Verify moderation is still active (not resolved by the failed attempt).
+# The failed resolve is an Operations Committee proposal (submit, vote,
+# execute), which can outlast the 20-block appeal window; once the window has
+# passed, BeginBlock auto-resolves the record, so an inactive record is only a
+# failure while the window is still open.
 if [ "$PART10_READY" == "true" ]; then
     echo ""
     echo "  Verifying moderation still active after failed resolve..."
     MOD_RECORD=$($BINARY query season get-display-name-moderation $PART10_TARGET_ADDR --output json 2>&1)
     MOD_ACTIVE=$(jq_bool "$MOD_RECORD" ".display_name_moderation.active")
-    assert_equals "moderation still active" "true" "$MOD_ACTIVE"
+    PART10_APPEAL_PERIOD=$($BINARY query season params --output json 2>&1 | jq -r '.params.display_name_appeal_period_blocks // "20"')
+    PART10_HEIGHT=$($BINARY status 2>&1 | jq -r '.sync_info.latest_block_height')
 
-    # Verify reporter's stake is still locked
-    REPORT_STAKES=$($BINARY query season list-display-name-report-stake --output json 2>&1)
-    REPORT_STAKE_COUNT=$(echo "$REPORT_STAKES" | jq -r '.display_name_report_stake | length' 2>/dev/null || echo "0")
-    echo "  Report stakes still locked: $REPORT_STAKE_COUNT"
-
-    if [ "$REPORT_STAKE_COUNT" -gt 0 ]; then
-        pass "Reporter's stake remains locked while awaiting resolution"
+    if [ "$MOD_ACTIVE" != "true" ] && [ "$PART10_HEIGHT" -gt $((PART10_MODERATED_AT + PART10_APPEAL_PERIOD)) ] 2>/dev/null; then
+        pass "appeal window elapsed during the committee proposal (height $PART10_HEIGHT > $PART10_MODERATED_AT + $PART10_APPEAL_PERIOD); BeginBlock auto-resolved it"
     else
-        fail "No report stakes found (expected stake to be locked)"
+        assert_equals "moderation still active" "true" "$MOD_ACTIVE"
+
+        # Verify reporter's stake is still locked
+        REPORT_STAKES=$($BINARY query season list-display-name-report-stake --output json 2>&1)
+        REPORT_STAKE_COUNT=$(echo "$REPORT_STAKES" | jq -r '.display_name_report_stake | length' 2>/dev/null || echo "0")
+        echo "  Report stakes still locked: $REPORT_STAKE_COUNT"
+
+        if [ "$REPORT_STAKE_COUNT" -gt 0 ]; then
+            pass "Reporter's stake remains locked while awaiting resolution"
+        else
+            fail "No report stakes found (expected stake to be locked)"
+        fi
     fi
 fi
 
@@ -791,14 +798,7 @@ if [ "$PART10_READY" == "true" ]; then
     else
         # Not yet auto-resolved, try manual resolve
         echo "  Resolving unappealed moderation manually (appeal period expired)..."
-        TX_RES=$($BINARY tx season resolve-unappealed-moderation \
-            "$PART10_TARGET_ADDR" \
-            --from alice \
-            --chain-id $CHAIN_ID \
-            --keyring-backend test \
-            --fees 5000${BOND_DENOM} \
-            -y \
-            --output json 2>&1)
+        TX_RES=$(ops_tx "$(jq -nc --arg m "$PART10_TARGET_ADDR" '{"@type":"/sparkdream.season.v1.MsgResolveUnappealedModeration",member:$m}')")
 
         TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
 

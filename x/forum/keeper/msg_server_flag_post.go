@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	stdmath "math"
+	"strconv"
 	"strings"
 
 	"sparkdream/x/forum/types"
@@ -19,16 +20,25 @@ func (k msgServer) FlagPost(ctx context.Context, msg *types.MsgFlagPost) (*types
 	if _, err := k.addressCodec.StringToBytes(msg.Creator); err != nil {
 		return nil, errorsmod.Wrap(err, "invalid creator address")
 	}
+	if err := k.requireForumNotPaused(ctx); err != nil {
+		return nil, err
+	}
 
 	// Category must be a concrete ModerationReason (UNSPECIFIED and values
 	// outside the enum are rejected); OTHER needs free-text, as for hides.
 	if msg.Category == 0 || msg.Category > uint64(stdmath.MaxInt32) {
 		return nil, errorsmod.Wrapf(types.ErrInvalidReasonCode, "invalid flag category %d", msg.Category)
 	}
-	if _, ok := commontypes.ModerationReason_name[int32(msg.Category)]; !ok {
+	// The category is user input: a value above int32 must be refused, not
+	// truncated onto a valid code.
+	category, err := commontypes.Checked[int32](msg.Category)
+	if err != nil {
 		return nil, errorsmod.Wrapf(types.ErrInvalidReasonCode, "invalid flag category %d", msg.Category)
 	}
-	if commontypes.ModerationReason(msg.Category) == commontypes.ModerationReason_MODERATION_REASON_OTHER &&
+	if _, ok := commontypes.ModerationReason_name[category]; !ok {
+		return nil, errorsmod.Wrapf(types.ErrInvalidReasonCode, "invalid flag category %d", msg.Category)
+	}
+	if commontypes.ModerationReason(category) == commontypes.ModerationReason_MODERATION_REASON_OTHER &&
 		strings.TrimSpace(msg.Reason) == "" {
 		return nil, types.ErrReasonTextRequired
 	}
@@ -130,13 +140,13 @@ func (k msgServer) FlagPost(ctx context.Context, msg *types.MsgFlagPost) (*types
 	postFlag.LastFlagAt = now
 
 	// Create flag record with reason
-	reasonCode := commontypes.ModerationReason(msg.Category)
+	reasonCode := commontypes.ModerationReason(category)
 	flagRecord := &commontypes.FlagRecord{
 		Flagger:    msg.Creator,
 		Reason:     reasonCode,
 		ReasonText: msg.Reason,
 		FlaggedAt:  now,
-		Weight:     math.NewInt(int64(weight)),
+		Weight:     math.NewInt(commontypes.Saturate[int64](weight)),
 	}
 	postFlag.FlagRecords = append(postFlag.FlagRecords, flagRecord)
 
@@ -149,7 +159,11 @@ func (k msgServer) FlagPost(ctx context.Context, msg *types.MsgFlagPost) (*types
 	// Update total weight
 	currentWeight := uint64(0)
 	if postFlag.TotalWeight != "" && postFlag.TotalWeight != "0" {
-		fmt.Sscanf(postFlag.TotalWeight, "%d", &currentWeight)
+		w, err := strconv.ParseUint(postFlag.TotalWeight, 10, 64)
+		if err != nil {
+			return nil, errorsmod.Wrapf(err, "post %d has a corrupt flag weight %q", msg.PostId, postFlag.TotalWeight)
+		}
+		currentWeight = w
 	}
 	currentWeight += weight
 	postFlag.TotalWeight = fmt.Sprintf("%d", currentWeight)
@@ -182,13 +196,14 @@ func (k msgServer) FlagPost(ctx context.Context, msg *types.MsgFlagPost) (*types
 // checkAndUpdateFlagLimit checks and updates the flag rate limit for a user.
 func (k msgServer) checkAndUpdateFlagLimit(ctx context.Context, addr string, now int64) error {
 	// Use a separate key for flag limit (prefix with "flag_")
-	limitKey := "flag_" + addr
+	limitKey := types.UserReactionLimitStoreKey(types.ReactionLimitKind_REACTION_LIMIT_KIND_FLAG, addr)
 
 	reactionLimit, err := k.UserReactionLimit.Get(ctx, limitKey)
 	if err != nil {
 		// Create new flag limit record
 		reactionLimit = types.UserReactionLimit{
 			UserAddress:      addr,
+			Kind:             types.ReactionLimitKind_REACTION_LIMIT_KIND_FLAG,
 			CurrentDayCount:  0,
 			PreviousDayCount: 0,
 			CurrentDayStart:  now,
@@ -203,15 +218,9 @@ func (k msgServer) checkAndUpdateFlagLimit(ctx context.Context, addr string, now
 		reactionLimit.CurrentDayStart = now
 	}
 
-	// Calculate effective count using sliding window approximation
-	var overlapRatio float64
-	elapsed := now - reactionLimit.CurrentDayStart
-	if elapsed < dayDuration {
-		overlapRatio = float64(dayDuration-elapsed) / float64(dayDuration)
-	}
-	effectiveCount := float64(reactionLimit.CurrentDayCount) + float64(reactionLimit.PreviousDayCount)*overlapRatio
-
-	if effectiveCount >= float64(types.DefaultMaxFlagsPerDay) {
+	// Sliding-window count, evaluated in exact integer math.
+	if slidingWindowAtLimit(uint64(reactionLimit.CurrentDayCount), uint64(reactionLimit.PreviousDayCount),
+		now-reactionLimit.CurrentDayStart, dayDuration, uint64(types.DefaultMaxFlagsPerDay)) {
 		return types.ErrFlagLimitExceeded
 	}
 

@@ -12,6 +12,15 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 )
 
+// Every primitive below resolves the alias (Canonical) before touching the
+// record: migration finalization re-keys BondedRoles and RoleActivities to
+// the new address, while the modules that call these primitives pass the
+// address stored on their action records (a hide's sentinel, a review's
+// curator), which stays the old one. Without the resolution a role holder
+// escapes a slash, a demotion or a cooldown by migrating, and an honest
+// holder's committed bond is stranded. Action-time gates (EligibleForRole)
+// refuse tombstones instead.
+
 // bondedRoleKey assembles the collections key for BondedRoles.
 func bondedRoleKey(roleType types.RoleType, addr string) collections.Pair[int32, string] {
 	return collections.Join(int32(roleType), addr)
@@ -34,7 +43,7 @@ func (k Keeper) IsBondedRole(ctx context.Context, roleType types.RoleType, addr 
 	if err := validateRoleType(roleType); err != nil {
 		return false, err
 	}
-	return k.BondedRoles.Has(ctx, bondedRoleKey(roleType, addr))
+	return k.BondedRoles.Has(ctx, bondedRoleKey(roleType, k.Canonical(ctx, addr)))
 }
 
 // GetBondedRole returns the BondedRole record for (role_type, addr).
@@ -42,6 +51,7 @@ func (k Keeper) GetBondedRole(ctx context.Context, roleType types.RoleType, addr
 	if err := validateRoleType(roleType); err != nil {
 		return types.BondedRole{}, err
 	}
+	addr = k.Canonical(ctx, addr)
 	br, err := k.BondedRoles.Get(ctx, bondedRoleKey(roleType, addr))
 	if err != nil {
 		return types.BondedRole{}, errorsmod.Wrapf(types.ErrBondedRoleNotFound,
@@ -78,6 +88,12 @@ func (k Keeper) GetBondedRole(ctx context.Context, roleType types.RoleType, addr
 // ErrRoleUnbondingBelowMin. Module-local caps (overturn cooldowns,
 // per-epoch limits, age gates) remain the owning module's job.
 func (k Keeper) EligibleForRole(ctx context.Context, roleType types.RoleType, addr string) (types.BondedRole, error) {
+	// A gate, not a value lookup: a tombstone must not act on the role its
+	// canonical address now holds (the ante decorator refuses the same
+	// signer; this keeps the check complete for in-chain executors).
+	if k.IsTombstoned(ctx, addr) {
+		return types.BondedRole{}, errorsmod.Wrapf(types.ErrMemberTombstoned, "%s", addr)
+	}
 	br, err := k.GetBondedRole(ctx, roleType, addr)
 	if err != nil {
 		return br, err
@@ -101,7 +117,13 @@ func (k Keeper) EligibleForRole(ctx context.Context, roleType types.RoleType, ad
 		}
 		minBond := math.ZeroInt()
 		if cfg, cfgErr := k.BondedRoleConfigs.Get(ctx, int32(roleType)); cfgErr == nil {
-			minBond = mustParseIntOrZero(cfg.MinBond)
+			// Runtime path (other modules' EndBlockers reach it): a corrupt
+			// config fails the action instead of halting the chain.
+			mb, mErr := parseIntOrZero(cfg.MinBond)
+			if mErr != nil {
+				return br, errorsmod.Wrapf(types.ErrInvalidAmount, "invalid bonded role config min_bond: %q", cfg.MinBond)
+			}
+			minBond = mb
 		}
 		if current.Sub(pending).LT(minBond) {
 			return br, errorsmod.Wrap(types.ErrRoleUnbondingBelowMin,
@@ -124,7 +146,7 @@ func (k Keeper) GetAvailableBond(ctx context.Context, roleType types.RoleType, a
 	if err := validateRoleType(roleType); err != nil {
 		return math.ZeroInt(), err
 	}
-	br, err := k.BondedRoles.Get(ctx, bondedRoleKey(roleType, addr))
+	br, err := k.BondedRoles.Get(ctx, bondedRoleKey(roleType, k.Canonical(ctx, addr)))
 	if err != nil {
 		return math.ZeroInt(), nil
 	}
@@ -156,6 +178,7 @@ func (k Keeper) ReserveBond(ctx context.Context, roleType types.RoleType, addr s
 	if amount.IsNegative() || amount.IsZero() {
 		return types.ErrInvalidAmount
 	}
+	addr = k.Canonical(ctx, addr)
 	key := bondedRoleKey(roleType, addr)
 	br, err := k.BondedRoles.Get(ctx, key)
 	if err != nil {
@@ -194,6 +217,7 @@ func (k Keeper) ReleaseBond(ctx context.Context, roleType types.RoleType, addr s
 	if amount.IsNegative() {
 		return types.ErrInvalidAmount
 	}
+	addr = k.Canonical(ctx, addr)
 	key := bondedRoleKey(roleType, addr)
 	br, err := k.BondedRoles.Get(ctx, key)
 	if err != nil {
@@ -227,6 +251,7 @@ func (k Keeper) IncreaseBond(ctx context.Context, roleType types.RoleType, addr 
 	if amount.IsNegative() || amount.IsZero() {
 		return types.ErrInvalidAmount
 	}
+	addr = k.Canonical(ctx, addr)
 	key := bondedRoleKey(roleType, addr)
 	br, err := k.BondedRoles.Get(ctx, key)
 	if err != nil {
@@ -279,6 +304,7 @@ func (k Keeper) RecordRewardPayout(ctx context.Context, roleType types.RoleType,
 	if amount.IsNegative() {
 		return types.ErrInvalidAmount
 	}
+	addr = k.Canonical(ctx, addr)
 	key := bondedRoleKey(roleType, addr)
 	br, err := k.BondedRoles.Get(ctx, key)
 	if err != nil {
@@ -304,6 +330,7 @@ func (k Keeper) SlashBond(ctx context.Context, roleType types.RoleType, addr str
 	if amount.IsNegative() || amount.IsZero() {
 		return types.ErrInvalidAmount
 	}
+	addr = k.Canonical(ctx, addr)
 	key := bondedRoleKey(roleType, addr)
 	br, err := k.BondedRoles.Get(ctx, key)
 	if err != nil {
@@ -329,12 +356,9 @@ func (k Keeper) SlashBond(ctx context.Context, roleType types.RoleType, addr str
 		return fmt.Errorf("invalid role-holder address: %w", addrErr)
 	}
 
-	// Bonds are held as locked DREAM on the member; slash by unlocking
-	// then burning, matching SlashAuthorBond / SlashBond (sentinel) semantics.
-	if err := k.UnlockDREAM(ctx, roleAddr, slash); err != nil {
-		return fmt.Errorf("failed to unlock DREAM for role slash: %w", err)
-	}
-	if err := k.BurnDREAM(ctx, roleAddr, slash); err != nil {
+	// Bonds are held as locked DREAM on the member; the slash burns that
+	// lock directly so it can never be paid out of another escrow.
+	if err := k.BurnLockedDREAM(ctx, roleAddr, slash); err != nil {
 		return fmt.Errorf("failed to burn DREAM for role slash: %w", err)
 	}
 
@@ -406,6 +430,7 @@ func (k Keeper) RecordActivity(ctx context.Context, roleType types.RoleType, add
 	if err := validateRoleType(roleType); err != nil {
 		return err
 	}
+	addr = k.Canonical(ctx, addr)
 	key := bondedRoleKey(roleType, addr)
 	br, err := k.BondedRoles.Get(ctx, key)
 	if err != nil {
@@ -430,6 +455,7 @@ func (k Keeper) SetBondStatus(ctx context.Context, roleType types.RoleType, addr
 	if err := validateRoleType(roleType); err != nil {
 		return err
 	}
+	addr = k.Canonical(ctx, addr)
 	key := bondedRoleKey(roleType, addr)
 	br, err := k.BondedRoles.Get(ctx, key)
 	if err != nil {
@@ -491,10 +517,40 @@ func (k Keeper) SetBondedRoleConfig(ctx context.Context, cfg types.BondedRoleCon
 	return k.BondedRoleConfigs.Set(ctx, int32(cfg.RoleType), cfg)
 }
 
-// MatureUnbonds walks BondedRole records and finalizes any whose
-// UnbondCompletionTime has elapsed: unlocks the pending DREAM, clears the
-// pending fields, transitions bond_status to DEMOTED, and starts the role's
-// demotion_cooldown gating re-bonding. Called from the rep EndBlocker.
+// maxMatureUnbondsPerBlock bounds the EndBlock unbond-maturity pass; a
+// backlog drains over the following blocks.
+const maxMatureUnbondsPerBlock = 100
+
+// SetBondedRole writes a role record under (br.RoleType, br.Address) and
+// keeps the unbond queue in step with its unbond_completion_time.
+func (k Keeper) SetBondedRole(ctx context.Context, br types.BondedRole) error {
+	return k.setBondedRoleAt(ctx, bondedRoleKey(br.RoleType, br.Address), br)
+}
+
+// setBondedRoleAt writes a role record and keeps the unbond queue in step
+// with its unbond_completion_time. Every write that starts, re-times,
+// cancels or finishes an unbond goes through here (unbond / cancel-unbond
+// handlers, maturity, migration re-key, genesis).
+func (k Keeper) setBondedRoleAt(ctx context.Context, key collections.Pair[int32, string], br types.BondedRole) error {
+	if old, err := k.BondedRoles.Get(ctx, key); err == nil && old.UnbondCompletionTime != 0 {
+		if err := k.BondedRoleUnbondQueue.Remove(ctx, collections.Join3(old.UnbondCompletionTime, key.K1(), key.K2())); err != nil {
+			return err
+		}
+	}
+	if err := k.BondedRoles.Set(ctx, key, br); err != nil {
+		return err
+	}
+	if br.BondStatus == types.BondedRoleStatus_BONDED_ROLE_STATUS_UNBONDING && br.UnbondCompletionTime != 0 {
+		return k.BondedRoleUnbondQueue.Set(ctx, collections.Join3(br.UnbondCompletionTime, key.K1(), key.K2()))
+	}
+	return nil
+}
+
+// MatureUnbonds finalizes UNBONDING roles whose UnbondCompletionTime has
+// elapsed, read from the unbond queue (at most maxMatureUnbondsPerBlock per
+// block): unlocks the pending DREAM, clears the pending fields, transitions
+// bond_status, and starts the role's demotion_cooldown gating re-bonding.
+// Called from the rep EndBlocker.
 //
 // A mid-flight slash that emptied current_bond to zero still reaches maturity
 // here — the holder gets back whatever's left of the pending amount (capped
@@ -504,33 +560,31 @@ func (k Keeper) MatureUnbonds(ctx context.Context) error {
 	now := sdkCtx.BlockTime().Unix()
 
 	// Collect maturity candidates first; mutate after the iterator closes.
-	type matureCandidate struct {
-		roleType types.RoleType
-		addr     string
-	}
-	var due []matureCandidate
-
-	if err := k.BondedRoles.Walk(ctx, nil, func(key collections.Pair[int32, string], br types.BondedRole) (bool, error) {
-		if br.BondStatus != types.BondedRoleStatus_BONDED_ROLE_STATUS_UNBONDING {
-			return false, nil
-		}
-		if br.UnbondCompletionTime == 0 || br.UnbondCompletionTime > now {
-			return false, nil
-		}
-		due = append(due, matureCandidate{
-			roleType: types.RoleType(key.K1()),
-			addr:     key.K2(),
-		})
-		return false, nil
+	var due []collections.Triple[int64, int32, string]
+	rng := new(collections.Range[collections.Triple[int64, int32, string]]).
+		EndExclusive(collections.Join3[int64, int32, string](now+1, 0, ""))
+	if err := k.BondedRoleUnbondQueue.Walk(ctx, rng, func(key collections.Triple[int64, int32, string]) (bool, error) {
+		due = append(due, key)
+		return len(due) >= maxMatureUnbondsPerBlock, nil
 	}); err != nil {
 		return err
 	}
 
-	for _, c := range due {
-		if err := k.matureSingleUnbond(ctx, c.roleType, c.addr, now); err != nil {
+	for _, key := range due {
+		roleType := types.RoleType(key.K2())
+		br, err := k.BondedRoles.Get(ctx, bondedRoleKey(roleType, key.K3()))
+		if err != nil || br.BondStatus != types.BondedRoleStatus_BONDED_ROLE_STATUS_UNBONDING ||
+			br.UnbondCompletionTime != key.K1() {
+			// Stale entry (record gone, unbond cancelled or re-timed).
+			if rErr := k.BondedRoleUnbondQueue.Remove(ctx, key); rErr != nil {
+				return rErr
+			}
+			continue
+		}
+		if err := k.matureSingleUnbond(ctx, roleType, key.K3(), now); err != nil {
 			sdkCtx.Logger().Error("failed to mature unbond",
-				"role_type", c.roleType.String(),
-				"address", c.addr,
+				"role_type", roleType.String(),
+				"address", key.K3(),
 				"error", err)
 		}
 	}
@@ -538,6 +592,7 @@ func (k Keeper) MatureUnbonds(ctx context.Context) error {
 }
 
 func (k Keeper) matureSingleUnbond(ctx context.Context, roleType types.RoleType, addr string, now int64) error {
+	addr = k.Canonical(ctx, addr)
 	key := bondedRoleKey(roleType, addr)
 	br, err := k.BondedRoles.Get(ctx, key)
 	if err != nil {
@@ -599,7 +654,7 @@ func (k Keeper) matureSingleUnbond(ctx context.Context, roleType types.RoleType,
 		br.PendingUnbondAmount = remainingPending.String()
 		// Status stays UNBONDING; UnbondCompletionTime stays set so MatureUnbonds
 		// revisits this record on the next block.
-		if err := k.BondedRoles.Set(ctx, key, br); err != nil {
+		if err := k.setBondedRoleAt(ctx, key, br); err != nil {
 			return err
 		}
 		sdkCtx := sdk.UnwrapSDKContext(ctx)
@@ -636,7 +691,7 @@ func (k Keeper) matureSingleUnbond(ctx context.Context, roleType types.RoleType,
 		}
 	}
 
-	if err := k.BondedRoles.Set(ctx, key, br); err != nil {
+	if err := k.setBondedRoleAt(ctx, key, br); err != nil {
 		return err
 	}
 
@@ -682,9 +737,19 @@ func (k Keeper) computeBondStatus(ctx context.Context, roleType types.RoleType, 
 		return types.BondedRoleStatus_BONDED_ROLE_STATUS_DEMOTED
 	}
 	// SetBondedRoleConfig validates these fields on write, so a parse error here
-	// signals corrupt state and must not be silently coerced to zero.
-	minBond := mustParseIntOrZero(cfg.MinBond)
-	demotionThreshold := mustParseIntOrZero(cfg.DemotionThreshold)
+	// signals corrupt state. This runs on runtime paths (slashes and status
+	// transitions issued from other modules' EndBlockers), so it must not
+	// panic: log and fall back to the no-config rule instead of halting.
+	minBond, mErr := parseIntOrZero(cfg.MinBond)
+	demotionThreshold, dErr := parseIntOrZero(cfg.DemotionThreshold)
+	if mErr != nil || dErr != nil {
+		sdk.UnwrapSDKContext(ctx).Logger().Error("corrupt bonded role config",
+			"role_type", roleType.String(), "min_bond", cfg.MinBond, "demotion_threshold", cfg.DemotionThreshold)
+		if currentBond.IsPositive() {
+			return types.BondedRoleStatus_BONDED_ROLE_STATUS_NORMAL
+		}
+		return types.BondedRoleStatus_BONDED_ROLE_STATUS_DEMOTED
+	}
 	switch {
 	case currentBond.GTE(minBond):
 		return types.BondedRoleStatus_BONDED_ROLE_STATUS_NORMAL
@@ -733,7 +798,8 @@ func parseIntOrZero(s string) (math.Int, error) {
 }
 
 // mustParseIntOrZero is a thin wrapper for genesis-loading paths where a parse
-// failure indicates corrupt state and the chain cannot safely boot.
+// failure indicates corrupt state and the chain cannot safely boot. InitGenesis
+// only: runtime paths use parseIntOrZero and return the error.
 func mustParseIntOrZero(s string) math.Int {
 	v, err := parseIntOrZero(s)
 	if err != nil {

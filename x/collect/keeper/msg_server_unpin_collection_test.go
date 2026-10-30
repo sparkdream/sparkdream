@@ -90,7 +90,7 @@ func TestUnpinCollection_RateLimitSharedWithPin(t *testing.T) {
 
 	params, _ := f.keeper.Params.Get(f.ctx)
 	params.MaxPinsPerDay = 1
-	f.keeper.Params.Set(f.ctx, params) //nolint:errcheck
+	require.NoError(t, f.keeper.Params.Set(f.ctx, params))
 
 	collID := f.createCollection(t, f.owner)
 	_, err := f.msgServer.PinCollection(f.ctx, &types.MsgPinCollection{

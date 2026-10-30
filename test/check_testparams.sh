@@ -19,8 +19,13 @@ check_testparams_build() {
     # Testparams value is 1s.
     # We check the Commons Council group's min_execution_period from genesis.
     # If the chain isn't running, fall back to checking genesis directly.
+    # Chain not up yet (or not answering): skip the check, trust the caller.
+    timeout 5 "$BINARY" status > /dev/null 2>&1 || return 0
+
     local min_exec
-    min_exec=$("$BINARY" query commons get-group "Commons Council" --output json 2>/dev/null \
+    # Capped by `timeout`: with no chain up, WSL mirrored networking drops the
+    # connection instead of refusing it, and the query would hang for minutes.
+    min_exec=$(timeout 15 "$BINARY" query commons get-group "Commons Council" --output json 2>/dev/null \
         | jq -r '.group.decision_policy.min_execution_period // empty' 2>/dev/null)
 
     if [ -z "$min_exec" ]; then

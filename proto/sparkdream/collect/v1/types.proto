@@ -137,6 +137,20 @@ message Collection {
   uint32 media_flags = 35;
   // media_rules_version is the labelling rules version that produced media_flags.
   uint32 media_rules_version = 36;
+
+  // endorsement_pending_until is the block height at which an unendorsed
+  // PENDING collection is pruned: the K1 of its EndorsementPending index key,
+  // fixed at creation. Every removal path rebuilds the index key from this
+  // stored value, never from the (mutable) endorsement_expiry_blocks param.
+  // Zero when the collection never entered the endorsement stage.
+  int64 endorsement_pending_until = 37;
+  // endorsement_fee_escrowed is the endorsement creation fee actually escrowed
+  // at creation (uspark). Refunds, endorser payouts and burns use this amount,
+  // never the current endorsement_creation_fee param. Zero once settled.
+  string endorsement_fee_escrowed = 38 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
 }
 
 // Item represents a single entry within a collection.
@@ -247,6 +261,14 @@ message CurationReview {
   // MsgChallengeReview time and consumed at resolution (SlashBond on uphold,
   // ReleaseBond on reject). Zero / empty when the review is not challenged.
   string committed_slash = 11 [
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
+
+  // challenge_deposit is the DREAM amount actually locked from the challenger
+  // at MsgChallengeReview time. Every unlock / burn of the deposit uses this
+  // amount, never the current challenge_deposit param. Zero once settled.
+  string challenge_deposit = 12 [
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
@@ -452,6 +474,10 @@ message CollectionFlag {
   int64 first_flag_at = 5;
   int64 last_flag_at = 6;
   bool in_review_queue = 7;
+  // expires_at is the block height of this flag's FlagExpiry index entry
+  // (last_flag_at + flag_expiration_blocks at the time of the last flag).
+  // Cleanup paths rebuild the index key from it, never from the current param.
+  int64 expires_at = 8;
 }
 
 // HideRecord tracks a sentinel's content hide action and its appeal status.

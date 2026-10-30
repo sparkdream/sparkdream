@@ -4,6 +4,7 @@ import (
 	"context"
 
 	errorsmod "cosmossdk.io/errors"
+	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	"sparkdream/x/blog/types"
 )
@@ -31,6 +32,14 @@ func (k msgServer) UpdateOperationalParams(ctx context.Context, req *types.MsgUp
 	if err := k.Params.Set(ctx, merged); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to set params")
 	}
+
+	// Indexers and monitoring see every ops-committee change to fees, rate
+	// limits and TTLs.
+	sdk.UnwrapSDKContext(ctx).EventManager().EmitEvent(sdk.NewEvent(
+		"blog.operational_params.updated",
+		sdk.NewAttribute("authority", req.Authority),
+		sdk.NewAttribute("operational_params", string(k.cdc.MustMarshalJSON(&req.OperationalParams))),
+	))
 
 	return &types.MsgUpdateOperationalParamsResponse{}, nil
 }

@@ -1,62 +1,43 @@
 package simulation
 
 import (
-	"fmt"
-	"math/rand"
-
-	"github.com/cosmos/cosmos-sdk/baseapp"
+	"cosmossdk.io/math"
 	"github.com/cosmos/cosmos-sdk/client"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
 
 	"sparkdream/x/rep/keeper"
 	"sparkdream/x/rep/types"
 )
 
-// SimulateMsgReportTag simulates a MsgReportTag by writing a tag report
-// directly through the keeper, bypassing the DREAM bond check for speed.
-func SimulateMsgReportTag(
-	ak types.AuthKeeper,
-	bk types.BankKeeper,
-	k keeper.Keeper,
-	txGen client.TxConfig,
-) simtypes.Operation {
-	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
-	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		simAccount, _ := simtypes.RandomAcc(r, accs)
-
-		tagName, err := firstExistingTag(ctx, k)
-		if err != nil || tagName == "" {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgReportTag{}), "no tags in registry"), nil, nil
-		}
-
-		if _, err := k.TagReport.Get(ctx, tagName); err == nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgReportTag{}), "tag report already exists"), nil, nil
-		}
-
-		now := ctx.BlockTime().Unix()
-		report := types.TagReport{
-			TagName:       tagName,
-			TotalBond:     fmt.Sprintf("%d", 10+r.Intn(90)),
-			FirstReportAt: now,
-			UnderReview:   false,
-			Reporters:     []string{simAccount.Address.String()},
-		}
-
-		if err := k.TagReport.Set(ctx, tagName, report); err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgReportTag{}), "failed to create tag report"), nil, nil
-		}
-
-		return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgReportTag{}), "ok (direct keeper call)"), nil, nil
+// reportTagCandidates returns MsgReportTag candidates, one per member that
+// can lock the tag-report bond, each on a random registered tag.
+func (e *simEnv) reportTagCandidates() ([]candidate, error) {
+	tags, err := e.tags()
+	if err != nil || len(tags) == 0 {
+		return nil, err
 	}
+	ms, err := e.members(func(ma memberAcc) bool { return unlocked(ma.m).QuoRaw(2).GTE(types.DefaultTagReportBond) })
+	if err != nil {
+		return nil, err
+	}
+	cands := make([]candidate, 0, len(ms))
+	for _, ma := range ms {
+		cands = append(cands, candidate{acc: ma.acc, msg: &types.MsgReportTag{
+			Creator: ma.addr(), TagName: tags[e.r.Intn(len(tags))], Reason: randomReason(e.r),
+		}, spent: math.ZeroInt()})
+	}
+	return cands, nil
 }
 
-// firstExistingTag returns a registered tag name, or "" if the registry is empty.
-func firstExistingTag(ctx sdk.Context, k keeper.Keeper) (string, error) {
-	var name string
-	err := k.Tag.Walk(ctx, nil, func(key string, _ types.Tag) (bool, error) {
-		name = key
-		return true, nil
+// SimulateMsgReportTag has an active member lock the tag-report bond to flag
+// a registered tag (opening a report or joining an open one).
+func SimulateMsgReportTag(ak types.AuthKeeper, bk types.BankKeeper, k keeper.Keeper, txGen client.TxConfig) simtypes.Operation {
+	label := &types.MsgReportTag{}
+	return operation(ak, bk, k, txGen, label, func(e *simEnv) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
+		cands, err := e.reportTagCandidates()
+		if err != nil {
+			return noOpErr(label, err)
+		}
+		return e.firstValid(label, cands, 4, "no member can report a registered tag")
 	})
-	return name, err
 }

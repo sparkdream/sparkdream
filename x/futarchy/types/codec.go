@@ -26,5 +26,13 @@ func RegisterInterfaces(registrar codectypes.InterfaceRegistry) {
 	registrar.RegisterImplementations((*sdk.Msg)(nil),
 		&MsgUpdateOperationalParams{},
 	)
+
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgCancelMarket{},
+	)
+
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgWithdrawLiquidity{},
+	)
 	msgservice.RegisterMsgServiceDesc(registrar, &_Msg_serviceDesc)
 }

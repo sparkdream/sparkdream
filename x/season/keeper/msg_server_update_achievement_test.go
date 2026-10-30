@@ -76,7 +76,7 @@ func TestMsgServerUpdateAchievement(t *testing.T) {
 			RequirementType:      types.RequirementType_REQUIREMENT_TYPE_VOTES_CAST,
 			RequirementThreshold: 5,
 		}
-		k.Achievement.Set(ctx, "ach1", existing)
+		require.NoError(t, k.Achievement.Set(ctx, "ach1", existing))
 
 		// Update it
 		_, err := ms.UpdateAchievement(ctx, &types.MsgUpdateAchievement{
@@ -121,7 +121,7 @@ func TestMsgServerUpdateAchievement(t *testing.T) {
 			Name:          "Original",
 			XpReward:      50,
 		}
-		k.Achievement.Set(ctx, "ach1", existing)
+		require.NoError(t, k.Achievement.Set(ctx, "ach1", existing))
 
 		// Update it
 		_, err := ms.UpdateAchievement(ctx, &types.MsgUpdateAchievement{
@@ -158,7 +158,7 @@ func TestMsgServerUpdateAchievement(t *testing.T) {
 			RequirementType:      types.RequirementType_REQUIREMENT_TYPE_JURY_DUTY,
 			RequirementThreshold: 3,
 		}
-		k.Achievement.Set(ctx, "ach1", existing)
+		require.NoError(t, k.Achievement.Set(ctx, "ach1", existing))
 
 		// Update only name (description empty means preserve)
 		_, err := ms.UpdateAchievement(ctx, &types.MsgUpdateAchievement{

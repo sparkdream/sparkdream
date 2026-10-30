@@ -15,6 +15,7 @@ if [ ! -f "$SCRIPT_DIR/.test_env" ]; then
 fi
 
 source "$SCRIPT_DIR/.test_env"
+source "$SCRIPT_DIR/../lib/ops_committee.sh"
 
 echo "Sentinel 1: $SENTINEL1_ADDR"
 echo "Poster 1:   $POSTER1_ADDR"
@@ -112,25 +113,10 @@ bootstrap_reputation() {
         fi
 
         # Complete the interim
-        TX_RES=$($BINARY tx rep complete-interim --gas 500000 \
-            "$INTERIM_ID" "Test setup rep bootstrap" \
-            --from $ACCOUNT \
-            --chain-id $CHAIN_ID \
-            --keyring-backend test \
-            --fees 5000${BOND_DENOM} \
-            -y \
-            --output json 2>&1)
-
-        TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
-        if [ -z "$TXHASH" ] || [ "$TXHASH" = "null" ]; then
-            echo "    Failed to complete interim $INTERIM_ID"
-            return 1
-        fi
-
-        sleep 6
-        TX_RESULT=$(wait_for_tx $TXHASH)
-        if ! check_tx_success "$TX_RESULT" > /dev/null 2>&1; then
-            echo "    Failed to complete interim $INTERIM_ID: $(echo "$TX_RESULT" | jq -r '.raw_log')"
+        # Approved by an Operations Committee proposal (a single member is
+        # refused); an assignee can no longer complete and pay its own interim.
+        if ! ops_approve_interim "$INTERIM_ID" "Test setup rep bootstrap"; then
+            echo "    Failed to approve interim $INTERIM_ID: $OPS_COMMITTEE_ERROR"
             return 1
         fi
 
@@ -597,8 +583,10 @@ PART8_RESULT="FAIL"
 THREAD_FOR_PIN="${MOVE_THREAD_ID:-1}"
 
 # Create a reply to pin
+# Category 0: a reply inherits its thread's category, and Part 3 moved this
+# thread out of TEST_CATEGORY_ID (a mismatched category is rejected).
 TX_RES=$($BINARY tx forum create-post --gas 500000 \
-    "${TEST_CATEGORY_ID:-1}" \
+    0 \
     "$THREAD_FOR_PIN" \
     "This is an important reply that should be pinned" \
     --from poster1 \
@@ -1228,13 +1216,13 @@ echo ""
 echo "--- PART 26: QUERY LOCKED THREADS ---"
 PART26_RESULT="FAIL"
 
-LOCKED=$($BINARY query forum locked-threads --output json 2>&1)
-
-if echo "$LOCKED" | jq -e '.' > /dev/null 2>&1 && ! echo "$LOCKED" | grep -q "error"; then
-    echo "  Locked threads query successful"
+# Judge the query by its exit status and a JSON object: post content in the
+# response may legitimately contain the word "error".
+if LOCKED=$($BINARY query forum locked-threads --output json 2>&1) && echo "$LOCKED" | jq -e 'type == "object"' > /dev/null 2>&1; then
+    echo "  Locked threads query successful ($(echo "$LOCKED" | jq -r '.posts | length // 0') locked)"
     PART26_RESULT="PASS"
 else
-    echo "  Failed to query locked threads"
+    echo "  Failed to query locked threads: ${LOCKED:0:300}"
 fi
 
 echo ""
@@ -1420,7 +1408,7 @@ if [ -n "$THREAD_FOR_PIN" ]; then
     echo "  Creating a new reply for unpin test..."
 
     TX_RES=$($BINARY tx forum create-post --gas 500000 \
-        "${TEST_CATEGORY_ID:-1}" \
+        0 \
         "$THREAD_FOR_PIN" \
         "Reply to test unpin" \
         --from poster1 \
@@ -2181,7 +2169,7 @@ PART49_RESULT="FAIL"
 if [ -n "$THREAD_FOR_PIN" ]; then
     # Create a reply
     TX_RES=$($BINARY tx forum create-post --gas 500000 \
-        "${TEST_CATEGORY_ID:-1}" \
+        0 \
         "$THREAD_FOR_PIN" \
         "Reply for pin-reply error test" \
         --from poster2 \

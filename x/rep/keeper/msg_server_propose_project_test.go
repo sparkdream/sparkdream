@@ -70,14 +70,14 @@ func TestMsgServerProposeProject(t *testing.T) {
 		require.NoError(t, k.Params.Set(ctx, params))
 
 		creator := sdk.AccAddress([]byte("creator-over-bud"))
-		k.Member.Set(ctx, creator.String(), types.Member{
+		require.NoError(t, k.Member.Set(ctx, creator.String(), types.Member{
 			Address:          creator.String(),
 			DreamBalance:     PtrInt(math.ZeroInt()),
 			StakedDream:      PtrInt(math.ZeroInt()),
 			LifetimeEarned:   PtrInt(math.ZeroInt()),
 			LifetimeBurned:   PtrInt(math.ZeroInt()),
 			ReputationScores: make(map[string]string),
-		})
+		}))
 		creatorStr, err := f.addressCodec.BytesToString(creator)
 		require.NoError(t, err)
 
@@ -120,14 +120,14 @@ func TestMsgServerProposeProject(t *testing.T) {
 		require.NoError(t, k.Params.Set(ctx, params))
 
 		creator := sdk.AccAddress([]byte("creator-over-spk"))
-		k.Member.Set(ctx, creator.String(), types.Member{
+		require.NoError(t, k.Member.Set(ctx, creator.String(), types.Member{
 			Address:          creator.String(),
 			DreamBalance:     PtrInt(math.ZeroInt()),
 			StakedDream:      PtrInt(math.ZeroInt()),
 			LifetimeEarned:   PtrInt(math.ZeroInt()),
 			LifetimeBurned:   PtrInt(math.ZeroInt()),
 			ReputationScores: make(map[string]string),
-		})
+		}))
 		creatorStr, err := f.addressCodec.BytesToString(creator)
 		require.NoError(t, err)
 
@@ -153,14 +153,14 @@ func TestMsgServerProposeProject(t *testing.T) {
 
 		// Setup: create member
 		creator := sdk.AccAddress([]byte("creator"))
-		k.Member.Set(ctx, creator.String(), types.Member{
+		require.NoError(t, k.Member.Set(ctx, creator.String(), types.Member{
 			Address:          creator.String(),
 			DreamBalance:     PtrInt(math.ZeroInt()),
 			StakedDream:      PtrInt(math.ZeroInt()),
 			LifetimeEarned:   PtrInt(math.ZeroInt()),
 			LifetimeBurned:   PtrInt(math.ZeroInt()),
 			ReputationScores: map[string]string{"tag": "100.0"},
-		})
+		}))
 
 		creatorStr, err := f.addressCodec.BytesToString(creator)
 		require.NoError(t, err)

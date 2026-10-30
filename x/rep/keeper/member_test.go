@@ -19,7 +19,7 @@ func TestUpdateTrustLevel_NewToProvisional(t *testing.T) {
 	member := sdk.AccAddress([]byte("member"))
 
 	// Setup: Member with insufficient reputation and interims
-	k.Member.Set(ctx, member.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, member.String(), types.Member{
 		Address:          member.String(),
 		DreamBalance:     PtrInt(math.ZeroInt()),
 		StakedDream:      PtrInt(math.ZeroInt()),
@@ -27,7 +27,7 @@ func TestUpdateTrustLevel_NewToProvisional(t *testing.T) {
 		LifetimeBurned:   PtrInt(math.ZeroInt()),
 		ReputationScores: map[string]string{"backend": "5.0"}, // Below threshold
 		TrustLevel:       types.TrustLevel_TRUST_LEVEL_NEW,
-	})
+	}))
 
 	// Should not upgrade yet
 	err := k.UpdateTrustLevel(ctx, member)
@@ -38,7 +38,7 @@ func TestUpdateTrustLevel_NewToProvisional(t *testing.T) {
 	// Update to meet requirements
 	params, _ := k.Params.Get(ctx)
 	minRep := params.TrustLevelConfig.ProvisionalMinRep
-	k.Member.Set(ctx, member.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, member.String(), types.Member{
 		Address:                member.String(),
 		DreamBalance:           PtrInt(math.ZeroInt()),
 		StakedDream:            PtrInt(math.ZeroInt()),
@@ -47,7 +47,7 @@ func TestUpdateTrustLevel_NewToProvisional(t *testing.T) {
 		ReputationScores:       map[string]string{"backend": minRep.String()},
 		TrustLevel:             types.TrustLevel_TRUST_LEVEL_NEW,
 		CompletedInterimsCount: params.TrustLevelConfig.ProvisionalMinInterims, // Use cached count
-	})
+	}))
 
 	// Test: Should upgrade to PROVISIONAL
 	err = k.UpdateTrustLevel(ctx, member)
@@ -67,7 +67,7 @@ func TestUpdateTrustLevel_ProvisionalToEstablished(t *testing.T) {
 	params, _ := k.Params.Get(ctx)
 
 	// Setup: Member at PROVISIONAL level with enough completed interims (cached count)
-	k.Member.Set(ctx, member.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, member.String(), types.Member{
 		Address:                member.String(),
 		DreamBalance:           PtrInt(math.ZeroInt()),
 		StakedDream:            PtrInt(math.ZeroInt()),
@@ -76,7 +76,7 @@ func TestUpdateTrustLevel_ProvisionalToEstablished(t *testing.T) {
 		ReputationScores:       map[string]string{"backend": params.TrustLevelConfig.EstablishedMinRep.String()},
 		TrustLevel:             types.TrustLevel_TRUST_LEVEL_PROVISIONAL,
 		CompletedInterimsCount: params.TrustLevelConfig.EstablishedMinInterims, // Use cached count
-	})
+	}))
 
 	// Test: Should upgrade to ESTABLISHED
 	err := k.UpdateTrustLevel(ctx, member)
@@ -100,7 +100,7 @@ func TestUpdateTrustLevel_EstablishedToTrusted(t *testing.T) {
 
 	// Setup: Member at ESTABLISHED level with insufficient reputation to reach TRUSTED
 	insufficientRep := params.TrustLevelConfig.TrustedMinRep.Sub(math.LegacyOneDec()) // Just under the threshold
-	k.Member.Set(ctx, member.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, member.String(), types.Member{
 		Address:          member.String(),
 		DreamBalance:     PtrInt(math.ZeroInt()),
 		StakedDream:      PtrInt(math.ZeroInt()),
@@ -109,7 +109,7 @@ func TestUpdateTrustLevel_EstablishedToTrusted(t *testing.T) {
 		ReputationScores: map[string]string{"backend": insufficientRep.String()},
 		TrustLevel:       types.TrustLevel_TRUST_LEVEL_ESTABLISHED,
 		JoinedSeason:     0,
-	})
+	}))
 
 	// Test: Should not upgrade (insufficient reputation)
 	err := k.UpdateTrustLevel(ctx, member)
@@ -119,7 +119,7 @@ func TestUpdateTrustLevel_EstablishedToTrusted(t *testing.T) {
 	require.Equal(t, types.TrustLevel_TRUST_LEVEL_ESTABLISHED, m.TrustLevel)
 
 	// Now test that with enough reputation, they DO upgrade
-	k.Member.Set(ctx, member.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, member.String(), types.Member{
 		Address:          member.String(),
 		DreamBalance:     PtrInt(math.ZeroInt()),
 		StakedDream:      PtrInt(math.ZeroInt()),
@@ -128,7 +128,7 @@ func TestUpdateTrustLevel_EstablishedToTrusted(t *testing.T) {
 		ReputationScores: map[string]string{"backend": params.TrustLevelConfig.TrustedMinRep.String()},
 		TrustLevel:       types.TrustLevel_TRUST_LEVEL_ESTABLISHED,
 		JoinedSeason:     0,
-	})
+	}))
 
 	err = k.UpdateTrustLevel(ctx, member)
 	require.NoError(t, err)
@@ -149,7 +149,7 @@ func TestUpdateTrustLevel_MultipleTagsReputation(t *testing.T) {
 	totalRep := params.TrustLevelConfig.ProvisionalMinRep
 	halfRep := totalRep.Quo(math.LegacyNewDec(2))
 
-	k.Member.Set(ctx, member.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, member.String(), types.Member{
 		Address:        member.String(),
 		DreamBalance:   PtrInt(math.ZeroInt()),
 		StakedDream:    PtrInt(math.ZeroInt()),
@@ -161,7 +161,7 @@ func TestUpdateTrustLevel_MultipleTagsReputation(t *testing.T) {
 		},
 		TrustLevel:             types.TrustLevel_TRUST_LEVEL_NEW,
 		CompletedInterimsCount: params.TrustLevelConfig.ProvisionalMinInterims, // Use cached count
-	})
+	}))
 
 	// Test: Should upgrade (total reputation meets threshold)
 	err := k.UpdateTrustLevel(ctx, member)
@@ -181,7 +181,7 @@ func TestUpdateTrustLevel_InsufficientInterims(t *testing.T) {
 
 	// Setup: Member with enough reputation but not enough interims
 	// In testing mode, ProvisionalMinInterims is 1, so we set to 0 to test insufficient interims
-	k.Member.Set(ctx, member.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, member.String(), types.Member{
 		Address:                member.String(),
 		DreamBalance:           PtrInt(math.ZeroInt()),
 		StakedDream:            PtrInt(math.ZeroInt()),
@@ -190,7 +190,7 @@ func TestUpdateTrustLevel_InsufficientInterims(t *testing.T) {
 		ReputationScores:       map[string]string{"backend": params.TrustLevelConfig.ProvisionalMinRep.Mul(math.LegacyNewDec(10)).String()}, // Way more than needed
 		TrustLevel:             types.TrustLevel_TRUST_LEVEL_NEW,
 		CompletedInterimsCount: 0, // Zero completed interims (less than required)
-	})
+	}))
 
 	// Test: Should NOT upgrade (insufficient interims despite high reputation)
 	err := k.UpdateTrustLevel(ctx, member)
@@ -210,7 +210,7 @@ func TestUpdateTrustLevel_InterimNotCompleted(t *testing.T) {
 
 	// Setup: Member with enough reputation but zero completed interims
 	// (The cached count represents only COMPLETED interims, not in-progress ones)
-	k.Member.Set(ctx, member.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, member.String(), types.Member{
 		Address:                member.String(),
 		DreamBalance:           PtrInt(math.ZeroInt()),
 		StakedDream:            PtrInt(math.ZeroInt()),
@@ -219,7 +219,7 @@ func TestUpdateTrustLevel_InterimNotCompleted(t *testing.T) {
 		ReputationScores:       map[string]string{"backend": params.TrustLevelConfig.ProvisionalMinRep.String()},
 		TrustLevel:             types.TrustLevel_TRUST_LEVEL_NEW,
 		CompletedInterimsCount: 0, // No completed interims (only in-progress ones don't count)
-	})
+	}))
 
 	// Test: Should NOT upgrade (no completed interims)
 	err := k.UpdateTrustLevel(ctx, member)
@@ -238,7 +238,7 @@ func TestUpdateTrustLevel_GrantsInvitationCredits(t *testing.T) {
 	params, _ := k.Params.Get(ctx)
 
 	// Setup: Member at NEW level with 0 credits, ready to upgrade to PROVISIONAL
-	k.Member.Set(ctx, member.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, member.String(), types.Member{
 		Address:                member.String(),
 		DreamBalance:           PtrInt(math.ZeroInt()),
 		StakedDream:            PtrInt(math.ZeroInt()),
@@ -248,7 +248,7 @@ func TestUpdateTrustLevel_GrantsInvitationCredits(t *testing.T) {
 		TrustLevel:             types.TrustLevel_TRUST_LEVEL_NEW,
 		CompletedInterimsCount: params.TrustLevelConfig.ProvisionalMinInterims,
 		InvitationCredits:      0, // NEW level has 0 credits
-	})
+	}))
 
 	// Test: Upgrade should grant credits
 	err := k.UpdateTrustLevel(ctx, member)
@@ -309,7 +309,7 @@ func TestEnsureInvitationCreditsReset_NewSeason(t *testing.T) {
 	params, _ := k.Params.Get(ctx)
 
 	// Setup: Member at PROVISIONAL level with 0 credits, last reset at season 0
-	k.Member.Set(ctx, member.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, member.String(), types.Member{
 		Address:               member.String(),
 		DreamBalance:          PtrInt(math.ZeroInt()),
 		StakedDream:           PtrInt(math.ZeroInt()),
@@ -318,7 +318,7 @@ func TestEnsureInvitationCreditsReset_NewSeason(t *testing.T) {
 		TrustLevel:            types.TrustLevel_TRUST_LEVEL_PROVISIONAL,
 		InvitationCredits:     0, // Used up all credits
 		LastCreditResetSeason: 0, // Last reset at season 0
-	})
+	}))
 
 	// Test: Should reset credits (current season 1 > last reset season 0)
 	reset, err := k.EnsureInvitationCreditsReset(ctx, member.String())
@@ -340,7 +340,7 @@ func TestEnsureInvitationCreditsReset_SameSeason(t *testing.T) {
 	member := sdk.AccAddress([]byte("member"))
 
 	// Setup: Member already reset this season with some credits remaining
-	k.Member.Set(ctx, member.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, member.String(), types.Member{
 		Address:               member.String(),
 		DreamBalance:          PtrInt(math.ZeroInt()),
 		StakedDream:           PtrInt(math.ZeroInt()),
@@ -349,7 +349,7 @@ func TestEnsureInvitationCreditsReset_SameSeason(t *testing.T) {
 		TrustLevel:            types.TrustLevel_TRUST_LEVEL_CORE,
 		InvitationCredits:     5, // Has 5 credits left
 		LastCreditResetSeason: 0, // Already reset at season 0
-	})
+	}))
 
 	// Test: Should NOT reset credits (current season 0 == last reset season 0)
 	reset, err := k.EnsureInvitationCreditsReset(ctx, member.String())
@@ -372,7 +372,7 @@ func TestEnsureInvitationCreditsReset_MultipleSeasons(t *testing.T) {
 	params, _ := k.Params.Get(ctx)
 
 	// Setup: Member last reset at season 0, now at season 5
-	k.Member.Set(ctx, member.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, member.String(), types.Member{
 		Address:               member.String(),
 		DreamBalance:          PtrInt(math.ZeroInt()),
 		StakedDream:           PtrInt(math.ZeroInt()),
@@ -381,7 +381,7 @@ func TestEnsureInvitationCreditsReset_MultipleSeasons(t *testing.T) {
 		TrustLevel:            types.TrustLevel_TRUST_LEVEL_ESTABLISHED,
 		InvitationCredits:     0,
 		LastCreditResetSeason: 0, // Last reset at season 0
-	})
+	}))
 
 	// Test: Should reset to current season (5 > 0)
 	reset, err := k.EnsureInvitationCreditsReset(ctx, member.String())
@@ -491,14 +491,14 @@ func TestGrantInterimReputation(t *testing.T) {
 	member := sdk.AccAddress([]byte("member"))
 
 	// Setup: Member with no reputation
-	k.Member.Set(ctx, member.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, member.String(), types.Member{
 		Address:        member.String(),
 		DreamBalance:   PtrInt(math.ZeroInt()),
 		StakedDream:    PtrInt(math.ZeroInt()),
 		LifetimeEarned: PtrInt(math.ZeroInt()),
 		LifetimeBurned: PtrInt(math.ZeroInt()),
 		TrustLevel:     types.TrustLevel_TRUST_LEVEL_NEW,
-	})
+	}))
 
 	// Grant reputation for a SIMPLE jury duty interim
 	interim := types.Interim{
@@ -546,14 +546,14 @@ func TestGrantInterimReputation_DifferentTypes(t *testing.T) {
 	member := sdk.AccAddress([]byte("member"))
 
 	// Setup: Member with no reputation
-	k.Member.Set(ctx, member.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, member.String(), types.Member{
 		Address:        member.String(),
 		DreamBalance:   PtrInt(math.ZeroInt()),
 		StakedDream:    PtrInt(math.ZeroInt()),
 		LifetimeEarned: PtrInt(math.ZeroInt()),
 		LifetimeBurned: PtrInt(math.ZeroInt()),
 		TrustLevel:     types.TrustLevel_TRUST_LEVEL_NEW,
-	})
+	}))
 
 	// Grant reputation for different interim types
 	interims := []types.Interim{

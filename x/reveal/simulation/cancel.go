@@ -1,71 +1,59 @@
 package simulation
 
 import (
-	"math/rand"
-
-	"cosmossdk.io/collections"
-	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
 
 	"sparkdream/x/reveal/keeper"
 	"sparkdream/x/reveal/types"
 )
 
-func SimulateMsgCancel(
-	ak types.AuthKeeper,
-	bk types.BankKeeper,
-	k keeper.Keeper,
-	txGen client.TxConfig,
-) simtypes.Operation {
-	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
-	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		msg := &types.MsgCancel{}
+// cancelMinAge is how many blocks a contribution stays untouched by the
+// contributor-cancel op, so most contributions get through approval and
+// staking first.
+const cancelMinAge = 20
 
-		// Find a PROPOSED contribution to cancel (simplest case: contributor cancels before any backing)
-		contrib, contribID, err := findContribution(r, ctx, k, types.ContributionStatus_CONTRIBUTION_STATUS_PROPOSED)
-		if err != nil || contrib == nil {
-			// Try IN_PROGRESS without any BACKED tranches
-			contrib, contribID, err = findContribution(r, ctx, k, types.ContributionStatus_CONTRIBUTION_STATUS_IN_PROGRESS)
-			if err != nil || contrib == nil {
-				// Create one to cancel
-				simAccount, _ := simtypes.RandomAcc(r, accs)
-				contribID, err = getOrCreateContribution(r, ctx, k, simAccount.Address.String())
-				if err != nil {
-					return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "failed to create contribution"), nil, nil
-				}
-				c, err := k.Contribution.Get(ctx, contribID)
-				if err != nil {
-					return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "failed to get contribution"), nil, nil
-				}
-				contrib = &c
+// SimulateMsgCancel has a contributor cancel its own contribution while it
+// is PROPOSED or IN_PROGRESS and no tranche has reached BACKED (the
+// handler's contributor path). A contribution an open council proposal
+// targets is skipped, so the proposal does not go stale.
+//
+// The other path (governance, the Commons Council policy or the Commons
+// Operations Committee policy cancelling any contribution) is signed only by
+// a policy address; sim accounts are never a policy, so it is not
+// simulated.
+func SimulateMsgCancel(ak types.AuthKeeper, bk types.BankKeeper, k keeper.Keeper, txGen client.TxConfig) simtypes.Operation {
+	return operation(ak, bk, k, txGen, &types.MsgCancel{}, func(e *simEnv) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
+		props, err := e.revealProposals()
+		if err != nil {
+			return noOpErr(&types.MsgCancel{}, err)
+		}
+		taken := covered(props)
+		cancellable, err := e.contributionsWhere(func(c types.Contribution) bool {
+			if c.Status != types.ContributionStatus_CONTRIBUTION_STATUS_PROPOSED &&
+				c.Status != types.ContributionStatus_CONTRIBUTION_STATUS_IN_PROGRESS {
+				return false
 			}
+			if taken[c.Id] || e.height()-c.CreatedAt < cancelMinAge {
+				return false
+			}
+			if keeper.HasAnyTrancheReachedStatus(&c, types.TrancheStatus_TRANCHE_STATUS_BACKED) {
+				return false
+			}
+			_, ok := e.account(c.Contributor)
+			return ok
+		})
+		if err != nil {
+			return noOpErr(&types.MsgCancel{}, err)
 		}
-
-		// Check that no tranche has reached BACKED (contributor cancel rule)
-		if keeper.HasAnyTrancheReachedStatus(contrib, types.TrancheStatus_TRANCHE_STATUS_BACKED) {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "cannot cancel - tranche already backed"), nil, nil
+		c, ok := pick(e.r, cancellable)
+		if !ok {
+			return noOp(&types.MsgCancel{}, "no contribution its contributor may cancel")
 		}
-
-		// Remove old status index
-		if err := k.ContributionsByStatus.Remove(ctx, collections.Join(int32(contrib.Status), contribID)); err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "failed to remove status index"), nil, nil
+		acc, ok := e.account(c.Contributor)
+		if !ok {
+			return noOp(&types.MsgCancel{}, "contributor is not a live sim account")
 		}
-
-		// Cancel all tranches
-		for i := range contrib.Tranches {
-			contrib.Tranches[i].Status = types.TrancheStatus_TRANCHE_STATUS_CANCELLED
-		}
-		contrib.Status = types.ContributionStatus_CONTRIBUTION_STATUS_CANCELLED
-
-		if err := k.Contribution.Set(ctx, contribID, *contrib); err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "failed to save contribution"), nil, nil
-		}
-		if err := k.ContributionsByStatus.Set(ctx, collections.Join(int32(contrib.Status), contribID)); err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "failed to save status index"), nil, nil
-		}
-
-		return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "ok (direct keeper call)"), nil, nil
-	}
+		return e.submit(acc, &types.MsgCancel{Authority: acc.Address.String(), ContributionId: c.Id, Reason: randomReason(e.r)})
+	})
 }

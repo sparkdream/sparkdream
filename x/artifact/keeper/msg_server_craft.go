@@ -17,7 +17,7 @@ import (
 // cap and the edition cap. The crafter asked for the output, so it is
 // delivered directly.
 func (k msgServer) Craft(ctx context.Context, msg *types.MsgCraft) (*types.MsgCraftResponse, error) {
-	crafter, err := k.decodeAddr("crafter", msg.Crafter)
+	crafter, err := k.validateRecipient("crafter", msg.Crafter)
 	if err != nil {
 		return nil, err
 	}
@@ -105,7 +105,9 @@ func (k msgServer) Craft(ctx context.Context, msg *types.MsgCraft) (*types.MsgCr
 			return nil, err
 		}
 		e.Supply -= in.Quantity
-		e.Burned += in.Quantity
+		if e.Burned, err = types.AddUnits(e.Burned, in.Quantity); err != nil {
+			return nil, err
+		}
 		if err := k.saveEdition(ctx, e); err != nil {
 			return nil, err
 		}
@@ -129,7 +131,9 @@ func (k msgServer) Craft(ctx context.Context, msg *types.MsgCraft) (*types.MsgCr
 		if err := k.credit(ctx, &e, msg.Crafter, r.OutputQuantity, crafter, false, math.Int{}, ""); err != nil {
 			return nil, err
 		}
-		e.Supply += r.OutputQuantity
+		if e.Supply, err = types.AddUnits(e.Supply, r.OutputQuantity); err != nil {
+			return nil, err
+		}
 		if err := k.saveEdition(ctx, e); err != nil {
 			return nil, err
 		}

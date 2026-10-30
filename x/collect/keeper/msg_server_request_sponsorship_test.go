@@ -22,7 +22,7 @@ func TestRequestSponsorship(t *testing.T) {
 		{
 			name: "success: non-member requests sponsorship",
 			setup: func(f *testFixture) uint64 {
-				return f.createPendingCollection(t)
+				return f.createEndorsedCollection(t)
 			},
 			msg: func(f *testFixture, collID uint64) *types.MsgRequestSponsorship {
 				return &types.MsgRequestSponsorship{
@@ -41,7 +41,7 @@ func TestRequestSponsorship(t *testing.T) {
 		{
 			name: "error: not owner",
 			setup: func(f *testFixture) uint64 {
-				return f.createPendingCollection(t) // owned by nonMember
+				return f.createEndorsedCollection(t) // owned by nonMember
 			},
 			msg: func(f *testFixture, collID uint64) *types.MsgRequestSponsorship {
 				return &types.MsgRequestSponsorship{
@@ -55,7 +55,7 @@ func TestRequestSponsorship(t *testing.T) {
 		{
 			name: "error: already has pending request",
 			setup: func(f *testFixture) uint64 {
-				collID := f.createPendingCollection(t)
+				collID := f.createEndorsedCollection(t)
 				_, err := f.msgServer.RequestSponsorship(f.ctx, &types.MsgRequestSponsorship{
 					Creator:      f.nonMember,
 					CollectionId: collID,
@@ -94,10 +94,10 @@ func TestRequestSponsorship(t *testing.T) {
 			name: "error: collection already permanent",
 			setup: func(f *testFixture) uint64 {
 				// nonMember creates a TTL collection. We need to make it permanent by removing expires.
-				collID := f.createPendingCollection(t)
+				collID := f.createEndorsedCollection(t)
 				coll, _ := f.keeper.Collection.Get(f.ctx, collID)
 				coll.ExpiresAt = 0
-				f.keeper.Collection.Set(f.ctx, collID, coll)
+				require.NoError(t, f.keeper.Collection.Set(f.ctx, collID, coll))
 				// Temporarily make nonMember not a member for the check
 				f.repKeeper.isMemberFn = func(_ context.Context, addr sdk.AccAddress) bool {
 					return addr.Equals(f.ownerAddr) || addr.Equals(f.memberAddr) || addr.Equals(f.sentinelAddr)

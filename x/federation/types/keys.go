@@ -85,11 +85,35 @@ var (
 
 	// Identity indexes
 	IdentityLinksByRemoteKey = collections.NewPrefix("fed/idx/idlinks_remote/")
-	IdentityLinkCountKey     = collections.NewPrefix("fed/idx/idlink_count/")
-	UnverifiedLinkExpKey     = collections.NewPrefix("fed/idx/unverified_exp/")
+	// IdentityClaimsByRemoteKey: (peer_id, remote_identity, local_address)
+	// for every link, verified or not. IdentityLinksByRemoteKey holds only
+	// VERIFIED links, so an unverified claim never reserves a remote
+	// identity.
+	IdentityClaimsByRemoteKey = collections.NewPrefix("fed/idx/idclaims_remote/")
+	IdentityLinkCountKey      = collections.NewPrefix("fed/idx/idlink_count/")
+	UnverifiedLinkExpKey      = collections.NewPrefix("fed/idx/unverified_exp/")
+	// IdentityLinksByAttesterKey: (operator, peer_id, local_address) for
+	// every VERIFIED link a bridge operator attested (MsgAttestIdentityLink).
+	IdentityLinksByAttesterKey = collections.NewPrefix("fed/idx/idlinks_attester/")
+	// AttesterRevocationsKey: (operator, peer_id) pairs whose attested
+	// links the EndBlocker is returning to UNVERIFIED after the operator
+	// was slashed out of x/service.
+	AttesterRevocationsKey = collections.NewPrefix("fed/idx/attester_revoke/")
+
+	// Pending identity challenge indexes. PendingIdChallengeExpKey is the
+	// (expires_at, claimed_address, peer_id) expiry queue the EndBlocker
+	// range-walks; PendingIdChallengesByPeerKey is (peer_id,
+	// claimed_address) for peer-removal cleanup; PendingIdChallengeCountKey
+	// is the per-peer count that enforces MaxPendingChallengesPerPeer.
+	PendingIdChallengeExpKey     = collections.NewPrefix("fed/idx/idchallenge_exp/")
+	PendingIdChallengesByPeerKey = collections.NewPrefix("fed/idx/idchallenge_peer/")
+	PendingIdChallengeCountKey   = collections.NewPrefix("fed/idx/idchallenge_count/")
 
 	// Reputation indexes
 	AttestationExpKey = collections.NewPrefix("fed/idx/attest_exp/")
+	// RepAttestationsByPeerKey: (peer_id, local_address), so peer removal
+	// visits only the removed peer's attestations.
+	RepAttestationsByPeerKey = collections.NewPrefix("fed/idx/attest_peer/")
 
 	// Verification indexes
 	VerificationWindowKey = collections.NewPrefix("fed/idx/verify_window/")
@@ -99,6 +123,13 @@ var (
 	ArbiterHashCountsKey      = collections.NewPrefix("fed/idx/arbiter_counts/")
 	ArbiterResolutionQueueKey = collections.NewPrefix("fed/idx/arbiter_res/")
 	ArbiterEscalationQueueKey = collections.NewPrefix("fed/idx/arbiter_esc/")
+	// PendingChallengeReportsKey: content ids whose VerificationRecord owes
+	// an x/service operator report that could not be filed yet.
+	PendingChallengeReportsKey = collections.NewPrefix("fed/idx/pending_reports/")
+	// SettlementRetryQueueKey: (settlement_retry_at, content_id) for
+	// VerificationRecords whose EndBlocker settlement failed and is retried
+	// (FED-29). Rebuilt from the records at InitGenesis.
+	SettlementRetryQueueKey = collections.NewPrefix("fed/idx/settle_retry/")
 
 	// Phase 2 (jury) escalation lifecycle. EscalatedChallengesKey is
 	// keyed by content_id; EscalatedChallengeDeadlineKey is a

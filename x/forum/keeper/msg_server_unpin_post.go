@@ -49,7 +49,9 @@ func (k msgServer) UnpinPost(ctx context.Context, msg *types.MsgUnpinPost) (*typ
 	if err := k.Post.Set(ctx, msg.PostId, post); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to update post")
 	}
-	_ = k.PostsByPinned.Remove(ctx, collections.Join(prevCategoryID, post.PostId))
+	if err := k.PostsByPinned.Remove(ctx, collections.Join(prevCategoryID, post.PostId)); err != nil {
+		return nil, err
+	}
 
 	// Emit event
 	sdkCtx.EventManager().EmitEvent(

@@ -7,12 +7,14 @@ import (
 	"github.com/cosmos/cosmos-sdk/client"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
-	"github.com/cosmos/cosmos-sdk/x/simulation"
 
 	"sparkdream/x/season/keeper"
 	"sparkdream/x/season/types"
 )
 
+// SimulateMsgAbandonQuest delivers MsgAbandonQuest for a sim account's open
+// quest progress on a quest that still exists. Skips members without a
+// profile (the handler would write an empty profile for them).
 func SimulateMsgAbandonQuest(
 	ak types.AuthKeeper,
 	bk types.BankKeeper,
@@ -21,48 +23,33 @@ func SimulateMsgAbandonQuest(
 ) simtypes.Operation {
 	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
 	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		simAccount, _ := simtypes.RandomAcc(r, accs)
+		msg := &types.MsgAbandonQuest{}
 
-		// Ensure member has a profile
-		if err := getOrCreateMemberProfile(r, ctx, k, simAccount.Address.String()); err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgAbandonQuest{}), "failed to create profile"), nil, nil
+		simAddrs := make(map[string]bool, len(accs))
+		for _, a := range accs {
+			simAddrs[a.Address.String()] = true
 		}
-
-		// Find or create quest progress for this user
-		questID, err := getOrCreateQuest(r, ctx, k)
+		open, err := openQuestProgress(ctx, k, simAddrs)
 		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgAbandonQuest{}), "failed to get/create quest"), nil, nil
+			return noOpErr(msg, err)
 		}
-
-		// Create quest progress if needed
-		progressKey, err := getOrCreateMemberQuestProgress(r, ctx, k, simAccount.Address.String(), questID)
-		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgAbandonQuest{}), "failed to create quest progress"), nil, nil
+		var abandonable []questRef
+		for _, ref := range open {
+			if has, err := k.Quest.Has(ctx, ref.questID); err != nil || !has {
+				continue
+			}
+			if _, ok := getProfile(ctx, k, ref.member); !ok {
+				continue
+			}
+			abandonable = append(abandonable, ref)
 		}
-
-		// Check if quest is already completed
-		progress, err := k.MemberQuestProgress.Get(ctx, progressKey)
-		if err == nil && progress.Completed {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgAbandonQuest{}), "quest already completed"), nil, nil
+		ref, ok := pick(r, abandonable)
+		if !ok {
+			return noOp(msg, "no abandonable quest")
 		}
+		simAccount, _ := getAccountForAddress(ref.member, accs)
+		msg.Creator, msg.QuestId = ref.member, ref.questID
 
-		msg := &types.MsgAbandonQuest{
-			Creator: simAccount.Address.String(),
-			QuestId: questID,
-		}
-
-		return simulation.GenAndDeliverTxWithRandFees(simulation.OperationInput{
-			R:               r,
-			App:             app,
-			TxGen:           txGen,
-			Cdc:             nil,
-			Msg:             msg,
-			CoinsSpentInMsg: sdk.NewCoins(),
-			Context:         ctx,
-			SimAccount:      simAccount,
-			AccountKeeper:   ak,
-			Bankkeeper:      bk,
-			ModuleName:      types.ModuleName,
-		})
+		return deliver(r, app, ctx, txGen, ak, bk, simAccount, msg)
 	}
 }

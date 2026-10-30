@@ -3,6 +3,8 @@ package abci
 import (
 	"encoding/hex"
 	"fmt"
+	"slices"
+	commontypes "sparkdream/x/common/types"
 
 	abci "github.com/cometbft/cometbft/abci/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -59,9 +61,14 @@ func ProcessDKGInjection(ctx sdk.Context, k keeper.Keeper, req *abci.RequestFina
 
 	logger := ctx.Logger().With("module", "x/shield")
 
+	// Ceremony extensions must carry their validator's vote-extension
+	// signature from the last commit; re-checked here, not trusted from
+	// ProcessProposal (a node replaying blocks never ran it).
+	sig := signedAt{height: req.Height - 1, round: req.DecidedLastCommit.Round}
+
 	switch injected.Phase {
 	case types.DKGPhase_DKG_PHASE_REGISTERING:
-		applied := processRegistrations(ctx, k, dkgState, injected.Extensions)
+		applied := processRegistrations(ctx, k, dkgState, sig, injected.Extensions)
 		logger.Info("processed DKG registrations from vote extensions",
 			"round", injected.Round,
 			"applied", applied,
@@ -69,11 +76,13 @@ func ProcessDKGInjection(ctx sdk.Context, k keeper.Keeper, req *abci.RequestFina
 		)
 
 	case types.DKGPhase_DKG_PHASE_CONTRIBUTING:
-		applied := processContributions(ctx, k, dkgState, injected.Extensions)
+		applied := processContributions(ctx, k, dkgState, sig, injected.Extensions)
 		if applied > 0 {
 			// Update contributions received count
 			dkgState.ContributionsReceived += uint64(applied)
-			_ = k.SetDKGStateVal(ctx, dkgState)
+			if err := k.SetDKGStateVal(ctx, dkgState); err != nil {
+				ctx.Logger().Error("ProcessDKGInjection: k.SetDKGStateVal failed", "err", err)
+			}
 		}
 		logger.Info("processed DKG contributions from vote extensions",
 			"round", injected.Round,
@@ -82,13 +91,13 @@ func ProcessDKGInjection(ctx sdk.Context, k keeper.Keeper, req *abci.RequestFina
 		)
 
 	case types.DKGPhase_DKG_PHASE_COMPLAINING:
-		applied := processComplaints(ctx, k, dkgState, injected.Extensions)
+		applied := processComplaints(ctx, k, dkgState, sig, injected.Extensions)
 		if applied > 0 {
 			logger.Info("processed DKG complaints from vote extensions", "round", injected.Round, "applied", applied)
 		}
 
 	case types.DKGPhase_DKG_PHASE_JUSTIFYING:
-		applied := processJustifications(ctx, k, dkgState, injected.Extensions)
+		applied := processJustifications(ctx, k, dkgState, sig, injected.Extensions)
 		if applied > 0 {
 			logger.Info("processed DKG justifications from vote extensions", "round", injected.Round, "applied", applied)
 		}
@@ -105,11 +114,23 @@ func ProcessDKGInjection(ctx sdk.Context, k keeper.Keeper, req *abci.RequestFina
 	}
 }
 
-// operatorFor maps an injected extension's consensus address to its operator
-// and re-runs the acceptance rule; nil opAddr means skip.
-func operatorFor(ctx sdk.Context, k keeper.Keeper, dkgState types.DKGState, ve *types.ValidatorDKGExtension) (string, bool) {
+// signedAt is where the injected extensions were signed: the previous
+// height and the last commit's round.
+type signedAt struct {
+	height int64
+	round  int32
+}
+
+// operatorFor maps an injected extension's consensus address to its operator,
+// checks the validator's vote-extension signature and re-runs the acceptance
+// rule; false means skip.
+func operatorFor(ctx sdk.Context, k keeper.Keeper, dkgState types.DKGState, sig signedAt, ve *types.ValidatorDKGExtension) (string, bool) {
 	opAddr, err := consAddrToOperator(ctx, k, ve.ValidatorAddress)
 	if err != nil {
+		return "", false
+	}
+	if err := verifyExtensionSignature(ctx, k, ve.ValidatorAddress, &ve.Extension, ve.ExtensionSignature, sig.height, sig.round); err != nil {
+		ctx.Logger().With("module", "x/shield").Warn("unsigned or misattributed DKG extension rejected in PreBlocker", "validator", opAddr, "err", err)
 		return "", false
 	}
 	if err := validateExtension(ctx, k, &ve.Extension, dkgState, opAddr); err != nil {
@@ -121,11 +142,11 @@ func operatorFor(ctx sdk.Context, k keeper.Keeper, dkgState types.DKGState, ve *
 
 // processRegistrations stores BN256 pub keys from REGISTERING phase extensions.
 // Returns the number of new registrations applied.
-func processRegistrations(ctx sdk.Context, k keeper.Keeper, dkgState types.DKGState, extensions []*types.ValidatorDKGExtension) int {
+func processRegistrations(ctx sdk.Context, k keeper.Keeper, dkgState types.DKGState, sig signedAt, extensions []*types.ValidatorDKGExtension) int {
 	applied := 0
 
 	for _, ve := range extensions {
-		opAddr, ok := operatorFor(ctx, k, dkgState, ve)
+		opAddr, ok := operatorFor(ctx, k, dkgState, sig, ve)
 		if !ok {
 			continue
 		}
@@ -161,11 +182,11 @@ func processRegistrations(ctx sdk.Context, k keeper.Keeper, dkgState types.DKGSt
 
 // processContributions stores Feldman DKG contributions from CONTRIBUTING phase extensions.
 // Returns the number of new contributions applied.
-func processContributions(ctx sdk.Context, k keeper.Keeper, dkgState types.DKGState, extensions []*types.ValidatorDKGExtension) int {
+func processContributions(ctx sdk.Context, k keeper.Keeper, dkgState types.DKGState, sig signedAt, extensions []*types.ValidatorDKGExtension) int {
 	applied := 0
 
 	for _, ve := range extensions {
-		opAddr, ok := operatorFor(ctx, k, dkgState, ve)
+		opAddr, ok := operatorFor(ctx, k, dkgState, sig, ve)
 		if !ok {
 			continue
 		}
@@ -194,7 +215,7 @@ func processContributions(ctx sdk.Context, k keeper.Keeper, dkgState types.DKGSt
 			types.EventTypeShieldDKGContribution,
 			sdk.NewAttribute(types.AttributeKeyValidator, opAddr),
 			sdk.NewAttribute(types.AttributeKeyDKGRound, fmt.Sprintf("%d", dkgState.Round)),
-			sdk.NewAttribute(types.AttributeKeyContributionsCount, fmt.Sprintf("%d", dkgState.ContributionsReceived+uint64(applied))),
+			sdk.NewAttribute(types.AttributeKeyContributionsCount, fmt.Sprintf("%d", dkgState.ContributionsReceived+commontypes.Saturate[uint64](applied))),
 		))
 	}
 
@@ -203,10 +224,10 @@ func processContributions(ctx sdk.Context, k keeper.Keeper, dkgState types.DKGSt
 
 // processComplaints records complaints from COMPLAINING phase extensions.
 // Returns the number of new complaints recorded.
-func processComplaints(ctx sdk.Context, k keeper.Keeper, dkgState types.DKGState, extensions []*types.ValidatorDKGExtension) int {
+func processComplaints(ctx sdk.Context, k keeper.Keeper, dkgState types.DKGState, sig signedAt, extensions []*types.ValidatorDKGExtension) int {
 	applied := 0
 	for _, ve := range extensions {
-		opAddr, ok := operatorFor(ctx, k, dkgState, ve)
+		opAddr, ok := operatorFor(ctx, k, dkgState, sig, ve)
 		if !ok {
 			continue
 		}
@@ -233,10 +254,10 @@ func processComplaints(ctx sdk.Context, k keeper.Keeper, dkgState types.DKGState
 // processJustifications records valid answers to complaints from JUSTIFYING
 // phase extensions (the evaluation was verified against the dealer's
 // commitments by validateExtension). Returns the number applied.
-func processJustifications(ctx sdk.Context, k keeper.Keeper, dkgState types.DKGState, extensions []*types.ValidatorDKGExtension) int {
+func processJustifications(ctx sdk.Context, k keeper.Keeper, dkgState types.DKGState, sig signedAt, extensions []*types.ValidatorDKGExtension) int {
 	applied := 0
 	for _, ve := range extensions {
-		opAddr, ok := operatorFor(ctx, k, dkgState, ve)
+		opAddr, ok := operatorFor(ctx, k, dkgState, sig, ve)
 		if !ok {
 			continue
 		}
@@ -296,7 +317,14 @@ func processDecryptionShares(ctx sdk.Context, k keeper.Keeper, _ types.DKGState,
 		epochSeen[ds.Epoch] = true
 	}
 
+	// Sorted, so the reconstruction events come out in the same order on
+	// every node (map order is random).
+	epochs := make([]uint64, 0, len(epochSeen))
 	for epoch := range epochSeen {
+		epochs = append(epochs, epoch)
+	}
+	slices.Sort(epochs)
+	for _, epoch := range epochs {
 		k.TryReconstructEpochKey(ctx, epoch)
 	}
 	return applied

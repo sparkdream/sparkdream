@@ -70,7 +70,9 @@ func (k msgServer) DeclineGrant(ctx context.Context, msg *types.MsgDeclineGrant)
 			if err := k.bankKeeper.SendCoinsFromModuleToAccount(ctx, types.ModuleName, granterAddr, sdk.NewCoins(dep)); err != nil {
 				return nil, errorsmod.Wrap(err, "deposit refund failed")
 			}
-			_ = k.OneshotGasDeposit.Remove(ctx, grant.Id)
+			if err := k.OneshotGasDeposit.Remove(ctx, grant.Id); err != nil {
+				return nil, err
+			}
 			refund = dep
 		}
 	}
@@ -82,7 +84,7 @@ func (k msgServer) DeclineGrant(ctx context.Context, msg *types.MsgDeclineGrant)
 	sdkCtx.EventManager().EmitEvent(sdk.NewEvent(
 		"grant_declined",
 		sdk.NewAttribute("id", fmt.Sprintf("%d", grant.Id)),
-		sdk.NewAttribute("type", grant.Type.String()),
+		sdk.NewAttribute("type", types.GrantTypeEventValue(grant.Type)),
 		sdk.NewAttribute("granter", grant.Granter),
 		sdk.NewAttribute("grantee", grant.Grantee),
 		sdk.NewAttribute("refund_amount", refund.String()),

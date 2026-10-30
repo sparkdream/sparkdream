@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/rep/types"
 
 	"cosmossdk.io/math"
@@ -58,7 +59,7 @@ func (k Keeper) UpdateTrustLevel(ctx context.Context, memberAddr sdk.AccAddress)
 	if currentSeasonInt < 0 {
 		currentSeasonInt = 0
 	}
-	currentSeason := uint32(currentSeasonInt)
+	currentSeason := commontypes.Saturate[uint32](currentSeasonInt)
 
 	// Logic to determine new trust level
 	newLevel := member.TrustLevel
@@ -218,7 +219,7 @@ func (k Keeper) GetCurrentSeason(ctx context.Context) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	return int64(season.Number), nil
+	return commontypes.Saturate[int64](season.Number), nil
 }
 
 // EnsureInvitationCreditsReset lazily resets invitation credits if we're in a new season.
@@ -265,6 +266,45 @@ func (k Keeper) EnsureInvitationCreditsReset(ctx context.Context, memberAddr str
 	)
 
 	return true, nil
+}
+
+// AddReputationCapped is the address-based form of GrantReputationCapped for
+// other modules (x/reveal and the like): it resolves the alias, refuses a
+// member that is not ACTIVE, applies the per-epoch per-tag cap
+// (max_reputation_gain_per_epoch) and saves the member. Returns the amount
+// actually granted. AddReputation, by contrast, adds the full amount with no
+// cap.
+func (k Keeper) AddReputationCapped(ctx context.Context, memberAddr sdk.AccAddress, tag string, amount math.LegacyDec) (math.LegacyDec, error) {
+	memberAddr = k.resolveMember(ctx, memberAddr)
+	member, err := k.Member.Get(ctx, memberAddr.String())
+	if err != nil {
+		return math.LegacyZeroDec(), types.ErrMemberNotFound
+	}
+	if member.Status != types.MemberStatus_MEMBER_STATUS_ACTIVE {
+		return math.LegacyZeroDec(), types.ErrMemberNotActive
+	}
+	if amount.IsNil() || amount.IsNegative() {
+		return math.LegacyZeroDec(), types.ErrInvalidAmount
+	}
+	granted, err := k.GrantReputationCapped(ctx, &member, tag, amount)
+	if err != nil {
+		return math.LegacyZeroDec(), err
+	}
+	if !granted.IsPositive() {
+		return granted, nil
+	}
+	if err := k.Member.Set(ctx, memberAddr.String(), member); err != nil {
+		return math.LegacyZeroDec(), err
+	}
+	sdk.UnwrapSDKContext(ctx).EventManager().EmitEvent(sdk.NewEvent(
+		"reputation_added",
+		sdk.NewAttribute("member", memberAddr.String()),
+		sdk.NewAttribute("tag", tag),
+		sdk.NewAttribute("amount", granted.String()),
+		sdk.NewAttribute("requested", amount.String()),
+		sdk.NewAttribute("new_score", member.ReputationScores[tag]),
+	))
+	return granted, nil
 }
 
 // GrantReputationCapped adds reputation to a member for a given tag, enforcing
@@ -441,6 +481,8 @@ func GetInterimReputationGrant(complexity types.InterimComplexity) math.LegacyDe
 // GrantInterimReputation grants reputation to a member for completing an interim.
 // Subject to per-epoch per-tag reputation cap to prevent interim grinding.
 func (k Keeper) GrantInterimReputation(ctx context.Context, memberAddr sdk.AccAddress, interim types.Interim) error {
+	// The assignee entry keeps the address the work was taken under.
+	memberAddr = k.resolveMember(ctx, memberAddr)
 	member, err := k.Member.Get(ctx, memberAddr.String())
 	if err != nil {
 		return types.ErrMemberNotFound

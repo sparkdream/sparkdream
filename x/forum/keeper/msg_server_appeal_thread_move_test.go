@@ -30,7 +30,7 @@ func TestAppealThreadMove(t *testing.T) {
 		MoveReason:         "Better fit",
 		AppealPending:      false,
 	}
-	_ = f.keeper.ThreadMoveRecord.Set(f.ctx, thread.PostId, moveRecord)
+	require.NoError(t, f.keeper.ThreadMoveRecord.Set(f.ctx, thread.PostId, moveRecord))
 
 	tests := []struct {
 		name        string
@@ -65,7 +65,7 @@ func TestAppealThreadMove(t *testing.T) {
 			setup: func() {
 				params := types.DefaultParams()
 				params.AppealsPaused = true
-				_ = f.keeper.Params.Set(f.ctx, params)
+				require.NoError(t, f.keeper.Params.Set(f.ctx, params))
 			},
 			expectError: true,
 			errContains: "appeals are paused",
@@ -97,7 +97,7 @@ func TestAppealThreadMove(t *testing.T) {
 			setup: func() {
 				mr, _ := f.keeper.ThreadMoveRecord.Get(f.ctx, thread.PostId)
 				mr.AppealPending = true
-				_ = f.keeper.ThreadMoveRecord.Set(f.ctx, thread.PostId, mr)
+				require.NoError(t, f.keeper.ThreadMoveRecord.Set(f.ctx, thread.PostId, mr))
 			},
 			expectError: true,
 			errContains: "appeal already filed",
@@ -111,7 +111,7 @@ func TestAppealThreadMove(t *testing.T) {
 			setup: func() {
 				mr, _ := f.keeper.ThreadMoveRecord.Get(f.ctx, thread.PostId)
 				mr.MovedAt = f.sdkCtx().BlockTime().Unix() // Just moved
-				_ = f.keeper.ThreadMoveRecord.Set(f.ctx, thread.PostId, mr)
+				require.NoError(t, f.keeper.ThreadMoveRecord.Set(f.ctx, thread.PostId, mr))
 			},
 			expectError: true,
 			errContains: "must wait until",
@@ -121,10 +121,10 @@ func TestAppealThreadMove(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Reset state
-			_ = f.keeper.Params.Set(f.ctx, types.DefaultParams())
+			require.NoError(t, f.keeper.Params.Set(f.ctx, types.DefaultParams()))
 			p, _ := f.keeper.Post.Get(f.ctx, thread.PostId)
 			p.Author = testCreator
-			_ = f.keeper.Post.Set(f.ctx, thread.PostId, p)
+			require.NoError(t, f.keeper.Post.Set(f.ctx, thread.PostId, p))
 
 			moveRecord := types.ThreadMoveRecord{
 				RootId:             thread.PostId,
@@ -135,7 +135,7 @@ func TestAppealThreadMove(t *testing.T) {
 				MoveReason:         "Better fit",
 				AppealPending:      false,
 			}
-			_ = f.keeper.ThreadMoveRecord.Set(f.ctx, thread.PostId, moveRecord)
+			require.NoError(t, f.keeper.ThreadMoveRecord.Set(f.ctx, thread.PostId, moveRecord))
 
 			if tt.setup != nil {
 				tt.setup()
@@ -175,7 +175,7 @@ func TestAppealThreadMoveNoMoveRecord(t *testing.T) {
 		RootId:  thread.PostId,
 	})
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "governance authority")
+	require.ErrorIs(t, err, types.ErrGovLockNotAppealable)
 }
 
 func TestAppealThreadMoveCreatesGovActionAppeal(t *testing.T) {
@@ -211,7 +211,7 @@ func TestAppealThreadMoveCreatesGovActionAppeal(t *testing.T) {
 		NewCategoryId:      cat2.CategoryId,
 		MovedAt:            f.sdkCtx().BlockTime().Unix() - types.DefaultMoveAppealCooldown - 1,
 	}
-	_ = f.keeper.ThreadMoveRecord.Set(f.ctx, thread.PostId, moveRecord)
+	require.NoError(t, f.keeper.ThreadMoveRecord.Set(f.ctx, thread.PostId, moveRecord))
 
 	// File appeal
 	_, err := f.msgServer.AppealThreadMove(f.ctx, &types.MsgAppealThreadMove{

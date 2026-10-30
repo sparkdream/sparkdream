@@ -38,6 +38,13 @@ func (k msgServer) FederateContent(ctx context.Context, msg *types.MsgFederateCo
 		return nil, errorsmod.Wrapf(types.ErrPeerTypeMismatch, "MsgFederateContent only for IBC peers, peer %q is %s", msg.PeerId, peer.Type)
 	}
 
+	// 1b. The content hash must be a SHA-256 digest: the receiving chain
+	//     refuses anything else, so a malformed one would only burn the
+	//     rate-limit slot and the IBC packet.
+	if len(msg.ContentHash) != types.ContentHashSize {
+		return nil, errorsmod.Wrapf(types.ErrInvalidContentHash, "got %d bytes", len(msg.ContentHash))
+	}
+
 	// 2. Verify content_type is in outbound_content_types
 	policy, err := k.PeerPolicies.Get(ctx, msg.PeerId)
 	if err != nil {
@@ -53,7 +60,7 @@ func (k msgServer) FederateContent(ctx context.Context, msg *types.MsgFederateCo
 		if err != nil {
 			return nil, errorsmod.Wrap(types.ErrTrustLevelInsufficient, "failed to get trust level")
 		}
-		if uint32(trustLevel) < policy.MinOutboundTrustLevel {
+		if commontypes.Saturate[uint32](trustLevel) < policy.MinOutboundTrustLevel {
 			return nil, errorsmod.Wrapf(types.ErrTrustLevelInsufficient, "trust level %d < required %d", trustLevel, policy.MinOutboundTrustLevel)
 		}
 	}

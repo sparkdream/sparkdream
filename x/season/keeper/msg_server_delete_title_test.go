@@ -71,7 +71,7 @@ func TestMsgServerDeleteTitle(t *testing.T) {
 			TitleId: "title1",
 			Name:    "To Be Deleted",
 		}
-		k.Title.Set(ctx, "title1", existing)
+		require.NoError(t, k.Title.Set(ctx, "title1", existing))
 
 		// Verify it exists
 		_, err := k.Title.Get(ctx, "title1")
@@ -107,7 +107,7 @@ func TestMsgServerDeleteTitle(t *testing.T) {
 			TitleId: "title1",
 			Name:    "Committee Delete",
 		}
-		k.Title.Set(ctx, "title1", existing)
+		require.NoError(t, k.Title.Set(ctx, "title1", existing))
 
 		// Delete it
 		_, err := ms.DeleteTitle(ctx, &types.MsgDeleteTitle{
@@ -137,7 +137,7 @@ func TestMsgServerDeleteTitle(t *testing.T) {
 			TitleId: "council_title",
 			Name:    "Council Title",
 		}
-		k.Title.Set(ctx, "council_title", existing)
+		require.NoError(t, k.Title.Set(ctx, "council_title", existing))
 
 		// Delete via council policy
 		_, err := ms.DeleteTitle(ctx, &types.MsgDeleteTitle{

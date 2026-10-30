@@ -50,7 +50,7 @@ func TestQueryAppealCooldown(t *testing.T) {
 			Sentinel: testSentinel,
 			HiddenAt: now,
 		}
-		f.keeper.HideRecord.Set(f.ctx, post.PostId, hideRecord)
+		require.NoError(t, f.keeper.HideRecord.Set(f.ctx, post.PostId, hideRecord))
 
 		resp, err := qs.AppealCooldown(f.ctx, &types.QueryAppealCooldownRequest{PostId: post.PostId})
 		require.NoError(t, err)
@@ -68,7 +68,7 @@ func TestQueryAppealCooldown(t *testing.T) {
 			Sentinel: testSentinel,
 			HiddenAt: now - types.DefaultHideAppealCooldown - 1,
 		}
-		f.keeper.HideRecord.Set(f.ctx, post.PostId, hideRecord)
+		require.NoError(t, f.keeper.HideRecord.Set(f.ctx, post.PostId, hideRecord))
 
 		resp, err := qs.AppealCooldown(f.ctx, &types.QueryAppealCooldownRequest{PostId: post.PostId})
 		require.NoError(t, err)

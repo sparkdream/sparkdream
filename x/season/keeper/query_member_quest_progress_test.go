@@ -21,7 +21,9 @@ func createNMemberQuestProgress(keeper keeper.Keeper, ctx context.Context, n int
 		items[i].Completed = true
 		items[i].CompletedBlock = int64(i)
 		items[i].LastAttemptBlock = int64(i)
-		_ = keeper.MemberQuestProgress.Set(ctx, items[i].MemberQuest, items[i])
+		if err := keeper.MemberQuestProgress.Set(ctx, items[i].MemberQuest, items[i]); err != nil {
+			panic(err)
+		}
 	}
 	return items
 }

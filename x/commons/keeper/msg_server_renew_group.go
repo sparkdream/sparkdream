@@ -26,27 +26,48 @@ func (k msgServer) RenewGroup(goCtx context.Context, msg *types.MsgRenewGroup) (
 		return nil, errorsmod.Wrapf(sdkerrors.ErrInvalidRequest, "new_members count (%d) does not match new_member_weights count (%d)", len(msg.NewMembers), len(msg.NewMemberWeights))
 	}
 
+	var electoralName string
+	var electoralGroup types.Group
+	isElectoral := false
 	if !isGov {
 		isParent := (msg.Authority == extGroup.ParentPolicyAddress)
-		isElectoral := (extGroup.ElectoralPolicyAddress != "" && msg.Authority == extGroup.ElectoralPolicyAddress)
+		isElectoral = !isParent && extGroup.ElectoralPolicyAddress != "" && msg.Authority == extGroup.ElectoralPolicyAddress
 
 		if !isParent && !isElectoral {
 			return nil, errorsmod.Wrapf(sdkerrors.ErrUnauthorized,
 				"signer %s is not the parent or designated electoral authority of %s", msg.Authority, msg.GroupName)
 		}
 
-		currentTime := ctx.BlockTime().Unix()
-		if currentTime < extGroup.CurrentTermExpiration {
-			return nil, errorsmod.Wrapf(sdkerrors.ErrInvalidRequest, "current term has not expired yet (expires: %d, current: %d)", extGroup.CurrentTermExpiration, currentTime)
+		// The electoral authority must be a registered body (an executed
+		// proposal), never a bare key, and is throttled by its own
+		// update_cooldown exactly as in MsgUpdateGroupMembers.
+		if isElectoral {
+			var found bool
+			electoralName, electoralGroup, found = k.getGroupByPolicy(ctx, msg.Authority)
+			if !found {
+				return nil, errorsmod.Wrap(sdkerrors.ErrUnauthorized, "electoral signer not found in registry")
+			}
+			if ctx.BlockTime().Unix() < electoralGroup.LastParentUpdate+electoralGroup.UpdateCooldown {
+				return nil, errorsmod.Wrapf(types.ErrRateLimitExceeded,
+					"electoral group cooldown active: wait until %d",
+					electoralGroup.LastParentUpdate+electoralGroup.UpdateCooldown)
+			}
 		}
 
-		newCount := uint64(len(msg.NewMembers))
-		if newCount < extGroup.MinMembers {
-			return nil, errorsmod.Wrapf(types.ErrInvalidGroupSize, "count %d below min %d", newCount, extGroup.MinMembers)
+		currentTime := ctx.BlockTime().Unix()
+		if !isTermExpired(extGroup, currentTime) {
+			return nil, errorsmod.Wrapf(sdkerrors.ErrInvalidRequest, "current term has not expired yet (expires: %d, current: %d)", extGroup.CurrentTermExpiration, currentTime)
 		}
-		if newCount > extGroup.MaxMembers {
-			return nil, errorsmod.Wrapf(types.ErrInvalidGroupSize, "count %d above max %d", newCount, extGroup.MaxMembers)
-		}
+	}
+
+	// Size bounds apply to every signer, x/gov included (a renewal is a
+	// full membership replacement).
+	newCount := uint64(len(msg.NewMembers))
+	if newCount < extGroup.MinMembers {
+		return nil, errorsmod.Wrapf(types.ErrInvalidGroupSize, "count %d below min %d", newCount, extGroup.MinMembers)
+	}
+	if newCount > extGroup.MaxMembers {
+		return nil, errorsmod.Wrapf(types.ErrInvalidGroupSize, "count %d above max %d", newCount, extGroup.MaxMembers)
 	}
 
 	// Build final member state
@@ -93,7 +114,9 @@ func (k msgServer) RenewGroup(goCtx context.Context, msg *types.MsgRenewGroup) (
 	for _, u := range updates {
 		key := collections.Join(msg.GroupName, u.Address)
 		if u.Weight == "0" {
-			_ = k.Members.Remove(ctx, key)
+			if err := k.Members.Remove(ctx, key); err != nil {
+				return nil, err
+			}
 		} else {
 			if err := k.Members.Set(ctx, key, types.Member{
 				Address:  u.Address,
@@ -114,6 +137,19 @@ func (k msgServer) RenewGroup(goCtx context.Context, msg *types.MsgRenewGroup) (
 	extGroup.CurrentTermExpiration = ctx.BlockTime().Unix() + extGroup.TermDuration
 	if err := k.Groups.Set(ctx, msg.GroupName, extGroup); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to update extended group state")
+	}
+
+	// A renewal replaces the body: proposals accepted by the old members
+	// must not execute on the new members' authority.
+	if _, err := k.BumpPolicyVersion(ctx, extGroup.PolicyAddress); err != nil {
+		return nil, err
+	}
+
+	if isElectoral {
+		electoralGroup.LastParentUpdate = ctx.BlockTime().Unix()
+		if err := k.Groups.Set(ctx, electoralName, electoralGroup); err != nil {
+			return nil, err
+		}
 	}
 
 	return &types.MsgRenewGroupResponse{}, nil

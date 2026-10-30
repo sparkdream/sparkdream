@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"cosmossdk.io/collections"
+
 	"sparkdream/x/forum/types"
 
 	errorsmod "cosmossdk.io/errors"
@@ -37,6 +39,10 @@ func (k msgServer) MoveThread(ctx context.Context, msg *types.MsgMoveThread) (*t
 		return nil, types.ErrNotRootPost
 	}
 
+	if post.Status != types.PostStatus_POST_STATUS_ACTIVE {
+		return nil, errorsmod.Wrapf(types.ErrThreadNotActive, "thread %d is %s", msg.RootId, post.Status)
+	}
+
 	if k.commonsKeeper == nil || !k.commonsKeeper.HasCategory(ctx, msg.NewCategoryId) {
 		return nil, errorsmod.Wrap(types.ErrCategoryNotFound, fmt.Sprintf("category %d not found", msg.NewCategoryId))
 	}
@@ -46,6 +52,17 @@ func (k msgServer) MoveThread(ctx context.Context, msg *types.MsgMoveThread) (*t
 	}
 
 	originalCategoryId := post.CategoryId
+
+	// An existing sentinel move record is either under appeal (it belongs to
+	// the jury) or still inside its appeal window. Overwriting it would orphan
+	// the first sentinel's reservation and point the verdict at the wrong
+	// sentinel and category, so a second move is refused until the record
+	// settles (verdict or deadline).
+	prevMove, prevErr := k.ThreadMoveRecord.Get(ctx, msg.RootId)
+	havePrevMove := prevErr == nil
+	if havePrevMove && prevMove.AppealPending {
+		return nil, errorsmod.Wrap(types.ErrAppealPending, "a move appeal on this thread is still pending")
+	}
 
 	// Resolve which moderation authority this move invokes. An account can be
 	// BOTH a bonded sentinel and a Commons Operations Committee member, so the
@@ -77,6 +94,29 @@ func (k msgServer) MoveThread(ctx context.Context, msg *types.MsgMoveThread) (*t
 	isGovAuthority, err := resolveModerationAuthority(msg.Authority, sentinelEligible, sentinelErr, isCouncil)
 	if err != nil {
 		return nil, err
+	}
+	// A sentinel's hide, lock and move are rewarded actions (x/rep scores
+	// them): moderating their own content would be paid self-dealing, and a
+	// self-lock can never be appealed (FRM-28). The council path is unaffected.
+	if !isGovAuthority && k.sameMember(ctx, post.Author, msg.Creator) {
+		return nil, types.ErrSelfModeration
+	}
+
+	if havePrevMove {
+		if !isGovAuthority {
+			return nil, errorsmod.Wrapf(types.ErrMoveRecordOpen,
+				"thread was moved at %d and the move is still inside its appeal window", prevMove.MovedAt)
+		}
+		// The council supersedes the earlier move: settle its record so a
+		// sentinel reservation does not leak and a later appeal cannot
+		// restore the stale original category over the council's decision.
+		k.releaseSentinelCommit(ctx, prevMove.Sentinel, prevMove.CommittedAmount, "superseded by council move", msg.RootId)
+		if err := k.MoveRecordExpiry.Remove(ctx, collections.Join(moveExpiryAt(prevMove), msg.RootId)); err != nil {
+			return nil, err
+		}
+		if err := k.ThreadMoveRecord.Remove(ctx, msg.RootId); err != nil {
+			return nil, err
+		}
 	}
 
 	if !isGovAuthority {
@@ -124,13 +164,40 @@ func (k msgServer) MoveThread(ctx context.Context, msg *types.MsgMoveThread) (*t
 		if err := k.ThreadMoveRecord.Set(ctx, msg.RootId, moveRecord); err != nil {
 			return nil, errorsmod.Wrap(err, "failed to store move record")
 		}
+		if err := k.MoveRecordExpiry.Set(ctx, collections.Join(moveExpiryAt(moveRecord), msg.RootId)); err != nil {
+			return nil, errorsmod.Wrap(err, "failed to index move record expiry")
+		}
 
-		_ = k.repKeeper.RecordRoleAction(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, msg.Creator, reptypes.ActionKindForumMove)
+		if err := k.repKeeper.RecordRoleAction(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, msg.Creator, reptypes.ActionKindForumMove); err != nil {
+			return nil, err
+		}
 
-		_ = k.repKeeper.RecordActivity(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, msg.Creator)
+		if err := k.repKeeper.RecordActivity(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, msg.Creator); err != nil {
+			return nil, err
+		}
+	} else {
+		// A committee or council move gets an authority record (no sentinel,
+		// no bond) so the thread author can appeal it through
+		// MsgAppealThreadMove within the same window as a sentinel move. An
+		// overturned appeal moves the thread back; there is no bond to slash.
+		moveRecord := types.ThreadMoveRecord{
+			RootId:             msg.RootId,
+			OriginalCategoryId: originalCategoryId,
+			NewCategoryId:      msg.NewCategoryId,
+			MovedAt:            now,
+			MoveReason:         msg.Reason,
+		}
+		if err := k.ThreadMoveRecord.Set(ctx, msg.RootId, moveRecord); err != nil {
+			return nil, errorsmod.Wrap(err, "failed to store move record")
+		}
+		if err := k.MoveRecordExpiry.Set(ctx, collections.Join(moveExpiryAt(moveRecord), msg.RootId)); err != nil {
+			return nil, errorsmod.Wrap(err, "failed to index move record expiry")
+		}
 	}
 
-	post.CategoryId = msg.NewCategoryId
+	if err := k.setRootCategory(ctx, &post, msg.NewCategoryId); err != nil {
+		return nil, err
+	}
 
 	if err := k.Post.Set(ctx, msg.RootId, post); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to update post")

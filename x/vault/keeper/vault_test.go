@@ -11,6 +11,7 @@ import (
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	"github.com/stretchr/testify/require"
 
+	commontypes "sparkdream/x/common/types"
 	reptypes "sparkdream/x/rep/types"
 	sessiontypes "sparkdream/x/session/types"
 	shieldtypes "sparkdream/x/shield/types"
@@ -26,7 +27,8 @@ var (
 	sink    = addr("sink")
 )
 
-// create2of3 funds the creator and creates alice(1), bob(1), carol(1), threshold 2.
+// create2of3 funds the creator and creates alice(1), bob(1), carol(1),
+// threshold 2, every signer having accepted its listing.
 func create2of3(t *testing.T, f *fixture) types.Vault {
 	t.Helper()
 	f.bank.balances[creator] = math.NewInt(100_000_000)
@@ -35,10 +37,26 @@ func create2of3(t *testing.T, f *fixture) types.Vault {
 		Threshold: 2, ProposalTtl: 24 * 3600, Label: "phoenix treasury",
 	})
 	require.NoError(t, err)
-	v, err := f.keeper.Vault.Get(f.ctx, res.VaultId)
-	require.NoError(t, err)
+	v := acceptAll(t, f, res.VaultId)
 	// give the vault some SPARK to send
 	f.bank.balances[v.Address] = math.NewInt(50_000)
+	return v
+}
+
+// acceptAll has every unaccepted signer of vault id accept its listing and
+// returns the vault.
+func acceptAll(t *testing.T, f *fixture, id uint64) types.Vault {
+	t.Helper()
+	v, err := f.keeper.Vault.Get(f.ctx, id)
+	require.NoError(t, err)
+	for _, s := range v.Signers {
+		if !s.Accepted {
+			_, err := f.srv.AcceptVaultSigner(f.ctx, &types.MsgAcceptVaultSigner{Signer: s.Address, VaultId: id})
+			require.NoError(t, err)
+		}
+	}
+	v, err = f.keeper.Vault.Get(f.ctx, id)
+	require.NoError(t, err)
 	return v
 }
 
@@ -258,6 +276,7 @@ func TestProposeApproveExecute(t *testing.T) {
 	f.bank.balances[creator] = math.NewInt(100_000_000)
 	one, err := f.srv.CreateVault(f.ctx, &types.MsgCreateVault{Creator: creator, Signers: signers(map[string]uint64{alice: 1}, alice), Threshold: 1, ProposalTtl: 3600})
 	require.NoError(t, err)
+	acceptAll(t, f, one.VaultId)
 	f.bank.balances[one.Address] = math.NewInt(100)
 	pr, err := f.srv.Propose(f.ctx, &types.MsgPropose{Signer: alice, VaultId: one.VaultId, Messages: []*codectypes.Any{anySend(t, one.Address, sink, 5)}, Execute: true})
 	require.NoError(t, err)
@@ -303,7 +322,7 @@ func TestCancelAndExpiryAndRetention(t *testing.T) {
 		require.ErrorIs(t, err, collections.ErrNotFound, "proposal %d pruned", id)
 	}
 	n := 0
-	_ = f.keeper.RetentionQueue.Walk(f.ctx, nil, func(collections.Pair[int64, uint64]) (bool, error) { n++; return false, nil })
+	require.NoError(t, f.keeper.RetentionQueue.Walk(f.ctx, nil, func(collections.Pair[int64, uint64]) (bool, error) { n++; return false, nil }))
 	require.Zero(t, n)
 }
 
@@ -334,7 +353,10 @@ func TestUpdateVaultRotation(t *testing.T) {
 	require.Equal(t, uint64(3), v2.Threshold)
 	require.Equal(t, int64(7200), v2.ProposalTtl)
 	require.Equal(t, "rotated", v2.Label)
-	require.Equal(t, newSet, v2.Signers)
+	// alice and bob carry over their acceptance; dave is new and must accept.
+	wantSet := signers(map[string]uint64{alice: 1, bob: 1, dave: 2}, alice, bob, dave)
+	wantSet[0].Accepted, wantSet[1].Accepted = true, true
+	require.Equal(t, wantSet, v2.Signers)
 	require.Equal(t, math.NewInt(50_000-7), f.bank.balance(v.Address), "the send in the same proposal ran")
 	require.Equal(t, types.ProposalStatus_PROPOSAL_STATUS_EXECUTED, proposalStatus(t, f, rot.ProposalId), "the executing proposal is not invalidated by its own update")
 	require.Equal(t, types.ProposalStatus_PROPOSAL_STATUS_INVALIDATED, proposalStatus(t, f, other.ProposalId))
@@ -342,7 +364,10 @@ func TestUpdateVaultRotation(t *testing.T) {
 	has, _ := f.keeper.VaultsBySigner.Has(f.ctx, collections.Join(carol, v.VaultId))
 	require.False(t, has, "removed signer dropped from the index")
 	has, _ = f.keeper.VaultsBySigner.Has(f.ctx, collections.Join(dave, v.VaultId))
+	require.False(t, has, "dave has not accepted yet")
+	has, _ = f.keeper.VaultInvitesBySigner.Has(f.ctx, collections.Join(dave, v.VaultId))
 	require.True(t, has)
+	require.Equal(t, uint64(2), f.keeper.AcceptedWeight(f.ctx, v2.Signers), "threshold 3 waits for dave")
 
 	// Removed signer cannot act; approvals from a removed signer never count.
 	_, err = f.srv.Propose(f.ctx, &types.MsgPropose{Signer: carol, VaultId: v.VaultId, Messages: []*codectypes.Any{anySend(t, v.Address, sink, 1)}})
@@ -351,6 +376,10 @@ func TestUpdateVaultRotation(t *testing.T) {
 	np.Approvals = append(np.Approvals, carol) // a stale approval smuggled into state
 	require.NoError(t, f.keeper.VaultProposal.Set(f.ctx, np.ProposalId, np))
 	require.Equal(t, uint64(1), f.keeper.Tally(f.ctx, v2, np))
+	_, err = f.srv.Approve(f.ctx, &types.MsgApprove{Signer: dave, ProposalId: np.ProposalId, MessagesHash: np.MessagesHash})
+	require.ErrorIs(t, err, types.ErrNotSigner, "an unaccepted entry cannot approve")
+	v2 = acceptAll(t, f, v.VaultId)
+	require.Equal(t, uint64(2), v2.ConfigVersion, "accepting does not bump the config")
 	_, err = f.srv.Approve(f.ctx, &types.MsgApprove{Signer: dave, ProposalId: np.ProposalId, MessagesHash: np.MessagesHash})
 	require.NoError(t, err)
 	np, _ = f.keeper.VaultProposal.Get(f.ctx, np.ProposalId)
@@ -379,7 +408,7 @@ func TestPendingCapsAntiLockout(t *testing.T) {
 	_, err = f.srv.Approve(f.ctx, &types.MsgApprove{Signer: carol, ProposalId: rot.ProposalId, MessagesHash: rot.MessagesHash, Execute: true})
 	require.NoError(t, err)
 	n := 0
-	_ = f.keeper.PendingByVault.Walk(f.ctx, nil, func(collections.Pair[uint64, uint64]) (bool, error) { n++; return false, nil })
+	require.NoError(t, f.keeper.PendingByVault.Walk(f.ctx, nil, func(collections.Pair[uint64, uint64]) (bool, error) { n++; return false, nil }))
 	require.Zero(t, n, "nothing pending after a rotation")
 	general, updateOnly, err := f.keeper.PendingCounts(f.ctx, v.VaultId, alice)
 	require.NoError(t, err)
@@ -401,11 +430,34 @@ func TestInnerMsgDenylist(t *testing.T) {
 		&types.MsgApprove{Signer: v.Address},
 		&types.MsgExecute{Signer: v.Address},
 		&types.MsgRevokeApproval{Signer: v.Address},
+		// A vault is never a person: it cannot accept a listing or leave.
+		&types.MsgAcceptVaultSigner{Signer: v.Address},
+		&types.MsgLeaveVault{Signer: v.Address},
 	}
 	for _, m := range denied {
 		_, err := f.srv.Propose(f.ctx, &types.MsgPropose{Signer: alice, VaultId: v.VaultId, Messages: []*codectypes.Any{anyMsg(t, m)}})
 		require.ErrorIs(t, err, types.ErrInnerMsgDenied, sdk.MsgTypeURL(m))
 	}
+	// CMN-12: every message guarded by an ante-only rule is kept out, since
+	// a proposal's inner messages skip the ante. commons MsgSubmitProposal
+	// (proposal-fee floor) is refused outright; the gnovm messages are
+	// refused whenever they are mixed with any other message (the gnovm
+	// ante's no-mix rule). The type URLs are checked before unpacking, so
+	// raw Anys suffice.
+	for _, url := range commontypes.AnteOnlyRuleMsgTypeURLs() {
+		raw := &codectypes.Any{TypeUrl: url}
+		if commontypes.IsGnoVMMsgTypeURL(url) {
+			_, err := f.srv.Propose(f.ctx, &types.MsgPropose{Signer: alice, VaultId: v.VaultId, Messages: []*codectypes.Any{raw, anySend(t, v.Address, sink, 1)}})
+			require.ErrorIs(t, err, types.ErrInnerMsgDenied, "%s mixed with a send", url)
+			_, err = f.srv.Propose(f.ctx, &types.MsgPropose{Signer: alice, VaultId: v.VaultId, Messages: []*codectypes.Any{anySend(t, v.Address, sink, 1), raw}})
+			require.ErrorIs(t, err, types.ErrInnerMsgDenied, "send mixed with %s", url)
+			continue
+		}
+		_, err := f.srv.Propose(f.ctx, &types.MsgPropose{Signer: alice, VaultId: v.VaultId, Messages: []*codectypes.Any{raw}})
+		require.ErrorIs(t, err, types.ErrInnerMsgDenied, url)
+	}
+	_, err := f.srv.Propose(f.ctx, &types.MsgPropose{Signer: alice, VaultId: v.VaultId, Messages: []*codectypes.Any{{TypeUrl: "/sparkdream.commons.v1.MsgSubmitProposal"}}})
+	require.ErrorIs(t, err, types.ErrInnerMsgDenied, "commons MsgSubmitProposal by literal URL")
 	// The allowed vault messages pass the denylist (signer check still applies).
 	for _, m := range []sdk.Msg{&types.MsgUpdateVault{Vault: v.Address, Signers: v.Signers, Threshold: 2, ProposalTtl: 3600}, &types.MsgCancelProposal{Signer: v.Address, ProposalId: 1}} {
 		_, err := f.srv.Propose(f.ctx, &types.MsgPropose{Signer: alice, VaultId: v.VaultId, Messages: []*codectypes.Any{anyMsg(t, m)}})
@@ -510,6 +562,18 @@ func TestQueries(t *testing.T) {
 	tally, _ = q.Tally(f.ctx, &types.QueryTallyRequest{ProposalId: p.ProposalId})
 	require.True(t, tally.Met)
 
+	// VLT-08: met follows Execute's expiry rule. One second before expires_at
+	// it is met; at expires_at, before the EndBlocker marks the proposal
+	// EXPIRED, it is not, and MsgExecute fails too.
+	at := func(unix int64) sdk.Context { return f.ctx.WithBlockTime(time.Unix(unix, 0)) }
+	tally, _ = q.Tally(at(p.ExpiresAt-1), &types.QueryTallyRequest{ProposalId: p.ProposalId})
+	require.True(t, tally.Met)
+	tally, _ = q.Tally(at(p.ExpiresAt), &types.QueryTallyRequest{ProposalId: p.ProposalId})
+	require.False(t, tally.Met, "expired but not yet swept")
+	require.Equal(t, types.ProposalStatus_PROPOSAL_STATUS_PENDING, proposalStatus(t, f, p.ProposalId))
+	_, err = f.srv.Execute(at(p.ExpiresAt), &types.MsgExecute{Signer: alice, ProposalId: p.ProposalId})
+	require.ErrorIs(t, err, types.ErrProposalExpired)
+
 	list, err := q.ProposalsByVault(f.ctx, &types.QueryProposalsByVaultRequest{VaultId: v.VaultId})
 	require.NoError(t, err)
 	require.Len(t, list.Proposals, 1)
@@ -523,4 +587,19 @@ func TestQueries(t *testing.T) {
 	bs, err = q.VaultsBySigner(f.ctx, &types.QueryVaultsBySignerRequest{Address: dave})
 	require.NoError(t, err)
 	require.Empty(t, bs.Vaults)
+}
+
+// Theme 6: a vault proposal skips the ante, so it may not carry a commons
+// MsgSubmitProposal (fee floor is ante-only) nor mix gnovm VM messages with
+// other messages (the gnovm ante's no-mix rule).
+func TestInnerMsgAnteOnlyRules(t *testing.T) {
+	f := initFixture(t)
+	v := create2of3(t, f)
+	submit := &codectypes.Any{TypeUrl: "/sparkdream.commons.v1.MsgSubmitProposal"}
+	_, err := f.srv.Propose(f.ctx, &types.MsgPropose{Signer: alice, VaultId: v.VaultId, Messages: []*codectypes.Any{submit}})
+	require.ErrorIs(t, err, types.ErrInnerMsgDenied)
+
+	gno := &codectypes.Any{TypeUrl: "/gnovm.gnovm.v1.MsgCall"}
+	_, err = f.srv.Propose(f.ctx, &types.MsgPropose{Signer: alice, VaultId: v.VaultId, Messages: []*codectypes.Any{gno, anySend(t, v.Address, sink, 1)}})
+	require.ErrorIs(t, err, types.ErrInnerMsgDenied)
 }

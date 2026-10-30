@@ -110,6 +110,11 @@ var (
 	// ReactionDedupKey: (address, targetType, targetID) → uint8 (1=upvote, 2=downvote)
 	ReactionDedupKey = collections.NewPrefix("reaction/dedup/")
 
+	// ReactionsByTargetKey: (targetKey "{type}/{id}", address) → empty -
+	// reverse index of ReactionDedup so a deleted collection or item drops
+	// its dedup markers without a full scan.
+	ReactionsByTargetKey = collections.NewPrefix("reaction/by_target/")
+
 	// CollectionsByStatusKey: (status, pinned-rank, collectionID) → empty - for
 	// querying by status with pinned collections ordered first within a status.
 	CollectionsByStatusKey = collections.NewPrefix("collection/by_status/")

@@ -125,6 +125,12 @@ func (am AppModule) ExportGenesis(ctx sdk.Context, _ codec.JSONCodec) json.RawMe
 	return bz
 }
 
+// RegisterInvariants registers the commons invariants (run by app's
+// TestInvariants; x/crisis is not wired on chain).
+func (am AppModule) RegisterInvariants(ir sdk.InvariantRegistry) {
+	keeper.RegisterInvariants(ir, am.keeper)
+}
+
 // ConsensusVersion is a sequence number for state-breaking change of the module.
 func (AppModule) ConsensusVersion() uint64 { return 2 }
 
@@ -135,7 +141,14 @@ func (am AppModule) BeginBlock(_ context.Context) error {
 
 // EndBlock contains the logic that is automatically triggered at the end of each block.
 func (am AppModule) EndBlock(ctx context.Context) error {
-	return am.keeper.EndBlockProposals(ctx)
+	if err := am.keeper.EndBlockProposals(ctx); err != nil {
+		return err
+	}
+	if err := am.keeper.EndBlockPolls(ctx); err != nil {
+		return err
+	}
+	// Confidence-vote recurrence (elastic tenure, x/futarchy).
+	return EndBlocker(ctx, am.keeper)
 }
 
 // GetTxCmd returns custom transaction commands that can't be handled by autocli

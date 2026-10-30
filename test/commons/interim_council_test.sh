@@ -12,28 +12,33 @@ CHAIN_ID="sparkdream"
 ALICE_ADDR=$($BINARY keys show alice -a --keyring-backend test)
 BOB_ADDR=$($BINARY keys show bob -a --keyring-backend test)
 CAROL_ADDR=$($BINARY keys show carol -a --keyring-backend test)
+# poster1/poster2 are created and funded by setup_test_accounts.sh; this
+# test runs first, before any other test adds keys.
+POSTER1_ADDR=$($BINARY keys show poster1 -a --keyring-backend test)
+POSTER2_ADDR=$($BINARY keys show poster2 -a --keyring-backend test)
 
 GOV_ADDR=$($BINARY query auth module-account gov --output json | jq -r '.account.base_account.address // .account.value.address')
 echo "Gov Address: $GOV_ADDR"
 
-# --- 1. PHASE 1: INSTALL BOB AS DICTATOR ---
-echo "--- PHASE 1: INSTALLING BOB AS INTERIM DICTATOR ---"
-echo "Alice (Validator) votes to wipe Commons Council and install Bob..."
+# --- 1. PHASE 1: INSTALL AN INTERIM COUNCIL ---
+echo "--- PHASE 1: INSTALLING BOB, POSTER1 AND POSTER2 AS THE INTERIM COUNCIL ---"
+echo "Alice (Validator) votes to wipe Commons Council and install Bob, Poster1 and Poster2..."
 
-# Using MsgRenewGroup to wipe the slate
+# Using MsgRenewGroup to wipe the slate. The Commons Council's min_members (3)
+# binds x/gov too, so the interim council needs three seats.
 echo '{
   "messages": [
     {
       "@type": "/sparkdream.commons.v1.MsgRenewGroup",
       "authority": "'$GOV_ADDR'",
       "group_name": "Commons Council",
-      "new_members": ["'$BOB_ADDR'"],
-      "new_member_weights": ["1"]
+      "new_members": ["'$BOB_ADDR'", "'$POSTER1_ADDR'", "'$POSTER2_ADDR'"],
+      "new_member_weights": ["1", "1", "1"]
     }
   ],
   "deposit": "100000000'"$BOND_DENOM"'",
-  "title": "Emergency Dictator Act",
-  "summary": "Setting Bob as sole member of Commons Council.",
+  "title": "Emergency Interim Council Act",
+  "summary": "Replacing the Commons Council with Bob, Poster1 and Poster2.",
   "expedited": true
 }' > "$PROPOSAL_DIR/set_bob_dictator.json"
 
@@ -55,7 +60,7 @@ $BINARY tx gov vote $PROP_ID yes --from alice -y --chain-id $CHAIN_ID --keyring-
 echo "Waiting for Expedited Voting (45s)..."
 sleep 45
 
-# Verify Bob is Sole Member
+# Verify the interim council is exactly Bob, Poster1 and Poster2
 # 1. Get Group ID
 GROUP_INFO=$($BINARY query commons get-group "Commons Council" --output json)
 GROUP_ID=$(echo $GROUP_INFO | jq -r '.group.group_id // "0"')
@@ -64,17 +69,18 @@ POLICY_ADDR=$(echo $GROUP_INFO | jq -r '.group.policy_address')
 # 2. Check Members (x/commons get-council-members returns {"members": [...]} of Member)
 MEMBERS_JSON=$($BINARY query commons get-council-members "Commons Council" --output json)
 COUNT=$(echo $MEMBERS_JSON | jq '.members | length')
-MEMBER_ADDR=$(echo $MEMBERS_JSON | jq -r '.members[0].address')
+MEMBER_ADDRS=$(echo $MEMBERS_JSON | jq -r '.members[].address' | sort | tr '\n' ' ')
+EXPECTED_ADDRS=$(printf '%s\n' "$BOB_ADDR" "$POSTER1_ADDR" "$POSTER2_ADDR" | sort | tr '\n' ' ')
 
-if [ "$COUNT" == "1" ] && [ "$MEMBER_ADDR" == "$BOB_ADDR" ]; then
-    echo "[ OK ] SUCCESS: Bob is now the sole member (Dictator)."
+if [ "$COUNT" == "3" ] && [ "$MEMBER_ADDRS" == "$EXPECTED_ADDRS" ]; then
+    echo "[ OK ] SUCCESS: Bob, Poster1 and Poster2 are now the interim council."
 else
     echo "[FAIL] FAILURE: Membership update failed. Count: $COUNT"
     exit 1
 fi
 
-# --- 2. ATTACK & VETO (Dictator Veto) ---
-echo "--- PHASE 2: BOB VETOES MALICIOUS PROPOSAL ---"
+# --- 2. ATTACK & VETO (Interim Council Veto) ---
+echo "--- PHASE 2: INTERIM COUNCIL VETOES MALICIOUS PROPOSAL ---"
 
 # Carol creates malicious proposal
 echo '{
@@ -88,7 +94,7 @@ echo '{
   ],
   "deposit": "50000000'"$BOND_DENOM"'",
   "title": "Steal Funds",
-  "summary": "Trying to steal while Bob is in charge."
+  "summary": "Trying to steal while the interim council is in charge."
 }' > "$PROPOSAL_DIR/bad_prop_bob.json"
 
 SUBMIT_RES=$($BINARY tx gov submit-proposal --gas 1000000 "$PROPOSAL_DIR/bad_prop_bob.json" --from carol -y --chain-id $CHAIN_ID --keyring-backend test --output json)
@@ -136,8 +142,10 @@ if [ -z "$GROUP_PROP_ID" ] || [ "$GROUP_PROP_ID" == "null" ]; then
 fi
 echo "Group Prop ID: $GROUP_PROP_ID"
 
-# Bob Votes YES (100% of weight)
+# Bob and Poster1 vote YES (2 of 3 seats clears the 0.49 veto threshold)
 $BINARY tx commons vote-proposal $GROUP_PROP_ID yes --from bob -y --chain-id $CHAIN_ID --keyring-backend test
+sleep 3
+$BINARY tx commons vote-proposal $GROUP_PROP_ID yes --from poster1 -y --chain-id $CHAIN_ID --keyring-backend test
 sleep 3
 $BINARY tx commons execute-proposal $GROUP_PROP_ID --gas 2000000 --from bob -y --chain-id $CHAIN_ID --keyring-backend test
 sleep 3
@@ -145,7 +153,7 @@ sleep 3
 # Verify Kill
 STATUS=$($BINARY query gov proposal $BAD_PROP_ID --output json | jq -r '.proposal.status')
 if [ "$STATUS" == "PROPOSAL_STATUS_FAILED" ] || [ "$STATUS" == "PROPOSAL_STATUS_REJECTED" ]; then
-    echo "[ OK ] SUCCESS: Bob successfully vetoed using Veto Policy."
+    echo "[ OK ] SUCCESS: The interim council vetoed using Veto Policy."
 else
     echo "[FAIL] FAILURE: Proposal is still $STATUS"
     exit 1
@@ -153,10 +161,10 @@ fi
 
 # --- 3. RESTORATION: EXPAND GROUP ---
 echo "--- PHASE 3: RESTORING THE REPUBLIC ---"
-echo "Bob (or Gov) proposes to add Alice and Carol back..."
+echo "Bob (or Gov) proposes to restore Alice, Bob and Carol..."
 
-# Bob cannot do this himself because MsgRenewGroup checks "isGov".
-# So we must use a Gov Proposal again.
+# The interim council cannot do this itself (it is not the Commons Council's
+# parent), so we must use a Gov Proposal again.
 
 echo '{
   "messages": [
@@ -170,7 +178,7 @@ echo '{
   ],
   "deposit": "100000000'"$BOND_DENOM"'",
   "title": "Restore Democracy",
-  "summary": "Adding members back to the council.",
+  "summary": "Restoring the original council.",
   "expedited": true
 }' > "$PROPOSAL_DIR/restore_council.json"
 
@@ -194,9 +202,12 @@ sleep 45
 # Verify Final State
 FINAL_MEMBERS=$($BINARY query commons get-council-members "Commons Council" --output json)
 FINAL_COUNT=$(echo $FINAL_MEMBERS | jq '.members | length')
+FINAL_ADDRS=$(echo $FINAL_MEMBERS | jq -r '.members[].address' | sort | tr '\n' ' ')
+RESTORED_ADDRS=$(printf '%s\n' "$ALICE_ADDR" "$BOB_ADDR" "$CAROL_ADDR" | sort | tr '\n' ' ')
 
-if [ "$FINAL_COUNT" == "3" ]; then
-    echo "[ OK ] SUCCESS: The Republic is Restored. 3 Members found."
+if [ "$FINAL_ADDRS" == "$RESTORED_ADDRS" ]; then
+    echo "[ OK ] SUCCESS: The Republic is Restored. Alice, Bob and Carol are back."
 else
     echo "[FAIL] FAILURE: Restoration failed. Count: $FINAL_COUNT"
+    exit 1
 fi

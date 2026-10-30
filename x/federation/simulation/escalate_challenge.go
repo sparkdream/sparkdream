@@ -1,41 +1,67 @@
 package simulation
 
 import (
-	"math/rand"
-
-	"cosmossdk.io/collections"
-	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
 
 	"sparkdream/x/federation/keeper"
 	"sparkdream/x/federation/types"
 )
 
+// SimulateMsgEscalateChallenge delivers MsgEscalateChallenge for CHALLENGED
+// or DISPUTED content not yet escalated, from its verifier or challenger,
+// who escrows the escalation fee; once the arbiters stashed a verdict, only
+// before the escalation deadline. A NoOp when no dispute exists or neither
+// party is a live sim account (the escalation is rare by design: the jury
+// resolution is policy-only and never simulated).
 func SimulateMsgEscalateChallenge(
 	ak types.AuthKeeper,
 	bk types.BankKeeper,
 	k keeper.Keeper,
 	txGen client.TxConfig,
 ) simtypes.Operation {
-	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
-	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		simAccount, _ := simtypes.RandomAcc(r, accs)
-		addr := simAccount.Address.String()
-
-		// Need challenged content to escalate
-		_, contentID, err := getOrCreateChallengedContent(r, ctx, k, addr)
+	return operation(ak, bk, k, txGen, &types.MsgEscalateChallenge{}, func(e *simEnv) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
+		msg := &types.MsgEscalateChallenge{}
+		disputed, err := e.contentsWhere(func(c types.FederatedContent) bool {
+			if !inDispute(c) || e.escalated(c.Id) {
+				return false
+			}
+			rec, ok := e.record(c.Id)
+			if !ok {
+				return false
+			}
+			if rec.PendingVerifierVerdict != types.PendingVerifierVerdict_PENDING_VERIFIER_VERDICT_UNSPECIFIED &&
+				rec.ArbiterEscalationDeadline != 0 && e.now() > rec.ArbiterEscalationDeadline {
+				return false
+			}
+			return true
+		})
 		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgEscalateChallenge{}), "failed to get/create challenged content"), nil, nil
+			return noOpErr(msg, err)
 		}
-
-		// Add to escalation queue
-		deadline := ctx.BlockTime().Unix() + int64(types.DefaultParams().ArbiterEscalationWindow.Seconds())
-		if err := k.ArbiterEscalationQueue.Set(ctx, collections.Join(deadline, contentID)); err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgEscalateChallenge{}), "failed to set escalation"), nil, nil
+		c, ok := pick(e.r, disputed)
+		if !ok {
+			return noOp(msg, "no CHALLENGED or DISPUTED content to escalate")
 		}
-
-		return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgEscalateChallenge{}), "ok (direct keeper call)"), nil, nil
-	}
+		if e.r.Intn(3) != 0 {
+			return noOp(msg, "leaving the dispute to the arbiters")
+		}
+		rec, _ := e.record(c.Id)
+		var parties []string
+		for _, a := range []string{rec.Verifier, rec.Challenger} {
+			if a != "" {
+				parties = append(parties, a)
+			}
+		}
+		addr, ok := pick(e.r, parties)
+		if !ok {
+			return noOp(msg, "dispute has no party")
+		}
+		acc, ok := e.account(addr)
+		if !ok {
+			return noOp(msg, "dispute party is not a live sim account")
+		}
+		msg.Creator, msg.ContentId = addr, c.Id
+		return e.submit(acc, msg, e.params.EscalationFeeAmount)
+	})
 }

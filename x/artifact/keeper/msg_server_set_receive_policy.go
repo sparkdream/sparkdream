@@ -7,6 +7,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	"sparkdream/x/artifact/types"
+	commontypes "sparkdream/x/common/types"
 )
 
 func (k msgServer) SetReceivePolicy(ctx context.Context, msg *types.MsgSetReceivePolicy) (*types.MsgSetReceivePolicyResponse, error) {
@@ -20,7 +21,7 @@ func (k msgServer) SetReceivePolicy(ctx context.Context, msg *types.MsgSetReceiv
 		if err := k.ReceivePolicies.Remove(ctx, msg.Owner); err != nil {
 			return nil, err
 		}
-	} else if err := k.ReceivePolicies.Set(ctx, msg.Owner, uint64(msg.Policy)); err != nil {
+	} else if err := k.ReceivePolicies.Set(ctx, msg.Owner, commontypes.Saturate[uint64](msg.Policy)); err != nil {
 		return nil, err
 	}
 	emit(ctx, types.EventReceivePolicySet,

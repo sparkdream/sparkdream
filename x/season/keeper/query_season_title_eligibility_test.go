@@ -18,7 +18,9 @@ func createNSeasonTitleEligibility(keeper keeper.Keeper, ctx context.Context, n 
 	for i := range items {
 		items[i].TitleSeason = uint64(i)
 		items[i].Season = uint64(i)
-		_ = keeper.SeasonTitleEligibility.Set(ctx, items[i].TitleSeason, items[i])
+		if err := keeper.SeasonTitleEligibility.Set(ctx, items[i].TitleSeason, items[i]); err != nil {
+			panic(err)
+		}
 	}
 	return items
 }

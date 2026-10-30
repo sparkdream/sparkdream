@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/hex"
 	"errors"
+	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	"sparkdream/x/federation/types"
 
@@ -43,6 +44,17 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 		// Rebuild BridgesByPeer index
 		if err := k.BridgesByPeer.Set(ctx, collections.Join(bridge.PeerId, bridge.Address)); err != nil {
 			return err
+		}
+		// Rebuild the BindingsByOperator reverse index. The x/service hooks
+		// (underfunded / refunded / dissolved / retired) find an operator's
+		// bindings only through it: without it a slashed operator's
+		// bindings are never suspended and a dissolved one's never pruned.
+		if peer, err := k.Peers.Get(ctx, bridge.PeerId); err == nil {
+			if serviceType, err := serviceTypeForPeer(peer.Type); err == nil {
+				if err := k.BindingsByOperator.Set(ctx, collections.Join3(serviceType, bridge.Address, bridge.PeerId)); err != nil {
+					return err
+				}
+			}
 		}
 	}
 
@@ -86,8 +98,50 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 		if err := k.IdentityLinks.Set(ctx, key, link); err != nil {
 			return err
 		}
-		// Rebuild reverse index
-		if err := k.IdentityLinksByRemote.Set(ctx, collections.Join(link.PeerId, link.RemoteIdentity), link.LocalAddress); err != nil {
+		// Rebuild the claim index (every link), the reverse index
+		// (VERIFIED links only: an unverified claim reserves nothing) and
+		// the per-attester index of bridge-attested links.
+		if err := k.addIdentityLinkIndexes(ctx, link); err != nil {
+			return err
+		}
+		// Rebuild the per-user link count (max_identity_links_per_user)
+		// and, for UNVERIFIED links, the expiry queue entry that prunes
+		// them and frees their (peer, remote_identity) claim.
+		n, getErr := k.IdentityLinkCount.Get(ctx, link.LocalAddress)
+		if getErr != nil && !errors.Is(getErr, collections.ErrNotFound) {
+			sdk.UnwrapSDKContext(ctx).Logger().Error("InitGenesis: IdentityLinkCount.Get failed", "err", getErr)
+		}
+		if err := k.IdentityLinkCount.Set(ctx, link.LocalAddress, n+1); err != nil {
+			return err
+		}
+		if link.Status == types.IdentityLinkStatus_IDENTITY_LINK_STATUS_UNVERIFIED {
+			if err := k.UnverifiedLinkExp.Set(ctx, collections.Join3(k.linkUnverifiedExpiry(ctx, link), link.LocalAddress, link.PeerId)); err != nil {
+				return err
+			}
+		}
+	}
+
+	// Pending identity challenges, with their expiry / per-peer / count
+	// indexes re-derived.
+	for _, c := range genState.PendingIdentityChallenges {
+		if err := k.PendingIdChallenges.Set(ctx, collections.Join(c.ClaimedAddress, c.ClaimantChainPeerId), c); err != nil {
+			return err
+		}
+	}
+	if err := k.rebuildPendingChallengeIndexes(ctx); err != nil {
+		return err
+	}
+
+	// Peers in mid-removal resume their Phase 9 cleanup where it stopped.
+	for _, e := range genState.PeerRemovalQueue {
+		if err := k.PeerRemovalQueue.Set(ctx, e.PeerId, e.State); err != nil {
+			return err
+		}
+	}
+
+	// Attester revocations still being worked off.
+	for _, e := range genState.AttesterRevocationQueue {
+		if err := k.AttesterRevocations.Set(ctx, collections.Join(e.Operator, e.PeerId)); err != nil {
 			return err
 		}
 	}
@@ -96,6 +150,9 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 	for _, att := range genState.ReputationAttestations {
 		key := collections.Join(att.LocalAddress, att.PeerId)
 		if err := k.RepAttestations.Set(ctx, key, att); err != nil {
+			return err
+		}
+		if err := k.RepAttestationsByPeer.Set(ctx, collections.Join(att.PeerId, att.LocalAddress)); err != nil {
 			return err
 		}
 		if att.ExpiresAt > 0 {
@@ -122,6 +179,16 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 
 	// VerificationRecords
 	for _, vr := range genState.VerificationRecords {
+		if vr.PendingChallengeReport != "" {
+			if err := k.PendingChallengeReports.Set(ctx, vr.ContentId); err != nil {
+				return err
+			}
+		}
+		if vr.SettlementRetryAt > 0 {
+			if err := k.SettlementRetryQueue.Set(ctx, collections.Join(vr.SettlementRetryAt, vr.ContentId)); err != nil {
+				return err
+			}
+		}
 		if err := k.VerificationRecords.Set(ctx, vr.ContentId, vr); err != nil {
 			return err
 		}
@@ -258,6 +325,30 @@ func (k Keeper) ExportGenesis(ctx context.Context) (*types.GenesisState, error) 
 	// Export identity links
 	err = k.IdentityLinks.Walk(ctx, nil, func(key collections.Pair[string, string], value types.IdentityLink) (bool, error) {
 		genesis.IdentityLinks = append(genesis.IdentityLinks, value)
+		return false, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	// Export pending identity challenges and the peer-removal queue
+	err = k.PendingIdChallenges.Walk(ctx, nil, func(_ collections.Pair[string, string], value types.PendingIdentityChallenge) (bool, error) {
+		genesis.PendingIdentityChallenges = append(genesis.PendingIdentityChallenges, value)
+		return false, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	err = k.PeerRemovalQueue.Walk(ctx, nil, func(peerID string, state types.PeerRemovalState) (bool, error) {
+		genesis.PeerRemovalQueue = append(genesis.PeerRemovalQueue, types.PeerRemovalEntry{PeerId: peerID, State: state})
+		return false, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	err = k.AttesterRevocations.Walk(ctx, nil, func(key collections.Pair[string, string]) (bool, error) {
+		genesis.AttesterRevocationQueue = append(genesis.AttesterRevocationQueue, types.AttesterRevocation{Operator: key.K1(), PeerId: key.K2()})
 		return false, nil
 	})
 	if err != nil {

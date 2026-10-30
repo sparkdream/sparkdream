@@ -16,11 +16,12 @@ func (k msgServer) RemovePeer(ctx context.Context, msg *types.MsgRemovePeer) (*t
 		return nil, errorsmod.Wrap(err, "invalid authority address")
 	}
 
-	// 1. Verify authority is governance or Commons Council
-	if !bytes.Equal(k.authority, authorityBytes) {
-		if k.late.commonsKeeper == nil || !k.late.commonsKeeper.IsCouncilAuthorized(ctx, msg.Authority, "commons", "operations") {
-			return nil, errorsmod.Wrap(types.ErrNotAuthorized, "must be governance or Commons Council")
-		}
+	// 1. Verify authority is governance or the Commons Council / Operations
+	//    Committee policy address (spec §6.2). Removal starts the
+	//    irreversible Phase 9 cleanup of the peer's content, links and
+	//    attestations, so a single committee member cannot do it.
+	if !bytes.Equal(k.authority, authorityBytes) && !k.isCouncilPolicy(ctx, msg.Authority) {
+		return nil, errorsmod.Wrap(types.ErrNotAuthorized, "must be governance or the Commons Council / Operations Committee policy address")
 	}
 
 	// 2. Verify peer exists and is not already REMOVED

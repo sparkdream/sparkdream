@@ -53,6 +53,25 @@ var (
 	// EscalatedReviews tracks review rounds handed to the committee, so the
 	// timeout sweep does not have to rescan every open initiative.
 	EscalatedReviewsKey = collections.NewPrefix("escalatedreviews/")
+	// BondedRoleUnbondQueueKey: (unbond_completion_time, role_type, address)
+	// -> exists. UNBONDING roles by maturity, so MatureUnbonds reads the due
+	// prefix instead of walking every bonded role each block.
+	BondedRoleUnbondQueueKey = collections.NewPrefix("bondedRole/unbond_queue/")
+	// ObjectedMigrationsKey: migration id -> exists, for OBJECTED migrations
+	// only (SweepObjectedMigrations).
+	ObjectedMigrationsKey = collections.NewPrefix("migration/objected/")
+
+	// GovActionAppealsByTargetKey: (action_type, action_target, id) -> exists.
+	// Every GovActionAppeal by what it appeals: the one-pending-appeal rule
+	// and the member-action dedup read it instead of scanning every appeal.
+	GovActionAppealsByTargetKey = collections.NewPrefix("govActionAppeal/by_target/")
+	// PendingGovActionAppealsKey: (deadline, id) -> exists. PENDING appeals
+	// only; the EndBlock timeout reads the due prefix.
+	PendingGovActionAppealsKey = collections.NewPrefix("govActionAppeal/pending/")
+	// GovActionAppealByInitiativeKey: jury review id -> appeal id, so a jury
+	// tally finds its appeal in one read.
+	GovActionAppealByInitiativeKey = collections.NewPrefix("govActionAppeal/by_initiative/")
+
 	// RoleRewardDayFundingKey ledgers how much has been skimmed from the
 	// community pool on a given UTC day, so the daily cap survives restarts.
 	RoleRewardDayFundingKey = collections.NewPrefix("rolerewarddayfunding/")
@@ -245,9 +264,16 @@ var (
 	// PendingMigrationByMemberKey: from address -> migration id. At most one
 	// pending migration per member.
 	PendingMigrationByMemberKey = collections.NewPrefix("migration/pending_by_member/")
-	// PendingMigrationByTargetKey: to address -> migration id. Freshness of a
-	// target also means nobody else is migrating into it.
+	// PendingMigrationByTargetKey: to address -> migration id of the ACCEPTED
+	// (or OBJECTED) migration into it. Freshness of a target also means nobody
+	// else has accepted a migration into it.
 	PendingMigrationByTargetKey = collections.NewPrefix("migration/pending_by_target/")
+	// MigrationRequestsByTargetKey: (to address, id) -> exists. REQUESTED
+	// migrations by target, for queries and the invitation gate. Requests do
+	// not reserve the target: anyone can name any address in a request, so a
+	// reservation would let a third party squat a victim's recovery target.
+	// The target is reserved (PendingMigrationByTarget) only once it accepts.
+	MigrationRequestsByTargetKey = collections.NewPrefix("migration/requests_by_target/")
 	// MigrationQueueKey: (executes_at, id) -> exists. The EndBlocker
 	// finalization queue; ACCEPTED migrations only.
 	MigrationQueueKey = collections.NewPrefix("migration/queue/")
@@ -263,4 +289,59 @@ var (
 	// ZkKeyActivationQueueKey: (activates_at_epoch, member) -> exists. Pending
 	// ZK public keys waiting out zk_key_activation_delay.
 	ZkKeyActivationQueueKey = collections.NewPrefix("zk/activation_queue/")
+)
+
+// Economic-integrity indexes (REP-E-09, REP-E-10). All derived state: rebuilt
+// at InitGenesis, never exported.
+var (
+	// StakesByStakerKey: (staker as stored, stake id) -> exists. Lets zeroing,
+	// the circular-stake check and the per-member record cap read one
+	// member's stakes instead of every stake on the chain.
+	StakesByStakerKey = collections.NewPrefix("stake/by_staker/")
+	// PendingInvitationsKey: (created_at, invitation id) -> exists. PENDING
+	// invitations only, ordered by creation, so the expiry sweep reads the
+	// due prefix instead of every invitation ever made.
+	PendingInvitationsKey = collections.NewPrefix("invitation/pending/")
+	// TagCountKey: number of registered tags, so the registry cap is checked
+	// without walking the registry.
+	TagCountKey = collections.NewPrefix("tag/count")
+	// TagCreationWindowKey: canonical member -> (epoch, tags created in it).
+	// The per-member per-epoch tag creation limit.
+	TagCreationWindowKey = collections.NewPrefix("tag/creation_window/")
+	// DecayPass*: the in-flight per-epoch decay pass (REP-E-10). The pass
+	// covers members, then stake records, a capped batch per block, resuming
+	// at the persisted cursor. DecayPassEpoch is present only while a pass
+	// runs; DecayPassStakeCursor is present once the member phase is done.
+	// Not exported: an export taken mid-pass restarts the pass, which is
+	// idempotent for members (LastDecayEpoch) and can at worst decay part of
+	// the stake records for one extra epoch.
+	DecayPassEpochKey        = collections.NewPrefix("econ/decay_pass/epoch")
+	DecayPassMemberCursorKey = collections.NewPrefix("econ/decay_pass/member_cursor")
+	DecayPassStakeCursorKey  = collections.NewPrefix("econ/decay_pass/stake_cursor")
+	// MemberByMaxRepKey: (max tag reputation, integer part; address) for
+	// every member. Maintained by the Member IndexedMap on every write, so
+	// jury selection reads reputable members in descending order instead of
+	// walking every member (REP-E-10).
+	MemberByMaxRepKey = collections.NewPrefix("member/by_max_rep/")
+	// Due queues of the per-block EndBlocker sweeps (REP-E-10): (block height
+	// the item is next due, id). An entry is a hint written whenever the item
+	// enters its live status (IN_REVIEW initiative, ACTIVE challenge, ACTIVE
+	// content challenge); the sweep reads only entries at or below the
+	// current height, a capped batch per block, re-queues an item that is not
+	// due yet at its real deadline and drops entries whose item left the live
+	// status. Rebuilt at InitGenesis through the status-index helpers.
+	InitiativeCompletionDueKey     = collections.NewPrefix("due/initiative_completion/")
+	ChallengeResponseDueKey        = collections.NewPrefix("due/challenge_response/")
+	ContentChallengeResponseDueKey = collections.NewPrefix("due/content_challenge_response/")
+	// SubmittedCheckCursorKey: last SUBMITTED initiative id visited by the
+	// capped completion-threshold check. Not exported: it restarts at 0.
+	SubmittedCheckCursorKey = collections.NewPrefix("due/submitted_check_cursor")
+	// MemberActionRestorationKey: canonical member -> what an OVERTURNED
+	// appeal of the member action needs to undo it (REP-R-14).
+	MemberActionRestorationKey = collections.NewPrefix("memberActionRestoration/value/")
+	// MemberActionRestorationExpiryKey: (filing window close, member) for
+	// restorations with no appeal filed; the EndBlocker drops the record when
+	// the window closes unappealed. Removed when an appeal is filed (the
+	// record then lives until the appeal's terminal outcome).
+	MemberActionRestorationExpiryKey = collections.NewPrefix("memberActionRestoration/expiry/")
 )

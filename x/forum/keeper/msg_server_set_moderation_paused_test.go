@@ -50,7 +50,7 @@ func TestMsgServerSetModerationPaused(t *testing.T) {
 		// First pause
 		params := types.DefaultParams()
 		params.ModerationPaused = true
-		f.keeper.Params.Set(f.ctx, params)
+		require.NoError(t, f.keeper.Params.Set(f.ctx, params))
 
 		msg := &types.MsgSetModerationPaused{
 			Creator: authority,

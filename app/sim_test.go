@@ -28,6 +28,12 @@ import (
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/require"
+
+	blogtypes "sparkdream/x/blog/types"
+	federationtypes "sparkdream/x/federation/types"
+	forumtypes "sparkdream/x/forum/types"
+	reptypes "sparkdream/x/rep/types"
+	seasontypes "sparkdream/x/season/types"
 )
 
 const (
@@ -220,8 +226,8 @@ func TestAppImportExport(t *testing.T) {
 	err = json.Unmarshal(exported.AppState, &genesisState)
 	require.NoError(t, err)
 
-	ctxA := bApp.NewContextLegacy(true, cmtproto.Header{Height: bApp.LastBlockHeight()})
-	ctxB := newApp.NewContextLegacy(true, cmtproto.Header{Height: bApp.LastBlockHeight()})
+	ctxA := bApp.NewContextLegacy(true, cmtproto.Header{Height: bApp.LastBlockHeight(), ChainID: SimAppChainID})
+	ctxB := newApp.NewContextLegacy(true, cmtproto.Header{Height: bApp.LastBlockHeight(), ChainID: SimAppChainID})
 	_, err = newApp.ModuleManager.InitGenesis(ctxB, bApp.AppCodec(), genesisState)
 
 	if err != nil {
@@ -247,6 +253,27 @@ func TestAppImportExport(t *testing.T) {
 			stakingtypes.UnbondingTypeKey, stakingtypes.ValidatorUpdatesKey,
 		},
 		slashingtypes.StoreKey: {slashingtypes.ValidatorMissedBlockBitmapKeyPrefix},
+		// Derived or rolling state that genesis deliberately does not carry
+		// and InitGenesis rebuilds (see each module's spec genesis section).
+		seasontypes.StoreKey: {
+			seasontypes.PruneCursorKey, // rolling prune cursor; pruning restarts from the first key
+		},
+		reptypes.StoreKey: {
+			[]byte("trust_tree/"),             // MiMC trust tree: marked dirty, fully rebuilt in the next EndBlock
+			reptypes.ConvictionQueueKey,       // conviction refresh queue: re-armed as due at import
+			reptypes.ConvictionScheduledAtKey, // (RearmConvictionQueue)
+			reptypes.SubmittedCheckCursorKey,  // rolling SUBMITTED-initiative check cursor
+			[]byte("due/"),                    // lazily drained deadline queues: import enqueues live records only; a stale entry left by an early resolution is dropped
+		},
+		forumtypes.StoreKey: {
+			forumtypes.PostConvictionAccrualCursorKey, // rolling accrual cursor; restarts from stake 0
+		},
+		federationtypes.StoreKey: {
+			[]byte("fed/rate/"), // sliding-window and per-block rate counters restart at import
+		},
+		blogtypes.StoreKey: {
+			[]byte(blogtypes.RateLimitKey), // per-address daily action counters restart at import
+		},
 	}
 
 	storeKeys := bApp.GetStoreKeys()

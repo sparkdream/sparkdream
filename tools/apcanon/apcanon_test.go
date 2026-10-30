@@ -578,8 +578,7 @@ func TestHashStableAndSensitive(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var want [32]byte
-	want = sha256.Sum256(c)
+	want := sha256.Sum256(c)
 	if h1 != want {
 		t.Fatal("Hash is not sha256(Canonicalize)")
 	}

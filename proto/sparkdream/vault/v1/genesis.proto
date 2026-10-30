@@ -19,4 +19,9 @@ message GenesisState {
   ];
   repeated Vault vault_map = 2 [(gogoproto.nullable) = false];
   repeated VaultProposal vault_proposal_map = 3 [(gogoproto.nullable) = false];
+  // Sequence values (last ID handed out). Executed and expired proposals are
+  // pruned after ProposalRetention, so the highest live ID can be below the
+  // sequence; importing without these would hand out used IDs again.
+  uint64 vault_seq = 4;
+  uint64 proposal_seq = 5;
 }

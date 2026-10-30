@@ -60,21 +60,21 @@ func TestMsgServerUnassignInitiative(t *testing.T) {
 		// Setup: create project, assignee, and initiative
 		creator := sdk.AccAddress([]byte("creator"))
 		projectID, _ := k.CreateProject(ctx, creator, "Proj", "Desc", []string{"tag"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical", math.NewInt(10000), math.NewInt(1000), false)
-		k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(10000), math.NewInt(1000))
+		require.NoError(t, k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(10000), math.NewInt(1000)))
 
 		assignee := sdk.AccAddress([]byte("assignee"))
-		k.Member.Set(ctx, assignee.String(), types.Member{
+		require.NoError(t, k.Member.Set(ctx, assignee.String(), types.Member{
 			Address:          assignee.String(),
 			DreamBalance:     PtrInt(math.ZeroInt()),
 			StakedDream:      PtrInt(math.ZeroInt()),
 			LifetimeEarned:   PtrInt(math.ZeroInt()),
 			LifetimeBurned:   PtrInt(math.ZeroInt()),
 			ReputationScores: map[string]string{"tag": "100.0"},
-		})
+		}))
 
 		budget := math.NewInt(100)
 		initID, _ := k.CreateInitiative(ctx, creator, projectID, "Task", "D", []string{"tag"}, types.InitiativeTier_INITIATIVE_TIER_STANDARD, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, budget)
-		k.AssignInitiativeToMember(ctx, initID, assignee)
+		require.NoError(t, k.AssignInitiativeToMember(ctx, initID, assignee))
 
 		// A bystander is neither the assignee nor on the operations
 		// committee, so the authorization check rejects them before the
@@ -101,21 +101,21 @@ func TestMsgServerUnassignInitiative(t *testing.T) {
 		// Setup: create project, assignee member, and initiative
 		creator := sdk.AccAddress([]byte("creator"))
 		projectID, _ := k.CreateProject(ctx, creator, "Proj", "Desc", []string{"tag"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical", math.NewInt(10000), math.NewInt(1000), false)
-		k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(10000), math.NewInt(1000))
+		require.NoError(t, k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(10000), math.NewInt(1000)))
 
 		assignee := sdk.AccAddress([]byte("assignee"))
-		k.Member.Set(ctx, assignee.String(), types.Member{
+		require.NoError(t, k.Member.Set(ctx, assignee.String(), types.Member{
 			Address:          assignee.String(),
 			DreamBalance:     PtrInt(math.ZeroInt()),
 			StakedDream:      PtrInt(math.ZeroInt()),
 			LifetimeEarned:   PtrInt(math.ZeroInt()),
 			LifetimeBurned:   PtrInt(math.ZeroInt()),
 			ReputationScores: map[string]string{"tag": "100.0"},
-		})
+		}))
 
 		budget := math.NewInt(100)
 		initID, _ := k.CreateInitiative(ctx, creator, projectID, "Task", "D", []string{"tag"}, types.InitiativeTier_INITIATIVE_TIER_STANDARD, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, budget)
-		k.AssignInitiativeToMember(ctx, initID, assignee)
+		require.NoError(t, k.AssignInitiativeToMember(ctx, initID, assignee))
 
 		assigneeStr, err := f.addressCodec.BytesToString(assignee)
 		require.NoError(t, err)

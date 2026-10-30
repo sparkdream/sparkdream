@@ -8,6 +8,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	"sparkdream/x/federation/types"
+	servicetypes "sparkdream/x/service/types"
 )
 
 // RegisterBridge orchestrates bridge registration. Operator-signed.
@@ -61,6 +62,13 @@ func (k msgServer) RegisterBridge(ctx context.Context, msg *types.MsgRegisterBri
 			msg.PeerId, peer.Status)
 	}
 
+	// The operator must be an active member, so the self-dealing checks can
+	// see the person behind the bridge (spec §14, operator-verifier role
+	// overlap). The daemon signs through an x/session key.
+	if err := k.requireMemberOperator(ctx, msg.Operator); err != nil {
+		return nil, err
+	}
+
 	params, err := k.Params.Get(ctx)
 	if err != nil {
 		return nil, err
@@ -109,7 +117,22 @@ func (k msgServer) RegisterBridge(ctx context.Context, msg *types.MsgRegisterBri
 
 	// Step 3: check existing service.Operator.
 	existing, exists := sk.GetOperator(ctx, operatorBytes, serviceType)
+	suspended := false
 	if exists {
+		// An operator on its way out (UNBONDING) or terminal cannot open
+		// new bindings. An UNDERFUNDED one may — so a top-up in this same
+		// message can restore it — but the new binding starts suspended,
+		// like its others: AfterOperatorReFunded clears it once the bond
+		// is back above min_bond. Writing it unsuspended let a slashed
+		// operator keep submitting and earning through a fresh binding.
+		switch existing.Status {
+		case servicetypes.OperatorStatus_OPERATOR_STATUS_ACTIVE:
+		case servicetypes.OperatorStatus_OPERATOR_STATUS_UNDERFUNDED:
+			suspended = true
+		default:
+			return nil, errorsmod.Wrapf(types.ErrBindingNotActive,
+				"operator's %s service.Operator is %s", serviceType, existing.Status)
+		}
 		// Controller mismatch is a hard error (Decision 1a). The
 		// operator cannot bridge two peers under different controllers
 		// using the same address.
@@ -141,6 +164,7 @@ func (k msgServer) RegisterBridge(ctx context.Context, msg *types.MsgRegisterBri
 		Protocol:     msg.Protocol,
 		Endpoint:     msg.Endpoint,
 		RegisteredAt: sdkCtx.BlockTime().Unix(),
+		Suspended:    suspended,
 	}
 	if err := k.BridgeBindings.Set(ctx, bridgeKey, binding); err != nil {
 		return nil, err

@@ -1,38 +1,33 @@
 package simulation
 
 import (
-	"math/rand"
-
-	"github.com/cosmos/cosmos-sdk/baseapp"
+	"cosmossdk.io/math"
 	"github.com/cosmos/cosmos-sdk/client"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
 
 	"sparkdream/x/rep/keeper"
 	"sparkdream/x/rep/types"
 )
 
-func SimulateMsgSweepTombstone(
-	ak types.AuthKeeper,
-	bk types.BankKeeper,
-	k keeper.Keeper,
-	txGen client.TxConfig,
-) simtypes.Operation {
-	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
-	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		var found *types.Tombstone
-		_ = k.Tombstones.Walk(ctx, nil, func(_ string, t types.Tombstone) (bool, error) {
-			if _, ok := accountFor(accs, t.Canonical); ok {
-				found = &t
-				return true, nil
+// SimulateMsgSweepTombstone has the canonical address of a tombstone sweep
+// the SPARK left on it. The simulated genesis keeps migrations from
+// finalizing (migration_helpers.go), so no tombstone exists and this is a
+// NoOp unless the genesis carries one.
+func SimulateMsgSweepTombstone(ak types.AuthKeeper, bk types.BankKeeper, k keeper.Keeper, txGen client.TxConfig) simtypes.Operation {
+	label := &types.MsgSweepTombstone{}
+	return operation(ak, bk, k, txGen, label, func(e *simEnv) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
+		var cands []candidate
+		err := e.k.Tombstones.Walk(e.ctx, nil, func(addr string, t types.Tombstone) (bool, error) {
+			if acc, ok := e.account(t.Canonical); ok {
+				cands = append(cands, candidate{acc: acc, msg: &types.MsgSweepTombstone{
+					Signer: t.Canonical, Tombstone: addr,
+				}, spent: math.ZeroInt()})
 			}
 			return false, nil
 		})
-		if found == nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgSweepTombstone{}), "no tombstone owned by a sim account"), nil, nil
+		if err != nil {
+			return noOpErr(label, err)
 		}
-		acc, _ := accountFor(accs, found.Canonical)
-		msg := &types.MsgSweepTombstone{Signer: found.Canonical, Tombstone: found.Address}
-		return deliver(r, app, ctx, msg, acc, ak, bk, txGen)
-	}
+		return e.firstValid(label, cands, 4, "no tombstone (no migration finalizes in the simulation)")
+	})
 }

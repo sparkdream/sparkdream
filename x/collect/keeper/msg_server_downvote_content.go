@@ -46,7 +46,6 @@ func (k msgServer) DownvoteContent(ctx context.Context, msg *types.MsgDownvoteCo
 	}
 
 	// Check ReactionDedup - creator must not have already voted on this target
-	dedupKey := ReactionDedupCompositeKey(msg.Creator, msg.TargetType, msg.TargetId)
 	if !anonymous && k.hasReacted(ctx, msg.Creator, msg.TargetType, msg.TargetId) {
 		return nil, types.ErrAlreadyVoted
 	}
@@ -94,7 +93,7 @@ func (k msgServer) DownvoteContent(ctx context.Context, msg *types.MsgDownvoteCo
 	// Store ReactionDedup key with value 2 (downvote)
 	// Anonymous votes are deduplicated per member by x/shield's nullifier.
 	if !anonymous {
-		if err := k.ReactionDedup.Set(ctx, dedupKey, 2); err != nil {
+		if err := k.setReaction(ctx, msg.Creator, msg.TargetType, msg.TargetId, 2); err != nil {
 			return nil, errorsmod.Wrap(err, "failed to set reaction dedup")
 		}
 	}

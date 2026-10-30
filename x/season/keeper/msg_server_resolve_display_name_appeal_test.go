@@ -83,7 +83,7 @@ func TestMsgServerResolveDisplayNameAppeal(t *testing.T) {
 			AppealChallengeId: "dn_appeal:test:0",
 			AppealSucceeded:   true,
 		}
-		k.DisplayNameModeration.Set(ctx, targetStr, moderation)
+		require.NoError(t, k.SetDisplayNameModeration(ctx, targetStr, moderation))
 
 		_, err := ms.ResolveDisplayNameAppeal(ctx, &types.MsgResolveDisplayNameAppeal{
 			Authority:       authority,
@@ -113,7 +113,7 @@ func TestMsgServerResolveDisplayNameAppeal(t *testing.T) {
 			Active:       true,
 			// AppealChallengeId is empty - no appeal filed
 		}
-		k.DisplayNameModeration.Set(ctx, targetStr, moderation)
+		require.NoError(t, k.SetDisplayNameModeration(ctx, targetStr, moderation))
 
 		_, err := ms.ResolveDisplayNameAppeal(ctx, &types.MsgResolveDisplayNameAppeal{
 			Authority:       authority,
@@ -152,7 +152,7 @@ func TestMsgServerResolveDisplayNameAppeal(t *testing.T) {
 			AppealChallengeId: appealChallengeID,
 			AppealedAt:        blockHeight,
 		}
-		k.DisplayNameModeration.Set(ctx, targetStr, moderation)
+		require.NoError(t, k.SetDisplayNameModeration(ctx, targetStr, moderation))
 
 		// Set up stake records
 		reportStake := types.DisplayNameReportStake{
@@ -160,14 +160,14 @@ func TestMsgServerResolveDisplayNameAppeal(t *testing.T) {
 			Reporter:    reporterStr,
 			Amount:      math.NewInt(50),
 		}
-		k.DisplayNameReportStake.Set(ctx, reportChallengeID, reportStake)
+		require.NoError(t, k.DisplayNameReportStake.Set(ctx, reportChallengeID, reportStake))
 
 		appealStake := types.DisplayNameAppealStake{
 			ChallengeId: appealChallengeID,
 			Appellant:   targetStr,
 			Amount:      math.NewInt(100),
 		}
-		k.DisplayNameAppealStake.Set(ctx, appealChallengeID, appealStake)
+		require.NoError(t, k.DisplayNameAppealStake.Set(ctx, appealChallengeID, appealStake))
 
 		// Resolve: appeal succeeds
 		_, err := ms.ResolveDisplayNameAppeal(ctx, &types.MsgResolveDisplayNameAppeal{
@@ -224,7 +224,7 @@ func TestMsgServerResolveDisplayNameAppeal(t *testing.T) {
 			AppealChallengeId: appealChallengeID,
 			AppealedAt:        blockHeight,
 		}
-		k.DisplayNameModeration.Set(ctx, targetStr, moderation)
+		require.NoError(t, k.SetDisplayNameModeration(ctx, targetStr, moderation))
 
 		// Set up stake records
 		reportStake := types.DisplayNameReportStake{
@@ -232,14 +232,14 @@ func TestMsgServerResolveDisplayNameAppeal(t *testing.T) {
 			Reporter:    reporterStr,
 			Amount:      math.NewInt(50),
 		}
-		k.DisplayNameReportStake.Set(ctx, reportChallengeID, reportStake)
+		require.NoError(t, k.DisplayNameReportStake.Set(ctx, reportChallengeID, reportStake))
 
 		appealStake := types.DisplayNameAppealStake{
 			ChallengeId: appealChallengeID,
 			Appellant:   targetStr,
 			Amount:      math.NewInt(100),
 		}
-		k.DisplayNameAppealStake.Set(ctx, appealChallengeID, appealStake)
+		require.NoError(t, k.DisplayNameAppealStake.Set(ctx, appealChallengeID, appealStake))
 
 		// Resolve: appeal fails
 		_, err := ms.ResolveDisplayNameAppeal(ctx, &types.MsgResolveDisplayNameAppeal{
@@ -296,7 +296,7 @@ func TestMsgServerResolveDisplayNameAppeal(t *testing.T) {
 			AppealChallengeId: appealChallengeID,
 			AppealedAt:        blockHeight,
 		}
-		k.DisplayNameModeration.Set(ctx, targetStr, moderation)
+		require.NoError(t, k.SetDisplayNameModeration(ctx, targetStr, moderation))
 
 		// Resolve the appeal first
 		_, err := ms.ResolveDisplayNameAppeal(ctx, &types.MsgResolveDisplayNameAppeal{
@@ -350,7 +350,7 @@ func TestMsgServerResolveDisplayNameAppeal(t *testing.T) {
 			Active:            true,
 			AppealChallengeId: appealChallengeID,
 		}
-		k.DisplayNameModeration.Set(ctx, targetStr, moderation)
+		require.NoError(t, k.SetDisplayNameModeration(ctx, targetStr, moderation))
 
 		// Set up member profile
 		SetupMemberProfile(t, k, ctx, TestAddrTarget, "", "")

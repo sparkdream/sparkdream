@@ -37,9 +37,9 @@ func newGuardKeeper() *guardKeeper {
 	}
 }
 
-func (g *guardKeeper) PrecheckExec(_ sdk.Context, _ *shieldtypes.MsgShieldedExec) error {
+func (g *guardKeeper) PrecheckExec(_ sdk.Context, _ *shieldtypes.MsgShieldedExec) (bool, error) {
 	g.calls++
-	return g.result
+	return false, g.result
 }
 
 func (g *guardKeeper) GetVerificationKeyVal(_ context.Context, circuitID string) (shieldtypes.VerificationKey, bool) {
@@ -62,7 +62,7 @@ func (g *guardKeeper) GetCurrentEpoch(_ context.Context) uint64 { return g.epoch
 // varies the nullifier so distinct execs miss the cache.
 func guardedExec(seed byte) *shieldtypes.MsgShieldedExec {
 	msg := validShieldedExec()
-	msg.Nullifier[0] = seed
+	msg.Nullifier[31] = seed // low byte: any seed stays a canonical field element
 	msg.InnerMessage = &any.Any{TypeUrl: "/sparkdream.blog.v1.MsgCreatePost", Value: []byte{0x0a, 0x01, 'x'}}
 	return msg
 }

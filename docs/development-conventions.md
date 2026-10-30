@@ -95,6 +95,16 @@ Examples of the value-copy fix in the codebase:
 - [x/federation/module/depinject.go](../x/federation/module/depinject.go) — same pattern.
 - [x/identity/module/depinject.go](../x/identity/module/depinject.go) — keeper held by pointer specifically to dodge this bug for the `bankKeeper` field.
 
+**Rule (guarded):** on a keeper whose `AppModule` holds it by value, every
+`Set*` setter must write through the shared `k.late` pointer struct, never a
+direct field: an optional depinject input only helps when depinject actually
+supplies the dependency, and a setter called from `app.go` alone otherwise
+reaches only `app.go`'s copy. `app/late_wiring_guard_test.go` fails on a direct
+assignment. This caught x/blog's commons keeper, x/forum's season keeper,
+x/season's blog/forum/collect/artifact keepers and x/futarchy's hooks (market
+resolution in the EndBlocker never called `AfterMarketResolved`), all
+silently nil in the message servers or blockers.
+
 **Identity is the canonical example**: it wires several SDK keepers as `*Keeper`-by-pointer for the same reason — see [x/identity/module/module.go](../x/identity/module/module.go).
 
 ---
@@ -200,6 +210,16 @@ nobody is asking for and carries the gap forever.
 
 `make proto-gen` runs `ignite generate proto-go`.
 
+## Proto Map Fields Must Use the Stable Marshaler
+
+gogoproto encodes a `map<...>` field by ranging over the Go map, so the same
+state serializes to different bytes on different nodes and the app hash
+splits (found by `TestAppStateDeterminism`: two runs of one seed stored
+`Member.reputation_scores` in different orders). Every proto file with a map
+field sets `option (gogoproto.stable_marshaler_all) = true;` (with
+`import "gogoproto/gogo.proto";`), which sorts map keys when encoding.
+`x/common/types/proto_maps_test.go` fails on a map-bearing file without it.
+
 ## REST Gateway Routes
 
 The LCD surface is rebuilt at boot by [app/gateway_fix.go](../app/gateway_fix.go),
@@ -249,6 +269,53 @@ installed at all.
   was one `gateway_fix: handler panic` line per request on the node's stderr.
   Assert the marshaler **after** registration, never on a freshly built mux — a
   fresh-mux check passes while the live node is fully broken.
+
+## Linting and Error Handling
+
+`make lint` runs golangci-lint with [.golangci.yml](../.golangci.yml); the
+`lint` GitHub workflow runs it on every push and pull request. Besides the
+defaults it enables errorlint, misspell (no locale: British spellings such as
+`CANCELLED` are deliberate), nolintlint, gosec G115 (integer conversions that
+can overflow) and forbidigo, which bans `time.Now` and `math/rand` /
+`crypto/rand` in on-chain module code (`x/`, `app/`); validators would
+disagree. Generated `*.pb.go` files are excluded.
+
+- **Never discard a store error.** A failed `Set`/`Remove`/`Walk` must not
+  vanish behind `_ =` or a bare call. In a msg handler or a keeper function
+  that returns an error, return it. In BeginBlock/EndBlock paths and
+  cross-module callbacks, where a returned error would halt the chain or
+  change the caller's contract, log it through the context logger
+  (`sdk.UnwrapSDKContext(ctx).Logger().Error(...)`).
+- **`IndexedMap.Remove` fails on a missing key** (it reads the value to drop
+  its index entries); a plain `Map.Remove` does not. To "make sure it is
+  gone", use `commontypes.RemoveIndexed(ctx, m, key)` from
+  [x/common/types/collections.go](../x/common/types/collections.go), which
+  treats a missing record as removed and returns every other error.
+- **Compare errors with `errors.Is`.** collections wraps `ErrNotFound`
+  (`"%w: key ..."`), so `err == collections.ErrNotFound` is never true.
+- **Tests check setup writes** with `require.NoError(t, ...)`; a silently
+  failed fixture makes a test pass or fail for the wrong reason.
+- **Simulations deliver real transactions** (`GenAndDeliverTxWithRandFees`)
+  wherever a sim account can satisfy the handler, prechecking every handler
+  precondition; a delivered tx the handler rejects fails the whole
+  simulation. Do not write collections directly to fake a handler's effect
+  (that produced state the chain never creates), and never make a sim account
+  a group or committee policy: x/rep and x/vault correctly refuse such
+  accounts as persons. Ops only a policy address can sign return a `NoOpMsg`
+  explaining why.
+- **Integer conversions (G115).** Use the helpers in
+  [x/common/types/intconv.go](../x/common/types/intconv.go):
+  `commontypes.Checked[T](v)` returns an error for untrusted input that may
+  not fit (a msg field, say), and `commontypes.Saturate[T](v)` clamps
+  values bounded by construction (block heights, epoch counts, lengths). A
+  negative difference clamps to 0 instead of wrapping into a huge number
+  that would pass a cooldown check. Compare a length against a param in the
+  wider type: `len(x) > int(params.Max)`. A deliberate bit reinterpretation
+  (a hash read as a PRNG seed) keeps its conversion with
+  `//nolint:gosec // seed bits; wraparound is intended`. Do not import
+  x/common/types from `tools/crypto` or `tools/tle` (built for wasm).
+- **`//nolint` needs a linter and a reason**: `//nolint:gosec // bounded by
+  max_x`, never a bare `//nolint`.
 
 ## Writing Regression Guards
 

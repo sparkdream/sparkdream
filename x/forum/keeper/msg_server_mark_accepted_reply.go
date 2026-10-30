@@ -19,6 +19,9 @@ func (k msgServer) MarkAcceptedReply(ctx context.Context, msg *types.MsgMarkAcce
 	if _, err := k.addressCodec.StringToBytes(msg.Creator); err != nil {
 		return nil, errorsmod.Wrap(err, "invalid creator address")
 	}
+	if err := k.requireForumNotPaused(ctx); err != nil {
+		return nil, err
+	}
 
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	now := sdkCtx.BlockTime().Unix()
@@ -168,7 +171,10 @@ func (k msgServer) proposeAcceptedReply(ctx context.Context, msg *types.MsgMarkA
 	// Threads carrying a members-restricted reserved tag are governance space;
 	// sentinels do not curate them.
 	for _, tag := range thread.Tags {
-		reserved, _ := k.repKeeper.IsReservedTag(ctx, tag)
+		reserved, getErr := k.repKeeper.IsReservedTag(ctx, tag)
+		if getErr != nil {
+			return nil, getErr
+		}
 		if !reserved {
 			continue
 		}
@@ -191,6 +197,11 @@ func (k msgServer) proposeAcceptedReply(ctx context.Context, msg *types.MsgMarkA
 	}
 	if reply.Status == types.PostStatus_POST_STATUS_DELETED || reply.Status == types.PostStatus_POST_STATUS_HIDDEN {
 		return nil, errorsmod.Wrapf(types.ErrPostStatus, "cannot accept reply with status %s", reply.Status.String())
+	}
+	// A sentinel curating their own reply would mint themselves the curation
+	// reward and an upheld accuracy tick.
+	if k.sameMember(ctx, reply.Author, msg.Creator) {
+		return nil, errorsmod.Wrap(types.ErrCannotCurateOwnContent, "cannot propose your own reply")
 	}
 
 	// Get or create thread metadata.
@@ -261,7 +272,9 @@ func (k msgServer) proposeAcceptedReply(ctx context.Context, msg *types.MsgMarkA
 	if err := k.SentinelActivity.Set(ctx, msg.Creator, local); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to update sentinel activity")
 	}
-	_ = k.repKeeper.RecordActivity(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, msg.Creator)
+	if err := k.repKeeper.RecordActivity(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, msg.Creator); err != nil {
+		return nil, err
+	}
 
 	sdkCtx.EventManager().EmitEvent(
 		sdk.NewEvent(

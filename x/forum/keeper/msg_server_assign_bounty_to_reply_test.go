@@ -21,13 +21,13 @@ func TestAssignBountyToReply(t *testing.T) {
 	// Ensure reply has correct RootId (should be thread's PostId)
 	replyPost, _ := f.keeper.Post.Get(f.ctx, reply.PostId)
 	replyPost.RootId = thread.PostId
-	_ = f.keeper.Post.Set(f.ctx, reply.PostId, replyPost)
+	require.NoError(t, f.keeper.Post.Set(f.ctx, reply.PostId, replyPost))
 
 	// Reply authored by the bounty creator (for the self-award guard)
 	selfReply := f.createTestPost(t, testCreator, thread.PostId, cat.CategoryId)
 	selfReplyPost, _ := f.keeper.Post.Get(f.ctx, selfReply.PostId)
 	selfReplyPost.RootId = thread.PostId
-	_ = f.keeper.Post.Set(f.ctx, selfReply.PostId, selfReplyPost)
+	require.NoError(t, f.keeper.Post.Set(f.ctx, selfReply.PostId, selfReplyPost))
 
 	// Create an active bounty
 	bounty := f.createTestBounty(t, testCreator, thread.PostId, "100000000")
@@ -124,7 +124,7 @@ func TestAssignBountyToReply(t *testing.T) {
 			b.Status = types.BountyStatus_BOUNTY_STATUS_ACTIVE
 			b.Awards = nil
 			b.ExpiresAt = f.sdkCtx().BlockTime().Unix() + 86400*7
-			_ = f.keeper.Bounty.Set(f.ctx, bounty.Id, b)
+			require.NoError(t, f.keeper.Bounty.Set(f.ctx, bounty.Id, b))
 
 			if tt.setup != nil {
 				tt.setup()
@@ -171,7 +171,7 @@ func TestAssignBountyTransfer(t *testing.T) {
 	// Ensure reply has correct RootId
 	replyPost, _ := f.keeper.Post.Get(f.ctx, reply.PostId)
 	replyPost.RootId = thread.PostId
-	_ = f.keeper.Post.Set(f.ctx, reply.PostId, replyPost)
+	require.NoError(t, f.keeper.Post.Set(f.ctx, reply.PostId, replyPost))
 
 	// Create an active bounty
 	bounty := f.createTestBounty(t, testCreator, thread.PostId, "100000000")
@@ -218,13 +218,13 @@ func TestAssignBountyExpired(t *testing.T) {
 	// Ensure reply has correct RootId
 	replyPost, _ := f.keeper.Post.Get(f.ctx, reply.PostId)
 	replyPost.RootId = thread.PostId
-	_ = f.keeper.Post.Set(f.ctx, reply.PostId, replyPost)
+	require.NoError(t, f.keeper.Post.Set(f.ctx, reply.PostId, replyPost))
 
 	// Create an expired bounty
 	bounty := f.createTestBounty(t, testCreator, thread.PostId, "100000000")
 	b, _ := f.keeper.Bounty.Get(f.ctx, bounty.Id)
 	b.ExpiresAt = f.sdkCtx().BlockTime().Unix() - 1 // Expired
-	_ = f.keeper.Bounty.Set(f.ctx, bounty.Id, b)
+	require.NoError(t, f.keeper.Bounty.Set(f.ctx, bounty.Id, b))
 
 	// Try to assign
 	_, err := f.msgServer.AssignBountyToReply(f.ctx, &types.MsgAssignBountyToReply{

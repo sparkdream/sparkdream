@@ -58,7 +58,7 @@ func TestIsEpochEnd_ZeroEpochBlocks(t *testing.T) {
 	// Set EpochBlocks to 0
 	params, _ := k.Params.Get(ctx)
 	params.EpochBlocks = 0
-	k.Params.Set(ctx, params)
+	require.NoError(t, k.Params.Set(ctx, params))
 
 	// Should return false without error
 	isEnd, err := k.IsEpochEnd(ctx)
@@ -74,14 +74,14 @@ func TestUpdateInitiativeConviction(t *testing.T) {
 
 	// Create member with enough reputation for EXPERT tier (min 100)
 	member := sdk.AccAddress([]byte("member"))
-	k.Member.Set(ctx, member.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, member.String(), types.Member{
 		Address:          member.String(),
 		DreamBalance:     PtrInt(math.ZeroInt()),
 		StakedDream:      PtrInt(math.ZeroInt()),
 		LifetimeEarned:   PtrInt(math.ZeroInt()),
 		LifetimeBurned:   PtrInt(math.ZeroInt()),
 		ReputationScores: map[string]string{"technical": "150.0"},
-	})
+	}))
 
 	// Create project
 	projectID, _ := k.CreateProject(ctx, member, "Test Project", "Description", []string{"tag1"},
@@ -91,7 +91,7 @@ func TestUpdateInitiativeConviction(t *testing.T) {
 	project, _ := k.GetProject(ctx, projectID)
 	project.Status = types.ProjectStatus_PROJECT_STATUS_ACTIVE
 	project.ApprovedBudget = PtrInt(math.NewInt(10000))
-	k.UpdateProject(ctx, project)
+	require.NoError(t, k.UpdateProject(ctx, project))
 
 	// Create initiative (using EXPERT tier which allows up to 2000 DREAM)
 	initiativeID, err := k.CreateInitiative(ctx, member, projectID, "Test", "Test", []string{"tag1"},
@@ -117,14 +117,14 @@ func TestTransitionToChallengePeriod(t *testing.T) {
 
 	// Create member with enough reputation for EXPERT tier (min 100)
 	member := sdk.AccAddress([]byte("member"))
-	k.Member.Set(ctx, member.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, member.String(), types.Member{
 		Address:          member.String(),
 		DreamBalance:     PtrInt(math.ZeroInt()),
 		StakedDream:      PtrInt(math.ZeroInt()),
 		LifetimeEarned:   PtrInt(math.ZeroInt()),
 		LifetimeBurned:   PtrInt(math.ZeroInt()),
 		ReputationScores: map[string]string{"technical": "150.0"},
-	})
+	}))
 
 	// Create project
 	projectID, _ := k.CreateProject(ctx, member, "Test Project", "Description", []string{"tag1"},
@@ -134,7 +134,7 @@ func TestTransitionToChallengePeriod(t *testing.T) {
 	project, _ := k.GetProject(ctx, projectID)
 	project.Status = types.ProjectStatus_PROJECT_STATUS_ACTIVE
 	project.ApprovedBudget = PtrInt(math.NewInt(10000))
-	k.UpdateProject(ctx, project)
+	require.NoError(t, k.UpdateProject(ctx, project))
 
 	// Create initiative (using EXPERT tier which allows up to 2000 DREAM)
 	initiativeID, err := k.CreateInitiative(ctx, member, projectID, "Test", "Test", []string{"tag1"},
@@ -192,14 +192,14 @@ func TestApplyDecay(t *testing.T) {
 	members := []string{"member1", "member2", "member3"}
 	for _, name := range members {
 		addr := sdk.AccAddress([]byte(name))
-		k.Member.Set(ctx, addr.String(), types.Member{
+		require.NoError(t, k.Member.Set(ctx, addr.String(), types.Member{
 			Address:        addr.String(),
 			DreamBalance:   PtrInt(math.NewInt(1000)),
 			StakedDream:    PtrInt(math.NewInt(0)),
 			LifetimeEarned: PtrInt(math.ZeroInt()),
 			LifetimeBurned: PtrInt(math.ZeroInt()),
 			LastDecayEpoch: 30,
-		})
+		}))
 	}
 
 	// Move to epoch 31 (past grace period, 1 epoch of decay)
@@ -260,14 +260,14 @@ func TestApplyDecay_MixedStakingLevels(t *testing.T) {
 
 	for _, tc := range testCases {
 		addr := sdk.AccAddress([]byte(tc.name))
-		k.Member.Set(ctx, addr.String(), types.Member{
+		require.NoError(t, k.Member.Set(ctx, addr.String(), types.Member{
 			Address:        addr.String(),
 			DreamBalance:   PtrInt(tc.totalBalance),
 			StakedDream:    PtrInt(tc.stakedBalance),
 			LifetimeEarned: PtrInt(math.ZeroInt()),
 			LifetimeBurned: PtrInt(math.ZeroInt()),
 			LastDecayEpoch: 30,
-		})
+		}))
 	}
 
 	// Move to epoch 31 (past grace period, 1 epoch of decay)
@@ -350,7 +350,7 @@ func TestUpdateAllTrustLevels(t *testing.T) {
 	members := []string{"member1", "member2"}
 	for _, name := range members {
 		addr := sdk.AccAddress([]byte(name))
-		k.Member.Set(ctx, addr.String(), types.Member{
+		require.NoError(t, k.Member.Set(ctx, addr.String(), types.Member{
 			Address:          addr.String(),
 			DreamBalance:     PtrInt(math.ZeroInt()),
 			StakedDream:      PtrInt(math.ZeroInt()),
@@ -358,7 +358,7 @@ func TestUpdateAllTrustLevels(t *testing.T) {
 			LifetimeBurned:   PtrInt(math.ZeroInt()),
 			ReputationScores: map[string]string{"technical": "50.0"},
 			TrustLevel:       types.TrustLevel_TRUST_LEVEL_TRUSTED,
-		})
+		}))
 	}
 
 	// Update all trust levels
@@ -418,18 +418,18 @@ func TestTransitionToChallengePeriod_PeriodCalculation(t *testing.T) {
 	params.DefaultReviewPeriodEpochs = 2
 	params.DefaultChallengePeriodEpochs = 3
 	params.EpochBlocks = 100
-	k.Params.Set(ctx, params)
+	require.NoError(t, k.Params.Set(ctx, params))
 
 	// Create member with enough reputation for EXPERT tier (min 100)
 	member := sdk.AccAddress([]byte("member"))
-	k.Member.Set(ctx, member.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, member.String(), types.Member{
 		Address:          member.String(),
 		DreamBalance:     PtrInt(math.ZeroInt()),
 		StakedDream:      PtrInt(math.ZeroInt()),
 		LifetimeEarned:   PtrInt(math.ZeroInt()),
 		LifetimeBurned:   PtrInt(math.ZeroInt()),
 		ReputationScores: map[string]string{"technical": "150.0"},
-	})
+	}))
 
 	// Create project
 	projectID, _ := k.CreateProject(ctx, member, "Test", "Test", []string{"tag"},
@@ -439,7 +439,7 @@ func TestTransitionToChallengePeriod_PeriodCalculation(t *testing.T) {
 	project, _ := k.GetProject(ctx, projectID)
 	project.Status = types.ProjectStatus_PROJECT_STATUS_ACTIVE
 	project.ApprovedBudget = PtrInt(math.NewInt(10000))
-	k.UpdateProject(ctx, project)
+	require.NoError(t, k.UpdateProject(ctx, project))
 
 	// Create initiative at specific block height (using EXPERT tier which allows up to 2000 DREAM)
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
@@ -454,7 +454,7 @@ func TestTransitionToChallengePeriod_PeriodCalculation(t *testing.T) {
 	// Update status to SUBMITTED
 	initiative, _ := k.GetInitiative(ctx, initiativeID)
 	initiative.Status = types.InitiativeStatus_INITIATIVE_STATUS_SUBMITTED
-	k.UpdateInitiative(ctx, initiative)
+	require.NoError(t, k.UpdateInitiative(ctx, initiative))
 
 	// Transition
 	err = k.TransitionToChallengePeriod(ctx, initiativeID)
@@ -483,18 +483,18 @@ func TestTransitionToChallengePeriod_SelfAssignedExtendedWindow(t *testing.T) {
 	params.DefaultReviewPeriodEpochs = 2
 	params.DefaultChallengePeriodEpochs = 3
 	params.EpochBlocks = 100
-	k.Params.Set(ctx, params)
+	require.NoError(t, k.Params.Set(ctx, params))
 
 	// Create member with enough reputation for EXPERT tier (min 100)
 	member := sdk.AccAddress([]byte("member"))
-	k.Member.Set(ctx, member.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, member.String(), types.Member{
 		Address:          member.String(),
 		DreamBalance:     PtrInt(math.ZeroInt()),
 		StakedDream:      PtrInt(math.ZeroInt()),
 		LifetimeEarned:   PtrInt(math.ZeroInt()),
 		LifetimeBurned:   PtrInt(math.ZeroInt()),
 		ReputationScores: map[string]string{"technical": "150.0"},
-	})
+	}))
 
 	// Create and approve project owned by the same member
 	projectID, _ := k.CreateProject(ctx, member, "Test", "Test", []string{"tag"},
@@ -502,7 +502,7 @@ func TestTransitionToChallengePeriod_SelfAssignedExtendedWindow(t *testing.T) {
 	project, _ := k.GetProject(ctx, projectID)
 	project.Status = types.ProjectStatus_PROJECT_STATUS_ACTIVE
 	project.ApprovedBudget = PtrInt(math.NewInt(10000))
-	k.UpdateProject(ctx, project)
+	require.NoError(t, k.UpdateProject(ctx, project))
 
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	sdkCtx = sdkCtx.WithBlockHeight(1000)
@@ -517,7 +517,7 @@ func TestTransitionToChallengePeriod_SelfAssignedExtendedWindow(t *testing.T) {
 	initiative, _ := k.GetInitiative(ctx, initiativeID)
 	initiative.Assignee = member.String()
 	initiative.Status = types.InitiativeStatus_INITIATIVE_STATUS_SUBMITTED
-	k.UpdateInitiative(ctx, initiative)
+	require.NoError(t, k.UpdateInitiative(ctx, initiative))
 
 	err = k.TransitionToChallengePeriod(ctx, initiativeID)
 	require.NoError(t, err)
@@ -556,7 +556,7 @@ func TestApplyDecay_PreservesOtherFields(t *testing.T) {
 		LastTipEpoch:      0,
 		JoinedAt:          0, // Joined very early (epoch 0)
 	}
-	k.Member.Set(ctx, addr.String(), originalMember)
+	require.NoError(t, k.Member.Set(ctx, addr.String(), originalMember))
 
 	// Move to epoch 31 (past grace period, 1 epoch of decay)
 	params, _ := k.Params.Get(ctx)

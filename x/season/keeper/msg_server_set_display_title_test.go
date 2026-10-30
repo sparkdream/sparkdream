@@ -81,7 +81,7 @@ func TestMsgServerSetDisplayTitle(t *testing.T) {
 			Name:        "Locked Title",
 			Description: "A title that is locked",
 		}
-		k.Title.Set(ctx, "locked_title", title)
+		require.NoError(t, k.Title.Set(ctx, "locked_title", title))
 
 		_, err := ms.SetDisplayTitle(ctx, &types.MsgSetDisplayTitle{
 			Creator: creatorStr,
@@ -109,12 +109,12 @@ func TestMsgServerSetDisplayTitle(t *testing.T) {
 			Name:        "Test Champion",
 			Description: "A title for testing",
 		}
-		k.Title.Set(ctx, "test_title", title)
+		require.NoError(t, k.Title.Set(ctx, "test_title", title))
 
 		// Unlock the title for the user by adding to profile.UnlockedTitles
 		profile, _ := k.MemberProfile.Get(ctx, creatorStr)
 		profile.UnlockedTitles = []string{"test_title"}
-		k.MemberProfile.Set(ctx, creatorStr, profile)
+		require.NoError(t, k.MemberProfile.Set(ctx, creatorStr, profile))
 
 		_, err := ms.SetDisplayTitle(ctx, &types.MsgSetDisplayTitle{
 			Creator: creatorStr,
@@ -142,7 +142,7 @@ func TestMsgServerSetDisplayTitle(t *testing.T) {
 		// Set a title first
 		profile, _ := k.MemberProfile.Get(ctx, creatorStr)
 		profile.DisplayTitle = "some_title"
-		k.MemberProfile.Set(ctx, creatorStr, profile)
+		require.NoError(t, k.MemberProfile.Set(ctx, creatorStr, profile))
 
 		// Clear the title
 		_, err := ms.SetDisplayTitle(ctx, &types.MsgSetDisplayTitle{
@@ -171,13 +171,13 @@ func TestMsgServerSetDisplayTitle(t *testing.T) {
 		// Create two titles
 		title1 := types.Title{TitleId: "title_a", Name: "Title A"}
 		title2 := types.Title{TitleId: "title_b", Name: "Title B"}
-		k.Title.Set(ctx, "title_a", title1)
-		k.Title.Set(ctx, "title_b", title2)
+		require.NoError(t, k.Title.Set(ctx, "title_a", title1))
+		require.NoError(t, k.Title.Set(ctx, "title_b", title2))
 
 		// Unlock both titles via profile
 		profile, _ := k.MemberProfile.Get(ctx, creatorStr)
 		profile.UnlockedTitles = []string{"title_a", "title_b"}
-		k.MemberProfile.Set(ctx, creatorStr, profile)
+		require.NoError(t, k.MemberProfile.Set(ctx, creatorStr, profile))
 
 		// Set first title
 		_, err := ms.SetDisplayTitle(ctx, &types.MsgSetDisplayTitle{

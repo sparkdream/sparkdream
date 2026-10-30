@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"sparkdream/x/collect/types"
+	commontypes "sparkdream/x/common/types"
 
 	errorsmod "cosmossdk.io/errors"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -35,17 +36,17 @@ func (k msgServer) UnpinCollection(ctx context.Context, msg *types.MsgUnpinColle
 	}
 
 	creatorAddr, _ := sdk.AccAddressFromBech32(msg.Creator)
-	if k.repKeeper == nil {
+	if k.late.repKeeper == nil {
 		return nil, errorsmod.Wrap(types.ErrPinTrustLevelTooLow, "reputation module not available")
 	}
-	if !k.repKeeper.IsMember(ctx, creatorAddr) {
+	if !k.late.repKeeper.IsActiveMember(ctx, creatorAddr) {
 		return nil, errorsmod.Wrap(types.ErrPinTrustLevelTooLow, "not a member")
 	}
-	tl, err := k.repKeeper.GetTrustLevel(ctx, creatorAddr)
+	tl, err := k.late.repKeeper.GetTrustLevel(ctx, creatorAddr)
 	if err != nil {
 		return nil, errorsmod.Wrap(types.ErrPinTrustLevelTooLow, "cannot determine trust level")
 	}
-	if uint32(tl) < params.PinMinTrustLevel {
+	if commontypes.Saturate[uint32](tl) < params.PinMinTrustLevel {
 		return nil, errorsmod.Wrap(types.ErrPinTrustLevelTooLow, "does not meet pin trust level requirement")
 	}
 

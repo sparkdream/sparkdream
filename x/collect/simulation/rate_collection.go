@@ -1,64 +1,94 @@
 package simulation
 
 import (
-	"math/rand"
-
-	"github.com/cosmos/cosmos-sdk/baseapp"
+	"cosmossdk.io/collections"
+	"cosmossdk.io/math"
 	"github.com/cosmos/cosmos-sdk/client"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
+
+	commontypes "sparkdream/x/common/types"
+	reptypes "sparkdream/x/rep/types"
 
 	"sparkdream/x/collect/keeper"
 	"sparkdream/x/collect/types"
 )
 
+// SimulateMsgRateCollection delivers MsgRateCollection from a
+// COLLECT_CURATOR bonded-role holder (bonding one first through x/rep's
+// MsgBondRole when no sim account holds the role) at min_curator_trust_level
+// and under its daily review cap, on a public ACTIVE feedback-enabled
+// unexpired collection it neither owns nor collaborates on, has not already
+// reviewed, and that is below max_reviews_per_collection active reviews.
 func SimulateMsgRateCollection(
 	ak types.AuthKeeper,
 	bk types.BankKeeper,
 	k keeper.Keeper,
 	txGen client.TxConfig,
 ) simtypes.Operation {
-	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
-	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		simAccount, _ := simtypes.RandomAcc(r, accs)
-		msg := &types.MsgRateCollection{
-			Creator: simAccount.Address.String(),
+	return operation(ak, bk, k, txGen, &types.MsgRateCollection{}, func(e *simEnv) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
+		msg := &types.MsgRateCollection{}
+		p := e.params
+		curators, err := e.ensureRoleHolder(reptypes.RoleType_ROLE_TYPE_COLLECT_CURATOR)
+		if err != nil {
+			return noOpErr(msg, err)
 		}
-
-		// Register curator
-		if err := getOrCreateCurator(r, ctx, k, simAccount.Address.String()); err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "failed to register curator: "+err.Error()), nil, nil
+		if len(curators) == 0 {
+			return noOp(msg, "no sim account holds or can bond COLLECT_CURATOR")
 		}
-
-		// Pick a different account as collection owner (curator should not own the collection)
-		ownerAccount, ok := pickDifferentAccount(r, accs, simAccount.Address.String())
+		curators = accountsWhere(curators, func(a simtypes.Account) bool {
+			addr := a.Address.String()
+			br, _ := e.bondedRole(reptypes.RoleType_ROLE_TYPE_COLLECT_CURATOR, addr)
+			return e.trustAtLeastName(addr, p.MinCuratorTrustLevel) &&
+				e.dailyCount(addr, "review") < p.MaxReviewsPerCollection &&
+				e.ctx.BlockHeight()-br.RegisteredAt >= p.MinCuratorAgeBlocks
+		})
+		curator, ok := pick(e.r, curators)
 		if !ok {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "not enough accounts"), nil, nil
+			return noOp(msg, "no eligible curator")
 		}
-
-		// Create or find a collection owned by a different account
-		collID, err := getOrCreateCollection(r, ctx, k, ownerAccount.Address.String())
+		addr := curator.Address.String()
+		colls, err := e.collectionsWhere(func(c types.Collection) bool {
+			if !publicActive(c, true) || e.expired(c) || c.Owner == addr {
+				return false
+			}
+			_, collab := e.collaborator(c.Id, addr)
+			return !collab
+		})
 		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "failed to create collection: "+err.Error()), nil, nil
+			return noOpErr(msg, err)
 		}
-
-		// Create or find a curation review
-		_, err = getOrCreateCurationReview(r, ctx, k, simAccount.Address.String(), collID)
-		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "failed to create curation review: "+err.Error()), nil, nil
+		coll, ok := pick(e.r, colls)
+		if !ok {
+			return noOp(msg, "no collection the curator may rate")
 		}
-
-		// Increment collect-specific curator activity counter (generic bond
-		// state lives on rep's BondedRole which the simulation cannot seed).
-		activity, _ := k.CuratorActivity.Get(ctx, simAccount.Address.String())
-		if activity.Address == "" {
-			activity.Address = simAccount.Address.String()
+		var active uint32
+		reviewed := false
+		if err := e.k.CurationReviewsByCollection.Walk(e.ctx, collections.NewPrefixedPairRange[uint64, uint64](coll.Id),
+			func(key collections.Pair[uint64, uint64]) (bool, error) {
+				rv, err := e.k.CurationReview.Get(e.ctx, key.K2())
+				if err != nil {
+					return true, err
+				}
+				if !rv.Overturned {
+					active++
+					reviewed = reviewed || rv.Curator == addr
+				}
+				return false, nil
+			}); err != nil {
+			return noOpErr(msg, err)
 		}
-		activity.TotalReviews++
-		if err := k.CuratorActivity.Set(ctx, simAccount.Address.String(), activity); err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "failed to update curator activity: "+err.Error()), nil, nil
+		if reviewed {
+			return noOp(msg, "curator already reviewed this collection")
 		}
-
-		return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "ok (direct keeper call)"), nil, nil
-	}
+		if active >= p.MaxReviewsPerCollection {
+			return noOp(msg, "max reviews per collection")
+		}
+		msg.Creator, msg.CollectionId, msg.Verdict = addr, coll.Id, randomCurationVerdict(e.r)
+		msg.Tags = e.randomTags(p.MaxTagsPerReview)
+		msg.Comment = randomDescription(e.r)
+		if commontypes.Saturate[uint32](len(msg.Comment)) > p.MaxReviewCommentLength {
+			msg.Comment = ""
+		}
+		return e.submit(curator, msg, math.ZeroInt())
+	})
 }

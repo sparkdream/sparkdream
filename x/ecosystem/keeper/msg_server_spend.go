@@ -33,7 +33,9 @@ func (k msgServer) Spend(goCtx context.Context, msg *types.MsgSpend) (*types.Msg
 	}
 
 	// 3. Validate Recipient
-	recipient, err := sdk.AccAddressFromBech32(msg.Recipient)
+	// Same address codec as the authority (not the global bech32 config).
+	recipientBytes, err := k.addressCodec.StringToBytes(msg.Recipient)
+	recipient := sdk.AccAddress(recipientBytes)
 	if err != nil {
 		return nil, errorsmod.Wrapf(sdkerrors.ErrInvalidAddress, "invalid recipient address: %s", err)
 	}
@@ -48,6 +50,7 @@ func (k msgServer) Spend(goCtx context.Context, msg *types.MsgSpend) (*types.Msg
 	ctx.EventManager().EmitEvent(
 		sdk.NewEvent(
 			"ecosystem_spend",
+			sdk.NewAttribute("authority", msg.Authority),
 			sdk.NewAttribute("recipient", msg.Recipient),
 			sdk.NewAttribute("amount", msg.Amount.String()),
 		),

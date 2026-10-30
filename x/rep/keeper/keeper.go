@@ -5,8 +5,10 @@ import (
 	"fmt"
 
 	"cosmossdk.io/collections"
+	collcodec "cosmossdk.io/collections/codec"
 	"cosmossdk.io/core/address"
 	corestore "cosmossdk.io/core/store"
+	"cosmossdk.io/math"
 	"github.com/cosmos/cosmos-sdk/codec"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
@@ -24,7 +26,11 @@ type lateKeepers struct {
 	identityKeeper types.IdentityKeeper
 	distrKeeper    types.DistrKeeper
 	mintKeeper     types.MintKeeper
+	stakingKeeper  types.StakingKeeper
 	hooks          types.RepHooks
+	// zeroingHooks are the modules that drop a zeroed member's lock records
+	// (AddMemberZeroingHook).
+	zeroingHooks []types.MemberZeroingHook
 	// appealTargets maps module-owned moderation action types to the module
 	// that applies appeal verdicts to them (see appealTarget).
 	appealTargets map[types.GovActionType]types.ModerationAppealTarget
@@ -36,6 +42,10 @@ type lateKeepers struct {
 	reservedAddresses map[string]bool
 	// isVault reports x/vault addresses (nil until x/vault exists).
 	isVault func(ctx context.Context, addr string) bool
+	// tombstoneSweepers collect module-held funds of a tombstone for its
+	// canonical address (MsgSweepTombstone), e.g. a matured x/service exit
+	// bond the old key can no longer claim.
+	tombstoneSweepers []func(ctx context.Context, tombstone, canonical sdk.AccAddress) error
 }
 
 type Keeper struct {
@@ -53,7 +63,7 @@ type Keeper struct {
 	bankKeeper           types.BankKeeper
 	commonsKeeper        types.CommonsKeeper
 	late                 *lateKeepers // shared across value copies
-	Member               collections.Map[string, types.Member]
+	Member               *collections.IndexedMap[string, types.Member, MemberIndexes]
 	InvitationSeq        collections.Sequence
 	Invitation           collections.Map[uint64, types.Invitation]
 	InvitationsByInvitee collections.Map[string, uint64] // invitee address -> invitation ID
@@ -97,6 +107,15 @@ type Keeper struct {
 	// Key: (status, id) - allows iteration of projects by status (currently
 	// drives the EndBlocker sweep that expires stale PROPOSED projects).
 	ProjectsByStatus collections.KeySet[collections.Pair[int32, uint64]]
+	// Key: (staker as stored, stakeID) - one member's stake records.
+	StakesByStaker collections.KeySet[collections.Pair[string, uint64]]
+	// Key: (created_at, invitationID) - PENDING invitations by creation time.
+	PendingInvitations collections.KeySet[collections.Pair[int64, uint64]]
+	// TagCount is the number of registered tags (registry cap, REP-E-09).
+	TagCount collections.Item[uint64]
+	// TagCreationWindow is canonical member -> (epoch, tags created that
+	// epoch): the per-member tag creation rate limit.
+	TagCreationWindow collections.Map[string, collections.Pair[int64, uint64]]
 
 	// Extended staking pools (for O(1) reward distribution)
 	MemberStakePool  collections.Map[string, types.MemberStakePool]  // member address -> pool
@@ -143,6 +162,9 @@ type Keeper struct {
 	EpochMintedEpoch              collections.Item[uint64] // tracked epoch for the per-epoch mint counter
 	EpochMintedAmount             collections.Item[string] // DREAM minted during tracked epoch (as Int string)
 	DecayLastProcessedEpoch       collections.Item[uint64] // last epoch for which bulk DREAM decay has been applied
+	DecayPassEpoch                collections.Item[uint64] // epoch of the decay pass in flight (absent: none)
+	DecayPassMemberCursor         collections.Item[string] // last member address the pass decayed
+	DecayPassStakeCursor          collections.Item[uint64] // next stake id; present once members are done
 
 	// Tag registry (shared across content modules: forum, collect, rep/initiatives)
 	Tag         collections.Map[string, types.Tag]
@@ -157,6 +179,9 @@ type Keeper struct {
 	// TagBudgetAwardByPost tracks the block height of the most recent award for each
 	// (budget_id, post_id) pair to enforce a cooldown against single-post drain attacks.
 	TagBudgetAwardByPost collections.Map[collections.Pair[uint64, uint64], int64]
+	// TagBudgetAwarderEpoch tracks what each awarder has awarded from a budget
+	// in the current epoch (budget_id, canonical awarder, epoch) -> amount.
+	TagBudgetAwarderEpoch collections.Map[collections.Triple[uint64, string, int64], math.Int]
 
 	// Bonded-role primitive (generalization of sentinel / curator / verifier).
 	// Key: (role_type int32, address string). Compound key lets one address
@@ -164,6 +189,9 @@ type Keeper struct {
 	BondedRoles       collections.Map[collections.Pair[int32, string], types.BondedRole]
 	BondedRoleConfigs collections.Map[int32, types.BondedRoleConfig]
 	RoleActivities    collections.Map[collections.Pair[int32, string], types.RoleActivity]
+	// BondedRoleUnbondQueue indexes UNBONDING roles by completion time
+	// (setBondedRoleUnbonding keeps it in step).
+	BondedRoleUnbondQueue collections.KeySet[collections.Triple[int64, int32, string]]
 
 	// Accountability
 	JuryParticipation  collections.Map[string, types.JuryParticipation]
@@ -172,6 +200,10 @@ type Keeper struct {
 	MemberWarningSeq   collections.Sequence
 	GovActionAppeal    collections.Map[uint64, types.GovActionAppeal]
 	GovActionAppealSeq collections.Sequence
+	// Indexes over GovActionAppeal, maintained by SetGovActionAppeal.
+	GovActionAppealsByTarget    collections.KeySet[collections.Triple[int32, string, uint64]]
+	PendingGovActionAppeals     collections.KeySet[collections.Pair[int64, uint64]]
+	GovActionAppealByInitiative collections.Map[uint64, uint64]
 
 	// Member key migration (alias.go, migration.go, recovery.go).
 	Tombstones               collections.Map[string, types.Tombstone]
@@ -180,12 +212,29 @@ type Keeper struct {
 	MemberMigrationSeq       collections.Sequence
 	PendingMigrationByMember collections.Map[string, uint64]
 	PendingMigrationByTarget collections.Map[string, uint64]
-	MigrationQueue           collections.KeySet[collections.Pair[int64, uint64]]
-	MigrationAcceptExpiry    collections.KeySet[collections.Pair[int64, uint64]]
-	RecoveryCommitments      collections.Map[string, types.RecoveryCommitmentSet]
-	RecoveryCommits          collections.Map[[]byte, types.RecoveryCommit]
-	RecoveryCommitExpiry     collections.KeySet[collections.Pair[int64, []byte]]
-	ZkKeyActivationQueue     collections.KeySet[collections.Pair[int64, string]]
+	// MigrationRequestsByTarget indexes REQUESTED migrations by target
+	// (non-reserving; see the key's comment).
+	MigrationRequestsByTarget collections.KeySet[collections.Pair[string, uint64]]
+	// ObjectedMigrations holds the ids of OBJECTED migrations.
+	ObjectedMigrations    collections.KeySet[uint64]
+	MigrationQueue        collections.KeySet[collections.Pair[int64, uint64]]
+	MigrationAcceptExpiry collections.KeySet[collections.Pair[int64, uint64]]
+	RecoveryCommitments   collections.Map[string, types.RecoveryCommitmentSet]
+	RecoveryCommits       collections.Map[[]byte, types.RecoveryCommit]
+	RecoveryCommitExpiry  collections.KeySet[collections.Pair[int64, []byte]]
+	ZkKeyActivationQueue  collections.KeySet[collections.Pair[int64, string]]
+
+	// Due queues of the per-block EndBlocker sweeps (due_queue.go).
+	InitiativeCompletionDue     collections.KeySet[collections.Pair[int64, uint64]]
+	ChallengeResponseDue        collections.KeySet[collections.Pair[int64, uint64]]
+	ContentChallengeResponseDue collections.KeySet[collections.Pair[int64, uint64]]
+	// SubmittedCheckCursor is the last SUBMITTED initiative id the capped
+	// completion-threshold check visited (submitted_check.go).
+	SubmittedCheckCursor collections.Item[uint64]
+
+	// Member-action appeal restorations (member_action_appeal.go).
+	MemberActionRestorations      collections.Map[string, types.MemberActionRestoration]
+	MemberActionRestorationExpiry collections.KeySet[collections.Pair[int64, string]]
 }
 
 func NewKeeper(
@@ -215,7 +264,7 @@ func NewKeeper(
 		commonsKeeper:        commonsKeeper,
 		late:                 &lateKeepers{},
 		Params:               collections.NewItem(sb, types.ParamsKey, "params", codec.CollValue[types.Params](cdc)),
-		Member:               collections.NewMap(sb, types.MemberKey, "member", collections.StringKey, codec.CollValue[types.Member](cdc)),
+		Member:               collections.NewIndexedMap(sb, types.MemberKey, "member", collections.StringKey, codec.CollValue[types.Member](cdc), newMemberIndexes(sb)),
 		Invitation:           collections.NewMap(sb, types.InvitationKey, "invitation", collections.Uint64Key, codec.CollValue[types.Invitation](cdc)),
 		InvitationsByInvitee: collections.NewMap(sb, types.InvitationsByInviteeKey, "invitationsByInvitee", collections.StringKey, collections.Uint64Value),
 		InvitationSeq:        collections.NewSequence(sb, types.InvitationCountKey, "invitationSequence"),
@@ -274,6 +323,19 @@ func NewKeeper(
 			sb, types.ProjectsByStatusKey, "projectsByStatus",
 			collections.PairKeyCodec(collections.Int32Key, collections.Uint64Key),
 		),
+		StakesByStaker: collections.NewKeySet(
+			sb, types.StakesByStakerKey, "stakesByStaker",
+			collections.PairKeyCodec(collections.StringKey, collections.Uint64Key),
+		),
+		PendingInvitations: collections.NewKeySet(
+			sb, types.PendingInvitationsKey, "pendingInvitations",
+			collections.PairKeyCodec(collections.Int64Key, collections.Uint64Key),
+		),
+		TagCount: collections.NewItem(sb, types.TagCountKey, "tagCount", collections.Uint64Value),
+		TagCreationWindow: collections.NewMap(
+			sb, types.TagCreationWindowKey, "tagCreationWindow", collections.StringKey,
+			collcodec.KeyToValueCodec(collections.PairKeyCodec(collections.Int64Key, collections.Uint64Key)),
+		),
 
 		// Extended staking pools
 		MemberStakePool:  collections.NewMap(sb, types.MemberStakePoolKey, "memberStakePool", collections.StringKey, codec.CollValue[types.MemberStakePool](cdc)),
@@ -330,6 +392,9 @@ func NewKeeper(
 		EpochMintedEpoch:              collections.NewItem(sb, types.EpochMintedEpochKey, "epochMintedEpoch", collections.Uint64Value),
 		EpochMintedAmount:             collections.NewItem(sb, types.EpochMintedAmountKey, "epochMintedAmount", collections.StringValue),
 		DecayLastProcessedEpoch:       collections.NewItem(sb, types.DecayLastProcessedEpochKey, "decayLastProcessedEpoch", collections.Uint64Value),
+		DecayPassEpoch:                collections.NewItem(sb, types.DecayPassEpochKey, "decayPassEpoch", collections.Uint64Value),
+		DecayPassMemberCursor:         collections.NewItem(sb, types.DecayPassMemberCursorKey, "decayPassMemberCursor", collections.StringValue),
+		DecayPassStakeCursor:          collections.NewItem(sb, types.DecayPassStakeCursorKey, "decayPassStakeCursor", collections.Uint64Value),
 
 		// Tag registry
 		Tag:         collections.NewMap(sb, types.TagKey, "tag", collections.StringKey, codec.CollValue[types.Tag](cdc)),
@@ -345,6 +410,11 @@ func NewKeeper(
 			sb, types.TagBudgetAwardByPostKey, "tagBudgetAwardByPost",
 			collections.PairKeyCodec(collections.Uint64Key, collections.Uint64Key),
 			collections.Int64Value,
+		),
+		TagBudgetAwarderEpoch: collections.NewMap(
+			sb, types.TagBudgetAwarderEpochKey, "tagBudgetAwarderEpoch",
+			collections.TripleKeyCodec(collections.Uint64Key, collections.StringKey, collections.Int64Key),
+			sdk.IntValue,
 		),
 
 		// Bonded-role primitive
@@ -371,6 +441,12 @@ func NewKeeper(
 		MemberWarningSeq:   collections.NewSequence(sb, types.MemberWarningCountKey, "memberWarningSequence"),
 		GovActionAppeal:    collections.NewMap(sb, types.GovActionAppealKey, "govActionAppeal", collections.Uint64Key, codec.CollValue[types.GovActionAppeal](cdc)),
 		GovActionAppealSeq: collections.NewSequence(sb, types.GovActionAppealCountKey, "govActionAppealSequence"),
+		GovActionAppealsByTarget: collections.NewKeySet(sb, types.GovActionAppealsByTargetKey, "govActionAppealsByTarget",
+			collections.TripleKeyCodec(collections.Int32Key, collections.StringKey, collections.Uint64Key)),
+		PendingGovActionAppeals: collections.NewKeySet(sb, types.PendingGovActionAppealsKey, "pendingGovActionAppeals",
+			collections.PairKeyCodec(collections.Int64Key, collections.Uint64Key)),
+		GovActionAppealByInitiative: collections.NewMap(sb, types.GovActionAppealByInitiativeKey, "govActionAppealByInitiative",
+			collections.Uint64Key, collections.Uint64Value),
 
 		// Member key migration
 		Tombstones: collections.NewMap(sb, types.TombstoneKey, "tombstones", collections.StringKey, codec.CollValue[types.Tombstone](cdc)),
@@ -380,6 +456,11 @@ func NewKeeper(
 		MemberMigrationSeq:       collections.NewSequence(sb, types.MemberMigrationCountKey, "memberMigrationSequence"),
 		PendingMigrationByMember: collections.NewMap(sb, types.PendingMigrationByMemberKey, "pendingMigrationByMember", collections.StringKey, collections.Uint64Value),
 		PendingMigrationByTarget: collections.NewMap(sb, types.PendingMigrationByTargetKey, "pendingMigrationByTarget", collections.StringKey, collections.Uint64Value),
+		MigrationRequestsByTarget: collections.NewKeySet(sb, types.MigrationRequestsByTargetKey, "migrationRequestsByTarget",
+			collections.PairKeyCodec(collections.StringKey, collections.Uint64Key)),
+		ObjectedMigrations: collections.NewKeySet(sb, types.ObjectedMigrationsKey, "objectedMigrations", collections.Uint64Key),
+		BondedRoleUnbondQueue: collections.NewKeySet(sb, types.BondedRoleUnbondQueueKey, "bondedRoleUnbondQueue",
+			collections.TripleKeyCodec(collections.Int64Key, collections.Int32Key, collections.StringKey)),
 		MigrationQueue: collections.NewKeySet(sb, types.MigrationQueueKey, "migrationQueue",
 			collections.PairKeyCodec(collections.Int64Key, collections.Uint64Key)),
 		MigrationAcceptExpiry: collections.NewKeySet(sb, types.MigrationAcceptExpiryKey, "migrationAcceptExpiry",
@@ -389,6 +470,19 @@ func NewKeeper(
 		RecoveryCommitExpiry: collections.NewKeySet(sb, types.RecoveryCommitExpiryKey, "recoveryCommitExpiry",
 			collections.PairKeyCodec(collections.Int64Key, collections.BytesKey)),
 		ZkKeyActivationQueue: collections.NewKeySet(sb, types.ZkKeyActivationQueueKey, "zkKeyActivationQueue",
+			collections.PairKeyCodec(collections.Int64Key, collections.StringKey)),
+
+		SubmittedCheckCursor: collections.NewItem(sb, types.SubmittedCheckCursorKey, "submittedCheckCursor", collections.Uint64Value),
+		InitiativeCompletionDue: collections.NewKeySet(sb, types.InitiativeCompletionDueKey, "initiativeCompletionDue",
+			collections.PairKeyCodec(collections.Int64Key, collections.Uint64Key)),
+		ChallengeResponseDue: collections.NewKeySet(sb, types.ChallengeResponseDueKey, "challengeResponseDue",
+			collections.PairKeyCodec(collections.Int64Key, collections.Uint64Key)),
+		ContentChallengeResponseDue: collections.NewKeySet(sb, types.ContentChallengeResponseDueKey, "contentChallengeResponseDue",
+			collections.PairKeyCodec(collections.Int64Key, collections.Uint64Key)),
+
+		MemberActionRestorations: collections.NewMap(sb, types.MemberActionRestorationKey, "memberActionRestorations",
+			collections.StringKey, codec.CollValue[types.MemberActionRestoration](cdc)),
+		MemberActionRestorationExpiry: collections.NewKeySet(sb, types.MemberActionRestorationExpiryKey, "memberActionRestorationExpiry",
 			collections.PairKeyCodec(collections.Int64Key, collections.StringKey)),
 	}
 	schema, err := sb.Build()
@@ -412,6 +506,13 @@ func (k Keeper) SetSeasonKeeper(sk types.SeasonKeeper) {
 // instead of waiting on a council to remember to fund them.
 func (k Keeper) SetDistrKeeper(dk types.DistrKeeper) {
 	k.late.distrKeeper = dk
+}
+
+// SetStakingKeeper sets the staking keeper after depinject initialization.
+// RECOVERY and COUNCIL migration finalization (and MsgSweepTombstone) use it
+// to unbond the delegations left at the tombstone.
+func (k Keeper) SetStakingKeeper(sk types.StakingKeeper) {
+	k.late.stakingKeeper = sk
 }
 
 // SetMintKeeper sets the mint keeper after depinject initialization. Supplies
@@ -441,14 +542,15 @@ func (k Keeper) RegisterModerationAppealTarget(actionType types.GovActionType, t
 // appealTarget returns the module that owns actionType, or nil when none is
 // wired. Returns an untyped nil (never a typed-nil interface) so callers can
 // test it directly.
+//
+// Only forum's own types fall back to the forum keeper. Rep's member-action
+// types have no content to reverse, and an unregistered module-owned type
+// must never be reversed as a forum record.
 func (k Keeper) appealTarget(actionType types.GovActionType) types.ModerationAppealTarget {
 	if t, ok := k.late.appealTargets[actionType]; ok && t != nil {
 		return t
 	}
-	if types.ModuleOwnedAppealTypes[actionType] {
-		return nil
-	}
-	if k.late.forumKeeper != nil {
+	if types.ForumAppealTypes[actionType] && k.late.forumKeeper != nil {
 		return k.late.forumKeeper
 	}
 	return nil
@@ -457,6 +559,12 @@ func (k Keeper) appealTarget(actionType types.GovActionType) types.ModerationApp
 // notifyAppealOutcome calls the owning module's optional outcome hook.
 // Best-effort: a module failure is logged and never undoes x/rep's verdict.
 func (k Keeper) notifyAppealOutcome(ctx context.Context, appeal types.GovActionAppeal, outcome types.GovAppealStatus) {
+	// Rep's own member actions: reverse on OVERTURNED, drop the restoration
+	// record on every outcome (member_action_appeal.go).
+	if types.MemberActionAppealTypes[appeal.ActionType] {
+		k.settleMemberActionAppeal(ctx, appeal, outcome)
+		return
+	}
 	h, ok := k.appealTarget(appeal.ActionType).(types.ModerationAppealOutcomeHandler)
 	if !ok {
 		return

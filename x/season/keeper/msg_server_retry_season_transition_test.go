@@ -70,7 +70,7 @@ func TestMsgServerRetrySeasonTransition(t *testing.T) {
 		state := types.SeasonTransitionState{
 			Phase: types.TransitionPhase_TRANSITION_PHASE_COMPLETE,
 		}
-		k.SeasonTransitionState.Set(ctx, state)
+		require.NoError(t, k.SeasonTransitionState.Set(ctx, state))
 
 		_, err := ms.RetrySeasonTransition(ctx, &types.MsgRetrySeasonTransition{
 			Authority: authority,
@@ -92,7 +92,7 @@ func TestMsgServerRetrySeasonTransition(t *testing.T) {
 		state := types.SeasonTransitionState{
 			Phase: types.TransitionPhase_TRANSITION_PHASE_ARCHIVE_REPUTATION,
 		}
-		k.SeasonTransitionState.Set(ctx, state)
+		require.NoError(t, k.SeasonTransitionState.Set(ctx, state))
 
 		// No recovery state exists
 
@@ -116,14 +116,14 @@ func TestMsgServerRetrySeasonTransition(t *testing.T) {
 		state := types.SeasonTransitionState{
 			Phase: types.TransitionPhase_TRANSITION_PHASE_ARCHIVE_REPUTATION,
 		}
-		k.SeasonTransitionState.Set(ctx, state)
+		require.NoError(t, k.SeasonTransitionState.Set(ctx, state))
 
 		// Set recovery state with RecoveryMode = false
 		recovery := types.TransitionRecoveryState{
 			RecoveryMode: false,
 			FailureCount: 2,
 		}
-		k.TransitionRecoveryState.Set(ctx, recovery)
+		require.NoError(t, k.TransitionRecoveryState.Set(ctx, recovery))
 
 		_, err := ms.RetrySeasonTransition(ctx, &types.MsgRetrySeasonTransition{
 			Authority: authority,
@@ -147,14 +147,14 @@ func TestMsgServerRetrySeasonTransition(t *testing.T) {
 			ProcessedCount: 50,
 			LastProcessed:  "some_member",
 		}
-		k.SeasonTransitionState.Set(ctx, state)
+		require.NoError(t, k.SeasonTransitionState.Set(ctx, state))
 
 		// Set recovery state with RecoveryMode = true
 		recovery := types.TransitionRecoveryState{
 			RecoveryMode: true,
 			FailureCount: 3,
 		}
-		k.TransitionRecoveryState.Set(ctx, recovery)
+		require.NoError(t, k.TransitionRecoveryState.Set(ctx, recovery))
 
 		_, err := ms.RetrySeasonTransition(ctx, &types.MsgRetrySeasonTransition{
 			Authority: authority,
@@ -188,14 +188,14 @@ func TestMsgServerRetrySeasonTransition(t *testing.T) {
 			ProcessedCount: 100,
 			LastProcessed:  "last_member",
 		}
-		k.SeasonTransitionState.Set(ctx, state)
+		require.NoError(t, k.SeasonTransitionState.Set(ctx, state))
 
 		// Set recovery state
 		recovery := types.TransitionRecoveryState{
 			RecoveryMode: true,
 			FailureCount: 1,
 		}
-		k.TransitionRecoveryState.Set(ctx, recovery)
+		require.NoError(t, k.TransitionRecoveryState.Set(ctx, recovery))
 
 		_, err := ms.RetrySeasonTransition(ctx, &types.MsgRetrySeasonTransition{
 			Authority: authority,

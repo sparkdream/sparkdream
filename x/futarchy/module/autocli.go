@@ -29,6 +29,12 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					Alias:          []string{"show-market"},
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "index"}},
 				},
+				{
+					// Flags (--market-id, --is-yes, --amount) are kept: e2e scripts use them.
+					RpcMethod: "GetMarketPrice",
+					Use:       "get-market-price",
+					Short:     "Quote the shares and price a trade of --amount would get",
+				},
 				// this line is used by ignite scaffolding # autocli/query
 			},
 		},
@@ -61,6 +67,18 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					Use:            "redeem [market-id]",
 					Short:          "Send a redeem tx",
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "market_id"}},
+				},
+				{
+					// Authority-gated (gov); normally submitted inside a proposal.
+					RpcMethod: "CancelMarket",
+					Use:       "cancel-market",
+					Short:     "Cancel an active market (gov authority); holders redeem at the LMSR price",
+				},
+				{
+					// --market-id flag kept: e2e scripts use it.
+					RpcMethod: "WithdrawLiquidity",
+					Use:       "withdraw-liquidity",
+					Short:     "Withdraw the creator's unpaid LMSR residual from a resolved market",
 				},
 				// this line is used by ignite scaffolding # autocli/tx
 			},

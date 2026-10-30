@@ -1,82 +1,90 @@
 package simulation
 
 import (
-	"math/rand"
-
-	"github.com/cosmos/cosmos-sdk/baseapp"
+	"cosmossdk.io/collections"
+	"cosmossdk.io/math"
 	"github.com/cosmos/cosmos-sdk/client"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
-	"github.com/cosmos/cosmos-sdk/x/simulation"
 
 	"sparkdream/x/session/keeper"
 	"sparkdream/x/session/types"
 )
 
-// SimulateMsgRevokeGrant picks a random active grant (of any of the
-// four types) and submits a revoke from the granter. Exercises the
-// universal `MsgRevokeGrant` umbrella that replaced per-type revoke
-// messages in P6.
-//
-// NoOps when no active grant has a granter that is also a sim
-// account.
+// selfRevoker returns a live sim grantee of an active, unexpired session key
+// of g's granter that carries allow_self_revoke (and is not g itself): such
+// a key may revoke the granter's other grants directly.
+func (e *simEnv) selfRevoker(g types.Grant) (simtypes.Account, bool, error) {
+	keys, err := e.k.ListGrantsByGranter(e.ctx, g.Granter, types.GrantType_GRANT_TYPE_SESSION_KEY)
+	if err != nil {
+		return simtypes.Account{}, false, err
+	}
+	for _, i := range e.r.Perm(len(keys)) {
+		sk := keys[i].GetSessionKey()
+		if keys[i].Id == g.Id || sk == nil || !sk.AllowSelfRevoke ||
+			keys[i].Status != types.GrantStatus_GRANT_STATUS_ACTIVE || !keys[i].ExpiresAt.After(e.ctx.BlockTime()) {
+			continue
+		}
+		if has, err := e.k.SessionKeyByPair.Has(e.ctx, collections.Join(g.Granter, keys[i].Grantee)); err != nil || !has {
+			continue
+		}
+		if acc, ok := e.account(keys[i].Grantee); ok {
+			return acc, true, nil
+		}
+	}
+	return simtypes.Account{}, false, nil
+}
+
+// SimulateMsgRevokeGrant revokes a pending grant of any type, signed by its
+// live sim granter or (one call in four, when one exists) by the grantee of
+// the granter's allow_self_revoke session key. A revoked oneshot refunds its
+// gas deposit. When no grant has a live sim granter, the op first creates
+// one with a real MsgCreateGrant and revokes it.
 func SimulateMsgRevokeGrant(
 	ak types.AuthKeeper,
 	bk types.BankKeeper,
 	k keeper.Keeper,
 	txGen client.TxConfig,
 ) simtypes.Operation {
-	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
-	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		msgType := sdk.MsgTypeURL(&types.MsgRevokeGrant{})
-
-		// Pick uniformly across all grant types — any of them is
-		// revokable by the granter.
-		typeOptions := []types.GrantType{
-			types.GrantType_GRANT_TYPE_SESSION_KEY,
-			types.GrantType_GRANT_TYPE_RECURRING_PULL,
-			types.GrantType_GRANT_TYPE_SPENDING_ALLOWANCE,
-			types.GrantType_GRANT_TYPE_SCHEDULED_ONESHOT,
-			types.GrantType_GRANT_TYPE_SIGN_IN,
+	label := &types.MsgRevokeGrant{}
+	return operation(ak, bk, k, txGen, label, func(e *simEnv) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
+		all, err := e.grants(pending)
+		if err != nil {
+			return noOpErr(label, err)
 		}
-		// Try each type in random order until we find a usable grant.
-		r.Shuffle(len(typeOptions), func(i, j int) { typeOptions[i], typeOptions[j] = typeOptions[j], typeOptions[i] })
-
-		for _, t := range typeOptions {
-			grant, found := findRandomGrantOfType(r, ctx, k, t, func(g types.Grant) bool {
-				return g.Status == types.GrantStatus_GRANT_STATUS_ACTIVE ||
-					g.Status == types.GrantStatus_GRANT_STATUS_PAUSED_INSUFFICIENT_FUNDS
-			})
-			if !found {
-				continue
-			}
-			granterAcc, ok := findSimAccount(accs, grant.Granter)
+		for _, i := range e.r.Perm(len(all)) {
+			g := all[i]
+			signer, ok := e.account(g.Granter)
 			if !ok {
 				continue
 			}
-
-			msg := &types.MsgRevokeGrant{
-				Granter: grant.Granter,
-				GrantId: grant.Id,
+			if e.r.Intn(4) == 0 {
+				acc, found, err := e.selfRevoker(g)
+				if err != nil {
+					return noOpErr(label, err)
+				}
+				if found {
+					signer = acc
+				}
 			}
-
-			opMsg := simulation.OperationInput{
-				R:               r,
-				App:             app,
-				TxGen:           txGen,
-				Cdc:             nil,
-				Msg:             msg,
-				CoinsSpentInMsg: sdk.NewCoins(),
-				Context:         ctx,
-				SimAccount:      granterAcc,
-				AccountKeeper:   ak,
-				Bankkeeper:      bk,
-				ModuleName:      types.ModuleName,
+			msg := &types.MsgRevokeGrant{Granter: signer.Address.String(), GrantId: g.Id}
+			if e.dryRun(msg) != nil {
+				continue
 			}
-
-			return simulation.GenAndDeliverTxWithRandFees(opMsg)
+			return e.deliver(signer, msg, math.ZeroInt())
 		}
 
-		return simtypes.NoOpMsg(types.ModuleName, msgType, "no revokable grant for any sim granter"), nil, nil
-	}
+		// Prerequisite: a grant to revoke.
+		created, g, ok, err := e.createGrant(grantKind(e.r.Intn(int(numGrantKinds))))
+		if err != nil {
+			return created, nil, err
+		}
+		if !ok {
+			return noOp(label, "no grant with a live sim granter and none could be created")
+		}
+		granter, live := e.account(g.Granter)
+		if !live {
+			return created, nil, nil
+		}
+		return e.submit(granter, &types.MsgRevokeGrant{Granter: g.Granter, GrantId: g.Id}, math.ZeroInt())
+	})
 }

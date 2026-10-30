@@ -24,7 +24,9 @@ func createMemberWithTrustLevel(k keeper.Keeper, ctx context.Context, address st
 		ReputationScores:   make(map[string]string),
 		LifetimeReputation: make(map[string]string),
 	}
-	_ = k.Member.Set(ctx, address, member)
+	if err := k.Member.Set(ctx, address, member); err != nil {
+		panic(err)
+	}
 }
 
 func memberAddresses(members []types.Member) []string {

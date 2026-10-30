@@ -13,7 +13,9 @@ import (
 // Bid places an escrowed bid on an open auction (docs/x-artifact-spec.md
 // §5.13.4). It must reach the reserve, or beat the high bid by the
 // auction's increment; the previous high bid is refunded at once. A bid in
-// the last auction_extension seconds pushes the end out (anti-sniping).
+// the last auction_extension seconds pushes the end out (anti-sniping),
+// never to within auction_extension seconds of the expiry of the token or
+// anything nested in it.
 func (k msgServer) Bid(ctx context.Context, msg *types.MsgBid) (*types.MsgBidResponse, error) {
 	bidder, err := k.decodeAddr("bidder", msg.Bidder)
 	if err != nil {
@@ -47,6 +49,9 @@ func (k msgServer) Bid(ctx context.Context, msg *types.MsgBid) (*types.MsgBidRes
 	if err := sellable(c, t, now(ctx)); err != nil {
 		return nil, err
 	}
+	if err := k.treeSellable(ctx, t); err != nil {
+		return nil, err
+	}
 	if msg.ExpectedMetadataHash != "" && msg.ExpectedMetadataHash != types.MetadataHash(t.Metadata) {
 		return nil, types.ErrMetadataChanged
 	}
@@ -68,14 +73,29 @@ func (k msgServer) Bid(ctx context.Context, msg *types.MsgBid) (*types.MsgBidRes
 		}
 	}
 	a.HighBidder, a.HighBid = msg.Bidder, msg.Amount.Amount
+	// Settlement re-checks the winning bid's pins (bait-and-switch, §12.2).
+	a.HighBidMetadataHash, a.HighBidContentsHash = msg.ExpectedMetadataHash, msg.ExpectedContentsHash
 	a.Bids++
 	if left := a.EndsAt - now(ctx); left < p.AuctionExtension {
-		if err := k.AuctionEnds.Remove(ctx, collections.Join(a.EndsAt, a.Id)); err != nil {
+		// The extension stops auction_extension seconds short of the
+		// tree's expiry (the StartAuction bound), so the settling block
+		// still finds a live token.
+		newEnd := now(ctx) + p.AuctionExtension
+		expiry, err := k.treeExpiry(ctx, t)
+		if err != nil {
 			return nil, err
 		}
-		a.EndsAt = now(ctx) + p.AuctionExtension
-		if err := k.AuctionEnds.Set(ctx, collections.Join(a.EndsAt, a.Id)); err != nil {
-			return nil, err
+		if expiry > 0 && newEnd > expiry-p.AuctionExtension {
+			newEnd = expiry - p.AuctionExtension
+		}
+		if newEnd > a.EndsAt {
+			if err := k.AuctionEnds.Remove(ctx, collections.Join(a.EndsAt, a.Id)); err != nil {
+				return nil, err
+			}
+			a.EndsAt = newEnd
+			if err := k.AuctionEnds.Set(ctx, collections.Join(a.EndsAt, a.Id)); err != nil {
+				return nil, err
+			}
 		}
 	}
 	if err := k.Auctions.Set(ctx, a.Id, a); err != nil {

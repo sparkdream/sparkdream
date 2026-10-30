@@ -4,6 +4,9 @@ package sparkdream.rep.v1;
 import "gogoproto/gogo.proto";
 
 option go_package = "sparkdream/x/rep/types";
+// Map fields are encoded in sorted key order: an unsorted encoding differs
+// between nodes and would split the app hash.
+option (gogoproto.stable_marshaler_all) = true;
 
 // Member defines the Member message.
 message Member {

@@ -25,8 +25,7 @@ func SimulateMsgUpdateOperationalParams(
 			Authority: simAccount.Address.String(),
 		}
 
-		// TODO: Handle the UpdateOperationalParams simulation
-
-		return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "UpdateOperationalParams simulation not implemented"), nil, nil
+		// Not simulated: MsgUpdateOperationalParams is gated to the Operations Committee policy.
+		return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "UpdateOperationalParams is gated to the Operations Committee policy"), nil, nil
 	}
 }

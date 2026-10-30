@@ -22,7 +22,9 @@ func createNGuildMembership(keeper keeper.Keeper, ctx context.Context, n int) []
 		items[i].JoinedEpoch = int64(i)
 		items[i].LeftEpoch = int64(i)
 		items[i].GuildsJoinedThisSeason = uint64(i)
-		_ = keeper.GuildMembership.Set(ctx, items[i].Member, items[i])
+		if err := keeper.GuildMembership.Set(ctx, items[i].Member, items[i]); err != nil {
+			panic(err)
+		}
 	}
 	return items
 }

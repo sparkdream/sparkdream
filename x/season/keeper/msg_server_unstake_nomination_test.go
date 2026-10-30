@@ -154,7 +154,7 @@ func TestUnstakeNomination(t *testing.T) {
 			Conviction:   math.LegacyNewDec(50),
 			RewardAmount: math.LegacyZeroDec(),
 		}
-		err = f.keeper.Nomination.Set(f.ctx, nominationId, nomination)
+		err = f.keeper.SetNomination(f.ctx, nomination)
 		require.NoError(t, err)
 
 		// Do NOT create a NominationStake for the creator
@@ -199,7 +199,7 @@ func TestUnstakeNomination(t *testing.T) {
 			Conviction:   math.LegacyNewDec(50),
 			RewardAmount: math.LegacyZeroDec(),
 		}
-		err = f.keeper.Nomination.Set(f.ctx, nominationId, nomination)
+		err = f.keeper.SetNomination(f.ctx, nomination)
 		require.NoError(t, err)
 
 		// Create a NominationStake record for the staker
@@ -272,7 +272,7 @@ func TestUnstakeNomination(t *testing.T) {
 			Conviction:   math.LegacyNewDec(100),
 			RewardAmount: math.LegacyZeroDec(),
 		}
-		err = f.keeper.Nomination.Set(f.ctx, nominationId, nomination)
+		err = f.keeper.SetNomination(f.ctx, nomination)
 		require.NoError(t, err)
 
 		// Create stake records for both stakers
@@ -387,7 +387,7 @@ func TestUnstakeNomination(t *testing.T) {
 			Conviction:   math.LegacyNewDec(50),
 			RewardAmount: math.LegacyZeroDec(),
 		}
-		err = f.keeper.Nomination.Set(f.ctx, nominationId, nomination)
+		err = f.keeper.SetNomination(f.ctx, nomination)
 		require.NoError(t, err)
 
 		// Create stake record
@@ -461,7 +461,7 @@ func TestUnstakeNomination(t *testing.T) {
 			Conviction:   math.LegacyZeroDec(),
 			RewardAmount: math.LegacyZeroDec(),
 		}
-		err = f.keeper.Nomination.Set(f.ctx, nominationId, nomination)
+		err = f.keeper.SetNomination(f.ctx, nomination)
 		require.NoError(t, err)
 
 		// Create stake record with a fractional amount that truncates to 0

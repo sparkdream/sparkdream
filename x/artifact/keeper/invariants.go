@@ -2,6 +2,7 @@ package keeper
 
 import (
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -57,19 +58,23 @@ func report(name string, problems []string) (string, bool) {
 func OwnerIndexInvariant(k Keeper) sdk.Invariant {
 	return func(ctx sdk.Context) (string, bool) {
 		var problems []string
-		_ = k.Tokens.Walk(ctx, nil, func(key U64Pair, t types.Token) (bool, error) {
+		if err := k.Tokens.Walk(ctx, nil, func(key U64Pair, t types.Token) (bool, error) {
 			if has, _ := k.TokensByOwner.Has(ctx, collections.Join3(t.Owner, t.ClassId, t.Id)); !has {
 				problems = append(problems, fmt.Sprintf("token %d/%d missing owner index", t.ClassId, t.Id))
 			}
 			return false, nil
-		})
-		_ = k.TokensByOwner.Walk(ctx, nil, func(key AddrTokenKey) (bool, error) {
+		}); err != nil {
+			return fmt.Sprintf("Tokens.Walk failed: %v", err), true
+		}
+		if err := k.TokensByOwner.Walk(ctx, nil, func(key AddrTokenKey) (bool, error) {
 			t, err := k.Tokens.Get(ctx, collections.Join(key.K2(), key.K3()))
 			if err != nil || t.Owner != key.K1() {
 				problems = append(problems, fmt.Sprintf("stale owner index %s %d/%d", key.K1(), key.K2(), key.K3()))
 			}
 			return false, nil
-		})
+		}); err != nil {
+			return fmt.Sprintf("TokensByOwner.Walk failed: %v", err), true
+		}
 		return report("owner-index", problems)
 	}
 }
@@ -79,31 +84,38 @@ func OwnerIndexInvariant(k Keeper) sdk.Invariant {
 func SupplyInvariant(k Keeper) sdk.Invariant {
 	return func(ctx sdk.Context) (string, bool) {
 		var problems []string
-		seq, _ := k.ClassSeq.Peek(ctx)
-		_ = k.Classes.Walk(ctx, nil, func(id uint64, c types.Class) (bool, error) {
+		seq, getErr := k.ClassSeq.Peek(ctx)
+		if getErr != nil && !errors.Is(getErr, collections.ErrNotFound) {
+			sdk.UnwrapSDKContext(ctx).Logger().Error("SupplyInvariant: ClassSeq.Get failed", "err", getErr)
+		}
+		if err := k.Classes.Walk(ctx, nil, func(id uint64, c types.Class) (bool, error) {
 			if c.Id > seq {
 				problems = append(problems, fmt.Sprintf("class %d above class_seq %d", c.Id, seq))
 			}
 			var live, reserved uint64
-			_ = k.Tokens.Walk(ctx, collections.NewPrefixedPairRange[uint64, uint64](id), func(key U64Pair, t types.Token) (bool, error) {
+			if err := k.Tokens.Walk(ctx, collections.NewPrefixedPairRange[uint64, uint64](id), func(key U64Pair, t types.Token) (bool, error) {
 				live++
 				if t.Id >= c.NextTokenId {
 					problems = append(problems, fmt.Sprintf("token %d/%d >= next_token_id %d", id, t.Id, c.NextTokenId))
 				}
 				return false, nil
-			})
-			_ = k.PendingMints.Walk(ctx, collections.NewPrefixedPairRange[uint64, uint64](id), func(key U64Pair, pm types.PendingMint) (bool, error) {
+			}); err != nil {
+				return true, err
+			}
+			if err := k.PendingMints.Walk(ctx, collections.NewPrefixedPairRange[uint64, uint64](id), func(key U64Pair, pm types.PendingMint) (bool, error) {
 				reserved++
 				if has, _ := k.Tokens.Has(ctx, key); has {
 					problems = append(problems, fmt.Sprintf("pending mint %d/%d collides with a token", id, pm.TokenId))
 				}
 				return false, nil
-			})
+			}); err != nil {
+				return true, err
+			}
 			// An EDITIONS class's supply counts editions (EditionInvariant).
 			if !c.IsEditions() && live != c.Supply {
 				problems = append(problems, fmt.Sprintf("class %d supply %d != %d tokens", id, c.Supply, live))
 			}
-			_ = k.Editions.Walk(ctx, collections.NewPrefixedPairRange[uint64, uint64](id), func(key U64Pair, e types.Edition) (bool, error) {
+			if err := k.Editions.Walk(ctx, collections.NewPrefixedPairRange[uint64, uint64](id), func(key U64Pair, e types.Edition) (bool, error) {
 				if e.Id >= c.NextTokenId {
 					problems = append(problems, fmt.Sprintf("edition %d/%d >= next_token_id %d", id, e.Id, c.NextTokenId))
 				}
@@ -111,7 +123,9 @@ func SupplyInvariant(k Keeper) sdk.Invariant {
 					problems = append(problems, fmt.Sprintf("edition %d/%d collides with a token", id, e.Id))
 				}
 				return false, nil
-			})
+			}); err != nil {
+				return true, err
+			}
 			if reserved != c.ReservedSupply {
 				problems = append(problems, fmt.Sprintf("class %d reserved %d != %d pending mints", id, c.ReservedSupply, reserved))
 			}
@@ -119,7 +133,9 @@ func SupplyInvariant(k Keeper) sdk.Invariant {
 				problems = append(problems, fmt.Sprintf("class %d issued %d > max %d", id, issued(c), c.MaxSupply))
 			}
 			return false, nil
-		})
+		}); err != nil {
+			return fmt.Sprintf("Classes.Walk failed: %v", err), true
+		}
 		return report("supply", problems)
 	}
 }
@@ -129,7 +145,7 @@ func SupplyInvariant(k Keeper) sdk.Invariant {
 func LockInvariant(k Keeper) sdk.Invariant {
 	return func(ctx sdk.Context) (string, bool) {
 		var problems []string
-		_ = k.Tokens.Walk(ctx, nil, func(key U64Pair, t types.Token) (bool, error) {
+		if err := k.Tokens.Walk(ctx, nil, func(key U64Pair, t types.Token) (bool, error) {
 			l, lErr := k.Listings.Get(ctx, key)
 			pt, pErr := k.PendingTransfers.Get(ctx, key)
 			switch t.Lock {
@@ -153,13 +169,17 @@ func LockInvariant(k Keeper) sdk.Invariant {
 				problems = append(problems, fmt.Sprintf("pending transfer %d/%d on unlocked token", t.ClassId, t.Id))
 			}
 			return false, nil
-		})
-		_ = k.Listings.Walk(ctx, nil, func(key U64Pair, l types.Listing) (bool, error) {
+		}); err != nil {
+			return fmt.Sprintf("Tokens.Walk failed: %v", err), true
+		}
+		if err := k.Listings.Walk(ctx, nil, func(key U64Pair, l types.Listing) (bool, error) {
 			if has, _ := k.Tokens.Has(ctx, key); !has {
 				problems = append(problems, fmt.Sprintf("listing %d/%d without token", key.K1(), key.K2()))
 			}
 			return false, nil
-		})
+		}); err != nil {
+			return fmt.Sprintf("Listings.Walk failed: %v", err), true
+		}
 		return report("locks", problems)
 	}
 }
@@ -174,17 +194,21 @@ func EscrowInvariant(k Keeper) sdk.Invariant {
 			return "", false
 		}
 		need := math.ZeroInt()
-		_ = k.Tokens.Walk(ctx, nil, func(_ U64Pair, t types.Token) (bool, error) {
+		if err := k.Tokens.Walk(ctx, nil, func(_ U64Pair, t types.Token) (bool, error) {
 			need = need.Add(t.Deposit)
 			if !t.Paid.IsNil() {
 				need = need.Add(t.Paid)
 			}
 			return false, nil
-		})
-		_ = k.PendingMints.Walk(ctx, nil, func(_ U64Pair, pm types.PendingMint) (bool, error) {
+		}); err != nil {
+			return fmt.Sprintf("Tokens.Walk failed: %v", err), true
+		}
+		if err := k.PendingMints.Walk(ctx, nil, func(_ U64Pair, pm types.PendingMint) (bool, error) {
 			need = need.Add(pm.Deposit)
 			return false, nil
-		})
+		}); err != nil {
+			return fmt.Sprintf("PendingMints.Walk failed: %v", err), true
+		}
 		need = need.Add(k.editionEscrow(ctx))
 		have := k.bankKeeper.GetBalance(ctx, k.ModuleAddress(), k.BondDenom(ctx)).Amount
 		var problems []string
@@ -201,7 +225,7 @@ func EscrowInvariant(k Keeper) sdk.Invariant {
 func FlagsInvariant(k Keeper) sdk.Invariant {
 	return func(ctx sdk.Context) (string, bool) {
 		var problems []string
-		_ = k.Classes.Walk(ctx, nil, func(id uint64, c types.Class) (bool, error) {
+		if err := k.Classes.Walk(ctx, nil, func(id uint64, c types.Class) (bool, error) {
 			if err := c.Flags.Validate(); err != nil {
 				problems = append(problems, fmt.Sprintf("class %d: %v", id, err))
 			}
@@ -212,17 +236,23 @@ func FlagsInvariant(k Keeper) sdk.Invariant {
 				if c.RoyaltyBps > 0 || (!c.MintPolicy.Price.Amount.IsNil() && c.MintPolicy.Price.Amount.IsPositive()) {
 					problems = append(problems, fmt.Sprintf("soulbound class %d has royalty or price", id))
 				}
-				_ = k.Listings.Walk(ctx, collections.NewPrefixedPairRange[uint64, uint64](id), func(key U64Pair, _ types.Listing) (bool, error) {
+				if err := k.Listings.Walk(ctx, collections.NewPrefixedPairRange[uint64, uint64](id), func(key U64Pair, _ types.Listing) (bool, error) {
 					problems = append(problems, fmt.Sprintf("soulbound token %d/%d listed", id, key.K2()))
 					return false, nil
-				})
-				_ = k.PendingTransfers.Walk(ctx, collections.NewPrefixedPairRange[uint64, uint64](id), func(key U64Pair, _ types.PendingTransfer) (bool, error) {
+				}); err != nil {
+					return true, err
+				}
+				if err := k.PendingTransfers.Walk(ctx, collections.NewPrefixedPairRange[uint64, uint64](id), func(key U64Pair, _ types.PendingTransfer) (bool, error) {
 					problems = append(problems, fmt.Sprintf("soulbound token %d/%d pending transfer", id, key.K2()))
 					return false, nil
-				})
+				}); err != nil {
+					return true, err
+				}
 			}
 			return false, nil
-		})
+		}); err != nil {
+			return fmt.Sprintf("Classes.Walk failed: %v", err), true
+		}
 		return report("flags", problems)
 	}
 }
@@ -233,24 +263,28 @@ func InboxCounterInvariant(k Keeper) sdk.Invariant {
 	return func(ctx sdk.Context) (string, bool) {
 		pairs, totals := k.deriveInboxCounters(ctx)
 		var problems []string
-		_ = k.PendingPairCount.Walk(ctx, nil, func(key collections.Pair[string, string], v uint64) (bool, error) {
+		if err := k.PendingPairCount.Walk(ctx, nil, func(key collections.Pair[string, string], v uint64) (bool, error) {
 			pk := [2]string{key.K1(), key.K2()}
 			if pairs[pk] != v {
 				problems = append(problems, fmt.Sprintf("pair %s->%s count %d != %d", key.K1(), key.K2(), v, pairs[pk]))
 			}
 			delete(pairs, pk)
 			return false, nil
-		})
+		}); err != nil {
+			return fmt.Sprintf("PendingPairCount.Walk failed: %v", err), true
+		}
 		for key, v := range pairs {
 			problems = append(problems, fmt.Sprintf("pair %s->%s missing counter (%d items)", key[0], key[1], v))
 		}
-		_ = k.InboxCount.Walk(ctx, nil, func(addr string, v uint64) (bool, error) {
+		if err := k.InboxCount.Walk(ctx, nil, func(addr string, v uint64) (bool, error) {
 			if totals[addr] != v {
 				problems = append(problems, fmt.Sprintf("inbox %s count %d != %d", addr, v, totals[addr]))
 			}
 			delete(totals, addr)
 			return false, nil
-		})
+		}); err != nil {
+			return fmt.Sprintf("InboxCount.Walk failed: %v", err), true
+		}
 		for addr, v := range totals {
 			problems = append(problems, fmt.Sprintf("inbox %s missing counter (%d items)", addr, v))
 		}
@@ -264,21 +298,27 @@ func InboxCounterInvariant(k Keeper) sdk.Invariant {
 func (k Keeper) deriveInboxCounters(ctx sdk.Context) (map[[2]string]uint64, map[string]uint64) {
 	pairs := map[[2]string]uint64{}
 	totals := map[string]uint64{}
-	_ = k.PendingTransfers.Walk(ctx, nil, func(_ U64Pair, pt types.PendingTransfer) (bool, error) {
+	if err := k.PendingTransfers.Walk(ctx, nil, func(_ U64Pair, pt types.PendingTransfer) (bool, error) {
 		pairs[[2]string{pt.From, pt.To}]++
 		totals[pt.To]++
 		return false, nil
-	})
-	_ = k.PendingMints.Walk(ctx, nil, func(_ U64Pair, pm types.PendingMint) (bool, error) {
+	}); err != nil {
+		sdk.UnwrapSDKContext(ctx).Logger().Error("deriveInboxCounters: PendingTransfers.Walk failed", "err", err)
+	}
+	if err := k.PendingMints.Walk(ctx, nil, func(_ U64Pair, pm types.PendingMint) (bool, error) {
 		pairs[[2]string{types.MintOrigin(pm.ClassId), pm.To}]++
 		totals[pm.To]++
 		return false, nil
-	})
-	_ = k.PendingUnits.Walk(ctx, nil, func(_ uint64, pu types.PendingUnits) (bool, error) {
+	}); err != nil {
+		sdk.UnwrapSDKContext(ctx).Logger().Error("deriveInboxCounters: PendingMints.Walk failed", "err", err)
+	}
+	if err := k.PendingUnits.Walk(ctx, nil, func(_ uint64, pu types.PendingUnits) (bool, error) {
 		pairs[[2]string{unitOriginOf(pu), pu.To}]++
 		totals[pu.To]++
 		return false, nil
-	})
+	}); err != nil {
+		sdk.UnwrapSDKContext(ctx).Logger().Error("deriveInboxCounters: PendingUnits.Walk failed", "err", err)
+	}
 	return pairs, totals
 }
 
@@ -287,37 +327,45 @@ func (k Keeper) deriveInboxCounters(ctx sdk.Context) (map[[2]string]uint64, map[
 func HideConsistencyInvariant(k Keeper) sdk.Invariant {
 	return func(ctx sdk.Context) (string, bool) {
 		var problems []string
-		_ = k.HideByTarget.Walk(ctx, nil, func(key U64Pair, id uint64) (bool, error) {
+		if err := k.HideByTarget.Walk(ctx, nil, func(key U64Pair, id uint64) (bool, error) {
 			hr, err := k.HideRecords.Get(ctx, id)
 			if err != nil || hr.Outcome != types.HideOutcome_HIDE_OUTCOME_PENDING {
 				problems = append(problems, fmt.Sprintf("hide index %d/%d -> non-pending record %d", key.K1(), key.K2(), id))
 			}
 			return false, nil
-		})
-		_ = k.Classes.Walk(ctx, nil, func(id uint64, c types.Class) (bool, error) {
+		}); err != nil {
+			return fmt.Sprintf("HideByTarget.Walk failed: %v", err), true
+		}
+		if err := k.Classes.Walk(ctx, nil, func(id uint64, c types.Class) (bool, error) {
 			if c.Status == types.ContentStatus_CONTENT_STATUS_HIDDEN {
 				if has, _ := k.HideByTarget.Has(ctx, targetKey(id, 0)); !has && !hiddenByClosedRecord(ctx, k, id, 0) {
 					problems = append(problems, fmt.Sprintf("class %d hidden without a hide record", id))
 				}
 			}
 			return false, nil
-		})
-		_ = k.Tokens.Walk(ctx, nil, func(key U64Pair, t types.Token) (bool, error) {
+		}); err != nil {
+			return fmt.Sprintf("Classes.Walk failed: %v", err), true
+		}
+		if err := k.Tokens.Walk(ctx, nil, func(key U64Pair, t types.Token) (bool, error) {
 			if t.Status == types.ContentStatus_CONTENT_STATUS_HIDDEN {
 				if has, _ := k.HideByTarget.Has(ctx, key); !has && !hiddenByClosedRecord(ctx, k, t.ClassId, t.Id) {
 					problems = append(problems, fmt.Sprintf("token %d/%d hidden without a hide record", t.ClassId, t.Id))
 				}
 			}
 			return false, nil
-		})
-		_ = k.Editions.Walk(ctx, nil, func(key U64Pair, e types.Edition) (bool, error) {
+		}); err != nil {
+			return fmt.Sprintf("Tokens.Walk failed: %v", err), true
+		}
+		if err := k.Editions.Walk(ctx, nil, func(key U64Pair, e types.Edition) (bool, error) {
 			if e.Status == types.ContentStatus_CONTENT_STATUS_HIDDEN {
 				if has, _ := k.HideByTarget.Has(ctx, key); !has && !hiddenByClosedRecord(ctx, k, e.ClassId, e.Id) {
 					problems = append(problems, fmt.Sprintf("edition %d/%d hidden without a hide record", e.ClassId, e.Id))
 				}
 			}
 			return false, nil
-		})
+		}); err != nil {
+			return fmt.Sprintf("Editions.Walk failed: %v", err), true
+		}
 		return report("hide-consistency", problems)
 	}
 }
@@ -326,7 +374,7 @@ func HideConsistencyInvariant(k Keeper) sdk.Invariant {
 // UPHELD outcome (scrubbed, not restored).
 func hiddenByClosedRecord(ctx sdk.Context, k Keeper, classID, tokenID uint64) bool {
 	found := false
-	_ = k.HidesByTargetAll.Walk(ctx, collections.NewSuperPrefixedTripleRange[uint64, uint64, uint64](classID, tokenID),
+	if err := k.HidesByTargetAll.Walk(ctx, collections.NewSuperPrefixedTripleRange[uint64, uint64, uint64](classID, tokenID),
 		func(key collections.Triple[uint64, uint64, uint64]) (bool, error) {
 			hr, err := k.HideRecords.Get(ctx, key.K3())
 			if err == nil && (hr.Outcome == types.HideOutcome_HIDE_OUTCOME_EXPIRED || hr.Outcome == types.HideOutcome_HIDE_OUTCOME_UPHELD) {
@@ -334,7 +382,9 @@ func hiddenByClosedRecord(ctx sdk.Context, k Keeper, classID, tokenID uint64) bo
 				return true, nil
 			}
 			return false, nil
-		})
+		}); err != nil {
+		sdk.UnwrapSDKContext(ctx).Logger().Error("hiddenByClosedRecord: HidesByTargetAll.Walk failed", "err", err)
+	}
 	return found
 }
 
@@ -356,7 +406,7 @@ func TokenExpiryIndexInvariant(k Keeper) sdk.Invariant {
 			classes[id] = c
 			return c, true
 		}
-		_ = k.Tokens.Walk(ctx, nil, func(_ U64Pair, t types.Token) (bool, error) {
+		if err := k.Tokens.Walk(ctx, nil, func(_ U64Pair, t types.Token) (bool, error) {
 			c, ok := classOf(t.ClassId)
 			if !ok {
 				return false, nil
@@ -370,14 +420,18 @@ func TokenExpiryIndexInvariant(k Keeper) sdk.Invariant {
 				problems = append(problems, fmt.Sprintf("token %d/%d of an expiring class has no expires_at", t.ClassId, t.Id))
 			}
 			return false, nil
-		})
-		_ = k.TokenExpiry.Walk(ctx, nil, func(key TimeTokenKey) (bool, error) {
+		}); err != nil {
+			return fmt.Sprintf("Tokens.Walk failed: %v", err), true
+		}
+		if err := k.TokenExpiry.Walk(ctx, nil, func(key TimeTokenKey) (bool, error) {
 			t, err := k.Tokens.Get(ctx, collections.Join(key.K2(), key.K3()))
 			if err != nil || t.ExpiresAt != key.K1() {
 				problems = append(problems, fmt.Sprintf("stale expiry index %d %d/%d", key.K1(), key.K2(), key.K3()))
 			}
 			return false, nil
-		})
+		}); err != nil {
+			return fmt.Sprintf("TokenExpiry.Walk failed: %v", err), true
+		}
 		return report("token-expiry-index", problems)
 	}
 }
@@ -390,7 +444,7 @@ func PolicyInvariant(k Keeper) sdk.Invariant {
 	return func(ctx sdk.Context) (string, bool) {
 		var problems []string
 		classes := map[uint64]types.Class{}
-		_ = k.Classes.Walk(ctx, nil, func(id uint64, c types.Class) (bool, error) {
+		if err := k.Classes.Walk(ctx, nil, func(id uint64, c types.Class) (bool, error) {
 			classes[id] = c
 			if err := c.Expiry.Validate(); err != nil {
 				problems = append(problems, fmt.Sprintf("class %d: %v", id, err))
@@ -413,8 +467,10 @@ func PolicyInvariant(k Keeper) sdk.Invariant {
 				problems = append(problems, fmt.Sprintf("class %d: renderer hash without path", id))
 			}
 			return false, nil
-		})
-		_ = k.Tokens.Walk(ctx, nil, func(_ U64Pair, t types.Token) (bool, error) {
+		}); err != nil {
+			return fmt.Sprintf("Classes.Walk failed: %v", err), true
+		}
+		if err := k.Tokens.Walk(ctx, nil, func(_ U64Pair, t types.Token) (bool, error) {
 			c, ok := classes[t.ClassId]
 			if !ok {
 				return false, nil
@@ -432,13 +488,17 @@ func PolicyInvariant(k Keeper) sdk.Invariant {
 				problems = append(problems, fmt.Sprintf("token %d/%d redeemed on a non-redeemable class", t.ClassId, t.Id))
 			}
 			return false, nil
-		})
-		_ = k.MediaProposals.Walk(ctx, nil, func(key collections.Triple[uint64, uint64, uint64], mp types.MediaProposal) (bool, error) {
+		}); err != nil {
+			return fmt.Sprintf("Tokens.Walk failed: %v", err), true
+		}
+		if err := k.MediaProposals.Walk(ctx, nil, func(key collections.Triple[uint64, uint64, uint64], mp types.MediaProposal) (bool, error) {
 			if has, _ := k.Tokens.Has(ctx, collections.Join(key.K1(), key.K2())); !has {
 				problems = append(problems, fmt.Sprintf("media proposal %d/%d #%d without token", key.K1(), key.K2(), key.K3()))
 			}
 			return false, nil
-		})
+		}); err != nil {
+			return fmt.Sprintf("MediaProposals.Walk failed: %v", err), true
+		}
 		return report("policies", problems)
 	}
 }

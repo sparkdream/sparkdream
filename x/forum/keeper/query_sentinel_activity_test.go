@@ -26,10 +26,12 @@ func createNSentinelActivity(f *fixture, n int) []types.SentinelActivity {
 		v := uint64(i)
 
 		// Forum-local slice.
-		_ = f.keeper.SentinelActivity.Set(f.ctx, addr, types.SentinelActivity{
+		if err := f.keeper.SentinelActivity.Set(f.ctx, addr, types.SentinelActivity{
 			Address:          addr,
 			PendingHideCount: v,
-		})
+		}); err != nil {
+			panic(err)
+		}
 
 		// Rep-side shared slice (mock).
 		if f.repKeeper.roleActivities == nil {

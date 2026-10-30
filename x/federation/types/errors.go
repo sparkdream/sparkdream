@@ -120,4 +120,24 @@ var (
 
 	// Open-content rule: only public-domain content enters the chain
 	ErrLicenseNotAccepted = errors.Register(ModuleName, 2389, "content must be dedicated to the public domain (license CC0-1.0 or PDM-1.0)")
+
+	// Inbound IBC validation
+	ErrUnknownChannel      = errors.Register(ModuleName, 2390, "packet did not arrive on the federation channel of a known peer")
+	ErrInvalidContentHash  = errors.Register(ModuleName, 2391, "content hash must be a 32-byte SHA-256 digest")
+	ErrTooManyChallenges   = errors.Register(ModuleName, 2392, "peer has too many pending identity challenges")
+	ErrInvalidInboundField = errors.Register(ModuleName, 2393, "inbound packet field is malformed or too long")
+	ErrDisputeInProgress   = errors.Register(ModuleName, 2394, "content has an open verification dispute")
+	ErrBindingNotActive    = errors.Register(ModuleName, 2395, "operator's x/service record is not ACTIVE")
+	ErrConflictOfInterest  = errors.Register(ModuleName, 2396, "signer is a party to this dispute")
+	ErrArbitrationClosed   = errors.Register(ModuleName, 2397, "arbitration for this dispute round is closed")
+	ErrSettlementFailed    = errors.Register(ModuleName, 2398, "dispute settlement side effect failed")
+
+	// Bridge identity attestation (MsgAttestIdentityLink)
+	ErrIdentityLinkAlreadyVerified  = errors.Register(ModuleName, 2399, "identity link is already verified")
+	ErrIdentityLinkExpired          = errors.Register(ModuleName, 2400, "unverified identity link has expired")
+	ErrAttestationChallengeMismatch = errors.Register(ModuleName, 2401, "attested challenge does not match the identity link's challenge")
+	ErrInvalidAttestationEvidence   = errors.Register(ModuleName, 2402, "attestation evidence_uri is empty, too long or not on the peer's hosts")
+	ErrSelfAttestation              = errors.Register(ModuleName, 2403, "a bridge operator cannot attest its own identity link")
+
+	ErrOperatorNotMember = errors.Register(ModuleName, 2404, "bridge operator must be an active x/rep member")
 )

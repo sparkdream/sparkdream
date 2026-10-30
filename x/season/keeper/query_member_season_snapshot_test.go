@@ -23,7 +23,9 @@ func createNMemberSeasonSnapshot(keeper keeper.Keeper, ctx context.Context, n in
 		items[i].InitiativesCompleted = uint64(i)
 		items[i].XpEarned = uint64(i)
 		items[i].SeasonLevel = uint64(i)
-		_ = keeper.MemberSeasonSnapshot.Set(ctx, items[i].SeasonAddress, items[i])
+		if err := keeper.MemberSeasonSnapshot.Set(ctx, items[i].SeasonAddress, items[i]); err != nil {
+			panic(err)
+		}
 	}
 	return items
 }

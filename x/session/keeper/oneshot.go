@@ -56,6 +56,12 @@ func (k Keeper) fireScheduledOneshot(parentCtx sdk.Context, id uint64) (fireErr 
 		// but a stale index entry shouldn't re-fire.
 		return nil
 	}
+	// The attempt consumes the fire-time entry whatever the outcome: FIRED
+	// is terminal, and a pause rewrites fire_at and moves the grant to the
+	// paused-TTL index (a retry re-adds it here).
+	if err := k.GrantsByFireTimeRemove(parentCtx, so.FireAt, id); err != nil {
+		return err
+	}
 
 	// Capture deposit for fee-collector transfer at end. Missing
 	// deposit is treated as zero (defensive; should never happen given
@@ -74,6 +80,9 @@ func (k Keeper) fireScheduledOneshot(parentCtx sdk.Context, id uint64) (fireErr 
 	// with ErrInsufficientFunds — the one failure the retry path can
 	// fix, and therefore the one that pauses instead of firing.
 	var underfunded bool
+	// withdrawn is set when an Exec's msg type left the allowlist after
+	// scheduling: nothing ran, so the deposit is refunded, not consumed.
+	var withdrawn bool
 
 	doDispatch := func() (success bool) {
 		// Child context for rollback on failure. Override gas meter on
@@ -113,6 +122,10 @@ func (k Keeper) fireScheduledOneshot(parentCtx sdk.Context, id uint64) (fireErr 
 				captured = "invalid recipient address"
 				return false
 			}
+			if k.bankKeeper.BlockedAddr(recipientAddr) {
+				captured = "recipient is a blocked module account"
+				return false
+			}
 			if err := k.bankKeeper.SendCoins(childCtx, granterAddr, recipientAddr, sdk.NewCoins(a.Transfer.Amount)); err != nil {
 				captured = fmt.Sprintf("transfer failed: %v", err)
 				underfunded = errors.Is(err, sdkerrors.ErrInsufficientFunds)
@@ -138,6 +151,15 @@ func (k Keeper) fireScheduledOneshot(parentCtx sdk.Context, id uint64) (fireErr 
 				captured = "inner msg type forbidden by anti-recursion denylist"
 				return false
 			}
+			// The audited allowlist is the containment boundary and gov's
+			// emergency lever: a type withdrawn from it (or later added to
+			// the forbidden list) after scheduling must not fire. Nothing
+			// was attempted, so the deposit goes back to the granter.
+			if types.ForbiddenAllowlistMsgs[a.Exec.Msg.TypeUrl] || !k.msgTypeAllowed(childCtx, a.Exec.Msg.TypeUrl) {
+				captured = "inner msg type no longer in params.allowed_msg_types"
+				withdrawn = true
+				return false
+			}
 			// Decode the inner msg.
 			var innerMsg sdk.Msg
 			anyMsg := &codectypes.Any{
@@ -150,7 +172,12 @@ func (k Keeper) fireScheduledOneshot(parentCtx sdk.Context, id uint64) (fireErr 
 			}
 			// Rewrite signer to granter (so downstream sees granter as
 			// the authority).
-			if err := rewriteSignerField(innerMsg, grant.Granter); err != nil {
+			granterBz, err := k.addressCodec.StringToBytes(grant.Granter)
+			if err != nil {
+				captured = "invalid granter address"
+				return false
+			}
+			if err := rewriteAndCheckSigner(k.cdc, innerMsg, grant.Granter, granterBz); err != nil {
 				captured = fmt.Sprintf("rewrite signer: %v", err)
 				return false
 			}
@@ -158,7 +185,8 @@ func (k Keeper) fireScheduledOneshot(parentCtx sdk.Context, id uint64) (fireErr 
 			stripDreamFields(innerMsg, a.Exec.Msg.TypeUrl)
 			// Set gas meter on the child context to the per-grant cap.
 			gasMeter := storetypes.NewGasMeter(a.Exec.GasLimit)
-			gasChild := childCtx.WithGasMeter(gasMeter)
+			gasChild := childCtx.WithGasMeter(gasMeter).
+				WithValue(types.ContextKeySessionFireInProgress, id)
 			// Dispatch.
 			if k.late.router == nil {
 				captured = "msg router not wired at fire time"
@@ -169,9 +197,15 @@ func (k Keeper) fireScheduledOneshot(parentCtx sdk.Context, id uint64) (fireErr 
 				captured = fmt.Sprintf("no handler for %s", a.Exec.Msg.TypeUrl)
 				return false
 			}
-			if _, err := handler(gasChild, innerMsg); err != nil {
+			res, err := handler(gasChild, innerMsg)
+			if err != nil {
 				captured = fmt.Sprintf("handler error: %v", err)
 				return false
+			}
+			// Surface the inner events (the router gave the handler a
+			// fresh EventManager); writeChild forwards them to the block.
+			if res != nil {
+				childCtx.EventManager().EmitEvents(res.GetEvents())
 			}
 			writeChild()
 			return true
@@ -209,22 +243,29 @@ func (k Keeper) fireScheduledOneshot(parentCtx sdk.Context, id uint64) (fireErr 
 	if err := k.decActiveGrantCount(parentCtx, grant.Granter, grant.Type); err != nil {
 		return err
 	}
-	// Remove the fire-time index entry so EndBlocker does not re-scan
-	// this grant on the next block.
-	_ = k.GrantsByFireTimeRemove(parentCtx, so.FireAt, id)
 
 	// Move the deposit to the fee collector (regardless of inner
 	// success/failure — pay-for-gas-attempted, matching normal tx
 	// behavior). If the deposit was missing (shouldn't happen), we just
 	// emit the event without the transfer.
-	if depositErr == nil && !depositCoin.IsZero() {
+	if depositErr == nil && !depositCoin.IsZero() && withdrawn {
+		if err := k.refundOneshotDeposit(parentCtx, grant.Granter, depositCoin); err != nil {
+			ctxLogger(parentCtx).Error("oneshot deposit refund failed",
+				"grant_id", id, "err", err)
+		}
+		if err := k.OneshotGasDeposit.Remove(parentCtx, id); err != nil {
+			parentCtx.Logger().Error("fireScheduledOneshot: OneshotGasDeposit.Remove failed", "err", err)
+		}
+	} else if depositErr == nil && !depositCoin.IsZero() {
 		if err := k.bankKeeper.SendCoinsFromModuleToModule(parentCtx, types.ModuleName, feeCollectorModule, sdk.NewCoins(depositCoin)); err != nil {
 			// Don't unwind FIRED on a deposit-transfer failure; surface
 			// via the captured fire_error so operators notice.
 			ctxLogger(parentCtx).Error("oneshot deposit -> fee_collector failed",
 				"grant_id", id, "err", err)
 		}
-		_ = k.OneshotGasDeposit.Remove(parentCtx, id)
+		if err := k.OneshotGasDeposit.Remove(parentCtx, id); err != nil {
+			parentCtx.Logger().Error("fireScheduledOneshot: OneshotGasDeposit.Remove failed", "err", err)
+		}
 	}
 
 	parentCtx.EventManager().EmitEvent(sdk.NewEvent(
@@ -287,7 +328,7 @@ func (k Keeper) pauseUnderfundedOneshot(ctx sdk.Context, grant types.Grant, so *
 	ctx.EventManager().EmitEvent(sdk.NewEvent(
 		"grant_paused_underfunded",
 		sdk.NewAttribute("id", fmt.Sprintf("%d", grant.Id)),
-		sdk.NewAttribute("type", grant.Type.String()),
+		sdk.NewAttribute("type", types.GrantTypeEventValue(grant.Type)),
 		sdk.NewAttribute("granter", grant.Granter),
 		sdk.NewAttribute("grantee", grant.Grantee),
 		sdk.NewAttribute("attempted_amount", attempted),
@@ -333,23 +374,9 @@ func oneshotVariantString(so *types.ScheduledOneshotPayload) string {
 
 // GrantsByFireTimeRemove drops the fire-time index entry for an
 // oneshot. Centralised so callers don't duplicate the (fire_at, id)
-// key construction.
+// key construction. Removing a missing key is a no-op.
 func (k Keeper) GrantsByFireTimeRemove(ctx context.Context, fireAt int64, id uint64) error {
-	// Reuse GrantsByExpiration's prefix family — the plan calls for a
-	// dedicated GrantsByFireTime index but with the EndBlocker walking
-	// GrantsByExpiration on (expires_at, id) and the fire pass walking
-	// the same on (fire_at, id), the storage overlap would create
-	// false hits. The fire-time index is stored under its own prefix
-	// (see PausedOneshotByPauseTimeKey for paused). For active oneshot
-	// firing we rely on the grant's own FireAt field, with EndBlocker
-	// walking a dedicated index.
-	//
-	// Since P5 didn't introduce a GrantsByFireTime collection yet, this
-	// is a no-op stub that lets the fireScheduledOneshot bookkeeping
-	// stay symmetric. Fire-time scanning in EndBlocker walks the
-	// primary Grants collection filtered by type + status + fire_at —
-	// good enough for the dispatch cap of 100 per pass.
-	return nil
+	return k.GrantsByFireTime.Remove(ctx, collections.Join(fireAt, id))
 }
 
 // ctxLogger returns the logger from an sdk.Context, falling back to
@@ -358,4 +385,28 @@ func ctxLogger(ctx sdk.Context) interface {
 	Error(msg string, keyvals ...any)
 } {
 	return ctx.Logger()
+}
+
+// msgTypeAllowed reports whether typeURL is in the current
+// params.allowed_msg_types. A params read failure counts as not allowed.
+func (k Keeper) msgTypeAllowed(ctx context.Context, typeURL string) bool {
+	params, err := k.Params.Get(ctx)
+	if err != nil {
+		return false
+	}
+	for _, t := range params.AllowedMsgTypes {
+		if t == typeURL {
+			return true
+		}
+	}
+	return false
+}
+
+// refundOneshotDeposit returns an escrowed oneshot gas deposit to granter.
+func (k Keeper) refundOneshotDeposit(ctx context.Context, granter string, dep sdk.Coin) error {
+	granterAddr, err := k.addressCodec.StringToBytes(granter)
+	if err != nil {
+		return err
+	}
+	return k.bankKeeper.SendCoinsFromModuleToAccount(ctx, types.ModuleName, granterAddr, sdk.NewCoins(dep))
 }

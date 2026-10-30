@@ -24,6 +24,9 @@ func (k msgServer) EditPost(ctx context.Context, msg *types.MsgEditPost) (*types
 	if err != nil {
 		params = types.DefaultParams()
 	}
+	if params.ForumPaused {
+		return nil, types.ErrForumPaused
+	}
 	if !params.EditingEnabled {
 		return nil, types.ErrEditingDisabled
 	}
@@ -50,17 +53,32 @@ func (k msgServer) EditPost(ctx context.Context, msg *types.MsgEditPost) (*types
 	}
 
 	// Check edit window
+	editMaxWindow := params.EditMaxWindow
+	if editMaxWindow == 0 {
+		editMaxWindow = types.DefaultEditMaxWindow
+	}
 	editAge := now - post.CreatedAt
-	if editAge > types.DefaultEditMaxWindow {
-		return nil, errorsmod.Wrapf(types.ErrEditWindowExpired, "edit window is %d seconds", types.DefaultEditMaxWindow)
+	if editAge > editMaxWindow {
+		return nil, errorsmod.Wrapf(types.ErrEditWindowExpired, "edit window is %d seconds", editMaxWindow)
 	}
 
 	// Validate new content
 	if msg.NewContent == "" {
 		return nil, types.ErrEmptyContent
 	}
-	if uint64(len(msg.NewContent)) > types.DefaultMaxContentSize {
-		return nil, errorsmod.Wrapf(types.ErrContentTooLarge, "max size is %d bytes", types.DefaultMaxContentSize)
+	maxContentSize := params.MaxContentSize
+	if maxContentSize == 0 {
+		maxContentSize = types.DefaultMaxContentSize
+	}
+	if uint64(len(msg.NewContent)) > maxContentSize {
+		return nil, errorsmod.Wrapf(types.ErrContentTooLarge, "max size is %d bytes", maxContentSize)
+	}
+
+	// No-op protection: an identical edit would refresh EditedAt (and the
+	// edited flag) for free inside the grace period, or charge the edit fee
+	// for nothing outside it.
+	if msg.NewContent == post.Content && msg.ContentType == post.ContentType && sameTagSet(msg.Tags, post.Tags) {
+		return nil, types.ErrNoContentChange
 	}
 
 	// Media rules + scan fee (docs/content-scanning.md §9).
@@ -157,7 +175,7 @@ func (k msgServer) EditPost(ctx context.Context, msg *types.MsgEditPost) (*types
 	}
 
 	// Emit event
-	inGracePeriod := editAge <= types.DefaultEditGracePeriod
+	inGracePeriod := editAge <= params.EditGracePeriod
 	sdkCtx.EventManager().EmitEvent(
 		sdk.NewEvent(
 			"post_edited",
@@ -168,4 +186,21 @@ func (k msgServer) EditPost(ctx context.Context, msg *types.MsgEditPost) (*types
 	)
 
 	return &types.MsgEditPostResponse{}, nil
+}
+
+// sameTagSet reports whether two tag lists hold the same tags, ignoring order.
+func sameTagSet(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	set := make(map[string]struct{}, len(a))
+	for _, t := range a {
+		set[t] = struct{}{}
+	}
+	for _, t := range b {
+		if _, ok := set[t]; !ok {
+			return false
+		}
+	}
+	return true
 }

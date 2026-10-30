@@ -272,7 +272,7 @@ func TestClassHideDrainsListingsAndScrubs(t *testing.T) {
 	f.endBlock() // 10 listings
 	f.endBlock() // 20
 	count := 0
-	_ = f.keeper.Listings.Walk(f.ctx, nil, func(_ keeperPairT, _ types.Listing) (bool, error) { count++; return false, nil })
+	require.NoError(t, f.keeper.Listings.Walk(f.ctx, nil, func(_ keeperPairT, _ types.Listing) (bool, error) { count++; return false, nil }))
 	require.Equal(t, 5, count)
 	f.endBlock()
 	has, _ := f.keeper.ClassCancelQueue.Has(f.ctx, id)
@@ -315,7 +315,7 @@ func TestUnhideClassStopsDrain(t *testing.T) {
 	require.NoError(t, err)
 	f.endBlock()
 	count := 0
-	_ = f.keeper.Listings.Walk(f.ctx, nil, func(_ keeperPairT, _ types.Listing) (bool, error) { count++; return false, nil })
+	require.NoError(t, f.keeper.Listings.Walk(f.ctx, nil, func(_ keeperPairT, _ types.Listing) (bool, error) { count++; return false, nil }))
 	require.Equal(t, 5, count, "listings not yet drained survive the unhide")
 }
 

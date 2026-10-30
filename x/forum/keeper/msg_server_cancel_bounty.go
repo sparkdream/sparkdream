@@ -3,6 +3,7 @@ package keeper
 import (
 	"context"
 	"fmt"
+	commontypes "sparkdream/x/common/types"
 
 	"sparkdream/x/forum/types"
 
@@ -56,7 +57,7 @@ func (k msgServer) CancelBounty(ctx context.Context, msg *types.MsgCancelBounty)
 	if feePercent > 100 {
 		feePercent = 100
 	}
-	cancellationFee := bountyAmount.Mul(math.NewInt(int64(feePercent))).Quo(math.NewInt(100))
+	cancellationFee := bountyAmount.Mul(math.NewInt(commontypes.Saturate[int64](feePercent))).Quo(math.NewInt(100))
 	refundAmount := bountyAmount.Sub(cancellationFee)
 
 	creatorAddr, _ := sdk.AccAddressFromBech32(msg.Creator)
@@ -85,7 +86,10 @@ func (k msgServer) CancelBounty(ctx context.Context, msg *types.MsgCancelBounty)
 	}
 	// FORUM-S2-8: only ACTIVE bounties belong in the BountiesByExpiry index;
 	// drop the entry on cancel so BountyExpiringSoon doesn't return it.
-	_ = k.BountiesByExpiry.Remove(ctx, collections.Join(bounty.ExpiresAt, bounty.Id))
+	if err := k.BountiesByExpiry.Remove(ctx, collections.Join(bounty.ExpiresAt, bounty.Id)); err != nil {
+		return nil, err
+	}
+	k.clearActiveBountyIndex(ctx, bounty)
 
 	// Emit event
 	sdkCtx.EventManager().EmitEvent(

@@ -90,7 +90,7 @@ func TestMsgRegisterOperator_Rejections(t *testing.T) {
 			mutate: func(f *fixture, _ *types.MsgRegisterOperator) {
 				cfg, _ := f.keeper.ServiceTypes.Get(f.ctx, testServiceType)
 				cfg.Enabled = false
-				_ = f.keeper.ServiceTypes.Set(f.ctx, testServiceType, cfg)
+				require.NoError(t, f.keeper.ServiceTypes.Set(f.ctx, testServiceType, cfg))
 			},
 			expErr: matchKind(types.ErrServiceTypeDisabled),
 		},

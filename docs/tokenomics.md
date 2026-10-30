@@ -134,8 +134,12 @@ Supply Dynamics:
    ├── Standard: 150 DREAM
    ├── Complex: 400 DREAM
    ├── Expert: 1000 DREAM
+   ├── Epic: 2500 DREAM (2.5 x expert, derived)
    ├── Solo bonus: +50% during bootstrap
    ├── ADJUDICATION: 0 DREAM (civic duty, no compensation)
+   ├── Paid only when the Operations Committee approves it by proposal
+   │   (MsgApproveInterim from the committee policy); no self-completion
+   ├── Capped per season (max_interim_rewards_per_season)
    └── Funded from treasury first; mint only if treasury is empty
 
    Note: Escalated adjudication decisions (from inconclusive jury
@@ -145,8 +149,15 @@ Supply Dynamics:
 
 4. PARTICIPATION REWARDS
    ├── Voting in governance
-   ├── Jury duty completion
+   ├── Jury duty: per-seat share of the disputed budget, paid only to
+   │   jurors who vote (no JURY_DUTY interim)
    └── Season-end bonuses
+
+   Challenger reward (budget x 20%) on an upheld initiative challenge:
+   ├── Booked against max_initiative_rewards_per_season
+   ├── Capped at the forfeited self-assign bond when the assignee
+   │   concedes (empty response or no response) instead of a verdict
+   └── Zero for a challenger related to the work or to the assignee
 
 5. RETROACTIVE PUBLIC GOODS FUNDING
    ├── Budget: 25% of initiative minting that season
@@ -172,7 +183,11 @@ Supply Dynamics:
    └── Challenger stake burned if challenge rejected
 
 3. FAILED INVITATIONS
-   └── Inviter stake burned if invitee misbehaves
+   └── Inviter stake burned if invitee misbehaves (capped at the
+       inviter's unlocked balance; locked DREAM backs other escrows)
+
+   Burns come out of unlocked DREAM only. A slash burns the lock of the
+   escrow being slashed, never another one (BurnLockedDREAM).
 
 4. UNSTAKED DECAY
    ├── Rate: 0.2% per epoch (~73% annualized)
@@ -636,7 +651,7 @@ Conviction:
 
 Challenges:
 ├── MinChallengeStake: Currently 50 DREAM
-├── ChallengerRewardRate: Currently 20%
+├── ChallengerRewardRate: Currently 20% (season-capped; see Minting Sources)
 ├── JurySize: Currently 5
 ```
 

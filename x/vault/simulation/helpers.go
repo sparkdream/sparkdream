@@ -60,10 +60,29 @@ func randomPendingProposal(r *rand.Rand, ctx sdk.Context, k keeper.Keeper) (type
 	return types.Vault{}, types.VaultProposal{}, false
 }
 
-// signerAccounts lists the vault's signers that are simulation accounts.
+// signerAccounts lists the vault's accepted signers that are simulation
+// accounts (only accepted entries may propose, approve or execute).
 func signerAccounts(v types.Vault, accs []simtypes.Account) []simtypes.Account {
 	var out []simtypes.Account
 	for _, s := range v.Signers {
+		if !s.Accepted {
+			continue
+		}
+		if a, ok := findAccount(accs, s.Address); ok {
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
+// invitedAccounts lists the vault's unaccepted signers that are simulation
+// accounts.
+func invitedAccounts(v types.Vault, accs []simtypes.Account) []simtypes.Account {
+	var out []simtypes.Account
+	for _, s := range v.Signers {
+		if s.Accepted {
+			continue
+		}
 		if a, ok := findAccount(accs, s.Address); ok {
 			out = append(out, a)
 		}
@@ -78,4 +97,15 @@ func hasApproved(p types.VaultProposal, addr string) bool {
 		}
 	}
 	return false
+}
+
+// acceptedVaults counts the vaults addr is an accepted signer of (no alias
+// expansion: simulation accounts never migrate), stopping at the cap.
+func acceptedVaults(ctx sdk.Context, k keeper.Keeper, addr string) int {
+	n := 0
+	_ = k.VaultsBySigner.Walk(ctx, collections.NewPrefixedPairRange[string, uint64](addr), func(collections.Pair[string, uint64]) (bool, error) {
+		n++
+		return n >= types.MaxVaultsPerSigner, nil
+	})
+	return n
 }

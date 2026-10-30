@@ -2,8 +2,11 @@ package keeper
 
 import (
 	"context"
+	"cosmossdk.io/collections"
+	"errors"
 	"fmt"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/season/types"
 
 	errorsmod "cosmossdk.io/errors"
@@ -52,14 +55,26 @@ func (k msgServer) InviteToGuild(ctx context.Context, msg *types.MsgInviteToGuil
 		return nil, errorsmod.Wrap(types.ErrAlreadyInGuild, "invitee is already in a guild")
 	}
 
+	// Free the slots of expired invites first, so an expired invite neither
+	// blocks a re-invite nor counts against max_pending_invites (SEA-11).
+	if err := k.pruneExpiredGuildInvitesOf(ctx, msg.GuildId, k.GetCurrentEpoch(ctx)); err != nil {
+		return nil, errorsmod.Wrap(err, "failed to expire stale invites")
+	}
+	if guild, err = k.Guild.Get(ctx, msg.GuildId); err != nil {
+		return nil, errorsmod.Wrapf(types.ErrGuildNotFound, "guild %d not found", msg.GuildId)
+	}
+
 	// Check invitee doesn't already have an invite from this guild
 	if k.HasPendingGuildInvite(ctx, msg.GuildId, msg.Invitee) {
 		return nil, types.ErrAlreadyInvited
 	}
 
 	// Check max pending invites
-	params, _ := k.Params.Get(ctx)
-	if uint32(len(guild.PendingInvites)) >= params.MaxPendingInvites {
+	params, getErr := k.Params.Get(ctx)
+	if getErr != nil && !errors.Is(getErr, collections.ErrNotFound) {
+		return nil, getErr
+	}
+	if commontypes.Saturate[uint32](len(guild.PendingInvites)) >= params.MaxPendingInvites {
 		return nil, types.ErrMaxPendingInvites
 	}
 
@@ -67,7 +82,7 @@ func (k msgServer) InviteToGuild(ctx context.Context, msg *types.MsgInviteToGuil
 	currentEpoch := k.GetCurrentEpoch(ctx)
 	expiresEpoch := int64(0)
 	if params.GuildInviteTtlEpochs > 0 {
-		expiresEpoch = currentEpoch + int64(params.GuildInviteTtlEpochs)
+		expiresEpoch = currentEpoch + commontypes.Saturate[int64](params.GuildInviteTtlEpochs)
 	}
 
 	invite := types.GuildInvite{
@@ -75,9 +90,10 @@ func (k msgServer) InviteToGuild(ctx context.Context, msg *types.MsgInviteToGuil
 		Inviter:      msg.Creator,
 		CreatedEpoch: currentEpoch,
 		ExpiresEpoch: expiresEpoch,
+		GuildId:      msg.GuildId,
 	}
 
-	key := fmt.Sprintf("%d:%s", msg.GuildId, msg.Invitee)
+	key := guildInviteKey(msg.GuildId, msg.Invitee)
 	if err := k.GuildInvite.Set(ctx, key, invite); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to save invite")
 	}

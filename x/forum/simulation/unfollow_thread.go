@@ -1,52 +1,64 @@
 package simulation
 
 import (
-	"fmt"
-	"math/rand"
-
-	"github.com/cosmos/cosmos-sdk/baseapp"
+	"cosmossdk.io/math"
 	"github.com/cosmos/cosmos-sdk/client"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
 
 	"sparkdream/x/forum/keeper"
 	"sparkdream/x/forum/types"
 )
 
-// SimulateMsgUnfollowThread simulates a MsgUnfollowThread message using direct keeper calls.
-// This bypasses any membership requirements for simulation purposes.
-// Full integration testing should be done in integration tests.
+// SimulateMsgUnfollowThread delivers MsgUnfollowThread for a follow held by
+// a sim account. When no sim account follows anything, one first follows a
+// visible thread (a real MsgFollowThread).
 func SimulateMsgUnfollowThread(
 	ak types.AuthKeeper,
 	bk types.BankKeeper,
 	k keeper.Keeper,
 	txGen client.TxConfig,
 ) simtypes.Operation {
-	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
-	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		simAccount, _ := simtypes.RandomAcc(r, accs)
-
-		// Get or create a thread follow for this account
-		threadID, err := getOrCreateThreadFollow(r, ctx, k, simAccount.Address.String())
+	return operation(ak, bk, k, txGen, &types.MsgUnfollowThread{}, func(e *simEnv) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
+		msg := &types.MsgUnfollowThread{}
+		follows, err := e.simFollows()
 		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgUnfollowThread{}), "failed to get/create thread follow"), nil, nil
+			return noOpErr(msg, err)
 		}
-
-		// Use direct keeper calls to unfollow thread
-		key := fmt.Sprintf("%s:%d", simAccount.Address.String(), threadID)
-
-		// Verify that the account is following
-		_, err = k.ThreadFollow.Get(ctx, key)
-		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgUnfollowThread{}), "account not following thread"), nil, nil
+		if len(follows) == 0 && !e.params.ForumPaused {
+			if acc, ok := pick(e.r, e.live()); ok {
+				threads, err := e.followable(acc.Address.String())
+				if err != nil {
+					return noOpErr(msg, err)
+				}
+				if thread, ok := pick(e.r, threads); ok {
+					follow := &types.MsgFollowThread{Creator: acc.Address.String(), ThreadId: thread.PostId}
+					if _, err := e.ensure(acc, follow, math.ZeroInt()); err != nil {
+						return noOpErr(msg, err)
+					}
+				}
+			}
+			if follows, err = e.simFollows(); err != nil {
+				return noOpErr(msg, err)
+			}
 		}
-
-		// Remove follow record
-		if err := k.ThreadFollow.Remove(ctx, key); err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgUnfollowThread{}), "failed to unfollow thread"), nil, nil
+		f, ok := pick(e.r, follows)
+		if !ok {
+			return noOp(msg, "no sim account follows a thread")
 		}
+		acc, _ := e.account(f.Follower)
+		msg.Creator, msg.ThreadId = f.Follower, f.ThreadId
+		return e.submit(acc, msg, math.ZeroInt())
+	})
+}
 
-		// Return success
-		return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgUnfollowThread{}), "ok (direct keeper call)"), nil, nil
-	}
+// simFollows returns the follows held by live sim accounts.
+func (e *simEnv) simFollows() ([]types.ThreadFollow, error) {
+	var out []types.ThreadFollow
+	err := e.k.ThreadFollow.Walk(e.ctx, nil, func(_ string, f types.ThreadFollow) (bool, error) {
+		if _, ok := e.account(f.Follower); ok {
+			out = append(out, f)
+		}
+		return false, nil
+	})
+	return out, err
 }

@@ -2,6 +2,8 @@ package keeper
 
 import (
 	"context"
+	"cosmossdk.io/collections"
+	"errors"
 	"fmt"
 
 	"sparkdream/x/season/types"
@@ -63,7 +65,10 @@ func (k msgServer) TransferGuildFounder(ctx context.Context, msg *types.MsgTrans
 
 	// If guild was frozen due to founder leaving, unfreeze it
 	if guild.Status == types.GuildStatus_GUILD_STATUS_FROZEN {
-		params, _ := k.Params.Get(ctx)
+		params, getErr := k.Params.Get(ctx)
+		if getErr != nil && !errors.Is(getErr, collections.ErrNotFound) {
+			return nil, getErr
+		}
 		memberCount := k.GetGuildMemberCount(ctx, msg.GuildId)
 		if memberCount >= uint64(params.MinGuildMembers) {
 			guild.Status = types.GuildStatus_GUILD_STATUS_ACTIVE

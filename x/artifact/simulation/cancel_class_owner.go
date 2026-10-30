@@ -3,6 +3,7 @@ package simulation
 import (
 	"math/rand"
 
+	"cosmossdk.io/math"
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -12,6 +13,7 @@ import (
 	"sparkdream/x/artifact/types"
 )
 
+// SimulateMsgCancelClassOwner withdraws a random pending class-owner proposal.
 func SimulateMsgCancelClassOwner(
 	ak types.AuthKeeper,
 	bk types.BankKeeper,
@@ -20,13 +22,20 @@ func SimulateMsgCancelClassOwner(
 ) simtypes.Operation {
 	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
 	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		simAccount, _ := simtypes.RandomAcc(r, accs)
-		msg := &types.MsgCancelClassOwner{
-			Owner: simAccount.Address.String(),
+		msg := &types.MsgCancelClassOwner{}
+		po, ok := randomPendingOwner(r, ctx, k, func(types.PendingClassOwner) bool { return true })
+		if !ok {
+			return noop(msg, "no pending handover")
 		}
-
-		// TODO: Handle the CancelClassOwner simulation
-
-		return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "CancelClassOwner simulation not implemented"), nil, nil
+		c, err := k.Classes.Get(ctx, po.ClassId)
+		if err != nil {
+			return noop(msg, "class gone")
+		}
+		owner, ok := findAccount(accs, c.Owner)
+		if !ok {
+			return noop(msg, "owner is not a sim account")
+		}
+		msg = &types.MsgCancelClassOwner{Owner: owner.Address.String(), ClassId: c.Id}
+		return deliver(r, app, ctx, ak, bk, txGen, owner, msg, math.ZeroInt())
 	}
 }

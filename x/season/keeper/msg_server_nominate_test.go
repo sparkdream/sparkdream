@@ -8,6 +8,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/stretchr/testify/require"
 
+	reptypes "sparkdream/x/rep/types"
 	"sparkdream/x/season/keeper"
 	"sparkdream/x/season/types"
 )
@@ -258,7 +259,9 @@ func TestMsgServerNominate(t *testing.T) {
 						RewardAmount: math.LegacyZeroDec(),
 						Rewarded:     false,
 					}
-					err = f.keeper.Nomination.Set(ctx, nomID, nom)
+					err = f.keeper.SetNomination(ctx, nom)
+					require.NoError(t, err)
+					err = f.keeper.IndexNewNominationForTest(ctx, nom)
 					require.NoError(t, err)
 				}
 
@@ -301,7 +304,9 @@ func TestMsgServerNominate(t *testing.T) {
 					RewardAmount: math.LegacyZeroDec(),
 					Rewarded:     false,
 				}
-				err = f.keeper.Nomination.Set(ctx, nomID, nom)
+				err = f.keeper.SetNomination(ctx, nom)
+				require.NoError(t, err)
+				err = f.keeper.IndexNewNominationForTest(ctx, nom)
 				require.NoError(t, err)
 
 				return f.keeper, ctx, &types.MsgNominate{
@@ -377,6 +382,11 @@ func TestMsgServerNominate(t *testing.T) {
 			setup: func(t *testing.T) (keeper.Keeper, sdk.Context, *types.MsgNominate, *beginBlockFixture) {
 				f := initBeginBlockFixture(t)
 				ctx, creatorStr := setupNominationSeason(t, f, TestAddrCreator)
+				// rep/initiative refs must name a completed initiative
+				// whose assignee is an active member (SEA-08).
+				f.repKeeper.Initiatives = map[uint64]reptypes.Initiative{
+					42: {Id: 42, Status: reptypes.InitiativeStatus_INITIATIVE_STATUS_COMPLETED, Assignee: creatorStr, CompletedAt: ctx.BlockTime().Unix()},
+				}
 
 				return f.keeper, ctx, &types.MsgNominate{
 					Creator:    creatorStr,

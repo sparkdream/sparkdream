@@ -6,6 +6,8 @@ import (
 	"fmt"
 
 	"cosmossdk.io/collections"
+	errorsmod "cosmossdk.io/errors"
+	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	"sparkdream/x/session/types"
 )
@@ -92,6 +94,25 @@ func (k Keeper) writeGrant(ctx context.Context, g types.Grant) error {
 			return err
 		}
 	}
+	return k.setOneshotTimeIndexes(ctx, g)
+}
+
+// setOneshotTimeIndexes writes the oneshot time index matching the
+// grant's status: GrantsByFireTime for an ACTIVE oneshot (fire pass) and
+// PausedOneshotByPauseTime for a paused one (fire_at then holds the pause
+// time). Both are derived from the grant alone, so a re-key or a genesis
+// import rebuilds them exactly.
+func (k Keeper) setOneshotTimeIndexes(ctx context.Context, g types.Grant) error {
+	so := g.GetScheduledOneshot()
+	if so == nil {
+		return nil
+	}
+	switch g.Status {
+	case types.GrantStatus_GRANT_STATUS_ACTIVE:
+		return k.GrantsByFireTime.Set(ctx, collections.Join(so.FireAt, g.Id))
+	case types.GrantStatus_GRANT_STATUS_PAUSED_INSUFFICIENT_FUNDS:
+		return k.PausedOneshotByPauseTime.Set(ctx, collections.Join(so.FireAt, g.Id))
+	}
 	return nil
 }
 
@@ -125,6 +146,29 @@ func (k Keeper) removeGrantIndexes(ctx context.Context, g types.Grant) error {
 		if err := k.PausedOneshotByPauseTime.Remove(ctx, collections.Join(so.FireAt, g.Id)); err != nil {
 			return err
 		}
+		if err := k.GrantsByFireTime.Remove(ctx, collections.Join(so.FireAt, g.Id)); err != nil {
+			return err
+		}
+	}
+	// Per-UTC-day spend buckets die with the grant (SES-13).
+	return k.clearEpochSpend(ctx, g.Id)
+}
+
+// clearEpochSpend removes every EpochSpendByGrant bucket of a grant. The
+// grant id is the first key component, so this is one prefix walk.
+func (k Keeper) clearEpochSpend(ctx context.Context, id uint64) error {
+	var keys []collections.Pair[uint64, int64]
+	rng := collections.NewPrefixedPairRange[uint64, int64](id)
+	if err := k.EpochSpendByGrant.Walk(ctx, rng, func(key collections.Pair[uint64, int64], _ string) (bool, error) {
+		keys = append(keys, key)
+		return false, nil
+	}); err != nil {
+		return err
+	}
+	for _, key := range keys {
+		if err := k.EpochSpendByGrant.Remove(ctx, key); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -139,6 +183,9 @@ func (k Keeper) deleteGrant(ctx context.Context, g types.Grant) error {
 		}
 	}
 	if err := k.removeGrantIndexes(ctx, g); err != nil {
+		return err
+	}
+	if err := k.GrantCreatorModule.Remove(ctx, g.Id); err != nil {
 		return err
 	}
 	return k.Grants.Remove(ctx, g.Id)
@@ -251,4 +298,70 @@ func (k Keeper) decActiveGrantCount(ctx context.Context, granter string, t types
 		return k.ActiveGrantCountByType.Remove(ctx, key)
 	}
 	return k.ActiveGrantCountByType.Set(ctx, key, count)
+}
+
+// checkRecipientNotBlocked refuses a payout to a blocked module account.
+// bank's SendCoins does not consult the blocked list (only MsgSend does),
+// so without this a grant could push SPARK into e.g. the bonded pool and
+// desynchronise its accounting (SES-08).
+func (k Keeper) checkRecipientNotBlocked(recipient string) error {
+	addr, err := k.addressCodec.StringToBytes(recipient)
+	if err != nil {
+		return err
+	}
+	if k.bankKeeper.BlockedAddr(addr) {
+		return errorsmod.Wrapf(types.ErrRecipientBlocked, "recipient %s", recipient)
+	}
+	return nil
+}
+
+// MaxGrantsPerGrantee caps how many grants may name one grantee through
+// MsgCreateGrant (SES-03). Grant creation needs no grantee consent, so
+// without a cap anyone could attach unlimited grants to an address and
+// make every consumer that iterates a grantee's grants (member migration,
+// the x/commons operator-dissolution sweep) do unbounded work. Module
+// accounts (e.g. x/artifact, the grantee of every Harberger tax pull) and
+// grants created by an authorized module are exempt.
+const MaxGrantsPerGrantee = 256
+
+// checkGranteeCapacity enforces MaxGrantsPerGrantee. The walk stops at the
+// cap, so it costs O(cap) at most.
+func (k Keeper) checkGranteeCapacity(ctx context.Context, grantee string) error {
+	addr, err := k.addressCodec.StringToBytes(grantee)
+	if err != nil {
+		return err
+	}
+	if acc := k.authKeeper.GetAccount(ctx, addr); acc != nil {
+		if _, isModule := acc.(sdk.ModuleAccountI); isModule {
+			return nil
+		}
+	}
+	n := 0
+	rng := collections.NewPrefixedPairRange[string, uint64](grantee)
+	err = k.GrantsByGrantee.Walk(ctx, rng, func(collections.Pair[string, uint64]) (bool, error) {
+		n++
+		return n >= MaxGrantsPerGrantee, nil
+	})
+	if err != nil {
+		return err
+	}
+	if n >= MaxGrantsPerGrantee {
+		return errorsmod.Wrapf(types.ErrTooManyGrantsForGrantee, "grantee %s holds %d grants", grantee, n)
+	}
+	return nil
+}
+
+// checkPayoutRecipients refuses a grant whose payout target is a blocked
+// module account: the RecurringPull grantee and the oneshot Transfer
+// recipient. SpendingAllowance recipients are checked per pull.
+func (k Keeper) checkPayoutRecipients(g types.Grant) error {
+	switch g.Type {
+	case types.GrantType_GRANT_TYPE_RECURRING_PULL:
+		return k.checkRecipientNotBlocked(g.Grantee)
+	case types.GrantType_GRANT_TYPE_SCHEDULED_ONESHOT:
+		if t := g.GetScheduledOneshot().GetTransfer(); t != nil {
+			return k.checkRecipientNotBlocked(t.Recipient)
+		}
+	}
+	return nil
 }

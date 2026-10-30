@@ -37,15 +37,23 @@ func (k msgServer) RevokeUnits(ctx context.Context, msg *types.MsgRevokeUnits) (
 	if err != nil {
 		return nil, err
 	}
-	if err := k.debit(ctx, &e, msg.Holder, msg.Amount, false); err != nil {
+	// The holder may have migrated its key since the units were credited:
+	// the balance stays keyed by the old address, so resolve it through the
+	// alias contract (either address may be named). Only free units are
+	// revoked; a revocable class is never transferable, so its units can
+	// never be listed or pending a transfer.
+	holder := k.balanceHolder(ctx, c.Id, e.Id, msg.Holder)
+	if err := k.debit(ctx, &e, holder, msg.Amount, false); err != nil {
 		return nil, err
 	}
 	e.Supply -= msg.Amount
-	e.Burned += msg.Amount
+	if e.Burned, err = types.AddUnits(e.Burned, msg.Amount); err != nil {
+		return nil, err
+	}
 	if err := k.saveEdition(ctx, e); err != nil {
 		return nil, err
 	}
 	emit(ctx, types.EventUnitsRevoked, classAttr(c.Id), editionAttr(e.Id),
-		sdk.NewAttribute("holder", msg.Holder), sdk.NewAttribute("amount", u64(msg.Amount)), sdk.NewAttribute("reason", msg.Reason))
+		sdk.NewAttribute("holder", holder), sdk.NewAttribute("amount", u64(msg.Amount)), sdk.NewAttribute("reason", msg.Reason))
 	return &types.MsgRevokeUnitsResponse{}, nil
 }

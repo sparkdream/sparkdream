@@ -58,6 +58,11 @@ func (k msgServer) setEditionMaxSupply(ctx context.Context, c types.Class, msg *
 	if e.MaxSupply != 0 && msg.MaxSupply >= e.MaxSupply {
 		return nil, errorsmod.Wrapf(types.ErrSupplyIncrease, "new cap must be below %d", e.MaxSupply)
 	}
+	// Same ceiling as MsgCreateEdition and genesis validation: capping an
+	// uncapped edition above it would export a genesis that fails Validate.
+	if msg.MaxSupply > types.HardMaxEditionSupply {
+		return nil, errorsmod.Wrapf(types.ErrSupplyExceeded, "max_supply above the hard ceiling %d", types.HardMaxEditionSupply)
+	}
 	if msg.MaxSupply < issuedUnits(e) {
 		return nil, errorsmod.Wrapf(types.ErrSupplyExceeded, "%d units already issued", issuedUnits(e))
 	}

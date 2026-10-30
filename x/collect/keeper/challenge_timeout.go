@@ -9,8 +9,19 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	"sparkdream/x/collect/types"
+	commontypes "sparkdream/x/common/types"
 	reptypes "sparkdream/x/rep/types"
 )
+
+// challengeDepositOf returns the challenge deposit actually locked for
+// review's pending challenge. Reviews challenged before the amount was stored
+// fall back to the current param.
+func challengeDepositOf(review types.CurationReview, params types.Params) math.Int {
+	if !review.ChallengeDeposit.IsNil() && review.ChallengeDeposit.IsPositive() {
+		return review.ChallengeDeposit
+	}
+	return params.ChallengeDeposit
+}
 
 // isChallengePending reports whether a review carries an unresolved curation
 // challenge: the challenger's deposit is still locked and the curator's
@@ -47,7 +58,9 @@ func (k Keeper) backfillChallengeDeadlines(ctx context.Context, params types.Par
 			scanned++
 			if isChallengePending(review) {
 				deadline := review.CreatedAt + params.ChallengeWindowBlocks + types.ChallengeResolutionTimeoutBlocks
-				k.CurationChallengeDeadline.Set(ctx, collections.Join(deadline, id)) //nolint:errcheck
+				if err := k.CurationChallengeDeadline.Set(ctx, collections.Join(deadline, id)); err != nil {
+					sdk.UnwrapSDKContext(ctx).Logger().Error("backfillChallengeDeadlines: CurationChallengeDeadline.Set failed", "err", err)
+				}
 			}
 			return false, nil
 		},
@@ -55,7 +68,9 @@ func (k Keeper) backfillChallengeDeadlines(ctx context.Context, params types.Par
 	if err != nil {
 		return // retry from the same cursor next block
 	}
-	k.CurationChallengeBackfill.Set(ctx, next) //nolint:errcheck
+	if err := k.CurationChallengeBackfill.Set(ctx, next); err != nil {
+		sdk.UnwrapSDKContext(ctx).Logger().Error("backfillChallengeDeadlines: CurationChallengeBackfill.Set failed", "err", err)
+	}
 }
 
 // timeoutExpiredChallenges resolves curation challenges whose deadline has
@@ -68,7 +83,7 @@ func (k Keeper) timeoutExpiredChallenges(
 ) (uint32, error) {
 	var entries []collections.Pair[int64, uint64]
 	err := k.CurationChallengeDeadline.Walk(ctx, nil, func(key collections.Pair[int64, uint64]) (bool, error) {
-		if key.K1() > currentBlock || pruned+uint32(len(entries)) >= cap {
+		if key.K1() > currentBlock || pruned+commontypes.Saturate[uint32](len(entries)) >= cap {
 			return true, nil
 		}
 		entries = append(entries, key)
@@ -79,7 +94,9 @@ func (k Keeper) timeoutExpiredChallenges(
 	}
 
 	for _, entry := range entries {
-		k.CurationChallengeDeadline.Remove(ctx, entry) //nolint:errcheck
+		if err := k.CurationChallengeDeadline.Remove(ctx, entry); err != nil {
+			sdk.UnwrapSDKContext(ctx).Logger().Error("timeoutExpiredChallenges: CurationChallengeDeadline.Remove failed", "err", err)
+		}
 		pruned++
 
 		review, err := k.CurationReview.Get(ctx, entry.K2())
@@ -107,7 +124,7 @@ func (k Keeper) resolveChallengeNotAdjudicated(ctx context.Context, review types
 		committed = math.ZeroInt()
 	}
 	if committed.IsPositive() {
-		if err := k.repKeeper.ReleaseBond(ctx, reptypes.RoleType_ROLE_TYPE_COLLECT_CURATOR,
+		if err := k.late.repKeeper.ReleaseBond(ctx, reptypes.RoleType_ROLE_TYPE_COLLECT_CURATOR,
 			review.Curator, committed); err != nil {
 			sdkCtx.Logger().Warn("curation challenge timeout: bond release failed",
 				"review_id", review.Id, "curator", review.Curator, "amount", committed.String(), "error", err)
@@ -117,16 +134,18 @@ func (k Keeper) resolveChallengeNotAdjudicated(ctx context.Context, review types
 	challenger := review.Challenger
 	refunded := math.ZeroInt()
 	if challengerAddr, err := k.addressCodec.StringToBytes(challenger); err == nil {
-		if err := k.repKeeper.UnlockDREAM(ctx, challengerAddr, params.ChallengeDeposit); err != nil {
+		deposit := challengeDepositOf(review, params)
+		if err := k.late.repKeeper.UnlockDREAM(ctx, challengerAddr, deposit); err != nil {
 			sdkCtx.Logger().Warn("curation challenge timeout: deposit unlock failed",
 				"review_id", review.Id, "challenger", challenger, "error", err)
 		} else {
-			refunded = params.ChallengeDeposit
+			refunded = deposit
 		}
 	}
 
 	review.Challenger = ""
 	review.CommittedSlash = math.ZeroInt()
+	review.ChallengeDeposit = math.ZeroInt()
 	if err := k.CurationReview.Set(ctx, review.Id, review); err != nil {
 		sdkCtx.Logger().Error("curation challenge timeout: failed to update review",
 			"review_id", review.Id, "error", err)

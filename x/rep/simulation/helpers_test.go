@@ -517,6 +517,7 @@ func TestPtrInt_IsCopy(t *testing.T) {
 
 	// Reassign the local variable; the pointer must still hold 42.
 	original = math.NewInt(100)
+	_ = original
 
 	if !ptr.Equal(math.NewInt(42)) {
 		t.Errorf("PtrInt result changed after reassigning original: got %s", ptr)

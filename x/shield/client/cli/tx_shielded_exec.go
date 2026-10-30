@@ -3,6 +3,7 @@ package cli
 import (
 	"encoding/hex"
 	"fmt"
+	commontypes "sparkdream/x/common/types"
 	"strconv"
 
 	"sparkdream/x/shield/types"
@@ -96,7 +97,7 @@ Example (immediate mode):
 			if err != nil {
 				return err
 			}
-			proofDomain := types.ProofDomain(proofDomainInt)
+			proofDomain := types.ProofDomain(commontypes.Saturate[int32](proofDomainInt))
 
 			// Parse min trust level
 			minTrustLevel, err := cmd.Flags().GetUint32(FlagMinTrustLevel)
@@ -109,7 +110,7 @@ Example (immediate mode):
 			if err != nil {
 				return err
 			}
-			execMode := types.ShieldExecMode(execModeInt)
+			execMode := types.ShieldExecMode(commontypes.Saturate[int32](execModeInt))
 
 			msg := &types.MsgShieldedExec{
 				Submitter:          submitter,

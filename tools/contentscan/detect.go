@@ -19,6 +19,8 @@ import (
 	"strings"
 
 	"github.com/klauspost/compress/zstd"
+
+	"sparkdream/tools/datauri"
 )
 
 // Detection, layered (§5.2). Open tools only, no commercial services:
@@ -70,7 +72,7 @@ func DecodeBody(contentType, body string, maxBytes int64) ([]byte, error) {
 			defer zr.Close()
 			r = zr
 		} else {
-			zr, err := zstd.NewReader(bytes.NewReader(raw), zstd.WithDecoderMaxMemory(uint64(max(maxBytes, 1<<20))))
+			zr, err := zstd.NewReader(bytes.NewReader(raw), zstd.WithDecoderMaxMemory(uint64(max(maxBytes, 1<<20)))) //nolint:gosec // max(maxBytes, 1 MiB) is positive)
 			if err != nil {
 				return nil, err
 			}
@@ -83,21 +85,50 @@ func DecodeBody(contentType, body string, maxBytes int64) ([]byte, error) {
 	}
 }
 
-// dataURIRe finds RFC 2397 data URIs in rendered text. It is broader than
-// the chain's labelling rule only in that it captures the payload too.
-var dataURIRe = regexp.MustCompile(`(?i)data:([^\s,;"'()<>]*)((?:;[^\s,;"'()<>]*)*),([^\s"'()<>]*)`)
+// dataURIRe finds RFC 2397 data URIs in text already normalised by
+// datauri.Normalize (references and escapes decoded, tab/CR/LF removed, so a
+// line-wrapped base64 payload is contiguous again). Unlike the chain's rule it
+// captures the payload; it has no length bound and allows spaces in the
+// media-type parameters, as browsers do.
+var dataURIRe = regexp.MustCompile(`(?i)data:[ ]*([^\s,;"'()<>]*)((?:[ ]*;[^,;"'()<>]*)*),([^\s"'()<>]*)`)
 
-// ExtractDataURIs decodes every data URI in text into a blob.
+// ErrIncompleteExtraction means a body holds data URIs (by the chain's rule,
+// tools/datauri) that could not all be decoded into blobs. A worker must not
+// sign a verdict then: judging only what it could decode would sign "clean"
+// for media it never saw. The subject stays unchecked.
+var ErrIncompleteExtraction = errors.New("contentscan: body holds data URIs that could not all be decoded")
+
+// ExtractDataURIs decodes every data URI in text into a blob, skipping any it
+// cannot decode. Use ExtractDataURIsStrict before signing a verdict.
 func ExtractDataURIs(text []byte, maxBytes int64) []Blob {
-	var out []Blob
-	for _, m := range dataURIRe.FindAllSubmatch(text, -1) {
-		mediaType, params, payload := string(m[1]), strings.ToLower(string(m[2])), string(m[3])
+	blobs, _ := extractDataURIs(text, maxBytes)
+	return blobs
+}
+
+// ExtractDataURIsStrict is ExtractDataURIs that fails with
+// ErrIncompleteExtraction when a payload doesn't decode or when fewer blobs
+// come out than the chain's labelling rule counts data URIs.
+func ExtractDataURIsStrict(text []byte, maxBytes int64) ([]Blob, error) {
+	blobs, failed := extractDataURIs(text, maxBytes)
+	if failed > 0 || len(blobs) < datauri.Count(string(text)) {
+		return blobs, ErrIncompleteExtraction
+	}
+	return blobs, nil
+}
+
+func extractDataURIs(text []byte, maxBytes int64) (out []Blob, failed int) {
+	normalized := datauri.Normalize(string(text))
+	for _, m := range dataURIRe.FindAllStringSubmatch(normalized, -1) {
+		mediaType := strings.TrimSpace(m[1])
+		params := strings.ToLower(strings.ReplaceAll(m[2], " ", ""))
+		payload := m[3]
 		var data []byte
 		if strings.Contains(params, ";base64") {
 			d, err := base64.StdEncoding.DecodeString(payload)
 			if err != nil {
 				d, err = base64.RawStdEncoding.DecodeString(strings.TrimRight(payload, "="))
 				if err != nil {
+					failed++
 					continue
 				}
 			}
@@ -105,6 +136,7 @@ func ExtractDataURIs(text []byte, maxBytes int64) []Blob {
 		} else {
 			d, err := url.PathUnescape(payload)
 			if err != nil {
+				failed++
 				continue
 			}
 			data = []byte(d)
@@ -117,7 +149,7 @@ func ExtractDataURIs(text []byte, maxBytes int64) []Blob {
 		}
 		out = append(out, Blob{Data: data, MediaType: mediaType, Source: "data-uri"})
 	}
-	return out
+	return out, failed
 }
 
 // urlRe finds media URLs a renderer would load: HTML src/poster/srcset

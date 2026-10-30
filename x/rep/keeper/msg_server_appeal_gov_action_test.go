@@ -3,6 +3,7 @@ package keeper_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -82,26 +83,23 @@ func TestMsgServerAppealGovAction(t *testing.T) {
 	t.Run("appeal already filed", func(t *testing.T) {
 		f := initFixture(t)
 		ms := keeper.NewMsgServerImpl(f.keeper)
-
-		appellant := sdk.AccAddress([]byte("appellant_dup___"))
-		setActiveMember(t, f.keeper, f.ctx, appellant)
-		appellantStr, err := f.addressCodec.BytesToString(appellant)
-		require.NoError(t, err)
+		appellant, appellantStr := seedWarnedMember(t, f, "appellant_dup___")
 
 		// First appeal succeeds.
-		_, err = ms.AppealGovAction(f.ctx, &types.MsgAppealGovAction{
+		_, err := ms.AppealGovAction(f.ctx, &types.MsgAppealGovAction{
 			Creator:      appellantStr,
 			ActionType:   uint64(types.GovActionType_GOV_ACTION_TYPE_WARNING),
-			ActionTarget: "target-dup",
+			ActionTarget: appellantStr,
 			AppealReason: "first try",
 		})
 		require.NoError(t, err)
+		_ = appellant
 
-		// Second appeal on the same action is rejected.
+		// Second appeal on the same resolution is rejected.
 		_, err = ms.AppealGovAction(f.ctx, &types.MsgAppealGovAction{
 			Creator:      appellantStr,
 			ActionType:   uint64(types.GovActionType_GOV_ACTION_TYPE_WARNING),
-			ActionTarget: "target-dup",
+			ActionTarget: appellantStr,
 			AppealReason: "second try",
 		})
 		require.Error(t, err)
@@ -111,16 +109,12 @@ func TestMsgServerAppealGovAction(t *testing.T) {
 	t.Run("successful appeal creates record and initiative", func(t *testing.T) {
 		f := initFixture(t)
 		ms := keeper.NewMsgServerImpl(f.keeper)
+		_, appellantStr := seedWarnedMember(t, f, "appellant_happy_")
 
-		appellant := sdk.AccAddress([]byte("appellant_happy_"))
-		setActiveMember(t, f.keeper, f.ctx, appellant)
-		appellantStr, err := f.addressCodec.BytesToString(appellant)
-		require.NoError(t, err)
-
-		_, err = ms.AppealGovAction(f.ctx, &types.MsgAppealGovAction{
+		_, err := ms.AppealGovAction(f.ctx, &types.MsgAppealGovAction{
 			Creator:      appellantStr,
 			ActionType:   uint64(types.GovActionType_GOV_ACTION_TYPE_WARNING),
-			ActionTarget: "target-happy",
+			ActionTarget: appellantStr,
 			AppealReason: "unjustified warning",
 		})
 		require.NoError(t, err)
@@ -128,7 +122,7 @@ func TestMsgServerAppealGovAction(t *testing.T) {
 		// Appeal record exists with expected content.
 		foundAppeal := false
 		require.NoError(t, f.keeper.GovActionAppeal.Walk(f.ctx, nil, func(_ uint64, a types.GovActionAppeal) (bool, error) {
-			if a.Appellant == appellantStr && a.ActionTarget == "target-happy" {
+			if a.Appellant == appellantStr && a.ActionTarget == appellantStr {
 				foundAppeal = true
 				require.Equal(t, types.GovActionType_GOV_ACTION_TYPE_WARNING, a.ActionType)
 				require.Equal(t, types.GovAppealStatus_GOV_APPEAL_STATUS_PENDING, a.Status)
@@ -143,6 +137,55 @@ func TestMsgServerAppealGovAction(t *testing.T) {
 		require.True(t, foundAppeal, "expected a GovActionAppeal record")
 	})
 
+	// FRM-02 / REP-R-14: only the affected member, only an action actually
+	// applied, only inside the filing window.
+	t.Run("third party cannot appeal another member's warning", func(t *testing.T) {
+		f := initFixture(t)
+		ms := keeper.NewMsgServerImpl(f.keeper)
+		_, warnedStr := seedWarnedMember(t, f, "appellant_warned")
+		other := sdk.AccAddress([]byte("appellant_other_"))
+		setActiveMember(t, f.keeper, f.ctx, other)
+
+		_, err := ms.AppealGovAction(f.ctx, &types.MsgAppealGovAction{
+			Creator: other.String(), ActionType: uint64(types.GovActionType_GOV_ACTION_TYPE_WARNING),
+			ActionTarget: warnedStr, AppealReason: "pre-empting",
+		})
+		require.ErrorIs(t, err, types.ErrAppealNotAllowed)
+	})
+
+	t.Run("no applied action, wrong action, closed window, unappealable type", func(t *testing.T) {
+		f := initFixture(t)
+		ms := keeper.NewMsgServerImpl(f.keeper)
+		plain := sdk.AccAddress([]byte("appellant_plain_"))
+		setActiveMember(t, f.keeper, f.ctx, plain)
+		_, err := ms.AppealGovAction(f.ctx, &types.MsgAppealGovAction{
+			Creator: plain.String(), ActionType: uint64(types.GovActionType_GOV_ACTION_TYPE_WARNING),
+			ActionTarget: plain.String(), AppealReason: "nothing happened",
+		})
+		require.ErrorIs(t, err, types.ErrAppealNotAllowed)
+
+		_, warnedStr := seedWarnedMember(t, f, "appellant_window")
+		_, err = ms.AppealGovAction(f.ctx, &types.MsgAppealGovAction{
+			Creator: warnedStr, ActionType: uint64(types.GovActionType_GOV_ACTION_TYPE_ZEROING),
+			ActionTarget: warnedStr, AppealReason: "wrong action",
+		})
+		require.ErrorIs(t, err, types.ErrAppealNotAllowed)
+
+		late := f.ctx.WithBlockTime(f.ctx.BlockTime().Add(time.Duration(types.DefaultAppealDeadline+1) * time.Second))
+		_, err = ms.AppealGovAction(late, &types.MsgAppealGovAction{
+			Creator: warnedStr, ActionType: uint64(types.GovActionType_GOV_ACTION_TYPE_WARNING),
+			ActionTarget: warnedStr, AppealReason: "too late",
+		})
+		require.ErrorIs(t, err, types.ErrAppealNotAllowed)
+
+		for _, at := range []types.GovActionType{types.GovActionType_GOV_ACTION_TYPE_TAG_REMOVAL, types.GovActionType_GOV_ACTION_TYPE_FORUM_PAUSE, types.GovActionType_GOV_ACTION_TYPE_REVIEW_REJECTION} {
+			_, err = ms.AppealGovAction(f.ctx, &types.MsgAppealGovAction{
+				Creator: warnedStr, ActionType: uint64(at), ActionTarget: warnedStr, AppealReason: "x",
+			})
+			require.ErrorIs(t, err, types.ErrAppealNotAllowed, at.String())
+		}
+	})
+
 	t.Run("bond transfer failure surfaces as error", func(t *testing.T) {
 		f := initFixture(t)
 		// Force the bank send-to-escrow to fail: simulates insufficient funds.
@@ -151,15 +194,12 @@ func TestMsgServerAppealGovAction(t *testing.T) {
 		}
 
 		ms := keeper.NewMsgServerImpl(f.keeper)
-		appellant := sdk.AccAddress([]byte("appellant_broke_"))
-		setActiveMember(t, f.keeper, f.ctx, appellant)
-		appellantStr, err := f.addressCodec.BytesToString(appellant)
-		require.NoError(t, err)
+		_, appellantStr := seedWarnedMember(t, f, "appellant_broke_")
 
-		_, err = ms.AppealGovAction(f.ctx, &types.MsgAppealGovAction{
+		_, err := ms.AppealGovAction(f.ctx, &types.MsgAppealGovAction{
 			Creator:      appellantStr,
 			ActionType:   uint64(types.GovActionType_GOV_ACTION_TYPE_WARNING),
-			ActionTarget: "target-broke",
+			ActionTarget: appellantStr,
 			AppealReason: "please",
 		})
 		require.Error(t, err)
@@ -171,4 +211,24 @@ func TestMsgServerAppealGovAction(t *testing.T) {
 		defer iter.Close()
 		require.False(t, iter.Valid(), "no appeal record should exist after bond failure")
 	})
+}
+
+// seedWarnedMember seeds an active member whose member report was resolved
+// with a WARNING just now, which opens their MsgAppealGovAction window.
+func seedWarnedMember(t *testing.T, f *fixture, name string) (sdk.AccAddress, string) {
+	t.Helper()
+	addr := sdk.AccAddress([]byte(name))
+	setActiveMember(t, f.keeper, f.ctx, addr)
+	require.NoError(t, f.keeper.MemberReport.Set(f.ctx, addr.String(), types.MemberReport{
+		Member:         addr.String(),
+		Status:         types.MemberReportStatus_MEMBER_REPORT_STATUS_RESOLVED,
+		ResolvedAction: types.GovActionType_GOV_ACTION_TYPE_WARNING,
+		ResolvedAt:     f.ctx.BlockTime().Unix(),
+	}))
+	require.NoError(t, f.keeper.MemberActionRestorations.Set(f.ctx, addr.String(), types.MemberActionRestoration{
+		Member:     addr.String(),
+		Action:     types.GovActionType_GOV_ACTION_TYPE_WARNING,
+		ResolvedAt: f.ctx.BlockTime().Unix(),
+	}))
+	return addr, addr.String()
 }

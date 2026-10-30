@@ -944,6 +944,17 @@ func request_Query_GetGuildInvite_0(ctx context.Context, marshaler runtime.Marsh
 		_   = err
 	)
 
+	val, ok = pathParams["guild_id"]
+	if !ok {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "guild_id")
+	}
+
+	protoReq.GuildId, err = runtime.Uint64(val)
+
+	if err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "guild_id", err)
+	}
+
 	val, ok = pathParams["guild_invitee"]
 	if !ok {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "guild_invitee")
@@ -970,6 +981,17 @@ func local_request_Query_GetGuildInvite_0(ctx context.Context, marshaler runtime
 		err error
 		_   = err
 	)
+
+	val, ok = pathParams["guild_id"]
+	if !ok {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "guild_id")
+	}
+
+	protoReq.GuildId, err = runtime.Uint64(val)
+
+	if err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "guild_id", err)
+	}
 
 	val, ok = pathParams["guild_invitee"]
 	if !ok {
@@ -6382,7 +6404,7 @@ var (
 
 	pattern_Query_ListGuildMembership_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"sparkdream", "season", "v1", "guild_membership"}, "", runtime.AssumeColonVerbOpt(false)))
 
-	pattern_Query_GetGuildInvite_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 1, 0, 4, 1, 5, 4}, []string{"sparkdream", "season", "v1", "guild_invite", "guild_invitee"}, "", runtime.AssumeColonVerbOpt(false)))
+	pattern_Query_GetGuildInvite_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 1, 0, 4, 1, 5, 4, 1, 0, 4, 1, 5, 5}, []string{"sparkdream", "season", "v1", "guild_invite", "guild_id", "guild_invitee"}, "", runtime.AssumeColonVerbOpt(false)))
 
 	pattern_Query_ListGuildInvite_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"sparkdream", "season", "v1", "guild_invite"}, "", runtime.AssumeColonVerbOpt(false)))
 

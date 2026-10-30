@@ -181,7 +181,7 @@ echo "--- PART 4: Nullifier queries ---"
 PART4_OK=true
 
 # Check a random nullifier (should not be used)
-RANDOM_NULL_HEX="abcdef0000000000000000000000000000000000000000000000000000000000"
+RANDOM_NULL_HEX="00cdef0000000000000000000000000000000000000000000000000000000000"
 NULL_RESULT=$($BINARY query shield nullifier-used 1 0 "$RANDOM_NULL_HEX" --output json 2>&1)
 
 if echo "$NULL_RESULT" | grep -qi "not found"; then

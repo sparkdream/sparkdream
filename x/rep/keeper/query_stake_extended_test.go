@@ -21,14 +21,14 @@ func TestQueryPendingStakeRewards(t *testing.T) {
 
 		// Setup: create staker member with DREAM
 		staker := sdk.AccAddress([]byte("staker"))
-		k.Member.Set(ctx, staker.String(), types.Member{
+		require.NoError(t, k.Member.Set(ctx, staker.String(), types.Member{
 			Address:          staker.String(),
 			DreamBalance:     PtrInt(math.NewInt(10000)),
 			StakedDream:      PtrInt(math.ZeroInt()),
 			LifetimeEarned:   PtrInt(math.ZeroInt()),
 			LifetimeBurned:   PtrInt(math.ZeroInt()),
 			ReputationScores: map[string]string{"backend": "50.0"},
-		})
+		}))
 
 		// Create project and initiative
 		projectID, err := k.CreateProject(ctx, staker, "Proj", "Desc", []string{"backend"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical", math.NewInt(10000), math.NewInt(1000), false)

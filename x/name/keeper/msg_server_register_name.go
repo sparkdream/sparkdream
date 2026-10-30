@@ -3,6 +3,7 @@ package keeper
 import (
 	"context"
 	"regexp"
+	commontypes "sparkdream/x/common/types"
 	"strings"
 	"time"
 
@@ -33,19 +34,20 @@ func (k msgServer) RegisterName(goCtx context.Context, msg *types.MsgRegisterNam
 	}
 
 	// 2. Validate Name (Length, Characters & Reserved)
-	if len(name) < int(params.MinNameLength) {
+	if commontypes.Saturate[uint64](len(name)) < params.MinNameLength {
 		return nil, errorsmod.Wrapf(types.ErrInvalidName, "name too short (min %d)", params.MinNameLength)
 	}
-	if len(name) > int(params.MaxNameLength) {
+	if commontypes.Saturate[uint64](len(name)) > params.MaxNameLength {
 		return nil, errorsmod.Wrapf(types.ErrInvalidName, "name too long (max %d)", params.MaxNameLength)
 	}
 	if !validNameRegex.MatchString(name) {
 		return nil, errorsmod.Wrapf(types.ErrInvalidName, "name contains invalid characters (allowed: a-z, 0-9, -, _; cannot start/end with -)")
 	}
-	for _, blocked := range params.BlockedNames {
-		if name == blocked {
-			return nil, errorsmod.Wrapf(types.ErrNameReserved, "name '%s' is reserved", name)
-		}
+	if isBlockedName(name, params.BlockedNames) {
+		return nil, errorsmod.Wrapf(types.ErrNameReserved, "name '%s' is reserved", name)
+	}
+	if len(msg.Data) > MaxNameDataLen {
+		return nil, errorsmod.Wrapf(types.ErrInvalidName, "data is at most %d bytes", MaxNameDataLen)
 	}
 
 	// 3. Membership Gate: any active x/rep member may register a name.
@@ -63,10 +65,14 @@ func (k msgServer) RegisterName(goCtx context.Context, msg *types.MsgRegisterNam
 	}
 
 	// 4. Check Fees. The denom comes from the chain's identity at runtime.
+	// The fee is burned, like every other creation fee on the chain.
 	if !params.RegistrationFeeAmount.IsZero() {
-		fee := sdk.NewCoin(k.BondDenom(ctx), params.RegistrationFeeAmount)
-		if err := k.bankKeeper.SendCoinsFromAccountToModule(ctx, creatorAddr, types.ModuleName, sdk.NewCoins(fee)); err != nil {
+		fee := sdk.NewCoins(sdk.NewCoin(k.BondDenom(ctx), params.RegistrationFeeAmount))
+		if err := k.bankKeeper.SendCoinsFromAccountToModule(ctx, creatorAddr, types.ModuleName, fee); err != nil {
 			return nil, errorsmod.Wrapf(err, "insufficient funds for registration fee")
+		}
+		if err := k.bankKeeper.BurnCoins(ctx, types.ModuleName, fee); err != nil {
+			return nil, errorsmod.Wrapf(err, "failed to burn registration fee")
 		}
 	}
 
@@ -76,6 +82,13 @@ func (k msgServer) RegisterName(goCtx context.Context, msg *types.MsgRegisterNam
 	if found {
 		// Scavenge Logic: Check if current owner is expired
 		if k.IsOwnerExpired(ctx, currentOwner) {
+			// A name under an active dispute is not scavengeable: the
+			// dispute would otherwise resolve against the scavenger, who
+			// never had a contest window (NAM-09). It becomes available
+			// again once the dispute resolves.
+			if d, found := k.GetDispute(ctx, name); found && d.Active {
+				return nil, errorsmod.Wrapf(types.ErrNameTaken, "name %q is under an active dispute", name)
+			}
 			// Expired! We can steal it.
 			scavenged = true
 			// Emit event to track the scavenge

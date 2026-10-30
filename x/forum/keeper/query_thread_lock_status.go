@@ -29,10 +29,10 @@ func (q queryServer) ThreadLockStatus(ctx context.Context, req *types.QueryThrea
 		return nil, status.Error(codes.InvalidArgument, "not a root post")
 	}
 
-	// Check if there's a sentinel lock record
+	// Check if there's a sentinel lock record (an authority record from a
+	// committee or council lock carries no sentinel).
 	isSentinelLock := false
-	_, err = q.k.ThreadLockRecord.Get(ctx, req.RootId)
-	if err == nil {
+	if rec, err := q.k.ThreadLockRecord.Get(ctx, req.RootId); err == nil && rec.Sentinel != "" {
 		isSentinelLock = true
 	}
 

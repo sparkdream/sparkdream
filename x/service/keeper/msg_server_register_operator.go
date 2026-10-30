@@ -67,7 +67,7 @@ func (k msgServer) RegisterOperator(ctx context.Context, msg *types.MsgRegisterO
 	if err != nil {
 		return nil, err
 	}
-	if uint32(len(msg.Metadata)) > params.MaxMetadataBytes {
+	if len(msg.Metadata) > int(params.MaxMetadataBytes) {
 		return nil, types.ErrInvalidMetadataSize.Wrapf("%d > %d", len(msg.Metadata), params.MaxMetadataBytes)
 	}
 

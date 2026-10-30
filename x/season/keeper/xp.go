@@ -8,6 +8,7 @@ import (
 	errorsmod "cosmossdk.io/errors"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/season/types"
 )
 
@@ -53,7 +54,7 @@ func levelForXP(params types.Params, xp uint64) uint64 {
 	level := uint64(1)
 	for i, threshold := range params.LevelThresholds {
 		if xp >= threshold {
-			level = uint64(i + 1)
+			level = commontypes.Saturate[uint64](i + 1)
 		} else {
 			break
 		}
@@ -113,7 +114,12 @@ func (k Keeper) grantXPToProfile(ctx context.Context, env xpEnv, profile *types.
 	}
 
 	switch source {
-	case types.XPSourceVoteCast, types.XPSourceProposalCreated:
+	case types.XPSourceVoteCast:
+		tracker.VoteXpEarned += amount
+		// The vote frequency cap counts accepted vote grants, not XP
+		// (SEA-33): proposal XP and a truncated grant used to skew it.
+		tracker.VotesCounted++
+	case types.XPSourceProposalCreated:
 		tracker.VoteXpEarned += amount
 	case types.XPSourceForumReply, types.XPSourceForumHelpful:
 		tracker.ForumXpEarned += amount
@@ -127,6 +133,9 @@ func (k Keeper) grantXPToProfile(ctx context.Context, env xpEnv, profile *types.
 	}
 	if profile.SeasonXp > math.MaxUint64-amount || profile.LifetimeXp > math.MaxUint64-amount {
 		return errorsmod.Wrap(types.ErrInvalidXPSource, "xp overflow")
+	}
+	if err := k.recordXPGrantStats(ctx, profile.SeasonXp, amount); err != nil {
+		return err
 	}
 	profile.SeasonXp += amount
 	profile.LifetimeXp += amount
@@ -191,13 +200,14 @@ func (k Keeper) hasVoteXPRecord(ctx context.Context, season uint64, memberStr st
 	return err == nil && has
 }
 
-// voteXPCountThisEpoch counts proposals the member already earned vote XP
-// for in `epoch`, derived from the tracker bucket so no extra state is kept.
+// voteXPCountThisEpoch counts the vote XP grants the member received in
+// `epoch` (EpochXpTracker.votes_counted, SEA-33). xpPerVote is kept for the
+// callers; a zero vote reward still counts nothing.
 func (k Keeper) voteXPCountThisEpoch(ctx context.Context, memberStr string, epoch int64, xpPerVote uint64) uint64 {
 	if xpPerVote == 0 {
 		return 0
 	}
-	return k.getEpochXPTracker(ctx, memberStr, epoch).VoteXpEarned / xpPerVote
+	return k.getEpochXPTracker(ctx, memberStr, epoch).VotesCounted
 }
 
 // --- MemberRegistration / forum cooldowns ------------------------------------
@@ -226,7 +236,7 @@ func (k Keeper) forumXPCooldownPassed(ctx context.Context, beneficiary, actor st
 			if err != nil {
 				continue
 			}
-			if epoch-cd.LastGrantedEpoch < int64(cooldownEpochs) {
+			if epoch-cd.LastGrantedEpoch < commontypes.Saturate[int64](cooldownEpochs) {
 				return false
 			}
 		}

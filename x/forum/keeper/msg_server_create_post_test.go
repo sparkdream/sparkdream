@@ -63,7 +63,7 @@ func TestCreatePost(t *testing.T) {
 			setup: func() {
 				params := types.DefaultParams()
 				params.ForumPaused = true
-				_ = f.keeper.Params.Set(f.ctx, params)
+				require.NoError(t, f.keeper.Params.Set(f.ctx, params))
 			},
 			expectError: true,
 			errContains: "forum is paused",
@@ -95,7 +95,7 @@ func TestCreatePost(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Reset params before each test
-			_ = f.keeper.Params.Set(f.ctx, types.DefaultParams())
+			require.NoError(t, f.keeper.Params.Set(f.ctx, types.DefaultParams()))
 
 			if tt.setup != nil {
 				tt.setup()
@@ -319,7 +319,7 @@ func TestCreatePostReply(t *testing.T) {
 				// Lock the root post
 				post, _ := f.keeper.Post.Get(f.ctx, rootPost.PostId)
 				post.Locked = true
-				_ = f.keeper.Post.Set(f.ctx, rootPost.PostId, post)
+				require.NoError(t, f.keeper.Post.Set(f.ctx, rootPost.PostId, post))
 			},
 			expectError: true,
 			errContains: "thread is locked",
@@ -331,7 +331,7 @@ func TestCreatePostReply(t *testing.T) {
 			// Reset the root post lock state
 			post, _ := f.keeper.Post.Get(f.ctx, rootPost.PostId)
 			post.Locked = false
-			_ = f.keeper.Post.Set(f.ctx, rootPost.PostId, post)
+			require.NoError(t, f.keeper.Post.Set(f.ctx, rootPost.PostId, post))
 
 			if tt.setup != nil {
 				tt.setup()
@@ -423,7 +423,7 @@ func TestCreatePostStorageFee(t *testing.T) {
 
 		params := types.DefaultParams()
 		params.CostPerByteExempt = true
-		f.keeper.Params.Set(f.ctx, params)
+		require.NoError(t, f.keeper.Params.Set(f.ctx, params))
 
 		f.bankKeeper.SendCoinsFromAccountToModuleCalls = nil
 		f.bankKeeper.BurnCoinsCalls = nil
@@ -598,13 +598,13 @@ func TestCreatePostExpirationQueue(t *testing.T) {
 
 		// Verify no queue entries exist for this post
 		found := false
-		_ = f.keeper.ExpirationQueue.Walk(f.ctx, nil, func(key collections.Pair[int64, uint64]) (bool, error) {
+		require.NoError(t, f.keeper.ExpirationQueue.Walk(f.ctx, nil, func(key collections.Pair[int64, uint64]) (bool, error) {
 			if key.K2() == nextID {
 				found = true
 				return true, nil
 			}
 			return false, nil
-		})
+		}))
 		require.False(t, found, "member post should NOT be in ExpirationQueue")
 	})
 

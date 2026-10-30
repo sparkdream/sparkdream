@@ -16,14 +16,14 @@ func TestCreateProject(t *testing.T) {
 	ctx := fixture.ctx
 
 	creator := sdk.AccAddress([]byte("creator"))
-	k.Member.Set(ctx, creator.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, creator.String(), types.Member{
 		Address:          creator.String(),
 		DreamBalance:     PtrInt(math.ZeroInt()),
 		StakedDream:      PtrInt(math.ZeroInt()),
 		LifetimeEarned:   PtrInt(math.ZeroInt()),
 		LifetimeBurned:   PtrInt(math.ZeroInt()),
 		ReputationScores: make(map[string]string),
-	})
+	}))
 
 	// Test: Create project
 	proposedBudget := math.NewInt(5000)
@@ -59,14 +59,14 @@ func TestApproveProject(t *testing.T) {
 	ctx := fixture.ctx
 
 	creator := sdk.AccAddress([]byte("creator"))
-	k.Member.Set(ctx, creator.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, creator.String(), types.Member{
 		Address:          creator.String(),
 		DreamBalance:     PtrInt(math.ZeroInt()),
 		StakedDream:      PtrInt(math.ZeroInt()),
 		LifetimeEarned:   PtrInt(math.ZeroInt()),
 		LifetimeBurned:   PtrInt(math.ZeroInt()),
 		ReputationScores: make(map[string]string),
-	})
+	}))
 
 	projectID, _ := k.CreateProject(
 		ctx,
@@ -106,18 +106,18 @@ func TestAllocateBudget(t *testing.T) {
 	ctx := fixture.ctx
 
 	creator := sdk.AccAddress([]byte("creator"))
-	k.Member.Set(ctx, creator.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, creator.String(), types.Member{
 		Address:          creator.String(),
 		DreamBalance:     PtrInt(math.ZeroInt()),
 		StakedDream:      PtrInt(math.ZeroInt()),
 		LifetimeEarned:   PtrInt(math.ZeroInt()),
 		LifetimeBurned:   PtrInt(math.ZeroInt()),
 		ReputationScores: make(map[string]string),
-	})
+	}))
 
 	approvedBudget := math.NewInt(10000)
 	projectID, _ := k.CreateProject(ctx, creator, "Proj", "Desc", []string{"tag"}, types.ProjectCategory_PROJECT_CATEGORY_OPERATIONS, "technical", approvedBudget, math.NewInt(1000), false)
-	k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), approvedBudget, math.NewInt(1000))
+	require.NoError(t, k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), approvedBudget, math.NewInt(1000)))
 
 	// Test: Allocate budget
 	allocAmount := math.NewInt(3000)
@@ -147,22 +147,22 @@ func TestReturnBudget(t *testing.T) {
 	ctx := fixture.ctx
 
 	creator := sdk.AccAddress([]byte("creator"))
-	k.Member.Set(ctx, creator.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, creator.String(), types.Member{
 		Address:          creator.String(),
 		DreamBalance:     PtrInt(math.ZeroInt()),
 		StakedDream:      PtrInt(math.ZeroInt()),
 		LifetimeEarned:   PtrInt(math.ZeroInt()),
 		LifetimeBurned:   PtrInt(math.ZeroInt()),
 		ReputationScores: make(map[string]string),
-	})
+	}))
 
 	approvedBudget := math.NewInt(10000)
 	projectID, _ := k.CreateProject(ctx, creator, "Proj", "Desc", []string{"tag"}, types.ProjectCategory_PROJECT_CATEGORY_RESEARCH, "technical", approvedBudget, math.NewInt(1000), false)
-	k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), approvedBudget, math.NewInt(1000))
+	require.NoError(t, k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), approvedBudget, math.NewInt(1000)))
 
 	// Allocate budget
 	allocAmount := math.NewInt(5000)
-	k.AllocateBudget(ctx, projectID, allocAmount)
+	require.NoError(t, k.AllocateBudget(ctx, projectID, allocAmount))
 
 	// Test: Return budget
 	returnAmount := math.NewInt(2000)
@@ -181,21 +181,21 @@ func TestSpendBudget(t *testing.T) {
 	ctx := fixture.ctx
 
 	creator := sdk.AccAddress([]byte("creator"))
-	k.Member.Set(ctx, creator.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, creator.String(), types.Member{
 		Address:          creator.String(),
 		DreamBalance:     PtrInt(math.ZeroInt()),
 		StakedDream:      PtrInt(math.ZeroInt()),
 		LifetimeEarned:   PtrInt(math.ZeroInt()),
 		LifetimeBurned:   PtrInt(math.ZeroInt()),
 		ReputationScores: make(map[string]string),
-	})
+	}))
 
 	approvedBudget := math.NewInt(10000)
 	projectID, _ := k.CreateProject(ctx, creator, "Proj", "Desc", []string{"tag"}, types.ProjectCategory_PROJECT_CATEGORY_CREATIVE, "technical", approvedBudget, math.NewInt(1000), false)
-	k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), approvedBudget, math.NewInt(1000))
+	require.NoError(t, k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), approvedBudget, math.NewInt(1000)))
 
 	// Allocate budget
-	k.AllocateBudget(ctx, projectID, math.NewInt(5000))
+	require.NoError(t, k.AllocateBudget(ctx, projectID, math.NewInt(5000)))
 
 	// Test: Spend budget
 	spendAmount := math.NewInt(3000)
@@ -214,17 +214,17 @@ func TestCancelProject(t *testing.T) {
 	ctx := fixture.ctx
 
 	creator := sdk.AccAddress([]byte("creator"))
-	k.Member.Set(ctx, creator.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, creator.String(), types.Member{
 		Address:          creator.String(),
 		DreamBalance:     PtrInt(math.ZeroInt()),
 		StakedDream:      PtrInt(math.ZeroInt()),
 		LifetimeEarned:   PtrInt(math.ZeroInt()),
 		LifetimeBurned:   PtrInt(math.ZeroInt()),
 		ReputationScores: make(map[string]string),
-	})
+	}))
 
 	projectID, _ := k.CreateProject(ctx, creator, "Proj", "Desc", []string{"tag"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical", math.NewInt(10000), math.NewInt(1000), false)
-	k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(10000), math.NewInt(1000))
+	require.NoError(t, k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(10000), math.NewInt(1000)))
 
 	// Test: Cancel project
 	err := k.CancelProject(ctx, projectID, "No longer needed")
@@ -273,14 +273,14 @@ func TestProjectInvalidStateTransitions(t *testing.T) {
 	ctx := fixture.ctx
 
 	creator := sdk.AccAddress([]byte("creator"))
-	k.Member.Set(ctx, creator.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, creator.String(), types.Member{
 		Address:          creator.String(),
 		DreamBalance:     PtrInt(math.ZeroInt()),
 		StakedDream:      PtrInt(math.ZeroInt()),
 		LifetimeEarned:   PtrInt(math.ZeroInt()),
 		LifetimeBurned:   PtrInt(math.ZeroInt()),
 		ReputationScores: make(map[string]string),
-	})
+	}))
 
 	// Test: Cannot allocate budget from proposed project
 	projectID, _ := k.CreateProject(ctx, creator, "Proj", "Desc", []string{"tag"}, types.ProjectCategory_PROJECT_CATEGORY_ECOSYSTEM, "technical", math.NewInt(10000), math.NewInt(1000), false)
@@ -289,7 +289,7 @@ func TestProjectInvalidStateTransitions(t *testing.T) {
 	require.Error(t, err) // Should fail - project not active
 
 	// Approve project
-	k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(10000), math.NewInt(1000))
+	require.NoError(t, k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(10000), math.NewInt(1000)))
 
 	// Test: Cannot approve again
 	err = k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(10000), math.NewInt(1000))
@@ -297,7 +297,7 @@ func TestProjectInvalidStateTransitions(t *testing.T) {
 	require.Contains(t, err.Error(), "project must be in PROPOSED status")
 
 	// Cancel project
-	k.CancelProject(ctx, projectID, "reason")
+	require.NoError(t, k.CancelProject(ctx, projectID, "reason"))
 
 	// Test: Cannot allocate from cancelled project
 	err = k.AllocateBudget(ctx, projectID, math.NewInt(1000))
@@ -311,14 +311,14 @@ func TestCompleteProject(t *testing.T) {
 		ctx := fixture.ctx
 
 		creator := sdk.AccAddress([]byte("creator"))
-		k.Member.Set(ctx, creator.String(), types.Member{
+		require.NoError(t, k.Member.Set(ctx, creator.String(), types.Member{
 			Address:          creator.String(),
 			DreamBalance:     PtrInt(math.ZeroInt()),
 			StakedDream:      PtrInt(math.ZeroInt()),
 			LifetimeEarned:   PtrInt(math.ZeroInt()),
 			LifetimeBurned:   PtrInt(math.ZeroInt()),
 			ReputationScores: make(map[string]string),
-		})
+		}))
 
 		// Create and approve project
 		approvedBudget := math.NewInt(10000)
@@ -328,7 +328,7 @@ func TestCompleteProject(t *testing.T) {
 		require.NoError(t, err)
 
 		// Allocate and spend some budget
-		k.AllocateBudget(ctx, projectID, math.NewInt(5000))
+		require.NoError(t, k.AllocateBudget(ctx, projectID, math.NewInt(5000)))
 		spendAmount := math.NewInt(3000)
 		err = k.SpendBudget(ctx, projectID, spendAmount)
 		require.NoError(t, err)
@@ -353,14 +353,14 @@ func TestCompleteProject(t *testing.T) {
 		ctx := fixture.ctx
 
 		creator := sdk.AccAddress([]byte("creator"))
-		k.Member.Set(ctx, creator.String(), types.Member{
+		require.NoError(t, k.Member.Set(ctx, creator.String(), types.Member{
 			Address:          creator.String(),
 			DreamBalance:     PtrInt(math.ZeroInt()),
 			StakedDream:      PtrInt(math.ZeroInt()),
 			LifetimeEarned:   PtrInt(math.ZeroInt()),
 			LifetimeBurned:   PtrInt(math.ZeroInt()),
 			ReputationScores: make(map[string]string),
-		})
+		}))
 
 		// Create a project but do NOT approve it (status is PROPOSED)
 		projectID, err := k.CreateProject(ctx, creator, "Aurora Project", "A proposed project", []string{"frontend"}, types.ProjectCategory_PROJECT_CATEGORY_ECOSYSTEM, "technical", math.NewInt(5000), math.NewInt(500), false)
@@ -389,14 +389,14 @@ func TestCompleteProject(t *testing.T) {
 		ctx := fixture.ctx
 
 		creator := sdk.AccAddress([]byte("creator"))
-		k.Member.Set(ctx, creator.String(), types.Member{
+		require.NoError(t, k.Member.Set(ctx, creator.String(), types.Member{
 			Address:          creator.String(),
 			DreamBalance:     PtrInt(math.ZeroInt()),
 			StakedDream:      PtrInt(math.ZeroInt()),
 			LifetimeEarned:   PtrInt(math.ZeroInt()),
 			LifetimeBurned:   PtrInt(math.ZeroInt()),
 			ReputationScores: make(map[string]string),
-		})
+		}))
 
 		// Create, approve, allocate, spend, and complete
 		approvedBudget := math.NewInt(20000)

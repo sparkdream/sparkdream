@@ -130,7 +130,7 @@ create_carol_collection "CouncilHideColl"
 T1_COLL_ID=$COLL_ID
 COMMITTED_BASE=$(bob_committed_bond)
 
-TX_OUT=$(send_tx collect hide-content "$T1_COLL_ID" collection spam "spam" \
+TX_OUT=$(send_tx collect hide-content "$T1_COLL_ID" collection spam \
     --authority council --from alice)
 assert_tx_success "alice council-hides carol's collection" "$TX_OUT"
 T1_HIDE_REC=$(extract_event_attr "$TX_RESULT_OUT" "content_hidden" "hide_record_id")
@@ -183,10 +183,13 @@ assert_equal "x/rep appeal targets the hide record" "$T1_HIDE_REC" \
 TX_OUT=$(send_tx rep appeal-gov-action 11 "$T1_HIDE_REC" "bypass" --from carol)
 assert_tx_failure "MsgAppealGovAction rejects module-owned COLLECT_HIDE" "$TX_OUT"
 
-# alice (Commons Ops) resolves it OVERTURNED through x/rep; x/rep calls back
-# into collect, which restores the collection.
-TX_OUT=$(send_tx rep resolve-gov-action-appeal "$T1_APPEAL_ID" overturned "council hide was wrong" --gas 400000 --from alice)
-assert_tx_success "alice overturns the appeal via x/rep" "$TX_OUT"
+# A single committee member cannot apply a verdict (it slashes bonds).
+TX_OUT=$(send_tx rep resolve-gov-action-appeal "$T1_APPEAL_ID" overturned "lone member" --gas 400000 --from alice)
+assert_tx_failure "alice alone cannot resolve the appeal" "$TX_OUT"
+
+# The Commons Operations Committee resolves it OVERTURNED through a proposal;
+# x/rep calls back into collect, which restores the collection.
+assert_ops_resolve "Ops Committee overturns the appeal via x/rep" "$T1_APPEAL_ID" overturned "council hide was wrong"
 assert_equal "Collection ACTIVE after the x/rep overturn" "COLLECTION_STATUS_ACTIVE" \
     "$(query collect collection "$T1_COLL_ID" | jq -r '.collection.status // empty')"
 assert_equal "Hide record resolved by the x/rep verdict" "true" \
@@ -202,7 +205,7 @@ create_carol_collection "CouncilOverrideColl"
 T3_COLL_ID=$COLL_ID
 COMMITTED_BEFORE_HIDE=$(bob_committed_bond)
 
-TX_OUT=$(send_tx collect hide-content "$T3_COLL_ID" collection spam "spam" --from bob)
+TX_OUT=$(send_tx collect hide-content "$T3_COLL_ID" collection spam --from bob)
 assert_tx_success "bob sentinel-hides carol's collection" "$TX_OUT"
 T3_HIDE_REC=$(extract_event_attr "$TX_RESULT_OUT" "content_hidden" "hide_record_id")
 T3_HIDE_REC=${T3_HIDE_REC:-0}
@@ -235,12 +238,12 @@ create_carol_collection "AuthorityRejectColl"
 T4_COLL_ID=$COLL_ID
 
 # bob is a sentinel, not council: forcing council must fail.
-TX_OUT=$(send_tx collect hide-content "$T4_COLL_ID" collection spam "spam" \
+TX_OUT=$(send_tx collect hide-content "$T4_COLL_ID" collection spam \
     --authority council --from bob)
 assert_tx_failure "bob (non-council) cannot force --authority council" "$TX_OUT"
 
 # carol is neither: forcing sentinel must fail.
-TX_OUT=$(send_tx collect hide-content "$T4_COLL_ID" collection spam "spam" \
+TX_OUT=$(send_tx collect hide-content "$T4_COLL_ID" collection spam \
     --authority sentinel --from carol)
 assert_tx_failure "carol (non-sentinel) cannot force --authority sentinel" "$TX_OUT"
 

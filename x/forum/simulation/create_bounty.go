@@ -1,62 +1,106 @@
 package simulation
 
 import (
-	"fmt"
-	"math/rand"
-
-	"github.com/cosmos/cosmos-sdk/baseapp"
+	"cosmossdk.io/math"
 	"github.com/cosmos/cosmos-sdk/client"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
 
 	"sparkdream/x/forum/keeper"
 	"sparkdream/x/forum/types"
 )
 
-// SimulateMsgCreateBounty simulates a MsgCreateBounty message using direct keeper calls.
-// This bypasses token escrow requirements for simulation purposes.
-// Full integration testing should be done in integration tests.
+// SimulateMsgCreateBounty delivers MsgCreateBounty from the author of an
+// ACTIVE, unlocked thread with no open bounty, who is an active member and
+// can escrow at least the minimum bounty. When no such thread exists, a
+// member first starts one (a real MsgCreatePost).
 func SimulateMsgCreateBounty(
 	ak types.AuthKeeper,
 	bk types.BankKeeper,
 	k keeper.Keeper,
 	txGen client.TxConfig,
 ) simtypes.Operation {
-	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
-	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		simAccount, _ := simtypes.RandomAcc(r, accs)
-
-		// Get or create a root post for the bounty
-		threadID, err := getOrCreateRootPostByAuthor(r, ctx, k, simAccount.Address.String())
+	return operation(ak, bk, k, txGen, &types.MsgCreateBounty{}, func(e *simEnv) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
+		msg := &types.MsgCreateBounty{}
+		roots, err := e.bountyThreads()
 		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgCreateBounty{}), "failed to get/create root post"), nil, nil
+			return noOpErr(msg, err)
 		}
-
-		// Use direct keeper calls to create bounty (bypasses token escrow)
-		bountyID, err := k.BountySeq.Next(ctx)
-		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgCreateBounty{}), "failed to get bounty ID"), nil, nil
+		if len(roots) == 0 {
+			if _, _, err := e.ensureThread(func(a simtypes.Account) bool {
+				return e.member(a) && e.spendable(a).GT(math.NewInt(2*types.MinBountyAmount))
+			}); err != nil {
+				return noOpErr(msg, err)
+			}
+			if roots, err = e.bountyThreads(); err != nil {
+				return noOpErr(msg, err)
+			}
 		}
-
-		now := ctx.BlockTime().Unix()
-		amountVal := 50 + r.Intn(100)
-		duration := int64(86400 * (r.Intn(24) + 7))
-
-		bounty := types.Bounty{
-			Id:        bountyID,
-			Creator:   simAccount.Address.String(),
-			ThreadId:  threadID,
-			Amount:    fmt.Sprintf("%d", amountVal),
-			CreatedAt: now,
-			ExpiresAt: now + duration,
-			Status:    types.BountyStatus_BOUNTY_STATUS_ACTIVE,
+		root, ok := pick(e.r, roots)
+		if !ok {
+			return noOp(msg, "no thread a member author could put a bounty on")
 		}
-
-		if err := k.Bounty.Set(ctx, bountyID, bounty); err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgCreateBounty{}), "failed to create bounty"), nil, nil
+		m, spent, reason := e.newBountyMsg(root)
+		if reason != "" {
+			return noOp(msg, reason)
 		}
+		author, _ := e.account(root.Author)
+		return e.submit(author, m, spent)
+	})
+}
 
-		// Return success
-		return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgCreateBounty{}), "ok (direct keeper call)"), nil, nil
+// bountyThreads returns the ACTIVE, unlocked threads without an open bounty
+// whose author is a live sim account and an active member able to escrow
+// the minimum bounty with room for the tx fee.
+func (e *simEnv) bountyThreads() ([]types.Post, error) {
+	if e.params.ForumPaused || !e.params.BountiesEnabled {
+		return nil, nil
 	}
+	return e.postsWhere(func(p types.Post) bool {
+		if !activeRoot(p) || p.Locked || !e.isActiveMember(p.Author) {
+			return false
+		}
+		author, ok := e.account(p.Author)
+		if !ok || e.spendable(author).LT(math.NewInt(2*types.MinBountyAmount)) {
+			return false
+		}
+		_, open := e.openBounty(p.PostId)
+		return !open
+	})
+}
+
+// newBountyMsg builds a bounty of one to three times the minimum, sized to
+// what the thread author can escrow, with a random duration within the max.
+func (e *simEnv) newBountyMsg(root types.Post) (*types.MsgCreateBounty, math.Int, string) {
+	msg := &types.MsgCreateBounty{Creator: root.Author, ThreadId: root.PostId}
+	author, _ := e.account(root.Author)
+	amount := math.NewInt(types.MinBountyAmount).MulRaw(int64(1 + e.r.Intn(3)))
+	// Leave room for the tx fee.
+	if room := e.spendable(author).QuoRaw(2); amount.GT(room) {
+		amount = room
+	}
+	if amount.LT(math.NewInt(types.MinBountyAmount)) {
+		return msg, math.ZeroInt(), "thread author cannot escrow the minimum bounty"
+	}
+	msg.Amount = amount.String()
+	msg.Duration = 86400 + e.r.Int63n(types.DefaultMaxBountyDuration-86400)
+	return msg, amount, ""
+}
+
+// ensureBounty opens a bounty by delivering MsgCreateBounty on a random
+// eligible thread. It returns false when none could be opened.
+func (e *simEnv) ensureBounty() (bool, error) {
+	roots, err := e.bountyThreads()
+	if err != nil {
+		return false, err
+	}
+	root, ok := pick(e.r, roots)
+	if !ok {
+		return false, nil
+	}
+	msg, spent, reason := e.newBountyMsg(root)
+	if reason != "" {
+		return false, nil
+	}
+	author, _ := e.account(root.Author)
+	return e.ensure(author, msg, spent)
 }

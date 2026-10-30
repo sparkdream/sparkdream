@@ -37,6 +37,19 @@ func TestFlagPost(t *testing.T) {
 			expectError: false,
 		},
 		{
+			// Above int32 the category used to be truncated onto a valid code
+			// (1<<32 + 1 read as 1).
+			name: "category above int32 refused, not truncated",
+			msg: &types.MsgFlagPost{
+				Creator:  testCreator2,
+				PostId:   post.PostId,
+				Category: 1<<32 + uint64(commontypes.ModerationReason_MODERATION_REASON_SPAM),
+				Reason:   "Test",
+			},
+			expectError: true,
+			errContains: "invalid flag category",
+		},
+		{
 			name: "invalid creator address",
 			msg: &types.MsgFlagPost{
 				Creator:  "invalid-address",
@@ -69,7 +82,7 @@ func TestFlagPost(t *testing.T) {
 			setup: func() {
 				p, _ := f.keeper.Post.Get(f.ctx, post.PostId)
 				p.Status = types.PostStatus_POST_STATUS_HIDDEN
-				_ = f.keeper.Post.Set(f.ctx, post.PostId, p)
+				require.NoError(t, f.keeper.Post.Set(f.ctx, post.PostId, p))
 			},
 			expectError: true,
 			errContains: "already hidden",
@@ -86,7 +99,7 @@ func TestFlagPost(t *testing.T) {
 				// Reset post status
 				p, _ := f.keeper.Post.Get(f.ctx, post.PostId)
 				p.Status = types.PostStatus_POST_STATUS_ACTIVE
-				_ = f.keeper.Post.Set(f.ctx, post.PostId, p)
+				require.NoError(t, f.keeper.Post.Set(f.ctx, post.PostId, p))
 
 				// Create an existing flag
 				flag := types.PostFlag{
@@ -94,7 +107,7 @@ func TestFlagPost(t *testing.T) {
 					Flaggers:    []string{testCreator2},
 					TotalWeight: "1",
 				}
-				_ = f.keeper.PostFlag.Set(f.ctx, post.PostId, flag)
+				require.NoError(t, f.keeper.PostFlag.Set(f.ctx, post.PostId, flag))
 			},
 			expectError: true,
 			errContains: "already flagged",
@@ -106,8 +119,8 @@ func TestFlagPost(t *testing.T) {
 			// Reset post status and flags
 			p, _ := f.keeper.Post.Get(f.ctx, post.PostId)
 			p.Status = types.PostStatus_POST_STATUS_ACTIVE
-			_ = f.keeper.Post.Set(f.ctx, post.PostId, p)
-			_ = f.keeper.PostFlag.Remove(f.ctx, post.PostId)
+			require.NoError(t, f.keeper.Post.Set(f.ctx, post.PostId, p))
+			require.NoError(t, f.keeper.PostFlag.Remove(f.ctx, post.PostId))
 
 			if tt.setup != nil {
 				tt.setup()
@@ -209,7 +222,7 @@ func TestFlagPost_Validation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_ = f.keeper.PostFlag.Remove(f.ctx, tt.postID)
+			require.NoError(t, f.keeper.PostFlag.Remove(f.ctx, tt.postID))
 			_, err := f.msgServer.FlagPost(f.ctx, &types.MsgFlagPost{
 				Creator:  tt.creator,
 				PostId:   tt.postID,

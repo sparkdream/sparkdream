@@ -18,7 +18,7 @@ func TestFreezeThread(t *testing.T) {
 	// Make the thread inactive (old enough to archive)
 	p, _ := f.keeper.Post.Get(f.ctx, thread.PostId)
 	p.CreatedAt = f.sdkCtx().BlockTime().Unix() - types.DefaultArchiveThreshold - 1
-	_ = f.keeper.Post.Set(f.ctx, thread.PostId, p)
+	require.NoError(t, f.keeper.Post.Set(f.ctx, thread.PostId, p))
 
 	tests := []struct {
 		name        string
@@ -53,7 +53,7 @@ func TestFreezeThread(t *testing.T) {
 			setup: func() {
 				params := types.DefaultParams()
 				params.ForumPaused = true
-				_ = f.keeper.Params.Set(f.ctx, params)
+				require.NoError(t, f.keeper.Params.Set(f.ctx, params))
 			},
 			expectError: true,
 			errContains: "forum is paused",
@@ -77,7 +77,7 @@ func TestFreezeThread(t *testing.T) {
 				// Make the post a reply (non-root)
 				p, _ := f.keeper.Post.Get(f.ctx, thread.PostId)
 				p.ParentId = 1
-				_ = f.keeper.Post.Set(f.ctx, thread.PostId, p)
+				require.NoError(t, f.keeper.Post.Set(f.ctx, thread.PostId, p))
 			},
 			expectError: true,
 			errContains: "only allowed on root posts",
@@ -92,7 +92,7 @@ func TestFreezeThread(t *testing.T) {
 				// Make the thread recent
 				p, _ := f.keeper.Post.Get(f.ctx, thread.PostId)
 				p.CreatedAt = f.sdkCtx().BlockTime().Unix()
-				_ = f.keeper.Post.Set(f.ctx, thread.PostId, p)
+				require.NoError(t, f.keeper.Post.Set(f.ctx, thread.PostId, p))
 			},
 			expectError: true,
 			errContains: "must be inactive",
@@ -102,15 +102,15 @@ func TestFreezeThread(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Reset params and thread state
-			_ = f.keeper.Params.Set(f.ctx, types.DefaultParams())
+			require.NoError(t, f.keeper.Params.Set(f.ctx, types.DefaultParams()))
 			p, _ := f.keeper.Post.Get(f.ctx, thread.PostId)
 			p.ParentId = 0
 			p.Status = types.PostStatus_POST_STATUS_ACTIVE
 			p.CreatedAt = f.sdkCtx().BlockTime().Unix() - types.DefaultArchiveThreshold - 1
-			_ = f.keeper.Post.Set(f.ctx, thread.PostId, p)
+			require.NoError(t, f.keeper.Post.Set(f.ctx, thread.PostId, p))
 
 			// Remove archive metadata if exists
-			_ = f.keeper.ArchiveMetadata.Remove(f.ctx, thread.PostId)
+			require.NoError(t, f.keeper.ArchiveMetadata.Remove(f.ctx, thread.PostId))
 
 			if tt.setup != nil {
 				tt.setup()
@@ -149,11 +149,17 @@ func TestFreezeThreadWithReplies(t *testing.T) {
 	// Make thread old
 	p, _ := f.keeper.Post.Get(f.ctx, thread.PostId)
 	p.CreatedAt = f.sdkCtx().BlockTime().Unix() - types.DefaultArchiveThreshold - 1
-	_ = f.keeper.Post.Set(f.ctx, thread.PostId, p)
+	require.NoError(t, f.keeper.Post.Set(f.ctx, thread.PostId, p))
 
 	// Create some replies
 	reply1 := f.createTestPost(t, testCreator2, thread.PostId, cat.CategoryId)
 	reply2 := f.createTestPost(t, testSentinel, thread.PostId, cat.CategoryId)
+	// Inactivity is measured from the newest reply, so age the replies too.
+	for _, id := range []uint64{reply1.PostId, reply2.PostId} {
+		r, _ := f.keeper.Post.Get(f.ctx, id)
+		r.CreatedAt = f.sdkCtx().BlockTime().Unix() - types.DefaultArchiveThreshold - 1
+		require.NoError(t, f.keeper.Post.Set(f.ctx, id, r))
+	}
 
 	// Archive
 	resp, err := f.msgServer.FreezeThread(f.ctx, &types.MsgFreezeThread{
@@ -187,7 +193,7 @@ func TestFreezeThreadWithPendingAppeal(t *testing.T) {
 	// Make thread old
 	p, _ := f.keeper.Post.Get(f.ctx, thread.PostId)
 	p.CreatedAt = f.sdkCtx().BlockTime().Unix() - types.DefaultArchiveThreshold - 1
-	_ = f.keeper.Post.Set(f.ctx, thread.PostId, p)
+	require.NoError(t, f.keeper.Post.Set(f.ctx, thread.PostId, p))
 
 	// Create a pending lock appeal
 	lockRecord := types.ThreadLockRecord{
@@ -195,7 +201,7 @@ func TestFreezeThreadWithPendingAppeal(t *testing.T) {
 		Sentinel:      testSentinel,
 		AppealPending: true,
 	}
-	_ = f.keeper.ThreadLockRecord.Set(f.ctx, thread.PostId, lockRecord)
+	require.NoError(t, f.keeper.ThreadLockRecord.Set(f.ctx, thread.PostId, lockRecord))
 
 	// Try to archive - should fail
 	_, err := f.msgServer.FreezeThread(f.ctx, &types.MsgFreezeThread{
@@ -217,7 +223,7 @@ func TestFreezeThreadAlreadyArchived(t *testing.T) {
 	p, _ := f.keeper.Post.Get(f.ctx, thread.PostId)
 	p.CreatedAt = f.sdkCtx().BlockTime().Unix() - types.DefaultArchiveThreshold - 1
 	p.Status = types.PostStatus_POST_STATUS_ARCHIVED
-	_ = f.keeper.Post.Set(f.ctx, thread.PostId, p)
+	require.NoError(t, f.keeper.Post.Set(f.ctx, thread.PostId, p))
 
 	// Try to archive again - should fail
 	_, err := f.msgServer.FreezeThread(f.ctx, &types.MsgFreezeThread{
@@ -238,7 +244,7 @@ func TestUnarchiveThread(t *testing.T) {
 	// Make thread old enough to archive
 	p, _ := f.keeper.Post.Get(f.ctx, thread.PostId)
 	p.CreatedAt = f.sdkCtx().BlockTime().Unix() - types.DefaultArchiveThreshold - 1
-	_ = f.keeper.Post.Set(f.ctx, thread.PostId, p)
+	require.NoError(t, f.keeper.Post.Set(f.ctx, thread.PostId, p))
 
 	// Archive it
 	_, err := f.msgServer.FreezeThread(f.ctx, &types.MsgFreezeThread{
@@ -255,7 +261,7 @@ func TestUnarchiveThread(t *testing.T) {
 	// Update archive metadata time to be past cooldown
 	meta, _ := f.keeper.ArchiveMetadata.Get(f.ctx, thread.PostId)
 	meta.LastArchivedAt = f.sdkCtx().BlockTime().Unix() - types.DefaultUnarchiveCooldown - 1
-	_ = f.keeper.ArchiveMetadata.Set(f.ctx, thread.PostId, meta)
+	require.NoError(t, f.keeper.ArchiveMetadata.Set(f.ctx, thread.PostId, meta))
 
 	// Unarchive
 	_, err = f.msgServer.UnarchiveThread(f.ctx, &types.MsgUnarchiveThread{
@@ -281,7 +287,7 @@ func TestUnarchiveThreadCooldown(t *testing.T) {
 	// Make thread old enough to archive
 	p, _ := f.keeper.Post.Get(f.ctx, thread.PostId)
 	p.CreatedAt = f.sdkCtx().BlockTime().Unix() - types.DefaultArchiveThreshold - 1
-	_ = f.keeper.Post.Set(f.ctx, thread.PostId, p)
+	require.NoError(t, f.keeper.Post.Set(f.ctx, thread.PostId, p))
 
 	// Archive it
 	_, err := f.msgServer.FreezeThread(f.ctx, &types.MsgFreezeThread{

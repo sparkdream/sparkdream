@@ -1,49 +1,44 @@
 package simulation
 
 import (
-	"math/rand"
-
-	"github.com/cosmos/cosmos-sdk/baseapp"
+	"cosmossdk.io/math"
 	"github.com/cosmos/cosmos-sdk/client"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
 
 	"sparkdream/x/forum/keeper"
 	"sparkdream/x/forum/types"
 )
 
-// SimulateMsgDeletePost simulates a MsgDeletePost message using direct keeper calls.
-// This bypasses authorization requirements for simulation purposes.
-// Full integration testing should be done in integration tests.
+// SimulateMsgDeletePost delivers MsgDeletePost from the author of a visible
+// post. Threads with an open bounty are left alone so the bounty ops keep
+// targets.
 func SimulateMsgDeletePost(
 	ak types.AuthKeeper,
 	bk types.BankKeeper,
 	k keeper.Keeper,
 	txGen client.TxConfig,
 ) simtypes.Operation {
-	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
-	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		simAccount, _ := simtypes.RandomAcc(r, accs)
-
-		// Get or create a post owned by this account
-		postID, err := getOrCreatePost(r, ctx, k, simAccount.Address.String())
+	return operation(ak, bk, k, txGen, &types.MsgDeletePost{}, func(e *simEnv) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
+		msg := &types.MsgDeletePost{}
+		if e.params.ForumPaused {
+			return noOp(msg, "forum is paused")
+		}
+		posts, err := e.postsWhere(func(p types.Post) bool {
+			if _, own := e.account(p.Author); !own || !visible(p) {
+				return false
+			}
+			_, bounty := e.openBounty(rootID(p))
+			return !bounty
+		})
 		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgDeletePost{}), "failed to get/create post"), nil, nil
+			return noOpErr(msg, err)
 		}
-
-		// Use direct keeper calls to delete post (set status to deleted)
-		post, err := k.Post.Get(ctx, postID)
-		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgDeletePost{}), "failed to get post"), nil, nil
+		post, ok := pick(e.r, posts)
+		if !ok {
+			return noOp(msg, "no visible post by a sim account")
 		}
-
-		post.Status = types.PostStatus_POST_STATUS_DELETED
-
-		if err := k.Post.Set(ctx, postID, post); err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgDeletePost{}), "failed to delete post"), nil, nil
-		}
-
-		// Return success
-		return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgDeletePost{}), "ok (direct keeper call)"), nil, nil
-	}
+		author, _ := e.account(post.Author)
+		msg.Creator, msg.PostId = post.Author, post.PostId
+		return e.submit(author, msg, math.ZeroInt())
+	})
 }

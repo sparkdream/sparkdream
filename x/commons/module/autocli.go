@@ -101,6 +101,35 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					Short:     "List recurring spend schedules (filter with --authority or --recipient)",
 				},
 				// this line is used by ignite scaffolding # autocli/query
+				{
+					RpcMethod:      "GetPoll",
+					Use:            "get-poll [poll-id]",
+					Short:          "Show a poll and its tallies",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "poll_id"}},
+				},
+				{
+					RpcMethod: "ListPolls",
+					Use:       "list-polls",
+					Short:     "List polls, newest first (filter with --council-name and --status)",
+				},
+				{
+					RpcMethod:      "GetPollVotes",
+					Use:            "get-poll-votes [poll-id]",
+					Short:          "List the open votes on a poll",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "poll_id"}},
+				},
+				{
+					RpcMethod:      "GetProposalVoterTree",
+					Use:            "get-proposal-voter-tree [proposal-id]",
+					Short:          "Show a secret-ballot proposal's voter snapshot (for building a shield proof)",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "proposal_id"}},
+				},
+				{
+					RpcMethod:      "GetPollVoterTree",
+					Use:            "get-poll-voter-tree [poll-id]",
+					Short:          "Show a secret-ballot poll's voter snapshot (for building a shield proof)",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "poll_id"}},
+				},
 			},
 		},
 		Tx: &autocliv1.ServiceCommandDescriptor{
@@ -240,6 +269,28 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "id"}},
 				},
 				// this line is used by ignite scaffolding # autocli/tx
+				{
+					RpcMethod:      "OpenPoll",
+					Use:            "open-poll [council-name] [duration-seconds] [question] [options...]",
+					Short:          "Open a single-choice poll for a group's members (--secret-ballot for a shield-voted poll)",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "council_name"}, {ProtoField: "duration_seconds"}, {ProtoField: "question"}, {ProtoField: "options", Varargs: true}},
+				},
+				{
+					RpcMethod:      "VotePoll",
+					Use:            "vote-poll [poll-id] [option-index]",
+					Short:          "Vote on an open poll (one vote per member, final)",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "poll_id"}, {ProtoField: "option"}},
+				},
+				{
+					RpcMethod: "AnonymousVotePoll",
+					Skip:      true, // routed through x/shield ShieldedExec, not directly invoked
+				},
+				{
+					RpcMethod:      "CancelPoll",
+					Use:            "cancel-poll [poll-id]",
+					Short:          "Withdraw a poll nobody has voted on (creator only)",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "poll_id"}},
+				},
 			},
 		},
 	}

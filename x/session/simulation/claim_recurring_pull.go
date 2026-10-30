@@ -1,104 +1,65 @@
 package simulation
 
 import (
-	"math/rand"
-
-	"cosmossdk.io/collections"
-	sdkmath "cosmossdk.io/math"
-	"github.com/cosmos/cosmos-sdk/baseapp"
+	"cosmossdk.io/math"
 	"github.com/cosmos/cosmos-sdk/client"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
-	"github.com/cosmos/cosmos-sdk/x/simulation"
 
 	"sparkdream/x/session/keeper"
 	"sparkdream/x/session/types"
 )
 
-// SimulateMsgClaimRecurringPull picks a random RECURRING_PULL grant
-// whose claim window is open (`last_claim_advance + period_seconds <= block_time`)
-// and submits a claim from the grantee. The handler enforces the rate
-// limit / cadence / expires checks; the sim is content with the
-// happy-path delivery.
-//
-// NoOps when:
-//   - No RECURRING_PULL grants exist yet (SimulateMsgCreateGrant will
-//     populate the registry over time).
-//   - The selected grant's grantee isn't in the sim account set (we
-//     can't sign on their behalf otherwise).
+// SimulateMsgClaimRecurringPull has a live sim grantee claim a recurring
+// pull whose claim the handler accepts now (a due period, under the
+// per-UTC-day max_per_epoch ceiling; an underfunded granter pauses the grant
+// and a closed window completes it, both successful claims). When none is
+// claimable the op first creates a pull whose start is backdated within the
+// handler's one-hour allowance, so its first period is already due.
 func SimulateMsgClaimRecurringPull(
 	ak types.AuthKeeper,
 	bk types.BankKeeper,
 	k keeper.Keeper,
 	txGen client.TxConfig,
 ) simtypes.Operation {
-	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
-	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		msgType := sdk.MsgTypeURL(&types.MsgClaimRecurringPull{})
-
-		now := ctx.BlockTime().Unix()
-		grant, found := findRandomGrantOfType(
-			r, ctx, k, types.GrantType_GRANT_TYPE_RECURRING_PULL,
-			func(g types.Grant) bool {
-				// Only claimable when active + window open.
-				if g.Status != types.GrantStatus_GRANT_STATUS_ACTIVE &&
-					g.Status != types.GrantStatus_GRANT_STATUS_PAUSED_INSUFFICIENT_FUNDS {
-					return false
-				}
-				rp := g.GetRecurringPull()
-				if rp == nil {
-					return false
-				}
-				if rp.LastClaimAdvance+rp.PeriodSeconds > now {
-					return false
-				}
-				// Window must still be open (next advance fits before expires_at).
-				if rp.LastClaimAdvance+rp.PeriodSeconds > g.ExpiresAt.Unix() {
-					return false
-				}
-				// Mirror the handler's per-UTC-day self-throttle: catch-up
-				// claims inside one day can exhaust max_per_epoch.
-				maxPerEpoch, ok := sdkmath.NewIntFromString(rp.MaxPerEpoch)
-				if !ok {
-					return false
-				}
-				spent := sdkmath.ZeroInt()
-				if stored, err := k.EpochSpendByGrant.Get(ctx, collections.Join(g.Id, now/86400)); err == nil {
-					if v, ok := sdkmath.NewIntFromString(stored); ok {
-						spent = v
-					}
-				}
-				return !spent.Add(rp.AmountPerPeriod.Amount).GT(maxPerEpoch)
-			},
-		)
-		if !found {
-			return simtypes.NoOpMsg(types.ModuleName, msgType, "no claimable recurring-pull grant"), nil, nil
+	label := &types.MsgClaimRecurringPull{}
+	return operation(ak, bk, k, txGen, label, func(e *simEnv) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
+		now := e.ctx.BlockTime().Unix()
+		pulls, err := e.grants(func(g types.Grant) bool {
+			rp := g.GetRecurringPull()
+			return g.Type == types.GrantType_GRANT_TYPE_RECURRING_PULL && pending(g) && rp != nil &&
+				rp.LastClaimAdvance+rp.PeriodSeconds <= now
+		})
+		if err != nil {
+			return noOpErr(label, err)
+		}
+		for _, i := range e.r.Perm(len(pulls)) {
+			g := pulls[i]
+			grantee, ok := e.account(g.Grantee)
+			if !ok {
+				continue
+			}
+			msg := &types.MsgClaimRecurringPull{Grantee: g.Grantee, GrantId: g.Id}
+			if e.dryRun(msg) != nil {
+				continue // not due under max_per_epoch, or a hook vetoes it
+			}
+			return e.deliver(grantee, msg, math.ZeroInt())
 		}
 
-		granteeAcc, ok := findSimAccount(accs, grant.Grantee)
+		// Prerequisite: a recurring pull (half are created due at once).
+		created, g, ok, err := e.createGrant(kindRecurringPull)
+		if err != nil {
+			return created, nil, err
+		}
 		if !ok {
-			return simtypes.NoOpMsg(types.ModuleName, msgType, "grantee not a sim account"), nil, nil
+			return noOp(label, "no claimable recurring pull and none could be created")
 		}
-
-		msg := &types.MsgClaimRecurringPull{
-			Grantee: grant.Grantee,
-			GrantId: grant.Id,
+		if grantee, live := e.account(g.Grantee); live {
+			msg := &types.MsgClaimRecurringPull{Grantee: g.Grantee, GrantId: g.Id}
+			if e.dryRun(msg) == nil {
+				return e.deliver(grantee, msg, math.ZeroInt())
+			}
 		}
-
-		opMsg := simulation.OperationInput{
-			R:               r,
-			App:             app,
-			TxGen:           txGen,
-			Cdc:             nil,
-			Msg:             msg,
-			CoinsSpentInMsg: sdk.NewCoins(),
-			Context:         ctx,
-			SimAccount:      granteeAcc,
-			AccountKeeper:   ak,
-			Bankkeeper:      bk,
-			ModuleName:      types.ModuleName,
-		}
-
-		return simulation.GenAndDeliverTxWithRandFees(opMsg)
-	}
+		created.Comment = "created a recurring pull; its first period is not due yet"
+		return created, nil, nil
+	})
 }

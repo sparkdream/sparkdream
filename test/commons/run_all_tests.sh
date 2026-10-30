@@ -420,6 +420,8 @@ if [ "$RUN_SECURITY" = true ]; then
     run_test "Unauthorized Spend Msg"     "unauthorized_spend_msg.sh"
     run_test "Unauthorized Handover"      "unauthorized_handover.sh"
     run_test "Anonymous Action"           "anon_test.sh"
+    run_test "Secret Ballot"              "secret_ballot_test.sh"
+    run_test "Polls"                      "poll_test.sh"
 else
     echo "Skipping security phase (--no-security)"
     echo ""

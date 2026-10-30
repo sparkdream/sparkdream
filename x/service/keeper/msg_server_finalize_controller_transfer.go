@@ -144,7 +144,9 @@ func (k msgServer) applyControllerTransferAccept(
 	// Remove the OLD controller's index entry.
 	oldControllerBytes, err := k.addrBytes(op.Controller)
 	if err == nil {
-		_ = k.OperatorsByController.Remove(ctx, collections.Join3(oldControllerBytes, opBytes, op.ServiceType))
+		if err := k.OperatorsByController.Remove(ctx, collections.Join3(oldControllerBytes, opBytes, op.ServiceType)); err != nil {
+			return nil, err
+		}
 	}
 
 	op.Controller = newController
@@ -167,10 +169,12 @@ func (k msgServer) applyControllerTransferAccept(
 	}
 
 	// Delete case + open-by-operator index entry.
-	if err := k.ControllerTransferCases.Remove(ctx, caseRow.JuryCaseId); err != nil {
+	if err := k.removeControllerTransferCase(ctx, caseRow); err != nil {
 		return nil, err
 	}
-	_ = k.OpenControllerTransferByOperator.Remove(ctx, collections.Join(opBytes, caseRow.ServiceType))
+	if err := k.OpenControllerTransferByOperator.Remove(ctx, collections.Join(opBytes, caseRow.ServiceType)); err != nil {
+		return nil, err
+	}
 
 	sdk.UnwrapSDKContext(ctx).EventManager().EmitEvents(sdk.Events{
 		types.NewControllerTransferredEvent(caseRow.OperatorAddress, caseRow.ServiceType, newController, caseRow.JuryCaseId),
@@ -191,13 +195,15 @@ func (k msgServer) applyControllerTransferReject(
 		return nil, err
 	}
 
-	if err := k.ControllerTransferCases.Remove(ctx, caseRow.JuryCaseId); err != nil {
+	if err := k.removeControllerTransferCase(ctx, caseRow); err != nil {
 		return nil, err
 	}
 
 	opBytes, err := k.addrBytes(caseRow.OperatorAddress)
 	if err == nil {
-		_ = k.OpenControllerTransferByOperator.Remove(ctx, collections.Join(opBytes, caseRow.ServiceType))
+		if err := k.OpenControllerTransferByOperator.Remove(ctx, collections.Join(opBytes, caseRow.ServiceType)); err != nil {
+			return nil, err
+		}
 	}
 
 	sdk.UnwrapSDKContext(ctx).EventManager().EmitEvent(

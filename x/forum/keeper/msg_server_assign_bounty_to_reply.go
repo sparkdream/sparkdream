@@ -3,6 +3,7 @@ package keeper
 import (
 	"context"
 	"fmt"
+	commontypes "sparkdream/x/common/types"
 
 	"sparkdream/x/forum/types"
 
@@ -28,6 +29,11 @@ func (k msgServer) AssignBountyToReply(ctx context.Context, msg *types.MsgAssign
 	if err != nil {
 		return nil, errorsmod.Wrap(types.ErrBountyNotFound, fmt.Sprintf("bounty %d not found", bountyID))
 	}
+	// A bounty under moderation gets its own error (checked before the
+	// generic ACTIVE requirement, which it would otherwise fail first).
+	if bounty.Status == types.BountyStatus_BOUNTY_STATUS_MODERATION_PENDING {
+		return nil, types.ErrBountyInModeration
+	}
 	if bounty.Status != types.BountyStatus_BOUNTY_STATUS_ACTIVE {
 		return nil, errorsmod.Wrapf(types.ErrBountyNotActive, "bounty status is %s", bounty.Status.String())
 	}
@@ -40,11 +46,6 @@ func (k msgServer) AssignBountyToReply(ctx context.Context, msg *types.MsgAssign
 	// Check bounty not expired
 	if now > bounty.ExpiresAt {
 		return nil, types.ErrBountyExpired
-	}
-
-	// Check bounty not in moderation
-	if bounty.Status == types.BountyStatus_BOUNTY_STATUS_MODERATION_PENDING {
-		return nil, types.ErrBountyInModeration
 	}
 
 	// Check max winners
@@ -75,6 +76,16 @@ func (k msgServer) AssignBountyToReply(ctx context.Context, msg *types.MsgAssign
 		return nil, errorsmod.Wrap(types.ErrNotReplyInThread, "cannot award bounty to thread root post")
 	}
 
+	// Only live, attributable replies can win: a hidden / deleted reply is not
+	// an answer, and an anonymous reply's author is the shield module account,
+	// whose balance is the communal gas reserve.
+	if reply.Status != types.PostStatus_POST_STATUS_ACTIVE {
+		return nil, errorsmod.Wrapf(types.ErrPostStatus, "cannot award a reply with status %s", reply.Status.String())
+	}
+	if k.isAnonymous(reply.Author) {
+		return nil, errorsmod.Wrap(types.ErrCannotAwardSelf, "anonymous replies cannot receive bounty awards")
+	}
+
 	// Creators cannot pay the escrow back to themselves through their own reply
 	if k.sameMember(ctx, reply.Author, bounty.Creator) {
 		return nil, errorsmod.Wrap(types.ErrCannotAwardSelf, "bounty creator cannot accept their own reply")
@@ -88,7 +99,7 @@ func (k msgServer) AssignBountyToReply(ctx context.Context, msg *types.MsgAssign
 		Recipient: reply.Author,
 		Reason:    msg.Reason,
 		AwardedAt: now,
-		Rank:      uint32(len(bounty.Awards) + 1),
+		Rank:      commontypes.Saturate[uint32](len(bounty.Awards) + 1),
 	}
 
 	bounty.Awards = append(bounty.Awards, award)

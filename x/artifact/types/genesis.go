@@ -108,12 +108,18 @@ func (gs GenesisState) Validate() error {
 	}
 
 	reserved := map[uint64]uint64{}
+	seenPending := map[tokenKey]bool{}
 	for _, pm := range gs.PendingMints {
 		c, ok := classes[pm.ClassId]
 		if !ok {
 			return fmt.Errorf("pending mint %d/%d references unknown class", pm.ClassId, pm.TokenId)
 		}
 		k := tokenKey{pm.ClassId, pm.TokenId}
+		// A duplicate would import once but bump the inbox counters twice.
+		if seenPending[k] {
+			return fmt.Errorf("duplicate pending mint %d/%d", pm.ClassId, pm.TokenId)
+		}
+		seenPending[k] = true
 		if _, clash := tokens[k]; clash {
 			return fmt.Errorf("pending mint %d/%d collides with a token", pm.ClassId, pm.TokenId)
 		}
@@ -147,6 +153,9 @@ func (gs GenesisState) Validate() error {
 		if !ok {
 			return fmt.Errorf("listing %d/%d without token", l.ClassId, l.TokenId)
 		}
+		if listed[k] {
+			return fmt.Errorf("duplicate listing %d/%d", l.ClassId, l.TokenId)
+		}
 		if t.Lock != TokenLock_TOKEN_LOCK_LISTED || t.Owner != l.Seller || t.ListingSeq != l.Nonce {
 			return fmt.Errorf("listing %d/%d inconsistent with token", l.ClassId, l.TokenId)
 		}
@@ -162,6 +171,9 @@ func (gs GenesisState) Validate() error {
 		if !ok {
 			return fmt.Errorf("pending transfer %d/%d without token", pt.ClassId, pt.TokenId)
 		}
+		if pending[k] {
+			return fmt.Errorf("duplicate pending transfer %d/%d", pt.ClassId, pt.TokenId)
+		}
 		if t.Lock != TokenLock_TOKEN_LOCK_PENDING_TRANSFER || t.Owner != pt.From {
 			return fmt.Errorf("pending transfer %d/%d inconsistent with token", pt.ClassId, pt.TokenId)
 		}
@@ -176,10 +188,12 @@ func (gs GenesisState) Validate() error {
 		}
 	}
 
+	seenOwner := map[uint64]bool{}
 	for _, po := range gs.PendingClassOwners {
-		if _, ok := classes[po.ClassId]; !ok {
-			return fmt.Errorf("pending owner for unknown class %d", po.ClassId)
+		if _, ok := classes[po.ClassId]; !ok || seenOwner[po.ClassId] {
+			return fmt.Errorf("unknown class or duplicate pending owner for class %d", po.ClassId)
 		}
+		seenOwner[po.ClassId] = true
 	}
 
 	openTargets := map[tokenKey]bool{}
@@ -212,9 +226,16 @@ func (gs GenesisState) Validate() error {
 		}
 		seenProposal[pk] = true
 	}
-	for _, q := range gs.ClassReleaseQueue {
-		if _, ok := classes[q.ClassId]; !ok {
-			return fmt.Errorf("release queue for unknown class %d", q.ClassId)
+	for _, queue := range []struct {
+		name    string
+		cursors []QueueCursor
+	}{{"release", gs.ClassReleaseQueue}, {"cancel", gs.ClassCancelQueue}, {"scrub", gs.ClassScrubQueue}} {
+		seenQueue := map[uint64]bool{}
+		for _, q := range queue.cursors {
+			if _, ok := classes[q.ClassId]; !ok || seenQueue[q.ClassId] {
+				return fmt.Errorf("%s queue: unknown or duplicate class %d", queue.name, q.ClassId)
+			}
+			seenQueue[q.ClassId] = true
 		}
 	}
 
@@ -259,11 +280,13 @@ func (gs GenesisState) validateWave34(classes map[uint64]Class, tokens map[token
 		owner          string
 	}
 	locked := map[balKey]uint64{}
+	seenPU := map[uint64]bool{}
 	for _, pu := range gs.PendingUnits {
 		t, ok := editions[tokenKey{pu.ClassId, pu.EditionId}]
-		if !ok || pu.Id == 0 || pu.Id > gs.PendingUnitSeq || pu.Amount == 0 {
-			return fmt.Errorf("invalid pending units %d", pu.Id)
+		if !ok || pu.Id == 0 || pu.Id > gs.PendingUnitSeq || pu.Amount == 0 || seenPU[pu.Id] {
+			return fmt.Errorf("invalid or duplicate pending units %d", pu.Id)
 		}
+		seenPU[pu.Id] = true
 		switch pu.Kind {
 		case InboxKind_INBOX_KIND_UNIT_MINT:
 			t.reserved += pu.Amount
@@ -273,10 +296,12 @@ func (gs GenesisState) validateWave34(classes map[uint64]Class, tokens map[token
 			return fmt.Errorf("pending units %d has kind %s", pu.Id, pu.Kind)
 		}
 	}
+	seenUL := map[uint64]bool{}
 	for _, l := range gs.UnitListings {
-		if _, ok := editions[tokenKey{l.ClassId, l.EditionId}]; !ok || l.Id == 0 || l.Id > gs.UnitListingSeq || l.Quantity == 0 {
-			return fmt.Errorf("invalid unit listing %d", l.Id)
+		if _, ok := editions[tokenKey{l.ClassId, l.EditionId}]; !ok || l.Id == 0 || l.Id > gs.UnitListingSeq || l.Quantity == 0 || seenUL[l.Id] {
+			return fmt.Errorf("invalid or duplicate unit listing %d", l.Id)
 		}
+		seenUL[l.Id] = true
 		locked[balKey{l.ClassId, l.EditionId, l.Seller}] += l.Quantity
 	}
 	seenBal := map[balKey]bool{}
@@ -291,7 +316,14 @@ func (gs GenesisState) validateWave34(classes map[uint64]Class, tokens map[token
 			return fmt.Errorf("balance %d/%d %s: %d units, %d locked (want %d)", b.ClassId, b.EditionId, b.Owner, b.Units(), b.Locked, locked[k])
 		}
 		delete(locked, k)
-		t.units += b.Units()
+		units, err := AddUnits(b.Amount, b.Locked)
+		if err == nil {
+			units, err = AddUnits(t.units, units)
+		}
+		if err != nil {
+			return fmt.Errorf("balance %d/%d %s: %w", b.ClassId, b.EditionId, b.Owner, err)
+		}
+		t.units = units
 		t.holders++
 	}
 	for k, v := range locked {
@@ -304,31 +336,44 @@ func (gs GenesisState) validateWave34(classes map[uint64]Class, tokens map[token
 		if t.units != e.Supply || t.holders != e.Holders || t.reserved != e.Reserved {
 			return fmt.Errorf("edition %d/%d counters do not match its balances", e.ClassId, e.Id)
 		}
-		if e.MaxSupply > 0 && e.Supply+e.Burned+e.Reserved > e.MaxSupply {
+		issued, err := AddUnits(e.Supply, e.Burned)
+		if err == nil {
+			issued, err = AddUnits(issued, e.Reserved)
+		}
+		if err != nil || e.MaxSupply > HardMaxEditionSupply {
+			return fmt.Errorf("edition %d/%d exceeds the hard supply ceiling", e.ClassId, e.Id)
+		}
+		if e.MaxSupply > 0 && issued > e.MaxSupply {
 			return fmt.Errorf("edition %d/%d exceeds max_supply", e.ClassId, e.Id)
 		}
 	}
+	seenRecipe := map[tokenKey]bool{}
 	for _, r := range gs.CraftRecipes {
-		if _, ok := classes[r.ClassId]; !ok || r.Id == 0 || r.Id > classes[r.ClassId].NextRecipeId {
-			return fmt.Errorf("invalid craft recipe %d/%d", r.ClassId, r.Id)
+		rk := tokenKey{r.ClassId, r.Id}
+		if _, ok := classes[r.ClassId]; !ok || r.Id == 0 || r.Id > classes[r.ClassId].NextRecipeId || seenRecipe[rk] {
+			return fmt.Errorf("invalid or duplicate craft recipe %d/%d", r.ClassId, r.Id)
 		}
+		seenRecipe[rk] = true
 	}
 	rented := map[tokenKey]bool{}
 	for _, r := range gs.Rentals {
 		t, ok := tokens[tokenKey{r.ClassId, r.TokenId}]
-		if !ok || t.Lock != TokenLock_TOKEN_LOCK_RENTED || t.Owner != r.Owner || r.User == "" {
+		if !ok || t.Lock != TokenLock_TOKEN_LOCK_RENTED || t.Owner != r.Owner || r.User == "" || rented[tokenKey{r.ClassId, r.TokenId}] {
 			return fmt.Errorf("rental %d/%d inconsistent with its token", r.ClassId, r.TokenId)
 		}
 		rented[tokenKey{r.ClassId, r.TokenId}] = true
 	}
+	seenRentalOffer := map[tokenKey]bool{}
 	for _, o := range gs.RentalOffers {
-		if _, ok := tokens[tokenKey{o.ClassId, o.TokenId}]; !ok {
-			return fmt.Errorf("rental offer %d/%d without token", o.ClassId, o.TokenId)
+		rk := tokenKey{o.ClassId, o.TokenId}
+		if _, ok := tokens[rk]; !ok || seenRentalOffer[rk] {
+			return fmt.Errorf("rental offer %d/%d without token, or duplicate", o.ClassId, o.TokenId)
 		}
+		seenRentalOffer[rk] = true
 	}
 	seenOffer := map[uint64]bool{}
 	for _, o := range gs.Offers {
-		if o.Id == 0 || o.Id > gs.OfferSeq || seenOffer[o.Id] || o.Bidder == "" || o.Price.Amount.IsNil() || !o.Price.Amount.IsPositive() {
+		if o.Id == 0 || o.Id > gs.OfferSeq || seenOffer[o.Id] || o.Bidder == "" || o.Price.Validate() != nil || !o.Price.Amount.IsPositive() {
 			return fmt.Errorf("invalid or duplicate offer %d", o.Id)
 		}
 		if _, ok := classes[o.ClassId]; !ok {
@@ -343,7 +388,17 @@ func (gs GenesisState) validateWave34(classes map[uint64]Class, tokens map[token
 		if a.Id == 0 || a.Id > gs.AuctionSeq || !ok || auctioned[k] || t.Lock != TokenLock_TOKEN_LOCK_AUCTION || t.Owner != a.Seller {
 			return fmt.Errorf("auction %d inconsistent with its token", a.Id)
 		}
-		if a.HighBid.IsNil() || (a.HighBidder != "" && a.HighBid.LT(a.ReservePrice.Amount)) {
+		// MinNextBid and settlement consume these directly: the reserve
+		// must be a valid positive coin, the increment bounded and the high
+		// bid non-negative (zero without a bidder).
+		if err := a.ReservePrice.Validate(); err != nil || !a.ReservePrice.Amount.IsPositive() {
+			return fmt.Errorf("auction %d has an invalid reserve price", a.Id)
+		}
+		if a.MinIncrementBps > 10000 {
+			return fmt.Errorf("auction %d min_increment_bps above 10000", a.Id)
+		}
+		if a.HighBid.IsNil() || a.HighBid.IsNegative() || (a.HighBidder == "" && !a.HighBid.IsZero()) ||
+			(a.HighBidder != "" && a.HighBid.LT(a.ReservePrice.Amount)) {
 			return fmt.Errorf("auction %d has an invalid high bid", a.Id)
 		}
 		auctioned[k] = true

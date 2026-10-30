@@ -1,84 +1,88 @@
 package simulation
 
 import (
-	"math/rand"
-
-	"github.com/cosmos/cosmos-sdk/baseapp"
+	"cosmossdk.io/math"
 	"github.com/cosmos/cosmos-sdk/client"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
-	"github.com/cosmos/cosmos-sdk/x/simulation"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/rep/keeper"
 	"sparkdream/x/rep/types"
 )
 
-func SimulateMsgCreateInterim(
-	ak types.AuthKeeper,
-	bk types.BankKeeper,
-	k keeper.Keeper,
-	txGen client.TxConfig,
-) simtypes.Operation {
-	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
-	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		// Get or create a creator
-		creator, creatorAcc, err := getOrCreateMember(r, ctx, k, accs)
+// memberInterimTypes are the interim types a member may open (ADJUDICATION
+// and JURY_DUTY are system-only).
+var memberInterimTypes = []types.InterimType{
+	types.InterimType_INTERIM_TYPE_EXPERT_TESTIMONY,
+	types.InterimType_INTERIM_TYPE_DISPUTE_MEDIATION,
+	types.InterimType_INTERIM_TYPE_PROJECT_APPROVAL,
+	types.InterimType_INTERIM_TYPE_BUDGET_REVIEW,
+	types.InterimType_INTERIM_TYPE_CONTRIBUTION_REVIEW,
+	types.InterimType_INTERIM_TYPE_AUDIT,
+	types.InterimType_INTERIM_TYPE_MENTORSHIP,
+	types.InterimType_INTERIM_TYPE_OTHER,
+}
+
+// createInterimCandidates returns MsgCreateInterim candidates, one per live
+// active member.
+func (e *simEnv) createInterimCandidates() ([]candidate, error) {
+	ms, err := e.members(nil)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]candidate, 0, len(ms))
+	for _, ma := range ms {
+		out = append(out, candidate{acc: ma.acc, msg: &types.MsgCreateInterim{
+			Creator:     ma.addr(),
+			InterimType: memberInterimTypes[e.r.Intn(len(memberInterimTypes))],
+			Complexity:  commontypes.Saturate[types.InterimComplexity](e.r.Intn(3)),
+			Deadline:    e.ctx.BlockHeight() + 50 + int64(e.r.Intn(400)),
+		}, spent: math.ZeroInt()})
+	}
+	return out, nil
+}
+
+// SimulateMsgCreateInterim has an active member open interim work assigned to
+// itself.
+func SimulateMsgCreateInterim(ak types.AuthKeeper, bk types.BankKeeper, k keeper.Keeper, txGen client.TxConfig) simtypes.Operation {
+	label := &types.MsgCreateInterim{}
+	return operation(ak, bk, k, txGen, label, func(e *simEnv) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
+		cands, err := e.createInterimCandidates()
 		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgCreateInterim{}), "failed to get/create creator"), nil, nil
+			return noOpErr(label, err)
 		}
+		return e.firstValid(label, cands, 4, "no active member can open interim work")
+	})
+}
 
-		// Generate interim details
-		interimType := randomInterimType(r)
-
-		// Determine reference based on type
-		var referenceID uint64
-		var referenceType string
-
-		// For simplicity, use project approval or expert testimony
-		if interimType == types.InterimType_INTERIM_TYPE_PROJECT_APPROVAL {
-			referenceType = "project"
-			referenceID = uint64(r.Intn(100) + 1) // Random project ID
-		} else if interimType == types.InterimType_INTERIM_TYPE_EXPERT_TESTIMONY {
-			referenceType = "challenge"
-			referenceID = uint64(r.Intn(100) + 1) // Random challenge ID
-		} else {
-			// Generic work
-			referenceType = "general"
-			referenceID = 0
-		}
-
-		// Random complexity
-		complexities := []types.InterimComplexity{
-			types.InterimComplexity_INTERIM_COMPLEXITY_SIMPLE,
-			types.InterimComplexity_INTERIM_COMPLEXITY_STANDARD,
-			types.InterimComplexity_INTERIM_COMPLEXITY_COMPLEX,
-		}
-		complexity := complexities[r.Intn(len(complexities))]
-
-		// Random deadline (1-7 days from now)
-		deadline := ctx.BlockTime().Unix() + int64(r.Intn(7*24*3600)+24*3600)
-
-		msg := &types.MsgCreateInterim{
-			Creator:       creator.Address,
-			InterimType:   interimType,
-			ReferenceId:   referenceID,
-			ReferenceType: referenceType,
-			Complexity:    complexity,
-			Deadline:      deadline,
-		}
-
-		return simulation.GenAndDeliverTxWithRandFees(simulation.OperationInput{
-			R:               r,
-			App:             app,
-			TxGen:           txGen,
-			Cdc:             nil,
-			Msg:             msg,
-			CoinsSpentInMsg: sdk.NewCoins(),
-			Context:         ctx,
-			SimAccount:      creatorAcc,
-			AccountKeeper:   ak,
-			Bankkeeper:      bk,
-			ModuleName:      types.ModuleName,
+// openInterim returns a PENDING or IN_PROGRESS non-adjudication interim
+// accepted by keep, opening one first when there is none.
+func (e *simEnv) openInterim(keep func(types.Interim) bool) ([]types.Interim, error) {
+	find := func() ([]types.Interim, error) {
+		return e.interims(func(it types.Interim) bool {
+			return (it.Status == types.InterimStatus_INTERIM_STATUS_PENDING || it.Status == types.InterimStatus_INTERIM_STATUS_IN_PROGRESS) &&
+				it.Type != types.InterimType_INTERIM_TYPE_ADJUDICATION && (keep == nil || keep(it))
 		})
 	}
+	its, err := find()
+	if err != nil || len(its) > 0 {
+		return its, err
+	}
+	cands, err := e.createInterimCandidates()
+	if err != nil {
+		return nil, err
+	}
+	for n, i := range e.r.Perm(len(cands)) {
+		if n >= maxPrereqTries {
+			break
+		}
+		ok, err := e.ensure(cands[i].acc, cands[i].msg, math.ZeroInt())
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			return find()
+		}
+	}
+	return nil, nil
 }

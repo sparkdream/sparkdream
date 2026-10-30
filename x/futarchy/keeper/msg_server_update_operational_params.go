@@ -9,7 +9,8 @@ import (
 )
 
 func (k msgServer) UpdateOperationalParams(ctx context.Context, req *types.MsgUpdateOperationalParams) (*types.MsgUpdateOperationalParamsResponse, error) {
-	if !k.isCouncilAuthorized(ctx, req.Authority, "commons", "operations") {
+	// FUT-10: a committee decision (policy address), not a single member.
+	if !k.isCouncilOrCommitteePolicy(ctx, req.Authority, "commons", "operations") {
 		return nil, errorsmod.Wrapf(types.ErrInvalidSigner, "address %s is not authorized to update operational params", req.Authority)
 	}
 

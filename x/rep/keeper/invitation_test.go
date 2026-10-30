@@ -22,7 +22,7 @@ func TestCreateInvitation(t *testing.T) {
 
 	// Setup: Create inviter member with invitation credits
 	inviter := sdk.AccAddress([]byte("inviter"))
-	k.Member.Set(ctx, inviter.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, inviter.String(), types.Member{
 		Address:           inviter.String(),
 		DreamBalance:      PtrInt(math.NewInt(1000000000)), // 1000 DREAM
 		StakedDream:       PtrInt(math.ZeroInt()),
@@ -31,7 +31,7 @@ func TestCreateInvitation(t *testing.T) {
 		ReputationScores:  map[string]string{"backend": "100.0"},
 		InvitationCredits: 3,
 		TrustLevel:        types.TrustLevel_TRUST_LEVEL_ESTABLISHED, // max=5, used=2, cost mult 1.1^2
-	})
+	}))
 
 	invitee := sdk.AccAddress([]byte("invitee"))
 	stakedAmount := math.NewInt(150000000) // 150 DREAM (covers escalated 121 DREAM floor)
@@ -69,7 +69,7 @@ func TestCreateInvitationErrors(t *testing.T) {
 	invitee := sdk.AccAddress([]byte("invitee"))
 
 	// Test: No invitation credits
-	k.Member.Set(ctx, inviter.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, inviter.String(), types.Member{
 		Address:           inviter.String(),
 		DreamBalance:      PtrInt(math.NewInt(1000000000)), // 1000 DREAM
 		StakedDream:       PtrInt(math.ZeroInt()),
@@ -77,13 +77,13 @@ func TestCreateInvitationErrors(t *testing.T) {
 		LifetimeBurned:    PtrInt(math.ZeroInt()),
 		ReputationScores:  make(map[string]string),
 		InvitationCredits: 0, // No credits
-	})
+	}))
 
 	_, err := k.CreateInvitation(ctx, inviter, invitee, math.NewInt(100000000), []string{"tag"})
 	require.ErrorIs(t, err, types.ErrNoInvitationCredits)
 
 	// Test: Stake below MinInvitationStake (base floor: 100 DREAM = 100000000 micro-DREAM)
-	k.Member.Set(ctx, inviter.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, inviter.String(), types.Member{
 		Address:           inviter.String(),
 		DreamBalance:      PtrInt(math.NewInt(1000000000)), // 1000 DREAM
 		StakedDream:       PtrInt(math.ZeroInt()),
@@ -92,13 +92,13 @@ func TestCreateInvitationErrors(t *testing.T) {
 		ReputationScores:  make(map[string]string),
 		InvitationCredits: 1,
 		TrustLevel:        types.TrustLevel_TRUST_LEVEL_PROVISIONAL, // max=2, used=1, mult=1.1x
-	})
+	}))
 	_, err = k.CreateInvitation(ctx, inviter, invitee, math.NewInt(99999999), []string{"tag"})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "insufficient stake")
 
 	// Test: Insufficient balance
-	k.Member.Set(ctx, inviter.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, inviter.String(), types.Member{
 		Address:           inviter.String(),
 		DreamBalance:      PtrInt(math.NewInt(10)), // Too low
 		StakedDream:       PtrInt(math.ZeroInt()),
@@ -106,13 +106,13 @@ func TestCreateInvitationErrors(t *testing.T) {
 		LifetimeBurned:    PtrInt(math.ZeroInt()),
 		ReputationScores:  make(map[string]string),
 		InvitationCredits: 1,
-	})
+	}))
 
 	_, err = k.CreateInvitation(ctx, inviter, invitee, math.NewInt(200000000), []string{"tag"})
 	require.ErrorIs(t, err, types.ErrInsufficientBalance)
 
 	// Test: Invitee already exists
-	k.Member.Set(ctx, inviter.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, inviter.String(), types.Member{
 		Address:           inviter.String(),
 		DreamBalance:      PtrInt(math.NewInt(1000000000)), // 1000 DREAM
 		StakedDream:       PtrInt(math.ZeroInt()),
@@ -120,15 +120,15 @@ func TestCreateInvitationErrors(t *testing.T) {
 		LifetimeBurned:    PtrInt(math.ZeroInt()),
 		ReputationScores:  make(map[string]string),
 		InvitationCredits: 1,
-	})
-	k.Member.Set(ctx, invitee.String(), types.Member{
+	}))
+	require.NoError(t, k.Member.Set(ctx, invitee.String(), types.Member{
 		Address:          invitee.String(),
 		DreamBalance:     PtrInt(math.ZeroInt()),
 		StakedDream:      PtrInt(math.ZeroInt()),
 		LifetimeEarned:   PtrInt(math.ZeroInt()),
 		LifetimeBurned:   PtrInt(math.ZeroInt()),
 		ReputationScores: make(map[string]string),
-	})
+	}))
 
 	_, err = k.CreateInvitation(ctx, inviter, invitee, math.NewInt(100000000), []string{"tag"})
 	require.ErrorIs(t, err, types.ErrMemberAlreadyExists)
@@ -141,7 +141,7 @@ func TestAcceptInvitation(t *testing.T) {
 
 	// Setup: Create invitation
 	inviter := sdk.AccAddress([]byte("inviter"))
-	k.Member.Set(ctx, inviter.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, inviter.String(), types.Member{
 		Address:           inviter.String(),
 		DreamBalance:      PtrInt(math.NewInt(1000000000)), // 1000 DREAM
 		StakedDream:       PtrInt(math.ZeroInt()),
@@ -150,7 +150,7 @@ func TestAcceptInvitation(t *testing.T) {
 		ReputationScores:  map[string]string{"backend": "100.0"},
 		InvitationCredits: 3,
 		InvitationChain:   []string{"founder1", "founder2"},
-	})
+	}))
 
 	invitee := sdk.AccAddress([]byte("invitee"))
 	stakedAmount := math.NewInt(100000000)
@@ -201,7 +201,7 @@ func TestAcceptInvitationErrors(t *testing.T) {
 	ctx := fixture.ctx
 
 	inviter := sdk.AccAddress([]byte("inviter"))
-	k.Member.Set(ctx, inviter.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, inviter.String(), types.Member{
 		Address:           inviter.String(),
 		DreamBalance:      PtrInt(math.NewInt(1000000000)), // 1000 DREAM
 		StakedDream:       PtrInt(math.ZeroInt()),
@@ -209,7 +209,7 @@ func TestAcceptInvitationErrors(t *testing.T) {
 		LifetimeBurned:    PtrInt(math.ZeroInt()),
 		ReputationScores:  make(map[string]string),
 		InvitationCredits: 1,
-	})
+	}))
 
 	invitee := sdk.AccAddress([]byte("invitee"))
 	invitationID, _ := k.CreateInvitation(ctx, inviter, invitee, math.NewInt(100000000), []string{"tag"})
@@ -235,7 +235,7 @@ func TestReferralReward(t *testing.T) {
 
 	// Setup: Create and accept invitation
 	inviter := sdk.AccAddress([]byte("inviter"))
-	k.Member.Set(ctx, inviter.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, inviter.String(), types.Member{
 		Address:           inviter.String(),
 		DreamBalance:      PtrInt(math.NewInt(1000000000)), // 1000 DREAM
 		StakedDream:       PtrInt(math.ZeroInt()),
@@ -243,7 +243,7 @@ func TestReferralReward(t *testing.T) {
 		LifetimeBurned:    PtrInt(math.ZeroInt()),
 		ReputationScores:  make(map[string]string),
 		InvitationCredits: 1,
-	})
+	}))
 
 	invitee := sdk.AccAddress([]byte("invitee"))
 	invitationID, _ := k.CreateInvitation(ctx, inviter, invitee, math.NewInt(100000000), []string{"tag"})
@@ -279,7 +279,7 @@ func TestReferralRewardAutomatic(t *testing.T) {
 
 	// Setup: Create inviter and invitee
 	inviter := sdk.AccAddress([]byte("inviter"))
-	k.Member.Set(ctx, inviter.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, inviter.String(), types.Member{
 		Address:           inviter.String(),
 		DreamBalance:      PtrInt(math.NewInt(2000000000)), // 2000 DREAM
 		StakedDream:       PtrInt(math.ZeroInt()),
@@ -287,7 +287,7 @@ func TestReferralRewardAutomatic(t *testing.T) {
 		LifetimeBurned:    PtrInt(math.ZeroInt()),
 		ReputationScores:  map[string]string{"dev": "100.0"},
 		InvitationCredits: 1,
-	})
+	}))
 
 	invitee := sdk.AccAddress([]byte("invitee"))
 	invitationID, _ := k.CreateInvitation(ctx, inviter, invitee, math.NewInt(100000000), []string{"dev"})
@@ -335,7 +335,7 @@ func TestCreateInvitation_LazyCreditsReset(t *testing.T) {
 
 	// Setup: Create inviter member with 0 credits (used up), last reset at season 0
 	inviter := sdk.AccAddress([]byte("inviter"))
-	k.Member.Set(ctx, inviter.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, inviter.String(), types.Member{
 		Address:               inviter.String(),
 		DreamBalance:          PtrInt(math.NewInt(1000000000)), // 1000 DREAM
 		StakedDream:           PtrInt(math.ZeroInt()),
@@ -345,7 +345,7 @@ func TestCreateInvitation_LazyCreditsReset(t *testing.T) {
 		InvitationCredits:     0, // Used up all credits
 		TrustLevel:            types.TrustLevel_TRUST_LEVEL_ESTABLISHED,
 		LastCreditResetSeason: 0, // Last reset at season 0
-	})
+	}))
 
 	invitee := sdk.AccAddress([]byte("invitee"))
 	stakedAmount := math.NewInt(100000000)
@@ -390,7 +390,7 @@ func TestCreateInvitation_NoResetSameSeason(t *testing.T) {
 
 	// Setup: Create inviter member with some credits, already reset this season
 	inviter := sdk.AccAddress([]byte("inviter"))
-	k.Member.Set(ctx, inviter.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, inviter.String(), types.Member{
 		Address:               inviter.String(),
 		DreamBalance:          PtrInt(math.NewInt(1000000000)), // 1000 DREAM
 		StakedDream:           PtrInt(math.ZeroInt()),
@@ -400,7 +400,7 @@ func TestCreateInvitation_NoResetSameSeason(t *testing.T) {
 		InvitationCredits:     2, // Has 2 credits left
 		TrustLevel:            types.TrustLevel_TRUST_LEVEL_CORE,
 		LastCreditResetSeason: 0, // Already reset at season 0
-	})
+	}))
 
 	invitee := sdk.AccAddress([]byte("invitee"))
 	// CORE max=20, used=18 → required = 100M * 1.1^18 ≈ 555M; stake 600M covers it.
@@ -430,7 +430,7 @@ func TestProcessInviterAccountability(t *testing.T) {
 		// Setup: Create inviter member with DREAM balance
 		inviter := sdk.AccAddress([]byte("inviter_acc1"))
 		inviterInitialDream := math.NewInt(2000000000) // 2000 DREAM
-		k.Member.Set(ctx, inviter.String(), types.Member{
+		require.NoError(t, k.Member.Set(ctx, inviter.String(), types.Member{
 			Address:           inviter.String(),
 			DreamBalance:      PtrInt(inviterInitialDream),
 			StakedDream:       PtrInt(math.ZeroInt()),
@@ -439,11 +439,11 @@ func TestProcessInviterAccountability(t *testing.T) {
 			ReputationScores:  map[string]string{"backend": "100.0"},
 			InvitationCredits: 3,
 			TrustLevel:        types.TrustLevel_TRUST_LEVEL_ESTABLISHED,
-		})
+		}))
 
 		// Create invitee member
 		invitee := sdk.AccAddress([]byte("invitee_acc1"))
-		k.Member.Set(ctx, invitee.String(), types.Member{
+		require.NoError(t, k.Member.Set(ctx, invitee.String(), types.Member{
 			Address:          invitee.String(),
 			DreamBalance:     PtrInt(math.ZeroInt()),
 			StakedDream:      PtrInt(math.ZeroInt()),
@@ -451,7 +451,7 @@ func TestProcessInviterAccountability(t *testing.T) {
 			LifetimeBurned:   PtrInt(math.ZeroInt()),
 			ReputationScores: make(map[string]string),
 			InvitedBy:        inviter.String(),
-		})
+		}))
 
 		// Create an accepted invitation with AccountabilityEnd in the future (30 days from now)
 		sdkCtx := sdk.UnwrapSDKContext(ctx)
@@ -497,7 +497,7 @@ func TestProcessInviterAccountability(t *testing.T) {
 		// Setup: Create inviter member with DREAM balance
 		inviter := sdk.AccAddress([]byte("inviter_acc2"))
 		inviterInitialDream := math.NewInt(2000000000) // 2000 DREAM
-		k.Member.Set(ctx, inviter.String(), types.Member{
+		require.NoError(t, k.Member.Set(ctx, inviter.String(), types.Member{
 			Address:           inviter.String(),
 			DreamBalance:      PtrInt(inviterInitialDream),
 			StakedDream:       PtrInt(math.ZeroInt()),
@@ -506,11 +506,11 @@ func TestProcessInviterAccountability(t *testing.T) {
 			ReputationScores:  map[string]string{"backend": "100.0"},
 			InvitationCredits: 3,
 			TrustLevel:        types.TrustLevel_TRUST_LEVEL_ESTABLISHED,
-		})
+		}))
 
 		// Create invitee member
 		invitee := sdk.AccAddress([]byte("invitee_acc2"))
-		k.Member.Set(ctx, invitee.String(), types.Member{
+		require.NoError(t, k.Member.Set(ctx, invitee.String(), types.Member{
 			Address:          invitee.String(),
 			DreamBalance:     PtrInt(math.ZeroInt()),
 			StakedDream:      PtrInt(math.ZeroInt()),
@@ -518,7 +518,7 @@ func TestProcessInviterAccountability(t *testing.T) {
 			LifetimeBurned:   PtrInt(math.ZeroInt()),
 			ReputationScores: make(map[string]string),
 			InvitedBy:        inviter.String(),
-		})
+		}))
 
 		// Create an accepted invitation with AccountabilityEnd in the past (1 hour ago)
 		sdkCtx := sdk.UnwrapSDKContext(ctx)
@@ -561,7 +561,7 @@ func TestProcessInviterAccountability(t *testing.T) {
 		// Setup: Create inviter member with less DREAM than the staked amount
 		inviter := sdk.AccAddress([]byte("inviter_acc3"))
 		inviterLowDream := math.NewInt(30000000) // 30 DREAM, less than staked amount of 100 DREAM
-		k.Member.Set(ctx, inviter.String(), types.Member{
+		require.NoError(t, k.Member.Set(ctx, inviter.String(), types.Member{
 			Address:           inviter.String(),
 			DreamBalance:      PtrInt(inviterLowDream),
 			StakedDream:       PtrInt(math.ZeroInt()),
@@ -570,11 +570,11 @@ func TestProcessInviterAccountability(t *testing.T) {
 			ReputationScores:  map[string]string{"backend": "100.0"},
 			InvitationCredits: 3,
 			TrustLevel:        types.TrustLevel_TRUST_LEVEL_ESTABLISHED,
-		})
+		}))
 
 		// Create invitee member
 		invitee := sdk.AccAddress([]byte("invitee_acc3"))
-		k.Member.Set(ctx, invitee.String(), types.Member{
+		require.NoError(t, k.Member.Set(ctx, invitee.String(), types.Member{
 			Address:          invitee.String(),
 			DreamBalance:     PtrInt(math.ZeroInt()),
 			StakedDream:      PtrInt(math.ZeroInt()),
@@ -582,7 +582,7 @@ func TestProcessInviterAccountability(t *testing.T) {
 			LifetimeBurned:   PtrInt(math.ZeroInt()),
 			ReputationScores: make(map[string]string),
 			InvitedBy:        inviter.String(),
-		})
+		}))
 
 		// Create an accepted invitation with AccountabilityEnd in the future
 		sdkCtx := sdk.UnwrapSDKContext(ctx)

@@ -38,7 +38,7 @@ func TestQueryCollectionsByContent_FindsCollection(t *testing.T) {
 
 	// Manually set the on-chain ref index
 	refKey := "blog:post:42"
-	f.keeper.ItemsByOnChainRef.Set(f.ctx, collections.Join(refKey, itemID)) //nolint:errcheck
+	require.NoError(t, f.keeper.ItemsByOnChainRef.Set(f.ctx, collections.Join(refKey, itemID)))
 
 	// Also update the item to have on-chain ref so the query can verify
 	item, _ := f.keeper.Item.Get(f.ctx, itemID)
@@ -48,7 +48,7 @@ func TestQueryCollectionsByContent_FindsCollection(t *testing.T) {
 		EntityType: "post",
 		EntityId:   "42",
 	}
-	f.keeper.Item.Set(f.ctx, itemID, item) //nolint:errcheck
+	require.NoError(t, f.keeper.Item.Set(f.ctx, itemID, item))
 
 	resp, err := f.queryServer.CollectionsByContent(f.ctx, &types.QueryCollectionsByContentRequest{
 		Module:     "blog",
@@ -70,8 +70,8 @@ func TestQueryCollectionsByContent_Deduplicates(t *testing.T) {
 	itemID2 := f.addItem(t, collID, f.owner)
 
 	refKey := "blog:post:99"
-	f.keeper.ItemsByOnChainRef.Set(f.ctx, collections.Join(refKey, itemID1)) //nolint:errcheck
-	f.keeper.ItemsByOnChainRef.Set(f.ctx, collections.Join(refKey, itemID2)) //nolint:errcheck
+	require.NoError(t, f.keeper.ItemsByOnChainRef.Set(f.ctx, collections.Join(refKey, itemID1)))
+	require.NoError(t, f.keeper.ItemsByOnChainRef.Set(f.ctx, collections.Join(refKey, itemID2)))
 
 	resp, err := f.queryServer.CollectionsByContent(f.ctx, &types.QueryCollectionsByContentRequest{
 		Module:     "blog",
@@ -96,8 +96,8 @@ func TestQueryCollectionsByContent_MultipleCollections(t *testing.T) {
 	itemID2 := f.addItem(t, collID2, f.owner)
 
 	refKey := "forum:post:7"
-	f.keeper.ItemsByOnChainRef.Set(f.ctx, collections.Join(refKey, itemID1)) //nolint:errcheck
-	f.keeper.ItemsByOnChainRef.Set(f.ctx, collections.Join(refKey, itemID2)) //nolint:errcheck
+	require.NoError(t, f.keeper.ItemsByOnChainRef.Set(f.ctx, collections.Join(refKey, itemID1)))
+	require.NoError(t, f.keeper.ItemsByOnChainRef.Set(f.ctx, collections.Join(refKey, itemID2)))
 
 	resp, err := f.queryServer.CollectionsByContent(f.ctx, &types.QueryCollectionsByContentRequest{
 		Module:     "forum",
@@ -121,13 +121,11 @@ func TestQueryCollectionsByContent_Pagination(t *testing.T) {
 	f.setBlockHeight(100)
 
 	// Create 3 collections with items referencing the same content
-	var collIDs []uint64
 	refKey := "blog:post:1"
 	for i := 0; i < 3; i++ {
 		collID := f.createCollection(t, f.owner)
 		itemID := f.addItem(t, collID, f.owner)
-		f.keeper.ItemsByOnChainRef.Set(f.ctx, collections.Join(refKey, itemID)) //nolint:errcheck
-		collIDs = append(collIDs, collID)
+		require.NoError(t, f.keeper.ItemsByOnChainRef.Set(f.ctx, collections.Join(refKey, itemID)))
 	}
 
 	// Query with limit=2
@@ -170,10 +168,10 @@ func TestQueryCollectionsByContent_DeletedItem(t *testing.T) {
 	itemID := f.addItem(t, collID, f.owner)
 
 	refKey := "blog:post:50"
-	f.keeper.ItemsByOnChainRef.Set(f.ctx, collections.Join(refKey, itemID)) //nolint:errcheck
+	require.NoError(t, f.keeper.ItemsByOnChainRef.Set(f.ctx, collections.Join(refKey, itemID)))
 
 	// Delete the item but leave the index (simulates stale index)
-	f.keeper.Item.Remove(f.ctx, itemID) //nolint:errcheck
+	require.NoError(t, f.keeper.Item.Remove(f.ctx, itemID))
 
 	resp, err := f.queryServer.CollectionsByContent(f.ctx, &types.QueryCollectionsByContentRequest{
 		Module:     "blog",

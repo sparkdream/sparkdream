@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/season/types"
 
 	errorsmod "cosmossdk.io/errors"
@@ -45,13 +46,16 @@ func (k msgServer) CreateAchievement(ctx context.Context, msg *types.MsgCreateAc
 		AchievementId:        msg.AchievementId,
 		Name:                 msg.Name,
 		Description:          msg.Description,
-		Rarity:               types.Rarity(msg.Rarity),
+		Rarity:               commontypes.Saturate[types.Rarity](msg.Rarity),
 		XpReward:             msg.XpReward,
-		RequirementType:      types.RequirementType(msg.RequirementType),
+		RequirementType:      commontypes.Saturate[types.RequirementType](msg.RequirementType),
 		RequirementThreshold: msg.RequirementThreshold,
 	}
 
 	// Save the achievement
+	if err := achievement.ValidateDefinition(); err != nil {
+		return nil, err
+	}
 	if err := k.SetAchievement(ctx, achievement); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to save achievement")
 	}

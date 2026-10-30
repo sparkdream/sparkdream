@@ -15,6 +15,7 @@ BINARY="sparkdreamd"
 CHAIN_ID="sparkdream"
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 source "$SCRIPT_DIR/../lib/denoms.sh"
+source "$SCRIPT_DIR/../lib/ops_committee.sh"
 
 # Get alice address (genesis member)
 ALICE_ADDR=$($BINARY keys show alice -a --keyring-backend test)
@@ -1053,7 +1054,8 @@ echo ""
 #   - sentinel2: tier 3 (200+ rep) for bonding
 #   - poster1:   tier 2 (100+ rep) for comfortable post creation
 #   - moderator: tier 3 (200+ rep) for council operations
-# Each EPIC interim grants 100 rep, but the per-epoch cap is 50 rep/tag/epoch
+# Each EPIC interim (created by the account, approved by an Operations
+# Committee proposal) grants 100 rep, but the per-epoch cap is 50 rep/tag/epoch
 # (epoch_blocks=10, ~10s per epoch). With ~12s per interim, most interims span
 # one epoch, so each gives ~50-100 rep.
 echo "Step 9: Bootstrapping reputation for sentinel/poster/moderator..."
@@ -1085,23 +1087,10 @@ bootstrap_reputation() {
         fi
         INTERIM_ID=$(extract_event_value "$TX_RESULT" "interim_created" "interim_id")
 
-        # Complete the interim
-        TX_RES=$($BINARY tx rep complete-interim --gas 500000 $INTERIM_ID "Completed for test setup" \
-            --from $ACCOUNT \
-            --chain-id $CHAIN_ID \
-            --keyring-backend test \
-            --fees 5000${BOND_DENOM} \
-            -y \
-            --output json 2>&1)
-        TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
-        if [ -z "$TXHASH" ] || [ "$TXHASH" == "null" ]; then
-            echo "    [WARN]  Failed to complete interim $i"
-            return 1
-        fi
-        sleep 6
-        TX_RESULT=$(wait_for_tx $TXHASH)
-        if ! check_tx_success "$TX_RESULT"; then
-            echo "    [WARN]  Failed to complete interim $i"
+        # An Operations Committee proposal approves it (a single member is
+        # refused; an assignee can no longer complete and pay its own interim).
+        if ! ops_approve_interim "$INTERIM_ID" "Completed for test setup"; then
+            echo "    Failed to approve interim $INTERIM_ID: $OPS_COMMITTEE_ERROR"
             return 1
         fi
         echo "    [ OK ] Completed interim $i/$COUNT (ID: $INTERIM_ID)"

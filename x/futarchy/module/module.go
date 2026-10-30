@@ -140,3 +140,9 @@ func (am AppModule) BeginBlock(_ context.Context) error {
 func (am AppModule) EndBlock(ctx context.Context) error {
 	return EndBlocker(ctx, am.keeper)
 }
+
+// RegisterInvariants registers the futarchy solvency invariant (FUT-05).
+// x/crisis is not wired; app's TestInvariants evaluates it.
+func (am AppModule) RegisterInvariants(ir sdk.InvariantRegistry) {
+	keeper.RegisterInvariants(ir, am.keeper)
+}

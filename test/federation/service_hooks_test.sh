@@ -20,16 +20,16 @@ echo "--- TESTING: FEDERATION ↔ x/service hook integration ---"
 # Group C tightens the federation-bridge ServiceTypeConfig's
 # unilateral_slash_cap_bps + tier1_aggregate_cap_bps to 10000 (100%)
 # via an expedited gov proposal so a single OpsComm T1_SLASH can drive
-# bond to zero in one block. We chose this over the T2 jury path
-# because x/rep's CreateAppealInitiative creates the JuryReview with
-# empty Jurors (deferred selection) and no production code populates
-# Jurors before x/service's max_escalated_blocks AUTO_TIMEOUT sweep
-# fires in the same block as rep's TallyJuryVotes — the resolver never
-# gets a clean window to land MsgResolveReportByJury. The 100%-T1
-# path tests the same federation-side prune-binding logic that the T2
-# dissolve verdict would trigger, without depending on the
-# unwired-appeal-jurors gap. See the in-test comment in TEST 9 for
-# more detail.
+# bond to zero in one block. The T2 jury path is not driven here: x/service
+# now opens its jury cases with x/rep CreateSeatedAppeal (jury seated at
+# once, parties excluded, voting deadline at half of max_escalated_blocks so
+# the resolver can relay the tallied verdict before AUTO_TIMEOUT), but the
+# seated jurors are drawn by sortition from all members and this suite
+# cannot know in advance which keyring accounts it must vote with. The
+# 100%-T1 path tests the same federation-side prune-binding logic a T2
+# dissolve verdict triggers; the jury path itself is covered by
+# x/rep/keeper/jury_external_case_test.go and
+# x/service/keeper/audit_2026_10_test.go.
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 PROPOSAL_DIR="$SCRIPT_DIR/proposals"
@@ -629,21 +629,11 @@ fi
 # This fires AfterOperatorDissolved synchronously; federation prunes
 # the binding and decrements peer state.
 #
-# Why this path instead of T2 jury:
-#   x/rep's CreateAppealInitiative creates a JuryReview with empty
-#   Jurors (deferred selection). No production code populates Jurors
-#   between creation and rep's TallyJuryVotes deadline. At deadline,
-#   TallyJuryVotes on 0 votes auto-resolves to UPHOLD_CHALLENGE (the
-#   `upholdVotes >= requiredSupermajority` branch with both equal to
-#   zero — see x/rep/keeper/jury.go:404-411). BUT x/service's own
-#   max_escalated_blocks AUTO_TIMEOUT sweep fires in the SAME block as
-#   rep's tally (both deadlines are computed from the same
-#   escalated_at + max_escalated_blocks value at the same block), and
-#   x/service runs AFTER x/rep in the EndBlocker order — by the time a
-#   resolver tx in block N+1 could land MsgResolveReportByJury, the
-#   report status is AUTO_TIMEOUT and the call rejects with "report
-#   already resolved". Hence the 100%-T1 path: same federation-side
-#   prune-binding code path, no rep-side jury wiring required.
+# Why this path instead of T2 jury: see the Group C header. (Historical
+# note: until x/service switched to CreateSeatedAppeal, a T2 case had no
+# jurors and was never tallied, so every escalated report AUTO_TIMEOUTed
+# with no slash. That gap is closed; this test still takes the T1 path
+# because jurors are chosen by sortition.)
 # ========================================================================
 echo ""
 echo "--- TEST 11: T1_SLASH @ 100% drains bond → UNDERFUNDED + suspended ---"
@@ -658,15 +648,14 @@ echo "--- TEST 11: T1_SLASH @ 100% drains bond → UNDERFUNDED + suspended ---"
 # verdict ACCEPT/UPHOLD_CHALLENGE path (and via the public-keeper-API
 # `TerminateOperator` shim, not exposed via Msg).
 #
-# That T2 path is unworkable end-to-end on this chain (x/rep's
-# CreateAppealInitiative leaves Jurors empty, x/service auto-times out
-# before any resolver can land MsgResolveReportByJury — see the
-# comment block at the top of Group C). So this test stops one step
-# short: verify the 100%-T1 slash drains the bond, transitions to
-# UNDERFUNDED, suspends the binding via AfterOperatorUnderfunded, and
-# escrows the slashed coins until the contest window elapses. The
-# AfterOperatorDissolved hook itself is covered by the keeper's
-# unit tests.
+# The T2 path (seated jury → tally → MsgResolveReportByJury ACCEPT with
+# dissolve) is not driven here because the jurors are chosen by sortition
+# (see the Group C header). So this test stops one step short: verify
+# the 100%-T1 slash drains the bond, transitions to UNDERFUNDED,
+# suspends the binding via AfterOperatorUnderfunded, and escrows the
+# slashed coins until the contest window elapses. The
+# AfterOperatorDissolved hook itself is covered by the keeper's unit
+# tests.
 
 # Refund verifier1 if depleted by earlier groups; reports cost report_deposit.
 $BINARY tx bank send alice "$VERIFIER1_ADDR" "100000000${BOND_DENOM}" \

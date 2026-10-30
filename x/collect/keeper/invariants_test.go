@@ -113,7 +113,8 @@ func TestItemCollectionReferenceInvariant_Broken(t *testing.T) {
 	err := f.keeper.Item.Set(f.ctx, 0, item)
 	require.NoError(t, err)
 	// Also advance the item sequence so the invariant doesn't fail on counter first
-	f.keeper.ItemSeq.Next(f.ctx) //nolint:errcheck
+	_, seqErr := f.keeper.ItemSeq.Next(f.ctx)
+	require.NoError(t, seqErr)
 
 	sdkCtx := sdk.UnwrapSDKContext(f.ctx)
 	msg, broken := keeper.ItemCollectionReferenceInvariant(f.keeper)(sdkCtx)
@@ -147,7 +148,8 @@ func TestHideRecordConsistencyInvariant_Broken(t *testing.T) {
 	}
 	err := f.keeper.HideRecord.Set(f.ctx, 0, hr)
 	require.NoError(t, err)
-	f.keeper.HideRecordSeq.Next(f.ctx) //nolint:errcheck
+	_, seqErr := f.keeper.HideRecordSeq.Next(f.ctx)
+	require.NoError(t, seqErr)
 
 	sdkCtx := sdk.UnwrapSDKContext(f.ctx)
 	msg, broken := keeper.HideRecordConsistencyInvariant(f.keeper)(sdkCtx)
@@ -204,7 +206,8 @@ func TestStatusIndexConsistencyInvariant_Broken(t *testing.T) {
 	}
 	err := f.keeper.Collection.Set(f.ctx, 0, coll)
 	require.NoError(t, err)
-	f.keeper.CollectionSeq.Next(f.ctx) //nolint:errcheck
+	_, seqErr := f.keeper.CollectionSeq.Next(f.ctx)
+	require.NoError(t, seqErr)
 
 	sdkCtx := sdk.UnwrapSDKContext(f.ctx)
 	msg, broken := keeper.StatusIndexConsistencyInvariant(f.keeper)(sdkCtx)

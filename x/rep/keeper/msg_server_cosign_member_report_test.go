@@ -175,8 +175,9 @@ func TestMsgServerCosignMemberReport(t *testing.T) {
 		require.Equal(t, cosignerStr, report.Reporters[1])
 		// Still pending since only 2 reporters (< cosign threshold of 3).
 		require.Equal(t, types.MemberReportStatus_MEMBER_REPORT_STATUS_PENDING, report.Status)
-		// total bond: 500 + 500 = 1000
-		require.Equal(t, "1000", report.TotalBond)
+		// total bond: 500 (seeded) + the co-signer's capped 100 DREAM.
+		require.Equal(t, "100000500", report.TotalBond)
+		require.Equal(t, "100000000", report.ReporterBonds[len(report.ReporterBonds)-1].Amount)
 	})
 
 	t.Run("escalates at cosign threshold", func(t *testing.T) {

@@ -29,7 +29,7 @@ func TestEndBlockProposals_ExpiresAndAccepts(t *testing.T) {
 
 	// Create proposal with deadline in the past
 	proposalID := uint64(1)
-	require.NoError(t, k.Proposals.Set(ctx, proposalID, types.Proposal{
+	require.NoError(t, k.SetProposalQueued(ctx, proposalID, types.Proposal{
 		Id: proposalID, CouncilName: councilName, PolicyAddress: policyAddr,
 		Status:         types.ProposalStatus_PROPOSAL_STATUS_SUBMITTED,
 		VotingDeadline: ctx.BlockTime().Unix() - 10,
@@ -64,7 +64,7 @@ func TestEndBlockProposals_ExpiresAndRejects(t *testing.T) {
 	}))
 
 	proposalID := uint64(1)
-	require.NoError(t, k.Proposals.Set(ctx, proposalID, types.Proposal{
+	require.NoError(t, k.SetProposalQueued(ctx, proposalID, types.Proposal{
 		Id: proposalID, CouncilName: councilName, PolicyAddress: policyAddr,
 		Status:         types.ProposalStatus_PROPOSAL_STATUS_SUBMITTED,
 		VotingDeadline: ctx.BlockTime().Unix() - 10,
@@ -89,7 +89,7 @@ func TestEndBlockProposals_SkipsActiveProposals(t *testing.T) {
 
 	// Proposal still within voting period
 	proposalID := uint64(1)
-	require.NoError(t, k.Proposals.Set(ctx, proposalID, types.Proposal{
+	require.NoError(t, k.SetProposalQueued(ctx, proposalID, types.Proposal{
 		Id: proposalID, Status: types.ProposalStatus_PROPOSAL_STATUS_SUBMITTED,
 		VotingDeadline: ctx.BlockTime().Unix() + 3600,
 	}))
@@ -108,9 +108,10 @@ func TestEndBlockProposals_SkipsNonSubmitted(t *testing.T) {
 
 	// Already accepted proposal past deadline — should NOT be re-processed
 	proposalID := uint64(1)
-	require.NoError(t, k.Proposals.Set(ctx, proposalID, types.Proposal{
+	require.NoError(t, k.SetProposalQueued(ctx, proposalID, types.Proposal{
 		Id: proposalID, Status: types.ProposalStatus_PROPOSAL_STATUS_ACCEPTED,
 		VotingDeadline: ctx.BlockTime().Unix() - 10,
+		ExecutionTime:  ctx.BlockTime().Unix(),
 	}))
 
 	err := k.EndBlockProposals(ctx)
@@ -134,7 +135,7 @@ func TestEndBlockProposals_NoVotes_Rejected(t *testing.T) {
 	}))
 
 	proposalID := uint64(1)
-	require.NoError(t, k.Proposals.Set(ctx, proposalID, types.Proposal{
+	require.NoError(t, k.SetProposalQueued(ctx, proposalID, types.Proposal{
 		Id: proposalID, CouncilName: councilName, PolicyAddress: policyAddr,
 		Status: types.ProposalStatus_PROPOSAL_STATUS_SUBMITTED, VotingDeadline: ctx.BlockTime().Unix() - 10,
 	}))
@@ -160,7 +161,7 @@ func TestEndBlockProposals_MultipleProposals(t *testing.T) {
 	}))
 
 	// Proposal 1: expired, has YES vote → should be accepted
-	require.NoError(t, k.Proposals.Set(ctx, 1, types.Proposal{
+	require.NoError(t, k.SetProposalQueued(ctx, 1, types.Proposal{
 		Id: 1, CouncilName: councilName, PolicyAddress: policyAddr,
 		Status: types.ProposalStatus_PROPOSAL_STATUS_SUBMITTED, VotingDeadline: ctx.BlockTime().Unix() - 10,
 	}))
@@ -169,13 +170,13 @@ func TestEndBlockProposals_MultipleProposals(t *testing.T) {
 	}))
 
 	// Proposal 2: expired, no votes → should be rejected
-	require.NoError(t, k.Proposals.Set(ctx, 2, types.Proposal{
+	require.NoError(t, k.SetProposalQueued(ctx, 2, types.Proposal{
 		Id: 2, CouncilName: councilName, PolicyAddress: policyAddr,
 		Status: types.ProposalStatus_PROPOSAL_STATUS_SUBMITTED, VotingDeadline: ctx.BlockTime().Unix() - 10,
 	}))
 
 	// Proposal 3: still active → should remain submitted
-	require.NoError(t, k.Proposals.Set(ctx, 3, types.Proposal{
+	require.NoError(t, k.SetProposalQueued(ctx, 3, types.Proposal{
 		Id: 3, CouncilName: councilName, PolicyAddress: policyAddr,
 		Status: types.ProposalStatus_PROPOSAL_STATUS_SUBMITTED, VotingDeadline: ctx.BlockTime().Unix() + 3600,
 	}))
@@ -287,7 +288,7 @@ func TestCheckThreshold_PercentageType(t *testing.T) {
 
 	// Expired proposal with 2 YES, 1 NO → 2/3 ≈ 0.666 >= 0.66 → accept
 	proposalID := uint64(1)
-	require.NoError(t, k.Proposals.Set(ctx, proposalID, types.Proposal{
+	require.NoError(t, k.SetProposalQueued(ctx, proposalID, types.Proposal{
 		Id: proposalID, CouncilName: councilName, PolicyAddress: policyAddr,
 		Status: types.ProposalStatus_PROPOSAL_STATUS_SUBMITTED, VotingDeadline: ctx.BlockTime().Unix() - 1,
 	}))
@@ -319,7 +320,7 @@ func TestCheckThreshold_ThresholdType(t *testing.T) {
 
 	// Only 1 YES → rejected
 	proposalID := uint64(1)
-	require.NoError(t, k.Proposals.Set(ctx, proposalID, types.Proposal{
+	require.NoError(t, k.SetProposalQueued(ctx, proposalID, types.Proposal{
 		Id: proposalID, CouncilName: councilName, PolicyAddress: policyAddr,
 		Status: types.ProposalStatus_PROPOSAL_STATUS_SUBMITTED, VotingDeadline: ctx.BlockTime().Unix() - 1,
 	}))
@@ -334,7 +335,7 @@ func TestCheckThreshold_ThresholdType(t *testing.T) {
 	proposalID2 := uint64(2)
 	// Need a fresh context time so the new proposal is also past deadline
 	ctx = ctx.WithBlockTime(time.Now())
-	require.NoError(t, k.Proposals.Set(ctx, proposalID2, types.Proposal{
+	require.NoError(t, k.SetProposalQueued(ctx, proposalID2, types.Proposal{
 		Id: proposalID2, CouncilName: councilName, PolicyAddress: policyAddr,
 		Status: types.ProposalStatus_PROPOSAL_STATUS_SUBMITTED, VotingDeadline: ctx.BlockTime().Unix() - 1,
 	}))

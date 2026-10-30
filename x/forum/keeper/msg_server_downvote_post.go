@@ -15,6 +15,9 @@ func (k msgServer) DownvotePost(ctx context.Context, msg *types.MsgDownvotePost)
 	if _, err := k.addressCodec.StringToBytes(msg.Creator); err != nil {
 		return nil, errorsmod.Wrap(err, "invalid creator address")
 	}
+	if err := k.requireForumNotPaused(ctx); err != nil {
+		return nil, err
+	}
 
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	now := sdkCtx.BlockTime().Unix()
@@ -120,13 +123,14 @@ func (k msgServer) DownvotePost(ctx context.Context, msg *types.MsgDownvotePost)
 // checkAndUpdateDownvoteLimit checks and updates the downvote rate limit for a user.
 func (k msgServer) checkAndUpdateDownvoteLimit(ctx context.Context, addr string, now int64) error {
 	// Use a separate key for downvote limit (prefix with "downvote_")
-	limitKey := "downvote_" + addr
+	limitKey := types.UserReactionLimitStoreKey(types.ReactionLimitKind_REACTION_LIMIT_KIND_DOWNVOTE, addr)
 
 	reactionLimit, err := k.UserReactionLimit.Get(ctx, limitKey)
 	if err != nil {
 		// Create new downvote limit record
 		reactionLimit = types.UserReactionLimit{
 			UserAddress:      addr,
+			Kind:             types.ReactionLimitKind_REACTION_LIMIT_KIND_DOWNVOTE,
 			CurrentDayCount:  0,
 			PreviousDayCount: 0,
 			CurrentDayStart:  now,
@@ -141,15 +145,9 @@ func (k msgServer) checkAndUpdateDownvoteLimit(ctx context.Context, addr string,
 		reactionLimit.CurrentDayStart = now
 	}
 
-	// Calculate effective count using sliding window approximation
-	var overlapRatio float64
-	elapsed := now - reactionLimit.CurrentDayStart
-	if elapsed < dayDuration {
-		overlapRatio = float64(dayDuration-elapsed) / float64(dayDuration)
-	}
-	effectiveCount := float64(reactionLimit.CurrentDayCount) + float64(reactionLimit.PreviousDayCount)*overlapRatio
-
-	if effectiveCount >= float64(types.DefaultMaxDownvotesPerDay) {
+	// Sliding-window count, evaluated in exact integer math.
+	if slidingWindowAtLimit(uint64(reactionLimit.CurrentDayCount), uint64(reactionLimit.PreviousDayCount),
+		now-reactionLimit.CurrentDayStart, dayDuration, uint64(types.DefaultMaxDownvotesPerDay)) {
 		return types.ErrDownvoteLimitExceeded
 	}
 

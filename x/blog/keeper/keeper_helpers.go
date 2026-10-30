@@ -14,13 +14,15 @@ func (k Keeper) IsGovAuthority(addr string) bool {
 	return bytes.Equal(k.authority, addrBytes)
 }
 
-// IsCouncilAuthorized checks if the address is authorized via governance authority,
-// council policy address, or committee membership.
-// Delegates to x/commons IsCouncilAuthorized when available.
+// isCouncilAuthorized checks if the address is the governance authority or
+// the council / committee policy address (an executed proposal). A single
+// committee member's signature is never enough: the blog operational
+// params include the media gate and rate limits.
+// Delegates to x/commons IsCouncilOrCommitteePolicy when available.
 // Falls back to IsGovAuthority when x/commons is not wired.
 func (k Keeper) isCouncilAuthorized(ctx context.Context, addr string, council string, committee string) bool {
-	if k.commonsKeeper == nil {
+	if k.late.commonsKeeper == nil {
 		return k.IsGovAuthority(addr)
 	}
-	return k.commonsKeeper.IsCouncilAuthorized(ctx, addr, council, committee)
+	return k.late.commonsKeeper.IsCouncilOrCommitteePolicy(ctx, addr, council, committee)
 }

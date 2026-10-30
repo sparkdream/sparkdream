@@ -16,5 +16,10 @@ func (q queryServer) Rental(ctx context.Context, req *types.QueryRentalRequest) 
 	if err != nil {
 		return nil, notFound(err, "rental")
 	}
+	// A rental past its term the EndBlocker has not ended yet is filtered
+	// (§6): the renter's right of use is over.
+	if r.ExpiresAt <= now(ctx) {
+		return nil, notFound(collections.ErrNotFound, "rental")
+	}
 	return &types.QueryRentalResponse{Rental: r}, nil
 }

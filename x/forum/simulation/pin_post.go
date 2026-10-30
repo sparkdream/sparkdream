@@ -1,67 +1,45 @@
 package simulation
 
 import (
-	"math/rand"
-
-	"cosmossdk.io/collections"
-	"github.com/cosmos/cosmos-sdk/baseapp"
+	"cosmossdk.io/math"
 	"github.com/cosmos/cosmos-sdk/client"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/forum/keeper"
 	"sparkdream/x/forum/types"
 )
 
-// SimulateMsgPinPost simulates a MsgPinPost message using direct keeper calls.
-// This bypasses the operations committee requirement for simulation purposes.
-// Full integration testing should be done in integration tests.
-//
-// Under the strict-separation design, Pin requires a permanent target. The
-// simulation collapses both state mutations (promote + pin) into one direct
-// keeper write so the sim can exercise pinned-post invariants downstream
-// without first wiring through the trust-gated MsgMakePostPermanent path.
+// SimulateMsgPinPost delivers MsgPinPost on a permanent, unpinned thread
+// that is neither hidden nor deleted. Only gov, the Commons Council or
+// Operations Committee policy, or an Operations Committee member may pin;
+// the op signs as a sim account that is a committee member and is a NoOp
+// when none is (sim accounts are never made group or committee policies).
 func SimulateMsgPinPost(
 	ak types.AuthKeeper,
 	bk types.BankKeeper,
 	k keeper.Keeper,
 	txGen client.TxConfig,
 ) simtypes.Operation {
-	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
-	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		simAccount, _ := simtypes.RandomAcc(r, accs)
-
-		// Find a root post to pin
-		_, rootID, err := findRootPost(r, ctx, k)
+	return operation(ak, bk, k, txGen, &types.MsgPinPost{}, func(e *simEnv) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
+		msg := &types.MsgPinPost{}
+		signer, ok := pick(e.r, e.opsCommittee())
+		if !ok {
+			return noOp(msg, "no sim account is a Commons Operations Committee member")
+		}
+		roots, err := e.postsWhere(func(p types.Post) bool {
+			return p.ParentId == 0 && !p.Pinned && p.ExpirationTime == 0 &&
+				p.Status != types.PostStatus_POST_STATUS_HIDDEN && p.Status != types.PostStatus_POST_STATUS_DELETED
+		})
 		if err != nil {
-			// Create one
-			rootID, err = getOrCreateRootPost(r, ctx, k, simAccount.Address.String())
-			if err != nil {
-				return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgPinPost{}), "failed to get/create root post"), nil, nil
-			}
+			return noOpErr(msg, err)
 		}
-
-		// Get the post as value type
-		rootPost, err := k.Post.Get(ctx, rootID)
-		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgPinPost{}), "failed to get post"), nil, nil
+		root, ok := pick(e.r, roots)
+		if !ok {
+			return noOp(msg, "no pinnable thread")
 		}
-
-		// If ephemeral, run an equivalent of MakePostPermanent first so the
-		// pin's ephemeral-block invariant holds. Mirrors the blog sim.
-		if rootPost.ExpirationTime > 0 {
-			_ = k.ExpirationQueue.Remove(ctx, collections.Join(rootPost.ExpirationTime, rootID))
-			k.RemoveEphemeralAuthorIndex(ctx, rootPost.Author, rootID)
-			rootPost.ExpirationTime = 0
-		}
-
-		// Use direct keeper calls to pin the post
-		rootPost.Pinned = true
-		if err := k.Post.Set(ctx, rootID, rootPost); err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgPinPost{}), "failed to pin post"), nil, nil
-		}
-
-		// Return success
-		return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgPinPost{}), "ok (direct keeper call)"), nil, nil
-	}
+		msg.Creator, msg.PostId = signer.Address.String(), root.PostId
+		msg.Priority = commontypes.Saturate[uint64](e.r.Intn(10))
+		return e.submit(signer, msg, math.ZeroInt())
+	})
 }

@@ -119,6 +119,7 @@ func TestThreadLockConsistencyInvariant_LockedWithRecord(t *testing.T) {
 	// Create a locked root post with a matching lock record
 	post := f.createTestPost(t, testCreator, 0, 0) // root post (parentId=0)
 	post.Locked = true
+	post.LockedBy = testSentinel
 	err := f.keeper.Post.Set(f.ctx, post.PostId, post)
 	require.NoError(t, err)
 
@@ -145,10 +146,12 @@ func TestThreadLockConsistencyInvariant_LockedMissingRecord(t *testing.T) {
 	err := f.keeper.Post.Set(f.ctx, post.PostId, post)
 	require.NoError(t, err)
 
+	// A locked root without a record is legitimate: council locks write no
+	// record, and a settled sentinel lock (appeal window closed or UPHELD)
+	// drops its record while the thread stays locked.
 	invariant := keeper.ThreadLockConsistencyInvariant(f.keeper)
 	msg, broken := invariant(sdkCtx)
-	require.True(t, broken, "locked post without lock record should be a violation")
-	require.Contains(t, msg, "locked but has no ThreadLockRecord")
+	require.False(t, broken, "locked post without lock record is legitimate: %s", msg)
 }
 
 func TestThreadLockConsistencyInvariant_RecordForNonExistentPost(t *testing.T) {

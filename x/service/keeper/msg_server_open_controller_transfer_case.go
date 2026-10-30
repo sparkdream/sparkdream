@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	commontypes "sparkdream/x/common/types"
 
 	"cosmossdk.io/collections"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -48,7 +49,7 @@ func (k msgServer) OpenControllerTransferCase(ctx context.Context, msg *types.Ms
 		return nil, err
 	}
 
-	if uint32(len(msg.Reason)) > params.MaxReasonBytes {
+	if len(msg.Reason) > int(params.MaxReasonBytes) {
 		return nil, types.ErrInvalidReasonSize.Wrapf("%d > %d", len(msg.Reason), params.MaxReasonBytes)
 	}
 
@@ -96,17 +97,19 @@ func (k msgServer) OpenControllerTransferCase(ctx context.Context, msg *types.Ms
 		return nil, types.ErrInsufficientReportDeposit.Wrap(err.Error())
 	}
 
-	// Open the jury case via x/rep's generic appeal entry-point
-	// (§6.2). Payload JSON-encodes the case-specific data the jurors
-	// need to deliberate; deadline = current + max_escalated_blocks.
+	// Open the jury case via x/rep with its jury seated (§6.2), the
+	// parties excluded. Payload JSON-encodes the case-specific data the
+	// jurors need to deliberate; jurors vote in the first half of
+	// max_escalated_blocks (juryVotingDeadline).
 	var juryCaseID uint64
 	if k.repKeeper() != nil {
 		payload := []byte(fmt.Sprintf(
 			`{"operator":%q,"service_type":%q,"opener":%q,"proposed_new_controller":%q,"reason":%q}`,
 			msg.Operator, msg.ServiceType, msg.Opener, msg.ProposedNewController, msg.Reason,
 		))
-		deadline := currentHeight + params.MaxEscalatedBlocks
-		juryCaseID, err = k.repKeeper().CreateAppealInitiative(ctx, "service.controller_transfer", payload, deadline)
+		parties := []string{msg.Operator, msg.Opener, op.Controller, msg.ProposedNewController}
+		juryCaseID, err = k.repKeeper().CreateSeatedAppeal(ctx, "service.controller_transfer", payload,
+			juryVotingDeadline(currentHeight, params), parties)
 		if err != nil {
 			return nil, err
 		}
@@ -115,7 +118,7 @@ func (k msgServer) OpenControllerTransferCase(ctx context.Context, msg *types.Ms
 		// a unique-per-block placeholder so the per-(operator,
 		// service_type) "one open" index is meaningful. Production
 		// wiring always takes the branch above.
-		juryCaseID = uint64(currentHeight)<<16 | uint64(len(msg.Reason)&0xFFFF)
+		juryCaseID = commontypes.Saturate[uint64](currentHeight)<<16 | commontypes.Saturate[uint64](len(msg.Reason)&0xFFFF)
 	}
 
 	caseRow := types.ControllerTransferCase{
@@ -127,7 +130,7 @@ func (k msgServer) OpenControllerTransferCase(ctx context.Context, msg *types.Ms
 		Deposit:               params.ReportDepositAmount,
 		OpenedAt:              currentHeight,
 	}
-	if err := k.ControllerTransferCases.Set(ctx, juryCaseID, caseRow); err != nil {
+	if err := k.setControllerTransferCase(ctx, caseRow); err != nil {
 		return nil, err
 	}
 	if err := k.OpenControllerTransferByOperator.Set(ctx, openIdxKey, juryCaseID); err != nil {

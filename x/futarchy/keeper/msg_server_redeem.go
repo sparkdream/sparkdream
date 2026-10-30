@@ -81,6 +81,7 @@ func (k msgServer) redeemWinning(goCtx context.Context, ctx sdk.Context, market 
 		return nil, err
 	}
 
+	emitRedeemEvent(ctx, marketID, userAddr, sdk.NewCoins(balance), payout.Amount)
 	return &types.MsgRedeemResponse{}, nil
 }
 
@@ -127,6 +128,7 @@ func (k msgServer) redeemSettled(goCtx context.Context, ctx sdk.Context, market 
 	if !payoutAmount.IsPositive() {
 		// Truncation reduced both to zero (e.g., one share at price < 1).
 		// Burn happened anyway — accept the dust loss.
+		emitRedeemEvent(ctx, marketID, userAddr, coinsToBurn, payoutAmount)
 		return &types.MsgRedeemResponse{}, nil
 	}
 
@@ -135,5 +137,19 @@ func (k msgServer) redeemSettled(goCtx context.Context, ctx sdk.Context, market 
 		return nil, err
 	}
 
+	emitRedeemEvent(ctx, marketID, userAddr, coinsToBurn, payoutAmount)
 	return &types.MsgRedeemResponse{}, nil
+}
+
+// emitRedeemEvent records a redemption for indexers (FUT-06).
+func emitRedeemEvent(ctx sdk.Context, marketID uint64, user sdk.AccAddress, burned sdk.Coins, payout math.Int) {
+	ctx.EventManager().EmitEvent(
+		sdk.NewEvent(
+			"market_redeemed",
+			sdk.NewAttribute("market_id", fmt.Sprintf("%d", marketID)),
+			sdk.NewAttribute("redeemer", user.String()),
+			sdk.NewAttribute("shares_burned", burned.String()),
+			sdk.NewAttribute("payout", payout.String()),
+		),
+	)
 }

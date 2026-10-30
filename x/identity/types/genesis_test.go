@@ -37,14 +37,16 @@ func TestGenesisStateValidate(t *testing.T) {
 			valid: true,
 		},
 		{
-			desc:  "default (empty identity) is accepted as legacy single-chain mode",
+			desc:  "default genesis (build-tag identity) is valid",
 			gs:    *types.DefaultGenesis(),
 			valid: true,
 		},
 		{
-			desc:  "zero identity accepted (legacy mode)",
+			// IDN-03: an empty identity used to pass and then panic on the
+			// first denom read in another module's InitGenesis.
+			desc:  "zero identity rejected",
 			gs:    types.GenesisState{},
-			valid: true,
+			valid: false,
 		},
 		{
 			desc:  "partial identity rejected (BondDenom set, DreamDenom unset)",

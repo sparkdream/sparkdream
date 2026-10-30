@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"cosmossdk.io/collections"
+	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	"sparkdream/x/federation/types"
@@ -23,6 +24,44 @@ import (
 func RegisterInvariants(ir sdk.InvariantRegistry, k Keeper) {
 	ir.RegisterRoute(types.ModuleName, "orphan-bindings", OrphanBindingsInvariant(k))
 	ir.RegisterRoute(types.ModuleName, "bindings-by-operator-index", BindingsByOperatorIndexInvariant(k))
+	ir.RegisterRoute(types.ModuleName, "escrow-solvency", EscrowSolvencyInvariant(k))
+}
+
+// EscrowSolvencyInvariant fails when the federation module account holds
+// less of the bond denom than the escrow it owes: every open
+// VerificationRecord.escrowed_challenge_fee plus every open
+// EscalatedChallenge.escrowed_escalation_fee. Settlement zeroes an escrow
+// as it disburses it, so a dispute settled twice (paying the second time
+// out of other users' escrow) shows up here as a shortfall.
+func EscrowSolvencyInvariant(k Keeper) sdk.Invariant {
+	return func(ctx sdk.Context) (string, bool) {
+		owed := math.ZeroInt()
+		err := k.VerificationRecords.Walk(ctx, nil, func(_ uint64, r types.VerificationRecord) (bool, error) {
+			if !r.EscrowedChallengeFee.IsNil() && r.EscrowedChallengeFee.IsPositive() {
+				owed = owed.Add(r.EscrowedChallengeFee)
+			}
+			return false, nil
+		})
+		if err == nil {
+			err = k.EscalatedChallenges.Walk(ctx, nil, func(_ uint64, e types.EscalatedChallenge) (bool, error) {
+				if !e.EscrowedEscalationFee.IsNil() && e.EscrowedEscalationFee.IsPositive() {
+					owed = owed.Add(e.EscrowedEscalationFee)
+				}
+				return false, nil
+			})
+		}
+		if err != nil {
+			return sdk.FormatInvariant(types.ModuleName, "escrow-solvency",
+				fmt.Sprintf("walk error: %v", err)), true
+		}
+		moduleAddr := k.authKeeper.GetModuleAddress(types.ModuleName)
+		held := k.bankKeeper.GetBalance(ctx, moduleAddr, k.BondDenom(ctx)).Amount
+		if held.LT(owed) {
+			return sdk.FormatInvariant(types.ModuleName, "escrow-solvency",
+				fmt.Sprintf("module account holds %s, open escrow is %s", held, owed)), true
+		}
+		return "", false
+	}
 }
 
 // OrphanBindingsInvariant fails when any BridgeBinding references an

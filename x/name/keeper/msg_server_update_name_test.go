@@ -44,7 +44,7 @@ func TestUpdateName(t *testing.T) {
 			},
 			runBefore: func(c sdk.Context) {
 				// Alice owns "alice" with old data
-				_ = k.Names.Set(c, "alice", types.NameRecord{Name: "alice", Owner: alice, Data: "old_data"})
+				require.NoError(t, k.Names.Set(c, "alice", types.NameRecord{Name: "alice", Owner: alice, Data: "old_data"}))
 			},
 			check: func(t *testing.T, c sdk.Context) {
 				rec, err := k.Names.Get(c, "alice")
@@ -73,7 +73,7 @@ func TestUpdateName(t *testing.T) {
 				Data:    "hacked_data",
 			},
 			runBefore: func(c sdk.Context) {
-				_ = k.Names.Set(c, "alice", types.NameRecord{Name: "alice", Owner: alice, Data: "secure_data"})
+				require.NoError(t, k.Names.Set(c, "alice", types.NameRecord{Name: "alice", Owner: alice, Data: "secure_data"}))
 			},
 			// Expect generic Unauthorized error
 			err: sdkerrors.ErrUnauthorized,

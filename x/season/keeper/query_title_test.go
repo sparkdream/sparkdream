@@ -25,7 +25,9 @@ func createNTitle(keeper keeper.Keeper, ctx context.Context, n int) []types.Titl
 		items[i].RequirementThreshold = uint64(i)
 		items[i].RequirementSeason = uint64(i)
 		items[i].Seasonal = true
-		_ = keeper.Title.Set(ctx, items[i].TitleId, items[i])
+		if err := keeper.Title.Set(ctx, items[i].TitleId, items[i]); err != nil {
+			panic(err)
+		}
 	}
 	return items
 }

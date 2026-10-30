@@ -2,6 +2,7 @@ package keeper
 
 import (
 	"context"
+	commontypes "sparkdream/x/common/types"
 	shieldtypes "sparkdream/x/shield/types"
 
 	"sparkdream/x/blog/types"
@@ -53,7 +54,7 @@ func (k Keeper) meetsReplyTrustLevel(ctx context.Context, addr sdk.AccAddress, m
 	// nothing about the actual signer is known: refuse.
 	if isShieldModuleAddress(addr) {
 		proven, ok := shieldtypes.ProvenTrustLevel(ctx)
-		return ok && int32(proven) >= minLevel
+		return ok && commontypes.Saturate[int32](proven) >= minLevel
 	}
 	if !k.isActiveMember(ctx, addr) {
 		return false
@@ -62,7 +63,7 @@ func (k Keeper) meetsReplyTrustLevel(ctx context.Context, addr sdk.AccAddress, m
 		return true // any active member suffices
 	}
 	// Granular trust level check: require GetTrustLevel >= minLevel
-	trustLevel, err := k.repKeeper.GetTrustLevel(ctx, addr)
+	trustLevel, err := k.late.repKeeper.GetTrustLevel(ctx, addr)
 	if err != nil {
 		return false
 	}
@@ -91,8 +92,8 @@ func (k Keeper) isActiveMember(ctx context.Context, addr sdk.AccAddress) bool {
 	if isShieldModuleAddress(addr) {
 		return true
 	}
-	if k.repKeeper == nil {
+	if !k.hasRep() {
 		return false
 	}
-	return k.repKeeper.IsActiveMember(ctx, addr)
+	return k.late.repKeeper.IsActiveMember(ctx, addr)
 }

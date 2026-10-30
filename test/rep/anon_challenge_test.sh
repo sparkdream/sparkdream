@@ -158,7 +158,7 @@ fi
 echo "--- TEST 2: Immediate mode rejected for challenges ---"
 
 NULLIFIER_CHAL="re01000000000000000000000000000000000000000000000000000000000001"
-RATE_NULL_CHAL=$(openssl rand -hex 32)
+RATE_NULL_CHAL=00$(openssl rand -hex 31)
 INNER_MSG="{\"@type\":\"/sparkdream.rep.v1.MsgCreateChallenge\",\"challenger\":\"$SHIELD_MODULE_ADDR\",\"initiative_id\":\"1\",\"reason\":\"Test anonymous challenge\",\"evidence\":[\"doc1.pdf\"],\"staked_dream\":\"50000000\"}"
 
 TX_RES=$($BINARY tx shield shielded-exec \

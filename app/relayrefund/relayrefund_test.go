@@ -285,3 +285,14 @@ func TestMarksAreOneShotPerTxAndBlock(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, marks.Take(ctx.WithBlockHeight(11)))
 }
+
+// APP-08: the refund is capped at gas_limit × MaxRefundGasPrice; an
+// outsized priority fee is only partly returned.
+func TestRefundIsCapped(t *testing.T) {
+	ibc := newFakeIBC()
+	big := fakeTx{msgs: []sdk.Msg{recv("channel-0", 5)}, fee: sdk.NewCoins(sdk.NewInt64Coin("uspark", 5_000_000)), payer: relayer}
+	bank := run(t, ibc, big, sdk.ExecModeFinalize, false, true)
+	require.Len(t, bank.sent, 1)
+	// 400_000 gas × 0.1 = 40_000.
+	require.Equal(t, sdk.NewCoins(sdk.NewInt64Coin("uspark", 40_000)), bank.sent[0])
+}

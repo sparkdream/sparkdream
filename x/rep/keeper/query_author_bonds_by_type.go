@@ -3,6 +3,7 @@ package keeper
 import (
 	"context"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/rep/types"
 
 	"cosmossdk.io/collections"
@@ -18,7 +19,7 @@ func (q queryServer) AuthorBondsByType(ctx context.Context, req *types.QueryAuth
 		return nil, status.Error(codes.InvalidArgument, "invalid request")
 	}
 
-	targetType := types.StakeTargetType(req.TargetType)
+	targetType := commontypes.Saturate[types.StakeTargetType](req.TargetType)
 	if !types.IsAuthorBondType(targetType) {
 		return nil, status.Errorf(codes.InvalidArgument, "target_type must be an author bond type (7, 8, 9, or 10), got %d", req.TargetType)
 	}

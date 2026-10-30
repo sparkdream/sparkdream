@@ -57,7 +57,7 @@ func TestMsgServerUnpinReply(t *testing.T) {
 			PinnedReplyIds: []uint64{999}, // Different reply pinned
 			PinnedRecords:  []*types.PinnedReplyRecord{},
 		}
-		f.keeper.ThreadMetadata.Set(f.ctx, rootPost.PostId, metadata)
+		require.NoError(t, f.keeper.ThreadMetadata.Set(f.ctx, rootPost.PostId, metadata))
 
 		msg := &types.MsgUnpinReply{
 			Creator:  authority,
@@ -82,7 +82,7 @@ func TestMsgServerUnpinReply(t *testing.T) {
 				PinnedBy: authority,
 			}},
 		}
-		f.keeper.ThreadMetadata.Set(f.ctx, rootPost.PostId, metadata)
+		require.NoError(t, f.keeper.ThreadMetadata.Set(f.ctx, rootPost.PostId, metadata))
 
 		msg := &types.MsgUnpinReply{
 			Creator:  authority,

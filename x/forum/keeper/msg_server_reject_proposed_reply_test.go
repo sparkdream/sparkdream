@@ -46,7 +46,7 @@ func TestMsgRejectProposedReply(t *testing.T) {
 			ProposedBy:      testSentinel,
 			ProposedAt:      now,
 		}
-		f.keeper.ThreadMetadata.Set(f.ctx, thread.PostId, metadata)
+		require.NoError(t, f.keeper.ThreadMetadata.Set(f.ctx, thread.PostId, metadata))
 
 		_, err := ms.RejectProposedReply(f.ctx, &types.MsgRejectProposedReply{
 			Creator:  testCreator2, // Not the author
@@ -65,7 +65,7 @@ func TestMsgRejectProposedReply(t *testing.T) {
 		metadata := types.ThreadMetadata{
 			ThreadId: thread.PostId,
 		}
-		f.keeper.ThreadMetadata.Set(f.ctx, thread.PostId, metadata)
+		require.NoError(t, f.keeper.ThreadMetadata.Set(f.ctx, thread.PostId, metadata))
 
 		_, err := ms.RejectProposedReply(f.ctx, &types.MsgRejectProposedReply{
 			Creator:  testCreator,
@@ -89,7 +89,7 @@ func TestMsgRejectProposedReply(t *testing.T) {
 			ProposedBy:      testSentinel,
 			ProposedAt:      now,
 		}
-		f.keeper.ThreadMetadata.Set(f.ctx, thread.PostId, metadata)
+		require.NoError(t, f.keeper.ThreadMetadata.Set(f.ctx, thread.PostId, metadata))
 
 		_, err := ms.RejectProposedReply(f.ctx, &types.MsgRejectProposedReply{
 			Creator:  testCreator,

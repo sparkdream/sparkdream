@@ -146,7 +146,7 @@ func TestLivenessFollowsConfigChanges(t *testing.T) {
 	f.withBlockHeight(10_000)
 	require.NoError(t, f.keeper.EndBlocker(f.ctx))
 	reports := 0
-	_ = f.keeper.Reports.Walk(f.ctx, nil, func(uint64, types.Report) (bool, error) { reports++; return false, nil })
+	require.NoError(t, f.keeper.Reports.Walk(f.ctx, nil, func(uint64, types.Report) (bool, error) { reports++; return false, nil }))
 	require.Zero(t, reports, "liveness off: never reported")
 
 	// Turning liveness on schedules existing operators from their base
@@ -156,7 +156,7 @@ func TestLivenessFollowsConfigChanges(t *testing.T) {
 	_, err := f.msgServer.UpdateServiceTypeConfig(f.ctx, &types.MsgUpdateServiceTypeConfig{Authority: f.authorityStr, Config: cfg})
 	require.NoError(t, err)
 	require.NoError(t, f.keeper.EndBlocker(f.ctx))
-	_ = f.keeper.Reports.Walk(f.ctx, nil, func(uint64, types.Report) (bool, error) { reports++; return false, nil })
+	require.NoError(t, f.keeper.Reports.Walk(f.ctx, nil, func(uint64, types.Report) (bool, error) { reports++; return false, nil }))
 	require.Equal(t, 1, reports)
 
 	// Turning it off drops the deadline.
@@ -238,4 +238,24 @@ func TestCheckpointGenesisRoundTrip(t *testing.T) {
 	require.Error(t, bad.Validate())
 	bad.Checkpoints = append(append([]types.Checkpoint(nil), gen.Checkpoints...), gen.Checkpoints...)
 	require.Error(t, bad.Validate(), "duplicate")
+}
+
+// SVC-12: a checkpoint is an operator-touching message, so it applies a
+// min_bond raised since the operator last acted.
+func TestSubmitCheckpointAppliesRaisedMinBond(t *testing.T) {
+	f := initFixture(t)
+	cfg := f.seedLivenessType(t, 0)
+	f.seedActiveOperator(t, testOperator1, testController, cfg.MinBondAmount)
+	cfg.MinBondAmount = cfg.MinBondAmount.MulRaw(10)
+	require.NoError(t, f.keeper.ServiceTypes.Set(f.ctx, testServiceType, cfg))
+
+	f.withBlockHeight(200)
+	_, err := f.msgServer.SubmitCheckpoint(f.ctx, &types.MsgSubmitCheckpoint{
+		Operator: testOperator1, ServiceType: testServiceType, Height: 150, Root: testRoot,
+	})
+	require.NoError(t, err)
+	op, ok := f.keeper.GetOperator(f.ctx, testOperator1Addr.Bytes(), testServiceType)
+	require.True(t, ok)
+	require.Equal(t, types.OperatorStatus_OPERATOR_STATUS_UNDERFUNDED, op.Status)
+	require.Len(t, f.hooks.Underfunded, 1)
 }

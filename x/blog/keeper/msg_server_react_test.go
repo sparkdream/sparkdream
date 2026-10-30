@@ -610,3 +610,28 @@ func TestCreateReply_AnonymousUsesProvenTrustLevel(t *testing.T) {
 	_, err = msgServer.CreateReply(shieldtypes.WithProvenTrustLevel(ctx, 3), reply)
 	require.NoError(t, err)
 }
+
+// BLG-01: an anonymous reply on an anonymous post is not the thread author's
+// (both carry the shield address), so the post's reply trust gate applies.
+func TestCreateReply_AnonymousOnAnonymousPostIsGated(t *testing.T) {
+	_, msgServer, ctx, _ := setupMsgServer(t)
+	shield := sdk.MustBech32ifyAddressBytes("sprkdrm", authtypes.NewModuleAddress("shield"))
+
+	postResp, err := msgServer.CreatePost(shieldtypes.WithProvenTrustLevel(ctx, 3), &types.MsgCreatePost{
+		Creator:            shield,
+		Title:              "Anonymous",
+		Body:               "Replies need trust level 3",
+		MinReplyTrustLevel: 3,
+	})
+	require.NoError(t, err)
+
+	reply := &types.MsgCreateReply{Creator: shield, PostId: postResp.Id, Body: "anonymous newcomer"}
+	_, err = msgServer.CreateReply(shieldtypes.WithProvenTrustLevel(ctx, 0), reply)
+	require.ErrorIs(t, err, types.ErrInsufficientTrustLevel)
+
+	_, err = msgServer.CreateReply(ctx, reply)
+	require.Error(t, err, "no proven level: not a shield exec")
+
+	_, err = msgServer.CreateReply(shieldtypes.WithProvenTrustLevel(ctx, 3), reply)
+	require.NoError(t, err)
+}

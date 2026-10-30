@@ -3,6 +3,7 @@ package keeper
 import (
 	"context"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/rep/types"
 
 	"github.com/cosmos/cosmos-sdk/types/query"
@@ -20,7 +21,7 @@ func (q queryServer) MembersByTrustLevel(ctx context.Context, req *types.QueryMe
 		q.k.Member,
 		req.Pagination,
 		func(_ string, value types.Member) (bool, error) {
-			return uint64(value.TrustLevel) == req.TrustLevel, nil
+			return commontypes.Saturate[uint64](value.TrustLevel) == req.TrustLevel, nil
 		},
 		func(_ string, value types.Member) (types.Member, error) {
 			_ = q.k.ApplyPendingDecay(ctx, &value)

@@ -2,6 +2,7 @@ package keeper_test
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 	"testing"
 
@@ -21,7 +22,10 @@ func createNGuildInvite(keeper keeper.Keeper, ctx context.Context, n int) []type
 		items[i].Inviter = strconv.Itoa(i)
 		items[i].CreatedEpoch = int64(i)
 		items[i].ExpiresEpoch = int64(i)
-		_ = keeper.GuildInvite.Set(ctx, items[i].GuildInvitee, items[i])
+		items[i].GuildId = uint64(i + 1)
+		if err := keeper.GuildInvite.Set(ctx, fmt.Sprintf("%d:%s", items[i].GuildId, items[i].GuildInvitee), items[i]); err != nil {
+			panic(err)
+		}
 	}
 	return items
 }
@@ -40,6 +44,7 @@ func TestGuildInviteQuerySingle(t *testing.T) {
 			desc: "First",
 			request: &types.QueryGetGuildInviteRequest{
 				GuildInvitee: msgs[0].GuildInvitee,
+				GuildId:      msgs[0].GuildId,
 			},
 			response: &types.QueryGetGuildInviteResponse{GuildInvite: msgs[0]},
 		},
@@ -47,6 +52,7 @@ func TestGuildInviteQuerySingle(t *testing.T) {
 			desc: "Second",
 			request: &types.QueryGetGuildInviteRequest{
 				GuildInvitee: msgs[1].GuildInvitee,
+				GuildId:      msgs[1].GuildId,
 			},
 			response: &types.QueryGetGuildInviteResponse{GuildInvite: msgs[1]},
 		},

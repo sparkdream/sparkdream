@@ -43,8 +43,12 @@ func createNInitiative(keeper keeper.Keeper, ctx context.Context, n int) []types
 		items[i].Status = types.InitiativeStatus(i)
 		items[i].CreatedAt = int64(i)
 		items[i].CompletedAt = int64(i)
-		_ = keeper.Initiative.Set(ctx, iu, items[i])
-		_ = keeper.InitiativeSeq.Set(ctx, iu)
+		if err := keeper.Initiative.Set(ctx, iu, items[i]); err != nil {
+			panic(err)
+		}
+		if err := keeper.InitiativeSeq.Set(ctx, iu); err != nil {
+			panic(err)
+		}
 	}
 	return items
 }

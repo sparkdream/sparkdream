@@ -115,7 +115,7 @@ func TestRateCollection(t *testing.T) {
 				// Set params to allow only 0 reviews (already at max)
 				params, _ := f.keeper.Params.Get(f.ctx)
 				params.MaxReviewsPerCollection = 0
-				f.keeper.Params.Set(f.ctx, params)
+				require.NoError(t, f.keeper.Params.Set(f.ctx, params))
 				return collID
 			},
 			msg: func(f *testFixture, collID uint64) *types.MsgRateCollection {
@@ -135,7 +135,7 @@ func TestRateCollection(t *testing.T) {
 				// Set visibility to private
 				coll, _ := f.keeper.Collection.Get(f.ctx, collID)
 				coll.Visibility = types.Visibility_VISIBILITY_PRIVATE
-				f.keeper.Collection.Set(f.ctx, collID, coll)
+				require.NoError(t, f.keeper.Collection.Set(f.ctx, collID, coll))
 				f.registerCurator(t, f.member, 500_000_000)
 				f.advanceBlockHeight(14401)
 				return collID
@@ -158,7 +158,7 @@ func TestRateCollection(t *testing.T) {
 				// to exercise the action-time age check.
 				params, _ := f.keeper.Params.Get(f.ctx)
 				params.MinCuratorAgeBlocks = 14400
-				f.keeper.Params.Set(f.ctx, params)
+				require.NoError(t, f.keeper.Params.Set(f.ctx, params))
 				f.registerCurator(t, f.member, 500_000_000)
 				// Do NOT advance block height past min_curator_age_blocks
 				return collID

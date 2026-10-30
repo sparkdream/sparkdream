@@ -5,6 +5,7 @@ import (
 	"sparkdream/x/commons/types"
 
 	errorsmod "cosmossdk.io/errors"
+	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 )
@@ -22,8 +23,9 @@ func NewProposalFeeDecorator(ck keeper.Keeper) ProposalFeeDecorator {
 }
 
 func (ad ProposalFeeDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (sdk.Context, error) {
-	var cachedMinFee sdk.Coins
-	paramsLoaded := false
+	// Every fee-requiring proposal in the tx pays the fee: N proposals in
+	// one tx need N times proposal_fee.
+	feeCount := int64(0)
 
 	for _, msg := range tx.GetMsgs() {
 		submitMsg, ok := msg.(*types.MsgSubmitProposal)
@@ -51,27 +53,28 @@ func (ad ProposalFeeDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate b
 		}
 
 		if requiresFee {
-			if !paramsLoaded {
-				params, err := ad.commonsKeeper.Params.Get(ctx)
-				if err != nil {
-					return ctx, err
-				}
-				fee, err := sdk.ParseCoinsNormalized(params.ProposalFee)
-				if err != nil {
-					return ctx, err
-				}
-				cachedMinFee = fee
-				paramsLoaded = true
-			}
+			feeCount++
+		}
+	}
 
-			if !cachedMinFee.IsZero() {
-				feeTx, ok := tx.(sdk.FeeTx)
-				if !ok {
-					return ctx, errorsmod.Wrap(sdkerrors.ErrTxDecode, "Tx must be a FeeTx")
-				}
-				if !feeTx.GetFee().IsAllGTE(cachedMinFee) {
-					return ctx, errorsmod.Wrapf(sdkerrors.ErrInsufficientFee, "Commons Council requires min fee %s", cachedMinFee)
-				}
+	if feeCount > 0 {
+		params, err := ad.commonsKeeper.Params.Get(ctx)
+		if err != nil {
+			return ctx, err
+		}
+		fee, err := sdk.ParseCoinsNormalized(params.ProposalFee)
+		if err != nil {
+			return ctx, err
+		}
+		if !fee.IsZero() {
+			minFee := fee.MulInt(math.NewInt(feeCount))
+			feeTx, ok := tx.(sdk.FeeTx)
+			if !ok {
+				return ctx, errorsmod.Wrap(sdkerrors.ErrTxDecode, "Tx must be a FeeTx")
+			}
+			if !feeTx.GetFee().IsAllGTE(minFee) {
+				return ctx, errorsmod.Wrapf(sdkerrors.ErrInsufficientFee,
+					"Commons Council requires min fee %s for %d proposal(s)", minFee, feeCount)
 			}
 		}
 	}

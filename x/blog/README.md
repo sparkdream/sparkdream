@@ -25,7 +25,7 @@ Active `x/rep` members get permanent posts (no expiry). Non-members and anonymou
 
 ### Non-Destructive Deletion
 
-Posts and replies are **tombstoned** rather than fully removed — content is cleared but structural metadata (IDs, timestamps, parent references) is preserved. This keeps thread structure and child content intact.
+Posts and replies are **tombstoned** rather than fully removed — content is cleared but structural metadata (IDs, timestamps, parent references) is preserved. This keeps thread structure and child content intact. Tombstones stay in `ListReplies` and `ListPostsByCreator` (empty body) like in `ListPost`. Manual deletion keeps reactions; TTL expiry garbage-collects the reactions of what it tombstones, at most 200 expiries per block.
 
 ### Anonymous Posting
 
@@ -40,7 +40,7 @@ Anonymous content carries the **shield module address** as creator, shared by ev
 
 ### Conviction-Sustained Content
 
-Anonymous ephemeral content can be **conviction-sustained**: if community conviction staking on the content meets a configurable threshold, the TTL is automatically extended. This allows valuable anonymous contributions to persist based on community support.
+Anonymous ephemeral content can be **conviction-sustained**: if community conviction staking on the content meets a configurable threshold, the TTL is automatically extended. This allows valuable anonymous contributions to persist based on community support. Posts are staked on with x/rep target type `STAKE_TARGET_BLOG_CONTENT`, replies with `STAKE_TARGET_BLOG_REPLY_CONTENT` (posts and replies have separate id sequences).
 
 ### Author Bonds
 

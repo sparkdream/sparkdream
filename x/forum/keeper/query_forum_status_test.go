@@ -34,7 +34,7 @@ func TestQueryForumStatus(t *testing.T) {
 	t.Run("forum paused", func(t *testing.T) {
 		params := types.DefaultParams()
 		params.ForumPaused = true
-		f.keeper.Params.Set(f.ctx, params)
+		require.NoError(t, f.keeper.Params.Set(f.ctx, params))
 
 		resp, err := qs.ForumStatus(f.ctx, &types.QueryForumStatusRequest{})
 		require.NoError(t, err)
@@ -45,7 +45,7 @@ func TestQueryForumStatus(t *testing.T) {
 	t.Run("moderation paused", func(t *testing.T) {
 		params := types.DefaultParams()
 		params.ModerationPaused = true
-		f.keeper.Params.Set(f.ctx, params)
+		require.NoError(t, f.keeper.Params.Set(f.ctx, params))
 
 		resp, err := qs.ForumStatus(f.ctx, &types.QueryForumStatusRequest{})
 		require.NoError(t, err)
@@ -57,7 +57,7 @@ func TestQueryForumStatus(t *testing.T) {
 		params := types.DefaultParams()
 		params.ForumPaused = true
 		params.ModerationPaused = true
-		f.keeper.Params.Set(f.ctx, params)
+		require.NoError(t, f.keeper.Params.Set(f.ctx, params))
 
 		resp, err := qs.ForumStatus(f.ctx, &types.QueryForumStatusRequest{})
 		require.NoError(t, err)

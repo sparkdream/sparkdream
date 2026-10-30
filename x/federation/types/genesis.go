@@ -43,5 +43,9 @@ func (gs GenesisState) Validate() error {
 		}
 	}
 
+	if err := gs.validateRecords(); err != nil {
+		return err
+	}
+
 	return gs.Params.Validate()
 }

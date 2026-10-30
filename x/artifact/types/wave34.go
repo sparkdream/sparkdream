@@ -19,6 +19,11 @@ const (
 	MaxImpactContributors = 20
 	// MaxCraftInputs bounds the ingredients of one recipe.
 	MaxCraftInputs = 8
+	// HardMaxEditionSupply is the compiled ceiling on an edition's issued
+	// units (supply + burned + reserved). It applies to an uncapped edition
+	// (max_supply 0) too, and bounds max_supply and a recipe's
+	// output_quantity, so no unit counter or balance can come near 2^64.
+	HardMaxEditionSupply uint64 = 1_000_000_000_000_000
 	// MaxHarbergerTaxBps bounds HarbergerPolicy.tax_bps_per_year (100% a year).
 	MaxHarbergerTaxBps uint32 = 10000
 	// SecondsPerYear is the year Harberger taxes are prorated over.
@@ -206,6 +211,16 @@ func (b Balance) Claimable(rewardPerUnit math.Int) math.Int {
 		u = math.ZeroInt()
 	}
 	return u.Add(b.Accrued(rewardPerUnit))
+}
+
+// AddUnits adds n units to a, failing instead of wrapping and when the
+// result exceeds HardMaxEditionSupply. Every unit counter and balance is
+// added to through it.
+func AddUnits(a, n uint64) (uint64, error) {
+	if n > HardMaxEditionSupply || a > HardMaxEditionSupply-n {
+		return 0, errorsmod.Wrapf(ErrSupplyExceeded, "%d + %d units exceeds the hard ceiling %d", a, n, HardMaxEditionSupply)
+	}
+	return a + n, nil
 }
 
 // RewardPerUnitDelta is the accumulator increase for amount paid over

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/season/types"
 
 	errorsmod "cosmossdk.io/errors"
@@ -61,7 +62,7 @@ func (k Keeper) ResolveUnappealedModerationInternal(ctx context.Context, member 
 	if err != nil {
 		return errorsmod.Wrap(err, "failed to get params")
 	}
-	deadline := moderation.ModeratedAt + int64(params.DisplayNameAppealPeriodBlocks)
+	deadline := moderation.ModeratedAt + commontypes.Saturate[int64](params.DisplayNameAppealPeriodBlocks)
 	if sdkCtx.BlockHeight() <= deadline {
 		return types.ErrAppealPeriodNotExpired
 	}
@@ -70,16 +71,21 @@ func (k Keeper) ResolveUnappealedModerationInternal(ctx context.Context, member 
 	reportChallengeID := fmt.Sprintf("dn:%s:%d", moderation.Member, moderation.ModeratedAt)
 	reportStake, err := k.DisplayNameReportStake.Get(ctx, reportChallengeID)
 	if err == nil {
-		if unlockErr := k.dreamOps.Unlock(ctx, reportStake.Reporter, reportStake.Amount.Uint64()); unlockErr != nil {
+		if unlockErr := k.late.dreamOps.Unlock(ctx, reportStake.Reporter, reportStake.Amount.Uint64()); unlockErr != nil {
 			return errorsmod.Wrapf(types.ErrDREAMOperationFailed, "failed to unlock reporter stake: %s", unlockErr)
 		}
-		_ = k.DisplayNameReportStake.Remove(ctx, reportChallengeID)
+		if err := k.DisplayNameReportStake.Remove(ctx, reportChallengeID); err != nil {
+			return err
+		}
 	}
 
-	// 6. Close moderation record (display name stays cleared)
+	// 6. Close moderation record (display name stays cleared, and the
+	// rejected name stays blocked for this member, SEA-23)
 	moderation.Active = false
 	moderation.AppealSucceeded = false
-	if err := k.DisplayNameModeration.Set(ctx, member, moderation); err != nil {
+	moderation.AutoResolveRetryAt = 0
+	blockName(&moderation, moderation.RejectedName)
+	if err := k.SetDisplayNameModeration(ctx, member, moderation); err != nil {
 		return errorsmod.Wrap(err, "failed to update moderation record")
 	}
 

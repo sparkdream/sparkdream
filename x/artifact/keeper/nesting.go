@@ -8,6 +8,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	"sparkdream/x/artifact/types"
+	commontypes "sparkdream/x/common/types"
 )
 
 // Nesting (docs/x-artifact-spec.md §7.23). A nested token carries
@@ -152,7 +153,7 @@ func (k Keeper) adjustAncestors(ctx context.Context, t types.Token, delta int64)
 		return err
 	}
 	for _, a := range anc {
-		a.Descendants = uint32(int64(a.Descendants) + delta)
+		a.Descendants = commontypes.Saturate[uint32](int64(a.Descendants) + delta)
 		if err := k.saveToken(ctx, a); err != nil {
 			return err
 		}

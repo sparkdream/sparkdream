@@ -1,75 +1,51 @@
 package simulation
 
 import (
-	"math/rand"
-
-	"github.com/cosmos/cosmos-sdk/baseapp"
+	"cosmossdk.io/math"
 	"github.com/cosmos/cosmos-sdk/client"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
 
 	"sparkdream/x/forum/keeper"
 	"sparkdream/x/forum/types"
 )
 
-// SimulateMsgUnpinReply simulates a MsgUnpinReply message using direct keeper calls.
-// This bypasses the operations committee/sentinel requirement for simulation purposes.
-// Full integration testing should be done in integration tests.
+// SimulateMsgUnpinReply delivers MsgUnpinReply from the sentinel that pinned
+// a reply (or a Commons Operations Committee member, when a sim account is
+// one), for a pin that is not under dispute.
 func SimulateMsgUnpinReply(
 	ak types.AuthKeeper,
 	bk types.BankKeeper,
 	k keeper.Keeper,
 	txGen client.TxConfig,
 ) simtypes.Operation {
-	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
-	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		simAccount, _ := simtypes.RandomAcc(r, accs)
-
-		// Get or create a pinned reply
-		threadID, replyID, err := getOrCreatePinnedReply(r, ctx, k, simAccount.Address.String())
-		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgUnpinReply{}), "failed to get/create pinned reply"), nil, nil
-		}
-
-		// Use direct keeper calls to unpin the reply (bypasses operations committee check)
-		reply, err := k.Post.Get(ctx, replyID)
-		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgUnpinReply{}), "reply not found"), nil, nil
-		}
-
-		// Unpin the reply
-		reply.Pinned = false
-		if err := k.Post.Set(ctx, replyID, reply); err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgUnpinReply{}), "failed to update reply"), nil, nil
-		}
-
-		// Update thread metadata - remove from pinned records
-		metadata, err := k.ThreadMetadata.Get(ctx, threadID)
-		if err == nil {
-			// Remove from PinnedReplyIds
-			newPinnedIds := []uint64{}
-			for _, id := range metadata.PinnedReplyIds {
-				if id != replyID {
-					newPinnedIds = append(newPinnedIds, id)
+	return operation(ak, bk, k, txGen, &types.MsgUnpinReply{}, func(e *simEnv) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
+		msg := &types.MsgUnpinReply{}
+		council := e.opsCommittee()
+		var targets []*types.MsgUnpinReply
+		signers := map[string]simtypes.Account{}
+		err := e.k.ThreadMetadata.Walk(e.ctx, nil, func(threadID uint64, md types.ThreadMetadata) (bool, error) {
+			for _, rec := range md.PinnedRecords {
+				if rec == nil || (rec.Disputed && rec.CommittedAmount != "") {
+					continue
+				}
+				cands := council
+				if acc, ok := e.account(rec.PinnedBy); ok {
+					cands = append(append([]simtypes.Account{}, council...), acc)
+				}
+				for _, c := range cands {
+					signers[c.Address.String()] = c
+					targets = append(targets, &types.MsgUnpinReply{Creator: c.Address.String(), ThreadId: threadID, ReplyId: rec.PostId})
 				}
 			}
-			metadata.PinnedReplyIds = newPinnedIds
-
-			// Remove from PinnedRecords
-			newRecords := []*types.PinnedReplyRecord{}
-			for _, record := range metadata.PinnedRecords {
-				if record.PostId != replyID {
-					newRecords = append(newRecords, record)
-				}
-			}
-			metadata.PinnedRecords = newRecords
-
-			if err := k.ThreadMetadata.Set(ctx, threadID, metadata); err != nil {
-				return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgUnpinReply{}), "failed to update metadata"), nil, nil
-			}
+			return false, nil
+		})
+		if err != nil {
+			return noOpErr(msg, err)
 		}
-
-		// Return success
-		return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgUnpinReply{}), "ok (direct keeper call)"), nil, nil
-	}
+		t, ok := pick(e.r, targets)
+		if !ok {
+			return noOp(msg, "no undisputed pin the signer may remove")
+		}
+		return e.submit(signers[t.Creator], t, math.ZeroInt())
+	})
 }

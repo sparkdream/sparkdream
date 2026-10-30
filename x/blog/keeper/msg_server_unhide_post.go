@@ -40,8 +40,8 @@ func (k msgServer) UnhidePost(ctx context.Context, msg *types.MsgUnhidePost) (*t
 	k.SetPost(ctx, post)
 
 	// Re-register initiative link now that post is active again
-	if post.InitiativeId > 0 && k.repKeeper != nil {
-		if err := k.repKeeper.RegisterContentInitiativeLink(ctx, post.InitiativeId, int32(reptypes.StakeTargetType_STAKE_TARGET_BLOG_CONTENT), post.Id); err != nil {
+	if post.InitiativeId > 0 && k.hasRep() {
+		if err := k.late.repKeeper.RegisterContentInitiativeLink(ctx, post.InitiativeId, int32(reptypes.StakeTargetType_STAKE_TARGET_BLOG_CONTENT), post.Id); err != nil {
 			sdkCtx.Logger().Error("failed to re-register content initiative link on unhide", "post_id", post.Id, "error", err)
 		}
 	}

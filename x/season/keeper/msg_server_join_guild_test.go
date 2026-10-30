@@ -62,7 +62,7 @@ func TestMsgServerJoinGuild(t *testing.T) {
 		// Mark as dissolved
 		guild, _ := k.Guild.Get(ctx, guildID)
 		guild.Status = types.GuildStatus_GUILD_STATUS_DISSOLVED
-		k.Guild.Set(ctx, guildID, guild)
+		require.NoError(t, k.Guild.Set(ctx, guildID, guild))
 
 		_, err := ms.JoinGuild(ctx, &types.MsgJoinGuild{
 			Creator: joinerStr,
@@ -138,7 +138,7 @@ func TestMsgServerJoinGuild(t *testing.T) {
 		// Make invite only
 		guild, _ := k.Guild.Get(ctx, guildID)
 		guild.InviteOnly = true
-		k.Guild.Set(ctx, guildID, guild)
+		require.NoError(t, k.Guild.Set(ctx, guildID, guild))
 
 		_, err := ms.JoinGuild(ctx, &types.MsgJoinGuild{
 			Creator: joinerStr,
@@ -202,7 +202,7 @@ func TestMsgServerJoinGuild(t *testing.T) {
 		guild, _ := k.Guild.Get(ctx, guildID)
 		guild.InviteOnly = true
 		guild.PendingInvites = []string{joinerStr}
-		k.Guild.Set(ctx, guildID, guild)
+		require.NoError(t, k.Guild.Set(ctx, guildID, guild))
 
 		// Create invite record
 		key := fmt.Sprintf("%d:%s", guildID, joinerStr)
@@ -210,7 +210,7 @@ func TestMsgServerJoinGuild(t *testing.T) {
 			GuildInvitee: joinerStr,
 			Inviter:      founder.String(),
 		}
-		k.GuildInvite.Set(ctx, key, invite)
+		require.NoError(t, k.GuildInvite.Set(ctx, key, invite))
 
 		_, err := ms.JoinGuild(ctx, &types.MsgJoinGuild{
 			Creator: joinerStr,
@@ -248,7 +248,7 @@ func TestMsgServerJoinGuild(t *testing.T) {
 			GuildId:   0,
 			LeftEpoch: 4, // Left at epoch 4
 		}
-		k.GuildMembership.Set(ctx, joinerStr, membership)
+		require.NoError(t, k.GuildMembership.Set(ctx, joinerStr, membership))
 
 		_, err := ms.JoinGuild(ctx, &types.MsgJoinGuild{
 			Creator: joinerStr,

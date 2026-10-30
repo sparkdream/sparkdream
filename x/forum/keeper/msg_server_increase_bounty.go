@@ -15,6 +15,9 @@ func (k msgServer) IncreaseBounty(ctx context.Context, msg *types.MsgIncreaseBou
 	if _, err := k.addressCodec.StringToBytes(msg.Creator); err != nil {
 		return nil, errorsmod.Wrap(err, "invalid creator address")
 	}
+	if err := k.requireForumNotPaused(ctx); err != nil {
+		return nil, err
+	}
 
 	// A bounty escrows real SPARK from its creator. From the shield address
 	// that would be the communal gas reserve, and every anonymous member
@@ -45,6 +48,10 @@ func (k msgServer) IncreaseBounty(ctx context.Context, msg *types.MsgIncreaseBou
 	addAmount, ok := math.NewIntFromString(msg.AdditionalAmount)
 	if !ok || addAmount.IsNegative() || addAmount.IsZero() {
 		return nil, errorsmod.Wrap(types.ErrInvalidAmount, "invalid increase amount")
+	}
+	if minBountyAmount := math.NewInt(types.MinBountyAmount); addAmount.LT(minBountyAmount) {
+		return nil, errorsmod.Wrapf(types.ErrBountyAmountTooSmall,
+			"minimum increase is %s (bond denom base units)", minBountyAmount.String())
 	}
 
 	// Transfer additional SPARK from creator to module (escrow)

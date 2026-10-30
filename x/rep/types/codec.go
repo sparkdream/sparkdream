@@ -8,6 +8,14 @@ import (
 
 func RegisterInterfaces(registrar codectypes.InterfaceRegistry) {
 	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgInviteExpertWitness{},
+	)
+
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgCompleteProject{},
+	)
+
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
 		&MsgClearZkPublicKey{},
 	)
 

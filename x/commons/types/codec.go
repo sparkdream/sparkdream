@@ -8,6 +8,22 @@ import (
 
 func RegisterInterfaces(registrar codectypes.InterfaceRegistry) {
 	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgCancelPoll{},
+	)
+
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgAnonymousVotePoll{},
+	)
+
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgVotePoll{},
+	)
+
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgOpenPoll{},
+	)
+
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
 		&MsgVetoGroupProposals{},
 	)
 

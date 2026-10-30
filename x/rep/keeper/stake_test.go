@@ -20,31 +20,31 @@ func TestCreateStake(t *testing.T) {
 	// Setup: Create project and initiative
 	creator := sdk.AccAddress([]byte("creator"))
 	projectID, _ := k.CreateProject(ctx, creator, "Proj", "Desc", []string{"backend"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical", math.NewInt(10000), math.NewInt(1000), false)
-	k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(10000), math.NewInt(1000))
+	require.NoError(t, k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(10000), math.NewInt(1000)))
 
 	assignee := sdk.AccAddress([]byte("assignee"))
-	k.Member.Set(ctx, assignee.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, assignee.String(), types.Member{
 		Address:          assignee.String(),
 		DreamBalance:     PtrInt(math.ZeroInt()),
 		StakedDream:      PtrInt(math.ZeroInt()),
 		LifetimeEarned:   PtrInt(math.ZeroInt()),
 		LifetimeBurned:   PtrInt(math.ZeroInt()),
 		ReputationScores: map[string]string{"backend": "100.0"},
-	})
+	}))
 
 	initID, _ := k.CreateInitiative(ctx, creator, projectID, "Task", "D", []string{"backend"}, types.InitiativeTier_INITIATIVE_TIER_STANDARD, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, math.NewInt(100))
-	k.AssignInitiativeToMember(ctx, initID, assignee)
+	require.NoError(t, k.AssignInitiativeToMember(ctx, initID, assignee))
 
 	// Create staker with DREAM balance
 	staker := sdk.AccAddress([]byte("staker"))
-	k.Member.Set(ctx, staker.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, staker.String(), types.Member{
 		Address:          staker.String(),
 		DreamBalance:     PtrInt(math.NewInt(10000)),
 		StakedDream:      PtrInt(math.ZeroInt()),
 		LifetimeEarned:   PtrInt(math.ZeroInt()),
 		LifetimeBurned:   PtrInt(math.ZeroInt()),
 		ReputationScores: map[string]string{"backend": "50.0"},
-	})
+	}))
 
 	// Test: Create stake
 	stakeAmount := math.NewInt(2000)
@@ -71,18 +71,18 @@ func TestCreateStakeErrors(t *testing.T) {
 
 	creator := sdk.AccAddress([]byte("creator"))
 	staker := sdk.AccAddress([]byte("staker"))
-	k.Member.Set(ctx, staker.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, staker.String(), types.Member{
 		Address:          staker.String(),
 		DreamBalance:     PtrInt(math.NewInt(100)), // Low balance
 		StakedDream:      PtrInt(math.ZeroInt()),
 		LifetimeEarned:   PtrInt(math.ZeroInt()),
 		LifetimeBurned:   PtrInt(math.ZeroInt()),
 		ReputationScores: make(map[string]string),
-	})
+	}))
 
 	// Create a project and initiative to test against
 	projectID, _ := k.CreateProject(ctx, creator, "Proj", "Desc", []string{"backend"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical", math.NewInt(10000), math.NewInt(1000), false)
-	k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(10000), math.NewInt(1000))
+	require.NoError(t, k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(10000), math.NewInt(1000)))
 	initID, _ := k.CreateInitiative(ctx, creator, projectID, "Task", "D", []string{"backend"}, types.InitiativeTier_INITIATIVE_TIER_STANDARD, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, math.NewInt(100))
 
 	// Test: Insufficient balance (staker has 100, trying to stake 1000)
@@ -106,35 +106,35 @@ func TestInitiativeStakeCapEnforcement(t *testing.T) {
 	// Set a low cap for testing: 500 DREAM (500_000_000 micro-DREAM)
 	params, _ := k.Params.Get(ctx)
 	params.MaxInitiativeStakePerMember = math.NewInt(500000000)
-	k.Params.Set(ctx, params)
+	require.NoError(t, k.Params.Set(ctx, params))
 
 	creator := sdk.AccAddress([]byte("creator"))
 	projectID, _ := k.CreateProject(ctx, creator, "Proj", "Desc", []string{"backend"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical", math.NewInt(10000), math.NewInt(1000), false)
-	k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(10000), math.NewInt(1000))
+	require.NoError(t, k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(10000), math.NewInt(1000)))
 
 	assignee := sdk.AccAddress([]byte("assignee"))
-	k.Member.Set(ctx, assignee.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, assignee.String(), types.Member{
 		Address:          assignee.String(),
 		DreamBalance:     PtrInt(math.ZeroInt()),
 		StakedDream:      PtrInt(math.ZeroInt()),
 		LifetimeEarned:   PtrInt(math.ZeroInt()),
 		LifetimeBurned:   PtrInt(math.ZeroInt()),
 		ReputationScores: map[string]string{"backend": "100.0"},
-	})
+	}))
 
 	initID, _ := k.CreateInitiative(ctx, creator, projectID, "Task", "D", []string{"backend"}, types.InitiativeTier_INITIATIVE_TIER_STANDARD, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, math.NewInt(100))
-	k.AssignInitiativeToMember(ctx, initID, assignee)
+	require.NoError(t, k.AssignInitiativeToMember(ctx, initID, assignee))
 
 	// Whale staker with massive DREAM balance
 	whale := sdk.AccAddress([]byte("whale"))
-	k.Member.Set(ctx, whale.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, whale.String(), types.Member{
 		Address:          whale.String(),
 		DreamBalance:     PtrInt(math.NewInt(10000000000)), // 10,000 DREAM
 		StakedDream:      PtrInt(math.ZeroInt()),
 		LifetimeEarned:   PtrInt(math.ZeroInt()),
 		LifetimeBurned:   PtrInt(math.ZeroInt()),
 		ReputationScores: map[string]string{"backend": "50.0"},
-	})
+	}))
 
 	// Stake exactly at the cap — should succeed
 	_, err := k.CreateStake(ctx, whale, types.StakeTargetType_STAKE_TARGET_INITIATIVE, initID, "", math.NewInt(500000000))
@@ -146,14 +146,14 @@ func TestInitiativeStakeCapEnforcement(t *testing.T) {
 
 	// Different member can still stake on the same initiative (cap is per-member)
 	other := sdk.AccAddress([]byte("other_staker"))
-	k.Member.Set(ctx, other.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, other.String(), types.Member{
 		Address:          other.String(),
 		DreamBalance:     PtrInt(math.NewInt(1000000000)), // 1,000 DREAM
 		StakedDream:      PtrInt(math.ZeroInt()),
 		LifetimeEarned:   PtrInt(math.ZeroInt()),
 		LifetimeBurned:   PtrInt(math.ZeroInt()),
 		ReputationScores: map[string]string{"backend": "50.0"},
-	})
+	}))
 	_, err = k.CreateStake(ctx, other, types.StakeTargetType_STAKE_TARGET_INITIATIVE, initID, "", math.NewInt(400000000))
 	require.NoError(t, err)
 
@@ -174,30 +174,30 @@ func TestRemoveStake(t *testing.T) {
 	// Setup: Create stake
 	creator := sdk.AccAddress([]byte("creator"))
 	projectID, _ := k.CreateProject(ctx, creator, "Proj", "Desc", []string{"backend"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical", math.NewInt(10000), math.NewInt(1000), false)
-	k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(10000), math.NewInt(1000))
+	require.NoError(t, k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(10000), math.NewInt(1000)))
 
 	assignee := sdk.AccAddress([]byte("assignee"))
-	k.Member.Set(ctx, assignee.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, assignee.String(), types.Member{
 		Address:          assignee.String(),
 		DreamBalance:     PtrInt(math.ZeroInt()),
 		StakedDream:      PtrInt(math.ZeroInt()),
 		LifetimeEarned:   PtrInt(math.ZeroInt()),
 		LifetimeBurned:   PtrInt(math.ZeroInt()),
 		ReputationScores: map[string]string{"backend": "100.0"},
-	})
+	}))
 
 	initID, _ := k.CreateInitiative(ctx, creator, projectID, "Task", "D", []string{"backend"}, types.InitiativeTier_INITIATIVE_TIER_STANDARD, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, math.NewInt(100))
-	k.AssignInitiativeToMember(ctx, initID, assignee)
+	require.NoError(t, k.AssignInitiativeToMember(ctx, initID, assignee))
 
 	staker := sdk.AccAddress([]byte("staker"))
-	k.Member.Set(ctx, staker.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, staker.String(), types.Member{
 		Address:          staker.String(),
 		DreamBalance:     PtrInt(math.NewInt(10000)),
 		StakedDream:      PtrInt(math.ZeroInt()),
 		LifetimeEarned:   PtrInt(math.ZeroInt()),
 		LifetimeBurned:   PtrInt(math.ZeroInt()),
 		ReputationScores: map[string]string{"backend": "50.0"},
-	})
+	}))
 
 	stakeAmount := math.NewInt(2000)
 	stakeID, _ := k.CreateStake(ctx, staker, types.StakeTargetType_STAKE_TARGET_INITIATIVE, initID, "", stakeAmount)
@@ -226,31 +226,31 @@ func TestCalculateConviction(t *testing.T) {
 
 	// Create a stake to test conviction calculation
 	staker := sdk.AccAddress([]byte("staker"))
-	k.Member.Set(ctx, staker.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, staker.String(), types.Member{
 		Address:          staker.String(),
 		DreamBalance:     PtrInt(math.NewInt(10000)),
 		StakedDream:      PtrInt(math.ZeroInt()),
 		LifetimeEarned:   PtrInt(math.ZeroInt()),
 		LifetimeBurned:   PtrInt(math.ZeroInt()),
 		ReputationScores: make(map[string]string),
-	})
+	}))
 
 	creator := sdk.AccAddress([]byte("creator"))
 	projectID, _ := k.CreateProject(ctx, creator, "Proj", "Desc", []string{"tag"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical", math.NewInt(10000), math.NewInt(1000), false)
-	k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(10000), math.NewInt(1000))
+	require.NoError(t, k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(10000), math.NewInt(1000)))
 
 	assignee := sdk.AccAddress([]byte("assignee"))
-	k.Member.Set(ctx, assignee.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, assignee.String(), types.Member{
 		Address:          assignee.String(),
 		DreamBalance:     PtrInt(math.ZeroInt()),
 		StakedDream:      PtrInt(math.ZeroInt()),
 		LifetimeEarned:   PtrInt(math.ZeroInt()),
 		LifetimeBurned:   PtrInt(math.ZeroInt()),
 		ReputationScores: map[string]string{"tag": "100.0"},
-	})
+	}))
 
 	initID, _ := k.CreateInitiative(ctx, creator, projectID, "Task", "D", []string{"tag"}, types.InitiativeTier_INITIATIVE_TIER_STANDARD, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, math.NewInt(100))
-	k.AssignInitiativeToMember(ctx, initID, assignee)
+	require.NoError(t, k.AssignInitiativeToMember(ctx, initID, assignee))
 
 	stakeID, _ := k.CreateStake(ctx, staker, types.StakeTargetType_STAKE_TARGET_INITIATIVE, initID, "", stakeAmount)
 
@@ -274,30 +274,30 @@ func TestConvictionCalculation_TimeWeighting(t *testing.T) {
 
 	// Setup member with no reputation (multiplier = 1.0)
 	staker := sdk.AccAddress([]byte("staker"))
-	k.Member.Set(ctx, staker.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, staker.String(), types.Member{
 		Address:          staker.String(),
 		DreamBalance:     PtrInt(math.NewInt(10000)),
 		StakedDream:      PtrInt(math.ZeroInt()),
 		ReputationScores: make(map[string]string),
-	})
+	}))
 
 	// Create stake
 	creator := sdk.AccAddress([]byte("creator"))
 	projectID, _ := k.CreateProject(ctx, creator, "Proj", "Desc", []string{"tag"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical", math.NewInt(10000), math.NewInt(1000), false)
-	k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(10000), math.NewInt(1000))
+	require.NoError(t, k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(10000), math.NewInt(1000)))
 
 	assignee := sdk.AccAddress([]byte("assignee"))
-	k.Member.Set(ctx, assignee.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, assignee.String(), types.Member{
 		Address:          assignee.String(),
 		DreamBalance:     PtrInt(math.ZeroInt()),
 		StakedDream:      PtrInt(math.ZeroInt()),
 		LifetimeEarned:   PtrInt(math.ZeroInt()),
 		LifetimeBurned:   PtrInt(math.ZeroInt()),
 		ReputationScores: map[string]string{"tag": "100.0"},
-	})
+	}))
 
 	initID, _ := k.CreateInitiative(ctx, creator, projectID, "Task", "D", []string{"tag"}, types.InitiativeTier_INITIATIVE_TIER_STANDARD, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, math.NewInt(100))
-	k.AssignInitiativeToMember(ctx, initID, assignee)
+	require.NoError(t, k.AssignInitiativeToMember(ctx, initID, assignee))
 
 	// Stake 10000 DREAM (should result in sqrt(10000) = 100 conviction when fully weighted)
 	stakeAmount := math.NewInt(10000)
@@ -344,7 +344,7 @@ func TestConvictionCalculation_TimeWeighting(t *testing.T) {
 			// Get stake and manually update CreatedAt to test time progression
 			stake, _ := k.Stake.Get(ctx, stakeID)
 			stake.CreatedAt = newCtx.BlockTime().Unix() - tc.advanceSeconds
-			k.Stake.Set(newCtx, stakeID, stake)
+			require.NoError(t, k.Stake.Set(newCtx, stakeID, stake))
 
 			// Pass initiative tags for tag-weighted reputation (initiative has no tags, member has none)
 			conviction, err := k.CalculateStakeConviction(newCtx, stake, []string{"tag"})
@@ -369,31 +369,31 @@ func TestConvictionCalculation_QuadraticDampening(t *testing.T) {
 
 	// Setup member
 	staker := sdk.AccAddress([]byte("staker"))
-	k.Member.Set(ctx, staker.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, staker.String(), types.Member{
 		Address:          staker.String(),
 		DreamBalance:     PtrInt(math.NewInt(1000000)),
 		StakedDream:      PtrInt(math.ZeroInt()),
 		LifetimeEarned:   PtrInt(math.ZeroInt()),
 		LifetimeBurned:   PtrInt(math.ZeroInt()),
 		ReputationScores: make(map[string]string), // No reputation bonus
-	})
+	}))
 
 	creator := sdk.AccAddress([]byte("creator"))
 	projectID, _ := k.CreateProject(ctx, creator, "Proj", "Desc", []string{"tag"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical", math.NewInt(100000), math.NewInt(1000), false)
-	k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(100000), math.NewInt(1000))
+	require.NoError(t, k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(100000), math.NewInt(1000)))
 
 	assignee := sdk.AccAddress([]byte("assignee"))
-	k.Member.Set(ctx, assignee.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, assignee.String(), types.Member{
 		Address:          assignee.String(),
 		DreamBalance:     PtrInt(math.ZeroInt()),
 		StakedDream:      PtrInt(math.ZeroInt()),
 		LifetimeEarned:   PtrInt(math.ZeroInt()),
 		LifetimeBurned:   PtrInt(math.ZeroInt()),
 		ReputationScores: map[string]string{"tag": "100.0"},
-	})
+	}))
 
 	initID, _ := k.CreateInitiative(ctx, creator, projectID, "Task", "D", []string{"tag"}, types.InitiativeTier_INITIATIVE_TIER_STANDARD, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, math.NewInt(100))
-	k.AssignInitiativeToMember(ctx, initID, assignee)
+	require.NoError(t, k.AssignInitiativeToMember(ctx, initID, assignee))
 
 	// Test: Quadratic dampening means 4x stake = 2x conviction (not 4x)
 	testCases := []struct {
@@ -452,21 +452,21 @@ func TestConvictionCalculation_ReputationMultiplier(t *testing.T) {
 	creator := sdk.AccAddress([]byte("creator"))
 	// Project and initiative use "backend" and "frontend" tags
 	projectID, _ := k.CreateProject(ctx, creator, "Proj", "Desc", []string{"backend", "frontend"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical", math.NewInt(10000), math.NewInt(1000), false)
-	k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(10000), math.NewInt(1000))
+	require.NoError(t, k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(10000), math.NewInt(1000)))
 
 	assignee := sdk.AccAddress([]byte("assignee"))
-	k.Member.Set(ctx, assignee.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, assignee.String(), types.Member{
 		Address:          assignee.String(),
 		DreamBalance:     PtrInt(math.ZeroInt()),
 		StakedDream:      PtrInt(math.ZeroInt()),
 		LifetimeEarned:   PtrInt(math.ZeroInt()),
 		LifetimeBurned:   PtrInt(math.ZeroInt()),
 		ReputationScores: map[string]string{"backend": "100.0"},
-	})
+	}))
 
 	// Initiative uses tags ["backend", "frontend"] - only reputation in these tags counts
 	initID, _ := k.CreateInitiative(ctx, creator, projectID, "Task", "D", []string{"backend", "frontend"}, types.InitiativeTier_INITIATIVE_TIER_STANDARD, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, math.NewInt(100))
-	k.AssignInitiativeToMember(ctx, initID, assignee)
+	require.NoError(t, k.AssignInitiativeToMember(ctx, initID, assignee))
 
 	// Test different reputation levels - only "backend" and "frontend" tags affect conviction
 	testCases := []struct {
@@ -512,14 +512,14 @@ func TestConvictionCalculation_ReputationMultiplier(t *testing.T) {
 	for i, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			staker := sdk.AccAddress([]byte("staker" + string(rune(i))))
-			k.Member.Set(ctx, staker.String(), types.Member{
+			require.NoError(t, k.Member.Set(ctx, staker.String(), types.Member{
 				Address:          staker.String(),
 				DreamBalance:     PtrInt(math.NewInt(100000)),
 				StakedDream:      PtrInt(math.ZeroInt()),
 				LifetimeEarned:   PtrInt(math.ZeroInt()),
 				LifetimeBurned:   PtrInt(math.ZeroInt()),
 				ReputationScores: tc.reputationScores,
-			})
+			}))
 
 			stakeID, _ := k.CreateStake(ctx, staker, types.StakeTargetType_STAKE_TARGET_INITIATIVE, initID, "", math.NewInt(tc.stakeAmount))
 
@@ -573,11 +573,11 @@ func TestConvictionCalculation_EdgeCases(t *testing.T) {
 			name: "Zero stake amount",
 			setupFn: func(t *testing.T, k *keeper.Keeper, ctx sdk.Context) types.Stake {
 				staker := sdk.AccAddress([]byte("staker"))
-				k.Member.Set(ctx, staker.String(), types.Member{
+				require.NoError(t, k.Member.Set(ctx, staker.String(), types.Member{
 					Address:          staker.String(),
 					DreamBalance:     PtrInt(math.NewInt(1000)),
 					ReputationScores: make(map[string]string),
-				})
+				}))
 				return types.Stake{
 					Id:        1,
 					Staker:    staker.String(),
@@ -591,11 +591,11 @@ func TestConvictionCalculation_EdgeCases(t *testing.T) {
 			name: "Negative time elapsed (future creation time)",
 			setupFn: func(t *testing.T, k *keeper.Keeper, ctx sdk.Context) types.Stake {
 				staker := sdk.AccAddress([]byte("staker"))
-				k.Member.Set(ctx, staker.String(), types.Member{
+				require.NoError(t, k.Member.Set(ctx, staker.String(), types.Member{
 					Address:          staker.String(),
 					DreamBalance:     PtrInt(math.NewInt(1000)),
 					ReputationScores: make(map[string]string),
-				})
+				}))
 				return types.Stake{
 					Id:        1,
 					Staker:    staker.String(),
@@ -610,11 +610,11 @@ func TestConvictionCalculation_EdgeCases(t *testing.T) {
 			setupFn: func(t *testing.T, k *keeper.Keeper, ctx sdk.Context) types.Stake {
 				staker := sdk.AccAddress([]byte("staker"))
 				largeAmount := math.NewInt(1_000_000_000_000) // 1 trillion
-				k.Member.Set(ctx, staker.String(), types.Member{
+				require.NoError(t, k.Member.Set(ctx, staker.String(), types.Member{
 					Address:          staker.String(),
 					DreamBalance:     PtrInt(largeAmount),
 					ReputationScores: make(map[string]string),
-				})
+				}))
 				return types.Stake{
 					Id:        1,
 					Staker:    staker.String(),
@@ -628,11 +628,11 @@ func TestConvictionCalculation_EdgeCases(t *testing.T) {
 			name: "Invalid reputation values",
 			setupFn: func(t *testing.T, k *keeper.Keeper, ctx sdk.Context) types.Stake {
 				staker := sdk.AccAddress([]byte("staker"))
-				k.Member.Set(ctx, staker.String(), types.Member{
+				require.NoError(t, k.Member.Set(ctx, staker.String(), types.Member{
 					Address:          staker.String(),
 					DreamBalance:     PtrInt(math.NewInt(1000)),
 					ReputationScores: map[string]string{"invalid": "not-a-number"},
-				})
+				}))
 				return types.Stake{
 					Id:        1,
 					Staker:    staker.String(),
@@ -674,14 +674,14 @@ func TestStakeRewards(t *testing.T) {
 
 	// Setup: Create creator member with enough reputation for EXPERT tier (min 100)
 	creator := sdk.AccAddress([]byte("creator"))
-	k.Member.Set(ctx, creator.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, creator.String(), types.Member{
 		Address:          creator.String(),
 		DreamBalance:     PtrInt(math.ZeroInt()),
 		StakedDream:      PtrInt(math.ZeroInt()),
 		LifetimeEarned:   PtrInt(math.ZeroInt()),
 		LifetimeBurned:   PtrInt(math.ZeroInt()),
 		ReputationScores: map[string]string{"backend": "150.0"},
-	})
+	}))
 
 	projectID, err := k.CreateProject(ctx, creator, "Proj", "Desc", []string{"backend"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical", math.NewInt(10000), math.NewInt(1000), false)
 	require.NoError(t, err)
@@ -689,14 +689,14 @@ func TestStakeRewards(t *testing.T) {
 	require.NoError(t, err)
 
 	assignee := sdk.AccAddress([]byte("assignee"))
-	k.Member.Set(ctx, assignee.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, assignee.String(), types.Member{
 		Address:          assignee.String(),
 		DreamBalance:     PtrInt(math.ZeroInt()),
 		StakedDream:      PtrInt(math.ZeroInt()),
 		LifetimeEarned:   PtrInt(math.ZeroInt()),
 		LifetimeBurned:   PtrInt(math.ZeroInt()),
 		ReputationScores: map[string]string{"backend": "150.0"},
-	})
+	}))
 
 	// Use EXPERT tier which allows up to 2000 DREAM budget
 	initBudget := math.NewInt(1000)
@@ -721,20 +721,20 @@ func TestStakeRewards(t *testing.T) {
 
 	// Create staker members and stakes
 	for _, s := range stakers {
-		k.Member.Set(ctx, s.addr.String(), types.Member{
+		require.NoError(t, k.Member.Set(ctx, s.addr.String(), types.Member{
 			Address:          s.addr.String(),
 			DreamBalance:     PtrInt(s.amount.Mul(math.NewInt(2))), // Give them enough balance
 			StakedDream:      PtrInt(math.ZeroInt()),
 			LifetimeEarned:   PtrInt(math.ZeroInt()),
 			LifetimeBurned:   PtrInt(math.ZeroInt()),
 			ReputationScores: map[string]string{"backend": "50.0"},
-		})
+		}))
 		_, err := k.CreateStake(ctx, s.addr, types.StakeTargetType_STAKE_TARGET_INITIATIVE, initID, "", s.amount)
 		require.NoError(t, err)
 	}
 
 	// Submit work and get conviction to complete the initiative
-	k.SubmitInitiativeWork(ctx, initID, assignee, "ipfs://deliverable")
+	require.NoError(t, k.SubmitInitiativeWork(ctx, initID, assignee, "ipfs://deliverable"))
 
 	// Add conviction by updating stakes (simulate time passing and conviction building)
 	// For testing, we'll manually set conviction to meet requirements
@@ -743,7 +743,7 @@ func TestStakeRewards(t *testing.T) {
 	initiative.RequiredConviction = PtrDec(requiredConviction)
 	initiative.CurrentConviction = PtrDec(requiredConviction.Mul(math.LegacyNewDec(2)))  // 200% of required
 	initiative.ExternalConviction = PtrDec(requiredConviction.Mul(math.LegacyNewDec(2))) // All external
-	k.UpdateInitiative(ctx, initiative)
+	require.NoError(t, k.UpdateInitiative(ctx, initiative))
 
 	// Get initial balances before completion
 	initialBalances := make(map[string]math.Int)
@@ -850,14 +850,14 @@ func TestStakeRewardsWithTime(t *testing.T) {
 
 	// Setup: Create creator member with enough reputation for EXPERT tier (min 100)
 	creator := sdk.AccAddress([]byte("creator"))
-	k.Member.Set(ctx, creator.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, creator.String(), types.Member{
 		Address:          creator.String(),
 		DreamBalance:     PtrInt(math.ZeroInt()),
 		StakedDream:      PtrInt(math.ZeroInt()),
 		LifetimeEarned:   PtrInt(math.ZeroInt()),
 		LifetimeBurned:   PtrInt(math.ZeroInt()),
 		ReputationScores: map[string]string{"backend": "150.0"},
-	})
+	}))
 
 	projectID, err := k.CreateProject(ctx, creator, "Proj", "Desc", []string{"backend"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical", math.NewInt(10000), math.NewInt(1000), false)
 	require.NoError(t, err)
@@ -865,14 +865,14 @@ func TestStakeRewardsWithTime(t *testing.T) {
 	require.NoError(t, err)
 
 	assignee := sdk.AccAddress([]byte("assignee"))
-	k.Member.Set(ctx, assignee.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, assignee.String(), types.Member{
 		Address:          assignee.String(),
 		DreamBalance:     PtrInt(math.ZeroInt()),
 		StakedDream:      PtrInt(math.ZeroInt()),
 		LifetimeEarned:   PtrInt(math.ZeroInt()),
 		LifetimeBurned:   PtrInt(math.ZeroInt()),
 		ReputationScores: map[string]string{"backend": "150.0"},
-	})
+	}))
 
 	// Use EXPERT tier which allows up to 2000 DREAM budget
 	initBudget := math.NewInt(1000)
@@ -895,20 +895,20 @@ func TestStakeRewardsWithTime(t *testing.T) {
 
 	// Create staker members and stakes
 	for _, s := range stakers {
-		k.Member.Set(ctx, s.addr.String(), types.Member{
+		require.NoError(t, k.Member.Set(ctx, s.addr.String(), types.Member{
 			Address:          s.addr.String(),
 			DreamBalance:     PtrInt(s.amount.Mul(math.NewInt(2))),
 			StakedDream:      PtrInt(math.ZeroInt()),
 			LifetimeEarned:   PtrInt(math.ZeroInt()),
 			LifetimeBurned:   PtrInt(math.ZeroInt()),
 			ReputationScores: map[string]string{"backend": "50.0"},
-		})
+		}))
 		_, err := k.CreateStake(ctx, s.addr, types.StakeTargetType_STAKE_TARGET_INITIATIVE, initID, "", s.amount)
 		require.NoError(t, err)
 	}
 
 	// Submit work
-	k.SubmitInitiativeWork(ctx, initID, assignee, "ipfs://deliverable")
+	require.NoError(t, k.SubmitInitiativeWork(ctx, initID, assignee, "ipfs://deliverable"))
 
 	// Simulate 30 days passing (30 days = 2,592,000 seconds)
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
@@ -924,7 +924,7 @@ func TestStakeRewardsWithTime(t *testing.T) {
 	initiative.RequiredConviction = PtrDec(requiredConviction)
 	initiative.CurrentConviction = PtrDec(requiredConviction.Mul(math.LegacyNewDec(2)))
 	initiative.ExternalConviction = PtrDec(requiredConviction.Mul(math.LegacyNewDec(2)))
-	k.UpdateInitiative(ctx, initiative)
+	require.NoError(t, k.UpdateInitiative(ctx, initiative))
 
 	// Complete the initiative
 	advanceToCompletable(t, k, ctx, initID)

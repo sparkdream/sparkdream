@@ -27,8 +27,12 @@ func createInvitationForInviter(k keeper.Keeper, ctx context.Context, id uint64,
 		Status:            status,
 		CreatedAt:         1000,
 	}
-	_ = k.Invitation.Set(ctx, id, invitation)
-	_ = k.InvitationSeq.Set(ctx, id)
+	if err := k.Invitation.Set(ctx, id, invitation); err != nil {
+		panic(err)
+	}
+	if err := k.InvitationSeq.Set(ctx, id); err != nil {
+		panic(err)
+	}
 	return invitation
 }
 

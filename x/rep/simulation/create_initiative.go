@@ -1,108 +1,37 @@
 package simulation
 
 import (
-	"fmt"
-	"math/rand"
-
-	"cosmossdk.io/math"
-	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
-	"github.com/cosmos/cosmos-sdk/x/simulation"
 
 	"sparkdream/x/rep/keeper"
 	"sparkdream/x/rep/types"
 )
 
-func SimulateMsgCreateInitiative(
-	ak types.AuthKeeper,
-	bk types.BankKeeper,
-	k keeper.Keeper,
-	txGen client.TxConfig,
-) simtypes.Operation {
-	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
-	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		// The handler refuses this message while x/season is in a blocking
-		// transition phase; a delivery failure fails the whole simulation.
-		if k.InMaintenanceMode(ctx) {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgCreateInitiative{}), "season maintenance mode"), nil, nil
-		}
-		// Get or create a creator
-		creator, creatorAcc, err := getOrCreateMember(r, ctx, k, accs)
+// SimulateMsgCreateInitiative creates an initiative under an ACTIVE project,
+// signed by the project's creator, by any member for a permissionless
+// project, or by an Operations Committee seat. With no ACTIVE project one is
+// opened first (a permissionless proposal, or a budget-backed one approved
+// by a committee seat).
+func SimulateMsgCreateInitiative(ak types.AuthKeeper, bk types.BankKeeper, k keeper.Keeper, txGen client.TxConfig) simtypes.Operation {
+	label := &types.MsgCreateInitiative{}
+	return operation(ak, bk, k, txGen, label, func(e *simEnv) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
+		cands, err := e.createInitiativeCandidates()
 		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgCreateInitiative{}), "failed to get/create creator"), nil, nil
+			return noOpErr(label, err)
 		}
-
-		// Get or create an active project
-		projectID, err := getOrCreateProject(r, ctx, k, creator)
-		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgCreateInitiative{}), "failed to get/create project"), nil, nil
-		}
-
-		// Check project's remaining budget (ApprovedBudget - AllocatedBudget)
-		project, err := k.GetProject(sdk.UnwrapSDKContext(ctx), projectID)
-		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgCreateInitiative{}), "failed to get project"), nil, nil
-		}
-		approvedBudget := project.ApprovedBudget
-		allocatedBudget := project.AllocatedBudget
-		if approvedBudget == nil || allocatedBudget == nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgCreateInitiative{}), "budget not set"), nil, nil
-		}
-		availableBudget := approvedBudget.Sub(*allocatedBudget)
-		if availableBudget.IsZero() || availableBudget.IsNegative() {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgCreateInitiative{}), "no remaining budget"), nil, nil
-		}
-
-		// Generate initiative details
-		tier := randomInitiativeTier(r)
-		category := randomInitiativeCategory(r)
-
-		// Budget based on tier, but capped by available budget
-		var budget math.Int
-		switch tier {
-		case types.InitiativeTier_INITIATIVE_TIER_APPRENTICE:
-			budget = math.NewInt(int64(r.Intn(400) + 100)) // 100-500
-		case types.InitiativeTier_INITIATIVE_TIER_STANDARD:
-			budget = math.NewInt(int64(r.Intn(900) + 600)) // 600-1500
-		case types.InitiativeTier_INITIATIVE_TIER_EXPERT:
-			budget = math.NewInt(int64(r.Intn(2000) + 1500)) // 1500-3500
-		case types.InitiativeTier_INITIATIVE_TIER_EPIC:
-			budget = math.NewInt(int64(r.Intn(4000) + 3500)) // 3500-7500
-		}
-
-		// Cap budget to available budget
-		if budget.GT(availableBudget) {
-			if availableBudget.LT(math.NewInt(100)) {
-				return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgCreateInitiative{}), "insufficient remaining budget"), nil, nil
+		if len(cands) == 0 {
+			ok, err := e.ensureActiveProject()
+			if err != nil {
+				return noOpErr(label, err)
 			}
-			budget = availableBudget
+			if !ok {
+				return noOp(label, "no ACTIVE project and none could be opened")
+			}
+			if cands, err = e.createInitiativeCandidates(); err != nil {
+				return noOpErr(label, err)
+			}
 		}
-
-		msg := &types.MsgCreateInitiative{
-			Creator:     creator.Address,
-			ProjectId:   projectID,
-			Title:       fmt.Sprintf("Initiative-%d", r.Intn(10000)),
-			Description: "Simulation generated initiative",
-			Tags:        randomTags(r),
-			Tier:        uint64(tier),
-			Category:    uint64(category),
-			Budget:      &budget,
-		}
-
-		return simulation.GenAndDeliverTxWithRandFees(simulation.OperationInput{
-			R:               r,
-			App:             app,
-			TxGen:           txGen,
-			Cdc:             nil,
-			Msg:             msg,
-			CoinsSpentInMsg: sdk.NewCoins(),
-			Context:         ctx,
-			SimAccount:      creatorAcc,
-			AccountKeeper:   ak,
-			Bankkeeper:      bk,
-			ModuleName:      types.ModuleName,
-		})
-	}
+		return e.firstValid(label, cands, 6, "no member may create an initiative under an ACTIVE project")
+	})
 }

@@ -1,6 +1,7 @@
 version: v2
 modules:
     - path: proto
+    - path: proto_vendor/github.com/sparkdream/gnovm
 deps:
     - buf.build/cosmos/cosmos-proto
     - buf.build/cosmos/cosmos-sdk

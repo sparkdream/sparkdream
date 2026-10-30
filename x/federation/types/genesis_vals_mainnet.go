@@ -50,3 +50,7 @@ func getFederationGenesisParams() federationGenesisParams {
 		OperatorRewardEpochBlocks: 100800,
 	}
 }
+
+// activeParamFloors are the minimums Params.Validate enforces on this
+// network: the spec §4.13 floors.
+var activeParamFloors = SpecParamFloors

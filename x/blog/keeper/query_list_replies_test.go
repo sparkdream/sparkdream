@@ -95,31 +95,34 @@ func TestQueryListReplies(t *testing.T) {
 			},
 		},
 		{
-			name: "returns replies for specific post, excludes deleted",
+			name: "returns replies for specific post, keeps tombstones",
 			req: &types.QueryListRepliesRequest{
 				PostId: postA,
 			},
 			check: func(t *testing.T, resp *types.QueryListRepliesResponse) {
 				t.Helper()
-				// postA has: dummy (active), active reply, deleted (excluded), hidden (excluded by default)
-				// So we expect dummy + activeReply = 2
-				require.Len(t, resp.Replies, 2)
-				ids := []uint64{resp.Replies[0].Id, resp.Replies[1].Id}
+				// postA has: dummy (active), active reply, deleted (tombstone,
+				// kept for thread structure), hidden (excluded by default)
+				require.Len(t, resp.Replies, 3)
+				ids := []uint64{resp.Replies[0].Id, resp.Replies[1].Id, resp.Replies[2].Id}
 				require.Contains(t, ids, dummyReplyID)
 				require.Contains(t, ids, activeReplyID)
 			},
 		},
 		{
-			name: "excludes deleted replies",
+			name: "tombstoned replies are listed",
 			req: &types.QueryListRepliesRequest{
 				PostId: postA,
 			},
 			check: func(t *testing.T, resp *types.QueryListRepliesResponse) {
 				t.Helper()
+				found := false
 				for _, r := range resp.Replies {
-					require.NotEqual(t, types.ReplyStatus_REPLY_STATUS_DELETED, r.Status,
-						"deleted replies should not appear")
+					if r.Status == types.ReplyStatus_REPLY_STATUS_DELETED {
+						found = true
+					}
 				}
+				require.True(t, found, "BLG-05: tombstones stay in the thread")
 			},
 		},
 		{
@@ -144,9 +147,9 @@ func TestQueryListReplies(t *testing.T) {
 			},
 			check: func(t *testing.T, resp *types.QueryListRepliesResponse) {
 				t.Helper()
-				// Should return dummy + active + hidden = 3 (deleted still excluded)
-				require.Len(t, resp.Replies, 3)
-				ids := []uint64{resp.Replies[0].Id, resp.Replies[1].Id, resp.Replies[2].Id}
+				// dummy + active + tombstone + hidden = 4
+				require.Len(t, resp.Replies, 4)
+				ids := []uint64{resp.Replies[0].Id, resp.Replies[1].Id, resp.Replies[2].Id, resp.Replies[3].Id}
 				require.Contains(t, ids, hiddenReplyID)
 			},
 		},

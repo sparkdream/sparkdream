@@ -1,188 +1,84 @@
 package simulation
 
 import (
-	"math/rand"
+	"slices"
 
-	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
-	"github.com/cosmos/cosmos-sdk/x/simulation"
 
 	"sparkdream/x/commons/keeper"
 	"sparkdream/x/commons/types"
 )
 
-func SimulateMsgCreatePolicyPermissions(
-	ak types.AuthKeeper,
-	bk types.BankKeeper,
-	k keeper.Keeper,
-	txGen client.TxConfig,
-) simtypes.Operation {
-	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
-	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		simAccount, _ := simtypes.RandomAcc(r, accs)
-
-		// Set PolicyAddress = Authority to satisfy the "Self-Regulation" check in isAuthorized.
-		msg := &types.MsgCreatePolicyPermissions{
-			Authority:     simAccount.Address.String(),
-			PolicyAddress: simAccount.Address.String(),
-			// Optionally add some random allowed messages for realism
-			AllowedMessages: []string{"/cosmos.group.v1.MsgVote"},
-		}
-
-		found, err := k.PolicyPermissions.Has(ctx, msg.PolicyAddress)
-		if err == nil && found {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "PolicyPermissions already exist"), nil, nil
-		}
-
-		txCtx := simulation.OperationInput{
-			R:               r,
-			App:             app,
-			TxGen:           txGen,
-			Cdc:             nil,
-			Msg:             msg,
-			Context:         ctx,
-			SimAccount:      simAccount,
-			ModuleName:      types.ModuleName,
-			CoinsSpentInMsg: sdk.NewCoins(),
-			AccountKeeper:   ak,
-			Bankkeeper:      bk,
-		}
-		return simulation.GenAndDeliverTxWithRandFees(txCtx)
-	}
+// SimulateMsgCreatePolicyPermissions is not simulated. The handler accepts
+// x/gov or the policy itself, and a policy signs only through an executed
+// proposal of its own body, which SubmitProposal refuses while the policy
+// has no allowlist: self-registration is unreachable, and only x/gov can
+// create an allowlist.
+func SimulateMsgCreatePolicyPermissions(ak types.AuthKeeper, bk types.BankKeeper, k keeper.Keeper, txGen client.TxConfig) simtypes.Operation {
+	return operation(ak, bk, k, txGen, func(*simEnv) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
+		return noOp(&types.MsgCreatePolicyPermissions{},
+			"x/gov only: a policy without an allowlist cannot submit the proposal that would sign it")
+	})
 }
 
-func SimulateMsgUpdatePolicyPermissions(
-	ak types.AuthKeeper,
-	bk types.BankKeeper,
-	k keeper.Keeper,
-	txGen client.TxConfig,
-) simtypes.Operation {
-	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
-	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		var (
-			simAccount        = simtypes.Account{}
-			policyPermissions = types.PolicyPermissions{}
-			msg               = &types.MsgUpdatePolicyPermissions{}
-			found             = false
-		)
-
-		var allPolicyPermissions []types.PolicyPermissions
-		err := k.PolicyPermissions.Walk(ctx, nil, func(key string, value types.PolicyPermissions) (stop bool, err error) {
-			allPolicyPermissions = append(allPolicyPermissions, value)
-			return false, nil
-		})
-		if err != nil {
-			panic(err)
-		}
-
-		// Find the account that matches the PolicyAddress so it can sign the update as "Self-Regulation".
-		for _, obj := range allPolicyPermissions {
-			acc, err := ak.AddressCodec().StringToBytes(obj.PolicyAddress)
+// SimulateMsgUpdatePolicyPermissions narrows a simulated group's own
+// allowlist through a proposal of that group (self-regulation may only
+// remove messages). It drops one message other than
+// MsgUpdatePolicyPermissions itself, or resubmits the list unchanged when
+// nothing else is left. Bootstrapped bodies keep their allowlists: every
+// other module's simulation depends on them.
+func SimulateMsgUpdatePolicyPermissions(ak types.AuthKeeper, bk types.BankKeeper, k keeper.Keeper, txGen client.TxConfig) simtypes.Operation {
+	label := &types.MsgUpdatePolicyPermissions{}
+	typeURL := sdk.MsgTypeURL(label)
+	return operation(ak, bk, k, txGen, func(e *simEnv) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
+		return e.advance(label, func() (proposal, string, error) {
+			targets, err := e.groups(func(name string, _ types.Group) bool { return isSimGroup(name) })
 			if err != nil {
-				// If the policy address isn't a valid account address we can simulate, skip it
-				continue
+				return proposal{}, "", err
 			}
-
-			simAccount, found = simtypes.FindAccount(accs, sdk.AccAddress(acc))
-			if found {
-				policyPermissions = obj
-				break
+			var policies []string
+			for _, t := range targets {
+				policies = append(policies, t.g.PolicyAddress)
 			}
-		}
-		if !found {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "policyPermissions authority not found in sim accounts"), nil, nil
-		}
-
-		msg.Authority = simAccount.Address.String()
-		msg.PolicyAddress = policyPermissions.PolicyAddress
-
-		// Filter out RestrictedMessages.
-		// The ValidatePermissions check forbids non-gov actors (like this self-regulating policy)
-		// from including Restricted messages in the MsgUpdate payload, even if they already possess them.
-		var allowed []string
-		for _, m := range policyPermissions.AllowedMessages {
-			if !keeper.RestrictedMessages[m] {
-				allowed = append(allowed, m)
+			policy, proposer, reason, err := e.pickCarrier(policies, typeURL)
+			if err != nil || reason != "" {
+				if reason != "" {
+					reason = "no simulated group can narrow its own allowlist: " + reason
+				}
+				return proposal{}, reason, err
 			}
-		}
-		msg.AllowedMessages = allowed
-
-		txCtx := simulation.OperationInput{
-			R:               r,
-			App:             app,
-			TxGen:           txGen,
-			Cdc:             nil,
-			Msg:             msg,
-			Context:         ctx,
-			SimAccount:      simAccount,
-			ModuleName:      types.ModuleName,
-			CoinsSpentInMsg: sdk.NewCoins(),
-			AccountKeeper:   ak,
-			Bankkeeper:      bk,
-		}
-		return simulation.GenAndDeliverTxWithRandFees(txCtx)
-	}
+			perms, err := e.k.PolicyPermissions.Get(e.ctx, policy)
+			if err != nil {
+				return proposal{}, "", err
+			}
+			allowed := slices.Clone(perms.AllowedMessages)
+			var droppable []int
+			for i, m := range allowed {
+				if m != typeURL {
+					droppable = append(droppable, i)
+				}
+			}
+			if i, ok := pick(e.r, droppable); ok {
+				allowed = slices.Delete(allowed, i, i+1)
+			}
+			return proposal{policy: policy, proposer: proposer, inner: &types.MsgUpdatePolicyPermissions{
+				Authority:       policy,
+				PolicyAddress:   policy,
+				AllowedMessages: allowed,
+			}}, "", nil
+		})
+	})
 }
 
-func SimulateMsgDeletePolicyPermissions(
-	ak types.AuthKeeper,
-	bk types.BankKeeper,
-	k keeper.Keeper,
-	txGen client.TxConfig,
-) simtypes.Operation {
-	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
-	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		var (
-			simAccount        = simtypes.Account{}
-			policyPermissions = types.PolicyPermissions{}
-			msg               = &types.MsgDeletePolicyPermissions{}
-			found             = false
-		)
-
-		var allPolicyPermissions []types.PolicyPermissions
-		err := k.PolicyPermissions.Walk(ctx, nil, func(key string, value types.PolicyPermissions) (stop bool, err error) {
-			allPolicyPermissions = append(allPolicyPermissions, value)
-			return false, nil
-		})
-		if err != nil {
-			panic(err)
-		}
-
-		// Find the account matching PolicyAddress.
-		for _, obj := range allPolicyPermissions {
-			acc, err := ak.AddressCodec().StringToBytes(obj.PolicyAddress)
-			if err != nil {
-				continue
-			}
-
-			simAccount, found = simtypes.FindAccount(accs, sdk.AccAddress(acc))
-			if found {
-				policyPermissions = obj
-				break
-			}
-		}
-		if !found {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "policyPermissions authority not found in sim accounts"), nil, nil
-		}
-
-		msg.Authority = simAccount.Address.String()
-		msg.PolicyAddress = policyPermissions.PolicyAddress
-
-		txCtx := simulation.OperationInput{
-			R:               r,
-			App:             app,
-			TxGen:           txGen,
-			Cdc:             nil,
-			Msg:             msg,
-			Context:         ctx,
-			SimAccount:      simAccount,
-			ModuleName:      types.ModuleName,
-			CoinsSpentInMsg: sdk.NewCoins(),
-			AccountKeeper:   ak,
-			Bankkeeper:      bk,
-		}
-		return simulation.GenAndDeliverTxWithRandFees(txCtx)
-	}
+// SimulateMsgDeletePolicyPermissions is not simulated: the policy itself or
+// x/gov must sign it, and no body holds MsgDeletePolicyPermissions (none of
+// the bootstrapped allowlists has it, and a council can only delegate what
+// it holds), so only x/gov can delete an allowlist.
+func SimulateMsgDeletePolicyPermissions(ak types.AuthKeeper, bk types.BankKeeper, k keeper.Keeper, txGen client.TxConfig) simtypes.Operation {
+	return operation(ak, bk, k, txGen, func(*simEnv) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
+		return noOp(&types.MsgDeletePolicyPermissions{},
+			"x/gov only: no body's allowlist holds MsgDeletePolicyPermissions")
+	})
 }

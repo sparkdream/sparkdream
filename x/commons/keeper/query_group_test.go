@@ -32,7 +32,9 @@ func createNGroup(keeper keeper.Keeper, ctx context.Context, n int) []types.Grou
 		items[i].TermDuration = int64(i)
 		items[i].CurrentTermExpiration = int64(i)
 		items[i].ActivationTime = int64(i)
-		_ = keeper.Groups.Set(ctx, items[i].Index, items[i])
+		if err := keeper.Groups.Set(ctx, items[i].Index, items[i]); err != nil {
+			panic(err)
+		}
 	}
 	return items
 }

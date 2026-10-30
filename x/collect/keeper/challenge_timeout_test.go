@@ -143,10 +143,12 @@ func TestChallengeTimeout_SkipsResolvedChallenge(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, f.keeper.ResolveChallengeResult(f.ctx, reviewID, false))
 	require.Len(t, f.repKeeper.burnCalls, 1)
+	// The rejected challenge unlocks the deposit right before burning it.
+	require.Len(t, f.repKeeper.unlockCalls, 1)
 
 	f.advanceBlockHeight(types.ChallengeResolutionTimeoutBlocks)
 	require.NoError(t, f.keeper.PruneExpired(f.ctx))
-	require.Empty(t, f.repKeeper.unlockCalls, "burned deposit is not refunded by the timeout")
+	require.Len(t, f.repKeeper.unlockCalls, 1, "burned deposit is not refunded by the timeout")
 	require.False(t, hasEvent(f, "challenge_timed_out"))
 
 	empty := true

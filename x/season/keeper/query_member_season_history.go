@@ -2,6 +2,8 @@ package keeper
 
 import (
 	"context"
+	"cosmossdk.io/collections"
+	"errors"
 	"strings"
 
 	"sparkdream/x/season/types"
@@ -66,7 +68,10 @@ func (q queryServer) MemberSeasonHistory(ctx context.Context, req *types.QueryMe
 			return &types.QueryMemberSeasonHistoryResponse{}, nil
 		}
 		// Get current season
-		season, _ := q.k.Season.Get(ctx)
+		season, getErr := q.k.Season.Get(ctx)
+		if getErr != nil && !errors.Is(getErr, collections.ErrNotFound) {
+			return nil, getErr
+		}
 		return &types.QueryMemberSeasonHistoryResponse{
 			Season:   season.Number,
 			XpEarned: profile.SeasonXp,

@@ -25,8 +25,7 @@ func SimulateMsgUnhideContent(
 			Authority: simAccount.Address.String(),
 		}
 
-		// TODO: Handle the UnhideContent simulation
-
-		return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "UnhideContent simulation not implemented"), nil, nil
+		// Not simulated: MsgUnhideContent needs the hiding sentinel or a council policy, which the simulation does not model.
+		return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "UnhideContent needs the hiding sentinel or a council policy, which the simulation does not model"), nil, nil
 	}
 }

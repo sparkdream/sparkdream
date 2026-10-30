@@ -142,7 +142,7 @@ func TestMsgServerStartQuest(t *testing.T) {
 			ObjectiveProgress: []uint64{},
 			Completed:         false,
 		}
-		k.MemberQuestProgress.Set(ctx, key, progress)
+		require.NoError(t, k.MemberQuestProgress.Set(ctx, key, progress))
 
 		_, err := ms.StartQuest(ctx, &types.MsgStartQuest{
 			Creator: creatorStr,
@@ -173,7 +173,7 @@ func TestMsgServerStartQuest(t *testing.T) {
 			Active:   true,
 			MinLevel: 5,
 		}
-		k.Quest.Set(ctx, "high_level_quest", quest)
+		require.NoError(t, k.Quest.Set(ctx, "high_level_quest", quest))
 
 		_, err := ms.StartQuest(ctx, &types.MsgStartQuest{
 			Creator: creatorStr,
@@ -236,7 +236,7 @@ func TestMsgServerStartQuest(t *testing.T) {
 			Active:     true,
 			Repeatable: false,
 		}
-		k.Quest.Set(ctx, "one_time_quest", quest)
+		require.NoError(t, k.Quest.Set(ctx, "one_time_quest", quest))
 
 		// Create completed progress
 		key := fmt.Sprintf("%s:%s", creatorStr, "one_time_quest")
@@ -245,7 +245,7 @@ func TestMsgServerStartQuest(t *testing.T) {
 			Completed:      true,
 			CompletedBlock: 100,
 		}
-		k.MemberQuestProgress.Set(ctx, key, progress)
+		require.NoError(t, k.MemberQuestProgress.Set(ctx, key, progress))
 
 		_, err := ms.StartQuest(ctx, &types.MsgStartQuest{
 			Creator: creatorStr,

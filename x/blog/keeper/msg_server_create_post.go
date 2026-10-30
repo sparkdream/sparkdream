@@ -91,8 +91,8 @@ func (k msgServer) CreatePost(ctx context.Context, msg *types.MsgCreatePost) (*t
 	}
 
 	// Validate initiative reference before creating the post
-	if msg.InitiativeId > 0 && k.repKeeper != nil {
-		if err := k.repKeeper.ValidateInitiativeReference(ctx, msg.InitiativeId); err != nil {
+	if msg.InitiativeId > 0 && k.hasRep() {
+		if err := k.late.repKeeper.ValidateInitiativeReference(ctx, msg.InitiativeId); err != nil {
 			return nil, errorsmod.Wrapf(types.ErrInvalidInitiativeRef, "initiative %d: %s", msg.InitiativeId, err.Error())
 		}
 	}
@@ -114,7 +114,7 @@ func (k msgServer) CreatePost(ctx context.Context, msg *types.MsgCreatePost) (*t
 		CreatedAt:          sdkCtx.BlockTime().Unix(),
 		Status:             types.PostStatus_POST_STATUS_ACTIVE,
 		ExpiresAt:          expiresAt,
-		FeeBytesHighWater:  uint64(len(msg.Title) + len(msg.Body)),
+		FeeBytesHighWater:  commontypes.Saturate[uint64](len(msg.Title) + len(msg.Body)),
 		InitiativeId:       msg.InitiativeId,
 		Tags:               msg.Tags,
 	}
@@ -126,15 +126,15 @@ func (k msgServer) CreatePost(ctx context.Context, msg *types.MsgCreatePost) (*t
 	k.addTagIndexEntries(ctx, id, msg.Tags)
 
 	// Create author bond if requested (requires repKeeper)
-	if msg.AuthorBond != nil && msg.AuthorBond.IsPositive() && k.repKeeper != nil {
-		if _, err := k.repKeeper.CreateAuthorBond(ctx, creatorAddr, reptypes.StakeTargetType_STAKE_TARGET_BLOG_AUTHOR_BOND, id, *msg.AuthorBond); err != nil {
+	if msg.AuthorBond != nil && msg.AuthorBond.IsPositive() && k.hasRep() {
+		if _, err := k.late.repKeeper.CreateAuthorBond(ctx, creatorAddr, reptypes.StakeTargetType_STAKE_TARGET_BLOG_AUTHOR_BOND, id, *msg.AuthorBond); err != nil {
 			return nil, errorsmod.Wrap(err, "failed to create author bond")
 		}
 	}
 
 	// Register initiative reference link for conviction propagation
-	if msg.InitiativeId > 0 && k.repKeeper != nil {
-		if err := k.repKeeper.RegisterContentInitiativeLink(ctx, msg.InitiativeId, int32(reptypes.StakeTargetType_STAKE_TARGET_BLOG_CONTENT), id); err != nil {
+	if msg.InitiativeId > 0 && k.hasRep() {
+		if err := k.late.repKeeper.RegisterContentInitiativeLink(ctx, msg.InitiativeId, int32(reptypes.StakeTargetType_STAKE_TARGET_BLOG_CONTENT), id); err != nil {
 			return nil, errorsmod.Wrap(err, "failed to register content initiative link")
 		}
 	}

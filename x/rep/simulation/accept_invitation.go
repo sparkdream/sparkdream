@@ -1,93 +1,67 @@
 package simulation
 
 import (
-	"math/rand"
+	"crypto/sha256"
 
-	"github.com/cosmos/cosmos-sdk/baseapp"
+	"cosmossdk.io/math"
 	"github.com/cosmos/cosmos-sdk/client"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
-	"github.com/cosmos/cosmos-sdk/x/simulation"
 
 	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/rep/keeper"
 	"sparkdream/x/rep/types"
 )
 
-func SimulateMsgAcceptInvitation(
-	ak types.AuthKeeper,
-	bk types.BankKeeper,
-	k keeper.Keeper,
-	txGen client.TxConfig,
-) simtypes.Operation {
-	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
-	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		// Get or create an inviter
-		inviter, _, err := getOrCreateMember(r, ctx, k, accs)
+// recoveryPreimage is the simulation's recovery secret for addr: derived
+// from the address, so the recovery ops can rebuild it without state.
+func recoveryPreimage(addr string) []byte {
+	sum := sha256.Sum256([]byte("sparkdream/sim/recovery/" + addr))
+	return sum[:]
+}
+
+// SimulateMsgAcceptInvitation has the invitee of a PENDING invitation accept
+// it (agreeing to the chain's content license), usually registering
+// an onboarding recovery commitment the recovery ops can later reveal. With
+// no pending invitation to a live sim account, a member invites one first.
+func SimulateMsgAcceptInvitation(ak types.AuthKeeper, bk types.BankKeeper, k keeper.Keeper, txGen client.TxConfig) simtypes.Operation {
+	label := &types.MsgAcceptInvitation{}
+	return operation(ak, bk, k, txGen, label, func(e *simEnv) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
+		pending := func() ([]types.Invitation, error) {
+			return e.invitations(func(inv types.Invitation) bool {
+				_, ok := e.account(inv.InviteeAddress)
+				return ok && inv.Status == types.InvitationStatus_INVITATION_STATUS_PENDING
+			})
+		}
+		invs, err := pending()
 		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgAcceptInvitation{}), "failed to get/create inviter"), nil, nil
+			return noOpErr(label, err)
 		}
-
-		// Find an invitee that exists in our simulation accounts but is NOT already a member
-		var inviteeAcc simtypes.Account
-		inviteeFound := false
-		for i := 0; i < 10; i++ {
-			inviteeAcc, _ = simtypes.RandomAcc(r, accs)
-			if inviteeAcc.Address.String() == inviter.Address {
-				continue
-			}
-			// Check if invitee is already a member
-			_, err := k.Member.Get(ctx, inviteeAcc.Address.String())
+		if len(invs) == 0 {
+			cands, err := e.inviteCandidates()
 			if err != nil {
-				// Not a member yet - this is a valid invitee
-				inviteeFound = true
-				break
+				return noOpErr(label, err)
+			}
+			opMsg, fops, err := e.firstValid(&types.MsgInviteMember{}, cands, 4, "no member can invite")
+			if err != nil || !opMsg.OK {
+				return opMsg, fops, err
+			}
+			if invs, err = pending(); err != nil {
+				return noOpErr(label, err)
 			}
 		}
-		if !inviteeFound {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgAcceptInvitation{}), "unable to find non-member invitee"), nil, nil
-		}
-
-		// Try to find an existing invitation for this specific invitee
-		var invitationID uint64
-		found := false
-		k.Invitation.Walk(ctx, nil, func(id uint64, inv types.Invitation) (bool, error) {
-			if inv.Status == types.InvitationStatus_INVITATION_STATUS_PENDING &&
-				inv.InviteeAddress == inviteeAcc.Address.String() {
-				invitationID = id
-				found = true
-				return true, nil
+		cands := make([]candidate, 0, len(invs))
+		for _, inv := range invs {
+			acc, _ := e.account(inv.InviteeAddress)
+			msg := &types.MsgAcceptInvitation{
+				Invitee:                inv.InviteeAddress,
+				InvitationId:           inv.Id,
+				AcceptedContentLicense: commontypes.ChainContentLicense,
 			}
-			return false, nil
-		})
-
-		if !found {
-			// Create invitation for this specific invitee
-			invitationID, err = createInvitation(ctx, k, r, inviter, inviteeAcc.Address.String())
-			if err != nil {
-				return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgAcceptInvitation{}), "failed to create invitation"), nil, nil
+			if e.r.Intn(4) != 0 {
+				msg.RecoveryCommitment = types.RecoveryCommitmentHash(recoveryPreimage(inv.InviteeAddress))
 			}
+			cands = append(cands, candidate{acc: acc, msg: msg, spent: math.ZeroInt()})
 		}
-
-		msg := &types.MsgAcceptInvitation{
-			Invitee:      inviteeAcc.Address.String(),
-			InvitationId: invitationID,
-			// Joining is agreeing to publish everything under CC0.
-			AcceptedContentLicense: commontypes.ChainContentLicense,
-		}
-
-		return simulation.GenAndDeliverTxWithRandFees(simulation.OperationInput{
-			R:               r,
-			App:             app,
-			TxGen:           txGen,
-			Cdc:             nil,
-			Msg:             msg,
-			CoinsSpentInMsg: sdk.NewCoins(),
-			Context:         ctx,
-			SimAccount:      inviteeAcc,
-			AccountKeeper:   ak,
-			Bankkeeper:      bk,
-			ModuleName:      types.ModuleName,
-		})
-	}
+		return e.firstValid(label, cands, 6, "no pending invitation to a live sim account")
+	})
 }

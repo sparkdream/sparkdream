@@ -47,6 +47,9 @@ func (k msgServer) AddItem(ctx context.Context, msg *types.MsgAddItem) (*types.M
 	if coll.Immutable {
 		return nil, types.ErrCollectionImmutable
 	}
+	if err := checkNotHidden(coll, nil); err != nil {
+		return nil, err
+	}
 
 	// Collection must not have pending sponsorship
 	_, err = k.SponsorshipRequest.Get(ctx, coll.Id)

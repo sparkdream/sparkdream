@@ -3,6 +3,7 @@ package keeper
 import (
 	"context"
 	"fmt"
+	commontypes "sparkdream/x/common/types"
 
 	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -33,7 +34,7 @@ func (k Keeper) BeginBlocker(ctx context.Context) error {
 
 // fundingDay is the daily-cap bucket: the UTC day of the block time.
 func fundingDay(sdkCtx sdk.Context) uint64 {
-	return uint64(sdkCtx.BlockTime().Unix()) / 86400
+	return commontypes.Saturate[uint64](sdkCtx.BlockTime().Unix()) / 86400
 }
 
 // autoFundModule handles the shield module gas reserve funding from the community pool.
@@ -149,7 +150,7 @@ func (k Keeper) dkgCheckAutoTrigger(ctx context.Context, sdkCtx sdk.Context, par
 	}
 
 	bondedVals, err := k.late.stakingKeeper.GetBondedValidatorsByPower(ctx)
-	if err != nil || uint32(len(bondedVals)) < params.MinTleValidators {
+	if err != nil || len(bondedVals) < int(params.MinTleValidators) {
 		return
 	}
 
@@ -168,7 +169,7 @@ func (k Keeper) dkgCheckAutoTrigger(ctx context.Context, sdkCtx sdk.Context, par
 		expectedValidators = append(expectedValidators, addr)
 	}
 
-	if uint32(len(expectedValidators)) < params.MinTleValidators {
+	if len(expectedValidators) < int(params.MinTleValidators) {
 		return
 	}
 
@@ -192,7 +193,9 @@ func (k Keeper) dkgCheckAutoTrigger(ctx context.Context, sdkCtx sdk.Context, par
 	if err := k.SetDKGStateVal(ctx, dkgState); err != nil {
 		return
 	}
-	_ = k.clearDKGRound(ctx)
+	if err := k.clearDKGRound(ctx); err != nil {
+		sdk.UnwrapSDKContext(sdkCtx).Logger().Error("dkgCheckAutoTrigger: k.clearDKGRound failed", "err", err)
+	}
 
 	sdkCtx.EventManager().EmitEvent(sdk.NewEvent(
 		types.EventTypeShieldDKGOpened,
@@ -218,7 +221,7 @@ func (k Keeper) dkgAdvanceRegistering(ctx context.Context, sdkCtx sdk.Context, p
 			registered = append(registered, v)
 		}
 	}
-	if len(registered) == 0 || uint32(len(registered)) < params.MinTleValidators {
+	if len(registered) == 0 || len(registered) < int(params.MinTleValidators) {
 		k.dkgFail(ctx, sdkCtx, dkgState, fmt.Sprintf(
 			"insufficient registrations: have %d, need %d", len(registered), params.MinTleValidators))
 		return
@@ -335,7 +338,9 @@ func (k Keeper) dkgAdvanceJustifying(ctx context.Context, sdkCtx sdk.Context, pa
 		return
 	}
 	// A new key set starts with a clean liveness record.
-	_ = k.ResetTLELiveness(ctx)
+	if err := k.ResetTLELiveness(ctx); err != nil {
+		sdk.UnwrapSDKContext(sdkCtx).Logger().Error("dkgAdvanceJustifying: k.ResetTLELiveness failed", "err", err)
+	}
 
 	dkgState.Phase = types.DKGPhase_DKG_PHASE_ACTIVE
 	if err := k.SetDKGStateVal(ctx, dkgState); err != nil {
@@ -347,7 +352,9 @@ func (k Keeper) dkgAdvanceJustifying(ctx context.Context, sdkCtx sdk.Context, pa
 	if params.EnableBatchAfterDkg {
 		if currentParams, err := k.Params.Get(ctx); err == nil {
 			currentParams.EncryptedBatchEnabled = true
-			_ = k.Params.Set(ctx, currentParams)
+			if err := k.Params.Set(ctx, currentParams); err != nil {
+				sdkCtx.Logger().Error("dkgAdvanceJustifying: Params.Set failed", "err", err)
+			}
 		}
 	}
 
@@ -382,11 +389,15 @@ func (k Keeper) dkgCheckDrift(ctx context.Context, sdkCtx sdk.Context, params ty
 
 	// Trigger re-keying: reset to INACTIVE so auto-trigger fires next block
 	dkgState.Phase = types.DKGPhase_DKG_PHASE_INACTIVE
-	_ = k.SetDKGStateVal(ctx, dkgState)
+	if err := k.SetDKGStateVal(ctx, dkgState); err != nil {
+		sdkCtx.Logger().Error("dkgCheckDrift: k.SetDKGStateVal failed", "err", err)
+	}
 
 	// Retire the old key set and everything sealed to it (like MsgTriggerDKG
 	// does), so nothing lingers encrypted to a key no one will serve.
-	_ = k.TLEKeySet.Remove(ctx)
+	if err := k.TLEKeySet.Remove(ctx); err != nil {
+		sdkCtx.Logger().Error("dkgCheckDrift: TLEKeySet.Remove failed", "err", err)
+	}
 	if dropped, err := k.RetireKeySetMaterial(ctx); err == nil && dropped > 0 {
 		sdkCtx.EventManager().EmitEvent(sdk.NewEvent(
 			types.EventTypeShieldBatchExpired,
@@ -399,7 +410,9 @@ func (k Keeper) dkgCheckDrift(ctx context.Context, sdkCtx sdk.Context, params ty
 	currentParams, err := k.Params.Get(ctx)
 	if err == nil {
 		currentParams.EncryptedBatchEnabled = false
-		_ = k.Params.Set(ctx, currentParams)
+		if err := k.Params.Set(ctx, currentParams); err != nil {
+			sdkCtx.Logger().Error("dkgCheckDrift: Params.Set failed", "err", err)
+		}
 	}
 }
 
@@ -421,6 +434,10 @@ func (k Keeper) dkgFail(ctx context.Context, sdkCtx sdk.Context, dkgState types.
 	dkgState.Phase = types.DKGPhase_DKG_PHASE_INACTIVE
 	dkgState.ContributionsReceived = 0
 	dkgState.DisqualifiedDealers = nil
-	_ = k.SetDKGStateVal(ctx, dkgState)
-	_ = k.clearDKGRound(ctx)
+	if err := k.SetDKGStateVal(ctx, dkgState); err != nil {
+		sdkCtx.Logger().Error("dkgFail: k.SetDKGStateVal failed", "err", err)
+	}
+	if err := k.clearDKGRound(ctx); err != nil {
+		sdk.UnwrapSDKContext(sdkCtx).Logger().Error("dkgFail: k.clearDKGRound failed", "err", err)
+	}
 }

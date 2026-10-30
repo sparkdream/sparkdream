@@ -59,3 +59,9 @@ func getFederationGenesisParams() federationGenesisParams {
 		OperatorRewardEpochBlocks: 10,
 	}
 }
+
+// activeParamFloors are the minimums Params.Validate enforces in the test
+// build: none beyond positivity (and a 1 s retention TTL), so the e2e suites
+// keep their second- and minute-scale windows, 1 SPARK fees and an
+// inactivity threshold of 1.
+var activeParamFloors = TestParamFloors

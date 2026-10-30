@@ -399,7 +399,7 @@ echo "--- TEST 5: Already in guild (create second guild) ---"
 
 if [ -n "$ERR_GUILD_ID" ]; then
     TX_RES=$($BINARY tx season create-guild \
-        "SecondGuild_$(date +%s)" "Founder already has a guild" "false" \
+        "secondguild-$(date +%s)" "Founder already has a guild" "false" \
         --from "$FOUNDER_KEY" \
         --chain-id $CHAIN_ID \
         --keyring-backend test \

@@ -7,8 +7,6 @@ import (
 	"sparkdream/x/blog/types"
 
 	errorsmod "cosmossdk.io/errors"
-	"cosmossdk.io/store/prefix"
-	"github.com/cosmos/cosmos-sdk/runtime"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	reptypes "sparkdream/x/rep/types"
@@ -39,18 +37,16 @@ func (k msgServer) DeletePost(ctx context.Context, msg *types.MsgDeletePost) (*t
 	}
 
 	// Remove initiative link if post references an initiative
-	if val.InitiativeId > 0 && k.repKeeper != nil {
-		if err := k.repKeeper.RemoveContentInitiativeLink(ctx, val.InitiativeId, int32(reptypes.StakeTargetType_STAKE_TARGET_BLOG_CONTENT), val.Id); err != nil {
+	if val.InitiativeId > 0 && k.hasRep() {
+		if err := k.late.repKeeper.RemoveContentInitiativeLink(ctx, val.InitiativeId, int32(reptypes.StakeTargetType_STAKE_TARGET_BLOG_CONTENT), val.Id); err != nil {
 			// Log but don't fail — link may already be removed
 			sdkCtx.Logger().Error("failed to remove content initiative link on delete", "post_id", val.Id, "error", err)
 		}
 	}
 
-	// Remove creator post index entry (key format: "{creator}/" + postID bytes)
-	storeAdapter := runtime.KVStoreAdapter(k.storeService.OpenKVStore(ctx))
-	creatorStore := prefix.NewStore(storeAdapter, []byte(types.CreatorPostKey))
-	creatorKey := append([]byte(val.Creator+"/"), GetPostIDBytes(val.Id)...)
-	creatorStore.Delete(creatorKey)
+	// The creator post index entry stays: ListPostsByCreator lists tombstones
+	// (empty title/body) like ListPosts, and genesis rebuilds the index from
+	// every post, tombstones included.
 
 	// Remove tag secondary index entries — tombstoned posts are excluded from
 	// ListPostsByTag results — AND drop rep-registry UsageCount for each tag

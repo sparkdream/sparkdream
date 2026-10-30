@@ -357,6 +357,7 @@ var allowedVariations = map[string]string{
 	"shield.params.enabled":                "mainnet off until its ceremony verification key is in genesis (InitGenesis launch gate)",
 	"shield.params.dkg_window_blocks":      "DKG window varies per network",
 	"shield.params.shield_epoch_interval":  "epoch interval varies per network",
+	"shield.params.max_fees_per_epoch":     "scales with shield_epoch_interval so the daily fee ceiling is equal (devnet halves both)",
 	"shield.params.tle_jail_duration":      "jail duration varies per network",
 	"shield.params.tle_miss_tolerance":     "miss tolerance varies per network",
 	"shield.params.tle_miss_window":        "miss window varies per network",

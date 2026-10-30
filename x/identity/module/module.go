@@ -74,16 +74,18 @@ func (am AppModule) RegisterServices(registrar grpc.ServiceRegistrar) error {
 	return nil
 }
 
-// RegisterInvariants registers the §16 invariants. The keeper pointer is
-// passed through so the invariant closures read live keeper fields (notably
-// bankKeeper, stakingKeeper, mintKeeper, which are late-bound from app.go)
-// on every block, not a stale snapshot.
+// RegisterInvariants registers the §16 invariants. x/crisis is not wired, so
+// they run in `go test ./app -run TestInvariants`, not on chain. The keeper
+// pointer is passed through so the invariant closures read live keeper
+// fields (notably bankKeeper, stakingKeeper, mintKeeper, which are
+// late-bound from app.go), not a stale snapshot.
 func (am AppModule) RegisterInvariants(ir sdk.InvariantRegistry) {
 	keeper.RegisterInvariants(ir, am.keeper)
 }
 
-// DefaultGenesis returns a placeholder GenesisState. Real chains MUST
-// overwrite it (DefaultGenesis is intentionally a non-functional shape).
+// DefaultGenesis returns the identity compiled into this binary
+// (types.DefaultChainIdentity, selected by build tag). Sister chains replace
+// it with `sparkdreamd genesis identity init`.
 func (am AppModule) DefaultGenesis(codec.JSONCodec) json.RawMessage {
 	return am.cdc.MustMarshalJSON(types.DefaultGenesis())
 }

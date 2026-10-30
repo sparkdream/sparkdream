@@ -22,26 +22,30 @@ func TestBeginBlocker_AutoResolvesExpiredDispute(t *testing.T) {
 	owner := ownerAddr.String()
 
 	// Create name owned by owner
-	f.keeper.SetName(f.ctx, types.NameRecord{Name: "alice", Owner: owner})
-	f.keeper.OwnerNames.Set(f.ctx, collections.Join(owner, "alice"))
+	require.NoError(t, f.keeper.SetName(f.ctx, types.NameRecord{Name: "alice", Owner: owner}))
+	require.NoError(t, f.keeper.OwnerNames.Set(f.ctx, collections.Join(owner, "alice")))
 
 	// Create dispute filed at block 100 (timeout = 100800, so deadline = 100900)
-	f.keeper.SetDispute(f.ctx, types.Dispute{
+	require.NoError(t, f.keeper.SetDispute(f.ctx, types.Dispute{
 		Name:        "alice",
 		Claimant:    claimant,
 		FiledAt:     100,
 		StakeAmount: math.NewInt(50),
 		Active:      true,
-	})
+	}))
 	challengeID := fmt.Sprintf("name_dispute:%s:%d", "alice", 100)
-	f.keeper.DisputeStakes.Set(f.ctx, challengeID, types.DisputeStake{
+	require.NoError(t, f.keeper.DisputeStakes.Set(f.ctx, challengeID, types.DisputeStake{
 		ChallengeId: challengeID,
 		Staker:      claimant,
 		Amount:      math.NewInt(50),
-	})
+	}))
 
-	// Set block height past deadline
-	ctx := f.ctx.WithBlockHeader(cmtproto.Header{Height: 101000})
+	// The claimant is an active member below the name cap; the owner has
+	// no activity record, so the owner counts as expired.
+	f.mockRep.ActiveMembers[claimant] = true
+
+	// Set block height past deadline (block time kept)
+	ctx := f.ctx.WithBlockHeight(101000)
 
 	err := f.keeper.BeginBlocker(ctx)
 	require.NoError(t, err)
@@ -69,15 +73,15 @@ func TestBeginBlocker_DoesNotResolveWithinTimeout(t *testing.T) {
 	ownerAddr := sdk.AccAddress([]byte("owner_address_______"))
 	owner := ownerAddr.String()
 
-	f.keeper.SetName(f.ctx, types.NameRecord{Name: "bob", Owner: owner})
-	f.keeper.OwnerNames.Set(f.ctx, collections.Join(owner, "bob"))
-	f.keeper.SetDispute(f.ctx, types.Dispute{
+	require.NoError(t, f.keeper.SetName(f.ctx, types.NameRecord{Name: "bob", Owner: owner}))
+	require.NoError(t, f.keeper.OwnerNames.Set(f.ctx, collections.Join(owner, "bob")))
+	require.NoError(t, f.keeper.SetDispute(f.ctx, types.Dispute{
 		Name:        "bob",
 		Claimant:    claimant,
 		FiledAt:     100,
 		StakeAmount: math.NewInt(50),
 		Active:      true,
-	})
+	}))
 
 	// Set block height within deadline (100 + 100800 = 100900)
 	ctx := f.ctx.WithBlockHeader(cmtproto.Header{Height: 50000})
@@ -107,9 +111,9 @@ func TestBeginBlocker_SkipsContestedDisputes(t *testing.T) {
 	ownerAddr := sdk.AccAddress([]byte("owner_address_______"))
 	owner := ownerAddr.String()
 
-	f.keeper.SetName(f.ctx, types.NameRecord{Name: "carol", Owner: owner})
-	f.keeper.OwnerNames.Set(f.ctx, collections.Join(owner, "carol"))
-	f.keeper.SetDispute(f.ctx, types.Dispute{
+	require.NoError(t, f.keeper.SetName(f.ctx, types.NameRecord{Name: "carol", Owner: owner}))
+	require.NoError(t, f.keeper.OwnerNames.Set(f.ctx, collections.Join(owner, "carol")))
+	require.NoError(t, f.keeper.SetDispute(f.ctx, types.Dispute{
 		Name:               "carol",
 		Claimant:           claimant,
 		FiledAt:            100,
@@ -117,7 +121,7 @@ func TestBeginBlocker_SkipsContestedDisputes(t *testing.T) {
 		Active:             true,
 		ContestChallengeId: "name_contest:carol:200", // Contested!
 		ContestedAt:        200,
-	})
+	}))
 
 	// Set block height past deadline
 	ctx := f.ctx.WithBlockHeader(cmtproto.Header{Height: 200000})
@@ -137,13 +141,13 @@ func TestBeginBlocker_SkipsAlreadyResolved(t *testing.T) {
 	claimantAddr := sdk.AccAddress([]byte("claimant_address____"))
 	claimant := claimantAddr.String()
 
-	f.keeper.SetDispute(f.ctx, types.Dispute{
+	require.NoError(t, f.keeper.SetDispute(f.ctx, types.Dispute{
 		Name:        "dave",
 		Claimant:    claimant,
 		FiledAt:     100,
 		StakeAmount: math.NewInt(50),
 		Active:      false, // Already resolved
-	})
+	}))
 
 	ctx := f.ctx.WithBlockHeader(cmtproto.Header{Height: 200000})
 

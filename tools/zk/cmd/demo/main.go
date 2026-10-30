@@ -58,7 +58,7 @@ func main() {
 	trustLevelNames := []string{"NEW", "PROVISIONAL", "ESTABLISHED", "CORE"}
 	for _, m := range members {
 		name := "UNKNOWN"
-		if int(m.TrustLevel) < len(trustLevelNames) {
+		if m.TrustLevel < uint64(len(trustLevelNames)) {
 			name = trustLevelNames[m.TrustLevel]
 		}
 		fmt.Printf("   %s: trust level %d (%s)\n", m.Name, m.TrustLevel, name)
@@ -119,7 +119,7 @@ func main() {
 
 	for _, member := range members {
 		// Each member gets a unique scope (e.g., post ID they're reacting to)
-		scope := uint64(100 + member.LeafIndex)
+		scope := uint64(100 + member.LeafIndex) //nolint:gosec // a demo leaf index is small and non-negative
 
 		// Get Merkle proof
 		merkleProof, err := tree.GetProof(member.LeafIndex)
@@ -176,7 +176,9 @@ func main() {
 
 		// Serialize proof
 		var proofBuf bytes.Buffer
-		proof.WriteTo(&proofBuf)
+		if _, err := proof.WriteTo(&proofBuf); err != nil {
+			fatal("Failed to serialize proof: %v", err)
+		}
 
 		actions = append(actions, Action{
 			MemberName:  member.Name,

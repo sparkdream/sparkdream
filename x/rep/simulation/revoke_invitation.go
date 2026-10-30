@@ -1,69 +1,63 @@
 package simulation
 
 import (
-	"math/rand"
-
-	"github.com/cosmos/cosmos-sdk/baseapp"
+	"cosmossdk.io/math"
 	"github.com/cosmos/cosmos-sdk/client"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
-	"github.com/cosmos/cosmos-sdk/x/simulation"
 
 	"sparkdream/x/rep/keeper"
 	"sparkdream/x/rep/types"
 )
 
-// SimulateMsgRevokeInvitation revokes a PENDING invitation whose inviter is
-// a simulation account. Every handler precondition is checked against live
-// state (pending status, inviter match) so delivery cannot fail; with no
-// revocable invitation the op is a no-op.
-func SimulateMsgRevokeInvitation(
-	ak types.AuthKeeper,
-	bk types.BankKeeper,
-	k keeper.Keeper,
-	txGen client.TxConfig,
-) simtypes.Operation {
-	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
-	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		msgType := sdk.MsgTypeURL(&types.MsgRevokeInvitation{})
-
-		byAddr := make(map[string]simtypes.Account, len(accs))
-		for _, a := range accs {
-			byAddr[a.Address.String()] = a
-		}
-
-		var candidates []types.Invitation
-		_ = k.Invitation.Walk(ctx, nil, func(_ uint64, inv types.Invitation) (bool, error) {
-			if inv.Status != types.InvitationStatus_INVITATION_STATUS_PENDING {
-				return false, nil
-			}
-			if _, ok := byAddr[inv.Inviter]; ok {
-				candidates = append(candidates, inv)
-			}
-			return false, nil
+// SimulateMsgRevokeInvitation has an inviter withdraw one of its PENDING
+// invitations (stake unlocked, credit restored).
+func SimulateMsgRevokeInvitation(ak types.AuthKeeper, bk types.BankKeeper, k keeper.Keeper, txGen client.TxConfig) simtypes.Operation {
+	label := &types.MsgRevokeInvitation{}
+	return operation(ak, bk, k, txGen, label, func(e *simEnv) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
+		invs, err := e.invitations(func(inv types.Invitation) bool {
+			_, ok := e.account(inv.Inviter)
+			return ok && inv.Status == types.InvitationStatus_INVITATION_STATUS_PENDING
 		})
-		if len(candidates) == 0 {
-			return simtypes.NoOpMsg(types.ModuleName, msgType, "no pending invitation from a simulation account"), nil, nil
+		if err != nil {
+			return noOpErr(label, err)
 		}
-		inv := candidates[r.Intn(len(candidates))]
-		inviterAcc := byAddr[inv.Inviter]
-
-		msg := &types.MsgRevokeInvitation{
-			Inviter:      inv.Inviter,
-			InvitationId: inv.Id,
+		if len(invs) == 0 {
+			// Prerequisite: a member invites someone.
+			cands, err := e.inviteCandidates()
+			if err != nil {
+				return noOpErr(label, err)
+			}
+			for n, i := range e.r.Perm(len(cands)) {
+				if n >= 4 {
+					break
+				}
+				inv, isInvite := cands[i].msg.(*types.MsgInviteMember)
+				if !isInvite {
+					continue
+				}
+				ok, err := e.ensure(cands[i].acc, inv, math.ZeroInt())
+				if err != nil {
+					return noOpErr(label, err)
+				}
+				if ok {
+					invs, err = e.invitations(func(x types.Invitation) bool {
+						return x.InviteeAddress == inv.InviteeAddress && x.Status == types.InvitationStatus_INVITATION_STATUS_PENDING
+					})
+					if err != nil {
+						return noOpErr(label, err)
+					}
+					break
+				}
+			}
 		}
-		return simulation.GenAndDeliverTxWithRandFees(simulation.OperationInput{
-			R:               r,
-			App:             app,
-			TxGen:           txGen,
-			Cdc:             nil,
-			Msg:             msg,
-			CoinsSpentInMsg: sdk.NewCoins(),
-			Context:         ctx,
-			SimAccount:      inviterAcc,
-			AccountKeeper:   ak,
-			Bankkeeper:      bk,
-			ModuleName:      types.ModuleName,
-		})
-	}
+		cands := make([]candidate, 0, len(invs))
+		for _, inv := range invs {
+			acc, _ := e.account(inv.Inviter)
+			cands = append(cands, candidate{acc: acc, msg: &types.MsgRevokeInvitation{
+				Inviter:      inv.Inviter,
+				InvitationId: inv.Id,
+			}, spent: math.ZeroInt()})
+		}
+		return e.firstValid(label, cands, 4, "no pending invitation from a live sim account")
+	})
 }

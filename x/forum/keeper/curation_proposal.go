@@ -39,7 +39,9 @@ func (k Keeper) enqueueProposalAutoConfirm(ctx context.Context, metadata *types.
 // using the stamped fire_at. Safe to call when no proposal is pending.
 func (k Keeper) dequeueProposalAutoConfirm(ctx context.Context, metadata *types.ThreadMetadata) {
 	if metadata.ProposalFireAt != 0 {
-		_ = k.ProposalAutoConfirmQueue.Remove(ctx, collections.Join(metadata.ProposalFireAt, metadata.ThreadId))
+		if err := k.ProposalAutoConfirmQueue.Remove(ctx, collections.Join(metadata.ProposalFireAt, metadata.ThreadId)); err != nil {
+			sdk.UnwrapSDKContext(ctx).Logger().Error("dequeueProposalAutoConfirm: ProposalAutoConfirmQueue.Remove failed", "err", err)
+		}
 		metadata.ProposalFireAt = 0
 	}
 }
@@ -97,7 +99,9 @@ func (k Keeper) incrProposalCount(ctx context.Context, threadID uint64, sentinel
 // thread. Called when the thread is hard-deleted so the counters do not leak.
 func (k Keeper) clearProposalCounts(ctx context.Context, threadID uint64) {
 	rng := collections.NewPrefixedPairRange[uint64, string](threadID)
-	_ = k.ProposalCountByThreadSentinel.Clear(ctx, rng)
+	if err := k.ProposalCountByThreadSentinel.Clear(ctx, rng); err != nil {
+		sdk.UnwrapSDKContext(ctx).Logger().Error("clearProposalCounts: ProposalCountByThreadSentinel.Clear failed", "err", err)
+	}
 }
 
 // confirmCurationProposal applies a pending sentinel accepted-reply proposal:
@@ -112,6 +116,7 @@ func (k Keeper) clearProposalCounts(ctx context.Context, threadID uint64) {
 func (k Keeper) confirmCurationProposal(ctx context.Context, metadata *types.ThreadMetadata, now int64, autoConfirmed bool) error {
 	sentinel := metadata.ProposedBy
 	acceptedReplyID := metadata.ProposedReplyId
+	proposedAt := metadata.ProposedAt
 
 	// Promote proposed -> accepted, crediting the proposing sentinel.
 	metadata.AcceptedReplyId = acceptedReplyID
@@ -138,15 +143,44 @@ func (k Keeper) confirmCurationProposal(ctx context.Context, metadata *types.Thr
 	if err := k.SentinelActivity.Set(ctx, sentinel, local); err != nil {
 		return errorsmod.Wrap(err, "failed to update sentinel activity")
 	}
+
+	// The reward and the upheld accuracy tick need a real endorsement and
+	// stay bounded per epoch:
+	//   - an auto-confirm counts only if the thread author was active after
+	//     the proposal (saw it and let it stand); a silent author (an
+	//     abandoned or sock thread) endorses nothing;
+	//   - at most MaxRewardedCurationsPerEpoch curations per sentinel reward
+	//     epoch are rewarded.
+	// The reply is accepted either way.
+	rewarded := true
+	if autoConfirmed {
+		if thread, terr := k.Post.Get(ctx, metadata.ThreadId); terr != nil ||
+			k.getAuthorLastActive(ctx, thread.Author) <= proposedAt {
+			rewarded = false
+		}
+	}
 	if k.repKeeper != nil {
-		_ = k.repKeeper.RecordRoleAction(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, sentinel, reptypes.ActionKindForumCuration)
-		_ = k.repKeeper.RecordRoleOutcome(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, sentinel, reptypes.ActionKindForumCuration, true)
-		_ = k.repKeeper.RecordActivity(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, sentinel)
+		if rewarded && k.repKeeper.RoleEpochActionCount(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, sentinel, reptypes.ActionKindForumCuration) >= types.MaxRewardedCurationsPerEpoch {
+			rewarded = false
+		}
+		if rewarded {
+			if err := k.repKeeper.RecordRoleAction(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, sentinel, reptypes.ActionKindForumCuration); err != nil {
+				return err
+			}
+			if err := k.repKeeper.RecordRoleOutcome(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, sentinel, reptypes.ActionKindForumCuration, true); err != nil {
+				return err
+			}
+		}
+		if err := k.repKeeper.RecordActivity(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, sentinel); err != nil {
+			return err
+		}
 	}
 
 	// Mint the curation DREAM reward to the proposing sentinel.
-	if err := k.payCurationReward(ctx, sentinel); err != nil {
-		return err
+	if rewarded {
+		if err := k.payCurationReward(ctx, sentinel); err != nil {
+			return err
+		}
 	}
 
 	eventType := "proposed_reply_confirmed"
@@ -159,6 +193,7 @@ func (k Keeper) confirmCurationProposal(ctx context.Context, metadata *types.Thr
 			sdk.NewAttribute("thread_id", fmt.Sprintf("%d", metadata.ThreadId)),
 			sdk.NewAttribute("reply_id", fmt.Sprintf("%d", acceptedReplyID)),
 			sdk.NewAttribute("proposed_by", sentinel),
+			sdk.NewAttribute("rewarded", fmt.Sprintf("%t", rewarded)),
 		),
 	)
 	return nil
@@ -191,7 +226,9 @@ func (k Keeper) ProcessProposalAutoConfirm(ctx context.Context, now int64) error
 		metadata, err := k.ThreadMetadata.Get(ctx, threadID)
 		// Stale: thread gone, no pending proposal, or fire_at superseded.
 		if err != nil || metadata.ProposedReplyId == 0 || metadata.ProposalFireAt != fireAt {
-			_ = k.ProposalAutoConfirmQueue.Remove(ctx, key)
+			if err := k.ProposalAutoConfirmQueue.Remove(ctx, key); err != nil {
+				sdk.UnwrapSDKContext(ctx).Logger().Error("ProcessProposalAutoConfirm: ProposalAutoConfirmQueue.Remove failed", "err", err)
+			}
 			processed++
 			return false, nil
 		}
@@ -206,7 +243,9 @@ func (k Keeper) ProcessProposalAutoConfirm(ctx context.Context, now int64) error
 			metadata.ProposedBy = ""
 			metadata.ProposedAt = 0
 			metadata.ProposalExtended = false
-			_ = k.ThreadMetadata.Set(ctx, threadID, metadata)
+			if err := k.ThreadMetadata.Set(ctx, threadID, metadata); err != nil {
+				sdk.UnwrapSDKContext(ctx).Logger().Error("ProcessProposalAutoConfirm: ThreadMetadata.Set failed", "err", err)
+			}
 			processed++
 			return false, nil
 		}
@@ -220,7 +259,9 @@ func (k Keeper) ProcessProposalAutoConfirm(ctx context.Context, now int64) error
 			metadata.ProposedBy = ""
 			metadata.ProposedAt = 0
 			metadata.ProposalExtended = false
-			_ = k.ThreadMetadata.Set(ctx, threadID, metadata)
+			if err := k.ThreadMetadata.Set(ctx, threadID, metadata); err != nil {
+				sdk.UnwrapSDKContext(ctx).Logger().Error("ProcessProposalAutoConfirm: ThreadMetadata.Set failed", "err", err)
+			}
 			processed++
 			return false, nil
 		}
@@ -263,9 +304,13 @@ func (k Keeper) ProcessProposalAutoConfirm(ctx context.Context, now int64) error
 				fresh.ProposedAt = 0
 				fresh.ProposalExtended = false
 				fresh.ProposalFireAt = 0
-				_ = k.ThreadMetadata.Set(ctx, threadID, fresh)
+				if err := k.ThreadMetadata.Set(ctx, threadID, fresh); err != nil {
+					sdk.UnwrapSDKContext(ctx).Logger().Error("ProcessProposalAutoConfirm: ThreadMetadata.Set failed", "err", err)
+				}
 			}
-			_ = k.ProposalAutoConfirmQueue.Remove(ctx, key)
+			if err := k.ProposalAutoConfirmQueue.Remove(ctx, key); err != nil {
+				sdk.UnwrapSDKContext(ctx).Logger().Error("ProcessProposalAutoConfirm: ProposalAutoConfirmQueue.Remove failed", "err", err)
+			}
 			processed++
 			return false, nil
 		}

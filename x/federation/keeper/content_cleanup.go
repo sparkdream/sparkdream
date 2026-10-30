@@ -32,19 +32,31 @@ func (k Keeper) contentHashAnchored(ctx context.Context, hashHex string) bool {
 // record can never free the dedup key of another.
 func (k Keeper) removeContentRecord(ctx context.Context, content types.FederatedContent) {
 	contentID := content.Id
-	_ = k.ContentByPeer.Remove(ctx, collections.Join(content.PeerId, contentID))
-	_ = k.ContentByType.Remove(ctx, collections.Join(content.ContentType, contentID))
+	if err := k.ContentByPeer.Remove(ctx, collections.Join(content.PeerId, contentID)); err != nil {
+		sdk.UnwrapSDKContext(ctx).Logger().Error("removeContentRecord: ContentByPeer.Remove failed", "err", err)
+	}
+	if err := k.ContentByType.Remove(ctx, collections.Join(content.ContentType, contentID)); err != nil {
+		sdk.UnwrapSDKContext(ctx).Logger().Error("removeContentRecord: ContentByType.Remove failed", "err", err)
+	}
 	// The IBC receive path indexes the creator even when it is empty, so
 	// the removal is unconditional; removing an absent key is a no-op.
-	_ = k.ContentByCreator.Remove(ctx, collections.Join(content.CreatorIdentity, contentID))
+	if err := k.ContentByCreator.Remove(ctx, collections.Join(content.CreatorIdentity, contentID)); err != nil {
+		sdk.UnwrapSDKContext(ctx).Logger().Error("removeContentRecord: ContentByCreator.Remove failed", "err", err)
+	}
 	if len(content.ContentHash) > 0 {
 		hashHex := hex.EncodeToString(content.ContentHash)
 		if indexed, err := k.ContentByHash.Get(ctx, hashHex); err == nil && indexed == contentID {
-			_ = k.ContentByHash.Remove(ctx, hashHex)
+			if err := k.ContentByHash.Remove(ctx, hashHex); err != nil {
+				sdk.UnwrapSDKContext(ctx).Logger().Error("removeContentRecord: ContentByHash.Remove failed", "err", err)
+			}
 		}
 	}
-	_ = k.ContentExpiration.Remove(ctx, collections.Join(content.ExpiresAt, contentID))
-	_ = k.Content.Remove(ctx, contentID)
+	if err := k.ContentExpiration.Remove(ctx, collections.Join(content.ExpiresAt, contentID)); err != nil {
+		sdk.UnwrapSDKContext(ctx).Logger().Error("removeContentRecord: ContentExpiration.Remove failed", "err", err)
+	}
+	if err := k.Content.Remove(ctx, contentID); err != nil {
+		sdk.UnwrapSDKContext(ctx).Logger().Error("removeContentRecord: Content.Remove failed", "err", err)
+	}
 }
 
 // cancelContentVerification settles the verification state of a content
@@ -70,7 +82,9 @@ func (k Keeper) cancelContentVerification(ctx context.Context, sdkCtx sdk.Contex
 
 	if esc, err := k.EscalatedChallenges.Get(ctx, contentID); err == nil {
 		// overturned=true is the refund branch of disposeEscalationFee.
-		k.disposeEscalationFee(ctx, esc, true)
+		if err := k.disposeEscalationFee(ctx, esc, true); err != nil {
+			sdkCtx.Logger().Error("cancelContentVerification: disposeEscalationFee failed", "err", err)
+		}
 		k.removeEscalatedChallenge(ctx, esc)
 	}
 
@@ -91,7 +105,9 @@ func (k Keeper) cancelContentVerification(ctx context.Context, sdkCtx sdk.Contex
 	// content was never challenged (the dispute is verifier vs operator).
 	if content.Status == types.FederatedContentStatus_FEDERATED_CONTENT_STATUS_CHALLENGED &&
 		!record.EscrowedChallengeFee.IsNil() && record.EscrowedChallengeFee.IsPositive() {
-		k.refundChallengeFee(ctx, record)
+		if err := k.refundChallengeFee(ctx, record); err != nil {
+			sdkCtx.Logger().Error("cancelContentVerification: refundChallengeFee failed", "err", err)
+		}
 		refunded = record.EscrowedChallengeFee.String()
 	}
 
@@ -106,7 +122,14 @@ func (k Keeper) cancelContentVerification(ctx context.Context, sdkCtx sdk.Contex
 
 	k.cleanupArbiterData(ctx, contentID)
 	if record.ChallengeWindowEnds > 0 {
-		_ = k.ChallengeWindow.Remove(ctx, collections.Join(record.ChallengeWindowEnds, contentID))
+		if err := k.ChallengeWindow.Remove(ctx, collections.Join(record.ChallengeWindowEnds, contentID)); err != nil {
+			sdkCtx.Logger().Error("cancelContentVerification: ChallengeWindow.Remove failed", "err", err)
+		}
 	}
-	_ = k.VerificationRecords.Remove(ctx, contentID)
+	if err := k.PendingChallengeReports.Remove(ctx, contentID); err != nil {
+		sdkCtx.Logger().Error("cancelContentVerification: PendingChallengeReports.Remove failed", "err", err)
+	}
+	if err := k.VerificationRecords.Remove(ctx, contentID); err != nil {
+		sdkCtx.Logger().Error("cancelContentVerification: VerificationRecords.Remove failed", "err", err)
+	}
 }

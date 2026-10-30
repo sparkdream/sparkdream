@@ -30,8 +30,6 @@ type Keeper struct {
 	// identityKeeper is late-bound via SetIdentityKeeper from app.go.
 	// Used by BondDenom() to resolve the chain's bond denom for federated
 	// chains. Panics if unwired — see BondDenom() for rationale.
-	identityKeeper       types.IdentityKeeper
-	seasonKeeper         types.SeasonKeeper
 	Post                 collections.Map[uint64, types.Post]
 	PostSeq              collections.Sequence
 	UserRateLimit        collections.Map[string, types.UserRateLimit]
@@ -58,6 +56,15 @@ type Keeper struct {
 	ThreadsByFollower collections.KeySet[collections.Pair[string, uint64]]
 	BountiesByCreator collections.KeySet[collections.Pair[string, uint64]]
 	BountiesByExpiry  collections.KeySet[collections.Pair[int64, uint64]]
+	// RootsByCategory: (category_id, root_post_id) for every stored thread
+	// root, re-keyed when a thread moves (setRootCategory). Derived.
+	RootsByCategory collections.KeySet[collections.Pair[uint64, uint64]]
+	// LockedRoots indexes locked thread roots for the LockedThreads query
+	// (the ThreadLockRecord goes once the appeal window closes). Derived.
+	LockedRoots collections.KeySet[uint64]
+	// StakeSlashQueue: post_id -> post author for posts whose conviction
+	// stakes are still being slashed, a bounded batch per block (FRM-26).
+	StakeSlashQueue collections.Map[uint64, string]
 
 	// Membership-driven promotion indexes (see promotion_queue.go).
 	EphemeralByAuthor collections.KeySet[collections.Pair[string, uint64]]
@@ -86,6 +93,28 @@ type Keeper struct {
 	// prevents the per-block cap from starving high-id stakes when the
 	// active set exceeds maxAccrualPerBlock.
 	PostConvictionAccrualCursor collections.Item[uint64]
+
+	// Lifecycle indexes (derived; rebuilt in InitGenesis). See types/keys.go.
+	PostsByRoot          collections.KeySet[collections.Pair[uint64, uint64]]
+	HideRecordExpiry     collections.KeySet[collections.Pair[int64, uint64]]
+	LockRecordExpiry     collections.KeySet[collections.Pair[int64, uint64]]
+	MoveRecordExpiry     collections.KeySet[collections.Pair[int64, uint64]]
+	ReleasedStakesByPost collections.KeySet[collections.Pair[uint64, uint64]]
+	ReleasedStakeGc      collections.KeySet[collections.Pair[int64, uint64]]
+	// TagPruneQueue: removed tag -> next post id to scan (see
+	// PruneTagReferences).
+	TagPruneQueue collections.Map[string, uint64]
+	// late holds the keepers wired after depinject (app.go Set*Keeper).
+	// It is a pointer so the AppModule's value copy of the keeper sees
+	// them too (docs/development-conventions.md, AppModule value-copy bug).
+	late *lateKeepers
+}
+
+// lateKeepers are the dependencies wired after construction; shared by
+// every copy of the Keeper value.
+type lateKeepers struct {
+	seasonKeeper   types.SeasonKeeper
+	identityKeeper types.IdentityKeeper
 }
 
 func NewKeeper(
@@ -104,6 +133,7 @@ func NewKeeper(
 	sb := collections.NewSchemaBuilder(storeService)
 
 	k := Keeper{
+		late:              &lateKeepers{},
 		storeService:      storeService,
 		cdc:               cdc,
 		addressCodec:      addressCodec,
@@ -143,6 +173,11 @@ func NewKeeper(
 
 		PostsByPinned: collections.NewKeySet(sb, types.PostsByPinnedKey, "postsByPinned",
 			collections.PairKeyCodec(collections.Uint64Key, collections.Uint64Key)),
+		RootsByCategory: collections.NewKeySet(sb, types.RootsByCategoryKey, "rootsByCategory",
+			collections.PairKeyCodec(collections.Uint64Key, collections.Uint64Key)),
+		StakeSlashQueue: collections.NewMap(sb, types.StakeSlashQueueKey, "stakeSlashQueue",
+			collections.Uint64Key, collections.StringValue),
+		LockedRoots: collections.NewKeySet(sb, types.LockedRootsKey, "lockedRoots", collections.Uint64Key),
 		PostsByUpvotes: collections.NewKeySet(sb, types.PostsByUpvotesKey, "postsByUpvotes",
 			collections.PairKeyCodec(collections.Uint64Key, collections.Uint64Key)),
 		FollowersByThread: collections.NewKeySet(sb, types.FollowersByThreadKey, "followersByThread",
@@ -175,6 +210,21 @@ func NewKeeper(
 			codec.CollValue[types.ForumRepEpochCounter](cdc)),
 		PostConvictionAccrualCursor: collections.NewItem(sb, types.PostConvictionAccrualCursorKey,
 			"postConvictionAccrualCursor", collections.Uint64Value),
+
+		PostsByRoot: collections.NewKeySet(sb, types.PostsByRootKey, "postsByRoot",
+			collections.PairKeyCodec(collections.Uint64Key, collections.Uint64Key)),
+		HideRecordExpiry: collections.NewKeySet(sb, types.HideRecordExpiryKey, "hideRecordExpiry",
+			collections.PairKeyCodec(collections.Int64Key, collections.Uint64Key)),
+		LockRecordExpiry: collections.NewKeySet(sb, types.LockRecordExpiryKey, "lockRecordExpiry",
+			collections.PairKeyCodec(collections.Int64Key, collections.Uint64Key)),
+		MoveRecordExpiry: collections.NewKeySet(sb, types.MoveRecordExpiryKey, "moveRecordExpiry",
+			collections.PairKeyCodec(collections.Int64Key, collections.Uint64Key)),
+		ReleasedStakesByPost: collections.NewKeySet(sb, types.ReleasedStakesByPostKey, "releasedStakesByPost",
+			collections.PairKeyCodec(collections.Uint64Key, collections.Uint64Key)),
+		ReleasedStakeGc: collections.NewKeySet(sb, types.ReleasedStakeGcKey, "releasedStakeGc",
+			collections.PairKeyCodec(collections.Int64Key, collections.Uint64Key)),
+		TagPruneQueue: collections.NewMap(sb, types.TagPruneQueueKey, "tagPruneQueue",
+			collections.StringKey, collections.Uint64Value),
 	}
 	schema, err := sb.Build()
 	if err != nil {
@@ -188,22 +238,22 @@ func NewKeeper(
 // SetIdentityKeeper late-binds the identity keeper for federated-denom
 // resolution. Called from app.go post-depinject.
 func (k *Keeper) SetIdentityKeeper(idk types.IdentityKeeper) {
-	k.identityKeeper = idk
+	k.late.identityKeeper = idk
 }
 
 // SetSeasonKeeper late-binds x/season so replies and accepted answers grant
 // the author XP. Optional: unwired means no XP.
 func (k *Keeper) SetSeasonKeeper(sk types.SeasonKeeper) {
-	k.seasonKeeper = sk
+	k.late.seasonKeeper = sk
 }
 
 // notifySeason runs one x/season hook best-effort: the forum write has
 // already happened, so a hook error is logged and swallowed.
 func (k Keeper) notifySeason(ctx context.Context, hook string, fn func(sk types.SeasonKeeper) error) {
-	if k.seasonKeeper == nil {
+	if k.late.seasonKeeper == nil {
 		return
 	}
-	if err := fn(k.seasonKeeper); err != nil {
+	if err := fn(k.late.seasonKeeper); err != nil {
 		sdk.UnwrapSDKContext(ctx).Logger().Error("x/season hook failed (non-fatal)", "hook", hook, "error", err)
 	}
 }
@@ -213,10 +263,10 @@ func (k Keeper) notifySeason(ctx context.Context, hook string, fn func(sk types.
 // needs a real denom and silently falling back to a hardcoded literal
 // re-introduces the mixed-state class of bug we just removed.
 func (k Keeper) BondDenom(ctx context.Context) string {
-	if k.identityKeeper == nil {
+	if k.late.identityKeeper == nil {
 		panic("forum keeper: identityKeeper not wired (call SetIdentityKeeper after depinject)")
 	}
-	return k.identityKeeper.BondDenom(ctx)
+	return k.late.identityKeeper.BondDenom(ctx)
 }
 
 // GetAuthority returns the module's authority.
@@ -226,8 +276,22 @@ func (k Keeper) GetAuthority() []byte {
 
 // HasPost returns true if a post (or reply, which is a post with ParentId > 0) exists.
 func (k Keeper) HasPost(ctx context.Context, id uint64) bool {
-	has, _ := k.Post.Has(ctx, id)
+	has, getErr := k.Post.Has(ctx, id)
+	if getErr != nil {
+		sdk.UnwrapSDKContext(ctx).Logger().Error("Has failed", "err", getErr)
+	}
 	return has
+}
+
+// LivePostCreatedAt returns the creation time (unix seconds) of a forum post
+// that exists and is ACTIVE (not hidden, deleted or archived), and false
+// otherwise. Used by x/season's retro-PGF nomination checks.
+func (k Keeper) LivePostCreatedAt(ctx context.Context, id uint64) (int64, bool) {
+	post, err := k.Post.Get(ctx, id)
+	if err != nil || post.Status != types.PostStatus_POST_STATUS_ACTIVE {
+		return 0, false
+	}
+	return post.CreatedAt, true
 }
 
 // HasCategory lets x/season's ForumKeeper interface distinguish this keeper
@@ -239,13 +303,15 @@ func (k Keeper) HasCategory(ctx context.Context, id uint64) bool {
 	return k.commonsKeeper.HasCategory(ctx, id)
 }
 
-// HasPostInCategory reports whether any forum post still references the given
-// category. Used by x/commons' MsgDeleteCategory to refuse removal of
-// categories that still have content. O(n) over Post — there is no
-// PostsByCategory secondary index yet; if delete-category becomes hot or post
-// volume grows large, add one and switch to a prefix walk here.
+// HasPostInCategory reports whether the given category still holds a live
+// thread. Used by x/commons' MsgDeleteCategory to refuse removal of
+// categories that still have content. It walks the category's thread roots
+// (RootsByCategory) rather than every post (FRM-33), and the root decides:
+// after a move the root is authoritative and its replies keep their
+// creation-time category, so a moved thread no longer blocks deleting the
+// category it left.
 //
-// Only ACTIVE posts count: DeletePost / HidePost / archival are soft mutations
+// Only ACTIVE roots count: DeletePost / HidePost / archival are soft mutations
 // that leave a tombstone in storage, but those posts no longer "reference" the
 // category in any user-meaningful sense — counting them would mean an admin
 // could never delete a category that ever held a post, even after every post
@@ -258,16 +324,15 @@ func (k Keeper) HasCategory(ctx context.Context, id uint64) bool {
 // category still exists. Otherwise the resurrected post points at a deleted
 // category — a dangling reference. Today only MsgUnarchiveThread can revive
 // a tombstone (ARCHIVED → ACTIVE) and it carries that guard. DELETED is
-// terminal in code; HIDDEN has no implemented unhide handler (the README's
-// MsgUnhidePost is aspirational). Any future revival path MUST apply the
-// same `commonsKeeper.HasCategory` check.
+// terminal in code; MsgUnhidePost (HIDDEN → ACTIVE) carries the same
+// check. Any future revival path MUST apply the same
+// `commonsKeeper.HasCategory` check.
 func (k Keeper) HasPostInCategory(ctx context.Context, categoryID uint64) (bool, error) {
 	found := false
-	err := k.Post.Walk(ctx, nil, func(_ uint64, post types.Post) (stop bool, err error) {
-		if post.CategoryId != categoryID {
-			return false, nil
-		}
-		if post.Status != types.PostStatus_POST_STATUS_ACTIVE {
+	rng := collections.NewPrefixedPairRange[uint64, uint64](categoryID)
+	err := k.RootsByCategory.Walk(ctx, rng, func(key collections.Pair[uint64, uint64]) (stop bool, err error) {
+		post, err := k.Post.Get(ctx, key.K2())
+		if err != nil || post.CategoryId != categoryID || post.Status != types.PostStatus_POST_STATUS_ACTIVE {
 			return false, nil
 		}
 		found = true

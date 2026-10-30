@@ -49,14 +49,21 @@ const (
 )
 
 // IsActiveOperator reports whether (address, service_type) is in the
-// live store with status ACTIVE. Used by off-chain consumers and
-// inter-module callers (§6.7).
+// live store with status ACTIVE and a bond that meets the service type's
+// current min_bond. Used by off-chain consumers and inter-module callers
+// (§6.7). The bond check matters after gov raises min_bond: the stored
+// status only changes on the operator's next message (reconcileMinBond),
+// and until then the operator must not read as eligible.
 func (k Keeper) IsActiveOperator(ctx context.Context, addr sdk.AccAddress, serviceType string) bool {
 	op, exists := k.GetOperator(ctx, addr.Bytes(), serviceType)
-	if !exists {
+	if !exists || op.Status != types.OperatorStatus_OPERATOR_STATUS_ACTIVE {
 		return false
 	}
-	return op.Status == types.OperatorStatus_OPERATOR_STATUS_ACTIVE
+	cfg, err := k.resolveServiceTypeConfig(ctx, serviceType)
+	if err != nil {
+		return false
+	}
+	return op.BondAmount.GTE(cfg.MinBondAmount)
 }
 
 // GetAvailableBond returns the operator's current bond (excludes any
@@ -204,7 +211,7 @@ func (k Keeper) RegisterOperator(
 	if err != nil {
 		return types.Operator{}, err
 	}
-	if uint32(len(metadata)) > params.MaxMetadataBytes {
+	if len(metadata) > int(params.MaxMetadataBytes) {
 		return types.Operator{}, types.ErrInvalidMetadataSize.Wrapf("%d > %d", len(metadata), params.MaxMetadataBytes)
 	}
 

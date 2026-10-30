@@ -1,13 +1,16 @@
 package cli
 
 import (
+	"encoding/json"
 	"fmt"
+	"os"
 	"strconv"
 	"time"
 
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/client/flags"
 	"github.com/cosmos/cosmos-sdk/client/tx"
+	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/spf13/cobra"
 
@@ -30,7 +33,107 @@ func GetTxCmd() *cobra.Command {
 		SuggestionsMinimumDistance: 2,
 		RunE:                       client.ValidateCmd,
 	}
-	cmd.AddCommand(CmdCreateRecurringPull())
+	cmd.AddCommand(CmdCreateRecurringPull(), CmdCreateGrant(), CmdExecSession())
+	return cmd
+}
+
+// CmdCreateGrant creates a grant of any payload type from a JSON file
+// holding the MsgCreateGrant payload oneof, e.g.
+// {"session_key": {"allowed_msg_types": [...], "spend_limit": {...}, "max_exec_count": "100"}}
+// or {"scheduled_oneshot": {...}}, {"spending_allowance": {...}},
+// {"sign_in": {"service": "login.example.org"}}. The granter is the
+// signer; grantee, expiry and note come from the arguments and flags.
+func CmdCreateGrant() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "create-grant [grantee] [expires-at] [payload-json-file]",
+		Short: "Create a grant of any type from a JSON payload file",
+		Long: `Create a grant (MsgCreateGrant). payload-json-file holds the payload oneof
+in proto-JSON, for example {"session_key": {...}}, {"spending_allowance": {...}},
+{"scheduled_oneshot": {...}}, {"recurring_pull": {...}} or {"sign_in": {...}}.
+expires-at is RFC 3339 or +<duration> relative to now.`,
+		Args: cobra.ExactArgs(3),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			clientCtx, err := client.GetClientTxContext(cmd)
+			if err != nil {
+				return err
+			}
+			expires, err := parseExpiry(args[1], time.Now())
+			if err != nil {
+				return err
+			}
+			bz, err := os.ReadFile(args[2])
+			if err != nil {
+				return err
+			}
+			msg := &types.MsgCreateGrant{}
+			if err := clientCtx.Codec.UnmarshalJSON(bz, msg); err != nil {
+				return fmt.Errorf("payload-json-file: %w", err)
+			}
+			if msg.Payload == nil {
+				return fmt.Errorf("payload-json-file sets no payload")
+			}
+			note, _ := cmd.Flags().GetString(flagNote)
+			msg.Granter = clientCtx.GetFromAddress().String()
+			msg.Grantee = args[0]
+			msg.ExpiresAt = expires
+			msg.Note = note
+			return tx.GenerateOrBroadcastTxCLI(clientCtx, cmd.Flags(), msg)
+		},
+	}
+	cmd.Flags().String(flagNote, "", "Human-readable purpose (256 characters max)")
+	flags.AddTxFlagsToCmd(cmd)
+	return cmd
+}
+
+// CmdExecSession executes messages as granter through the signer's session
+// key. msgs-json-file holds a JSON array of messages in proto-JSON with
+// "@type"; each one's signer field is rewritten to the granter on chain.
+func CmdExecSession() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "exec-session [granter] [msgs-json-file]",
+		Short: "Execute messages as granter through your session key",
+		Long: `Execute up to 10 messages as granter (MsgExecSession). msgs-json-file holds
+a JSON array of messages in proto-JSON with "@type", e.g.
+[{"@type": "/sparkdream.blog.v1.MsgCreatePost", "creator": "<granter>", ...}].
+The fee is paid by the granter, within the session's spend limit.`,
+		Args: cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			clientCtx, err := client.GetClientTxContext(cmd)
+			if err != nil {
+				return err
+			}
+			bz, err := os.ReadFile(args[1])
+			if err != nil {
+				return err
+			}
+			var raw []json.RawMessage
+			if err := json.Unmarshal(bz, &raw); err != nil {
+				return fmt.Errorf("msgs-json-file must be a JSON array: %w", err)
+			}
+			if len(raw) == 0 {
+				return fmt.Errorf("msgs-json-file holds no messages")
+			}
+			anys := make([]*codectypes.Any, 0, len(raw))
+			for i, r := range raw {
+				var m sdk.Msg
+				if err := clientCtx.Codec.UnmarshalInterfaceJSON(r, &m); err != nil {
+					return fmt.Errorf("message %d: %w", i, err)
+				}
+				a, err := codectypes.NewAnyWithValue(m)
+				if err != nil {
+					return fmt.Errorf("message %d: %w", i, err)
+				}
+				anys = append(anys, a)
+			}
+			msg := &types.MsgExecSession{
+				Grantee: clientCtx.GetFromAddress().String(),
+				Granter: args[0],
+				Msgs:    anys,
+			}
+			return tx.GenerateOrBroadcastTxCLI(clientCtx, cmd.Flags(), msg)
+		},
+	}
+	flags.AddTxFlagsToCmd(cmd)
 	return cmd
 }
 

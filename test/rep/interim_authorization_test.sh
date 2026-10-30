@@ -5,6 +5,7 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/.test_env" 2>/dev/null || true
+source "$SCRIPT_DIR/../lib/ops_committee.sh"
 
 BINARY="${BINARY:-sparkdreamd}"
 CHAIN_ID="${CHAIN_ID:-sparkdream}"
@@ -242,7 +243,7 @@ CODE=$(echo "$TX_RESULT" | jq -r '.code // 0')
 
 if [ "$CODE" != "0" ]; then
     ERROR=$(echo "$TX_RESULT" | jq -r '.raw_log')
-    if echo "$ERROR" | grep -q "only technical committee members can complete ADJUDICATION"; then
+    if echo "$ERROR" | grep -q "can complete ADJUDICATION interims"; then
         echo "[ OK ] CORRECT: Assignee was blocked from completing ADJUDICATION interim"
         echo "   Error: $ERROR"
     else
@@ -256,41 +257,52 @@ fi
 
 echo ""
 echo "================================================================================"
-echo "TEST 2: Committee member CANNOT complete ADJUDICATION without a decision"
+echo "TEST 2: A single committee member (alice) CANNOT complete an ADJUDICATION interim"
 echo "================================================================================"
 
-# The verdict is structured. It used to be parsed out of the completion notes,
-# and a keyword that failed to match left the challenge unresolved forever with
-# the interim already COMPLETED. Omitting --decision must now be refused while
-# the interim is still live and retryable.
+# A verdict upholds or rejects a challenge (slashing one side), so it needs the
+# Operations Committee policy (an executed proposal), never one member.
 TX_RES=$($BINARY tx rep complete-interim --gas 500000 \
     $ADJUDICATION_ID \
-    "Committee decision: Challenge REJECTED. Work meets requirements." \
+    "Committee decision: Challenge REJECTED." \
+    --decision reject \
     --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
     --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
-
-TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
-sleep 6
-
-TX_RESULT=$($BINARY query tx $TXHASH --output json 2>&1)
+TX_RESULT=$(wait_tx "$(echo "$TX_RES" | jq -r '.txhash // empty')")
 CODE=$(echo "$TX_RESULT" | jq -r '.code // 0')
-
 if [ "$CODE" != "0" ]; then
-    ERROR=$(echo "$TX_RESULT" | jq -r '.raw_log')
-    if echo "$ERROR" | grep -q "requires a decision"; then
-        echo "[ OK ] CORRECT: A keyword in the notes is not a verdict"
-        echo "   Error: $ERROR"
-    else
-        echo "[WARN]  Transaction failed but with unexpected error:"
-        echo "   $ERROR"
-    fi
+    echo "[ OK ] CORRECT: a single committee member is refused"
+    echo "   Error: $(echo "$TX_RESULT" | jq -r '.raw_log')"
 else
-    echo "[FAIL] FAILED: An ADJUDICATION interim must not complete without --decision!"
+    echo "[FAIL] FAILED: a single committee member settled an ADJUDICATION interim!"
     exit 1
+fi
+
+echo ""
+echo "================================================================================"
+echo "TEST 2b: The committee CANNOT complete ADJUDICATION without a decision"
+echo "================================================================================"
+
+# The verdict is structured. It used to be parsed out of the completion notes,
+# and a keyword that failed to match left the challenge unresolved forever with
+# the interim already COMPLETED. Omitting the decision must now be refused while
+# the interim is still live and retryable.
+if ops_committee_exec "$(jq -nc --arg id "$ADJUDICATION_ID" \
+    '{"@type":"/sparkdream.rep.v1.MsgCompleteInterim",interim_id:$id,completion_notes:"Committee decision: Challenge REJECTED. Work meets requirements."}')" creator; then
+    echo "[FAIL] FAILED: An ADJUDICATION interim must not complete without a decision!"
+    exit 1
+fi
+ERROR="$OPS_COMMITTEE_ERROR"
+if echo "$ERROR" | grep -q "requires a decision"; then
+    echo "[ OK ] CORRECT: A keyword in the notes is not a verdict"
+    echo "   Error: $ERROR"
+else
+    echo "[WARN]  Proposal failed but with unexpected error:"
+    echo "   $ERROR"
 fi
 
 # The refused completion must not have finalized the interim. COMPLETED is the
@@ -318,35 +330,19 @@ echo "==========================================================================
 # freeze through the other door: approved=false finalized the interim to EXPIRED
 # with no decision and no resolution, dropping it out of the pending sweep that
 # would otherwise have defaulted the challenge to REJECT.
-TX_RES=$($BINARY tx rep approve-interim --gas 500000 \
-    $ADJUDICATION_ID \
-    "false" \
-    "Committee declines this adjudication" \
-    --from alice \
-    --chain-id $CHAIN_ID \
-    --keyring-backend test \
-    --fees 5000${BOND_DENOM} \
-    -y \
-    --output json 2>&1)
-
-TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
-sleep 6
-
-TX_RESULT=$($BINARY query tx $TXHASH --output json 2>&1)
-CODE=$(echo "$TX_RESULT" | jq -r '.code // 0')
-
-if [ "$CODE" != "0" ]; then
-    ERROR=$(echo "$TX_RESULT" | jq -r '.raw_log')
-    if echo "$ERROR" | grep -q "adjudication"; then
-        echo "[ OK ] CORRECT: approve-interim refused; settle adjudications with complete-interim"
-        echo "   Error: $ERROR"
-    else
-        echo "[WARN]  Transaction failed but with unexpected error:"
-        echo "   $ERROR"
-    fi
-else
+# Sent through a committee proposal, so the refusal comes from the type check
+# and not from the policy gate a single member hits first.
+if ops_approve_interim "$ADJUDICATION_ID" "Committee declines this adjudication" false; then
     echo "[FAIL] FAILED: approve-interim must not finalize an ADJUDICATION interim!"
     exit 1
+fi
+ERROR="$OPS_COMMITTEE_ERROR"
+if echo "$ERROR" | grep -q "adjudication"; then
+    echo "[ OK ] CORRECT: approve-interim refused; settle adjudications with complete-interim"
+    echo "   Error: $ERROR"
+else
+    echo "[WARN]  Proposal failed but with unexpected error:"
+    echo "   $ERROR"
 fi
 
 # Same post-condition as TEST 2: approve-interim must not have finalized it.
@@ -365,38 +361,23 @@ echo ""
 setup_adjudication
 
 echo "================================================================================"
-echo "TEST 4: Committee member (alice) CAN complete ADJUDICATION interim"
+echo "TEST 4: The Operations Committee (proposal) CAN complete ADJUDICATION interim"
 echo "================================================================================"
 
-# Structured --decision flag (short kebab form), required for ADJUDICATION
-# interims; the notes are prose only.
-TX_RES=$($BINARY tx rep complete-interim --gas 500000 \
-    $ADJUDICATION_ID \
-    "Committee decision: Challenge REJECTED. Analysis is thorough and complete." \
-    --decision reject \
-    --from alice \
-    --chain-id $CHAIN_ID \
-    --keyring-backend test \
-    --fees 5000${BOND_DENOM} \
-    -y \
-    --output json 2>&1)
-
-TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
-# Poll, not sleep: the interim's remaining deadline is measured in blocks.
-TX_RESULT=$(wait_tx "$TXHASH")
-CODE=$(echo "$TX_RESULT" | jq -r '.code // 0')
-
-if [ "$CODE" = "0" ]; then
-    echo "[ OK ] CORRECT: Alice (committee member) completed ADJUDICATION interim"
+# Structured decision field, required for ADJUDICATION interims; the notes are
+# prose only. The proposal round (submit, vote, execute) has to land inside the
+# interim's 10-block deadline, so nothing else runs before it.
+if ops_complete_adjudication "$ADJUDICATION_ID" REJECT \
+    "Committee decision: Challenge REJECTED. Analysis is thorough and complete."; then
+    echo "[ OK ] CORRECT: the committee completed the ADJUDICATION interim"
 
     # Verify challenge was resolved
     CHALLENGE_DETAIL=$($BINARY query rep get-challenge $CHALLENGE_ID --output json 2>&1)
     CHALLENGE_STATUS=$(echo "$CHALLENGE_DETAIL" | jq -r '.challenge.status')
     echo "   Challenge #$CHALLENGE_ID status: $CHALLENGE_STATUS"
 else
-    ERROR=$(echo "$TX_RESULT" | jq -r '.raw_log')
-    echo "[FAIL] FAILED: Alice should be able to complete ADJUDICATION interim!"
-    echo "   Error: $ERROR"
+    echo "[FAIL] FAILED: the committee should be able to complete the ADJUDICATION interim!"
+    echo "   Error: $OPS_COMMITTEE_ERROR"
     exit 1
 fi
 
@@ -407,9 +388,9 @@ echo "==========================================================================
 echo ""
 echo "[ OK ] Security Fix Verified:"
 echo "   1. Non-committee members CANNOT complete ADJUDICATION interims"
-echo "   2. A keyword in the notes is not a verdict - --decision is required"
+echo "   2. A single committee member CANNOT settle one; a keyword in the notes is not a verdict"
 echo "   3. approve-interim cannot finalize an ADJUDICATION interim"
-echo "   4. Committee members CAN complete ADJUDICATION interims"
+echo "   4. The committee (proposal) CAN complete ADJUDICATION interims"
 echo "   5. Challenge auto-resolved based on committee decision"
 echo ""
 echo "The committee adjudication system is now properly protected!"

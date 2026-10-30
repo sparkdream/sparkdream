@@ -14,27 +14,38 @@ import (
 // This is the harshest penalty - the member can restart with a new address and invitation.
 // Per spec: "Punish position, not person"
 func (k Keeper) ZeroMember(ctx context.Context, memberAddr sdk.AccAddress, reason string) error {
+	_, err := k.zeroMember(ctx, memberAddr, reason)
+	return err
+}
+
+// zeroMember is ZeroMember returning the liquid DREAM the final burn took
+// (escrows forfeited before it are not included). MsgResolveMemberReport
+// records it so an overturned appeal can restore it.
+func (k Keeper) zeroMember(ctx context.Context, memberAddr sdk.AccAddress, reason string) (math.Int, error) {
 	// Value lookup: a stored (possibly tombstoned) address resolves to the
 	// member that now carries it (alias.go).
 	memberAddr = k.resolveMember(ctx, memberAddr)
 	member, err := k.Member.Get(ctx, memberAddr.String())
 	if err != nil {
-		return types.ErrMemberNotFound
+		return math.ZeroInt(), types.ErrMemberNotFound
 	}
 
 	// Check if already zeroed
 	if member.Status == types.MemberStatus_MEMBER_STATUS_ZEROED {
-		return types.ErrMemberAlreadyZeroed
+		return math.ZeroInt(), types.ErrMemberAlreadyZeroed
 	}
 
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	now := sdkCtx.BlockTime().Unix()
 
-	// The member's whole DREAM holding. staked_dream is a SUBSET of
-	// dream_balance — LockDREAM adds to the former without reducing the latter
-	// — so the old `dream_balance + staked_dream` double-counted every staked
-	// coin in both lifetime_burned and the season burn counter.
-	dreamBurned := *member.DreamBalance
+	// End every escrow the member holds before the balance goes (REP-E-06):
+	// open challenges and pending invitations are forfeited (their locks
+	// burned), bounty/report/role bonds dropped. Left behind, each one's
+	// later unlock failed against the zeroed aggregate and wedged whatever
+	// waited on it.
+	if err := k.terminateEscrowsForZeroing(ctx, memberAddr.String()); err != nil {
+		return math.ZeroInt(), err
+	}
 
 	// Release the member's live stake positions before zeroing the aggregates.
 	// Zeroing used to leave them behind: decayStakes went on shrinking records
@@ -42,7 +53,7 @@ func (k Keeper) ZeroMember(ctx context.Context, memberAddr sdk.AccAddress, reaso
 	// negative), and settleStake went on minting rewards to the zeroed member,
 	// who kept unbacked earning positions indefinitely.
 	if err := k.releaseStakesForZeroing(ctx, memberAddr.String()); err != nil {
-		return err
+		return math.ZeroInt(), err
 	}
 
 	// Drop the member's initiative bounty contributions. The DREAM behind them
@@ -50,7 +61,7 @@ func (k Keeper) ZeroMember(ctx context.Context, memberAddr sdk.AccAddress, reaso
 	// left in place, settling the bounty would try to unlock DREAM that no
 	// longer exists and fail every path that completes or closes the work.
 	if err := k.dropInitiativeBountyContributions(ctx, memberAddr.String()); err != nil {
-		return err
+		return math.ZeroInt(), err
 	}
 
 	// Drop the member's self-assign bonds for the same reason: the bond is
@@ -59,15 +70,31 @@ func (k Keeper) ZeroMember(ctx context.Context, memberAddr sdk.AccAddress, reaso
 	// staked DREAM the member no longer has and wedge the initiative and
 	// its project.
 	if err := k.dropSelfAssignBonds(ctx, memberAddr.String()); err != nil {
-		return err
+		return math.ZeroInt(), err
 	}
+
+	// Reload: the forfeits above burned locks through the DREAM primitives,
+	// which rewrote the member record.
+	member, err = k.Member.Get(ctx, memberAddr.String())
+	if err != nil {
+		return math.ZeroInt(), types.ErrMemberNotFound
+	}
+	if err := k.ApplyPendingDecay(ctx, &member); err != nil {
+		return math.ZeroInt(), err
+	}
+
+	// The member's whole DREAM holding. staked_dream is a SUBSET of
+	// dream_balance — LockDREAM adds to the former without reducing the latter
+	// — so the old `dream_balance + staked_dream` double-counted every staked
+	// coin in both lifetime_burned and the season burn counter.
+	dreamBurned := math.MaxInt(*member.DreamBalance, math.ZeroInt())
 
 	// Burn all DREAM. Zeroing writes the member record directly rather than
 	// routing through BurnDREAM, so it counts its own burn against the season.
 	if dreamBurned.IsPositive() {
 		*member.LifetimeBurned = member.LifetimeBurned.Add(dreamBurned)
 		if err := k.TrackBurn(ctx, dreamBurned); err != nil {
-			return err
+			return math.ZeroInt(), err
 		}
 	}
 	*member.DreamBalance = math.NewInt(0)
@@ -124,11 +151,14 @@ func (k Keeper) ZeroMember(ctx context.Context, memberAddr sdk.AccAddress, reaso
 		return sk.OnMemberZeroed(ctx, memberAddr)
 	})
 	if err := k.Member.Set(ctx, memberAddr.String(), member); err != nil {
-		return err
+		return math.ZeroInt(), err
 	}
 
 	// Mark trust tree dirty — zeroed member must be removed from anonymous posting tree
 	k.MarkMemberDirty(ctx, memberAddr.String())
+
+	// Other modules drop the lock records they hold for the member.
+	k.notifyZeroingHooks(ctx, memberAddr.String())
 
 	// Emit event
 	sdkCtx.EventManager().EmitEvent(
@@ -141,7 +171,7 @@ func (k Keeper) ZeroMember(ctx context.Context, memberAddr sdk.AccAddress, reaso
 		),
 	)
 
-	return nil
+	return dreamBurned, nil
 }
 
 // SlashReputation reduces a member's reputation by a percentage across all or specified tags.
@@ -437,13 +467,16 @@ func (k Keeper) releaseStakesForZeroing(ctx context.Context, staker string) erro
 	}
 	var stakes []doomed
 
-	if err := k.Stake.Walk(ctx, nil, func(id uint64, stake types.Stake) (bool, error) {
-		if stake.Staker == staker {
-			stakes = append(stakes, doomed{id: id, stake: stake})
-		}
-		return false, nil
-	}); err != nil {
-		return fmt.Errorf("failed to walk stakes for zeroed member %s: %w", staker, err)
+	// Stake records keep the address they were made under, so a member who
+	// migrated still owns records under its predecessors (alias contract).
+	// The by-staker index covers every one of them without walking the
+	// chain's stakes (REP-E-10).
+	held, err := k.stakesOfMember(ctx, staker)
+	if err != nil {
+		return fmt.Errorf("failed to read stakes for zeroed member %s: %w", staker, err)
+	}
+	for _, stake := range held {
+		stakes = append(stakes, doomed{id: stake.Id, stake: stake})
 	}
 
 	sdkCtx := sdk.UnwrapSDKContext(ctx)

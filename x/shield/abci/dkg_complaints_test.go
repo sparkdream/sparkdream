@@ -91,7 +91,7 @@ func (c *ceremonyFixture) inject(t *testing.T, exts map[string]*types.DKGVoteExt
 	data := &types.InjectedDKGData{Round: c.state.Round, Phase: c.state.Phase}
 	for _, v := range c.vals { // deterministic order
 		if ext, ok := exts[v]; ok && ext != nil {
-			data.Extensions = append(data.Extensions, &types.ValidatorDKGExtension{ValidatorAddress: c.cons[v], Extension: *ext})
+			data.Extensions = append(data.Extensions, c.signedExt(v, ext))
 		}
 	}
 	bz, err := EncodeDKGInjection(data)

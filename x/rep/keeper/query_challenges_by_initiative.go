@@ -3,6 +3,7 @@ package keeper
 import (
 	"context"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/rep/types"
 
 	"google.golang.org/grpc/codes"
@@ -30,7 +31,7 @@ func (q queryServer) ChallengesByInitiative(ctx context.Context, req *types.Quer
 	if foundChallenge != nil {
 		return &types.QueryChallengesByInitiativeResponse{
 			ChallengeId: foundChallenge.Id,
-			Status:      uint64(foundChallenge.Status),
+			Status:      commontypes.Saturate[uint64](foundChallenge.Status),
 		}, nil
 	}
 

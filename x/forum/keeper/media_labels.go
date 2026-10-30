@@ -51,7 +51,7 @@ func (k Keeper) checkMediaWrite(ctx context.Context, creator string, creatorAddr
 	}
 	if !gate.Anonymous && k.IsMember(ctx, creator) {
 		gate.Member = true
-		gate.TrustLevel = uint32(k.GetTrustLevel(ctx, creator))
+		gate.TrustLevel = commontypes.Saturate[uint32](k.GetTrustLevel(ctx, creator))
 	}
 	if authorBond != nil {
 		gate.AuthorBond = *authorBond

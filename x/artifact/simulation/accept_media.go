@@ -12,6 +12,7 @@ import (
 
 	"sparkdream/x/artifact/keeper"
 	"sparkdream/x/artifact/types"
+	commontypes "sparkdream/x/common/types"
 )
 
 // randomProposal picks a random open media proposal whose token's holder is
@@ -49,7 +50,7 @@ func SimulateMsgAcceptMedia(
 		if !ok {
 			return noop(msg, "no open media proposal")
 		}
-		if uint32(len(t.MediaVersions)) >= k.GetParams(ctx).MaxMediaVersionsPerToken {
+		if commontypes.Saturate[uint32](len(t.MediaVersions)) >= k.GetParams(ctx).MaxMediaVersionsPerToken {
 			return noop(msg, "token media versions full")
 		}
 		msg = &types.MsgAcceptMedia{Owner: holder.Address.String(), ClassId: mp.ClassId, TokenId: mp.TokenId, ProposalId: mp.Id, Display: r.Intn(2) == 0}

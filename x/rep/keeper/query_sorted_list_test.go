@@ -13,15 +13,19 @@ import (
 
 func setSortTestProject(f *fixture, id uint64, name string, budget int64, status types.ProjectStatus) {
 	amount := math.NewInt(budget)
-	_ = f.keeper.Project.Set(f.ctx, id, types.Project{
+	if err := f.keeper.Project.Set(f.ctx, id, types.Project{
 		Id:             id,
 		Name:           name,
 		Creator:        "creator",
 		Council:        "commons",
 		Status:         status,
 		ApprovedBudget: &amount,
-	})
-	_ = f.keeper.ProjectSeq.Set(f.ctx, id)
+	}); err != nil {
+		panic(err)
+	}
+	if err := f.keeper.ProjectSeq.Set(f.ctx, id); err != nil {
+		panic(err)
+	}
 }
 
 func setSortTestInitiative(f *fixture, id uint64, title string, budget int64, cur, req string) {
@@ -42,8 +46,12 @@ func setSortTestInitiative(f *fixture, id uint64, title string, budget int64, cu
 		c := math.LegacyMustNewDecFromStr(cur)
 		ini.CurrentConviction = &c
 	}
-	_ = f.keeper.Initiative.Set(f.ctx, id, ini)
-	_ = f.keeper.InitiativeSeq.Set(f.ctx, id)
+	if err := f.keeper.Initiative.Set(f.ctx, id, ini); err != nil {
+		panic(err)
+	}
+	if err := f.keeper.InitiativeSeq.Set(f.ctx, id); err != nil {
+		panic(err)
+	}
 }
 
 func TestListProject_SortBy(t *testing.T) {

@@ -70,7 +70,7 @@ func TestMsgServerAcceptGuildInvite(t *testing.T) {
 			Inviter:      founder.String(),
 			ExpiresEpoch: 5, // Expired at epoch 5
 		}
-		k.GuildInvite.Set(ctx, key, invite)
+		require.NoError(t, k.GuildInvite.Set(ctx, key, invite))
 
 		_, err := ms.AcceptGuildInvite(ctx, &types.MsgAcceptGuildInvite{
 			Creator: inviteeStr,
@@ -98,7 +98,7 @@ func TestMsgServerAcceptGuildInvite(t *testing.T) {
 			GuildInvitee: inviteeStr,
 			ExpiresEpoch: 0, // Never expires
 		}
-		k.GuildInvite.Set(ctx, key, invite)
+		require.NoError(t, k.GuildInvite.Set(ctx, key, invite))
 
 		_, err := ms.AcceptGuildInvite(ctx, &types.MsgAcceptGuildInvite{
 			Creator: inviteeStr,
@@ -126,12 +126,12 @@ func TestMsgServerAcceptGuildInvite(t *testing.T) {
 		// Mark as dissolved
 		guild, _ := k.Guild.Get(ctx, guildID)
 		guild.Status = types.GuildStatus_GUILD_STATUS_DISSOLVED
-		k.Guild.Set(ctx, guildID, guild)
+		require.NoError(t, k.Guild.Set(ctx, guildID, guild))
 
 		// Create invite
 		key := fmt.Sprintf("%d:%s", guildID, inviteeStr)
 		invite := types.GuildInvite{GuildInvitee: inviteeStr}
-		k.GuildInvite.Set(ctx, key, invite)
+		require.NoError(t, k.GuildInvite.Set(ctx, key, invite))
 
 		_, err := ms.AcceptGuildInvite(ctx, &types.MsgAcceptGuildInvite{
 			Creator: inviteeStr,
@@ -161,7 +161,7 @@ func TestMsgServerAcceptGuildInvite(t *testing.T) {
 		// Create invite
 		key := fmt.Sprintf("%d:%s", guildID, inviteeStr)
 		invite := types.GuildInvite{GuildInvitee: inviteeStr}
-		k.GuildInvite.Set(ctx, key, invite)
+		require.NoError(t, k.GuildInvite.Set(ctx, key, invite))
 
 		_, err := ms.AcceptGuildInvite(ctx, &types.MsgAcceptGuildInvite{
 			Creator: inviteeStr,
@@ -190,7 +190,7 @@ func TestMsgServerAcceptGuildInvite(t *testing.T) {
 		// Add pending invite to guild
 		guild, _ := k.Guild.Get(ctx, guildID)
 		guild.PendingInvites = []string{inviteeStr}
-		k.Guild.Set(ctx, guildID, guild)
+		require.NoError(t, k.Guild.Set(ctx, guildID, guild))
 
 		// Create invite
 		key := fmt.Sprintf("%d:%s", guildID, inviteeStr)
@@ -198,7 +198,7 @@ func TestMsgServerAcceptGuildInvite(t *testing.T) {
 			GuildInvitee: inviteeStr,
 			Inviter:      founderStr,
 		}
-		k.GuildInvite.Set(ctx, key, invite)
+		require.NoError(t, k.GuildInvite.Set(ctx, key, invite))
 
 		_, err := ms.AcceptGuildInvite(ctx, &types.MsgAcceptGuildInvite{
 			Creator: inviteeStr,
@@ -249,12 +249,12 @@ func TestMsgServerAcceptGuildInvite(t *testing.T) {
 			GuildId:   0,
 			LeftEpoch: 4, // Left at epoch 4
 		}
-		k.GuildMembership.Set(ctx, inviteeStr, membership)
+		require.NoError(t, k.GuildMembership.Set(ctx, inviteeStr, membership))
 
 		// Create invite
 		key := fmt.Sprintf("%d:%s", guildID, inviteeStr)
 		invite := types.GuildInvite{GuildInvitee: inviteeStr}
-		k.GuildInvite.Set(ctx, key, invite)
+		require.NoError(t, k.GuildInvite.Set(ctx, key, invite))
 
 		_, err := ms.AcceptGuildInvite(ctx, &types.MsgAcceptGuildInvite{
 			Creator: inviteeStr,

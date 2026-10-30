@@ -58,7 +58,7 @@ func TestQueryGuildById(t *testing.T) {
 		// Set guild to dissolved
 		guild, _ := k.Guild.Get(ctx, guildID)
 		guild.Status = types.GuildStatus_GUILD_STATUS_DISSOLVED
-		k.Guild.Set(ctx, guildID, guild)
+		require.NoError(t, k.Guild.Set(ctx, guildID, guild))
 
 		resp, err := qs.GuildById(ctx, &types.QueryGuildByIdRequest{GuildId: guildID})
 		require.NoError(t, err)

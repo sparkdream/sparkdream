@@ -3,7 +3,6 @@ package keeper
 import (
 	"context"
 
-	"cosmossdk.io/collections"
 	sdkmath "cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
@@ -74,11 +73,16 @@ func (k Keeper) TopUpBond(ctx context.Context, opBytes []byte, serviceType strin
 	// PutOperator so any consumer iterating live indexes sees the
 	// settled state.
 	transitionedToActive := false
-	if op.Status == types.OperatorStatus_OPERATOR_STATUS_UNDERFUNDED {
-		cfg, err := k.resolveServiceTypeConfig(ctx, op.ServiceType)
-		if err != nil {
-			return err
-		}
+	transitionedToUnderfunded := false
+	cfg, err := k.resolveServiceTypeConfig(ctx, op.ServiceType)
+	if err != nil {
+		return err
+	}
+	// An ACTIVE operator still below a min_bond gov raised since it last
+	// acted becomes UNDERFUNDED now (lazy transition, §3.6).
+	if markUnderfundedIfBelowMin(&op, cfg, sdkCtx.BlockHeight()) {
+		transitionedToUnderfunded = true
+	} else if op.Status == types.OperatorStatus_OPERATOR_STATUS_UNDERFUNDED {
 		if op.BondAmount.GTE(cfg.MinBondAmount) {
 			op.Status = types.OperatorStatus_OPERATOR_STATUS_ACTIVE
 			// Clear underfunded_since BEFORE PutOperator so the
@@ -91,7 +95,7 @@ func (k Keeper) TopUpBond(ctx context.Context, opBytes []byte, serviceType strin
 			// CURRENT (op.UnderfundedSince, ...) tuple — which is now 0.
 			// Manually remove the old queue entry first.
 			if oldUnderfundedSince > 0 {
-				if err := k.UnderfundedQueue.Remove(ctx, collections.Join3(oldUnderfundedSince, opBytes, op.ServiceType)); err != nil {
+				if err := k.removeUnderfundedQueueEntry(ctx, oldUnderfundedSince, opBytes, op.ServiceType); err != nil {
 					return err
 				}
 			}
@@ -113,6 +117,12 @@ func (k Keeper) TopUpBond(ctx context.Context, opBytes []byte, serviceType strin
 	// state.
 	if transitionedToActive && k.hooks() != nil {
 		k.hooks().AfterOperatorReFunded(ctx, sdk.AccAddress(opBytes), op.ServiceType)
+	}
+	if transitionedToUnderfunded {
+		k.emitUnderfunded(ctx, op, cfg, sdkCtx.BlockHeight())
+		if k.hooks() != nil {
+			k.hooks().AfterOperatorUnderfunded(ctx, sdk.AccAddress(opBytes), op.ServiceType)
+		}
 	}
 
 	return nil

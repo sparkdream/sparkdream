@@ -30,7 +30,7 @@ func TestDisabledShieldFreezesCeremony(t *testing.T) {
 	// The PreBlocker ignores an injection that slipped past ProcessProposal.
 	bz, err := EncodeDKGInjection(&types.InjectedDKGData{
 		Round: c.state.Round, Phase: c.state.Phase,
-		Extensions: []*types.ValidatorDKGExtension{{ValidatorAddress: c.cons[v], Extension: *reg}},
+		Extensions: []*types.ValidatorDKGExtension{c.signedExt(v, reg)},
 	})
 	require.NoError(t, err)
 	ProcessDKGInjection(c.ctx, c.k, &abcitypes.RequestFinalizeBlock{Txs: [][]byte{bz}})

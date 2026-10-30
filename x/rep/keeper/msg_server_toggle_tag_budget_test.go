@@ -93,3 +93,23 @@ func TestMsgServerToggleTagBudget(t *testing.T) {
 		require.True(t, got.Active)
 	})
 }
+
+// Resuming a paused budget must not leave the group with two active budgets
+// for one tag (CreateTagBudget refuses the same).
+func TestToggleTagBudgetRefusesSecondActive(t *testing.T) {
+	f := initFixture(t)
+	ms := keeper.NewMsgServerImpl(f.keeper)
+	group := sdk.AccAddress([]byte("tb-tog-dup..........")[:20])
+	groupStr, _ := f.addressCodec.BytesToString(group)
+	require.NoError(t, f.keeper.TagBudget.Set(f.ctx, 1, types.TagBudget{Id: 1, GroupAccount: groupStr, Tag: "zenith", Active: false}))
+	require.NoError(t, f.keeper.TagBudget.Set(f.ctx, 2, types.TagBudget{Id: 2, GroupAccount: groupStr, Tag: "zenith", Active: true}))
+
+	_, err := ms.ToggleTagBudget(f.ctx, &types.MsgToggleTagBudget{Creator: groupStr, BudgetId: 1, Active: true})
+	require.ErrorIs(t, err, types.ErrTagBudgetAlreadyExists)
+
+	// Pausing the other first makes room.
+	_, err = ms.ToggleTagBudget(f.ctx, &types.MsgToggleTagBudget{Creator: groupStr, BudgetId: 2, Active: false})
+	require.NoError(t, err)
+	_, err = ms.ToggleTagBudget(f.ctx, &types.MsgToggleTagBudget{Creator: groupStr, BudgetId: 1, Active: true})
+	require.NoError(t, err)
+}

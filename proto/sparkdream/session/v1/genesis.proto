@@ -2,6 +2,7 @@ syntax = "proto3";
 package sparkdream.session.v1;
 
 import "amino/amino.proto";
+import "cosmos/base/v1beta1/coin.proto";
 import "gogoproto/gogo.proto";
 import "sparkdream/session/v1/grant.proto";
 import "sparkdream/session/v1/params.proto";
@@ -29,6 +30,42 @@ message GenesisState {
   // time, and so InitGenesis can validate the counter matches the actual
   // active grants.
   repeated ActiveGrantCount active_grant_counts = 4 [(gogoproto.nullable) = false];
+  // SPARK gas deposits escrowed in the session module account for
+  // SCHEDULED_ONESHOT grants. Exported so an export/import round-trip never
+  // strands escrow with no claimant.
+  repeated OneshotDeposit oneshot_gas_deposits = 5 [(gogoproto.nullable) = false];
+  // Per-UTC-day spend buckets backing RECURRING_PULL max_per_epoch_uspark.
+  // Exported so a round-trip does not reset the per-day throttle.
+  repeated EpochSpendEntry epoch_spends = 6 [(gogoproto.nullable) = false];
+  // Module that created each grant through the module-bypass entrypoint
+  // (CreateGrantOnBehalfOf). Binds the bypass decline and claim paths to
+  // the creating module.
+  repeated GrantCreator grant_creators = 7 [(gogoproto.nullable) = false];
+}
+
+// OneshotDeposit is one escrowed ScheduledOneshot gas deposit.
+message OneshotDeposit {
+  uint64 grant_id = 1;
+  cosmos.base.v1beta1.Coin amount = 2 [
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+}
+
+// EpochSpendEntry is one (grant, UTC day) spend bucket.
+message EpochSpendEntry {
+  uint64 grant_id = 1;
+  // UTC day index (unix seconds / 86400).
+  int64 day = 2;
+  // Amount spent in that day, base units (sdk.Int string).
+  string amount = 3;
+}
+
+// GrantCreator records the module address that created a grant through
+// the module-bypass entrypoint.
+message GrantCreator {
+  uint64 grant_id = 1;
+  string module_address = 2;
 }
 
 // ActiveGrantCount carries one (granter, type) -> active count entry for

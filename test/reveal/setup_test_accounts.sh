@@ -311,6 +311,44 @@ done
 echo ""
 
 # ========================================================================
+# 6b. Raise the stakers to TRUST_LEVEL_PROVISIONAL (staking requires it)
+# ========================================================================
+# One EPIC interim each, approved by an Operations Committee proposal (an
+# assignee can no longer complete and pay its own interim). In the test
+# build PROVISIONAL needs one completed interim and 10 reputation.
+echo "Step 6b: Raising stakers to PROVISIONAL..."
+source "$SCRIPT_DIR/../lib/ops_committee.sh"
+for ACCOUNT in staker1 staker2 staker3; do
+    ADDR=$($BINARY keys show $ACCOUNT -a --keyring-backend test)
+    LEVEL=$($BINARY query rep get-member $ADDR --output json 2>/dev/null | jq -r '.member.trust_level // ""')
+    if [ "$LEVEL" != "TRUST_LEVEL_NEW" ] && [ -n "$LEVEL" ]; then
+        echo "  $ACCOUNT already $LEVEL"
+        continue
+    fi
+    TX_RES=$($BINARY tx rep create-interim other 0 "reveal-setup" epic 999999999 \
+        --from $ACCOUNT --chain-id $CHAIN_ID --keyring-backend test \
+        --fees 5000${BOND_DENOM} -y --output json 2>&1)
+    TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
+    if [ -z "$TXHASH" ] || [ "$TXHASH" == "null" ]; then
+        echo "  WARNING: interim for $ACCOUNT not submitted"
+        ALL_SUCCESS=false
+        continue
+    fi
+    sleep 6
+    TX_RESULT=$(wait_for_tx $TXHASH)
+    INTERIM_ID=$(extract_event_value "$TX_RESULT" "interim_created" "interim_id")
+    if [ -z "$INTERIM_ID" ] || ! ops_approve_interim "$INTERIM_ID" "Reveal e2e setup"; then
+        echo "  WARNING: interim for $ACCOUNT not approved: $OPS_COMMITTEE_ERROR"
+        ALL_SUCCESS=false
+        continue
+    fi
+    LEVEL=$($BINARY query rep get-member $ADDR --output json 2>/dev/null | jq -r '.member.trust_level // ""')
+    echo "  $ACCOUNT -> $LEVEL"
+done
+
+echo ""
+
+# ========================================================================
 # 7. Verify Alice DREAM Balance (she will be the contributor)
 # ========================================================================
 echo "Step 7: Checking Alice DREAM balance (contributor)..."

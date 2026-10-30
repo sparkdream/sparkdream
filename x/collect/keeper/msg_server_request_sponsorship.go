@@ -9,6 +9,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	"sparkdream/x/collect/types"
+	commontypes "sparkdream/x/common/types"
 )
 
 func (k msgServer) RequestSponsorship(ctx context.Context, msg *types.MsgRequestSponsorship) (*types.MsgRequestSponsorshipResponse, error) {
@@ -29,6 +30,12 @@ func (k msgServer) RequestSponsorship(ctx context.Context, msg *types.MsgRequest
 	}
 	if !k.canActAs(ctx, msg.Creator, coll.Owner) {
 		return nil, errorsmod.Wrap(types.ErrUnauthorized, "only collection owner can request sponsorship")
+	}
+
+	// A HIDDEN collection is under moderation and cannot be sponsored. A
+	// PENDING one can: sponsorship completes its endorsement stage.
+	if coll.Status == types.CollectionStatus_COLLECTION_STATUS_HIDDEN {
+		return nil, errorsmod.Wrapf(types.ErrCollectionNotActive, "collection is %s", coll.Status)
 	}
 
 	// Collection must be TTL (expires_at > 0, deposit_burned=false)
@@ -65,7 +72,7 @@ func (k msgServer) RequestSponsorship(ctx context.Context, msg *types.MsgRequest
 
 	// Calculate permanent deposit: base_collection_deposit + (item_count * per_item_deposit)
 	collectionDeposit := params.BaseCollectionDeposit
-	itemDepositTotal := params.PerItemDeposit.MulRaw(int64(coll.ItemCount))
+	itemDepositTotal := params.PerItemDeposit.MulRaw(commontypes.Saturate[int64](coll.ItemCount))
 
 	// Escrow permanent deposit from creator to module account
 	totalEscrow := collectionDeposit.Add(itemDepositTotal)

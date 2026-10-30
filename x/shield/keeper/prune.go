@@ -23,22 +23,30 @@ func (k Keeper) pruneStaleState(ctx context.Context, currentEpoch uint64) {
 
 	// 1. Prune identity rate limits from old epochs.
 	if currentEpoch > 1 {
-		_ = k.PruneIdentityRateLimits(ctx, currentEpoch-1)
+		if err := k.PruneIdentityRateLimits(ctx, currentEpoch-1); err != nil {
+			sdk.UnwrapSDKContext(ctx).Logger().Error("pruneStaleState: k.PruneIdentityRateLimits failed", "err", err)
+		}
 	}
 
 	// 2. Prune epoch-scoped nullifiers.
 	if cutoffEpoch > 0 {
-		_ = k.PruneEpochScopedNullifiers(ctx, cutoffEpoch)
+		if err := k.PruneEpochScopedNullifiers(ctx, cutoffEpoch); err != nil {
+			sdk.UnwrapSDKContext(ctx).Logger().Error("pruneStaleState: k.PruneEpochScopedNullifiers failed", "err", err)
+		}
 	}
 
 	// 3. Prune old DayFunding entries (keep current and previous day only).
 	//    Days are bucketed by block time, like the funding ledger itself.
 	if currentDay := fundingDay(sdkCtx); currentDay > 1 {
-		_ = k.PruneDayFundings(ctx, currentDay-1)
+		if err := k.PruneDayFundings(ctx, currentDay-1); err != nil {
+			sdk.UnwrapSDKContext(ctx).Logger().Error("pruneStaleState: k.PruneDayFundings failed", "err", err)
+		}
 	}
 
 	// 4. Prune old decryption keys and shares.
 	if cutoffEpoch > 0 {
-		_ = k.PruneDecryptionState(ctx, cutoffEpoch)
+		if err := k.PruneDecryptionState(ctx, cutoffEpoch); err != nil {
+			sdk.UnwrapSDKContext(ctx).Logger().Error("pruneStaleState: k.PruneDecryptionState failed", "err", err)
+		}
 	}
 }

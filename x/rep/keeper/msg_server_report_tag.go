@@ -12,8 +12,9 @@ import (
 )
 
 // ReportTag allows members to report a tag for review. The reporter escrows
-// DefaultTagReportBond DREAM (locked on their account); bonds are refunded or
-// redistributed by ResolveTagReport.
+// DefaultTagReportBond DREAM (locked on their account); ResolveTagReport
+// refunds the bonds when it acts on the report and burns them when it
+// dismisses it.
 func (k msgServer) ReportTag(ctx context.Context, msg *types.MsgReportTag) (*types.MsgReportTagResponse, error) {
 	creatorBytes, err := k.addressCodec.StringToBytes(msg.Creator)
 	if err != nil {
@@ -24,8 +25,8 @@ func (k msgServer) ReportTag(ctx context.Context, msg *types.MsgReportTag) (*typ
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	now := sdkCtx.BlockTime().Unix()
 
-	if !k.IsMember(ctx, creatorAddr) {
-		return nil, errorsmod.Wrap(types.ErrNotMember, "only members can report tags")
+	if !k.IsActiveMember(ctx, creatorAddr) {
+		return nil, errorsmod.Wrap(types.ErrNotMember, "only active members can report tags")
 	}
 
 	tagFound, err := k.TagExists(ctx, msg.TagName)

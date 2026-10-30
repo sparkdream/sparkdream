@@ -5,35 +5,38 @@ import (
 
 	"sparkdream/x/forum/types"
 
+	"github.com/cosmos/cosmos-sdk/types/query"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
+// FlagReviewQueue lists the posts whose flags put them in the sentinel review
+// queue, paginated over the PostFlag store. The legacy single-post fields
+// describe the first entry of the page.
 func (q queryServer) FlagReviewQueue(ctx context.Context, req *types.QueryFlagReviewQueueRequest) (*types.QueryFlagReviewQueueResponse, error) {
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "invalid request")
 	}
 
-	// Find first post in review queue (simplified - in production would return list)
-	var flaggedPost *types.PostFlag
-
-	err := q.k.PostFlag.Walk(ctx, nil, func(key uint64, flag types.PostFlag) (bool, error) {
-		if flag.InReviewQueue {
-			flaggedPost = &flag
-			return true, nil // Stop after first
-		}
-		return false, nil
-	})
+	flags, pageRes, err := query.CollectionFilteredPaginate(
+		ctx,
+		q.k.PostFlag,
+		req.Pagination,
+		func(_ uint64, flag types.PostFlag) (bool, error) {
+			return flag.InReviewQueue, nil
+		},
+		func(_ uint64, flag types.PostFlag) (types.PostFlag, error) {
+			return flag, nil
+		},
+	)
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
 
-	if flaggedPost != nil {
-		return &types.QueryFlagReviewQueueResponse{
-			PostId:      flaggedPost.PostId,
-			TotalWeight: flaggedPost.TotalWeight,
-		}, nil
+	resp := &types.QueryFlagReviewQueueResponse{Flags: flags, Pagination: pageRes}
+	if len(flags) > 0 {
+		resp.PostId = flags[0].PostId
+		resp.TotalWeight = flags[0].TotalWeight
 	}
-
-	return &types.QueryFlagReviewQueueResponse{}, nil
+	return resp, nil
 }

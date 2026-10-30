@@ -29,7 +29,7 @@ func (k msgServer) UpdateMetadata(ctx context.Context, msg *types.MsgUpdateMetad
 	if err != nil {
 		return nil, err
 	}
-	if uint32(len(msg.NewMetadata)) > params.MaxMetadataBytes {
+	if len(msg.NewMetadata) > int(params.MaxMetadataBytes) {
 		return nil, types.ErrInvalidMetadataSize.Wrapf("%d > %d", len(msg.NewMetadata), params.MaxMetadataBytes)
 	}
 

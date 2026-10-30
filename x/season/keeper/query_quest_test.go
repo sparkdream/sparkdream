@@ -31,7 +31,9 @@ func createNQuest(keeper keeper.Keeper, ctx context.Context, n int) []types.Ques
 		items[i].RequiredAchievement = strconv.Itoa(i)
 		items[i].PrerequisiteQuest = strconv.Itoa(i)
 		items[i].QuestChain = strconv.Itoa(i)
-		_ = keeper.Quest.Set(ctx, items[i].QuestId, items[i])
+		if err := keeper.Quest.Set(ctx, items[i].QuestId, items[i]); err != nil {
+			panic(err)
+		}
 	}
 	return items
 }

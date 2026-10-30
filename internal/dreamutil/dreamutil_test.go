@@ -48,6 +48,13 @@ func (m *mockDREAMKeeper) UnlockDREAM(_ context.Context, addr sdk.AccAddress, am
 	return nil
 }
 
+func (m *mockDREAMKeeper) BurnLockedDREAM(ctx context.Context, addr sdk.AccAddress, amount math.Int) error {
+	if err := m.UnlockDREAM(ctx, addr, amount); err != nil {
+		return err
+	}
+	return m.BurnDREAM(ctx, addr, amount)
+}
+
 func (m *mockDREAMKeeper) BurnDREAM(_ context.Context, addr sdk.AccAddress, amount math.Int) error {
 	key := addrKey(addr)
 	if key == m.failOn {
@@ -146,4 +153,15 @@ func TestOps_SettleStakes_UnlockFailure(t *testing.T) {
 	// Loser should NOT be burned if unlock failed
 	_, loserBurned := mock.burned["loser"]
 	require.False(t, loserBurned)
+}
+
+// The loser's stake is locked: settling it releases the lock before burning,
+// so the burn comes out of the stake and not the loser's free balance.
+func TestOps_SettleStakesBurnsTheLoserLock(t *testing.T) {
+	mock := newMockDREAMKeeper()
+	ops := NewOps(mock, mockAddressCodec{})
+	require.NoError(t, ops.SettleStakes(context.Background(), "phoenix", 10, "zenith", 25))
+	require.Equal(t, math.NewInt(10), mock.unlocked["phoenix"])
+	require.Equal(t, math.NewInt(25), mock.unlocked["zenith"], "loser lock released")
+	require.Equal(t, math.NewInt(25), mock.burned["zenith"])
 }

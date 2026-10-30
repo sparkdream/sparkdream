@@ -15,6 +15,9 @@ type DREAMKeeper interface {
 	LockDREAM(ctx context.Context, addr sdk.AccAddress, amount math.Int) error
 	UnlockDREAM(ctx context.Context, addr sdk.AccAddress, amount math.Int) error
 	BurnDREAM(ctx context.Context, addr sdk.AccAddress, amount math.Int) error
+	// BurnLockedDREAM releases and burns one escrowed amount in a single
+	// call, so a failure leaves the lock in place.
+	BurnLockedDREAM(ctx context.Context, addr sdk.AccAddress, amount math.Int) error
 }
 
 // Ops provides DREAM operations with string address convenience methods.
@@ -54,7 +57,9 @@ func (o Ops) Unlock(ctx context.Context, addr string, amount uint64) error {
 	return o.keeper.UnlockDREAM(ctx, addrBytes, math.NewIntFromUint64(amount))
 }
 
-// Burn destroys DREAM tokens from the given address's locked balance.
+// Burn destroys DREAM tokens from the given address's UNLOCKED balance (a
+// fee). x/rep refuses to burn locked DREAM through this path; slashing an
+// escrowed stake goes through BurnLocked.
 func (o Ops) Burn(ctx context.Context, addr string, amount uint64) error {
 	if o.keeper == nil {
 		panic(fmt.Errorf("dream keeper not wired"))
@@ -66,6 +71,22 @@ func (o Ops) Burn(ctx context.Context, addr string, amount uint64) error {
 	return o.keeper.BurnDREAM(ctx, addrBytes, math.NewIntFromUint64(amount))
 }
 
+// BurnLocked slashes an escrowed stake: it releases the stake's lock and
+// burns the same amount through x/rep's BurnLockedDREAM, in one call, so a
+// failed burn never leaves the stake unlocked. Burning a locked stake with
+// Burn alone left it locked forever (and paid the burn out of the holder's
+// free balance, or failed when there was none).
+func (o Ops) BurnLocked(ctx context.Context, addr string, amount uint64) error {
+	if o.keeper == nil {
+		panic(fmt.Errorf("dream keeper not wired"))
+	}
+	addrBytes, err := o.addressCodec.StringToBytes(addr)
+	if err != nil {
+		return err
+	}
+	return o.keeper.BurnLockedDREAM(ctx, addrBytes, math.NewIntFromUint64(amount))
+}
+
 // SettleStakes handles the common dispute resolution pattern:
 // the winner's stake is unlocked (returned) and the loser's stake is burned.
 func (o Ops) SettleStakes(ctx context.Context, winnerAddr string, winnerAmount uint64, loserAddr string, loserAmount uint64) error {
@@ -75,5 +96,5 @@ func (o Ops) SettleStakes(ctx context.Context, winnerAddr string, winnerAmount u
 	if err := o.Unlock(ctx, winnerAddr, winnerAmount); err != nil {
 		return err
 	}
-	return o.Burn(ctx, loserAddr, loserAmount)
+	return o.BurnLocked(ctx, loserAddr, loserAmount)
 }

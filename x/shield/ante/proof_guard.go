@@ -51,7 +51,7 @@ var (
 	proofVerifyBurst = 300.0
 
 	// nowFunc is the clock the token bucket refills against.
-	nowFunc = time.Now
+	nowFunc = time.Now //nolint:forbidigo // node-local CheckTx rate limit, never consulted in consensus execution
 )
 
 // shieldCircuitID is the verification key the keeper verifies immediate execs
@@ -72,7 +72,7 @@ func newProofGuard() *proofGuard {
 }
 
 // precheckExec runs the keeper's PrecheckExec behind the guard.
-func (d ShieldGasDecorator) precheckExec(ctx sdk.Context, msg *shieldtypes.MsgShieldedExec, simulate bool) error {
+func (d ShieldGasDecorator) precheckExec(ctx sdk.Context, msg *shieldtypes.MsgShieldedExec, simulate bool) (bool, error) {
 	// DeliverTx (FinalizeBlock): consensus must not depend on node-local
 	// memory, so always verify.
 	consensus := !simulate && !ctx.IsCheckTx() && ctx.ExecMode() != sdk.ExecModeSimulate
@@ -89,15 +89,15 @@ func (d ShieldGasDecorator) precheckExec(ctx sdk.Context, msg *shieldtypes.MsgSh
 
 	key, cacheable := d.rejectedProofKey(ctx, msg, vk.VkBytes)
 	if cacheable && d.guard.rejected.contains(key) {
-		return errorsmod.Wrap(shieldtypes.ErrInvalidProof, "proof already rejected by this node")
+		return false, errorsmod.Wrap(shieldtypes.ErrInvalidProof, "proof already rejected by this node")
 	}
 
 	throttled := !ctx.IsReCheckTx()
 	if throttled && !d.guard.bucket.take() {
-		return shieldtypes.ErrProofVerificationThrottled
+		return false, shieldtypes.ErrProofVerificationThrottled
 	}
 
-	err := d.shieldKeeper.PrecheckExec(ctx, msg)
+	consumed, err := d.shieldKeeper.PrecheckExec(ctx, msg)
 	switch {
 	case err == nil:
 	case errors.Is(err, shieldtypes.ErrInvalidProof):
@@ -117,7 +117,7 @@ func (d ShieldGasDecorator) precheckExec(ctx sdk.Context, msg *shieldtypes.MsgSh
 			d.guard.bucket.refund()
 		}
 	}
-	return err
+	return consumed, err
 }
 
 // rejectedProofKey identifies everything a proof's verification depends on:

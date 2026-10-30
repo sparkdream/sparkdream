@@ -382,6 +382,12 @@ for every other reason:
 					Short:          "Reverse your own hide (sentinel self-correct, pre-appeal, within window)",
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "hide_record_id"}},
 				},
+				{
+					RpcMethod:      "ResolveCurationChallenge",
+					Use:            "resolve-curation-challenge [review-id] [upheld] [reason]",
+					Short:          "Deliver the verdict on a curation challenge (gov, Commons Council or Commons Operations Committee policy only)",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "review_id"}, {ProtoField: "upheld"}, {ProtoField: "reason"}},
+				},
 			},
 		},
 	}

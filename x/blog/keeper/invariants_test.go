@@ -227,10 +227,31 @@ func TestExpiryIndexInvariant_NoViolation(t *testing.T) {
 		ExpiresAt: 1000,
 	})
 	f.keeper.SetPostCount(f.ctx, 1)
+	f.keeper.AddToExpiryIndex(f.ctx, 1000, "post", 0)
 
 	invariant := keeper.ExpiryIndexInvariant(f.keeper)
 	msg, broken := invariant(sdkCtx)
 	require.False(t, broken, "invariant should not be broken: %s", msg)
+}
+
+// BLG-05: the expiry-index invariant checks both directions.
+func TestExpiryIndexInvariant_IndexMismatch(t *testing.T) {
+	f := initFixture(t)
+	sdkCtx := sdk.UnwrapSDKContext(f.ctx)
+	f.keeper.SetPost(f.ctx, types.Post{Id: 0, Status: types.PostStatus_POST_STATUS_ACTIVE, ExpiresAt: 1000})
+	f.keeper.SetPostCount(f.ctx, 1)
+
+	// Missing entry.
+	msg, broken := keeper.ExpiryIndexInvariant(f.keeper)(sdkCtx)
+	require.True(t, broken)
+	require.Contains(t, msg, "not in the expiry index")
+
+	// Entry at the wrong time, and an entry for nothing.
+	f.keeper.AddToExpiryIndex(f.ctx, 999, "post", 0)
+	f.keeper.AddToExpiryIndex(f.ctx, 2000, "reply", 7)
+	msg, broken = keeper.ExpiryIndexInvariant(f.keeper)(sdkCtx)
+	require.True(t, broken)
+	require.Contains(t, msg, "has no live item")
 }
 
 func TestExpiryIndexInvariant_PinnedWithExpiry(t *testing.T) {

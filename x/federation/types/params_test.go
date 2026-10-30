@@ -1,10 +1,15 @@
 package types_test
 
 import (
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"cosmossdk.io/math"
+	"github.com/cosmos/cosmos-sdk/codec"
+	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
 	"github.com/stretchr/testify/require"
 
 	"sparkdream/x/federation/types"
@@ -191,4 +196,100 @@ func TestOperatorRewardParams(t *testing.T) {
 		p.MinEpochVerifiedSubmissions = 0
 		require.ErrorContains(t, p.Validate(), "min_epoch_verified_submissions")
 	})
+}
+
+// FED-20: the remaining spec §4.13 ceilings and the DREAM amount floors are
+// enforced by Params.Validate on every build.
+func TestParamsValidate_SpecCeilings(t *testing.T) {
+	cases := map[string]func(p *types.Params){
+		"challenge_ttl":          func(p *types.Params) { p.ChallengeTtl = 31 * 24 * time.Hour },
+		"verifier_unbond":        func(p *types.Params) { p.VerifierUnbondCooldown = 91 * 24 * time.Hour },
+		"arbiter_resolution":     func(p *types.Params) { p.ArbiterResolutionWindow = 8 * 24 * time.Hour },
+		"bridge_inactivity":      func(p *types.Params) { p.BridgeInactivityThreshold = 10_001 },
+		"min_verifier_bond_high": func(p *types.Params) { p.MinVerifierBond = math.NewInt(10_001_000_000) },
+		"min_verifier_bond_low": func(p *types.Params) {
+			p.MinVerifierBond = math.NewInt(99_000_000)
+			p.VerifierRecoveryThreshold = math.NewInt(50_000_000)
+			p.VerifierSlashAmount = math.NewInt(10_000_000)
+		},
+		"slash_low":      func(p *types.Params) { p.VerifierSlashAmount = math.NewInt(9_000_000) },
+		"challenge_fee":  func(p *types.Params) { p.ChallengeFeeAmount = math.NewInt(5_001_000_000) },
+		"escalation_fee": func(p *types.Params) { p.EscalationFeeAmount = math.NewInt(1_001_000_000) },
+		"recovery_floor": func(p *types.Params) { p.VerifierRecoveryThreshold = math.NewInt(49_000_000) },
+	}
+	for name, mutate := range cases {
+		t.Run(name, func(t *testing.T) {
+			p := types.DefaultParams()
+			require.NoError(t, p.Validate())
+			mutate(&p)
+			require.Error(t, p.Validate())
+		})
+	}
+}
+
+// loadNetworkParams decodes the federation params of a network genesis file.
+func loadNetworkParams(t *testing.T, network string) types.Params {
+	t.Helper()
+	bz, err := os.ReadFile(filepath.Join("..", "..", "..", "deploy", "config", "network", network, "genesis.json"))
+	require.NoError(t, err)
+	var gen struct {
+		AppState struct {
+			Federation struct {
+				Params json.RawMessage `json:"params"`
+			} `json:"federation"`
+		} `json:"app_state"`
+	}
+	require.NoError(t, json.Unmarshal(bz, &gen))
+	var p types.Params
+	cdc := codec.NewProtoCodec(codectypes.NewInterfaceRegistry())
+	require.NoError(t, cdc.UnmarshalJSON(gen.AppState.Federation.Params, &p))
+	return p
+}
+
+// TestParamsValidate_NetworkFloors (FED-20): mainnet and testnet enforce the
+// spec §4.13 floors; devnet enforces its own lower floors; the test build
+// none. Every network genesis passes its own floors, and each spec floor
+// refuses a value just below it.
+func TestParamsValidate_NetworkFloors(t *testing.T) {
+	for network, floors := range map[string]types.ParamFloors{
+		"mainnet": types.SpecParamFloors,
+		"testnet": types.SpecParamFloors,
+		"devnet":  types.DevnetParamFloors,
+	} {
+		p := loadNetworkParams(t, network)
+		require.NoError(t, p.ValidateWithFloors(floors), network)
+	}
+	// Devnet's short windows are below the spec floors, so it needs its own.
+	require.Error(t, loadNetworkParams(t, "devnet").ValidateWithFloors(types.SpecParamFloors))
+
+	f := types.SpecParamFloors
+	below := map[string]func(p *types.Params){
+		"content_ttl":                     func(p *types.Params) { p.ContentTtl = f.RetentionTTL - time.Second },
+		"attestation_ttl":                 func(p *types.Params) { p.AttestationTtl = f.RetentionTTL - time.Second },
+		"challenge_ttl":                   func(p *types.Params) { p.ChallengeTtl = f.ChallengeTTL - time.Second },
+		"rate_limit_window":               func(p *types.Params) { p.RateLimitWindow = f.RateLimitWindow - time.Second },
+		"verification_window":             func(p *types.Params) { p.VerificationWindow = f.VerificationWindow - time.Second },
+		"challenge_window":                func(p *types.Params) { p.ChallengeWindow = f.ChallengeWindow - time.Second },
+		"challenge_jury_deadline":         func(p *types.Params) { p.ChallengeJuryDeadline = f.ChallengeJuryDeadline - time.Second },
+		"verifier_demotion_cooldown":      func(p *types.Params) { p.VerifierDemotionCooldown = f.VerifierDemotionCooldown - time.Second },
+		"verifier_overturn_base_cooldown": func(p *types.Params) { p.VerifierOverturnBaseCooldown = f.VerifierOverturnBaseCooldown - time.Second },
+		"arbiter_resolution_window":       func(p *types.Params) { p.ArbiterResolutionWindow = f.ArbiterResolutionWindow - time.Second },
+		"arbiter_escalation_window":       func(p *types.Params) { p.ArbiterEscalationWindow = f.ArbiterEscalationWindow - time.Second },
+		"challenge_cooldown":              func(p *types.Params) { p.ChallengeCooldown = f.ChallengeCooldown - time.Second },
+		"challenge_fee_amount":            func(p *types.Params) { p.ChallengeFeeAmount = math.NewInt(f.ChallengeFeeSpark*1_000_000 - 1) },
+		"escalation_fee_amount":           func(p *types.Params) { p.EscalationFeeAmount = math.NewInt(f.EscalationFeeSpark*1_000_000 - 1) },
+		"bridge_inactivity_threshold":     func(p *types.Params) { p.BridgeInactivityThreshold = f.BridgeInactivityThreshold - 1 },
+	}
+	for name, mutate := range below {
+		t.Run(name, func(t *testing.T) {
+			p := loadNetworkParams(t, "mainnet")
+			mutate(&p)
+			require.ErrorContains(t, p.ValidateWithFloors(types.SpecParamFloors), name)
+			// The test build keeps accepting it (e2e windows are seconds).
+			require.NoError(t, p.ValidateWithFloors(types.TestParamFloors))
+		})
+	}
+
+	// Whatever the build, its own defaults pass its own floors.
+	require.NoError(t, types.DefaultParams().Validate())
 }

@@ -3,6 +3,7 @@ package simulation
 import (
 	"math/rand"
 
+	"cosmossdk.io/math"
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -12,6 +13,7 @@ import (
 	"sparkdream/x/artifact/types"
 )
 
+// SimulateMsgUpdateClass rewrites a random visible, unfrozen class's description.
 func SimulateMsgUpdateClass(
 	ak types.AuthKeeper,
 	bk types.BankKeeper,
@@ -20,13 +22,15 @@ func SimulateMsgUpdateClass(
 ) simtypes.Operation {
 	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
 	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		simAccount, _ := simtypes.RandomAcc(r, accs)
-		msg := &types.MsgUpdateClass{
-			Owner: simAccount.Address.String(),
+		msg := &types.MsgUpdateClass{}
+		c, owner, ok := randomClassWhere(r, ctx, k, accs, func(c types.Class) bool {
+			return c.Status != types.ContentStatus_CONTENT_STATUS_HIDDEN && !c.MetadataFrozen
+		})
+		if !ok {
+			return noop(msg, "no updatable class")
 		}
-
-		// TODO: Handle the UpdateClass simulation
-
-		return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "UpdateClass simulation not implemented"), nil, nil
+		msg = &types.MsgUpdateClass{Owner: owner.Address.String(), ClassId: c.Id,
+			Description: "zenith " + simtypes.RandStringOfLength(r, 12), UpdateMask: []string{"description"}}
+		return deliver(r, app, ctx, ak, bk, txGen, owner, msg, math.ZeroInt())
 	}
 }

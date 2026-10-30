@@ -2,7 +2,7 @@
 
 End-to-end coverage for [x/guardian](../../x/guardian/) — the authority-gating proxy that owns the `Authority` address for `bank`, `mint`, `staking`, `distribution`, `gov`, `slashing`, `auth`, and `consensus`, and routes gov-submitted `MsgUpdateParams`-style msgs through per-msg-type field filters before dispatch.
 
-The unit tests in [x/guardian/keeper/msg_server_test.go](../../x/guardian/keeper/msg_server_test.go) exhaustively cover the filter logic in isolation. These e2e scripts verify the integration story end-to-end on a live chain:
+The unit tests in [x/guardian/keeper/msg_server_test.go](../../x/guardian/keeper/msg_server_test.go) cover the filter logic in isolation, including every compiled floor and ceiling and omitted decimal fields. These e2e scripts verify the integration story end-to-end on a live chain:
 
 - the wiring in [app/app_config.go](../../app/app_config.go) routes the listed modules' authority to the guardian module address;
 - `guardian.MsgExec` invoked from a gov proposal passes the inner-msg authority check;
@@ -15,14 +15,14 @@ The unit tests in [x/guardian/keeper/msg_server_test.go](../../x/guardian/keeper
 |-------------------------------|-----------------------------------------------------------------------------------------------------|
 | `_common.sh`                  | Helpers: `submit_proposal`, `vote_yes`, `wait_voting`, `check_status`, `guardian_exec_proposal`.    |
 | `allowlist_test.sh`           | `q guardian allowed-msgs` returns the 10-entry list; non-allowlisted inner (`bank.MsgSend`) rejected. |
-| `mint_filter_test.sh`         | 5 immutable fields rejected (`inflation_*`, `goal_bonded`, `mint_denom`); `blocks_per_year` passthrough. |
+| `mint_filter_test.sh`         | 5 immutable fields rejected (`inflation_*`, `goal_bonded`, `mint_denom`); in-band `blocks_per_year` bump (+1) accepted. |
 | `staking_filter_test.sh`      | `bond_denom` rejected; `max_validators` passthrough.                                                |
 | `bank_filter_test.sh`         | `SetSendEnabled` on native bond / native dream / `use_default_for` native rejected; foreign denom OK; `MsgUpdateParams` no-op passthrough. |
 | `distribution_filter_test.sh` | `MsgCommunityPoolSpend` hard reject; `community_tax` floor (0.05) and ceiling (0.25) enforced; in-band update passthrough. |
 | `gov_filter_test.sh`          | `voting_period` < 6h, `quorum` < 0.20, `threshold` < 0.50, `veto_threshold` < 0.20 rejected.        |
 | `slashing_filter_test.sh`     | Zero `slash_fraction_double_sign` / `slash_fraction_downtime` rejected; oversized `signed_blocks_window` rejected; `downtime_jail_duration` passthrough. |
 | `auth_filter_test.sh`         | Zero gas-cost floors rejected; `max_memo_characters` passthrough.                                   |
-| `consensus_filter_test.sh`    | Tiny `block.max_bytes` / `block.max_gas` / `evidence.max_age_num_blocks` rejected; `max_gas=-1` (unlimited) accepted. |
+| `consensus_filter_test.sh`    | Tiny `block.max_bytes` / `block.max_gas` / `evidence.max_age_num_blocks` and `max_gas=-1` (unlimited) rejected; a finite `max_gas` accepted. |
 | `run_all_tests.sh`            | Driver. Each test runs in sequence; flags `--only-<name>` and `--no-<name>` available.              |
 
 ## Batching strategy

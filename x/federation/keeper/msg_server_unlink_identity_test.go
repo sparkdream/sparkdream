@@ -37,9 +37,13 @@ func TestUnlinkIdentity(t *testing.T) {
 	_, err = f.keeper.IdentityLinksByRemote.Get(f.ctx, collections.Join("unlink-peer", "@test@example.com"))
 	require.Error(t, err)
 
-	// Count decremented
+	// Count decremented; a zero count is removed, as InitGenesis re-counts
+	// only members that still hold a link.
 	count, _ := f.keeper.IdentityLinkCount.Get(f.ctx, userStr)
 	require.Equal(t, uint32(0), count)
+	hasCount, err := f.keeper.IdentityLinkCount.Has(f.ctx, userStr)
+	require.NoError(t, err)
+	require.False(t, hasCount)
 }
 
 func TestUnlinkIdentityNotFound(t *testing.T) {

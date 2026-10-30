@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"cosmossdk.io/collections"
+	errorsmod "cosmossdk.io/errors"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	"sparkdream/x/artifact/types"
@@ -52,8 +53,13 @@ func (k msgServer) Redeem(ctx context.Context, msg *types.MsgRedeem) (*types.Msg
 		if types.IsExpired(t, t0) {
 			return nil, types.ErrTokenExpired
 		}
-		if t.Lock == types.TokenLock_TOKEN_LOCK_PENDING_TRANSFER {
-			return nil, types.ErrTokenLocked
+		// A token on its way to someone else, under auction (a running sale
+		// with escrowed bids) or nested inside another token (it travels
+		// with that tree) is not redeemed; detach or settle first. A rented
+		// token can be: the renter may be the one using the ticket.
+		switch t.Lock {
+		case types.TokenLock_TOKEN_LOCK_PENDING_TRANSFER, types.TokenLock_TOKEN_LOCK_AUCTION, types.TokenLock_TOKEN_LOCK_NESTED:
+			return nil, errorsmod.Wrapf(types.ErrTokenLocked, "token %d/%d is %s", t.ClassId, t.Id, t.Lock)
 		}
 		if t.Lock == types.TokenLock_TOKEN_LOCK_LISTED {
 			if err := k.removeListing(ctx, c.Id, id, "redeemed"); err != nil {

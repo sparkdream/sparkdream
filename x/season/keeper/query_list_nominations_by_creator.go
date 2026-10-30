@@ -36,7 +36,7 @@ func (q queryServer) ListNominationsByCreator(ctx context.Context, req *types.Qu
 			continue
 		}
 		if repkeeper.AddressesMatch(aliases, nomination.Nominator) {
-			nominations = append(nominations, nomination)
+			nominations = append(nominations, q.k.withLiveConviction(ctx, nomination))
 		}
 	}
 

@@ -25,6 +25,12 @@ import (
 // config. ReviewerBondPolicy.Validate is what guarantees the fields are all
 // populated, and both callers run it before reaching here.
 //
+// The verdict-streak policy (UpheldToResetOverturns, OverturnBaseCooldown,
+// OverturnCooldownEscalates) is deliberately left at zero, which
+// RecordRoleOutcome reads as the moderation defaults: rep params carry no
+// reviewer streak knobs, and a reviewer's verdicts are contested judgment
+// calls like a sentinel's, not assertions of fact like a verifier's.
+//
 // The one exception is a nil MinBond or DemotionThreshold, which no validated
 // params can carry but which would panic in Int.String(). Those fall back to
 // the shipped default rather than to zero: a 0 floor would silently make the

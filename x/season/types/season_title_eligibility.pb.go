@@ -86,7 +86,10 @@ func (m *TitleGrant) GetEligibleMembers() []string {
 	return nil
 }
 
-// SeasonTitleEligibility tracks title grants for a season.
+// SeasonTitleEligibility tracks the ranked (TOP_XP) title grants for a
+// season. It is built incrementally across the SNAPSHOT batches and holds at
+// most the title's threshold (capped) members per grant; threshold titles are
+// recorded per member on MemberSeasonSnapshot.eligible_title_ids.
 type SeasonTitleEligibility struct {
 	// Key: season number
 	TitleSeason uint64 `protobuf:"varint,1,opt,name=title_season,json=titleSeason,proto3" json:"title_season,omitempty"`

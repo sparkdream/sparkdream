@@ -125,8 +125,10 @@ else
     # this keeps testing the gated path if the threshold is retuned.
     BUDGET=$((GATE + 1000000))
     echo "   initiative budget $BUDGET (gate $GATE)"
+    # Explicit gas: a gated permissionless create also escrows the minimum
+    # review bounty and runs close to the 200000 default.
     INIT_RES=$(send $BINARY tx rep create-initiative "$PROJECT_ID" "Bounty target" "d" 1 1 "$BUDGET" \
-        --tags "$BOUNTY_TAG" --from alice)
+        --tags "$BOUNTY_TAG" --gas 400000 --from alice)
     INIT_ID=$(echo "$INIT_RES" | jq -r '[.events[]?.attributes[]? | select(.key=="initiative_id") | .value] | last // empty' | tr -d '"')
     if [ -z "$INIT_ID" ]; then
         echo "[WARN] initiative not created ($(log_of "$INIT_RES")); skipping"

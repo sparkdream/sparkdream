@@ -1,58 +1,66 @@
 package simulation
 
 import (
-	"fmt"
-	"math/rand"
-
 	"cosmossdk.io/math"
-	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
 
 	"sparkdream/x/forum/keeper"
 	"sparkdream/x/forum/types"
 )
 
-// SimulateMsgIncreaseBounty simulates a MsgIncreaseBounty message using direct keeper calls.
-// This bypasses token escrow requirements for simulation purposes.
-// Full integration testing should be done in integration tests.
+// SimulateMsgIncreaseBounty delivers MsgIncreaseBounty from the creator of
+// an ACTIVE bounty, escrowing at least the minimum increase. When no sim
+// account holds an active bounty, one is first opened (a real
+// MsgCreateBounty).
 func SimulateMsgIncreaseBounty(
 	ak types.AuthKeeper,
 	bk types.BankKeeper,
 	k keeper.Keeper,
 	txGen client.TxConfig,
 ) simtypes.Operation {
-	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
-	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		simAccount, _ := simtypes.RandomAcc(r, accs)
-
-		// Get or create a bounty
-		bountyID, err := getOrCreateBounty(r, ctx, k, simAccount.Address.String())
+	return operation(ak, bk, k, txGen, &types.MsgIncreaseBounty{}, func(e *simEnv) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
+		msg := &types.MsgIncreaseBounty{}
+		if e.params.ForumPaused {
+			return noOp(msg, "forum is paused")
+		}
+		bounties, err := e.activeSimBounties(func(b types.Bounty) bool {
+			creator, ok := e.account(b.Creator)
+			return ok && e.spendable(creator).GT(math.NewInt(types.MinBountyAmount))
+		})
 		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgIncreaseBounty{}), "failed to get/create bounty"), nil, nil
+			return noOpErr(msg, err)
 		}
-
-		// Use direct keeper calls to increase bounty (bypasses token escrow)
-		bounty, err := k.Bounty.Get(ctx, bountyID)
-		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgIncreaseBounty{}), "bounty not found"), nil, nil
+		bounty, ok := pick(e.r, bounties)
+		if !ok {
+			return noOp(msg, "no active bounty held by a sim account")
 		}
+		creator, _ := e.account(bounty.Creator)
+		amount := math.NewInt(types.MinBountyAmount)
+		msg.Creator, msg.BountyId, msg.AdditionalAmount = bounty.Creator, bounty.Id, amount.String()
+		return e.submit(creator, msg, amount)
+	})
+}
 
-		// Increase the amount
-		increaseVal := 10 + r.Intn(41)
-		currentAmount, _ := math.NewIntFromString(bounty.Amount)
-		if bounty.Amount == "" {
-			currentAmount = math.ZeroInt()
-		}
-		newAmount := currentAmount.Add(math.NewInt(int64(increaseVal)))
-		bounty.Amount = fmt.Sprintf("%d", newAmount.Int64())
-
-		if err := k.Bounty.Set(ctx, bountyID, bounty); err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgIncreaseBounty{}), "failed to increase bounty"), nil, nil
-		}
-
-		// Return success
-		return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgIncreaseBounty{}), "ok (direct keeper call)"), nil, nil
+// activeSimBounties returns the ACTIVE bounties whose creator is a live sim
+// account and that keep accepts (nil accepts all). When there is none, one
+// is first opened (a real MsgCreateBounty).
+func (e *simEnv) activeSimBounties(keep func(types.Bounty) bool) ([]types.Bounty, error) {
+	list := func() ([]types.Bounty, error) {
+		return e.bountiesWhere(func(b types.Bounty) bool {
+			if b.Status != types.BountyStatus_BOUNTY_STATUS_ACTIVE || (keep != nil && !keep(b)) {
+				return false
+			}
+			_, ok := e.account(b.Creator)
+			return ok
+		})
 	}
+	out, err := list()
+	if err != nil || len(out) > 0 {
+		return out, err
+	}
+	if ok, err := e.ensureBounty(); err != nil || !ok {
+		return nil, err
+	}
+	return list()
 }

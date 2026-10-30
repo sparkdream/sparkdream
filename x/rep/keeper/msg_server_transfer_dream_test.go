@@ -56,14 +56,14 @@ func TestMsgServerTransferDream(t *testing.T) {
 
 		// Setup: sender with insufficient DREAM
 		sender := sdk.AccAddress([]byte("sender"))
-		k.Member.Set(ctx, sender.String(), types.Member{
+		require.NoError(t, k.Member.Set(ctx, sender.String(), types.Member{
 			Address:          sender.String(),
 			DreamBalance:     PtrInt(math.NewInt(50)),
 			StakedDream:      PtrInt(math.ZeroInt()),
 			LifetimeEarned:   PtrInt(math.ZeroInt()),
 			LifetimeBurned:   PtrInt(math.ZeroInt()),
 			ReputationScores: map[string]string{"tag": "100.0"},
-		})
+		}))
 
 		recipient := sdk.AccAddress([]byte("recipient"))
 		recipientStr, err := sdk.AccAddressFromBech32(recipient.String())
@@ -92,24 +92,24 @@ func TestMsgServerTransferDream(t *testing.T) {
 
 		// Setup: sender and recipient
 		sender := sdk.AccAddress([]byte("sender"))
-		k.Member.Set(ctx, sender.String(), types.Member{
+		require.NoError(t, k.Member.Set(ctx, sender.String(), types.Member{
 			Address:          sender.String(),
 			DreamBalance:     PtrInt(math.NewInt(500)),
 			StakedDream:      PtrInt(math.ZeroInt()),
 			LifetimeEarned:   PtrInt(math.ZeroInt()),
 			LifetimeBurned:   PtrInt(math.ZeroInt()),
 			ReputationScores: map[string]string{"tag": "100.0"},
-		})
+		}))
 
 		recipient := sdk.AccAddress([]byte("recipient"))
-		k.Member.Set(ctx, recipient.String(), types.Member{
+		require.NoError(t, k.Member.Set(ctx, recipient.String(), types.Member{
 			Address:          recipient.String(),
 			DreamBalance:     PtrInt(math.NewInt(100)),
 			StakedDream:      PtrInt(math.ZeroInt()),
 			LifetimeEarned:   PtrInt(math.ZeroInt()),
 			LifetimeBurned:   PtrInt(math.ZeroInt()),
 			ReputationScores: map[string]string{"tag": "100.0"},
-		})
+		}))
 
 		recipientStr, err := sdk.AccAddressFromBech32(recipient.String())
 		require.NoError(t, err)

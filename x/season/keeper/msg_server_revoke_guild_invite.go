@@ -3,6 +3,7 @@ package keeper
 import (
 	"context"
 	"fmt"
+	commontypes "sparkdream/x/common/types"
 
 	"sparkdream/x/season/types"
 
@@ -44,10 +45,12 @@ func (k msgServer) RevokeGuildInvite(ctx context.Context, msg *types.MsgRevokeGu
 	}
 
 	// Remove the invite
-	_ = k.GuildInvite.Remove(ctx, key)
+	if err := commontypes.RemoveIndexed(ctx, k.GuildInvite, key); err != nil {
+		return nil, err
+	}
 
 	// Remove from pending invites list
-	newInvites := make([]string, 0, len(guild.PendingInvites)-1)
+	newInvites := make([]string, 0, len(guild.PendingInvites))
 	for _, inv := range guild.PendingInvites {
 		if inv != msg.Invitee {
 			newInvites = append(newInvites, inv)

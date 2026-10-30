@@ -1,73 +1,63 @@
 package simulation
 
 import (
-	"math/rand"
-
-	"github.com/cosmos/cosmos-sdk/baseapp"
+	"cosmossdk.io/math"
 	"github.com/cosmos/cosmos-sdk/client"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
 
 	commontypes "sparkdream/x/common/types"
-
 	"sparkdream/x/forum/keeper"
 	"sparkdream/x/forum/types"
+	reptypes "sparkdream/x/rep/types"
 )
 
-// SimulateMsgHidePost simulates a MsgHidePost message using direct keeper calls.
-// This bypasses operations committee/sentinel requirements for simulation purposes.
-// Full integration testing should be done in integration tests.
+// SimulateMsgHidePost delivers MsgHidePost on the sentinel path: a
+// CONTENT_SENTINEL bonded-role holder (bonding one first through x/rep's
+// MsgBondRole when no sim account holds the role) under max_hides_per_epoch
+// and outside its overturn cooldown hides a visible post it did not write;
+// the bond reservation is left to the dry-run. The council path (a Commons
+// Operations Committee member) is not simulated here.
 func SimulateMsgHidePost(
 	ak types.AuthKeeper,
 	bk types.BankKeeper,
 	k keeper.Keeper,
 	txGen client.TxConfig,
 ) simtypes.Operation {
-	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
-	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		simAccount, _ := simtypes.RandomAcc(r, accs)
-
-		// Find or create a post to hide
-		otherAccount, _ := simtypes.RandomAcc(r, accs)
-		postID, err := getOrCreatePost(r, ctx, k, otherAccount.Address.String())
+	return operation(ak, bk, k, txGen, &types.MsgHidePost{}, func(e *simEnv) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
+		msg := &types.MsgHidePost{}
+		if e.params.ModerationPaused {
+			return noOp(msg, "moderation is paused")
+		}
+		sentinels, err := e.ensureSentinels()
 		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgHidePost{}), "failed to create post"), nil, nil
+			return noOpErr(msg, err)
 		}
-
-		// Use direct keeper calls to hide post (bypasses operations committee/sentinel checks)
-		post, err := k.Post.Get(ctx, postID)
+		sentinels = accountsWhere(sentinels, func(a simtypes.Account) bool {
+			return e.sentinelActionsLeft(a.Address.String(), reptypes.ActionKindForumHide, e.params.MaxHidesPerEpoch)
+		})
+		sentinel, ok := pick(e.r, sentinels)
+		if !ok {
+			return noOp(msg, "no sentinel under its hide cap and outside cooldown")
+		}
+		addr := sentinel.Address.String()
+		posts, err := e.postsWhere(func(p types.Post) bool { return visible(p) && p.Author != addr })
 		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgHidePost{}), "failed to get post"), nil, nil
+			return noOpErr(msg, err)
 		}
-
-		// Check if already hidden
-		if post.Status == types.PostStatus_POST_STATUS_HIDDEN {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgHidePost{}), "post already hidden"), nil, nil
+		post, ok := pick(e.r, posts)
+		if !ok {
+			return noOp(msg, "no visible post the sentinel did not write")
 		}
-
-		now := ctx.BlockTime().Unix()
-		post.Status = types.PostStatus_POST_STATUS_HIDDEN
-		post.HiddenBy = simAccount.Address.String()
-		post.HiddenAt = now
-
-		if err := k.Post.Set(ctx, postID, post); err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgHidePost{}), "failed to hide post"), nil, nil
+		reason := randomModerationReason(e.r)
+		msg.Creator, msg.PostId = addr, post.PostId
+		msg.ReasonCode = commontypes.Saturate[uint64](int32(reason))
+		if reason == commontypes.ModerationReason_MODERATION_REASON_OTHER {
+			msg.ReasonText = randomReason(e.r)
 		}
-
-		// Create hide record
-		hideRecord := types.HideRecord{
-			PostId:               postID,
-			Sentinel:             simAccount.Address.String(),
-			HiddenAt:             now,
-			SentinelBondSnapshot: "1000",
-			ReasonCode:           commontypes.ModerationReason_MODERATION_REASON_SPAM,
-			ReasonText:           randomReason(r),
+		msg.Authority = types.ModerationAuthority_MODERATION_AUTHORITY_SENTINEL
+		if e.r.Intn(2) == 0 {
+			msg.Authority = types.ModerationAuthority_MODERATION_AUTHORITY_AUTO
 		}
-		if err := k.HideRecord.Set(ctx, postID, hideRecord); err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgHidePost{}), "failed to create hide record"), nil, nil
-		}
-
-		// Return success
-		return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgHidePost{}), "ok (direct keeper call)"), nil, nil
-	}
+		return e.submit(sentinel, msg, math.ZeroInt())
+	})
 }

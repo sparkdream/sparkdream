@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	commontypes "sparkdream/x/common/types"
 	"sync"
 
 	abci "github.com/cometbft/cometbft/abci/types"
@@ -176,7 +177,7 @@ func (h *DKGVoteExtensionHandler) buildContributionExtension(ctx sdk.Context, dk
 	}
 
 	// Generate or reload our polynomial
-	_, commitments, err := h.keyStore.GeneratePolynomial(dkgState.Round, int(threshold))
+	_, commitments, err := h.keyStore.GeneratePolynomial(dkgState.Round, commontypes.Saturate[int](threshold))
 	if err != nil {
 		return nil, fmt.Errorf("polynomial generation failed: %w", err)
 	}
@@ -216,7 +217,7 @@ func (h *DKGVoteExtensionHandler) buildContributionExtension(ctx sdk.Context, dk
 	var encryptedEvals []*types.EncryptedEvaluation
 
 	for i, targetAddr := range dkgState.ExpectedValidators {
-		targetIdx := uint32(i + 1)
+		targetIdx := commontypes.Saturate[uint32](i + 1)
 		if targetIdx == selfIdx {
 			continue // Don't encrypt for ourselves
 		}
@@ -475,7 +476,7 @@ func isValInDKG(state types.DKGState, valAddr string) bool {
 func valDKGIndex(state types.DKGState, valAddr string) uint32 {
 	for i, v := range state.ExpectedValidators {
 		if v == valAddr {
-			return uint32(i + 1)
+			return commontypes.Saturate[uint32](i + 1)
 		}
 	}
 	return 0

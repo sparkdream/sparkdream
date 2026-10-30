@@ -37,7 +37,8 @@ func TestQueryLockedThreads(t *testing.T) {
 		post.LockedBy = testSentinel
 		post.LockedAt = f.sdkCtx().BlockTime().Unix()
 		post.LockReason = "Test lock"
-		f.keeper.Post.Set(f.ctx, post.PostId, post)
+		require.NoError(t, f.keeper.Post.Set(f.ctx, post.PostId, post))
+		require.NoError(t, f.keeper.LockedRoots.Set(f.ctx, post.PostId))
 
 		resp, err := qs.LockedThreads(f.ctx, &types.QueryLockedThreadsRequest{})
 		require.NoError(t, err)
@@ -54,7 +55,7 @@ func TestQueryLockedThreads(t *testing.T) {
 		reply.Locked = true
 		reply.LockedBy = testSentinel
 		reply.LockedAt = f.sdkCtx().BlockTime().Unix()
-		f.keeper.Post.Set(f.ctx, reply.PostId, reply)
+		require.NoError(t, f.keeper.Post.Set(f.ctx, reply.PostId, reply))
 
 		resp, err := qs.LockedThreads(f.ctx, &types.QueryLockedThreadsRequest{})
 		require.NoError(t, err)

@@ -1,54 +1,54 @@
 package simulation
 
 import (
-	"fmt"
-	"math/rand"
-
-	"github.com/cosmos/cosmos-sdk/baseapp"
+	"cosmossdk.io/math"
 	"github.com/cosmos/cosmos-sdk/client"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
 
 	"sparkdream/x/rep/keeper"
 	"sparkdream/x/rep/types"
 )
 
-// SimulateMsgResolveTagReport simulates a MsgResolveTagReport by removing the
-// tag report directly through the keeper, bypassing the operations committee
-// authorization check for simulation speed.
-func SimulateMsgResolveTagReport(
-	ak types.AuthKeeper,
-	bk types.BankKeeper,
-	k keeper.Keeper,
-	txGen client.TxConfig,
-) simtypes.Operation {
-	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
-	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		simAccount, _ := simtypes.RandomAcc(r, accs)
-
-		tagName, err := firstExistingTag(ctx, k)
-		if err != nil || tagName == "" {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgResolveTagReport{}), "no tags in registry"), nil, nil
+// SimulateMsgResolveTagReport has a Commons Operations Committee seat dismiss
+// an open tag report (a member files one first when none is open) (the reporters' bonds are forfeited). Removing or
+// reserving the tag is not simulated: the other modules' simulations draw
+// from the seeded tags and would lose them.
+func SimulateMsgResolveTagReport(ak types.AuthKeeper, bk types.BankKeeper, k keeper.Keeper, txGen client.TxConfig) simtypes.Operation {
+	label := &types.MsgResolveTagReport{}
+	return operation(ak, bk, k, txGen, label, func(e *simEnv) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
+		seats := e.liveSeats(commonsOpsCommittee)
+		if len(seats) == 0 {
+			return noOp(label, "no live Commons Operations Committee seat")
 		}
-
-		if _, err := k.TagReport.Get(ctx, tagName); err != nil {
-			now := ctx.BlockTime().Unix()
-			report := types.TagReport{
-				TagName:       tagName,
-				TotalBond:     fmt.Sprintf("%d", 10+r.Intn(90)),
-				FirstReportAt: now,
-				UnderReview:   false,
-				Reporters:     []string{simAccount.Address.String()},
+		open := false
+		if err := e.k.TagReport.Walk(e.ctx, nil, func(string, types.TagReport) (bool, error) {
+			open = true
+			return true, nil
+		}); err != nil {
+			return noOpErr(label, err)
+		}
+		if !open {
+			// Prerequisite: a member reports a tag.
+			cands, err := e.reportTagCandidates()
+			if err != nil {
+				return noOpErr(label, err)
 			}
-			if err := k.TagReport.Set(ctx, tagName, report); err != nil {
-				return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgResolveTagReport{}), "failed to seed tag report"), nil, nil
+			opMsg, fops, err := e.firstValid(&types.MsgReportTag{}, cands, 4, "no member can report a tag")
+			if err != nil || !opMsg.OK {
+				return opMsg, fops, err
 			}
 		}
-
-		if err := k.TagReport.Remove(ctx, tagName); err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgResolveTagReport{}), "failed to remove report"), nil, nil
+		var cands []candidate
+		err := e.k.TagReport.Walk(e.ctx, nil, func(name string, _ types.TagReport) (bool, error) {
+			by := seats[e.r.Intn(len(seats))]
+			cands = append(cands, candidate{acc: by, msg: &types.MsgResolveTagReport{
+				Creator: by.Address.String(), TagName: name, Action: 0,
+			}, spent: math.ZeroInt()})
+			return false, nil
+		})
+		if err != nil {
+			return noOpErr(label, err)
 		}
-
-		return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgResolveTagReport{}), "ok (direct keeper call)"), nil, nil
-	}
+		return e.firstValid(label, cands, 4, "no open tag report")
+	})
 }

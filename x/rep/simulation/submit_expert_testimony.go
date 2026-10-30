@@ -1,30 +1,35 @@
 package simulation
 
 import (
-	"math/rand"
-
-	"github.com/cosmos/cosmos-sdk/baseapp"
+	"cosmossdk.io/math"
 	"github.com/cosmos/cosmos-sdk/client"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
 
 	"sparkdream/x/rep/keeper"
 	"sparkdream/x/rep/types"
 )
 
-func SimulateMsgSubmitExpertTestimony(
-	ak types.AuthKeeper,
-	bk types.BankKeeper,
-	k keeper.Keeper,
-	txGen client.TxConfig,
-) simtypes.Operation {
-	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
-	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		// NOTE: This operation cannot succeed in simulation because expert testimony requires:
-		// 1. An active JuryReview (created when a challenge is responded to)
-		// 2. The expert must be qualified for the specific tags
-		// 3. The testimony must be submitted within the proper time window
-		// Setting up this state correctly is complex and cannot be done reliably in simulation.
-		return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgSubmitExpertTestimony{}), "skipped: requires active JuryReview"), nil, nil
-	}
+// SimulateMsgSubmitExpertTestimony has an expert witness of a PENDING jury
+// review testify. Experts are seated by SimulateMsgInviteExpertWitness.
+func SimulateMsgSubmitExpertTestimony(ak types.AuthKeeper, bk types.BankKeeper, k keeper.Keeper, txGen client.TxConfig) simtypes.Operation {
+	label := &types.MsgSubmitExpertTestimony{}
+	return operation(ak, bk, k, txGen, label, func(e *simEnv) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
+		rvs, err := e.juryReviews(func(rv types.JuryReview) bool {
+			return rv.Verdict == types.Verdict_VERDICT_PENDING && len(rv.ExpertWitnesses) > 0
+		})
+		if err != nil {
+			return noOpErr(label, err)
+		}
+		var cands []candidate
+		for _, rv := range rvs {
+			for _, w := range rv.ExpertWitnesses {
+				if acc, ok := e.account(w); ok {
+					cands = append(cands, candidate{acc: acc, msg: &types.MsgSubmitExpertTestimony{
+						Expert: w, JuryReviewId: rv.Id, Opinion: randomReason(e.r), Reasoning: randomReason(e.r),
+					}, spent: math.ZeroInt()})
+				}
+			}
+		}
+		return e.firstValid(label, cands, 4, "no pending jury review has an expert witness yet")
+	})
 }

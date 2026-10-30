@@ -116,10 +116,10 @@ func TestAfterMarketResolved_InvalidWinner_NoOp(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, initialExpiration, got.CurrentTermExpiration)
 
-	// Link is preserved on invalid winners (hook returns early without removal).
-	linked, err := k.MarketToGroup.Get(ctx, 3)
+	// The market is over: the link is removed on invalid winners too (FUT-07).
+	has, err := k.MarketToGroup.Has(ctx, 3)
 	require.NoError(t, err)
-	require.Equal(t, groupName, linked)
+	require.False(t, has)
 }
 
 func TestAfterMarketResolved_MissingGroup_Errors(t *testing.T) {

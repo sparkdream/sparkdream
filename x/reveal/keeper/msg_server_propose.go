@@ -24,7 +24,7 @@ func (k msgServer) Propose(ctx context.Context, msg *types.MsgPropose) (*types.M
 	}
 
 	// Verify contributor is an active member with sufficient trust level
-	if !k.repKeeper.IsMember(ctx, sdk.AccAddress(contributorAddr)) {
+	if !k.repKeeper.IsActiveMember(ctx, sdk.AccAddress(contributorAddr)) {
 		return nil, types.ErrNotMember
 	}
 
@@ -32,7 +32,7 @@ func (k msgServer) Propose(ctx context.Context, msg *types.MsgPropose) (*types.M
 	if err != nil {
 		return nil, err
 	}
-	if uint32(trustLevel) < params.MinProposerTrustLevel {
+	if commontypes.Saturate[uint32](trustLevel) < params.MinProposerTrustLevel {
 		return nil, types.ErrInsufficientTrustLevel.Wrapf("requires trust level %d, has %d", params.MinProposerTrustLevel, trustLevel)
 	}
 
@@ -63,7 +63,7 @@ func (k msgServer) Propose(ctx context.Context, msg *types.MsgPropose) (*types.M
 	if len(msg.Tranches) == 0 {
 		return nil, types.ErrNoTranches
 	}
-	if uint32(len(msg.Tranches)) > params.MaxTranches {
+	if len(msg.Tranches) > int(params.MaxTranches) {
 		return nil, types.ErrTooManyTranches.Wrapf("max %d, got %d", params.MaxTranches, len(msg.Tranches))
 	}
 	// Open code: revealed code ends up under a public-domain or permissive
@@ -85,6 +85,9 @@ func (k msgServer) Propose(ctx context.Context, msg *types.MsgPropose) (*types.M
 		if !t.StakeThreshold.IsPositive() {
 			return nil, types.ErrTrancheValuationTooHigh.Wrapf("tranche %d: stake threshold must be positive", i)
 		}
+		if t.StakeThreshold.LT(params.MinStakeAmount) {
+			return nil, types.ErrTrancheBelowMinStake.Wrapf("tranche %d: threshold %s, min_stake_amount %s", i, t.StakeThreshold, params.MinStakeAmount)
+		}
 		sum = sum.Add(t.StakeThreshold)
 	}
 	if !sum.Equal(msg.TotalValuation) {
@@ -102,7 +105,7 @@ func (k msgServer) Propose(ctx context.Context, msg *types.MsgPropose) (*types.M
 	for i, td := range msg.Tranches {
 		status := types.TrancheStatus_TRANCHE_STATUS_LOCKED
 		tranches[i] = types.RevealTranche{
-			Id:             uint32(i),
+			Id:             commontypes.Saturate[uint32](i),
 			Name:           td.Name,
 			Description:    td.Description,
 			Components:     td.Components,
@@ -137,7 +140,7 @@ func (k msgServer) Propose(ctx context.Context, msg *types.MsgPropose) (*types.M
 	}
 
 	// Save contribution and indexes
-	if err := k.Contribution.Set(ctx, contribID, contrib); err != nil {
+	if err := k.saveContribution(ctx, &contrib); err != nil {
 		return nil, err
 	}
 	if err := k.ContributionsByStatus.Set(ctx, collections.Join(int32(contrib.Status), contribID)); err != nil {

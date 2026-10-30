@@ -296,6 +296,13 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					Short:          "Prune orphan BridgeBindings (OpsComm or gov; recovery for fail-soft hook drops)",
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "peer_id"}},
 				},
+				{
+					RpcMethod:      "AttestIdentityLink",
+					Use:            "attest-identity-link [peer-id] [local-address] [remote-identity] [challenge-hex] [evidence-uri]",
+					Short:          "Attest that a member controls a remote identity on this bridge peer (bridge operator, bonded)",
+					Long:           "Verifies the member's UNVERIFIED link to a bridge peer. Fetch evidence-uri off-chain first and check that remote-identity published sparkdream-identity-link:<chain-id>:<local-address>:<challenge-hex> there; challenge-hex is the hex of the link's challenge (query get-identity-link). A false attestation is reported against your x/service bond.",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "peer_id"}, {ProtoField: "local_address"}, {ProtoField: "remote_identity"}, {ProtoField: "challenge"}, {ProtoField: "evidence_uri"}},
+				},
 			},
 		},
 	}

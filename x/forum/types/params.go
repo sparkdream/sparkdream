@@ -44,7 +44,6 @@ const (
 	DefaultSentinelUnhideWindow      = int64(86400)   // 24 hours; sentinel self-correct window for MsgUnhidePost
 	DefaultArchiveCooldown           = int64(2592000) // 30 days
 	DefaultUnarchiveCooldown         = int64(86400)   // 1 day
-	DefaultHideAppealCooldown        = int64(3600)    // 1 hour
 	DefaultLockAppealCooldown        = int64(3600)    // 1 hour
 	DefaultLockAppealDeadline        = int64(1209600) // 14 days
 	DefaultMoveAppealCooldown        = int64(3600)    // 1 hour
@@ -58,6 +57,10 @@ const (
 	// proposals one sentinel may make on a single thread. 2 allows one good-faith
 	// correction, then that sentinel is done proposing there. 0 disables the cap.
 	DefaultMaxAcceptProposalsPerSentinelPerThread = uint32(2)
+	// MaxRewardedCurationsPerEpoch caps how many confirmed curations per
+	// sentinel reward epoch earn the DREAM reward and the upheld accuracy
+	// tick. Confirmations past the cap still accept the reply.
+	MaxRewardedCurationsPerEpoch = uint64(10)
 
 	// Sentinel requirements
 	DefaultMinRepTierSentinel   = uint64(0) // No rep-tier floor; trust-level gate + bond + accuracy metrics are the eligibility filters
@@ -68,6 +71,9 @@ const (
 	DefaultMaxHidesPerEpoch         = uint64(50)
 	DefaultMaxSentinelLocksPerEpoch = uint64(5)
 	DefaultMaxSentinelMovesPerEpoch = uint64(10)
+	// MaxSentinelPinsPerEpoch caps sentinel reply pins per sentinel reward
+	// epoch (pins are a rewarded action, like hides / locks / moves).
+	MaxSentinelPinsPerEpoch = uint64(20)
 
 	// ModerationEpochCapCeiling is the upper bound for the per-action epoch
 	// caps (hides/locks/moves). A sanity ceiling so a stored cap can't be set
@@ -104,7 +110,10 @@ const (
 	DefaultSentinelUnbondCooldown = int64(1209600) // 14 days
 
 	// Archive limits
-	DefaultMaxArchiveCycles  = uint64(5)
+	DefaultMaxArchiveCycles = uint64(5)
+	// MaxArchivePostCount caps a thread (root + replies) that MsgFreezeThread
+	// will archive, so freeze and unarchive stay bounded in gas.
+	MaxArchivePostCount      = uint64(500)
 	DefaultMaxSalvationDepth = uint64(10)
 
 	// Pin limits
@@ -112,8 +121,23 @@ const (
 	DefaultMaxPinnedRepliesPerThread = uint64(3)
 
 	// Bounty limits
-	DefaultMaxBountyWinners             = uint64(5)
+	DefaultMaxBountyWinners = uint64(5)
+	// MinBountyAmount is the smallest bounty escrow and the smallest
+	// increase, in bond-denom base units: 50 SPARK at the bond denom's 6
+	// decimals. The denom itself comes from x/identity at runtime.
+	MinBountyAmount                     = int64(50_000_000)
 	DefaultBountyCancellationFeePercent = uint64(10) // 10%
+	// BountyExpiryBurnBps: share of an unawarded bounty burned at expiry
+	// when an eligible top reply exists; the rest goes to that reply's
+	// author (spec bounty_expiry_burn_ratio, compiled, not a param).
+	BountyExpiryBurnBps = uint64(5000) // 50%
+	// BountyModerationFeeBps: share burned when a bounty is cancelled because
+	// the moderation of its thread stood (spec bounty_moderation_fee_ratio,
+	// compiled, not a param).
+	BountyModerationFeeBps = uint64(250) // 2.5%
+	// MaxBountyTopReplyScan caps the replies read when the expiry pass looks
+	// for the top reply of an unawarded bounty.
+	MaxBountyTopReplyScan = uint64(500)
 
 	// Flag settings
 	DefaultFlagReviewThreshold = uint64(5)
@@ -157,15 +181,18 @@ const (
 // finalization (and its slash hooks) within a few blocks.
 var DefaultHiddenExpiration = hiddenExpirationDefault()
 
+// DefaultHideAppealCooldown is how long after a hide its appeal opens: 1
+// hour on the networks. It must stay below DefaultHiddenExpiration or no
+// hide could ever be appealed (Validate enforces it), so the testparams
+// build shortens it with the hidden expiration.
+var DefaultHideAppealCooldown = hideAppealCooldownDefault()
+
 // Default fee amounts (all in bond-denom micro-units).
 var (
 	DefaultSpamTaxAmount              = math.NewInt(1000000)    // 1 SPARK
 	DefaultReactionSpamTaxAmount      = math.NewInt(100000)     // 0.1 SPARK
 	DefaultFlagSpamTaxAmount          = math.NewInt(100000)     // 0.1 SPARK
 	DefaultDownvoteDepositAmount      = math.NewInt(50000)      // 0.05 SPARK
-	DefaultAppealFeeAmount            = math.NewInt(5000000)    // 5 SPARK
-	DefaultLockAppealFeeAmount        = math.NewInt(5000000)    // 5 SPARK
-	DefaultMoveAppealFeeAmount        = math.NewInt(5000000)    // 5 SPARK
 	DefaultEditFeeAmount              = math.NewInt(10000)      // 0.01 SPARK
 	DefaultTagReportBond              = math.NewInt(10_000_000) // 10 DREAM (in udream)
 	DefaultCostPerByteAmount          = math.NewInt(100)        // 100 micro-units/byte (~1 SPARK for 10KB)
@@ -231,9 +258,6 @@ func NewParams() Params {
 		ReactionSpamTaxAmount:                  DefaultReactionSpamTaxAmount,
 		FlagSpamTaxAmount:                      DefaultFlagSpamTaxAmount,
 		DownvoteDepositAmount:                  DefaultDownvoteDepositAmount,
-		AppealFeeAmount:                        DefaultAppealFeeAmount,
-		LockAppealFeeAmount:                    DefaultLockAppealFeeAmount,
-		MoveAppealFeeAmount:                    DefaultMoveAppealFeeAmount,
 		EditFeeAmount:                          DefaultEditFeeAmount,
 		BountyCancellationFeePercent:           DefaultBountyCancellationFeePercent,
 		MaxContentSize:                         DefaultMaxContentSize,
@@ -301,6 +325,12 @@ func (p Params) Validate() error {
 	}
 	if p.EphemeralTtl <= 0 {
 		return fmt.Errorf("ephemeral_ttl must be positive: %d", p.EphemeralTtl)
+	}
+	// A hide finalizes DefaultHiddenExpiration after it is made; an appeal
+	// opens HideAppealCooldown after it. A cooldown at or past the
+	// expiration leaves no window in which any hide can be appealed.
+	if p.HideAppealCooldown >= DefaultHiddenExpiration {
+		return fmt.Errorf("hide_appeal_cooldown (%d) must be below the hidden-post expiration (%d s) or no hide can be appealed", p.HideAppealCooldown, DefaultHiddenExpiration)
 	}
 	if p.MinSentinelTrustLevel != "" {
 		if _, ok := reptypes.TrustLevel_value[p.MinSentinelTrustLevel]; !ok {
@@ -437,9 +467,6 @@ func DefaultForumOperationalParams() ForumOperationalParams {
 		ReactionSpamTaxAmount:                  DefaultReactionSpamTaxAmount,
 		FlagSpamTaxAmount:                      DefaultFlagSpamTaxAmount,
 		DownvoteDepositAmount:                  DefaultDownvoteDepositAmount,
-		AppealFeeAmount:                        DefaultAppealFeeAmount,
-		LockAppealFeeAmount:                    DefaultLockAppealFeeAmount,
-		MoveAppealFeeAmount:                    DefaultMoveAppealFeeAmount,
 		EditFeeAmount:                          DefaultEditFeeAmount,
 		CostPerByteAmount:                      DefaultCostPerByteAmount,
 		CostPerByteExempt:                      false,
@@ -594,9 +621,6 @@ func (p Params) ApplyOperationalParams(op ForumOperationalParams) Params {
 	p.ReactionSpamTaxAmount = op.ReactionSpamTaxAmount
 	p.FlagSpamTaxAmount = op.FlagSpamTaxAmount
 	p.DownvoteDepositAmount = op.DownvoteDepositAmount
-	p.AppealFeeAmount = op.AppealFeeAmount
-	p.LockAppealFeeAmount = op.LockAppealFeeAmount
-	p.MoveAppealFeeAmount = op.MoveAppealFeeAmount
 	p.EditFeeAmount = op.EditFeeAmount
 	p.CostPerByteAmount = op.CostPerByteAmount
 	p.CostPerByteExempt = op.CostPerByteExempt
@@ -657,9 +681,6 @@ func (p Params) ExtractOperationalParams() ForumOperationalParams {
 		ReactionSpamTaxAmount:                  p.ReactionSpamTaxAmount,
 		FlagSpamTaxAmount:                      p.FlagSpamTaxAmount,
 		DownvoteDepositAmount:                  p.DownvoteDepositAmount,
-		AppealFeeAmount:                        p.AppealFeeAmount,
-		LockAppealFeeAmount:                    p.LockAppealFeeAmount,
-		MoveAppealFeeAmount:                    p.MoveAppealFeeAmount,
 		EditFeeAmount:                          p.EditFeeAmount,
 		CostPerByteAmount:                      p.CostPerByteAmount,
 		CostPerByteExempt:                      p.CostPerByteExempt,

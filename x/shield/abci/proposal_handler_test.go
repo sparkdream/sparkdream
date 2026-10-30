@@ -49,6 +49,18 @@ func mustMarshalExt(t *testing.T, ext *types.DKGVoteExtension) []byte {
 	return bz
 }
 
+// safeMarshalExt marshals ext, or returns nil for a deliberately malformed
+// extension the encoder can't handle (e.g. a nil evaluation entry).
+func safeMarshalExt(ext *types.DKGVoteExtension) (bz []byte) {
+	defer func() {
+		if recover() != nil {
+			bz = nil
+		}
+	}()
+	bz, _ = ext.Marshal()
+	return bz
+}
+
 func prepareReq(maxTxBytes int64, votes ...abcitypes.ExtendedVoteInfo) *abcitypes.RequestPrepareProposal {
 	return &abcitypes.RequestPrepareProposal{
 		MaxTxBytes:      maxTxBytes,
@@ -108,12 +120,12 @@ func TestPrepareProposalFallsThrough(t *testing.T) {
 			if tc.setup != nil {
 				// Valid registrations are on offer; the handler must ignore them.
 				for v, ext := range c.registrations(t) {
-					votes = append(votes, commitVote(c.cons[v], mustMarshalExt(t, ext)))
+					votes = append(votes, c.vote(v, mustMarshalExt(t, ext)))
 				}
 				tc.setup(t, c)
 			} else {
 				for _, v := range c.vals {
-					votes = append(votes, commitVote(c.cons[v], nil))
+					votes = append(votes, c.vote(v, nil))
 				}
 			}
 			rec := newRecordingNext()
@@ -143,17 +155,17 @@ func TestPrepareProposalInjectsValidExtensions(t *testing.T) {
 	for _, v := range c.vals {
 		byCons[string(c.cons[v])] = v
 	}
-	c.k.SetStakingKeeper(stakingStub{byCons: byCons})
+	c.k.SetStakingKeeper(stakingStub{byCons: byCons, pubs: c.pubs})
 
 	const maxTxBytes = int64(1 << 20)
 	votes := []abcitypes.ExtendedVoteInfo{
-		commitVote(c.cons["val1"], mustMarshalExt(t, regs["val1"])),
-		commitVote(c.cons["val2"], mustMarshalExt(t, regs["val2"])),
-		commitVote(c.cons["val3"], mustMarshalExt(t, regs["val1"])),                 // val1's PoP under val3: invalid
+		c.vote("val1", mustMarshalExt(t, regs["val1"])),
+		c.vote("val2", mustMarshalExt(t, regs["val2"])),
+		c.vote("val3", mustMarshalExt(t, regs["val1"])),                             // val1's PoP under val3: invalid
 		commitVote([]byte("nobody-nobody-nobody"), mustMarshalExt(t, regs["val3"])), // unknown cons addr
 		commitVote(outsider, mustMarshalExt(t, regs["val3"])),                       // not a participant
-		commitVote(c.cons["val3"], []byte{0xff, 0xff, 0xff}),                        // malformed
-		commitVote(c.cons["val3"], nil),                                             // no extension
+		c.vote("val3", []byte{0xff, 0xff, 0xff}),                                    // malformed
+		c.vote("val3", nil),                                                         // no extension
 	}
 	rec := newRecordingNext()
 	resp, err := PrepareProposalHandler(c.k, rec.handler())(c.ctx, prepareReq(maxTxBytes, votes...))
@@ -193,9 +205,9 @@ func TestPrepareProposalInjectsDecryptionShares(t *testing.T) {
 		return mustMarshalExt(t, &types.DKGVoteExtension{Round: 1, Phase: types.DKGPhase_DKG_PHASE_ACTIVE, DecryptionEpoch: epoch, DecryptionShare: sh})
 	}
 	votes := []abcitypes.ExtendedVoteInfo{
-		commitVote(f.cons["val1"], shareExt(tle.DecryptionShare(f.secrets["val1"], epoch))),
-		commitVote(f.cons["val2"], shareExt(forged)),
-		commitVote(f.cons["val3"], shareExt(tle.DecryptionShare(f.secrets["val3"], epoch))),
+		f.vote("val1", shareExt(tle.DecryptionShare(f.secrets["val1"], epoch))),
+		f.vote("val2", shareExt(forged)),
+		f.vote("val3", shareExt(tle.DecryptionShare(f.secrets["val3"], epoch))),
 	}
 	rec := newRecordingNext()
 	resp, err := PrepareProposalHandler(f.k, rec.handler())(f.ctx, prepareReq(1<<20, votes...))
@@ -223,13 +235,13 @@ func TestPrepareProposalInjectionBudget(t *testing.T) {
 	regs := c.registrations(t)
 	var votes []abcitypes.ExtendedVoteInfo
 	for _, v := range c.vals {
-		votes = append(votes, commitVote(c.cons[v], mustMarshalExt(t, regs[v])))
+		votes = append(votes, c.vote(v, mustMarshalExt(t, regs[v])))
 	}
 
 	// Mirror the handler's accounting: header allowance + (item size + 8) each.
 	header := int64(len(DKGInjectionPrefix)) + 16
 	itemSize := func(v string) int64 {
-		ve := &types.ValidatorDKGExtension{ValidatorAddress: c.cons[v], Extension: *regs[v]}
+		ve := c.signedExt(v, regs[v])
 		return int64(ve.Size()) + 8
 	}
 
@@ -286,9 +298,9 @@ func checkExtCases(t *testing.T, c *ceremonyFixture, baseOp string, base *types.
 	st, found := c.k.GetDKGStateVal(c.ctx)
 	require.True(t, found)
 	require.NoError(t, validateExtension(c.ctx, c.k, base, st, baseOp), "base extension is valid")
-	require.NoError(t, validateInjectedDKGData(c.ctx, c.k, &types.InjectedDKGData{
+	require.NoError(t, validateInjected(c.ctx, c.k, &types.InjectedDKGData{
 		Round: st.Round, Phase: st.Phase,
-		Extensions: []*types.ValidatorDKGExtension{{ValidatorAddress: c.cons[baseOp], Extension: *base}},
+		Extensions: []*types.ValidatorDKGExtension{c.signedExt(baseOp, base)},
 	}))
 	for _, tc := range cases {
 		t.Run(st.Phase.String()+"/"+tc.name, func(t *testing.T) {
@@ -303,12 +315,19 @@ func checkExtCases(t *testing.T, c *ceremonyFixture, baseOp string, base *types.
 			if !ok {
 				return // no consensus address to inject under
 			}
-			err = validateInjectedDKGData(c.ctx, c.k, &types.InjectedDKGData{
+			bad := &types.ValidatorDKGExtension{ValidatorAddress: cons, Extension: *ext, ExtensionSignature: c.sign(op, safeMarshalExt(ext))}
+			if op == baseOp {
+				// One extension per validator: inject the bad one alone.
+				err = validateInjected(c.ctx, c.k, &types.InjectedDKGData{
+					Round: st.Round, Phase: st.Phase, Extensions: []*types.ValidatorDKGExtension{bad},
+				})
+				require.ErrorContains(t, err, "extension 0")
+				require.ErrorContains(t, err, tc.errSub)
+				return
+			}
+			err = validateInjected(c.ctx, c.k, &types.InjectedDKGData{
 				Round: st.Round, Phase: st.Phase,
-				Extensions: []*types.ValidatorDKGExtension{
-					{ValidatorAddress: c.cons[baseOp], Extension: *base},
-					{ValidatorAddress: cons, Extension: *ext},
-				},
+				Extensions: []*types.ValidatorDKGExtension{c.signedExt(baseOp, base), bad},
 			})
 			require.ErrorContains(t, err, "extension 1")
 			require.ErrorContains(t, err, tc.errSub)
@@ -456,13 +475,16 @@ func TestValidateActiveAndInjectionEnvelope(t *testing.T) {
 	empty := base
 	empty.DecryptionShare = nil
 	require.ErrorContains(t, validateExtension(f.ctx, f.k, &empty, st, "val1"), "empty decryption share")
-	require.ErrorContains(t, validateInjectedDKGData(f.ctx, f.k, &types.InjectedDKGData{Round: 1, Phase: types.DKGPhase_DKG_PHASE_ACTIVE,
+	require.ErrorContains(t, validateInjected(f.ctx, f.k, &types.InjectedDKGData{Round: 1, Phase: types.DKGPhase_DKG_PHASE_ACTIVE,
 		Extensions: []*types.ValidatorDKGExtension{{ValidatorAddress: f.cons["val1"], Extension: empty}}}), "empty decryption share")
 
 	share := func(cons []byte, sh []byte) *types.InjectedDecryptionShare {
 		return &types.InjectedDecryptionShare{ValidatorAddress: cons, Epoch: epoch, Share: sh}
 	}
 	ext := func(cons []byte) *types.ValidatorDKGExtension {
+		if string(cons) == string(f.cons["val1"]) {
+			return f.signedExt("val1", &base)
+		}
 		return &types.ValidatorDKGExtension{ValidatorAddress: cons, Extension: base}
 	}
 	cases := []struct {
@@ -481,18 +503,18 @@ func TestValidateActiveAndInjectionEnvelope(t *testing.T) {
 		{"share from unknown cons addr", &types.InjectedDKGData{Round: 1, Phase: st.Phase, DecryptionShares: []*types.InjectedDecryptionShare{share([]byte("nobody-nobody-nobody"), good)}}, "validator not found"},
 		{"share under another validator", &types.InjectedDKGData{Round: 1, Phase: st.Phase, DecryptionShares: []*types.InjectedDecryptionShare{share(f.cons["val2"], good)}}, "decryption share 0 from val2"},
 	}
-	require.NoError(t, validateInjectedDKGData(f.ctx, f.k, &types.InjectedDKGData{Round: 1, Phase: st.Phase,
+	require.NoError(t, validateInjected(f.ctx, f.k, &types.InjectedDKGData{Round: 1, Phase: st.Phase,
 		Extensions:       []*types.ValidatorDKGExtension{ext(f.cons["val1"])},
 		DecryptionShares: []*types.InjectedDecryptionShare{share(f.cons["val1"], good)}}), "valid envelope")
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			require.ErrorContains(t, validateInjectedDKGData(f.ctx, f.k, tc.data), tc.errSub)
+			require.ErrorContains(t, validateInjected(f.ctx, f.k, tc.data), tc.errSub)
 		})
 	}
 
 	t.Run("no DKG state", func(t *testing.T) {
 		require.NoError(t, f.k.DKGState.Remove(f.ctx))
-		require.ErrorContains(t, validateInjectedDKGData(f.ctx, f.k, &types.InjectedDKGData{Round: 1, Phase: st.Phase}), "no DKG state")
+		require.ErrorContains(t, validateInjected(f.ctx, f.k, &types.InjectedDKGData{Round: 1, Phase: st.Phase}), "no DKG state")
 		// ProcessProposal rejects any injection then.
 		bz, err := EncodeDKGInjection(&types.InjectedDKGData{Round: 1, Phase: st.Phase})
 		require.NoError(t, err)

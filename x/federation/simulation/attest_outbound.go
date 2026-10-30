@@ -1,53 +1,49 @@
 package simulation
 
 import (
-	"math/rand"
+	"fmt"
 
-	"github.com/cosmos/cosmos-sdk/baseapp"
+	"cosmossdk.io/math"
 	"github.com/cosmos/cosmos-sdk/client"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
 
 	"sparkdream/x/federation/keeper"
 	"sparkdream/x/federation/types"
 )
 
+// SimulateMsgAttestOutbound delivers MsgAttestOutbound from a working bridge
+// binding (registering one first when none exists) for an outbound content
+// type of the peer policy. A NoOp when there is no ACTIVE bridged peer or
+// the policy allows no outbound type.
 func SimulateMsgAttestOutbound(
 	ak types.AuthKeeper,
 	bk types.BankKeeper,
 	k keeper.Keeper,
 	txGen client.TxConfig,
 ) simtypes.Operation {
-	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
-	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		simAccount, _ := simtypes.RandomAcc(r, accs)
-		addr := simAccount.Address.String()
-
-		// Need an active bridge for the operator
-		bridge, err := getOrCreateActiveBridge(r, ctx, k, addr)
+	return operation(ak, bk, k, txGen, &types.MsgAttestOutbound{}, func(e *simEnv) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
+		msg := &types.MsgAttestOutbound{}
+		b, ok, err := e.ensureBinding(func(b types.BridgeBinding) bool {
+			pol, found := e.policy(b.PeerId)
+			return found && len(pol.OutboundContentTypes) > 0
+		}, func(p types.Peer) bool {
+			pol, found := e.policy(p.Id)
+			return found && len(pol.OutboundContentTypes) > 0
+		}, anyone)
 		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgAttestOutbound{}), "failed to get/create active bridge"), nil, nil
+			return noOpErr(msg, err)
 		}
-
-		attestID, err := k.OutboundAttestSeq.Next(ctx)
-		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgAttestOutbound{}), "failed to get attest ID"), nil, nil
+		if !ok {
+			return noOp(msg, "no working bridge binding on a peer with outbound content types")
 		}
-
-		attestation := types.OutboundAttestation{
-			Id:             attestID,
-			PeerId:         bridge.PeerId,
-			ContentType:    randomContentType(r),
-			LocalContentId: simtypes.RandStringOfLength(r, 8),
-			Creator:        addr,
-			SubmittedBy:    addr,
-			PublishedAt:    ctx.BlockTime().Unix(),
+		acc, ok := e.account(b.Address)
+		if !ok {
+			return noOp(msg, "bridge operator is not a live sim account")
 		}
-
-		if err := k.OutboundAttestations.Set(ctx, attestID, attestation); err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgAttestOutbound{}), "failed to set attestation"), nil, nil
-		}
-
-		return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgAttestOutbound{}), "ok (direct keeper call)"), nil, nil
-	}
+		pol, _ := e.policy(b.PeerId)
+		ct, _ := pick(e.r, pol.OutboundContentTypes)
+		msg.Operator, msg.PeerId, msg.ContentType = b.Address, b.PeerId, ct
+		msg.LocalContentId = fmt.Sprintf("%s/%d", ct, e.r.Intn(100_000))
+		return e.submit(acc, msg, math.ZeroInt())
+	})
 }

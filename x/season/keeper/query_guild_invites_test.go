@@ -60,12 +60,12 @@ func TestQueryGuildInvites(t *testing.T) {
 			GuildInvitee: inviteeStr,
 			Inviter:      founderStr,
 		}
-		k.GuildInvite.Set(ctx, key, invite)
+		require.NoError(t, k.GuildInvite.Set(ctx, key, invite))
 
 		// Update guild's pending invites
 		guild, _ := k.Guild.Get(ctx, guildID)
 		guild.PendingInvites = []string{inviteeStr}
-		k.Guild.Set(ctx, guildID, guild)
+		require.NoError(t, k.Guild.Set(ctx, guildID, guild))
 
 		resp, err := qs.GuildInvites(ctx, &types.QueryGuildInvitesRequest{GuildId: guildID})
 		require.NoError(t, err)

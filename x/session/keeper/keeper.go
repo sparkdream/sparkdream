@@ -19,8 +19,11 @@ import (
 // Stored as a shared pointer so value-copies of Keeper (in AppModule, msgServer)
 // see updates made after NewAppModule().
 type lateKeepers struct {
-	router         baseapp.MessageRouter
-	commonsKeeper  types.CommonsKeeper
+	router        baseapp.MessageRouter
+	commonsKeeper types.CommonsKeeper
+	// granterOwners: calling module address -> the granters it controls
+	// (bypass creator binding, SES-09).
+	granterOwners  map[string]types.GranterOwner
 	identityKeeper types.IdentityKeeper
 	// claimHooks are invoked at MsgClaimRecurringPull / MsgPullAllowance /
 	// scheduled-oneshot-transfer-fire time to let downstream modules gate
@@ -80,6 +83,14 @@ type Keeper struct {
 	// PausedOneshotByPauseTime: (pause_unix, grant_id) -> empty.
 	// Drives the EndBlocker paused-TTL auto-revoke pass.
 	PausedOneshotByPauseTime collections.KeySet[collections.Pair[int64, uint64]]
+
+	// GrantsByFireTime: (fire_at, grant_id) -> empty for ACTIVE oneshots.
+	// Drives the EndBlocker fire pass; rebuilt from the grants at genesis.
+	GrantsByFireTime collections.KeySet[collections.Pair[int64, uint64]]
+
+	// GrantCreatorModule: grant_id -> creating module address, written by
+	// CreateGrantOnBehalfOf and cleared with the grant.
+	GrantCreatorModule collections.Map[uint64, string]
 }
 
 func NewKeeper(
@@ -158,6 +169,14 @@ func NewKeeper(
 			sb, types.PausedOneshotByPauseTimeKey, "paused_oneshot_by_pause_time",
 			collections.PairKeyCodec(collections.Int64Key, collections.Uint64Key),
 		),
+		GrantsByFireTime: collections.NewKeySet(
+			sb, types.GrantsByFireTimeKey, "grants_by_fire_time",
+			collections.PairKeyCodec(collections.Int64Key, collections.Uint64Key),
+		),
+		GrantCreatorModule: collections.NewMap(
+			sb, types.GrantCreatorModuleKey, "grant_creator_module",
+			collections.Uint64Key, collections.StringValue,
+		),
 	}
 
 	schema, err := sb.Build()
@@ -172,6 +191,22 @@ func NewKeeper(
 // SetRouter wires the MsgServiceRouter after app build for inner message dispatch.
 func (k Keeper) SetRouter(router baseapp.MessageRouter) {
 	k.late.router = router
+}
+
+// SetGranterOwner registers which granters the bypass caller moduleAddr
+// controls. Wired in app.go post-depinject.
+func (k Keeper) SetGranterOwner(moduleAddr string, owner types.GranterOwner) {
+	if k.late.granterOwners == nil {
+		k.late.granterOwners = map[string]types.GranterOwner{}
+	}
+	k.late.granterOwners[moduleAddr] = owner
+}
+
+// callerManagesGranter reports whether the bypass caller controls granter
+// through its registered GranterOwner.
+func (k Keeper) callerManagesGranter(ctx context.Context, callerModuleAddr, granter string, revoke bool) bool {
+	owner, ok := k.late.granterOwners[callerModuleAddr]
+	return ok && owner != nil && owner.ManagesGranter(ctx, granter, revoke)
 }
 
 // SetCommonsKeeper wires the optional CommonsKeeper used for council-gated
@@ -248,9 +283,10 @@ func (k Keeper) invokePostCommitHooks(ctx context.Context, grant types.Grant, am
 	return k.late.claimHooks.PostCommit(ctx, grant, amount)
 }
 
-// isCouncilAuthorized returns true when addr is either the governance authority
-// or (when CommonsKeeper is wired) a member/policy of the given council/committee.
-func (k Keeper) isCouncilAuthorized(ctx context.Context, addr string, council string, committee string) bool {
+// isCouncilPolicy returns true when addr is the governance authority or
+// (when CommonsKeeper is wired) the council or committee policy address.
+// A single committee member's signature never passes.
+func (k Keeper) isCouncilPolicy(ctx context.Context, addr string, council string, committee string) bool {
 	addrBytes, err := k.addressCodec.StringToBytes(addr)
 	if err != nil {
 		return false
@@ -261,7 +297,7 @@ func (k Keeper) isCouncilAuthorized(ctx context.Context, addr string, council st
 	if k.late.commonsKeeper == nil {
 		return false
 	}
-	return k.late.commonsKeeper.IsCouncilAuthorized(ctx, addr, council, committee)
+	return k.late.commonsKeeper.IsCouncilOrCommitteePolicy(ctx, addr, council, committee)
 }
 
 // GetAuthority returns the module's authority.

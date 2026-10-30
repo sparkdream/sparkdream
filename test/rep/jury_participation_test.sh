@@ -11,6 +11,9 @@ CHAIN_ID="sparkdream"
 # poster1/moderator alongside the challenger/juror/assignee accounts.
 REP_ENV="$SCRIPT_DIR/.test_env"
 
+# Member-report resolutions go through an Operations Committee proposal.
+source "$SCRIPT_DIR/../lib/ops_committee.sh"
+
 if [ -f "$REP_ENV" ]; then
     source "$REP_ENV"
 else
@@ -244,42 +247,18 @@ echo "--- PART 33: RESOLVE MEMBER REPORT ERROR - REPORT NOT FOUND ---"
 
 PART33_RESULT="FAIL"
 
-# Use a random address that has no report
-TX_RES=$($BINARY tx rep resolve-member-report \
-    "sprkdrm1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqn2ccpe" \
-    "0" \
-    "No report exists for this member" \
-    --from alice \
-    --chain-id $CHAIN_ID \
-    --keyring-backend test \
-    --fees 5000${BOND_DENOM} \
-    -y \
-    --output json 2>&1)
-
-TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
-
-if [ -n "$TXHASH" ] && [ "$TXHASH" != "null" ]; then
-    sleep 6
-    TX_RESULT=$(wait_for_tx $TXHASH)
-    CODE=$(echo "$TX_RESULT" | jq -r '.code')
-    RAW_LOG=$(echo "$TX_RESULT" | jq -r '.raw_log // ""')
-
-    if [ "$CODE" != "0" ]; then
-        if echo "$RAW_LOG" | grep -qi "not found\|report not found"; then
-            echo "  Correctly rejected: $RAW_LOG"
-            PART33_RESULT="PASS"
-        else
-            echo "  Tx failed but unexpected error: $RAW_LOG"
-        fi
-    else
-        echo "  Expected failure but tx succeeded"
-    fi
+# Resolutions are accepted only from the Commons Operations Committee policy
+# (an executed proposal), never from a single member: route it through a
+# committee proposal, whose execution must fail with "report not found".
+MSG=$(jq -nc --arg m "sprkdrm1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqn2ccpe" \
+    '{"@type":"/sparkdream.rep.v1.MsgResolveMemberReport",member:$m,action:"0",reason:"No report exists for this member"}')
+if ops_committee_exec "$MSG" creator; then
+    echo "  Expected failure but the proposal executed"
+elif echo "$OPS_COMMITTEE_ERROR" | grep -qi "not found\|report not found"; then
+    echo "  Correctly rejected: $OPS_COMMITTEE_ERROR"
+    PART33_RESULT="PASS"
 else
-    echo "  Tx rejected at broadcast"
-    RAW_LOG=$(echo "$TX_RES" | jq -r '.raw_log // .message // .' 2>/dev/null | head -1)
-    if echo "$RAW_LOG" | grep -qi "not found\|report not found"; then
-        PART33_RESULT="PASS"
-    fi
+    echo "  Unexpected error: $OPS_COMMITTEE_ERROR"
 fi
 
 echo "  Result: $PART33_RESULT"

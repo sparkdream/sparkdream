@@ -2,6 +2,7 @@ package keeper
 
 import (
 	"context"
+	commontypes "sparkdream/x/common/types"
 
 	"sparkdream/x/forum/types"
 
@@ -36,7 +37,7 @@ func (q queryServer) BountyByThread(ctx context.Context, req *types.QueryBountyB
 		return &types.QueryBountyByThreadResponse{
 			BountyId: foundBounty.Id,
 			Amount:   foundBounty.Amount,
-			Status:   uint64(foundBounty.Status),
+			Status:   commontypes.Saturate[uint64](foundBounty.Status),
 		}, nil
 	}
 

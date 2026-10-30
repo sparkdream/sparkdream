@@ -156,10 +156,10 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 				},
 				{
 					RpcMethod:      "GetGuildInvite",
-					Use:            "get-guild-invite [id]",
+					Use:            "get-guild-invite [guild-id] [invitee]",
 					Short:          "Gets a guild-invite",
 					Alias:          []string{"show-guild-invite"},
-					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "guild_invitee"}},
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "guild_id"}, {ProtoField: "guild_invitee"}},
 				},
 				{
 					RpcMethod: "ListQuest",

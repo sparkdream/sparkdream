@@ -1,0 +1,13 @@
+syntax = "proto3";
+package sparkdream.commons.v1;
+
+option go_package = "sparkdream/x/commons/types";
+
+// PollVote is a member's open vote on a poll.
+message PollVote {
+  uint64 poll_id = 1;
+  string voter = 2;
+  // option is the index into the poll's options.
+  uint64 option = 3;
+  int64 voted_at = 4;
+}

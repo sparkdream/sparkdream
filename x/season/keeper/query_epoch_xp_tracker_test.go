@@ -22,7 +22,9 @@ func createNEpochXpTracker(keeper keeper.Keeper, ctx context.Context, n int) []t
 		items[i].ForumXpEarned = uint64(i)
 		items[i].QuestXpEarned = uint64(i)
 		items[i].OtherXpEarned = uint64(i)
-		_ = keeper.EpochXpTracker.Set(ctx, items[i].MemberEpoch, items[i])
+		if err := keeper.EpochXpTracker.Set(ctx, items[i].MemberEpoch, items[i]); err != nil {
+			panic(err)
+		}
 	}
 	return items
 }

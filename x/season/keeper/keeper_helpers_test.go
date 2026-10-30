@@ -1,11 +1,13 @@
 package keeper_test
 
 import (
+	"strings"
 	"testing"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/stretchr/testify/require"
 
+	"sparkdream/x/season/keeper"
 	"sparkdream/x/season/types"
 )
 
@@ -236,7 +238,7 @@ func TestValidateGuildName(t *testing.T) {
 	k := f.keeper
 
 	t.Run("valid guild name", func(t *testing.T) {
-		err := k.ValidateGuildName(ctx, "My Awesome Guild")
+		err := k.ValidateGuildName(ctx, "my-awesome_guild")
 		require.NoError(t, err)
 	})
 
@@ -248,20 +250,26 @@ func TestValidateGuildName(t *testing.T) {
 
 	t.Run("guild name taken", func(t *testing.T) {
 		// Create a guild first
-		SetupGuild(t, k, ctx, TestAddrFounder, "Existing Guild", "Description")
+		SetupGuild(t, k, ctx, TestAddrFounder, "existing-guild", "Description")
 
 		// Try to validate the same name
-		err := k.ValidateGuildName(ctx, "Existing Guild")
+		err := k.ValidateGuildName(ctx, "existing-guild")
 		require.Error(t, err)
 		require.ErrorIs(t, err, types.ErrGuildNameTaken)
 	})
 
-	t.Run("guild name case insensitive check", func(t *testing.T) {
-		// The guild "Existing Guild" was created above
-		err := k.ValidateGuildName(ctx, "existing guild")
-		require.Error(t, err)
-		require.ErrorIs(t, err, types.ErrGuildNameTaken)
+	t.Run("guild name too long", func(t *testing.T) {
+		err := k.ValidateGuildName(ctx, strings.Repeat("a", keeper.GuildNameMaxLength+1))
+		require.ErrorIs(t, err, types.ErrGuildNameTooLong)
 	})
+
+	// Guild names are reserved in x/name, so they must use its format
+	// (a name x/name refuses would make every CreateGuild fail).
+	for _, bad := range []string{"Phoenix Guild", "phoenix guild", "Phoenix", "-phoenix", "phoenix-", "phoenix!"} {
+		t.Run("x/name format refuses "+bad, func(t *testing.T) {
+			require.ErrorIs(t, k.ValidateGuildName(ctx, bad), types.ErrGuildNameInvalidChars)
+		})
+	}
 }
 
 func TestValidateGuildDescription(t *testing.T) {
@@ -300,7 +308,7 @@ func TestGuildMembershipHelpers(t *testing.T) {
 	// Add officer
 	guild, _ := k.Guild.Get(ctx, guildID)
 	guild.Officers = []string{officer.String()}
-	k.Guild.Set(ctx, guildID, guild)
+	require.NoError(t, k.Guild.Set(ctx, guildID, guild))
 
 	// Create membership for member
 	membership := types.GuildMembership{
@@ -310,7 +318,7 @@ func TestGuildMembershipHelpers(t *testing.T) {
 		LeftEpoch:              0,
 		GuildsJoinedThisSeason: 1,
 	}
-	k.GuildMembership.Set(ctx, member.String(), membership)
+	require.NoError(t, k.GuildMembership.Set(ctx, member.String(), membership))
 
 	t.Run("IsGuildFounder", func(t *testing.T) {
 		require.True(t, k.IsGuildFounder(ctx, guildID, founder.String()))
@@ -334,7 +342,7 @@ func TestGuildMembershipHelpers(t *testing.T) {
 		require.True(t, k.IsGuildMember(ctx, guildID, member.String()))
 		// Members who left should not be considered members
 		membership.LeftEpoch = 1
-		k.GuildMembership.Set(ctx, member.String(), membership)
+		require.NoError(t, k.GuildMembership.Set(ctx, member.String(), membership))
 		require.False(t, k.IsGuildMember(ctx, guildID, member.String()))
 	})
 }
@@ -382,7 +390,7 @@ func TestHasQuestPrerequisite(t *testing.T) {
 			Completed:      true,
 			CompletedBlock: 100,
 		}
-		k.MemberQuestProgress.Set(ctx, addrStr+":quest_1", progress)
+		require.NoError(t, k.MemberQuestProgress.Set(ctx, addrStr+":quest_1", progress))
 
 		require.True(t, k.HasQuestPrerequisite(ctx, addrStr, "quest_1"))
 	})
@@ -402,7 +410,7 @@ func TestHasUnlockedTitle(t *testing.T) {
 		UnlockedTitles: []string{"title_1", "title_2"},
 		ArchivedTitles: []string{"archived_title"},
 	}
-	k.MemberProfile.Set(ctx, addrStr, profile)
+	require.NoError(t, k.MemberProfile.Set(ctx, addrStr, profile))
 
 	t.Run("returns true for unlocked title", func(t *testing.T) {
 		require.True(t, k.HasUnlockedTitle(ctx, addrStr, "title_1"))

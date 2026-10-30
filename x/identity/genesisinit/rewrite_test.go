@@ -112,60 +112,70 @@ func TestRewriteSentinelsRejectsInvalidIdentity(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestRewriteSentinelsPermissiveOnMissingIdentity(t *testing.T) {
-	// V1 deviation: missing identity becomes a no-op so legacy single-chain
-	// deployments keep working during migration. See
-	// docs/x-identity-implementation-decisions.md.
+// IDN-08: identity is mandatory; a genesis without it, or with an empty
+// one, fails at the rewrite with the actual cause instead of panicking later
+// in another module.
+func TestRewriteSentinelsRejectsMissingOrEmptyIdentity(t *testing.T) {
 	appState := map[string]interface{}{
 		"staking": map[string]interface{}{"params": map[string]string{"bond_denom": types.BondDenomSentinel}},
 	}
 	raw, _ := json.Marshal(appState)
-	out, resolved, err := genesisinit.RewriteSentinels(testCodec(), raw)
-	require.NoError(t, err)
-	// No-op: input == output, and resolved identity is zero-valued.
-	require.Equal(t, []byte(raw), []byte(out))
-	require.Equal(t, types.ChainIdentity{}, resolved)
+	_, _, err := genesisinit.RewriteSentinels(testCodec(), raw)
+	require.ErrorContains(t, err, "is missing")
+
+	_, _, err = genesisinit.RewriteSentinels(testCodec(), genState(types.ChainIdentity{}, nil, false))
+	require.ErrorContains(t, err, "is empty")
 }
 
-func TestPurgeLegacyBankMetadataRemovesOnlyLegacy(t *testing.T) {
-	meta := []banktypes.Metadata{
-		{Base: "uspark", Symbol: "SPARK", Display: "spark", Name: "Spark"},
-		{Base: "dream", Symbol: "DREAM", Display: "dream", Name: "Dream"},
-		{Base: "stake", Symbol: "STAKE", Display: "stake", Name: "Stake"},
-		{Base: "uatom", Symbol: "ATOM", Display: "atom", Name: "Atom"},
-		{Base: "upspk.phoenix", Symbol: "PSPK", Display: "pspk", Name: "Phoenix Spark"},
-	}
-	out, _, err := genesisinit.RewriteSentinels(testCodec(), genState(validID(), meta, false))
-	require.NoError(t, err)
+func bankMetadataBases(t *testing.T, out json.RawMessage) []string {
+	t.Helper()
 	var as map[string]json.RawMessage
 	require.NoError(t, json.Unmarshal(out, &as))
 	var bank map[string]json.RawMessage
 	require.NoError(t, json.Unmarshal(as["bank"], &bank))
 	var kept []banktypes.Metadata
 	require.NoError(t, json.Unmarshal(bank["denom_metadata"], &kept))
-	// uatom and upspk.phoenix should survive; uspark, dream, stake purged.
 	bases := make([]string, 0, len(kept))
 	for _, m := range kept {
 		bases = append(bases, m.Base)
 	}
-	require.ElementsMatch(t, []string{"uatom", "upspk.phoenix"}, bases)
+	return bases
 }
 
-func TestPurgeLegacyBankMetadataPreservesIfChosen(t *testing.T) {
+// Legacy-denom entries are purged, foreign ones kept, and a canonical entry
+// for a native denom is dropped so x/identity's seed is the only record.
+func TestPurgeLegacyBankMetadataRemovesLegacyAndNative(t *testing.T) {
 	id := validID()
-	id.BondDenom = "upspk.uspark" // weird degenerate-but-legal choice
-	// Force a chosen-denom that also matches a legacy literal? Both regexes
-	// reject "uspark" as bond_denom (no dot). So the actual degenerate case
-	// is purposely contrived: pick a value that survives validation AND is
-	// in the legacy list. There is none — the regex blocks them. So this
-	// test instead asserts that a legitimate non-legacy choice doesn't get
-	// purged.
+	spark, dream := id.NativeDenomMetadata()
+	spark.Description = "operator-written description" // free field
 	meta := []banktypes.Metadata{
-		{Base: "upspk.uspark", Symbol: "SPK", Display: "spk", Name: "Spark"},
+		{Base: "uspark", Symbol: "SPARK", Display: "spark", Name: "Spark"},
+		{Base: "dream", Symbol: "DREAM", Display: "dream", Name: "Dream"},
+		{Base: "stake", Symbol: "STAKE", Display: "stake", Name: "Stake"},
+		{Base: "uatom", Symbol: "ATOM", Display: "atom", Name: "Atom"},
+		spark,
+		dream,
 	}
 	out, _, err := genesisinit.RewriteSentinels(testCodec(), genState(id, meta, false))
 	require.NoError(t, err)
-	require.Contains(t, string(out), "upspk.uspark")
+	require.ElementsMatch(t, []string{"uatom"}, bankMetadataBases(t, out))
+}
+
+// IDN-06: bank's InitGenesis writes after identity's, through the raw
+// keeper, so a native entry that disagrees with the identity would replace
+// the seal at block 0. The rewrite refuses it.
+func TestPurgeLegacyBankMetadataRefusesNonCanonicalNative(t *testing.T) {
+	id := validID()
+	for name, mutate := range map[string]func(*banktypes.Metadata){
+		"lowercase symbol": func(m *banktypes.Metadata) { m.Symbol = strings.ToLower(m.Symbol) },
+		"other name":       func(m *banktypes.Metadata) { m.Name = "spark" },
+		"other decimals":   func(m *banktypes.Metadata) { m.DenomUnits[1].Exponent = 18 },
+	} {
+		spark, _ := id.NativeDenomMetadata()
+		mutate(&spark)
+		_, _, err := genesisinit.RewriteSentinels(testCodec(), genState(id, []banktypes.Metadata{spark}, false))
+		require.ErrorContains(t, err, "disagrees with the chain identity", name)
+	}
 }
 
 func TestRewriteSentinelsPreservesUnrelatedFields(t *testing.T) {

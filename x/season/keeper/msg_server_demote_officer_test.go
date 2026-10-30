@@ -81,7 +81,7 @@ func TestMsgServerDemoteOfficer(t *testing.T) {
 		// Set guild to dissolved
 		guild, _ := k.Guild.Get(ctx, guildID)
 		guild.Status = types.GuildStatus_GUILD_STATUS_DISSOLVED
-		k.Guild.Set(ctx, guildID, guild)
+		require.NoError(t, k.Guild.Set(ctx, guildID, guild))
 
 		_, err := ms.DemoteOfficer(ctx, &types.MsgDemoteOfficer{
 			Creator: founderStr,
@@ -166,7 +166,7 @@ func TestMsgServerDemoteOfficer(t *testing.T) {
 		// Make officer
 		guild, _ := k.Guild.Get(ctx, guildID)
 		guild.Officers = []string{officerStr}
-		k.Guild.Set(ctx, guildID, guild)
+		require.NoError(t, k.Guild.Set(ctx, guildID, guild))
 
 		_, err := ms.DemoteOfficer(ctx, &types.MsgDemoteOfficer{
 			Creator: founderStr,
@@ -205,7 +205,7 @@ func TestMsgServerDemoteOfficer(t *testing.T) {
 		// Make both officers
 		guild, _ := k.Guild.Get(ctx, guildID)
 		guild.Officers = []string{officer1Str, officer2Str}
-		k.Guild.Set(ctx, guildID, guild)
+		require.NoError(t, k.Guild.Set(ctx, guildID, guild))
 
 		// Demote officer1
 		_, err := ms.DemoteOfficer(ctx, &types.MsgDemoteOfficer{

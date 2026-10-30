@@ -21,21 +21,13 @@ import (
 // mockCommonsKeeper implements types.CommonsKeeper for testing
 type mockCommonsKeeper struct {
 	IsCouncilAuthorizedFn func(ctx context.Context, addr string, council string, committee string) bool
-	SpendFromTreasuryFn   func(ctx context.Context, council string, recipient sdk.AccAddress, amount sdk.Coins) error
 }
 
-func (m *mockCommonsKeeper) IsCouncilAuthorized(ctx context.Context, addr string, council string, committee string) bool {
+func (m *mockCommonsKeeper) IsCouncilOrCommitteePolicy(ctx context.Context, addr string, council string, committee string) bool {
 	if m.IsCouncilAuthorizedFn != nil {
 		return m.IsCouncilAuthorizedFn(ctx, addr, council, committee)
 	}
 	return false
-}
-
-func (m *mockCommonsKeeper) SpendFromTreasury(ctx context.Context, council string, recipient sdk.AccAddress, amount sdk.Coins) error {
-	if m.SpendFromTreasuryFn != nil {
-		return m.SpendFromTreasuryFn(ctx, council, recipient, amount)
-	}
-	return nil
 }
 
 // setupMsgServerWithCommons creates a keeper with a custom CommonsKeeper wired in.
@@ -95,6 +87,20 @@ func TestMsgUpdateOperationalParams(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, types.DefaultBlogOperationalParams().CostPerByteAmount, storedParams.CostPerByteAmount)
 		require.Equal(t, types.DefaultBlogOperationalParams().CostPerByteExempt, storedParams.CostPerByteExempt)
+
+		// BLG-09: the change is visible to indexers.
+		found := false
+		for _, ev := range sdk.UnwrapSDKContext(f.ctx).EventManager().Events() {
+			if ev.Type == "blog.operational_params.updated" {
+				found = true
+				attr, ok := ev.GetAttribute("authority")
+				require.True(t, ok)
+				require.Equal(t, authorityStr, attr.Value)
+				_, ok = ev.GetAttribute("operational_params")
+				require.True(t, ok)
+			}
+		}
+		require.True(t, found, "ops params update must emit an event")
 	})
 
 	t.Run("council authorized succeeds", func(t *testing.T) {

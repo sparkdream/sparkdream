@@ -26,6 +26,24 @@ func (k msgServer) ToggleTagBudget(ctx context.Context, msg *types.MsgToggleTagB
 		return nil, errorsmod.Wrap(types.ErrNotGroupAccount, "only the group account can toggle the budget")
 	}
 
+	// Resuming must not leave the group with two active budgets for one tag
+	// (CreateTagBudget refuses the same).
+	if msg.Active && !budget.Active {
+		dup := false
+		if err := k.TagBudget.Walk(ctx, nil, func(id uint64, other types.TagBudget) (bool, error) {
+			if id != msg.BudgetId && other.Active && other.GroupAccount == budget.GroupAccount && other.Tag == budget.Tag {
+				dup = true
+				return true, nil
+			}
+			return false, nil
+		}); err != nil {
+			return nil, err
+		}
+		if dup {
+			return nil, errorsmod.Wrap(types.ErrTagBudgetAlreadyExists, fmt.Sprintf("active budget already exists for tag %s", budget.Tag))
+		}
+	}
+
 	budget.Active = msg.Active
 
 	if err := k.TagBudget.Set(ctx, msg.BudgetId, budget); err != nil {

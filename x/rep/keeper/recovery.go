@@ -296,50 +296,58 @@ func (k Keeper) ExpireRecoveryCommits(ctx context.Context, now int64, maxN int) 
 // public from this block on. Every pending commitment change is voided, the
 // seal's deposit is refunded, and any pending KEY or COUNCIL migration is
 // cancelled (RECOVERY outranks both).
-func (k Keeper) RevealRecovery(ctx context.Context, revealer, member, newAddress string, preimage []byte) (uint64, error) {
+//
+// Once the preimage and the aged seal check out, the commitment and the seal
+// are consumed even if the migration cannot be opened (REP-R-03). The
+// migration is opened in a child cache context and only its writes are
+// dropped on failure; the call then succeeds with id 0 and a failure reason.
+// A reverted reveal would leave the commitment active while the preimage sat
+// in the mempool and the block, and anyone who induced the failure (a thief
+// front-running with a conflicting state change) could re-seal the preimage
+// to an address of their own and recover the identity themselves.
+func (k Keeper) RevealRecovery(ctx context.Context, revealer, member, newAddress string, preimage []byte) (uint64, string, error) {
 	if len(preimage) == 0 || len(preimage) > types.MaxRecoveryPreimageSize {
-		return 0, errorsmod.Wrapf(types.ErrRecoveryCommitmentInvalid, "preimage must be 1..%d bytes", types.MaxRecoveryPreimageSize)
+		return 0, "", errorsmod.Wrapf(types.ErrRecoveryCommitmentInvalid, "preimage must be 1..%d bytes", types.MaxRecoveryPreimageSize)
 	}
 	params, err := k.Params.Get(ctx)
 	if err != nil {
-		return 0, err
+		return 0, "", err
 	}
 	if !params.MigrationEnabled {
-		return 0, types.ErrMigrationDisabled
+		return 0, "", types.ErrMigrationDisabled
 	}
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	now := sdkCtx.BlockTime().Unix()
 
 	set, found := k.GetRecoveryCommitments(ctx, member)
 	if !found {
-		return 0, types.ErrRecoveryCommitmentInactive
+		return 0, "", types.ErrRecoveryCommitmentInactive
 	}
 	want := types.RecoveryCommitmentHash(preimage)
 	idx := set.FindCommitment(want)
 	if idx < 0 || !set.ActiveCommitment(set.Commitments[idx], now) {
-		return 0, types.ErrRecoveryCommitmentInactive
+		return 0, "", types.ErrRecoveryCommitmentInactive
 	}
 
 	sealed := types.RecoverySeal(preimage, member, newAddress)
 	commit, err := k.RecoveryCommits.Get(ctx, sealed)
 	if err != nil {
-		return 0, types.ErrRecoverySealNotFound
+		return 0, "", types.ErrRecoverySealNotFound
 	}
 	if commit.ExpiresAt <= now {
-		return 0, types.ErrRecoverySealExpired
+		return 0, "", types.ErrRecoverySealExpired
 	}
 	if sdkCtx.BlockHeight()-commit.Height < params.RecoveryRevealMinBlocks {
-		return 0, errorsmod.Wrapf(types.ErrRecoverySealTooYoung, "sealed at height %d, %d blocks required", commit.Height, params.RecoveryRevealMinBlocks)
+		return 0, "", errorsmod.Wrapf(types.ErrRecoverySealTooYoung, "sealed at height %d, %d blocks required", commit.Height, params.RecoveryRevealMinBlocks)
 	}
 
-	// Open the migration first: it runs every freshness and zeroing check and
-	// cancels lower-precedence migrations. Nothing below is reached if it
-	// refuses, so a failed reveal does not consume the commitment on chain
-	// (the preimage is still burned by publicity; wallets reveal against
-	// another commitment).
-	id, err := k.openMigration(ctx, member, newAddress, types.MigrationPath_MIGRATION_PATH_RECOVERY, "")
-	if err != nil {
-		return 0, err
+	// Open the migration in a child context: it runs every freshness and
+	// zeroing check and cancels lower-precedence migrations. Its writes are
+	// kept only on success; the consumption below happens either way.
+	cacheCtx, write := sdkCtx.CacheContext()
+	id, openErr := k.openMigration(cacheCtx, member, newAddress, types.MigrationPath_MIGRATION_PATH_RECOVERY, "")
+	if openErr == nil {
+		write()
 	}
 
 	// Consume the commitment and void every pending change: a reveal against
@@ -354,7 +362,7 @@ func (k Keeper) RevealRecovery(ctx context.Context, revealer, member, newAddress
 	set.Commitments = active
 	set.PendingRemovals = nil
 	if err := k.RecoveryCommitments.Set(ctx, member, set); err != nil {
-		return 0, err
+		return 0, "", err
 	}
 
 	// Refund the seal deposit and drop the seal.
@@ -363,15 +371,27 @@ func (k Keeper) RevealRecovery(ctx context.Context, revealer, member, newAddress
 		if err == nil {
 			coins := sdk.NewCoins(sdk.NewCoin(k.BondDenom(ctx), commit.Deposit))
 			if err := k.bankKeeper.SendCoins(ctx, RecoveryDepositEscrowAddress(), submitterAddr, coins); err != nil {
-				return 0, err
+				return 0, "", err
 			}
 		}
 	}
 	if err := k.RecoveryCommits.Remove(ctx, sealed); err != nil {
-		return 0, err
+		return 0, "", err
 	}
 	if err := k.RecoveryCommitExpiry.Remove(ctx, collections.Join(commit.ExpiresAt, sealed)); err != nil {
-		return 0, err
+		return 0, "", err
+	}
+
+	if openErr != nil {
+		reason := openErr.Error()
+		sdkCtx.EventManager().EmitEvent(sdk.NewEvent("recovery_reveal_failed",
+			sdk.NewAttribute("member", member),
+			sdk.NewAttribute("new_address", newAddress),
+			sdk.NewAttribute("revealer", revealer),
+			sdk.NewAttribute("commitment", hex.EncodeToString(want)),
+			sdk.NewAttribute("reason", reason),
+		))
+		return 0, reason, nil
 	}
 
 	sdkCtx.EventManager().EmitEvent(sdk.NewEvent("recovery_revealed",
@@ -381,7 +401,7 @@ func (k Keeper) RevealRecovery(ctx context.Context, revealer, member, newAddress
 		sdk.NewAttribute("migration_id", fmt.Sprintf("%d", id)),
 		sdk.NewAttribute("commitment", hex.EncodeToString(want)),
 	))
-	return id, nil
+	return id, "", nil
 }
 
 func errorsmodIsNotFound(err error) bool {

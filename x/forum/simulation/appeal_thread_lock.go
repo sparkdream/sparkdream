@@ -1,50 +1,55 @@
 package simulation
 
 import (
-	"math/rand"
-
-	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
 
 	"sparkdream/x/forum/keeper"
 	"sparkdream/x/forum/types"
 )
 
-// SimulateMsgAppealThreadLock simulates a MsgAppealThreadLock message using direct keeper calls.
-// This bypasses fee and cooldown requirements for simulation purposes.
-// Full integration testing should be done in integration tests.
+// SimulateMsgAppealThreadLock delivers MsgAppealThreadLock from the author
+// of a thread a sentinel locked, after lock_appeal_cooldown and before the
+// lock appeal deadline, while no appeal is pending. The appellant escrows
+// x/rep's appeal bond. Locks need a well-bonded sentinel, so this op rarely
+// has a target.
 func SimulateMsgAppealThreadLock(
 	ak types.AuthKeeper,
 	bk types.BankKeeper,
 	k keeper.Keeper,
 	txGen client.TxConfig,
 ) simtypes.Operation {
-	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
-	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		simAccount, _ := simtypes.RandomAcc(r, accs)
-
-		// Get or create a locked thread
-		rootID, err := getOrCreateLockedThread(r, ctx, k, simAccount.Address.String())
+	return operation(ak, bk, k, txGen, &types.MsgAppealThreadLock{}, func(e *simEnv) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
+		msg := &types.MsgAppealThreadLock{}
+		if e.params.AppealsPaused {
+			return noOp(msg, "appeals are paused")
+		}
+		var roots []types.Post
+		err := e.k.ThreadLockRecord.Walk(e.ctx, nil, func(id uint64, lr types.ThreadLockRecord) (bool, error) {
+			// Only sentinel locks are appealed here: a council lock goes
+			// through x/rep's governance-action appeal.
+			if lr.Sentinel == "" || lr.AppealPending || e.now() < lr.LockedAt+e.params.LockAppealCooldown ||
+				e.now() >= lr.LockedAt+types.DefaultLockAppealDeadline {
+				return false, nil
+			}
+			p, ok := e.post(id)
+			if !ok || !p.Locked {
+				return false, nil
+			}
+			if _, ok := e.account(p.Author); ok {
+				roots = append(roots, p)
+			}
+			return false, nil
+		})
 		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgAppealThreadLock{}), "failed to get/create locked thread"), nil, nil
+			return noOpErr(msg, err)
 		}
-
-		// Use direct keeper calls to file appeal (bypasses fee and cooldown)
-		lockRecord, err := k.ThreadLockRecord.Get(ctx, rootID)
-		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgAppealThreadLock{}), "no lock record to appeal"), nil, nil
+		root, ok := pick(e.r, roots)
+		if !ok {
+			return noOp(msg, "no appealable sentinel lock on a sim account's thread")
 		}
-
-		// Set appeal as pending (only AppealPending field exists)
-		lockRecord.AppealPending = true
-
-		if err := k.ThreadLockRecord.Set(ctx, rootID, lockRecord); err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgAppealThreadLock{}), "failed to file appeal"), nil, nil
-		}
-
-		// Return success
-		return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgAppealThreadLock{}), "ok (direct keeper call)"), nil, nil
-	}
+		author, _ := e.account(root.Author)
+		msg.Creator, msg.RootId = root.Author, root.PostId
+		return e.submit(author, msg, appealBond())
+	})
 }

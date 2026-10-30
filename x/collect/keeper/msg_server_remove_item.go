@@ -52,6 +52,9 @@ func (k msgServer) RemoveItem(ctx context.Context, msg *types.MsgRemoveItem) (*t
 	if coll.Immutable {
 		return nil, types.ErrCollectionImmutable
 	}
+	if err := checkNotHidden(coll, &item); err != nil {
+		return nil, err
+	}
 
 	// No pending sponsorship
 	_, err = k.SponsorshipRequest.Get(ctx, coll.Id)
@@ -88,10 +91,16 @@ func (k msgServer) RemoveItem(ctx context.Context, msg *types.MsgRemoveItem) (*t
 	if err := k.Item.Remove(ctx, item.Id); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to remove item")
 	}
-	k.ItemsByCollection.Remove(ctx, collections.Join(coll.Id, item.Id)) //nolint:errcheck
-	k.ItemsByOwner.Remove(ctx, collections.Join(coll.Owner, item.Id))   //nolint:errcheck
+	if err := k.ItemsByCollection.Remove(ctx, collections.Join(coll.Id, item.Id)); err != nil {
+		return nil, err
+	}
+	if err := k.ItemsByOwner.Remove(ctx, collections.Join(coll.Owner, item.Id)); err != nil {
+		return nil, err
+	}
 	if item.ReferenceType == types.ReferenceType_REFERENCE_TYPE_ON_CHAIN && item.OnChain != nil {
-		k.ItemsByOnChainRef.Remove(ctx, collections.Join(onChainRefKey(item.OnChain), item.Id)) //nolint:errcheck
+		if err := k.ItemsByOnChainRef.Remove(ctx, collections.Join(onChainRefKey(item.OnChain), item.Id)); err != nil {
+			return nil, err
+		}
 	}
 
 	// Update collection

@@ -3,6 +3,7 @@ package keeper
 import (
 	"encoding/binary"
 	"fmt"
+	commontypes "sparkdream/x/common/types"
 
 	"go.dedis.ch/kyber/v4/pairing/bn256"
 	"go.dedis.ch/kyber/v4/sign/schnorr"
@@ -56,7 +57,7 @@ func ReconstructEpochDecryptionKey(shares []types.ShieldDecryptionShare, ks type
 	if uint64(len(indexed)) < threshold {
 		return nil, fmt.Errorf("insufficient valid shares after filtering: have %d, need %d", len(indexed), threshold)
 	}
-	key, err := tle.ReconstructEpochKey(indexed, int(threshold), len(ks.ValidatorShares))
+	key, err := tle.ReconstructEpochKey(indexed, commontypes.Saturate[int](threshold), len(ks.ValidatorShares))
 	if err != nil {
 		return nil, fmt.Errorf("lagrange interpolation failed: %w", err)
 	}

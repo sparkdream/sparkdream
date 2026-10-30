@@ -97,14 +97,8 @@ func (spamTaxStubIdentity) IsIdentityKeeper()                   {}
 func (spamTaxStubIdentity) BondDenom(_ context.Context) string  { return "uspark" }
 func (spamTaxStubIdentity) DreamDenom(_ context.Context) string { return "udream" }
 
-// newSpamTaxTestKeeper constructs a Keeper with the bank, rep and identity
-// keepers wired — enough to exercise distributeSpamTax.
-func newSpamTaxTestKeeper(bank types.BankKeeper) Keeper {
-	return newSpamTaxTestKeeperWithRep(bank, &spamTaxStubRep{})
-}
-
 func newSpamTaxTestKeeperWithRep(bank types.BankKeeper, rep types.RepKeeper) Keeper {
-	return Keeper{bankKeeper: bank, repKeeper: rep, identityKeeper: spamTaxStubIdentity{}}
+	return Keeper{bankKeeper: bank, repKeeper: rep, late: &lateKeepers{identityKeeper: spamTaxStubIdentity{}}}
 }
 
 // emptySDKCtx returns an sdk.Context usable for event emission without state.

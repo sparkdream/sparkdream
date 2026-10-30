@@ -42,6 +42,9 @@ func (k Keeper) listingPreconditions(ctx context.Context, seller string, classID
 	if t.RedeemedAt != 0 && !c.Flags.RedeemedTransferable {
 		return c, t, types.ErrRedeemedNotTransferable
 	}
+	if err := k.treeSellable(ctx, t); err != nil {
+		return c, t, err
+	}
 	if err := k.validatePrice(ctx, price, false); err != nil {
 		return c, t, err
 	}

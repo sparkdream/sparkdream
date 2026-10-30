@@ -34,7 +34,9 @@ func (k msgServer) BurnUnits(ctx context.Context, msg *types.MsgBurnUnits) (*typ
 		return nil, err
 	}
 	e.Supply -= msg.Amount
-	e.Burned += msg.Amount
+	if e.Burned, err = types.AddUnits(e.Burned, msg.Amount); err != nil {
+		return nil, err
+	}
 	if err := k.saveEdition(ctx, e); err != nil {
 		return nil, err
 	}

@@ -2,6 +2,7 @@ package keeper
 
 import (
 	"context"
+	"errors"
 
 	"cosmossdk.io/collections"
 	errorsmod "cosmossdk.io/errors"
@@ -88,10 +89,10 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 		}
 	}
 
-	// Next pending op ID sequence
+	// Next pending op ID sequence (set directly: one write, not one per id)
 	if genState.NextPendingOpId > 0 {
-		for i := uint64(0); i < genState.NextPendingOpId; i++ {
-			_, _ = k.NextPendingOpId.Next(ctx)
+		if err := k.NextPendingOpId.Set(ctx, genState.NextPendingOpId); err != nil {
+			return err
 		}
 	}
 
@@ -110,8 +111,13 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 		}
 	}
 
-	// Decryption shares
+	// Decryption shares: pairing-verified against the imported key set like
+	// every share an ABCI path stores, so a bad genesis share can't corrupt
+	// an epoch key.
 	for _, ds := range genState.DecryptionShares {
+		if err := k.verifyImportedShare(ctx, ds); err != nil {
+			return err
+		}
 		if err := k.SetDecryptionShare(ctx, ds); err != nil {
 			return err
 		}
@@ -159,7 +165,54 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 		}
 	}
 
+	// TLE liveness ring buffer and judged-epoch counter, so an export/import
+	// doesn't forgive accumulated misses.
+	for _, p := range genState.TleParticipation {
+		if err := k.TLEEpochParticipation.Set(ctx, collections.Join(p.ValidatorAddress, p.Slot), p.Participated); err != nil {
+			return err
+		}
+	}
+	if genState.TleJudgedEpochs > 0 {
+		if err := k.TLEJudgedEpochs.Set(ctx, genState.TleJudgedEpochs); err != nil {
+			return err
+		}
+	}
+
+	// Fees paid in the current shield epoch
+	if !genState.EpochFeeLedger.Paid.IsNil() && genState.EpochFeeLedger.Paid.IsPositive() {
+		if err := k.EpochFeeLedger.Set(ctx, genState.EpochFeeLedger); err != nil {
+			return err
+		}
+	}
+
+	// Retired nullifier domains
+	for _, reg := range genState.RetiredDomains {
+		if err := k.RetiredDomains.Set(ctx, reg.NullifierDomain, reg); err != nil {
+			return err
+		}
+	}
+
 	return nil
+}
+
+// verifyImportedShare checks a genesis decryption share against its
+// validator's public share in the key set (the pairing check only; the
+// epoch window and demand gate are live-chain rules).
+func (k Keeper) verifyImportedShare(ctx context.Context, ds types.ShieldDecryptionShare) error {
+	ks, found := k.GetTLEKeySetVal(ctx)
+	if !found {
+		return errorsmod.Wrapf(types.ErrInvalidDecryptionShare, "genesis share for epoch %d from %s without a TLE key set", ds.Epoch, ds.Validator)
+	}
+	for _, vs := range ks.ValidatorShares {
+		if vs.ValidatorAddress != ds.Validator {
+			continue
+		}
+		if err := verifyDecryptionShare(ds.Share, vs.PublicShareG2, ds.Epoch); err != nil {
+			return errorsmod.Wrapf(types.ErrInvalidDecryptionShare, "genesis share for epoch %d from %s: %s", ds.Epoch, ds.Validator, err)
+		}
+		return nil
+	}
+	return errorsmod.Wrapf(types.ErrInvalidDecryptionShare, "genesis share for epoch %d from %s, who holds no share in the key set", ds.Epoch, ds.Validator)
 }
 
 // ExportGenesis returns the module's exported genesis.
@@ -176,16 +229,20 @@ func (k Keeper) ExportGenesis(ctx context.Context) (*types.GenesisState, error) 
 	// default set, which would duplicate every op and bring back any that
 	// governance deregistered.
 	genesis.RegisteredOps = nil
-	_ = k.IterateShieldedOps(ctx, func(_ string, reg types.ShieldedOpRegistration) bool {
+	if err := k.IterateShieldedOps(ctx, func(_ string, reg types.ShieldedOpRegistration) bool {
 		genesis.RegisteredOps = append(genesis.RegisteredOps, reg)
 		return false
-	})
+	}); err != nil {
+		return nil, err
+	}
 
 	// Used nullifiers
-	_ = k.IterateUsedNullifiers(ctx, func(n types.UsedNullifier) bool {
+	if err := k.IterateUsedNullifiers(ctx, func(n types.UsedNullifier) bool {
 		genesis.UsedNullifiers = append(genesis.UsedNullifiers, n)
 		return false
-	})
+	}); err != nil {
+		return nil, err
+	}
 
 	// Day fundings
 	dfIter, err := k.DayFundings.Iterate(ctx, nil)
@@ -218,10 +275,12 @@ func (k Keeper) ExportGenesis(ctx context.Context) (*types.GenesisState, error) 
 	}
 
 	// Pending operations
-	_ = k.IteratePendingOps(ctx, func(op types.PendingShieldedOp) bool {
+	if err := k.IteratePendingOps(ctx, func(op types.PendingShieldedOp) bool {
 		genesis.PendingOps = append(genesis.PendingOps, op)
 		return false
-	})
+	}); err != nil {
+		return nil, err
+	}
 
 	// Shield epoch state
 	state, found := k.GetShieldEpochStateVal(ctx)
@@ -242,7 +301,11 @@ func (k Keeper) ExportGenesis(ctx context.Context) (*types.GenesisState, error) 
 	}
 
 	// Next pending op ID
-	genesis.NextPendingOpId, _ = k.NextPendingOpId.Peek(ctx)
+	if v, getErr := k.NextPendingOpId.Peek(ctx); getErr == nil {
+		genesis.NextPendingOpId = v
+	} else if !errors.Is(getErr, collections.ErrNotFound) {
+		return nil, getErr
+	}
 
 	// Identity rate limits
 	rlIter, err := k.IdentityRateLimits.Iterate(ctx, nil)
@@ -261,10 +324,12 @@ func (k Keeper) ExportGenesis(ctx context.Context) (*types.GenesisState, error) 
 	}
 
 	// Pending nullifiers
-	_ = k.IteratePendingNullifiers(ctx, func(nullifierHex string) bool {
+	if err := k.IteratePendingNullifiers(ctx, func(nullifierHex string) bool {
 		genesis.PendingNullifiers = append(genesis.PendingNullifiers, nullifierHex)
 		return false
-	})
+	}); err != nil {
+		return nil, err
+	}
 
 	// Decryption shares
 	dsIter, err := k.ShieldDecryptionShares.Iterate(ctx, nil)
@@ -279,22 +344,26 @@ func (k Keeper) ExportGenesis(ctx context.Context) (*types.GenesisState, error) 
 	}
 
 	// TLE miss counters
-	_ = k.IterateTLEMissCounters(ctx, func(addr string, count uint64) bool {
+	if err := k.IterateTLEMissCounters(ctx, func(addr string, count uint64) bool {
 		genesis.TleMissCounters = append(genesis.TleMissCounters, types.TLEMissCounterEntry{
 			ValidatorAddress: addr,
 			MissCount:        count,
 		})
 		return false
-	})
+	}); err != nil {
+		return nil, err
+	}
 
 	// Decryption demands (raw value: keeps the judged sentinel, see demandHeight)
-	_ = k.IterateDecryptionDemands(ctx, func(epoch uint64, raw int64) bool {
+	if err := k.IterateDecryptionDemands(ctx, func(epoch uint64, raw int64) bool {
 		genesis.DecryptionDemands = append(genesis.DecryptionDemands, types.DecryptionDemandEntry{
 			Epoch:  epoch,
 			Height: raw,
 		})
 		return false
-	})
+	}); err != nil {
+		return nil, err
+	}
 
 	// DKG state
 	dkgState, found := k.GetDKGStateVal(ctx)
@@ -320,6 +389,39 @@ func (k Keeper) ExportGenesis(ctx context.Context) (*types.GenesisState, error) 
 
 	// DKG complaints
 	genesis.DkgComplaints = append(genesis.DkgComplaints, k.GetAllDKGComplaints(ctx)...)
+
+	// TLE liveness ring buffer and judged-epoch counter
+	if partIter, err := k.TLEEpochParticipation.Iterate(ctx, nil); err == nil {
+		defer partIter.Close()
+		for ; partIter.Valid(); partIter.Next() {
+			kv, e := partIter.KeyValue()
+			if e == nil {
+				genesis.TleParticipation = append(genesis.TleParticipation, types.TLEParticipationEntry{
+					ValidatorAddress: kv.Key.K1(),
+					Slot:             kv.Key.K2(),
+					Participated:     kv.Value,
+				})
+			}
+		}
+	}
+	if v, getErr := k.TLEJudgedEpochs.Get(ctx); getErr == nil {
+		genesis.TleJudgedEpochs = v
+	} else if !errors.Is(getErr, collections.ErrNotFound) {
+		return nil, getErr
+	}
+
+	// Fees paid in the current shield epoch
+	if ledger, err := k.EpochFeeLedger.Get(ctx); err == nil {
+		genesis.EpochFeeLedger = ledger
+	}
+
+	// Retired nullifier domains
+	if err := k.RetiredDomains.Walk(ctx, nil, func(_ uint32, reg types.ShieldedOpRegistration) (bool, error) {
+		genesis.RetiredDomains = append(genesis.RetiredDomains, reg)
+		return false, nil
+	}); err != nil {
+		return nil, err
+	}
 
 	return genesis, nil
 }

@@ -46,7 +46,9 @@ func (k msgServer) ClearZkPublicKey(ctx context.Context, msg *types.MsgClearZkPu
 	if len(member.PendingZkPublicKey) > 0 {
 		// Drop the scheduled activation; a stale queue entry would be skipped
 		// anyway (the EndBlocker re-checks the pending key), but keep state tidy.
-		_ = k.ZkKeyActivationQueue.Remove(ctx, collections.Join(member.ZkKeyActivatesAtEpoch, msg.Member))
+		if err := k.ZkKeyActivationQueue.Remove(ctx, collections.Join(member.ZkKeyActivatesAtEpoch, msg.Member)); err != nil {
+			sdk.UnwrapSDKContext(ctx).Logger().Error("ClearZkPublicKey: ZkKeyActivationQueue.Remove failed", "err", err)
+		}
 	}
 	member.ZkPublicKey = nil
 	member.PendingZkPublicKey = nil

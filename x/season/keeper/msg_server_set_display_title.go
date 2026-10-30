@@ -24,6 +24,8 @@ func (k msgServer) SetDisplayTitle(ctx context.Context, msg *types.MsgSetDisplay
 		return nil, errorsmod.Wrap(types.ErrProfileNotFound, "member profile not found")
 	}
 
+	k.dropDeletedTitles(ctx, &profile)
+
 	// If clearing the title (empty string), allow it
 	if msg.TitleId == "" {
 		profile.DisplayTitle = ""

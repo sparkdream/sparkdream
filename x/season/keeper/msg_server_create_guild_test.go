@@ -137,7 +137,7 @@ func TestMsgServerCreateGuild(t *testing.T) {
 		// Create guild
 		_, err := ms.CreateGuild(ctx, &types.MsgCreateGuild{
 			Creator:     creatorStr,
-			Name:        "Unique Guild Name",
+			Name:        "unique-guild-name",
 			Description: TestGuildDesc,
 			InviteOnly:  true,
 		})
@@ -151,7 +151,7 @@ func TestMsgServerCreateGuild(t *testing.T) {
 		var foundGuild *types.Guild
 		for ; iter.Valid(); iter.Next() {
 			guild, _ := iter.Value()
-			if guild.Name == "Unique Guild Name" {
+			if guild.Name == "unique-guild-name" {
 				foundGuild = &guild
 				break
 			}
@@ -189,7 +189,7 @@ func TestMsgServerCreateGuild(t *testing.T) {
 		// Create guild
 		_, err := ms.CreateGuild(ctx, &types.MsgCreateGuild{
 			Creator:     creatorStr,
-			Name:        "Public Guild",
+			Name:        "public-guild",
 			Description: "A public guild",
 			InviteOnly:  false,
 		})
@@ -203,7 +203,7 @@ func TestMsgServerCreateGuild(t *testing.T) {
 		var foundGuild *types.Guild
 		for ; iter.Valid(); iter.Next() {
 			guild, _ := iter.Value()
-			if guild.Name == "Public Guild" {
+			if guild.Name == "public-guild" {
 				foundGuild = &guild
 				break
 			}
@@ -236,12 +236,12 @@ func TestMsgServerCreateGuild(t *testing.T) {
 			LeftEpoch:              4, // Left at epoch 4, still within cooldown
 			GuildsJoinedThisSeason: 1,
 		}
-		k.GuildMembership.Set(ctx, creatorStr, membership)
+		require.NoError(t, k.GuildMembership.Set(ctx, creatorStr, membership))
 
 		// Try to create a new guild (should fail due to cooldown)
 		_, err := ms.CreateGuild(ctx, &types.MsgCreateGuild{
 			Creator:     creatorStr,
-			Name:        "New Guild After Hop",
+			Name:        "new-guild-after-hop",
 			Description: TestGuildDesc,
 			InviteOnly:  false,
 		})

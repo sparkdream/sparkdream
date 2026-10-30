@@ -14,7 +14,14 @@ import (
 // Initiative Index Management
 
 // AddInitiativeToStatusIndex adds an initiative to the status index
+// and, for an IN_REVIEW initiative, a completion due-queue entry at its
+// challenge period end (due_queue.go).
 func (k Keeper) AddInitiativeToStatusIndex(ctx context.Context, initiative types.Initiative) error {
+	if initiative.Status == types.InitiativeStatus_INITIATIVE_STATUS_IN_REVIEW {
+		if err := enqueueDue(ctx, k.InitiativeCompletionDue, initiative.ChallengePeriodEnd, initiative.Id); err != nil {
+			return err
+		}
+	}
 	return k.InitiativesByStatus.Set(ctx, collections.Join(int32(initiative.Status), initiative.Id))
 }
 
@@ -32,6 +39,14 @@ func (k Keeper) UpdateInitiativeStatusIndex(ctx context.Context, oldStatus, newS
 	if err := k.RemoveInitiativeFromStatusIndex(ctx, oldStatus, id); err != nil {
 		// Ignore not found errors (index might not exist for old initiatives)
 		if !isNotFoundError(err) {
+			return err
+		}
+	}
+	// Entering review: queue a completion check. The record may not carry
+	// its new challenge period end yet, so the entry is due at once and the
+	// sweep re-queues it at the real deadline.
+	if newStatus == types.InitiativeStatus_INITIATIVE_STATUS_IN_REVIEW {
+		if err := enqueueDue(ctx, k.InitiativeCompletionDue, 0, id); err != nil {
 			return err
 		}
 	}
@@ -187,14 +202,56 @@ func (k Keeper) IterateJuryReviewsByVerdict(ctx context.Context, verdict types.V
 
 // Stake Index Management
 
-// AddStakeToTargetIndex adds a stake to the target index
+// AddStakeToTargetIndex adds a stake to the target index and to the
+// by-staker index. Every stake record is written alongside this call and
+// removed alongside RemoveStakeFromTargetIndex, so both indexes stay in step.
 func (k Keeper) AddStakeToTargetIndex(ctx context.Context, stake types.Stake) error {
-	return k.StakesByTarget.Set(ctx, collections.Join3(int32(stake.TargetType), stake.TargetId, stake.Id))
+	if err := k.StakesByTarget.Set(ctx, collections.Join3(int32(stake.TargetType), stake.TargetId, stake.Id)); err != nil {
+		return err
+	}
+	return k.StakesByStaker.Set(ctx, collections.Join(stake.Staker, stake.Id))
 }
 
-// RemoveStakeFromTargetIndex removes a stake from the target index
+// RemoveStakeFromTargetIndex removes a stake from the target and by-staker
+// indexes.
 func (k Keeper) RemoveStakeFromTargetIndex(ctx context.Context, stake types.Stake) error {
-	return k.StakesByTarget.Remove(ctx, collections.Join3(int32(stake.TargetType), stake.TargetId, stake.Id))
+	if err := k.StakesByTarget.Remove(ctx, collections.Join3(int32(stake.TargetType), stake.TargetId, stake.Id)); err != nil {
+		return err
+	}
+	return k.StakesByStaker.Remove(ctx, collections.Join(stake.Staker, stake.Id))
+}
+
+// stakesOfMember returns every stake record held by the member under any
+// address it ever had (stake records keep the address they were opened
+// under). Reads the by-staker index, so the cost is the member's own stake
+// count, not the chain's.
+func (k Keeper) stakesOfMember(ctx context.Context, member string) ([]types.Stake, error) {
+	var out []types.Stake
+	for _, addr := range k.AllAddressesOf(ctx, member) {
+		rng := collections.NewPrefixedPairRange[string, uint64](addr)
+		if err := k.StakesByStaker.Walk(ctx, rng, func(key collections.Pair[string, uint64]) (bool, error) {
+			stake, err := k.Stake.Get(ctx, key.K2())
+			if err != nil {
+				return false, nil // stale index entry
+			}
+			out = append(out, stake)
+			return false, nil
+		}); err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
+}
+
+// addPendingInvitation / removePendingInvitation keep the PENDING invitation
+// index (expiry sweep) in step with the invitation's status. Keyed by
+// (created_epoch, id): the acceptance window is counted in epochs.
+func (k Keeper) addPendingInvitation(ctx context.Context, inv types.Invitation) error {
+	return k.PendingInvitations.Set(ctx, collections.Join(inv.CreatedEpoch, inv.Id))
+}
+
+func (k Keeper) removePendingInvitation(ctx context.Context, inv types.Invitation) error {
+	return k.PendingInvitations.Remove(ctx, collections.Join(inv.CreatedEpoch, inv.Id))
 }
 
 // GetStakesByTarget returns all stakes for a specific target using the index
@@ -222,7 +279,14 @@ func (k Keeper) GetStakesByTarget(ctx context.Context, targetType types.StakeTar
 // Challenge Index Management
 
 // AddChallengeToStatusIndex adds a challenge to the status index
+// and, for an ACTIVE challenge, a response due-queue entry at its response
+// deadline (due_queue.go).
 func (k Keeper) AddChallengeToStatusIndex(ctx context.Context, challenge types.Challenge) error {
+	if challenge.Status == types.ChallengeStatus_CHALLENGE_STATUS_ACTIVE {
+		if err := enqueueDue(ctx, k.ChallengeResponseDue, challenge.ResponseDeadline, challenge.Id); err != nil {
+			return err
+		}
+	}
 	return k.ChallengesByStatus.Set(ctx, collections.Join(int32(challenge.Status), challenge.Id))
 }
 
@@ -238,6 +302,11 @@ func (k Keeper) UpdateChallengeStatusIndex(ctx context.Context, oldStatus, newSt
 	}
 	if err := k.RemoveChallengeFromStatusIndex(ctx, oldStatus, id); err != nil {
 		if !isNotFoundError(err) {
+			return err
+		}
+	}
+	if newStatus == types.ChallengeStatus_CHALLENGE_STATUS_ACTIVE {
+		if err := enqueueDue(ctx, k.ChallengeResponseDue, 0, id); err != nil {
 			return err
 		}
 	}

@@ -1,77 +1,147 @@
 package keeper_test
 
 import (
+	"context"
+	"errors"
+	"fmt"
 	"testing"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/stretchr/testify/require"
-	// Import mocks or testutil if available, otherwise we use a minimal mock below
+
+	"sparkdream/x/split/types"
 )
 
-// --- Mocks for Unit Testing ---
-type MockBankKeeper struct {
-	Balances map[string]sdk.Coins
+// mockDistr is a community pool that pays out until it runs dry.
+type mockDistr struct {
+	pool     sdk.Coins
+	received map[string]sdk.Coins
 }
 
-func (m *MockBankKeeper) GetAllBalances(ctx sdk.Context, addr sdk.AccAddress) sdk.Coins {
-	return m.Balances[addr.String()]
+func (m *mockDistr) GetCommunityPool(context.Context) (sdk.DecCoins, error) {
+	return sdk.NewDecCoinsFromCoins(m.pool...), nil
 }
 
-func (m *MockBankKeeper) SendCoins(ctx sdk.Context, from, to sdk.AccAddress, amt sdk.Coins) error {
-	// Simple logic: Subtract from sender, add to receiver
-	m.Balances[from.String()] = m.Balances[from.String()].Sub(amt...)
-	m.Balances[to.String()] = m.Balances[to.String()].Add(amt...)
+func (m *mockDistr) DistributeFromFeePool(_ context.Context, amount sdk.Coins, to sdk.AccAddress) error {
+	if !m.pool.IsAllGTE(amount) {
+		return errors.New("insufficient community pool")
+	}
+	m.pool = m.pool.Sub(amount...)
+	m.received[to.String()] = m.received[to.String()].Add(amount...)
 	return nil
 }
 
-// --- The Test ---
-func TestSplitFundsLogic(t *testing.T) {
-	// 1. Setup
-	// Define addresses
-	sourceAddr := sdk.AccAddress([]byte("distribution_module_addr"))
-	commonsAddr := sdk.AccAddress([]byte("commons_council_addr____")) // 20 bytes
-	techAddr := sdk.AccAddress([]byte("gov_module_addr_________"))
-	ecoAddr := sdk.AccAddress([]byte("ecosystem_module_addr___"))
+func splitAddr(s string) string {
+	b := make([]byte, 20)
+	copy(b, s)
+	return sdk.AccAddress(b).String()
+}
 
-	// Initial Pot: 1000 uspark
-	initialBalance := sdk.NewCoins(sdk.NewInt64Coin("uspark", 1000))
+// SplitFunds itself (not a re-implementation) divides the pool by weight.
+func TestSplitFunds_DistributesByWeight(t *testing.T) {
+	f := initFixture(t)
+	distr := &mockDistr{pool: sdk.NewCoins(sdk.NewInt64Coin("uspark", 10_000_000)), received: map[string]sdk.Coins{}}
+	f.keeper.SetDistrKeeper(distr)
 
-	// Setup Mock Bank
-	mockBank := &MockBankKeeper{
-		Balances: map[string]sdk.Coins{
-			sourceAddr.String(): initialBalance,
-		},
+	commons, tech, eco := splitAddr("commons"), splitAddr("tech"), splitAddr("eco")
+	require.NoError(t, f.keeper.SetShareByAddress(f.ctx, commons, 50))
+	require.NoError(t, f.keeper.SetShareByAddress(f.ctx, tech, 30))
+	require.NoError(t, f.keeper.SetShareByAddress(f.ctx, eco, 20))
+
+	require.NoError(t, f.keeper.SplitFunds(f.ctx))
+	require.Equal(t, int64(5_000_000), distr.received[commons].AmountOf("uspark").Int64())
+	require.Equal(t, int64(3_000_000), distr.received[tech].AmountOf("uspark").Int64())
+	require.Equal(t, int64(2_000_000), distr.received[eco].AmountOf("uspark").Int64())
+}
+
+// Below the per-denom threshold nothing moves.
+func TestSplitFunds_Threshold(t *testing.T) {
+	f := initFixture(t)
+	distr := &mockDistr{pool: sdk.NewCoins(sdk.NewInt64Coin("uspark", 999_999)), received: map[string]sdk.Coins{}}
+	f.keeper.SetDistrKeeper(distr)
+	require.NoError(t, f.keeper.SetShareByAddress(f.ctx, splitAddr("commons"), 10))
+	require.NoError(t, f.keeper.SplitFunds(f.ctx))
+	require.Empty(t, distr.received)
+}
+
+// SPL-A01: only the bond denom is distributed, so donated foreign denoms
+// (above or below the threshold) cause no transfers and stay in the pool.
+func TestSplitFunds_BondDenomOnly(t *testing.T) {
+	f := initFixture(t)
+	pool := sdk.NewCoins(sdk.NewInt64Coin("uspark", 4_000_000))
+	for i := 0; i < 500; i++ {
+		pool = pool.Add(sdk.NewInt64Coin(fmt.Sprintf("ibc/%064d", i), 5_000_000))
 	}
+	distr := &mockDistr{pool: pool, received: map[string]sdk.Coins{}}
+	counting := &countingDistr{mockDistr: distr}
+	f.keeper.SetDistrKeeper(counting)
 
-	// 2. Run Math Logic
-	// Since we can't easily instantiate the full Keeper without a full App in a unit test,
-	// we replicate the math logic here to verify the integrity of the 50/30/20 split.
-	// (Ideally, use the Keeper method, but that requires mocking StoreService, AuthKeeper, etc.)
+	a, b := splitAddr("commons"), splitAddr("tech")
+	require.NoError(t, f.keeper.SetShareByAddress(f.ctx, a, 1))
+	require.NoError(t, f.keeper.SetShareByAddress(f.ctx, b, 1))
+	require.NoError(t, f.keeper.SplitFunds(f.ctx))
 
-	total := initialBalance[0].Amount
-	commonsAmt := total.MulRaw(50).QuoRaw(100)   // 500
-	techAmt := total.MulRaw(30).QuoRaw(100)      // 300
-	ecoAmt := total.Sub(commonsAmt).Sub(techAmt) // 200
+	require.Equal(t, 2, counting.calls, "one transfer per recipient, none per foreign denom")
+	require.Equal(t, sdk.NewCoins(sdk.NewInt64Coin("uspark", 2_000_000)), distr.received[a])
+	require.Equal(t, sdk.NewCoins(sdk.NewInt64Coin("uspark", 2_000_000)), distr.received[b])
+	require.True(t, distr.pool.AmountOf("uspark").IsZero())
+	require.Len(t, distr.pool, 500, "foreign denoms stay in the pool")
+}
 
-	// Execute Mock Sends (simulating Keeper.SplitFunds)
-	err1 := mockBank.SendCoins(sdk.Context{}, sourceAddr, commonsAddr, sdk.NewCoins(sdk.NewCoin("uspark", commonsAmt)))
-	err2 := mockBank.SendCoins(sdk.Context{}, sourceAddr, techAddr, sdk.NewCoins(sdk.NewCoin("uspark", techAmt)))
-	err3 := mockBank.SendCoins(sdk.Context{}, sourceAddr, ecoAddr, sdk.NewCoins(sdk.NewCoin("uspark", ecoAmt)))
+// No identity keeper wired: SplitFunds logs and skips instead of panicking.
+func TestSplitFunds_IdentityNotWired(t *testing.T) {
+	f := initFixture(t)
+	f.keeper.SetIdentityKeeper(nil)
+	distr := &mockDistr{pool: sdk.NewCoins(sdk.NewInt64Coin("uspark", 10_000_000)), received: map[string]sdk.Coins{}}
+	f.keeper.SetDistrKeeper(distr)
+	require.NoError(t, f.keeper.SetShareByAddress(f.ctx, splitAddr("commons"), 10))
+	require.NoError(t, f.keeper.SplitFunds(f.ctx))
+	require.Empty(t, distr.received)
+}
 
-	require.NoError(t, err1)
-	require.NoError(t, err2)
-	require.NoError(t, err3)
+type countingDistr struct {
+	*mockDistr
+	calls int
+}
 
-	// 3. Assertions
-	// Did Source empty out?
-	require.True(t, mockBank.Balances[sourceAddr.String()].IsZero(), "Source should be empty")
+func (c *countingDistr) DistributeFromFeePool(ctx context.Context, amount sdk.Coins, to sdk.AccAddress) error {
+	c.calls++
+	return c.mockDistr.DistributeFromFeePool(ctx, amount, to)
+}
 
-	// Did Commons get 50%?
-	require.Equal(t, int64(500), mockBank.Balances[commonsAddr.String()].AmountOf("uspark").Int64())
+// SPL-01: weights are capped per share and in total, and errors surface.
+func TestSetShareByAddress_Caps(t *testing.T) {
+	f := initFixture(t)
+	require.ErrorIs(t, f.keeper.SetShareByAddress(f.ctx, splitAddr("a"), 0), types.ErrInvalidShare)
+	require.ErrorIs(t, f.keeper.SetShareByAddress(f.ctx, splitAddr("a"), types.MaxShareWeight+1), types.ErrInvalidShare)
+	require.NoError(t, f.keeper.SetShareByAddress(f.ctx, splitAddr("a"), 9_000))
+	require.ErrorIs(t, f.keeper.SetShareByAddress(f.ctx, splitAddr("b"), 1_001), types.ErrInvalidShare, "total above MaxTotalShareWeight")
+	require.NoError(t, f.keeper.SetShareByAddress(f.ctx, splitAddr("a"), 10_000), "replacing a share counts it once")
+}
 
-	// Did Tech get 30%?
-	require.Equal(t, int64(300), mockBank.Balances[techAddr.String()].AmountOf("uspark").Int64())
+// SPL-02: a short pool skips the recipient it cannot pay and keeps going.
+func TestSplitFunds_ShortPoolContinues(t *testing.T) {
+	f := initFixture(t)
+	distr := &mockDistr{pool: sdk.NewCoins(sdk.NewInt64Coin("uspark", 2_000_000)), received: map[string]sdk.Coins{}}
+	f.keeper.SetDistrKeeper(distr)
+	require.NoError(t, f.keeper.SetShareByAddress(f.ctx, splitAddr("one"), 1))
+	require.NoError(t, f.keeper.SetShareByAddress(f.ctx, splitAddr("two"), 1))
+	// The first payout fails; the loop must not stop there.
+	inner := &shrinkingDistr{mockDistr: distr}
+	f.keeper.SetDistrKeeper(inner)
+	require.NoError(t, f.keeper.SplitFunds(f.ctx))
+	require.Equal(t, 2, inner.calls, "both recipients were attempted")
+}
 
-	// Did Eco get 20%?
-	require.Equal(t, int64(200), mockBank.Balances[ecoAddr.String()].AmountOf("uspark").Int64())
+type shrinkingDistr struct {
+	*mockDistr
+	calls int
+}
+
+func (s *shrinkingDistr) DistributeFromFeePool(ctx context.Context, amount sdk.Coins, to sdk.AccAddress) error {
+	s.calls++
+	if s.calls == 1 {
+		return errors.New("community pool short")
+	}
+	return s.mockDistr.DistributeFromFeePool(ctx, amount, to)
 }

@@ -29,3 +29,14 @@ func TestCreateRecurringPullCmdShape(t *testing.T) {
 	require.NotNil(t, sub.Flags().Lookup(flagStartTime))
 	require.Error(t, sub.Args(sub, []string{"a", "b"}))
 }
+
+func TestGenericGrantAndExecCmdShape(t *testing.T) {
+	cmd := GetTxCmd()
+	sub, _, err := cmd.Find([]string{"create-grant"})
+	require.NoError(t, err)
+	require.Error(t, sub.Args(sub, []string{"a", "b"}))
+	require.NoError(t, sub.Args(sub, []string{"a", "b", "c"}))
+	sub, _, err = cmd.Find([]string{"exec-session"})
+	require.NoError(t, err)
+	require.NoError(t, sub.Args(sub, []string{"a", "b"}))
+}

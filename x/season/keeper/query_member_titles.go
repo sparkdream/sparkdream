@@ -24,7 +24,8 @@ func (q queryServer) MemberTitles(ctx context.Context, req *types.QueryMemberTit
 		return &types.QueryMemberTitlesResponse{}, nil
 	}
 
-	// Return first unlocked title if available
+	// Return first unlocked title if available (deleted titles excluded)
+	q.k.dropDeletedTitles(ctx, &profile)
 	if len(profile.UnlockedTitles) == 0 {
 		return &types.QueryMemberTitlesResponse{}, nil
 	}

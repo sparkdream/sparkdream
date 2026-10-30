@@ -72,7 +72,7 @@ func TestMsgServerDeleteAchievement(t *testing.T) {
 			Name:          "To Be Deleted",
 			XpReward:      50,
 		}
-		k.Achievement.Set(ctx, "ach1", existing)
+		require.NoError(t, k.Achievement.Set(ctx, "ach1", existing))
 
 		// Verify it exists
 		_, err := k.Achievement.Get(ctx, "ach1")
@@ -108,7 +108,7 @@ func TestMsgServerDeleteAchievement(t *testing.T) {
 			AchievementId: "ach1",
 			Name:          "Committee Delete",
 		}
-		k.Achievement.Set(ctx, "ach1", existing)
+		require.NoError(t, k.Achievement.Set(ctx, "ach1", existing))
 
 		// Delete it
 		_, err := ms.DeleteAchievement(ctx, &types.MsgDeleteAchievement{
@@ -138,7 +138,7 @@ func TestMsgServerDeleteAchievement(t *testing.T) {
 			AchievementId: "council_delete",
 			Name:          "Council Delete",
 		}
-		k.Achievement.Set(ctx, "council_delete", existing)
+		require.NoError(t, k.Achievement.Set(ctx, "council_delete", existing))
 
 		// Delete via council policy
 		_, err := ms.DeleteAchievement(ctx, &types.MsgDeleteAchievement{

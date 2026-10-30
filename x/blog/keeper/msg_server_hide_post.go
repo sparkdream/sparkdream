@@ -38,8 +38,8 @@ func (k msgServer) HidePost(ctx context.Context, msg *types.MsgHidePost) (*types
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 
 	// Remove initiative link while hidden
-	if post.InitiativeId > 0 && k.repKeeper != nil {
-		if err := k.repKeeper.RemoveContentInitiativeLink(ctx, post.InitiativeId, int32(reptypes.StakeTargetType_STAKE_TARGET_BLOG_CONTENT), post.Id); err != nil {
+	if post.InitiativeId > 0 && k.hasRep() {
+		if err := k.late.repKeeper.RemoveContentInitiativeLink(ctx, post.InitiativeId, int32(reptypes.StakeTargetType_STAKE_TARGET_BLOG_CONTENT), post.Id); err != nil {
 			sdkCtx.Logger().Error("failed to remove content initiative link on hide", "post_id", post.Id, "error", err)
 		}
 	}

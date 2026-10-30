@@ -21,7 +21,7 @@ func (q queryServer) ListNominations(ctx context.Context, req *types.QueryListNo
 		q.k.Nomination,
 		req.Pagination,
 		func(_ uint64, value types.Nomination) (types.Nomination, error) {
-			return value, nil
+			return q.k.withLiveConviction(ctx, value), nil
 		},
 	)
 	if err != nil {

@@ -11,6 +11,7 @@ import (
 
 	"sparkdream/x/artifact/keeper"
 	"sparkdream/x/artifact/types"
+	commontypes "sparkdream/x/common/types"
 )
 
 // SimulateMsgSetDisplayedMedia switches the displayed version of a random
@@ -30,7 +31,7 @@ func SimulateMsgSetDisplayedMedia(
 		if !ok {
 			return noop(msg, "no token with media versions")
 		}
-		msg = &types.MsgSetDisplayedMedia{Owner: holder.Address.String(), ClassId: t.ClassId, TokenId: t.Id, Version: uint32(r.Intn(len(t.MediaVersions) + 1))}
+		msg = &types.MsgSetDisplayedMedia{Owner: holder.Address.String(), ClassId: t.ClassId, TokenId: t.Id, Version: commontypes.Saturate[uint32](r.Intn(len(t.MediaVersions) + 1))}
 		return deliver(r, app, ctx, ak, bk, txGen, holder, msg, math.ZeroInt())
 	}
 }

@@ -11,6 +11,9 @@ CHAIN_ID="sparkdream"
 # poster1/moderator alongside the challenger/juror/assignee accounts.
 REP_ENV="$SCRIPT_DIR/.test_env"
 
+# Member-report resolutions go through an Operations Committee proposal.
+source "$SCRIPT_DIR/../lib/ops_committee.sh"
+
 if [ -f "$REP_ENV" ]; then
     source "$REP_ENV"
 else
@@ -104,25 +107,10 @@ bootstrap_reputation() {
             return 1
         fi
 
-        TX_RES=$($BINARY tx rep complete-interim --gas 500000 \
-            "$INTERIM_ID" "Test setup rep bootstrap" \
-            --from $ACCOUNT \
-            --chain-id $CHAIN_ID \
-            --keyring-backend test \
-            --fees 5000${BOND_DENOM} \
-            -y \
-            --output json 2>&1)
-
-        TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
-        if [ -z "$TXHASH" ] || [ "$TXHASH" = "null" ]; then
-            echo "    Failed to complete interim $INTERIM_ID"
-            return 1
-        fi
-
-        sleep 6
-        TX_RESULT=$(wait_for_tx $TXHASH)
-        if ! check_tx_success "$TX_RESULT" > /dev/null 2>&1; then
-            echo "    Failed to complete interim $INTERIM_ID: $(echo "$TX_RESULT" | jq -r '.raw_log')"
+        # Approved by an Operations Committee proposal (a single member is
+        # refused); an assignee can no longer complete and pay its own interim.
+        if ! ops_approve_interim "$INTERIM_ID" "Test setup rep bootstrap"; then
+            echo "    Failed to approve interim $INTERIM_ID: $OPS_COMMITTEE_ERROR"
             return 1
         fi
 
@@ -459,31 +447,41 @@ if [ -n "$TXHASH" ] && [ "$TXHASH" != "null" ]; then
     TX_RESULT=$(wait_for_tx $TXHASH)
 
     if check_tx_success "$TX_RESULT"; then
-        echo "  Resolving member report for $BOUNTY_CREATOR_ADDR with DISMISS (action=0)..."
-
+        # A single Operations Committee member (alice) is refused: the
+        # resolution can zero a member, so it takes a committee proposal.
+        echo "  Checking that alice alone cannot resolve..."
         TX_RES=$($BINARY tx rep resolve-member-report \
             "$BOUNTY_CREATOR_ADDR" \
             "0" \
-            "Dismissed after review" \
+            "Lone committee member" \
             --from alice \
             --chain-id $CHAIN_ID \
             --keyring-backend test \
             --fees 5000${BOND_DENOM} \
             -y \
             --output json 2>&1)
-
         TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
-
-        if [ -n "$TXHASH" ] && [ "$TXHASH" != "null" ]; then
+        LONE_REFUSED=false
+        if [ -z "$TXHASH" ] || [ "$TXHASH" == "null" ]; then
+            LONE_REFUSED=true
+        else
             sleep 6
             TX_RESULT=$(wait_for_tx $TXHASH)
-
-            if check_tx_success "$TX_RESULT"; then
-                echo "  Member report resolved (dismissed)"
-                PART28_RESULT="PASS"
-            else
-                echo "  Failed to resolve member report"
+            if ! check_tx_success "$TX_RESULT"; then
+                LONE_REFUSED=true
             fi
+        fi
+
+        echo "  Resolving member report for $BOUNTY_CREATOR_ADDR with DISMISS (action=0) via Operations Committee proposal..."
+        MSG=$(jq -nc --arg m "$BOUNTY_CREATOR_ADDR" \
+            '{"@type":"/sparkdream.rep.v1.MsgResolveMemberReport",member:$m,action:"0",reason:"Dismissed after review"}')
+        if [ "$LONE_REFUSED" != "true" ]; then
+            echo "  ERROR: alice resolved the report on her own"
+        elif ops_committee_exec "$MSG" creator; then
+            echo "  Member report resolved (dismissed)"
+            PART28_RESULT="PASS"
+        else
+            echo "  Failed to resolve member report: $OPS_COMMITTEE_ERROR"
         fi
     else
         echo "  Failed to create report on bounty_creator"

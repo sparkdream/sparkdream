@@ -150,12 +150,14 @@ type mockRepKeeper struct {
 	unlockDREAMFn          func(ctx context.Context, addr sdk.AccAddress, amount math.Int) error
 	burnDREAMFn            func(ctx context.Context, addr sdk.AccAddress, amount math.Int) error
 	deductReputationFn     func(ctx context.Context, addr sdk.AccAddress, tag string, amount math.LegacyDec) error
+	sameMemberFn           func(ctx context.Context, a, b string) bool
 
 	// Call recorders, optional. Tests opt in by setting the *Fn fields above
 	// to write into these slices.
 	lockCalls             []dreamCall
 	unlockCalls           []dreamCall
 	burnCalls             []dreamCall
+	mintCalls             []dreamCall
 	deductReputationCalls []repDeductionCall
 
 	// Author-bond restore path (MsgUnhideContent). getAuthorBondFn lets a
@@ -224,7 +226,12 @@ type incrementTagUsageCall struct {
 func (m *mockRepKeeper) CanActAs(_ context.Context, signer, stored string) bool {
 	return signer == stored
 }
-func (m *mockRepKeeper) SameMember(_ context.Context, a, b string) bool { return a == b }
+func (m *mockRepKeeper) SameMember(ctx context.Context, a, b string) bool {
+	if m.sameMemberFn != nil {
+		return m.sameMemberFn(ctx, a, b)
+	}
+	return a == b
+}
 func (m *mockRepKeeper) RecentAddressesOf(_ context.Context, member string) []string {
 	return []string{member}
 }
@@ -232,7 +239,7 @@ func (m *mockRepKeeper) AllAddressesOf(_ context.Context, member string) []strin
 	return []string{member}
 }
 
-func (m *mockRepKeeper) IsMember(ctx context.Context, addr sdk.AccAddress) bool {
+func (m *mockRepKeeper) IsActiveMember(ctx context.Context, addr sdk.AccAddress) bool {
 	if m.isMemberFn != nil {
 		return m.isMemberFn(ctx, addr)
 	}
@@ -257,6 +264,20 @@ func (m *mockRepKeeper) UnlockDREAM(ctx context.Context, addr sdk.AccAddress, am
 	if m.unlockDREAMFn != nil {
 		return m.unlockDREAMFn(ctx, addr, amount)
 	}
+	return nil
+}
+
+// BurnLockedDREAM runs the unlock and the burn hooks it stands for, so tests
+// observing either keep working.
+func (m *mockRepKeeper) BurnLockedDREAM(ctx context.Context, addr sdk.AccAddress, amount math.Int) error {
+	if err := m.UnlockDREAM(ctx, addr, amount); err != nil {
+		return err
+	}
+	return m.BurnDREAM(ctx, addr, amount)
+}
+
+func (m *mockRepKeeper) MintDREAM(_ context.Context, addr sdk.AccAddress, amount math.Int) error {
+	m.mintCalls = append(m.mintCalls, dreamCall{addr: addr, amount: amount})
 	return nil
 }
 
@@ -541,6 +562,7 @@ func (m *mockRepKeeper) SetBondedRoleConfig(_ context.Context, cfg reptypes.Bond
 
 type mockCommonsKeeper struct {
 	isCouncilAuthorizedFn  func(ctx context.Context, addr string, council string, committee string) bool
+	isCouncilOrCommitteeFn func(ctx context.Context, addr string, council string, committee string) bool
 	isGroupPolicyAddressFn func(ctx context.Context, addr string) bool
 }
 
@@ -549,6 +571,13 @@ func (m *mockCommonsKeeper) IsGroupPolicyAddress(ctx context.Context, addr strin
 		return m.isGroupPolicyAddressFn(ctx, addr)
 	}
 	return false
+}
+
+func (m *mockCommonsKeeper) IsCouncilOrCommitteePolicy(ctx context.Context, addr string, council string, committee string) bool {
+	if m.isCouncilOrCommitteeFn != nil {
+		return m.isCouncilOrCommitteeFn(ctx, addr, council, committee)
+	}
+	return true
 }
 
 func (m *mockCommonsKeeper) IsCouncilAuthorized(ctx context.Context, addr string, council string, committee string) bool {
@@ -759,6 +788,23 @@ func (f *testFixture) createPendingCollection(t *testing.T) uint64 {
 	resp, err := f.msgServer.CreateCollection(f.ctx, msg)
 	require.NoError(t, err)
 	return resp.Id
+}
+
+// endorse endorses a non-member's PENDING collection (as f.member), moving
+// it to ACTIVE so it can be sponsored.
+func (f *testFixture) endorse(t *testing.T, collID uint64) {
+	t.Helper()
+	_, err := f.msgServer.EndorseCollection(f.ctx, &types.MsgEndorseCollection{Creator: f.member, CollectionId: collID})
+	require.NoError(t, err)
+}
+
+// createEndorsedCollection creates a non-member TTL collection and endorses
+// it, so it is ACTIVE and open to sponsorship.
+func (f *testFixture) createEndorsedCollection(t *testing.T) uint64 {
+	t.Helper()
+	collID := f.createPendingCollection(t)
+	f.endorse(t, collID)
+	return collID
 }
 
 // addItem adds an item to a collection.

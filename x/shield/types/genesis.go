@@ -155,13 +155,18 @@ func defaultShieldedOps() []ShieldedOpRegistration {
 	}
 	ops = append(ops, []ShieldedOpRegistration{
 		// --- x/rep ---
+		// Registered but INACTIVE: x/rep refuses a challenge whose creator is
+		// the shield module until the identity-derived challenger exists
+		// (TestShieldedChallengePathFailsClosed), so an active registration
+		// would only let members pay for batch submissions that are always
+		// dropped. Governance activates it once x/rep supports the flow.
 		{
 			MessageTypeUrl:     "/sparkdream.rep.v1.MsgCreateChallenge",
 			ProofDomain:        ProofDomain_PROOF_DOMAIN_TRUST_TREE,
 			MinTrustLevel:      0,
 			NullifierDomain:    41,
 			NullifierScopeType: NullifierScopeType_NULLIFIER_SCOPE_GLOBAL,
-			Active:             true,
+			Active:             false,
 			BatchMode:          ShieldBatchMode_SHIELD_BATCH_MODE_ENCRYPTED_ONLY,
 		},
 		// --- x/commons (anonymous governance) ---
@@ -178,15 +183,31 @@ func defaultShieldedOps() []ShieldedOpRegistration {
 			Active:             true,
 			BatchMode:          ShieldBatchMode_SHIELD_BATCH_MODE_EITHER,
 		},
+		// Secret-ballot votes (x/commons spec §11): proven against the
+		// proposal's or poll's voter snapshot (GROUP_TREE, the root x/commons
+		// names via ShieldRootResolver), not the trust tree, so only the
+		// group's members vote; the nullifier is scoped to the proposal or
+		// poll, so each votes once. Immediate only: a batch submission is
+		// checked before its payload is decrypted, so its root cannot be.
 		{
 			MessageTypeUrl:     "/sparkdream.commons.v1.MsgAnonymousVoteProposal",
-			ProofDomain:        ProofDomain_PROOF_DOMAIN_TRUST_TREE,
+			ProofDomain:        ProofDomain_PROOF_DOMAIN_GROUP_TREE,
 			MinTrustLevel:      0,
 			NullifierDomain:    32,
 			NullifierScopeType: NullifierScopeType_NULLIFIER_SCOPE_MESSAGE_FIELD,
 			ScopeFieldPath:     "proposal_id",
 			Active:             true,
-			BatchMode:          ShieldBatchMode_SHIELD_BATCH_MODE_EITHER,
+			BatchMode:          ShieldBatchMode_SHIELD_BATCH_MODE_IMMEDIATE_ONLY,
+		},
+		{
+			MessageTypeUrl:     "/sparkdream.commons.v1.MsgAnonymousVotePoll",
+			ProofDomain:        ProofDomain_PROOF_DOMAIN_GROUP_TREE,
+			MinTrustLevel:      0,
+			NullifierDomain:    33,
+			NullifierScopeType: NullifierScopeType_NULLIFIER_SCOPE_MESSAGE_FIELD,
+			ScopeFieldPath:     "poll_id",
+			Active:             true,
+			BatchMode:          ShieldBatchMode_SHIELD_BATCH_MODE_IMMEDIATE_ONLY,
 		},
 		// --- x/federation (anonymous arbiter quorum) ---
 		// FEDERATION-S2-5: scope nullifier per content_id so a single identity
@@ -219,6 +240,32 @@ func (gs GenesisState) Validate() error {
 			return fmt.Errorf("duplicate registered op %s", reg.MessageTypeUrl)
 		}
 		seenOps[reg.MessageTypeUrl] = true
+	}
+	for i, a := range gs.RegisteredOps {
+		for _, b := range gs.RegisteredOps[i+1:] {
+			if err := CheckDomainCompatible(a, b); err != nil {
+				return err
+			}
+		}
+	}
+	// A retired domain is one no live op uses: one entry per domain, none
+	// shared with a registered op.
+	liveDomains := make(map[uint32]bool, len(gs.RegisteredOps))
+	for _, reg := range gs.RegisteredOps {
+		liveDomains[reg.NullifierDomain] = true
+	}
+	seenRetired := make(map[uint32]bool, len(gs.RetiredDomains))
+	for _, reg := range gs.RetiredDomains {
+		if err := reg.Validate(); err != nil {
+			return err
+		}
+		if seenRetired[reg.NullifierDomain] {
+			return fmt.Errorf("duplicate retired nullifier domain %d", reg.NullifierDomain)
+		}
+		seenRetired[reg.NullifierDomain] = true
+		if liveDomains[reg.NullifierDomain] {
+			return fmt.Errorf("retired nullifier domain %d is used by a registered op", reg.NullifierDomain)
+		}
 	}
 	if err := gs.TleKeySet.Validate(); err != nil {
 		return err

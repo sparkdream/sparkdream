@@ -124,6 +124,7 @@ func (m *mockRep) AllAddressesOf(ctx context.Context, addr string) []string {
 	}
 	return out
 }
+func (m *mockRep) IsTombstoned(_ context.Context, addr string) bool { return m.tombstoned[addr] }
 func (m *mockRep) IsPersonalAddress(_ context.Context, addr string) error {
 	if m.nonPersonal[addr] {
 		return types.ErrNotPersonalAddress

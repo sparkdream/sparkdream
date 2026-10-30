@@ -18,7 +18,7 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 				{
 					RpcMethod: "AllowedMsgs",
 					Use:       "allowed-msgs",
-					Short:     "List the inner msg type URLs guardian.MsgExec will route",
+					Short:     "List the inner msg type URLs guardian.MsgExec recognizes (MsgCommunityPoolSpend is listed and always refused)",
 				},
 			},
 		},

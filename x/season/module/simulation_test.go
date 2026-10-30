@@ -33,7 +33,9 @@ func TestGenerateGenesisState(t *testing.T) {
 	var genesis types.GenesisState
 	require.NoError(t, encCfg.Codec.UnmarshalJSON(raw, &genesis))
 
-	require.Equal(t, types.DefaultParams(), genesis.Params)
+	expected := types.DefaultParams()
+	expected.MinGuildAgeEpochs = 0
+	require.Equal(t, expected, genesis.Params)
 
 	require.NotNil(t, genesis.Season, "genesis should contain an initial season")
 	require.Equal(t, uint64(1), genesis.Season.Number)
@@ -51,7 +53,7 @@ func TestWeightedOperations(t *testing.T) {
 	}
 
 	ops := am.WeightedOperations(simState)
-	require.Len(t, ops, 40)
+	require.Len(t, ops, 42)
 }
 
 func TestProposalMsgs(t *testing.T) {

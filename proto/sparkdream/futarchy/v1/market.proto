@@ -37,4 +37,15 @@ message Market {
   // Holders redeem 1 YES share for p_yes spark and 1 NO share for (1 - p_yes)
   // spark. Empty for ACTIVE or RESOLVED_YES/NO markets.
   string settlement_price_yes = 16 [(gogoproto.customtype) = "cosmossdk.io/math.LegacyDec"];
+
+  // Time-weighted price accumulator (FUT-01). Sum over blocks of the LMSR
+  // YES price in effect during that block: each trade first adds
+  // p_yes * (height - twap_last_height) and only then moves the pools. The
+  // market resolves on twap_accumulator / (end_block - start_height), not on
+  // the final pool state, so a trade in the last blocks cannot decide it.
+  string twap_accumulator = 17 [(gogoproto.customtype) = "cosmossdk.io/math.LegacyDec"];
+  // Height up to which twap_accumulator has been accumulated.
+  int64 twap_last_height = 18;
+  // Height at which the market was created (start of the TWAP window).
+  int64 start_height = 19;
 }

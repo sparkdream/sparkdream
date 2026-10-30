@@ -18,14 +18,14 @@ func TestIterateActiveInitiatives(t *testing.T) {
 
 	// Create member for initiatives
 	member := sdk.AccAddress([]byte("member"))
-	k.Member.Set(ctx, member.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, member.String(), types.Member{
 		Address:          member.String(),
 		DreamBalance:     PtrInt(math.ZeroInt()),
 		StakedDream:      PtrInt(math.ZeroInt()),
 		LifetimeEarned:   PtrInt(math.ZeroInt()),
 		LifetimeBurned:   PtrInt(math.ZeroInt()),
 		ReputationScores: map[string]string{"technical": "50.0"},
-	})
+	}))
 
 	// Create initiatives with all possible statuses
 	testCases := []struct {
@@ -88,14 +88,14 @@ func TestIterateActiveInitiatives_EarlyStop(t *testing.T) {
 
 	// Create member
 	member := sdk.AccAddress([]byte("member"))
-	k.Member.Set(ctx, member.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, member.String(), types.Member{
 		Address:          member.String(),
 		DreamBalance:     PtrInt(math.ZeroInt()),
 		StakedDream:      PtrInt(math.ZeroInt()),
 		LifetimeEarned:   PtrInt(math.ZeroInt()),
 		LifetimeBurned:   PtrInt(math.ZeroInt()),
 		ReputationScores: map[string]string{"technical": "50.0"},
-	})
+	}))
 
 	// Create 10 open initiatives
 	for i := 0; i < 10; i++ {
@@ -108,8 +108,8 @@ func TestIterateActiveInitiatives_EarlyStop(t *testing.T) {
 			Status:      types.InitiativeStatus_INITIATIVE_STATUS_OPEN,
 			Budget:      PtrInt(math.NewInt(100)),
 		}
-		k.Initiative.Set(ctx, uint64(i), initiative)
-		k.AddInitiativeToStatusIndex(ctx, initiative)
+		require.NoError(t, k.Initiative.Set(ctx, uint64(i), initiative))
+		require.NoError(t, k.AddInitiativeToStatusIndex(ctx, initiative))
 	}
 
 	// Test early stop after 3 iterations
@@ -146,14 +146,14 @@ func TestIterateSubmittedInitiatives(t *testing.T) {
 
 	// Create member
 	member := sdk.AccAddress([]byte("member"))
-	k.Member.Set(ctx, member.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, member.String(), types.Member{
 		Address:          member.String(),
 		DreamBalance:     PtrInt(math.ZeroInt()),
 		StakedDream:      PtrInt(math.ZeroInt()),
 		LifetimeEarned:   PtrInt(math.ZeroInt()),
 		LifetimeBurned:   PtrInt(math.ZeroInt()),
 		ReputationScores: map[string]string{"technical": "50.0"},
-	})
+	}))
 
 	// Create initiatives with different statuses
 	statuses := []struct {
@@ -178,8 +178,8 @@ func TestIterateSubmittedInitiatives(t *testing.T) {
 			Status:      s.status,
 			Budget:      PtrInt(math.NewInt(100)),
 		}
-		k.Initiative.Set(ctx, s.id, initiative)
-		k.AddInitiativeToStatusIndex(ctx, initiative)
+		require.NoError(t, k.Initiative.Set(ctx, s.id, initiative))
+		require.NoError(t, k.AddInitiativeToStatusIndex(ctx, initiative))
 	}
 
 	// Iterate and collect
@@ -206,14 +206,14 @@ func TestIterateSubmittedInitiatives_EarlyStop(t *testing.T) {
 
 	// Create member
 	member := sdk.AccAddress([]byte("member"))
-	k.Member.Set(ctx, member.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, member.String(), types.Member{
 		Address:          member.String(),
 		DreamBalance:     PtrInt(math.ZeroInt()),
 		StakedDream:      PtrInt(math.ZeroInt()),
 		LifetimeEarned:   PtrInt(math.ZeroInt()),
 		LifetimeBurned:   PtrInt(math.ZeroInt()),
 		ReputationScores: map[string]string{"technical": "50.0"},
-	})
+	}))
 
 	// Create 5 submitted initiatives
 	for i := 0; i < 5; i++ {
@@ -226,8 +226,8 @@ func TestIterateSubmittedInitiatives_EarlyStop(t *testing.T) {
 			Status:      types.InitiativeStatus_INITIATIVE_STATUS_SUBMITTED,
 			Budget:      PtrInt(math.NewInt(100)),
 		}
-		k.Initiative.Set(ctx, uint64(i), initiative)
-		k.AddInitiativeToStatusIndex(ctx, initiative)
+		require.NoError(t, k.Initiative.Set(ctx, uint64(i), initiative))
+		require.NoError(t, k.AddInitiativeToStatusIndex(ctx, initiative))
 	}
 
 	// Test early stop after 2
@@ -263,14 +263,14 @@ func TestIteratePendingCompletionInitiatives(t *testing.T) {
 
 	// Create member
 	member := sdk.AccAddress([]byte("member"))
-	k.Member.Set(ctx, member.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, member.String(), types.Member{
 		Address:          member.String(),
 		DreamBalance:     PtrInt(math.ZeroInt()),
 		StakedDream:      PtrInt(math.ZeroInt()),
 		LifetimeEarned:   PtrInt(math.ZeroInt()),
 		LifetimeBurned:   PtrInt(math.ZeroInt()),
 		ReputationScores: map[string]string{"technical": "50.0"},
-	})
+	}))
 
 	// Create initiatives with different statuses
 	statuses := []struct {
@@ -295,8 +295,8 @@ func TestIteratePendingCompletionInitiatives(t *testing.T) {
 			Status:      s.status,
 			Budget:      PtrInt(math.NewInt(100)),
 		}
-		k.Initiative.Set(ctx, s.id, initiative)
-		k.AddInitiativeToStatusIndex(ctx, initiative)
+		require.NoError(t, k.Initiative.Set(ctx, s.id, initiative))
+		require.NoError(t, k.AddInitiativeToStatusIndex(ctx, initiative))
 	}
 
 	// Iterate and collect
@@ -323,14 +323,14 @@ func TestIteratePendingCompletionInitiatives_EarlyStop(t *testing.T) {
 
 	// Create member
 	member := sdk.AccAddress([]byte("member"))
-	k.Member.Set(ctx, member.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, member.String(), types.Member{
 		Address:          member.String(),
 		DreamBalance:     PtrInt(math.ZeroInt()),
 		StakedDream:      PtrInt(math.ZeroInt()),
 		LifetimeEarned:   PtrInt(math.ZeroInt()),
 		LifetimeBurned:   PtrInt(math.ZeroInt()),
 		ReputationScores: map[string]string{"technical": "50.0"},
-	})
+	}))
 
 	// Create 4 in-review initiatives
 	for i := 0; i < 4; i++ {
@@ -343,8 +343,8 @@ func TestIteratePendingCompletionInitiatives_EarlyStop(t *testing.T) {
 			Status:      types.InitiativeStatus_INITIATIVE_STATUS_IN_REVIEW,
 			Budget:      PtrInt(math.NewInt(100)),
 		}
-		k.Initiative.Set(ctx, uint64(i), initiative)
-		k.AddInitiativeToStatusIndex(ctx, initiative)
+		require.NoError(t, k.Initiative.Set(ctx, uint64(i), initiative))
+		require.NoError(t, k.AddInitiativeToStatusIndex(ctx, initiative))
 	}
 
 	// Test early stop
@@ -395,8 +395,8 @@ func TestIterateActiveJuryReviews(t *testing.T) {
 			Id:      v.id,
 			Verdict: v.verdict,
 		}
-		k.JuryReview.Set(ctx, v.id, review)
-		k.AddJuryReviewToVerdictIndex(ctx, review)
+		require.NoError(t, k.JuryReview.Set(ctx, v.id, review))
+		require.NoError(t, k.AddJuryReviewToVerdictIndex(ctx, review))
 	}
 
 	// Iterate and collect
@@ -426,8 +426,8 @@ func TestIterateActiveJuryReviews_EarlyStop(t *testing.T) {
 			Id:      uint64(i),
 			Verdict: types.Verdict_VERDICT_PENDING,
 		}
-		k.JuryReview.Set(ctx, uint64(i), review)
-		k.AddJuryReviewToVerdictIndex(ctx, review)
+		require.NoError(t, k.JuryReview.Set(ctx, uint64(i), review))
+		require.NoError(t, k.AddJuryReviewToVerdictIndex(ctx, review))
 	}
 
 	// Test early stop
@@ -481,8 +481,8 @@ func TestIteratePendingInterims(t *testing.T) {
 			Type:   types.InterimType_INTERIM_TYPE_JURY_DUTY,
 			Budget: PtrInt(math.NewInt(100)),
 		}
-		k.Interim.Set(ctx, s.id, interim)
-		k.AddInterimToStatusIndex(ctx, interim)
+		require.NoError(t, k.Interim.Set(ctx, s.id, interim))
+		require.NoError(t, k.AddInterimToStatusIndex(ctx, interim))
 	}
 
 	// Iterate and collect
@@ -515,8 +515,8 @@ func TestIteratePendingInterims_EarlyStop(t *testing.T) {
 			Type:   types.InterimType_INTERIM_TYPE_JURY_DUTY,
 			Budget: PtrInt(math.NewInt(100)),
 		}
-		k.Interim.Set(ctx, uint64(i), interim)
-		k.AddInterimToStatusIndex(ctx, interim)
+		require.NoError(t, k.Interim.Set(ctx, uint64(i), interim))
+		require.NoError(t, k.AddInterimToStatusIndex(ctx, interim))
 	}
 
 	// Test early stop
@@ -552,14 +552,14 @@ func TestIterators_MixedStatusLargeDataset(t *testing.T) {
 
 	// Create member
 	member := sdk.AccAddress([]byte("member"))
-	k.Member.Set(ctx, member.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, member.String(), types.Member{
 		Address:          member.String(),
 		DreamBalance:     PtrInt(math.ZeroInt()),
 		StakedDream:      PtrInt(math.ZeroInt()),
 		LifetimeEarned:   PtrInt(math.ZeroInt()),
 		LifetimeBurned:   PtrInt(math.ZeroInt()),
 		ReputationScores: map[string]string{"technical": "50.0"},
-	})
+	}))
 
 	// Create 100 initiatives with mixed statuses
 	activeCount := 0
@@ -585,8 +585,8 @@ func TestIterators_MixedStatusLargeDataset(t *testing.T) {
 			Status:      status,
 			Budget:      PtrInt(math.NewInt(100)),
 		}
-		k.Initiative.Set(ctx, uint64(i), initiative)
-		k.AddInitiativeToStatusIndex(ctx, initiative)
+		require.NoError(t, k.Initiative.Set(ctx, uint64(i), initiative))
+		require.NoError(t, k.AddInitiativeToStatusIndex(ctx, initiative))
 	}
 
 	// Iterate and verify count
@@ -616,8 +616,8 @@ func TestIterators_IndexConsistency(t *testing.T) {
 			Type:   types.InterimType_INTERIM_TYPE_JURY_DUTY,
 			Budget: PtrInt(math.NewInt(100)),
 		}
-		k.Interim.Set(ctx, id, interim)
-		k.AddInterimToStatusIndex(ctx, interim)
+		require.NoError(t, k.Interim.Set(ctx, id, interim))
+		require.NoError(t, k.AddInterimToStatusIndex(ctx, interim))
 	}
 
 	// Verify index matches ID

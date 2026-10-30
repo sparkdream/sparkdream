@@ -3,6 +3,8 @@ package types
 import (
 	"fmt"
 
+	"cosmossdk.io/math"
+
 	sdk "github.com/cosmos/cosmos-sdk/types"
 )
 
@@ -31,7 +33,9 @@ func (gs GenesisState) Validate() error {
 		}
 		seenIDs[g.Id] = true
 
-		if gs.GrantSeq != 0 && g.Id >= gs.GrantSeq {
+		// Ids are allocated as sequence+1 after the sequence advanced, so
+		// the exported sequence value equals the highest allocated id.
+		if gs.GrantSeq != 0 && g.Id > gs.GrantSeq {
 			return fmt.Errorf("grant %d: id %d exceeds GrantSeq %d", i, g.Id, gs.GrantSeq)
 		}
 		if _, err := sdk.AccAddressFromBech32(g.Granter); err != nil {
@@ -126,12 +130,94 @@ func (gs GenesisState) Validate() error {
 		}
 	}
 
+	grantType := make(map[uint64]GrantType, len(gs.Grants))
+	for _, g := range gs.Grants {
+		grantType[g.Id] = g.Type
+	}
+	seenDeposit := make(map[uint64]bool)
+	for i, d := range gs.OneshotGasDeposits {
+		if grantType[d.GrantId] != GrantType_GRANT_TYPE_SCHEDULED_ONESHOT {
+			return fmt.Errorf("oneshot_gas_deposits[%d]: grant %d is not a scheduled oneshot in genesis", i, d.GrantId)
+		}
+		if seenDeposit[d.GrantId] {
+			return fmt.Errorf("oneshot_gas_deposits[%d]: duplicate grant %d", i, d.GrantId)
+		}
+		seenDeposit[d.GrantId] = true
+		if !d.Amount.IsValid() {
+			return fmt.Errorf("oneshot_gas_deposits[%d]: invalid amount %s", i, d.Amount)
+		}
+	}
+	type spendKey struct {
+		grant uint64
+		day   int64
+	}
+	seenSpend := make(map[spendKey]bool)
+	for i, e := range gs.EpochSpends {
+		if grantType[e.GrantId] != GrantType_GRANT_TYPE_RECURRING_PULL {
+			return fmt.Errorf("epoch_spends[%d]: grant %d is not a recurring pull in genesis", i, e.GrantId)
+		}
+		k := spendKey{e.GrantId, e.Day}
+		if seenSpend[k] {
+			return fmt.Errorf("epoch_spends[%d]: duplicate (grant %d, day %d)", i, e.GrantId, e.Day)
+		}
+		seenSpend[k] = true
+		if v, ok := math.NewIntFromString(e.Amount); !ok || v.IsNegative() {
+			return fmt.Errorf("epoch_spends[%d]: invalid amount %q", i, e.Amount)
+		}
+	}
+	seenCreator := make(map[uint64]bool)
+	for i, c := range gs.GrantCreators {
+		if _, ok := grantType[c.GrantId]; !ok {
+			return fmt.Errorf("grant_creators[%d]: grant %d not in genesis", i, c.GrantId)
+		}
+		if seenCreator[c.GrantId] {
+			return fmt.Errorf("grant_creators[%d]: duplicate grant %d", i, c.GrantId)
+		}
+		seenCreator[c.GrantId] = true
+		if _, err := sdk.AccAddressFromBech32(c.ModuleAddress); err != nil {
+			return fmt.Errorf("grant_creators[%d]: invalid module address %q: %w", i, c.ModuleAddress, err)
+		}
+	}
+
+	// active_grant_counts must match the grants list exactly: one entry per
+	// (granter, type), and every count equal to the number of active or
+	// paused grants (InitGenesis recomputes them; a mismatch means the file
+	// was edited or exported inconsistently).
+	type countKey struct {
+		granter string
+		typ     GrantType
+	}
+	actual := make(map[countKey]uint32)
+	for _, g := range gs.Grants {
+		if g.Status == GrantStatus_GRANT_STATUS_ACTIVE || g.Status == GrantStatus_GRANT_STATUS_PAUSED_INSUFFICIENT_FUNDS {
+			actual[countKey{g.Granter, g.Type}]++
+		}
+	}
+	supplied := make(map[countKey]bool, len(gs.ActiveGrantCounts))
 	for i, c := range gs.ActiveGrantCounts {
 		if _, err := sdk.AccAddressFromBech32(c.Granter); err != nil {
 			return fmt.Errorf("active_grant_counts[%d]: invalid granter address %q: %w", i, c.Granter, err)
 		}
 		if c.Type == GrantType_GRANT_TYPE_UNSPECIFIED {
 			return fmt.Errorf("active_grant_counts[%d]: type must be specified", i)
+		}
+		key := countKey{c.Granter, c.Type}
+		if supplied[key] {
+			return fmt.Errorf("active_grant_counts[%d]: duplicate entry for %s / %s", i, c.Granter, c.Type)
+		}
+		supplied[key] = true
+		if c.Count != actual[key] {
+			return fmt.Errorf("active_grant_counts[%d]: %s / %s count %d, but the grants list has %d active",
+				i, c.Granter, c.Type, c.Count, actual[key])
+		}
+	}
+	// An exported file lists every non-zero count; one missing is understated.
+	// (An empty list is accepted: InitGenesis recomputes.)
+	if len(gs.ActiveGrantCounts) > 0 {
+		for key, n := range actual {
+			if !supplied[key] {
+				return fmt.Errorf("active_grant_counts: missing %s / %s (the grants list has %d active)", key.granter, key.typ, n)
+			}
 		}
 	}
 

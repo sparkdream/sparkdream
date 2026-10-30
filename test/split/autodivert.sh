@@ -143,7 +143,7 @@ END_DISTR=$(get_balance $DISTR_ADDR)
 DRAIN_THRESHOLD=$((START_DISTR_AMOUNT * 5 / 100))   # accept up to 5% residual
 if [ "$END_DISTR" -gt "$DRAIN_THRESHOLD" ]; then
     echo "[FAIL] FAILURE: Community Pool was NOT swept! Balance: $END_DISTR (>5% of $START_DISTR_AMOUNT)"
-    echo "   Ensure x/split EndBlocker is wired up in app.go and permissions are set."
+    echo "   Ensure x/split BeginBlocker is wired up in app.go and permissions are set."
     exit 1
 else
     echo "[ OK ] Community Pool drained (residual=$END_DISTR uspark, < 5%)."

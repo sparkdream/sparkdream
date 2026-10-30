@@ -25,7 +25,7 @@ func TestDeleteGroup_RemovesSplitShare(t *testing.T) {
 		GroupId: 1, PolicyAddress: policy, ParentPolicyAddress: parent, FundingWeight: 10,
 	}))
 	require.NoError(t, k.PolicyToName.Set(ctx, policy, "Aurora Guild"))
-	split.SetShareByAddress(ctx, policy, 10)
+	require.NoError(t, split.SetShareByAddress(ctx, policy, 10))
 
 	_, err := ms.DeleteGroup(ctx, &types.MsgDeleteGroup{Authority: parent, GroupName: "Aurora Guild"})
 	require.NoError(t, err)

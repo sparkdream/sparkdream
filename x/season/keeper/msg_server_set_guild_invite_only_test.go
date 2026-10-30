@@ -59,7 +59,7 @@ func TestMsgServerSetGuildInviteOnly(t *testing.T) {
 		// Set guild to dissolved
 		guild, _ := k.Guild.Get(ctx, guildID)
 		guild.Status = types.GuildStatus_GUILD_STATUS_DISSOLVED
-		k.Guild.Set(ctx, guildID, guild)
+		require.NoError(t, k.Guild.Set(ctx, guildID, guild))
 
 		_, err := ms.SetGuildInviteOnly(ctx, &types.MsgSetGuildInviteOnly{
 			Creator:    founderStr,
@@ -139,7 +139,7 @@ func TestMsgServerSetGuildInviteOnly(t *testing.T) {
 		// Set to invite only first
 		guild, _ := k.Guild.Get(ctx, guildID)
 		guild.InviteOnly = true
-		k.Guild.Set(ctx, guildID, guild)
+		require.NoError(t, k.Guild.Set(ctx, guildID, guild))
 
 		_, err := ms.SetGuildInviteOnly(ctx, &types.MsgSetGuildInviteOnly{
 			Creator:    founderStr,

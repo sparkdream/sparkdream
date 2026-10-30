@@ -11,6 +11,7 @@ import (
 
 	"sparkdream/x/artifact/keeper"
 	"sparkdream/x/artifact/types"
+	commontypes "sparkdream/x/common/types"
 )
 
 // SimulateMsgBurnUnits burns some free units of a holder-burnable edition.
@@ -24,7 +25,7 @@ func SimulateMsgBurnUnits(ak types.AuthKeeper, bk types.BankKeeper, k keeper.Kee
 		if !ok {
 			return noop(msg, "no burnable units")
 		}
-		msg = &types.MsgBurnUnits{Owner: holder.Address.String(), ClassId: c.Id, EditionId: b.EditionId, Amount: uint64(1 + r.Intn(int(b.Amount)))}
+		msg = &types.MsgBurnUnits{Owner: holder.Address.String(), ClassId: c.Id, EditionId: b.EditionId, Amount: commontypes.Saturate[uint64](1 + r.Intn(commontypes.Saturate[int](b.Amount)))}
 		return deliver(r, app, ctx, ak, bk, txGen, holder, msg, math.ZeroInt())
 	}
 }

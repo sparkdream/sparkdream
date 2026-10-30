@@ -68,7 +68,7 @@ func TestQueryThreadLockStatus(t *testing.T) {
 		post.Locked = true
 		post.LockedBy = authority
 		post.LockReason = "Governance lock"
-		f.keeper.Post.Set(f.ctx, post.PostId, post)
+		require.NoError(t, f.keeper.Post.Set(f.ctx, post.PostId, post))
 
 		resp, err := qs.ThreadLockStatus(f.ctx, &types.QueryThreadLockStatusRequest{RootId: post.PostId})
 		require.NoError(t, err)
@@ -85,7 +85,7 @@ func TestQueryThreadLockStatus(t *testing.T) {
 		post.Locked = true
 		post.LockedBy = testSentinel
 		post.LockReason = "Sentinel lock"
-		f.keeper.Post.Set(f.ctx, post.PostId, post)
+		require.NoError(t, f.keeper.Post.Set(f.ctx, post.PostId, post))
 
 		// Create sentinel lock record
 		lockRecord := types.ThreadLockRecord{
@@ -93,7 +93,7 @@ func TestQueryThreadLockStatus(t *testing.T) {
 			Sentinel: testSentinel,
 			LockedAt: f.sdkCtx().BlockTime().Unix(),
 		}
-		f.keeper.ThreadLockRecord.Set(f.ctx, post.PostId, lockRecord)
+		require.NoError(t, f.keeper.ThreadLockRecord.Set(f.ctx, post.PostId, lockRecord))
 
 		resp, err := qs.ThreadLockStatus(f.ctx, &types.QueryThreadLockStatusRequest{RootId: post.PostId})
 		require.NoError(t, err)

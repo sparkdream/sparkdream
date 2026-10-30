@@ -9,4 +9,7 @@ message GuildInvite {
   string inviter = 2;
   int64 created_epoch = 3;
   int64 expires_epoch = 4;
+  // Guild the invite is for. Together with guild_invitee it forms the store
+  // key "<guild_id>:<guild_invitee>" (SEA-25).
+  uint64 guild_id = 5;
 }

@@ -105,4 +105,10 @@ var (
 	ErrInvalidSignInService    = errors.Register(ModuleName, 1800, "sign_in.service must be a lowercase DNS hostname")
 	ErrSignInGrantExists       = errors.Register(ModuleName, 1801, "an active SIGN_IN grant already exists for this grantee and service")
 	ErrMaxSignInGrantsExceeded = errors.Register(ModuleName, 1802, "granter has too many active SIGN_IN grants")
+
+	// Security review hardening
+	ErrGrantExpired            = errors.Register(ModuleName, 1900, "grant has passed its expiration time")
+	ErrRecipientBlocked        = errors.Register(ModuleName, 1901, "recipient is a blocked module account")
+	ErrTooManyGrantsForGrantee = errors.Register(ModuleName, 1902, "grantee already holds the maximum number of grants")
+	ErrDenomRemovalForbidden   = errors.Register(ModuleName, 1903, "operational params may only add allowed denoms; removal is governance-only")
 )

@@ -64,6 +64,7 @@ func TestQueryContentConviction_NoStakes(t *testing.T) {
 func TestQueryContentConviction_WithStakes(t *testing.T) {
 	f := initFixture(t)
 	qs := keeper.NewQueryServerImpl(f.keeper)
+	wireContentAuthor(f.keeper)
 
 	// Create a staker member
 	stakerAddr := sdk.AccAddress([]byte("content_staker______"))

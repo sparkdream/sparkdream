@@ -30,8 +30,34 @@ func NewMigrationHooks(k *Keeper) MigrationHooks {
 
 var _ reptypes.MemberMigrationHooks = MigrationHooks{}
 
-// BeforeMemberMigration vetoes nothing: a seat is bounded state that moves.
+// BeforeMemberMigration vetoes a migration whose target already sits on a
+// body the source sits on: moving the seat would silently merge two seats
+// into one (the member count drops, possibly below min_members, and a vote
+// of the target would be overwritten).
 func (h MigrationHooks) BeforeMemberMigration(ctx context.Context, from, to sdk.AccAddress, path reptypes.MigrationPath) error {
+	k := h.k
+	fromStr, toStr := from.String(), to.String()
+	var conflict string
+	if err := k.Groups.Walk(ctx, nil, func(name string, _ types.Group) (bool, error) {
+		hasFrom, err := k.Members.Has(ctx, collections.Join(name, fromStr))
+		if err != nil || !hasFrom {
+			return false, err
+		}
+		hasTo, err := k.Members.Has(ctx, collections.Join(name, toStr))
+		if err != nil {
+			return true, err
+		}
+		if hasTo {
+			conflict = name
+			return true, nil
+		}
+		return false, nil
+	}); err != nil {
+		return err
+	}
+	if conflict != "" {
+		return fmt.Errorf("migration target %s already holds a seat on %s, where %s also sits", toStr, conflict, fromStr)
+	}
 	return nil
 }
 
@@ -40,6 +66,19 @@ func (h MigrationHooks) AfterMemberMigration(ctx context.Context, from, to sdk.A
 	k := h.k
 	fromStr, toStr := from.String(), to.String()
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
+
+	// Open (SUBMITTED) proposals by council, read from the proposal queue
+	// so the cost follows open proposals, not proposal history.
+	openByCouncil := make(map[string][]uint64)
+	if err := k.ProposalQueue.Walk(ctx, nil, func(key collections.Pair[int64, uint64]) (bool, error) {
+		p, err := k.Proposals.Get(ctx, key.K2())
+		if err == nil && p.Status == types.ProposalStatus_PROPOSAL_STATUS_SUBMITTED {
+			openByCouncil[p.CouncilName] = append(openByCouncil[p.CouncilName], p.Id)
+		}
+		return false, nil
+	}); err != nil {
+		return err
+	}
 
 	// Seats: one lookup per registered group (councils, committees, boards
 	// and sub-groups), a small bounded set.
@@ -69,22 +108,26 @@ func (h MigrationHooks) AfterMemberMigration(ctx context.Context, from, to sdk.A
 			sdk.NewAttribute("to", toStr),
 		))
 
-		// Votes on this group's open proposals.
-		var openIDs []uint64
-		rng := collections.NewPrefixedPairRange[string, uint64](name)
-		if err := k.ProposalsByCouncil.Walk(ctx, rng, func(key collections.Pair[string, uint64]) (bool, error) {
-			p, err := k.Proposals.Get(ctx, key.K2())
-			if err == nil && p.Status == types.ProposalStatus_PROPOSAL_STATUS_SUBMITTED {
-				openIDs = append(openIDs, key.K2())
-			}
-			return false, nil
-		}); err != nil {
+		// The seat's weight is unchanged, but a golden-share council
+		// re-derives its seat weight from the member set.
+		if err := k.syncGoldenShareWeight(ctx, name); err != nil {
 			return err
 		}
-		for _, id := range openIDs {
+
+		// Votes on this group's open proposals.
+		for _, id := range openByCouncil[name] {
 			voteKey := collections.Join(id, fromStr)
 			vote, err := k.Votes.Get(ctx, voteKey)
 			if err != nil {
+				continue
+			}
+			// Never overwrite a vote the target already cast.
+			if has, err := k.Votes.Has(ctx, collections.Join(id, toStr)); err != nil {
+				return err
+			} else if has {
+				if err := k.Votes.Remove(ctx, voteKey); err != nil {
+					return err
+				}
 				continue
 			}
 			if err := k.Votes.Remove(ctx, voteKey); err != nil {
@@ -104,12 +147,14 @@ func (h MigrationHooks) AfterMemberMigration(ctx context.Context, from, to sdk.A
 // it (plan decision 17).
 func (k Keeper) MaxLiveVotingPeriodSeconds(ctx context.Context) int64 {
 	var max int64
-	_ = k.DecisionPolicies.Walk(ctx, nil, func(_ string, dp types.DecisionPolicy) (bool, error) {
+	if err := k.DecisionPolicies.Walk(ctx, nil, func(_ string, dp types.DecisionPolicy) (bool, error) {
 		if dp.VotingPeriod > max {
 			max = dp.VotingPeriod
 		}
 		return false, nil
-	})
+	}); err != nil {
+		sdk.UnwrapSDKContext(ctx).Logger().Error("MaxLiveVotingPeriodSeconds: DecisionPolicies.Walk failed", "err", err)
+	}
 	return max
 }
 

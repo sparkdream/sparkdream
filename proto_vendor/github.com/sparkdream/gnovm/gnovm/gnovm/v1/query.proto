@@ -1,0 +1,94 @@
+syntax = "proto3";
+
+package gnovm.gnovm.v1;
+
+import "amino/amino.proto";
+import "cosmos/base/query/v1beta1/pagination.proto";
+import "gnovm/gnovm/v1/params.proto";
+import "gogoproto/gogo.proto";
+import "google/api/annotations.proto";
+import "google/api/httpbody.proto";
+
+option go_package = "github.com/sparkdream/gnovm/x/gnovm/types";
+
+// Query defines the gRPC querier service.
+service Query {
+  // Parameters queries the parameters of the module.
+  rpc Params(QueryParamsRequest) returns (QueryParamsResponse) {
+    option (google.api.http).get = "/ignite/gnovm/gnovm/v1/params";
+  }
+
+  // Info queries the realm/package internal info by its package name.
+  rpc Info(QueryInfoRequest) returns (QueryInfoResponse) {
+    option (google.api.http).get = "/ignite/gnovm/gnovm/v1/info/{pkg_path=**}";
+  }
+
+  // RealmStorage queries the realm storage by its package name.
+  rpc RealmStorage(QueryRealmStorageRequest) returns (QueryRealmStorageResponse) {
+    option (google.api.http).get = "/ignite/gnovm/gnovm/v1/realm_storage/{pkg_path=**}";
+  }
+
+  // Eval evaluates the given expression to the package.
+  rpc Eval(QueryEvalRequest) returns (QueryEvalResponse) {
+    option (google.api.http).get = "/ignite/gnovm/gnovm/v1/eval/{pkg_path=**}";
+  }
+
+  // Render calls render the given template to the package.
+  rpc Render(QueryRenderRequest) returns (google.api.HttpBody) {
+    option (google.api.http).get = "/ignite/gnovm/gnovm/v1/render/{pkg_path=**}";
+  }
+}
+
+// QueryParamsRequest is request type for the Query/Params RPC method.
+message QueryParamsRequest {}
+
+// QueryParamsResponse is response type for the Query/Params RPC method.
+message QueryParamsResponse {
+  // params holds all the parameters of this module.
+  Params params = 1 [
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+}
+
+// QueryInfoRequest defines the QueryInfoRequest message.
+message QueryInfoRequest {
+  string pkg_path = 1;
+}
+
+// QueryInfoResponse defines the QueryInfoResponse message.
+message QueryInfoResponse {
+  string result = 1;
+}
+
+// QueryRealmStorageRequest defines the QueryRealmStorageRequest message.
+message QueryRealmStorageRequest {
+  string pkg_path = 1;
+}
+
+// QueryRealmStorageResponse defines the QueryRealmStorageResponse message.
+message QueryRealmStorageResponse {
+  string result = 1;
+}
+
+// QueryEvalRequest defines the QueryEvalRequest message.
+message QueryEvalRequest {
+  string pkg_path = 1;
+  string expr = 2;
+  // max_gas, when non-zero, runs the evaluation under this gas limit instead
+  // of the VM's query cap (3B). The VM charges one gas per byte of peak
+  // allocation, so it bounds memory too. It can only lower the cap: a value
+  // at or above the VM cap is ignored.
+  uint64 max_gas = 3;
+}
+
+// QueryEvalResponse defines the QueryEvalResponse message.
+message QueryEvalResponse {
+  string result = 1;
+}
+
+// QueryRenderRequest defines the QueryRenderRequest message.
+message QueryRenderRequest {
+  string pkg_path = 1;
+  repeated string args = 2;
+}

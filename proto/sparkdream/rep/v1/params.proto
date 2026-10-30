@@ -1081,6 +1081,13 @@ message Params {
   // arbiter windows) so one member cannot act twice on one target with two
   // keys. x/commons refuses voting periods longer than it.
   int64 zk_key_activation_delay = 164;
+  // tag_budget_awarder_epoch_cap_bps caps what one group member may award
+  // from one tag budget per epoch, in basis points of the pool as it stood
+  // before that member's awards this epoch (default 2500 = 25%; 0 = the
+  // default; at most 10000). Applies on top of the 25% single-award cap and
+  // the self-award ban, so one member acting alone cannot drain the pool
+  // through many posts by other authors.
+  uint64 tag_budget_awarder_epoch_cap_bps = 165;
 }
 
 // RepOperationalParams defines the operational parameters that can be updated

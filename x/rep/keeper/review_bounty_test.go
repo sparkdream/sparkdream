@@ -321,7 +321,7 @@ func TestBountySettlesWhenAChallengeIsUpheld(t *testing.T) {
 	require.NoError(t, k.SubmitInitiativeReview(ctx, rf.initiative, rf.reviewer.String(),
 		true, nil, "looks done"))
 
-	challenger := sdk.AccAddress([]byte("bounty-challengr"))
+	challenger := sdk.AccAddress([]byte("bounty-challengr")) //nolint:misspell // a 16-byte address seed
 	mkReviewMember(t, k, ctx, challenger, "100.0")
 	params, err := k.Params.Get(ctx)
 	require.NoError(t, err)

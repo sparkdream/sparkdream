@@ -24,10 +24,14 @@ func (q queryServer) Operators(ctx context.Context, req *types.QueryOperatorsReq
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
 
+	pg, err := q.k.checkPagination(ctx, req.Pagination)
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
 	operators, pageRes, err := query.CollectionFilteredPaginate(
 		ctx,
 		q.k.Operators,
-		req.Pagination,
+		pg,
 		func(_ collections.Pair[[]byte, string], op types.Operator) (bool, error) {
 			if filter == types.OperatorStatus_OPERATOR_STATUS_UNSPECIFIED {
 				return true, nil

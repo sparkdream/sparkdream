@@ -57,7 +57,7 @@ func TestWeightedOperations(t *testing.T) {
 	}
 
 	ops := am.WeightedOperations(simState)
-	// 28 operations (Phase 3 removed RegisterCurator / UnregisterCurator —
+	// 29 operations (Phase 3 removed RegisterCurator / UnregisterCurator —
 	// curator bonding now lives in x/rep as MsgBondRole / MsgUnbondRole):
 	// CreateCollection, UpdateCollection, DeleteCollection,
 	// AddItem, AddItems, UpdateItem, RemoveItem, RemoveItems, ReorderItem,
@@ -66,8 +66,9 @@ func TestWeightedOperations(t *testing.T) {
 	// RequestSponsorship, CancelSponsorshipRequest, SponsorCollection,
 	// UpvoteContent, DownvoteContent, FlagContent, HideContent, AppealHide,
 	// UnhideContent, EndorseCollection, SetSeekingEndorsement,
-	// PinCollection, UnpinCollection, MakeCollectionPermanent
-	require.Len(t, ops, 28)
+	// PinCollection, UnpinCollection, MakeCollectionPermanent,
+	// ResolveCurationChallenge (policy-signed; simulated as a no-op)
+	require.Len(t, ops, 29)
 }
 
 func TestProposalMsgs(t *testing.T) {

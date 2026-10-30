@@ -1,44 +1,35 @@
 package simulation
 
 import (
-	"math/rand"
-
-	"github.com/cosmos/cosmos-sdk/baseapp"
+	"cosmossdk.io/math"
 	"github.com/cosmos/cosmos-sdk/client"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
 
 	"sparkdream/x/forum/keeper"
 	"sparkdream/x/forum/types"
 )
 
-// SimulateMsgSetForumPaused simulates a MsgSetForumPaused message using direct keeper calls.
-// This bypasses the operations committee requirement for simulation purposes.
-// Full integration testing should be done in integration tests.
-// NOTE: We always set paused=false to avoid breaking other simulations.
+// SimulateMsgSetForumPaused delivers MsgSetForumPaused from a sim account
+// that is a Commons Operations Committee member (the only non-policy signer
+// the handler accepts) and is a NoOp when none is. A paused forum is always
+// unpaused; an unpaused one is paused rarely, so the rest of the forum
+// simulation keeps running.
 func SimulateMsgSetForumPaused(
 	ak types.AuthKeeper,
 	bk types.BankKeeper,
 	k keeper.Keeper,
 	txGen client.TxConfig,
 ) simtypes.Operation {
-	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
-	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		// Get current params
-		params, err := k.Params.Get(ctx)
-		if err != nil {
-			params = types.DefaultParams()
+	return operation(ak, bk, k, txGen, &types.MsgSetForumPaused{}, func(e *simEnv) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
+		msg := &types.MsgSetForumPaused{}
+		signer, ok := pick(e.r, e.opsCommittee())
+		if !ok {
+			return noOp(msg, "no sim account is a Commons Operations Committee member")
 		}
-
-		// Toggle paused state but always end up with paused=false to not break other sims
-		// We simulate a "pause then unpause" sequence
-		params.ForumPaused = false
-
-		if err := k.Params.Set(ctx, params); err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgSetForumPaused{}), "failed to set params"), nil, nil
+		if !e.params.ForumPaused && e.r.Intn(5) != 0 {
+			return noOp(msg, "leaving the forum unpaused")
 		}
-
-		// Return success
-		return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgSetForumPaused{}), "ok (direct keeper call)"), nil, nil
-	}
+		msg.Creator, msg.Paused = signer.Address.String(), !e.params.ForumPaused
+		return e.submit(signer, msg, math.ZeroInt())
+	})
 }

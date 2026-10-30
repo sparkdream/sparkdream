@@ -1,51 +1,48 @@
 package simulation
 
 import (
-	"math/rand"
+	"fmt"
 
-	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/season/keeper"
 	"sparkdream/x/season/types"
 )
 
-// SimulateMsgUpdateAchievement simulates a MsgUpdateAchievement message using direct keeper calls.
-// This bypasses the governance/committee authority requirement for simulation purposes.
-// Full authority testing should be done in integration tests.
+// SimulateMsgUpdateAchievement updates an achievement (genesis or sim) through
+// an executed x/commons proposal (council.go), one step per call.
 func SimulateMsgUpdateAchievement(
 	ak types.AuthKeeper,
 	bk types.BankKeeper,
 	k keeper.Keeper,
 	txGen client.TxConfig,
 ) simtypes.Operation {
-	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
-	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		// Get or create an achievement to update
-		achievementId, err := getOrCreateAchievement(r, ctx, k)
-		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgUpdateAchievement{}), "failed to get or create achievement"), nil, nil
-		}
-
-		// Fetch the achievement
-		achievement, err := k.Achievement.Get(ctx, achievementId)
-		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgUpdateAchievement{}), "failed to get achievement"), nil, nil
-		}
-
-		// Update the achievement with random changes
-		achievement.Name = achievement.Name + " (updated)"
-		achievement.Description = "Updated description for simulation"
-		achievement.XpReward = uint64(50 + r.Intn(200))
-
-		// Save the updated achievement via keeper
-		if err := k.SetAchievement(ctx, achievement); err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgUpdateAchievement{}), "failed to update achievement"), nil, nil
-		}
-
-		// Return success
-		return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgUpdateAchievement{}), "ok (direct keeper call)"), nil, nil
-	}
+	return authorityOp(ak, bk, k, txGen, &types.MsgUpdateAchievement{}, decodeAs[types.MsgUpdateAchievement](),
+		func(e *simEnv, policy string, taken []sdk.Msg) (sdk.Msg, string, error) {
+			ids, err := allAchievements(e.ctx, e.k)
+			if err != nil {
+				return nil, "", err
+			}
+			id, ok := pick(e.r, without(ids, pendingIDs(taken, achievementIDOf)))
+			if !ok {
+				return nil, "no achievement to update", nil
+			}
+			a, err := e.k.Achievement.Get(e.ctx, id)
+			if err != nil {
+				return nil, "", err
+			}
+			return &types.MsgUpdateAchievement{
+				Authority:            policy,
+				AchievementId:        id,
+				Name:                 fmt.Sprintf("%s Wayfarer", pickName(e)),
+				Description:          "An updated simulation achievement",
+				Rarity:               randomRarity(e),
+				XpReward:             randomAchievementXP(e),
+				RequirementType:      commontypes.Saturate[uint32](a.RequirementType),
+				RequirementThreshold: randomThreshold(e),
+			}, "", nil
+		})
 }

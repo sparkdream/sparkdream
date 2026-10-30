@@ -47,7 +47,9 @@ func createNMarket(keeper keeper.Keeper, ctx context.Context, n int) []types.Mar
 		items[i].Status = strconv.Itoa(i)
 		items[i].Creator = strconv.Itoa(i)
 
-		_ = keeper.Market.Set(ctx, items[i].Index, items[i])
+		if err := keeper.Market.Set(ctx, items[i].Index, items[i]); err != nil {
+			panic(err)
+		}
 	}
 	return items
 }

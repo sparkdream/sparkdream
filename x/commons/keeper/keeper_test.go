@@ -98,6 +98,12 @@ func setupCommonsKeeper(t *testing.T) (keeper.Keeper, sdk.Context, *mockBankKeep
 // setupCommonsKeeperWithSplit is setupCommonsKeeper that also returns the
 // split mock, whose shares record what the keeper registered and removed.
 func setupCommonsKeeperWithSplit(t *testing.T) (keeper.Keeper, sdk.Context, *mockBankKeeperCommons, mockSplitKeeper) {
+	return setupCommonsKeeperWithFutarchy(t, mockFutarchyKeeper{})
+}
+
+// setupCommonsKeeperWithFutarchy is setupCommonsKeeperWithSplit with a
+// caller-supplied futarchy keeper.
+func setupCommonsKeeperWithFutarchy(t *testing.T, fk types.FutarchyKeeper) (keeper.Keeper, sdk.Context, *mockBankKeeperCommons, mockSplitKeeper) {
 	storeKey := storetypes.NewKVStoreKey(types.StoreKey)
 	memStoreKey := storetypes.NewMemoryStoreKey("mem_commons")
 	authKey := storetypes.NewKVStoreKey(authtypes.StoreKey)
@@ -153,7 +159,7 @@ func setupCommonsKeeperWithSplit(t *testing.T) (keeper.Keeper, sdk.Context, *moc
 		authority,
 		authKeeper,
 		mockBK,
-		mockFutarchyKeeper{},
+		fk,
 		nil,
 		split,
 		mockUpgradeKeeper{},
@@ -215,7 +221,7 @@ func setupSafeUpdateTest(t *testing.T) (keeper.Keeper, sdk.Context, sdk.AccAddre
 		authK.AddressCodec(),
 		authK.GetModuleAddress("gov"),
 		authK,
-		nil,
+		&mockBankKeeperCommons{balance: map[string]sdk.Coins{}},
 		mockFutarchyKeeper{},
 		nil,
 		mockSplitKeeper{},
@@ -331,10 +337,11 @@ type mockSplitKeeper struct {
 	shares map[string]uint64
 }
 
-func (m mockSplitKeeper) SetShareByAddress(ctx context.Context, address string, weight uint64) {
+func (m mockSplitKeeper) SetShareByAddress(ctx context.Context, address string, weight uint64) error {
 	if m.shares != nil && weight > 0 {
 		m.shares[address] = weight
 	}
+	return nil
 }
 
 func (m mockSplitKeeper) RemoveShareByAddress(ctx context.Context, address string) error {

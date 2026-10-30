@@ -25,7 +25,6 @@ type AuthKeeper interface {
 type BankKeeper interface {
 	SpendableCoins(context.Context, sdk.AccAddress) sdk.Coins
 	GetAllBalances(context.Context, sdk.AccAddress) sdk.Coins
-	MintCoins(context.Context, string, sdk.Coins) error
 	SendCoins(context.Context, sdk.AccAddress, sdk.AccAddress, sdk.Coins) error
 	SendCoinsFromAccountToModule(context.Context, sdk.AccAddress, string, sdk.Coins) error
 	SendCoinsFromModuleToAccount(context.Context, string, sdk.AccAddress, sdk.Coins) error
@@ -51,6 +50,7 @@ type GovKeeper interface {
 	// Queue management
 	ActiveProposalsQueueRemove(ctx context.Context, proposalID uint64, votingEndTime time.Time) error
 	VotingPeriodProposalsRemove(ctx context.Context, proposalID uint64) error
+	InactiveProposalsQueueRemove(ctx context.Context, proposalID uint64, depositEndTime time.Time) error
 }
 
 // FutarchyKeeper defines the expected interface for the FutarchyKeeper module.
@@ -60,7 +60,7 @@ type FutarchyKeeper interface {
 
 // SplitKeeper defines the expected interface for the Split module.
 type SplitKeeper interface {
-	SetShareByAddress(context.Context, string, uint64)
+	SetShareByAddress(context.Context, string, uint64) error
 	RemoveShareByAddress(context.Context, string) error
 }
 
@@ -152,4 +152,7 @@ type MigrationRepKeeper interface {
 	// the stored address (alias contract: signer not tombstoned and stored
 	// resolves to signer).
 	CanActAs(ctx context.Context, signer, stored string) bool
+	// ActiveZkPublicKey returns the ZK public key an ACTIVE member proves
+	// with today, or nil (secret-ballot voter snapshots).
+	ActiveZkPublicKey(ctx context.Context, addr string) []byte
 }

@@ -1,48 +1,54 @@
 package simulation
 
 import (
-	"math/rand"
-
-	"cosmossdk.io/collections"
-	"github.com/cosmos/cosmos-sdk/baseapp"
+	"cosmossdk.io/math"
 	"github.com/cosmos/cosmos-sdk/client"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
 
 	"sparkdream/x/collect/keeper"
 	"sparkdream/x/collect/types"
 )
 
+// SimulateMsgCancelSponsorshipRequest delivers MsgCancelSponsorshipRequest
+// from the owner of a collection with a pending sponsorship request (filing
+// one first when none exists); the escrowed deposit is refunded.
 func SimulateMsgCancelSponsorshipRequest(
 	ak types.AuthKeeper,
 	bk types.BankKeeper,
 	k keeper.Keeper,
 	txGen client.TxConfig,
 ) simtypes.Operation {
-	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
-	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
+	return operation(ak, bk, k, txGen, &types.MsgCancelSponsorshipRequest{}, func(e *simEnv) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
 		msg := &types.MsgCancelSponsorshipRequest{}
-
-		req, collID, err := findSponsorshipRequest(r, ctx, k)
-		if err != nil || req == nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "no sponsorship request found"), nil, nil
+		pending := func(c types.Collection) bool {
+			_, ok := getAccountForAddress(c.Owner, e.accs)
+			return ok && e.hasSponsorshipRequest(c.Id)
 		}
-
-		_, found := getAccountForAddress(req.Requester, accs)
-		if !found {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "requester not a sim account"), nil, nil
+		colls, err := e.collectionsWhere(pending)
+		if err != nil {
+			return noOpErr(msg, err)
 		}
-
-		// Remove sponsorship request
-		if err := k.SponsorshipRequest.Remove(ctx, collID); err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "failed to remove sponsorship request: "+err.Error()), nil, nil
+		if len(colls) == 0 {
+			// File a request first (a real MsgRequestSponsorship).
+			owner, req, escrow, reason, err := e.newSponsorshipRequestMsg()
+			if err != nil {
+				return noOpErr(msg, err)
+			}
+			if reason == "" {
+				if _, err := e.ensure(owner, req, escrow); err != nil {
+					return noOpErr(msg, err)
+				}
+			}
+			if colls, err = e.collectionsWhere(pending); err != nil {
+				return noOpErr(msg, err)
+			}
 		}
-
-		// Remove expiry index
-		if err := k.SponsorshipRequestsByExpiry.Remove(ctx, collections.Join(req.ExpiresAt, collID)); err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "failed to remove expiry index: "+err.Error()), nil, nil
+		coll, ok := pick(e.r, colls)
+		if !ok {
+			return noOp(msg, "no pending sponsorship request owned by a sim account")
 		}
-
-		return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "ok (direct keeper call)"), nil, nil
-	}
+		owner, _ := getAccountForAddress(coll.Owner, e.accs)
+		msg.Creator, msg.CollectionId = coll.Owner, coll.Id
+		return e.submit(owner, msg, math.ZeroInt())
+	})
 }

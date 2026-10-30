@@ -133,6 +133,7 @@ func TestConvictionQueue_MaturedInitiativeGetsLongCadence(t *testing.T) {
 func TestConvictionQueue_ContentStakeReschedulesLinkedInitiative(t *testing.T) {
 	f := initFixture(t)
 	k := f.keeper
+	wireContentAuthor(k)
 
 	creator := newStakerMember(t, f, "cq_content_creator__", math.NewInt(5_000_000_000))
 	staker := newStakerMember(t, f, "cq_content_staker___", math.NewInt(5_000_000_000))

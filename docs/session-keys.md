@@ -6,40 +6,37 @@ Every on-chain action (post, reply, react, upvote) requires a wallet-signed tran
 
 ## Solution
 
-Use `x/authz` session keys with optional `x/feegrant` fee delegation. Both are standard Cosmos SDK modules — no custom module code required.
+Use an x/session **SessionKey** grant: a scoped, time-limited delegation with integrated fee delegation. x/session is the chain's clean-room replacement for `x/authz` + `x/feegrant` (neither is wired); spec: [x-session-spec.md](x-session-spec.md).
 
 ### How It Works
 
 1. User connects wallet to the frontend
-2. Frontend generates an **ephemeral session key** (keypair stored in browser memory or localStorage)
-3. User signs **one** `MsgGrant` (`x/authz`) — this is the **only wallet popup** for the session
-4. The grant gives the session key permission to send specific message types on the user's behalf, with a time expiration (e.g., 24 hours)
-5. For the rest of the session, the frontend auto-signs transactions using the session key — **zero wallet popups**
-6. On logout or expiry, the grant is automatically invalid
+2. Frontend generates an **ephemeral session key** (keypair stored in browser memory)
+3. User signs **one** `MsgCreateGrant` with a `session_key` payload (or the legacy `MsgCreateSession`) — the **only wallet popup** for the session. It names the message types the key may send (a subset of the chain's `allowed_msg_types`), a fee `spend_limit`, a `max_exec_count` and an expiration (at most `max_expiration`, 7 days by default)
+4. For the rest of the session the frontend wraps each action in `MsgExecSession { granter, grantee, msgs }` and signs it with the session key — **zero wallet popups**. The chain rewrites each inner message's signer field to the granter
+5. On logout the user revokes the grant (`MsgRevokeGrant`); on expiry it stops working by itself
 
 ### Flow Diagram
 
 ```
 User Wallet                           Session Key (browser)
     |                                        |
-    |-- MsgGrant (x/authz) ------------------>|  <-- only wallet approval
-    |-- MsgGrantAllowance (x/feegrant) ------>|  <-- optional: subsidize gas
+    |-- MsgCreateGrant{session_key} -------->|  <-- only wallet approval
     |                                        |
-    |                                        |-- MsgCreateReply (auto-signed)
-    |                                        |-- MsgReact (auto-signed)
-    |                                        |-- MsgUpvotePost (auto-signed)
-    |                                        |-- MsgEditReply (auto-signed)
-    |                                        |-- MsgCreatePost (auto-signed)
+    |                                        |-- MsgExecSession[MsgCreateReply] (auto-signed)
+    |                                        |-- MsgExecSession[MsgReact]       (auto-signed)
+    |                                        |-- MsgExecSession[MsgUpvotePost]  (auto-signed)
+    |                                        |-- MsgExecSession[MsgUpdateReply] (auto-signed)
     |                                        |-- ... (no popups)
     |                                        |
-    |                                        |  (grant expires or user logs out)
+    |                                        |  (grant expires or user revokes)
 ```
 
 ---
 
 ## Grant Scoping
 
-The `x/authz` grant is scoped to specific message types. This means the session key can only perform actions the user explicitly authorized — it cannot drain funds, delete accounts, or perform governance actions.
+The SessionKey grant is scoped to specific message types. This means the session key can only perform actions the user explicitly authorized — it cannot drain funds, delete accounts, or perform governance actions.
 
 ### Recommended Grants by Module
 
@@ -52,7 +49,7 @@ The `x/authz` grant is scoped to specific message types. This means the session 
 | `MsgCreatePost` | Content creation |
 | `MsgUpdatePost` | Editing own posts |
 | `MsgCreateReply` | Replying to posts |
-| `MsgEditReply` | Editing own replies |
+| `MsgUpdateReply` | Editing own replies |
 | `MsgReact` | Adding/changing reactions |
 | `MsgRemoveReaction` | Removing own reactions |
 | `MsgHidePost` / `MsgUnhidePost` | Author-only self-curation, reversible, no bond or funds. In the allowlist so a moderation bot running on a session key can hide and unhide the author's own content |
@@ -100,35 +97,14 @@ The `x/authz` grant is scoped to specific message types. This means the session 
 
 ---
 
-## Fee Delegation with x/feegrant
+## Fee Delegation
 
-Without fee delegation, the session key address needs funds to pay gas. This creates friction (user must transfer tokens to a temporary address). `x/feegrant` solves this:
+The grant's `spend_limit` is a fee budget paid by the granter: the session key never holds funds. `SessionFeeDecorator` moves each `MsgExecSession` tx fee from the granter to the fee collector and debits the session's `spent`. Rules a client must follow:
 
-```
-MsgGrantAllowance {
-  granter: "user_main_wallet",
-  grantee: "session_key_address",
-  allowance: BasicAllowance {
-    spend_limit: [{ denom: "uspark", amount: "1000000" }],  // 1 SPARK budget
-    expiration: "2026-02-21T00:00:00Z"                       // 24h from now
-  }
-}
-```
-
-The session key never holds funds directly. Gas fees are deducted from the granter's (user's main wallet) balance. The spend limit caps the total gas the session key can consume.
-
-### Combined Setup (Single Approval)
-
-Both the authz grant and the feegrant allowance can be bundled in a **single multi-message transaction**, so the user sees only one wallet popup:
-
-```
-Tx {
-  messages: [
-    MsgGrant { ... },          // authz: session key can send blog/forum msgs
-    MsgGrantAllowance { ... }  // feegrant: main wallet pays gas for session key
-  ]
-}
-```
+- **The fee must meet the node's minimum gas prices**, exactly as for any other tx. A zero or token fee is refused in CheckTx.
+- A tx may only contain `MsgExecSession` messages, all for the same granter, each with at least one inner message.
+- The fee is in the spend-limit denom and must fit the remaining budget. An exhausted budget, or a batch that would exceed `max_exec_count`, is refused before anything is charged.
+- A failing inner message still costs the fee (the ante has already charged it), as for any tx.
 
 ---
 
@@ -139,10 +115,10 @@ Tx {
 | Phase | Action |
 |-------|--------|
 | **Create** | Frontend generates keypair; private key stored in browser memory (not localStorage for maximum security) |
-| **Activate** | User signs MsgGrant + MsgGrantAllowance (single tx) |
+| **Activate** | User signs one MsgCreateGrant (session_key payload) |
 | **Use** | Frontend auto-signs with session key; no wallet interaction |
 | **Expire** | Grant has time-based expiration (e.g., 24h); session key becomes useless |
-| **Revoke** | User can explicitly revoke via MsgRevoke (x/authz) at any time |
+| **Revoke** | User can explicitly revoke via MsgRevokeGrant at any time |
 | **Logout** | Frontend discards session key from memory |
 
 ### Threat Model
@@ -152,14 +128,14 @@ Tx {
 | Session key stolen (XSS) | Grant is time-limited and message-type-scoped; attacker can only post/reply as the user, not drain funds |
 | Session key used after logout | Grant expiration ensures automatic invalidation |
 | Malicious frontend abuses grant | User reviews grant scope before signing; destructive actions excluded |
-| Fee drain via gas spam | Feegrant spend_limit caps total gas budget |
+| Fee drain via gas spam | spend_limit caps the fee budget; fees must meet the node's minimum gas prices; max_exec_count caps the number of executions |
 
 ### Best Practices
 
 - **Expiration**: Default 24 hours; configurable by user
 - **Memory storage**: Prefer in-memory over localStorage (cleared on tab close)
 - **Scope minimally**: Only grant the message types the user actually needs for their current activity
-- **Revoke on logout**: Call MsgRevoke when the user explicitly logs out (don't rely solely on expiration)
+- **Revoke on logout**: Call MsgRevokeGrant when the user explicitly logs out (don't rely solely on expiration)
 - **Display active grants**: Show the user what their session key can do and when it expires
 
 ## Multisig Accounts as Granters
@@ -186,13 +162,13 @@ costs about 25k gas more than a single-key tx.
 
 ## Implementation Notes
 
-This is purely a **client-side pattern**. No custom module code is needed — `x/authz` and `x/feegrant` are standard Cosmos SDK modules included in every SDK chain.
+x/session implements the chain side: grant storage, the allowlist (`allowed_msg_types` ⊆ the upgrade-only `max_allowed_msg_types`), signer rewriting (from each message's `cosmos.msg.v1.signer` proto option), DREAM-field stripping and fee delegation. Messages guarded by an ante-only rule (commons `MsgSubmitProposal`, gnovm VM messages) and identity / vault messages can never be delegated.
 
 The frontend is responsible for:
 1. Generating the session keypair
 2. Constructing and broadcasting the grant transaction
 3. Storing the session private key securely
-4. Auto-signing subsequent transactions with the session key
-5. Cleaning up on logout or expiry
+4. Wrapping actions in `MsgExecSession` and auto-signing them with the session key, with a fee at the node's minimum gas price
+5. Revoking on logout
 
-Cosmos SDK wallet libraries (e.g., CosmJS, Telescope) support `x/authz` exec transactions out of the box.
+CLI equivalents: `sparkdreamd tx session create-grant [grantee] [expires-at] [payload.json]` and `sparkdreamd tx session exec-session [granter] [msgs.json]`.

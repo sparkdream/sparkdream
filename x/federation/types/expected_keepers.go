@@ -218,3 +218,15 @@ type CollectKeeper interface {
 	// and false when the collection does not exist or is not active.
 	ActiveLinkURIs(ctx context.Context, collectionID uint64) ([]string, bool, error)
 }
+
+// RepMemberKeeper is the optional slice of x/rep federation reads for
+// membership status and the member-key-migration alias contract. It is
+// not part of RepKeeper so the existing test doubles keep compiling; the
+// keeper type-asserts the wired rep keeper against it and falls back to
+// plain address equality (and "not a member") when it is absent.
+type RepMemberKeeper interface {
+	CanActAs(ctx context.Context, signer, stored string) bool
+	SameMember(ctx context.Context, a, b string) bool
+	IsActiveMember(ctx context.Context, addr sdk.AccAddress) bool
+	GetMember(ctx context.Context, addr sdk.AccAddress) (reptypes.Member, error)
+}

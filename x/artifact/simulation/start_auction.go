@@ -11,6 +11,7 @@ import (
 
 	"sparkdream/x/artifact/keeper"
 	"sparkdream/x/artifact/types"
+	commontypes "sparkdream/x/common/types"
 )
 
 // SimulateMsgStartAuction auctions a random unlocked, sellable token.
@@ -32,7 +33,7 @@ func SimulateMsgStartAuction(ak types.AuthKeeper, bk types.BankKeeper, k keeper.
 		}
 		msg = &types.MsgStartAuction{Seller: t.Owner, ClassId: t.ClassId, TokenId: t.Id,
 			ReservePrice:    sdk.NewInt64Coin(sdk.DefaultBondDenom, int64(1+r.Intn(5))*100_000),
-			MinIncrementBps: uint32(r.Intn(1000)), Duration: duration}
+			MinIncrementBps: commontypes.Saturate[uint32](r.Intn(1000)), Duration: duration}
 		return deliver(r, app, ctx, ak, bk, txGen, owner, msg, math.ZeroInt())
 	}
 }

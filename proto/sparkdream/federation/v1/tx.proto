@@ -38,6 +38,9 @@ service Msg {
   rpc LinkIdentity(MsgLinkIdentity) returns (MsgLinkIdentityResponse);
   rpc UnlinkIdentity(MsgUnlinkIdentity) returns (MsgUnlinkIdentityResponse);
   rpc ConfirmIdentityLink(MsgConfirmIdentityLink) returns (MsgConfirmIdentityLinkResponse);
+  // AttestIdentityLink is a bridge operator's bonded attestation that a
+  // member controls a remote identity on the operator's bridge peer.
+  rpc AttestIdentityLink(MsgAttestIdentityLink) returns (MsgAttestIdentityLinkResponse);
   rpc RequestReputationAttestation(MsgRequestReputationAttestation) returns (MsgRequestReputationAttestationResponse);
   // NOTE: Phase 4 of the bonded-role generalization removed BondVerifier /
   // UnbondVerifier RPCs. Verifier bonding now flows through x/rep's generic
@@ -271,6 +274,30 @@ message MsgConfirmIdentityLink {
   string claimant_chain_peer_id = 2;
 }
 message MsgConfirmIdentityLinkResponse {}
+
+// MsgAttestIdentityLink verifies an UNVERIFIED identity link to a bridge peer
+// (ActivityPub, AT Protocol, NOSTR, Lens). The signer is a bridge operator
+// with an active, non-suspended BridgeBinding for the peer. It attests that
+// remote_identity published the link's proof string (see
+// IdentityLinkProofString) at evidence_uri. The attestation is bonded: a
+// false one is reported against the operator's x/service SPARK bond.
+message MsgAttestIdentityLink {
+  option (cosmos.msg.v1.signer) = "operator";
+  option (amino.name) = "sparkdream/x/federation/MsgAttestIdentityLink";
+  string operator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string peer_id = 2;
+  // local_address is the member whose claim is attested.
+  string local_address = 3 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  // remote_identity must equal the claim's remote_identity.
+  string remote_identity = 4;
+  // challenge is the hex encoding of the claim's challenge, as published in
+  // the proof string. It binds the attestation to this claim: a claim that
+  // was unlinked and made again has a new challenge.
+  string challenge = 5;
+  // evidence_uri locates the remote post or record carrying the proof string.
+  string evidence_uri = 6;
+}
+message MsgAttestIdentityLinkResponse {}
 
 // --- Reputation ---
 

@@ -3,6 +3,7 @@ package keeper
 import (
 	"context"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/season/types"
 
 	errorsmod "cosmossdk.io/errors"
@@ -37,10 +38,10 @@ func (k msgServer) UpdateTitle(ctx context.Context, msg *types.MsgUpdateTitle) (
 		title.Description = msg.Description
 	}
 	if msg.Rarity != 0 {
-		title.Rarity = types.Rarity(msg.Rarity)
+		title.Rarity = commontypes.Saturate[types.Rarity](msg.Rarity)
 	}
 	if msg.RequirementType != 0 {
-		title.RequirementType = types.RequirementType(msg.RequirementType)
+		title.RequirementType = commontypes.Saturate[types.RequirementType](msg.RequirementType)
 	}
 	// These can be 0, so always update
 	title.RequirementThreshold = msg.RequirementThreshold
@@ -48,6 +49,9 @@ func (k msgServer) UpdateTitle(ctx context.Context, msg *types.MsgUpdateTitle) (
 	title.Seasonal = msg.Seasonal
 
 	// Save the updated title
+	if err := title.ValidateDefinition(); err != nil {
+		return nil, err
+	}
 	if err := k.SetTitle(ctx, title); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to update title")
 	}

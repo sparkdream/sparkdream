@@ -220,7 +220,7 @@ func TestMsgServerPinReply(t *testing.T) {
 				PinnedBy: authority,
 			}},
 		}
-		f.keeper.ThreadMetadata.Set(f.ctx, rootPost.PostId, metadata)
+		require.NoError(t, f.keeper.ThreadMetadata.Set(f.ctx, rootPost.PostId, metadata))
 
 		msg := &types.MsgPinReply{
 			Creator:  authority,
@@ -236,7 +236,7 @@ func TestMsgServerPinReply(t *testing.T) {
 		rootPost := f.createTestPost(t, testCreator, 0, 0)
 		reply := f.createTestPost(t, testCreator2, rootPost.PostId, 0)
 		reply.Status = types.PostStatus_POST_STATUS_DELETED
-		f.keeper.Post.Set(f.ctx, reply.PostId, reply)
+		require.NoError(t, f.keeper.Post.Set(f.ctx, reply.PostId, reply))
 
 		msg := &types.MsgPinReply{
 			Creator:  authority,

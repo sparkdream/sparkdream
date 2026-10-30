@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"sparkdream/x/season/types"
 
@@ -53,6 +54,12 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 		if err := k.MemberProfile.Set(ctx, elem.Address, elem); err != nil {
 			return err
 		}
+		// UsernameOwner is derived state, rebuilt here (SEA-28).
+		if elem.Username != "" {
+			if err := k.UsernameOwner.Set(ctx, strings.ToLower(elem.Username), elem.Address); err != nil {
+				return err
+			}
+		}
 	}
 	for _, elem := range genState.MemberRegistrationMap {
 		if err := k.MemberRegistration.Set(ctx, elem.Member, elem); err != nil {
@@ -83,13 +90,26 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 	if err := k.GuildSeq.Set(ctx, genState.GuildCount); err != nil {
 		return err
 	}
+	activeMembers := map[uint64]uint64{}
 	for _, elem := range genState.GuildMembershipMap {
 		if err := k.GuildMembership.Set(ctx, elem.Member, elem); err != nil {
 			return err
 		}
+		if g := activeGuildOf(elem); g != 0 {
+			activeMembers[g]++
+		}
 	}
+	// GuildMemberCount is derived state (SEA-11): rebuilt here so the first
+	// lookup after an import is not a full membership scan.
+	for guildID, n := range activeMembers {
+		if err := k.GuildMemberCount.Set(ctx, guildID, n); err != nil {
+			return err
+		}
+	}
+	// Invites are keyed "<guild_id>:<invitee>" like every write path
+	// (SEA-25).
 	for _, elem := range genState.GuildInviteMap {
-		if err := k.GuildInvite.Set(ctx, elem.GuildInvitee, elem); err != nil {
+		if err := k.GuildInvite.Set(ctx, guildInviteKey(elem.GuildId, elem.GuildInvitee), elem); err != nil {
 			return err
 		}
 	}
@@ -119,7 +139,7 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 		}
 	}
 	for _, elem := range genState.DisplayNameModerationMap {
-		if err := k.DisplayNameModeration.Set(ctx, elem.Member, elem); err != nil {
+		if err := k.SetDisplayNameModeration(ctx, elem.Member, elem); err != nil {
 			return err
 		}
 	}
@@ -135,7 +155,11 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 	}
 
 	for _, elem := range genState.NominationList {
-		if err := k.Nomination.Set(ctx, elem.Id, elem); err != nil {
+		if err := k.SetNomination(ctx, elem); err != nil {
+			return err
+		}
+		// The ref set and nominator counters are derived state (SEA-20).
+		if err := k.indexNewNomination(ctx, elem); err != nil {
 			return err
 		}
 	}
@@ -151,6 +175,44 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 	for _, elem := range genState.RetroRewardRecordList {
 		key := fmt.Sprintf("%d/%d", elem.Season, elem.NominationId)
 		if err := k.RetroRewardRecord.Set(ctx, key, elem); err != nil {
+			return err
+		}
+	}
+
+	for _, elem := range genState.TransitionAbortList {
+		if err := k.TransitionAborts.Set(ctx, elem.Season, elem.Aborts); err != nil {
+			return err
+		}
+	}
+	// Running per-season aggregates (SEA-35): the current season's go to
+	// the running item, earlier ones to the archive. The current season's
+	// XP aggregates are derived from the imported profiles (a genesis may
+	// seed season XP without counters); the event counts are imported.
+	var current types.SeasonStatsCounters
+	for _, elem := range genState.SeasonStatsCountersList {
+		if genState.Season != nil && elem.Season == genState.Season.Number {
+			current = elem
+			continue
+		}
+		if err := k.SeasonStatsCounters.Set(ctx, elem.Season, elem); err != nil {
+			return err
+		}
+	}
+	if genState.Season != nil {
+		current.Season = genState.Season.Number
+		current.TotalXpEarned, current.ActiveMembers = 0, 0
+		for _, p := range genState.MemberProfileMap {
+			if p.SeasonXp > 0 {
+				current.TotalXpEarned = satAdd(current.TotalXpEarned, p.SeasonXp)
+				current.ActiveMembers++
+			}
+		}
+		if err := k.CurrentSeasonStats.Set(ctx, current); err != nil {
+			return err
+		}
+	}
+	if genState.PendingSeasonalPoolInit != 0 {
+		if err := k.PendingSeasonalPoolInit.Set(ctx, genState.PendingSeasonalPoolInit); err != nil {
 			return err
 		}
 	}
@@ -172,21 +234,24 @@ func (k Keeper) ExportGenesis(ctx context.Context) (*types.GenesisState, error) 
 		return nil, err
 	}
 	genesis.Season = &season
-	seasonTransitionState, err := k.SeasonTransitionState.Get(ctx)
-	if err != nil && !errors.Is(err, collections.ErrNotFound) {
+	// Absent items stay nil so InitGenesis does not materialize them.
+	if seasonTransitionState, err := k.SeasonTransitionState.Get(ctx); err == nil {
+		genesis.SeasonTransitionState = &seasonTransitionState
+	} else if !errors.Is(err, collections.ErrNotFound) {
 		return nil, err
 	}
-	genesis.SeasonTransitionState = &seasonTransitionState
-	transitionRecoveryState, err := k.TransitionRecoveryState.Get(ctx)
-	if err != nil && !errors.Is(err, collections.ErrNotFound) {
+	// Absent items stay nil so InitGenesis does not materialize them.
+	if transitionRecoveryState, err := k.TransitionRecoveryState.Get(ctx); err == nil {
+		genesis.TransitionRecoveryState = &transitionRecoveryState
+	} else if !errors.Is(err, collections.ErrNotFound) {
 		return nil, err
 	}
-	genesis.TransitionRecoveryState = &transitionRecoveryState
-	nextSeasonInfo, err := k.NextSeasonInfo.Get(ctx)
-	if err != nil && !errors.Is(err, collections.ErrNotFound) {
+	// Absent items stay nil so InitGenesis does not materialize them.
+	if nextSeasonInfo, err := k.NextSeasonInfo.Get(ctx); err == nil {
+		genesis.NextSeasonInfo = &nextSeasonInfo
+	} else if !errors.Is(err, collections.ErrNotFound) {
 		return nil, err
 	}
-	genesis.NextSeasonInfo = &nextSeasonInfo
 	if err := k.SeasonSnapshot.Walk(ctx, nil, func(_ uint64, val types.SeasonSnapshot) (stop bool, err error) {
 		genesis.SeasonSnapshotMap = append(genesis.SeasonSnapshotMap, val)
 		return false, nil
@@ -326,6 +391,34 @@ func (k Keeper) ExportGenesis(ctx context.Context) (*types.GenesisState, error) 
 	})
 	if err != nil {
 		return nil, err
+	}
+	// PruneCursor is not exported: after an import the rolling pruning
+	// restarts from the first key, which only costs one extra pass.
+	if err := k.TransitionAborts.Walk(ctx, nil, func(season, aborts uint64) (bool, error) {
+		genesis.TransitionAbortList = append(genesis.TransitionAbortList, types.TransitionAbortCount{Season: season, Aborts: aborts})
+		return false, nil
+	}); err != nil {
+		return nil, err
+	}
+	pending, err := k.PendingSeasonalPoolInit.Get(ctx)
+	if err != nil && !errors.Is(err, collections.ErrNotFound) {
+		return nil, err
+	}
+	genesis.PendingSeasonalPoolInit = pending
+
+	if err := k.SeasonStatsCounters.Walk(ctx, nil, func(_ uint64, val types.SeasonStatsCounters) (bool, error) {
+		genesis.SeasonStatsCountersList = append(genesis.SeasonStatsCountersList, val)
+		return false, nil
+	}); err != nil {
+		return nil, err
+	}
+	if season, err := k.Season.Get(ctx); err == nil {
+		cur, err := k.getCurrentSeasonStats(ctx)
+		if err != nil {
+			return nil, err
+		}
+		cur.Season = season.Number
+		genesis.SeasonStatsCountersList = append(genesis.SeasonStatsCountersList, cur)
 	}
 
 	return genesis, nil

@@ -23,7 +23,7 @@ func (k Keeper) validatePostTags(ctx context.Context, tags []string, now int64) 
 		return err
 	}
 	for _, tagName := range tags {
-		if err := k.repKeeper.IncrementTagUsage(ctx, tagName, now); err != nil {
+		if err := k.late.repKeeper.IncrementTagUsage(ctx, tagName, now); err != nil {
 			return errorsmod.Wrap(err, "failed to update tag metadata")
 		}
 	}
@@ -40,10 +40,10 @@ func (k Keeper) validatePostTagsNoIncrement(ctx context.Context, tags []string) 
 		return errorsmod.Wrap(err, "failed to get params")
 	}
 
-	if uint32(len(tags)) > params.MaxTagsPerPost {
+	if len(tags) > int(params.MaxTagsPerPost) {
 		return errorsmod.Wrapf(types.ErrTagLimitExceeded, "max %d tags per post", params.MaxTagsPerPost)
 	}
-	if k.repKeeper == nil {
+	if !k.hasRep() {
 		return errorsmod.Wrap(types.ErrTagNotFound, "tag registry not available")
 	}
 
@@ -54,7 +54,7 @@ func (k Keeper) validatePostTagsNoIncrement(ctx context.Context, tags []string) 
 		}
 		seen[tagName] = true
 
-		if uint32(len(tagName)) > params.MaxTagLength {
+		if len(tagName) > int(params.MaxTagLength) {
 			return errorsmod.Wrapf(types.ErrMaxTagLength, "tag %q exceeds max length %d", tagName, params.MaxTagLength)
 		}
 
@@ -62,7 +62,7 @@ func (k Keeper) validatePostTagsNoIncrement(ctx context.Context, tags []string) 
 			return errorsmod.Wrapf(types.ErrInvalidTag, "tag %q does not match required format", tagName)
 		}
 
-		exists, err := k.repKeeper.TagExists(ctx, tagName)
+		exists, err := k.late.repKeeper.TagExists(ctx, tagName)
 		if err != nil {
 			return errorsmod.Wrapf(err, "failed to check tag %q", tagName)
 		}
@@ -70,7 +70,7 @@ func (k Keeper) validatePostTagsNoIncrement(ctx context.Context, tags []string) 
 			return errorsmod.Wrapf(types.ErrTagNotFound, "tag %q not found", tagName)
 		}
 
-		reserved, err := k.repKeeper.IsReservedTag(ctx, tagName)
+		reserved, err := k.late.repKeeper.IsReservedTag(ctx, tagName)
 		if err != nil {
 			return errorsmod.Wrapf(err, "failed to check reserved tag %q", tagName)
 		}
@@ -123,12 +123,12 @@ func (k Keeper) removeTagIndexEntries(ctx context.Context, postID uint64, tags [
 // been GC'd between create and delete) and logged rather than aborting the
 // user's transaction.
 func (k Keeper) decrementTagUsages(ctx context.Context, postID uint64, tags []string) {
-	if k.repKeeper == nil || len(tags) == 0 {
+	if !k.hasRep() || len(tags) == 0 {
 		return
 	}
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	for _, tag := range tags {
-		if err := k.repKeeper.DecrementTagUsage(ctx, tag); err != nil {
+		if err := k.late.repKeeper.DecrementTagUsage(ctx, tag); err != nil {
 			sdkCtx.Logger().Error("failed to decrement tag usage on post tombstone",
 				"post_id", postID, "tag", tag, "error", err)
 		}

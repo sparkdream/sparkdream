@@ -28,8 +28,12 @@ func createNStake(keeper keeper.Keeper, ctx context.Context, n int) []types.Stak
 		items[i].CreatedAt = int64(i)
 		items[i].LastClaimedAt = 0
 		items[i].RewardDebt = math.ZeroInt()
-		_ = keeper.Stake.Set(ctx, iu, items[i])
-		_ = keeper.StakeSeq.Set(ctx, iu)
+		if err := keeper.Stake.Set(ctx, iu, items[i]); err != nil {
+			panic(err)
+		}
+		if err := keeper.StakeSeq.Set(ctx, iu); err != nil {
+			panic(err)
+		}
 	}
 	return items
 }

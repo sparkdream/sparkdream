@@ -2,11 +2,14 @@ package keeper
 
 import (
 	"context"
+	"cosmossdk.io/collections"
+	"errors"
 
 	"cosmossdk.io/math"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/rep/types"
 )
 
@@ -36,13 +39,15 @@ func (q queryServer) DreamSupplyStats(ctx context.Context, req *types.QueryDream
 	// the live DREAM supply.
 	circulating := math.ZeroInt()
 	totalStaked := math.ZeroInt()
-	_ = q.k.Member.Walk(ctx, nil, func(_ string, member types.Member) (bool, error) {
+	if err := q.k.Member.Walk(ctx, nil, func(_ string, member types.Member) (bool, error) {
 		circulating = circulating.Add(*member.DreamBalance)
 		if member.StakedDream != nil {
 			totalStaked = totalStaked.Add(*member.StakedDream)
 		}
 		return false, nil
-	})
+	}); err != nil {
+		return nil, err
+	}
 
 	stakedRatio := math.LegacyZeroDec()
 	if circulating.IsPositive() {
@@ -65,21 +70,30 @@ func (q queryServer) MintBurnRatio(ctx context.Context, req *types.QueryMintBurn
 		return nil, status.Error(codes.InvalidArgument, "invalid request")
 	}
 
-	seasonMinted, _ := q.k.GetSeasonMinted(ctx)
-	seasonBurned, _ := q.k.GetSeasonBurned(ctx)
+	seasonMinted, getErr := q.k.GetSeasonMinted(ctx)
+	if getErr != nil {
+		return nil, getErr
+	}
+	seasonBurned, getErr := q.k.GetSeasonBurned(ctx)
+	if getErr != nil {
+		return nil, getErr
+	}
 
 	ratio := math.LegacyZeroDec()
 	if seasonBurned.IsPositive() {
 		ratio = math.LegacyNewDecFromInt(seasonMinted).Quo(math.LegacyNewDecFromInt(seasonBurned))
 	}
 
-	seasonNum, _ := q.k.SeasonalPoolSeason.Get(ctx)
+	seasonNum, getErr := q.k.SeasonalPoolSeason.Get(ctx)
+	if getErr != nil && !errors.Is(getErr, collections.ErrNotFound) {
+		return nil, getErr
+	}
 
 	return &types.QueryMintBurnRatioResponse{
 		SeasonMinted: seasonMinted,
 		SeasonBurned: seasonBurned,
 		Ratio:        ratio,
-		Season:       uint32(seasonNum),
+		Season:       commontypes.Saturate[uint32](seasonNum),
 	}, nil
 }
 
@@ -95,8 +109,14 @@ func (q queryServer) EffectiveApy(ctx context.Context, req *types.QueryEffective
 	}
 
 	poolTotal := params.MaxStakingRewardsPerSeason
-	poolRemaining, _ := q.k.getSeasonalPoolRemaining(ctx)
-	totalStaked, _ := q.k.getSeasonalPoolTotalStaked(ctx)
+	poolRemaining, getErr := q.k.getSeasonalPoolRemaining(ctx)
+	if getErr != nil {
+		return nil, getErr
+	}
+	totalStaked, getErr := q.k.getSeasonalPoolTotalStaked(ctx)
+	if getErr != nil {
+		return nil, getErr
+	}
 
 	effectiveApy := math.LegacyZeroDec()
 	if totalStaked.IsPositive() && params.SeasonDurationEpochs > 0 {
@@ -126,10 +146,22 @@ func (q queryServer) TreasuryStatus(ctx context.Context, req *types.QueryTreasur
 		return nil, status.Error(codes.Internal, err.Error())
 	}
 
-	balance, _ := q.k.GetTreasuryBalance(ctx)
-	seasonInflow, _ := q.k.GetSeasonTreasuryInflow(ctx)
-	seasonOutflow, _ := q.k.GetSeasonTreasuryOutflow(ctx)
-	seasonBurned, _ := q.k.GetSeasonBurned(ctx)
+	balance, getErr := q.k.GetTreasuryBalance(ctx)
+	if getErr != nil {
+		return nil, getErr
+	}
+	seasonInflow, getErr := q.k.GetSeasonTreasuryInflow(ctx)
+	if getErr != nil {
+		return nil, getErr
+	}
+	seasonOutflow, getErr := q.k.GetSeasonTreasuryOutflow(ctx)
+	if getErr != nil {
+		return nil, getErr
+	}
+	seasonBurned, getErr := q.k.GetSeasonBurned(ctx)
+	if getErr != nil {
+		return nil, getErr
+	}
 
 	return &types.QueryTreasuryStatusResponse{
 		Balance:       balance,

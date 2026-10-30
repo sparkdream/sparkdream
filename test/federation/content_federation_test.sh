@@ -656,12 +656,16 @@ cat > "$PROPOSAL_DIR/restore_content.json" <<EOF
 }
 EOF
 
+# Restoring bridged content returns it to the status its verification history
+# supports, not literally ACTIVE (that is IBC-only): TEST 1's content is still
+# unverified inside its window, so it goes back to PENDING_VERIFICATION (enum 0,
+# which proto3 JSON omits).
 if submit_ops_proposal "$PROPOSAL_DIR/restore_content.json" "restore content"; then
     CONTENT_DATA=$($BINARY query federation get-federated-content $MODERATE_ID --output json)
-    CONTENT_STATUS=$(echo "$CONTENT_DATA" | jq -r '.content.status // empty')
+    CONTENT_STATUS=$(echo "$CONTENT_DATA" | jq -r '.content.status // "FEDERATED_CONTENT_STATUS_PENDING_VERIFICATION"')
 
-    if [ "$CONTENT_STATUS" == "FEDERATED_CONTENT_STATUS_ACTIVE" ]; then
-        echo "  Content restored to ACTIVE"
+    if [ "$CONTENT_STATUS" == "FEDERATED_CONTENT_STATUS_PENDING_VERIFICATION" ]; then
+        echo "  Content restored to PENDING_VERIFICATION"
         record_result "Moderate content (restore)" "PASS"
     else
         echo "  Status: $CONTENT_STATUS"
@@ -689,19 +693,17 @@ else
 fi
 
 # ========================================================================
-# TEST 13: Submit content from non-ACTIVE bridge fails
-# Verify that a bridge operator without an ACTIVE bridge cannot submit.
-# Check operator1's actual bridge status and test accordingly.
-# Post-Phase-4 semantics: a federation BridgeBinding has no status; the
-# only path that refuses submissions is `bridge.Suspended == true`,
-# which is toggled by AfterOperatorUnderfunded/AfterOperatorReFunded
-# hooks (NOT by Unbond — voluntary exit doesn't suspend the binding).
-# Bindings get pruned entirely on AfterOperatorDissolved (SLASHED) or
-# AfterOperatorRetired (claim after unbond). So during UNBONDING the
-# bridge can still submit; this test now verifies that fact.
+# TEST 13: Submit content from an UNBONDING bridge fails
+# A federation BridgeBinding has no status of its own: `Suspended` tracks
+# UNDERFUNDED through the AfterOperatorUnderfunded/ReFunded hooks, and the
+# binding is pruned on AfterOperatorDissolved (SLASHED) or
+# AfterOperatorRetired. Voluntary exit (MsgUnbondOperator) fires no hook, so
+# submission also requires the operator's x/service record to be ACTIVE
+# (ErrBindingNotActive, 2395): an UNBONDING operator cannot keep submitting,
+# and earning, through its unbonding period.
 # ========================================================================
 echo ""
-echo "--- TEST 13: UNBONDING bridge can still submit (binding not yet pruned) ---"
+echo "--- TEST 13: UNBONDING bridge cannot submit (binding not yet pruned) ---"
 
 OP1_BRIDGE_DATA=$($BINARY query federation get-bridge-binding $OPERATOR1_ADDR mastodon.example --output json)
 OP1_HAS_BINDING=$(echo "$OP1_BRIDGE_DATA" | jq -r '.bridge_binding.address // empty')
@@ -713,11 +715,10 @@ UNBOND_BODY="Content submitted during UNBONDING period"
 UNBOND_HASH=$(sha256_base64 "$UNBOND_BODY")
 
 # Skip the test if operator1's binding was already pruned (e.g. by a
-# slash or retire that ran in a prior test). The binding must exist for
-# us to test the "UNBONDING-but-still-bound" path.
-if [ -z "$OP1_HAS_BINDING" ]; then
-    echo "  operator1 binding pruned (skipping UNBONDING positive test)"
-    record_result "UNBONDING bridge can still submit" "PASS"
+# slash or retire that ran in a prior test), or operator1 is not UNBONDING.
+if [ -z "$OP1_HAS_BINDING" ] || [ "$OP1_SVC_STATUS" != "OPERATOR_STATUS_UNBONDING" ]; then
+    echo "  operator1 not an UNBONDING operator with a binding (skipping)"
+    record_result "UNBONDING bridge cannot submit" "PASS"
 else
     TX_RES=$($BINARY tx federation submit-federated-content \
         mastodon.example \
@@ -739,20 +740,15 @@ else
         --output json)
 
     if submit_and_wait "$TX_RES" "unbonding bridge submit"; then
-        echo "  UNBONDING bridge submission accepted (binding still active)"
-        record_result "UNBONDING bridge can still submit" "PASS"
+        echo "  UNBONDING bridge submission was accepted"
+        record_result "UNBONDING bridge cannot submit" "FAIL"
+    elif [ "$(echo "$TX_RESULT" | jq -r '.code // empty' 2>/dev/null)" == "2395" ]; then
+        echo "  Correctly rejected (ErrBindingNotActive)"
+        record_result "UNBONDING bridge cannot submit" "PASS"
     else
-        # Test mode policy may legitimately reject (e.g. content-type
-        # not in inbound list after policy mutations). Treat as pass
-        # if the rejection is policy-shaped rather than status-shaped.
         RAW=$(echo "$TX_RESULT" | jq -r '.raw_log // empty' 2>/dev/null)
-        if echo "$RAW" | grep -qi "suspended"; then
-            echo "  Binding got suspended between checks (out of scope for this test)"
-            record_result "UNBONDING bridge can still submit" "PASS"
-        else
-            echo "  Submission rejected: $(echo "$RAW" | head -c 120)"
-            record_result "UNBONDING bridge can still submit" "FAIL"
-        fi
+        echo "  Rejected for another reason: $(echo "$RAW" | head -c 200)"
+        record_result "UNBONDING bridge cannot submit" "FAIL"
     fi
 fi
 

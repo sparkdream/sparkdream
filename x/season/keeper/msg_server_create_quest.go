@@ -42,12 +42,19 @@ func (k msgServer) CreateQuest(ctx context.Context, msg *types.MsgCreateQuest) (
 	}
 
 	// Validate XP reward
+	if msg.XpReward > types.HardMaxQuestXpReward {
+		return nil, errorsmod.Wrapf(types.ErrQuestXpRewardTooHigh,
+			"XP reward %d exceeds the hard ceiling %d", msg.XpReward, types.HardMaxQuestXpReward)
+	}
 	if msg.XpReward > params.MaxQuestXpReward {
 		return nil, errorsmod.Wrapf(types.ErrQuestXpRewardTooHigh,
 			"XP reward %d exceeds max %d", msg.XpReward, params.MaxQuestXpReward)
 	}
 
 	if err := k.ValidateQuestObjectives(ctx, msg.Objectives); err != nil {
+		return nil, err
+	}
+	if err := k.ValidateQuestPrerequisites(ctx, msg.QuestId, msg.PrerequisiteQuest, msg.RequiredAchievement); err != nil {
 		return nil, err
 	}
 

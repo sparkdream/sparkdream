@@ -33,6 +33,7 @@ if [ ! -f "$SCRIPT_DIR/.test_env" ]; then
     exit 1
 fi
 source "$SCRIPT_DIR/.test_env"
+source "$SCRIPT_DIR/../lib/ops_committee.sh"
 BOND_DENOM="${BOND_DENOM:-uspark}"
 
 FAILED=0
@@ -92,10 +93,9 @@ bootstrap_reputation() {
         RES=$(run_tx "$ACCOUNT" rep create-interim other 0 "unbondmod-$i-$RANDOM" epic 999999999)
         check_tx_success "$RES" || { echo "    create-interim $i failed"; return 1; }
         IID=$(extract_event_value "$RES" "interim_created" "interim_id")
-        # 500k like the other forum bootstraps: completing an EPIC interim
-        # writes reputation onto a member record that grows with each one.
-        RES=$(run_tx "$ACCOUNT" rep complete-interim "$IID" "done" --gas 500000)
-        check_tx_success "$RES" || { echo "    complete-interim $i failed"; return 1; }
+        # Approved by an Operations Committee proposal (a single member is
+        # refused; an assignee can no longer complete and pay its own interim).
+        ops_approve_interim "$IID" "done" || { echo "    approve-interim $i failed: $OPS_COMMITTEE_ERROR"; return 1; }
     done
 }
 

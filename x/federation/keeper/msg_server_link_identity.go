@@ -4,7 +4,9 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/binary"
+	"errors"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/federation/types"
 
 	"cosmossdk.io/collections"
@@ -21,10 +23,10 @@ func generateLinkChallenge(sdkCtx sdk.Context, creator, peerID, remote string) [
 	h := sha256.New()
 	header := sdkCtx.BlockHeader()
 	var heightBuf [8]byte
-	binary.BigEndian.PutUint64(heightBuf[:], uint64(sdkCtx.BlockHeight()))
+	binary.BigEndian.PutUint64(heightBuf[:], commontypes.Saturate[uint64](sdkCtx.BlockHeight()))
 	h.Write(heightBuf[:])
 	var timeBuf [8]byte
-	binary.BigEndian.PutUint64(timeBuf[:], uint64(sdkCtx.BlockTime().UnixNano()))
+	binary.BigEndian.PutUint64(timeBuf[:], commontypes.Saturate[uint64](sdkCtx.BlockTime().UnixNano()))
 	h.Write(timeBuf[:])
 	h.Write(header.AppHash)
 	h.Write(header.LastBlockId.Hash)
@@ -42,22 +44,27 @@ func (k msgServer) LinkIdentity(ctx context.Context, msg *types.MsgLinkIdentity)
 	}
 
 	// 1. Verify peer exists and is ACTIVE
-	if _, err := k.GetPeerRequireActive(ctx, msg.PeerId); err != nil {
+	peer, err := k.GetPeerRequireActive(ctx, msg.PeerId)
+	if err != nil {
 		return nil, errorsmod.Wrapf(err, "peer %q", msg.PeerId)
 	}
 
 	// 2. Verify no existing link for (creator, peer_id)
 	linkKey := collections.Join(msg.Creator, msg.PeerId)
-	_, err := k.IdentityLinks.Get(ctx, linkKey)
+	_, err = k.IdentityLinks.Get(ctx, linkKey)
 	if err == nil {
 		return nil, errorsmod.Wrapf(types.ErrIdentityLinkExists, "link already exists for %s on peer %s", msg.Creator, msg.PeerId)
 	}
 
-	// 3. Verify no existing link for (peer_id, remote_identity) by any local address
+	// 3. Verify the remote identity is not VERIFIED to another local
+	//    address. An unverified claim by someone else does not block this
+	//    one: claims are cheap, so letting the first one reserve the
+	//    identity would let anyone squat other people's handles. Several
+	//    unverified claims may coexist; verification picks the owner.
 	remoteKey := collections.Join(msg.PeerId, msg.RemoteIdentity)
 	_, err = k.IdentityLinksByRemote.Get(ctx, remoteKey)
 	if err == nil {
-		return nil, errorsmod.Wrapf(types.ErrRemoteIdentityAlreadyClaimed, "remote identity %s already claimed on peer %s", msg.RemoteIdentity, msg.PeerId)
+		return nil, errorsmod.Wrapf(types.ErrRemoteIdentityAlreadyClaimed, "remote identity %s already verified on peer %s", msg.RemoteIdentity, msg.PeerId)
 	}
 
 	// 4. Verify max_identity_links_per_user not exceeded
@@ -65,7 +72,10 @@ func (k msgServer) LinkIdentity(ctx context.Context, msg *types.MsgLinkIdentity)
 	if err != nil {
 		return nil, err
 	}
-	currentCount, _ := k.IdentityLinkCount.Get(ctx, msg.Creator)
+	currentCount, getErr := k.IdentityLinkCount.Get(ctx, msg.Creator)
+	if getErr != nil && !errors.Is(getErr, collections.ErrNotFound) {
+		return nil, getErr
+	}
 	if currentCount >= params.MaxIdentityLinksPerUser {
 		return nil, errorsmod.Wrapf(types.ErrMaxIdentityLinksExceeded, "address %s has %d links (max %d)", msg.Creator, currentCount, params.MaxIdentityLinksPerUser)
 	}
@@ -77,20 +87,24 @@ func (k msgServer) LinkIdentity(ctx context.Context, msg *types.MsgLinkIdentity)
 	// 5. Create IdentityLink with status UNVERIFIED. The challenge is stored
 	// so OnRecvIdentityConfirmPacket can echo-check it when the peer's
 	// confirmation arrives.
+	// The expiry is stored on the link so the Phase 3 sweep can tell its
+	// own queue entry from a stale one left by an earlier, unlinked link.
+	expiry := blockTime + int64(params.UnverifiedLinkTtl.Seconds())
 	link := types.IdentityLink{
-		LocalAddress:   msg.Creator,
-		PeerId:         msg.PeerId,
-		RemoteIdentity: msg.RemoteIdentity,
-		Status:         types.IdentityLinkStatus_IDENTITY_LINK_STATUS_UNVERIFIED,
-		LinkedAt:       blockTime,
-		Challenge:      challengeData,
+		LocalAddress:         msg.Creator,
+		PeerId:               msg.PeerId,
+		RemoteIdentity:       msg.RemoteIdentity,
+		Status:               types.IdentityLinkStatus_IDENTITY_LINK_STATUS_UNVERIFIED,
+		LinkedAt:             blockTime,
+		Challenge:            challengeData,
+		VerificationAttempts: 1,
+		UnverifiedExpiresAt:  expiry,
 	}
 	if err := k.IdentityLinks.Set(ctx, linkKey, link); err != nil {
 		return nil, err
 	}
 
 	// 6. Add to UnverifiedLinkExpirationQueue
-	expiry := blockTime + int64(params.UnverifiedLinkTtl.Seconds())
 	if err := k.UnverifiedLinkExp.Set(ctx, collections.Join3(expiry, msg.Creator, msg.PeerId)); err != nil {
 		return nil, err
 	}
@@ -100,31 +114,45 @@ func (k msgServer) LinkIdentity(ctx context.Context, msg *types.MsgLinkIdentity)
 		return nil, err
 	}
 
-	// 8. Update reverse index
-	if err := k.IdentityLinksByRemote.Set(ctx, remoteKey, msg.Creator); err != nil {
+	// 8. Index the claim (not the verified reverse index; see step 3)
+	if err := k.addIdentityLinkIndexes(ctx, link); err != nil {
 		return nil, err
 	}
 
-	// 9. Send IdentityVerificationPacket via IBC (Phase 1 challenge).
-	packetData := &types.FederationPacketData{
-		Packet: &types.FederationPacketData_IdentityVerification{
-			IdentityVerification: &types.IdentityVerificationPacket{
-				ClaimedAddress:  msg.RemoteIdentity,
-				ClaimantAddress: msg.Creator,
-				Challenge:       challengeData,
+	// 9. Send the IdentityVerificationPacket (Phase 1 challenge) to a Spark
+	//    Dream peer. A send failure fails the tx: a link whose challenge
+	//    never left would sit UNVERIFIED with no timeout to retry it. Bridge
+	//    peers (ActivityPub, AT Protocol, NOSTR, Lens) have no federation
+	//    channel: the member publishes the link proof string from the remote
+	//    identity and a bridge operator bound to the peer verifies it with
+	//    MsgAttestIdentityLink before unverified_link_ttl prunes the claim.
+	if peer.Type == types.PeerType_PEER_TYPE_SPARK_DREAM {
+		packetData := &types.FederationPacketData{
+			Packet: &types.FederationPacketData_IdentityVerification{
+				IdentityVerification: &types.IdentityVerificationPacket{
+					ClaimedAddress:  msg.RemoteIdentity,
+					ClaimantAddress: msg.Creator,
+					Challenge:       challengeData,
+				},
 			},
-		},
+		}
+		if _, err := k.SendFederationPacket(ctx, msg.PeerId, packetData); err != nil {
+			return nil, errorsmod.Wrap(err, "send identity verification challenge")
+		}
 	}
-	// Best-effort send — link is created regardless (can be verified later)
-	_, _ = k.SendFederationPacket(ctx, msg.PeerId, packetData)
 
-	// 10. Emit event
-	sdkCtx.EventManager().EmitEvent(
-		sdk.NewEvent(types.EventTypeIdentityLinked,
-			sdk.NewAttribute(types.AttributeKeyLocalAddress, msg.Creator),
-			sdk.NewAttribute(types.AttributeKeyPeerID, msg.PeerId),
-			sdk.NewAttribute(types.AttributeKeyRemoteIdentity, msg.RemoteIdentity)),
-	)
+	// 10. Emit event. For a bridge peer it carries the proof string the
+	//     member must publish from the remote identity (spec §3.4.1).
+	attrs := []sdk.Attribute{
+		sdk.NewAttribute(types.AttributeKeyLocalAddress, msg.Creator),
+		sdk.NewAttribute(types.AttributeKeyPeerID, msg.PeerId),
+		sdk.NewAttribute(types.AttributeKeyRemoteIdentity, msg.RemoteIdentity),
+	}
+	if peer.Type != types.PeerType_PEER_TYPE_SPARK_DREAM {
+		attrs = append(attrs, sdk.NewAttribute(types.AttributeKeyLinkProof,
+			types.IdentityLinkProofString(sdkCtx.ChainID(), msg.Creator, challengeData)))
+	}
+	sdkCtx.EventManager().EmitEvent(sdk.NewEvent(types.EventTypeIdentityLinked, attrs...))
 
 	return &types.MsgLinkIdentityResponse{}, nil
 }

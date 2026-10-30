@@ -8,13 +8,14 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/season/keeper"
 	"sparkdream/x/season/types"
 )
 
-// SimulateMsgSetUsername simulates a MsgSetUsername message using direct keeper calls.
-// This bypasses the DREAM token requirement for simulation purposes.
-// Full token integration testing should be done in integration tests.
+// SimulateMsgSetUsername delivers MsgSetUsername from a random x/rep member
+// (creating its profile first when needed). Skips invalid or taken usernames, the change cooldown, and
+// accounts whose DREAM burn or x/name reservation would fail.
 func SimulateMsgSetUsername(
 	ak types.AuthKeeper,
 	bk types.BankKeeper,
@@ -23,35 +24,44 @@ func SimulateMsgSetUsername(
 ) simtypes.Operation {
 	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
 	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		simAccount, _ := simtypes.RandomAcc(r, accs)
-
-		// Ensure member has a profile
-		if err := getOrCreateMemberProfile(r, ctx, k, simAccount.Address.String()); err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgSetUsername{}), "failed to create profile"), nil, nil
-		}
-
-		// Get the profile
-		profile, err := k.MemberProfile.Get(ctx, simAccount.Address.String())
+		params, err := k.Params.Get(ctx)
 		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgSetUsername{}), "profile not found"), nil, nil
+			return noOpErr(&types.MsgSetUsername{}, err)
+		}
+		// Usernames burn DREAM, so only x/rep members holding the cost can
+		// set one.
+		simAccount, ok := pick(r, accountsWhere(accs, func(a simtypes.Account) bool {
+			return hasDream(ctx, k, a.Address.String(), params.UsernameCostDream.Uint64())
+		}))
+		if !ok {
+			return noOp(&types.MsgSetUsername{}, "no x/rep member holding the username cost")
+		}
+		addr := simAccount.Address.String()
+		msg := &types.MsgSetUsername{Creator: addr, Username: randomUsername(r)}
+
+		if k.ValidateUsername(ctx, msg.Username) != nil {
+			return noOp(msg, "invalid username")
+		}
+		if owner, err := k.UsernameOwner.Get(ctx, msg.Username); err == nil && owner != addr {
+			return noOp(msg, "username taken")
+		}
+		if ok, err := ensureProfile(r, app, ctx, txGen, ak, bk, k, simAccount); err != nil || !ok {
+			if err != nil {
+				return noOpErr(msg, err)
+			}
+			return noOp(msg, "could not create member profile")
+		}
+		profile, _ := getProfile(ctx, k, addr)
+		if profile.LastUsernameChangeEpoch > 0 {
+			since := k.GetCurrentEpoch(ctx) - profile.LastUsernameChangeEpoch
+			if commontypes.Saturate[uint64](since) < params.UsernameChangeCooldownEpochs {
+				return noOp(msg, "username change cooldown")
+			}
+		}
+		if err := dryRunMsg(app, ctx, msg); err != nil {
+			return noOp(msg, "handler would reject: "+err.Error())
 		}
 
-		// Check if already has a username (can only be set once in most systems)
-		if profile.Username != "" {
-			// For simulation, allow changing username
-		}
-
-		// Generate a new username
-		newUsername := randomUsername(r)
-
-		// Update the profile with the new username directly (bypasses DREAM token check)
-		profile.Username = newUsername
-
-		if err := k.MemberProfile.Set(ctx, simAccount.Address.String(), profile); err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgSetUsername{}), "failed to set username"), nil, nil
-		}
-
-		// Return success
-		return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgSetUsername{}), "ok (direct keeper call)"), nil, nil
+		return deliver(r, app, ctx, txGen, ak, bk, simAccount, msg)
 	}
 }

@@ -171,8 +171,13 @@ func TestResolveChallengeResult_Upheld(t *testing.T) {
 	// challenge time, consumed here).
 	expectedSlash := types.DefaultCuratorSlashFraction.MulInt(types.DefaultMinCuratorBond).TruncateInt()
 
-	// Challenger rewarded + deposit refunded (2 UnlockDREAM calls expected).
-	require.GreaterOrEqual(t, len(unlockDREAMCalls), 2)
+	// Deposit refunded through UnlockDREAM (exactly the locked deposit);
+	// the reward is MINTED, never an unlock of the challenger's own DREAM.
+	require.Len(t, unlockDREAMCalls, 1)
+	require.Equal(t, types.DefaultChallengeDeposit, unlockDREAMCalls[0].amount)
+	expectedReward := types.DefaultChallengeRewardFraction.MulInt(expectedSlash).TruncateInt()
+	require.Len(t, f.repKeeper.mintCalls, 1)
+	require.Equal(t, expectedReward, f.repKeeper.mintCalls[0].amount)
 
 	// Verify curator bond updated via the mock rep keeper (bonded role).
 	br, err := f.repKeeper.GetBondedRole(f.ctx, reptypes.RoleType_ROLE_TYPE_COLLECT_CURATOR, f.member)

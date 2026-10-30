@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/season/types"
 
 	"cosmossdk.io/math"
@@ -27,7 +28,7 @@ func (k Keeper) CalculateNominationConviction(ctx context.Context, nomination ty
 	// defensively against a corrupt/zero param read rather than substituting a magic
 	// default: a zero or negative half-life makes the time-decay factor meaningless,
 	// so return zero conviction instead of fabricating a window.
-	halfLifeBlocks := int64(params.NominationConvictionHalfLifeEpochs) * params.EpochBlocks
+	halfLifeBlocks := commontypes.Saturate[int64](params.NominationConvictionHalfLifeEpochs) * params.EpochBlocks
 	if halfLifeBlocks <= 0 {
 		return math.LegacyZeroDec(), fmt.Errorf("non-positive conviction half-life (%d blocks): half_life_epochs=%d epoch_blocks=%d", halfLifeBlocks, params.NominationConvictionHalfLifeEpochs, params.EpochBlocks)
 	}
@@ -36,11 +37,8 @@ func (k Keeper) CalculateNominationConviction(ctx context.Context, nomination ty
 	twoHalfLife := math.LegacyNewDec(2 * halfLifeBlocks)
 
 	// Iterate all stakes for this nomination
-	prefix := fmt.Sprintf("%d/", nomination.Id)
-	err = k.NominationStake.Walk(ctx, nil, func(key string, stake types.NominationStake) (bool, error) {
-		if len(key) < len(prefix) || key[:len(prefix)] != prefix {
-			return false, nil
-		}
+	// Prefix-bounded walk over this nomination's stakes only (SEA-04).
+	err = k.NominationStake.Walk(ctx, nominationStakeRange(nomination.Id), func(_ string, stake types.NominationStake) (bool, error) {
 
 		elapsed := currentBlock - stake.StakedAtBlock
 		if elapsed < 0 {
@@ -63,4 +61,20 @@ func (k Keeper) CalculateNominationConviction(ctx context.Context, nomination ty
 	}
 
 	return totalConviction, nil
+}
+
+// withLiveConviction fills in the current conviction of a nomination that
+// is still taking stakes. StakeNomination no longer stores it (SEA-20); the
+// retro phase stores the final value, so finished nominations are returned
+// as stored.
+func (k Keeper) withLiveConviction(ctx context.Context, nom types.Nomination) types.Nomination {
+	season, err := k.Season.Get(ctx)
+	if err != nil || nom.Season != season.Number ||
+		(season.Status != types.SeasonStatus_SEASON_STATUS_ACTIVE && season.Status != types.SeasonStatus_SEASON_STATUS_NOMINATION) {
+		return nom
+	}
+	if c, err := k.CalculateNominationConviction(ctx, nom); err == nil {
+		nom.Conviction = c
+	}
+	return nom
 }

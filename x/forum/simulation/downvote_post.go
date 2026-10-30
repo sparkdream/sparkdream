@@ -1,60 +1,40 @@
 package simulation
 
 import (
-	"math/rand"
-
-	"github.com/cosmos/cosmos-sdk/baseapp"
+	"cosmossdk.io/math"
 	"github.com/cosmos/cosmos-sdk/client"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
 
 	"sparkdream/x/forum/keeper"
 	"sparkdream/x/forum/types"
 )
 
-// SimulateMsgDownvotePost simulates a MsgDownvotePost message using direct keeper calls.
-// This bypasses deposit requirements for simulation purposes.
-// Full integration testing should be done in integration tests.
+// SimulateMsgDownvotePost delivers MsgDownvotePost from a random account on
+// a visible post it did not write and has not reacted to, burning the
+// downvote deposit; the daily downvote cap is left to the dry-run.
 func SimulateMsgDownvotePost(
 	ak types.AuthKeeper,
 	bk types.BankKeeper,
 	k keeper.Keeper,
 	txGen client.TxConfig,
 ) simtypes.Operation {
-	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
-	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		simAccount, _ := simtypes.RandomAcc(r, accs)
-
-		// Find or create a post to downvote
-		otherAccount, _ := simtypes.RandomAcc(r, accs)
-		if otherAccount.Address.String() == simAccount.Address.String() {
-			// Try to get a different account
-			for i := 0; i < len(accs); i++ {
-				if accs[i].Address.String() != simAccount.Address.String() {
-					otherAccount = accs[i]
-					break
-				}
-			}
+	return operation(ak, bk, k, txGen, &types.MsgDownvotePost{}, func(e *simEnv) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
+		msg := &types.MsgDownvotePost{}
+		if e.params.ForumPaused || !e.params.ReactionsEnabled {
+			return noOp(msg, "forum paused or reactions disabled")
 		}
-
-		targetPostID, err := getOrCreatePost(r, ctx, k, otherAccount.Address.String())
+		voter, post, reason, err := e.reactionTarget()
 		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgDownvotePost{}), "failed to create post"), nil, nil
+			return noOpErr(msg, err)
 		}
-
-		// Use direct keeper calls to downvote (bypasses deposit)
-		post, err := k.Post.Get(ctx, targetPostID)
-		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgDownvotePost{}), "failed to get post"), nil, nil
+		if reason != "" {
+			return noOp(msg, reason)
 		}
-
-		post.DownvoteCount++
-
-		if err := k.Post.Set(ctx, targetPostID, post); err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgDownvotePost{}), "failed to downvote post"), nil, nil
+		msg.Creator, msg.PostId = voter.Address.String(), post.PostId
+		spent := math.ZeroInt()
+		if e.params.DownvoteDepositAmount.IsPositive() {
+			spent = e.params.DownvoteDepositAmount
 		}
-
-		// Return success
-		return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgDownvotePost{}), "ok (direct keeper call)"), nil, nil
-	}
+		return e.submit(voter, msg, spent)
+	})
 }

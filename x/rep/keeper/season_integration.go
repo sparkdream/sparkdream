@@ -6,6 +6,7 @@ import (
 
 	"sparkdream/x/rep/types"
 
+	"cosmossdk.io/collections"
 	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 )
@@ -130,4 +131,33 @@ func (k Keeper) GetCompletedInitiativesCount(ctx context.Context, addr string) (
 // formatTagCount returns a string representation of the tag count
 func formatTagCount(count int) string {
 	return fmt.Sprintf("%d", count)
+}
+
+// MembersAfter returns up to limit member addresses in store (address) order,
+// strictly after `after` ("" starts from the first), and whether the walk
+// reached the end. It is the cursor walk x/season drives its reputation reset
+// with, so the reset covers every member record, including members who never
+// earned a season profile (SEA-06).
+func (k Keeper) MembersAfter(ctx context.Context, after string, limit int) ([]string, bool, error) {
+	if limit <= 0 {
+		return nil, false, nil
+	}
+	var rng collections.Ranger[string]
+	if after != "" {
+		rng = new(collections.Range[string]).StartExclusive(after)
+	}
+	iter, err := k.Member.Iterate(ctx, rng)
+	if err != nil {
+		return nil, false, err
+	}
+	defer iter.Close()
+	out := make([]string, 0, limit)
+	for ; iter.Valid() && len(out) < limit; iter.Next() {
+		key, err := iter.Key()
+		if err != nil {
+			return nil, false, err
+		}
+		out = append(out, key)
+	}
+	return out, !iter.Valid(), nil
 }

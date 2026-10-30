@@ -69,5 +69,15 @@ func (gs GenesisState) Validate() error {
 		contestStakeMap[elem.ChallengeId] = struct{}{}
 	}
 
+	// Every active contested dispute needs its owner's contest stake row:
+	// resolution settles that stake and fails without it.
+	for _, d := range gs.DisputeMap {
+		if d.Active && d.ContestChallengeId != "" {
+			if _, ok := contestStakeMap[d.ContestChallengeId]; !ok {
+				return fmt.Errorf("active contested dispute %q has no contest stake %s", d.Name, d.ContestChallengeId)
+			}
+		}
+	}
+
 	return gs.Params.Validate()
 }

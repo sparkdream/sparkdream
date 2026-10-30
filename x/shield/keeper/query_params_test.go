@@ -1,6 +1,7 @@
 package keeper_test
 
 import (
+	"context"
 	"testing"
 
 	"cosmossdk.io/math"
@@ -12,7 +13,7 @@ import (
 func TestQueryParamsNilRequest(t *testing.T) {
 	_, qs := initQueryServer(t)
 
-	_, err := qs.Params(nil, nil)
+	_, err := qs.Params(context.Background(), nil)
 	require.Error(t, err)
 }
 

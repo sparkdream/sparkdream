@@ -19,13 +19,13 @@ Two `collections.Item[ChainIdentity]`:
 
 ### `ChainIdentity` Fields
 
+- `chain_human_name` / `chain_ticker_prefix` (e.g. `Sparkdream` / `SDR`; the human name is checked against the consensus `chain_id` by the soft `ValidateAgainstChainID` check, bypassable with `allow_chain_id_mismatch`, which defaults to false on network builds and true on local/test builds)
 - `bond_denom` (e.g. `uspark.sparkdream`)
-- `dream_denom` (e.g. `udream.sparkdream`; same `u<2-5 letters>.<chain suffix>` shape rule as `bond_denom` — `udream.<chainname>` is only the conventional default derived by the genesis CLI, so a chain can fully brand its internal token, e.g. `uwish.aurora`)
-- `bond_symbol` / `dream_symbol` (display tickers; e.g. `SPARK` / `DREAM`)
-- `bond_display` / `dream_display` (display denom names)
-- `bond_decimals` / `dream_decimals` (typically `6`)
-- `chain_id` (validated against `ctx.ChainID()` via a soft `ValidateAgainstChainID` check — bypassable with `allow_chain_id_mismatch`)
-- `founded_at` (Timestamp)
+- `dream_denom` (e.g. `udream.sparkdream`; same `u<2-5 letters>.<chain suffix>` shape rule as `bond_denom` — the genesis CLI derives `u<dream-symbol>.<chainname>` by default, exactly like the bond denom, so a chain fully brands its internal token, e.g. `uwish.aurora`)
+- `bond_display_symbol` / `dream_display_symbol` (display tickers; e.g. `SPARK` / `DREAM`)
+- `bond_display_name` / `dream_display_name` (bank metadata `Name`)
+- `bond_display_decimals` / `dream_display_decimals` (typically `6`)
+- `founded_at` (unix seconds)
 
 ## Messages
 
@@ -45,9 +45,10 @@ Two `collections.Item[ChainIdentity]`:
 
 1. Validates the genesis `ChainIdentity` record.
 2. Writes both `identity` and `sealed_identity` (the seal is one-way).
-3. Calls `bank.SetDenomMetaData` for bond and dream denoms so wallets render `SPARK` / `DREAM` instead of raw denom strings.
-4. Writes through to SDK params: `staking.bond_denom` and `mint.mint_denom`. Off-the-shelf wallets and REST tooling work unchanged.
-5. Runs the soft `ValidateAgainstChainID` consistency check.
+3. Calls `bank.SetDenomMetaData` for bond and dream denoms so wallets render `SPARK` / `DREAM` instead of raw denom strings. It is the only writer of the native metadata: the pre-init rewrite drops a canonical native `denom_metadata` entry from the bank genesis and refuses a non-canonical one, because bank's own InitGenesis runs afterwards through its raw keeper and would overwrite the seal.
+4. Runs the soft `ValidateAgainstChainID` consistency check.
+
+The SDK params (`staking.bond_denom`, `mint.mint_denom`, ...) are not written by identity: the pre-init rewrite substitutes the `%BOND_DENOM%` / `%DREAM_DENOM%` sentinels in the genesis JSON before any module's InitGenesis runs, and invariant `sdk-params-aligned` checks the result.
 
 `ExportGenesis` errors if the live `identity` has drifted from `sealed_identity` — a guard against `Msg*UpdateParams` reaching in through a back door.
 
@@ -64,9 +65,9 @@ This lets the same `config.yml` template produce per-chain genesis files (devnet
 
 `x/identity` is ordered between `auth` and `bank` so the sealed record exists before bank's first `SetDenomMetaData`.
 
-### V1 Migration Note
+### Identity is mandatory
 
-Empty identity in genesis is a no-op (legacy single-chain mode supported during migration). On a fresh chain with a real identity record, the module is strict.
+A genesis without `app_state.identity`, or with an empty identity, is refused: by the pre-init rewrite at InitChain, by `GenesisState.Validate`, and by `sparkdreamd genesis identity validate`.
 
 ## Invariants
 
@@ -75,14 +76,14 @@ Five invariants registered via `RegisterInvariants` (run by `app/invariants_test
 | Invariant | Severity | Description |
 |---|---|---|
 | `identity-initialized` | hard | Sealed record exists and is non-zero |
-| `canonical-fields` | hard | Live `identity` matches `sealed_identity` byte-for-byte |
+| `canonical-fields` | hard | Live `identity` matches `sealed_identity` on every canonical field (`EqualCanonical`: all fields, display names included) |
 | `bank-metadata-present` | hard | `DenomMetadata` exists for both bond and dream denoms |
-| `bank-metadata-canonical` | hard | Symbol/Display of native denoms still match the sealed record |
-| `sdk-params-aligned` | warning | `staking.bond_denom` and `mint.mint_denom` still match the sealed bond denom |
+| `bank-metadata-canonical` | hard | Base, Symbol, Display, Name and denom units (decimals) of the native denoms still match the sealed record |
+| `sdk-params-aligned` | warning | `staking.bond_denom` and `mint.mint_denom` still match the sealed bond denom (a read failure is reported as broken) |
 
 ## Bank Guard
 
-The app layer wraps `bankkeeper.Keeper` with `BankKeeperWithIdentityGuard` (see [app/bank_guard.go](../../app/bank_guard.go)). Its `SetDenomMetaData` panics with `ErrIdentityImmutable` if any post-seal write mutates the native bond/dream `Symbol` or `Display`. This closes the §14.6 attack where a gov upgrade-handler could rewrite the user-visible token name post-launch by going around `MsgUpdateParams`.
+The app layer wraps `bankkeeper.Keeper` with `BankKeeperWithIdentityGuard` (see [app/bank_guard.go](../../app/bank_guard.go)). Its `SetDenomMetaData` panics with `ErrIdentityImmutable` if any post-seal write changes a sealed field of the native bond/dream metadata (Base, Symbol, Display, Name, denom units and exponents; Description and URI stay free). This closes the §14.6 attack where a gov upgrade-handler could rewrite the user-visible token name post-launch by going around `MsgUpdateParams`.
 
 ## Keeper Surface
 
@@ -118,7 +119,8 @@ Both chosen because `%` is outside the Cosmos SDK denom regex, so collision with
 
 | Code | Name | When |
 |---|---|---|
-| 1 | `ErrIdentityNotSealed` | Keeper read before `InitGenesis` |
-| 2 | `ErrIdentityImmutable` | Post-seal write attempted (raised by the bank guard) |
-| 3 | `ErrIdentityDrift` | Live record differs from sealed (raised by `ExportGenesis`) |
-| 4 | `ErrChainIDMismatch` | Sealed `chain_id` doesn't match `ctx.ChainID()` (soft, bypassable) |
+| 1200-1211 | `ErrInvalid*`, `ErrDenomCollision`, `ErrSymbolCollision`, `ErrInvalidFoundedAt` | Intrinsic validation of a `ChainIdentity` field |
+| 1212 | `ErrIdentityNotInitialized` | Keeper read before `InitGenesis`, or an empty identity |
+| 1213 | `ErrIdentityImmutable` | Post-seal write attempted (raised by the bank guard) |
+| 1214 | `ErrIdentityAlreadySealed` | `InitGenesis` on a store that already holds a seal |
+| 1215 | `ErrChainNameInconsistent` | `chain_human_name` not derivable from the consensus `chain_id` (soft, bypassable) |

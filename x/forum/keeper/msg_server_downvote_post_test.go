@@ -51,7 +51,7 @@ func TestDownvotePost(t *testing.T) {
 			setup: func() {
 				params := types.DefaultParams()
 				params.ReactionsEnabled = false
-				_ = f.keeper.Params.Set(f.ctx, params)
+				require.NoError(t, f.keeper.Params.Set(f.ctx, params))
 			},
 			expectError: true,
 			errContains: "reactions are disabled",
@@ -74,7 +74,7 @@ func TestDownvotePost(t *testing.T) {
 			setup: func() {
 				p, _ := f.keeper.Post.Get(f.ctx, post.PostId)
 				p.Status = types.PostStatus_POST_STATUS_HIDDEN
-				_ = f.keeper.Post.Set(f.ctx, post.PostId, p)
+				require.NoError(t, f.keeper.Post.Set(f.ctx, post.PostId, p))
 			},
 			expectError: true,
 			errContains: "hidden",
@@ -93,11 +93,11 @@ func TestDownvotePost(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Reset state
-			_ = f.keeper.Params.Set(f.ctx, types.DefaultParams())
+			require.NoError(t, f.keeper.Params.Set(f.ctx, types.DefaultParams()))
 			p, _ := f.keeper.Post.Get(f.ctx, post.PostId)
 			p.Status = types.PostStatus_POST_STATUS_ACTIVE
 			p.Author = testCreator
-			_ = f.keeper.Post.Set(f.ctx, post.PostId, p)
+			require.NoError(t, f.keeper.Post.Set(f.ctx, post.PostId, p))
 
 			if tt.setup != nil {
 				tt.setup()
@@ -170,7 +170,7 @@ func TestUpvotePostReactionsDisabled(t *testing.T) {
 	// Disable reactions
 	params := types.DefaultParams()
 	params.ReactionsEnabled = false
-	_ = f.keeper.Params.Set(f.ctx, params)
+	require.NoError(t, f.keeper.Params.Set(f.ctx, params))
 
 	// Try to upvote
 	_, err := f.msgServer.UpvotePost(f.ctx, &types.MsgUpvotePost{

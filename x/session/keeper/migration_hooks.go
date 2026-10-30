@@ -2,6 +2,7 @@ package keeper
 
 import (
 	"context"
+	"cosmossdk.io/collections"
 	"fmt"
 
 	sdkmath "cosmossdk.io/math"
@@ -96,6 +97,22 @@ func (h MigrationHooks) AfterMemberMigration(ctx context.Context, from, to sdk.A
 
 // rekeyGrant rewrites a grant's parties, rebuilding every index.
 func (k Keeper) rekeyGrant(ctx context.Context, g types.Grant, granter, grantee string) error {
+	// The per-day spend buckets belong to the grant id, not its parties:
+	// carry them across the delete+write so a re-key never resets the
+	// max_per_epoch throttle.
+	type bucket struct {
+		key collections.Pair[uint64, int64]
+		val string
+	}
+	var buckets []bucket
+	if err := k.EpochSpendByGrant.Walk(ctx, collections.NewPrefixedPairRange[uint64, int64](g.Id),
+		func(key collections.Pair[uint64, int64], v string) (bool, error) {
+			buckets = append(buckets, bucket{key, v})
+			return false, nil
+		}); err != nil {
+		return err
+	}
+	creator, creatorErr := k.GrantCreatorModule.Get(ctx, g.Id)
 	if err := k.deleteGrant(ctx, g); err != nil {
 		return err
 	}
@@ -104,9 +121,19 @@ func (k Keeper) rekeyGrant(ctx context.Context, g types.Grant, granter, grantee 
 	if err := k.writeGrant(ctx, g); err != nil {
 		return err
 	}
+	if creatorErr == nil {
+		if err := k.GrantCreatorModule.Set(ctx, g.Id, creator); err != nil {
+			return err
+		}
+	}
+	for _, b := range buckets {
+		if err := k.EpochSpendByGrant.Set(ctx, b.key, b.val); err != nil {
+			return err
+		}
+	}
 	sdk.UnwrapSDKContext(ctx).EventManager().EmitEvent(sdk.NewEvent("grant_migrated",
 		sdk.NewAttribute("id", fmt.Sprintf("%d", g.Id)),
-		sdk.NewAttribute("type", g.Type.String()),
+		sdk.NewAttribute("type", types.GrantTypeEventValue(g.Type)),
 		sdk.NewAttribute("granter", g.Granter),
 		sdk.NewAttribute("grantee", g.Grantee),
 	))
@@ -126,7 +153,9 @@ func (k Keeper) revokeForMigration(ctx context.Context, g types.Grant, fromStr, 
 			if err := k.bankKeeper.SendCoinsFromModuleToAccount(ctx, types.ModuleName, recipient, sdk.NewCoins(dep)); err != nil {
 				return err
 			}
-			_ = k.OneshotGasDeposit.Remove(ctx, g.Id)
+			if err := k.OneshotGasDeposit.Remove(ctx, g.Id); err != nil {
+				return err
+			}
 			refund = dep
 		}
 	}
@@ -135,7 +164,7 @@ func (k Keeper) revokeForMigration(ctx context.Context, g types.Grant, fromStr, 
 	}
 	sdk.UnwrapSDKContext(ctx).EventManager().EmitEvent(sdk.NewEvent("grant_revoked",
 		sdk.NewAttribute("id", fmt.Sprintf("%d", g.Id)),
-		sdk.NewAttribute("type", g.Type.String()),
+		sdk.NewAttribute("type", types.GrantTypeEventValue(g.Type)),
 		sdk.NewAttribute("granter", g.Granter),
 		sdk.NewAttribute("grantee", g.Grantee),
 		sdk.NewAttribute("refund_amount", refund.String()),

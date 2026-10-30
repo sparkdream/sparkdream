@@ -145,7 +145,7 @@ func TestCreateCollection(t *testing.T) {
 				params, _ := f.keeper.Params.Get(f.ctx)
 				params.MaxCollectionsBase = 1
 				params.MaxCollectionsPerTrustLevel = 0
-				f.keeper.Params.Set(f.ctx, params)
+				require.NoError(t, f.keeper.Params.Set(f.ctx, params))
 
 				// Create one collection to hit the limit
 				f.createCollection(t, f.owner)

@@ -1,54 +1,49 @@
 package simulation
 
 import (
-	"math/rand"
-
-	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
 
 	"sparkdream/x/blog/keeper"
 	"sparkdream/x/blog/types"
 )
 
-// SimulateMsgCreateReply simulates a MsgCreateReply message using direct keeper calls.
+// SimulateMsgCreateReply delivers MsgCreateReply from a random live account
+// that passes the post's reply gate (min_reply_trust_level, or the post's
+// own author): a top-level reply, or (one in three) a nested reply under an
+// active reply that leaves room under max_reply_depth. With no replyable
+// post, one is created first.
 func SimulateMsgCreateReply(
 	ak types.AuthKeeper,
 	bk types.BankKeeper,
 	k keeper.Keeper,
 	txGen client.TxConfig,
 ) simtypes.Operation {
-	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
-	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		simAccount, _ := simtypes.RandomAcc(r, accs)
-		msgType := sdk.MsgTypeURL(&types.MsgCreateReply{})
-
-		// Find or create a post to reply to
-		otherAccount, _ := simtypes.RandomAcc(r, accs)
-		postID, err := getOrCreateAnyActivePost(r, ctx, k, otherAccount.Address.String())
-		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, msgType, "failed to get-or-create active post"), nil, nil
+	return operation(ak, bk, k, txGen, &types.MsgCreateReply{}, func(e *simEnv) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
+		label := &types.MsgCreateReply{}
+		post, ok := pick(e.r, e.postsWhere(e.replyable))
+		if !ok {
+			var err error
+			post, ok, err = e.ensurePost(anyone)
+			if err != nil {
+				return noOpErr(label, err)
+			}
+			if !ok || !e.replyable(post) {
+				return noOp(label, "no replyable post and none could be created")
+			}
 		}
-
-		// Create the reply
-		reply := types.Reply{
-			PostId:    postID,
-			Creator:   simAccount.Address.String(),
-			Body:      randomBody(r),
-			CreatedAt: ctx.BlockTime().Unix(),
-			Status:    types.ReplyStatus_REPLY_STATUS_ACTIVE,
-			Depth:     1,
+		acc, ok := pick(e.r, e.live(func(a simtypes.Account) bool { return e.canReply(a.Address.String(), post) }))
+		if !ok {
+			return noOp(label, "no live account passes the post's reply trust gate")
 		}
-		k.AppendReply(ctx, reply)
-
-		// Increment post reply count
-		post, found := k.GetPost(ctx, postID)
-		if found {
-			post.ReplyCount++
-			k.SetPost(ctx, post)
+		var parent *types.Reply
+		if e.r.Intn(3) == 0 {
+			nested := e.repliesWhere(func(rp types.Reply) bool { return rp.PostId == post.Id && e.nestable(rp) })
+			if rp, ok := pick(e.r, nested); ok {
+				parent = &rp
+			}
 		}
-
-		return simtypes.NoOpMsg(types.ModuleName, msgType, "ok (direct keeper call)"), nil, nil
-	}
+		msg, spent := e.newReplyMsg(acc, post, parent)
+		return e.submit(acc, msg, spent)
+	})
 }

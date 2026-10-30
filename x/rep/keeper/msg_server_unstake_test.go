@@ -55,18 +55,18 @@ func TestMsgServerRemoveStake(t *testing.T) {
 		_, _ = k.StakeSeq.Next(ctx)
 
 		staker := sdk.AccAddress([]byte("staker"))
-		k.Member.Set(ctx, staker.String(), types.Member{
+		require.NoError(t, k.Member.Set(ctx, staker.String(), types.Member{
 			Address:          staker.String(),
 			DreamBalance:     PtrInt(math.NewInt(1000)),
 			StakedDream:      PtrInt(math.NewInt(1000)),
 			LifetimeEarned:   PtrInt(math.ZeroInt()),
 			LifetimeBurned:   PtrInt(math.ZeroInt()),
 			ReputationScores: map[string]string{"tag": "100.0"},
-		})
+		}))
 
 		// Create project
 		projectID, _ := k.CreateProject(ctx, staker, "Proj", "Desc", []string{"tag"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical", math.NewInt(10000), math.NewInt(1000), false)
-		k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(10000), math.NewInt(1000))
+		require.NoError(t, k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(10000), math.NewInt(1000)))
 
 		initID, err := k.CreateInitiative(ctx, staker, projectID, "Task", "D", []string{"tag"}, types.InitiativeTier_INITIATIVE_TIER_STANDARD, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, math.NewInt(100))
 		require.NoError(t, err)

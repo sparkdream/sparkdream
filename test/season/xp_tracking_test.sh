@@ -15,6 +15,10 @@ if [ ! -f "$SCRIPT_DIR/.test_env" ]; then
 fi
 
 source "$SCRIPT_DIR/.test_env"
+# Quest/achievement/title definitions and display-name moderation
+# resolutions need a Commons Operations Committee proposal (policy address),
+# never a single committee member (x/season SEA-23 decision).
+source "$SCRIPT_DIR/../lib/ops_committee.sh"
 
 echo "Display User: $DISPLAY_USER_ADDR"
 echo "Quest User: $QUEST_USER_ADDR"
@@ -78,7 +82,7 @@ is_valid_json() {
 }
 
 # ========================================================================
-# PART 1: VERIFY GENESIS PROFILE - ALICE (Level 8, 5000 XP, 3 titles)
+# PART 1: VERIFY GENESIS PROFILE - ALICE (Level >= 8, >= 5000 XP, 3 titles)
 # ========================================================================
 echo "--- PART 1: VERIFY ALICE'S GENESIS PROFILE ---"
 
@@ -98,23 +102,25 @@ else
     echo "  Titles: $ALICE_TITLE_COUNT unlocked, display=$ALICE_DISPLAY_TITLE"
     echo "  Achievements: $ALICE_ACH_COUNT"
 
-    # Verify expected genesis values
-    if [ "$ALICE_XP" = "5000" ]; then
-        pass "Alice season XP is 5000"
+    # Verify genesis values as floors: earlier suite tests (council votes,
+    # proposals) grant Alice XP through the season hooks, and the first grant
+    # recomputes the genesis-stored level 8 from level_thresholds.
+    if [ "$ALICE_XP" -ge 5000 ] 2>/dev/null; then
+        pass "Alice season XP is at least 5000 ($ALICE_XP)"
     else
-        fail "Alice season XP expected 5000, got $ALICE_XP"
+        fail "Alice season XP expected >= 5000, got $ALICE_XP"
     fi
 
-    if [ "$ALICE_LEVEL" = "8" ]; then
-        pass "Alice season level is 8"
+    if [ "$ALICE_LEVEL" -ge 8 ] 2>/dev/null; then
+        pass "Alice season level is at least 8 ($ALICE_LEVEL)"
     else
-        fail "Alice season level expected 8, got $ALICE_LEVEL"
+        fail "Alice season level expected >= 8, got $ALICE_LEVEL"
     fi
 
-    if [ "$ALICE_LIFETIME_XP" = "5000" ]; then
-        pass "Alice lifetime XP is 5000"
+    if [ "$ALICE_LIFETIME_XP" -ge "$ALICE_XP" ] 2>/dev/null; then
+        pass "Alice lifetime XP is at least her season XP ($ALICE_LIFETIME_XP)"
     else
-        fail "Alice lifetime XP expected 5000, got $ALICE_LIFETIME_XP"
+        fail "Alice lifetime XP expected >= $ALICE_XP, got $ALICE_LIFETIME_XP"
     fi
 
     if [ "$ALICE_TITLE_COUNT" -ge 3 ] 2>/dev/null; then
@@ -384,41 +390,13 @@ END_BLOCK=$((CURRENT_HEIGHT + 10000))
 
 echo "  Creating quest '$XP_QUEST_ID' with $XP_QUEST_XP XP reward..."
 
-TX_RES=$($BINARY tx season create-quest \
-    "$XP_QUEST_ID" \
-    "XP Test Quest" \
-    "Quest for testing XP generation" \
-    "$XP_QUEST_XP" \
-    "false" \
-    "0" \
-    "0" \
-    "0" \
-    "$END_BLOCK" \
-    "0" \
-    "" \
-    "" \
-    "" \
-    --from alice \
-    --chain-id $CHAIN_ID \
-    --keyring-backend test \
-    --fees 5000${BOND_DENOM} \
-    -y \
-    --output json 2>&1)
-
-TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
-
-if [ -z "$TXHASH" ] || [ "$TXHASH" == "null" ]; then
-    fail "Could not submit create-quest transaction"
+QUEST_MSG=$(jq -nc --arg id "$XP_QUEST_ID" --arg xp "$XP_QUEST_XP" --arg end "$END_BLOCK" \
+    '{"@type":"/sparkdream.season.v1.MsgCreateQuest",quest_id:$id,name:"XP Test Quest",description:"Quest for testing XP generation",xp_reward:$xp,start_block:"0",end_block:$end}')
+if ops_committee_exec "$QUEST_MSG"; then
+    pass "Created quest $XP_QUEST_ID (XP reward: $XP_QUEST_XP)"
 else
-    sleep 6
-    TX_RESULT=$(wait_for_tx $TXHASH)
-
-    if check_tx_success "$TX_RESULT"; then
-        pass "Created quest $XP_QUEST_ID (XP reward: $XP_QUEST_XP)"
-    else
-        fail "Quest creation failed"
-        echo "  $(echo "$TX_RESULT" | jq -r '.raw_log // "Unknown error"')"
-    fi
+    fail "Quest creation failed"
+    echo "  $OPS_COMMITTEE_ERROR"
 fi
 
 echo ""
@@ -595,41 +573,15 @@ END_BLOCK2=$((CURRENT_HEIGHT + 10000))
 
 echo "  Creating quest '$XP_QUEST2_ID' with $XP_QUEST2_XP XP reward..."
 
-TX_RES=$($BINARY tx season create-quest \
-    "$XP_QUEST2_ID" \
-    "XP Test Quest 2" \
-    "Second quest for cumulative XP testing" \
-    "$XP_QUEST2_XP" \
-    "false" \
-    "0" \
-    "0" \
-    "0" \
-    "$END_BLOCK2" \
-    "0" \
-    "" \
-    "" \
-    "" \
-    --from alice \
-    --chain-id $CHAIN_ID \
-    --keyring-backend test \
-    --fees 5000${BOND_DENOM} \
-    -y \
-    --output json 2>&1)
-
-TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
 QUEST2_CREATED=false
-
-if [ -z "$TXHASH" ] || [ "$TXHASH" == "null" ]; then
-    fail "Could not submit create-quest transaction for quest 2"
+QUEST_MSG=$(jq -nc --arg id "$XP_QUEST2_ID" --arg xp "$XP_QUEST2_XP" --arg end "$END_BLOCK2" \
+    '{"@type":"/sparkdream.season.v1.MsgCreateQuest",quest_id:$id,name:"XP Test Quest 2",description:"Second quest for cumulative XP testing",xp_reward:$xp,start_block:"0",end_block:$end}')
+if ops_committee_exec "$QUEST_MSG"; then
+    pass "Created second quest $XP_QUEST2_ID ($XP_QUEST2_XP XP)"
+    QUEST2_CREATED=true
 else
-    sleep 6
-    TX_RESULT=$(wait_for_tx $TXHASH)
-    if check_tx_success "$TX_RESULT"; then
-        pass "Created second quest $XP_QUEST2_ID ($XP_QUEST2_XP XP)"
-        QUEST2_CREATED=true
-    else
-        fail "Second quest creation failed"
-    fi
+    fail "Second quest creation failed"
+    echo "  $OPS_COMMITTEE_ERROR"
 fi
 
 # Start and claim second quest

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strconv"
 
+	"cosmossdk.io/collections"
 	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
@@ -19,35 +20,113 @@ var _ reptypes.ForumKeeper = Keeper{}
 // appeal outcome (x/rep type-asserts its forum appeal target for this).
 var _ reptypes.ModerationAppealOutcomeHandler = Keeper{}
 
-// PruneTagReferences scans every post and removes the given tag name from
-// any post that references it. Invoked by x/rep's ResolveTagReport (action=1).
-// Best-effort: iteration or write errors are surfaced but individual post
-// update failures do not abort the scan.
+// maxTagPruneScanPerBlock caps how many posts the tag-prune pass reads per
+// block, across every queued tag.
+const maxTagPruneScanPerBlock = 200
+
+// PruneTagReferences queues the removal of tagName from every post that
+// references it. Invoked by x/rep when a tag leaves the registry (council
+// ResolveTagReport action=1, tag expiry). The walk itself runs in the
+// EndBlocker in capped batches (ProcessTagPruneQueue), so the caller's tx or
+// block never pays for a scan of every post. Re-queuing a tag that is
+// already queued keeps its cursor.
 func (k Keeper) PruneTagReferences(ctx context.Context, tagName string) error {
-	iter, err := k.Post.Iterate(ctx, nil)
-	if err != nil {
+	if tagName == "" {
+		return nil
+	}
+	has, err := k.TagPruneQueue.Has(ctx, tagName)
+	if err != nil || has {
 		return err
 	}
-	defer iter.Close()
+	return k.TagPruneQueue.Set(ctx, tagName, 0)
+}
 
+// ProcessTagPruneQueue scans up to maxTagPruneScanPerBlock posts, resuming
+// each queued tag at its cursor, and strips the tag from posts that carry
+// it. A tag that is back in the registry (re-created) is dropped from the
+// queue without touching posts: its references are valid again.
+func (k Keeper) ProcessTagPruneQueue(ctx context.Context) error {
+	type entry struct {
+		tag    string
+		cursor uint64
+	}
+	var queued []entry
+	if err := k.TagPruneQueue.Walk(ctx, nil, func(tag string, cursor uint64) (bool, error) {
+		queued = append(queued, entry{tag, cursor})
+		return len(queued) >= maxTagPruneScanPerBlock, nil
+	}); err != nil {
+		return err
+	}
+
+	budget := maxTagPruneScanPerBlock
+	for _, e := range queued {
+		if budget <= 0 {
+			break
+		}
+		if k.repKeeper != nil {
+			if exists, err := k.repKeeper.TagExists(ctx, e.tag); err == nil && exists {
+				if err := k.TagPruneQueue.Remove(ctx, e.tag); err != nil {
+					return err
+				}
+				continue
+			}
+		}
+		next, done, err := k.pruneTagBatch(ctx, e.tag, e.cursor, &budget)
+		if err != nil {
+			return err
+		}
+		if done {
+			if err := k.TagPruneQueue.Remove(ctx, e.tag); err != nil {
+				return err
+			}
+			continue
+		}
+		if err := k.TagPruneQueue.Set(ctx, e.tag, next); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// pruneTagBatch walks posts from id `from` while budget lasts. It returns
+// the id to resume at and whether the walk reached the end of the store.
+func (k Keeper) pruneTagBatch(ctx context.Context, tagName string, from uint64, budget *int) (uint64, bool, error) {
+	iter, err := k.Post.Iterate(ctx, new(collections.Range[uint64]).StartInclusive(from))
+	if err != nil {
+		return from, false, err
+	}
+
+	var changed []types.Post
+	next := from
 	for ; iter.Valid(); iter.Next() {
+		if *budget <= 0 {
+			break
+		}
+		*budget--
+		key, kErr := iter.Key()
+		if kErr == nil {
+			next = key + 1
+		}
 		post, err := iter.Value()
 		if err != nil {
 			continue
 		}
-		changed := false
 		for i := 0; i < len(post.Tags); i++ {
 			if post.Tags[i] == tagName {
 				post.Tags = append(post.Tags[:i], post.Tags[i+1:]...)
-				changed = true
+				changed = append(changed, post)
 				break
 			}
 		}
-		if changed {
-			_ = k.Post.Set(ctx, post.PostId, post)
+	}
+	done := !iter.Valid()
+	iter.Close()
+	for _, post := range changed {
+		if err := k.Post.Set(ctx, post.PostId, post); err != nil {
+			return from, false, err
 		}
 	}
-	return nil
+	return next, done, nil
 }
 
 // GetPostAuthor returns the author address for the given post.
@@ -94,107 +173,95 @@ func (k Keeper) findPinnedRecord(ctx context.Context, replyID uint64) (*types.Pi
 	return nil, 0, 0, false
 }
 
-// GetActionSentinel resolves the sentinel address that executed the given
-// gov action from forum's own moderation records. Returns the empty string
-// with no error if the record is missing (already garbage-collected) —
-// callers should treat this as a soft skip.
-func (k Keeper) GetActionSentinel(ctx context.Context, actionType reptypes.GovActionType, actionTarget string) (string, error) {
-	id, err := strconv.ParseUint(actionTarget, 10, 64)
-	if err != nil {
-		return "", fmt.Errorf("invalid action target %q: %w", actionTarget, err)
+// errNotForumAppeal is returned by every appeal-target method for an action
+// type the forum does not own. x/rep routes every unregistered type here, so
+// without this the WARNING / DEMOTION / ... types would fall through to the
+// post-hide branch and act on a forum hide.
+func errNotForumAppeal(actionType reptypes.GovActionType) error {
+	return fmt.Errorf("x/forum does not own %s appeals", actionType.String())
+}
+
+// forumAppealRecord resolves the moderation record behind a forum appeal and
+// reports whether the forum honors it. Only appeals filed through the forum's
+// own handlers count (MsgAppealPost, MsgAppealThreadLock, MsgAppealThreadMove,
+// MsgDisputePin): each marks its record before opening the rep appeal, after
+// the author / cooldown / one-appeal checks. An appeal filed for the same
+// target straight through x/rep MsgAppealGovAction finds an unmarked record
+// and is a no-op for the forum (no release, no slash, no reversal), so it can
+// neither bypass those checks nor release a reservation twice.
+//
+// honored == false with err == nil means "record missing or not under a forum
+// appeal" (soft skip).
+func (k Keeper) forumAppealRecord(ctx context.Context, actionType reptypes.GovActionType, actionTarget string) (sentinel string, committed math.Int, honored bool, err error) {
+	committed = math.ZeroInt()
+	id, perr := strconv.ParseUint(actionTarget, 10, 64)
+	switch actionType {
+	case reptypes.GovActionType_GOV_ACTION_TYPE_POST_HIDE,
+		reptypes.GovActionType_GOV_ACTION_TYPE_THREAD_LOCK,
+		reptypes.GovActionType_GOV_ACTION_TYPE_THREAD_MOVE,
+		reptypes.GovActionType_GOV_ACTION_TYPE_REPLY_PIN:
+	default:
+		return "", committed, false, errNotForumAppeal(actionType)
+	}
+	if perr != nil {
+		return "", committed, false, fmt.Errorf("invalid action target %q: %w", actionTarget, perr)
 	}
 
 	switch actionType {
 	case reptypes.GovActionType_GOV_ACTION_TYPE_THREAD_LOCK:
-		rec, err := k.ThreadLockRecord.Get(ctx, id)
-		if err != nil {
-			return "", nil // missing — GC'd or never recorded
+		rec, gerr := k.ThreadLockRecord.Get(ctx, id)
+		if gerr != nil || !rec.AppealPending {
+			return "", committed, false, nil
 		}
-		return rec.Sentinel, nil
+		return rec.Sentinel, parseIntOrZero(rec.CommittedAmount), true, nil
 	case reptypes.GovActionType_GOV_ACTION_TYPE_THREAD_MOVE:
-		rec, err := k.ThreadMoveRecord.Get(ctx, id)
-		if err != nil {
-			return "", nil
+		rec, gerr := k.ThreadMoveRecord.Get(ctx, id)
+		if gerr != nil || !rec.AppealPending {
+			return "", committed, false, nil
 		}
-		return rec.Sentinel, nil
+		return rec.Sentinel, parseIntOrZero(rec.CommittedAmount), true, nil
 	case reptypes.GovActionType_GOV_ACTION_TYPE_REPLY_PIN:
 		// actionTarget is the reply id; the owning thread is derived from it.
 		rec, _, _, ok := k.findPinnedRecord(ctx, id)
-		if !ok {
-			return "", nil
+		if !ok || !pinDisputePending(rec) {
+			return "", committed, false, nil
 		}
-		return rec.PinnedBy, nil
-	default:
-		// Post-level hide (GOV_ACTION_TYPE_POST_HIDE; default kept as a safe
-		// fallback for legacy/unspecified targets).
-		rec, err := k.HideRecord.Get(ctx, id)
-		if err != nil {
-			return "", nil
+		return rec.PinnedBy, parseIntOrZero(rec.CommittedAmount), true, nil
+	default: // POST_HIDE
+		rec, gerr := k.HideRecord.Get(ctx, id)
+		if gerr != nil || !rec.Appealed {
+			return "", committed, false, nil
 		}
-		return rec.Sentinel, nil
+		return rec.Sentinel, parseIntOrZero(rec.CommittedAmount), true, nil
 	}
 }
 
-// committedOrDefault parses a record's committed_amount, falling back to the
-// flat DefaultSentinelSlashAmount for legacy lock/move records written before
-// committed_amount was snapshotted (so they still release/slash a sane amount).
-func committedOrDefault(committed string) math.Int {
-	if committed != "" {
-		if v, ok := math.NewIntFromString(committed); ok {
-			return v
-		}
+// GetActionSentinel resolves the sentinel address that executed the given
+// action from forum's own moderation records. Returns "" with no error when
+// the record is missing (already settled or GC'd) or not under a forum-filed
+// appeal (see forumAppealRecord); callers treat that as a soft skip. Returns
+// an error for action types the forum does not own.
+func (k Keeper) GetActionSentinel(ctx context.Context, actionType reptypes.GovActionType, actionTarget string) (string, error) {
+	sentinel, _, honored, err := k.forumAppealRecord(ctx, actionType, actionTarget)
+	if err != nil || !honored {
+		return "", err
 	}
-	return math.NewInt(types.DefaultSentinelSlashAmount)
+	return sentinel, nil
 }
 
-// GetActionCommittedAmount returns the bond amount reserved by the sentinel for
-// the given gov action. Hide / lock / move / pin actions each snapshot
-// committed_amount on their record at action time (committedOrDefault applies
-// the flat DefaultSentinelSlashAmount fallback for legacy lock/move records that
-// predate the snapshot). Returns zero (no error) when the record is missing —
-// caller should treat as a soft skip.
+// GetActionCommittedAmount returns the bond amount reserved by the sentinel
+// for the given action, snapshotted on its record at action time. Zero (no
+// error) when the record is missing, already settled, or not under a
+// forum-filed appeal; an error for action types the forum does not own.
 func (k Keeper) GetActionCommittedAmount(ctx context.Context, actionType reptypes.GovActionType, actionTarget string) (math.Int, error) {
-	id, err := strconv.ParseUint(actionTarget, 10, 64)
+	_, committed, honored, err := k.forumAppealRecord(ctx, actionType, actionTarget)
 	if err != nil {
-		return math.ZeroInt(), fmt.Errorf("invalid action target %q: %w", actionTarget, err)
+		return math.ZeroInt(), err
 	}
-	switch actionType {
-	case reptypes.GovActionType_GOV_ACTION_TYPE_THREAD_LOCK:
-		rec, err := k.ThreadLockRecord.Get(ctx, id)
-		if err != nil {
-			return math.ZeroInt(), nil
-		}
-		return committedOrDefault(rec.CommittedAmount), nil
-	case reptypes.GovActionType_GOV_ACTION_TYPE_THREAD_MOVE:
-		rec, err := k.ThreadMoveRecord.Get(ctx, id)
-		if err != nil {
-			return math.ZeroInt(), nil
-		}
-		return committedOrDefault(rec.CommittedAmount), nil
-	case reptypes.GovActionType_GOV_ACTION_TYPE_REPLY_PIN:
-		rec, _, _, ok := k.findPinnedRecord(ctx, id)
-		if !ok || rec.CommittedAmount == "" {
-			return math.ZeroInt(), nil
-		}
-		v, ok := math.NewIntFromString(rec.CommittedAmount)
-		if !ok {
-			return math.ZeroInt(), nil
-		}
-		return v, nil
-	default:
-		rec, err := k.HideRecord.Get(ctx, id)
-		if err != nil {
-			return math.ZeroInt(), nil
-		}
-		if rec.CommittedAmount == "" {
-			return math.ZeroInt(), nil
-		}
-		v, ok := math.NewIntFromString(rec.CommittedAmount)
-		if !ok {
-			return math.ZeroInt(), nil
-		}
-		return v, nil
+	if !honored {
+		return math.ZeroInt(), nil
 	}
+	return committed, nil
 }
 
 // ReverseSentinelAction reverses the content-state effects of a sentinel
@@ -227,11 +294,16 @@ func (k Keeper) GetActionCommittedAmount(ctx context.Context, actionType reptype
 // MsgMoveThread handlers, which carry their own auth.
 //
 // Missing action records are a soft skip (logs warning, returns nil): the
-// record may have been GC'd or never existed (e.g. the action was taken by
-// gov authority and bypassed record creation).
+// record may have been GC'd. Committee and council locks and moves write an
+// authority record (no sentinel), so an overturned appeal reverses them the
+// same way.
 func (k Keeper) ReverseSentinelAction(ctx context.Context, actionType reptypes.GovActionType, actionTarget string) error {
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 
+	// Only reverse actions under a forum-filed appeal (see forumAppealRecord).
+	if _, _, honored, err := k.forumAppealRecord(ctx, actionType, actionTarget); err != nil || !honored {
+		return err
+	}
 	id, err := strconv.ParseUint(actionTarget, 10, 64)
 	if err != nil {
 		return fmt.Errorf("invalid action target %q: %w", actionTarget, err)
@@ -247,7 +319,9 @@ func (k Keeper) ReverseSentinelAction(ctx context.Context, actionType reptypes.G
 		}
 		if !post.Locked {
 			// Idempotent: already unlocked (e.g. self-unlocked then appeal resolved).
-			_ = k.ThreadLockRecord.Remove(ctx, id)
+			if err := k.ThreadLockRecord.Remove(ctx, id); err != nil {
+				return err
+			}
 			return nil
 		}
 		post.Locked = false
@@ -256,6 +330,9 @@ func (k Keeper) ReverseSentinelAction(ctx context.Context, actionType reptypes.G
 		post.LockReason = ""
 		if err := k.Post.Set(ctx, id, post); err != nil {
 			return fmt.Errorf("reverse lock: update post: %w", err)
+		}
+		if err := k.LockedRoots.Remove(ctx, id); err != nil {
+			return fmt.Errorf("reverse lock: unindex: %w", err)
 		}
 		if err := k.ThreadLockRecord.Remove(ctx, id); err != nil {
 			sdkCtx.Logger().Warn("reverse sentinel action: remove lock record failed",
@@ -290,7 +367,9 @@ func (k Keeper) ReverseSentinelAction(ctx context.Context, actionType reptypes.G
 				"root_id", id, "original_category_id", rec.OriginalCategoryId)
 			return nil
 		}
-		post.CategoryId = rec.OriginalCategoryId
+		if err := k.setRootCategory(ctx, &post, rec.OriginalCategoryId); err != nil {
+			return fmt.Errorf("reverse move: %w", err)
+		}
 		if err := k.Post.Set(ctx, id, post); err != nil {
 			return fmt.Errorf("reverse move: update post: %w", err)
 		}
@@ -346,8 +425,7 @@ func (k Keeper) ReverseSentinelAction(ctx context.Context, actionType reptypes.G
 		))
 		return nil
 
-	default:
-		// Hide-like (post-level).
+	case reptypes.GovActionType_GOV_ACTION_TYPE_POST_HIDE:
 		post, err := k.Post.Get(ctx, id)
 		if err != nil {
 			sdkCtx.Logger().Warn("reverse sentinel action: post missing for unhide",
@@ -361,7 +439,9 @@ func (k Keeper) ReverseSentinelAction(ctx context.Context, actionType reptypes.G
 
 		if post.Status != types.PostStatus_POST_STATUS_HIDDEN {
 			// Idempotent: already unhidden (e.g. sentinel self-corrected then appeal landed).
-			_ = k.HideRecord.Remove(ctx, id)
+			if err := k.HideRecord.Remove(ctx, id); err != nil {
+				return err
+			}
 			return nil
 		}
 		// Dangling-reference guard.
@@ -406,6 +486,7 @@ func (k Keeper) ReverseSentinelAction(ctx context.Context, actionType reptypes.G
 		))
 		return nil
 	}
+	return errNotForumAppeal(actionType)
 }
 
 // OnSentinelActionResolved applies forum-LOCAL bookkeeping when a jury
@@ -413,112 +494,155 @@ func (k Keeper) ReverseSentinelAction(ctx context.Context, actionType reptypes.G
 // consequences (streaks, accuracy ring, overturn cooldown, streak
 // demotion) are applied by x/rep itself via RecordRoleOutcome — the only
 // forum-local effect today is the pending-hide count decrement for hide
-// verdicts. Missing records are a soft no-op.
+// verdicts. Missing or non-forum-filed records are a soft no-op; foreign
+// action types are an error.
 func (k Keeper) OnSentinelActionResolved(ctx context.Context, actionType reptypes.GovActionType, actionTarget string) error {
-	switch actionType {
-	case reptypes.GovActionType_GOV_ACTION_TYPE_THREAD_LOCK,
-		reptypes.GovActionType_GOV_ACTION_TYPE_THREAD_MOVE,
-		reptypes.GovActionType_GOV_ACTION_TYPE_REPLY_PIN:
+	sentinel, _, honored, err := k.forumAppealRecord(ctx, actionType, actionTarget)
+	if err != nil || !honored || sentinel == "" {
+		return err
+	}
+	if actionType != reptypes.GovActionType_GOV_ACTION_TYPE_POST_HIDE {
 		return nil // only hides track a pending count
 	}
-	sentinel, err := k.GetActionSentinel(ctx, actionType, actionTarget)
-	if err != nil || sentinel == "" {
-		return nil
-	}
-	local, err := k.SentinelActivity.Get(ctx, sentinel)
-	if err != nil {
-		return nil
-	}
-	if local.PendingHideCount > 0 {
-		local.PendingHideCount--
-		return k.SentinelActivity.Set(ctx, sentinel, local)
-	}
+	k.decrementPendingHide(ctx, sentinel, false)
 	return nil
 }
 
-// OnAppealOutcome finalizes an appealed post hide once x/rep has applied its
-// own bond and accountability effects. ExpireHiddenPosts skips appealed hide
-// records, so this is the only path that ends them:
+// OnAppealOutcome finalizes a forum-filed appeal once x/rep has applied its
+// own bond and accountability effects. It is the only path that ends an
+// appealed record (the expiry passes skip appealed hides, locks and moves):
 //
-//   - UPHELD: the hide stands — tombstone the post with the same consequences
-//     an unappealed expiry applies (author per-tag rep slash, conviction-stake
-//     slash, promoter warning), then drop the HideRecord. x/rep already
-//     released the sentinel's reserved bond and OnSentinelActionResolved
-//     already cleared the pending-hide slot, so neither is touched here.
-//   - OVERTURNED: ReverseSentinelAction already restored the post. If it had
-//     to skip (parent category deleted) the record is dropped here so it does
-//     not linger; x/rep slashed the reservation already.
-//   - TIMEOUT: no verdict, and x/rep neither moved the sentinel's bond nor
-//     called OnSentinelActionResolved. Neither party is blamed: release the
-//     reservation, clear the pending-hide slot, and restore the post and the
-//     author bond (timeout favors the appellant, as in x/collect).
+//   - UPHELD: the action stands. x/rep released the reservation. A hide is
+//     tombstoned with the consequences an unappealed expiry applies (author
+//     per-tag rep slash, conviction-stake slash, promoter warning); a lock or
+//     move record is dropped (the thread stays locked / moved; the sentinel
+//     can no longer self-unlock and the author cannot appeal again); a pin
+//     keeps its record but its reservation is zeroed so no later unpin can
+//     release it a second time.
+//   - OVERTURNED: x/rep slashed the reservation and ReverseSentinelAction
+//     restored the content. Any record it had to leave behind (e.g. the
+//     original category was deleted) is dropped here.
+//   - TIMEOUT: no verdict; x/rep neither moved the sentinel's bond nor called
+//     OnSentinelActionResolved. Neither party is blamed: the reservation is
+//     released and the action reversed (timeout favors the appellant, as in
+//     x/collect), then the record is dropped.
+//     A committee or council lock / move (authority record, no sentinel) is
+//     the exception: it stands on TIMEOUT.
 //
-// Only GOV_ACTION_TYPE_POST_HIDE is handled; lock / move / pin appeals keep
-// their existing behavior. A missing HideRecord (e.g. the council unhid the
-// post while the appeal was pending) is a no-op.
+// Missing or non-forum-filed records are a no-op; foreign action types are an
+// error.
 func (k Keeper) OnAppealOutcome(ctx context.Context, actionType reptypes.GovActionType, actionTarget string, outcome reptypes.GovAppealStatus) error {
-	if actionType != reptypes.GovActionType_GOV_ACTION_TYPE_POST_HIDE {
-		return nil
+	sentinel, committed, honored, err := k.forumAppealRecord(ctx, actionType, actionTarget)
+	if err != nil || !honored {
+		return err
 	}
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	id, err := strconv.ParseUint(actionTarget, 10, 64)
 	if err != nil {
 		return fmt.Errorf("invalid action target %q: %w", actionTarget, err)
 	}
-	hr, err := k.HideRecord.Get(ctx, id)
-	if err != nil {
-		return nil
+	// Once the record is settled below, a bounty on the thread resumes
+	// (action reversed) or is cancelled (action stood).
+	if actionType == reptypes.GovActionType_GOV_ACTION_TYPE_POST_HIDE ||
+		actionType == reptypes.GovActionType_GOV_ACTION_TYPE_THREAD_LOCK {
+		defer func() {
+			if rErr := k.reconcileThreadBounty(ctx, id); rErr != nil {
+				sdkCtx.Logger().Error("failed to reconcile thread bounty after appeal outcome",
+					"thread_id", id, "error", rErr)
+			}
+		}()
 	}
 
-	switch outcome {
-	case reptypes.GovAppealStatus_GOV_APPEAL_STATUS_UPHELD:
-		post, err := k.Post.Get(ctx, id)
-		if err == nil && post.Status == types.PostStatus_POST_STATUS_HIDDEN {
-			if err := k.tombstoneHiddenPost(ctx, id, post, "appeal upheld"); err != nil {
-				return fmt.Errorf("tombstone upheld hide: %w", err)
-			}
-		}
-		if err := k.HideRecord.Remove(ctx, id); err != nil {
-			return fmt.Errorf("remove upheld hide record: %w", err)
-		}
-		sdkCtx.EventManager().EmitEvent(sdk.NewEvent("hidden_post_appeal_upheld",
-			sdk.NewAttribute("post_id", fmt.Sprintf("%d", id)),
-			sdk.NewAttribute("sentinel", hr.Sentinel),
-			sdk.NewAttribute("hidden_at", fmt.Sprintf("%d", hr.HiddenAt)),
+	// A committee or council lock / move (authority record, no sentinel)
+	// stands on TIMEOUT: only a jury verdict reverses a council decision, so
+	// a jury that could not be seated or did not decide leaves it in place.
+	// The record is dropped below like any settled appeal.
+	if outcome == reptypes.GovAppealStatus_GOV_APPEAL_STATUS_TIMEOUT && sentinel == "" {
+		sdkCtx.EventManager().EmitEvent(sdk.NewEvent("forum_appeal_timeout",
+			sdk.NewAttribute("action_type", actionType.String()),
+			sdk.NewAttribute("target", fmt.Sprintf("%d", id)),
+			sdk.NewAttribute("sentinel", ""),
+			sdk.NewAttribute("outcome", "authority_action_stands"),
 		))
-
-	case reptypes.GovAppealStatus_GOV_APPEAL_STATUS_OVERTURNED:
-		// Record still present => ReverseSentinelAction skipped the restore.
-		if err := k.HideRecord.Remove(ctx, id); err != nil {
-			return fmt.Errorf("remove overturned hide record: %w", err)
-		}
-
-	case reptypes.GovAppealStatus_GOV_APPEAL_STATUS_TIMEOUT:
-		if k.repKeeper != nil && hr.Sentinel != "" && hr.CommittedAmount != "" {
-			if committed, ok := math.NewIntFromString(hr.CommittedAmount); ok && committed.IsPositive() {
-				if err := k.repKeeper.ReleaseBond(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, hr.Sentinel, committed); err != nil {
-					sdkCtx.Logger().Warn("failed to release sentinel bond on hide appeal timeout",
-						"post_id", id, "sentinel", hr.Sentinel, "error", err)
-				}
-			}
+	} else if outcome == reptypes.GovAppealStatus_GOV_APPEAL_STATUS_TIMEOUT {
+		if committed.IsPositive() {
+			k.releaseSentinelCommit(ctx, sentinel, committed.String(), "appeal timeout", id)
 		}
 		if err := k.OnSentinelActionResolved(ctx, actionType, actionTarget); err != nil {
 			sdkCtx.Logger().Warn("failed to clear pending hide on appeal timeout",
-				"post_id", id, "sentinel", hr.Sentinel, "error", err)
+				"target", id, "sentinel", sentinel, "error", err)
 		}
 		if err := k.ReverseSentinelAction(ctx, actionType, actionTarget); err != nil {
-			return fmt.Errorf("restore post on hide appeal timeout: %w", err)
+			return fmt.Errorf("reverse action on appeal timeout: %w", err)
 		}
-		// ReverseSentinelAction leaves the record when it cannot restore
-		// (parent category deleted); the bond is already released, so drop it.
-		if err := k.HideRecord.Remove(ctx, id); err != nil {
-			return fmt.Errorf("remove timed-out hide record: %w", err)
-		}
-		sdkCtx.EventManager().EmitEvent(sdk.NewEvent("hidden_post_appeal_timeout",
-			sdk.NewAttribute("post_id", fmt.Sprintf("%d", id)),
-			sdk.NewAttribute("sentinel", hr.Sentinel),
+		sdkCtx.EventManager().EmitEvent(sdk.NewEvent("forum_appeal_timeout",
+			sdk.NewAttribute("action_type", actionType.String()),
+			sdk.NewAttribute("target", fmt.Sprintf("%d", id)),
+			sdk.NewAttribute("sentinel", sentinel),
 			sdk.NewAttribute("outcome", "restored_timeout"),
 		))
+	}
+
+	switch actionType {
+	case reptypes.GovActionType_GOV_ACTION_TYPE_POST_HIDE:
+		hr, err := k.HideRecord.Get(ctx, id)
+		if err != nil {
+			return nil
+		}
+		if outcome == reptypes.GovAppealStatus_GOV_APPEAL_STATUS_UPHELD {
+			post, err := k.Post.Get(ctx, id)
+			if err == nil && post.Status == types.PostStatus_POST_STATUS_HIDDEN {
+				if err := k.tombstoneHiddenPost(ctx, id, post, "appeal upheld"); err != nil {
+					return fmt.Errorf("tombstone upheld hide: %w", err)
+				}
+			}
+			sdkCtx.EventManager().EmitEvent(sdk.NewEvent("hidden_post_appeal_upheld",
+				sdk.NewAttribute("post_id", fmt.Sprintf("%d", id)),
+				sdk.NewAttribute("sentinel", hr.Sentinel),
+				sdk.NewAttribute("hidden_at", fmt.Sprintf("%d", hr.HiddenAt)),
+			))
+		}
+		k.unindexHideExpiry(ctx, id, hr)
+		if err := k.HideRecord.Remove(ctx, id); err != nil {
+			return fmt.Errorf("remove hide record: %w", err)
+		}
+
+	case reptypes.GovActionType_GOV_ACTION_TYPE_THREAD_LOCK:
+		if rec, err := k.ThreadLockRecord.Get(ctx, id); err == nil {
+			if err := k.LockRecordExpiry.Remove(ctx, collections.Join(lockExpiryAt(rec), id)); err != nil {
+				return err
+			}
+			if err := k.ThreadLockRecord.Remove(ctx, id); err != nil {
+				return fmt.Errorf("remove lock record: %w", err)
+			}
+		}
+
+	case reptypes.GovActionType_GOV_ACTION_TYPE_THREAD_MOVE:
+		if rec, err := k.ThreadMoveRecord.Get(ctx, id); err == nil {
+			if err := k.MoveRecordExpiry.Remove(ctx, collections.Join(moveExpiryAt(rec), id)); err != nil {
+				return err
+			}
+			if err := k.ThreadMoveRecord.Remove(ctx, id); err != nil {
+				return fmt.Errorf("remove move record: %w", err)
+			}
+		}
+
+	case reptypes.GovActionType_GOV_ACTION_TYPE_REPLY_PIN:
+		// OVERTURNED / TIMEOUT removed the pin with its record. UPHELD keeps
+		// the pin: settle its reservation so it cannot be released again.
+		rec, threadID, idx, ok := k.findPinnedRecord(ctx, id)
+		if !ok {
+			return nil
+		}
+		md, err := k.ThreadMetadata.Get(ctx, threadID)
+		if err != nil || idx >= len(md.PinnedRecords) {
+			return nil
+		}
+		rec.CommittedAmount = ""
+		md.PinnedRecords[idx] = rec
+		if err := k.ThreadMetadata.Set(ctx, threadID, md); err != nil {
+			return fmt.Errorf("settle pin record: %w", err)
+		}
 	}
 	return nil
 }

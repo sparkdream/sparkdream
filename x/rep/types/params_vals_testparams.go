@@ -87,8 +87,8 @@ func getInvitationCostMultiplier() math.LegacyDec {
 
 // getMaxInterimRewardsPerSeason is the per-season interim emission ceiling.
 // Testparams raises it far above the production 50,000 DREAM because the E2E
-// setup alone bootstraps reputation with 24 EPIC interims (1,000 DREAM each
-// plus the 50% solo-expert bonus = ~36,000 DREAM) before a single test runs,
+// setup alone bootstraps reputation with 24 EPIC interims (2,500 DREAM each,
+// ~60,000 DREAM, approved by the committee) before a single test runs,
 // and several suites create more. The cap's behaviour is covered directly by
 // TestInterim_SeasonCapBoundsTotalEmission rather than by starving the suites.
 func getMaxInterimRewardsPerSeason() math.Int {
@@ -112,6 +112,8 @@ func getMigrationTimings() migrationTimings {
 		revealMinBlocks:       2,   // production: 20 blocks
 		commitTTL:             60,  // production: 7 days
 		zkKeyActivationEpochs: 2,   // production: 14 epochs
+
+		objectionEscalationWindow: 90, // production: 30 days
 	}
 }
 

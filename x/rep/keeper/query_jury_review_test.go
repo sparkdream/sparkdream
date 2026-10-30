@@ -29,8 +29,12 @@ func createNJuryReview(keeper keeper.Keeper, ctx context.Context, n int) []types
 		items[i].Deadline = int64(i)
 		items[i].Verdict = types.Verdict(i)
 		items[i].Reasoning = strconv.Itoa(i)
-		_ = keeper.JuryReview.Set(ctx, iu, items[i])
-		_ = keeper.JuryReviewSeq.Set(ctx, iu)
+		if err := keeper.JuryReview.Set(ctx, iu, items[i]); err != nil {
+			panic(err)
+		}
+		if err := keeper.JuryReviewSeq.Set(ctx, iu); err != nil {
+			panic(err)
+		}
 	}
 	return items
 }

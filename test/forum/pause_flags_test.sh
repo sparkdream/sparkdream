@@ -406,9 +406,10 @@ CURRENT_PARAMS=$($BINARY query forum params --output json 2>&1)
 BOUNTIES_ENABLED=$(echo "$CURRENT_PARAMS" | jq -r '.params.bounties_enabled // "true"')
 echo "  Current bounties_enabled: $BOUNTIES_ENABLED"
 
-# Try to create a bounty — if bounties are disabled it will fail
+# Try to create a bounty — if bounties are disabled it will fail. 50 SPARK is
+# the minimum bounty (x/forum MinBountyAmount).
 TX_RES=$($BINARY tx forum create-bounty \
-    "$PAUSE_TEST_POST_ID" "1000" "100" \
+    "$PAUSE_TEST_POST_ID" "50000000" "100" \
     --from poster1 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \

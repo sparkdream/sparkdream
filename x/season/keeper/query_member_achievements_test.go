@@ -63,7 +63,7 @@ func TestQueryMemberAchievements(t *testing.T) {
 		// Add achievements to profile
 		profile, _ := k.MemberProfile.Get(ctx, memberStr)
 		profile.Achievements = []string{"first_blood", "veteran"}
-		k.MemberProfile.Set(ctx, memberStr, profile)
+		require.NoError(t, k.MemberProfile.Set(ctx, memberStr, profile))
 
 		resp, err := qs.MemberAchievements(ctx, &types.QueryMemberAchievementsRequest{Address: memberStr})
 		require.NoError(t, err)

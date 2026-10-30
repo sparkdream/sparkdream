@@ -61,11 +61,6 @@ func (h *recordingHook) PostCommit(_ context.Context, grant types.Grant, amount 
 	return nil
 }
 
-// calls returns the PreCheck call list — used by tests that don't
-// care about the PreCheck/PostCommit split (asserting "the hook was
-// invoked at all"). Kept as a one-liner for grep-ability.
-func (h *recordingHook) calls() []hookCall { return h.preCheckCalls }
-
 func TestClaimHook_RecurringPull_HookInvokedThenSend(t *testing.T) {
 	f := initFixture(t)
 	ms := keeper.NewMsgServerImpl(f.keeper)

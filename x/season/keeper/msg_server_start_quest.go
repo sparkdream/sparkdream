@@ -2,7 +2,8 @@ package keeper
 
 import (
 	"context"
-	"fmt"
+	"cosmossdk.io/collections"
+	"errors"
 
 	"sparkdream/x/season/types"
 
@@ -35,81 +36,18 @@ func (k msgServer) StartQuest(ctx context.Context, msg *types.MsgStartQuest) (*t
 		return nil, errorsmod.Wrapf(types.ErrQuestNotFound, "quest %s not found", msg.QuestId)
 	}
 
-	// Check quest is active
-	if !quest.Active {
-		return nil, types.ErrQuestNotActive
+	// Quest window, season, level, achievement, prerequisite, repeat and
+	// active-cap checks (shared with the AvailableQuests query, SEA-35).
+	params, getErr := k.Params.Get(ctx)
+	if getErr != nil && !errors.Is(getErr, collections.ErrNotFound) {
+		return nil, getErr
 	}
-
-	// Check block window
+	if err := k.canStartQuest(ctx, msg.Creator, profile, quest, params.MaxActiveQuestsPerMember); err != nil {
+		return nil, err
+	}
+	key := questProgressKey(msg.Creator, msg.QuestId)
 	currentBlock := sdkCtx.BlockHeight()
-	if quest.StartBlock > 0 && currentBlock < quest.StartBlock {
-		return nil, errorsmod.Wrap(types.ErrQuestNotActive, "quest has not started yet")
-	}
-	if quest.EndBlock > 0 && currentBlock > quest.EndBlock {
-		return nil, errorsmod.Wrap(types.ErrQuestNotActive, "quest has ended")
-	}
-
-	// Check season
-	if quest.Season > 0 {
-		season, err := k.getSeason(ctx)
-		if err == nil && uint64(season.Number) != quest.Season {
-			return nil, types.ErrQuestSeasonMismatch
-		}
-	}
-
-	// Check level requirement
-	if quest.MinLevel > 0 && profile.SeasonLevel < quest.MinLevel {
-		return nil, errorsmod.Wrapf(types.ErrQuestLevelTooLow, "requires level %d", quest.MinLevel)
-	}
-
-	// Check achievement requirement
-	if quest.RequiredAchievement != "" {
-		hasAchievement := false
-		for _, ach := range profile.Achievements {
-			if ach == quest.RequiredAchievement {
-				hasAchievement = true
-				break
-			}
-		}
-		if !hasAchievement {
-			return nil, errorsmod.Wrapf(types.ErrQuestPrerequisiteNotMet, "requires achievement %s", quest.RequiredAchievement)
-		}
-	}
-
-	// Check prerequisite quest
-	if quest.PrerequisiteQuest != "" {
-		if !k.HasQuestPrerequisite(ctx, msg.Creator, quest.PrerequisiteQuest) {
-			return nil, errorsmod.Wrapf(types.ErrQuestPrerequisiteNotMet, "requires quest %s", quest.PrerequisiteQuest)
-		}
-	}
-
-	// Check if already started (or completed but on cooldown)
-	key := fmt.Sprintf("%s:%s", msg.Creator, msg.QuestId)
-	progress, err := k.MemberQuestProgress.Get(ctx, key)
 	currentEpoch := k.GetCurrentEpoch(ctx)
-	if err == nil {
-		if !progress.Completed {
-			return nil, types.ErrQuestAlreadyStarted
-		}
-		// Quest was completed before - check if repeatable
-		if !quest.Repeatable {
-			return nil, types.ErrQuestAlreadyClaimed
-		}
-		// Check cooldown
-		completedEpoch := k.BlockToEpoch(ctx, progress.CompletedBlock)
-		epochsSinceComplete := currentEpoch - completedEpoch
-		if quest.CooldownEpochs > 0 && uint64(epochsSinceComplete) < quest.CooldownEpochs {
-			return nil, errorsmod.Wrapf(types.ErrQuestOnCooldown,
-				"must wait %d more epochs", quest.CooldownEpochs-uint64(epochsSinceComplete))
-		}
-	}
-
-	// Check max active quests
-	params, _ := k.Params.Get(ctx)
-	activeCount := k.GetMemberActiveQuestCount(ctx, msg.Creator)
-	if activeCount >= params.MaxActiveQuestsPerMember {
-		return nil, types.ErrMaxActiveQuests
-	}
 
 	// Create progress record
 	objectiveProgress := make([]uint64, len(quest.Objectives))
@@ -119,6 +57,7 @@ func (k msgServer) StartQuest(ctx context.Context, msg *types.MsgStartQuest) (*t
 		Completed:         false,
 		CompletedBlock:    0,
 		LastAttemptBlock:  currentBlock,
+		ObjectivesVersion: quest.ObjectivesVersion,
 	}
 
 	if err := k.MemberQuestProgress.Set(ctx, key, newProgress); err != nil {
@@ -127,7 +66,9 @@ func (k msgServer) StartQuest(ctx context.Context, msg *types.MsgStartQuest) (*t
 
 	// Update profile last active
 	profile.LastActiveEpoch = currentEpoch
-	_ = k.MemberProfile.Set(ctx, msg.Creator, profile)
+	if err := k.MemberProfile.Set(ctx, msg.Creator, profile); err != nil {
+		return nil, err
+	}
 
 	// Emit event
 	sdkCtx.EventManager().EmitEvent(

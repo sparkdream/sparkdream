@@ -107,7 +107,9 @@ func TestModuleOwnedAppealTypesRejectedFromMsgAppealGovAction(t *testing.T) {
 	f, ms, _, _, appellant := setupRegistry(t)
 	appellantStr, err := f.addressCodec.BytesToString(appellant)
 	require.NoError(t, err)
-	for _, at := range []types.GovActionType{types.GovActionType_GOV_ACTION_TYPE_POST_HIDE, types.GovActionType_GOV_ACTION_TYPE_COLLECT_HIDE, types.GovActionType_GOV_ACTION_TYPE_ARTIFACT_HIDE} {
+	// FRM-02: forum's lock / move / pin are filed through x/forum too.
+	for _, at := range []types.GovActionType{types.GovActionType_GOV_ACTION_TYPE_POST_HIDE, types.GovActionType_GOV_ACTION_TYPE_COLLECT_HIDE, types.GovActionType_GOV_ACTION_TYPE_ARTIFACT_HIDE,
+		types.GovActionType_GOV_ACTION_TYPE_THREAD_LOCK, types.GovActionType_GOV_ACTION_TYPE_THREAD_MOVE, types.GovActionType_GOV_ACTION_TYPE_REPLY_PIN} {
 		_, err := ms.AppealGovAction(f.ctx, &types.MsgAppealGovAction{
 			Creator: appellantStr, ActionType: uint64(at), ActionTarget: "1", AppealReason: "bypass",
 		})
@@ -131,4 +133,41 @@ func TestUnregisteredModuleTypeDoesNotFallBackToForum(t *testing.T) {
 func TestActionKindForModuleHides(t *testing.T) {
 	require.Equal(t, types.ActionKindCollectHide, types.ActionKindForGovAction(types.GovActionType_GOV_ACTION_TYPE_COLLECT_HIDE))
 	require.Equal(t, types.ActionKindArtifactHide, types.ActionKindForGovAction(types.GovActionType_GOV_ACTION_TYPE_ARTIFACT_HIDE))
+}
+
+// curatorAppealTarget is a target whose actions are taken by a collect
+// curator rather than a content sentinel.
+type curatorAppealTarget struct{ recordingAppealTarget }
+
+func (c *curatorAppealTarget) AppealRoleType(types.GovActionType) types.RoleType {
+	return types.RoleType_ROLE_TYPE_COLLECT_CURATOR
+}
+
+// Part 6 handoff: the verdict slashes the role the target names, not a
+// hardcoded content sentinel.
+func TestAppealVerdictUsesTargetRole(t *testing.T) {
+	f, ms, _, _, appellant := setupRegistry(t)
+	curator := sdk.AccAddress([]byte("appeal_curator____")).String()
+	bond := sdkmath.NewInt(5_000_000)
+	seedSlashableSentinel(t, f, curator, bond) // member record with locked DREAM
+	require.NoError(t, f.keeper.BondedRoles.Set(f.ctx, bondedRoleKey(types.RoleType_ROLE_TYPE_COLLECT_CURATOR, curator), types.BondedRole{
+		Address: curator, RoleType: types.RoleType_ROLE_TYPE_COLLECT_CURATOR, CurrentBond: bond.String(),
+		TotalCommittedBond: "1000000", BondStatus: types.BondedRoleStatus_BONDED_ROLE_STATUS_NORMAL,
+	}))
+	target := &curatorAppealTarget{recordingAppealTarget{sentinel: curator, committed: sdkmath.NewInt(1_000_000)}}
+	f.keeper.RegisterModerationAppealTarget(types.GovActionType_GOV_ACTION_TYPE_COLLECT_HIDE, target)
+
+	appealID, _, err := f.keeper.CreateGovActionAppeal(f.ctx, types.GovActionType_GOV_ACTION_TYPE_COLLECT_HIDE, "5", appellant, "x")
+	require.NoError(t, err)
+	_, err = ms.ResolveGovActionAppeal(f.ctx, &types.MsgResolveGovActionAppeal{
+		Resolver: sdk.AccAddress([]byte("ops_resolver______")).String(), AppealId: appealID,
+		Verdict: types.GovAppealStatus_GOV_APPEAL_STATUS_OVERTURNED, Reason: "test",
+	})
+	require.NoError(t, err)
+	br, err := f.keeper.GetBondedRole(f.ctx, types.RoleType_ROLE_TYPE_COLLECT_CURATOR, curator)
+	require.NoError(t, err)
+	require.Equal(t, "4000000", br.CurrentBond, "the curator's bond was slashed")
+	sentinelRole, err := f.keeper.GetBondedRole(f.ctx, types.RoleType_ROLE_TYPE_CONTENT_SENTINEL, curator)
+	require.NoError(t, err)
+	require.Equal(t, bond.String(), sentinelRole.CurrentBond, "the sentinel role is untouched")
 }

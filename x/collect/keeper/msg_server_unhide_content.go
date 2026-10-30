@@ -140,8 +140,8 @@ func (k msgServer) UnhideContent(ctx context.Context, msg *types.MsgUnhideConten
 		return nil, errorsmod.Wrap(err, "failed to update hide record")
 	}
 	if !isSelfCorrect {
-		if k.repKeeper != nil && hr.CommittedAmount.IsPositive() {
-			if err := k.repKeeper.ReleaseBond(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, hr.Sentinel, hr.CommittedAmount); err != nil {
+		if k.late.repKeeper != nil && hr.CommittedAmount.IsPositive() {
+			if err := k.late.repKeeper.ReleaseBond(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, hr.Sentinel, hr.CommittedAmount); err != nil {
 				sdkCtx.Logger().Warn("council unhide: release sentinel bond failed",
 					"sentinel", hr.Sentinel, "hide_record_id", hr.Id, "error", err)
 			}

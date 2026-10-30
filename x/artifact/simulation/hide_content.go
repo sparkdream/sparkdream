@@ -25,8 +25,7 @@ func SimulateMsgHideContent(
 			Authority: simAccount.Address.String(),
 		}
 
-		// TODO: Handle the HideContent simulation
-
-		return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "HideContent simulation not implemented"), nil, nil
+		// Not simulated: MsgHideContent needs a bonded content sentinel or a council policy, which the simulation does not model.
+		return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "HideContent needs a bonded content sentinel or a council policy, which the simulation does not model"), nil, nil
 	}
 }

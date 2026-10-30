@@ -75,10 +75,10 @@ func getInvitationCostMultiplier() math.LegacyDec {
 }
 
 // getMaxInterimRewardsPerSeason is the per-season ceiling on DREAM minted to
-// pay interim work. Interims are self-assigned by their creator and
-// self-completed by their assignee, so max_active_interims_per_member bounds
-// only how many are open at once, not how many a member can complete and
-// re-create in a season — this counter is what actually bounds the path.
+// pay interim work. Members propose interims for themselves and the Operations
+// Committee approves the payment; max_active_interims_per_member bounds only
+// how many are open at once, not how many are paid in a season — this counter
+// is what bounds the path in total.
 func getMaxInterimRewardsPerSeason() math.Int {
 	return math.NewInt(50_000_000_000) // 50,000 DREAM
 }

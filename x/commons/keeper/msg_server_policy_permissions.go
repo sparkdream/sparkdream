@@ -71,6 +71,12 @@ func (k msgServer) CreatePolicyPermissions(ctx context.Context, msg *types.MsgCr
 	if !k.isAuthorized(msg.Authority, msg.PolicyAddress) {
 		return nil, errorsmod.Wrap(sdkerrors.ErrUnauthorized, "only x/gov or the policy itself can define permissions")
 	}
+	// Self-registration is for group policies: a plain account has no use
+	// for an allowlist, and the row would only be state spam.
+	if govAddr := k.authKeeper.GetModuleAddress(govtypes.ModuleName).String(); msg.Authority != govAddr &&
+		!k.IsGroupPolicyAddress(ctx, msg.PolicyAddress) {
+		return nil, errorsmod.Wrapf(sdkerrors.ErrUnauthorized, "%s is not a registered group policy", msg.PolicyAddress)
+	}
 
 	// Pass the Authority to the validation function
 	if err := k.ValidatePermissions(msg.Authority, msg.AllowedMessages); err != nil {

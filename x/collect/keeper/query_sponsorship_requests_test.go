@@ -22,7 +22,7 @@ func TestQuerySponsorshipRequests(t *testing.T) {
 		{
 			name: "returns sponsorship requests",
 			setup: func(f *testFixture) {
-				collID := f.createPendingCollection(t)
+				collID := f.createEndorsedCollection(t)
 				_, err := f.msgServer.RequestSponsorship(f.ctx, &types.MsgRequestSponsorship{
 					Creator:      f.nonMember,
 					CollectionId: collID,

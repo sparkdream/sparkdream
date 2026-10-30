@@ -121,13 +121,15 @@ func (k Keeper) RecentAddressesOf(ctx context.Context, member string) []string {
 	rng := new(collections.Range[collections.Triple[string, int64, string]]).
 		StartInclusive(collections.Join3(canonical, cutoff, "")).
 		EndInclusive(collections.Join3(canonical, int64(math.MaxInt64), ""))
-	_ = k.MigratedFrom.Walk(ctx, rng, func(key collections.Triple[string, int64, string]) (bool, error) {
+	if err := k.MigratedFrom.Walk(ctx, rng, func(key collections.Triple[string, int64, string]) (bool, error) {
 		if key.K1() != canonical {
 			return true, nil
 		}
 		out = append(out, key.K3())
 		return len(out) > types.MaxRecentAliases, nil
-	})
+	}); err != nil {
+		sdk.UnwrapSDKContext(ctx).Logger().Error("RecentAddressesOf: MigratedFrom.Walk failed", "err", err)
+	}
 	return out
 }
 
@@ -139,26 +141,33 @@ func (k Keeper) AllAddressesOf(ctx context.Context, member string) []string {
 	canonical := k.Canonical(ctx, member)
 	out := []string{canonical}
 	rng := collections.NewPrefixedTripleRange[string, int64, string](canonical)
-	_ = k.MigratedFrom.Walk(ctx, rng, func(key collections.Triple[string, int64, string]) (bool, error) {
+	if err := k.MigratedFrom.Walk(ctx, rng, func(key collections.Triple[string, int64, string]) (bool, error) {
 		out = append(out, key.K3())
 		return len(out) > types.MaxLifetimeAliases, nil
-	})
+	}); err != nil {
+		sdk.UnwrapSDKContext(ctx).Logger().Error("AllAddressesOf: MigratedFrom.Walk failed", "err", err)
+	}
 	return out
 }
 
 // aliasCounts returns how many aliases canonical has in total and how many
 // are inside the dedup horizon. Both are read against the request-time caps.
 func (k Keeper) aliasCounts(ctx context.Context, canonical string) (total, recent int) {
-	epoch, _ := k.GetCurrentEpoch(ctx)
+	epoch, getErr := k.GetCurrentEpoch(ctx)
+	if getErr != nil {
+		sdk.UnwrapSDKContext(ctx).Logger().Error("GetCurrentEpoch failed", "err", getErr)
+	}
 	cutoff := epoch - types.AliasDedupHorizonEpochs
 	rng := collections.NewPrefixedTripleRange[string, int64, string](canonical)
-	_ = k.MigratedFrom.Walk(ctx, rng, func(key collections.Triple[string, int64, string]) (bool, error) {
+	if err := k.MigratedFrom.Walk(ctx, rng, func(key collections.Triple[string, int64, string]) (bool, error) {
 		total++
 		if key.K2() >= cutoff {
 			recent++
 		}
 		return false, nil
-	})
+	}); err != nil {
+		sdk.UnwrapSDKContext(ctx).Logger().Error("aliasCounts: MigratedFrom.Walk failed", "err", err)
+	}
 	return total, recent
 }
 

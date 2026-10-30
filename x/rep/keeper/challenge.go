@@ -26,6 +26,9 @@ func (k Keeper) CreateChallenge(
 	if err != nil {
 		return 0, err
 	}
+	if err := validateEvidence(evidence); err != nil {
+		return 0, err
+	}
 
 	// Get the initiative
 	initiative, err := k.GetInitiative(ctx, initiativeID)
@@ -148,6 +151,10 @@ func (k Keeper) RespondToChallenge(
 	response string,
 	evidence []string,
 ) error {
+	if err := validateEvidence(evidence); err != nil {
+		return err
+	}
+
 	// Get the challenge
 	challenge, err := k.GetChallenge(ctx, challengeID)
 	if err != nil {
@@ -179,7 +186,9 @@ func (k Keeper) RespondToChallenge(
 	// Handle triage result
 	switch result {
 	case TriageAutoApprove:
-		return k.UpholdChallenge(ctx, challengeID)
+		// The assignee conceded: no verdict was reached, so the challenger's
+		// reward is limited to what the assignee forfeits (REP-E-04).
+		return k.UpholdConcededChallenge(ctx, challengeID)
 	case TriageAutoReject:
 		return k.RejectChallenge(ctx, challengeID)
 	case TriageRouteToJury:
@@ -235,8 +244,71 @@ func (k Keeper) TriageChallenge(
 	return TriageRouteToJury, nil
 }
 
-// UpholdChallenge upholds a challenge and slashes the assignee
+// UpholdChallenge upholds a challenge on a jury or committee verdict and
+// slashes the assignee.
 func (k Keeper) UpholdChallenge(ctx context.Context, challengeID uint64) error {
+	return k.upholdChallenge(ctx, challengeID, false)
+}
+
+// UpholdConcededChallenge upholds a challenge the assignee conceded (an empty
+// response, or no response by the deadline). No one judged the work, so the
+// challenger's reward is capped at the self-assign bond the assignee forfeits
+// (REP-E-04): a minted reward on a default let two accounts farm 20% of a
+// self-declared budget, the assignee simply never answering its partner's
+// challenge.
+func (k Keeper) UpholdConcededChallenge(ctx context.Context, challengeID uint64) error {
+	return k.upholdChallenge(ctx, challengeID, true)
+}
+
+// challengerReward is the DREAM minted to a winning challenger:
+// budget x challenger_reward_rate, then
+//   - nothing when the challenger is an insider of the work (assignee,
+//     apprentice, author, project creator) or invited, or was invited by, the
+//     assignee: a challenge between related accounts earns no mint;
+//   - at most the forfeited self-assign bond when the challenge was conceded
+//     rather than decided;
+//   - at most what is left of max_initiative_rewards_per_season, which the
+//     reward is booked against like every other initiative mint.
+func (k Keeper) challengerReward(ctx context.Context, params types.Params, initiative types.Initiative, challenger string, conceded bool) (math.Int, error) {
+	reward := DerefInt(initiative.Budget).ToLegacyDec().Mul(params.ChallengerRewardRate).TruncateInt()
+	if !reward.IsPositive() {
+		return math.ZeroInt(), nil
+	}
+	if k.IsAffiliatedWithProject(ctx, initiative, challenger) || k.invitationNeighbours(ctx, challenger, initiative.Assignee) {
+		return math.ZeroInt(), nil
+	}
+	if conceded {
+		reward = math.MinInt(reward, DerefInt(initiative.SelfAssignBond))
+	}
+	if !reward.IsPositive() {
+		return math.ZeroInt(), nil
+	}
+	minted, err := k.GetSeasonInitiativeRewardsMinted(ctx)
+	if err != nil {
+		return math.ZeroInt(), err
+	}
+	headroom := params.MaxInitiativeRewardsPerSeason.Sub(minted)
+	if !headroom.IsPositive() {
+		return math.ZeroInt(), nil
+	}
+	return math.MinInt(reward, headroom), nil
+}
+
+// invitationNeighbours reports whether one of two members invited the other.
+func (k Keeper) invitationNeighbours(ctx context.Context, a, b string) bool {
+	if a == "" || b == "" {
+		return false
+	}
+	if ma, err := k.Member.Get(ctx, k.Canonical(ctx, a)); err == nil && ma.InvitedBy != "" && k.SameMember(ctx, ma.InvitedBy, b) {
+		return true
+	}
+	if mb, err := k.Member.Get(ctx, k.Canonical(ctx, b)); err == nil && mb.InvitedBy != "" && k.SameMember(ctx, mb.InvitedBy, a) {
+		return true
+	}
+	return false
+}
+
+func (k Keeper) upholdChallenge(ctx context.Context, challengeID uint64, conceded bool) error {
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	params, err := k.Params.Get(ctx)
 	if err != nil {
@@ -286,9 +358,14 @@ func (k Keeper) UpholdChallenge(ctx context.Context, challengeID uint64) error {
 	// the reviewers who rejected it — the ones the jury just proved right —
 	// as much as those who approved it. The approvers are answered by the
 	// slash above, which outweighs their share of the fee.
-	reviewFees, err := k.PayReviewFees(ctx, initiative)
-	if err != nil {
+	if _, err := k.PayReviewFees(ctx, initiative); err != nil {
 		return fmt.Errorf("failed to pay review fees on upheld challenge: %w", err)
+	}
+	// Every round's fee is charged to the returned budget below, including
+	// rounds a rejection sent back (paid when they resolved, REP-E-22).
+	reviewFees, err := k.ReviewFeesPaid(ctx, initiative.Id)
+	if err != nil {
+		return fmt.Errorf("failed to total review fees on upheld challenge: %w", err)
 	}
 
 	// Slash assignee reputation
@@ -331,18 +408,25 @@ func (k Keeper) UpholdChallenge(ctx context.Context, challengeID uint64) error {
 	}
 
 	stakedAmount := DerefInt(challenge.StakedDream)
-	rewardRate := params.ChallengerRewardRate
-	budgetAmount := DerefInt(initiative.Budget)
-	rewardAmount := budgetAmount.ToLegacyDec().Mul(rewardRate).TruncateInt()
-
-	// Unlock the staked DREAM (locked from challengerAddr)
-	if err := k.UnlockDREAM(ctx, challengerAddr, stakedAmount); err != nil {
+	rewardAmount, err := k.challengerReward(ctx, params, initiative, challenge.Challenger, conceded)
+	if err != nil {
 		return err
 	}
 
-	// Mint the reward amount (new DREAM for the challenger)
+	// Unlock the staked DREAM (locked from challengerAddr)
+	if stakedAmount.IsPositive() {
+		if err := k.UnlockDREAM(ctx, challengerAddr, stakedAmount); err != nil {
+			return err
+		}
+	}
+
+	// Mint the reward amount (new DREAM for the challenger), booked against
+	// the season's initiative reward cap.
 	if rewardAmount.IsPositive() {
 		if err := k.MintDREAM(ctx, challengerAddr, rewardAmount); err != nil {
+			return err
+		}
+		if err := k.TrackInitiativeRewardMint(ctx, rewardAmount); err != nil {
 			return err
 		}
 	}
@@ -359,7 +443,9 @@ func (k Keeper) UpholdChallenge(ctx context.Context, challengeID uint64) error {
 	})
 
 	// Update status index
-	_ = k.UpdateChallengeStatusIndex(ctx, oldStatus, challenge.Status, challenge.Id)
+	if err := k.UpdateChallengeStatusIndex(ctx, oldStatus, challenge.Status, challenge.Id); err != nil {
+		return err
+	}
 
 	// Burn any self-assign bond — the upheld challenge is exactly the
 	// failure mode the bond guards against.
@@ -407,6 +493,8 @@ func (k Keeper) UpholdChallenge(ctx context.Context, challengeID uint64) error {
 			"challenge_upheld",
 			sdk.NewAttribute("challenge_id", fmt.Sprintf("%d", challengeID)),
 			sdk.NewAttribute("initiative_id", fmt.Sprintf("%d", challenge.InitiativeId)),
+			sdk.NewAttribute("challenger_reward", rewardAmount.String()),
+			sdk.NewAttribute("conceded", fmt.Sprintf("%t", conceded)),
 		),
 	)
 
@@ -443,19 +531,17 @@ func (k Keeper) RejectChallenge(ctx context.Context, challengeID uint64) error {
 		return fmt.Errorf("failed to credit reviewers on rejected challenge: %w", err)
 	}
 
-	// Slash challenger's stake: unlock first, then burn. Burning without
-	// unlocking would leave StakedDream overstated relative to DreamBalance
-	// after the burn reduces the total balance.
+	// Slash the challenger's stake: burn the lock itself, so the burn cannot
+	// be paid out of another escrow and the locked total stays backed.
 	challengerAddr, err := sdk.AccAddressFromBech32(challenge.Challenger)
 	if err != nil {
 		return err
 	}
 	stakedAmount := DerefInt(challenge.StakedDream)
-	if err := k.UnlockDREAM(ctx, challengerAddr, stakedAmount); err != nil {
-		return err
-	}
-	if err := k.BurnDREAM(ctx, challengerAddr, stakedAmount); err != nil {
-		return err
+	if stakedAmount.IsPositive() {
+		if err := k.BurnLockedDREAM(ctx, challengerAddr, stakedAmount); err != nil {
+			return err
+		}
 	}
 
 	// Update challenge status
@@ -467,7 +553,9 @@ func (k Keeper) RejectChallenge(ctx context.Context, challengeID uint64) error {
 	}
 
 	// Update status index
-	_ = k.UpdateChallengeStatusIndex(ctx, oldStatus, challenge.Status, challenge.Id)
+	if err := k.UpdateChallengeStatusIndex(ctx, oldStatus, challenge.Status, challenge.Id); err != nil {
+		return err
+	}
 
 	// Restore the initiative to the status it held when the challenge was
 	// filed, snapshotted at creation.
@@ -556,7 +644,7 @@ func (k Keeper) voidActiveChallengesForInitiative(ctx context.Context, initiativ
 		// Close any pending jury review for this challenge so the EndBlocker
 		// jury resolver skips it. Jurors are rewarded only at tally time, so
 		// no per-juror state needs unwinding here.
-		if err := k.voidPendingJuryReviewForChallenge(ctx, challenge.Id); err != nil {
+		if err := k.voidPendingJuryReviewForChallenge(ctx, challenge.Id, "voided: parent project cancelled"); err != nil {
 			return err
 		}
 
@@ -578,11 +666,12 @@ func (k Keeper) voidActiveChallengesForInitiative(ctx context.Context, initiativ
 // PENDING verdict index so the EndBlocker resolver no longer tallies them.
 // Normally at most one review exists per challenge, but voiding all matches
 // keeps the cleanup complete even if that invariant ever slips.
-func (k Keeper) voidPendingJuryReviewForChallenge(ctx context.Context, challengeID uint64) error {
+func (k Keeper) voidPendingJuryReviewForChallenge(ctx context.Context, challengeID uint64, reason string) error {
 	// Collect first: the writes below mutate the PENDING index being walked.
 	var targets []types.JuryReview
 	k.IterateActiveJuryReviews(ctx, func(_ int64, review types.JuryReview) bool {
-		if review.ChallengeId == challengeID {
+		// External cases carry ChallengeId 0 but belong to no challenge.
+		if review.ChallengeId == challengeID && !isExternalJuryCase(review) {
 			targets = append(targets, review)
 		}
 		return false
@@ -591,7 +680,7 @@ func (k Keeper) voidPendingJuryReviewForChallenge(ctx context.Context, challenge
 	for _, target := range targets {
 		oldVerdict := target.Verdict
 		target.Verdict = types.Verdict_VERDICT_INCONCLUSIVE
-		target.Reasoning = "voided: parent project cancelled"
+		target.Reasoning = reason
 		if err := k.JuryReview.Set(ctx, target.Id, target); err != nil {
 			return err
 		}
@@ -687,7 +776,9 @@ func (k Keeper) EscalateChallengeToCommittee(
 	}
 
 	// Update challenge status index
-	_ = k.UpdateChallengeStatusIndex(ctx, oldStatus, challenge.Status, challenge.Id)
+	if err := k.UpdateChallengeStatusIndex(ctx, oldStatus, challenge.Status, challenge.Id); err != nil {
+		return err
+	}
 
 	// Create ADJUDICATION interim for the technical committee
 	authority := k.GetAuthorityString()

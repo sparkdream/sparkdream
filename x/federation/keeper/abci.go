@@ -2,11 +2,13 @@ package keeper
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"cosmossdk.io/collections"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/federation/types"
 )
 
@@ -56,6 +58,12 @@ func (k Keeper) EndBlocker(ctx context.Context) error {
 		logger.Error("EndBlocker phase 3 (prune expired unverified links) failed", "error", phaseErr)
 	}
 
+	// Phase 3b: Withdraw identity attestations of slashed bridge operators
+	pruned, phaseErr = k.revokeDissolvedAttestations(ctx, sdkCtx, now, maxPrune, pruned, params)
+	if phaseErr != nil {
+		logger.Error("EndBlocker phase 3b (revoke dissolved operator attestations) failed", "error", phaseErr)
+	}
+
 	// Phase 4: Prune Expired Identity Challenges
 	pruned, phaseErr = k.pruneExpiredIdentityChallenges(ctx, sdkCtx, now, maxPrune, pruned)
 	if phaseErr != nil {
@@ -86,6 +94,19 @@ func (k Keeper) EndBlocker(ctx context.Context) error {
 		logger.Error("EndBlocker phase 8 (finalize auto-resolutions) failed", "error", phaseErr)
 	}
 
+	// Phase 8a: Retry EndBlocker settlements that failed (FED-29).
+	pruned, phaseErr = k.retryFailedSettlements(ctx, now, maxPrune, pruned, params)
+	if phaseErr != nil {
+		logger.Error("EndBlocker phase 8a (retry failed settlements) failed", "error", phaseErr)
+	}
+
+	// Phase 8b: Retry operator reports x/service refused under its
+	// per-caller system-report rate limit.
+	pruned, phaseErr = k.retryPendingChallengeReports(ctx, maxPrune, pruned)
+	if phaseErr != nil {
+		logger.Error("EndBlocker phase 8b (retry pending challenge reports) failed", "error", phaseErr)
+	}
+
 	// Phase 9: Process Peer Removal Queue
 	_, phaseErr = k.processPeerRemovalQueue(ctx, sdkCtx, maxPrune, pruned)
 	if phaseErr != nil {
@@ -105,8 +126,13 @@ func (k Keeper) EndBlocker(ctx context.Context) error {
 	if err := k.DistributeOperatorRewards(ctx); err != nil {
 		logger.Error("EndBlocker: operator reward distribution failed", "error", err)
 	}
-	if err := k.BurnOperatorRewardPoolOverflow(ctx); err != nil {
-		logger.Error("EndBlocker: operator reward pool overflow burn failed", "error", err)
+	// The overflow burn runs once per reward epoch, after the epoch's
+	// distribution, as documented: running it every block would burn a
+	// donation above the cap almost entirely within a few blocks.
+	if k.IsOperatorRewardEpoch(ctx) {
+		if err := k.BurnOperatorRewardPoolOverflow(ctx); err != nil {
+			logger.Error("EndBlocker: operator reward pool overflow burn failed", "error", err)
+		}
 	}
 
 	// Phase 11: Bridge Operator Monitoring
@@ -139,7 +165,9 @@ func (k Keeper) pruneExpiredContent(ctx context.Context, now int64, maxPrune, pr
 		if content, err := k.Content.Get(ctx, contentID); err == nil {
 			k.removeContentRecord(ctx, content)
 		}
-		_ = k.ContentExpiration.Remove(ctx, key)
+		if err := k.ContentExpiration.Remove(ctx, key); err != nil {
+			sdk.UnwrapSDKContext(ctx).Logger().Error("pruneExpiredContent: ContentExpiration.Remove failed", "err", err)
+		}
 		pruned++
 		return false, nil
 	})
@@ -159,8 +187,14 @@ func (k Keeper) pruneExpiredAttestations(ctx context.Context, now int64, maxPrun
 		if pruned >= maxPrune {
 			return true, nil
 		}
-		_ = k.RepAttestations.Remove(ctx, collections.Join(key.K2(), key.K3()))
-		_ = k.AttestationExp.Remove(ctx, key)
+		// Only the attestation this entry was written for: a refresh
+		// replaced the old expiry entry, so a match is the live one.
+		if att, err := k.RepAttestations.Get(ctx, collections.Join(key.K2(), key.K3())); err == nil && att.ExpiresAt == key.K1() {
+			k.removeRepAttestation(ctx, key.K2(), key.K3())
+		}
+		if err := k.AttestationExp.Remove(ctx, key); err != nil {
+			sdk.UnwrapSDKContext(ctx).Logger().Error("pruneExpiredAttestations: AttestationExp.Remove failed", "err", err)
+		}
 		pruned++
 		return false, nil
 	})
@@ -184,49 +218,144 @@ func (k Keeper) pruneExpiredUnverifiedLinks(ctx context.Context, sdkCtx sdk.Cont
 		peerID := key.K3()
 
 		link, err := k.IdentityLinks.Get(ctx, collections.Join(localAddr, peerID))
-		if err == nil && link.Status == types.IdentityLinkStatus_IDENTITY_LINK_STATUS_UNVERIFIED {
-			_ = k.IdentityLinks.Remove(ctx, collections.Join(localAddr, peerID))
-			_ = k.IdentityLinksByRemote.Remove(ctx, collections.Join(peerID, link.RemoteIdentity))
-			cnt, _ := k.IdentityLinkCount.Get(ctx, localAddr)
+		// Only the entry the live link was written with may prune it: a
+		// stale entry left by an earlier link of the same (local, peer)
+		// that was unlinked and re-created would otherwise delete the new
+		// link early, often mid-confirmation.
+		if err == nil && link.Status == types.IdentityLinkStatus_IDENTITY_LINK_STATUS_UNVERIFIED &&
+			k.linkUnverifiedExpiry(ctx, link) == key.K1() {
+			if err := k.IdentityLinks.Remove(ctx, collections.Join(localAddr, peerID)); err != nil {
+				sdkCtx.Logger().Error("pruneExpiredUnverifiedLinks: IdentityLinks.Remove failed", "err", err)
+			}
+			k.removeIdentityLinkIndexes(ctx, link)
+			cnt, getErr := k.IdentityLinkCount.Get(ctx, localAddr)
+			if getErr != nil && !errors.Is(getErr, collections.ErrNotFound) {
+				sdk.UnwrapSDKContext(sdkCtx).Logger().Error("pruneExpiredUnverifiedLinks: IdentityLinkCount.Get failed", "err", getErr)
+			}
 			if cnt > 0 {
-				_ = k.IdentityLinkCount.Set(ctx, localAddr, cnt-1)
+				if err := k.setIdentityLinkCount(ctx, localAddr, cnt-1); err != nil {
+					sdkCtx.Logger().Error("pruneExpiredUnverifiedLinks: IdentityLinkCount.Set failed", "err", err)
+				}
 			}
 			sdkCtx.EventManager().EmitEvent(sdk.NewEvent(types.EventTypeIdentityLinkExpired,
 				sdk.NewAttribute(types.AttributeKeyLocalAddress, localAddr),
 				sdk.NewAttribute(types.AttributeKeyPeerID, peerID)))
 		}
-		_ = k.UnverifiedLinkExp.Remove(ctx, key)
+		if err := k.UnverifiedLinkExp.Remove(ctx, key); err != nil {
+			sdkCtx.Logger().Error("pruneExpiredUnverifiedLinks: UnverifiedLinkExp.Remove failed", "err", err)
+		}
 		pruned++
 		return false, nil
 	})
 	return pruned, err
 }
 
-// --- Phase 4 ---
+// linkUnverifiedExpiry is the UnverifiedLinkExp key a link was written
+// with. Links written before unverified_expires_at existed fall back to
+// linked_at + the current TTL.
+func (k Keeper) linkUnverifiedExpiry(ctx context.Context, link types.IdentityLink) int64 {
+	if link.UnverifiedExpiresAt != 0 {
+		return link.UnverifiedExpiresAt
+	}
+	params, getErr := k.Params.Get(ctx)
+	if getErr != nil && !errors.Is(getErr, collections.ErrNotFound) {
+		sdk.UnwrapSDKContext(ctx).Logger().Error("linkUnverifiedExpiry: Params.Get failed", "err", getErr)
+	}
+	return link.LinkedAt + int64(params.UnverifiedLinkTtl.Seconds())
+}
 
-func (k Keeper) pruneExpiredIdentityChallenges(ctx context.Context, sdkCtx sdk.Context, now int64, maxPrune, pruned uint64) (uint64, error) {
+// --- Phase 3b ---
+
+// revokeDissolvedAttestations works off AttesterRevocations: for each
+// queued (operator, peer) it returns the identity links the operator
+// attested on that peer to UNVERIFIED, one budget unit per link, and drops
+// the queue entry once the operator has no attested links left there. A
+// link that went back to UNVERIFIED gets a fresh unverified_link_ttl and
+// keeps its challenge, so the member can have another bridge operator
+// attest the same published proof.
+func (k Keeper) revokeDissolvedAttestations(ctx context.Context, sdkCtx sdk.Context, now int64, maxPrune, pruned uint64, params types.Params) (uint64, error) {
 	if pruned >= maxPrune {
 		return pruned, nil
 	}
-	var toDelete []collections.Pair[string, string]
-	_ = k.PendingIdChallenges.Walk(ctx, nil, func(key collections.Pair[string, string], val types.PendingIdentityChallenge) (bool, error) {
+	var queue []collections.Pair[string, string]
+	if err := k.AttesterRevocations.Walk(ctx, nil, func(key collections.Pair[string, string]) (bool, error) {
+		queue = append(queue, key)
+		return uint64(len(queue)) >= maxPrune-pruned, nil
+	}); err != nil {
+		return pruned, err
+	}
+	for _, entry := range queue {
 		if pruned >= maxPrune {
-			return true, nil
+			break
 		}
-		if val.ExpiresAt <= now {
-			toDelete = append(toDelete, key)
+		operator, peerID := entry.K1(), entry.K2()
+		var locals []string
+		done := true
+		rng := collections.NewSuperPrefixedTripleRange[string, string, string](operator, peerID)
+		if err := k.IdentityLinksByAttester.Walk(ctx, rng, func(key collections.Triple[string, string, string]) (bool, error) {
+			if pruned+uint64(len(locals)) >= maxPrune {
+				done = false
+				return true, nil
+			}
+			locals = append(locals, key.K3())
+			return false, nil
+		}); err != nil {
+			return pruned, err
+		}
+		for _, local := range locals {
+			if err := k.IdentityLinksByAttester.Remove(ctx, collections.Join3(operator, peerID, local)); err != nil {
+				sdkCtx.Logger().Error("revokeDissolvedAttestations: IdentityLinksByAttester.Remove failed", "err", err)
+			}
+			link, err := k.IdentityLinks.Get(ctx, collections.Join(local, peerID))
+			if err == nil && link.Status == types.IdentityLinkStatus_IDENTITY_LINK_STATUS_VERIFIED && link.AttestedBy == operator {
+				if err := k.unverifyAttestedLink(ctx, sdkCtx, link, now, params); err != nil {
+					return pruned, err
+				}
+			}
 			pruned++
 		}
-		return false, nil
-	})
-	for _, key := range toDelete {
-		_ = k.PendingIdChallenges.Remove(ctx, key)
-		sdkCtx.EventManager().EmitEvent(sdk.NewEvent(types.EventTypeIdentityChallengeExpired,
-			sdk.NewAttribute(types.AttributeKeyLocalAddress, key.K1()),
-			sdk.NewAttribute(types.AttributeKeyPeerID, key.K2())))
+		if done {
+			if err := k.AttesterRevocations.Remove(ctx, entry); err != nil {
+				sdkCtx.Logger().Error("revokeDissolvedAttestations: AttesterRevocations.Remove failed", "err", err)
+			}
+		}
 	}
 	return pruned, nil
 }
+
+// unverifyAttestedLink returns a bridge-attested VERIFIED link to
+// UNVERIFIED: it leaves the verified reverse index, its attestation is
+// cleared, and it re-enters the unverified expiry queue with a fresh TTL.
+func (k Keeper) unverifyAttestedLink(ctx context.Context, sdkCtx sdk.Context, link types.IdentityLink, now int64, params types.Params) error {
+	k.removeIdentityLinkIndexes(ctx, link)
+	operator, evidence := link.AttestedBy, link.AttestationEvidence
+	link.Status = types.IdentityLinkStatus_IDENTITY_LINK_STATUS_UNVERIFIED
+	link.VerifiedAt = 0
+	link.AttestedBy = ""
+	link.AttestationEvidence = ""
+	link.UnverifiedExpiresAt = now + int64(params.UnverifiedLinkTtl.Seconds())
+	if err := k.IdentityLinks.Set(ctx, collections.Join(link.LocalAddress, link.PeerId), link); err != nil {
+		return err
+	}
+	if err := k.addIdentityLinkIndexes(ctx, link); err != nil {
+		return err
+	}
+	if err := k.UnverifiedLinkExp.Set(ctx, collections.Join3(link.UnverifiedExpiresAt, link.LocalAddress, link.PeerId)); err != nil {
+		return err
+	}
+	sdkCtx.EventManager().EmitEvent(sdk.NewEvent(types.EventTypeIdentityAttestationRevoked,
+		sdk.NewAttribute(types.AttributeKeyOperator, operator),
+		sdk.NewAttribute(types.AttributeKeyLocalAddress, link.LocalAddress),
+		sdk.NewAttribute(types.AttributeKeyPeerID, link.PeerId),
+		sdk.NewAttribute(types.AttributeKeyRemoteIdentity, link.RemoteIdentity),
+		sdk.NewAttribute(types.AttributeKeyEvidenceURI, evidence),
+	))
+	return nil
+}
+
+// --- Phase 4 ---
+
+// pruneExpiredIdentityChallenges lives in identity_challenges.go.
 
 // --- Phase 5 ---
 
@@ -245,20 +374,26 @@ func (k Keeper) expireUnverifiedContent(ctx context.Context, sdkCtx sdk.Context,
 		content, err := k.Content.Get(ctx, contentID)
 		if err == nil && content.Status == types.FederatedContentStatus_FEDERATED_CONTENT_STATUS_PENDING_VERIFICATION {
 			content.Status = types.FederatedContentStatus_FEDERATED_CONTENT_STATUS_HIDDEN
-			_ = k.Content.Set(ctx, contentID, content)
+			if err := k.Content.Set(ctx, contentID, content); err != nil {
+				sdkCtx.Logger().Error("expireUnverifiedContent: Content.Set failed", "err", err)
+			}
 
 			bridgeKey := collections.Join(content.SubmittedBy, content.PeerId)
 			binding, berr := k.BridgeBindings.Get(ctx, bridgeKey)
 			if berr == nil {
 				binding.ContentUnverified++
 				binding.EpochUnverified++
-				_ = k.BridgeBindings.Set(ctx, bridgeKey, binding)
+				if err := k.BridgeBindings.Set(ctx, bridgeKey, binding); err != nil {
+					sdkCtx.Logger().Error("expireUnverifiedContent: BridgeBindings.Set failed", "err", err)
+				}
 			}
 			sdkCtx.EventManager().EmitEvent(sdk.NewEvent(types.EventTypeContentVerificationExpired,
 				sdk.NewAttribute(types.AttributeKeyContentID, fmt.Sprintf("%d", contentID)),
 				sdk.NewAttribute(types.AttributeKeyPeerID, content.PeerId)))
 		}
-		_ = k.VerificationWindow.Remove(ctx, key)
+		if err := k.VerificationWindow.Remove(ctx, key); err != nil {
+			sdkCtx.Logger().Error("expireUnverifiedContent: VerificationWindow.Remove failed", "err", err)
+		}
 		pruned++
 		return false, nil
 	})
@@ -286,15 +421,24 @@ func (k Keeper) releaseVerifierBondCommitments(ctx context.Context, now int64, m
 			// (sets CommitmentReleased on the record) and bump the
 			// per-module unchallenged counter.
 			k.releaseVerifierCommitment(ctx, &record)
-			activity, _ := k.VerifierActivity.Get(ctx, record.Verifier)
+			activity, getErr := k.VerifierActivity.Get(ctx, record.Verifier)
+			if getErr != nil && !errors.Is(getErr, collections.ErrNotFound) {
+				sdk.UnwrapSDKContext(ctx).Logger().Error("releaseVerifierBondCommitments: VerifierActivity.Get failed", "err", getErr)
+			}
 			if activity.Address == "" {
 				activity.Address = record.Verifier
 			}
 			activity.UnchallengedVerifications++
-			_ = k.VerifierActivity.Set(ctx, record.Verifier, activity)
-			_ = k.VerificationRecords.Set(ctx, contentID, record)
+			if err := k.VerifierActivity.Set(ctx, record.Verifier, activity); err != nil {
+				sdk.UnwrapSDKContext(ctx).Logger().Error("releaseVerifierBondCommitments: VerifierActivity.Set failed", "err", err)
+			}
+			if err := k.VerificationRecords.Set(ctx, contentID, record); err != nil {
+				sdk.UnwrapSDKContext(ctx).Logger().Error("releaseVerifierBondCommitments: VerificationRecords.Set failed", "err", err)
+			}
 		}
-		_ = k.ChallengeWindow.Remove(ctx, key)
+		if err := k.ChallengeWindow.Remove(ctx, key); err != nil {
+			sdk.UnwrapSDKContext(ctx).Logger().Error("releaseVerifierBondCommitments: ChallengeWindow.Remove failed", "err", err)
+		}
 		pruned++
 		return false, nil
 	})
@@ -315,12 +459,30 @@ func (k Keeper) expireArbiterResolutions(ctx context.Context, sdkCtx sdk.Context
 			return true, nil
 		}
 		contentID := key.K2()
+		record, rerr := k.VerificationRecords.Get(ctx, contentID)
+		// Only the entry written for the record's current round may act on
+		// it. A stale entry (its round settled early and a new round began
+		// since) is dropped untouched: a new round cannot start while its
+		// predecessor's arbiter data remains, so whatever arbiter data
+		// exists now belongs to the current round. A missing record means
+		// peer removal already cleaned up.
+		current := rerr == nil &&
+			(record.ArbiterResolutionDeadline == 0 || record.ArbiterResolutionDeadline == key.K1())
+		if !current {
+			if err := k.ArbiterResolutionQueue.Remove(ctx, key); err != nil {
+				sdkCtx.Logger().Error("expireArbiterResolutions: ArbiterResolutionQueue.Remove failed", "err", err)
+			}
+			pruned++
+			return false, nil
+		}
+
 		// A stashed PendingVerifierVerdict means quorum landed and the
 		// escalation queue (Phase 8) applies it — leave the record alone.
 		// An EscalatedChallenge means the verdict was escalated and the
-		// jury path owns resolution. Anything else is a genuine no-quorum
-		// exit: this walk is the last code that will ever touch the
-		// record, so it settles the content and releases the verifier's
+		// jury path owns resolution. Content no longer CHALLENGED /
+		// DISPUTED was already settled (or this entry is being revisited
+		// to finish its cleanup). Anything else is a genuine no-quorum
+		// exit: this walk settles the content and releases the verifier's
 		// commitment. Before this, both leaked forever — the content sat
 		// DISPUTED/CHALLENGED until content_ttl pruned it, and the
 		// commitment until a slash happened to free it.
@@ -329,22 +491,26 @@ func (k Keeper) expireArbiterResolutions(ctx context.Context, sdkCtx sdk.Context
 		// no-quorum branch. Emitting it for every walked entry (as this
 		// did originally) labelled early-resolved records "expired" when
 		// the window had simply been consumed by a verdict.
-		if record, rerr := k.VerificationRecords.Get(ctx, contentID); rerr == nil &&
-			record.PendingVerifierVerdict == types.PendingVerifierVerdict_PENDING_VERIFIER_VERDICT_UNSPECIFIED {
-			if _, eerr := k.EscalatedChallenges.Get(ctx, contentID); eerr != nil {
-				k.releaseVerifierCommitment(ctx, &record)
-				record.LastChallengeResolvedAt = now
-				if rerr := k.VerificationRecords.Set(ctx, contentID, record); rerr != nil {
-					sdkCtx.Logger().Warn("expire arbiter resolutions: persist record failed",
-						"content_id", contentID, "error", rerr)
-				}
-				sdkCtx.EventManager().EmitEvent(sdk.NewEvent(types.EventTypeArbiterResolutionExpired,
-					sdk.NewAttribute(types.AttributeKeyContentID, fmt.Sprintf("%d", contentID))))
-				k.settleNoQuorumContent(ctx, sdkCtx, contentID, record.Verifier)
-			}
+		//
+		// settleNoQuorum re-checks those guards; it runs in its own cache
+		// context and a failure is retried from SettlementRetryQueue with
+		// nothing committed (FED-29).
+		k.runSettlement(ctx, contentID, types.SettlementKind_SETTLEMENT_KIND_NO_QUORUM, now,
+			func(ctx context.Context) error { return k.settleNoQuorum(ctx, contentID, now) })
+
+		// Delete the round's arbiter data against the prune budget. If the
+		// budget runs out the entry stays and the next block resumes the
+		// cleanup; the settlement above does not repeat (the content is no
+		// longer in dispute, or a failed settlement is owed a retry and
+		// the retry queue, not this entry, re-runs it).
+		deleted, done := k.cleanupArbiterDataBudget(ctx, contentID, maxPrune-pruned)
+		pruned += deleted
+		if !done {
+			return true, nil
 		}
-		k.cleanupArbiterData(ctx, contentID)
-		_ = k.ArbiterResolutionQueue.Remove(ctx, key)
+		if err := k.ArbiterResolutionQueue.Remove(ctx, key); err != nil {
+			sdkCtx.Logger().Error("expireArbiterResolutions: ArbiterResolutionQueue.Remove failed", "err", err)
+		}
 		pruned++
 		return false, nil
 	})
@@ -370,13 +536,26 @@ func (k Keeper) finalizeAutoResolutions(ctx context.Context, now int64, maxPrune
 			return true, nil
 		}
 		contentID := key.K2()
-		// Apply any stashed PendingVerifierVerdict before cleaning up
-		// arbiter data. Escalation cleared it back to UNSPECIFIED;
-		// otherwise this is where the auto-verdict (counter bumps +
-		// fee disbursement + slash + content status flip) takes effect.
-		k.applyAutoVerdict(ctx, contentID, now, params)
-		k.cleanupArbiterData(ctx, contentID)
-		_ = k.ArbiterEscalationQueue.Remove(ctx, key)
+		// Apply the stashed PendingVerifierVerdict. applyAutoVerdict acts
+		// only for the entry keyed on the record's current escalation
+		// deadline, only when no jury escalation is open and only while
+		// the content is still in dispute; it zeroes the escrow and
+		// clears the stash, so a revisit (below) never settles twice.
+		//
+		// The settlement runs in its own cache context; a failure commits
+		// nothing and is retried from SettlementRetryQueue (FED-29).
+		k.runSettlement(ctx, contentID, types.SettlementKind_SETTLEMENT_KIND_AUTO_VERDICT, now,
+			func(ctx context.Context) error { return k.applyAutoVerdict(ctx, contentID, key.K1(), now, params) })
+		if record, rerr := k.VerificationRecords.Get(ctx, contentID); rerr == nil && record.ArbiterEscalationDeadline == key.K1() {
+			deleted, done := k.cleanupArbiterDataBudget(ctx, contentID, maxPrune-pruned)
+			pruned += deleted
+			if !done {
+				return true, nil
+			}
+		}
+		if err := k.ArbiterEscalationQueue.Remove(ctx, key); err != nil {
+			sdk.UnwrapSDKContext(ctx).Logger().Error("finalizeAutoResolutions: ArbiterEscalationQueue.Remove failed", "err", err)
+		}
 		pruned++
 		return false, nil
 	}); err != nil {
@@ -388,18 +567,35 @@ func (k Keeper) finalizeAutoResolutions(ctx context.Context, now int64, maxPrune
 	}
 	juryRng := new(collections.Range[collections.Pair[int64, uint64]]).
 		EndExclusive(collections.Join(now+1, uint64(0)))
+	var stale []collections.Pair[int64, uint64]
 	err := k.EscalatedChallengeDeadline.Walk(ctx, juryRng, func(key collections.Pair[int64, uint64]) (bool, error) {
 		if pruned >= maxPrune {
 			return true, nil
 		}
 		contentID := key.K2()
 		// applyJuryVerdict removes both the EscalatedChallenge entry
-		// and its deadline-queue entry, so no explicit Remove needed
-		// here. Skip silently if the entry is gone (race-safe).
-		k.applyJuryVerdict(ctx, contentID, types.JuryVerdict_JURY_VERDICT_CHALLENGE_TIMEOUT, now, params)
+		// and its deadline-queue entry. An entry whose EscalatedChallenge
+		// is gone (or carries another deadline) is stale and dropped.
+		if esc, eerr := k.EscalatedChallenges.Get(ctx, contentID); eerr != nil || esc.JuryDeadline != key.K1() {
+			stale = append(stale, key)
+		} else if !k.runSettlement(ctx, contentID, types.SettlementKind_SETTLEMENT_KIND_JURY_TIMEOUT, now,
+			func(ctx context.Context) error {
+				return k.applyJuryVerdict(ctx, contentID, types.JuryVerdict_JURY_VERDICT_CHALLENGE_TIMEOUT, now, params)
+			}) {
+			// Nothing committed, so the escalation and its deadline entry
+			// are still there. The retry queue owns the TIMEOUT now; drop
+			// the deadline entry so this walk does not re-run it every
+			// block. The escalation stays open for MsgResolveEscalatedChallenge.
+			stale = append(stale, key)
+		}
 		pruned++
 		return false, nil
 	})
+	for _, key := range stale {
+		if err := k.EscalatedChallengeDeadline.Remove(ctx, key); err != nil {
+			sdk.UnwrapSDKContext(ctx).Logger().Error("finalizeAutoResolutions: EscalatedChallengeDeadline.Remove failed", "err", err)
+		}
+	}
 	return pruned, err
 }
 
@@ -421,21 +617,32 @@ func (k Keeper) processPeerRemovalQueue(ctx context.Context, sdkCtx sdk.Context,
 		}
 		if !state.ContentDone {
 			rng := collections.NewPrefixedPairRange[string, uint64](peerID)
-			_ = k.ContentByPeer.Walk(ctx, rng, func(key collections.Pair[string, uint64]) (bool, error) {
+			if err := k.ContentByPeer.Walk(ctx, rng, func(key collections.Pair[string, uint64]) (bool, error) {
 				if pruned >= maxPrune {
 					return true, nil
 				}
 				contentID := key.K2()
+				// Arbiter data first, against the budget; a content with
+				// more than the remaining budget resumes next block.
+				deleted, cleaned := k.cleanupArbiterDataBudget(ctx, contentID, maxPrune-pruned)
+				pruned += deleted
+				if !cleaned {
+					return true, nil
+				}
 				content, err := k.Content.Get(ctx, contentID)
 				if err == nil {
 					k.cancelContentVerification(ctx, sdkCtx, content)
 					k.removeContentRecord(ctx, content)
 				}
-				_ = k.ContentByPeer.Remove(ctx, key)
+				if err := k.ContentByPeer.Remove(ctx, key); err != nil {
+					sdkCtx.Logger().Error("processPeerRemovalQueue: ContentByPeer.Remove failed", "err", err)
+				}
 				pruned++
 				state.LastPrunedContentId = contentID
 				return false, nil
-			})
+			}); err != nil {
+				sdk.UnwrapSDKContext(sdkCtx).Logger().Error("processPeerRemovalQueue: ContentByPeer.Walk failed", "err", err)
+			}
 			if pruned < maxPrune {
 				state.ContentDone = true
 			}
@@ -471,28 +678,65 @@ func (k Keeper) processPeerRemovalQueue(ctx context.Context, sdkCtx sdk.Context,
 			// we reach the cleanup walk, all bindings should reference
 			// SLASHED/RETIRED operators whose hooks already cleared
 			// federation state — we just prune any orphaned bindings.
+			//
+			// Every index goes with the binding, BindingsByOperator
+			// included (leaving it would trip
+			// BindingsByOperatorIndexInvariant), and each binding is
+			// charged to the prune budget like every other phase.
+			serviceType := ""
+			if peer, perr := k.Peers.Get(ctx, peerID); perr == nil {
+				serviceType, _ = serviceTypeForPeer(peer.Type)
+			}
+			var bridgeKeys []collections.Pair[string, string]
 			rng := collections.NewPrefixedPairRange[string, string](peerID)
-			_ = k.BridgesByPeer.Walk(ctx, rng, func(key collections.Pair[string, string]) (bool, error) {
-				opAddr := key.K2()
-				bindingKey := collections.Join(opAddr, peerID)
-				_ = k.BridgeBindings.Remove(ctx, bindingKey)
-				_ = k.BridgesByPeer.Remove(ctx, key)
+			bridgesDone := true
+			if err := k.BridgesByPeer.Walk(ctx, rng, func(key collections.Pair[string, string]) (bool, error) {
+				if pruned+uint64(len(bridgeKeys)) >= maxPrune {
+					bridgesDone = false
+					return true, nil
+				}
+				bridgeKeys = append(bridgeKeys, key)
 				return false, nil
-			})
-			state.BridgesDone = true
+			}); err != nil {
+				sdk.UnwrapSDKContext(sdkCtx).Logger().Error("processPeerRemovalQueue: BridgesByPeer.Walk failed", "err", err)
+			}
+			for _, key := range bridgeKeys {
+				opAddr := key.K2()
+				if err := k.BridgeBindings.Remove(ctx, collections.Join(opAddr, peerID)); err != nil {
+					sdkCtx.Logger().Error("processPeerRemovalQueue: BridgeBindings.Remove failed", "err", err)
+				}
+				if err := k.BridgesByPeer.Remove(ctx, key); err != nil {
+					sdkCtx.Logger().Error("processPeerRemovalQueue: BridgesByPeer.Remove failed", "err", err)
+				}
+				if serviceType != "" {
+					if err := k.BindingsByOperator.Remove(ctx, collections.Join3(serviceType, opAddr, peerID)); err != nil {
+						sdkCtx.Logger().Error("processPeerRemovalQueue: BindingsByOperator.Remove failed", "err", err)
+					}
+				}
+				pruned++
+			}
+			state.BridgesDone = bridgesDone
 		}
 		if state.BridgesDone && !state.PolicyDone {
-			_ = k.PeerPolicies.Remove(ctx, peerID)
+			if err := k.PeerPolicies.Remove(ctx, peerID); err != nil {
+				sdkCtx.Logger().Error("processPeerRemovalQueue: PeerPolicies.Remove failed", "err", err)
+			}
 			state.PolicyDone = true
 		}
 		if state.ContentDone && state.LinksDone && state.AttestationsDone &&
 			state.OutboundDone && state.BridgesDone && state.PolicyDone {
-			_ = k.Peers.Remove(ctx, peerID)
-			_ = k.PeerRemovalQueue.Remove(ctx, peerID)
+			if err := k.Peers.Remove(ctx, peerID); err != nil {
+				sdkCtx.Logger().Error("processPeerRemovalQueue: Peers.Remove failed", "err", err)
+			}
+			if err := k.PeerRemovalQueue.Remove(ctx, peerID); err != nil {
+				sdkCtx.Logger().Error("processPeerRemovalQueue: PeerRemovalQueue.Remove failed", "err", err)
+			}
 			sdkCtx.EventManager().EmitEvent(sdk.NewEvent(types.EventTypePeerCleanupComplete,
 				sdk.NewAttribute(types.AttributeKeyPeerID, peerID)))
 		} else {
-			_ = k.PeerRemovalQueue.Set(ctx, peerID, state)
+			if err := k.PeerRemovalQueue.Set(ctx, peerID, state); err != nil {
+				sdkCtx.Logger().Error("processPeerRemovalQueue: PeerRemovalQueue.Set failed", "err", err)
+			}
 		}
 		return false, nil
 	})
@@ -501,71 +745,75 @@ func (k Keeper) processPeerRemovalQueue(ctx context.Context, sdkCtx sdk.Context,
 
 // removePeerIdentityLinks deletes every identity link to peerID and every
 // pending identity challenge from it. Links are found through the
-// (peer_id, remote_identity) reverse index, so the walk only visits this
-// peer's links. Each link is deleted outright — the per-user link count is
-// decremented, so the user can link again (including to the same peer id
-// once it is re-registered) — and a verified link emits
-// identity_link_revoked as its audit trail. Reports whether both sets are
-// fully drained.
+// (peer_id, remote_identity, local_address) claim index, so the walk only
+// visits this peer's links, verified or not. Each link is deleted outright
+// — the per-user link count is decremented, so the user can link again
+// (including to the same peer id once it is re-registered) — and a
+// verified link emits identity_link_revoked as its audit trail. Reports
+// whether both sets are fully drained.
 func (k Keeper) removePeerIdentityLinks(ctx context.Context, sdkCtx sdk.Context, peerID string, maxPrune uint64, pruned *uint64) bool {
-	params, _ := k.Params.Get(ctx)
+	params, getErr := k.Params.Get(ctx)
+	if getErr != nil && !errors.Is(getErr, collections.ErrNotFound) {
+		sdk.UnwrapSDKContext(sdkCtx).Logger().Error("removePeerIdentityLinks: Params.Get failed", "err", getErr)
+	}
 	done := true
-	rng := collections.NewPrefixedPairRange[string, string](peerID)
-	_ = k.IdentityLinksByRemote.Walk(ctx, rng, func(key collections.Pair[string, string], localAddr string) (bool, error) {
-		if *pruned >= maxPrune {
+	var claims []collections.Triple[string, string, string]
+	rng := collections.NewPrefixedTripleRange[string, string, string](peerID)
+	if err := k.IdentityClaimsByRemote.Walk(ctx, rng, func(key collections.Triple[string, string, string]) (bool, error) {
+		if *pruned+uint64(len(claims)) >= maxPrune {
 			done = false
 			return true, nil
 		}
-		k.removeIdentityLink(ctx, sdkCtx, localAddr, peerID, params)
-		_ = k.IdentityLinksByRemote.Remove(ctx, key)
-		*pruned++
+		claims = append(claims, key)
 		return false, nil
-	})
+	}); err != nil {
+		sdk.UnwrapSDKContext(sdkCtx).Logger().Error("removePeerIdentityLinks: IdentityClaimsByRemote.Walk failed", "err", err)
+	}
+	for _, key := range claims {
+		k.removeIdentityLink(ctx, sdkCtx, key.K3(), peerID, params)
+		// A claim entry without a live link (or for another remote
+		// identity) is dropped too.
+		if err := k.IdentityClaimsByRemote.Remove(ctx, key); err != nil {
+			sdkCtx.Logger().Error("removePeerIdentityLinks: IdentityClaimsByRemote.Remove failed", "err", err)
+		}
+		*pruned++
+	}
 	if !done {
 		return false
 	}
 
-	// PendingIdChallenges is keyed (claimed_address, claimant_peer_id), so
-	// this peer's entries are found by filtering. The set is short-lived
-	// (challenge_ttl) and Phase 4 already walks it every block.
-	var challenges []collections.Pair[string, string]
-	_ = k.PendingIdChallenges.Walk(ctx, nil, func(key collections.Pair[string, string], _ types.PendingIdentityChallenge) (bool, error) {
-		if key.K2() != peerID {
-			return false, nil
-		}
-		if *pruned+uint64(len(challenges)) >= maxPrune {
-			done = false
-			return true, nil
-		}
-		challenges = append(challenges, key)
-		return false, nil
-	})
-	for _, key := range challenges {
-		_ = k.PendingIdChallenges.Remove(ctx, key)
-		*pruned++
-	}
-	return done
+	// Pending identity challenges from this peer, through the per-peer
+	// index rather than a scan of every challenge.
+	return k.removePeerPendingChallenges(ctx, peerID, maxPrune, pruned)
 }
 
-// removeIdentityLink deletes the (localAddr, peerID) link record, its
-// unverified-expiry entry and its share of the per-user link count. The
-// caller owns the reverse-index entry.
+// removeIdentityLink deletes the (localAddr, peerID) link record, its claim
+// and reverse-index entries, its unverified-expiry entry and its share of
+// the per-user link count.
 func (k Keeper) removeIdentityLink(ctx context.Context, sdkCtx sdk.Context, localAddr, peerID string, params types.Params) {
 	linkKey := collections.Join(localAddr, peerID)
 	link, err := k.IdentityLinks.Get(ctx, linkKey)
 	if err != nil {
 		return
 	}
-	_ = k.IdentityLinks.Remove(ctx, linkKey)
-	if link.Status == types.IdentityLinkStatus_IDENTITY_LINK_STATUS_UNVERIFIED {
-		// Best effort: the queue key is linked_at + the TTL in force when
-		// the link was made. Phase 3 skips an entry whose link is gone,
-		// so a miss after a TTL change only leaves a harmless entry.
-		expiry := link.LinkedAt + int64(params.UnverifiedLinkTtl.Seconds())
-		_ = k.UnverifiedLinkExp.Remove(ctx, collections.Join3(expiry, localAddr, peerID))
+	if err := k.IdentityLinks.Remove(ctx, linkKey); err != nil {
+		sdkCtx.Logger().Error("removeIdentityLink: IdentityLinks.Remove failed", "err", err)
 	}
-	if cnt, _ := k.IdentityLinkCount.Get(ctx, localAddr); cnt > 0 {
-		_ = k.IdentityLinkCount.Set(ctx, localAddr, cnt-1)
+	k.removeIdentityLinkIndexes(ctx, link)
+	if link.Status == types.IdentityLinkStatus_IDENTITY_LINK_STATUS_UNVERIFIED {
+		if err := k.UnverifiedLinkExp.Remove(ctx, collections.Join3(k.linkUnverifiedExpiry(ctx, link), localAddr, peerID)); err != nil {
+			sdkCtx.Logger().Error("removeIdentityLink: UnverifiedLinkExp.Remove failed", "err", err)
+		}
+	}
+	_ = params
+	cnt, getErr := k.IdentityLinkCount.Get(ctx, localAddr)
+	if getErr != nil && !errors.Is(getErr, collections.ErrNotFound) {
+		sdk.UnwrapSDKContext(sdkCtx).Logger().Error("removeIdentityLink: IdentityLinkCount.Get failed", "err", getErr)
+	}
+	if cnt > 0 {
+		if err := k.setIdentityLinkCount(ctx, localAddr, cnt-1); err != nil {
+			sdkCtx.Logger().Error("removeIdentityLink: IdentityLinkCount.Set failed", "err", err)
+		}
 	}
 	if link.Status == types.IdentityLinkStatus_IDENTITY_LINK_STATUS_VERIFIED {
 		sdkCtx.EventManager().EmitEvent(sdk.NewEvent(types.EventTypeIdentityLinkRevoked,
@@ -576,28 +824,25 @@ func (k Keeper) removeIdentityLink(ctx context.Context, sdkCtx sdk.Context, loca
 }
 
 // removePeerRepAttestations deletes every reputation attestation sourced
-// from peerID, with its expiry-queue entry. RepAttestations is keyed
-// (local_address, peer_id), so the peer's entries are found by filtering;
-// the set is bounded by users × Spark Dream peers and TTL-pruned. Reports
-// whether the peer's attestations are fully drained.
+// from peerID, with its expiry-queue entry, through the (peer_id,
+// local_address) index so the walk visits only this peer's entries.
+// Reports whether the peer's attestations are fully drained.
 func (k Keeper) removePeerRepAttestations(ctx context.Context, peerID string, maxPrune uint64, pruned *uint64) bool {
 	done := true
-	var atts []types.ReputationAttestation
-	_ = k.RepAttestations.Walk(ctx, nil, func(key collections.Pair[string, string], att types.ReputationAttestation) (bool, error) {
-		if key.K2() != peerID {
-			return false, nil
-		}
-		if *pruned+uint64(len(atts)) >= maxPrune {
+	var locals []string
+	rng := collections.NewPrefixedPairRange[string, string](peerID)
+	if err := k.RepAttestationsByPeer.Walk(ctx, rng, func(key collections.Pair[string, string]) (bool, error) {
+		if *pruned+uint64(len(locals)) >= maxPrune {
 			done = false
 			return true, nil
 		}
-		att.LocalAddress, att.PeerId = key.K1(), key.K2()
-		atts = append(atts, att)
+		locals = append(locals, key.K2())
 		return false, nil
-	})
-	for _, att := range atts {
-		_ = k.RepAttestations.Remove(ctx, collections.Join(att.LocalAddress, att.PeerId))
-		_ = k.AttestationExp.Remove(ctx, collections.Join3(att.ExpiresAt, att.LocalAddress, att.PeerId))
+	}); err != nil {
+		sdk.UnwrapSDKContext(ctx).Logger().Error("removePeerRepAttestations: RepAttestationsByPeer.Walk failed", "err", err)
+	}
+	for _, local := range locals {
+		k.removeRepAttestation(ctx, local, peerID)
 		*pruned++
 	}
 	return done
@@ -612,7 +857,7 @@ func (k Keeper) removePeerOutboundAttestations(ctx context.Context, peerID strin
 	done := true
 	var matched []uint64
 	rng := new(collections.Range[uint64]).StartInclusive(*cursor)
-	_ = k.OutboundAttestations.Walk(ctx, rng, func(id uint64, att types.OutboundAttestation) (bool, error) {
+	if err := k.OutboundAttestations.Walk(ctx, rng, func(id uint64, att types.OutboundAttestation) (bool, error) {
 		if *pruned >= maxPrune {
 			done = false
 			return true, nil
@@ -623,9 +868,13 @@ func (k Keeper) removePeerOutboundAttestations(ctx context.Context, peerID strin
 		*pruned++
 		*cursor = id + 1
 		return false, nil
-	})
+	}); err != nil {
+		sdk.UnwrapSDKContext(ctx).Logger().Error("removePeerOutboundAttestations: OutboundAttestations.Walk failed", "err", err)
+	}
 	for _, id := range matched {
-		_ = k.OutboundAttestations.Remove(ctx, id)
+		if err := k.OutboundAttestations.Remove(ctx, id); err != nil {
+			sdk.UnwrapSDKContext(ctx).Logger().Error("removePeerOutboundAttestations: OutboundAttestations.Remove failed", "err", err)
+		}
 	}
 	return done
 }
@@ -649,7 +898,7 @@ func (k Keeper) monitorBridgeOperators(ctx context.Context, sdkCtx sdk.Context, 
 		epochSec := int64(params.RateLimitWindow.Seconds())
 		if epochSec > 0 && binding.LastSubmissionAt > 0 {
 			epochsSince := (now - binding.LastSubmissionAt) / epochSec
-			if uint64(epochsSince) > params.BridgeInactivityThreshold {
+			if commontypes.Saturate[uint64](epochsSince) > params.BridgeInactivityThreshold {
 				sdkCtx.EventManager().EmitEvent(sdk.NewEvent(types.EventTypeBridgeInactiveWarning,
 					sdk.NewAttribute(types.AttributeKeyOperator, binding.Address),
 					sdk.NewAttribute(types.AttributeKeyPeerID, binding.PeerId)))
@@ -681,7 +930,9 @@ func (k Keeper) cleanStaleRateLimitCounters(ctx context.Context, now int64, para
 			return true, nil
 		}
 		if height < currentHeight {
-			_ = k.InboundPerBlock.Remove(ctx, height)
+			if err := k.InboundPerBlock.Remove(ctx, height); err != nil {
+				sdk.UnwrapSDKContext(ctx).Logger().Error("cleanStaleRateLimitCounters: InboundPerBlock.Remove failed", "err", err)
+			}
 			pruned++
 		}
 		return false, nil
@@ -694,7 +945,9 @@ func (k Keeper) cleanStaleRateLimitCounters(ctx context.Context, now int64, para
 			return true, nil
 		}
 		if height < currentHeight {
-			_ = k.OutboundPerBlock.Remove(ctx, height)
+			if err := k.OutboundPerBlock.Remove(ctx, height); err != nil {
+				sdk.UnwrapSDKContext(ctx).Logger().Error("cleanStaleRateLimitCounters: OutboundPerBlock.Remove failed", "err", err)
+			}
 			pruned++
 		}
 		return false, nil
@@ -717,7 +970,9 @@ func (k Keeper) cleanStaleRateLimitCounters(ctx context.Context, now int64, para
 			return true, nil
 		}
 		if key.K2() < cutoff {
-			_ = k.InboundRateLimits.Remove(ctx, key)
+			if err := k.InboundRateLimits.Remove(ctx, key); err != nil {
+				sdk.UnwrapSDKContext(ctx).Logger().Error("cleanStaleRateLimitCounters: InboundRateLimits.Remove failed", "err", err)
+			}
 			pruned++
 		}
 		return false, nil
@@ -731,7 +986,9 @@ func (k Keeper) cleanStaleRateLimitCounters(ctx context.Context, now int64, para
 			return true, nil
 		}
 		if key.K2() < cutoff {
-			_ = k.OutboundRateLimits.Remove(ctx, key)
+			if err := k.OutboundRateLimits.Remove(ctx, key); err != nil {
+				sdk.UnwrapSDKContext(ctx).Logger().Error("cleanStaleRateLimitCounters: OutboundRateLimits.Remove failed", "err", err)
+			}
 			pruned++
 		}
 		return false, nil
@@ -742,12 +999,20 @@ func (k Keeper) cleanStaleRateLimitCounters(ctx context.Context, now int64, para
 
 func (k Keeper) cleanupArbiterData(ctx context.Context, contentID uint64) {
 	rng := collections.NewPrefixedPairRange[uint64, string](contentID)
-	_ = k.ArbiterSubmissions.Walk(ctx, rng, func(key collections.Pair[uint64, string], _ types.ArbiterHashSubmission) (bool, error) {
-		_ = k.ArbiterSubmissions.Remove(ctx, key)
+	if err := k.ArbiterSubmissions.Walk(ctx, rng, func(key collections.Pair[uint64, string], _ types.ArbiterHashSubmission) (bool, error) {
+		if err := k.ArbiterSubmissions.Remove(ctx, key); err != nil {
+			sdk.UnwrapSDKContext(ctx).Logger().Error("cleanupArbiterData: ArbiterSubmissions.Remove failed", "err", err)
+		}
 		return false, nil
-	})
-	_ = k.ArbiterHashCounts.Walk(ctx, rng, func(key collections.Pair[uint64, string], _ uint32) (bool, error) {
-		_ = k.ArbiterHashCounts.Remove(ctx, key)
+	}); err != nil {
+		sdk.UnwrapSDKContext(ctx).Logger().Error("cleanupArbiterData: ArbiterSubmissions.Walk failed", "err", err)
+	}
+	if err := k.ArbiterHashCounts.Walk(ctx, rng, func(key collections.Pair[uint64, string], _ uint32) (bool, error) {
+		if err := k.ArbiterHashCounts.Remove(ctx, key); err != nil {
+			sdk.UnwrapSDKContext(ctx).Logger().Error("cleanupArbiterData: ArbiterHashCounts.Remove failed", "err", err)
+		}
 		return false, nil
-	})
+	}); err != nil {
+		sdk.UnwrapSDKContext(ctx).Logger().Error("cleanupArbiterData: ArbiterHashCounts.Walk failed", "err", err)
+	}
 }

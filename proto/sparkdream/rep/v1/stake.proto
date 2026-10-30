@@ -36,7 +36,7 @@ enum StakeTargetType {
   STAKE_TARGET_TAG = 3; // Revenue share from tagged initiatives
 
   // Content conviction staking (no DREAM rewards, conviction signal only)
-  STAKE_TARGET_BLOG_CONTENT = 4; // Community conviction on x/blog posts/replies
+  STAKE_TARGET_BLOG_CONTENT = 4; // Community conviction on x/blog posts
   STAKE_TARGET_FORUM_CONTENT = 5; // Community conviction on x/forum posts
   STAKE_TARGET_COLLECTION_CONTENT = 6; // Community conviction on x/collect collections
 
@@ -49,6 +49,10 @@ enum StakeTargetType {
   // reply bonds need a distinct target type: sharing BLOG_AUTHOR_BOND would
   // make post N and reply N collide (one-bond-per-target, queries, challenges).
   STAKE_TARGET_BLOG_REPLY_AUTHOR_BOND = 10; // Author bond on x/blog replies
+
+  // Content conviction on x/blog replies. Replies have their own id sequence,
+  // so sharing BLOG_CONTENT would let conviction on post N keep reply N alive.
+  STAKE_TARGET_BLOG_REPLY_CONTENT = 11;
 }
 
 // MemberStakePool tracks aggregate staking on a member for O(1) reward distribution

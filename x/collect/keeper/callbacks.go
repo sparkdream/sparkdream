@@ -2,6 +2,8 @@ package keeper
 
 import (
 	"context"
+	"errors"
+	"sort"
 	"strconv"
 
 	"cosmossdk.io/collections"
@@ -45,16 +47,24 @@ func (k Keeper) OnMembershipGranted(ctx context.Context, address string) error {
 			// Update status index: PENDING → ACTIVE (pinned unchanged).
 			oldStatus := coll.Status
 			coll.Status = types.CollectionStatus_COLLECTION_STATUS_ACTIVE
-			k.MoveCollectionStatusIndex(ctx, oldStatus, coll.Pinned, coll.Status, coll.Pinned, coll.Id) //nolint:errcheck
+			if err := k.MoveCollectionStatusIndex(ctx, oldStatus, coll.Pinned, coll.Status, coll.Pinned, coll.Id); err != nil {
+				sdk.UnwrapSDKContext(ctx).Logger().Error("OnMembershipGranted: k.MoveCollectionStatusIndex failed", "err", err)
+			}
 
-			// Remove from EndorsementPending index
-			k.EndorsementPending.Walk(ctx, nil, func(key collections.Pair[int64, uint64]) (bool, error) {
-				if key.K2() == coll.Id {
-					k.EndorsementPending.Remove(ctx, key) //nolint:errcheck
-					return true, nil
+			// Remove from EndorsementPending (stored deadline) and refund the
+			// escrowed endorsement fee: the endorsement stage is over and
+			// nothing else would ever release it.
+			k.clearEndorsementPending(ctx, &coll, true)
+			if fee := escrowedEndorsementFee(coll); fee.IsPositive() && k.chargesDeposits(coll) {
+				if ownerAddr, aerr := k.addressCodec.StringToBytes(coll.Owner); aerr == nil {
+					if rerr := k.RefundSPARK(ctx, ownerAddr, fee); rerr != nil {
+						sdkCtx.Logger().Error("failed to refund endorsement fee on membership grant",
+							"collection_id", coll.Id, "error", rerr)
+					} else {
+						coll.EndorsementFeeEscrowed = math.ZeroInt()
+					}
 				}
-				return false, nil
-			}) //nolint:errcheck
+			}
 
 			changed = true
 		}
@@ -86,7 +96,9 @@ func (k Keeper) OnMembershipGranted(ctx context.Context, address string) error {
 	return nil
 }
 
-// ResolveChallengeResult is called by the x/rep jury to resolve a curation challenge.
+// ResolveChallengeResult resolves a curation challenge. Production caller:
+// MsgResolveCurationChallenge (gov, Commons Council or Commons Operations
+// Committee policy), which also drops the CurationChallengeDeadline entry.
 // If upheld (challenger wins): review overturned, curator's committed bond
 // slashed (via BondedRole), challenger rewarded.
 // If rejected (curator wins): review stands, committed bond released back to
@@ -120,7 +132,10 @@ func (k Keeper) ResolveChallengeResult(ctx context.Context, reviewID uint64, uph
 	}
 
 	// Load per-module counters; start from a zero record if first time.
-	activity, _ := k.CuratorActivity.Get(ctx, review.Curator)
+	activity, getErr := k.CuratorActivity.Get(ctx, review.Curator)
+	if getErr != nil && !errors.Is(getErr, collections.ErrNotFound) {
+		return getErr
+	}
 	if activity.Address == "" {
 		activity.Address = review.Curator
 	}
@@ -129,6 +144,7 @@ func (k Keeper) ResolveChallengeResult(ctx context.Context, reviewID uint64, uph
 	if committed.IsNil() {
 		committed = math.ZeroInt()
 	}
+	deposit := challengeDepositOf(review, params)
 
 	if upheld {
 		// Challenger wins: review overturned, committed bond is slashed.
@@ -139,17 +155,22 @@ func (k Keeper) ResolveChallengeResult(ctx context.Context, reviewID uint64, uph
 		burnAmount := slashAmount.Sub(rewardAmount)
 
 		if slashAmount.IsPositive() {
-			if err := k.repKeeper.SlashBond(ctx, reptypes.RoleType_ROLE_TYPE_COLLECT_CURATOR,
+			if err := k.late.repKeeper.SlashBond(ctx, reptypes.RoleType_ROLE_TYPE_COLLECT_CURATOR,
 				review.Curator, slashAmount, "curation_overturned"); err != nil {
 				sdkCtx.Logger().Warn("curation slash failed",
 					"curator", review.Curator, "amount", slashAmount.String(), "error", err)
 			}
 		}
 
-		// Reward challenger from slashed amount (minted DREAM — unlock into
-		// challenger's available balance).
+		// Reward the challenger with their share of the slashed commit.
+		// SlashBond burns the whole commit, so the reward is minted as fresh
+		// DREAM (net supply change: -burnAmount). Unlocking would only free
+		// DREAM the challenger already owned.
 		if rewardAmount.IsPositive() {
-			k.repKeeper.UnlockDREAM(ctx, challengerAddr, rewardAmount) //nolint:errcheck
+			if err := k.late.repKeeper.MintDREAM(ctx, challengerAddr, rewardAmount); err != nil {
+				sdkCtx.Logger().Warn("curation challenge reward mint failed",
+					"challenger", review.Challenger, "amount", rewardAmount.String(), "error", err)
+			}
 		}
 
 		// Counter updates.
@@ -162,20 +183,24 @@ func (k Keeper) ResolveChallengeResult(ctx context.Context, reviewID uint64, uph
 		// shared record is what the curator SPARK pool reads for windowed
 		// accuracy. Best-effort: an accounting failure must not roll back the
 		// jury's verdict.
-		if err := k.repKeeper.RecordRoleOutcome(ctx, reptypes.RoleType_ROLE_TYPE_COLLECT_CURATOR,
+		if err := k.late.repKeeper.RecordRoleOutcome(ctx, reptypes.RoleType_ROLE_TYPE_COLLECT_CURATOR,
 			review.Curator, reptypes.ActionKindCollectCuration, false); err != nil {
 			sdkCtx.Logger().Warn("curator outcome (overturned) not recorded on RoleActivity",
 				"curator", review.Curator, "error", err)
 		}
 
-		// Refund challenge deposit to challenger.
-		k.repKeeper.UnlockDREAM(ctx, challengerAddr, params.ChallengeDeposit) //nolint:errcheck
+		// Refund the challenge deposit actually locked.
+		if err := k.late.repKeeper.UnlockDREAM(ctx, challengerAddr, deposit); err != nil {
+			sdk.UnwrapSDKContext(ctx).Logger().Error("ResolveChallengeResult: repKeeper.UnlockDREAM failed", "err", err)
+		}
 
 		// Update curation summary (recalculate with overturned review excluded).
 		k.recalculateSummary(ctx, review.CollectionId)
 
-		// Clear committed_slash on the review since it's been consumed.
+		// Clear committed_slash and the deposit on the review since both have
+		// been settled.
 		review.CommittedSlash = math.ZeroInt()
+		review.ChallengeDeposit = math.ZeroInt()
 		if err := k.CurationReview.Set(ctx, reviewID, review); err != nil {
 			return errorsmod.Wrap(err, "failed to update review")
 		}
@@ -185,7 +210,7 @@ func (k Keeper) ResolveChallengeResult(ctx context.Context, reviewID uint64, uph
 		if params.CuratorOverturnDemotionStreak > 0 &&
 			activity.ConsecutiveOverturns >= params.CuratorOverturnDemotionStreak {
 			cooldownUntil := sdkCtx.BlockTime().Unix() + params.CuratorDemotionCooldown
-			if err := k.repKeeper.SetBondStatus(ctx, reptypes.RoleType_ROLE_TYPE_COLLECT_CURATOR,
+			if err := k.late.repKeeper.SetBondStatus(ctx, reptypes.RoleType_ROLE_TYPE_COLLECT_CURATOR,
 				review.Curator, reptypes.BondedRoleStatus_BONDED_ROLE_STATUS_DEMOTED, cooldownUntil); err != nil {
 				sdkCtx.Logger().Warn("curator demotion failed",
 					"curator", review.Curator, "error", err)
@@ -202,13 +227,13 @@ func (k Keeper) ResolveChallengeResult(ctx context.Context, reviewID uint64, uph
 			sdk.NewAttribute("reward_amount", rewardAmount.String()),
 			sdk.NewAttribute("burn_amount", burnAmount.String()),
 			sdk.NewAttribute("curator_demoted", strconv.FormatBool(demoted)),
-			sdk.NewAttribute("challenger_refunded", params.ChallengeDeposit.String()),
+			sdk.NewAttribute("challenger_refunded", deposit.String()),
 		))
 	} else {
 		// Curator wins: review stands. Release the reserved commit back to
 		// the curator's available bond.
 		if committed.IsPositive() {
-			if err := k.repKeeper.ReleaseBond(ctx, reptypes.RoleType_ROLE_TYPE_COLLECT_CURATOR,
+			if err := k.late.repKeeper.ReleaseBond(ctx, reptypes.RoleType_ROLE_TYPE_COLLECT_CURATOR,
 				review.Curator, committed); err != nil {
 				sdkCtx.Logger().Warn("curation release failed",
 					"curator", review.Curator, "amount", committed.String(), "error", err)
@@ -223,19 +248,25 @@ func (k Keeper) ResolveChallengeResult(ctx context.Context, reviewID uint64, uph
 		// Mirror into x/rep's shared RoleActivity — the curator SPARK pool
 		// reads windowed accuracy from there, and it needs the upheld side as
 		// much as the overturned one or every curator looks 0% accurate.
-		if err := k.repKeeper.RecordRoleOutcome(ctx, reptypes.RoleType_ROLE_TYPE_COLLECT_CURATOR,
+		if err := k.late.repKeeper.RecordRoleOutcome(ctx, reptypes.RoleType_ROLE_TYPE_COLLECT_CURATOR,
 			review.Curator, reptypes.ActionKindCollectCuration, true); err != nil {
 			sdkCtx.Logger().Warn("curator outcome (upheld) not recorded on RoleActivity",
 				"curator", review.Curator, "error", err)
 		}
 
-		// Burn challenge deposit.
-		k.repKeeper.BurnDREAM(ctx, challengerAddr, params.ChallengeDeposit) //nolint:errcheck
+		// Burn the challenge deposit actually locked, out of the lock (the
+		// locked and total balances drop together, as the endorser slash in
+		// deleteCollectionFull does).
+		if err := k.late.repKeeper.BurnLockedDREAM(ctx, challengerAddr, deposit); err != nil {
+			sdkCtx.Logger().Error("failed to burn challenge deposit",
+				"review_id", reviewID, "challenger", review.Challenger, "error", err)
+		}
 
 		// Clear committed_slash on the review, and the challenger: the deposit
 		// is settled (burned), so collection deletion and the timeout sweep
 		// must not refund it again.
 		review.CommittedSlash = math.ZeroInt()
+		review.ChallengeDeposit = math.ZeroInt()
 		review.Challenger = ""
 		if err := k.CurationReview.Set(ctx, reviewID, review); err != nil {
 			return errorsmod.Wrap(err, "failed to update review")
@@ -247,7 +278,7 @@ func (k Keeper) ResolveChallengeResult(ctx context.Context, reviewID uint64, uph
 			sdk.NewAttribute("curator", review.Curator),
 			sdk.NewAttribute("slash_amount", "0"),
 			sdk.NewAttribute("reward_amount", "0"),
-			sdk.NewAttribute("burn_amount", params.ChallengeDeposit.String()),
+			sdk.NewAttribute("burn_amount", deposit.String()),
 			sdk.NewAttribute("curator_demoted", "false"),
 			sdk.NewAttribute("challenger_refunded", "0"),
 		))
@@ -266,7 +297,7 @@ func (k Keeper) recalculateSummary(ctx context.Context, collectionID uint64) {
 	tagCounts := make(map[string]uint32)
 	var lastReviewedAt int64
 
-	k.CurationReviewsByCollection.Walk(ctx,
+	if err := k.CurationReviewsByCollection.Walk(ctx,
 		collections.NewPrefixedPairRange[uint64, uint64](collectionID),
 		func(key collections.Pair[uint64, uint64]) (bool, error) {
 			review, err := k.CurationReview.Get(ctx, key.K2())
@@ -286,12 +317,22 @@ func (k Keeper) recalculateSummary(ctx context.Context, collectionID uint64) {
 			}
 			return false, nil
 		},
-	)
+	); err != nil {
+		sdk.UnwrapSDKContext(ctx).Logger().Error("recalculateSummary: CurationReviewsByCollection.Walk failed", "err", err)
+	}
 
 	topTags := make([]types.TagCount, 0, len(tagCounts))
 	for tag, count := range tagCounts {
 		topTags = append(topTags, types.TagCount{Tag: tag, Count: count})
 	}
+	// Map order differs between nodes: sort (count desc, then tag) so the
+	// stored summary is identical everywhere.
+	sort.Slice(topTags, func(i, j int) bool {
+		if topTags[i].Count != topTags[j].Count {
+			return topTags[i].Count > topTags[j].Count
+		}
+		return topTags[i].Tag < topTags[j].Tag
+	})
 
 	summary := types.CurationSummary{
 		CollectionId:   collectionID,
@@ -300,31 +341,7 @@ func (k Keeper) recalculateSummary(ctx context.Context, collectionID uint64) {
 		TopTags:        topTags,
 		LastReviewedAt: lastReviewedAt,
 	}
-	k.CurationSummary.Set(ctx, collectionID, summary) //nolint:errcheck
-}
-
-// resolveContentOwnerAddr returns the owner address for a target (collection or item's parent collection owner).
-func (k Keeper) resolveContentOwnerAddr(ctx context.Context, targetType types.FlagTargetType, targetID uint64) sdk.AccAddress {
-	switch targetType {
-	case types.FlagTargetType_FLAG_TARGET_TYPE_COLLECTION:
-		coll, err := k.Collection.Get(ctx, targetID)
-		if err == nil {
-			addr, err := k.addressCodec.StringToBytes(coll.Owner)
-			if err == nil {
-				return addr
-			}
-		}
-	case types.FlagTargetType_FLAG_TARGET_TYPE_ITEM:
-		item, err := k.Item.Get(ctx, targetID)
-		if err == nil {
-			coll, err := k.Collection.Get(ctx, item.CollectionId)
-			if err == nil {
-				addr, err := k.addressCodec.StringToBytes(coll.Owner)
-				if err == nil {
-					return addr
-				}
-			}
-		}
+	if err := k.CurationSummary.Set(ctx, collectionID, summary); err != nil {
+		sdk.UnwrapSDKContext(ctx).Logger().Error("recalculateSummary: CurationSummary.Set failed", "err", err)
 	}
-	return nil
 }

@@ -60,7 +60,7 @@ func TestHidePost(t *testing.T) {
 			setup: func() {
 				params := types.DefaultParams()
 				params.ModerationPaused = true
-				_ = f.keeper.Params.Set(f.ctx, params)
+				require.NoError(t, f.keeper.Params.Set(f.ctx, params))
 			},
 			expectError: true,
 			errContains: "moderation is paused",
@@ -109,7 +109,7 @@ func TestHidePost(t *testing.T) {
 			setup: func() {
 				p, _ := f.keeper.Post.Get(f.ctx, post.PostId)
 				p.Status = types.PostStatus_POST_STATUS_HIDDEN
-				_ = f.keeper.Post.Set(f.ctx, post.PostId, p)
+				require.NoError(t, f.keeper.Post.Set(f.ctx, post.PostId, p))
 			},
 			expectError: true,
 			errContains: "already hidden",
@@ -119,10 +119,10 @@ func TestHidePost(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Reset params and post status
-			_ = f.keeper.Params.Set(f.ctx, types.DefaultParams())
+			require.NoError(t, f.keeper.Params.Set(f.ctx, types.DefaultParams()))
 			p, _ := f.keeper.Post.Get(f.ctx, post.PostId)
 			p.Status = types.PostStatus_POST_STATUS_ACTIVE
-			_ = f.keeper.Post.Set(f.ctx, post.PostId, p)
+			require.NoError(t, f.keeper.Post.Set(f.ctx, post.PostId, p))
 
 			// Reset sentinel activity
 			f.createTestSentinel(t, testSentinel, "2000000000")

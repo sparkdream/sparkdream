@@ -2,6 +2,7 @@ package keeper
 
 import (
 	"context"
+	"errors"
 
 	"sparkdream/x/federation/types"
 
@@ -27,15 +28,24 @@ func (k msgServer) UnlinkIdentity(ctx context.Context, msg *types.MsgUnlinkIdent
 		return nil, err
 	}
 
-	// 3. Remove from IdentityLinksByRemote
-	if err := k.IdentityLinksByRemote.Remove(ctx, collections.Join(msg.PeerId, link.RemoteIdentity)); err != nil {
-		return nil, err
+	// 2b. Drop its unverified-expiry entry. Left behind, it would fire at
+	//     the old expiry and prune a link re-created for the same peer.
+	if link.Status == types.IdentityLinkStatus_IDENTITY_LINK_STATUS_UNVERIFIED {
+		if err := k.UnverifiedLinkExp.Remove(ctx, collections.Join3(k.linkUnverifiedExpiry(ctx, link), msg.Creator, msg.PeerId)); err != nil {
+			return nil, err
+		}
 	}
 
+	// 3. Remove its claim and (if verified) reverse-index entries
+	k.removeIdentityLinkIndexes(ctx, link)
+
 	// 4. Decrement IdentityLinkCount
-	currentCount, _ := k.IdentityLinkCount.Get(ctx, msg.Creator)
+	currentCount, getErr := k.IdentityLinkCount.Get(ctx, msg.Creator)
+	if getErr != nil && !errors.Is(getErr, collections.ErrNotFound) {
+		return nil, getErr
+	}
 	if currentCount > 0 {
-		if err := k.IdentityLinkCount.Set(ctx, msg.Creator, currentCount-1); err != nil {
+		if err := k.setIdentityLinkCount(ctx, msg.Creator, currentCount-1); err != nil {
 			return nil, err
 		}
 	}

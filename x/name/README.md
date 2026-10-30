@@ -17,7 +17,7 @@ This module provides:
 
 ### Name Registration
 
-Names follow strict formatting: lowercase alphanumeric with optional hyphens (`^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`), 3-30 characters. Registration requires active x/rep membership and a 10 SPARK fee (default). The first registered name automatically becomes the owner's primary name for reverse resolution.
+Names follow strict formatting: lowercase alphanumeric with optional hyphens (`^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`), 3-30 characters. Registration requires active x/rep membership and a 10 SPARK fee (default), which is burned. The first registered name automatically becomes the owner's primary name for reverse resolution.
 
 ### Name Scavenging
 
@@ -94,7 +94,7 @@ Any address can file a dispute by staking 50 DREAM. The current owner can contes
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `expiration_duration` | Duration | 1 year | Inactivity timeout for scavenging |
-| `registration_fee` | Coin | 10 SPARK | Fee to register a name |
+| `registration_fee` | Coin | 10 SPARK | Fee to register a name (burned) |
 | `dispute_stake_dream` | Int | 50 DREAM | Claimant's stake to file a dispute |
 | `dispute_timeout_blocks` | uint64 | 100,800 | Auto-resolve timeout (~7 days) |
 | `contest_stake_dream` | Int | 100 DREAM | Owner's stake to contest a dispute |
@@ -104,7 +104,7 @@ Any address can file a dispute by staking 50 DREAM. The current owner can contes
 | Module | Required | Purpose |
 |--------|----------|---------|
 | `x/auth` | Yes | Address codec |
-| `x/bank` | Yes | Registration fee collection |
+| `x/bank` | Yes | Registration fee collection and burn |
 | `x/commons` | Yes | Council membership checks, authorization, group/policy management |
 | `x/rep` | Yes | Active-membership gate for registration; DREAM lock/unlock/burn for disputes; jury integration |
 

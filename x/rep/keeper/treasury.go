@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/rep/types"
 
 	"cosmossdk.io/collections"
@@ -443,7 +444,7 @@ func (k Keeper) CheckAndTrackEpochMint(ctx context.Context, amount math.Int) err
 	}
 
 	var minted math.Int
-	if err == nil && trackedEpoch == uint64(currentEpoch) {
+	if err == nil && trackedEpoch == commontypes.Saturate[uint64](currentEpoch) {
 		amountStr, getErr := k.EpochMintedAmount.Get(ctx)
 		if getErr != nil && !errors.Is(getErr, collections.ErrNotFound) {
 			return getErr
@@ -466,7 +467,7 @@ func (k Keeper) CheckAndTrackEpochMint(ctx context.Context, amount math.Int) err
 		return types.ErrDreamMintCapExceeded
 	}
 
-	if err := k.EpochMintedEpoch.Set(ctx, uint64(currentEpoch)); err != nil {
+	if err := k.EpochMintedEpoch.Set(ctx, commontypes.Saturate[uint64](currentEpoch)); err != nil {
 		return err
 	}
 	return k.EpochMintedAmount.Set(ctx, newTotal.String())

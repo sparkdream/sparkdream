@@ -32,5 +32,8 @@ None defined. Proto definitions exist for future extensibility.
 
 | Module | Required | Purpose |
 |--------|----------|---------|
-| `x/auth` | Yes | Address validation |
-| `x/bank` | Yes | Future use |
+| `x/auth` | Wired, unused | Ignite scaffolding (`AuthKeeper` in `ModuleInputs`); no code path reads it |
+| `x/bank` | Wired, unused | Ignite scaffolding (`BankKeeper` in `ModuleInputs`); no code path reads it |
+
+The unused auth and bank keepers are kept by decision: they are harmless
+scaffolding, and removing them would alter the Ignite-generated module pattern.

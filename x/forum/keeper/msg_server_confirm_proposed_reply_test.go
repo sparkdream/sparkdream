@@ -42,7 +42,7 @@ func TestMsgConfirmProposedReply(t *testing.T) {
 			ProposedReplyId: 100,
 			ProposedBy:      testSentinel,
 		}
-		f.keeper.ThreadMetadata.Set(f.ctx, thread.PostId, metadata)
+		require.NoError(t, f.keeper.ThreadMetadata.Set(f.ctx, thread.PostId, metadata))
 
 		_, err := ms.ConfirmProposedReply(f.ctx, &types.MsgConfirmProposedReply{
 			Creator:  testCreator2, // Not the author
@@ -60,7 +60,7 @@ func TestMsgConfirmProposedReply(t *testing.T) {
 		metadata := types.ThreadMetadata{
 			ThreadId: thread.PostId,
 		}
-		f.keeper.ThreadMetadata.Set(f.ctx, thread.PostId, metadata)
+		require.NoError(t, f.keeper.ThreadMetadata.Set(f.ctx, thread.PostId, metadata))
 
 		_, err := ms.ConfirmProposedReply(f.ctx, &types.MsgConfirmProposedReply{
 			Creator:  testCreator,
@@ -81,7 +81,7 @@ func TestMsgConfirmProposedReply(t *testing.T) {
 			ProposedBy:      testSentinel,
 			AcceptedReplyId: 50, // Already accepted
 		}
-		f.keeper.ThreadMetadata.Set(f.ctx, thread.PostId, metadata)
+		require.NoError(t, f.keeper.ThreadMetadata.Set(f.ctx, thread.PostId, metadata))
 
 		_, err := ms.ConfirmProposedReply(f.ctx, &types.MsgConfirmProposedReply{
 			Creator:  testCreator,
@@ -104,7 +104,7 @@ func TestMsgConfirmProposedReply(t *testing.T) {
 			ProposedBy:      testSentinel,
 			ProposedAt:      now,
 		}
-		f.keeper.ThreadMetadata.Set(f.ctx, thread.PostId, metadata)
+		require.NoError(t, f.keeper.ThreadMetadata.Set(f.ctx, thread.PostId, metadata))
 
 		_, err := ms.ConfirmProposedReply(f.ctx, &types.MsgConfirmProposedReply{
 			Creator:  testCreator,

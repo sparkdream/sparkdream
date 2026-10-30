@@ -3,6 +3,7 @@ package keeper
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
@@ -49,6 +50,10 @@ func (k msgServer) Reveal(ctx context.Context, msg *types.MsgReveal) (*types.Msg
 		return nil, err
 	}
 
+	if strings.TrimSpace(msg.CodeUri) == "" || strings.TrimSpace(msg.CommitHash) == "" {
+		return nil, types.ErrEmptyReveal
+	}
+
 	// Update tranche with reveal data
 	tranche.CodeUri = msg.CodeUri
 	tranche.DocsUri = msg.DocsUri
@@ -58,7 +63,7 @@ func (k msgServer) Reveal(ctx context.Context, msg *types.MsgReveal) (*types.Msg
 	tranche.VerificationDeadline = currentEpoch + params.VerificationPeriodEpochs
 
 	// Save updated contribution
-	if err := k.Contribution.Set(ctx, contrib.Id, contrib); err != nil {
+	if err := k.saveContribution(ctx, &contrib); err != nil {
 		return nil, err
 	}
 

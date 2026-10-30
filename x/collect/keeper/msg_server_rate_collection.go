@@ -2,6 +2,7 @@ package keeper
 
 import (
 	"context"
+	"errors"
 	"strconv"
 
 	"cosmossdk.io/collections"
@@ -10,6 +11,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	"sparkdream/x/collect/types"
+	commontypes "sparkdream/x/common/types"
 	reptypes "sparkdream/x/rep/types"
 )
 
@@ -25,7 +27,7 @@ func (k msgServer) RateCollection(ctx context.Context, msg *types.MsgRateCollect
 
 	// Creator must hold an active bonded role (ROLE_TYPE_COLLECT_CURATOR) in
 	// x/rep. Registration is via MsgBondRole there — not via this module.
-	if k.repKeeper == nil {
+	if k.late.repKeeper == nil {
 		return nil, errorsmod.Wrap(types.ErrNotCurator, "rep keeper not wired")
 	}
 	// NORMAL and RECOVERY can both rate; DEMOTED cannot. UNBONDING can rate
@@ -34,7 +36,7 @@ func (k msgServer) RateCollection(ctx context.Context, msg *types.MsgRateCollect
 	// exit deauthorizes it. Liability containment comes from rep's
 	// pending-aware ReserveBond, not from the status flag: a rating reserved
 	// mid-unbond draws only on staying bond. Same gate as MsgHideContent.
-	role, err := k.repKeeper.EligibleForRole(ctx, reptypes.RoleType_ROLE_TYPE_COLLECT_CURATOR, msg.Creator)
+	role, err := k.late.repKeeper.EligibleForRole(ctx, reptypes.RoleType_ROLE_TYPE_COLLECT_CURATOR, msg.Creator)
 	if err != nil {
 		return nil, errorsmod.Wrapf(types.ErrNotCurator, "%s: curator status %s: %v", msg.Creator, role.BondStatus.String(), err)
 	}
@@ -129,7 +131,7 @@ func (k msgServer) RateCollection(ctx context.Context, msg *types.MsgRateCollect
 	}
 
 	// comment <= max_review_comment_length
-	if uint32(len(msg.Comment)) > params.MaxReviewCommentLength {
+	if commontypes.Saturate[uint32](len(msg.Comment)) > params.MaxReviewCommentLength {
 		return nil, errorsmod.Wrapf(types.ErrReasonTooLong, "comment length %d exceeds max %d", len(msg.Comment), params.MaxReviewCommentLength)
 	}
 
@@ -162,7 +164,10 @@ func (k msgServer) RateCollection(ctx context.Context, msg *types.MsgRateCollect
 	}
 
 	// Bump per-module curator activity counters (collect-specific).
-	activity, _ := k.CuratorActivity.Get(ctx, msg.Creator)
+	activity, err := k.CuratorActivity.Get(ctx, msg.Creator)
+	if err != nil && !errors.Is(err, collections.ErrNotFound) {
+		return nil, err
+	}
 	if activity.Address == "" {
 		activity.Address = msg.Creator
 	}
@@ -171,13 +176,17 @@ func (k msgServer) RateCollection(ctx context.Context, msg *types.MsgRateCollect
 		return nil, errorsmod.Wrap(err, "failed to update curator activity")
 	}
 	// Stamp BondedRole activity timestamp on rep's side (tracks inactivity).
-	_ = k.repKeeper.RecordActivity(ctx, reptypes.RoleType_ROLE_TYPE_COLLECT_CURATOR, msg.Creator)
+	if err := k.late.repKeeper.RecordActivity(ctx, reptypes.RoleType_ROLE_TYPE_COLLECT_CURATOR, msg.Creator); err != nil {
+		return nil, err
+	}
 	// Record the rating on the shared RoleActivity counters too. The SPARK pool
 	// gates on challenge outcomes rather than raw volume, so this does not by
 	// itself earn anything — it keeps the shared record a complete picture of
 	// the role holder's work, the way forum reports hides.
-	_ = k.repKeeper.RecordRoleAction(ctx, reptypes.RoleType_ROLE_TYPE_COLLECT_CURATOR,
-		msg.Creator, reptypes.ActionKindCollectCuration)
+	if err := k.late.repKeeper.RecordRoleAction(ctx, reptypes.RoleType_ROLE_TYPE_COLLECT_CURATOR,
+		msg.Creator, reptypes.ActionKindCollectCuration); err != nil {
+		return nil, err
+	}
 
 	// Update CurationSummary (up_count/down_count, merge tags, last_reviewed_at)
 	summary, err := k.CurationSummary.Get(ctx, msg.CollectionId)

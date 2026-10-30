@@ -163,7 +163,7 @@ Init order: x/commons → x/service → x/federation.
 | `x/auth` | Forward-derive auth for `OpenSystemReport` |
 | `x/bank` | Bond escrow, slash transfers |
 | `x/commons` | `IsGroupAddress`, controller validation |
-| `x/rep` | Jury via `CreateAppealInitiative`, `service-operator` reputation tag |
+| `x/rep` | Jury via `CreateSeatedAppeal` (jury seated at open, parties excluded, voting deadline at half of `max_escalated_blocks`), `service-operator` reputation tag |
 | `x/distribution` | Community pool deposit for finalized slashes |
 | `x/session` | Operator key delegation |
 

@@ -129,8 +129,12 @@ func (k msgServer) ContestSlash(ctx context.Context, msg *types.MsgContestSlash)
 	if err := k.Tier1Escrow.Remove(ctx, escrowID); err != nil {
 		return nil, err
 	}
-	_ = k.Tier1EscrowByOperator.Remove(ctx, collections.Join3(opBytes, msg.ServiceType, escrowID))
-	_ = k.Tier1EscrowReleaseQueue.Remove(ctx, collections.Join(escrow.ReleaseAt, escrowID))
+	if err := k.Tier1EscrowByOperator.Remove(ctx, collections.Join3(opBytes, msg.ServiceType, escrowID)); err != nil {
+		return nil, err
+	}
+	if err := k.Tier1EscrowReleaseQueue.Remove(ctx, collections.Join(escrow.ReleaseAt, escrowID)); err != nil {
+		return nil, err
+	}
 
 	// Transition report RESOLVED_T1 → ESCALATED. proposed_slash_bps
 	// carries the original tier-1 slash_bps as the jury's upper bound.
@@ -147,8 +151,9 @@ func (k msgServer) ContestSlash(ctx context.Context, msg *types.MsgContestSlash)
 			report.ReportId, report.OperatorAddress, report.ServiceType,
 			report.Reporter, report.Reason, report.ProposedSlashBps,
 		))
-		deadline := currentHeight + params.MaxEscalatedBlocks
-		caseID, err := k.repKeeper().CreateAppealInitiative(ctx, "service.slash", payload, deadline)
+		parties := []string{report.OperatorAddress, report.Reporter, op.Controller}
+		caseID, err := k.repKeeper().CreateSeatedAppeal(ctx, "service.slash", payload,
+			juryVotingDeadline(currentHeight, params), parties)
 		if err != nil {
 			return nil, err
 		}

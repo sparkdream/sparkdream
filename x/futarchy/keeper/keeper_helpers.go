@@ -16,15 +16,16 @@ func (k Keeper) IsGovAuthority(addr string) bool {
 	return bytes.Equal(k.authority, addrBytes)
 }
 
-// IsCouncilAuthorized checks if the address is authorized via governance authority,
-// council policy address, or committee membership.
-// Delegates to x/commons IsCouncilAuthorized when available.
-// Falls back to IsGovAuthority when x/commons is not wired.
-func (k Keeper) isCouncilAuthorized(ctx context.Context, addr string, council string, committee string) bool {
+// isCouncilOrCommitteePolicy accepts the gov authority, the council policy
+// address or the committee policy address, but never an individual
+// committee member (FUT-10): changing a market-wide value must carry a
+// committee or council decision. Falls back to IsGovAuthority when x/commons
+// is not wired.
+func (k Keeper) isCouncilOrCommitteePolicy(ctx context.Context, addr string, council string, committee string) bool {
 	if k.late.commonsKeeper == nil {
 		return k.IsGovAuthority(addr)
 	}
-	return k.late.commonsKeeper.IsCouncilAuthorized(ctx, addr, council, committee)
+	return k.late.commonsKeeper.IsCouncilOrCommitteePolicy(ctx, addr, council, committee)
 }
 
 // SetCommonsKeeper sets the commons keeper dependency.
@@ -59,10 +60,10 @@ func (k Keeper) canActAs(ctx context.Context, signer, stored string) bool {
 // SetHooks sets the hooks for the futarchy module.
 // Note: It must be a pointer receiver to update the struct.
 func (k *Keeper) SetHooks(hooks types.FutarchyHooks) {
-	if k.Hooks != nil {
+	if k.late.hooks != nil {
 		panic("FutarchyHooks already set")
 	}
-	k.Hooks = hooks
+	k.late.hooks = hooks
 }
 
 // SetIdentityKeeper late-binds the identity keeper for federated-denom

@@ -35,6 +35,9 @@ func (k msgServer) CreateGrant(ctx context.Context, msg *types.MsgCreateGrant) (
 	if err := k.validateGrantCommon(ctx, params, blockTime, msg.Granter, msg.Grantee, msg.ExpiresAt, msg.Note); err != nil {
 		return nil, err
 	}
+	if err := k.checkGranteeCapacity(ctx, msg.Grantee); err != nil {
+		return nil, err
+	}
 
 	// Allocate ID upfront so per-type validators can reference it for
 	// logging / events if they need to.
@@ -116,6 +119,9 @@ func (k msgServer) CreateGrant(ctx context.Context, msg *types.MsgCreateGrant) (
 		return nil, types.ErrInvalidPayload.Wrap("payload oneof must be set")
 	}
 
+	if err := k.checkPayoutRecipients(grant); err != nil {
+		return nil, err
+	}
 	if err := k.writeGrant(ctx, grant); err != nil {
 		return nil, err
 	}
@@ -123,10 +129,10 @@ func (k msgServer) CreateGrant(ctx context.Context, msg *types.MsgCreateGrant) (
 	sdkCtx.EventManager().EmitEvent(sdk.NewEvent(
 		"grant_created",
 		sdk.NewAttribute("id", fmt.Sprintf("%d", id)),
-		sdk.NewAttribute("type", grant.Type.String()),
+		sdk.NewAttribute("type", types.GrantTypeEventValue(grant.Type)),
 		sdk.NewAttribute("granter", msg.Granter),
 		sdk.NewAttribute("grantee", msg.Grantee),
-		sdk.NewAttribute("expires_at", msg.ExpiresAt.UTC().Format("2006-01-02T15:04:05.000000000Z")),
+		sdk.NewAttribute("expires_at", msg.ExpiresAt.UTC().Format(time.RFC3339Nano)),
 	))
 
 	return &types.MsgCreateGrantResponse{GrantId: id}, nil

@@ -2,6 +2,7 @@ package keeper
 
 import (
 	"fmt"
+	commontypes "sparkdream/x/common/types"
 
 	"cosmossdk.io/store/prefix"
 	"github.com/cosmos/cosmos-sdk/runtime"
@@ -249,11 +250,37 @@ func ExpiryIndexInvariant(k Keeper) sdk.Invariant {
 			}
 		}
 
-		// Check that each expected item has an expiry index entry
-		// Note: We can't efficiently check the reverse (iterate expiry index to verify targets)
-		// without knowing the exact key format, so we only check one direction.
-		// The genesis validation already covers the other direction.
-		_ = expectedExpiry // used for documentation; full bidirectional check would require expiry index iteration
+		// Both directions: every ephemeral live item has its index entry at
+		// its expires_at, and every index entry points at such an item.
+		indexed := make(map[string]int64)
+		expiryStore := prefix.NewStore(storeAdapter, []byte(types.ExpiryKey))
+		expiryIter := expiryStore.Iterator(nil, nil)
+		defer expiryIter.Close()
+		for ; expiryIter.Valid(); expiryIter.Next() {
+			key := expiryIter.Key()
+			contentType, id, ts, ok := parseExpiryKey(key)
+			if !ok {
+				broken++
+				msg += fmt.Sprintf("  malformed expiry index key %x\n", key)
+				continue
+			}
+			ik := fmt.Sprintf("%s/%d", contentType, id)
+			if prev, dup := indexed[ik]; dup {
+				broken++
+				msg += fmt.Sprintf("  %s indexed twice (%d and %d)\n", ik, prev, ts)
+			}
+			indexed[ik] = ts
+			if want, live := expectedExpiry[ik]; !live || want != ts {
+				broken++
+				msg += fmt.Sprintf("  expiry index entry %s at %d has no live item expiring then\n", ik, ts)
+			}
+		}
+		for ik, want := range expectedExpiry {
+			if got, ok := indexed[ik]; !ok || got != want {
+				broken++
+				msg += fmt.Sprintf("  %s expires at %d but is not in the expiry index\n", ik, want)
+			}
+		}
 
 		return sdk.FormatInvariant(types.ModuleName, "expiry-index",
 			fmt.Sprintf("found %d expiry index violations\n%s", broken, msg)), broken > 0
@@ -278,7 +305,7 @@ func HighWaterMarkInvariant(k Keeper) sdk.Invariant {
 			if post.Status == types.PostStatus_POST_STATUS_DELETED {
 				continue // tombstoned content has cleared body
 			}
-			contentLen := uint64(len(post.Title) + len(post.Body))
+			contentLen := commontypes.Saturate[uint64](len(post.Title) + len(post.Body))
 			if post.FeeBytesHighWater < contentLen {
 				broken++
 				msg += fmt.Sprintf("  post %d: fee_bytes_high_water=%d < content_len=%d\n",
@@ -315,4 +342,23 @@ func bytesToUint64(bz []byte) uint64 {
 	}
 	return uint64(bz[0])<<56 | uint64(bz[1])<<48 | uint64(bz[2])<<40 | uint64(bz[3])<<32 |
 		uint64(bz[4])<<24 | uint64(bz[5])<<16 | uint64(bz[6])<<8 | uint64(bz[7])
+}
+
+// parseExpiryKey splits an expiry index key ({ts_8}/{type}/{id_8}).
+func parseExpiryKey(key []byte) (contentType string, id uint64, ts int64, ok bool) {
+	if len(key) < 18 || key[8] != '/' {
+		return "", 0, 0, false
+	}
+	rest := key[9:]
+	sep := -1
+	for i, b := range rest {
+		if b == '/' {
+			sep = i
+			break
+		}
+	}
+	if sep < 0 || len(rest)-sep-1 != 8 {
+		return "", 0, 0, false
+	}
+	return string(rest[:sep]), bytesToUint64(rest[sep+1:]), commontypes.Saturate[int64](bytesToUint64(key[:8])), true
 }

@@ -46,7 +46,7 @@ func TestQueryGetNomination(t *testing.T) {
 			RewardAmount: math.LegacyZeroDec(),
 			Rewarded:     false,
 		}
-		err := f.keeper.Nomination.Set(f.ctx, nom.Id, nom)
+		err := f.keeper.SetNomination(f.ctx, nom)
 		require.NoError(t, err)
 
 		resp, err := qs.GetNomination(f.ctx, &types.QueryGetNominationRequest{

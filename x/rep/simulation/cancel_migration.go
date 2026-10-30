@@ -1,40 +1,35 @@
 package simulation
 
 import (
-	"math/rand"
-
-	"github.com/cosmos/cosmos-sdk/baseapp"
+	"cosmossdk.io/math"
 	"github.com/cosmos/cosmos-sdk/client"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
 
 	"sparkdream/x/rep/keeper"
 	"sparkdream/x/rep/types"
 )
 
-func SimulateMsgCancelMigration(
-	ak types.AuthKeeper,
-	bk types.BankKeeper,
-	k keeper.Keeper,
-	txGen client.TxConfig,
-) simtypes.Operation {
-	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
-	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		var found *types.MemberMigration
-		_ = k.MemberMigrations.Walk(ctx, nil, func(_ uint64, m types.MemberMigration) (bool, error) {
-			if m.Path == types.MigrationPath_MIGRATION_PATH_KEY && types.IsPendingMigrationStatus(m.Status) {
-				if _, ok := accountFor(accs, m.FromAddress); ok {
-					found = &m
-					return true, nil
+// SimulateMsgCancelMigration has the old or the new address of a pending
+// KEY migration call it off.
+func SimulateMsgCancelMigration(ak types.AuthKeeper, bk types.BankKeeper, k keeper.Keeper, txGen client.TxConfig) simtypes.Operation {
+	label := &types.MsgCancelMigration{}
+	return operation(ak, bk, k, txGen, label, func(e *simEnv) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
+		ms, err := e.migrations(func(m types.MemberMigration) bool {
+			return m.Path == types.MigrationPath_MIGRATION_PATH_KEY && types.IsPendingMigrationStatus(m.Status)
+		})
+		if err != nil {
+			return noOpErr(label, err)
+		}
+		var cands []candidate
+		for _, m := range ms {
+			for _, signer := range []string{m.FromAddress, m.ToAddress} {
+				if acc, ok := e.account(signer); ok {
+					cands = append(cands, candidate{acc: acc, msg: &types.MsgCancelMigration{
+						Signer: signer, MigrationId: m.Id,
+					}, spent: math.ZeroInt()})
 				}
 			}
-			return false, nil
-		})
-		if found == nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgCancelMigration{}), "no pending key migration to cancel"), nil, nil
 		}
-		acc, _ := accountFor(accs, found.FromAddress)
-		msg := &types.MsgCancelMigration{Signer: found.FromAddress, MigrationId: found.Id}
-		return deliver(r, app, ctx, msg, acc, ak, bk, txGen)
-	}
+		return e.firstValid(label, cands, 4, "no pending key migration with a live party")
+	})
 }

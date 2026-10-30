@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"cosmossdk.io/collections"
+
 	"sparkdream/x/forum/types"
 	reptypes "sparkdream/x/rep/types"
 
@@ -44,12 +46,13 @@ func (k msgServer) AppealThreadLock(ctx context.Context, msg *types.MsgAppealThr
 		return nil, errorsmod.Wrap(types.ErrNotThreadAuthor, "only the thread author can appeal a lock")
 	}
 
-	// Check lock record exists (sentinel lock vs gov lock)
+	// Every lock (sentinel, committee or council) writes a lock record; the
+	// record is dropped once the appeal window closes or an appeal settles,
+	// so a missing record means the lock is no longer appealable.
 	lockRecord, err := k.ThreadLockRecord.Get(ctx, msg.RootId)
 	if err != nil {
-		// No lock record means governance authority locked this thread
 		return nil, errorsmod.Wrap(types.ErrGovLockNotAppealable,
-			"governance authority locks must be appealed via governance action appeal")
+			"no appealable lock record: the appeal window closed or the lock was already appealed")
 	}
 
 	// Check appeal not already filed
@@ -63,6 +66,11 @@ func (k msgServer) AppealThreadLock(ctx context.Context, msg *types.MsgAppealThr
 		return nil, errorsmod.Wrapf(types.ErrAppealCooldown,
 			"must wait until %d to appeal", cooldownEnd)
 	}
+	// The appeal window closes at the lock-appeal deadline; past it the
+	// record is finalized by the EndBlocker (the lock stood unchallenged).
+	if deadline := lockExpiryAt(lockRecord); now >= deadline {
+		return nil, errorsmod.Wrapf(types.ErrLockAppealExpired, "lock appeal window closed at %d", deadline)
+	}
 
 	// Open a moderation appeal through the unified x/rep GovActionAppeal path
 	// (ActionType THREAD_LOCK, ActionTarget = root id). Charges the rep appeal
@@ -75,6 +83,18 @@ func (k msgServer) AppealThreadLock(ctx context.Context, msg *types.MsgAppealThr
 	if err != nil {
 		return nil, errorsmod.Wrap(err, "invalid creator address")
 	}
+	// Mark the record BEFORE opening the rep appeal: the appeal-target
+	// adapter only honors THREAD_LOCK appeals whose record carries the flag
+	// (see forumAppealRecord). Appealed records leave the expiry index; the
+	// verdict settles them. A failure below reverts the whole message.
+	lockRecord.AppealPending = true
+	if err := k.ThreadLockRecord.Set(ctx, msg.RootId, lockRecord); err != nil {
+		return nil, errorsmod.Wrap(err, "failed to update lock record")
+	}
+	if err := k.LockRecordExpiry.Remove(ctx, collections.Join(lockExpiryAt(lockRecord), msg.RootId)); err != nil {
+		return nil, err
+	}
+
 	_, initiativeID, err := k.repKeeper.CreateGovActionAppeal(
 		ctx,
 		reptypes.GovActionType_GOV_ACTION_TYPE_THREAD_LOCK,
@@ -88,7 +108,6 @@ func (k msgServer) AppealThreadLock(ctx context.Context, msg *types.MsgAppealThr
 
 	// Update lock record with appeal info (blocks sentinel self-unlock while
 	// the appeal is pending; see MsgUnlockThread).
-	lockRecord.AppealPending = true
 	lockRecord.InitiativeId = initiativeID
 
 	if err := k.ThreadLockRecord.Set(ctx, msg.RootId, lockRecord); err != nil {

@@ -10,4 +10,7 @@ message EpochXpTracker {
   uint64 forum_xp_earned = 3;
   uint64 quest_xp_earned = 4;
   uint64 other_xp_earned = 5;
+  // Vote grants accepted this epoch (SEA-33); the max_vote_xp_per_epoch cap
+  // counts these, not vote_xp_earned / xp_vote_cast.
+  uint64 votes_counted = 6;
 }

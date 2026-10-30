@@ -16,7 +16,7 @@ import (
 //
 //  1. Finalize ACCEPTED migrations whose executes_at has passed, each in a
 //     child cache context; a failure marks the migration FAILED and frees the
-//     member's pending slot.
+//     member's pending slot. Skipped while x/season is in maintenance mode.
 //  2. Expire REQUESTED migrations the new address never accepted.
 //  3. Tally objection jury reviews past their deadline.
 //  4. Burn the deposits of sealed recovery commits past their TTL.
@@ -25,7 +25,13 @@ func (k Keeper) ProcessMigrations(ctx context.Context) {
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	now := sdkCtx.BlockTime().Unix()
 
-	if err := k.finalizeDueMigrations(ctx, now, types.MaxMigrationFinalizationsPerBlock); err != nil {
+	// No identity moves while x/season is archiving or resetting reputation
+	// and XP: the season walk keys on member addresses, and a re-key mid-walk
+	// would archive the old address and reset the new one twice (or never).
+	// Due migrations wait in the queue and finalize once maintenance ends.
+	if k.InMaintenanceMode(ctx) {
+		sdkCtx.Logger().Info("season maintenance: deferring member migration finalization")
+	} else if err := k.finalizeDueMigrations(ctx, now, types.MaxMigrationFinalizationsPerBlock); err != nil {
 		sdkCtx.Logger().Error("failed to finalize due migrations", "error", err)
 	}
 	if err := k.expireUnacceptedMigrations(ctx, now, types.MaxMigrationExpiriesPerBlock); err != nil {

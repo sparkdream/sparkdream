@@ -2,7 +2,10 @@ package keeper
 
 import (
 	"context"
+	"cosmossdk.io/collections"
+	"errors"
 	"fmt"
+	commontypes "sparkdream/x/common/types"
 
 	"sparkdream/x/season/types"
 
@@ -34,7 +37,9 @@ func (k msgServer) AcceptGuildInvite(ctx context.Context, msg *types.MsgAcceptGu
 	currentEpoch := k.GetCurrentEpoch(ctx)
 	if invite.ExpiresEpoch > 0 && currentEpoch > invite.ExpiresEpoch {
 		// Clean up expired invite
-		_ = k.GuildInvite.Remove(ctx, key)
+		if err := commontypes.RemoveIndexed(ctx, k.GuildInvite, key); err != nil {
+			return nil, err
+		}
 		return nil, types.ErrGuildInviteExpired
 	}
 
@@ -64,7 +69,10 @@ func (k msgServer) AcceptGuildInvite(ctx context.Context, msg *types.MsgAcceptGu
 	}
 
 	// Check guild capacity
-	params, _ := k.Params.Get(ctx)
+	params, getErr := k.Params.Get(ctx)
+	if getErr != nil && !errors.Is(getErr, collections.ErrNotFound) {
+		return nil, getErr
+	}
 	memberCount := k.GetGuildMemberCount(ctx, msg.GuildId)
 	if memberCount >= uint64(params.MaxGuildMembers) {
 		return nil, types.ErrGuildFull
@@ -72,24 +80,22 @@ func (k msgServer) AcceptGuildInvite(ctx context.Context, msg *types.MsgAcceptGu
 
 	// Check guild hop cooldown
 	membership, err := k.GuildMembership.Get(ctx, msg.Creator)
-	if err == nil && membership.LeftEpoch > 0 {
-		epochsSinceLeft := currentEpoch - membership.LeftEpoch
-		if uint64(epochsSinceLeft) < params.GuildHopCooldownEpochs {
-			return nil, errorsmod.Wrapf(types.ErrGuildHopCooldown,
-				"must wait %d more epochs", params.GuildHopCooldownEpochs-uint64(epochsSinceLeft))
-		}
+	if err := checkGuildHopCooldown(membership, err == nil, currentEpoch, params.GuildHopCooldownEpochs); err != nil {
+		return nil, err
 	}
 
 	// Check max guilds per season
-	if err == nil && membership.GuildsJoinedThisSeason >= uint64(params.MaxGuildsPerSeason) {
+	if err == nil && k.guildsJoinedThisSeason(ctx, membership) >= uint64(params.MaxGuildsPerSeason) {
 		return nil, types.ErrMaxGuildsPerSeason
 	}
 
 	// Remove the invite
-	_ = k.GuildInvite.Remove(ctx, key)
+	if err := commontypes.RemoveIndexed(ctx, k.GuildInvite, key); err != nil {
+		return nil, err
+	}
 
 	// Remove from pending invites list
-	newInvites := make([]string, 0, len(guild.PendingInvites)-1)
+	newInvites := make([]string, 0, len(guild.PendingInvites))
 	for _, inv := range guild.PendingInvites {
 		if !k.canActAs(ctx, msg.Creator, inv) {
 			newInvites = append(newInvites, inv)
@@ -107,18 +113,9 @@ func (k msgServer) AcceptGuildInvite(ctx context.Context, msg *types.MsgAcceptGu
 		return nil, errorsmod.Wrap(err, "failed to update profile")
 	}
 
-	// Create/update membership record
-	newMembership := types.GuildMembership{
-		Member:                 msg.Creator,
-		GuildId:                msg.GuildId,
-		JoinedEpoch:            currentEpoch,
-		LeftEpoch:              0,
-		GuildsJoinedThisSeason: 1,
-	}
-	if err == nil {
-		newMembership.GuildsJoinedThisSeason = membership.GuildsJoinedThisSeason + 1
-	}
-	if err := k.GuildMembership.Set(ctx, msg.Creator, newMembership); err != nil {
+	// Create/update membership record and the active member counter
+	// (SEA-24: an accepted invite counts toward max_guild_members).
+	if err := k.joinGuildMembership(ctx, msg.Creator, msg.GuildId, currentEpoch); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to save membership")
 	}
 

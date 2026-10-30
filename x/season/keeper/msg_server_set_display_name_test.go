@@ -107,7 +107,7 @@ func TestMsgServerSetDisplayName(t *testing.T) {
 			DisplayName:                "OldName",
 			LastDisplayNameChangeEpoch: 5, // Just changed at epoch 5
 		}
-		k.MemberProfile.Set(ctx, creatorStr, profile)
+		require.NoError(t, k.MemberProfile.Set(ctx, creatorStr, profile))
 
 		_, err := ms.SetDisplayName(ctx, &types.MsgSetDisplayName{
 			Creator: creatorStr,
@@ -135,7 +135,7 @@ func TestMsgServerSetDisplayName(t *testing.T) {
 			DisplayName:                "OldName",
 			LastDisplayNameChangeEpoch: 0, // Changed long ago
 		}
-		k.MemberProfile.Set(ctx, creatorStr, profile)
+		require.NoError(t, k.MemberProfile.Set(ctx, creatorStr, profile))
 
 		// Advance time past cooldown
 		ctx = ctx.WithBlockHeight(int64(params.DisplayNameChangeCooldownEpochs+1) * params.EpochBlocks)
@@ -188,7 +188,7 @@ func TestMsgServerSetDisplayName(t *testing.T) {
 			Address:     creatorStr,
 			DisplayName: "",
 		}
-		k.MemberProfile.Set(ctx, creatorStr, profile)
+		require.NoError(t, k.MemberProfile.Set(ctx, creatorStr, profile))
 
 		// Setup active moderation
 		moderation := types.DisplayNameModeration{
@@ -196,7 +196,7 @@ func TestMsgServerSetDisplayName(t *testing.T) {
 			RejectedName: "BadName",
 			Active:       true,
 		}
-		k.DisplayNameModeration.Set(ctx, creatorStr, moderation)
+		require.NoError(t, k.SetDisplayNameModeration(ctx, creatorStr, moderation))
 
 		_, err := ms.SetDisplayName(ctx, &types.MsgSetDisplayName{
 			Creator: creatorStr,

@@ -563,6 +563,42 @@
       "scope": "1099511627776"
     },
     {
+      "message_type_url": "/sparkdream.commons.v1.MsgAnonymousVotePoll",
+      "nullifier_domain": 33,
+      "nullifier_scope_type": "NULLIFIER_SCOPE_MESSAGE_FIELD",
+      "scope_field_path": "poll_id",
+      "epoch_window": "0",
+      "epoch": "5",
+      "fields": {
+        "poll_id": "1"
+      },
+      "scope": "1"
+    },
+    {
+      "message_type_url": "/sparkdream.commons.v1.MsgAnonymousVotePoll",
+      "nullifier_domain": 33,
+      "nullifier_scope_type": "NULLIFIER_SCOPE_MESSAGE_FIELD",
+      "scope_field_path": "poll_id",
+      "epoch_window": "0",
+      "epoch": "5",
+      "fields": {
+        "poll_id": "42"
+      },
+      "scope": "42"
+    },
+    {
+      "message_type_url": "/sparkdream.commons.v1.MsgAnonymousVotePoll",
+      "nullifier_domain": 33,
+      "nullifier_scope_type": "NULLIFIER_SCOPE_MESSAGE_FIELD",
+      "scope_field_path": "poll_id",
+      "epoch_window": "0",
+      "epoch": "5",
+      "fields": {
+        "poll_id": "1099511627776"
+      },
+      "scope": "1099511627776"
+    },
+    {
       "message_type_url": "/sparkdream.federation.v1.MsgSubmitArbiterHash",
       "nullifier_domain": 51,
       "nullifier_scope_type": "NULLIFIER_SCOPE_MESSAGE_FIELD",

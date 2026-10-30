@@ -1,67 +1,52 @@
 package simulation
 
 import (
-	"math/rand"
-
-	sdkmath "cosmossdk.io/math"
-	"github.com/cosmos/cosmos-sdk/baseapp"
+	"cosmossdk.io/math"
 	"github.com/cosmos/cosmos-sdk/client"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
 
 	"sparkdream/x/service/keeper"
 	"sparkdream/x/service/types"
 )
 
-// SimulateMsgWithdrawBond queues a partial withdrawal on a random ACTIVE
-// operator that has spare bond above min_bond (direct keeper call, like
-// the other x/service sims).
-func SimulateMsgWithdrawBond(
-	ak types.AuthKeeper,
-	bk types.BankKeeper,
-	k keeper.Keeper,
-	txGen client.TxConfig,
-) simtypes.Operation {
-	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
-	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		op, found := findRandomOperator(r, ctx, k)
-		msg := &types.MsgWithdrawBond{}
-		if !found {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "no operator available"), nil, nil
+// SimulateMsgWithdrawBond queues a partial withdrawal on an ACTIVE operator
+// with bond to spare above min_bond and its already queued withdrawal. When
+// no sim account is such an operator one registers first (registration
+// bonds up to twice min_bond, so a new operator usually has spare bond).
+func SimulateMsgWithdrawBond(ak types.AuthKeeper, bk types.BankKeeper, k keeper.Keeper, txGen client.TxConfig) simtypes.Operation {
+	label := &types.MsgWithdrawBond{}
+	return operation(ak, bk, k, txGen, label, func(e *simEnv) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
+		var storeErr error
+		spare := func(op types.Operator) math.Int {
+			cfg, found, err := e.serviceType(op.ServiceType)
+			if err != nil {
+				storeErr = err
+			}
+			if !found {
+				return math.ZeroInt()
+			}
+			return op.BondAmount.Sub(cfg.MinBondAmount).Sub(pendingWithdraw(op))
 		}
-		if op.Status != types.OperatorStatus_OPERATOR_STATUS_ACTIVE {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "operator is not active"), nil, nil
+		op, acc, ok, err := e.signedOperator(func(op types.Operator) bool {
+			return op.Status == types.OperatorStatus_OPERATOR_STATUS_ACTIVE && spare(op).IsPositive()
+		})
+		if err == nil {
+			err = storeErr
 		}
-		cfg, err := k.ServiceTypes.Get(ctx, op.ServiceType)
 		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "service type not found"), nil, nil
+			return noOpErr(label, err)
 		}
-		pending := sdkmath.ZeroInt()
-		if !op.PendingWithdrawAmount.IsNil() {
-			pending = op.PendingWithdrawAmount
+		if !ok {
+			return noOp(label, "no ACTIVE operator with bond above min_bond signed by a live sim account")
 		}
-		spare := op.BondAmount.Sub(cfg.MinBondAmount).Sub(pending)
-		if !spare.IsPositive() {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "no spare bond above min_bond"), nil, nil
+		msg := &types.MsgWithdrawBond{
+			Operator:    op.Address,
+			ServiceType: op.ServiceType,
+			Amount:      simtypes.RandomAmount(e.r, spare(op)),
 		}
-		amount := sdkmath.NewInt(1 + r.Int63n(spare.Int64()))
-		msg.Operator = op.Address
-		msg.ServiceType = op.ServiceType
-		msg.Amount = amount
-
-		params, err := k.Params.Get(ctx)
-		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "params not found"), nil, nil
+		if !msg.Amount.IsPositive() {
+			msg.Amount = math.OneInt()
 		}
-		period := cfg.UnbondingPeriodBlocks
-		if period <= 0 {
-			period = params.DefaultUnbondingPeriodBlocks
-		}
-		op.PendingWithdrawAmount = pending.Add(amount)
-		op.WithdrawCompleteAt = ctx.BlockHeight() + period
-		if err := k.PutOperator(ctx, op); err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "failed to update operator"), nil, nil
-		}
-		return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "ok (direct keeper call)"), nil, nil
-	}
+		return e.submit(acc, msg, math.ZeroInt())
+	})
 }

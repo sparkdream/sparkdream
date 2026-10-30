@@ -3,6 +3,7 @@ package keeper
 import (
 	"context"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/rep/types"
 
 	"cosmossdk.io/collections"
@@ -53,7 +54,7 @@ func (q queryServer) ContentChallengesByTarget(ctx context.Context, req *types.Q
 		return nil, status.Error(codes.InvalidArgument, "invalid request")
 	}
 
-	targetKey := collections.Join(int32(req.TargetType), req.TargetId)
+	targetKey := collections.Join(commontypes.Saturate[int32](req.TargetType), req.TargetId)
 	ccID, err := q.k.ContentChallengesByTarget.Get(ctx, targetKey)
 	if err != nil {
 		return nil, status.Error(codes.NotFound, "no active content challenge for this target")

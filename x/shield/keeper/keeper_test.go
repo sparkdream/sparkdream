@@ -357,8 +357,8 @@ func TestShieldedOpRegistration(t *testing.T) {
 			return false
 		})
 		require.NoError(t, err)
-		// Default genesis registers 21 ops (blog:3, forum:3, collect:3+8 ownership, rep:1, commons:2, federation:1)
-		require.Equal(t, 21, count)
+		// Default genesis registers 22 ops (blog:3, forum:3, collect:3+8 ownership, rep:1, commons:3, federation:1)
+		require.Equal(t, 22, count)
 	})
 }
 
@@ -716,7 +716,7 @@ func TestDefaultGenesisOps(t *testing.T) {
 	require.Equal(t, 3, opsByModule["forum"], "forum should have 3 ops")
 	require.Equal(t, 11, opsByModule["collect"], "collect should have 3 ops plus 8 ownership-mode management ops")
 	require.Equal(t, 1, opsByModule["rep"], "rep should have 1 op")
-	require.Equal(t, 2, opsByModule["commons"], "commons should have 2 ops")
+	require.Equal(t, 3, opsByModule["commons"], "commons should have 3 ops")
 
 	// Verify domain uniqueness
 	domains := make(map[uint32]string)

@@ -8,13 +8,16 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/season/keeper"
 	"sparkdream/x/season/types"
 )
 
-// SimulateMsgAppealDisplayNameModeration simulates a MsgAppealDisplayNameModeration
-// using direct keeper calls. This bypasses the DREAM token requirement for simulation
-// purposes. Full token integration testing should be done in integration tests.
+// SimulateMsgAppealDisplayNameModeration delivers
+// MsgAppealDisplayNameModeration from a sim account whose display name is
+// under active, unappealed moderation inside the appeal period. Skips
+// appellants whose DREAM stake cannot be locked. Moderation cases come from
+// the ReportDisplayName operation.
 func SimulateMsgAppealDisplayNameModeration(
 	ak types.AuthKeeper,
 	bk types.BankKeeper,
@@ -23,45 +26,26 @@ func SimulateMsgAppealDisplayNameModeration(
 ) simtypes.Operation {
 	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
 	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		// Find a pending moderation case that hasn't been appealed yet
-		moderation, moderatedAddr, err := findDisplayNameModeration(r, ctx, k)
+		msg := &types.MsgAppealDisplayNameModeration{AppealReason: "simulation appeal"}
 
-		// If no moderation exists, create one so we can appeal it
-		if err != nil || moderation == nil {
-			simAccount, _ := simtypes.RandomAcc(r, accs)
-			moderatedAddr = simAccount.Address.String()
-
-			// Ensure profile exists
-			if err := getOrCreateMemberProfile(r, ctx, k, moderatedAddr); err != nil {
-				return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgAppealDisplayNameModeration{}), "failed to create profile"), nil, nil
-			}
-
-			newMod := types.DisplayNameModeration{
-				Member:       moderatedAddr,
-				RejectedName: "simulated-name",
-				Reason:       "Simulated moderation for appeal",
-				ModeratedAt:  ctx.BlockHeight(),
-				Active:       true,
-			}
-			if err := k.DisplayNameModeration.Set(ctx, moderatedAddr, newMod); err != nil {
-				return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgAppealDisplayNameModeration{}), "failed to create moderation"), nil, nil
-			}
-			moderation = &newMod
+		params, err := k.Params.Get(ctx)
+		if err != nil {
+			return noOpErr(msg, err)
+		}
+		appellants := accountsWhere(accs, func(a simtypes.Account) bool {
+			m, err := k.DisplayNameModeration.Get(ctx, a.Address.String())
+			return err == nil && m.Active && m.AppealChallengeId == "" &&
+				ctx.BlockHeight() <= m.ModeratedAt+commontypes.Saturate[int64](params.DisplayNameAppealPeriodBlocks)
+		})
+		appellant, ok := pick(r, appellants)
+		if !ok {
+			return noOp(msg, "no appealable display name moderation")
+		}
+		msg.Creator = appellant.Address.String()
+		if err := dryRunMsg(app, ctx, msg); err != nil {
+			return noOp(msg, "handler would reject: "+err.Error())
 		}
 
-		// Skip if already appealed
-		if moderation.AppealChallengeId != "" || moderation.AppealedAt > 0 {
-			// Reset appeal state so we can re-appeal in this simulation
-			moderation.AppealedAt = 0
-			moderation.AppealChallengeId = ""
-		}
-
-		// Mark the moderation as appealed directly (bypasses DREAM lock requirement)
-		moderation.AppealedAt = ctx.BlockHeight()
-		if err := k.DisplayNameModeration.Set(ctx, moderatedAddr, *moderation); err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgAppealDisplayNameModeration{}), "failed to update moderation"), nil, nil
-		}
-
-		return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgAppealDisplayNameModeration{}), "ok (direct keeper call)"), nil, nil
+		return deliver(r, app, ctx, txGen, ak, bk, appellant, msg)
 	}
 }

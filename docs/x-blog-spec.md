@@ -295,7 +295,7 @@ Removed -- anonymous post metadata (nullifiers, merkle roots, proven trust level
 | CreatorPostIndex | `Post/creator/{creator}/{post_id}` | []byte | Index: all posts by a specific creator |
 | ReactorIndex | `Reaction/creator/{creator}/{post_id}/{reply_id}` | []byte | Index: all reactions by a specific creator |
 | EphemeralByAuthorIndex | `Ephemeral/creator/{creator}/{kind}/{id}` | []byte | Index: still-ephemeral content (`kind = 1` post, `kind = 2` reply) grouped by author. Anonymous (shield-creator) ephemerals are NOT tracked. Maintained in lockstep with `ExpiryIndex`. |
-| PromotionQueue | `Promotion/queue/{creator}` | uint64 (enqueue block height, big-endian, telemetry only) | Set of authors with pending ephemeral content awaiting eager EndBlocker promotion to permanent. Enqueued by the `AfterMemberAdmitted` hook from x/rep. |
+| PromotionQueue | `Promotion/queue/{creator}` | uint64 (enqueue block height, big-endian, telemetry only) | Set of authors with pending ephemeral content awaiting eager EndBlocker promotion to permanent. Enqueued by the `AfterMemberAdmitted` hook from x/rep. Exported verbatim in genesis (`promotion_queue`, with heights): it is hook-driven and cannot be rebuilt from the posts. |
 
 **ID Assignment:**
 - Post and reply IDs are each auto-incrementing starting from 0 (separate counters)
@@ -1046,6 +1046,10 @@ message QueryListPostsByCreatorResponse {
 
 Since queries are unauthenticated, `include_hidden` is available to anyone — the privacy model is that hidden content is excluded from *default* listings, not that it is secret. Clients can use the `status` field to filter or display hidden posts differently.
 
+`MsgDeletePost` keeps the post's `CreatorPostIndex` entry (genesis rebuilds the index from every post, tombstones included), so a creator's tombstones stay listed with empty title and body.
+
+**Migrated authors (alias contract).** The canonical address's index prefix and each pre-migration address's prefix (`RepKeeper.AllAddressesOf`, canonical first) are paginated as **one ordered stream**: `limit` (default 100) bounds every page, `next_key` is the full index key (`{address}/{post_id}`) to resume at, `offset` and `count_total` count index keys across all the member's addresses, and no page repeats another page's posts. (Before, every alias's posts were appended in full to every page.)
+
 ### 6.7. ReactionCounts
 
 Returns aggregate reaction counts for a post or a specific reply.
@@ -1083,7 +1087,7 @@ Returns paginated list of ephemeral content expiring before a given timestamp. U
 
 ```protobuf
 message QueryListExpiringContentRequest {
-  int64 expires_before = 1;                                  // Return content expiring before this Unix timestamp (required; 0 = use current block_time + 86400)
+  int64 expires_before = 1;                                  // Return content expiring at or before this Unix timestamp (0 = no time bound)
   string content_type = 2;                                   // Filter by type: "post", "reply", or "" (both)
   cosmos.base.query.v1beta1.PageRequest pagination = 3;
 }
@@ -1099,7 +1103,7 @@ message QueryListExpiringContentResponse {
 - Hidden content is included (curators may want to review and pin it before expiry)
 - Tombstoned content is excluded (already expired or manually deleted)
 - Results are ordered by `expires_at` ascending (soonest to expire first)
-- **Pagination** operates on the `ExpiryIndex` (timestamp-ordered, interleaving posts and replies). The `content_type` filter is applied as a post-processing step after index iteration — when filtering by type, some pages may contain fewer results than the requested page size. The `pagination.next_key` token always points into the `ExpiryIndex`, so subsequent pages resume correctly regardless of filtering
+- **Pagination** is key-based over the `ExpiryIndex` (timestamp-ordered, interleaving posts and replies); `pagination.offset` is not supported. A page holds at most `min(limit, 100)` results (default 100). Every visited index key counts against a scan budget of `limit x 10`, including keys the `content_type` filter or a tombstone skips, so a page may return fewer results (even none) together with a `next_key`; keep paging until `next_key` is empty. No single query walks the whole index, whatever `expires_before` is
 
 ### 6.10. ListReactions
 
@@ -1123,7 +1127,7 @@ message QueryListReactionsResponse {
 - Returns all reaction types; clients can filter by `reaction_type` as needed
 - Post must exist; returns `ErrKeyNotFound` if post doesn't exist
 - If `reply_id > 0`: reply must exist and belong to the post
-- Reactions on tombstoned content are returned (reactions are preserved across tombstoning)
+- Reactions on content tombstoned by `MsgDeletePost`/`MsgDeleteReply` are returned (manual deletion preserves reactions). TTL expiry is different: the EndBlocker garbage-collects the reaction records **and** the aggregate counts of the content it tombstones (ephemeral content is the state-bloat path, Section 14 Pass 2), so an expired post or reply lists no reactions and reports zero counts
 - Reactions on hidden content are returned (reactions are not affected by hide/unhide)
 
 ### 6.11. ListReactionsByCreator
@@ -1254,11 +1258,11 @@ func (k Keeper) SetReactionCounts(ctx context.Context, postId uint64, replyId ui
 // If min_reply_trust_level == -1: always returns true (open to all).
 // If min_reply_trust_level == 0: checks IsActiveMember.
 // If min_reply_trust_level >= 1: checks IsActiveMember AND GetTrustLevel >= required.
-// PANICS if RepKeeper is nil (RepKeeper is a required dependency).
+// Network builds panic if RepKeeper is nil (hasRep; RepKeeper is required).
 func (k Keeper) meetsReplyTrustLevel(ctx context.Context, addr sdk.AccAddress, minLevel int32) bool
 
 // isActiveMember checks if addr is an active member via RepKeeper.
-// PANICS if RepKeeper is nil (RepKeeper is a required dependency).
+// Network builds panic if RepKeeper is nil (hasRep; RepKeeper is required).
 func (k Keeper) isActiveMember(ctx context.Context, addr sdk.AccAddress) bool
 ```
 
@@ -1739,6 +1743,8 @@ message GenesisReactionCounts {
 
 All state is preserved across genesis import/export. This includes tombstoned posts, hidden posts, hidden replies, tombstoned replies, and pin/expiry fields on posts and replies -- the full state is exported and restored faithfully.
 
+**Daily rate-limit counters are not exported.** The `RateLimit/{action_type}/{address}` entries restart empty after an import, so each address gets one fresh daily allowance on the restart day.
+
 **Derived indexes are not exported.** `ReplyPostIndex`, `CreatorPostIndex`, `ExpiryIndex`, `EphemeralByAuthorIndex`, and `ReactorIndex` are rebuilt during `InitGenesis` by iterating imported posts, replies, and reactions. `EphemeralByAuthorIndex` is rebuilt at the same time as `ExpiryIndex`: any imported post or reply with `expires_at > 0` and a creator other than the shield module account gets both index entries.
 
 **The promotion queue is not exported either.** `PromotionQueue` is a strictly forward-looking eager-drain hint. It's safe to start empty after a chain restart — the EndBlocker Pass 2 lazy member-now check still catches every ephemeral whose author is a member at TTL time, so no content is ever stranded. Any author who had pending eager promotion at export time loses only the "expires_at displayed as 0 sooner" UX benefit until they post again or the TTL hits.
@@ -1797,11 +1803,11 @@ Iterates the `ExpiryIndex` for all entries where `expires_at <= block_time`. For
 2. If already tombstoned (e.g., manually deleted before TTL): remove from expiry index, skip
 3. If already hidden: proceed to step 4 (hidden ephemeral content is not shielded from expiry — see note below)
 4. **Membership auto-upgrade check (non-anonymous only):** If the creator is a real address (not the shield module account, i.e. non-anonymous) and `RepKeeper.IsActiveMember(ctx, creator)` is true: the creator has since joined x/rep. Clear `expires_at = 0`, remove from `ExpiryIndex` AND `EphemeralByAuthorIndex`, and emit `blog.post.upgraded` or `blog.reply.upgraded` event (with no `via` attribute — `via` is reserved for the explicit MakePermanent and queue-drain paths). **No additional fee is charged** — the creator already paid full storage fees at creation, and membership itself is the qualifying event. Skip tombstoning. **In practice this lazy path is rarely hit post-rework** — Pass 1's eager drain promotes nearly all member-author content within a few blocks of admission; this branch survives as a safety net for queue-drained chain restarts and `max_promotions_per_block = 0` configurations.
-5. **Conviction check (anonymous only):** If the creator is the shield module account (anonymous content) and `params.conviction_renewal_threshold > 0`: query `RepKeeper.GetContentConviction(ctx, targetType, targetID)` where `targetType` = `STAKE_TARGET_CONTENT` and `targetID` encodes `"blog/post/{id}"` or `"blog/reply/{id}"`.
+5. **Conviction check (anonymous only):** If the creator is the shield module account (anonymous content) and `params.conviction_renewal_threshold > 0`: query `RepKeeper.GetContentConviction(ctx, targetType, id)` with `targetType` = `STAKE_TARGET_BLOG_CONTENT` for a post and `STAKE_TARGET_BLOG_REPLY_CONTENT` for a reply. Posts and replies have separate id sequences, so replies have their own stake target: conviction staked on post N never keeps reply N alive. To support an anonymous reply, stake on `STAKE_TARGET_BLOG_REPLY_CONTENT` with the reply id (x/rep resolves the reply's author through `BlogKeeper.GetReplyAuthor` for the self-stake check).
    - **Entering conviction-sustained state (first expiry):** If `conviction_sustained == false` and conviction score ≥ threshold: set `conviction_sustained = true`, set `expires_at = block_time + params.conviction_renewal_period`, update `ExpiryIndex`, and emit `blog.post.conviction_sustained` or `blog.reply.conviction_sustained` event. Skip tombstoning.
    - **Renewal (already conviction-sustained):** If `conviction_sustained == true` and conviction score ≥ threshold: set `expires_at = block_time + params.conviction_renewal_period`, update `ExpiryIndex`, emit `blog.post.renewed` or `blog.reply.renewed` event. Skip tombstoning.
    - **Expiry (conviction dropped):** If conviction score < threshold: set `conviction_sustained = false`. Proceed to tombstone (step 6).
-6. Tombstone the content: clear title/body (post) or body (reply), set `status = DELETED`
+6. Tombstone the content: clear title/body (post) or body (reply), set `status = DELETED`, and delete the content's reaction records and aggregate counts (unlike manual deletion, which keeps them)
 7. If tombstoning a reply with `status = REPLY_STATUS_ACTIVE`: decrement `post.reply_count`. If `status = REPLY_STATUS_HIDDEN`: do NOT decrement (already decremented by HideReply)
 8. Remove from `ExpiryIndex`
 9. Emit `blog.post.expired` or `blog.reply.expired` event
@@ -1810,7 +1816,7 @@ Iterates the `ExpiryIndex` for all entries where `expires_at <= block_time`. For
 
 **Hidden ephemeral content still expires (or enters conviction-sustained).** If a non-member hides their own post (self-moderation) and the TTL elapses, the EndBlocker tombstones it. For anonymous hidden content, the conviction check still runs — if the community supports hidden content via conviction staking, it enters conviction-sustained state (the hide remains visible but the content is not tombstoned).
 
-The expiry scan is bounded by the number of entries with `expires_at <= block_time`. With the default 7-day TTL and moderate ephemeral content volume (anonymous + non-member posts), this is a small number per block. The `ExpiryIndex` key is ordered by timestamp, enabling efficient prefix iteration up to the current block time. The membership check (step 4) adds one keeper call per non-anonymous expiring item. The conviction check (step 5) adds one keeper call per anonymous expiring item. Non-expired content incurs zero overhead.
+The expiry scan handles at most `MaxExpiriesPerBlock` (200, a compiled constant) entries per block, oldest first; the rest stay in the index and are picked up by the following blocks. Non-members post ephemeral content from free addresses, so without the cap many items timed to expire in the same second would make one block do all the work. Otherwise the scan is bounded by the number of entries with `expires_at <= block_time`. With the default 7-day TTL and moderate ephemeral content volume (anonymous + non-member posts), this is a small number per block. The `ExpiryIndex` key is ordered by timestamp, enabling efficient prefix iteration up to the current block time. The membership check (step 4) adds one keeper call per non-anonymous expiring item. The conviction check (step 5) adds one keeper call per anonymous expiring item. Non-expired content incurs zero overhead.
 
 ---
 
@@ -1834,7 +1840,7 @@ The module is wired via `depinject` with the following inputs:
 
 If `Config.Authority` is not set, defaults to the `x/gov` module account.
 
-**`RepKeeper` is a required dependency.** The module panics on startup if `RepKeeper` is nil. All membership and trust-level checks depend on it. There is no graceful degradation — this prevents a misconfiguration from silently disabling all access control in production.
+**`RepKeeper` is a required dependency.** It is late-wired in `app.go` (`SetRepKeeper`). Every keeper path that uses it goes through `hasRep()`: in network builds (`-tags mainnet|testnet|devnet`, `types.RepKeeperRequired`) a nil `RepKeeper` panics there, so a tx fails (baseapp recovers the panic) and a block hook halts the chain instead of skipping the rep side of the operation (author bonds, initiative links, tag registry, alias resolution, conviction renewal, membership gates). Untagged test builds keep the standalone fallbacks (address equality for aliases, non-member for membership, tag registry unavailable, rep side effects skipped) so keeper unit tests run without a rep keeper.
 
 **`RepHooks` subscription (post-depinject wiring).** x/blog implements `reptypes.RepHooks` via `BlogRepHooks` and subscribes through `RepKeeper.SetHooks(repmoduletypes.NewMultiRepHooks(blogmodulekeeper.NewBlogRepHooks(&app.BlogKeeper)))` in `app.go`, after the `depinject.Inject` call. The hook's only current consumer is `AfterMemberAdmitted`, which enqueues the new member into x/blog's `PromotionQueue`. Hook invocation is non-tx-halting: x/rep logs and continues on error so a buggy implementation cannot brick `MsgAcceptInvitation`. The hook is invented from scratch in x/rep — there was no prior hooks plumbing in that module.
 
@@ -1924,6 +1930,8 @@ For every post, `post.reply_count` must equal the count of replies with `status 
 ### 18.4. Expiry Index Consistency
 
 Every entry in the `ExpiryIndex` must reference a post or reply that (a) exists and (b) has `expires_at > 0` matching the index key. Conversely, every active post/reply with `expires_at > 0` must have a corresponding `ExpiryIndex` entry. Pinned content (`pinned_by != ""`) must have `expires_at == 0` and no expiry index entry — strict separation guarantees this: `MsgPinPost` / `MsgPinReply` reject ephemeral targets, and `MsgUnpin*` never reintroduce a TTL.
+
+The registered `expiry-index` invariant checks pinned content and both directions of the `ExpiryIndex` relation (a missing entry, an entry at the wrong time, an entry for nothing live, a malformed key or a duplicate).
 
 **EphemeralByAuthor consistency.** For every active post/reply with `expires_at > 0` AND a non-anonymous (non-shield) creator, there must be exactly one matching `EphemeralByAuthorIndex` entry keyed by `{creator}/{kind}/{id}`. Anonymous (shield-creator) ephemerals are tracked only in `ExpiryIndex`. The EndBlocker promotion drain and the keeper add/remove helpers maintain both indexes in lockstep at every state-mutating site (create, delete, pin/unpin is a no-op here, MakePermanent, EndBlock member-now path, EndBlock tombstone, EndBlock queue drain).
 

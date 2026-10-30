@@ -34,14 +34,15 @@ package app
 
 import (
 	"context"
+	"cosmossdk.io/log"
 	"fmt"
 	"net/http"
-	"os"
 	"sort"
+	"strconv"
 	"strings"
 
 	gateway "github.com/cosmos/gogogateway"
-	golangproto "github.com/golang/protobuf/proto"
+	golangproto "github.com/golang/protobuf/proto" //nolint:staticcheck // grpc-gateway v1 runtime options take the legacy proto.Message
 	"github.com/grpc-ecosystem/grpc-gateway/runtime"
 	"google.golang.org/grpc"
 
@@ -147,7 +148,7 @@ func newGatewayMux(ir codectypes.InterfaceRegistry) *runtime.ServeMux {
 }
 
 // installGatewayFix sets up the gateway routes and middleware.
-func installGatewayFix(apiSvr *api.Server, mm *module.Manager) {
+func installGatewayFix(apiSvr *api.Server, mm *module.Manager, logger log.Logger) {
 	cdc := codec.NewProtoCodec(apiSvr.ClientCtx.InterfaceRegistry)
 
 	// Create a FRESH mux — grpc-gateway v1 uses first-registered-wins,
@@ -170,14 +171,16 @@ func installGatewayFix(apiSvr *api.Server, mm *module.Manager) {
 			if bz, ok := preIntercept(cdc, grpcConn, path); ok {
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(200)
-				w.Write(bz)
+				_, _ = w.Write(bz) // the response is already committed; nothing to do on a failed write
 				return
 			}
 
 			// Safety net: catch any unexpected panics
 			defer func() {
 				if rec := recover(); rec != nil {
-					fmt.Fprintf(os.Stderr, "gateway_fix: handler panic for %s: %v\n", r.URL.Path, rec)
+					// Through the node logger, so the panic reaches the
+					// operator's log pipeline and not only stderr.
+					logger.Error("gateway_fix: handler panic", "path", r.URL.Path, "panic", fmt.Sprintf("%v", rec))
 					w.Header().Set("Content-Type", "application/json")
 					w.WriteHeader(500)
 					fmt.Fprintf(w, `{"code":13,"message":"internal error"}`)
@@ -218,8 +221,8 @@ func preIntercept(cdc *codec.ProtoCodec, conn *grpc.ClientConn, path string) ([]
 		if i := strings.IndexAny(height, "/?"); i >= 0 {
 			height = height[:i]
 		}
-		var h int64
-		fmt.Sscanf(height, "%d", &h)
+		// A malformed height parses as 0 and falls through to the gateway.
+		h, _ := strconv.ParseInt(height, 10, 64)
 		if h > 0 {
 			client := cmtservice.NewServiceClient(conn)
 			resp, err := client.GetBlockByHeight(ctx, &cmtservice.GetBlockByHeightRequest{Height: h})

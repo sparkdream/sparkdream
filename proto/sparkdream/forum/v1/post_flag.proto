@@ -2,8 +2,12 @@ syntax = "proto3";
 package sparkdream.forum.v1;
 
 import "sparkdream/common/v1/flag_record.proto";
+import "gogoproto/gogo.proto";
 
 option go_package = "sparkdream/x/forum/types";
+// Map fields are encoded in sorted key order: an unsorted encoding differs
+// between nodes and would split the app hash.
+option (gogoproto.stable_marshaler_all) = true;
 
 // PostFlag defines the PostFlag message.
 message PostFlag {

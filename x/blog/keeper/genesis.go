@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	commontypes "sparkdream/x/common/types"
 
 	"cosmossdk.io/store/prefix"
 	"github.com/cosmos/cosmos-sdk/runtime"
@@ -86,6 +87,15 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 		}
 	}
 
+	// The promotion queue is hook-driven (x/rep admits the author), so it is
+	// carried verbatim rather than rebuilt.
+	queue := k.promotionQueueStore(ctx)
+	for _, e := range genState.PromotionQueue {
+		bz := make([]byte, 8)
+		binary.BigEndian.PutUint64(bz, commontypes.Saturate[uint64](e.EnqueuedAt))
+		queue.Set([]byte(e.Creator), bz)
+	}
+
 	return nil
 }
 
@@ -152,6 +162,16 @@ func (k Keeper) ExportGenesis(ctx context.Context) (*types.GenesisState, error) 
 		})
 	}
 	countsIter.Close()
+
+	queueIter := k.promotionQueueStore(ctx).Iterator(nil, nil)
+	for ; queueIter.Valid(); queueIter.Next() {
+		var at int64
+		if v := queueIter.Value(); len(v) == 8 {
+			at = commontypes.Saturate[int64](binary.BigEndian.Uint64(v))
+		}
+		genesis.PromotionQueue = append(genesis.PromotionQueue, types.PromotionQueueEntry{Creator: string(queueIter.Key()), EnqueuedAt: at})
+	}
+	queueIter.Close()
 
 	return genesis, nil
 }

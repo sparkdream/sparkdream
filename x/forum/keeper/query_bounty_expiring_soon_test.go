@@ -46,7 +46,7 @@ func TestQueryBountyExpiringSoon(t *testing.T) {
 			ExpiresAt: now + 1800, // 30 minutes
 			CreatedAt: now,
 		}
-		f.keeper.Bounty.Set(f.ctx, bounty.Id, bounty)
+		require.NoError(t, f.keeper.Bounty.Set(f.ctx, bounty.Id, bounty))
 		require.NoError(t, f.keeper.BountiesByExpiry.Set(f.ctx, collections.Join(bounty.ExpiresAt, bounty.Id)))
 
 		resp, err := qs.BountyExpiringSoon(f.ctx, &types.QueryBountyExpiringSoonRequest{
@@ -69,7 +69,7 @@ func TestQueryBountyExpiringSoon(t *testing.T) {
 			Status:    types.BountyStatus_BOUNTY_STATUS_ACTIVE,
 			ExpiresAt: now - 100, // Already expired
 		}
-		f.keeper.Bounty.Set(f.ctx, expiredBounty.Id, expiredBounty)
+		require.NoError(t, f.keeper.Bounty.Set(f.ctx, expiredBounty.Id, expiredBounty))
 
 		resp, err := qs.BountyExpiringSoon(f.ctx, &types.QueryBountyExpiringSoonRequest{
 			WithinSeconds: 3600,
@@ -91,7 +91,7 @@ func TestQueryBountyExpiringSoon(t *testing.T) {
 			Status:    types.BountyStatus_BOUNTY_STATUS_CANCELLED,
 			ExpiresAt: now + 1800,
 		}
-		f.keeper.Bounty.Set(f.ctx, cancelledBounty.Id, cancelledBounty)
+		require.NoError(t, f.keeper.Bounty.Set(f.ctx, cancelledBounty.Id, cancelledBounty))
 
 		resp, err := qs.BountyExpiringSoon(f.ctx, &types.QueryBountyExpiringSoonRequest{
 			WithinSeconds: 3600,

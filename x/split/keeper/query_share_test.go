@@ -19,7 +19,9 @@ func createNShare(keeper keeper.Keeper, ctx context.Context, n int) []types.Shar
 	for i := range items {
 		items[i].Address = strconv.Itoa(i)
 		items[i].Weight = uint64(i)
-		_ = keeper.Share.Set(ctx, items[i].Address, items[i])
+		if err := keeper.Share.Set(ctx, items[i].Address, items[i]); err != nil {
+			panic(err)
+		}
 	}
 	return items
 }

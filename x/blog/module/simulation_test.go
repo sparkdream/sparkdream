@@ -32,8 +32,13 @@ func TestGenerateGenesisState(t *testing.T) {
 	var genesis types.GenesisState
 	require.NoError(t, encCfg.Codec.UnmarshalJSON(raw, &genesis))
 
+	// The media scan fee is randomized; every other param is the default.
 	defaultParams := types.DefaultParams()
+	require.True(t, genesis.Params.MediaScanFee.IsZero() || genesis.Params.MediaScanFee.IsPositive())
+	genesis.Params.MediaScanFee = defaultParams.MediaScanFee
 	require.Equal(t, defaultParams, genesis.Params)
+	require.Equal(t, uint64(1), genesis.PostCount)
+	require.Equal(t, uint64(1), genesis.ReplyCount)
 }
 
 func TestWeightedOperations(t *testing.T) {
@@ -45,7 +50,7 @@ func TestWeightedOperations(t *testing.T) {
 		TxConfig:  encCfg.TxConfig,
 	}
 	ops := am.WeightedOperations(simState)
-	require.Len(t, ops, 14)
+	require.Len(t, ops, 19)
 }
 
 func TestProposalMsgs(t *testing.T) {

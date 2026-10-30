@@ -1,0 +1,26 @@
+# Runs golangci-lint (configuration: .golangci.yml) on every push and pull
+# request. golangci-lint is pinned as a Go tool dependency in go.mod, so this
+# runs the same version as `make lint`.
+name: lint
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  golangci-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Lint
+        run: make lint

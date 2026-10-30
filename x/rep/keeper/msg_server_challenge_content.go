@@ -3,6 +3,7 @@ package keeper
 import (
 	"context"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/rep/types"
 
 	errorsmod "cosmossdk.io/errors"
@@ -21,7 +22,7 @@ func (k msgServer) ChallengeContent(ctx context.Context, msg *types.MsgChallenge
 	ccID, err := k.Keeper.CreateContentChallenge(
 		ctx,
 		challengerAddr,
-		types.StakeTargetType(msg.TargetType),
+		commontypes.Saturate[types.StakeTargetType](msg.TargetType),
 		msg.TargetId,
 		msg.Reason,
 		msg.Evidence,

@@ -198,7 +198,7 @@ func TestClaimStakingRewards_Success(t *testing.T) {
 		false,
 	)
 	require.NoError(t, err)
-	k.ApproveProject(f.ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(1000), math.NewInt(100))
+	require.NoError(t, k.ApproveProject(f.ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(1000), math.NewInt(100)))
 
 	stakeAmount := math.NewInt(1000000)
 	stakeID, err := k.CreateStake(
@@ -256,7 +256,7 @@ func TestClaimStakingRewards_NotStakeOwner(t *testing.T) {
 		false,
 	)
 	require.NoError(t, err)
-	k.ApproveProject(f.ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(1000), math.NewInt(100))
+	require.NoError(t, k.ApproveProject(f.ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(1000), math.NewInt(100)))
 
 	stakeID, err := k.CreateStake(
 		f.ctx, stakerAddr,
@@ -305,7 +305,7 @@ func TestClaimStakingRewards_ZeroRewards(t *testing.T) {
 		false,
 	)
 	require.NoError(t, err)
-	k.ApproveProject(f.ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(1000), math.NewInt(100))
+	require.NoError(t, k.ApproveProject(f.ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(1000), math.NewInt(100)))
 
 	stakeID, err := k.CreateStake(
 		f.ctx, stakerAddr,
@@ -480,7 +480,7 @@ func TestCompoundStakingRewards_NotStakeOwner(t *testing.T) {
 		false,
 	)
 	require.NoError(t, err)
-	k.ApproveProject(f.ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(1000), math.NewInt(100))
+	require.NoError(t, k.ApproveProject(f.ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(1000), math.NewInt(100)))
 
 	stakeID, err := k.CreateStake(
 		f.ctx, stakerAddr,
@@ -519,7 +519,7 @@ func TestCompoundStakingRewards_ZeroRewards(t *testing.T) {
 		false,
 	)
 	require.NoError(t, err)
-	k.ApproveProject(f.ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(1000), math.NewInt(100))
+	require.NoError(t, k.ApproveProject(f.ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(1000), math.NewInt(100)))
 
 	stakeID, err := k.CreateStake(
 		f.ctx, stakerAddr,

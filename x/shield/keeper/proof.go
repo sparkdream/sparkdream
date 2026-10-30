@@ -5,9 +5,12 @@ import (
 	"context"
 	"math/big"
 
+	errorsmod "cosmossdk.io/errors"
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/backend/groth16"
 	"github.com/consensys/gnark/frontend"
+	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
+	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	zkcrypto "sparkdream/tools/crypto"
 	"sparkdream/tools/zk/circuit"
@@ -72,7 +75,7 @@ func (k Keeper) verifyProofAtEpoch(ctx context.Context, msg *types.MsgShieldedEx
 
 	// 2. Validate merkle root is current or previous for the given proof domain
 	if checkRoot {
-		if err := k.validateMerkleRoot(ctx, msg.MerkleRoot, msg.ProofDomain); err != nil {
+		if err := k.validateMerkleRoot(ctx, msg); err != nil {
 			return err
 		}
 	}
@@ -137,10 +140,21 @@ func (k Keeper) verifyShieldProof(
 	return nil
 }
 
-// validateMerkleRoot checks that the provided merkle root is current or previous.
-func (k Keeper) validateMerkleRoot(ctx context.Context, merkleRoot []byte, proofDomain types.ProofDomain) error {
+// validateMerkleRoot checks the exec's merkle root against its proof domain:
+// the current or previous trust-tree root, or, for a group tree, the root
+// the inner message's module names for it.
+func (k Keeper) validateMerkleRoot(ctx context.Context, msg *types.MsgShieldedExec) error {
+	merkleRoot, proofDomain := msg.MerkleRoot, msg.ProofDomain
+	if proofDomain == types.ProofDomain_PROOF_DOMAIN_GROUP_TREE {
+		return k.validateGroupTreeRoot(ctx, msg)
+	}
 	if k.late.repKeeper == nil {
-		// RepKeeper not wired — skip validation (testing/early startup)
+		// RepKeeper not wired: a network build fails closed (accepting any
+		// root would accept proofs against a made-up tree); the test build
+		// skips the check so keeper tests need no rep keeper.
+		if requireVerificationKey() {
+			return errorsmod.Wrap(types.ErrInvalidMerkleRoot, "rep keeper not wired")
+		}
 		return nil
 	}
 
@@ -165,6 +179,36 @@ func (k Keeper) validateMerkleRoot(ctx context.Context, merkleRoot []byte, proof
 	default:
 		return types.ErrInvalidProofDomain
 	}
+}
+
+// validateGroupTreeRoot checks a PROOF_DOMAIN_GROUP_TREE exec's root against
+// the one the inner message's module names (ShieldRootResolver). The inner
+// message must be in the clear: a batch submission is checked before its
+// payload is decrypted, so a group-tree proof cannot ride in one.
+func (k Keeper) validateGroupTreeRoot(ctx context.Context, msg *types.MsgShieldedExec) error {
+	if msg.InnerMessage == nil || msg.InnerMessage.TypeUrl == "" {
+		return errorsmod.Wrap(types.ErrInvalidProofDomain, "group-tree proofs are immediate-mode only")
+	}
+	var innerMsg sdk.Msg
+	if err := k.cdc.UnpackAny(&codectypes.Any{TypeUrl: msg.InnerMessage.TypeUrl, Value: msg.InnerMessage.Value}, &innerMsg); err != nil {
+		return errorsmod.Wrap(types.ErrInvalidInnerMessage, err.Error())
+	}
+	sa, found := k.getShieldAware(msg.InnerMessage.TypeUrl)
+	if !found {
+		return types.ErrInvalidMerkleRoot
+	}
+	resolver, ok := sa.(types.ShieldRootResolver)
+	if !ok {
+		return errorsmod.Wrapf(types.ErrInvalidProofDomain, "%s keeps no group tree", msg.InnerMessage.TypeUrl)
+	}
+	root, err := resolver.ShieldMerkleRoot(ctx, innerMsg)
+	if err != nil {
+		return errorsmod.Wrap(types.ErrInvalidMerkleRoot, err.Error())
+	}
+	if len(root) == 0 || !bytesEqual(msg.MerkleRoot, root) {
+		return types.ErrInvalidMerkleRoot
+	}
+	return nil
 }
 
 // GetVerificationKeyVal returns a verification key by circuit ID.

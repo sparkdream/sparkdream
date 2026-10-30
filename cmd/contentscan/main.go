@@ -21,6 +21,8 @@
 //	CS_CHAIN_ID           chain id (default sparkdream)
 //	CS_PREFIX             bech32 prefix (default sprkdrm)
 //	CS_DENOM / CS_FEE / CS_GAS   fee denom, amount and gas for checkpoints
+//	                      (CS_DENOM default: the chain's bond denom, read
+//	                      from x/identity)
 //	CS_MNEMONIC           signing mnemonic (direct mode), or
 //	CS_SESSION_KEY_FILE + CS_GRANTER   x/session key acting for the operator
 //	                      (recommended: the worker host never holds the bond key)
@@ -105,6 +107,15 @@ func env(k, def string) string {
 	return def
 }
 
+func envUint(k string, def uint64) uint64 {
+	if v := os.Getenv(k); v != "" {
+		if n, err := strconv.ParseUint(v, 10, 64); err == nil {
+			return n
+		}
+	}
+	return def
+}
+
 func envInt(k string, def int64) int64 {
 	if v := os.Getenv(k); v != "" {
 		if n, err := strconv.ParseInt(v, 10, 64); err == nil {
@@ -125,12 +136,13 @@ func envDuration(k string, def time.Duration) time.Duration {
 
 func loadConfig() (Config, error) {
 	cfg := Config{
-		LCD:            strings.TrimRight(env("CS_LCD", "http://localhost:1317"), "/"),
-		ChainID:        env("CS_CHAIN_ID", "sparkdream"),
-		Prefix:         env("CS_PREFIX", "sprkdrm"),
-		Denom:          env("CS_DENOM", "uspark"),
+		LCD:     strings.TrimRight(env("CS_LCD", "http://localhost:1317"), "/"),
+		ChainID: env("CS_CHAIN_ID", "sparkdream"),
+		Prefix:  env("CS_PREFIX", "sprkdrm"),
+		// Empty = the chain's bond denom, read from x/identity.
+		Denom:          env("CS_DENOM", ""),
 		Fee:            envInt("CS_FEE", 5000),
-		Gas:            uint64(envInt("CS_GAS", 200_000)),
+		Gas:            envUint("CS_GAS", 200_000),
 		Mnemonic:       os.Getenv("CS_MNEMONIC"),
 		SessionKeyFile: os.Getenv("CS_SESSION_KEY_FILE"),
 		Granter:        os.Getenv("CS_GRANTER"),

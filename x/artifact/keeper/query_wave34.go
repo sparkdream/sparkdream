@@ -2,6 +2,8 @@ package keeper
 
 import (
 	"context"
+	"errors"
+	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	"cosmossdk.io/collections"
 	"cosmossdk.io/math"
@@ -38,7 +40,10 @@ func (q queryServer) editionCached(ctx context.Context, cache map[[2]uint64]type
 	if e, ok := cache[key]; ok {
 		return e
 	}
-	e, _ := q.k.Editions.Get(ctx, collections.Join(classID, editionID))
+	e, getErr := q.k.Editions.Get(ctx, collections.Join(classID, editionID))
+	if getErr != nil && !errors.Is(getErr, collections.ErrNotFound) {
+		sdk.UnwrapSDKContext(ctx).Logger().Error("Get failed", "err", getErr)
+	}
 	if e.RewardPerUnit.IsNil() {
 		e.RewardPerUnit = math.ZeroInt()
 	}

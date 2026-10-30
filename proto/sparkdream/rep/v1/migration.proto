@@ -35,7 +35,8 @@ enum MigrationStatus {
   // migration sits in the EndBlocker queue.
   MIGRATION_STATUS_ACCEPTED = 2;
   // OBJECTED: (COUNCIL path) the old address objected during the delay and
-  // a jury review decides. The queue entry is removed until the verdict.
+  // a jury review decides. The queue entry is removed until the verdict. An
+  // inconclusive jury escalates the objection to x/gov (escalated_until).
   MIGRATION_STATUS_OBJECTED = 3;
   // FINALIZED: the identity moved; the old address is a tombstone.
   MIGRATION_STATUS_FINALIZED = 4;
@@ -81,6 +82,18 @@ message MemberMigration {
   string failure_reason = 13;
   // finalized_at is the block time of finalization (0 until then).
   int64 finalized_at = 14;
+  // accept_by is the block time by which the new address must accept
+  // (requested_at + migration_accept_window at request time). Stored so the
+  // accept-expiry queue key never drifts when the param changes.
+  int64 accept_by = 15;
+  // escalated_until is set (COUNCIL path) when the objection jury reached no
+  // verdict (INCONCLUSIVE, including a jury that could not be seated). The
+  // objection is escalated to x/gov: the migration stays OBJECTED and the
+  // bond stays locked until governance cancels the migration (objection
+  // upheld, bond refunded) or re-forces it (objection rejected, bond paid to
+  // to_address). If governance has not decided by this block time the
+  // objection is rejected. 0 when not escalated.
+  int64 escalated_until = 16;
 }
 
 // Tombstone is the forward alias left behind at from_address once a

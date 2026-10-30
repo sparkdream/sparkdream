@@ -32,6 +32,11 @@ var (
 	// A completed DKG does not switch batch mode on by itself; governance
 	// does, once it is satisfied with the ceremony.
 	DefaultEnableBatchAfterDKG = false
+	// DefaultMaxFeesPerEpoch caps the fees the module pays per shield epoch:
+	// 0.65 SPARK x 288 epochs/day (50-block epochs at 6 s) = 187 SPARK/day,
+	// below DefaultMaxFundingPerDay, so the reserve can't be drained faster
+	// than it is funded.
+	DefaultMaxFeesPerEpoch = math.NewInt(650_000)
 )
 
 // NewParams creates a new Params instance.
@@ -57,6 +62,7 @@ func NewParams() Params {
 		MaxValidatorSetDrift:        DefaultMaxValidatorSetDrift,
 		MaxFeePerExec:               DefaultMaxFeePerExec,
 		EnableBatchAfterDkg:         DefaultEnableBatchAfterDKG,
+		MaxFeesPerEpoch:             DefaultMaxFeesPerEpoch,
 	}
 }
 
@@ -76,6 +82,12 @@ func (p Params) Validate() error {
 	}
 	if p.MaxFeePerExec.IsNil() || p.MaxFeePerExec.IsNegative() {
 		return fmt.Errorf("max_fee_per_exec must be non-negative: %s", p.MaxFeePerExec)
+	}
+	if p.MaxFeesPerEpoch.IsNil() || p.MaxFeesPerEpoch.IsNegative() {
+		return fmt.Errorf("max_fees_per_epoch must be set and non-negative")
+	}
+	if p.MaxFeesPerEpoch.LT(p.MaxFeePerExec) {
+		return fmt.Errorf("max_fees_per_epoch (%s) must be at least max_fee_per_exec (%s)", p.MaxFeesPerEpoch, p.MaxFeePerExec)
 	}
 	if p.MaxGasPerExec == 0 {
 		return fmt.Errorf("max_gas_per_exec must be positive")

@@ -150,7 +150,7 @@ func TestMsgServerSetUsername(t *testing.T) {
 			Username:                "oldusername",
 			LastUsernameChangeEpoch: k.GetCurrentEpoch(ctx), // Just changed (epoch 5)
 		}
-		k.MemberProfile.Set(ctx, creatorStr, profile)
+		require.NoError(t, k.MemberProfile.Set(ctx, creatorStr, profile))
 
 		_, err := ms.SetUsername(ctx, &types.MsgSetUsername{
 			Creator:  creatorStr,
@@ -209,7 +209,7 @@ func TestMsgServerSetUsername(t *testing.T) {
 			Username:                "oldusername",
 			LastUsernameChangeEpoch: 0, // Changed long ago
 		}
-		k.MemberProfile.Set(ctx, creatorStr, profile)
+		require.NoError(t, k.MemberProfile.Set(ctx, creatorStr, profile))
 
 		// Advance time past cooldown
 		ctx = ctx.WithBlockHeight(int64(params.UsernameChangeCooldownEpochs+1) * params.EpochBlocks)
@@ -269,7 +269,7 @@ func TestMsgServerSetUsername(t *testing.T) {
 			Username:                "existingname",
 			LastUsernameChangeEpoch: 0,
 		}
-		k.MemberProfile.Set(ctx, creatorStr, profile)
+		require.NoError(t, k.MemberProfile.Set(ctx, creatorStr, profile))
 
 		params, _ := k.Params.Get(ctx)
 		ctx = ctx.WithBlockHeight(int64(params.UsernameChangeCooldownEpochs+1) * params.EpochBlocks)

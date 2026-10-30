@@ -41,6 +41,13 @@ func (k msgServer) ClaimQuestReward(ctx context.Context, msg *types.MsgClaimQues
 		return nil, errorsmod.Wrapf(types.ErrQuestNotFound, "quest %s not found", msg.QuestId)
 	}
 
+	// SEA-26: a quest can only be claimed while it is open: active, inside
+	// its block window and in its season. Progress from an ended seasonal
+	// quest is not claimable in a later season.
+	if err := k.questOpenNow(ctx, quest); err != nil {
+		return nil, err
+	}
+
 	// Check all objectives are complete
 	if !questObjectivesComplete(quest, progress) {
 		return nil, types.ErrQuestNotComplete
@@ -51,6 +58,9 @@ func (k msgServer) ClaimQuestReward(ctx context.Context, msg *types.MsgClaimQues
 	progress.CompletedBlock = sdkCtx.BlockHeight()
 	if err := k.MemberQuestProgress.Set(ctx, key, progress); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to update quest progress")
+	}
+	if err := k.recordQuestCompletedStats(ctx); err != nil {
+		return nil, err
 	}
 
 	// Grant the XP reward through the engine so the per-epoch cap and the

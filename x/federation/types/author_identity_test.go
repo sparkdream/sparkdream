@@ -36,6 +36,7 @@ func TestNormalizeAuthorIdentity(t *testing.T) {
 
 func TestGenesisValidatesAllowedIdentities(t *testing.T) {
 	gs := types.DefaultGenesis()
+	gs.Peers = []types.Peer{{Id: "phoenix.example", Type: types.PeerType_PEER_TYPE_ACTIVITYPUB}}
 	gs.PeerPolicies = []types.PeerPolicy{{PeerId: "phoenix.example", AllowedIdentities: []string{"*", "@alice@phoenix.example"}}}
 	require.NoError(t, gs.Validate())
 	gs.PeerPolicies[0].AllowedIdentities = []string{"alice"}

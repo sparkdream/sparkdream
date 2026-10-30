@@ -114,6 +114,20 @@ type Keeper struct {
 	// became ready). Validators only release shares for demanded epochs, and
 	// TLE liveness judges an epoch one interval after its demand.
 	DecryptionDemands collections.Map[uint64, int64]
+
+	// EpochFeeLedger is the fees the module paid in the current shield epoch,
+	// checked against params.max_fees_per_epoch (singleton, overwritten when
+	// the epoch changes).
+	EpochFeeLedger collections.Item[types.EpochFeeLedger]
+
+	// RetiredDomains keeps, per nullifier domain that no registered op uses
+	// any more, the registration of the last op that used it. Deregistration
+	// would otherwise erase the domain's scoping rule while its nullifiers
+	// are still stored: pruning could no longer find an EPOCH domain, and a
+	// new op could reuse the domain under a different rule. An EPOCH entry is
+	// dropped once pruning has emptied the domain; any other scope type keeps
+	// its nullifiers, and its entry, for good.
+	RetiredDomains collections.Map[uint32, types.ShieldedOpRegistration]
 }
 
 func NewKeeper(
@@ -206,6 +220,10 @@ func NewKeeper(
 		DKGComplaints: collections.NewMap(sb, types.DKGComplaintsKey, "dkgComplaints",
 			collections.PairKeyCodec(collections.StringKey, collections.StringKey),
 			codec.CollValue[types.DKGComplaint](cdc)),
+		EpochFeeLedger: collections.NewItem(sb, types.EpochFeeLedgerKey, "epochFeeLedger",
+			codec.CollValue[types.EpochFeeLedger](cdc)),
+		RetiredDomains: collections.NewMap(sb, types.RetiredDomainsKey, "retiredDomains",
+			collections.Uint32Key, codec.CollValue[types.ShieldedOpRegistration](cdc)),
 	}
 
 	schema, err := sb.Build()

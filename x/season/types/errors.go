@@ -34,6 +34,7 @@ var (
 	ErrAppealAlreadyResolved      = errors.Register(ModuleName, 1119, "appeal has already been resolved")
 	ErrNoAppealToResolve          = errors.Register(ModuleName, 1240, "no appeal exists to resolve")
 	ErrAppealPeriodNotExpired     = errors.Register(ModuleName, 1241, "appeal period has not yet expired")
+	ErrDisplayNameInvalidChars    = errors.Register(ModuleName, 1243, "display name contains invalid characters")
 
 	// Guild errors (1120-1149)
 	ErrGuildNotFound            = errors.Register(ModuleName, 1120, "guild not found")
@@ -64,6 +65,8 @@ var (
 	ErrGuildTooYoung            = errors.Register(ModuleName, 1145, "guild must be older to perform this action")
 	ErrNotGuildMember           = errors.Register(ModuleName, 1146, "not a member of this guild")
 	ErrFounderCannotBeOfficer   = errors.Register(ModuleName, 1147, "founder cannot be an officer")
+	ErrGuildNameInvalidChars    = errors.Register(ModuleName, 1148, "guild name may only contain a-z, 0-9, _ and - and cannot start or end with -")
+	ErrAlreadyGuildFounder      = errors.Register(ModuleName, 1149, "already the guild founder")
 
 	// Quest errors (1150-1169)
 	ErrQuestNotFound           = errors.Register(ModuleName, 1150, "quest not found")
@@ -139,4 +142,5 @@ var (
 	ErrStakeAmountTooLow          = errors.Register(ModuleName, 1261, "stake amount below minimum")
 	ErrCannotUnstakeAfterWindow   = errors.Register(ModuleName, 1262, "cannot unstake after nomination window closes")
 	ErrSeasonNotInNominationPhase = errors.Register(ModuleName, 1263, "season is not in nomination phase")
+	ErrStakeAmountFractional      = errors.Register(ModuleName, 1264, "stake amount must be a whole number of micro-DREAM")
 )

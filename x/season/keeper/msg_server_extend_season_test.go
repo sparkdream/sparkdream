@@ -55,7 +55,7 @@ func TestMsgServerExtendSeason(t *testing.T) {
 		// Set season to ending
 		season, _ := k.Season.Get(ctx)
 		season.Status = types.SeasonStatus_SEASON_STATUS_ENDING
-		k.Season.Set(ctx, season)
+		require.NoError(t, k.Season.Set(ctx, season))
 
 		_, err := ms.ExtendSeason(ctx, &types.MsgExtendSeason{
 			Authority:       authority,
@@ -81,7 +81,7 @@ func TestMsgServerExtendSeason(t *testing.T) {
 		season, _ := k.Season.Get(ctx)
 		season.Status = types.SeasonStatus_SEASON_STATUS_ACTIVE
 		season.ExtensionsCount = uint64(params.MaxSeasonExtensions)
-		k.Season.Set(ctx, season)
+		require.NoError(t, k.Season.Set(ctx, season))
 
 		_, err := ms.ExtendSeason(ctx, &types.MsgExtendSeason{
 			Authority:       authority,
@@ -107,7 +107,7 @@ func TestMsgServerExtendSeason(t *testing.T) {
 		season, _ := k.Season.Get(ctx)
 		season.Status = types.SeasonStatus_SEASON_STATUS_ACTIVE
 		season.ExtensionsCount = 0
-		k.Season.Set(ctx, season)
+		require.NoError(t, k.Season.Set(ctx, season))
 
 		_, err := ms.ExtendSeason(ctx, &types.MsgExtendSeason{
 			Authority:       authority,
@@ -131,7 +131,7 @@ func TestMsgServerExtendSeason(t *testing.T) {
 		season, _ := k.Season.Get(ctx)
 		season.Status = types.SeasonStatus_SEASON_STATUS_ACTIVE
 		season.ExtensionsCount = 0
-		k.Season.Set(ctx, season)
+		require.NoError(t, k.Season.Set(ctx, season))
 
 		_, err := ms.ExtendSeason(ctx, &types.MsgExtendSeason{
 			Authority:       authority,
@@ -158,7 +158,7 @@ func TestMsgServerExtendSeason(t *testing.T) {
 		season.Status = types.SeasonStatus_SEASON_STATUS_ACTIVE
 		season.ExtensionsCount = 0
 		originalEndBlock := season.EndBlock
-		k.Season.Set(ctx, season)
+		require.NoError(t, k.Season.Set(ctx, season))
 
 		_, err := ms.ExtendSeason(ctx, &types.MsgExtendSeason{
 			Authority:       authority,
@@ -190,7 +190,7 @@ func TestMsgServerExtendSeason(t *testing.T) {
 		season.ExtensionsCount = 0
 		season.OriginalEndBlock = 0
 		originalEndBlock := season.EndBlock
-		k.Season.Set(ctx, season)
+		require.NoError(t, k.Season.Set(ctx, season))
 
 		_, err := ms.ExtendSeason(ctx, &types.MsgExtendSeason{
 			Authority:       authority,

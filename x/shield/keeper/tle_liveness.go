@@ -2,7 +2,9 @@ package keeper
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	commontypes "sparkdream/x/common/types"
 	"time"
 
 	"cosmossdk.io/collections"
@@ -22,17 +24,21 @@ import (
 // chain stopped asking for.
 func (k Keeper) judgeTLELiveness(ctx context.Context, params types.Params, currentHeight int64) {
 	var due []uint64
-	_ = k.IterateDecryptionDemands(ctx, func(epoch uint64, raw int64) bool {
+	if err := k.IterateDecryptionDemands(ctx, func(epoch uint64, raw int64) bool {
 		height, judged := demandHeight(raw)
-		if !judged && currentHeight >= height+int64(params.ShieldEpochInterval) {
+		if !judged && currentHeight >= height+commontypes.Saturate[int64](params.ShieldEpochInterval) {
 			due = append(due, epoch)
 		}
 		return false
-	})
+	}); err != nil {
+		sdk.UnwrapSDKContext(ctx).Logger().Error("judgeTLELiveness: k.IterateDecryptionDemands failed", "err", err)
+	}
 	for _, epoch := range due {
 		height, _ := k.GetDecryptionDemand(ctx, epoch)
 		k.checkTLELiveness(ctx, epoch)
-		_ = k.DecryptionDemands.Set(ctx, epoch, -(height + 1))
+		if err := k.DecryptionDemands.Set(ctx, epoch, -(height + 1)); err != nil {
+			sdk.UnwrapSDKContext(ctx).Logger().Error("judgeTLELiveness: DecryptionDemands.Set failed", "err", err)
+		}
 	}
 }
 
@@ -60,9 +66,14 @@ func (k Keeper) checkTLELiveness(ctx context.Context, completedEpoch uint64) {
 	}
 
 	window := params.TleMissWindow
-	judged, _ := k.TLEJudgedEpochs.Get(ctx)
+	judged, getErr := k.TLEJudgedEpochs.Get(ctx)
+	if getErr != nil && !errors.Is(getErr, collections.ErrNotFound) {
+		sdk.UnwrapSDKContext(ctx).Logger().Error("checkTLELiveness: TLEJudgedEpochs.Get failed", "err", getErr)
+	}
 	slot := judged % window
-	_ = k.TLEJudgedEpochs.Set(ctx, judged+1)
+	if err := k.TLEJudgedEpochs.Set(ctx, judged+1); err != nil {
+		sdk.UnwrapSDKContext(ctx).Logger().Error("checkTLELiveness: TLEJudgedEpochs.Set failed", "err", err)
+	}
 
 	// For each registered TLE validator, record participation and count misses
 	for _, vs := range ks.ValidatorShares {
@@ -72,7 +83,9 @@ func (k Keeper) checkTLELiveness(ctx context.Context, completedEpoch uint64) {
 		_, submitted := k.GetDecryptionShare(ctx, completedEpoch, vs.ValidatorAddress)
 
 		// Record participation in the ring buffer at the current slot
-		_ = k.TLEEpochParticipation.Set(ctx, collections.Join(vs.ValidatorAddress, slot), submitted)
+		if err := k.TLEEpochParticipation.Set(ctx, collections.Join(vs.ValidatorAddress, slot), submitted); err != nil {
+			sdk.UnwrapSDKContext(ctx).Logger().Error("checkTLELiveness: TLEEpochParticipation.Set failed", "err", err)
+		}
 
 		if !submitted {
 			sdkCtx.EventManager().EmitEvent(sdk.NewEvent(
@@ -86,7 +99,9 @@ func (k Keeper) checkTLELiveness(ctx context.Context, completedEpoch uint64) {
 		missCount := k.countTLEMissesInWindow(ctx, vs.ValidatorAddress, window)
 
 		// Keep the queryable miss counter in step with the ring
-		_ = k.SetTLEMissCount(ctx, vs.ValidatorAddress, missCount)
+		if err := k.SetTLEMissCount(ctx, vs.ValidatorAddress, missCount); err != nil {
+			sdk.UnwrapSDKContext(ctx).Logger().Error("checkTLELiveness: k.SetTLEMissCount failed", "err", err)
+		}
 
 		if missCount > params.TleMissTolerance {
 			k.jailTLEValidator(ctx, params, vs.ValidatorAddress)
@@ -133,7 +148,9 @@ func (k Keeper) countTLEMissesInWindow(ctx context.Context, validatorAddr string
 // clearTLEParticipation resets the ring buffer for a validator after jailing.
 func (k Keeper) clearTLEParticipation(ctx context.Context, validatorAddr string, window uint64) {
 	for slot := uint64(0); slot < window; slot++ {
-		_ = k.TLEEpochParticipation.Remove(ctx, collections.Join(validatorAddr, slot))
+		if err := k.TLEEpochParticipation.Remove(ctx, collections.Join(validatorAddr, slot)); err != nil {
+			sdk.UnwrapSDKContext(ctx).Logger().Error("clearTLEParticipation: TLEEpochParticipation.Remove failed", "err", err)
+		}
 	}
 }
 
@@ -204,11 +221,15 @@ func (k Keeper) jailTLEValidator(ctx context.Context, params types.Params, valid
 	// tle_jail_duration: MsgUnjail is refused until this time passes.
 	if params.TleJailDuration > 0 {
 		until := sdkCtx.BlockTime().Add(time.Duration(params.TleJailDuration) * time.Second)
-		_ = k.late.slashingKeeper.JailUntil(ctx, consAddr, until)
+		if err := k.late.slashingKeeper.JailUntil(ctx, consAddr, until); err != nil {
+			sdk.UnwrapSDKContext(ctx).Logger().Error("jailTLEValidator: late.slashingKeeper.JailUntil failed", "err", err)
+		}
 	}
 
 	// Reset miss counter after jailing
-	_ = k.ResetTLEMissCount(ctx, validatorAddr)
+	if err := k.ResetTLEMissCount(ctx, validatorAddr); err != nil {
+		sdk.UnwrapSDKContext(ctx).Logger().Error("jailTLEValidator: k.ResetTLEMissCount failed", "err", err)
+	}
 
 	sdkCtx.EventManager().EmitEvent(sdk.NewEvent(
 		types.EventTypeTLEJail,

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/rep/types"
 
 	errorsmod "cosmossdk.io/errors"
@@ -12,7 +13,17 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 )
 
-// AppealGovAction allows members to appeal governance actions.
+// AppealGovAction lets a member appeal a member action applied to them:
+// a warning, demotion or zeroing from MsgResolveMemberReport. Only the
+// affected member (or its canonical successor) may file, within
+// DefaultAppealDeadline of the resolution, once per resolution.
+//
+// Moderation actions on content are appealed through the owning module
+// (x/forum MsgAppealPost / MsgAppealThreadLock / MsgAppealThreadMove /
+// MsgDisputePin, x/collect and x/artifact MsgAppealHide), which checks who
+// may appeal and marks its own record appealed. Accepting them here let any
+// member file an appeal the forum ignored but that still blocked the
+// affected author's own appeal while pending (FRM-02, REP-R-14).
 func (k msgServer) AppealGovAction(ctx context.Context, msg *types.MsgAppealGovAction) (*types.MsgAppealGovActionResponse, error) {
 	creatorBytes, err := k.addressCodec.StringToBytes(msg.Creator)
 	if err != nil {
@@ -24,23 +35,63 @@ func (k msgServer) AppealGovAction(ctx context.Context, msg *types.MsgAppealGovA
 		return nil, errorsmod.Wrap(types.ErrNotMember, "only members can appeal governance actions")
 	}
 
-	actionType := types.GovActionType(msg.ActionType)
+	actionType := commontypes.Saturate[types.GovActionType](msg.ActionType)
 	if actionType == types.GovActionType_GOV_ACTION_TYPE_UNSPECIFIED {
 		return nil, errorsmod.Wrap(types.ErrInvalidReasonCode, "invalid action type")
 	}
-	// Module-owned appeals (collect / artifact hides) carry the owning
-	// module's own appellant and state checks, so they must be filed through
-	// that module's MsgAppealHide, never directly.
-	// Post hides are filed through x/forum's MsgAppealPost, which marks the
-	// hide appealed so its expiry waits for the verdict; filed here the hide
-	// would expire, tombstoning the post, mid-appeal. (They still route to
-	// the forum keeper as their appeal target.)
-	if types.ModuleOwnedAppealTypes[actionType] || actionType == types.GovActionType_GOV_ACTION_TYPE_POST_HIDE {
+	if types.ModuleOwnedAppealTypes[actionType] {
 		return nil, errorsmod.Wrapf(types.ErrInvalidReasonCode,
 			"%s appeals must be filed through the owning module", actionType)
 	}
+	if !types.MemberActionAppealTypes[actionType] {
+		return nil, errorsmod.Wrapf(types.ErrAppealNotAllowed,
+			"%s has no on-chain action record to appeal", actionType)
+	}
 
-	if _, _, err := k.CreateGovActionAppeal(ctx, actionType, msg.ActionTarget, creatorAddr, msg.AppealReason); err != nil {
+	// The target is the member the action was applied to; only that member
+	// may appeal it. CanActAs refuses a tombstoned signer and lets a
+	// migrated member appeal an action recorded against the old address.
+	if _, err := k.addressCodec.StringToBytes(msg.ActionTarget); err != nil {
+		return nil, errorsmod.Wrap(types.ErrAppealNotAllowed, "action_target must be the member's address")
+	}
+	if !k.CanActAs(ctx, msg.Creator, msg.ActionTarget) {
+		return nil, errorsmod.Wrap(types.ErrAppealNotAllowed, "only the affected member may appeal a member action")
+	}
+	member := k.Canonical(ctx, msg.ActionTarget)
+
+	// Filing window: the member's report must have been resolved with this
+	// action within DefaultAppealDeadline.
+	now := sdk.UnwrapSDKContext(ctx).BlockTime().Unix()
+	report, err := k.MemberReport.Get(ctx, member)
+	if err != nil || report.Status != types.MemberReportStatus_MEMBER_REPORT_STATUS_RESOLVED ||
+		report.ResolvedAction != actionType || report.ResolvedAt == 0 {
+		return nil, errorsmod.Wrapf(types.ErrAppealNotAllowed, "no %s was applied to %s", actionType, member)
+	}
+	if now > report.ResolvedAt+types.DefaultAppealDeadline {
+		return nil, errorsmod.Wrap(types.ErrAppealNotAllowed, "the appeal window has closed")
+	}
+	// One appeal per resolution, whatever became of an earlier one.
+	for _, a := range k.govActionAppealsFor(ctx, actionType, member) {
+		if a.CreatedAt >= report.ResolvedAt {
+			return nil, errorsmod.Wrap(types.ErrAppealAlreadyFiled, "this action was already appealed")
+		}
+	}
+	// The restoration record is what an overturn reverses; it carries the
+	// appeal once filed (which also covers an appeal filed under an address
+	// the member has since migrated away from).
+	rest, err := k.MemberActionRestorations.Get(ctx, member)
+	if err != nil || rest.Action != actionType || rest.ResolvedAt != report.ResolvedAt {
+		return nil, errorsmod.Wrapf(types.ErrAppealNotAllowed, "no appealable %s on record for %s", actionType, member)
+	}
+	if rest.Appealed {
+		return nil, errorsmod.Wrap(types.ErrAppealAlreadyFiled, "this action was already appealed")
+	}
+
+	appealID, _, err := k.CreateGovActionAppeal(ctx, actionType, member, creatorAddr, msg.AppealReason)
+	if err != nil {
+		return nil, err
+	}
+	if err := k.markMemberActionAppealed(ctx, member, appealID); err != nil {
 		return nil, err
 	}
 
@@ -56,16 +107,11 @@ func (k Keeper) CreateGovActionAppeal(ctx context.Context, actionType types.GovA
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	now := sdkCtx.BlockTime().Unix()
 
-	// One pending appeal per (actionType, actionTarget).
-	appealIter, err := k.GovActionAppeal.Iterate(ctx, nil)
-	if err == nil {
-		defer appealIter.Close()
-		for ; appealIter.Valid(); appealIter.Next() {
-			appeal, _ := appealIter.Value()
-			if appeal.ActionTarget == actionTarget && appeal.ActionType == actionType &&
-				appeal.Status == types.GovAppealStatus_GOV_APPEAL_STATUS_PENDING {
-				return 0, 0, errorsmod.Wrap(types.ErrAppealAlreadyFiled, "appeal already exists for this action")
-			}
+	// One pending appeal per (actionType, actionTarget), read through the
+	// by-target index.
+	for _, appeal := range k.govActionAppealsFor(ctx, actionType, actionTarget) {
+		if appeal.Status == types.GovAppealStatus_GOV_APPEAL_STATUS_PENDING {
+			return 0, 0, errorsmod.Wrap(types.ErrAppealAlreadyFiled, "appeal already exists for this action")
 		}
 	}
 
@@ -110,7 +156,7 @@ func (k Keeper) CreateGovActionAppeal(ctx context.Context, actionType types.GovA
 	} else if len(jurors) > 0 {
 		if review, rErr := k.GetJuryReview(ctx, initiativeID); rErr == nil {
 			review.Jurors = jurors
-			review.RequiredVotes = uint32(k.appealRequiredVotes(ctx, len(jurors)))
+			review.RequiredVotes = commontypes.Saturate[uint32](k.appealRequiredVotes(ctx, len(jurors)))
 			if err := k.JuryReview.Set(ctx, initiativeID, review); err != nil {
 				sdkCtx.Logger().Warn("failed to attach appeal jury", "initiative_id", initiativeID, "error", err)
 			} else if err := k.AddJuryReviewToJurorIndex(ctx, review); err != nil {
@@ -141,7 +187,7 @@ func (k Keeper) CreateGovActionAppeal(ctx context.Context, actionType types.GovA
 		InitiativeId: initiativeID,
 	}
 
-	if err := k.GovActionAppeal.Set(ctx, appealID, appeal); err != nil {
+	if err := k.SetGovActionAppeal(ctx, appeal); err != nil {
 		return 0, 0, errorsmod.Wrap(err, "failed to store appeal")
 	}
 

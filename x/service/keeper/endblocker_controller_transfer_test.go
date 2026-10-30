@@ -108,7 +108,8 @@ func TestEndBlocker_ControllerTransferCaseTimesOut(t *testing.T) {
 
 // TestEndBlocker_ControllerTransferCaseSweepLimit: at most
 // endblocker_sweep_limit cases time out per block; the rest drain next
-// block. Rows are seeded directly, as genesis import leaves them.
+// block. Rows are seeded directly, with the opened_at index genesis import
+// rebuilds.
 func TestEndBlocker_ControllerTransferCaseSweepLimit(t *testing.T) {
 	f := initFixture(t)
 	params, err := f.keeper.Params.Get(f.ctx)
@@ -130,6 +131,7 @@ func TestEndBlocker_ControllerTransferCaseSweepLimit(t *testing.T) {
 		}))
 		require.NoError(t, f.keeper.OpenControllerTransferByOperator.Set(f.ctx,
 			collections.Join(testOperator1Addr.Bytes(), serviceType), i))
+		require.NoError(t, f.keeper.ControllerTransferCasesByOpenedAt.Set(f.ctx, collections.Join(height, i)))
 	}
 
 	f.withBlockHeight(height + params.MaxEscalatedBlocks)
@@ -143,4 +145,59 @@ func TestEndBlocker_ControllerTransferCaseSweepLimit(t *testing.T) {
 	require.Len(t, f.bankKeeper.ModToAcctCalls, 3)
 	_, err = f.keeper.ControllerTransferCases.Get(f.ctx, 3)
 	require.ErrorIs(t, err, collections.ErrNotFound)
+}
+
+// SVC-13: the sweep reads cases in opened_at order and stops at the first
+// undue one. Undue cases with lower jury ids do not delay a due case, are
+// left untouched, and genesis import rebuilds the index.
+func TestEndBlocker_ControllerTransferSweepReadsOnlyDueCases(t *testing.T) {
+	f := initFixture(t)
+	params, err := f.keeper.Params.Get(f.ctx)
+	require.NoError(t, err)
+	start := f.sdkCtx().BlockHeight()
+
+	seed := func(id uint64, openedAt int64) types.ControllerTransferCase {
+		c := types.ControllerTransferCase{
+			JuryCaseId:            id,
+			OperatorAddress:       testOperator1,
+			ServiceType:           testServiceType + string(rune('a'+id)),
+			Opener:                testReporter,
+			ProposedNewController: testCouncil,
+			Deposit:               math.NewInt(1_000),
+			OpenedAt:              openedAt,
+		}
+		require.NoError(t, f.keeper.ControllerTransferCases.Set(f.ctx, id, c))
+		require.NoError(t, f.keeper.OpenControllerTransferByOperator.Set(f.ctx,
+			collections.Join(testOperator1Addr.Bytes(), c.ServiceType), id))
+		return c
+	}
+	// Five undue cases with low ids, one due case with a high id.
+	var cases []types.ControllerTransferCase
+	for id := uint64(1); id <= 5; id++ {
+		cases = append(cases, seed(id, start+100))
+	}
+	cases = append(cases, seed(9, start))
+
+	// Rebuild the index the way genesis import does.
+	gs, err := f.keeper.ExportGenesis(f.ctx)
+	require.NoError(t, err)
+	g := initFixture(t)
+	require.NoError(t, g.keeper.InitGenesis(g.ctx, *gs))
+	for _, c := range cases {
+		has, err := g.keeper.ControllerTransferCasesByOpenedAt.Has(g.ctx, collections.Join(c.OpenedAt, c.JuryCaseId))
+		require.NoError(t, err)
+		require.True(t, has, "case %d indexed on import", c.JuryCaseId)
+	}
+
+	g.withBlockHeight(start + params.MaxEscalatedBlocks)
+	require.NoError(t, g.keeper.EndBlocker(g.ctx))
+	_, err = g.keeper.ControllerTransferCases.Get(g.ctx, 9)
+	require.ErrorIs(t, err, collections.ErrNotFound, "the due case timed out")
+	for id := uint64(1); id <= 5; id++ {
+		_, err = g.keeper.ControllerTransferCases.Get(g.ctx, id)
+		require.NoError(t, err, "undue case %d untouched", id)
+	}
+	has, err := g.keeper.ControllerTransferCasesByOpenedAt.Has(g.ctx, collections.Join(start, uint64(9)))
+	require.NoError(t, err)
+	require.False(t, has, "index entry removed with the case")
 }

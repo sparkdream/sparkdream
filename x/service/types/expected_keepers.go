@@ -83,22 +83,24 @@ type RepKeeper interface {
 	// tag — used on tier-1 / tier-2 slashes (§6.6).
 	DeductReputation(ctx context.Context, address sdk.AccAddress, tag string, amount math.LegacyDec) error
 
-	// CreateAppealInitiative opens a generic jury appeal in x/rep with
-	// the given type-tag and opaque payload. Used by
-	// `MsgResolveReport(ESCALATE_TO_JURY)`, `MsgContestSlash`, and
-	// `MsgOpenControllerTransferCase` (§6.2). Returns the new JuryReview
-	// ID, which x/service stores as `jury_case_id` on the originating
-	// report or controller-transfer case.
+	// CreateSeatedAppeal opens a jury case in x/rep and seats its jury at
+	// once, keeping `excludes` (the parties: operator, reporter / opener,
+	// controller) and every address of the same members off it. Used by
+	// `MsgResolveReport(ESCALATE_TO_JURY)`, the pending-report ESCALATE
+	// timeout, `MsgContestSlash`, and `MsgOpenControllerTransferCase`
+	// (§6.2). Returns the JuryReview ID, which x/service stores as
+	// `jury_case_id` on the report or controller-transfer case.
 	//
-	// `initiativeType` is one of `"service.slash"` /
-	// `"service.controller_transfer"` (free-form string, x/rep stores
-	// it on the JuryReview's `ChallengerClaim` field).
+	// `initiativeType` is `"service.slash"` or
+	// `"service.controller_transfer"` (stored on the JuryReview's
+	// `ChallengerClaim`; x/rep tallies and pays the jury but applies
+	// nothing — x/service reads the verdict back).
 	//
-	// `deadline` is the block height by which the jury must reach a
-	// verdict; x/service sets it to `current_height + max_escalated_blocks`.
-	//
-	// Mirrors `x/forum/types.RepKeeper.CreateAppealInitiative`.
-	CreateAppealInitiative(ctx context.Context, initiativeType string, payload []byte, deadline int64) (uint64, error)
+	// `deadline` is the block height by which the jury votes; x/service
+	// sets it to the first half of max_escalated_blocks
+	// (juryVotingDeadline). A seat-less or under-quorum case tallies
+	// INCONCLUSIVE at the deadline, which x/service treats as REJECT.
+	CreateSeatedAppeal(ctx context.Context, initiativeType string, payload []byte, deadline int64, excludes []string) (uint64, error)
 
 	// GetJuryVerdictName returns the canonical verdict-enum name for a
 	// JuryReview (e.g. "VERDICT_UPHOLD_CHALLENGE",

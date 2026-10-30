@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/rep/types"
 
 	"cosmossdk.io/math"
@@ -99,7 +100,7 @@ func (q queryServer) ReviewBounty(ctx context.Context, req *types.QueryReviewBou
 
 	statuses := make([]types.ReviewBountyReclaimStatus, 0, len(bounty.Contributions))
 	for _, c := range bounty.Contributions {
-		matureAt := c.FundedAt + int64(params.ReviewBountyReclaimDelay)
+		matureAt := c.FundedAt + commontypes.Saturate[int64](params.ReviewBountyReclaimDelay)
 		amount := c.Amount
 		if amount.IsNil() {
 			amount = math.ZeroInt()

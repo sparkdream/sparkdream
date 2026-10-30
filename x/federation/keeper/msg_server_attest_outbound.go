@@ -25,6 +25,9 @@ func (k msgServer) AttestOutbound(ctx context.Context, msg *types.MsgAttestOutbo
 	if bridge.Suspended {
 		return nil, errorsmod.Wrapf(types.ErrBridgeNotActive, "bridge is suspended")
 	}
+	if err := k.requireMemberOperator(ctx, msg.Operator); err != nil {
+		return nil, err
+	}
 
 	// 2. Verify peer is ACTIVE
 	if _, err := k.GetPeerRequireActive(ctx, msg.PeerId); err != nil {

@@ -1,6 +1,7 @@
 package keeper
 
 import (
+	"context"
 	"fmt"
 
 	"cosmossdk.io/collections"
@@ -17,6 +18,15 @@ const (
 
 	// Subsidy Amount (Paid by x/commons Treasury)
 	GovernanceMarketSubsidy = "1000000000" // 1000 SPARK
+
+	// GovernanceMarketRetryDelay is how long (seconds) a failed trigger
+	// waits before it is retried, so one failure (e.g. an unfunded subsidy)
+	// does not end the group's confidence-vote loop.
+	GovernanceMarketRetryDelay int64 = 86400
+
+	// MaxMarketTriggersPerBlock bounds the EndBlock work; the rest waits for
+	// the next block.
+	MaxMarketTriggersPerBlock = 10
 )
 
 func (k Keeper) ScheduleNextMarket(ctx sdk.Context, groupName string, termDuration int64) error {
@@ -39,7 +49,11 @@ func (k Keeper) TriggerGovernanceMarket(ctx sdk.Context, groupName string) error
 	question := fmt.Sprintf("Confidence Vote: %s", groupName)
 	symbol := fmt.Sprintf("CONF-%s-%d", groupName, ctx.BlockHeight()) // Unique Symbol
 
-	subsidyCoin := sdk.NewCoin(k.BondDenom(ctx), math.NewIntFromUint64(1000000000)) // 1000 SPARK
+	subsidyAmount, ok := math.NewIntFromString(GovernanceMarketSubsidy)
+	if !ok {
+		return fmt.Errorf("invalid GovernanceMarketSubsidy %q", GovernanceMarketSubsidy)
+	}
+	subsidyCoin := sdk.NewCoin(k.BondDenom(ctx), subsidyAmount)
 
 	// 3. Call Futarchy (Programmatic Creation)
 	// Creator is the x/commons Module Account
@@ -66,4 +80,52 @@ func (k Keeper) TriggerGovernanceMarket(ctx sdk.Context, groupName string) error
 	// 5. Schedule the NEXT market (The Loop)
 	// Note: We use the group's TermDuration to calculate the 50% interval
 	return k.ScheduleNextMarket(ctx, groupName, group.TermDuration)
+}
+
+// EndBlockMarketTriggers fires every confidence-vote market whose trigger
+// time has come (CMN-08). Each trigger runs in a cache context: on success
+// its writes (market, link, next trigger) commit; on failure nothing it did
+// persists, an error is logged, and the trigger is retried after
+// GovernanceMarketRetryDelay. Entries for a deleted group, or a group that
+// has turned futarchy off, are dropped.
+func (k Keeper) EndBlockMarketTriggers(ctx context.Context) error {
+	sdkCtx := sdk.UnwrapSDKContext(ctx)
+	currentTime := sdkCtx.BlockTime().Unix()
+
+	// Up to CurrentTime (inclusive): EndExclusive at currentTime+1 with an
+	// empty name covers every group name at currentTime.
+	rng := new(collections.Range[collections.Pair[int64, string]]).
+		EndExclusive(collections.Join(currentTime+1, ""))
+
+	var due []collections.Pair[int64, string]
+	if err := k.MarketTriggerQueue.Walk(ctx, rng, func(key collections.Pair[int64, string]) (bool, error) {
+		due = append(due, key)
+		return len(due) >= MaxMarketTriggersPerBlock, nil
+	}); err != nil {
+		return err
+	}
+
+	for _, key := range due {
+		groupName := key.K2()
+		if err := k.MarketTriggerQueue.Remove(ctx, key); err != nil {
+			return err
+		}
+
+		group, err := k.Groups.Get(ctx, groupName)
+		if err != nil || !group.FutarchyEnabled {
+			continue
+		}
+
+		cacheCtx, write := sdkCtx.CacheContext()
+		if err := k.TriggerGovernanceMarket(cacheCtx, groupName); err != nil {
+			sdkCtx.Logger().Error("failed to auto-create confidence market; retrying later",
+				"group", groupName, "error", err)
+			if err := k.MarketTriggerQueue.Set(ctx, collections.Join(currentTime+GovernanceMarketRetryDelay, groupName)); err != nil {
+				return err
+			}
+			continue
+		}
+		write()
+	}
+	return nil
 }

@@ -17,6 +17,7 @@ func DefaultGenesis() *GenesisState {
 // failure.
 func (gs GenesisState) Validate() error {
 	shareIndexMap := make(map[string]struct{})
+	var totalWeight uint64
 
 	for _, elem := range gs.ShareMap {
 		index := fmt.Sprint(elem.Address)
@@ -29,6 +30,13 @@ func (gs GenesisState) Validate() error {
 		}
 		if elem.Weight == 0 || elem.Weight > MaxShareWeight {
 			return fmt.Errorf("share %q: weight %d out of range (1..%d)", elem.Address, elem.Weight, MaxShareWeight)
+		}
+		// Same aggregate cap as SetShareByAddress and ShareWeightsInvariant.
+		// Each weight is at most MaxShareWeight and the loop stops once the
+		// running total passes the cap, so the sum cannot overflow.
+		totalWeight += elem.Weight
+		if totalWeight > MaxTotalShareWeight {
+			return fmt.Errorf("total share weight exceeds the cap %d", MaxTotalShareWeight)
 		}
 		shareIndexMap[index] = struct{}{}
 	}

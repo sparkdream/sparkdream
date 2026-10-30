@@ -55,7 +55,7 @@ func TestMsgServerAcceptInvitation(t *testing.T) {
 		require.NoError(t, err)
 
 		// Setup inviter member with reputation/credits if needed
-		k.Member.Set(ctx, inviter.String(), types.Member{
+		require.NoError(t, k.Member.Set(ctx, inviter.String(), types.Member{
 			Address:           inviter.String(),
 			DreamBalance:      keeper.PtrInt(math.NewInt(1000)),
 			StakedDream:       keeper.PtrInt(math.NewInt(1000)),
@@ -63,7 +63,7 @@ func TestMsgServerAcceptInvitation(t *testing.T) {
 			LifetimeBurned:    keeper.PtrInt(math.ZeroInt()),
 			ReputationScores:  map[string]string{"tag": "100.0"},
 			InvitationCredits: 10,
-		})
+		}))
 
 		invitee := sdk.AccAddress([]byte("invitee"))
 		inviteeStr, err := f.addressCodec.BytesToString(invitee)

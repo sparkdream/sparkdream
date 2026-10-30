@@ -1,10 +1,6 @@
 package simulation
 
 import (
-	"fmt"
-	"math/rand"
-
-	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
@@ -13,38 +9,26 @@ import (
 	"sparkdream/x/season/types"
 )
 
-// SimulateMsgSetNextSeasonInfo simulates a MsgSetNextSeasonInfo message using direct keeper calls.
-// This bypasses the governance authority requirement for simulation purposes.
-// Full authority testing should be done in integration tests.
+// SimulateMsgSetNextSeasonInfo sets the next season's name and theme
+// through an executed x/commons proposal (council.go), one step per call;
+// one proposal is open at a time. It only records the info a future
+// transition reads.
 func SimulateMsgSetNextSeasonInfo(
 	ak types.AuthKeeper,
 	bk types.BankKeeper,
 	k keeper.Keeper,
 	txGen client.TxConfig,
 ) simtypes.Operation {
-	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
-	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		// Get the current season to determine the next season number
-		season, err := k.Season.Get(ctx)
-		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgSetNextSeasonInfo{}), "no active season"), nil, nil
-		}
-
-		// Generate random season info
-		themes := []string{"Discovery", "Adventure", "Innovation", "Unity", "Challenge", "Growth"}
-		theme := themes[r.Intn(len(themes))]
-
-		nextSeasonInfo := types.NextSeasonInfo{
-			Name:  fmt.Sprintf("Season %d", season.Number+1),
-			Theme: theme,
-		}
-
-		// Save the next season info using direct keeper call
-		if err := k.NextSeasonInfo.Set(ctx, nextSeasonInfo); err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgSetNextSeasonInfo{}), "failed to set next season info"), nil, nil
-		}
-
-		// Return success
-		return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgSetNextSeasonInfo{}), "ok (direct keeper call)"), nil, nil
-	}
+	return authorityOp(ak, bk, k, txGen, &types.MsgSetNextSeasonInfo{}, decodeAs[types.MsgSetNextSeasonInfo](),
+		func(e *simEnv, policy string, taken []sdk.Msg) (sdk.Msg, string, error) {
+			if len(taken) > 0 {
+				return nil, "next season info is already proposed", nil
+			}
+			themes := []string{"Renewal", "Convergence", "Open Waters", "First Light", "Long Harvest"}
+			return &types.MsgSetNextSeasonInfo{
+				Authority: policy,
+				Name:      "Season of " + pickName(e),
+				Theme:     themes[e.r.Intn(len(themes))],
+			}, "", nil
+		})
 }

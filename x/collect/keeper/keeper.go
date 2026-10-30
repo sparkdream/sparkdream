@@ -3,6 +3,7 @@ package keeper
 import (
 	"context"
 	"fmt"
+	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	"cosmossdk.io/collections"
 	"cosmossdk.io/core/address"
@@ -25,7 +26,6 @@ type Keeper struct {
 
 	// External keepers
 	bankKeeper    types.BankKeeper
-	repKeeper     types.RepKeeper
 	commonsKeeper types.CommonsKeeper
 
 	// Primary storage
@@ -63,6 +63,8 @@ type Keeper struct {
 	EndorsementPending     collections.KeySet[collections.Pair[int64, uint64]]
 	ReactionDedup          collections.Map[string, uint32]
 	ReactionLimit          collections.Map[string, uint32]
+	// ReactionsByTarget: (targetKey, address) reverse index of ReactionDedup.
+	ReactionsByTarget collections.KeySet[collections.Pair[string, string]]
 	// CollectionsByStatus: (status, pinned-rank, collectionID). Pinned-rank
 	// orders pinned collections first within a status so status-prefixed walks
 	// are natively pinned-first; see index_collections_by_status.go.
@@ -101,7 +103,17 @@ type Keeper struct {
 	CurationChallengeBackfill collections.Item[uint64]
 
 	// External keepers (optional)
+	// late holds the keepers wired after depinject (app.go Set*Keeper).
+	// It is a pointer so the AppModule's value copy of the keeper sees
+	// them too (docs/development-conventions.md, AppModule value-copy bug).
+	late *lateKeepers
+}
+
+// lateKeepers are the dependencies wired after construction; shared by
+// every copy of the Keeper value.
+type lateKeepers struct {
 	blogKeeper     types.BlogKeeper
+	repKeeper      types.RepKeeper
 	forumKeeper    types.ForumKeeper
 	identityKeeper types.IdentityKeeper
 }
@@ -123,13 +135,13 @@ func NewKeeper(
 	sb := collections.NewSchemaBuilder(storeService)
 
 	k := Keeper{
+		late:          &lateKeepers{forumKeeper: forumKeeper},
 		storeService:  storeService,
 		cdc:           cdc,
 		addressCodec:  addressCodec,
 		authority:     authority,
 		bankKeeper:    bankKeeper,
 		commonsKeeper: commonsKeeper,
-		forumKeeper:   forumKeeper,
 
 		Params: collections.NewItem(sb, types.ParamsKey, "params", codec.CollValue[types.Params](cdc)),
 
@@ -182,6 +194,8 @@ func NewKeeper(
 		),
 		ReactionDedup: collections.NewMap(sb, types.ReactionDedupKey, "reactionDedup", collections.StringKey, collections.Uint32Value),
 		ReactionLimit: collections.NewMap(sb, types.ReactionLimitKey, "reactionLimit", collections.StringKey, collections.Uint32Value),
+		ReactionsByTarget: collections.NewKeySet(sb, types.ReactionsByTargetKey, "reactionsByTarget",
+			collections.PairKeyCodec(collections.StringKey, collections.StringKey)),
 		CollectionsByStatus: collections.NewKeySet(
 			sb, types.CollectionsByStatusKey, "collectionsByStatus",
 			collections.TripleKeyCodec(collections.Int32Key, collections.Int32Key, collections.Uint64Key),
@@ -265,40 +279,54 @@ func (k Keeper) GetAuthorityString() string {
 // SetRepKeeper sets the RepKeeper after depinject to break cyclic dependency
 // (rep → season → collect → rep).
 func (k *Keeper) SetRepKeeper(rk types.RepKeeper) {
-	k.repKeeper = rk
+	k.late.repKeeper = rk
 }
 
 // SetBlogKeeper sets the optional blog keeper for OnChainReference validation.
 func (k *Keeper) SetBlogKeeper(bk types.BlogKeeper) {
-	k.blogKeeper = bk
+	k.late.blogKeeper = bk
 }
 
 // SetForumKeeper sets the optional forum keeper for OnChainReference validation
 // of forum post/reply references. Wired manually in app.go (depinject can't
 // auto-resolve the interface from the concrete forummodulekeeper.Keeper type).
 func (k *Keeper) SetForumKeeper(fk types.ForumKeeper) {
-	k.forumKeeper = fk
+	k.late.forumKeeper = fk
 }
 
 // SetIdentityKeeper late-binds the identity keeper for federated-denom
 // resolution. Called from app.go post-depinject.
 func (k *Keeper) SetIdentityKeeper(idk types.IdentityKeeper) {
-	k.identityKeeper = idk
+	k.late.identityKeeper = idk
 }
 
 // BondDenom returns the chain's bond denom from the wired identity keeper.
 // Panics if identity isn't wired: no silent fallback to a hardcoded literal.
 func (k Keeper) BondDenom(ctx context.Context) string {
-	if k.identityKeeper == nil {
+	if k.late.identityKeeper == nil {
 		panic("collect keeper: identityKeeper not wired (call SetIdentityKeeper after depinject)")
 	}
-	return k.identityKeeper.BondDenom(ctx)
+	return k.late.identityKeeper.BondDenom(ctx)
 }
 
 // HasCollection returns true if a collection with the given ID exists.
 func (k Keeper) HasCollection(ctx context.Context, id uint64) bool {
-	has, _ := k.Collection.Has(ctx, id)
+	has, getErr := k.Collection.Has(ctx, id)
+	if getErr != nil {
+		sdk.UnwrapSDKContext(ctx).Logger().Error("Has failed", "err", getErr)
+	}
 	return has
+}
+
+// LiveCollection returns the owner and creation block height of an ACTIVE
+// collection, and false for a missing or non-ACTIVE (pending, hidden) one.
+// Used by x/season's retro-PGF nomination checks.
+func (k Keeper) LiveCollection(ctx context.Context, id uint64) (string, int64, bool) {
+	c, err := k.Collection.Get(ctx, id)
+	if err != nil || c.Status != types.CollectionStatus_COLLECTION_STATUS_ACTIVE {
+		return "", 0, false
+	}
+	return c.Owner, c.CreatedAt, true
 }
 
 // DefaultEpochDuration is the fallback epoch duration (~5 months in seconds).

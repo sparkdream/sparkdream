@@ -1,140 +1,50 @@
 package simulation
 
 import (
-	"math/rand"
-	"time"
-
 	"cosmossdk.io/math"
-	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
-	"github.com/cosmos/cosmos-sdk/x/simulation"
 
 	"sparkdream/x/session/keeper"
 	"sparkdream/x/session/types"
 )
 
+// buildCreateSession builds a legacy MsgCreateSession (the SESSION_KEY
+// facade) from granter to grantee.
+func (e *simEnv) buildCreateSession(granter, grantee simtypes.Account) *types.MsgCreateSession {
+	return &types.MsgCreateSession{
+		Granter:         granter.Address.String(),
+		Grantee:         grantee.Address.String(),
+		AllowedMsgTypes: e.sessionMsgTypes(false),
+		SpendLimit:      e.spendLimit(),
+		Expiration:      e.sessionExpiry(),
+		MaxExecCount:    e.maxExecCount(),
+	}
+}
+
+// SimulateMsgCreateSession creates a session key through the legacy
+// MsgCreateSession facade between two live sim accounts.
 func SimulateMsgCreateSession(
 	ak types.AuthKeeper,
 	bk types.BankKeeper,
 	k keeper.Keeper,
 	txGen client.TxConfig,
 ) simtypes.Operation {
-	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
-	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		msgType := sdk.MsgTypeURL(&types.MsgCreateSession{})
-
-		if len(accs) < 2 {
-			return simtypes.NoOpMsg(types.ModuleName, msgType, "need at least 2 accounts"), nil, nil
-		}
-
-		// 1. Get params
-		params, err := k.Params.Get(ctx)
-		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, msgType, "failed to get params"), nil, nil
-		}
-
-		// 2. Pick random granter — shuffle and find one under the session limit
-		perm := r.Perm(len(accs))
-		var granterAcc simtypes.Account
-		granterFound := false
-		for _, idx := range perm {
-			acc := accs[idx]
-			if countGranterSessions(ctx, k, acc.Address.String()) < params.MaxSessionsPerGranter {
-				granterAcc = acc
-				granterFound = true
+	label := &types.MsgCreateSession{}
+	return operation(ak, bk, k, txGen, label, func(e *simEnv) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
+		reason := "no pair of live sim accounts"
+		for attempt := 0; attempt < 3; attempt++ {
+			granter, grantee, ok := e.pair(math.NewInt(10_000))
+			if !ok {
 				break
 			}
-		}
-		if !granterFound {
-			return simtypes.NoOpMsg(types.ModuleName, msgType, "all accounts at max sessions"), nil, nil
-		}
-
-		// 3. Pick a different grantee with no existing session for this pair
-		var granteeAcc simtypes.Account
-		granteeFound := false
-		perm2 := r.Perm(len(accs))
-		for _, idx := range perm2 {
-			acc := accs[idx]
-			if acc.Address.String() == granterAcc.Address.String() {
+			msg := e.buildCreateSession(granter, grantee)
+			if err := e.dryRun(msg); err != nil {
+				reason = "handler would reject: " + err.Error()
 				continue
 			}
-			_, getErr := k.GetSession(ctx, granterAcc.Address.String(), acc.Address.String())
-			if getErr != nil {
-				// No existing session — good
-				granteeAcc = acc
-				granteeFound = true
-				break
-			}
+			return e.deliver(granter, msg, math.ZeroInt())
 		}
-		if !granteeFound {
-			return simtypes.NoOpMsg(types.ModuleName, msgType, "all grantee pairs taken"), nil, nil
-		}
-
-		// 4. Check granter has funds for gas
-		balance := bk.SpendableCoins(ctx, granterAcc.Address)
-		if balance.AmountOf(sdk.DefaultBondDenom).LT(math.NewInt(10000)) {
-			return simtypes.NoOpMsg(types.ModuleName, msgType, "granter has insufficient funds"), nil, nil
-		}
-
-		// 5. Pick random subset of allowed message types
-		if len(params.AllowedMsgTypes) == 0 {
-			return simtypes.NoOpMsg(types.ModuleName, msgType, "no allowed msg types"), nil, nil
-		}
-		maxMsgTypes := int(params.MaxMsgTypesPerSession)
-		if maxMsgTypes <= 0 {
-			maxMsgTypes = 5
-		}
-		allowedMsgTypes := randomSubset(r, params.AllowedMsgTypes, maxMsgTypes)
-
-		// 6. Random spend limit (must be positive — zero disables fee delegation)
-		maxAmount := params.MaxSpendLimitAmount.Int64()
-		if maxAmount <= 0 {
-			maxAmount = 100_000_000
-		}
-		spendLimit := sdk.NewCoin(sdk.DefaultBondDenom, math.NewInt(r.Int63n(maxAmount)+1))
-
-		// 7. Random expiration
-		maxExpDuration := params.MaxExpiration
-		if maxExpDuration <= 0 {
-			maxExpDuration = 7 * 24 * time.Hour
-		}
-		minDuration := time.Minute
-		durationRange := int64(maxExpDuration - minDuration)
-		if durationRange <= 0 {
-			durationRange = int64(time.Hour)
-		}
-		expiration := ctx.BlockTime().Add(minDuration + time.Duration(r.Int63n(durationRange)))
-
-		// 8. Random max_exec_count in [1, params.MaxExecCount]. The chain no
-		// longer accepts 0 (= unlimited) — every session must have a finite cap.
-		maxExecCount := uint64(r.Intn(50)) + 1
-
-		// 9. Construct and deliver
-		msg := &types.MsgCreateSession{
-			Granter:         granterAcc.Address.String(),
-			Grantee:         granteeAcc.Address.String(),
-			AllowedMsgTypes: allowedMsgTypes,
-			SpendLimit:      spendLimit,
-			Expiration:      expiration,
-			MaxExecCount:    maxExecCount,
-		}
-
-		opMsg := simulation.OperationInput{
-			R:               r,
-			App:             app,
-			TxGen:           txGen,
-			Cdc:             nil,
-			Msg:             msg,
-			CoinsSpentInMsg: sdk.NewCoins(),
-			Context:         ctx,
-			SimAccount:      granterAcc,
-			AccountKeeper:   ak,
-			Bankkeeper:      bk,
-			ModuleName:      types.ModuleName,
-		}
-
-		return simulation.GenAndDeliverTxWithRandFees(opMsg)
-	}
+		return noOp(label, reason)
+	})
 }

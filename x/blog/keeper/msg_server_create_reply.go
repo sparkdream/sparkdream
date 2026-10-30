@@ -65,8 +65,11 @@ func (k msgServer) CreateReply(ctx context.Context, msg *types.MsgCreateReply) (
 	// the ephemeral TTL for non-members all still apply below, so a
 	// non-member author's self-replies are throttled, charged, and GC'd just
 	// like their post. The exemption is narrowly scoped to this thread's own
-	// author; replying into anyone else's thread stays gated.
-	isThreadAuthor := k.canActAs(ctx, msg.Creator, post.Creator)
+	// author; replying into anyone else's thread stays gated. Never for
+	// anonymous content: every anonymous post and reply shares the shield
+	// address, so matching creators says nothing about who wrote the post,
+	// and an anonymous reply must meet the gate with its proven trust level.
+	isThreadAuthor := !isShieldModuleAddress(creatorAddr) && k.canActAs(ctx, msg.Creator, post.Creator)
 	if !isThreadAuthor && !k.meetsReplyTrustLevel(ctx, creatorAddr, post.MinReplyTrustLevel) {
 		return nil, k.trustLevelError(ctx, creatorAddr, post.MinReplyTrustLevel, "replies on this post")
 	}
@@ -151,8 +154,8 @@ func (k msgServer) CreateReply(ctx context.Context, msg *types.MsgCreateReply) (
 	// BLOG_REPLY_AUTHOR_BOND, not BLOG_AUTHOR_BOND: replies have their own id
 	// sequence, so sharing the post bond namespace would make post N and
 	// reply N collide (one bond per target).
-	if msg.AuthorBond != nil && msg.AuthorBond.IsPositive() && k.repKeeper != nil {
-		if _, err := k.repKeeper.CreateAuthorBond(ctx, creatorAddr, reptypes.StakeTargetType_STAKE_TARGET_BLOG_REPLY_AUTHOR_BOND, id, *msg.AuthorBond); err != nil {
+	if msg.AuthorBond != nil && msg.AuthorBond.IsPositive() && k.hasRep() {
+		if _, err := k.late.repKeeper.CreateAuthorBond(ctx, creatorAddr, reptypes.StakeTargetType_STAKE_TARGET_BLOG_REPLY_AUTHOR_BOND, id, *msg.AuthorBond); err != nil {
 			return nil, errorsmod.Wrap(err, "failed to create author bond")
 		}
 	}

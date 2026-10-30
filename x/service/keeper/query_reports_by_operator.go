@@ -27,10 +27,14 @@ func (q queryServer) ReportsByOperator(ctx context.Context, req *types.QueryRepo
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
 
+	pg, err := q.k.checkPagination(ctx, req.Pagination)
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
 	reports, pageRes, err := query.CollectionFilteredPaginate(
 		ctx,
 		q.k.Reports,
-		req.Pagination,
+		pg,
 		func(_ uint64, r types.Report) (bool, error) {
 			if r.OperatorAddress != req.OperatorAddress || r.ServiceType != req.ServiceType {
 				return false, nil

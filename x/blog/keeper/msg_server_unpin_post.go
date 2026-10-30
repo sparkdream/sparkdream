@@ -3,6 +3,7 @@ package keeper
 import (
 	"context"
 	"fmt"
+	commontypes "sparkdream/x/common/types"
 
 	"sparkdream/x/blog/types"
 
@@ -42,8 +43,8 @@ func (k msgServer) UnpinPost(ctx context.Context, msg *types.MsgUnpinPost) (*typ
 		return nil, err
 	}
 
-	if !k.meetsReplyTrustLevel(ctx, creatorAddr, int32(params.PinMinTrustLevel)) {
-		return nil, k.trustLevelError(ctx, creatorAddr, int32(params.PinMinTrustLevel), "unpinning posts")
+	if !k.meetsReplyTrustLevel(ctx, creatorAddr, commontypes.Saturate[int32](params.PinMinTrustLevel)) {
+		return nil, k.trustLevelError(ctx, creatorAddr, commontypes.Saturate[int32](params.PinMinTrustLevel), "unpinning posts")
 	}
 
 	if err := k.checkRateLimit(ctx, "pin", creatorAddr, params.MaxPinsPerDay); err != nil {

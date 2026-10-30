@@ -10,6 +10,7 @@ import (
 
 	"sparkdream/x/artifact/keeper"
 	"sparkdream/x/artifact/types"
+	commontypes "sparkdream/x/common/types"
 )
 
 // SimulateMsgTransferUnits moves free units of a transferable edition.
@@ -29,7 +30,7 @@ func SimulateMsgTransferUnits(ak types.AuthKeeper, bk types.BankKeeper, k keeper
 		}
 		p := k.GetParams(ctx)
 		msg = &types.MsgTransferUnits{Sender: holder.Address.String(), Entries: []types.UnitTransferEntry{{
-			ClassId: c.Id, EditionId: b.EditionId, Recipient: to.Address.String(), Amount: uint64(1 + r.Intn(int(b.Amount)))}}}
+			ClassId: c.Id, EditionId: b.EditionId, Recipient: to.Address.String(), Amount: commontypes.Saturate[uint64](1 + r.Intn(commontypes.Saturate[int](b.Amount)))}}}
 		return deliver(r, app, ctx, ak, bk, txGen, holder, msg, p.TokenDeposit.Add(p.InboxFee))
 	}
 }

@@ -305,7 +305,8 @@ func loadConfig() Config {
 		LCD:         env("SDA_LCD", "https://api-dev.sparkdream.io"),
 		ChainID:     env("SDA_CHAIN_ID", "sparkdream-dev-1"),
 		Prefix:      env("SDA_PREFIX", "sprkdrm"),
-		Denom:       env("SDA_DENOM", "usparz.sparkdreamdev"),
+		// Empty = the chain's bond denom, read from x/identity.
+		Denom: env("SDA_DENOM", ""),
 		// SDA_PEER_IDS is a comma-separated list; SDA_PEER_ID (one peer) is
 		// still read when it is unset.
 		PeerIDs:           splitList(env("SDA_PEER_IDS", env("SDA_PEER_ID", ""))),
@@ -336,7 +337,9 @@ func loadConfig() Config {
 		// Local test instances only (INSTANCE_SETUP.md); never a real peer.
 		AllowPrivateHosts: envBool("SDA_ALLOW_PRIVATE_HOSTS", false),
 	}
-	fs.Parse(os.Args[1:])
+	if err := fs.Parse(os.Args[1:]); err != nil {
+		log.Fatalf("flags: %v", err)
+	}
 	return cfg
 }
 

@@ -26,8 +26,12 @@ func createNTagBudget(k keeper.Keeper, ctx context.Context, n int) []types.TagBu
 		items[i].MembersOnly = true
 		items[i].CreatedAt = int64(i)
 		items[i].Active = true
-		_ = k.TagBudget.Set(ctx, iu, items[i])
-		_ = k.TagBudgetSeq.Set(ctx, iu)
+		if err := k.TagBudget.Set(ctx, iu, items[i]); err != nil {
+			panic(err)
+		}
+		if err := k.TagBudgetSeq.Set(ctx, iu); err != nil {
+			panic(err)
+		}
 	}
 	return items
 }

@@ -101,13 +101,14 @@ Cosmetic labels with seasonal and permanent variants:
 Member-created groups:
 
 - **Creation cost**: 100 DREAM (burned)
+- **Name**: reserved in x/name, so it uses x/name's format: 3-30 characters of `a-z`, `0-9`, `_`, `-`, not starting or ending with `-`
 - **Roles**: Founder (1), Officers (up to 5), Members (3-100)
-- **Membership**: one guild per season, max 3 guild hops per season, cooldown of 30 epochs
+- **Membership**: one guild per season, max 3 guild hops per season, cooldown of 30 epochs after leaving any guild (also one left in epoch 0)
 - **Lifecycle**: ACTIVE → FROZEN → DISSOLVED
-- **Invitations**: TTL of ~1 month (30 epochs), max 20 pending per guild
+- **Invitations**: TTL of ~1 month (30 epochs), max 20 pending per guild; an expired invite is refused by both `MsgAcceptGuildInvite` and `MsgJoinGuild`
 - **Minimum age**: 7 epochs before dissolution allowed
 - **Description**: up to 500 characters
-- **Founder transfer**: ownership can be transferred or claimed if founder leaves
+- **Founder transfer**: ownership can be transferred, or claimed by another member of a frozen guild (the current founder cannot claim)
 
 ### Display Names
 

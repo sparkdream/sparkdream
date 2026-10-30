@@ -49,6 +49,9 @@ func (stubCommonsKeeper) IsGroupPolicyAddress(context.Context, string) bool { re
 func (stubCommonsKeeper) IsCouncilAuthorized(context.Context, string, string, string) bool {
 	return false
 }
+func (stubCommonsKeeper) IsCouncilOrCommitteePolicy(context.Context, string, string, string) bool {
+	return false
+}
 func (stubCommonsKeeper) GetCategory(context.Context, uint64) (commonstypes.Category, bool) {
 	return commonstypes.Category{}, false
 }
@@ -60,6 +63,9 @@ func (stubRepKeeper) MintDREAM(context.Context, sdk.AccAddress, math.Int) error 
 func (stubRepKeeper) BurnDREAM(context.Context, sdk.AccAddress, math.Int) error   { return nil }
 func (stubRepKeeper) LockDREAM(context.Context, sdk.AccAddress, math.Int) error   { return nil }
 func (stubRepKeeper) UnlockDREAM(context.Context, sdk.AccAddress, math.Int) error { return nil }
+func (stubRepKeeper) BurnLockedDREAM(context.Context, sdk.AccAddress, math.Int) error {
+	return nil
+}
 func (stubRepKeeper) GetBalance(context.Context, sdk.AccAddress) (math.Int, error) {
 	return math.ZeroInt(), nil
 }

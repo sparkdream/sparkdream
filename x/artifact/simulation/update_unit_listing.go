@@ -11,6 +11,7 @@ import (
 
 	"sparkdream/x/artifact/keeper"
 	"sparkdream/x/artifact/types"
+	commontypes "sparkdream/x/common/types"
 )
 
 // marketableForSim mirrors the keeper's offer/auction preconditions on a
@@ -48,7 +49,7 @@ func SimulateMsgUpdateUnitListing(ak types.AuthKeeper, bk types.BankKeeper, k ke
 		if err != nil || err2 != nil || err3 != nil || c.Status != types.ContentStatus_CONTENT_STATUS_ACTIVE || e.Status != types.ContentStatus_CONTENT_STATUS_ACTIVE {
 			return noop(msg, "listing's edition hidden or gone")
 		}
-		qty := uint64(1 + r.Intn(int(l.Quantity+b.Amount)))
+		qty := commontypes.Saturate[uint64](1 + r.Intn(commontypes.Saturate[int](l.Quantity+b.Amount)))
 		msg = &types.MsgUpdateUnitListing{Seller: l.Seller, ListingId: l.Id, Quantity: qty,
 			UnitPrice: sdk.NewInt64Coin(sdk.DefaultBondDenom, int64(1+r.Intn(5))*100_000), Duration: int64(60 + r.Intn(3600))}
 		return deliver(r, app, ctx, ak, bk, txGen, seller, msg, math.ZeroInt())

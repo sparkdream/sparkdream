@@ -1,33 +1,42 @@
 package simulation
 
 import (
-	"math/rand"
-
-	"github.com/cosmos/cosmos-sdk/baseapp"
+	"cosmossdk.io/math"
 	"github.com/cosmos/cosmos-sdk/client"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
 
 	"sparkdream/x/rep/keeper"
 	"sparkdream/x/rep/types"
 )
 
-func SimulateMsgAssignInterim(
-	ak types.AuthKeeper,
-	bk types.BankKeeper,
-	k keeper.Keeper,
-	txGen client.TxConfig,
-) simtypes.Operation {
-	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
-	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		// NOTE: This operation cannot succeed in simulation because assigning
-		// interim work requires Operations Committee authority — being an
-		// assignee entitles you to a share of the interim's budget, so adding
-		// one is a spending decision. That authority comes from the x/commons
-		// council/committee bootstrap, which simulation does not run, so no
-		// random account can hold it. Rather than failing the simulation, we
-		// return a NoOp and skip this message, exactly as
-		// SimulateMsgApproveInterim and SimulateMsgApproveProjectBudget do.
-		return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgAssignInterim{}), "skipped: requires committee membership"), nil, nil
-	}
+// SimulateMsgAssignInterim has an Operations Committee seat add a member to
+// a PENDING interim. With none, a member opens one first.
+func SimulateMsgAssignInterim(ak types.AuthKeeper, bk types.BankKeeper, k keeper.Keeper, txGen client.TxConfig) simtypes.Operation {
+	label := &types.MsgAssignInterim{}
+	return operation(ak, bk, k, txGen, label, func(e *simEnv) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
+		ops := append(e.liveSeats(commonsOpsCommittee), e.liveSeats(technicalOpsCommittee)...)
+		if len(ops) == 0 {
+			return noOp(label, "no live Operations Committee seat")
+		}
+		its, err := e.openInterim(func(it types.Interim) bool { return it.Status == types.InterimStatus_INTERIM_STATUS_PENDING })
+		if err != nil {
+			return noOpErr(label, err)
+		}
+		ms, err := e.members(nil)
+		if err != nil {
+			return noOpErr(label, err)
+		}
+		var cands []candidate
+		for _, it := range its {
+			by := ops[e.r.Intn(len(ops))]
+			to, ok := pick(e.r, ms)
+			if !ok {
+				break
+			}
+			cands = append(cands, candidate{acc: by, msg: &types.MsgAssignInterim{
+				Creator: by.Address.String(), InterimId: it.Id, Assignee: to.addr(),
+			}, spent: math.ZeroInt()})
+		}
+		return e.firstValid(label, cands, 4, "no PENDING interim to assign")
+	})
 }

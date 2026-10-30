@@ -25,7 +25,7 @@ var (
 // no control characters (newline and tab allowed only when multiline), and no
 // data URI anywhere (docs/x-artifact-spec.md §7.9).
 func ValidateText(field, s string, maxLen uint32, multiline bool) error {
-	if uint32(len(s)) > maxLen {
+	if commontypes.Saturate[uint32](len(s)) > maxLen {
 		return errorsmod.Wrapf(ErrInvalidMetadata, "%s exceeds %d bytes", field, maxLen)
 	}
 	if !utf8.ValidString(s) {
@@ -47,7 +47,7 @@ func ValidateText(field, s string, maxLen uint32, multiline bool) error {
 
 // ValidateSymbol checks a class symbol: [A-Z0-9], within maxLen.
 func ValidateSymbol(s string, maxLen uint32) error {
-	if uint32(len(s)) > maxLen {
+	if commontypes.Saturate[uint32](len(s)) > maxLen {
 		return errorsmod.Wrapf(ErrInvalidMetadata, "symbol exceeds %d characters", maxLen)
 	}
 	if !symbolPattern.MatchString(s) {
@@ -74,7 +74,7 @@ func ValidateURI(field, raw string, p Params) error {
 	if raw == "" {
 		return nil
 	}
-	if uint32(len(raw)) > p.MaxUriLength {
+	if commontypes.Saturate[uint32](len(raw)) > p.MaxUriLength {
 		return errorsmod.Wrapf(ErrInvalidMetadata, "%s exceeds %d bytes", field, p.MaxUriLength)
 	}
 	if commontypes.ContainsDataURI(raw) {
@@ -134,12 +134,12 @@ func ValidateTokenMetadata(m TokenMetadata, p Params) error {
 	if err := ValidateURIHash("uri_hash", m.UriHash); err != nil {
 		return err
 	}
-	if uint32(len(m.Attributes)) > p.MaxAttributes {
+	if commontypes.Saturate[uint32](len(m.Attributes)) > p.MaxAttributes {
 		return errorsmod.Wrapf(ErrInvalidMetadata, "at most %d attributes", p.MaxAttributes)
 	}
 	seen := make(map[string]bool, len(m.Attributes))
 	for _, a := range m.Attributes {
-		if a.Key == "" || uint32(len(a.Key)) > p.MaxAttributeKeyLength || !attrKeyPattern.MatchString(a.Key) {
+		if a.Key == "" || commontypes.Saturate[uint32](len(a.Key)) > p.MaxAttributeKeyLength || !attrKeyPattern.MatchString(a.Key) {
 			return errorsmod.Wrapf(ErrInvalidMetadata, "attribute key %q must match [a-z0-9_]{1,%d}", a.Key, p.MaxAttributeKeyLength)
 		}
 		if seen[a.Key] {

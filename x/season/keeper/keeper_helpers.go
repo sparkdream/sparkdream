@@ -6,10 +6,14 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
+	"cosmossdk.io/collections"
 	errorsmod "cosmossdk.io/errors"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
+	commontypes "sparkdream/x/common/types"
 	reptypes "sparkdream/x/rep/types"
 	"sparkdream/x/season/types"
 )
@@ -73,12 +77,12 @@ func (k Keeper) IsGovAuthority(ctx context.Context, addr string) bool {
 // IsOperationsCommittee checks if the address is a member of the Operations Committee
 func (k Keeper) IsOperationsCommittee(ctx context.Context, addr string) bool {
 	// If commons keeper is available, use it
-	if k.commonsKeeper != nil {
+	if k.late.commonsKeeper != nil {
 		addrBytes, err := k.addressCodec.StringToBytes(addr)
 		if err != nil {
 			return false
 		}
-		isMember, err := k.commonsKeeper.IsCommitteeMember(ctx, addrBytes, "commons", "operations")
+		isMember, err := k.late.commonsKeeper.IsCommitteeMember(ctx, addrBytes, "commons", "operations")
 		if err == nil {
 			return isMember
 		}
@@ -87,62 +91,66 @@ func (k Keeper) IsOperationsCommittee(ctx context.Context, addr string) bool {
 	return k.IsGovAuthority(ctx, addr)
 }
 
-// IsCouncilAuthorized checks if the address is authorized via governance authority,
-// council policy address, or committee membership.
-// Delegates to x/commons IsCouncilAuthorized when available.
-// Falls back to IsGovAuthority when x/commons is not wired.
-func (k Keeper) isCouncilAuthorized(ctx context.Context, addr string, council string, committee string) bool {
-	if k.commonsKeeper == nil {
-		return k.IsGovAuthority(ctx, addr)
-	}
-	return k.commonsKeeper.IsCouncilAuthorized(ctx, addr, council, committee)
-}
-
-// IsAuthorizedForGamification checks if the address is authorized to manage
-// achievements, titles, and quests. Delegates to x/commons IsCouncilAuthorized.
-// Authorization is granted to:
-// 1. Governance module authority (x/gov)
-// 2. Commons Council policy address (council proposals)
-// 3. Commons Operations Committee members (direct action)
+// IsAuthorizedForGamification gates quest, achievement and title
+// definitions and display-name moderation resolutions. User decision
+// (SEA-23): these need a committee decision -- governance, the Commons
+// Council policy address or the Commons Operations Committee policy
+// address (an executed proposal) -- never an individual committee member.
+// Quest XP is further capped by types.MaxQuestXpReward.
 func (k Keeper) IsAuthorizedForGamification(ctx context.Context, addr string) bool {
 	if k.IsGovAuthority(ctx, addr) {
 		return true
 	}
-	if k.commonsKeeper == nil {
+	if k.late.commonsKeeper == nil {
 		return false
 	}
-	return k.commonsKeeper.IsCouncilAuthorized(ctx, addr, "commons", "operations")
+	return k.late.commonsKeeper.IsCouncilOrCommitteePolicy(ctx, addr, "commons", "operations")
 }
 
-// IsCommonsCouncil checks if the address is a member of the Commons Council
+// IsAuthorizedForTransition gates the season state machine and its clock:
+// abort / skip / retry of a transition and the operational params (which
+// include epoch_blocks). It accepts governance, the Commons Council policy
+// address or the Commons Operations Committee policy address -- an executed
+// proposal -- but never an individual committee member (SEA-10).
+func (k Keeper) IsAuthorizedForTransition(ctx context.Context, addr string) bool {
+	if k.IsGovAuthority(ctx, addr) {
+		return true
+	}
+	if k.late.commonsKeeper == nil {
+		return false
+	}
+	return k.late.commonsKeeper.IsCouncilOrCommitteePolicy(ctx, addr, "commons", "operations")
+}
+
+// IsCommonsCouncil gates the season calendar (ExtendSeason,
+// SetNextSeasonInfo). It accepts governance, the Commons Council policy
+// address, or the policy address of the Commons Operations or Governance
+// (hr) Committee -- an executed proposal -- but never an individual
+// committee member (SEA-10).
 func (k Keeper) IsCommonsCouncil(ctx context.Context, addr string) bool {
-	// If commons keeper is available, use it
-	if k.commonsKeeper != nil {
-		addrBytes, err := k.addressCodec.StringToBytes(addr)
-		if err != nil {
-			return false
-		}
-		// Check if member of any committee in commons council
-		for _, committee := range []string{"operations", "hr"} {
-			isMember, err := k.commonsKeeper.IsCommitteeMember(ctx, addrBytes, "commons", committee)
-			if err == nil && isMember {
-				return true
-			}
+	if k.IsGovAuthority(ctx, addr) {
+		return true
+	}
+	if k.late.commonsKeeper == nil {
+		return false
+	}
+	for _, committee := range []string{"operations", "governance"} {
+		if k.late.commonsKeeper.IsCouncilOrCommitteePolicy(ctx, addr, "commons", committee) {
+			return true
 		}
 	}
-	// Fallback: treat governance authority as commons council
-	return k.IsGovAuthority(ctx, addr)
+	return false
 }
 
 // IsMember checks if the address is a registered member (via x/rep)
 func (k Keeper) IsMember(ctx context.Context, addr string) bool {
 	// If rep keeper is available, use it
-	if k.repKeeper != nil {
+	if k.late.repKeeper != nil {
 		accAddr, err := sdk.AccAddressFromBech32(addr)
 		if err != nil {
 			return false
 		}
-		return k.repKeeper.IsMember(ctx, accAddr)
+		return k.late.repKeeper.IsMember(ctx, accAddr)
 	}
 	// Fallback: check if they have a profile in x/season
 	_, err := k.MemberProfile.Get(ctx, addr)
@@ -173,12 +181,16 @@ func (k Keeper) ValidateDisplayName(ctx context.Context, name string) error {
 		return err
 	}
 
-	nameLen := uint32(len(name))
+	nameLen := commontypes.Saturate[uint32](len(name))
 	if nameLen < params.DisplayNameMinLength {
 		return types.ErrDisplayNameTooShort
 	}
 	if nameLen > params.DisplayNameMaxLength {
 		return types.ErrDisplayNameTooLong
+	}
+
+	if err := validDisplayNameChars(name); err != nil {
+		return err
 	}
 
 	// Content filtering: check for blocked/impersonation terms (case-insensitive substring)
@@ -189,16 +201,22 @@ func (k Keeper) ValidateDisplayName(ctx context.Context, name string) error {
 		}
 	}
 
-	// Check against x/name's blocked names for exact match (e.g., "bitcoin", "ethereum")
-	if k.nameKeeper != nil {
-		normalized := strings.TrimSpace(lower)
-		normalized = regexp.MustCompile(`[^a-z0-9]`).ReplaceAllString(normalized, "")
-		if normalized != "" && !k.nameKeeper.IsNameAvailable(ctx, normalized) {
-			// Name is taken in x/name registry — could be impersonation
-			// Only block if the display name exactly matches a registered name
+	return nil
+}
+
+// validDisplayNameChars rejects invalid UTF-8, control characters and the
+// Unicode format characters (bidi overrides, zero-width joiners and
+// spaces), which break client layouts and log lines and help impersonation
+// (SEA-34).
+func validDisplayNameChars(name string) error {
+	if !utf8.ValidString(name) {
+		return types.ErrDisplayNameInvalidChars
+	}
+	for _, r := range name {
+		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) {
+			return errorsmod.Wrapf(types.ErrDisplayNameInvalidChars, "character U+%04X is not allowed", r)
 		}
 	}
-
 	return nil
 }
 
@@ -209,7 +227,7 @@ func (k Keeper) ValidateUsername(ctx context.Context, username string) error {
 		return err
 	}
 
-	usernameLen := uint32(len(username))
+	usernameLen := commontypes.Saturate[uint32](len(username))
 	if usernameLen < params.UsernameMinLength {
 		return types.ErrUsernameTooShort
 	}
@@ -228,6 +246,16 @@ func (k Keeper) ValidateUsername(ctx context.Context, username string) error {
 
 // Guild validation and helpers
 
+// Guild-name bounds: x/name's default name length (3-30) and character set.
+const (
+	GuildNameMinLength = 3
+	GuildNameMaxLength = 30
+)
+
+// validGuildName is x/name's name format (lowercase a-z, 0-9, _ and -, not
+// starting or ending with -).
+var validGuildName = regexp.MustCompile(`^[a-z0-9_]([a-z0-9_-]*[a-z0-9_])?$`)
+
 // ValidateGuildName validates a guild name
 func (k Keeper) ValidateGuildName(ctx context.Context, name string) error {
 	params, err := k.Params.Get(ctx)
@@ -235,33 +263,31 @@ func (k Keeper) ValidateGuildName(ctx context.Context, name string) error {
 		return err
 	}
 
-	nameLen := uint32(len(name))
-	if nameLen < 3 {
+	// A guild name is reserved in x/name, so it follows x/name's format:
+	// otherwise the reservation would refuse every name CreateGuild accepted.
+	if len(name) < GuildNameMinLength {
 		return types.ErrGuildNameTooShort
 	}
-	if nameLen > 50 {
+	if len(name) > GuildNameMaxLength {
 		return types.ErrGuildNameTooLong
 	}
+	if !validGuildName.MatchString(name) {
+		return types.ErrGuildNameInvalidChars
+	}
 
-	// Check name uniqueness — early return as soon as a duplicate is found
-	iter, err := k.Guild.Iterate(ctx, nil)
-	if err != nil {
+	// Name uniqueness among live guilds: one prefix read of the ByName
+	// index, never a scan of every guild (SEA-28).
+	taken := false
+	if err := k.Guild.Indexes.ByName.Walk(ctx,
+		collections.NewPrefixedPairRange[string, uint64](strings.ToLower(name)),
+		func(_ string, _ uint64) (bool, error) {
+			taken = true
+			return true, nil
+		}); err != nil {
 		return err
 	}
-	defer iter.Close()
-
-	normalizedName := strings.ToLower(name)
-	for ; iter.Valid(); iter.Next() {
-		guild, err := iter.Value()
-		if err != nil {
-			continue
-		}
-		if guild.Status == types.GuildStatus_GUILD_STATUS_DISSOLVED {
-			continue
-		}
-		if strings.ToLower(guild.Name) == normalizedName {
-			return types.ErrGuildNameTaken // early return on first duplicate
-		}
+	if taken {
+		return types.ErrGuildNameTaken
 	}
 	_ = params
 
@@ -275,7 +301,7 @@ func (k Keeper) ValidateGuildDescription(ctx context.Context, description string
 		return err
 	}
 
-	if uint32(len(description)) > params.GuildDescriptionMaxLength {
+	if commontypes.Saturate[uint32](len(description)) > params.GuildDescriptionMaxLength {
 		return types.ErrGuildDescriptionTooLong
 	}
 	return nil
@@ -318,54 +344,144 @@ func (k Keeper) IsGuildMember(ctx context.Context, guildID uint64, addr string) 
 	return membership.GuildId == guildID && membership.LeftEpoch == 0
 }
 
-// GetGuildMemberCount returns the number of active members in a guild.
-// Uses a dedicated counter for O(1) lookups. Falls back to a full scan
-// if the counter hasn't been initialized yet (migration path).
+// GetGuildMemberCount returns the number of active members in a guild from
+// the GuildMemberCount counter, which every membership change keeps in step
+// (joinGuildMembership / leaveGuildMembership, SEA-24). When the counter is
+// absent it is rebuilt from the guild's ByGuild index prefix.
 func (k Keeper) GetGuildMemberCount(ctx context.Context, guildID uint64) uint64 {
 	count, err := k.GuildMemberCount.Get(ctx, guildID)
 	if err == nil {
 		return count
 	}
-	// Fallback: full scan for guilds created before the counter was added.
-	// The counter will be set on the next join/leave for this guild.
 	return k.recomputeGuildMemberCount(ctx, guildID)
 }
 
-// recomputeGuildMemberCount performs a full scan and persists the result.
+// recomputeGuildMemberCount counts the guild's active members through the
+// ByGuild index (bounded by the guild's size) and persists the result.
 func (k Keeper) recomputeGuildMemberCount(ctx context.Context, guildID uint64) uint64 {
-	iter, err := k.GuildMembership.Iterate(ctx, nil)
-	if err != nil {
-		return 0
+	count := uint64(len(k.guildMembers(ctx, guildID)))
+	if err := k.setGuildMemberCount(ctx, guildID, count); err != nil {
+		sdk.UnwrapSDKContext(ctx).Logger().Error("recomputeGuildMemberCount: GuildMemberCount.Set failed", "err", err)
 	}
-	defer iter.Close()
-
-	var count uint64
-	for ; iter.Valid(); iter.Next() {
-		membership, err := iter.Value()
-		if err != nil {
-			continue
-		}
-		if membership.GuildId == guildID && membership.LeftEpoch == 0 {
-			count++
-		}
-	}
-	// Persist so future lookups are O(1)
-	_ = k.GuildMemberCount.Set(ctx, guildID, count)
 	return count
 }
 
-// IncrementGuildMemberCount atomically increments the guild's active member counter.
-func (k Keeper) IncrementGuildMemberCount(ctx context.Context, guildID uint64) {
-	count := k.GetGuildMemberCount(ctx, guildID)
-	_ = k.GuildMemberCount.Set(ctx, guildID, count+1)
+// guildMembers lists the addresses holding an active membership in guildID.
+func (k Keeper) guildMembers(ctx context.Context, guildID uint64) []string {
+	if guildID == 0 {
+		return nil
+	}
+	var members []string
+	if err := k.GuildMembership.Indexes.ByGuild.Walk(ctx,
+		collections.NewPrefixedPairRange[uint64, string](guildID),
+		func(_ uint64, member string) (bool, error) {
+			members = append(members, member)
+			return false, nil
+		}); err != nil {
+		sdk.UnwrapSDKContext(ctx).Logger().Error("guildMembers: GuildMembership.Indexes.ByGuild.Walk failed", "err", err)
+	}
+	return members
 }
 
-// DecrementGuildMemberCount atomically decrements the guild's active member counter.
-func (k Keeper) DecrementGuildMemberCount(ctx context.Context, guildID uint64) {
-	count := k.GetGuildMemberCount(ctx, guildID)
-	if count > 0 {
-		_ = k.GuildMemberCount.Set(ctx, guildID, count-1)
+// guildsJoinedThisSeason returns how many guilds the membership record has
+// created or joined in the current season. The count is stored with its
+// season, so a record from an earlier season reads as zero (SEA-27).
+func (k Keeper) guildsJoinedThisSeason(ctx context.Context, m types.GuildMembership) uint64 {
+	season, err := k.Season.Get(ctx)
+	if err != nil || m.GuildsJoinedSeason != season.Number {
+		return 0
 	}
+	return m.GuildsJoinedThisSeason
+}
+
+// joinGuildMembership writes an active membership of member in guildID,
+// bumps the per-season join count and the guild's active-member counter
+// (SEA-24, SEA-27). Callers have checked the member is in no guild.
+func (k Keeper) joinGuildMembership(ctx context.Context, member string, guildID uint64, epoch int64) error {
+	var season uint64
+	if s, err := k.Season.Get(ctx); err == nil {
+		season = s.Number
+	}
+	// Read the counter before the write: with no counter yet it is rebuilt
+	// from the ByGuild index, which must not already hold this member.
+	count := k.GetGuildMemberCount(ctx, guildID)
+	old, err := k.GuildMembership.Get(ctx, member)
+	joined := uint64(1)
+	if err == nil {
+		if activeGuildOf(old) != 0 {
+			return types.ErrAlreadyInGuild
+		}
+		joined = k.guildsJoinedThisSeason(ctx, old) + 1
+	}
+	if err := k.GuildMembership.Set(ctx, member, types.GuildMembership{
+		Member:                 member,
+		GuildId:                guildID,
+		JoinedEpoch:            epoch,
+		LeftEpoch:              0,
+		GuildsJoinedThisSeason: joined,
+		GuildsJoinedSeason:     season,
+	}); err != nil {
+		return err
+	}
+	return k.setGuildMemberCount(ctx, guildID, count+1)
+}
+
+// leaveGuildMembership closes member's active membership (if any) and
+// decrements its guild's active-member counter. It returns the guild left,
+// or 0 when the member held no active membership.
+func (k Keeper) leaveGuildMembership(ctx context.Context, member string, epoch int64) (uint64, error) {
+	m, err := k.GuildMembership.Get(ctx, member)
+	if err != nil {
+		return 0, nil
+	}
+	guildID := activeGuildOf(m)
+	if guildID == 0 {
+		return 0, nil
+	}
+	count := k.GetGuildMemberCount(ctx, guildID)
+	m.GuildId = 0
+	m.LeftEpoch = epoch
+	if err := k.GuildMembership.Set(ctx, member, m); err != nil {
+		return 0, err
+	}
+	if count > 0 {
+		count--
+	}
+	return guildID, k.setGuildMemberCount(ctx, guildID, count)
+}
+
+// setGuildMemberCount stores a guild's active-member counter, removing it at
+// zero so the store matches InitGenesis (which only rebuilds non-zero
+// counters); an absent counter reads as a recount of the empty ByGuild range.
+func (k Keeper) setGuildMemberCount(ctx context.Context, guildID, count uint64) error {
+	if count == 0 {
+		return k.GuildMemberCount.Remove(ctx, guildID)
+	}
+	return k.GuildMemberCount.Set(ctx, guildID, count)
+}
+
+// checkGuildHopCooldown refuses joining or creating a guild within
+// guild_hop_cooldown_epochs of leaving one. A membership record holding no
+// active guild is a past membership, including one left in epoch 0.
+func checkGuildHopCooldown(m types.GuildMembership, found bool, currentEpoch int64, cooldownEpochs uint64) error {
+	if !found || activeGuildOf(m) != 0 {
+		return nil
+	}
+	since := commontypes.Saturate[uint64](currentEpoch - m.LeftEpoch)
+	if since < cooldownEpochs {
+		return errorsmod.Wrapf(types.ErrGuildHopCooldown, "must wait %d more epochs", cooldownEpochs-since)
+	}
+	return nil
+}
+
+// guildInviteLive reports whether invitee holds an unexpired invite to the
+// guild. An expired invite stays stored until pruning but grants nothing.
+func (k Keeper) guildInviteLive(ctx context.Context, guildID uint64, invitee string) bool {
+	invite, err := k.GuildInvite.Get(ctx, fmt.Sprintf("%d:%s", guildID, invitee))
+	if err != nil {
+		return false
+	}
+	return invite.ExpiresEpoch == 0 || k.GetCurrentEpoch(ctx) <= invite.ExpiresEpoch
 }
 
 // HasPendingGuildInvite checks if there's a pending invite for the member to the guild
@@ -381,7 +497,7 @@ func (k Keeper) GetPendingInviteCount(ctx context.Context, guildID uint64) uint3
 	if err != nil {
 		return 0
 	}
-	return uint32(len(guild.PendingInvites))
+	return commontypes.Saturate[uint32](len(guild.PendingInvites))
 }
 
 // Season state helpers
@@ -426,30 +542,19 @@ func (k Keeper) HasQuestPrerequisite(ctx context.Context, member string, prerequ
 	return progress.Completed
 }
 
-// GetMemberActiveQuestCount returns the number of active (in-progress) quests for a member
+// GetMemberActiveQuestCount returns the number of active (in-progress)
+// quests for a member. It counts the member's keys in the Open index, so it
+// reads only that member's open quests, never the whole progress table
+// (SEA-28).
 func (k Keeper) GetMemberActiveQuestCount(ctx context.Context, member string) uint32 {
-	iter, err := k.MemberQuestProgress.Iterate(ctx, nil)
-	if err != nil {
-		return 0
-	}
-	defer iter.Close()
-
 	var count uint32
-	for ; iter.Valid(); iter.Next() {
-		key, err := iter.Key()
-		if err != nil {
-			continue
-		}
-		if !strings.HasPrefix(key, member+":") {
-			continue
-		}
-		progress, err := iter.Value()
-		if err != nil {
-			continue
-		}
-		if !progress.Completed {
+	if err := k.MemberQuestProgress.Indexes.Open.Walk(ctx,
+		collections.NewPrefixedPairRange[string, string](member+questOpenSuffix),
+		func(_ string, _ string) (bool, error) {
 			count++
-		}
+			return false, nil
+		}); err != nil {
+		sdk.UnwrapSDKContext(ctx).Logger().Error("GetMemberActiveQuestCount: MemberQuestProgress.Indexes.Open.Walk failed", "err", err)
 	}
 	return count
 }
@@ -466,7 +571,7 @@ func (k Keeper) CalculateLevel(ctx context.Context, xp uint64) uint64 {
 	level := uint64(1)
 	for i, threshold := range params.LevelThresholds {
 		if xp >= threshold {
-			level = uint64(i + 1)
+			level = commontypes.Saturate[uint64](i + 1)
 		} else {
 			break
 		}
@@ -499,22 +604,22 @@ func (k Keeper) HasUnlockedTitle(ctx context.Context, member string, titleID str
 
 // BurnDREAM burns DREAM tokens from a member's balance via shared dreamutil.Ops.
 func (k Keeper) BurnDREAM(ctx context.Context, addr string, amount uint64) error {
-	return k.dreamOps.Burn(ctx, addr, amount)
+	return k.late.dreamOps.Burn(ctx, addr, amount)
 }
 
 // LockDREAM locks (escrows) DREAM tokens via shared dreamutil.Ops.
 func (k Keeper) LockDREAM(ctx context.Context, addr string, amount uint64) error {
-	return k.dreamOps.Lock(ctx, addr, amount)
+	return k.late.dreamOps.Lock(ctx, addr, amount)
 }
 
 // UnlockDREAM unlocks (releases) DREAM tokens via shared dreamutil.Ops.
 func (k Keeper) UnlockDREAM(ctx context.Context, addr string, amount uint64) error {
-	return k.dreamOps.Unlock(ctx, addr, amount)
+	return k.late.dreamOps.Unlock(ctx, addr, amount)
 }
 
 // GetDREAMBalance gets DREAM token balance via x/rep integration
 func (k Keeper) GetDREAMBalance(ctx context.Context, addr string) (uint64, error) {
-	if k.repKeeper == nil {
+	if k.late.repKeeper == nil {
 		// No rep keeper available - return 0 balance
 		return 0, nil
 	}
@@ -522,7 +627,7 @@ func (k Keeper) GetDREAMBalance(ctx context.Context, addr string) (uint64, error
 	if err != nil {
 		return 0, err
 	}
-	balance, err := k.repKeeper.GetBalance(ctx, addrBytes)
+	balance, err := k.late.repKeeper.GetBalance(ctx, addrBytes)
 	if err != nil {
 		return 0, err
 	}
@@ -532,13 +637,13 @@ func (k Keeper) GetDREAMBalance(ctx context.Context, addr string) (uint64, error
 // ReserveName atomically claims a name via x/name integration.
 // nameType can be "guild", "username", etc. and is stored as the record's Data field.
 func (k Keeper) ReserveName(ctx context.Context, name string, nameType string, owner string) error {
-	if k.nameKeeper == nil {
+	if k.late.nameKeeper == nil {
 		// No name keeper available - skip name reservation (development mode)
 		return nil
 	}
 	// Atomically check availability and register in one step to prevent
 	// TOCTOU races within the same block.
-	if err := k.nameKeeper.ClaimName(ctx, name, owner, nameType); err != nil {
+	if err := k.late.nameKeeper.ClaimName(ctx, name, owner, nameType); err != nil {
 		return errorsmod.Wrap(types.ErrNameAlreadyReserved, err.Error())
 	}
 	return nil
@@ -546,15 +651,11 @@ func (k Keeper) ReserveName(ctx context.Context, name string, nameType string, o
 
 // ReleaseName releases a reserved name via x/name integration
 func (k Keeper) ReleaseName(ctx context.Context, name string, owner string) error {
-	if k.nameKeeper == nil {
+	if k.late.nameKeeper == nil {
 		// No name keeper available - skip name release (development mode)
 		return nil
 	}
-	ownerBytes, err := k.addressCodec.StringToBytes(owner)
-	if err != nil {
-		return err
-	}
-	return k.nameKeeper.RemoveNameFromOwner(ctx, ownerBytes, name)
+	return k.late.nameKeeper.ReleaseName(ctx, name, owner)
 }
 
 // CheckNameAvailable checks if a name is available for reservation.
@@ -562,9 +663,9 @@ func (k Keeper) ReleaseName(ctx context.Context, name string, owner string) erro
 // accidentally satisfying the NameKeeper interface (which would create
 // a depinject self-cycle).
 func (k Keeper) CheckNameAvailable(ctx context.Context, name string) bool {
-	if k.nameKeeper == nil {
+	if k.late.nameKeeper == nil {
 		// No name keeper available - assume available (rely on local validation)
 		return true
 	}
-	return k.nameKeeper.IsNameAvailable(ctx, name)
+	return k.late.nameKeeper.IsNameAvailable(ctx, name)
 }

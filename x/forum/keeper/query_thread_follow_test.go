@@ -20,7 +20,9 @@ func createNThreadFollow(keeper keeper.Keeper, ctx context.Context, n int) []typ
 		items[i].Follower = strconv.Itoa(i)
 		items[i].ThreadId = uint64(i)
 		items[i].FollowedAt = int64(i)
-		_ = keeper.ThreadFollow.Set(ctx, items[i].Follower, items[i])
+		if err := keeper.ThreadFollow.Set(ctx, items[i].Follower, items[i]); err != nil {
+			panic(err)
+		}
 	}
 	return items
 }

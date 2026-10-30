@@ -19,6 +19,7 @@ func (r fixedDelayRep) ZkKeyActivationDelaySeconds(context.Context) int64 { retu
 func (r fixedDelayRep) CanActAs(_ context.Context, signer, stored string) bool {
 	return signer == stored
 }
+func (r fixedDelayRep) ActiveZkPublicKey(context.Context, string) []byte { return nil }
 
 // TestMigrationHooks_SeatAndVoteFollowIdentity: a council seat and a vote on
 // an open proposal move with the member; a vote on a closed proposal stays.
@@ -29,7 +30,7 @@ func TestMigrationHooks_SeatAndVoteFollowIdentity(t *testing.T) {
 	council := "Phoenix Council"
 	require.NoError(t, f.keeper.Groups.Set(f.ctx, council, types.Group{PolicyAddress: "policy"}))
 	require.NoError(t, f.keeper.Members.Set(f.ctx, collections.Join(council, from.String()), types.Member{Address: from.String(), Weight: "1", AddedAt: 42}))
-	require.NoError(t, f.keeper.Proposals.Set(f.ctx, 7, types.Proposal{Id: 7, CouncilName: council, Status: types.ProposalStatus_PROPOSAL_STATUS_SUBMITTED}))
+	require.NoError(t, f.keeper.SetProposalQueued(f.ctx, 7, types.Proposal{Id: 7, CouncilName: council, Status: types.ProposalStatus_PROPOSAL_STATUS_SUBMITTED}))
 	require.NoError(t, f.keeper.Proposals.Set(f.ctx, 8, types.Proposal{Id: 8, CouncilName: council, Status: types.ProposalStatus_PROPOSAL_STATUS_EXECUTED}))
 	require.NoError(t, f.keeper.ProposalsByCouncil.Set(f.ctx, collections.Join(council, uint64(7))))
 	require.NoError(t, f.keeper.ProposalsByCouncil.Set(f.ctx, collections.Join(council, uint64(8))))

@@ -24,10 +24,14 @@ func (q queryServer) CheckpointsByServiceType(ctx context.Context, req *types.Qu
 		return nil, status.Error(codes.InvalidArgument, "service_type required")
 	}
 
+	pg, err := q.k.checkPagination(ctx, req.Pagination)
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
 	checkpoints, pageRes, err := query.CollectionPaginate(
 		ctx,
 		q.k.Checkpoints,
-		req.Pagination,
+		pg,
 		func(_ collections.Pair[string, []byte], cp types.Checkpoint) (types.Checkpoint, error) {
 			return cp, nil
 		},

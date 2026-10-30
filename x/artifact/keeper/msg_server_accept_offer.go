@@ -58,6 +58,9 @@ func (k msgServer) AcceptOffer(ctx context.Context, msg *types.MsgAcceptOffer) (
 	if err := sellable(c, t, now(ctx)); err != nil {
 		return nil, err
 	}
+	if err := k.treeSellable(ctx, t); err != nil {
+		return nil, err
+	}
 	if o.ExpectedMetadataHash != "" && o.ExpectedMetadataHash != types.MetadataHash(t.Metadata) {
 		return nil, types.ErrMetadataChanged
 	}

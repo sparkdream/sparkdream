@@ -34,3 +34,20 @@ const (
 func (k Keeper) VerifyConsumeProof(ctx context.Context, msg *types.MsgShieldedExec, domain uint32, scope, epoch uint64) error {
 	return k.verifyProofAtEpoch(ctx, msg, consumeBinding(domain, scope, msg), epoch, false)
 }
+
+// PrecheckImmediateErr is PrecheckImmediate without the consumed flag.
+func (k Keeper) PrecheckImmediateErr(ctx sdk.Context, msg *types.MsgShieldedExec) error {
+	_, err := k.PrecheckImmediate(ctx, msg)
+	return err
+}
+
+// PrecheckExecErr is PrecheckExec without the consumed flag.
+func (k Keeper) PrecheckExecErr(ctx sdk.Context, msg *types.MsgShieldedExec) error {
+	_, err := k.PrecheckExec(ctx, msg)
+	return err
+}
+
+// ValidateMerkleRoot exposes validateMerkleRoot.
+func (k Keeper) ValidateMerkleRoot(ctx context.Context, msg *types.MsgShieldedExec) error {
+	return k.validateMerkleRoot(ctx, msg)
+}

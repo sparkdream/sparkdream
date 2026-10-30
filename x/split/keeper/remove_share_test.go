@@ -8,8 +8,8 @@ import (
 
 func TestRemoveShareByAddress(t *testing.T) {
 	f := initFixture(t)
-	f.keeper.SetShareByAddress(f.ctx, "phoenix", 10)
-	f.keeper.SetShareByAddress(f.ctx, "aurora", 20)
+	require.NoError(t, f.keeper.SetShareByAddress(f.ctx, "phoenix", 10))
+	require.NoError(t, f.keeper.SetShareByAddress(f.ctx, "aurora", 20))
 
 	require.NoError(t, f.keeper.RemoveShareByAddress(f.ctx, "phoenix"))
 	has, err := f.keeper.Share.Has(f.ctx, "phoenix")

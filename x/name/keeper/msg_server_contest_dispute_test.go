@@ -44,15 +44,15 @@ func TestContestDispute(t *testing.T) {
 				// Set block height within contest period
 				f.ctx = f.ctx.WithBlockHeader(cmtproto.Header{Height: 500})
 				// Create name owned by owner
-				f.keeper.SetName(f.ctx, types.NameRecord{Name: "alice", Owner: owner})
+				require.NoError(t, f.keeper.SetName(f.ctx, types.NameRecord{Name: "alice", Owner: owner}))
 				// Create active uncontested dispute filed at block 100
-				f.keeper.SetDispute(f.ctx, types.Dispute{
+				require.NoError(t, f.keeper.SetDispute(f.ctx, types.Dispute{
 					Name:        "alice",
 					Claimant:    claimant,
 					FiledAt:     100,
 					StakeAmount: math.NewInt(50),
 					Active:      true,
-				})
+				}))
 			},
 			expectPass: true,
 			check: func(t *testing.T, ctx sdk.Context) {
@@ -97,13 +97,13 @@ func TestContestDispute(t *testing.T) {
 			},
 			setup: func() {
 				f.mockRep.Reset()
-				f.keeper.SetName(f.ctx, types.NameRecord{Name: "bob", Owner: owner})
-				f.keeper.SetDispute(f.ctx, types.Dispute{
+				require.NoError(t, f.keeper.SetName(f.ctx, types.NameRecord{Name: "bob", Owner: owner}))
+				require.NoError(t, f.keeper.SetDispute(f.ctx, types.Dispute{
 					Name:        "bob",
 					Claimant:    claimant,
 					Active:      false,
 					StakeAmount: math.NewInt(50),
-				})
+				}))
 			},
 			expectPass: false,
 			expectErr:  "not active",
@@ -117,14 +117,14 @@ func TestContestDispute(t *testing.T) {
 			},
 			setup: func() {
 				f.mockRep.Reset()
-				f.keeper.SetName(f.ctx, types.NameRecord{Name: "carol", Owner: owner})
-				f.keeper.SetDispute(f.ctx, types.Dispute{
+				require.NoError(t, f.keeper.SetName(f.ctx, types.NameRecord{Name: "carol", Owner: owner}))
+				require.NoError(t, f.keeper.SetDispute(f.ctx, types.Dispute{
 					Name:               "carol",
 					Claimant:           claimant,
 					Active:             true,
 					StakeAmount:        math.NewInt(50),
 					ContestChallengeId: "already_contested",
-				})
+				}))
 			},
 			expectPass: false,
 			expectErr:  "already contested",
@@ -138,14 +138,14 @@ func TestContestDispute(t *testing.T) {
 			},
 			setup: func() {
 				f.mockRep.Reset()
-				f.keeper.SetName(f.ctx, types.NameRecord{Name: "dave", Owner: owner})
-				f.keeper.SetDispute(f.ctx, types.Dispute{
+				require.NoError(t, f.keeper.SetName(f.ctx, types.NameRecord{Name: "dave", Owner: owner}))
+				require.NoError(t, f.keeper.SetDispute(f.ctx, types.Dispute{
 					Name:        "dave",
 					Claimant:    claimant,
 					FiledAt:     100,
 					Active:      true,
 					StakeAmount: math.NewInt(50),
-				})
+				}))
 			},
 			expectPass: false,
 			expectErr:  "not the name owner",
@@ -161,14 +161,14 @@ func TestContestDispute(t *testing.T) {
 				f.mockRep.Reset()
 				// Set block height WAY past the deadline
 				f.ctx = f.ctx.WithBlockHeader(cmtproto.Header{Height: 200000})
-				f.keeper.SetName(f.ctx, types.NameRecord{Name: "eve", Owner: owner})
-				f.keeper.SetDispute(f.ctx, types.Dispute{
+				require.NoError(t, f.keeper.SetName(f.ctx, types.NameRecord{Name: "eve", Owner: owner}))
+				require.NoError(t, f.keeper.SetDispute(f.ctx, types.Dispute{
 					Name:        "eve",
 					Claimant:    claimant,
 					FiledAt:     100, // deadline = 100 + 100800 = 100900, current = 200000
 					Active:      true,
 					StakeAmount: math.NewInt(50),
-				})
+				}))
 			},
 			expectPass: false,
 			expectErr:  "contest period has expired",
@@ -183,14 +183,14 @@ func TestContestDispute(t *testing.T) {
 			setup: func() {
 				f.mockRep.Reset()
 				f.ctx = f.ctx.WithBlockHeader(cmtproto.Header{Height: 500})
-				f.keeper.SetName(f.ctx, types.NameRecord{Name: "frank", Owner: owner})
-				f.keeper.SetDispute(f.ctx, types.Dispute{
+				require.NoError(t, f.keeper.SetName(f.ctx, types.NameRecord{Name: "frank", Owner: owner}))
+				require.NoError(t, f.keeper.SetDispute(f.ctx, types.Dispute{
 					Name:        "frank",
 					Claimant:    claimant,
 					FiledAt:     100,
 					Active:      true,
 					StakeAmount: math.NewInt(50),
-				})
+				}))
 				f.mockRep.lockErr = types.ErrDREAMOperationFailed
 			},
 			expectPass: false,

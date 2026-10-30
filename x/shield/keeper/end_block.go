@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"sort"
+	commontypes "sparkdream/x/common/types"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
@@ -28,10 +29,12 @@ func (k Keeper) EndBlocker(ctx context.Context) error {
 	epochState, found := k.GetShieldEpochStateVal(ctx)
 	if !found {
 		// Initialize epoch state on first run
-		_ = k.SetShieldEpochStateVal(ctx, types.ShieldEpochState{
+		if err := k.SetShieldEpochStateVal(ctx, types.ShieldEpochState{
 			CurrentEpoch:     0,
 			EpochStartHeight: sdkCtx.BlockHeight(),
-		})
+		}); err != nil {
+			sdk.UnwrapSDKContext(ctx).Logger().Error("EndBlocker: k.SetShieldEpochStateVal failed", "err", err)
+		}
 		return nil
 	}
 
@@ -40,13 +43,15 @@ func (k Keeper) EndBlocker(ctx context.Context) error {
 
 	// Advance the epoch at the boundary, batch mode or not: immediate mode
 	// reads it for EPOCH-scoped nullifiers and per-epoch rate limits.
-	atBoundary := currentHeight >= epochState.EpochStartHeight+int64(params.ShieldEpochInterval)
+	atBoundary := currentHeight >= epochState.EpochStartHeight+commontypes.Saturate[int64](params.ShieldEpochInterval)
 	if atBoundary {
 		currentEpoch++
-		_ = k.SetShieldEpochStateVal(ctx, types.ShieldEpochState{
+		if err := k.SetShieldEpochStateVal(ctx, types.ShieldEpochState{
 			CurrentEpoch:     currentEpoch,
 			EpochStartHeight: currentHeight,
-		})
+		}); err != nil {
+			sdk.UnwrapSDKContext(ctx).Logger().Error("EndBlocker: k.SetShieldEpochStateVal failed", "err", err)
+		}
 	}
 
 	if params.EncryptedBatchEnabled {
@@ -112,13 +117,18 @@ func (k Keeper) recordDecryptionDemands(ctx context.Context, params types.Params
 			total >= int(params.MinBatchSize) ||
 			currentEpoch-epoch >= uint64(params.MaxPendingEpochs)
 		if ready {
-			_ = k.SetDecryptionDemand(ctx, epoch, currentHeight)
+			if err := k.SetDecryptionDemand(ctx, epoch, currentHeight); err != nil {
+				sdk.UnwrapSDKContext(ctx).Logger().Error("recordDecryptionDemands: k.SetDecryptionDemand failed", "err", err)
+			}
 		}
 	}
 }
 
 // processReadyBatches executes every closed epoch whose key has been
-// reconstructed (or seeded) and whose batch was demanded.
+// reconstructed (or seeded) and whose batch was demanded, oldest first.
+// max_ops_per_batch is one budget for the whole EndBlocker, shared across
+// epochs: when several epochs become ready in the same block (keys that
+// arrive late), the ops past the budget stay pending for the next block.
 func (k Keeper) processReadyBatches(ctx context.Context, params types.Params, currentEpoch uint64) {
 	counts := k.pendingByEpoch(ctx, currentEpoch)
 	if len(counts) == 0 {
@@ -129,7 +139,11 @@ func (k Keeper) processReadyBatches(ctx context.Context, params types.Params, cu
 		epochs = append(epochs, epoch)
 	}
 	sort.Slice(epochs, func(i, j int) bool { return epochs[i] < epochs[j] })
+	budget := int(params.MaxOpsPerBatch)
 	for _, epoch := range epochs {
+		if budget <= 0 {
+			return
+		}
 		if _, demanded := k.GetDecryptionDemand(ctx, epoch); !demanded {
 			continue
 		}
@@ -137,18 +151,19 @@ func (k Keeper) processReadyBatches(ctx context.Context, params types.Params, cu
 		if !found {
 			continue
 		}
-		k.executeBatch(ctx, params, epoch, decKey)
+		budget -= k.executeBatch(ctx, params, epoch, decKey, budget)
 	}
 }
 
-// executeBatch decrypts, verifies, shuffles and executes one epoch's pending
-// ops (at most max_ops_per_batch per block; the rest run next block).
-func (k Keeper) executeBatch(ctx context.Context, params types.Params, epoch uint64, decKey types.ShieldEpochDecryptionKey) {
+// executeBatch decrypts, verifies, shuffles and executes at most budget of
+// one epoch's pending ops (the rest run next block) and returns how many it
+// took off the queue.
+func (k Keeper) executeBatch(ctx context.Context, params types.Params, epoch uint64, decKey types.ShieldEpochDecryptionKey, budget int) int {
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 
 	pendingOps := k.GetPendingOpsForEpoch(ctx, epoch)
-	if len(pendingOps) == 0 {
-		return
+	if len(pendingOps) == 0 || budget <= 0 {
+		return 0
 	}
 	if len(decKey.DecryptionKey) == 0 {
 		sdkCtx.EventManager().EmitEvent(sdk.NewEvent(
@@ -156,10 +171,10 @@ func (k Keeper) executeBatch(ctx context.Context, params types.Params, epoch uin
 			sdk.NewAttribute(types.AttributeKeyEpoch, fmt.Sprintf("%d", epoch)),
 			sdk.NewAttribute(types.AttributeKeyError, "empty decryption key"),
 		))
-		return
+		return 0
 	}
-	if uint32(len(pendingOps)) > params.MaxOpsPerBatch {
-		pendingOps = pendingOps[:params.MaxOpsPerBatch]
+	if len(pendingOps) > budget {
+		pendingOps = pendingOps[:budget]
 	}
 
 	// Deterministic shuffle for unlinkability
@@ -183,8 +198,12 @@ func (k Keeper) executeBatch(ctx context.Context, params types.Params, epoch uin
 			otherFailed++
 		}
 		// Clean up pending op and its submission nullifier regardless of outcome
-		_ = k.DeletePendingOp(ctx, op.TargetEpoch, op.Id)
-		_ = k.DeletePendingNullifier(ctx, hex.EncodeToString(op.SubmissionNullifier))
+		if err := k.DeletePendingOp(ctx, op.TargetEpoch, op.Id); err != nil {
+			sdk.UnwrapSDKContext(ctx).Logger().Error("executeBatch: k.DeletePendingOp failed", "err", err)
+		}
+		if err := k.DeletePendingNullifier(ctx, hex.EncodeToString(op.SubmissionNullifier)); err != nil {
+			sdk.UnwrapSDKContext(ctx).Logger().Error("executeBatch: k.DeletePendingNullifier failed", "err", err)
+		}
 	}
 
 	dropped := decryptFailed + proofFailed + otherFailed
@@ -197,6 +216,7 @@ func (k Keeper) executeBatch(ctx context.Context, params types.Params, epoch uin
 		sdk.NewAttribute(types.AttributeKeyDecryptFailed, fmt.Sprintf("%d", decryptFailed)),
 		sdk.NewAttribute(types.AttributeKeyProofFailed, fmt.Sprintf("%d", proofFailed)),
 	))
+	return len(pendingOps)
 }
 
 // expirePendingOps drops ops that waited longer than max_pending_epochs
@@ -210,19 +230,27 @@ func (k Keeper) expirePendingOps(ctx context.Context, params types.Params, curre
 
 	expiredOps := k.GetPendingOpsBeforeEpoch(ctx, cutoffEpoch)
 	for _, op := range expiredOps {
-		_ = k.DeletePendingOp(ctx, op.TargetEpoch, op.Id)
-		_ = k.DeletePendingNullifier(ctx, hex.EncodeToString(op.SubmissionNullifier))
+		if err := k.DeletePendingOp(ctx, op.TargetEpoch, op.Id); err != nil {
+			sdk.UnwrapSDKContext(ctx).Logger().Error("expirePendingOps: k.DeletePendingOp failed", "err", err)
+		}
+		if err := k.DeletePendingNullifier(ctx, hex.EncodeToString(op.SubmissionNullifier)); err != nil {
+			sdk.UnwrapSDKContext(ctx).Logger().Error("expirePendingOps: k.DeletePendingNullifier failed", "err", err)
+		}
 	}
 	var stale []uint64
-	_ = k.IterateDecryptionDemands(ctx, func(epoch uint64, _ int64) bool {
+	if err := k.IterateDecryptionDemands(ctx, func(epoch uint64, _ int64) bool {
 		if epoch < cutoffEpoch {
 			stale = append(stale, epoch)
 			return false
 		}
 		return true
-	})
+	}); err != nil {
+		sdk.UnwrapSDKContext(ctx).Logger().Error("expirePendingOps: k.IterateDecryptionDemands failed", "err", err)
+	}
 	for _, epoch := range stale {
-		_ = k.RemoveDecryptionDemand(ctx, epoch)
+		if err := k.RemoveDecryptionDemand(ctx, epoch); err != nil {
+			sdk.UnwrapSDKContext(ctx).Logger().Error("expirePendingOps: k.RemoveDecryptionDemand failed", "err", err)
+		}
 	}
 
 	if len(expiredOps) > 0 {
@@ -290,6 +318,11 @@ func (k Keeper) processEncryptedOp(ctx context.Context, params types.Params, op 
 	innerExec.ProofDomain = op.ProofDomain
 	innerExec.MinTrustLevel = op.MinTrustLevel
 	innerExec.RateLimitNullifier = op.RateLimitNullifier
+	// The sealed operation nullifier must be canonical like every cleartext
+	// one (the rate-limit nullifier and root were checked at submission).
+	if err := types.ValidateCanonicalPublicInputs(innerExec.Nullifier, innerExec.RateLimitNullifier, innerExec.MerkleRoot); err != nil {
+		return batchResultOtherFail
+	}
 
 	if innerExec.InnerMessage == nil {
 		return batchResultOtherFail
@@ -303,6 +336,13 @@ func (k Keeper) processEncryptedOp(ctx context.Context, params types.Params, op 
 	// Validate batch mode allows encrypted batch execution.
 	// Operations registered as IMMEDIATE_ONLY must not execute in batch mode.
 	if reg.BatchMode == types.ShieldBatchMode_SHIELD_BATCH_MODE_IMMEDIATE_ONLY {
+		return batchResultOtherFail
+	}
+
+	// The submission was proven in the op's domain; the operation must be
+	// registered for that domain (a trust-tree proof must never execute a
+	// group-tree operation such as a secret-ballot vote).
+	if op.ProofDomain != reg.ProofDomain {
 		return batchResultOtherFail
 	}
 
@@ -336,7 +376,9 @@ func (k Keeper) processEncryptedOp(ctx context.Context, params types.Params, op 
 	if k.IsNullifierUsed(ctx, reg.NullifierDomain, scope, nullifierHex) {
 		return batchResultOtherFail
 	}
-	_ = k.RecordNullifier(ctx, reg.NullifierDomain, scope, nullifierHex, sdkCtx.BlockHeight())
+	if err := k.RecordNullifier(ctx, reg.NullifierDomain, scope, nullifierHex, sdkCtx.BlockHeight()); err != nil {
+		sdk.UnwrapSDKContext(ctx).Logger().Error("processEncryptedOp: k.RecordNullifier failed", "err", err)
+	}
 
 	// 6. Execute the inner message on a cache context. The nullifier above
 	// stays recorded on failure: the op was proven and consumed.

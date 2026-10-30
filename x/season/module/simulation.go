@@ -31,8 +31,14 @@ func (AppModule) GenerateGenesisState(simState *module.SimulationState) {
 		OriginalEndBlock:     1000000,
 	}
 
+	// Epochs are 14400 blocks, so no 200-block run sees one end: without
+	// this a guild never reaches min_guild_age_epochs and MsgDissolveGuild
+	// is unreachable.
+	params := types.DefaultParams()
+	params.MinGuildAgeEpochs = 0
+
 	seasonGenesis := types.GenesisState{
-		Params: types.DefaultParams(),
+		Params: params,
 		Season: initialSeason,
 	}
 	simState.GenState[types.ModuleName] = simState.Cdc.MustMarshalJSON(&seasonGenesis)
@@ -610,6 +616,39 @@ func (am AppModule) WeightedOperations(simState module.SimulationState) []simtyp
 	operations = append(operations, simulation.NewWeightedOperation(
 		weightMsgResolveDisplayNameAppeal,
 		seasonsimulation.SimulateMsgResolveDisplayNameAppeal(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
+	))
+
+	const (
+		opWeightMsgResolveUnappealedModeration          = "op_weight_msg_resolve_unappealed_moderation"
+		defaultWeightMsgResolveUnappealedModeration int = 50
+	)
+
+	var weightMsgResolveUnappealedModeration int
+	simState.AppParams.GetOrGenerate(opWeightMsgResolveUnappealedModeration, &weightMsgResolveUnappealedModeration, nil,
+		func(_ *rand.Rand) {
+			weightMsgResolveUnappealedModeration = defaultWeightMsgResolveUnappealedModeration
+		},
+	)
+	operations = append(operations, simulation.NewWeightedOperation(
+		weightMsgResolveUnappealedModeration,
+		seasonsimulation.SimulateMsgResolveUnappealedModeration(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
+	))
+
+	// Operational params (Commons Operations Committee proposal)
+	const (
+		opWeightMsgUpdateOperationalParams          = "op_weight_msg_update_operational_params"
+		defaultWeightMsgUpdateOperationalParams int = 30
+	)
+
+	var weightMsgUpdateOperationalParams int
+	simState.AppParams.GetOrGenerate(opWeightMsgUpdateOperationalParams, &weightMsgUpdateOperationalParams, nil,
+		func(_ *rand.Rand) {
+			weightMsgUpdateOperationalParams = defaultWeightMsgUpdateOperationalParams
+		},
+	)
+	operations = append(operations, simulation.NewWeightedOperation(
+		weightMsgUpdateOperationalParams,
+		seasonsimulation.SimulateMsgUpdateOperationalParams(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
 	))
 
 	// Retroactive public goods funding nomination operations

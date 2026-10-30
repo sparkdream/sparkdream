@@ -27,6 +27,7 @@
 package keeper
 
 import (
+	"cosmossdk.io/collections"
 	"cosmossdk.io/core/address"
 	corestore "cosmossdk.io/core/store"
 	errorsmod "cosmossdk.io/errors"
@@ -47,9 +48,10 @@ type Keeper struct {
 	// wiring).
 	authority string
 
-	// Late-bound from app.go via Set*Keeper. Filters that depend on these
-	// either pass through (for params-bearing filters) or reject (for
-	// identity-bearing filters) until set.
+	// Late-bound from app.go via Set*Keeper. The identity, mint and staking
+	// keepers are read by filters, which fail closed until they are set.
+	// The distr, gov, slashing and auth keepers are wired but not read:
+	// those filters are stateless clamps against compiled bounds.
 	identityKeeper types.IdentityKeeper
 	mintKeeper     types.MintKeeper
 	stakingKeeper  types.StakingKeeper
@@ -57,6 +59,12 @@ type Keeper struct {
 	govKeeper      types.GovKeeper
 	slashingKeeper types.SlashingKeeper
 	authKeeper     types.AuthKeeper
+
+	// LastBlocksPerYearChange is the block time (unix seconds) of the last
+	// accepted mint blocks_per_year change, for its cooldown (GRD-11). Not
+	// in genesis: guardian has none, and an export/import only restarts
+	// the cooldown.
+	LastBlocksPerYearChange collections.Item[int64]
 }
 
 // NewKeeper constructs the guardian keeper. The downstream keepers are nil
@@ -68,13 +76,20 @@ func NewKeeper(
 	msgRouter types.MessageRouter,
 	authority string,
 ) Keeper {
-	return Keeper{
+	sb := collections.NewSchemaBuilder(storeService)
+	k := Keeper{
 		storeService: storeService,
 		cdc:          cdc,
 		addressCodec: addressCodec,
 		msgRouter:    msgRouter,
 		authority:    authority,
+		LastBlocksPerYearChange: collections.NewItem(sb, types.LastBlocksPerYearChangeKey,
+			"last_blocks_per_year_change", collections.Int64Value),
 	}
+	if _, err := sb.Build(); err != nil {
+		panic(err)
+	}
+	return k
 }
 
 // SetIdentityKeeper late-binds the identity keeper used by the
@@ -157,8 +172,9 @@ func (k Keeper) authorityCheck(authority string) error {
 	return nil
 }
 
-// AllowedMsgTypes returns the sorted list of inner msg type URLs the
-// guardian will route. Built into the binary; gov cannot extend it at
+// AllowedMsgTypes returns the sorted list of inner msg type URLs guardian
+// recognizes: every entry is routed through its filter except
+// MsgCommunityPoolSpend (below), which is always refused. Built into the binary; gov cannot extend it at
 // runtime (a chain upgrade is required to add or remove entries).
 //
 // Includes distribution.MsgCommunityPoolSpend even though guardian's filter

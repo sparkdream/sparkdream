@@ -82,10 +82,10 @@ func (k msgServer) AppealHide(ctx context.Context, msg *types.MsgAppealHide) (*t
 	// Open the appeal in x/rep (GOV_ACTION_TYPE_COLLECT_HIDE): x/rep charges
 	// its standard appeal bond, seats a jury, owns the deadline, and applies
 	// the verdict through RepAppealTarget (appeal_target.go).
-	if k.repKeeper == nil {
+	if k.late.repKeeper == nil {
 		return nil, errorsmod.Wrap(types.ErrHideRecordNotFound, "rep keeper not wired")
 	}
-	appealID, _, err := k.repKeeper.CreateGovActionAppeal(ctx, reptypes.GovActionType_GOV_ACTION_TYPE_COLLECT_HIDE,
+	appealID, _, err := k.late.repKeeper.CreateGovActionAppeal(ctx, reptypes.GovActionType_GOV_ACTION_TYPE_COLLECT_HIDE,
 		strconv.FormatUint(hideRecord.Id, 10), creatorAddr, "collect hide appeal: "+hideRecord.ReasonText)
 	if err != nil {
 		return nil, errorsmod.Wrap(err, "failed to open appeal")
@@ -93,7 +93,9 @@ func (k msgServer) AppealHide(ctx context.Context, msg *types.MsgAppealHide) (*t
 
 	// x/rep owns the deadline now: drop collect's expiry entry so the
 	// EndBlocker never deletes content that is under appeal.
-	k.HideRecordExpiry.Remove(ctx, collections.Join(hideRecord.AppealDeadline, hideRecord.Id)) //nolint:errcheck
+	if err := k.HideRecordExpiry.Remove(ctx, collections.Join(hideRecord.AppealDeadline, hideRecord.Id)); err != nil {
+		return nil, err
+	}
 
 	hideRecord.Appealed = true
 	hideRecord.AppealId = appealID
@@ -104,8 +106,10 @@ func (k msgServer) AppealHide(ctx context.Context, msg *types.MsgAppealHide) (*t
 	// Count the appeal against the sentinel on rep's shared RoleActivity
 	// record (feeds the cross-surface reward Gate 4 appeal-rate check).
 	// Council hides (Sentinel == "") carry no sentinel accountability.
-	if hideRecord.Sentinel != "" && k.repKeeper != nil {
-		_ = k.repKeeper.RecordRoleAction(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, hideRecord.Sentinel, reptypes.ActionKindCollectAppealFiled)
+	if hideRecord.Sentinel != "" && k.late.repKeeper != nil {
+		if err := k.late.repKeeper.RecordRoleAction(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, hideRecord.Sentinel, reptypes.ActionKindCollectAppealFiled); err != nil {
+			return nil, err
+		}
 	}
 
 	// Emit event

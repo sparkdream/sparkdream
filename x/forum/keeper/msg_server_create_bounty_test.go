@@ -54,7 +54,7 @@ func TestCreateBounty(t *testing.T) {
 			setup: func() {
 				params := types.DefaultParams()
 				params.BountiesEnabled = false
-				_ = f.keeper.Params.Set(f.ctx, params)
+				require.NoError(t, f.keeper.Params.Set(f.ctx, params))
 			},
 			expectError: true,
 			errContains: "bounties are disabled",
@@ -94,7 +94,7 @@ func TestCreateBounty(t *testing.T) {
 			msg: &types.MsgCreateBounty{
 				Creator:  testCreator,
 				ThreadId: thread.PostId,
-				Amount:   "10", // Below minimum (min is 50)
+				Amount:   "49999999", // just below the 50 SPARK minimum
 			},
 			expectError: true,
 			errContains: "minimum bounty",
@@ -104,14 +104,14 @@ func TestCreateBounty(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Reset params
-			_ = f.keeper.Params.Set(f.ctx, types.DefaultParams())
+			require.NoError(t, f.keeper.Params.Set(f.ctx, types.DefaultParams()))
 
 			// Remove any existing bounty for the thread to allow re-testing
 			iter, _ := f.keeper.Bounty.Iterate(f.ctx, nil)
 			for ; iter.Valid(); iter.Next() {
 				b, _ := iter.Value()
 				if b.ThreadId == thread.PostId {
-					_ = f.keeper.Bounty.Remove(f.ctx, b.Id)
+					require.NoError(t, f.keeper.Bounty.Remove(f.ctx, b.Id))
 				}
 			}
 			iter.Close()

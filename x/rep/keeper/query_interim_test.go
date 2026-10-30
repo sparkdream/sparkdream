@@ -34,8 +34,12 @@ func createNInterim(keeper keeper.Keeper, ctx context.Context, n int) []types.In
 		items[i].CompletedAt = int64(i)
 		items[i].Status = types.InterimStatus(i)
 		items[i].CompletionNotes = strconv.Itoa(i)
-		_ = keeper.Interim.Set(ctx, iu, items[i])
-		_ = keeper.InterimSeq.Set(ctx, iu)
+		if err := keeper.Interim.Set(ctx, iu, items[i]); err != nil {
+			panic(err)
+		}
+		if err := keeper.InterimSeq.Set(ctx, iu); err != nil {
+			panic(err)
+		}
 	}
 	return items
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/rep/types"
 
 	"cosmossdk.io/math"
@@ -121,7 +122,7 @@ func (k Keeper) WithdrawReviewBounty(ctx context.Context, funder sdk.AccAddress,
 	refund := math.ZeroInt()
 	remaining := make([]types.ReviewBountyContribution, 0, len(bounty.Contributions))
 	for _, c := range bounty.Contributions {
-		matured := height >= c.FundedAt+int64(params.ReviewBountyReclaimDelay)
+		matured := height >= c.FundedAt+commontypes.Saturate[int64](params.ReviewBountyReclaimDelay)
 		if k.CanActAs(ctx, funder.String(), c.Funder) && matured {
 			refund = refund.Add(c.Amount)
 			continue
@@ -297,10 +298,7 @@ func (k Keeper) drawDownContributions(ctx context.Context, bounty *types.ReviewB
 		if aErr != nil {
 			continue
 		}
-		if err := k.UnlockDREAM(ctx, addr, take); err != nil {
-			return fmt.Errorf("failed to release bounty from %s: %w", c.Funder, err)
-		}
-		if err := k.BurnDREAM(ctx, addr, take); err != nil {
+		if err := k.BurnLockedDREAM(ctx, addr, take); err != nil {
 			return fmt.Errorf("failed to draw bounty from %s: %w", c.Funder, err)
 		}
 		remaining = remaining.Sub(take)

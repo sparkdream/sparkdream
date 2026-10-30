@@ -23,7 +23,7 @@ func TestAppealThreadLock(t *testing.T) {
 	p, _ := f.keeper.Post.Get(f.ctx, thread.PostId)
 	p.Locked = true
 	p.LockedBy = testSentinel
-	_ = f.keeper.Post.Set(f.ctx, thread.PostId, p)
+	require.NoError(t, f.keeper.Post.Set(f.ctx, thread.PostId, p))
 
 	// Create lock record (sentinel lock)
 	lockRecord := types.ThreadLockRecord{
@@ -33,7 +33,7 @@ func TestAppealThreadLock(t *testing.T) {
 		LockReason:    "Off-topic",
 		AppealPending: false,
 	}
-	_ = f.keeper.ThreadLockRecord.Set(f.ctx, thread.PostId, lockRecord)
+	require.NoError(t, f.keeper.ThreadLockRecord.Set(f.ctx, thread.PostId, lockRecord))
 
 	tests := []struct {
 		name        string
@@ -68,7 +68,7 @@ func TestAppealThreadLock(t *testing.T) {
 			setup: func() {
 				params := types.DefaultParams()
 				params.AppealsPaused = true
-				_ = f.keeper.Params.Set(f.ctx, params)
+				require.NoError(t, f.keeper.Params.Set(f.ctx, params))
 			},
 			expectError: true,
 			errContains: "appeals are paused",
@@ -91,7 +91,7 @@ func TestAppealThreadLock(t *testing.T) {
 			setup: func() {
 				p, _ := f.keeper.Post.Get(f.ctx, thread.PostId)
 				p.Locked = false
-				_ = f.keeper.Post.Set(f.ctx, thread.PostId, p)
+				require.NoError(t, f.keeper.Post.Set(f.ctx, thread.PostId, p))
 			},
 			expectError: true,
 			errContains: "thread is not locked",
@@ -114,7 +114,7 @@ func TestAppealThreadLock(t *testing.T) {
 			setup: func() {
 				lr, _ := f.keeper.ThreadLockRecord.Get(f.ctx, thread.PostId)
 				lr.AppealPending = true
-				_ = f.keeper.ThreadLockRecord.Set(f.ctx, thread.PostId, lr)
+				require.NoError(t, f.keeper.ThreadLockRecord.Set(f.ctx, thread.PostId, lr))
 			},
 			expectError: true,
 			errContains: "appeal already filed",
@@ -128,7 +128,7 @@ func TestAppealThreadLock(t *testing.T) {
 			setup: func() {
 				lr, _ := f.keeper.ThreadLockRecord.Get(f.ctx, thread.PostId)
 				lr.LockedAt = f.sdkCtx().BlockTime().Unix() // Just locked
-				_ = f.keeper.ThreadLockRecord.Set(f.ctx, thread.PostId, lr)
+				require.NoError(t, f.keeper.ThreadLockRecord.Set(f.ctx, thread.PostId, lr))
 			},
 			expectError: true,
 			errContains: "must wait until",
@@ -138,12 +138,12 @@ func TestAppealThreadLock(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Reset state
-			_ = f.keeper.Params.Set(f.ctx, types.DefaultParams())
+			require.NoError(t, f.keeper.Params.Set(f.ctx, types.DefaultParams()))
 			p, _ := f.keeper.Post.Get(f.ctx, thread.PostId)
 			p.Locked = true
 			p.LockedBy = testSentinel
 			p.Author = testCreator
-			_ = f.keeper.Post.Set(f.ctx, thread.PostId, p)
+			require.NoError(t, f.keeper.Post.Set(f.ctx, thread.PostId, p))
 
 			lockRecord := types.ThreadLockRecord{
 				RootId:        thread.PostId,
@@ -152,7 +152,7 @@ func TestAppealThreadLock(t *testing.T) {
 				LockReason:    "Off-topic",
 				AppealPending: false,
 			}
-			_ = f.keeper.ThreadLockRecord.Set(f.ctx, thread.PostId, lockRecord)
+			require.NoError(t, f.keeper.ThreadLockRecord.Set(f.ctx, thread.PostId, lockRecord))
 
 			if tt.setup != nil {
 				tt.setup()
@@ -187,7 +187,7 @@ func TestAppealThreadLockNoLockRecord(t *testing.T) {
 	// Lock the thread but don't create lock record (simulating gov lock)
 	p, _ := f.keeper.Post.Get(f.ctx, thread.PostId)
 	p.Locked = true
-	_ = f.keeper.Post.Set(f.ctx, thread.PostId, p)
+	require.NoError(t, f.keeper.Post.Set(f.ctx, thread.PostId, p))
 
 	// Attempt appeal should fail because no lock record exists
 	_, err := f.msgServer.AppealThreadLock(f.ctx, &types.MsgAppealThreadLock{
@@ -195,7 +195,7 @@ func TestAppealThreadLockNoLockRecord(t *testing.T) {
 		RootId:  thread.PostId,
 	})
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "governance authority")
+	require.ErrorIs(t, err, types.ErrGovLockNotAppealable)
 }
 
 func TestAppealThreadLockCreatesGovActionAppeal(t *testing.T) {
@@ -225,14 +225,14 @@ func TestAppealThreadLockCreatesGovActionAppeal(t *testing.T) {
 	// Lock the thread and create lock record
 	p, _ := f.keeper.Post.Get(f.ctx, thread.PostId)
 	p.Locked = true
-	_ = f.keeper.Post.Set(f.ctx, thread.PostId, p)
+	require.NoError(t, f.keeper.Post.Set(f.ctx, thread.PostId, p))
 
 	lockRecord := types.ThreadLockRecord{
 		RootId:   thread.PostId,
 		Sentinel: testSentinel,
 		LockedAt: f.sdkCtx().BlockTime().Unix() - types.DefaultLockAppealCooldown - 1,
 	}
-	_ = f.keeper.ThreadLockRecord.Set(f.ctx, thread.PostId, lockRecord)
+	require.NoError(t, f.keeper.ThreadLockRecord.Set(f.ctx, thread.PostId, lockRecord))
 
 	// File appeal
 	_, err := f.msgServer.AppealThreadLock(f.ctx, &types.MsgAppealThreadLock{

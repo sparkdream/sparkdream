@@ -1,52 +1,42 @@
 package simulation
 
 import (
-	"fmt"
-	"math/rand"
-
-	"github.com/cosmos/cosmos-sdk/baseapp"
+	"cosmossdk.io/math"
 	"github.com/cosmos/cosmos-sdk/client"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/rep/keeper"
 	"sparkdream/x/rep/types"
 )
 
-func SimulateMsgAppealGovAction(
-	ak types.AuthKeeper,
-	bk types.BankKeeper,
-	k keeper.Keeper,
-	txGen client.TxConfig,
-) simtypes.Operation {
-	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
-	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		simAccount, _ := simtypes.RandomAcc(r, accs)
-
-		actionType := uint64(r.Intn(7) + 1)
-
-		actionTargetPrefixes := []string{"category", "tag", "member_report", "thread"}
-		actionTarget := fmt.Sprintf("%s_%d_%d", actionTargetPrefixes[r.Intn(len(actionTargetPrefixes))], ctx.BlockHeight(), r.Intn(1000000))
-
-		appealID, err := k.GovActionAppealSeq.Next(ctx)
+// SimulateMsgAppealGovAction has a member warned or demoted by a resolved
+// report appeal the action within the appeal window, paying the SPARK
+// appeal bond; an x/rep jury is seated on the appeal.
+func SimulateMsgAppealGovAction(ak types.AuthKeeper, bk types.BankKeeper, k keeper.Keeper, txGen client.TxConfig) simtypes.Operation {
+	label := &types.MsgAppealGovAction{}
+	return operation(ak, bk, k, txGen, label, func(e *simEnv) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
+		now := e.ctx.BlockTime().Unix()
+		reps, err := e.memberReports(func(r types.MemberReport) bool {
+			_, ok := e.account(r.Member)
+			if !ok || r.Status != types.MemberReportStatus_MEMBER_REPORT_STATUS_RESOLVED ||
+				!types.MemberActionAppealTypes[r.ResolvedAction] || now > r.ResolvedAt+types.DefaultAppealDeadline {
+				return false
+			}
+			rest, err := e.k.MemberActionRestorations.Get(e.ctx, r.Member)
+			return err == nil && !rest.Appealed && rest.ResolvedAt == r.ResolvedAt
+		})
 		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgAppealGovAction{}), "failed to get appeal ID"), nil, nil
+			return noOpErr(label, err)
 		}
-
-		appeal := types.GovActionAppeal{
-			Id:           appealID,
-			Appellant:    simAccount.Address.String(),
-			ActionType:   types.GovActionType(actionType),
-			ActionTarget: actionTarget,
-			AppealReason: "The governance action was applied without proper consideration",
-			Status:       types.GovAppealStatus_GOV_APPEAL_STATUS_PENDING,
-			CreatedAt:    ctx.BlockTime().Unix(),
+		bond := math.NewInt(types.DefaultAppealBondAmount)
+		cands := make([]candidate, 0, len(reps))
+		for _, rep := range reps {
+			acc, _ := e.account(rep.Member)
+			cands = append(cands, candidate{acc: acc, msg: &types.MsgAppealGovAction{
+				Creator: rep.Member, ActionType: commontypes.Saturate[uint64](rep.ResolvedAction), ActionTarget: rep.Member, AppealReason: randomReason(e.r),
+			}, spent: bond})
 		}
-
-		if err := k.GovActionAppeal.Set(ctx, appealID, appeal); err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgAppealGovAction{}), "failed to create appeal"), nil, nil
-		}
-
-		return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgAppealGovAction{}), "ok (direct keeper call)"), nil, nil
-	}
+		return e.firstValid(label, cands, 4, "no live member with an appealable warning or demotion")
+	})
 }

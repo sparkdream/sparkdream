@@ -146,12 +146,9 @@ func (k Keeper) SlashAuthorBond(ctx context.Context, targetType types.StakeTarge
 		return fmt.Errorf("invalid author address in bond: %w", err)
 	}
 
-	// Two-step slash: unlock from staked balance, then burn from free balance
-	// Both operations happen in the same Cosmos SDK tx, so they're atomic
-	if err := k.UnlockDREAM(ctx, authorAddr, bond.Amount); err != nil {
-		return fmt.Errorf("failed to unlock DREAM for slashing: %w", err)
-	}
-	if err := k.BurnDREAM(ctx, authorAddr, bond.Amount); err != nil {
+	// Burn the bond's lock directly (REP-E-03): the slash is paid by this
+	// bond, never by another escrow of the author's.
+	if err := k.BurnLockedDREAM(ctx, authorAddr, bond.Amount); err != nil {
 		return fmt.Errorf("failed to burn DREAM for slashing: %w", err)
 	}
 

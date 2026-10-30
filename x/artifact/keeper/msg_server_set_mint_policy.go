@@ -34,8 +34,9 @@ func (k msgServer) SetMintPolicy(ctx context.Context, msg *types.MsgSetMintPolic
 	// The curve is fixed once public minting has opened (docs/x-artifact-spec.md
 	// §7.18): the owner may still disable, close or cap per address, but a
 	// collector who read the curve at purchase sees the curve that runs.
-	if c.MintPolicy.Pricing != types.MintPricing_MINT_PRICING_FIXED && types.CurveOpened(c, now(ctx)) &&
-		!types.SameCurve(c.MintPolicy, next) {
+	// A FIXED price is a curve too: it cannot be cut (or switched to a
+	// curve) under the collectors who already paid it.
+	if types.CurveOpened(c, now(ctx)) && !types.SameCurve(c.MintPolicy, next) {
 		return nil, types.ErrMintPolicyLocked
 	}
 	c.MintPolicy = next

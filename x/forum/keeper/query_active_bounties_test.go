@@ -46,7 +46,7 @@ func TestQueryActiveBounties(t *testing.T) {
 
 		// Mark bounty as cancelled
 		bounty.Status = types.BountyStatus_BOUNTY_STATUS_CANCELLED
-		f.keeper.Bounty.Set(f.ctx, bounty.Id, bounty)
+		require.NoError(t, f.keeper.Bounty.Set(f.ctx, bounty.Id, bounty))
 
 		// Should not find the cancelled bounty
 		resp, err := qs.ActiveBounties(f.ctx, &types.QueryActiveBountiesRequest{})

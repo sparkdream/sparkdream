@@ -13,9 +13,15 @@ import (
 
 // ResolveTagReport processes a tag report. Authorization: governance, the
 // Commons Council policy, or the Commons Operations Committee. Actions:
-//   - 0 (dismiss): refund reporter bonds, tag untouched
+//   - 0 (dismiss): burn reporter bonds (an unfounded report costs its bond),
+//     tag untouched
 //   - 1 (remove):  delete the tag (and forum references), refund bonds
 //   - 2 (reserve): create a ReservedTag entry, refund bonds
+//
+// A tag that no longer exists (garbage-collected while the report was open,
+// on state written before ExpireTags learned to wait for reports) does not
+// block the resolution (REP-E-11): remove is then a no-op and the bonds are
+// still settled.
 func (k msgServer) ResolveTagReport(ctx context.Context, msg *types.MsgResolveTagReport) (*types.MsgResolveTagReportResponse, error) {
 	if _, err := k.addressCodec.StringToBytes(msg.Creator); err != nil {
 		return nil, errorsmod.Wrap(err, "invalid creator address")
@@ -40,9 +46,9 @@ func (k msgServer) ResolveTagReport(ctx context.Context, msg *types.MsgResolveTa
 		return nil, errorsmod.Wrap(types.ErrTagReportNotFound, fmt.Sprintf("no report found for tag %s", msg.TagName))
 	}
 
-	foundTag, err := k.GetTag(ctx, msg.TagName)
+	tagExists, err := k.TagExists(ctx, msg.TagName)
 	if err != nil {
-		return nil, errorsmod.Wrap(types.ErrTagNotFound, fmt.Sprintf("tag %s not found", msg.TagName))
+		return nil, errorsmod.Wrapf(err, "failed to check tag %q", msg.TagName)
 	}
 
 	totalBond, _ := math.NewIntFromString(report.TotalBond)
@@ -52,17 +58,19 @@ func (k msgServer) ResolveTagReport(ctx context.Context, msg *types.MsgResolveTa
 
 	switch msg.Action {
 	case 0:
-		if err := refundTagReportBonds(ctx, k.Keeper, report.Reporters, totalBond); err != nil {
-			return nil, errorsmod.Wrap(err, "failed to refund bonds to reporters")
-		}
+		forfeitTagReportBonds(ctx, k.Keeper, msg.TagName, report.Reporters, totalBond)
 
 	case 1:
-		if err := k.RemoveTag(ctx, foundTag.Name); err != nil {
-			return nil, errorsmod.Wrap(err, "failed to remove tag")
+		if tagExists {
+			if err := k.RemoveTag(ctx, msg.TagName); err != nil {
+				return nil, errorsmod.Wrap(err, "failed to remove tag")
+			}
 		}
 		if k.late.forumKeeper != nil {
 			// Best-effort cleanup of stale references; non-fatal.
-			_ = k.late.forumKeeper.PruneTagReferences(ctx, msg.TagName)
+			if err := k.late.forumKeeper.PruneTagReferences(ctx, msg.TagName); err != nil {
+				return nil, err
+			}
 		}
 		if err := refundTagReportBonds(ctx, k.Keeper, report.Reporters, totalBond); err != nil {
 			return nil, errorsmod.Wrap(err, "failed to refund bonds to reporters")
@@ -102,13 +110,20 @@ func (k msgServer) ResolveTagReport(ctx context.Context, msg *types.MsgResolveTa
 	return &types.MsgResolveTagReportResponse{}, nil
 }
 
-// refundTagReportBonds unlocks the bonded DREAM evenly among reporters.
+// tagReportBondShare is each reporter's share of a report's total bond.
 // Integer division truncates remainders (matches forum's prior behaviour).
-func refundTagReportBonds(ctx context.Context, k Keeper, recipients []string, totalAmount math.Int) error {
-	if len(recipients) == 0 || totalAmount.IsZero() {
-		return nil
+func tagReportBondShare(recipients []string, totalAmount math.Int) math.Int {
+	if len(recipients) == 0 || totalAmount.IsNil() || !totalAmount.IsPositive() {
+		return math.ZeroInt()
 	}
-	perRecipient := totalAmount.Quo(math.NewInt(int64(len(recipients))))
+	return totalAmount.Quo(math.NewInt(int64(len(recipients))))
+}
+
+// refundTagReportBonds unlocks the bonded DREAM evenly among reporters. A
+// refund that fails (the reporter was zeroed, which burned the lock) is
+// reported as an event instead of disappearing silently.
+func refundTagReportBonds(ctx context.Context, k Keeper, recipients []string, totalAmount math.Int) error {
+	perRecipient := tagReportBondShare(recipients, totalAmount)
 	if perRecipient.IsZero() {
 		return nil
 	}
@@ -118,8 +133,42 @@ func refundTagReportBonds(ctx context.Context, k Keeper, recipients []string, to
 			continue
 		}
 		if err := k.UnlockDREAM(ctx, sdk.AccAddress(addrBytes), perRecipient); err != nil {
-			continue
+			emitTagReportBondFailure(ctx, recipient, perRecipient, "refund", err)
 		}
 	}
 	return nil
+}
+
+// forfeitTagReportBonds burns every reporter's bond on a dismissed report.
+func forfeitTagReportBonds(ctx context.Context, k Keeper, tagName string, recipients []string, totalAmount math.Int) {
+	perRecipient := tagReportBondShare(recipients, totalAmount)
+	if perRecipient.IsZero() {
+		return
+	}
+	for _, recipient := range recipients {
+		addrBytes, err := k.addressCodec.StringToBytes(recipient)
+		if err != nil {
+			continue
+		}
+		if err := k.BurnLockedDREAM(ctx, sdk.AccAddress(addrBytes), perRecipient); err != nil {
+			emitTagReportBondFailure(ctx, recipient, perRecipient, "forfeit", err)
+			continue
+		}
+		sdk.UnwrapSDKContext(ctx).EventManager().EmitEvent(sdk.NewEvent(
+			"tag_report_bond_forfeited",
+			sdk.NewAttribute("tag_name", tagName),
+			sdk.NewAttribute("reporter", recipient),
+			sdk.NewAttribute("amount", perRecipient.String()),
+		))
+	}
+}
+
+func emitTagReportBondFailure(ctx context.Context, reporter string, amount math.Int, op string, err error) {
+	sdk.UnwrapSDKContext(ctx).EventManager().EmitEvent(sdk.NewEvent(
+		"tag_report_bond_settlement_failed",
+		sdk.NewAttribute("reporter", reporter),
+		sdk.NewAttribute("amount", amount.String()),
+		sdk.NewAttribute("operation", op),
+		sdk.NewAttribute("error", err.Error()),
+	))
 }

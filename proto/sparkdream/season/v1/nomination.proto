@@ -28,6 +28,16 @@ message Nomination {
     (gogoproto.nullable) = false
   ];
   bool rewarded = 10;
+  // Failed payout attempts of a positive reward (SEA-21). A nomination with
+  // a positive reward_amount that is neither rewarded nor abandoned is
+  // queued for retry.
+  uint32 payout_attempts = 11;
+  // Set once the payout retries are exhausted; never paid after that.
+  bool payout_abandoned = 12;
+  // Content author resolved at Nominate (SEA-30). StakeNomination refuses
+  // stakes by this member, so the ban holds even when the content is later
+  // hidden and can no longer be resolved.
+  string author = 13;
 }
 
 // NominationStake represents a DREAM stake on a nomination.

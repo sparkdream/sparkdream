@@ -55,17 +55,9 @@ func (k msgServer) CancelMarket(goCtx context.Context, msg *types.MsgCancelMarke
 	// creator's withdraw is the LMSR-residual (entropy-bounded subsidy).
 	hasTrades := market.PoolYes.IsPositive() || market.PoolNo.IsPositive()
 	if hasTrades {
-		params, err := k.Params.Get(ctx)
-		if err != nil {
-			return nil, err
-		}
-		maxExp, mErr := math.LegacyNewDecFromStr(params.MaxLmsrExponent)
-		if mErr != nil {
-			maxExp = types.DefaultMaxExponent
-		}
 		qYes := math.LegacyNewDecFromInt(*market.PoolYes)
 		qNo := math.LegacyNewDecFromInt(*market.PoolNo)
-		pYes, pErr := types.SettlementPriceYes(ctx, *market.BValue, qYes, qNo, maxExp)
+		pYes, pErr := types.SettlementPriceYes(ctx, *market.BValue, qYes, qNo)
 		if pErr != nil {
 			return nil, errorsmod.Wrap(sdkerrors.ErrInvalidRequest, pErr.Error())
 		}
@@ -75,9 +67,6 @@ func (k msgServer) CancelMarket(goCtx context.Context, msg *types.MsgCancelMarke
 	residual, err := k.computeCreatorResidual(ctx, market)
 	if err != nil {
 		return nil, errorsmod.Wrap(sdkerrors.ErrInvalidRequest, err.Error())
-	}
-	if residual.GT(*market.InitialLiquidity) {
-		residual = *market.InitialLiquidity
 	}
 
 	alreadyWithdrawn := *market.LiquidityWithdrawn

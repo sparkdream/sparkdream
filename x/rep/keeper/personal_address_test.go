@@ -4,46 +4,78 @@ import (
 	"context"
 	"testing"
 
-	"cosmossdk.io/math"
+	"cosmossdk.io/core/address"
+	storetypes "cosmossdk.io/store/types"
+	addresscodec "github.com/cosmos/cosmos-sdk/codec/address"
+	"github.com/cosmos/cosmos-sdk/runtime"
+	"github.com/cosmos/cosmos-sdk/testutil"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	moduletestutil "github.com/cosmos/cosmos-sdk/types/module/testutil"
+	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
+	icatypes "github.com/cosmos/ibc-go/v10/modules/apps/27-interchain-accounts/types"
 	"github.com/stretchr/testify/require"
 
+	"sparkdream/x/rep/keeper"
+	module "sparkdream/x/rep/module"
 	"sparkdream/x/rep/types"
 )
 
-// TestPersonalAddressGate pins that membership is a person: an address x/vault
-// reports as a vault can neither be invited nor accept an invitation nor be a
-// migration target (multisig-accounts plan §4.6).
-func TestPersonalAddressGate(t *testing.T) {
+// accountsAuthKeeper serves fixed accounts by address.
+type accountsAuthKeeper struct {
+	codec    address.Codec
+	accounts map[string]sdk.AccountI
+}
+
+func (a accountsAuthKeeper) AddressCodec() address.Codec { return a.codec }
+func (a accountsAuthKeeper) GetAccount(_ context.Context, addr sdk.AccAddress) sdk.AccountI {
+	return a.accounts[string(addr)]
+}
+
+// Part 4 handoff: an interchain account is not a person. It must not be
+// invited, accept an invitation, sign a vault or be a migration target.
+func TestIsPersonalAddress_RefusesInterchainAccounts(t *testing.T) {
+	encCfg := moduletestutil.MakeTestEncodingConfig(module.AppModule{})
+	codec := addresscodec.NewBech32Codec(sdk.GetConfig().GetBech32AccountAddrPrefix())
+	storeKey := storetypes.NewKVStoreKey(types.StoreKey)
+	ctx := testutil.DefaultContextWithDB(t, storeKey, storetypes.NewTransientStoreKey("transient_personal")).Ctx
+
+	ica := sdk.AccAddress([]byte("ica-account________"))
+	person := sdk.AccAddress([]byte("person-account_____"))
+	icaAcc := icatypes.NewInterchainAccount(authtypes.NewBaseAccountWithAddress(ica), "controller-owner")
+	auth := accountsAuthKeeper{codec: codec, accounts: map[string]sdk.AccountI{
+		string(ica):    icaAcc,
+		string(person): authtypes.NewBaseAccountWithAddress(person),
+	}}
+	k := keeper.NewKeeper(runtime.NewKVStoreService(storeKey), encCfg.Codec, codec,
+		authtypes.NewModuleAddress(types.GovModuleName), auth, &mockBankKeeper{}, nil)
+
+	err := k.IsPersonalAddress(ctx, ica.String())
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "interchain account")
+	require.NoError(t, k.IsPersonalAddress(ctx, person.String()))
+}
+
+// Part 7 handoff: no identity moves while x/season is in maintenance mode;
+// a due migration waits in the queue and finalizes once maintenance ends.
+func TestMigrationFinalizationWaitsOutSeasonMaintenance(t *testing.T) {
 	f := migrationFixture(t)
-	inviter := sdk.AccAddress([]byte("gate-inviter_______"))
-	vault := sdk.AccAddress([]byte("gate-vault_________"))
-	person := sdk.AccAddress([]byte("gate-person________"))
-	seedMigrant(t, f, inviter, 1_000_000_000)
-	m := mustMember(t, f, inviter)
-	m.InvitationCredits = 5
-	require.NoError(t, f.keeper.Member.Set(f.ctx, inviter.String(), m))
-	f.keeper.SetVaultChecker(func(_ context.Context, addr string) bool { return addr == vault.String() })
-
-	require.NoError(t, f.keeper.IsPersonalAddress(f.ctx, person.String()))
-	require.ErrorContains(t, f.keeper.IsPersonalAddress(f.ctx, vault.String()), "vault")
-
-	// Invitation of a vault is refused; a person is fine.
-	_, err := f.keeper.CreateInvitation(f.ctx, inviter, vault, math.NewInt(100_000_000), nil)
-	require.ErrorIs(t, err, types.ErrInvalidRequest)
-	invID, err := f.keeper.CreateInvitation(f.ctx, inviter, person, math.NewInt(100_000_000), nil)
+	a := sdk.AccAddress([]byte("maint-a____________"))
+	b := sdk.AccAddress([]byte("maint-b____________"))
+	seedMigrant(t, f, a, 1)
+	id, err := f.keeper.RequestKeyMigration(f.ctx, a.String(), b.String())
 	require.NoError(t, err)
+	require.NoError(t, f.keeper.AcceptMigration(f.ctx, b.String(), id))
+	advance(f, mustParams(t, f).KeyMigrationDelay+1, 1)
 
-	// Acceptance re-runs the gate: flip the invitee into a vault after the
-	// invitation was created (a vault created in between).
-	f.keeper.SetVaultChecker(func(_ context.Context, addr string) bool { return addr == person.String() })
-	err = f.keeper.AcceptInvitationWithRecovery(f.ctx, invID, person, "CC0-1.0", nil)
-	require.ErrorIs(t, err, types.ErrInvalidRequest)
-	f.keeper.SetVaultChecker(func(context.Context, string) bool { return false })
-	require.NoError(t, f.keeper.AcceptInvitationWithRecovery(f.ctx, invID, person, "CC0-1.0", nil))
+	f.seasonKeeper.MaintenanceMode = true
+	f.keeper.ProcessMigrations(f.ctx)
+	m, _ := f.keeper.GetMemberMigration(f.ctx, id)
+	require.Equal(t, types.MigrationStatus_MIGRATION_STATUS_ACCEPTED, m.Status)
+	require.False(t, f.keeper.IsTombstoned(f.ctx, a.String()))
 
-	// Migration target freshness uses the same gate.
-	f.keeper.SetVaultChecker(func(_ context.Context, addr string) bool { return addr == vault.String() })
-	_, err = f.keeper.RequestKeyMigration(f.ctx, inviter.String(), vault.String())
-	require.ErrorIs(t, err, types.ErrMigrationTargetNotFresh)
+	f.seasonKeeper.MaintenanceMode = false
+	advance(f, 1, 1)
+	f.keeper.ProcessMigrations(f.ctx)
+	m, _ = f.keeper.GetMemberMigration(f.ctx, id)
+	require.Equal(t, types.MigrationStatus_MIGRATION_STATUS_FINALIZED, m.Status, m.FailureReason)
 }

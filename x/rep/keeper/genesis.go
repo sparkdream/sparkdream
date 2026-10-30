@@ -26,8 +26,20 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 		// fails open after a restart, and ProcessInviterAccountability — which
 		// resolves the invitation through this index — can never find the
 		// invitation that makes an inviter accountable for their invitee.
-		if elem.InviteeAddress != "" {
+		//
+		// Only live invitations hold the invitee slot: PENDING (reserved) and
+		// ACCEPTED (the accountability link). A closed invitation released it,
+		// and rebuilding it would leave that address uninvitable after import.
+		live := elem.Status == types.InvitationStatus_INVITATION_STATUS_PENDING ||
+			elem.Status == types.InvitationStatus_INVITATION_STATUS_ACCEPTED
+		if elem.InviteeAddress != "" && live {
 			if err := k.InvitationsByInvitee.Set(ctx, elem.InviteeAddress, elem.Id); err != nil {
+				return err
+			}
+		}
+		// PENDING invitations by creation time, for the expiry sweep.
+		if elem.Status == types.InvitationStatus_INVITATION_STATUS_PENDING {
+			if err := k.addPendingInvitation(ctx, elem); err != nil {
 				return err
 			}
 		}
@@ -98,12 +110,20 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 	if err := k.ChallengeSeq.Set(ctx, genState.ChallengeCount); err != nil {
 		return err
 	}
+	// Content-challenge and appeal reviews stay out of the verdict index (the
+	// deadline sweep must not resolve them); the export lists them.
+	outsideVerdictIndex := make(map[uint64]struct{}, len(genState.JuryReviewsOutsideVerdictIndex))
+	for _, id := range genState.JuryReviewsOutsideVerdictIndex {
+		outsideVerdictIndex[id] = struct{}{}
+	}
 	for _, elem := range genState.JuryReviewList {
 		if err := k.JuryReview.Set(ctx, elem.Id, elem); err != nil {
 			return err
 		}
-		if err := k.AddJuryReviewToVerdictIndex(ctx, elem); err != nil {
-			return err
+		if _, outside := outsideVerdictIndex[elem.Id]; !outside {
+			if err := k.AddJuryReviewToVerdictIndex(ctx, elem); err != nil {
+				return err
+			}
 		}
 		// Rebuild the by-juror index too, so a juror's client can still find
 		// their outstanding summons across a restart.
@@ -179,6 +199,10 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 			return err
 		}
 	}
+	// Registry size counter (REP-E-09), derived from the imported tags.
+	if err := k.TagCount.Set(ctx, uint64(len(genState.TagMap))); err != nil {
+		return err
+	}
 	for _, elem := range genState.ReservedTagMap {
 		if err := k.ReservedTag.Set(ctx, elem.Name, elem); err != nil {
 			return err
@@ -199,9 +223,37 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 		return err
 	}
 
+	// The per-(budget, post) award cooldown (REP-E-15) is exported with its
+	// heights. An award the genesis gives no cooldown entry (a hand-written
+	// genesis: the award records carry a timestamp, not a height) restarts
+	// its cooldown at the import height: that can delay an award, never allow
+	// a repeated one.
+	// The per-awarder epoch spend ledger keeps each awarder's epoch cap
+	// across an import.
+	for _, e := range genState.TagBudgetAwarderEpochList {
+		if err := k.TagBudgetAwarderEpoch.Set(ctx, collections.Join3(e.BudgetId, e.Awarder, e.Epoch), e.Amount); err != nil {
+			return err
+		}
+	}
+	for _, c := range genState.TagBudgetAwardCooldownList {
+		if err := k.TagBudgetAwardByPost.Set(ctx, collections.Join(c.BudgetId, c.PostId), c.Height); err != nil {
+			return err
+		}
+	}
+	importHeight := sdk.UnwrapSDKContext(ctx).BlockHeight()
 	for _, elem := range genState.TagBudgetAwardList {
 		if err := k.TagBudgetAward.Set(ctx, elem.Id, elem); err != nil {
 			return err
+		}
+		key := collections.Join(elem.BudgetId, elem.PostId)
+		has, err := k.TagBudgetAwardByPost.Has(ctx, key)
+		if err != nil {
+			return err
+		}
+		if !has {
+			if err := k.TagBudgetAwardByPost.Set(ctx, key, importHeight); err != nil {
+				return err
+			}
 		}
 	}
 	if err := k.TagBudgetAwardSeq.Set(ctx, genState.TagBudgetAwardCount); err != nil {
@@ -227,8 +279,15 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 	if err := k.MemberWarningSeq.Set(ctx, genState.MemberWarningCount); err != nil {
 		return err
 	}
+	// The filing-window expiry index is derived (setMemberActionRestoration
+	// writes it for records with no appeal filed).
+	for _, elem := range genState.MemberActionRestorationList {
+		if err := k.setMemberActionRestoration(ctx, elem); err != nil {
+			return err
+		}
+	}
 	for _, elem := range genState.GovActionAppealList {
-		if err := k.GovActionAppeal.Set(ctx, elem.Id, elem); err != nil {
+		if err := k.SetGovActionAppeal(ctx, elem); err != nil {
 			return err
 		}
 	}
@@ -250,7 +309,7 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 		_ = mustParseIntOrZero(br.CurrentBond)
 		_ = mustParseIntOrZero(br.TotalCommittedBond)
 		_ = mustParseIntOrZero(br.CumulativeRewards)
-		if err := k.BondedRoles.Set(ctx, collections.Join(int32(br.RoleType), br.Address), br); err != nil {
+		if err := k.setBondedRoleAt(ctx, collections.Join(int32(br.RoleType), br.Address), br); err != nil {
 			return err
 		}
 	}
@@ -390,19 +449,21 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 		return err
 	}
 
-	// Re-measure every initiative and project stake's reward_debt against the
-	// seasonal accumulator it will actually earn from. The accumulator is not
-	// exported and the debts are, so without this an imported chain carries
-	// debts taken against an accumulator that no longer exists. See
+	// The economic state exports the seasonal accumulator, so an import
+	// restores it and every stake's reward_debt stays exact: pending rewards
+	// survive the round trip. Only a genesis without an accumulator (older
+	// exports) needs the debts re-measured against the reset accumulator; see
 	// RebaseStakeRewardDebt for what that costs in each direction.
-	rebased, err := k.RebaseStakeRewardDebt(ctx)
-	if err != nil {
-		return err
-	}
-	if rebased > 0 {
-		sdk.UnwrapSDKContext(ctx).Logger().Info(
-			"rebased stake reward debt against the imported seasonal accumulator",
-			"stakes", rebased)
+	if genState.EconomicState == nil || genState.EconomicState.SeasonalPoolAccPerShare == "" {
+		rebased, err := k.RebaseStakeRewardDebt(ctx)
+		if err != nil {
+			return err
+		}
+		if rebased > 0 {
+			sdk.UnwrapSDKContext(ctx).Logger().Info(
+				"rebased stake reward debt against the imported seasonal accumulator",
+				"stakes", rebased)
+		}
 	}
 	return k.initMigrationGenesis(ctx, genState)
 }
@@ -430,16 +491,24 @@ func (k Keeper) initMigrationGenesis(ctx context.Context, genState types.Genesis
 		if err := k.PendingMigrationByMember.Set(ctx, m.FromAddress, m.Id); err != nil {
 			return err
 		}
-		if err := k.PendingMigrationByTarget.Set(ctx, m.ToAddress, m.Id); err != nil {
+		if m.Status == types.MigrationStatus_MIGRATION_STATUS_REQUESTED {
+			if err := k.MigrationRequestsByTarget.Set(ctx, collections.Join(m.ToAddress, m.Id)); err != nil {
+				return err
+			}
+		} else if err := k.PendingMigrationByTarget.Set(ctx, m.ToAddress, m.Id); err != nil {
 			return err
 		}
 		switch m.Status {
 		case types.MigrationStatus_MIGRATION_STATUS_REQUESTED:
-			if err := k.MigrationAcceptExpiry.Set(ctx, collections.Join(m.RequestedAt+params.MigrationAcceptWindow, m.Id)); err != nil {
+			if err := k.MigrationAcceptExpiry.Set(ctx, collections.Join(acceptBy(m, params), m.Id)); err != nil {
 				return err
 			}
 		case types.MigrationStatus_MIGRATION_STATUS_ACCEPTED:
 			if err := k.MigrationQueue.Set(ctx, collections.Join(m.ExecutesAt, m.Id)); err != nil {
+				return err
+			}
+		case types.MigrationStatus_MIGRATION_STATUS_OBJECTED:
+			if err := k.ObjectedMigrations.Set(ctx, m.Id); err != nil {
 				return err
 			}
 		}
@@ -577,6 +646,13 @@ func (k Keeper) ExportGenesis(ctx context.Context) (*types.GenesisState, error) 
 	}
 	err = k.JuryReview.Walk(ctx, nil, func(key uint64, elem types.JuryReview) (bool, error) {
 		genesis.JuryReviewList = append(genesis.JuryReviewList, elem)
+		indexed, err := k.JuryReviewsByVerdict.Has(ctx, collections.Join(int32(elem.Verdict), elem.Id))
+		if err != nil {
+			return true, err
+		}
+		if !indexed {
+			genesis.JuryReviewsOutsideVerdictIndex = append(genesis.JuryReviewsOutsideVerdictIndex, elem.Id)
+		}
 		return false, nil
 	})
 	if err != nil {
@@ -673,6 +749,10 @@ func (k Keeper) ExportGenesis(ctx context.Context) (*types.GenesisState, error) 
 	}); err != nil {
 		return nil, err
 	}
+	// DefaultGenesis seeds the reserved-tag defaults; the export is the live
+	// set only, or a removed default would come back (and a kept one would be
+	// listed twice) on import.
+	genesis.ReservedTagMap = nil
 	if err := k.ReservedTag.Walk(ctx, nil, func(_ string, val types.ReservedTag) (stop bool, err error) {
 		genesis.ReservedTagMap = append(genesis.ReservedTagMap, val)
 		return false, nil
@@ -703,6 +783,20 @@ func (k Keeper) ExportGenesis(ctx context.Context) (*types.GenesisState, error) 
 	}); err != nil {
 		return nil, err
 	}
+	if err := k.TagBudgetAwardByPost.Walk(ctx, nil, func(key collections.Pair[uint64, uint64], height int64) (bool, error) {
+		genesis.TagBudgetAwardCooldownList = append(genesis.TagBudgetAwardCooldownList,
+			types.TagBudgetAwardCooldown{BudgetId: key.K1(), PostId: key.K2(), Height: height})
+		return false, nil
+	}); err != nil {
+		return nil, err
+	}
+	if err := k.TagBudgetAwarderEpoch.Walk(ctx, nil, func(key collections.Triple[uint64, string, int64], amt math.Int) (bool, error) {
+		genesis.TagBudgetAwarderEpochList = append(genesis.TagBudgetAwarderEpochList,
+			types.TagBudgetAwarderEpochSpend{BudgetId: key.K1(), Awarder: key.K2(), Epoch: key.K3(), Amount: amt})
+		return false, nil
+	}); err != nil {
+		return nil, err
+	}
 	genesis.TagBudgetAwardCount, err = k.TagBudgetAwardSeq.Peek(ctx)
 	if err != nil {
 		return nil, err
@@ -729,6 +823,12 @@ func (k Keeper) ExportGenesis(ctx context.Context) (*types.GenesisState, error) 
 	}
 	genesis.MemberWarningCount, err = k.MemberWarningSeq.Peek(ctx)
 	if err != nil {
+		return nil, err
+	}
+	if err := k.MemberActionRestorations.Walk(ctx, nil, func(_ string, val types.MemberActionRestoration) (stop bool, err error) {
+		genesis.MemberActionRestorationList = append(genesis.MemberActionRestorationList, val)
+		return false, nil
+	}); err != nil {
 		return nil, err
 	}
 	if err := k.GovActionAppeal.Walk(ctx, nil, func(_ uint64, val types.GovActionAppeal) (stop bool, err error) {
@@ -949,16 +1049,22 @@ func (k Keeper) importEconomicState(ctx context.Context, econ *types.EconomicSta
 		}
 	}
 
+	// A zero epoch is stored when it is written together with its partner
+	// (InitSeasonalPool sets the pool season and start epoch with the pool
+	// remaining; the epoch mint ceiling sets its epoch with the amount), so a
+	// pool opened, or a mint made, in epoch 0 round-trips exactly.
+	poolSet := econ.SeasonalPoolRemaining != ""
 	for _, f := range []struct {
-		item collections.Item[uint64]
-		val  uint64
+		item   collections.Item[uint64]
+		val    uint64
+		paired bool
 	}{
-		{k.SeasonalPoolSeason, econ.SeasonalPoolSeason},
-		{k.SeasonalPoolStartEpoch, econ.SeasonalPoolStartEpoch},
-		{k.EpochMintedEpoch, econ.EpochMintedEpoch},
-		{k.DecayLastProcessedEpoch, econ.DecayLastProcessedEpoch},
+		{k.SeasonalPoolSeason, econ.SeasonalPoolSeason, poolSet},
+		{k.SeasonalPoolStartEpoch, econ.SeasonalPoolStartEpoch, poolSet},
+		{k.EpochMintedEpoch, econ.EpochMintedEpoch, econ.EpochMintedAmount != ""},
+		{k.DecayLastProcessedEpoch, econ.DecayLastProcessedEpoch, false},
 	} {
-		if f.val == 0 {
+		if f.val == 0 && !f.paired {
 			continue
 		}
 		if err := f.item.Set(ctx, f.val); err != nil {

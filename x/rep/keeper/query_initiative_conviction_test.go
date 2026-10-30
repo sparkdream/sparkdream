@@ -31,7 +31,7 @@ func TestInitiativeConviction(t *testing.T) {
 				// ensure decay logic doesn't zero out immediately
 				params.ConvictionHalfLifeEpochs = 10000 // Very slow decay
 				params.EpochBlocks = 100
-				_ = f.keeper.Params.Set(f.ctx, params)
+				require.NoError(t, f.keeper.Params.Set(f.ctx, params))
 
 				f.ctx = sdk.UnwrapSDKContext(f.ctx).WithBlockTime(time.Unix(1000, 0))
 				amount := math.NewInt(1000000)
@@ -62,8 +62,8 @@ func TestInitiativeConviction(t *testing.T) {
 					CreatedAt:             1000,
 					CompletedAt:           0,
 				}
-				_ = f.keeper.Initiative.Set(f.ctx, 1, initiative)
-				_ = f.keeper.InitiativeSeq.Set(f.ctx, 1)
+				require.NoError(t, f.keeper.Initiative.Set(f.ctx, 1, initiative))
+				require.NoError(t, f.keeper.InitiativeSeq.Set(f.ctx, 1))
 
 				// Set up project
 				project := types.Project{
@@ -75,8 +75,8 @@ func TestInitiativeConviction(t *testing.T) {
 					Status:         types.ProjectStatus_PROJECT_STATUS_PROPOSED,
 					ApprovedBudget: &amount,
 				}
-				_ = f.keeper.Project.Set(f.ctx, 1, project)
-				_ = f.keeper.ProjectSeq.Set(f.ctx, 1)
+				require.NoError(t, f.keeper.Project.Set(f.ctx, 1, project))
+				require.NoError(t, f.keeper.ProjectSeq.Set(f.ctx, 1))
 			},
 			initiativeID:  1,
 			wantTotalConv: "0.000000000000000000",
@@ -140,7 +140,7 @@ func TestInitiativeConviction_WithStakes(t *testing.T) {
 	params := types.DefaultParams()
 	params.ConvictionHalfLifeEpochs = 10000
 	params.EpochBlocks = 100
-	_ = f.keeper.Params.Set(f.ctx, params)
+	require.NoError(t, f.keeper.Params.Set(f.ctx, params))
 
 	// Create initiative
 	f.ctx = sdk.UnwrapSDKContext(f.ctx).WithBlockTime(time.Unix(3000, 0)) // Time passes, but before review end
@@ -162,8 +162,8 @@ func TestInitiativeConviction_WithStakes(t *testing.T) {
 		ReviewPeriodEnd:       5000,
 		ChallengePeriodEnd:    5000,
 	}
-	_ = f.keeper.Initiative.Set(f.ctx, 1, initiative)
-	_ = f.keeper.InitiativeSeq.Set(f.ctx, 1)
+	require.NoError(t, f.keeper.Initiative.Set(f.ctx, 1, initiative))
+	require.NoError(t, f.keeper.InitiativeSeq.Set(f.ctx, 1))
 
 	// Create project
 	project := types.Project{
@@ -175,18 +175,18 @@ func TestInitiativeConviction_WithStakes(t *testing.T) {
 		Status:         types.ProjectStatus_PROJECT_STATUS_PROPOSED,
 		ApprovedBudget: &amount,
 	}
-	_ = f.keeper.Project.Set(f.ctx, 1, project)
-	_ = f.keeper.ProjectSeq.Set(f.ctx, 1)
+	require.NoError(t, f.keeper.Project.Set(f.ctx, 1, project))
+	require.NoError(t, f.keeper.ProjectSeq.Set(f.ctx, 1))
 
 	// Create Member
-	_ = f.keeper.Member.Set(f.ctx, "staker1", types.Member{
+	require.NoError(t, f.keeper.Member.Set(f.ctx, "staker1", types.Member{
 		Address:          "staker1",
 		DreamBalance:     PtrInt(math.NewInt(1000)),
 		StakedDream:      PtrInt(math.ZeroInt()),
 		LifetimeEarned:   PtrInt(math.ZeroInt()),
 		LifetimeBurned:   PtrInt(math.ZeroInt()),
 		ReputationScores: map[string]string{"tag": "100.0"},
-	})
+	}))
 
 	// Create a stake
 	stakeAmount := math.NewInt(500000)
@@ -198,8 +198,8 @@ func TestInitiativeConviction_WithStakes(t *testing.T) {
 		Amount:     stakeAmount,
 		CreatedAt:  2000,
 	}
-	_ = f.keeper.Stake.Set(f.ctx, 1, stake)
-	_ = f.keeper.StakeSeq.Set(f.ctx, 1)
+	require.NoError(t, f.keeper.Stake.Set(f.ctx, 1, stake))
+	require.NoError(t, f.keeper.StakeSeq.Set(f.ctx, 1))
 
 	// Query conviction - should trigger lazy update
 	response, err := qs.InitiativeConviction(f.ctx, &types.QueryInitiativeConvictionRequest{InitiativeId: 1})

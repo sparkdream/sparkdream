@@ -33,7 +33,7 @@ func TestQuerySponsorshipRequest(t *testing.T) {
 				blockHeight := sdkCtx.BlockHeight()
 				expiresAt := blockHeight + 50000
 
-				collID := f.createPendingCollection(t)
+				collID := f.createEndorsedCollection(t)
 
 				// For RequestSponsorship, the nonMember owner requests it.
 				// But RequestSponsorship checks status isn't checked, it checks ExpiresAt > 0 and !DepositBurned.

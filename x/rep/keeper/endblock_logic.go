@@ -83,14 +83,23 @@ func (k Keeper) ApplyDecay(ctx context.Context) error {
 	})
 }
 
-// MaybeApplyBulkDecay applies decay exactly once per epoch: the unstaked decay
-// to every member, then the staked decay to every reward-bearing stake record
-// (decayStakes). It runs at the top of EndBlocker so all subsequent reads
-// within the epoch (whether via lazy ApplyPendingDecay on write paths or via
-// gRPC queries on a cache-wrapped context) observe the same post-decay state —
-// fixing the lazy-decay view inconsistency (x-rep-security.md Point 6). Cost:
-// O(members) + O(stakes) once per epoch; for the 1000-member target this is
-// cheap and amortizes across the epoch's blocks.
+// maxDecayRecordsPerBlock caps the member and stake records one block's
+// share of the per-epoch decay pass reads.
+const maxDecayRecordsPerBlock = 500
+
+// MaybeApplyBulkDecay runs the per-epoch decay pass: the unstaked decay of
+// every member, then the staked decay of every reward-bearing stake record
+// (decayStakesBatch). REP-E-10: the pass is split across blocks, at most
+// maxDecayRecordsPerBlock records per block, resuming at a persisted cursor
+// (DecayPassEpoch / DecayPassMemberCursor / DecayPassStakeCursor), so no
+// block's cost scales with the member or stake count.
+//
+// Members not yet visited are still exact: every member read path applies
+// pending decay lazily (GetMember / ApplyPendingDecay, keyed on
+// LastDecayEpoch), so the member phase only persists what the lazy path
+// would compute. Stake decay has no lazy path; it is applied once per pass,
+// by the number of epochs since the previous pass (lazy catch-up, capped at
+// 500), so a pass that outlives its epoch neither skips nor repeats decay.
 func (k Keeper) MaybeApplyBulkDecay(ctx context.Context) error {
 	currentEpoch, err := k.GetCurrentEpoch(ctx)
 	if err != nil {
@@ -101,20 +110,127 @@ func (k Keeper) MaybeApplyBulkDecay(ctx context.Context) error {
 	}
 
 	last, err := k.DecayLastProcessedEpoch.Get(ctx)
+	hasLast := err == nil
 	if err != nil && !errors.Is(err, collections.ErrNotFound) {
 		return err
 	}
-	if err == nil && last >= uint64(currentEpoch) {
-		return nil
+
+	passEpoch, err := k.DecayPassEpoch.Get(ctx)
+	if errors.Is(err, collections.ErrNotFound) {
+		if hasLast && last >= uint64(currentEpoch) {
+			return nil
+		}
+		passEpoch = uint64(currentEpoch)
+		if err := k.DecayPassEpoch.Set(ctx, passEpoch); err != nil {
+			return err
+		}
+		if err := k.DecayPassMemberCursor.Remove(ctx); err != nil {
+			sdk.UnwrapSDKContext(ctx).Logger().Error("MaybeApplyBulkDecay: DecayPassMemberCursor.Remove failed", "err", err)
+		}
+		if err := k.DecayPassStakeCursor.Remove(ctx); err != nil {
+			sdk.UnwrapSDKContext(ctx).Logger().Error("MaybeApplyBulkDecay: DecayPassStakeCursor.Remove failed", "err", err)
+		}
+	} else if err != nil {
+		return err
 	}
 
-	if err := k.ApplyDecay(ctx); err != nil {
+	budget := maxDecayRecordsPerBlock
+
+	// Phase 1: members.
+	if has, _ := k.DecayPassStakeCursor.Has(ctx); !has {
+		after, cErr := k.DecayPassMemberCursor.Get(ctx)
+		if cErr != nil && !errors.Is(cErr, collections.ErrNotFound) {
+			return cErr
+		}
+		visited, lastAddr, done, mErr := k.decayMembersBatch(ctx, after, budget)
+		if mErr != nil {
+			return mErr
+		}
+		budget -= visited
+		if !done {
+			return k.DecayPassMemberCursor.Set(ctx, lastAddr)
+		}
+		if err := k.DecayPassStakeCursor.Set(ctx, 0); err != nil {
+			return err
+		}
+		if budget <= 0 {
+			return nil
+		}
+	}
+
+	// Phase 2: stake records.
+	from, err := k.DecayPassStakeCursor.Get(ctx)
+	if err != nil {
 		return err
 	}
-	if err := k.decayStakes(ctx); err != nil {
+	epochs := uint64(1)
+	if hasLast && passEpoch > last {
+		epochs = passEpoch - last
+	}
+	if epochs > 500 {
+		epochs = 500
+	}
+	next, done, err := k.decayStakesBatch(ctx, from, budget, epochs)
+	if err != nil {
 		return err
 	}
-	return k.DecayLastProcessedEpoch.Set(ctx, uint64(currentEpoch))
+	if !done {
+		return k.DecayPassStakeCursor.Set(ctx, next)
+	}
+	if err := k.DecayPassEpoch.Remove(ctx); err != nil {
+		sdk.UnwrapSDKContext(ctx).Logger().Error("MaybeApplyBulkDecay: DecayPassEpoch.Remove failed", "err", err)
+	}
+	if err := k.DecayPassMemberCursor.Remove(ctx); err != nil {
+		sdk.UnwrapSDKContext(ctx).Logger().Error("MaybeApplyBulkDecay: DecayPassMemberCursor.Remove failed", "err", err)
+	}
+	if err := k.DecayPassStakeCursor.Remove(ctx); err != nil {
+		sdk.UnwrapSDKContext(ctx).Logger().Error("MaybeApplyBulkDecay: DecayPassStakeCursor.Remove failed", "err", err)
+	}
+	return k.DecayLastProcessedEpoch.Set(ctx, passEpoch)
+}
+
+// decayMembersBatch applies pending unstaked decay to up to budget members
+// after the address `after` (exclusive; "" = from the start). Only members
+// whose record changes are written. Returns how many it read, the last
+// address read and whether it reached the end of the member store.
+func (k Keeper) decayMembersBatch(ctx context.Context, after string, budget int) (int, string, bool, error) {
+	var rng collections.Ranger[string]
+	if after != "" {
+		rng = new(collections.Range[string]).StartExclusive(after)
+	}
+	type pending struct {
+		key    string
+		member types.Member
+	}
+	var batch []pending
+	visited := 0
+	lastAddr := after
+	done := true
+	if err := k.Member.Walk(ctx, rng, func(key string, member types.Member) (bool, error) {
+		if visited >= budget {
+			done = false
+			return true, nil
+		}
+		visited++
+		lastAddr = key
+		batch = append(batch, pending{key, member})
+		return false, nil
+	}); err != nil {
+		return 0, after, false, err
+	}
+	for _, p := range batch {
+		before := p.member.LastDecayEpoch
+		if err := k.ApplyPendingDecay(ctx, &p.member); err != nil {
+			return 0, after, false, err
+		}
+		if p.member.LastDecayEpoch == before {
+			continue
+		}
+		if err := k.Member.Set(ctx, p.key, p.member); err != nil {
+			return 0, after, false, err
+		}
+	}
+	return visited, lastAddr, done, nil
 }
 
 // DistributeEpochStakingRewards updates the seasonal reward pool accumulator.
@@ -149,7 +265,9 @@ func (k Keeper) UpdateAllTrustLevels(ctx context.Context) error {
 	return k.Member.Walk(ctx, nil, func(key string, member types.Member) (stop bool, err error) {
 		memberAddr, err := sdk.AccAddressFromBech32(member.Address)
 		if err == nil {
-			_ = k.UpdateTrustLevel(ctx, memberAddr)
+			if err := k.UpdateTrustLevel(ctx, memberAddr); err != nil {
+				sdk.UnwrapSDKContext(ctx).Logger().Error("UpdateAllTrustLevels: k.UpdateTrustLevel failed", "err", err)
+			}
 		}
 		return false, nil
 	})
@@ -160,6 +278,11 @@ func (k Keeper) UpdateAllTrustLevels(ctx context.Context) error {
 // it a never-accepted invitation would lock the inviter's stake forever and
 // keep the invitee address permanently reserved. Accountability for
 // accepted invitations is passive (checked when the invitee is penalized).
+//
+// Reads the PENDING index in creation order and stops at the first invitation
+// still inside its window (REP-E-10): the old walk read every invitation ever
+// made, every epoch. Each close runs in its own cache context, so a failure
+// leaves that invitation untouched for the next epoch instead of half-closed.
 func (k Keeper) ProcessExpiredAccountability(ctx context.Context) error {
 	params, err := k.Params.Get(ctx)
 	if err != nil {
@@ -174,36 +297,45 @@ func (k Keeper) ProcessExpiredAccountability(ctx context.Context) error {
 	}
 
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
-	now := sdkCtx.BlockTime().Unix()
-	// Same seconds-per-epoch estimate CreateInvitation uses for
-	// accountability_end, so both deadlines move together.
-	window := params.InvitationAcceptanceEpochs * params.EpochBlocks * 6
+	// The window is counted in epochs from the invitation's created_epoch
+	// (REP-E-16): epochs follow block height, so the window does not depend
+	// on the block time. Expiry needs window full epochs to have passed.
+	currentEpoch, err := k.GetCurrentEpoch(ctx)
+	if err != nil {
+		return err
+	}
+	window := params.InvitationAcceptanceEpochs
 
 	var expired []types.Invitation
-	if err := k.Invitation.Walk(ctx, nil, func(_ uint64, inv types.Invitation) (bool, error) {
-		if inv.Status == types.InvitationStatus_INVITATION_STATUS_PENDING && now > inv.CreatedAt+window {
-			expired = append(expired, inv)
+	if err := k.PendingInvitations.Walk(ctx, nil, func(key collections.Pair[int64, uint64]) (bool, error) {
+		if currentEpoch <= key.K1()+window {
+			return true, nil // ordered by creation: everything after is younger
 		}
+		inv, err := k.Invitation.Get(ctx, key.K2())
+		if err != nil || inv.Status != types.InvitationStatus_INVITATION_STATUS_PENDING {
+			return false, nil
+		}
+		expired = append(expired, inv)
 		return false, nil
 	}); err != nil {
 		return err
 	}
 	for _, inv := range expired {
-		if err := k.closePendingInvitation(ctx, inv, types.InvitationStatus_INVITATION_STATUS_EXPIRED, "invitation_expired"); err != nil {
+		cacheCtx, write := sdkCtx.CacheContext()
+		if err := k.closePendingInvitation(cacheCtx, inv, types.InvitationStatus_INVITATION_STATUS_EXPIRED, "invitation_expired"); err != nil {
 			sdkCtx.Logger().Error("failed to expire invitation", "invitation_id", inv.Id, "error", err)
+			continue
 		}
+		write()
 	}
 	return nil
 }
 
-// closePendingInvitation ends a PENDING invitation without acceptance
-// (EXPIRED by the epoch sweep, REVOKED by the inviter): the status is
-// recorded, the inviter's stake is unlocked, the invitation credit it
-// consumed is restored and the invitee address is freed. The record is kept
-// for history.
-func (k Keeper) closePendingInvitation(ctx context.Context, inv types.Invitation, status types.InvitationStatus, eventType string) error {
-	if inv.Status != types.InvitationStatus_INVITATION_STATUS_PENDING {
-		return types.ErrInvitationNotPending
+// endPendingInvitation records a PENDING invitation's terminal status and
+// removes it from the PENDING and invitee indexes. It moves no DREAM.
+func (k Keeper) endPendingInvitation(ctx context.Context, inv types.Invitation, status types.InvitationStatus) error {
+	if err := k.removePendingInvitation(ctx, inv); err != nil {
+		return err
 	}
 	inv.Status = status
 	if err := k.Invitation.Set(ctx, inv.Id, inv); err != nil {
@@ -215,39 +347,71 @@ func (k Keeper) closePendingInvitation(ctx context.Context, inv types.Invitation
 			return err
 		}
 	}
+	return nil
+}
+
+// closePendingInvitation ends a PENDING invitation without acceptance
+// (EXPIRED by the epoch sweep, REVOKED by the inviter): the inviter's stake is
+// unlocked, the invitation credit it consumed is restored and the invitee
+// address is freed. The record is kept for history.
+//
+// The unlock runs first (REP-E-06): the status used to be written before it,
+// on the EndBlocker's deliver state, so a failed unlock left the invitation
+// closed with the stake still locked. The inviter is resolved through the
+// alias (REP-E-07): the invitation keeps the address it was sent from, and a
+// raw lookup after a migration skipped the unlock and the credit entirely.
+//
+// The credit comes back only to an ACTIVE inviter and never above the trust
+// level's maximum (REP-E-14): an invitation sent last season and closed after
+// the lazy season reset would otherwise leave the member over the cap, and a
+// zeroed inviter would get vouching power back.
+func (k Keeper) closePendingInvitation(ctx context.Context, inv types.Invitation, status types.InvitationStatus, eventType string, extra ...sdk.Attribute) error {
+	if inv.Status != types.InvitationStatus_INVITATION_STATUS_PENDING {
+		return types.ErrInvitationNotPending
+	}
 
 	inviterAddr, err := sdk.AccAddressFromBech32(inv.Inviter)
 	if err != nil {
 		return err
 	}
+	canonical := k.Canonical(ctx, inv.Inviter)
 	unlocked := math.ZeroInt()
-	if _, err := k.Member.Get(ctx, inv.Inviter); err == nil {
-		if inv.StakedDream != nil && inv.StakedDream.IsPositive() {
-			// UnlockDREAM caps at the actual staked balance (decay may have
-			// reduced it).
-			if err := k.UnlockDREAM(ctx, inviterAddr, *inv.StakedDream); err != nil {
+	if stake := DerefInt(inv.StakedDream); stake.IsPositive() {
+		if err := k.UnlockDREAM(ctx, inviterAddr, stake); err != nil {
+			// The lock is gone only when the inviter was zeroed or left; any
+			// other failure keeps the invitation open for a retry.
+			if !errors.Is(err, types.ErrInsufficientStake) && !errors.Is(err, types.ErrMemberNotFound) {
 				return err
 			}
-			unlocked = *inv.StakedDream
+		} else {
+			unlocked = stake
 		}
-		// Reload: UnlockDREAM rewrote the member.
-		inviter, err := k.Member.Get(ctx, inv.Inviter)
-		if err == nil {
+	}
+
+	if err := k.endPendingInvitation(ctx, inv, status); err != nil {
+		return err
+	}
+
+	if inviter, err := k.Member.Get(ctx, canonical); err == nil &&
+		inviter.Status == types.MemberStatus_MEMBER_STATUS_ACTIVE {
+		params, err := k.Params.Get(ctx)
+		if err != nil {
+			return err
+		}
+		if maxCredits := GetMaxInvitationCredits(params.TrustLevelConfig, inviter.TrustLevel); inviter.InvitationCredits < maxCredits {
 			inviter.InvitationCredits++
-			if err := k.Member.Set(ctx, inv.Inviter, inviter); err != nil {
+			if err := k.Member.Set(ctx, canonical, inviter); err != nil {
 				return err
 			}
 		}
 	}
 
-	sdk.UnwrapSDKContext(ctx).EventManager().EmitEvent(
-		sdk.NewEvent(
-			eventType,
-			sdk.NewAttribute("invitation_id", fmt.Sprintf("%d", inv.Id)),
-			sdk.NewAttribute("inviter", inv.Inviter),
-			sdk.NewAttribute("invitee", inv.InviteeAddress),
-			sdk.NewAttribute("stake_unlocked", unlocked.String()),
-		),
-	)
+	attrs := append([]sdk.Attribute{
+		sdk.NewAttribute("invitation_id", fmt.Sprintf("%d", inv.Id)),
+		sdk.NewAttribute("inviter", inv.Inviter),
+		sdk.NewAttribute("invitee", inv.InviteeAddress),
+		sdk.NewAttribute("stake_unlocked", unlocked.String()),
+	}, extra...)
+	sdk.UnwrapSDKContext(ctx).EventManager().EmitEvent(sdk.NewEvent(eventType, attrs...))
 	return nil
 }

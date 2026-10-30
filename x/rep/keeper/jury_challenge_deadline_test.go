@@ -41,7 +41,7 @@ func TestCreateJuryReviewIndexesPending(t *testing.T) {
 	projectID, _ := k.CreateProject(ctx, creator, "CjrProj", "D", []string{"coding"},
 		types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical",
 		math.NewInt(50000), math.NewInt(5000), false)
-	k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("cjr-approver-addr")), math.NewInt(50000), math.NewInt(5000))
+	require.NoError(t, k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("cjr-approver-addr")), math.NewInt(50000), math.NewInt(5000)))
 
 	assignee := sdk.AccAddress([]byte("cjr-assignee-aaaa"))
 	mkMember(assignee.String(), map[string]string{"coding": "1000.0"})
@@ -51,13 +51,13 @@ func TestCreateJuryReviewIndexesPending(t *testing.T) {
 	// DREAM bond (IsSelfAssigned). Fund them and assert the assignment lands —
 	// swallowing the error here left the initiative OPEN and produced a
 	// confusing failure three calls later, at CreateChallenge.
-	k.MintDREAM(ctx, assignee, math.NewInt(1000000))
+	require.NoError(t, k.MintDREAM(ctx, assignee, math.NewInt(1000000)))
 	require.NoError(t, k.AssignInitiativeToMember(ctx, initID, assignee))
-	k.SubmitInitiativeWork(ctx, initID, assignee, "URI")
+	require.NoError(t, k.SubmitInitiativeWork(ctx, initID, assignee, "URI"))
 
 	challenger := sdk.AccAddress([]byte("cjr-challenger-aa"))
 	mkMember(challenger.String(), map[string]string{"coding": "999.0"}) // high rep, but a party
-	k.MintDREAM(ctx, challenger, math.NewInt(1000000000))
+	require.NoError(t, k.MintDREAM(ctx, challenger, math.NewInt(1000000000)))
 	chalID, err := k.CreateChallenge(ctx, challenger, initID, "Bad work", nil, math.NewInt(50000000))
 	require.NoError(t, err)
 
@@ -124,7 +124,7 @@ func TestChallengeDeadlineSweep(t *testing.T) {
 		projectID, _ := k.CreateProject(ctx, projectCreator, "CdsProj", "Desc",
 			[]string{"coding"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE,
 			"technical", math.NewInt(50000), math.NewInt(5000), false)
-		k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("cds-approver-addr")), math.NewInt(50000), math.NewInt(5000))
+		require.NoError(t, k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("cds-approver-addr")), math.NewInt(50000), math.NewInt(5000)))
 
 		assignee := sdk.AccAddress([]byte("cds-assignee-aaaa"))
 		mkMember(assignee.String(), map[string]string{"coding": "1000.0"})
@@ -135,13 +135,13 @@ func TestChallengeDeadlineSweep(t *testing.T) {
 		// DREAM bond (IsSelfAssigned). Fund them and assert the assignment lands —
 		// swallowing the error here left the initiative OPEN and produced a
 		// confusing failure three calls later, at CreateChallenge.
-		k.MintDREAM(ctx, assignee, math.NewInt(1000000))
+		require.NoError(t, k.MintDREAM(ctx, assignee, math.NewInt(1000000)))
 		require.NoError(t, k.AssignInitiativeToMember(ctx, initID, assignee))
-		k.SubmitInitiativeWork(ctx, initID, assignee, "URI")
+		require.NoError(t, k.SubmitInitiativeWork(ctx, initID, assignee, "URI"))
 
 		challenger := sdk.AccAddress([]byte("cds-challenger-aa"))
 		mkMember(challenger.String(), map[string]string{})
-		k.MintDREAM(ctx, challenger, math.NewInt(1000000000))
+		require.NoError(t, k.MintDREAM(ctx, challenger, math.NewInt(1000000000)))
 		chalID, err := k.CreateChallenge(ctx, challenger, initID, "Bad work", nil, math.NewInt(50000000))
 		require.NoError(t, err)
 		ch, _ := k.GetChallenge(ctx, chalID)

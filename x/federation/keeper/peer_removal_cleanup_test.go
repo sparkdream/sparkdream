@@ -173,6 +173,7 @@ func TestPeerRemovalCleansIdentityAndAttestationState(t *testing.T) {
 			LocalAddress: local, PeerId: peer, RemoteIdentity: remote, Status: status, LinkedAt: 1, VerifiedAt: 2,
 		}))
 		require.NoError(t, f.keeper.IdentityLinksByRemote.Set(ctx, collections.Join(peer, remote), local))
+		require.NoError(t, f.keeper.IdentityClaimsByRemote.Set(ctx, collections.Join3(peer, remote, local)))
 		cnt, _ := f.keeper.IdentityLinkCount.Get(ctx, local)
 		require.NoError(t, f.keeper.IdentityLinkCount.Set(ctx, local, cnt+1))
 	}
@@ -186,12 +187,13 @@ func TestPeerRemovalCleansIdentityAndAttestationState(t *testing.T) {
 				LocalAddress: local, PeerId: peer, ExpiresAt: expiresAt,
 			}))
 			require.NoError(t, f.keeper.AttestationExp.Set(ctx, collections.Join3(expiresAt, local, peer)))
+			require.NoError(t, f.keeper.RepAttestationsByPeer.Set(ctx, collections.Join(peer, local)))
 		}
 	}
-	require.NoError(t, f.keeper.PendingIdChallenges.Set(ctx, collections.Join(otherUser, peerID), types.PendingIdentityChallenge{
+	require.NoError(t, f.keeper.SetPendingChallengeForTest(ctx, types.PendingIdentityChallenge{
 		ClaimedAddress: otherUser, ClaimantChainPeerId: peerID, ExpiresAt: expiresAt,
 	}))
-	require.NoError(t, f.keeper.PendingIdChallenges.Set(ctx, collections.Join(otherUser, otherPeer), types.PendingIdentityChallenge{
+	require.NoError(t, f.keeper.SetPendingChallengeForTest(ctx, types.PendingIdentityChallenge{
 		ClaimedAddress: otherUser, ClaimantChainPeerId: otherPeer, ExpiresAt: expiresAt,
 	}))
 	for id := uint64(1); id <= 5; id++ {
@@ -211,7 +213,7 @@ func TestPeerRemovalCleansIdentityAndAttestationState(t *testing.T) {
 	require.False(t, has)
 	require.True(t, hasEvent(ctx, types.EventTypePeerCleanupComplete, map[string]string{types.AttributeKeyPeerID: peerID}))
 	n := 0
-	_ = f.keeper.ContentByHash.Walk(ctx, nil, func(string, uint64) (bool, error) { n++; return false, nil })
+	require.NoError(t, f.keeper.ContentByHash.Walk(ctx, nil, func(string, uint64) (bool, error) { n++; return false, nil }))
 	require.Zero(t, n, "content hashes of removed peer must be gone")
 
 	// Identity links on the removed peer deleted, counts released; the
@@ -237,31 +239,31 @@ func TestPeerRemovalCleansIdentityAndAttestationState(t *testing.T) {
 		types.AttributeKeyLocalAddress: unverifiedUser,
 	}), "unverified links are deleted silently")
 	unverifiedExp := 0
-	_ = f.keeper.UnverifiedLinkExp.Walk(ctx, nil, func(collections.Triple[int64, string, string]) (bool, error) {
+	require.NoError(t, f.keeper.UnverifiedLinkExp.Walk(ctx, nil, func(collections.Triple[int64, string, string]) (bool, error) {
 		unverifiedExp++
 		return false, nil
-	})
+	}))
 	require.Zero(t, unverifiedExp)
 
 	// Attestations, challenges, outbound: only the other peer's remain.
-	_ = f.keeper.RepAttestations.Walk(ctx, nil, func(k collections.Pair[string, string], _ types.ReputationAttestation) (bool, error) {
+	require.NoError(t, f.keeper.RepAttestations.Walk(ctx, nil, func(k collections.Pair[string, string], _ types.ReputationAttestation) (bool, error) {
 		require.Equal(t, otherPeer, k.K2())
 		return false, nil
-	})
-	_ = f.keeper.AttestationExp.Walk(ctx, nil, func(k collections.Triple[int64, string, string]) (bool, error) {
+	}))
+	require.NoError(t, f.keeper.AttestationExp.Walk(ctx, nil, func(k collections.Triple[int64, string, string]) (bool, error) {
 		require.Equal(t, otherPeer, k.K3())
 		return false, nil
-	})
+	}))
 	has, _ = f.keeper.PendingIdChallenges.Has(ctx, collections.Join(otherUser, peerID))
 	require.False(t, has)
 	has, _ = f.keeper.PendingIdChallenges.Has(ctx, collections.Join(otherUser, otherPeer))
 	require.True(t, has)
 	var outbound []uint64
-	_ = f.keeper.OutboundAttestations.Walk(ctx, nil, func(id uint64, att types.OutboundAttestation) (bool, error) {
+	require.NoError(t, f.keeper.OutboundAttestations.Walk(ctx, nil, func(id uint64, att types.OutboundAttestation) (bool, error) {
 		require.Equal(t, otherPeer, att.PeerId)
 		outbound = append(outbound, id)
 		return false, nil
-	})
+	}))
 	require.Equal(t, []uint64{2, 4}, outbound)
 
 	// Re-registering the same peer id and linking again works.

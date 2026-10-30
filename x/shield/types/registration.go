@@ -34,3 +34,22 @@ func (r ShieldedOpRegistration) EpochScope(epoch uint64) uint64 {
 func (r ShieldedOpRegistration) Window() uint64 {
 	return max(r.EpochWindow, 1)
 }
+
+// CheckDomainCompatible refuses two registrations that share a nullifier
+// domain but disagree on how its nullifiers are scoped: nullifier mode, scope
+// type, scope field and epoch window. Uniqueness and pruning are per domain
+// (PruneEpochScopedNullifiers prunes every domain an EPOCH op uses), so an
+// EPOCH op reusing a MESSAGE_FIELD domain would have pruning delete, say,
+// old proposal votes and re-open voting; two windows in one domain would make
+// different ops' nullifiers collide. Ops that share a domain on purpose
+// (upvote and downvote of the same target) have identical scoping.
+func CheckDomainCompatible(a, b ShieldedOpRegistration) error {
+	if a.NullifierDomain != b.NullifierDomain {
+		return nil
+	}
+	if a.NullifierMode != b.NullifierMode || a.NullifierScopeType != b.NullifierScopeType ||
+		a.ScopeFieldPath != b.ScopeFieldPath || a.Window() != b.Window() {
+		return errorsmod.Wrapf(ErrNullifierDomainConflict, "%s and %s both use domain %d", a.MessageTypeUrl, b.MessageTypeUrl, a.NullifierDomain)
+	}
+	return nil
+}

@@ -16,6 +16,8 @@ import (
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	"github.com/stretchr/testify/require"
 
+	artifacttypes "sparkdream/x/artifact/types"
+	blogtypes "sparkdream/x/blog/types"
 	"sparkdream/x/session/keeper"
 	module "sparkdream/x/session/module"
 	"sparkdream/x/session/types"
@@ -29,6 +31,12 @@ type mockBankKeeper struct {
 	SendCoinsFromAccountToModuleFn func(ctx context.Context, senderAddr sdk.AccAddress, recipientModule string, amt sdk.Coins) error
 	SendCoinsFromModuleToAccountFn func(ctx context.Context, senderModule string, recipientAddr sdk.AccAddress, amt sdk.Coins) error
 	SendCoinsFromModuleToModuleFn  func(ctx context.Context, senderModule, recipientModule string, amt sdk.Coins) error
+	// blocked addresses (as bech32 strings) for BlockedAddr.
+	blocked map[string]bool
+}
+
+func (m *mockBankKeeper) BlockedAddr(addr sdk.AccAddress) bool {
+	return m.blocked[addr.String()]
 }
 
 func (m *mockBankKeeper) SpendableCoins(ctx context.Context, addr sdk.AccAddress) sdk.Coins {
@@ -111,6 +119,9 @@ func initFixture(t *testing.T) *fixture {
 	t.Helper()
 
 	encCfg := moduletestutil.MakeTestEncodingConfig(module.AppModule{})
+	// Allowlisted inner msgs must decode (oneshot creation checks it).
+	blogtypes.RegisterInterfaces(encCfg.InterfaceRegistry)
+	artifacttypes.RegisterInterfaces(encCfg.InterfaceRegistry)
 	addressCodec := addresscodec.NewBech32Codec(sdk.GetConfig().GetBech32AccountAddrPrefix())
 	storeKey := storetypes.NewKVStoreKey(types.StoreKey)
 
@@ -231,24 +242,24 @@ func cleanupSessionPair(t *testing.T, f *fixture, granter, grantee string) {
 	}
 	g, err := f.keeper.Grants.Get(f.ctx, id)
 	if err != nil {
-		_ = f.keeper.SessionKeyByPair.Remove(f.ctx, collections.Join(granter, grantee))
+		require.NoError(t, f.keeper.SessionKeyByPair.Remove(f.ctx, collections.Join(granter, grantee)))
 		return
 	}
-	_ = f.keeper.Grants.Remove(f.ctx, id)
-	_ = f.keeper.GrantsByGranter.Remove(f.ctx, collections.Join(granter, id))
-	_ = f.keeper.GrantsByGrantee.Remove(f.ctx, collections.Join(grantee, id))
-	_ = f.keeper.GrantsByExpiration.Remove(f.ctx, collections.Join(g.ExpiresAt.Unix(), id))
-	_ = f.keeper.GrantsByTypeAndGranter.Remove(f.ctx,
-		collections.Join3(int32(types.GrantType_GRANT_TYPE_SESSION_KEY), granter, id))
-	_ = f.keeper.SessionKeyByPair.Remove(f.ctx, collections.Join(granter, grantee))
+	require.NoError(t, f.keeper.Grants.Remove(f.ctx, id))
+	require.NoError(t, f.keeper.GrantsByGranter.Remove(f.ctx, collections.Join(granter, id)))
+	require.NoError(t, f.keeper.GrantsByGrantee.Remove(f.ctx, collections.Join(grantee, id)))
+	require.NoError(t, f.keeper.GrantsByExpiration.Remove(f.ctx, collections.Join(g.ExpiresAt.Unix(), id)))
+	require.NoError(t, f.keeper.GrantsByTypeAndGranter.Remove(f.ctx,
+		collections.Join3(int32(types.GrantType_GRANT_TYPE_SESSION_KEY), granter, id)))
+	require.NoError(t, f.keeper.SessionKeyByPair.Remove(f.ctx, collections.Join(granter, grantee)))
 
 	ckey := collections.Join(granter, int32(types.GrantType_GRANT_TYPE_SESSION_KEY))
 	cur, err := f.keeper.ActiveGrantCountByType.Get(f.ctx, ckey)
 	if err == nil && cur > 0 {
 		if cur == 1 {
-			_ = f.keeper.ActiveGrantCountByType.Remove(f.ctx, ckey)
+			require.NoError(t, f.keeper.ActiveGrantCountByType.Remove(f.ctx, ckey))
 		} else {
-			_ = f.keeper.ActiveGrantCountByType.Set(f.ctx, ckey, cur-1)
+			require.NoError(t, f.keeper.ActiveGrantCountByType.Set(f.ctx, ckey, cur-1))
 		}
 	}
 }

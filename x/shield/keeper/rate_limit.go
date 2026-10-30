@@ -2,6 +2,7 @@ package keeper
 
 import (
 	"context"
+	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	"cosmossdk.io/collections"
 )
@@ -21,7 +22,9 @@ func (k Keeper) CheckAndIncrementRateLimit(ctx context.Context, rateLimitNullifi
 		return false
 	}
 
-	_ = k.IdentityRateLimits.Set(ctx, key, count+1)
+	if err := k.IdentityRateLimits.Set(ctx, key, count+1); err != nil {
+		sdk.UnwrapSDKContext(ctx).Logger().Error("CheckAndIncrementRateLimit: IdentityRateLimits.Set failed", "err", err)
+	}
 	return true
 }
 
@@ -36,27 +39,22 @@ func (k Keeper) GetIdentityRateLimitCount(ctx context.Context, rateLimitNullifie
 	return count
 }
 
-// PruneIdentityRateLimits removes rate limit entries for epochs before cutoffEpoch.
+// PruneIdentityRateLimits removes rate limit entries for epochs before
+// cutoffEpoch. Keys are (epoch, identity), so the stale entries are exactly
+// the range below (cutoffEpoch, "") and nothing newer is visited.
 func (k Keeper) PruneIdentityRateLimits(ctx context.Context, cutoffEpoch uint64) error {
-	iter, err := k.IdentityRateLimits.Iterate(ctx, nil)
+	rng := new(collections.Range[collections.Pair[uint64, string]]).
+		EndExclusive(collections.Join(cutoffEpoch, ""))
+	iter, err := k.IdentityRateLimits.Iterate(ctx, rng)
 	if err != nil {
 		return err
 	}
-	defer iter.Close()
-
-	var toDelete []collections.Pair[uint64, string]
-	for ; iter.Valid(); iter.Next() {
-		key, err := iter.Key()
-		if err != nil {
-			return err
-		}
-		epoch := key.K1()
-		if epoch < cutoffEpoch {
-			toDelete = append(toDelete, key)
-		}
+	// Collect first: the store can't be modified while iterating.
+	keys, err := iter.Keys()
+	if err != nil {
+		return err
 	}
-
-	for _, key := range toDelete {
+	for _, key := range keys {
 		if err := k.IdentityRateLimits.Remove(ctx, key); err != nil {
 			return err
 		}

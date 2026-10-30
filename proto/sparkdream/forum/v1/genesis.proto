@@ -16,6 +16,7 @@ import "sparkdream/forum/v1/thread_follow_count.proto";
 import "sparkdream/forum/v1/thread_lock_record.proto";
 import "sparkdream/forum/v1/thread_metadata.proto";
 import "sparkdream/forum/v1/thread_move_record.proto";
+import "sparkdream/forum/v1/types.proto";
 import "sparkdream/forum/v1/user_rate_limit.proto";
 import "sparkdream/forum/v1/user_reaction_limit.proto";
 
@@ -52,6 +53,46 @@ message GenesisState {
   // derivable from other state (it is a historical tally), so it must round-trip
   // through genesis like sentinel_activity_map.
   repeated ProposalCountEntry proposal_count_map = 17 [(gogoproto.nullable) = false];
+  // post_conviction_stake_list carries every PostConvictionStake (active and
+  // released-but-not-GC'd). The staker's DREAM stays locked in x/rep while a
+  // stake is active, so dropping the record would strand it.
+  repeated PostConvictionStake post_conviction_stake_list = 18 [(gogoproto.nullable) = false];
+  // post_conviction_stake_count persists PostConvictionStakeSeq (next id).
+  uint64 post_conviction_stake_count = 19;
+  // post_vote_list persists the one-vote-per-(post, voter) dedup set.
+  repeated PostVoteEntry post_vote_list = 20 [(gogoproto.nullable) = false];
+  // forum_rep_epoch_counter_list persists the per-(author, tag) epoch rep cap
+  // counters so an export/import cannot reset the daily cap mid-epoch.
+  repeated ForumRepEpochCounterEntry forum_rep_epoch_counter_list = 21 [(gogoproto.nullable) = false];
+  // pending_stake_slash_list persists the posts whose stood hide is still
+  // being settled against their conviction stakes, a bounded batch per block.
+  repeated PendingStakeSlash pending_stake_slash_list = 22 [(gogoproto.nullable) = false];
+  // Members queued for eager promotion of their ephemeral content (admitted
+  // after posting). Hook-driven, so carried verbatim with the enqueue height;
+  // without it an import would leave that content to the lazy TTL-time path.
+  repeated PromotionQueueEntry promotion_queue = 23 [(gogoproto.nullable) = false];
+}
+
+// PendingStakeSlash is a post whose conviction stakes are still to be
+// slashed, with the author the reputation is clawed back from (kept here
+// because the post itself may be pruned before the slash finishes).
+message PendingStakeSlash {
+  uint64 post_id = 1;
+  string author = 2;
+}
+
+// PostVoteEntry is one (post_id, voter) dedup key of the PostVote set.
+message PostVoteEntry {
+  uint64 post_id = 1;
+  string voter = 2;
+}
+
+// ForumRepEpochCounterEntry is one (author, tag) -> ForumRepEpochCounter
+// tuple, flattened for genesis import/export.
+message ForumRepEpochCounterEntry {
+  string author = 1;
+  string tag = 2;
+  ForumRepEpochCounter counter = 3 [(gogoproto.nullable) = false];
 }
 
 // ProposalCountEntry is one (thread_id, sentinel) -> count tuple of the
@@ -60,4 +101,10 @@ message ProposalCountEntry {
   uint64 thread_id = 1;
   string sentinel = 2;
   uint64 count = 3;
+}
+
+// PromotionQueueEntry is one queued author and the height it was enqueued.
+message PromotionQueueEntry {
+  string address = 1;
+  int64 enqueued_at = 2;
 }

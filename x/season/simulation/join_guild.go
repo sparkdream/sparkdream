@@ -12,9 +12,10 @@ import (
 	"sparkdream/x/season/types"
 )
 
-// SimulateMsgJoinGuild simulates a MsgJoinGuild message using direct keeper calls.
-// This bypasses the maintenance mode check for simulation purposes.
-// Full maintenance mode testing should be done in integration tests.
+// SimulateMsgJoinGuild delivers MsgJoinGuild from a random account outside
+// any guild (creating its profile first when needed) into an active guild
+// with room that is open or holds an invite for it. Skips maintenance mode,
+// the guild-hop cooldown and the per-season guild cap.
 func SimulateMsgJoinGuild(
 	ak types.AuthKeeper,
 	bk types.BankKeeper,
@@ -24,70 +25,45 @@ func SimulateMsgJoinGuild(
 	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
 	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
 		simAccount, _ := simtypes.RandomAcc(r, accs)
+		addr := simAccount.Address.String()
+		msg := &types.MsgJoinGuild{Creator: addr}
 
-		// Find an open (non-invite-only) guild
-		guild, guildID, err := findOpenGuild(r, ctx, k)
-		if err != nil || guild == nil {
-			// Create a guild first
-			otherAccount, _ := simtypes.RandomAcc(r, accs)
-			guildID, err = getOrCreateGuild(r, ctx, k, otherAccount.Address.String())
+		if k.IsInMaintenanceMode(ctx) {
+			return noOp(msg, "maintenance mode")
+		}
+		params, err := k.Params.Get(ctx)
+		if err != nil {
+			return noOpErr(msg, err)
+		}
+		guilds, err := guildsWhere(ctx, k, func(g types.Guild) bool {
+			if g.Status != types.GuildStatus_GUILD_STATUS_ACTIVE || !guildHasRoom(ctx, k, params, g.Id) {
+				return false
+			}
+			// An invite-only guild needs an unexpired invite.
+			return !g.InviteOnly || inviteLive(ctx, k, g.Id, addr)
+		})
+		if err != nil {
+			return noOpErr(msg, err)
+		}
+		guild, ok := pick(r, guilds)
+		if !ok {
+			return noOp(msg, "no joinable guild")
+		}
+		msg.GuildId = guild.Id
+
+		if p, ok := getProfile(ctx, k, addr); ok && p.GuildId != 0 {
+			return noOp(msg, "already in a guild")
+		}
+		if ok, err := ensureProfile(r, app, ctx, txGen, ak, bk, k, simAccount); err != nil || !ok {
 			if err != nil {
-				return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgJoinGuild{}), "failed to get/create guild"), nil, nil
+				return noOpErr(msg, err)
 			}
-			// Load the guild to check status
-			guildVal, _ := k.Guild.Get(ctx, guildID)
-			guild = &guildVal
+			return noOp(msg, "could not create member profile")
+		}
+		if reason := joinBlocker(ctx, k, params, addr); reason != "" {
+			return noOp(msg, reason)
 		}
 
-		// Check if guild is active, if not make it active for simulation
-		if guild.Status != types.GuildStatus_GUILD_STATUS_ACTIVE {
-			guild.Status = types.GuildStatus_GUILD_STATUS_ACTIVE
-			guild.InviteOnly = false // Ensure it's open
-			if err := k.Guild.Set(ctx, guildID, *guild); err != nil {
-				return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgJoinGuild{}), "failed to activate guild"), nil, nil
-			}
-		}
-
-		// Make sure guild is not invite-only
-		if guild.InviteOnly {
-			guild.InviteOnly = false
-			if err := k.Guild.Set(ctx, guildID, *guild); err != nil {
-				return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgJoinGuild{}), "failed to make guild open"), nil, nil
-			}
-		}
-
-		// Check if user is already a member of any guild
-		_, err = k.GuildMembership.Get(ctx, simAccount.Address.String())
-		if err == nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgJoinGuild{}), "user already in a guild"), nil, nil
-		}
-
-		// Ensure member has a profile
-		if err := getOrCreateMemberProfile(r, ctx, k, simAccount.Address.String()); err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgJoinGuild{}), "failed to create profile"), nil, nil
-		}
-
-		// Use direct keeper calls to join (bypasses maintenance mode check)
-
-		// Create membership
-		membership := types.GuildMembership{
-			Member:      simAccount.Address.String(),
-			GuildId:     guildID,
-			JoinedEpoch: 1, // Default epoch
-		}
-
-		if err := k.GuildMembership.Set(ctx, simAccount.Address.String(), membership); err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgJoinGuild{}), "failed to create membership"), nil, nil
-		}
-
-		// Update member's profile with GuildId
-		profile, err := k.MemberProfile.Get(ctx, simAccount.Address.String())
-		if err == nil {
-			profile.GuildId = guildID
-			k.MemberProfile.Set(ctx, simAccount.Address.String(), profile)
-		}
-
-		// Return success
-		return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgJoinGuild{}), "ok (direct keeper call)"), nil, nil
+		return deliver(r, app, ctx, txGen, ak, bk, simAccount, msg)
 	}
 }

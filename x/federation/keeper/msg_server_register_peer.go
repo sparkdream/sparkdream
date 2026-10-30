@@ -45,7 +45,10 @@ func (k msgServer) RegisterPeer(ctx context.Context, msg *types.MsgRegisterPeer)
 			return nil, errorsmod.Wrapf(types.ErrPeerAlreadyExists, "peer %q already exists with status %s", msg.PeerId, existingPeer.Status)
 		}
 		// If REMOVED, check it's not still in cleanup queue
-		hasRemoval, _ := k.PeerRemovalQueue.Has(ctx, msg.PeerId)
+		hasRemoval, getErr := k.PeerRemovalQueue.Has(ctx, msg.PeerId)
+		if getErr != nil {
+			return nil, getErr
+		}
 		if hasRemoval {
 			return nil, errorsmod.Wrapf(types.ErrPeerCleanupInProgress, "peer %q removal cleanup still in progress", msg.PeerId)
 		}
@@ -81,6 +84,16 @@ func (k msgServer) RegisterPeer(ctx context.Context, msg *types.MsgRegisterPeer)
 		}
 	}
 
+	// 4e. controller_group, when given, must be an x/commons group policy
+	//     address (spec §6.1 step 5). It becomes the controller of every
+	//     bridge registered for this peer; dropping it would silently hand
+	//     those operators to the Operations Committee instead.
+	if msg.ControllerGroup != "" {
+		if k.late.commonsKeeper == nil || !k.late.commonsKeeper.IsGroupPolicyAddress(ctx, msg.ControllerGroup) {
+			return nil, errorsmod.Wrapf(types.ErrInvalidRequest, "controller_group %q is not a group policy address", msg.ControllerGroup)
+		}
+	}
+
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	blockTime := sdkCtx.BlockTime().Unix()
 
@@ -99,6 +112,7 @@ func (k msgServer) RegisterPeer(ctx context.Context, msg *types.MsgRegisterPeer)
 		PeerIdentity: msg.PeerIdentity,
 
 		IbcTransferChannelId: msg.IbcTransferChannelId,
+		ControllerGroup:      msg.ControllerGroup,
 	}
 
 	if err := k.Peers.Set(ctx, msg.PeerId, peer); err != nil {

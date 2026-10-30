@@ -23,6 +23,13 @@ func (k msgServer) UpdateParams(ctx context.Context, req *types.MsgUpdateParams)
 	if err := req.Params.Validate(); err != nil {
 		return nil, err
 	}
+	// epoch_blocks is fixed at genesis (REP-E-08). Every epoch clock in the
+	// module is height / epoch_blocks: changing it re-denominates them all at
+	// once (a smaller value applied up to 500 epochs of decay to every member
+	// in one block), and x/season's epoch must match it.
+	if current, err := k.Params.Get(ctx); err == nil && current.EpochBlocks != req.Params.EpochBlocks {
+		return nil, errorsmod.Wrapf(types.ErrParamImmutable, "epoch_blocks is %d", current.EpochBlocks)
+	}
 	if err := k.checkZkDelayAgainstVotingPeriods(ctx, req.Params); err != nil {
 		return nil, err
 	}

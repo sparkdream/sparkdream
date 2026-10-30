@@ -7,6 +7,8 @@ import (
 
 	"sparkdream/x/season/types"
 
+	"cosmossdk.io/collections"
+
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -20,39 +22,19 @@ func (q queryServer) MemberGuildInvites(ctx context.Context, req *types.QueryMem
 		return nil, status.Error(codes.InvalidArgument, "member address required")
 	}
 
-	// Iterate through invites to find those for this member
-	// Keys are formatted as "guildId:invitee"
-	iter, err := q.k.GuildInvite.Iterate(ctx, nil)
-	if err != nil {
-		return nil, status.Error(codes.Internal, err.Error())
-	}
-	defer iter.Close()
-
+	// First invite of this member, through the ByInvitee index (SEA-28).
 	var foundGuildId uint64
 	var foundGuildName string
-
-	for ; iter.Valid(); iter.Next() {
-		key, err := iter.Key()
-		if err != nil {
-			continue
-		}
-		invite, err := iter.Value()
-		if err != nil {
-			continue
-		}
-		if invite.GuildInvitee == req.Member {
-			// Extract guild ID from key (format: "guildId:invitee")
-			guildId := extractGuildIdFromInviteKey(key)
-			if guildId > 0 {
-				foundGuildId = guildId
-				// Get guild name
-				guild, err := q.k.Guild.Get(ctx, guildId)
-				if err == nil {
-					foundGuildName = guild.Name
-				}
+	if err := q.k.GuildInvite.Indexes.ByInvitee.Walk(ctx,
+		collections.NewPrefixedPairRange[string, string](req.Member),
+		func(_ string, key string) (bool, error) {
+			foundGuildId = extractGuildIdFromInviteKey(key)
+			if guild, err := q.k.Guild.Get(ctx, foundGuildId); err == nil {
+				foundGuildName = guild.Name
 			}
-			break // Return first match for non-paginated response
-		}
+			return true, nil
+		}); err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
 	}
 
 	return &types.QueryMemberGuildInvitesResponse{

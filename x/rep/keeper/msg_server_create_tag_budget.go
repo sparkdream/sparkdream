@@ -33,13 +33,17 @@ func (k msgServer) CreateTagBudget(ctx context.Context, msg *types.MsgCreateTagB
 
 	// No secondary index exists, so we iterate but break early on first match.
 	budgetIter, err := k.TagBudget.Iterate(ctx, nil)
-	if err == nil {
-		defer budgetIter.Close()
-		for ; budgetIter.Valid(); budgetIter.Next() {
-			budget, _ := budgetIter.Value()
-			if budget.GroupAccount == msg.Creator && budget.Tag == msg.Tag && budget.Active {
-				return nil, errorsmod.Wrap(types.ErrTagBudgetAlreadyExists, fmt.Sprintf("active budget already exists for tag %s", msg.Tag))
-			}
+	if err != nil {
+		return nil, err
+	}
+	defer budgetIter.Close()
+	for ; budgetIter.Valid(); budgetIter.Next() {
+		budget, err := budgetIter.Value()
+		if err != nil {
+			return nil, err
+		}
+		if budget.GroupAccount == msg.Creator && budget.Tag == msg.Tag && budget.Active {
+			return nil, errorsmod.Wrap(types.ErrTagBudgetAlreadyExists, fmt.Sprintf("active budget already exists for tag %s", msg.Tag))
 		}
 	}
 

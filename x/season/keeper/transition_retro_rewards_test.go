@@ -88,7 +88,7 @@ func TestRetroRewards_NominationsBelowMinConviction(t *testing.T) {
 		RewardAmount:   math.LegacyZeroDec(),
 		Rewarded:       false,
 	}
-	err = f.keeper.Nomination.Set(f.ctx, nom.Id, nom)
+	err = f.keeper.SetNomination(f.ctx, nom)
 	require.NoError(t, err)
 
 	// Create a small stake that will produce conviction well below the min (50).
@@ -145,6 +145,9 @@ func TestRetroRewards_NominationsBelowMinConviction(t *testing.T) {
 
 func TestRetroRewards_DistributesProportionally(t *testing.T) {
 	f := initBeginBlockFixture(t)
+	// These tests use whole-unit stakes; the micro-DREAM threshold (SEA-07)
+	// has its own test.
+	lowerRetroMinConviction(t, f)
 
 	// Setup season in ENDING status
 	season := types.Season{
@@ -178,7 +181,7 @@ func TestRetroRewards_DistributesProportionally(t *testing.T) {
 		RewardAmount:   math.LegacyZeroDec(),
 		Rewarded:       false,
 	}
-	err = f.keeper.Nomination.Set(f.ctx, nom1.Id, nom1)
+	err = f.keeper.SetNomination(f.ctx, nom1)
 	require.NoError(t, err)
 
 	// Create nomination 2 with lower conviction (staked 100 DREAM)
@@ -194,7 +197,7 @@ func TestRetroRewards_DistributesProportionally(t *testing.T) {
 		RewardAmount:   math.LegacyZeroDec(),
 		Rewarded:       false,
 	}
-	err = f.keeper.Nomination.Set(f.ctx, nom2.Id, nom2)
+	err = f.keeper.SetNomination(f.ctx, nom2)
 	require.NoError(t, err)
 
 	// Create stakes for nomination 1: 200 DREAM staked at block 0
@@ -333,7 +336,7 @@ func TestRetroRewards_SkipsNominationsFromOtherSeasons(t *testing.T) {
 		RewardAmount:   math.LegacyZeroDec(),
 		Rewarded:       false,
 	}
-	err = f.keeper.Nomination.Set(f.ctx, nom.Id, nom)
+	err = f.keeper.SetNomination(f.ctx, nom)
 	require.NoError(t, err)
 
 	// Create large stake
@@ -378,12 +381,15 @@ func TestRetroRewards_SkipsNominationsFromOtherSeasons(t *testing.T) {
 
 func TestRetroRewards_RespectsMaxRecipients(t *testing.T) {
 	f := initBeginBlockFixture(t)
+	// These tests use whole-unit stakes; the micro-DREAM threshold (SEA-07)
+	// has its own test.
 
 	// Set max recipients to 2
 	params := types.DefaultParams()
 	params.RetroRewardMaxRecipients = 2
 	err := f.keeper.Params.Set(f.ctx, params)
 	require.NoError(t, err)
+	lowerRetroMinConviction(t, f)
 
 	// Setup season in ENDING status
 	season := types.Season{
@@ -412,7 +418,7 @@ func TestRetroRewards_RespectsMaxRecipients(t *testing.T) {
 		TotalStaked: math.LegacyNewDec(300), Conviction: math.LegacyZeroDec(),
 		RewardAmount: math.LegacyZeroDec(), Rewarded: false,
 	}
-	err = f.keeper.Nomination.Set(f.ctx, nom1.Id, nom1)
+	err = f.keeper.SetNomination(f.ctx, nom1)
 	require.NoError(t, err)
 	err = f.keeper.NominationStake.Set(f.ctx, fmt.Sprintf("%d/%s", nom1.Id, addrs[0]), types.NominationStake{
 		NominationId: nom1.Id, Staker: addrs[0], Amount: math.LegacyNewDec(300), StakedAtBlock: 0,
@@ -425,7 +431,7 @@ func TestRetroRewards_RespectsMaxRecipients(t *testing.T) {
 		TotalStaked: math.LegacyNewDec(200), Conviction: math.LegacyZeroDec(),
 		RewardAmount: math.LegacyZeroDec(), Rewarded: false,
 	}
-	err = f.keeper.Nomination.Set(f.ctx, nom2.Id, nom2)
+	err = f.keeper.SetNomination(f.ctx, nom2)
 	require.NoError(t, err)
 	err = f.keeper.NominationStake.Set(f.ctx, fmt.Sprintf("%d/%s", nom2.Id, addrs[1]), types.NominationStake{
 		NominationId: nom2.Id, Staker: addrs[1], Amount: math.LegacyNewDec(200), StakedAtBlock: 0,
@@ -438,7 +444,7 @@ func TestRetroRewards_RespectsMaxRecipients(t *testing.T) {
 		TotalStaked: math.LegacyNewDec(100), Conviction: math.LegacyZeroDec(),
 		RewardAmount: math.LegacyZeroDec(), Rewarded: false,
 	}
-	err = f.keeper.Nomination.Set(f.ctx, nom3.Id, nom3)
+	err = f.keeper.SetNomination(f.ctx, nom3)
 	require.NoError(t, err)
 	err = f.keeper.NominationStake.Set(f.ctx, fmt.Sprintf("%d/%s", nom3.Id, addrs[2]), types.NominationStake{
 		NominationId: nom3.Id, Staker: addrs[2], Amount: math.LegacyNewDec(100), StakedAtBlock: 0,
@@ -505,7 +511,7 @@ func TestRetroRewards_NoRepKeeper(t *testing.T) {
 		TotalStaked: math.LegacyNewDec(200), Conviction: math.LegacyZeroDec(),
 		RewardAmount: math.LegacyZeroDec(), Rewarded: false,
 	}
-	err = k.Nomination.Set(ctx, nom.Id, nom)
+	err = k.SetNomination(ctx, nom)
 	require.NoError(t, err)
 
 	stakeKey := fmt.Sprintf("%d/%s", nom.Id, "cosmos1testaddr")
@@ -602,7 +608,7 @@ func TestReturnNominationStakes_UnlocksAndRemovesStakes(t *testing.T) {
 		RewardAmount: math.LegacyZeroDec(),
 		Rewarded:     true,
 	}
-	err = f.keeper.Nomination.Set(f.ctx, nom.Id, nom)
+	err = f.keeper.SetNomination(f.ctx, nom)
 	require.NoError(t, err)
 
 	// Create stakes for this nomination from two different stakers
@@ -654,7 +660,10 @@ func TestReturnNominationStakes_UnlocksAndRemovesStakes(t *testing.T) {
 	require.Error(t, err, "stake 2 should have been removed")
 }
 
-func TestReturnNominationStakes_SkipsStakesFromOtherSeasons(t *testing.T) {
+// SEA-13: a stake left on an earlier season's nomination (e.g. its unlock
+// failed in that transition) is returned by the next transition instead of
+// staying locked forever.
+func TestReturnNominationStakes_ReturnsStraysFromEarlierSeasons(t *testing.T) {
 	f := initBeginBlockFixture(t)
 
 	// Setup season 2 in ENDING status
@@ -678,7 +687,7 @@ func TestReturnNominationStakes_SkipsStakesFromOtherSeasons(t *testing.T) {
 		TotalStaked: math.LegacyNewDec(100), Conviction: math.LegacyZeroDec(),
 		RewardAmount: math.LegacyZeroDec(), Rewarded: false,
 	}
-	err = f.keeper.Nomination.Set(f.ctx, nomSeason1.Id, nomSeason1)
+	err = f.keeper.SetNomination(f.ctx, nomSeason1)
 	require.NoError(t, err)
 
 	stakeKey := fmt.Sprintf("%d/%s", nomSeason1.Id, addr1)
@@ -701,14 +710,14 @@ func TestReturnNominationStakes_SkipsStakesFromOtherSeasons(t *testing.T) {
 	err = f.keeper.BeginBlocker(f.ctx)
 	require.NoError(t, err)
 
-	// Phase should advance (no stakes for current season to process)
+	// Phase should advance
 	state, err := f.keeper.SeasonTransitionState.Get(f.ctx)
 	require.NoError(t, err)
 	require.Equal(t, types.TransitionPhase_TRANSITION_PHASE_SNAPSHOT, state.Phase)
 
-	// The stake from season 1 should NOT have been removed
+	// The stray stake from season 1 was returned
 	_, err = f.keeper.NominationStake.Get(f.ctx, stakeKey)
-	require.NoError(t, err, "stake from a different season should not be removed")
+	require.Error(t, err, "stray stake from an earlier season should be returned")
 }
 
 func TestReturnNominationStakes_BatchProcessing(t *testing.T) {
@@ -744,7 +753,7 @@ func TestReturnNominationStakes_BatchProcessing(t *testing.T) {
 			Season: 1, TotalStaked: math.LegacyNewDec(100), Conviction: math.LegacyZeroDec(),
 			RewardAmount: math.LegacyZeroDec(), Rewarded: false,
 		}
-		err = f.keeper.Nomination.Set(f.ctx, nom.Id, nom)
+		err = f.keeper.SetNomination(f.ctx, nom)
 		require.NoError(t, err)
 
 		stakeKey := fmt.Sprintf("%d/%s", nom.Id, addr)
@@ -810,6 +819,9 @@ func TestReturnNominationStakes_BatchProcessing(t *testing.T) {
 
 func TestRetroRewardsAndReturnStakes_FullFlow(t *testing.T) {
 	f := initBeginBlockFixture(t)
+	// These tests use whole-unit stakes; the micro-DREAM threshold (SEA-07)
+	// has its own test.
+	lowerRetroMinConviction(t, f)
 
 	// Setup season in ENDING status
 	season := types.Season{
@@ -847,7 +859,7 @@ func TestRetroRewardsAndReturnStakes_FullFlow(t *testing.T) {
 		RewardAmount:   math.LegacyZeroDec(),
 		Rewarded:       false,
 	}
-	err = f.keeper.Nomination.Set(f.ctx, nom.Id, nom)
+	err = f.keeper.SetNomination(f.ctx, nom)
 	require.NoError(t, err)
 
 	// Nominator stakes 200
@@ -912,4 +924,14 @@ func TestRetroRewardsAndReturnStakes_FullFlow(t *testing.T) {
 	require.Error(t, err, "nominator stake should have been removed")
 	_, err = f.keeper.NominationStake.Get(f.ctx, stakeKey2)
 	require.Error(t, err, "staker stake should have been removed")
+}
+
+// lowerRetroMinConviction drops retro_reward_min_conviction to 1 so tests
+// that stake small whole numbers still clear it.
+func lowerRetroMinConviction(t *testing.T, f *beginBlockFixture) {
+	t.Helper()
+	params, err := f.keeper.Params.Get(f.ctx)
+	require.NoError(t, err)
+	params.RetroRewardMinConviction = math.LegacyOneDec()
+	require.NoError(t, f.keeper.Params.Set(f.ctx, params))
 }

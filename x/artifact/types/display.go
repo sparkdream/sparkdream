@@ -2,6 +2,7 @@ package types
 
 import (
 	errorsmod "cosmossdk.io/errors"
+	commontypes "sparkdream/x/common/types"
 )
 
 // Query-time display rules (docs/x-artifact-spec.md §7.17). Stored state
@@ -20,7 +21,7 @@ const (
 // ValidateSchedule checks a metadata schedule: at most max stages, strictly
 // increasing from_time, every stage after now, every stage valid metadata.
 func ValidateSchedule(stages []MetadataStage, now int64, p Params) error {
-	if uint32(len(stages)) > p.MaxScheduleStages {
+	if commontypes.Saturate[uint32](len(stages)) > p.MaxScheduleStages {
 		return errorsmod.Wrapf(ErrInvalidSchedule, "at most %d stages", p.MaxScheduleStages)
 	}
 	last := now

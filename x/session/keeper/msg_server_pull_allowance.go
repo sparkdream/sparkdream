@@ -67,6 +67,14 @@ func (k msgServer) PullAllowance(ctx context.Context, msg *types.MsgPullAllowanc
 		return nil, errorsmod.Wrapf(types.ErrGrantInactive,
 			"grant %d is in status %s", grant.Id, grant.Status)
 	}
+	// Expiry is the granter's revocation: it holds from expires_at, not
+	// from whenever the capped expire pass gets to the grant (SES-10).
+	if !grant.ExpiresAt.After(sdkCtx.BlockTime()) {
+		return nil, errorsmod.Wrapf(types.ErrGrantExpired, "grant %d expired at %s", grant.Id, grant.ExpiresAt)
+	}
+	if err := k.checkRecipientNotBlocked(msg.Recipient); err != nil {
+		return nil, err
+	}
 
 	// Anti self-roundtrip.
 	if msg.Recipient == grant.Granter {
@@ -158,7 +166,7 @@ func (k msgServer) PullAllowance(ctx context.Context, msg *types.MsgPullAllowanc
 			sdkCtx.EventManager().EmitEvent(sdk.NewEvent(
 				"grant_paused_underfunded",
 				sdk.NewAttribute("id", fmt.Sprintf("%d", grant.Id)),
-				sdk.NewAttribute("type", grant.Type.String()),
+				sdk.NewAttribute("type", types.GrantTypeEventValue(grant.Type)),
 				sdk.NewAttribute("granter", grant.Granter),
 				sdk.NewAttribute("grantee", grant.Grantee),
 				sdk.NewAttribute("attempted_amount", msg.Amount.String()),
@@ -195,7 +203,7 @@ func (k msgServer) PullAllowance(ctx context.Context, msg *types.MsgPullAllowanc
 		sdkCtx.EventManager().EmitEvent(sdk.NewEvent(
 			"grant_resumed",
 			sdk.NewAttribute("id", fmt.Sprintf("%d", grant.Id)),
-			sdk.NewAttribute("type", grant.Type.String()),
+			sdk.NewAttribute("type", types.GrantTypeEventValue(grant.Type)),
 			sdk.NewAttribute("granter", grant.Granter),
 			sdk.NewAttribute("grantee", grant.Grantee),
 		))

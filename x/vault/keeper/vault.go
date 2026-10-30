@@ -11,6 +11,7 @@ import (
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 
+	commontypes "sparkdream/x/common/types"
 	reptypes "sparkdream/x/rep/types"
 	sessiontypes "sparkdream/x/session/types"
 	shieldtypes "sparkdream/x/shield/types"
@@ -20,11 +21,19 @@ import (
 // validateSigners runs the shared config rules and refuses non-personal
 // signer addresses (vaults, module accounts, group policies, reserved
 // addresses). Native multisig addresses are allowed: they cannot be detected
-// and cause no harm.
-func (k Keeper) validateSigners(ctx context.Context, signers []types.VaultSigner, threshold uint64, ttl int64, label string) error {
+// and cause no harm. It also refuses tombstoned signers (an address that has
+// migrated away can never approve) and two entries that resolve to the same
+// canonical member (one approval would count both weights while the other
+// signers see two people), and caps how many vaults one member may sign
+// (MaxVaultsPerSigner distinct vaults across every x/rep alias of the
+// signer, counting every vault but vaultID; 0 on create). The cap applies to
+// accepted entries only: an unaccepted listing is checked again when its
+// address accepts it (AcceptSigner).
+func (k Keeper) validateSigners(ctx context.Context, vaultID uint64, signers []types.VaultSigner, threshold uint64, ttl int64, label string) error {
 	if err := types.ValidateConfig(signers, threshold, ttl, label); err != nil {
 		return err
 	}
+	canon := make(map[string]string, len(signers))
 	for _, s := range signers {
 		if _, err := k.addressCodec.StringToBytes(s.Address); err != nil {
 			return errorsmod.Wrapf(types.ErrInvalidSignerSet, "signer %s: %v", s.Address, err)
@@ -36,12 +45,138 @@ func (k Keeper) validateSigners(ctx context.Context, signers []types.VaultSigner
 			if err := k.late.rep.IsPersonalAddress(ctx, s.Address); err != nil {
 				return errorsmod.Wrapf(types.ErrNotPersonalAddress, "%s: %v", s.Address, err)
 			}
+			if k.late.rep.IsTombstoned(ctx, s.Address) {
+				return errorsmod.Wrapf(types.ErrNotPersonalAddress, "%s has migrated away", s.Address)
+			}
+		}
+		c := k.canonical(ctx, s.Address)
+		if prev, dup := canon[c]; dup {
+			return errorsmod.Wrapf(types.ErrInvalidSignerSet, "%s and %s are the same member", prev, s.Address)
+		}
+		canon[c] = s.Address
+		if !s.Accepted {
+			continue
+		}
+		n, err := k.countVaultsOfSigner(ctx, s.Address, vaultID)
+		if err != nil {
+			return err
+		}
+		if n >= types.MaxVaultsPerSigner {
+			return errorsmod.Wrapf(types.ErrTooManyVaultsForSigner, "%s already signs %d vaults", s.Address, n)
 		}
 	}
 	return nil
 }
 
+// countVaultsOfSigner counts the distinct vaults, other than exclude, that
+// list addr or any x/rep alias of it as an accepted signer. Signer entries are never
+// re-keyed on migration, so a per-address count would let a member who
+// migrates collect MaxVaultsPerSigner fresh entries under every new address.
+// Stops at MaxVaultsPerSigner: at most MaxLifetimeAliases + 1 prefix walks and
+// MaxVaultsPerSigner + 1 counted entries.
+func (k Keeper) countVaultsOfSigner(ctx context.Context, addr string, exclude uint64) (int, error) {
+	seen := make(map[uint64]struct{}, types.MaxVaultsPerSigner)
+	for _, a := range k.allAddressesOf(ctx, addr) {
+		rng := collections.NewPrefixedPairRange[string, uint64](a)
+		err := k.VaultsBySigner.Walk(ctx, rng, func(key collections.Pair[string, uint64]) (bool, error) {
+			if key.K2() != exclude {
+				seen[key.K2()] = struct{}{}
+			}
+			return len(seen) >= types.MaxVaultsPerSigner, nil
+		})
+		if err != nil {
+			return 0, err
+		}
+		if len(seen) >= types.MaxVaultsPerSigner {
+			break
+		}
+	}
+	return len(seen), nil
+}
+
+// withAcceptance returns a copy of signers with the accepted flag set by the
+// chain (any value on input is ignored). An entry is accepted when the
+// listing address consented already: it is the creator's own entry (alias
+// aware), or it carries over an accepted entry of the previous config with
+// the same address or the same canonical member (a vault may re-key a
+// migrated signer to its current address without asking again). Everything
+// else starts unaccepted.
+func (k Keeper) withAcceptance(ctx context.Context, signers []types.VaultSigner, creator string, prev []types.VaultSigner) []types.VaultSigner {
+	prevAccepted := make(map[string]bool, len(prev)*2)
+	for _, p := range prev {
+		if p.Accepted {
+			prevAccepted[p.Address] = true
+			prevAccepted[k.canonical(ctx, p.Address)] = true
+		}
+	}
+	out := make([]types.VaultSigner, len(signers))
+	for i, s := range signers {
+		s.Accepted = false
+		switch {
+		case creator != "" && k.canActAs(ctx, creator, s.Address):
+			s.Accepted = true
+		case prevAccepted[s.Address] || prevAccepted[k.canonical(ctx, s.Address)]:
+			s.Accepted = true
+		}
+		out[i] = s
+	}
+	return out
+}
+
+// signerIndex returns the index an entry lives in: VaultsBySigner when
+// accepted, VaultInvitesBySigner otherwise.
+func (k Keeper) signerIndex(s types.VaultSigner) collections.KeySet[collections.Pair[string, uint64]] {
+	if s.Accepted {
+		return k.VaultsBySigner
+	}
+	return k.VaultInvitesBySigner
+}
+
+// indexSigners writes the index entry of every signer of vault id.
+func (k Keeper) indexSigners(ctx context.Context, id uint64, signers []types.VaultSigner) error {
+	for _, s := range signers {
+		if err := k.signerIndex(s).Set(ctx, collections.Join(s.Address, id)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// unindexSigners removes the index entry of every signer of vault id.
+func (k Keeper) unindexSigners(ctx context.Context, id uint64, signers []types.VaultSigner) error {
+	for _, s := range signers {
+		if err := k.signerIndex(s).Remove(ctx, collections.Join(s.Address, id)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// AcceptedWeight is the weight the vault's accepted entries can approve
+// with, each member counted once at its largest accepted entry weight (the
+// Tally of a proposal every accepted signer approved). Proposals cannot
+// execute while it is below the threshold.
+func (k Keeper) AcceptedWeight(ctx context.Context, signers []types.VaultSigner) uint64 {
+	best := make(map[string]uint64, len(signers))
+	for _, s := range signers {
+		if !s.Accepted {
+			continue
+		}
+		c := k.canonical(ctx, s.Address)
+		if s.Weight > best[c] {
+			best[c] = s.Weight
+		}
+	}
+	var sum uint64
+	for _, w := range best {
+		sum += w
+	}
+	return sum
+}
+
 // CreateVault burns the creation fee from creator and stores a new vault.
+// The creator's own entry (if listed) is accepted; every other entry waits
+// for MsgAcceptVaultSigner.
 func (k Keeper) CreateVault(ctx context.Context, creator sdk.AccAddress, signers []types.VaultSigner, threshold uint64, ttl int64, label string) (types.Vault, error) {
 	params, err := k.Params.Get(ctx)
 	if err != nil {
@@ -50,7 +185,12 @@ func (k Keeper) CreateVault(ctx context.Context, creator sdk.AccAddress, signers
 	if !params.CreationEnabled {
 		return types.Vault{}, types.ErrCreationDisabled
 	}
-	if err := k.validateSigners(ctx, signers, threshold, ttl, label); err != nil {
+	creatorStr, err := k.addressCodec.BytesToString(creator)
+	if err != nil {
+		return types.Vault{}, err
+	}
+	signers = k.withAcceptance(ctx, signers, creatorStr, nil)
+	if err := k.validateSigners(ctx, 0, signers, threshold, ttl, label); err != nil {
 		return types.Vault{}, err
 	}
 	if params.CreationFeeAmount.IsPositive() {
@@ -101,10 +241,8 @@ func (k Keeper) CreateVault(ctx context.Context, creator sdk.AccAddress, signers
 	if err := k.VaultByAddress.Set(ctx, addr, id); err != nil {
 		return types.Vault{}, err
 	}
-	for _, s := range signers {
-		if err := k.VaultsBySigner.Set(ctx, collections.Join(s.Address, id)); err != nil {
-			return types.Vault{}, err
-		}
+	if err := k.indexSigners(ctx, id, signers); err != nil {
+		return types.Vault{}, err
 	}
 	sdkCtx.EventManager().EmitEvent(sdk.NewEvent("vault_created",
 		sdk.NewAttribute("vault_id", fmt.Sprintf("%d", id)),
@@ -115,29 +253,43 @@ func (k Keeper) CreateVault(ctx context.Context, creator sdk.AccAddress, signers
 	return v, nil
 }
 
-// signerOf resolves signer against the vault's set through the alias
-// contract and returns the stored signer address and weight (0 = not a signer).
+// signerOf resolves signer against the vault's accepted entries through the
+// alias contract and returns the stored signer address and weight (0 = not a
+// signer). An unaccepted entry cannot propose, approve, revoke or execute.
 func (k Keeper) signerOf(ctx context.Context, v types.Vault, signer string) (string, uint64) {
 	for _, s := range v.Signers {
-		if k.canActAs(ctx, signer, s.Address) {
+		if s.Accepted && k.canActAs(ctx, signer, s.Address) {
 			return s.Address, s.Weight
 		}
 	}
 	return "", 0
 }
 
-// Tally sums the weight of approvers who are current signers, matched by
-// canonical address.
+// Tally sums the weight of approvers who are current accepted signers,
+// matched by canonical address (an unaccepted entry has no weight). Each
+// member counts once, at the largest weight among its entries: two entries can only resolve to the same member after a
+// RECOVERY or COUNCIL migration into an address that already co-signed
+// (validateSigners refuses it on every write, and the migration hook on the
+// KEY path), and one person's approval must never count twice.
 func (k Keeper) Tally(ctx context.Context, v types.Vault, p types.VaultProposal) uint64 {
-	var sum uint64
+	best := make(map[string]uint64, len(v.Signers))
 	for _, s := range v.Signers {
+		if !s.Accepted {
+			continue
+		}
 		canon := k.canonical(ctx, s.Address)
 		for _, a := range p.Approvals {
 			if a == canon || a == s.Address {
-				sum += s.Weight
+				if s.Weight > best[canon] {
+					best[canon] = s.Weight
+				}
 				break
 			}
 		}
+	}
+	var sum uint64
+	for _, w := range best {
+		sum += w
 	}
 	return sum
 }
@@ -154,6 +306,18 @@ func (k Keeper) checkInnerMsgs(ctx context.Context, v types.Vault, anys []*codec
 	vaultBytes, err := k.addressCodec.StringToBytes(v.Address)
 	if err != nil {
 		return nil, err
+	}
+	// The gnovm ante refuses a tx mixing VM messages with any other
+	// message; a vault proposal's messages execute as one unit and skip the
+	// ante, so apply the same rule here.
+	gno := 0
+	for _, a := range anys {
+		if a != nil && commontypes.IsGnoVMMsgTypeURL(a.TypeUrl) {
+			gno++
+		}
+	}
+	if gno > 0 && gno != len(anys) {
+		return nil, errorsmod.Wrap(types.ErrInnerMsgDenied, "cannot mix GnoVM messages with non-GnoVM messages in one proposal")
 	}
 	msgs := make([]sdk.Msg, 0, len(anys))
 	for i, a := range anys {
@@ -194,6 +358,11 @@ func (k Keeper) checkDenylist(url string) error {
 	}
 	if url == sdk.MsgTypeURL(&sessiontypes.MsgExecSession{}) {
 		return errorsmod.Wrapf(types.ErrInnerMsgDenied, "%s: session execution", url)
+	}
+	// The commons proposal-fee floor is enforced only in the ante, which a
+	// vault proposal's inner messages skip.
+	if url == commontypes.CommonsSubmitProposalTypeURL {
+		return errorsmod.Wrapf(types.ErrInnerMsgDenied, "%s: proposal fee is ante-only", url)
 	}
 	for _, u := range types.NonDelegableMsgTypeURLs() {
 		if u == url && !types.IsInnerAllowedVaultMsg(url) {
@@ -463,7 +632,8 @@ func (k Keeper) Cancel(ctx context.Context, signer string, id uint64) error {
 
 // UpdateVault replaces the configuration (signer = vault address, so only via
 // an executed proposal), bumps config_version and invalidates every pending
-// proposal of the vault.
+// proposal of the vault. Entries carried over from an accepted entry of the
+// previous config stay accepted; new entries start unaccepted.
 func (k Keeper) UpdateVault(ctx context.Context, vaultAddr string, signers []types.VaultSigner, threshold uint64, ttl int64, label string) error {
 	id, err := k.VaultByAddress.Get(ctx, vaultAddr)
 	if err != nil {
@@ -473,18 +643,15 @@ func (k Keeper) UpdateVault(ctx context.Context, vaultAddr string, signers []typ
 	if err != nil {
 		return errorsmod.Wrapf(types.ErrVaultNotFound, "%d", id)
 	}
-	if err := k.validateSigners(ctx, signers, threshold, ttl, label); err != nil {
+	signers = k.withAcceptance(ctx, signers, "", v.Signers)
+	if err := k.validateSigners(ctx, id, signers, threshold, ttl, label); err != nil {
 		return err
 	}
-	for _, s := range v.Signers {
-		if err := k.VaultsBySigner.Remove(ctx, collections.Join(s.Address, id)); err != nil {
-			return err
-		}
+	if err := k.unindexSigners(ctx, id, v.Signers); err != nil {
+		return err
 	}
-	for _, s := range signers {
-		if err := k.VaultsBySigner.Set(ctx, collections.Join(s.Address, id)); err != nil {
-			return err
-		}
+	if err := k.indexSigners(ctx, id, signers); err != nil {
+		return err
 	}
 	v.Signers = signers
 	v.Threshold = threshold
@@ -506,6 +673,143 @@ func (k Keeper) UpdateVault(ctx context.Context, vaultAddr string, signers []typ
 	return nil
 }
 
+// AcceptSigner accepts signer's unaccepted entry in vault id. The entry is
+// found through the alias contract (a member who migrated accepts the entry
+// listed under the old address with the new key; a tombstoned signer never
+// passes). Refused when another accepted entry of the vault resolves to the
+// same member (one person would count as two signers) or when the member
+// already signs MaxVaultsPerSigner vaults. Does not bump config_version:
+// the signer set, weights and threshold are unchanged, the entry only
+// starts counting once its owner approves.
+func (k Keeper) AcceptSigner(ctx context.Context, signer string, id uint64) error {
+	v, err := k.Vault.Get(ctx, id)
+	if err != nil {
+		return errorsmod.Wrapf(types.ErrVaultNotFound, "%d", id)
+	}
+	idx := -1
+	accepted := false
+	for i, s := range v.Signers {
+		if !k.canActAs(ctx, signer, s.Address) {
+			continue
+		}
+		if s.Accepted {
+			accepted = true
+			continue
+		}
+		if idx < 0 {
+			idx = i
+		}
+	}
+	if idx < 0 {
+		if accepted {
+			return types.ErrAlreadyAccepted
+		}
+		return types.ErrNotSigner
+	}
+	entry := v.Signers[idx]
+	canon := k.canonical(ctx, entry.Address)
+	for i, s := range v.Signers {
+		if i != idx && s.Accepted && k.canonical(ctx, s.Address) == canon {
+			return errorsmod.Wrapf(types.ErrInvalidSignerSet, "%s and %s are the same member", s.Address, entry.Address)
+		}
+	}
+	n, err := k.countVaultsOfSigner(ctx, entry.Address, id)
+	if err != nil {
+		return err
+	}
+	if n >= types.MaxVaultsPerSigner {
+		return errorsmod.Wrapf(types.ErrTooManyVaultsForSigner, "%s already signs %d vaults", entry.Address, n)
+	}
+	if err := k.VaultInvitesBySigner.Remove(ctx, collections.Join(entry.Address, id)); err != nil {
+		return err
+	}
+	v.Signers[idx].Accepted = true
+	if err := k.VaultsBySigner.Set(ctx, collections.Join(entry.Address, id)); err != nil {
+		return err
+	}
+	if err := k.Vault.Set(ctx, id, v); err != nil {
+		return err
+	}
+	sdk.UnwrapSDKContext(ctx).EventManager().EmitEvent(sdk.NewEvent("vault_signer_accepted",
+		sdk.NewAttribute("vault_id", fmt.Sprintf("%d", id)),
+		sdk.NewAttribute("signer", entry.Address),
+		sdk.NewAttribute("accepted_weight", fmt.Sprintf("%d", k.AcceptedWeight(ctx, v.Signers))),
+		sdk.NewAttribute("threshold", fmt.Sprintf("%d", v.Threshold)),
+	))
+	return nil
+}
+
+// LeaveVault removes every entry of vault id that signer can act as (alias
+// aware; after a merge one member may hold two). Declining an unaccepted
+// listing is the same call. Refused when nothing would remain, when the
+// remaining weight (accepted or not) falls below the threshold (the vault
+// could never execute again), or when an accepted entry leaves an
+// operational vault (accepted weight >= threshold) non-operational. The
+// remedy for a refused leave is a MsgUpdateVault by the remaining signers
+// first. Removing an accepted entry bumps config_version and invalidates
+// the vault's pending proposals, like any change of the operating signer
+// set; removing only unaccepted entries does not (they never had weight).
+func (k Keeper) LeaveVault(ctx context.Context, signer string, id uint64) error {
+	v, err := k.Vault.Get(ctx, id)
+	if err != nil {
+		return errorsmod.Wrapf(types.ErrVaultNotFound, "%d", id)
+	}
+	var kept, removed []types.VaultSigner
+	removedAccepted := false
+	for _, s := range v.Signers {
+		if k.canActAs(ctx, signer, s.Address) {
+			removed = append(removed, s)
+			removedAccepted = removedAccepted || s.Accepted
+			continue
+		}
+		kept = append(kept, s)
+	}
+	if len(removed) == 0 {
+		return types.ErrNotSigner
+	}
+	if len(kept) == 0 {
+		return errorsmod.Wrap(types.ErrLeaveBelowThreshold, "the last signer cannot leave")
+	}
+	var total uint64
+	for _, s := range kept {
+		total += s.Weight
+	}
+	if total < v.Threshold {
+		return errorsmod.Wrapf(types.ErrLeaveBelowThreshold, "remaining weight %d, threshold %d", total, v.Threshold)
+	}
+	if removedAccepted {
+		before := k.AcceptedWeight(ctx, v.Signers)
+		after := k.AcceptedWeight(ctx, kept)
+		if before >= v.Threshold && after < v.Threshold {
+			return errorsmod.Wrapf(types.ErrLeaveBelowThreshold, "accepted weight would drop to %d, threshold %d", after, v.Threshold)
+		}
+	}
+	if err := k.unindexSigners(ctx, id, removed); err != nil {
+		return err
+	}
+	v.Signers = kept
+	if removedAccepted {
+		v.ConfigVersion++
+	}
+	if err := k.Vault.Set(ctx, id, v); err != nil {
+		return err
+	}
+	if removedAccepted {
+		if err := k.invalidatePending(ctx, id); err != nil {
+			return err
+		}
+	}
+	for _, s := range removed {
+		sdk.UnwrapSDKContext(ctx).EventManager().EmitEvent(sdk.NewEvent("vault_signer_left",
+			sdk.NewAttribute("vault_id", fmt.Sprintf("%d", id)),
+			sdk.NewAttribute("signer", s.Address),
+			sdk.NewAttribute("accepted", fmt.Sprintf("%t", s.Accepted)),
+			sdk.NewAttribute("config_version", fmt.Sprintf("%d", v.ConfigVersion)),
+		))
+	}
+	return nil
+}
+
 // invalidatePending marks every PENDING proposal of the vault INVALIDATED.
 // Bounded by MaxSigners × (MaxPendingProposalsPerProposer +
 // MaxPendingUpdateProposalsPerProposer).
@@ -521,7 +825,9 @@ func (k Keeper) invalidatePending(ctx context.Context, vaultID uint64) error {
 	for _, id := range ids {
 		p, err := k.VaultProposal.Get(ctx, id)
 		if err != nil {
-			_ = k.PendingByVault.Remove(ctx, collections.Join(vaultID, id))
+			if err := k.PendingByVault.Remove(ctx, collections.Join(vaultID, id)); err != nil {
+				return err
+			}
 			continue
 		}
 		if err := k.resolveProposal(ctx, p, types.ProposalStatus_PROPOSAL_STATUS_INVALIDATED); err != nil {

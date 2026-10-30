@@ -180,8 +180,8 @@ func TestAnonymousVoteProposal_UnauthorizedVoter(t *testing.T) {
 	require.Contains(t, err.Error(), "only the shield module account")
 }
 
-// Anonymous votes are refused on every proposal, and nothing is tallied.
-func TestAnonymousVoteProposal_Disabled(t *testing.T) {
+// An openly voted proposal refuses anonymous votes, and nothing is tallied.
+func TestAnonymousVoteProposal_OpenProposalRefuses(t *testing.T) {
 	k, ctx, _ := setupCommonsKeeper(t)
 	msgServer := keeper.NewMsgServerImpl(k)
 
@@ -196,7 +196,7 @@ func TestAnonymousVoteProposal_Disabled(t *testing.T) {
 			ProposalId: pid,
 			Option:     opt,
 		})
-		require.ErrorIs(t, err, types.ErrAnonymousVotingDisabled)
+		require.ErrorIs(t, err, types.ErrBallotMode)
 	}
 
 	has, err := k.AnonVoteTallies.Has(ctx, pid)

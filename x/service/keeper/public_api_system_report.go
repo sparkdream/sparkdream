@@ -56,12 +56,12 @@ func (k Keeper) resolveSystemCaller(callerModuleAddr sdk.AccAddress) (string, er
 // Idempotency: (matchedModule, dedupeKey) is tracked in SystemReportDedup.
 // A second call with the same key during the existing report's lifetime
 // returns the existing report_id without opening a new one. Once the
-// existing report transitions to a terminal state (AUTO_DISMISSED,
-// RESOLVED_T1, RESOLVED_T2, AUTO_TIMEOUT, CLOSED_DISSOLVED), the dedupe
-// entry is left in place but the keeper will only return that report_id
-// — callers wanting to re-file after a dismissal must use a fresh
-// dedupe_key (typically by including the source challenge_id so a fresh
-// challenge produces a fresh key).
+// existing report is no longer PENDING/ESCALATED and
+// max_pending_blocks + max_escalated_blocks have passed since filing, the
+// EndBlocker drops the entry (sweepSystemReportDedup) — callers wanting to
+// re-file after a dismissal must use a fresh dedupe_key (typically by
+// including the source challenge_id so a fresh challenge produces a fresh
+// key).
 //
 // Rate limiting: per-(matchedModule) sliding-window ring buffer. Each
 // fresh report counts against `max_system_reports_per_caller_per_window`
@@ -163,17 +163,23 @@ func (k Keeper) openSystemReport(
 		effectiveSlashBps = cfg.UnilateralSlashCapBps
 	}
 
-	// 5. Rate limit check.
+	// 5. Rate limit check. x/service's own liveness reports are exempt:
+	//    they are already bounded to one per stalled operator per lag
+	//    window, and sharing one caller budget let many stalled operators
+	//    starve each other, leaving later lapses unreported.
 	params, err := k.Params.Get(ctx)
 	if err != nil {
 		return 0, false, err
 	}
-	if err := k.checkSystemReportRateLimit(ctx, params, matchedModule, currentHeight); err != nil {
-		opStr, _ := k.addressCodec.BytesToString(opBytes)
-		sdkCtx.EventManager().EmitEvent(types.NewSystemReportRateLimitedEvent(
-			matchedModule, opStr, serviceType,
-		))
-		return 0, false, err
+	rateLimited := matchedModule != types.ModuleName
+	if rateLimited {
+		if err := k.checkSystemReportRateLimit(ctx, params, matchedModule, currentHeight); err != nil {
+			opStr, _ := k.addressCodec.BytesToString(opBytes)
+			sdkCtx.EventManager().EmitEvent(types.NewSystemReportRateLimitedEvent(
+				matchedModule, opStr, serviceType,
+			))
+			return 0, false, err
+		}
 	}
 
 	// 6. Allocate report_id.
@@ -201,7 +207,7 @@ func (k Keeper) openSystemReport(
 	// so audits can quickly distinguish system reports from member
 	// reports without joining against dedupe state.
 	reason := fmt.Sprintf("system:%s:%s", matchedModule, evidenceURI)
-	if uint32(len(reason)) > params.MaxReasonBytes {
+	if len(reason) > int(params.MaxReasonBytes) {
 		// Truncate rather than reject — evidence URIs from external
 		// systems can be long, and a system report shouldn't get killed
 		// by a length boundary it doesn't control.
@@ -236,8 +242,14 @@ func (k Keeper) openSystemReport(
 	if err := k.SystemReportDedup.Set(ctx, dedupePK, reportID); err != nil {
 		return 0, false, err
 	}
-	if err := k.recordSystemReportFiling(ctx, params, matchedModule, currentHeight); err != nil {
+	if err := k.SystemReportDedupExpiry.Set(ctx, collections.Join3(
+		currentHeight+systemReportDedupRetention(params), matchedModule, dedupeKey)); err != nil {
 		return 0, false, err
+	}
+	if rateLimited {
+		if err := k.recordSystemReportFiling(ctx, params, matchedModule, currentHeight); err != nil {
+			return 0, false, err
+		}
 	}
 
 	sdkCtx.EventManager().EmitEvent(types.NewSystemReportOpenedEvent(
@@ -261,9 +273,12 @@ func (k Keeper) checkSystemReportRateLimit(
 	currentHeight int64,
 ) error {
 	if params.MaxSystemReportsPerCallerPerWindow == 0 {
-		// Treat zero as "unlimited" — params validation rejects this
-		// unless explicitly opted-in via an explicit zero default.
-		return nil
+		// Zero is governance's kill switch (spec §4.2): no new system
+		// reports from any rate-limited caller. Idempotent retries of an
+		// already-open report return before this check, and x/service's own
+		// liveness reports are not rate-limited.
+		return types.ErrSystemReportRateLimited.Wrapf(
+			"caller=%s: system reports are disabled (max_system_reports_per_caller_per_window = 0)", callerModule)
 	}
 	rl, err := k.SystemReportRateLimit.Get(ctx, callerModule)
 	if err != nil {
@@ -308,4 +323,54 @@ func (k Keeper) recordSystemReportFiling(
 		rl.RecentFilingHeights = rl.RecentFilingHeights[len(rl.RecentFilingHeights)-maxLen:]
 	}
 	return k.SystemReportRateLimit.Set(ctx, callerModule, rl)
+}
+
+// systemReportDedupRetention is how long after filing a dedup entry is kept
+// at minimum: the report's whole PENDING + ESCALATED lifetime, which covers
+// any plausible caller retry of the same key.
+func systemReportDedupRetention(params types.Params) int64 {
+	return params.MaxPendingBlocks + params.MaxEscalatedBlocks
+}
+
+// sweepSystemReportDedup is EndBlocker queue 6: it prunes SystemReportDedup
+// entries whose retention elapsed. An entry whose report is still PENDING
+// or ESCALATED is re-queued one retention later instead. Without this the
+// map grew by one entry per liveness window per stalled operator, forever.
+func (k Keeper) sweepSystemReportDedup(ctx context.Context, params types.Params, currentHeight int64, limit int) (int, error) {
+	// Keys sort by eligible height first, so the walk stops at the first
+	// entry not yet due.
+	var due []collections.Triple[int64, string, []byte]
+	err := k.SystemReportDedupExpiry.Walk(ctx, nil, func(key collections.Triple[int64, string, []byte]) (bool, error) {
+		if key.K1() > currentHeight || len(due) >= limit {
+			return true, nil
+		}
+		due = append(due, key)
+		return false, nil
+	})
+	if err != nil {
+		return 0, err
+	}
+	processed := 0
+	for _, key := range due {
+		if err := k.SystemReportDedupExpiry.Remove(ctx, key); err != nil {
+			sdk.UnwrapSDKContext(ctx).Logger().Error("sweepSystemReportDedup: SystemReportDedupExpiry.Remove failed", "err", err)
+		}
+		pk := collections.Join(key.K2(), key.K3())
+		reportID, gerr := k.SystemReportDedup.Get(ctx, pk)
+		if gerr != nil {
+			continue
+		}
+		if report, rerr := k.Reports.Get(ctx, reportID); rerr == nil &&
+			(report.Status == types.ReportStatus_REPORT_STATUS_PENDING || report.Status == types.ReportStatus_REPORT_STATUS_ESCALATED) {
+			if err := k.SystemReportDedupExpiry.Set(ctx, collections.Join3(currentHeight+systemReportDedupRetention(params), key.K2(), key.K3())); err != nil {
+				sdk.UnwrapSDKContext(ctx).Logger().Error("sweepSystemReportDedup: SystemReportDedupExpiry.Set failed", "err", err)
+			}
+			continue
+		}
+		if err := k.SystemReportDedup.Remove(ctx, pk); err != nil {
+			sdk.UnwrapSDKContext(ctx).Logger().Error("sweepSystemReportDedup: SystemReportDedup.Remove failed", "err", err)
+		}
+		processed++
+	}
+	return processed, nil
 }

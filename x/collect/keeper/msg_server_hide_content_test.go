@@ -118,7 +118,6 @@ func TestHideContent(t *testing.T) {
 				TargetId:   targetID,
 				TargetType: tc.targetType,
 				ReasonCode: commontypes.ModerationReason_MODERATION_REASON_SPAM,
-				ReasonText: "spam content",
 			})
 
 			if tc.expErr {

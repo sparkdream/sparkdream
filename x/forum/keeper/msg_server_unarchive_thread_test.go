@@ -24,7 +24,7 @@ func TestMsgServerUnarchiveThread(t *testing.T) {
 	t.Run("forum paused", func(t *testing.T) {
 		params := types.DefaultParams()
 		params.ForumPaused = true
-		f.keeper.Params.Set(f.ctx, params)
+		require.NoError(t, f.keeper.Params.Set(f.ctx, params))
 
 		msg := &types.MsgUnarchiveThread{
 			Creator: testCreator,
@@ -35,7 +35,7 @@ func TestMsgServerUnarchiveThread(t *testing.T) {
 		require.ErrorIs(t, err, types.ErrForumPaused)
 
 		// Reset params
-		f.keeper.Params.Set(f.ctx, types.DefaultParams())
+		require.NoError(t, f.keeper.Params.Set(f.ctx, types.DefaultParams()))
 	})
 
 	t.Run("thread not found", func(t *testing.T) {
@@ -70,7 +70,7 @@ func TestMsgServerUnarchiveThread(t *testing.T) {
 		// Set post status to ARCHIVED
 		p, _ := f.keeper.Post.Get(f.ctx, post.PostId)
 		p.Status = types.PostStatus_POST_STATUS_ARCHIVED
-		f.keeper.Post.Set(f.ctx, post.PostId, p)
+		require.NoError(t, f.keeper.Post.Set(f.ctx, post.PostId, p))
 
 		// Create archive metadata with recent archive time
 		meta := types.ArchiveMetadata{
@@ -78,7 +78,7 @@ func TestMsgServerUnarchiveThread(t *testing.T) {
 			ArchiveCount:   1,
 			LastArchivedAt: now, // Just archived
 		}
-		f.keeper.ArchiveMetadata.Set(f.ctx, post.PostId, meta)
+		require.NoError(t, f.keeper.ArchiveMetadata.Set(f.ctx, post.PostId, meta))
 
 		msg := &types.MsgUnarchiveThread{
 			Creator: testCreator,
@@ -99,7 +99,7 @@ func TestMsgServerUnarchiveThread(t *testing.T) {
 		// Set post status to ARCHIVED
 		p, _ := f.keeper.Post.Get(f.ctx, post.PostId)
 		p.Status = types.PostStatus_POST_STATUS_ARCHIVED
-		f.keeper.Post.Set(f.ctx, post.PostId, p)
+		require.NoError(t, f.keeper.Post.Set(f.ctx, post.PostId, p))
 
 		// Create archive metadata (old enough to unarchive)
 		meta := types.ArchiveMetadata{
@@ -107,7 +107,7 @@ func TestMsgServerUnarchiveThread(t *testing.T) {
 			ArchiveCount:   1,
 			LastArchivedAt: now - types.DefaultUnarchiveCooldown - 1,
 		}
-		f.keeper.ArchiveMetadata.Set(f.ctx, post.PostId, meta)
+		require.NoError(t, f.keeper.ArchiveMetadata.Set(f.ctx, post.PostId, meta))
 
 		msg := &types.MsgUnarchiveThread{
 			Creator: testCreator,
@@ -168,7 +168,7 @@ func TestMsgServerUnarchiveThread(t *testing.T) {
 		for _, id := range []uint64{root.PostId, reply1.PostId, reply2.PostId} {
 			p, _ := f.keeper.Post.Get(f.ctx, id)
 			p.Status = types.PostStatus_POST_STATUS_ARCHIVED
-			f.keeper.Post.Set(f.ctx, id, p)
+			require.NoError(t, f.keeper.Post.Set(f.ctx, id, p))
 		}
 
 		// Create archive metadata (old enough)
@@ -177,7 +177,7 @@ func TestMsgServerUnarchiveThread(t *testing.T) {
 			ArchiveCount:   1,
 			LastArchivedAt: now - types.DefaultUnarchiveCooldown - 1,
 		}
-		f.keeper.ArchiveMetadata.Set(f.ctx, root.PostId, meta)
+		require.NoError(t, f.keeper.ArchiveMetadata.Set(f.ctx, root.PostId, meta))
 
 		msg := &types.MsgUnarchiveThread{
 			Creator: testCreator,

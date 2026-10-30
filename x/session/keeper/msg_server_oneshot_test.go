@@ -10,6 +10,7 @@ import (
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	"github.com/stretchr/testify/require"
 
+	blogtypes "sparkdream/x/blog/types"
 	"sparkdream/x/session/keeper"
 	"sparkdream/x/session/types"
 )
@@ -166,7 +167,7 @@ func TestCreateGrant_OneshotExec_DepositMath(t *testing.T) {
 
 	// Build an Any for an empty msg of that type — for now we only need
 	// the TypeUrl populated; the inner msg dispatch isn't exercised here.
-	innerAny, err := codectypes.NewAnyWithValue(&banktypes.MsgSend{}) // placeholder
+	innerAny, err := codectypes.NewAnyWithValue(&blogtypes.MsgCreatePost{Creator: granter})
 	require.NoError(t, err)
 	innerAny.TypeUrl = allowedMsgType
 

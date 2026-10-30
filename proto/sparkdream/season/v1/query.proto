@@ -152,7 +152,7 @@ service Query {
 
   // ListGuildInvite Queries a list of GuildInvite items.
   rpc GetGuildInvite(QueryGetGuildInviteRequest) returns (QueryGetGuildInviteResponse) {
-    option (google.api.http).get = "/sparkdream/season/v1/guild_invite/{guild_invitee}";
+    option (google.api.http).get = "/sparkdream/season/v1/guild_invite/{guild_id}/{guild_invitee}";
   }
 
   // ListGuildInvite defines the ListGuildInvite RPC.
@@ -612,6 +612,7 @@ message QueryAllGuildMembershipResponse {
 // QueryGetGuildInviteRequest defines the QueryGetGuildInviteRequest message.
 message QueryGetGuildInviteRequest {
   string guild_invitee = 1;
+  uint64 guild_id = 2;
 }
 
 // QueryGetGuildInviteResponse defines the QueryGetGuildInviteResponse message.
@@ -1082,10 +1083,9 @@ message QueryAvailableQuestsRequest {
 
 // QueryAvailableQuestsResponse defines the QueryAvailableQuestsResponse message.
 message QueryAvailableQuestsResponse {
-  string id = 1;
-  string name = 2;
-  uint64 xp_reward = 3;
-  cosmos.base.query.v1beta1.PageResponse pagination = 4;
+  // Quests the member can start now (the same checks as MsgStartQuest).
+  repeated Quest quests = 1 [(gogoproto.nullable) = false];
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
 }
 
 // ============================================================================

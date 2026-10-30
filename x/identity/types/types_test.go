@@ -236,14 +236,16 @@ func TestEqualCanonical(t *testing.T) {
 	b4.BondDisplayDecimals = 18
 	require.False(t, a.EqualCanonical(b4))
 
-	// bond_display_name and dream_display_name are NOT canonical (reserved
-	// for future MsgUpdateNonCanonicalMetadata).
+	// IDN-09: the display names are canonical too, because the sealed bank
+	// metadata fixes Name to them.
 	b5 := cloneValid()
 	b5.BondDisplayName = "Different"
-	require.True(t, a.EqualCanonical(b5))
+	require.False(t, a.EqualCanonical(b5))
+	require.Contains(t, a.DiffCanonical(b5), "bond_display_name")
 	b6 := cloneValid()
 	b6.DreamDisplayName = "Different"
-	require.True(t, a.EqualCanonical(b6))
+	require.False(t, a.EqualCanonical(b6))
+	require.Contains(t, a.DiffCanonical(b6), "dream_display_name")
 }
 
 func TestDiffCanonical(t *testing.T) {

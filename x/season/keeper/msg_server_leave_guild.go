@@ -2,6 +2,8 @@ package keeper
 
 import (
 	"context"
+	"cosmossdk.io/collections"
+	"errors"
 	"fmt"
 
 	"sparkdream/x/season/types"
@@ -50,7 +52,7 @@ func (k msgServer) LeaveGuild(ctx context.Context, msg *types.MsgLeaveGuild) (*t
 
 	// Remove from officers if applicable
 	if k.IsGuildOfficer(ctx, guildID, msg.Creator) {
-		newOfficers := make([]string, 0, len(guild.Officers)-1)
+		newOfficers := make([]string, 0, len(guild.Officers))
 		for _, officer := range guild.Officers {
 			if !k.canActAs(ctx, msg.Creator, officer) {
 				newOfficers = append(newOfficers, officer)
@@ -69,19 +71,16 @@ func (k msgServer) LeaveGuild(ctx context.Context, msg *types.MsgLeaveGuild) (*t
 		return nil, errorsmod.Wrap(err, "failed to update profile")
 	}
 
-	// Update membership record
-	membership, _ := k.GuildMembership.Get(ctx, msg.Creator)
-	membership.GuildId = 0
-	membership.LeftEpoch = k.GetCurrentEpoch(ctx)
-	if err := k.GuildMembership.Set(ctx, msg.Creator, membership); err != nil {
+	// Update membership record and the active member counter
+	if _, err := k.leaveGuildMembership(ctx, msg.Creator, k.GetCurrentEpoch(ctx)); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to update membership")
 	}
 
-	// Update active member counter
-	k.DecrementGuildMemberCount(ctx, guildID)
-
 	// Check if guild drops below minimum - freeze if so
-	params, _ := k.Params.Get(ctx)
+	params, getErr := k.Params.Get(ctx)
+	if getErr != nil && !errors.Is(getErr, collections.ErrNotFound) {
+		return nil, getErr
+	}
 	memberCount := k.GetGuildMemberCount(ctx, guildID)
 	if memberCount < uint64(params.MinGuildMembers) && guild.Status == types.GuildStatus_GUILD_STATUS_ACTIVE {
 		guild.Status = types.GuildStatus_GUILD_STATUS_FROZEN

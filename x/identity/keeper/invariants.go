@@ -3,7 +3,6 @@ package keeper
 import (
 	"errors"
 	"fmt"
-	"strings"
 
 	"cosmossdk.io/collections"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -101,8 +100,9 @@ func BankMetadataPresentInvariant(k *Keeper) sdk.Invariant {
 	}
 }
 
-// BankMetadataCanonicalInvariant: Symbol/Display of native-denom metadata
-// matches sealed values. (Invariant 4.) Skipped when bank keeper not wired.
+// BankMetadataCanonicalInvariant: native-denom metadata matches the sealed
+// identity on every guarded field (Base, Symbol, Display, Name, denom units
+// and their exponents). (Invariant 4.) Skipped when bank keeper not wired.
 func BankMetadataCanonicalInvariant(k *Keeper) sdk.Invariant {
 	return func(ctx sdk.Context) (string, bool) {
 		if k.bankKeeper == nil {
@@ -113,22 +113,16 @@ func BankMetadataCanonicalInvariant(k *Keeper) sdk.Invariant {
 			return sdk.FormatInvariant(types.ModuleName, "bank-metadata-canonical",
 				fmt.Sprintf("sealed lookup failed: %v", err)), true
 		}
-		check := func(base, wantSym, wantDisp string) string {
+		for _, base := range []string{sealed.BondDenom, sealed.DreamDenom} {
 			m, ok := k.bankKeeper.GetDenomMetaData(ctx, base)
 			if !ok {
-				return ""
+				continue
 			}
-			if m.Symbol != wantSym || m.Display != wantDisp {
-				return fmt.Sprintf("denom %q: Symbol/Display drifted (%q/%q vs sealed %q/%q)",
-					base, m.Symbol, m.Display, wantSym, wantDisp)
+			want, _ := sealed.CanonicalMetadataFor(base)
+			if reason := types.CheckSealedMetadata(m, want); reason != "" {
+				return sdk.FormatInvariant(types.ModuleName, "bank-metadata-canonical",
+					fmt.Sprintf("denom %q drifted from the sealed identity: %s", base, reason)), true
 			}
-			return ""
-		}
-		if msg := check(sealed.BondDenom, sealed.BondDisplaySymbol, strings.ToLower(sealed.BondDisplaySymbol)); msg != "" {
-			return sdk.FormatInvariant(types.ModuleName, "bank-metadata-canonical", msg), true
-		}
-		if msg := check(sealed.DreamDenom, sealed.DreamDisplaySymbol, strings.ToLower(sealed.DreamDisplaySymbol)); msg != "" {
-			return sdk.FormatInvariant(types.ModuleName, "bank-metadata-canonical", msg), true
 		}
 		return "", false
 	}
@@ -150,8 +144,18 @@ func SDKParamsAlignedInvariant(k *Keeper) sdk.Invariant {
 			return sdk.FormatInvariant(types.ModuleName, "sdk-params-aligned",
 				fmt.Sprintf("sealed lookup failed: %v", err)), true
 		}
-		bondDenom, _ := k.stakingKeeper.BondDenom(ctx)
-		mintParams, _ := k.mintKeeper.GetParams(ctx)
+		// A read failure is state corruption, not params drift: report it
+		// as broken instead of comparing zero values (IDN-10).
+		bondDenom, err := k.stakingKeeper.BondDenom(ctx)
+		if err != nil {
+			return sdk.FormatInvariant(types.ModuleName, "sdk-params-aligned",
+				fmt.Sprintf("staking bond_denom read failed: %v", err)), true
+		}
+		mintParams, err := k.mintKeeper.GetParams(ctx)
+		if err != nil {
+			return sdk.FormatInvariant(types.ModuleName, "sdk-params-aligned",
+				fmt.Sprintf("mint params read failed: %v", err)), true
+		}
 		mintDenom := mintParams.MintDenom
 		if bondDenom == sealed.BondDenom && mintDenom == sealed.BondDenom {
 			return "", false

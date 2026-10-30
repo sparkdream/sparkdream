@@ -317,7 +317,7 @@ fi
 echo "--- PART 12: Rate limit epoch scoping ---"
 
 # Query rate limit for a random identity — should show full quota
-RANDOM_RATE_NULL="deadbeef0000000000000000000000000000000000000000000000000000cafe"
+RANDOM_RATE_NULL="00adbeef0000000000000000000000000000000000000000000000000000cafe"
 RATE_RESULT=$($BINARY query shield identity-rate-limit "$RANDOM_RATE_NULL" --output json 2>&1)
 
 if echo "$RATE_RESULT" | grep -qi "not found\|error"; then

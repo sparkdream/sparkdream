@@ -28,8 +28,12 @@ func createInitiativeForAssignee(k keeper.Keeper, ctx context.Context, id uint64
 		Status:      status,
 		CreatedAt:   1000,
 	}
-	_ = k.Initiative.Set(ctx, id, initiative)
-	_ = k.InitiativeSeq.Set(ctx, id)
+	if err := k.Initiative.Set(ctx, id, initiative); err != nil {
+		panic(err)
+	}
+	if err := k.InitiativeSeq.Set(ctx, id); err != nil {
+		panic(err)
+	}
 	return initiative
 }
 

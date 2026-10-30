@@ -11,6 +11,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	"sparkdream/x/collect/types"
+	commontypes "sparkdream/x/common/types"
 )
 
 func (k msgServer) RemoveItems(ctx context.Context, msg *types.MsgRemoveItems) (*types.MsgRemoveItemsResponse, error) {
@@ -27,7 +28,7 @@ func (k msgServer) RemoveItems(ctx context.Context, msg *types.MsgRemoveItems) (
 	}
 
 	// Batch size check
-	batchSize := uint32(len(msg.Ids))
+	batchSize := commontypes.Saturate[uint32](len(msg.Ids))
 	if batchSize == 0 {
 		return nil, errorsmod.Wrap(types.ErrBatchTooLarge, "empty batch")
 	}
@@ -86,6 +87,11 @@ func (k msgServer) RemoveItems(ctx context.Context, msg *types.MsgRemoveItems) (
 	if coll.Immutable {
 		return nil, types.ErrCollectionImmutable
 	}
+	for i := range items {
+		if err := checkNotHidden(coll, &items[i]); err != nil {
+			return nil, errorsmod.Wrapf(err, "item %d", items[i].Id)
+		}
+	}
 
 	// No pending sponsorship
 	_, err = k.SponsorshipRequest.Get(ctx, coll.Id)
@@ -115,11 +121,19 @@ func (k msgServer) RemoveItems(ctx context.Context, msg *types.MsgRemoveItems) (
 
 	// Remove all items
 	for _, item := range items {
-		k.Item.Remove(ctx, item.Id)                                         //nolint:errcheck
-		k.ItemsByCollection.Remove(ctx, collections.Join(coll.Id, item.Id)) //nolint:errcheck
-		k.ItemsByOwner.Remove(ctx, collections.Join(coll.Owner, item.Id))   //nolint:errcheck
+		if err := k.Item.Remove(ctx, item.Id); err != nil {
+			return nil, err
+		}
+		if err := k.ItemsByCollection.Remove(ctx, collections.Join(coll.Id, item.Id)); err != nil {
+			return nil, err
+		}
+		if err := k.ItemsByOwner.Remove(ctx, collections.Join(coll.Owner, item.Id)); err != nil {
+			return nil, err
+		}
 		if item.ReferenceType == types.ReferenceType_REFERENCE_TYPE_ON_CHAIN && item.OnChain != nil {
-			k.ItemsByOnChainRef.Remove(ctx, collections.Join(onChainRefKey(item.OnChain), item.Id)) //nolint:errcheck
+			if err := k.ItemsByOnChainRef.Remove(ctx, collections.Join(onChainRefKey(item.OnChain), item.Id)); err != nil {
+				return nil, err
+			}
 		}
 	}
 

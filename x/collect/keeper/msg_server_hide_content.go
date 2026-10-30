@@ -31,8 +31,8 @@ func (k msgServer) HideContent(ctx context.Context, msg *types.MsgHideContent) (
 	// sentinels whose staying bond no longer covered the role minimum).
 	sentinelEligible := false
 	sentinelErr := error(types.ErrNotSentinel)
-	if k.repKeeper != nil {
-		if _, roleErr := k.repKeeper.EligibleForRole(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, msg.Creator); roleErr == nil {
+	if k.late.repKeeper != nil {
+		if _, roleErr := k.late.repKeeper.EligibleForRole(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, msg.Creator); roleErr == nil {
 			sentinelEligible = true
 		} else {
 			sentinelErr = errorsmod.Wrap(types.ErrNotSentinel, roleErr.Error())
@@ -57,10 +57,24 @@ func (k msgServer) HideContent(ctx context.Context, msg *types.MsgHideContent) (
 		return nil, err
 	}
 
+	// A sentinel's hide is rewarded: hiding their own collection, or an item
+	// they added, would be paid self-dealing (forum FRM-28). The council
+	// path is unaffected.
+	if !isGovAuthority {
+		if k.sameMember(ctx, coll.Owner, msg.Creator) {
+			return nil, types.ErrSelfModeration
+		}
+		if msg.TargetType == types.FlagTargetType_FLAG_TARGET_TYPE_ITEM {
+			if item, err := k.Item.Get(ctx, msg.TargetId); err == nil && k.sameMember(ctx, item.AddedBy, msg.Creator) {
+				return nil, types.ErrSelfModeration
+			}
+		}
+	}
+
 	// Check for existing unresolved hide record on this target
 	targetKey := HideRecordTargetCompositeKey(msg.TargetType, msg.TargetId)
 	hasUnresolved := false
-	_ = k.HideRecordByTarget.Walk(ctx,
+	if err := k.HideRecordByTarget.Walk(ctx,
 		collections.NewPrefixedPairRange[string, uint64](targetKey),
 		func(key collections.Pair[string, uint64]) (bool, error) {
 			hr, hrErr := k.HideRecord.Get(ctx, key.K2())
@@ -70,7 +84,9 @@ func (k msgServer) HideContent(ctx context.Context, msg *types.MsgHideContent) (
 			}
 			return false, nil
 		},
-	)
+	); err != nil {
+		return nil, err
+	}
 	if hasUnresolved {
 		return nil, types.ErrAlreadyHidden
 	}
@@ -81,9 +97,24 @@ func (k msgServer) HideContent(ctx context.Context, msg *types.MsgHideContent) (
 		return nil, errorsmod.Wrap(err, "failed to get params")
 	}
 
-	// Validate ReasonCode is not UNSPECIFIED
+	// Validate ReasonCode and ReasonText with the same rules MsgFlagContent
+	// applies: a known, non-UNSPECIFIED code; text required (and capped at
+	// max_flag_reason_length) for OTHER, empty otherwise.
 	if msg.ReasonCode == commontypes.ModerationReason_MODERATION_REASON_UNSPECIFIED {
 		return nil, errorsmod.Wrap(types.ErrInvalidFlagReason, "reason code must not be UNSPECIFIED")
+	}
+	if _, ok := commontypes.ModerationReason_name[int32(msg.ReasonCode)]; !ok {
+		return nil, errorsmod.Wrapf(types.ErrInvalidFlagReason, "unknown reason code %d", int32(msg.ReasonCode))
+	}
+	if msg.ReasonCode == commontypes.ModerationReason_MODERATION_REASON_OTHER {
+		if len(msg.ReasonText) == 0 {
+			return nil, types.ErrFlagReasonTextRequired
+		}
+		if commontypes.Saturate[uint32](len(msg.ReasonText)) > params.MaxFlagReasonLength {
+			return nil, types.ErrFlagReasonTextTooLong
+		}
+	} else if msg.ReasonText != "" {
+		return nil, types.ErrFlagReasonTextForbidden
 	}
 
 	if !isGovAuthority {
@@ -91,7 +122,7 @@ func (k msgServer) HideContent(ctx context.Context, msg *types.MsgHideContent) (
 		// EITHER moderation surface — the RoleActivity record is shared and
 		// rep-owned) cannot open new hides until the cooldown passes. Matches
 		// forum's own action-time gate.
-		if until := k.repKeeper.RoleOverturnCooldownUntil(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, msg.Creator); until > sdkCtx.BlockTime().Unix() {
+		if until := k.late.repKeeper.RoleOverturnCooldownUntil(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, msg.Creator); until > sdkCtx.BlockTime().Unix() {
 			return nil, errorsmod.Wrapf(types.ErrSentinelCooldown, "cooldown until %d", until)
 		}
 
@@ -106,7 +137,7 @@ func (k msgServer) HideContent(ctx context.Context, msg *types.MsgHideContent) (
 		}
 
 		// Sentinel must have available bond >= sentinel_commit_amount
-		availableBond, bondErr := k.repKeeper.GetAvailableBond(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, msg.Creator)
+		availableBond, bondErr := k.late.repKeeper.GetAvailableBond(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, msg.Creator)
 		if bondErr != nil {
 			return nil, errorsmod.Wrap(bondErr, "failed to get sentinel bond")
 		}
@@ -153,7 +184,7 @@ func (k msgServer) HideContent(ctx context.Context, msg *types.MsgHideContent) (
 	hiddenBy := ""
 	committedAmount := math.ZeroInt()
 	if !isGovAuthority {
-		if err := k.repKeeper.ReserveBond(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, msg.Creator, params.SentinelCommitAmount); err != nil {
+		if err := k.late.repKeeper.ReserveBond(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, msg.Creator, params.SentinelCommitAmount); err != nil {
 			return nil, errorsmod.Wrap(err, "failed to reserve sentinel bond")
 		}
 		hiddenBy = msg.Creator
@@ -161,7 +192,7 @@ func (k msgServer) HideContent(ctx context.Context, msg *types.MsgHideContent) (
 
 		// Credit the collect hide on rep's shared RoleActivity record so
 		// reward-epoch activity sees collect moderation work. Best-effort.
-		if err := k.repKeeper.RecordRoleAction(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, msg.Creator, reptypes.ActionKindCollectHide); err != nil {
+		if err := k.late.repKeeper.RecordRoleAction(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, msg.Creator, reptypes.ActionKindCollectHide); err != nil {
 			sdkCtx.Logger().Warn("record collect hide activity failed",
 				"sentinel", msg.Creator, "error", err)
 		}
@@ -180,14 +211,14 @@ func (k msgServer) HideContent(ctx context.Context, msg *types.MsgHideContent) (
 	authorRepPenalty := math.LegacyZeroDec()
 	var repPenaltyTags []string
 	var repPenaltyAmounts []string
-	if msg.TargetType == types.FlagTargetType_FLAG_TARGET_TYPE_COLLECTION && k.repKeeper != nil {
-		if bond, bondErr := k.repKeeper.GetAuthorBond(ctx, reptypes.StakeTargetType_STAKE_TARGET_COLLECTION_AUTHOR_BOND, msg.TargetId); bondErr == nil {
+	if msg.TargetType == types.FlagTargetType_FLAG_TARGET_TYPE_COLLECTION && k.late.repKeeper != nil {
+		if bond, bondErr := k.late.repKeeper.GetAuthorBond(ctx, reptypes.StakeTargetType_STAKE_TARGET_COLLECTION_AUTHOR_BOND, msg.TargetId); bondErr == nil {
 			authorBondAmount = bond.Amount
 		}
 		if params.AuthorRepPenalty.IsPositive() && len(coll.Tags) > 0 {
 			authorRepPenalty = params.AuthorRepPenalty
 			repPenaltyTags = coll.Tags
-			scores, scoresErr := k.repKeeper.GetReputationScores(ctx, coll.Owner)
+			scores, scoresErr := k.late.repKeeper.GetReputationScores(ctx, coll.Owner)
 			for _, tag := range coll.Tags {
 				actual := math.LegacyZeroDec()
 				if scoresErr == nil {
@@ -241,13 +272,19 @@ func (k msgServer) HideContent(ctx context.Context, msg *types.MsgHideContent) (
 	if err == nil {
 		// Remove from review queue if present
 		if existingFlag.InReviewQueue {
-			k.FlagReviewQueue.Remove(ctx, collections.Join(int32(msg.TargetType), msg.TargetId)) //nolint:errcheck
+			if err := k.FlagReviewQueue.Remove(ctx, collections.Join(int32(msg.TargetType), msg.TargetId)); err != nil {
+				return nil, err
+			}
 		}
 		// Remove expiry entry
-		expiryBlock := existingFlag.LastFlagAt + params.FlagExpirationBlocks
-		k.FlagExpiry.Remove(ctx, collections.Join(expiryBlock, flagKey)) //nolint:errcheck
+		expiryBlock := flagExpiryBlock(existingFlag, params)
+		if err := k.FlagExpiry.Remove(ctx, collections.Join(expiryBlock, flagKey)); err != nil {
+			return nil, err
+		}
 		// Remove the flag itself
-		k.Flag.Remove(ctx, flagKey) //nolint:errcheck
+		if err := k.Flag.Remove(ctx, flagKey); err != nil {
+			return nil, err
+		}
 	}
 
 	// Slash author bond on collection moderation (best-effort: log if no bond exists)
@@ -258,8 +295,8 @@ func (k msgServer) HideContent(ctx context.Context, msg *types.MsgHideContent) (
 	// the HideRecord above (restoreAuthorPenalties). Only the
 	// unappealed-expiry deletion path leaves them burned.
 	authorRepApplied := false
-	if msg.TargetType == types.FlagTargetType_FLAG_TARGET_TYPE_COLLECTION && k.repKeeper != nil {
-		if err := k.repKeeper.SlashAuthorBond(ctx, reptypes.StakeTargetType_STAKE_TARGET_COLLECTION_AUTHOR_BOND, msg.TargetId); err != nil {
+	if msg.TargetType == types.FlagTargetType_FLAG_TARGET_TYPE_COLLECTION && k.late.repKeeper != nil {
+		if err := k.late.repKeeper.SlashAuthorBond(ctx, reptypes.StakeTargetType_STAKE_TARGET_COLLECTION_AUTHOR_BOND, msg.TargetId); err != nil {
 			sdkCtx.Logger().Debug("author bond slash skipped", "target_id", msg.TargetId, "error", err)
 		}
 		if ownerAddr, ownerErr := k.addressCodec.StringToBytes(coll.Owner); ownerErr == nil &&

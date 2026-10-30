@@ -86,7 +86,7 @@ func TestMsgServerRevokeGuildInvite(t *testing.T) {
 		// Create invite
 		key := fmt.Sprintf("%d:%s", guildID, inviteeStr)
 		invite := types.GuildInvite{GuildInvitee: inviteeStr}
-		k.GuildInvite.Set(ctx, key, invite)
+		require.NoError(t, k.GuildInvite.Set(ctx, key, invite))
 
 		_, err := ms.RevokeGuildInvite(ctx, &types.MsgRevokeGuildInvite{
 			Creator: randomStr, // Not founder, not invitee
@@ -115,14 +115,14 @@ func TestMsgServerRevokeGuildInvite(t *testing.T) {
 		// Add invite
 		guild, _ := k.Guild.Get(ctx, guildID)
 		guild.PendingInvites = []string{inviteeStr}
-		k.Guild.Set(ctx, guildID, guild)
+		require.NoError(t, k.Guild.Set(ctx, guildID, guild))
 
 		key := fmt.Sprintf("%d:%s", guildID, inviteeStr)
 		invite := types.GuildInvite{
 			GuildInvitee: inviteeStr,
 			Inviter:      founderStr,
 		}
-		k.GuildInvite.Set(ctx, key, invite)
+		require.NoError(t, k.GuildInvite.Set(ctx, key, invite))
 
 		_, err := ms.RevokeGuildInvite(ctx, &types.MsgRevokeGuildInvite{
 			Creator: founderStr,
@@ -158,14 +158,14 @@ func TestMsgServerRevokeGuildInvite(t *testing.T) {
 		// Add invite
 		guild, _ := k.Guild.Get(ctx, guildID)
 		guild.PendingInvites = []string{inviteeStr}
-		k.Guild.Set(ctx, guildID, guild)
+		require.NoError(t, k.Guild.Set(ctx, guildID, guild))
 
 		key := fmt.Sprintf("%d:%s", guildID, inviteeStr)
 		invite := types.GuildInvite{
 			GuildInvitee: inviteeStr,
 			Inviter:      founderStr,
 		}
-		k.GuildInvite.Set(ctx, key, invite)
+		require.NoError(t, k.GuildInvite.Set(ctx, key, invite))
 
 		// Invitee declines (revokes their own invite)
 		_, err := ms.RevokeGuildInvite(ctx, &types.MsgRevokeGuildInvite{
@@ -202,14 +202,14 @@ func TestMsgServerRevokeGuildInvite(t *testing.T) {
 		guild, _ := k.Guild.Get(ctx, guildID)
 		guild.Officers = []string{officerStr}
 		guild.PendingInvites = []string{inviteeStr}
-		k.Guild.Set(ctx, guildID, guild)
+		require.NoError(t, k.Guild.Set(ctx, guildID, guild))
 
 		key := fmt.Sprintf("%d:%s", guildID, inviteeStr)
 		invite := types.GuildInvite{
 			GuildInvitee: inviteeStr,
 			Inviter:      founderStr,
 		}
-		k.GuildInvite.Set(ctx, key, invite)
+		require.NoError(t, k.GuildInvite.Set(ctx, key, invite))
 
 		_, err := ms.RevokeGuildInvite(ctx, &types.MsgRevokeGuildInvite{
 			Creator: officerStr,

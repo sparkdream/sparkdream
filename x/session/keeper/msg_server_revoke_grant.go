@@ -66,6 +66,12 @@ func (k msgServer) RevokeGrant(ctx context.Context, msg *types.MsgRevokeGrant) (
 		if sk == nil || skGrant.Status != types.GrantStatus_GRANT_STATUS_ACTIVE {
 			return nil, errorsmod.Wrap(types.ErrRevokeUnauthorized, "no active session-key grant for caller")
 		}
+		// Expiry is checked here, not left to the EndBlocker: the expiry
+		// pass is capped, so an expired key could otherwise keep revoking
+		// until it is pruned (MsgExecSession checks the same boundary).
+		if !skGrant.ExpiresAt.After(sdkCtx.BlockTime()) {
+			return nil, types.ErrSessionExpired
+		}
 		if !sk.AllowSelfRevoke {
 			return nil, types.ErrSelfRevokeNotPermitted
 		}
@@ -89,7 +95,9 @@ func (k msgServer) RevokeGrant(ctx context.Context, msg *types.MsgRevokeGrant) (
 			if err := k.bankKeeper.SendCoinsFromModuleToAccount(ctx, types.ModuleName, granterAddr, sdk.NewCoins(dep)); err != nil {
 				return nil, errorsmod.Wrap(err, "deposit refund failed")
 			}
-			_ = k.OneshotGasDeposit.Remove(ctx, grant.Id)
+			if err := k.OneshotGasDeposit.Remove(ctx, grant.Id); err != nil {
+				return nil, err
+			}
 			refund = dep
 		}
 	}
@@ -103,7 +111,7 @@ func (k msgServer) RevokeGrant(ctx context.Context, msg *types.MsgRevokeGrant) (
 	sdkCtx.EventManager().EmitEvent(sdk.NewEvent(
 		"grant_revoked",
 		sdk.NewAttribute("id", fmt.Sprintf("%d", grant.Id)),
-		sdk.NewAttribute("type", grant.Type.String()),
+		sdk.NewAttribute("type", types.GrantTypeEventValue(grant.Type)),
 		sdk.NewAttribute("granter", grant.Granter),
 		sdk.NewAttribute("grantee", grant.Grantee),
 		sdk.NewAttribute("refund_amount", refund.String()),

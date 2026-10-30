@@ -39,8 +39,8 @@ func TestFileDispute(t *testing.T) {
 			setup: func() {
 				f.mockRep.Reset()
 				// Create name record owned by someone else
-				f.keeper.SetName(f.ctx, types.NameRecord{Name: "alice", Owner: owner})
-				f.keeper.AddNameToOwner(f.ctx, ownerAddr, "alice")
+				require.NoError(t, f.keeper.SetName(f.ctx, types.NameRecord{Name: "alice", Owner: owner}))
+				require.NoError(t, f.keeper.AddNameToOwner(f.ctx, ownerAddr, "alice"))
 			},
 			expectPass: true,
 			check: func(t *testing.T, ctx sdk.Context) {
@@ -80,15 +80,15 @@ func TestFileDispute(t *testing.T) {
 			},
 			setup: func() {
 				f.mockRep.Reset()
-				f.keeper.SetName(f.ctx, types.NameRecord{Name: "bob", Owner: owner})
-				f.keeper.AddNameToOwner(f.ctx, ownerAddr, "bob")
+				require.NoError(t, f.keeper.SetName(f.ctx, types.NameRecord{Name: "bob", Owner: owner}))
+				require.NoError(t, f.keeper.AddNameToOwner(f.ctx, ownerAddr, "bob"))
 				// Create existing active dispute
-				f.keeper.SetDispute(f.ctx, types.Dispute{
+				require.NoError(t, f.keeper.SetDispute(f.ctx, types.Dispute{
 					Name:        "bob",
 					Claimant:    claimant,
 					Active:      true,
 					StakeAmount: math.NewInt(50),
-				})
+				}))
 			},
 			expectPass: false,
 			expectErr:  "active dispute already exists",
@@ -102,8 +102,8 @@ func TestFileDispute(t *testing.T) {
 			},
 			setup: func() {
 				f.mockRep.Reset()
-				f.keeper.SetName(f.ctx, types.NameRecord{Name: "carol", Owner: owner})
-				f.keeper.AddNameToOwner(f.ctx, ownerAddr, "carol")
+				require.NoError(t, f.keeper.SetName(f.ctx, types.NameRecord{Name: "carol", Owner: owner}))
+				require.NoError(t, f.keeper.AddNameToOwner(f.ctx, ownerAddr, "carol"))
 				f.mockRep.lockErr = types.ErrDREAMOperationFailed
 			},
 			expectPass: false,

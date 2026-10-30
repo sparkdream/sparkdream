@@ -24,17 +24,30 @@ const (
 )
 
 // TombstoneAllowed reports whether a message type may be signed by a
-// tombstone left by a migration on the given path. Staking and reward
-// withdrawals are always allowed, because delegations stay at the old
-// address. MsgSend is allowed only on the KEY path: on the RECOVERY and
-// COUNCIL paths the old key is presumed compromised and unbonded SPARK that
-// keeps arriving there must wait for the canonical address's
-// MsgSweepTombstone instead of being cashed out by a thief.
+// tombstone left by a migration on the given path. Delegations stay at the
+// old address, so the old key keeps the staking messages it needs to wind
+// them down:
+//
+//   - MsgUndelegate, MsgWithdrawDelegatorReward and
+//     MsgWithdrawValidatorCommission are always allowed. They can only move
+//     value toward the member: unbonded coins land on the tombstone (swept to
+//     the canonical address by MsgSweepTombstone) and rewards and commission
+//     go to the withdraw address finalization pointed at the canonical
+//     address.
+//   - MsgBeginRedelegate and MsgCancelUnbondingDelegation are allowed only on
+//     the KEY path. On RECOVERY and COUNCIL the old key is presumed stolen:
+//     with them a thief could redelegate the victim's stake to a validator
+//     they run at 100% commission, or cancel every unbonding the victim
+//     relies on, indefinitely (REP-R-06).
+//   - MsgSend is allowed only on the KEY path: on the RECOVERY and COUNCIL
+//     paths unbonded SPARK that keeps arriving at the tombstone must wait for
+//     the canonical address's MsgSweepTombstone instead of being cashed out
+//     by a thief.
 func TombstoneAllowed(typeURL string, path types.MigrationPath) bool {
 	switch typeURL {
-	case msgUndelegateURL, msgBeginRedelegateURL, msgWithdrawRewardURL, msgCancelUnbondingURL, msgWithdrawCommissionU:
+	case msgUndelegateURL, msgWithdrawRewardURL, msgWithdrawCommissionU:
 		return true
-	case msgSendURL:
+	case msgSendURL, msgBeginRedelegateURL, msgCancelUnbondingURL:
 		return path == types.MigrationPath_MIGRATION_PATH_KEY
 	default:
 		return false

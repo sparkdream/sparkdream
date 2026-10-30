@@ -33,4 +33,9 @@ message Season {
 
   // Original end block before any extensions
   int64 original_end_block = 9;
+
+  // Block time (unix seconds) when the season started; 0 for a season
+  // started at genesis. Retro-PGF nominations of time-stamped content (blog
+  // and forum posts) must be created at or after it.
+  int64 start_time = 10;
 }

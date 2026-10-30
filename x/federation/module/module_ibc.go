@@ -39,6 +39,9 @@ func (im IBCModule) OnChanOpenInit(
 	counterparty channeltypes.Counterparty,
 	version string,
 ) (string, error) {
+	if err := validateFederationChannel(order, portID, counterparty); err != nil {
+		return "", err
+	}
 	if version != types.Version {
 		return "", errorsmod.Wrapf(types.ErrInvalidVersion, "got %s, expected %s", version, types.Version)
 	}
@@ -56,11 +59,31 @@ func (im IBCModule) OnChanOpenTry(
 	counterparty channeltypes.Counterparty,
 	counterpartyVersion string,
 ) (string, error) {
+	if err := validateFederationChannel(order, portID, counterparty); err != nil {
+		return "", err
+	}
 	if counterpartyVersion != types.Version {
 		return "", errorsmod.Wrapf(types.ErrInvalidVersion, "invalid counterparty version: got: %s, expected %s", counterpartyVersion, types.Version)
 	}
 
 	return counterpartyVersion, nil
+}
+
+// validateFederationChannel enforces spec §8.1-8.2: an UNORDERED channel
+// between two federation ports. A completed handshake still activates
+// nothing — packets are only accepted on a channel a governance-registered
+// ACTIVE peer is bound to (see keeper.inboundPeer).
+func validateFederationChannel(order channeltypes.Order, portID string, counterparty channeltypes.Counterparty) error {
+	if order != channeltypes.UNORDERED {
+		return errorsmod.Wrapf(channeltypes.ErrInvalidChannelOrdering, "expected %s channel, got %s", channeltypes.UNORDERED, order)
+	}
+	if portID != types.PortID {
+		return errorsmod.Wrapf(types.ErrInvalidRequest, "invalid port %q, expected %q", portID, types.PortID)
+	}
+	if counterparty.PortId != types.PortID {
+		return errorsmod.Wrapf(types.ErrInvalidRequest, "invalid counterparty port %q, expected %q", counterparty.PortId, types.PortID)
+	}
+	return nil
 }
 
 // OnChanOpenAck implements the IBCModule interface
@@ -117,15 +140,20 @@ func (im IBCModule) OnRecvPacket(
 		return channeltypes.NewErrorAcknowledgement(errorsmod.Wrapf(sdkerrors.ErrUnknownRequest, "cannot unmarshal packet data: %s", err.Error()))
 	}
 
+	// The peer is identified by the DESTINATION end: this chain's channel,
+	// which is what Peer.ibc_channel_id records. The source channel is the
+	// sender's own id and proves nothing about who the sender is.
+	destPort, destChannel := modulePacket.GetDestPort(), modulePacket.GetDestChannel()
+
 	switch packet := modulePacketData.Packet.(type) {
 	case *types.FederationPacketData_Content:
-		if err := im.keeper.OnRecvContentPacket(ctx, modulePacket.GetSourcePort(), modulePacket.GetSourceChannel(), packet.Content); err != nil {
+		if err := im.keeper.OnRecvContentPacket(ctx, destPort, destChannel, packet.Content); err != nil {
 			return channeltypes.NewErrorAcknowledgement(err)
 		}
 		return channeltypes.NewResultAcknowledgement([]byte{0x01})
 
 	case *types.FederationPacketData_ReputationQuery:
-		resp, err := im.keeper.OnRecvReputationQueryPacket(ctx, modulePacket.GetSourceChannel(), packet.ReputationQuery)
+		resp, err := im.keeper.OnRecvReputationQueryPacket(ctx, destPort, destChannel, packet.ReputationQuery)
 		if err != nil {
 			return channeltypes.NewErrorAcknowledgement(err)
 		}
@@ -136,7 +164,7 @@ func (im IBCModule) OnRecvPacket(
 		return channeltypes.NewResultAcknowledgement(respBytes)
 
 	case *types.FederationPacketData_IdentityVerification:
-		ack, err := im.keeper.OnRecvIdentityVerificationPacket(ctx, modulePacket.GetSourceChannel(), packet.IdentityVerification)
+		ack, err := im.keeper.OnRecvIdentityVerificationPacket(ctx, destPort, destChannel, packet.IdentityVerification)
 		if err != nil {
 			return channeltypes.NewErrorAcknowledgement(err)
 		}
@@ -144,7 +172,7 @@ func (im IBCModule) OnRecvPacket(
 		return channeltypes.NewResultAcknowledgement(ackBytes)
 
 	case *types.FederationPacketData_IdentityConfirmation:
-		if err := im.keeper.OnRecvIdentityConfirmPacket(ctx, modulePacket.GetSourceChannel(), packet.IdentityConfirmation); err != nil {
+		if err := im.keeper.OnRecvIdentityConfirmPacket(ctx, destPort, destChannel, packet.IdentityConfirmation); err != nil {
 			return channeltypes.NewErrorAcknowledgement(err)
 		}
 		return channeltypes.NewResultAcknowledgement([]byte{0x01})
@@ -155,7 +183,13 @@ func (im IBCModule) OnRecvPacket(
 	}
 }
 
-// OnAcknowledgementPacket implements the IBCModule interface
+// OnAcknowledgementPacket implements the IBCModule interface.
+//
+// The packet was sent by this chain, so its SOURCE channel is this chain's
+// end and identifies the peer. Malformed acknowledgements are dropped with
+// an event rather than returned as errors: an error here fails
+// MsgAcknowledgement, and the packet commitment of a packet the peer already
+// received could then never be cleared (it cannot time out either).
 func (im IBCModule) OnAcknowledgementPacket(
 	ctx sdk.Context,
 	channelVersion string,
@@ -163,15 +197,19 @@ func (im IBCModule) OnAcknowledgementPacket(
 	acknowledgement []byte,
 	relayer sdk.AccAddress,
 ) error {
+	sourceChannel := modulePacket.GetSourceChannel()
+
 	var modulePacketData types.FederationPacketData
 	if err := modulePacketData.Unmarshal(modulePacket.GetData()); err != nil {
-		return errorsmod.Wrapf(sdkerrors.ErrUnknownRequest, "cannot unmarshal packet data: %s", err.Error())
+		emitAckDropped(ctx, "unknown", sourceChannel, "undecodable packet data")
+		return nil
 	}
 
 	// Parse acknowledgement
 	var ack channeltypes.Acknowledgement
 	if err := im.cdc.UnmarshalJSON(acknowledgement, &ack); err != nil {
-		return errorsmod.Wrapf(sdkerrors.ErrUnknownRequest, "cannot unmarshal acknowledgement: %s", err.Error())
+		emitAckDropped(ctx, "unknown", sourceChannel, "undecodable acknowledgement")
+		return nil
 	}
 
 	switch packet := modulePacketData.Packet.(type) {
@@ -183,7 +221,7 @@ func (im IBCModule) OnAcknowledgementPacket(
 				sdk.NewAttribute("error", "acknowledgement was an error")))
 			return nil
 		}
-		return im.keeper.OnAckReputationQuery(ctx, modulePacket.SourceChannel, packet.ReputationQuery, resp)
+		return im.keeper.OnAckReputationQuery(ctx, sourceChannel, packet.ReputationQuery, resp)
 
 	case *types.FederationPacketData_Content:
 		// Content ack is a simple success/error — emit event on error
@@ -194,12 +232,15 @@ func (im IBCModule) OnAcknowledgementPacket(
 		return nil
 
 	case *types.FederationPacketData_IdentityVerification:
-		// Phase 1 ack carries IdentityVerificationAck
+		// Phase 1 ack carries IdentityVerificationAck; exists = false
+		// revokes the link (spec §8.3).
 		if ack.GetError() != "" {
 			ctx.EventManager().EmitEvent(sdk.NewEvent(types.EventTypeIdentityVerificationFailed,
 				sdk.NewAttribute(types.AttributeKeyLocalAddress, packet.IdentityVerification.ClaimantAddress),
 				sdk.NewAttribute("error", ack.GetError())))
+			return nil
 		}
+		im.keeper.OnAckIdentityVerification(ctx, sourceChannel, packet.IdentityVerification, ack.GetResult())
 		return nil
 
 	case *types.FederationPacketData_IdentityConfirmation:
@@ -207,9 +248,18 @@ func (im IBCModule) OnAcknowledgementPacket(
 		return nil
 
 	default:
-		errMsg := fmt.Sprintf("unrecognized %s packet type: %T", types.ModuleName, packet)
-		return errorsmod.Wrap(sdkerrors.ErrUnknownRequest, errMsg)
+		emitAckDropped(ctx, fmt.Sprintf("%T", packet), sourceChannel, "unrecognized packet type")
+		return nil
 	}
+}
+
+// emitAckDropped records an acknowledgement that could not be applied.
+func emitAckDropped(ctx sdk.Context, packetKind, sourceChannel, reason string) {
+	ctx.EventManager().EmitEvent(sdk.NewEvent(types.EventTypeAckDropped,
+		sdk.NewAttribute("packet", packetKind),
+		sdk.NewAttribute("source_channel", sourceChannel),
+		sdk.NewAttribute(types.AttributeKeyReason, reason),
+	))
 }
 
 // OnTimeoutPacket implements the IBCModule interface
@@ -238,9 +288,9 @@ func (im IBCModule) OnTimeoutPacket(
 		return nil
 
 	case *types.FederationPacketData_IdentityVerification:
-		ctx.EventManager().EmitEvent(sdk.NewEvent(types.EventTypeIdentityVerificationTimeout,
-			sdk.NewAttribute(types.AttributeKeyLocalAddress, packet.IdentityVerification.ClaimantAddress),
-			sdk.NewAttribute(types.AttributeKeyRemoteIdentity, packet.IdentityVerification.ClaimedAddress)))
+		// Emits identity_verification_timeout and re-sends the challenge
+		// while the link has attempts left (spec §8.4).
+		im.keeper.OnTimeoutIdentityVerification(ctx, modulePacket.GetSourceChannel(), packet.IdentityVerification)
 		return nil
 
 	case *types.FederationPacketData_IdentityConfirmation:

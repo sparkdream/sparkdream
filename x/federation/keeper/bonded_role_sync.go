@@ -3,6 +3,7 @@ package keeper
 import (
 	"context"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/federation/types"
 	reptypes "sparkdream/x/rep/types"
 )
@@ -48,7 +49,7 @@ func (k Keeper) SyncVerifierBondedRoleConfig(ctx context.Context, p types.Params
 	// "TRUST_LEVEL_ESTABLISHED"). Empty when the param is unset.
 	trustLevel := ""
 	if p.MinVerifierTrustLevel > 0 {
-		if name, ok := reptypes.TrustLevel_name[int32(p.MinVerifierTrustLevel)]; ok {
+		if name, ok := reptypes.TrustLevel_name[commontypes.Saturate[int32](p.MinVerifierTrustLevel)]; ok {
 			trustLevel = name
 		}
 	}

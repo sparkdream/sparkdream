@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -261,7 +262,7 @@ func TestDecodeAndExtract(t *testing.T) {
 	if err != nil || string(text) != html {
 		t.Fatalf("gzip decode: %v %q", err, text)
 	}
-	if _, err := DecodeBody("CONTENT_TYPE_GZIP", body, 10); err != ErrTooLarge {
+	if _, err := DecodeBody("CONTENT_TYPE_GZIP", body, 10); !errors.Is(err, ErrTooLarge) {
 		t.Fatalf("decompression cap not enforced: %v", err)
 	}
 
@@ -295,7 +296,7 @@ func TestDetectorJudge(t *testing.T) {
 	if v, _, err := judge(Detector{}, text); err != nil || v != VerdictClean {
 		t.Fatal("text-only should be clean without a classifier")
 	}
-	if _, _, err := judge(Detector{}, img); err != ErrNoClassifier {
+	if _, _, err := judge(Detector{}, img); !errors.Is(err, ErrNoClassifier) {
 		t.Fatal("media without a classifier must stay unchecked")
 	}
 	canary := NewHashList(map[string]string{SHA256Hex(img.Data): CategoryTest})
@@ -355,7 +356,7 @@ func TestFetchGuard(t *testing.T) {
 	}
 	tiny := local
 	tiny.MaxBytes = 10
-	if _, err := Fetch(ctx, NewFetchClient(tiny), srv.URL, tiny); err != ErrTooLarge {
+	if _, err := Fetch(ctx, NewFetchClient(tiny), srv.URL, tiny); !errors.Is(err, ErrTooLarge) {
 		t.Fatalf("size cap: %v", err)
 	}
 }
@@ -393,5 +394,93 @@ func TestLoadHashListPlain(t *testing.T) {
 	}
 	if c, _ := l.Lookup(hashOf("c2")); c != CategorySpam {
 		t.Fatal("explicit category")
+	}
+}
+
+// CSC-02: encodings a browser decodes are decoded before extraction, and a
+// body whose data URIs can't all be decoded is an error, never an empty blob
+// list a detector would call clean.
+func TestExtractDataURIsStrict(t *testing.T) {
+	png := []byte("\x89PNG\r\n\x1a\nzenith")
+	b64 := base64.StdEncoding.EncodeToString(png)
+	wrapped := b64[:8] + "\n" + b64[8:]
+
+	decodes := map[string]string{
+		"entity comma":     `<img src="data:image/png;base64&#44;` + b64 + `">`,
+		"entity colon":     `<img src="data&#58;image/png;base64,` + b64 + `">`,
+		"wrapped base64":   `<img src="data:image/png;base64,` + wrapped + `">`,
+		"newline in type":  "<img src=\"data:image/png;base64\n," + b64 + "\">",
+		"tab in scheme":    "<img src=\"da\tta:image/png;base64," + b64 + "\">",
+		"long parameter":   `<img src="data:image/png;x=` + strings.Repeat("y", 300) + `;base64,` + b64 + `">`,
+		"spaced parameter": `<img src="data:image/png ; base64,` + b64 + `">`,
+	}
+	for name, body := range decodes {
+		t.Run(name, func(t *testing.T) {
+			blobs, err := ExtractDataURIsStrict([]byte(body), 1<<20)
+			if err != nil {
+				t.Fatalf("strict extraction failed: %v", err)
+			}
+			if len(blobs) != 1 || !bytes.Equal(blobs[0].Data, png) {
+				t.Fatalf("blobs: %+v", blobs)
+			}
+		})
+	}
+
+	incomplete := map[string]string{
+		"undecodable base64":  `<img src="data:image/png;base64,@@@@">`,
+		"marker without data": `<img src="data:image/png;base64">`,
+	}
+	for name, body := range incomplete {
+		t.Run(name, func(t *testing.T) {
+			if _, err := ExtractDataURIsStrict([]byte(body), 1<<20); !errors.Is(err, ErrIncompleteExtraction) {
+				t.Fatalf("want ErrIncompleteExtraction, got %v", err)
+			}
+		})
+	}
+
+	if blobs, err := ExtractDataURIsStrict([]byte("Data: 5 records, all valid"), 1<<20); err != nil || len(blobs) != 0 {
+		t.Fatalf("prose: %v %v", blobs, err)
+	}
+}
+
+// CSC-05: pinned signing bytes for the cases a non-Go port gets wrong (an
+// expiry, a URI, floats with exponents and many digits, non-ASCII and HTML
+// characters), and the canonical-time rule that keeps time formatting
+// reproducible.
+func TestSigningBytesVectors(t *testing.T) {
+	a := Attestation{
+		V: AttestationVersion, Worker: "sprkdrm1zenith",
+		Subject: Subject{URI: "https://aurora.example/a.png?x=1&y=<2>", SHA256: hashOf("y")},
+		Verdict: VerdictHeld, Category: CategorySpam,
+		Ruleset: Ruleset{Version: "2026.10.1", Models: map[string]string{"nsfw": "phoenix-v2 é"},
+			Thresholds: map[string]float64{"spam": 0.123456789, "tiny": 1e-7, "big": 1e21}},
+		ScannedHeight: 9007199254740993,
+		IssuedAt:      time.Date(2026, 10, 26, 13, 4, 5, 0, time.UTC),
+		ExpiresAt:     time.Date(2026, 10, 27, 13, 4, 5, 0, time.FixedZone("", 0)),
+	}
+	got, err := a.SigningBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `{"category":"spam","expires_at":"2026-10-27T13:04:05Z","issued_at":"2026-10-26T13:04:05Z","ruleset":{"models":{"nsfw":"phoenix-v2 é"},"thresholds":{"big":1e+21,"spam":0.123456789,"tiny":1e-7},"version":"2026.10.1"},"scanned_height":9007199254740993,"subject":{"sha256":"` + hashOf("y") + `","uri":"https://aurora.example/a.png?x=1&y=<2>"},"v":1,"verdict":"held","worker":"sprkdrm1zenith"}`
+	if string(got) != want {
+		t.Fatalf("signing bytes\n got %s\nwant %s", got, want)
+	}
+	if err := a.Validate(); err != nil {
+		t.Fatal(err)
+	}
+
+	frac := a
+	frac.IssuedAt = a.IssuedAt.Add(500 * time.Millisecond)
+	if frac.Validate() == nil {
+		t.Fatal("fractional issued_at accepted")
+	}
+	offset := a
+	offset.IssuedAt = a.IssuedAt.In(time.FixedZone("EST", -5*3600))
+	if offset.Validate() == nil {
+		t.Fatal("non-UTC issued_at accepted")
+	}
+	if _, err := Sign(offset, testKey(3)); err == nil {
+		t.Fatal("signed a non-canonical time")
 	}
 }

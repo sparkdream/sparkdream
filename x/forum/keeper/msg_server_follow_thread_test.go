@@ -78,7 +78,7 @@ func TestFollowThread(t *testing.T) {
 					Follower:   testCreator2,
 					FollowedAt: f.sdkCtx().BlockTime().Unix(),
 				}
-				_ = f.keeper.ThreadFollow.Set(f.ctx, followKey, follow)
+				require.NoError(t, f.keeper.ThreadFollow.Set(f.ctx, followKey, follow))
 			},
 			expectError: true,
 			errContains: "already following",
@@ -89,12 +89,12 @@ func TestFollowThread(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// Clean up follows
 			followKey := fmt.Sprintf("%s:%d", testCreator2, thread.PostId)
-			_ = f.keeper.ThreadFollow.Remove(f.ctx, followKey)
+			require.NoError(t, f.keeper.ThreadFollow.Remove(f.ctx, followKey))
 
 			// Reset the thread to be a root post
 			p, _ := f.keeper.Post.Get(f.ctx, thread.PostId)
 			p.ParentId = 0
-			_ = f.keeper.Post.Set(f.ctx, thread.PostId, p)
+			require.NoError(t, f.keeper.Post.Set(f.ctx, thread.PostId, p))
 
 			// Handle "not a root post" test differently
 			if tt.name == "not a root post" {

@@ -89,7 +89,7 @@ func usage() {
 // cmdKeygen generates TLE key material.
 func cmdKeygen(args []string) {
 	var validatorAddr string
-	var epochs int
+	var epochs uint64
 	var outputFile string
 
 	for i := 0; i < len(args); i++ {
@@ -97,7 +97,11 @@ func cmdKeygen(args []string) {
 		case matchFlag(args, i, "--validator-addr"):
 			validatorAddr = flagVal(args, &i)
 		case matchFlag(args, i, "--epochs"):
-			fmt.Sscanf(flagVal(args, &i), "%d", &epochs)
+			if _, err := fmt.Sscanf(flagVal(args, &i), "%d", &epochs); err != nil {
+
+				fatal("invalid number for epochs: %v", err)
+
+			}
 		case matchFlag(args, i, "--output"):
 			outputFile = flagVal(args, &i)
 		default:
@@ -108,7 +112,7 @@ func cmdKeygen(args []string) {
 	if validatorAddr == "" {
 		fatal("--validator-addr is required")
 	}
-	if epochs <= 0 {
+	if epochs == 0 {
 		epochs = 10
 	}
 	if outputFile == "" {
@@ -127,9 +131,9 @@ func cmdKeygen(args []string) {
 	// validator's share is the master secret and its public shares are the
 	// master public keys.
 	decKeys := make(map[string]DecKeyInfo, epochs)
-	for epoch := 0; epoch < epochs; epoch++ {
+	for epoch := uint64(0); epoch < epochs; epoch++ {
 		decKeys[fmt.Sprintf("%d", epoch)] = DecKeyInfo{
-			DecryptionKeyB64: base64.StdEncoding.EncodeToString(tle.EpochDecryptionKey(masterSecret, uint64(epoch))),
+			DecryptionKeyB64: base64.StdEncoding.EncodeToString(tle.EpochDecryptionKey(masterSecret, epoch)),
 		}
 	}
 
@@ -198,14 +202,18 @@ func (k *keySource) masterPublicKeyG2() []byte {
 // cmdEncrypt encrypts raw bytes for a given epoch.
 func cmdEncrypt(args []string) {
 	var ks keySource
-	var epoch int
+	var epoch uint64
 	var inputHex string
 
 	for i := 0; i < len(args); i++ {
 		switch {
 		case ks.match(args, &i):
 		case matchFlag(args, i, "--epoch"):
-			fmt.Sscanf(flagVal(args, &i), "%d", &epoch)
+			if _, err := fmt.Sscanf(flagVal(args, &i), "%d", &epoch); err != nil {
+
+				fatal("invalid number for epoch: %v", err)
+
+			}
 		case matchFlag(args, i, "--input-hex"):
 			inputHex = flagVal(args, &i)
 		default:
@@ -219,7 +227,7 @@ func cmdEncrypt(args []string) {
 	if err != nil {
 		fatal("decode input hex: %v", err)
 	}
-	ct, err := tle.Encrypt(ks.masterPublicKeyG2(), uint64(epoch), plaintext)
+	ct, err := tle.Encrypt(ks.masterPublicKeyG2(), epoch, plaintext)
 	if err != nil {
 		fatal("encrypt: %v", err)
 	}
@@ -237,7 +245,7 @@ func cmdEncrypt(args []string) {
 // printed to stderr.
 func cmdPayload(args []string) {
 	var ks keySource
-	var epoch int
+	var epoch uint64
 	var shieldAddr string
 	var title, body, proofB64, nullifierHex string
 
@@ -245,7 +253,11 @@ func cmdPayload(args []string) {
 		switch {
 		case ks.match(args, &i):
 		case matchFlag(args, i, "--epoch"):
-			fmt.Sscanf(flagVal(args, &i), "%d", &epoch)
+			if _, err := fmt.Sscanf(flagVal(args, &i), "%d", &epoch); err != nil {
+
+				fatal("invalid number for epoch: %v", err)
+
+			}
 		case matchFlag(args, i, "--shield-addr"):
 			shieldAddr = flagVal(args, &i)
 		case matchFlag(args, i, "--title"):
@@ -299,7 +311,7 @@ func cmdPayload(args []string) {
 	if err != nil {
 		fatal("encode fragment: %v", err)
 	}
-	ct, err := tle.Encrypt(ks.masterPublicKeyG2(), uint64(epoch), fragment)
+	ct, err := tle.Encrypt(ks.masterPublicKeyG2(), epoch, fragment)
 	if err != nil {
 		fatal("encrypt: %v", err)
 	}
@@ -313,7 +325,7 @@ func cmdPayload(args []string) {
 // or --dec-key-b64) and prints the plaintext as hex.
 func cmdDecrypt(args []string) {
 	var keyFile, decKeyB64, payloadB64 string
-	var epoch int
+	var epoch uint64
 	for i := 0; i < len(args); i++ {
 		switch {
 		case matchFlag(args, i, "--key-file"):
@@ -321,7 +333,11 @@ func cmdDecrypt(args []string) {
 		case matchFlag(args, i, "--dec-key-b64"):
 			decKeyB64 = flagVal(args, &i)
 		case matchFlag(args, i, "--epoch"):
-			fmt.Sscanf(flagVal(args, &i), "%d", &epoch)
+			if _, err := fmt.Sscanf(flagVal(args, &i), "%d", &epoch); err != nil {
+
+				fatal("invalid number for epoch: %v", err)
+
+			}
 		case matchFlag(args, i, "--payload-b64"):
 			payloadB64 = flagVal(args, &i)
 		default:
@@ -349,7 +365,7 @@ func cmdDecrypt(args []string) {
 	if err != nil {
 		fatal("decode payload: %v", err)
 	}
-	pt, err := tle.Decrypt(decKey, uint64(epoch), payload)
+	pt, err := tle.Decrypt(decKey, epoch, payload)
 	if err != nil {
 		fatal("decrypt: %v", err)
 	}

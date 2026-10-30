@@ -17,10 +17,14 @@ func (q queryServer) ServiceTypes(ctx context.Context, req *types.QueryServiceTy
 		return nil, status.Error(codes.InvalidArgument, "invalid request")
 	}
 
+	pg, err := q.k.checkPagination(ctx, req.Pagination)
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
 	configs, pageRes, err := query.CollectionFilteredPaginate(
 		ctx,
 		q.k.ServiceTypes,
-		req.Pagination,
+		pg,
 		func(_ string, cfg types.ServiceTypeConfig) (bool, error) {
 			if req.EnabledOnly && !cfg.Enabled {
 				return false, nil

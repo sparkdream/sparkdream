@@ -166,7 +166,7 @@ func TestMsgServerCreateTitle(t *testing.T) {
 			TitleId: "existing",
 			Name:    "Existing",
 		}
-		k.Title.Set(ctx, "existing", existing)
+		require.NoError(t, k.Title.Set(ctx, "existing", existing))
 
 		_, err := ms.CreateTitle(ctx, &types.MsgCreateTitle{
 			Authority: authority,

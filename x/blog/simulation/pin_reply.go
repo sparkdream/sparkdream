@@ -1,57 +1,36 @@
 package simulation
 
 import (
-	"math/rand"
-
-	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
 
 	"sparkdream/x/blog/keeper"
 	"sparkdream/x/blog/types"
 )
 
-// SimulateMsgPinReply simulates a MsgPinReply message using direct keeper calls.
+// SimulateMsgPinReply delivers MsgPinReply on a random active, permanent,
+// unpinned reply from a live member at pin_min_trust_level. With no such
+// reply, a member (whose replies are permanent) replies first.
 func SimulateMsgPinReply(
 	ak types.AuthKeeper,
 	bk types.BankKeeper,
 	k keeper.Keeper,
 	txGen client.TxConfig,
 ) simtypes.Operation {
-	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
-	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		simAccount, _ := simtypes.RandomAcc(r, accs)
-		msgType := sdk.MsgTypeURL(&types.MsgPinReply{})
-
-		// Find or create a post, then an ephemeral reply on it
-		postID, err := getOrCreateAnyActivePost(r, ctx, k, simAccount.Address.String())
+	return operation(ak, bk, k, txGen, &types.MsgPinReply{}, func(e *simEnv) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
+		label := &types.MsgPinReply{}
+		pinner, ok := e.pinner()
+		if !ok {
+			return noOp(label, "no live member at pin_min_trust_level")
+		}
+		pinnable := func(rp types.Reply) bool { return activeReply(rp) && rp.ExpiresAt == 0 && rp.PinnedBy == "" }
+		rp, ok, err := e.replyOrCreate(pinnable, e.member)
 		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, msgType, "failed to get-or-create active post"), nil, nil
+			return noOpErr(label, err)
 		}
-
-		replyID, err := getOrCreateEphemeralReply(r, ctx, k, postID, simAccount.Address.String())
-		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, msgType, "failed to get-or-create ephemeral reply"), nil, nil
+		if !ok {
+			return noOp(label, "no permanent unpinned reply and none could be created")
 		}
-
-		reply, found := k.GetReply(ctx, replyID)
-		if !found {
-			return simtypes.NoOpMsg(types.ModuleName, msgType, "reply not found"), nil, nil
-		}
-
-		// Promote ephemeral → permanent, then set pin marker (two state
-		// transitions, exercised via direct keeper calls).
-		if reply.ExpiresAt > 0 {
-			k.RemoveFromExpiryIndex(ctx, reply.ExpiresAt, "reply", reply.Id)
-			k.RemoveEphemeralAuthorIndex(ctx, reply.Creator, keeper.EphemeralKindReply, reply.Id)
-		}
-
-		reply.ExpiresAt = 0
-		reply.PinnedBy = simAccount.Address.String()
-		reply.PinnedAt = ctx.BlockTime().Unix()
-		k.SetReply(ctx, reply)
-
-		return simtypes.NoOpMsg(types.ModuleName, msgType, "ok (direct keeper call)"), nil, nil
-	}
+		return e.submit(pinner, &types.MsgPinReply{Creator: pinner.Address.String(), Id: rp.Id}, zero())
+	})
 }

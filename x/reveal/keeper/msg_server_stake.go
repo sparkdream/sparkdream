@@ -7,6 +7,7 @@ import (
 	"cosmossdk.io/collections"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
+	reptypes "sparkdream/x/rep/types"
 	"sparkdream/x/reveal/types"
 )
 
@@ -21,9 +22,12 @@ func (k msgServer) Stake(ctx context.Context, msg *types.MsgStake) (*types.MsgSt
 		return nil, err
 	}
 
-	// Verify staker is an active member
-	if !k.repKeeper.IsMember(ctx, sdk.AccAddress(stakerAddr)) {
+	// Verify staker is an active member at PROVISIONAL or above (spec)
+	if !k.repKeeper.IsActiveMember(ctx, sdk.AccAddress(stakerAddr)) {
 		return nil, types.ErrNotMember
+	}
+	if level, err := k.repKeeper.GetTrustLevel(ctx, sdk.AccAddress(stakerAddr)); err != nil || level < reptypes.TrustLevel_TRUST_LEVEL_PROVISIONAL {
+		return nil, types.ErrInsufficientTrustLevel.Wrapf("staking requires %s", reptypes.TrustLevel_TRUST_LEVEL_PROVISIONAL)
 	}
 
 	// Get contribution
@@ -53,9 +57,15 @@ func (k msgServer) Stake(ctx context.Context, msg *types.MsgStake) (*types.MsgSt
 		return nil, types.ErrTrancheNotStaking
 	}
 
-	// Check minimum stake amount
-	if msg.Amount.LT(params.MinStakeAmount) {
+	// Check minimum stake amount. A stake smaller than the minimum is
+	// allowed only when it fills the tranche exactly.
+	remaining := tranche.StakeThreshold.Sub(tranche.DreamStaked)
+	if msg.Amount.LT(params.MinStakeAmount) && !msg.Amount.Equal(remaining) {
 		return nil, types.ErrStakeAmountTooLow.Wrapf("min %s, got %s", params.MinStakeAmount, msg.Amount)
+	}
+	// Never leave a remainder no stake could fill.
+	if rest := remaining.Sub(msg.Amount); rest.IsPositive() && rest.LT(params.MinStakeAmount) {
+		return nil, types.ErrStakeLeavesUnfillableRest.Wrapf("remainder %s, min_stake_amount %s", rest, params.MinStakeAmount)
 	}
 
 	// Check overstaking: total staked + amount must not exceed threshold
@@ -129,7 +139,7 @@ func (k msgServer) Stake(ctx context.Context, msg *types.MsgStake) (*types.MsgSt
 	// REVEAL-3 fix: Single write after all modifications are complete.
 	// Previously there were two k.Contribution.Set() calls with potentially
 	// inconsistent state due to pointer aliasing (tranche is a pointer into contrib.Tranches).
-	if err := k.Contribution.Set(ctx, contrib.Id, contrib); err != nil {
+	if err := k.saveContribution(ctx, &contrib); err != nil {
 		return nil, err
 	}
 

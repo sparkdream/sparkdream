@@ -29,19 +29,23 @@ func EditionInvariant(k Keeper) sdk.Invariant {
 			return tallies[key]
 		}
 		lockedWant := map[BalanceKeyT]uint64{}
-		_ = k.UnitListings.Walk(ctx, nil, func(_ uint64, l types.UnitListing) (bool, error) {
+		if err := k.UnitListings.Walk(ctx, nil, func(_ uint64, l types.UnitListing) (bool, error) {
 			lockedWant[BalanceKeyT{l.ClassId, l.EditionId, l.Seller}] += l.Quantity
 			return false, nil
-		})
-		_ = k.PendingUnits.Walk(ctx, nil, func(_ uint64, pu types.PendingUnits) (bool, error) {
+		}); err != nil {
+			return fmt.Sprintf("UnitListings.Walk failed: %v", err), true
+		}
+		if err := k.PendingUnits.Walk(ctx, nil, func(_ uint64, pu types.PendingUnits) (bool, error) {
 			if pu.Kind == types.InboxKind_INBOX_KIND_UNIT_TRANSFER {
 				lockedWant[BalanceKeyT{pu.ClassId, pu.EditionId, pu.From}] += pu.Amount
 			} else {
 				get(pu.ClassId, pu.EditionId).reserved += pu.Amount
 			}
 			return false, nil
-		})
-		_ = k.Balances.Walk(ctx, nil, func(key BalanceKey, b types.Balance) (bool, error) {
+		}); err != nil {
+			return fmt.Sprintf("PendingUnits.Walk failed: %v", err), true
+		}
+		if err := k.Balances.Walk(ctx, nil, func(key BalanceKey, b types.Balance) (bool, error) {
 			if b.Units() == 0 {
 				problems = append(problems, fmt.Sprintf("empty balance %d/%d %s", b.ClassId, b.EditionId, b.Owner))
 			}
@@ -56,14 +60,16 @@ func EditionInvariant(k Keeper) sdk.Invariant {
 			t.units += b.Units()
 			t.holders++
 			return false, nil
-		})
+		}); err != nil {
+			return fmt.Sprintf("Balances.Walk failed: %v", err), true
+		}
 		for key, v := range lockedWant {
 			if v > 0 {
 				problems = append(problems, fmt.Sprintf("%d units locked for %d/%d %s without a balance", v, key.Class, key.Edition, key.Owner))
 			}
 		}
 		editions := map[uint64]uint64{}
-		_ = k.Editions.Walk(ctx, nil, func(_ U64Pair, e types.Edition) (bool, error) {
+		if err := k.Editions.Walk(ctx, nil, func(_ U64Pair, e types.Edition) (bool, error) {
 			editions[e.ClassId]++
 			t := get(e.ClassId, e.Id)
 			if t.units != e.Supply || t.holders != e.Holders || t.reserved != e.Reserved {
@@ -75,11 +81,13 @@ func EditionInvariant(k Keeper) sdk.Invariant {
 			}
 			delete(tallies, [2]uint64{e.ClassId, e.Id})
 			return false, nil
-		})
+		}); err != nil {
+			return fmt.Sprintf("Editions.Walk failed: %v", err), true
+		}
 		for key := range tallies {
 			problems = append(problems, fmt.Sprintf("balances or pending units for missing edition %d/%d", key[0], key[1]))
 		}
-		_ = k.Classes.Walk(ctx, nil, func(id uint64, c types.Class) (bool, error) {
+		if err := k.Classes.Walk(ctx, nil, func(id uint64, c types.Class) (bool, error) {
 			if c.IsEditions() && editions[id] != c.Supply {
 				problems = append(problems, fmt.Sprintf("editions class %d supply %d != %d editions", id, c.Supply, editions[id]))
 			}
@@ -87,7 +95,9 @@ func EditionInvariant(k Keeper) sdk.Invariant {
 				problems = append(problems, fmt.Sprintf("unique class %d holds editions", id))
 			}
 			return false, nil
-		})
+		}); err != nil {
+			return fmt.Sprintf("Classes.Walk failed: %v", err), true
+		}
 		return report("editions", problems)
 	}
 }
@@ -106,12 +116,14 @@ func TreeInvariant(k Keeper) sdk.Invariant {
 	return func(ctx sdk.Context) (string, bool) {
 		var problems []string
 		tokens := map[[2]uint64]types.Token{}
-		_ = k.Tokens.Walk(ctx, nil, func(_ U64Pair, t types.Token) (bool, error) {
+		if err := k.Tokens.Walk(ctx, nil, func(_ U64Pair, t types.Token) (bool, error) {
 			tokens[[2]uint64{t.ClassId, t.Id}] = t
 			return false, nil
-		})
+		}); err != nil {
+			return fmt.Sprintf("Tokens.Walk failed: %v", err), true
+		}
 		children := map[[2]uint64][][2]uint64{}
-		_ = k.Children.Walk(ctx, nil, func(key ChildKey) (bool, error) {
+		if err := k.Children.Walk(ctx, nil, func(key ChildKey) (bool, error) {
 			p := [2]uint64{key.K1().K1(), key.K1().K2()}
 			c := [2]uint64{key.K2().K1(), key.K2().K2()}
 			children[p] = append(children[p], c)
@@ -120,7 +132,9 @@ func TreeInvariant(k Keeper) sdk.Invariant {
 				problems = append(problems, fmt.Sprintf("stale child link %d/%d -> %d/%d", p[0], p[1], c[0], c[1]))
 			}
 			return false, nil
-		})
+		}); err != nil {
+			return fmt.Sprintf("Children.Walk failed: %v", err), true
+		}
 		var count func(key [2]uint64, depth int) uint32
 		count = func(key [2]uint64, depth int) uint32 {
 			if depth > int(types.HardMaxNestDepth)+1 {
@@ -157,19 +171,23 @@ func TreeInvariant(k Keeper) sdk.Invariant {
 				problems = append(problems, fmt.Sprintf("rental %d/%d owner != token owner", key[0], key[1]))
 			}
 		}
-		_ = k.RentalOffers.Walk(ctx, nil, func(key U64Pair, _ types.RentalOffer) (bool, error) {
+		if err := k.RentalOffers.Walk(ctx, nil, func(key U64Pair, _ types.RentalOffer) (bool, error) {
 			if _, ok := tokens[[2]uint64{key.K1(), key.K2()}]; !ok {
 				problems = append(problems, fmt.Sprintf("rental offer %d/%d without token", key.K1(), key.K2()))
 			}
 			return false, nil
-		})
-		_ = k.RentalsByUser.Walk(ctx, nil, func(key AddrTokenKey) (bool, error) {
+		}); err != nil {
+			return fmt.Sprintf("RentalOffers.Walk failed: %v", err), true
+		}
+		if err := k.RentalsByUser.Walk(ctx, nil, func(key AddrTokenKey) (bool, error) {
 			r, err := k.Rentals.Get(ctx, collections.Join(key.K2(), key.K3()))
 			if err != nil || r.User != key.K1() {
 				problems = append(problems, fmt.Sprintf("stale rental index %s %d/%d", key.K1(), key.K2(), key.K3()))
 			}
 			return false, nil
-		})
+		}); err != nil {
+			return fmt.Sprintf("RentalsByUser.Walk failed: %v", err), true
+		}
 		return report("trees-and-rentals", problems)
 	}
 }
@@ -181,14 +199,16 @@ func HarbergerInvariant(k Keeper) sdk.Invariant {
 	return func(ctx sdk.Context) (string, bool) {
 		var problems []string
 		classes := map[uint64]types.Class{}
-		_ = k.Classes.Walk(ctx, nil, func(id uint64, c types.Class) (bool, error) {
+		if err := k.Classes.Walk(ctx, nil, func(id uint64, c types.Class) (bool, error) {
 			classes[id] = c
 			if err := c.Harberger.Validate(); err != nil {
 				problems = append(problems, fmt.Sprintf("class %d: %v", id, err))
 			}
 			return false, nil
-		})
-		_ = k.Tokens.Walk(ctx, nil, func(_ U64Pair, t types.Token) (bool, error) {
+		}); err != nil {
+			return fmt.Sprintf("Classes.Walk failed: %v", err), true
+		}
+		if err := k.Tokens.Walk(ctx, nil, func(_ U64Pair, t types.Token) (bool, error) {
 			c := classes[t.ClassId]
 			if c.IsHarberger() != (t.Harberger != nil) {
 				problems = append(problems, fmt.Sprintf("token %d/%d harberger state mismatch", t.ClassId, t.Id))
@@ -207,14 +227,18 @@ func HarbergerInvariant(k Keeper) sdk.Invariant {
 				}
 			}
 			return false, nil
-		})
-		_ = k.HarbergerDue.Walk(ctx, nil, func(key TimeTokenKey) (bool, error) {
+		}); err != nil {
+			return fmt.Sprintf("Tokens.Walk failed: %v", err), true
+		}
+		if err := k.HarbergerDue.Walk(ctx, nil, func(key TimeTokenKey) (bool, error) {
 			t, err := k.Tokens.Get(ctx, collections.Join(key.K2(), key.K3()))
 			if err != nil || t.Harberger == nil || t.Harberger.NextDue != key.K1() {
 				problems = append(problems, fmt.Sprintf("stale harberger due entry %d %d/%d", key.K1(), key.K2(), key.K3()))
 			}
 			return false, nil
-		})
+		}); err != nil {
+			return fmt.Sprintf("HarbergerDue.Walk failed: %v", err), true
+		}
 		return report("harberger", problems)
 	}
 }
@@ -224,31 +248,41 @@ func HarbergerInvariant(k Keeper) sdk.Invariant {
 func (k Keeper) editionEscrow(ctx sdk.Context) math.Int {
 	need := math.ZeroInt()
 	rpu := map[[2]uint64]math.Int{}
-	_ = k.Editions.Walk(ctx, nil, func(_ U64Pair, e types.Edition) (bool, error) {
+	if err := k.Editions.Walk(ctx, nil, func(_ U64Pair, e types.Edition) (bool, error) {
 		rpu[[2]uint64{e.ClassId, e.Id}] = e.RewardPerUnit
 		return false, nil
-	})
-	_ = k.Balances.Walk(ctx, nil, func(_ BalanceKey, b types.Balance) (bool, error) {
+	}); err != nil {
+		sdk.UnwrapSDKContext(ctx).Logger().Error("editionEscrow: Editions.Walk failed", "err", err)
+	}
+	if err := k.Balances.Walk(ctx, nil, func(_ BalanceKey, b types.Balance) (bool, error) {
 		need = need.Add(b.Deposit)
 		if r, ok := rpu[[2]uint64{b.ClassId, b.EditionId}]; ok {
 			need = need.Add(b.Claimable(r))
 		}
 		return false, nil
-	})
-	_ = k.PendingUnits.Walk(ctx, nil, func(_ uint64, pu types.PendingUnits) (bool, error) {
+	}); err != nil {
+		sdk.UnwrapSDKContext(ctx).Logger().Error("editionEscrow: Balances.Walk failed", "err", err)
+	}
+	if err := k.PendingUnits.Walk(ctx, nil, func(_ uint64, pu types.PendingUnits) (bool, error) {
 		need = need.Add(pu.Deposit)
 		return false, nil
-	})
-	_ = k.Offers.Walk(ctx, nil, func(_ uint64, o types.Offer) (bool, error) {
+	}); err != nil {
+		sdk.UnwrapSDKContext(ctx).Logger().Error("editionEscrow: PendingUnits.Walk failed", "err", err)
+	}
+	if err := k.Offers.Walk(ctx, nil, func(_ uint64, o types.Offer) (bool, error) {
 		need = need.Add(o.Price.Amount)
 		return false, nil
-	})
-	_ = k.Auctions.Walk(ctx, nil, func(_ uint64, a types.Auction) (bool, error) {
+	}); err != nil {
+		sdk.UnwrapSDKContext(ctx).Logger().Error("editionEscrow: Offers.Walk failed", "err", err)
+	}
+	if err := k.Auctions.Walk(ctx, nil, func(_ uint64, a types.Auction) (bool, error) {
 		if a.HighBidder != "" {
 			need = need.Add(a.HighBid)
 		}
 		return false, nil
-	})
+	}); err != nil {
+		sdk.UnwrapSDKContext(ctx).Logger().Error("editionEscrow: Auctions.Walk failed", "err", err)
+	}
 	return need
 }
 
@@ -258,7 +292,7 @@ func (k Keeper) editionEscrow(ctx sdk.Context) math.Int {
 func MarketEscrowInvariant(k Keeper) sdk.Invariant {
 	return func(ctx sdk.Context) (string, bool) {
 		var problems []string
-		_ = k.Tokens.Walk(ctx, nil, func(key U64Pair, t types.Token) (bool, error) {
+		if err := k.Tokens.Walk(ctx, nil, func(key U64Pair, t types.Token) (bool, error) {
 			id, err := k.AuctionByToken.Get(ctx, key)
 			if (t.Lock == types.TokenLock_TOKEN_LOCK_AUCTION) != (err == nil) {
 				problems = append(problems, fmt.Sprintf("token %d/%d lock %s, auction present %t", t.ClassId, t.Id, t.Lock, err == nil))
@@ -270,8 +304,10 @@ func MarketEscrowInvariant(k Keeper) sdk.Invariant {
 				}
 			}
 			return false, nil
-		})
-		_ = k.Auctions.Walk(ctx, nil, func(id uint64, a types.Auction) (bool, error) {
+		}); err != nil {
+			return fmt.Sprintf("Tokens.Walk failed: %v", err), true
+		}
+		if err := k.Auctions.Walk(ctx, nil, func(id uint64, a types.Auction) (bool, error) {
 			if got, err := k.AuctionByToken.Get(ctx, collections.Join(a.ClassId, a.TokenId)); err != nil || got != id {
 				problems = append(problems, fmt.Sprintf("auction %d missing its token index", id))
 			}
@@ -282,8 +318,10 @@ func MarketEscrowInvariant(k Keeper) sdk.Invariant {
 				problems = append(problems, fmt.Sprintf("auction %d high bid below reserve", id))
 			}
 			return false, nil
-		})
-		_ = k.Offers.Walk(ctx, nil, func(id uint64, o types.Offer) (bool, error) {
+		}); err != nil {
+			return fmt.Sprintf("Auctions.Walk failed: %v", err), true
+		}
+		if err := k.Offers.Walk(ctx, nil, func(id uint64, o types.Offer) (bool, error) {
 			if has, _ := k.OffersByBidder.Has(ctx, collections.Join(o.Bidder, id)); !has {
 				problems = append(problems, fmt.Sprintf("offer %d missing its bidder index", id))
 			}
@@ -291,7 +329,9 @@ func MarketEscrowInvariant(k Keeper) sdk.Invariant {
 				problems = append(problems, fmt.Sprintf("offer %d missing its token index", id))
 			}
 			return false, nil
-		})
+		}); err != nil {
+			return fmt.Sprintf("Offers.Walk failed: %v", err), true
+		}
 		return report("market-escrow", problems)
 	}
 }

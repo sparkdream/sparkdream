@@ -49,6 +49,7 @@ import (
 	authtx "github.com/cosmos/cosmos-sdk/x/auth/tx"
 	"github.com/cosmos/go-bip39"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/federation/types"
 	servicetypes "sparkdream/x/service/types"
 	sessiontypes "sparkdream/x/session/types"
@@ -61,9 +62,12 @@ type Config struct {
 	// Bech32Prefix for accounts (sprkdrm). Also set on the global sdk
 	// config so Msg stringly-typed address validation passes.
 	Bech32Prefix string
-	Denom        string // fee denom, bond-denom micro units
-	FeeAmount    int64  // fee in denom micro-units
-	GasLimit     uint64
+	// Denom is the fee denom (bond-denom micro units). Empty reads the
+	// chain's bond denom from x/identity on the first broadcast, so a daemon
+	// pointed at any Spark Dream chain pays fees in that chain's token.
+	Denom     string
+	FeeAmount int64 // fee in denom micro-units
+	GasLimit  uint64
 	// Mnemonic of the signing account (BIP39, 12/24 words). Direct mode.
 	Mnemonic string
 	// SessionKeyFile holds the BIP39 mnemonic of an x/session grantee
@@ -113,6 +117,10 @@ type Client struct {
 	sessionMnemonic string
 	// keyMu guards the key fields, which session mode swaps on rotation
 	keyMu sync.Mutex
+	// denom is the resolved fee denom (cfg.Denom, or the chain's bond
+	// denom once fetched); denomMu guards it
+	denom   string
+	denomMu sync.Mutex
 }
 
 // New derives the key, sets the bech32 prefix, and registers the minimal
@@ -136,6 +144,7 @@ func New(cfg Config) (*Client, error) {
 	cdc := codec.NewProtoCodec(ir)
 	c := &Client{
 		cfg:      cfg,
+		denom:    cfg.Denom,
 		http:     &http.Client{Timeout: 30 * time.Second},
 		txConfig: authtx.NewTxConfig(cdc, authtx.DefaultSignModes),
 	}
@@ -392,7 +401,7 @@ func (c *Client) wrapSession(grantee string, msgs []sdk.Msg) ([]sdk.Msg, uint64,
 	gas := c.cfg.GasLimit + SessionGasOverhead
 	// ceil(fee * gas / base gas): the configured fee is sized to the
 	// configured gas at the node's minimum price
-	fee := (c.cfg.FeeAmount*int64(gas) + int64(c.cfg.GasLimit) - 1) / int64(c.cfg.GasLimit)
+	fee := (c.cfg.FeeAmount*commontypes.Saturate[int64](gas) + commontypes.Saturate[int64](c.cfg.GasLimit) - 1) / commontypes.Saturate[int64](c.cfg.GasLimit)
 	return []sdk.Msg{&sessiontypes.MsgExecSession{
 		Grantee: grantee,
 		Granter: c.cfg.Granter,
@@ -419,6 +428,10 @@ func (c *Client) SignAndBroadcast(ctx context.Context, msgs ...sdk.Msg) (Broadca
 		}
 		msgs, gas, fee = wrapped, g, f
 	}
+	denom, err := c.FeeDenom(ctx)
+	if err != nil {
+		return BroadcastResult{}, err
+	}
 	acctNum, seq, err := c.account(ctx, addr)
 	if err != nil {
 		return BroadcastResult{}, err
@@ -428,7 +441,7 @@ func (c *Client) SignAndBroadcast(ctx context.Context, msgs ...sdk.Msg) (Broadca
 	if err := builder.SetMsgs(msgs...); err != nil {
 		return BroadcastResult{}, fmt.Errorf("sdaptx: set msgs: %w", err)
 	}
-	builder.SetFeeAmount(sdk.NewCoins(sdk.NewCoin(c.cfg.Denom, math.NewInt(fee))))
+	builder.SetFeeAmount(sdk.NewCoins(sdk.NewCoin(denom, math.NewInt(fee))))
 	builder.SetGasLimit(gas)
 
 	// Two-pass signing: first attach an empty signature so the auth info
@@ -537,6 +550,28 @@ func (c *Client) GetJSON(ctx context.Context, path string, out any) error {
 		return fmt.Errorf("sdaptx: get %s: decode: %w", path, err)
 	}
 	return nil
+}
+
+// FeeDenom returns the fee denom: Config.Denom when set, otherwise the
+// chain's bond denom from x/identity, fetched once and cached (a failed
+// fetch is retried on the next call).
+func (c *Client) FeeDenom(ctx context.Context) (string, error) {
+	c.denomMu.Lock()
+	defer c.denomMu.Unlock()
+	if c.denom != "" {
+		return c.denom, nil
+	}
+	var out struct {
+		Denom string `json:"denom"`
+	}
+	if err := c.GetJSON(ctx, "/sparkdream/identity/v1/bond-denom", &out); err != nil {
+		return "", fmt.Errorf("sdaptx: resolve fee denom: %w", err)
+	}
+	if out.Denom == "" {
+		return "", fmt.Errorf("sdaptx: resolve fee denom: chain returned an empty bond denom")
+	}
+	c.denom = out.Denom
+	return c.denom, nil
 }
 
 // account fetches the signer's account number and current sequence.

@@ -69,6 +69,10 @@ func (a *govKeeperAdapter) VotingPeriodProposalsRemove(ctx context.Context, prop
 	return a.keeper.VotingPeriodProposals.Remove(ctx, proposalID)
 }
 
+func (a *govKeeperAdapter) InactiveProposalsQueueRemove(ctx context.Context, proposalID uint64, depositEndTime time.Time) error {
+	return a.keeper.InactiveProposalsQueue.Remove(ctx, collections.Join(depositEndTime, proposalID))
+}
+
 // --- Setup Helper ---
 
 func setupKeeperForCancel(t *testing.T) (keeper.Keeper, sdk.Context, *govkeeper.Keeper, sdk.AccAddress) {
@@ -264,7 +268,7 @@ func TestEmergencyCancelGovProposal(t *testing.T) {
 		// Manually close the proposal
 		prop, _ := govK.Proposals.Get(ctx, propID)
 		prop.Status = govtypesv1.StatusPassed
-		_ = govK.Proposals.Set(ctx, propID, prop)
+		require.NoError(t, govK.Proposals.Set(ctx, propID, prop))
 
 		// Even with permission, you can't cancel a finished proposal
 		_, err := ms.EmergencyCancelGovProposal(ctx, &types.MsgEmergencyCancelGovProposal{

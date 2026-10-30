@@ -22,7 +22,9 @@ func createNPostFlag(keeper keeper.Keeper, ctx context.Context, n int) []types.P
 		items[i].FirstFlagAt = int64(i)
 		items[i].LastFlagAt = int64(i)
 		items[i].InReviewQueue = true
-		_ = keeper.PostFlag.Set(ctx, items[i].PostId, items[i])
+		if err := keeper.PostFlag.Set(ctx, items[i].PostId, items[i]); err != nil {
+			panic(err)
+		}
 	}
 	return items
 }

@@ -65,11 +65,11 @@ func TestQueryListNominations(t *testing.T) {
 			Rewarded:     true,
 		}
 
-		err := f.keeper.Nomination.Set(f.ctx, nom1.Id, nom1)
+		err := f.keeper.SetNomination(f.ctx, nom1)
 		require.NoError(t, err)
-		err = f.keeper.Nomination.Set(f.ctx, nom2.Id, nom2)
+		err = f.keeper.SetNomination(f.ctx, nom2)
 		require.NoError(t, err)
-		err = f.keeper.Nomination.Set(f.ctx, nom3.Id, nom3)
+		err = f.keeper.SetNomination(f.ctx, nom3)
 		require.NoError(t, err)
 
 		resp, err := qs.ListNominations(f.ctx, &types.QueryListNominationsRequest{})

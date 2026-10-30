@@ -26,7 +26,7 @@ func batchPrecheckFixture(t *testing.T) (*fixture, *types.MsgShieldedExec) {
 	require.NoError(t, f.keeper.Params.Set(f.ctx, params))
 	require.NoError(t, f.keeper.SetShieldEpochStateVal(f.ctx, types.ShieldEpochState{CurrentEpoch: 4, EpochStartHeight: 40}))
 	nullifier := make([]byte, 32)
-	nullifier[0] = 0xab
+	nullifier[0] = 0x0b
 	return f, &types.MsgShieldedExec{
 		ExecMode:           types.ShieldExecMode_SHIELD_EXEC_ENCRYPTED_BATCH,
 		ProofDomain:        types.ProofDomain_PROOF_DOMAIN_TRUST_TREE,
@@ -46,20 +46,20 @@ func TestPrecheckBatchReservesSubmissionNullifierInCheckTx(t *testing.T) {
 	t.Run("check tx reserves", func(t *testing.T) {
 		f, msg := batchPrecheckFixture(t)
 		checkCtx := f.ctx.WithIsCheckTx(true)
-		require.NoError(t, f.keeper.PrecheckExec(checkCtx, msg))
+		require.NoError(t, f.keeper.PrecheckExecErr(checkCtx, msg))
 		require.True(t, f.keeper.IsPendingNullifier(checkCtx, hex.EncodeToString(msg.Nullifier)))
-		require.ErrorIs(t, f.keeper.PrecheckExec(checkCtx, msg), types.ErrInvalidSubmissionNullifier)
+		require.ErrorIs(t, f.keeper.PrecheckExecErr(checkCtx, msg), types.ErrInvalidSubmissionNullifier)
 	})
 	t.Run("simulate does not reserve", func(t *testing.T) {
 		f, msg := batchPrecheckFixture(t)
 		simCtx := f.ctx.WithIsCheckTx(true).WithExecMode(sdk.ExecModeSimulate)
-		require.NoError(t, f.keeper.PrecheckExec(simCtx, msg))
+		require.NoError(t, f.keeper.PrecheckExecErr(simCtx, msg))
 		require.False(t, f.keeper.IsPendingNullifier(simCtx, hex.EncodeToString(msg.Nullifier)))
-		require.NoError(t, f.keeper.PrecheckExec(simCtx, msg))
+		require.NoError(t, f.keeper.PrecheckExecErr(simCtx, msg))
 	})
 	t.Run("deliver tx does not reserve", func(t *testing.T) {
 		f, msg := batchPrecheckFixture(t)
-		require.NoError(t, f.keeper.PrecheckExec(f.ctx, msg))
+		require.NoError(t, f.keeper.PrecheckExecErr(f.ctx, msg))
 		require.False(t, f.keeper.IsPendingNullifier(f.ctx, hex.EncodeToString(msg.Nullifier)))
 	})
 }
@@ -81,7 +81,7 @@ func TestPrecheckBatchNullifierLengths(t *testing.T) {
 			f, msg := batchPrecheckFixture(t)
 			tc.mutate(msg)
 			checkCtx := f.ctx.WithIsCheckTx(true)
-			require.ErrorIs(t, f.keeper.PrecheckExec(checkCtx, msg), types.ErrInvalidNullifierLength)
+			require.ErrorIs(t, f.keeper.PrecheckExecErr(checkCtx, msg), types.ErrInvalidNullifierLength)
 			require.Zero(t, f.keeper.GetPendingOpCountVal(checkCtx))
 		})
 	}
@@ -131,6 +131,43 @@ func TestExecuteBatchHonorsMaxOpsPerBatch(t *testing.T) {
 	require.Zero(t, f.keeper.GetPendingOpCountVal(ctx))
 }
 
+// TestMaxOpsPerBatchIsPerEndBlocker: max_ops_per_batch caps the whole
+// EndBlocker, not each epoch. Two ready epochs of two ops each under a cap
+// of three run three ops (the older epoch first) and leave one.
+func TestMaxOpsPerBatchIsPerEndBlocker(t *testing.T) {
+	f := initFixture(t)
+	params, err := f.keeper.Params.Get(f.ctx)
+	require.NoError(t, err)
+	params.EncryptedBatchEnabled = true
+	params.ShieldEpochInterval = 10
+	params.MinBatchSize = 2
+	params.MaxPendingEpochs = 4
+	params.MaxOpsPerBatch = 3
+	require.NoError(t, f.keeper.Params.Set(f.ctx, params))
+	require.NoError(t, f.keeper.SetShieldEpochStateVal(f.ctx, types.ShieldEpochState{CurrentEpoch: 5, EpochStartHeight: 50}))
+	id := uint64(0)
+	for _, epoch := range []uint64{3, 4} {
+		for i := 0; i < 2; i++ {
+			id++
+			require.NoError(t, f.keeper.SetPendingOp(f.ctx, types.PendingShieldedOp{
+				Id: id, TargetEpoch: epoch, SubmittedAtEpoch: epoch,
+				SubmissionNullifier: []byte{byte(id)}, EncryptedPayload: []byte("x"),
+			}))
+		}
+		require.NoError(t, f.keeper.SetShieldEpochDecryptionKey(f.ctx, types.ShieldEpochDecryptionKey{Epoch: epoch, DecryptionKey: []byte("seeded")}))
+	}
+
+	ctx := f.ctx.WithBlockHeight(55)
+	require.NoError(t, f.keeper.EndBlocker(ctx))
+	require.Equal(t, uint64(1), f.keeper.GetPendingOpCountVal(ctx), "the cap is shared across both epochs")
+	require.Empty(t, f.keeper.GetPendingOpsForEpoch(ctx, 3), "the older epoch drains first")
+	require.Len(t, f.keeper.GetPendingOpsForEpoch(ctx, 4), 1)
+
+	ctx = ctx.WithBlockHeight(56)
+	require.NoError(t, f.keeper.EndBlocker(ctx))
+	require.Zero(t, f.keeper.GetPendingOpCountVal(ctx))
+}
+
 // TestProcessEncryptedOpRejections: each rejection branch of a decrypted
 // batch op drops it as "other" failure and runs nothing; the baseline op
 // executes.
@@ -138,7 +175,7 @@ func TestProcessEncryptedOpRejections(t *testing.T) {
 	const epoch = uint64(3)
 	const domain = uint32(11)
 	opNullifier := make([]byte, 32)
-	opNullifier[0] = 0x42
+	opNullifier[0] = 0x02
 
 	cases := []struct {
 		name          string
@@ -148,12 +185,18 @@ func TestProcessEncryptedOpRejections(t *testing.T) {
 		opTrust       uint32
 		preUsed       bool
 		want          int
+		// regDomain is the registration's proof domain (default TRUST_TREE,
+		// the domain every op below was submitted in).
+		regDomain types.ProofDomain
 	}{
-		{"baseline executes", opNullifier, types.ShieldBatchMode_SHIELD_BATCH_MODE_EITHER, 1, 1, false, keeper.BatchResultOK},
-		{"fragment nullifier not 32 bytes", opNullifier[:31], types.ShieldBatchMode_SHIELD_BATCH_MODE_EITHER, 1, 1, false, keeper.BatchResultOtherFail},
-		{"trust level below registration", opNullifier, types.ShieldBatchMode_SHIELD_BATCH_MODE_EITHER, 2, 1, false, keeper.BatchResultOtherFail},
-		{"immediate-only registration", opNullifier, types.ShieldBatchMode_SHIELD_BATCH_MODE_IMMEDIATE_ONLY, 1, 1, false, keeper.BatchResultOtherFail},
-		{"operation nullifier already used", opNullifier, types.ShieldBatchMode_SHIELD_BATCH_MODE_EITHER, 1, 1, true, keeper.BatchResultOtherFail},
+		{"baseline executes", opNullifier, types.ShieldBatchMode_SHIELD_BATCH_MODE_EITHER, 1, 1, false, keeper.BatchResultOK, types.ProofDomain_PROOF_DOMAIN_UNSPECIFIED},
+		{"fragment nullifier not 32 bytes", opNullifier[:31], types.ShieldBatchMode_SHIELD_BATCH_MODE_EITHER, 1, 1, false, keeper.BatchResultOtherFail, types.ProofDomain_PROOF_DOMAIN_UNSPECIFIED},
+		{"trust level below registration", opNullifier, types.ShieldBatchMode_SHIELD_BATCH_MODE_EITHER, 2, 1, false, keeper.BatchResultOtherFail, types.ProofDomain_PROOF_DOMAIN_UNSPECIFIED},
+		{"immediate-only registration", opNullifier, types.ShieldBatchMode_SHIELD_BATCH_MODE_IMMEDIATE_ONLY, 1, 1, false, keeper.BatchResultOtherFail, types.ProofDomain_PROOF_DOMAIN_UNSPECIFIED},
+		{"operation nullifier already used", opNullifier, types.ShieldBatchMode_SHIELD_BATCH_MODE_EITHER, 1, 1, true, keeper.BatchResultOtherFail, types.ProofDomain_PROOF_DOMAIN_UNSPECIFIED},
+		// A trust-tree submission must never run a group-tree operation (a
+		// secret-ballot vote), whatever its batch mode.
+		{"registered for another proof domain", opNullifier, types.ShieldBatchMode_SHIELD_BATCH_MODE_EITHER, 1, 1, false, keeper.BatchResultOtherFail, types.ProofDomain_PROOF_DOMAIN_GROUP_TREE},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -162,9 +205,13 @@ func TestProcessEncryptedOpRejections(t *testing.T) {
 			f.keeper.RegisterShieldAwareModule("/sparkdream.shield.v1.", &ownedModule{})
 
 			inner := innerAny(t, &types.MsgTriggerDkg{Authority: authtypes.NewModuleAddress(types.ModuleName).String()})
+			regDomain := tc.regDomain
+			if regDomain == types.ProofDomain_PROOF_DOMAIN_UNSPECIFIED {
+				regDomain = types.ProofDomain_PROOF_DOMAIN_TRUST_TREE
+			}
 			require.NoError(t, f.keeper.SetShieldedOp(f.ctx, types.ShieldedOpRegistration{
 				MessageTypeUrl:     inner.TypeUrl,
-				ProofDomain:        types.ProofDomain_PROOF_DOMAIN_TRUST_TREE,
+				ProofDomain:        regDomain,
 				MinTrustLevel:      tc.regTrust,
 				NullifierDomain:    domain,
 				NullifierScopeType: types.NullifierScopeType_NULLIFIER_SCOPE_GLOBAL,

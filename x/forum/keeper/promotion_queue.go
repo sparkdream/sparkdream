@@ -28,7 +28,9 @@ func (k Keeper) RemoveEphemeralAuthorIndex(ctx context.Context, author string, p
 	if author == "" {
 		return
 	}
-	_ = k.EphemeralByAuthor.Remove(ctx, collections.Join(author, postID))
+	if err := k.EphemeralByAuthor.Remove(ctx, collections.Join(author, postID)); err != nil {
+		sdk.UnwrapSDKContext(ctx).Logger().Error("RemoveEphemeralAuthorIndex: EphemeralByAuthor.Remove failed", "err", err)
+	}
 }
 
 // EnqueueAuthorForPromotion adds `author` to the promotion queue with the
@@ -46,7 +48,10 @@ func (k Keeper) EnqueueAuthorForPromotion(ctx context.Context, author string) er
 // IsAuthorQueuedForPromotion reports whether `author` is currently in the
 // promotion queue. Exposed for tests.
 func (k Keeper) IsAuthorQueuedForPromotion(ctx context.Context, author string) bool {
-	has, _ := k.PromotionQueue.Has(ctx, author)
+	has, getErr := k.PromotionQueue.Has(ctx, author)
+	if getErr != nil {
+		sdk.UnwrapSDKContext(ctx).Logger().Error("Has failed", "err", getErr)
+	}
 	return has
 }
 
@@ -63,10 +68,12 @@ func (k Keeper) drainPromotionQueue(ctx context.Context, budget int) int {
 
 	// Snapshot queue entries so we can mutate the map safely during iteration.
 	var authors []string
-	_ = k.PromotionQueue.Walk(ctx, nil, func(author string, _ int64) (bool, error) {
+	if err := k.PromotionQueue.Walk(ctx, nil, func(author string, _ int64) (bool, error) {
 		authors = append(authors, author)
 		return false, nil
-	})
+	}); err != nil {
+		sdk.UnwrapSDKContext(ctx).Logger().Error("drainPromotionQueue: PromotionQueue.Walk failed", "err", err)
+	}
 
 	promoted := 0
 	for _, author := range authors {
@@ -75,7 +82,9 @@ func (k Keeper) drainPromotionQueue(ctx context.Context, budget int) int {
 		}
 		done := k.promoteAuthorEphemerals(ctx, sdkCtx, author, blockTime, &promoted, budget)
 		if done {
-			_ = k.PromotionQueue.Remove(ctx, author)
+			if err := k.PromotionQueue.Remove(ctx, author); err != nil {
+				sdk.UnwrapSDKContext(ctx).Logger().Error("drainPromotionQueue: PromotionQueue.Remove failed", "err", err)
+			}
 		}
 	}
 	return promoted
@@ -95,10 +104,12 @@ func (k Keeper) promoteAuthorEphemerals(
 	// Snapshot (author, postID) entries to avoid mid-iteration mutation.
 	var postIDs []uint64
 	rng := collections.NewPrefixedPairRange[string, uint64](author)
-	_ = k.EphemeralByAuthor.Walk(ctx, rng, func(key collections.Pair[string, uint64]) (bool, error) {
+	if err := k.EphemeralByAuthor.Walk(ctx, rng, func(key collections.Pair[string, uint64]) (bool, error) {
 		postIDs = append(postIDs, key.K2())
 		return false, nil
-	})
+	}); err != nil {
+		sdk.UnwrapSDKContext(sdkCtx).Logger().Error("promoteAuthorEphemerals: EphemeralByAuthor.Walk failed", "err", err)
+	}
 
 	for _, id := range postIDs {
 		if *promoted >= budget {
@@ -140,7 +151,9 @@ func (k Keeper) promoteEphemeralPost(
 	if err := k.Post.Set(ctx, id, post); err != nil {
 		return
 	}
-	_ = k.ExpirationQueue.Remove(ctx, collections.Join(oldExpiresAt, id))
+	if err := k.ExpirationQueue.Remove(ctx, collections.Join(oldExpiresAt, id)); err != nil {
+		sdk.UnwrapSDKContext(sdkCtx).Logger().Error("promoteEphemeralPost: ExpirationQueue.Remove failed", "err", err)
+	}
 	k.RemoveEphemeralAuthorIndex(ctx, author, id)
 
 	sdkCtx.EventManager().EmitEvent(sdk.NewEvent(

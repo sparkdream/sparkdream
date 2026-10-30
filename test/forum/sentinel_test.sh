@@ -15,6 +15,7 @@ if [ ! -f "$SCRIPT_DIR/.test_env" ]; then
 fi
 
 source "$SCRIPT_DIR/.test_env"
+source "$SCRIPT_DIR/../lib/ops_committee.sh"
 
 echo "Sentinel 1: $SENTINEL1_ADDR"
 echo "Sentinel 2: $SENTINEL2_ADDR"
@@ -126,22 +127,10 @@ bootstrap_reputation() {
         INTERIM_ID=$(extract_event_value "$TX_RESULT" "interim_created" "interim_id")
 
         # Complete the interim
-        TX_RES=$($BINARY tx rep complete-interim --gas 500000 $INTERIM_ID "Completed for test setup" \
-            --from $ACCOUNT \
-            --chain-id $CHAIN_ID \
-            --keyring-backend test \
-            --fees 5000${BOND_DENOM} \
-            -y \
-            --output json 2>&1)
-        TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
-        if [ -z "$TXHASH" ] || [ "$TXHASH" == "null" ]; then
-            echo "    Failed to complete interim $i"
-            return 1
-        fi
-        sleep 6
-        TX_RESULT=$(wait_for_tx $TXHASH)
-        if ! check_tx_success "$TX_RESULT"; then
-            echo "    Failed to complete interim $i"
+        # Approved by an Operations Committee proposal (a single member is
+        # refused); an assignee can no longer complete and pay its own interim.
+        if ! ops_approve_interim "$INTERIM_ID" "Completed for test setup"; then
+            echo "    Failed to approve interim $INTERIM_ID: $OPS_COMMITTEE_ERROR"
             return 1
         fi
         echo "    Completed interim $i/$COUNT (ID: $INTERIM_ID)"

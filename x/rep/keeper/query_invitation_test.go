@@ -33,8 +33,12 @@ func createNInvitation(keeper keeper.Keeper, ctx context.Context, n int) []types
 		items[i].Status = types.InvitationStatus(i)
 		items[i].CreatedAt = int64(i)
 		items[i].AcceptedAt = int64(i)
-		_ = keeper.Invitation.Set(ctx, iu, items[i])
-		_ = keeper.InvitationSeq.Set(ctx, iu)
+		if err := keeper.Invitation.Set(ctx, iu, items[i]); err != nil {
+			panic(err)
+		}
+		if err := keeper.InvitationSeq.Set(ctx, iu); err != nil {
+			panic(err)
+		}
 	}
 	return items
 }

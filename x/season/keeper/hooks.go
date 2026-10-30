@@ -2,6 +2,8 @@ package keeper
 
 import (
 	"context"
+	"cosmossdk.io/collections"
+	"errors"
 	"fmt"
 
 	errorsmod "cosmossdk.io/errors"
@@ -26,9 +28,9 @@ func swallowCap(err error) error {
 
 // --- x/rep -------------------------------------------------------------------
 
-// OnMemberCreated opens the member's profile and records the registration
+// onMemberCreated opens the member's profile and records the registration
 // epoch the forum account-age check reads.
-func (k Keeper) OnMemberCreated(ctx context.Context, member sdk.AccAddress) error {
+func (k Keeper) onMemberCreated(ctx context.Context, member sdk.AccAddress) error {
 	memberStr, err := k.addressCodec.BytesToString(member)
 	if err != nil {
 		return err
@@ -52,7 +54,10 @@ func (k Keeper) OnMemberCreated(ctx context.Context, member sdk.AccAddress) erro
 			return err
 		}
 	}
-	season, _ := k.Season.Get(ctx)
+	season, getErr := k.Season.Get(ctx)
+	if getErr != nil && !errors.Is(getErr, collections.ErrNotFound) {
+		sdk.UnwrapSDKContext(ctx).Logger().Error("onMemberCreated: Season.Get failed", "err", getErr)
+	}
 	sdk.UnwrapSDKContext(ctx).EventManager().EmitEvent(sdk.NewEvent("member_profile_created",
 		sdk.NewAttribute("member", memberStr),
 		sdk.NewAttribute("season", fmt.Sprintf("%d", season.Number)),
@@ -62,10 +67,10 @@ func (k Keeper) OnMemberCreated(ctx context.Context, member sdk.AccAddress) erro
 
 // inviterOf returns the member's inviter, if any.
 func (k Keeper) inviterOf(ctx context.Context, member sdk.AccAddress) (sdk.AccAddress, string, bool) {
-	if k.repKeeper == nil {
+	if k.late.repKeeper == nil {
 		return nil, "", false
 	}
-	m, err := k.repKeeper.GetMember(ctx, member)
+	m, err := k.late.repKeeper.GetMember(ctx, member)
 	if err != nil || m.InvitedBy == "" {
 		return nil, "", false
 	}
@@ -76,9 +81,9 @@ func (k Keeper) inviterOf(ctx context.Context, member sdk.AccAddress) (sdk.AccAd
 	return inviter, m.InvitedBy, true
 }
 
-// OnMemberEstablished pays the inviter the mentorship XP and bumps their
+// onMemberEstablished pays the inviter the mentorship XP and bumps their
 // successful-invitation counter.
-func (k Keeper) OnMemberEstablished(ctx context.Context, member sdk.AccAddress) error {
+func (k Keeper) onMemberEstablished(ctx context.Context, member sdk.AccAddress) error {
 	inviter, inviterStr, ok := k.inviterOf(ctx, member)
 	if !ok {
 		return nil
@@ -102,11 +107,14 @@ func (k Keeper) OnMemberEstablished(ctx context.Context, member sdk.AccAddress) 
 	})
 }
 
-// OnInitiativeCompleted advances the member's initiative objectives and
+// onInitiativeCompleted advances the member's initiative objectives and
 // achievements; on their first completion it also pays the inviter.
-func (k Keeper) OnInitiativeCompleted(ctx context.Context, member sdk.AccAddress, initiativeID uint64) error {
+func (k Keeper) onInitiativeCompleted(ctx context.Context, member sdk.AccAddress, initiativeID uint64) error {
 	env, err := k.loadXPEnv(ctx)
 	if err != nil {
+		return err
+	}
+	if err := k.recordInitiativeCompletedStats(ctx); err != nil {
 		return err
 	}
 	if err := k.OnQuestObjectiveProgress(ctx, member, types.QuestObjectiveType_QUEST_OBJECTIVE_TYPE_INITIATIVES_COMPLETED, 1); err != nil {
@@ -117,11 +125,11 @@ func (k Keeper) OnInitiativeCompleted(ctx context.Context, member sdk.AccAddress
 	}); err != nil {
 		return err
 	}
-	if k.repKeeper == nil {
+	if k.late.repKeeper == nil {
 		return nil
 	}
 	memberStr, _ := k.addressCodec.BytesToString(member)
-	count, err := k.repKeeper.GetCompletedInitiativesCount(ctx, memberStr)
+	count, err := k.late.repKeeper.GetCompletedInitiativesCount(ctx, memberStr)
 	if err != nil || count != 1 {
 		return nil
 	}
@@ -135,9 +143,9 @@ func (k Keeper) OnInitiativeCompleted(ctx context.Context, member sdk.AccAddress
 	return k.OnQuestObjectiveProgress(ctx, inviter, types.QuestObjectiveType_QUEST_OBJECTIVE_TYPE_INVITEE_MILESTONE, 1)
 }
 
-// OnChallengeResolved counts a won challenge toward the challenger's
+// onChallengeResolved counts a won challenge toward the challenger's
 // achievements. A lost challenge moves nothing.
-func (k Keeper) OnChallengeResolved(ctx context.Context, challenger, challengee sdk.AccAddress, challengerWon bool) error {
+func (k Keeper) onChallengeResolved(ctx context.Context, challenger, challengee sdk.AccAddress, challengerWon bool) error {
 	if !challengerWon {
 		return nil
 	}
@@ -155,9 +163,9 @@ func (k Keeper) OnChallengeResolved(ctx context.Context, challenger, challengee 
 	return k.checkAchievements(ctx, env, challenger, []types.RequirementType{types.RequirementType_REQUIREMENT_TYPE_CHALLENGES_WON})
 }
 
-// OnJuryDutyCompleted counts a served jury seat toward the juror's
+// onJuryDutyCompleted counts a served jury seat toward the juror's
 // achievements.
-func (k Keeper) OnJuryDutyCompleted(ctx context.Context, juror sdk.AccAddress, juryReviewID uint64) error {
+func (k Keeper) onJuryDutyCompleted(ctx context.Context, juror sdk.AccAddress, juryReviewID uint64) error {
 	jurorStr, err := k.addressCodec.BytesToString(juror)
 	if err != nil {
 		return err
@@ -166,17 +174,25 @@ func (k Keeper) OnJuryDutyCompleted(ctx context.Context, juror sdk.AccAddress, j
 	if err != nil {
 		return err
 	}
-	if err := k.profileCounter(ctx, jurorStr, env.epoch, func(p *types.MemberProfile) { p.JuryDutiesCompleted++ }); err != nil {
+	var seasonNumber uint64
+	if s, err := k.Season.Get(ctx); err == nil {
+		seasonNumber = s.Number
+	}
+	if err := k.profileCounter(ctx, jurorStr, env.epoch, func(p *types.MemberProfile) {
+		p.JuryDutiesCompleted++
+		// rep/jury retro-PGF refs need a duty in the current season (SEA-30).
+		p.LastJuryDutySeason = seasonNumber
+	}); err != nil {
 		return err
 	}
 	return k.checkAchievements(ctx, env, juror, []types.RequirementType{types.RequirementType_REQUIREMENT_TYPE_JURY_DUTY})
 }
 
-// OnMemberZeroed removes the member from their guild, resets season XP and
+// onMemberZeroed removes the member from their guild, resets season XP and
 // achievement progress counters and drops in-progress quests. Earned
 // achievements, titles and lifetime XP are kept: "punish position, not
 // person".
-func (k Keeper) OnMemberZeroed(ctx context.Context, member sdk.AccAddress) error {
+func (k Keeper) onMemberZeroed(ctx context.Context, member sdk.AccAddress) error {
 	memberStr, err := k.addressCodec.BytesToString(member)
 	if err != nil {
 		return err
@@ -194,6 +210,9 @@ func (k Keeper) OnMemberZeroed(ctx context.Context, member sdk.AccAddress) error
 		if err := k.removeFromGuildOnZeroing(ctx, memberStr, &profile); err != nil {
 			return err
 		}
+	}
+	if err := k.recordXPRemovedStats(ctx, profile.SeasonXp); err != nil {
+		return err
 	}
 	profile.SeasonXp = 0
 	profile.SeasonLevel = 1
@@ -224,13 +243,9 @@ func (k Keeper) removeFromGuildOnZeroing(ctx context.Context, memberStr string, 
 	epoch := k.GetCurrentEpoch(ctx)
 	profile.GuildId = 0
 
-	membership, _ := k.GuildMembership.Get(ctx, memberStr)
-	membership.GuildId = 0
-	membership.LeftEpoch = epoch
-	if err := k.GuildMembership.Set(ctx, memberStr, membership); err != nil {
+	if _, err := k.leaveGuildMembership(ctx, memberStr, epoch); err != nil {
 		return err
 	}
-	k.DecrementGuildMemberCount(ctx, guildID)
 
 	guild, err := k.Guild.Get(ctx, guildID)
 	if err != nil {
@@ -244,7 +259,10 @@ func (k Keeper) removeFromGuildOnZeroing(ctx context.Context, memberStr string, 
 	}
 	guild.Officers = officers
 
-	params, _ := k.Params.Get(ctx)
+	params, getErr := k.Params.Get(ctx)
+	if getErr != nil && !errors.Is(getErr, collections.ErrNotFound) {
+		sdk.UnwrapSDKContext(ctx).Logger().Error("removeFromGuildOnZeroing: Params.Get failed", "err", getErr)
+	}
 	reason := ""
 	switch {
 	case guild.Founder == memberStr && guild.Status == types.GuildStatus_GUILD_STATUS_ACTIVE:
@@ -272,9 +290,9 @@ func (k Keeper) removeFromGuildOnZeroing(ctx context.Context, memberStr string, 
 
 // --- x/commons (governance) ------------------------------------------------
 
-// OnVoteCast grants vote XP once per (season, voter, proposal), at most
+// onVoteCast grants vote XP once per (season, voter, proposal), at most
 // max_vote_xp_per_epoch times per epoch, and advances vote objectives.
-func (k Keeper) OnVoteCast(ctx context.Context, voter sdk.AccAddress, proposalID uint64) error {
+func (k Keeper) onVoteCast(ctx context.Context, voter sdk.AccAddress, proposalID uint64) error {
 	voterStr, err := k.addressCodec.BytesToString(voter)
 	if err != nil {
 		return err
@@ -323,8 +341,8 @@ func (k Keeper) OnVoteCast(ctx context.Context, voter sdk.AccAddress, proposalID
 	return k.OnQuestObjectiveProgress(ctx, voter, types.QuestObjectiveType_QUEST_OBJECTIVE_TYPE_VOTES_CAST, 1)
 }
 
-// OnProposalCreated grants the proposer the proposal XP.
-func (k Keeper) OnProposalCreated(ctx context.Context, proposer sdk.AccAddress, proposalID uint64) error {
+// onProposalCreated grants the proposer the proposal XP.
+func (k Keeper) onProposalCreated(ctx context.Context, proposer sdk.AccAddress, proposalID uint64) error {
 	env, err := k.loadXPEnv(ctx)
 	if err != nil {
 		return err
@@ -334,9 +352,9 @@ func (k Keeper) OnProposalCreated(ctx context.Context, proposer sdk.AccAddress, 
 
 // --- x/forum -----------------------------------------------------------------
 
-// OnForumReplyReceived grants the parent post's author reply XP under the
+// onForumReplyReceived grants the parent post's author reply XP under the
 // forum anti-gaming rules.
-func (k Keeper) OnForumReplyReceived(ctx context.Context, postAuthor, replier string, postID uint64) error {
+func (k Keeper) onForumReplyReceived(ctx context.Context, postAuthor, replier string, postID uint64) error {
 	env, err := k.loadXPEnv(ctx)
 	if err != nil {
 		return err
@@ -346,10 +364,10 @@ func (k Keeper) OnForumReplyReceived(ctx context.Context, postAuthor, replier st
 	return err
 }
 
-// OnForumPostMarkedHelpful grants the author helpful XP under the forum
+// onForumPostMarkedHelpful grants the author helpful XP under the forum
 // anti-gaming rules, counts it toward achievements and advances
 // FORUM_HELPFUL objectives.
-func (k Keeper) OnForumPostMarkedHelpful(ctx context.Context, postAuthor, marker string, postID uint64, isReply bool) error {
+func (k Keeper) onForumPostMarkedHelpful(ctx context.Context, postAuthor, marker string, postID uint64, isReply bool) error {
 	env, err := k.loadXPEnv(ctx)
 	if err != nil {
 		return err
@@ -372,4 +390,78 @@ func (k Keeper) OnForumPostMarkedHelpful(ctx context.Context, postAuthor, marker
 	return k.checkAchievements(ctx, env, author, []types.RequirementType{
 		types.RequirementType_REQUIREMENT_TYPE_FORUM_HELPFUL, types.RequirementType_REQUIREMENT_TYPE_MIN_LEVEL,
 	})
+}
+
+// OnMemberCreated runs the hook atomically: a failure part-way leaves no partial
+// state behind (SEA-15). The callers only log hook errors.
+func (k Keeper) OnMemberCreated(ctx context.Context, member sdk.AccAddress) error {
+	return k.atomically(ctx, func(ctx context.Context) error { return k.onMemberCreated(ctx, member) })
+}
+
+// OnMemberEstablished runs the hook atomically: a failure part-way leaves no partial
+// state behind (SEA-15). The callers only log hook errors.
+func (k Keeper) OnMemberEstablished(ctx context.Context, member sdk.AccAddress) error {
+	return k.atomically(ctx, func(ctx context.Context) error { return k.onMemberEstablished(ctx, member) })
+}
+
+// OnInitiativeCompleted runs the hook atomically: a failure part-way leaves no partial
+// state behind (SEA-15). The callers only log hook errors.
+func (k Keeper) OnInitiativeCompleted(ctx context.Context, member sdk.AccAddress, initiativeID uint64) error {
+	return k.atomically(ctx, func(ctx context.Context) error { return k.onInitiativeCompleted(ctx, member, initiativeID) })
+}
+
+// OnChallengeResolved runs the hook atomically: a failure part-way leaves no partial
+// state behind (SEA-15). The callers only log hook errors.
+func (k Keeper) OnChallengeResolved(ctx context.Context, challenger, challengee sdk.AccAddress, challengerWon bool) error {
+	return k.atomically(ctx, func(ctx context.Context) error {
+		return k.onChallengeResolved(ctx, challenger, challengee, challengerWon)
+	})
+}
+
+// OnJuryDutyCompleted runs the hook atomically: a failure part-way leaves no partial
+// state behind (SEA-15). The callers only log hook errors.
+func (k Keeper) OnJuryDutyCompleted(ctx context.Context, juror sdk.AccAddress, juryReviewID uint64) error {
+	return k.atomically(ctx, func(ctx context.Context) error { return k.onJuryDutyCompleted(ctx, juror, juryReviewID) })
+}
+
+// OnMemberZeroed runs the hook atomically: a failure part-way leaves no partial
+// state behind (SEA-15). The callers only log hook errors.
+func (k Keeper) OnMemberZeroed(ctx context.Context, member sdk.AccAddress) error {
+	return k.atomically(ctx, func(ctx context.Context) error { return k.onMemberZeroed(ctx, member) })
+}
+
+// OnVoteCast runs the hook atomically: a failure part-way leaves no partial
+// state behind (SEA-15). The callers only log hook errors.
+func (k Keeper) OnVoteCast(ctx context.Context, voter sdk.AccAddress, proposalID uint64) error {
+	return k.atomically(ctx, func(ctx context.Context) error { return k.onVoteCast(ctx, voter, proposalID) })
+}
+
+// OnProposalCreated runs the hook atomically: a failure part-way leaves no partial
+// state behind (SEA-15). The callers only log hook errors.
+func (k Keeper) OnProposalCreated(ctx context.Context, proposer sdk.AccAddress, proposalID uint64) error {
+	return k.atomically(ctx, func(ctx context.Context) error { return k.onProposalCreated(ctx, proposer, proposalID) })
+}
+
+// OnForumReplyReceived runs the hook atomically: a failure part-way leaves no partial
+// state behind (SEA-15). The callers only log hook errors.
+func (k Keeper) OnForumReplyReceived(ctx context.Context, postAuthor, replier string, postID uint64) error {
+	return k.atomically(ctx, func(ctx context.Context) error { return k.onForumReplyReceived(ctx, postAuthor, replier, postID) })
+}
+
+// OnForumPostMarkedHelpful runs the hook atomically: a failure part-way leaves no partial
+// state behind (SEA-15). The callers only log hook errors.
+func (k Keeper) OnForumPostMarkedHelpful(ctx context.Context, postAuthor, marker string, postID uint64, isReply bool) error {
+	return k.atomically(ctx, func(ctx context.Context) error {
+		return k.onForumPostMarkedHelpful(ctx, postAuthor, marker, postID, isReply)
+	})
+}
+
+// atomically runs fn in a cache context and commits only on success.
+func (k Keeper) atomically(ctx context.Context, fn func(context.Context) error) error {
+	cacheCtx, write := sdk.UnwrapSDKContext(ctx).CacheContext()
+	if err := fn(cacheCtx); err != nil {
+		return err
+	}
+	write()
+	return nil
 }

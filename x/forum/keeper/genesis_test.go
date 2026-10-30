@@ -3,6 +3,8 @@ package keeper_test
 import (
 	"testing"
 
+	"cosmossdk.io/collections"
+
 	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/forum/types"
 
@@ -49,4 +51,42 @@ func TestGenesis(t *testing.T) {
 	require.EqualExportedValues(t, genesisState.ThreadFollowMap, got.ThreadFollowMap)
 	require.EqualExportedValues(t, genesisState.ThreadFollowCountMap, got.ThreadFollowCountMap)
 	require.EqualExportedValues(t, genesisState.ArchiveMetadataMap, got.ArchiveMetadataMap)
+}
+
+// The promotion queue is hook-driven, so genesis carries it verbatim.
+func TestGenesisKeepsPromotionQueue(t *testing.T) {
+	f := initFixture(t)
+	require.NoError(t, f.keeper.PromotionQueue.Set(f.ctx, "phoenix", 60))
+	exported, err := f.keeper.ExportGenesis(f.ctx)
+	require.NoError(t, err)
+	require.Len(t, exported.PromotionQueue, 1)
+
+	g := initFixture(t)
+	require.NoError(t, g.keeper.InitGenesis(g.ctx, *exported))
+	at, err := g.keeper.PromotionQueue.Get(g.ctx, "phoenix")
+	require.NoError(t, err)
+	require.Equal(t, int64(60), at)
+}
+
+// Import indexes still-ephemeral posts by author, but not a soft-deleted
+// one: MsgDeletePost dropped its entry while the post kept its
+// expiration_time for the TTL prune.
+func TestGenesisSkipsDeletedEphemeralInAuthorIndex(t *testing.T) {
+	f := initFixture(t)
+	gs := types.DefaultGenesis()
+	gs.PostMap = []types.Post{
+		{PostId: 1, Author: "phoenix", ExpirationTime: 1000, Status: types.PostStatus_POST_STATUS_ACTIVE, MediaRulesVersion: commontypes.MediaRulesVersion},
+		{PostId: 2, Author: "phoenix", ExpirationTime: 1000, Status: types.PostStatus_POST_STATUS_DELETED, MediaRulesVersion: commontypes.MediaRulesVersion},
+	}
+	require.NoError(t, f.keeper.InitGenesis(f.ctx, *gs))
+
+	has, err := f.keeper.EphemeralByAuthor.Has(f.ctx, collections.Join("phoenix", uint64(1)))
+	require.NoError(t, err)
+	require.True(t, has, "active ephemeral post indexed")
+	has, err = f.keeper.EphemeralByAuthor.Has(f.ctx, collections.Join("phoenix", uint64(2)))
+	require.NoError(t, err)
+	require.False(t, has, "deleted post not indexed")
+	has, err = f.keeper.ExpirationQueue.Has(f.ctx, collections.Join(int64(1000), uint64(2)))
+	require.NoError(t, err)
+	require.True(t, has, "deleted post still queued for the TTL prune")
 }

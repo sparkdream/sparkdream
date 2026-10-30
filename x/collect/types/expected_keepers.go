@@ -37,8 +37,10 @@ type IdentityKeeper interface {
 // RepKeeper defines the expected interface for the x/rep module.
 // Used for membership checks, trust level verification, curator bonding, and jury resolution.
 type RepKeeper interface {
-	// Membership and trust level
-	IsMember(ctx context.Context, addr sdk.AccAddress) bool
+	// Membership and trust level. Member treatment is gated on an ACTIVE
+	// member: a zeroed or inactive member keeps its Member record but must
+	// not keep member rights here (zeroing is the chain's maximum sanction).
+	IsActiveMember(ctx context.Context, addr sdk.AccAddress) bool
 	GetTrustLevel(ctx context.Context, addr sdk.AccAddress) (reptypes.TrustLevel, error)
 
 	// Member key migration alias contract (docs/x-rep-spec.md, "Member key
@@ -53,6 +55,12 @@ type RepKeeper interface {
 	LockDREAM(ctx context.Context, addr sdk.AccAddress, amount math.Int) error
 	UnlockDREAM(ctx context.Context, addr sdk.AccAddress, amount math.Int) error
 	BurnDREAM(ctx context.Context, addr sdk.AccAddress, amount math.Int) error
+	// BurnLockedDREAM slashes locked DREAM: releases the lock and burns the
+	// same amount in one step (a failed burn never leaves the lock released).
+	BurnLockedDREAM(ctx context.Context, addr sdk.AccAddress, amount math.Int) error
+	// MintDREAM pays a challenger who won a curation challenge their share of
+	// the curator's slashed (burned) commit.
+	MintDREAM(ctx context.Context, addr sdk.AccAddress, amount math.Int) error
 
 	// Per-tag reputation deduction, floored at zero. Used on slash paths
 	// (endorsement burn, collaborator-stake burn, author bond slash) so the
@@ -136,6 +144,11 @@ type CommonsKeeper interface {
 	// IsCouncilAuthorized checks if an address is authorized via council/committee
 	// Accepts x/gov authority, Commons Council policy address, or Operations Committee member
 	IsCouncilAuthorized(ctx context.Context, addr string, council string, committee string) bool
+	// IsCouncilOrCommitteePolicy accepts the gov authority, the council
+	// policy or the committee policy (an executed proposal), never an
+	// individual committee member. Used for value-moving, clock-setting and
+	// verdict-delivering operations.
+	IsCouncilOrCommitteePolicy(ctx context.Context, addr string, council string, committee string) bool
 	// IsGroupPolicyAddress reports whether addr is a council or committee
 	// policy address. Such an address owns collections as a member does (a
 	// peer's author-curation list is owned by the Operations Committee).

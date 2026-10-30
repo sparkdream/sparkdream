@@ -193,6 +193,8 @@ func TestEarlyUpheldDoesNotReleaseViaStaleArbiterQueue(t *testing.T) {
 	})
 	require.NoError(t, err)
 
+	// Arbiter quorum stashes an auto-verdict, which the challenger escalates.
+	stashAutoVerdict(t, f, contentID, sdk.UnwrapSDKContext(f.ctx).BlockTime().Unix()+60)
 	_, err = ms.EscalateChallenge(f.ctx, &types.MsgEscalateChallenge{
 		Creator: challenger, ContentId: contentID,
 	})

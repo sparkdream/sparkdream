@@ -3,6 +3,7 @@ package keeper
 import (
 	"context"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/rep/types"
 
 	"google.golang.org/grpc/codes"
@@ -27,7 +28,7 @@ func (q queryServer) MemberReports(ctx context.Context, req *types.QueryMemberRe
 	if firstReport != nil {
 		return &types.QueryMemberReportsResponse{
 			Member: firstReport.Member,
-			Status: uint64(firstReport.Status),
+			Status: commontypes.Saturate[uint64](firstReport.Status),
 		}, nil
 	}
 

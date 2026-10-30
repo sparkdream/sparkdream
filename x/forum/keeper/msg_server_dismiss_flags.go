@@ -16,6 +16,15 @@ func (k msgServer) DismissFlags(ctx context.Context, msg *types.MsgDismissFlags)
 	if _, err := k.addressCodec.StringToBytes(msg.Creator); err != nil {
 		return nil, errorsmod.Wrap(err, "invalid creator address")
 	}
+	// Both emergency stops apply (spec: ErrForumPaused, ErrModerationPaused),
+	// so review-queue state stops changing while moderation is halted
+	// (FRM-30).
+	if err := k.requireForumNotPaused(ctx); err != nil {
+		return nil, err
+	}
+	if params, err := k.Params.Get(ctx); err == nil && params.ModerationPaused {
+		return nil, types.ErrModerationPaused
+	}
 
 	// Only sentinels or operations committee can dismiss flags
 	isGovAuthority := k.isCouncilAuthorized(ctx, msg.Creator, "commons", "operations")
@@ -41,6 +50,13 @@ func (k msgServer) DismissFlags(ctx context.Context, msg *types.MsgDismissFlags)
 		return nil, errorsmod.Wrap(types.ErrFlagNotFound, fmt.Sprintf("no flags for post %d", msg.PostId))
 	}
 
+	// A sentinel may not clear the review queue for their own content.
+	if !isGovAuthority {
+		if post, perr := k.Post.Get(ctx, msg.PostId); perr == nil && k.sameMember(ctx, post.Author, msg.Creator) {
+			return nil, errorsmod.Wrap(types.ErrCannotCurateOwnContent, "cannot dismiss flags on your own post")
+		}
+	}
+
 	// Check if post is in review queue (sentinel can only dismiss posts in review queue)
 	if !isGovAuthority && !postFlag.InReviewQueue {
 		return nil, errorsmod.Wrap(types.ErrNotInReviewQueue, "only governance authority can dismiss posts not in review queue")
@@ -54,8 +70,12 @@ func (k msgServer) DismissFlags(ctx context.Context, msg *types.MsgDismissFlags)
 	// Non-gov sentinel dismissals count as an appeals-resolved action for
 	// rep activity tracking and the sentinel's epoch counter.
 	if !isGovAuthority && k.repKeeper != nil {
-		_ = k.repKeeper.RecordActivity(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, msg.Creator)
-		_ = k.repKeeper.BumpRoleEpochAppealsResolved(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, msg.Creator)
+		if err := k.repKeeper.RecordActivity(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, msg.Creator); err != nil {
+			return nil, err
+		}
+		if err := k.repKeeper.BumpRoleEpochAppealsResolved(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, msg.Creator); err != nil {
+			return nil, err
+		}
 	}
 
 	// Emit event

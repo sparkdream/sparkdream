@@ -84,6 +84,10 @@ func (k Keeper) claimRecurringPullCommon(ctx context.Context, grantID uint64, gr
 			"grant %d is in status %s", grant.Id, grant.Status)
 	}
 
+	if err := k.checkRecipientNotBlocked(grant.Grantee); err != nil {
+		return nil, err
+	}
+
 	now := sdkCtx.BlockTime().Unix()
 	nextEligible := rp.LastClaimAdvance + rp.PeriodSeconds
 	if now < nextEligible {
@@ -105,7 +109,7 @@ func (k Keeper) claimRecurringPullCommon(ctx context.Context, grantID uint64, gr
 		sdkCtx.EventManager().EmitEvent(sdk.NewEvent(
 			"grant_completed",
 			sdk.NewAttribute("id", fmt.Sprintf("%d", grant.Id)),
-			sdk.NewAttribute("type", grant.Type.String()),
+			sdk.NewAttribute("type", types.GrantTypeEventValue(grant.Type)),
 			sdk.NewAttribute("reason", "window_closed"),
 		))
 		return &types.MsgClaimRecurringPullResponse{ClaimNumber: rp.ClaimsMade, NextClaimTime: nextEligible, Completed: true}, nil
@@ -161,7 +165,7 @@ func (k Keeper) claimRecurringPullCommon(ctx context.Context, grantID uint64, gr
 			sdkCtx.EventManager().EmitEvent(sdk.NewEvent(
 				"grant_paused_underfunded",
 				sdk.NewAttribute("id", fmt.Sprintf("%d", grant.Id)),
-				sdk.NewAttribute("type", grant.Type.String()),
+				sdk.NewAttribute("type", types.GrantTypeEventValue(grant.Type)),
 				sdk.NewAttribute("granter", grant.Granter),
 				sdk.NewAttribute("grantee", grant.Grantee),
 				sdk.NewAttribute("attempted_amount", rp.AmountPerPeriod.String()),
@@ -214,7 +218,7 @@ func (k Keeper) claimRecurringPullCommon(ctx context.Context, grantID uint64, gr
 		sdkCtx.EventManager().EmitEvent(sdk.NewEvent(
 			"grant_resumed",
 			sdk.NewAttribute("id", fmt.Sprintf("%d", grant.Id)),
-			sdk.NewAttribute("type", grant.Type.String()),
+			sdk.NewAttribute("type", types.GrantTypeEventValue(grant.Type)),
 			sdk.NewAttribute("granter", grant.Granter),
 			sdk.NewAttribute("grantee", grant.Grantee),
 		))

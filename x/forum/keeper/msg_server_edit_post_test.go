@@ -52,7 +52,7 @@ func TestMsgServerEditPost(t *testing.T) {
 	t.Run("cannot edit hidden post", func(t *testing.T) {
 		post := f.createTestPost(t, testCreator, 0, 0)
 		post.Status = types.PostStatus_POST_STATUS_HIDDEN
-		f.keeper.Post.Set(f.ctx, post.PostId, post)
+		require.NoError(t, f.keeper.Post.Set(f.ctx, post.PostId, post))
 
 		msg := &types.MsgEditPost{
 			Creator:    testCreator,
@@ -67,7 +67,7 @@ func TestMsgServerEditPost(t *testing.T) {
 	t.Run("cannot edit deleted post", func(t *testing.T) {
 		post := f.createTestPost(t, testCreator, 0, 0)
 		post.Status = types.PostStatus_POST_STATUS_DELETED
-		f.keeper.Post.Set(f.ctx, post.PostId, post)
+		require.NoError(t, f.keeper.Post.Set(f.ctx, post.PostId, post))
 
 		msg := &types.MsgEditPost{
 			Creator:    testCreator,
@@ -82,7 +82,7 @@ func TestMsgServerEditPost(t *testing.T) {
 	t.Run("cannot edit archived post", func(t *testing.T) {
 		post := f.createTestPost(t, testCreator, 0, 0)
 		post.Status = types.PostStatus_POST_STATUS_ARCHIVED
-		f.keeper.Post.Set(f.ctx, post.PostId, post)
+		require.NoError(t, f.keeper.Post.Set(f.ctx, post.PostId, post))
 
 		msg := &types.MsgEditPost{
 			Creator:    testCreator,
@@ -128,7 +128,7 @@ func TestMsgServerEditPost(t *testing.T) {
 	t.Run("editing disabled", func(t *testing.T) {
 		params := types.DefaultParams()
 		params.EditingEnabled = false
-		f.keeper.Params.Set(f.ctx, params)
+		require.NoError(t, f.keeper.Params.Set(f.ctx, params))
 
 		post := f.createTestPost(t, testCreator, 0, 0)
 
@@ -142,7 +142,7 @@ func TestMsgServerEditPost(t *testing.T) {
 		require.ErrorIs(t, err, types.ErrEditingDisabled)
 
 		// Reset params
-		f.keeper.Params.Set(f.ctx, types.DefaultParams())
+		require.NoError(t, f.keeper.Params.Set(f.ctx, types.DefaultParams()))
 	})
 }
 

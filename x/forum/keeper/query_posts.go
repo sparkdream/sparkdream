@@ -2,6 +2,7 @@ package keeper
 
 import (
 	"context"
+	commontypes "sparkdream/x/common/types"
 
 	"sparkdream/x/forum/types"
 
@@ -27,7 +28,7 @@ func (q queryServer) Posts(ctx context.Context, req *types.QueryPostsRequest) (*
 			if req.CategoryId != 0 && post.CategoryId != req.CategoryId {
 				return false, nil
 			}
-			if req.Status != 0 && uint64(post.Status) != req.Status {
+			if req.Status != 0 && commontypes.Saturate[uint64](post.Status) != req.Status {
 				return false, nil
 			}
 			return true, nil

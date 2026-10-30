@@ -2,7 +2,10 @@ package keeper
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	stdmath "math"
+	commontypes "sparkdream/x/common/types"
 
 	"cosmossdk.io/collections"
 	"cosmossdk.io/math"
@@ -12,40 +15,69 @@ import (
 	"sparkdream/x/reveal/types"
 )
 
+// maxDeadlineContributionsPerBlock bounds how many due contributions the
+// EndBlocker processes per block; the rest stay in the deadline index and
+// are picked up on the following blocks.
+const maxDeadlineContributionsPerBlock = 100
+
 // ProcessDeadlines runs every block and enforces all deadline-based transitions.
-// It iterates over contributions with status IN_PROGRESS and checks each active tranche.
+// It walks only the contributions whose earliest pending deadline has passed
+// (deadline index, REV-11). Each contribution is processed in its own
+// CacheContext and committed only when every step succeeded, so a failing
+// step can never leave a half-applied payout, slash or stake return behind
+// to be repeated on the next block (REV-01, REV-06). Errors are logged and
+// never returned: an EndBlock error would halt the chain.
 func (k Keeper) ProcessDeadlines(ctx context.Context) error {
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	currentEpoch := sdkCtx.BlockHeight()
 
 	params, err := k.Params.Get(ctx)
 	if err != nil {
-		return err
+		sdkCtx.Logger().Error("reveal: failed to load params for deadlines", "error", err)
+		return nil
 	}
 
-	// Iterate all IN_PROGRESS contributions
-	var contribIDs []uint64
-	err = k.ContributionsByStatus.Walk(ctx,
-		collections.NewPrefixedPairRange[int32, uint64](int32(types.ContributionStatus_CONTRIBUTION_STATUS_IN_PROGRESS)),
-		func(key collections.Pair[int32, uint64]) (bool, error) {
-			contribIDs = append(contribIDs, key.K2())
-			return false, nil
-		},
-	)
+	var due []uint64
+	rng := new(collections.Range[collections.Pair[int64, uint64]]).
+		EndInclusive(collections.Join(currentEpoch, uint64(stdmath.MaxUint64)))
+	err = k.ContributionDeadlines.Walk(ctx, rng, func(key collections.Pair[int64, uint64]) (bool, error) {
+		due = append(due, key.K2())
+		return len(due) >= maxDeadlineContributionsPerBlock, nil
+	})
 	if err != nil {
-		return err
+		sdkCtx.Logger().Error("reveal: failed to walk deadline index", "error", err)
+		return nil
 	}
 
-	for _, contribID := range contribIDs {
+	for _, contribID := range due {
 		contrib, err := k.Contribution.Get(ctx, contribID)
-		if err != nil {
+		if err != nil || contrib.Status != types.ContributionStatus_CONTRIBUTION_STATUS_IN_PROGRESS {
+			// Orphaned or finished: drop the stale index entry.
+			if cErr := k.clearDeadlineIndex(ctx, contribID); cErr != nil {
+				sdkCtx.Logger().Error("reveal: failed to clear deadline index", "contribution_id", contribID, "error", cErr)
+			}
 			continue
 		}
-		if err := k.processContributionDeadlines(ctx, &contrib, currentEpoch, &params); err != nil {
-			sdkCtx.Logger().Error("failed to process deadlines", "contribution_id", contribID, "error", err)
+
+		cacheCtx, write := sdkCtx.CacheContext()
+		if err := k.processContributionDeadlines(cacheCtx, &contrib, currentEpoch, &params); err != nil {
+			sdkCtx.Logger().Error("failed to process deadlines; contribution left unchanged and retried next block",
+				"contribution_id", contribID, "error", err)
+			sdkCtx.EventManager().EmitEvent(sdk.NewEvent("contribution_deadline_failed",
+				sdk.NewAttribute("contribution_id", fmt.Sprintf("%d", contribID)),
+				sdk.NewAttribute("error", err.Error()),
+			))
+			continue
 		}
+		// Re-index even when nothing was due (stale entry after a param change).
+		if err := k.saveContribution(cacheCtx, &contrib); err != nil {
+			sdkCtx.Logger().Error("failed to save contribution after deadlines", "contribution_id", contribID, "error", err)
+			continue
+		}
+		write()
 	}
 
+	k.RetryProjectTransitions(ctx)
 	return nil
 }
 
@@ -97,10 +129,7 @@ func (k Keeper) processContributionDeadlines(ctx context.Context, contrib *types
 				if err := k.handleVerificationDeadline(ctx, contrib, tranche, params); err != nil {
 					return err
 				}
-				// Save after tally (status may have changed)
-				if err := k.Contribution.Set(ctx, contrib.Id, *contrib); err != nil {
-					return err
-				}
+				// The caller saves the contribution (status may have changed).
 				return nil // re-process on next block for any new status changes
 			}
 
@@ -143,27 +172,28 @@ func (k Keeper) handleStakeTimeout(ctx context.Context, contrib *types.Contribut
 	if err != nil {
 		return err
 	}
-	if contrib.BondRemaining.IsPositive() {
-		if err := k.repKeeper.UnlockDREAM(ctx, sdk.AccAddress(contributorAddr), contrib.BondRemaining); err != nil {
-			return err
-		}
-		contrib.BondRemaining = math.ZeroInt()
+	if _, err := k.unlockOrGone(ctx, sdk.AccAddress(contributorAddr), contrib.BondRemaining); err != nil {
+		return err
 	}
+	contrib.BondRemaining = math.ZeroInt()
 
-	// Cancel all tranches and contribution
+	tranche.Status = types.TrancheStatus_TRANCHE_STATUS_CANCELLED
+	return k.cancelContribution(ctx, contrib)
+}
+
+// cancelContribution cancels every LOCKED tranche, moves the contribution to
+// CANCELLED and saves it together with its status index.
+func (k Keeper) cancelContribution(ctx context.Context, contrib *types.Contribution) error {
 	if err := k.ContributionsByStatus.Remove(ctx, collections.Join(int32(contrib.Status), contrib.Id)); err != nil {
 		return err
 	}
-
-	tranche.Status = types.TrancheStatus_TRANCHE_STATUS_CANCELLED
 	for i := range contrib.Tranches {
 		if contrib.Tranches[i].Status == types.TrancheStatus_TRANCHE_STATUS_LOCKED {
 			contrib.Tranches[i].Status = types.TrancheStatus_TRANCHE_STATUS_CANCELLED
 		}
 	}
 	contrib.Status = types.ContributionStatus_CONTRIBUTION_STATUS_CANCELLED
-
-	if err := k.Contribution.Set(ctx, contrib.Id, *contrib); err != nil {
+	if err := k.saveContribution(ctx, contrib); err != nil {
 		return err
 	}
 	return k.ContributionsByStatus.Set(ctx, collections.Join(int32(contrib.Status), contrib.Id))
@@ -182,12 +212,10 @@ func (k Keeper) handleRevealTimeout(ctx context.Context, contrib *types.Contribu
 		return err
 	}
 
-	// Slash entire remaining bond
+	// Slash entire remaining bond. A zeroed contributor's bond is already
+	// burned by x/rep, so there is nothing left to burn.
 	if contrib.BondRemaining.IsPositive() {
-		if err := k.repKeeper.UnlockDREAM(ctx, sdk.AccAddress(contributorAddr), contrib.BondRemaining); err != nil {
-			return err
-		}
-		if err := k.repKeeper.BurnDREAM(ctx, sdk.AccAddress(contributorAddr), contrib.BondRemaining); err != nil {
+		if _, err := k.burnLockedOrGone(ctx, sdk.AccAddress(contributorAddr), contrib.BondRemaining); err != nil {
 			return err
 		}
 		contrib.BondRemaining = math.ZeroInt()
@@ -197,25 +225,12 @@ func (k Keeper) handleRevealTimeout(ctx context.Context, contrib *types.Contribu
 	contrib.HoldbackAmount = math.ZeroInt()
 
 	// Deduct reputation for failing to reveal
-	_ = k.repKeeper.DeductReputation(ctx, sdk.AccAddress(contributorAddr), "reveal", math.LegacyNewDec(20))
-
-	// Cancel all tranches and contribution
-	if err := k.ContributionsByStatus.Remove(ctx, collections.Join(int32(contrib.Status), contrib.Id)); err != nil {
+	if err := k.repKeeper.DeductReputation(ctx, sdk.AccAddress(contributorAddr), "reveal", math.LegacyNewDec(20)); err != nil {
 		return err
 	}
 
 	tranche.Status = types.TrancheStatus_TRANCHE_STATUS_FAILED
-	for i := range contrib.Tranches {
-		if contrib.Tranches[i].Status == types.TrancheStatus_TRANCHE_STATUS_LOCKED {
-			contrib.Tranches[i].Status = types.TrancheStatus_TRANCHE_STATUS_CANCELLED
-		}
-	}
-	contrib.Status = types.ContributionStatus_CONTRIBUTION_STATUS_CANCELLED
-
-	if err := k.Contribution.Set(ctx, contrib.Id, *contrib); err != nil {
-		return err
-	}
-	return k.ContributionsByStatus.Set(ctx, collections.Join(int32(contrib.Status), contrib.Id))
+	return k.cancelContribution(ctx, contrib)
 }
 
 // handleVerificationDeadline auto-tallies votes when verification period ends.
@@ -271,13 +286,6 @@ func (k Keeper) handleVerificationDeadline(ctx context.Context, contrib *types.C
 		if err := k.confirmTranche(ctx, contrib, tranche, params); err != nil {
 			return err
 		}
-
-		sdkCtx.EventManager().EmitEvent(
-			sdk.NewEvent("tranche_verified",
-				sdk.NewAttribute("contribution_id", fmt.Sprintf("%d", contrib.Id)),
-				sdk.NewAttribute("tranche_id", fmt.Sprintf("%d", tranche.Id)),
-			),
-		)
 	} else {
 		// Verification failed — mark disputed
 		tranche.Status = types.TrancheStatus_TRANCHE_STATUS_DISPUTED
@@ -297,60 +305,38 @@ func (k Keeper) handleVerificationDeadline(ctx context.Context, contrib *types.C
 }
 
 // handleDisputeTimeout handles auto-REJECT when council misses dispute resolution window.
+// Stakes are returned first, then 50% of the remaining bond is burned and
+// the rest released. With a zeroed contributor the bond is already gone and
+// the stakers still get their DREAM back (RVL-2 addendum).
 func (k Keeper) handleDisputeTimeout(ctx context.Context, contrib *types.Contribution, tranche *types.RevealTranche) error {
 	contributorAddr, err := k.addressCodec.StringToBytes(contrib.Contributor)
 	if err != nil {
 		return err
 	}
 
-	// Slash 50% of remaining bond
-	slashAmount := contrib.BondRemaining.Quo(math.NewInt(2))
-	if slashAmount.IsPositive() {
-		if err := k.repKeeper.UnlockDREAM(ctx, sdk.AccAddress(contributorAddr), slashAmount); err != nil {
-			return err
-		}
-		if err := k.repKeeper.BurnDREAM(ctx, sdk.AccAddress(contributorAddr), slashAmount); err != nil {
-			return err
-		}
-		contrib.BondRemaining = contrib.BondRemaining.Sub(slashAmount)
+	// Return stakes
+	if err := k.returnTrancheStakes(ctx, contrib.Id, tranche.Id); err != nil {
+		return err
+	}
+	if err := k.deleteTrancheVotes(ctx, contrib.Id, tranche.Id); err != nil {
+		return err
 	}
 
-	// Return remaining bond
-	if contrib.BondRemaining.IsPositive() {
-		if err := k.repKeeper.UnlockDREAM(ctx, sdk.AccAddress(contributorAddr), contrib.BondRemaining); err != nil {
-			return err
-		}
-		contrib.BondRemaining = math.ZeroInt()
+	// Slash 50% of remaining bond, release the rest
+	if _, err := k.slashHalfBondAndRelease(ctx, contrib, sdk.AccAddress(contributorAddr)); err != nil {
+		return err
 	}
 
 	// Burn holdback
 	contrib.HoldbackAmount = math.ZeroInt()
 
-	// Return stakes
-	if err := k.returnTrancheStakes(ctx, contrib.Id, tranche.Id); err != nil {
-		return err
-	}
-
 	// Deduct reputation for dispute timeout
-	_ = k.repKeeper.DeductReputation(ctx, sdk.AccAddress(contributorAddr), "reveal", math.LegacyNewDec(10))
-
-	// Fail tranche, cancel remaining
-	if err := k.ContributionsByStatus.Remove(ctx, collections.Join(int32(contrib.Status), contrib.Id)); err != nil {
+	if err := k.repKeeper.DeductReputation(ctx, sdk.AccAddress(contributorAddr), "reveal", math.LegacyNewDec(10)); err != nil {
 		return err
 	}
 
 	tranche.Status = types.TrancheStatus_TRANCHE_STATUS_FAILED
-	for i := range contrib.Tranches {
-		if contrib.Tranches[i].Status == types.TrancheStatus_TRANCHE_STATUS_LOCKED {
-			contrib.Tranches[i].Status = types.TrancheStatus_TRANCHE_STATUS_CANCELLED
-		}
-	}
-	contrib.Status = types.ContributionStatus_CONTRIBUTION_STATUS_CANCELLED
-
-	if err := k.Contribution.Set(ctx, contrib.Id, *contrib); err != nil {
-		return err
-	}
-	return k.ContributionsByStatus.Set(ctx, collections.Join(int32(contrib.Status), contrib.Id))
+	return k.cancelContribution(ctx, contrib)
 }
 
 // tallyVotes aggregates yes/no weights and vote count for a tranche.
@@ -379,14 +365,52 @@ func (k Keeper) tallyVotes(ctx context.Context, contributionID uint64, trancheID
 	return
 }
 
-// confirmTranche handles verification success: payout (with holdback), return stakes,
-// grant reputation, and advance to next tranche or complete.
+// RevealReputationCapPerTranche caps the reputation one verified tranche
+// grants on the "reveal" tag. It matches x/rep's default
+// max_reputation_gain_per_epoch so a single tranche can never jump a
+// contributor past the trust-level thresholds on its own (REV-03).
+var RevealReputationCapPerTranche = math.LegacyNewDec(50)
+
+// udreamPerDream converts micro-DREAM (the unit of stake_threshold) to DREAM.
+const udreamPerDream = 1_000_000
+
+// trancheReputation returns the reputation granted for a verified tranche:
+// (stake_threshold in DREAM / 1000) * (avg_quality / 5), capped at
+// RevealReputationCapPerTranche.
+func trancheReputation(stakeThreshold math.Int, avgQuality math.LegacyDec) math.LegacyDec {
+	rep := math.LegacyNewDecFromInt(stakeThreshold).
+		QuoInt64(udreamPerDream).
+		QuoInt64(1000).
+		Mul(avgQuality).
+		QuoInt64(5)
+	if rep.GT(RevealReputationCapPerTranche) {
+		rep = RevealReputationCapPerTranche
+	}
+	return rep
+}
+
+// confirmTranche handles verification success: return stakes, payout (with
+// holdback), grant reputation, and advance to next tranche or complete. The
+// mint runs after the fallible stake returns; the caller runs the whole
+// step in a CacheContext so nothing is ever applied twice.
 func (k Keeper) confirmTranche(ctx context.Context, contrib *types.Contribution, tranche *types.RevealTranche, params *types.Params) error {
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	currentEpoch := sdkCtx.BlockHeight()
 
 	contributorAddr, err := k.addressCodec.StringToBytes(contrib.Contributor)
 	if err != nil {
+		return err
+	}
+
+	// Return stakes to stakers
+	if err := k.returnTrancheStakes(ctx, contrib.Id, tranche.Id); err != nil {
+		return err
+	}
+
+	// Average quality from verification votes, then drop the votes: the
+	// tranche is terminal and only the aggregate is kept (REV-10).
+	avgQuality := k.calculateAvgQuality(ctx, contrib.Id, tranche.Id)
+	if err := k.deleteTrancheVotes(ctx, contrib.Id, tranche.Id); err != nil {
 		return err
 	}
 
@@ -404,24 +428,32 @@ func (k Keeper) confirmTranche(ctx context.Context, contrib *types.Contribution,
 	// Accumulate holdback
 	contrib.HoldbackAmount = contrib.HoldbackAmount.Add(holdback)
 
-	// Return stakes to stakers
-	if err := k.returnTrancheStakes(ctx, contrib.Id, tranche.Id); err != nil {
-		return err
-	}
-
 	// Grant reputation scaled by average quality rating from verification votes
-	avgQuality := k.calculateAvgQuality(ctx, contrib.Id, tranche.Id)
-	repScore := math.LegacyNewDecFromInt(tranche.StakeThreshold).
-		Quo(math.LegacyNewDec(1000)).
-		Mul(avgQuality).
-		Quo(math.LegacyNewDec(5))
+	repScore := trancheReputation(tranche.StakeThreshold, avgQuality)
 	if repScore.IsPositive() {
-		_ = k.repKeeper.AddReputation(ctx, sdk.AccAddress(contributorAddr), "reveal", repScore)
+		// Through x/rep's per-epoch cap, on top of the per-tranche cap in
+		// trancheReputation.
+		var getErr error
+		_, getErr = k.repKeeper.AddReputationCapped(ctx, sdk.AccAddress(contributorAddr), "reveal", repScore)
+		if getErr != nil {
+			sdk.UnwrapSDKContext(ctx).Logger().Error("AddReputationCapped failed", "err", getErr)
+		}
 	}
 
 	// Mark tranche as verified
 	tranche.Status = types.TrancheStatus_TRANCHE_STATUS_VERIFIED
 	tranche.VerifiedAt = currentEpoch
+
+	sdkCtx.EventManager().EmitEvent(
+		sdk.NewEvent("tranche_verified",
+			sdk.NewAttribute("contribution_id", fmt.Sprintf("%d", contrib.Id)),
+			sdk.NewAttribute("tranche_id", fmt.Sprintf("%d", tranche.Id)),
+			sdk.NewAttribute("avg_quality_rating", avgQuality.String()),
+			sdk.NewAttribute("dream_paid", immediatePayout.String()),
+			sdk.NewAttribute("holdback", holdback.String()),
+			sdk.NewAttribute("reputation_granted", repScore.String()),
+		),
+	)
 
 	// Check if all tranches are now verified
 	allVerified := true
@@ -444,13 +476,17 @@ func (k Keeper) confirmTranche(ctx context.Context, contrib *types.Contribution,
 		// Unlock next tranche for staking
 		contrib.Tranches[nextTranche].Status = types.TrancheStatus_TRANCHE_STATUS_STAKING
 		contrib.Tranches[nextTranche].StakeDeadline = currentEpoch + params.StakeDeadlineEpochs
-		contrib.CurrentTranche = uint32(nextTranche)
+		contrib.CurrentTranche = commontypes.Saturate[uint32](nextTranche)
 	}
 
 	return nil
 }
 
 // completeContribution handles the final phase: release holdback, return bond, create project.
+// A failed holdback mint (e.g. the per-epoch mint cap) returns an error: the
+// caller's CacheContext rolls the whole verification back and the EndBlocker
+// retries it on the next block, so the holdback is never silently lost
+// (REV-08). The status index is written together with the record.
 func (k Keeper) completeContribution(ctx context.Context, contrib *types.Contribution) error {
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 
@@ -459,8 +495,30 @@ func (k Keeper) completeContribution(ctx context.Context, contrib *types.Contrib
 		return err
 	}
 
-	// Transition status + index BEFORE any mint/unlock that may fail due to epoch caps
-	// or transient errors — the contribution must still be marked complete.
+	// Release holdback to contributor
+	if contrib.HoldbackAmount.IsPositive() {
+		if err := k.repKeeper.MintDREAM(ctx, sdk.AccAddress(contributorAddr), contrib.HoldbackAmount); err != nil {
+			return fmt.Errorf("mint holdback on completion: %w", err)
+		}
+		contrib.HoldbackAmount = math.ZeroInt()
+	}
+
+	// Return bond to contributor (already gone if the contributor was zeroed)
+	if _, err := k.unlockOrGone(ctx, sdk.AccAddress(contributorAddr), contrib.BondRemaining); err != nil {
+		return err
+	}
+	contrib.BondRemaining = math.ZeroInt()
+
+	// Transition to x/rep project. A failure is not value-moving: the
+	// contribution completes anyway with TransitionedToProject = false and
+	// is queued for retry by the EndBlocker (REV-07).
+	if err := k.tryProjectTransition(ctx, contrib); err != nil {
+		sdkCtx.Logger().Error("failed to create project on transition; queued for retry", "error", err)
+		if qErr := k.queueProjectTransition(ctx, contrib.Id, sdkCtx.BlockHeight()+projectTransitionRetryBlocks); qErr != nil {
+			return qErr
+		}
+	}
+
 	if err := k.ContributionsByStatus.Remove(ctx, collections.Join(int32(contrib.Status), contrib.Id)); err != nil {
 		return err
 	}
@@ -469,50 +527,12 @@ func (k Keeper) completeContribution(ctx context.Context, contrib *types.Contrib
 		return err
 	}
 
-	// Release holdback to contributor (log-only on failure: contribution is already COMPLETED)
-	if contrib.HoldbackAmount.IsPositive() {
-		if err := k.repKeeper.MintDREAM(ctx, sdk.AccAddress(contributorAddr), contrib.HoldbackAmount); err != nil {
-			sdkCtx.Logger().Error("failed to mint holdback on completion", "error", err, "contribution_id", contrib.Id)
-		} else {
-			contrib.HoldbackAmount = math.ZeroInt()
-		}
-	}
-
-	// Return bond to contributor
-	if contrib.BondRemaining.IsPositive() {
-		if err := k.repKeeper.UnlockDREAM(ctx, sdk.AccAddress(contributorAddr), contrib.BondRemaining); err != nil {
-			return err
-		}
-		contrib.BondRemaining = math.ZeroInt()
-	}
-
-	// Transition to x/rep project
-	creatorAddr := sdk.AccAddress(contributorAddr)
-	projectID, err := k.repKeeper.CreateProject(
-		ctx,
-		creatorAddr,
-		contrib.ProjectName,
-		contrib.Description,
-		[]string{"reveal"}, // tags
-		reptypes.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, // default category
-		"",             // council (determined by project governance)
-		math.ZeroInt(), // requestedBudget (reveal-sourced projects are pre-funded)
-		math.ZeroInt(), // requestedSpark
-		false,          // not permissionless — reveal-transitioned project
-	)
-	if err != nil {
-		// Log but don't fail — project creation can be retried
-		sdkCtx.Logger().Error("failed to create project on transition", "error", err)
-	} else {
-		contrib.TransitionedToProject = true
-		contrib.ProjectId = projectID
-	}
-
 	// Emit completion event
 	sdkCtx.EventManager().EmitEvent(
 		sdk.NewEvent("contribution_completed",
 			sdk.NewAttribute("contribution_id", fmt.Sprintf("%d", contrib.Id)),
 			sdk.NewAttribute("project_id", fmt.Sprintf("%d", contrib.ProjectId)),
+			sdk.NewAttribute("transitioned_to_project", fmt.Sprintf("%t", contrib.TransitionedToProject)),
 		),
 	)
 
@@ -525,7 +545,7 @@ func (k Keeper) calculateAvgQuality(ctx context.Context, contributionID uint64, 
 	weightedSum := math.ZeroInt()
 
 	trancheKey := TrancheKey(contributionID, trancheID)
-	_ = k.VotesByTranche.Walk(ctx,
+	if err := k.VotesByTranche.Walk(ctx,
 		collections.NewPrefixedPairRange[string, string](trancheKey),
 		func(key collections.Pair[string, string]) (bool, error) {
 			vote, err := k.Vote.Get(ctx, key.K2())
@@ -536,10 +556,130 @@ func (k Keeper) calculateAvgQuality(ctx context.Context, contributionID uint64, 
 			totalWeight = totalWeight.Add(vote.StakeWeight)
 			return false, nil
 		},
-	)
+	); err != nil {
+		sdk.UnwrapSDKContext(ctx).Logger().Error("calculateAvgQuality: VotesByTranche.Walk failed", "err", err)
+	}
 
 	if totalWeight.IsZero() {
 		return math.LegacyNewDec(3) // default mid rating
 	}
 	return math.LegacyNewDecFromInt(weightedSum).Quo(math.LegacyNewDecFromInt(totalWeight))
+}
+
+// Project transition retry (REV-07).
+const (
+	// projectTransitionRetryBlocks is the base delay between attempts; the
+	// n-th retry waits n times as long.
+	projectTransitionRetryBlocks = int64(100)
+	// maxProjectTransitionAttempts bounds the retries per contribution.
+	maxProjectTransitionAttempts = uint32(10)
+	// maxProjectTransitionsPerBlock caps the retry pass.
+	maxProjectTransitionsPerBlock = 5
+)
+
+// tryProjectTransition creates the community-owned x/rep project of a
+// completed contribution in a cache context, so a failure leaves no partial
+// rep state. Reveal approval always comes from the Commons Council, so the
+// project is filed under it.
+func (k Keeper) tryProjectTransition(ctx context.Context, contrib *types.Contribution) error {
+	contributorAddr, err := k.addressCodec.StringToBytes(contrib.Contributor)
+	if err != nil {
+		return err
+	}
+	cacheCtx, write := sdk.UnwrapSDKContext(ctx).CacheContext()
+	projectID, err := k.repKeeper.CreateProject(
+		cacheCtx,
+		sdk.AccAddress(contributorAddr),
+		contrib.ProjectName,
+		contrib.Description,
+		[]string{"reveal"}, // tags
+		reptypes.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, // default category
+		"commons",      // council that approved the contribution
+		math.ZeroInt(), // requestedBudget (reveal-sourced projects are pre-funded)
+		math.ZeroInt(), // requestedSpark
+		false,          // not permissionless — reveal-transitioned project
+	)
+	if err != nil {
+		return err
+	}
+	write()
+	contrib.TransitionedToProject = true
+	contrib.ProjectId = projectID
+	return nil
+}
+
+// queueProjectTransition files a contribution for a project-creation retry
+// at height `at`.
+func (k Keeper) queueProjectTransition(ctx context.Context, id uint64, at int64) error {
+	return k.ProjectTransitionQueue.Set(ctx, collections.Join(at, id))
+}
+
+// RetryProjectTransitions retries the x/rep project creation of completed
+// contributions whose transition failed, at most
+// maxProjectTransitionsPerBlock per block. Each failure doubles back with a
+// longer delay; after maxProjectTransitionAttempts the contribution is
+// dropped from the queue (event contribution_project_transition_abandoned)
+// and keeps TransitionedToProject = false. Errors are logged, never returned.
+func (k Keeper) RetryProjectTransitions(ctx context.Context) {
+	sdkCtx := sdk.UnwrapSDKContext(ctx)
+	height := sdkCtx.BlockHeight()
+	rng := new(collections.Range[collections.Pair[int64, uint64]]).
+		EndInclusive(collections.Join(height, uint64(stdmath.MaxUint64)))
+	var due []collections.Pair[int64, uint64]
+	if err := k.ProjectTransitionQueue.Walk(ctx, rng, func(key collections.Pair[int64, uint64]) (bool, error) {
+		due = append(due, key)
+		return len(due) >= maxProjectTransitionsPerBlock, nil
+	}); err != nil {
+		sdkCtx.Logger().Error("reveal: failed to walk project transition queue", "error", err)
+		return
+	}
+	for _, key := range due {
+		id := key.K2()
+		if err := k.ProjectTransitionQueue.Remove(ctx, key); err != nil {
+			sdk.UnwrapSDKContext(ctx).Logger().Error("RetryProjectTransitions: ProjectTransitionQueue.Remove failed", "err", err)
+		}
+		contrib, err := k.Contribution.Get(ctx, id)
+		if err != nil || contrib.TransitionedToProject ||
+			contrib.Status != types.ContributionStatus_CONTRIBUTION_STATUS_COMPLETED {
+			if err := k.ProjectTransitionAttempts.Remove(ctx, id); err != nil {
+				sdk.UnwrapSDKContext(ctx).Logger().Error("RetryProjectTransitions: ProjectTransitionAttempts.Remove failed", "err", err)
+			}
+			continue
+		}
+		if err := k.tryProjectTransition(ctx, &contrib); err != nil {
+			attempts, getErr := k.ProjectTransitionAttempts.Get(ctx, id)
+			if getErr != nil && !errors.Is(getErr, collections.ErrNotFound) {
+				sdk.UnwrapSDKContext(ctx).Logger().Error("RetryProjectTransitions: ProjectTransitionAttempts.Get failed", "err", getErr)
+			}
+			attempts++
+			if attempts >= maxProjectTransitionAttempts {
+				if err := k.ProjectTransitionAttempts.Remove(ctx, id); err != nil {
+					sdk.UnwrapSDKContext(ctx).Logger().Error("RetryProjectTransitions: ProjectTransitionAttempts.Remove failed", "err", err)
+				}
+				sdkCtx.EventManager().EmitEvent(sdk.NewEvent("contribution_project_transition_abandoned",
+					sdk.NewAttribute("contribution_id", fmt.Sprintf("%d", id)),
+					sdk.NewAttribute("error", err.Error()),
+				))
+				continue
+			}
+			if err := k.ProjectTransitionAttempts.Set(ctx, id, attempts); err != nil {
+				sdk.UnwrapSDKContext(ctx).Logger().Error("RetryProjectTransitions: ProjectTransitionAttempts.Set failed", "err", err)
+			}
+			if err := k.queueProjectTransition(ctx, id, height+projectTransitionRetryBlocks*int64(attempts+1)); err != nil {
+				sdk.UnwrapSDKContext(ctx).Logger().Error("RetryProjectTransitions: k.queueProjectTransition failed", "err", err)
+			}
+			continue
+		}
+		if err := k.Contribution.Set(ctx, id, contrib); err != nil {
+			sdkCtx.Logger().Error("reveal: failed to save transitioned contribution", "contribution_id", id, "error", err)
+			continue
+		}
+		if err := k.ProjectTransitionAttempts.Remove(ctx, id); err != nil {
+			sdk.UnwrapSDKContext(ctx).Logger().Error("RetryProjectTransitions: ProjectTransitionAttempts.Remove failed", "err", err)
+		}
+		sdkCtx.EventManager().EmitEvent(sdk.NewEvent("contribution_project_transitioned",
+			sdk.NewAttribute("contribution_id", fmt.Sprintf("%d", id)),
+			sdk.NewAttribute("project_id", fmt.Sprintf("%d", contrib.ProjectId)),
+		))
+	}
 }

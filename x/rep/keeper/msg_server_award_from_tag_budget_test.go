@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"testing"
 
+	"cosmossdk.io/collections"
 	sdkmath "cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/stretchr/testify/require"
@@ -29,6 +30,8 @@ type mockForumKeeper struct {
 	resolvedError    error
 	reverseError     error
 	getSentinelError error
+	// anyAuthor, when set, is the author of every post not in authors.
+	anyAuthor string
 }
 
 func mockForumKey(actionType types.GovActionType, target string) string {
@@ -40,6 +43,9 @@ func (m *mockForumKeeper) PruneTagReferences(_ context.Context, _ string) error 
 func (m *mockForumKeeper) GetPostAuthor(_ context.Context, postID uint64) (string, error) {
 	a, ok := m.authors[postID]
 	if !ok {
+		if m.anyAuthor != "" {
+			return m.anyAuthor, nil
+		}
 		return "", fmt.Errorf("post %d not found", postID)
 	}
 	return a, nil
@@ -212,4 +218,72 @@ func TestMsgServerAwardFromTagBudget(t *testing.T) {
 		iter.Close()
 		require.True(t, found)
 	})
+}
+
+// TestAwardFromTagBudgetAwarderEpochCap: one group member may award at most
+// tag_budget_awarder_epoch_cap_bps (default 25%) of a pool per epoch, however
+// many posts by other authors they spread it over. The allowance is per
+// awarder and resets in the next epoch.
+func TestAwardFromTagBudgetAwarderEpochCap(t *testing.T) {
+	f := initFixture(t)
+	fk := &mockForumKeeper{authors: map[uint64]string{}, tags: map[uint64][]string{}}
+	f.keeper.SetForumKeeper(fk)
+	ms := keeper.NewMsgServerImpl(f.keeper)
+
+	str := func(seed string) string {
+		s, err := f.addressCodec.BytesToString(sdk.AccAddress([]byte(seed)[:20]))
+		require.NoError(t, err)
+		return s
+	}
+	group := str("tb-cap-group........")
+	phoenix := str("tb-cap-phoenix......")
+	aurora := str("tb-cap-aurora.......")
+	for i := uint64(1); i <= 6; i++ {
+		fk.authors[i] = str(fmt.Sprintf("tb-cap-author-%d.....", i))
+		fk.tags[i] = []string{"gopher"}
+	}
+	id, err := f.keeper.TagBudgetSeq.Next(f.ctx)
+	require.NoError(t, err)
+	require.NoError(t, f.keeper.TagBudget.Set(f.ctx, id, types.TagBudget{
+		Id: id, GroupAccount: group, Tag: "gopher", PoolBalance: "1000", Active: true,
+	}))
+	award := func(ctx sdk.Context, by string, post uint64, amount string) error {
+		_, err := ms.AwardFromTagBudget(ctx, &types.MsgAwardFromTagBudget{
+			Creator: by, BudgetId: id, PostId: post, Amount: amount,
+		})
+		return err
+	}
+
+	// phoenix: 200 + 50 = 250, exactly 25% of the 1000 pool.
+	require.NoError(t, award(f.ctx, phoenix, 1, "200"))
+	require.NoError(t, award(f.ctx, phoenix, 2, "50"))
+	err = award(f.ctx, phoenix, 3, "1")
+	require.ErrorIs(t, err, types.ErrTagBudgetAwarderCap)
+
+	// aurora has her own allowance: 25% of the pool before her awards (750).
+	require.NoError(t, award(f.ctx, aurora, 3, "187"))
+	require.ErrorIs(t, award(f.ctx, aurora, 4, "1"), types.ErrTagBudgetAwarderCap)
+
+	// Next epoch: phoenix may award again, and the old epoch's row is dropped.
+	params, err := f.keeper.Params.Get(f.ctx)
+	require.NoError(t, err)
+	next := f.ctx.WithBlockHeight(f.ctx.BlockHeight() + params.EpochBlocks)
+	require.NoError(t, award(next, phoenix, 5, "100"))
+	rows := 0
+	require.NoError(t, f.keeper.TagBudgetAwarderEpoch.Walk(next, nil,
+		func(k collections.Triple[uint64, string, int64], _ sdkmath.Int) (bool, error) {
+			if k.K2() == phoenix {
+				rows++
+			}
+			return false, nil
+		}))
+	require.Equal(t, 1, rows, "one row per (budget, awarder)")
+
+	// The cap is a param: 10000 bps lifts it to the single-award cap only.
+	params.TagBudgetAwarderEpochCapBps = 10000
+	require.NoError(t, f.keeper.Params.Set(next, params))
+	require.NoError(t, award(next, aurora, 6, "100"))
+
+	params.TagBudgetAwarderEpochCapBps = 10001
+	require.Error(t, params.Validate())
 }

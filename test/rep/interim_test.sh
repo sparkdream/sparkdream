@@ -9,6 +9,7 @@ echo ""
 # --- SETUP ---
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 source "$SCRIPT_DIR/.test_env" 2>/dev/null || true
+source "$SCRIPT_DIR/../lib/ops_committee.sh"
 
 BINARY="${BINARY:-sparkdreamd}"
 CHAIN_ID="${CHAIN_ID:-sparkdream}"
@@ -52,12 +53,13 @@ echo "==========================================================================
 echo "TEST 1: COMMITTEE INTERIM CREATION AND COMPLETION"
 echo "================================================================================"
 echo ""
-echo "Flow: Committee creates interim → assignee completes → DREAM minted"
+echo "Flow: member creates interim -> Operations Committee proposal approves -> DREAM paid"
+echo "(an assignee can no longer complete and pay its own interim, REP-E-02)"
 echo ""
 
 # Get alice's initial balance and starting block
-ALICE_BALANCE_BEFORE=$(get_dream_balance "$ALICE_ADDR")
-echo "Step 1: Alice's initial DREAM balance: $ALICE_BALANCE_BEFORE"
+ALICE_BALANCE_BEFORE=$(get_dream_balance "$ASSIGNEE_ADDR")
+echo "Step 1: Assignee's initial DREAM balance: $ALICE_BALANCE_BEFORE"
 
 # Record starting block height for epoch calculation
 START_BLOCK=$($BINARY query block --output json 2>&1 | grep -v "Falling back" | jq -r '.header.height // "1000"')
@@ -66,16 +68,16 @@ echo "   Starting block: $START_BLOCK"
 # Calculate deadline (current block + 100)
 DEADLINE_BLOCK=$((START_BLOCK + 100))
 
-# Create an "other" type interim (committee operational work)
+# Create an "other" type interim (the assignee proposes paid work)
 echo ""
-echo "Step 2: Alice creates committee operations interim..."
+echo "Step 2: Assignee creates an interim..."
 TX_RES=$($BINARY tx rep create-interim \
     "other" \
     "$PROJECT_ID" \
     "project" \
     "simple" \
     "$DEADLINE_BLOCK" \
-    --from alice \
+    --from assignee \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
     --fees 5000${BOND_DENOM} \
@@ -117,30 +119,63 @@ echo "   Type: $INTERIM_TYPE"
 echo "   Status: $INTERIM_STATUS"
 echo "   Budget: $INTERIM_BUDGET_DREAM DREAM ($INTERIM_BUDGET micro-DREAM)"
 
-# Complete the interim
+# The assignee cannot pay itself: complete-interim is refused.
 echo ""
-echo "Step 3: Alice completes the interim work..."
-TX_RES=$($BINARY tx rep complete-interim --gas 500000 \
+echo "Step 3a: Assignee tries to complete its own interim (must fail)..."
+SELF_RES=$($BINARY tx rep complete-interim --gas 500000 \
     $INTERIM_ID \
-    "Security audit completed - no critical issues found" \
+    "self-certified" \
+    --from assignee \
+    --chain-id $CHAIN_ID \
+    --keyring-backend test \
+    --fees 5000${BOND_DENOM} \
+    -y \
+    --output json 2>&1)
+SELF_HASH=$(echo "$SELF_RES" | jq -r '.txhash // empty')
+if [ -n "$SELF_HASH" ]; then
+    sleep 6
+    SELF_CODE=$($BINARY query tx $SELF_HASH --output json 2>&1 | jq -r '.code // 0')
+    if [ "$SELF_CODE" == "0" ]; then
+        echo "[FAIL] An assignee completed (and was paid for) its own interim"
+        exit 1
+    fi
+fi
+echo "[ OK ] Self-completion refused"
+
+# A single Operations Committee member cannot pay an interim: approval needs
+# the committee policy (an executed proposal).
+echo ""
+echo "Step 3a2: Alice alone tries to approve (must fail)..."
+ALONE_RES=$($BINARY tx rep approve-interim --gas 500000 \
+    $INTERIM_ID \
+    true \
+    "single member" \
     --from alice \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
     --fees 5000${BOND_DENOM} \
     -y \
     --output json 2>&1)
+ALONE_HASH=$(echo "$ALONE_RES" | jq -r '.txhash // empty')
+if [ -n "$ALONE_HASH" ]; then
+    sleep 6
+    ALONE_CODE=$($BINARY query tx $ALONE_HASH --output json 2>&1 | jq -r '.code // 0')
+    if [ "$ALONE_CODE" == "0" ]; then
+        echo "[FAIL] A single committee member approved (paid) an interim"
+        exit 1
+    fi
+fi
+echo "[ OK ] Single-member approval refused"
 
-TXHASH=$(echo "$TX_RES" | jq -r '.txhash // empty')
-sleep 6
-
-TX_RESULT=$($BINARY query tx $TXHASH --output json 2>&1)
-CODE=$(echo "$TX_RESULT" | jq -r '.code // 0')
-
-if [ "$CODE" != "0" ]; then
-    ERROR=$(echo "$TX_RESULT" | jq -r '.raw_log // "unknown error"')
-    echo "[FAIL] Interim completion failed: $ERROR"
+# The Operations Committee approves the interim through a proposal
+echo ""
+echo "Step 3: The Operations Committee approves the interim (proposal)..."
+if ! ops_approve_interim "$INTERIM_ID" "Security audit completed - no critical issues found"; then
+    echo "[FAIL] Interim completion failed: $OPS_COMMITTEE_ERROR"
     exit 1
 fi
+# The execute tx carries the inner message's events (mint/credit below).
+TX_RESULT="$OPS_COMMITTEE_TX"
 
 echo "[ OK ] Interim completed successfully"
 
@@ -200,7 +235,7 @@ else
     echo "   [INFO]  No mint_dream or credit_dream event found in tx"
     echo "      Checking balance as fallback..."
 
-    ALICE_BALANCE_AFTER=$(get_dream_balance "$ALICE_ADDR")
+    ALICE_BALANCE_AFTER=$(get_dream_balance "$ASSIGNEE_ADDR")
     echo "      Alice before: $ALICE_BALANCE_BEFORE DREAM"
     echo "      Alice after:  $ALICE_BALANCE_AFTER DREAM"
 
@@ -225,8 +260,8 @@ echo "==========================================================================
 echo ""
 
 # Test query by assignee
-echo "Step 1: Query interims by assignee (Alice)..."
-ALICE_INTERIMS=$($BINARY query rep interims-by-assignee "$ALICE_ADDR" --output json 2>&1)
+echo "Step 1: Query interims by assignee..."
+ALICE_INTERIMS=$($BINARY query rep interims-by-assignee "$ASSIGNEE_ADDR" --output json 2>&1)
 if [ -n "$ALICE_INTERIMS" ] && [ "$ALICE_INTERIMS" != "null" ]; then
     # Check if it returned a single interim or error
     INTERIM_ID=$(echo "$ALICE_INTERIMS" | jq -r '.interim_id // empty')
@@ -370,30 +405,18 @@ ADJUDICATION_ID=$(echo "$INTERIMS" | jq -r '.interim[] | select(.type == "INTERI
 if [ -n "$ADJUDICATION_ID" ] && [ "$ADJUDICATION_ID" != "null" ]; then
     echo "   [ OK ] ADJUDICATION interim #$ADJUDICATION_ID found"
 
-    # Committee member completes the adjudication. The verdict is the
-    # structured --decision flag, required for ADJUDICATION interims — the
-    # completion notes are prose and are no longer parsed for keywords.
-    # AutoCLI's enum flag binding accepts the short kebab-case form
-    # (ADJUDICATION_DECISION_REJECT -> "reject"); the full constant name fails
-    # client-side, same as the verdict flag on submit-juror-vote.
+    # The committee completes the adjudication through a proposal (a single
+    # member is refused). The verdict is the structured decision field,
+    # required for ADJUDICATION interims; the notes are prose.
     echo ""
-    echo "Step 5: Committee (Alice) completes adjudication..."
-    TX_RES=$($BINARY tx rep complete-interim --gas 500000 \
-        $ADJUDICATION_ID \
-        "Committee decision: Challenge REJECTED. Work meets requirements." \
-        --decision reject \
-        --from alice \
-        --chain-id $CHAIN_ID \
-        --keyring-backend test \
-        --fees 5000${BOND_DENOM} \
-        -y \
-        --output json 2>&1)
-
-    TXHASH=$(echo "$TX_RES" | jq -r '.txhash // empty')
-    sleep 6
-
-    TX_RESULT=$($BINARY query tx $TXHASH --output json 2>&1)
-    CODE=$(echo "$TX_RESULT" | jq -r '.code // 0')
+    echo "Step 5: Committee completes adjudication (proposal)..."
+    if ops_complete_adjudication "$ADJUDICATION_ID" REJECT \
+        "Committee decision: Challenge REJECTED. Work meets requirements."; then
+        CODE=0
+    else
+        CODE=1
+    fi
+    TX_RESULT=$(jq -nc --arg e "$OPS_COMMITTEE_ERROR" '{raw_log: $e}')
 
     if [ "$CODE" = "0" ]; then
         echo "   [ OK ] ADJUDICATION interim completed successfully"

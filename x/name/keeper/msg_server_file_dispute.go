@@ -13,6 +13,10 @@ import (
 func (k msgServer) FileDispute(goCtx context.Context, msg *types.MsgFileDispute) (*types.MsgFileDisputeResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
 	params := k.GetParams(ctx)
+	// Work on a normalized copy: names are stored lowercase and trimmed.
+	normalized := *msg
+	normalized.Name = normalizeName(msg.Name)
+	msg = &normalized
 
 	if _, err := k.addressCodec.StringToBytes(msg.Authority); err != nil {
 		return nil, errorsmod.Wrap(err, "invalid authority address")

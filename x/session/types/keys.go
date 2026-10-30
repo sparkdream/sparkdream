@@ -1,6 +1,10 @@
 package types
 
-import "cosmossdk.io/collections"
+import (
+	"cosmossdk.io/collections"
+
+	commontypes "sparkdream/x/common/types"
+)
 
 const (
 	// ModuleName defines the module name
@@ -50,6 +54,16 @@ var (
 	// PausedOneshotByPauseTime: (pause_unix, grant_id) -> empty. Drives
 	// the EndBlocker paused-TTL auto-revoke pass.
 	PausedOneshotByPauseTimeKey = collections.NewPrefix(10)
+
+	// GrantsByFireTime: (fire_at_unix, grant_id) -> empty for ACTIVE
+	// SCHEDULED_ONESHOT grants. The EndBlocker fire pass range-walks it up
+	// to block time instead of decoding every grant in the store.
+	GrantsByFireTimeKey = collections.NewPrefix(11)
+
+	// GrantCreatorModule: grant_id -> module address, for grants created
+	// through CreateGrantOnBehalfOf. Binds the bypass decline and claim
+	// paths to the module that created the grant.
+	GrantCreatorModuleKey = collections.NewPrefix(12)
 )
 
 // NonDelegableSessionMsgs are session module messages that can never appear in the
@@ -87,6 +101,16 @@ var DreamFieldsToStrip = map[string][]string{
 }
 
 // ContextKeySessionFeePaid is set by SessionFeeDecorator when it pays fees
-// on behalf of the granter. Reuses the shield module's ContextKeyFeePaid
-// so SkipIfFeePaidDecorator can detect it.
-const ContextKeySessionFeePaid = "shield_fee_paid"
+// on behalf of the granter. It is the one typed key shared with x/shield
+// (x/common/types.ContextKeyFeePaid), so SkipIfFeePaidDecorator detects it.
+var ContextKeySessionFeePaid = commontypes.ContextKeyFeePaid
+
+// fireInProgressCtxKey is the private type of ContextKeySessionFireInProgress.
+type fireInProgressCtxKey struct{}
+
+// ContextKeySessionFireInProgress is set (to the grant id, uint64) on the
+// child context of a ScheduledOneshot Exec fire (spec §23.3). It is
+// informational only — telemetry, events and re-entrance detection.
+// Downstream handlers MUST NOT branch on it to skip ante-equivalent logic:
+// the OneshotExec security contract is the audited allowed_msg_types list.
+var ContextKeySessionFireInProgress = fireInProgressCtxKey{}

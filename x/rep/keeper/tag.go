@@ -69,15 +69,49 @@ func (k Keeper) DecrementTagUsage(ctx context.Context, name string) error {
 	return k.Tag.Set(ctx, name, tag)
 }
 
-// SetTag writes a tag entry. Used by genesis and internal callers.
+// SetTag writes a tag entry. Used by genesis and internal callers. A new
+// entry advances the registry counter (REP-E-09).
 func (k Keeper) SetTag(ctx context.Context, tag types.Tag) error {
-	return k.Tag.Set(ctx, tag.Name, tag)
+	existed, err := k.Tag.Has(ctx, tag.Name)
+	if err != nil {
+		return err
+	}
+	if err := k.Tag.Set(ctx, tag.Name, tag); err != nil {
+		return err
+	}
+	if existed {
+		return nil
+	}
+	return k.TagCount.Set(ctx, k.GetTagCount(ctx)+1)
 }
 
-// RemoveTag deletes a tag entry. Used by expiry GC and moderation flows
-// (e.g., forum's ResolveTagReport when action = remove).
+// RemoveTag deletes a tag entry and moves the registry counter back. Used by
+// expiry GC and moderation flows (e.g., ResolveTagReport when action =
+// remove).
 func (k Keeper) RemoveTag(ctx context.Context, name string) error {
-	return k.Tag.Remove(ctx, name)
+	existed, err := k.Tag.Has(ctx, name)
+	if err != nil {
+		return err
+	}
+	if !existed {
+		return nil
+	}
+	if err := k.Tag.Remove(ctx, name); err != nil {
+		return err
+	}
+	if n := k.GetTagCount(ctx); n > 0 {
+		return k.TagCount.Set(ctx, n-1)
+	}
+	return nil
+}
+
+// GetTagCount returns the number of registered tags (0 when unset).
+func (k Keeper) GetTagCount(ctx context.Context) uint64 {
+	n, err := k.TagCount.Get(ctx)
+	if err != nil {
+		return 0
+	}
+	return n
 }
 
 // SetReservedTag writes a reserved-tag entry. Used by genesis and by

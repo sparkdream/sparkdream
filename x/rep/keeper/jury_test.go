@@ -29,19 +29,19 @@ func TestJuryWorkflow(t *testing.T) {
 		math.NewInt(1000),
 		false,
 	)
-	k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(10000), math.NewInt(1000))
+	require.NoError(t, k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(10000), math.NewInt(1000)))
 
 	assignee := sdk.AccAddress([]byte("assignee"))
 	// Ensure assignee is member (needed for AssignInitiativeToMember check)
 	// Ensure assignee is member (needed for AssignInitiativeToMember check)
-	k.Member.Set(ctx, assignee.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, assignee.String(), types.Member{
 		Address:          assignee.String(),
 		DreamBalance:     PtrInt(math.ZeroInt()),
 		StakedDream:      PtrInt(math.ZeroInt()),
 		LifetimeEarned:   PtrInt(math.ZeroInt()),
 		LifetimeBurned:   PtrInt(math.ZeroInt()),
 		ReputationScores: map[string]string{"coding": "10.0"},
-	})
+	}))
 
 	initID, _ := k.CreateInitiative(
 		ctx,
@@ -58,33 +58,33 @@ func TestJuryWorkflow(t *testing.T) {
 	// Add assignee rep for Standard tier (defaults might be high)
 	// We'll update the member to have high score
 	// We'll update the member to have high score
-	k.Member.Set(ctx, assignee.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, assignee.String(), types.Member{
 		Address:          assignee.String(),
 		DreamBalance:     PtrInt(math.ZeroInt()),
 		StakedDream:      PtrInt(math.ZeroInt()),
 		LifetimeEarned:   PtrInt(math.ZeroInt()),
 		LifetimeBurned:   PtrInt(math.ZeroInt()),
 		ReputationScores: map[string]string{"coding": "1000.0"},
-	})
+	}))
 
 	// The assignee authored this initiative, so self-assigning it now posts a
 	// DREAM bond (IsSelfAssigned). Fund them and assert the assignment lands —
 	// swallowing the error here left the initiative OPEN and produced a
 	// confusing failure three calls later, at CreateChallenge.
-	k.MintDREAM(ctx, assignee, math.NewInt(1000000))
+	require.NoError(t, k.MintDREAM(ctx, assignee, math.NewInt(1000000)))
 	require.NoError(t, k.AssignInitiativeToMember(ctx, initID, assignee))
-	k.SubmitInitiativeWork(ctx, initID, assignee, "URI")
+	require.NoError(t, k.SubmitInitiativeWork(ctx, initID, assignee, "URI"))
 
 	challenger := sdk.AccAddress([]byte("chal"))
-	k.Member.Set(ctx, challenger.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, challenger.String(), types.Member{
 		Address:          challenger.String(),
 		DreamBalance:     PtrInt(math.ZeroInt()),
 		StakedDream:      PtrInt(math.ZeroInt()),
 		LifetimeEarned:   PtrInt(math.ZeroInt()),
 		LifetimeBurned:   PtrInt(math.ZeroInt()),
 		ReputationScores: make(map[string]string),
-	})
-	k.MintDREAM(ctx, challenger, math.NewInt(1000000000)) // 1000 DREAM
+	}))
+	require.NoError(t, k.MintDREAM(ctx, challenger, math.NewInt(1000000000))) // 1000 DREAM
 
 	chalID, err := k.CreateChallenge(ctx, challenger, initID, "Reason", nil, math.NewInt(50000000)) // 50 DREAM
 	require.NoError(t, err)
@@ -97,30 +97,30 @@ func TestJuryWorkflow(t *testing.T) {
 
 	// Give them reputation
 	// Give them reputation
-	k.Member.Set(ctx, juror1.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, juror1.String(), types.Member{
 		Address:          juror1.String(),
 		DreamBalance:     PtrInt(math.ZeroInt()),
 		StakedDream:      PtrInt(math.ZeroInt()),
 		LifetimeEarned:   PtrInt(math.ZeroInt()),
 		LifetimeBurned:   PtrInt(math.ZeroInt()),
 		ReputationScores: map[string]string{"coding": "100.0"},
-	})
-	k.Member.Set(ctx, juror2.String(), types.Member{
+	}))
+	require.NoError(t, k.Member.Set(ctx, juror2.String(), types.Member{
 		Address:          juror2.String(),
 		DreamBalance:     PtrInt(math.ZeroInt()),
 		StakedDream:      PtrInt(math.ZeroInt()),
 		LifetimeEarned:   PtrInt(math.ZeroInt()),
 		LifetimeBurned:   PtrInt(math.ZeroInt()),
 		ReputationScores: map[string]string{"coding": "80.0"},
-	})
-	k.Member.Set(ctx, juror3.String(), types.Member{
+	}))
+	require.NoError(t, k.Member.Set(ctx, juror3.String(), types.Member{
 		Address:          juror3.String(),
 		DreamBalance:     PtrInt(math.ZeroInt()),
 		StakedDream:      PtrInt(math.ZeroInt()),
 		LifetimeEarned:   PtrInt(math.ZeroInt()),
 		LifetimeBurned:   PtrInt(math.ZeroInt()),
 		ReputationScores: map[string]string{"coding": "60.0"},
-	})
+	}))
 
 	// Respond to challenge -> Triggers Jury Selection
 	// JurySize is 7 by default, but we only have 3 eligible.
@@ -129,7 +129,7 @@ func TestJuryWorkflow(t *testing.T) {
 	params, _ := k.Params.Get(ctx)
 	params.JurySize = 3
 	params.MinJurorReputation = math.LegacyNewDec(50)
-	k.Params.Set(ctx, params)
+	require.NoError(t, k.Params.Set(ctx, params))
 
 	err = k.RespondToChallenge(ctx, chalID, assignee, "Defense", nil)
 	require.NoError(t, err)
@@ -186,15 +186,12 @@ func TestJuryWorkflow(t *testing.T) {
 	// Should create an ADJUDICATION interim
 	// We can check Interims. Since we don't have easy query, we assume it's the next ID.
 	// Init created ID 1 (Work). Jurors created 2, 3, 4 (Jury Duty). Escalation is 5.
-	interim5, err := k.GetInterim(ctx, 5)
-	if err == nil {
+	// If the ID differs (a shared sequence), the escalation is not checked
+	// here; other jury tests cover it.
+	if interim5, err := k.GetInterim(ctx, 5); err == nil {
 		require.Equal(t, types.InterimType_INTERIM_TYPE_ADJUDICATION, interim5.Type)
 		require.Equal(t, types.InterimComplexity_INTERIM_COMPLEXITY_EPIC, interim5.Complexity)
 		require.Equal(t, "technical_operations", interim5.Committee)
-	} else {
-		// Fallback check: iterate or check event (testify doesn't check events easily without mock context hooks)
-		// Assuming ID might vary if sequence shared? Sequence is per-map in this design.
-		// InterimSeq was used.
 	}
 }
 
@@ -208,19 +205,19 @@ func TestSelectJury(t *testing.T) {
 		params, _ := k.Params.Get(ctx)
 		params.JurySize = 3
 		params.MinJurorReputation = math.LegacyNewDec(50)
-		k.Params.Set(ctx, params)
+		require.NoError(t, k.Params.Set(ctx, params))
 
 		// Create 5 members with sufficient reputation in "coding"
 		for i := 0; i < 5; i++ {
 			addr := sdk.AccAddress([]byte(fmt.Sprintf("eligible-member-%d", i)))
-			k.Member.Set(ctx, addr.String(), types.Member{
+			require.NoError(t, k.Member.Set(ctx, addr.String(), types.Member{
 				Address:          addr.String(),
 				DreamBalance:     PtrInt(math.ZeroInt()),
 				StakedDream:      PtrInt(math.ZeroInt()),
 				LifetimeEarned:   PtrInt(math.ZeroInt()),
 				LifetimeBurned:   PtrInt(math.ZeroInt()),
 				ReputationScores: map[string]string{"coding": "100.0"},
-			})
+			}))
 		}
 
 		// Create an initiative with the "coding" tag
@@ -250,19 +247,19 @@ func TestSelectJury(t *testing.T) {
 		params, _ := k.Params.Get(ctx)
 		params.JurySize = 5
 		params.MinJurorReputation = math.LegacyNewDec(50)
-		k.Params.Set(ctx, params)
+		require.NoError(t, k.Params.Set(ctx, params))
 
 		// Create only 2 eligible members (need 5)
 		for i := 0; i < 2; i++ {
 			addr := sdk.AccAddress([]byte(fmt.Sprintf("few-member-%d", i)))
-			k.Member.Set(ctx, addr.String(), types.Member{
+			require.NoError(t, k.Member.Set(ctx, addr.String(), types.Member{
 				Address:          addr.String(),
 				DreamBalance:     PtrInt(math.ZeroInt()),
 				StakedDream:      PtrInt(math.ZeroInt()),
 				LifetimeEarned:   PtrInt(math.ZeroInt()),
 				LifetimeBurned:   PtrInt(math.ZeroInt()),
 				ReputationScores: map[string]string{"coding": "100.0"},
-			})
+			}))
 		}
 
 		initiative := types.Initiative{
@@ -307,42 +304,42 @@ func TestSelectJury(t *testing.T) {
 		params, _ := k.Params.Get(ctx)
 		params.JurySize = 3
 		params.MinJurorReputation = math.LegacyNewDec(50)
-		k.Params.Set(ctx, params)
+		require.NoError(t, k.Params.Set(ctx, params))
 
 		assignee := sdk.AccAddress([]byte("the-assignee-addr"))
 		apprentice := sdk.AccAddress([]byte("the-apprentice-a"))
 
 		// Create assignee and apprentice as members with high rep
-		k.Member.Set(ctx, assignee.String(), types.Member{
+		require.NoError(t, k.Member.Set(ctx, assignee.String(), types.Member{
 			Address:          assignee.String(),
 			DreamBalance:     PtrInt(math.ZeroInt()),
 			StakedDream:      PtrInt(math.ZeroInt()),
 			LifetimeEarned:   PtrInt(math.ZeroInt()),
 			LifetimeBurned:   PtrInt(math.ZeroInt()),
 			ReputationScores: map[string]string{"coding": "500.0"},
-		})
-		k.Member.Set(ctx, apprentice.String(), types.Member{
+		}))
+		require.NoError(t, k.Member.Set(ctx, apprentice.String(), types.Member{
 			Address:          apprentice.String(),
 			DreamBalance:     PtrInt(math.ZeroInt()),
 			StakedDream:      PtrInt(math.ZeroInt()),
 			LifetimeEarned:   PtrInt(math.ZeroInt()),
 			LifetimeBurned:   PtrInt(math.ZeroInt()),
 			ReputationScores: map[string]string{"coding": "500.0"},
-		})
+		}))
 
 		// Create 3 non-affiliated members
 		nonAffiliated := make([]sdk.AccAddress, 3)
 		for i := 0; i < 3; i++ {
 			addr := sdk.AccAddress([]byte(fmt.Sprintf("non-affiliated-%d", i)))
 			nonAffiliated[i] = addr
-			k.Member.Set(ctx, addr.String(), types.Member{
+			require.NoError(t, k.Member.Set(ctx, addr.String(), types.Member{
 				Address:          addr.String(),
 				DreamBalance:     PtrInt(math.ZeroInt()),
 				StakedDream:      PtrInt(math.ZeroInt()),
 				LifetimeEarned:   PtrInt(math.ZeroInt()),
 				LifetimeBurned:   PtrInt(math.ZeroInt()),
 				ReputationScores: map[string]string{"coding": "100.0"},
-			})
+			}))
 		}
 
 		initiative := types.Initiative{
@@ -371,30 +368,30 @@ func TestSelectJury(t *testing.T) {
 		params, _ := k.Params.Get(ctx)
 		params.JurySize = 3
 		params.MinJurorReputation = math.LegacyNewDec(50)
-		k.Params.Set(ctx, params)
+		require.NoError(t, k.Params.Set(ctx, params))
 
 		// Challenger is a high-rep, NON-affiliated member — would be eligible if
 		// not explicitly excluded.
 		challenger := sdk.AccAddress([]byte("the-challenger-ad"))
-		k.Member.Set(ctx, challenger.String(), types.Member{
+		require.NoError(t, k.Member.Set(ctx, challenger.String(), types.Member{
 			Address:          challenger.String(),
 			DreamBalance:     PtrInt(math.ZeroInt()),
 			StakedDream:      PtrInt(math.ZeroInt()),
 			LifetimeEarned:   PtrInt(math.ZeroInt()),
 			LifetimeBurned:   PtrInt(math.ZeroInt()),
 			ReputationScores: map[string]string{"coding": "1000.0"},
-		})
+		}))
 
 		for i := 0; i < 3; i++ {
 			addr := sdk.AccAddress([]byte(fmt.Sprintf("pool-member-%d", i)))
-			k.Member.Set(ctx, addr.String(), types.Member{
+			require.NoError(t, k.Member.Set(ctx, addr.String(), types.Member{
 				Address:          addr.String(),
 				DreamBalance:     PtrInt(math.ZeroInt()),
 				StakedDream:      PtrInt(math.ZeroInt()),
 				LifetimeEarned:   PtrInt(math.ZeroInt()),
 				LifetimeBurned:   PtrInt(math.ZeroInt()),
 				ReputationScores: map[string]string{"coding": "100.0"},
-			})
+			}))
 		}
 
 		initiative := types.Initiative{Id: 1, Tags: []string{"coding"}, Assignee: "other-addr"}
@@ -415,32 +412,32 @@ func TestSelectJury(t *testing.T) {
 		params, _ := k.Params.Get(ctx)
 		params.JurySize = 3
 		params.MinJurorReputation = math.LegacyNewDec(50)
-		k.Params.Set(ctx, params)
+		require.NoError(t, k.Params.Set(ctx, params))
 
 		// Create 2 members with low reputation (below threshold)
 		for i := 0; i < 2; i++ {
 			addr := sdk.AccAddress([]byte(fmt.Sprintf("low-rep-member-%d", i)))
-			k.Member.Set(ctx, addr.String(), types.Member{
+			require.NoError(t, k.Member.Set(ctx, addr.String(), types.Member{
 				Address:          addr.String(),
 				DreamBalance:     PtrInt(math.ZeroInt()),
 				StakedDream:      PtrInt(math.ZeroInt()),
 				LifetimeEarned:   PtrInt(math.ZeroInt()),
 				LifetimeBurned:   PtrInt(math.ZeroInt()),
 				ReputationScores: map[string]string{"coding": "10.0"}, // Below 50
-			})
+			}))
 		}
 
 		// Create 3 members with sufficient reputation
 		for i := 0; i < 3; i++ {
 			addr := sdk.AccAddress([]byte(fmt.Sprintf("high-rep-memb-%d", i)))
-			k.Member.Set(ctx, addr.String(), types.Member{
+			require.NoError(t, k.Member.Set(ctx, addr.String(), types.Member{
 				Address:          addr.String(),
 				DreamBalance:     PtrInt(math.ZeroInt()),
 				StakedDream:      PtrInt(math.ZeroInt()),
 				LifetimeEarned:   PtrInt(math.ZeroInt()),
 				LifetimeBurned:   PtrInt(math.ZeroInt()),
 				ReputationScores: map[string]string{"coding": "75.0"}, // Above 50
-			})
+			}))
 		}
 
 		initiative := types.Initiative{
@@ -479,19 +476,19 @@ func TestTallyJuryVotes(t *testing.T) {
 		params.JurySize = jurySize
 		params.JurySuperMajority = math.LegacyNewDecWithPrec(67, 2) // 67%
 		params.MinJurorReputation = math.LegacyNewDec(50)
-		k.Params.Set(ctx, params)
+		require.NoError(t, k.Params.Set(ctx, params))
 
 		// We need a real project + initiative + challenge in the store for TallyJuryVotes
 		// to resolve the challenge via UpholdChallenge/RejectChallenge.
 		projectCreator := sdk.AccAddress([]byte("proj-creator-addr"))
-		k.Member.Set(ctx, projectCreator.String(), types.Member{
+		require.NoError(t, k.Member.Set(ctx, projectCreator.String(), types.Member{
 			Address:          projectCreator.String(),
 			DreamBalance:     PtrInt(math.ZeroInt()),
 			StakedDream:      PtrInt(math.ZeroInt()),
 			LifetimeEarned:   PtrInt(math.ZeroInt()),
 			LifetimeBurned:   PtrInt(math.ZeroInt()),
 			ReputationScores: map[string]string{"coding": "100.0"},
-		})
+		}))
 
 		projectID, _ := k.CreateProject(
 			ctx,
@@ -505,17 +502,17 @@ func TestTallyJuryVotes(t *testing.T) {
 			math.NewInt(5000),
 			false,
 		)
-		k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(50000), math.NewInt(5000))
+		require.NoError(t, k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(50000), math.NewInt(5000)))
 
 		assignee := sdk.AccAddress([]byte("tally-assignee-a"))
-		k.Member.Set(ctx, assignee.String(), types.Member{
+		require.NoError(t, k.Member.Set(ctx, assignee.String(), types.Member{
 			Address:          assignee.String(),
 			DreamBalance:     PtrInt(math.ZeroInt()),
 			StakedDream:      PtrInt(math.ZeroInt()),
 			LifetimeEarned:   PtrInt(math.ZeroInt()),
 			LifetimeBurned:   PtrInt(math.ZeroInt()),
 			ReputationScores: map[string]string{"coding": "1000.0"},
-		})
+		}))
 
 		initID, _ := k.CreateInitiative(
 			ctx,
@@ -532,20 +529,20 @@ func TestTallyJuryVotes(t *testing.T) {
 		// DREAM bond (IsSelfAssigned). Fund them and assert the assignment lands —
 		// swallowing the error here left the initiative OPEN and produced a
 		// confusing failure three calls later, at CreateChallenge.
-		k.MintDREAM(ctx, assignee, math.NewInt(1000000))
+		require.NoError(t, k.MintDREAM(ctx, assignee, math.NewInt(1000000)))
 		require.NoError(t, k.AssignInitiativeToMember(ctx, initID, assignee))
-		k.SubmitInitiativeWork(ctx, initID, assignee, "URI")
+		require.NoError(t, k.SubmitInitiativeWork(ctx, initID, assignee, "URI"))
 
 		challenger := sdk.AccAddress([]byte("tally-challenger"))
-		k.Member.Set(ctx, challenger.String(), types.Member{
+		require.NoError(t, k.Member.Set(ctx, challenger.String(), types.Member{
 			Address:          challenger.String(),
 			DreamBalance:     PtrInt(math.ZeroInt()),
 			StakedDream:      PtrInt(math.ZeroInt()),
 			LifetimeEarned:   PtrInt(math.ZeroInt()),
 			LifetimeBurned:   PtrInt(math.ZeroInt()),
 			ReputationScores: make(map[string]string),
-		})
-		k.MintDREAM(ctx, challenger, math.NewInt(1000000000)) // 1000 DREAM
+		}))
+		require.NoError(t, k.MintDREAM(ctx, challenger, math.NewInt(1000000000))) // 1000 DREAM
 
 		chalID, err := k.CreateChallenge(ctx, challenger, initID, "Bad work", nil, math.NewInt(50000000)) // 50 DREAM
 		require.NoError(t, err)
@@ -553,18 +550,18 @@ func TestTallyJuryVotes(t *testing.T) {
 		// Set challenge to IN_JURY_REVIEW status
 		challenge, _ := k.GetChallenge(ctx, chalID)
 		challenge.Status = types.ChallengeStatus_CHALLENGE_STATUS_IN_JURY_REVIEW
-		k.Challenge.Set(ctx, chalID, challenge)
+		require.NoError(t, k.Challenge.Set(ctx, chalID, challenge))
 
 		// Create juror members
 		for _, addr := range jurorAddrs {
-			k.Member.Set(ctx, addr, types.Member{
+			require.NoError(t, k.Member.Set(ctx, addr, types.Member{
 				Address:          addr,
 				DreamBalance:     PtrInt(math.ZeroInt()),
 				StakedDream:      PtrInt(math.ZeroInt()),
 				LifetimeEarned:   PtrInt(math.ZeroInt()),
 				LifetimeBurned:   PtrInt(math.ZeroInt()),
 				ReputationScores: map[string]string{"coding": "100.0"},
-			})
+			}))
 		}
 
 		// Directly create a JuryReview in the store
@@ -587,7 +584,7 @@ func TestTallyJuryVotes(t *testing.T) {
 			Deadline:          1000,
 			Verdict:           types.Verdict_VERDICT_PENDING,
 		}
-		k.JuryReview.Set(ctx, jrID, jr)
+		require.NoError(t, k.JuryReview.Set(ctx, jrID, jr))
 
 		return f, jrID, chalID
 	}
@@ -609,7 +606,7 @@ func TestTallyJuryVotes(t *testing.T) {
 			{Juror: juror2, Verdict: types.Verdict_VERDICT_UPHOLD_CHALLENGE, Confidence: PtrDec(math.LegacyMustNewDecFromStr("0.8")), Reasoning: "Uphold"},
 			{Juror: juror3, Verdict: types.Verdict_VERDICT_UPHOLD_CHALLENGE, Confidence: PtrDec(math.LegacyMustNewDecFromStr("0.85")), Reasoning: "Uphold"},
 		}
-		k.JuryReview.Set(ctx, jrID, jr)
+		require.NoError(t, k.JuryReview.Set(ctx, jrID, jr))
 
 		err := k.TallyJuryVotes(ctx, jrID)
 		require.NoError(t, err)
@@ -639,7 +636,7 @@ func TestTallyJuryVotes(t *testing.T) {
 			{Juror: juror2, Verdict: types.Verdict_VERDICT_REJECT_CHALLENGE, Confidence: PtrDec(math.LegacyMustNewDecFromStr("0.8")), Reasoning: "Reject"},
 			{Juror: juror3, Verdict: types.Verdict_VERDICT_UPHOLD_CHALLENGE, Confidence: PtrDec(math.LegacyMustNewDecFromStr("0.7")), Reasoning: "Uphold"},
 		}
-		k.JuryReview.Set(ctx, jrID, jr)
+		require.NoError(t, k.JuryReview.Set(ctx, jrID, jr))
 
 		err := k.TallyJuryVotes(ctx, jrID)
 		require.NoError(t, err)
@@ -669,7 +666,7 @@ func TestTallyJuryVotes(t *testing.T) {
 			{Juror: juror2, Verdict: types.Verdict_VERDICT_UPHOLD_CHALLENGE, Confidence: PtrDec(math.LegacyMustNewDecFromStr("0.8")), Reasoning: "Uphold"},
 			{Juror: juror3, Verdict: types.Verdict_VERDICT_REJECT_CHALLENGE, Confidence: PtrDec(math.LegacyMustNewDecFromStr("0.7")), Reasoning: "Reject"},
 		}
-		k.JuryReview.Set(ctx, jrID, jr)
+		require.NoError(t, k.JuryReview.Set(ctx, jrID, jr))
 
 		err := k.TallyJuryVotes(ctx, jrID)
 		require.NoError(t, err)
@@ -691,14 +688,14 @@ func TestRewardJurors(t *testing.T) {
 
 		// Create members
 		for _, addr := range []sdk.AccAddress{voter1, voter2, nonVoter} {
-			k.Member.Set(ctx, addr.String(), types.Member{
+			require.NoError(t, k.Member.Set(ctx, addr.String(), types.Member{
 				Address:          addr.String(),
 				DreamBalance:     PtrInt(math.ZeroInt()),
 				StakedDream:      PtrInt(math.ZeroInt()),
 				LifetimeEarned:   PtrInt(math.ZeroInt()),
 				LifetimeBurned:   PtrInt(math.ZeroInt()),
 				ReputationScores: map[string]string{"coding": "100.0"},
-			})
+			}))
 		}
 
 		// Build a JuryReview with 3 jurors but only 2 votes
@@ -782,14 +779,14 @@ func TestRewardJurors(t *testing.T) {
 		nonVoter := sdk.AccAddress([]byte("novote-juror-adr1"))
 
 		for _, addr := range []sdk.AccAddress{voter, nonVoter} {
-			k.Member.Set(ctx, addr.String(), types.Member{
+			require.NoError(t, k.Member.Set(ctx, addr.String(), types.Member{
 				Address:          addr.String(),
 				DreamBalance:     PtrInt(math.ZeroInt()),
 				StakedDream:      PtrInt(math.ZeroInt()),
 				LifetimeEarned:   PtrInt(math.ZeroInt()),
 				LifetimeBurned:   PtrInt(math.ZeroInt()),
 				ReputationScores: map[string]string{"coding": "100.0"},
-			})
+			}))
 		}
 
 		review := types.JuryReview{

@@ -2,7 +2,6 @@ package keeper
 
 import (
 	"context"
-	"strconv"
 
 	"cosmossdk.io/collections"
 
@@ -64,6 +63,11 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 		if err := k.ItemsByCollection.Set(ctx, collections.Join(item.CollectionId, item.Id)); err != nil {
 			return err
 		}
+		if item.OnChain != nil {
+			if err := k.ItemsByOnChainRef.Set(ctx, collections.Join(onChainRefKey(item.OnChain), item.Id)); err != nil {
+				return err
+			}
+		}
 		// Look up owner from parent collection for owner index
 		coll, err := k.Collection.Get(ctx, item.CollectionId)
 		if err == nil {
@@ -105,6 +109,31 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 		}
 	}
 
+	// Curation-challenge timeout schedule: exported deadlines verbatim
+	// (including stale entries of settled challenges, which the sweep
+	// drops), and the latest possible deadline for a pending challenge the
+	// genesis leaves unscheduled, as the backfill would. The schedule is then
+	// complete, so the backfill is marked done.
+	scheduled := make(map[uint64]struct{}, len(genState.CurationChallengeDeadlines))
+	for _, d := range genState.CurationChallengeDeadlines {
+		if err := k.CurationChallengeDeadline.Set(ctx, collections.Join(d.Deadline, d.ReviewId)); err != nil {
+			return err
+		}
+		scheduled[d.ReviewId] = struct{}{}
+	}
+	for _, review := range genState.CurationReviews {
+		if _, ok := scheduled[review.Id]; ok || !isChallengePending(review) {
+			continue
+		}
+		deadline := review.CreatedAt + genState.Params.ChallengeWindowBlocks + types.ChallengeResolutionTimeoutBlocks
+		if err := k.CurationChallengeDeadline.Set(ctx, collections.Join(deadline, review.Id)); err != nil {
+			return err
+		}
+	}
+	if err := k.CurationChallengeBackfill.Set(ctx, types.ChallengeBackfillDone); err != nil {
+		return err
+	}
+
 	// Import curation summaries
 	for _, summary := range genState.CurationSummaries {
 		if err := k.CurationSummary.Set(ctx, summary.CollectionId, summary); err != nil {
@@ -134,7 +163,7 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 			}
 		}
 		if flag.LastFlagAt > 0 {
-			if err := k.FlagExpiry.Set(ctx, collections.Join(flag.LastFlagAt+genState.Params.FlagExpirationBlocks, key)); err != nil {
+			if err := k.FlagExpiry.Set(ctx, collections.Join(flagExpiryBlock(flag, genState.Params), key)); err != nil {
 				return err
 			}
 		}
@@ -145,11 +174,28 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 		if err := k.HideRecord.Set(ctx, hr.Id, hr); err != nil {
 			return err
 		}
-		targetKey := HideRecordTargetCompositeKey(hr.TargetType, hr.TargetId)
-		if err := k.HideRecordByTarget.Set(ctx, collections.Join(targetKey, hr.Id)); err != nil {
-			return err
+		// Deleting a collection drops its by-target entries but keeps the
+		// records (deleteCollectionFull); item hides keep theirs.
+		indexTarget := true
+		if hr.TargetType == types.FlagTargetType_FLAG_TARGET_TYPE_COLLECTION {
+			has, err := k.Collection.Has(ctx, hr.TargetId)
+			if err != nil {
+				return err
+			}
+			indexTarget = has
 		}
-		if !hr.Resolved {
+		if indexTarget {
+			targetKey := HideRecordTargetCompositeKey(hr.TargetType, hr.TargetId)
+			if err := k.HideRecordByTarget.Set(ctx, collections.Join(targetKey, hr.Id)); err != nil {
+				return err
+			}
+		}
+		// Unresolved hides, and self-corrected hides whose retained bond has
+		// not been released yet (CommittedAmount is zeroed on release), keep
+		// their expiry entry.
+		// Appealed hides are owned by x/rep's appeal and MsgAppealHide
+		// drops their entry, so they stay out.
+		if (!hr.Resolved && !hr.Appealed) || selfCorrectedBondHeld(hr) {
 			if err := k.HideRecordExpiry.Set(ctx, collections.Join(hr.AppealDeadline, hr.Id)); err != nil {
 				return err
 			}
@@ -168,13 +214,37 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 		}
 	}
 
-	// Rebuild endorsement pending index for PENDING collections
+	// Rebuild endorsement pending index for PENDING collections from the
+	// deadline stored at creation (older exports without it fall back to
+	// created_at + the imported param).
 	for _, coll := range genState.Collections {
 		if coll.Status == types.CollectionStatus_COLLECTION_STATUS_PENDING && coll.EndorsedBy == "" {
-			expiryBlock := coll.CreatedAt + genState.Params.EndorsementExpiryBlocks
+			expiryBlock := coll.EndorsementPendingUntil
+			if expiryBlock == 0 {
+				expiryBlock = coll.CreatedAt + genState.Params.EndorsementExpiryBlocks
+			}
 			if err := k.EndorsementPending.Set(ctx, collections.Join(expiryBlock, coll.Id)); err != nil {
 				return err
 			}
+		}
+	}
+
+	// Reaction dedup markers and daily counters.
+	for _, e := range genState.ReactionDedups {
+		if err := k.ReactionDedup.Set(ctx, e.Key, e.Value); err != nil {
+			return err
+		}
+		addr, tt, id, err := parseReactionDedupKey(e.Key)
+		if err != nil {
+			return err
+		}
+		if err := k.ReactionsByTarget.Set(ctx, collections.Join(FlagCompositeKey(tt, id), addr)); err != nil {
+			return err
+		}
+	}
+	for _, e := range genState.ReactionLimits {
+		if err := k.ReactionLimit.Set(ctx, e.Key, e.Value); err != nil {
+			return err
 		}
 	}
 
@@ -182,6 +252,12 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 	// enforcement uses collect's seeded values (Phase 3 bonded-role generalization).
 	if err := k.SyncCuratorBondedRoleConfig(ctx, genState.Params); err != nil {
 		return err
+	}
+
+	for _, e := range genState.PromotionQueue {
+		if err := k.PromotionQueue.Set(ctx, e.Address, e.EnqueuedAt); err != nil {
+			return err
+		}
 	}
 
 	return nil
@@ -307,15 +383,35 @@ func (k Keeper) ExportGenesis(ctx context.Context) (*types.GenesisState, error) 
 		return nil, err
 	}
 
-	return genesis, nil
-}
-
-// helper to parse collection ID from collaborator key
-func parseCollectionIDFromCollabKey(key string) (uint64, error) {
-	for i, c := range key {
-		if c == '/' {
-			return strconv.ParseUint(key[:i], 10, 64)
-		}
+	// Export reaction dedup markers and daily counters
+	err = k.ReactionDedup.Walk(ctx, nil, func(key string, v uint32) (bool, error) {
+		genesis.ReactionDedups = append(genesis.ReactionDedups, types.ReactionCounterEntry{Key: key, Value: v})
+		return false, nil
+	})
+	if err != nil {
+		return nil, err
 	}
-	return 0, nil
+	err = k.ReactionLimit.Walk(ctx, nil, func(key string, v uint32) (bool, error) {
+		genesis.ReactionLimits = append(genesis.ReactionLimits, types.ReactionCounterEntry{Key: key, Value: v})
+		return false, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	err = k.CurationChallengeDeadline.Walk(ctx, nil, func(key collections.Pair[int64, uint64]) (bool, error) {
+		genesis.CurationChallengeDeadlines = append(genesis.CurationChallengeDeadlines,
+			types.CurationChallengeDeadline{Deadline: key.K1(), ReviewId: key.K2()})
+		return false, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	if err := k.PromotionQueue.Walk(ctx, nil, func(addr string, at int64) (bool, error) {
+		genesis.PromotionQueue = append(genesis.PromotionQueue, types.PromotionQueueEntry{Address: addr, EnqueuedAt: at})
+		return false, nil
+	}); err != nil {
+		return nil, err
+	}
+	return genesis, nil
 }

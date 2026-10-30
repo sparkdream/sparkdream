@@ -1,55 +1,46 @@
 package simulation
 
 import (
-	"fmt"
-	"math/rand"
-
-	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
 
 	"sparkdream/x/commons/keeper"
 	"sparkdream/x/commons/types"
 )
 
-// SimulateMsgDeleteCategory seeds a category and removes it directly via the
-// keeper, skipping both the Commons Operations Committee authorization check
-// and the forum-keeper "no posts in category" check that the real handler
-// enforces (integration tests cover those paths). Mirrors the direct-keeper
-// approach used by SimulateMsgCreateCategory.
-func SimulateMsgDeleteCategory(
-	ak types.AuthKeeper,
-	bk types.BankKeeper,
-	k keeper.Keeper,
-	txGen client.TxConfig,
-) simtypes.Operation {
-	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
-	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		msgType := sdk.MsgTypeURL(&types.MsgDeleteCategory{})
+// minCategoriesKept is how many categories DeleteCategory leaves for the
+// forum simulation to post in.
+const minCategoriesKept = 3
 
-		// 1. Seed a fresh category to delete.
-		categoryID, err := k.CategorySeq.Next(ctx)
+// SimulateMsgDeleteCategory deletes a category without forum posts, signed
+// by a live member of the Commons Operations Committee. The dry-run applies
+// the handler's x/forum emptiness check.
+func SimulateMsgDeleteCategory(ak types.AuthKeeper, bk types.BankKeeper, k keeper.Keeper, txGen client.TxConfig) simtypes.Operation {
+	label := &types.MsgDeleteCategory{}
+	return operation(ak, bk, k, txGen, func(e *simEnv) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
+		var ids []uint64
+		if err := e.k.Category.Walk(e.ctx, nil, func(id uint64, _ types.Category) (bool, error) {
+			ids = append(ids, id)
+			return false, nil
+		}); err != nil {
+			return noOpErr(label, err)
+		}
+		if len(ids) <= minCategoriesKept {
+			return noOp(label, "too few categories to delete one")
+		}
+		signer, ok, err := e.opsMember()
 		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, msgType, "failed to get category ID"), nil, nil
+			return noOpErr(label, err)
 		}
-
-		category := types.Category{
-			CategoryId:       categoryID,
-			Title:            fmt.Sprintf("DoomedCategory-%d", r.Intn(10000)),
-			Description:      "Simulation generated category (to be deleted)",
-			MembersOnlyWrite: r.Intn(2) == 0,
-			AdminOnlyWrite:   false,
+		if !ok {
+			return noOp(label, "no live Commons Operations Committee member")
 		}
-		if err := k.Category.Set(ctx, categoryID, category); err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, msgType, "failed to seed category"), nil, nil
+		for _, i := range e.r.Perm(len(ids)) {
+			msg := &types.MsgDeleteCategory{Creator: signer.Address.String(), CategoryId: ids[i]}
+			if e.dryRun(msg) == nil {
+				return e.submit(signer, msg)
+			}
 		}
-
-		// 2. Delete it directly through the keeper.
-		if err := k.Category.Remove(ctx, categoryID); err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, msgType, "failed to remove category"), nil, nil
-		}
-
-		return simtypes.NoOpMsg(types.ModuleName, msgType, "ok (direct keeper call)"), nil, nil
-	}
+		return noOp(label, "every category still has forum posts")
+	})
 }

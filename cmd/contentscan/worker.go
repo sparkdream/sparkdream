@@ -250,7 +250,14 @@ func (w *Worker) judge(ctx context.Context, s subject, height int64) (contentsca
 		for _, u := range contentscan.ExtractURLs(text) {
 			extra = append(extra, subject{kind: kindURI, uri: u})
 		}
-		a.Verdict, a.Category, err = w.detector.Judge(ctx, contentscan.ExtractDataURIs(text, w.cfg.MaxFetchBytes))
+		// A body whose data URIs can't all be decoded gets no verdict: judging
+		// what was decoded would sign "clean" for media nobody looked at. It
+		// stays unchecked for clients (no quorum).
+		blobs, err := contentscan.ExtractDataURIsStrict(text, w.cfg.MaxFetchBytes)
+		if err != nil {
+			return a, extra, err
+		}
+		a.Verdict, a.Category, err = w.detector.Judge(ctx, blobs)
 		return a, extra, err
 
 	case kindRef:
@@ -268,7 +275,11 @@ func (w *Worker) judge(ctx context.Context, s subject, height int64) (contentsca
 		}
 		a.Subject.CID = strings.TrimSpace(id)
 		a.Subject.SHA256 = contentscan.SHA256Hex(data)
-		a.Verdict, a.Category, err = w.detector.Judge(ctx, blobsOf(data, w.cfg.MaxFetchBytes))
+		blobs, err := blobsOf(data, w.cfg.MaxFetchBytes)
+		if err != nil {
+			return a, nil, err
+		}
+		a.Verdict, a.Category, err = w.detector.Judge(ctx, blobs)
 		return a, nil, err
 
 	default: // kindURI
@@ -285,22 +296,31 @@ func (w *Worker) judge(ctx context.Context, s subject, height int64) (contentsca
 		a.Subject.SHA256 = contentscan.SHA256Hex(data)
 		if !contentAddressed {
 			// The same URL can serve different bytes later (§4.1).
-			a.ExpiresAt = a.IssuedAt.Add(w.cfg.URITTL)
+			a.ExpiresAt = a.IssuedAt.Add(w.cfg.URITTL).Truncate(time.Second)
 		}
-		a.Verdict, a.Category, err = w.detector.Judge(ctx, blobsOf(data, w.cfg.MaxFetchBytes))
+		blobs, err := blobsOf(data, w.cfg.MaxFetchBytes)
+		if err != nil {
+			return a, nil, err
+		}
+		a.Verdict, a.Category, err = w.detector.Judge(ctx, blobs)
 		return a, nil, err
 	}
 }
 
 // blobsOf turns fetched bytes into blobs: the bytes themselves, plus any data
-// URIs inside them when they are text.
-func blobsOf(data []byte, maxBytes int64) []contentscan.Blob {
+// URIs inside them when they are text. It fails like ExtractDataURIsStrict
+// when a data URI in the text can't be decoded.
+func blobsOf(data []byte, maxBytes int64) ([]contentscan.Blob, error) {
 	mt := http.DetectContentType(data)
 	blobs := []contentscan.Blob{{Data: data, MediaType: mt, Source: "fetch"}}
 	if !contentscan.IsMedia(mt) {
-		blobs = append(blobs, contentscan.ExtractDataURIs(data, maxBytes)...)
+		inner, err := contentscan.ExtractDataURIsStrict(data, maxBytes)
+		if err != nil {
+			return nil, err
+		}
+		blobs = append(blobs, inner...)
 	}
-	return blobs
+	return blobs, nil
 }
 
 // readBody reads a body query, returning the body and the chain's body_hash

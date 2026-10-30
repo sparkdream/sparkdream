@@ -1,57 +1,32 @@
 package simulation
 
 import (
-	"math/rand"
-
-	sdkmath "cosmossdk.io/math"
-
-	"github.com/cosmos/cosmos-sdk/baseapp"
+	"cosmossdk.io/math"
 	"github.com/cosmos/cosmos-sdk/client"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
 
 	"sparkdream/x/service/keeper"
 	"sparkdream/x/service/types"
 )
 
-// SimulateMsgUnbondOperator transitions a random ACTIVE / UNDERFUNDED
-// operator to UNBONDING via direct keeper write.
-func SimulateMsgUnbondOperator(
-	ak types.AuthKeeper,
-	bk types.BankKeeper,
-	k keeper.Keeper,
-	txGen client.TxConfig,
-) simtypes.Operation {
-	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
-	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		op, found := findRandomOperator(r, ctx, k)
-		msg := &types.MsgUnbondOperator{}
-		if !found {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "no operator available"), nil, nil
-		}
-		if op.Status != types.OperatorStatus_OPERATOR_STATUS_ACTIVE &&
-			op.Status != types.OperatorStatus_OPERATOR_STATUS_UNDERFUNDED {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "operator not in unbondable status"), nil, nil
-		}
-		msg.Operator = op.Address
-		msg.ServiceType = op.ServiceType
-
-		cfg, err := k.ServiceTypes.Get(ctx, op.ServiceType)
+// SimulateMsgUnbondOperator starts the exit of an ACTIVE or UNDERFUNDED
+// operator (the bond returns through MsgClaimUnbondedBond once the
+// unbonding period has passed). When no sim account is such an operator one
+// registers first.
+func SimulateMsgUnbondOperator(ak types.AuthKeeper, bk types.BankKeeper, k keeper.Keeper, txGen client.TxConfig) simtypes.Operation {
+	label := &types.MsgUnbondOperator{}
+	return operation(ak, bk, k, txGen, label, func(e *simEnv) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
+		op, acc, ok, err := e.signedOperator(func(op types.Operator) bool {
+			return op.Status == types.OperatorStatus_OPERATOR_STATUS_ACTIVE ||
+				op.Status == types.OperatorStatus_OPERATOR_STATUS_UNDERFUNDED
+		})
 		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "missing service-type config"), nil, nil
+			return noOpErr(label, err)
 		}
-
-		op.Status = types.OperatorStatus_OPERATOR_STATUS_UNBONDING
-		op.UnbondCompleteAt = ctx.BlockHeight() + cfg.UnbondingPeriodBlocks
-		op.UnderfundedSince = 0
-		// A full exit supersedes a queued partial withdrawal (§3.5a) —
-		// mirror the handler so pending-withdrawal-sanity holds.
-		op.PendingWithdrawAmount = sdkmath.ZeroInt()
-		op.WithdrawCompleteAt = 0
-		if err := k.PutOperator(ctx, op); err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "failed to update operator"), nil, nil
+		if !ok {
+			return noOp(label, "no ACTIVE or UNDERFUNDED operator signed by a live sim account")
 		}
-
-		return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "ok (direct keeper call)"), nil, nil
-	}
+		msg := &types.MsgUnbondOperator{Operator: op.Address, ServiceType: op.ServiceType}
+		return e.submit(acc, msg, math.ZeroInt())
+	})
 }

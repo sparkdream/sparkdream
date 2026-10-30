@@ -51,7 +51,7 @@ func TestQueryThreadFollowers(t *testing.T) {
 			Follower:   testCreator2,
 			FollowedAt: f.sdkCtx().BlockTime().Unix(),
 		}
-		f.keeper.ThreadFollow.Set(f.ctx, followKey, follow)
+		require.NoError(t, f.keeper.ThreadFollow.Set(f.ctx, followKey, follow))
 		require.NoError(t, f.keeper.FollowersByThread.Set(f.ctx, collections.Join(post.PostId, testCreator2)))
 		require.NoError(t, f.keeper.ThreadsByFollower.Set(f.ctx, collections.Join(testCreator2, post.PostId)))
 

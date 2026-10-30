@@ -80,7 +80,9 @@ func (k msgServer) RejectProposedReply(ctx context.Context, msg *types.MsgReject
 		// policy deliberately starts NO overturn cooldown (a rejected proposal
 		// must not lock the sentinel out of moderation).
 		if k.repKeeper != nil {
-			_ = k.repKeeper.RecordRoleOutcome(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, proposedBy, reptypes.ActionKindForumCuration, false)
+			if err := k.repKeeper.RecordRoleOutcome(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, proposedBy, reptypes.ActionKindForumCuration, false); err != nil {
+				return nil, err
+			}
 		}
 	}
 

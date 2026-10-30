@@ -226,21 +226,21 @@ func TestPrecheckImmediateWritesNothing(t *testing.T) {
 	}
 
 	// Test builds skip proof verification when no VK is stored.
-	require.NoError(t, f.keeper.PrecheckImmediate(f.ctx, msg))
-	require.NoError(t, f.keeper.PrecheckImmediate(f.ctx, msg))
+	require.NoError(t, f.keeper.PrecheckImmediateErr(f.ctx, msg))
+	require.NoError(t, f.keeper.PrecheckImmediateErr(f.ctx, msg))
 	require.False(t, f.keeper.IsNullifierUsed(f.ctx, 99, 0, hex.EncodeToString(msg.Nullifier)))
 	require.Zero(t, f.keeper.GetIdentityRateLimitCount(f.ctx, hex.EncodeToString(msg.RateLimitNullifier)))
 
 	// Simulate runs on the check state but must not mark the nullifier: its
 	// msg server would then find it used.
 	simCtx := f.ctx.WithIsCheckTx(true).WithExecMode(sdk.ExecModeSimulate)
-	require.NoError(t, f.keeper.PrecheckImmediate(simCtx, msg))
-	require.NoError(t, f.keeper.PrecheckImmediate(simCtx, msg))
+	require.NoError(t, f.keeper.PrecheckImmediateErr(simCtx, msg))
+	require.NoError(t, f.keeper.PrecheckImmediateErr(simCtx, msg))
 	require.False(t, f.keeper.IsNullifierUsed(f.ctx, 99, 0, hex.EncodeToString(msg.Nullifier)))
 
 	// A used nullifier is caught before any fee is paid.
 	require.NoError(t, f.keeper.RecordNullifier(f.ctx, 99, 0, hex.EncodeToString(msg.Nullifier), 1))
-	require.ErrorIs(t, f.keeper.PrecheckImmediate(f.ctx, msg), types.ErrNullifierUsed)
+	require.ErrorIs(t, f.keeper.PrecheckImmediateErr(f.ctx, msg), types.ErrNullifierUsed)
 }
 
 // In CheckTx the precheck marks the nullifier in the check state, so copies of
@@ -266,8 +266,8 @@ func TestPrecheckImmediateReservesNullifierInCheckTx(t *testing.T) {
 	}
 
 	checkCtx := f.ctx.WithIsCheckTx(true)
-	require.NoError(t, f.keeper.PrecheckImmediate(checkCtx, msg))
-	require.ErrorIs(t, f.keeper.PrecheckImmediate(checkCtx, msg), types.ErrNullifierUsed)
+	require.NoError(t, f.keeper.PrecheckImmediateErr(checkCtx, msg))
+	require.ErrorIs(t, f.keeper.PrecheckImmediateErr(checkCtx, msg), types.ErrNullifierUsed)
 }
 
 // A two-field scope path packs the qualifier into the top byte, so the same id

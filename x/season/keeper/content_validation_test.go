@@ -4,13 +4,27 @@ import (
 	"context"
 	"testing"
 
+	reptypes "sparkdream/x/rep/types"
 	"sparkdream/x/season/types"
+
+	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	"github.com/stretchr/testify/require"
 )
 
 func TestValidateContentRef(t *testing.T) {
 	f := initFixture(t)
+	rep := newMockRepKeeper()
+	juror := sdk.AccAddress([]byte("juror___________")).String()
+	rep.Members[juror] = true
+	rep.Initiatives = map[uint64]reptypes.Initiative{
+		5: {Id: 5, Status: reptypes.InitiativeStatus_INITIATIVE_STATUS_COMPLETED, Assignee: juror, CompletedAt: 1_000},
+		6: {Id: 6, Status: reptypes.InitiativeStatus_INITIATIVE_STATUS_ASSIGNED},
+	}
+	f.keeper.SetRepKeeper(rep)
+	// rep/jury refs need a jury duty in the current season (SEA-30).
+	require.NoError(t, f.keeper.Season.Set(f.ctx, types.Season{Number: 1, Status: types.SeasonStatus_SEASON_STATUS_ACTIVE}))
+	require.NoError(t, f.keeper.MemberProfile.Set(f.ctx, juror, types.MemberProfile{Address: juror, JuryDutiesCompleted: 1, LastJuryDutySeason: 1}))
 
 	tests := []struct {
 		name       string
@@ -88,9 +102,44 @@ func TestValidateContentRef(t *testing.T) {
 			wantErr:    types.ErrInvalidContentRef,
 		},
 		{
+			name:       "rep/initiative not completed",
+			contentRef: "rep/initiative/6",
+			wantErr:    types.ErrInvalidContentRef,
+		},
+		{
+			name:       "rep/initiative unknown",
+			contentRef: "rep/initiative/7",
+			wantErr:    types.ErrContentNotFound,
+		},
+		{
+			name:       "rep/initiative leading zero",
+			contentRef: "rep/initiative/05",
+			wantErr:    types.ErrInvalidContentRef,
+		},
+		{
 			name:       "rep/jury valid",
-			contentRef: "rep/jury/cosmos1abc",
+			contentRef: "rep/jury/" + juror,
 			wantErr:    nil,
+		},
+		{
+			name:       "rep/jury malformed address",
+			contentRef: "rep/jury/cosmos1abc",
+			wantErr:    types.ErrInvalidContentRef,
+		},
+		{
+			name:       "rep/jury non-member",
+			contentRef: "rep/jury/" + sdk.AccAddress([]byte("stranger________")).String(),
+			wantErr:    types.ErrContentNotFound,
+		},
+		{
+			name:       "blog/post leading zero rejected (SEA-08)",
+			contentRef: "blog/post/01",
+			wantErr:    types.ErrInvalidContentRef,
+		},
+		{
+			name:       "forum/post plus sign rejected",
+			contentRef: "forum/post/+1",
+			wantErr:    types.ErrInvalidContentRef,
 		},
 		{
 			name:       "rep/jury empty address",
@@ -138,8 +187,11 @@ func TestValidateContentRef(t *testing.T) {
 
 type stubArtifact map[[2]uint64]bool
 
-func (s stubArtifact) IsImpactCertificate(_ context.Context, classID, editionID uint64) bool {
-	return s[[2]uint64{classID, editionID}]
+func (s stubArtifact) ImpactCertificateInfo(_ context.Context, classID, editionID uint64) (string, int64, bool) {
+	if !s[[2]uint64{classID, editionID}] {
+		return "", 0, false
+	}
+	return "", 0, true
 }
 
 // TestValidateContentRefCertificateExists checks certificate refs against

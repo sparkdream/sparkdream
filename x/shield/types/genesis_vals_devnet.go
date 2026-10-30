@@ -28,7 +28,8 @@ func getShieldGenesisParams() Params {
 		MinTleValidators:            4,   // production: 5
 		DkgWindowBlocks:             100, // ~10 min (production: 200)
 		MaxValidatorSetDrift:        33,
-		MaxFeePerExec:               math.NewInt(50_000), // 0.05 SPARK per exec
-		EnableBatchAfterDkg:         false,               // governance enables batch mode after the DKG
+		MaxFeePerExec:               math.NewInt(50_000),  // 0.05 SPARK per exec
+		EnableBatchAfterDkg:         false,                // governance enables batch mode after the DKG
+		MaxFeesPerEpoch:             math.NewInt(325_000), // 0.325 SPARK x 576 epochs/day (25-block epochs) = 187 SPARK/day < max_funding_per_day
 	}
 }

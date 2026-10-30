@@ -1,78 +1,55 @@
 package simulation
 
 import (
-	"math/rand"
-
-	"github.com/cosmos/cosmos-sdk/baseapp"
+	"cosmossdk.io/math"
 	"github.com/cosmos/cosmos-sdk/client"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
-	"github.com/cosmos/cosmos-sdk/x/simulation"
 
 	"sparkdream/x/session/keeper"
 	"sparkdream/x/session/types"
 )
 
-// SimulateMsgDeclineGrant picks a random active grant and submits a
-// decline from the grantee. Exercises the universal `MsgDeclineGrant`
-// umbrella that replaced per-type decline messages in P6.
-//
-// NoOps when no active grant has a grantee that is also a sim
-// account.
+// SimulateMsgDeclineGrant has the live sim grantee of a pending grant of
+// any type decline it (a declined oneshot refunds the granter's deposit).
+// When no grant has a live sim grantee, the op first creates one with a
+// real MsgCreateGrant and declines it.
 func SimulateMsgDeclineGrant(
 	ak types.AuthKeeper,
 	bk types.BankKeeper,
 	k keeper.Keeper,
 	txGen client.TxConfig,
 ) simtypes.Operation {
-	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
-	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		msgType := sdk.MsgTypeURL(&types.MsgDeclineGrant{})
-
-		typeOptions := []types.GrantType{
-			types.GrantType_GRANT_TYPE_SESSION_KEY,
-			types.GrantType_GRANT_TYPE_RECURRING_PULL,
-			types.GrantType_GRANT_TYPE_SPENDING_ALLOWANCE,
-			types.GrantType_GRANT_TYPE_SCHEDULED_ONESHOT,
-			types.GrantType_GRANT_TYPE_SIGN_IN,
+	label := &types.MsgDeclineGrant{}
+	return operation(ak, bk, k, txGen, label, func(e *simEnv) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
+		all, err := e.grants(pending)
+		if err != nil {
+			return noOpErr(label, err)
 		}
-		r.Shuffle(len(typeOptions), func(i, j int) { typeOptions[i], typeOptions[j] = typeOptions[j], typeOptions[i] })
-
-		for _, t := range typeOptions {
-			grant, found := findRandomGrantOfType(r, ctx, k, t, func(g types.Grant) bool {
-				return g.Status == types.GrantStatus_GRANT_STATUS_ACTIVE ||
-					g.Status == types.GrantStatus_GRANT_STATUS_PAUSED_INSUFFICIENT_FUNDS
-			})
-			if !found {
-				continue
-			}
-			granteeAcc, ok := findSimAccount(accs, grant.Grantee)
+		for _, i := range e.r.Perm(len(all)) {
+			g := all[i]
+			grantee, ok := e.account(g.Grantee)
 			if !ok {
 				continue
 			}
-
-			msg := &types.MsgDeclineGrant{
-				Grantee: grant.Grantee,
-				GrantId: grant.Id,
+			msg := &types.MsgDeclineGrant{Grantee: g.Grantee, GrantId: g.Id}
+			if e.dryRun(msg) != nil {
+				continue
 			}
-
-			opMsg := simulation.OperationInput{
-				R:               r,
-				App:             app,
-				TxGen:           txGen,
-				Cdc:             nil,
-				Msg:             msg,
-				CoinsSpentInMsg: sdk.NewCoins(),
-				Context:         ctx,
-				SimAccount:      granteeAcc,
-				AccountKeeper:   ak,
-				Bankkeeper:      bk,
-				ModuleName:      types.ModuleName,
-			}
-
-			return simulation.GenAndDeliverTxWithRandFees(opMsg)
+			return e.deliver(grantee, msg, math.ZeroInt())
 		}
 
-		return simtypes.NoOpMsg(types.ModuleName, msgType, "no declinable grant for any sim grantee"), nil, nil
-	}
+		// Prerequisite: a grant to decline.
+		created, g, ok, err := e.createGrant(grantKind(e.r.Intn(int(numGrantKinds))))
+		if err != nil {
+			return created, nil, err
+		}
+		if !ok {
+			return noOp(label, "no grant with a live sim grantee and none could be created")
+		}
+		grantee, live := e.account(g.Grantee)
+		if !live {
+			return created, nil, nil
+		}
+		return e.submit(grantee, &types.MsgDeclineGrant{Grantee: g.Grantee, GrantId: g.Id}, math.ZeroInt())
+	})
 }

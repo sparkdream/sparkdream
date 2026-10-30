@@ -1,135 +1,55 @@
 package simulation
 
 import (
-	"fmt"
-	"math/rand"
-
 	"cosmossdk.io/math"
-	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
-	"github.com/cosmos/cosmos-sdk/x/simulation"
 
 	"sparkdream/x/rep/keeper"
 	"sparkdream/x/rep/types"
 )
 
-func SimulateMsgCreateChallenge(
-	ak types.AuthKeeper,
-	bk types.BankKeeper,
-	k keeper.Keeper,
-	txGen client.TxConfig,
-) simtypes.Operation {
-	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
-	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		// The handler refuses this message while x/season is in a blocking
-		// transition phase; a delivery failure fails the whole simulation.
-		if k.InMaintenanceMode(ctx) {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgCreateChallenge{}), "season maintenance mode"), nil, nil
-		}
-		// Pull the chain's challenge-stake floor from params instead of
-		// hardcoding. The on-chain minimum is denominated in micro-DREAM
-		// (default 50 DREAM = 50_000_000 udream). A hardcoded `100` made
-		// every simulated challenge fail with "insufficient stake".
-		params, perr := k.Params.Get(ctx)
-		if perr != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgCreateChallenge{}), "failed to read params"), nil, nil
-		}
-		minStake := params.MinChallengeStake
-		if minStake.IsNil() || minStake.IsZero() {
-			minStake = math.NewInt(50_000_000)
-		}
-		challenger, challengerAcc, err := getOrCreateMemberWithDream(r, ctx, k, accs, minStake)
+// SimulateMsgCreateChallenge has a member stake DREAM to challenge the work
+// submitted on a SUBMITTED or IN_REVIEW initiative it is not assigned to.
+// With no such initiative the work of an assigned one is submitted first.
+func SimulateMsgCreateChallenge(ak types.AuthKeeper, bk types.BankKeeper, k keeper.Keeper, txGen client.TxConfig) simtypes.Operation {
+	label := &types.MsgCreateChallenge{}
+	return operation(ak, bk, k, txGen, label, func(e *simEnv) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
+		cands, reason, err := e.challengeCandidates()
 		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgCreateChallenge{}), "failed to get/create challenger with DREAM"), nil, nil
+			return noOpErr(label, err)
 		}
+		return e.firstValid(label, cands, 4, reason)
+	})
+}
 
-		// The work must be built by a member DISTINCT from the challenger:
-		// CreateChallenge rejects a self-challenge, and getOrCreateInitiative
-		// assigns any initiative it creates to the member passed in here.
-		builder, _, err := getOrCreateDistinctMemberWithDream(r, ctx, k, accs, challenger.Address, math.NewInt(100))
-		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgCreateChallenge{}), "failed to get/create builder"), nil, nil
-		}
-
-		// Find or create an active project
-		project, _, err := findProject(r, ctx, k, types.ProjectStatus_PROJECT_STATUS_ACTIVE)
-		if err != nil || project == nil {
-			_, err := getOrCreateProject(r, ctx, k, builder)
-			if err != nil {
-				return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgCreateChallenge{}), "failed to create project"), nil, nil
-			}
-		}
-
-		// Find or create a submitted initiative to challenge
-		initID, err := getOrCreateInitiative(r, ctx, k, builder, types.InitiativeStatus_INITIATIVE_STATUS_SUBMITTED)
-		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgCreateChallenge{}), "failed to get/create initiative"), nil, nil
-		}
-
-		// getOrCreateInitiative prefers a pre-existing SUBMITTED initiative and
-		// does not filter by assignee, so the one it returns may still be this
-		// challenger's own work. Skip instead of failing delivery: an operation
-		// that returns an error aborts the whole simulation run.
-		initiative, err := k.Initiative.Get(ctx, initID)
-		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgCreateChallenge{}), "failed to get initiative"), nil, nil
-		}
-		if initiative.Assignee == challenger.Address {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgCreateChallenge{}), "challenger is the assignee"), nil, nil
-		}
-
-		// Calculate stake (10-30% of available balance, min 100)
-		if challenger.DreamBalance == nil || challenger.DreamBalance.LT(minStake) {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgCreateChallenge{}), "insufficient balance"), nil, nil
-		}
-
-		availableBalance := *challenger.DreamBalance
-		if challenger.StakedDream != nil {
-			availableBalance = availableBalance.Sub(*challenger.StakedDream)
-		}
-
-		if availableBalance.LT(minStake) {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgCreateChallenge{}), "insufficient unstaked balance"), nil, nil
-		}
-
-		maxStake := availableBalance.QuoRaw(3)
-		if maxStake.LT(minStake) {
-			maxStake = minStake
-		}
-		if maxStake.GT(availableBalance) {
-			maxStake = availableBalance
-		}
-
-		var stakeAmount math.Int
-		rangeVal := maxStake.Sub(minStake).Int64()
-		if rangeVal > 0 {
-			stakeAmount = math.NewInt(int64(r.Intn(int(rangeVal))) + minStake.Int64())
-		} else {
-			stakeAmount = minStake
-		}
-
-		msg := &types.MsgCreateChallenge{
-			Challenger:   challenger.Address,
-			InitiativeId: initID,
-			Reason:       "Simulation challenge",
-			Evidence:     []string{fmt.Sprintf("evidence-%d", r.Intn(1000))},
-			StakedDream:  &stakeAmount,
-		}
-
-		return simulation.GenAndDeliverTxWithRandFees(simulation.OperationInput{
-			R:               r,
-			App:             app,
-			TxGen:           txGen,
-			Cdc:             nil,
-			Msg:             msg,
-			CoinsSpentInMsg: sdk.NewCoins(),
-			Context:         ctx,
-			SimAccount:      challengerAcc,
-			AccountKeeper:   ak,
-			Bankkeeper:      bk,
-			ModuleName:      types.ModuleName,
-		})
+// challengeCandidates returns MsgCreateChallenge candidates on a SUBMITTED or
+// IN_REVIEW initiative (submitting one first when there is none), or why
+// there are none.
+func (e *simEnv) challengeCandidates() ([]candidate, string, error) {
+	in, ok, err := e.submittedInitiative(nil)
+	if err != nil {
+		return nil, "", err
 	}
+	if !ok {
+		return nil, "no SUBMITTED initiative and none could be submitted", nil
+	}
+	floor := e.params.MinChallengeStake
+	challengers, err := e.members(func(ma memberAcc) bool {
+		return unlocked(ma.m).QuoRaw(2).GTE(floor) && !e.k.SameMember(e.ctx, ma.addr(), in.Assignee)
+	})
+	if err != nil {
+		return nil, "", err
+	}
+	cands := make([]candidate, 0, len(challengers))
+	for _, ma := range challengers {
+		cands = append(cands, candidate{acc: ma.acc, msg: &types.MsgCreateChallenge{
+			Challenger:   ma.addr(),
+			InitiativeId: in.Id,
+			Reason:       randomReason(e.r),
+			Evidence:     []string{randomURI(e.r)},
+			StakedDream:  PtrInt(randBetween(e.r, floor, math.MaxInt(floor, unlocked(ma.m).QuoRaw(4)))),
+		}, spent: math.ZeroInt()})
+	}
+	return cands, "no member can stake a challenge", nil
 }

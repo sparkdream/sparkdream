@@ -12,8 +12,9 @@ import (
 	"sparkdream/x/vault/types"
 )
 
-// VaultsBySigner lists the vaults the address, or any x/rep alias of it, is a
-// signer of. Pagination is offset-based over the merged id list.
+// VaultsBySigner lists the vaults the address, or any x/rep alias of it, is an
+// accepted signer of; with req.Invited, the vaults where it is listed but has
+// not accepted yet. Pagination is offset-based over the merged id list.
 func (q queryServer) VaultsBySigner(ctx context.Context, req *types.QueryVaultsBySignerRequest) (*types.QueryVaultsBySignerResponse, error) {
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "invalid request")
@@ -21,11 +22,15 @@ func (q queryServer) VaultsBySigner(ctx context.Context, req *types.QueryVaultsB
 	if _, err := q.k.addressCodec.StringToBytes(req.Address); err != nil {
 		return nil, status.Error(codes.InvalidArgument, "invalid address")
 	}
+	index := q.k.VaultsBySigner
+	if req.Invited {
+		index = q.k.VaultInvitesBySigner
+	}
 	seen := map[uint64]bool{}
 	var ids []uint64
 	for _, addr := range q.k.allAddressesOf(ctx, req.Address) {
 		rng := collections.NewPrefixedPairRange[string, uint64](addr)
-		if err := q.k.VaultsBySigner.Walk(ctx, rng, func(key collections.Pair[string, uint64]) (bool, error) {
+		if err := index.Walk(ctx, rng, func(key collections.Pair[string, uint64]) (bool, error) {
 			if !seen[key.K2()] {
 				seen[key.K2()] = true
 				ids = append(ids, key.K2())

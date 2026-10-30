@@ -50,7 +50,7 @@ func (gs GenesisState) Validate() error {
 	userReactionLimitIndexMap := make(map[string]struct{})
 
 	for _, elem := range gs.UserReactionLimitMap {
-		index := fmt.Sprint(elem.UserAddress)
+		index := elem.StoreKey()
 		if _, ok := userReactionLimitIndexMap[index]; ok {
 			return fmt.Errorf("duplicated index for userReactionLimit")
 		}
@@ -193,13 +193,20 @@ func (gs GenesisState) Validate() error {
 		}
 	}
 
-	// Bounty thread reference must exist
+	// An open bounty (ACTIVE, or suspended MODERATION_PENDING) must reference
+	// an existing thread, and a thread holds at most one open bounty.
+	openByThread := make(map[uint64]uint64)
 	for _, bounty := range gs.BountyList {
-		if bounty.Status == BountyStatus_BOUNTY_STATUS_ACTIVE && bounty.ThreadId != 0 {
-			if !postIDs[bounty.ThreadId] {
-				return fmt.Errorf("bounty %d references non-existent thread %d", bounty.Id, bounty.ThreadId)
-			}
+		if !bounty.IsOpen() {
+			continue
 		}
+		if bounty.ThreadId != 0 && !postIDs[bounty.ThreadId] {
+			return fmt.Errorf("bounty %d references non-existent thread %d", bounty.Id, bounty.ThreadId)
+		}
+		if other, dup := openByThread[bounty.ThreadId]; dup {
+			return fmt.Errorf("thread %d has two open bounties (%d and %d)", bounty.ThreadId, other, bounty.Id)
+		}
+		openByThread[bounty.ThreadId] = bounty.Id
 	}
 
 	// Hide records must reference existing posts
@@ -228,6 +235,15 @@ func (gs GenesisState) Validate() error {
 		if !postIDs[pf.PostId] {
 			return fmt.Errorf("post flag references non-existent post %d", pf.PostId)
 		}
+	}
+
+	// Pending stake slashes are keyed by post: one entry per post.
+	pendingSlash := make(map[uint64]bool, len(gs.PendingStakeSlashList))
+	for _, ps := range gs.PendingStakeSlashList {
+		if pendingSlash[ps.PostId] {
+			return fmt.Errorf("duplicate pending stake slash for post %d", ps.PostId)
+		}
+		pendingSlash[ps.PostId] = true
 	}
 
 	return gs.Params.Validate()

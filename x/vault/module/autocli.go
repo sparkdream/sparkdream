@@ -26,7 +26,7 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 				{
 					RpcMethod:      "VaultsBySigner",
 					Use:            "vaults-by-signer [address]",
-					Short:          "List the vaults an address (or any of its migrated addresses) signs for",
+					Short:          "List the vaults an address (or any of its migrated addresses) signs for (--invited: pending listings)",
 					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "address"}},
 				},
 				{
@@ -114,6 +114,18 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 				{
 					RpcMethod: "UpdateVault",
 					Skip:      true, // signed by the vault address: only reachable as an inner message of a proposal
+				},
+				{
+					RpcMethod:      "AcceptVaultSigner",
+					Use:            "accept-vault-signer [vault-id]",
+					Short:          "Accept your listing as a signer of a vault (until then the entry has no weight)",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "vault_id"}},
+				},
+				{
+					RpcMethod:      "LeaveVault",
+					Use:            "leave-vault [vault-id]",
+					Short:          "Remove yourself from a vault's signers, or decline an unaccepted listing",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "vault_id"}},
 				},
 			},
 		},

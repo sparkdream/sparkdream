@@ -10,6 +10,7 @@ import (
 
 	"sparkdream/x/artifact/keeper"
 	"sparkdream/x/artifact/types"
+	commontypes "sparkdream/x/common/types"
 )
 
 // SimulateMsgMintUnits mints units of a random edition to a random account.
@@ -27,7 +28,7 @@ func SimulateMsgMintUnits(ak types.AuthKeeper, bk types.BankKeeper, k keeper.Kee
 		to, _ := simtypes.RandomAcc(r, accs)
 		p := k.GetParams(ctx)
 		msg = &types.MsgMintUnits{Minter: owner.Address.String(), ClassId: c.Id, EditionId: e.Id,
-			Entries: []types.UnitMintEntry{{Recipient: to.Address.String(), Amount: uint64(1 + r.Intn(10))}}}
+			Entries: []types.UnitMintEntry{{Recipient: to.Address.String(), Amount: commontypes.Saturate[uint64](1 + r.Intn(10))}}}
 		return deliver(r, app, ctx, ak, bk, txGen, owner, msg, p.TokenDeposit.Add(p.InboxFee).Add(p.TokenDeposit))
 	}
 }

@@ -37,17 +37,17 @@ func TestMsgServerCreateInterim(t *testing.T) {
 
 		// Setup: create project and initiative
 		creator := sdk.AccAddress([]byte("creator"))
-		k.Member.Set(ctx, creator.String(), types.Member{
+		require.NoError(t, k.Member.Set(ctx, creator.String(), types.Member{
 			Address:          creator.String(),
 			DreamBalance:     PtrInt(math.NewInt(10000)),
 			StakedDream:      PtrInt(math.ZeroInt()),
 			LifetimeEarned:   PtrInt(math.ZeroInt()),
 			LifetimeBurned:   PtrInt(math.ZeroInt()),
 			ReputationScores: map[string]string{"tag": "100.0"},
-		})
+		}))
 
 		projectID, _ := k.CreateProject(ctx, creator, "Proj", "Desc", []string{"tag"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical", math.NewInt(10000), math.NewInt(1000), false)
-		k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(10000), math.NewInt(1000))
+		require.NoError(t, k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(10000), math.NewInt(1000)))
 		initID, _ := k.CreateInitiative(ctx, creator, projectID, "Task", "D", []string{"tag"}, types.InitiativeTier_INITIATIVE_TIER_STANDARD, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, math.NewInt(100))
 
 		creatorStr, err := f.addressCodec.BytesToString(creator)

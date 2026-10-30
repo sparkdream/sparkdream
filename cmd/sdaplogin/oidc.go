@@ -115,7 +115,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("POST /userinfo", s.userinfo)
 	mux.HandleFunc("GET /membership/{sub}", s.membershipStatus)
 	mux.HandleFunc("GET /sign-in-grant/{chain}/{id}", s.signInGrantStatus)
-	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { io.WriteString(w, "ok") })
+	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(w, "ok") })
 	return mux
 }
 

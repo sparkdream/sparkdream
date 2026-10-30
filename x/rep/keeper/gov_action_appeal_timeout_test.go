@@ -52,7 +52,7 @@ func TestTimeoutExpiredAppeals_TransitionsAndSplitsBond(t *testing.T) {
 		Deadline:   1000,  // < 2000, should time out
 		AppealBond: "100", // half refunded, half burned
 	}
-	require.NoError(t, k.GovActionAppeal.Set(sdkCtx, 1, expired))
+	require.NoError(t, k.SetGovActionAppeal(sdkCtx, withID(1, expired)))
 
 	notYet := types.GovActionAppeal{
 		Appellant:  appellant,
@@ -60,7 +60,7 @@ func TestTimeoutExpiredAppeals_TransitionsAndSplitsBond(t *testing.T) {
 		Deadline:   3000, // > 2000, should stay pending
 		AppealBond: "50",
 	}
-	require.NoError(t, k.GovActionAppeal.Set(sdkCtx, 2, notYet))
+	require.NoError(t, k.SetGovActionAppeal(sdkCtx, withID(2, notYet)))
 
 	resolved := types.GovActionAppeal{
 		Appellant:  appellant,
@@ -68,7 +68,7 @@ func TestTimeoutExpiredAppeals_TransitionsAndSplitsBond(t *testing.T) {
 		Deadline:   1000, // expired but already resolved — must be skipped
 		AppealBond: "200",
 	}
-	require.NoError(t, k.GovActionAppeal.Set(sdkCtx, 3, resolved))
+	require.NoError(t, k.SetGovActionAppeal(sdkCtx, withID(3, resolved)))
 
 	require.NoError(t, k.TimeoutExpiredAppeals(sdkCtx))
 
@@ -110,16 +110,23 @@ func TestTimeoutExpiredAppeals_ZeroBondSkipsBankCalls(t *testing.T) {
 
 	sdkCtx := sdk.UnwrapSDKContext(f.ctx).WithBlockTime(time.Unix(2000, 0))
 
-	require.NoError(t, k.GovActionAppeal.Set(sdkCtx, 1, types.GovActionAppeal{
+	require.NoError(t, k.SetGovActionAppeal(sdkCtx, withID(1, types.GovActionAppeal{
 		Appellant:  sdk.AccAddress([]byte("appellant")).String(),
 		Status:     types.GovAppealStatus_GOV_APPEAL_STATUS_PENDING,
 		Deadline:   1000,
 		AppealBond: "0",
-	}))
+	})))
 
 	require.NoError(t, k.TimeoutExpiredAppeals(sdkCtx))
 
 	got, err := k.GovActionAppeal.Get(sdkCtx, 1)
 	require.NoError(t, err)
 	require.Equal(t, types.GovAppealStatus_GOV_APPEAL_STATUS_TIMEOUT, got.Status)
+}
+
+// withID stamps the record id, as CreateGovActionAppeal does, so
+// SetGovActionAppeal indexes the record under it.
+func withID(id uint64, a types.GovActionAppeal) types.GovActionAppeal {
+	a.Id = id
+	return a
 }

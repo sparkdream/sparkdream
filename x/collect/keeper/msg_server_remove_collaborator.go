@@ -75,7 +75,9 @@ func (k msgServer) RemoveCollaborator(ctx context.Context, msg *types.MsgRemoveC
 	}
 
 	// Remove reverse index
-	k.CollaboratorReverse.Remove(ctx, collections.Join(msg.Address, coll.Id)) //nolint:errcheck
+	if err := k.CollaboratorReverse.Remove(ctx, collections.Join(msg.Address, coll.Id)); err != nil {
+		return nil, err
+	}
 
 	// Decrement counters
 	if coll.CollaboratorCount > 0 {

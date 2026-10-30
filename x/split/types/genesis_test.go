@@ -51,6 +51,23 @@ func TestGenesisState_Validate(t *testing.T) {
 			valid: false,
 		},
 		{
+			desc: "total weight exactly at the cap",
+			genState: &types.GenesisState{ShareMap: []types.Share{
+				{Address: sdk.AccAddress([]byte("share_addr_1________")).String(), Weight: 6000},
+				{Address: sdk.AccAddress([]byte("share_addr_2________")).String(), Weight: 4000},
+			}},
+			valid: true,
+		},
+		{
+			// SPL-A02: every share is in range, but the sum is not.
+			desc: "total weight above the cap",
+			genState: &types.GenesisState{ShareMap: []types.Share{
+				{Address: sdk.AccAddress([]byte("share_addr_1________")).String(), Weight: 6000},
+				{Address: sdk.AccAddress([]byte("share_addr_2________")).String(), Weight: 4001},
+			}},
+			valid: false,
+		},
+		{
 			desc: "weight exceeds max",
 			genState: &types.GenesisState{ShareMap: []types.Share{
 				{Address: sdk.AccAddress([]byte("share_addr_huge_____")).String(), Weight: 10001},

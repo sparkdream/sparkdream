@@ -5,7 +5,9 @@ package types
 
 import (
 	fmt "fmt"
+	_ "github.com/cosmos/gogoproto/gogoproto"
 	proto "github.com/cosmos/gogoproto/proto"
+	github_com_cosmos_gogoproto_sortkeys "github.com/cosmos/gogoproto/sortkeys"
 	io "io"
 	math "math"
 	math_bits "math/bits"
@@ -39,6 +41,12 @@ type MemberReport struct {
 	// different amounts; refunds must use the recorded per-signer amount, not
 	// an averaged share, to prevent cross-signer bond theft.
 	ReporterBonds []*ReporterBondEntry `protobuf:"bytes,12,rep,name=reporter_bonds,json=reporterBonds,proto3" json:"reporter_bonds,omitempty"`
+	// resolved_action is the action MsgResolveMemberReport applied
+	// (UNSPECIFIED = dismissed). Together with resolved_at it opens the
+	// member's MsgAppealGovAction filing window.
+	ResolvedAction GovActionType `protobuf:"varint,13,opt,name=resolved_action,json=resolvedAction,proto3,enum=sparkdream.rep.v1.GovActionType" json:"resolved_action,omitempty"`
+	// resolved_at is the block time of the resolution (0 while open).
+	ResolvedAt int64 `protobuf:"varint,14,opt,name=resolved_at,json=resolvedAt,proto3" json:"resolved_at,omitempty"`
 }
 
 func (m *MemberReport) Reset()         { *m = MemberReport{} }
@@ -51,16 +59,12 @@ func (m *MemberReport) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
 }
 func (m *MemberReport) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	if deterministic {
-		return xxx_messageInfo_MemberReport.Marshal(b, m, deterministic)
-	} else {
-		b = b[:cap(b)]
-		n, err := m.MarshalToSizedBuffer(b)
-		if err != nil {
-			return nil, err
-		}
-		return b[:n], nil
+	b = b[:cap(b)]
+	n, err := m.MarshalToSizedBuffer(b)
+	if err != nil {
+		return nil, err
 	}
+	return b[:n], nil
 }
 func (m *MemberReport) XXX_Merge(src proto.Message) {
 	xxx_messageInfo_MemberReport.Merge(m, src)
@@ -158,6 +162,20 @@ func (m *MemberReport) GetReporterBonds() []*ReporterBondEntry {
 	return nil
 }
 
+func (m *MemberReport) GetResolvedAction() GovActionType {
+	if m != nil {
+		return m.ResolvedAction
+	}
+	return GovActionType_GOV_ACTION_TYPE_UNSPECIFIED
+}
+
+func (m *MemberReport) GetResolvedAt() int64 {
+	if m != nil {
+		return m.ResolvedAt
+	}
+	return 0
+}
+
 // ReporterBondEntry tracks the DREAM amount locked by a specific reporter
 // or cosigner against a member report.
 type ReporterBondEntry struct {
@@ -175,16 +193,12 @@ func (m *ReporterBondEntry) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
 }
 func (m *ReporterBondEntry) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	if deterministic {
-		return xxx_messageInfo_ReporterBondEntry.Marshal(b, m, deterministic)
-	} else {
-		b = b[:cap(b)]
-		n, err := m.MarshalToSizedBuffer(b)
-		if err != nil {
-			return nil, err
-		}
-		return b[:n], nil
+	b = b[:cap(b)]
+	n, err := m.MarshalToSizedBuffer(b)
+	if err != nil {
+		return nil, err
 	}
+	return b[:n], nil
 }
 func (m *ReporterBondEntry) XXX_Merge(src proto.Message) {
 	xxx_messageInfo_ReporterBondEntry.Merge(m, src)
@@ -212,9 +226,170 @@ func (m *ReporterBondEntry) GetAmount() string {
 	return ""
 }
 
+// MemberActionRestoration is what an OVERTURNED member-action appeal needs to
+// undo the action MsgResolveMemberReport applied. Written at resolution, keyed
+// by the member's canonical address (re-keyed by a migration), and deleted when
+// the appeal reaches any terminal outcome or the filing window closes with no
+// appeal, so at most one exists per member and only while the action is
+// appealable.
+type MemberActionRestoration struct {
+	Member string `protobuf:"bytes,1,opt,name=member,proto3" json:"member,omitempty"`
+	// action is WARNING, DEMOTION or ZEROING.
+	Action GovActionType `protobuf:"varint,2,opt,name=action,proto3,enum=sparkdream.rep.v1.GovActionType" json:"action,omitempty"`
+	// resolved_at is the block time of the resolution; the filing window closes
+	// at resolved_at + DefaultAppealDeadline.
+	ResolvedAt int64 `protobuf:"varint,3,opt,name=resolved_at,json=resolvedAt,proto3" json:"resolved_at,omitempty"`
+	// season is the season the action was applied in. Reputation restored in a
+	// later season goes to the lifetime archive, which the season reset would
+	// have moved it to.
+	Season int64 `protobuf:"varint,4,opt,name=season,proto3" json:"season,omitempty"`
+	// warning_id is the MemberWarning a WARNING created.
+	WarningId uint64 `protobuf:"varint,5,opt,name=warning_id,json=warningId,proto3" json:"warning_id,omitempty"`
+	// reputation is, for DEMOTION, the reputation the slash took per tag and,
+	// for ZEROING, the member's per-tag seasonal reputation before the zeroing.
+	Reputation map[string]string `protobuf:"bytes,6,rep,name=reputation,proto3" json:"reputation,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
+	// ZEROING only: the member's state before the zeroing, and the zeroed_count
+	// the zeroing produced (a later, unrelated zeroing changes it and blocks
+	// the restoration).
+	PriorStatus            MemberStatus `protobuf:"varint,7,opt,name=prior_status,json=priorStatus,proto3,enum=sparkdream.rep.v1.MemberStatus" json:"prior_status,omitempty"`
+	PriorTrustLevel        TrustLevel   `protobuf:"varint,8,opt,name=prior_trust_level,json=priorTrustLevel,proto3,enum=sparkdream.rep.v1.TrustLevel" json:"prior_trust_level,omitempty"`
+	PriorInvitationCredits uint32       `protobuf:"varint,9,opt,name=prior_invitation_credits,json=priorInvitationCredits,proto3" json:"prior_invitation_credits,omitempty"`
+	// burned_dream is the liquid DREAM the zeroing burned from the balance.
+	// Escrows the zeroing forfeited (challenge stakes, invitation stakes, role
+	// and report bonds) are not included and are never restored.
+	BurnedDream string `protobuf:"bytes,10,opt,name=burned_dream,json=burnedDream,proto3" json:"burned_dream,omitempty"`
+	ZeroedCount uint32 `protobuf:"varint,11,opt,name=zeroed_count,json=zeroedCount,proto3" json:"zeroed_count,omitempty"`
+	// appealed is set once MsgAppealGovAction files the (single) appeal of the
+	// action; appeal_id is that appeal. Its outcome settles the record.
+	Appealed bool   `protobuf:"varint,12,opt,name=appealed,proto3" json:"appealed,omitempty"`
+	AppealId uint64 `protobuf:"varint,13,opt,name=appeal_id,json=appealId,proto3" json:"appeal_id,omitempty"`
+}
+
+func (m *MemberActionRestoration) Reset()         { *m = MemberActionRestoration{} }
+func (m *MemberActionRestoration) String() string { return proto.CompactTextString(m) }
+func (*MemberActionRestoration) ProtoMessage()    {}
+func (*MemberActionRestoration) Descriptor() ([]byte, []int) {
+	return fileDescriptor_0b7df7f41049c1a3, []int{2}
+}
+func (m *MemberActionRestoration) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *MemberActionRestoration) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	b = b[:cap(b)]
+	n, err := m.MarshalToSizedBuffer(b)
+	if err != nil {
+		return nil, err
+	}
+	return b[:n], nil
+}
+func (m *MemberActionRestoration) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_MemberActionRestoration.Merge(m, src)
+}
+func (m *MemberActionRestoration) XXX_Size() int {
+	return m.Size()
+}
+func (m *MemberActionRestoration) XXX_DiscardUnknown() {
+	xxx_messageInfo_MemberActionRestoration.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_MemberActionRestoration proto.InternalMessageInfo
+
+func (m *MemberActionRestoration) GetMember() string {
+	if m != nil {
+		return m.Member
+	}
+	return ""
+}
+
+func (m *MemberActionRestoration) GetAction() GovActionType {
+	if m != nil {
+		return m.Action
+	}
+	return GovActionType_GOV_ACTION_TYPE_UNSPECIFIED
+}
+
+func (m *MemberActionRestoration) GetResolvedAt() int64 {
+	if m != nil {
+		return m.ResolvedAt
+	}
+	return 0
+}
+
+func (m *MemberActionRestoration) GetSeason() int64 {
+	if m != nil {
+		return m.Season
+	}
+	return 0
+}
+
+func (m *MemberActionRestoration) GetWarningId() uint64 {
+	if m != nil {
+		return m.WarningId
+	}
+	return 0
+}
+
+func (m *MemberActionRestoration) GetReputation() map[string]string {
+	if m != nil {
+		return m.Reputation
+	}
+	return nil
+}
+
+func (m *MemberActionRestoration) GetPriorStatus() MemberStatus {
+	if m != nil {
+		return m.PriorStatus
+	}
+	return MemberStatus_MEMBER_STATUS_ACTIVE
+}
+
+func (m *MemberActionRestoration) GetPriorTrustLevel() TrustLevel {
+	if m != nil {
+		return m.PriorTrustLevel
+	}
+	return TrustLevel_TRUST_LEVEL_NEW
+}
+
+func (m *MemberActionRestoration) GetPriorInvitationCredits() uint32 {
+	if m != nil {
+		return m.PriorInvitationCredits
+	}
+	return 0
+}
+
+func (m *MemberActionRestoration) GetBurnedDream() string {
+	if m != nil {
+		return m.BurnedDream
+	}
+	return ""
+}
+
+func (m *MemberActionRestoration) GetZeroedCount() uint32 {
+	if m != nil {
+		return m.ZeroedCount
+	}
+	return 0
+}
+
+func (m *MemberActionRestoration) GetAppealed() bool {
+	if m != nil {
+		return m.Appealed
+	}
+	return false
+}
+
+func (m *MemberActionRestoration) GetAppealId() uint64 {
+	if m != nil {
+		return m.AppealId
+	}
+	return 0
+}
+
 func init() {
 	proto.RegisterType((*MemberReport)(nil), "sparkdream.rep.v1.MemberReport")
 	proto.RegisterType((*ReporterBondEntry)(nil), "sparkdream.rep.v1.ReporterBondEntry")
+	proto.RegisterType((*MemberActionRestoration)(nil), "sparkdream.rep.v1.MemberActionRestoration")
+	proto.RegisterMapType((map[string]string)(nil), "sparkdream.rep.v1.MemberActionRestoration.ReputationEntry")
 }
 
 func init() {
@@ -222,35 +397,55 @@ func init() {
 }
 
 var fileDescriptor_0b7df7f41049c1a3 = []byte{
-	// 448 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0x6c, 0x52, 0xc1, 0x6e, 0xd3, 0x40,
-	0x10, 0x8d, 0x71, 0x48, 0xf1, 0xb6, 0x04, 0xb2, 0x42, 0xd5, 0x0a, 0x81, 0x65, 0x55, 0x14, 0x59,
-	0x1c, 0x9c, 0xb6, 0x9c, 0x39, 0xa4, 0x52, 0x85, 0x10, 0x42, 0x20, 0x97, 0x13, 0x17, 0x6b, 0xed,
-	0x1d, 0x24, 0x8b, 0x7a, 0xd7, 0xda, 0x9d, 0x44, 0xe4, 0x2f, 0xb8, 0xf2, 0x47, 0x1c, 0x7b, 0xe4,
-	0x88, 0x92, 0x1f, 0x41, 0x5e, 0xef, 0xb6, 0x96, 0x92, 0x9b, 0xe7, 0xcd, 0x9b, 0x7d, 0x6f, 0xc6,
-	0x8f, 0x9c, 0x9a, 0x96, 0xeb, 0x1f, 0x42, 0x03, 0x6f, 0xe6, 0x1a, 0xda, 0xf9, 0xea, 0x7c, 0xde,
-	0x40, 0x53, 0x82, 0x2e, 0x34, 0xb4, 0x4a, 0x63, 0xd6, 0x6a, 0x85, 0x8a, 0xce, 0xee, 0x69, 0x99,
-	0x86, 0x36, 0x5b, 0x9d, 0x3f, 0x7f, 0xbd, 0x3b, 0xc9, 0xab, 0x4a, 0x2d, 0x25, 0xf2, 0xb2, 0xbe,
-	0xa9, 0x71, 0xdd, 0x8f, 0x9e, 0xfc, 0x1e, 0x93, 0xa3, 0x4f, 0xf6, 0xc9, 0xdc, 0xbe, 0x48, 0x8f,
-	0xc9, 0xa4, 0x97, 0x60, 0x41, 0x12, 0xa4, 0x51, 0xee, 0xaa, 0x0e, 0xd7, 0xc0, 0x8d, 0x92, 0xec,
-	0x41, 0x8f, 0xf7, 0x15, 0xfd, 0x4c, 0xa8, 0x86, 0x4a, 0x35, 0x0d, 0x48, 0x01, 0xa2, 0xe0, 0x15,
-	0xd6, 0x4a, 0xb2, 0x30, 0x09, 0xd2, 0xe9, 0x45, 0x92, 0xed, 0x18, 0xcb, 0xde, 0xab, 0xd5, 0xc2,
-	0x72, 0xbe, 0xae, 0x5b, 0xc8, 0x67, 0x83, 0xd9, 0x1e, 0xa6, 0x2f, 0x09, 0x41, 0x85, 0xfc, 0xa6,
-	0x28, 0x95, 0x14, 0x6c, 0x6c, 0xc5, 0x22, 0x8b, 0x5c, 0x2a, 0x29, 0xba, 0x76, 0xa5, 0x81, 0x63,
-	0xa7, 0x85, 0xec, 0x61, 0x12, 0xa4, 0x61, 0x1e, 0x39, 0x64, 0x81, 0xf4, 0x1d, 0x99, 0x18, 0xe4,
-	0xb8, 0x34, 0x6c, 0x62, 0x2d, 0x9c, 0xee, 0xb1, 0x30, 0xdc, 0xf7, 0xda, 0x92, 0x73, 0x37, 0x44,
-	0x19, 0x39, 0x10, 0xf0, 0x1d, 0xa4, 0x01, 0x76, 0x60, 0x95, 0x7d, 0x49, 0xcf, 0xc8, 0x33, 0xf7,
-	0x59, 0x98, 0x65, 0xd9, 0xd4, 0xe8, 0x1c, 0x3c, 0xb2, 0x0e, 0xa8, 0xeb, 0x5d, 0xfb, 0xd6, 0x02,
-	0xe9, 0x0b, 0x12, 0xf5, 0x7f, 0x09, 0xb4, 0x61, 0x51, 0x12, 0x76, 0x7b, 0xdc, 0x01, 0xf4, 0x0d,
-	0x99, 0xc1, 0xaa, 0x16, 0x20, 0x2b, 0x28, 0x5a, 0x65, 0xb0, 0xa8, 0x85, 0x61, 0x24, 0x09, 0xd3,
-	0x71, 0xfe, 0xc4, 0x37, 0xbe, 0x28, 0x83, 0x1f, 0x84, 0xa1, 0x29, 0x79, 0xea, 0xb5, 0xef, 0xa8,
-	0x87, 0x96, 0x3a, 0x75, 0xb8, 0x67, 0x7e, 0x24, 0x53, 0x2f, 0x61, 0xef, 0x67, 0xd8, 0x51, 0x12,
-	0xa6, 0x87, 0x17, 0xaf, 0xf6, 0x9c, 0x21, 0x77, 0xc4, 0xee, 0xac, 0x57, 0x12, 0xf5, 0x3a, 0x7f,
-	0xac, 0x07, 0x90, 0x39, 0xb9, 0x22, 0xb3, 0x1d, 0x4e, 0x77, 0x21, 0x2e, 0x84, 0x06, 0x63, 0x5c,
-	0x40, 0x7c, 0xd9, 0x25, 0x84, 0x37, 0x5d, 0xc2, 0x7c, 0x42, 0xfa, 0xea, 0xf2, 0xec, 0xcf, 0x26,
-	0x0e, 0x6e, 0x37, 0x71, 0xf0, 0x6f, 0x13, 0x07, 0xbf, 0xb6, 0xf1, 0xe8, 0x76, 0x1b, 0x8f, 0xfe,
-	0x6e, 0xe3, 0xd1, 0xb7, 0xe3, 0x41, 0x48, 0x7f, 0xda, 0x98, 0xe2, 0xba, 0x05, 0x53, 0x4e, 0x6c,
-	0x36, 0xdf, 0xfe, 0x0f, 0x00, 0x00, 0xff, 0xff, 0xe6, 0x23, 0xe3, 0xdc, 0xff, 0x02, 0x00, 0x00,
+	// 767 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0x8c, 0x54, 0x4b, 0x6f, 0x1b, 0x37,
+	0x10, 0xf6, 0x5a, 0x0f, 0x5b, 0xa3, 0x57, 0x44, 0x18, 0x2e, 0xa1, 0x36, 0x9b, 0xad, 0xd1, 0x14,
+	0x8b, 0x1e, 0xa4, 0xc6, 0xed, 0xc1, 0x08, 0x90, 0x83, 0x9d, 0x06, 0x85, 0xd0, 0x16, 0x2d, 0x36,
+	0x39, 0xe5, 0xb2, 0xa0, 0xc4, 0xa9, 0xb1, 0x88, 0xb4, 0x5c, 0x90, 0xd4, 0xb6, 0xea, 0xbd, 0xf7,
+	0xfe, 0x8a, 0xfe, 0x96, 0x1e, 0x73, 0xcc, 0xb1, 0x90, 0xff, 0x48, 0xc0, 0xc7, 0x4a, 0x82, 0x65,
+	0x01, 0xb9, 0x71, 0xbe, 0xf9, 0xe6, 0xc5, 0x6f, 0x48, 0x78, 0xaa, 0x0a, 0x26, 0xdf, 0x71, 0x89,
+	0x6c, 0x31, 0x96, 0x58, 0x8c, 0xcb, 0x67, 0xe3, 0x05, 0x2e, 0xa6, 0x28, 0x53, 0x89, 0x85, 0x90,
+	0x7a, 0x54, 0x48, 0xa1, 0x05, 0x19, 0x6c, 0x69, 0x23, 0x89, 0xc5, 0xa8, 0x7c, 0x36, 0xfc, 0x7a,
+	0x3f, 0x92, 0xcd, 0x66, 0x62, 0x99, 0x6b, 0x36, 0xcd, 0xe6, 0x99, 0x5e, 0xb9, 0xd0, 0x61, 0x78,
+	0xa8, 0x82, 0xf7, 0x9f, 0xdd, 0x8a, 0x5b, 0x61, 0x8f, 0x63, 0x73, 0x72, 0xe8, 0xc5, 0xdf, 0x0d,
+	0xe8, 0xfc, 0x62, 0x69, 0x89, 0xed, 0x83, 0x9c, 0x43, 0xd3, 0x85, 0xd1, 0x20, 0x0a, 0xe2, 0x56,
+	0xe2, 0x2d, 0x83, 0x4b, 0x64, 0x4a, 0xe4, 0xf4, 0xd8, 0xe1, 0xce, 0x22, 0xbf, 0x02, 0x91, 0x38,
+	0x13, 0x8b, 0x05, 0xe6, 0x1c, 0x79, 0xca, 0x66, 0x3a, 0x13, 0x39, 0xad, 0x45, 0x41, 0xdc, 0xbb,
+	0x8c, 0x46, 0x7b, 0xe3, 0x8c, 0x7e, 0x14, 0xe5, 0xb5, 0xe5, 0xbc, 0x59, 0x15, 0x98, 0x0c, 0x76,
+	0x62, 0x1d, 0x4c, 0x1e, 0x03, 0x68, 0xa1, 0xd9, 0x3c, 0x9d, 0x8a, 0x9c, 0xd3, 0xba, 0x2d, 0xd6,
+	0xb2, 0xc8, 0x8d, 0xc8, 0xb9, 0x71, 0xcf, 0x24, 0x32, 0x6d, 0x6a, 0x69, 0xda, 0x88, 0x82, 0xb8,
+	0x96, 0xb4, 0x3c, 0x72, 0xad, 0xc9, 0x0b, 0x68, 0x2a, 0xcd, 0xf4, 0x52, 0xd1, 0xa6, 0x6d, 0xe1,
+	0xe9, 0x03, 0x2d, 0xec, 0xce, 0xfb, 0xda, 0x92, 0x13, 0x1f, 0x44, 0x28, 0x9c, 0x70, 0xfc, 0x1d,
+	0x73, 0x85, 0xf4, 0xc4, 0x56, 0xae, 0x4c, 0xf2, 0x2d, 0x9c, 0xf9, 0x63, 0xaa, 0x96, 0xd3, 0x45,
+	0xa6, 0x7d, 0x07, 0xa7, 0xb6, 0x03, 0xe2, 0x7d, 0xaf, 0x2b, 0xd7, 0xb5, 0x26, 0x5f, 0x40, 0xcb,
+	0x69, 0x8b, 0x52, 0xd1, 0x56, 0x54, 0x33, 0x73, 0x6c, 0x00, 0xf2, 0x0d, 0x0c, 0xb0, 0xcc, 0x38,
+	0xe6, 0x33, 0x4c, 0x0b, 0xa1, 0x74, 0x9a, 0x71, 0x45, 0x21, 0xaa, 0xc5, 0xf5, 0xa4, 0x5f, 0x39,
+	0x7e, 0x13, 0x4a, 0x4f, 0xb8, 0x22, 0x31, 0x3c, 0xaa, 0x6a, 0x6f, 0xa8, 0x6d, 0x4b, 0xed, 0x79,
+	0xbc, 0x62, 0xfe, 0x04, 0xbd, 0xaa, 0x84, 0xbd, 0x3f, 0x45, 0x3b, 0x51, 0x2d, 0x6e, 0x5f, 0x7e,
+	0xf5, 0xc0, 0x35, 0x24, 0x9e, 0x68, 0xae, 0xf5, 0x55, 0xae, 0xe5, 0x2a, 0xe9, 0xca, 0x1d, 0x48,
+	0x91, 0x09, 0xf4, 0x25, 0x2a, 0x31, 0x2f, 0xb7, 0xba, 0x76, 0x3f, 0x51, 0xd7, 0x5e, 0x15, 0xe8,
+	0x45, 0x7d, 0x02, 0xed, 0x6d, 0x2a, 0x4d, 0x7b, 0xf6, 0xd2, 0x60, 0x43, 0xd2, 0x17, 0xaf, 0x60,
+	0xb0, 0xd7, 0x8f, 0x51, 0x83, 0x71, 0x2e, 0x51, 0x29, 0xbf, 0x8c, 0x95, 0x69, 0xb6, 0x91, 0x2d,
+	0xcc, 0x1b, 0xa8, 0xb6, 0xd1, 0x59, 0x17, 0xff, 0x36, 0xe0, 0x33, 0x27, 0xaf, 0x2b, 0x9c, 0xa0,
+	0xd2, 0x42, 0x32, 0xdb, 0xc3, 0xa1, 0xcd, 0xbe, 0x82, 0xa6, 0x9f, 0xee, 0xf8, 0x13, 0xa7, 0xf3,
+	0xfc, 0xfb, 0x53, 0xd5, 0xee, 0x4f, 0x65, 0x4a, 0x2a, 0xf7, 0x68, 0xea, 0xd6, 0xe7, 0x2d, 0xb3,
+	0xc4, 0x7f, 0x30, 0x99, 0x67, 0xf9, 0x6d, 0x9a, 0x71, 0xbb, 0xc4, 0xf5, 0xa4, 0xe5, 0x91, 0x09,
+	0x27, 0x6f, 0x01, 0x24, 0x16, 0x4b, 0x6d, 0xfb, 0xa6, 0x4d, 0xab, 0xe0, 0xf3, 0x83, 0x8b, 0xbc,
+	0x37, 0xa9, 0x51, 0xd6, 0x07, 0x3b, 0x5d, 0x77, 0xb2, 0x91, 0x1b, 0xe8, 0x14, 0x32, 0x13, 0x32,
+	0xf5, 0xcf, 0xe4, 0xc4, 0xce, 0xfc, 0xe4, 0x60, 0x76, 0xff, 0x40, 0xda, 0x36, 0xc8, 0x19, 0x64,
+	0x02, 0x03, 0x97, 0x43, 0xcb, 0xa5, 0xd2, 0xe9, 0x1c, 0x4b, 0x9c, 0xdb, 0x87, 0xd0, 0xbb, 0x7c,
+	0xfc, 0x40, 0xa2, 0x37, 0x86, 0xf5, 0xb3, 0x21, 0x25, 0x7d, 0x1b, 0xb7, 0x05, 0xc8, 0x15, 0x50,
+	0x97, 0x2a, 0xcb, 0xcb, 0xcc, 0xb5, 0x98, 0xce, 0x24, 0xf2, 0x4c, 0x9b, 0x37, 0x13, 0xc4, 0xdd,
+	0xe4, 0xdc, 0xfa, 0x27, 0x1b, 0xf7, 0x4b, 0xe7, 0x25, 0x5f, 0x42, 0x67, 0xba, 0x94, 0x39, 0xf2,
+	0xd4, 0x16, 0xa3, 0x60, 0x45, 0x6d, 0x3b, 0xec, 0x07, 0x03, 0x19, 0xca, 0x5f, 0x28, 0x05, 0xf2,
+	0xd4, 0xfe, 0x97, 0xb4, 0x6d, 0x13, 0xb6, 0x1d, 0xf6, 0xd2, 0x40, 0x64, 0x08, 0xa7, 0xac, 0x28,
+	0x90, 0xcd, 0x91, 0xd3, 0x4e, 0x14, 0xc4, 0xa7, 0xc9, 0xc6, 0x26, 0x9f, 0x43, 0xcb, 0x9d, 0x8d,
+	0x48, 0x5d, 0x2b, 0x92, 0x77, 0x4e, 0xf8, 0xf0, 0x05, 0xf4, 0xef, 0x5d, 0x33, 0x79, 0x04, 0xb5,
+	0x77, 0xb8, 0xf2, 0xdb, 0x65, 0x8e, 0xe4, 0x0c, 0x1a, 0x25, 0x9b, 0x2f, 0xd1, 0x6f, 0xa9, 0x33,
+	0x9e, 0x1f, 0x5f, 0x05, 0x37, 0xdf, 0xff, 0xb7, 0x0e, 0x83, 0xf7, 0xeb, 0x30, 0xf8, 0xb0, 0x0e,
+	0x83, 0xff, 0xd7, 0x61, 0xf0, 0xcf, 0x5d, 0x78, 0xf4, 0xfe, 0x2e, 0x3c, 0xfa, 0x70, 0x17, 0x1e,
+	0xbd, 0x3d, 0xdf, 0xf9, 0xcb, 0xff, 0xb4, 0xbf, 0xb9, 0x5e, 0x15, 0xa8, 0xa6, 0x4d, 0xfb, 0x69,
+	0x7f, 0xf7, 0x31, 0x00, 0x00, 0xff, 0xff, 0x7f, 0xb1, 0x50, 0xbe, 0x4e, 0x06, 0x00, 0x00,
 }
 
 func (m *MemberReport) Marshal() (dAtA []byte, err error) {
@@ -273,6 +468,16 @@ func (m *MemberReport) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	_ = i
 	var l int
 	_ = l
+	if m.ResolvedAt != 0 {
+		i = encodeVarintMemberReport(dAtA, i, uint64(m.ResolvedAt))
+		i--
+		dAtA[i] = 0x70
+	}
+	if m.ResolvedAction != 0 {
+		i = encodeVarintMemberReport(dAtA, i, uint64(m.ResolvedAction))
+		i--
+		dAtA[i] = 0x68
+	}
 	if len(m.ReporterBonds) > 0 {
 		for iNdEx := len(m.ReporterBonds) - 1; iNdEx >= 0; iNdEx-- {
 			{
@@ -420,6 +625,122 @@ func (m *ReporterBondEntry) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	return len(dAtA) - i, nil
 }
 
+func (m *MemberActionRestoration) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *MemberActionRestoration) MarshalTo(dAtA []byte) (int, error) {
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *MemberActionRestoration) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.AppealId != 0 {
+		i = encodeVarintMemberReport(dAtA, i, uint64(m.AppealId))
+		i--
+		dAtA[i] = 0x68
+	}
+	if m.Appealed {
+		i--
+		if m.Appealed {
+			dAtA[i] = 1
+		} else {
+			dAtA[i] = 0
+		}
+		i--
+		dAtA[i] = 0x60
+	}
+	if m.ZeroedCount != 0 {
+		i = encodeVarintMemberReport(dAtA, i, uint64(m.ZeroedCount))
+		i--
+		dAtA[i] = 0x58
+	}
+	if len(m.BurnedDream) > 0 {
+		i -= len(m.BurnedDream)
+		copy(dAtA[i:], m.BurnedDream)
+		i = encodeVarintMemberReport(dAtA, i, uint64(len(m.BurnedDream)))
+		i--
+		dAtA[i] = 0x52
+	}
+	if m.PriorInvitationCredits != 0 {
+		i = encodeVarintMemberReport(dAtA, i, uint64(m.PriorInvitationCredits))
+		i--
+		dAtA[i] = 0x48
+	}
+	if m.PriorTrustLevel != 0 {
+		i = encodeVarintMemberReport(dAtA, i, uint64(m.PriorTrustLevel))
+		i--
+		dAtA[i] = 0x40
+	}
+	if m.PriorStatus != 0 {
+		i = encodeVarintMemberReport(dAtA, i, uint64(m.PriorStatus))
+		i--
+		dAtA[i] = 0x38
+	}
+	if len(m.Reputation) > 0 {
+		keysForReputation := make([]string, 0, len(m.Reputation))
+		for k := range m.Reputation {
+			keysForReputation = append(keysForReputation, string(k))
+		}
+		github_com_cosmos_gogoproto_sortkeys.Strings(keysForReputation)
+		for iNdEx := len(keysForReputation) - 1; iNdEx >= 0; iNdEx-- {
+			v := m.Reputation[string(keysForReputation[iNdEx])]
+			baseI := i
+			i -= len(v)
+			copy(dAtA[i:], v)
+			i = encodeVarintMemberReport(dAtA, i, uint64(len(v)))
+			i--
+			dAtA[i] = 0x12
+			i -= len(keysForReputation[iNdEx])
+			copy(dAtA[i:], keysForReputation[iNdEx])
+			i = encodeVarintMemberReport(dAtA, i, uint64(len(keysForReputation[iNdEx])))
+			i--
+			dAtA[i] = 0xa
+			i = encodeVarintMemberReport(dAtA, i, uint64(baseI-i))
+			i--
+			dAtA[i] = 0x32
+		}
+	}
+	if m.WarningId != 0 {
+		i = encodeVarintMemberReport(dAtA, i, uint64(m.WarningId))
+		i--
+		dAtA[i] = 0x28
+	}
+	if m.Season != 0 {
+		i = encodeVarintMemberReport(dAtA, i, uint64(m.Season))
+		i--
+		dAtA[i] = 0x20
+	}
+	if m.ResolvedAt != 0 {
+		i = encodeVarintMemberReport(dAtA, i, uint64(m.ResolvedAt))
+		i--
+		dAtA[i] = 0x18
+	}
+	if m.Action != 0 {
+		i = encodeVarintMemberReport(dAtA, i, uint64(m.Action))
+		i--
+		dAtA[i] = 0x10
+	}
+	if len(m.Member) > 0 {
+		i -= len(m.Member)
+		copy(dAtA[i:], m.Member)
+		i = encodeVarintMemberReport(dAtA, i, uint64(len(m.Member)))
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
+}
+
 func encodeVarintMemberReport(dAtA []byte, offset int, v uint64) int {
 	offset -= sovMemberReport(v)
 	base := offset
@@ -491,6 +812,12 @@ func (m *MemberReport) Size() (n int) {
 			n += 1 + l + sovMemberReport(uint64(l))
 		}
 	}
+	if m.ResolvedAction != 0 {
+		n += 1 + sovMemberReport(uint64(m.ResolvedAction))
+	}
+	if m.ResolvedAt != 0 {
+		n += 1 + sovMemberReport(uint64(m.ResolvedAt))
+	}
 	return n
 }
 
@@ -507,6 +834,61 @@ func (m *ReporterBondEntry) Size() (n int) {
 	l = len(m.Amount)
 	if l > 0 {
 		n += 1 + l + sovMemberReport(uint64(l))
+	}
+	return n
+}
+
+func (m *MemberActionRestoration) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	l = len(m.Member)
+	if l > 0 {
+		n += 1 + l + sovMemberReport(uint64(l))
+	}
+	if m.Action != 0 {
+		n += 1 + sovMemberReport(uint64(m.Action))
+	}
+	if m.ResolvedAt != 0 {
+		n += 1 + sovMemberReport(uint64(m.ResolvedAt))
+	}
+	if m.Season != 0 {
+		n += 1 + sovMemberReport(uint64(m.Season))
+	}
+	if m.WarningId != 0 {
+		n += 1 + sovMemberReport(uint64(m.WarningId))
+	}
+	if len(m.Reputation) > 0 {
+		for k, v := range m.Reputation {
+			_ = k
+			_ = v
+			mapEntrySize := 1 + len(k) + sovMemberReport(uint64(len(k))) + 1 + len(v) + sovMemberReport(uint64(len(v)))
+			n += mapEntrySize + 1 + sovMemberReport(uint64(mapEntrySize))
+		}
+	}
+	if m.PriorStatus != 0 {
+		n += 1 + sovMemberReport(uint64(m.PriorStatus))
+	}
+	if m.PriorTrustLevel != 0 {
+		n += 1 + sovMemberReport(uint64(m.PriorTrustLevel))
+	}
+	if m.PriorInvitationCredits != 0 {
+		n += 1 + sovMemberReport(uint64(m.PriorInvitationCredits))
+	}
+	l = len(m.BurnedDream)
+	if l > 0 {
+		n += 1 + l + sovMemberReport(uint64(l))
+	}
+	if m.ZeroedCount != 0 {
+		n += 1 + sovMemberReport(uint64(m.ZeroedCount))
+	}
+	if m.Appealed {
+		n += 2
+	}
+	if m.AppealId != 0 {
+		n += 1 + sovMemberReport(uint64(m.AppealId))
 	}
 	return n
 }
@@ -968,6 +1350,44 @@ func (m *MemberReport) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
+		case 13:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ResolvedAction", wireType)
+			}
+			m.ResolvedAction = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowMemberReport
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.ResolvedAction |= GovActionType(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 14:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ResolvedAt", wireType)
+			}
+			m.ResolvedAt = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowMemberReport
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.ResolvedAt |= int64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
 		default:
 			iNdEx = preIndex
 			skippy, err := skipMemberReport(dAtA[iNdEx:])
@@ -1082,6 +1502,438 @@ func (m *ReporterBondEntry) Unmarshal(dAtA []byte) error {
 			}
 			m.Amount = string(dAtA[iNdEx:postIndex])
 			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipMemberReport(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthMemberReport
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *MemberActionRestoration) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowMemberReport
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: MemberActionRestoration: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: MemberActionRestoration: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Member", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowMemberReport
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthMemberReport
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthMemberReport
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Member = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 2:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Action", wireType)
+			}
+			m.Action = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowMemberReport
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.Action |= GovActionType(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 3:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ResolvedAt", wireType)
+			}
+			m.ResolvedAt = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowMemberReport
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.ResolvedAt |= int64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 4:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Season", wireType)
+			}
+			m.Season = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowMemberReport
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.Season |= int64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 5:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field WarningId", wireType)
+			}
+			m.WarningId = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowMemberReport
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.WarningId |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 6:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Reputation", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowMemberReport
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthMemberReport
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthMemberReport
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.Reputation == nil {
+				m.Reputation = make(map[string]string)
+			}
+			var mapkey string
+			var mapvalue string
+			for iNdEx < postIndex {
+				entryPreIndex := iNdEx
+				var wire uint64
+				for shift := uint(0); ; shift += 7 {
+					if shift >= 64 {
+						return ErrIntOverflowMemberReport
+					}
+					if iNdEx >= l {
+						return io.ErrUnexpectedEOF
+					}
+					b := dAtA[iNdEx]
+					iNdEx++
+					wire |= uint64(b&0x7F) << shift
+					if b < 0x80 {
+						break
+					}
+				}
+				fieldNum := int32(wire >> 3)
+				if fieldNum == 1 {
+					var stringLenmapkey uint64
+					for shift := uint(0); ; shift += 7 {
+						if shift >= 64 {
+							return ErrIntOverflowMemberReport
+						}
+						if iNdEx >= l {
+							return io.ErrUnexpectedEOF
+						}
+						b := dAtA[iNdEx]
+						iNdEx++
+						stringLenmapkey |= uint64(b&0x7F) << shift
+						if b < 0x80 {
+							break
+						}
+					}
+					intStringLenmapkey := int(stringLenmapkey)
+					if intStringLenmapkey < 0 {
+						return ErrInvalidLengthMemberReport
+					}
+					postStringIndexmapkey := iNdEx + intStringLenmapkey
+					if postStringIndexmapkey < 0 {
+						return ErrInvalidLengthMemberReport
+					}
+					if postStringIndexmapkey > l {
+						return io.ErrUnexpectedEOF
+					}
+					mapkey = string(dAtA[iNdEx:postStringIndexmapkey])
+					iNdEx = postStringIndexmapkey
+				} else if fieldNum == 2 {
+					var stringLenmapvalue uint64
+					for shift := uint(0); ; shift += 7 {
+						if shift >= 64 {
+							return ErrIntOverflowMemberReport
+						}
+						if iNdEx >= l {
+							return io.ErrUnexpectedEOF
+						}
+						b := dAtA[iNdEx]
+						iNdEx++
+						stringLenmapvalue |= uint64(b&0x7F) << shift
+						if b < 0x80 {
+							break
+						}
+					}
+					intStringLenmapvalue := int(stringLenmapvalue)
+					if intStringLenmapvalue < 0 {
+						return ErrInvalidLengthMemberReport
+					}
+					postStringIndexmapvalue := iNdEx + intStringLenmapvalue
+					if postStringIndexmapvalue < 0 {
+						return ErrInvalidLengthMemberReport
+					}
+					if postStringIndexmapvalue > l {
+						return io.ErrUnexpectedEOF
+					}
+					mapvalue = string(dAtA[iNdEx:postStringIndexmapvalue])
+					iNdEx = postStringIndexmapvalue
+				} else {
+					iNdEx = entryPreIndex
+					skippy, err := skipMemberReport(dAtA[iNdEx:])
+					if err != nil {
+						return err
+					}
+					if (skippy < 0) || (iNdEx+skippy) < 0 {
+						return ErrInvalidLengthMemberReport
+					}
+					if (iNdEx + skippy) > postIndex {
+						return io.ErrUnexpectedEOF
+					}
+					iNdEx += skippy
+				}
+			}
+			m.Reputation[mapkey] = mapvalue
+			iNdEx = postIndex
+		case 7:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field PriorStatus", wireType)
+			}
+			m.PriorStatus = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowMemberReport
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.PriorStatus |= MemberStatus(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 8:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field PriorTrustLevel", wireType)
+			}
+			m.PriorTrustLevel = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowMemberReport
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.PriorTrustLevel |= TrustLevel(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 9:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field PriorInvitationCredits", wireType)
+			}
+			m.PriorInvitationCredits = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowMemberReport
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.PriorInvitationCredits |= uint32(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 10:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field BurnedDream", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowMemberReport
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthMemberReport
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthMemberReport
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.BurnedDream = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 11:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ZeroedCount", wireType)
+			}
+			m.ZeroedCount = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowMemberReport
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.ZeroedCount |= uint32(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 12:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Appealed", wireType)
+			}
+			var v int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowMemberReport
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				v |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			m.Appealed = bool(v != 0)
+		case 13:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field AppealId", wireType)
+			}
+			m.AppealId = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowMemberReport
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.AppealId |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
 		default:
 			iNdEx = preIndex
 			skippy, err := skipMemberReport(dAtA[iNdEx:])

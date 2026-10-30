@@ -14,13 +14,20 @@ import (
 // GenerateGenesisState creates a randomized GenState of the module.
 // Tag seeding is the responsibility of x/rep, which owns the tag registry.
 func (AppModule) GenerateGenesisState(simState *module.SimulationState) {
-	accs := make([]string, len(simState.Accounts))
-	for i, acc := range simState.Accounts {
-		accs[i] = acc.Address.String()
-	}
+	// A simulated block advances the clock 1.4 to 2.8 hours, so a 200-block
+	// run spans two to three weeks: archive threads idle for a week (the
+	// production floor) instead of 30 days, so MsgFreezeThread and
+	// MsgUnarchiveThread are reachable.
+	params := types.DefaultParams()
+	params.ArchiveThreshold = 7 * 24 * 60 * 60
+	// The test build finalizes an unappealed hide 15 seconds after it lands
+	// (DefaultHiddenExpiration, compiled per build), which is less than one
+	// simulated block, so the default one-hour hide_appeal_cooldown leaves
+	// no window: MsgAppealPost could only deliver in the block of the hide.
+	params.HideAppealCooldown = 0
 
 	forumGenesis := types.GenesisState{
-		Params: types.DefaultParams(),
+		Params: params,
 	}
 	simState.GenState[types.ModuleName] = simState.Cdc.MustMarshalJSON(&forumGenesis)
 }

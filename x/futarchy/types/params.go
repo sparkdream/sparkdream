@@ -103,6 +103,19 @@ func (p Params) ExtractOperationalParams() FutarchyOperationalParams {
 	}
 }
 
+// Compiled hard bounds. Governance and the operations committee can move the
+// params only inside these limits; changing a bound needs a chain upgrade.
+var (
+	// MaxTradingFeeBps caps trading_fee_bps at 5% (FUT-10). A higher fee
+	// would let a single operational-params update stop trading outright.
+	MaxTradingFeeBps uint64 = 500
+
+	// MaxLmsrExponentCeiling caps max_lmsr_exponent (FUT-04). The param
+	// bounds |q_yes - q_no| / b, i.e. how close to 0 or 1 a market price may
+	// be pushed; e^-30 ~ 9e-14 is already below any meaningful price.
+	MaxLmsrExponentCeiling = math.LegacyNewDec(30)
+)
+
 // Validation Functions ------------------------------------------------------
 
 func validateMinLiquidity(i interface{}) error {
@@ -154,8 +167,8 @@ func validateTradingFeeBps(i interface{}) error {
 	if !ok {
 		return fmt.Errorf("invalid parameter type: %T", i)
 	}
-	if v > 10000 {
-		return fmt.Errorf("trading_fee_bps must be <= 10000 (100%%)")
+	if v > MaxTradingFeeBps {
+		return fmt.Errorf("trading_fee_bps must be <= %d (compiled hard ceiling)", MaxTradingFeeBps)
 	}
 	return nil
 }
@@ -176,6 +189,9 @@ func validateMaxLmsrExponent(i interface{}) error {
 
 	if maxExp.LTE(math.LegacyZeroDec()) {
 		return fmt.Errorf("max_lmsr_exponent must be positive")
+	}
+	if maxExp.GT(MaxLmsrExponentCeiling) {
+		return fmt.Errorf("max_lmsr_exponent must be <= %s (compiled hard ceiling)", MaxLmsrExponentCeiling.String())
 	}
 
 	return nil

@@ -314,11 +314,11 @@ message MsgUpdateParams {
 
 ### 6.5. UpdateOperationalParams
 
-Operational parameter update by Commons Council Operations Committee.
+Operational parameter update by the governance authority or the Commons Council / Operations Committee **policy address** (an executed proposal, checked with commons `IsCouncilOrCommitteePolicy`). A single committee member's signature is refused.
 
 ```protobuf
 message MsgUpdateOperationalParams {
-  string authority = 1;                              // Operations Committee member or governance authority
+  string authority = 1;                              // Operations Committee policy, Commons Council policy or governance authority
   SessionOperationalParams operational_params = 2;
 }
 ```
@@ -326,6 +326,8 @@ message MsgUpdateOperationalParams {
 **Validation (ceiling enforcement):**
 1. `operational_params.allowed_msg_types` must be a **subset of** the current `Params.max_allowed_msg_types`. The Operations Committee can restore types to the active list, but only from the ceiling — it cannot introduce types that were never in the ceiling or that governance permanently removed from it.
 2. No entry in `allowed_msg_types` is in `NonDelegableSessionMsgs`.
+3. `allowed_denoms` is **add-only** on this path (`ErrDenomRemovalForbidden`, 1903): removing a denom strands every SpendingAllowance in it, so removal is governance-only (`MsgUpdateParams`).
+4. `Params.Validate` enforces compiled ceilings no params update can exceed (raising one needs a chain upgrade): `max_sessions_per_granter` ≤ 1,000, `max_msg_types_per_session` ≤ 200, `max_expiration` ≤ 365 days, `max_spend_limit_amount` ≤ 10,000 SPARK, `max_exec_count` ≤ 1,000,000, `max_oneshot_exec_gas` ≤ 5,000,000, `max_endblocker_dispatches_per_pass` ≤ 1,000, `max_pending_oneshots_per_granter` ≤ 1,000, `max_paused_oneshots_per_granter` ≤ 200, `max_grant_lifetime_seconds` ≤ 5 years; and a floor `oneshot_gas_price` ≥ 0.0001.
 
 ---
 
@@ -436,7 +438,7 @@ var NonDelegableSessionMsgs = map[string]bool{
 }
 ```
 
-**Foreign forbidden msgs.** `ForbiddenAllowlistMsgs` ([x/session/types/params.go](../x/session/types/params.go)) is the same kind of guard for other modules' msgs: `Params.Validate` (run at genesis and by `MsgUpdateParams`) rejects any of them in either list. It holds x/service's `NonDelegableMsgTypeURLs` (`MsgRegisterOperator`, `MsgUnbondOperator`) plus `/sparkdream.service.v1.MsgTopUpBond`, which moves SPARK into the bond — a session's `SpendLimit` budgets fees only, so it cannot cap that. It also holds every x/rep identity message (`reptypes.IdentityMsgTypeURLs()`: the member key migration messages plus `MsgRegisterZkPublicKey` and `MsgClearZkPublicKey`), because a hot key that could move an identity or re-point its ZK key would bypass a multisig granter's threshold ([multisig-accounts.md](multisig-accounts.md)), and every x/vault message (`vaulttypes.NonDelegableMsgTypeURLs()`), because a hot key must never cast a co-signer's approval ([x-vault-spec.md](x-vault-spec.md) §3). Earlier genesis defaults admitted `MsgUnbondOperator` and `MsgTopUpBond`; networks dropped them with the reset that shipped this guard.
+**Foreign forbidden msgs.** `ForbiddenAllowlistMsgs` ([x/session/types/params.go](../x/session/types/params.go)) is the same kind of guard for other modules' msgs: `Params.Validate` (run at genesis and by `MsgUpdateParams`) rejects any of them in either list. It holds x/service's `NonDelegableMsgTypeURLs` (`MsgRegisterOperator`, `MsgUnbondOperator`) plus `/sparkdream.service.v1.MsgTopUpBond`, which moves SPARK into the bond — a session's `SpendLimit` budgets fees only, so it cannot cap that. It also holds every x/rep identity message (`reptypes.IdentityMsgTypeURLs()`: the member key migration messages plus `MsgRegisterZkPublicKey` and `MsgClearZkPublicKey`), because a hot key that could move an identity or re-point its ZK key would bypass a multisig granter's threshold ([multisig-accounts.md](multisig-accounts.md)), every x/vault message (`vaulttypes.NonDelegableMsgTypeURLs()`), because a hot key must never cast a co-signer's approval ([x-vault-spec.md](x-vault-spec.md) §3), and x/federation's `federationtypes.NonDelegableMsgTypeURLs()` (`MsgAttestIdentityLink`), because a bridge operator's identity attestation takes effect unchecked and is backed by its SPARK bond, so a leaked daemon key must not be able to hand out remote identities ([x-federation-spec.md](x-federation-spec.md) §3.4.1). Earlier genesis defaults admitted `MsgUnbondOperator` and `MsgTopUpBond`; networks dropped them with the reset that shipped this guard.
 
 **Emergency response flow:**
 
@@ -500,14 +502,11 @@ The recent ceiling expansion from 19 → 41 types **strengthens** the case for k
 
 ### 8.4. Interaction with x/commons ForbiddenMessages
 
-The `x/commons` `ForbiddenMessages` map blocks certain message types from being used in council `AllowedMessages`. For consistency, session messages should be added — councils should not be able to create or execute session keys via proposals:
+The `x/commons` `ForbiddenMessages` map blocks certain message types from being used in council `AllowedMessages`. It lists the session messages that create or exercise delegation (`MsgCreateGrant`, `MsgCreateSession`, `MsgExecSession`), so a council cannot hand its power to one member's hot key.
 
-```go
-// Add to x/commons/types/params.go ForbiddenMessages
-"/sparkdream.session.v1.MsgCreateSession": true,
-"/sparkdream.session.v1.MsgRevokeSession": true,
-"/sparkdream.session.v1.MsgExecSession":   true,
-```
+### 8.5. Ante-only rules and in-chain executors
+
+`MsgExecSession` and ScheduledOneshot Exec dispatch their inner messages through the router, so no ante decorator runs on them. Messages guarded by an ante-only rule are therefore in `ForbiddenAllowlistMsgs` and can never enter an allowlist (`x/common/types.AnteOnlyRuleMsgTypeURLs`): x/commons `MsgSubmitProposal` (minimum proposal fee, `ProposalFeeDecorator`) and the gnovm `MsgRun` / `MsgCall` / `MsgAddPackage` (the gnovm ante's no-mix rule). x/vault and the ICA host keep off the same types (see docs/x-vault-spec.md and docs/security-hardening.md).
 
 ---
 
@@ -553,30 +552,32 @@ SessionFeeDecorator.AnteHandle(ctx, tx):
      (fee payer must be unambiguous)
   5. Extract the single granter address from the MsgExecSession message(s)
   6. For each MsgExecSession:
-     a. Look up Session by (granter, grantee)
-     b. Verify session exists and is not expired
-     c. If session.spend_limit > 0:
-        - Verify session.spent + tx_fee <= session.spend_limit
+     a. Refuse an empty msgs list (ErrEmptyMsgs) — before any fee moves
+     b. Look up Session by (granter, grantee)
+     c. Verify session exists and is not expired
+     d. Refuse when exec_count + len(msgs) > max_exec_count (ErrExecCountExceeded)
+     e. If session.spend_limit > 0:
+        - Refuse an exhausted budget (spent >= spend_limit), even for a zero fee
+        - Verify every fee coin is in the spend-limit denom and fits the remaining budget
   7. If any session has spend_limit > 0 (fee delegation active):
-     a. Transfer tx_fee from granter account → fee_collector module account
-     b. Set context flag: ContextKeyFeePaid = true
-        (SkipIfFeePaidDecorator will skip the inner DeductFeeDecorator)
+     a. In CheckTx (not simulate): apply the node's minimum gas prices exactly
+        as the SDK's DeductFeeDecorator would (fee >= ceil(min_gas_price × gas)
+        in some denom), and set the tx priority from the fee
+     b. Transfer tx_fee from granter account → fee_collector module account
+     c. Debit each session's spent by the fee
+     d. Set the fee-paid context flag (the typed key shared with x/shield,
+        `x/common/types.ContextKeyFeePaid`); SkipIfFeePaidDecorator then
+        skips the inner DeductFeeDecorator
   8. Pass to next decorator
 ```
 
+Step 7a matters: the skipped `DeductFeeDecorator` is where the SDK enforces minimum gas prices, so without it a session key could send zero-fee txs with any gas limit. The fee-paid flag is a typed context key (an unexported struct type in x/common), not a string, so it cannot collide with another package's value and both x/session and x/shield use the very same key.
+
 > **Note:** During `CheckTx` (mempool validation), state changes from step 7a are not persisted. This means concurrent `MsgExecSession` txs from the same session may all pass `CheckTx` seeing the same `spent` value, but will be sequentially validated during `DeliverTx`. This is the same behavior as the standard `DeductFeeDecorator` — no special handling needed.
 
-### 9.3. Post-Handler (Spend Tracking)
+### 9.3. Spend Tracking
 
-After successful transaction execution, the `SessionPostHandler` updates the session's `spent` counter:
-
-```
-SessionPostHandler.PostHandle(ctx, tx):
-  1. For each MsgExecSession in tx:
-     a. Look up Session by (granter, grantee)
-     b. session.spent += fee_charged
-     c. Store updated Session
-```
+There is no post-handler: the ante debits `spent` in fee units together with the fee transfer (step 7c), so a failing inner message still consumes budget.
 
 ### 9.4. Ante Handler Chain Integration
 
@@ -694,7 +695,7 @@ The following message types form the genesis ceiling (`max_allowed_msg_types`) a
 | `/sparkdream.blog.v1.MsgCreatePost` | High-frequency content creation |
 | `/sparkdream.blog.v1.MsgUpdatePost` | Editing own posts |
 | `/sparkdream.blog.v1.MsgCreateReply` | Replying to posts |
-| `/sparkdream.blog.v1.MsgEditReply` | Editing own replies |
+| `/sparkdream.blog.v1.MsgUpdateReply` | Editing own replies |
 | `/sparkdream.blog.v1.MsgReact` | Adding reactions |
 | `/sparkdream.blog.v1.MsgRemoveReaction` | Removing own reactions |
 
@@ -753,8 +754,6 @@ The following message types form the genesis ceiling (`max_allowed_msg_types`) a
 
 | Message Type | Rationale |
 |-------------|-----------|
-| `/sparkdream.collect.v1.MsgReact` | Reacting to collections |
-| `/sparkdream.collect.v1.MsgRemoveReaction` | Removing reactions |
 | `/sparkdream.collect.v1.MsgUpvoteContent` | Member-only upvote, no funds moved |
 | `/sparkdream.collect.v1.MsgUpdateItem` | Metadata edit on own item |
 | `/sparkdream.collect.v1.MsgReorderItem` | Reordering own collection items |
@@ -843,7 +842,7 @@ At genesis the ceiling and active list are identical. Both lists below are abbre
       "/sparkdream.blog.v1.MsgCreatePost",
       "/sparkdream.blog.v1.MsgUpdatePost",
       "/sparkdream.blog.v1.MsgCreateReply",
-      "/sparkdream.blog.v1.MsgEditReply",
+      "/sparkdream.blog.v1.MsgUpdateReply",
       "/sparkdream.blog.v1.MsgReact",
       "/sparkdream.blog.v1.MsgRemoveReaction",
       "/sparkdream.forum.v1.MsgCreatePost",
@@ -860,8 +859,6 @@ At genesis the ceiling and active list are identical. Both lists below are abbre
       "/sparkdream.name.v1.MsgSetDisplayName",
       "/sparkdream.name.v1.MsgSetTarget",
       "/sparkdream.name.v1.MsgAcceptTarget",
-      "/sparkdream.collect.v1.MsgReact",
-      "/sparkdream.collect.v1.MsgRemoveReaction",
       "/sparkdream.collect.v1.MsgUpvoteContent",
       "/sparkdream.collect.v1.MsgUpdateItem",
       "/sparkdream.collect.v1.MsgReorderItem",
@@ -1030,13 +1027,13 @@ async function execSession(
 When dispatching inner messages, the message server must rewrite the signer field. In Cosmos SDK v0.53, the signer is determined by the `cosmos.msg.v1.signer` proto annotation (read via `msg.GetSigners()`). The session handler needs to:
 
 1. Unpack the `Any` to a concrete `sdk.Msg`
-2. Call `msg.GetSigners()` — **reject if len != 1** (multi-signer messages are not supported)
-3. Identify the signer field name from the `cosmos.msg.v1.signer` proto option
-4. Set that field to the granter address using proto reflection (`msg.ProtoReflect()`)
-5. Validate the rewritten message (`msg.ValidateBasic()`)
-6. Dispatch via `MsgServiceRouter.Handler(msg)`
+2. Derive the signers — **reject if len != 1** (multi-signer messages are not supported)
+3. Identify the signer field name from the `cosmos.msg.v1.signer` proto option (`signerFieldName`, read from the registered descriptor); a nested or non-string signer field is refused
+4. Set that field to the granter address
+5. Re-derive the signers and require exactly `[granter]` (fail closed)
+6. Dispatch via `MsgServiceRouter.Handler(msg)` and re-emit the handler's events (the router gives each handler a fresh EventManager)
 
-This is the same pattern used by `x/gov`'s proposal execution. Using proto reflection (not Go struct reflection or type assertion) ensures correctness across all message types — the `cosmos.msg.v1.signer` annotation is the canonical source of truth for which field identifies the signer.
+The `cosmos.msg.v1.signer` annotation is the canonical source of truth for which field identifies the signer, so the rewrite cannot pick a decoy field that merely shares a conventional name (`recipient`, `holder`, `seller` and `bidder` signers work). `TestDefaultAllowlistResolvesAndRewrites` resolves every `DefaultAllowedMsgTypes` URL in the registry and round-trips the rewrite, so a dead allowlist URL fails CI.
 
 **DREAM field stripping** (Section 6.3 step 2d): After signer rewriting but before dispatch, the handler checks for known DREAM-commitment fields and zeros them. This is a short allowlist of (message_type, field_name) pairs maintained in the session module:
 
@@ -1081,7 +1078,13 @@ The following features are **not in scope** for v1 but could be added later:
 
 ## 18. Module Invariants
 
-Specified for the `InvariantRegistry`; x/session does not register them today. The chain does not wire `x/crisis`; registered invariants run in `app/invariants_test.go` against every e2e post-setup genesis snapshot (`go test ./app -run TestInvariants`).
+The chain does not wire `x/crisis`; registered invariants run in `app/invariants_test.go` against every e2e post-setup genesis snapshot (`go test ./app -run TestInvariants`). x/session registers three (`x/session/keeper/invariants.go`):
+
+- `grant-indexes`: every grant is in the granter, grantee, expiration and type indexes; a SESSION_KEY grant owns its `SessionKeyByPair` entry; an ACTIVE oneshot is on `GrantsByFireTime`, a paused one on `PausedOneshotByPauseTime`.
+- `active-grant-counts`: `ActiveGrantCountByType` equals the number of ACTIVE or PAUSED grants per (granter, type).
+- `oneshot-deposits`: every escrowed deposit belongs to an existing SCHEDULED_ONESHOT grant and the module account holds at least their sum.
+
+The per-session checks below are the original design notes; they are enforced in the handlers rather than as registered invariants.
 
 ### 18.1. SpendLimitInvariant
 
@@ -1210,6 +1213,13 @@ enum GrantStatus {
 | `SessionKeyByPair` | `Pair[string, string]` | `uint64` | Legacy `(granter, grantee) → grant_id` for the SessionKey one-per-pair invariant |
 | `EpochSpendByGrant` | `Pair[uint64, int64]` | `string` (sdk.Int) | Per-grant UTC-day spend buckets for RecurringPull's `max_per_epoch_uspark` |
 | `OneshotGasDeposit` | `uint64` (grant_id) | `Coin` | SPARK deposit escrow for ScheduledOneshot grants |
+| `PausedOneshotByPauseTime` | `Pair[int64, uint64]` | empty | `(pause_unix, id)` — paused-TTL auto-revoke pass |
+| `GrantsByFireTime` | `Pair[int64, uint64]` | empty | `(fire_at, id)` for ACTIVE oneshots — fire pass |
+| `GrantCreatorModule` | `uint64` (grant_id) | `string` | Module that created the grant via the bypass (creator binding, §28.4) |
+
+**Grantee cap.** Grant creation needs no grantee consent, so `MsgCreateGrant` refuses a grantee already named by `MaxGrantsPerGrantee` (256, compiled) grants (`ErrTooManyGrantsForGrantee`, 1902). Every consumer that iterates a grantee's grants (member migration, the x/commons operator-dissolution sweep) is bounded by it. Module-account grantees (x/artifact receives every Harberger tax pull) and grants created through the module bypass are exempt.
+
+**Payout recipients.** The RecurringPull grantee, the oneshot Transfer recipient and every SpendingAllowance pull recipient must not be a blocked module account (bank's `SendCoins`, unlike `MsgSend`, does not check the blocked list). Checked at creation and again at claim, fire and pull time.
 
 ## 21. RecurringPull variant
 
@@ -1231,8 +1241,8 @@ message RecurringPullPayload {
 **Flow:**
 1. First claim eligible at `start_time + period_seconds` (council vote authorizes payment AFTER one period of work, not immediately).
 2. Logical clock `last_claim_advance` advances by exactly `period_seconds` per claim — catch-up requires multiple txs (each rate-limited independently).
-3. Per-grant `max_per_epoch_uspark` self-throttle: each claim adds `amount_per_period` to the current UTC-day bucket; rejected if it would breach `max_per_epoch_uspark`. **Epoch = UTC calendar day**, `floor(block_time / 86400)` — no dependency on any other module's epoch concept. Stale day-buckets lazily pruned.
-4. `bankKeeper.SendCoins(granter → grantee)` — failure flips to `PAUSED_INSUFFICIENT_FUNDS` with a `grant_paused_underfunded` event; next successful retry flips back to `ACTIVE` atomically (no separate resume message).
+3. Per-grant `max_per_epoch_uspark` self-throttle: each claim adds `amount_per_period` to the current UTC-day bucket; rejected if it would breach `max_per_epoch_uspark`. **Epoch = UTC calendar day**, `floor(block_time / 86400)` — no dependency on any other module's epoch concept. On each claim every bucket older than 7 days is pruned by a ranged prefix walk, and every bucket is deleted with its grant; a member migration carries the buckets across the re-key.
+4. `bankKeeper.SendCoins(granter → grantee)` (refused with `ErrRecipientBlocked` when the grantee is a blocked module account, at creation and at claim) — failure flips to `PAUSED_INSUFFICIENT_FUNDS` with a `grant_paused_underfunded` event; next successful retry flips back to `ACTIVE` atomically (no separate resume message).
 5. COMPLETED when `last_claim_advance + period_seconds > expires_at`, with a `grant_completed` event.
 
 **Pause and completion succeed.** A claim that pauses the grant (step 4) or finds its window closed (step 5) returns success with `MsgClaimRecurringPullResponse.paused` / `.completed` set and nothing transferred. Returning an error would revert the tx and with it the status change, leaving the grant ACTIVE and the event unseen. Module callers must read the flags: x/commons passes them through `MsgClaimRecurringSpendResponse`, and x/artifact's Harberger adapter treats either as a failed tax pull.
@@ -1259,7 +1269,7 @@ message SpendingAllowancePayload {
 **Action:** `MsgPullAllowance { grantee, grant_id, recipient, amount }` — signed by the grantee on file.
 
 **Order of operations:**
-1. **Authorization checks**: `recipient != granter` (anti self-roundtrip), `amount.denom == grant.denom` and in `params.allowed_denoms`, `amount >= params.min_pull_amount`, `recipient ∈ allowed_recipients` (skip if empty).
+1. **Authorization checks**: the grant has not reached `expires_at` (`ErrGrantExpired`, 1900; expiry holds from that instant, not from when the capped expire pass reaches the grant), `recipient` is not a blocked module account (`ErrRecipientBlocked`, 1901), `recipient != granter` (anti self-roundtrip), `amount.denom == grant.denom` and in `params.allowed_denoms`, `amount >= params.min_pull_amount`, `recipient ∈ allowed_recipients` (skip if empty).
 2. **In-memory rolling-window reset** if `block_time >= current_period_start + period_seconds`. **Only committed on successful pull** — a failed pull leaves `current_period_start` untouched, so a malicious recipient cannot trigger a no-op reset to wipe the granter's used budget (Rev 2 fix).
 3. **Per-period budget check**: `spent_in_current_period + amount <= max_per_period`.
 4. `bankKeeper.SendCoins(granter → recipient)` — failure flips to `PAUSED_INSUFFICIENT_FUNDS`; next successful retry flips back to `ACTIVE`. As for RecurringPull, the pausing pull succeeds with `MsgPullAllowanceResponse.paused` set and a zero `transferred`, so the pause persists.
@@ -1306,8 +1316,9 @@ Enforced in `validateScheduledOneshotPayload` ([x/session/keeper/grant_validatio
 **Transfer variant:** denom must be in `params.allowed_denoms`; `dream` always rejected.
 
 **Exec variant:**
-- `msg.type_url ∈ params.allowed_msg_types`.
+- `msg.type_url ∈ params.allowed_msg_types` and `∉ ForbiddenAllowlistMsgs`.
 - `msg.type_url ∉ NonDelegableSessionMsgs` (anti-recursion denylist).
+- The inner msg decodes and its `cosmos.msg.v1.signer` option names exactly one top-level string field (so the fire-time signer rewrite can succeed).
 - `msg.type_url != "/sparkdream.session.v1.MsgRevokeSession"` (Rev 2 §7.3 defense-in-depth).
 - `gas_limit ∈ [params.min_oneshot_exec_gas, params.max_oneshot_exec_gas]` (defaults 30_000 / 200_000).
 - `late.router != nil` — fail loud at admin time, not at fire time.
@@ -1331,6 +1342,12 @@ Defaults: `oneshot_gas_price_uspark = "0.0025"` (100× typical `min_gas_price`),
 - EndBlocker auto-revoke after `paused_oneshot_ttl_seconds` (default 7d): deposit refunded.
 - EndBlocker expire-without-fire: deposit refunded.
 - FIRED (success or error): deposit moved to fee collector (`auth/fee_collector`) — pays for the gas attempted, regardless of inner success.
+- FIRED without an attempt because the Exec msg type left `params.allowed_msg_types` (or entered `ForbiddenAllowlistMsgs`) after scheduling: deposit refunded to the granter.
+- A refund that cannot be paid on an EndBlocker pass (e.g. the granter is a blocked module account) goes to the fee collector, so no escrow entry outlives its grant.
+
+Escrowed deposits are exported in genesis (`oneshot_gas_deposits`) with the per-day RecurringPull spend buckets (`epoch_spends`) and the bypass creators (`grant_creators`), so an export/import round-trip never strands escrow or resets a throttle.
+
+**Fire pass index.** ACTIVE oneshots sit on `GrantsByFireTime (fire_at, id)` (prefix 12 is `GrantCreatorModule`, 11 this index). The EndBlocker range-walks it up to block time, capped at `max_endblocker_dispatches_per_pass`, so per-block work never depends on how many grants exist. The index is written with the grant, consumed by the fire attempt, re-added by `MsgRetryScheduledOneshot`, and rebuilt from the grants at InitGenesis; a paused oneshot sits on `PausedOneshotByPauseTime` instead.
 
 ### 23.3. Fire-time containment
 
@@ -1338,7 +1355,7 @@ The fire path runs in a child `sdk.Context` via `CacheContext()` with a fresh `s
 
 > A buggy or malicious downstream handler on the OneshotExec allowlist can, in the worst case: (a) consume up to `gas_limit` gas (the granter's deposit pays for this), (b) trigger the `defer recover()` and produce a FIRED-with-error grant, (c) waste one of the EndBlocker's `max_endblocker_dispatches_per_pass` slots. It **cannot** halt the chain, corrupt parent-context state, or escape to other grants in the same pass.
 
-**The OneshotExec security contract is the audited `params.allowed_msg_types` allowlist, not a runtime flag.** `ContextKeySessionFireInProgress` exists for telemetry/event/re-entrance-detection only — downstream handlers MUST NOT branch on it to skip ante-equivalent logic.
+**The OneshotExec security contract is the audited `params.allowed_msg_types` allowlist, not a runtime flag.** The fire path re-checks it: a type gov withdrew from `allowed_msg_types` after scheduling (the emergency lever) does not fire. `types.ContextKeySessionFireInProgress` (a typed key carrying the grant id) is set on the dispatch context for telemetry/event/re-entrance-detection only — downstream handlers MUST NOT branch on it to skip ante-equivalent logic. The inner handler's events are re-emitted into the block, as for `MsgExecSession`.
 
 A handler is **OneshotExec-safe** iff it satisfies all of:
 - No-ante-dependent (no assumption that sigverify, mempool fee check, gas-price check, or `ctx.TxBytes()` ran first).
@@ -1400,8 +1417,10 @@ message SessionKeyPayload {
 - Default false: a session key cannot revoke anything.
 - If true at creation: the session-key holder can call `MsgRevokeGrant` against grants where `granter == this_session_key.granter`. The msg-server further pins the target via the `SessionKeyByPair(target.granter, caller)` lookup — cross-granter revocation is impossible.
 - Including `MsgRevokeGrant` in `allowed_msg_types` without the flag → `ErrSelfRevokeNotPermitted` at creation.
+- The flag, not `params.allowed_msg_types`, gates `MsgRevokeGrant`, at creation and inside `MsgExecSession` alike (the default allowlist does not list it). Wrapped, the signer rewrite makes it act as the granter on the granter's own grants.
+- The session key must be live: past its `expires_at` the direct revoke fails with `ErrSessionExpired`, even before the expiry pass has pruned the grant.
 
-A compromised session key with `allow_self_revoke=true` can revoke other grants of the same granter (e.g., stop a recurring pull). This is the trade-off; it's strictly less dangerous than allowing the session key to make transfers and is auditable on-chain.
+A key may also revoke itself through `MsgExecSession`; the exec bookkeeping (exec count, last use) is applied to the grant as it stands after the inner messages ran, so a key revoked by its own inner message stays revoked. A compromised session key with `allow_self_revoke=true` can revoke other grants of the same granter (e.g., stop a recurring pull). This is the trade-off; it's strictly less dangerous than allowing the session key to make transfers and is auditable on-chain.
 
 ## 25. Events (stability declaration)
 
@@ -1415,7 +1434,7 @@ Every state-changing operation emits a typed event. Event types and attribute ke
 | `int64` unix time (`fire_at`, `new_fire_at`) | RFC3339Nano (converted via `time.Unix(v, 0).UTC()` before formatting) |
 | `uint64` / `int64` non-time integers (`id`, `grant_id`, `gas_used`, `claim_index`) | Decimal string, no leading zeros, no `+` prefix |
 | `cosmos.base.v1beta1.Coin` (`amount`, `refund_amount`, `attempted_amount`) | `Coin.String()` e.g. `1000uspark` |
-| `GrantType` enum (`type`) | Lowercase enum suffix: `session_key`, `recurring_pull`, `spending_allowance`, `scheduled_oneshot`. `unspecified` is **never emitted** (creation rejects `GRANT_TYPE_UNSPECIFIED`); emitting one is a chain bug |
+| `GrantType` enum (`type`) | Lowercase enum suffix (`types.GrantTypeEventValue`): `session_key`, `recurring_pull`, `spending_allowance`, `scheduled_oneshot`, `sign_in`. `unspecified` is **never emitted** (creation rejects `GRANT_TYPE_UNSPECIFIED`); emitting one is a chain bug |
 | Free-form enum-like strings (`result`, `variant`) | Lowercase ASCII tokens: `result ∈ {success, error}`, `variant ∈ {transfer, exec}`. Never `Success`/`SUCCESS`/`OK` |
 | `string` (`granter`, `grantee`, `recipient`, `fire_error`) | The string itself, untransformed. Empty permitted; absent attribute is not (always emit) |
 | `bool` (`fee_paid_by_granter`) | `"true"` / `"false"` |
@@ -1454,6 +1473,19 @@ sparkdreamd tx session decline-grant [grant-id] --from [grantee]
 
 sparkdreamd tx session retry-oneshot [grant-id] --from [caller]
   # Caller must be granter OR grantee.
+```
+
+### 26.1a. Generic creation and execution
+
+```
+sparkdreamd tx session create-grant [grantee] [expires-at] [payload-json-file] --from [granter]
+  # payload-json-file holds the payload oneof in proto-JSON:
+  # {"session_key": {...}}, {"spending_allowance": {...}},
+  # {"scheduled_oneshot": {...}}, {"recurring_pull": {...}} or {"sign_in": {...}}.
+  # expires-at: RFC 3339 or +<duration>. --grant-note sets the note.
+
+sparkdreamd tx session exec-session [granter] [msgs-json-file] --from [grantee]
+  # msgs-json-file: JSON array of messages in proto-JSON with "@type".
 ```
 
 ### 26.2. Variant-specific actions
@@ -1567,9 +1599,11 @@ Returns the refund amount so the caller can attribute it for accounting purposes
 Each address listed in `authorized_grant_creators` is a **strict trust grant**. A compromised or buggy allowlisted module could:
 
 - Synthesize grants from module accounts the calling module controls — bounded by what the named module's own auth posture allows.
-- Synthesize grants from arbitrary user addresses by guessing the bech32 — but those grants have no funding behind them since the granter never signed, so they're either inert (zero balance fails at first claim) or instantly revertible via the user's own `MsgRevokeGrant`.
+- Synthesize grants from arbitrary user addresses — no longer possible: creation is bound to the granters the caller's registered `GranterOwner` controls (creator binding below).
 
 The defense is the gov-only allowlist + the security review at the time of adding an entry, not a technical containment. This matches Cosmos SDK convention for module-to-module trust (e.g. x/bank's module-account minting permissions list).
+
+**Creator binding.** `CreateGrantOnBehalfOf` records the calling module in `GrantCreatorModule` (exported as genesis `grant_creators`). `DeclineGrantInternal` acts only on grants the caller created, and `ClaimRecurringPullForGrantee` only on grants the caller created or grants payable to the caller itself (artifact's Harberger pulls). Creation and revocation are bound to the granters the caller controls: each bypass caller may register a `GranterOwner` (`SetGranterOwner(moduleAddr, owner)`, wired in `app.go`). `CreateGrantOnBehalfOf` requires `owner.ManagesGranter(granter, revoke=false)`; `RevokeGrantInternal` requires that the caller created the grant or `owner.ManagesGranter(granter, revoke=true)`. A caller without a registered owner can only revoke grants it created and cannot create any (`ErrModuleNotAuthorized`). x/commons registers itself: live council policies for both, plus deleted policies (`DeletedPolicies`, written before the revocation sweep in `MsgDeleteGroup`) for revocation, which covers grants a council made itself through a proposal.
 
 Genesis seeds two entries: `commons` (council recurring spends, §29.6) and `artifact`. x/artifact uses only `ClaimRecurringPullForGrantee` with itself as the grantee, to take the Harberger tax its holders grant it as RecurringPulls ([x-artifact-spec.md](x-artifact-spec.md) §7.24); the grantee check confines it to grants made to the artifact module.
 
@@ -1757,6 +1791,6 @@ Enforced in `validateSignInPayload` ([x/session/keeper/grant_validation.go](../x
 
 Revoke (`MsgRevokeGrant`, granter), decline (`MsgDeclineGrant`, grantee) and expiry remove the grant like any other, emitting `grant_revoked`, `grant_declined` or `grant_expired` with `type = GRANT_TYPE_SIGN_IN`. Ending the grant does not end sessions a service already opened through it; the service is expected to re-check and close them (sdaplogin's consumer, the Mastodon image's hourly sweep, does).
 
-A service lists the grants it may honour with `GET /sparkdream/session/v1/grants/by_grantee/{grantee}?type=GRANT_TYPE_SIGN_IN` and keeps those with `status = GRANT_STATUS_ACTIVE`, `expires_at` in the future and `sign_in.service` equal to its hostname.
+A service lists the grants it may honour with `GET /sparkdream/session/v1/grants/by_grantee/{grantee}?type=GRANT_TYPE_SIGN_IN`, following `pagination.next_key` to the last page (anyone can create grants naming any key, so spam can fill the first page; a grantee holds at most 256 grants and a page at most 100), and keeps those with `status = GRANT_STATUS_ACTIVE`, `expires_at` in the future and `sign_in.service` equal to its hostname.
 
 The variant shipped with a network reset, not a software upgrade ([docs/chain-upgrades.md](chain-upgrades.md)).

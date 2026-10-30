@@ -96,6 +96,7 @@ type mockRepKeeper struct {
 	burnDREAMFn        func(ctx context.Context, addr sdk.AccAddress, amount math.Int) error
 	lockDREAMFn        func(ctx context.Context, addr sdk.AccAddress, amount math.Int) error
 	unlockDREAMFn      func(ctx context.Context, addr sdk.AccAddress, amount math.Int) error
+	burnLockedDREAMFn  func(ctx context.Context, addr sdk.AccAddress, amount math.Int) error
 	addReputationFn    func(ctx context.Context, memberAddr sdk.AccAddress, tag string, amount math.LegacyDec) error
 	deductReputationFn func(ctx context.Context, memberAddr sdk.AccAddress, tag string, amount math.LegacyDec) error
 	createProjectFn    func(ctx context.Context, creator sdk.AccAddress, name, description string, tags []string, category reptypes.ProjectCategory, council string, requestedBudget, requestedSpark math.Int) (uint64, error)
@@ -111,6 +112,11 @@ func (m *mockRepKeeper) RecentAddressesOf(_ context.Context, member string) []st
 }
 func (m *mockRepKeeper) AllAddressesOf(_ context.Context, member string) []string {
 	return []string{member}
+}
+
+// IsActiveMember mirrors IsMember (the mock has no zeroed state).
+func (m *mockRepKeeper) IsActiveMember(ctx context.Context, addr sdk.AccAddress) bool {
+	return m.IsMember(ctx, addr)
 }
 
 func (m *mockRepKeeper) IsMember(ctx context.Context, addr sdk.AccAddress) bool {
@@ -155,11 +161,25 @@ func (m *mockRepKeeper) UnlockDREAM(ctx context.Context, addr sdk.AccAddress, am
 	return nil
 }
 
-func (m *mockRepKeeper) AddReputation(ctx context.Context, memberAddr sdk.AccAddress, tag string, amount math.LegacyDec) error {
-	if m.addReputationFn != nil {
-		return m.addReputationFn(ctx, memberAddr, tag, amount)
+// BurnLockedDREAM runs burnLockedDREAMFn when set, otherwise the unlock and
+// the burn hooks it stands for, so tests observing either keep working.
+func (m *mockRepKeeper) BurnLockedDREAM(ctx context.Context, addr sdk.AccAddress, amount math.Int) error {
+	if m.burnLockedDREAMFn != nil {
+		return m.burnLockedDREAMFn(ctx, addr, amount)
 	}
-	return nil
+	if err := m.UnlockDREAM(ctx, addr, amount); err != nil {
+		return err
+	}
+	return m.BurnDREAM(ctx, addr, amount)
+}
+
+func (m *mockRepKeeper) AddReputationCapped(ctx context.Context, memberAddr sdk.AccAddress, tag string, amount math.LegacyDec) (math.LegacyDec, error) {
+	if m.addReputationFn != nil {
+		if err := m.addReputationFn(ctx, memberAddr, tag, amount); err != nil {
+			return math.LegacyZeroDec(), err
+		}
+	}
+	return amount, nil
 }
 
 func (m *mockRepKeeper) DeductReputation(ctx context.Context, memberAddr sdk.AccAddress, tag string, amount math.LegacyDec) error {
@@ -184,6 +204,14 @@ type mockCommonsKeeper struct {
 	isCommitteeMemberFn    func(ctx context.Context, address sdk.AccAddress, council string, committee string) (bool, error)
 	isCouncilAuthorizedFn  func(ctx context.Context, addr string, council string, committee string) bool
 	isCouncilPolicyOrGovFn func(ctx context.Context, addr string, council string) bool
+	isCouncilOrCommitteeFn func(ctx context.Context, addr string, council string, committee string) bool
+}
+
+func (m *mockCommonsKeeper) IsCouncilOrCommitteePolicy(ctx context.Context, addr string, council string, committee string) bool {
+	if m.isCouncilOrCommitteeFn != nil {
+		return m.isCouncilOrCommitteeFn(ctx, addr, council, committee)
+	}
+	return false
 }
 
 func (m *mockCommonsKeeper) IsCommitteeMember(ctx context.Context, address sdk.AccAddress, council string, committee string) (bool, error) {

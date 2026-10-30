@@ -77,6 +77,12 @@ service Msg {
   // The sentinel's committed bond stays reserved until the original
   // appeal_deadline (anti hide/unhide cycling).
   rpc UnhideContent(MsgUnhideContent) returns (MsgUnhideContentResponse);
+
+  // ResolveCurationChallenge applies a verdict to a pending curation
+  // challenge (upheld = challenger wins). Signed only by the gov authority,
+  // the Commons Council policy or the Commons Operations Committee policy
+  // (an executed proposal), never by an individual committee member.
+  rpc ResolveCurationChallenge(MsgResolveCurationChallenge) returns (MsgResolveCurationChallengeResponse);
 }
 
 // MsgUpdateParams is the Msg/UpdateParams request type.
@@ -478,3 +484,18 @@ message MsgUnhideContent {
 
 // MsgUnhideContentResponse defines the MsgUnhideContentResponse message.
 message MsgUnhideContentResponse {}
+
+// MsgResolveCurationChallenge delivers the verdict on a curation challenge.
+// upheld = true overturns the review and slashes the curator's committed
+// bond; upheld = false lets the review stand and burns the challenge deposit.
+message MsgResolveCurationChallenge {
+  option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/collect/MsgResolveCurationChallenge";
+  string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 review_id = 2;
+  bool upheld = 3;
+  string reason = 4;
+}
+
+// MsgResolveCurationChallengeResponse defines the MsgResolveCurationChallengeResponse message.
+message MsgResolveCurationChallengeResponse {}

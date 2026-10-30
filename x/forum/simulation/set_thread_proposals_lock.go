@@ -1,32 +1,39 @@
 package simulation
 
 import (
-	"math/rand"
-
-	"github.com/cosmos/cosmos-sdk/baseapp"
+	"cosmossdk.io/math"
 	"github.com/cosmos/cosmos-sdk/client"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
 
 	"sparkdream/x/forum/keeper"
 	"sparkdream/x/forum/types"
 )
 
+// SimulateMsgSetThreadProposalsLock delivers MsgSetThreadProposalsLock from
+// the author of a thread, flipping whether sentinels may propose an
+// accepted reply on it (locking also clears a pending proposal).
 func SimulateMsgSetThreadProposalsLock(
 	ak types.AuthKeeper,
 	bk types.BankKeeper,
 	k keeper.Keeper,
 	txGen client.TxConfig,
 ) simtypes.Operation {
-	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
-	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		simAccount, _ := simtypes.RandomAcc(r, accs)
-		msg := &types.MsgSetThreadProposalsLock{
-			Creator: simAccount.Address.String(),
+	return operation(ak, bk, k, txGen, &types.MsgSetThreadProposalsLock{}, func(e *simEnv) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
+		msg := &types.MsgSetThreadProposalsLock{}
+		roots, err := e.postsWhere(func(p types.Post) bool {
+			_, own := e.account(p.Author)
+			return own && p.ParentId == 0 && visible(p)
+		})
+		if err != nil {
+			return noOpErr(msg, err)
 		}
-
-		// TODO: Handle the SetThreadProposalsLock simulation
-
-		return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "SetThreadProposalsLock simulation not implemented"), nil, nil
-	}
+		root, ok := pick(e.r, roots)
+		if !ok {
+			return noOp(msg, "no visible thread by a sim account")
+		}
+		md, _ := e.metadata(root.PostId)
+		author, _ := e.account(root.Author)
+		msg.Creator, msg.ThreadId, msg.Locked = root.Author, root.PostId, !md.ProposalsLocked
+		return e.submit(author, msg, math.ZeroInt())
+	})
 }

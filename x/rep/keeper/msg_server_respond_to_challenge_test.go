@@ -52,16 +52,16 @@ func TestMsgServerRespondToChallenge(t *testing.T) {
 
 		// Setup: create challenge
 		creator := sdk.AccAddress([]byte("creator"))
-		k.Member.Set(ctx, creator.String(), types.Member{
+		require.NoError(t, k.Member.Set(ctx, creator.String(), types.Member{
 			Address:          creator.String(),
 			DreamBalance:     keeper.PtrInt(math.ZeroInt()),
 			StakedDream:      keeper.PtrInt(math.ZeroInt()),
 			LifetimeEarned:   keeper.PtrInt(math.ZeroInt()),
 			LifetimeBurned:   keeper.PtrInt(math.ZeroInt()),
 			ReputationScores: map[string]string{"tag": "100.0"},
-		})
+		}))
 		projectID, _ := k.CreateProject(ctx, creator, "Proj", "Desc", []string{"tag"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical", math.NewInt(10000), math.NewInt(1000), false)
-		k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(10000), math.NewInt(1000))
+		require.NoError(t, k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(10000), math.NewInt(1000)))
 		initID, _ := k.CreateInitiative(ctx, creator, projectID, "Task", "D", []string{"tag"}, types.InitiativeTier_INITIATIVE_TIER_STANDARD, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, math.NewInt(100))
 
 		// Assign and submit work to make initiative eligible for challenge
@@ -69,27 +69,27 @@ func TestMsgServerRespondToChallenge(t *testing.T) {
 		assigneeStr, err := f.addressCodec.BytesToString(assignee)
 		require.NoError(t, err)
 
-		k.Member.Set(ctx, assigneeStr, types.Member{
+		require.NoError(t, k.Member.Set(ctx, assigneeStr, types.Member{
 			Address:          assigneeStr,
 			DreamBalance:     keeper.PtrInt(math.ZeroInt()),
 			StakedDream:      keeper.PtrInt(math.ZeroInt()),
 			LifetimeEarned:   keeper.PtrInt(math.ZeroInt()),
 			LifetimeBurned:   keeper.PtrInt(math.ZeroInt()),
 			ReputationScores: map[string]string{"tag": "100.0"},
-		})
+		}))
 
-		k.AssignInitiativeToMember(ctx, initID, assignee)
-		k.SubmitInitiativeWork(ctx, initID, assignee, "uri")
+		require.NoError(t, k.AssignInitiativeToMember(ctx, initID, assignee))
+		require.NoError(t, k.SubmitInitiativeWork(ctx, initID, assignee, "uri"))
 
 		challenger := sdk.AccAddress([]byte("challenger"))
-		k.Member.Set(ctx, challenger.String(), types.Member{
+		require.NoError(t, k.Member.Set(ctx, challenger.String(), types.Member{
 			Address:          challenger.String(),
 			DreamBalance:     keeper.PtrInt(math.NewInt(1000)),
 			StakedDream:      keeper.PtrInt(math.ZeroInt()),
 			LifetimeEarned:   keeper.PtrInt(math.ZeroInt()),
 			LifetimeBurned:   keeper.PtrInt(math.ZeroInt()),
 			ReputationScores: map[string]string{"tag": "100.0"},
-		})
+		}))
 
 		// Create challenge manually
 		challengeID := uint64(100)
@@ -106,22 +106,22 @@ func TestMsgServerRespondToChallenge(t *testing.T) {
 		// Update initiative status
 		initiative, _ := k.GetInitiative(ctx, initID)
 		initiative.Status = types.InitiativeStatus_INITIATIVE_STATUS_CHALLENGED
-		k.Initiative.Set(ctx, initID, initiative)
+		require.NoError(t, k.Initiative.Set(ctx, initID, initiative))
 
 		// Set jury size to 1 for easier testing
 		params, _ := k.Params.Get(ctx)
 		params.JurySize = 1
-		k.Params.Set(ctx, params)
+		require.NoError(t, k.Params.Set(ctx, params))
 
 		// Add a juror to ensure jury selection succeeds
 		juror := sdk.AccAddress([]byte("juror"))
-		k.Member.Set(ctx, juror.String(), types.Member{
+		require.NoError(t, k.Member.Set(ctx, juror.String(), types.Member{
 			Address:          juror.String(),
 			DreamBalance:     keeper.PtrInt(math.NewInt(1000)),
 			Status:           types.MemberStatus_MEMBER_STATUS_ACTIVE,
 			TrustLevel:       types.TrustLevel_TRUST_LEVEL_TRUSTED,
 			ReputationScores: map[string]string{"tag": "100.0"},
-		})
+		}))
 
 		// Respond to challenge (expect routing to jury)
 		_, err = ms.RespondToChallenge(ctx, &types.MsgRespondToChallenge{

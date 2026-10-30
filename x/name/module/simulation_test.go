@@ -32,7 +32,15 @@ func TestGenerateGenesisState(t *testing.T) {
 	var genesis types.GenesisState
 	require.NoError(t, encCfg.Codec.UnmarshalJSON(raw, &genesis))
 
-	require.Equal(t, types.DefaultParams(), genesis.Params)
+	require.NoError(t, genesis.Validate())
+	// The simulation shortens the contest and inactivity windows so a short
+	// run reaches them; everything else is the default.
+	want := types.DefaultParams()
+	want.DisputeTimeoutBlocks = genesis.Params.DisputeTimeoutBlocks
+	want.ExpirationDuration = genesis.Params.ExpirationDuration
+	require.Equal(t, want, genesis.Params)
+	require.Less(t, genesis.Params.DisputeTimeoutBlocks, types.DefaultDisputeTimeoutBlocks)
+	require.Less(t, genesis.Params.ExpirationDuration, types.DefaultExpirationDuration)
 }
 
 func TestWeightedOperations(t *testing.T) {
@@ -44,8 +52,10 @@ func TestWeightedOperations(t *testing.T) {
 		TxConfig:  encCfg.TxConfig,
 	}
 	ops := am.WeightedOperations(simState)
-	// 5 operations: RegisterName, SetPrimary, FileDispute, ResolveDispute, UpdateName
-	require.Len(t, ops, 5)
+	// One operation per user-facing name message (NAM-07): RegisterName,
+	// SetPrimary, UpdateName, SetDisplayName, SetTarget, AcceptTarget,
+	// TransferName, FileDispute, ContestDispute and ResolveDispute.
+	require.Len(t, ops, 10)
 }
 
 func TestProposalMsgs(t *testing.T) {

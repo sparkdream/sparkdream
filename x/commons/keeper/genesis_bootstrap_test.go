@@ -135,7 +135,10 @@ func TestOpsCommitteeCanExecuteCommitteeGatedFederationMsgs(t *testing.T) {
 			continue
 		}
 		m := msgRe.FindStringSubmatch(string(body))
-		require.NotNil(t, m, "%s calls IsCouncilOrCommitteePolicy but no msgServer handler was found in it", e.Name())
+		if m == nil {
+			// A shared helper (e.g. keeper_helpers.go), not a handler.
+			continue
+		}
 		gated = append(gated, "/sparkdream.federation.v1."+m[2])
 	}
 
@@ -212,5 +215,49 @@ func TestCouncilsCanRunArtifactBadges(t *testing.T) {
 	ops := block("Commons Operations Committee", "MaxSpendPerEpoch")
 	for _, msg := range append(issuer, "MsgHideContent", "MsgUnhideContent", "MsgUpdateOperationalParams") {
 		require.Contains(t, ops, `"/sparkdream.artifact.v1.`+msg+`"`, "Operations Committee cannot execute artifact %s", msg)
+	}
+}
+
+// x/rep accepts member-report and appeal resolutions, interim approvals and
+// adjudication verdicts only from the Commons Operations Committee policy (or
+// its council, or x/gov). Without these allowlist entries a passed committee
+// proposal could not execute them.
+func TestOpsCommitteeCanExecutePolicyGatedRepMsgs(t *testing.T) {
+	bootstrap, err := os.ReadFile("genesis_bootstrap.go")
+	require.NoError(t, err)
+	src := string(bootstrap)
+	start := strings.Index(src, `Name:        "Commons Operations Committee"`)
+	require.NotEqual(t, -1, start)
+	end := strings.Index(src[start:], "MaxSpendPerEpoch")
+	require.NotEqual(t, -1, end)
+	committeeBlock := src[start : start+end]
+	for _, typeURL := range []string{
+		"/sparkdream.rep.v1.MsgResolveMemberReport",
+		"/sparkdream.rep.v1.MsgResolveGovActionAppeal",
+		"/sparkdream.rep.v1.MsgApproveInterim",
+		"/sparkdream.rep.v1.MsgCompleteInterim",
+	} {
+		require.Contains(t, committeeBlock, `"`+typeURL+`"`)
+	}
+}
+
+// A project's council can be any of the three, and x/rep accepts budget
+// approval above large_project_budget_threshold, cancellation of an approved
+// project and completion only from that council's or its Operations
+// Committee's policy (or x/gov). Each Operations Committee must therefore be
+// able to carry all three messages in a proposal.
+func TestOpsCommitteesCanRunProjectLifecycle(t *testing.T) {
+	bootstrap, err := os.ReadFile("genesis_bootstrap.go")
+	require.NoError(t, err)
+	src := string(bootstrap)
+	for _, name := range []string{"Commons Operations Committee", "Technical Operations Committee", "Ecosystem Operations Committee"} {
+		start := strings.Index(src, `Name:        "`+name+`"`)
+		require.NotEqual(t, -1, start, "%s block not found", name)
+		end := strings.Index(src[start:], "\n\t\tMaxSpendPerEpoch:")
+		require.NotEqual(t, -1, end, "end of %s block not found", name)
+		block := src[start : start+end]
+		for _, msg := range []string{"MsgApproveProjectBudget", "MsgCancelProject", "MsgCompleteProject"} {
+			require.Contains(t, block, `"/sparkdream.rep.v1.`+msg+`"`, "%s cannot execute rep %s", name, msg)
+		}
 	}
 }

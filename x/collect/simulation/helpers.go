@@ -6,664 +6,186 @@ import (
 
 	"cosmossdk.io/collections"
 	"cosmossdk.io/math"
+	"github.com/cosmos/cosmos-sdk/baseapp"
+	"github.com/cosmos/cosmos-sdk/client"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/cosmos/cosmos-sdk/types/query"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
-
-	commontypes "sparkdream/x/common/types"
+	"github.com/cosmos/cosmos-sdk/x/simulation"
 
 	"sparkdream/x/collect/keeper"
 	"sparkdream/x/collect/types"
+	commontypes "sparkdream/x/common/types"
+	reptypes "sparkdream/x/rep/types"
 )
 
-// --- Find functions ---
+// The collect simulation delivers real transactions through the message
+// handlers. A delivered tx the handler rejects fails the whole simulation,
+// so every op picks its signer and target from live state, checks the
+// handler's preconditions against live state and params, and returns a
+// NoOp when one cannot hold. Prerequisite state (a collection to add items
+// to, a curator or sentinel bond) is only ever created by delivering the
+// real message first.
+//
+// The x/rep side of a handler (membership, trust level, DREAM locks and
+// burns, bonded-role eligibility and reservations, the tag registry, appeal
+// bonds) is read through x/rep's query service, and because the collect
+// keeper does not expose those calls one by one, every message is finally
+// dry-run through its real handler on a throwaway cache of the block state
+// (submit). Only a message that dry-run accepts is delivered.
 
-// findCollection returns a random collection with the given status, or nil if none exist.
-func findCollection(r *rand.Rand, ctx sdk.Context, k keeper.Keeper, status types.CollectionStatus) (*types.Collection, uint64, error) {
-	type entry struct {
-		id   uint64
-		coll types.Collection
-	}
-	var matches []entry
-	err := k.Collection.Walk(ctx, nil, func(id uint64, coll types.Collection) (bool, error) {
-		if coll.Status == status {
-			matches = append(matches, entry{id, coll})
+// simEnv carries the arguments every operation needs.
+type simEnv struct {
+	r      *rand.Rand
+	app    *baseapp.BaseApp
+	ctx    sdk.Context
+	accs   []simtypes.Account
+	txGen  client.TxConfig
+	ak     types.AuthKeeper
+	bk     types.BankKeeper
+	k      keeper.Keeper
+	params types.Params
+
+	repQuery reptypes.QueryClient
+	members  map[string]reptypes.Member
+	tags     []string
+}
+
+// operation builds a simulation operation: it loads params and hands the
+// body a simEnv. msg is only used to label a NoOp when params are missing.
+func operation(
+	ak types.AuthKeeper, bk types.BankKeeper, k keeper.Keeper, txGen client.TxConfig, msg sdk.Msg,
+	body func(e *simEnv) (simtypes.OperationMsg, []simtypes.FutureOperation, error),
+) simtypes.Operation {
+	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, _ string,
+	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
+		params, err := k.Params.Get(ctx)
+		if err != nil {
+			return noOpErr(msg, err)
 		}
-		return false, nil
-	})
-	if err != nil || len(matches) == 0 {
-		return nil, 0, err
+		// Each operation seeds its own source from two draws of the shared
+		// stream, so how much randomness an op uses (which depends on collect
+		// state) never shifts the draws of the other modules' ops.
+		local := rand.New(rand.NewSource(r.Int63() ^ r.Int63()))
+		e := &simEnv{r: local, app: app, ctx: ctx, accs: accs, txGen: txGen, ak: ak, bk: bk, k: k, params: params}
+		e.repQuery = reptypes.NewQueryClient(&baseapp.QueryServiceTestHelper{GRPCQueryRouter: app.GRPCQueryRouter(), Ctx: ctx})
+		return body(e)
 	}
-	selected := matches[r.Intn(len(matches))]
-	return &selected.coll, selected.id, nil
 }
 
-// findCollectionByOwner returns a random collection owned by the given address.
-func findCollectionByOwner(r *rand.Rand, ctx sdk.Context, k keeper.Keeper, owner string) (*types.Collection, uint64, error) {
-	type entry struct {
-		id   uint64
-		coll types.Collection
-	}
-	var matches []entry
-	err := k.CollectionsByOwner.Walk(ctx,
-		collections.NewPrefixedPairRange[string, uint64](owner),
-		func(key collections.Pair[string, uint64]) (bool, error) {
-			collID := key.K2()
-			coll, err := k.Collection.Get(ctx, collID)
-			if err != nil {
-				return false, nil
-			}
-			matches = append(matches, entry{collID, coll})
-			return false, nil
-		},
-	)
-	if err != nil || len(matches) == 0 {
-		return nil, 0, err
-	}
-	selected := matches[r.Intn(len(matches))]
-	return &selected.coll, selected.id, nil
+// noOp returns a skipped operation for msg's type.
+func noOp(msg sdk.Msg, reason string) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
+	return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), reason), nil, nil
 }
 
-// findMutableCollectionByOwner returns a non-immutable ACTIVE collection owned by the given address.
-func findMutableCollectionByOwner(r *rand.Rand, ctx sdk.Context, k keeper.Keeper, owner string) (*types.Collection, uint64, error) {
-	type entry struct {
-		id   uint64
-		coll types.Collection
-	}
-	var matches []entry
-	err := k.CollectionsByOwner.Walk(ctx,
-		collections.NewPrefixedPairRange[string, uint64](owner),
-		func(key collections.Pair[string, uint64]) (bool, error) {
-			collID := key.K2()
-			coll, err := k.Collection.Get(ctx, collID)
-			if err != nil {
-				return false, nil
-			}
-			if !coll.Immutable && coll.Status == types.CollectionStatus_COLLECTION_STATUS_ACTIVE {
-				matches = append(matches, entry{collID, coll})
-			}
-			return false, nil
-		},
-	)
-	if err != nil || len(matches) == 0 {
-		return nil, 0, err
-	}
-	selected := matches[r.Intn(len(matches))]
-	return &selected.coll, selected.id, nil
+// noOpErr returns a skipped operation together with a store error, which
+// fails the simulation: a failing store read is a real bug.
+func noOpErr(msg sdk.Msg, err error) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
+	return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), err.Error()), nil, err
 }
 
-// findItem returns a random item in the given collection.
-func findItem(r *rand.Rand, ctx sdk.Context, k keeper.Keeper, collectionID uint64) (*types.Item, uint64, error) {
-	type entry struct {
-		id   uint64
-		item types.Item
+// dryRun runs msg through its real handler on a throwaway cache of the block
+// state and returns the handler's error. A panicking handler is reported as
+// an error (and never delivered).
+func (e *simEnv) dryRun(msg sdk.Msg) (err error) {
+	handler := e.app.MsgServiceRouter().Handler(msg)
+	if handler == nil {
+		return fmt.Errorf("no handler for %s", sdk.MsgTypeURL(msg))
 	}
-	var matches []entry
-	err := k.ItemsByCollection.Walk(ctx,
-		collections.NewPrefixedPairRange[uint64, uint64](collectionID),
-		func(key collections.Pair[uint64, uint64]) (bool, error) {
-			itemID := key.K2()
-			item, err := k.Item.Get(ctx, itemID)
-			if err != nil {
-				return false, nil
-			}
-			matches = append(matches, entry{itemID, item})
-			return false, nil
-		},
-	)
-	if err != nil || len(matches) == 0 {
-		return nil, 0, err
-	}
-	selected := matches[r.Intn(len(matches))]
-	return &selected.item, selected.id, nil
-}
-
-// findItemByOwner returns a random item owned by the given address (via ItemsByOwner index).
-func findItemByOwner(r *rand.Rand, ctx sdk.Context, k keeper.Keeper, owner string) (*types.Item, uint64, error) {
-	type entry struct {
-		id   uint64
-		item types.Item
-	}
-	var matches []entry
-	err := k.ItemsByOwner.Walk(ctx,
-		collections.NewPrefixedPairRange[string, uint64](owner),
-		func(key collections.Pair[string, uint64]) (bool, error) {
-			itemID := key.K2()
-			item, err := k.Item.Get(ctx, itemID)
-			if err != nil {
-				return false, nil
-			}
-			matches = append(matches, entry{itemID, item})
-			return false, nil
-		},
-	)
-	if err != nil || len(matches) == 0 {
-		return nil, 0, err
-	}
-	selected := matches[r.Intn(len(matches))]
-	return &selected.item, selected.id, nil
-}
-
-// findCollaborator returns a random collaborator for the given collection.
-func findCollaborator(r *rand.Rand, ctx sdk.Context, k keeper.Keeper, collectionID uint64) (*types.Collaborator, string, error) {
-	type entry struct {
-		key    string
-		collab types.Collaborator
-	}
-	var matches []entry
-	err := k.Collaborator.Walk(ctx, nil, func(key string, collab types.Collaborator) (bool, error) {
-		if collab.CollectionId == collectionID {
-			matches = append(matches, entry{key, collab})
+	cacheCtx, _ := e.ctx.CacheContext()
+	defer func() {
+		if p := recover(); p != nil {
+			err = fmt.Errorf("handler panicked: %v", p)
 		}
-		return false, nil
-	})
-	if err != nil || len(matches) == 0 {
-		return nil, "", err
-	}
-	selected := matches[r.Intn(len(matches))]
-	return &selected.collab, selected.key, nil
+	}()
+	_, err = handler(cacheCtx, msg)
+	return err
 }
 
-// findAnyCollaborator returns a random collaborator from any collection.
-func findAnyCollaborator(r *rand.Rand, ctx sdk.Context, k keeper.Keeper) (*types.Collaborator, string, error) {
-	type entry struct {
-		key    string
-		collab types.Collaborator
+// deliver signs msg with acc and delivers it as a real transaction. spent is
+// the SPARK the handler takes from acc (deposits, fees, burns); the random
+// tx fee is drawn only from what is left, so the handler still finds it.
+func (e *simEnv) deliver(acc simtypes.Account, msg sdk.Msg, spent math.Int) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
+	coins := sdk.NewCoins()
+	if spent.IsPositive() {
+		coins = sdk.NewCoins(sdk.NewCoin(e.k.BondDenom(e.ctx), spent))
 	}
-	var matches []entry
-	err := k.Collaborator.Walk(ctx, nil, func(key string, collab types.Collaborator) (bool, error) {
-		matches = append(matches, entry{key, collab})
-		return false, nil
+	return simulation.GenAndDeliverTxWithRandFees(simulation.OperationInput{
+		R:               e.r,
+		App:             e.app,
+		TxGen:           e.txGen,
+		Cdc:             nil,
+		Msg:             msg,
+		CoinsSpentInMsg: coins,
+		Context:         e.ctx,
+		SimAccount:      acc,
+		AccountKeeper:   e.ak,
+		Bankkeeper:      e.bk,
+		ModuleName:      types.ModuleName,
 	})
-	if err != nil || len(matches) == 0 {
-		return nil, "", err
-	}
-	selected := matches[r.Intn(len(matches))]
-	return &selected.collab, selected.key, nil
 }
 
-// Note: findCurator / findRemovableCurator were removed along with the local
-// Curator collection in Phase 3 of the bonded-role generalization. Simulations
-// that need a bonded curator should assume it exists (the underlying tx will
-// error cleanly if not), matching how simulations handle other rep-owned state.
-
-// findUnchallengedReview returns a random review that has not been challenged.
-func findUnchallengedReview(r *rand.Rand, ctx sdk.Context, k keeper.Keeper) (*types.CurationReview, uint64, error) {
-	type entry struct {
-		id     uint64
-		review types.CurationReview
+// submit dry-runs msg and delivers it when the handler accepts it. The
+// signer must hold spent SPARK on top of the tx fee, and must not be a
+// tombstoned (migrated-away) address, which the ante handler refuses.
+func (e *simEnv) submit(acc simtypes.Account, msg sdk.Msg, spent math.Int) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
+	if e.tombstoned(acc.Address.String()) {
+		return noOp(msg, "signer is a tombstoned address")
 	}
-	var matches []entry
-	err := k.CurationReview.Walk(ctx, nil, func(id uint64, review types.CurationReview) (bool, error) {
-		if !review.Challenged {
-			matches = append(matches, entry{id, review})
+	if spent.IsPositive() && e.spendable(acc).LT(spent) {
+		return noOp(msg, "signer cannot pay "+spent.String())
+	}
+	if err := e.dryRun(msg); err != nil {
+		return noOp(msg, "handler would reject: "+err.Error())
+	}
+	return e.deliver(acc, msg, spent)
+}
+
+// ensure delivers a prerequisite message from acc (dry-run first). It
+// returns false when the handler would refuse it.
+func (e *simEnv) ensure(acc simtypes.Account, msg sdk.Msg, spent math.Int) (bool, error) {
+	if e.tombstoned(acc.Address.String()) {
+		return false, nil
+	}
+	if spent.IsPositive() && e.spendable(acc).LT(spent) {
+		return false, nil
+	}
+	if e.dryRun(msg) != nil {
+		return false, nil
+	}
+	opMsg, _, err := e.deliver(acc, msg, spent)
+	if err != nil {
+		return false, err
+	}
+	return opMsg.OK, nil
+}
+
+// spendable returns acc's spendable SPARK.
+func (e *simEnv) spendable(acc simtypes.Account) math.Int {
+	return e.bk.SpendableCoins(e.ctx, acc.Address).AmountOf(e.k.BondDenom(e.ctx))
+}
+
+// --- Selection helpers ---
+
+// pick returns a random element of items.
+func pick[T any](r *rand.Rand, items []T) (T, bool) {
+	var zero T
+	if len(items) == 0 {
+		return zero, false
+	}
+	return items[r.Intn(len(items))], true
+}
+
+// accountsWhere returns the sim accounts accepted by keep.
+func accountsWhere(accs []simtypes.Account, keep func(simtypes.Account) bool) []simtypes.Account {
+	var out []simtypes.Account
+	for _, acc := range accs {
+		if keep(acc) {
+			out = append(out, acc)
 		}
-		return false, nil
-	})
-	if err != nil || len(matches) == 0 {
-		return nil, 0, err
 	}
-	selected := matches[r.Intn(len(matches))]
-	return &selected.review, selected.id, nil
+	return out
 }
-
-// findSponsorshipRequest returns a random sponsorship request.
-func findSponsorshipRequest(r *rand.Rand, ctx sdk.Context, k keeper.Keeper) (*types.SponsorshipRequest, uint64, error) {
-	type entry struct {
-		collID uint64
-		req    types.SponsorshipRequest
-	}
-	var matches []entry
-	err := k.SponsorshipRequest.Walk(ctx, nil, func(collID uint64, req types.SponsorshipRequest) (bool, error) {
-		matches = append(matches, entry{collID, req})
-		return false, nil
-	})
-	if err != nil || len(matches) == 0 {
-		return nil, 0, err
-	}
-	selected := matches[r.Intn(len(matches))]
-	return &selected.req, selected.collID, nil
-}
-
-// findHideRecord returns a random hide record matching the appealed status.
-func findHideRecord(r *rand.Rand, ctx sdk.Context, k keeper.Keeper, appealed bool) (*types.HideRecord, uint64, error) {
-	type entry struct {
-		id uint64
-		hr types.HideRecord
-	}
-	var matches []entry
-	err := k.HideRecord.Walk(ctx, nil, func(id uint64, hr types.HideRecord) (bool, error) {
-		if hr.Appealed == appealed && !hr.Resolved {
-			matches = append(matches, entry{id, hr})
-		}
-		return false, nil
-	})
-	if err != nil || len(matches) == 0 {
-		return nil, 0, err
-	}
-	selected := matches[r.Intn(len(matches))]
-	return &selected.hr, selected.id, nil
-}
-
-// findSeekingEndorsementCollection returns a random PENDING collection that is seeking endorsement.
-func findSeekingEndorsementCollection(r *rand.Rand, ctx sdk.Context, k keeper.Keeper) (*types.Collection, uint64, error) {
-	type entry struct {
-		id   uint64
-		coll types.Collection
-	}
-	var matches []entry
-	err := k.Collection.Walk(ctx, nil, func(id uint64, coll types.Collection) (bool, error) {
-		if coll.Status == types.CollectionStatus_COLLECTION_STATUS_PENDING && coll.SeekingEndorsement {
-			matches = append(matches, entry{id, coll})
-		}
-		return false, nil
-	})
-	if err != nil || len(matches) == 0 {
-		return nil, 0, err
-	}
-	selected := matches[r.Intn(len(matches))]
-	return &selected.coll, selected.id, nil
-}
-
-// --- Get-or-create functions ---
-
-// getOrCreateCollection creates or finds an existing PUBLIC ACTIVE collection for the owner.
-func getOrCreateCollection(r *rand.Rand, ctx sdk.Context, k keeper.Keeper, owner string) (uint64, error) {
-	coll, collID, _ := findMutableCollectionByOwner(r, ctx, k, owner)
-	if coll != nil {
-		return collID, nil
-	}
-
-	collID, err := k.CollectionSeq.Next(ctx)
-	if err != nil {
-		return 0, err
-	}
-
-	now := ctx.BlockHeight()
-	newColl := types.Collection{
-		Id:                       collID,
-		Owner:                    owner,
-		Name:                     randomCollectionName(r),
-		Description:              randomDescription(r),
-		Tags:                     []string{randomTag(r), randomTag(r)},
-		Type:                     randomCollectionType(r),
-		Visibility:               types.Visibility_VISIBILITY_PUBLIC,
-		Status:                   types.CollectionStatus_COLLECTION_STATUS_ACTIVE,
-		CreatedAt:                now,
-		UpdatedAt:                now,
-		DepositAmount:            math.ZeroInt(),
-		ItemDepositTotal:         math.ZeroInt(),
-		CommunityFeedbackEnabled: true,
-		Immutable:                false,
-	}
-
-	if err := k.Collection.Set(ctx, collID, newColl); err != nil {
-		return 0, err
-	}
-	if err := k.CollectionsByOwner.Set(ctx, collections.Join(owner, collID)); err != nil {
-		return 0, err
-	}
-	if err := k.AddCollectionStatusIndex(ctx, newColl.Status, newColl.Pinned, collID); err != nil {
-		return 0, err
-	}
-
-	return collID, nil
-}
-
-// getOrCreateTTLCollection creates or finds a TTL collection with an expiry.
-func getOrCreateTTLCollection(r *rand.Rand, ctx sdk.Context, k keeper.Keeper, owner string) (uint64, error) {
-	// Try to find existing TTL collection owned by this owner
-	coll, collID, _ := findCollectionByOwner(r, ctx, k, owner)
-	if coll != nil && coll.ExpiresAt > 0 {
-		return collID, nil
-	}
-
-	collID, err := k.CollectionSeq.Next(ctx)
-	if err != nil {
-		return 0, err
-	}
-
-	now := ctx.BlockHeight()
-	expiresAt := now + int64(r.Intn(10000)+1000)
-	newColl := types.Collection{
-		Id:                       collID,
-		Owner:                    owner,
-		Name:                     randomCollectionName(r),
-		Description:              randomDescription(r),
-		Tags:                     []string{randomTag(r)},
-		Type:                     randomCollectionType(r),
-		Visibility:               types.Visibility_VISIBILITY_PUBLIC,
-		Status:                   types.CollectionStatus_COLLECTION_STATUS_ACTIVE,
-		CreatedAt:                now,
-		UpdatedAt:                now,
-		ExpiresAt:                expiresAt,
-		DepositAmount:            math.NewInt(int64(r.Intn(1000) + 100)),
-		ItemDepositTotal:         math.ZeroInt(),
-		CommunityFeedbackEnabled: true,
-		Immutable:                false,
-	}
-
-	if err := k.Collection.Set(ctx, collID, newColl); err != nil {
-		return 0, err
-	}
-	if err := k.CollectionsByOwner.Set(ctx, collections.Join(owner, collID)); err != nil {
-		return 0, err
-	}
-	if err := k.AddCollectionStatusIndex(ctx, newColl.Status, newColl.Pinned, collID); err != nil {
-		return 0, err
-	}
-	if err := k.CollectionsByExpiry.Set(ctx, collections.Join(expiresAt, collID)); err != nil {
-		return 0, err
-	}
-
-	return collID, nil
-}
-
-// getOrCreateItem creates or finds an existing item in the given collection.
-func getOrCreateItem(r *rand.Rand, ctx sdk.Context, k keeper.Keeper, collectionID uint64, owner string) (uint64, error) {
-	item, itemID, _ := findItem(r, ctx, k, collectionID)
-	if item != nil {
-		return itemID, nil
-	}
-
-	coll, err := k.Collection.Get(ctx, collectionID)
-	if err != nil {
-		return 0, err
-	}
-
-	itemID, err = k.ItemSeq.Next(ctx)
-	if err != nil {
-		return 0, err
-	}
-
-	now := ctx.BlockHeight()
-	newItem := types.Item{
-		Id:            itemID,
-		CollectionId:  collectionID,
-		AddedBy:       owner,
-		Title:         randomTitle(r),
-		Description:   randomDescription(r),
-		ReferenceType: types.ReferenceType_REFERENCE_TYPE_LINK,
-		Link:          &types.LinkReference{Uri: randomURI(r)},
-		Position:      coll.ItemCount,
-		AddedAt:       now,
-		Status:        types.ItemStatus_ITEM_STATUS_ACTIVE,
-	}
-
-	if err := k.Item.Set(ctx, itemID, newItem); err != nil {
-		return 0, err
-	}
-	if err := k.ItemsByCollection.Set(ctx, collections.Join(collectionID, itemID)); err != nil {
-		return 0, err
-	}
-	if err := k.ItemsByOwner.Set(ctx, collections.Join(owner, itemID)); err != nil {
-		return 0, err
-	}
-
-	coll.ItemCount++
-	coll.UpdatedAt = now
-	if err := k.Collection.Set(ctx, collectionID, coll); err != nil {
-		return 0, err
-	}
-
-	return itemID, nil
-}
-
-// getOrCreateCollaborator creates a collaborator if one doesn't exist for the collection+address.
-func getOrCreateCollaborator(ctx sdk.Context, k keeper.Keeper, collectionID uint64, collabAddr string, role types.CollaboratorRole) error {
-	key := keeper.CollaboratorCompositeKey(collectionID, collabAddr)
-	_, err := k.Collaborator.Get(ctx, key)
-	if err == nil {
-		return nil // already exists
-	}
-
-	now := ctx.BlockHeight()
-	collab := types.Collaborator{
-		CollectionId: collectionID,
-		Address:      collabAddr,
-		Role:         role,
-		AddedAt:      now,
-	}
-
-	if err := k.Collaborator.Set(ctx, key, collab); err != nil {
-		return err
-	}
-	if err := k.CollaboratorReverse.Set(ctx, collections.Join(collabAddr, collectionID)); err != nil {
-		return err
-	}
-
-	coll, err := k.Collection.Get(ctx, collectionID)
-	if err != nil {
-		return err
-	}
-	coll.CollaboratorCount++
-	coll.UpdatedAt = now
-	return k.Collection.Set(ctx, collectionID, coll)
-}
-
-// getOrCreateCurator is a no-op under the Phase 3 bonded-role refactor:
-// curator bonding now lives on x/rep's BondedRole (ROLE_TYPE_COLLECT_CURATOR)
-// and simulations cannot directly create bonds from within the collect sim
-// (cross-module state seeding not supported). When the simulation invokes a
-// downstream msg that requires a curator, the msg handler will return
-// ErrNotCurator and the sim records a NoOp, which is acceptable for fuzz
-// coverage.
-func getOrCreateCurator(_ *rand.Rand, _ sdk.Context, _ keeper.Keeper, _ string) error {
-	return nil
-}
-
-// getOrCreateCurationReview creates a curation review if one doesn't exist for curator+collection.
-func getOrCreateCurationReview(r *rand.Rand, ctx sdk.Context, k keeper.Keeper, curatorAddr string, collectionID uint64) (uint64, error) {
-	// Check if this curator already reviewed this collection
-	var existingID *uint64
-	_ = k.CurationReviewsByCollection.Walk(ctx,
-		collections.NewPrefixedPairRange[uint64, uint64](collectionID),
-		func(key collections.Pair[uint64, uint64]) (bool, error) {
-			review, err := k.CurationReview.Get(ctx, key.K2())
-			if err == nil && review.Curator == curatorAddr {
-				id := key.K2()
-				existingID = &id
-				return true, nil
-			}
-			return false, nil
-		},
-	)
-	if existingID != nil {
-		return *existingID, nil
-	}
-
-	reviewID, err := k.CurationReviewSeq.Next(ctx)
-	if err != nil {
-		return 0, err
-	}
-
-	now := ctx.BlockHeight()
-	review := types.CurationReview{
-		Id:           reviewID,
-		CollectionId: collectionID,
-		Curator:      curatorAddr,
-		Verdict:      randomCurationVerdict(r),
-		Tags:         []string{randomTag(r)},
-		Comment:      randomDescription(r),
-		CreatedAt:    now,
-	}
-
-	if err := k.CurationReview.Set(ctx, reviewID, review); err != nil {
-		return 0, err
-	}
-	if err := k.CurationReviewsByCollection.Set(ctx, collections.Join(collectionID, reviewID)); err != nil {
-		return 0, err
-	}
-	if err := k.CurationReviewsByCurator.Set(ctx, collections.Join(curatorAddr, reviewID)); err != nil {
-		return 0, err
-	}
-
-	// Update summary
-	summary, err := k.CurationSummary.Get(ctx, collectionID)
-	if err != nil {
-		summary = types.CurationSummary{CollectionId: collectionID}
-	}
-	if review.Verdict == types.CurationVerdict_CURATION_VERDICT_UP {
-		summary.UpCount++
-	} else {
-		summary.DownCount++
-	}
-	summary.LastReviewedAt = now
-	if err := k.CurationSummary.Set(ctx, collectionID, summary); err != nil {
-		return 0, err
-	}
-
-	return reviewID, nil
-}
-
-// getOrCreateSponsorshipRequest creates a sponsorship request for a collection.
-func getOrCreateSponsorshipRequest(r *rand.Rand, ctx sdk.Context, k keeper.Keeper, collectionID uint64, requester string) error {
-	_, err := k.SponsorshipRequest.Get(ctx, collectionID)
-	if err == nil {
-		return nil
-	}
-
-	now := ctx.BlockHeight()
-	expiresAt := now + int64(r.Intn(10000)+1000)
-
-	req := types.SponsorshipRequest{
-		CollectionId:      collectionID,
-		Requester:         requester,
-		CollectionDeposit: math.NewInt(int64(r.Intn(1000) + 100)),
-		ItemDepositTotal:  math.ZeroInt(),
-		RequestedAt:       now,
-		ExpiresAt:         expiresAt,
-	}
-
-	if err := k.SponsorshipRequest.Set(ctx, collectionID, req); err != nil {
-		return err
-	}
-	return k.SponsorshipRequestsByExpiry.Set(ctx, collections.Join(expiresAt, collectionID))
-}
-
-// getOrCreateHideRecord creates a hide record for a target.
-func getOrCreateHideRecord(r *rand.Rand, ctx sdk.Context, k keeper.Keeper, targetType types.FlagTargetType, targetID uint64, sentinel string) (uint64, error) {
-	hr, hrID, _ := findHideRecord(r, ctx, k, false)
-	if hr != nil {
-		return hrID, nil
-	}
-
-	hrID, err := k.HideRecordSeq.Next(ctx)
-	if err != nil {
-		return 0, err
-	}
-
-	now := ctx.BlockHeight()
-	appealDeadline := now + int64(r.Intn(10000)+1000)
-
-	record := types.HideRecord{
-		Id:              hrID,
-		TargetId:        targetID,
-		TargetType:      targetType,
-		Sentinel:        sentinel,
-		HiddenAt:        now,
-		CommittedAmount: math.NewInt(int64(r.Intn(500) + 100)),
-		ReasonCode:      randomModerationReason(r),
-		ReasonText:      "Simulation hide",
-		AppealDeadline:  appealDeadline,
-	}
-
-	if err := k.HideRecord.Set(ctx, hrID, record); err != nil {
-		return 0, err
-	}
-	targetKey := keeper.HideRecordTargetCompositeKey(targetType, targetID)
-	if err := k.HideRecordByTarget.Set(ctx, collections.Join(targetKey, hrID)); err != nil {
-		return 0, err
-	}
-	if err := k.HideRecordExpiry.Set(ctx, collections.Join(appealDeadline, hrID)); err != nil {
-		return 0, err
-	}
-
-	return hrID, nil
-}
-
-// getOrCreateFlag creates a flag record for a target.
-func getOrCreateFlag(r *rand.Rand, ctx sdk.Context, k keeper.Keeper, targetType types.FlagTargetType, targetID uint64, flagger string) (string, error) {
-	flagKey := keeper.FlagCompositeKey(targetType, targetID)
-	_, err := k.Flag.Get(ctx, flagKey)
-	if err == nil {
-		return flagKey, nil
-	}
-
-	now := ctx.BlockHeight()
-	weight := math.NewInt(int64(r.Intn(100) + 10))
-	flag := types.CollectionFlag{
-		TargetId:   targetID,
-		TargetType: targetType,
-		FlagRecords: []commontypes.FlagRecord{
-			{
-				Flagger:    flagger,
-				Reason:     randomModerationReason(r),
-				ReasonText: "Simulation flag",
-				FlaggedAt:  now,
-				Weight:     weight,
-			},
-		},
-		TotalWeight: weight,
-		FirstFlagAt: now,
-		LastFlagAt:  now,
-	}
-
-	if err := k.Flag.Set(ctx, flagKey, flag); err != nil {
-		return "", err
-	}
-	return flagKey, nil
-}
-
-// getOrCreatePendingCollection creates or finds a PENDING collection for the owner.
-func getOrCreatePendingCollection(r *rand.Rand, ctx sdk.Context, k keeper.Keeper, owner string) (uint64, error) {
-	// Try to find existing PENDING collection by owner
-	coll, collID, _ := findCollectionByOwner(r, ctx, k, owner)
-	if coll != nil && coll.Status == types.CollectionStatus_COLLECTION_STATUS_PENDING {
-		return collID, nil
-	}
-
-	collID, err := k.CollectionSeq.Next(ctx)
-	if err != nil {
-		return 0, err
-	}
-
-	now := ctx.BlockHeight()
-	endorsementExpiry := now + int64(r.Intn(10000)+1000)
-
-	newColl := types.Collection{
-		Id:                       collID,
-		Owner:                    owner,
-		Name:                     randomCollectionName(r),
-		Description:              randomDescription(r),
-		Tags:                     []string{randomTag(r)},
-		Type:                     randomCollectionType(r),
-		Visibility:               types.Visibility_VISIBILITY_PUBLIC,
-		Status:                   types.CollectionStatus_COLLECTION_STATUS_PENDING,
-		CreatedAt:                now,
-		UpdatedAt:                now,
-		DepositAmount:            math.ZeroInt(),
-		ItemDepositTotal:         math.ZeroInt(),
-		CommunityFeedbackEnabled: true,
-		Immutable:                false,
-	}
-
-	if err := k.Collection.Set(ctx, collID, newColl); err != nil {
-		return 0, err
-	}
-	if err := k.CollectionsByOwner.Set(ctx, collections.Join(owner, collID)); err != nil {
-		return 0, err
-	}
-	if err := k.AddCollectionStatusIndex(ctx, newColl.Status, newColl.Pinned, collID); err != nil {
-		return 0, err
-	}
-	if err := k.EndorsementPending.Set(ctx, collections.Join(endorsementExpiry, collID)); err != nil {
-		return 0, err
-	}
-
-	return collID, nil
-}
-
-// --- Account helpers ---
 
 // getAccountForAddress finds a sim account that matches the given address string.
 func getAccountForAddress(addr string, accs []simtypes.Account) (simtypes.Account, bool) {
@@ -675,18 +197,321 @@ func getAccountForAddress(addr string, accs []simtypes.Account) (simtypes.Accoun
 	return simtypes.Account{}, false
 }
 
-// pickDifferentAccount returns a random sim account that is NOT the given address.
-func pickDifferentAccount(r *rand.Rand, accs []simtypes.Account, exclude string) (simtypes.Account, bool) {
-	filtered := make([]simtypes.Account, 0, len(accs))
-	for _, acc := range accs {
-		if acc.Address.String() != exclude {
-			filtered = append(filtered, acc)
+// collectionsWhere returns the collections accepted by keep.
+func (e *simEnv) collectionsWhere(keep func(types.Collection) bool) ([]types.Collection, error) {
+	var out []types.Collection
+	err := e.k.Collection.Walk(e.ctx, nil, func(_ uint64, c types.Collection) (bool, error) {
+		if keep(c) {
+			out = append(out, c)
+		}
+		return false, nil
+	})
+	return out, err
+}
+
+// itemsOf returns the items of a collection.
+func (e *simEnv) itemsOf(collID uint64) ([]types.Item, error) {
+	var out []types.Item
+	err := e.k.ItemsByCollection.Walk(e.ctx, collections.NewPrefixedPairRange[uint64, uint64](collID),
+		func(key collections.Pair[uint64, uint64]) (bool, error) {
+			item, err := e.k.Item.Get(e.ctx, key.K2())
+			if err != nil {
+				return true, err
+			}
+			out = append(out, item)
+			return false, nil
+		})
+	return out, err
+}
+
+// collaborator returns addr's collaborator record on the collection.
+func (e *simEnv) collaborator(collID uint64, addr string) (types.Collaborator, bool) {
+	c, err := e.k.Collaborator.Get(e.ctx, keeper.CollaboratorCompositeKey(collID, addr))
+	return c, err == nil
+}
+
+// hasSponsorshipRequest reports whether the collection has a pending
+// sponsorship request (which locks its items).
+func (e *simEnv) hasSponsorshipRequest(collID uint64) bool {
+	has, err := e.k.SponsorshipRequest.Has(e.ctx, collID)
+	return err == nil && has
+}
+
+// canWrite mirrors HasWriteAccess plus the item handlers' rule that a
+// non-owner writer must be an active member: the owner, or an EDITOR/ADMIN
+// collaborator who is an x/rep member.
+func (e *simEnv) canWrite(c types.Collection, addr string, needMember bool) bool {
+	if addr == c.Owner {
+		return true
+	}
+	collab, ok := e.collaborator(c.Id, addr)
+	if !ok {
+		return false
+	}
+	if collab.Role != types.CollaboratorRole_COLLABORATOR_ROLE_EDITOR &&
+		collab.Role != types.CollaboratorRole_COLLABORATOR_ROLE_ADMIN {
+		return false
+	}
+	return !needMember || e.isActiveMember(addr)
+}
+
+// writers returns the sim accounts with write access to the collection.
+func (e *simEnv) writers(c types.Collection, needMember bool) []simtypes.Account {
+	return accountsWhere(e.accs, func(a simtypes.Account) bool {
+		return e.canWrite(c, a.Address.String(), needMember)
+	})
+}
+
+// itemsEditable mirrors the shared item-handler gates on the collection:
+// mutable and not hidden.
+func itemsEditable(c types.Collection) bool {
+	return !c.Immutable && c.Status != types.CollectionStatus_COLLECTION_STATUS_HIDDEN
+}
+
+// dailyCount returns addr's counter for a daily-limited category today.
+func (e *simEnv) dailyCount(addr, category string) uint32 {
+	n, err := e.k.ReactionLimit.Get(e.ctx, keeper.ReactionLimitCompositeKey(addr, e.ctx.BlockHeight(), category))
+	if err != nil {
+		return 0
+	}
+	return n
+}
+
+// expired reports whether a TTL collection has reached its expiry block.
+func (e *simEnv) expired(c types.Collection) bool {
+	return c.ExpiresAt > 0 && c.ExpiresAt <= e.ctx.BlockHeight()
+}
+
+// publicActive mirrors ValidatePublicActiveTarget (and, with feedback,
+// ValidatePublicActiveFeedbackTarget) for a collection target.
+func publicActive(c types.Collection, feedback bool) bool {
+	return c.Visibility == types.Visibility_VISIBILITY_PUBLIC &&
+		c.Status == types.CollectionStatus_COLLECTION_STATUS_ACTIVE &&
+		(!feedback || c.CommunityFeedbackEnabled)
+}
+
+// target is a collection or item a reaction, flag or hide points at.
+type target struct {
+	typ  types.FlagTargetType
+	id   uint64
+	coll types.Collection
+}
+
+// publicTargets returns the collections and items that pass
+// ValidatePublicActiveTarget (with feedback: ...FeedbackTarget). When there
+// is none, a member first creates a public collection (a real
+// MsgCreateCollection).
+func (e *simEnv) publicTargets(feedback bool) ([]target, error) {
+	out, err := e.listPublicTargets(feedback)
+	if err != nil || len(out) > 0 {
+		return out, err
+	}
+	if ok, err := e.ensureMemberCollection(false); err != nil || !ok {
+		return nil, err
+	}
+	return e.listPublicTargets(feedback)
+}
+
+func (e *simEnv) listPublicTargets(feedback bool) ([]target, error) {
+	colls, err := e.collectionsWhere(func(c types.Collection) bool { return publicActive(c, feedback) })
+	if err != nil {
+		return nil, err
+	}
+	var out []target
+	for _, c := range colls {
+		out = append(out, target{types.FlagTargetType_FLAG_TARGET_TYPE_COLLECTION, c.Id, c})
+		items, err := e.itemsOf(c.Id)
+		if err != nil {
+			return nil, err
+		}
+		for _, it := range items {
+			if it.Status != types.ItemStatus_ITEM_STATUS_HIDDEN {
+				out = append(out, target{types.FlagTargetType_FLAG_TARGET_TYPE_ITEM, it.Id, c})
+			}
 		}
 	}
-	if len(filtered) == 0 {
-		return simtypes.Account{}, false
+	return out, nil
+}
+
+// hasUnresolvedHide reports whether the target has an unresolved hide record.
+func (e *simEnv) hasUnresolvedHide(t types.FlagTargetType, id uint64) (bool, error) {
+	found := false
+	err := e.k.HideRecordByTarget.Walk(e.ctx,
+		collections.NewPrefixedPairRange[string, uint64](keeper.HideRecordTargetCompositeKey(t, id)),
+		func(key collections.Pair[string, uint64]) (bool, error) {
+			hr, err := e.k.HideRecord.Get(e.ctx, key.K2())
+			if err != nil {
+				return true, err
+			}
+			if !hr.Resolved {
+				found = true
+				return true, nil
+			}
+			return false, nil
+		})
+	return found, err
+}
+
+// --- x/rep views ---
+
+// loadMembers reads every x/rep member once per operation.
+func (e *simEnv) loadMembers() map[string]reptypes.Member {
+	if e.members != nil {
+		return e.members
 	}
-	return filtered[r.Intn(len(filtered))], true
+	e.members = map[string]reptypes.Member{}
+	var next []byte
+	for {
+		res, err := e.repQuery.ListMember(e.ctx, &reptypes.QueryAllMemberRequest{
+			Pagination: &query.PageRequest{Key: next, Limit: 500},
+		})
+		if err != nil {
+			return e.members
+		}
+		for _, m := range res.Member {
+			e.members[m.Address] = m
+		}
+		if res.Pagination == nil || len(res.Pagination.NextKey) == 0 {
+			return e.members
+		}
+		next = res.Pagination.NextKey
+	}
+}
+
+// isActiveMember mirrors x/rep's IsActiveMember.
+func (e *simEnv) isActiveMember(addr string) bool {
+	m, ok := e.loadMembers()[addr]
+	return ok && m.Status == reptypes.MemberStatus_MEMBER_STATUS_ACTIVE
+}
+
+// trustAtLeast reports whether addr is an active member at or above level.
+func (e *simEnv) trustAtLeast(addr string, level reptypes.TrustLevel) bool {
+	m, ok := e.loadMembers()[addr]
+	return ok && m.Status == reptypes.MemberStatus_MEMBER_STATUS_ACTIVE && m.TrustLevel >= level
+}
+
+// trustAtLeastName is trustAtLeast for a trust level param string; an
+// unknown name is never met (the handler's meetsMinTrustLevel).
+func (e *simEnv) trustAtLeastName(addr, level string) bool {
+	tl, ok := keeper.ParseTrustLevel(level)
+	return ok && e.trustAtLeast(addr, tl)
+}
+
+// unlockedDream returns an active member's DREAM not locked in stakes (before
+// pending decay, which the dry-run applies).
+func (e *simEnv) unlockedDream(addr string) math.Int {
+	m, ok := e.loadMembers()[addr]
+	if !ok || m.Status != reptypes.MemberStatus_MEMBER_STATUS_ACTIVE || m.DreamBalance == nil {
+		return math.ZeroInt()
+	}
+	if m.StakedDream == nil {
+		return *m.DreamBalance
+	}
+	return m.DreamBalance.Sub(*m.StakedDream)
+}
+
+// tombstoned reports whether addr migrated away (x/rep refuses most
+// messages from it at the ante handler).
+func (e *simEnv) tombstoned(addr string) bool {
+	res, err := e.repQuery.Canonical(e.ctx, &reptypes.QueryCanonicalRequest{Address: addr})
+	return err == nil && res.Tombstoned
+}
+
+// bondedRole returns addr's bonded role record.
+func (e *simEnv) bondedRole(role reptypes.RoleType, addr string) (reptypes.BondedRole, bool) {
+	res, err := e.repQuery.BondedRole(e.ctx, &reptypes.QueryBondedRoleRequest{RoleType: role, Address: addr})
+	if err != nil {
+		return reptypes.BondedRole{}, false
+	}
+	return res.BondedRole, true
+}
+
+// roleHolders returns the sim accounts holding a bonded role in a status
+// that can act (the handlers' EligibleForRole is dry-run).
+func (e *simEnv) roleHolders(role reptypes.RoleType) []simtypes.Account {
+	return accountsWhere(e.accs, func(a simtypes.Account) bool {
+		br, ok := e.bondedRole(role, a.Address.String())
+		return ok && br.BondStatus != reptypes.BondedRoleStatus_BONDED_ROLE_STATUS_DEMOTED &&
+			e.isActiveMember(a.Address.String())
+	})
+}
+
+// ensureRoleHolder returns the sim accounts holding the role, bonding one
+// first through x/rep's MsgBondRole when none does: an active member at the
+// role's trust level with min_bond unlocked DREAM bonds exactly min_bond.
+func (e *simEnv) ensureRoleHolder(role reptypes.RoleType) ([]simtypes.Account, error) {
+	if holders := e.roleHolders(role); len(holders) > 0 {
+		return holders, nil
+	}
+	res, err := e.repQuery.BondedRoleConfig(e.ctx, &reptypes.QueryBondedRoleConfigRequest{RoleType: role})
+	if err != nil {
+		return nil, nil
+	}
+	cfg := res.BondedRoleConfig
+	minBond, ok := math.NewIntFromString(cfg.MinBond)
+	if !ok || !minBond.IsPositive() {
+		return nil, nil
+	}
+	candidates := accountsWhere(e.accs, func(a simtypes.Account) bool {
+		addr := a.Address.String()
+		if _, has := e.bondedRole(role, addr); has {
+			return false
+		}
+		if cfg.MinTrustLevel != "" && !e.trustAtLeastName(addr, cfg.MinTrustLevel) {
+			return false
+		}
+		return e.unlockedDream(addr).GTE(minBond)
+	})
+	acc, ok := pick(e.r, candidates)
+	if !ok {
+		return nil, nil
+	}
+	msg := &reptypes.MsgBondRole{Creator: acc.Address.String(), RoleType: role, Amount: minBond.String()}
+	if ok, err := e.ensure(acc, msg, math.ZeroInt()); err != nil || !ok {
+		return nil, err
+	}
+	e.members = nil // the bond locked DREAM
+	return e.roleHolders(role), nil
+}
+
+// liveTags returns the x/rep registry tags a collection or review may carry:
+// existing, not reserved, well-formed and within max_tag_length.
+func (e *simEnv) liveTags() []string {
+	if e.tags != nil {
+		return e.tags
+	}
+	e.tags = []string{}
+	res, err := e.repQuery.ListTag(e.ctx, &reptypes.QueryAllTagRequest{Pagination: &query.PageRequest{Limit: 100}})
+	if err != nil {
+		return e.tags
+	}
+	for _, t := range res.Tag {
+		if len(t.Name) > int(e.params.MaxTagLength) || !commontypes.ValidateTagFormat(t.Name) {
+			continue
+		}
+		if _, err := e.repQuery.GetReservedTag(e.ctx, &reptypes.QueryGetReservedTagRequest{Name: t.Name}); err == nil {
+			continue
+		}
+		e.tags = append(e.tags, t.Name)
+	}
+	return e.tags
+}
+
+// randomTags returns up to max distinct live tags.
+func (e *simEnv) randomTags(maxTags uint32) []string {
+	tags := e.liveTags()
+	n := e.r.Intn(3)
+	if n > len(tags) {
+		n = len(tags)
+	}
+	if n > int(maxTags) {
+		n = int(maxTags)
+	}
+	out := make([]string, 0, n)
+	for _, i := range e.r.Perm(len(tags))[:n] {
+		out = append(out, tags[i])
+	}
+	return out
 }
 
 // --- Random data generators ---
@@ -716,14 +541,6 @@ func randomDescription(r *rand.Rand) string {
 		"Test description from simulation framework",
 	}
 	return descriptions[r.Intn(len(descriptions))]
-}
-
-func randomTag(r *rand.Rand) string {
-	tags := []string{
-		"art", "science", "history", "tech", "nature",
-		"music", "code", "design", "research", "education",
-	}
-	return tags[r.Intn(len(tags))]
 }
 
 func randomURI(r *rand.Rand) string {
@@ -756,4 +573,206 @@ func randomCurationVerdict(r *rand.Rand) types.CurationVerdict {
 		return types.CurationVerdict_CURATION_VERDICT_UP
 	}
 	return types.CurationVerdict_CURATION_VERDICT_DOWN
+}
+
+// randomEncryptedData returns an opaque ciphertext stand-in within the
+// encrypted-data size cap.
+func randomEncryptedData(r *rand.Rand, maxSize uint32) []byte {
+	n := 16 + r.Intn(48)
+	if n > int(maxSize) {
+		n = int(maxSize)
+	}
+	out := make([]byte, n)
+	for i := range out {
+		out[i] = byte(r.Intn(256))
+	}
+	return out
+}
+
+// itemContent is the content of an item for MsgAddItem / MsgUpdateItem /
+// AddItemEntry. Public items carry a short title and a link, NFT or custom
+// reference; items of an encrypted collection carry only ciphertext.
+type itemContent struct {
+	title, description, imageURI string
+	refType                      types.ReferenceType
+	nft                          *types.NftReference
+	link                         *types.LinkReference
+	custom                       *types.CustomReference
+	attributes                   []*types.KeyValuePair
+	encrypted                    []byte
+}
+
+func randomItemContent(r *rand.Rand, encrypted bool, params types.Params) itemContent {
+	if encrypted {
+		return itemContent{encrypted: randomEncryptedData(r, params.MaxEncryptedDataSize)}
+	}
+	c := itemContent{title: randomTitle(r), description: randomDescription(r)}
+	switch r.Intn(4) {
+	case 0:
+		c.refType = types.ReferenceType_REFERENCE_TYPE_NFT
+		c.nft = &types.NftReference{ChainId: "sparkdream", ContractAddress: "phoenix-class", TokenId: fmt.Sprintf("%d", r.Intn(1000))}
+	case 1:
+		c.refType = types.ReferenceType_REFERENCE_TYPE_CUSTOM
+		c.custom = &types.CustomReference{TypeLabel: "note", Value: "aurora-" + simtypes.RandStringOfLength(r, 8)}
+	default:
+		c.refType = types.ReferenceType_REFERENCE_TYPE_LINK
+		c.link = &types.LinkReference{Uri: randomURI(r)}
+	}
+	if r.Intn(3) == 0 && params.MaxAttributesPerItem > 0 {
+		c.attributes = []*types.KeyValuePair{{Key: "zenith", Value: simtypes.RandStringOfLength(r, 6)}}
+	}
+	return c
+}
+
+// writable is a collection together with a sim account that may write it.
+type writable struct {
+	coll   types.Collection
+	writer simtypes.Account
+}
+
+// writableCollections returns (collection, writer) pairs for collections
+// passing keep, where writer has write access (a non-owner writer must be a
+// member when needMember is set). When there is none, a random account
+// first creates a collection (a real MsgCreateCollection).
+func (e *simEnv) writableCollections(needMember bool, keep func(types.Collection) bool) ([]writable, error) {
+	out, err := e.listWritable(needMember, keep)
+	if err != nil || len(out) > 0 {
+		return out, err
+	}
+	if ok, err := e.ensureAnyCollection(); err != nil || !ok {
+		return nil, err
+	}
+	return e.listWritable(needMember, keep)
+}
+
+func (e *simEnv) listWritable(needMember bool, keep func(types.Collection) bool) ([]writable, error) {
+	colls, err := e.collectionsWhere(keep)
+	if err != nil {
+		return nil, err
+	}
+	var out []writable
+	for _, c := range colls {
+		for _, w := range e.writers(c, needMember) {
+			out = append(out, writable{c, w})
+		}
+	}
+	return out, nil
+}
+
+// itemDepositCost returns the SPARK a writer pays for n new items: the
+// per-item deposit (held or burned) plus, for a non-member writer, the
+// per-item spam tax.
+func (e *simEnv) itemDepositCost(writer string, n int64) math.Int {
+	cost := e.params.PerItemDeposit.MulRaw(n)
+	if !e.isActiveMember(writer) {
+		cost = cost.Add(e.params.PerItemSpamTax.MulRaw(n))
+	}
+	return cost
+}
+
+// editableItem is an item, its collection and a sim account with write
+// access to the collection.
+type editableItem struct {
+	item   types.Item
+	coll   types.Collection
+	writer simtypes.Account
+}
+
+// editableItems returns the non-hidden items of collections passing keep,
+// each with a writer (a non-owner writer must be a member when needMember
+// is set). When there is none, a writer first adds an item to such a
+// collection (a real MsgAddItem).
+func (e *simEnv) editableItems(needMember bool, keep func(types.Collection) bool) ([]editableItem, error) {
+	out, err := e.listEditableItems(needMember, keep)
+	if err != nil || len(out) > 0 {
+		return out, err
+	}
+	pairs, err := e.writableCollections(true, func(c types.Collection) bool {
+		return itemsEditable(c) && keep(c) && !e.hasSponsorshipRequest(c.Id) && c.ItemCount < uint64(e.params.MaxItemsPerCollection)
+	})
+	if err != nil {
+		return nil, err
+	}
+	w, ok := pick(e.r, pairs)
+	if !ok {
+		return nil, nil
+	}
+	msg := e.newItemMsg(w)
+	if ok, err := e.ensure(w.writer, msg, e.itemDepositCost(msg.Creator, 1)); err != nil || !ok {
+		return nil, err
+	}
+	return e.listEditableItems(needMember, keep)
+}
+
+func (e *simEnv) listEditableItems(needMember bool, keep func(types.Collection) bool) ([]editableItem, error) {
+	pairs, err := e.listWritable(needMember, func(c types.Collection) bool { return itemsEditable(c) && keep(c) })
+	if err != nil {
+		return nil, err
+	}
+	var out []editableItem
+	for _, w := range pairs {
+		items, err := e.itemsOf(w.coll.Id)
+		if err != nil {
+			return nil, err
+		}
+		for _, it := range items {
+			if it.Status != types.ItemStatus_ITEM_STATUS_HIDDEN {
+				out = append(out, editableItem{it, w.coll, w.writer})
+			}
+		}
+	}
+	return out, nil
+}
+
+// reactionTarget picks a member and a public, active, feedback-enabled target
+// they may vote on: not the owner or a collaborator of its collection, not
+// already reacted to, and under the daily cap for category.
+func (e *simEnv) reactionTarget(category string, maxPerDay uint32) (simtypes.Account, target, string, error) {
+	targets, err := e.publicTargets(true)
+	if err != nil {
+		return simtypes.Account{}, target{}, "", err
+	}
+	t, ok := pick(e.r, targets)
+	if !ok {
+		return simtypes.Account{}, target{}, "no public active feedback target", nil
+	}
+	voters := accountsWhere(e.accs, func(a simtypes.Account) bool {
+		addr := a.Address.String()
+		if addr == t.coll.Owner || !e.isActiveMember(addr) || e.dailyCount(addr, category) >= maxPerDay {
+			return false
+		}
+		if _, collab := e.collaborator(t.coll.Id, addr); collab {
+			return false
+		}
+		has, err := e.k.ReactionDedup.Has(e.ctx, keeper.ReactionDedupCompositeKey(addr, t.typ, t.id))
+		return err == nil && !has
+	})
+	voter, ok := pick(e.r, voters)
+	if !ok {
+		return simtypes.Account{}, t, "no member may react to the target", nil
+	}
+	return voter, t, "", nil
+}
+
+// hideTargetExists reports whether a hide record's target still exists.
+func (e *simEnv) hideTargetExists(hr types.HideRecord) bool {
+	var has bool
+	var err error
+	switch hr.TargetType {
+	case types.FlagTargetType_FLAG_TARGET_TYPE_COLLECTION:
+		has, err = e.k.Collection.Has(e.ctx, hr.TargetId)
+	case types.FlagTargetType_FLAG_TARGET_TYPE_ITEM:
+		has, err = e.k.Item.Has(e.ctx, hr.TargetId)
+	}
+	return err == nil && has
+}
+
+// countCollaborators counts collaborator records.
+func (e *simEnv) countCollaborators() (int, error) {
+	n := 0
+	err := e.k.Collaborator.Walk(e.ctx, nil, func(string, types.Collaborator) (bool, error) {
+		n++
+		return false, nil
+	})
+	return n, err
 }

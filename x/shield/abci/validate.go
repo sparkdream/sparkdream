@@ -2,6 +2,7 @@ package abci
 
 import (
 	"fmt"
+	commontypes "sparkdream/x/common/types"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
@@ -56,10 +57,10 @@ func validateRegistration(ext *types.DKGVoteExtension, opAddr string, round uint
 // in-range evaluation targets, and a PoP over (operator, round) under a_0.
 func validateContribution(ext *types.DKGVoteExtension, dkgState types.DKGState, opAddr string) error {
 	threshold := computeThreshold(dkgState)
-	if err := keeper.ValidateFeldmanCommitments(ext.FeldmanCommitments, int(threshold)); err != nil {
+	if err := keeper.ValidateFeldmanCommitments(ext.FeldmanCommitments, commontypes.Saturate[int](threshold)); err != nil {
 		return fmt.Errorf("invalid G1 commitments: %w", err)
 	}
-	if err := keeper.ValidateFeldmanCommitmentsG2(ext.FeldmanCommitmentsG2, int(threshold)); err != nil {
+	if err := keeper.ValidateFeldmanCommitmentsG2(ext.FeldmanCommitmentsG2, commontypes.Saturate[int](threshold)); err != nil {
 		return fmt.Errorf("invalid G2 commitments: %w", err)
 	}
 	if err := keeper.ValidateFeldmanCommitmentsConsistency(ext.FeldmanCommitments, ext.FeldmanCommitmentsG2); err != nil {
@@ -67,7 +68,7 @@ func validateContribution(ext *types.DKGVoteExtension, dkgState types.DKGState, 
 	}
 	seen := map[uint32]bool{}
 	for i, eval := range ext.EncryptedEvaluations {
-		if eval.TargetIndex == 0 || eval.TargetIndex > uint32(len(dkgState.ExpectedValidators)) {
+		if eval.TargetIndex == 0 || int(eval.TargetIndex) > len(dkgState.ExpectedValidators) {
 			return fmt.Errorf("eval %d: invalid target index %d", i, eval.TargetIndex)
 		}
 		if seen[eval.TargetIndex] {
@@ -91,7 +92,7 @@ func validateComplaints(ctx sdk.Context, k keeper.Keeper, ext *types.DKGVoteExte
 	selfIdx := valDKGIndex(dkgState, opAddr)
 	seen := map[uint32]bool{}
 	for i, idx := range ext.Complaints {
-		if idx == 0 || idx > uint32(len(dkgState.ExpectedValidators)) {
+		if idx == 0 || int(idx) > len(dkgState.ExpectedValidators) {
 			return fmt.Errorf("complaint %d: invalid dealer index %d", i, idx)
 		}
 		if idx == selfIdx {
@@ -122,7 +123,7 @@ func validateJustifications(ctx sdk.Context, k keeper.Keeper, ext *types.DKGVote
 		if j == nil {
 			return fmt.Errorf("justification %d: empty", i)
 		}
-		if j.ComplainerIndex == 0 || j.ComplainerIndex > uint32(len(dkgState.ExpectedValidators)) {
+		if j.ComplainerIndex == 0 || int(j.ComplainerIndex) > len(dkgState.ExpectedValidators) {
 			return fmt.Errorf("justification %d: invalid complainer index %d", i, j.ComplainerIndex)
 		}
 		if seen[j.ComplainerIndex] {

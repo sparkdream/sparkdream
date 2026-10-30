@@ -2,10 +2,12 @@ package keeper
 
 import (
 	"context"
+	"errors"
 
 	"cosmossdk.io/collections"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/rep/types"
 )
 
@@ -22,6 +24,7 @@ func roleActivityKey(roleType types.RoleType, addr string) collections.Pair[int3
 // GetRoleActivity returns the record, or an empty (zero-counter) record
 // with no error when the holder has not been reported on yet.
 func (k Keeper) GetRoleActivity(ctx context.Context, roleType types.RoleType, addr string) (types.RoleActivity, error) {
+	addr = k.Canonical(ctx, addr)
 	if err := validateRoleType(roleType); err != nil {
 		return types.RoleActivity{}, err
 	}
@@ -55,6 +58,7 @@ func (k Keeper) getOrInitRoleActivity(ctx context.Context, roleType types.RoleTy
 // RecordRoleAction counts one action of the given kind (epoch + lifetime).
 // Called by the owning module at action time.
 func (k Keeper) RecordRoleAction(ctx context.Context, roleType types.RoleType, addr, kind string) error {
+	addr = k.Canonical(ctx, addr)
 	if err := validateRoleType(roleType); err != nil {
 		return err
 	}
@@ -70,6 +74,7 @@ func (k Keeper) RecordRoleAction(ctx context.Context, roleType types.RoleType, a
 // CooldownOnOverturn kind policy), and — when the overturn streak crosses
 // the threshold — demotion of the role's bond.
 func (k Keeper) RecordRoleOutcome(ctx context.Context, roleType types.RoleType, addr, kind string, upheld bool) error {
+	addr = k.Canonical(ctx, addr)
 	if err := validateRoleType(roleType); err != nil {
 		return err
 	}
@@ -79,7 +84,12 @@ func (k Keeper) RecordRoleOutcome(ctx context.Context, roleType types.RoleType, 
 	// Per-role streak policy. A missing config yields the zero value, which
 	// resolves to the moderation-role defaults below — so a role whose owning
 	// module has not written a config through behaves exactly as before.
-	cfg, _ := k.GetBondedRoleConfig(ctx, roleType)
+	// A missing config yields the zero value (moderation-role defaults
+	// below); only another error fails.
+	cfg, getErr := k.GetBondedRoleConfig(ctx, roleType)
+	if getErr != nil && !errors.Is(getErr, types.ErrBondedRoleConfigMissing) {
+		return getErr
+	}
 
 	ra := k.getOrInitRoleActivity(ctx, roleType, addr)
 	ra.EpochAppealsResolved++
@@ -169,6 +179,7 @@ func roleOverturnCooldown(cfg types.BondedRoleConfig, consecutiveOverturns uint6
 // holder is locked out of new moderation actions (0 = none). Consumed by
 // every surface's action-time gate.
 func (k Keeper) RoleOverturnCooldownUntil(ctx context.Context, roleType types.RoleType, addr string) int64 {
+	addr = k.Canonical(ctx, addr)
 	ra, err := k.RoleActivities.Get(ctx, roleActivityKey(roleType, addr))
 	if err != nil {
 		return 0
@@ -180,6 +191,7 @@ func (k Keeper) RoleOverturnCooldownUntil(ctx context.Context, roleType types.Ro
 // action kind. Owning modules read this for their per-epoch caps — the
 // single source of truth; there are no module-local copies.
 func (k Keeper) RoleEpochActionCount(ctx context.Context, roleType types.RoleType, addr, kind string) uint64 {
+	addr = k.Canonical(ctx, addr)
 	ra, err := k.RoleActivities.Get(ctx, roleActivityKey(roleType, addr))
 	if err != nil {
 		return 0
@@ -213,6 +225,7 @@ func (k Keeper) roleRewardEpoch(ctx context.Context, roleType types.RoleType) ui
 // epoch_appeals_resolved), preserving lifetime counters, streaks, cooldown,
 // and the ring. Called at reward-epoch boundaries. Missing record -> no-op.
 func (k Keeper) ResetRoleEpochCounters(ctx context.Context, roleType types.RoleType, addr string) error {
+	addr = k.Canonical(ctx, addr)
 	ra, err := k.RoleActivities.Get(ctx, roleActivityKey(roleType, addr))
 	if err != nil {
 		return nil
@@ -227,6 +240,7 @@ func (k Keeper) ResetRoleEpochCounters(ctx context.Context, roleType types.RoleT
 // (inclusive). Slots stamped outside that range — stale entries or epochs
 // older than the window — are ignored. Missing record or window 0 -> (0, 0).
 func (k Keeper) GetRoleWindowedAccuracy(ctx context.Context, roleType types.RoleType, addr string, currentEpoch, window uint64) (uint64, uint64) {
+	addr = k.Canonical(ctx, addr)
 	if window == 0 {
 		return 0, 0
 	}
@@ -278,6 +292,7 @@ func bumpRoleAccuracyWindow(ra *types.RoleActivity, epoch uint64, upheld bool) {
 // which historically counted as a resolved appeal for the reward score's
 // sqrt term but carries no accuracy tick (nobody won or lost).
 func (k Keeper) BumpRoleEpochAppealsResolved(ctx context.Context, roleType types.RoleType, addr string) error {
+	addr = k.Canonical(ctx, addr)
 	if err := validateRoleType(roleType); err != nil {
 		return err
 	}
@@ -295,10 +310,11 @@ func (k Keeper) BumpRoleEpochAppealsResolved(ctx context.Context, roleType types
 // curator and reviewer eligibility is deliberately left as-is rather than
 // silently tightened as a side effect of this stamp existing.
 func (k Keeper) stampRoleSlashEpoch(ctx context.Context, roleType types.RoleType, addr string) error {
+	addr = k.Canonical(ctx, addr)
 	if err := validateRoleType(roleType); err != nil {
 		return err
 	}
 	ra := k.getOrInitRoleActivity(ctx, roleType, addr)
-	ra.LastSlashEpoch = int64(k.roleRewardEpoch(ctx, roleType))
+	ra.LastSlashEpoch = commontypes.Saturate[int64](k.roleRewardEpoch(ctx, roleType))
 	return k.RoleActivities.Set(ctx, roleActivityKey(roleType, addr), ra)
 }

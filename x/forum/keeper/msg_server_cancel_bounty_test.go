@@ -48,7 +48,7 @@ func TestMsgServerCancelBounty(t *testing.T) {
 		post := f.createTestPost(t, testCreator, 0, 0)
 		bounty := f.createTestBounty(t, testCreator, post.PostId, "1000000")
 		bounty.Status = types.BountyStatus_BOUNTY_STATUS_CANCELLED
-		f.keeper.Bounty.Set(f.ctx, bounty.Id, bounty)
+		require.NoError(t, f.keeper.Bounty.Set(f.ctx, bounty.Id, bounty))
 
 		msg := &types.MsgCancelBounty{
 			Creator:  testCreator,
@@ -67,7 +67,7 @@ func TestMsgServerCancelBounty(t *testing.T) {
 			Recipient: testCreator2,
 			Amount:    "500000",
 		})
-		f.keeper.Bounty.Set(f.ctx, bounty.Id, bounty)
+		require.NoError(t, f.keeper.Bounty.Set(f.ctx, bounty.Id, bounty))
 
 		msg := &types.MsgCancelBounty{
 			Creator:  testCreator,

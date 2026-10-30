@@ -67,19 +67,18 @@ message Contribution {
   uint64 project_id = 13; // x/rep Project ID after transition
 
   ContributionStatus status = 14;
-  uint64 council_id = 15; // Commons Council that approved (used for project transition)
-  string approved_by = 16 [(cosmos_proto.scalar) = "cosmos.AddressString"];
-  int64 approved_at = 17;
-  int64 created_at = 18;
+  string approved_by = 15 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  int64 approved_at = 16;
+  int64 created_at = 17;
 
   // DREAM held back from tranche payouts until all tranches complete
-  string holdback_amount = 19 [
+  string holdback_amount = 18 [
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
 
   // Epoch at which a rejected contributor may re-propose (0 if not rejected)
-  int64 proposal_eligible_at = 20;
+  int64 proposal_eligible_at = 19;
 }
 
 // RevealTranche represents a discrete chunk of code to be backed, revealed, and verified.

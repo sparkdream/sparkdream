@@ -39,4 +39,13 @@ message InitiativeReview {
   // Set once the verdict's bond has been released or slashed, so the sweep does
   // not settle the same verdict twice.
   bool settled = 9;
+  // Review fee minted to this reviewer for this verdict. Set when the fee is
+  // paid -- when a rejected round sends the work back, or at the initiative's
+  // terminal settlement for the final round -- so each verdict is paid at most
+  // once, and the close paths can charge the project for every round's fees.
+  string fee_paid = 10 [
+    (cosmos_proto.scalar) = "cosmos.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
 }

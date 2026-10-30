@@ -74,25 +74,32 @@ func (k msgServer) UnarchiveThread(ctx context.Context, msg *types.MsgUnarchiveT
 		return nil, errorsmod.Wrap(err, "failed to update root post status")
 	}
 
-	// Restore all thread posts
-	postCount := uint64(1) // count root post
-	iter, err := k.Post.Iterate(ctx, nil)
+	// Restore the thread's ARCHIVED replies from the PostsByRoot index
+	// (O(thread)). Only posts the freeze marked ARCHIVED come back; replies
+	// that were HIDDEN or DELETED never left that status.
+	replyIDs, err := k.threadReplyIDs(ctx, msg.RootId, 0)
 	if err != nil {
-		return nil, errorsmod.Wrap(err, "failed to iterate posts")
+		return nil, errorsmod.Wrap(err, "failed to walk thread")
 	}
-	defer iter.Close()
-
-	for ; iter.Valid(); iter.Next() {
-		post, err := iter.Value()
-		if err != nil {
+	postCount := uint64(1) // count root post
+	for _, id := range replyIDs {
+		post, err := k.Post.Get(ctx, id)
+		if err != nil || post.Status != types.PostStatus_POST_STATUS_ARCHIVED {
 			continue
 		}
-		if post.RootId == msg.RootId && post.PostId != msg.RootId && post.Status == types.PostStatus_POST_STATUS_ARCHIVED {
-			post.Status = types.PostStatus_POST_STATUS_ACTIVE
-			if err := k.Post.Set(ctx, post.PostId, post); err != nil {
-				sdkCtx.Logger().Error("failed to unarchive post", "post_id", post.PostId, "error", err)
-			}
-			postCount++
+		post.Status = types.PostStatus_POST_STATUS_ACTIVE
+		if err := k.Post.Set(ctx, id, post); err != nil {
+			return nil, errorsmod.Wrapf(err, "failed to unarchive post %d", id)
+		}
+		postCount++
+	}
+
+	// Start the archive cooldown: the thread cannot be re-archived until
+	// archive_cooldown has passed (MsgFreezeThread).
+	if archiveMetadata.RootId != 0 {
+		archiveMetadata.LastUnarchivedAt = now
+		if err := k.ArchiveMetadata.Set(ctx, msg.RootId, archiveMetadata); err != nil {
+			return nil, errorsmod.Wrap(err, "failed to update archive metadata")
 		}
 	}
 

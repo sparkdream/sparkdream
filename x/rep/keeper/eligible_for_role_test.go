@@ -25,7 +25,7 @@ func TestEligibleForRole(t *testing.T) {
 		} else {
 			// The rep genesis seeds a default sentinel config; remove it so
 			// the missing-config fallback path is actually exercised.
-			_ = f.keeper.BondedRoleConfigs.Remove(f.ctx, int32(role))
+			require.NoError(t, f.keeper.BondedRoleConfigs.Remove(f.ctx, int32(role)))
 		}
 		require.NoError(t, f.keeper.BondedRoles.Set(f.ctx, bondedRoleKey(role, addr), types.BondedRole{
 			RoleType:            role,

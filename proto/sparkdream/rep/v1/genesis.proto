@@ -3,6 +3,7 @@ syntax = "proto3";
 package sparkdream.rep.v1;
 
 import "amino/amino.proto";
+import "cosmos_proto/cosmos.proto";
 import "gogoproto/gogo.proto";
 import "sparkdream/rep/v1/bonded_role.proto";
 import "sparkdream/rep/v1/challenge.proto";
@@ -131,6 +132,38 @@ message GenesisState {
   uint64 member_migration_count = 48;
   repeated RecoveryCommitmentEntry recovery_commitment_list = 49 [(gogoproto.nullable) = false];
   repeated RecoveryCommit recovery_commit_list = 50 [(gogoproto.nullable) = false];
+  // Restoration records of appealable member actions. The filing-window
+  // expiry index is derived from these at InitGenesis.
+  repeated MemberActionRestoration member_action_restoration_list = 51 [(gogoproto.nullable) = false];
+  // Jury reviews deliberately kept out of the verdict index (content-challenge
+  // and appeal reviews, which have their own timeout paths). InitGenesis
+  // indexes every other review, so a hand-written genesis that omits this
+  // list indexes them all.
+  repeated uint64 jury_reviews_outside_verdict_index = 52;
+  // The per-(budget, post) award cooldown heights. An award without an entry
+  // here restarts its cooldown at the import height.
+  repeated TagBudgetAwardCooldown tag_budget_award_cooldown_list = 53 [(gogoproto.nullable) = false];
+  // What each awarder has awarded from a budget in an epoch (the per-awarder
+  // epoch cap ledger). Without it an import inside an epoch would reset every
+  // awarder's cap for that epoch.
+  repeated TagBudgetAwarderEpochSpend tag_budget_awarder_epoch_list = 54 [(gogoproto.nullable) = false];
+}
+
+// TagBudgetAwarderEpochSpend is the amount awarder awarded from budget_id in
+// epoch.
+message TagBudgetAwarderEpochSpend {
+  uint64 budget_id = 1;
+  string awarder = 2 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  int64 epoch = 3;
+  string amount = 4 [(cosmos_proto.scalar) = "cosmos.Int", (gogoproto.customtype) = "cosmossdk.io/math.Int", (gogoproto.nullable) = false];
+}
+
+// TagBudgetAwardCooldown is the height of the latest award from budget_id to
+// post_id, the start of that pair's award cooldown.
+message TagBudgetAwardCooldown {
+  uint64 budget_id = 1;
+  uint64 post_id = 2;
+  int64 height = 3;
 }
 
 // EconomicState carries x/rep's token ledger across a genesis round trip.

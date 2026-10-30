@@ -3,6 +3,7 @@ package keeper
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"cosmossdk.io/collections"
 	"cosmossdk.io/math"
@@ -26,6 +27,14 @@ func (k msgServer) ResolveDispute(ctx context.Context, msg *types.MsgResolveDisp
 	// Verdict must not be UNSPECIFIED
 	if msg.Verdict == types.DisputeVerdict_DISPUTE_VERDICT_UNSPECIFIED {
 		return nil, types.ErrInvalidVerdict
+	}
+	// IMPROVE and REJECT carry feedback for the contributor.
+	if msg.Verdict != types.DisputeVerdict_DISPUTE_VERDICT_ACCEPT && strings.TrimSpace(msg.Reason) == "" {
+		return nil, types.ErrReasonRequired
+	}
+	proposer, err := k.checkCouncilProposer(ctx, msg.Authority, msg.Proposer)
+	if err != nil {
+		return nil, err
 	}
 
 	// Get contribution
@@ -87,34 +96,21 @@ func (k msgServer) ResolveDispute(ctx context.Context, msg *types.MsgResolveDisp
 		tranche.RevealDeadline = currentEpoch + params.RevealDeadlineEpochs
 
 	case types.DisputeVerdict_DISPUTE_VERDICT_REJECT:
-		// Hard fail — slash bond, burn holdback, cancel remaining
-		slashAmount := contrib.BondRemaining.Quo(math.NewInt(2)) // 50% of remaining bond
-		if slashAmount.IsPositive() {
-			if err := k.repKeeper.UnlockDREAM(ctx, sdk.AccAddress(contributorAddr), slashAmount); err != nil {
-				return nil, err
-			}
-			if err := k.repKeeper.BurnDREAM(ctx, sdk.AccAddress(contributorAddr), slashAmount); err != nil {
-				return nil, err
-			}
-			contrib.BondRemaining = contrib.BondRemaining.Sub(slashAmount)
-			bondSlashed = slashAmount
-		}
-
-		// Return remaining bond
-		if contrib.BondRemaining.IsPositive() {
-			if err := k.repKeeper.UnlockDREAM(ctx, sdk.AccAddress(contributorAddr), contrib.BondRemaining); err != nil {
-				return nil, err
-			}
-			contrib.BondRemaining = math.ZeroInt()
-		}
-
-		// Burn accumulated holdback (don't mint it)
-		contrib.HoldbackAmount = math.ZeroInt()
-
-		// Return stakes for this tranche
+		// Hard fail — return stakes, slash bond, burn holdback, cancel remaining
 		if err := k.returnTrancheStakes(ctx, contrib.Id, msg.TrancheId); err != nil {
 			return nil, err
 		}
+		if err := k.deleteTrancheVotes(ctx, contrib.Id, msg.TrancheId); err != nil {
+			return nil, err
+		}
+		slashed, err := k.slashHalfBondAndRelease(ctx, &contrib, sdk.AccAddress(contributorAddr))
+		if err != nil {
+			return nil, err
+		}
+		bondSlashed = slashed
+
+		// Burn accumulated holdback (don't mint it)
+		contrib.HoldbackAmount = math.ZeroInt()
 
 		// Mark this tranche as FAILED
 		tranche.Status = types.TrancheStatus_TRANCHE_STATUS_FAILED
@@ -127,7 +123,9 @@ func (k msgServer) ResolveDispute(ctx context.Context, msg *types.MsgResolveDisp
 		}
 
 		// Deduct reputation for rejected dispute
-		_ = k.repKeeper.DeductReputation(ctx, sdk.AccAddress(contributorAddr), "reveal", math.LegacyNewDec(10))
+		if err := k.repKeeper.DeductReputation(ctx, sdk.AccAddress(contributorAddr), "reveal", math.LegacyNewDec(10)); err != nil {
+			return nil, err
+		}
 
 		// Update contribution status
 		if err := k.ContributionsByStatus.Remove(ctx, collections.Join(int32(contrib.Status), contrib.Id)); err != nil {
@@ -140,7 +138,7 @@ func (k msgServer) ResolveDispute(ctx context.Context, msg *types.MsgResolveDisp
 	}
 
 	// Save updated contribution
-	if err := k.Contribution.Set(ctx, contrib.Id, contrib); err != nil {
+	if err := k.saveContribution(ctx, &contrib); err != nil {
 		return nil, err
 	}
 
@@ -151,7 +149,7 @@ func (k msgServer) ResolveDispute(ctx context.Context, msg *types.MsgResolveDisp
 			sdk.NewAttribute("contribution_id", fmt.Sprintf("%d", contrib.Id)),
 			sdk.NewAttribute("tranche_id", fmt.Sprintf("%d", msg.TrancheId)),
 			sdk.NewAttribute("verdict", msg.Verdict.String()),
-			sdk.NewAttribute("proposed_by", msg.Proposer),
+			sdk.NewAttribute("proposed_by", proposer),
 			sdk.NewAttribute("reason", msg.Reason),
 			sdk.NewAttribute("bond_slashed", bondSlashed.String()),
 		),

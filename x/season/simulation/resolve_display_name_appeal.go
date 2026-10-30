@@ -1,9 +1,6 @@
 package simulation
 
 import (
-	"math/rand"
-
-	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
@@ -12,36 +9,40 @@ import (
 	"sparkdream/x/season/types"
 )
 
-// SimulateMsgResolveDisplayNameAppeal simulates a MsgResolveDisplayNameAppeal message using direct keeper calls.
-// This bypasses the governance/committee authority requirement for simulation purposes.
+// SimulateMsgResolveDisplayNameAppeal resolves an appealed display-name
+// moderation (filed by SimulateMsgReportDisplayName and appealed by
+// SimulateMsgAppealDisplayNameModeration) through an executed x/commons
+// proposal (council.go), one step per call, with a random verdict. The
+// handler's DREAM stake settlement is covered by the dry-run.
 func SimulateMsgResolveDisplayNameAppeal(
 	ak types.AuthKeeper,
 	bk types.BankKeeper,
 	k keeper.Keeper,
 	txGen client.TxConfig,
 ) simtypes.Operation {
-	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
-	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		msgType := sdk.MsgTypeURL(&types.MsgResolveDisplayNameAppeal{})
-
-		// Find an active moderation with an appeal
-		mod, _, err := findDisplayNameModeration(r, ctx, k)
-		if err != nil || mod == nil {
-			return simtypes.NoOpMsg(types.ModuleName, msgType, "no moderation records found"), nil, nil
-		}
-
-		if !mod.Active || mod.AppealChallengeId == "" {
-			return simtypes.NoOpMsg(types.ModuleName, msgType, "no active appeal to resolve"), nil, nil
-		}
-
-		// Randomly decide if appeal succeeds or fails
-		appealSucceeded := r.Intn(2) == 1
-
-		// Resolve via direct keeper call
-		if err := k.ResolveDisplayNameAppealInternal(ctx, mod.Member, appealSucceeded); err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, msgType, "failed to resolve appeal"), nil, nil
-		}
-
-		return simtypes.NoOpMsg(types.ModuleName, msgType, "ok (direct keeper call)"), nil, nil
-	}
+	return authorityOp(ak, bk, k, txGen, &types.MsgResolveDisplayNameAppeal{}, decodeAs[types.MsgResolveDisplayNameAppeal](),
+		func(e *simEnv, policy string, taken []sdk.Msg) (sdk.Msg, string, error) {
+			pending := map[string]bool{}
+			for _, m := range taken {
+				pending[m.(*types.MsgResolveDisplayNameAppeal).Member] = true
+			}
+			var members []string
+			if err := e.k.DisplayNameModeration.Walk(e.ctx, nil, func(member string, m types.DisplayNameModeration) (bool, error) {
+				if m.Active && m.AppealChallengeId != "" && !pending[member] {
+					members = append(members, member)
+				}
+				return false, nil
+			}); err != nil {
+				return nil, "", err
+			}
+			member, ok := pick(e.r, members)
+			if !ok {
+				return nil, "no appealed display name moderation", nil
+			}
+			return &types.MsgResolveDisplayNameAppeal{
+				Authority:       policy,
+				Member:          member,
+				AppealSucceeded: e.r.Intn(2) == 0,
+			}, "", nil
+		})
 }

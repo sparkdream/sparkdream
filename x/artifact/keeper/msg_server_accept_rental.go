@@ -18,7 +18,7 @@ import (
 // renter pins the price, the offer nonce and, for a token holding nested
 // tokens, the contents hash.
 func (k msgServer) AcceptRental(ctx context.Context, msg *types.MsgAcceptRental) (*types.MsgAcceptRentalResponse, error) {
-	renter, err := k.decodeAddr("renter", msg.Renter)
+	renter, err := k.validateRecipient("renter", msg.Renter)
 	if err != nil {
 		return nil, err
 	}

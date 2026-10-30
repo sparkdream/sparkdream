@@ -8,6 +8,7 @@ import (
 	"cosmossdk.io/core/address"
 	corestore "cosmossdk.io/core/store"
 	"github.com/cosmos/cosmos-sdk/codec"
+	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	"sparkdream/x/reveal/types"
 )
@@ -46,6 +47,17 @@ type Keeper struct {
 	StakesByStaker             collections.KeySet[collections.Pair[string, uint64]]
 	VotesByTranche             collections.KeySet[collections.Pair[string, string]]
 	VotesByVoter               collections.KeySet[collections.Pair[string, string]]
+
+	// Deadline index (REV-11): IN_PROGRESS contributions keyed by their
+	// earliest pending deadline, plus the reverse map used to move an entry
+	// when the deadline changes. Maintained by saveContribution.
+	ContributionDeadlines    collections.KeySet[collections.Pair[int64, uint64]]
+	ContributionNextDeadline collections.Map[uint64, int64]
+
+	// Project transition retry (REV-07): (next_attempt_height, id) and the
+	// failed-attempt count per contribution.
+	ProjectTransitionQueue    collections.KeySet[collections.Pair[int64, uint64]]
+	ProjectTransitionAttempts collections.Map[uint64, uint32]
 }
 
 func NewKeeper(
@@ -111,6 +123,22 @@ func NewKeeper(
 			sb, types.VotesByVoterKey, "votesByVoter",
 			collections.PairKeyCodec(collections.StringKey, collections.StringKey),
 		),
+		ContributionDeadlines: collections.NewKeySet(
+			sb, types.ContributionDeadlinesKey, "contributionDeadlines",
+			collections.PairKeyCodec(collections.Int64Key, collections.Uint64Key),
+		),
+		ContributionNextDeadline: collections.NewMap(
+			sb, types.ContributionNextDeadlineKey, "contributionNextDeadline",
+			collections.Uint64Key, collections.Int64Value,
+		),
+		ProjectTransitionQueue: collections.NewKeySet(
+			sb, types.ProjectTransitionQueueKey, "projectTransitionQueue",
+			collections.PairKeyCodec(collections.Int64Key, collections.Uint64Key),
+		),
+		ProjectTransitionAttempts: collections.NewMap(
+			sb, types.ProjectTransitionAttemptsKey, "projectTransitionAttempts",
+			collections.Uint64Key, collections.Uint32Value,
+		),
 	}
 
 	schema, err := sb.Build()
@@ -169,4 +197,26 @@ func (k Keeper) allAddressesOf(ctx context.Context, member string) []string {
 		return []string{member}
 	}
 	return k.repKeeper.AllAddressesOf(ctx, member)
+}
+
+// checkCouncilProposer validates the initiator recorded on a council-routed
+// msg (Approve, Reject, ResolveDispute): an Operations Committee member, as
+// the spec routes these. Under gov the proposer may be empty; the recorded
+// initiator is then the authority itself.
+func (k Keeper) checkCouncilProposer(ctx context.Context, authority, proposer string) (string, error) {
+	if proposer == "" && authority == k.GetAuthorityString() {
+		return authority, nil
+	}
+	addr, err := k.addressCodec.StringToBytes(proposer)
+	if err != nil {
+		return "", types.ErrInvalidProposer.Wrapf("invalid proposer address: %s", err)
+	}
+	ok, err := k.commonsKeeper.IsCommitteeMember(ctx, sdk.AccAddress(addr), "commons", "operations")
+	if err != nil {
+		return "", err
+	}
+	if !ok {
+		return "", types.ErrInvalidProposer.Wrapf("%s", proposer)
+	}
+	return proposer, nil
 }

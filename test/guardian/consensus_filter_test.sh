@@ -7,9 +7,13 @@
 # on the proposed values (no "compare to current" check).
 #
 #   negative: block.max_bytes below 200_000 — rejected.
-#   negative: block.max_gas == 1000 (not -1, below floor) — rejected.
+#   negative: block.max_gas == 1000 (below floor) — rejected.
+#   negative: block.max_gas == -1 (unlimited) — rejected (must be finite).
 #   negative: evidence.max_age_num_blocks below 1000 — rejected.
-#   positive: block.max_gas = -1 (unlimited, always allowed) — passes.
+#   positive: block.max_gas = 100_000_000 (finite, above floor) — passes.
+#
+# The negatives other than max_gas=-1 also carry the current max_gas,
+# which is -1 on the test genesis; they fail either way.
 # ============================================================================
 
 set -e
@@ -81,7 +85,7 @@ PROP_MB=$(build_and_submit "CONS: tiny block.max_bytes" \
     "block.max_bytes" "1000" mb)
 echo "  $PROP_MB"
 
-echo "[neg] block.max_gas = 1000 (not -1, below floor)..."
+echo "[neg] block.max_gas = 1000 (below floor)..."
 PROP_MG=$(build_and_submit "CONS: tiny block.max_gas" \
     "block.max_gas" "1000" mg)
 echo "  $PROP_MG"
@@ -91,12 +95,17 @@ PROP_EV=$(build_and_submit "CONS: short evidence.max_age_num_blocks" \
     "evidence.max_age_num_blocks" "10" ev)
 echo "  $PROP_EV"
 
-echo "[pos] block.max_gas = -1 (unlimited, always allowed)..."
-PROP_OK=$(build_and_submit "CONS: max_gas unlimited" \
+echo "[neg] block.max_gas = -1 (unlimited, refused)..."
+PROP_MGU=$(build_and_submit "CONS: max_gas unlimited" \
     "block.max_gas" "-1" mgu)
+echo "  $PROP_MGU"
+
+echo "[pos] block.max_gas = 100000000 (finite)..."
+PROP_OK=$(build_and_submit "CONS: max_gas finite" \
+    "block.max_gas" "100000000" mgf)
 echo "  $PROP_OK"
 
-for id in "$PROP_MB" "$PROP_MG" "$PROP_EV" "$PROP_OK"; do
+for id in "$PROP_MB" "$PROP_MG" "$PROP_EV" "$PROP_MGU" "$PROP_OK"; do
     vote_yes "$id"
 done
 wait_voting
@@ -105,6 +114,7 @@ echo ""
 check_status "$PROP_MB" "PROPOSAL_STATUS_FAILED" || exit 1
 check_status "$PROP_MG" "PROPOSAL_STATUS_FAILED" || exit 1
 check_status "$PROP_EV" "PROPOSAL_STATUS_FAILED" || exit 1
+check_status "$PROP_MGU" "PROPOSAL_STATUS_FAILED" || exit 1
 check_status "$PROP_OK" "PROPOSAL_STATUS_PASSED" || exit 1
 
 # Best-effort post-state check. cometbft normalizes max_gas across formats

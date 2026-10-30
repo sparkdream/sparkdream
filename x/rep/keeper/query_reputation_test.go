@@ -31,7 +31,9 @@ func createMemberWithReputation(k keeper.Keeper, ctx context.Context, address st
 			"design":      "150.0",
 		},
 	}
-	_ = k.Member.Set(ctx, address, member)
+	if err := k.Member.Set(ctx, address, member); err != nil {
+		panic(err)
+	}
 }
 
 func TestReputation(t *testing.T) {
@@ -149,7 +151,7 @@ func TestReputation_MultipleTags(t *testing.T) {
 			"research":    "180.0",
 		},
 	}
-	_ = f.keeper.Member.Set(f.ctx, "multi-skilled", member)
+	require.NoError(t, f.keeper.Member.Set(f.ctx, "multi-skilled", member))
 
 	// Query each tag individually
 	devResponse, err := qs.Reputation(f.ctx, &types.QueryReputationRequest{

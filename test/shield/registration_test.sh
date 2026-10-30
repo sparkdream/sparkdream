@@ -361,7 +361,6 @@ echo "  Checking EITHER mode operations (governance — immediate needed while T
 
 EITHER_GOV_URLS=(
     "/sparkdream.commons.v1.MsgSubmitAnonymousProposal"
-    "/sparkdream.commons.v1.MsgAnonymousVoteProposal"
 )
 
 EITHER_GOV_OK=true
@@ -377,6 +376,25 @@ for URL in "${EITHER_GOV_URLS[@]}"; do
         EITHER_GOV_OK=false
     else
         echo "    $URL: EITHER (correct)"
+    fi
+done
+
+echo ""
+echo "  Checking IMMEDIATE_ONLY secret-ballot votes (group-tree root checked before decryption)..."
+for URL in "/sparkdream.commons.v1.MsgAnonymousVoteProposal" "/sparkdream.commons.v1.MsgAnonymousVotePoll"; do
+    OP=$($BINARY query shield shielded-op "$URL" --output json 2>&1)
+    if echo "$OP" | grep -qi "not found"; then
+        echo "    $URL: not registered"
+        EITHER_GOV_OK=false
+        continue
+    fi
+    # IMMEDIATE_ONLY is enum 0, which proto3 JSON omits.
+    BATCH=$(echo "$OP" | jq -r '.registration.batch_mode // "SHIELD_BATCH_MODE_IMMEDIATE_ONLY"')
+    if [ "$BATCH" != "SHIELD_BATCH_MODE_IMMEDIATE_ONLY" ]; then
+        echo "    $URL: Expected IMMEDIATE_ONLY, got $BATCH"
+        EITHER_GOV_OK=false
+    else
+        echo "    $URL: IMMEDIATE_ONLY (correct)"
     fi
 done
 

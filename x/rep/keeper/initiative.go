@@ -4,12 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	stdmath "math"
 	"strings"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/rep/types"
 
-	"cosmossdk.io/collections"
 	errorsmod "cosmossdk.io/errors"
 	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -44,7 +43,7 @@ func (k Keeper) CreateInitiative(
 
 	// Permissionless projects: enforce tier cap
 	if project.Permissionless {
-		if uint32(tier) > params.PermissionlessMaxTier {
+		if commontypes.Saturate[uint32](tier) > params.PermissionlessMaxTier {
 			return 0, fmt.Errorf("tier %s exceeds permissionless max tier: %w", tier.String(), types.ErrPermissionlessTierExceeded)
 		}
 
@@ -65,7 +64,7 @@ func (k Keeper) CreateInitiative(
 				requiredTrust = 1 // At least PROVISIONAL
 			}
 		}
-		if uint32(member.TrustLevel) < requiredTrust {
+		if commontypes.Saturate[uint32](member.TrustLevel) < requiredTrust {
 			return 0, fmt.Errorf("trust level %d below required %d for %s tier in permissionless project: %w",
 				member.TrustLevel, requiredTrust, tier.String(), types.ErrInsufficientTrustLevel)
 		}
@@ -132,7 +131,7 @@ func (k Keeper) CreateInitiative(
 	}
 
 	// Enforce max tags per initiative (anti-gaming: prevents tag stuffing for rep/revenue inflation)
-	if params.MaxTagsPerInitiative > 0 && uint32(len(tags)) > params.MaxTagsPerInitiative {
+	if params.MaxTagsPerInitiative > 0 && commontypes.Saturate[uint32](len(tags)) > params.MaxTagsPerInitiative {
 		return 0, fmt.Errorf("initiative has %d tags, max allowed is %d: %w", len(tags), params.MaxTagsPerInitiative, types.ErrTooManyTags)
 	}
 
@@ -192,12 +191,15 @@ func (k Keeper) CreateInitiative(
 	// This scales the same way as actual conviction (which uses sqrt dampening)
 	// Maintains constant stake-to-budget ratio across all budget sizes
 	//
-	// IMPORTANT: We take sqrt of the integer value first, then convert to Dec
-	// because LegacyDec.ApproxSqrt() operates on the internal representation (value × 10^18)
-	// which would give us sqrt(budget × 10^18) = sqrt(budget) × 10^9, which is wrong
-	budgetFloat := budget.BigInt().Uint64()
-	sqrtBudgetFloat := stdmath.Sqrt(float64(budgetFloat))
-	sqrtBudget := math.LegacyMustNewDecFromStr(fmt.Sprintf("%.18f", sqrtBudgetFloat))
+	// Decimal square root, no float in consensus code (REP-E-16): the value
+	// was a float64 sqrt printed to 18 places, deterministic but carrying
+	// garbage past the 16th significant digit. ApproxSqrt works on the
+	// decimal's value, so LegacyNewDecFromInt(budget).ApproxSqrt() is
+	// sqrt(budget).
+	sqrtBudget, err := math.LegacyNewDecFromInt(budget).ApproxSqrt()
+	if err != nil {
+		return 0, fmt.Errorf("failed to compute required conviction: %w", err)
+	}
 	requiredConviction := params.ConvictionPerDream.Mul(sqrtBudget)
 
 	// Create initiative
@@ -257,9 +259,10 @@ func (k Keeper) CreateInitiative(
 }
 
 // CountActiveInitiativesForAssignee returns the number of in-flight initiatives
-// assigned to the given member. "In flight" is every status enumerated by
-// IterateActiveInitiatives (OPEN..CHALLENGED). OPEN initiatives with no
-// assignee yet are skipped, so the cap only fires on work actually held.
+// assigned to the given member: ASSIGNED through CHALLENGED. OPEN is not
+// walked: an OPEN initiative never has an assignee (creation leaves it empty
+// and returning to OPEN clears it), and anyone can create OPEN initiatives, so
+// walking them would make every assignment's gas grow with that backlog.
 func (k Keeper) CountActiveInitiativesForAssignee(ctx context.Context, assignee string) (uint32, error) {
 	if assignee == "" {
 		return 0, nil
@@ -267,22 +270,24 @@ func (k Keeper) CountActiveInitiativesForAssignee(ctx context.Context, assignee 
 	// Work held under a recent alias still counts against the cap.
 	assigneeAddrs := k.RecentAddressesOf(ctx, assignee)
 	var count uint32
-	k.IterateActiveInitiatives(ctx, func(_ int64, initiative types.Initiative) bool {
+	err := k.IterateInitiativesByStatuses(ctx, []types.InitiativeStatus{
+		types.InitiativeStatus_INITIATIVE_STATUS_ASSIGNED,
+		types.InitiativeStatus_INITIATIVE_STATUS_SUBMITTED,
+		types.InitiativeStatus_INITIATIVE_STATUS_IN_REVIEW,
+		types.InitiativeStatus_INITIATIVE_STATUS_CHALLENGED,
+	}, func(_ uint64, initiative types.Initiative) bool {
 		if AddressesMatch(assigneeAddrs, initiative.Assignee) {
 			count++
 		}
 		return false
 	})
-	return count, nil
+	return count, err
 }
 
 // GetInitiative retrieves an initiative by ID
 func (k Keeper) GetInitiative(ctx context.Context, initiativeID uint64) (types.Initiative, error) {
 	initiative, err := k.Initiative.Get(ctx, initiativeID)
 	if err != nil {
-		if err == collections.ErrNotFound {
-			return types.Initiative{}, fmt.Errorf("initiative %d not found", initiativeID)
-		}
 		return types.Initiative{}, err
 	}
 	return initiative, nil
@@ -566,9 +571,12 @@ func (k Keeper) ReleaseSelfAssignBond(ctx context.Context, initiative *types.Ini
 // is assigned to, without unlocking anything: member zeroing burns the
 // staked DREAM behind them with the rest of the balance.
 func (k Keeper) dropSelfAssignBonds(ctx context.Context, addr string) error {
+	// The assignee field keeps the address the work was taken under
+	// (REP-E-07).
+	addrs := k.AllAddressesOf(ctx, addr)
 	var held []types.Initiative
 	if err := k.Initiative.Walk(ctx, nil, func(_ uint64, init types.Initiative) (bool, error) {
-		if init.Assignee == addr && DerefInt(init.SelfAssignBond).IsPositive() {
+		if AddressesMatch(addrs, init.Assignee) && DerefInt(init.SelfAssignBond).IsPositive() {
 			held = append(held, init)
 		}
 		return false, nil
@@ -596,10 +604,7 @@ func (k Keeper) BurnSelfAssignBond(ctx context.Context, initiative *types.Initia
 	if err != nil {
 		return fmt.Errorf("invalid assignee address: %w", err)
 	}
-	if err := k.UnlockDREAM(ctx, assigneeAddr, bond); err != nil {
-		return fmt.Errorf("failed to unlock self-assign bond: %w", err)
-	}
-	if err := k.BurnDREAM(ctx, assigneeAddr, bond); err != nil {
+	if err := k.BurnLockedDREAM(ctx, assigneeAddr, bond); err != nil {
 		return fmt.Errorf("failed to burn self-assign bond: %w", err)
 	}
 	initiative.SelfAssignBond = PtrInt(math.ZeroInt())
@@ -798,9 +803,14 @@ func (k Keeper) CloseInitiative(ctx context.Context, initiativeID uint64, reason
 	if err := k.RefundInitiativeBounty(ctx, initiativeID, "initiative closed"); err != nil {
 		return fmt.Errorf("failed to refund initiative bounty: %w", err)
 	}
-	reviewFees, feeErr := k.PayReviewFees(ctx, initiative)
-	if feeErr != nil {
+	if _, feeErr := k.PayReviewFees(ctx, initiative); feeErr != nil {
 		return fmt.Errorf("failed to pay review fees: %w", feeErr)
+	}
+	// Every round's fee, not just the final one's: rounds a rejection sent
+	// back were paid when they resolved (REP-E-22).
+	reviewFees, feeErr := k.ReviewFeesPaid(ctx, initiativeID)
+	if feeErr != nil {
+		return fmt.Errorf("failed to total review fees: %w", feeErr)
 	}
 	if err := k.SettleReviewBonds(ctx, initiativeID); err != nil {
 		return fmt.Errorf("failed to settle review bonds: %w", err)
@@ -1132,7 +1142,9 @@ func (k Keeper) CompleteInitiative(ctx context.Context, initiativeID uint64) err
 
 	// Check for trust level upgrade after reputation change (lazy evaluation)
 	// This is a trigger point - we only check when reputation actually changes
-	_ = k.UpdateTrustLevel(ctx, assigneeAddr)
+	if err := k.UpdateTrustLevel(ctx, assigneeAddr); err != nil {
+		return err
+	}
 
 	// Distribute revenue share to member stakers
 	// Members who stake on the assignee receive a portion of the initiative earnings.
@@ -1211,9 +1223,6 @@ func (k Keeper) GetMember(ctx context.Context, address sdk.AccAddress) (types.Me
 	address = k.resolveMember(ctx, address)
 	member, err := k.Member.Get(ctx, address.String())
 	if err != nil {
-		if err == collections.ErrNotFound {
-			return types.Member{}, fmt.Errorf("member not found: %s", address.String())
-		}
 		return types.Member{}, err
 	}
 

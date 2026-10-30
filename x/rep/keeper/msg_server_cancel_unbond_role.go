@@ -81,7 +81,7 @@ func (k msgServer) CancelUnbondRole(ctx context.Context, msg *types.MsgCancelUnb
 		br.PendingUnbondAmount = newPending.String()
 	}
 
-	if err := k.BondedRoles.Set(ctx, key, br); err != nil {
+	if err := k.setBondedRoleAt(ctx, key, br); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to store bonded role")
 	}
 

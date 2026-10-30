@@ -56,7 +56,7 @@ func TestMsgDisputePin(t *testing.T) {
 				},
 			},
 		}
-		f.keeper.ThreadMetadata.Set(f.ctx, thread.PostId, metadata)
+		require.NoError(t, f.keeper.ThreadMetadata.Set(f.ctx, thread.PostId, metadata))
 
 		_, err := ms.DisputePin(f.ctx, &types.MsgDisputePin{
 			Creator:  testCreator2, // Not the author
@@ -77,7 +77,7 @@ func TestMsgDisputePin(t *testing.T) {
 			ThreadId:      thread.PostId,
 			PinnedRecords: []*types.PinnedReplyRecord{},
 		}
-		f.keeper.ThreadMetadata.Set(f.ctx, thread.PostId, metadata)
+		require.NoError(t, f.keeper.ThreadMetadata.Set(f.ctx, thread.PostId, metadata))
 
 		_, err := ms.DisputePin(f.ctx, &types.MsgDisputePin{
 			Creator:  testCreator,
@@ -107,7 +107,7 @@ func TestMsgDisputePin(t *testing.T) {
 				},
 			},
 		}
-		f.keeper.ThreadMetadata.Set(f.ctx, thread.PostId, metadata)
+		require.NoError(t, f.keeper.ThreadMetadata.Set(f.ctx, thread.PostId, metadata))
 
 		_, err := ms.DisputePin(f.ctx, &types.MsgDisputePin{
 			Creator:  testCreator,
@@ -138,7 +138,7 @@ func TestMsgDisputePin(t *testing.T) {
 				},
 			},
 		}
-		f.keeper.ThreadMetadata.Set(f.ctx, thread.PostId, metadata)
+		require.NoError(t, f.keeper.ThreadMetadata.Set(f.ctx, thread.PostId, metadata))
 
 		_, err := ms.DisputePin(f.ctx, &types.MsgDisputePin{
 			Creator:  testCreator,
@@ -179,7 +179,7 @@ func TestMsgDisputePin(t *testing.T) {
 				},
 			},
 		}
-		f.keeper.ThreadMetadata.Set(f.ctx, thread.PostId, metadata)
+		require.NoError(t, f.keeper.ThreadMetadata.Set(f.ctx, thread.PostId, metadata))
 
 		_, err := ms.DisputePin(f.ctx, &types.MsgDisputePin{
 			Creator:  testCreator,

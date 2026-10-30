@@ -1,41 +1,31 @@
 package simulation
 
 import (
-	"math/rand"
-
-	"github.com/cosmos/cosmos-sdk/baseapp"
+	"cosmossdk.io/math"
 	"github.com/cosmos/cosmos-sdk/client"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
 
 	"sparkdream/x/service/keeper"
 	"sparkdream/x/service/types"
 )
 
-// SimulateMsgUpdateMetadata flips the metadata on a random live
-// operator via direct keeper write.
-func SimulateMsgUpdateMetadata(
-	ak types.AuthKeeper,
-	bk types.BankKeeper,
-	k keeper.Keeper,
-	txGen client.TxConfig,
-) simtypes.Operation {
-	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
-	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		op, found := findRandomOperator(r, ctx, k)
-		msg := &types.MsgUpdateMetadata{}
-		if !found {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "no operator available"), nil, nil
+// SimulateMsgUpdateMetadata has a live operator (any status) replace its
+// metadata blob. When no sim account is an operator one registers first.
+func SimulateMsgUpdateMetadata(ak types.AuthKeeper, bk types.BankKeeper, k keeper.Keeper, txGen client.TxConfig) simtypes.Operation {
+	label := &types.MsgUpdateMetadata{}
+	return operation(ak, bk, k, txGen, label, func(e *simEnv) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
+		op, acc, ok, err := e.signedOperator(nil)
+		if err != nil {
+			return noOpErr(label, err)
 		}
-		msg.Operator = op.Address
-		msg.ServiceType = op.ServiceType
-		msg.NewMetadata = []byte("sim-metadata-updated")
-
-		op.Metadata = msg.NewMetadata
-		if err := k.PutOperator(ctx, op); err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "failed to update operator"), nil, nil
+		if !ok {
+			return noOp(label, "no operator signed by a live sim account, and none could register")
 		}
-
-		return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "ok (direct keeper call)"), nil, nil
-	}
+		msg := &types.MsgUpdateMetadata{
+			Operator:    op.Address,
+			ServiceType: op.ServiceType,
+			NewMetadata: randomMetadata(e.r),
+		}
+		return e.submit(acc, msg, math.ZeroInt())
+	})
 }

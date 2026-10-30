@@ -67,7 +67,7 @@ func (k Keeper) checkSpendGates(ctx context.Context, authority string, amount sd
 	// 3. Term-expiration gate (Zombie groups). A recurring schedule that
 	// outlives its authorizing council's term auto-pauses here; on term
 	// renewal the same code path passes again and claims resume.
-	if extGroup.CurrentTermExpiration > 0 && sdkCtx.BlockTime().Unix() > extGroup.CurrentTermExpiration {
+	if isTermExpired(extGroup, sdkCtx.BlockTime().Unix()) {
 		expirationTime := time.Unix(extGroup.CurrentTermExpiration, 0)
 		return errorsmod.Wrapf(types.ErrGroupExpired,
 			"group term ended on %s; parent must renew membership", expirationTime.String())
@@ -79,7 +79,18 @@ func (k Keeper) checkSpendGates(ctx context.Context, authority string, amount sd
 		limit := *extGroup.MaxSpendPerEpoch
 		epochDay := sdkCtx.BlockTime().Unix() / 86400
 
-		requestedUspark := amount.AmountOf(k.BondDenom(ctx))
+		bondDenom := k.BondDenom(ctx)
+		requestedUspark := amount.AmountOf(bondDenom)
+
+		// The cap is denominated in the bond denom; any other denom (an IBC
+		// asset in the treasury) cannot be metered against it, so a capped
+		// group may not move it at all. x/gov can spend it.
+		for _, c := range amount {
+			if c.Denom != bondDenom {
+				return errorsmod.Wrapf(types.ErrRateLimitExceeded,
+					"denom %s cannot be metered against the bond-denom spend cap", c.Denom)
+			}
+		}
 
 		// Single-transaction check.
 		if requestedUspark.GT(limit) {
@@ -154,6 +165,22 @@ func (k Keeper) recordEpochSpend(ctx context.Context, authority string, amount s
 	newTotal := cumulativeSpent.Add(requestedUspark)
 	if err := k.EpochSpending.Set(ctx, key, newTotal.String()); err != nil {
 		return errorsmod.Wrap(err, "failed to update epoch spending tracker")
+	}
+
+	// Prune this policy's buckets from earlier days (at most a handful,
+	// since every write prunes).
+	var stale []collections.Pair[string, int64]
+	rng := collections.NewPrefixedPairRange[string, int64](authority).EndExclusive(epochDay)
+	if err := k.EpochSpending.Walk(ctx, rng, func(k2 collections.Pair[string, int64], _ string) (bool, error) {
+		stale = append(stale, k2)
+		return false, nil
+	}); err != nil {
+		return err
+	}
+	for _, sk := range stale {
+		if err := k.EpochSpending.Remove(ctx, sk); err != nil {
+			return err
+		}
 	}
 	return nil
 }

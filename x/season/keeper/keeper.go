@@ -24,13 +24,9 @@ type Keeper struct {
 	Params collections.Item[types.Params]
 
 	// External module keepers for cross-module integration
-	bankKeeper    types.BankKeeper
-	repKeeper     types.RepKeeper
-	nameKeeper    types.NameKeeper
-	commonsKeeper types.CommonsKeeper
+	bankKeeper types.BankKeeper
 
 	// Shared DREAM token operations (delegates to repKeeper)
-	dreamOps                dreamutil.Ops
 	Season                  collections.Item[types.Season]
 	SeasonTransitionState   collections.Item[types.SeasonTransitionState]
 	TransitionRecoveryState collections.Item[types.TransitionRecoveryState]
@@ -47,12 +43,12 @@ type Keeper struct {
 	TitlesByRequirement       collections.KeySet[collections.Pair[int32, string]]
 	SeasonTitleEligibility    collections.Map[uint64, types.SeasonTitleEligibility]
 	GuildSeq                  collections.Sequence
-	Guild                     collections.Map[uint64, types.Guild]
-	GuildMembership           collections.Map[string, types.GuildMembership]
-	GuildInvite               collections.Map[string, types.GuildInvite]
+	Guild                     *collections.IndexedMap[uint64, types.Guild, GuildIndexes]
+	GuildMembership           *collections.IndexedMap[string, types.GuildMembership, GuildMembershipIndexes]
+	GuildInvite               *collections.IndexedMap[string, types.GuildInvite, GuildInviteIndexes]
 	GuildMemberCount          collections.Map[uint64, uint64] // guildID -> active member count
 	Quest                     collections.Map[string, types.Quest]
-	MemberQuestProgress       collections.Map[string, types.MemberQuestProgress]
+	MemberQuestProgress       *collections.IndexedMap[string, types.MemberQuestProgress, QuestProgressIndexes]
 	EpochXpTracker            collections.Map[string, types.EpochXpTracker]
 	VoteXpRecord              collections.Map[string, types.VoteXpRecord]
 	ForumXpCooldown           collections.Map[string, types.ForumXpCooldown]
@@ -61,14 +57,40 @@ type Keeper struct {
 	DisplayNameAppealStake    collections.Map[string, types.DisplayNameAppealStake]
 	NominationSeq             collections.Sequence
 	Nomination                collections.Map[uint64, types.Nomination]
-	NominationStake           collections.Map[string, types.NominationStake]   // key: "nominationId/staker"
-	RetroRewardRecord         collections.Map[string, types.RetroRewardRecord] // key: "season/nominationId"
+	NominationStake           collections.Map[string, types.NominationStake]            // key: "nominationId/staker"
+	RetroRewardRecord         collections.Map[string, types.RetroRewardRecord]          // key: "season/nominationId"
+	TransitionAborts          collections.Map[uint64, uint64]                           // season -> aborts so far
+	PruneCursor               collections.Map[string, string]                           // collection -> last pruned key (SEA-11)
+	NominationsBySeason       collections.KeySet[collections.Pair[uint64, uint64]]      // (season, nominationID)
+	ModerationQueue           collections.KeySet[collections.Pair[int64, string]]       // (moderated_at, member), active + unappealed only
+	AppealQueue               collections.KeySet[collections.Pair[int64, string]]       // (appealed_at, member), active + appealed only (SEA-23)
+	RetroPayoutRetry          collections.KeySet[collections.Pair[uint64, uint64]]      // (season, nominationID), failed payouts (SEA-21)
+	PendingSeasonalPoolInit   collections.Item[uint64]                                  // season whose rep pool init is owed (SEA-22)
+	UsernameOwner             collections.Map[string, string]                           // lowercase username -> member (SEA-28)
+	NominationsByRef          collections.KeySet[collections.Pair[uint64, string]]      // (season, content_ref) (SEA-20)
+	NominationCountBy         collections.Map[collections.Pair[uint64, string], uint64] // (season, nominator) -> count (SEA-20)
+	ModerationRetryQueue      collections.KeySet[collections.Pair[int64, string]]       // (auto_resolve_retry_at, member), failed auto-resolutions (SEA-09)
+	SeasonStatsCounters       collections.Map[uint64, types.SeasonStatsCounters]        // past season -> final aggregates (SEA-35)
+	CurrentSeasonStats        collections.Item[types.SeasonStatsCounters]               // current season's running aggregates (SEA-35)
 
 	// Optional content-module keepers for retroactive public goods funding
+	// late holds the keepers wired after depinject (app.go Set*Keeper).
+	// It is a pointer so the AppModule's value copy of the keeper sees
+	// them too (docs/development-conventions.md, AppModule value-copy bug).
+	late *lateKeepers
+}
+
+// lateKeepers are the dependencies wired after construction; shared by
+// every copy of the Keeper value.
+type lateKeepers struct {
+	repKeeper      types.RepKeeper
+	nameKeeper     types.NameKeeper
+	commonsKeeper  types.CommonsKeeper
 	blogKeeper     types.BlogKeeper
 	forumKeeper    types.ForumKeeper
 	collectKeeper  types.CollectKeeper
 	artifactKeeper types.ArtifactKeeper
+	dreamOps       dreamutil.Ops
 }
 
 func NewKeeper(
@@ -86,6 +108,7 @@ func NewKeeper(
 	sb := collections.NewSchemaBuilder(storeService)
 
 	k := Keeper{
+		late:         &lateKeepers{},
 		storeService: storeService,
 		cdc:          cdc,
 		addressCodec: addressCodec,
@@ -95,14 +118,34 @@ func NewKeeper(
 		Params:     collections.NewItem(sb, types.ParamsKey, "params", codec.CollValue[types.Params](cdc)),
 		Season:     collections.NewItem(sb, types.SeasonKey, "season", codec.CollValue[types.Season](cdc)), SeasonTransitionState: collections.NewItem(sb, types.SeasonTransitionStateKey, "seasonTransitionState", codec.CollValue[types.SeasonTransitionState](cdc)), TransitionRecoveryState: collections.NewItem(sb, types.TransitionRecoveryStateKey, "transitionRecoveryState", codec.CollValue[types.TransitionRecoveryState](cdc)), NextSeasonInfo: collections.NewItem(sb, types.NextSeasonInfoKey, "nextSeasonInfo", codec.CollValue[types.NextSeasonInfo](cdc)), SeasonSnapshot: collections.NewMap(sb, types.SeasonSnapshotKey, "seasonSnapshot", collections.Uint64Key, codec.CollValue[types.SeasonSnapshot](cdc)), MemberSeasonSnapshot: collections.NewMap(sb, types.MemberSeasonSnapshotKey, "memberSeasonSnapshot", collections.StringKey, codec.CollValue[types.MemberSeasonSnapshot](cdc)), MemberProfile: collections.NewMap(sb, types.MemberProfileKey, "memberProfile", collections.StringKey, codec.CollValue[types.MemberProfile](cdc)), MemberRegistration: collections.NewMap(sb, types.MemberRegistrationKey, "memberRegistration", collections.StringKey, codec.CollValue[types.MemberRegistration](cdc)), Achievement: collections.NewMap(sb, types.AchievementKey, "achievement", collections.StringKey, codec.CollValue[types.Achievement](cdc)), Title: collections.NewMap(sb, types.TitleKey, "title", collections.StringKey, codec.CollValue[types.Title](cdc)),
 		AchievementsByRequirement: collections.NewKeySet(sb, types.AchievementsByRequirementKey, "achievementsByRequirement", collections.PairKeyCodec(collections.Int32Key, collections.StringKey)),
-		TitlesByRequirement:       collections.NewKeySet(sb, types.TitlesByRequirementKey, "titlesByRequirement", collections.PairKeyCodec(collections.Int32Key, collections.StringKey)), SeasonTitleEligibility: collections.NewMap(sb, types.SeasonTitleEligibilityKey, "seasonTitleEligibility", collections.Uint64Key, codec.CollValue[types.SeasonTitleEligibility](cdc)), Guild: collections.NewMap(sb, types.GuildKey, "guild", collections.Uint64Key, codec.CollValue[types.Guild](cdc)),
+		TitlesByRequirement:       collections.NewKeySet(sb, types.TitlesByRequirementKey, "titlesByRequirement", collections.PairKeyCodec(collections.Int32Key, collections.StringKey)), SeasonTitleEligibility: collections.NewMap(sb, types.SeasonTitleEligibilityKey, "seasonTitleEligibility", collections.Uint64Key, codec.CollValue[types.SeasonTitleEligibility](cdc)), Guild: collections.NewIndexedMap(sb, types.GuildKey, "guild", collections.Uint64Key, codec.CollValue[types.Guild](cdc), newGuildIndexes(sb)),
 		GuildSeq:         collections.NewSequence(sb, types.GuildCountKey, "guildSequence"),
 		GuildMemberCount: collections.NewMap(sb, types.GuildMemberCountKey, "guildMemberCount", collections.Uint64Key, collections.Uint64Value),
-		GuildMembership:  collections.NewMap(sb, types.GuildMembershipKey, "guildMembership", collections.StringKey, codec.CollValue[types.GuildMembership](cdc)), GuildInvite: collections.NewMap(sb, types.GuildInviteKey, "guildInvite", collections.StringKey, codec.CollValue[types.GuildInvite](cdc)), Quest: collections.NewMap(sb, types.QuestKey, "quest", collections.StringKey, codec.CollValue[types.Quest](cdc)), MemberQuestProgress: collections.NewMap(sb, types.MemberQuestProgressKey, "memberQuestProgress", collections.StringKey, codec.CollValue[types.MemberQuestProgress](cdc)), EpochXpTracker: collections.NewMap(sb, types.EpochXpTrackerKey, "epochXpTracker", collections.StringKey, codec.CollValue[types.EpochXpTracker](cdc)), VoteXpRecord: collections.NewMap(sb, types.VoteXpRecordKey, "voteXpRecord", collections.StringKey, codec.CollValue[types.VoteXpRecord](cdc)), ForumXpCooldown: collections.NewMap(sb, types.ForumXpCooldownKey, "forumXpCooldown", collections.StringKey, codec.CollValue[types.ForumXpCooldown](cdc)), DisplayNameModeration: collections.NewMap(sb, types.DisplayNameModerationKey, "displayNameModeration", collections.StringKey, codec.CollValue[types.DisplayNameModeration](cdc)), DisplayNameReportStake: collections.NewMap(sb, types.DisplayNameReportStakeKey, "displayNameReportStake", collections.StringKey, codec.CollValue[types.DisplayNameReportStake](cdc)), DisplayNameAppealStake: collections.NewMap(sb, types.DisplayNameAppealStakeKey, "displayNameAppealStake", collections.StringKey, codec.CollValue[types.DisplayNameAppealStake](cdc)),
+		GuildMembership:  collections.NewIndexedMap(sb, types.GuildMembershipKey, "guildMembership", collections.StringKey, codec.CollValue[types.GuildMembership](cdc), newGuildMembershipIndexes(sb)), GuildInvite: collections.NewIndexedMap(sb, types.GuildInviteKey, "guildInvite", collections.StringKey, codec.CollValue[types.GuildInvite](cdc), newGuildInviteIndexes(sb)), Quest: collections.NewMap(sb, types.QuestKey, "quest", collections.StringKey, codec.CollValue[types.Quest](cdc)), MemberQuestProgress: collections.NewIndexedMap(sb, types.MemberQuestProgressKey, "memberQuestProgress", collections.StringKey, codec.CollValue[types.MemberQuestProgress](cdc), newQuestProgressIndexes(sb)), EpochXpTracker: collections.NewMap(sb, types.EpochXpTrackerKey, "epochXpTracker", collections.StringKey, codec.CollValue[types.EpochXpTracker](cdc)), VoteXpRecord: collections.NewMap(sb, types.VoteXpRecordKey, "voteXpRecord", collections.StringKey, codec.CollValue[types.VoteXpRecord](cdc)), ForumXpCooldown: collections.NewMap(sb, types.ForumXpCooldownKey, "forumXpCooldown", collections.StringKey, codec.CollValue[types.ForumXpCooldown](cdc)), DisplayNameModeration: collections.NewMap(sb, types.DisplayNameModerationKey, "displayNameModeration", collections.StringKey, codec.CollValue[types.DisplayNameModeration](cdc)), DisplayNameReportStake: collections.NewMap(sb, types.DisplayNameReportStakeKey, "displayNameReportStake", collections.StringKey, codec.CollValue[types.DisplayNameReportStake](cdc)), DisplayNameAppealStake: collections.NewMap(sb, types.DisplayNameAppealStakeKey, "displayNameAppealStake", collections.StringKey, codec.CollValue[types.DisplayNameAppealStake](cdc)),
 		NominationSeq:     collections.NewSequence(sb, types.NominationCountKey, "nominationSequence"),
 		Nomination:        collections.NewMap(sb, types.NominationKey, "nomination", collections.Uint64Key, codec.CollValue[types.Nomination](cdc)),
 		NominationStake:   collections.NewMap(sb, types.NominationStakeKey, "nominationStake", collections.StringKey, codec.CollValue[types.NominationStake](cdc)),
 		RetroRewardRecord: collections.NewMap(sb, types.RetroRewardRecordKey, "retroRewardRecord", collections.StringKey, codec.CollValue[types.RetroRewardRecord](cdc)),
+		TransitionAborts:  collections.NewMap(sb, types.TransitionAbortsKey, "transitionAborts", collections.Uint64Key, collections.Uint64Value),
+		PruneCursor:       collections.NewMap(sb, types.PruneCursorKey, "pruneCursor", collections.StringKey, collections.StringValue),
+		NominationsBySeason: collections.NewKeySet(sb, types.NominationsBySeasonKey, "nominationsBySeason",
+			collections.PairKeyCodec(collections.Uint64Key, collections.Uint64Key)),
+		ModerationQueue: collections.NewKeySet(sb, types.ModerationQueueKey, "moderationQueue",
+			collections.PairKeyCodec(collections.Int64Key, collections.StringKey)),
+		AppealQueue: collections.NewKeySet(sb, types.AppealQueueKey, "appealQueue",
+			collections.PairKeyCodec(collections.Int64Key, collections.StringKey)),
+		RetroPayoutRetry: collections.NewKeySet(sb, types.RetroPayoutRetryKey, "retroPayoutRetry",
+			collections.PairKeyCodec(collections.Uint64Key, collections.Uint64Key)),
+		PendingSeasonalPoolInit: collections.NewItem(sb, types.PendingSeasonalPoolInitKey, "pendingSeasonalPoolInit", collections.Uint64Value),
+		UsernameOwner:           collections.NewMap(sb, types.UsernameOwnerKey, "usernameOwner", collections.StringKey, collections.StringValue),
+		NominationsByRef: collections.NewKeySet(sb, types.NominationsByRefKey, "nominationsByRef",
+			collections.PairKeyCodec(collections.Uint64Key, collections.StringKey)),
+		NominationCountBy: collections.NewMap(sb, types.NominationCountByNominatorKey, "nominationCountBy",
+			collections.PairKeyCodec(collections.Uint64Key, collections.StringKey), collections.Uint64Value),
+		ModerationRetryQueue: collections.NewKeySet(sb, types.ModerationRetryQueueKey, "moderationRetryQueue",
+			collections.PairKeyCodec(collections.Int64Key, collections.StringKey)),
+		SeasonStatsCounters: collections.NewMap(sb, types.SeasonStatsCountersKey, "seasonStatsCounters", collections.Uint64Key, codec.CollValue[types.SeasonStatsCounters](cdc)),
+		CurrentSeasonStats:  collections.NewItem(sb, types.CurrentSeasonStatsKey, "currentSeasonStats", codec.CollValue[types.SeasonStatsCounters](cdc)),
 	}
 	schema, err := sb.Build()
 	if err != nil {
@@ -116,38 +159,38 @@ func NewKeeper(
 
 // SetRepKeeper sets the RepKeeper after depinject to break cyclic dependencies.
 func (k *Keeper) SetRepKeeper(rk types.RepKeeper) {
-	k.repKeeper = rk
-	k.dreamOps = dreamutil.NewOps(rk, k.addressCodec)
+	k.late.repKeeper = rk
+	k.late.dreamOps = dreamutil.NewOps(rk, k.addressCodec)
 }
 
 // SetNameKeeper sets the NameKeeper after depinject.
 func (k *Keeper) SetNameKeeper(nk types.NameKeeper) {
-	k.nameKeeper = nk
+	k.late.nameKeeper = nk
 }
 
 // SetCommonsKeeper sets the CommonsKeeper after depinject.
 func (k *Keeper) SetCommonsKeeper(ck types.CommonsKeeper) {
-	k.commonsKeeper = ck
+	k.late.commonsKeeper = ck
 }
 
 // SetBlogKeeper sets the BlogKeeper after depinject.
 func (k *Keeper) SetBlogKeeper(bk types.BlogKeeper) {
-	k.blogKeeper = bk
+	k.late.blogKeeper = bk
 }
 
 // SetForumKeeper sets the ForumKeeper after depinject.
 func (k *Keeper) SetForumKeeper(fk types.ForumKeeper) {
-	k.forumKeeper = fk
+	k.late.forumKeeper = fk
 }
 
 // SetCollectKeeper sets the CollectKeeper after depinject.
 func (k *Keeper) SetCollectKeeper(ck types.CollectKeeper) {
-	k.collectKeeper = ck
+	k.late.collectKeeper = ck
 }
 
 // SetArtifactKeeper sets the ArtifactKeeper after depinject.
 func (k *Keeper) SetArtifactKeeper(ak types.ArtifactKeeper) {
-	k.artifactKeeper = ak
+	k.late.artifactKeeper = ak
 }
 
 // GetAuthority returns the module's authority.
@@ -161,13 +204,13 @@ func (k Keeper) GetAddressCodec() address.Codec {
 }
 
 // GetBlogKeeper returns the optional blog keeper.
-func (k Keeper) GetBlogKeeper() types.BlogKeeper { return k.blogKeeper }
+func (k Keeper) GetBlogKeeper() types.BlogKeeper { return k.late.blogKeeper }
 
 // GetForumKeeper returns the optional forum keeper.
-func (k Keeper) GetForumKeeper() types.ForumKeeper { return k.forumKeeper }
+func (k Keeper) GetForumKeeper() types.ForumKeeper { return k.late.forumKeeper }
 
 // GetCollectKeeper returns the optional collect keeper.
-func (k Keeper) GetCollectKeeper() types.CollectKeeper { return k.collectKeeper }
+func (k Keeper) GetCollectKeeper() types.CollectKeeper { return k.late.collectKeeper }
 
 // GetArtifactKeeper returns the optional artifact keeper.
-func (k Keeper) GetArtifactKeeper() types.ArtifactKeeper { return k.artifactKeeper }
+func (k Keeper) GetArtifactKeeper() types.ArtifactKeeper { return k.late.artifactKeeper }

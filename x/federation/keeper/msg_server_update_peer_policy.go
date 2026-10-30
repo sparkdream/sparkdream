@@ -29,6 +29,11 @@ func (k msgServer) UpdatePeerPolicy(ctx context.Context, msg *types.MsgUpdatePee
 	if err != nil {
 		return nil, errorsmod.Wrapf(types.ErrPeerNotFound, "peer %q not found", msg.PeerId)
 	}
+	// A REMOVED peer is being cleaned up: a policy written now would outlive
+	// it (the cleanup deletes the policy once, before the peer record).
+	if peer.Status == types.PeerStatus_PEER_STATUS_REMOVED {
+		return nil, errorsmod.Wrapf(types.ErrPeerNotActive, "peer %q is removed", msg.PeerId)
+	}
 
 	params, err := k.Params.Get(ctx)
 	if err != nil {

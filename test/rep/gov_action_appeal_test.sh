@@ -95,6 +95,12 @@ echo ""
 echo "--- PART 14: APPEAL GOV ACTION (Test interface) ---"
 
 echo "Testing appeal-gov-action command..."
+# MsgAppealGovAction only takes an appeal of a member action (warning,
+# demotion, zeroing) by the affected member, within the appeal window of the
+# report resolution that applied it (FRM-02 / REP-R-14). poster1 has no
+# resolved report, and "test-target" is not its own address, so the appeal
+# must be refused with "appeal not allowed". Moderation appeals go through
+# the owning module (x/forum MsgAppealPost etc.).
 
 GOV_APPEAL_ID=""
 
@@ -113,18 +119,19 @@ TX_RES=$($BINARY tx rep appeal-gov-action \
 TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
 
 if [ -z "$TXHASH" ] || [ "$TXHASH" == "null" ]; then
-    echo "  Transaction failed"
+    echo "  Pre-broadcast failure"
     echo "  Response: $(echo "$TX_RES" | jq -r '.raw_log // .message // .' 2>/dev/null | head -1)"
 else
     echo "  Transaction: $TXHASH"
     sleep 6
     TX_RESULT=$(wait_for_tx $TXHASH)
+    CODE=$(echo "$TX_RESULT" | jq -r '.code')
+    RAW_LOG=$(echo "$TX_RESULT" | jq -r '.raw_log')
 
-    if check_tx_success "$TX_RESULT"; then
-        GOV_APPEAL_ID=$(extract_event_value "$TX_RESULT" "gov_action_appealed" "appeal_id")
-        echo "  Gov action appeal filed (ID: $GOV_APPEAL_ID)"
+    if [ "$CODE" != "0" ] && echo "$RAW_LOG" | grep -qi "appeal not allowed"; then
+        echo "  PASS: third-party appeal of an unapplied action refused"
     else
-        echo "  Appeal failed"
+        echo "  FAIL: expected 'appeal not allowed', got code $CODE: $RAW_LOG"
     fi
 fi
 
@@ -204,7 +211,7 @@ echo ""
 echo "--- GOV ACTION APPEAL TEST SUMMARY ---"
 echo ""
 echo "  === Happy-Path Appeals ==="
-echo "  PART 14: Appeal gov action:                PASS"
+echo "  PART 14: Unauthorized appeal refused:      PASS"
 echo ""
 echo "  === AppealGovAction Error Cases ==="
 echo "  PART 30: Invalid action type (type=0):     PASS"

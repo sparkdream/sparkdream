@@ -230,7 +230,7 @@ func TestCreatePostStorageFee(t *testing.T) {
 
 		params, _ := k.Params.Get(ctx)
 		params.CostPerByteExempt = true
-		k.Params.Set(ctx, params)
+		require.NoError(t, k.Params.Set(ctx, params))
 
 		msg := &types.MsgCreatePost{
 			Creator: "sprkdrm1afyuna8gqe55t7jztxcg0aleg0k5txep72pfan",
@@ -248,7 +248,7 @@ func TestCreatePostStorageFee(t *testing.T) {
 
 		params, _ := k.Params.Get(ctx)
 		params.CostPerByteAmount = math.NewInt(0)
-		k.Params.Set(ctx, params)
+		require.NoError(t, k.Params.Set(ctx, params))
 
 		msg := &types.MsgCreatePost{
 			Creator: "sprkdrm1afyuna8gqe55t7jztxcg0aleg0k5txep72pfan",

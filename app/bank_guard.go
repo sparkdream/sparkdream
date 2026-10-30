@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 
 	"cosmossdk.io/collections"
 	errorsmod "cosmossdk.io/errors"
@@ -36,8 +35,10 @@ func (a MintKeeperAdapter) GetParams(ctx context.Context) (minttypes.Params, err
 }
 
 // BankKeeperWithIdentityGuard wraps a bank Keeper and rejects DenomMetadata
-// writes that would alter the canonical Symbol/Display of x/identity-managed
-// denoms. Description and unit-alias edits are still allowed.
+// writes that would alter what x/identity seals for its managed denoms: Base,
+// Symbol, Display, Name and the denom units with their exponents (the
+// decimals wallets render). Description, URI and unit-alias edits are still
+// allowed.
 //
 // Composes the bank and identity keepers at the app layer, NOT in x/identity
 // itself, because x/identity is a leaf module and must not import bank.
@@ -59,9 +60,10 @@ func WrapBankKeeperWithIdentityGuard(bk bankkeeper.Keeper, idk *identitykeeper.K
 //   - No sealed identity yet (truly pre-InitGenesis). identity's own
 //     InitGenesis is the only legitimate writer in this window; pass through.
 //   - Foreign (non-native) denom. Pass through.
-//   - Native denom with altered Symbol or Display. Panic with
-//     ErrIdentityImmutable so gov-routed proposals fail execution and
-//     upgrade-handler writes halt loudly.
+//   - Native denom whose sealed fields differ from the canonical metadata
+//     (types.CheckSealedMetadata). Panic with ErrIdentityImmutable so
+//     gov-routed proposals fail execution and upgrade-handler writes halt
+//     loudly.
 func (w BankKeeperWithIdentityGuard) SetDenomMetaData(ctx context.Context, meta banktypes.Metadata) {
 	sealed, err := w.identity.GetSealedIdentity(ctx)
 	switch {
@@ -71,20 +73,14 @@ func (w BankKeeperWithIdentityGuard) SetDenomMetaData(ctx context.Context, meta 
 	case err != nil:
 		panic(fmt.Errorf("identity guard: sealed-identity lookup failed: %w", err))
 	}
-	if meta.Base != sealed.BondDenom && meta.Base != sealed.DreamDenom {
+	want, native := sealed.CanonicalMetadataFor(meta.Base)
+	if !native {
 		w.Keeper.SetDenomMetaData(ctx, meta)
 		return
 	}
-	wantSym := sealed.BondDisplaySymbol
-	wantDisp := strings.ToLower(sealed.BondDisplaySymbol)
-	if meta.Base == sealed.DreamDenom {
-		wantSym = sealed.DreamDisplaySymbol
-		wantDisp = strings.ToLower(sealed.DreamDisplaySymbol)
-	}
-	if meta.Symbol != wantSym || meta.Display != wantDisp {
+	if reason := identitytypes.CheckSealedMetadata(meta, want); reason != "" {
 		panic(errorsmod.Wrapf(identitytypes.ErrIdentityImmutable,
-			"denom %q: cannot alter Symbol (%q -> %q) or Display (%q -> %q) of x/identity-managed denom",
-			meta.Base, wantSym, meta.Symbol, wantDisp, meta.Display))
+			"denom %q: cannot alter the sealed metadata of an x/identity-managed denom: %s", meta.Base, reason))
 	}
 	w.Keeper.SetDenomMetaData(ctx, meta)
 }

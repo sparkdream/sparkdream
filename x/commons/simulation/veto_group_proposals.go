@@ -1,86 +1,74 @@
 package simulation
 
 import (
-	"math/rand"
-
-	"cosmossdk.io/math"
-	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
-	"github.com/cosmos/cosmos-sdk/codec"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
-	"github.com/cosmos/cosmos-sdk/x/simulation"
 
 	"sparkdream/x/commons/keeper"
 	"sparkdream/x/commons/types"
 )
 
-func SimulateMsgVetoGroupProposals(
-	ak types.AuthKeeper,
-	bk types.BankKeeper,
-	k keeper.Keeper,
-	cdc codec.Codec,
-	txGen client.TxConfig,
-) simtypes.Operation {
-	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
-	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		// 1. Pick a random account to act as the Authority (The Parent)
-		simAccount, _ := simtypes.RandomAcc(r, accs)
+// SimulateMsgVetoGroupProposals vetoes a simulated group's pending proposals
+// (bumps its policy version) through a fee-exempt proposal of its parent's
+// veto policy (or the parent itself when that holds the message). It
+// prefers a group with open proposals, so the veto has something to stop.
+// Bootstrapped bodies are never vetoed: other modules' simulations have
+// proposals in flight on them.
+func SimulateMsgVetoGroupProposals(ak types.AuthKeeper, bk types.BankKeeper, k keeper.Keeper, txGen client.TxConfig) simtypes.Operation {
+	label := &types.MsgVetoGroupProposals{}
+	return operation(ak, bk, k, txGen, func(e *simEnv) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
+		return e.advance(label, func() (proposal, string, error) {
+			targets, err := e.groups(func(name string, _ types.Group) bool { return isSimGroup(name) })
+			if err != nil {
+				return proposal{}, "", err
+			}
+			if len(targets) == 0 {
+				return proposal{}, "no simulated group", nil
+			}
+			pending, err := e.policiesWithOpenProposals()
+			if err != nil {
+				return proposal{}, "", err
+			}
+			busy := make([]namedGroup, 0, len(targets))
+			for _, t := range targets {
+				if pending[t.g.PolicyAddress] {
+					busy = append(busy, t)
+				}
+			}
+			if len(busy) > 0 {
+				targets = busy
+			}
+			target := targets[e.r.Intn(len(targets))]
+			candidates, err := e.parentAndVeto(target.g)
+			if err != nil {
+				return proposal{}, "", err
+			}
+			policy, proposer, reason, err := e.pickCarrier(candidates, sdk.MsgTypeURL(label))
+			if err != nil || reason != "" {
+				return proposal{}, reason, err
+			}
+			return proposal{policy: policy, proposer: proposer, inner: &types.MsgVetoGroupProposals{
+				Authority: policy,
+				GroupName: target.name,
+			}}, "", nil
+		})
+	})
+}
 
-		// 2. SETUP: Create native state for the child group
-		groupName := "sim-veto-target-" + simtypes.RandStringOfLength(r, 5)
-		policyAddr := "sim-veto-policy-" + simtypes.RandStringOfLength(r, 10)
-
-		maxSpendPerEpoch := math.NewInt(1000)
-		targetGroup := types.Group{
-			GroupId:             uint64(simtypes.RandIntBetween(r, 1, 1000)),
-			PolicyAddress:       policyAddr,
-			ParentPolicyAddress: simAccount.Address.String(), // AUTHORIZATION PASS: SimAccount is the Parent
-			FundingWeight:       0,
-			FutarchyEnabled:     false,
-			MaxSpendPerEpoch:    &maxSpendPerEpoch,
-		}
-
-		if err := k.Groups.Set(ctx, groupName, targetGroup); err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgVetoGroupProposals{}), "failed to setup group"), nil, err
-		}
-		if err := k.PolicyToName.Set(ctx, policyAddr, groupName); err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgVetoGroupProposals{}), "failed to set policy index"), nil, err
-		}
-
-		// Set up policy version for veto invalidation
-		if err := k.PolicyVersion.Set(ctx, policyAddr, 0); err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgVetoGroupProposals{}), "failed to set policy version"), nil, err
-		}
-
-		// 3. Build the Message
-		msg := &types.MsgVetoGroupProposals{
-			Authority: simAccount.Address.String(),
-			GroupName: groupName,
-		}
-
-		// Ensure we have a ProtoCodec for OperationInput
-		protoCdc, ok := cdc.(*codec.ProtoCodec)
-		if !ok {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "codec is not *codec.ProtoCodec"), nil, nil
-		}
-
-		// 4. Construct OperationInput
-		opInput := simulation.OperationInput{
-			R:               r,
-			App:             app,
-			TxGen:           txGen,
-			Cdc:             protoCdc,
-			Msg:             msg,
-			Context:         ctx,
-			SimAccount:      simAccount,
-			AccountKeeper:   ak,
-			Bankkeeper:      bk,
-			ModuleName:      types.ModuleName,
-			CoinsSpentInMsg: sdk.NewCoins(),
-		}
-
-		// 5. Execute Transaction
-		return simulation.GenAndDeliverTxWithRandFees(opInput)
+// policiesWithOpenProposals returns the policies with open proposals.
+func (e *simEnv) policiesWithOpenProposals() (map[string]bool, error) {
+	out := map[string]bool{}
+	ids, err := e.openProposalIDs()
+	if err != nil {
+		return nil, err
 	}
+	for _, id := range ids {
+		p, err := e.k.Proposals.Get(e.ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		out[p.PolicyAddress] = true
+	}
+	return out, nil
 }

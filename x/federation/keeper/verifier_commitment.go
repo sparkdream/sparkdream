@@ -26,21 +26,30 @@ import (
 // forward progress. Mutates the record through the pointer; the caller
 // persists.
 func (k Keeper) releaseVerifierCommitment(ctx context.Context, record *types.VerificationRecord) {
+	if err := k.releaseVerifierCommitmentErr(ctx, record); err != nil {
+		sdk.UnwrapSDKContext(ctx).Logger().Error("releaseVerifierCommitment: k.releaseVerifierCommitmentErr failed", "err", err)
+	}
+}
+
+// releaseVerifierCommitmentErr is releaseVerifierCommitment returning the
+// ReleaseBond error, for the settlement paths that record or propagate
+// side-effect failures.
+func (k Keeper) releaseVerifierCommitmentErr(ctx context.Context, record *types.VerificationRecord) error {
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	if record.CommitmentReleased {
-		return
+		return nil
 	}
 	if record.CommittedAmount.IsNil() || !record.CommittedAmount.IsPositive() {
 		// Nothing was committed (zero slash amount params). Mark the
 		// flag so the record still reads as settled.
 		record.CommitmentReleased = true
-		return
+		return nil
 	}
 	if k.late.repKeeper == nil {
 		// Standalone-mode tests without rep wired. Consider it settled
 		// so the state machine still advances.
 		record.CommitmentReleased = true
-		return
+		return nil
 	}
 	if err := k.late.repKeeper.ReleaseBond(ctx,
 		reptypes.RoleType_ROLE_TYPE_FEDERATION_VERIFIER,
@@ -48,7 +57,7 @@ func (k Keeper) releaseVerifierCommitment(ctx context.Context, record *types.Ver
 		sdkCtx.Logger().Warn("federation: release verifier commitment failed",
 			"content_id", record.ContentId, "verifier", record.Verifier,
 			"amount", record.CommittedAmount.String(), "error", err)
-		return
+		return err
 	}
 	record.CommitmentReleased = true
 	sdkCtx.EventManager().EmitEvent(sdk.NewEvent(types.EventTypeVerifierCommitmentReleased,
@@ -56,6 +65,7 @@ func (k Keeper) releaseVerifierCommitment(ctx context.Context, record *types.Ver
 		sdk.NewAttribute(types.AttributeKeyVerifier, record.Verifier),
 		sdk.NewAttribute(types.AttributeKeyAmount, record.CommittedAmount.String()),
 	))
+	return nil
 }
 
 // settleNoQuorumContent gives the content a terminal status when the

@@ -25,7 +25,7 @@ import (
 	ibctransfertypes "github.com/cosmos/ibc-go/v10/modules/apps/transfer/types"
 	ibctransferv2 "github.com/cosmos/ibc-go/v10/modules/apps/transfer/v2"
 	ibc "github.com/cosmos/ibc-go/v10/modules/core"
-	ibcclienttypes "github.com/cosmos/ibc-go/v10/modules/core/02-client/types" // nolint:staticcheck // Deprecated: params key table is needed for params migration
+	ibcclienttypes "github.com/cosmos/ibc-go/v10/modules/core/02-client/types"
 	ibcconnectiontypes "github.com/cosmos/ibc-go/v10/modules/core/03-connection/types"
 	porttypes "github.com/cosmos/ibc-go/v10/modules/core/05-port/types"
 	ibcapi "github.com/cosmos/ibc-go/v10/modules/core/api"
@@ -87,7 +87,9 @@ func (app *App) registerIBCModules(appOpts servertypes.AppOptions) error {
 		app.IBCKeeper.ChannelKeeper, // ICS4Wrapper
 		app.IBCKeeper.ChannelKeeper,
 		app.AuthKeeper,
-		app.MsgServiceRouter(),
+		// Interchain accounts skip the ante chain: only the compiled
+		// ICAHostAllowedMsgs may run, whatever allow_messages says.
+		newICAHostRouter(app.MsgServiceRouter()),
 		app.GRPCQueryRouter(),
 		govModuleAddr,
 	)

@@ -16,7 +16,13 @@ func (q queryServer) OffersByBidder(ctx context.Context, req *types.QueryOffersB
 		return nil, errInvalidRequest
 	}
 	addrs := q.k.allAddressesOf(ctx, req.Bidder)
-	offers, page, err := query.CollectionPaginate(ctx, q.k.OffersByBidder, capPage(req.Pagination),
+	// Expired offers the EndBlocker has not refunded yet are filtered (§6).
+	t := now(ctx)
+	offers, page, err := query.CollectionFilteredPaginate(ctx, q.k.OffersByBidder, capPage(req.Pagination),
+		func(key collections.Pair[string, uint64], _ collections.NoValue) (bool, error) {
+			o, err := q.k.Offers.Get(ctx, key.K2())
+			return err == nil && o.ExpiresAt > t, nil
+		},
 		func(key collections.Pair[string, uint64], _ collections.NoValue) (types.Offer, error) {
 			return q.k.Offers.Get(ctx, key.K2())
 		}, query.WithCollectionPaginationPairPrefix[string, uint64](addrs[0]))
@@ -30,7 +36,9 @@ func (q queryServer) OffersByBidder(ctx context.Context, req *types.QueryOffersB
 				if err != nil {
 					return true, err
 				}
-				offers = append(offers, o)
+				if o.ExpiresAt > t {
+					offers = append(offers, o)
+				}
 				return false, nil
 			})
 			if err != nil {

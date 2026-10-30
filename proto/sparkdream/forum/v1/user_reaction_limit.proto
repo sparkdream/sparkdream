@@ -3,10 +3,23 @@ package sparkdream.forum.v1;
 
 option go_package = "sparkdream/x/forum/types";
 
+// ReactionLimitKind names the daily budget a UserReactionLimit tracks. Each
+// kind is stored under its own key (see UserReactionLimitKey).
+enum ReactionLimitKind {
+  // Upvotes and the shared reaction budget, keyed by the bare address.
+  REACTION_LIMIT_KIND_REACTION = 0;
+  REACTION_LIMIT_KIND_FLAG = 1;
+  REACTION_LIMIT_KIND_DOWNVOTE = 2;
+  REACTION_LIMIT_KIND_FOLLOW = 3;
+}
+
 // UserReactionLimit defines the UserReactionLimit message.
 message UserReactionLimit {
   string user_address = 1;
   uint64 current_day_count = 2;
   uint64 previous_day_count = 3;
   int64 current_day_start = 4;
+  // kind selects the budget, and with user_address the store key, so a
+  // genesis round trip puts each record back under the key it came from.
+  ReactionLimitKind kind = 5;
 }

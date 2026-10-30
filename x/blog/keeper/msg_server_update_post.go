@@ -75,9 +75,9 @@ func (k msgServer) UpdatePost(ctx context.Context, msg *types.MsgUpdatePost) (*t
 	// High-water mark fee: only charge for bytes above the previous high water mark.
 	// An anonymous editor would be spending the shield module's gas reserve,
 	// not their own SPARK, so the fee doesn't apply.
-	newBytes := uint64(len(msg.Title) + len(msg.Body))
+	newBytes := commontypes.Saturate[uint64](len(msg.Title) + len(msg.Body))
 	if !params.CostPerByteExempt && params.CostPerByteAmount.IsPositive() && newBytes > val.FeeBytesHighWater && !isShieldModuleAddress(creatorAddr) {
-		delta := int64(newBytes - val.FeeBytesHighWater)
+		delta := commontypes.Saturate[int64](newBytes - val.FeeBytesHighWater)
 		deltaFee := sdk.NewCoin(k.BondDenom(ctx),
 			params.CostPerByteAmount.MulRaw(delta))
 		if deltaFee.IsPositive() {
@@ -114,7 +114,7 @@ func (k msgServer) UpdatePost(ctx context.Context, msg *types.MsgUpdatePost) (*t
 	now := sdkCtx.BlockTime().Unix()
 	for _, t := range msg.Tags {
 		if _, had := oldSet[t]; !had {
-			if err := k.repKeeper.IncrementTagUsage(ctx, t, now); err != nil {
+			if err := k.late.repKeeper.IncrementTagUsage(ctx, t, now); err != nil {
 				return nil, errorsmod.Wrap(err, "failed to update tag metadata")
 			}
 		}
@@ -123,7 +123,7 @@ func (k msgServer) UpdatePost(ctx context.Context, msg *types.MsgUpdatePost) (*t
 		if _, still := newSet[t]; still {
 			continue
 		}
-		if err := k.repKeeper.DecrementTagUsage(ctx, t); err != nil {
+		if err := k.late.repKeeper.DecrementTagUsage(ctx, t); err != nil {
 			// Tag may have been GC'd between create and edit; non-fatal, log
 			// and continue so the user can still finish their edit.
 			sdkCtx.Logger().Error("failed to decrement dropped tag usage",

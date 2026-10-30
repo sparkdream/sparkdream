@@ -8,6 +8,14 @@ section number.
 
 ## 1. Additive deployment: permissive when identity is absent (v1 DEVIATION)
 
+**Status: reverted.** `GenesisState.Validate` and `InitGenesis` now refuse an
+empty identity with `ErrIdentityNotInitialized` (the genesis-init follow-up
+below). Every module reads its denoms through `IdentityKeeper.BondDenom`, so
+the permissive branch could only produce a later, less clear panic. The
+sentinel-rewrite hook still skips an empty identity; `InitGenesis` then
+fails with a message naming the genesis. The original decision is kept
+below for history.
+
 **Decision.** When `app_state.identity` is missing from genesis (or present
 but with a zero-valued `ChainIdentity`), both the sentinel-rewrite hook and
 the keeper's `InitGenesis` become no-ops. The chain starts cleanly without
@@ -104,13 +112,13 @@ own seed write, future Spark Dream modules wired via the project's manual
 through their own depinject-injected bank reference.
 
 **Defense in depth (this is the actual steady-state guarantee).**
-Invariant 4 (§16, `BankMetadataCanonicalInvariant`) catches drift on the
-same block, regardless of which writer escaped the guard. **Post-C1 fix
-(AppModule value-copy bug), invariant 4 actually runs every block** via
-the crisis module BeginBlocker, so the gov-routed attack window is at
-most one block. For v1, this is the security claim the spec actually
-delivers; the spec's "first line of defense" framing in §14.6 should be
-read as "the wrapper plus the invariant, working together".
+The guard refuses every post-seal write to a sealed metadata field.
+Invariant 4 (§16, `BankMetadataCanonicalInvariant`) detects drift from any
+writer that escaped it, but it does not run on chain: x/crisis is not
+wired, and the registered invariants run in `go test ./app -run
+TestInvariants` against the e2e snapshots (plus, for the shipped network
+geneses, `TestNetworkGenesisNativeMetadataIsIdentitys`). There is no
+per-block detection window; the guard is the enforcement.
 
 **Spec deviation.** Spec §14.6 should be amended to reflect that the
 `Provide` indirection is impractical and that invariant 4 carries the
@@ -329,7 +337,10 @@ before merge" list were addressed in-place:
   of length 3-5 derive cleanly; longer symbols (6-8) require an explicit
   `--bond-denom`. Test fixtures, federation/IBC examples, and the
   `usim.simchain` simulation genesis all updated to follow the new
-  convention.
+  convention. The dream denom is derived the same way from
+  `--dream-symbol` (`PDRM` -> `updrm.phoenix`; it used to be a fixed
+  `udream.<chain>`), so no token name is built into the CLI; symbols that
+  are not letter-only of length 3-5 need the explicit flag.
 - **H1 (require bankKeeper for non-empty identity InitGenesis):** A
   non-empty identity in InitGenesis now errors if `k.bankKeeper == nil`.
   Defends against accidental future `app.go` regressions that drop the

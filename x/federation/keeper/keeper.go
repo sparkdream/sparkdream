@@ -47,6 +47,13 @@ type lateKeepers struct {
 	// others; nil in standalone tests, where funding is simply a no-op.
 	distrKeeper types.DistrKeeper
 	mintKeeper  types.MintKeeper
+
+	// sendPacketOverride replaces the IBC SendPacket call. Only unit tests
+	// set it (SetSendPacketOverrideForTest in export_test.go): the test
+	// fixture has no open channel, and paths that must fail on a send
+	// error (MsgLinkIdentity) need a send that succeeds. Always nil in the
+	// app.
+	sendPacketOverride func(ctx context.Context, peerID string, data []byte) (uint64, error)
 }
 
 type Keeper struct {
@@ -121,11 +128,34 @@ type Keeper struct {
 	// BridgesByPeer (federation→service migration, Phase 1).
 	BindingsByOperator collections.KeySet[collections.Triple[string, string, string]]
 
-	IdentityLinksByRemote collections.Map[collections.Pair[string, string], string]
-	IdentityLinkCount     collections.Map[string, uint32]
-	UnverifiedLinkExp     collections.KeySet[collections.Triple[int64, string, string]]
+	// IdentityLinksByRemote resolves a remote identity to the local address
+	// whose link to it is VERIFIED. Unverified claims live only in
+	// IdentityClaimsByRemote, which several local addresses may share for
+	// one remote identity until one of them verifies.
+	IdentityLinksByRemote  collections.Map[collections.Pair[string, string], string]
+	IdentityClaimsByRemote collections.KeySet[collections.Triple[string, string, string]]
+	IdentityLinkCount      collections.Map[string, uint32]
+	UnverifiedLinkExp      collections.KeySet[collections.Triple[int64, string, string]]
+
+	// IdentityLinksByAttester (operator, peer_id, local_address) indexes
+	// the VERIFIED links each bridge operator attested, so the links can be
+	// returned to UNVERIFIED when the operator is slashed. Rebuilt from the
+	// links at InitGenesis. AttesterRevocations (operator, peer_id) queues
+	// that work for the EndBlocker (exported in genesis).
+	IdentityLinksByAttester collections.KeySet[collections.Triple[string, string, string]]
+	AttesterRevocations     collections.KeySet[collections.Pair[string, string]]
+
+	// Pending identity challenge indexes, maintained only through
+	// setPendingChallenge / removePendingChallenge.
+	PendingIdChallengeExp     collections.KeySet[collections.Triple[int64, string, string]]
+	PendingIdChallengesByPeer collections.KeySet[collections.Pair[string, string]]
+	PendingIdChallengeCount   collections.Map[string, uint64]
 
 	AttestationExp collections.KeySet[collections.Triple[int64, string, string]]
+	// RepAttestationsByPeer is (peer_id, local_address) for every
+	// RepAttestations entry; maintained by setRepAttestation /
+	// removeRepAttestation and rebuilt at InitGenesis.
+	RepAttestationsByPeer collections.KeySet[collections.Pair[string, string]]
 
 	VerificationWindow collections.KeySet[collections.Pair[int64, uint64]]
 	ChallengeWindow    collections.KeySet[collections.Pair[int64, uint64]]
@@ -133,6 +163,14 @@ type Keeper struct {
 	ArbiterHashCounts      collections.Map[collections.Pair[uint64, string], uint32]
 	ArbiterResolutionQueue collections.KeySet[collections.Pair[int64, uint64]]
 	ArbiterEscalationQueue collections.KeySet[collections.Pair[int64, uint64]]
+	// PendingChallengeReports indexes VerificationRecords whose
+	// pending_challenge_report is set; rebuilt from the records at
+	// InitGenesis.
+	PendingChallengeReports collections.KeySet[uint64]
+	// SettlementRetryQueue orders VerificationRecords whose EndBlocker
+	// settlement failed by (settlement_retry_at, content_id); rebuilt from
+	// the records at InitGenesis (FED-29).
+	SettlementRetryQueue collections.KeySet[collections.Pair[int64, uint64]]
 
 	// EscalatedChallenges tracks Phase 2 (jury) lifecycle for
 	// challenges escalated past their auto-resolve window. Keyed by
@@ -246,14 +284,28 @@ func NewKeeper(
 		IdentityLinksByRemote: collections.NewMap(sb, types.IdentityLinksByRemoteKey, "identityLinksByRemote",
 			collections.PairKeyCodec(collections.StringKey, collections.StringKey),
 			collections.StringValue),
+		IdentityClaimsByRemote: collections.NewKeySet(sb, types.IdentityClaimsByRemoteKey, "identityClaimsByRemote",
+			collections.TripleKeyCodec(collections.StringKey, collections.StringKey, collections.StringKey)),
 		IdentityLinkCount: collections.NewMap(sb, types.IdentityLinkCountKey, "identityLinkCount",
 			collections.StringKey, collections.Uint32Value),
 		UnverifiedLinkExp: collections.NewKeySet(sb, types.UnverifiedLinkExpKey, "unverifiedLinkExp",
 			collections.TripleKeyCodec(collections.Int64Key, collections.StringKey, collections.StringKey)),
+		IdentityLinksByAttester: collections.NewKeySet(sb, types.IdentityLinksByAttesterKey, "identityLinksByAttester",
+			collections.TripleKeyCodec(collections.StringKey, collections.StringKey, collections.StringKey)),
+		AttesterRevocations: collections.NewKeySet(sb, types.AttesterRevocationsKey, "attesterRevocations",
+			collections.PairKeyCodec(collections.StringKey, collections.StringKey)),
+		PendingIdChallengeExp: collections.NewKeySet(sb, types.PendingIdChallengeExpKey, "pendingIdChallengeExp",
+			collections.TripleKeyCodec(collections.Int64Key, collections.StringKey, collections.StringKey)),
+		PendingIdChallengesByPeer: collections.NewKeySet(sb, types.PendingIdChallengesByPeerKey, "pendingIdChallengesByPeer",
+			collections.PairKeyCodec(collections.StringKey, collections.StringKey)),
+		PendingIdChallengeCount: collections.NewMap(sb, types.PendingIdChallengeCountKey, "pendingIdChallengeCount",
+			collections.StringKey, collections.Uint64Value),
 
 		// Attestation expiration
 		AttestationExp: collections.NewKeySet(sb, types.AttestationExpKey, "attestationExp",
 			collections.TripleKeyCodec(collections.Int64Key, collections.StringKey, collections.StringKey)),
+		RepAttestationsByPeer: collections.NewKeySet(sb, types.RepAttestationsByPeerKey, "repAttestationsByPeer",
+			collections.PairKeyCodec(collections.StringKey, collections.StringKey)),
 
 		// Verification/challenge windows
 		VerificationWindow: collections.NewKeySet(sb, types.VerificationWindowKey, "verificationWindow",
@@ -268,6 +320,10 @@ func NewKeeper(
 		ArbiterResolutionQueue: collections.NewKeySet(sb, types.ArbiterResolutionQueueKey, "arbiterResolutionQueue",
 			collections.PairKeyCodec(collections.Int64Key, collections.Uint64Key)),
 		ArbiterEscalationQueue: collections.NewKeySet(sb, types.ArbiterEscalationQueueKey, "arbiterEscalationQueue",
+			collections.PairKeyCodec(collections.Int64Key, collections.Uint64Key)),
+		PendingChallengeReports: collections.NewKeySet(sb, types.PendingChallengeReportsKey, "pendingChallengeReports",
+			collections.Uint64Key),
+		SettlementRetryQueue: collections.NewKeySet(sb, types.SettlementRetryQueueKey, "settlementRetryQueue",
 			collections.PairKeyCodec(collections.Int64Key, collections.Uint64Key)),
 
 		// Phase 2 (jury) escalation lifecycle.

@@ -33,9 +33,36 @@ func TestGenerateGenesisState(t *testing.T) {
 	require.NoError(t, encCfg.Codec.UnmarshalJSON(raw, &genesis))
 
 	require.Equal(t, types.DefaultParams(), genesis.Params)
-	require.Len(t, genesis.PolicyPermissionsMap, 2)
-	require.Equal(t, "0", genesis.PolicyPermissionsMap[0].PolicyAddress)
-	require.Equal(t, "1", genesis.PolicyPermissionsMap[1].PolicyAddress)
+	require.NoError(t, genesis.Validate())
+	// Three accounts seat only the founder (two are always left unseated);
+	// no group is imported, so InitGenesis bootstraps the councils around it.
+	require.Len(t, genesis.FoundingMembers, 1)
+	require.True(t, genesis.FoundingMembers[0].Founder)
+	require.Empty(t, genesis.GroupMap)
+	require.Empty(t, genesis.CouncilMembers)
+
+	// With enough accounts five founders are seated and every staffed
+	// committee gets two to five members, all of them founders.
+	simState.Accounts = simtypes.RandomAccounts(rand.New(rand.NewSource(2)), 20)
+	simState.GenState = make(map[string]json.RawMessage)
+	commons.AppModule{}.GenerateGenesisState(simState)
+	genesis = types.GenesisState{}
+	require.NoError(t, encCfg.Codec.UnmarshalJSON(simState.GenState[types.ModuleName], &genesis))
+	require.NoError(t, genesis.Validate())
+	require.Len(t, genesis.FoundingMembers, 5)
+	founders := map[string]bool{}
+	for _, m := range genesis.FoundingMembers {
+		founders[m.Address] = true
+	}
+	require.Len(t, genesis.CouncilMembers, len(commons.SimCommitteeNames))
+	for _, cm := range genesis.CouncilMembers {
+		// the founder is seated by the bootstrap, so 1-4 extra rows
+		require.NotEmpty(t, cm.Members)
+		require.LessOrEqual(t, len(cm.Members), 4)
+		for _, m := range cm.Members {
+			require.True(t, founders[m.Address], "committee seat for a non-founder")
+		}
+	}
 }
 
 func TestWeightedOperations(t *testing.T) {
@@ -47,11 +74,11 @@ func TestWeightedOperations(t *testing.T) {
 		TxConfig:  encCfg.TxConfig,
 	}
 	ops := am.WeightedOperations(simState)
-	// 14 operations after M10 (RecurringSpend migration). The 4
-	// recurring-spend simulations were removed because they reached
-	// into the deleted parallel storage; coverage moves to M11 e2e
-	// scripts.
-	require.Len(t, ops, 14)
+	// 14 operations after M10 (RecurringSpend migration; the 4
+	// recurring-spend simulations were removed because they reached into
+	// the deleted parallel storage, coverage moved to M11 e2e scripts),
+	// plus the 4 poll messages.
+	require.Len(t, ops, 18)
 }
 
 func TestProposalMsgs(t *testing.T) {

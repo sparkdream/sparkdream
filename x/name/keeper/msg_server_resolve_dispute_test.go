@@ -77,23 +77,23 @@ func TestResolveDispute(t *testing.T) {
 				f.mockRep.Reset()
 				f.mockCommons.Reset()
 				// Setup name owned by someone
-				f.keeper.SetName(f.ctx, types.NameRecord{Name: name, Owner: owner})
-				f.keeper.OwnerNames.Set(f.ctx, collections.Join(owner, name))
+				require.NoError(t, f.keeper.SetName(f.ctx, types.NameRecord{Name: name, Owner: owner}))
+				require.NoError(t, f.keeper.OwnerNames.Set(f.ctx, collections.Join(owner, name)))
 				// Create active uncontested dispute
-				f.keeper.SetDispute(f.ctx, types.Dispute{
+				require.NoError(t, f.keeper.SetDispute(f.ctx, types.Dispute{
 					Name:        name,
 					Claimant:    claimant,
 					FiledAt:     100,
 					StakeAmount: math.NewInt(50),
 					Active:      true,
-				})
+				}))
 				// Create dispute stake record
 				challengeID := fmt.Sprintf("name_dispute:%s:%d", name, 100)
-				f.keeper.DisputeStakes.Set(f.ctx, challengeID, types.DisputeStake{
+				require.NoError(t, f.keeper.DisputeStakes.Set(f.ctx, challengeID, types.DisputeStake{
 					ChallengeId: challengeID,
 					Staker:      claimant,
 					Amount:      math.NewInt(50),
-				})
+				}))
 			},
 			expectPass: true,
 			check: func(t *testing.T, ctx sdk.Context) {
@@ -122,21 +122,21 @@ func TestResolveDispute(t *testing.T) {
 			setup: func() {
 				f.mockRep.Reset()
 				f.mockCommons.Reset()
-				f.keeper.SetName(f.ctx, types.NameRecord{Name: "bob", Owner: owner})
-				f.keeper.OwnerNames.Set(f.ctx, collections.Join(owner, "bob"))
-				f.keeper.SetDispute(f.ctx, types.Dispute{
+				require.NoError(t, f.keeper.SetName(f.ctx, types.NameRecord{Name: "bob", Owner: owner}))
+				require.NoError(t, f.keeper.OwnerNames.Set(f.ctx, collections.Join(owner, "bob")))
+				require.NoError(t, f.keeper.SetDispute(f.ctx, types.Dispute{
 					Name:        "bob",
 					Claimant:    claimant,
 					FiledAt:     100,
 					StakeAmount: math.NewInt(50),
 					Active:      true,
-				})
+				}))
 				challengeID := fmt.Sprintf("name_dispute:%s:%d", "bob", 100)
-				f.keeper.DisputeStakes.Set(f.ctx, challengeID, types.DisputeStake{
+				require.NoError(t, f.keeper.DisputeStakes.Set(f.ctx, challengeID, types.DisputeStake{
 					ChallengeId: challengeID,
 					Staker:      claimant,
 					Amount:      math.NewInt(50),
-				})
+				}))
 			},
 			expectPass: true,
 			check: func(t *testing.T, ctx sdk.Context) {
@@ -160,10 +160,10 @@ func TestResolveDispute(t *testing.T) {
 			setup: func() {
 				f.mockRep.Reset()
 				f.mockCommons.Reset()
-				f.keeper.SetName(f.ctx, types.NameRecord{Name: "charlie", Owner: owner})
-				f.keeper.OwnerNames.Set(f.ctx, collections.Join(owner, "charlie"))
+				require.NoError(t, f.keeper.SetName(f.ctx, types.NameRecord{Name: "charlie", Owner: owner}))
+				require.NoError(t, f.keeper.OwnerNames.Set(f.ctx, collections.Join(owner, "charlie")))
 				contestChallengeID := "name_contest:charlie:200"
-				f.keeper.SetDispute(f.ctx, types.Dispute{
+				require.NoError(t, f.keeper.SetDispute(f.ctx, types.Dispute{
 					Name:               "charlie",
 					Claimant:           claimant,
 					FiledAt:            100,
@@ -171,19 +171,19 @@ func TestResolveDispute(t *testing.T) {
 					Active:             true,
 					ContestChallengeId: contestChallengeID,
 					ContestedAt:        200,
-				})
+				}))
 				// Create both stake records
 				challengeID := fmt.Sprintf("name_dispute:%s:%d", "charlie", 100)
-				f.keeper.DisputeStakes.Set(f.ctx, challengeID, types.DisputeStake{
+				require.NoError(t, f.keeper.DisputeStakes.Set(f.ctx, challengeID, types.DisputeStake{
 					ChallengeId: challengeID,
 					Staker:      claimant,
 					Amount:      math.NewInt(50),
-				})
-				f.keeper.ContestStakes.Set(f.ctx, contestChallengeID, types.ContestStake{
+				}))
+				require.NoError(t, f.keeper.ContestStakes.Set(f.ctx, contestChallengeID, types.ContestStake{
 					ChallengeId: contestChallengeID,
 					Owner:       owner,
 					Amount:      math.NewInt(100),
-				})
+				}))
 			},
 			expectPass: true,
 			check: func(t *testing.T, ctx sdk.Context) {
@@ -209,10 +209,10 @@ func TestResolveDispute(t *testing.T) {
 			setup: func() {
 				f.mockRep.Reset()
 				f.mockCommons.Reset()
-				f.keeper.SetName(f.ctx, types.NameRecord{Name: "dave", Owner: owner})
-				f.keeper.OwnerNames.Set(f.ctx, collections.Join(owner, "dave"))
+				require.NoError(t, f.keeper.SetName(f.ctx, types.NameRecord{Name: "dave", Owner: owner}))
+				require.NoError(t, f.keeper.OwnerNames.Set(f.ctx, collections.Join(owner, "dave")))
 				contestChallengeID := "name_contest:dave:200"
-				f.keeper.SetDispute(f.ctx, types.Dispute{
+				require.NoError(t, f.keeper.SetDispute(f.ctx, types.Dispute{
 					Name:               "dave",
 					Claimant:           claimant,
 					FiledAt:            100,
@@ -220,18 +220,18 @@ func TestResolveDispute(t *testing.T) {
 					Active:             true,
 					ContestChallengeId: contestChallengeID,
 					ContestedAt:        200,
-				})
+				}))
 				challengeID := fmt.Sprintf("name_dispute:%s:%d", "dave", 100)
-				f.keeper.DisputeStakes.Set(f.ctx, challengeID, types.DisputeStake{
+				require.NoError(t, f.keeper.DisputeStakes.Set(f.ctx, challengeID, types.DisputeStake{
 					ChallengeId: challengeID,
 					Staker:      claimant,
 					Amount:      math.NewInt(50),
-				})
-				f.keeper.ContestStakes.Set(f.ctx, contestChallengeID, types.ContestStake{
+				}))
+				require.NoError(t, f.keeper.ContestStakes.Set(f.ctx, contestChallengeID, types.ContestStake{
 					ChallengeId: contestChallengeID,
 					Owner:       owner,
 					Amount:      math.NewInt(100),
-				})
+				}))
 			},
 			expectPass: true,
 			check: func(t *testing.T, ctx sdk.Context) {
@@ -260,21 +260,21 @@ func TestResolveDispute(t *testing.T) {
 				f.mockCommons.Groups["Commons Council"] = commonstypes.Group{
 					PolicyAddress: f.councilAddr,
 				}
-				f.keeper.SetName(f.ctx, types.NameRecord{Name: "eve", Owner: owner})
-				f.keeper.OwnerNames.Set(f.ctx, collections.Join(owner, "eve"))
-				f.keeper.SetDispute(f.ctx, types.Dispute{
+				require.NoError(t, f.keeper.SetName(f.ctx, types.NameRecord{Name: "eve", Owner: owner}))
+				require.NoError(t, f.keeper.OwnerNames.Set(f.ctx, collections.Join(owner, "eve")))
+				require.NoError(t, f.keeper.SetDispute(f.ctx, types.Dispute{
 					Name:        "eve",
 					Claimant:    claimant,
 					FiledAt:     100,
 					StakeAmount: math.NewInt(50),
 					Active:      true,
-				})
+				}))
 				challengeID := fmt.Sprintf("name_dispute:%s:%d", "eve", 100)
-				f.keeper.DisputeStakes.Set(f.ctx, challengeID, types.DisputeStake{
+				require.NoError(t, f.keeper.DisputeStakes.Set(f.ctx, challengeID, types.DisputeStake{
 					ChallengeId: challengeID,
 					Staker:      claimant,
 					Amount:      math.NewInt(50),
-				})
+				}))
 			},
 			expectPass: true,
 		},
@@ -288,12 +288,12 @@ func TestResolveDispute(t *testing.T) {
 			setup: func() {
 				f.mockRep.Reset()
 				f.mockCommons.Reset()
-				f.keeper.SetDispute(f.ctx, types.Dispute{
+				require.NoError(t, f.keeper.SetDispute(f.ctx, types.Dispute{
 					Name:        "frank",
 					Claimant:    claimant,
 					Active:      false,
 					StakeAmount: math.NewInt(50),
-				})
+				}))
 			},
 			expectPass: false,
 			expectErr:  "not active",
@@ -303,7 +303,10 @@ func TestResolveDispute(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.desc, func(t *testing.T) {
 			tc.setup()
-			cacheCtx, _ := f.ctx.CacheContext()
+			// The claimant is still an active member, and the owner's
+			// contest window (filed_at + dispute_timeout_blocks) has closed.
+			f.mockRep.ActiveMembers[claimant] = true
+			cacheCtx, _ := f.ctx.WithBlockHeight(200000).CacheContext()
 
 			_, err := ms.ResolveDispute(cacheCtx, tc.msg)
 
@@ -328,12 +331,12 @@ func TestResolveDispute_UnauthorizedSenders(t *testing.T) {
 
 	randomAddr := sdk.AccAddress([]byte("random_address______")).String()
 
-	f.keeper.SetDispute(f.ctx, types.Dispute{
+	require.NoError(t, f.keeper.SetDispute(f.ctx, types.Dispute{
 		Name:        "test",
 		Claimant:    "claimant",
 		Active:      true,
 		StakeAmount: math.NewInt(50),
-	})
+	}))
 
 	_, err := ms.ResolveDispute(f.ctx, &types.MsgResolveDispute{
 		Authority:        randomAddr,

@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"cosmossdk.io/collections"
+	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	"sparkdream/x/collect/types"
@@ -25,7 +26,10 @@ func (k Keeper) EnqueueMemberForPromotion(ctx context.Context, addr string) erro
 // IsMemberQueuedForPromotion reports whether `addr` is currently in the
 // promotion queue. Exposed for tests.
 func (k Keeper) IsMemberQueuedForPromotion(ctx context.Context, addr string) bool {
-	has, _ := k.PromotionQueue.Has(ctx, addr)
+	has, getErr := k.PromotionQueue.Has(ctx, addr)
+	if getErr != nil {
+		sdk.UnwrapSDKContext(ctx).Logger().Error("Has failed", "err", getErr)
+	}
 	return has
 }
 
@@ -49,10 +53,12 @@ func (k Keeper) drainPromotionQueue(ctx context.Context, budget int) int {
 
 	// Snapshot queue keys so we can safely mutate the map mid-walk.
 	var addrs []string
-	_ = k.PromotionQueue.Walk(ctx, nil, func(addr string, _ int64) (bool, error) {
+	if err := k.PromotionQueue.Walk(ctx, nil, func(addr string, _ int64) (bool, error) {
 		addrs = append(addrs, addr)
 		return false, nil
-	})
+	}); err != nil {
+		sdk.UnwrapSDKContext(ctx).Logger().Error("drainPromotionQueue: PromotionQueue.Walk failed", "err", err)
+	}
 
 	done := 0
 	for _, addr := range addrs {
@@ -61,7 +67,9 @@ func (k Keeper) drainPromotionQueue(ctx context.Context, budget int) int {
 		}
 		drained := k.drainPromotionForAddress(ctx, sdkCtx, addr, &done, budget)
 		if drained {
-			_ = k.PromotionQueue.Remove(ctx, addr)
+			if err := k.PromotionQueue.Remove(ctx, addr); err != nil {
+				sdk.UnwrapSDKContext(ctx).Logger().Error("drainPromotionQueue: PromotionQueue.Remove failed", "err", err)
+			}
 		}
 	}
 	return done
@@ -101,10 +109,12 @@ func (k Keeper) releaseCollabStakesForNewMember(
 	// Snapshot (addr, collectionID) entries so we don't mutate while walking.
 	var collectionIDs []uint64
 	rng := collections.NewPrefixedPairRange[string, uint64](addr)
-	_ = k.CollaboratorReverse.Walk(ctx, rng, func(key collections.Pair[string, uint64]) (bool, error) {
+	if err := k.CollaboratorReverse.Walk(ctx, rng, func(key collections.Pair[string, uint64]) (bool, error) {
 		collectionIDs = append(collectionIDs, key.K2())
 		return false, nil
-	})
+	}); err != nil {
+		sdk.UnwrapSDKContext(sdkCtx).Logger().Error("releaseCollabStakesForNewMember: CollaboratorReverse.Walk failed", "err", err)
+	}
 
 	for _, collID := range collectionIDs {
 		if *done >= budget {
@@ -144,7 +154,7 @@ func (k Keeper) releaseOneCollabStake(
 	}
 
 	stake := collab.DreamStake
-	if unlockErr := k.repKeeper.UnlockDREAM(ctx, inviterAddr, stake); unlockErr != nil {
+	if unlockErr := k.late.repKeeper.UnlockDREAM(ctx, inviterAddr, stake); unlockErr != nil {
 		sdkCtx.Logger().Error("failed to unlock inviter DREAM on member admission",
 			"collection_id", collID, "inviter", collab.Inviter, "address", addr, "error", unlockErr)
 		// Don't advance bookkeeping — leave the record so retry / manual
@@ -167,7 +177,9 @@ func (k Keeper) releaseOneCollabStake(
 	if coll, getErr := k.Collection.Get(ctx, collID); getErr == nil {
 		if coll.NonMemberCollaboratorCount > 0 {
 			coll.NonMemberCollaboratorCount--
-			_ = k.Collection.Set(ctx, collID, coll)
+			if err := k.Collection.Set(ctx, collID, coll); err != nil {
+				sdk.UnwrapSDKContext(sdkCtx).Logger().Error("releaseOneCollabStake: Collection.Set failed", "err", err)
+			}
 		}
 	}
 
@@ -195,10 +207,12 @@ func (k Keeper) promoteOwnedEphemerals(
 ) bool {
 	var collectionIDs []uint64
 	rng := collections.NewPrefixedPairRange[string, uint64](addr)
-	_ = k.CollectionsByOwner.Walk(ctx, rng, func(key collections.Pair[string, uint64]) (bool, error) {
+	if err := k.CollectionsByOwner.Walk(ctx, rng, func(key collections.Pair[string, uint64]) (bool, error) {
 		collectionIDs = append(collectionIDs, key.K2())
 		return false, nil
-	})
+	}); err != nil {
+		sdk.UnwrapSDKContext(sdkCtx).Logger().Error("promoteOwnedEphemerals: CollectionsByOwner.Walk failed", "err", err)
+	}
 
 	for _, collID := range collectionIDs {
 		if *done >= budget {
@@ -226,7 +240,9 @@ func (k Keeper) promoteOneOwnedEphemeral(
 	}
 	if coll.Owner != addr {
 		// Stale index entry — drop it.
-		_ = k.CollectionsByOwner.Remove(ctx, collections.Join(addr, collID))
+		if err := k.CollectionsByOwner.Remove(ctx, collections.Join(addr, collID)); err != nil {
+			sdk.UnwrapSDKContext(sdkCtx).Logger().Error("promoteOneOwnedEphemeral: CollectionsByOwner.Remove failed", "err", err)
+		}
 		return
 	}
 	// Already permanent → nothing to do; this is the lazy idempotent path.
@@ -237,11 +253,6 @@ func (k Keeper) promoteOneOwnedEphemeral(
 	// accidentally rehabilitate a hidden collection by flipping it to
 	// permanent.
 	if coll.Status == types.CollectionStatus_COLLECTION_STATUS_HIDDEN {
-		return
-	}
-
-	params, paramsErr := k.Params.Get(ctx)
-	if paramsErr != nil {
 		return
 	}
 
@@ -283,15 +294,19 @@ func (k Keeper) promoteOneOwnedEphemeral(
 	}
 
 	// CollectionsByExpiry index — remove the entry now that TTL is cleared.
-	_ = k.CollectionsByExpiry.Remove(ctx, collections.Join(oldExpiresAt, collID))
+	if err := k.CollectionsByExpiry.Remove(ctx, collections.Join(oldExpiresAt, collID)); err != nil {
+		sdk.UnwrapSDKContext(sdkCtx).Logger().Error("promoteOneOwnedEphemeral: CollectionsByExpiry.Remove failed", "err", err)
+	}
 
 	// CollectionsByStatus index — if we just transitioned PENDING→ACTIVE,
 	// swap the index entry.
 	if wasPending {
 		// A pending collection is never pinned, so rank is unchanged (false).
-		_ = k.MoveCollectionStatusIndex(ctx,
+		if err := k.MoveCollectionStatusIndex(ctx,
 			types.CollectionStatus_COLLECTION_STATUS_PENDING, false,
-			types.CollectionStatus_COLLECTION_STATUS_ACTIVE, false, collID)
+			types.CollectionStatus_COLLECTION_STATUS_ACTIVE, false, collID); err != nil {
+			sdk.UnwrapSDKContext(sdkCtx).Logger().Error("promoteOneOwnedEphemeral: k.MoveCollectionStatusIndex failed", "err", err)
+		}
 	}
 
 	// PENDING-specific cleanup: refund the endorsement creation fee (the
@@ -299,15 +314,20 @@ func (k Keeper) promoteOneOwnedEphemeral(
 	// EndorsementPending index.
 	if wasPending {
 		ownerAddr, ownerErr := k.addressCodec.StringToBytes(addr)
-		if ownerErr == nil && k.chargesDeposits(coll) && params.EndorsementCreationFee.IsPositive() {
-			if refundErr := k.RefundSPARK(ctx, ownerAddr, params.EndorsementCreationFee); refundErr != nil {
+		if fee := escrowedEndorsementFee(coll); ownerErr == nil && k.chargesDeposits(coll) && fee.IsPositive() {
+			if refundErr := k.RefundSPARK(ctx, ownerAddr, fee); refundErr != nil {
 				sdkCtx.Logger().Error("failed to refund endorsement creation fee on auto-promotion",
 					"collection_id", collID, "owner", addr, "error", refundErr)
 			}
 		}
-		// Compute the pending key directly using CreatedAt + expiry blocks.
-		expiryBlock := coll.CreatedAt + params.EndorsementExpiryBlocks
-		_ = k.EndorsementPending.Remove(ctx, collections.Join(expiryBlock, collID))
+		// Remove the pending entry by the deadline stored at creation, and
+		// persist the settled fee and cleared deadline.
+		k.clearEndorsementPending(ctx, &coll, true)
+		coll.EndorsementFeeEscrowed = math.ZeroInt()
+		if setErr := k.Collection.Set(ctx, collID, coll); setErr != nil {
+			sdkCtx.Logger().Error("failed to persist settled endorsement fee on auto-promotion",
+				"collection_id", collID, "error", setErr)
+		}
 	}
 
 	// Endorsed collections: release the endorser's locked stake. The
@@ -317,14 +337,18 @@ func (k Keeper) promoteOneOwnedEphemeral(
 		if endorsement, endErr := k.Endorsement.Get(ctx, collID); endErr == nil && !endorsement.StakeReleased {
 			endorserAddr, addrErr := k.addressCodec.StringToBytes(endorsement.Endorser)
 			if addrErr == nil && endorsement.DreamStake.IsPositive() {
-				if unlockErr := k.repKeeper.UnlockDREAM(ctx, endorserAddr, endorsement.DreamStake); unlockErr != nil {
+				if unlockErr := k.late.repKeeper.UnlockDREAM(ctx, endorserAddr, endorsement.DreamStake); unlockErr != nil {
 					sdkCtx.Logger().Error("failed to unlock endorser DREAM on auto-promotion",
 						"collection_id", collID, "endorser", endorsement.Endorser, "error", unlockErr)
 				}
 			}
 			endorsement.StakeReleased = true
-			_ = k.Endorsement.Set(ctx, collID, endorsement)
-			_ = k.EndorsementStakeExpiry.Remove(ctx, collections.Join(endorsement.StakeReleaseAt, collID))
+			if err := k.Endorsement.Set(ctx, collID, endorsement); err != nil {
+				sdk.UnwrapSDKContext(sdkCtx).Logger().Error("promoteOneOwnedEphemeral: Endorsement.Set failed", "err", err)
+			}
+			if err := k.EndorsementStakeExpiry.Remove(ctx, collections.Join(endorsement.StakeReleaseAt, collID)); err != nil {
+				sdk.UnwrapSDKContext(sdkCtx).Logger().Error("promoteOneOwnedEphemeral: EndorsementStakeExpiry.Remove failed", "err", err)
+			}
 		}
 	}
 

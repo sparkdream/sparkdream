@@ -1,82 +1,115 @@
 package simulation
 
 import (
-	"math/rand"
+	"fmt"
 
 	"cosmossdk.io/math"
-	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
-	"github.com/cosmos/cosmos-sdk/x/simulation"
 
 	"sparkdream/x/futarchy/keeper"
 	"sparkdream/x/futarchy/types"
 	reptypes "sparkdream/x/rep/types"
 )
 
+// simQuestions are the questions simulated markets ask.
+var simQuestions = []string{
+	"Will the phoenix initiative ship this season?",
+	"Will aurora reach its staking target?",
+	"Will the zenith project pass review?",
+	"Will the nebula guild double its members?",
+}
+
+// buildMarket builds a MsgCreateMarket from acc: liquidity between
+// min_liquidity and a fifth of its SPARK (at most 100x min_liquidity), and
+// an end block 5 to 40 blocks out, so a 200-block run trades, resolves and
+// redeems it. The liquidity is the SPARK the handler takes. ok is false
+// when acc cannot fund one.
+func (e *simEnv) buildMarket(acc simtypes.Account) (*types.MsgCreateMarket, math.Int, bool) {
+	minLiq := e.params.MinLiquidity
+	if minLiq.IsNil() || !minLiq.IsPositive() {
+		minLiq = math.OneInt()
+	}
+	hi := math.MinInt(e.spendable(acc).QuoRaw(5), minLiq.MulRaw(100))
+	if hi.LT(minLiq) {
+		return nil, math.ZeroInt(), false
+	}
+	liquidity := minLiq
+	if span := hi.Sub(minLiq); span.IsPositive() {
+		if extra, err := simtypes.RandPositiveInt(e.r, span); err == nil {
+			liquidity = liquidity.Add(extra)
+		}
+	}
+	duration := min(5+e.r.Int63n(36), max(e.params.MaxDuration, 1))
+	question, _ := pick(e.r, simQuestions)
+	return &types.MsgCreateMarket{
+		Creator:          acc.Address.String(),
+		Symbol:           fmt.Sprintf("SIM%d", e.ctx.BlockHeight()*100+e.r.Int63n(100)),
+		InitialLiquidity: &liquidity,
+		Question:         question,
+		EndBlock:         e.ctx.BlockHeight() + duration,
+	}, liquidity, true
+}
+
+// creators returns the live sim accounts the create handler accepts:
+// active x/rep members at ESTABLISHED trust or above.
+func (e *simEnv) creators() []simtypes.Account {
+	return e.live(func(a simtypes.Account) bool {
+		return e.activeMember(a.Address.String(), reptypes.TrustLevel_TRUST_LEVEL_ESTABLISHED)
+	})
+}
+
+// createMarket has a random eligible member create a market (dry-run
+// first). ok is false when none could.
+func (e *simEnv) createMarket() (simtypes.OperationMsg, bool, string, error) {
+	reason := "no live ESTABLISHED+ member"
+	for _, acc := range e.shuffled(e.creators(), 3) {
+		msg, liquidity, ok := e.buildMarket(acc)
+		if !ok {
+			reason = "no ESTABLISHED+ member can fund min_liquidity"
+			continue
+		}
+		spent := e.sparkCoins(liquidity)
+		if why := e.usable(acc, spent); why != "" {
+			reason = why
+			continue
+		}
+		if err := e.dryRun(msg); err != nil {
+			reason = "handler would reject: " + err.Error()
+			continue
+		}
+		opMsg, _, err := e.deliver(acc, msg, spent)
+		return opMsg, err == nil && opMsg.OK, "", err
+	}
+	return simtypes.OperationMsg{}, false, reason, nil
+}
+
+// shuffled returns up to n accounts of accs in random order.
+func (e *simEnv) shuffled(accs []simtypes.Account, n int) []simtypes.Account {
+	out := make([]simtypes.Account, 0, n)
+	for _, i := range e.r.Perm(len(accs)) {
+		if len(out) == n {
+			break
+		}
+		out = append(out, accs[i])
+	}
+	return out
+}
+
+// SimulateMsgCreateMarket has an ESTABLISHED+ member open a market with
+// SPARK liquidity (the handler's CoinsSpentInMsg).
 func SimulateMsgCreateMarket(
 	ak types.AuthKeeper,
 	bk types.BankKeeper,
 	k keeper.Keeper,
 	txGen client.TxConfig,
 ) simtypes.Operation {
-	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
-	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		simAccount, _ := simtypes.RandomAcc(r, accs)
-
-		// Skip if sim account lacks ESTABLISHED+ trust (msg_server enforces this).
-		if rk := k.GetRepKeeper(); rk != nil {
-			trustLevel, err := rk.GetTrustLevel(ctx, simAccount.Address)
-			if err != nil || trustLevel < reptypes.TrustLevel_TRUST_LEVEL_ESTABLISHED {
-				return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgCreateMarket{}), "Account lacks ESTABLISHED trust"), nil, nil
-			}
+	label := &types.MsgCreateMarket{}
+	return operation(ak, bk, k, txGen, label, func(e *simEnv) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
+		opMsg, ok, reason, err := e.createMarket()
+		if err != nil || ok {
+			return opMsg, nil, err
 		}
-
-		// 1. Check for spendable uspark coins (market creation uses uspark specifically)
-		spendable := bk.SpendableCoins(ctx, simAccount.Address)
-		usparkBalance := spendable.AmountOf(sdk.DefaultBondDenom)
-		if usparkBalance.IsZero() {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgCreateMarket{}), "No uspark balance"), nil, nil
-		}
-
-		// 2. Ensure enough balance for liquidity + fees
-		// Minimum liquidity required is 100000, need at least 3x for fees buffer
-		minLiquidity := math.NewInt(100000)
-		minBalance := minLiquidity.MulRaw(3) // Need 3x min liquidity to have buffer for fees
-		if usparkBalance.LT(minBalance) {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgCreateMarket{}), "Balance too low for market creation"), nil, nil
-		}
-		// Use 10% of available balance for liquidity, leaving 90% for fees
-		// This is more conservative to avoid fee calculation issues
-		amount := usparkBalance.QuoRaw(10)
-		if amount.LT(minLiquidity) {
-			amount = minLiquidity
-		}
-		liquidity := sdk.NewCoin(sdk.DefaultBondDenom, amount)
-
-		msg := &types.MsgCreateMarket{
-			Creator:          simAccount.Address.String(),
-			Symbol:           simtypes.RandStringOfLength(r, 5),
-			Question:         simtypes.RandStringOfLength(r, 20),
-			InitialLiquidity: &liquidity.Amount,
-			EndBlock:         ctx.BlockHeight() + int64(r.Intn(100)+10), // At least 10 blocks in future
-		}
-
-		opMsg := simulation.OperationInput{
-			R:               r,
-			App:             app,
-			TxGen:           txGen,
-			Cdc:             nil,
-			Msg:             msg,
-			CoinsSpentInMsg: sdk.NewCoins(liquidity),
-			Context:         ctx,
-			SimAccount:      simAccount,
-			AccountKeeper:   ak,
-			Bankkeeper:      bk,
-			ModuleName:      types.ModuleName,
-		}
-
-		return simulation.GenAndDeliverTxWithRandFees(opMsg)
-	}
+		return noOp(label, reason)
+	})
 }

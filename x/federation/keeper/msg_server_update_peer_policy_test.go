@@ -47,3 +47,21 @@ func TestUpdatePeerPolicy(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "unknown")
 }
+
+// A REMOVED peer's policy cannot be rewritten: the removal cleanup deletes
+// the policy once, so a later write would outlive the peer.
+func TestUpdatePeerPolicyRefusesRemovedPeer(t *testing.T) {
+	f := initFixture(t)
+	ms := keeper.NewMsgServerImpl(f.keeper)
+	registerTestPeer(t, f, ms, "removed-peer")
+	peer, err := f.keeper.Peers.Get(f.ctx, "removed-peer")
+	require.NoError(t, err)
+	peer.Status = types.PeerStatus_PEER_STATUS_REMOVED
+	require.NoError(t, f.keeper.Peers.Set(f.ctx, "removed-peer", peer))
+
+	_, err = ms.UpdatePeerPolicy(f.ctx, &types.MsgUpdatePeerPolicy{
+		Authority: f.authority, PeerId: "removed-peer",
+		Policy: types.PeerPolicy{InboundContentTypes: []string{"blog_post"}},
+	})
+	require.ErrorIs(t, err, types.ErrPeerNotActive)
+}

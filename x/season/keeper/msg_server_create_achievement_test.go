@@ -207,7 +207,7 @@ func TestMsgServerCreateAchievement(t *testing.T) {
 			AchievementId: "existing",
 			Name:          "Existing",
 		}
-		k.Achievement.Set(ctx, "existing", existing)
+		require.NoError(t, k.Achievement.Set(ctx, "existing", existing))
 
 		_, err := ms.CreateAchievement(ctx, &types.MsgCreateAchievement{
 			Authority:     authority,

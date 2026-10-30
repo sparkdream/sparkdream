@@ -123,9 +123,13 @@ func main() {
 
 	// Also save as bytes for embedding in genesis
 	var vkBuf bytes.Buffer
-	vk.WriteTo(&vkBuf)
+	if _, err := vk.WriteTo(&vkBuf); err != nil {
+		fatal("Failed to serialize verifying key: %v", err)
+	}
 	vkHexPath := filepath.Join(*outputDir, "verifying_key.hex")
-	os.WriteFile(vkHexPath, []byte(fmt.Sprintf("%x", vkBuf.Bytes())), 0644)
+	if err := os.WriteFile(vkHexPath, []byte(fmt.Sprintf("%x", vkBuf.Bytes())), 0644); err != nil {
+		fatal("Failed to write %s: %v", vkHexPath, err)
+	}
 	info("Verifying key (hex) saved to %s", vkHexPath)
 	fmt.Println()
 
@@ -264,7 +268,9 @@ func testProofGeneration(
 
 	// Get proof size
 	var proofBuf bytes.Buffer
-	proof.WriteTo(&proofBuf)
+	if _, err := proof.WriteTo(&proofBuf); err != nil {
+		fatal("Failed to serialize proof: %v", err)
+	}
 	info("  Proof size: %s", formatBytes(int64(proofBuf.Len())))
 
 	// Extract public witness

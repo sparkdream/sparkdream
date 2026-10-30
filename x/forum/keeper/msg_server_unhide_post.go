@@ -24,6 +24,9 @@ import (
 //     at any time and regardless of whether a HideRecord exists (gov
 //     hides skip HideRecord creation).
 //
+// Neither path is open while the hide is under appeal (HideRecord.Appealed):
+// the appeal verdict finalizes it.
+//
 // Post author cannot self-unhide — that would defeat moderation.
 //
 // Effects on success:
@@ -82,6 +85,15 @@ func (k msgServer) UnhidePost(ctx context.Context, msg *types.MsgUnhidePost) (*t
 
 	hideRecord, recordErr := k.HideRecord.Get(ctx, msg.PostId)
 	haveRecord := recordErr == nil
+
+	// An appealed hide belongs to the jury: unhiding it here would delete the
+	// record and release the reservation, so the verdict would find no
+	// sentinel to slash or credit. The council resolves it through
+	// MsgResolveGovActionAppeal instead.
+	if haveRecord && hideRecord.Appealed {
+		return nil, errorsmod.Wrap(types.ErrAppealPending,
+			"the hide is under appeal; resolve the appeal instead")
+	}
 
 	isSelfCorrect := false
 	if !isCouncil {
@@ -151,6 +163,7 @@ func (k msgServer) UnhidePost(ctx context.Context, msg *types.MsgUnhidePost) (*t
 			}
 		}
 
+		k.unindexHideExpiry(ctx, msg.PostId, hideRecord)
 		if err := k.HideRecord.Remove(ctx, msg.PostId); err != nil {
 			sdkCtx.Logger().Warn("remove hide record on unhide failed",
 				"post_id", msg.PostId, "error", err)
@@ -166,6 +179,11 @@ func (k msgServer) UnhidePost(ctx context.Context, msg *types.MsgUnhidePost) (*t
 			sdk.NewAttribute("is_self_correct", fmt.Sprintf("%t", isSelfCorrect)),
 		),
 	)
+
+	// Keep the thread's bounty timer in step with its moderation state.
+	if err := k.reconcileThreadBounty(ctx, msg.PostId); err != nil {
+		return nil, errorsmod.Wrap(err, "failed to resume thread bounty")
+	}
 
 	return &types.MsgUnhidePostResponse{}, nil
 }

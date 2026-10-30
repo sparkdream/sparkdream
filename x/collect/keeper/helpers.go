@@ -3,12 +3,15 @@ package keeper
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
+	commontypes "sparkdream/x/common/types"
 	shieldtypes "sparkdream/x/shield/types"
 	"strconv"
 	"strings"
 
 	"cosmossdk.io/collections"
+	errorsmod "cosmossdk.io/errors"
 	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
@@ -71,34 +74,34 @@ func HideRecordTargetCompositeKey(targetType types.FlagTargetType, targetID uint
 
 // canActAs reports whether signer may exercise rights recorded against stored.
 func (k Keeper) canActAs(ctx context.Context, signer, stored string) bool {
-	if k.repKeeper == nil {
+	if k.late.repKeeper == nil {
 		return signer == stored
 	}
-	return k.repKeeper.CanActAs(ctx, signer, stored)
+	return k.late.repKeeper.CanActAs(ctx, signer, stored)
 }
 
 // sameMember reports whether two stored addresses belong to the same member.
 func (k Keeper) sameMember(ctx context.Context, a, b string) bool {
-	if k.repKeeper == nil {
+	if k.late.repKeeper == nil {
 		return a == b
 	}
-	return k.repKeeper.SameMember(ctx, a, b)
+	return k.late.repKeeper.SameMember(ctx, a, b)
 }
 
 // recentAddressesOf is the in-tx alias set (dedup checks).
 func (k Keeper) recentAddressesOf(ctx context.Context, member string) []string {
-	if k.repKeeper == nil {
+	if k.late.repKeeper == nil {
 		return []string{member}
 	}
-	return k.repKeeper.RecentAddressesOf(ctx, member)
+	return k.late.repKeeper.RecentAddressesOf(ctx, member)
 }
 
 // allAddressesOf is the full alias set (list queries only).
 func (k Keeper) allAddressesOf(ctx context.Context, member string) []string {
-	if k.repKeeper == nil {
+	if k.late.repKeeper == nil {
 		return []string{member}
 	}
-	return k.repKeeper.AllAddressesOf(ctx, member)
+	return k.late.repKeeper.AllAddressesOf(ctx, member)
 }
 
 // findCollaborator returns the collaborator record on collectionID that
@@ -174,11 +177,13 @@ func (k Keeper) IsCollaborator(ctx context.Context, collectionID uint64, address
 // an active member, which is a non-critical condition for a slash
 // side-effect (cf. x/reveal's matching pattern). Floored at zero by x/rep.
 func (k Keeper) deductRepPerTag(ctx context.Context, addr sdk.AccAddress, tags []string, amount math.LegacyDec) {
-	if k.repKeeper == nil || amount.IsNil() || !amount.IsPositive() || len(tags) == 0 {
+	if k.late.repKeeper == nil || amount.IsNil() || !amount.IsPositive() || len(tags) == 0 {
 		return
 	}
 	for _, tag := range tags {
-		_ = k.repKeeper.DeductReputation(ctx, addr, tag, amount)
+		if err := k.late.repKeeper.DeductReputation(ctx, addr, tag, amount); err != nil {
+			sdk.UnwrapSDKContext(ctx).Logger().Error("deductRepPerTag: repKeeper.DeductReputation failed", "err", err)
+		}
 	}
 }
 
@@ -194,7 +199,7 @@ func (k Keeper) deductRepPerTag(ctx context.Context, addr sdk.AccAddress, tags [
 // caller resolves the record exactly once, and RestoreAuthorBond is
 // additionally idempotent on the rep side.
 func (k Keeper) restoreAuthorPenalties(ctx context.Context, hr types.HideRecord) (bondRestored, repRestored bool) {
-	if hr.TargetType != types.FlagTargetType_FLAG_TARGET_TYPE_COLLECTION || k.repKeeper == nil {
+	if hr.TargetType != types.FlagTargetType_FLAG_TARGET_TYPE_COLLECTION || k.late.repKeeper == nil {
 		return false, false
 	}
 
@@ -212,7 +217,7 @@ func (k Keeper) restoreAuthorPenalties(ctx context.Context, hr types.HideRecord)
 	ownerAddr := sdk.AccAddress(ownerBytes)
 
 	if !hr.AuthorBondAmount.IsNil() && hr.AuthorBondAmount.IsPositive() {
-		if err := k.repKeeper.RestoreAuthorBond(ctx, ownerAddr,
+		if err := k.late.repKeeper.RestoreAuthorBond(ctx, ownerAddr,
 			reptypes.StakeTargetType_STAKE_TARGET_COLLECTION_AUTHOR_BOND, hr.TargetId, hr.AuthorBondAmount); err != nil {
 			sdkCtx.Logger().Warn("restore author penalties: restore author bond failed",
 				"collection_id", hr.TargetId, "error", err)
@@ -232,7 +237,7 @@ func (k Keeper) restoreAuthorPenalties(ctx context.Context, hr types.HideRecord)
 		if parseErr != nil || !amount.IsPositive() {
 			continue
 		}
-		if err := k.repKeeper.AddReputation(ctx, ownerAddr, tag, amount); err == nil {
+		if err := k.late.repKeeper.AddReputation(ctx, ownerAddr, tag, amount); err == nil {
 			repRestored = true
 		}
 	}
@@ -288,29 +293,29 @@ func (k Keeper) releaseOrSlashCollabStake(
 		}
 	}
 
-	// Unlock the full stake first — BurnDREAM only sees DreamBalance, so the
-	// burn portion must already be in the unlocked pool.
-	if unlockErr := k.repKeeper.UnlockDREAM(ctx, inviterAddr, stake); unlockErr != nil {
-		sdkCtx.Logger().Error("failed to unlock inviter DREAM stake",
-			"collection_id", coll.Id, "inviter", collab.Inviter, "address", collab.Address, "error", unlockErr)
-		return burned, refunded, nil
-	}
-
+	// Burn the slashed fraction straight out of the lock (one step: a
+	// failed burn leaves the lock in place), then release the rest. A failed
+	// burn falls back to releasing the whole stake, as before.
 	if burnAmt.IsPositive() {
-		if burnErr := k.repKeeper.BurnDREAM(ctx, inviterAddr, burnAmt); burnErr != nil {
+		if burnErr := k.late.repKeeper.BurnLockedDREAM(ctx, inviterAddr, burnAmt); burnErr != nil {
 			sdkCtx.Logger().Error("failed to burn inviter DREAM stake fraction",
 				"collection_id", coll.Id, "inviter", collab.Inviter, "address", collab.Address, "burn", burnAmt.String(), "error", burnErr)
-			// Burn failed but unlock succeeded — the full stake stayed with the
-			// inviter. Surface this as refunded=stake to keep accounting honest.
-			refunded = stake
+		} else {
+			burned = burnAmt
+			// Mirror the DREAM burn with a per-tag rep deduction so the inviter's
+			// score on the collection's topic tags reflects the misjudged vouch.
+			k.deductRepPerTag(ctx, inviterAddr, coll.Tags, params.CollabInviterRepPenalty)
+		}
+	}
+	rest := stake.Sub(burned)
+	if rest.IsPositive() {
+		if unlockErr := k.late.repKeeper.UnlockDREAM(ctx, inviterAddr, rest); unlockErr != nil {
+			sdkCtx.Logger().Error("failed to unlock inviter DREAM stake",
+				"collection_id", coll.Id, "inviter", collab.Inviter, "address", collab.Address, "error", unlockErr)
 			return burned, refunded, nil
 		}
-		burned = burnAmt
-		// Mirror the DREAM burn with a per-tag rep deduction so the inviter's
-		// score on the collection's topic tags reflects the misjudged vouch.
-		k.deductRepPerTag(ctx, inviterAddr, coll.Tags, params.CollabInviterRepPenalty)
 	}
-	refunded = stake.Sub(burned)
+	refunded = rest
 	return burned, refunded, nil
 }
 
@@ -475,7 +480,7 @@ func (k Keeper) CompactPositions(ctx context.Context, collectionID uint64) error
 
 	// Re-insert with item IDs and update item records with sequential positions
 	for i, itemID := range itemIDs {
-		newPos := uint64(i)
+		newPos := commontypes.Saturate[uint64](i)
 		if err := k.ItemsByCollection.Set(ctx, collections.Join(collectionID, itemID)); err != nil {
 			return err
 		}
@@ -538,7 +543,7 @@ func (k Keeper) InsertAtPosition(ctx context.Context, collectionID uint64, posit
 func (k Keeper) hasInflightHideAppeal(ctx context.Context, collID uint64) bool {
 	var inflight bool
 	prefix := HideRecordTargetCompositeKey(types.FlagTargetType_FLAG_TARGET_TYPE_COLLECTION, collID)
-	_ = k.HideRecordByTarget.Walk(ctx,
+	if err := k.HideRecordByTarget.Walk(ctx,
 		collections.NewPrefixedPairRange[string, uint64](prefix),
 		func(key collections.Pair[string, uint64]) (bool, error) {
 			hr, err := k.HideRecord.Get(ctx, key.K2())
@@ -551,7 +556,9 @@ func (k Keeper) hasInflightHideAppeal(ctx context.Context, collID uint64) bool {
 			}
 			return false, nil
 		},
-	)
+	); err != nil {
+		sdk.UnwrapSDKContext(ctx).Logger().Error("hasInflightHideAppeal: HideRecordByTarget.Walk failed", "err", err)
+	}
 	return inflight
 }
 
@@ -581,13 +588,16 @@ func (k Keeper) deleteCollectionFull(ctx context.Context, coll types.Collection)
 		}
 	}
 
-	// Handle PENDING collection: refund endorsement creation fee (minus burn fraction)
+	// Settle a still-escrowed endorsement creation fee (refund minus burn
+	// fraction). The amount is the one escrowed at creation, never the
+	// current param, and it is settled whatever the status is now (a PENDING
+	// collection that was hidden still holds its fee).
 	// (Anonymous collections never pay the fee and never start PENDING; the
 	// chargesDeposits guard keeps the shield account from ever being paid.)
-	if coll.Status == types.CollectionStatus_COLLECTION_STATUS_PENDING {
+	if fee := escrowedEndorsementFee(coll); fee.IsPositive() {
 		if k.chargesDeposits(coll) {
-			burnAmt := params.EndorsementDeletionBurnFraction.MulInt(params.EndorsementCreationFee).TruncateInt()
-			refundAmt := params.EndorsementCreationFee.Sub(burnAmt)
+			burnAmt := params.EndorsementDeletionBurnFraction.MulInt(fee).TruncateInt()
+			refundAmt := fee.Sub(burnAmt)
 			if refundAmt.IsPositive() {
 				if err := k.RefundSPARK(ctx, ownerAddr, refundAmt); err != nil {
 					return err
@@ -599,15 +609,10 @@ func (k Keeper) deleteCollectionFull(ctx context.Context, coll types.Collection)
 				}
 			}
 		}
-		// Remove from pending index (walk to find the actual key)
-		k.EndorsementPending.Walk(ctx, nil, func(key collections.Pair[int64, uint64]) (bool, error) {
-			if key.K2() == coll.Id {
-				k.EndorsementPending.Remove(ctx, key) //nolint:errcheck
-				return true, nil                      // stop
-			}
-			return false, nil
-		}) //nolint:errcheck
 	}
+	// Remove from the pending index by the stored deadline (no-op when the
+	// collection never entered, or already left, the endorsement stage).
+	k.clearEndorsementPending(ctx, &coll, coll.Status == types.CollectionStatus_COLLECTION_STATUS_PENDING)
 
 	// Handle endorsed collection: release endorser stake if not yet released.
 	//
@@ -632,14 +637,9 @@ func (k Keeper) deleteCollectionFull(ctx context.Context, coll types.Collection)
 			endorserAddr, addrErr := k.addressCodec.StringToBytes(endorsement.Endorser)
 			if addrErr == nil {
 				if coll.Status == types.CollectionStatus_COLLECTION_STATUS_HIDDEN {
-					// Unlock the stake before burning so staked_dream is
-					// decremented; otherwise the slashed amount stays counted
-					// as locked even though it no longer backs any balance.
-					if unlockErr := k.repKeeper.UnlockDREAM(ctx, endorserAddr, endorsement.DreamStake); unlockErr != nil {
-						sdkCtx.Logger().Error("failed to unlock DREAM for endorser before slash burn",
-							"collection_id", coll.Id, "endorser", endorsement.Endorser, "error", unlockErr)
-					}
-					if burnErr := k.repKeeper.BurnDREAM(ctx, endorserAddr, endorsement.DreamStake); burnErr != nil {
+					// Burn the stake out of the lock, so staked_dream drops
+					// with the balance in one step.
+					if burnErr := k.late.repKeeper.BurnLockedDREAM(ctx, endorserAddr, endorsement.DreamStake); burnErr != nil {
 						sdkCtx.Logger().Error("failed to burn DREAM for endorser on hidden collection delete",
 							"collection_id", coll.Id, "endorser", endorsement.Endorser, "error", burnErr)
 					}
@@ -652,20 +652,26 @@ func (k Keeper) deleteCollectionFull(ctx context.Context, coll types.Collection)
 						sdk.NewAttribute("rep_penalty_tags", strings.Join(coll.Tags, ",")),
 					))
 				} else {
-					if unlockErr := k.repKeeper.UnlockDREAM(ctx, endorserAddr, endorsement.DreamStake); unlockErr != nil {
+					if unlockErr := k.late.repKeeper.UnlockDREAM(ctx, endorserAddr, endorsement.DreamStake); unlockErr != nil {
 						sdkCtx.Logger().Error("failed to unlock DREAM for endorser on collection delete",
 							"collection_id", coll.Id, "endorser", endorsement.Endorser, "error", unlockErr)
 					}
 				}
 			}
 			endorsement.StakeReleased = true
-			k.Endorsement.Set(ctx, coll.Id, endorsement) //nolint:errcheck
+			if err := k.Endorsement.Set(ctx, coll.Id, endorsement); err != nil {
+				sdk.UnwrapSDKContext(ctx).Logger().Error("deleteCollectionFull: Endorsement.Set failed", "err", err)
+			}
 		}
 		// Remove endorsement indexes
 		if err == nil {
-			k.EndorsementStakeExpiry.Remove(ctx, collections.Join(endorsement.StakeReleaseAt, coll.Id)) //nolint:errcheck
+			if err := k.EndorsementStakeExpiry.Remove(ctx, collections.Join(endorsement.StakeReleaseAt, coll.Id)); err != nil {
+				sdk.UnwrapSDKContext(ctx).Logger().Error("deleteCollectionFull: EndorsementStakeExpiry.Remove failed", "err", err)
+			}
 		}
-		k.Endorsement.Remove(ctx, coll.Id) //nolint:errcheck
+		if err := k.Endorsement.Remove(ctx, coll.Id); err != nil {
+			sdk.UnwrapSDKContext(ctx).Logger().Error("deleteCollectionFull: Endorsement.Remove failed", "err", err)
+		}
 	}
 
 	// Handle pending sponsorship request: refund escrowed deposits
@@ -675,11 +681,17 @@ func (k Keeper) deleteCollectionFull(ctx context.Context, coll types.Collection)
 		if err == nil {
 			refundAmt := req.CollectionDeposit.Add(req.ItemDepositTotal)
 			if refundAmt.IsPositive() {
-				k.RefundSPARK(ctx, requesterAddr, refundAmt) //nolint:errcheck
+				if err := k.RefundSPARK(ctx, requesterAddr, refundAmt); err != nil {
+					sdk.UnwrapSDKContext(ctx).Logger().Error("deleteCollectionFull: k.RefundSPARK failed", "err", err)
+				}
 			}
 		}
-		k.SponsorshipRequestsByExpiry.Remove(ctx, collections.Join(req.ExpiresAt, coll.Id)) //nolint:errcheck
-		k.SponsorshipRequest.Remove(ctx, coll.Id)                                           //nolint:errcheck
+		if err := k.SponsorshipRequestsByExpiry.Remove(ctx, collections.Join(req.ExpiresAt, coll.Id)); err != nil {
+			sdk.UnwrapSDKContext(ctx).Logger().Error("deleteCollectionFull: SponsorshipRequestsByExpiry.Remove failed", "err", err)
+		}
+		if err := k.SponsorshipRequest.Remove(ctx, coll.Id); err != nil {
+			sdk.UnwrapSDKContext(ctx).Logger().Error("deleteCollectionFull: SponsorshipRequest.Remove failed", "err", err)
+		}
 	}
 
 	// Close open hides: release the sentinel bond. An appeal in flight is
@@ -692,12 +704,7 @@ func (k Keeper) deleteCollectionFull(ctx context.Context, coll types.Collection)
 			if err != nil {
 				return false, nil
 			}
-			if !hr.Resolved && k.repKeeper != nil && hr.CommittedAmount.IsPositive() {
-				k.repKeeper.ReleaseBond(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, hr.Sentinel, hr.CommittedAmount) //nolint:errcheck
-			}
-			hr.Resolved = true
-			k.HideRecord.Set(ctx, hr.Id, hr)                                           //nolint:errcheck
-			k.HideRecordExpiry.Remove(ctx, collections.Join(hr.AppealDeadline, hr.Id)) //nolint:errcheck
+			k.closeHideRecordOnTargetDelete(ctx, hr)
 			return false, nil
 		},
 	)
@@ -716,44 +723,60 @@ func (k Keeper) deleteCollectionFull(ctx context.Context, coll types.Collection)
 			if isChallengePending(review) {
 				challengerAddr, aerr := k.addressCodec.StringToBytes(review.Challenger)
 				if aerr == nil {
-					k.repKeeper.UnlockDREAM(ctx, challengerAddr, params.ChallengeDeposit) //nolint:errcheck
+					if err := k.late.repKeeper.UnlockDREAM(ctx, challengerAddr, challengeDepositOf(review, params)); err != nil {
+						sdk.UnwrapSDKContext(ctx).Logger().Error("deleteCollectionFull: repKeeper.UnlockDREAM failed", "err", err)
+					}
 				}
 				if !review.CommittedSlash.IsNil() && review.CommittedSlash.IsPositive() {
-					k.repKeeper.ReleaseBond(ctx, //nolint:errcheck
+					if err := k.late.repKeeper.ReleaseBond(ctx,
 						reptypes.RoleType_ROLE_TYPE_COLLECT_CURATOR,
-						review.Curator, review.CommittedSlash)
+						review.Curator, review.CommittedSlash); err != nil {
+						sdk.UnwrapSDKContext(ctx).Logger().Error("deleteCollectionFull: repKeeper.ReleaseBond failed", "err", err)
+					}
 				}
 			}
 			// Remove review indexes
-			k.CurationReviewsByCurator.Remove(ctx, collections.Join(review.Curator, review.Id)) //nolint:errcheck
-			k.CurationReview.Remove(ctx, review.Id)                                             //nolint:errcheck
+			if err := k.CurationReviewsByCurator.Remove(ctx, collections.Join(review.Curator, review.Id)); err != nil {
+				sdk.UnwrapSDKContext(ctx).Logger().Error("deleteCollectionFull: CurationReviewsByCurator.Remove failed", "err", err)
+			}
+			if err := k.CurationReview.Remove(ctx, review.Id); err != nil {
+				sdk.UnwrapSDKContext(ctx).Logger().Error("deleteCollectionFull: CurationReview.Remove failed", "err", err)
+			}
 			return false, nil
 		},
 	)
 	_ = err
 	// Remove all review-by-collection index entries
 	var reviewKeys []collections.Pair[uint64, uint64]
-	k.CurationReviewsByCollection.Walk(ctx,
+	if err := k.CurationReviewsByCollection.Walk(ctx,
 		collections.NewPrefixedPairRange[uint64, uint64](coll.Id),
 		func(key collections.Pair[uint64, uint64]) (bool, error) {
 			reviewKeys = append(reviewKeys, key)
 			return false, nil
 		},
-	)
-	for _, key := range reviewKeys {
-		k.CurationReviewsByCollection.Remove(ctx, key) //nolint:errcheck
+	); err != nil {
+		return err
 	}
-	k.CurationSummary.Remove(ctx, coll.Id) //nolint:errcheck
+	for _, key := range reviewKeys {
+		if err := k.CurationReviewsByCollection.Remove(ctx, key); err != nil {
+			sdk.UnwrapSDKContext(ctx).Logger().Error("deleteCollectionFull: CurationReviewsByCollection.Remove failed", "err", err)
+		}
+	}
+	if err := k.CurationSummary.Remove(ctx, coll.Id); err != nil {
+		sdk.UnwrapSDKContext(ctx).Logger().Error("deleteCollectionFull: CurationSummary.Remove failed", "err", err)
+	}
 
 	// Delete all items
 	var itemKeys []collections.Pair[uint64, uint64]
-	k.ItemsByCollection.Walk(ctx,
+	if err := k.ItemsByCollection.Walk(ctx,
 		collections.NewPrefixedPairRange[uint64, uint64](coll.Id),
 		func(key collections.Pair[uint64, uint64]) (bool, error) {
 			itemKeys = append(itemKeys, key)
 			return false, nil
 		},
-	)
+	); err != nil {
+		return err
+	}
 	for _, key := range itemKeys {
 		itemID := key.K2()
 		item, err := k.Item.Get(ctx, itemID)
@@ -765,34 +788,48 @@ func (k Keeper) deleteCollectionFull(ctx context.Context, coll types.Collection)
 			flag, err := k.Flag.Get(ctx, flagKey)
 			if err == nil {
 				if flag.InReviewQueue {
-					k.FlagReviewQueue.Remove(ctx, collections.Join(int32(types.FlagTargetType_FLAG_TARGET_TYPE_ITEM), itemID)) //nolint:errcheck
+					if err := k.FlagReviewQueue.Remove(ctx, collections.Join(int32(types.FlagTargetType_FLAG_TARGET_TYPE_ITEM), itemID)); err != nil {
+						sdk.UnwrapSDKContext(ctx).Logger().Error("deleteCollectionFull: FlagReviewQueue.Remove failed", "err", err)
+					}
 				}
-				k.FlagExpiry.Remove(ctx, collections.Join(flag.LastFlagAt+params.FlagExpirationBlocks, flagKey)) //nolint:errcheck
-				k.Flag.Remove(ctx, flagKey)                                                                      //nolint:errcheck
+				if err := k.FlagExpiry.Remove(ctx, collections.Join(flagExpiryBlock(flag, params), flagKey)); err != nil {
+					sdk.UnwrapSDKContext(ctx).Logger().Error("deleteCollectionFull: FlagExpiry.Remove failed", "err", err)
+				}
+				if err := k.Flag.Remove(ctx, flagKey); err != nil {
+					sdk.UnwrapSDKContext(ctx).Logger().Error("deleteCollectionFull: Flag.Remove failed", "err", err)
+				}
 			}
-			// Clean up item reaction dedup entries (can't efficiently walk by prefix, leave for now)
-			k.ItemsByOwner.Remove(ctx, collections.Join(coll.Owner, itemID)) //nolint:errcheck
+			// Clean up item reaction dedup entries and the on-chain ref index.
+			k.deleteTargetReactions(ctx, types.FlagTargetType_FLAG_TARGET_TYPE_ITEM, itemID)
+			k.removeItemOnChainRef(ctx, item)
+			if err := k.ItemsByOwner.Remove(ctx, collections.Join(coll.Owner, itemID)); err != nil {
+				sdk.UnwrapSDKContext(ctx).Logger().Error("deleteCollectionFull: ItemsByOwner.Remove failed", "err", err)
+			}
 		}
-		k.Item.Remove(ctx, itemID)           //nolint:errcheck
-		k.ItemsByCollection.Remove(ctx, key) //nolint:errcheck
+		if err := k.Item.Remove(ctx, itemID); err != nil {
+			sdk.UnwrapSDKContext(ctx).Logger().Error("deleteCollectionFull: Item.Remove failed", "err", err)
+		}
+		if err := k.ItemsByCollection.Remove(ctx, key); err != nil {
+			sdk.UnwrapSDKContext(ctx).Logger().Error("deleteCollectionFull: ItemsByCollection.Remove failed", "err", err)
+		}
 	}
 
-	// Delete all collaborators by walking the Collaborator map with a collection-ID prefix.
-	// This avoids a full global scan of the CollaboratorReverse index.
+	// Delete all collaborators by walking only this collection's key range
+	// "{id}/..." of the Collaborator map (no global scan).
 	collabPrefix := fmt.Sprintf("%d/", coll.Id)
 	type collabEntry struct {
 		key    string
 		record types.Collaborator
 	}
 	var collabEntries []collabEntry
-	k.Collaborator.Walk(ctx, nil,
+	if err := k.Collaborator.Walk(ctx, collaboratorRange(coll.Id),
 		func(key string, record types.Collaborator) (bool, error) {
-			if len(key) >= len(collabPrefix) && key[:len(collabPrefix)] == collabPrefix {
-				collabEntries = append(collabEntries, collabEntry{key: key, record: record})
-			}
+			collabEntries = append(collabEntries, collabEntry{key: key, record: record})
 			return false, nil
 		},
-	) //nolint:errcheck
+	); err != nil {
+		return err
+	}
 	for _, entry := range collabEntries {
 		// Settle non-member collaborator stake first (HIDDEN → fractional
 		// burn; otherwise full refund). Failures are logged inside the helper
@@ -800,46 +837,67 @@ func (k Keeper) deleteCollectionFull(ctx context.Context, coll types.Collection)
 		_, _, _ = k.releaseOrSlashCollabStake(ctx, coll, entry.record)
 		// Extract address from composite key "collectionID/address"
 		addr := entry.key[len(collabPrefix):]
-		k.Collaborator.Remove(ctx, entry.key)                              //nolint:errcheck
-		k.CollaboratorReverse.Remove(ctx, collections.Join(addr, coll.Id)) //nolint:errcheck
+		if err := k.Collaborator.Remove(ctx, entry.key); err != nil {
+			sdk.UnwrapSDKContext(ctx).Logger().Error("deleteCollectionFull: Collaborator.Remove failed", "err", err)
+		}
+		if err := k.CollaboratorReverse.Remove(ctx, collections.Join(addr, coll.Id)); err != nil {
+			sdk.UnwrapSDKContext(ctx).Logger().Error("deleteCollectionFull: CollaboratorReverse.Remove failed", "err", err)
+		}
 	}
+
+	// Drop the collection's reaction dedup markers.
+	k.deleteTargetReactions(ctx, types.FlagTargetType_FLAG_TARGET_TYPE_COLLECTION, coll.Id)
 
 	// Clean up collection-level flags
 	flagKey := FlagCompositeKey(types.FlagTargetType_FLAG_TARGET_TYPE_COLLECTION, coll.Id)
 	flag, err := k.Flag.Get(ctx, flagKey)
 	if err == nil {
 		if flag.InReviewQueue {
-			k.FlagReviewQueue.Remove(ctx, collections.Join(int32(types.FlagTargetType_FLAG_TARGET_TYPE_COLLECTION), coll.Id)) //nolint:errcheck
+			if err := k.FlagReviewQueue.Remove(ctx, collections.Join(int32(types.FlagTargetType_FLAG_TARGET_TYPE_COLLECTION), coll.Id)); err != nil {
+				sdk.UnwrapSDKContext(ctx).Logger().Error("deleteCollectionFull: FlagReviewQueue.Remove failed", "err", err)
+			}
 		}
-		k.FlagExpiry.Remove(ctx, collections.Join(flag.LastFlagAt+params.FlagExpirationBlocks, flagKey)) //nolint:errcheck
-		k.Flag.Remove(ctx, flagKey)                                                                      //nolint:errcheck
+		if err := k.FlagExpiry.Remove(ctx, collections.Join(flagExpiryBlock(flag, params), flagKey)); err != nil {
+			sdk.UnwrapSDKContext(ctx).Logger().Error("deleteCollectionFull: FlagExpiry.Remove failed", "err", err)
+		}
+		if err := k.Flag.Remove(ctx, flagKey); err != nil {
+			sdk.UnwrapSDKContext(ctx).Logger().Error("deleteCollectionFull: Flag.Remove failed", "err", err)
+		}
 	}
 
 	// Clean up hide records for collection
 	var hideTargetKeys []collections.Pair[string, uint64]
 	collTargetKey := HideRecordTargetCompositeKey(types.FlagTargetType_FLAG_TARGET_TYPE_COLLECTION, coll.Id)
-	k.HideRecordByTarget.Walk(ctx,
+	if err := k.HideRecordByTarget.Walk(ctx,
 		collections.NewPrefixedPairRange[string, uint64](collTargetKey),
 		func(key collections.Pair[string, uint64]) (bool, error) {
 			hideTargetKeys = append(hideTargetKeys, key)
 			return false, nil
 		},
-	)
+	); err != nil {
+		return err
+	}
 	for _, key := range hideTargetKeys {
-		k.HideRecordByTarget.Remove(ctx, key) //nolint:errcheck
+		if err := k.HideRecordByTarget.Remove(ctx, key); err != nil {
+			sdk.UnwrapSDKContext(ctx).Logger().Error("deleteCollectionFull: HideRecordByTarget.Remove failed", "err", err)
+		}
 	}
 
 	// Remove initiative link if collection references an initiative (best effort)
-	if coll.InitiativeId > 0 && k.repKeeper != nil {
-		if linkErr := k.repKeeper.RemoveContentInitiativeLink(ctx, coll.InitiativeId, int32(reptypes.StakeTargetType_STAKE_TARGET_COLLECTION_CONTENT), coll.Id); linkErr != nil {
+	if coll.InitiativeId > 0 && k.late.repKeeper != nil {
+		if linkErr := k.late.repKeeper.RemoveContentInitiativeLink(ctx, coll.InitiativeId, int32(reptypes.StakeTargetType_STAKE_TARGET_COLLECTION_CONTENT), coll.Id); linkErr != nil {
 			sdkCtx.Logger().Error("failed to remove content initiative link on delete", "collection_id", coll.Id, "error", linkErr)
 		}
 	}
 
 	// Remove indexes
-	k.CollectionsByOwner.Remove(ctx, collections.Join(coll.Owner, coll.Id)) //nolint:errcheck
+	if err := k.CollectionsByOwner.Remove(ctx, collections.Join(coll.Owner, coll.Id)); err != nil {
+		sdk.UnwrapSDKContext(ctx).Logger().Error("deleteCollectionFull: CollectionsByOwner.Remove failed", "err", err)
+	}
 	if coll.ExpiresAt > 0 {
-		k.CollectionsByExpiry.Remove(ctx, collections.Join(coll.ExpiresAt, coll.Id)) //nolint:errcheck
+		if err := k.CollectionsByExpiry.Remove(ctx, collections.Join(coll.ExpiresAt, coll.Id)); err != nil {
+			sdk.UnwrapSDKContext(ctx).Logger().Error("deleteCollectionFull: CollectionsByExpiry.Remove failed", "err", err)
+		}
 	}
 	k.RemoveCollectionStatusIndex(ctx, coll.Status, coll.Pinned, coll.Id)
 	// Remove tag secondary index entries for this collection AND drop the
@@ -847,12 +905,16 @@ func (k Keeper) deleteCollectionFull(ctx context.Context, coll types.Collection)
 	// it no longer "uses" them. Used by both MsgDeleteCollection and the
 	// EndBlocker TTL/endorsement-expiry prunes (both reach this helper).
 	for _, tag := range coll.Tags {
-		k.CollectionsByTag.Remove(ctx, collections.Join(tag, coll.Id)) //nolint:errcheck
+		if err := k.CollectionsByTag.Remove(ctx, collections.Join(tag, coll.Id)); err != nil {
+			sdk.UnwrapSDKContext(ctx).Logger().Error("deleteCollectionFull: CollectionsByTag.Remove failed", "err", err)
+		}
 	}
 	k.decrementTagUsages(ctx, coll.Tags)
 
 	// Delete collection
-	k.Collection.Remove(ctx, coll.Id) //nolint:errcheck
+	if err := k.Collection.Remove(ctx, coll.Id); err != nil {
+		sdk.UnwrapSDKContext(ctx).Logger().Error("deleteCollectionFull: Collection.Remove failed", "err", err)
+	}
 
 	depositRefunded := "0"
 	itemDepositRefunded := "0"
@@ -874,22 +936,19 @@ func (k Keeper) deleteCollectionFull(ctx context.Context, coll types.Collection)
 // cleanupItemHideRecords handles hide records for an item being deleted.
 func (k Keeper) cleanupItemHideRecords(ctx context.Context, item types.Item, params types.Params) {
 	targetKey := HideRecordTargetCompositeKey(types.FlagTargetType_FLAG_TARGET_TYPE_ITEM, item.Id)
-	k.HideRecordByTarget.Walk(ctx,
+	if err := k.HideRecordByTarget.Walk(ctx,
 		collections.NewPrefixedPairRange[string, uint64](targetKey),
 		func(key collections.Pair[string, uint64]) (bool, error) {
 			hr, err := k.HideRecord.Get(ctx, key.K2())
 			if err != nil {
 				return false, nil
 			}
-			if !hr.Resolved && k.repKeeper != nil && hr.CommittedAmount.IsPositive() {
-				k.repKeeper.ReleaseBond(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, hr.Sentinel, hr.CommittedAmount) //nolint:errcheck
-			}
-			hr.Resolved = true
-			k.HideRecord.Set(ctx, hr.Id, hr)                                           //nolint:errcheck
-			k.HideRecordExpiry.Remove(ctx, collections.Join(hr.AppealDeadline, hr.Id)) //nolint:errcheck
+			k.closeHideRecordOnTargetDelete(ctx, hr)
 			return false, nil
 		},
-	)
+	); err != nil {
+		sdk.UnwrapSDKContext(ctx).Logger().Error("cleanupItemHideRecords: HideRecordByTarget.Walk failed", "err", err)
+	}
 }
 
 // countCollectionsByOwner counts how many collections an owner has.
@@ -907,21 +966,21 @@ func (k Keeper) countCollectionsByOwner(ctx context.Context, owner string) (uint
 
 // getMaxCollections returns the tiered collection limit for an address.
 func (k Keeper) getMaxCollections(ctx context.Context, address string, params types.Params) uint32 {
-	if k.repKeeper == nil {
+	if k.late.repKeeper == nil {
 		return params.MaxCollectionsBase
 	}
 	addrBytes, err := k.addressCodec.StringToBytes(address)
 	if err != nil {
 		return params.MaxCollectionsBase
 	}
-	if !k.repKeeper.IsMember(ctx, addrBytes) {
+	if !k.late.repKeeper.IsActiveMember(ctx, addrBytes) {
 		return params.MaxCollectionsBase
 	}
-	tl, err := k.repKeeper.GetTrustLevel(ctx, addrBytes)
+	tl, err := k.late.repKeeper.GetTrustLevel(ctx, addrBytes)
 	if err != nil {
 		return params.MaxCollectionsBase
 	}
-	return params.MaxCollectionsBase + uint32(TrustLevelIndex(tl))*params.MaxCollectionsPerTrustLevel
+	return params.MaxCollectionsBase + commontypes.Saturate[uint32](TrustLevelIndex(tl))*params.MaxCollectionsPerTrustLevel
 }
 
 // isAnonymous reports whether address is the shield module account, i.e. an
@@ -960,7 +1019,7 @@ func (k Keeper) isMember(ctx context.Context, address string) bool {
 	if sdk.AccAddress(addrBytes).Equals(shieldModuleAddress) {
 		return true
 	}
-	return k.repKeeper.IsMember(ctx, addrBytes)
+	return k.late.repKeeper.IsActiveMember(ctx, addrBytes)
 }
 
 // ownsAsMember reports whether a collection owner gets member treatment
@@ -994,10 +1053,10 @@ func (k Keeper) meetsMinTrustLevel(ctx context.Context, address string, minLevel
 		required, ok := ParseTrustLevel(minLevel)
 		return ok && int64(proven) >= int64(required)
 	}
-	if !k.repKeeper.IsMember(ctx, addrBytes) {
+	if !k.late.repKeeper.IsActiveMember(ctx, addrBytes) {
 		return false
 	}
-	tl, err := k.repKeeper.GetTrustLevel(ctx, addrBytes)
+	tl, err := k.late.repKeeper.GetTrustLevel(ctx, addrBytes)
 	if err != nil {
 		return false
 	}
@@ -1055,7 +1114,7 @@ func heldItemDeposit(coll types.Collection, perItem math.Int, n uint64) math.Int
 	if coll.ItemDepositTotal.IsNil() || !coll.ItemDepositTotal.IsPositive() || perItem.IsNil() || !perItem.IsPositive() {
 		return math.ZeroInt()
 	}
-	return math.MinInt(perItem.MulRaw(int64(n)), coll.ItemDepositTotal)
+	return math.MinInt(perItem.MulRaw(commontypes.Saturate[int64](n)), coll.ItemDepositTotal)
 }
 
 // decrementItemCount saturates at zero to avoid uint64 underflow when a
@@ -1076,32 +1135,32 @@ func (k Keeper) validateReferenceFields(msg_refType types.ReferenceType, nft *ty
 		if nft == nil {
 			return types.ErrInvalidReference
 		}
-		if uint32(len(nft.ChainId)) > maxLen || uint32(len(nft.ContractAddress)) > maxLen ||
-			uint32(len(nft.TokenId)) > maxLen || uint32(len(nft.TokenStandard)) > maxLen ||
-			uint32(len(nft.TokenUri)) > maxLen {
+		if commontypes.Saturate[uint32](len(nft.ChainId)) > maxLen || commontypes.Saturate[uint32](len(nft.ContractAddress)) > maxLen ||
+			commontypes.Saturate[uint32](len(nft.TokenId)) > maxLen || commontypes.Saturate[uint32](len(nft.TokenStandard)) > maxLen ||
+			commontypes.Saturate[uint32](len(nft.TokenUri)) > maxLen {
 			return types.ErrReferenceFieldTooLong
 		}
 	case types.ReferenceType_REFERENCE_TYPE_LINK:
 		if link == nil {
 			return types.ErrInvalidReference
 		}
-		if uint32(len(link.Uri)) > maxLen || uint32(len(link.ContentHash)) > maxLen ||
-			uint32(len(link.ContentType)) > maxLen {
+		if commontypes.Saturate[uint32](len(link.Uri)) > maxLen || commontypes.Saturate[uint32](len(link.ContentHash)) > maxLen ||
+			commontypes.Saturate[uint32](len(link.ContentType)) > maxLen {
 			return types.ErrReferenceFieldTooLong
 		}
 	case types.ReferenceType_REFERENCE_TYPE_ON_CHAIN:
 		if onChain == nil {
 			return types.ErrInvalidReference
 		}
-		if uint32(len(onChain.Module)) > maxLen || uint32(len(onChain.EntityType)) > maxLen ||
-			uint32(len(onChain.EntityId)) > maxLen {
+		if commontypes.Saturate[uint32](len(onChain.Module)) > maxLen || commontypes.Saturate[uint32](len(onChain.EntityType)) > maxLen ||
+			commontypes.Saturate[uint32](len(onChain.EntityId)) > maxLen {
 			return types.ErrReferenceFieldTooLong
 		}
 	case types.ReferenceType_REFERENCE_TYPE_CUSTOM:
 		if custom == nil {
 			return types.ErrInvalidReference
 		}
-		if uint32(len(custom.TypeLabel)) > maxLen || uint32(len(custom.Value)) > maxLen {
+		if commontypes.Saturate[uint32](len(custom.TypeLabel)) > maxLen || commontypes.Saturate[uint32](len(custom.Value)) > maxLen {
 			return types.ErrReferenceFieldTooLong
 		}
 	case types.ReferenceType_REFERENCE_TYPE_UNSPECIFIED:
@@ -1115,7 +1174,7 @@ func (k Keeper) validateReferenceFields(msg_refType types.ReferenceType, nft *ty
 // validateItemFields validates item content fields against params.
 func (k Keeper) validateItemFields(encrypted bool, title, description, imageUri string, refType types.ReferenceType, nft *types.NftReference, link *types.LinkReference, onChain *types.OnChainReference, custom *types.CustomReference, attributes []types.KeyValuePair, encryptedData []byte, params types.Params) error {
 	if encrypted {
-		if uint32(len(encryptedData)) > params.MaxEncryptedDataSize {
+		if commontypes.Saturate[uint32](len(encryptedData)) > params.MaxEncryptedDataSize {
 			return types.ErrEncryptedDataTooLarge
 		}
 		if title != "" || description != "" || imageUri != "" {
@@ -1125,16 +1184,16 @@ func (k Keeper) validateItemFields(encrypted bool, title, description, imageUri 
 	}
 
 	// Public item validation
-	if encryptedData != nil && len(encryptedData) > 0 {
+	if len(encryptedData) > 0 {
 		return types.ErrEncryptedFieldMismatch
 	}
-	if uint32(len(title)) > params.MaxTitleLength {
+	if commontypes.Saturate[uint32](len(title)) > params.MaxTitleLength {
 		return types.ErrInvalidTitle
 	}
-	if uint32(len(description)) > params.MaxDescriptionLength {
+	if commontypes.Saturate[uint32](len(description)) > params.MaxDescriptionLength {
 		return types.ErrInvalidDescription
 	}
-	if uint32(len(imageUri)) > params.MaxReferenceFieldLength {
+	if commontypes.Saturate[uint32](len(imageUri)) > params.MaxReferenceFieldLength {
 		return types.ErrReferenceFieldTooLong
 	}
 
@@ -1146,31 +1205,59 @@ func (k Keeper) validateItemFields(encrypted bool, title, description, imageUri 
 	}
 
 	// Count attributes (including custom reference extra)
-	attrCount := uint32(len(attributes))
+	attrCount := commontypes.Saturate[uint32](len(attributes))
 	if custom != nil {
-		attrCount += uint32(len(custom.Extra))
+		attrCount += commontypes.Saturate[uint32](len(custom.Extra))
 	}
 	if attrCount > params.MaxAttributesPerItem {
 		return types.ErrMaxAttributes
 	}
 	for _, attr := range attributes {
-		if uint32(len(attr.Key)) > params.MaxAttributeKeyLength {
+		if commontypes.Saturate[uint32](len(attr.Key)) > params.MaxAttributeKeyLength {
 			return types.ErrAttributeTooLong
 		}
-		if uint32(len(attr.Value)) > params.MaxAttributeValueLength {
+		if commontypes.Saturate[uint32](len(attr.Value)) > params.MaxAttributeValueLength {
 			return types.ErrAttributeTooLong
 		}
 	}
 	if custom != nil {
 		for _, extra := range custom.Extra {
-			if uint32(len(extra.Key)) > params.MaxAttributeKeyLength {
+			if commontypes.Saturate[uint32](len(extra.Key)) > params.MaxAttributeKeyLength {
 				return types.ErrAttributeTooLong
 			}
-			if uint32(len(extra.Value)) > params.MaxAttributeValueLength {
+			if commontypes.Saturate[uint32](len(extra.Value)) > params.MaxAttributeValueLength {
 				return types.ErrAttributeTooLong
 			}
 		}
 	}
 
 	return nil
+}
+
+// supersedeSponsorshipRequest cancels a pending sponsorship request on a
+// collection that became permanent another way: the escrowed permanent
+// deposits go back to the requester and the request and its expiry index
+// entry are deleted. No request is a no-op.
+func (k Keeper) supersedeSponsorshipRequest(ctx context.Context, collID uint64) error {
+	req, err := k.SponsorshipRequest.Get(ctx, collID)
+	if errors.Is(err, collections.ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	refundAmt := req.CollectionDeposit.Add(req.ItemDepositTotal)
+	if refundAmt.IsPositive() {
+		requesterAddr, err := k.addressCodec.StringToBytes(req.Requester)
+		if err != nil {
+			return errorsmod.Wrap(err, "invalid sponsorship requester address")
+		}
+		if err := k.RefundSPARK(ctx, requesterAddr, refundAmt); err != nil {
+			return err
+		}
+	}
+	if err := k.SponsorshipRequestsByExpiry.Remove(ctx, collections.Join(req.ExpiresAt, collID)); err != nil {
+		return err
+	}
+	return k.SponsorshipRequest.Remove(ctx, collID)
 }

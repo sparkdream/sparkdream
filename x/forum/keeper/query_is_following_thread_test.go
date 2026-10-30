@@ -63,7 +63,7 @@ func TestQueryIsFollowingThread(t *testing.T) {
 			Follower:   testCreator2,
 			FollowedAt: now,
 		}
-		f.keeper.ThreadFollow.Set(f.ctx, followKey, follow)
+		require.NoError(t, f.keeper.ThreadFollow.Set(f.ctx, followKey, follow))
 
 		resp, err := qs.IsFollowingThread(f.ctx, &types.QueryIsFollowingThreadRequest{
 			ThreadId: post.PostId,

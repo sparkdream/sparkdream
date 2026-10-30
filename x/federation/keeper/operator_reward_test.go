@@ -263,13 +263,16 @@ func TestChallengeUpheldIncrementsOperatorRejected(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Stand up the jury lifecycle record the resolve handler requires.
-	require.NoError(t, f.keeper.EscalatedChallenges.Set(f.ctx, contentID, types.EscalatedChallenge{
-		ContentId:             contentID,
-		Escalator:             verifierStr,
-		JuryDeadline:          sdk.UnwrapSDKContext(f.ctx).BlockTime().Unix() + 3600,
-		EscrowedEscalationFee: math.ZeroInt(),
-	}))
+	// A real challenge, escalated: the resolve handler only settles a
+	// dispute that is still open (FED-25).
+	challenger := testAddr(t, f, "reject-challenger")
+	wrong := sha256.Sum256([]byte("reject-other"))
+	_, err = ms.ChallengeVerification(f.ctx, &types.MsgChallengeVerification{
+		Creator: challenger, ContentId: contentID, ContentHash: wrong[:],
+	})
+	require.NoError(t, err)
+	_, err = ms.EscalateChallenge(f.ctx, &types.MsgEscalateChallenge{Creator: challenger, ContentId: contentID})
+	require.NoError(t, err)
 
 	_, err = ms.ResolveEscalatedChallenge(f.ctx, &types.MsgResolveEscalatedChallenge{
 		Authority: f.authority,

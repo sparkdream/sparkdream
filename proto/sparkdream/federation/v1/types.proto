@@ -295,6 +295,63 @@ message VerificationRecord {
   // True means released; false means either not yet resolved or freed
   // by SlashBond on the upheld path.
   bool commitment_released = 14;
+
+  // arbiter_escalation_deadline is the unix time until which the
+  // challenger or verifier may escalate the stashed arbiter-quorum
+  // auto-verdict (quorum time + arbiter_escalation_window). Zero until a
+  // quorum lands; MsgEscalateChallenge refuses once it has passed.
+  int64 arbiter_escalation_deadline = 15;
+
+  // arbiter_resolution_deadline is the unix time until which arbiters may
+  // submit hashes for the current dispute round (round start +
+  // arbiter_resolution_window). MsgSubmitArbiterHash refuses after it, and
+  // the Phase 7 EndBlocker acts only on the resolution-queue entry keyed
+  // on exactly this deadline, so an entry left over from an earlier round
+  // of the same content never settles the current one.
+  int64 arbiter_resolution_deadline = 16;
+
+  // challenge_report_id is the x/service report id returned when
+  // federation filed a system report against the submitting bridge
+  // operator for this content. Zero when no report was filed.
+  uint64 challenge_report_id = 17;
+
+  // pending_challenge_report holds the evidence URI of an operator report
+  // that is owed but could not be filed yet (x/service refused it, e.g.
+  // under its per-caller system-report rate limit). The EndBlocker retries
+  // it with the same dedupe key until it is filed; empty when nothing is
+  // owed.
+  string pending_challenge_report = 18;
+
+  // quorum_falsified_content records, when the arbiter quorum lands, that
+  // the quorum hash differs from the operator's content hash. The stashed
+  // verdict only says whether the verifier was right; for DISPUTED content
+  // whose quorum hash matches neither the verifier nor the operator, this is
+  // what tells the auto-verdict that the content is REJECTED rather than
+  // VERIFIED.
+  bool quorum_falsified_content = 19;
+
+  // EndBlocker settlement retry (FED-29). A settlement the EndBlocker runs
+  // (no-quorum expiry, automatic verdict, jury TIMEOUT) executes in a cache
+  // context; when a bank or x/rep side effect fails, nothing of it commits
+  // (the escrow stays on this record) and the settlement is retried at
+  // settlement_retry_at with backoff. settlement_retry_kind says which
+  // settlement is owed; settlement_attempts counts failed attempts. After
+  // the last attempt settlement_retry_at is cleared and the record keeps its
+  // escrow until peer removal or a committee verdict settles it.
+  SettlementKind settlement_retry_kind = 20;
+  uint32 settlement_attempts = 21;
+  int64 settlement_retry_at = 22;
+}
+
+// SettlementKind names an EndBlocker settlement that failed and is retried.
+enum SettlementKind {
+  SETTLEMENT_KIND_UNSPECIFIED = 0;
+  // The arbiter resolution window closed without a quorum.
+  SETTLEMENT_KIND_NO_QUORUM = 1;
+  // The escalation window of a stashed arbiter verdict closed.
+  SETTLEMENT_KIND_AUTO_VERDICT = 2;
+  // The jury deadline of an escalated challenge passed (TIMEOUT).
+  SETTLEMENT_KIND_JURY_TIMEOUT = 3;
 }
 
 // PendingVerifierVerdict captures an arbiter-quorum auto-verdict that
@@ -414,6 +471,22 @@ message IdentityLink {
   // Challenge bytes generated at LinkIdentity time and echo-checked when the
   // confirmation packet returns from the remote peer (FEDERATION-S2-1).
   bytes challenge = 7;
+  // verification_attempts counts Phase 1 challenge deliveries sent for this
+  // link. A timed-out delivery is re-sent automatically until it reaches
+  // three attempts.
+  uint32 verification_attempts = 8;
+  // unverified_expires_at is the UnverifiedLinkExp queue key the link was
+  // written with (linked_at + unverified_link_ttl at link time). The
+  // expiry sweep only prunes the link when the queue entry it walks
+  // carries this exact time, so a stale entry left by an earlier link of
+  // the same (local_address, peer_id) can never prune a re-created one.
+  int64 unverified_expires_at = 9;
+  // attested_by is the bridge operator whose MsgAttestIdentityLink verified
+  // this link (empty for links verified over IBC). A false attestation is
+  // reported against this operator's x/service bond.
+  string attested_by = 10 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  // attestation_evidence is the evidence_uri the operator attested with.
+  string attestation_evidence = 11;
 }
 
 // PendingIdentityChallenge stores an IBC identity verification challenge.

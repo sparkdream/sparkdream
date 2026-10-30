@@ -4,73 +4,80 @@ import (
 	"fmt"
 	"math/rand"
 
-	"github.com/cosmos/cosmos-sdk/baseapp"
+	"cosmossdk.io/math"
 	"github.com/cosmos/cosmos-sdk/client"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/federation/keeper"
 	"sparkdream/x/federation/types"
 )
 
+// SimulateMsgUpdatePeerPolicy delivers MsgUpdatePeerPolicy for a peer that
+// is not REMOVED from a Commons Operations Committee member (the handler
+// accepts a single member) and is a NoOp when no sim account holds a seat.
+// The policy keeps to the handler's validation: known, non-reveal content
+// types, reputation flags only on Spark Dream peers, well-formed author
+// entries, no content hosts or curation collection.
 func SimulateMsgUpdatePeerPolicy(
 	ak types.AuthKeeper,
 	bk types.BankKeeper,
 	k keeper.Keeper,
 	txGen client.TxConfig,
 ) simtypes.Operation {
-	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
-	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		simAccount, _ := simtypes.RandomAcc(r, accs)
-
-		peer, err := getOrCreateActivePeer(r, ctx, k, simAccount.Address.String())
+	return operation(ak, bk, k, txGen, &types.MsgUpdatePeerPolicy{}, func(e *simEnv) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
+		msg := &types.MsgUpdatePeerPolicy{}
+		signer, ok := pick(e.r, e.opsCommittee())
+		if !ok {
+			return noOp(msg, "no sim account is a Commons Operations Committee member")
+		}
+		peers, err := e.peersWhere(func(p types.Peer) bool { return p.Status != types.PeerStatus_PEER_STATUS_REMOVED })
 		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgUpdatePeerPolicy{}), "failed to get/create active peer"), nil, nil
+			return noOpErr(msg, err)
 		}
-
-		policy := types.PeerPolicy{
-			PeerId:                       peer.Id,
-			OutboundContentTypes:         randomContentTypeSubset(r),
-			InboundContentTypes:          randomContentTypeSubset(r),
-			MinOutboundTrustLevel:        uint32(r.Intn(3) + 1),
-			InboundRateLimitPerEpoch:     uint64(r.Intn(500) + 10),
-			OutboundRateLimitPerEpoch:    uint64(r.Intn(500) + 10),
-			AllowReputationQueries:       r.Intn(2) == 1,
-			AcceptReputationAttestations: r.Intn(2) == 1,
-			RequireReview:                r.Intn(2) == 1,
-			// author gate: open, the sim's own creator handle, or nobody
-			AllowedIdentities: randomAllowedIdentities(r, peer.Id),
+		p, ok := pick(e.r, peers)
+		if !ok {
+			return noOp(msg, "no registered peer")
 		}
-
-		if err := k.PeerPolicies.Set(ctx, peer.Id, policy); err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgUpdatePeerPolicy{}), "failed to set policy"), nil, nil
+		known := federableTypes(e.params.KnownContentTypes)
+		sparkDream := p.Type == types.PeerType_PEER_TYPE_SPARK_DREAM
+		msg.Authority, msg.PeerId = signer.Address.String(), p.Id
+		msg.Policy = types.PeerPolicy{
+			PeerId:                       p.Id,
+			OutboundContentTypes:         randomContentTypeSubset(e.r, known),
+			InboundContentTypes:          randomContentTypeSubset(e.r, known),
+			MinOutboundTrustLevel:        commontypes.Saturate[uint32](e.r.Intn(3)),
+			InboundRateLimitPerEpoch:     commontypes.Saturate[uint64](e.r.Intn(500) + 10),
+			OutboundRateLimitPerEpoch:    commontypes.Saturate[uint64](e.r.Intn(500) + 10),
+			AllowReputationQueries:       sparkDream && e.r.Intn(2) == 1,
+			AcceptReputationAttestations: sparkDream && e.r.Intn(2) == 1,
+			RequireReview:                e.r.Intn(6) == 0,
+			AllowedIdentities:            randomAllowedIdentities(e.r, p.Id),
 		}
-
-		return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgUpdatePeerPolicy{}), "ok (direct keeper call)"), nil, nil
-	}
+		return e.submit(signer, msg, math.ZeroInt())
+	})
 }
 
-// randomContentTypeSubset returns a random non-empty subset of known content types.
-func randomContentTypeSubset(r *rand.Rand) []string {
-	all := types.DefaultKnownContentTypes
-	n := r.Intn(len(all)) + 1
-	perm := r.Perm(len(all))
-	subset := make([]string, n)
-	for i := 0; i < n; i++ {
-		subset[i] = all[perm[i]]
+// federableTypes drops the reveal content types the handler refuses.
+func federableTypes(known []string) []string {
+	out := make([]string, 0, len(known))
+	for _, ct := range known {
+		if ct != "reveal_proposal" && ct != "reveal_tranche" {
+			out = append(out, ct)
+		}
 	}
-	return subset
+	return out
 }
 
 // randomAllowedIdentities picks an author gate for a peer: mostly open, some
-// of the time just the "@user@<peer>" handle the submit op writes, rarely
-// nobody (the default for a new external peer).
+// of the time just one "@name@<peer>" handle the submit op can use, rarely
+// nobody (the default for a new peer).
 func randomAllowedIdentities(r *rand.Rand, peerID string) []string {
-	switch r.Intn(5) {
+	switch r.Intn(6) {
 	case 0:
 		return nil
 	case 1:
-		return []string{fmt.Sprintf("@user@%s", peerID)}
+		return []string{fmt.Sprintf("@%s@%s", randomCreatorName(r), peerID)}
 	default:
 		return []string{types.AllIdentities}
 	}

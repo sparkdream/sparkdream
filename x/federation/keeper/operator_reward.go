@@ -10,6 +10,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkaddress "github.com/cosmos/cosmos-sdk/types/address"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/federation/types"
 )
 
@@ -239,6 +240,13 @@ func (k Keeper) DistributeOperatorRewards(ctx context.Context) error {
 		totalVerified uint64
 	)
 
+	// This walks every BridgeBinding once per reward epoch (and the counter
+	// reset below walks them again), outside the EndBlocker prune budget.
+	// The set is bounded by peers × max_bridges_per_peer, and every binding
+	// is backed by its own x/service SPARK bond of at least min_bond, so its
+	// size is paid for; the bound is documented in spec §9 rather than made
+	// resumable.
+	peerTypes := map[string]types.PeerType{}
 	if err := k.BridgeBindings.Walk(ctx, nil, func(key collections.Pair[string, string], b types.BridgeBinding) (bool, error) {
 		allKeys = append(allKeys, key)
 
@@ -249,9 +257,30 @@ func (k Keeper) DistributeOperatorRewards(ctx context.Context) error {
 			return false, nil
 		}
 
+		// Gate 1b: the operator's x/service record is ACTIVE. An operator
+		// that is UNBONDING (no hook suspends its bindings) or UNDERFUNDED
+		// under a binding written before the flag was set earns nothing.
+		pt, seen := peerTypes[b.PeerId]
+		if !seen {
+			if peer, perr := k.Peers.Get(ctx, b.PeerId); perr == nil {
+				pt = peer.Type
+			}
+			peerTypes[b.PeerId] = pt
+		}
+		if !k.operatorServiceActive(ctx, b.Address, pt) {
+			return false, nil
+		}
+
+		// Gate 1c: the operator is still an active member. Paying a bridge
+		// whose member was zeroed would reopen the gap the registration
+		// check closes.
+		if !k.operatorIsMember(ctx, b.Address) {
+			return false, nil
+		}
+
 		// Gate 2: real verified work this epoch. This is also what makes the
 		// weight safe — the count is gated by an independent verifier.
-		if uint32(b.EpochVerified) < params.MinEpochVerifiedSubmissions {
+		if commontypes.Saturate[uint32](b.EpochVerified) < params.MinEpochVerifiedSubmissions {
 			return false, nil
 		}
 
@@ -274,7 +303,7 @@ func (k Keeper) DistributeOperatorRewards(ctx context.Context) error {
 		// producing value — and their submissions are the denominator of
 		// every verifier's workload.
 		if b.EpochSubmitted > 0 && !params.MaxUnverifiedRate.IsNil() {
-			rate := math.LegacyNewDec(int64(b.EpochUnverified)).
+			rate := math.LegacyNewDec(commontypes.Saturate[int64](b.EpochUnverified)).
 				Quo(math.LegacyNewDec(int64(b.EpochSubmitted)))
 			if rate.GT(params.MaxUnverifiedRate) {
 				return false, nil
@@ -303,9 +332,9 @@ func (k Keeper) DistributeOperatorRewards(ctx context.Context) error {
 			sdk.NewAttribute("reason", "empty_pool"),
 		))
 	default:
-		totalDec := math.LegacyNewDec(int64(totalVerified))
+		totalDec := math.LegacyNewDec(commontypes.Saturate[int64](totalVerified))
 		for _, c := range eligible {
-			share := math.LegacyNewDec(int64(c.verified)).Quo(totalDec)
+			share := math.LegacyNewDec(commontypes.Saturate[int64](c.verified)).Quo(totalDec)
 			allocation := share.MulInt(pool).TruncateInt()
 			if !allocation.IsPositive() {
 				continue
@@ -361,7 +390,7 @@ func (k Keeper) payoutOperatorReward(
 		prev = math.ZeroInt()
 	}
 	b.CumulativeRewards = prev.Add(amount)
-	b.LastRewardEpoch = int64(epochNum)
+	b.LastRewardEpoch = commontypes.Saturate[int64](epochNum)
 	if err := k.BridgeBindings.Set(ctx, c.key, b); err != nil {
 		return err
 	}

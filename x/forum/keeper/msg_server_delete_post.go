@@ -16,6 +16,9 @@ func (k msgServer) DeletePost(ctx context.Context, msg *types.MsgDeletePost) (*t
 	if _, err := k.addressCodec.StringToBytes(msg.Creator); err != nil {
 		return nil, errorsmod.Wrap(err, "invalid creator address")
 	}
+	if err := k.requireForumNotPaused(ctx); err != nil {
+		return nil, err
+	}
 
 	// Load post
 	post, err := k.Post.Get(ctx, msg.PostId)
@@ -48,9 +51,13 @@ func (k msgServer) DeletePost(ctx context.Context, msg *types.MsgDeletePost) (*t
 
 	// FORUM-S2-8: drop secondary index entries for the now-DELETED post.
 	if post.ParentId == 0 {
-		_ = k.PostsByUpvotes.Remove(ctx, collections.Join(post.UpvoteCount, post.PostId))
+		if err := k.PostsByUpvotes.Remove(ctx, collections.Join(post.UpvoteCount, post.PostId)); err != nil {
+			return nil, err
+		}
 		if post.Pinned {
-			_ = k.PostsByPinned.Remove(ctx, collections.Join(post.CategoryId, post.PostId))
+			if err := k.PostsByPinned.Remove(ctx, collections.Join(post.CategoryId, post.PostId)); err != nil {
+				return nil, err
+			}
 		}
 	}
 

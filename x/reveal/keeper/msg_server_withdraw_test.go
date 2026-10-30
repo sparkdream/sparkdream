@@ -36,31 +36,29 @@ func TestMsgWithdraw_Success(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestMsgWithdraw_RevertsBackedToStaking(t *testing.T) {
+// REV-02: a stake on a BACKED tranche cannot be withdrawn (Stake never
+// overfills a tranche, so any withdrawal would drop it below threshold).
+func TestMsgWithdraw_BlockedWhenBacked(t *testing.T) {
 	f := initTestFixture(t)
 	contribID := f.createSingleTrancheProposal(t, 1000)
 	f.approveContribution(t, contribID)
 
-	// Stake enough to reach BACKED
 	stakeID := f.stakeOnTranche(t, contribID, 0, f.staker, 1000)
 
-	// Verify BACKED
 	contrib, err := f.keeper.Contribution.Get(f.ctx, contribID)
 	require.NoError(t, err)
 	require.Equal(t, types.TrancheStatus_TRANCHE_STATUS_BACKED, contrib.Tranches[0].Status)
 
-	// Withdraw — should revert to STAKING
 	_, err = f.msgServer.Withdraw(f.ctx, &types.MsgWithdraw{
 		Staker:  f.staker,
 		StakeId: stakeID,
 	})
-	require.NoError(t, err)
+	require.ErrorIs(t, err, types.ErrWithdrawalNotAllowed)
 
 	contrib, err = f.keeper.Contribution.Get(f.ctx, contribID)
 	require.NoError(t, err)
-	require.Equal(t, types.TrancheStatus_TRANCHE_STATUS_STAKING, contrib.Tranches[0].Status)
-	require.Equal(t, int64(0), contrib.Tranches[0].BackedAt)
-	require.Equal(t, int64(0), contrib.Tranches[0].RevealDeadline)
+	require.Equal(t, types.TrancheStatus_TRANCHE_STATUS_BACKED, contrib.Tranches[0].Status)
+	require.NotZero(t, contrib.Tranches[0].RevealDeadline)
 }
 
 func TestMsgWithdraw_NotOwner(t *testing.T) {

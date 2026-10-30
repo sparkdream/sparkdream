@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/rep/types"
 
 	"cosmossdk.io/collections"
@@ -63,7 +64,7 @@ func (k Keeper) CurrentReviewerRewardEpoch(ctx context.Context) uint64 {
 	if err != nil {
 		return 0
 	}
-	return uint64(sdk.UnwrapSDKContext(ctx).BlockHeight()) / k.reviewerRewardEpochBlocks(params)
+	return commontypes.Saturate[uint64](sdk.UnwrapSDKContext(ctx).BlockHeight()) / k.reviewerRewardEpochBlocks(params)
 }
 
 type reviewerRewardCandidate struct {
@@ -124,7 +125,7 @@ func (k Keeper) DistributeReviewerRewards(ctx context.Context) error {
 			return false, nil
 		}
 
-		accuracy := math.LegacyNewDec(int64(upheld)).Quo(math.LegacyNewDec(int64(decided)))
+		accuracy := math.LegacyNewDec(commontypes.Saturate[int64](upheld)).Quo(math.LegacyNewDec(commontypes.Saturate[int64](decided)))
 		minAccuracy := params.MinReviewerAccuracy
 		if minAccuracy.IsNil() {
 			minAccuracy = math.LegacyNewDecWithPrec(70, 2)
@@ -136,7 +137,7 @@ func (k Keeper) DistributeReviewerRewards(ctx context.Context) error {
 		// Weight by accuracy against the square root of decided verdicts, the
 		// same damping the sentinel pool uses: volume should count, but not
 		// linearly, or the pool concentrates on whoever files most.
-		sqrtDecided, sErr := math.LegacyNewDec(int64(decided)).ApproxSqrt()
+		sqrtDecided, sErr := math.LegacyNewDec(commontypes.Saturate[int64](decided)).ApproxSqrt()
 		if sErr != nil {
 			return false, nil
 		}
@@ -204,7 +205,7 @@ func (k Keeper) payoutReviewerReward(ctx context.Context, c reviewerRewardCandid
 	if br, bErr := k.BondedRoles.Get(ctx, key); bErr == nil {
 		cumulative, _ := parseIntOrZero(br.CumulativeRewards)
 		br.CumulativeRewards = cumulative.Add(amount).String()
-		br.LastRewardEpoch = int64(epochNum)
+		br.LastRewardEpoch = commontypes.Saturate[int64](epochNum)
 		if err := k.BondedRoles.Set(ctx, key, br); err != nil {
 			return err
 		}

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"testing"
 
+	"cosmossdk.io/collections"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	"github.com/stretchr/testify/require"
@@ -267,6 +268,37 @@ func TestOpenSystemReport_IdempotentCallsDontCountAgainstRateLimit(t *testing.T)
 		testServiceType, 0, "ipfs://", []byte("second-fresh"),
 	)
 	require.NoError(t, err)
+}
+
+// SVC-17: a zero cap is governance's kill switch. New system reports are
+// refused without state change; a retry of a report opened before the
+// switch still returns it.
+func TestOpenSystemReport_ZeroCapDisablesNewReports(t *testing.T) {
+	f := initFixture(t)
+	cfg := f.seedServiceType(t)
+	cfg.ChallengeDefaultSlashBps = 100
+	require.NoError(t, f.keeper.ServiceTypes.Set(f.ctx, cfg.ServiceType, cfg))
+	f.seedActiveOperator(t, testOperator1, testController, cfg.MinBondAmount.MulRaw(10))
+	fedAddr := authtypes.NewModuleAddress(types.FederationModuleName)
+
+	opened, _, err := f.keeper.OpenSystemReport(f.ctx, fedAddr, testOperator1Addr, testServiceType, 0, "ipfs://", []byte("before"))
+	require.NoError(t, err)
+
+	params, err := f.keeper.Params.Get(f.ctx)
+	require.NoError(t, err)
+	params.MaxSystemReportsPerCallerPerWindow = 0
+	require.NoError(t, f.keeper.Params.Set(f.ctx, params))
+
+	_, _, err = f.keeper.OpenSystemReport(f.ctx, fedAddr, testOperator1Addr, testServiceType, 0, "ipfs://", []byte("after"))
+	require.ErrorIs(t, err, types.ErrSystemReportRateLimited)
+	has, err := f.keeper.SystemReportDedup.Has(f.ctx, collections.Join(types.FederationModuleName, []byte("after")))
+	require.NoError(t, err)
+	require.False(t, has, "nothing recorded")
+
+	again, idem, err := f.keeper.OpenSystemReport(f.ctx, fedAddr, testOperator1Addr, testServiceType, 0, "ipfs://", []byte("before"))
+	require.NoError(t, err)
+	require.True(t, idem)
+	require.Equal(t, opened, again)
 }
 
 // ---------------------------------------------------------------------------

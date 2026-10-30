@@ -7,6 +7,7 @@ import (
 
 	"sparkdream/x/rep/types"
 
+	"cosmossdk.io/collections"
 	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 )
@@ -211,6 +212,7 @@ func (k Keeper) FundRoleRewardPools(ctx context.Context) error {
 	if err := k.RoleRewardDayFunding.Set(ctx, day, fundedToday.Add(draw).String()); err != nil {
 		return err
 	}
+	k.pruneRoleRewardDayFunding(ctx, day)
 
 	// Place the intake's whole balance, not just this block's draw. The two are
 	// normally identical, but a placement that failed on an earlier block would
@@ -255,4 +257,30 @@ func (k Keeper) FundRoleRewardPools(ctx context.Context) error {
 		sdk.NewAttribute("day_total", fundedToday.Add(draw).String()),
 	))
 	return nil
+}
+
+// roleRewardDayFundingRetention is how many UTC days of the funding ledger
+// are kept (today included). Only today's entry gates a draw; the rest is a
+// short audit trail for the role-reward-pools query and genesis export.
+const roleRewardDayFundingRetention = 7
+
+// pruneRoleRewardDayFunding drops ledger days older than the retention
+// window, a few per call, so the ledger stays bounded (REP-R-16).
+func (k Keeper) pruneRoleRewardDayFunding(ctx context.Context, today uint64) {
+	if today < roleRewardDayFundingRetention {
+		return
+	}
+	var stale []uint64
+	rng := new(collections.Range[uint64]).EndExclusive(today - roleRewardDayFundingRetention + 1)
+	if err := k.RoleRewardDayFunding.Walk(ctx, rng, func(day uint64, _ string) (bool, error) {
+		stale = append(stale, day)
+		return len(stale) >= 8, nil
+	}); err != nil {
+		sdk.UnwrapSDKContext(ctx).Logger().Error("pruneRoleRewardDayFunding: RoleRewardDayFunding.Walk failed", "err", err)
+	}
+	for _, d := range stale {
+		if err := k.RoleRewardDayFunding.Remove(ctx, d); err != nil {
+			sdk.UnwrapSDKContext(ctx).Logger().Error("pruneRoleRewardDayFunding: RoleRewardDayFunding.Remove failed", "err", err)
+		}
+	}
 }

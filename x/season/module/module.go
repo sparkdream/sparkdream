@@ -22,6 +22,7 @@ var (
 	_ module.AppModuleBasic = (*AppModule)(nil)
 	_ module.AppModule      = (*AppModule)(nil)
 	_ module.HasGenesis     = (*AppModule)(nil)
+	_ module.HasInvariants  = (*AppModule)(nil)
 
 	_ appmodule.AppModule       = (*AppModule)(nil)
 	_ appmodule.HasBeginBlocker = (*AppModule)(nil)
@@ -79,6 +80,12 @@ func (am AppModule) RegisterServices(registrar grpc.ServiceRegistrar) error {
 	types.RegisterQueryServer(registrar, keeper.NewQueryServerImpl(am.keeper))
 
 	return nil
+}
+
+// RegisterInvariants registers module invariants (run by
+// app/invariants_test.go; x/crisis is not wired).
+func (am AppModule) RegisterInvariants(ir sdk.InvariantRegistry) {
+	keeper.RegisterInvariants(ir, am.keeper)
 }
 
 // DefaultGenesis returns a default GenesisState for the module, marshalled to json.RawMessage.

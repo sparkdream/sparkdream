@@ -1,7 +1,6 @@
 package simulation
 
 import (
-	"fmt"
 	"math/rand"
 
 	"github.com/cosmos/cosmos-sdk/baseapp"
@@ -13,9 +12,11 @@ import (
 	"sparkdream/x/season/types"
 )
 
-// SimulateMsgStartQuest simulates a MsgStartQuest message using direct keeper calls.
-// This bypasses the maintenance mode check for simulation purposes.
-// Full maintenance mode testing should be done in integration tests.
+// SimulateMsgStartQuest delivers MsgStartQuest from a random account
+// (creating its profile first when needed) for a quest it may start now
+// (quest definitions come from SimulateMsgCreateQuest's proposals). Skips maintenance mode and accounts for which no quest
+// passes the handler's window, level, prerequisite, cooldown and
+// active-quest checks.
 func SimulateMsgStartQuest(
 	ak types.AuthKeeper,
 	bk types.BankKeeper,
@@ -25,36 +26,38 @@ func SimulateMsgStartQuest(
 	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
 	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
 		simAccount, _ := simtypes.RandomAcc(r, accs)
+		addr := simAccount.Address.String()
+		msg := &types.MsgStartQuest{Creator: addr}
 
-		// Ensure member has a profile
-		if err := getOrCreateMemberProfile(r, ctx, k, simAccount.Address.String()); err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgStartQuest{}), "failed to create profile"), nil, nil
+		if k.IsInMaintenanceMode(ctx) {
+			return noOp(msg, "maintenance mode")
 		}
-
-		// Find or create an active quest
-		questID, err := getOrCreateQuest(r, ctx, k)
+		if ok, err := ensureProfile(r, app, ctx, txGen, ak, bk, k, simAccount); err != nil || !ok {
+			if err != nil {
+				return noOpErr(msg, err)
+			}
+			return noOp(msg, "could not create member profile")
+		}
+		profile, _ := getProfile(ctx, k, addr)
+		params, err := k.Params.Get(ctx)
 		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgStartQuest{}), "failed to get/create quest"), nil, nil
+			return noOpErr(msg, err)
 		}
-
-		// Check if user has already started this quest
-		progressKey := fmt.Sprintf("%s:%s", simAccount.Address.String(), questID)
-		_, err = k.MemberQuestProgress.Get(ctx, progressKey)
-		if err == nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgStartQuest{}), "quest already started"), nil, nil
+		var startable []string
+		if err := k.Quest.Walk(ctx, nil, func(id string, q types.Quest) (bool, error) {
+			if canStartQuest(ctx, k, addr, profile, q, params.MaxActiveQuestsPerMember) {
+				startable = append(startable, id)
+			}
+			return false, nil
+		}); err != nil {
+			return noOpErr(msg, err)
 		}
-
-		// Use direct keeper calls to start quest (bypasses maintenance mode check)
-		progress := types.MemberQuestProgress{
-			MemberQuest:      progressKey,
-			Completed:        false,
-			LastAttemptBlock: ctx.BlockHeight(),
+		questID, ok := pick(r, startable)
+		if !ok {
+			return noOp(msg, "no startable quest")
 		}
+		msg.QuestId = questID
 
-		if err := k.MemberQuestProgress.Set(ctx, progressKey, progress); err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgStartQuest{}), "failed to create progress"), nil, nil
-		}
-
-		return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgStartQuest{}), "ok (direct keeper call)"), nil, nil
+		return deliver(r, app, ctx, txGen, ak, bk, simAccount, msg)
 	}
 }

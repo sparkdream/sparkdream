@@ -1,51 +1,51 @@
 package simulation
 
 import (
-	"math/rand"
+	"fmt"
 
-	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/season/keeper"
 	"sparkdream/x/season/types"
 )
 
-// SimulateMsgUpdateTitle simulates a MsgUpdateTitle message using direct keeper calls.
-// This bypasses the governance/committee authority requirement for simulation purposes.
-// Full authority testing should be done in integration tests.
+// SimulateMsgUpdateTitle updates a title (genesis or sim) through an
+// executed x/commons proposal (council.go), one step per call. The
+// requirement type, season and seasonal flag carry over; the name,
+// description, rarity and threshold change.
 func SimulateMsgUpdateTitle(
 	ak types.AuthKeeper,
 	bk types.BankKeeper,
 	k keeper.Keeper,
 	txGen client.TxConfig,
 ) simtypes.Operation {
-	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
-	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		// Get or create a title to update
-		titleId, err := getOrCreateTitle(r, ctx, k)
-		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgUpdateTitle{}), "failed to get or create title"), nil, nil
-		}
-
-		// Fetch the title
-		title, err := k.Title.Get(ctx, titleId)
-		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgUpdateTitle{}), "failed to get title"), nil, nil
-		}
-
-		// Update the title with random changes
-		title.Name = title.Name + " (updated)"
-		title.Description = "Updated description for simulation"
-		title.Seasonal = !title.Seasonal // Toggle seasonal flag
-
-		// Save the updated title via keeper
-		if err := k.SetTitle(ctx, title); err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgUpdateTitle{}), "failed to update title"), nil, nil
-		}
-
-		// Return success
-		return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgUpdateTitle{}), "ok (direct keeper call)"), nil, nil
-	}
+	return authorityOp(ak, bk, k, txGen, &types.MsgUpdateTitle{}, decodeAs[types.MsgUpdateTitle](),
+		func(e *simEnv, policy string, taken []sdk.Msg) (sdk.Msg, string, error) {
+			ids, err := allTitles(e.ctx, e.k)
+			if err != nil {
+				return nil, "", err
+			}
+			id, ok := pick(e.r, without(ids, pendingIDs(taken, titleIDOf)))
+			if !ok {
+				return nil, "no title to update", nil
+			}
+			t, err := e.k.Title.Get(e.ctx, id)
+			if err != nil {
+				return nil, "", err
+			}
+			return &types.MsgUpdateTitle{
+				Authority:            policy,
+				TitleId:              id,
+				Name:                 fmt.Sprintf("Warden of %s", pickName(e)),
+				Description:          "An updated simulation title",
+				Rarity:               randomRarity(e),
+				RequirementType:      commontypes.Saturate[uint32](t.RequirementType),
+				RequirementThreshold: randomThreshold(e),
+				RequirementSeason:    t.RequirementSeason,
+				Seasonal:             t.Seasonal,
+			}, "", nil
+		})
 }

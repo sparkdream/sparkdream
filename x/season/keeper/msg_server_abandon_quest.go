@@ -54,9 +54,13 @@ func (k msgServer) AbandonQuest(ctx context.Context, msg *types.MsgAbandonQuest)
 	}
 
 	// Update profile last active
-	profile, _ := k.MemberProfile.Get(ctx, msg.Creator)
-	profile.LastActiveEpoch = k.GetCurrentEpoch(ctx)
-	_ = k.MemberProfile.Set(ctx, msg.Creator, profile)
+	// (only an existing profile: a missing one is not created here)
+	if profile, err := k.MemberProfile.Get(ctx, msg.Creator); err == nil {
+		profile.LastActiveEpoch = k.GetCurrentEpoch(ctx)
+		if err := k.MemberProfile.Set(ctx, msg.Creator, profile); err != nil {
+			return nil, err
+		}
+	}
 
 	// Emit event
 	sdkCtx.EventManager().EmitEvent(

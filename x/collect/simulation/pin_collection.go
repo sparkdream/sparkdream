@@ -1,39 +1,53 @@
 package simulation
 
 import (
-	"math/rand"
-
-	"github.com/cosmos/cosmos-sdk/baseapp"
+	"cosmossdk.io/math"
 	"github.com/cosmos/cosmos-sdk/client"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
+
+	commontypes "sparkdream/x/common/types"
+	reptypes "sparkdream/x/rep/types"
 
 	"sparkdream/x/collect/keeper"
 	"sparkdream/x/collect/types"
 )
 
+// SimulateMsgPinCollection delivers MsgPinCollection from an active member
+// at pin_min_trust_level under max_pins_per_day, on an ACTIVE, permanent,
+// unpinned collection.
 func SimulateMsgPinCollection(
 	ak types.AuthKeeper,
 	bk types.BankKeeper,
 	k keeper.Keeper,
 	txGen client.TxConfig,
 ) simtypes.Operation {
-	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
-	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		simAccount, _ := simtypes.RandomAcc(r, accs)
-		msg := &types.MsgPinCollection{
-			Creator: simAccount.Address.String(),
-		}
-
-		// Find or create a TTL collection to pin
-		collID, err := getOrCreateTTLCollection(r, ctx, k, simAccount.Address.String())
+	return operation(ak, bk, k, txGen, &types.MsgPinCollection{}, func(e *simEnv) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
+		msg := &types.MsgPinCollection{}
+		colls, err := e.collectionsWhere(func(c types.Collection) bool {
+			return c.Status == types.CollectionStatus_COLLECTION_STATUS_ACTIVE && c.ExpiresAt == 0 && !c.Pinned
+		})
 		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "failed to get/create TTL collection"), nil, nil
+			return noOpErr(msg, err)
 		}
+		coll, ok := pick(e.r, colls)
+		if !ok {
+			return noOp(msg, "no pinnable collection")
+		}
+		pinner, ok := pick(e.r, e.pinners())
+		if !ok {
+			return noOp(msg, "no member at pin_min_trust_level under the daily pin cap")
+		}
+		msg.Creator, msg.CollectionId = pinner.Address.String(), coll.Id
+		return e.submit(pinner, msg, math.ZeroInt())
+	})
+}
 
-		msg.CollectionId = collID
-
-		// Direct keeper call pattern — pin requires trust level which sim accounts don't have
-		return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "pin requires trust level verification"), nil, nil
-	}
+// pinners returns the active members at pin_min_trust_level with a free
+// slot in the shared daily pin counter.
+func (e *simEnv) pinners() []simtypes.Account {
+	level := reptypes.TrustLevel(commontypes.Saturate[int32](e.params.PinMinTrustLevel))
+	return accountsWhere(e.accs, func(a simtypes.Account) bool {
+		addr := a.Address.String()
+		return e.trustAtLeast(addr, level) && e.dailyCount(addr, "pin") < e.params.MaxPinsPerDay
+	})
 }

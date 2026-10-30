@@ -11,6 +11,7 @@ import "sparkdream/service/v1/refile_cooldown.proto";
 import "sparkdream/service/v1/report.proto";
 import "sparkdream/service/v1/reporter_rate_limit.proto";
 import "sparkdream/service/v1/service_type_config.proto";
+import "sparkdream/service/v1/system_report_rate_limit.proto";
 import "sparkdream/service/v1/tier1_escrow_entry.proto";
 import "sparkdream/service/v1/tier1_last_slash.proto";
 
@@ -73,4 +74,20 @@ message GenesisState {
   // are rebuilt from checkpoints and each type's checkpoint_max_lag_blocks
   // at import.
   repeated Checkpoint checkpoints = 13 [(gogoproto.nullable) = false];
+
+  // system_report_dedup is the OpenSystemReport idempotency index
+  // (caller_module, dedupe_key) -> report_id. Without it a caller retry
+  // after an export/import would open a duplicate report.
+  repeated SystemReportDedupEntry system_report_dedup = 14 [(gogoproto.nullable) = false];
+
+  // system_report_rate_limits is the per-caller-module sliding-window
+  // ring buffer for OpenSystemReport.
+  repeated SystemReportRateLimit system_report_rate_limits = 15 [(gogoproto.nullable) = false];
+}
+
+// SystemReportDedupEntry is one SystemReportDedup map entry.
+message SystemReportDedupEntry {
+  string caller_module = 1;
+  bytes dedupe_key = 2;
+  uint64 report_id = 3;
 }

@@ -9,8 +9,8 @@ import (
 	reptypes "sparkdream/x/rep/types"
 )
 
-// TestGetActionSentinel exercises all three action-type branches of the
-// forum adapter's sentinel lookup.
+// TestGetActionSentinel exercises the action-type branches of the forum
+// adapter's sentinel lookup. Only records under a forum-filed appeal resolve.
 func TestGetActionSentinel(t *testing.T) {
 	f := initFixture(t)
 
@@ -18,14 +18,22 @@ func TestGetActionSentinel(t *testing.T) {
 	require.NoError(t, f.keeper.HideRecord.Set(f.ctx, 1, types.HideRecord{
 		PostId:   1,
 		Sentinel: "sentinel-hide",
+		Appealed: true,
 	}))
 	require.NoError(t, f.keeper.ThreadLockRecord.Set(f.ctx, 2, types.ThreadLockRecord{
-		RootId:   2,
-		Sentinel: "sentinel-lock",
+		RootId:        2,
+		Sentinel:      "sentinel-lock",
+		AppealPending: true,
 	}))
 	require.NoError(t, f.keeper.ThreadMoveRecord.Set(f.ctx, 3, types.ThreadMoveRecord{
-		RootId:   3,
-		Sentinel: "sentinel-move",
+		RootId:        3,
+		Sentinel:      "sentinel-move",
+		AppealPending: true,
+	}))
+	// Same lock, but no forum-filed appeal: not honored.
+	require.NoError(t, f.keeper.ThreadLockRecord.Set(f.ctx, 4, types.ThreadLockRecord{
+		RootId:   4,
+		Sentinel: "sentinel-lock",
 	}))
 
 	cases := []struct {
@@ -34,10 +42,11 @@ func TestGetActionSentinel(t *testing.T) {
 		target     string
 		want       string
 	}{
-		{"hide-like", reptypes.GovActionType_GOV_ACTION_TYPE_WARNING, "1", "sentinel-hide"},
+		{"post hide", reptypes.GovActionType_GOV_ACTION_TYPE_POST_HIDE, "1", "sentinel-hide"},
 		{"thread lock", reptypes.GovActionType_GOV_ACTION_TYPE_THREAD_LOCK, "2", "sentinel-lock"},
 		{"thread move", reptypes.GovActionType_GOV_ACTION_TYPE_THREAD_MOVE, "3", "sentinel-move"},
 		{"missing record returns empty", reptypes.GovActionType_GOV_ACTION_TYPE_THREAD_LOCK, "999", ""},
+		{"unappealed record returns empty", reptypes.GovActionType_GOV_ACTION_TYPE_THREAD_LOCK, "4", ""},
 	}
 
 	for _, tc := range cases {
@@ -47,6 +56,11 @@ func TestGetActionSentinel(t *testing.T) {
 			require.Equal(t, tc.want, got)
 		})
 	}
+
+	t.Run("foreign action type errors", func(t *testing.T) {
+		_, err := f.keeper.GetActionSentinel(f.ctx, reptypes.GovActionType_GOV_ACTION_TYPE_WARNING, "1")
+		require.Error(t, err)
+	})
 
 	t.Run("unparseable target errors", func(t *testing.T) {
 		_, err := f.keeper.GetActionSentinel(f.ctx, reptypes.GovActionType_GOV_ACTION_TYPE_THREAD_LOCK, "not-a-number")
@@ -65,6 +79,7 @@ func TestOnSentinelActionResolved(t *testing.T) {
 	require.NoError(t, f.keeper.HideRecord.Set(f.ctx, 10, types.HideRecord{
 		PostId:   10,
 		Sentinel: testSentinel,
+		Appealed: true,
 	}))
 	require.NoError(t, f.keeper.SentinelActivity.Set(f.ctx, testSentinel, types.SentinelActivity{
 		Address:          testSentinel,
@@ -73,7 +88,7 @@ func TestOnSentinelActionResolved(t *testing.T) {
 
 	// Hide verdict -> pending decremented.
 	require.NoError(t, f.keeper.OnSentinelActionResolved(f.ctx,
-		reptypes.GovActionType_GOV_ACTION_TYPE_WARNING, "10")) // default branch = post hide
+		reptypes.GovActionType_GOV_ACTION_TYPE_POST_HIDE, "10"))
 	act, err := f.keeper.SentinelActivity.Get(f.ctx, testSentinel)
 	require.NoError(t, err)
 	require.Equal(t, uint64(1), act.PendingHideCount)
@@ -87,5 +102,9 @@ func TestOnSentinelActionResolved(t *testing.T) {
 
 	// Missing record -> soft no-op.
 	require.NoError(t, f.keeper.OnSentinelActionResolved(f.ctx,
-		reptypes.GovActionType_GOV_ACTION_TYPE_WARNING, "999"))
+		reptypes.GovActionType_GOV_ACTION_TYPE_POST_HIDE, "999"))
+
+	// Foreign action type -> error.
+	require.Error(t, f.keeper.OnSentinelActionResolved(f.ctx,
+		reptypes.GovActionType_GOV_ACTION_TYPE_WARNING, "10"))
 }

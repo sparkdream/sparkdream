@@ -2,6 +2,8 @@ package keeper_test
 
 import (
 	"context"
+	"fmt"
+	"sort"
 
 	reptypes "sparkdream/x/rep/types"
 
@@ -31,6 +33,12 @@ type mockRepKeeper struct {
 	LastArchivedAddresses []string
 	// SeasonalPoolInitialisedFor records the season passed to InitSeasonalPool
 	SeasonalPoolInitialisedFor uint64
+	// InitiativeRewardsMinted overrides GetSeasonInitiativeRewardsMinted.
+	InitiativeRewardsMinted *math.Int
+	// Initiatives backs GetInitiative.
+	Initiatives map[uint64]reptypes.Initiative
+	// UnlockErr, when set, is returned by UnlockDREAM.
+	UnlockErr error
 }
 
 // newMockRepKeeper creates a new mock rep keeper with empty state
@@ -68,11 +76,18 @@ func (m *mockRepKeeper) GetBalance(ctx context.Context, addr sdk.AccAddress) (ma
 		return balance, nil
 	}
 	// Also try raw string (for tests that use simple string addresses)
-	rawStr := string(addr)
-	if balance, ok := m.Balances[rawStr]; ok {
+	if balance, ok := m.Balances[string(addr)]; ok {
 		return balance, nil
 	}
 	return math.ZeroInt(), nil
+}
+
+// BurnLockedDREAM releases a lock and burns the same amount.
+func (m *mockRepKeeper) BurnLockedDREAM(ctx context.Context, addr sdk.AccAddress, amount math.Int) error {
+	if err := m.UnlockDREAM(ctx, addr, amount); err != nil {
+		return err
+	}
+	return m.BurnDREAM(ctx, addr, amount)
 }
 
 // BurnDREAM burns DREAM tokens from an address
@@ -90,7 +105,12 @@ func (m *mockRepKeeper) LockDREAM(ctx context.Context, addr sdk.AccAddress, amou
 
 // UnlockDREAM unlocks DREAM tokens for an address
 func (m *mockRepKeeper) UnlockDREAM(ctx context.Context, addr sdk.AccAddress, amount math.Int) error {
-	return nil
+	return m.UnlockErr
+}
+
+// IsActiveMember mirrors IsMember (the mock has no zeroed state).
+func (m *mockRepKeeper) IsActiveMember(ctx context.Context, addr sdk.AccAddress) bool {
+	return m.IsMember(ctx, addr)
 }
 
 // IsMember returns whether an address is a member
@@ -200,6 +220,23 @@ func (m *mockRepKeeper) GetSeasonMinted(ctx context.Context) (math.Int, error) {
 	return math.NewInt(60000000000), nil // 60,000 DREAM (typical Season 1 initiative minting)
 }
 
+// GetSeasonInitiativeRewardsMinted returns DREAM minted for completed
+// initiatives this season (the retro PGF budget base).
+func (m *mockRepKeeper) GetSeasonInitiativeRewardsMinted(ctx context.Context) (math.Int, error) {
+	if m.InitiativeRewardsMinted != nil {
+		return *m.InitiativeRewardsMinted, nil
+	}
+	return math.NewInt(60000000000), nil // 60,000 DREAM (typical Season 1 initiative minting)
+}
+
+// GetInitiative returns a configured initiative or not-found.
+func (m *mockRepKeeper) GetInitiative(ctx context.Context, id uint64) (reptypes.Initiative, error) {
+	if ini, ok := m.Initiatives[id]; ok {
+		return ini, nil
+	}
+	return reptypes.Initiative{}, fmt.Errorf("initiative %d not found", id)
+}
+
 // InitSeasonalPool records the season the staking reward pool was refilled for.
 func (m *mockRepKeeper) InitSeasonalPool(ctx context.Context, season uint64) error {
 	m.SeasonalPoolInitialisedFor = season
@@ -223,4 +260,19 @@ func (m *mockRepKeeper) RecentAddressesOf(ctx context.Context, member string) []
 
 func (m *mockRepKeeper) AllAddressesOf(ctx context.Context, member string) []string {
 	return []string{member}
+}
+
+// MembersAfter pages the mock's members in address order.
+func (m *mockRepKeeper) MembersAfter(_ context.Context, after string, limit int) ([]string, bool, error) {
+	addrs := make([]string, 0, len(m.Members))
+	for a := range m.Members {
+		if a > after {
+			addrs = append(addrs, a)
+		}
+	}
+	sort.Strings(addrs)
+	if len(addrs) <= limit {
+		return addrs, true, nil
+	}
+	return addrs[:limit], false, nil
 }

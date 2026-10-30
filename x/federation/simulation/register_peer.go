@@ -2,74 +2,40 @@ package simulation
 
 import (
 	"fmt"
-	"math/rand"
 
-	"github.com/cosmos/cosmos-sdk/baseapp"
+	"cosmossdk.io/math"
 	"github.com/cosmos/cosmos-sdk/client"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
 
 	"sparkdream/x/federation/keeper"
 	"sparkdream/x/federation/types"
 )
 
+// SimulateMsgRegisterPeer delivers MsgRegisterPeer from a sim account that
+// is a Commons Operations Committee member (the only non-policy signer the
+// handler accepts) and is a NoOp when none is. The peer starts PENDING;
+// only a policy address can activate it (MsgResumePeer).
 func SimulateMsgRegisterPeer(
 	ak types.AuthKeeper,
 	bk types.BankKeeper,
 	k keeper.Keeper,
 	txGen client.TxConfig,
 ) simtypes.Operation {
-	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
-	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		simAccount, _ := simtypes.RandomAcc(r, accs)
-
-		peerID := randomPeerID(r)
-
-		// Check if peer already exists
-		_, err := k.Peers.Get(ctx, peerID)
-		if err == nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgRegisterPeer{}), "peer already exists"), nil, nil
+	return operation(ak, bk, k, txGen, &types.MsgRegisterPeer{}, func(e *simEnv) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
+		msg := &types.MsgRegisterPeer{}
+		signer, ok := pick(e.r, e.opsCommittee())
+		if !ok {
+			return noOp(msg, "no sim account is a Commons Operations Committee member")
 		}
-
-		peer := types.Peer{
-			Id:           peerID,
-			DisplayName:  fmt.Sprintf("Sim Peer %s", peerID[:8]),
-			Type:         randomPeerType(r),
-			Status:       types.PeerStatus_PEER_STATUS_ACTIVE,
-			IbcChannelId: fmt.Sprintf("channel-%d", r.Intn(100)),
-			RegisteredAt: ctx.BlockTime().Unix(),
-			LastActivity: ctx.BlockTime().Unix(),
-			RegisteredBy: simAccount.Address.String(),
-			Metadata:     "simulation registered peer",
+		peerID := randomPeerID(e.r)
+		if existing, found := e.peer(peerID); found && existing.Status != types.PeerStatus_PEER_STATUS_REMOVED {
+			return noOp(msg, "peer id already registered")
 		}
-
-		// Some Spark Dream peers also carry an ICS-20 transfer channel, so the
-		// field rides genesis export/import. Always a well-formed id, which is
-		// all MsgRegisterPeer asks of it (this op writes state directly).
-		if peer.Type == types.PeerType_PEER_TYPE_SPARK_DREAM && r.Intn(2) == 0 {
-			peer.IbcTransferChannelId = fmt.Sprintf("channel-%d", r.Intn(100))
-		}
-
-		if err := k.Peers.Set(ctx, peerID, peer); err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgRegisterPeer{}), "failed to set peer"), nil, nil
-		}
-
-		// Create default policy
-		policy := types.PeerPolicy{
-			PeerId:                       peerID,
-			OutboundContentTypes:         types.DefaultKnownContentTypes,
-			InboundContentTypes:          types.DefaultKnownContentTypes,
-			AllowedIdentities:            []string{types.AllIdentities},
-			MinOutboundTrustLevel:        1,
-			InboundRateLimitPerEpoch:     uint64(r.Intn(200) + 50),
-			OutboundRateLimitPerEpoch:    uint64(r.Intn(200) + 50),
-			AllowReputationQueries:       r.Intn(2) == 1,
-			AcceptReputationAttestations: r.Intn(2) == 1,
-		}
-		if err := k.PeerPolicies.Set(ctx, peerID, policy); err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgRegisterPeer{}), "failed to set policy"), nil, nil
-		}
-
-		return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgRegisterPeer{}), "ok (direct keeper call)"), nil, nil
-	}
+		msg.Authority = signer.Address.String()
+		msg.PeerId = peerID
+		msg.DisplayName = "Sim Peer " + peerID
+		msg.Type = randomPeerType(e.r)
+		msg.Metadata = fmt.Sprintf("simulation peer registered at height %d", e.ctx.BlockHeight())
+		return e.submit(signer, msg, math.ZeroInt())
+	})
 }

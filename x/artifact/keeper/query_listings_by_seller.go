@@ -2,6 +2,8 @@ package keeper
 
 import (
 	"context"
+	"errors"
+	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	"cosmossdk.io/collections"
 	"github.com/cosmos/cosmos-sdk/types/query"
@@ -32,7 +34,10 @@ func (q queryServer) ListingsBySeller(ctx context.Context, req *types.QueryListi
 		for _, a := range addrs[1:] {
 			err = q.k.ListingsBySeller.Walk(ctx, addrRange(a, 0), func(key AddrTokenKey) (bool, error) {
 				if ok, _ := live(key, collections.NoValue{}); ok {
-					l, _ := q.k.Listings.Get(ctx, collections.Join(key.K2(), key.K3()))
+					l, getErr := q.k.Listings.Get(ctx, collections.Join(key.K2(), key.K3()))
+					if getErr != nil && !errors.Is(getErr, collections.ErrNotFound) {
+						sdk.UnwrapSDKContext(ctx).Logger().Error("Get failed", "err", getErr)
+					}
 					listings = append(listings, l)
 				}
 				return false, nil

@@ -6,503 +6,627 @@ import (
 
 	"cosmossdk.io/collections"
 	"cosmossdk.io/math"
+	"github.com/cosmos/cosmos-sdk/baseapp"
+	"github.com/cosmos/cosmos-sdk/client"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/cosmos/cosmos-sdk/types/query"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
+	"github.com/cosmos/cosmos-sdk/x/simulation"
 
+	commontypes "sparkdream/x/common/types"
+	commonstypes "sparkdream/x/commons/types"
+	reptypes "sparkdream/x/rep/types"
 	"sparkdream/x/reveal/keeper"
 	"sparkdream/x/reveal/types"
 )
 
-// findContribution returns a random contribution with the given status, or nil if none exist.
-func findContribution(r *rand.Rand, ctx sdk.Context, k keeper.Keeper, status types.ContributionStatus) (*types.Contribution, uint64, error) {
-	var contributions []struct {
-		id           uint64
-		contribution types.Contribution
-	}
-	err := k.Contribution.Walk(ctx, nil, func(id uint64, contrib types.Contribution) (bool, error) {
-		if contrib.Status == status {
-			contributions = append(contributions, struct {
-				id           uint64
-				contribution types.Contribution
-			}{id, contrib})
-		}
-		return false, nil
-	})
-	if err != nil || len(contributions) == 0 {
-		return nil, 0, err
-	}
-	selected := contributions[r.Intn(len(contributions))]
-	return &selected.contribution, selected.id, nil
+// The reveal simulation delivers real transactions through the message
+// handlers. A delivered tx the handler rejects fails the whole simulation,
+// so every op picks its signer and target from live state, checks the
+// handler's preconditions against live state and params, and returns a
+// NoOp when one cannot hold. Prerequisite state (a proposed contribution, an
+// approved one with a STAKING tranche, a BACKED or REVEALED tranche) is only
+// ever created by delivering the real message first.
+//
+// Approve, Reject and ResolveDispute are signed only by the Commons Council
+// policy address or x/gov. Sim accounts are never made a policy, so those
+// messages reach their handlers the way the spec routes them: a Commons
+// Council member (an Operations Committee member when one sits on the
+// council) submits an x/commons proposal carrying the message, council
+// members vote it through, and anyone executes it once accepted
+// (council.go). Every step is a real x/commons transaction.
+//
+// The x/rep and x/commons side of a handler (membership, trust level, DREAM
+// locks, council seats) is read through those modules' query services, and
+// each message is finally dry-run through its real handler on a throwaway
+// cache of the block state (submit). Only a message that dry-run accepts is
+// delivered. No reveal handler takes SPARK, so only the x/commons proposal
+// fee is ever reserved from a signer's balance.
+
+// simEnv carries the arguments every operation needs.
+type simEnv struct {
+	r      *rand.Rand
+	app    *baseapp.BaseApp
+	ctx    sdk.Context
+	accs   []simtypes.Account
+	txGen  client.TxConfig
+	ak     types.AuthKeeper
+	bk     types.BankKeeper
+	k      keeper.Keeper
+	params types.Params
+
+	repQuery     reptypes.QueryClient
+	commonsQuery commonstypes.QueryClient
+	members      map[string]reptypes.Member
+	tombstones   map[string]bool
 }
 
-// findContributionByContributor returns a random contribution owned by the given contributor.
-func findContributionByContributor(r *rand.Rand, ctx sdk.Context, k keeper.Keeper, contributor string, status types.ContributionStatus) (*types.Contribution, uint64, error) {
-	var contributions []struct {
-		id           uint64
-		contribution types.Contribution
-	}
-	err := k.Contribution.Walk(ctx, nil, func(id uint64, contrib types.Contribution) (bool, error) {
-		if contrib.Contributor == contributor && contrib.Status == status {
-			contributions = append(contributions, struct {
-				id           uint64
-				contribution types.Contribution
-			}{id, contrib})
-		}
-		return false, nil
-	})
-	if err != nil || len(contributions) == 0 {
-		return nil, 0, err
-	}
-	selected := contributions[r.Intn(len(contributions))]
-	return &selected.contribution, selected.id, nil
-}
-
-// findContributionWithTrancheStatus returns a random contribution that has a tranche in the given status.
-func findContributionWithTrancheStatus(r *rand.Rand, ctx sdk.Context, k keeper.Keeper, trancheStatus types.TrancheStatus) (*types.Contribution, uint64, uint32, error) {
-	type match struct {
-		id        uint64
-		contrib   types.Contribution
-		trancheID uint32
-	}
-	var matches []match
-	err := k.Contribution.Walk(ctx, nil, func(id uint64, contrib types.Contribution) (bool, error) {
-		for _, t := range contrib.Tranches {
-			if t.Status == trancheStatus {
-				matches = append(matches, match{id, contrib, t.Id})
-			}
-		}
-		return false, nil
-	})
-	if err != nil || len(matches) == 0 {
-		return nil, 0, 0, err
-	}
-	selected := matches[r.Intn(len(matches))]
-	return &selected.contrib, selected.id, selected.trancheID, nil
-}
-
-// findRevealStake returns a random reveal stake, or nil if none exist.
-func findRevealStake(r *rand.Rand, ctx sdk.Context, k keeper.Keeper) (*types.RevealStake, uint64, error) {
-	var stakes []struct {
-		id    uint64
-		stake types.RevealStake
-	}
-	err := k.RevealStake.Walk(ctx, nil, func(id uint64, stake types.RevealStake) (bool, error) {
-		stakes = append(stakes, struct {
-			id    uint64
-			stake types.RevealStake
-		}{id, stake})
-		return false, nil
-	})
-	if err != nil || len(stakes) == 0 {
-		return nil, 0, err
-	}
-	selected := stakes[r.Intn(len(stakes))]
-	return &selected.stake, selected.id, nil
-}
-
-// findRevealStakeByStaker returns a random stake owned by the given staker.
-func findRevealStakeByStaker(r *rand.Rand, ctx sdk.Context, k keeper.Keeper, staker string) (*types.RevealStake, uint64, error) {
-	var stakes []struct {
-		id    uint64
-		stake types.RevealStake
-	}
-	err := k.RevealStake.Walk(ctx, nil, func(id uint64, stake types.RevealStake) (bool, error) {
-		if stake.Staker == staker {
-			stakes = append(stakes, struct {
-				id    uint64
-				stake types.RevealStake
-			}{id, stake})
-		}
-		return false, nil
-	})
-	if err != nil || len(stakes) == 0 {
-		return nil, 0, err
-	}
-	selected := stakes[r.Intn(len(stakes))]
-	return &selected.stake, selected.id, nil
-}
-
-// findWithdrawableStake returns a random stake whose tranche is in STAKING or BACKED status.
-func findWithdrawableStake(r *rand.Rand, ctx sdk.Context, k keeper.Keeper, staker string) (*types.RevealStake, uint64, error) {
-	var stakes []struct {
-		id    uint64
-		stake types.RevealStake
-	}
-	err := k.RevealStake.Walk(ctx, nil, func(id uint64, stake types.RevealStake) (bool, error) {
-		if stake.Staker != staker {
-			return false, nil
-		}
-		contrib, err := k.Contribution.Get(ctx, stake.ContributionId)
-		if err != nil {
-			return false, nil
-		}
-		if int(stake.TrancheId) >= len(contrib.Tranches) {
-			return false, nil
-		}
-		tranche := contrib.Tranches[stake.TrancheId]
-		if tranche.Status == types.TrancheStatus_TRANCHE_STATUS_STAKING ||
-			tranche.Status == types.TrancheStatus_TRANCHE_STATUS_BACKED {
-			stakes = append(stakes, struct {
-				id    uint64
-				stake types.RevealStake
-			}{id, stake})
-		}
-		return false, nil
-	})
-	if err != nil || len(stakes) == 0 {
-		return nil, 0, err
-	}
-	selected := stakes[r.Intn(len(stakes))]
-	return &selected.stake, selected.id, nil
-}
-
-// getOrCreateContribution creates or finds an existing contribution in PROPOSED status.
-// It directly writes to the keeper stores, bypassing message validation that depends
-// on external keepers (rep, commons) which are not wired during simulation.
-func getOrCreateContribution(r *rand.Rand, ctx sdk.Context, k keeper.Keeper, contributor string) (uint64, error) {
-	// Try to find existing
-	contrib, contribID, err := findContributionByContributor(r, ctx, k, contributor, types.ContributionStatus_CONTRIBUTION_STATUS_PROPOSED)
-	if err == nil && contrib != nil {
-		return contribID, nil
-	}
-
-	params, err := k.Params.Get(ctx)
-	if err != nil {
-		return 0, err
-	}
-
-	contribID, err = k.ContributionSeq.Next(ctx)
-	if err != nil {
-		return 0, err
-	}
-
-	numTranches := r.Intn(3) + 1                                   // 1-3 tranches
-	totalValuation := math.NewInt(int64((r.Intn(40) + 10) * 1000)) // 10k-50k
-	if totalValuation.GT(params.MaxTotalValuation) {
-		totalValuation = params.MaxTotalValuation
-	}
-
-	tranches := makeTranches(r, numTranches, totalValuation)
-	bondAmount := params.BondRate.MulInt(totalValuation).TruncateInt()
-
-	newContrib := types.Contribution{
-		Id:             contribID,
-		Contributor:    contributor,
-		ProjectName:    randomProjectName(r),
-		Description:    "Simulation-generated contribution",
-		Tranches:       tranches,
-		CurrentTranche: 0,
-		TotalValuation: totalValuation,
-		BondAmount:     bondAmount,
-		BondRemaining:  bondAmount,
-		InitialLicense: randomLicense(r),
-		FinalLicense:   "Apache-2.0",
-		Status:         types.ContributionStatus_CONTRIBUTION_STATUS_PROPOSED,
-		CreatedAt:      ctx.BlockHeight(),
-		HoldbackAmount: math.ZeroInt(),
-	}
-
-	if err := k.Contribution.Set(ctx, contribID, newContrib); err != nil {
-		return 0, err
-	}
-	if err := k.ContributionsByStatus.Set(ctx, collections.Join(int32(newContrib.Status), contribID)); err != nil {
-		return 0, err
-	}
-	if err := k.ContributionsByContributor.Set(ctx, collections.Join(contributor, contribID)); err != nil {
-		return 0, err
-	}
-
-	return contribID, nil
-}
-
-// getOrCreateApprovedContribution creates or finds an existing contribution in IN_PROGRESS status
-// with its first tranche in STAKING status.
-func getOrCreateApprovedContribution(r *rand.Rand, ctx sdk.Context, k keeper.Keeper, contributor string) (uint64, error) {
-	// Try to find existing IN_PROGRESS contribution
-	contrib, contribID, err := findContribution(r, ctx, k, types.ContributionStatus_CONTRIBUTION_STATUS_IN_PROGRESS)
-	if err == nil && contrib != nil {
-		return contribID, nil
-	}
-
-	// Create a new one
-	contribID, err = getOrCreateContribution(r, ctx, k, contributor)
-	if err != nil {
-		return 0, err
-	}
-
-	// Approve it (move to IN_PROGRESS)
-	return approveContribution(ctx, k, contribID)
-}
-
-// approveContribution transitions a PROPOSED contribution to IN_PROGRESS.
-func approveContribution(ctx sdk.Context, k keeper.Keeper, contribID uint64) (uint64, error) {
-	contrib, err := k.Contribution.Get(ctx, contribID)
-	if err != nil {
-		return 0, err
-	}
-
-	if contrib.Status != types.ContributionStatus_CONTRIBUTION_STATUS_PROPOSED {
-		return contribID, nil // already approved
-	}
-
-	params, err := k.Params.Get(ctx)
-	if err != nil {
-		return 0, err
-	}
-
-	currentEpoch := ctx.BlockHeight()
-
-	// Remove old status index
-	if err := k.ContributionsByStatus.Remove(ctx, collections.Join(int32(contrib.Status), contribID)); err != nil {
-		return 0, err
-	}
-
-	contrib.Status = types.ContributionStatus_CONTRIBUTION_STATUS_IN_PROGRESS
-	contrib.ApprovedAt = currentEpoch
-
-	// Set tranche 0 to STAKING with deadline
-	if len(contrib.Tranches) > 0 {
-		contrib.Tranches[0].Status = types.TrancheStatus_TRANCHE_STATUS_STAKING
-		contrib.Tranches[0].StakeDeadline = currentEpoch + params.StakeDeadlineEpochs
-	}
-
-	if err := k.Contribution.Set(ctx, contribID, contrib); err != nil {
-		return 0, err
-	}
-	if err := k.ContributionsByStatus.Set(ctx, collections.Join(int32(contrib.Status), contribID)); err != nil {
-		return 0, err
-	}
-
-	return contribID, nil
-}
-
-// getOrCreateBackedContribution creates or finds a contribution with a BACKED tranche
-// (stake threshold met, ready for reveal).
-func getOrCreateBackedContribution(r *rand.Rand, ctx sdk.Context, k keeper.Keeper, contributor string, staker string) (uint64, uint32, error) {
-	// Try to find existing
-	contrib, contribID, trancheID, err := findContributionWithTrancheStatus(r, ctx, k, types.TrancheStatus_TRANCHE_STATUS_BACKED)
-	if err == nil && contrib != nil {
-		return contribID, trancheID, nil
-	}
-
-	// Create an approved contribution
-	contribID, err = getOrCreateApprovedContribution(r, ctx, k, contributor)
-	if err != nil {
-		return 0, 0, err
-	}
-
-	// Stake enough to reach threshold on tranche 0
-	c, err := k.Contribution.Get(ctx, contribID)
-	if err != nil {
-		return 0, 0, err
-	}
-
-	if len(c.Tranches) == 0 {
-		return 0, 0, fmt.Errorf("no tranches")
-	}
-
-	tranche := &c.Tranches[0]
-	if tranche.Status == types.TrancheStatus_TRANCHE_STATUS_BACKED {
-		return contribID, 0, nil
-	}
-
-	// Create a stake that fills the threshold
-	remaining := tranche.StakeThreshold.Sub(tranche.DreamStaked)
-	if remaining.IsPositive() {
-		stakeID, err := k.StakeSeq.Next(ctx)
-		if err != nil {
-			return 0, 0, err
-		}
-
-		stake := types.RevealStake{
-			Id:             stakeID,
-			Staker:         staker,
-			ContributionId: contribID,
-			TrancheId:      0,
-			Amount:         remaining,
-			StakedAt:       ctx.BlockHeight(),
-		}
-
-		if err := k.RevealStake.Set(ctx, stakeID, stake); err != nil {
-			return 0, 0, err
-		}
-		trancheKey := keeper.TrancheKey(contribID, 0)
-		if err := k.StakesByTranche.Set(ctx, collections.Join(trancheKey, stakeID)); err != nil {
-			return 0, 0, err
-		}
-		if err := k.StakesByStaker.Set(ctx, collections.Join(staker, stakeID)); err != nil {
-			return 0, 0, err
-		}
-
+// operation builds a simulation operation: it loads params and hands the
+// body a simEnv. msg is only used to label a NoOp when params are missing.
+func operation(
+	ak types.AuthKeeper, bk types.BankKeeper, k keeper.Keeper, txGen client.TxConfig, msg sdk.Msg,
+	body func(e *simEnv) (simtypes.OperationMsg, []simtypes.FutureOperation, error),
+) simtypes.Operation {
+	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, _ string,
+	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
 		params, err := k.Params.Get(ctx)
 		if err != nil {
-			return 0, 0, err
+			return noOpErr(msg, err)
 		}
+		// Each operation seeds its own source from two draws of the shared
+		// stream, so how much randomness an op uses (which depends on reveal
+		// state) never shifts the draws of the other modules' ops.
+		local := rand.New(rand.NewSource(r.Int63() ^ r.Int63()))
+		e := &simEnv{r: local, app: app, ctx: ctx, accs: accs, txGen: txGen, ak: ak, bk: bk, k: k, params: params}
+		helper := &baseapp.QueryServiceTestHelper{GRPCQueryRouter: app.GRPCQueryRouter(), Ctx: ctx}
+		e.repQuery = reptypes.NewQueryClient(helper)
+		e.commonsQuery = commonstypes.NewQueryClient(helper)
+		return body(e)
+	}
+}
 
-		tranche.DreamStaked = tranche.StakeThreshold
-		tranche.Status = types.TrancheStatus_TRANCHE_STATUS_BACKED
-		tranche.BackedAt = ctx.BlockHeight()
-		tranche.RevealDeadline = ctx.BlockHeight() + params.RevealDeadlineEpochs
+// noOp returns a skipped operation for msg's type.
+func noOp(msg sdk.Msg, reason string) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
+	return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), reason), nil, nil
+}
 
-		if err := k.Contribution.Set(ctx, contribID, c); err != nil {
-			return 0, 0, err
+// noOpErr returns a skipped operation together with a store error, which
+// fails the simulation: a failing store read is a real bug.
+func noOpErr(msg sdk.Msg, err error) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
+	return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), err.Error()), nil, err
+}
+
+// dryRun runs msg through its real handler on a throwaway cache of the block
+// state and returns the handler's error. A panicking handler is reported as
+// an error (and never delivered).
+func (e *simEnv) dryRun(msg sdk.Msg) (err error) {
+	handler := e.app.MsgServiceRouter().Handler(msg)
+	if handler == nil {
+		return fmt.Errorf("no handler for %s", sdk.MsgTypeURL(msg))
+	}
+	cacheCtx, _ := e.ctx.CacheContext()
+	defer func() {
+		if p := recover(); p != nil {
+			err = fmt.Errorf("handler panicked: %v", p)
+		}
+	}()
+	_, err = handler(cacheCtx, msg)
+	return err
+}
+
+// input builds the delivery input for msg signed by acc.
+func (e *simEnv) input(acc simtypes.Account, msg sdk.Msg, spent sdk.Coins) simulation.OperationInput {
+	return simulation.OperationInput{
+		R:               e.r,
+		App:             e.app,
+		TxGen:           e.txGen,
+		Cdc:             nil,
+		Msg:             msg,
+		CoinsSpentInMsg: spent,
+		Context:         e.ctx,
+		SimAccount:      acc,
+		AccountKeeper:   e.ak,
+		Bankkeeper:      e.bk,
+		ModuleName:      types.ModuleName,
+	}
+}
+
+// deliver signs msg with acc and delivers it as a real transaction with a
+// random fee. No reveal handler takes SPARK, so nothing is reserved.
+func (e *simEnv) deliver(acc simtypes.Account, msg sdk.Msg) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
+	return simulation.GenAndDeliverTxWithRandFees(e.input(acc, msg, sdk.NewCoins()))
+}
+
+// submit dry-runs msg and delivers it when the handler accepts it. The
+// signer must not be a tombstoned (migrated-away) address, which the ante
+// handler refuses.
+func (e *simEnv) submit(acc simtypes.Account, msg sdk.Msg) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
+	if e.tombstoned(acc.Address.String()) {
+		return noOp(msg, "signer is a tombstoned address")
+	}
+	if err := e.dryRun(msg); err != nil {
+		return noOp(msg, "handler would reject: "+err.Error())
+	}
+	return e.deliver(acc, msg)
+}
+
+// ensure delivers a prerequisite message from acc (dry-run first). It
+// returns false when the handler would refuse it.
+func (e *simEnv) ensure(acc simtypes.Account, msg sdk.Msg) (bool, error) {
+	if e.tombstoned(acc.Address.String()) {
+		return false, nil
+	}
+	if e.dryRun(msg) != nil {
+		return false, nil
+	}
+	opMsg, _, err := e.deliver(acc, msg)
+	if err != nil {
+		return false, err
+	}
+	e.members = nil // a delivered tx may have moved DREAM locks
+	return opMsg.OK, nil
+}
+
+// height is the block height, the clock every reveal deadline uses.
+func (e *simEnv) height() int64 {
+	return e.ctx.BlockHeight()
+}
+
+// --- Selection helpers ---
+
+// pick returns a random element of items.
+func pick[T any](r *rand.Rand, items []T) (T, bool) {
+	var zero T
+	if len(items) == 0 {
+		return zero, false
+	}
+	return items[r.Intn(len(items))], true
+}
+
+// accountsWhere returns the sim accounts accepted by keep.
+func accountsWhere(accs []simtypes.Account, keep func(simtypes.Account) bool) []simtypes.Account {
+	var out []simtypes.Account
+	for _, acc := range accs {
+		if keep(acc) {
+			out = append(out, acc)
 		}
 	}
-
-	return contribID, 0, nil
+	return out
 }
 
-// getOrCreateRevealedContribution creates or finds a contribution with a REVEALED tranche.
-func getOrCreateRevealedContribution(r *rand.Rand, ctx sdk.Context, k keeper.Keeper, contributor string, staker string) (uint64, uint32, error) {
-	// Try to find existing
-	contrib, contribID, trancheID, err := findContributionWithTrancheStatus(r, ctx, k, types.TrancheStatus_TRANCHE_STATUS_REVEALED)
-	if err == nil && contrib != nil {
-		return contribID, trancheID, nil
+// getAccount returns the sim account for addr.
+func getAccount(accs []simtypes.Account, addr string) (simtypes.Account, bool) {
+	for _, acc := range accs {
+		if acc.Address.String() == addr {
+			return acc, true
+		}
 	}
-
-	// Create a backed contribution and reveal it
-	contribID, trancheID, err = getOrCreateBackedContribution(r, ctx, k, contributor, staker)
-	if err != nil {
-		return 0, 0, err
-	}
-
-	c, err := k.Contribution.Get(ctx, contribID)
-	if err != nil {
-		return 0, 0, err
-	}
-
-	if int(trancheID) >= len(c.Tranches) {
-		return 0, 0, fmt.Errorf("tranche %d out of range", trancheID)
-	}
-	tranche := &c.Tranches[trancheID]
-
-	if tranche.Status == types.TrancheStatus_TRANCHE_STATUS_REVEALED {
-		return contribID, trancheID, nil
-	}
-
-	params, err := k.Params.Get(ctx)
-	if err != nil {
-		return 0, 0, err
-	}
-
-	tranche.CodeUri = randomURI(r, "code")
-	tranche.DocsUri = randomURI(r, "docs")
-	tranche.CommitHash = randomCommitHash(r)
-	tranche.Status = types.TrancheStatus_TRANCHE_STATUS_REVEALED
-	tranche.RevealedAt = ctx.BlockHeight()
-	tranche.VerificationDeadline = ctx.BlockHeight() + params.VerificationPeriodEpochs
-
-	if err := k.Contribution.Set(ctx, contribID, c); err != nil {
-		return 0, 0, err
-	}
-
-	return contribID, trancheID, nil
+	return simtypes.Account{}, false
 }
 
-// getOrCreateDisputedContribution creates or finds a contribution with a DISPUTED tranche.
-func getOrCreateDisputedContribution(r *rand.Rand, ctx sdk.Context, k keeper.Keeper, contributor string, staker string) (uint64, uint32, error) {
-	// Try to find existing
-	contrib, contribID, trancheID, err := findContributionWithTrancheStatus(r, ctx, k, types.TrancheStatus_TRANCHE_STATUS_DISPUTED)
-	if err == nil && contrib != nil {
-		return contribID, trancheID, nil
+// account returns the live (not tombstoned) sim account for addr.
+func (e *simEnv) account(addr string) (simtypes.Account, bool) {
+	acc, ok := getAccount(e.accs, addr)
+	if !ok || e.tombstoned(addr) {
+		return simtypes.Account{}, false
 	}
-
-	// Create a revealed contribution and mark it disputed
-	contribID, trancheID, err = getOrCreateRevealedContribution(r, ctx, k, contributor, staker)
-	if err != nil {
-		return 0, 0, err
-	}
-
-	c, err := k.Contribution.Get(ctx, contribID)
-	if err != nil {
-		return 0, 0, err
-	}
-
-	if int(trancheID) >= len(c.Tranches) {
-		return 0, 0, fmt.Errorf("tranche %d out of range", trancheID)
-	}
-
-	c.Tranches[trancheID].Status = types.TrancheStatus_TRANCHE_STATUS_DISPUTED
-
-	if err := k.Contribution.Set(ctx, contribID, c); err != nil {
-		return 0, 0, err
-	}
-
-	return contribID, trancheID, nil
+	return acc, true
 }
 
-// createRevealStakeForTranche creates a stake on a specific tranche, writing directly to store.
-func createRevealStakeForTranche(ctx sdk.Context, k keeper.Keeper, staker string, contribID uint64, trancheID uint32, amount math.Int) (uint64, error) {
-	stakeID, err := k.StakeSeq.Next(ctx)
-	if err != nil {
-		return 0, err
-	}
+// --- x/rep views ---
 
-	stake := types.RevealStake{
-		Id:             stakeID,
-		Staker:         staker,
-		ContributionId: contribID,
-		TrancheId:      trancheID,
-		Amount:         amount,
-		StakedAt:       ctx.BlockHeight(),
+// loadMembers reads every x/rep member once per operation.
+func (e *simEnv) loadMembers() map[string]reptypes.Member {
+	if e.members != nil {
+		return e.members
 	}
-
-	if err := k.RevealStake.Set(ctx, stakeID, stake); err != nil {
-		return 0, err
+	e.members = map[string]reptypes.Member{}
+	var next []byte
+	for {
+		res, err := e.repQuery.ListMember(e.ctx, &reptypes.QueryAllMemberRequest{
+			Pagination: &query.PageRequest{Key: next, Limit: 500},
+		})
+		if err != nil {
+			return e.members
+		}
+		for _, m := range res.Member {
+			e.members[m.Address] = m
+		}
+		if res.Pagination == nil || len(res.Pagination.NextKey) == 0 {
+			return e.members
+		}
+		next = res.Pagination.NextKey
 	}
-	trancheKey := keeper.TrancheKey(contribID, trancheID)
-	if err := k.StakesByTranche.Set(ctx, collections.Join(trancheKey, stakeID)); err != nil {
-		return 0, err
-	}
-	if err := k.StakesByStaker.Set(ctx, collections.Join(staker, stakeID)); err != nil {
-		return 0, err
-	}
-
-	return stakeID, nil
 }
 
-// makeTranches builds tranches whose stake thresholds sum to totalValuation.
-func makeTranches(r *rand.Rand, numTranches int, totalValuation math.Int) []types.RevealTranche {
-	tranches := make([]types.RevealTranche, numTranches)
-	remaining := totalValuation
+// trustAtLeast reports whether addr is an active member at or above level.
+func (e *simEnv) trustAtLeast(addr string, level reptypes.TrustLevel) bool {
+	m, ok := e.loadMembers()[addr]
+	return ok && m.Status == reptypes.MemberStatus_MEMBER_STATUS_ACTIVE && m.TrustLevel >= level
+}
 
-	for i := 0; i < numTranches; i++ {
-		var threshold math.Int
-		if i == numTranches-1 {
-			threshold = remaining
-		} else {
-			// Distribute roughly evenly with some randomness
-			base := remaining.QuoRaw(int64(numTranches - i))
-			jitter := base.QuoRaw(4) // +/- 25%
-			if jitter.IsPositive() && jitter.Int64() > 0 {
-				threshold = base.SubRaw(jitter.Int64()).AddRaw(int64(r.Intn(int(jitter.Int64() * 2))))
-			} else {
-				threshold = base
-			}
-			if !threshold.IsPositive() {
-				threshold = math.OneInt()
-			}
-			if threshold.GT(remaining) {
-				threshold = remaining
+// unlockedDream returns an active member's DREAM not locked in stakes (before
+// pending decay, which the dry-run applies).
+func (e *simEnv) unlockedDream(addr string) math.Int {
+	m, ok := e.loadMembers()[addr]
+	if !ok || m.Status != reptypes.MemberStatus_MEMBER_STATUS_ACTIVE || m.DreamBalance == nil {
+		return math.ZeroInt()
+	}
+	if m.StakedDream == nil {
+		return *m.DreamBalance
+	}
+	return m.DreamBalance.Sub(*m.StakedDream)
+}
+
+// tombstoned reports whether addr migrated away (x/rep refuses most
+// messages from it at the ante handler).
+func (e *simEnv) tombstoned(addr string) bool {
+	if t, ok := e.tombstones[addr]; ok {
+		return t
+	}
+	res, err := e.repQuery.Canonical(e.ctx, &reptypes.QueryCanonicalRequest{Address: addr})
+	t := err == nil && res.Tombstoned
+	if e.tombstones == nil {
+		e.tombstones = map[string]bool{}
+	}
+	e.tombstones[addr] = t
+	return t
+}
+
+// canonical resolves addr through x/rep's alias contract (addr itself when
+// the query fails).
+func (e *simEnv) canonical(addr string) string {
+	res, err := e.repQuery.Canonical(e.ctx, &reptypes.QueryCanonicalRequest{Address: addr})
+	if err != nil || res.Canonical == "" {
+		return addr
+	}
+	return res.Canonical
+}
+
+// sameMember approximates x/rep's SameMember for sim accounts: equal
+// addresses, or two addresses that resolve to the same canonical member.
+// The dry-run applies the exact alias contract.
+func (e *simEnv) sameMember(a, b string) bool {
+	if a == b {
+		return true
+	}
+	return e.canonical(a) == e.canonical(b)
+}
+
+// stakerLevel is the trust level the spec requires of a staker
+// (docs/x-reveal-spec.md, Access Control). The handler only checks active
+// membership; the simulation follows the spec.
+const stakerLevel = reptypes.TrustLevel_TRUST_LEVEL_PROVISIONAL
+
+// --- Reveal state views ---
+
+// trancheRef is a tranche of a contribution.
+type trancheRef struct {
+	c types.Contribution
+	t types.RevealTranche
+}
+
+// contributionsWhere returns the contributions accepted by keep.
+func (e *simEnv) contributionsWhere(keep func(types.Contribution) bool) ([]types.Contribution, error) {
+	var out []types.Contribution
+	err := e.k.Contribution.Walk(e.ctx, nil, func(_ uint64, c types.Contribution) (bool, error) {
+		if keep(c) {
+			out = append(out, c)
+		}
+		return false, nil
+	})
+	return out, err
+}
+
+// contribution returns a contribution by id.
+func (e *simEnv) contribution(id uint64) (types.Contribution, bool) {
+	c, err := e.k.Contribution.Get(e.ctx, id)
+	return c, err == nil
+}
+
+// tranchesIn returns the tranches in status of IN_PROGRESS contributions
+// that keep accepts.
+func (e *simEnv) tranchesIn(status types.TrancheStatus, keep func(trancheRef) bool) ([]trancheRef, error) {
+	var out []trancheRef
+	err := e.k.Contribution.Walk(e.ctx, nil, func(_ uint64, c types.Contribution) (bool, error) {
+		if c.Status != types.ContributionStatus_CONTRIBUTION_STATUS_IN_PROGRESS {
+			return false, nil
+		}
+		for _, t := range c.Tranches {
+			ref := trancheRef{c: c, t: t}
+			if t.Status == status && keep(ref) {
+				out = append(out, ref)
 			}
 		}
+		return false, nil
+	})
+	return out, err
+}
 
-		tranches[i] = types.RevealTranche{
-			Id:             uint32(i),
-			Name:           randomTrancheName(r),
-			Description:    fmt.Sprintf("Tranche %d of simulation contribution", i),
-			Components:     randomComponents(r),
+// trancheStakes returns the stakes on a tranche (StakesByTranche index).
+func (e *simEnv) trancheStakes(contribID uint64, trancheID uint32) ([]types.RevealStake, error) {
+	var out []types.RevealStake
+	err := e.k.StakesByTranche.Walk(e.ctx,
+		collections.NewPrefixedPairRange[string, uint64](keeper.TrancheKey(contribID, trancheID)),
+		func(key collections.Pair[string, uint64]) (bool, error) {
+			s, err := e.k.RevealStake.Get(e.ctx, key.K2())
+			if err == nil {
+				out = append(out, s)
+			}
+			return false, nil
+		})
+	return out, err
+}
+
+// hasVoted reports whether voter already voted on a tranche (read errors
+// count as voted, so the op skips the voter).
+func (e *simEnv) hasVoted(contribID uint64, trancheID uint32, voter string) bool {
+	has, err := e.k.Vote.Has(e.ctx, keeper.VoteKey(contribID, trancheID, voter))
+	return err != nil || has
+}
+
+// inCooldown mirrors Propose's cooldown scan: a contribution of the
+// contributor whose proposal_eligible_at lies in the future.
+func (e *simEnv) inCooldown(contributor string) bool {
+	blocked := false
+	err := e.k.ContributionsByContributor.Walk(e.ctx,
+		collections.NewPrefixedPairRange[string, uint64](contributor),
+		func(key collections.Pair[string, uint64]) (bool, error) {
+			c, ok := e.contribution(key.K2())
+			if ok && c.ProposalEligibleAt > 0 && e.height() < c.ProposalEligibleAt {
+				blocked = true
+				return true, nil
+			}
+			return false, nil
+		})
+	return err != nil || blocked
+}
+
+// --- Contribution lifecycle prerequisites ---
+
+// proposeMsg builds a MsgPropose for acc that passes the handler's local
+// checks: an active member at min_proposer_trust_level with no proposal
+// cooldown, 1-3 tranches whose thresholds are whole multiples of
+// min_stake_amount (so stakes can always fill them exactly), an open final
+// license, and the bond (bond_rate * total) unlocked. A non-empty reason
+// means acc cannot propose now.
+func (e *simEnv) proposeMsg(acc simtypes.Account) (*types.MsgPropose, string) {
+	addr := acc.Address.String()
+	p := e.params
+	msg := &types.MsgPropose{Contributor: addr}
+	level := reptypes.TrustLevel(commontypes.Saturate[int32](p.MinProposerTrustLevel))
+	if !e.trustAtLeast(addr, level) {
+		return msg, "not an active member at the proposer trust level"
+	}
+	if e.inCooldown(addr) {
+		return msg, "contributor is in a proposal cooldown"
+	}
+	unit := p.MinStakeAmount
+	if !unit.IsPositive() {
+		return msg, "min_stake_amount is not positive"
+	}
+	maxTranches := min(3, commontypes.Saturate[int](p.MaxTranches))
+	if maxTranches < 1 {
+		return msg, "max_tranches is zero"
+	}
+	n := 1 + e.r.Intn(maxTranches)
+	total := math.ZeroInt()
+	for i := range n {
+		threshold := unit.MulRaw(int64(3 + e.r.Intn(6)))
+		if threshold.GT(p.MaxTrancheValuation) {
+			threshold = p.MaxTrancheValuation
+		}
+		if !threshold.IsPositive() {
+			return msg, "max_tranche_valuation is not positive"
+		}
+		total = total.Add(threshold)
+		msg.Tranches = append(msg.Tranches, types.TrancheDef{
+			Name:           randomTrancheName(e.r),
+			Description:    fmt.Sprintf("Tranche %d of a simulated contribution", i),
+			Components:     randomComponents(e.r),
 			StakeThreshold: threshold,
-			DreamStaked:    math.ZeroInt(),
-			PreviewUri:     randomURI(r, "preview"),
-			Status:         types.TrancheStatus_TRANCHE_STATUS_LOCKED,
-		}
-
-		remaining = remaining.Sub(threshold)
+			PreviewUri:     randomURI(e.r, "preview"),
+		})
 	}
-
-	return tranches
+	if total.GT(p.MaxTotalValuation) {
+		return msg, "valuation above max_total_valuation"
+	}
+	bond := p.BondRate.MulInt(total).TruncateInt()
+	if !bond.IsPositive() || e.unlockedDream(addr).LT(bond) {
+		return msg, "contributor cannot lock the bond"
+	}
+	msg.ProjectName = randomProjectName(e.r)
+	msg.Description = "Simulated progressive open-source contribution"
+	msg.TotalValuation = total
+	msg.InitialLicense = randomInitialLicense(e.r)
+	msg.FinalLicense = randomFinalLicense(e.r)
+	return msg, ""
 }
+
+// ensureProposed delivers a MsgPropose from a random eligible member and
+// returns the new contribution.
+func (e *simEnv) ensureProposed() (types.Contribution, bool, error) {
+	candidates := accountsWhere(e.accs, func(a simtypes.Account) bool {
+		if e.tombstoned(a.Address.String()) {
+			return false
+		}
+		_, reason := e.proposeMsg(a)
+		return reason == ""
+	})
+	acc, ok := pick(e.r, candidates)
+	if !ok {
+		return types.Contribution{}, false, nil
+	}
+	msg, reason := e.proposeMsg(acc)
+	if reason != "" {
+		return types.Contribution{}, false, nil
+	}
+	ok, err := e.ensure(acc, msg)
+	if err != nil || !ok {
+		return types.Contribution{}, false, err
+	}
+	next, err := e.k.ContributionSeq.Peek(e.ctx)
+	if err != nil || next == 0 {
+		return types.Contribution{}, false, err
+	}
+	c, found := e.contribution(next - 1)
+	return c, found, nil
+}
+
+// stakeAmount picks a stake for a tranche with remaining room: a whole
+// number (one or two) of min_stake_amount, or the whole remainder when what
+// would be left over is below min_stake_amount (it could then never be
+// filled). ok is false when the remainder is itself below the minimum.
+func (e *simEnv) stakeAmount(remaining math.Int) (math.Int, bool) {
+	unit := e.params.MinStakeAmount
+	if !unit.IsPositive() || remaining.LT(unit) {
+		return math.Int{}, false
+	}
+	amount := unit.MulRaw(int64(1 + e.r.Intn(2)))
+	if amount.GT(remaining) {
+		amount = unit
+	}
+	if rest := remaining.Sub(amount); rest.IsPositive() && rest.LT(unit) {
+		amount = remaining
+	}
+	return amount, true
+}
+
+// stakeMsgFor returns a stake on a STAKING tranche from a random eligible
+// staker: a live member at the staker trust level, not the contributor,
+// with the amount unlocked.
+func (e *simEnv) stakeMsgFor(ref trancheRef) (simtypes.Account, *types.MsgStake, bool) {
+	amount, ok := e.stakeAmount(ref.t.StakeThreshold.Sub(ref.t.DreamStaked))
+	if !ok {
+		return simtypes.Account{}, nil, false
+	}
+	stakers := accountsWhere(e.accs, func(a simtypes.Account) bool {
+		addr := a.Address.String()
+		return !e.tombstoned(addr) && e.trustAtLeast(addr, stakerLevel) &&
+			!e.sameMember(addr, ref.c.Contributor) && e.unlockedDream(addr).GTE(amount)
+	})
+	acc, ok := pick(e.r, stakers)
+	if !ok {
+		return simtypes.Account{}, nil, false
+	}
+	return acc, &types.MsgStake{
+		Staker:         acc.Address.String(),
+		ContributionId: ref.c.Id,
+		TrancheId:      ref.t.Id,
+		Amount:         amount,
+	}, true
+}
+
+// stakingTranches returns the STAKING tranches some member could stake on.
+func (e *simEnv) stakingTranches() ([]trancheRef, error) {
+	return e.tranchesIn(types.TrancheStatus_TRANCHE_STATUS_STAKING, func(ref trancheRef) bool {
+		_, _, ok := e.stakeMsgFor(ref)
+		return ok
+	})
+}
+
+// ensureStaking returns the STAKING tranches some member could stake on.
+// When there are none it advances the approval of a proposed contribution
+// one step through the Commons Council (proposing one first when none is
+// waiting), and an approval executed now opens tranche 0 for staking.
+func (e *simEnv) ensureStaking() ([]trancheRef, error) {
+	refs, err := e.stakingTranches()
+	if err != nil || len(refs) > 0 {
+		return refs, err
+	}
+	if _, _, err := e.advanceCouncil(kindApprove); err != nil {
+		return nil, err
+	}
+	return e.stakingTranches()
+}
+
+// ensureBacked fills a STAKING tranche (from ensureStaking) by delivering
+// stakes from different members until it is BACKED, and returns it.
+func (e *simEnv) ensureBacked() (trancheRef, bool, error) {
+	refs, err := e.ensureStaking()
+	if err != nil {
+		return trancheRef{}, false, err
+	}
+	ref, ok := pick(e.r, refs)
+	if !ok {
+		return trancheRef{}, false, nil
+	}
+	for range 12 {
+		c, found := e.contribution(ref.c.Id)
+		if !found || int(ref.t.Id) >= len(c.Tranches) {
+			return trancheRef{}, false, nil
+		}
+		ref = trancheRef{c: c, t: c.Tranches[ref.t.Id]}
+		if ref.t.Status == types.TrancheStatus_TRANCHE_STATUS_BACKED {
+			return ref, true, nil
+		}
+		if ref.t.Status != types.TrancheStatus_TRANCHE_STATUS_STAKING {
+			return trancheRef{}, false, nil
+		}
+		acc, msg, ok := e.stakeMsgFor(ref)
+		if !ok {
+			return trancheRef{}, false, nil
+		}
+		if ok, err := e.ensure(acc, msg); err != nil || !ok {
+			return trancheRef{}, false, err
+		}
+	}
+	return trancheRef{}, false, nil
+}
+
+// revealMsgFor returns the contributor's reveal of a BACKED tranche, when
+// the contributor is a live sim account.
+func (e *simEnv) revealMsgFor(ref trancheRef) (simtypes.Account, *types.MsgReveal, bool) {
+	acc, ok := e.account(ref.c.Contributor)
+	if !ok {
+		return simtypes.Account{}, nil, false
+	}
+	return acc, &types.MsgReveal{
+		Contributor:    acc.Address.String(),
+		ContributionId: ref.c.Id,
+		TrancheId:      ref.t.Id,
+		CodeUri:        randomURI(e.r, "code"),
+		DocsUri:        randomURI(e.r, "docs"),
+		CommitHash:     randomCommitHash(e.r),
+	}, true
+}
+
+// backedTranches returns the BACKED tranches whose contributor can reveal.
+func (e *simEnv) backedTranches() ([]trancheRef, error) {
+	return e.tranchesIn(types.TrancheStatus_TRANCHE_STATUS_BACKED, func(ref trancheRef) bool {
+		_, ok := e.account(ref.c.Contributor)
+		return ok
+	})
+}
+
+// ensureRevealed reveals a BACKED tranche (filling a STAKING one first when
+// none is BACKED) and returns it.
+func (e *simEnv) ensureRevealed() (trancheRef, bool, error) {
+	refs, err := e.backedTranches()
+	if err != nil {
+		return trancheRef{}, false, err
+	}
+	ref, ok := pick(e.r, refs)
+	if !ok {
+		if ref, ok, err = e.ensureBacked(); err != nil || !ok {
+			return trancheRef{}, false, err
+		}
+	}
+	acc, msg, ok := e.revealMsgFor(ref)
+	if !ok {
+		return trancheRef{}, false, nil
+	}
+	if ok, err := e.ensure(acc, msg); err != nil || !ok {
+		return trancheRef{}, false, err
+	}
+	c, found := e.contribution(ref.c.Id)
+	if !found || int(ref.t.Id) >= len(c.Tranches) {
+		return trancheRef{}, false, nil
+	}
+	return trancheRef{c: c, t: c.Tranches[ref.t.Id]}, true, nil
+}
+
+// --- Random data generators ---
 
 // randomProjectName generates a random project name.
 func randomProjectName(r *rand.Rand) string {
@@ -524,9 +648,17 @@ func randomTrancheName(r *rand.Rand) string {
 	return names[r.Intn(len(names))]
 }
 
-// randomLicense returns a random open-source license.
-func randomLicense(r *rand.Rand) string {
-	licenses := []string{"MIT", "Apache-2.0", "GPL-3.0", "BSD-3-Clause", "MPL-2.0"}
+// randomInitialLicense returns the terms while tranches are being revealed
+// (free text, the contributor's choice).
+func randomInitialLicense(r *rand.Rand) string {
+	licenses := []string{"Proprietary", "BUSL-1.1", "MIT", "Apache-2.0", "All rights reserved"}
+	return licenses[r.Intn(len(licenses))]
+}
+
+// randomFinalLicense returns an open license revealed code may end under
+// (x/common IsOpenCodeLicense).
+func randomFinalLicense(r *rand.Rand) string {
+	licenses := []string{commontypes.LicenseCC0, "Unlicense", "0BSD", "MIT", "Apache-2.0", "BSD-3-Clause"}
 	return licenses[r.Intn(len(licenses))]
 }
 
@@ -538,7 +670,7 @@ func randomComponents(r *rand.Rand) []string {
 	}
 	n := r.Intn(3) + 1
 	components := make([]string, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		components[i] = pool[r.Intn(len(pool))]
 	}
 	return components
@@ -569,26 +701,14 @@ func randomDisputeVerdict(r *rand.Rand) types.DisputeVerdict {
 	return verdicts[r.Intn(len(verdicts))]
 }
 
-// getAccountForAddress finds a sim account that matches the given address string.
-func getAccountForAddress(addr string, accs []simtypes.Account) (simtypes.Account, bool) {
-	for _, acc := range accs {
-		if acc.Address.String() == addr {
-			return acc, true
-		}
+// randomReason returns a short council or contributor reason.
+func randomReason(r *rand.Rand) string {
+	reasons := []string{
+		"Scope no longer matches the preview",
+		"Delivered code needs another pass on the storage layer",
+		"Council reviewed the revealed tranche",
+		"Contributor withdrew the reveal plan",
+		"Duplicate of an existing community project",
 	}
-	return simtypes.Account{}, false
-}
-
-// pickDifferentAccount returns a random sim account that is NOT the given address.
-func pickDifferentAccount(r *rand.Rand, accs []simtypes.Account, exclude string) (simtypes.Account, bool) {
-	filtered := make([]simtypes.Account, 0, len(accs))
-	for _, acc := range accs {
-		if acc.Address.String() != exclude {
-			filtered = append(filtered, acc)
-		}
-	}
-	if len(filtered) == 0 {
-		return simtypes.Account{}, false
-	}
-	return filtered[r.Intn(len(filtered))], true
+	return reasons[r.Intn(len(reasons))]
 }

@@ -3,6 +3,7 @@ package keeper
 import (
 	"context"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/rep/types"
 
 	"google.golang.org/grpc/codes"
@@ -17,7 +18,7 @@ func (q queryServer) InterimsByType(ctx context.Context, req *types.QueryInterim
 	// Collect first interim matching the specified type (proto response is singular)
 	var foundInterim *types.Interim
 	err := q.k.Interim.Walk(ctx, nil, func(id uint64, interim types.Interim) (bool, error) {
-		if uint64(interim.Type) == req.InterimType {
+		if commontypes.Saturate[uint64](interim.Type) == req.InterimType {
 			foundInterim = &interim
 			return true, nil // stop iteration
 		}
@@ -30,7 +31,7 @@ func (q queryServer) InterimsByType(ctx context.Context, req *types.QueryInterim
 	if foundInterim != nil {
 		return &types.QueryInterimsByTypeResponse{
 			InterimId: foundInterim.Id,
-			Status:    uint64(foundInterim.Status),
+			Status:    commontypes.Saturate[uint64](foundInterim.Status),
 			Deadline:  foundInterim.Deadline,
 		}, nil
 	}

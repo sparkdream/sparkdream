@@ -434,4 +434,60 @@ func TestCompleteContribution_ProjectCreationFails(t *testing.T) {
 	contrib, _ := f.keeper.Contribution.Get(f.ctx, contribID)
 	require.Equal(t, types.ContributionStatus_CONTRIBUTION_STATUS_COMPLETED, contrib.Status)
 	require.False(t, contrib.TransitionedToProject, "should not be marked as transitioned since project creation failed")
+
+	// REV-07: the failed transition is retried by the EndBlocker. Still
+	// failing, it is re-queued with a longer delay; once x/rep accepts it,
+	// the contribution records its project.
+	f.advanceBlockHeight(100)
+	require.NoError(t, f.keeper.ProcessDeadlines(f.ctx))
+	attempts, err := f.keeper.ProjectTransitionAttempts.Get(f.ctx, contribID)
+	require.NoError(t, err)
+	require.Equal(t, uint32(1), attempts)
+
+	f.repKeeper.createProjectFn = func(_ context.Context, _ sdk.AccAddress, _, _ string, _ []string, _ reptypes.ProjectCategory, council string, _, _ math.Int) (uint64, error) {
+		require.Equal(t, "commons", council)
+		return 42, nil
+	}
+	f.advanceBlockHeight(200)
+	require.NoError(t, f.keeper.ProcessDeadlines(f.ctx))
+	contrib, _ = f.keeper.Contribution.Get(f.ctx, contribID)
+	require.True(t, contrib.TransitionedToProject)
+	require.Equal(t, uint64(42), contrib.ProjectId)
+	has, err := f.keeper.ProjectTransitionAttempts.Has(f.ctx, contribID)
+	require.NoError(t, err)
+	require.False(t, has)
+}
+
+// REP-E-03: the reveal-timeout slash burns the contributor's bond straight
+// out of the lock (BurnLockedDREAM) instead of unlocking it and burning the
+// free balance in a second call, which left the lock released whenever the
+// burn failed.
+func TestProcessDeadlines_RevealTimeoutBurnsOutOfLock(t *testing.T) {
+	f := initTestFixture(t)
+	contribID := f.createSingleTrancheProposal(t, 1000)
+	f.approveContribution(t, contribID)
+	f.stakeOnTranche(t, contribID, 0, f.staker, 1000)
+	f.advanceBlockHeight(15)
+	contrib, err := f.keeper.Contribution.Get(f.ctx, contribID)
+	require.NoError(t, err)
+	bond := contrib.BondRemaining
+	require.True(t, bond.IsPositive())
+
+	var burnedLocked math.Int
+	f.repKeeper.burnLockedDREAMFn = func(_ context.Context, addr sdk.AccAddress, amount math.Int) error {
+		require.True(t, addr.Equals(f.contributorAddr))
+		burnedLocked = amount
+		return nil
+	}
+	f.repKeeper.unlockDREAMFn = func(_ context.Context, addr sdk.AccAddress, _ math.Int) error {
+		require.False(t, addr.Equals(f.contributorAddr), "the bond is not unlocked before the slash")
+		return nil
+	}
+	f.repKeeper.burnDREAMFn = func(_ context.Context, addr sdk.AccAddress, _ math.Int) error {
+		require.False(t, addr.Equals(f.contributorAddr), "no free-balance burn of the bond")
+		return nil
+	}
+
+	require.NoError(t, f.keeper.ProcessDeadlines(f.ctx))
+	require.True(t, bond.Equal(burnedLocked), "burned %s of %s", burnedLocked, bond)
 }

@@ -21,6 +21,9 @@ CHAIN_ID="sparkdream"
 # standalone — without it BOND_DENOM is empty and every --fees flag becomes
 # a bare amount with no denom, which the CLI rejects as an invalid coin.
 source "$SCRIPT_DIR/../lib/denoms.sh"
+# TEST 5 approves a large budget through a Technical Operations Committee
+# proposal (the committee policy is the approver).
+source "$SCRIPT_DIR/../lib/ops_committee.sh"
 
 ALICE_ADDR=$($BINARY keys show alice -a --keyring-backend test)
 BOB_ADDR=$($BINARY keys show bob -a --keyring-backend test)
@@ -176,6 +179,7 @@ LARGE_BUDGET=$((THRESHOLD_UDREAM + 1000000)) # threshold + 1 DREAM to keep
                                               # the request well above the cap
                                               # but still a sane sim value.
 PID=$(propose_project "approval-test-large" "Technical Council" "$LARGE_BUDGET" alice)
+LARGE_PID=$PID
 if [ -z "$PID" ]; then
     echo "  Failed to create project (the proposal itself doesn't trip the cap)"
     record_result "TEST 2: large budget rejected" "FAIL"
@@ -257,6 +261,34 @@ else
         echo "  Expected rejection but tx succeeded — bob should not be able to approve"
         record_result "TEST 4: non-committee member rejected" "FAIL"
     fi
+fi
+
+# ========================================================================
+# TEST 5 — Large budget approved through a committee proposal
+# ========================================================================
+# The project TEST 2 left PROPOSED is approved by the Technical Operations
+# Committee's policy address: MsgApproveProjectBudget is on the committee's
+# AllowedMessages and x/rep accepts the council / committee policy for any
+# budget.
+echo "--- TEST 5: large budget approved via Technical Operations Committee proposal ---"
+
+if [ -z "$LARGE_PID" ]; then
+    echo "  No large-budget project from TEST 2"
+    record_result "TEST 5: large budget via committee" "FAIL"
+elif OPS_COMMITTEE_NAME="Technical Operations Committee" ops_committee_exec \
+        "$(jq -nc --arg id "$LARGE_PID" --arg b "$LARGE_BUDGET" \
+            '{"@type":"/sparkdream.rep.v1.MsgApproveProjectBudget",project_id:$id,approved_budget:$b,approved_spark:"0"}')" approver; then
+    STATUS=$($BINARY query rep get-project "$LARGE_PID" --output json 2>/dev/null | jq -r '.project.status // empty')
+    if [ "$STATUS" == "PROJECT_STATUS_ACTIVE" ]; then
+        echo "  Project #$LARGE_PID approved by committee proposal #$OPS_COMMITTEE_PROPOSAL_ID"
+        record_result "TEST 5: large budget via committee" "PASS"
+    else
+        echo "  Proposal executed but project status is $STATUS"
+        record_result "TEST 5: large budget via committee" "FAIL"
+    fi
+else
+    echo "  Committee approval failed: $OPS_COMMITTEE_ERROR"
+    record_result "TEST 5: large budget via committee" "FAIL"
 fi
 
 # ========================================================================

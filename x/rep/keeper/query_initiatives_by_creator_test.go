@@ -28,8 +28,12 @@ func createInitiativeForCreator(k keeper.Keeper, ctx context.Context, id uint64,
 		Status:      status,
 		CreatedAt:   1000,
 	}
-	_ = k.Initiative.Set(ctx, id, initiative)
-	_ = k.InitiativeSeq.Set(ctx, id)
+	if err := k.Initiative.Set(ctx, id, initiative); err != nil {
+		panic(err)
+	}
+	if err := k.InitiativeSeq.Set(ctx, id); err != nil {
+		panic(err)
+	}
 	return initiative
 }
 
@@ -56,7 +60,7 @@ func TestInitiativesByCreator(t *testing.T) {
 			setup: func(f *fixture) {
 				ini := createInitiativeForCreator(f.keeper, f.ctx, 1, "creator1", types.InitiativeStatus_INITIATIVE_STATUS_ASSIGNED)
 				ini.Assignee = "worker1"
-				_ = f.keeper.Initiative.Set(f.ctx, ini.Id, ini)
+				require.NoError(t, f.keeper.Initiative.Set(f.ctx, ini.Id, ini))
 			},
 			request: &types.QueryInitiativesByCreatorRequest{Creator: "worker1"},
 			wantIDs: nil,

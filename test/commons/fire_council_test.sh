@@ -11,6 +11,8 @@ BINARY="sparkdreamd"
 CHAIN_ID="sparkdream"
 ALICE_ADDR=$($BINARY keys show alice -a --keyring-backend test)
 BOB_ADDR=$($BINARY keys show bob -a --keyring-backend test)
+DAVE_ADDR=$($BINARY keys show dave -a --keyring-backend test)
+EVE_ADDR=$($BINARY keys show eve -a --keyring-backend test)
 
 # Gov Address
 GOV_ADDR=$($BINARY query auth module-account gov --output json | jq -r '.account.base_account.address // .account.value.address')
@@ -27,17 +29,18 @@ echo "Current Member Count: $MEMBER_COUNT"
 
 # --- 1. ATTACK: Validators Vote to Fire the Council ---
 echo "--- PHASE 1: THE CONSTITUTIONAL COUP ---"
-echo "Alice submits EXPEDITED proposal to WIPE membership and install Bob as Dictator..."
+echo "Alice submits EXPEDITED proposal to WIPE membership and install Bob, Dave and Eve..."
 
-# We use MsgRenewGroup signed by x/gov
+# We use MsgRenewGroup signed by x/gov. The Commons Council's min_members (3)
+# binds x/gov too, so the replacement council needs three seats.
 echo '{
   "messages": [
     {
       "@type": "/sparkdream.commons.v1.MsgRenewGroup",
       "authority": "'$GOV_ADDR'",
       "group_name": "Commons Council",
-      "new_members": ["'$BOB_ADDR'"],
-      "new_member_weights": ["1"]
+      "new_members": ["'$BOB_ADDR'", "'$DAVE_ADDR'", "'$EVE_ADDR'"],
+      "new_member_weights": ["1", "1", "1"]
     }
   ],
   "deposit": "100000000'"$BOND_DENOM"'",
@@ -152,13 +155,15 @@ fi
 # Check Membership via commons query
 NEW_MEMBERS=$($BINARY query commons get-council-members "Commons Council" --output json)
 NEW_MEMBER_COUNT=$(echo $NEW_MEMBERS | jq '.members | length')
-NEW_MEMBER_ADDR=$(echo $NEW_MEMBERS | jq -r '.members[0].address')
+NEW_MEMBER_ADDRS=$(echo $NEW_MEMBERS | jq -r '.members[].address' | sort | tr '\n' ' ')
+EXPECTED_ADDRS=$(printf '%s\n' "$BOB_ADDR" "$DAVE_ADDR" "$EVE_ADDR" | sort | tr '\n' ' ')
 
 echo "New Member Count: $NEW_MEMBER_COUNT"
-echo "New Member Addr:  $NEW_MEMBER_ADDR"
+echo "New Member Addrs: $NEW_MEMBER_ADDRS"
 
-if [ "$NEW_MEMBER_COUNT" == "1" ] && [ "$NEW_MEMBER_ADDR" == "$BOB_ADDR" ]; then
-    echo "GRAND SUCCESS: The Council has been fired. Bob is the new Dictator."
+if [ "$NEW_MEMBER_COUNT" == "3" ] && [ "$NEW_MEMBER_ADDRS" == "$EXPECTED_ADDRS" ]; then
+    echo "GRAND SUCCESS: The Council has been fired. Bob, Dave and Eve replace it."
 else
     echo "FAILURE: Membership was not updated correctly."
+    exit 1
 fi

@@ -171,6 +171,10 @@ var (
 	ErrAppealNotFound          = errors.Register(ModuleName, 1950, "gov action appeal not found")
 	ErrAppealNotPending        = errors.Register(ModuleName, 1951, "gov action appeal is not pending")
 	ErrInvalidAppealVerdict    = errors.Register(ModuleName, 1952, "invalid appeal verdict")
+	// ErrAppealNotAllowed: MsgAppealGovAction only takes an appeal of a member
+	// action (warning, demotion, zeroing) by the affected member, within
+	// DefaultAppealDeadline of the report resolution that applied it.
+	ErrAppealNotAllowed = errors.Register(ModuleName, 1957, "appeal not allowed")
 
 	// Content challenge errors
 	ErrContentChallengeNotFound  = errors.Register(ModuleName, 2001, "content challenge not found")
@@ -238,4 +242,24 @@ var (
 	ErrZkKeyCooldown              = errors.Register(ModuleName, 2340, "zk public key may be changed once per season")
 	ErrZkKeyPending               = errors.Register(ModuleName, 2341, "a zk public key change is already waiting for activation")
 	ErrVotingPeriodExceedsZkDelay = errors.Register(ModuleName, 2342, "zk_key_activation_delay cannot be lowered below a live council voting period")
+
+	// Economic integrity errors (interims, escrow, tags, params).
+	ErrInterimTypeSystemOnly  = errors.Register(ModuleName, 2401, "interim type is created by the module only")
+	ErrInterimDeadlineInvalid = errors.Register(ModuleName, 2402, "interim deadline must be in the future")
+	ErrInterimNeedsApproval   = errors.Register(ModuleName, 2403, "member-created interims are paid only through Operations Committee approval")
+	ErrSelfApproval           = errors.Register(ModuleName, 2404, "an assignee cannot approve their own interim")
+	ErrParamGovernanceOnly    = errors.Register(ModuleName, 2405, "parameter can only be changed by governance")
+	ErrSelfAward              = errors.Register(ModuleName, 2406, "a budget group member cannot award to their own post")
+	ErrTagCreationRateLimited = errors.Register(ModuleName, 2407, "tag creation limit for this epoch reached")
+	ErrContentNotFound        = errors.Register(ModuleName, 2408, "content not found")
+	ErrTooManyStakes          = errors.Register(ModuleName, 2409, "member holds the maximum number of stake records")
+	ErrTooManyVouchedTags     = errors.Register(ModuleName, 2410, "too many vouched tags")
+	ErrTooMuchEvidence        = errors.Register(ModuleName, 2411, "too many or too long evidence entries")
+	ErrParamImmutable         = errors.Register(ModuleName, 2412, "parameter is fixed at genesis and changes only with a chain upgrade")
+	ErrTagBudgetAwarderCap    = errors.Register(ModuleName, 2413, "awarder reached their per-epoch award cap for this tag budget")
+	ErrInvalidJurorVote       = errors.Register(ModuleName, 2414, "juror vote must be UPHOLD or REJECT with confidence in [0, 1]")
+	ErrProjectHasOpenWork     = errors.Register(ModuleName, 2415, "project still has open initiatives or active challenges")
+	ErrNotInitiativeReview    = errors.Register(ModuleName, 2416, "expert witnesses can be called only on a pending initiative jury review")
+	ErrTooManyExpertWitnesses = errors.Register(ModuleName, 2417, "jury review already has the maximum number of expert witnesses")
+	ErrExpertIneligible       = errors.Register(ModuleName, 2418, "expert witness must be an active ESTABLISHED+ member with reputation in the initiative's tags and no stake in the dispute")
 )

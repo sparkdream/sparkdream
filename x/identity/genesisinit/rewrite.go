@@ -26,6 +26,12 @@ import (
 // to this list requires a spec update.
 var legacyDenomLiterals = []string{"uspark", "udream", "dream", "stake"}
 
+// LegacyDenomLiterals returns a copy of the legacy denom literal set (for
+// the genesis validate command).
+func LegacyDenomLiterals() []string {
+	return append([]string(nil), legacyDenomLiterals...)
+}
+
 // RewriteSentinels walks the genesis app_state and replaces the bond/dream
 // denom sentinels with the values from app_state.identity.identity. It also
 // strips legacy bank denom_metadata entries before bank's own InitGenesis
@@ -43,24 +49,23 @@ func RewriteSentinels(cdc codec.Codec, rawAppState json.RawMessage) (json.RawMes
 	if err := json.Unmarshal(rawAppState, &as); err != nil {
 		return nil, types.ChainIdentity{}, fmt.Errorf("unmarshal app_state: %w", err)
 	}
+	// Identity is mandatory (docs/x-identity-implementation-decisions.md):
+	// a genesis without it fails here, at the rewrite boundary, with the
+	// actual cause. Without this check the SDK skips identity's InitGenesis
+	// for a missing section and the chain panics later inside an unrelated
+	// module's first denom read.
 	idRaw, ok := as[types.ModuleName]
-	if !ok {
-		// V1 DEVIATION FROM SPEC: when identity is absent from genesis, the
-		// rewrite hook becomes a no-op so legacy single-chain deployments
-		// (with hardcoded `uspark`/`dream` literals throughout) keep working
-		// during the migration. Federated deployments MUST provide identity
-		// or the chain starts with no sentinel substitution and a broken
-		// genesis. See docs/x-identity-implementation-decisions.md.
-		return rawAppState, types.ChainIdentity{}, nil
+	if !ok || len(idRaw) == 0 || string(idRaw) == "null" {
+		return nil, types.ChainIdentity{}, fmt.Errorf(
+			"app_state.%s is missing: every chain must declare its identity (run `sparkdreamd genesis identity init`)", types.ModuleName)
 	}
 	var idGS types.GenesisState
 	if err := cdc.UnmarshalJSON(idRaw, &idGS); err != nil {
 		return nil, types.ChainIdentity{}, fmt.Errorf("unmarshal identity genesis: %w", err)
 	}
-	// Allow an empty identity entry to also act as a no-op (same logic as
-	// the missing-key branch above).
 	if idGS.Identity.BondDenom == "" && idGS.Identity.DreamDenom == "" {
-		return rawAppState, types.ChainIdentity{}, nil
+		return nil, types.ChainIdentity{}, fmt.Errorf(
+			"app_state.%s.identity is empty: every chain must declare its identity (run `sparkdreamd genesis identity init`)", types.ModuleName)
 	}
 	if err := idGS.Identity.Validate(); err != nil {
 		return nil, types.ChainIdentity{}, fmt.Errorf("invalid chain identity (sentinel rewrite rejects early): %w", err)
@@ -98,10 +103,19 @@ func RewriteSentinels(cdc codec.Codec, rawAppState json.RawMessage) (json.RawMes
 	return out, idGS.Identity, nil
 }
 
-// purgeLegacyBankMetadata removes legacy-denom DenomMetadata entries from
-// app_state.bank.denom_metadata. Conservative: only the literal set
-// {uspark, udream, dream, stake} is removed, and an entry whose Base equals
-// the chain's chosen denom is preserved (degenerate test config support).
+// purgeLegacyBankMetadata cleans app_state.bank.denom_metadata before bank's
+// InitGenesis loads it:
+//
+//   - legacy-denom entries (the literal set {uspark, udream, dream, stake},
+//     unless one is the chain's own denom) are removed;
+//   - native-denom entries are removed too, so x/identity's canonical
+//     metadata is the only record of the two native denoms. Bank's
+//     InitGenesis runs after identity's and writes through its raw keeper,
+//     bypassing the identity guard, so a native entry left here would
+//     overwrite the seal at block 0 (IDN-06). An entry that is not canonical
+//     (a ticker, name or decimals that differ from the identity) is refused
+//     rather than dropped: it means the operator's genesis disagrees with
+//     its own identity.
 func purgeLegacyBankMetadata(as map[string]json.RawMessage, id types.ChainIdentity) error {
 	bankRaw, ok := as["bank"]
 	if !ok {
@@ -129,6 +143,12 @@ func purgeLegacyBankMetadata(as map[string]json.RawMessage, id types.ChainIdenti
 	kept := entries[:0]
 	for _, m := range entries {
 		if _, isLegacy := legacy[m.Base]; isLegacy {
+			continue
+		}
+		if want, native := id.CanonicalMetadataFor(m.Base); native {
+			if reason := types.CheckSealedMetadata(m, want); reason != "" {
+				return fmt.Errorf("app_state.bank.denom_metadata entry for native denom %q disagrees with the chain identity (%s); remove it: x/identity writes the canonical metadata", m.Base, reason)
+			}
 			continue
 		}
 		kept = append(kept, m)

@@ -103,11 +103,13 @@ expect_tx_failure() {
 # ========================================================================
 echo "--- PART 0: FUND BOUNTY CREATOR WITH SPARK ---"
 
-# Bounties escrow SPARK (uspark). bounty_creator needs enough for multiple bounties.
-# Send 200 SPARK from alice to bounty_creator
+# Bounties escrow SPARK (uspark). The minimum bounty, and the minimum
+# increase, is 50 SPARK (MIN_BOUNTY), and the suite escrows about 450 SPARK in
+# total. Send 1000 SPARK from alice to bounty_creator.
+MIN_BOUNTY=50000000  # 50 SPARK, x/forum MinBountyAmount
 TX_RES=$($BINARY tx bank send \
     alice $BOUNTY_CREATOR_ADDR \
-    200000000${BOND_DENOM} \
+    1000000000${BOND_DENOM} \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
     --fees 5000${BOND_DENOM} \
@@ -202,7 +204,7 @@ echo ""
 echo "--- PART 3: CREATE BOUNTY ---"
 
 if [ -n "$BOUNTY_THREAD_ID" ]; then
-    BOUNTY_AMOUNT="500"  # 500 uspark (min is 50 uspark)
+    BOUNTY_AMOUNT="60000000"  # 60 SPARK (min is 50 SPARK)
     BOUNTY_DURATION="1000"  # 1000 seconds
 
     echo "Creating bounty of $BOUNTY_AMOUNT uspark on thread $BOUNTY_THREAD_ID..."
@@ -316,7 +318,7 @@ echo ""
 echo "--- PART 6: INCREASE BOUNTY ---"
 
 if [ -n "$BOUNTY_ID" ]; then
-    INCREASE_AMOUNT="250"  # 250 uspark additional
+    INCREASE_AMOUNT="$MIN_BOUNTY"  # 50 SPARK additional (the minimum increase)
 
     echo "Increasing bounty $BOUNTY_ID by $INCREASE_AMOUNT uspark..."
 
@@ -595,7 +597,7 @@ if [ -n "$EXPIRY_THREAD_ID" ]; then
     # Create bounty with short duration
     TX_RES=$($BINARY tx forum create-bounty \
         "$EXPIRY_THREAD_ID" \
-        "100" \
+        "$MIN_BOUNTY" \
         "500" \
         --from bounty_creator \
         --chain-id $CHAIN_ID \
@@ -665,7 +667,7 @@ if [ -n "$TXHASH" ] && [ "$TXHASH" != "null" ]; then
             # Create bounty
             TX_RES=$($BINARY tx forum create-bounty \
                 "$CANCEL_THREAD_ID" \
-                "200" \
+                "$MIN_BOUNTY" \
                 "100" \
                 --from bounty_creator \
                 --chain-id $CHAIN_ID \
@@ -790,7 +792,7 @@ if [ -n "$ERROR_THREAD_ID" ]; then
     # 14a: Non-thread-author tries to create bounty
     TX_RES=$($BINARY tx forum create-bounty \
         "$ERROR_THREAD_ID" \
-        "500" \
+        "$MIN_BOUNTY" \
         "1000" \
         --from poster1 \
         --chain-id $CHAIN_ID \
@@ -804,10 +806,10 @@ if [ -n "$ERROR_THREAD_ID" ]; then
         ERR_CREATE_NON_AUTHOR_RESULT="FAIL"
     fi
 
-    # 14b: Amount below minimum (50 uspark)
+    # 14b: Amount below minimum (50 SPARK): one base unit short
     TX_RES=$($BINARY tx forum create-bounty \
         "$ERROR_THREAD_ID" \
-        "10" \
+        "$((MIN_BOUNTY - 1))" \
         "1000" \
         --from bounty_creator \
         --chain-id $CHAIN_ID \
@@ -824,7 +826,7 @@ if [ -n "$ERROR_THREAD_ID" ]; then
     # 14c: Duration exceeds maximum (>2592000 seconds = 30 days)
     TX_RES=$($BINARY tx forum create-bounty \
         "$ERROR_THREAD_ID" \
-        "500" \
+        "$MIN_BOUNTY" \
         "9999999" \
         --from bounty_creator \
         --chain-id $CHAIN_ID \
@@ -841,7 +843,7 @@ if [ -n "$ERROR_THREAD_ID" ]; then
     # 14d: Create valid bounty, then try duplicate on same thread
     TX_RES=$($BINARY tx forum create-bounty \
         "$ERROR_THREAD_ID" \
-        "500" \
+        "$MIN_BOUNTY" \
         "1000" \
         --from bounty_creator \
         --chain-id $CHAIN_ID \
@@ -870,7 +872,7 @@ if [ -n "$ERROR_THREAD_ID" ]; then
         # Try duplicate bounty on same thread
         TX_RES=$($BINARY tx forum create-bounty \
             "$ERROR_THREAD_ID" \
-            "500" \
+            "$MIN_BOUNTY" \
             "1000" \
             --from bounty_creator \
             --chain-id $CHAIN_ID \
@@ -905,7 +907,7 @@ if [ -n "$ERROR_BOUNTY_ID" ]; then
     # 15a: Non-creator tries to increase
     TX_RES=$($BINARY tx forum increase-bounty \
         "$ERROR_BOUNTY_ID" \
-        "100" \
+        "$MIN_BOUNTY" \
         --from poster1 \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
@@ -925,7 +927,7 @@ if [ -n "$BOUNTY_ID" ]; then
     # 15b: Increase bounty that's not active (AWARDED from Part 9)
     TX_RES=$($BINARY tx forum increase-bounty \
         "$BOUNTY_ID" \
-        "100" \
+        "$MIN_BOUNTY" \
         --from bounty_creator \
         --chain-id $CHAIN_ID \
         --keyring-backend test \
@@ -939,6 +941,23 @@ if [ -n "$BOUNTY_ID" ]; then
     fi
 else
     ERR_INCREASE_NOT_ACTIVE_RESULT="FAIL"
+fi
+
+ERR_INCREASE_MIN_AMOUNT_RESULT="FAIL"
+if [ -n "$ERROR_BOUNTY_ID" ]; then
+    # 15c: Increase below the 50 SPARK minimum (one base unit short)
+    TX_RES=$($BINARY tx forum increase-bounty \
+        "$ERROR_BOUNTY_ID" \
+        "$((MIN_BOUNTY - 1))" \
+        --from bounty_creator \
+        --chain-id $CHAIN_ID \
+        --keyring-backend test \
+        --fees 5000${BOND_DENOM} \
+        -y \
+        --output json 2>&1)
+    if expect_tx_failure "Increase bounty below minimum" "minimum" "$TX_RES"; then
+        ERR_INCREASE_MIN_AMOUNT_RESULT="PASS"
+    fi
 fi
 
 if [ -z "$ERROR_BOUNTY_ID" ] && [ -z "$BOUNTY_ID" ]; then
@@ -1283,7 +1302,7 @@ if [ -n "$TXHASH" ] && [ "$TXHASH" != "null" ]; then
 fi
 
 if [ -n "$BAL_THREAD_ID" ]; then
-    BAL_BOUNTY_AMOUNT="100000"  # 100000 uspark (large enough to see fee vs gas)
+    BAL_BOUNTY_AMOUNT="100000000"  # 100 SPARK (above the 50 SPARK minimum)
 
     # Record balance before creating bounty
     BALANCE_PRE=$($BINARY query bank balances $BOUNTY_CREATOR_ADDR --output json 2>&1 | jq -r --arg denom "$BOND_DENOM" '.balances[] | select(.denom==$denom) | .amount')
@@ -1348,11 +1367,11 @@ if [ -n "$BAL_THREAD_ID" ]; then
                     echo "  Balance after cancel-bounty: $BALANCE_POST_CANCEL uspark"
 
                     # Refund = bounty_amount * (100 - fee_percent) / 100
-                    # Default fee is 10%, so refund = 90000, fee burned = 10000
+                    # Default fee is 10%, so refund = 90 SPARK, fee burned = 10 SPARK
                     CANCEL_RECOVERY=$((BALANCE_POST_CANCEL - BALANCE_POST_ESCROW))
-                    EXPECTED_REFUND=$((BAL_BOUNTY_AMOUNT * 90 / 100))  # 90000
+                    EXPECTED_REFUND=$((BAL_BOUNTY_AMOUNT * 90 / 100))  # 90000000
                     CANCEL_GAS=5000
-                    EXPECTED_RECOVERY=$((EXPECTED_REFUND - CANCEL_GAS))  # 85000
+                    EXPECTED_RECOVERY=$((EXPECTED_REFUND - CANCEL_GAS))  # 89995000
 
                     echo "  Recovery: $CANCEL_RECOVERY uspark (expected ~$EXPECTED_RECOVERY = $EXPECTED_REFUND refund - $CANCEL_GAS gas)"
 
@@ -1366,7 +1385,7 @@ if [ -n "$BAL_THREAD_ID" ]; then
 
                     # Net loss = original balance - final balance
                     NET_LOSS=$((BALANCE_PRE - BALANCE_POST_CANCEL))
-                    EXPECTED_FEE=$((BAL_BOUNTY_AMOUNT * 10 / 100))  # 10000
+                    EXPECTED_FEE=$((BAL_BOUNTY_AMOUNT * 10 / 100))  # 10000000
                     echo "  Net loss: $NET_LOSS uspark (expected ~$((EXPECTED_FEE + 10000)) = $EXPECTED_FEE fee + gas for 2 txs)"
                 else
                     echo "  Failed to cancel bounty for balance verification"
@@ -1398,11 +1417,14 @@ echo ""
 echo "--- PART 20: MULTI-WINNER EQUAL SPLIT (largest-remainder distribution) ---"
 
 # The escrow is divided equally among ALL accepted replies at award-bounty.
-# 1001 uspark over 2 winners does not divide evenly: the integer remainder is
-# handed out one unit at a time in assignment order, so the first assigned
-# winner gets 501 and the second gets 500 - the full escrow is paid out, no
-# dust stays in the module account and the creator gets no refund.
-SPLIT_BOUNTY_AMOUNT="1001"
+# 50000001 uspark (the 50 SPARK minimum plus one unit) over 2 winners does not
+# divide evenly: the integer remainder is handed out one unit at a time in
+# assignment order, so the first assigned winner gets 25000001 and the second
+# gets 25000000 - the full escrow is paid out, no dust stays in the module
+# account and the creator gets no refund.
+SPLIT_BOUNTY_AMOUNT="$((MIN_BOUNTY + 1))"
+SPLIT_SHARE_1=$(( (MIN_BOUNTY + 1) / 2 + 1 ))  # 25000001
+SPLIT_SHARE_2=$(( (MIN_BOUNTY + 1) / 2 ))      # 25000000
 SPLIT_PAYOUT_RESULT="FAIL"
 SPLIT_AUDIT_RESULT="FAIL"
 
@@ -1540,25 +1562,25 @@ if [ -n "$SPLIT_REPLY1_ID" ] && [ -n "$SPLIT_REPLY2_ID" ]; then
                 P1_PAYOUT=$((P1_BAL_POST - P1_BAL_PRE))
                 P2_PAYOUT=$((P2_BAL_POST - P2_BAL_PRE))
 
-                # 1001 / 2 = 500 rem 1: first assigned winner gets the extra unit
-                echo "  poster1 payout: $P1_PAYOUT uspark (expected 501)"
-                echo "  poster2 payout: $P2_PAYOUT uspark (expected 500)"
-                if [ "$P1_PAYOUT" == "501" ] && [ "$P2_PAYOUT" == "500" ]; then
+                # 50000001 / 2 = 25000000 rem 1: first assigned winner gets the extra unit
+                echo "  poster1 payout: $P1_PAYOUT uspark (expected $SPLIT_SHARE_1)"
+                echo "  poster2 payout: $P2_PAYOUT uspark (expected $SPLIT_SHARE_2)"
+                if [ "$P1_PAYOUT" == "$SPLIT_SHARE_1" ] && [ "$P2_PAYOUT" == "$SPLIT_SHARE_2" ]; then
                     echo "  PASS: Escrow split equally, remainder to first assigned, full payout"
                     SPLIT_PAYOUT_RESULT="PASS"
                 else
-                    echo "  FAIL: Unexpected split (expected 501/500)"
+                    echo "  FAIL: Unexpected split (expected $SPLIT_SHARE_1/$SPLIT_SHARE_2)"
                 fi
 
                 # Paid shares must be persisted on the awards for the audit trail
                 BOUNTY_INFO=$($BINARY query forum get-bounty $SPLIT_BOUNTY_ID --output json 2>&1)
                 AWARD1_AMOUNT=$(echo "$BOUNTY_INFO" | jq -r '.bounty.awards[0].amount // ""')
                 AWARD2_AMOUNT=$(echo "$BOUNTY_INFO" | jq -r '.bounty.awards[1].amount // ""')
-                if [ "$AWARD1_AMOUNT" == "501" ] && [ "$AWARD2_AMOUNT" == "500" ]; then
-                    echo "  PASS: Paid shares persisted on awards (501 / 500)"
+                if [ "$AWARD1_AMOUNT" == "$SPLIT_SHARE_1" ] && [ "$AWARD2_AMOUNT" == "$SPLIT_SHARE_2" ]; then
+                    echo "  PASS: Paid shares persisted on awards ($SPLIT_SHARE_1 / $SPLIT_SHARE_2)"
                     SPLIT_AUDIT_RESULT="PASS"
                 else
-                    echo "  FAIL: Persisted award amounts: '$AWARD1_AMOUNT' / '$AWARD2_AMOUNT' (expected 501 / 500)"
+                    echo "  FAIL: Persisted award amounts: '$AWARD1_AMOUNT' / '$AWARD2_AMOUNT' (expected $SPLIT_SHARE_1 / $SPLIT_SHARE_2)"
                 fi
             else
                 echo "  Failed to award split bounty"
@@ -1606,6 +1628,7 @@ echo ""
 echo "  Error Paths - IncreaseBounty:"
 echo "    Non-creator:                   $ERR_INCREASE_NON_CREATOR_RESULT"
 echo "    Not active (AWARDED):          $ERR_INCREASE_NOT_ACTIVE_RESULT"
+echo "    Below minimum (50 SPARK):      $ERR_INCREASE_MIN_AMOUNT_RESULT"
 echo ""
 echo "  Error Paths - AwardBounty:"
 echo "    No assignments:                $ERR_AWARD_NO_ASSIGNS_RESULT"
@@ -1656,6 +1679,7 @@ ALL_RESULTS=(
     "$ERR_CREATE_DUPLICATE_RESULT"
     "$ERR_INCREASE_NON_CREATOR_RESULT"
     "$ERR_INCREASE_NOT_ACTIVE_RESULT"
+    "$ERR_INCREASE_MIN_AMOUNT_RESULT"
     "$ERR_AWARD_NO_ASSIGNS_RESULT"
     "$ERR_AWARD_NON_CREATOR_RESULT"
     "$ERR_AWARD_NOT_ACTIVE_RESULT"

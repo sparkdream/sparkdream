@@ -31,6 +31,12 @@ type DistrKeeper interface {
 	GetCommunityPool(ctx context.Context) (sdk.DecCoins, error)
 }
 
+// IdentityKeeper resolves the chain's bond denom, the only denom x/split
+// distributes. Late-wired from app.go.
+type IdentityKeeper interface {
+	BondDenom(ctx context.Context) string
+}
+
 // ParamSubspace defines the expected Subspace interface for parameters.
 type ParamSubspace interface {
 	Get(context.Context, []byte, interface{})

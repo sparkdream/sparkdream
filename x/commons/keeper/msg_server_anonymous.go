@@ -2,6 +2,7 @@ package keeper
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"sparkdream/x/commons/types"
@@ -11,6 +12,10 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 )
+
+// MaxAnonymousProposalsPerCouncilPerDay caps fee-free anonymous proposals
+// per council per UTC day.
+const MaxAnonymousProposalsPerCouncilPerDay uint64 = 20
 
 // SubmitAnonymousProposal creates a proposal through the x/shield module.
 // The proposer must be the shield module account address. Unlike regular proposals,
@@ -30,6 +35,10 @@ func (k msgServer) SubmitAnonymousProposal(goCtx context.Context, msg *types.Msg
 			msg.Proposer, shieldModuleAddr.String())
 	}
 
+	if err := checkProposalSize(msg.Messages, msg.Metadata); err != nil {
+		return nil, err
+	}
+
 	// 1. Validate policy address exists
 	councilName, err := k.PolicyToName.Get(ctx, msg.PolicyAddress)
 	if err != nil {
@@ -43,7 +52,7 @@ func (k msgServer) SubmitAnonymousProposal(goCtx context.Context, msg *types.Msg
 	}
 
 	// 3. Check term expiration (anonymous proposals cannot bypass this)
-	if ctx.BlockTime().Unix() > extGroup.CurrentTermExpiration {
+	if isTermExpired(extGroup, ctx.BlockTime().Unix()) {
 		return nil, errorsmod.Wrapf(
 			sdkerrors.ErrUnauthorized,
 			"TERM EXPIRED: Group %s expired on %d. Anonymous proposals not accepted.",
@@ -83,6 +92,26 @@ func (k msgServer) SubmitAnonymousProposal(goCtx context.Context, msg *types.Msg
 		}
 	}
 
+	// 4b. Rate limit: anonymous proposals pay no proposal fee, so each
+	// council accepts only a few per UTC day.
+	day := ctx.BlockTime().Unix() / 86400
+	countKey := collections.Join(councilName, day)
+	count, err := k.AnonProposalCount.Get(ctx, countKey)
+	if err != nil && !errors.Is(err, collections.ErrNotFound) {
+		return nil, err
+	}
+	if count >= MaxAnonymousProposalsPerCouncilPerDay {
+		return nil, errorsmod.Wrapf(types.ErrRateLimitExceeded,
+			"council %s already received %d anonymous proposals today", councilName, count)
+	}
+	if err := k.AnonProposalCount.Set(ctx, countKey, count+1); err != nil {
+		return nil, err
+	}
+	// Drop yesterday's counter so the map stays bounded.
+	if err := k.AnonProposalCount.Remove(ctx, collections.Join(councilName, day-1)); err != nil {
+		return nil, err
+	}
+
 	// 5. Get decision policy for timing
 	decPolicy, err := k.DecisionPolicies.Get(ctx, msg.PolicyAddress)
 	if err != nil {
@@ -116,7 +145,15 @@ func (k msgServer) SubmitAnonymousProposal(goCtx context.Context, msg *types.Msg
 		ExecutionTime:  now + decPolicy.VotingPeriod + decPolicy.MinExecutionPeriod,
 	}
 
+	// Secret ballot: snapshot the voters (as for MsgSubmitProposal).
+	if err := k.setupBallot(ctx, extGroup, &proposal, msg.SecretBallot); err != nil {
+		return nil, err
+	}
+
 	if err := k.Proposals.Set(ctx, proposalID, proposal); err != nil {
+		return nil, err
+	}
+	if err := k.enqueueProposal(ctx, proposal); err != nil {
 		return nil, err
 	}
 
@@ -135,14 +172,14 @@ func (k msgServer) SubmitAnonymousProposal(goCtx context.Context, msg *types.Msg
 	return &types.MsgSubmitAnonymousProposalResponse{ProposalId: proposalID}, nil
 }
 
-// AnonymousVoteProposal is disabled: every council and committee votes
-// openly. An anonymous vote proves only that the voter is in the x/rep trust
-// tree, not that they sit on the council, and a member could cast it on top
-// of their open vote (the two cannot be linked), so counting it let any rep
-// member move a council's tally. A secret ballot for the Commons Council
-// would need a tree of that council's members and no open votes; until one
-// exists the message is refused.
+// AnonymousVoteProposal counts one secret-ballot vote. It runs only inside
+// x/shield's MsgShieldedExec: the proof (PROOF_DOMAIN_GROUP_TREE) shows the
+// voter is in the proposal's voter snapshot (ShieldMerkleRoot), and its
+// nullifier, scoped to the proposal, lets each member vote once. Secret
+// ballots refuse open votes, so no member can vote both ways.
 func (k msgServer) AnonymousVoteProposal(goCtx context.Context, msg *types.MsgAnonymousVoteProposal) (*types.MsgAnonymousVoteProposalResponse, error) {
+	ctx := sdk.UnwrapSDKContext(goCtx)
+
 	shieldModuleAddr := k.authKeeper.GetModuleAddress("shield")
 	if shieldModuleAddr == nil {
 		return nil, errorsmod.Wrap(sdkerrors.ErrLogic, "shield module address not found")
@@ -152,5 +189,52 @@ func (k msgServer) AnonymousVoteProposal(goCtx context.Context, msg *types.MsgAn
 			"only the shield module account can cast anonymous votes (got %s, want %s)",
 			msg.Voter, shieldModuleAddr.String())
 	}
-	return nil, types.ErrAnonymousVotingDisabled
+
+	proposal, err := k.Proposals.Get(ctx, msg.ProposalId)
+	if err != nil {
+		return nil, errorsmod.Wrapf(sdkerrors.ErrNotFound, "proposal %d not found", msg.ProposalId)
+	}
+	if !proposal.SecretBallot {
+		return nil, errorsmod.Wrapf(types.ErrBallotMode, "proposal %d is voted openly", msg.ProposalId)
+	}
+	if proposal.Status != types.ProposalStatus_PROPOSAL_STATUS_SUBMITTED {
+		return nil, errorsmod.Wrapf(sdkerrors.ErrInvalidRequest, "proposal %d is not open for voting (status: %s)", msg.ProposalId, proposal.Status)
+	}
+	if ctx.BlockTime().Unix() > proposal.VotingDeadline {
+		return nil, errorsmod.Wrapf(sdkerrors.ErrInvalidRequest, "voting period has ended for proposal %d", msg.ProposalId)
+	}
+
+	tally, err := k.AnonVoteTallies.Get(ctx, msg.ProposalId)
+	if err != nil && !errors.Is(err, collections.ErrNotFound) {
+		return nil, err
+	}
+	switch msg.Option {
+	case types.VoteOption_VOTE_OPTION_YES:
+		tally.YesCount++
+	case types.VoteOption_VOTE_OPTION_NO:
+		tally.NoCount++
+	case types.VoteOption_VOTE_OPTION_ABSTAIN:
+		tally.AbstainCount++
+	case types.VoteOption_VOTE_OPTION_NO_WITH_VETO:
+		tally.NoWithVetoCount++
+	default:
+		return nil, errorsmod.Wrapf(sdkerrors.ErrInvalidRequest, "invalid vote option %s", msg.Option)
+	}
+	if err := k.AnonVoteTallies.Set(ctx, msg.ProposalId, tally); err != nil {
+		return nil, err
+	}
+
+	if err := k.acceptIfThresholdMet(ctx, proposal); err != nil {
+		return nil, err
+	}
+
+	ctx.EventManager().EmitEvent(
+		sdk.NewEvent(
+			"anonymous_vote_proposal",
+			sdk.NewAttribute("proposal_id", fmt.Sprintf("%d", msg.ProposalId)),
+			sdk.NewAttribute("option", msg.Option.String()),
+		),
+	)
+
+	return &types.MsgAnonymousVoteProposalResponse{}, nil
 }

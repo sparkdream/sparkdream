@@ -10,6 +10,7 @@ import (
 
 	"sparkdream/x/artifact/keeper"
 	"sparkdream/x/artifact/types"
+	commontypes "sparkdream/x/common/types"
 )
 
 // SimulateMsgCreateEdition adds an edition (a third of them impact
@@ -34,7 +35,7 @@ func SimulateMsgCreateEdition(ak types.AuthKeeper, bk types.BankKeeper, k keeper
 			return noop(msg, "no open editions class")
 		}
 		msg = &types.MsgCreateEdition{Minter: owner.Address.String(), ClassId: c.Id, Metadata: randomMetadata(r),
-			MaxSupply: uint64(r.Intn(3)) * 500, AcceptedContentLicense: types.ContentLicense}
+			MaxSupply: commontypes.Saturate[uint64](r.Intn(3)) * 500, AcceptedContentLicense: types.ContentLicense}
 		if r.Intn(3) == 0 {
 			msg.Claim = types.ImpactClaim{Scope: "simulated work " + simtypes.RandStringOfLength(r, 6),
 				Contributors: []string{owner.Address.String()}, WorkStart: 1, WorkEnd: 2}

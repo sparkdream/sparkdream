@@ -3,8 +3,10 @@ package keeper
 import (
 	"context"
 
+	errorsmod "cosmossdk.io/errors"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
+	"sparkdream/x/commons/types"
 	sessiontypes "sparkdream/x/session/types"
 )
 
@@ -47,6 +49,14 @@ func NewSessionClaimHook(k Keeper) *SessionClaimHook {
 // PreCheck runs the x/commons spend gates against the granter's
 // council policy if applicable. No-op for non-council grants.
 func (h *SessionClaimHook) PreCheck(ctx context.Context, grant sessiontypes.Grant, amount sdk.Coins) error {
+	// A deleted group's policy can no longer be governed, so nothing it
+	// granted may pay out (fail closed; DeleteGroup also revokes them).
+	if deleted, err := h.keeper.DeletedPolicies.Has(ctx, grant.Granter); err != nil {
+		return err
+	} else if deleted {
+		return errorsmod.Wrapf(types.ErrGroupNotFound,
+			"granter %s is the policy of a deleted group", grant.Granter)
+	}
 	if !h.keeper.IsGroupPolicyAddress(ctx, grant.Granter) {
 		// Not a council schedule — let the session module's own
 		// validation handle it.

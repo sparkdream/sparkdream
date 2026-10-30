@@ -2,8 +2,10 @@ package keeper
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/rep/types"
 
 	errorsmod "cosmossdk.io/errors"
@@ -29,7 +31,11 @@ func (k msgServer) ReportMember(ctx context.Context, msg *types.MsgReportMember)
 		return nil, errorsmod.Wrap(types.ErrCannotReportSelf, "cannot report yourself")
 	}
 
-	tier, _ := k.GetReputationTier(ctx, sdk.AccAddress(creatorBytes))
+	// A non-member has tier 0 (refused below); only a store error fails here.
+	tier, getErr := k.GetReputationTier(ctx, sdk.AccAddress(creatorBytes))
+	if getErr != nil && !errors.Is(getErr, types.ErrMemberNotFound) {
+		return nil, getErr
+	}
 	if tier < types.DefaultMinRepTierSentinel {
 		return nil, errorsmod.Wrap(types.ErrInsufficientReputation, "insufficient reputation tier to report members")
 	}
@@ -39,25 +45,54 @@ func (k msgServer) ReportMember(ctx context.Context, msg *types.MsgReportMember)
 		return nil, errorsmod.Wrap(types.ErrInsufficientSentinelBond, "insufficient sentinel bond to report members")
 	}
 
-	if _, err := k.MemberReport.Get(ctx, msg.Member); err == nil {
-		return nil, errorsmod.Wrap(types.ErrReportAlreadyExists, fmt.Sprintf("active report already exists for member %s", msg.Member))
+	// Reports are keyed by the member's canonical address (REP-R-09): a
+	// report against a tombstone lands on the identity now at its successor
+	// (one report per member; HasOpenMemberReport then refuses the key path
+	// and the successor can defend it), and only an existing, non-zeroed
+	// member can be reported, so reporter bonds cannot be parked against
+	// arbitrary addresses.
+	member := k.Canonical(ctx, msg.Member)
+	target, err := k.Member.Get(ctx, member)
+	if err != nil {
+		return nil, errorsmod.Wrapf(types.ErrMemberNotFound, "%s is not a member", msg.Member)
+	}
+	if target.Status == types.MemberStatus_MEMBER_STATUS_ZEROED {
+		return nil, errorsmod.Wrapf(types.ErrMemberNotActive, "%s is zeroed", member)
 	}
 
-	action := types.GovActionType(msg.RecommendedAction)
+	// One open report per member. A resolved report is history and gives way
+	// to a new one (it used to block every later report for good).
+	if k.HasOpenMemberReport(ctx, member) {
+		return nil, errorsmod.Wrap(types.ErrReportAlreadyExists, fmt.Sprintf("active report already exists for member %s", member))
+	}
+	// ...but not while the member can still appeal the last resolution, whose
+	// record the new report would overwrite.
+	if prev, err := k.MemberReport.Get(ctx, member); err == nil &&
+		prev.ResolvedAction != types.GovActionType_GOV_ACTION_TYPE_UNSPECIFIED &&
+		now <= prev.ResolvedAt+types.DefaultAppealDeadline {
+		return nil, errorsmod.Wrap(types.ErrReportAlreadyExists, "the previous report on this member is still within its appeal window")
+	}
+	// ...nor while an appeal of that resolution is pending: its outcome
+	// settles the restoration record the new resolution would replace.
+	if has, _ := k.MemberActionRestorations.Has(ctx, member); has {
+		return nil, errorsmod.Wrap(types.ErrReportAlreadyExists, "the last action on this member is still under appeal")
+	}
+
+	action := commontypes.Saturate[types.GovActionType](msg.RecommendedAction)
 	if action == types.GovActionType_GOV_ACTION_TYPE_UNSPECIFIED {
 		action = types.GovActionType_GOV_ACTION_TYPE_WARNING
 	}
 
-	// Use a fixed reporting bond amount: the lesser of the sentinel's bond and 1000 DREAM.
-	reportBondCap := math.NewInt(1000)
-	reportBond := math.MinInt(sentinelBond, reportBondCap)
+	// The reporting bond is the lesser of the sentinel's staked DREAM and
+	// DefaultMaxMemberReportBond (co-signers lock the same).
+	reportBond := math.MinInt(sentinelBond, types.DefaultMaxMemberReportBond)
 
 	if err := k.LockDREAM(ctx, sdk.AccAddress(creatorBytes), reportBond); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to lock DREAM bond")
 	}
 
 	report := types.MemberReport{
-		Member:            msg.Member,
+		Member:            member,
 		Reason:            msg.Reason,
 		RecommendedAction: action,
 		TotalBond:         reportBond.String(),
@@ -71,14 +106,14 @@ func (k msgServer) ReportMember(ctx context.Context, msg *types.MsgReportMember)
 		},
 	}
 
-	if err := k.MemberReport.Set(ctx, msg.Member, report); err != nil {
+	if err := k.MemberReport.Set(ctx, member, report); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to store member report")
 	}
 
 	sdkCtx.EventManager().EmitEvent(
 		sdk.NewEvent(
 			"member_reported",
-			sdk.NewAttribute("member", msg.Member),
+			sdk.NewAttribute("member", member),
 			sdk.NewAttribute("reporter", msg.Creator),
 			sdk.NewAttribute("reason", msg.Reason),
 			sdk.NewAttribute("recommended_action", action.String()),
@@ -123,7 +158,9 @@ func (k Keeper) refundReportBonds(ctx context.Context, report types.MemberReport
 			if err != nil {
 				continue
 			}
-			_ = k.UnlockDREAM(ctx, sdk.AccAddress(recipientBytes), amt)
+			if err := k.UnlockDREAM(ctx, sdk.AccAddress(recipientBytes), amt); err != nil {
+				return err
+			}
 		}
 		return nil
 	}
@@ -146,7 +183,9 @@ func (k Keeper) refundReportBonds(ctx context.Context, report types.MemberReport
 		if err != nil {
 			continue
 		}
-		_ = k.UnlockDREAM(ctx, sdk.AccAddress(recipientBytes), amountPerRecipient)
+		if err := k.UnlockDREAM(ctx, sdk.AccAddress(recipientBytes), amountPerRecipient); err != nil {
+			return err
+		}
 	}
 	return nil
 }

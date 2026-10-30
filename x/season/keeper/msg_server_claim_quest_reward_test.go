@@ -67,7 +67,7 @@ func TestMsgServerClaimQuestReward(t *testing.T) {
 			Completed:      true,
 			CompletedBlock: 100,
 		}
-		k.MemberQuestProgress.Set(ctx, key, progress)
+		require.NoError(t, k.MemberQuestProgress.Set(ctx, key, progress))
 
 		_, err := ms.ClaimQuestReward(ctx, &types.MsgClaimQuestReward{
 			Creator: creatorStr,
@@ -102,7 +102,7 @@ func TestMsgServerClaimQuestReward(t *testing.T) {
 			ObjectiveProgress: []uint64{5}, // Only 5/10 complete
 			Completed:         false,
 		}
-		k.MemberQuestProgress.Set(ctx, key, progress)
+		require.NoError(t, k.MemberQuestProgress.Set(ctx, key, progress))
 
 		_, err := ms.ClaimQuestReward(ctx, &types.MsgClaimQuestReward{
 			Creator: creatorStr,
@@ -141,7 +141,7 @@ func TestMsgServerClaimQuestReward(t *testing.T) {
 			ObjectiveProgress: []uint64{10, 5}, // All complete
 			Completed:         false,
 		}
-		k.MemberQuestProgress.Set(ctx, key, progress)
+		require.NoError(t, k.MemberQuestProgress.Set(ctx, key, progress))
 
 		// Get initial XP
 		profileBefore, _ := k.MemberProfile.Get(ctx, creatorStr)
@@ -185,7 +185,7 @@ func TestMsgServerClaimQuestReward(t *testing.T) {
 			ObjectiveProgress: []uint64{},
 			Completed:         false,
 		}
-		k.MemberQuestProgress.Set(ctx, key, progress)
+		require.NoError(t, k.MemberQuestProgress.Set(ctx, key, progress))
 
 		_, err := ms.ClaimQuestReward(ctx, &types.MsgClaimQuestReward{
 			Creator: creatorStr,

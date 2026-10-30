@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/rep/types"
 
 	"cosmossdk.io/collections"
@@ -189,7 +190,7 @@ func (k Keeper) InitSeasonalPool(ctx context.Context, season uint64) error {
 	if err != nil {
 		return fmt.Errorf("failed to compute current epoch for pool anchor: %w", err)
 	}
-	if err := k.SeasonalPoolStartEpoch.Set(ctx, uint64(currentEpoch)); err != nil {
+	if err := k.SeasonalPoolStartEpoch.Set(ctx, commontypes.Saturate[uint64](currentEpoch)); err != nil {
 		return fmt.Errorf("failed to set seasonal pool start epoch: %w", err)
 	}
 
@@ -270,8 +271,8 @@ func (k Keeper) DistributeEpochStakingRewardsFromPool(ctx context.Context) error
 		return fmt.Errorf("failed to get seasonal pool start epoch: %w", err)
 	}
 	elapsed := int64(0)
-	if currentEpoch > int64(startEpoch) {
-		elapsed = currentEpoch - int64(startEpoch)
+	if currentEpoch > commontypes.Saturate[int64](startEpoch) {
+		elapsed = currentEpoch - commontypes.Saturate[int64](startEpoch)
 	}
 
 	// SeasonDurationEpochs is the total number of epochs in a season.
@@ -342,11 +343,12 @@ func (k Keeper) DistributeEpochStakingRewardsFromPool(ctx context.Context) error
 // from zero pending rather than from a debt taken against some other
 // accumulator. Returns the number of stakes rewritten.
 //
-// Called from InitGenesis, because an import is exactly where the two halves of
-// the MasterChef pair come apart. Stakes are exported verbatim, reward_debt
-// included, but the accumulator is derived state that genesis does not carry at
-// all — so an imported chain resumes with acc_per_share back at zero while every
-// stake still holds the debt it accrued against the old one. Two things follow,
+// Called from InitGenesis only for a genesis that does not carry the
+// accumulator (EconomicState.seasonal_pool_acc_per_share, exported since it was
+// added): there the two halves of the MasterChef pair come apart. Stakes are
+// exported verbatim, reward_debt included, so such an imported chain would
+// resume with acc_per_share back at zero while every stake still holds the
+// debt it accrued against the old one. Two things follow,
 // and this fixes both:
 //
 //   - A stake with a positive debt earns nothing until the new accumulator

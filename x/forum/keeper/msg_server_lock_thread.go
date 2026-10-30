@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"cosmossdk.io/collections"
+
 	"sparkdream/x/forum/types"
 
 	errorsmod "cosmossdk.io/errors"
@@ -38,21 +40,40 @@ func (k msgServer) LockThread(ctx context.Context, msg *types.MsgLockThread) (*t
 		return nil, types.ErrNotRootPost
 	}
 
+	if post.Status != types.PostStatus_POST_STATUS_ACTIVE {
+		return nil, errorsmod.Wrapf(types.ErrThreadNotActive, "thread %d is %s", msg.RootId, post.Status)
+	}
+
 	if post.Locked {
 		return nil, types.ErrThreadAlreadyLocked
+	}
+	// A lock record left on an unlocked thread is stale; one under appeal
+	// still belongs to the jury and must not be overwritten.
+	if prev, perr := k.ThreadLockRecord.Get(ctx, msg.RootId); perr == nil {
+		if prev.AppealPending {
+			return nil, errorsmod.Wrap(types.ErrAppealPending, "a lock appeal on this thread is still pending")
+		}
+		k.releaseSentinelCommit(ctx, prev.Sentinel, prev.CommittedAmount, "stale lock record", msg.RootId)
+		if err := k.LockRecordExpiry.Remove(ctx, collections.Join(lockExpiryAt(prev), msg.RootId)); err != nil {
+			return nil, err
+		}
+		if err := k.ThreadLockRecord.Remove(ctx, msg.RootId); err != nil {
+			return nil, err
+		}
 	}
 
 	// Resolve which moderation authority this lock invokes. An account can be
 	// BOTH a bonded sentinel and a Commons Operations Committee member, so the
 	// choice must be explicit rather than an implicit upgrade to the council
-	// path (which writes no lock record and is unlockable only by the council).
+	// path (which reserves no bond, writes an authority lock record with no
+	// sentinel, and is unlockable only by the council or an appeal).
 	// See docs/x-forum-spec.md (Shared ModerationAuthority).
 	//
 	// Lock eligibility = bonded sentinel in NORMAL/RECOVERY with a valid bond,
 	// meeting the lock rep-tier and the 2x (2000 DREAM) bond floor. The backing
 	// floor, cooldown, and epoch limit are operational gates applied once the
 	// sentinel path is taken, not part of the authority decision.
-	// Lock-eligibility floors are governance-tunable + bounded (Params 56-58),
+	// Lock-eligibility floors are governance-tunable + bounded (Params.lock_*),
 	// derived from the base sentinel bond/tier so there is a single source of
 	// truth. Read directly — Validate guarantees the bond/multiplier are
 	// positive; lock_min_rep_tier == 0 means "no rep-tier floor".
@@ -84,6 +105,12 @@ func (k msgServer) LockThread(ctx context.Context, msg *types.MsgLockThread) (*t
 	isGovAuthority, err := resolveModerationAuthority(msg.Authority, sentinelEligible, sentinelErr, isCouncil)
 	if err != nil {
 		return nil, err
+	}
+	// A sentinel's hide, lock and move are rewarded actions (x/rep scores
+	// them): moderating their own content would be paid self-dealing, and a
+	// self-lock can never be appealed (FRM-28). The council path is unaffected.
+	if !isGovAuthority && k.sameMember(ctx, post.Author, msg.Creator) {
+		return nil, types.ErrSelfModeration
 	}
 
 	if !isGovAuthority {
@@ -133,9 +160,32 @@ func (k msgServer) LockThread(ctx context.Context, msg *types.MsgLockThread) (*t
 		if err := k.ThreadLockRecord.Set(ctx, msg.RootId, lockRecord); err != nil {
 			return nil, errorsmod.Wrap(err, "failed to store lock record")
 		}
+		if err := k.LockRecordExpiry.Set(ctx, collections.Join(lockExpiryAt(lockRecord), msg.RootId)); err != nil {
+			return nil, errorsmod.Wrap(err, "failed to index lock record expiry")
+		}
 
-		_ = k.repKeeper.RecordRoleAction(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, msg.Creator, reptypes.ActionKindForumLock)
-		_ = k.repKeeper.RecordActivity(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, msg.Creator)
+		if err := k.repKeeper.RecordRoleAction(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, msg.Creator, reptypes.ActionKindForumLock); err != nil {
+			return nil, err
+		}
+		if err := k.repKeeper.RecordActivity(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, msg.Creator); err != nil {
+			return nil, err
+		}
+	} else {
+		// A committee or council lock gets an authority record (no sentinel,
+		// no bond) so the thread author can appeal it through
+		// MsgAppealThreadLock within the same window as a sentinel lock. An
+		// overturned appeal unlocks the thread; there is no bond to slash.
+		lockRecord := types.ThreadLockRecord{
+			RootId:     msg.RootId,
+			LockedAt:   now,
+			LockReason: msg.Reason,
+		}
+		if err := k.ThreadLockRecord.Set(ctx, msg.RootId, lockRecord); err != nil {
+			return nil, errorsmod.Wrap(err, "failed to store lock record")
+		}
+		if err := k.LockRecordExpiry.Set(ctx, collections.Join(lockExpiryAt(lockRecord), msg.RootId)); err != nil {
+			return nil, errorsmod.Wrap(err, "failed to index lock record expiry")
+		}
 	}
 
 	post.Locked = true
@@ -145,6 +195,9 @@ func (k msgServer) LockThread(ctx context.Context, msg *types.MsgLockThread) (*t
 
 	if err := k.Post.Set(ctx, msg.RootId, post); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to update post")
+	}
+	if err := k.LockedRoots.Set(ctx, msg.RootId); err != nil {
+		return nil, errorsmod.Wrap(err, "failed to index locked thread")
 	}
 
 	sdkCtx.EventManager().EmitEvent(
@@ -156,6 +209,11 @@ func (k msgServer) LockThread(ctx context.Context, msg *types.MsgLockThread) (*t
 			sdk.NewAttribute("is_gov_authority", fmt.Sprintf("%t", isGovAuthority)),
 		),
 	)
+
+	// Keep the thread's bounty timer in step with its moderation state.
+	if err := k.reconcileThreadBounty(ctx, msg.RootId); err != nil {
+		return nil, errorsmod.Wrap(err, "failed to suspend thread bounty")
+	}
 
 	return &types.MsgLockThreadResponse{}, nil
 }

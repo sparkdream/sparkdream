@@ -21,7 +21,9 @@ func createNArchiveMetadata(keeper keeper.Keeper, ctx context.Context, n int) []
 		items[i].FirstArchivedAt = int64(i)
 		items[i].LastArchivedAt = int64(i)
 		items[i].HrOverrideRequired = true
-		_ = keeper.ArchiveMetadata.Set(ctx, items[i].RootId, items[i])
+		if err := keeper.ArchiveMetadata.Set(ctx, items[i].RootId, items[i]); err != nil {
+			panic(err)
+		}
 	}
 	return items
 }

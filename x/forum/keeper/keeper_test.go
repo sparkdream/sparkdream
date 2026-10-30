@@ -166,6 +166,8 @@ type mockRepKeeper struct {
 	CreateAppealInitiativeFn        func(ctx context.Context, initiativeType string, payload []byte, deadline int64) (uint64, error)
 	CreateGovActionAppealFn         func(ctx context.Context, actionType reptypes.GovActionType, actionTarget string, appellant sdk.AccAddress, reason string) (uint64, uint64, error)
 	IsMemberFn                      func(ctx context.Context, addr sdk.AccAddress) bool
+	IsActiveMemberFn                func(ctx context.Context, addr sdk.AccAddress) bool
+	CanActAsFn                      func(ctx context.Context, signer, stored string) bool
 	GetTrustLevelFn                 func(addr sdk.AccAddress) uint64
 	ValidateInitiativeReferenceFn   func(ctx context.Context, initiativeID uint64) error
 	RegisterContentInitiativeLinkFn func(ctx context.Context, initiativeID uint64, targetType int32, targetID uint64) error
@@ -332,6 +334,15 @@ func (m *mockRepKeeper) UnlockDREAM(ctx context.Context, addr sdk.AccAddress, am
 	return nil
 }
 
+// BurnLockedDREAM records the unlock and the burn it stands for, so tests
+// asserting either call keep working.
+func (m *mockRepKeeper) BurnLockedDREAM(ctx context.Context, addr sdk.AccAddress, amount math.Int) error {
+	if err := m.UnlockDREAM(ctx, addr, amount); err != nil {
+		return err
+	}
+	return m.BurnDREAM(ctx, addr, amount)
+}
+
 func (m *mockRepKeeper) GetBalance(ctx context.Context, addr sdk.AccAddress) (math.Int, error) {
 	return math.NewInt(30_000_000_000), nil // 30000 DREAM (covers sentinel locking backing requirement)
 }
@@ -348,6 +359,14 @@ func (m *mockRepKeeper) IsMember(ctx context.Context, addr sdk.AccAddress) bool 
 }
 
 func (m *mockRepKeeper) IsActiveMember(ctx context.Context, addr sdk.AccAddress) bool {
+	if m.IsActiveMemberFn != nil {
+		return m.IsActiveMemberFn(ctx, addr)
+	}
+	// Tests that model a non-member set IsMemberFn; a non-member is never
+	// an active member.
+	if m.IsMemberFn != nil {
+		return m.IsMemberFn(ctx, addr)
+	}
 	return true
 }
 
@@ -372,7 +391,10 @@ func (m *mockRepKeeper) GetReputationTier(ctx context.Context, addr sdk.AccAddre
 }
 
 // Alias contract: no migrations in unit tests, every address is its own canonical.
-func (m *mockRepKeeper) CanActAs(_ context.Context, signer, stored string) bool {
+func (m *mockRepKeeper) CanActAs(ctx context.Context, signer, stored string) bool {
+	if m.CanActAsFn != nil {
+		return m.CanActAsFn(ctx, signer, stored)
+	}
 	return signer == stored
 }
 func (m *mockRepKeeper) SameMember(_ context.Context, a, b string) bool         { return a == b }
@@ -525,8 +547,6 @@ func (m *mockRepKeeper) EligibleForRole(_ context.Context, _ reptypes.RoleType, 
 // --- RoleActivity surface (shared accountability, owned by x/rep). The
 // mock keeps a functional in-memory record so forum's cap/cooldown/counter
 // behavior tests exercise the real read-back paths.
-
-type mockRoleActivity = reptypes.RoleActivity
 
 func (m *mockRepKeeper) roleActivity(addr string) reptypes.RoleActivity {
 	if m.roleActivities == nil {
@@ -742,11 +762,12 @@ func (m *mockIdentityKeeperForum) BondDenom(_ context.Context) string  { return 
 func (m *mockIdentityKeeperForum) DreamDenom(_ context.Context) string { return "udream" }
 
 type mockCommonsKeeper struct {
-	IsGroupPolicyMemberFn  func(ctx context.Context, policyAddr string, memberAddr string) (bool, error)
-	IsGroupPolicyAddressFn func(ctx context.Context, addr string) bool
-	IsCouncilAuthorizedFn  func(ctx context.Context, addr string, council string, committee string) bool
-	categories             map[uint64]commonstypes.Category
-	categorySeq            uint64
+	IsGroupPolicyMemberFn        func(ctx context.Context, policyAddr string, memberAddr string) (bool, error)
+	IsGroupPolicyAddressFn       func(ctx context.Context, addr string) bool
+	IsCouncilAuthorizedFn        func(ctx context.Context, addr string, council string, committee string) bool
+	IsCouncilOrCommitteePolicyFn func(ctx context.Context, addr string, council string, committee string) bool
+	categories                   map[uint64]commonstypes.Category
+	categorySeq                  uint64
 }
 
 func (m *mockCommonsKeeper) setCategory(cat commonstypes.Category) {
@@ -778,6 +799,15 @@ func (m *mockCommonsKeeper) IsGroupPolicyAddress(ctx context.Context, addr strin
 		return m.IsGroupPolicyAddressFn(ctx, addr)
 	}
 	return false
+}
+
+func (m *mockCommonsKeeper) IsCouncilOrCommitteePolicy(ctx context.Context, addr string, council string, committee string) bool {
+	if m.IsCouncilOrCommitteePolicyFn != nil {
+		return m.IsCouncilOrCommitteePolicyFn(ctx, addr, council, committee)
+	}
+	// Default: same answer as IsCouncilAuthorized (tests model the gov
+	// authority, which both accept).
+	return m.IsCouncilAuthorized(ctx, addr, council, committee)
 }
 
 func (m *mockCommonsKeeper) IsCouncilAuthorized(ctx context.Context, addr string, council string, committee string) bool {
@@ -937,6 +967,13 @@ func (f *fixture) createTestPost(t *testing.T, author string, parentId, category
 		if err := f.keeper.PostsByUpvotes.Set(f.ctx, collections.Join(post.UpvoteCount, postID)); err != nil {
 			t.Fatalf("failed to seed PostsByUpvotes: %v", err)
 		}
+		// Roots are indexed under their category, as MsgCreatePost does.
+		if err := f.keeper.RootsByCategory.Set(f.ctx, collections.Join(categoryId, postID)); err != nil {
+			t.Fatalf("failed to seed RootsByCategory: %v", err)
+		}
+	} else if err := f.keeper.PostsByRoot.Set(f.ctx, collections.Join(rootId, postID)); err != nil {
+		// Replies are indexed under their thread, as MsgCreatePost does.
+		t.Fatalf("failed to seed PostsByRoot: %v", err)
 	}
 
 	return post

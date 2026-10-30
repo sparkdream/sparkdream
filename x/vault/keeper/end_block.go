@@ -34,7 +34,9 @@ func (k Keeper) expirePass(ctx sdk.Context, now int64, cap int) error {
 	for _, key := range due {
 		p, err := k.VaultProposal.Get(ctx, key.K2())
 		if err != nil || p.Status != types.ProposalStatus_PROPOSAL_STATUS_PENDING || p.ExpiresAt != key.K1() {
-			_ = k.ExpiryQueue.Remove(ctx, key) // stale entry
+			if err := k.ExpiryQueue.Remove(ctx, key); err != nil {
+				ctx.Logger().Error("expirePass: ExpiryQueue.Remove failed", "err", err)
+			} // stale entry
 			continue
 		}
 		if err := k.resolveProposal(ctx, p, types.ProposalStatus_PROPOSAL_STATUS_EXPIRED); err != nil {

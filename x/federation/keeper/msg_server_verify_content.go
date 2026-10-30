@@ -61,7 +61,11 @@ func (k msgServer) VerifyContent(ctx context.Context, msg *types.MsgVerifyConten
 	}
 
 	// 4. Verify creator is NOT the bridge operator who submitted this content
-	if content.SubmittedBy == msg.Creator {
+	//    Alias-aware (SameMember), so a migrated key does not turn the
+	//    submitting operator into an independent verifier. One person
+	//    running a bridge from an unrelated fresh address and verifying
+	//    from their member address is NOT caught here (spec §14.6).
+	if k.sameMember(ctx, content.SubmittedBy, msg.Creator) {
 		return nil, errorsmod.Wrap(types.ErrSelfVerification, "verifier cannot verify content submitted by their own bridge operator address")
 	}
 
@@ -104,8 +108,17 @@ func (k msgServer) VerifyContent(ctx context.Context, msg *types.MsgVerifyConten
 	}
 
 	if hashMatch {
-		// Match: content → VERIFIED
+		// Match: content → VERIFIED. A peer under require_review lands
+		// verified content HIDDEN instead: the verification stands (the
+		// record, the commitment and the challenge window are the same),
+		// and an Operations Committee restore (MsgModerateContent to
+		// ACTIVE) publishes it as VERIFIED (restoreStatus).
 		content.Status = types.FederatedContentStatus_FEDERATED_CONTENT_STATUS_VERIFIED
+		awaitingReview := false
+		if policy, perr := k.PeerPolicies.Get(ctx, content.PeerId); perr == nil && policy.RequireReview {
+			content.Status = types.FederatedContentStatus_FEDERATED_CONTENT_STATUS_HIDDEN
+			awaitingReview = true
+		}
 		record.Outcome = types.VerificationOutcome_VERIFICATION_OUTCOME_PENDING
 
 		// Add to ChallengeWindowQueue
@@ -119,7 +132,9 @@ func (k msgServer) VerifyContent(ctx context.Context, msg *types.MsgVerifyConten
 		if err == nil {
 			bridge.ContentVerified++
 			bridge.EpochVerified++
-			_ = k.BridgeBindings.Set(ctx, bridgeKey, bridge)
+			if err := k.BridgeBindings.Set(ctx, bridgeKey, bridge); err != nil {
+				return nil, err
+			}
 		}
 
 		sdkCtx.EventManager().EmitEvent(
@@ -128,6 +143,9 @@ func (k msgServer) VerifyContent(ctx context.Context, msg *types.MsgVerifyConten
 				sdk.NewAttribute(types.AttributeKeyVerifier, msg.Creator),
 				sdk.NewAttribute(types.AttributeKeyPeerID, content.PeerId)),
 		)
+		if awaitingReview {
+			emitContentAwaitingReview(ctx, msg.ContentId, content.PeerId)
+		}
 	} else {
 		// Mismatch: content → DISPUTED, initiate two-phase resolution
 		content.Status = types.FederatedContentStatus_FEDERATED_CONTENT_STATUS_DISPUTED
@@ -135,6 +153,7 @@ func (k msgServer) VerifyContent(ctx context.Context, msg *types.MsgVerifyConten
 
 		// Add to ArbiterResolutionQueue for two-phase resolution
 		arbiterDeadline := blockTime + int64(params.ArbiterResolutionWindow.Seconds())
+		record.ArbiterResolutionDeadline = arbiterDeadline
 		if err := k.ArbiterResolutionQueue.Set(ctx, collections.Join(arbiterDeadline, msg.ContentId)); err != nil {
 			return nil, err
 		}
@@ -154,7 +173,9 @@ func (k msgServer) VerifyContent(ctx context.Context, msg *types.MsgVerifyConten
 		reptypes.ActionKindFederationVerify); err != nil {
 		return nil, err
 	}
-	_ = k.late.repKeeper.RecordActivity(ctx, reptypes.RoleType_ROLE_TYPE_FEDERATION_VERIFIER, msg.Creator)
+	if err := k.late.repKeeper.RecordActivity(ctx, reptypes.RoleType_ROLE_TYPE_FEDERATION_VERIFIER, msg.Creator); err != nil {
+		return nil, err
+	}
 
 	// Save all state
 	if err := k.Content.Set(ctx, msg.ContentId, content); err != nil {

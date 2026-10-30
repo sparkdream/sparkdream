@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"cosmossdk.io/collections"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	reptypes "sparkdream/x/rep/types"
@@ -38,6 +39,15 @@ func (h MigrationHooks) BeforeMemberMigration(ctx context.Context, from, to sdk.
 	if _, err := h.k.MemberRegistration.Get(ctx, to.String()); err == nil {
 		return fmt.Errorf("x/season: %s is already registered", to.String())
 	}
+	// SEA-29: an open display-name case (reported, maybe appealed) is tied
+	// to the old address: its stakes, queue entry and the name to restore.
+	// The member migrates once it is resolved.
+	if m, err := h.k.DisplayNameModeration.Get(ctx, from.String()); err == nil && m.Active {
+		return fmt.Errorf("x/season: %s has an unresolved display-name moderation", from.String())
+	}
+	if _, err := h.k.DisplayNameModeration.Get(ctx, to.String()); err == nil {
+		return fmt.Errorf("x/season: %s already has a display-name moderation record", to.String())
+	}
 	return nil
 }
 
@@ -55,6 +65,11 @@ func (h MigrationHooks) AfterMemberMigration(ctx context.Context, from, to sdk.A
 		profile.Address = toStr
 		if err := k.MemberProfile.Set(ctx, toStr, profile); err != nil {
 			return err
+		}
+		if profile.Username != "" {
+			if err := k.UsernameOwner.Set(ctx, strings.ToLower(profile.Username), toStr); err != nil {
+				return err
+			}
 		}
 	}
 	if reg, err := k.MemberRegistration.Get(ctx, fromStr); err == nil {
@@ -99,15 +114,16 @@ func (h MigrationHooks) AfterMemberMigration(ctx context.Context, from, to sdk.A
 		}
 	}
 	// Pending guild invites addressed to the old address ("<guild>:<addr>")
-	// and guilds listing it among pending_invites. Bounded by the number of
-	// guilds that invited this one member.
+	// and guilds listing it among pending_invites, found through the
+	// ByInvitee index (SEA-28): bounded by the guilds that invited this one
+	// member.
 	var inviteKeys []string
-	if err := k.GuildInvite.Walk(ctx, nil, func(key string, inv types.GuildInvite) (bool, error) {
-		if inv.GuildInvitee == fromStr {
+	if err := k.GuildInvite.Indexes.ByInvitee.Walk(ctx,
+		collections.NewPrefixedPairRange[string, string](fromStr),
+		func(_ string, key string) (bool, error) {
 			inviteKeys = append(inviteKeys, key)
-		}
-		return false, nil
-	}); err != nil {
+			return false, nil
+		}); err != nil {
 		return err
 	}
 	for _, key := range inviteKeys {
@@ -119,27 +135,35 @@ func (h MigrationHooks) AfterMemberMigration(ctx context.Context, from, to sdk.A
 			return err
 		}
 		inv.GuildInvitee = toStr
-		newKey := key
-		if i := strings.Index(key, ":"); i >= 0 {
-			newKey = key[:i+1] + toStr
+		gid := inv.GuildId
+		if gid == 0 {
+			gid = extractGuildIdFromInviteKey(key)
+			inv.GuildId = gid
 		}
-		if err := k.GuildInvite.Set(ctx, newKey, inv); err != nil {
+		if err := k.GuildInvite.Set(ctx, guildInviteKey(gid, toStr), inv); err != nil {
 			return err
 		}
-		if i := strings.Index(key, ":"); i >= 0 {
-			var gid uint64
-			if _, err := fmt.Sscanf(key[:i], "%d", &gid); err == nil {
-				if guild, err := k.Guild.Get(ctx, gid); err == nil {
-					for j, p := range guild.PendingInvites {
-						if p == fromStr {
-							guild.PendingInvites[j] = toStr
-						}
-					}
-					if err := k.Guild.Set(ctx, gid, guild); err != nil {
-						return err
-					}
+		if guild, err := k.Guild.Get(ctx, gid); err == nil {
+			for j, p := range guild.PendingInvites {
+				if p == fromStr {
+					guild.PendingInvites[j] = toStr
 				}
 			}
+			if err := k.Guild.Set(ctx, gid, guild); err != nil {
+				return err
+			}
+		}
+	}
+
+	// A closed display-name record carries the member's blocked names
+	// (SEA-23); it follows the member. An open one vetoed the migration.
+	if m, err := k.DisplayNameModeration.Get(ctx, fromStr); err == nil && !m.Active {
+		if err := k.DisplayNameModeration.Remove(ctx, fromStr); err != nil {
+			return err
+		}
+		m.Member = toStr
+		if err := k.SetDisplayNameModeration(ctx, toStr, m); err != nil {
+			return err
 		}
 	}
 
@@ -158,10 +182,11 @@ func (h MigrationHooks) AfterMemberMigration(ctx context.Context, from, to sdk.A
 	}
 	prefix := fromStr + ":"
 	var questKeys []string
-	if err := k.MemberQuestProgress.Walk(ctx, nil, func(key string, _ types.MemberQuestProgress) (bool, error) {
-		if strings.HasPrefix(key, prefix) {
-			questKeys = append(questKeys, key)
-		}
+	// Only this member's keys: "<addr>:" up to "<addr>;" (';' follows ':'),
+	// never the whole progress table (SEA-28).
+	questRange := new(collections.Range[string]).StartInclusive(prefix).EndExclusive(fromStr + ";")
+	if err := k.MemberQuestProgress.Walk(ctx, questRange, func(key string, _ types.MemberQuestProgress) (bool, error) {
+		questKeys = append(questKeys, key)
 		return false, nil
 	}); err != nil {
 		return err

@@ -1,169 +1,116 @@
 package simulation
 
 import (
-	"math/rand"
-
-	"cosmossdk.io/collections"
 	"cosmossdk.io/math"
-	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
-	"github.com/cosmos/cosmos-sdk/x/simulation"
 
 	"sparkdream/x/futarchy/keeper"
 	"sparkdream/x/futarchy/types"
+	reptypes "sparkdream/x/rep/types"
 )
 
+// tradeable reports whether a market takes trades now: ACTIVE, before its
+// end block, with its LMSR fields set.
+func (e *simEnv) tradeable(m types.Market) bool {
+	return m.Status == "ACTIVE" && e.ctx.BlockHeight() < m.EndBlock &&
+		m.BValue != nil && m.PoolYes != nil && m.PoolNo != nil && m.MinTick != nil
+}
+
+// traders returns the live sim accounts that hold SPARK: active members
+// first (the community the markets are for), anyone holding SPARK when no
+// member can trade.
+func (e *simEnv) traders(minSpark math.Int) []simtypes.Account {
+	funded := func(a simtypes.Account) bool { return e.spendable(a).GT(minSpark) }
+	members := e.live(func(a simtypes.Account) bool {
+		return funded(a) && e.activeMember(a.Address.String(), reptypes.TrustLevel_TRUST_LEVEL_NEW)
+	})
+	if len(members) > 0 {
+		return members
+	}
+	return e.live(funded)
+}
+
+// trade builds, dry-runs and delivers a trade on market m by a random
+// trader. The amount sits between the market's min tick and the smaller of
+// a quarter of the trader's SPARK and half the LMSR b; a trade the handler
+// refuses (price pushed past max_lmsr_exponent, too small after the fee)
+// is retried at a smaller size. done is false when no trade fits.
+func (e *simEnv) trade(m types.Market) (simtypes.OperationMsg, bool, error) {
+	minTick := *m.MinTick
+	if !minTick.IsPositive() {
+		minTick = math.OneInt()
+	}
+	for _, acc := range e.shuffled(e.traders(minTick.MulRaw(4)), 3) {
+		hi := math.MinInt(e.spendable(acc).QuoRaw(4), m.BValue.QuoInt64(2).TruncateInt())
+		if hi.LT(minTick) {
+			continue
+		}
+		amount := minTick
+		if span := hi.Sub(minTick); span.IsPositive() {
+			if extra, err := simtypes.RandPositiveInt(e.r, span); err == nil {
+				amount = amount.Add(extra)
+			}
+		}
+		isYes := e.r.Intn(2) == 0
+		for attempt := 0; attempt < 3 && amount.GTE(minTick); attempt++ {
+			amt := amount
+			msg := &types.MsgTrade{Creator: acc.Address.String(), MarketId: m.Index, IsYes: isYes, AmountIn: &amt}
+			spent := e.sparkCoins(amt)
+			if e.usable(acc, spent) == "" && e.dryRun(msg) == nil {
+				opMsg, _, err := e.deliver(acc, msg, spent)
+				return opMsg, true, err
+			}
+			amount = amount.QuoRaw(4)
+		}
+	}
+	return simtypes.OperationMsg{}, false, nil
+}
+
+// SimulateMsgTrade buys YES or NO shares on an active market (the amount in
+// is the tx's CoinsSpentInMsg). Markets include the x/commons
+// confidence-vote markets. When no market takes trades, the op first has an
+// ESTABLISHED+ member create one with a real MsgCreateMarket, then trades
+// on it.
 func SimulateMsgTrade(
 	ak types.AuthKeeper,
 	bk types.BankKeeper,
 	k keeper.Keeper,
 	txGen client.TxConfig,
 ) simtypes.Operation {
-	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
-	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-
-		var targetMarket types.Market
-		found := false
-
-		// 1. Find Active Market
-		err := k.Market.Walk(ctx, nil, func(key uint64, market types.Market) (bool, error) {
-			if market.Status == "ACTIVE" && ctx.BlockHeight() < market.EndBlock {
-				// Safety Check: BValue must be sufficient to avoid LMSR numerical instability
-				if market.BValue == nil {
-					return false, nil
-				}
-				bVal := *market.BValue
-				// Require B >= 1000 to ensure standard trades don't explode the cost function
-				if bVal.LT(math.LegacyNewDec(1000)) {
-					return false, nil
-				}
-
-				targetMarket = market
-				found = true
-				return true, nil // stop
-			}
-			return false, nil
-		})
+	label := &types.MsgTrade{}
+	return operation(ak, bk, k, txGen, label, func(e *simEnv) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
+		open, err := e.markets(e.tradeable)
 		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgTrade{}), "Error walking markets"), nil, err
+			return noOpErr(label, err)
 		}
-
-		simAccount, _ := simtypes.RandomAcc(r, accs)
-
-		// 2. Create if not found
-		if !found {
-			id, err := k.MarketSeq.Next(ctx)
-			if err != nil {
-				return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgTrade{}), "Error generating ID"), nil, err
-			}
-
-			endBlock := ctx.BlockHeight() + 100
-			bVal := math.LegacyMustNewDecFromStr("1000000")
-			zeroInt := math.ZeroInt()
-			minTick := math.NewInt(1000)
-
-			targetMarket = types.Market{
-				Index:              id,
-				Creator:            simAccount.Address.String(),
-				Symbol:             "SIMTRADE",
-				Denom:              sdk.DefaultBondDenom,
-				Question:           "Will this trade succeed?",
-				EndBlock:           endBlock,
-				Status:             "ACTIVE",
-				BValue:             &bVal,
-				PoolYes:            &zeroInt,
-				PoolNo:             &zeroInt,
-				MinTick:            &minTick,
-				InitialLiquidity:   &zeroInt,
-				LiquidityWithdrawn: &zeroInt,
-			}
-
-			if err := k.Market.Set(ctx, id, targetMarket); err != nil {
-				return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgTrade{}), "Error setting market"), nil, err
-			}
-
-			// Add to ActiveMarkets
-			if err := k.ActiveMarkets.Set(ctx, collections.Join(endBlock, id)); err != nil {
-				return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgTrade{}), "Error setting active market"), nil, err
-			}
-
-			found = true
-		}
-
-		if !found {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgTrade{}), "No active market"), nil, nil
-		}
-
-		// 3. Ensure User has Funds
-		balance := bk.GetBalance(ctx, simAccount.Address, targetMarket.Denom)
-		if balance.Amount.LT(math.NewInt(2000)) {
-			fundAmt := sdk.NewCoins(sdk.NewCoin(targetMarket.Denom, math.NewInt(1000000)))
-			if err := bk.MintCoins(ctx, types.ModuleName, fundAmt); err == nil {
-				bk.SendCoinsFromModuleToAccount(ctx, types.ModuleName, simAccount.Address, fundAmt)
+		for _, i := range e.r.Perm(len(open)) {
+			opMsg, done, err := e.trade(open[i])
+			if err != nil || done {
+				return opMsg, nil, err
 			}
 		}
 
-		// Refresh balance
-		balance = bk.GetBalance(ctx, simAccount.Address, targetMarket.Denom)
-		if balance.Amount.LT(math.NewInt(1100)) {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgTrade{}), "Balance too low"), nil, nil
+		// Prerequisite: a market to trade on.
+		created, ok, reason, err := e.createMarket()
+		if err != nil {
+			return created, nil, err
 		}
-
-		// 4. Construct MsgTrade
-		// Cap trade amount to avoid numerical instability in LMSR (Exp function)
-		// Safe limit: AmountIn < 10 * BValue
-		if targetMarket.BValue == nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgTrade{}), "Invalid market state"), nil, nil
+		if !ok {
+			return noOp(label, "no active market and none could be created: "+reason)
 		}
-		bVal := *targetMarket.BValue
-
-		// More conservative cap: limit to 1% of BValue to avoid depleting liquidity
-		safeCap := bVal.QuoInt64(100).TruncateInt()
-		if safeCap.LT(math.NewInt(1100)) {
-			safeCap = math.NewInt(1100) // Minimum viable trade
+		open, err = e.markets(e.tradeable)
+		if err != nil {
+			return noOpErr(label, err)
 		}
-
-		available := balance.Amount
-		maxAmt := available.Quo(math.NewInt(2))
-
-		if maxAmt.GT(safeCap) {
-			maxAmt = safeCap
+		if len(open) > 0 {
+			// The newest market is the one just created.
+			opMsg, done, err := e.trade(open[len(open)-1])
+			if err != nil || done {
+				return opMsg, nil, err
+			}
 		}
-
-		// Ensure range is valid
-		rangeDiff := maxAmt.Int64() - 1000
-		if rangeDiff <= 0 {
-			// If maxAmt is close to or less than 1000 (MinTick), we can't trade safely/validly
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgTrade{}), "Trade amount unsafe or too small"), nil, nil
-		}
-
-		randAmt := r.Int63n(rangeDiff) + 1100
-		tradeAmount := math.NewInt(randAmt)
-		tradeCoin := sdk.NewCoin(targetMarket.Denom, tradeAmount)
-
-		msg := &types.MsgTrade{
-			Creator:  simAccount.Address.String(),
-			MarketId: targetMarket.Index,
-			IsYes:    r.Intn(2) == 0,
-			AmountIn: &tradeCoin.Amount,
-		}
-
-		opMsg := simulation.OperationInput{
-			R:               r,
-			App:             app,
-			TxGen:           txGen,
-			Cdc:             nil,
-			Msg:             msg,
-			CoinsSpentInMsg: sdk.NewCoins(tradeCoin),
-			Context:         ctx,
-			SimAccount:      simAccount,
-			AccountKeeper:   ak,
-			Bankkeeper:      bk,
-			ModuleName:      types.ModuleName,
-		}
-
-		return simulation.GenAndDeliverTxWithRandFees(opMsg)
-	}
+		created.Comment = "created a market; no trader fits it yet"
+		return created, nil, nil
+	})
 }

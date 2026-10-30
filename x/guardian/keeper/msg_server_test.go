@@ -2,16 +2,19 @@ package keeper_test
 
 import (
 	"context"
+	abci "github.com/cometbft/cometbft/abci/types"
 	"testing"
 	"time"
 
 	"cosmossdk.io/math"
 	storetypes "cosmossdk.io/store/types"
 	cmtproto "github.com/cometbft/cometbft/proto/tendermint/types"
+	"github.com/cosmos/cosmos-sdk/baseapp"
 	addresscodec "github.com/cosmos/cosmos-sdk/codec/address"
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
 	"github.com/cosmos/cosmos-sdk/runtime"
 	"github.com/cosmos/cosmos-sdk/testutil"
+	sdk "github.com/cosmos/cosmos-sdk/types"
 	moduletestutil "github.com/cosmos/cosmos-sdk/types/module/testutil"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
@@ -73,38 +76,6 @@ func (m mockDistrKeeper) GetParams(_ context.Context) (distrtypes.Params, error)
 	return m.params, nil
 }
 
-// mockGovKeeper returns fixed gov params.
-type mockGovKeeper struct{ params govtypesv1.Params }
-
-func (m mockGovKeeper) GetParams(_ context.Context) (govtypesv1.Params, error) {
-	return m.params, nil
-}
-
-// mockSlashingKeeper returns fixed slashing params.
-type mockSlashingKeeper struct{ params slashingtypes.Params }
-
-func (m mockSlashingKeeper) GetParams(_ context.Context) (slashingtypes.Params, error) {
-	return m.params, nil
-}
-
-// mockAuthKeeper returns fixed auth params.
-type mockAuthKeeper struct{ params authtypes.Params }
-
-func (m mockAuthKeeper) GetParams(_ context.Context) (authtypes.Params, error) {
-	return m.params, nil
-}
-
-// mockMsgRouter records the inner msg routed to it. Always returns success
-// with an empty response.
-type mockMsgRouter struct {
-	captured []any
-}
-
-func (r *mockMsgRouter) Handler(msg any) func(ctx any, m any) (any, error) {
-	// Reflective signature; we'll use HandlerByTypeURL instead in tests.
-	return nil
-}
-
 // We can't easily build a real MessageRouter for unit tests without
 // pulling in the full BaseApp. The tests below exercise the filter logic
 // in isolation by calling msg-server with a router that records msgs but
@@ -121,6 +92,7 @@ type guardianDeps struct {
 	gov      guardiantypes.GovKeeper
 	slashing guardiantypes.SlashingKeeper
 	auth     guardiantypes.AuthKeeper
+	router   guardiantypes.MessageRouter
 }
 
 // --- shared fixture ---------------------------------------------------------
@@ -145,7 +117,7 @@ func setupGuardian(t *testing.T, deps guardianDeps) (context.Context, *guardiank
 		runtime.NewKVStoreService(storeKey),
 		encCfg.Codec,
 		addresscodec.NewBech32Codec("sprkdrm"),
-		nil, // msg router; not exercised in filter-only tests
+		deps.router, // nil in filter-only tests; okRouter for accept paths
 		authority,
 	)
 	if deps.identity != nil {
@@ -518,16 +490,20 @@ func TestExecRejectsCommunityTaxAboveCeiling(t *testing.T) {
 func validGovParams() govtypesv1.Params {
 	vp := 2 * 24 * time.Hour
 	evp := 24 * time.Hour
+	mdp := 2 * 24 * time.Hour
 	return govtypesv1.Params{
 		VotingPeriod:           &vp,
 		ExpeditedVotingPeriod:  &evp,
+		MaxDepositPeriod:       &mdp,
 		Quorum:                 "0.334",
 		Threshold:              "0.5",
 		VetoThreshold:          "0.334",
 		MinInitialDepositRatio: "0",
 		ProposalCancelRatio:    "0",
-		MinDepositRatio:        "0",
+		MinDepositRatio:        "0.01",
 		ExpeditedThreshold:     "0.667",
+		MinDeposit:             sdk.NewCoins(sdk.NewInt64Coin("upspk.phoenix", 50_000_000)),
+		ExpeditedMinDeposit:    sdk.NewCoins(sdk.NewInt64Coin("upspk.phoenix", 250_000_000)),
 	}
 }
 
@@ -670,7 +646,7 @@ func validConsensusMsg() *consensustypes.MsgUpdateParams {
 	return &consensustypes.MsgUpdateParams{
 		Block: &cmtproto.BlockParams{
 			MaxBytes: 22_020_096,
-			MaxGas:   -1,
+			MaxGas:   100_000_000,
 		},
 		Evidence: &cmtproto.EvidenceParams{
 			MaxAgeNumBlocks: 100_000,
@@ -717,4 +693,233 @@ func TestExecRejectsShortEvidenceAge(t *testing.T) {
 	require.Error(t, err)
 	require.ErrorIs(t, err, guardiantypes.ErrImmutableField)
 	require.Contains(t, err.Error(), "max_age_num_blocks")
+}
+
+// --- accept/reject tables for the GRD-01/02/03 bounds ----------------------
+
+// okRouter routes every msg to a handler that succeeds, so a filter that
+// accepts can be told apart from one that rejects.
+type okRouter struct{ routed int }
+
+func (r *okRouter) Handler(sdk.Msg) baseapp.MsgServiceHandler {
+	return func(sdk.Context, sdk.Msg) (*sdk.Result, error) {
+		r.routed++
+		return &sdk.Result{}, nil
+	}
+}
+
+func (r *okRouter) HandlerByTypeURL(string) baseapp.MsgServiceHandler { return r.Handler(nil) }
+
+type boundCase struct {
+	name    string
+	inner   sdk.Msg
+	wantErr string // "" = accepted and routed
+}
+
+func runBoundCases(t *testing.T, deps guardianDeps, cases []boundCase) {
+	t.Helper()
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			r := &okRouter{}
+			d := deps
+			d.router = r
+			ctx, k := setupGuardian(t, d)
+			ms := guardiankeeper.NewMsgServerImpl(k)
+			any, err := codectypes.NewAnyWithValue(tc.inner)
+			require.NoError(t, err)
+			_, err = ms.Exec(ctx, &guardiantypes.MsgExec{Authority: govAuth(), Inner: any})
+			if tc.wantErr == "" {
+				require.NoError(t, err)
+				require.Equal(t, 1, r.routed)
+				return
+			}
+			require.Error(t, err)
+			require.ErrorIs(t, err, guardiantypes.ErrImmutableField)
+			require.Contains(t, err.Error(), tc.wantErr)
+			require.Zero(t, r.routed)
+		})
+	}
+}
+
+// GRD-01: blocks_per_year divides per-block issuance; it must stay inside
+// the compiled range and move at most 50% per proposal.
+func TestMintBlocksPerYearBounds(t *testing.T) {
+	cur := currentMintParams() // 6_311_520
+	with := func(bpy uint64) sdk.Msg {
+		p := cur
+		p.BlocksPerYear = bpy
+		return &minttypes.MsgUpdateParams{Params: p}
+	}
+	runBoundCases(t, guardianDeps{mint: mockMintKeeper{params: cur}}, []boundCase{
+		{"unchanged", with(6_311_520), ""},
+		{"small bump", with(6_311_521), ""},
+		{"+50% exactly", with(9_467_280), ""},
+		{"-50% exactly", with(3_155_760), ""},
+		{"one mints a year per block", with(1), "blocks_per_year outside"},
+		{"below absolute floor", with(3_000_000), "blocks_per_year outside"},
+		{"above absolute ceiling", with(100_000_000), "blocks_per_year outside"},
+		{"u64 max", with(^uint64(0)), "blocks_per_year outside"},
+		{"more than +50%", with(9_467_281), "at most 50%"},
+		{"more than -50%", with(3_155_759), "at most 50%"},
+	})
+}
+
+// GRD-02: default_send_enabled=false would disable every native send.
+func TestBankUpdateParamsBounds(t *testing.T) {
+	runBoundCases(t, guardianDeps{}, []boundCase{
+		{"default true", &banktypes.MsgUpdateParams{Params: banktypes.Params{DefaultSendEnabled: true}}, ""},
+		{"default false", &banktypes.MsgUpdateParams{Params: banktypes.Params{DefaultSendEnabled: false}}, "default_send_enabled"},
+		{"legacy entry disables", &banktypes.MsgUpdateParams{Params: banktypes.Params{
+			DefaultSendEnabled: true,
+			SendEnabled:        []*banktypes.SendEnabled{{Denom: "upspk.phoenix", Enabled: false}},
+		}}, "legacy send_enabled"},
+	})
+}
+
+// GRD-03: slashing floors on downtime enforcement.
+func TestSlashingDowntimeBounds(t *testing.T) {
+	with := func(f func(*slashingtypes.Params)) sdk.Msg {
+		p := validSlashingParams()
+		f(&p)
+		return &slashingtypes.MsgUpdateParams{Params: p}
+	}
+	runBoundCases(t, guardianDeps{}, []boundCase{
+		{"genesis values", with(func(*slashingtypes.Params) {}), ""},
+		{"jail bump", with(func(p *slashingtypes.Params) { p.DowntimeJailDuration += time.Second }), ""},
+		{"min_signed zero", with(func(p *slashingtypes.Params) { p.MinSignedPerWindow = math.LegacyZeroDec() }), "min_signed_per_window"},
+		{"min_signed just under", with(func(p *slashingtypes.Params) { p.MinSignedPerWindow = math.LegacyNewDecWithPrec(4, 2) }), "min_signed_per_window"},
+		{"jail near zero", with(func(p *slashingtypes.Params) { p.DowntimeJailDuration = time.Nanosecond }), "downtime_jail_duration"},
+		{"window tiny", with(func(p *slashingtypes.Params) { p.SignedBlocksWindow = 1 }), "signed_blocks_window below"},
+		{"window huge", with(func(p *slashingtypes.Params) { p.SignedBlocksWindow = 2_000_000 }), "signed_blocks_window above"},
+	})
+}
+
+// GRD-03: staking floors on unbonding_time and max_validators.
+func TestStakingBounds(t *testing.T) {
+	cur := currentStakingParams()
+	with := func(f func(*stakingtypes.Params)) sdk.Msg {
+		p := cur
+		f(&p)
+		return &stakingtypes.MsgUpdateParams{Params: p}
+	}
+	runBoundCases(t, guardianDeps{staking: mockStakingKeeper{params: cur}}, []boundCase{
+		{"current", with(func(*stakingtypes.Params) {}), ""},
+		{"max_validators bump", with(func(p *stakingtypes.Params) { p.MaxValidators++ }), ""},
+		{"unbonding 1ns", with(func(p *stakingtypes.Params) { p.UnbondingTime = time.Nanosecond }), "unbonding_time"},
+		{"unbonding 6d", with(func(p *stakingtypes.Params) { p.UnbondingTime = 6 * 24 * time.Hour }), "unbonding_time"},
+		{"one validator", with(func(p *stakingtypes.Params) { p.MaxValidators = 1 }), "max_validators"},
+	})
+}
+
+// GRD-03: consensus pub_key_types must keep ed25519, max_gas must be
+// finite, evidence must not outlive the unbonding period.
+func TestConsensusBounds(t *testing.T) {
+	with := func(f func(*consensustypes.MsgUpdateParams)) sdk.Msg {
+		m := validConsensusMsg()
+		f(m)
+		return m
+	}
+	runBoundCases(t, guardianDeps{staking: mockStakingKeeper{params: currentStakingParams()}}, []boundCase{
+		{"valid", with(func(*consensustypes.MsgUpdateParams) {}), ""},
+		{"ed25519 plus secp", with(func(m *consensustypes.MsgUpdateParams) {
+			m.Validator.PubKeyTypes = []string{"ed25519", "secp256k1"}
+		}), ""},
+		{"secp only halts", with(func(m *consensustypes.MsgUpdateParams) {
+			m.Validator.PubKeyTypes = []string{"secp256k1"}
+		}), "pub_key_types"},
+		{"empty key types", with(func(m *consensustypes.MsgUpdateParams) { m.Validator.PubKeyTypes = nil }), "pub_key_types"},
+		{"unlimited gas", with(func(m *consensustypes.MsgUpdateParams) { m.Block.MaxGas = -1 }), "block.max_gas"},
+		{"zero gas", with(func(m *consensustypes.MsgUpdateParams) { m.Block.MaxGas = 0 }), "block.max_gas"},
+		{"evidence outlives unbonding", with(func(m *consensustypes.MsgUpdateParams) {
+			m.Evidence.MaxAgeDuration = 30 * 24 * time.Hour
+		}), "exceeds staking unbonding_time"},
+	})
+}
+
+func TestConsensusFailsClosedWithoutStaking(t *testing.T) {
+	ctx, k := setupGuardian(t, guardianDeps{router: &okRouter{}})
+	ms := guardiankeeper.NewMsgServerImpl(k)
+	any, _ := codectypes.NewAnyWithValue(validConsensusMsg())
+	_, err := ms.Exec(ctx, &guardiantypes.MsgExec{Authority: govAuth(), Inner: any})
+	require.ErrorIs(t, err, guardiantypes.ErrImmutableField)
+	require.Contains(t, err.Error(), "staking keeper not wired")
+}
+
+// GRD-03: gov voting-period ceilings and a positive native deposit.
+func TestGovBounds(t *testing.T) {
+	with := func(f func(*govtypesv1.Params)) sdk.Msg {
+		p := validGovParams()
+		f(&p)
+		return &govtypesv1.MsgUpdateParams{Params: p}
+	}
+	decades := 20 * 365 * 24 * time.Hour
+	runBoundCases(t, guardianDeps{identity: mockIdentityKeeper{sealed: newValidSealed()}}, []boundCase{
+		{"valid", with(func(*govtypesv1.Params) {}), ""},
+		{"voting period decades", with(func(p *govtypesv1.Params) { p.VotingPeriod = &decades }), "voting_period above ceiling"},
+		{"expedited decades", with(func(p *govtypesv1.Params) { p.ExpeditedVotingPeriod = &decades }), "expedited_voting_period above ceiling"},
+		{"empty min_deposit", with(func(p *govtypesv1.Params) { p.MinDeposit = nil }), "min_deposit"},
+		{"foreign-only min_deposit", with(func(p *govtypesv1.Params) {
+			p.MinDeposit = sdk.NewCoins(sdk.NewInt64Coin("ibc/zenith", 1))
+		}), "min_deposit"},
+		{"empty expedited_min_deposit", with(func(p *govtypesv1.Params) { p.ExpeditedMinDeposit = nil }), "expedited_min_deposit"},
+		// GRD-07: min_deposit_ratio is parsed by every submission and deposit.
+		{"empty min_deposit_ratio", with(func(p *govtypesv1.Params) { p.MinDepositRatio = "" }), "min_deposit_ratio"},
+		{"garbage min_deposit_ratio", with(func(p *govtypesv1.Params) { p.MinDepositRatio = "abc" }), "min_deposit_ratio"},
+		{"negative min_deposit_ratio", with(func(p *govtypesv1.Params) { p.MinDepositRatio = "-0.1" }), "min_deposit_ratio"},
+		{"min_deposit_ratio above 1", with(func(p *govtypesv1.Params) { p.MinDepositRatio = "1.5" }), "min_deposit_ratio"},
+		{"min_deposit_ratio at 1", with(func(p *govtypesv1.Params) { p.MinDepositRatio = "1" }), ""},
+		{"min_initial_deposit_ratio above 1", with(func(p *govtypesv1.Params) { p.MinInitialDepositRatio = "2" }), "min_initial_deposit_ratio"},
+		// GRD-08: ceilings and the expedited floor stop a self-freeze.
+		{"quorum 1", with(func(p *govtypesv1.Params) { p.Quorum = "1" }), "quorum above ceiling"},
+		{"quorum at ceiling", with(func(p *govtypesv1.Params) { p.Quorum = "0.5" }), ""},
+		{"threshold near 1", with(func(p *govtypesv1.Params) { p.Threshold = "0.999"; p.ExpeditedThreshold = "1" }), "threshold above ceiling"},
+		{"veto disabled", with(func(p *govtypesv1.Params) { p.VetoThreshold = "1" }), "veto_threshold above ceiling"},
+		{"weak expedited", with(func(p *govtypesv1.Params) { p.ExpeditedThreshold = "0.51" }), "expedited_threshold below floor"},
+		{"dust min_deposit", with(func(p *govtypesv1.Params) {
+			p.MinDeposit = sdk.NewCoins(sdk.NewInt64Coin("upspk.phoenix", 1))
+		}), "min_deposit"},
+		{"expedited below min_deposit", with(func(p *govtypesv1.Params) {
+			p.ExpeditedMinDeposit = sdk.NewCoins(sdk.NewInt64Coin("upspk.phoenix", 10_000_000))
+		}), "expedited_min_deposit"},
+		{"deposit period decades", with(func(p *govtypesv1.Params) { p.MaxDepositPeriod = &decades }), "max_deposit_period"},
+		{"no deposit period", with(func(p *govtypesv1.Params) { p.MaxDepositPeriod = nil }), "max_deposit_period"},
+	})
+}
+
+func TestGovFailsClosedWithoutIdentity(t *testing.T) {
+	ctx, k := setupGuardian(t, guardianDeps{router: &okRouter{}})
+	ms := guardiankeeper.NewMsgServerImpl(k)
+	any, _ := codectypes.NewAnyWithValue(&govtypesv1.MsgUpdateParams{Params: validGovParams()})
+	_, err := ms.Exec(ctx, &guardiantypes.MsgExec{Authority: govAuth(), Inner: any})
+	require.ErrorIs(t, err, guardiantypes.ErrIdentityNotSealed)
+}
+
+// eventRouter's handler emits one event, as a real msg server would.
+type eventRouter struct{}
+
+func (eventRouter) Handler(sdk.Msg) baseapp.MsgServiceHandler {
+	return func(sdk.Context, sdk.Msg) (*sdk.Result, error) {
+		return &sdk.Result{Events: []abci.Event{{Type: "params_updated"}}}, nil
+	}
+}
+
+func (r eventRouter) HandlerByTypeURL(string) baseapp.MsgServiceHandler { return r.Handler(nil) }
+
+// SES-06: the inner handler's events reach the block (the router gives the
+// handler a fresh EventManager).
+func TestExecReemitsInnerEvents(t *testing.T) {
+	goCtx, k := setupGuardian(t, guardianDeps{router: eventRouter{}})
+	ctx := sdk.UnwrapSDKContext(goCtx).WithEventManager(sdk.NewEventManager())
+	ms := guardiankeeper.NewMsgServerImpl(k)
+	any, err := codectypes.NewAnyWithValue(&banktypes.MsgUpdateParams{Params: banktypes.Params{DefaultSendEnabled: true}})
+	require.NoError(t, err)
+	_, err = ms.Exec(ctx, &guardiantypes.MsgExec{Authority: govAuth(), Inner: any})
+	require.NoError(t, err)
+	found := false
+	for _, e := range ctx.EventManager().Events() {
+		if e.Type == "params_updated" {
+			found = true
+		}
+	}
+	require.True(t, found)
 }

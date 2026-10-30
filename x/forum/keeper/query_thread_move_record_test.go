@@ -27,7 +27,9 @@ func createNThreadMoveRecord(keeper keeper.Keeper, ctx context.Context, n int) [
 		items[i].MoveReason = strconv.Itoa(i)
 		items[i].AppealPending = true
 		items[i].InitiativeId = uint64(i)
-		_ = keeper.ThreadMoveRecord.Set(ctx, items[i].RootId, items[i])
+		if err := keeper.ThreadMoveRecord.Set(ctx, items[i].RootId, items[i]); err != nil {
+			panic(err)
+		}
 	}
 	return items
 }

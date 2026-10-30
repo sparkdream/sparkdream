@@ -2,6 +2,7 @@ package keeper_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -156,6 +157,17 @@ func (m *MockCommonsKeeper) IsCouncilAuthorized(_ context.Context, _ string, _ s
 	return false
 }
 
+// IsCouncilOrCommitteePolicy mirrors the commons helper for the Commons
+// Council and its Operations Committee: the policy addresses only.
+func (m *MockCommonsKeeper) IsCouncilOrCommitteePolicy(_ context.Context, addr string, _ string, _ string) bool {
+	for _, name := range []string{"Commons Council", "Commons Operations Committee"} {
+		if g, ok := m.Groups[name]; ok && g.PolicyAddress != "" && g.PolicyAddress == addr {
+			return true
+		}
+	}
+	return false
+}
+
 func (m *MockCommonsKeeper) HasMember(_ context.Context, councilName string, address string) (bool, error) {
 	key := councilName + "|" + address
 	return m.Members[key], nil
@@ -170,19 +182,27 @@ func (m *MockCommonsKeeper) AddMember(_ context.Context, councilName string, mem
 // MockBankKeeper
 type MockBankKeeper struct {
 	SentCoins map[string]sdk.Coins
-	sendErr   error
-	hasFunds  map[string]math.Int
+	// ToModule and Burned track registration fees sent to and burned by a
+	// module account.
+	ToModule map[string]sdk.Coins
+	Burned   map[string]sdk.Coins
+	sendErr  error
+	hasFunds map[string]math.Int
 }
 
 func NewMockBankKeeper() *MockBankKeeper {
 	return &MockBankKeeper{
 		SentCoins: make(map[string]sdk.Coins),
+		ToModule:  make(map[string]sdk.Coins),
+		Burned:    make(map[string]sdk.Coins),
 		hasFunds:  make(map[string]math.Int),
 	}
 }
 
 func (m *MockBankKeeper) Reset() {
 	m.SentCoins = make(map[string]sdk.Coins)
+	m.ToModule = make(map[string]sdk.Coins)
+	m.Burned = make(map[string]sdk.Coins)
 	m.hasFunds = make(map[string]math.Int)
 	m.sendErr = nil
 }
@@ -201,6 +221,17 @@ func (m *MockBankKeeper) SendCoinsFromAccountToModule(ctx context.Context, sende
 	if m.sendErr != nil {
 		return m.sendErr
 	}
+	m.ToModule[recipientModule] = m.ToModule[recipientModule].Add(amt...)
+	return nil
+}
+
+func (m *MockBankKeeper) BurnCoins(ctx context.Context, moduleName string, amt sdk.Coins) error {
+	held := m.ToModule[moduleName]
+	if !held.IsAllGTE(amt) {
+		return fmt.Errorf("module %s holds %s, cannot burn %s", moduleName, held, amt)
+	}
+	m.ToModule[moduleName] = held.Sub(amt...)
+	m.Burned[moduleName] = m.Burned[moduleName].Add(amt...)
 	return nil
 }
 
@@ -221,6 +252,8 @@ type MockRepKeeper struct {
 	lockErr       error
 	unlockErr     error
 	burnErr       error
+	// unlockFailures fails the next N UnlockDREAM calls.
+	unlockFailures int
 }
 
 func NewMockRepKeeper() *MockRepKeeper {
@@ -277,6 +310,10 @@ func (m *MockRepKeeper) UnlockDREAM(ctx context.Context, addr sdk.AccAddress, am
 	if m.unlockErr != nil {
 		return m.unlockErr
 	}
+	if m.unlockFailures > 0 {
+		m.unlockFailures--
+		return fmt.Errorf("unlock failed")
+	}
 	key := addr.String()
 	current, ok := m.UnlockedDREAM[key]
 	if !ok {
@@ -284,6 +321,15 @@ func (m *MockRepKeeper) UnlockDREAM(ctx context.Context, addr sdk.AccAddress, am
 	}
 	m.UnlockedDREAM[key] = current.Add(amount)
 	return nil
+}
+
+// BurnLockedDREAM mirrors x/rep: the lock is released and the same amount
+// burned, all or nothing.
+func (m *MockRepKeeper) BurnLockedDREAM(ctx context.Context, addr sdk.AccAddress, amount math.Int) error {
+	if err := m.UnlockDREAM(ctx, addr, amount); err != nil {
+		return err
+	}
+	return m.BurnDREAM(ctx, addr, amount)
 }
 
 func (m *MockRepKeeper) BurnDREAM(ctx context.Context, addr sdk.AccAddress, amount math.Int) error {

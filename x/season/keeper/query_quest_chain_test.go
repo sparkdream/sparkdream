@@ -57,8 +57,8 @@ func TestQueryQuestChain(t *testing.T) {
 			XpReward:          50,
 			Active:            true,
 		}
-		k.Quest.Set(ctx, "chain_quest_1", quest1)
-		k.Quest.Set(ctx, "chain_quest_2", quest2)
+		require.NoError(t, k.Quest.Set(ctx, "chain_quest_1", quest1))
+		require.NoError(t, k.Quest.Set(ctx, "chain_quest_2", quest2))
 
 		resp, err := qs.QuestChain(ctx, &types.QueryQuestChainRequest{QuestChain: "tutorial_chain"})
 		require.NoError(t, err)

@@ -245,7 +245,7 @@ assert_gt "Alice staked_dream increased by ~100 DREAM on endorse" \
 
 # bob (bonded sentinel) hides the collection. autocli expects enum string
 # values for target-type (FlagTargetType) and reason-code (ModerationReason).
-TX_OUT=$(send_tx collect hide-content "$SLASH_COLL_ID" collection spam "spam" --from bob)
+TX_OUT=$(send_tx collect hide-content "$SLASH_COLL_ID" collection spam --from bob)
 assert_tx_success "bob hides the endorsed collection" "$TX_OUT"
 
 # Confirm status flipped to HIDDEN — the slash branch in deleteCollectionFull
@@ -339,7 +339,7 @@ assert_tx_success "nonmember1 sets seeking-endorsement=true (Test 2)" "$TX_OUT"
 TX_OUT=$(send_tx collect endorse-collection "$T2_COLL_ID" --from alice)
 assert_tx_success "alice endorses (Test 2)" "$TX_OUT"
 
-TX_OUT=$(send_tx collect hide-content "$T2_COLL_ID" collection spam "spam" --from bob)
+TX_OUT=$(send_tx collect hide-content "$T2_COLL_ID" collection spam --from bob)
 assert_tx_success "bob hides the endorsed collection (Test 2)" "$TX_OUT"
 
 # Owner attempts MsgDeleteCollection — must be rejected.
@@ -382,8 +382,8 @@ fi
 #   (c) TTL elapses while appeal is still in flight — §10.1 must SKIP this
 #       collection and emit collection_expiry_deferred (no delete, no burn).
 #   (d) The appeal (an x/rep COLLECT_HIDE appeal) is resolved OVERTURNED by
-#       alice (Commons Ops) via `rep resolve-gov-action-appeal`; x/rep calls
-#       back into collect, which restores status to ACTIVE.
+#       a Commons Operations Committee proposal (MsgResolveGovActionAppeal);
+#       x/rep calls back into collect, which restores status to ACTIVE.
 #   (e) Next §10.1 pass deletes the now-ACTIVE collection via the normal
 #       unlock path. Alice's DREAM balance returns to the Test-3 baseline.
 #
@@ -431,7 +431,7 @@ assert_tx_success "alice endorses (Test 3, locks 100 DREAM)" "$TX_OUT"
 # overturning a sentinel hide would put bob into the shared overturn cooldown,
 # blocking every later sentinel hide in the suite. A council hide has no
 # sentinel to penalize, and the endorser/deferral semantics are identical.
-TX_OUT=$(send_tx collect hide-content "$T3_COLL_ID" collection spam "spam" \
+TX_OUT=$(send_tx collect hide-content "$T3_COLL_ID" collection spam \
     --authority council --from alice)
 assert_tx_success "alice council-hides the endorsed collection (Test 3)" "$TX_OUT"
 
@@ -477,8 +477,7 @@ assert_gt "Alice staked_dream up by ~100 DREAM during deferral (lock held)" \
 # Resolve the appeal in the appellant's favor through x/rep: x/rep calls back
 # into collect, which restores status to ACTIVE; the next §10.1 pass then
 # deletes the (TTL-expired) collection via the normal unlock path.
-TX_OUT=$(send_tx rep resolve-gov-action-appeal "$T3_APPEAL_ID" overturned "hide was wrong" --gas 400000 --from alice)
-assert_tx_success "alice overturns the Test 3 appeal via x/rep" "$TX_OUT"
+assert_ops_resolve "Ops Committee overturns the Test 3 appeal via x/rep" "$T3_APPEAL_ID" overturned "hide was wrong"
 echo "  Polling up to ~120s for the subsequent §10.1 delete..."
 if poll_collection_deleted "$T3_COLL_ID" 120; then
     echo "PASS: collection deleted after the appeal was overturned"
@@ -554,7 +553,7 @@ else
     echo "  Author-slash collection ID: $AUTHOR_COLL_ID"
 
     # bob (bonded sentinel from the setup section above) hides the collection.
-    TX_OUT=$(send_tx collect hide-content "$AUTHOR_COLL_ID" collection spam "spam" --from bob)
+    TX_OUT=$(send_tx collect hide-content "$AUTHOR_COLL_ID" collection spam --from bob)
     assert_tx_success "bob hides the member-owned collection" "$TX_OUT"
 
     HIDDEN_STATUS=$(query collect collection "$AUTHOR_COLL_ID" \

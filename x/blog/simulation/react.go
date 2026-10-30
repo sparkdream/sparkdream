@@ -1,59 +1,57 @@
 package simulation
 
 import (
-	"math/rand"
-
-	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
 
 	"sparkdream/x/blog/keeper"
 	"sparkdream/x/blog/types"
 )
 
-// SimulateMsgReact simulates a MsgReact message using direct keeper calls.
+// SimulateMsgReact delivers MsgReact on a random active post (or, half the
+// time, an active reply on it) from a random live account passing the
+// post's reply gate. A new reaction pays the reaction fee; reacting again
+// with another type changes the reaction for free. With no active post,
+// one is created first.
 func SimulateMsgReact(
 	ak types.AuthKeeper,
 	bk types.BankKeeper,
 	k keeper.Keeper,
 	txGen client.TxConfig,
 ) simtypes.Operation {
-	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
-	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		simAccount, _ := simtypes.RandomAcc(r, accs)
-		msgType := sdk.MsgTypeURL(&types.MsgReact{})
-
-		// Find or create a post to react to
-		otherAccount, _ := simtypes.RandomAcc(r, accs)
-		postID, err := getOrCreateAnyActivePost(r, ctx, k, otherAccount.Address.String())
-		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, msgType, "failed to get-or-create active post"), nil, nil
+	return operation(ak, bk, k, txGen, &types.MsgReact{}, func(e *simEnv) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
+		label := &types.MsgReact{}
+		post, ok := pick(e.r, e.postsWhere(activePost))
+		if !ok {
+			var err error
+			post, ok, err = e.ensurePost(anyone)
+			if err != nil {
+				return noOpErr(label, err)
+			}
+			if !ok {
+				return noOp(label, "no active post and none could be created")
+			}
 		}
-
-		// React to the post (replyId = 0 means post-level reaction)
-		rt := randomReactionType(r)
-		creator := simAccount.Address.String()
-
-		// Check if already reacted
-		_, found := k.GetReaction(ctx, postID, 0, creator)
-		if found {
-			return simtypes.NoOpMsg(types.ModuleName, msgType, "already reacted"), nil, nil
+		acc, ok := pick(e.r, e.live(func(a simtypes.Account) bool { return e.canReply(a.Address.String(), post) }))
+		if !ok {
+			return noOp(label, "no live account passes the post's reaction trust gate")
 		}
-
-		reaction := types.Reaction{
-			Creator:      creator,
-			ReactionType: rt,
-			PostId:       postID,
-			ReplyId:      0,
+		msg := &types.MsgReact{
+			Creator:      acc.Address.String(),
+			PostId:       post.Id,
+			ReactionType: randomReactionType(e.r),
 		}
-		k.SetReaction(ctx, reaction)
-
-		// Increment reaction counts
-		counts := k.GetReactionCounts(ctx, postID, 0)
-		incrementReactionCount(&counts, rt)
-		k.SetReactionCounts(ctx, postID, 0, counts)
-
-		return simtypes.NoOpMsg(types.ModuleName, msgType, "ok (direct keeper call)"), nil, nil
-	}
+		if e.r.Intn(2) == 0 {
+			onPost := e.repliesWhere(func(rp types.Reply) bool { return rp.PostId == post.Id && activeReply(rp) })
+			if rp, ok := pick(e.r, onPost); ok {
+				msg.ReplyId = rp.Id
+			}
+		}
+		spent := zero()
+		if _, reacted := e.k.GetReaction(e.ctx, msg.PostId, msg.ReplyId, msg.Creator); !reacted &&
+			!e.params.ReactionFeeExempt && e.params.ReactionFeeAmount.IsPositive() {
+			spent = e.params.ReactionFeeAmount
+		}
+		return e.submit(acc, msg, spent)
+	})
 }

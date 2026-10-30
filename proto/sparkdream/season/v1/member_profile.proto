@@ -61,4 +61,9 @@ message MemberProfile {
 
   // Archived seasonal titles from past seasons
   repeated string archived_titles = 19;
+
+  // Season of the member's last completed jury duty (0 = never). A
+  // rep/jury retro-PGF nomination needs it to equal the current season
+  // (SEA-30).
+  uint64 last_jury_duty_season = 20;
 }

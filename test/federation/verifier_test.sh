@@ -1245,14 +1245,16 @@ fi
 
 # ========================================================================
 # TEST 20: Submit arbiter hash — happy path
-# Register alice as a bridge operator on mastodon.example (she's not the
-# content submitter operator2), then submit an arbiter hash on DISPUTED
-# content. With testparams MinBridgeStake=10 SPARK, this is cheap.
+# Register bob as a bridge operator on mastodon.example, then submit an
+# arbiter hash on DISPUTED content. Bob is neither the submitter
+# (operator2) nor the verifier (alice): a party to the dispute — alice
+# included — can no longer arbitrate it. With testparams MinBridgeStake=10
+# SPARK, this is cheap.
 # ========================================================================
 echo ""
 echo "--- TEST 20: Arbiter hash — happy path ---"
 
-# Register alice's bridge FIRST, then mint the DISPUTED record, then
+# Register bob's bridge FIRST, then mint the DISPUTED record, then
 # arbitrate immediately. Ordering matters: the arbiter resolution window is
 # 15s in testparams and starts the moment the content goes DISPUTED, so a
 # bridge registration (one tx plus settle time) between the two would let
@@ -1261,21 +1263,21 @@ echo "--- TEST 20: Arbiter hash — happy path ---"
 # Post-Phase-4: bridge registration is operator-signed (no OpsComm
 # proposal). VERIFIER_A signs MsgRegisterBridge directly with a stake
 # >= min_bond pulled from the federation-bridge-activitypub config.
-# Idempotent: if alice already has a binding for mastodon.example, skip it.
-echo "  Registering alice as bridge operator..."
+# Idempotent: if bob already has a binding for mastodon.example, skip it.
+echo "  Registering bob as bridge operator..."
 ALICE_BRIDGE_OK=false
-EXISTING=$($BINARY query federation get-bridge-binding $VERIFIER_A_ADDR mastodon.example --output json 2>&1 | jq -r '.bridge_binding.address // empty')
+EXISTING=$($BINARY query federation get-bridge-binding $VERIFIER_B_ADDR mastodon.example --output json 2>&1 | jq -r '.bridge_binding.address // empty')
 if [ -n "$EXISTING" ]; then
-    echo "  Alice already has a binding for mastodon.example"
+    echo "  Bob already has a binding for mastodon.example"
     ALICE_BRIDGE_OK=true
 else
     MIN_BOND_AMT=$($BINARY query service service-type federation-bridge-activitypub --output json | jq -r '.config.min_bond_amount')
     TX_RES=$($BINARY tx federation register-bridge \
         mastodon.example activitypub https://arbiter-bridge.example.com "${MIN_BOND_AMT}" \
-        --from $VERIFIER_A -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} --output json)
-    if submit_and_wait "$TX_RES" "register alice bridge"; then
+        --from $VERIFIER_B -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} --output json)
+    if submit_and_wait "$TX_RES" "register bob bridge"; then
         ALICE_BRIDGE_OK=true
-        echo "  Alice registered as bridge operator"
+        echo "  Bob registered as bridge operator"
     else
         CODE=$(echo "$TX_RESULT" | jq -r '.code // empty' 2>/dev/null)
         RAW=$(echo "$TX_RESULT" | jq -r '.raw_log // empty' 2>/dev/null)
@@ -1297,7 +1299,7 @@ if mint_disputed_content "happy"; then
             TX_RES=$($BINARY tx federation submit-arbiter-hash \
                 $MISMATCH_CONTENT_ID \
                 --content-hash "$ARBITER_HASH" \
-                --from $VERIFIER_A \
+                --from $VERIFIER_B \
                 --chain-id $CHAIN_ID \
                 --keyring-backend test \
                 --fees 5000${BOND_DENOM} \
@@ -1314,7 +1316,7 @@ if mint_disputed_content "happy"; then
                 record_result "Arbiter hash happy path" "FAIL"
             fi
         else
-            echo "  Could not register alice as bridge operator"
+            echo "  Could not register bob as bridge operator"
             record_result "Arbiter hash happy path" "FAIL"
         fi
     else
@@ -1387,13 +1389,15 @@ fi
 # TEST 23: New schema fields populated on VerificationRecord +
 # VerifierActivity
 #
-# After TEST 8 (bob challenged alice) and TEST 10 (alice escalated),
-# VERIFY_CONTENT_ID's VerificationRecord should carry:
-#   - escrowed_challenge_fee > 0 (challenger paid the escalating fee)
-#   - challenger == bob
-#   - pending_verifier_verdict == UNSPECIFIED (escalation cleared it;
-#     no arbiter quorum was reached so it was UNSPECIFIED from the
-#     start anyway)
+# TEST 8 (bob challenged alice) escrowed the challenge fee on
+# VERIFY_CONTENT_ID. No arbiter quorum is reached in this file, so once the
+# 15s arbiter resolution window closed the EndBlocker settled the challenge
+# as "no finding" (fee half refunded, half burned). By now its
+# VerificationRecord should carry:
+#   - escrowed_challenge_fee == 0 (the escrow was disbursed exactly once)
+#   - last_challenge_resolved_at > 0 (the settlement stamped it)
+#   - challenger == bob (kept for the record)
+#   - pending_verifier_verdict == UNSPECIFIED (no quorum, nothing stashed)
 #
 # alice's VerifierActivity should carry:
 #   - last_slash_epoch == 0 (no slash has been applied — auto-resolve
@@ -1409,11 +1413,13 @@ if [ -n "$VERIFY_CONTENT_ID" ]; then
     ESCROW_FEE=$(echo "$RECORD" | jq -r '.record.escrowed_challenge_fee // "0"')
     REC_CHALLENGER=$(echo "$RECORD" | jq -r '.record.challenger // ""')
     REC_PENDING=$(echo "$RECORD" | jq -r '.record.pending_verifier_verdict // "PENDING_VERIFIER_VERDICT_UNSPECIFIED"')
+    REC_RESOLVED_AT=$(echo "$RECORD" | jq -r '.record.last_challenge_resolved_at // "0"')
     echo "  escrowed_challenge_fee: $ESCROW_FEE"
+    echo "  last_challenge_resolved_at: $REC_RESOLVED_AT"
     echo "  challenger:             $REC_CHALLENGER"
     echo "  pending_verifier_verdict: $REC_PENDING"
 
-    OK_FEE=$([ "$ESCROW_FEE" != "0" ] && [ "$ESCROW_FEE" != "null" ] && echo 1 || echo 0)
+    OK_FEE=$([ "$ESCROW_FEE" == "0" ] && [ "$REC_RESOLVED_AT" != "0" ] && echo 1 || echo 0)
     OK_CHAL=$([ "$REC_CHALLENGER" == "$VERIFIER_B_ADDR" ] && echo 1 || echo 0)
     OK_PENDING=$([ "$REC_PENDING" == "PENDING_VERIFIER_VERDICT_UNSPECIFIED" ] && echo 1 || echo 0)
 

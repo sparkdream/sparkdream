@@ -6,6 +6,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	"sparkdream/x/artifact/types"
+	commontypes "sparkdream/x/common/types"
 )
 
 func (q queryServer) PublicMintQuote(ctx context.Context, req *types.QueryPublicMintQuoteRequest) (*types.QueryPublicMintQuoteResponse, error) {
@@ -31,7 +32,7 @@ func (q queryServer) PublicMintQuote(ctx context.Context, req *types.QueryPublic
 	}
 	if c.MintPolicy.PerAddressLimit > 0 {
 		used := q.k.publicMintUsed(ctx, c.Id, req.Buyer)
-		remaining := int64(c.MintPolicy.PerAddressLimit) - int64(used)
+		remaining := int64(c.MintPolicy.PerAddressLimit) - commontypes.Saturate[int64](used)
 		if remaining < 0 {
 			remaining = 0
 		}

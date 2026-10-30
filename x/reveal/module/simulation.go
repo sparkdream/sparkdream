@@ -13,14 +13,11 @@ import (
 
 // GenerateGenesisState creates a randomized GenState of the module.
 func (AppModule) GenerateGenesisState(simState *module.SimulationState) {
-	accs := make([]string, len(simState.Accounts))
-	for i, acc := range simState.Accounts {
-		accs[i] = acc.Address.String()
-	}
 	revealGenesis := types.GenesisState{
-		Params: types.DefaultParams(),
+		Params: simGenesisParams(),
 	}
 	simState.GenState[types.ModuleName] = simState.Cdc.MustMarshalJSON(&revealGenesis)
+	simPayableProposalFee(simState)
 }
 
 // RegisterStoreDecoder registers a decoder.

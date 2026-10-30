@@ -645,10 +645,10 @@ func TestMediaVersions(t *testing.T) {
 	_, err = f.msg.Burn(f.ctx, &types.MsgBurn{Owner: f.bob.String(), Refs: []types.TokenRef{{ClassId: id, TokenId: 1}}})
 	require.NoError(t, err)
 	n := 0
-	_ = f.keeper.MediaProposals.Walk(f.ctx, nil, func(_ collections.Triple[uint64, uint64, uint64], _ types.MediaProposal) (bool, error) {
+	require.NoError(t, f.keeper.MediaProposals.Walk(f.ctx, nil, func(_ collections.Triple[uint64, uint64, uint64], _ types.MediaProposal) (bool, error) {
 		n++
 		return false, nil
-	})
+	}))
 	require.Zero(t, n)
 	f.checkInvariants()
 }
@@ -749,7 +749,7 @@ func TestWaveGenesisRoundTrip(t *testing.T) {
 	require.NoError(t, g.keeper.InitGenesis(g.ctx, *gs))
 	g.checkInvariants()
 	n := 0
-	_ = g.keeper.TokenExpiry.Walk(g.ctx, nil, func(_ keeperTimeKey) (bool, error) { n++; return false, nil })
+	require.NoError(t, g.keeper.TokenExpiry.Walk(g.ctx, nil, func(_ keeperTimeKey) (bool, error) { n++; return false, nil }))
 	require.Equal(t, 2, n, "expiry index rebuilt")
 	again, err := g.keeper.ExportGenesis(g.ctx)
 	require.NoError(t, err)

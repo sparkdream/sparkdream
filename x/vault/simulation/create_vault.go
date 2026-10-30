@@ -2,6 +2,7 @@ package simulation
 
 import (
 	"math/rand"
+	commontypes "sparkdream/x/common/types"
 
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
@@ -41,11 +42,11 @@ func SimulateMsgCreateVault(
 		signers := make([]types.VaultSigner, 0, n)
 		var sum uint64
 		for i := 0; i < n; i++ {
-			w := uint64(1 + r.Intn(3))
+			w := commontypes.Saturate[uint64](1 + r.Intn(3))
 			signers = append(signers, types.VaultSigner{Address: accs[perm[i]].Address.String(), Weight: w})
 			sum += w
 		}
-		threshold := uint64(1 + r.Intn(int(sum)))
+		threshold := commontypes.Saturate[uint64](1 + r.Intn(commontypes.Saturate[int](sum)))
 		ttl := types.MinProposalTTL + r.Int63n(types.MaxProposalTTL-types.MinProposalTTL)
 		msg := &types.MsgCreateVault{
 			Creator: creator.Address.String(), Signers: signers, Threshold: threshold,

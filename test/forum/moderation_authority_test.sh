@@ -42,6 +42,7 @@ if [ ! -f "$SCRIPT_DIR/.test_env" ]; then
 fi
 
 source "$SCRIPT_DIR/.test_env"
+source "$SCRIPT_DIR/../lib/ops_committee.sh"
 
 # Sanity check: the CLI command + the new --authority flag must be registered by
 # autocli — otherwise tx calls return YAML help text and every assertion below
@@ -157,11 +158,11 @@ bootstrap_reputation() {
             echo "    Failed to create interim $i"; return 1
         fi
         INTERIM_ID=$(extract_event_value "$TX_RESULT" "interim_created" "interim_id")
-        TX_RES=$($BINARY tx rep complete-interim --gas 500000 $INTERIM_ID "hide-authority setup" \
-            --from $ACCOUNT --chain-id $CHAIN_ID --keyring-backend test \
-            --fees 5000${BOND_DENOM} -y --output json 2>&1)
-        if ! submit_tx_and_wait "$TX_RES" || ! check_tx_success "$TX_RESULT"; then
-            echo "    Failed to complete interim $i"; return 1
+        # Approved by an Operations Committee proposal (a single member is
+        # refused); an assignee can no longer complete and pay its own interim.
+        if ! ops_approve_interim "$INTERIM_ID" "hide-authority setup"; then
+            echo "    Failed to approve interim $INTERIM_ID: $OPS_COMMITTEE_ERROR"
+            return 1
         fi
         echo "    Completed interim $i/$COUNT (ID: $INTERIM_ID)"
     done
@@ -191,8 +192,9 @@ hide_record_sentinel() {
         | jq -r '.hide_record.sentinel // ""'
 }
 
-# Returns the ThreadLockRecord.sentinel, or "" when no record exists (a gov lock
-# writes no record at all — the council path is recordless).
+# Returns the ThreadLockRecord.sentinel, or "" when no record exists. A gov
+# (council-path) lock writes an authority record with an empty sentinel, so it
+# also reads "".
 lock_record_sentinel() {
     local ROOT_ID="$1"
     local OUT
@@ -204,7 +206,8 @@ lock_record_sentinel() {
     fi
 }
 
-# Returns the ThreadMoveRecord.sentinel, or "" when no record exists (gov move).
+# Returns the ThreadMoveRecord.sentinel, or "" when no record exists or the
+# move was a gov move (authority record, empty sentinel).
 move_record_sentinel() {
     local ROOT_ID="$1"
     local OUT
@@ -251,7 +254,10 @@ echo "--- PART 0: PROVISION ALICE (council) AND SENTINEL1 (lock-eligible) ---"
 
 # Alice: council + a small sentinel bond (hide/move eligible, lock-ineligible).
 if [ -z "$(sentinel_bond_status "$ALICE_ADDR")" ] || [ "$(sentinel_bond_status "$ALICE_ADDR")" = "0" ]; then
-    bootstrap_reputation alice 3 || { echo "FATAL: failed to bootstrap alice reputation"; exit 1; }
+    # No reputation bootstrap for alice: interims are paid only on approval
+    # by another Operations Committee member (REP-E-02) and alice is the only
+    # one. The sentinel role has no reputation-tier floor; the bond below is
+    # paid from her genesis DREAM.
     echo "Bonding alice as forum sentinel (500 DREAM, sub-lock-floor)..."
     TX_RES=$($BINARY tx rep bond-role content-sentinel "500000000" \
         --from alice --chain-id $CHAIN_ID --keyring-backend test \

@@ -3,6 +3,7 @@ package keeper
 import (
 	"context"
 	"regexp"
+	"slices"
 	"time"
 
 	"sparkdream/x/commons/types"
@@ -20,6 +21,16 @@ func (k msgServer) RegisterGroup(goCtx context.Context, msg *types.MsgRegisterGr
 
 	govAddress := k.authKeeper.GetModuleAddress(types.GovModuleName).String()
 	isGov := (msg.Authority == govAddress)
+
+	// Only the Commons Council (an executed council proposal) may register
+	// groups without x/gov (spec §7). Any other body that holds
+	// MsgRegisterGroup in its allowlist is refused here.
+	if !isGov && !k.IsCouncilPolicyOrGov(ctx, msg.Authority, "commons") {
+		return nil, errorsmod.Wrap(sdkerrors.ErrUnauthorized, "signer must be x/gov or the Commons Council policy")
+	}
+	if !isGov && msg.IntendedParentAddress != "" && msg.IntendedParentAddress != msg.Authority {
+		return nil, errorsmod.Wrap(sdkerrors.ErrUnauthorized, "only x/gov can assign groups to other parents")
+	}
 
 	params, err := k.GetParams(ctx)
 	if err != nil {
@@ -56,6 +67,11 @@ func (k msgServer) RegisterGroup(goCtx context.Context, msg *types.MsgRegisterGr
 	if msg.MinMembers == 0 {
 		return nil, errorsmod.Wrap(sdkerrors.ErrInvalidRequest, "min_members must be greater than 0")
 	}
+	// A council-created group needs at least two members: a one-member
+	// group is one key with the council's delegated powers.
+	if !isGov && msg.MinMembers < CommitteeMinMembers {
+		return nil, errorsmod.Wrapf(types.ErrInvalidGroupSize, "min_members must be at least %d unless set by x/gov", CommitteeMinMembers)
+	}
 	if msg.MaxMembers < msg.MinMembers {
 		return nil, errorsmod.Wrapf(sdkerrors.ErrInvalidRequest, "max_members (%d) cannot be less than min_members (%d)", msg.MaxMembers, msg.MinMembers)
 	}
@@ -66,6 +82,13 @@ func (k msgServer) RegisterGroup(goCtx context.Context, msg *types.MsgRegisterGr
 	}
 	if initialCount > msg.MaxMembers {
 		return nil, errorsmod.Wrapf(types.ErrInvalidGroupSize, "initial count %d exceeds max %d", initialCount, msg.MaxMembers)
+	}
+
+	if err := checkCommitteeBounds(msg.Name, msg.MinMembers, msg.MaxMembers); err != nil {
+		return nil, err
+	}
+	if !isGov && isReservedGroupName(msg.Name) {
+		return nil, errorsmod.Wrapf(sdkerrors.ErrUnauthorized, "group name %q is reserved; only x/gov may register it", msg.Name)
 	}
 
 	if msg.MaxSpendPerEpoch != nil {
@@ -91,12 +114,10 @@ func (k msgServer) RegisterGroup(goCtx context.Context, msg *types.MsgRegisterGr
 		return nil, errorsmod.Wrap(sdkerrors.ErrInvalidRequest, err.Error())
 	}
 
-	if !isGov {
-		for _, allowedMsg := range msg.AllowedMessages {
-			if RestrictedMessages[allowedMsg] {
-				return nil, errorsmod.Wrapf(sdkerrors.ErrUnauthorized, "message %s is restricted to x/gov groups only", allowedMsg)
-			}
-		}
+	// Allowlist: globally forbidden messages are refused for every signer,
+	// restricted ones for every signer but x/gov.
+	if err := k.ValidatePermissions(msg.Authority, msg.AllowedMessages); err != nil {
+		return nil, err
 	}
 
 	// Authority & Hierarchy
@@ -108,17 +129,32 @@ func (k msgServer) RegisterGroup(goCtx context.Context, msg *types.MsgRegisterGr
 			finalParent = msg.Authority
 		}
 	} else {
-		hasProfile, err := k.PolicyToName.Has(ctx, msg.Authority)
-		if err != nil {
+		finalParent = msg.Authority
+
+		// A council can only delegate what it holds: the child's allowlist
+		// must be a subset of the council's own.
+		if len(msg.AllowedMessages) > 0 {
+			parentPerms, err := k.PolicyPermissions.Get(ctx, msg.Authority)
+			if err != nil {
+				return nil, errorsmod.Wrap(sdkerrors.ErrUnauthorized, "signer has no allowlist to delegate from")
+			}
+			for _, m := range msg.AllowedMessages {
+				if !slices.Contains(parentPerms.AllowedMessages, m) {
+					return nil, errorsmod.Wrapf(sdkerrors.ErrUnauthorized,
+						"message %s is not in the parent's own allowlist; only x/gov can grant it", m)
+				}
+			}
+		}
+
+		// The x/split share is the community's revenue split: only x/gov
+		// may give a group one.
+		if msg.FundingWeight != 0 {
+			return nil, errorsmod.Wrap(sdkerrors.ErrUnauthorized, "funding_weight must be 0 unless set by x/gov")
+		}
+
+		if err := k.checkSpendCapWithinParent(ctx, msg.MaxSpendPerEpoch, msg.Authority); err != nil {
 			return nil, err
 		}
-		if !hasProfile {
-			return nil, errorsmod.Wrap(sdkerrors.ErrUnauthorized, "signer must be x/gov or a registered council")
-		}
-		if msg.IntendedParentAddress != "" && msg.IntendedParentAddress != msg.Authority {
-			return nil, errorsmod.Wrap(sdkerrors.ErrUnauthorized, "only x/gov can assign groups to other parents")
-		}
-		finalParent = msg.Authority
 	}
 
 	// Create native council state
@@ -129,6 +165,9 @@ func (k msgServer) RegisterGroup(goCtx context.Context, msg *types.MsgRegisterGr
 	if err := k.validateMemberWeights(ctx, msg.Name, members, isGov); err != nil {
 		return nil, err
 	}
+	if err := validateVoteThreshold(msg.PolicyType, msg.VoteThreshold, totalMemberWeight(members), isGov); err != nil {
+		return nil, err
+	}
 
 	councilID, err := k.CouncilSeq.Next(ctx)
 	if err != nil {
@@ -137,6 +176,12 @@ func (k msgServer) RegisterGroup(goCtx context.Context, msg *types.MsgRegisterGr
 
 	policyAddr := DeriveCouncilAddress(councilID, "standard")
 	policyAddrStr := policyAddr.String()
+
+	if !isGov {
+		if err := k.validateElectoralAddress(ctx, msg.ElectoralPolicyAddress, policyAddrStr); err != nil {
+			return nil, err
+		}
+	}
 
 	for _, m := range members {
 		m.AddedAt = ctx.BlockTime().Unix()
@@ -189,7 +234,9 @@ func (k msgServer) RegisterGroup(goCtx context.Context, msg *types.MsgRegisterGr
 
 	// Finalize
 	if msg.FundingWeight > 0 {
-		k.splitKeeper.SetShareByAddress(ctx, policyAddrStr, msg.FundingWeight)
+		if err := k.splitKeeper.SetShareByAddress(ctx, policyAddrStr, msg.FundingWeight); err != nil {
+			return nil, errorsmod.Wrap(err, "failed to register split share")
+		}
 	}
 
 	if len(msg.AllowedMessages) > 0 {
@@ -202,6 +249,7 @@ func (k msgServer) RegisterGroup(goCtx context.Context, msg *types.MsgRegisterGr
 	}
 
 	group := types.Group{
+		Index:                  msg.Name,
 		GroupId:                councilID,
 		PolicyAddress:          policyAddrStr,
 		ParentPolicyAddress:    finalParent,
@@ -216,6 +264,10 @@ func (k msgServer) RegisterGroup(goCtx context.Context, msg *types.MsgRegisterGr
 		CurrentTermExpiration:  ctx.BlockTime().Unix() + int64(msg.TermDuration),
 		ActivationTime:         int64(msg.ActivationTime),
 		LastParentUpdate:       ctx.BlockTime().Unix(),
+		BallotMode:             msg.BallotMode,
+	}
+	if _, ok := types.BallotMode_name[int32(msg.BallotMode)]; !ok {
+		return nil, errorsmod.Wrapf(sdkerrors.ErrInvalidRequest, "unknown ballot_mode %d", msg.BallotMode)
 	}
 
 	if err := k.Groups.Set(ctx, msg.Name, group); err != nil {

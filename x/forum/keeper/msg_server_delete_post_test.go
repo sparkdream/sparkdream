@@ -48,7 +48,7 @@ func TestMsgServerDeletePost(t *testing.T) {
 
 		// Mark as hidden
 		post.Status = types.PostStatus_POST_STATUS_HIDDEN
-		f.keeper.Post.Set(f.ctx, post.PostId, post)
+		require.NoError(t, f.keeper.Post.Set(f.ctx, post.PostId, post))
 
 		msg := &types.MsgDeletePost{
 			Creator: testCreator,
@@ -64,7 +64,7 @@ func TestMsgServerDeletePost(t *testing.T) {
 
 		// Mark as deleted
 		post.Status = types.PostStatus_POST_STATUS_DELETED
-		f.keeper.Post.Set(f.ctx, post.PostId, post)
+		require.NoError(t, f.keeper.Post.Set(f.ctx, post.PostId, post))
 
 		msg := &types.MsgDeletePost{
 			Creator: testCreator,
@@ -80,7 +80,7 @@ func TestMsgServerDeletePost(t *testing.T) {
 
 		// Mark as archived
 		post.Status = types.PostStatus_POST_STATUS_ARCHIVED
-		f.keeper.Post.Set(f.ctx, post.PostId, post)
+		require.NoError(t, f.keeper.Post.Set(f.ctx, post.PostId, post))
 
 		msg := &types.MsgDeletePost{
 			Creator: testCreator,

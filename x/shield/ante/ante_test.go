@@ -3,7 +3,9 @@ package ante_test
 import (
 	"context"
 	"errors"
+	"math/big"
 	"testing"
+	"time"
 
 	"cosmossdk.io/math"
 	storetypes "cosmossdk.io/store/types"
@@ -16,6 +18,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 
+	"github.com/consensys/gnark-crypto/ecc/bn254/fr"
+
 	shieldante "sparkdream/x/shield/ante"
 	shieldtypes "sparkdream/x/shield/types"
 )
@@ -26,6 +30,11 @@ type mockShieldKeeper struct {
 	params      shieldtypes.Params
 	err         error
 	precheckErr error
+	// consumes makes PrecheckExec report that it spent the exec.
+	consumes bool
+	// chargeErr is what ChargeEpochFee returns; charged records each fee.
+	chargeErr error
+	charged   *[]math.Int
 }
 
 func (m mockShieldKeeper) GetShieldParams(ctx sdk.Context) (shieldtypes.Params, error) {
@@ -39,8 +48,21 @@ func (m mockShieldKeeper) GetCurrentEpoch(_ context.Context) uint64 {
 	return 1
 }
 
-func (m mockShieldKeeper) PrecheckExec(_ sdk.Context, _ *shieldtypes.MsgShieldedExec) error {
-	return m.precheckErr
+func (m mockShieldKeeper) PrecheckExec(_ sdk.Context, _ *shieldtypes.MsgShieldedExec) (bool, error) {
+	if m.precheckErr != nil {
+		return false, m.precheckErr
+	}
+	return m.consumes, nil
+}
+
+func (m mockShieldKeeper) ChargeEpochFee(_ sdk.Context, fee math.Int, _ math.Int) error {
+	if m.chargeErr != nil {
+		return m.chargeErr
+	}
+	if m.charged != nil {
+		*m.charged = append(*m.charged, fee)
+	}
+	return nil
 }
 
 func (m mockShieldKeeper) BondDenom(_ context.Context) string {
@@ -66,6 +88,15 @@ func (m mockSigTx) GetSigners() ([][]byte, error)                   { return m.s
 func (m mockSigTx) GetPubKeys() ([]cryptotypes.PubKey, error)       { return nil, nil }
 func (m mockSigTx) GetSignaturesV2() ([]signing.SignatureV2, error) { return nil, nil }
 
+// mockUnorderedSigTx is a mockSigTx that reports its unordered flag.
+type mockUnorderedSigTx struct {
+	mockSigTx
+	unordered bool
+}
+
+func (m mockUnorderedSigTx) GetUnordered() bool             { return m.unordered }
+func (m mockUnorderedSigTx) GetTimeoutTimeStamp() time.Time { return time.Time{} }
+
 type mockBankKeeper struct {
 	sendErr error
 	sent    bool
@@ -83,15 +114,21 @@ func (m *mockBankKeeper) SendCoinsFromModuleToModule(ctx context.Context, sender
 type mockTx struct {
 	msgs []sdk.Msg
 	fees sdk.Coins
+	gas  uint64
 }
 
 func (m mockTx) GetMsgs() []sdk.Msg                  { return m.msgs }
 func (m mockTx) GetMsgsV2() ([]proto.Message, error) { return nil, nil }
 func (m mockTx) ValidateBasic() error                { return nil }
 func (m mockTx) GetFee() sdk.Coins                   { return m.fees }
-func (m mockTx) GetGas() uint64                      { return 200000 }
-func (m mockTx) FeePayer() []byte                    { return nil }
-func (m mockTx) FeeGranter() []byte                  { return nil }
+func (m mockTx) GetGas() uint64 {
+	if m.gas != 0 {
+		return m.gas
+	}
+	return 200000
+}
+func (m mockTx) FeePayer() []byte   { return nil }
+func (m mockTx) FeeGranter() []byte { return nil }
 
 // terminalHandler is a no-op next handler
 func terminalHandler(ctx sdk.Context, tx sdk.Tx, simulate bool) (sdk.Context, error) {
@@ -454,4 +491,123 @@ func makeTestContext(t *testing.T) sdk.Context {
 	key := storetypes.NewKVStoreKey("test")
 	testCtx := testutil.DefaultContextWithDB(t, key, storetypes.NewTransientStoreKey("transient_test"))
 	return testCtx.Ctx
+}
+
+// SHD-01: a nullifier, rate-limit nullifier or merkle root at or above the
+// BN254 scalar modulus is refused before anything is checked or paid: the
+// verifier would reduce it mod r and accept an alias of a spent nullifier.
+func TestShieldGasDecorator_NonCanonicalInputsNotPaidFor(t *testing.T) {
+	nPlusR := new(big.Int).Add(big.NewInt(7), fr.Modulus()).FillBytes(make([]byte, 32))
+	cases := map[string]func(m *shieldtypes.MsgShieldedExec){
+		"nullifier":            func(m *shieldtypes.MsgShieldedExec) { m.Nullifier = nPlusR },
+		"rate-limit nullifier": func(m *shieldtypes.MsgShieldedExec) { m.RateLimitNullifier = nPlusR },
+		"merkle root":          func(m *shieldtypes.MsgShieldedExec) { m.MerkleRoot = nPlusR },
+	}
+	for name, mutate := range cases {
+		t.Run(name, func(t *testing.T) {
+			bk := &mockBankKeeper{}
+			decorator := shieldante.NewShieldGasDecorator(mockShieldKeeper{params: shieldtypes.DefaultParams()}, bk)
+			msg := validShieldedExec()
+			mutate(msg)
+			tx := mockTx{msgs: []sdk.Msg{msg}, fees: sdk.NewCoins(sdk.NewCoin("uspark", math.NewInt(1000)))}
+			_, err := decorator.AnteHandle(makeTestContext(t), tx, false, terminalHandler)
+			require.ErrorIs(t, err, shieldtypes.ErrNonCanonicalPublicInput)
+			require.False(t, bk.sent)
+		})
+	}
+}
+
+// SHD-03: when the keeper spent the exec in the ante state, the msg server is
+// told so through the context and must not spend it again.
+func TestShieldGasDecorator_MarksExecConsumed(t *testing.T) {
+	for _, consumes := range []bool{true, false} {
+		decorator := shieldante.NewShieldGasDecorator(mockShieldKeeper{params: shieldtypes.DefaultParams(), consumes: consumes}, &mockBankKeeper{})
+		msg := validShieldedExec()
+		newCtx, err := decorator.AnteHandle(makeTestContext(t), mockTx{msgs: []sdk.Msg{msg}}, false, terminalHandler)
+		require.NoError(t, err)
+		require.Equal(t, consumes, shieldtypes.ExecConsumed(newCtx, msg))
+		require.False(t, shieldtypes.ExecConsumed(newCtx, validShieldedExec()), "pointer identity, not equality")
+	}
+}
+
+// SHD-04: in CheckTx a shield tx must meet the node's minimum gas prices like
+// any other tx, though the module pays: otherwise a zero fee buys any gas
+// limit. DeliverTx doesn't apply the node-local rule.
+func TestShieldGasDecorator_MinGasPrices(t *testing.T) {
+	minGas := sdk.NewDecCoins(sdk.NewDecCoinFromDec("uspark", math.LegacyMustNewDecFromStr("0.025")))
+	cases := []struct {
+		name    string
+		check   bool
+		fees    sdk.Coins
+		gas     uint64
+		wantErr error
+	}{
+		{"zero fee in CheckTx", true, nil, 200_000, sdkerrors.ErrInsufficientFee},
+		{"fee below gas x price", true, sdk.NewCoins(sdk.NewCoin("uspark", math.NewInt(4_999))), 200_000, sdkerrors.ErrInsufficientFee},
+		{"fee meets gas x price", true, sdk.NewCoins(sdk.NewCoin("uspark", math.NewInt(5_000))), 200_000, nil},
+		{"huge gas limit, capped fee", true, sdk.NewCoins(sdk.NewCoin("uspark", math.NewInt(50_000))), 10_000_000, sdkerrors.ErrInsufficientFee},
+		{"zero fee in DeliverTx", false, nil, 200_000, nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			bk := &mockBankKeeper{}
+			decorator := shieldante.NewShieldGasDecorator(mockShieldKeeper{params: shieldtypes.DefaultParams()}, bk)
+			ctx := makeTestContext(t).WithMinGasPrices(minGas).WithIsCheckTx(tc.check)
+			_, err := decorator.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{validShieldedExec()}, fees: tc.fees, gas: tc.gas}, false, terminalHandler)
+			if tc.wantErr != nil {
+				require.ErrorIs(t, err, tc.wantErr)
+				require.False(t, bk.sent)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
+
+// SHD-12: every paid fee is booked against the chain-wide epoch budget, and a
+// fee the budget can't cover is refused before the module pays.
+func TestShieldGasDecorator_EpochFeeBudget(t *testing.T) {
+	var charged []math.Int
+	bk := &mockBankKeeper{}
+	decorator := shieldante.NewShieldGasDecorator(mockShieldKeeper{params: shieldtypes.DefaultParams(), charged: &charged}, bk)
+	fee := sdk.NewCoins(sdk.NewCoin("uspark", math.NewInt(1234)))
+	_, err := decorator.AnteHandle(makeTestContext(t), mockTx{msgs: []sdk.Msg{validShieldedExec()}, fees: fee}, false, terminalHandler)
+	require.NoError(t, err)
+	require.Equal(t, []math.Int{math.NewInt(1234)}, charged)
+	require.True(t, bk.sent)
+
+	// A zero fee costs the reserve nothing and is not booked.
+	charged = nil
+	_, err = decorator.AnteHandle(makeTestContext(t), mockTx{msgs: []sdk.Msg{validShieldedExec()}}, false, terminalHandler)
+	require.NoError(t, err)
+	require.Empty(t, charged)
+
+	bk = &mockBankKeeper{}
+	decorator = shieldante.NewShieldGasDecorator(mockShieldKeeper{params: shieldtypes.DefaultParams(), chargeErr: shieldtypes.ErrEpochFeeBudgetExhausted}, bk)
+	_, err = decorator.AnteHandle(makeTestContext(t), mockTx{msgs: []sdk.Msg{validShieldedExec()}, fees: fee}, false, terminalHandler)
+	require.ErrorIs(t, err, shieldtypes.ErrEpochFeeBudgetExhausted)
+	require.False(t, bk.sent, "an exec over the epoch budget must not be paid for")
+}
+
+// SHD-14: the shared submitter's key is public, so its shield txs must be
+// unordered; other signers may send ordered shield txs.
+func TestShieldGasDecorator_PublicSubmitterMustBeUnordered(t *testing.T) {
+	decorator := shieldante.NewShieldGasDecorator(mockShieldKeeper{params: shieldtypes.DefaultParams()}, &mockBankKeeper{})
+	public := shieldtypes.PublicSubmitterAddress()
+	tx := mockUnorderedSigTx{mockSigTx: mockSigTx{mockTx: mockTx{msgs: []sdk.Msg{validShieldedExec()}}, signers: [][]byte{public}}}
+
+	_, err := decorator.AnteHandle(makeTestContext(t), tx, false, terminalHandler)
+	require.ErrorIs(t, err, shieldtypes.ErrOrderedPublicSubmitterTx)
+	// A tx type without the unordered flag at all is treated as ordered.
+	_, err = decorator.AnteHandle(makeTestContext(t), tx.mockSigTx, false, terminalHandler)
+	require.ErrorIs(t, err, shieldtypes.ErrOrderedPublicSubmitterTx)
+
+	tx.unordered = true
+	_, err = decorator.AnteHandle(makeTestContext(t), tx, false, terminalHandler)
+	require.NoError(t, err)
+
+	tx.unordered = false
+	tx.signers = [][]byte{sdk.AccAddress(make([]byte, 20))}
+	_, err = decorator.AnteHandle(makeTestContext(t), tx, false, terminalHandler)
+	require.NoError(t, err)
 }

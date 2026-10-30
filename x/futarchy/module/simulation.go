@@ -26,55 +26,30 @@ func (AppModule) GenerateGenesisState(simState *module.SimulationState) {
 // RegisterStoreDecoder registers a decoder.
 func (am AppModule) RegisterStoreDecoder(_ simtypes.StoreDecoderRegistry) {}
 
-// WeightedOperations returns the all the gov module operations with their respective weights.
+// WeightedOperations returns the module's simulation operations with their
+// weights. Each weight has its own app-params key (op_weight_msg_<name>),
+// so a -Params file can weight the operations one by one. MsgCancelMarket
+// and MsgUpdateParams are signed by the x/gov authority alone and have no
+// operation.
 func (am AppModule) WeightedOperations(simState module.SimulationState) []simtypes.WeightedOperation {
-	operations := make([]simtypes.WeightedOperation, 0)
-	const (
-		opWeightMsgCreateMarket          = "op_weight_msg_futarchy"
-		defaultWeightMsgCreateMarket int = 100
-	)
-
-	var weightMsgCreateMarket int
-	simState.AppParams.GetOrGenerate(opWeightMsgCreateMarket, &weightMsgCreateMarket, nil,
-		func(_ *rand.Rand) {
-			weightMsgCreateMarket = defaultWeightMsgCreateMarket
-		},
-	)
-	operations = append(operations, simulation.NewWeightedOperation(
-		weightMsgCreateMarket,
-		futarchysimulation.SimulateMsgCreateMarket(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
-	))
-	const (
-		opWeightMsgTrade          = "op_weight_msg_futarchy"
-		defaultWeightMsgTrade int = 100
-	)
-
-	var weightMsgTrade int
-	simState.AppParams.GetOrGenerate(opWeightMsgTrade, &weightMsgTrade, nil,
-		func(_ *rand.Rand) {
-			weightMsgTrade = defaultWeightMsgTrade
-		},
-	)
-	operations = append(operations, simulation.NewWeightedOperation(
-		weightMsgTrade,
-		futarchysimulation.SimulateMsgTrade(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
-	))
-	const (
-		opWeightMsgRedeem          = "op_weight_msg_futarchy"
-		defaultWeightMsgRedeem int = 100
-	)
-
-	var weightMsgRedeem int
-	simState.AppParams.GetOrGenerate(opWeightMsgRedeem, &weightMsgRedeem, nil,
-		func(_ *rand.Rand) {
-			weightMsgRedeem = defaultWeightMsgRedeem
-		},
-	)
-	operations = append(operations, simulation.NewWeightedOperation(
-		weightMsgRedeem,
-		futarchysimulation.SimulateMsgRedeem(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
-	))
-
+	type opDef struct {
+		key    string
+		weight int
+		op     simtypes.Operation
+	}
+	defs := []opDef{
+		{"op_weight_msg_create_market", 40, futarchysimulation.SimulateMsgCreateMarket(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig)},
+		{"op_weight_msg_trade", 100, futarchysimulation.SimulateMsgTrade(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig)},
+		{"op_weight_msg_futarchy_redeem", 60, futarchysimulation.SimulateMsgRedeem(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig)},
+		{"op_weight_msg_withdraw_liquidity", 10, futarchysimulation.SimulateMsgWithdrawLiquidity(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig)},
+		{"op_weight_msg_futarchy_update_operational_params", 15, futarchysimulation.SimulateMsgUpdateOperationalParams(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig)},
+	}
+	operations := make([]simtypes.WeightedOperation, 0, len(defs))
+	for _, d := range defs {
+		weight := d.weight
+		simState.AppParams.GetOrGenerate(d.key, &weight, nil, func(_ *rand.Rand) { weight = d.weight })
+		operations = append(operations, simulation.NewWeightedOperation(weight, d.op))
+	}
 	return operations
 }
 

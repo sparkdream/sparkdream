@@ -24,7 +24,7 @@ func TestAppealPost(t *testing.T) {
 	p, _ := f.keeper.Post.Get(f.ctx, post.PostId)
 	p.Status = types.PostStatus_POST_STATUS_HIDDEN
 	p.HiddenBy = testSentinel
-	_ = f.keeper.Post.Set(f.ctx, post.PostId, p)
+	require.NoError(t, f.keeper.Post.Set(f.ctx, post.PostId, p))
 
 	hideRecord := types.HideRecord{
 		PostId:     post.PostId,
@@ -33,7 +33,7 @@ func TestAppealPost(t *testing.T) {
 		ReasonCode: commontypes.ModerationReason_MODERATION_REASON_SPAM,
 		ReasonText: "Spam content",
 	}
-	_ = f.keeper.HideRecord.Set(f.ctx, post.PostId, hideRecord)
+	require.NoError(t, f.keeper.HideRecord.Set(f.ctx, post.PostId, hideRecord))
 
 	// Create sentinel activity
 	f.createTestSentinel(t, testSentinel, "2000000000")
@@ -71,7 +71,7 @@ func TestAppealPost(t *testing.T) {
 			setup: func() {
 				params := types.DefaultParams()
 				params.AppealsPaused = true
-				_ = f.keeper.Params.Set(f.ctx, params)
+				require.NoError(t, f.keeper.Params.Set(f.ctx, params))
 			},
 			expectError: true,
 			errContains: "appeals are paused",
@@ -94,7 +94,7 @@ func TestAppealPost(t *testing.T) {
 			setup: func() {
 				p, _ := f.keeper.Post.Get(f.ctx, post.PostId)
 				p.Status = types.PostStatus_POST_STATUS_ACTIVE
-				_ = f.keeper.Post.Set(f.ctx, post.PostId, p)
+				require.NoError(t, f.keeper.Post.Set(f.ctx, post.PostId, p))
 			},
 			expectError: true,
 			errContains: "can only appeal hidden posts",
@@ -117,7 +117,7 @@ func TestAppealPost(t *testing.T) {
 			setup: func() {
 				hr, _ := f.keeper.HideRecord.Get(f.ctx, post.PostId)
 				hr.HiddenAt = f.sdkCtx().BlockTime().Unix() // Just hidden
-				_ = f.keeper.HideRecord.Set(f.ctx, post.PostId, hr)
+				require.NoError(t, f.keeper.HideRecord.Set(f.ctx, post.PostId, hr))
 			},
 			expectError: true,
 			errContains: "must wait until",
@@ -127,11 +127,11 @@ func TestAppealPost(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Reset state
-			_ = f.keeper.Params.Set(f.ctx, types.DefaultParams())
+			require.NoError(t, f.keeper.Params.Set(f.ctx, types.DefaultParams()))
 			p, _ := f.keeper.Post.Get(f.ctx, post.PostId)
 			p.Status = types.PostStatus_POST_STATUS_HIDDEN
 			p.Author = testCreator
-			_ = f.keeper.Post.Set(f.ctx, post.PostId, p)
+			require.NoError(t, f.keeper.Post.Set(f.ctx, post.PostId, p))
 
 			hideRecord := types.HideRecord{
 				PostId:     post.PostId,
@@ -140,7 +140,7 @@ func TestAppealPost(t *testing.T) {
 				ReasonCode: commontypes.ModerationReason_MODERATION_REASON_SPAM,
 				ReasonText: "Spam content",
 			}
-			_ = f.keeper.HideRecord.Set(f.ctx, post.PostId, hideRecord)
+			require.NoError(t, f.keeper.HideRecord.Set(f.ctx, post.PostId, hideRecord))
 
 			if tt.setup != nil {
 				tt.setup()
@@ -174,7 +174,7 @@ func TestAppealPostNoHideRecord(t *testing.T) {
 
 		p, _ := f.keeper.Post.Get(f.ctx, post.PostId)
 		p.Status = types.PostStatus_POST_STATUS_HIDDEN
-		_ = f.keeper.Post.Set(f.ctx, post.PostId, p)
+		require.NoError(t, f.keeper.Post.Set(f.ctx, post.PostId, p))
 
 		_, err := f.msgServer.AppealPost(f.ctx, &types.MsgAppealPost{
 			Creator: testCreator,
@@ -196,7 +196,7 @@ func TestAppealPostNoHideRecord(t *testing.T) {
 
 		p, _ := f.keeper.Post.Get(f.ctx, post.PostId)
 		p.Status = types.PostStatus_POST_STATUS_HIDDEN
-		_ = f.keeper.Post.Set(f.ctx, post.PostId, p)
+		require.NoError(t, f.keeper.Post.Set(f.ctx, post.PostId, p))
 
 		require.NoError(t, f.keeper.HideRecord.Set(f.ctx, post.PostId, types.HideRecord{
 			PostId:   post.PostId,
@@ -242,14 +242,14 @@ func TestAppealPostCreatesGovActionAppeal(t *testing.T) {
 	// Hide the post and create hide record
 	p, _ := f.keeper.Post.Get(f.ctx, post.PostId)
 	p.Status = types.PostStatus_POST_STATUS_HIDDEN
-	_ = f.keeper.Post.Set(f.ctx, post.PostId, p)
+	require.NoError(t, f.keeper.Post.Set(f.ctx, post.PostId, p))
 
 	hideRecord := types.HideRecord{
 		PostId:   post.PostId,
 		Sentinel: testSentinel,
 		HiddenAt: f.sdkCtx().BlockTime().Unix() - types.DefaultHideAppealCooldown - 1,
 	}
-	_ = f.keeper.HideRecord.Set(f.ctx, post.PostId, hideRecord)
+	require.NoError(t, f.keeper.HideRecord.Set(f.ctx, post.PostId, hideRecord))
 
 	// Create sentinel
 	f.createTestSentinel(t, testSentinel, "2000000000")

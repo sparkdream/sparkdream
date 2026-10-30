@@ -18,7 +18,9 @@ func createNSeasonSnapshot(keeper keeper.Keeper, ctx context.Context, n int) []t
 	for i := range items {
 		items[i].Season = uint64(i)
 		items[i].SnapshotBlock = int64(i)
-		_ = keeper.SeasonSnapshot.Set(ctx, items[i].Season, items[i])
+		if err := keeper.SeasonSnapshot.Set(ctx, items[i].Season, items[i]); err != nil {
+			panic(err)
+		}
 	}
 	return items
 }

@@ -134,6 +134,36 @@ func (am AppModule) WeightedOperations(simState module.SimulationState) []simtyp
 		weightMsgUpdateVault,
 		vaultsimulation.SimulateMsgUpdateVault(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
 	))
+	const (
+		opWeightMsgAcceptVaultSigner          = "op_weight_msg_vault"
+		defaultWeightMsgAcceptVaultSigner int = 100
+	)
+
+	var weightMsgAcceptVaultSigner int
+	simState.AppParams.GetOrGenerate(opWeightMsgAcceptVaultSigner, &weightMsgAcceptVaultSigner, nil,
+		func(_ *rand.Rand) {
+			weightMsgAcceptVaultSigner = defaultWeightMsgAcceptVaultSigner
+		},
+	)
+	operations = append(operations, simulation.NewWeightedOperation(
+		weightMsgAcceptVaultSigner,
+		vaultsimulation.SimulateMsgAcceptVaultSigner(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
+	))
+	const (
+		opWeightMsgLeaveVault          = "op_weight_msg_vault"
+		defaultWeightMsgLeaveVault int = 100
+	)
+
+	var weightMsgLeaveVault int
+	simState.AppParams.GetOrGenerate(opWeightMsgLeaveVault, &weightMsgLeaveVault, nil,
+		func(_ *rand.Rand) {
+			weightMsgLeaveVault = defaultWeightMsgLeaveVault
+		},
+	)
+	operations = append(operations, simulation.NewWeightedOperation(
+		weightMsgLeaveVault,
+		vaultsimulation.SimulateMsgLeaveVault(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
+	))
 
 	return operations
 }

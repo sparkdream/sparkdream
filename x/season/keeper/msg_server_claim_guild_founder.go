@@ -2,6 +2,8 @@ package keeper
 
 import (
 	"context"
+	"cosmossdk.io/collections"
+	"errors"
 	"fmt"
 
 	"sparkdream/x/season/types"
@@ -39,6 +41,12 @@ func (k msgServer) ClaimGuildFounder(ctx context.Context, msg *types.MsgClaimGui
 		return nil, types.ErrNotGuildMember
 	}
 
+	// A guild frozen below its minimum size keeps its founder; there is
+	// nothing for that founder to claim.
+	if k.canActAs(ctx, msg.Creator, guild.Founder) {
+		return nil, types.ErrAlreadyGuildFounder
+	}
+
 	// Claim founder status
 	oldFounder := guild.Founder
 	guild.Founder = msg.Creator
@@ -53,7 +61,10 @@ func (k msgServer) ClaimGuildFounder(ctx context.Context, msg *types.MsgClaimGui
 	guild.Officers = newOfficers
 
 	// Check if guild should be unfrozen (has enough members)
-	params, _ := k.Params.Get(ctx)
+	params, getErr := k.Params.Get(ctx)
+	if getErr != nil && !errors.Is(getErr, collections.ErrNotFound) {
+		return nil, getErr
+	}
 	memberCount := k.GetGuildMemberCount(ctx, msg.GuildId)
 	if memberCount >= uint64(params.MinGuildMembers) {
 		guild.Status = types.GuildStatus_GUILD_STATUS_ACTIVE

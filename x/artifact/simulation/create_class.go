@@ -15,6 +15,7 @@ import (
 
 	"sparkdream/x/artifact/keeper"
 	"sparkdream/x/artifact/types"
+	commontypes "sparkdream/x/common/types"
 )
 
 // Commit-reveal classes in the simulator derive every secret from the class
@@ -46,7 +47,7 @@ func simBlindMetadata(classID, tokenID uint64) types.TokenMetadata {
 func simBlindTree(classID uint64) ([]byte, [][][]byte) {
 	leaves := make([][]byte, simBlindLeaves)
 	for i := range leaves {
-		tokenID := uint64(i + 1)
+		tokenID := commontypes.Saturate[uint64](i + 1)
 		leaves[i] = types.RevealLeaf(classID, tokenID, simSalt(classID, tokenID), simBlindMetadata(classID, tokenID))
 	}
 	return types.BuildRevealTree(leaves)
@@ -77,7 +78,7 @@ func SimulateMsgCreateClass(
 			if !rk.IsActiveMember(ctx, accs[i].Address) {
 				continue
 			}
-			if lvl, err := rk.GetTrustLevel(ctx, accs[i].Address); err == nil && uint32(lvl) >= p.MinTrustLevelCreateClass {
+			if lvl, err := rk.GetTrustLevel(ctx, accs[i].Address); err == nil && commontypes.Saturate[uint32](lvl) >= p.MinTrustLevelCreateClass {
 				acc, found = accs[i], true
 				break
 			}
@@ -95,7 +96,7 @@ func SimulateMsgCreateClass(
 		soulbound := r.Intn(4) == 0
 		burnAuth := types.BurnAuthorization_BURN_AUTHORIZATION_HOLDER
 		if soulbound {
-			burnAuth = types.BurnAuthorization(r.Intn(3)) // any mode is valid on a soulbound class
+			burnAuth = commontypes.Saturate[types.BurnAuthorization](r.Intn(3)) // any mode is valid on a soulbound class
 		}
 		mutual := soulbound && r.Intn(3) == 0
 		if mutual {
@@ -112,7 +113,7 @@ func SimulateMsgCreateClass(
 				Transferable: !soulbound, BurnAuthorization: burnAuth, TokenMetadataMutable: r.Intn(2) == 0,
 				Mutual: mutual, Redeemable: redeemable, RedeemedTransferable: redeemable && !soulbound && r.Intn(2) == 0,
 			},
-			MaxSupply:              uint64(r.Intn(3)) * 50,
+			MaxSupply:              commontypes.Saturate[uint64](r.Intn(3)) * 50,
 			AcceptedContentLicense: types.ContentLicense,
 		}
 		if r.Intn(3) == 0 {
@@ -124,7 +125,7 @@ func SimulateMsgCreateClass(
 			msg.Expiry = types.ExpiryPolicy{Mode: mode, Term: term, RenewalPrice: sdk.NewInt64Coin(sdk.DefaultBondDenom, int64(r.Intn(2))*500_000)}
 		}
 		if !soulbound {
-			msg.RoyaltyBps = uint32(r.Intn(int(p.MaxRoyaltyBps) + 1))
+			msg.RoyaltyBps = commontypes.Saturate[uint32](r.Intn(int(p.MaxRoyaltyBps) + 1))
 			price := int64(r.Intn(3)) * 1_000_000
 			mp := types.MintPolicy{PublicMintEnabled: true, Price: sdk.NewInt64Coin(sdk.DefaultBondDenom, price)}
 			switch r.Intn(4) {
@@ -160,7 +161,7 @@ func SimulateMsgCreateClass(
 				msg.MintPolicy = types.MintPolicy{}
 			case 1:
 				if msg.Flags.Transferable {
-					msg.Harberger = types.HarbergerPolicy{TaxBpsPerYear: uint32(100 + r.Intn(2000)),
+					msg.Harberger = types.HarbergerPolicy{TaxBpsPerYear: commontypes.Saturate[uint32](100 + r.Intn(2000)),
 						TaxPeriod: types.MinHarbergerPeriod + int64(r.Intn(600)), ForeclosureDuration: types.MinHarbergerPeriod + int64(r.Intn(600))}
 				}
 			case 2:

@@ -6,53 +6,45 @@ import (
 	"sparkdream/x/forum/types"
 
 	"cosmossdk.io/collections"
+	"github.com/cosmos/cosmos-sdk/types/query"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
+// PinnedPosts lists pinned root posts, paginated over the PostsByPinned index
+// (prefix-walked by category when category_id != 0). The legacy single-post
+// fields describe the first post of the page.
 func (q queryServer) PinnedPosts(ctx context.Context, req *types.QueryPinnedPostsRequest) (*types.QueryPinnedPostsResponse, error) {
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "invalid request")
 	}
 
-	// FORUM-S2-8: prefix-walk PostsByPinned instead of scanning every post.
-	// When CategoryId == 0, walk the entire index; otherwise prefix by category.
-	walk := func(rng collections.Ranger[collections.Pair[uint64, uint64]]) (*types.Post, error) {
-		var found *types.Post
-		err := q.k.PostsByPinned.Walk(ctx, rng, func(key collections.Pair[uint64, uint64]) (bool, error) {
-			postID := key.K2()
-			p, getErr := q.k.Post.Get(ctx, postID)
-			if getErr != nil {
-				return false, nil
-			}
-			if !p.Pinned {
-				return false, nil
-			}
-			found = &p
-			return true, nil
-		})
-		return found, err
+	var opts []func(*query.CollectionsPaginateOptions[collections.Pair[uint64, uint64]])
+	if req.CategoryId != 0 {
+		opts = append(opts, query.WithCollectionPaginationPairPrefix[uint64, uint64](req.CategoryId))
 	}
-
-	var pinned *types.Post
-	var err error
-	if req.CategoryId == 0 {
-		pinned, err = walk(nil)
-	} else {
-		rng := collections.NewPrefixedPairRange[uint64, uint64](req.CategoryId)
-		pinned, err = walk(rng)
-	}
+	posts, pageRes, err := query.CollectionFilteredPaginate(
+		ctx,
+		q.k.PostsByPinned,
+		req.Pagination,
+		func(key collections.Pair[uint64, uint64], _ collections.NoValue) (bool, error) {
+			p, err := q.k.Post.Get(ctx, key.K2())
+			return err == nil && p.Pinned && p.CategoryId == key.K1(), nil
+		},
+		func(key collections.Pair[uint64, uint64], _ collections.NoValue) (types.Post, error) {
+			return q.k.Post.Get(ctx, key.K2())
+		},
+		opts...,
+	)
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
 
-	if pinned != nil {
-		return &types.QueryPinnedPostsResponse{
-			PostId:   pinned.PostId,
-			Priority: uint64(pinned.PinPriority),
-			PinnedBy: pinned.PinnedBy,
-		}, nil
+	resp := &types.QueryPinnedPostsResponse{Posts: posts, Pagination: pageRes}
+	if len(posts) > 0 {
+		resp.PostId = posts[0].PostId
+		resp.Priority = uint64(posts[0].PinPriority)
+		resp.PinnedBy = posts[0].PinnedBy
 	}
-
-	return &types.QueryPinnedPostsResponse{}, nil
+	return resp, nil
 }

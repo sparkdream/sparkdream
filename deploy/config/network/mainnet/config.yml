@@ -45,29 +45,32 @@ genesis:
     params:
       abci:
         vote_extensions_enable_height: "1"
+      # Finite block gas (the CometBFT default -1 is unlimited); x/guardian
+      # refuses -1 on later consensus updates.
+      block:
+        max_gas: "100000000"
   app_state:
+    # ICA host: interchain accounts skip the ante chain, so only plain
+    # token/staking msgs may run (app.ICAHostAllowedMsgs is the compiled
+    # ceiling; this param can only narrow it). The ibc-go default is "*".
+    interchainaccounts:
+      host_genesis_state:
+        params:
+          allow_messages:
+          - /cosmos.bank.v1beta1.MsgSend
+          - /cosmos.staking.v1beta1.MsgDelegate
+          - /cosmos.staking.v1beta1.MsgUndelegate
+          - /cosmos.staking.v1beta1.MsgBeginRedelegate
+          - /cosmos.distribution.v1beta1.MsgWithdrawDelegatorReward
+          - /cosmos.distribution.v1beta1.MsgSetWithdrawAddress
+          - /ibc.applications.transfer.v1.MsgTransfer
+          host_enabled: true
     bank:
-      denom_metadata:
-      - base: uspark.sparkdream
-        denom_units:
-        - denom: uspark.sparkdream
-          exponent: 0
-        - denom: spark
-          exponent: 6
-        description: Native token of Spark Dream A T E L I E R.
-        display: spark
-        name: spark
-        symbol: spark
-      - base: udream.sparkdream
-        denom_units:
-        - denom: udream.sparkdream
-          exponent: 0
-        - denom: dream
-          exponent: 6
-        description: Internal coordination token - earned through contribution, not traded.
-        display: dream
-        name: dream
-        symbol: dream
+      # No native denom_metadata: x/identity's InitGenesis writes the
+      # canonical entries, and the pre-init rewrite refuses a native
+      # entry that disagrees with the identity (bank's InitGenesis would
+      # otherwise overwrite the seal at block 0).
+      denom_metadata: []
     commons:
       params:
         proposal_fee: "5000000uspark.sparkdream"
@@ -163,11 +166,11 @@ genesis:
         transition_grace_period: "50400"  # ~1 week in blocks (MAINNET production value)
         display_name_appeal_period_blocks: "100800"  # ~7 days (MAINNET production value)
         # Nomination params - MAINNET production values
-        nomination_min_stake: "10"
+        nomination_min_stake: "10000000"        # 10 DREAM in micro-DREAM
         retro_reward_budget_ratio: "0.250000000000000000"  # 25% of initiative minting
         retro_reward_budget_min: "10000000000"             # 10,000 DREAM floor
         retro_reward_budget_max: "75000000000"             # 75,000 DREAM ceiling
-        retro_reward_min_conviction: "50"
+        retro_reward_min_conviction: "50000000" # 50 DREAM of conviction in micro-DREAM
       member_profile_map:
       # Tier 1 (Lead Vocal)
       - address: sprkdrm19wsctgkpk93wkquu7t8g07gnvwzwdupshys9mu  # Valya

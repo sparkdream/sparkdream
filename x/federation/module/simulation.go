@@ -13,13 +13,12 @@ import (
 
 // GenerateGenesisState creates a randomized GenState of the module.
 func (AppModule) GenerateGenesisState(simState *module.SimulationState) {
-	accs := make([]string, len(simState.Accounts))
-	for i, acc := range simState.Accounts {
-		accs[i] = acc.Address.String()
-	}
+	peers, policies := simPeers(simState)
 	federationGenesis := types.GenesisState{
-		Params: types.DefaultParams(),
-		PortId: types.PortID,
+		Params:       simFederationParams(),
+		PortId:       types.PortID,
+		Peers:        peers,
+		PeerPolicies: policies,
 	}
 	simState.GenState[types.ModuleName] = simState.Cdc.MustMarshalJSON(&federationGenesis)
 }
@@ -335,6 +334,21 @@ func (am AppModule) WeightedOperations(simState module.SimulationState) []simtyp
 	operations = append(operations, simulation.NewWeightedOperation(
 		weightMsgUpdateOperationalParams,
 		federationsimulation.SimulateMsgUpdateOperationalParams(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
+	))
+	const (
+		opWeightMsgAttestIdentityLink          = "op_weight_msg_federation"
+		defaultWeightMsgAttestIdentityLink int = 100
+	)
+
+	var weightMsgAttestIdentityLink int
+	simState.AppParams.GetOrGenerate(opWeightMsgAttestIdentityLink, &weightMsgAttestIdentityLink, nil,
+		func(_ *rand.Rand) {
+			weightMsgAttestIdentityLink = defaultWeightMsgAttestIdentityLink
+		},
+	)
+	operations = append(operations, simulation.NewWeightedOperation(
+		weightMsgAttestIdentityLink,
+		federationsimulation.SimulateMsgAttestIdentityLink(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
 	))
 
 	return operations

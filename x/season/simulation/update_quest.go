@@ -1,53 +1,78 @@
 package simulation
 
 import (
-	"math/rand"
+	"fmt"
 
-	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/season/keeper"
 	"sparkdream/x/season/types"
 )
 
-// SimulateMsgUpdateQuest simulates a MsgUpdateQuest message using direct keeper calls.
-// This bypasses the governance/committee authority requirement for simulation purposes.
-// Full authority testing should be done in integration tests.
+// SimulateMsgUpdateQuest updates a quest definition through an executed
+// x/commons proposal (council.go), one step per call: a new name, XP reward
+// (within max_quest_xp_reward and HardMaxQuestXpReward), repeatability and
+// cooldown. Objectives are omitted (the handler keeps the existing list),
+// and the window, level and prerequisite fields carry over unchanged. A
+// quest is deactivated by the update only while simQuestTarget other
+// active quests remain.
 func SimulateMsgUpdateQuest(
 	ak types.AuthKeeper,
 	bk types.BankKeeper,
 	k keeper.Keeper,
 	txGen client.TxConfig,
 ) simtypes.Operation {
-	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
-	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		// Get or create a quest to update
-		questId, err := getOrCreateQuest(r, ctx, k)
-		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgUpdateQuest{}), "failed to get or create quest"), nil, nil
-		}
-
-		// Fetch the quest
-		quest, err := k.Quest.Get(ctx, questId)
-		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgUpdateQuest{}), "failed to get quest"), nil, nil
-		}
-
-		// Update the quest with random changes
-		quest.Name = quest.Name + " (updated)"
-		quest.Description = "Updated description for simulation"
-		quest.XpReward = uint64(50 + r.Intn(200))
-		quest.Repeatable = r.Intn(2) == 1
-		quest.CooldownEpochs = uint64(r.Intn(10))
-
-		// Save the updated quest via keeper
-		if err := k.Quest.Set(ctx, questId, quest); err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgUpdateQuest{}), "failed to update quest"), nil, nil
-		}
-
-		// Return success
-		return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgUpdateQuest{}), "ok (direct keeper call)"), nil, nil
-	}
+	return authorityOp(ak, bk, k, txGen, &types.MsgUpdateQuest{}, decodeAs[types.MsgUpdateQuest](),
+		func(e *simEnv, policy string, taken []sdk.Msg) (sdk.Msg, string, error) {
+			quests, err := allQuests(e.ctx, e.k)
+			if err != nil {
+				return nil, "", err
+			}
+			pending := map[string]bool{}
+			for _, m := range taken {
+				pending[m.(*types.MsgUpdateQuest).QuestId] = true
+			}
+			var ids []string
+			for _, id := range sortedKeys(quests) {
+				if !pending[id] {
+					ids = append(ids, id)
+				}
+			}
+			id, ok := pick(e.r, ids)
+			if !ok {
+				return nil, "no quest to update", nil
+			}
+			q := quests[id]
+			params, err := e.k.Params.Get(e.ctx)
+			if err != nil {
+				return nil, "", err
+			}
+			active := q.Active
+			if e.r.Intn(4) == 0 {
+				active = !active
+			}
+			if !active && activeQuestCount(quests) <= simQuestTarget {
+				active = true
+			}
+			return &types.MsgUpdateQuest{
+				Authority:           policy,
+				QuestId:             id,
+				Name:                fmt.Sprintf("Quest of the %s", pickName(e)),
+				Description:         "An updated simulation quest",
+				XpReward:            randomQuestXP(e, params),
+				Repeatable:          e.r.Intn(2) == 1,
+				CooldownEpochs:      commontypes.Saturate[uint64](e.r.Intn(3)),
+				Season:              q.Season,
+				StartBlock:          q.StartBlock,
+				EndBlock:            q.EndBlock,
+				MinLevel:            q.MinLevel,
+				RequiredAchievement: q.RequiredAchievement,
+				PrerequisiteQuest:   q.PrerequisiteQuest,
+				QuestChain:          q.QuestChain,
+				Active:              active,
+			}, "", nil
+		})
 }

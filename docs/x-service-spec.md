@@ -10,7 +10,7 @@ Key principles:
 - **SPARK-bonded, not DREAM-bonded.** External-service operators bond SPARK because they are paid in SPARK (via `MsgScheduleRecurringSpend`) and because the work they perform incurs SPARK-denominated costs to the chain when it fails (a missed Akash top-up costs SPARK to recover, not DREAM). DREAM-bonded roles ([x/rep `BondedRole`](x/rep/types/bonded_role.proto)) remain the right primitive for in-system moderation/curation; `x/service` complements rather than replaces it.
 - **Two-tier slashing.** The hiring council can slash up to a small cap unilaterally (routine SLA enforcement). Larger slashes require an x/rep jury (significant accusations, prevents controller capture).
 - **No payment primitive.** Operators are paid via the existing `MsgScheduleRecurringSpend` in `x/commons` targeted at the operator's address. `x/service` owns *accountability*, not compensation.
-- **Reusable by federation.** `x/federation`'s bridge-operator concept is implemented on top of this primitive (one service_type per bridge protocol: `federation-bridge-activitypub`, `federation-bridge-atproto`) rather than duplicating it. Federation no longer hosts its own bond/slash/unbond state.
+- **Reusable by federation.** `x/federation`'s bridge-operator concept is implemented on top of this primitive (one service_type per bridge protocol: `federation-bridge-activitypub`, `federation-bridge-atproto`, `federation-bridge-nostr`, `federation-bridge-lens`) rather than duplicating it. Federation no longer hosts its own bond/slash/unbond state.
 
 ---
 
@@ -110,7 +110,7 @@ Adding, modifying, or disabling a service type is done via `MsgUpdateServiceType
 - `min_bond > 0` in `uspark`.
 - `unilateral_slash_cap_bps`, `tier1_aggregate_cap_bps` each in `(0, 10000]`.
 - `tier1_aggregate_cap_bps ≥ unilateral_slash_cap_bps` (otherwise one tier-1 slash could exceed the aggregate cap).
-- `unbonding_period_blocks ≥ report_contest_window_blocks` (otherwise an operator could unbond before they could contest).
+- `unbonding_period_blocks ≥ report_contest_window_blocks` is the intended relationship but is **not** enforced per type (only for `default_unbonding_period_blocks`, §5). It does not need to be: `MsgClaimUnbondedBond` refuses while any tier-1 escrow of the operator is still inside its contest window (§3.5), so an operator slashed just before its unbonding completes cannot claim and be archived before it could contest. The e2e suites rely on short per-type unbonding periods.
 - `tier1_cooldown_blocks > 0` (a value of zero would re-enable the drainage attack the cap is designed to prevent).
 - `report_timeout_action ∈ {REPORT_TIMEOUT_ACTION_DISMISS, REPORT_TIMEOUT_ACTION_ESCALATE}`.
 - `elevated_attestation_quorum` is 0 or `≥ attestation_quorum`; `checkpoint_max_lag_blocks ≥ 0`, and `> 0` requires `challenge_default_slash_bps > 0` (the liveness report's proposed slash).
@@ -119,7 +119,7 @@ Adding, modifying, or disabling a service type is done via `MsgUpdateServiceType
 **Grandfathering & raised minimums.** When governance raises `min_bond` for an existing service type via `MsgUpdateServiceTypeConfig`:
 
 1. Existing operators with `bond ≥ new_min_bond` are unaffected.
-2. Operators now below `new_min_bond` transition to `UNDERFUNDED` and gain `underfunded_grace_blocks` to top up via `MsgTopUpBond`.
+2. Operators now below `new_min_bond` stop counting as eligible at once (`IsActiveOperator`, and federation's bridge check, require `bond >= current min_bond`), and transition to `UNDERFUNDED`, gaining `underfunded_grace_blocks` to top up via `MsgTopUpBond`, on their next `MsgTopUpBond`, `MsgSubmitCheckpoint` or a `MsgReportOperator` against them (`reconcileMinBond`; see "Service type config changes" in §3.6).
 3. After the grace period, the EndBlocker sweep moves them to `UNBONDING` (forced unbond). They retain their bond, just lose ACTIVE eligibility.
 4. New registrations under the type must meet the new minimum.
 
@@ -223,7 +223,7 @@ ESCALATED --(operator dissolved)--> CLOSED_OPERATOR_DISSOLVED
 ```
 
 - `max_pending_blocks` (default ~30 days) bounds how long a report can sit unresolved. After expiry, the EndBlocker consults the operator's `ServiceTypeConfig.report_timeout_action`:
-  - **`DISMISS`** (default): the report auto-dismisses with reporter's deposit **refunded** (not the reporter's fault the controller didn't engage). A `report_auto_dismissed` event is emitted, and a `RefileCooldowns` entry blocks the same controller from re-filing the same allegation within `report_refile_cooldown_blocks` (default ~30 days) — prevents the "withhold then re-file forever" attack on bond return.
+  - **`DISMISS`** (default): the report auto-dismisses with reporter's deposit **refunded** (not the reporter's fault the controller didn't engage). A `report_auto_dismissed` event is emitted, and a `RefileCooldowns` entry bars **that reporter** from re-filing against the same `(operator, service_type)` within `report_refile_cooldown_blocks` (default ~30 days) — prevents the "file, let it lapse, re-file forever" loop that holds an operator's bond exit hostage (`HasOpenReports` blocks withdrawals and exit while a report is open). The cooldown is per reporter: other members can still report the operator. Auto-dismissed **system** reports (zero deposit: federation challenges and x/service's own liveness reports) record no cooldown, so a lapsed liveness report can never lock members out of reporting the operator it was about. Note that every open report — a liveness report included — blocks the operator's partial withdrawals and exit claims until it resolves or auto-dismisses.
   - **`ESCALATE`**: the report transitions to `ESCALATED` and an x/rep jury case is opened automatically (the proposed slash is `report.proposed_slash_bps` if set, otherwise falls back to `config.challenge_default_slash_bps`). Used by `federation-bridge-*` service types so a silent or captured controller cannot stall a slash past one timeout window. The threat of auto-escalation also disciplines controllers — they have a strict deadline to either resolve or relay the dispute to jury themselves. If neither a usable `proposed_slash_bps` nor `challenge_default_slash_bps` is available, the EndBlocker falls back to `DISMISS` behavior for that report (no slash can be proposed in good faith without one).
 - `max_escalated_blocks` (default ~60 days) bounds how long an ESCALATED report can wait for a jury verdict. If exceeded, the EndBlocker auto-resolves as if the jury had returned REJECT: any contested-T1 escrow returns to operator's bond, reporter/opener deposit is refunded, status becomes `AUTO_TIMEOUT` (distinct from `RESOLVED_T2` so audit can distinguish jury-decided rejections from inability-to-decide). Treats jury inaction as inability-to-convict — consistent with the no-bounty design (reporters shouldn't be punished for x/rep being unable to produce a verdict). The window is intentionally longer than `max_pending_blocks` (juries take time to deliberate).
 - A contested tier-1 slash is **fully reverted** by returning the escrowed slash amount (§3.4.7) to the operator's `bond`; `tier1_slashed_in_window` is decremented. The jury verdict re-applies whatever slash it concludes (from the same escrow if still within window, otherwise from `bond` directly).
@@ -260,6 +260,8 @@ When a tier-1 slash resolves, the slashed SPARK is **not** immediately transferr
 1. At `MsgResolveReport` (T1_SLASH) time: SPARK is moved from `bond` to a dedicated **tier-1 escrow** sub-pool inside the module account, tagged with `(report_id, release_at = current_height + report_contest_window_blocks)`.
 2. If the operator contests within the window: escrowed SPARK is returned to `bond` and the report transitions to `ESCALATED`.
 3. If the contest window passes uncontested: the EndBlocker tier-1 escrow sweep (§3.6) transfers the escrowed SPARK to the community pool via `FundCommunityPool` and removes the escrow entry.
+
+The contest itself is free, and the escrow returns to bond at contest time, so the slash is only re-imposed if the seated jury (§6.2) upholds it — computed on the restored full bond. Should an escrow ever still be held when a jury verdict lands (no current path does this), `MsgResolveReportByJury` treats it consistently: ACCEPT keeps the escrow as the slash (it already is the proposed slash), REDUCE recomputes on `bond + escrow` capped at the escrow, REJECT returns it and reverts `UNDERFUNDED → ACTIVE` with `AfterOperatorReFunded`; an AUTO_TIMEOUT reports the returned amount in its event.
 
 Tier-2 jury slashes (`MsgResolveReportByJury`) skip the escrow entirely and transfer directly to the community pool — jury verdicts are final and not contestable.
 
@@ -307,6 +309,7 @@ The `unbond_complete_at` height is extended by the duration of each pause. This 
 
 - **EndBlocker sweep** of `UNDERFUNDED` operators past `underfunded_grace_blocks` (see §3.6). Auto-unbond with the standard clock; bond returned at end if no open reports.
 - **Tier-2 jury verdict** with `dissolve = true` — but this goes straight to `SLASHED`, not `UNBONDING`. Bond is confiscated to community pool immediately.
+- **Member key migration on the RECOVERY or COUNCIL path** (x/rep, `MigrationHooks.AfterMemberMigration`): the old address's `ACTIVE` and `UNDERFUNDED` operators move to `UNBONDING` with source `FORCED_MIGRATION`. The old key is presumed lost or stolen, so the operator cannot keep serving, and a live operator must not let a thief veto the recovery. The matured exit bond is collected by the member's canonical address through x/rep's `MsgSweepTombstone`, which calls `ClaimForTombstone` (same claim gates as below, each operator in a child cache context; the bank send restriction delivers the bond to the canonical address). On the KEY path the hook instead vetoes while the old address has a live operator (`ACTIVE`, `UNDERFUNDED` or `UNBONDING`); a terminal `SLASHED` or a `RETIRED` record never vetoes. A target address with a live operator is refused on every path.
 
 The controller cannot force unbonding directly. Operators are contractors with a slashable performance guarantee, not council vassals. If the controller wants the operator gone, they must (a) stop the recurring payment via x/commons, and (b) pursue tier-1/tier-2 slashing for actual misconduct.
 
@@ -317,7 +320,7 @@ The controller cannot force unbonding directly. Operators are contractors with a
 - No `PENDING` or `ESCALATED` reports exist against the operator.
 - No tier-1 escrow entries for this operator with `release_at > current_height` (genuinely still within their contest window).
 
-When the claim handler runs, it first **eagerly processes** any of this operator's `Tier1Escrow` entries with `release_at <= current_height` that the EndBlocker sweep hasn't yet picked up — releasing them to community pool inline. This prevents the operator from being blocked by an unswept-but-expired escrow due to EndBlocker queue saturation; the operator pays the small gas cost for this in-line processing in exchange for not waiting for the next sweep.
+When the claim handler runs, it first **eagerly processes** any of this operator's `Tier1Escrow` entries with `release_at <= current_height` that the EndBlocker sweep hasn't yet picked up — releasing them to community pool inline through the same routine as the sweep, so the §6.6 reputation deduction is applied whichever path finalizes the escrow. This prevents the operator from being blocked by an unswept-but-expired escrow due to EndBlocker queue saturation; the operator pays the small gas cost for this in-line processing in exchange for not waiting for the next sweep.
 
 On successful claim:
 
@@ -371,18 +374,19 @@ State transitions are split between **eager** (applied during message processing
 
 Each block, the EndBlocker processes up to `endblocker_sweep_limit` records (default 100 per category) from each of these queues:
 
-1. **Underfunded sweep.** Iterate `UNDERFUNDED` operators where `current_height >= underfunded_since + underfunded_grace_blocks`. Force-transition to `UNBONDING` with the standard clock.
-2. **Pending report sweep.** Iterate `PENDING` reports where `current_height >= filed_at + max_pending_blocks`. Mark `AUTO_DISMISSED`, refund deposit to reporter, record refile-cooldown entry.
+1. **Underfunded sweep.** Iterate `UNDERFUNDED` operators where `current_height >= underfunded_since + underfunded_grace_blocks`. Force-transition to `UNBONDING` with the standard clock. The sweep walks `UnderfundedDue`, keyed by each operator's grace deadline, up to the current height (at most `endblocker_sweep_limit` entries per block), so it reads only operators whose grace has run out; a run of long-grace operators can neither hold a short-grace operator's forced unbonding hostage nor cost the sweep reads.
+2. **Pending report sweep.** Iterate `PENDING` reports where `current_height >= filed_at + max_pending_blocks`. Mark `AUTO_DISMISSED`, refund deposit to reporter, and — for member reports only — record the reporter's refile-cooldown entry.
 3. **Escalated timeout sweep.** Iterate `ESCALATED` reports where `current_height >= escalated_at + max_escalated_blocks`. Mark `AUTO_TIMEOUT`, release any contested-T1 escrow back to bond AND **delete the `Tier1Escrow` row + its release-queue entry** (so sweep 4 doesn't double-process it), refund the reporter/opener deposit. The parallel x/rep `JuryReview` is left in place — x/rep does not expose a cancel API, and an INCONCLUSIVE-or-PENDING JuryReview against an AUTO_TIMEOUT'd report is harmless (the resolver path checks the x/service report's status before applying any verdict). 
-   **Controller-transfer cases** time out on the same deadline: any `ControllerTransferCases` row with `current_height >= opened_at + max_escalated_blocks` (the deadline handed to x/rep at open) and no finalized verdict is resolved as AUTO_TIMEOUT — the opener's deposit is refunded (the case went unadjudicated through no fault of theirs), the controller is unchanged, the row and its `OpenControllerTransferByOperator` entry are deleted (freeing the "one open case" slot), and `service.controller_transfer_case_finalized { verdict = AUTO_TIMEOUT, deposit_destination = OPENER_REFUNDED }` is emitted. There is no deadline index: the sweep walks `ControllerTransferCases` (at most one row per `(operator, service_type)`) and times out up to `endblocker_sweep_limit` per block, which also covers rows written before the sweep existed. A late `MsgFinalizeControllerTransfer` fails with `ErrControllerTransferCaseNotFound`.
+   **Controller-transfer cases** time out on the same deadline: any `ControllerTransferCases` row with `current_height >= opened_at + max_escalated_blocks` (the deadline handed to x/rep at open) and no finalized verdict is resolved as AUTO_TIMEOUT — the opener's deposit is refunded (the case went unadjudicated through no fault of theirs), the controller is unchanged, the row and its `OpenControllerTransferByOperator` entry are deleted (freeing the "one open case" slot), and `service.controller_transfer_case_finalized { verdict = AUTO_TIMEOUT, deposit_destination = OPENER_REFUNDED }` is emitted. The sweep reads the derived index `ControllerTransferCasesByOpenedAt` `(opened_at, jury_case_id)` in order and stops at the first case not yet due (every case shares `max_escalated_blocks`, so `opened_at` order is due order even after the param changes); it times out up to `endblocker_sweep_limit` per block and never reads undue cases. InitGenesis rebuilds the index. A late `MsgFinalizeControllerTransfer` fails with `ErrControllerTransferCaseNotFound`.
 4. **Tier-1 escrow release sweep.** Iterate `Tier1Escrow` entries where `current_height >= release_at` AND the parent report is in a terminal state (`RESOLVED_T1` finalized after contest window with no contest, `RESOLVED_T2`, or `AUTO_TIMEOUT`). For each entry: transfer escrowed SPARK to community pool via `FundCommunityPool` (unless `AUTO_TIMEOUT` — those return to bond), delete the escrow entry.
 5. **Reporter rate-limit pruning.** Lazy — entries are checked-and-pruned at next `MsgReportOperator` from the same reporter. A small EndBlocker sweep also walks the `(reporter, last_filed_at)` index and prunes expired counters to keep the index bounded.
 6. **Checkpoint liveness sweep.** Iterate `CheckpointDeadlines` entries with `deadline ≤ current_height` (§3.8). For each ACTIVE/UNDERFUNDED operator whose checkpoint height (or registration height) plus the type's `checkpoint_max_lag_blocks` is still behind, file a system report and reschedule one window later; otherwise reschedule or drop.
+6a. **System-report dedup pruning.** Walk `SystemReportDedupExpiry` up to `current_height` (up to `endblocker_sweep_limit`): drop the `SystemReportDedup` entry when its report is no longer PENDING/ESCALATED, otherwise re-queue it one retention (`max_pending_blocks + max_escalated_blocks`) later.
 7. **Unbond completion sweep — NOT performed.** Unbonding completion is **lazy** — the operator must call `MsgClaimUnbondedBond`. This avoids unbounded EndBlocker work and is the same pattern used by x/staking. The `unbond_complete_at` field is informational; nothing happens at that height except that subsequent claim calls succeed.
 
 **Gas-bounded ordering.** Sweeps iterate in deterministic key order (e.g., by `(underfunded_since, address)` for queue 1, by `(release_at, escrow_id)` for queue 3) and stop after `endblocker_sweep_limit` items. If more records are eligible than the limit allows, the remainder is processed next block. This bounds per-block gas and prevents an operator-spam attack from stalling the chain.
 
-**Service type config changes.** `MsgUpdateServiceTypeConfig` does not eagerly transition affected operators. Operators whose bond is now below a newly-raised `min_bond` transition to `UNDERFUNDED` lazily — the next message that touches the operator (any message, including a report or top-up) checks `bond < current_min_bond` and updates status. The EndBlocker queue 1 then picks them up if they remain underfunded past the grace. This avoids an O(N) EndBlocker pass on every param change.
+**Service type config changes.** `MsgUpdateServiceTypeConfig` does not eagerly transition affected operators. Operators whose bond is now below a newly-raised `min_bond` transition to `UNDERFUNDED` lazily: `MsgTopUpBond` (when the top-up still falls short), `MsgSubmitCheckpoint` and `MsgReportOperator` against the operator check `bond < current_min_bond` first and move an ACTIVE record to `UNDERFUNDED`, with the grace deadline, `service.operator_underfunded` and `AfterOperatorUnderfunded`. (A withdrawal is refused anyway: it must leave `bond >= min_bond`.) Until then `IsActiveOperator` already reads the operator as ineligible. The EndBlocker queue 1 then picks them up if they remain underfunded past the grace. This avoids an O(N) EndBlocker pass on every param change.
 
 ---
 
@@ -429,7 +433,7 @@ The `dedupeKey` (caller-supplied, typically a deterministic hash of a unique ups
 
 #### 3.7.3. Rate limiting
 
-Per `(matchedModule, sliding window)`, OpenSystemReport admits at most `max_system_reports_per_caller_per_window` (default 50) **new** reports within `rate_limit_window_blocks` (default ~1 day). The window is sliding (ring buffer of recent filing heights, capped at `cap+1` for brief overshoot absorption); admission is based on counting heights within `[current_height - window, current_height]`.
+Per `(matchedModule, sliding window)`, OpenSystemReport admits at most `max_system_reports_per_caller_per_window` (default 50) **new** reports within `rate_limit_window_blocks` (default ~1 day). x/service's own checkpoint-liveness reports are exempt (and not recorded): they are already bounded to one per stalled operator per lag window, and a shared budget let many stalled operators starve each other. The window is sliding (ring buffer of recent filing heights, capped at `cap+1` for brief overshoot absorption); admission is based on counting heights within `[current_height - window, current_height]`.
 
 If the cap is exceeded the call returns `ErrSystemReportRateLimited`, emits a `system_report_rate_limited` event for off-chain alerting, and does **not** mutate state. Idempotent re-calls (same dedupe key) bypass the cap entirely.
 
@@ -468,7 +472,8 @@ Module accounts cannot be slashed for false reports and have no reputation. The 
 - `Operators` — primary, keyed by `(address, service_type)`. Holds only non-terminal records (`ACTIVE | UNDERFUNDED | UNBONDING`).
 - `OperatorsByController` — secondary index, key `(controller, address, service_type)`. Enables `Operators(by_controller=)` query without scanning.
 - `OperatorsByServiceType` — secondary index, key `(service_type, address)`. Enables `Operators(by_service_type=)` query without scanning.
-- `UnderfundedQueue` — index of `UNDERFUNDED` operators keyed by `(underfunded_since, address, service_type)` for EndBlocker sweep ordering.
+- `UnderfundedQueue` — index of `UNDERFUNDED` operators keyed by `(underfunded_since, address, service_type)` (membership; the consistency invariant reads it).
+- `UnderfundedDue` / `UnderfundedDueAt` — the forced-unbond sweep index: `(grace_deadline, address, service_type)` plus the reverse `(address, service_type) -> grace_deadline`, maintained by `PutOperator` (derived state, rebuilt at genesis). The deadline is `underfunded_since + effective grace` at filing time. The EndBlocker walks it only up to the current height, so it never reads an operator still in grace (SVC-07). At the deadline it re-checks the grace with the current params: a grace lengthened since filing re-files the entry at the new deadline; a shortened one applies from the old deadline (the operator never loses grace it was promised).
 
 **Archive store (terminal records):**
 
@@ -484,7 +489,7 @@ Module accounts cannot be slashed for false reports and have no reputation. The 
 - `ReportsByOperator` — secondary index, key `(operator_address, service_type, report_id)`. Enables "all reports against operator" queries.
 - `PendingReportsQueue` — index of `PENDING` reports keyed by `(filed_at, report_id)` for EndBlocker auto-dismiss sweep.
 - `EscalatedReportsQueue` — index of `ESCALATED` reports keyed by `(escalated_at, report_id)` for EndBlocker auto-timeout sweep.
-- `RefileCooldowns` — keyed by `(controller, operator_address, service_type, dismissed_at)`; entries expire after `report_refile_cooldown_blocks` (lazy expiry).
+- `RefileCooldowns` — keyed by `(reporter, operator_address, service_type, dismissed_at)`; the record also carries the controller at dismissal for audit. Entries expire after `report_refile_cooldown_blocks` (lazy expiry).
 - `ReporterRateLimit` — keyed by `(reporter, operator_address, service_type)` → ring buffer of up to `max_reports_per_reporter_per_operator_per_window + 1` recent filing heights; admits a new filing iff fewer than the cap fall within the trailing window (§3.4.6 sliding-window semantics).
 
 **Controller-transfer cases:**
@@ -501,7 +506,8 @@ Module accounts cannot be slashed for false reports and have no reputation. The 
 
 **System-report stores** (consumed by `OpenSystemReport`, §3.7):
 
-- `SystemReportDedup` — keyed by `(caller_module, dedupe_key)` → `report_id`. Implements the idempotency guarantee: re-calls with the same dedupe key return the existing report_id instead of opening a duplicate. Lifetime = lifetime of the report it points at.
+- `SystemReportDedup` — keyed by `(caller_module, dedupe_key)` → `report_id`. Implements the idempotency guarantee: re-calls with the same dedupe key return the existing report_id instead of opening a duplicate. Pruned by EndBlocker sweep 6 once `max_pending_blocks + max_escalated_blocks` have passed since filing and the report is no longer PENDING/ESCALATED (an open report's entry is re-queued). Exported in genesis (`system_report_dedup`).
+- `SystemReportDedupExpiry` — `(eligible_at_height, caller_module, dedupe_key)` prune queue for `SystemReportDedup`; rebuilt from each report's filing height at import.
 - `Checkpoints` — keyed by `(service_type, operator_address)` → `Checkpoint { operator, service_type, height, root, submitted_at }` (§3.8).
 - `CheckpointDeadlines` — liveness queue keyed by `(deadline_height, service_type, operator_address)`; `CheckpointDeadlineByOperator` is its reverse index `(service_type, operator_address) → deadline_height`.
 - `SystemReportRateLimit` — keyed by `caller_module` → `SystemReportRateLimit { recent_filing_heights []int64 }`. Ring buffer of the most recent filing heights, capped at `max_system_reports_per_caller_per_window + 1`; older entries are overwritten on each new filing past the cap.
@@ -524,9 +530,9 @@ Module accounts cannot be slashed for false reports and have no reputation. The 
 | `report_contest_window_blocks`     | ~24 hours          | Global; how long operator has to escalate T1 (also tier-1 escrow release delay) |
 | `max_pending_blocks`               | ~30 days           | Global; auto-dismiss horizon for PENDING reports |
 | `max_escalated_blocks`             | ~60 days           | Global; auto-timeout horizon for ESCALATED reports awaiting jury verdict (§3.4.5) |
-| `report_refile_cooldown_blocks`    | ~30 days           | Global; controller cannot re-file dismissed allegation |
+| `report_refile_cooldown_blocks`    | ~30 days           | Global; a reporter whose member report auto-dismissed cannot re-file it |
 | `report_deposit`                   | 10 SPARK in uspark | Global; required deposit to file `MsgReportOperator` |
-| `min_reporter_trust_level`         | `TRUST_LEVEL_ESTABLISHED` | Global; gates who can file reports |
+| `min_reporter_trust_level`         | `TRUST_LEVEL_ESTABLISHED` | Global; gates who can file reports. Empty (no gate) or a defined x/rep trust-level name; anything else fails `Params.Validate` |
 | `max_reports_per_reporter_per_operator_per_window` | 3 | Global; per-reporter cap against single operator (§3.4.6) |
 | `reporter_rate_limit_window_blocks`| ~30 days           | Global; sliding window for the above cap |
 | `endblocker_sweep_limit`           | 100                | Global; per-queue per-block cap |
@@ -551,7 +557,7 @@ Module accounts cannot be slashed for false reports and have no reputation. The 
 - `report_refile_cooldown_blocks >= max_pending_blocks` — otherwise a hostile controller can stall a report to auto-dismiss, then re-file before the refile-cooldown bites; bounding cooldown >= pending window ensures the refile protection is the active limiter.
 - `max_escalated_blocks > max_pending_blocks` — juries take longer than controllers (deliberation overhead), so the escalated-timeout window must be the looser of the two.
 - `default_pagination_limit > 0`, `max_pagination_limit >= default_pagination_limit`, `max_pagination_limit <= 10000`.
-- `max_system_reports_per_caller_per_window >= 0`; when the cap is non-zero, `rate_limit_window_blocks > 0` (a zero window with a non-zero cap is meaningless). A zero cap effectively disables system reports.
+- `max_system_reports_per_caller_per_window >= 0`; when the cap is non-zero, `rate_limit_window_blocks > 0` (a zero window with a non-zero cap is meaningless). A zero cap disables system reports: every new one from a rate-limited caller is refused with `ErrSystemReportRateLimited` (an idempotent retry of an open report still returns it; x/service's own liveness reports are not rate-limited).
 
 All params are x/gov-mutable. None are hardened at module level. **High-impact params worth hardening if governance integrity becomes a concern:**
 
@@ -656,7 +662,7 @@ Transferring an operator's controller without operator unbond+re-register requir
 
 This is the **only** mechanism by which `controller` changes outside of operator unbond+re-register.
 
-**Authority + verdict-integrity model.** The resolver is a human Operations Committee member, NOT the x/rep module account. This matches every other appeal-resolution path in this codebase (forum's POST_HIDE_APPEAL / THREAD_LOCK_APPEAL / etc., and rep's gov_action_appeal). The committee member observes the jury's verdict off-chain (or via the `Query/JuryReview` RPC) and submits a matching verdict. The on-chain integrity check is the `GetJuryReview` cross-check: if the resolver submits a verdict that doesn't match the jury's tallied result, the message is rejected. This means a single rogue Operations Committee member cannot forge a verdict — they can only at worst delay or refuse to relay a legitimate one, in which case the EndBlocker auto-timeout sweep (§3.6 queue 3) eventually resolves the case as REJECT-equivalent (AUTO_TIMEOUT).
+**Authority + verdict-integrity model.** The resolver is a human Operations Committee member, NOT the x/rep module account. It is safe for a single member because of the jury cross-check below; x/rep's `MsgResolveGovActionAppeal` has no such cross-check and so takes the committee policy address instead. The committee member observes the jury's verdict off-chain (or via the `Query/JuryReview` RPC) and submits a matching verdict. The on-chain integrity check is the `GetJuryReview` cross-check: if the resolver submits a verdict that doesn't match the jury's tallied result, the message is rejected. This means a single rogue Operations Committee member cannot forge a verdict — they can only at worst delay or refuse to relay a legitimate one, in which case the EndBlocker auto-timeout sweep (§3.6 queue 3) eventually resolves the case as REJECT-equivalent (AUTO_TIMEOUT).
 
 **Operator defense surface.** The case carries only the opener's `reason` string. The operator has no first-class on-chain way to argue against a transfer (e.g., "this council has been working fine, the opener has a personal grievance"). Defense happens off-chain via the standard x/rep jury UI — jurors can request additional context from any party before voting. For v1 this is acceptable; if controller-transfer abuse becomes a real issue, a future revision could add `MsgRespondToControllerTransferCase` for structured operator rebuttal.
 
@@ -672,7 +678,7 @@ The case-opening surface is intentionally narrow (operator + ESTABLISHED members
 | x/gov module          | `authtypes.NewModuleAddress("gov")`                             | `MsgUpdateServiceTypeConfig`                  |
 | Commons Ops Committee | Member of `commons/operations` committee                         | `MsgResolveReportByJury`, `MsgFinalizeControllerTransfer` |
 
-The "jury resolver" is a **Commons Council Operations Committee member**, not the x/rep module account. This matches every other appeal-resolution path in this codebase (`MsgResolveGovActionAppeal`, `MsgResolvePostHideAppeal`, etc.): the committee member observes the jury's verdict off-chain (or via x/rep's `Query/JuryReview` RPC) and submits a matching verdict on the originating module. The on-chain integrity guarantee is the cross-check against `repKeeper.GetJuryReview(...)` — a resolver cannot forge a verdict the jurors didn't actually reach. The committee acts as a low-trust relayer, not the verdict source.
+The "jury resolver" is a **Commons Council Operations Committee member**, not the x/rep module account. (x/rep's own `MsgResolveGovActionAppeal` and `MsgResolveMemberReport` now take the committee *policy* address, an executed proposal, because they slash bonds and zero members without a jury cross-check.) The committee member observes the jury's verdict off-chain (or via x/rep's `Query/JuryReview` RPC) and submits a matching verdict on the originating module. The on-chain integrity guarantee is the cross-check against `repKeeper.GetJuryReview(...)` — a resolver cannot forge a verdict the jurors didn't actually reach. The committee acts as a low-trust relayer, not the verdict source.
 
 ---
 
@@ -719,28 +725,45 @@ app.ServiceKeeper.SetHooks(
 
 ### 6.2. x/rep (jury)
 
-Tier-2 slashing and controller-transfer cases reuse the existing
-[x/rep `CreateAppealInitiative` API](x/rep/keeper/jury.go) — the same
-generic-jury entry-point already used by forum (POST_HIDE_APPEAL,
-THREAD_LOCK_APPEAL, THREAD_MOVE_APPEAL, pin_dispute, sentinel_appeal,
-moderation_appeal) and by rep's own gov_action_appeal.
+Tier-2 slashing and controller-transfer cases use x/rep's
+[`CreateSeatedAppeal`](x/rep/keeper/jury_external_case.go): it opens the
+JuryReview through the generic `CreateAppealInitiative` entry point and
+then **seats the jury at once**, the way rep's gov-action appeals and
+migration objections do. `CreateAppealInitiative` alone writes a review with
+no jurors that nothing tallies — which is how every contested tier-1 slash
+used to be voided (bond restored at contest, report AUTO_TIMEOUT, no slash).
 
 **Opening a jury case.** From the handlers that need a jury verdict
 (`MsgResolveReport(ESCALATE_TO_JURY)`, `MsgContestSlash`,
 `MsgOpenControllerTransferCase`), x/service calls:
 
 ```go
-juryReviewID, err := repKeeper.CreateAppealInitiative(
+juryReviewID, err := repKeeper.CreateSeatedAppeal(
     ctx,
     initiativeType,   // "service.slash" or "service.controller_transfer"
     payload,          // JSON-encoded case-specific data
-    deadline,         // current_height + max_escalated_blocks
+    deadline,         // current_height + max_escalated_blocks / 2
+    excludes,         // the parties: operator, reporter or opener, controller (+ proposed controller)
 )
 ```
 
+The parties (and every address of the same members) are kept off the
+jury. Members of the controller *group* are not excluded individually —
+only its policy address — a known limitation. The review enters x/rep's
+PENDING verdict index, so it is tallied as soon as `RequiredVotes` are in
+or, at the latest, at `deadline` (a below-quorum tally is INCONCLUSIVE).
+For these cases `TallyJuryVotes` records the verdict, charges no-shows and
+pays jurors, and applies nothing else.
+
+The voting deadline is **half** of `max_escalated_blocks`; the other half is
+the resolver's window to relay the tallied verdict before sweep 3
+auto-times the case out at `escalated_at + max_escalated_blocks`. With
+both deadlines equal, a verdict tallied at the deadline could never be
+relayed.
+
 The returned `juryReviewID` is stored on the originating record
 (`Report.jury_case_id` or `ControllerTransferCase.jury_case_id`).
-x/rep then handles juror selection, vote intake (`MsgSubmitJurorVote`),
+x/rep then handles vote intake (`MsgSubmitJurorVote`),
 expert testimony (`MsgSubmitExpertTestimony`), and final tallying
 (`TallyJuryVotes` — runs eagerly once `RequiredVotes` is hit, or via
 x/rep's deadline-driven EndBlocker for inconclusive cases).
@@ -786,22 +809,18 @@ Together these two gates mean a single rogue Operations Committee
 member cannot forge a verdict the jurors didn't actually reach. The
 committee acts as a low-trust relayer, not the verdict source.
 
-**Timeout handling.** If a JuryReview never reaches a tallied
-verdict (jurors don't vote, jury deadline expires), x/service's own
-EndBlocker queue 3 (§3.6) auto-resolves the ESCALATED report as
-`AUTO_TIMEOUT` after `max_escalated_blocks`. The corresponding
-JuryReview is left in whatever state x/rep's own deadline machinery
-puts it (typically `INCONCLUSIVE` or `PENDING`); x/service does not
-need to actively cancel it. The `report_contest_window_blocks` /
-`max_escalated_blocks` params are tuned to be longer than x/rep's
-typical jury cycle so the JuryReview should always reach a state
-before x/service times out.
+**Timeout handling.** A jury that does not reach quorum tallies
+INCONCLUSIVE at its voting deadline (half of `max_escalated_blocks`),
+which the resolver relays as REJECT. If no resolver relays any verdict,
+x/service's EndBlocker queue 3 (§3.6) auto-resolves the ESCALATED report
+as `AUTO_TIMEOUT` at `escalated_at + max_escalated_blocks`
+(REJECT-equivalent). x/service does not need to cancel the JuryReview.
 
 ### 6.3. x/federation (migration complete)
 
 `x/federation` previously embedded its own bridge-operator economic primitive (bond escrow, status state machine, unbonding queue, slashing). That has been migrated onto x/service. Current state:
 
-1. **Two service types are seeded at x/service genesis**: `federation-bridge-activitypub` and `federation-bridge-atproto` (see §7 — these come from x/service's own `DefaultGenesis`, NOT from federation's genesis). Each is configured with `report_timeout_action = ESCALATE` so a silent or captured peer controller cannot stall a slash past one timeout window.
+1. **Four federation-bridge service types are seeded at x/service genesis**: `federation-bridge-activitypub`, `federation-bridge-atproto`, `federation-bridge-nostr` and `federation-bridge-lens` (see §7 — these come from x/service's own `DefaultGenesis`, NOT from federation's genesis; `content-scanner` is seeded alongside them). Each is configured with `report_timeout_action = ESCALATE` so a silent or captured peer controller cannot stall a slash past one timeout window.
 2. **Federation's `MsgRegisterBridge` is operator-signed** and orchestrates: (a) federation peer/policy checks, (b) `serviceKeeper.RegisterOperator` (first registration under `(address, service_type)`) or (c) `serviceKeeper.TopUpBond` (re-registration under an existing operator for a different peer — one operator address shares one bond across multiple peer bindings within the same protocol).
 3. **Federation has no slash messages.** Misbehavior reports go through `MsgReportOperator` (community-filed) or `OpenSystemReport` (federation-filed on challenge-quorum-upheld, §3.7). The peer's controller (`peer.controller_group` if set, Operations Committee by default) resolves via `MsgResolveReport` within the per-`ServiceTypeConfig` cap; larger slashes escalate to jury via `MsgResolveReportByJury`.
 4. **Federation subscribes to all four hooks** (§6.1). Hooks are wrapped in `defer recoverHookPanic` (fail-soft pattern) — a bug in federation must never roll back an x/service slash.
@@ -956,15 +975,17 @@ GenesisState {
   next_report_id: uint64                  // counter restore
   next_escrow_id: uint64                  // counter restore
   checkpoints: [Checkpoint]               // latest checkpoint per (service_type, operator); liveness deadlines are rebuilt, not exported
+  system_report_dedup: [SystemReportDedupEntry]     // OpenSystemReport idempotency index; prune queue rebuilt at import
+  system_report_rate_limits: [SystemReportRateLimit] // per-caller-module sliding windows
 }
 ```
 
-**Default genesis seeds the two federation-bridge service types.** `DefaultGenesis()` in `x/service/types/genesis.go` populates `service_types` with:
+**Default genesis seeds the four federation-bridge service types.** `DefaultGenesis()` in `x/service/types/genesis.go` populates `service_types` with:
 
 - `federation-bridge-activitypub` — `enabled = true`, `min_bond = 1000 SPARK`, `report_timeout_action = ESCALATE`, `challenge_default_slash_bps = 100` (1%), all other knobs at module-defaults.
-- `federation-bridge-atproto` — same settings.
+- `federation-bridge-atproto`, `federation-bridge-nostr`, `federation-bridge-lens` — same settings.
 
-Both are seeded by **x/service**, NOT by x/federation. The rationale (Decision 1 / Phase 2 init-order constraint of the migration plan): federation's genesis loads `BridgeBinding` records that reference `service.Operator`s, so the operator's `ServiceTypeConfig` must already exist when x/federation's `InitGenesis` runs. Init order: x/gov → x/bank → x/commons → **x/service** (seeds these configs + any genesis operators) → x/federation (consumes via keeper API).
+All four are seeded by **x/service**, NOT by x/federation. The rationale (Decision 1 / Phase 2 init-order constraint of the migration plan): federation's genesis loads `BridgeBinding` records that reference `service.Operator`s, so the operator's `ServiceTypeConfig` must already exist when x/federation's `InitGenesis` runs. Init order: x/gov → x/bank → x/commons → **x/service** (seeds these configs + any genesis operators) → x/federation (consumes via keeper API).
 
 **`content-scanner` is seeded too** ([content-scanning.md](content-scanning.md) §8): `enabled = true`, `min_bond = 100 SPARK`, `report_timeout_action = DISMISS` (liveness lapses are routine council matters), `challenge_default_slash_bps = 100`, `attestation_quorum = 1` (rollout phase 2: one council-controlled worker; gov raises it as independent workers join), `checkpoint_max_lag_blocks ≈ 1 day`.
 
@@ -982,10 +1003,11 @@ Both are seeded by **x/service**, NOT by x/federation. The rationale (Decision 1
 - Note: the `IsGroupAddress` check on controllers is deferred to first message touching the operator — x/commons may not be fully initialized at the moment `service.InitGenesis` runs (depends on init-order), so a strict genesis-time check would create a brittle ordering dependency. The check IS enforced for any new `MsgRegisterOperator` post-genesis.
 - `next_report_id > max(reports[].id)` (so freshly-generated IDs don't collide).
 - `next_escrow_id > max(tier1_escrow[].escrow_id)`.
+- Counter restore: export writes the sequence's next value plus one, so an unused sequence exports as 1. `InitGenesis` stores a counter only when it is above 1; an unused sequence stays unset instead of becoming a stored 0, which keeps the round trip exact.
 - For each live operator, `bond.denom == "uspark"` and `bond.amount > 0` (live records must hold real bond).
 - For each archived operator: `bond.amount == 0`, `status ∈ {SLASHED, RETIRED}`, `retired_at > 0` (archived records must have a valid terminal status and a non-zero archive height).
 - Live `operators[]` MUST NOT contain duplicate `(address, service_type)` pairs.
-- `archived_operators[]` MUST NOT collide with live `operators[]` on `(address, service_type)` (the live record is authoritative until terminal transition).
+- `archived_operators[]` MUST NOT collide with live `operators[]` on `(address, service_type)`, except a `RETIRED` history with `retired_at < live.registered_at` (an operator that retired and re-registered, §3.1); a `SLASHED` history never sits beside a live record. This is the rule `LiveArchiveDisjointInvariant` checks.
 - Every `tier1_escrow[].report_id` MUST reference a report in `reports[]` with matching `operator_address` and `service_type`; orphan escrow rows fail genesis.
 - Every `tier1_escrow[].operator_address + service_type` MUST resolve to either a live `operators[]` entry or an archived one (a slash escrow without any operator record is a state corruption).
 - Every report with `status == ESCALATED` MUST have `escalated_at > 0` and `jury_case_id != 0`.
@@ -1051,7 +1073,7 @@ Standard SDK `Errors` registered under codespace `service`:
 | 24    | `ErrInvalidMetadataSize`          | `len(metadata) > max_metadata_bytes`                                     |
 | 25    | `ErrInvalidReasonSize`            | `len(reason) > max_reason_bytes`                                         |
 | 26    | `ErrTooManyOperatorsForAddress`   | Address already at `max_active_operators_per_address`                    |
-| 27    | `ErrRefileCooldownActive`         | Same controller re-filing within `report_refile_cooldown_blocks`         |
+| 27    | `ErrRefileCooldownActive`         | Reporter re-filing within `report_refile_cooldown_blocks` of their own lapsed report |
 | 28    | `ErrInvalidVerdict`               | Verdict enum unknown or invalid for context                              |
 | 29    | `ErrInvalidParams`                | `Params.Validate` failed                                                 |
 | 30    | `ErrInvalidServiceTypeConfig`     | `ServiceTypeConfig.Validate` failed                                      |

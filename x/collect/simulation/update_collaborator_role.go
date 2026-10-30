@@ -1,46 +1,75 @@
 package simulation
 
 import (
-	"math/rand"
-
-	"github.com/cosmos/cosmos-sdk/baseapp"
+	"cosmossdk.io/math"
 	"github.com/cosmos/cosmos-sdk/client"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
 
 	"sparkdream/x/collect/keeper"
 	"sparkdream/x/collect/types"
 )
 
+// SimulateMsgUpdateCollaboratorRole delivers MsgUpdateCollaboratorRole on a
+// mutable collection: the owner may set EDITOR or ADMIN on anyone (ADMIN
+// never on a stake-bearing non-member collaborator); an ADMIN may only set
+// EDITOR on a non-ADMIN collaborator.
 func SimulateMsgUpdateCollaboratorRole(
 	ak types.AuthKeeper,
 	bk types.BankKeeper,
 	k keeper.Keeper,
 	txGen client.TxConfig,
 ) simtypes.Operation {
-	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
-	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		simAccount, _ := simtypes.RandomAcc(r, accs)
-		msg := &types.MsgUpdateCollaboratorRole{
-			Creator: simAccount.Address.String(),
+	return operation(ak, bk, k, txGen, &types.MsgUpdateCollaboratorRole{}, func(e *simEnv) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
+		msg := &types.MsgUpdateCollaboratorRole{}
+		type update struct {
+			collab  types.Collaborator
+			updater simtypes.Account
+			owner   bool
 		}
-
-		collab, collabKey, err := findAnyCollaborator(r, ctx, k)
-		if err != nil || collab == nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "no collaborator found"), nil, nil
+		// With no collaborator anywhere, add one first (a real MsgAddCollaborator).
+		n, err := e.countCollaborators()
+		if err != nil {
+			return noOpErr(msg, err)
 		}
-
-		// Toggle role: EDITOR -> ADMIN, ADMIN -> EDITOR
-		if collab.Role == types.CollaboratorRole_COLLABORATOR_ROLE_EDITOR {
-			collab.Role = types.CollaboratorRole_COLLABORATOR_ROLE_ADMIN
-		} else {
-			collab.Role = types.CollaboratorRole_COLLABORATOR_ROLE_EDITOR
+		if n == 0 {
+			if _, err := e.ensureCollaborator(); err != nil {
+				return noOpErr(msg, err)
+			}
 		}
-
-		if err := k.Collaborator.Set(ctx, collabKey, *collab); err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "failed to update collaborator role: "+err.Error()), nil, nil
+		var updates []update
+		err = e.k.Collaborator.Walk(e.ctx, nil, func(_ string, collab types.Collaborator) (bool, error) {
+			coll, err := e.k.Collection.Get(e.ctx, collab.CollectionId)
+			if err != nil {
+				return true, err
+			}
+			if coll.Immutable {
+				return false, nil
+			}
+			for _, a := range e.accs {
+				addr := a.Address.String()
+				if addr == coll.Owner {
+					updates = append(updates, update{collab, a, true})
+				} else if mine, ok := e.collaborator(coll.Id, addr); ok &&
+					mine.Role == types.CollaboratorRole_COLLABORATOR_ROLE_ADMIN &&
+					collab.Role != types.CollaboratorRole_COLLABORATOR_ROLE_ADMIN {
+					updates = append(updates, update{collab, a, false})
+				}
+			}
+			return false, nil
+		})
+		if err != nil {
+			return noOpErr(msg, err)
 		}
-
-		return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "ok (direct keeper call)"), nil, nil
-	}
+		u, ok := pick(e.r, updates)
+		if !ok {
+			return noOp(msg, "no collaborator role a sim account may change")
+		}
+		msg.Creator, msg.CollectionId, msg.Address = u.updater.Address.String(), u.collab.CollectionId, u.collab.Address
+		msg.Role = types.CollaboratorRole_COLLABORATOR_ROLE_EDITOR
+		stakeBearing := !u.collab.DreamStake.IsNil() && u.collab.DreamStake.IsPositive()
+		if u.owner && !stakeBearing && e.r.Intn(2) == 0 {
+			msg.Role = types.CollaboratorRole_COLLABORATOR_ROLE_ADMIN
+		}
+		return e.submit(u.updater, msg, math.ZeroInt())
+	})
 }

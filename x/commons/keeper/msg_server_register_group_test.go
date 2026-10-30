@@ -35,8 +35,9 @@ func TestRegisterGroup(t *testing.T) {
 	parentGroup := types.Group{
 		PolicyAddress: parentPolicyAddr.String(),
 	}
-	require.NoError(t, k.Groups.Set(ctx, "ExistingCouncil", parentGroup))
-	require.NoError(t, k.PolicyToName.Set(ctx, parentPolicyAddr.String(), "ExistingCouncil"))
+	// Only the Commons Council registers groups without x/gov.
+	require.NoError(t, k.Groups.Set(ctx, "Commons Council", parentGroup))
+	require.NoError(t, k.PolicyToName.Set(ctx, parentPolicyAddr.String(), "Commons Council"))
 
 	maxSpendPerEpoch := math.NewInt(1000)
 	negativeSpend := math.NewInt(-100)
@@ -87,15 +88,16 @@ func TestRegisterGroup(t *testing.T) {
 				Authority:          parentPolicyAddr.String(),
 				Name:               "SubCommittee",
 				Description:        "Child group",
-				Members:            []string{sdk.AccAddress([]byte("member2_____________")).String()},
-				MemberWeights:      []string{"1"},
-				MinMembers:         1,
+				Members:            []string{sdk.AccAddress([]byte("member2_____________")).String(), sdk.AccAddress([]byte("member2b____________")).String()},
+				MemberWeights:      []string{"1", "1"},
+				MinMembers:         2,
 				MaxMembers:         3,
 				TermDuration:       86400,
 				VoteThreshold:      testutil.DecPtr("1"),
 				PolicyType:         "threshold",
 				VotingPeriod:       86400,
 				MinExecutionPeriod: 0,
+				MaxSpendPerEpoch:   &maxSpendPerEpoch,
 				FundingWeight:      0,
 			},
 			expectErr: false,

@@ -23,8 +23,12 @@ func createStakeForTarget(k keeper.Keeper, ctx context.Context, id uint64, stake
 		Amount:     amount,
 		CreatedAt:  int64(id * 1000),
 	}
-	_ = k.Stake.Set(ctx, id, stake)
-	_ = k.StakeSeq.Set(ctx, id)
+	if err := k.Stake.Set(ctx, id, stake); err != nil {
+		panic(err)
+	}
+	if err := k.StakeSeq.Set(ctx, id); err != nil {
+		panic(err)
+	}
 	return stake
 }
 

@@ -21,7 +21,9 @@ func createNUserReactionLimit(keeper keeper.Keeper, ctx context.Context, n int) 
 		items[i].CurrentDayCount = uint64(i)
 		items[i].PreviousDayCount = uint64(i)
 		items[i].CurrentDayStart = int64(i)
-		_ = keeper.UserReactionLimit.Set(ctx, items[i].UserAddress, items[i])
+		if err := keeper.UserReactionLimit.Set(ctx, items[i].UserAddress, items[i]); err != nil {
+			panic(err)
+		}
 	}
 	return items
 }

@@ -122,11 +122,15 @@ func newApp(
 ) servertypes.Application {
 	baseappOptions := server.DefaultBaseappOptions(appOpts)
 
-	return app.New(
+	a := app.New(
 		logger, db, traceStore, true,
 		appOpts,
 		baseappOptions...,
 	)
+	if err := app.CheckTestBuildStart(a.ChainID()); err != nil {
+		panic(err)
+	}
+	return a
 }
 
 // appExport creates a new app (optionally at a given height) and exports state.

@@ -126,6 +126,9 @@ const (
 const (
 	UnbondSourceVoluntary         = "VOLUNTARY"
 	UnbondSourceForcedUnderfunded = "FORCED_UNDERFUNDED"
+	// UnbondSourceForcedMigration: the operator's address migrated away on a
+	// RECOVERY or COUNCIL path (presumed-compromised key).
+	UnbondSourceForcedMigration = "FORCED_MIGRATION"
 )
 
 // Controller-transfer finalize deposit destination constants.

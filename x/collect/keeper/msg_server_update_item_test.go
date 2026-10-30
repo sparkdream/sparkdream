@@ -104,7 +104,7 @@ func TestUpdateItem(t *testing.T) {
 				// Set immutable
 				coll, _ := f.keeper.Collection.Get(f.ctx, collID)
 				coll.Immutable = true
-				f.keeper.Collection.Set(f.ctx, collID, coll)
+				require.NoError(t, f.keeper.Collection.Set(f.ctx, collID, coll))
 				return collID, itemID
 			},
 			msg: func(f *testFixture, itemID uint64) *types.MsgUpdateItem {

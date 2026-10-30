@@ -35,7 +35,6 @@ func hideWithAuthority(f *testFixture, creator string, collID uint64, authority 
 		TargetId:   collID,
 		TargetType: types.FlagTargetType_FLAG_TARGET_TYPE_COLLECTION,
 		ReasonCode: commontypes.ModerationReason_MODERATION_REASON_SPAM,
-		ReasonText: "spam content",
 		Authority:  authority,
 	})
 }

@@ -6,6 +6,7 @@ import (
 
 	"cosmossdk.io/collections"
 	sdkmath "cosmossdk.io/math"
+	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	"sparkdream/x/session/types"
@@ -174,7 +175,7 @@ func (k Keeper) validateSpendingAllowancePayload(
 	}
 
 	// Recipient list length cap.
-	if uint32(len(p.AllowedRecipients)) > params.MaxAllowanceRecipientList {
+	if len(p.AllowedRecipients) > int(params.MaxAllowanceRecipientList) {
 		return nil, types.ErrRecipientListTooLong.Wrapf("len=%d max=%d",
 			len(p.AllowedRecipients), params.MaxAllowanceRecipientList)
 	}
@@ -345,8 +346,17 @@ func (k Keeper) validateScheduledOneshotPayload(
 		for _, t := range params.AllowedMsgTypes {
 			allowSet[t] = true
 		}
-		if !allowSet[typeURL] {
+		if !allowSet[typeURL] || types.ForbiddenAllowlistMsgs[typeURL] {
 			return nil, types.ErrOneshotMsgNotAllowed.Wrapf("type: %s", typeURL)
+		}
+		// The inner msg must decode and name exactly one top-level signer
+		// field, or the fire-time signer rewrite could never succeed.
+		var inner sdk.Msg
+		if err := k.cdc.UnpackAny(&codectypes.Any{TypeUrl: typeURL, Value: a.Exec.Msg.Value}, &inner); err != nil {
+			return nil, types.ErrOneshotMsgNotAllowed.Wrapf("type %s does not decode: %v", typeURL, err)
+		}
+		if _, err := signerFieldName(inner); err != nil {
+			return nil, types.ErrOneshotMsgNotAllowed.Wrapf("type %s: %v", typeURL, err)
 		}
 		// Gas limit bounds.
 		if a.Exec.GasLimit < params.MinOneshotExecGas || a.Exec.GasLimit > params.MaxOneshotExecGas {
@@ -440,16 +450,24 @@ func (k Keeper) addEpochSpend(
 	return next, nil
 }
 
-// pruneStaleEpochBuckets drops EpochSpendByGrant entries older than 7
-// days relative to `currentDay`. Bounded work — at most O(23) probes per
-// claim — so the steady-state state cost per active grant is ≤7 buckets.
+// pruneStaleEpochBuckets drops every EpochSpendByGrant entry of grantID
+// older than 7 days relative to `currentDay`. A ranged prefix walk over
+// (grantID, < currentDay-7), so a bucket left by a claim more than a month
+// earlier is removed too, not only a fixed probe window (SES-13). The walk
+// visits only stale buckets, at most one per earlier claim day.
 func (k Keeper) pruneStaleEpochBuckets(ctx context.Context, grantID uint64, currentDay int64) {
-	// Probe a small fixed window backward; collections doesn't expose
-	// per-prefix walking cheaply enough here to be worth the complexity.
-	for d := currentDay - 30; d < currentDay-7; d++ {
-		if d <= 0 {
-			continue
+	rng := collections.NewPrefixedPairRange[uint64, int64](grantID).
+		EndExclusive(currentDay - 7)
+	var stale []collections.Pair[uint64, int64]
+	if err := k.EpochSpendByGrant.Walk(ctx, rng, func(key collections.Pair[uint64, int64], _ string) (bool, error) {
+		stale = append(stale, key)
+		return false, nil
+	}); err != nil {
+		sdk.UnwrapSDKContext(ctx).Logger().Error("pruneStaleEpochBuckets: EpochSpendByGrant.Walk failed", "err", err)
+	}
+	for _, key := range stale {
+		if err := k.EpochSpendByGrant.Remove(ctx, key); err != nil {
+			sdk.UnwrapSDKContext(ctx).Logger().Error("pruneStaleEpochBuckets: EpochSpendByGrant.Remove failed", "err", err)
 		}
-		_ = k.EpochSpendByGrant.Remove(ctx, collections.Join(grantID, d))
 	}
 }

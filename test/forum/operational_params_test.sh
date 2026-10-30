@@ -131,7 +131,8 @@ if [ "$QUERY_PARAMS_RESULT" == "PASS" ]; then
     # Extract all operational fields from current params using jq.
     # Proto3 JSON omits default-valued fields (false bools, zero ints), so we
     # must provide explicit defaults to avoid null values in the proposal JSON.
-    OP_PARAMS=$(echo "$PARAMS_JSON" | jq '.params | {
+    OP_PARAMS=$(echo "$PARAMS_JSON" | jq 'def dec: tostring | if test("[.]") then . else (if length < 19 then ("0" * (19 - length)) + . else . end) | .[0:length-18] + "." + .[length-18:] end;
+      .params | {
       bounties_enabled: (.bounties_enabled // false),
       reactions_enabled: (.reactions_enabled // false),
       editing_enabled: (.editing_enabled // false),
@@ -139,9 +140,6 @@ if [ "$QUERY_PARAMS_RESULT" == "PASS" ]; then
       reaction_spam_tax_amount: (.reaction_spam_tax_amount // "0"),
       flag_spam_tax_amount: (.flag_spam_tax_amount // "0"),
       downvote_deposit_amount: (.downvote_deposit_amount // "0"),
-      appeal_fee_amount: (.appeal_fee_amount // "0"),
-      lock_appeal_fee_amount: (.lock_appeal_fee_amount // "0"),
-      move_appeal_fee_amount: (.move_appeal_fee_amount // "0"),
       edit_fee_amount: (.edit_fee_amount // "0"),
       cost_per_byte_amount: (.cost_per_byte_amount // "0"),
       cost_per_byte_exempt: (.cost_per_byte_exempt // false),
@@ -179,11 +177,11 @@ if [ "$QUERY_PARAMS_RESULT" == "PASS" ]; then
         if (.max_promotions_per_block // 0) > 0
         then .max_promotions_per_block else 50 end
       ),
-      author_rep_slash: (.author_rep_slash // "5000000000000000000"),
+      author_rep_slash: (.author_rep_slash // "5" | dec),
       min_post_conviction_stake: (.min_post_conviction_stake // "10000000"),
       post_conviction_lock_seconds: (.post_conviction_lock_seconds // "1209600"),
-      post_conviction_stream_rate_per_block: (.post_conviction_stream_rate_per_block // "50000000000000000"),
-      max_forum_rep_per_tag_per_epoch: (.max_forum_rep_per_tag_per_epoch // "5000000000000000000"),
+      post_conviction_stream_rate_per_block: (.post_conviction_stream_rate_per_block // "0.05" | dec),
+      max_forum_rep_per_tag_per_epoch: (.max_forum_rep_per_tag_per_epoch // "5" | dec),
       post_conviction_staker_slash_bps: (.post_conviction_staker_slash_bps // "2500"),
       curation_dream_reward: (.curation_dream_reward // "5000000"),
       accept_proposal_timeout: (.accept_proposal_timeout // "172800"),
@@ -337,7 +335,8 @@ echo "--- TEST 5: RESET OPERATIONAL PARAMS TO ORIGINAL ---"
 
 if [ "$UPDATE_PARAMS_RESULT" == "PASS" ]; then
     # Re-extract from initial params for reset (same null-safe extraction)
-    RESET_OP_PARAMS=$(echo "$PARAMS_JSON" | jq '.params | {
+    RESET_OP_PARAMS=$(echo "$PARAMS_JSON" | jq 'def dec: tostring | if test("[.]") then . else (if length < 19 then ("0" * (19 - length)) + . else . end) | .[0:length-18] + "." + .[length-18:] end;
+      .params | {
       bounties_enabled: (.bounties_enabled // false),
       reactions_enabled: (.reactions_enabled // false),
       editing_enabled: (.editing_enabled // false),
@@ -345,9 +344,6 @@ if [ "$UPDATE_PARAMS_RESULT" == "PASS" ]; then
       reaction_spam_tax_amount: (.reaction_spam_tax_amount // "0"),
       flag_spam_tax_amount: (.flag_spam_tax_amount // "0"),
       downvote_deposit_amount: (.downvote_deposit_amount // "0"),
-      appeal_fee_amount: (.appeal_fee_amount // "0"),
-      lock_appeal_fee_amount: (.lock_appeal_fee_amount // "0"),
-      move_appeal_fee_amount: (.move_appeal_fee_amount // "0"),
       edit_fee_amount: (.edit_fee_amount // "0"),
       cost_per_byte_amount: (.cost_per_byte_amount // "0"),
       cost_per_byte_exempt: (.cost_per_byte_exempt // false),
@@ -385,11 +381,11 @@ if [ "$UPDATE_PARAMS_RESULT" == "PASS" ]; then
         if (.max_promotions_per_block // 0) > 0
         then .max_promotions_per_block else 50 end
       ),
-      author_rep_slash: (.author_rep_slash // "5000000000000000000"),
+      author_rep_slash: (.author_rep_slash // "5" | dec),
       min_post_conviction_stake: (.min_post_conviction_stake // "10000000"),
       post_conviction_lock_seconds: (.post_conviction_lock_seconds // "1209600"),
-      post_conviction_stream_rate_per_block: (.post_conviction_stream_rate_per_block // "50000000000000000"),
-      max_forum_rep_per_tag_per_epoch: (.max_forum_rep_per_tag_per_epoch // "5000000000000000000"),
+      post_conviction_stream_rate_per_block: (.post_conviction_stream_rate_per_block // "0.05" | dec),
+      max_forum_rep_per_tag_per_epoch: (.max_forum_rep_per_tag_per_epoch // "5" | dec),
       post_conviction_staker_slash_bps: (.post_conviction_staker_slash_bps // "2500"),
       curation_dream_reward: (.curation_dream_reward // "5000000"),
       accept_proposal_timeout: (.accept_proposal_timeout // "172800"),

@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"cosmossdk.io/collections"
+	"github.com/cosmos/cosmos-sdk/types/query"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
@@ -22,83 +23,80 @@ func (q queryServer) Grant(ctx context.Context, req *types.QueryGrantRequest) (*
 	return &types.QueryGrantResponse{Grant: grant}, nil
 }
 
-// GrantsByGranter lists all grants for a granter, optionally filtered by type.
+// GrantsByGranter lists a granter's grants, optionally filtered by type,
+// one page at a time (pagination.key / next_key; at most maxQueryResults per
+// page).
 func (q queryServer) GrantsByGranter(ctx context.Context, req *types.QueryGrantsByGranterRequest) (*types.QueryGrantsByGranterResponse, error) {
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "invalid request")
 	}
-
-	var grants []types.Grant
-
-	// When a type filter is supplied we use the more-selective
-	// GrantsByTypeAndGranter index; otherwise we walk GrantsByGranter.
-	if req.Type != types.GrantType_GRANT_TYPE_UNSPECIFIED {
-		rng := collections.NewSuperPrefixedTripleRange[int32, string, uint64](
-			int32(req.Type),
-			req.Granter,
-		)
-		err := q.k.GrantsByTypeAndGranter.Walk(ctx, rng, func(key collections.Triple[int32, string, uint64]) (bool, error) {
-			grant, err := q.k.Grants.Get(ctx, key.K3())
-			if err != nil {
-				return true, err
-			}
-			grants = append(grants, grant)
-			if len(grants) >= maxQueryResults {
-				return true, nil
-			}
-			return false, nil
-		})
-		if err != nil {
-			return nil, err
-		}
-	} else {
-		rng := collections.NewPrefixedPairRange[string, uint64](req.Granter)
-		err := q.k.GrantsByGranter.Walk(ctx, rng, func(key collections.Pair[string, uint64]) (bool, error) {
-			grant, err := q.k.Grants.Get(ctx, key.K2())
-			if err != nil {
-				return true, err
-			}
-			grants = append(grants, grant)
-			if len(grants) >= maxQueryResults {
-				return true, nil
-			}
-			return false, nil
-		})
-		if err != nil {
-			return nil, err
-		}
+	grants, page, err := paginateGrants(ctx, q.k, q.k.GrantsByGranter, req.Granter, req.Pagination,
+		typeFilter(req.Type), func(g types.Grant) (types.Grant, error) { return g, nil })
+	if err != nil {
+		return nil, err
 	}
-
-	return &types.QueryGrantsByGranterResponse{Grants: grants}, nil
+	return &types.QueryGrantsByGranterResponse{Grants: grants, Pagination: page}, nil
 }
 
-// GrantsByGrantee lists all grants for a grantee, optionally filtered by type.
+// GrantsByGrantee lists the grants naming a grantee, optionally filtered by
+// type, one page at a time. Anyone can create grants naming any grantee, so
+// a client must follow next_key rather than treat one page as complete.
 func (q queryServer) GrantsByGrantee(ctx context.Context, req *types.QueryGrantsByGranteeRequest) (*types.QueryGrantsByGranteeResponse, error) {
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "invalid request")
 	}
-
-	var grants []types.Grant
-	filterType := req.Type != types.GrantType_GRANT_TYPE_UNSPECIFIED
-
-	rng := collections.NewPrefixedPairRange[string, uint64](req.Grantee)
-	err := q.k.GrantsByGrantee.Walk(ctx, rng, func(key collections.Pair[string, uint64]) (bool, error) {
-		grant, err := q.k.Grants.Get(ctx, key.K2())
-		if err != nil {
-			return true, err
-		}
-		if filterType && grant.Type != req.Type {
-			return false, nil
-		}
-		grants = append(grants, grant)
-		if len(grants) >= maxQueryResults {
-			return true, nil
-		}
-		return false, nil
-	})
+	grants, page, err := paginateGrants(ctx, q.k, q.k.GrantsByGrantee, req.Grantee, req.Pagination,
+		typeFilter(req.Type), func(g types.Grant) (types.Grant, error) { return g, nil })
 	if err != nil {
 		return nil, err
 	}
+	return &types.QueryGrantsByGranteeResponse{Grants: grants, Pagination: page}, nil
+}
 
-	return &types.QueryGrantsByGranteeResponse{Grants: grants}, nil
+// typeFilter keeps grants of t, or every grant when t is UNSPECIFIED.
+func typeFilter(t types.GrantType) func(types.Grant) bool {
+	return func(g types.Grant) bool {
+		return t == types.GrantType_GRANT_TYPE_UNSPECIFIED || g.Type == t
+	}
+}
+
+// paginateGrants pages through an (address, grant id) index under one
+// address, keeping the grants keep accepts and projecting each with project.
+// The page size defaults to, and is capped at, maxQueryResults.
+func paginateGrants[T any](
+	ctx context.Context,
+	k Keeper,
+	index collections.KeySet[collections.Pair[string, uint64]],
+	addr string,
+	pageReq *query.PageRequest,
+	keep func(types.Grant) bool,
+	project func(types.Grant) (T, error),
+) ([]T, *query.PageResponse, error) {
+	if pageReq == nil {
+		pageReq = &query.PageRequest{}
+	} else {
+		cp := *pageReq
+		pageReq = &cp
+	}
+	if pageReq.Limit == 0 || pageReq.Limit > maxQueryResults {
+		pageReq.Limit = maxQueryResults
+	}
+	return query.CollectionFilteredPaginate(ctx, index, pageReq,
+		func(key collections.Pair[string, uint64], _ collections.NoValue) (bool, error) {
+			grant, err := k.Grants.Get(ctx, key.K2())
+			if err != nil {
+				return false, err
+			}
+			return keep(grant), nil
+		},
+		func(key collections.Pair[string, uint64], _ collections.NoValue) (T, error) {
+			grant, err := k.Grants.Get(ctx, key.K2())
+			if err != nil {
+				var zero T
+				return zero, err
+			}
+			return project(grant)
+		},
+		query.WithCollectionPaginationPairPrefix[string, uint64](addr),
+	)
 }

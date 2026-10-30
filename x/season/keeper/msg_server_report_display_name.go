@@ -2,6 +2,8 @@ package keeper
 
 import (
 	"context"
+	"cosmossdk.io/collections"
+	"errors"
 	"fmt"
 
 	"sparkdream/x/season/types"
@@ -45,7 +47,10 @@ func (k msgServer) ReportDisplayName(ctx context.Context, msg *types.MsgReportDi
 	}
 
 	// Get params for stake amount
-	params, _ := k.Params.Get(ctx)
+	params, getErr := k.Params.Get(ctx)
+	if getErr != nil && !errors.Is(getErr, collections.ErrNotFound) {
+		return nil, getErr
+	}
 
 	// Escrow reporter's DREAM stake via x/rep integration.
 	// Preserve underlying x/rep error so insufficient-balance / decay /
@@ -58,7 +63,8 @@ func (k msgServer) ReportDisplayName(ctx context.Context, msg *types.MsgReportDi
 	// Generate challenge ID
 	challengeID := fmt.Sprintf("dn:%s:%d", msg.Target, sdkCtx.BlockHeight())
 
-	// Create moderation record
+	// Create moderation record. Names blocked by earlier upheld cases
+	// carry over (SEA-23).
 	moderation := types.DisplayNameModeration{
 		Member:       msg.Target,
 		RejectedName: profile.DisplayName,
@@ -66,8 +72,11 @@ func (k msgServer) ReportDisplayName(ctx context.Context, msg *types.MsgReportDi
 		ModeratedAt:  sdkCtx.BlockHeight(),
 		Active:       true,
 	}
+	if err == nil {
+		moderation.BlockedNames = existingModeration.BlockedNames
+	}
 
-	if err := k.DisplayNameModeration.Set(ctx, msg.Target, moderation); err != nil {
+	if err := k.SetDisplayNameModeration(ctx, msg.Target, moderation); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to save moderation")
 	}
 

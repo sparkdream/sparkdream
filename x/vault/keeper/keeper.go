@@ -42,8 +42,12 @@ type Keeper struct {
 	ProposalSeq   collections.Sequence
 	// VaultByAddress: address -> vault_id.
 	VaultByAddress collections.Map[string, uint64]
-	// VaultsBySigner: (signer, vault_id). Keyed index, never iterated in full.
+	// VaultsBySigner: (signer, vault_id) of accepted entries. Keyed index,
+	// never iterated in full; at most MaxVaultsPerSigner vaults per member.
 	VaultsBySigner collections.KeySet[collections.Pair[string, uint64]]
+	// VaultInvitesBySigner: (signer, vault_id) of unaccepted entries (listed
+	// by someone else, not yet accepted). Never walked by a tx path.
+	VaultInvitesBySigner collections.KeySet[collections.Pair[string, uint64]]
 	// PendingByVault: (vault_id, proposal_id) of PENDING proposals.
 	PendingByVault collections.KeySet[collections.Pair[uint64, uint64]]
 	// PendingByProposer: (vault_id, proposer, proposal_id) of PENDING proposals.
@@ -80,14 +84,15 @@ func NewKeeper(
 		late:       &lateDeps{},
 		Params:     collections.NewItem(sb, types.ParamsKey, "params", codec.CollValue[types.Params](cdc)),
 		Vault:      collections.NewMap(sb, types.VaultKey, "vault", collections.Uint64Key, codec.CollValue[types.Vault](cdc)), VaultProposal: collections.NewMap(sb, types.VaultProposalKey, "vaultProposal", collections.Uint64Key, codec.CollValue[types.VaultProposal](cdc)),
-		VaultSeq:          collections.NewSequence(sb, types.VaultSeqKey, "vaultSeq"),
-		ProposalSeq:       collections.NewSequence(sb, types.ProposalSeqKey, "proposalSeq"),
-		VaultByAddress:    collections.NewMap(sb, types.VaultByAddressKey, "vaultByAddress", collections.StringKey, collections.Uint64Value),
-		VaultsBySigner:    collections.NewKeySet(sb, types.VaultsBySignerKey, "vaultsBySigner", collections.PairKeyCodec(collections.StringKey, collections.Uint64Key)),
-		PendingByVault:    collections.NewKeySet(sb, types.PendingByVaultKey, "pendingByVault", collections.PairKeyCodec(collections.Uint64Key, collections.Uint64Key)),
-		PendingByProposer: collections.NewKeySet(sb, types.PendingByProposerKey, "pendingByProposer", collections.TripleKeyCodec(collections.Uint64Key, collections.StringKey, collections.Uint64Key)),
-		ExpiryQueue:       collections.NewKeySet(sb, types.ExpiryQueueKey, "expiryQueue", collections.PairKeyCodec(collections.Int64Key, collections.Uint64Key)),
-		RetentionQueue:    collections.NewKeySet(sb, types.RetentionQueueKey, "retentionQueue", collections.PairKeyCodec(collections.Int64Key, collections.Uint64Key)),
+		VaultSeq:             collections.NewSequence(sb, types.VaultSeqKey, "vaultSeq"),
+		ProposalSeq:          collections.NewSequence(sb, types.ProposalSeqKey, "proposalSeq"),
+		VaultByAddress:       collections.NewMap(sb, types.VaultByAddressKey, "vaultByAddress", collections.StringKey, collections.Uint64Value),
+		VaultsBySigner:       collections.NewKeySet(sb, types.VaultsBySignerKey, "vaultsBySigner", collections.PairKeyCodec(collections.StringKey, collections.Uint64Key)),
+		VaultInvitesBySigner: collections.NewKeySet(sb, types.VaultInvitesBySignerKey, "vaultInvitesBySigner", collections.PairKeyCodec(collections.StringKey, collections.Uint64Key)),
+		PendingByVault:       collections.NewKeySet(sb, types.PendingByVaultKey, "pendingByVault", collections.PairKeyCodec(collections.Uint64Key, collections.Uint64Key)),
+		PendingByProposer:    collections.NewKeySet(sb, types.PendingByProposerKey, "pendingByProposer", collections.TripleKeyCodec(collections.Uint64Key, collections.StringKey, collections.Uint64Key)),
+		ExpiryQueue:          collections.NewKeySet(sb, types.ExpiryQueueKey, "expiryQueue", collections.PairKeyCodec(collections.Int64Key, collections.Uint64Key)),
+		RetentionQueue:       collections.NewKeySet(sb, types.RetentionQueueKey, "retentionQueue", collections.PairKeyCodec(collections.Int64Key, collections.Uint64Key)),
 	}
 
 	schema, err := sb.Build()

@@ -21,6 +21,16 @@ type ShieldAware interface {
 	IsShieldCompatible(ctx context.Context, msg sdk.Msg) bool
 }
 
+// ShieldRootResolver is implemented by a ShieldAware module whose operations
+// prove membership of a tree the module keeps rather than the x/rep trust
+// tree (PROOF_DOMAIN_GROUP_TREE): x/commons secret ballots, proven against
+// the proposal's or poll's voter snapshot. ShieldMerkleRoot returns the root
+// a proof for msg must use, or an error if msg has none (no such ballot, or
+// voting on it is over).
+type ShieldRootResolver interface {
+	ShieldMerkleRoot(ctx context.Context, msg sdk.Msg) ([]byte, error)
+}
+
 // OwnershipClaim identifies the anonymous owner of some content: the domain and
 // raw scope of the proof that created it, the resulting nullifier (the owner
 // tag), and the owner's current sequence.

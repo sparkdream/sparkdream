@@ -83,6 +83,10 @@ func (k msgServer) RetryScheduledOneshot(ctx context.Context, msg *types.MsgRetr
 	if err := k.Grants.Set(ctx, grant.Id, grant); err != nil {
 		return nil, err
 	}
+	// Back on the fire-time index so the next EndBlocker pass fires it.
+	if err := k.GrantsByFireTime.Set(ctx, collections.Join(newFireAt, grant.Id)); err != nil {
+		return nil, err
+	}
 
 	sdkCtx.EventManager().EmitEvent(sdk.NewEvent(
 		"oneshot_retry_requested",

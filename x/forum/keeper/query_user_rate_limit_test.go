@@ -22,7 +22,9 @@ func createNUserRateLimit(keeper keeper.Keeper, ctx context.Context, n int) []ty
 		items[i].PreviousEpochCount = uint64(i)
 		items[i].CurrentEpochStart = int64(i)
 		items[i].LastPostTime = int64(i)
-		_ = keeper.UserRateLimit.Set(ctx, items[i].UserAddress, items[i])
+		if err := keeper.UserRateLimit.Set(ctx, items[i].UserAddress, items[i]); err != nil {
+			panic(err)
+		}
 	}
 	return items
 }

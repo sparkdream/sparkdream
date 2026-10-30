@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 
+	"cosmossdk.io/math"
+	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/stretchr/testify/require"
 
 	"sparkdream/x/rep/keeper"
@@ -73,24 +75,80 @@ func TestMsgResolveTagReport(t *testing.T) {
 		require.ErrorIs(t, err, types.ErrTagReportNotFound)
 	})
 
-	t.Run("tag not found", func(t *testing.T) {
+	// REP-E-11: a report whose tag is gone still resolves, and the reporter's
+	// bond is settled instead of stranded.
+	t.Run("tag not found still settles bonds", func(t *testing.T) {
 		f := newFixture(t)
 		f.commonsKeeper.IsCouncilAuthorizedFn = func(_ context.Context, _ string, _ string, _ string) bool {
 			return true
 		}
 		ms := keeper.NewMsgServerImpl(f.keeper)
 
+		reporter := sdk.AccAddress([]byte("orphan-reporter"))
+		bond := types.DefaultTagReportBond
+		require.NoError(t, f.keeper.Member.Set(f.ctx, reporter.String(), types.Member{
+			Address:        reporter.String(),
+			Status:         types.MemberStatus_MEMBER_STATUS_ACTIVE,
+			DreamBalance:   keeper.PtrInt(bond.MulRaw(5)),
+			StakedDream:    keeper.PtrInt(bond),
+			LifetimeEarned: keeper.PtrInt(math.ZeroInt()),
+			LifetimeBurned: keeper.PtrInt(math.ZeroInt()),
+		}))
 		require.NoError(t, f.keeper.TagReport.Set(f.ctx, "orphan-tag", types.TagReport{
-			TagName: "orphan-tag",
+			TagName:   "orphan-tag",
+			Reporters: []string{reporter.String()},
+			TotalBond: bond.String(),
 		}))
 
 		_, err := ms.ResolveTagReport(f.ctx, &types.MsgResolveTagReport{
 			Creator: authorityString(f),
 			TagName: "orphan-tag",
+			Action:  1,
+		})
+		require.NoError(t, err)
+		_, err = f.keeper.TagReport.Get(f.ctx, "orphan-tag")
+		require.Error(t, err, "report resolved")
+		m, err := f.keeper.Member.Get(f.ctx, reporter.String())
+		require.NoError(t, err)
+		require.True(t, m.StakedDream.IsZero(), "bond refunded")
+		require.Equal(t, bond.MulRaw(5), *m.DreamBalance)
+	})
+
+	// REP-E-11: a dismissed report forfeits its bonds.
+	t.Run("dismiss burns bonds", func(t *testing.T) {
+		f := newFixture(t)
+		f.commonsKeeper.IsCouncilAuthorizedFn = func(_ context.Context, _ string, _ string, _ string) bool {
+			return true
+		}
+		ms := keeper.NewMsgServerImpl(f.keeper)
+
+		reporter := sdk.AccAddress([]byte("dismissed-reporter"))
+		bond := types.DefaultTagReportBond
+		require.NoError(t, f.keeper.Member.Set(f.ctx, reporter.String(), types.Member{
+			Address:        reporter.String(),
+			Status:         types.MemberStatus_MEMBER_STATUS_ACTIVE,
+			DreamBalance:   keeper.PtrInt(bond.MulRaw(5)),
+			StakedDream:    keeper.PtrInt(bond),
+			LifetimeEarned: keeper.PtrInt(math.ZeroInt()),
+			LifetimeBurned: keeper.PtrInt(math.ZeroInt()),
+		}))
+		require.NoError(t, f.keeper.SetTag(f.ctx, types.Tag{Name: "fine-tag"}))
+		require.NoError(t, f.keeper.TagReport.Set(f.ctx, "fine-tag", types.TagReport{
+			TagName:   "fine-tag",
+			Reporters: []string{reporter.String()},
+			TotalBond: bond.String(),
+		}))
+
+		_, err := ms.ResolveTagReport(f.ctx, &types.MsgResolveTagReport{
+			Creator: authorityString(f),
+			TagName: "fine-tag",
 			Action:  0,
 		})
-		require.Error(t, err)
-		require.ErrorIs(t, err, types.ErrTagNotFound)
+		require.NoError(t, err)
+		m, err := f.keeper.Member.Get(f.ctx, reporter.String())
+		require.NoError(t, err)
+		require.True(t, m.StakedDream.IsZero())
+		require.Equal(t, bond.MulRaw(4), *m.DreamBalance, "bond burned")
 	})
 
 	t.Run("dismiss", func(t *testing.T) {

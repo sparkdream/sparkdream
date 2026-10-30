@@ -1,36 +1,43 @@
 package simulation
 
 import (
-	"math/rand"
-
-	"github.com/cosmos/cosmos-sdk/baseapp"
+	"cosmossdk.io/math"
 	"github.com/cosmos/cosmos-sdk/client"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
 
 	"sparkdream/x/rep/keeper"
 	"sparkdream/x/rep/types"
 )
 
-func SimulateMsgCompleteInitiative(
-	ak types.AuthKeeper,
-	bk types.BankKeeper,
-	k keeper.Keeper,
-	txGen client.TxConfig,
-) simtypes.Operation {
-	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
-	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		// The handler refuses this message while x/season is in a blocking
-		// transition phase; a delivery failure fails the whole simulation.
-		if k.InMaintenanceMode(ctx) {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgCompleteInitiative{}), "season maintenance mode"), nil, nil
+// SimulateMsgCompleteInitiative completes an IN_REVIEW initiative whose
+// challenge period has ended and whose conviction meets the completion
+// requirements, signed by its assignee or an Operations Committee seat.
+func SimulateMsgCompleteInitiative(ak types.AuthKeeper, bk types.BankKeeper, k keeper.Keeper, txGen client.TxConfig) simtypes.Operation {
+	label := &types.MsgCompleteInitiative{}
+	return operation(ak, bk, k, txGen, label, func(e *simEnv) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
+		height := e.ctx.BlockHeight()
+		ins, err := e.initiatives(func(in types.Initiative) bool {
+			return in.Status == types.InitiativeStatus_INITIATIVE_STATUS_IN_REVIEW &&
+				in.ChallengePeriodEnd != 0 && height >= in.ChallengePeriodEnd
+		})
+		if err != nil {
+			return noOpErr(label, err)
 		}
-		// NOTE: This operation cannot succeed in simulation because completing
-		// an initiative requires meeting complex requirements:
-		// 1. Sufficient conviction score from stakers
-		// 2. Approved work submission
-		// 3. Proper initiative status transitions
-		// Setting up this state correctly is complex and cannot be done reliably in simulation.
-		return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgCompleteInitiative{}), "skipped: requires completion requirements to be met"), nil, nil
-	}
+		ops := append(e.liveSeats(commonsOpsCommittee), e.liveSeats(technicalOpsCommittee)...)
+		var cands []candidate
+		for _, in := range ins {
+			signers := append([]simtypes.Account{}, ops...)
+			if acc, ok := e.account(in.Assignee); ok {
+				signers = append(signers, acc, acc)
+			}
+			by, ok := pick(e.r, signers)
+			if !ok {
+				continue
+			}
+			cands = append(cands, candidate{acc: by, msg: &types.MsgCompleteInitiative{
+				Creator: by.Address.String(), InitiativeId: in.Id, CompletionNotes: "simulation completion",
+			}, spent: math.ZeroInt()})
+		}
+		return e.firstValid(label, cands, 4, "no IN_REVIEW initiative past its challenge period")
+	})
 }

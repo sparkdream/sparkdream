@@ -66,13 +66,13 @@ func TestDeleteCollection(t *testing.T) {
 
 				// Items should be removed (iterate to check)
 				var itemCount int
-				f.keeper.ItemsByCollection.Walk(f.ctx,
+				require.NoError(t, f.keeper.ItemsByCollection.Walk(f.ctx,
 					collections.NewPrefixedPairRange[uint64, uint64](collID),
 					func(key collections.Pair[uint64, uint64]) (bool, error) {
 						itemCount++
 						return false, nil
 					},
-				)
+				))
 				require.Equal(t, 0, itemCount)
 			},
 		},
@@ -120,7 +120,7 @@ func TestDeleteCollection(t *testing.T) {
 				// hide flow itself).
 				coll, _ := f.keeper.Collection.Get(f.ctx, collID)
 				coll.Status = types.CollectionStatus_COLLECTION_STATUS_HIDDEN
-				f.keeper.Collection.Set(f.ctx, collID, coll) //nolint:errcheck
+				require.NoError(t, f.keeper.Collection.Set(f.ctx, collID, coll))
 				return collID
 			},
 			msg: func(f *testFixture, collID uint64) *types.MsgDeleteCollection {

@@ -1,52 +1,51 @@
 package simulation
 
 import (
-	"math/rand"
-
-	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
 
 	"sparkdream/x/forum/keeper"
 	"sparkdream/x/forum/types"
 )
 
-// SimulateMsgAppealPost simulates a MsgAppealPost message using direct keeper calls.
-// This bypasses fee and cooldown requirements for simulation purposes.
-// Full integration testing should be done in integration tests.
+// SimulateMsgAppealPost delivers MsgAppealPost from the author of a post a
+// sentinel hid, once hide_appeal_cooldown has passed and while the hide is
+// not yet appealed. The appellant escrows x/rep's appeal bond. Hides only
+// come from sentinels, so this op succeeds only in runs that bond one.
 func SimulateMsgAppealPost(
 	ak types.AuthKeeper,
 	bk types.BankKeeper,
 	k keeper.Keeper,
 	txGen client.TxConfig,
 ) simtypes.Operation {
-	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
-	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		simAccount, _ := simtypes.RandomAcc(r, accs)
-
-		// Get or create a hidden post
-		postID, err := getOrCreateHiddenPost(r, ctx, k, simAccount.Address.String())
+	return operation(ak, bk, k, txGen, &types.MsgAppealPost{}, func(e *simEnv) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
+		msg := &types.MsgAppealPost{}
+		if e.params.AppealsPaused {
+			return noOp(msg, "appeals are paused")
+		}
+		var posts []types.Post
+		err := e.k.HideRecord.Walk(e.ctx, nil, func(id uint64, hr types.HideRecord) (bool, error) {
+			if hr.Sentinel == "" || hr.Appealed || e.now() < hr.HiddenAt+e.params.HideAppealCooldown {
+				return false, nil
+			}
+			p, ok := e.post(id)
+			if !ok || p.Status != types.PostStatus_POST_STATUS_HIDDEN {
+				return false, nil
+			}
+			if _, ok := e.account(p.Author); ok {
+				posts = append(posts, p)
+			}
+			return false, nil
+		})
 		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgAppealPost{}), "failed to get/create hidden post"), nil, nil
+			return noOpErr(msg, err)
 		}
-
-		// Verify that a SENTINEL hide record exists (required for appeal).
-		// Gov-hide records also land in HideRecord with Sentinel == "" but
-		// AppealPost rejects them as ErrGovLockNotAppealable.
-		rec, err := k.HideRecord.Get(ctx, postID)
-		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgAppealPost{}), "no hide record found"), nil, nil
+		post, ok := pick(e.r, posts)
+		if !ok {
+			return noOp(msg, "no appealable sentinel hide on a sim account's post")
 		}
-		if rec.Sentinel == "" {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgAppealPost{}), "gov hide, not appealable here"), nil, nil
-		}
-
-		// In the real implementation, this creates an appeal initiative
-		// For simulation, we just verify the state is valid and return success
-		// The actual appeal state is tracked in the initiative system
-
-		// Return success
-		return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgAppealPost{}), "ok (direct keeper call)"), nil, nil
-	}
+		author, _ := e.account(post.Author)
+		msg.Creator, msg.PostId = post.Author, post.PostId
+		return e.submit(author, msg, appealBond())
+	})
 }

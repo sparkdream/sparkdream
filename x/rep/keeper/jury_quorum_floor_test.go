@@ -60,7 +60,7 @@ func seatChallengeReview(t *testing.T, f *fixture, tag string, jurorCount int) (
 	require.NoError(t, k.AssignInitiativeToMember(ctx, initID, assignee))
 	require.NoError(t, k.SubmitInitiativeWork(ctx, initID, assignee, "URI"))
 
-	challenger := sdk.AccAddress([]byte(tag + "-challengr-"))
+	challenger := sdk.AccAddress([]byte(tag + "-challengr-")) //nolint:misspell // a fixed-length address seed
 	mkMember(challenger.String(), map[string]string{})
 	require.NoError(t, k.MintDREAM(ctx, challenger, math.NewInt(1000000000)))
 	chalID, err := k.CreateChallenge(ctx, challenger, initID, "Bad work", nil, math.NewInt(50000000))

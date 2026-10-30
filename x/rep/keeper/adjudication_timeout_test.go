@@ -180,6 +180,8 @@ func TestGenesisRebuildsDerivedIndexes(t *testing.T) {
 	review := types.JuryReview{Id: 1, InitiativeId: initID, Jurors: []string{juror},
 		Verdict: types.Verdict_VERDICT_PENDING}
 	require.NoError(t, k.JuryReview.Set(ctx, review.Id, review))
+	// An initiative-challenge review is in the verdict index (StartJuryReview).
+	require.NoError(t, k.AddJuryReviewToVerdictIndex(ctx, review))
 
 	exported, err := k.ExportGenesis(ctx)
 	require.NoError(t, err)

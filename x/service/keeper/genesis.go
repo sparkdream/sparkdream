@@ -106,7 +106,7 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 
 	// Controller-transfer cases + open-by-operator index.
 	for _, c := range genState.ControllerTransferCases {
-		if err := k.ControllerTransferCases.Set(ctx, c.JuryCaseId, c); err != nil {
+		if err := k.setControllerTransferCase(ctx, c); err != nil {
 			return err
 		}
 		opBytes, err := k.addrBytes(c.OperatorAddress)
@@ -139,7 +139,11 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 
 	// Refile cooldowns.
 	for _, rc := range genState.RefileCooldowns {
-		controllerBytes, err := k.addrBytes(rc.Controller)
+		// Keyed by the barred reporter (§3.4.5).
+		if rc.Reporter == "" {
+			continue
+		}
+		reporterBytes, err := k.addrBytes(rc.Reporter)
 		if err != nil {
 			return err
 		}
@@ -148,7 +152,7 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 			return err
 		}
 		if err := k.RefileCooldowns.Set(
-			ctx, collections.Join4(controllerBytes, opBytes, rc.ServiceType, rc.DismissedAt), rc,
+			ctx, collections.Join4(reporterBytes, opBytes, rc.ServiceType, rc.DismissedAt), rc,
 		); err != nil {
 			return err
 		}
@@ -171,16 +175,38 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 		}
 	}
 
-	// Counters last — Sequence.Set jumps the counter to the provided
-	// value; subsequent .Next() returns counter+1. We want the next
-	// generated id to equal the genesis counter, so set to counter-1
-	// (saturating to 0).
-	if genState.NextReportId > 0 {
+	// System-report dedup index and per-caller rate-limit buffers. The
+	// dedup prune queue is rebuilt from each report's filing height.
+	params := genState.Params
+	for _, d := range genState.SystemReportDedup {
+		if err := k.SystemReportDedup.Set(ctx, collections.Join(d.CallerModule, d.DedupeKey), d.ReportId); err != nil {
+			return err
+		}
+		eligibleAt := int64(0)
+		if report, err := k.Reports.Get(ctx, d.ReportId); err == nil {
+			eligibleAt = report.FiledAt + systemReportDedupRetention(params)
+		}
+		if err := k.SystemReportDedupExpiry.Set(ctx, collections.Join3(eligibleAt, d.CallerModule, d.DedupeKey)); err != nil {
+			return err
+		}
+	}
+	for _, rl := range genState.SystemReportRateLimits {
+		if err := k.SystemReportRateLimit.Set(ctx, rl.CallerModule, rl); err != nil {
+			return err
+		}
+	}
+
+	// Counters last. collections.Sequence.Next returns the stored value
+	// and then increments it, so storing counter-1 makes the next
+	// generated id equal the genesis counter. A counter of 1 is an unused
+	// sequence (export writes Peek+1, and Peek reads 0 when unset), so it
+	// stays unset rather than being stored as 0.
+	if genState.NextReportId > 1 {
 		if err := k.NextReportID.Set(ctx, genState.NextReportId-1); err != nil {
 			return err
 		}
 	}
-	if genState.NextEscrowId > 0 {
+	if genState.NextEscrowId > 1 {
 		if err := k.NextEscrowID.Set(ctx, genState.NextEscrowId-1); err != nil {
 			return err
 		}
@@ -270,9 +296,25 @@ func (k Keeper) ExportGenesis(ctx context.Context) (*types.GenesisState, error) 
 		return nil, err
 	}
 
-	// Counters — Peek returns the most-recently-issued id; the next
-	// generated id will be one higher, so the genesis "next" field
-	// should be peek+1.
+	// System-report dedup index and per-caller rate-limit buffers.
+	err = k.SystemReportDedup.Walk(ctx, nil, func(key collections.Pair[string, []byte], reportID uint64) (bool, error) {
+		genesis.SystemReportDedup = append(genesis.SystemReportDedup, types.SystemReportDedupEntry{
+			CallerModule: key.K1(), DedupeKey: key.K2(), ReportId: reportID,
+		})
+		return false, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	if err := collectMapValuesInto(ctx, k.SystemReportRateLimit, &genesis.SystemReportRateLimits); err != nil {
+		return nil, err
+	}
+
+	// Counters. collections.Sequence.Peek returns the NEXT value Next()
+	// will hand out (Next returns the stored value, then increments).
+	// Export writes peek+1 and InitGenesis stores counter-1, so after a
+	// round trip Next() returns peek again — the two off-by-ones cancel.
+	// Change one only together with the other.
 	nextReport, err := k.NextReportID.Peek(ctx)
 	if err == nil {
 		genesis.NextReportId = nextReport + 1

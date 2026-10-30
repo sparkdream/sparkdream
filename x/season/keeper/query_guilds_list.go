@@ -5,6 +5,7 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/types/query"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/season/types"
 
 	"google.golang.org/grpc/codes"
@@ -51,7 +52,7 @@ func (q queryServer) GuildsList(ctx context.Context, req *types.QueryGuildsListR
 		Id:         firstGuildId,
 		Name:       firstGuild.Name,
 		Founder:    firstGuild.Founder,
-		Status:     uint64(firstGuild.Status),
+		Status:     commontypes.Saturate[uint64](firstGuild.Status),
 		Pagination: pageRes,
 	}, nil
 }

@@ -15,6 +15,9 @@ func (k msgServer) UpvotePost(ctx context.Context, msg *types.MsgUpvotePost) (*t
 	if _, err := k.addressCodec.StringToBytes(msg.Creator); err != nil {
 		return nil, errorsmod.Wrap(err, "invalid creator address")
 	}
+	if err := k.requireForumNotPaused(ctx); err != nil {
+		return nil, err
+	}
 
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	now := sdkCtx.BlockTime().Unix()
@@ -94,7 +97,9 @@ func (k msgServer) UpvotePost(ctx context.Context, msg *types.MsgUpvotePost) (*t
 	// FORUM-S2-8: keep PostsByUpvotes in sync. Only root posts (threads)
 	// participate in TopPosts; replies are excluded.
 	if post.ParentId == 0 && post.Status == types.PostStatus_POST_STATUS_ACTIVE {
-		_ = k.PostsByUpvotes.Remove(ctx, collections.Join(post.UpvoteCount, post.PostId))
+		if err := k.PostsByUpvotes.Remove(ctx, collections.Join(post.UpvoteCount, post.PostId)); err != nil {
+			return nil, err
+		}
 	}
 	post.UpvoteCount++
 	if post.ParentId == 0 && post.Status == types.PostStatus_POST_STATUS_ACTIVE {
@@ -150,15 +155,9 @@ func (k msgServer) checkAndUpdateReactionLimit(ctx context.Context, addr string,
 		reactionLimit.CurrentDayStart = now
 	}
 
-	// Calculate effective count using sliding window approximation
-	var overlapRatio float64
-	elapsed := now - reactionLimit.CurrentDayStart
-	if elapsed < dayDuration {
-		overlapRatio = float64(dayDuration-elapsed) / float64(dayDuration)
-	}
-	effectiveCount := float64(reactionLimit.CurrentDayCount) + float64(reactionLimit.PreviousDayCount)*overlapRatio
-
-	if effectiveCount >= float64(types.DefaultMaxReactionsPerDay) {
+	// Sliding-window count, evaluated in exact integer math.
+	if slidingWindowAtLimit(uint64(reactionLimit.CurrentDayCount), uint64(reactionLimit.PreviousDayCount),
+		now-reactionLimit.CurrentDayStart, dayDuration, uint64(types.DefaultMaxReactionsPerDay)) {
 		return types.ErrReactionLimitExceeded
 	}
 

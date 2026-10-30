@@ -44,20 +44,6 @@ func emitOperatorDissolved(serviceType, tier string) {
 	)
 }
 
-func emitOperatorLiveCount(serviceType, status string, count float32) {
-	telemetry.SetGaugeWithLabels(
-		[]string{"service", "operator", "live_count"}, count,
-		[]metrics.Label{
-			telemetry.NewLabel("service_type", serviceType),
-			telemetry.NewLabel("status", status),
-		},
-	)
-}
-
-func emitBondLocked(totalUSpark float32) {
-	telemetry.SetGauge(totalUSpark, "service", "bond", "locked")
-}
-
 func emitReportFiled(serviceType string) {
 	telemetry.IncrCounterWithLabels(
 		[]string{"service", "report", "filed"}, 1,
@@ -74,10 +60,6 @@ func emitReportResolved(serviceType, tier, verdict string) {
 			telemetry.NewLabel("verdict", verdict),
 		},
 	)
-}
-
-func emitTier1EscrowInFlight(totalUSpark float32) {
-	telemetry.SetGauge(totalUSpark, "service", "tier1_escrow", "in_flight")
 }
 
 func emitSlashAmount(serviceType, tier string, amountUSpark float32) {

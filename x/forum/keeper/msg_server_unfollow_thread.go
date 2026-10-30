@@ -30,8 +30,12 @@ func (k msgServer) UnfollowThread(ctx context.Context, msg *types.MsgUnfollowThr
 		return nil, errorsmod.Wrap(err, "failed to remove follow record")
 	}
 	// FORUM-S2-8: drop the bidirectional indexes too.
-	_ = k.FollowersByThread.Remove(ctx, collections.Join(msg.ThreadId, msg.Creator))
-	_ = k.ThreadsByFollower.Remove(ctx, collections.Join(msg.Creator, msg.ThreadId))
+	if err := k.FollowersByThread.Remove(ctx, collections.Join(msg.ThreadId, msg.Creator)); err != nil {
+		return nil, err
+	}
+	if err := k.ThreadsByFollower.Remove(ctx, collections.Join(msg.Creator, msg.ThreadId)); err != nil {
+		return nil, err
+	}
 
 	// Update follow count
 	followCount, err := k.ThreadFollowCount.Get(ctx, msg.ThreadId)

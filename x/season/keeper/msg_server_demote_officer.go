@@ -44,7 +44,7 @@ func (k msgServer) DemoteOfficer(ctx context.Context, msg *types.MsgDemoteOffice
 	}
 
 	// Remove from officers
-	newOfficers := make([]string, 0, len(guild.Officers)-1)
+	newOfficers := make([]string, 0, len(guild.Officers))
 	for _, officer := range guild.Officers {
 		if !k.sameMember(ctx, officer, msg.Officer) {
 			newOfficers = append(newOfficers, officer)

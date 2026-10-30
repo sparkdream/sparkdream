@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/federation/types"
 
 	"cosmossdk.io/collections"
@@ -90,7 +91,7 @@ func checkAndRecordPeerRate(
 	// effective = current + (prev * remaining) / window
 	// All division is floor; matches the LegacyDec-style fixed-point
 	// pattern used elsewhere for consensus-deterministic arithmetic.
-	remainingSec := uint64(windowSec - (blockTime - currentWindowStart))
+	remainingSec := commontypes.Saturate[uint64](windowSec - (blockTime - currentWindowStart))
 	effective := currentCount + (prevCount*remainingSec)/uint64(windowSec)
 	if effective >= limit {
 		return types.ErrRateLimitExceeded

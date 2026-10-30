@@ -3,6 +3,7 @@ package keeper
 import (
 	"context"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/season/types"
 
 	"google.golang.org/grpc/codes"
@@ -22,7 +23,7 @@ func (q queryServer) SeasonByNumber(ctx context.Context, req *types.QuerySeasonB
 			Theme:      currentSeason.Theme,
 			StartBlock: currentSeason.StartBlock,
 			EndBlock:   currentSeason.EndBlock,
-			Status:     uint64(currentSeason.Status),
+			Status:     commontypes.Saturate[uint64](currentSeason.Status),
 		}, nil
 	}
 

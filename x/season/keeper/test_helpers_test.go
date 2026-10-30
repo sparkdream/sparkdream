@@ -1,6 +1,7 @@
 package keeper_test
 
 import (
+	"strings"
 	"testing"
 
 	"cosmossdk.io/core/address"
@@ -15,11 +16,11 @@ import (
 const (
 	TestDisplayName  = "TestUser"
 	TestUsername     = "testuser"
-	TestGuildName    = "Test Guild"
+	TestGuildName    = "test-guild"
 	TestGuildDesc    = "A test guild for unit testing"
 	TestDisplayName2 = "AnotherUser"
 	TestUsername2    = "anotheruser"
-	TestGuildName2   = "Another Guild"
+	TestGuildName2   = "another-guild"
 	TestReportReason = "Inappropriate name"
 	TestAppealReason = "Name is not inappropriate"
 )
@@ -72,6 +73,9 @@ func SetupMemberProfile(t *testing.T, k keeper.Keeper, ctx sdk.Context, addr sdk
 
 	err = k.MemberProfile.Set(ctx, addrStr, profile)
 	require.NoError(t, err, "failed to setup member profile")
+	if username != "" {
+		require.NoError(t, k.UsernameOwner.Set(ctx, strings.ToLower(username), addrStr))
+	}
 }
 
 // SetupMemberProfileWithGuild creates a member profile in a guild
@@ -179,7 +183,7 @@ func SetupDisplayNameModeration(t *testing.T, k keeper.Keeper, ctx sdk.Context, 
 		Active:       true,
 	}
 
-	err := k.DisplayNameModeration.Set(ctx, member.String(), moderation)
+	err := k.SetDisplayNameModeration(ctx, member.String(), moderation)
 	require.NoError(t, err, "failed to setup display name moderation")
 }
 

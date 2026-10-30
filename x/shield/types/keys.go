@@ -1,6 +1,10 @@
 package types
 
-import "cosmossdk.io/collections"
+import (
+	"cosmossdk.io/collections"
+
+	commontypes "sparkdream/x/common/types"
+)
 
 const (
 	// ModuleName defines the module name
@@ -11,11 +15,12 @@ const (
 
 	// GovModuleName duplicates the gov module's name to avoid a dependency with x/gov.
 	GovModuleName = "gov"
-
-	// ContextKeyFeePaid is the context key set by ShieldGasDecorator
-	// to signal that fees have already been paid by the shield module.
-	ContextKeyFeePaid = "shield_fee_paid"
 )
+
+// ContextKeyFeePaid is the context key set by ShieldGasDecorator to signal
+// that fees have already been paid by the shield module. It is the typed key
+// shared with x/session's SessionFeeDecorator (x/common/types).
+var ContextKeyFeePaid = commontypes.ContextKeyFeePaid
 
 // Collection prefixes for all shield state.
 var (
@@ -87,4 +92,12 @@ var (
 	// Number of demanded epochs TLE liveness has judged under the current
 	// key set; its value mod tle_miss_window is the participation ring slot.
 	TLEJudgedEpochsKey = collections.NewPrefix("shield/tle_judged")
+
+	// EpochFeeLedgerKey is the fees the module paid in the current shield
+	// epoch (params.max_fees_per_epoch).
+	EpochFeeLedgerKey = collections.NewPrefix("shield/fee_ledger")
+
+	// RetiredDomainsKey maps a nullifier domain no live op uses to the
+	// registration of the last op that used it.
+	RetiredDomainsKey = collections.NewPrefix("shield/retired_domain/")
 )

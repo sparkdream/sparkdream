@@ -6,6 +6,7 @@ import (
 
 	"cosmossdk.io/collections"
 	sdkmath "cosmossdk.io/math"
+	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	"sparkdream/x/service/types"
 )
@@ -130,13 +131,61 @@ func (k Keeper) PutOperator(ctx context.Context, op types.Operator) error {
 		if err := k.UnderfundedQueue.Set(ctx, queueKey); err != nil {
 			return err
 		}
+		if err := k.ensureUnderfundedDue(ctx, op, addrBytes); err != nil {
+			return err
+		}
 	} else {
 		// Best-effort removal — Remove on a non-existent key is a no-op
 		// in collections.
-		_ = k.UnderfundedQueue.Remove(ctx, queueKey)
+		if err := k.UnderfundedQueue.Remove(ctx, queueKey); err != nil {
+			return err
+		}
+		k.clearUnderfundedDue(ctx, addrBytes, op.ServiceType)
 	}
 
 	return nil
+}
+
+// ensureUnderfundedDue files an UNDERFUNDED operator under its grace
+// deadline (underfunded_since + the service type's grace) unless it is
+// already filed. The sweep re-checks the grace with the current params when
+// the deadline comes, so a stale deadline only ever delays the forced
+// unbond (a longer grace re-files it; a shorter one applies from the old
+// deadline).
+func (k Keeper) ensureUnderfundedDue(ctx context.Context, op types.Operator, addrBytes []byte) error {
+	revKey := collections.Join(addrBytes, op.ServiceType)
+	if has, err := k.UnderfundedDueAt.Has(ctx, revKey); err != nil || has {
+		return err
+	}
+	deadline := op.UnderfundedSince
+	if params, err := k.Params.Get(ctx); err == nil {
+		if cfg, cErr := k.resolveServiceTypeConfig(ctx, op.ServiceType); cErr == nil {
+			deadline = op.UnderfundedSince + k.effectiveUnderfundedGraceBlocks(cfg, params)
+		}
+	}
+	return k.setUnderfundedDue(ctx, addrBytes, op.ServiceType, deadline)
+}
+
+// setUnderfundedDue (re)files the operator under deadline.
+func (k Keeper) setUnderfundedDue(ctx context.Context, addrBytes []byte, serviceType string, deadline int64) error {
+	k.clearUnderfundedDue(ctx, addrBytes, serviceType)
+	if err := k.UnderfundedDue.Set(ctx, collections.Join3(deadline, addrBytes, serviceType)); err != nil {
+		return err
+	}
+	return k.UnderfundedDueAt.Set(ctx, collections.Join(addrBytes, serviceType), deadline)
+}
+
+// clearUnderfundedDue drops the operator's due entry, if any.
+func (k Keeper) clearUnderfundedDue(ctx context.Context, addrBytes []byte, serviceType string) {
+	revKey := collections.Join(addrBytes, serviceType)
+	if deadline, err := k.UnderfundedDueAt.Get(ctx, revKey); err == nil {
+		if err := k.UnderfundedDue.Remove(ctx, collections.Join3(deadline, addrBytes, serviceType)); err != nil {
+			sdk.UnwrapSDKContext(ctx).Logger().Error("clearUnderfundedDue: UnderfundedDue.Remove failed", "err", err)
+		}
+		if err := k.UnderfundedDueAt.Remove(ctx, revKey); err != nil {
+			sdk.UnwrapSDKContext(ctx).Logger().Error("clearUnderfundedDue: UnderfundedDueAt.Remove failed", "err", err)
+		}
+	}
 }
 
 // removeFromLiveIndexes deletes (address, service_type)-related entries
@@ -152,11 +201,18 @@ func (k Keeper) removeFromLiveIndexes(ctx context.Context, op types.Operator) er
 		return err
 	}
 
-	_ = k.OperatorsByController.Remove(ctx, collections.Join3(ctlBytes, addrBytes, op.ServiceType))
-	_ = k.OperatorsByServiceType.Remove(ctx, collections.Join(op.ServiceType, addrBytes))
-	if op.UnderfundedSince > 0 {
-		_ = k.UnderfundedQueue.Remove(ctx, collections.Join3(op.UnderfundedSince, addrBytes, op.ServiceType))
+	if err := k.OperatorsByController.Remove(ctx, collections.Join3(ctlBytes, addrBytes, op.ServiceType)); err != nil {
+		return err
 	}
+	if err := k.OperatorsByServiceType.Remove(ctx, collections.Join(op.ServiceType, addrBytes)); err != nil {
+		return err
+	}
+	if op.UnderfundedSince > 0 {
+		if err := k.UnderfundedQueue.Remove(ctx, collections.Join3(op.UnderfundedSince, addrBytes, op.ServiceType)); err != nil {
+			return err
+		}
+	}
+	k.clearUnderfundedDue(ctx, addrBytes, op.ServiceType)
 	return nil
 }
 
@@ -211,6 +267,7 @@ func (k Keeper) ArchiveOperator(ctx context.Context, op types.Operator) error {
 // the (height, op_addr, service_type) tuple. No-op if the key is
 // missing. Used at status transitions out of UNDERFUNDED.
 func (k Keeper) removeUnderfundedQueueEntry(ctx context.Context, underfundedSince int64, opAddr []byte, serviceType string) error {
+	k.clearUnderfundedDue(ctx, opAddr, serviceType)
 	return k.UnderfundedQueue.Remove(ctx, collections.Join3(underfundedSince, opAddr, serviceType))
 }
 
@@ -310,4 +367,83 @@ func (k Keeper) effectiveUnderfundedGraceBlocks(cfg types.ServiceTypeConfig, par
 		return cfg.UnderfundedGraceBlocks
 	}
 	return params.DefaultUnderfundedGraceBlocks
+}
+
+// setControllerTransferCase stores an open controller-transfer case and its
+// opened_at index entry.
+func (k Keeper) setControllerTransferCase(ctx context.Context, c types.ControllerTransferCase) error {
+	if err := k.ControllerTransferCases.Set(ctx, c.JuryCaseId, c); err != nil {
+		return err
+	}
+	return k.ControllerTransferCasesByOpenedAt.Set(ctx, collections.Join(c.OpenedAt, c.JuryCaseId))
+}
+
+// removeControllerTransferCase deletes a case and its opened_at index entry.
+func (k Keeper) removeControllerTransferCase(ctx context.Context, c types.ControllerTransferCase) error {
+	if err := k.ControllerTransferCases.Remove(ctx, c.JuryCaseId); err != nil {
+		return err
+	}
+	return k.ControllerTransferCasesByOpenedAt.Remove(ctx, collections.Join(c.OpenedAt, c.JuryCaseId))
+}
+
+// markUnderfundedIfBelowMin moves an ACTIVE operator whose bond is below its
+// service type's current min_bond to UNDERFUNDED, starting the grace period
+// at height. It changes op in memory only and reports whether it did; the
+// caller persists op with PutOperator (which files the grace deadline),
+// then emits the event and fires AfterOperatorUnderfunded.
+//
+// Governance can raise min_bond at any time, and the config update does not
+// walk the registry (spec §3.6: the transition is lazy, on the next message
+// touching the operator). Accrual must already be settled to height.
+func markUnderfundedIfBelowMin(op *types.Operator, cfg types.ServiceTypeConfig, height int64) bool {
+	if op.Status != types.OperatorStatus_OPERATOR_STATUS_ACTIVE || !op.BondAmount.LT(cfg.MinBondAmount) {
+		return false
+	}
+	op.Status = types.OperatorStatus_OPERATOR_STATUS_UNDERFUNDED
+	op.UnderfundedSince = height
+	return true
+}
+
+// reconcileMinBond applies markUnderfundedIfBelowMin to a stored operator and
+// persists the transition, with its event and hook. Operator-touching message
+// handlers call it before acting, so a raised min_bond takes effect on the
+// operator's next interaction. Missing operators and configs are left to the
+// caller's own checks.
+func (k Keeper) reconcileMinBond(ctx context.Context, opBytes []byte, serviceType string) error {
+	op, exists := k.GetOperator(ctx, opBytes, serviceType)
+	if !exists || op.Status != types.OperatorStatus_OPERATOR_STATUS_ACTIVE {
+		return nil
+	}
+	cfg, err := k.resolveServiceTypeConfig(ctx, serviceType)
+	if err != nil {
+		return nil
+	}
+	if !op.BondAmount.LT(cfg.MinBondAmount) {
+		return nil
+	}
+	height := sdk.UnwrapSDKContext(ctx).BlockHeight()
+	k.settleBondBlocks(&op, height)
+	markUnderfundedIfBelowMin(&op, cfg, height)
+	if err := k.PutOperator(ctx, op); err != nil {
+		return err
+	}
+	k.emitUnderfunded(ctx, op, cfg, height)
+	if k.hooks() != nil {
+		k.hooks().AfterOperatorUnderfunded(ctx, sdk.AccAddress(opBytes), serviceType)
+	}
+	return nil
+}
+
+// emitUnderfunded emits operator_underfunded for an operator that just
+// entered UNDERFUNDED at height.
+func (k Keeper) emitUnderfunded(ctx context.Context, op types.Operator, cfg types.ServiceTypeConfig, height int64) {
+	params, err := k.Params.Get(ctx)
+	if err != nil {
+		return
+	}
+	bondDenom := k.BondDenom(ctx)
+	sdk.UnwrapSDKContext(ctx).EventManager().EmitEvent(types.NewOperatorUnderfundedEvent(
+		op.Address, op.ServiceType, sdk.NewCoin(bondDenom, op.BondAmount), sdk.NewCoin(bondDenom, cfg.MinBondAmount),
+		height+k.effectiveUnderfundedGraceBlocks(cfg, params),
+	))
 }

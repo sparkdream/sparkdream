@@ -27,6 +27,10 @@ type mockCommonsKeeper struct {
 	// gates every invitation, a stub that calls every invitee a policy would
 	// refuse all of them.
 	IsGroupPolicyAddressFn func(ctx context.Context, addr string) bool
+	// IsCouncilOrCommitteePolicyFn, when set, separates "is the committee
+	// policy address" from "is authorized" (a single committee member), so
+	// tests can tell the two apart.
+	IsCouncilOrCommitteePolicyFn func(ctx context.Context, addr string, council string, committee string) bool
 }
 
 func (m mockCommonsKeeper) IsCommitteeMember(ctx context.Context, address sdk.AccAddress, council string, committee string) (bool, error) {
@@ -66,6 +70,9 @@ func (m mockCommonsKeeper) IsGroupPolicyAddress(ctx context.Context, addr string
 // IsCouncilOrCommitteePolicy delegates to the authorization policy, so a
 // fixture that authorizes an address treats it as the HR committee policy.
 func (m mockCommonsKeeper) IsCouncilOrCommitteePolicy(ctx context.Context, addr string, council string, committee string) bool {
+	if m.IsCouncilOrCommitteePolicyFn != nil {
+		return m.IsCouncilOrCommitteePolicyFn(ctx, addr, council, committee)
+	}
 	if m.IsCouncilAuthorizedFn != nil {
 		return m.IsCouncilAuthorizedFn(ctx, addr, council, committee)
 	}

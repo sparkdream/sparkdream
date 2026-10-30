@@ -26,8 +26,12 @@ func createNGuild(keeper keeper.Keeper, ctx context.Context, n int) []types.Guil
 		items[i].CreatedBlock = int64(i)
 		items[i].InviteOnly = true
 		items[i].Status = types.GuildStatus(i)
-		_ = keeper.Guild.Set(ctx, iu, items[i])
-		_ = keeper.GuildSeq.Set(ctx, iu)
+		if err := keeper.Guild.Set(ctx, iu, items[i]); err != nil {
+			panic(err)
+		}
+		if err := keeper.GuildSeq.Set(ctx, iu); err != nil {
+			panic(err)
+		}
 	}
 	return items
 }

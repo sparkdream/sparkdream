@@ -462,9 +462,9 @@ func TestMsgShieldedExecEncryptedBatchQueueFull(t *testing.T) {
 	}))
 
 	queueFullNullifier := make([]byte, 32)
-	copy(queueFullNullifier, "queue_full_test_nullifier")
+	copy(queueFullNullifier[1:], "queue_full_test_nullifier")
 	queueFullRateLimit := make([]byte, 32)
-	copy(queueFullRateLimit, "queue_full_rate_limit")
+	copy(queueFullRateLimit[1:], "queue_full_rate_limit")
 
 	_, err = ms.ShieldedExec(f.ctx, &types.MsgShieldedExec{
 		Submitter:          submitter,

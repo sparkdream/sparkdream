@@ -120,6 +120,10 @@ message Collection {
   // --- Media labels (chain-computed; see section 3.4 "Media labels") ---
   uint32 media_flags = 35;              // MEDIA_FLAG_EXTERNAL_URI when cover_uri is set
   uint32 media_rules_version = 36;      // Labelling rules version that produced media_flags
+
+  // --- Endorsement stage snapshots (PENDING collections) ---
+  int64  endorsement_pending_until = 37; // Block height of the EndorsementPending index entry, fixed at creation (created_at + endorsement_expiry_blocks at that time). Every removal path (endorse, auto-promotion, membership grant, delete) and the genesis rebuild use this stored value, never the current param. Zero once the stage is over.
+  string endorsement_fee_escrowed = 38; // Endorsement creation fee actually escrowed at creation (math.Int). Refunds, the endorser share and burns use this amount, never the current endorsement_creation_fee. Zero once settled.
 }
 ```
 
@@ -149,7 +153,7 @@ All fees are denominated in **SPARK** because on-chain storage has a real hardwa
 
 **Per-item fee** (`per_item_deposit`): Paid each time an item is added. Scales linearly with collection size, ensuring large collections pay proportionally.
 
-**Endorsement creation fee** (`endorsement_creation_fee`): Non-member collection creation fee (10 SPARK). Escrowed in the module account. On endorsement, 80% is sent to the endorser and 20% is burned. On deletion or auto-prune, refunded (minus `endorsement_deletion_burn_fraction`). Replaces the old per-collection spam tax with better incentive alignment.
+**Endorsement creation fee** (`endorsement_creation_fee`): Non-member collection creation fee (10 SPARK). Escrowed in the module account. On endorsement, 80% is sent to the endorser and 20% is burned. On deletion or auto-prune, refunded (minus `endorsement_deletion_burn_fraction`); on membership-driven promotion, refunded in full. Every payout uses the amount recorded on the collection at creation (`endorsement_fee_escrowed`), never the current param. Replaces the old per-collection spam tax with better incentive alignment.
 
 **Per-item spam tax** (`per_item_spam_tax`): Additional fee for non-members on each item addition. Always burned. Ensures the non-refundable cost scales with the number of items stored.
 
@@ -404,6 +408,7 @@ message CurationReview {
   bool overturned = 9;
   string challenger = 10;          // Address that filed the challenge (empty if unchallenged)
   string committed_slash = 11;     // Bond amount reserved on the curator's BondedRole at challenge time (math.Int string; zero until challenged)
+  string challenge_deposit = 12;   // DREAM actually locked from the challenger (math.Int string). Every unlock / burn of the deposit uses this amount, never the current challenge_deposit param. Zero once settled.
 }
 ```
 
@@ -496,6 +501,7 @@ message CollectionFlag {
   int64 first_flag_at = 5;
   int64 last_flag_at = 6;
   bool in_review_queue = 7;
+  int64 expires_at = 8;             // Height of this flag's FlagExpiry entry (last_flag_at + flag_expiration_blocks at flag time); cleanup and genesis rebuild the key from it, and the pruner ignores entries that no longer match it
 }
 
 message FlagRecord {
@@ -829,9 +835,10 @@ message CollectOperationalParams {
 | `Endorsement/pending/{endorsement_expiry}/{collection_id}` | `[]byte{}` | Index: unendorsed collection auto-prune |
 | `ReactionLimit/{address}/{day}` | `ReactionCount` | Daily reaction counter (upvotes, downvotes, flags) |
 | `ReactionDedup/{address}/{target_type}/{target_id}` | `uint8` | Dedup: 1 = upvoted, 2 = downvoted. Prevents same member from voting same target twice |
+| `reaction/by_target/({target_type}/{target_id}, address)` | — | Reverse index of `ReactionDedup`; deleting a collection or item drops its dedup markers through it (no full scan) |
 | `Item/by_onchain_ref/{module}:{entity_type}:{entity_id}/{item_id}` | `[]byte{}` | Reverse index for OnChainReference lookups |
 | `Collection/by_status/{status}/{id}` | `[]byte{}` | Index: collections by status (for PendingCollections query) |
-| `promotion_queue/{address}` | `int64` | Membership-driven promotion queue: addresses awaiting EndBlocker §10.0 drain, stamped with enqueue block height (`pin` and `make_permanent` daily counters reuse the `ReactionLimit` prefix with category keys) |
+| `promotion_queue/{address}` | `int64` | Membership-driven promotion queue: addresses awaiting EndBlocker §10.0 drain, stamped with enqueue block height; exported verbatim in genesis (`promotion_queue`) since it is hook-driven (`pin` and `make_permanent` daily counters reuse the `ReactionLimit` prefix with category keys) |
 
 **Module account** (`x/collect`): Holds **SPARK** (TTL collection deposits, TTL per-item deposits, sponsorship escrow deposits, endorsement creation fee escrow; hide-appeal bonds are held by x/rep) and **DREAM** (curator bonds, challenge deposits). Endorser DREAM stakes are held via x/rep keeper (not in the module account directly). Permanent deposits, sponsor fees, downvote costs, and all spam taxes are sent directly to the burn address.
 
@@ -958,7 +965,7 @@ message MsgDeleteCollectionResponse {}
 
 **Pending challenge cleanup:** For each curation review on this collection where `challenged = true` and `overturned = false` (unresolved challenge): refund `challenge_deposit` from module account to the challenger, and decrement `pending_challenges` on the reviewed curator. This prevents permanent fund lockup and ensures curators can eventually unregister.
 
-**PENDING collection deletion:** If `status = PENDING` (non-member collection), the escrowed `endorsement_creation_fee` is partially refunded: `endorsement_deletion_burn_fraction` (default 10%) is burned to cover network costs, the remainder is refunded to the owner.
+**PENDING collection deletion:** If the collection still holds an escrowed endorsement fee (`endorsement_fee_escrowed > 0`, a PENDING collection or one hidden while PENDING), that escrowed amount is partially refunded: `endorsement_deletion_burn_fraction` (default 10%) is burned to cover network costs, the remainder is refunded to the owner.
 
 **Endorsed collection deletion:** If the collection was endorsed (`endorsed_by` is not empty) and the endorser's DREAM stake has not yet been released (`stake_released = false` on the `Endorsement` record): when status is **not** HIDDEN, the endorser's stake is released (unlocked) immediately via x/rep keeper — they already received their fee share and should not be penalized for the owner's own deletion. When status is **HIDDEN** (a sentinel hide stands and the appeal lane is settled), the endorser's locked DREAM is instead **burned** and an `endorser_rep_penalty` per-tag reputation deduction is applied across the collection's tags (this is the same slash branch as a rejected hide appeal). Since `MsgDeleteCollection` rejects HIDDEN outright, this HIDDEN-slash path is only reached via EndBlocker deletion of an unappealed expired hide (§10.3).
 
@@ -1006,6 +1013,7 @@ message MsgAddItemResponse {
 - `creator` must be owner or EDITOR/ADMIN collaborator
 - If `creator` is a collaborator (not owner), they must still be an active `x/rep` member (see §14.8)
 - **Collection must not be `immutable`** (endorsed non-member collections cannot be modified)
+- **Collection must not be HIDDEN** (`ErrContentHidden`): hidden content is the evidence an appeal jury judges, so it cannot change while moderation is open
 - Collection must not have a pending `SponsorshipRequest` (item count is locked during sponsorship — see §3.16)
 - Collection must not exceed `max_items_per_collection`
 - `position`: insertion index in range [0, current `item_count`]. Items at `position` and above are shifted right by one. Use `position = item_count` (or omit / set to max uint64) to append at the end.
@@ -1074,6 +1082,7 @@ message MsgUpdateItemResponse {}
 - `creator` must be owner or EDITOR/ADMIN collaborator
 - If `creator` is a collaborator (not owner), they must still be an active `x/rep` member (see §14.8)
 - **Parent collection must not be `immutable`**
+- **Neither the item nor its collection may be HIDDEN** (`ErrContentHidden`): hidden content is the evidence an appeal jury judges, so an owner cannot edit or remove it mid-appeal
 - Same size constraints as MsgAddItem (title, description, image_uri, reference fields, attributes, encrypted_data)
 - No additional deposit charged for updates
 - No per-item spam tax charged for updates
@@ -1096,6 +1105,7 @@ message MsgRemoveItemResponse {}
 - `creator` must be owner or EDITOR/ADMIN collaborator
 - If `creator` is a collaborator (not owner), they must still be an active `x/rep` member (see §14.8)
 - **Parent collection must not be `immutable`**
+- **Neither the item nor its collection may be HIDDEN** (`ErrContentHidden`): hidden content is the evidence an appeal jury judges, so an owner cannot edit or remove it mid-appeal
 - Item must exist
 - Parent collection must not have a pending `SponsorshipRequest` (item count is locked during sponsorship)
 
@@ -1121,6 +1131,7 @@ message MsgRemoveItemsResponse {}
 - `creator` must be owner or EDITOR/ADMIN collaborator on that collection
 - If `creator` is a collaborator (not owner), they must still be an active `x/rep` member (see §14.8)
 - **Parent collection must not be `immutable`**
+- **Neither the item nor its collection may be HIDDEN** (`ErrContentHidden`): hidden content is the evidence an appeal jury judges, so an owner cannot edit or remove it mid-appeal
 - Parent collection must not have a pending `SponsorshipRequest` (item count is locked during sponsorship)
 - `ids` count 1–`max_batch_size`
 
@@ -1142,6 +1153,7 @@ message MsgReorderItemResponse {}
 - `creator` must be owner or EDITOR/ADMIN collaborator
 - If `creator` is a collaborator (not owner), they must still be an active `x/rep` member (see §14.8)
 - **Parent collection must not be `immutable`** (endorsed non-member collections cannot be modified until owner becomes member)
+- **Neither the item nor its collection may be HIDDEN** (`ErrContentHidden`): hidden content is the evidence an appeal jury judges, so an owner cannot edit or remove it mid-appeal
 - Item must exist and belong to a collection where `creator` has write access
 - `new_position` must be in range [0, `item_count - 1`]
 
@@ -1159,6 +1171,7 @@ message MsgAddCollaboratorResponse {}
 ```
 
 **Validation:**
+- `role` must be `EDITOR` or `ADMIN` (`ErrInvalidCollaboratorRole`)
 - `creator` must be owner or ADMIN
 - **Collection must not be `immutable`** (endorsed non-member collections cannot add collaborators until owner becomes member)
 - `address` not already a collaborator or the owner
@@ -1199,6 +1212,7 @@ message MsgUpdateCollaboratorRoleResponse {}
 ```
 
 **Validation:**
+- `role` must be `EDITOR` or `ADMIN` (`ErrInvalidCollaboratorRole`)
 - **Collection must not be `immutable`** (endorsed non-member collections cannot modify collaborator roles until owner becomes member)
 - Only owner can grant/revoke ADMIN
 - A stake-bearing (non-member) collaborator cannot be promoted to `ADMIN` (`ErrNonMemberAdminRole`)
@@ -1281,7 +1295,7 @@ message MsgChallengeReviewResponse {}
 - Review must exist, not already challenged or overturned
 - Review's parent collection must not be expired (`expires_at = 0` or `expires_at > current_block`)
 - Review within `challenge_window_blocks` of creation
-- `creator` must not be the review's curator
+- `creator` must not be the review's curator (alias-aware `SameMember`: a migrated curator cannot challenge its own review from the new key)
 - `reason` ≤ `max_challenge_reason_length`
 - `creator` must post `challenge_deposit` (DREAM, held in module account)
 
@@ -1290,11 +1304,26 @@ message MsgChallengeReviewResponse {}
 2. Increment `pending_challenges` on the reviewed curator
 3. Transfer `challenge_deposit` from `creator` to module account
 
-**Resolution** (via x/rep jury):
-- **Upheld**: Review marked `overturned = true`, CurationSummary recalculated. Curator `challenged_reviews` incremented. Curator bond slashed by `curator_slash_fraction`; of the slashed amount, `challenge_reward_fraction` (default 80%) is sent to the challenger as a reward and the remainder is burned. If remaining bond < `min_curator_bond`, curator deactivated (`active = false`). `pending_challenges` decremented. Challenge deposit refunded.
-- **Rejected**: Review stands. `pending_challenges` decremented. Challenge deposit burned. `challenger` is cleared so neither collection deletion nor the timeout refunds the burned deposit.
-- **Not adjudicated** (timeout, §10.7): no x/rep jury is opened for a curation challenge today, so a challenge with no verdict `ChallengeResolutionTimeoutBlocks` (compiled constant, 201,600 blocks ≈ 14 days) after filing is resolved neutrally: the curator's `committed_slash` is released, the challenge deposit refunded, no curator outcome recorded. The review stays `challenged = true` (cannot be re-challenged) with `challenger` cleared; a later `ResolveChallengeResult` is refused.
+The locked amount is recorded on the review (`challenge_deposit`); every later unlock or burn uses it.
+
+**Resolution** (via `MsgResolveCurationChallenge`, §5.16a):
+- **Upheld**: Review marked `overturned = true`, CurationSummary recalculated. The curator's `committed_slash` is slashed (burned) on the `COLLECT_CURATOR` bonded role; `challenge_reward_fraction` (default 80%) of it is **minted** to the challenger as fresh DREAM (net supply change: minus the unrewarded remainder). Overturned outcome recorded on rep's `RoleActivity`; consecutive-overturn demotion applies. Challenge deposit refunded (unlocked).
+- **Rejected**: Review stands. Committed slash released, upheld outcome recorded. Challenge deposit burned out of the lock (`BurnLockedDREAM`). `challenger` is cleared so neither collection deletion nor the timeout refunds the burned deposit.
+- **Not adjudicated** (timeout, §10.7): a challenge with no verdict `ChallengeResolutionTimeoutBlocks` (compiled constant, 201,600 blocks ≈ 14 days) after filing is resolved neutrally: the curator's `committed_slash` is released, the challenge deposit refunded, no curator outcome recorded. The review stays `challenged = true` (cannot be re-challenged) with `challenger` cleared; a later verdict is refused.
 - **Review missing** (collection deleted or expired during jury deliberation): No-op — the deletion/expiry cleanup already refunded the challenge deposit and decremented `pending_challenges`. `ResolveChallengeResult` returns nil without modifying any state. This prevents double-refunds, unwarranted bond slashing, and `pending_challenges` underflow.
+
+### 5.16a. MsgResolveCurationChallenge
+
+```protobuf
+message MsgResolveCurationChallenge {
+  string creator = 1;    // gov authority, Commons Council policy or Commons Operations Committee policy
+  uint64 review_id = 2;
+  bool upheld = 3;       // true = challenger wins (review overturned, curator slashed)
+  string reason = 4;     // <= max_challenge_reason_length
+}
+```
+
+Delivers the verdict on a pending curation challenge. Curation challenges have no x/rep jury of their own (rep's moderation-appeal machinery slashes the content-sentinel role, not the curator role), so the verdict is a committee decision: `x/commons.IsCouncilOrCommitteePolicy(ctx, creator, "commons", "operations")` — an executed Operations Committee (or Commons Council) proposal or x/gov, never an individual committee member. The message is in the Operations Committee's `AllowedMessages`. It calls `ResolveChallengeResult` (outcomes above); the challenge's `CurationChallengeDeadline` entry is dropped as stale by the timeout sweep. Not session-delegable.
 
 ### 5.17. MsgRequestSponsorship
 
@@ -1311,6 +1340,7 @@ message MsgRequestSponsorshipResponse {}
 
 **Validation:**
 - `creator` must be the collection owner
+- Collection must not be HIDDEN (`ErrCollectionNotActive`); a PENDING (unendorsed) collection can be sponsored
 - Collection must be a TTL collection (`expires_at > 0`, `deposit_burned = false`)
 - `creator` must **not** be an active `x/rep` member (members can convert to permanent directly via MsgUpdateCollection)
 - No existing sponsorship request for this collection
@@ -1358,6 +1388,8 @@ message MsgSponsorCollectionResponse {}
 **Validation:**
 - `creator` must be an active `x/rep` member at or above `min_sponsor_trust_level`
 - `creator` must **not** be the collection owner (no self-sponsorship)
+- Collection must not be HIDDEN (`ErrCollectionNotActive`)
+- Sponsoring a PENDING collection completes its endorsement stage in the endorser's place: it leaves the `EndorsementPending` prune (which would otherwise delete it after it became permanent, burning the sponsor fee and the escrow), turns ACTIVE, and its escrowed endorsement fee is refunded to the owner (no endorser earned it). It does not become `immutable` (no endorser stake stands behind the content), so the owner can keep adding items, paying the permanent per-item deposit
 - Active sponsorship request must exist for this collection
 - Collection must still be a TTL collection (not expired)
 
@@ -1399,8 +1431,9 @@ message MsgUpdateOperationalParamsResponse {}
 ```
 
 **Validation:**
-- `authority` must be authorized via `x/commons.IsCouncilAuthorized(ctx, authority, "commons", "operations")` — accepts x/gov authority, Commons Council policy address, or Operations Committee member
+- `authority` must pass `x/commons.IsCouncilOrCommitteePolicy(ctx, authority, "commons", "operations")` — x/gov authority, Commons Council policy address, or Operations Committee **policy** address (an executed committee proposal). An individual committee member is refused: these params move value (fees, deposits, commits) and set clocks.
 - `operational_params` must pass field-level validation (positive fees, valid trust levels, positive timeouts, etc.)
+- The merged params must stay inside compiled hard bounds (`ValidateOperationalBounds`, x/collect/types/params.go): `hide_expiry_blocks`, `endorsement_expiry_blocks`, `endorsement_stake_duration`, `flag_expiration_blocks` and `challenge_window_blocks` in [14,400, 1,296,000] blocks (~1-90 days); `appeal_cooldown_blocks` <= 14,400; `sentinel_commit_amount` and `challenge_deposit` in [1, 10,000] DREAM; `endorsement_creation_fee` <= 1,000,000 SPARK. Governance (`MsgUpdateParams`) and genesis are not bound by these (e2e configs use short test windows).
 
 **Logic:**
 1. Verify council authorization
@@ -1544,6 +1577,7 @@ the Shared ModerationAuthority section of docs/x-forum-spec.md):
 - If `reason_code != OTHER`: `reason_text` must be empty (structured reasons don't allow free text)
 
 **Validation (sentinel path only):**
+- `creator` must not be the collection owner or, for an item, the address that added it (`ErrSelfModeration`, alias-aware): a sentinel hide is a rewarded action, so moderating one's own content would be paid self-dealing (as forum's FRM-28). The council path is unaffected
 - `creator` must pass x/rep's shared `EligibleForRole` gate (same check forum uses): NORMAL/RECOVERY eligible; UNBONDING eligible only while the staying bond (current - pending_unbond) covers the role's configured `min_bond`; DEMOTED never. Rep tier / trust gates were already enforced at bond time by `MsgBondRole`.
 - `creator` must not be in the shared overturn cooldown (`RoleActivity.overturn_cooldown_until` on x/rep's shared content-sentinel record — a lost appeal on EITHER moderation surface starts it)
 - Every successful sentinel-path hide is credited to x/rep's shared `RoleActivity` record (action kind `collect_hide`) for reward-epoch activity; collect appeals record `collect_appeal_filed` (cross-surface Gate 4 appeal rate) and jury verdicts feed the shared streaks, accuracy ring, and streak demotion via `RecordRoleOutcome`
@@ -1664,7 +1698,7 @@ message MsgEndorseCollectionResponse {}
 1. Stake `endorsement_dream_stake` (100 DREAM) from `creator` via x/rep keeper
 2. Create `Endorsement` record with `stake_release_at = current_block + endorsement_stake_duration`
 3. Set collection `status = ACTIVE`, `endorsed_by = creator`, `immutable = true`
-4. Split the escrowed creation fee (`endorsement_creation_fee`):
+4. Split the escrowed creation fee (the collection's `endorsement_fee_escrowed`, not the current `endorsement_creation_fee`):
    - 80% (`endorsement_fee_endorser_share`) sent from module account to `creator`
    - 20% burned from module account
 5. Emit `collection_endorsed` event
@@ -1764,14 +1798,17 @@ message MsgMakeCollectionPermanentResponse {}
 1. `creator` must be an active x/rep member at or above `make_permanent_min_trust_level` (default PROVISIONAL = 1); failures wrap `ErrMakePermanentTrustLevelTooLow`
 2. Collection must exist and have `status = ACTIVE`
 3. Expired-but-not-yet-pruned targets (`expires_at > 0 && expires_at <= current_block`) are rejected with `ErrCollectionExpired` to avoid racing the next EndBlocker
-4. `creator` must not exceed `max_make_permanent_per_day` (per-UTC-day counter, independent of `max_pins_per_day`)
+4. **Idempotent on already-permanent** (`expires_at == 0`): returns success without state change (and without spending a daily slot), so callers can blindly upgrade-then-pin
+5. `creator` must not exceed `max_make_permanent_per_day` (per-UTC-day counter, independent of `max_pins_per_day`)
 
 **Logic:**
-1. **Idempotent on already-permanent** (`expires_at == 0`): returns success without state change, so callers can blindly upgrade-then-pin
-2. Set `expires_at = 0`, `deposit_burned = true`; clear `conviction_sustained` if set
-3. Burn the escrowed collection deposit + item deposits (`deposit_amount + item_deposit_total`)
-4. Remove the `CollectionsByExpiry` entry so the TTL prune never fires; pin markers are untouched
-5. Emit `collect.collection.upgraded` event with `collection_id`, `owner`, `by`, `via=make_permanent`, `deposit_burned`
+1. Set `expires_at = 0`, `deposit_burned = true`; clear `conviction_sustained` if set
+2. Settle the deposits (`deposit_amount + item_deposit_total`):
+   - `creator` is the owner (alias-aware): burn the escrowed deposits.
+   - `creator` is a third party: the escrowed deposits are refunded to the owner and the caller burns an equal amount from its own balance (as sponsorship does). Preserving someone else's collection therefore never destroys the owner's refundable deposit.
+3. Remove the `CollectionsByExpiry` entry so the TTL prune never fires; pin markers are untouched
+4. If a `SponsorshipRequest` is pending, refund its escrow to the requester and delete it with its expiry index entry (the direct conversion supersedes sponsorship, as in `MsgUpdateCollection`)
+5. Emit `collect.collection.upgraded` event with `collection_id`, `owner`, `by`, `via=make_permanent`, `deposit_burned`, `paid_by_caller`
 
 ---
 
@@ -1955,7 +1992,9 @@ type Keeper interface {
 
 ## 8. Parameters
 
-**Gov** = governance-only (`MsgUpdateParams`). **Ops** = operational (`MsgUpdateOperationalParams` via Operations Committee).
+**Gov** = governance-only (`MsgUpdateParams`). **Ops** = operational (`MsgUpdateOperationalParams` via an executed Operations Committee proposal; an individual committee member cannot sign it). Ops updates must also stay inside the compiled hard bounds listed in §5.21.
+
+The four daily limits `max_upvotes_per_day`, `max_downvotes_per_day`, `max_pins_per_day` and `max_make_permanent_per_day` must be positive: a limit is enforced as `count >= max`, so zero would silently disable the action (and, for pins, unpinning too).
 
 | Parameter | Default | Gov/Ops | Rationale |
 |-----------|---------|---------|-----------|
@@ -2037,7 +2076,7 @@ message GenesisState {
   repeated Item items = 4;
   uint64 item_count = 5;
   repeated Collaborator collaborators = 6;
-  repeated Curator curators = 7;
+  repeated CuratorActivity curator_activities = 7;   // collect-local curator counters (bonds live in x/rep)
   repeated CurationReview curation_reviews = 8;
   uint64 curation_review_count = 9;
   repeated CurationSummary curation_summaries = 10;
@@ -2046,8 +2085,38 @@ message GenesisState {
   repeated HideRecord hide_records = 13;
   uint64 hide_record_count = 14;
   repeated Endorsement endorsements = 15;
+  repeated ReactionCounterEntry reaction_dedups = 16;  // per-(voter, target) reaction markers
+  repeated ReactionCounterEntry reaction_limits = 17;  // per-(address, day, category) daily counters
+  repeated CurationChallengeDeadline curation_challenge_deadlines = 18;  // challenge timeout schedule
+}
+
+message CurationChallengeDeadline {
+  int64 deadline = 1;
+  uint64 review_id = 2;
+}
+
+message ReactionCounterEntry {
+  string key = 1;
+  uint32 value = 2;
 }
 ```
+
+InitGenesis rebuilds every derived index from the exported records: owner,
+expiry, status and tag indexes; `ItemsByCollection`, `ItemsByOwner` and
+`ItemsByOnChainRef` from items; `ReactionsByTarget` from the reaction dedup
+keys; `FlagExpiry` from each flag's stored `expires_at`; `HideRecordExpiry`
+for unresolved unappealed hides (an appealed hide belongs to the x/rep appeal
+and `MsgAppealHide` drops its entry) and for self-corrected hides whose bond is
+still held; `HideRecordByTarget` for every hide except those on a deleted
+collection (`deleteCollectionFull` drops their entries and keeps the records);
+`EndorsementPending` from each PENDING collection's stored
+`endorsement_pending_until`. The not-adjudicated challenge timeout schedule is
+exported as `curation_challenge_deadlines` (`CurationChallengeDeadline
+{deadline, review_id}`, stale entries of settled challenges included) and
+imported verbatim; a pending challenge the genesis leaves unscheduled gets the
+latest possible deadline (review `created_at` + `challenge_window_blocks` +
+`ChallengeResolutionTimeoutBlocks`), and the backfill cursor is marked done.
+The round trip therefore reproduces the store exactly.
 
 ---
 
@@ -2138,6 +2207,10 @@ for each expired collection expiry index entry (where expires_at ≤ current_blo
             // x/rep's appeal deadline is the backstop: if no verdict lands,
             // the timeout callback restores status to ACTIVE and a later
             // §10.1 pass deletes via the normal refund/unlock path.
+            // Deferred entries do not consume the prune budget, and the scan
+            // reads up to 100 entries (maxDeferredExpiryScan) past the
+            // budget, so a run of deferred collections at the head of the
+            // queue never blocks the expiries behind it.
             emit collection_expiry_deferred (id, reason=hide_appeal_in_flight)
             continue
 
@@ -2215,15 +2288,25 @@ the sentinel's committed bond stays reserved until the original
 expiry walk reaches such an entry:
 
 1. Release the sentinel's committed bond (no penalty)
-2. Remove the expiry index entry
+2. Remove the expiry index entry and zero the record's `committed_amount`
+   (so genesis import and deletion cleanup know the hold is over)
 3. Emit `self_corrected_hide_bond_released` event
 
 The content itself was already restored to ACTIVE at unhide time and is
-not touched.
+not touched. If the target is deleted before `appeal_deadline` (owner
+delete, TTL prune, another hide that stands), deletion cleanup leaves a
+self-corrected record whose bond is still held untouched, so this pass
+still releases it at the original deadline; genesis import rebuilds the
+expiry entry for such records (`resolved && self_corrected &&
+committed_amount > 0`).
 
 ### 10.4. EndBlocker: Flag Expiry
 
-Prunes expired flags where `last_flag_at + flag_expiration_blocks ≤ current_block`:
+Prunes expired flags whose `FlagExpiry` entry is `≤ current_block`. The entry
+height is the flag's stored `expires_at` (set at each flag); an entry whose
+height no longer matches the flag's `expires_at` is stale and is dropped
+without touching the flag, so a param change can never delete a newer flag
+early.
 
 1. Delete `CollectionFlag` record and all index entries
 2. Emit `flags_expired` event
@@ -2233,8 +2316,9 @@ Prunes expired flags where `last_flag_at + flag_expiration_blocks ≤ current_bl
 Processes the `Endorsement/pending/` index for entries where `endorsement_expiry ≤ current_block`:
 
 1. If the collection no longer exists (already deleted by TTL pruning §10.1 or owner deletion): delete stale index entry only
-2. Otherwise:
-   - Refund escrowed `endorsement_creation_fee` to the collection owner (minus `endorsement_deletion_burn_fraction` burned)
+2. If the collection is not `PENDING`, is already endorsed, or its stored `endorsement_pending_until` is a different height: delete the stale index entry only. The pruner never deletes an endorsed, promoted, permanent or hidden collection.
+3. Otherwise:
+   - Refund the escrowed `endorsement_fee_escrowed` to the collection owner (minus `endorsement_deletion_burn_fraction` burned)
    - Refund TTL deposits per standard deletion logic
    - Delete collection and all associated state (items, collaborators)
    - Emit `unendorsed_collection_pruned` event
@@ -2465,6 +2549,10 @@ Challenges filed before the index existed (or imported via genesis, which does n
 | `ErrAnonymousNoOwnerClaim` | 1269 | Anonymous collection has no owner claim: create ran without an x/shield exec nullifier in context, or an ownership-mode op targets a collection that is not anonymously owned |
 | `ErrAnonymousFixedField` | 1270 | Anonymous owner tried to change `expires_at` or disable community feedback via `MsgUpdateCollection` |
 | `ErrDataURINotAllowed` | 1271 | A data URI in `image_uri`, `cover_uri`, `link.uri`, `nft.token_uri`, `custom.value`, `custom.extra` or `attributes` values (section 3.4) |
+| `ErrContentHidden` | 1272 | Item add / update / remove / reorder on a HIDDEN item or inside a HIDDEN collection (the hidden content is appeal evidence) |
+| `ErrCollectionNotActive` | 1273 | Sponsorship requested for, or sponsoring, a HIDDEN collection |
+| `ErrSelfModeration` | 1274 | Sentinel hiding its own collection or an item it added |
+| `ErrInvalidCollaboratorRole` | 1275 | `MsgAddCollaborator` / `MsgUpdateCollaboratorRole` with a role other than EDITOR or ADMIN |
 
 **Rate-limit error note:** Errors 1172 (`ErrFlagRateLimitExceeded`), 1173 (`ErrMaxDailyReactions`), and 1174 (`ErrDownvoteRateLimitExceeded`) cover distinct rate-limiting aspects: flagging, general daily reactions, and downvotes respectively. Each has an independent daily counter tracked in `ReactionLimit/{address}/{day}`.
 
@@ -2601,8 +2689,9 @@ Client-side join: resolve `owner` → name for display. No keeper dependency.
 - **Tiered limits**: Trust level checked to determine collection cap.
 - **Curator rewards**: Curators earn DREAM staking rewards on bonded DREAM. Unchallenged reviews contribute to "curation" reputation tag.
 - **Reputation impact**: Collection owners with high UP ratings gain "curation" reputation. DOWN ratings carry no direct penalty.
-- **Jury resolution**: Challenge verdicts come from the x/rep jury via `ResolveChallengeResult`. Hide appeals are x/rep moderation appeals (`GOV_ACTION_TYPE_COLLECT_HIDE`) whose verdicts and timeouts reach collect through `RepAppealTarget`.
-- **Endorser DREAM staking**: Endorser stakes are managed via x/rep keeper (`LockDREAM` / `UnlockDREAM` / `BurnDREAM`).
+- **Active membership**: every member gate uses `RepKeeper.IsActiveMember` (Member status ACTIVE). A zeroed or inactive member keeps its x/rep Member record but gets non-member treatment here (PENDING collections, spam tax, no reactions or flags), so zeroing is not cosmetic in collect. The interface no longer exposes `IsMember`.
+- **Challenge resolution**: Challenge verdicts are delivered by `MsgResolveCurationChallenge` (§5.16a; Operations Committee / Commons Council policy or gov) through `ResolveChallengeResult`; the challenger's reward is minted with `MintDREAM`. Hide appeals are x/rep moderation appeals (`GOV_ACTION_TYPE_COLLECT_HIDE`) whose verdicts and timeouts reach collect through `RepAppealTarget`.
+- **Endorser DREAM staking**: Endorser stakes are managed via x/rep keeper (`LockDREAM` / `UnlockDREAM`, slashes through `BurnLockedDREAM`, which releases the lock and burns in one step).
 - **Non-member collaborator stakes**: Inviter stakes for non-member collaborators are also locked/unlocked/burned via the same x/rep DREAM keeper methods (see §3.10).
 - **Slash rep-penalties**: On the standing-hide slash paths, x/collect calls `repKeeper.DeductReputation(ctx, addr, tag, amount)` per collection tag for the endorser (`endorser_rep_penalty`), the collaborator-inviter (`collab_inviter_rep_penalty`), and the author (`author_rep_penalty`). Deductions are best-effort (floored at zero by x/rep; non-member targets are skipped).
 - **Membership admission hook**: x/collect implements `reptypes.RepHooks` (`CollectRepHooks.AfterMemberAdmitted`), fired from x/rep's `MsgAcceptInvitation`, which enqueues the new member into the EndBlocker promotion queue (§10.0, §14.20) to release inviter stakes and promote owned ephemeral collections.
@@ -2859,6 +2948,8 @@ sparkdreamd tx collect register-curator --bond 500dream --from alice
 sparkdreamd tx collect unregister-curator --from alice
 sparkdreamd tx collect rate-collection 1 --verdict up --tags "well-organized,comprehensive" --comment "Great showcase" --from alice
 sparkdreamd tx collect challenge-review 7 --reason "Biased rating without justification" --from bob
+# Verdict (wrapped in an Operations Committee proposal; the committee policy is the signer)
+sparkdreamd tx collect resolve-curation-challenge 7 true "Rating contradicted the collection contents" --from <ops-committee-policy>
 
 # Reactions
 sparkdreamd tx collect upvote-content 1 --target-type collection --from alice

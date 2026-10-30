@@ -37,11 +37,15 @@ type RepKeeper interface {
 	// DREAM token operations
 	GetBalance(ctx context.Context, addr sdk.AccAddress) (math.Int, error)
 	BurnDREAM(ctx context.Context, addr sdk.AccAddress, amount math.Int) error
+	BurnLockedDREAM(ctx context.Context, addr sdk.AccAddress, amount math.Int) error
 	LockDREAM(ctx context.Context, addr sdk.AccAddress, amount math.Int) error
 	UnlockDREAM(ctx context.Context, addr sdk.AccAddress, amount math.Int) error
 
 	// Membership verification
 	IsMember(ctx context.Context, addr sdk.AccAddress) bool
+	// IsActiveMember is false for a ZEROED member: gates use it, never
+	// IsMember (a zeroed member keeps its record).
+	IsActiveMember(ctx context.Context, addr sdk.AccAddress) bool
 	GetMember(ctx context.Context, addr sdk.AccAddress) (reptypes.Member, error)
 
 	// Reputation operations for season transitions
@@ -51,6 +55,10 @@ type RepKeeper interface {
 	// ArchiveSeasonalReputation archives the member's seasonal reputation to lifetime
 	// and resets the seasonal scores. Returns the archived reputation scores.
 	ArchiveSeasonalReputation(ctx context.Context, addr string) (map[string]string, error)
+
+	// MembersAfter pages x/rep's member records in address order: up to
+	// limit addresses strictly after `after`, and whether the walk is done.
+	MembersAfter(ctx context.Context, after string, limit int) ([]string, bool, error)
 
 	// GetCompletedInitiativesCount returns the cached count of completed initiatives for a member
 	GetCompletedInitiativesCount(ctx context.Context, addr string) (uint64, error)
@@ -67,8 +75,16 @@ type RepKeeper interface {
 	// GetTrustLevel returns the trust level for a member address.
 	GetTrustLevel(ctx context.Context, addr sdk.AccAddress) (reptypes.TrustLevel, error)
 
-	// GetSeasonMinted returns total DREAM minted this season (for activity-based retro PGF budget).
+	// GetSeasonMinted returns total DREAM minted this season.
 	GetSeasonMinted(ctx context.Context) (math.Int, error)
+
+	// GetSeasonInitiativeRewardsMinted returns the DREAM minted this season
+	// for completed initiatives: the activity base of the retro-PGF budget.
+	GetSeasonInitiativeRewardsMinted(ctx context.Context) (math.Int, error)
+
+	// GetInitiative returns an initiative, for validating rep/initiative
+	// retro-PGF content refs.
+	GetInitiative(ctx context.Context, initiativeID uint64) (reptypes.Initiative, error)
 
 	// InitSeasonalPool refills the seasonal staking reward budget and resets
 	// x/rep's per-season economic counters for the incoming season. Called once
@@ -91,7 +107,9 @@ type NameKeeper interface {
 	// Name operations
 	GetName(ctx context.Context, name string) (nametypes.NameRecord, bool)
 	SetName(ctx context.Context, record nametypes.NameRecord) error
-	RemoveNameFromOwner(ctx context.Context, owner sdk.AccAddress, name string) error
+	// ReleaseName frees a name owner reserved through ClaimName (the record
+	// and its indexes are deleted); a name held by someone else is untouched.
+	ReleaseName(ctx context.Context, name string, owner string) error
 
 	// Check if a name is available
 	IsNameAvailable(ctx context.Context, name string) bool
@@ -106,6 +124,11 @@ type NameKeeper interface {
 type BlogKeeper interface {
 	HasPost(ctx context.Context, id uint64) bool
 	HasReply(ctx context.Context, id uint64) bool
+	// GetPostAuthor returns the post's creator (retro-PGF self-stake ban).
+	GetPostAuthor(ctx context.Context, id uint64) (string, error)
+	// LivePostCreatedAt: creation time (unix seconds) of a post that exists
+	// and is ACTIVE (not hidden or deleted).
+	LivePostCreatedAt(ctx context.Context, id uint64) (int64, bool)
 }
 
 // ForumKeeper defines the expected interface for the x/forum module.
@@ -113,11 +136,19 @@ type BlogKeeper interface {
 type ForumKeeper interface {
 	HasPost(ctx context.Context, id uint64) bool
 	HasCategory(ctx context.Context, id uint64) bool
+	// GetPostAuthor returns the post's author (retro-PGF self-stake ban).
+	GetPostAuthor(ctx context.Context, postID uint64) (string, error)
+	// LivePostCreatedAt: creation time (unix seconds) of a post that exists
+	// and is ACTIVE (not hidden, deleted or archived).
+	LivePostCreatedAt(ctx context.Context, id uint64) (int64, bool)
 }
 
 // CollectKeeper defines the expected interface for the x/collect module.
 type CollectKeeper interface {
 	HasCollection(ctx context.Context, id uint64) bool
+	// LiveCollection returns the owner and creation block height of an
+	// ACTIVE collection.
+	LiveCollection(ctx context.Context, id uint64) (string, int64, bool)
 }
 
 // ArtifactKeeper defines the expected interface for the x/artifact module:
@@ -125,7 +156,9 @@ type CollectKeeper interface {
 // for retroactive rewards, which go to the nominator like any other
 // content's, never to the certificate's holders.
 type ArtifactKeeper interface {
-	IsImpactCertificate(ctx context.Context, classID, editionID uint64) bool
+	// ImpactCertificateInfo returns the creator and creation time (unix
+	// seconds) of a visible impact certificate (SEA-30).
+	ImpactCertificateInfo(ctx context.Context, classID, editionID uint64) (creator string, createdAt int64, ok bool)
 }
 
 // CommonsKeeper defines the expected interface for the x/commons module.
@@ -140,4 +173,10 @@ type CommonsKeeper interface {
 	// IsCouncilAuthorized checks if addr is authorized via governance, council policy,
 	// or committee membership.
 	IsCouncilAuthorized(ctx context.Context, addr string, council string, committee string) bool
+
+	// IsCouncilOrCommitteePolicy accepts the gov authority, the council's
+	// policy address or the named committee's policy address, but NOT an
+	// individual committee member. Used for transition control, the season
+	// clock and operational params, which must be a committee decision.
+	IsCouncilOrCommitteePolicy(ctx context.Context, addr string, council string, committee string) bool
 }

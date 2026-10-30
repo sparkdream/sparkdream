@@ -1,7 +1,8 @@
 #!/bin/bash
 # ============================================================================
-# X/VAULT E2E: create, propose, approve, execute, rotate, expire, prune,
-# personhood refusal, spending allowance from the vault, session keys refused.
+# X/VAULT E2E: create, signer consent (accept / leave), propose, approve,
+# execute, rotate, expire, prune, personhood refusal, spending allowance from
+# the vault, session keys refused.
 # ============================================================================
 echo "--- TESTING: X/VAULT ---"
 echo ""
@@ -101,6 +102,28 @@ fi
 run_tx alice bank send "$ALICE_ADDR" "$VAULT_ADDR" 10000000${BOND_DENOM}
 tx_ok "$TX_RESULT" || { echo "funding the vault failed"; exit 1; }
 
+# ---------------------------------------------------------------- TEST 1b ---
+echo "--- TEST 1b: listed signers accept; until then they have no weight ---"
+# alice created the vault, so only her entry starts accepted.
+ACC=$($BINARY q vault get-vault "$VAULT_ID" --output json | jq -r '[.vault.signers[] | select(.accepted // false)] | length')
+INVITED=$($BINARY q vault vaults-by-signer "$BOB_ADDR" --invited --output json | jq -r --arg id "$VAULT_ID" '[.vaults[]? | select((.vault_id // "0") == $id)] | length')
+NOT_YET=$($BINARY q vault vaults-by-signer "$BOB_ADDR" --output json | jq -r --arg id "$VAULT_ID" '[.vaults[]? | select((.vault_id // "0") == $id)] | length')
+run_tx bob vault accept-vault-signer "$VAULT_ID"
+BOB_OK=$(tx_ok "$TX_RESULT" && echo yes || echo no)
+run_tx bob vault accept-vault-signer "$VAULT_ID"
+TWICE_REFUSED=$(! tx_ok "$TX_RESULT" && echo yes || echo no)
+run_tx vault_carol vault accept-vault-signer "$VAULT_ID"
+CAROL_OK=$(tx_ok "$TX_RESULT" && echo yes || echo no)
+ACC_AFTER=$($BINARY q vault get-vault "$VAULT_ID" --output json | jq -r '[.vault.signers[] | select(.accepted // false)] | length')
+if [ "$ACC" = "1" ] && [ "$INVITED" = "1" ] && [ "$NOT_YET" = "0" ] && [ "$BOB_OK" = yes ] \
+   && [ "$TWICE_REFUSED" = yes ] && [ "$CAROL_OK" = yes ] && [ "$ACC_AFTER" = "3" ]; then
+    echo "  alice accepted at create; bob and carol accepted their listings"
+    record_result "signers accept their listing" "PASS"
+else
+    echo "  accepted=$ACC->$ACC_AFTER invited=$INVITED not_yet=$NOT_YET bob=$BOB_OK twice_refused=$TWICE_REFUSED carol=$CAROL_OK log=$(tx_log "$TX_RESULT")"
+    record_result "signers accept their listing" "FAIL"
+fi
+
 # ----------------------------------------------------------------- TEST 2 ---
 echo "--- TEST 2: propose a send, approve with the hash, execute ---"
 cat > "$WORK/send.json" <<JSON
@@ -149,15 +172,20 @@ VER=$(echo "$V" | jq -r '.vault.config_version')
 THR=$(echo "$V" | jq -r '.vault.threshold')
 VSTATUS=$($BINARY q vault get-vault-proposal "$VICTIM" --output json | jq -r '.vault_proposal.status')
 RSTATUS=$($BINARY q vault get-vault-proposal "$RPID" --output json | jq -r '.vault_proposal.status')
+# dave was added by the vault: he must accept before his weight counts
+# (threshold 3 needs him).
+DAVE_INVITED=$($BINARY q vault vaults-by-signer "$DAVE_ADDR" --invited --output json | jq -r --arg id "$VAULT_ID" '[.vaults[]? | select((.vault_id // "0") == $id)] | length')
+run_tx vault_dave vault accept-vault-signer "$VAULT_ID"
+tx_ok "$TX_RESULT" || echo "  dave accept failed: $(tx_log "$TX_RESULT")"
 BYSIGNER=$($BINARY q vault vaults-by-signer "$DAVE_ADDR" --output json | jq -r --arg id "$VAULT_ID" '[.vaults[]? | select((.vault_id // "0") == $id)] | length')
 run_tx vault_carol vault propose "$VAULT_ID" "$WORK/send.json"
 CAROL_REFUSED=$(! tx_ok "$TX_RESULT" && echo yes || echo no)
 if [ "$VER" = "2" ] && [ "$THR" = "3" ] && [ "$VSTATUS" = "PROPOSAL_STATUS_INVALIDATED" ] && [ "$RSTATUS" = "PROPOSAL_STATUS_EXECUTED" ] \
-   && [ "$BYSIGNER" = "1" ] && [ "$CAROL_REFUSED" = yes ]; then
-    echo "  config_version=2 threshold=3; #$VICTIM invalidated, rotation itself executed; carol is out, dave is in"
+   && [ "$DAVE_INVITED" = "1" ] && [ "$BYSIGNER" = "1" ] && [ "$CAROL_REFUSED" = yes ]; then
+    echo "  config_version=2 threshold=3; #$VICTIM invalidated, rotation itself executed; carol is out, dave accepted and is in"
     record_result "rotation invalidates pending" "PASS"
 else
-    echo "  ver=$VER thr=$THR victim=$VSTATUS rot=$RSTATUS by_signer=$BYSIGNER carol_refused=$CAROL_REFUSED"
+    echo "  ver=$VER thr=$THR victim=$VSTATUS rot=$RSTATUS dave_invited=$DAVE_INVITED by_signer=$BYSIGNER carol_refused=$CAROL_REFUSED"
     record_result "rotation invalidates pending" "FAIL"
 fi
 
@@ -249,6 +277,24 @@ if [ "$OTHER_REFUSED" = yes ] && [ "$CSTATUS" = "PROPOSAL_STATUS_CANCELLED" ]; t
 else
     echo "  other_refused=$OTHER_REFUSED status=$CSTATUS"
     record_result "cancel by proposer" "FAIL"
+fi
+
+# ----------------------------------------------------------------- TEST 9 ---
+echo "--- TEST 9: an invitee declines with leave-vault; the last signer cannot leave ---"
+run_tx alice vault create-vault "$ALICE_ADDR:1,$CAROL_ADDR:1" 1 60 "aurora"
+LV_ID=$(event_attr "$TX_RESULT" vault_created vault_id)
+run_tx vault_carol vault leave-vault "$LV_ID"
+DECLINED=$(tx_ok "$TX_RESULT" && echo yes || echo no)
+LV_SIGNERS=$($BINARY q vault get-vault "$LV_ID" --output json | jq -r '.vault.signers | length')
+LV_VER=$($BINARY q vault get-vault "$LV_ID" --output json | jq -r '.vault.config_version')
+run_tx alice vault leave-vault "$LV_ID"
+LAST_REFUSED=$(! tx_ok "$TX_RESULT" && echo yes || echo no)
+if [ -n "$LV_ID" ] && [ "$DECLINED" = yes ] && [ "$LV_SIGNERS" = "1" ] && [ "$LV_VER" = "1" ] && [ "$LAST_REFUSED" = yes ]; then
+    echo "  carol declined vault #$LV_ID (no config bump); alice, the last signer, cannot leave"
+    record_result "decline and leave" "PASS"
+else
+    echo "  vault=$LV_ID declined=$DECLINED signers=$LV_SIGNERS ver=$LV_VER last_refused=$LAST_REFUSED log=$(tx_log "$TX_RESULT")"
+    record_result "decline and leave" "FAIL"
 fi
 
 rm -rf "$WORK"

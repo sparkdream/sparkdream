@@ -47,3 +47,9 @@ func (a *GovKeeperAdapter) ActiveProposalsQueueRemove(ctx context.Context, propo
 func (a *GovKeeperAdapter) VotingPeriodProposalsRemove(ctx context.Context, proposalID uint64) error {
 	return a.keeper.VotingPeriodProposals.Remove(ctx, proposalID)
 }
+
+// InactiveProposalsQueueRemove drops a deposit-period proposal from the gov
+// inactive queue (commons emergency cancel of a deposit-period proposal).
+func (a *GovKeeperAdapter) InactiveProposalsQueueRemove(ctx context.Context, proposalID uint64, depositEndTime time.Time) error {
+	return a.keeper.InactiveProposalsQueue.Remove(ctx, collections.Join(depositEndTime, proposalID))
+}

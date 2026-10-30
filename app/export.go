@@ -2,6 +2,7 @@ package app
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	cmtproto "github.com/cometbft/cometbft/proto/tendermint/types"
@@ -36,7 +37,12 @@ func (app *App) ExportAppStateAndValidators(forZeroHeight bool, jailAllowedAddrs
 	// the entire export path — the rest of the genesis can still be written
 	// and the operator can decide what to do about the missing community pool.
 	if _, ferr := app.DistrKeeper.FeePool.Get(ctx); ferr != nil {
-		_ = app.DistrKeeper.FeePool.Set(ctx, distrtypes.FeePool{})
+		// Loud: the exported community pool is now empty, which the
+		// operator must reconcile before using this genesis.
+		app.Logger().Error("export: distribution FeePool missing from state; exporting an EMPTY community pool", "err", ferr)
+		if serr := app.DistrKeeper.FeePool.Set(ctx, distrtypes.FeePool{}); serr != nil {
+			return servertypes.ExportedApp{}, serr
+		}
 	}
 
 	genState, err := app.ModuleManager.ExportGenesisForModules(ctx, app.appCodec, modulesToExport)
@@ -89,7 +95,10 @@ func (app *App) prepForZeroHeightGenesis(ctx sdk.Context, jailAllowedAddrs []str
 		if err != nil {
 			panic(err)
 		}
-		_, _ = app.DistrKeeper.WithdrawValidatorCommission(ctx, valBz)
+		// An empty commission is the normal case; anything else is logged.
+		if _, err := app.DistrKeeper.WithdrawValidatorCommission(ctx, valBz); err != nil && !errors.Is(err, distrtypes.ErrNoValidatorCommission) {
+			app.Logger().Error("export: withdraw validator commission failed", "validator", val.GetOperator(), "err", err)
+		}
 		return false
 	})
 	if err != nil {
@@ -113,7 +122,10 @@ func (app *App) prepForZeroHeightGenesis(ctx sdk.Context, jailAllowedAddrs []str
 			panic(err)
 		}
 
-		_, _ = app.DistrKeeper.WithdrawDelegationRewards(ctx, delAddr, valAddr)
+		if _, err := app.DistrKeeper.WithdrawDelegationRewards(ctx, delAddr, valAddr); err != nil {
+			app.Logger().Error("export: withdraw delegation rewards failed",
+				"delegator", delegation.DelegatorAddress, "validator", delegation.ValidatorAddress, "err", err)
+		}
 	}
 
 	// clear validator slash events

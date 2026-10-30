@@ -56,10 +56,13 @@ func setupResolveFixture(t *testing.T, opts ...FixtureOption) *resolveFixture {
 	f.keeper.SetForumKeeper(fk)
 
 	rf := &resolveFixture{
-		f:            f,
-		ms:           ms,
-		fk:           fk,
-		actionType:   types.GovActionType_GOV_ACTION_TYPE_WARNING,
+		f:  f,
+		ms: ms,
+		fk: fk,
+		// A forum moderation type, filed the way x/forum files it
+		// (CreateGovActionAppeal): MsgAppealGovAction refuses module-owned
+		// types since FRM-02.
+		actionType:   types.GovActionType_GOV_ACTION_TYPE_THREAD_LOCK,
 		actionTarget: "target-xyz",
 		sentinel:     sdk.AccAddress([]byte("sentinel_happy__")).String(),
 	}
@@ -95,12 +98,7 @@ func setupResolveFixture(t *testing.T, opts ...FixtureOption) *resolveFixture {
 	rf.appellant = appellant
 	rf.appellantStr = appellantStr
 
-	_, err = ms.AppealGovAction(f.ctx, &types.MsgAppealGovAction{
-		Creator:      appellantStr,
-		ActionType:   uint64(rf.actionType),
-		ActionTarget: rf.actionTarget,
-		AppealReason: "testing",
-	})
+	_, _, err = f.keeper.CreateGovActionAppeal(f.ctx, rf.actionType, rf.actionTarget, appellant, "testing")
 	require.NoError(t, err)
 
 	return rf
@@ -336,7 +334,7 @@ func TestMsgServerResolveGovActionAppeal(t *testing.T) {
 		rf := setupResolveFixture(t)
 		appealID, appeal := findAppeal(t, rf.f, rf.appellantStr)
 		appeal.Status = types.GovAppealStatus_GOV_APPEAL_STATUS_UPHELD
-		require.NoError(t, rf.f.keeper.GovActionAppeal.Set(rf.f.ctx, appealID, appeal))
+		require.NoError(t, rf.f.keeper.SetGovActionAppeal(rf.f.ctx, appeal))
 
 		resolver := sdk.AccAddress([]byte("council_resolver"))
 		resolverStr, err := rf.f.addressCodec.BytesToString(resolver)
@@ -379,7 +377,6 @@ func TestMsgServerResolveGovActionAppeal(t *testing.T) {
 
 func TestTimeoutExpiredAppeals(t *testing.T) {
 	f := initFixture(t)
-	ms := keeper.NewMsgServerImpl(f.keeper)
 	fk := &mockForumKeeper{
 		authors:         make(map[uint64]string),
 		tags:            make(map[uint64][]string),
@@ -410,12 +407,7 @@ func TestTimeoutExpiredAppeals(t *testing.T) {
 	appellantStr, err := f.addressCodec.BytesToString(appellant)
 	require.NoError(t, err)
 
-	_, err = ms.AppealGovAction(f.ctx, &types.MsgAppealGovAction{
-		Creator:      appellantStr,
-		ActionType:   uint64(types.GovActionType_GOV_ACTION_TYPE_WARNING),
-		ActionTarget: "target-timeout",
-		AppealReason: "timeout path",
-	})
+	_, _, err = f.keeper.CreateGovActionAppeal(f.ctx, types.GovActionType_GOV_ACTION_TYPE_THREAD_LOCK, "target-timeout", appellant, "timeout path")
 	require.NoError(t, err)
 
 	// Advance block time past the deadline.

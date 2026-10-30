@@ -6,3 +6,10 @@ package types
 // before ExpireHiddenPosts soft-deletes them — long enough that an appeal
 // can realistically be filed and resolved before the slash hooks fire.
 func hiddenExpirationDefault() int64 { return 604800 } // 7 days
+
+// opsClockFloorsEnabled applies the lower clock bounds of
+// ValidateCommitteeBounds (network builds only).
+const opsClockFloorsEnabled = true
+
+// hideAppealCooldownDefault: 1 hour.
+func hideAppealCooldownDefault() int64 { return 3600 }

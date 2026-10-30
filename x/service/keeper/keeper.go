@@ -96,6 +96,10 @@ type Keeper struct {
 	// UnderfundedQueue: (underfunded_since, op_address, service_type).
 	// EndBlocker sweep iterates in (height) order (§3.6 queue 1).
 	UnderfundedQueue collections.KeySet[collections.Triple[int64, []byte, string]]
+	// UnderfundedDue: (grace_deadline, op_address, service_type), and its
+	// reverse UnderfundedDueAt: (op_address, service_type) -> deadline.
+	UnderfundedDue   collections.KeySet[collections.Triple[int64, []byte, string]]
+	UnderfundedDueAt collections.Map[collections.Pair[[]byte, string], int64]
 
 	// ReportsByOperator: (op_address, service_type, report_id).
 	ReportsByOperator collections.KeySet[collections.Triple[[]byte, string, uint64]]
@@ -109,6 +113,12 @@ type Keeper struct {
 	// OpenControllerTransferByOperator: (op_address, service_type) →
 	// jury_case_id. Enforces the "one open case at a time" rule (§5.4).
 	OpenControllerTransferByOperator collections.Map[collections.Pair[[]byte, string], uint64]
+
+	// ControllerTransferCasesByOpenedAt: (opened_at, jury_case_id) for every
+	// open case. A case times out at opened_at + max_escalated_blocks, one
+	// param for all cases, so opened_at order is due order even after the
+	// param changes. Derived; rebuilt at InitGenesis.
+	ControllerTransferCasesByOpenedAt collections.KeySet[collections.Pair[int64, uint64]]
 
 	// Tier1EscrowByOperator: (op_address, service_type, escrow_id).
 	// Used by MsgClaimUnbondedBond and contest paths.
@@ -126,6 +136,11 @@ type Keeper struct {
 	// minimal because dedupe is meaningful only within the report's
 	// lifetime window.
 	SystemReportDedup collections.Map[collections.Pair[string, []byte], uint64]
+
+	// SystemReportDedupExpiry: (eligible_at_height, caller_module,
+	// dedupe_key) — the prune queue for SystemReportDedup (one entry per
+	// dedup row; rebuilt at genesis import).
+	SystemReportDedupExpiry collections.KeySet[collections.Triple[int64, string, []byte]]
 
 	// SystemReportRateLimit: sliding-window ring buffer keyed by
 	// caller_module. Tracks recent OpenSystemReport call heights so the
@@ -286,6 +301,19 @@ func NewKeeper(
 			"underfunded_queue",
 			collections.TripleKeyCodec(collections.Int64Key, collections.BytesKey, collections.StringKey),
 		),
+		UnderfundedDue: collections.NewKeySet(
+			sb,
+			types.UnderfundedDueKey,
+			"underfunded_due",
+			collections.TripleKeyCodec(collections.Int64Key, collections.BytesKey, collections.StringKey),
+		),
+		UnderfundedDueAt: collections.NewMap(
+			sb,
+			types.UnderfundedDueAtKey,
+			"underfunded_due_at",
+			collections.PairKeyCodec(collections.BytesKey, collections.StringKey),
+			collections.Int64Value,
+		),
 		ReportsByOperator: collections.NewKeySet(
 			sb,
 			types.ReportsByOperatorKey,
@@ -311,6 +339,12 @@ func NewKeeper(
 			collections.PairKeyCodec(collections.BytesKey, collections.StringKey),
 			collections.Uint64Value,
 		),
+		ControllerTransferCasesByOpenedAt: collections.NewKeySet(
+			sb,
+			types.ControllerTransferCasesByOpenedAtKey,
+			"controller_transfer_cases_by_opened_at",
+			collections.PairKeyCodec(collections.Int64Key, collections.Uint64Key),
+		),
 		Tier1EscrowByOperator: collections.NewKeySet(
 			sb,
 			types.Tier1EscrowByOperatorKey,
@@ -329,6 +363,12 @@ func NewKeeper(
 			"system_report_dedup",
 			collections.PairKeyCodec(collections.StringKey, collections.BytesKey),
 			collections.Uint64Value,
+		),
+		SystemReportDedupExpiry: collections.NewKeySet(
+			sb,
+			types.SystemReportDedupExpiryKey,
+			"system_report_dedup_expiry",
+			collections.TripleKeyCodec(collections.Int64Key, collections.StringKey, collections.BytesKey),
 		),
 		SystemReportRateLimit: collections.NewMap(
 			sb,

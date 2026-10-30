@@ -814,4 +814,9 @@ message Auction {
     (gogoproto.nullable) = false
   ];
   uint32 bids = 11;
+  // The high bid's optional pins (MsgBid expected_metadata_hash /
+  // expected_contents_hash). Settlement re-checks them and refunds the bid
+  // instead of selling when the token no longer matches.
+  string high_bid_metadata_hash = 12;
+  string high_bid_contents_hash = 13;
 }

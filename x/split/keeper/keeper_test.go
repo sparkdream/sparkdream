@@ -24,6 +24,11 @@ type fixture struct {
 	addressCodec address.Codec
 }
 
+// stubIdentity resolves the bond denom the way x/identity does on a default chain.
+type stubIdentity struct{}
+
+func (stubIdentity) BondDenom(context.Context) string { return "uspark" }
+
 func initFixture(t *testing.T) *fixture {
 	t.Helper()
 
@@ -45,6 +50,8 @@ func initFixture(t *testing.T) *fixture {
 		nil,
 		nil,
 	)
+
+	k.SetIdentityKeeper(stubIdentity{})
 
 	// Initialize params
 	if err := k.Params.Set(ctx, types.DefaultParams()); err != nil {

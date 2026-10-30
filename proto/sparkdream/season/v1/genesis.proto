@@ -23,6 +23,7 @@ import "sparkdream/season/v1/params.proto";
 import "sparkdream/season/v1/quest.proto";
 import "sparkdream/season/v1/season.proto";
 import "sparkdream/season/v1/season_snapshot.proto";
+import "sparkdream/season/v1/season_stats_counters.proto";
 import "sparkdream/season/v1/season_title_eligibility.proto";
 import "sparkdream/season/v1/season_transition_state.proto";
 import "sparkdream/season/v1/title.proto";
@@ -67,4 +68,20 @@ message GenesisState {
   uint64 nomination_count = 26;
   repeated NominationStake nomination_stake_list = 27 [(gogoproto.nullable) = false];
   repeated RetroRewardRecord retro_reward_record_list = 28 [(gogoproto.nullable) = false];
+
+  // MsgAbortSeasonTransition count per season (SEA-25), so the
+  // MaxTransitionAbortsPerSeason cap survives export/import.
+  repeated TransitionAbortCount transition_abort_list = 29 [(gogoproto.nullable) = false];
+
+  // Season number whose x/rep seasonal pool initialisation failed at
+  // finalisation and is retried by the BeginBlocker (0 = none, SEA-22).
+  uint64 pending_seasonal_pool_init = 30;
+  // Running per-season aggregates read by the SeasonStats query (SEA-35).
+  repeated SeasonStatsCounters season_stats_counters_list = 31 [(gogoproto.nullable) = false];
+}
+
+// TransitionAbortCount is one entry of the per-season abort counter.
+message TransitionAbortCount {
+  uint64 season = 1;
+  uint64 aborts = 2;
 }

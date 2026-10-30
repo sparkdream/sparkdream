@@ -2,11 +2,15 @@ package keeper
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
+	commontypes "sparkdream/x/common/types"
+	reptypes "sparkdream/x/rep/types"
 	"sparkdream/x/season/types"
 
+	"cosmossdk.io/collections"
 	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 )
@@ -19,6 +23,18 @@ func (k Keeper) BeginBlocker(ctx context.Context) error {
 
 	// Process expired display name moderations (runs every block, independent of season transitions)
 	k.processExpiredModerations(ctx)
+	// Time out appeals nobody resolved (SEA-23).
+	k.processExpiredAppeals(ctx)
+
+	// Bounded rolling pruning of history collections and expired guild
+	// invites (SEA-11).
+	k.pruneHistory(ctx)
+
+	// Retry failed retro-PGF payouts once per epoch (SEA-21).
+	k.retryRetroPayouts(ctx)
+
+	// Retry a failed x/rep seasonal pool initialisation (SEA-22).
+	k.retryPendingSeasonalPoolInit(ctx)
 
 	// Get current season
 	season, err := k.Season.Get(ctx)
@@ -31,11 +47,13 @@ func (k Keeper) BeginBlocker(ctx context.Context) error {
 	if season.Status == types.SeasonStatus_SEASON_STATUS_ACTIVE {
 		params, pErr := k.Params.Get(ctx)
 		if pErr == nil {
-			nominationWindowBlocks := int64(params.NominationWindowEpochs) * params.EpochBlocks
+			nominationWindowBlocks := commontypes.Saturate[int64](params.NominationWindowEpochs) * params.EpochBlocks
 			nominationStartBlock := season.EndBlock - nominationWindowBlocks
 			if currentBlock >= nominationStartBlock {
 				season.Status = types.SeasonStatus_SEASON_STATUS_NOMINATION
-				_ = k.Season.Set(ctx, season)
+				if err := k.Season.Set(ctx, season); err != nil {
+					sdk.UnwrapSDKContext(ctx).Logger().Error("BeginBlocker: Season.Set failed", "err", err)
+				}
 				sdkCtx.EventManager().EmitEvent(
 					sdk.NewEvent(
 						"nomination_window_opened",
@@ -53,16 +71,54 @@ func (k Keeper) BeginBlocker(ctx context.Context) error {
 		transitionState.Phase != types.TransitionPhase_TRANSITION_PHASE_UNSPECIFIED
 
 	if hasActiveTransition {
+		// SEA-03: a transition in recovery mode stays halted until the
+		// Commons Operations Committee or governance acts
+		// (MsgRetrySeasonTransition / MsgSkipTransitionPhase /
+		// MsgAbortSeasonTransition). Retrying a deterministic failure every
+		// block would only burn work.
+		if recovery, rErr := k.TransitionRecoveryState.Get(ctx); rErr == nil && recovery.RecoveryMode {
+			return nil
+		}
+		k.checkTransitionWatchdog(ctx, transitionState)
 		// Continue processing the active transition (including finalization at COMPLETE phase)
-		return k.processTransitionBatch(ctx, transitionState)
+		k.processTransitionBatch(ctx, transitionState)
+		return nil
 	}
 
 	// Check if season has ended and we need to start a transition
 	if currentBlock >= season.EndBlock && (season.Status == types.SeasonStatus_SEASON_STATUS_ACTIVE || season.Status == types.SeasonStatus_SEASON_STATUS_NOMINATION) {
-		return k.startSeasonTransition(ctx, season)
+		// Never fail the block over a transition (SEA-03).
+		cacheCtx, write := sdkCtx.CacheContext()
+		if err := k.startSeasonTransition(cacheCtx, season); err != nil {
+			sdkCtx.Logger().Error("failed to start season transition", "season", season.Number, "error", err)
+			return nil
+		}
+		write()
 	}
 
 	return nil
+}
+
+// checkTransitionWatchdog emits season_transition_overdue (once) when a
+// transition has run longer than max_transition_epochs. It only signals: the
+// transition keeps going, and recovery stays a human decision (SEA-19).
+func (k Keeper) checkTransitionWatchdog(ctx context.Context, state types.SeasonTransitionState) {
+	params, err := k.Params.Get(ctx)
+	if err != nil || params.MaxTransitionEpochs == 0 || params.EpochBlocks <= 0 {
+		return
+	}
+	sdkCtx := sdk.UnwrapSDKContext(ctx)
+	limit := commontypes.Saturate[int64](params.MaxTransitionEpochs) * params.EpochBlocks
+	if sdkCtx.BlockHeight()-state.TransitionStart != limit+1 {
+		return
+	}
+	sdkCtx.Logger().Error("season transition overdue",
+		"phase", state.Phase.String(), "started", state.TransitionStart, "limit_blocks", limit)
+	sdkCtx.EventManager().EmitEvent(sdk.NewEvent("season_transition_overdue",
+		sdk.NewAttribute("phase", state.Phase.String()),
+		sdk.NewAttribute("transition_start", fmt.Sprintf("%d", state.TransitionStart)),
+		sdk.NewAttribute("max_transition_blocks", fmt.Sprintf("%d", limit)),
+	))
 }
 
 // startSeasonTransition initializes a new season transition.
@@ -102,7 +158,33 @@ func (k Keeper) startSeasonTransition(ctx context.Context, season types.Season) 
 }
 
 // processTransitionBatch processes a batch of the current transition phase.
-func (k Keeper) processTransitionBatch(ctx context.Context, state types.SeasonTransitionState) error {
+//
+// SEA-03: the batch runs in a cache context and never fails the block. On
+// error the half-applied batch is discarded, the failure is persisted in
+// TransitionRecoveryState (entering recovery mode after
+// transition_max_retries consecutive failures) and the block goes on.
+func (k Keeper) processTransitionBatch(ctx context.Context, state types.SeasonTransitionState) {
+	sdkCtx := sdk.UnwrapSDKContext(ctx)
+	cacheCtx, write := sdkCtx.CacheContext()
+	if err := k.runTransitionBatch(cacheCtx, state); err != nil {
+		sdkCtx.Logger().Error("season transition batch failed",
+			"phase", state.Phase.String(), "error", err)
+		k.handleTransitionError(ctx, state, err)
+		return
+	}
+	write()
+
+	// A successful batch ends a run of transient failures: forget the
+	// count so a later failure gets the full retry budget again.
+	if recovery, err := k.TransitionRecoveryState.Get(ctx); err == nil && !recovery.RecoveryMode {
+		if err := k.TransitionRecoveryState.Remove(ctx); err != nil {
+			sdk.UnwrapSDKContext(ctx).Logger().Error("processTransitionBatch: TransitionRecoveryState.Remove failed", "err", err)
+		}
+	}
+}
+
+// runTransitionBatch does the work of one transition batch on ctx.
+func (k Keeper) runTransitionBatch(ctx context.Context, state types.SeasonTransitionState) error {
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 
 	params, err := k.Params.Get(ctx)
@@ -124,6 +206,9 @@ func (k Keeper) processTransitionBatch(ctx context.Context, state types.SeasonTr
 		phaseComplete, processErr = k.processReturnNominationStakesPhase(ctx, &state, int(batchSize))
 
 	case types.TransitionPhase_TRANSITION_PHASE_SNAPSHOT:
+		// Maintenance mode from SNAPSHOT on, so the reputation and DREAM
+		// the snapshot records stop moving while it is taken (SEA-16).
+		state.MaintenanceMode = true
 		phaseComplete, processErr = k.processSnapshotPhase(ctx, &state, int(batchSize))
 
 	case types.TransitionPhase_TRANSITION_PHASE_ARCHIVE_REPUTATION:
@@ -153,8 +238,7 @@ func (k Keeper) processTransitionBatch(ctx context.Context, state types.SeasonTr
 	}
 
 	if processErr != nil {
-		// Handle error - enter recovery mode
-		k.handleTransitionError(ctx, state, processErr)
+		// The caller discards this batch and records the failure.
 		return processErr
 	}
 
@@ -202,7 +286,7 @@ func (k Keeper) processSnapshotPhase(ctx context.Context, state *types.SeasonTra
 	}
 
 	// Create the overall season snapshot (once at start)
-	if state.ProcessedCount == 0 {
+	if state.ProcessedCount == 0 && state.LastProcessed == "" {
 		seasonSnapshot := types.SeasonSnapshot{
 			Season:        season.Number,
 			SnapshotBlock: sdkCtx.BlockHeight(),
@@ -210,106 +294,118 @@ func (k Keeper) processSnapshotPhase(ctx context.Context, state *types.SeasonTra
 		if err := k.SeasonSnapshot.Set(ctx, season.Number, seasonSnapshot); err != nil {
 			return false, err
 		}
-		// Decide seasonal titles now, while season XP and levels are still
-		// intact (RESET_XP runs before TITLES).
-		if err := k.ComputeSeasonTitleEligibility(ctx, season.Number); err != nil {
+		// Seasonal titles are decided in this phase, batch by batch, while
+		// season XP and levels are still intact (RESET_XP runs before
+		// TITLES).
+		if err := k.beginSeasonTitleEligibility(ctx, season.Number); err != nil {
 			return false, err
 		}
 	}
 
 	// Iterate through member profiles and create individual snapshots
-	var startKey *string
-	if state.LastProcessed != "" {
-		startKey = &state.LastProcessed
-	}
-
-	iter, err := k.MemberProfile.Iterate(ctx, nil)
+	// Resume strictly after the cursor (SEA-05): no rescan from the first key.
+	iter, err := k.MemberProfile.Iterate(ctx, cursorAfter(state.LastProcessed))
 	if err != nil {
 		return false, err
 	}
 	defer iter.Close()
 
-	// Skip to last processed if we're resuming
-	if startKey != nil {
-		for iter.Valid() {
-			key, err := iter.Key()
-			if err != nil {
-				break
-			}
-			if key > *startKey {
-				break
-			}
-			iter.Next()
-		}
-	}
-
 	processed := 0
 	var lastKey string
+	var batch []types.MemberProfile
 	for ; iter.Valid() && processed < batchSize; iter.Next() {
 		kv, err := iter.KeyValue()
 		if err != nil {
-			continue
+			return false, err // a decode error must not skip a member (SEA-22)
 		}
-
-		profile := kv.Value
 		lastKey = kv.Key
+		batch = append(batch, kv.Value)
+		processed++
+	}
+	done := !iter.Valid()
 
+	eligibleIDs, err := k.accumulateSeasonTitleEligibility(ctx, season.Number, batch)
+	if err != nil {
+		return false, err
+	}
+
+	for _, profile := range batch {
 		// Create member season snapshot
 		snapshotKey := fmt.Sprintf("%d/%s", season.Number, profile.Address)
 
-		// Get DREAM balance from rep keeper if available
-		var dreamBalance int64
-		if k.repKeeper != nil {
-			addrBytes, err := k.addressCodec.StringToBytes(profile.Address)
-			if err == nil {
-				balance, err := k.repKeeper.GetBalance(ctx, addrBytes)
+		// DREAM balance, reputation and completed initiatives from x/rep.
+		// A season profile with no rep member records zeros; any other
+		// read error fails the batch so recovery engages instead of
+		// archiving a silent zero (SEA-22).
+		dreamBalance := math.ZeroInt()
+		reputation := make(map[string]string)
+		var initiativesCompleted uint64
+		if k.late.repKeeper != nil {
+			// A profile key that is not an address has no DREAM balance.
+			if addrBytes, err := k.addressCodec.StringToBytes(profile.Address); err == nil {
+				balance, err := k.late.repKeeper.GetBalance(ctx, addrBytes)
+				if err != nil && !errors.Is(err, reptypes.ErrMemberNotFound) {
+					return false, err
+				}
 				if err == nil {
-					dreamBalance = balance.Int64()
+					dreamBalance = balance
 				}
 			}
-		}
-
-		// Get reputation scores from x/rep
-		reputation := make(map[string]string)
-		if k.repKeeper != nil {
-			if scores, err := k.repKeeper.GetReputationScores(ctx, profile.Address); err == nil {
+			scores, err := k.late.repKeeper.GetReputationScores(ctx, profile.Address)
+			if err != nil && !errors.Is(err, reptypes.ErrMemberNotFound) {
+				return false, err
+			}
+			if err == nil && scores != nil {
 				reputation = scores
 			}
-		}
-
-		// Get completed initiatives count from x/rep
-		var initiativesCompleted uint64
-		if k.repKeeper != nil {
-			if count, err := k.repKeeper.GetCompletedInitiativesCount(ctx, profile.Address); err == nil {
+			count, err := k.late.repKeeper.GetCompletedInitiativesCount(ctx, profile.Address)
+			if err != nil && !errors.Is(err, reptypes.ErrMemberNotFound) {
+				return false, err
+			}
+			if err == nil {
 				initiativesCompleted = count
 			}
 		}
 
 		snapshot := types.MemberSeasonSnapshot{
 			SeasonAddress:        snapshotKey,
-			FinalDreamBalance:    math.NewInt(dreamBalance),
+			FinalDreamBalance:    dreamBalance,
 			FinalReputation:      reputation,
 			InitiativesCompleted: initiativesCompleted,
 			XpEarned:             profile.SeasonXp,
 			SeasonLevel:          profile.SeasonLevel,
 			AchievementsEarned:   profile.Achievements,
+			EligibleTitleIds:     eligibleIDs[profile.Address],
 		}
 
 		if err := k.MemberSeasonSnapshot.Set(ctx, snapshotKey, snapshot); err != nil {
-			continue // Skip on error, don't fail the whole batch
+			return false, err
 		}
-
-		processed++
 	}
 
 	// Update state
-	state.ProcessedCount += uint64(processed)
+	state.ProcessedCount += commontypes.Saturate[uint64](processed)
 	if lastKey != "" {
 		state.LastProcessed = lastKey
 	}
 
 	// Check if we've processed all members
-	return !iter.Valid(), nil
+	if done {
+		if err := k.finishSeasonTitleEligibility(ctx, season.Number); err != nil {
+			return false, err
+		}
+	}
+	return done, nil
+}
+
+// cursorAfter returns the range that resumes a string-keyed batch walk
+// strictly after the last processed key, or nil (walk everything) when the
+// phase has not started (SEA-05).
+func cursorAfter(last string) collections.Ranger[string] {
+	if last == "" {
+		return nil
+	}
+	return new(collections.Range[string]).StartExclusive(last)
 }
 
 // processArchiveReputationPhase archives reputation scores.
@@ -323,37 +419,19 @@ func (k Keeper) processArchiveReputationPhase(ctx context.Context, state *types.
 	}
 
 	// Iterate through member profiles
-	var startKey *string
-	if state.LastProcessed != "" {
-		startKey = &state.LastProcessed
-	}
-
-	iter, err := k.MemberProfile.Iterate(ctx, nil)
+	// Resume strictly after the cursor (SEA-05): no rescan from the first key.
+	iter, err := k.MemberProfile.Iterate(ctx, cursorAfter(state.LastProcessed))
 	if err != nil {
 		return false, err
 	}
 	defer iter.Close()
-
-	// Skip to last processed if we're resuming
-	if startKey != nil {
-		for iter.Valid() {
-			key, err := iter.Key()
-			if err != nil {
-				break
-			}
-			if key > *startKey {
-				break
-			}
-			iter.Next()
-		}
-	}
 
 	processed := 0
 	var lastKey string
 	for ; iter.Valid() && processed < batchSize; iter.Next() {
 		kv, err := iter.KeyValue()
 		if err != nil {
-			continue
+			return false, err // a decode error must not skip a member (SEA-22)
 		}
 
 		profile := kv.Value
@@ -369,21 +447,25 @@ func (k Keeper) processArchiveReputationPhase(ctx context.Context, state *types.
 		}
 
 		// Get reputation scores from x/rep and update snapshot
-		if k.repKeeper != nil {
-			if scores, err := k.repKeeper.GetReputationScores(ctx, profile.Address); err == nil {
+		if k.late.repKeeper != nil {
+			scores, err := k.late.repKeeper.GetReputationScores(ctx, profile.Address)
+			if err != nil && !errors.Is(err, reptypes.ErrMemberNotFound) {
+				return false, err
+			}
+			if err == nil {
 				snapshot.FinalReputation = scores
 			}
 		}
 
 		if err := k.MemberSeasonSnapshot.Set(ctx, snapshotKey, snapshot); err != nil {
-			continue
+			return false, err
 		}
 
 		processed++
 	}
 
 	// Update state
-	state.ProcessedCount += uint64(processed)
+	state.ProcessedCount += commontypes.Saturate[uint64](processed)
 	if lastKey != "" {
 		state.LastProcessed = lastKey
 	}
@@ -392,41 +474,49 @@ func (k Keeper) processArchiveReputationPhase(ctx context.Context, state *types.
 }
 
 // processResetReputationPhase resets reputation scores for the new season.
-// This phase iterates through members and resets their seasonal reputation.
-// Note: Full implementation requires x/rep keeper methods for resetting reputation.
+//
+// It walks x/rep's member records, not season profiles (SEA-06): a member who
+// earned reputation but never touched x/season has no profile, and walking
+// profiles left that member's seasonal reputation unreset into the next
+// season. The cursor is the last member address processed.
 func (k Keeper) processResetReputationPhase(ctx context.Context, state *types.SeasonTransitionState, batchSize int) (bool, error) {
-	// Iterate through member profiles
-	var startKey *string
-	if state.LastProcessed != "" {
-		startKey = &state.LastProcessed
+	if k.late.repKeeper != nil {
+		members, done, err := k.late.repKeeper.MembersAfter(ctx, state.LastProcessed, batchSize)
+		if err != nil {
+			return false, err
+		}
+		for _, addr := range members {
+			if _, err := k.late.repKeeper.ArchiveSeasonalReputation(ctx, addr); err != nil {
+				// SEA-22: fail the batch rather than advance the cursor
+				// past an unreset member. The batch is discarded, retried,
+				// and after transition_max_retries enters recovery mode,
+				// where the committee retries or skips the phase.
+				return false, fmt.Errorf("archive seasonal reputation of %s: %w", addr, err)
+			}
+		}
+		state.ProcessedCount += uint64(len(members))
+		if len(members) > 0 {
+			state.LastProcessed = members[len(members)-1]
+		}
+		return done, nil
 	}
 
-	iter, err := k.MemberProfile.Iterate(ctx, nil)
+	// No x/rep wired: nothing to reset. Walk the profiles so the phase
+	// still advances the same way.
+	// Iterate through member profiles
+	// Resume strictly after the cursor (SEA-05): no rescan from the first key.
+	iter, err := k.MemberProfile.Iterate(ctx, cursorAfter(state.LastProcessed))
 	if err != nil {
 		return false, err
 	}
 	defer iter.Close()
-
-	// Skip to last processed if we're resuming
-	if startKey != nil {
-		for iter.Valid() {
-			key, err := iter.Key()
-			if err != nil {
-				break
-			}
-			if key > *startKey {
-				break
-			}
-			iter.Next()
-		}
-	}
 
 	processed := 0
 	var lastKey string
 	for ; iter.Valid() && processed < batchSize; iter.Next() {
 		kv, err := iter.KeyValue()
 		if err != nil {
-			continue
+			return false, err // a decode error must not skip a member (SEA-22)
 		}
 
 		profile := kv.Value
@@ -436,15 +526,17 @@ func (k Keeper) processResetReputationPhase(ctx context.Context, state *types.Se
 		// This is the critical step that:
 		// 1. Adds seasonal scores to lifetime totals
 		// 2. Clears seasonal reputation scores
-		if k.repKeeper != nil {
-			_, _ = k.repKeeper.ArchiveSeasonalReputation(ctx, profile.Address)
+		if k.late.repKeeper != nil {
+			if _, err := k.late.repKeeper.ArchiveSeasonalReputation(ctx, profile.Address); err != nil {
+				return false, fmt.Errorf("archive seasonal reputation of %s: %w", profile.Address, err) // SEA-22
+			}
 		}
 
 		processed++
 	}
 
 	// Update state
-	state.ProcessedCount += uint64(processed)
+	state.ProcessedCount += commontypes.Saturate[uint64](processed)
 	if lastKey != "" {
 		state.LastProcessed = lastKey
 	}
@@ -461,37 +553,19 @@ func (k Keeper) processResetXPPhase(ctx context.Context, state *types.SeasonTran
 	}
 
 	// Iterate through member profiles and reset season XP
-	var startKey *string
-	if state.LastProcessed != "" {
-		startKey = &state.LastProcessed
-	}
-
-	iter, err := k.MemberProfile.Iterate(ctx, nil)
+	// Resume strictly after the cursor (SEA-05): no rescan from the first key.
+	iter, err := k.MemberProfile.Iterate(ctx, cursorAfter(state.LastProcessed))
 	if err != nil {
 		return false, err
 	}
 	defer iter.Close()
-
-	// Skip to last processed if we're resuming
-	if startKey != nil {
-		for iter.Valid() {
-			key, err := iter.Key()
-			if err != nil {
-				break
-			}
-			if key > *startKey {
-				break
-			}
-			iter.Next()
-		}
-	}
 
 	processed := 0
 	var lastKey string
 	for ; iter.Valid() && processed < batchSize; iter.Next() {
 		kv, err := iter.KeyValue()
 		if err != nil {
-			continue
+			return false, err // a decode error must not skip a member (SEA-22)
 		}
 
 		profile := kv.Value
@@ -510,18 +584,22 @@ func (k Keeper) processResetXPPhase(ctx context.Context, state *types.SeasonTran
 			}
 			snapshot.XpEarned = profile.SeasonXp
 			snapshot.SeasonLevel = profile.SeasonLevel
-			_ = k.MemberSeasonSnapshot.Set(ctx, snapshotKey, snapshot)
+			if err := k.MemberSeasonSnapshot.Set(ctx, snapshotKey, snapshot); err != nil {
+				return false, err
+			}
 		}
 
 		// Reset season XP (keep lifetime XP)
 		profile.SeasonXp = 0
 		profile.SeasonLevel = 1
-		_ = k.MemberProfile.Set(ctx, kv.Key, profile)
+		if err := k.MemberProfile.Set(ctx, kv.Key, profile); err != nil {
+			return false, err
+		}
 		processed++
 	}
 
 	// Update state
-	state.ProcessedCount += uint64(processed)
+	state.ProcessedCount += commontypes.Saturate[uint64](processed)
 	if lastKey != "" {
 		state.LastProcessed = lastKey
 	}
@@ -545,49 +623,35 @@ func (k Keeper) processTitlesPhase(ctx context.Context, state *types.SeasonTrans
 	}
 
 	// Iterate through member profiles
-	var startKey *string
-	if state.LastProcessed != "" {
-		startKey = &state.LastProcessed
-	}
-
-	iter, err := k.MemberProfile.Iterate(ctx, nil)
+	// Resume strictly after the cursor (SEA-05): no rescan from the first key.
+	iter, err := k.MemberProfile.Iterate(ctx, cursorAfter(state.LastProcessed))
 	if err != nil {
 		return false, err
 	}
 	defer iter.Close()
-
-	// Skip to last processed if we're resuming
-	if startKey != nil {
-		for iter.Valid() {
-			key, err := iter.Key()
-			if err != nil {
-				break
-			}
-			if key > *startKey {
-				break
-			}
-			iter.Next()
-		}
-	}
 
 	processed := 0
 	var lastKey string
 	for ; iter.Valid() && processed < batchSize; iter.Next() {
 		kv, err := iter.KeyValue()
 		if err != nil {
-			continue
+			return false, err // a decode error must not skip a member (SEA-22)
 		}
 
 		lastKey = kv.Key
-		if err := k.grantSeasonalTitles(ctx, season.Number, eligibility, kv.Key); err != nil {
-			sdk.UnwrapSDKContext(ctx).Logger().Error("seasonal title grant failed", "member", kv.Key, "error", err)
+		var thresholdIDs []string
+		if snap, err := k.MemberSeasonSnapshot.Get(ctx, fmt.Sprintf("%d/%s", season.Number, kv.Value.Address)); err == nil {
+			thresholdIDs = snap.EligibleTitleIds
+		}
+		if err := k.grantSeasonalTitles(ctx, season.Number, eligibility, kv.Key, thresholdIDs); err != nil {
+			return false, fmt.Errorf("grant seasonal titles to %s: %w", kv.Key, err) // SEA-22
 		}
 
 		processed++
 	}
 
 	// Update state
-	state.ProcessedCount += uint64(processed)
+	state.ProcessedCount += commontypes.Saturate[uint64](processed)
 	if lastKey != "" {
 		state.LastProcessed = lastKey
 	}
@@ -595,36 +659,34 @@ func (k Keeper) processTitlesPhase(ctx context.Context, state *types.SeasonTrans
 	return !iter.Valid(), nil
 }
 
-// processCleanupPhase cleans up temporary data.
-// This phase removes completed quest progress for non-repeatable quests
-// and cleans up other season-specific temporary data.
+// processCleanupPhase expires the ending season's quests (SEA-26).
+//
+// Completed progress is history and is always kept: non-repeatable quests
+// read it to refuse a second claim, repeatable ones for the cooldown, and
+// later quests for their prerequisite. Open (unclaimed) progress is dropped
+// when its quest is gone, deactivated, past its end block or tied to the
+// ending (or an earlier) season, so a seasonal quest cannot be claimed in a
+// later season. The first batch also deactivates the ending season's
+// seasonal quests (the quest table is committee-curated and small).
 func (k Keeper) processCleanupPhase(ctx context.Context, state *types.SeasonTransitionState, batchSize int) (bool, error) {
-	// Iterate through quest progress
-	var startKey *string
-	if state.LastProcessed != "" {
-		startKey = &state.LastProcessed
+	season, err := k.Season.Get(ctx)
+	if err != nil {
+		return false, err
+	}
+	if state.LastProcessed == "" {
+		if err := k.deactivateSeasonQuests(ctx, season.Number); err != nil {
+			return false, err
+		}
 	}
 
-	iter, err := k.MemberQuestProgress.Iterate(ctx, nil)
+	// Resume strictly after the cursor (SEA-05): no rescan from the first key.
+	iter, err := k.MemberQuestProgress.Iterate(ctx, cursorAfter(state.LastProcessed))
 	if err != nil {
 		return false, err
 	}
 	defer iter.Close()
 
-	// Skip to last processed if we're resuming
-	if startKey != nil {
-		for iter.Valid() {
-			key, err := iter.Key()
-			if err != nil {
-				break
-			}
-			if key > *startKey {
-				break
-			}
-			iter.Next()
-		}
-	}
-
+	currentBlock := sdk.UnwrapSDKContext(ctx).BlockHeight()
 	processed := 0
 	var lastKey string
 	var keysToDelete []string
@@ -632,56 +694,63 @@ func (k Keeper) processCleanupPhase(ctx context.Context, state *types.SeasonTran
 	for ; iter.Valid() && processed < batchSize; iter.Next() {
 		kv, err := iter.KeyValue()
 		if err != nil {
-			continue
+			return false, err
 		}
-
-		progress := kv.Value
 		lastKey = kv.Key
-
-		// Only process completed quests
-		if !progress.Completed {
-			processed++
-			continue
-		}
-
-		// Extract quest ID from the composite key (member/quest_id format)
-		// The key format is "member_address/quest_id"
-		questId := extractQuestIdFromKey(kv.Key)
-		if questId == "" {
-			processed++
-			continue
-		}
-
-		// Get the quest to check if it's repeatable
-		quest, err := k.Quest.Get(ctx, questId)
-		if err != nil {
-			// Quest doesn't exist, safe to delete the progress
-			keysToDelete = append(keysToDelete, kv.Key)
-			processed++
-			continue
-		}
-
-		// Delete progress for non-repeatable completed quests
-		// For repeatable quests, we keep the progress for cooldown tracking
-		if !quest.Repeatable {
-			keysToDelete = append(keysToDelete, kv.Key)
-		}
-
 		processed++
-	}
 
-	// Delete collected keys
+		if kv.Value.Completed {
+			continue // history: never deleted
+		}
+		quest, err := k.Quest.Get(ctx, extractQuestIdFromKey(kv.Key))
+		switch {
+		case err != nil,
+			!quest.Active,
+			quest.EndBlock > 0 && currentBlock > quest.EndBlock,
+			quest.Season > 0 && quest.Season <= season.Number:
+			keysToDelete = append(keysToDelete, kv.Key)
+		}
+	}
+	done := !iter.Valid()
+
 	for _, key := range keysToDelete {
-		_ = k.MemberQuestProgress.Remove(ctx, key)
+		if err := k.MemberQuestProgress.Remove(ctx, key); err != nil {
+			return false, err
+		}
 	}
 
 	// Update state
-	state.ProcessedCount += uint64(processed)
+	state.ProcessedCount += commontypes.Saturate[uint64](processed)
 	if lastKey != "" {
 		state.LastProcessed = lastKey
 	}
 
-	return !iter.Valid(), nil
+	return done, nil
+}
+
+// deactivateSeasonQuests marks every active quest bound to seasonNumber (or
+// an earlier season) inactive at the end of that season (SEA-26).
+func (k Keeper) deactivateSeasonQuests(ctx context.Context, seasonNumber uint64) error {
+	var ended []types.Quest
+	if err := k.Quest.Walk(ctx, nil, func(_ string, q types.Quest) (bool, error) {
+		if q.Active && q.Season > 0 && q.Season <= seasonNumber {
+			ended = append(ended, q)
+		}
+		return false, nil
+	}); err != nil {
+		return err
+	}
+	for _, q := range ended {
+		q.Active = false
+		if err := k.Quest.Set(ctx, q.QuestId, q); err != nil {
+			return err
+		}
+		sdk.UnwrapSDKContext(ctx).EventManager().EmitEvent(sdk.NewEvent("quest_expired",
+			sdk.NewAttribute("quest_id", q.QuestId),
+			sdk.NewAttribute("season", fmt.Sprintf("%d", q.Season)),
+		))
+	}
+	return nil
 }
 
 // extractQuestIdFromKey extracts the quest ID from a composite
@@ -704,10 +773,16 @@ func (k Keeper) finalizeTransition(ctx context.Context, state types.SeasonTransi
 	}
 
 	// Get next season info
-	nextSeasonInfo, _ := k.NextSeasonInfo.Get(ctx)
+	nextSeasonInfo, getErr := k.NextSeasonInfo.Get(ctx)
+	if getErr != nil && !errors.Is(getErr, collections.ErrNotFound) {
+		sdk.UnwrapSDKContext(ctx).Logger().Error("finalizeTransition: NextSeasonInfo.Get failed", "err", getErr)
+	}
 
 	// Get params for season duration
-	params, _ := k.Params.Get(ctx)
+	params, getErr := k.Params.Get(ctx)
+	if getErr != nil && !errors.Is(getErr, collections.ErrNotFound) {
+		sdk.UnwrapSDKContext(ctx).Logger().Error("finalizeTransition: Params.Get failed", "err", getErr)
+	}
 	epochBlocks := params.EpochBlocks
 	if epochBlocks == 0 {
 		epochBlocks = 14400 // Default; keep in lockstep with x/rep's epoch length
@@ -724,6 +799,7 @@ func (k Keeper) finalizeTransition(ctx context.Context, state types.SeasonTransi
 		Name:       nextSeasonInfo.Name,
 		Theme:      nextSeasonInfo.Theme,
 		StartBlock: sdkCtx.BlockHeight(),
+		StartTime:  sdkCtx.BlockTime().Unix(),
 		EndBlock:   sdkCtx.BlockHeight() + int64(epochBlocks*seasonDurationEpochs),
 		Status:     types.SeasonStatus_SEASON_STATUS_ACTIVE,
 	}
@@ -736,14 +812,24 @@ func (k Keeper) finalizeTransition(ctx context.Context, state types.SeasonTransi
 	if err := k.Season.Set(ctx, newSeason); err != nil {
 		return err
 	}
+	// Archive the finished season's running aggregates (SEA-35).
+	if err := k.archiveSeasonStats(ctx, oldSeason.Number, newSeasonNumber); err != nil {
+		return err
+	}
 
 	// Refill x/rep's seasonal staking reward budget and reset its per-season
 	// economic counters for the incoming season. Non-fatal: a failure here must
 	// not strand the chain mid-transition with the old season already cleared.
-	if k.repKeeper != nil {
-		if err := k.repKeeper.InitSeasonalPool(ctx, newSeasonNumber); err != nil {
+	// SEA-22: it runs in its own cache context (no partial counter reset)
+	// and a failure is remembered in PendingSeasonalPoolInit, which the
+	// BeginBlocker retries.
+	if k.late.repKeeper != nil {
+		if err := k.initSeasonalPool(ctx, newSeasonNumber); err != nil {
 			sdkCtx.Logger().Error("failed to initialise rep seasonal staking pool",
 				"season", newSeasonNumber, "error", err)
+			if err := k.PendingSeasonalPoolInit.Set(ctx, newSeasonNumber); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -753,10 +839,14 @@ func (k Keeper) finalizeTransition(ctx context.Context, state types.SeasonTransi
 	}
 
 	// Clear next season info
-	_ = k.NextSeasonInfo.Remove(ctx)
+	if err := k.NextSeasonInfo.Remove(ctx); err != nil {
+		sdk.UnwrapSDKContext(ctx).Logger().Error("finalizeTransition: NextSeasonInfo.Remove failed", "err", err)
+	}
 
 	// Clear recovery state if any
-	_ = k.TransitionRecoveryState.Remove(ctx)
+	if err := k.TransitionRecoveryState.Remove(ctx); err != nil {
+		sdk.UnwrapSDKContext(ctx).Logger().Error("finalizeTransition: TransitionRecoveryState.Remove failed", "err", err)
+	}
 
 	// Emit event
 	sdkCtx.EventManager().EmitEvent(
@@ -770,6 +860,45 @@ func (k Keeper) finalizeTransition(ctx context.Context, state types.SeasonTransi
 	)
 
 	return nil
+}
+
+// initSeasonalPool runs x/rep's InitSeasonalPool in a cache context and
+// commits it only on success.
+func (k Keeper) initSeasonalPool(ctx context.Context, season uint64) error {
+	cacheCtx, write := sdk.UnwrapSDKContext(ctx).CacheContext()
+	if err := k.late.repKeeper.InitSeasonalPool(cacheCtx, season); err != nil {
+		return err
+	}
+	write()
+	return nil
+}
+
+// retryPendingSeasonalPoolInit retries a failed InitSeasonalPool once per
+// block until it succeeds or a later season supersedes it (SEA-22).
+func (k Keeper) retryPendingSeasonalPoolInit(ctx context.Context) {
+	pending, err := k.PendingSeasonalPoolInit.Get(ctx)
+	if err != nil || k.late.repKeeper == nil {
+		return
+	}
+	sdkCtx := sdk.UnwrapSDKContext(ctx)
+	if season, err := k.Season.Get(ctx); err == nil && season.Number != pending {
+		// A later transition already initialised its own season.
+		if err := k.PendingSeasonalPoolInit.Remove(ctx); err != nil {
+			sdk.UnwrapSDKContext(ctx).Logger().Error("retryPendingSeasonalPoolInit: PendingSeasonalPoolInit.Remove failed", "err", err)
+		}
+		return
+	}
+	if err := k.initSeasonalPool(ctx, pending); err != nil {
+		sdkCtx.Logger().Error("retry of rep seasonal pool init failed", "season", pending, "error", err)
+		return
+	}
+	if err := k.PendingSeasonalPoolInit.Remove(ctx); err != nil {
+		sdk.UnwrapSDKContext(ctx).Logger().Error("retryPendingSeasonalPoolInit: PendingSeasonalPoolInit.Remove failed", "err", err)
+	}
+	sdkCtx.EventManager().EmitEvent(sdk.NewEvent("seasonal_pool_initialised",
+		sdk.NewAttribute("season", fmt.Sprintf("%d", pending)),
+		sdk.NewAttribute("retried", "true"),
+	))
 }
 
 // handleTransitionError handles errors during transition processing.
@@ -790,7 +919,10 @@ func (k Keeper) handleTransitionError(ctx context.Context, state types.SeasonTra
 	recovery.LastAttemptBlock = sdkCtx.BlockHeight()
 
 	// Get params for max retries
-	params, _ := k.Params.Get(ctx)
+	params, getErr := k.Params.Get(ctx)
+	if getErr != nil && !errors.Is(getErr, collections.ErrNotFound) {
+		sdk.UnwrapSDKContext(ctx).Logger().Error("handleTransitionError: Params.Get failed", "err", getErr)
+	}
 	// TransitionMaxRetries is validated > 0 by Params.Validate.
 	maxRetries := params.TransitionMaxRetries
 
@@ -798,7 +930,9 @@ func (k Keeper) handleTransitionError(ctx context.Context, state types.SeasonTra
 		recovery.RecoveryMode = true
 	}
 
-	_ = k.TransitionRecoveryState.Set(ctx, recovery)
+	if err := k.TransitionRecoveryState.Set(ctx, recovery); err != nil {
+		sdk.UnwrapSDKContext(ctx).Logger().Error("handleTransitionError: TransitionRecoveryState.Set failed", "err", err)
+	}
 
 	sdkCtx.EventManager().EmitEvent(
 		sdk.NewEvent(
@@ -816,6 +950,15 @@ func (k Keeper) handleTransitionError(ctx context.Context, state types.SeasonTra
 // - The report is upheld (name stays cleared)
 // - The reporter's DREAM stake is unlocked (returned)
 // - The moderation record is closed
+//
+// SEA-09: walks ModerationQueue, which holds only active unappealed records
+// ordered by moderated_at, so the oldest expired records are always resolved
+// first and resolved or appealed records never consume the per-block budget.
+// Each resolution runs in its own cache context. A failure keeps the record
+// queued: it moves to ModerationRetryQueue at a later height with doubling
+// backoff, and after MaxModerationAutoResolveAttempts it leaves the queues
+// (record still active, stake still locked) for
+// MsgResolveUnappealedModeration. Due retries share the per-block budget.
 func (k Keeper) processExpiredModerations(ctx context.Context) {
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	currentBlock := sdkCtx.BlockHeight()
@@ -825,58 +968,147 @@ func (k Keeper) processExpiredModerations(ctx context.Context) {
 		return
 	}
 
-	iter, err := k.DisplayNameModeration.Iterate(ctx, nil)
+	// Batch limit: process at most 50 moderations per block (first
+	// attempts and retries together) to bound gas usage.
+	const maxPerBlock = 50
+	processed := 0
+
+	// Expired when currentBlock > moderated_at + appeal_period, i.e.
+	// moderated_at <= currentBlock - appeal_period - 1.
+	cutoff := currentBlock - commontypes.Saturate[int64](params.DisplayNameAppealPeriodBlocks) - 1
+	if cutoff >= 0 {
+		var due []collections.Pair[int64, string]
+		if err := k.ModerationQueue.Walk(ctx, collections.NewPrefixUntilPairRange[int64, string](cutoff),
+			func(key collections.Pair[int64, string]) (bool, error) {
+				due = append(due, key)
+				return len(due) >= maxPerBlock, nil
+			}); err != nil {
+			sdkCtx.Logger().Error("failed to walk moderation queue", "error", err)
+			return
+		}
+		for _, key := range due {
+			processed++
+			member := key.K2()
+			moderation, err := k.DisplayNameModeration.Get(ctx, member)
+			if err != nil || !moderationQueued(moderation) || moderation.ModeratedAt != key.K1() {
+				// Stale index entry: drop it.
+				if err := k.ModerationQueue.Remove(ctx, key); err != nil {
+					sdk.UnwrapSDKContext(ctx).Logger().Error("processExpiredModerations: ModerationQueue.Remove failed", "err", err)
+				}
+				continue
+			}
+			k.autoResolveModeration(ctx, sdkCtx, member, moderation)
+		}
+	}
+
+	if processed >= maxPerBlock {
+		return
+	}
+	var retries []collections.Pair[int64, string]
+	if err := k.ModerationRetryQueue.Walk(ctx, collections.NewPrefixUntilPairRange[int64, string](currentBlock),
+		func(key collections.Pair[int64, string]) (bool, error) {
+			retries = append(retries, key)
+			return processed+len(retries) >= maxPerBlock, nil
+		}); err != nil {
+		sdkCtx.Logger().Error("failed to walk moderation retry queue", "error", err)
+		return
+	}
+	for _, key := range retries {
+		member := key.K2()
+		moderation, err := k.DisplayNameModeration.Get(ctx, member)
+		if err != nil || !moderationRetryQueued(moderation) || moderation.AutoResolveRetryAt != key.K1() {
+			if err := k.ModerationRetryQueue.Remove(ctx, key); err != nil {
+				sdk.UnwrapSDKContext(ctx).Logger().Error("processExpiredModerations: ModerationRetryQueue.Remove failed", "err", err)
+			}
+			continue
+		}
+		k.autoResolveModeration(ctx, sdkCtx, member, moderation)
+	}
+}
+
+// autoResolveModeration upholds an expired, unappealed report in a cache
+// context. On failure nothing of the attempt commits; the record is
+// re-queued with backoff, or, after the last attempt, left active and out
+// of the queues for MsgResolveUnappealedModeration (SEA-09).
+func (k Keeper) autoResolveModeration(ctx context.Context, sdkCtx sdk.Context, member string, moderation types.DisplayNameModeration) {
+	cacheCtx, write := sdkCtx.CacheContext()
+	err := k.ResolveUnappealedModerationInternal(cacheCtx, member)
+	if err == nil {
+		write()
+		return
+	}
+	moderation.AutoResolveAttempts++
+	attempt := moderation.AutoResolveAttempts
+	if attempt >= MaxModerationAutoResolveAttempts {
+		moderation.AutoResolveRetryAt = 0
+	} else {
+		moderation.AutoResolveRetryAt = sdkCtx.BlockHeight() + int64(ModerationRetryBaseBlocks)<<(attempt-1)
+	}
+	sdkCtx.Logger().Error("failed to auto-resolve expired moderation",
+		"member", member, "attempt", attempt, "error", err)
+	if serr := k.SetDisplayNameModeration(ctx, member, moderation); serr != nil {
+		sdkCtx.Logger().Error("failed to re-queue moderation auto-resolution",
+			"member", member, "error", serr)
+		return
+	}
+	evType := "display_name_moderation_auto_resolve_deferred"
+	if moderation.AutoResolveRetryAt == 0 {
+		evType = "display_name_moderation_auto_resolve_abandoned"
+	}
+	sdkCtx.EventManager().EmitEvent(sdk.NewEvent(evType,
+		sdk.NewAttribute("member", member),
+		sdk.NewAttribute("attempt", fmt.Sprintf("%d", attempt)),
+		sdk.NewAttribute("retry_at", fmt.Sprintf("%d", moderation.AutoResolveRetryAt)),
+		sdk.NewAttribute("error", err.Error()),
+	))
+}
+
+// processExpiredAppeals times out appeals that nobody resolved within
+// AppealResolutionPeriodMultiplier x display_name_appeal_period_blocks of
+// the appeal (SEA-23): both stakes are
+// returned and the name restored, so an idle resolver can never lock two
+// stakes and the member's display name for good. Walks AppealQueue, which
+// holds only active appealed records ordered by appealed_at.
+func (k Keeper) processExpiredAppeals(ctx context.Context) {
+	sdkCtx := sdk.UnwrapSDKContext(ctx)
+	params, err := k.Params.Get(ctx)
 	if err != nil {
 		return
 	}
-	defer iter.Close()
-
-	// Batch limit: process at most 50 expired moderations per block to bound gas usage
 	const maxPerBlock = 50
-	processed := 0
-	iterCount := 0
-
-	for ; iter.Valid(); iter.Next() {
-		if processed >= maxPerBlock {
-			break
-		}
-		// Bound total iterator work even when most records are skipped via `continue`
-		// so a backlog of ineligible entries cannot stall the EndBlocker.
-		iterCount++
-		if iterCount >= maxPerBlock*4 {
-			break
-		}
-
-		kv, err := iter.KeyValue()
-		if err != nil {
+	// Due when appealed_at + window < now, i.e. appealed_at <= now - window - 1.
+	cutoff := sdkCtx.BlockHeight() - (appealDeadline(0, params)) - 1
+	if cutoff < 0 {
+		return
+	}
+	var due []collections.Pair[int64, string]
+	if err := k.AppealQueue.Walk(ctx, collections.NewPrefixUntilPairRange[int64, string](cutoff),
+		func(key collections.Pair[int64, string]) (bool, error) {
+			due = append(due, key)
+			return len(due) >= maxPerBlock, nil
+		}); err != nil {
+		sdkCtx.Logger().Error("failed to walk appeal queue", "error", err)
+		return
+	}
+	for _, key := range due {
+		member := key.K2()
+		moderation, err := k.DisplayNameModeration.Get(ctx, member)
+		if err != nil || !appealQueued(moderation) || moderation.AppealedAt != key.K1() {
+			if err := k.AppealQueue.Remove(ctx, key); err != nil {
+				sdk.UnwrapSDKContext(ctx).Logger().Error("processExpiredAppeals: AppealQueue.Remove failed", "err", err)
+			}
 			continue
 		}
-
-		moderation := kv.Value
-		member := kv.Key
-
-		// Skip resolved (inactive) moderations early to avoid unnecessary work
-		if !moderation.Active {
+		cacheCtx, write := sdkCtx.CacheContext()
+		if err := k.ResolveAppealTimeoutInternal(cacheCtx, member); err != nil {
+			// Drop the entry so one failing record cannot starve the rest;
+			// MsgResolveDisplayNameAppeal still resolves it.
+			sdkCtx.Logger().Error("failed to time out display name appeal", "member", member, "error", err)
+			if err := k.AppealQueue.Remove(ctx, key); err != nil {
+				sdk.UnwrapSDKContext(ctx).Logger().Error("processExpiredAppeals: AppealQueue.Remove failed", "err", err)
+			}
 			continue
 		}
-
-		// Skip moderations that have an appeal (those are resolved via ResolveDisplayNameAppeal)
-		if moderation.AppealChallengeId != "" {
-			continue
-		}
-
-		// Check if appeal period has expired
-		deadline := moderation.ModeratedAt + int64(params.DisplayNameAppealPeriodBlocks)
-		if currentBlock <= deadline {
-			continue
-		}
-
-		// Auto-resolve: report upheld, unlock reporter's stake
-		if err := k.ResolveUnappealedModerationInternal(ctx, member); err != nil {
-			// Log error but don't fail the block
-			sdkCtx.Logger().Error("failed to auto-resolve expired moderation",
-				"member", member, "error", err)
-		}
-		processed++
+		write()
 	}
 }

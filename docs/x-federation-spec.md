@@ -103,18 +103,41 @@ Anything else, including no license at all, is refused with `ErrLicenseNotAccept
 
 Users can voluntarily link their local identity to remote identities:
 - `alice` on Chain A links to `alice` on Chain B (verified via IBC)
-- `alice` links to `@alice@mastodon.example` (verified via bridge attestation)
-- `alice` links to `alice.bsky.social` (verified via bridge attestation)
+- `alice` links to `@alice@mastodon.example` (verified by a bridge operator's attestation)
+- `alice` links to `alice.bsky.social` (verified by a bridge operator's attestation)
 
-Identity links are self-asserted by the local user and optionally verified:
-- **IBC verification**: Two-phase protocol where the remote user must sign a transaction on the remote chain to prove key ownership (see Section 8.3 for details)
-- **Bridge verification**: Bridge confirms the remote account posted a verification string
-- **Unverified**: User claims the link, marked as unverified
+Identity links start as self-asserted UNVERIFIED claims by the local user. A claim is verified one of two ways, depending on the peer type:
+- **IBC verification (Spark Dream peers)**: Two-phase protocol where the remote user must sign a transaction on the remote chain to prove key ownership (see Section 8.3 for details).
+- **Bridge attestation (ActivityPub, AT Protocol, NOSTR, Lens)**: the member publishes a proof string from the remote identity, and a bridge operator bound to the peer checks it off-chain and signs `MsgAttestIdentityLink`. The operator's x/service SPARK bond backs the attestation (Section 3.4.1).
+- **Unverified**: a claim nobody has verified. It never resolves through `ResolveRemoteIdentity`, cannot back a reputation attestation, and is pruned after `unverified_link_ttl`.
 
 **Constraints:**
-- Each `(peer_id, remote_identity)` pair can be linked to at most ONE local address. If another local address attempts to claim the same remote identity on the same peer, the link is rejected with `ErrRemoteIdentityAlreadyClaimed`. This prevents identity collision in the `IdentityLinksByRemote` reverse index.
+- Each `(peer_id, remote_identity)` pair can be **verified** to at most ONE local address. Once it is, another local address that attempts to claim it is rejected with `ErrRemoteIdentityAlreadyClaimed`, and a confirmation for a second claimant is refused the same way. An **unverified** claim reserves nothing: several local addresses may hold unverified claims to the same remote identity at once, and verification picks the owner. Claims are cheap, so letting the first claim reserve the identity would let anyone squat other people's handles for `unverified_link_ttl` and re-claim them a block after they expire. Two indexes back this: `IdentityClaimsByRemote` `(peer_id, remote_identity, local_address)` holds every link (peer-removal cleanup walks it), and `IdentityLinksByRemote` `(peer_id, remote_identity) → local_address` holds only the verified one (the uniqueness gate and the `ResolveRemoteIdentity` answer).
 - Each local address can have at most `max_identity_links_per_user` links across all peers (default: 10). This prevents link explosion attacks.
-- Unverified links expire after `unverified_link_ttl` (default: 30 days). EndBlocker prunes expired unverified links automatically. Verified links do not expire (but can be manually unlinked or revoked on peer removal).
+- Unverified links expire after `unverified_link_ttl` (default: 30 days). EndBlocker prunes expired unverified links automatically. Verified links do not expire (but can be manually unlinked or revoked on peer removal). A bridge-attested link returns to UNVERIFIED if its attesting operator is slashed out of x/service (Section 3.4.1).
+
+#### 3.4.1. Bridge-attested verification
+
+Bridge peers have no federation channel, so nobody can sign a transaction on the remote side. Instead the remote identity publishes a challenge, and a bonded bridge operator attests that it did.
+
+**Protocol:**
+1. The member signs `MsgLinkIdentity(peer_id, remote_identity)`. The link stores a 32-byte `challenge` derived from block data (height, time, app hash, last block id) and the `(local_address, peer_id, remote_identity)` triple, so nobody can precompute it before the claim exists. For a bridge peer the `identity_linked` event carries the proof string in its `link_proof` attribute; it can also be rebuilt from the link (`query federation get-identity-link`):
+   ```
+   sparkdream-identity-link:<chain_id>:<local_address>:<hex(challenge)>
+   ```
+   (`types.IdentityLinkProofString`.)
+2. From the remote identity, the member publishes the proof string where the bridge can fetch it and attribute it: an ActivityPub post or profile field, an AT Protocol record, a NOSTR event signed by the pubkey, a Lens publication.
+3. A bridge operator with an ACTIVE, non-suspended `BridgeBinding` for the peer fetches the evidence off-chain. It checks that `remote_identity` authored it and that it carries the proof string for this chain and member. It then signs `MsgAttestIdentityLink(peer_id, local_address, remote_identity, challenge = hex(challenge), evidence_uri)`.
+4. The chain checks the operator and the claim (Section 6.14a). The link becomes VERIFIED, `attested_by` and `attestation_evidence` are recorded on it, and it enters `IdentityLinksByRemote` (so `ResolveRemoteIdentity` answers it) and `IdentityLinksByAttester`.
+
+The attestation is bound to the claim's challenge. An attestation prepared for an earlier claim of the same pair, unlinked and claimed again, carries the old challenge and is refused. The member may delete the published proof once the link is verified; the evidence URI on the link is the operator's record of what it saw.
+
+**Accountability.** The operator's x/service SPARK bond backs every attestation. A false attestation (the remote identity never published the proof, or someone else did) is reported with x/service `MsgReportOperator` against `attested_by` under the peer's bridge service type. The reason names the link and its `attestation_evidence`, both readable from the link and from the `identity_link_attested` event. The report is resolved through the ordinary x/service path: controller verdict, contest, jury. Federation adds no slashing of its own. If the operator ends up SLASHED (`AfterOperatorDissolved`), its attestations lose their bond. The hook queues every `(operator, peer)` it attested on in `AttesterRevocations`, and EndBlocker Phase 3b returns those links to UNVERIFIED in batches bounded by `max_prune_per_block`. Each link leaves the verified index, has `attested_by`/`attestation_evidence` cleared, gets a fresh `unverified_link_ttl`, and keeps its challenge. The real owner, or the member again, can then have another operator attest the same published proof. An operator that only RETIRES (an honest exit) keeps its attestations. A partial slash punishes the operator but does not unwind its links. This is batched in the EndBlocker rather than done in the hook because one operator may have attested any number of links, and running out of gas in the hook would fail the slash itself.
+
+**Rules:**
+- No self-attestation: the operator may not be (`SameMember`) the member whose link it attests.
+- On an ActivityPub peer, both `evidence_uri` and `remote_identity` must be on the peer's host or one of its policy `content_hosts`, the same provenance rule as inbound content (Section 6.15). A bridge bound to one instance cannot vouch for another instance's accounts.
+- `MsgAttestIdentityLink` is never session-delegable (x/session `ForbiddenAllowlistMsgs`, via `federationtypes.NonDelegableMsgTypeURLs()`). Nothing re-checks an attestation before it takes effect, so a leaked daemon key must not be able to hand out remote identities.
 
 ### 3.5. Reputation Bridging (Spark Dream ↔ Spark Dream Only)
 
@@ -138,6 +161,7 @@ Bridge operators are off-chain service providers that translate between the chai
 **Federation state per binding** is the `BridgeBinding` record (Section 4.3): peer_id, protocol, endpoint URL, submission counters, suspended flag. No bond, no status, no unbonding fields.
 
 Operators:
+- Must be active x/rep members (`ErrOperatorNotMember`), checked at registration and again on every submission, attestation and arbiter vote and at each pay epoch, so the alias-aware self-dealing checks see the person behind each bridge (Section 14, "Operator-verifier role overlap"). A member runs the daemon through an x/session key: `MsgSubmitFederatedContent` and `MsgAttestOutbound` are delegable; `MsgAttestIdentityLink` is not, so attesting a link needs the member's own key.
 - Register a binding via `MsgRegisterBridge` (operator-signed). Bond is escrowed atomically into x/service. First registration under a `(address, service_type)` creates the `service.Operator`; subsequent registrations for additional peers under the same protocol reuse the existing operator and bond (top-up optional).
 - Submit inbound federated content via `MsgSubmitFederatedContent`
 - Submit outbound attestations via `MsgAttestOutbound`
@@ -174,7 +198,7 @@ MsgCreateSession {
 }
 ```
 
-**Rationale:** The session key limits the daemon to only submitting content and attesting outbound — it cannot register bridges, update policies, top up bond, or initiate unbonding. If the daemon key is compromised, the attacker can only submit content (rate-limited and auditable) and cannot touch the operator's `service.Operator` bond. Operators should rotate session keys every 30 days.
+**Rationale:** The session key limits the daemon to only submitting content and attesting outbound — it cannot register bridges, update policies, top up bond, initiate unbonding, or attest identity links (`MsgAttestIdentityLink` is in x/session's `ForbiddenAllowlistMsgs` and must be signed by the operator key, Section 3.4.1). If the daemon key is compromised, the attacker can only submit content (rate-limited and auditable) and cannot touch the operator's `service.Operator` bond. Operators should rotate session keys every 30 days.
 
 **Service-side actions stay on the main wallet.** `service.MsgTopUpBond`, `service.MsgUnbondOperator`, `service.MsgUpdateMetadata`, and `service.MsgClaimUnbondedBond` are NOT included in the recommended daemon allowlist — these are operator economic decisions that should require the main key. If automation is needed (e.g., autonomous top-up after slash), the operator can grant a separate session key for those specific message types with a tight `spend_limit`.
 
@@ -230,26 +254,27 @@ Bridge operator submits content
          │
          └─ hash mismatch ──→ DISPUTED
                                │
-                           EndBlocker creates
-                           x/rep jury initiative
+                       arbiter quorum, or an
+                       escalation to the Operations
+                       Committee policy
                                │
                       ┌────────┼────────┐
                       ▼        ▼        ▼
-                   OPERATOR  VERIFIER  TIMEOUT
+                   OPERATOR  VERIFIER  NO FINDING
                    WRONG     WRONG
-                   (content  (content  (content
-                   REJECTED, VERIFIED, VERIFIED,
-                   operator  verifier  no slash)
-                   slashed)  slashed)
+                   (content  (content  (no quorum:
+                   REJECTED, VERIFIED, UNRESOLVED;
+                   operator  verifier  jury timeout:
+                   reported) slashed)  HIDDEN)
 ```
 
 1. Bridge operator submits `MsgSubmitFederatedContent` — content enters `PENDING_VERIFICATION`
 2. Within `verification_window` (default: 24 hours), a verifier calls `MsgVerifyContent` with the `content_hash` they independently computed by fetching the source content
-3. **Hash match**: Content status → `VERIFIED`, visible to frontends. A `VerificationRecord` is created linking the verifier to this content (their bond is committed against potential challenge).
+3. **Hash match**: Content status → `VERIFIED`, visible to frontends (or `HIDDEN` awaiting Operations Committee review when the peer policy has `require_review`; see Section 6.22). A `VerificationRecord` is created linking the verifier to this content (their bond is committed against potential challenge).
 4. **Hash mismatch**: Content status → `DISPUTED`. The module initiates the two-phase arbiter/jury resolution (Section 3.9.7) with the **verifier acting as the implicit challenger**. Key differences from explicit challenges (Section 3.9.3):
    - **No challenge fee**: The verifier did their job by checking the content — they shouldn't be penalized for discovering a mismatch. The dispute is initiated automatically, not via `MsgChallengeVerification`.
    - **Verifier's bond is committed** (same as for a match — `verifier_slash_amount` DREAM), so they have skin in the game.
-   - **Verdict outcomes**: If the arbiter quorum or jury determines the **operator's hash was wrong** (content doesn't match what the operator claimed): content → REJECTED, operator's `content_rejected` incremented, verifier's committed bond released, verifier's `upheld_verifications` incremented. If the **verifier's hash was wrong** (verifier fetched incorrect content or made an error): verifier slashed `verifier_slash_amount` DREAM (50% to community pool, 50% burned), verifier's `overturned_verifications` incremented, content → VERIFIED with operator's original hash. If **no quorum and no jury consensus**: content → HIDDEN, both parties' bonds/stakes unaffected (ambiguous outcome).
+   - **Verdict outcomes**: If the arbiter quorum or jury determines the **operator's hash was wrong** (content doesn't match what the operator claimed): content → REJECTED, operator's `content_rejected` incremented, verifier's committed bond released, verifier's `upheld_verifications` incremented. If the **verifier's hash was wrong** (verifier fetched incorrect content or made an error): verifier slashed `verifier_slash_amount` DREAM (50% to community pool, 50% burned), verifier's `overturned_verifications` incremented, content → VERIFIED with operator's original hash. If the arbiter window closes with **no quorum** (and nobody escalated): content → UNRESOLVED (terminal), the verifier's commitment is released. If an escalated dispute reaches its **jury deadline without a verdict**: content → HIDDEN. In both no-finding cases nobody is slashed.
    - **Escalation**: Either the verifier or the bridge operator can escalate within `arbiter_escalation_window` (same as challenge escalation, paying `escalation_fee`).
 5. **No verification within window**: Content status → `HIDDEN` (unverified). Stays queryable but excluded from default frontend listings. The bridge operator's `unverified_count` is incremented.
 
@@ -260,12 +285,14 @@ Any member meeting `min_verifier_trust_level` can challenge a VERIFIED piece of 
 **Challenge flow (two-phase resolution):**
 1. Challenger pays `challenge_fee` (default: 250 SPARK), escrowed in federation module
 2. Content status → `CHALLENGED`
-3. **Phase 1 — Anonymous resolution** (see Section 3.9.7): Anonymous community members independently fetch and hash the content via x/shield. If `arbiter_quorum` matching hashes are reached within `arbiter_resolution_window` (default: 24h), the challenge auto-resolves. Either party can escalate within `arbiter_escalation_window` (default: 48h).
-4. **Phase 2 — Human jury** (fallback): If no quorum is reached, or either party escalates, the dispute routes to a standard x/rep jury initiative with `challenge_jury_deadline` (default: 14 days).
+3. **Phase 1 — Arbiter resolution** (see Section 3.9.7): bridge operators of the peer and anonymous ESTABLISHED+ members (via x/shield) independently fetch and hash the content. If `arbiter_quorum` matching hashes are reached within `arbiter_resolution_window` (default: 24h), the first quorum is final and the challenge auto-resolves when `arbiter_escalation_window` (default: 48h) closes. Either party can escalate before then. A window that closes with **no quorum** settles directly as CHALLENGE_TIMEOUT (no escalation happens automatically).
+4. **Phase 2 — Operations Committee** (only on escalation): either party pays `escalation_fee` to send the dispute to an Operations Committee policy vote (`MsgResolveEscalatedChallenge`), with `challenge_jury_deadline` (default: 14 days) before it times out. Phase 2 is a committee policy vote, not an x/rep jury initiative. Escalation closes arbitration: no further arbiter vote is accepted, and the automatic verdict never applies to an escalated dispute.
 5. Verdict outcomes (same for both phases):
    - **CHALLENGE_UPHELD** (verifier was wrong): Verifier slashed `verifier_slash_amount` DREAM — 50% to challenger as bounty, 50% burned. Challenger refunded 100% of fee. Content → REJECTED. Operator's `content_rejected` incremented.
    - **CHALLENGE_REJECTED** (verifier was right): Challenger loses fee (50% to verifier as reward, 50% burned). Content stays VERIFIED.
-   - **CHALLENGE_TIMEOUT** (no quorum and no jury consensus): Challenger refunded 50%. Content stays VERIFIED. No slash. 50% of fee burned.
+   - **CHALLENGE_TIMEOUT** (no arbiter quorum, or an escalated dispute with no committee verdict by its deadline): Challenger refunded 50%. Content stays VERIFIED. No slash. 50% of fee burned.
+
+   Every settlement is single-shot: it zeroes the escrowed challenge fee as it disburses it and moves the content off CHALLENGED / DISPUTED, and every other settlement path checks both before acting. One dispute can never be paid, refunded or slashed twice.
 
 #### 3.9.4. Verifier Compensation
 
@@ -352,7 +379,7 @@ Three scenarios:
 - External content that exists and hasn't changed (the common case) produces a deterministic outcome — all jurors will compute the same hash
 - The `challenge_window` (default: 7 days) is short enough that most content won't change during the window
 - The challenge fee (250 SPARK) plus tx costs make it uneconomical to challenge content that you know matches, even with a full refund on winning — you risk losing 125 SPARK (50% of fee) if the jury disagrees
-- Jurors who can't reach the content can abstain — the jury initiative uses x/rep's standard quorum requirements
+- Arbiters who can't reach the content simply do not vote; a window without a quorum settles as no finding, and on escalation the Operations Committee policy vote decides
 
 **Comparison to forum sentinel evidence model:**
 
@@ -366,7 +393,7 @@ Three scenarios:
 
 #### 3.9.7. Challenge Resolution
 
-Federation verification challenges involve an objective, deterministic question — "does the content at this URL hash to this value?" — that doesn't require human judgment. Routing these to a 14-day human jury wastes community time on a question a fetch-and-hash can answer in seconds. The module uses a **two-phase resolution** model: quorum-based auto-resolution first, human jury as fallback.
+Federation verification challenges involve an objective, deterministic question — "does the content at this URL hash to this value?" — that doesn't require human judgment. Routing these to a 14-day human jury wastes community time on a question a fetch-and-hash can answer in seconds. The module uses a **two-phase resolution** model: quorum-based auto-resolution first, an Operations Committee policy vote when a party escalates.
 
 **Phase 1: Arbiter Quorum** (`arbiter_resolution_window`, default: 24 hours)
 
@@ -414,12 +441,12 @@ Both identified and anonymous submissions count toward the same quorum. When `ar
 2. If the quorum hash matches the **challenger's** hash: auto-resolve as CHALLENGE_UPHELD (verifier was wrong)
 3. If the quorum hash matches the **verifier's** hash: auto-resolve as CHALLENGE_REJECTED (challenger was wrong)
 4. If the quorum hash matches **neither**: auto-resolve as CHALLENGE_UPHELD (both operator and verifier had wrong hashes — content was fabricated or corrupted)
-5. Apply the standard slashing, refund, and reward logic (Section 6.25 verdict definitions). **Bridge-operator-side slashing on CHALLENGE_UPHELD** flows through `serviceKeeper.OpenSystemReport(callerModuleAddr=federationModuleAccount, operator=bridge.address, service_type, slash_bps=ChallengeDefaultSlashBps, evidence_uri=challenge.evidence, dedupe_key=MimcHash(challenge.id, challenge.evidence_hash))`. The report enters PENDING; the peer's controller (per Decision 2) resolves it via `service.MsgResolveReport` and may adjust the final slash within `unilateral_slash_cap_bps`. `ReportTimeoutAction=ESCALATE` on both bridge `ServiceTypeConfigs` ensures a silent controller cannot park the slash forever — it auto-escalates to jury. The federation challenge stores the returned `service_report_id` for cross-reference; `dedupe_key` guarantees idempotency on replay.
-6. Start `arbiter_escalation_window` (default: 48 hours) — either party can escalate to human jury during this period
+5. Apply the standard slashing, refund, and reward logic (Section 6.25 verdict definitions). **Bridge-operator-side slashing** happens when the quorum hash differs from the operator's content hash: federation files `serviceKeeper.OpenSystemReport(callerModuleAddr=federationModuleAccount, operator=content.submitted_by, service_type, slash_bps=0 (→ ChallengeDefaultSlashBps), evidence_uri="content_id=… quorum_hash=…", dedupe_key=sha256(content_id ‖ ":federation:challenge"))`. The report enters PENDING; the peer's controller (per Decision 2) resolves it via `service.MsgResolveReport` and may adjust the final slash within `unilateral_slash_cap_bps`. `ReportTimeoutAction=ESCALATE` on both bridge `ServiceTypeConfigs` ensures a silent controller cannot park the slash forever — it auto-escalates to jury. The returned report id is stored on the record as `challenge_report_id`; `dedupe_key` guarantees idempotency on replay. A report x/service refuses under its per-caller rate limit (`max_system_reports_per_caller_per_window`) is not dropped: the evidence is kept in `pending_challenge_report`, the content is queued in `PendingChallengeReports`, and EndBlocker Phase 8b re-files it with the same dedupe key.
+6. Start `arbiter_escalation_window` (default: 48 hours) — either party can escalate to the Operations Committee during this period. The first quorum is final: no later vote is accepted, so a competing quorum cannot replace the verdict and a vote above quorum cannot push the escalation deadline back.
 
 **Escalation to Phase 2:**
 
-Phase 2 (human jury) activates only when either party calls `MsgEscalateChallenge`
+Phase 2 (the Operations Committee) activates only when either party calls `MsgEscalateChallenge`
 (pays `escalation_fee`, default: 100 SPARK) while the content is CHALLENGED or
 DISPUTED. There is no automatic escalation: a window that closes with no quorum —
 because the content is inaccessible, because participation was insufficient, or
@@ -428,11 +455,20 @@ CHALLENGE_TIMEOUT rules in Section 6.x below. Escalation after an auto-resolutio
 must happen within `arbiter_escalation_window`, before the stashed verdict is
 applied.
 
-If escalated, the human jury sees all evidence including the arbiter hashes as additional signal. The auto-resolution verdict is reversed and replaced by the jury verdict.
+Escalating **before** any arbiter quorum is allowed by decision: it skips the
+anonymous arbiter phase and sends the dispute straight to an Operations
+Committee policy vote (`MsgResolveEscalatedChallenge`), and since there is no
+auto-verdict to overturn, the escalator always forfeits the escalation fee.
 
-**Phase 2: Human Jury** (`challenge_jury_deadline`, default: 14 days)
+If escalated, the Operations Committee sees all evidence including the arbiter hashes as additional signal. The stashed auto-verdict is discarded and replaced by the committee verdict. Escalation closes arbitration for the round: `MsgSubmitArbiterHash` refuses further votes (`ErrArbitrationClosed`), and the escalation-queue entry of a quorum reached before the escalation applies nothing.
 
-Standard x/rep jury initiative. Used only when quorum resolution fails or is escalated. The jury sees the full evidence package from Section 3.9.6 plus any arbiter hashes submitted during Phase 1.
+**Anonymous arbiters and the parties.** An identified arbiter who is (`SameMember`) the challenger, the verifier or the submitting operator is refused. An anonymous (x/shield) arbiter cannot be checked the same way: the proof shows only an ESTABLISHED+ member, not who. A challenger with two colluding ESTABLISHED+ identities can therefore help form the first quorum. The bounds are the first-quorum rule (a quorum cannot be replaced later), one vote per identity per content (the shield nullifier), and either party's right to escalate the stashed verdict to the Operations Committee before it applies.
+
+**Decided: a quorum does not need an identified arbiter.** A quorum made up only of anonymous (shield) votes is valid; there is no requirement that at least one vote come from an identified bridge operator. Such a requirement would bound collusion through anonymous identities, but it would stall arbitration on peers with few or no other bonded operators, and escalation to the Operations Committee already covers a suspicious quorum. The bounds above are the whole defense against an anonymous quorum.
+
+**Phase 2: Operations Committee** (`challenge_jury_deadline`, default: 14 days)
+
+An Operations Committee policy vote (`MsgResolveEscalatedChallenge`), used only when a party escalates. It sees the full evidence package from Section 3.9.6 plus any arbiter hashes submitted during Phase 1. With no verdict by the deadline the EndBlocker applies CHALLENGE_TIMEOUT.
 
 **Arbiter incentives:**
 
@@ -449,8 +485,8 @@ Non-matching arbiters (submitted a hash that didn't match quorum) receive nothin
 - **Operator collusion:** The submitting operator is excluded from arbitrating their own content. Even if they submit anonymously as a member, they're at most 1 of `arbiter_quorum` needed. For accessible content, honest hashes are deterministic — one dishonest hash can't swing the result.
 - **Verifier collusion:** Same logic. The verifier is one participant. Even if operator and verifier collude and both submit, they're 2 of 3 needed — one honest arbiter (likely a competing bridge operator) breaks the collusion.
 - **Sybil (anonymous path):** ZK proofs are tied to unique member identities via the trust tree. Creating multiple members requires multiple invitations at ESTABLISHED+ trust level — x/rep's invitation and trust system is the Sybil barrier.
-- **Sybil (identified path):** Bridge operators are registered with SPARK stake on `x/service`. Creating multiple fake operators requires multiple `ServiceTypeConfig.min_bond` deposits — there is no Operations Committee gate on `MsgRegisterBridge` itself (operator-signed), though the peer it binds to must already have been activated by a committee vote, so the bond size is the entire participation cost *per peer governance has already approved*. Tuning `min_bond` per service_type is the lever for raising the Sybil floor.
-- **Mixed quorum strength:** A quorum containing both identified operators and anonymous members is harder to corrupt than either type alone — the attacker would need to compromise entities in both categories simultaneously.
+- **Sybil (identified path):** Bridge operators are active members registered with SPARK stake on `x/service`. Creating multiple fake operators requires one membership (an invitation) and one `ServiceTypeConfig.min_bond` deposit each — there is no Operations Committee gate on `MsgRegisterBridge` itself (operator-signed), though the peer it binds to must already have been activated by a committee vote. Tuning `min_bond` per service_type is the lever for raising the Sybil floor beyond the invitation.
+- **Mixed quorum strength:** A quorum containing both identified operators and anonymous members is harder to corrupt than either type alone — the attacker would need to compromise entities in both categories simultaneously. A mixed quorum is not required (decided, Section 3.9.7): an all-anonymous quorum is valid and is bounded by first-quorum-final, the nullifier and escalation.
 - **No penalty for abstaining:** Members and operators who can't fetch the content simply don't submit. Natural self-selection ensures only participants who can actually verify participate.
 
 #### 3.9.8. Verifier Bond Commitment
@@ -505,6 +541,8 @@ on a bond.
 - Binding not `suspended`. `AfterOperatorUnderfunded` sets this when a slash
   drops the bond below `min_bond`, so a stake that no longer backs the
   submissions earns nothing. A dissolving slash prunes the binding outright.
+- The operator is still an active member: a bridge whose member was zeroed
+  (or whose key was migrated away) earns nothing.
 - `epoch_verified >= min_epoch_verified_submissions` (default 1)
 - `epoch_rejected == 0` — nothing of theirs was falsified this epoch
 - `epoch_unverified / epoch_submitted <= max_unverified_rate` (default 0.5)
@@ -533,10 +571,18 @@ is paid twice for the same work. The lifetime counters cannot score a reward
 because they only grow: a long-serving operator would out-earn an equally
 productive newcomer forever on history alone.
 
+**Cost bound.** The distribution walks every `BridgeBinding` once per reward epoch, and the counter reset walks them again, outside the EndBlocker prune budget. The set is bounded by peers × `max_bridges_per_peer`, and each binding is backed by its own x/service SPARK bond of at least `min_bond`, so its size is paid for. The walk is documented rather than made resumable.
+
 `last_reward_epoch` and `cumulative_rewards` on the binding record the payout.
-Above `max_operator_reward_pool`, a fraction of the excess is burned each epoch
+Above `max_operator_reward_pool`, a fraction of the excess is burned once per
+reward epoch, after that epoch's distribution
 (`operator_reward_pool_overflow_burn_ratio`) so an over-funded pool cannot sit
 as a standing prize that makes the role worth farming rather than doing.
+
+Eligibility also requires the operator's `service.Operator` to be ACTIVE: an
+UNBONDING operator (no hook suspends its bindings) or an UNDERFUNDED one earns
+nothing, and `MsgSubmitFederatedContent` refuses submissions from a
+non-ACTIVE operator (`ErrBindingNotActive`).
 
 The pool is an ordinary bank sub-address, so a council can top it up with a
 plain send. `query federation operator-reward-pool` reports balance, cap,
@@ -836,6 +882,15 @@ message VerificationRecord {
   // closes; reset to UNSPECIFIED by MsgEscalateChallenge (deferring
   // resolution to the jury path).
   PendingVerifierVerdict pending_verifier_verdict = 13;
+  bool commitment_released = 14;                   // CommittedAmount already given back via ReleaseBond
+  int64 arbiter_escalation_deadline = 15;          // quorum time + arbiter_escalation_window; MsgEscalateChallenge refuses after it
+  int64 arbiter_resolution_deadline = 16;          // round start + arbiter_resolution_window; arbiter votes refused after it; Phase 7 acts only on this round's entry
+  uint64 challenge_report_id = 17;                 // x/service report id filed against the submitting operator (0 = none)
+  string pending_challenge_report = 18;            // evidence of an operator report owed but refused by x/service's rate limit; retried by Phase 8b
+  bool quorum_falsified_content = 19;              // set when the arbiter quorum hash differs from the operator's content hash
+  SettlementKind settlement_retry_kind = 20;       // EndBlocker settlement owed a retry (NO_QUORUM / AUTO_VERDICT / JURY_TIMEOUT), FED-29
+  uint32 settlement_attempts = 21;                 // failed attempts of that settlement
+  int64 settlement_retry_at = 22;                  // unix time of the next retry (0: none queued)
 }
 
 enum VerificationOutcome {
@@ -850,6 +905,13 @@ enum VerificationOutcome {
 // PendingVerifierVerdict captures the Phase 1 arbiter-quorum auto-
 // verdict that hasn't yet been applied. Drives the fee-disbursement
 // + slash logic in EndBlocker Phase 8 (sub-pass A).
+enum SettlementKind {                                // EndBlocker settlement owed a retry (FED-29)
+  SETTLEMENT_KIND_UNSPECIFIED = 0;
+  SETTLEMENT_KIND_NO_QUORUM = 1;                     // arbiter resolution window closed without a quorum
+  SETTLEMENT_KIND_AUTO_VERDICT = 2;                  // escalation window of a stashed verdict closed
+  SETTLEMENT_KIND_JURY_TIMEOUT = 3;                  // jury deadline passed
+}
+
 enum PendingVerifierVerdict {
   PENDING_VERIFIER_VERDICT_UNSPECIFIED = 0;        // No quorum yet, or escalation cleared it
   PENDING_VERIFIER_VERDICT_VERIFIER_RIGHT = 1;     // Quorum hash matches record.verifier_hash → CHALLENGE_REJECTED
@@ -992,8 +1054,25 @@ message IdentityLink {
   IdentityLinkStatus status = 4;
   int64 linked_at = 5;
   int64 verified_at = 6;                           // 0 if unverified
+  bytes challenge = 7;                             // echo-checked on confirmation
+  uint32 verification_attempts = 8;                // Phase 1 deliveries sent (retry cap 3)
+  int64 unverified_expires_at = 9;                 // the UnverifiedLinkExp key this link was written with
+  string attested_by = 10;                         // bridge operator whose MsgAttestIdentityLink verified it (empty for IBC)
+  string attestation_evidence = 11;                // the evidence_uri that operator attested with
 }
+```
 
+`attested_by` and `attestation_evidence` are set only on VERIFIED links to bridge
+peers (Section 3.4.1); they name the operator a false-attestation report goes
+against and are cleared when the link returns to UNVERIFIED.
+
+`unverified_expires_at` is what the Phase 3 sweep compares against the queue
+key it walks: only the entry the live link was written with may prune it, so a
+stale entry left by an earlier link of the same `(local_address, peer_id)` (an
+unlink followed by a relink) can never delete the new link early. Unlink also
+removes the link's own queue entry.
+
+```protobuf
 enum IdentityLinkStatus {
   IDENTITY_LINK_STATUS_UNVERIFIED = 0;
   IDENTITY_LINK_STATUS_VERIFIED = 1;
@@ -1178,7 +1257,7 @@ Governance-only fields: `max_bridges_per_peer`, `known_content_types`, `max_iden
 
 > Bridge bond minimums, revocation cooldown, and unbonding period are no longer federation params — they live on `service.ServiceTypeConfig` and are tunable per protocol via gov on `x/service`, not on `x/federation`.
 
-**Validation ranges** (enforced on both `MsgUpdateParams` and `MsgUpdateOperationalParams`):
+**Validation ranges** (enforced on both `MsgUpdateParams` and `MsgUpdateOperationalParams` — `Params.Validate` holds the table, and the operational path validates the merged params). Every row is enforced. The size / per-block / prune / `arbiter_quorum` / `global_max_trust_credit` / `min_verifier_trust_level` rows, all ceilings and both bounds of the DREAM rows hold on every build. The **floors** of the duration rows (including `content_ttl` / `attestation_ttl`), of the SPARK fees and of `bridge_inactivity_threshold` are build-tagged (`ParamFloors` in `x/federation/types/params.go`, selected by `activeParamFloors` in `genesis_vals_*.go`): mainnet and testnet enforce exactly the table below (`SpecParamFloors`); devnet enforces its own lower floors (`DevnetParamFloors`: retention 1 h, `challenge_ttl` / `rate_limit_window` / `verification_window` / arbiter windows / `verifier_demotion_cooldown` 15 min, `challenge_window` / `challenge_jury_deadline` 1 h, `verifier_overturn_base_cooldown` / `challenge_cooldown` 5 min, challenge fee 10 SPARK, escalation fee 5 SPARK, inactivity 10), because its genesis deliberately runs hour-scale windows and a 10 SPARK escalation fee; the untagged test build enforces none beyond positivity (retention 1 s), so the e2e suites keep second-scale windows, 1 SPARK fees and an inactivity threshold of 1. `TestParamsValidate_NetworkFloors` checks every network genesis against its own floors.
 
 | Field | Min | Max | Rationale |
 |-------|-----|-----|-----------|
@@ -1238,6 +1317,14 @@ message GenesisState {
   uint64 next_content_id = 12;
   uint64 next_outbound_attestation_id = 13;
   repeated OperatorRewardDayFunding operator_reward_day_funding_list = 14 [(gogoproto.nullable) = false];
+  // ... fields 15-25: verification-lifecycle queues, escalations, arbiter
+  // data, pending identity challenges, peer removal queue (see below)
+  repeated AttesterRevocation attester_revocation_queue = 26 [(gogoproto.nullable) = false];
+}
+
+message AttesterRevocation {
+  string operator = 1;
+  string peer_id = 2;
 }
 
 message OperatorRewardDayFunding {
@@ -1257,21 +1344,26 @@ reason.
 
 **Genesis init order dependency**: `x/service` must run InitGenesis **before** `x/federation`. Bridge bindings reference `service.Operator` records keyed by `(address, service_type)` that must already exist in service state. The ServiceTypeConfigs for `federation-bridge-activitypub`, `federation-bridge-atproto`, `federation-bridge-nostr`, and `federation-bridge-lens` are seeded in x/service's genesis (NOT federation's), even though they conceptually belong to the federation use case — federation does not own ServiceTypeConfigs.
 
-**Genesis validation**:
-- All `peer_id` references in policies, bindings, content, links, and attestations must reference an existing peer in the `peers` list
-- `next_content_id` must be greater than the highest `id` in `federated_content`
-- `next_outbound_attestation_id` must be greater than the highest `id` in `outbound_attestations`
-- For each `BridgeBinding`, the corresponding `service.Operator` at `(address, federation-bridge-<protocol>)` must exist in x/service state and be in a live status (`ACTIVE`, `UNDERFUNDED`, or `UNBONDING`); orphan bindings referencing a missing or terminal operator violate the `orphan-bindings` invariant (Section 9 / Section 14)
-- No duplicate `(peer_id, remote_identity)` pairs in `identity_links`
-- For each `BondedRole(ROLE_TYPE_FEDERATION_VERIFIER, address)` in x/rep, `total_committed_bond` must equal the sum of `committed_amount` across all `verification_records` where `verifier == address` and `outcome` is PENDING or CHALLENGED, and `total_committed_bond ≤ current_bond`. Federation does not store these fields directly; the check runs against x/rep's exported bond state at boot.
-- All verification records must reference existing content in `federated_content`
+**Genesis validation** (`GenesisState.Validate`, `x/federation/types/genesis_validate.go`). InitGenesis `Set`s every list, so anything it would silently collapse, or could never settle, is rejected up front:
+- **Uniqueness** per collection: peers, peer policies, bridge bindings `(address, peer_id)`, content ids, identity links `(local_address, peer_id)`, reputation attestations `(local_address, peer_id)`, outbound attestation ids, pending identity challenges, verification records, escalated challenges, arbiter submissions `(content_id, submitter_key)`, arbiter hash counts, peer removal entries
+- **References**: every `peer_id` in policies, bindings, content, links, reputation attestations, outbound attestations, pending identity challenges and the peer removal queue names a peer in `peers`
+- **Sequences**: `next_content_id` > the highest content id, `next_outbound_attestation_id` > the highest outbound attestation id, `next_arbiter_anon_submission_id` > the highest `anon:N` submission key
+- **Enums and shapes**: peer type/status, content status, link status and pending verdict are known values; a content hash is empty or 32 bytes; escrowed challenge and escalation fees are non-negative
+- **Disputes in flight**: CHALLENGED / DISPUTED content has a verification record; a stashed verdict has its `arbiter_escalation_queue` entry at the record's `arbiter_escalation_deadline`; an escalated challenge has its jury-deadline queue entry; each arbiter hash count equals the number of submissions carrying that hash, and every submitted hash has a count
+- At most one VERIFIED link per `(peer_id, remote_identity)` (unverified claims may share one, Section 3.4); `attested_by` only on VERIFIED links
+- Attester revocation entries name an operator and a peer, without duplicates
 - No duplicate `day` in `operator_reward_day_funding_list`, and every `amount_funded` must be non-negative — a duplicate collapses silently on import, under-reporting the day's draw and handing back part of an allowance already spent
+- Verification records may outlive their content (Phase 1 prunes content, not records), so a record without content is valid. Bindings are checked against x/service by the `orphan-bindings` invariant (Section 14), not by genesis validation, which cannot see x/service state.
 
-**Reverse-index rebuild**: federation's InitGenesis rebuilds `BridgesByPeer` and `BindingsByOperator` from the loaded `BridgeBinding` list — these are not exported as genesis fields and are derived deterministically from the primary records.
+**Reverse-index rebuild**: federation's InitGenesis rebuilds the derived indexes from the primary records — they are not exported:
+- `BridgesByPeer` and `BindingsByOperator` from `bridge_bindings` (the service_type comes from the peer's type). The x/service hooks find an operator's bindings only through `BindingsByOperator`; without the rebuild a slashed operator's bindings would never be suspended after an import.
+- `IdentityClaimsByRemote` (every link), `IdentityLinksByRemote` (VERIFIED links only), `IdentityLinksByAttester` (VERIFIED links with `attested_by`), `IdentityLinkCount` (re-counted, so `max_identity_links_per_user` survives; written only for members holding a link, and the live unlink and expiry paths remove a count that reaches zero rather than storing 0) and, for UNVERIFIED links, `UnverifiedLinkExp` (keyed by the link's stored `unverified_expires_at`) from `identity_links`.
+- `RepAttestationsByPeer` from `reputation_attestations`, and `PendingChallengeReports` from the verification records whose `pending_challenge_report` is set.
+- `PendingIdChallengeExp`, `PendingIdChallengesByPeer` and `PendingIdChallengeCount` from `pending_identity_challenges`.
 
-**Excluded from genesis** (runtime-ephemeral state, managed by EndBlocker):
-- `PendingIdentityChallenge`: Short-lived IBC challenges with `challenge_ttl` (default 7 days). Pruned by EndBlocker Phase 4. On genesis restart, any pending challenges expire naturally — the remote user can re-initiate identity linking.
-- `ArbiterHashSubmission`: Temporary challenge resolution state bound to `arbiter_resolution_window` (default 24 hours). Pruned by EndBlocker Phases 8-9. On genesis restart, any active challenges escalate to human jury automatically.
+**Not carried**: the sliding-window and per-block rate counters (`InboundRateLimits`, `OutboundRateLimits`, `InboundPerBlock`, `OutboundPerBlock`, all under `fed/rate/`) restart empty after an import: at worst a peer gets one fresh window on the restart.
+
+**Also exported**: `pending_identity_challenges` (field 24; challenges awaiting the local owner's confirmation), `peer_removal_queue` (field 25, `PeerRemovalEntry{peer_id, state}`; a peer mid-removal resumes its Phase 9 cleanup instead of staying REMOVED with its data forever) and `attester_revocation_queue` (field 26; a slashed operator's attested links still being returned to UNVERIFIED by Phase 3b).
 
 ---
 
@@ -1291,12 +1383,19 @@ reason.
 | `ContentByHash` | `content_hash` | `id` | Index: deduplication lookup by content hash |
 | `ContentExpiration` | `(expires_at, id)` | — | Sorted index for efficient TTL pruning |
 | `PendingIdChallenges` | `(claimed_address, peer_id)` | `PendingIdentityChallenge` | IBC identity verification challenges |
+| `PendingIdChallengeExp` | `(expires_at, claimed_address, peer_id)` | — | Expiry queue the Phase 4 sweep range-walks |
+| `PendingIdChallengesByPeer` | `(peer_id, claimed_address)` | — | Per-peer index for peer-removal cleanup |
+| `PendingIdChallengeCount` | `peer_id` | `uint64` | Per-peer count enforcing `MaxPendingChallengesPerPeer` (10,000) |
 | `IdentityLinks` | `(local_address, peer_id)` | `IdentityLink` | Identity mappings |
-| `IdentityLinksByRemote` | `(peer_id, remote_identity)` | `local_address` | Reverse lookup (unique constraint) |
+| `IdentityLinksByRemote` | `(peer_id, remote_identity)` | `local_address` | Reverse lookup of the VERIFIED link (unique constraint) |
+| `IdentityClaimsByRemote` | `(peer_id, remote_identity, local_address)` | — | Every link, verified or not; several unverified claims may share a remote identity (§3.4). Peer-removal cleanup walks it |
+| `IdentityLinksByAttester` | `(operator, peer_id, local_address)` | — | VERIFIED links each bridge operator attested (§3.4.1); rebuilt at InitGenesis |
+| `AttesterRevocations` | `(operator, peer_id)` | — | Slashed operators whose attested links Phase 3b is returning to UNVERIFIED; exported in genesis |
 | `IdentityLinkCount` | `local_address` | `uint32` | Per-user link count for cap enforcement |
 | `UnverifiedLinkExp` | `(expires_at, local_address, peer_id)` | — | Sorted index for unverified link pruning |
 | `RepAttestations` | `(local_address, peer_id)` | `ReputationAttestation` | Cached reputation |
 | `AttestationExp` | `(expires_at, local_address, peer_id)` | — | Sorted index for attestation pruning |
+| `RepAttestationsByPeer` | `(peer_id, local_address)` | — | Per-peer index for peer-removal cleanup |
 | `OutboundAttestations` | `id` (auto-increment) | `OutboundAttestation` | Outbound audit trail |
 | `VerifierActivity` | `address` | `VerifierActivity` | Federation-specific per-verifier counters. Generic bond state lives in x/rep as `BondedRoles[(ROLE_TYPE_FEDERATION_VERIFIER, address)]`. |
 | `VerificationRecords` | `content_id` | `VerificationRecord` | Verification records (one per content item) |
@@ -1307,6 +1406,8 @@ reason.
 | `ArbiterHashCounts` | `(content_id, content_hash)` | `uint32` (count) | Count of matching hashes per content_id (for quorum detection) |
 | `ArbiterResolutionQueue` | `(arbiter_resolution_deadline, content_id)` | — | Sorted index for arbiter window expiry |
 | `ArbiterEscalationQueue` | `(arbiter_escalation_deadline, content_id)` | — | Sorted index for escalation window expiry |
+| `PendingChallengeReports` | `content_id` | — | Records owing an x/service operator report that was refused for now (Phase 8b retries) |
+| `SettlementRetryQueue` | `(settlement_retry_at, content_id)` | — | Records whose EndBlocker settlement failed and is retried (Phase 8a); rebuilt from the records at InitGenesis |
 | `EscalatedChallenges` | `content_id` | `EscalatedChallenge` | Phase 2 jury lifecycle record (§4.6a); removed once a verdict is applied |
 | `EscalatedChallengeDeadline` | `(jury_deadline, content_id)` | — | Sorted index for the jury-deadline sweep |
 | `PeerRemovalQueue` | `peer_id` | `PeerRemovalState` | Peers pending data cleanup (with cursor) |
@@ -1361,7 +1462,7 @@ message MsgRegisterPeer {
 7. Create default PeerPolicy (empty content types, conservative defaults)
 8. Emit `peer_registered` event
 
-### 6.2. RemovePeer (Operations Committee member)
+### 6.2. RemovePeer (Governance or Council / Operations Committee policy)
 
 Permanently remove a federation peer. Triggers cleanup of all associated data.
 
@@ -1374,7 +1475,7 @@ message MsgRemovePeer {
 ```
 
 **Logic:**
-1. Verify authority is governance or Commons Council policy address
+1. Verify authority is governance or the Commons Council / Operations Committee **policy** address (`IsCouncilOrCommitteePolicy`) — an executed proposal. A single committee member cannot remove a peer: removal starts the irreversible Phase 9 cleanup.
 2. Verify peer exists and is not already REMOVED
 3. **Reject if the peer has live bridge bindings.** Walk `BridgesByPeer` for this peer; if any binding exists whose corresponding `service.Operator` is in `ACTIVE`, `UNDERFUNDED`, or `UNBONDING`, reject with `ErrPeerHasActiveBridges`. Operators must call `service.MsgUnbondOperator` first; only then can the peer be removed. This couples peer-removal latency to the longest bridge unbonding period (~14 days at default), which is intentional — peer removal is rare and gov-authority anyway.
 4. Set peer status to REMOVED, set `removed_at` to current block time
@@ -1459,6 +1560,7 @@ message MsgUpdatePeerPolicy {
 **Authorization:** `isCouncilAuthorized(ctx, addr, "commons", "operations")`
 
 **Validation:**
+0. The peer must exist and must not be REMOVED (`ErrPeerNotActive`): the removal cleanup deletes a peer's policy once, so a policy written during cleanup would outlive the peer. PENDING and SUSPENDED peers can still be configured
 1. Verify all entries in `outbound_content_types` and `inbound_content_types` are present in `params.known_content_types` — reject with `ErrUnknownContentType` if any are not recognized
 2. Reject policies that include `"reveal_proposal"` or `"reveal_tranche"` in either content type list (see Section 15.7)
 3. If peer type is anything other than SPARK_DREAM (ACTIVITYPUB, ATPROTO, NOSTR, or LENS), reject if `allow_reputation_queries` or `accept_reputation_attestations` is true — reputation bridging is only supported for Spark Dream peers (reject with `ErrPeerTypeMismatch`)
@@ -1486,12 +1588,13 @@ message MsgRegisterBridge {
 
 1. Load peer; verify type is ACTIVITYPUB, ATPROTO, NOSTR, or LENS (SPARK_DREAM peers federate via IBC, not bridges).
 2. **Require `peer.status == ACTIVE`**, else `ErrPeerNotActive`. A bridge binds to a peer governance has already approved; it does not confer approval. Checked after the type check in step 1, so an IBC peer still fails on type — the more specific error.
+2b. **Require the operator to be an active x/rep member**, else `ErrOperatorNotMember` (Section 14, "Operator-verifier role overlap").
 3. Check `bridges_count_for_peer < max_bridges_per_peer` (kill-switch).
 4. Reject if a `BridgeBinding` already exists for `(operator, peer_id)`.
 5. Map `peer.type` → `service_type`: `PEER_TYPE_ACTIVITYPUB` → `federation-bridge-activitypub`, `PEER_TYPE_ATPROTO` → `federation-bridge-atproto`, `PEER_TYPE_NOSTR` → `federation-bridge-nostr`, `PEER_TYPE_LENS` → `federation-bridge-lens`.
 6. Resolve controller: `peer.controller_group` if non-empty (re-validated via `commonsKeeper.IsGroupPolicyAddress`), else Operations Committee policy address via `commonsKeeper.GetCouncilPolicyAddress("commons", "operations")`. The resolved address is captured on the resulting `service.Operator`.
 7. Look up `service.Operator` for `(msg.operator, service_type)`:
-   - **Exists** (Decision 1a re-registration for another peer): verify `existing.controller == resolved_controller`. Mismatch is `ErrControllerMismatch` with the message "use a different address for the new peer, or transfer the existing Operator's controller via `service.MsgOpenControllerTransferCase`." Defer top-up to step 9.
+   - **Exists** (Decision 1a re-registration for another peer): verify `existing.controller == resolved_controller`. Mismatch is `ErrControllerMismatch` with the message "use a different address for the new peer, or transfer the existing Operator's controller via `service.MsgOpenControllerTransferCase`." The operator must be ACTIVE or UNDERFUNDED (`ErrBindingNotActive` for UNBONDING or terminal); an UNDERFUNDED operator's new binding is written **suspended**, like its other bindings, so a slashed operator cannot dodge its suspension by binding a fresh peer — `AfterOperatorReFunded` clears it once the bond is back (e.g. via the top-up in step 9). Defer top-up to step 9.
    - **New**: call `serviceKeeper.RegisterOperator(ctx, operator, service_type, controller, stake, metadata, ServiceSourceNormal)`. x/service validates `stake >= min_bond` from the ServiceTypeConfig, escrows the bond, creates the `service.Operator`, and does **not** fire hooks. Skip step 9.
 8. Write `BridgeBinding`, `BridgesByPeer`, and `BindingsByOperator(service_type, operator, peer_id)`. After this point, any hook firing on the operator sees the new binding.
 9. **Exists branch only, when `stake.Amount > 0`**: call `serviceKeeper.TopUpBond(ctx, operator, service_type, stake)`. If the operator was UNDERFUNDED, this fires `AfterOperatorReFunded` synchronously; the hook iterates `BindingsByOperator` and correctly includes the binding written in step 8.
@@ -1547,14 +1650,14 @@ message MsgLinkIdentity {
 **Logic:**
 1. Verify peer exists and is ACTIVE
 2. Verify no existing link for `(creator, peer_id)` — reject with `ErrIdentityLinkExists`
-3. Verify no existing link for `(peer_id, remote_identity)` by any local address — reject with `ErrRemoteIdentityAlreadyClaimed`
+3. Verify `(peer_id, remote_identity)` is not **verified** to any local address — reject with `ErrRemoteIdentityAlreadyClaimed`. Other members' unverified claims do not block this one (Section 3.4).
 4. Verify creator has not exceeded `max_identity_links_per_user` — reject with `ErrMaxIdentityLinksExceeded`
 5. Create IdentityLink with status UNVERIFIED, `linked_at` = current block time
 6. Add to `UnverifiedLinkExpirationQueue` with expiry = `linked_at + unverified_link_ttl`
-7. Increment `IdentityLinkCount` for creator
-8. For IBC peers: initiate verification packet (challenge-response, see Section 8.3)
-9. For bridge peers: emit event for bridge to verify
-10. Emit `identity_linked` event
+7. Increment `IdentityLinkCount` for creator; index the claim in `IdentityClaimsByRemote` (not the verified reverse index)
+8. For Spark Dream peers: send the verification packet (challenge-response, see Section 8.3). A send failure fails the tx: a link whose challenge never left would sit UNVERIFIED with no timeout to retry it.
+9. For bridge peers: nothing is sent; the link stays UNVERIFIED until a bridge operator attests it (Section 6.14a)
+10. Emit `identity_linked` event (for a bridge peer with a `link_proof` attribute: the proof string of Section 3.4.1)
 
 ### 6.13. UnlinkIdentity (User)
 
@@ -1569,7 +1672,7 @@ message MsgUnlinkIdentity {
 
 **Logic:**
 1. Verify link exists for `(creator, peer_id)`
-2. Remove from `IdentityLinks`, `IdentityLinksByRemote`, and any expiration queue entry
+2. Remove from `IdentityLinks`, `IdentityClaimsByRemote`, `IdentityLinksByRemote` (only when it names this address), `IdentityLinksByAttester` (if attested) and any expiration queue entry
 3. Decrement `IdentityLinkCount` for creator
 4. Emit `identity_unlinked` event
 
@@ -1590,6 +1693,34 @@ message MsgConfirmIdentityLink {
 3. Send `IdentityVerificationConfirmPacket` via IBC to the claimant chain (see Section 8.3)
 4. Delete the `PendingIdentityChallenge`
 5. Emit `identity_challenge_confirmed` event
+
+### 6.14a. AttestIdentityLink (Bridge Operator)
+
+Verify a member's UNVERIFIED link to a bridge peer (Section 3.4.1). Not session-delegable.
+
+```protobuf
+message MsgAttestIdentityLink {
+  string operator = 1;            // bridge operator (signer)
+  string peer_id = 2;
+  string local_address = 3;       // the member whose claim is attested
+  string remote_identity = 4;     // must equal the claim's remote_identity
+  string challenge = 5;           // hex of the claim's challenge, as published in the proof string
+  string evidence_uri = 6;        // where the proof was published (1-512 bytes)
+}
+```
+
+**Logic:**
+1. `evidence_uri` is 1-512 bytes (`MaxAttestationEvidenceSize`), else `ErrInvalidAttestationEvidence`
+2. A `BridgeBinding` exists for `(operator, peer_id)` (`ErrBridgeNotFound`) and is not suspended (`ErrBridgeNotActive`)
+3. The peer is ACTIVE and a bridge peer; Spark Dream peers verify over IBC (`ErrPeerTypeMismatch`)
+4. The operator is an active x/rep member (`ErrOperatorNotMember`) and its x/service record is ACTIVE (`ErrBindingNotActive`), so an UNBONDING operator cannot attest
+5. The operator is not (`SameMember`) the member (`ErrSelfAttestation`)
+6. The link `(local_address, peer_id)` exists and names `remote_identity` (`ErrIdentityLinkNotFound`), is UNVERIFIED (`ErrIdentityLinkAlreadyVerified` if verified), and has not reached its `unverified_expires_at` (`ErrIdentityLinkExpired`)
+7. `challenge` decodes to the link's stored challenge (`ErrAttestationChallengeMismatch`)
+8. ActivityPub peers: `evidence_uri` is on the peer's host or `content_hosts` (`ErrInvalidAttestationEvidence`), and so is `remote_identity` (`ErrCreatorHostMismatch`)
+9. `(peer_id, remote_identity)` is not VERIFIED to another member (`ErrRemoteIdentityAlreadyClaimed`)
+10. Remove the link's `UnverifiedLinkExp` entry; set status VERIFIED, `verified_at`, `attested_by`, `attestation_evidence`; index it in `IdentityLinksByRemote` and `IdentityLinksByAttester`
+11. Emit `identity_verified` and `identity_link_attested` (operator, local_address, peer_id, remote_identity, evidence_uri)
 
 ### 6.15. SubmitFederatedContent (Bridge Operator)
 
@@ -1634,7 +1765,7 @@ message MsgSubmitFederatedContent {
 7. Truncate `body` to `max_content_body_size`, `content_uri` to `max_content_uri_size`, `protocol_metadata` to `max_protocol_metadata_size`. Note: truncation happens AFTER the hash is stored — the on-chain body is a preview, but the hash covers the full source content.
 8. Check `ContentByHash` index for duplicates — if the same hash already anchors a live content record, reject with `ErrDuplicateContent`. An index entry whose record has been pruned counts as absent, so pruned content may be anchored again. The daemon-side dedupe convention keys on `(uri, content_hash)`, **never** `uri` alone: an edit keeps the URI and changes the hash, and suppressing the re-anchor would kill edit detection — the most valuable thing the bridge produces. The chain's `ContentByHash` is the authority; a daemon's local store is a cache to avoid wasted transactions.
    - 8b. **Supersede.** If `supersedes` is set, it must name an existing record submitted by the **same operator** for the **same peer** with the **same** (non-empty) `content_uri`, not yet superseded; otherwise `ErrInvalidSupersede`. An operator can only retire its own records. After the new record is stored, the predecessor gets `superseded_by` = the new id, and if it was still PENDING_VERIFICATION it moves to `SUPERSEDED` (a predecessor past verification keeps its status and only gains the link). Emits `content_superseded` (`content_id`, `superseded_by`, `new_status`).
-9. Set status to `PENDING_VERIFICATION` (bridge content requires independent verification — see Section 3.9). If peer policy `require_review` is true, content will additionally need Operations Committee review after verification.
+9. Set status to `PENDING_VERIFICATION` (bridge content requires independent verification — see Section 3.9). If peer policy `require_review` is true, content additionally needs Operations Committee review after verification: a successful `MsgVerifyContent` lands it HIDDEN until a restore publishes it (Section 6.22).
 10. Compute `expires_at` = current block time + `content_ttl`
 11. Store FederatedContent with `expires_at`, add to `ContentExpirationQueue`, `ContentByCreator`, and `ContentByHash` indexes
 12. Add to `VerificationWindowQueue` with expiry = block_time + `verification_window`
@@ -1746,12 +1877,18 @@ Moderate inbound federated content (hide, reject, or restore).
 
 ```protobuf
 message MsgModerateContent {
-  string authority = 1;            // Operations Committee member
+  string authority = 1;            // Operations Committee member (HIDDEN) or policy (REJECTED / restore)
   uint64 content_id = 2;
-  FederatedContentStatus new_status = 3;
+  FederatedContentStatus new_status = 3;  // HIDDEN, REJECTED, or ACTIVE (= restore)
   string reason = 4;
 }
 ```
+
+**Logic:**
+1. Authority: any Operations Committee member (`IsCouncilAuthorized`) may **hide** — the fast brake, like `MsgSuspendPeer`. Rejecting or restoring changes what the record attests and needs x/gov or the committee **policy** address (`IsCouncilOrCommitteePolicy`).
+2. UNRESOLVED and SUPERSEDED are terminal (`ErrContentTerminal`).
+3. Targets are HIDDEN, REJECTED and ACTIVE. `VERIFIED` is **not** a target: a record moved there would have no `VerificationRecord`, no committed verifier bond and no challenge window, so it could never be challenged. `ACTIVE` means *restore*: IBC content (no submitting operator) returns to ACTIVE; bridged content returns to VERIFIED only if a verification of it stands (a `VerificationRecord` whose hash matched and whose challenge was not upheld), to PENDING_VERIFICATION while its verification window is still open, and otherwise cannot be restored.
+4. Refused during an open dispute (`ErrDisputeInProgress`): content CHALLENGED or DISPUTED, a stashed arbiter auto-verdict, or an open jury escalation. Those paths own the status until they settle, and their fee settlement keys off it.
 
 ### 6.19. RequestReputationAttestation (User)
 
@@ -1773,7 +1910,7 @@ message MsgRequestReputationAttestation {
    `ErrIdentityLinkNotFound` when there is no link, when the link is still
    UNVERIFIED, or when it names a different remote identity.
 4. Send IBC `ReputationQueryPacket` to peer with timeout = `ibc_packet_timeout`
-5. Response handled in `OnAcknowledgementPacket` — stores ReputationAttestation
+5. Response handled in `OnAcknowledgementPacket` — stores ReputationAttestation only while the peer is still an ACTIVE Spark Dream peer, its policy still has `accept_reputation_attestations` (the kill switch applies to answers in flight), the answer is about the queried address and the requester's link is still VERIFIED; otherwise the ack is dropped with `federation_ack_dropped`. The peer's per-tag scores are stored in `remote_reputations` after this side re-applies the bounds: well-formed tag names (x/common tag format, ≤ 64 bytes), positive scores, one entry per tag, sorted, at most 32.
 6. Timeout handled in `OnTimeoutPacket` — emits `reputation_query_timeout` event, user must retry manually
 
 **Why the link is required.** The attestation is keyed `(local_address,
@@ -1837,11 +1974,11 @@ message MsgVerifyContent {
 1. Verify creator passes rep's `EligibleForRole` for `ROLE_TYPE_FEDERATION_VERIFIER`: NORMAL or RECOVERY, or UNBONDING while the staying bond (`current_bond - pending_unbond_amount`) still covers `min_verifier_bond` (a partial unbond keeps verifying; a full exit does not)
 2. Verify creator is not in `overturn_cooldown_until`
 3. Verify content exists and is in PENDING_VERIFICATION status — **first-verifier-wins**: if another verifier already changed the status (to VERIFIED or DISPUTED) in an earlier transaction in the same block, this check fails with `ErrContentNotPendingVerification`. Only one verifier can verify each piece of content.
-4. Verify creator is NOT the bridge operator who submitted this content (`content.submitted_by != creator`) — reject with `ErrSelfVerification`. This prevents an entity from operating as both bridge operator and verifier for the same content, which would bypass the accountability layer entirely. Note: this is enforced per-content (not per-role), because the same person using two different addresses cannot be detected on-chain, but they cannot use the *same* address for both roles on the *same* content.
+4. Verify creator is NOT the bridge operator who submitted this content (`SameMember(content.submitted_by, creator)` is false, so an address left behind by a member key migration counts as the same member) — reject with `ErrSelfVerification`. This prevents an entity from operating as both bridge operator and verifier for the same content, which would bypass the accountability layer entirely. Note: this is enforced per-content (not per-role). The same person using two unrelated addresses cannot be detected on-chain (see "Operator-verifier role overlap" in Section 14), but they cannot use the *same* member for both roles on the *same* content.
 5. Verify content is still within `verification_window` (not expired)
 6. Verify verifier has sufficient uncommitted bond: `current_bond - total_committed_bond ≥ verifier_slash_amount`
 7. Compare `content_hash` with the bridge operator's submitted `content_hash` on the FederatedContent record:
-   - **Match**: Content status → VERIFIED. Create VerificationRecord with `committed_amount = verifier_slash_amount`. Increment verifier's `total_committed_bond`. Emit `content_verified` event.
+   - **Match**: Content status → VERIFIED. Create VerificationRecord with `committed_amount = verifier_slash_amount`. Increment verifier's `total_committed_bond`. Emit `content_verified` event. If the peer policy has `require_review`, the content lands `HIDDEN` instead (`content_awaiting_review` event): the verification itself is unchanged, and an Operations Committee restore (`MsgModerateContent` to ACTIVE, which restores bridged content to VERIFIED while its verification stands) publishes it. Content awaiting review cannot be challenged until it is published.
    - **Mismatch**: Content status → DISPUTED. Create VerificationRecord with `committed_amount = verifier_slash_amount`. Increment verifier's `total_committed_bond`. Initiate two-phase resolution with verifier as implicit challenger (see Section 3.9.2 step 4 for dispute-specific verdict outcomes — no challenge fee, verifier bond at stake). Add to `ArbiterResolutionQueue`. Emit `content_disputed` event.
 8. Increment verifier's `total_verifications`, `epoch_verifications`
 9. Update operator's `content_verified` count (on match only)
@@ -1868,7 +2005,7 @@ message MsgChallengeVerification {
 6. Escrow `effective_fee` SPARK from challenger to federation module account
 6. Content status → CHALLENGED
 7. VerificationRecord outcome → CHALLENGED
-8. Start Phase 1 (anonymous resolution): set `arbiter_resolution_deadline` = block_time + `arbiter_resolution_window`. Add to `ArbiterResolutionQueue`.
+8. Start Phase 1 (arbiter resolution): set the record's `arbiter_resolution_deadline` = block_time + `arbiter_resolution_window` and clear `arbiter_escalation_deadline`. Add to `ArbiterResolutionQueue`. A new round is refused (`ErrDisputeInProgress`) while an escalation is still open or the previous round's arbiter data has not yet been deleted (its cleanup runs against the prune budget); otherwise old votes would count in the new round and the old round's cleanup would delete the new round's votes.
 9. Emit `verification_challenged` event with `content_id`, `challenger`, `verifier`
 
 ### 6.24. SubmitArbiterHash (Bridge Operator or Anonymous Member)
@@ -1884,9 +2021,9 @@ message MsgSubmitArbiterHash {
 ```
 
 **Logic (identified path):**
-1. Verify creator holds a non-suspended `BridgeBinding` for the same peer as the challenged content (i.e., is a live operator for that peer)
-2. Verify creator is not the bridge operator who submitted the challenged content (reject with `ErrSelfArbiter`)
-3. Verify content is in CHALLENGED status and within `arbiter_resolution_window`
+1. Verify creator holds a non-suspended `BridgeBinding` for the same peer as the challenged content and its `service.Operator` is ACTIVE (i.e., is a live, bonded operator for that peer)
+2. Verify creator is not (`SameMember`) the bridge operator who submitted the challenged content, the challenger, or the verifier (reject with `ErrSelfArbiter`) — a party holding a binding for the peer would otherwise vote in its own dispute
+3. Verify content is in CHALLENGED or DISPUTED status and the round is open (`ErrArbitrationClosed` otherwise): block time ≤ the record's `arbiter_resolution_deadline`, no quorum stashed yet (the first quorum is final), no open escalation, and the peer is not being removed
 4. Verify no existing submission from this operator for this content_id
 5. Store `ArbiterHashSubmission` with `operator = creator`
 6. Increment `ArbiterHashCounts[(content_id, content_hash)]`
@@ -1894,7 +2031,7 @@ message MsgSubmitArbiterHash {
 8. Emit `arbiter_hash_submitted` event
 
 **Logic (anonymous path — dispatched by x/shield after ZK proof verification):**
-1. Verify content is in CHALLENGED status and within `arbiter_resolution_window`
+1. Verify content is in CHALLENGED or DISPUTED status and the round is open (same checks as identified step 3). `IsShieldCompatible` applies the same checks before shield dispatches, so a closed round is rejected without spending module-paid gas. Content id 0 is an ordinary record (`ContentSeq` starts at 0), not a sentinel. The party check of identified step 2 cannot be applied (see Section 3.9.7).
 2. x/shield has already verified: trust_level >= ESTABLISHED, nullifier is unique for this content_id
 3. Store `ArbiterHashSubmission` with `nullifier` from x/shield context
 4. Increment `ArbiterHashCounts[(content_id, content_hash)]`
@@ -1914,13 +2051,14 @@ message MsgEscalateChallenge {
 
 **Logic:**
 1. Verify content is in CHALLENGED or DISPUTED status
-2. Verify `arbiter_escalation_deadline` has not passed (EndBlocker Phase 8 fires the auto-verdict otherwise)
-3. Verify creator is the challenger or the verifier for this content
+2. If the arbiter quorum has stashed an auto-verdict, verify the record's `arbiter_escalation_deadline` (quorum time + `arbiter_escalation_window`, stored on the `VerificationRecord`) has not passed — enforced in the handler even when EndBlocker Phase 8 is behind on its prune budget (`ErrEscalationWindowExpired`). Escalating **before** any quorum is allowed: it skips the arbiter phase and goes straight to the Operations Committee policy, and with no auto-verdict to overturn the escalator always forfeits the escalation fee.
+3. Verify creator is the challenger or the verifier for this content (alias-aware: `CanActAs` against the stored addresses, so a party who migrated keys keeps the right and a tombstoned key loses it)
 4. Escrow `escalation_fee` SPARK from creator into the federation module account (refunded if the jury overturns the auto-verdict; burned otherwise)
 5. Reject double-escalation: an EscalatedChallenge entry must not already exist for this content
 6. Snapshot the auto-verdict (`PendingVerifierVerdict`) into a new EscalatedChallenge record keyed by content_id, then clear `PendingVerifierVerdict` on the VerificationRecord so EndBlocker Phase 8 stops the auto-application path. Add the record to the jury-deadline queue at `block_time + challenge_jury_deadline`. The escrowed challenge_fee stays on the module account until the jury verdict lands.
-7. Operator-side x/service report is still filed via `OpenSystemReport` (controller can resolve the operator slash independently; escalation only changes the verifier-side path)
-8. Emit `challenge_escalated` event with `jury_deadline` + snapshot `auto_verdict`
+7. No operator report is filed on escalation: the dispute is between verifier and challenger, and the operator's hash may well have been confirmed. The operator is reported where its content is actually falsified — at an arbiter quorum whose hash differs from the content hash, or by a committee verdict that finds the content hash false (below).
+8. From here the round belongs to the committee: arbiter votes are refused and the automatic verdict never applies.
+9. Emit `challenge_escalated` event with `jury_deadline` + snapshot `auto_verdict`
 
 ### 6.25a. ResolveEscalatedChallenge (Operations Committee)
 
@@ -1936,13 +2074,17 @@ message MsgResolveEscalatedChallenge {
 ```
 
 **Logic:**
-1. Verify signer is the Operations Committee
+1. Verify signer is x/gov or the Commons Council / Operations Committee **policy** address (`IsCouncilOrCommitteePolicy`). A single committee member cannot sign it: the verdict slashes or pays the verifier and decides who keeps the fees.
 2. Verify verdict is CHALLENGE_UPHELD, CHALLENGE_REJECTED, or CHALLENGE_TIMEOUT
-3. Verify an EscalatedChallenge entry exists for this content
-4. Dispatch to the resolution-verdict logic below (same path the EndBlocker uses on jury-deadline expiry for TIMEOUT)
-5. Compare jury verdict to the snapshot auto-verdict and refund the escalation_fee to the escalator if overturned; burn otherwise
-6. Tear down both the EscalatedChallenge entry and its deadline-queue entry
-7. Emit `jury_verdict_applied` event with the verdict + reasoning
+3. Verify an EscalatedChallenge entry exists for this content, and that the signer is not (`SameMember`) the challenger, the verifier or the escalator (`ErrConflictOfInterest`)
+4. Verify the content is still CHALLENGED or DISPUTED (`ErrArbitrationClosed` otherwise): a settled dispute is never settled again
+5. Dispatch to the resolution-verdict logic below (same path the EndBlocker uses on jury-deadline expiry for TIMEOUT). The escrowed challenge fee is zeroed once disbursed, and the round's arbiter escalation-queue entry is dropped
+6. File the operator report when the verdict finds the operator's content hash false: CHALLENGED content with CHALLENGE_UPHELD (the verifier had matched the operator), or DISPUTED content with CHALLENGE_REJECTED (the verifier had disagreed with the operator and was right)
+7. Compare jury verdict to the snapshot auto-verdict and refund the escalation_fee to the escalator if overturned; burn otherwise
+8. Tear down both the EscalatedChallenge entry and its deadline-queue entry
+9. Emit `jury_verdict_applied` event with the verdict + reasoning
+
+Any failed side effect (bank send or burn, x/rep outcome / slash / mint / release) fails the tx, so nothing is half-applied and the verdict can be resubmitted; if it never is, the jury-deadline TIMEOUT settles the dispute.
 
 **Resolution verdicts** (same outcomes for both Phase 1 auto-resolution and Phase 2 jury):
 
@@ -1952,13 +2094,13 @@ message MsgResolveEscalatedChallenge {
   3. Apply escalating cooldown: `overturn_cooldown_until = block_time + base_cooldown * 2^(consecutive_overturns - 1)`, capped at 7 days
   4. Update `bond_status` (may transition to RECOVERY or DEMOTED)
   5. Challenger refunded 100% of `challenge_fee`
-  6. Content status → REJECTED. Operator's `content_rejected` incremented.
+  6. CHALLENGED content → REJECTED, operator's `content_rejected` incremented (the verifier had matched the operator, so the operator's hash is false too). DISPUTED content → VERIFIED, operator untouched (the verifier had disagreed with the operator, so the operator's hash stands) — except when an arbiter quorum matched neither of them (`quorum_falsified_content`): both were wrong, so the content is REJECTED and the operator counted.
 
 - **CHALLENGE_REJECTED** (verifier was right):
   1. Verifier's `upheld_verifications++`, `consecutive_upheld++`
   2. If `consecutive_upheld ≥ upheld_to_reset_overturns` (default: 3): reset `consecutive_overturns = 0`
   3. Challenger loses fee: 50% to verifier (SPARK reward), 50% burned
-  4. Content stays VERIFIED
+  4. CHALLENGED content stays VERIFIED. DISPUTED content → REJECTED and the operator's `content_rejected` incremented (the verifier disagreed with the operator and was right).
 
 - **CHALLENGE_TIMEOUT** (Phase 1: no quorum within `arbiter_resolution_window`):
   1. The EndBlocker settles the record terminally; it does **not** auto-escalate
@@ -1992,8 +2134,8 @@ message MsgResolveEscalatedChallenge {
 
 **Content status during resolution:**
 - During Phase 1 (arbiter quorum) and Phase 2 (jury): content remains in CHALLENGED status. It is excluded from default frontend listings (same visibility as HIDDEN). This prevents users from consuming content whose authenticity is actively disputed.
-- During the escalation window (48h after auto-resolution): content status reflects the provisional verdict (REJECTED if upheld, VERIFIED if rejected). If escalated, status reverts to CHALLENGED and the provisional verdict is unwound.
-- `MsgModerateContent` can be applied to CHALLENGED content (Operations Committee can override at any time regardless of dispute status).
+- During the escalation window (48h after the quorum): content stays CHALLENGED / DISPUTED; the stashed verdict is applied only when the window closes. If escalated, the stash is discarded.
+- `MsgModerateContent` is refused during an open dispute (`ErrDisputeInProgress`); the dispute paths own the status until they settle.
 - New challenges cannot be filed against CHALLENGED content (already in dispute).
 
 ### 6.26. UpdateParams (Governance)
@@ -2021,9 +2163,9 @@ message MsgUpdateOperationalParams {
 ```
 
 **Logic:**
-1. Verify authority via `commonsKeeper.IsCouncilAuthorized(ctx, authority, "commons", "operations")`
-2. Validate all operational params against ranges in Section 4.13
-3. Merge into current Params (only overwrite the operational subset)
+1. Verify authority is x/gov or the Operations Committee **policy** address (`IsCouncilOrCommitteePolicy`) — not a single member, who could otherwise set `content_ttl` to seconds or lift every state-growth limit with no proposal
+2. Merge into current Params (only overwrite the operational subset)
+3. Run `Params.Validate()` on the merged params, which carries the Section 4.13 range table, so this path can never reach values `MsgUpdateParams` could not
 4. Emit `operational_params_updated` event with old and new values for each changed field
 
 ### 6.28. UpdatePeerController (Governance)
@@ -2049,7 +2191,7 @@ message MsgUpdatePeerController {
 
 ### 6.29. ResyncBridgeCount (Dual-Authority: Operations Committee OR Governance)
 
-Re-count the per-peer bridge count by walking `BridgesByPeer`. Pure cleanup; no economic state mutation.
+Re-count the per-peer bridge count by walking `BridgesByPeer` and return it. **Read-only**: there is no stored per-peer counter — `max_bridges_per_peer` is enforced by counting the index itself — so there is nothing to resync. Index repair is `MsgPruneOrphanBindings`' job.
 
 ```protobuf
 message MsgResyncBridgeCount {
@@ -2079,7 +2221,7 @@ message MsgPruneOrphanBindingsResponse {
 
 **Authorization rationale**: same as ResyncBridgeCount — pure cleanup, no value mutation, dual-authority to enable timely recovery.
 
-**Observability**: orphans are detected by the `orphan-bindings` invariant (Section 14) and signalled to operators via the `federation_hook_failure` event emitted by the fail-soft `defer recover` in every hook handler. Off-chain monitors watch this event and the invariant query, then trigger this recovery message.
+**Observability**: orphans are detected by the `orphan-bindings` invariant (Section 14) and signalled to operators via the `federation_hook_failure` event emitted by the fail-soft recover in every hook handler. Each hook body runs in a cache context and commits only if it completes, so a recovered panic leaves no half-applied prune behind (out-of-gas is re-panicked and fails the enclosing transaction rather than being swallowed). Off-chain monitors watch this event and the invariant query, then trigger this recovery message.
 
 ---
 
@@ -2099,7 +2241,7 @@ message MsgPruneOrphanBindingsResponse {
 **Media labels.** `media_flags` is computed on `MsgSubmitFederatedContent`, on IBC receive and on genesis import, never set by the submitter. Whenever it is non-zero, `GetFederatedContent` and `ListFederatedContent` return `body = ""` and the body is read through `FederatedContentBody`. Every record with a `content_uri` (all bridged posts) is labelled, so consumers that need the body, such as `sdapverify`'s display check, fetch it there. See [content-scanning.md](content-scanning.md).
 | `GetIdentityLink` | local_address, peer_id | IdentityLink | Identity link details |
 | `ListIdentityLinks` | local_address or peer_id filter, pagination | []IdentityLink | List identity links |
-| `ResolveRemoteIdentity` | peer_id, remote_identity | local_address | Reverse lookup: remote → local |
+| `ResolveRemoteIdentity` | peer_id, remote_identity | local_address | Reverse lookup: remote → local. Resolves VERIFIED links only; an unverified claim is not found |
 | `GetPendingIdentityChallenge` | claimed_address, peer_id | PendingIdentityChallenge | Pending challenge details |
 | `ListPendingIdentityChallenges` | claimed_address filter, pagination | []PendingIdentityChallenge | List pending challenges for an address |
 | `GetReputationAttestation` | local_address, peer_id | ReputationAttestation | Cached reputation |
@@ -2126,9 +2268,10 @@ message MsgPruneOrphanBindingsResponse {
 ### 8.2. Channel Handshake
 
 On `OnChanOpenInit` / `OnChanOpenTry`:
-1. Verify port is `federation`
-2. Verify counterparty port is `federation`
-3. Verify channel version matches or is compatible (see Section 8.5)
+1. Verify the channel is UNORDERED
+2. Verify port is `federation`
+3. Verify counterparty port is `federation`
+4. Verify channel version matches or is compatible (see Section 8.5)
 
 On `OnChanOpenAck` / `OnChanOpenConfirm`:
 1. Verify the counterparty version matches
@@ -2141,6 +2284,25 @@ relayer. Activation stays a governance decision via `MsgResumePeer`
 steps with separate authorization.
 
 ### 8.3. Packet Types
+
+**Which end identifies the peer.** `Peer.ibc_channel_id` is **this chain's
+end** of the federation channel (what `SendFederationPacket` sends on). On
+receive (`OnRecvPacket`) the sending peer is resolved from the packet's
+**destination** port and channel — this chain's end; the destination port must
+be the federation port. The packet's source channel is the sending chain's own
+channel id and is never used: any chain can open a channel to the federation
+port and name its end after a registered peer's channel, and channel numbers of
+two independent chains differ anyway. On acknowledgement and timeout the packet
+was sent by this chain, so its **source** channel is this chain's end and
+identifies the peer. A REMOVED peer's channel is unknown; a packet from a
+SUSPENDED (or PENDING) peer gets an error acknowledgement — suspension blocks
+all inbound federation (§6.3).
+
+An acknowledgement that cannot be applied (undecodable, from a channel no
+longer bound to a peer, or about a link or peer that changed since) is dropped
+with a `federation_ack_dropped` event and **never** returned as an error: an
+error fails `MsgAcknowledgement`, and the commitment of a packet the peer
+already received could then never be cleared.
 
 ```protobuf
 message FederationPacketData {
@@ -2163,8 +2325,8 @@ message ReputationQueryPacket {
 ```
 
 **OnRecvPacket** (receiving chain):
-1. Check peer policy `allow_reputation_queries`
-2. Look up member via x/rep: trust level, active status, per-tag reputations
+1. Resolve the ACTIVE Spark Dream peer from the destination channel; check peer policy `allow_reputation_queries`
+2. Look up member via x/rep: trust level, `is_active` (`IsActiveMember` — a zeroed or inactive member reports false), `member_since` (`joined_at`), and per-tag reputations (whole-number scores, sorted by tag, at most 32)
 3. Return acknowledgement with `ReputationResponseData`
 
 ```protobuf
@@ -2187,9 +2349,13 @@ message ReputationResponseData {
    consumer that forgot to cap would otherwise import the peer's own trust
    level. `global_max_trust_credit` is the single knob; there is no per-peer
    cap and no separate discount rate.
-4. Store the ReputationAttestation keyed `(local_address, peer_id)` with
-   `peer_id` populated and `expires_at` = now + `attestation_ttl`, add to
-   `AttestationExpirationQueue`
+   An inactive member (`is_active = false`) is credited 0.
+4. Write only if the query's premises still hold when the answer lands: the
+   peer is ACTIVE, `resp.address` equals the queried address, and the
+   requester's identity link to it is still VERIFIED (otherwise the ack is
+   dropped). Store the ReputationAttestation keyed `(local_address, peer_id)`
+   with `peer_id` populated and `expires_at` = now + `attestation_ttl`, add to
+   `AttestationExpirationQueue` (replacing any earlier entry)
 4. Emit `reputation_attested` event
 
 **OnTimeoutPacket** (sending chain):
@@ -2215,14 +2381,15 @@ message ContentPacket {
 ```
 
 **OnRecvPacket** (receiving chain):
-1. Identify source peer from channel
-2. Validate against peer policy (content type allowed, rate limits)
+1. Identify the source peer from the **destination** channel (this chain's end); it must be ACTIVE
+2. Validate against peer policy: content type allowed; `creator` not in `blocked_identities` (`ErrIdentityBlocked` — Operations Committee blocks apply federation-wide, §14.4)
    - 2b. `license` must be `CC0-1.0` or `PDM-1.0`, else `ErrLicenseNotAccepted`. A packet from a peer on a binary predating the field carries no license and is refused: the receiver cannot know the content is public domain.
-3. Store `content_hash` from the packet directly (hash covers full source content, computed by the sending chain)
-4. Truncate `body` to `max_content_body_size`, `content_uri` to `max_content_uri_size`, `protocol_metadata` to `max_protocol_metadata_size` (truncation is for storage only — hash covers full content)
-5. Check `ContentByHash` for duplicates — idempotent success if the same hash already anchors a live record (an entry whose record was pruned counts as absent)
+   - 2c. `content_hash` must be a 32-byte SHA-256 digest (`ErrInvalidContentHash`); `creator` and `remote_content_id` at most 512 bytes (`ErrInvalidInboundField` — identifiers are refused, not cut). `MsgFederateContent` refuses a non-32-byte hash on the sending side too.
+3. Check `ContentByHash` for duplicates — idempotent success if the same hash already anchors a live record (an entry whose record was pruned counts as absent)
+4. Charge the global `max_inbound_per_block` cap and the peer's `inbound_rate_limit_per_epoch` sliding window, as the bridge path does (§10.2); over either, an error ack (the counters roll back with the failed receive)
+5. Store `content_hash` from the packet directly (hash covers full source content, computed by the sending chain). Truncate `body` to `max_content_body_size`, `content_uri` to `max_content_uri_size`, `protocol_metadata` to `max_protocol_metadata_size`, `title` to 512 bytes and `creator_name` to 256 bytes — text always on a rune boundary, so stored strings stay valid UTF-8 (truncation is for storage only — hash covers full content)
 6. Store as FederatedContent with computed `expires_at`, add to `ContentExpirationQueue`, `ContentByCreator`, `ContentByHash`
-6. Return success/rejection ack
+7. Return success/rejection ack
 
 **OnTimeoutPacket** (sending chain):
 1. Emit `content_send_timeout` event with `peer_id`, `content_type`, `remote_content_id`
@@ -2245,8 +2412,8 @@ message IdentityVerificationPacket {
 ```
 
 **OnRecvPacket** on Chain B:
-1. Check if `claimed_address` exists via x/auth — if not, ack with `exists = false`
-2. Store a `PendingIdentityChallenge` keyed by `(claimed_address, sending_chain_peer_id)` with expiry = block_time + `challenge_ttl`
+1. Check `claimed_address` is a well-formed local address with an x/auth account — if not, ack with `exists = false` and store nothing. `claimant_address` (≤ 512 bytes) and `challenge` (1–64 bytes) are bounded.
+2. Refuse (error ack, `ErrTooManyChallenges`) when the peer already has `MaxPendingChallengesPerPeer` (10,000) challenges pending. Otherwise store a `PendingIdentityChallenge` keyed by `(claimed_address, sending_chain_peer_id)` with expiry = block_time + `challenge_ttl`, indexed in the expiry queue the EndBlocker range-walks
 3. Ack with `exists = true` (challenge stored, awaiting user confirmation)
 4. Emit `identity_challenge_received` event so frontends can notify the user
 
@@ -2257,7 +2424,7 @@ message IdentityVerificationAck {
 ```
 
 **OnAcknowledgementPacket** on Chain A:
-1. If `exists = false`, mark link as REVOKED (remote address doesn't exist)
+1. If `exists = false`, revoke the link (remote address doesn't exist): it is deleted with its reverse-index and unverified-expiry entries and its share of `IdentityLinkCount`, and `identity_link_revoked` (reason "remote address does not exist") is emitted — no REVOKED record is retained, as with peer removal. Only the link this packet was sent for (same remote identity and challenge, still UNVERIFIED) is touched.
 2. If `exists = true`, link remains UNVERIFIED — waiting for Phase 2
 
 **Phase 2: User Confirmation**
@@ -2286,17 +2453,19 @@ message IdentityVerificationConfirmPacket {
 }
 ```
 
-5. Delete the `PendingIdentityChallenge`
+   If the send fails the transaction fails: the confirmation is never lost silently.
+5. Keep the `PendingIdentityChallenge` until it expires (Phase 4), so a confirmation whose packet times out can be re-sent by submitting `MsgConfirmIdentityLink` again. The peer must be ACTIVE.
 6. Emit `identity_challenge_confirmed` event
 
 **OnRecvPacket** on Chain A (receiving confirmation):
-1. Match the `challenge` and `claimant_address` against the pending IdentityLink
-2. Upgrade IdentityLink status to VERIFIED, set `verified_at` = block_time
-3. Remove from `UnverifiedLinkExpirationQueue`
-4. Emit `identity_verified` event
+1. Match the `challenge` and `claimant_address` against the pending IdentityLink. A repeat confirmation of a link already VERIFIED is a no-op success.
+2. Refuse (`ErrRemoteIdentityAlreadyClaimed`) when the remote identity is already verified to another local address; other members' unverified claims to it stay until their TTL.
+3. Upgrade IdentityLink status to VERIFIED, set `verified_at` = block_time, and record it in `IdentityLinksByRemote`
+4. Remove from `UnverifiedLinkExpirationQueue`
+5. Emit `identity_verified` event
 
 **Timeout handling:**
-- Phase 1 timeout (challenge delivery): Emit `identity_verification_timeout` event. Link remains UNVERIFIED. Automatic retry up to 3 times; after that, emit `identity_verification_failed` and link stays UNVERIFIED until pruned by TTL.
+- Phase 1 timeout (challenge delivery): Emit `identity_verification_timeout` event. Link remains UNVERIFIED. The timeout callback re-sends the same challenge while the link (unchanged and still UNVERIFIED, peer ACTIVE) has fewer than 3 deliveries (`IdentityLink.verification_attempts`, 1 at link time); after the third, emit `identity_verification_failed` and the link stays UNVERIFIED until pruned by TTL.
 - Phase 2 timeout (confirmation delivery): Emit `identity_confirmation_timeout` event on Chain B. User can re-submit `MsgConfirmIdentityLink` which sends a new confirmation packet.
 - Challenge expiry: If the user on Chain B doesn't confirm within `challenge_ttl` (default 7 days), the `PendingIdentityChallenge` is pruned by EndBlocker. The link on Chain A remains UNVERIFIED and will be pruned by `unverified_link_ttl`.
 
@@ -2353,14 +2522,18 @@ Walk `AttestationExpirationQueue` from earliest entry. For each entry where `exp
 ### Phase 3: Prune Expired Unverified Identity Links
 
 Walk `UnverifiedLinkExpirationQueue` from earliest entry. For each entry where the expiry time <= block_time:
-1. Look up the IdentityLink — if still UNVERIFIED, delete it from `IdentityLinks`, `IdentityLinksByRemote`, decrement `IdentityLinkCount`
+1. Look up the IdentityLink — if still UNVERIFIED, delete it from `IdentityLinks` and `IdentityClaimsByRemote`, decrement `IdentityLinkCount`
 2. If the link was already VERIFIED (verification completed before TTL), just remove the queue entry
 3. Emit `identity_link_expired` event for deleted links
 4. Increment `pruned` counter
 
+### Phase 3b: Withdraw Slashed Operators' Identity Attestations
+
+Walk `AttesterRevocations` (queued by `AfterOperatorDissolved`, Section 3.4.1). For each `(operator, peer_id)`, walk `IdentityLinksByAttester` at that prefix and return each link still VERIFIED and `attested_by` that operator to UNVERIFIED: remove it from the verified indexes, clear `attested_by`/`attestation_evidence`/`verified_at`, set `unverified_expires_at = now + unverified_link_ttl` with its `UnverifiedLinkExp` entry, and emit `identity_attestation_revoked`. One unit of `max_prune_per_block` per link; the queue entry is removed once its prefix is empty, so a large set resumes next block.
+
 ### Phase 4: Prune Expired Identity Challenges
 
-Walk `PendingIdentityChallenges` and delete entries where `expires_at <= block_time`. Increment `pruned` counter. Emit `identity_challenge_expired` event for each.
+Range-walk the `PendingIdChallengeExp` expiry queue up to `block_time` and delete each expired challenge with its index entries (the walk's cost is the number of challenges that actually expired, not the number pending — inbound challenges are attacker-influenced). An entry whose challenge was since replaced with a later expiry is dropped without touching the challenge. Increment `pruned` counter. Emit `identity_challenge_expired` event for each.
 
 > **EndBlocker numbering.** The original Phase 5 (Release Unbonded Bridge Stakes) was removed in the federation→service migration; x/service's EndBlocker now owns operator-bond release via its `UnderfundedQueue`/unbonding-period accounting, and federation prunes affected bindings reactively from `AfterOperatorRetired` / `AfterOperatorDissolved` hooks (Section 7). The phase numbering below was compacted afterwards — what the early spec called Phases 6–13 are now Phases 5–12.
 
@@ -2388,10 +2561,13 @@ Walk `ChallengeWindowQueue` from earliest entry. For each entry where `challenge
 ### Phase 7: Expire Arbiter Resolution Windows
 
 Walk `ArbiterResolutionQueue` from earliest entry. For each entry where `arbiter_resolution_deadline <= block_time`:
-1. If no quorum was reached (challenge still in CHALLENGED status without auto-resolution):
-   - Automatically escalate to Phase 2 (human jury): create x/rep jury initiative with full evidence
+0. Act only on the entry written for the record's current round (its key equals the record's `arbiter_resolution_deadline`). An entry left over from an earlier round of the same content is dropped untouched; a missing record means peer removal already cleaned up.
+1. If no quorum was reached (no stashed auto-verdict and no open escalation) and the content is still CHALLENGED / DISPUTED — a no-finding exit:
+   - Release the verifier's commitment and stamp `last_challenge_resolved_at`
+   - Settle the content: CHALLENGED reverts to VERIFIED, DISPUTED goes to UNRESOLVED
+   - Disburse the escrowed challenge fee by the jury-TIMEOUT rule: half refunded to the challenger (odd unit included), half burned; the record's escrow is zeroed. (It used to stay in the module account forever.)
    - Emit `arbiter_resolution_expired` event
-2. Clean up `ArbiterHashSubmissions` and `ArbiterHashCounts` for this content_id
+2. Clean up `ArbiterHashSubmissions` and `ArbiterHashCounts` for this content_id, each deletion charged to the prune budget. If the budget runs out the entry stays and the next block resumes the cleanup (step 1 does not repeat: the content is no longer in dispute). The set is finite and closed — no vote is accepted after the deadline — so the cleanup converges.
 3. Delete the queue entry
 4. Increment `pruned` counter
 
@@ -2400,12 +2576,12 @@ Walk `ArbiterResolutionQueue` from earliest entry. For each entry where `arbiter
 Two sub-passes share the `pruned` budget:
 
 **Sub-pass A: `ArbiterEscalationQueue`**. Walk from earliest entry. For each entry where `arbiter_escalation_deadline <= block_time`:
-1. Apply any stashed `PendingVerifierVerdict` on the VerificationRecord (no-op when UNSPECIFIED — escalation already cleared it):
+1. Apply any stashed `PendingVerifierVerdict` on the VerificationRecord — only when the entry's key equals the record's `arbiter_escalation_deadline`, no EscalatedChallenge is open (an escalated dispute is settled only by the committee or its TIMEOUT), and the content is still CHALLENGED / DISPUTED. No-op otherwise. The escrowed challenge fee is zeroed once disbursed:
    Both verdicts are reported to x/rep via `RecordRoleOutcome(ROLE_TYPE_FEDERATION_VERIFIER, addr, "federation_verify", upheld)`. Rep owns the consequence: the per-kind upheld/overturned counters, `epoch_appeals_resolved`, the accuracy ring, the verdict streaks, the overturn cooldown, and streak demotion. Federation writes none of it and reads the results back only for its event payloads.
-   - **VERIFIER_RIGHT (CHALLENGE_REJECTED)**: report an upheld verdict; rep bumps the upheld counter and `consecutive_upheld`, and resets `consecutive_overturns` once the streak reaches the role's configured `upheld_to_reset_overturns`. Increment `prior_rejected_challenges` so the next challenger pays the escalating fee. Content status → VERIFIED. Disburse the escrowed challenge fee 50/50 (verifier as SPARK reward / burn — odd unit rounds to verifier). Emit `challenge_rejected`.
-   - **VERIFIER_WRONG (CHALLENGE_UPHELD)**: report an overturned verdict; rep bumps the overturned counter and `consecutive_overturns`, resets `consecutive_upheld`, sets `overturn_cooldown_until` via `base * 2^(consecutive_overturns - 1)` capped at 7 days (the escalation the role opts into through `BondedRoleConfig.overturn_cooldown_escalates`), and demotes the bond once the overturn streak crosses the threshold. Slash `verifier_slash_amount` DREAM from the bond (burned) and mint half-slash bounty back to the challenger (net: 50% to challenger, 50% burned); `SlashBond` stamps `last_slash_epoch = current_reward_epoch`, which disqualifies the verifier from that epoch's payout. Content status → REJECTED. Refund 100% of the escrowed challenge fee to the challenger. Emit `challenge_upheld` + `verifier_cooldown_applied`.
+   - **VERIFIER_RIGHT (CHALLENGE_REJECTED)**: report an upheld verdict; rep bumps the upheld counter and `consecutive_upheld`, and resets `consecutive_overturns` once the streak reaches the role's configured `upheld_to_reset_overturns`. Increment `prior_rejected_challenges` so the next challenger pays the escalating fee. CHALLENGED content → VERIFIED; DISPUTED content → REJECTED with the operator's `content_rejected` incremented. Disburse the escrowed challenge fee 50/50 (verifier as SPARK reward / burn — odd unit rounds to verifier). Emit `challenge_rejected`.
+   - **VERIFIER_WRONG (CHALLENGE_UPHELD)**: report an overturned verdict; rep bumps the overturned counter and `consecutive_overturns`, resets `consecutive_upheld`, sets `overturn_cooldown_until` via `base * 2^(consecutive_overturns - 1)` capped at 7 days (the escalation the role opts into through `BondedRoleConfig.overturn_cooldown_escalates`), and demotes the bond once the overturn streak crosses the threshold. Slash `verifier_slash_amount` DREAM from the bond (burned) and mint half-slash bounty back to the challenger (net: 50% to challenger, 50% burned); `SlashBond` stamps `last_slash_epoch = current_reward_epoch`, which disqualifies the verifier from that epoch's payout. CHALLENGED content → REJECTED with the operator's `content_rejected` incremented; DISPUTED content → VERIFIED when the quorum hash is the operator's, REJECTED (operator counted) when it matches neither side. Refund 100% of the escrowed challenge fee to the challenger. Emit `challenge_upheld` + `verifier_cooldown_applied`.
 2. Stamp `last_challenge_resolved_at = block_time` and reset `pending_verifier_verdict` to UNSPECIFIED (re-org safety).
-3. Clean up `ArbiterHashSubmissions` and `ArbiterHashCounts` for this content_id.
+3. Clean up `ArbiterHashSubmissions` and `ArbiterHashCounts` for this content_id against the prune budget (resumed next block if it runs out, as in Phase 7).
 4. Delete the queue entry.
 5. Increment `pruned` counter.
 
@@ -2416,7 +2592,11 @@ Two sub-passes share the `pruned` budget:
 4. Emit `challenge_timeout`.
 5. Increment `pruned` counter.
 
-Per-record failures (e.g. challenger refund bank send) are logged and swallowed so the EndBlocker can keep draining the queue.
+Every EndBlocker settlement (the Phase 7 no-quorum expiry, the Phase 8 automatic verdict and the jury TIMEOUT) runs in its own cache context and commits only when every side effect succeeded. When one fails (a challenger refund bank send, a burn, an x/rep slash / mint / outcome / release), nothing of the settlement commits: the escrowed fees stay on the records (the escrow-solvency invariant keeps holding), the content stays in dispute, and the record is queued in `SettlementRetryQueue` with `settlement_retry_kind`, `settlement_attempts` and `settlement_retry_at = now + 300 s × 2^(attempt-1)` (`settlement_failure`: content_id, step, attempt, retry_at, error). The original queue entry is consumed (a failed TIMEOUT drops its jury-deadline entry; the escalation itself stays open), so the walk keeps draining. After `MaxSettlementAttempts = 5` failures the record leaves the retry queue (`settlement_abandoned`) and keeps its escrow until peer removal refunds it or, for a TIMEOUT, `MsgResolveEscalatedChallenge` settles it. The tx path (`MsgResolveEscalatedChallenge`) fails instead, rolling everything back.
+
+**Phase 8a: Retry failed settlements.** Walk `SettlementRetryQueue` up to the block time (charged to the prune budget). A stale entry (record gone, or settled by another path, which clears the retry fields) is dropped; otherwise the owed settlement re-runs in a cache context with the same guards (no verdict stashed / no open escalation / still in dispute), so a retry after another path settled the dispute is a no-op. Success clears the retry fields; failure re-queues with the next backoff or abandons.
+
+**Phase 8b: Retry pending operator reports.** Walk `PendingChallengeReports` (charged to the prune budget) and re-file each owed operator report with its original dedupe key. A filed report stores its id in `challenge_report_id` and leaves the queue; one still rate-limited stops the walk (the limit is per caller, so every later entry would be refused too); a record or content that is gone, or an error that cannot succeed later (operator no longer in x/service), drops the entry with a `federation_hook_failure` event.
 
 ### Phase 9: Process Peer Removal Queue
 
@@ -2436,15 +2616,15 @@ message PeerRemovalState {
 ```
 
 For each peer in `PeerRemovalQueue` (bounded by remaining prune budget):
-1. **Content cleanup (cursor-based):** Walk `ContentByPeer` index starting from `last_pruned_content_id + 1`. For each content item, before deleting:
+1. **Content cleanup (cursor-based):** Walk `ContentByPeer` index starting from `last_pruned_content_id + 1`. For each content item, first delete its arbiter submissions and tallies against the prune budget (a content with more than the remaining budget resumes next block), then, before deleting:
    - If content is in CHALLENGED or DISPUTED status: cancel the dispute. Refund any escrowed `challenge_fee` to the challenger. Release verifier's `committed_bond`. Refund an open jury escalation's fee to the escalator and delete the `EscalatedChallenge`. Delete associated `VerificationRecord` and `ArbiterHashSubmissions`. Emit `challenge_cancelled_peer_removed` event. Queue entries keyed on deadlines the record does not store (`ArbiterResolutionQueue`, `ArbiterEscalationQueue`, `VerificationWindowQueue`) are left to drain: their walks no-op on a missing record or content, and content ids are never reused.
    - If content is VERIFIED with active challenge window: release verifier's committed bond, delete `VerificationRecord` and `ChallengeWindowQueue` entry.
    - Delete the content from primary store and all indexes.
    Update `last_pruned_content_id` to the last deleted ID. Set `content_done = true` when the index walk finds no more items. This guarantees O(N) total operations across all blocks, not O(N^2).
-2. **Identity links** (if `content_done` and budget remains): Walk `IdentityLinksByRemote` under the peer prefix; delete each link, its reverse-index and unverified-expiry entries, and decrement `IdentityLinkCount`. Emit `identity_link_revoked` for each verified link. Then delete the peer's `PendingIdentityChallenges`. Set `links_done = true`.
-3. **Reputation attestations** (if `links_done`): Delete all for this peer, with their `AttestationExpirationQueue` entries. Set `attestations_done = true`.
+2. **Identity links** (if `content_done` and budget remains): Walk `IdentityClaimsByRemote` under the peer prefix (every link, verified or not); delete each link, its claim, reverse-index and unverified-expiry entries, and decrement `IdentityLinkCount`. Emit `identity_link_revoked` for each verified link. Then delete the peer's `PendingIdentityChallenges`. Set `links_done = true`.
+3. **Reputation attestations** (if `links_done`): Delete all for this peer, found through the `(peer_id, local_address)` index `RepAttestationsByPeer` (so only this peer's entries are visited), with their `AttestationExpirationQueue` entries. Set `attestations_done = true`.
 4. **Outbound attestations** (if `attestations_done`): Delete all for this peer. The store has no peer index, so the walk is cursor-based: `last_pruned_content_id` (spent once `content_done`, reset to 0 on entering step 2) holds the next outbound attestation id, and every visited entry consumes budget. Set `outbound_done = true`.
-5. **Bridge bindings** (if `outbound_done`): by `MsgRemovePeer`'s step-3 precondition, peers reach this phase only after their bindings have been unbound via x/service (or force-dissolved by gov bundle). Any remaining bindings here are orphans whose `service.Operator` already moved to `RETIRED`/`SLASHED` — federation simply deletes them and their reverse-index entries; x/service owns bond accounting. Emit `bridge_unbound` events. Set `bridges_done = true`.
+5. **Bridge bindings** (if `outbound_done`): by `MsgRemovePeer`'s step-3 precondition, peers reach this phase only after their bindings have been unbound via x/service (or force-dissolved by gov bundle). Any remaining bindings here are orphans whose `service.Operator` already moved to `RETIRED`/`SLASHED` — federation deletes them with both reverse-index entries (`BridgesByPeer` and `BindingsByOperator`), each charged to the prune budget; x/service owns bond accounting. Set `bridges_done = true` once none remain.
 6. **Peer policy** (if `bridges_done`): Delete. Set `policy_done = true`.
 7. If ALL flags are true, delete the Peer record itself and remove from `PeerRemovalQueue`. Emit `peer_cleanup_complete` event.
 8. If budget exhausted at any step, save cursor state — remaining work resumes from exactly where it left off next block.
@@ -2687,6 +2867,12 @@ Bridge operators can be slashed for:
 | `ErrCurationUnavailable` | 2387 | The policy's curation collection does not exist or is not ACTIVE |
 | `ErrInvalidAllowedIdentity` | 2388 | `allowed_identities` entry is neither `"*"` nor a recognizable author identity |
 | `ErrLicenseNotAccepted` | 2389 | `MsgSubmitFederatedContent` / `ContentPacket`: `license` is not `CC0-1.0` or `PDM-1.0` (Section 3.3) |
+| `ErrIdentityLinkAlreadyVerified` | 2399 | `MsgAttestIdentityLink`: the link is already VERIFIED |
+| `ErrIdentityLinkExpired` | 2400 | `MsgAttestIdentityLink`: the claim reached its `unverified_expires_at` |
+| `ErrAttestationChallengeMismatch` | 2401 | `MsgAttestIdentityLink`: `challenge` is not the hex of the link's challenge |
+| `ErrInvalidAttestationEvidence` | 2402 | `MsgAttestIdentityLink`: `evidence_uri` empty, over 512 bytes, or (ActivityPub) not on the peer's hosts |
+| `ErrSelfAttestation` | 2403 | `MsgAttestIdentityLink`: the operator is the member whose link it attests |
+| `ErrOperatorNotMember` | 2404 | `MsgRegisterBridge`, `MsgSubmitFederatedContent`, `MsgAttestOutbound`, `MsgAttestIdentityLink`, identified `MsgSubmitArbiterHash`: the operator is not an active x/rep member |
 
 > `ErrInsufficientStake`, `ErrSlashExceedsStake`, `ErrCooldownNotElapsed`, and `ErrInvalidStakeDenom` are retained in `errors.go` for legacy test fixtures but are no longer produced by federation handlers — bond enforcement runs on `x/service` and surfaces the corresponding service-side errors instead.
 
@@ -2718,8 +2904,10 @@ Bridge operators can be slashed for:
 | `federated_content_moderated` | id, new_status, reason, moderated_by | Content moderation action |
 | `content_federated` | peer_id, content_type, local_content_id, creator | Outbound IBC content sent |
 | `outbound_attested` | peer_id, content_type, local_content_id | Outbound bridge attestation |
-| `identity_linked` | local_address, peer_id, remote_identity | Identity link created |
-| `identity_verified` | local_address, peer_id, remote_identity | Identity link verified |
+| `identity_linked` | local_address, peer_id, remote_identity, link_proof (bridge peers) | Identity link created; `link_proof` is the string to publish from the remote identity (§3.4.1) |
+| `identity_verified` | local_address, peer_id, remote_identity | Identity link verified (IBC confirmation or bridge attestation) |
+| `identity_link_attested` | operator, local_address, peer_id, remote_identity, evidence_uri | A bridge operator attested a link (§3.4.1); the record a false-attestation report cites |
+| `identity_attestation_revoked` | operator, local_address, peer_id, remote_identity, evidence_uri | Phase 3b returned a slashed operator's attested link to UNVERIFIED |
 | `identity_unlinked` | local_address, peer_id | Identity link removed |
 | `identity_link_revoked` | local_address, peer_id, remote_identity | Identity link revoked (peer removed) |
 | `identity_link_expired` | local_address, peer_id, remote_identity | Unverified identity link pruned by TTL |
@@ -2757,8 +2945,13 @@ Bridge operators can be slashed for:
 | `arbiter_hash_submitted` | content_id, content_hash, is_identified | Arbiter hash received (operator address included if identified, omitted if anonymous) |
 | `arbiter_quorum_reached` | content_id, quorum_hash, matching_count | Quorum of matching hashes reached |
 | `challenge_auto_resolved` | content_id, verdict, quorum_hash | Challenge auto-resolved by anonymous quorum |
-| `challenge_escalated` | content_id, escalated_by | Auto-resolution escalated to human jury |
-| `arbiter_resolution_expired` | content_id | No quorum reached, escalating to jury |
+| `challenge_escalated` | content_id, updated_by, jury_deadline, auto_verdict | Dispute escalated to the Operations Committee; arbitration closed |
+| `arbiter_resolution_expired` | content_id | Arbiter window closed with no quorum and no escalation; settled as no finding (CHALLENGED → VERIFIED, DISPUTED → UNRESOLVED) |
+| `settlement_failure` | content_id, step, attempt, retry_at, error | An EndBlocker settlement failed; nothing committed and it is retried at `retry_at` |
+| `settlement_abandoned` | content_id, step, attempt, error | The last retry of an EndBlocker settlement failed; the record keeps its escrow |
+| `challenge_report_filed` | content_id, operator, report_id | x/service operator report filed for falsified content |
+| `challenge_report_deferred` | content_id, operator, error | x/service refused the operator report for now (rate limit); Phase 8b retries it |
+| `content_awaiting_review` | content_id, peer_id | Content landed HIDDEN because the peer policy has `require_review` |
 | `challenge_cancelled_peer_removed` | content_id, peer_id, challenger_refunded | Active dispute cancelled due to peer removal |
 | `jury_verdict_applied` | content_id, verdict, authority, reasoning | Operations Committee applied a Phase 2 jury verdict via `MsgResolveEscalatedChallenge` |
 | `escalation_fee_refunded` | content_id, escalator, amount | Escalation fee refunded to escalator after the jury overturned the auto-verdict |
@@ -2891,10 +3084,10 @@ Mitigations:
 
 An attacker claims a false identity link. Mitigations:
 - IBC links use a two-phase verification protocol where the remote user must sign a `MsgConfirmIdentityLink` transaction on the remote chain, cryptographically proving key ownership (see Section 8.3)
-- Bridge-verified links rely on operator honesty (staked)
+- Links to bridge peers are verified only by a bonded bridge operator's attestation that the remote identity published the claim's challenge (Section 3.4.1). A false attestation is reportable against the operator's x/service bond, and a slashed operator's attestations are unwound. Until an operator attests, a bridge link stays UNVERIFIED and does not resolve. The trust in a bridge-attested link is the trust in one bonded operator, not a cryptographic proof: consumers that need more should treat `attested_by` as part of the answer.
 - Unverified links are clearly marked — consumers should treat them differently
 - Users can only link their own local address
-- **Unique remote identity constraint**: Each `(peer_id, remote_identity)` can only be claimed by one local address, preventing identity collision in reverse lookups
+- **Unique verified remote identity**: each `(peer_id, remote_identity)` can be verified to only one local address, so reverse lookups never collide. An unverified claim does not reserve the identity, so nobody can squat someone else's handle by claiming it first (Section 3.4)
 - **Per-user link cap**: `max_identity_links_per_user` prevents link explosion attacks
 - **Unverified link TTL**: Stale unverified claims are automatically pruned
 
@@ -2920,10 +3113,16 @@ The verification system is a multi-layered accountability stack. Potential attac
 - Arbiter quorum (default 3) requires majority consensus — even if operator and verifier are both members and submit as anonymous arbiters, they can only contribute 2 of 3 needed votes
 - Collusion requires both SPARK (operator) and DREAM (verifier) at risk simultaneously
 
+**Operator-verifier role overlap:**
+- `MsgVerifyContent` and `MsgChallengeVerification` refuse a signer who is the same member (`SameMember`, alias-aware) as the submitting operator or the verifier.
+- Bridge operators must be active members (`ErrOperatorNotMember`). Operator pay is weighted by `epoch_verified` on the premise that verification is independent; if operators could be any address, one person could run a bridge from a fresh address and verify its submissions from their member address, collecting operator pay for self-verified volume, and the chain could not link the two. With operators as members, the `SameMember` check sees the person, so playing both roles takes two memberships, each behind its own staked invitation.
+- Membership is rechecked on every operator action and at each pay epoch, so a zeroed member's bridge stops submitting, attesting, arbitrating and earning without a hook. A key migration re-keys the member record, so the old operator address stops passing too (x/service already moves a migrated member's operator to UNBONDING on the RECOVERY and COUNCIL paths).
+- Residual: two different people (or one person holding two memberships) can still collude. The backstops are challenges by competing operators and members (the verifier's DREAM bond is at stake), the arbiter quorum and the jury.
+
 **Arbiter quorum manipulation:**
 - Anonymous path: ZK proof ties to unique member identity via trust tree; scoped nullifier prevents double-submission; Sybil requires multiple ESTABLISHED+ invitations
 - Identified path: bridge operators are registered with a `service.Operator` bond per protocol; `MsgRegisterBridge` is operator-signed (no OpsComm gate), so the Sybil cost is multiple `service.ServiceTypeConfig.min_bond` deposits
-- Mixed quorums (identified + anonymous) require compromising both categories simultaneously
+- Mixed quorums (identified + anonymous) require compromising both categories simultaneously; an all-anonymous quorum is also valid by decision (Section 3.9.7), bounded by escalation
 - Deterministic hash comparison means all honest arbiters produce the same result — dishonest submissions are mathematically outvoted
 
 **Escalation abuse (losing party always escalates to delay resolution):**
@@ -2935,7 +3134,7 @@ The verification system is a multi-layered accountability stack. Potential attac
 Cosmos SDK processes all `DeliverTx` (message execution) before running `EndBlocker`. A verifier submitting `MsgVerifyContent` in the same block where the verification window expires will succeed — the message executes before Phase 5 sets the content to HIDDEN. This is deterministic behavior, not a race condition. No special handling needed.
 
 **IBC content trust model:**
-IBC content enters as ACTIVE without verifier confirmation. This is an intentional trust model decision, not a gap. The trust chain is: Commons Council registers the peer → IBC light client proves the sending chain committed the content packet → the sending chain's validator set attested to the packet's validity. A malicious Spark Dream chain could send fabricated content, but: (a) Commons Council must have explicitly registered that chain as a peer, (b) the Operations Committee can suspend/remove any peer at any time, (c) `MsgModerateContent` can hide/reject any individual piece of IBC content, (d) the `require_review` flag on PeerPolicy can force all inbound IBC content to start HIDDEN. The verification system is for bridge peers specifically because bridges introduce a weaker trust model (operator honesty) that IBC's light client proofs avoid.
+IBC content enters as ACTIVE without verifier confirmation. This is an intentional trust model decision, not a gap. The trust chain is: Commons Council registers the peer → IBC light client proves the sending chain committed the content packet → the sending chain's validator set attested to the packet's validity. A malicious Spark Dream chain could send fabricated content, but: (a) Commons Council must have explicitly registered that chain as a peer, (b) the Operations Committee can suspend/remove any peer at any time, (c) `MsgModerateContent` can hide/reject any individual piece of IBC content, (d) the `require_review` flag on PeerPolicy forces all inbound IBC content to start HIDDEN (`content_awaiting_review`), published by an Operations Committee restore (`MsgModerateContent` to ACTIVE). The verification system is for bridge peers specifically because bridges introduce a weaker trust model (operator honesty) that IBC's light client proofs avoid.
 
 ### 14.7. Operational Parameter Abuse
 
@@ -2969,6 +3168,7 @@ Federation registers two invariants via `RegisterInvariants` to catch state drif
 
 - **`orphan-bindings`**: every `BridgeBinding` must reference a live `service.Operator` (status `ACTIVE`, `UNDERFUNDED`, or `UNBONDING`) at the binding's derived `service_type`. Bindings pointing at a `SLASHED`/`RETIRED` or missing operator are orphans — they accumulate when a hook handler panics and the fail-soft `defer recover` swallows the cleanup. In standalone test mode (service keeper not wired), this invariant is a no-op.
 - **`bindings-by-operator-index`**: the `BindingsByOperator` reverse index `(service_type, address, peer_id)` must agree with the primary `BridgeBindings` map in both directions. The check is a two-way walk: every primary binding must have a reverse-index entry; every reverse-index entry must resolve to a primary binding. Catches index corruption from hook bugs.
+- **`escrow-solvency`**: the federation module account must hold at least the open escrow it owes, in the bond denom: every `VerificationRecord.escrowed_challenge_fee` plus every `EscalatedChallenge.escrowed_escalation_fee`. Settlement zeroes an escrow as it disburses it, so a dispute paid twice (the second payout drawn from other users' escrow) shows up as a shortfall.
 
 **Recovery messages** (both dual-authority: Operations Committee OR governance):
 
@@ -3030,9 +3230,10 @@ reputations := k.repKeeper.GetReputationsByMember(ctx, address)
 k.repKeeper.TransferDream(ctx, verifierAddr, federationModuleAddr, bondAmount)
 k.repKeeper.BurnDream(ctx, federationModuleAddr, slashAmount)
 
-// Jury system for verification disputes and challenges
-k.repKeeper.CreateAppealInitiative(ctx, initiativeParams)  // Creates jury voting initiative
-// OnInitiativeFinalized callback delivers verdict to x/federation
+// Verification disputes are not juried in x/rep: escalated challenges are
+// resolved by the Operations Committee policy (MsgResolveEscalatedChallenge,
+// §6.25a); operator slashes go through x/service, whose tier-2 cases use
+// x/rep CreateSeatedAppeal.
 ```
 
 ### 15.3. x/name
@@ -3172,6 +3373,7 @@ sparkdreamd tx federation attest-outbound --peer-id ... --content-type ... --loc
 sparkdreamd tx federation moderate-content --authority ... --content-id ... --new-status ... --reason ...
 sparkdreamd tx federation link-identity --peer-id ... --remote-identity ...
 sparkdreamd tx federation confirm-identity-link --claimant-chain-peer-id ...
+sparkdreamd tx federation attest-identity-link [peer-id] [local-address] [remote-identity] [challenge-hex] [evidence-uri]   # bridge operator key, not a session key
 sparkdreamd tx federation unlink-identity --peer-id ...
 sparkdreamd tx federation request-reputation-attestation --peer-id ... --remote-address ...
 sparkdreamd tx federation verify-content --content-id ... --content-hash ...
@@ -3230,8 +3432,8 @@ sparkdreamd query service get-service-type-config federation-bridge-<protocol>
 2. **Cross-Chain Initiatives**: Shared projects across Spark Dream chains with independent DREAM budgets per chain, coordinated via IBC messaging
 3. **ActivityPub Extensions**: Custom ActivityPub extensions for Spark Dream-specific features (reputation badges, conviction signals, trust level indicators)
 4. **AT Protocol Lexicons**: Custom lexicon schemas for Spark Dream content types
-5. **NOSTR NIP support**: Reference list of NIPs the bridge daemon should implement (NIP-01 events, NIP-05 DNS-based identity verification, NIP-11 relay metadata, NIP-19 bech32 encoding for pubkey-as-`remote_identity`, NIP-23 long-form content for blog posts). Identity linking on NOSTR maps to NIP-05 or NIP-07 signature challenges and lives entirely in the off-chain bridge — on-chain only sees the verified pubkey via `MsgLinkIdentity`.
-6. **Lens on-chain identity verification (`MsgLinkIdentityViaStateProof`)**: Lens identity is a tokenized handle NFT on Lens Chain (zkSync L2 + Avail DA). Today, the Lens bridge daemon verifies NFT ownership via Lens Chain RPC and submits an off-chain attestation, matching the trust model of the other bridges. A future `MsgLinkIdentityViaStateProof` would let users prove NFT ownership on-chain via either (a) a gnark/PLONK zk proof of NFT ownership against a trusted Lens Chain state root, (b) a Lens Chain light client embedded in federation (substantial work — multi-month integration), or (c) IBC-EVM relay via Polymer/Hyperlane. All three paths still require a trusted source of Lens Chain block headers. Deferred as a separate R&D track; the immediate Lens integration uses the off-chain bridge pattern.
+5. **NOSTR NIP support**: Reference list of NIPs the bridge daemon should implement (NIP-01 events, NIP-05 DNS-based identity verification, NIP-11 relay metadata, NIP-19 bech32 encoding for pubkey-as-`remote_identity`, NIP-23 long-form content for blog posts). Identity linking on NOSTR maps to NIP-05 or a kind-1 event signed by the pubkey carrying the link proof string; the check lives in the off-chain bridge, and on-chain only sees the operator's `MsgAttestIdentityLink` (Section 3.4.1).
+6. **Lens on-chain identity verification (`MsgLinkIdentityViaStateProof`)**: Lens identity is a tokenized handle NFT on Lens Chain (zkSync L2 + Avail DA). Today, the Lens bridge daemon verifies NFT ownership via Lens Chain RPC and attests with `MsgAttestIdentityLink`, matching the trust model of the other bridges (Section 3.4.1). A future `MsgLinkIdentityViaStateProof` would let users prove NFT ownership on-chain via either (a) a gnark/PLONK zk proof of NFT ownership against a trusted Lens Chain state root, (b) a Lens Chain light client embedded in federation (substantial work — multi-month integration), or (c) IBC-EVM relay via Polymer/Hyperlane. All three paths still require a trusted source of Lens Chain block headers. Deferred as a separate R&D track; the immediate Lens integration uses the off-chain bridge pattern.
 5. **Federation Discovery**: Optional peer discovery protocol (still requires manual council approval to activate)
 6. **Content Threading**: Federated replies and reactions (not just top-level content)
 7. **Bridge SDK**: Reference implementation and SDK for bridge operators
@@ -3247,7 +3449,7 @@ sparkdreamd query service get-service-type-config federation-bridge-<protocol>
 - Keeper logic: `x/federation/keeper/`
   - Bridge registration orchestrator: `x/federation/keeper/msg_server_register_bridge.go`
   - x/service hook implementation (fail-soft `defer recover`): `x/federation/keeper/hooks.go`
-  - Invariants (`orphan-bindings`, `bindings-by-operator-index`): `x/federation/keeper/invariants.go`
+  - Invariants (`orphan-bindings`, `bindings-by-operator-index`, `escrow-solvency`): `x/federation/keeper/invariants.go`
   - Dual-authority recovery messages: `x/federation/keeper/msg_server_prune_orphan_bindings.go`, `msg_server_resync_bridge_count.go`
   - Gov-authority controller update: `x/federation/keeper/msg_server_update_peer_controller.go`
   - EndBlocker: `x/federation/keeper/abci.go`

@@ -80,6 +80,26 @@ type Keeper struct {
 	// EpochSpending tracks cumulative spending per (policy_address, epoch_day).
 	// Value is the cumulative uspark amount spent in the epoch (string-encoded).
 	EpochSpending collections.Map[collections.Pair[string, int64], string]
+	// DeletedPolicies holds the policy addresses of deleted groups.
+	DeletedPolicies collections.KeySet[string]
+	// ProposalQueue indexes open proposals by the time they next need
+	// EndBlock attention: (due_time, proposal_id).
+	ProposalQueue collections.KeySet[collections.Pair[int64, uint64]]
+	// AnonProposalCount rate-limits anonymous proposals per council per UTC
+	// day: (council_name, utc_day) -> count.
+	AnonProposalCount collections.Map[collections.Pair[string, int64], uint64]
+	// ProposalVoterTrees holds secret-ballot voter snapshots while voting is
+	// open: proposal_id -> VoterTree.
+	ProposalVoterTrees collections.Map[uint64, types.VoterTree]
+
+	// Polls (polls.go).
+	Polls              collections.Map[uint64, types.Poll]
+	PollSeq            collections.Sequence
+	PollVotes          collections.Map[collections.Pair[uint64, string], types.PollVote]
+	PollsByCouncil     collections.KeySet[collections.Pair[string, uint64]]
+	OpenPollsByCouncil collections.KeySet[collections.Pair[string, uint64]]
+	PollQueue          collections.KeySet[collections.Pair[int64, uint64]]
+	PollVoterTrees     collections.Map[uint64, types.VoterTree]
 
 	Category    collections.Map[uint64, types.Category]
 	CategorySeq collections.Sequence
@@ -179,6 +199,49 @@ func NewKeeper(
 			sb, types.EpochSpendingKey, "epochSpending",
 			collections.PairKeyCodec(collections.StringKey, collections.Int64Key),
 			collections.StringValue,
+		),
+		DeletedPolicies: collections.NewKeySet(
+			sb, types.DeletedPoliciesKey, "deletedPolicies",
+			collections.StringKey,
+		),
+		ProposalQueue: collections.NewKeySet(
+			sb, types.ProposalQueueKey, "proposalQueue",
+			collections.PairKeyCodec(collections.Int64Key, collections.Uint64Key),
+		),
+		AnonProposalCount: collections.NewMap(
+			sb, types.AnonProposalCountKey, "anonProposalCount",
+			collections.PairKeyCodec(collections.StringKey, collections.Int64Key),
+			collections.Uint64Value,
+		),
+		ProposalVoterTrees: collections.NewMap(
+			sb, types.ProposalVoterTreesKey, "proposalVoterTrees",
+			collections.Uint64Key, codec.CollValue[types.VoterTree](cdc),
+		),
+		Polls: collections.NewMap(
+			sb, types.PollsKey, "polls",
+			collections.Uint64Key, codec.CollValue[types.Poll](cdc),
+		),
+		PollSeq: collections.NewSequence(sb, types.PollSeqKey, "pollSequence"),
+		PollVotes: collections.NewMap(
+			sb, types.PollVotesKey, "pollVotes",
+			collections.PairKeyCodec(collections.Uint64Key, collections.StringKey),
+			codec.CollValue[types.PollVote](cdc),
+		),
+		PollsByCouncil: collections.NewKeySet(
+			sb, types.PollsByCouncilKey, "pollsByCouncil",
+			collections.PairKeyCodec(collections.StringKey, collections.Uint64Key),
+		),
+		OpenPollsByCouncil: collections.NewKeySet(
+			sb, types.OpenPollsByCouncilKey, "openPollsByCouncil",
+			collections.PairKeyCodec(collections.StringKey, collections.Uint64Key),
+		),
+		PollQueue: collections.NewKeySet(
+			sb, types.PollQueueKey, "pollQueue",
+			collections.PairKeyCodec(collections.Int64Key, collections.Uint64Key),
+		),
+		PollVoterTrees: collections.NewMap(
+			sb, types.PollVoterTreesKey, "pollVoterTrees",
+			collections.Uint64Key, codec.CollValue[types.VoterTree](cdc),
 		),
 		Category: collections.NewMap(
 			sb, types.CategoryKey, "category",

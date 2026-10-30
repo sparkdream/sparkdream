@@ -3,6 +3,7 @@ package keeper
 import (
 	"context"
 	"fmt"
+	commontypes "sparkdream/x/common/types"
 
 	"sparkdream/x/blog/types"
 
@@ -44,8 +45,8 @@ func (k msgServer) PinReply(ctx context.Context, msg *types.MsgPinReply) (*types
 		return nil, err
 	}
 
-	if !k.meetsReplyTrustLevel(ctx, creatorAddr, int32(params.PinMinTrustLevel)) {
-		return nil, k.trustLevelError(ctx, creatorAddr, int32(params.PinMinTrustLevel), "pinning replies")
+	if !k.meetsReplyTrustLevel(ctx, creatorAddr, commontypes.Saturate[int32](params.PinMinTrustLevel)) {
+		return nil, k.trustLevelError(ctx, creatorAddr, commontypes.Saturate[int32](params.PinMinTrustLevel), "pinning replies")
 	}
 
 	if err := k.checkRateLimit(ctx, "pin", creatorAddr, params.MaxPinsPerDay); err != nil {

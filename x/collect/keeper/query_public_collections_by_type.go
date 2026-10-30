@@ -6,6 +6,7 @@ import (
 	"cosmossdk.io/collections"
 
 	"sparkdream/x/collect/types"
+	commontypes "sparkdream/x/common/types"
 
 	query "github.com/cosmos/cosmos-sdk/types/query"
 	"google.golang.org/grpc/codes"
@@ -26,7 +27,7 @@ func (q queryServer) PublicCollectionsByType(ctx context.Context, req *types.Que
 		limit = maxPublicCollectionsLimit
 	}
 	offset := pageReq.Offset
-	collType := types.CollectionType(req.CollectionType)
+	collType := commontypes.Saturate[types.CollectionType](req.CollectionType)
 
 	// CollectionsByStatus is keyed (status, pinned-rank, id), so a status-prefixed
 	// walk yields pinned-first results in ID order natively — no in-memory sort.

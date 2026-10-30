@@ -1,51 +1,74 @@
 package simulation
 
 import (
-	"math/rand"
-
-	"github.com/cosmos/cosmos-sdk/baseapp"
+	"cosmossdk.io/math"
 	"github.com/cosmos/cosmos-sdk/client"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/forum/keeper"
 	"sparkdream/x/forum/types"
 )
 
-// SimulateMsgEditPost simulates a MsgEditPost message using direct keeper calls.
-// This bypasses edit fee and edit window requirements for simulation purposes.
-// Full integration testing should be done in integration tests.
+// SimulateMsgEditPost delivers MsgEditPost from the author of a visible post
+// still inside edit_max_window (creating a thread first when no sim account
+// has one). The new content differs from the old; the signer pays the
+// storage fee on any growth and, past edit_grace_period, the edit fee.
 func SimulateMsgEditPost(
 	ak types.AuthKeeper,
 	bk types.BankKeeper,
 	k keeper.Keeper,
 	txGen client.TxConfig,
 ) simtypes.Operation {
-	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
-	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		simAccount, _ := simtypes.RandomAcc(r, accs)
-
-		// Get or create a post owned by this account
-		postID, err := getOrCreatePost(r, ctx, k, simAccount.Address.String())
+	return operation(ak, bk, k, txGen, &types.MsgEditPost{}, func(e *simEnv) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
+		msg := &types.MsgEditPost{}
+		p := e.params
+		if p.ForumPaused || !p.EditingEnabled {
+			return noOp(msg, "forum paused or editing disabled")
+		}
+		window := p.EditMaxWindow
+		if window == 0 {
+			window = types.DefaultEditMaxWindow
+		}
+		editable := func(post types.Post) bool {
+			_, own := e.account(post.Author)
+			return own && visible(post) && e.now()-post.CreatedAt <= window
+		}
+		posts, err := e.postsWhere(editable)
 		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgEditPost{}), "failed to get/create post"), nil, nil
+			return noOpErr(msg, err)
+		}
+		if len(posts) == 0 {
+			if _, _, err := e.ensureThread(anyone); err != nil {
+				return noOpErr(msg, err)
+			}
+			if posts, err = e.postsWhere(editable); err != nil {
+				return noOpErr(msg, err)
+			}
+		}
+		post, ok := pick(e.r, posts)
+		if !ok {
+			return noOp(msg, "no editable post by a sim account")
+		}
+		author, _ := e.account(post.Author)
+		msg.Creator, msg.PostId = post.Author, post.PostId
+		msg.ContentType = commontypes.ContentType_CONTENT_TYPE_TEXT
+		msg.NewContent = randomContent(e.r)
+		if msg.NewContent == post.Content {
+			msg.NewContent += " (edited)"
+		}
+		msg.Tags = post.Tags
+		if e.r.Intn(3) == 0 {
+			msg.Tags = e.randomTags()
 		}
 
-		// Use direct keeper calls to edit post (bypasses edit fee, edit window)
-		post, err := k.Post.Get(ctx, postID)
-		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgEditPost{}), "failed to get post"), nil, nil
+		spent := math.ZeroInt()
+		if !p.CostPerByteExempt && p.CostPerByteAmount.IsPositive() && len(msg.NewContent) > len(post.Content) {
+			spent = spent.Add(p.CostPerByteAmount.MulRaw(int64(len(msg.NewContent) - len(post.Content))))
 		}
-
-		post.Content = "Edited: " + randomContent(r)
-		post.Edited = true
-		post.EditedAt = ctx.BlockTime().Unix()
-
-		if err := k.Post.Set(ctx, postID, post); err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgEditPost{}), "failed to update post"), nil, nil
+		if e.now()-post.CreatedAt > p.EditGracePeriod && p.EditFeeAmount.IsPositive() {
+			spent = spent.Add(p.EditFeeAmount)
 		}
-
-		// Return success
-		return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgEditPost{}), "ok (direct keeper call)"), nil, nil
-	}
+		return e.submit(author, msg, spent)
+	})
 }

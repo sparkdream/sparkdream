@@ -1,13 +1,14 @@
 #!/bin/bash
 # x/artifact: council hides, query withholding, appeals routed through the
-# x/rep moderation-appeal machinery (resolved here by the Commons Operations
-# Committee via `rep resolve-gov-action-appeal`), and class hides that cancel
-# listings.
+# x/rep moderation-appeal machinery (resolved here by a Commons Operations
+# Committee proposal carrying `MsgResolveGovActionAppeal`), and class hides
+# that cancel listings.
 # alice is the genesis Operations Committee member (council path).
 
 echo "--- TESTING ARTIFACT: MODERATION ---"
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 source "$SCRIPT_DIR/_common.sh"
+source "$SCRIPT_DIR/../lib/ops_committee.sh"
 
 expect_ok "bob creates a class" create-class "Phoenix Gallery" "$LICENSE" \
     --flags '{"transferable":true}' --uri "ipfs://bafygallery" --from bob
@@ -47,9 +48,22 @@ if [ -n "$RES_HASH" ] && [ "$(wait_for_tx "$RES_HASH" | jq -r '.code')" = "0" ];
 else
     pass "outsider cannot resolve via x/rep"
 fi
-RES=$($BINARY tx rep resolve-gov-action-appeal "$APPEAL_ID" overturned "token was fine" --gas 400000 --from alice \
+# A single committee member is not the Ops authority either: verdicts slash
+# bonds, so they take an Operations Committee proposal.
+RES=$($BINARY tx rep resolve-gov-action-appeal "$APPEAL_ID" overturned "x" --gas 400000 --from alice \
     --chain-id "$CHAIN_ID" --keyring-backend test --fees 60000"$BOND_DENOM" -y --output json 2>&1)
-check "alice overturns via x/rep" "$(wait_for_tx "$(echo "$RES" | jq -r '.txhash')" | jq -r '.code')" "0"
+RES_HASH=$(echo "$RES" | jq -r '.txhash // empty' 2>/dev/null)
+if [ -n "$RES_HASH" ] && [ "$(wait_for_tx "$RES_HASH" | jq -r '.code')" = "0" ]; then
+    fail "alice alone cannot resolve via x/rep (unexpectedly succeeded)"
+else
+    pass "alice alone cannot resolve via x/rep"
+fi
+if ops_committee_exec "$(jq -nc --arg id "$APPEAL_ID" \
+    '{"@type":"/sparkdream.rep.v1.MsgResolveGovActionAppeal",appeal_id:$id,verdict:"GOV_APPEAL_STATUS_OVERTURNED",reason:"token was fine"}')" resolver; then
+    pass "Ops Committee overturns via x/rep"
+else
+    fail "Ops Committee overturns via x/rep: $OPS_COMMITTEE_ERROR"
+fi
 check "outcome OVERTURNED" "$(q hide-record "$HIDE_ID" | jq -r '.record.outcome')" "HIDE_OUTCOME_OVERTURNED"
 check "token visible again" "$(q token "$CLASS_ID" 1 | jq -r '.token.withheld // false')" "false"
 
@@ -60,9 +74,12 @@ HIDE2=$(tx_event hide_id artifact_hidden)
 expect_ok "bob appeals" appeal-hide "$HIDE2" --from bob
 APPEAL2=$(tx_event appeal_id gov_action_appealed)
 APPEAL2=${APPEAL2:-0}
-RES=$($BINARY tx rep resolve-gov-action-appeal "$APPEAL2" upheld "spam confirmed" --gas 400000 --from alice \
-    --chain-id "$CHAIN_ID" --keyring-backend test --fees 60000"$BOND_DENOM" -y --output json 2>&1)
-check "alice upholds via x/rep" "$(wait_for_tx "$(echo "$RES" | jq -r '.txhash')" | jq -r '.code')" "0"
+if ops_committee_exec "$(jq -nc --arg id "$APPEAL2" \
+    '{"@type":"/sparkdream.rep.v1.MsgResolveGovActionAppeal",appeal_id:$id,verdict:"GOV_APPEAL_STATUS_UPHELD",reason:"spam confirmed"}')" resolver; then
+    pass "Ops Committee upholds via x/rep"
+else
+    fail "Ops Committee upholds via x/rep: $OPS_COMMITTEE_ERROR"
+fi
 check "outcome UPHELD" "$(q hide-record "$HIDE2" | jq -r '.record.outcome')" "HIDE_OUTCOME_UPHELD"
 check "bob still owns token 2" "$(q owner "$CLASS_ID" 2 | jq -r '.owner')" "$BOB_ADDR"
 expect_ok "bob can still burn the scrubbed token" burn --refs "{\"class_id\":\"$CLASS_ID\",\"token_id\":\"2\"}" --from bob

@@ -2,149 +2,114 @@ package simulation
 
 import (
 	"fmt"
-	"math/rand"
-	"strconv"
 
 	"cosmossdk.io/math"
-	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
-	"github.com/cosmos/cosmos-sdk/codec"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
-	"github.com/cosmos/cosmos-sdk/x/simulation"
 
-	"sparkdream/testutil"
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/commons/keeper"
 	"sparkdream/x/commons/types"
 )
 
-func SimulateMsgRegisterGroup(
-	ak types.AuthKeeper,
-	bk types.BankKeeper,
-	k keeper.Keeper,
-	cdc codec.Codec,
-	txGen client.TxConfig,
-) simtypes.Operation {
-	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
-	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		// 1. Pick a random account to be the "Parent Council" (Authority)
-		simAccount, _ := simtypes.RandomAcc(r, accs)
+// commonsCouncilName is the council that registers groups without x/gov
+// (spec §7) and is the parent of every simulated group.
+const commonsCouncilName = "Commons Council"
 
-		// 2. STATE INJECTION (The Hack)
-		// The msg_server requires the signer to be a registered Group Policy.
-		// We inject a fake Group record where the PolicyAddress is our simAccount.
-		// Use hyphens (valid) instead of underscores (invalid)
-		fakeParentName := "sim-parent-" + simtypes.RandStringOfLength(r, 5)
-		fakeParent := types.Group{
-			GroupId:       uint64(simtypes.RandIntBetween(r, 1, 1000)),
-			PolicyAddress: simAccount.Address.String(),
-		}
+// maxSimGroups bounds the live simulated groups.
+const maxSimGroups = 6
 
-		if err := k.Groups.Set(ctx, fakeParentName, fakeParent); err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgRegisterGroup{}), "failed to setup fake parent"), nil, err
-		}
+// simGroupAllowlist is what a simulated group may be delegated: a subset of
+// the Commons Council's own allowlist (RegisterGroup refuses anything else).
+var simGroupAllowlist = []string{
+	sdk.MsgTypeURL(&types.MsgSpendFromCommons{}),
+	sdk.MsgTypeURL(&types.MsgUpdatePolicyPermissions{}),
+	sdk.MsgTypeURL(&types.MsgVoteProposal{}),
+}
 
-		// --- Update Index for O(1) Checks ---
-		// The updated handler checks PolicyToName.Has(signer). We must inject this index entry.
-		if err := k.PolicyToName.Set(ctx, simAccount.Address.String(), fakeParentName); err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgRegisterGroup{}), "failed to setup fake parent index"), nil, err
-		}
-
-		// --- Fee Bypass ---
-		// Disable the ProposalFee for simulation to avoid "insufficient funds" errors
-		// (Simulation accounts usually have 'stake', not 'uspark')
-		if err := k.Params.Set(ctx, types.NewParams("")); err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgRegisterGroup{}), "failed to bypass fee"), nil, err
-		}
-
-		// --- Fund Treasury for Subsidy ---
-		// The commons module pays 1000 SPARK subsidy. We must mint this.
-		subsidy := sdk.NewCoins(sdk.NewCoin(sdk.DefaultBondDenom, math.NewInt(1000000000)))
-		if err := bk.MintCoins(ctx, types.ModuleName, subsidy); err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgRegisterGroup{}), "failed to mint subsidy"), nil, err
-		}
-
-		// 3. Generate Random Members
-		numMembers := simtypes.RandIntBetween(r, 1, 5)
-		if len(accs) < numMembers {
-			numMembers = len(accs)
-		}
-
-		if numMembers == 0 {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgRegisterGroup{}), "no accounts available for members"), nil, nil
-		}
-
-		var members []string
-		var weights []string
-
-		perm := r.Perm(len(accs))
-		for i := 0; i < numMembers; i++ {
-			acc := accs[perm[i]]
-			members = append(members, acc.Address.String())
-			weights = append(weights, "1")
-		}
-
-		// 4. Generate Random Policy
-		var policyType, threshold string
-		if r.Intn(2) == 0 {
-			// Threshold Policy
-			policyType = keeper.PolicyTypeThreshold
-			tVal := simtypes.RandIntBetween(r, 1, numMembers+1)
-			threshold = strconv.Itoa(tVal)
-		} else {
-			// Percentage Policy
-			policyType = keeper.PolicyTypePercentage
-			pVal := 0.01 + r.Float64()*(0.99)
-			threshold = fmt.Sprintf("%.2f", pVal)
-		}
-
-		maxSpendPerEpoch := math.NewInt(0)
-		msg := &types.MsgRegisterGroup{
-			Authority:          simAccount.Address.String(),
-			Name:               "sim-group-" + simtypes.RandStringOfLength(r, 5),
-			Description:        "Simulated Group " + simtypes.RandStringOfLength(r, 10),
-			Members:            members,
-			MemberWeights:      weights,
-			MinMembers:         uint64(numMembers),
-			MaxMembers:         uint64(numMembers + 2),
-			TermDuration:       int64(simtypes.RandIntBetween(r, 86400, 86400*30)),
-			VoteThreshold:      testutil.DecPtr(threshold),
-			PolicyType:         policyType,
-			VotingPeriod:       int64(simtypes.RandIntBetween(r, 3600, 86400)),
-			MinExecutionPeriod: 0,
-			UpdateCooldown:     int64(simtypes.RandIntBetween(r, 0, 3600)),
-			FundingWeight:      uint64(simtypes.RandIntBetween(r, 0, 100)),
-			MaxSpendPerEpoch:   &maxSpendPerEpoch,
-		}
-
-		if r.Intn(2) == 0 {
-			maxSpendPerEpoch := math.NewInt(1000000000)
-			msg.MaxSpendPerEpoch = &maxSpendPerEpoch
-		}
-
-		// 5. Construct OperationInput (Updated for v0.53.4)
-		// Ensure cdc is asserted to *codec.ProtoCodec
-		var protoCdc *codec.ProtoCodec
-		if cdc != nil {
-			if pc, ok := cdc.(*codec.ProtoCodec); ok {
-				protoCdc = pc
+// SimulateMsgRegisterGroup registers a small group under the Commons
+// Council through a Commons Council proposal: two to four live sim accounts,
+// a short term (so MsgRenewGroup becomes reachable within the run), a
+// positive spend cap within the council's own, no x/split share, and a
+// subset of the council's allowlist.
+func SimulateMsgRegisterGroup(ak types.AuthKeeper, bk types.BankKeeper, k keeper.Keeper, txGen client.TxConfig) simtypes.Operation {
+	label := &types.MsgRegisterGroup{}
+	return operation(ak, bk, k, txGen, func(e *simEnv) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
+		return e.advance(label, func() (proposal, string, error) {
+			council, found, err := e.group(commonsCouncilName)
+			if err != nil || !found {
+				return proposal{}, "no Commons Council", err
 			}
-		}
+			existing, err := e.groups(func(name string, _ types.Group) bool { return isSimGroup(name) })
+			if err != nil {
+				return proposal{}, "", err
+			}
+			if len(existing) >= maxSimGroups {
+				return proposal{}, "simulated group cap reached", nil
+			}
+			policy, proposer, reason, err := e.pickCarrier([]string{council.PolicyAddress}, sdk.MsgTypeURL(label))
+			if err != nil || reason != "" {
+				return proposal{}, reason, err
+			}
+			msg, reason := e.registerGroupMsg(policy, council)
+			if reason != "" {
+				return proposal{}, reason, nil
+			}
+			return proposal{policy: policy, proposer: proposer, inner: msg}, "", nil
+		})
+	})
+}
 
-		opInput := simulation.OperationInput{
-			R:               r,
-			App:             app,
-			TxGen:           txGen,
-			Cdc:             protoCdc,
-			Msg:             msg,
-			CoinsSpentInMsg: sdk.NewCoins(),
-			Context:         ctx,
-			SimAccount:      simAccount,
-			AccountKeeper:   ak,
-			Bankkeeper:      bk,
-			ModuleName:      types.ModuleName,
-		}
-
-		return simulation.GenAndDeliverTxWithRandFees(opInput)
+// registerGroupMsg builds a valid council-signed MsgRegisterGroup.
+func (e *simEnv) registerGroupMsg(policy string, council types.Group) (*types.MsgRegisterGroup, string) {
+	live := e.liveAccounts()
+	if len(live) < 2 {
+		return nil, "fewer than two live sim accounts"
 	}
+	n := 2 + e.r.Intn(min(3, len(live)-1))
+	members := make([]string, 0, n)
+	weights := make([]string, 0, n)
+	for _, i := range e.r.Perm(len(live))[:n] {
+		members = append(members, live[i].Address.String())
+		weights = append(weights, "1")
+	}
+
+	policyType := keeper.PolicyTypePercentage
+	threshold := math.LegacyNewDecWithPrec(int64(50+e.r.Intn(26)), 2) // 0.50-0.75
+	if e.r.Intn(2) == 0 {
+		policyType = keeper.PolicyTypeThreshold
+		threshold = math.LegacyNewDec(int64(1 + e.r.Intn(n)))
+	}
+
+	maxSpend := math.NewInt(int64(1_000_000 + e.r.Intn(999_000_000)))
+	if council.MaxSpendPerEpoch != nil && council.MaxSpendPerEpoch.IsPositive() && maxSpend.GT(*council.MaxSpendPerEpoch) {
+		maxSpend = *council.MaxSpendPerEpoch
+	}
+
+	var allowed []string
+	for _, m := range simGroupAllowlist {
+		if e.r.Intn(5) > 0 {
+			allowed = append(allowed, m)
+		}
+	}
+
+	return &types.MsgRegisterGroup{
+		Authority:          policy,
+		Name:               fmt.Sprintf("%s%s-%s", simGroupPrefix, randomFictional(e.r), randomLowerAlnum(e.r, 5)),
+		Description:        "Simulated working group",
+		Members:            members,
+		MemberWeights:      weights,
+		MaxSpendPerEpoch:   &maxSpend,
+		UpdateCooldown:     int64(e.r.Intn(3600)),
+		MinMembers:         2,
+		MaxMembers:         commontypes.Saturate[uint64](n + 2),
+		TermDuration:       day + e.r.Int63n(4*day),
+		VotingPeriod:       day + e.r.Int63n(2*day),
+		MinExecutionPeriod: 0,
+		VoteThreshold:      &threshold,
+		PolicyType:         policyType,
+		AllowedMessages:    allowed,
+		BallotMode:         types.BallotMode_BALLOT_MODE_OPEN,
+	}, ""
 }

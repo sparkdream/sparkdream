@@ -33,9 +33,8 @@ func (q queryServer) ListReplies(ctx context.Context, req *types.QueryListReplie
 		if !found {
 			return nil
 		}
-		if reply.Status == types.ReplyStatus_REPLY_STATUS_DELETED {
-			return nil
-		}
+		// Tombstones (status DELETED, empty body) stay in the listing so
+		// nested replies keep their parent in the thread.
 		if reply.Status == types.ReplyStatus_REPLY_STATUS_HIDDEN && !req.IncludeHidden {
 			return nil
 		}

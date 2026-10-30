@@ -2,8 +2,13 @@ syntax = "proto3";
 package sparkdream.rep.v1;
 
 import "sparkdream/rep/v1/accountability.proto";
+import "sparkdream/rep/v1/member.proto";
+import "gogoproto/gogo.proto";
 
 option go_package = "sparkdream/x/rep/types";
+// Map fields are encoded in sorted key order: an unsorted encoding differs
+// between nodes and would split the app hash.
+option (gogoproto.stable_marshaler_all) = true;
 
 // MemberReport defines the MemberReport message.
 message MemberReport {
@@ -22,6 +27,12 @@ message MemberReport {
   // different amounts; refunds must use the recorded per-signer amount, not
   // an averaged share, to prevent cross-signer bond theft.
   repeated ReporterBondEntry reporter_bonds = 12;
+  // resolved_action is the action MsgResolveMemberReport applied
+  // (UNSPECIFIED = dismissed). Together with resolved_at it opens the
+  // member's MsgAppealGovAction filing window.
+  GovActionType resolved_action = 13;
+  // resolved_at is the block time of the resolution (0 while open).
+  int64 resolved_at = 14;
 }
 
 // ReporterBondEntry tracks the DREAM amount locked by a specific reporter
@@ -29,4 +40,43 @@ message MemberReport {
 message ReporterBondEntry {
   string address = 1;
   string amount = 2;
+}
+
+// MemberActionRestoration is what an OVERTURNED member-action appeal needs to
+// undo the action MsgResolveMemberReport applied. Written at resolution, keyed
+// by the member's canonical address (re-keyed by a migration), and deleted when
+// the appeal reaches any terminal outcome or the filing window closes with no
+// appeal, so at most one exists per member and only while the action is
+// appealable.
+message MemberActionRestoration {
+  string member = 1;
+  // action is WARNING, DEMOTION or ZEROING.
+  GovActionType action = 2;
+  // resolved_at is the block time of the resolution; the filing window closes
+  // at resolved_at + DefaultAppealDeadline.
+  int64 resolved_at = 3;
+  // season is the season the action was applied in. Reputation restored in a
+  // later season goes to the lifetime archive, which the season reset would
+  // have moved it to.
+  int64 season = 4;
+  // warning_id is the MemberWarning a WARNING created.
+  uint64 warning_id = 5;
+  // reputation is, for DEMOTION, the reputation the slash took per tag and,
+  // for ZEROING, the member's per-tag seasonal reputation before the zeroing.
+  map<string, string> reputation = 6;
+  // ZEROING only: the member's state before the zeroing, and the zeroed_count
+  // the zeroing produced (a later, unrelated zeroing changes it and blocks
+  // the restoration).
+  MemberStatus prior_status = 7;
+  TrustLevel prior_trust_level = 8;
+  uint32 prior_invitation_credits = 9;
+  // burned_dream is the liquid DREAM the zeroing burned from the balance.
+  // Escrows the zeroing forfeited (challenge stakes, invitation stakes, role
+  // and report bonds) are not included and are never restored.
+  string burned_dream = 10;
+  uint32 zeroed_count = 11;
+  // appealed is set once MsgAppealGovAction files the (single) appeal of the
+  // action; appeal_id is that appeal. Its outcome settles the record.
+  bool appealed = 12;
+  uint64 appeal_id = 13;
 }

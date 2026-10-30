@@ -108,6 +108,12 @@ func (k Keeper) validateImmediate(ctx context.Context, params types.Params, msg 
 		return immediateExec{}, types.ErrInsufficientTrustLevel
 	}
 
+	// 4b. Every cleartext public input in its one canonical encoding: the
+	// verifier reduces mod r, the stores key on raw bytes.
+	if err := types.ValidateCanonicalPublicInputs(msg.Nullifier, msg.RateLimitNullifier, msg.MerkleRoot); err != nil {
+		return immediateExec{}, err
+	}
+
 	// 5. Resolve what the proof is bound to, verify it, and check the nullifier
 	v := immediateExec{reg: reg}
 	var binding proofBinding
@@ -144,6 +150,14 @@ func (k Keeper) validateImmediate(ctx context.Context, params types.Params, msg 
 		return immediateExec{}, types.ErrRateLimitExceeded
 	}
 
+	// 7. The target module must accept the message. executeInnerMessage
+	// checks this again, but only after the ante has spent the nullifier and
+	// the reserve has paid the fee; checked here, an op its module always
+	// refuses costs nothing.
+	if err := k.checkShieldCompatible(ctx, msg.InnerMessage.TypeUrl, msg.InnerMessage.Value); err != nil {
+		return immediateExec{}, err
+	}
+
 	// Last, the ZK proof: verifyProof checks the merkle root before the
 	// pairing check.
 	if !types.ProofVerified(ctx, msg) {
@@ -153,6 +167,25 @@ func (k Keeper) validateImmediate(ctx context.Context, params types.Params, msg 
 	}
 
 	return v, nil
+}
+
+// checkShieldCompatible refuses an inner message whose module is registered
+// as ShieldAware and rejects it. A message that does not decode, or whose
+// module registered no gate, is left to executeInnerMessage, which refuses
+// both.
+func (k Keeper) checkShieldCompatible(ctx context.Context, typeURL string, value []byte) error {
+	sa, found := k.getShieldAware(typeURL)
+	if !found {
+		return nil
+	}
+	var innerMsg sdk.Msg
+	if err := k.cdc.UnpackAny(&codectypes.Any{TypeUrl: typeURL, Value: value}, &innerMsg); err != nil {
+		return nil
+	}
+	if !sa.IsShieldCompatible(ctx, innerMsg) {
+		return types.ErrIncompatibleOperation
+	}
+	return nil
 }
 
 // resolveOwnership decodes the inner message and asks its module for the
@@ -183,57 +216,132 @@ func (k Keeper) resolveOwnership(ctx context.Context, msg *types.MsgShieldedExec
 	return &ownedExec{resolver: resolver, innerMsg: innerMsg, tag: claim.Tag}, claim, nil
 }
 
-// PrecheckImmediate validates an immediate-mode exec. Used by the ante handler
-// before the shield module pays gas.
+// PrecheckImmediate validates an immediate-mode exec and, when the context
+// runs a real tx (see consumesExec), spends it; it reports whether it did.
+// Used by the ante handler before the shield module pays gas.
 //
-// In CheckTx it also marks the exec as spent in the check state, which is
-// discarded at every commit: a consumed nullifier is recorded, and an
-// ownership claim's sequence advances. Anyone can sign as the public
-// submitter, so anyone can rewrap a pending exec in new outer txs; without the
-// mark every copy would enter the mempool and take block space until the first
-// one landed.
-func (k Keeper) PrecheckImmediate(ctx sdk.Context, msg *types.MsgShieldedExec) error {
+// Spending records the consumed nullifier (or advances the ownership claim's
+// sequence) and counts the exec against the identity rate limit, in the ante
+// state. In DeliverTx that state is committed with the fee payment even when
+// the inner message then fails, so a failing exec costs its member a slot and
+// its nullifier exactly like a successful one: it cannot be replayed block
+// after block at the reserve's expense, and nobody can re-run it later once
+// its target becomes valid (immediate mode now matches batch mode, where the
+// nullifier "stays recorded on failure"). In CheckTx the check state is
+// discarded at every commit; the mark only stops rewrapped copies of a pending
+// exec (anyone can sign as the public submitter) from all entering the
+// mempool.
+func (k Keeper) PrecheckImmediate(ctx sdk.Context, msg *types.MsgShieldedExec) (bool, error) {
 	params, err := k.Params.Get(ctx)
 	if err != nil {
-		return err
+		return false, err
 	}
 	v, err := k.validateImmediate(ctx, params, msg)
 	if err != nil {
-		return err
+		return false, err
 	}
-	// Simulate also runs on the check state, but its msg server would then
-	// find the exec already spent, so it must not mark it.
-	if !ctx.IsCheckTx() || ctx.ExecMode() == sdk.ExecModeSimulate {
-		return nil
+	if !consumesExec(ctx) {
+		return false, nil
 	}
-	if v.owner != nil {
-		return v.owner.resolver.AdvanceOwnership(ctx, v.owner.innerMsg)
+	if err := k.consumeImmediate(ctx, params, v, msg); err != nil {
+		return false, err
 	}
-	return k.RecordNullifier(ctx, v.reg.NullifierDomain, v.scope, hex.EncodeToString(msg.Nullifier), ctx.BlockHeight())
+	return true, nil
 }
 
-// handleImmediate verifies the ZK proof and executes the inner message immediately.
-func (k msgServer) handleImmediate(ctx sdk.Context, params types.Params, msg *types.MsgShieldedExec) (*types.MsgShieldedExecResponse, error) {
-	v, err := k.validateImmediate(ctx, params, msg)
+// consumesExec reports whether the ante handler should spend an exec in this
+// context: CheckTx/ReCheckTx, the proposal-verification runs and DeliverTx,
+// never simulate (its msg server would then find the exec already spent).
+func consumesExec(ctx sdk.Context) bool {
+	switch ctx.ExecMode() {
+	case sdk.ExecModeSimulate:
+		return false
+	case sdk.ExecModeFinalize, sdk.ExecModePrepareProposal, sdk.ExecModeProcessProposal:
+		return true
+	default:
+		return ctx.IsCheckTx()
+	}
+}
+
+// consumeImmediate spends a validated immediate exec: it records the
+// nullifier (consume mode) or advances the owner's sequence (ownership mode,
+// where the nullifier is the reusable owner tag), then counts the exec
+// against the identity rate limit.
+func (k Keeper) consumeImmediate(ctx sdk.Context, params types.Params, v immediateExec, msg *types.MsgShieldedExec) error {
+	if v.owner != nil {
+		if err := v.owner.resolver.AdvanceOwnership(ctx, v.owner.innerMsg); err != nil {
+			return err
+		}
+	} else if err := k.RecordNullifier(ctx, v.reg.NullifierDomain, v.scope, hex.EncodeToString(msg.Nullifier), ctx.BlockHeight()); err != nil {
+		return err
+	}
+	if !k.CheckAndIncrementRateLimit(ctx, hex.EncodeToString(msg.RateLimitNullifier), params.MaxExecsPerIdentityPerEpoch) {
+		return types.ErrRateLimitExceeded
+	}
+	return nil
+}
+
+// resolveConsumedImmediate rebuilds what the msg server needs to run an exec
+// the ante handler already validated and spent in this tx (types.ExecConsumed):
+// the registration and the scope, or the ownership resolver and tag. It
+// repeats no check, since the nullifier is now recorded and the owner's
+// sequence advanced, so the freshness checks would refuse the exec.
+func (k Keeper) resolveConsumedImmediate(ctx sdk.Context, msg *types.MsgShieldedExec) (immediateExec, error) {
+	if msg.InnerMessage == nil {
+		return immediateExec{}, types.ErrInvalidInnerMessage
+	}
+	reg, found := k.GetShieldedOp(ctx, msg.InnerMessage.TypeUrl)
+	if !found {
+		return immediateExec{}, types.ErrUnregisteredOperation
+	}
+	v := immediateExec{reg: reg}
+	if reg.NullifierMode == types.NullifierMode_NULLIFIER_MODE_OWNERSHIP {
+		owner, _, err := k.resolveOwnership(ctx, msg)
+		if err != nil {
+			return immediateExec{}, err
+		}
+		v.owner = owner
+		return v, nil
+	}
+	scope, err := k.resolveNullifierScope(ctx, reg, msg)
 	if err != nil {
-		return nil, err
+		return immediateExec{}, err
+	}
+	v.scope = scope
+	return v, nil
+}
+
+// handleImmediate executes an immediate-mode exec: validated and spent by the
+// ante handler in the same tx, or (reached without the ante, e.g. in tests)
+// validated and spent here first.
+func (k msgServer) handleImmediate(ctx sdk.Context, params types.Params, msg *types.MsgShieldedExec) (*types.MsgShieldedExecResponse, error) {
+	var (
+		v   immediateExec
+		err error
+	)
+	if types.ExecConsumed(ctx, msg) {
+		v, err = k.resolveConsumedImmediate(ctx, msg)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		v, err = k.validateImmediate(ctx, params, msg)
+		if err != nil {
+			return nil, err
+		}
+		if err := k.consumeImmediate(ctx, params, v, msg); err != nil {
+			return nil, err
+		}
 	}
 	typeURL := msg.InnerMessage.TypeUrl
 	nullifierHex := hex.EncodeToString(msg.Nullifier)
 	execCtx := types.WithProvenTrustLevel(ctx, msg.MinTrustLevel)
 
 	if v.owner != nil {
-		// 7. Ownership: the nullifier is the owner tag and is reused, so it is
-		// not recorded; advancing the owner's sequence retires this proof.
-		if err := v.owner.resolver.AdvanceOwnership(ctx, v.owner.innerMsg); err != nil {
-			return nil, err
-		}
+		// Ownership: the nullifier is the owner tag and is reused, so it is
+		// not recorded; advancing the owner's sequence retired this proof.
 		execCtx = types.WithOwnershipTag(execCtx, v.owner.tag)
 	} else {
-		// 7. Record nullifier
-		if err := k.RecordNullifier(ctx, v.reg.NullifierDomain, v.scope, nullifierHex, ctx.BlockHeight()); err != nil {
-			return nil, err
-		}
 		// A module that lets the anonymous creator manage content later keeps
 		// this nullifier as the content's owner tag.
 		execCtx = types.WithExecNullifier(execCtx, types.ExecNullifier{
@@ -243,19 +351,12 @@ func (k msgServer) handleImmediate(ctx sdk.Context, params types.Params, msg *ty
 		})
 	}
 
-	// 8. Count against the per-identity rate limit
-	rateLimitHex := hex.EncodeToString(msg.RateLimitNullifier)
-	if !k.CheckAndIncrementRateLimit(ctx, rateLimitHex, params.MaxExecsPerIdentityPerEpoch) {
-		return nil, types.ErrRateLimitExceeded
-	}
-
-	// 9. Decode, validate signer, and execute inner message
+	// Decode, validate signer, and execute inner message
 	resp, err := k.executeInnerMessage(execCtx, params, msg.InnerMessage)
 	if err != nil {
 		return nil, err
 	}
 
-	// 10. Emit event
 	ctx.EventManager().EmitEvent(sdk.NewEvent(
 		types.EventTypeShieldedExec,
 		sdk.NewAttribute(types.AttributeKeyMessageType, typeURL),
@@ -298,11 +399,14 @@ func (k Keeper) validateBatch(ctx context.Context, params types.Params, msg *typ
 	if len(msg.EncryptedPayload) == 0 {
 		return types.ErrMissingEncryptedPayload
 	}
-	if uint32(len(msg.EncryptedPayload)) > params.MaxEncryptedPayloadSize {
+	if len(msg.EncryptedPayload) > int(params.MaxEncryptedPayloadSize) {
 		return types.ErrPayloadTooLarge
 	}
 	if len(msg.Nullifier) != 32 || len(msg.RateLimitNullifier) != 32 {
 		return types.ErrInvalidNullifierLength
+	}
+	if err := types.ValidateCanonicalPublicInputs(msg.Nullifier, msg.RateLimitNullifier, msg.MerkleRoot); err != nil {
+		return err
 	}
 	// 3. Validate target epoch is current
 	epochState, found := k.GetShieldEpochStateVal(ctx)
@@ -335,15 +439,16 @@ func (k Keeper) validateBatch(ctx context.Context, params types.Params, msg *typ
 }
 
 // PrecheckExec validates an exec of either mode for the ante handler, before
-// the shield module pays gas. In CheckTx (not simulate) it also marks the
-// exec spent in the check state, which is discarded at every commit: a
-// consumed nullifier or advanced owner sequence (immediate), or a pending
-// submission nullifier (batch). Anyone can sign as the public submitter, so
-// anyone can rewrap a pending exec in new outer txs; without the mark every
-// copy would enter the mempool and take block space until the first landed.
-func (k Keeper) PrecheckExec(ctx sdk.Context, msg *types.MsgShieldedExec) error {
+// the shield module pays gas, and reports whether it also spent the exec in
+// this context (immediate mode only; see PrecheckImmediate). In CheckTx (not
+// simulate) a batch submission marks its submission nullifier pending in the
+// check state, which is discarded at every commit, so rewrapped copies of a
+// pending submission don't all enter the mempool. In DeliverTx a batch
+// submission is spent by the msg server, which can't fail once validateBatch
+// passed against the same state.
+func (k Keeper) PrecheckExec(ctx sdk.Context, msg *types.MsgShieldedExec) (bool, error) {
 	if msg.ExecMode == types.ShieldExecMode_SHIELD_EXEC_ENCRYPTED_BATCH {
-		return k.precheckBatch(ctx, msg)
+		return false, k.precheckBatch(ctx, msg)
 	}
 	return k.PrecheckImmediate(ctx, msg)
 }

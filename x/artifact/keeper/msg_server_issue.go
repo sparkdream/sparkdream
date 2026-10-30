@@ -7,6 +7,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	"sparkdream/x/artifact/types"
+	commontypes "sparkdream/x/common/types"
 )
 
 // Issue mints one shared metadata to many recipients (attendance and
@@ -22,7 +23,7 @@ func (k msgServer) Issue(ctx context.Context, msg *types.MsgIssue) (*types.MsgIs
 	if len(msg.Recipients) == 0 {
 		return nil, errorsmod.Wrap(types.ErrInvalidBatch, "recipients is empty")
 	}
-	if uint32(len(msg.Recipients)) > p.MaxIssueBatchSize {
+	if commontypes.Saturate[uint32](len(msg.Recipients)) > p.MaxIssueBatchSize {
 		return nil, errorsmod.Wrapf(types.ErrInvalidBatch, "at most %d recipients", p.MaxIssueBatchSize)
 	}
 	seen := make(map[string]bool, len(msg.Recipients))
@@ -59,7 +60,7 @@ func (k msgServer) Issue(ctx context.Context, msg *types.MsgIssue) (*types.MsgIs
 		return nil, err
 	}
 	emit(ctx, types.EventIssued, classAttr(c.Id), sdk.NewAttribute("minter", msg.Minter),
-		sdk.NewAttribute("count", u64(uint64(len(results)))), sdk.NewAttribute("live", u64(uint64(live))),
+		sdk.NewAttribute("count", u64(uint64(len(results)))), sdk.NewAttribute("live", u64(commontypes.Saturate[uint64](live))),
 		sdk.NewAttribute("metadata_hash", types.MetadataHash(msg.Metadata)))
 	return &types.MsgIssueResponse{Results: results}, nil
 }

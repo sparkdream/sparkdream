@@ -158,15 +158,15 @@ assert_tx_failure "MakePermanent on missing collection errors" "$TX_OUT"
 # ============================================================================
 # TEST 9: MakeCollectionPermanent enforces MaxMakePermanentPerDay
 # ============================================================================
-# Default cap is 5/day. Alice has already consumed 3 slots:
+# Default cap is 5/day. Alice has already consumed 2 slots:
 #   TEST 1: COLL1 promotion (1)
 #   TEST 6: COLL6 promotion (2)
-#   TEST 7: idempotent re-call on COLL6 (3) — rate-limit gate fires before
-#           the idempotent short-circuit, so the slot is consumed
-# TEST 8's missing-collection failure consumed zero slots (collection
-# lookup fails before the rate-limit gate). So 2 slots remain; we exhaust
-# them with COLL9A/COLL9B and assert COLL9C is rejected by the dedicated
-# MakePermanent counter, independent of MaxPinsPerDay.
+# TEST 7's idempotent re-call on COLL6 consumed none (the already-permanent
+# short-circuit runs before the rate-limit gate), and TEST 8's
+# missing-collection failure consumed none (lookup fails first). So 3 slots
+# remain; we exhaust them with COLL9A/COLL9B/COLL9C and assert COLL9D is
+# rejected by the dedicated MakePermanent counter, independent of
+# MaxPinsPerDay.
 echo ""
 echo "--- TEST 9: MakeCollectionPermanent hits MaxMakePermanentPerDay cap ---"
 
@@ -175,26 +175,30 @@ echo "--- TEST 9: MakeCollectionPermanent hits MaxMakePermanentPerDay cap ---"
 MAX_MAKE_PERM=$(query collect params | jq -r '.params.max_make_permanent_per_day // "0"')
 echo "  max_make_permanent_per_day: $MAX_MAKE_PERM"
 if [ "$MAX_MAKE_PERM" != "5" ]; then
-    echo "  WARN: default cap changed; this test assumed 5 and that 3 slots were used by TESTS 1/6/7"
+    echo "  WARN: default cap changed; this test assumed 5 and that 2 slots were used by TESTS 1/6"
 fi
 
 COLL9A_ID=$(create_ttl_collection alice "PinSepColl9A")
 COLL9B_ID=$(create_ttl_collection alice "PinSepColl9B")
 COLL9C_ID=$(create_ttl_collection alice "PinSepColl9C")
+COLL9D_ID=$(create_ttl_collection alice "PinSepColl9D")
 
 TX_OUT=$(send_tx collect make-collection-permanent "$COLL9A_ID" --from alice)
-assert_tx_success "MakePermanent slot 4 succeeds" "$TX_OUT"
+assert_tx_success "MakePermanent slot 3 succeeds" "$TX_OUT"
 
 TX_OUT=$(send_tx collect make-collection-permanent "$COLL9B_ID" --from alice)
-assert_tx_success "MakePermanent slot 5 succeeds" "$TX_OUT"
+assert_tx_success "MakePermanent slot 4 succeeds" "$TX_OUT"
 
 TX_OUT=$(send_tx collect make-collection-permanent "$COLL9C_ID" --from alice)
+assert_tx_success "MakePermanent slot 5 succeeds" "$TX_OUT"
+
+TX_OUT=$(send_tx collect make-collection-permanent "$COLL9D_ID" --from alice)
 assert_tx_failure "MakePermanent slot 6 hits MaxMakePermanentPerDay (ErrMaxDailyReactions)" "$TX_OUT"
 
-# COLL9C must still be ephemeral after the rejected MakePermanent.
-COLL9C=$(query collect collection "$COLL9C_ID")
-EXP9C=$(echo "$COLL9C" | jq -r '.collection.expires_at // "0"')
-assert_equal "rejected target stays ephemeral" "$FUTURE_BLOCK" "$EXP9C"
+# COLL9D must still be ephemeral after the rejected MakePermanent.
+COLL9D=$(query collect collection "$COLL9D_ID")
+EXP9D=$(echo "$COLL9D" | jq -r '.collection.expires_at // "0"')
+assert_equal "rejected target stays ephemeral" "$FUTURE_BLOCK" "$EXP9D"
 
 # Pin counter is independent — alice's prior pins (TESTS 3, 5) consumed 3
 # of the default 10 pin slots, so a fresh pin on COLL9A (now permanent)

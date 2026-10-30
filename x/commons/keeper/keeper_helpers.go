@@ -69,7 +69,11 @@ func resolveCommitteeName(council string, committee string) string {
 }
 
 // IsCouncilAuthorized checks if the given address is authorized to act on behalf
-// of a council/committee.
+// of a council/committee. It accepts ANY individual member of the named
+// committee (1-of-N), so it is only for low-stakes actions. Value-moving,
+// allowlist and clock-setting operations (operational params with dangerous
+// values, dispute resolution, treasury moves) must use
+// IsCouncilOrCommitteePolicy instead.
 func (k Keeper) IsCouncilAuthorized(ctx context.Context, addr string, council string, committee string) bool {
 	// 1. Check governance authority
 	addrBytes, err := k.addressCodec.StringToBytes(addr)
@@ -116,6 +120,11 @@ func (k Keeper) IsCouncilAuthorized(ctx context.Context, addr string, council st
 // committee decision: executed by the committee policy, so it carries a
 // proposal record and whatever majority the committee's decision policy
 // requires (percentage 0.5 -> ceil(n/2), see genesis_bootstrap.go).
+//
+// This is THE helper for value-moving, allowlist and clock-setting
+// operations in other modules (operational params, dispute or appeal
+// resolution, budget moves): such an action must never be doable by a
+// single committee member's signature.
 func (k Keeper) IsCouncilOrCommitteePolicy(ctx context.Context, addr string, council string, committee string) bool {
 	addrBytes, err := k.addressCodec.StringToBytes(addr)
 	if err != nil {
@@ -201,7 +210,10 @@ func (k Keeper) GetGroup(ctx context.Context, name string) (types.Group, error) 
 	return k.Groups.Get(ctx, name)
 }
 
+// SetGroup stores a group under its name. The collection key is
+// authoritative: the stored Index always mirrors it.
 func (k Keeper) SetGroup(ctx context.Context, name string, group types.Group) error {
+	group.Index = name
 	return k.Groups.Set(ctx, name, group)
 }
 
@@ -477,6 +489,20 @@ func (k Keeper) IsGroupPolicyMember(ctx context.Context, policyAddr string, memb
 func (k Keeper) IsGroupPolicyAddress(ctx context.Context, addr string) bool {
 	_, err := k.PolicyToName.Get(ctx, addr)
 	return err == nil
+}
+
+// ManagesGranter implements x/session's GranterOwner for the commons module
+// account (bypass creator binding): commons creates session grants only for
+// live group policies, and revokes grants of live or deleted ones.
+func (k Keeper) ManagesGranter(ctx context.Context, granter string, revoke bool) bool {
+	if k.IsGroupPolicyAddress(ctx, granter) {
+		return true
+	}
+	if !revoke {
+		return false
+	}
+	has, err := k.DeletedPolicies.Has(ctx, granter)
+	return err == nil && has
 }
 
 // IsSiblingPolicy checks if two policy addresses belong to the same council

@@ -19,6 +19,8 @@ func TestIsShieldCompatible(t *testing.T) {
 	}{
 		{"submit anonymous proposal", &types.MsgSubmitAnonymousProposal{}, true},
 		{"anonymous vote proposal", &types.MsgAnonymousVoteProposal{}, true},
+		{"anonymous vote poll", &types.MsgAnonymousVotePoll{}, true},
+		{"open vote poll", &types.MsgVotePoll{}, false},
 		{"regular submit proposal", &types.MsgSubmitProposal{}, false},
 		{"regular vote proposal", &types.MsgVoteProposal{}, false},
 		{"update params", &types.MsgUpdateParams{}, false},

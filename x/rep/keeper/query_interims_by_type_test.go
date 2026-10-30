@@ -24,8 +24,12 @@ func createInterimWithType(k keeper.Keeper, ctx context.Context, id uint64, inte
 		CreatedAt:     1000,
 		CompletedAt:   0,
 	}
-	_ = k.Interim.Set(ctx, id, interim)
-	_ = k.InterimSeq.Set(ctx, id)
+	if err := k.Interim.Set(ctx, id, interim); err != nil {
+		panic(err)
+	}
+	if err := k.InterimSeq.Set(ctx, id); err != nil {
+		panic(err)
+	}
 	return interim
 }
 

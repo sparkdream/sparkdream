@@ -177,7 +177,7 @@ func (k Keeper) NextEpochNeedingShare(ctx context.Context, validatorAddr string)
 		result uint64
 		ok     bool
 	)
-	_ = k.IterateDecryptionDemands(ctx, func(epoch uint64, raw int64) bool {
+	if err := k.IterateDecryptionDemands(ctx, func(epoch uint64, raw int64) bool {
 		if epoch < cutoff || epoch >= current {
 			return false
 		}
@@ -190,7 +190,9 @@ func (k Keeper) NextEpochNeedingShare(ctx context.Context, validatorAddr string)
 		}
 		result, ok = epoch, true
 		return true
-	})
+	}); err != nil {
+		sdk.UnwrapSDKContext(ctx).Logger().Error("NextEpochNeedingShare: k.IterateDecryptionDemands failed", "err", err)
+	}
 	return result, ok
 }
 
@@ -214,13 +216,19 @@ func (k Keeper) RetireKeySetMaterial(ctx context.Context) (int, error) {
 		return 0, err
 	}
 	var dropped []types.PendingShieldedOp
-	_ = k.IteratePendingOps(ctx, func(op types.PendingShieldedOp) bool {
+	if err := k.IteratePendingOps(ctx, func(op types.PendingShieldedOp) bool {
 		dropped = append(dropped, op)
 		return false
-	})
+	}); err != nil {
+		sdk.UnwrapSDKContext(ctx).Logger().Error("RetireKeySetMaterial: k.IteratePendingOps failed", "err", err)
+	}
 	for _, op := range dropped {
-		_ = k.DeletePendingOp(ctx, op.TargetEpoch, op.Id)
-		_ = k.DeletePendingNullifier(ctx, hex.EncodeToString(op.SubmissionNullifier))
+		if err := k.DeletePendingOp(ctx, op.TargetEpoch, op.Id); err != nil {
+			sdk.UnwrapSDKContext(ctx).Logger().Error("RetireKeySetMaterial: k.DeletePendingOp failed", "err", err)
+		}
+		if err := k.DeletePendingNullifier(ctx, hex.EncodeToString(op.SubmissionNullifier)); err != nil {
+			sdk.UnwrapSDKContext(ctx).Logger().Error("RetireKeySetMaterial: k.DeletePendingNullifier failed", "err", err)
+		}
 	}
 	return len(dropped), nil
 }

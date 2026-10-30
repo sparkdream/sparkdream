@@ -20,12 +20,17 @@ func (k msgServer) InviteMember(ctx context.Context, msg *types.MsgInviteMember)
 		return nil, errorsmod.Wrap(err, "invalid invitee address")
 	}
 
+	staked, err := requireAmount(msg.StakedDream, "staked_dream")
+	if err != nil {
+		return nil, err
+	}
+
 	// Create invitation
 	_, err = k.Keeper.CreateInvitation(
 		ctx,
 		inviterAddr,
 		inviteeAddr,
-		*msg.StakedDream,
+		staked,
 		msg.VouchedTags,
 	)
 	if err != nil {

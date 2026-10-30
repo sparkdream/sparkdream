@@ -13,10 +13,6 @@ import (
 
 // GenerateGenesisState creates a randomized GenState of the module.
 func (AppModule) GenerateGenesisState(simState *module.SimulationState) {
-	accs := make([]string, len(simState.Accounts))
-	for i, acc := range simState.Accounts {
-		accs[i] = acc.Address.String()
-	}
 	// Seed common tags so initiative/project/interim simulations can reference
 	// them — the tag registry validates every tag used in those messages.
 	seededTags := []string{"backend", "frontend", "design", "devops", "documentation", "testing"}
@@ -24,11 +20,48 @@ func (AppModule) GenerateGenesisState(simState *module.SimulationState) {
 	for _, name := range seededTags {
 		tagMap = append(tagMap, types.Tag{Name: name})
 	}
+	params := simGenesisParams()
 	repGenesis := types.GenesisState{
-		Params: types.DefaultParams(),
-		TagMap: tagMap,
+		Params:    params,
+		TagMap:    tagMap,
+		MemberMap: simGenesisMembers(simState, params, seededTags),
 	}
 	simState.GenState[types.ModuleName] = simState.Cdc.MustMarshalJSON(&repGenesis)
+}
+
+// simYear is a year in seconds.
+const simYear = int64(365 * 24 * 3600)
+
+// simGenesisParams returns the params of the simulated genesis: the
+// defaults, with two adjustments for the simulator's clock (5,000-10,000
+// seconds per block, so a 200-block run spans two to three weeks):
+//
+//   - Epochs of 20 blocks, a two-epoch review period and challenge response
+//     window and a one-epoch challenge period, so initiatives reach review,
+//     completion and challenge deadlines within a run instead of after
+//     14,400-block epochs; bounty contributions reclaimable after 30 blocks
+//     instead of 14,400.
+//   - Migration delays of a century. Finalizing a migration tombstones the
+//     old address, and the SDK modules' simulations keep signing with every
+//     sim account (a tombstone may sign almost nothing), so the rep
+//     simulation requests, accepts, objects to, cancels and recovers
+//     migrations for real but none finalizes. The accept window and the
+//     recovery-commit TTL are stretched to 60 days so a request or a seal
+//     outlives the few blocks until its accept or reveal.
+func simGenesisParams() types.Params {
+	params := types.DefaultParams()
+	params.EpochBlocks = 20
+	params.DefaultReviewPeriodEpochs = 2
+	params.DefaultChallengePeriodEpochs = 1
+	params.InitiativeBountyReclaimDelay = 30
+	params.ChallengeResponseDeadlineEpochs = 2
+	params.KeyMigrationDelay = 100 * simYear
+	params.RecoveryMigrationDelay = 100 * simYear
+	params.CouncilMigrationDelay = 100 * simYear
+	params.RecoveryChangeDelay = 200 * simYear
+	params.MigrationAcceptWindow = 60 * 24 * 3600
+	params.RecoveryCommitTtl = 60 * 24 * 3600
+	return params
 }
 
 // RegisterStoreDecoder registers a decoder.
@@ -831,6 +864,36 @@ func (am AppModule) WeightedOperations(simState module.SimulationState) []simtyp
 	operations = append(operations, simulation.NewWeightedOperation(
 		weightMsgClearZkPublicKey,
 		repsimulation.SimulateMsgClearZkPublicKey(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
+	))
+	const (
+		opWeightMsgCompleteProject          = "op_weight_msg_rep"
+		defaultWeightMsgCompleteProject int = 100
+	)
+
+	var weightMsgCompleteProject int
+	simState.AppParams.GetOrGenerate(opWeightMsgCompleteProject, &weightMsgCompleteProject, nil,
+		func(_ *rand.Rand) {
+			weightMsgCompleteProject = defaultWeightMsgCompleteProject
+		},
+	)
+	operations = append(operations, simulation.NewWeightedOperation(
+		weightMsgCompleteProject,
+		repsimulation.SimulateMsgCompleteProject(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
+	))
+	const (
+		opWeightMsgInviteExpertWitness          = "op_weight_msg_rep"
+		defaultWeightMsgInviteExpertWitness int = 100
+	)
+
+	var weightMsgInviteExpertWitness int
+	simState.AppParams.GetOrGenerate(opWeightMsgInviteExpertWitness, &weightMsgInviteExpertWitness, nil,
+		func(_ *rand.Rand) {
+			weightMsgInviteExpertWitness = defaultWeightMsgInviteExpertWitness
+		},
+	)
+	operations = append(operations, simulation.NewWeightedOperation(
+		weightMsgInviteExpertWitness,
+		repsimulation.SimulateMsgInviteExpertWitness(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
 	))
 
 	return operations

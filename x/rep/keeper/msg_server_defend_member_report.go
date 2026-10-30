@@ -18,6 +18,12 @@ func (k msgServer) DefendMemberReport(ctx context.Context, msg *types.MsgDefendM
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	now := sdkCtx.BlockTime().Unix()
 
+	// A tombstone cannot defend; the successor defends the report that
+	// followed the identity (reports are keyed canonically and re-keyed at
+	// finalization).
+	if k.IsTombstoned(ctx, msg.Creator) {
+		return nil, types.ErrMemberTombstoned
+	}
 	report, err := k.MemberReport.Get(ctx, msg.Creator)
 	if err != nil {
 		return nil, errorsmod.Wrap(types.ErrReportNotFound, "no report found for your account")

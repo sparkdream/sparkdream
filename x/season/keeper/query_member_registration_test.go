@@ -19,7 +19,9 @@ func createNMemberRegistration(keeper keeper.Keeper, ctx context.Context, n int)
 	for i := range items {
 		items[i].Member = strconv.Itoa(i)
 		items[i].RegisteredEpoch = int64(i)
-		_ = keeper.MemberRegistration.Set(ctx, items[i].Member, items[i])
+		if err := keeper.MemberRegistration.Set(ctx, items[i].Member, items[i]); err != nil {
+			panic(err)
+		}
 	}
 	return items
 }

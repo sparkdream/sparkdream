@@ -38,7 +38,7 @@ func (k Keeper) pendingFor(ctx context.Context, recipient string, classID, token
 }
 
 func (k msgServer) AcceptIncoming(ctx context.Context, msg *types.MsgAcceptIncoming) (*types.MsgAcceptIncomingResponse, error) {
-	if _, err := k.decodeAddr("recipient", msg.Recipient); err != nil {
+	if _, err := k.validateRecipient("recipient", msg.Recipient); err != nil {
 		return nil, err
 	}
 	if err := checkBatch(len(msg.Entries), k.GetParams(ctx)); err != nil {

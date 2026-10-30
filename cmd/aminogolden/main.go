@@ -391,7 +391,7 @@ func scalarValue(fd protoreflect.FieldDescriptor, v variant) protoreflect.Value 
 	case protoreflect.BoolKind:
 		return protoreflect.ValueOfBool(true)
 	case protoreflect.Int32Kind, protoreflect.Sint32Kind, protoreflect.Sfixed32Kind:
-		return protoreflect.ValueOfInt32(int32(7 * sign))
+		return protoreflect.ValueOfInt32(int32(7 * sign)) //nolint:gosec // sign is -1 or 1
 	case protoreflect.Uint32Kind, protoreflect.Fixed32Kind:
 		return protoreflect.ValueOfUint32(7)
 	case protoreflect.Int64Kind, protoreflect.Sint64Kind, protoreflect.Sfixed64Kind:

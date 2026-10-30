@@ -33,7 +33,9 @@ func createNMemberProfile(keeper keeper.Keeper, ctx context.Context, n int) []ty
 		items[i].ForumHelpfulCount = uint64(i)
 		items[i].InvitationsSuccessful = uint64(i)
 		items[i].LastActiveEpoch = int64(i)
-		_ = keeper.MemberProfile.Set(ctx, items[i].Address, items[i])
+		if err := keeper.MemberProfile.Set(ctx, items[i].Address, items[i]); err != nil {
+			panic(err)
+		}
 	}
 	return items
 }

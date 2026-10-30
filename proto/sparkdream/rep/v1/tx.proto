@@ -66,6 +66,9 @@ service Msg {
   // CancelProject defines the CancelProject RPC.
   rpc CancelProject(MsgCancelProject) returns (MsgCancelProjectResponse);
 
+  // CompleteProject defines the CompleteProject RPC.
+  rpc CompleteProject(MsgCompleteProject) returns (MsgCompleteProjectResponse);
+
   // CreateInitiative defines the CreateInitiative RPC.
   rpc CreateInitiative(MsgCreateInitiative) returns (MsgCreateInitiativeResponse);
 
@@ -124,6 +127,10 @@ service Msg {
 
   // SubmitExpertTestimony defines the SubmitExpertTestimony RPC.
   rpc SubmitExpertTestimony(MsgSubmitExpertTestimony) returns (MsgSubmitExpertTestimonyResponse);
+
+  // InviteExpertWitness lets a seated juror call an expert witness onto a
+  // pending initiative jury review.
+  rpc InviteExpertWitness(MsgInviteExpertWitness) returns (MsgInviteExpertWitnessResponse);
 
   // ChallengeContent creates a challenge against bonded content.
   rpc ChallengeContent(MsgChallengeContent) returns (MsgChallengeContentResponse);
@@ -190,7 +197,8 @@ service Msg {
   rpc AppealGovAction(MsgAppealGovAction) returns (MsgAppealGovActionResponse);
 
   // ResolveGovActionAppeal defines the ResolveGovActionAppeal RPC. Resolves
-  // a pending gov action appeal via council authority (UPHELD or OVERTURNED).
+  // a pending gov action appeal (UPHELD or OVERTURNED); Operations Committee
+  // policy, Commons Council policy or x/gov only.
   rpc ResolveGovActionAppeal(MsgResolveGovActionAppeal) returns (MsgResolveGovActionAppealResponse);
 
   // CloseInitiative defines the CloseInitiative RPC.
@@ -383,7 +391,9 @@ message MsgSubmitInterimWork {
 // MsgSubmitInterimWorkResponse defines the MsgSubmitInterimWorkResponse message.
 message MsgSubmitInterimWorkResponse {}
 
-// MsgApproveInterim defines the MsgApproveInterim message.
+// MsgApproveInterim approves (pays) or rejects an interim. creator must be
+// the Commons Operations Committee policy address (an executed committee
+// proposal), the Commons Council policy or x/gov, never a single member.
 message MsgApproveInterim {
   option (cosmos.msg.v1.signer) = "creator";
   option (amino.name) = "sparkdream/x/rep/MsgApproveInterim";
@@ -408,7 +418,9 @@ message MsgAbandonInterim {
 // MsgAbandonInterimResponse defines the MsgAbandonInterimResponse message.
 message MsgAbandonInterimResponse {}
 
-// MsgCompleteInterim defines the MsgCompleteInterim message.
+// MsgCompleteInterim settles an ADJUDICATION interim with an explicit
+// decision. creator must be the Commons Operations Committee policy address
+// (an executed committee proposal), the Commons Council policy or x/gov.
 message MsgCompleteInterim {
   option (cosmos.msg.v1.signer) = "creator";
   option (amino.name) = "sparkdream/x/rep/MsgCompleteInterim";
@@ -468,6 +480,22 @@ message MsgCancelProject {
 
 // MsgCancelProjectResponse defines the MsgCancelProjectResponse message.
 message MsgCancelProjectResponse {}
+
+// MsgCompleteProject records an ACTIVE project as COMPLETED: pays the staker
+// completion bonus, settles and releases every project stake, and moves the
+// project to its terminal status. Signed by the project's council or
+// Operations Committee policy address (an executed proposal) or x/gov; never
+// by an individual committee member. Refused while any initiative of the
+// project is non-terminal or any challenge on it is active.
+message MsgCompleteProject {
+  option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/rep/MsgCompleteProject";
+  string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 project_id = 2;
+}
+
+// MsgCompleteProjectResponse defines the MsgCompleteProjectResponse message.
+message MsgCompleteProjectResponse {}
 
 // MsgCreateInitiative defines the MsgCreateInitiative message.
 message MsgCreateInitiative {
@@ -718,6 +746,27 @@ message MsgSubmitExpertTestimony {
 // MsgSubmitExpertTestimonyResponse defines the MsgSubmitExpertTestimonyResponse message.
 message MsgSubmitExpertTestimonyResponse {}
 
+// MsgInviteExpertWitness lets a juror seated on a pending initiative jury
+// review call an expert witness. The expert must be an active ESTABLISHED+
+// member with reputation in one of the initiative's tags and no stake in the
+// dispute (not the challenger, assignee, initiative creator or a juror). The
+// invitation opens an EXPERT_TESTIMONY interim that pays the expert when they
+// testify and expires with the review. At most MaxExpertWitnessesPerReview
+// experts per review.
+message MsgInviteExpertWitness {
+  option (cosmos.msg.v1.signer) = "juror";
+  option (amino.name) = "sparkdream/x/rep/MsgInviteExpertWitness";
+  string juror = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 jury_review_id = 2;
+  string expert = 3 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+}
+
+// MsgInviteExpertWitnessResponse returns the EXPERT_TESTIMONY interim opened
+// for the expert.
+message MsgInviteExpertWitnessResponse {
+  uint64 interim_id = 1;
+}
+
 // MsgChallengeContent creates a challenge against bonded content.
 message MsgChallengeContent {
   option (cosmos.msg.v1.signer) = "challenger";
@@ -933,7 +982,10 @@ message MsgCosignMemberReport {
 // MsgCosignMemberReportResponse defines the MsgCosignMemberReportResponse message.
 message MsgCosignMemberReportResponse {}
 
-// MsgResolveMemberReport defines the MsgResolveMemberReport message.
+// MsgResolveMemberReport resolves a member report (dismiss, warning,
+// demotion or zeroing). creator must be the Commons Operations Committee
+// policy address (an executed committee proposal), the Commons Council policy
+// or x/gov, never a single committee member.
 message MsgResolveMemberReport {
   option (cosmos.msg.v1.signer) = "creator";
   option (amino.name) = "sparkdream/x/rep/MsgResolveMemberReport";
@@ -970,10 +1022,11 @@ message MsgAppealGovAction {
 // MsgAppealGovActionResponse defines the MsgAppealGovActionResponse message.
 message MsgAppealGovActionResponse {}
 
-// MsgResolveGovActionAppeal resolves a pending appeal via council authority.
-// Only the Operations Committee of the commons council may resolve appeals.
-// The verdict must be UPHELD or OVERTURNED; TIMEOUT is EndBlocker-only and
-// UNSPECIFIED is rejected.
+// MsgResolveGovActionAppeal resolves a pending appeal. resolver must be the
+// Commons Operations Committee policy address (an executed committee
+// proposal), the Commons Council policy or x/gov, never a single committee
+// member. The verdict must be UPHELD or OVERTURNED; TIMEOUT is EndBlocker-only
+// and UNSPECIFIED is rejected.
 message MsgResolveGovActionAppeal {
   option (cosmos.msg.v1.signer) = "resolver";
   option (amino.name) = "sparkdream/x/rep/MsgResolveGovActionAppeal";
@@ -1212,7 +1265,9 @@ message MsgAcceptMigrationResponse {}
 // MsgCancelMigration cancels a pending migration. The old or new address may
 // cancel a KEY migration; the Commons HR committee policy may cancel KEY and
 // COUNCIL migrations; governance may cancel any path and is the only
-// authority over a RECOVERY migration.
+// authority over a RECOVERY migration. Cancelling an OBJECTED migration
+// refunds the objector: governance cancelling a migration whose objection was
+// escalated to it upholds the objection.
 message MsgCancelMigration {
   option (cosmos.msg.v1.signer) = "signer";
   option (amino.name) = "sparkdream/x/rep/MsgCancelMigration";
@@ -1277,6 +1332,10 @@ message MsgCommitRecoveryResponse {}
 // the target, and new_address confirms control afterwards with
 // MsgAcceptMigration. The matched commitment is consumed, pending commitment
 // changes are voided and any pending KEY or COUNCIL migration is cancelled.
+// Once the preimage and the aged seal check out, the commitment and the seal
+// are consumed even when the migration cannot be opened (the preimage is
+// public from that block on): the tx then succeeds with migration_id 0 and
+// failure_reason set, so nobody can re-seal the leaked preimage.
 message MsgRevealRecovery {
   option (cosmos.msg.v1.signer) = "revealer";
   option (amino.name) = "sparkdream/x/rep/MsgRevealRecovery";
@@ -1288,14 +1347,20 @@ message MsgRevealRecovery {
 
 // MsgRevealRecoveryResponse defines the MsgRevealRecoveryResponse message.
 message MsgRevealRecoveryResponse {
+  // migration_id is the opened RECOVERY migration; 0 when it could not be
+  // opened (see failure_reason).
   uint64 migration_id = 1;
+  // failure_reason explains why the migration was not opened although the
+  // reveal itself was valid and consumed the commitment.
+  string failure_reason = 2;
 }
 
 // MsgObjectMigration lets the old address contest a COUNCIL migration
 // during its delay. It does not cancel the migration: the objector posts
-// migration_objection_bond and an x/rep jury decides. The bond is paid to
-// the new address if the migration is upheld and refunded otherwise, never
-// burned.
+// migration_objection_bond and an x/rep jury decides. An inconclusive jury
+// (including one that could not be seated) escalates the objection to x/gov
+// with the bond still locked. The bond is paid to the new address if the
+// migration is upheld and refunded otherwise, never burned.
 message MsgObjectMigration {
   option (cosmos.msg.v1.signer) = "member";
   option (amino.name) = "sparkdream/x/rep/MsgObjectMigration";
@@ -1310,7 +1375,10 @@ message MsgObjectMigrationResponse {}
 // MsgSweepTombstone moves a tombstone's spendable SPARK to its canonical
 // address, which signs. Unbonding completes to the old address outside the
 // bank send restriction; on the recovery and council paths the old key may
-// not MsgSend it, so this is how the member collects it.
+// not MsgSend it, so this is how the member collects it. On those paths
+// finalization starts unbonding every delegation of the old address; the
+// sweep also starts any it left behind, and collects the SPARK once the
+// unbonding matures.
 message MsgSweepTombstone {
   option (cosmos.msg.v1.signer) = "signer";
   option (amino.name) = "sparkdream/x/rep/MsgSweepTombstone";
@@ -1325,7 +1393,10 @@ message MsgSweepTombstoneResponse {}
 // off-chain evidence (a lost key with no recovery commitment). The authority
 // is the Commons HR (governance) committee policy or x/gov. new_address must
 // still accept; the old address may object to a jury during
-// council_migration_delay. An open member report does not block it.
+// council_migration_delay. An open member report does not block it. Signed
+// by x/gov for the member and new address of a migration whose objection was
+// escalated to governance, it rejects the objection (the migration
+// finalizes, the bond goes to new_address) instead of opening a new one.
 message MsgForceMigration {
   option (cosmos.msg.v1.signer) = "authority";
   option (amino.name) = "sparkdream/x/rep/MsgForceMigration";

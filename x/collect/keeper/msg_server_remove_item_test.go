@@ -106,7 +106,7 @@ func TestRemoveItem(t *testing.T) {
 				itemID := f.addItem(t, collID, f.owner)
 				coll, _ := f.keeper.Collection.Get(f.ctx, collID)
 				coll.Immutable = true
-				f.keeper.Collection.Set(f.ctx, collID, coll)
+				require.NoError(t, f.keeper.Collection.Set(f.ctx, collID, coll))
 				return collID, itemID
 			},
 			msg: func(f *testFixture, itemID uint64) *types.MsgRemoveItem {
@@ -123,13 +123,13 @@ func TestRemoveItem(t *testing.T) {
 			setup: func(f *testFixture) (uint64, uint64) {
 				collID := f.createCollection(t, f.owner)
 				itemID := f.addItem(t, collID, f.owner)
-				f.keeper.SponsorshipRequest.Set(f.ctx, collID, types.SponsorshipRequest{
+				require.NoError(t, f.keeper.SponsorshipRequest.Set(f.ctx, collID, types.SponsorshipRequest{
 					CollectionId:      collID,
 					Requester:         f.owner,
 					CollectionDeposit: math.NewInt(1000000),
 					ItemDepositTotal:  math.ZeroInt(),
 					ExpiresAt:         99999,
-				})
+				}))
 				return collID, itemID
 			},
 			msg: func(f *testFixture, itemID uint64) *types.MsgRemoveItem {

@@ -18,7 +18,9 @@ func createNThreadFollowCount(keeper keeper.Keeper, ctx context.Context, n int) 
 	for i := range items {
 		items[i].ThreadId = uint64(i)
 		items[i].FollowerCount = uint64(i)
-		_ = keeper.ThreadFollowCount.Set(ctx, items[i].ThreadId, items[i])
+		if err := keeper.ThreadFollowCount.Set(ctx, items[i].ThreadId, items[i]); err != nil {
+			panic(err)
+		}
 	}
 	return items
 }

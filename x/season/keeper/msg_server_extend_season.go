@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/season/types"
 
 	errorsmod "cosmossdk.io/errors"
@@ -63,7 +64,7 @@ func (k msgServer) ExtendSeason(ctx context.Context, msg *types.MsgExtendSeason)
 	}
 
 	// Calculate extension in blocks
-	extensionBlocks := int64(msg.ExtensionEpochs) * params.EpochBlocks
+	extensionBlocks := commontypes.Saturate[int64](msg.ExtensionEpochs) * params.EpochBlocks
 
 	// Extend the season
 	season.EndBlock += extensionBlocks

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/season/types"
 
 	errorsmod "cosmossdk.io/errors"
@@ -38,17 +39,20 @@ func (k msgServer) UpdateAchievement(ctx context.Context, msg *types.MsgUpdateAc
 		achievement.Description = msg.Description
 	}
 	if msg.Rarity != 0 {
-		achievement.Rarity = types.Rarity(msg.Rarity)
+		achievement.Rarity = commontypes.Saturate[types.Rarity](msg.Rarity)
 	}
 	// XP reward can be set to 0, so always update
 	achievement.XpReward = msg.XpReward
 	if msg.RequirementType != 0 {
-		achievement.RequirementType = types.RequirementType(msg.RequirementType)
+		achievement.RequirementType = commontypes.Saturate[types.RequirementType](msg.RequirementType)
 	}
 	// Threshold can be 0, so always update
 	achievement.RequirementThreshold = msg.RequirementThreshold
 
 	// Save the updated achievement
+	if err := achievement.ValidateDefinition(); err != nil {
+		return nil, err
+	}
 	if err := k.SetAchievement(ctx, achievement); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to update achievement")
 	}

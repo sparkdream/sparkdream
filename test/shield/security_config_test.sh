@@ -288,8 +288,21 @@ for URL in "${ENCRYPTED_URLS[@]}"; do
     ACTIVE=$(echo "$OP" | jq -r '.registration.active // false')
 
     if [ "$ACTIVE" != "true" ]; then
-        echo "  $URL: INACTIVE"
-        TEST4_OK=false
+        # rep's MsgCreateChallenge ships registered but INACTIVE: x/rep refuses
+        # a shield-module challenger until the identity-derived challenger
+        # exists, so governance activates it later. It must still be
+        # ENCRYPTED_ONLY so activation cannot open an immediate path.
+        # commons' MsgAnonymousVoteProposal is INACTIVE too: x/commons refuses
+        # anonymous council votes.
+        if [ "$URL" == "/sparkdream.rep.v1.MsgCreateChallenge" ] && \
+           { [ "$BATCH" == "SHIELD_BATCH_MODE_ENCRYPTED_ONLY" ] || [ "$BATCH" == "1" ]; }; then
+            echo "  $URL: INACTIVE by default, ENCRYPTED_ONLY (correct)"
+        elif [ "$URL" == "/sparkdream.commons.v1.MsgAnonymousVoteProposal" ]; then
+            echo "  $URL: INACTIVE by default (correct: commons refuses anonymous votes)"
+        else
+            echo "  $URL: INACTIVE (batch_mode=$BATCH)"
+            TEST4_OK=false
+        fi
         continue
     fi
 
@@ -439,9 +452,9 @@ else
     FEE_RES=$($BINARY tx shield shielded-exec \
         --inner-message "$FEE_INNER" \
         --proof "$(python3 -c "print('aa' * 128)")" \
-        --nullifier "$(openssl rand -hex 32)" \
-        --rate-limit-nullifier "$(openssl rand -hex 32)" \
-        --merkle-root "$(openssl rand -hex 32)" \
+        --nullifier "00$(openssl rand -hex 31)" \
+        --rate-limit-nullifier "00$(openssl rand -hex 31)" \
+        --merkle-root "00$(openssl rand -hex 31)" \
         --proof-domain 1 \
         --min-trust-level 1 \
         --exec-mode 0 \
@@ -529,63 +542,32 @@ else
     # Save current params
     CURRENT_PARAMS=$($BINARY query shield params --output json 2>&1)
 
-    # Read current params to use as base for proposals (preserves all fields)
-    CUR_MAX_FUNDING=$(echo "$CURRENT_PARAMS" | jq -r '.params.max_funding_per_day // "200000000"')
-    CUR_MIN_RESERVE=$(echo "$CURRENT_PARAMS" | jq -r '.params.min_gas_reserve // "10000000"')
-    CUR_MAX_GAS=$(echo "$CURRENT_PARAMS" | jq -r '.params.max_gas_per_exec // "500000"')
-    CUR_MAX_EXECS=$(echo "$CURRENT_PARAMS" | jq -r '.params.max_execs_per_identity_per_epoch // "50"')
-    # Proto3 omits false bools; default to false if missing
-    CUR_BATCH=$(echo "$CURRENT_PARAMS" | jq -r '(.params.encrypted_batch_enabled // false)')
-    CUR_EPOCH_INT=$(echo "$CURRENT_PARAMS" | jq -r '.params.shield_epoch_interval // "10"')
-    CUR_MIN_BATCH=$(echo "$CURRENT_PARAMS" | jq -r '.params.min_batch_size // 1')
-    CUR_PEND_EPOCHS=$(echo "$CURRENT_PARAMS" | jq -r '.params.max_pending_epochs // 6')
-    CUR_PEND_QUEUE=$(echo "$CURRENT_PARAMS" | jq -r '.params.max_pending_queue_size // 100')
-    CUR_MAX_PAYLOAD=$(echo "$CURRENT_PARAMS" | jq -r '.params.max_encrypted_payload_size // 16384')
-    CUR_MAX_OPS=$(echo "$CURRENT_PARAMS" | jq -r '.params.max_ops_per_batch // 100')
-    CUR_TLE_WINDOW=$(echo "$CURRENT_PARAMS" | jq -r '.params.tle_miss_window // "20"')
-    CUR_TLE_TOL=$(echo "$CURRENT_PARAMS" | jq -r '.params.tle_miss_tolerance // "5"')
-    CUR_TLE_JAIL=$(echo "$CURRENT_PARAMS" | jq -r '.params.tle_jail_duration // "60"')
-    CUR_MIN_TLE_VALS=$(echo "$CURRENT_PARAMS" | jq -r '.params.min_tle_validators // 3')
-    CUR_DKG_WINDOW=$(echo "$CURRENT_PARAMS" | jq -r '.params.dkg_window_blocks // "20"')
-    CUR_MAX_DRIFT=$(echo "$CURRENT_PARAMS" | jq -r '.params.max_validator_set_drift // 33')
-    CUR_MAX_FEE=$(echo "$CURRENT_PARAMS" | jq -r '.params.max_fee_per_exec // "50000"')
+    # shield_params_proposal ENABLED TITLE SUMMARY: a gov MsgUpdateParams that
+    # copies every current param (so fields added later carry over instead of
+    # decoding as zero) and sets only "enabled".
+    shield_params_proposal() {
+        echo "$CURRENT_PARAMS" | jq \
+          --arg gov "$GOV_ADDR" --argjson enabled "$1" \
+          --arg title "$2" --arg summary "$3" \
+          --arg deposit "100000000${BOND_DENOM}" \
+          '{
+            messages: [{
+              "@type": "/sparkdream.shield.v1.MsgUpdateParams",
+              authority: $gov,
+              params: (.params | .enabled = $enabled)
+            }],
+            deposit: $deposit,
+            expedited: true,
+            title: $title,
+            summary: $summary
+          }'
+    }
 
     # Disable shield via governance
-    cat > "$PROPOSAL_DIR/disable_shield.json" <<EOF
-{
-  "messages": [
-    {
-      "@type": "/sparkdream.shield.v1.MsgUpdateParams",
-      "authority": "$GOV_ADDR",
-      "params": {
-        "enabled": false,
-        "max_funding_per_day": "$CUR_MAX_FUNDING",
-        "min_gas_reserve": "$CUR_MIN_RESERVE",
-        "max_gas_per_exec": "$CUR_MAX_GAS",
-        "max_execs_per_identity_per_epoch": "$CUR_MAX_EXECS",
-        "encrypted_batch_enabled": $CUR_BATCH,
-        "shield_epoch_interval": "$CUR_EPOCH_INT",
-        "min_batch_size": $CUR_MIN_BATCH,
-        "max_pending_epochs": $CUR_PEND_EPOCHS,
-        "max_pending_queue_size": $CUR_PEND_QUEUE,
-        "max_encrypted_payload_size": $CUR_MAX_PAYLOAD,
-        "max_ops_per_batch": $CUR_MAX_OPS,
-        "tle_miss_window": "$CUR_TLE_WINDOW",
-        "tle_miss_tolerance": "$CUR_TLE_TOL",
-        "tle_jail_duration": "$CUR_TLE_JAIL",
-        "min_tle_validators": $CUR_MIN_TLE_VALS,
-        "dkg_window_blocks": "$CUR_DKG_WINDOW",
-        "max_validator_set_drift": $CUR_MAX_DRIFT,
-        "max_fee_per_exec": "$CUR_MAX_FEE"
-      }
-    }
-  ],
-  "deposit": "100000000${BOND_DENOM}",
-  "expedited": true,
-  "title": "Disable shield module for security config test",
-  "summary": "Temporarily disable shield to verify ErrShieldDisabled"
-}
-EOF
+    shield_params_proposal false \
+        "Disable shield module for security config test" \
+        "Temporarily disable shield to verify ErrShieldDisabled" \
+        > "$PROPOSAL_DIR/disable_shield.json"
 
     DISABLE_OK=false
     if submit_and_pass_proposal "$PROPOSAL_DIR/disable_shield.json" "Disable shield"; then
@@ -608,41 +590,10 @@ EOF
     fi
 
     # Re-enable immediately
-    cat > "$PROPOSAL_DIR/enable_shield.json" <<EOF
-{
-  "messages": [
-    {
-      "@type": "/sparkdream.shield.v1.MsgUpdateParams",
-      "authority": "$GOV_ADDR",
-      "params": {
-        "enabled": true,
-        "max_funding_per_day": "$CUR_MAX_FUNDING",
-        "min_gas_reserve": "$CUR_MIN_RESERVE",
-        "max_gas_per_exec": "$CUR_MAX_GAS",
-        "max_execs_per_identity_per_epoch": "$CUR_MAX_EXECS",
-        "encrypted_batch_enabled": $CUR_BATCH,
-        "shield_epoch_interval": "$CUR_EPOCH_INT",
-        "min_batch_size": $CUR_MIN_BATCH,
-        "max_pending_epochs": $CUR_PEND_EPOCHS,
-        "max_pending_queue_size": $CUR_PEND_QUEUE,
-        "max_encrypted_payload_size": $CUR_MAX_PAYLOAD,
-        "max_ops_per_batch": $CUR_MAX_OPS,
-        "tle_miss_window": "$CUR_TLE_WINDOW",
-        "tle_miss_tolerance": "$CUR_TLE_TOL",
-        "tle_jail_duration": "$CUR_TLE_JAIL",
-        "min_tle_validators": $CUR_MIN_TLE_VALS,
-        "dkg_window_blocks": "$CUR_DKG_WINDOW",
-        "max_validator_set_drift": $CUR_MAX_DRIFT,
-        "max_fee_per_exec": "$CUR_MAX_FEE"
-      }
-    }
-  ],
-  "deposit": "100000000${BOND_DENOM}",
-  "expedited": true,
-  "title": "Re-enable shield module after security config test",
-  "summary": "Re-enable shield after disable test"
-}
-EOF
+    shield_params_proposal true \
+        "Re-enable shield module after security config test" \
+        "Re-enable shield after disable test" \
+        > "$PROPOSAL_DIR/enable_shield.json"
 
     REENABLE_OK=false
     if submit_and_pass_proposal "$PROPOSAL_DIR/enable_shield.json" "Re-enable shield"; then

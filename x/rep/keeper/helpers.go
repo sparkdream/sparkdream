@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 
+	errorsmod "cosmossdk.io/errors"
 	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
@@ -167,6 +168,20 @@ func (k Keeper) isCouncilAuthorized(ctx context.Context, addr string, council st
 	return k.commonsKeeper.IsCouncilAuthorized(ctx, addr, council, committee)
 }
 
+// isCouncilOrCommitteePolicy reports whether addr is the gov authority or the
+// policy address of the given council or committee: an executed proposal,
+// never an individual committee member. Value-moving and member-zeroing
+// resolutions (member reports, gov action appeals) use this gate.
+func (k Keeper) isCouncilOrCommitteePolicy(ctx context.Context, addr string, council string, committee string) bool {
+	if k.IsGovAuthority(addr) {
+		return true
+	}
+	if k.commonsKeeper == nil {
+		return false
+	}
+	return k.commonsKeeper.IsCouncilOrCommitteePolicy(ctx, addr, council, committee)
+}
+
 // IsOperationsCommittee checks if an address is a member of the Operations committee
 // Returns false if commonsKeeper is not available (optional dependency).
 func (k Keeper) IsOperationsCommittee(ctx context.Context, address sdk.AccAddress) bool {
@@ -289,4 +304,53 @@ func (k Keeper) IncrementMemberCompletedInitiatives(ctx context.Context, memberA
 	member.CompletedInitiativesCount++
 
 	return k.Member.Set(ctx, memberAddr.String(), member)
+}
+
+// isCouncilBodyPolicy reports whether addr is the gov authority or the policy
+// address of a council or one of its standing committees: an executed
+// proposal, never an individual committee member.
+func (k Keeper) isCouncilBodyPolicy(ctx context.Context, addr string) bool {
+	if addr == k.GetAuthorityString() {
+		return true
+	}
+	// A council or committee policy is a group policy account; checking that
+	// first keeps a member's own address out of this path whatever the
+	// committee lookup answers.
+	if k.commonsKeeper == nil || !k.commonsKeeper.IsGroupPolicyAddress(ctx, addr) {
+		return false
+	}
+	for _, council := range []string{"commons", "technical", "ecosystem"} {
+		for _, committee := range []string{"", "operations", "governance"} {
+			if k.commonsKeeper.IsCouncilOrCommitteePolicy(ctx, addr, council, committee) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// requireAmount dereferences an optional math.Int message field, refusing a
+// missing or negative value instead of panicking on it (REP-E-16).
+func requireAmount(v *math.Int, field string) (math.Int, error) {
+	if v == nil || v.IsNil() {
+		return math.Int{}, errorsmod.Wrapf(types.ErrInvalidAmount, "%s is required", field)
+	}
+	if v.IsNegative() {
+		return math.Int{}, errorsmod.Wrapf(types.ErrInvalidAmount, "%s cannot be negative: %s", field, v)
+	}
+	return *v, nil
+}
+
+// validateEvidence bounds a challenge or response evidence list, which is
+// stored on the record for good (REP-E-16).
+func validateEvidence(evidence []string) error {
+	if len(evidence) > types.MaxChallengeEvidence {
+		return errorsmod.Wrapf(types.ErrTooMuchEvidence, "%d entries, at most %d", len(evidence), types.MaxChallengeEvidence)
+	}
+	for _, e := range evidence {
+		if len(e) > types.MaxChallengeEvidenceLength {
+			return errorsmod.Wrapf(types.ErrTooMuchEvidence, "an entry is %d bytes, at most %d", len(e), types.MaxChallengeEvidenceLength)
+		}
+	}
+	return nil
 }

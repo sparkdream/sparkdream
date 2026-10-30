@@ -165,9 +165,9 @@ func TestEndBlocker_Tier1EscrowReleaseToCommunityPool(t *testing.T) {
 	require.Equal(t, escrow.OperatorAddress, op.Address)
 }
 
-// TestEndBlocker_RefileCooldownRecordedOnAutoDismiss ensures that
-// auto-dismissed reports cause subsequent reports to hit the refile
-// cooldown.
+// TestEndBlocker_RefileCooldownRecordedOnAutoDismiss ensures that an
+// auto-dismissed member report bars ITS reporter from re-filing (SVC-01:
+// the cooldown is per reporter), while other members can still report.
 func TestEndBlocker_RefileCooldownRecordedOnAutoDismiss(t *testing.T) {
 	f := initFixture(t)
 	f.seedServiceType(t)
@@ -178,16 +178,52 @@ func TestEndBlocker_RefileCooldownRecordedOnAutoDismiss(t *testing.T) {
 	f.withBlockHeight(f.sdkCtx().BlockHeight() + params.MaxPendingBlocks + 1)
 	require.NoError(t, f.keeper.EndBlocker(f.ctx))
 
-	// New reporter (sidestep rate-limit). Should be rejected by refile
-	// cooldown.
+	// The reporter whose allegation lapsed cannot re-file it.
 	_, err := f.msgServer.ReportOperator(f.ctx, &types.MsgReportOperator{
-		Reporter:    testRandom,
+		Reporter:    testReporter,
 		Operator:    testOperator1,
 		ServiceType: testServiceType,
 		Reason:      "re-filing",
 	})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), types.ErrRefileCooldownActive.Error())
+
+	// Anyone else still can.
+	_, err = f.msgServer.ReportOperator(f.ctx, &types.MsgReportOperator{
+		Reporter:    testRandom,
+		Operator:    testOperator1,
+		ServiceType: testServiceType,
+		Reason:      "independent report",
+	})
+	require.NoError(t, err)
+}
+
+// SVC-01: an auto-dismissed SYSTEM report (zero deposit — a federation
+// challenge or a liveness report) records no refile cooldown, so it never
+// locks members out of reporting the operator.
+func TestEndBlocker_SystemReportAutoDismissNoCooldown(t *testing.T) {
+	f := initFixture(t)
+	f.seedServiceType(t)
+	f.seedActiveOperator(t, testOperator1, testController, math.NewInt(2_000_000))
+	reportID := f.seedPendingReport(t)
+	r, _ := f.keeper.Reports.Get(f.ctx, reportID)
+	r.Deposit = math.ZeroInt()
+	require.NoError(t, f.keeper.Reports.Set(f.ctx, reportID, r))
+
+	params, _ := f.keeper.Params.Get(f.ctx)
+	f.withBlockHeight(f.sdkCtx().BlockHeight() + params.MaxPendingBlocks + 1)
+	require.NoError(t, f.keeper.EndBlocker(f.ctx))
+
+	n := 0
+	require.NoError(t, f.keeper.RefileCooldowns.Walk(f.ctx, nil, func(collections.Quad[[]byte, []byte, string, int64], types.RefileCooldown) (bool, error) {
+		n++
+		return false, nil
+	}))
+	require.Zero(t, n)
+	_, err := f.msgServer.ReportOperator(f.ctx, &types.MsgReportOperator{
+		Reporter: testRandom, Operator: testOperator1, ServiceType: testServiceType, Reason: "member report",
+	})
+	require.NoError(t, err)
 }
 
 // TestEndBlocker_SweepLimitCaps tests that the per-sweep limit caps how

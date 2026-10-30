@@ -15,6 +15,9 @@ func (k msgServer) FollowThread(ctx context.Context, msg *types.MsgFollowThread)
 	if _, err := k.addressCodec.StringToBytes(msg.Creator); err != nil {
 		return nil, errorsmod.Wrap(err, "invalid creator address")
 	}
+	if err := k.requireForumNotPaused(ctx); err != nil {
+		return nil, err
+	}
 
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	now := sdkCtx.BlockTime().Unix()
@@ -26,6 +29,9 @@ func (k msgServer) FollowThread(ctx context.Context, msg *types.MsgFollowThread)
 	}
 	if rootPost.ParentId != 0 {
 		return nil, errorsmod.Wrap(types.ErrNotRootPost, "can only follow root posts (threads)")
+	}
+	if rootPost.Status != types.PostStatus_POST_STATUS_ACTIVE {
+		return nil, errorsmod.Wrapf(types.ErrThreadNotActive, "thread %d is %s", msg.ThreadId, rootPost.Status)
 	}
 
 	// Create follow key (address:threadId)
@@ -90,13 +96,19 @@ func (k msgServer) FollowThread(ctx context.Context, msg *types.MsgFollowThread)
 // checkAndUpdateFollowLimit checks and updates the follow rate limit for a user.
 func (k msgServer) checkAndUpdateFollowLimit(ctx context.Context, addr string, now int64) error {
 	// Use a separate key for follow limit (prefix with "follow_")
-	limitKey := "follow_" + addr
+	limitKey := types.UserReactionLimitStoreKey(types.ReactionLimitKind_REACTION_LIMIT_KIND_FOLLOW, addr)
+
+	maxFollowsPerDay := types.DefaultMaxFollowsPerDay
+	if params, perr := k.Params.Get(ctx); perr == nil && params.MaxFollowsPerDay > 0 {
+		maxFollowsPerDay = params.MaxFollowsPerDay
+	}
 
 	reactionLimit, err := k.UserReactionLimit.Get(ctx, limitKey)
 	if err != nil {
 		// Create new follow limit record
 		reactionLimit = types.UserReactionLimit{
 			UserAddress:      addr,
+			Kind:             types.ReactionLimitKind_REACTION_LIMIT_KIND_FOLLOW,
 			CurrentDayCount:  0,
 			PreviousDayCount: 0,
 			CurrentDayStart:  now,
@@ -111,15 +123,9 @@ func (k msgServer) checkAndUpdateFollowLimit(ctx context.Context, addr string, n
 		reactionLimit.CurrentDayStart = now
 	}
 
-	// Calculate effective count using sliding window approximation
-	var overlapRatio float64
-	elapsed := now - reactionLimit.CurrentDayStart
-	if elapsed < dayDuration {
-		overlapRatio = float64(dayDuration-elapsed) / float64(dayDuration)
-	}
-	effectiveCount := float64(reactionLimit.CurrentDayCount) + float64(reactionLimit.PreviousDayCount)*overlapRatio
-
-	if effectiveCount >= float64(types.DefaultMaxFollowsPerDay) {
+	// Sliding-window count, evaluated in exact integer math.
+	if slidingWindowAtLimit(uint64(reactionLimit.CurrentDayCount), uint64(reactionLimit.PreviousDayCount),
+		now-reactionLimit.CurrentDayStart, dayDuration, uint64(maxFollowsPerDay)) {
 		return types.ErrFollowLimitExceeded
 	}
 

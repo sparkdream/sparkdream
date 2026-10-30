@@ -1,45 +1,47 @@
 package simulation
 
 import (
-	"math/rand"
-
-	"github.com/cosmos/cosmos-sdk/baseapp"
+	"cosmossdk.io/math"
 	"github.com/cosmos/cosmos-sdk/client"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
 
 	"sparkdream/x/collect/keeper"
 	"sparkdream/x/collect/types"
 )
 
+// SimulateMsgUpdateItem delivers MsgUpdateItem from a writer (owner, or a
+// member EDITOR/ADMIN) of a mutable, non-hidden collection, rewriting a
+// non-hidden item's content.
 func SimulateMsgUpdateItem(
 	ak types.AuthKeeper,
 	bk types.BankKeeper,
 	k keeper.Keeper,
 	txGen client.TxConfig,
 ) simtypes.Operation {
-	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
-	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		simAccount, _ := simtypes.RandomAcc(r, accs)
-		msg := &types.MsgUpdateItem{
-			Creator: simAccount.Address.String(),
+	return operation(ak, bk, k, txGen, &types.MsgUpdateItem{}, func(e *simEnv) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
+		msg := &types.MsgUpdateItem{}
+		items, err := e.editableItems(true, func(types.Collection) bool { return true })
+		if err != nil {
+			return noOpErr(msg, err)
 		}
-
-		item, itemID, err := findItemByOwner(r, ctx, k, simAccount.Address.String())
-		if err != nil || item == nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "no item found for owner"), nil, nil
+		it, ok := pick(e.r, items)
+		if !ok {
+			return noOp(msg, "no item a sim account can update")
 		}
-
-		item.Title = randomTitle(r)
-		item.Description = randomDescription(r)
-		if item.Status == types.ItemStatus_ITEM_STATUS_ACTIVE {
-			item.Status = types.ItemStatus_ITEM_STATUS_ACTIVE
+		c := randomItemContent(e.r, it.coll.Encrypted, e.params)
+		msg = &types.MsgUpdateItem{
+			Creator:       it.writer.Address.String(),
+			Id:            it.item.Id,
+			Title:         c.title,
+			Description:   c.description,
+			ImageUri:      c.imageURI,
+			ReferenceType: c.refType,
+			Nft:           c.nft,
+			Link:          c.link,
+			Custom:        c.custom,
+			Attributes:    c.attributes,
+			EncryptedData: c.encrypted,
 		}
-
-		if err := k.Item.Set(ctx, itemID, *item); err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "failed to update item: "+err.Error()), nil, nil
-		}
-
-		return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "ok (direct keeper call)"), nil, nil
-	}
+		return e.submit(it.writer, msg, math.ZeroInt())
+	})
 }

@@ -20,27 +20,13 @@ func (q queryServer) GuildMembers(ctx context.Context, req *types.QueryGuildMemb
 		return nil, status.Errorf(codes.NotFound, "guild %d not found", req.GuildId)
 	}
 
-	// Iterate through memberships to find members of this guild
-	iter, err := q.k.GuildMembership.Iterate(ctx, nil)
-	if err != nil {
-		return nil, status.Error(codes.Internal, err.Error())
-	}
-	defer iter.Close()
-
+	// First active member, through the ByGuild index (SEA-28).
 	var foundMember string
 	var foundJoinedEpoch int64
-
-	for ; iter.Valid(); iter.Next() {
-		membership, err := iter.Value()
-		if err != nil {
-			continue
-		}
-		// Only include active members (LeftEpoch == 0 means still active)
-		if membership.GuildId == req.GuildId && membership.LeftEpoch == 0 {
-			memberAddr, _ := iter.Key()
-			foundMember = memberAddr
-			foundJoinedEpoch = membership.JoinedEpoch
-			break // Return first match for non-paginated response
+	if members := q.k.guildMembers(ctx, req.GuildId); len(members) > 0 {
+		foundMember = members[0]
+		if m, err := q.k.GuildMembership.Get(ctx, foundMember); err == nil {
+			foundJoinedEpoch = m.JoinedEpoch
 		}
 	}
 

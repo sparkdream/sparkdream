@@ -674,6 +674,41 @@ else
 fi
 
 # ========================================================================
+# TEST 19: A non-member cannot register a bridge (FED-13).
+# Bridge operators must be active x/rep members so the alias-aware
+# self-verification ban sees the person behind a bridge. A funded fresh
+# address with no membership is refused before any bond moves.
+# ========================================================================
+echo ""
+echo "--- TEST 19: Non-member bridge registration refused ---"
+
+if ! $BINARY keys show fed_outsider --keyring-backend test > /dev/null 2>&1; then
+    $BINARY keys add fed_outsider --keyring-backend test --output json > /dev/null 2>&1
+fi
+OUTSIDER_ADDR=$($BINARY keys show fed_outsider -a --keyring-backend test)
+FUND_TX=$($BINARY tx bank send alice "$OUTSIDER_ADDR" "$((BOND_AMOUNT + 1000000))${BOND_DENOM}" \
+    --from alice -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} --output json)
+submit_and_wait "$FUND_TX" "fund outsider" || true
+
+TX_RES=$($BINARY tx federation register-bridge \
+    mastodon.example activitypub https://outsider.example.com/ap "$BOND_AMOUNT" \
+    --from fed_outsider -y --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} --output json 2>&1)
+if submit_and_wait "$TX_RES" "outsider register bridge"; then
+    echo "  ERROR: a non-member registered a bridge"
+    record_result "Non-member bridge refused" "FAIL"
+else
+    RAW_LOG=$(echo "$TX_RESULT" | jq -r '.raw_log // ""' 2>/dev/null)
+    HAS_BINDING=$($BINARY query federation get-bridge-binding "$OUTSIDER_ADDR" mastodon.example --output json 2>/dev/null | jq -r '.bridge_binding.address // empty')
+    if echo "$RAW_LOG" | grep -q "must be an active x/rep member" && [ -z "$HAS_BINDING" ]; then
+        echo "  Correctly refused: operator must be an active x/rep member"
+        record_result "Non-member bridge refused" "PASS"
+    else
+        echo "  Unexpected: binding=$HAS_BINDING log=${RAW_LOG:0:200}"
+        record_result "Non-member bridge refused" "FAIL"
+    fi
+fi
+
+# ========================================================================
 # Summary
 # ========================================================================
 echo ""

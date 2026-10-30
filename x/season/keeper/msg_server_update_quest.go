@@ -37,9 +37,17 @@ func (k msgServer) UpdateQuest(ctx context.Context, msg *types.MsgUpdateQuest) (
 	}
 
 	// Validate XP reward if changed
+	if msg.XpReward > types.HardMaxQuestXpReward {
+		return nil, errorsmod.Wrapf(types.ErrQuestXpRewardTooHigh,
+			"XP reward %d exceeds the hard ceiling %d", msg.XpReward, types.HardMaxQuestXpReward)
+	}
 	if msg.XpReward > params.MaxQuestXpReward {
 		return nil, errorsmod.Wrapf(types.ErrQuestXpRewardTooHigh,
 			"XP reward %d exceeds max %d", msg.XpReward, params.MaxQuestXpReward)
+	}
+
+	if err := k.ValidateQuestPrerequisites(ctx, msg.QuestId, msg.PrerequisiteQuest, msg.RequiredAchievement); err != nil {
+		return nil, err
 	}
 
 	// Update fields
@@ -66,6 +74,12 @@ func (k msgServer) UpdateQuest(ctx context.Context, msg *types.MsgUpdateQuest) (
 	if len(msg.Objectives) > 0 {
 		if err := k.ValidateQuestObjectives(ctx, msg.Objectives); err != nil {
 			return nil, err
+		}
+		// SEA-32: a changed objective list gets a new version; progress
+		// recorded against the old one restarts from zero instead of being
+		// re-read against different objective types or targets.
+		if !sameObjectives(quest.Objectives, msg.Objectives) {
+			quest.ObjectivesVersion++
 		}
 		quest.Objectives = msg.Objectives
 	}

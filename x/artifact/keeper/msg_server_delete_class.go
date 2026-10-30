@@ -37,6 +37,12 @@ func (k msgServer) DeleteClass(ctx context.Context, msg *types.MsgDeleteClass) (
 	if err := k.ClassReleaseQueue.Remove(ctx, c.Id); err != nil {
 		return nil, err
 	}
+	// The class's own recipes go with it (bounded by max_craft_recipes_per_class).
+	// Recipes of other classes that take this one as an input stay until
+	// their owner removes them; Craft refuses them (the input class is gone).
+	if err := k.CraftRecipes.Clear(ctx, collections.NewPrefixedPairRange[uint64, uint64](c.Id)); err != nil {
+		return nil, err
+	}
 	if err := k.ClassesByOwner.Remove(ctx, collections.Join(c.Owner, c.Id)); err != nil {
 		return nil, err
 	}

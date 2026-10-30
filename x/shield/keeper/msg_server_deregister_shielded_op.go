@@ -25,11 +25,16 @@ func (k msgServer) DeregisterShieldedOp(ctx context.Context, msg *types.MsgDereg
 	}
 
 	// Verify the operation exists before removing
-	if _, found := k.GetShieldedOp(ctx, msg.MessageTypeUrl); !found {
+	reg, found := k.GetShieldedOp(ctx, msg.MessageTypeUrl)
+	if !found {
 		return nil, types.ErrUnregisteredOperation
 	}
 
 	if err := k.DeleteShieldedOp(ctx, msg.MessageTypeUrl); err != nil {
+		return nil, err
+	}
+	// Keep the domain's scoping rule while its nullifiers are stored.
+	if err := k.retireDomainIfUnused(ctx, reg); err != nil {
 		return nil, err
 	}
 

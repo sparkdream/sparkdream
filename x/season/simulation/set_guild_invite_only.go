@@ -7,12 +7,14 @@ import (
 	"github.com/cosmos/cosmos-sdk/client"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
-	"github.com/cosmos/cosmos-sdk/x/simulation"
 
 	"sparkdream/x/season/keeper"
 	"sparkdream/x/season/types"
 )
 
+// SimulateMsgSetGuildInviteOnly delivers MsgSetGuildInviteOnly from the
+// founder of a live guild, flipping its invite-only flag. Skips guilds
+// whose founder is not a sim account.
 func SimulateMsgSetGuildInviteOnly(
 	ak types.AuthKeeper,
 	bk types.BankKeeper,
@@ -21,35 +23,24 @@ func SimulateMsgSetGuildInviteOnly(
 ) simtypes.Operation {
 	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
 	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		simAccount, _ := simtypes.RandomAcc(r, accs)
+		msg := &types.MsgSetGuildInviteOnly{}
 
-		// Find or create a guild where this account is the founder
-		guild, guildID, err := findGuildByFounder(r, ctx, k, simAccount.Address.String())
-		if err != nil || guild == nil {
-			guildID, err = getOrCreateGuild(r, ctx, k, simAccount.Address.String())
-			if err != nil {
-				return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgSetGuildInviteOnly{}), "failed to get/create guild"), nil, nil
-			}
-		}
-
-		msg := &types.MsgSetGuildInviteOnly{
-			Creator:    simAccount.Address.String(),
-			GuildId:    guildID,
-			InviteOnly: r.Intn(2) == 1, // Randomly toggle
-		}
-
-		return simulation.GenAndDeliverTxWithRandFees(simulation.OperationInput{
-			R:               r,
-			App:             app,
-			TxGen:           txGen,
-			Cdc:             nil,
-			Msg:             msg,
-			CoinsSpentInMsg: sdk.NewCoins(),
-			Context:         ctx,
-			SimAccount:      simAccount,
-			AccountKeeper:   ak,
-			Bankkeeper:      bk,
-			ModuleName:      types.ModuleName,
+		guilds, err := guildsWhere(ctx, k, func(g types.Guild) bool {
+			return g.Status != types.GuildStatus_GUILD_STATUS_DISSOLVED
 		})
+		if err != nil {
+			return noOpErr(msg, err)
+		}
+		guild, ok := pick(r, guilds)
+		if !ok {
+			return noOp(msg, "no live guild")
+		}
+		founder, ok := getAccountForAddress(guild.Founder, accs)
+		if !ok {
+			return noOp(msg, "guild founder is not a sim account")
+		}
+		msg.Creator, msg.GuildId, msg.InviteOnly = guild.Founder, guild.Id, !guild.InviteOnly
+
+		return deliver(r, app, ctx, txGen, ak, bk, founder, msg)
 	}
 }

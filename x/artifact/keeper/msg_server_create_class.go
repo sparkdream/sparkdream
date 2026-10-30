@@ -2,6 +2,7 @@ package keeper
 
 import (
 	"context"
+	"errors"
 	"strconv"
 
 	"cosmossdk.io/collections"
@@ -94,7 +95,7 @@ func (k Keeper) validateRenderer(ctx context.Context, r types.Renderer) error {
 
 // validateMinterSet deduplicates and validates a minter list.
 func (k Keeper) validateMinterSet(ctx context.Context, minters []string, owner string, p types.Params) ([]string, error) {
-	if uint32(len(minters)) > p.MaxMintersPerClass {
+	if commontypes.Saturate[uint32](len(minters)) > p.MaxMintersPerClass {
 		return nil, errorsmod.Wrapf(types.ErrInvalidBatch, "at most %d minters", p.MaxMintersPerClass)
 	}
 	seen := map[string]bool{}
@@ -188,7 +189,10 @@ func (k msgServer) CreateClass(ctx context.Context, msg *types.MsgCreateClass) (
 	if !k.canCreateClass(ctx, creator, msg.Creator, p) {
 		return nil, types.ErrInsufficientTrust
 	}
-	count, _ := k.ClassCountByCreator.Get(ctx, msg.Creator)
+	count, getErr := k.ClassCountByCreator.Get(ctx, msg.Creator)
+	if getErr != nil && !errors.Is(getErr, collections.ErrNotFound) {
+		return nil, getErr
+	}
 	if count >= uint64(p.MaxClassesPerCreator) {
 		return nil, types.ErrTooManyClasses
 	}

@@ -123,5 +123,5 @@ func (b *Bridge) reconcileCandidate(ctx context.Context, st *Status, settle time
 // id comes from the post's created_at), so this turns a time into a
 // min_id cursor.
 func snowflakeAt(t time.Time) string {
-	return strconv.FormatUint(uint64(t.UnixMilli())<<16, 10)
+	return strconv.FormatUint(uint64(t.UnixMilli())<<16, 10) //nolint:gosec // post timestamps are after 1970
 }

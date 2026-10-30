@@ -9,8 +9,11 @@ import (
 	"sparkdream/x/rep/types"
 )
 
-// TestTombstoneAllowed pins the tombstone allowlist: staking and reward
-// withdrawals always, MsgSend only after a KEY migration, nothing else.
+// TestTombstoneAllowed pins the tombstone allowlist: undelegation and reward
+// and commission withdrawals always; MsgSend, redelegation and unbonding
+// cancellation only after a KEY migration (REP-R-06: a thief holding a
+// recovered member's old key must not steer the victim's delegations);
+// nothing else.
 func TestTombstoneAllowed(t *testing.T) {
 	key, rec, council := types.MigrationPath_MIGRATION_PATH_KEY, types.MigrationPath_MIGRATION_PATH_RECOVERY, types.MigrationPath_MIGRATION_PATH_COUNCIL
 	cases := []struct {
@@ -19,7 +22,14 @@ func TestTombstoneAllowed(t *testing.T) {
 		want bool
 	}{
 		{"/cosmos.staking.v1beta1.MsgUndelegate", rec, true},
-		{"/cosmos.staking.v1beta1.MsgBeginRedelegate", council, true},
+		{"/cosmos.staking.v1beta1.MsgBeginRedelegate", key, true},
+		{"/cosmos.staking.v1beta1.MsgBeginRedelegate", council, false},
+		{"/cosmos.staking.v1beta1.MsgBeginRedelegate", rec, false},
+		{"/cosmos.staking.v1beta1.MsgCancelUnbondingDelegation", key, true},
+		{"/cosmos.staking.v1beta1.MsgCancelUnbondingDelegation", rec, false},
+		{"/cosmos.staking.v1beta1.MsgCancelUnbondingDelegation", council, false},
+		{"/cosmos.staking.v1beta1.MsgUndelegate", council, true},
+		{"/cosmos.distribution.v1beta1.MsgWithdrawValidatorCommission", rec, true},
 		{"/cosmos.distribution.v1beta1.MsgWithdrawDelegatorReward", rec, true},
 		{"/cosmos.bank.v1beta1.MsgSend", key, true},
 		{"/cosmos.bank.v1beta1.MsgSend", rec, false},

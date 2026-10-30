@@ -10,4 +10,8 @@ message ArchiveMetadata {
   int64 first_archived_at = 3;
   int64 last_archived_at = 4;
   bool hr_override_required = 5;
+  // last_unarchived_at is the block time of the most recent MsgUnarchiveThread.
+  // MsgFreezeThread refuses to re-archive until last_unarchived_at +
+  // archive_cooldown has passed. 0 when the thread was never unarchived.
+  int64 last_unarchived_at = 6;
 }

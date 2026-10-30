@@ -158,3 +158,40 @@ func TestMsgClaimUnbondedBond_RepGrantFailureIsNonFatal(t *testing.T) {
 	// Bond still returned despite rep grant failure.
 	require.Len(t, f.bankKeeper.ModToAcctCalls, 1)
 }
+
+// SVC-15: a claim that finalizes a matured tier-1 escrow before the
+// EndBlocker sweep applies the same reputation deduction the sweep would.
+func TestMsgClaimUnbondedBond_EagerEscrowReleaseDeductsReputation(t *testing.T) {
+	f := initFixture(t)
+	reportID := f.seedResolvedT1ReportAndSlash(t, 200)
+	escrowID, ok := findEscrowFor(t, f, reportID)
+	require.True(t, ok)
+	escrow, err := f.keeper.Tier1Escrow.Get(f.ctx, escrowID)
+	require.NoError(t, err)
+
+	op, ok := f.keeper.GetOperator(f.ctx, testOperator1Addr.Bytes(), testServiceType)
+	require.True(t, ok)
+	op.Status = types.OperatorStatus_OPERATOR_STATUS_UNBONDING
+	op.UnbondCompleteAt = escrow.ReleaseAt
+	// A bonding history to deduct from (accrual stops once UNBONDING).
+	op.TotalLifetimeBondBlocks = op.BondAmount.MulRaw(1_000)
+	require.NoError(t, f.keeper.PutOperator(f.ctx, op))
+	f.withBlockHeight(escrow.ReleaseAt + 1)
+
+	// No EndBlocker: the claim finalizes the escrow itself.
+	_, err = f.msgServer.ClaimUnbondedBond(f.ctx, &types.MsgClaimUnbondedBond{
+		Operator:    testOperator1,
+		ServiceType: testServiceType,
+	})
+	require.NoError(t, err)
+
+	_, err = f.keeper.Tier1Escrow.Get(f.ctx, escrowID)
+	require.Error(t, err, "escrow finalized")
+	has, err := f.keeper.Tier1EscrowReleaseQueue.Has(f.ctx, collections.Join(escrow.ReleaseAt, escrowID))
+	require.NoError(t, err)
+	require.False(t, has)
+	require.NotEmpty(t, f.distributionKeeper.Calls, "slashed SPARK went to the community pool")
+	require.Len(t, f.repKeeper.DeductReputationCalls, 1)
+	require.Equal(t, types.ReputationTagServiceOperator, f.repKeeper.DeductReputationCalls[0].Tag)
+	require.True(t, f.repKeeper.DeductReputationCalls[0].Amount.IsPositive())
+}

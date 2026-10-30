@@ -18,6 +18,11 @@ func (k msgServer) SubmitJurorVote(ctx context.Context, msg *types.MsgSubmitJuro
 	if msg.Confidence == nil {
 		return nil, errorsmod.Wrap(types.ErrInvalidAmount, "confidence is required")
 	}
+	// Only a deciding verdict with a confidence in [0, 1] is a vote
+	// (REP-E-23). The keeper re-checks, for callers that bypass this server.
+	if err := types.ValidateJurorVote(msg.Verdict, *msg.Confidence); err != nil {
+		return nil, err
+	}
 
 	// Submit the juror vote
 	if err := k.Keeper.SubmitJurorVote(

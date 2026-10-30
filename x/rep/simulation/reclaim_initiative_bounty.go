@@ -1,73 +1,41 @@
 package simulation
 
 import (
-	"math/rand"
-
-	"github.com/cosmos/cosmos-sdk/baseapp"
+	"cosmossdk.io/math"
 	"github.com/cosmos/cosmos-sdk/client"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
-	"github.com/cosmos/cosmos-sdk/x/simulation"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/rep/keeper"
 	"sparkdream/x/rep/types"
 )
 
-func SimulateMsgReclaimInitiativeBounty(
-	ak types.AuthKeeper,
-	bk types.BankKeeper,
-	k keeper.Keeper,
-	txGen client.TxConfig,
-) simtypes.Operation {
-	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
-	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		noop := func(reason string) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgReclaimInitiativeBounty{}), reason), nil, nil
-		}
-		params, err := k.Params.Get(ctx)
-		if err != nil {
-			return noop("failed to get params")
-		}
-
-		// Find a matured contribution on an OPEN initiative.
-		var msg *types.MsgReclaimInitiativeBounty
-		var signer simtypes.Account
-		height := ctx.BlockHeight()
-		_ = k.InitiativeBounty.Walk(ctx, nil, func(id uint64, b types.InitiativeBounty) (bool, error) {
-			initiative, gErr := k.Initiative.Get(ctx, id)
-			if gErr != nil || initiative.Status != types.InitiativeStatus_INITIATIVE_STATUS_OPEN {
+// SimulateMsgReclaimInitiativeBounty has a funder take back its matured
+// contribution (past initiative_bounty_reclaim_delay) to the bounty of an initiative that is still OPEN.
+func SimulateMsgReclaimInitiativeBounty(ak types.AuthKeeper, bk types.BankKeeper, k keeper.Keeper, txGen client.TxConfig) simtypes.Operation {
+	label := &types.MsgReclaimInitiativeBounty{}
+	return operation(ak, bk, k, txGen, label, func(e *simEnv) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
+		var cands []candidate
+		err := e.k.InitiativeBounty.Walk(e.ctx, nil, func(id uint64, b types.InitiativeBounty) (bool, error) {
+			in, ok := e.initiative(id)
+			if !ok || in.Status != types.InitiativeStatus_INITIATIVE_STATUS_OPEN {
 				return false, nil
 			}
 			for _, c := range b.Contributions {
-				if height < c.FundedAt+int64(params.InitiativeBountyReclaimDelay) {
+				if e.ctx.BlockHeight() < c.FundedAt+commontypes.Saturate[int64](e.params.InitiativeBountyReclaimDelay) {
 					continue
 				}
-				acc, found := getAccountFromMember(&types.Member{Address: c.Funder}, accs)
-				if !found {
-					continue
+				if acc, ok := e.account(c.Funder); ok {
+					cands = append(cands, candidate{acc: acc, msg: &types.MsgReclaimInitiativeBounty{
+						Funder: c.Funder, InitiativeId: id,
+					}, spent: math.ZeroInt()})
 				}
-				msg = &types.MsgReclaimInitiativeBounty{Funder: c.Funder, InitiativeId: id}
-				signer = acc
-				return true, nil
 			}
 			return false, nil
 		})
-		if msg == nil {
-			return noop("no reclaimable initiative bounty contribution")
+		if err != nil {
+			return noOpErr(label, err)
 		}
-
-		return simulation.GenAndDeliverTxWithRandFees(simulation.OperationInput{
-			R:               r,
-			App:             app,
-			TxGen:           txGen,
-			Cdc:             nil,
-			Msg:             msg,
-			CoinsSpentInMsg: sdk.NewCoins(),
-			Context:         ctx,
-			SimAccount:      signer,
-			AccountKeeper:   ak,
-			Bankkeeper:      bk,
-			ModuleName:      types.ModuleName,
-		})
-	}
+		return e.firstValid(label, cands, 4, "no live funder of an OPEN initiative's bounty")
+	})
 }

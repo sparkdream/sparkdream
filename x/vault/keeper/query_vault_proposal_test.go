@@ -23,7 +23,9 @@ func createNVaultProposal(keeper keeper.Keeper, ctx context.Context, n int) []ty
 		items[i].ConfigVersion = uint64(i)
 		items[i].ExpiresAt = int64(i)
 		items[i].Memo = strconv.Itoa(i)
-		_ = keeper.VaultProposal.Set(ctx, items[i].ProposalId, items[i])
+		if err := keeper.VaultProposal.Set(ctx, items[i].ProposalId, items[i]); err != nil {
+			panic(err)
+		}
 	}
 	return items
 }

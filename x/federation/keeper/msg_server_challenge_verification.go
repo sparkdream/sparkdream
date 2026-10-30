@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/federation/types"
 
 	"cosmossdk.io/collections"
@@ -29,7 +30,7 @@ func (k msgServer) ChallengeVerification(ctx context.Context, msg *types.MsgChal
 		if err != nil {
 			return nil, errorsmod.Wrap(types.ErrTrustLevelInsufficient, "failed to get trust level")
 		}
-		if uint32(trustLevel) < params.MinVerifierTrustLevel {
+		if commontypes.Saturate[uint32](trustLevel) < params.MinVerifierTrustLevel {
 			return nil, errorsmod.Wrapf(types.ErrTrustLevelInsufficient, "trust level %d < required %d", trustLevel, params.MinVerifierTrustLevel)
 		}
 	}
@@ -56,11 +57,25 @@ func (k msgServer) ChallengeVerification(ctx context.Context, msg *types.MsgChal
 		return nil, errorsmod.Wrapf(types.ErrChallengeWindowExpired, "window expired at %d", record.ChallengeWindowEnds)
 	}
 
+	// 3b. A new dispute round starts clean. An escalation still open, or
+	//     arbiter data of the previous round not yet deleted (its cleanup
+	//     runs against the EndBlocker prune budget), would otherwise leak
+	//     into this round: old votes would count, and the old round's
+	//     cleanup would delete the new round's votes.
+	if has, _ := k.EscalatedChallenges.Has(ctx, msg.ContentId); has {
+		return nil, errorsmod.Wrapf(types.ErrDisputeInProgress, "content %d still has an open escalation", msg.ContentId)
+	}
+	if k.hasArbiterData(ctx, msg.ContentId) {
+		return nil, errorsmod.Wrapf(types.ErrDisputeInProgress, "the previous arbitration round of content %d is still being cleaned up", msg.ContentId)
+	}
+
 	// 4. Verify challenger is not the original verifier or submitting operator
-	if msg.Creator == record.Verifier {
+	//    Alias-aware (SameMember): a member who migrated keys is still the
+	//    verifier / operator of records written under the old address.
+	if k.sameMember(ctx, msg.Creator, record.Verifier) {
 		return nil, errorsmod.Wrap(types.ErrSelfChallenge, "challenger is the verifier")
 	}
-	if msg.Creator == content.SubmittedBy {
+	if k.sameMember(ctx, msg.Creator, content.SubmittedBy) {
 		return nil, errorsmod.Wrap(types.ErrSelfChallenge, "challenger is the submitting operator")
 	}
 
@@ -81,7 +96,7 @@ func (k msgServer) ChallengeVerification(ctx context.Context, msg *types.MsgChal
 			shifts = 20
 		}
 		multiplier := uint64(1) << shifts
-		effectiveFeeAmount = effectiveFeeAmount.MulRaw(int64(multiplier))
+		effectiveFeeAmount = effectiveFeeAmount.MulRaw(commontypes.Saturate[int64](multiplier))
 	}
 
 	// 6. Escrow challenge fee — denom resolved at runtime from x/identity.
@@ -102,16 +117,21 @@ func (k msgServer) ChallengeVerification(ctx context.Context, msg *types.MsgChal
 	// and the actual escrowed fee. Snapshot is needed because the auto-
 	// resolve path can't recompute the escalating fee multiplier reliably
 	// (PriorRejectedChallenges may move forward before resolution lands).
+	// The round's arbiter deadlines are reset: votes are accepted until
+	// arbiter_resolution_deadline, and no quorum has been reached yet.
+	arbiterDeadline := blockTime + int64(params.ArbiterResolutionWindow.Seconds())
 	record.Outcome = types.VerificationOutcome_VERIFICATION_OUTCOME_CHALLENGED
 	record.Challenger = msg.Creator
 	record.EscrowedChallengeFee = effectiveFeeAmount
 	record.PendingVerifierVerdict = types.PendingVerifierVerdict_PENDING_VERIFIER_VERDICT_UNSPECIFIED
+	record.ArbiterResolutionDeadline = arbiterDeadline
+	record.ArbiterEscalationDeadline = 0
+	record.QuorumFalsifiedContent = false
 	if err := k.VerificationRecords.Set(ctx, msg.ContentId, record); err != nil {
 		return nil, err
 	}
 
 	// 9. Start Phase 1 (arbiter resolution)
-	arbiterDeadline := blockTime + int64(params.ArbiterResolutionWindow.Seconds())
 	if err := k.ArbiterResolutionQueue.Set(ctx, collections.Join(arbiterDeadline, msg.ContentId)); err != nil {
 		return nil, err
 	}

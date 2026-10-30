@@ -157,4 +157,16 @@ var (
 
 	// Media labels (docs/content-scanning.md §3.3)
 	ErrDataURINotAllowed = errors.Register(ModuleName, 1271, "data URIs are not allowed in collect fields")
+
+	// ErrContentHidden refuses item writes on a HIDDEN item or inside a
+	// HIDDEN collection: the hidden content is the evidence an appeal jury
+	// judges, so it cannot change (or vanish) while moderation is open.
+	ErrContentHidden = errors.Register(ModuleName, 1272, "content is hidden; items cannot be changed until the hide is resolved")
+	// Sponsorship applies to a PENDING or ACTIVE collection; a HIDDEN one is
+	// under moderation.
+	ErrCollectionNotActive = errors.Register(ModuleName, 1273, "collection is hidden and cannot be sponsored")
+	// A sentinel's hide is a rewarded action; hiding their own collection or
+	// item would be paid self-dealing (as forum's FRM-28).
+	ErrSelfModeration          = errors.Register(ModuleName, 1274, "sentinels cannot moderate their own content")
+	ErrInvalidCollaboratorRole = errors.Register(ModuleName, 1275, "collaborator role must be EDITOR or ADMIN")
 )

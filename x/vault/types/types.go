@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
+	commontypes "sparkdream/x/common/types"
 	"time"
 
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
@@ -25,6 +26,13 @@ const (
 	MaxProposalTTL                              = int64(30 * 24 * time.Hour / time.Second)
 	MaxLabelLength                              = 64
 	MaxMemoLength                               = 256
+	// MaxVaultsPerSigner caps how many distinct vaults one member (any of
+	// its x/rep addresses) may be an accepted signer of. Only accepted entries
+	// count: an unaccepted listing (made without the member's consent) never
+	// consumes the cap, so nobody can fill it to keep a member out of real
+	// vaults. The cap bounds the vaults-by-signer index of an address and the
+	// migration-hook walk.
+	MaxVaultsPerSigner = 20
 	// MaxEndBlockerPassItems caps each EndBlocker pass (expiry, retention).
 	MaxEndBlockerPassItems = 50
 )
@@ -50,10 +58,10 @@ func MessagesHash(msgs []*codectypes.Any) []byte {
 		if a != nil {
 			url, val = a.TypeUrl, a.Value
 		}
-		binary.BigEndian.PutUint32(n[:], uint32(len(url)))
+		binary.BigEndian.PutUint32(n[:], commontypes.Saturate[uint32](len(url)))
 		h.Write(n[:])
 		h.Write([]byte(url))
-		binary.BigEndian.PutUint32(n[:], uint32(len(val)))
+		binary.BigEndian.PutUint32(n[:], commontypes.Saturate[uint32](len(val)))
 		h.Write(n[:])
 		h.Write(val)
 	}
@@ -64,8 +72,16 @@ func MessagesHash(msgs []*codectypes.Any) []byte {
 // 1 <= len(signers) <= MaxSigners, no duplicate signer, every weight in
 // [1, MaxSignerWeight], 1 <= threshold <= sum(weights), the TTL within bounds
 // and the label within length. Address validity is checked by the caller with
-// its address codec. There is deliberately no way to produce an empty signer
-// set or an unreachable threshold, so a vault can never brick itself.
+// its address codec. There is deliberately no way to write an empty signer
+// set or an unreachable threshold, so no create or rotation can brick a vault.
+// The sum counts unaccepted entries too: a vault may be created (or rotated)
+// with a threshold only its invitees can complete, and proposals then cannot
+// execute until enough weight has accepted (MsgAcceptVaultSigner). The
+// accepted flag is set by the keeper, never by these rules.
+// One case stays outside these rules: a RECOVERY or COUNCIL migration that
+// merges two entries into one member (Tally counts that member once) can
+// lower the reachable weight below the threshold afterwards; the owner should
+// rotate one entry out before migrating (docs/x-vault-spec.md §7).
 func ValidateConfig(signers []VaultSigner, threshold uint64, proposalTTL int64, label string) error {
 	if len(signers) == 0 {
 		return fmt.Errorf("%w: at least one signer", ErrInvalidSignerSet)
@@ -100,6 +116,16 @@ func ValidateConfig(signers []VaultSigner, threshold uint64, proposalTTL int64, 
 	return nil
 }
 
+// SignerEntry returns addr's entry in the signer set and whether it exists.
+func (v Vault) SignerEntry(addr string) (VaultSigner, bool) {
+	for _, s := range v.Signers {
+		if s.Address == addr {
+			return s, true
+		}
+	}
+	return VaultSigner{}, false
+}
+
 // SignerWeight returns the weight of addr in the signer set, 0 when absent.
 func (v Vault) SignerWeight(addr string) uint64 {
 	for _, s := range v.Signers {
@@ -128,6 +154,8 @@ var NonDelegableMsgs = []sdk.Msg{
 	&MsgCancelProposal{},
 	&MsgUpdateVault{},
 	&MsgUpdateParams{},
+	&MsgAcceptVaultSigner{},
+	&MsgLeaveVault{},
 }
 
 // NonDelegableMsgTypeURLs returns the type URLs of NonDelegableMsgs (a

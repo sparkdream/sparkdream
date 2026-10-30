@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/cosmos/cosmos-sdk/types/query"
 	"github.com/stretchr/testify/require"
 
 	"sparkdream/x/blog/keeper"
@@ -98,8 +99,12 @@ func TestListPostsByCreator(t *testing.T) {
 				Creator: creator1,
 			},
 			validate: func(t *testing.T, resp *types.QueryListPostsByCreatorResponse) {
-				require.Len(t, resp.Posts, 1)
+				// BLG-05: the tombstone stays listed (empty title/body).
+				require.Len(t, resp.Posts, 2)
 				require.Equal(t, "Active Post", resp.Posts[0].Title)
+				require.Equal(t, types.PostStatus_POST_STATUS_DELETED, resp.Posts[1].Status)
+				require.Empty(t, resp.Posts[1].Title)
+				require.Empty(t, resp.Posts[1].Body)
 			},
 		},
 		{
@@ -195,4 +200,53 @@ func TestListPostsByCreator(t *testing.T) {
 			}
 		})
 	}
+}
+
+// BLG-08: a migrated author's canonical and pre-migration posts page as one
+// stream: limit bounds every page, no post repeats across pages, and every
+// post is reached.
+func TestListPostsByCreatorPaginatesAliases(t *testing.T) {
+	f := initFixture(t)
+	canonical := "sprkdrm1afyuna8gqe55t7jztxcg0aleg0k5txep72pfan"
+	old := "sprkdrm1g5ad4qmzqpfkfzgktx6za005qt2t0v56jy529y"
+	f.repKeeper.AllAddressesOfFn = func(a string) []string {
+		if a == canonical || a == old {
+			return []string{canonical, old}
+		}
+		return []string{a}
+	}
+	for i := 0; i < 4; i++ {
+		f.keeper.AppendPost(f.ctx, types.Post{Creator: old, Title: "zenith", Body: "b", Status: types.PostStatus_POST_STATUS_ACTIVE})
+		f.keeper.AppendPost(f.ctx, types.Post{Creator: canonical, Title: "phoenix", Body: "b", Status: types.PostStatus_POST_STATUS_ACTIVE})
+	}
+	qs := keeper.NewQueryServerImpl(f.keeper)
+
+	seen := map[uint64]bool{}
+	var key []byte
+	for page := 0; ; page++ {
+		require.Less(t, page, 10)
+		resp, err := qs.ListPostsByCreator(f.ctx, &types.QueryListPostsByCreatorRequest{
+			Creator:    canonical,
+			Pagination: &query.PageRequest{Key: key, Limit: 3},
+		})
+		require.NoError(t, err)
+		require.LessOrEqual(t, len(resp.Posts), 3)
+		for _, p := range resp.Posts {
+			require.False(t, seen[p.Id], "post %d repeated", p.Id)
+			seen[p.Id] = true
+		}
+		key = resp.Pagination.NextKey
+		if len(key) == 0 {
+			break
+		}
+	}
+	require.Len(t, seen, 8)
+
+	resp, err := qs.ListPostsByCreator(f.ctx, &types.QueryListPostsByCreatorRequest{
+		Creator:    canonical,
+		Pagination: &query.PageRequest{Limit: 3, Offset: 6, CountTotal: true},
+	})
+	require.NoError(t, err)
+	require.Len(t, resp.Posts, 2)
+	require.Equal(t, uint64(8), resp.Pagination.Total)
 }

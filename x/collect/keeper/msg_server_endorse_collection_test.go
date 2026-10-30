@@ -98,7 +98,7 @@ func TestEndorseCollection(t *testing.T) {
 				collID := f.createPendingCollection(t)
 				coll, _ := f.keeper.Collection.Get(f.ctx, collID)
 				coll.SeekingEndorsement = false
-				f.keeper.Collection.Set(f.ctx, collID, coll) //nolint:errcheck
+				require.NoError(t, f.keeper.Collection.Set(f.ctx, collID, coll))
 				return collID
 			},
 			creator:        "", // f.member

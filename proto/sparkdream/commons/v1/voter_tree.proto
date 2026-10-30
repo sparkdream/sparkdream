@@ -1,0 +1,29 @@
+syntax = "proto3";
+package sparkdream.commons.v1;
+
+import "gogoproto/gogo.proto";
+
+option go_package = "sparkdream/x/commons/types";
+
+// VoterTree is the voter snapshot of a secret ballot: a Merkle tree (the
+// x/shield circuit's depth and hash) whose leaves are MiMC(zk_public_key, 0)
+// for each group member with a registered ZK key, in member-address order.
+// Its shape matches x/rep's trust_tree query, so a client proves against it
+// the same way (leaf metadata 0, min_trust_level 0).
+message VoterTree {
+  bytes root = 1;
+  // depth is the tree depth (number of levels above the leaves).
+  uint32 depth = 2;
+  repeated VoterTreeLeaf leaves = 3 [(gogoproto.nullable) = false];
+  // member_count is the group's member count at the snapshot, members
+  // without a ZK key included.
+  uint64 member_count = 4;
+  // member_weight is the (equal) member weight at the snapshot.
+  string member_weight = 5;
+}
+
+// VoterTreeLeaf is one occupied leaf slot.
+message VoterTreeLeaf {
+  uint64 index = 1;
+  bytes hash = 2;
+}

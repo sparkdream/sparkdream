@@ -22,6 +22,18 @@ func (k msgServer) UpdateOperationalParams(ctx context.Context, req *types.MsgUp
 		return nil, errorsmod.Wrap(err, "failed to get current params")
 	}
 
+	// One Operations Committee member signs this message, so the epoch
+	// clocks are out of its reach (REP-E-08): epoch_blocks is fixed at
+	// genesis (see UpdateParams) and season_duration_epochs is governance
+	// only. Resending the current values, as a full operational-params
+	// update does, is accepted.
+	if req.OperationalParams.EpochBlocks != currentParams.EpochBlocks {
+		return nil, errorsmod.Wrapf(types.ErrParamImmutable, "epoch_blocks is %d", currentParams.EpochBlocks)
+	}
+	if req.OperationalParams.SeasonDurationEpochs != currentParams.SeasonDurationEpochs {
+		return nil, errorsmod.Wrapf(types.ErrParamGovernanceOnly, "season_duration_epochs is %d", currentParams.SeasonDurationEpochs)
+	}
+
 	merged := currentParams.ApplyOperationalParams(req.OperationalParams)
 
 	if err := merged.Validate(); err != nil {

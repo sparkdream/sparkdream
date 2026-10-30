@@ -33,7 +33,7 @@ func TestMsgServerResolveUnappealedModeration(t *testing.T) {
 			Active:       true,
 			// AppealChallengeId is empty — no appeal filed
 		}
-		k.DisplayNameModeration.Set(ctx, targetStr, moderation)
+		require.NoError(t, k.SetDisplayNameModeration(ctx, targetStr, moderation))
 
 		// Set up reporter stake
 		reportChallengeID := fmt.Sprintf("dn:%s:%d", targetStr, int64(100))
@@ -42,7 +42,7 @@ func TestMsgServerResolveUnappealedModeration(t *testing.T) {
 			Reporter:    reporterStr,
 			Amount:      math.NewInt(50),
 		}
-		k.DisplayNameReportStake.Set(ctx, reportChallengeID, reportStake)
+		require.NoError(t, k.DisplayNameReportStake.Set(ctx, reportChallengeID, reportStake))
 
 		// Advance past appeal period (default 100800 blocks)
 		params, _ := k.Params.Get(ctx)
@@ -125,7 +125,7 @@ func TestMsgServerResolveUnappealedModeration(t *testing.T) {
 			ModeratedAt:  0,
 			Active:       false, // already resolved
 		}
-		k.DisplayNameModeration.Set(ctx, targetStr, moderation)
+		require.NoError(t, k.SetDisplayNameModeration(ctx, targetStr, moderation))
 
 		_, err := ms.ResolveUnappealedModeration(ctx, &types.MsgResolveUnappealedModeration{
 			Authority: authority,
@@ -151,7 +151,7 @@ func TestMsgServerResolveUnappealedModeration(t *testing.T) {
 			Active:            true,
 			AppealChallengeId: "dn_appeal:test:0", // appeal exists
 		}
-		k.DisplayNameModeration.Set(ctx, targetStr, moderation)
+		require.NoError(t, k.SetDisplayNameModeration(ctx, targetStr, moderation))
 
 		// Advance past appeal period
 		ctx = ctx.WithBlockHeight(200000)
@@ -179,7 +179,7 @@ func TestMsgServerResolveUnappealedModeration(t *testing.T) {
 			ModeratedAt:  100,
 			Active:       true,
 		}
-		k.DisplayNameModeration.Set(ctx, targetStr, moderation)
+		require.NoError(t, k.SetDisplayNameModeration(ctx, targetStr, moderation))
 
 		// Still within appeal period
 		ctx = ctx.WithBlockHeight(200)
@@ -211,7 +211,7 @@ func TestMsgServerResolveUnappealedModeration(t *testing.T) {
 			ModeratedAt:  0,
 			Active:       true,
 		}
-		k.DisplayNameModeration.Set(ctx, targetStr, moderation)
+		require.NoError(t, k.SetDisplayNameModeration(ctx, targetStr, moderation))
 
 		// Advance past appeal period
 		params, _ := k.Params.Get(ctx)
@@ -244,7 +244,7 @@ func TestBeginBlocker_ProcessExpiredModerations(t *testing.T) {
 			EndBlock:   1000000,
 			Status:     types.SeasonStatus_SEASON_STATUS_ACTIVE,
 		}
-		f.keeper.Season.Set(f.ctx, season)
+		require.NoError(t, f.keeper.Season.Set(f.ctx, season))
 
 		// Set up active moderation with NO appeal at block 100
 		moderation := types.DisplayNameModeration{
@@ -254,7 +254,7 @@ func TestBeginBlocker_ProcessExpiredModerations(t *testing.T) {
 			ModeratedAt:  100,
 			Active:       true,
 		}
-		f.keeper.DisplayNameModeration.Set(f.ctx, targetStr, moderation)
+		require.NoError(t, f.keeper.SetDisplayNameModeration(f.ctx, targetStr, moderation))
 
 		// Set up reporter stake
 		reportChallengeID := fmt.Sprintf("dn:%s:%d", targetStr, int64(100))
@@ -263,7 +263,7 @@ func TestBeginBlocker_ProcessExpiredModerations(t *testing.T) {
 			Reporter:    reporterStr,
 			Amount:      math.NewInt(50),
 		}
-		f.keeper.DisplayNameReportStake.Set(f.ctx, reportChallengeID, reportStake)
+		require.NoError(t, f.keeper.DisplayNameReportStake.Set(f.ctx, reportChallengeID, reportStake))
 
 		// Advance past appeal period
 		params, _ := f.keeper.Params.Get(f.ctx)
@@ -296,7 +296,7 @@ func TestBeginBlocker_ProcessExpiredModerations(t *testing.T) {
 			EndBlock:   1000000,
 			Status:     types.SeasonStatus_SEASON_STATUS_ACTIVE,
 		}
-		f.keeper.Season.Set(f.ctx, season)
+		require.NoError(t, f.keeper.Season.Set(f.ctx, season))
 
 		moderation := types.DisplayNameModeration{
 			Member:       targetStr,
@@ -305,7 +305,7 @@ func TestBeginBlocker_ProcessExpiredModerations(t *testing.T) {
 			ModeratedAt:  100,
 			Active:       true,
 		}
-		f.keeper.DisplayNameModeration.Set(f.ctx, targetStr, moderation)
+		require.NoError(t, f.keeper.SetDisplayNameModeration(f.ctx, targetStr, moderation))
 
 		// Still within appeal period
 		f.ctx = f.ctx.WithBlockHeight(200)
@@ -331,7 +331,7 @@ func TestBeginBlocker_ProcessExpiredModerations(t *testing.T) {
 			EndBlock:   1000000,
 			Status:     types.SeasonStatus_SEASON_STATUS_ACTIVE,
 		}
-		f.keeper.Season.Set(f.ctx, season)
+		require.NoError(t, f.keeper.Season.Set(f.ctx, season))
 
 		moderation := types.DisplayNameModeration{
 			Member:            targetStr,
@@ -339,11 +339,13 @@ func TestBeginBlocker_ProcessExpiredModerations(t *testing.T) {
 			Reason:            TestReportReason,
 			ModeratedAt:       100,
 			Active:            true,
-			AppealChallengeId: "dn_appeal:test:150", // has appeal
+			AppealChallengeId: "dn_appeal:test:199990", // has appeal
+			AppealedAt:        199990,                  // appealed recently: its own deadline not reached
 		}
-		f.keeper.DisplayNameModeration.Set(f.ctx, targetStr, moderation)
+		require.NoError(t, f.keeper.SetDisplayNameModeration(f.ctx, targetStr, moderation))
 
-		// Advance well past appeal period
+		// Advance well past the report's appeal period (the appeal itself
+		// times out separately, SEA-23)
 		f.ctx = f.ctx.WithBlockHeight(200000)
 
 		err := f.keeper.BeginBlocker(f.ctx)
@@ -367,7 +369,7 @@ func TestBeginBlocker_ProcessExpiredModerations(t *testing.T) {
 			EndBlock:   1000000,
 			Status:     types.SeasonStatus_SEASON_STATUS_ACTIVE,
 		}
-		f.keeper.Season.Set(f.ctx, season)
+		require.NoError(t, f.keeper.Season.Set(f.ctx, season))
 
 		moderation := types.DisplayNameModeration{
 			Member:       targetStr,
@@ -375,7 +377,7 @@ func TestBeginBlocker_ProcessExpiredModerations(t *testing.T) {
 			ModeratedAt:  0,
 			Active:       false, // already resolved
 		}
-		f.keeper.DisplayNameModeration.Set(f.ctx, targetStr, moderation)
+		require.NoError(t, f.keeper.SetDisplayNameModeration(f.ctx, targetStr, moderation))
 
 		f.ctx = f.ctx.WithBlockHeight(200000)
 

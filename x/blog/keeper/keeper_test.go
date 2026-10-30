@@ -83,6 +83,7 @@ func (m *mockIdentityKeeper) DreamDenom(_ context.Context) string { return "udre
 
 // mockRepKeeper implements types.RepKeeper for testing
 type mockRepKeeper struct {
+	AllAddressesOfFn                 func(member string) []string
 	IsActiveMemberFn                 func(ctx context.Context, addr sdk.AccAddress) bool
 	GetTrustLevelFn                  func(ctx context.Context, addr sdk.AccAddress) (reptypes.TrustLevel, error)
 	GetMemberTrustTreeRootFn         func(ctx context.Context) ([]byte, error)
@@ -130,7 +131,12 @@ func (m *mockRepKeeper) CanActAs(_ context.Context, signer, stored string) bool 
 }
 func (m *mockRepKeeper) SameMember(_ context.Context, a, b string) bool         { return a == b }
 func (m *mockRepKeeper) RecentAddressesOf(_ context.Context, a string) []string { return []string{a} }
-func (m *mockRepKeeper) AllAddressesOf(_ context.Context, a string) []string    { return []string{a} }
+func (m *mockRepKeeper) AllAddressesOf(_ context.Context, a string) []string {
+	if m.AllAddressesOfFn != nil {
+		return m.AllAddressesOfFn(a)
+	}
+	return []string{a}
+}
 
 func (m *mockRepKeeper) GetTrustLevel(ctx context.Context, addr sdk.AccAddress) (reptypes.TrustLevel, error) {
 	if m.GetTrustLevelFn != nil {

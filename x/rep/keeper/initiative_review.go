@@ -2,6 +2,7 @@ package keeper
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -132,6 +133,11 @@ func (k Keeper) ReviewerBondForInitiative(ctx context.Context, initiative types.
 // initiative. Returns a descriptive error rather than a bool so the message
 // server can tell the caller which gate they failed.
 func (k Keeper) QualifiedReviewer(ctx context.Context, initiative types.Initiative, project types.Project, reviewer string) error {
+	// GetBondedRole resolves the alias; a gate must not let a tombstone act
+	// on the role its successor holds.
+	if k.IsTombstoned(ctx, reviewer) {
+		return fmt.Errorf("%w: %s has migrated away", types.ErrUnauthorized, reviewer)
+	}
 	role, err := k.GetBondedRole(ctx, types.RoleType_ROLE_TYPE_INITIATIVE_REVIEWER, reviewer)
 	if err != nil {
 		return fmt.Errorf("%w: %s does not hold the initiative-reviewer role", types.ErrUnauthorized, reviewer)
@@ -417,6 +423,16 @@ func (k Keeper) rejectReviewRound(ctx context.Context, initiative types.Initiati
 		return k.CloseInitiative(ctx, initiative.Id, "review rejected: no rounds remaining")
 	}
 
+	// Pay the reviewers of the round being sent back before the counter moves
+	// past it (REP-E-22). Terminal settlement pays only the round that resolved
+	// the initiative, so without this a rejecting round's reviewers were never
+	// paid by any path — rebuilding the approve-pays/reject-does-not bias the
+	// per-verdict fee exists to remove. The exhausted-rounds branch above needs
+	// no call: CloseInitiative pays the round it closes on.
+	if err := k.payRejectedRoundReviewFees(ctx, params, initiative); err != nil {
+		return err
+	}
+
 	// Drop any escalation flag for the round just closed. Left set, the sweep
 	// would skip every later round as "already with the committee" and the new
 	// round would silently lose its escalation path — the precise wedge the
@@ -463,28 +479,38 @@ func (k Keeper) ReviewFeePool(ctx context.Context, params types.Params, initiati
 }
 
 // PayReviewFees pays the reviewers who filed a verdict on the round that
-// resolved the initiative, and settles their bond.
+// resolved the initiative.
 //
 // Paid per verdict filed, never per approval: if approving paid and rejecting
 // did not, the role would rebuild the exact bias it exists to remove. Called on
-// both terminal paths — completion and close — so the fee does not depend on
-// the outcome either.
-// Returns the total minted so callers on the close path can reduce what they
-// hand back to the project by it.
+// every terminal path — completion, close, project cancellation and an upheld
+// challenge — so the fee does not depend on the outcome either. Earlier rounds
+// that a rejection sent back were paid when they resolved
+// (payRejectedRoundReviewFees).
+//
+// Exactly once per verdict: each paid review records its fee in fee_paid and a
+// paid review is never paid again, whichever path reaches it.
+//
+// Returns the amount minted by this call. Callers that hand budget back to the
+// project charge it with ReviewFeesPaid, which covers every round.
 func (k Keeper) PayReviewFees(ctx context.Context, initiative types.Initiative) (math.Int, error) {
-	reviews, err := k.GetInitiativeReviews(ctx, initiative.Id, initiative.ReviewRound)
-	if err != nil || len(reviews) == 0 {
-		return math.ZeroInt(), err
-	}
 	params, err := k.Params.Get(ctx)
 	if err != nil {
 		return math.ZeroInt(), err
 	}
-	pool := k.ReviewFeePool(ctx, params, initiative)
-	if !pool.IsPositive() {
-		return math.ZeroInt(), nil
+	return k.payRoundReviewFees(ctx, params, initiative, initiative.ReviewRound)
+}
+
+// payRoundReviewFees mints the round's fee pool, split evenly across the
+// round's verdicts, to every reviewer of the round not yet paid, records the
+// fee on the review and books the mint against the per-season initiative
+// reward cap.
+func (k Keeper) payRoundReviewFees(ctx context.Context, params types.Params, initiative types.Initiative, round uint32) (math.Int, error) {
+	reviews, err := k.GetInitiativeReviews(ctx, initiative.Id, round)
+	if err != nil || len(reviews) == 0 {
+		return math.ZeroInt(), err
 	}
-	share := pool.QuoRaw(int64(len(reviews)))
+	share := k.reviewFeeShare(ctx, params, initiative, len(reviews))
 	if !share.IsPositive() {
 		return math.ZeroInt(), nil
 	}
@@ -492,6 +518,9 @@ func (k Keeper) PayReviewFees(ctx context.Context, initiative types.Initiative) 
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	minted := math.ZeroInt()
 	for _, r := range reviews {
+		if reviewFeePaid(r).IsPositive() {
+			continue
+		}
 		addr, aErr := sdk.AccAddressFromBech32(r.Reviewer)
 		if aErr != nil {
 			continue
@@ -499,10 +528,15 @@ func (k Keeper) PayReviewFees(ctx context.Context, initiative types.Initiative) 
 		if err := k.MintDREAM(ctx, addr, share); err != nil {
 			return math.ZeroInt(), fmt.Errorf("failed to pay review fee to %s: %w", r.Reviewer, err)
 		}
+		r.FeePaid = share
+		if err := k.InitiativeReview.Set(ctx, collections.Join3(initiative.Id, round, r.Reviewer), r); err != nil {
+			return math.ZeroInt(), err
+		}
 		minted = minted.Add(share)
 		sdkCtx.EventManager().EmitEvent(sdk.NewEvent(
 			"initiative_review_fee_paid",
 			sdk.NewAttribute("initiative_id", fmt.Sprintf("%d", initiative.Id)),
+			sdk.NewAttribute("round", fmt.Sprintf("%d", round)),
 			sdk.NewAttribute("reviewer", r.Reviewer),
 			sdk.NewAttribute("amount", share.String()),
 			sdk.NewAttribute("approved", fmt.Sprintf("%t", r.Approved)),
@@ -514,6 +548,103 @@ func (k Keeper) PayReviewFees(ctx context.Context, initiative types.Initiative) 
 		}
 	}
 	return minted, nil
+}
+
+// reviewFeeShare is one verdict's share of the round's fee pool.
+func (k Keeper) reviewFeeShare(ctx context.Context, params types.Params, initiative types.Initiative, verdicts int) math.Int {
+	if verdicts <= 0 {
+		return math.ZeroInt()
+	}
+	pool := k.ReviewFeePool(ctx, params, initiative)
+	if !pool.IsPositive() {
+		return math.ZeroInt()
+	}
+	return pool.QuoRaw(int64(verdicts))
+}
+
+func reviewFeePaid(r types.InitiativeReview) math.Int {
+	if r.FeePaid.IsNil() {
+		return math.ZeroInt()
+	}
+	return r.FeePaid
+}
+
+// unpaidRoundReviewFees is what payRoundReviewFees would mint for the round
+// right now. Used by the mint-cap gates before anything is minted.
+func (k Keeper) unpaidRoundReviewFees(ctx context.Context, params types.Params, initiative types.Initiative, round uint32) (math.Int, error) {
+	reviews, err := k.GetInitiativeReviews(ctx, initiative.Id, round)
+	if err != nil || len(reviews) == 0 {
+		return math.ZeroInt(), err
+	}
+	share := k.reviewFeeShare(ctx, params, initiative, len(reviews))
+	total := math.ZeroInt()
+	if !share.IsPositive() {
+		return total, nil
+	}
+	for _, r := range reviews {
+		if !reviewFeePaid(r).IsPositive() {
+			total = total.Add(share)
+		}
+	}
+	return total, nil
+}
+
+// payRejectedRoundReviewFees pays a round that a rejection is sending back
+// (REP-E-22), under the same per-season initiative reward cap that gates
+// completion. The payment runs in a cache context: a round whose fee would
+// overrun the season cap or the per-epoch mint ceiling is forfeited with an
+// initiative_review_fee_forfeited event rather than blocking the rejection —
+// a rejection must never depend on there being DREAM left to mint, or a
+// reviewer could not reject once the cap is reached. Any other failure is
+// returned.
+func (k Keeper) payRejectedRoundReviewFees(ctx context.Context, params types.Params, initiative types.Initiative) error {
+	due, err := k.unpaidRoundReviewFees(ctx, params, initiative, initiative.ReviewRound)
+	if err != nil || !due.IsPositive() {
+		return err
+	}
+	sdkCtx := sdk.UnwrapSDKContext(ctx)
+	forfeit := func(reason string) {
+		sdkCtx.EventManager().EmitEvent(sdk.NewEvent(
+			"initiative_review_fee_forfeited",
+			sdk.NewAttribute("initiative_id", fmt.Sprintf("%d", initiative.Id)),
+			sdk.NewAttribute("round", fmt.Sprintf("%d", initiative.ReviewRound)),
+			sdk.NewAttribute("amount", due.String()),
+			sdk.NewAttribute("reason", reason),
+		))
+	}
+
+	minted, err := k.GetSeasonInitiativeRewardsMinted(ctx)
+	if err != nil {
+		return err
+	}
+	if minted.Add(due).GT(params.MaxInitiativeRewardsPerSeason) {
+		forfeit("season initiative reward cap reached")
+		return nil
+	}
+
+	cacheCtx, write := sdkCtx.CacheContext()
+	if _, err := k.payRoundReviewFees(cacheCtx, params, initiative, initiative.ReviewRound); err != nil {
+		if errors.Is(err, types.ErrDreamMintCapExceeded) {
+			forfeit("epoch mint cap reached")
+			return nil
+		}
+		return err
+	}
+	write()
+	return nil
+}
+
+// ReviewFeesPaid is the review fee minted across every round of the
+// initiative. The close paths charge it to the project's returned budget, so
+// the project pays for every round it had evaluated, not just the last.
+func (k Keeper) ReviewFeesPaid(ctx context.Context, initiativeID uint64) (math.Int, error) {
+	total := math.ZeroInt()
+	rng := collections.NewPrefixedTripleRange[uint64, uint32, string](initiativeID)
+	err := k.InitiativeReview.Walk(ctx, rng, func(_ collections.Triple[uint64, uint32, string], v types.InitiativeReview) (bool, error) {
+		total = total.Add(reviewFeePaid(v))
+		return false, nil
+	})
+	return total, err
 }
 
 // SettleReviewBonds releases the bond committed against every verdict on an
@@ -745,7 +876,9 @@ const maxReviewEscalationsPerBlock = 50
 //
 // The escalation only *flags* the round for the committee; it does not decide
 // anything. The committee then approves, rejects, or passes — and if it never
-// acts, the escalation-timeout sweep below resolves to PASSED. This module has
+// acts, the escalation-timeout sweep below rejects the round: the assignee may
+// resubmit for another round, bounded by max_review_rounds, and once the rounds
+// are exhausted the initiative closes cleanly with nothing minted. This module has
 // already been bitten once by an escalation that expired and touched nothing,
 // freezing an initiative permanently with the challenger's stake, every staker's
 // conviction and the assignee's bond locked inside it. Silence must never wedge
@@ -833,7 +966,8 @@ func (k Keeper) SweepReviewDeadlines(ctx context.Context) error {
 	// Collect before mutating: the loop above walks the status index and the
 	// escalation below writes the initiative back into it.
 	for _, d := range pending {
-		// Give the committee its own window, then resolve to PASSED on silence.
+		// Give the committee its own window; silence past it rejects the round
+		// (resolveSilentEscalations).
 		d.initiative.ReviewDeadline = height + (params.DefaultReviewPeriodEpochs * params.EpochBlocks)
 		d.initiative.ReviewEscalation = types.ReviewEscalation_REVIEW_ESCALATION_NONE
 		if err := k.UpdateInitiative(ctx, d.initiative); err != nil {
@@ -853,11 +987,13 @@ func (k Keeper) SweepReviewDeadlines(ctx context.Context) error {
 	return k.resolveSilentEscalations(ctx, height)
 }
 
-// resolveSilentEscalations applies the default the committee declined to make.
-//
-// PASSED, never APPROVED: silence must not mint. The initiative proceeds on
-// conviction alone and the challenge window still runs, so the work remains
-// contestable by anyone willing to bond against it.
+// resolveSilentEscalations applies the default the committee declined to make:
+// the round is rejected (applyEscalationTimeout -> rejectReviewRound), never
+// passed or approved, because silence must not mint. The work goes back to the
+// assignee for another round while rounds remain under max_review_rounds; on
+// the last round the initiative closes cleanly — budget returned to the
+// project, self-assign bond released, nothing minted. Silence never wedges an
+// initiative either: every path ends in a resubmittable round or a close.
 func (k Keeper) resolveSilentEscalations(ctx context.Context, height int64) error {
 	var expired []uint64
 	if err := k.EscalatedReviews.Walk(ctx, nil, func(id uint64) (bool, error) {

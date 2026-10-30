@@ -3,6 +3,7 @@ package keeper
 import (
 	"context"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/season/types"
 
 	errorsmod "cosmossdk.io/errors"
@@ -44,14 +45,17 @@ func (k msgServer) CreateTitle(ctx context.Context, msg *types.MsgCreateTitle) (
 		TitleId:              msg.TitleId,
 		Name:                 msg.Name,
 		Description:          msg.Description,
-		Rarity:               types.Rarity(msg.Rarity),
-		RequirementType:      types.RequirementType(msg.RequirementType),
+		Rarity:               commontypes.Saturate[types.Rarity](msg.Rarity),
+		RequirementType:      commontypes.Saturate[types.RequirementType](msg.RequirementType),
 		RequirementThreshold: msg.RequirementThreshold,
 		RequirementSeason:    msg.RequirementSeason,
 		Seasonal:             msg.Seasonal,
 	}
 
 	// Save the title
+	if err := title.ValidateDefinition(); err != nil {
+		return nil, err
+	}
 	if err := k.SetTitle(ctx, title); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to save title")
 	}

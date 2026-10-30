@@ -7,7 +7,6 @@ import (
 
 	"sparkdream/x/rep/types"
 
-	"cosmossdk.io/collections"
 	errorsmod "cosmossdk.io/errors"
 	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -105,9 +104,6 @@ func (k Keeper) CreateProject(
 func (k Keeper) GetProject(ctx context.Context, projectID uint64) (types.Project, error) {
 	project, err := k.Project.Get(ctx, projectID)
 	if err != nil {
-		if err == collections.ErrNotFound {
-			return types.Project{}, fmt.Errorf("project %d not found", projectID)
-		}
 		return types.Project{}, err
 	}
 	return project, nil
@@ -121,8 +117,11 @@ func (k Keeper) UpdateProject(ctx context.Context, project types.Project) error 
 // ApproveProject approves a project with specified budget.
 //
 // Authorization is tier-aware and locked to the picked council:
+//   - any budget: the gov authority, or the policy address of the picked
+//     council or of its Operations Committee (an executed proposal; all three
+//     Operations Committees list MsgApproveProjectBudget).
 //   - budget ≤ params.LargeProjectBudgetThreshold: an individual member of the
-//     picked council's operations committee is sufficient.
+//     picked council's operations committee is also sufficient.
 //   - budget > params.LargeProjectBudgetThreshold: requires a passed council or
 //     operations-committee proposal (executor's policy address) or the gov
 //     authority — individual committee members cannot approve large budgets.
@@ -149,6 +148,12 @@ func (k Keeper) ApproveProject(
 		return fmt.Errorf("project must be in PROPOSED status, got %s", project.Status.String())
 	}
 
+	// A negative approval would shrink the budget ledger it is credited to
+	// (REP-E-16).
+	if approvedBudget.IsNil() || approvedBudget.IsNegative() || approvedSpark.IsNil() || approvedSpark.IsNegative() {
+		return errorsmod.Wrapf(types.ErrInvalidAmount, "approved budget %s / spark %s must not be negative", approvedBudget, approvedSpark)
+	}
+
 	// Authorization is required: commonsKeeper must be wired. Treat a nil
 	// keeper as a configuration error, not an authorization bypass.
 	if k.commonsKeeper == nil {
@@ -165,28 +170,24 @@ func (k Keeper) ApproveProject(
 		return fmt.Errorf("invalid approver address: %w", err)
 	}
 
-	isMember, _ := k.commonsKeeper.IsCommitteeMember(ctx, approver, project.Council, "operations")
-	if approvedBudget.GT(params.LargeProjectBudgetThreshold) {
-		// Large budget: a personal committee member is not enough. When a
-		// council/committee proposal executes, the message's approver is the
-		// group's policy address (not a person) — so reject when the approver
-		// is a plain member, then accept only if they're council-authorized.
-		if isMember {
+	// The council's or its Operations Committee's policy address (an
+	// executed proposal) and gov may approve any budget. Below the large-
+	// project threshold a single member of that Operations Committee may
+	// approve directly; above it a proposal is required.
+	isPolicy := k.isCouncilOrCommitteePolicy(ctx, approverStr, project.Council, "operations")
+	if !isPolicy {
+		if approvedBudget.GT(params.LargeProjectBudgetThreshold) {
 			return errorsmod.Wrapf(types.ErrLargeProjectNeedsCouncil,
-				"budget %s exceeds threshold %s; individual committee members cannot approve — submit via council proposal",
+				"budget %s exceeds threshold %s; individual committee members cannot approve — submit via a council or Operations Committee proposal",
 				approvedBudget.String(), params.LargeProjectBudgetThreshold.String())
 		}
-		if !k.commonsKeeper.IsCouncilAuthorized(ctx, approverStr, project.Council, "operations") {
-			return errorsmod.Wrapf(types.ErrLargeProjectNeedsCouncil,
-				"budget %s exceeds threshold %s; submit via council proposal",
-				approvedBudget.String(), params.LargeProjectBudgetThreshold.String())
+		isMember, err := k.commonsKeeper.IsCommitteeMember(ctx, approver, project.Council, "operations")
+		if err != nil {
+			return err
 		}
-	} else {
-		// Small budget: an individual member of the picked council's
-		// operations committee suffices.
 		if !isMember {
 			return errorsmod.Wrapf(types.ErrUnauthorized,
-				"approver must be a member of the Operations Committee for council '%s'",
+				"approver must be a member of the Operations Committee for council '%s', or its policy",
 				project.Council)
 		}
 	}
@@ -362,9 +363,14 @@ func (k Keeper) terminateInitiativeForProjectCancel(ctx context.Context, initiat
 	if err := k.RefundInitiativeBounty(ctx, initiative.Id, "project cancelled"); err != nil {
 		return fmt.Errorf("failed to refund initiative bounty: %w", err)
 	}
-	reviewFees, err := k.PayReviewFees(ctx, initiative)
-	if err != nil {
+	if _, err := k.PayReviewFees(ctx, initiative); err != nil {
 		return fmt.Errorf("failed to pay review fees: %w", err)
+	}
+	// Charge every round's fee, including rounds a rejection sent back
+	// (paid when they resolved, REP-E-22).
+	reviewFees, err := k.ReviewFeesPaid(ctx, initiative.Id)
+	if err != nil {
+		return fmt.Errorf("failed to total review fees: %w", err)
 	}
 	if err := k.SettleReviewBonds(ctx, initiative.Id); err != nil {
 		return fmt.Errorf("failed to settle review bonds: %w", err)
@@ -608,17 +614,33 @@ func (k Keeper) rebaseProjectStakeDebts(ctx context.Context, projectID uint64) e
 	return nil
 }
 
-// CompleteProject marks a project as completed and distributes completion bonuses
+// CompleteProject marks a project as completed and distributes completion
+// bonuses. Reached through MsgCompleteProject, whose handler checks that the
+// signer is the project council's or Operations Committee's policy address
+// (or x/gov).
+//
+// Completion is refused while any initiative of the project is still live or
+// any challenge on one of them is active: COMPLETED is terminal, and the
+// project's stakes are settled and released here, so live work left under it
+// would be orphaned (it could no longer allocate, spend or return budget
+// against an ACTIVE project) and a pending challenge could never resolve
+// against a live parent. The project side retires unfinished work first
+// (MsgCloseInitiative) or cancels the project instead.
 func (k Keeper) CompleteProject(ctx context.Context, projectID uint64) error {
 	// Get project
 	project, err := k.GetProject(ctx, projectID)
 	if err != nil {
-		return err
+		return errorsmod.Wrap(types.ErrProjectNotFound, err.Error())
 	}
 
 	// Validate status - must be ACTIVE
 	if project.Status != types.ProjectStatus_PROJECT_STATUS_ACTIVE {
-		return fmt.Errorf("project must be in ACTIVE status to complete, got %s", project.Status.String())
+		return errorsmod.Wrapf(types.ErrInvalidProjectStatus,
+			"project must be in ACTIVE status to complete, got %s", project.Status.String())
+	}
+
+	if err := k.requireNoOpenProjectWork(ctx, projectID); err != nil {
+		return err
 	}
 
 	// Calculate final budget (what was actually spent)
@@ -674,6 +696,60 @@ func (k Keeper) CompleteProject(ctx context.Context, projectID uint64) error {
 		),
 	)
 
+	return nil
+}
+
+// requireNoOpenProjectWork refuses with ErrProjectHasOpenWork while any
+// initiative of the project is non-terminal or carries an active challenge.
+// A CHALLENGED initiative is non-terminal, so the challenge walk is a second
+// line for a challenge whose initiative already reached a terminal status.
+func (k Keeper) requireNoOpenProjectWork(ctx context.Context, projectID uint64) error {
+	var open []uint64
+	var terminal []uint64
+	err := k.Initiative.Walk(ctx, nil, func(id uint64, initiative types.Initiative) (bool, error) {
+		if initiative.ProjectId != projectID {
+			return false, nil
+		}
+		if !types.IsInitiativeTerminal(initiative.Status) {
+			open = append(open, id)
+			return len(open) >= 5, nil
+		}
+		terminal = append(terminal, id)
+		return false, nil
+	})
+	if err != nil {
+		return err
+	}
+	if len(open) > 0 {
+		return errorsmod.Wrapf(types.ErrProjectHasOpenWork,
+			"project %d has non-terminal initiatives %v; complete or close them first", projectID, open)
+	}
+	if len(terminal) == 0 {
+		return nil
+	}
+	inProject := make(map[uint64]struct{}, len(terminal))
+	for _, id := range terminal {
+		inProject[id] = struct{}{}
+	}
+	for _, status := range []types.ChallengeStatus{
+		types.ChallengeStatus_CHALLENGE_STATUS_ACTIVE,
+		types.ChallengeStatus_CHALLENGE_STATUS_IN_JURY_REVIEW,
+	} {
+		var hit *types.Challenge
+		if err := k.IterateChallengesByStatus(ctx, status, func(_ uint64, challenge types.Challenge) bool {
+			if _, ok := inProject[challenge.InitiativeId]; ok {
+				hit = &challenge
+				return true
+			}
+			return false
+		}); err != nil {
+			return err
+		}
+		if hit != nil {
+			return errorsmod.Wrapf(types.ErrProjectHasOpenWork,
+				"challenge %d on initiative %d of project %d is still active", hit.Id, hit.InitiativeId, projectID)
+		}
+	}
 	return nil
 }
 

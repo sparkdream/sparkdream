@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/rep/types"
 
 	errorsmod "cosmossdk.io/errors"
@@ -88,7 +89,7 @@ func (k Keeper) EscrowInitiativeBounty(ctx context.Context, funder sdk.AccAddres
 	}
 
 	bounty := k.GetInitiativeBounty(ctx, initiativeID)
-	if uint32(len(bounty.Contributions)) >= params.MaxInitiativeBountyContributions {
+	if commontypes.Saturate[uint32](len(bounty.Contributions)) >= params.MaxInitiativeBountyContributions {
 		return math.ZeroInt(), errorsmod.Wrapf(types.ErrExceedsInitiativeBountyLimit,
 			"initiative %d already has %d contributions", initiativeID, len(bounty.Contributions))
 	}
@@ -180,7 +181,7 @@ func (k Keeper) WithdrawInitiativeBounty(ctx context.Context, funder sdk.AccAddr
 	refund := math.ZeroInt()
 	remaining := make([]types.InitiativeBountyContribution, 0, len(bounty.Contributions))
 	for _, c := range bounty.Contributions {
-		matured := height >= c.FundedAt+int64(params.InitiativeBountyReclaimDelay)
+		matured := height >= c.FundedAt+commontypes.Saturate[int64](params.InitiativeBountyReclaimDelay)
 		if k.CanActAs(ctx, funder.String(), c.Funder) && matured {
 			refund = refund.Add(c.Amount)
 			continue
@@ -300,8 +301,12 @@ func (k Keeper) PayInitiativeBounty(ctx context.Context, initiative types.Initia
 		if err := k.UnlockDREAM(ctx, funderAddr, c.Amount); err != nil {
 			return math.ZeroInt(), fmt.Errorf("failed to release bounty from %s: %w", c.Funder, err)
 		}
+		// The contribution keeps the address it was made from; the member
+		// record is under the canonical one (REP-E-07). A raw lookup failed
+		// for a migrated funder and wedged the completion forever.
+		funder := k.Canonical(ctx, c.Funder)
 		if take.IsPositive() {
-			fm, err := k.Member.Get(ctx, c.Funder)
+			fm, err := k.Member.Get(ctx, funder)
 			if err != nil {
 				return math.ZeroInt(), err
 			}
@@ -309,13 +314,13 @@ func (k Keeper) PayInitiativeBounty(ctx context.Context, initiative types.Initia
 				take = *fm.DreamBalance
 			}
 			*fm.DreamBalance = fm.DreamBalance.Sub(take)
-			if err := k.Member.Set(ctx, c.Funder, fm); err != nil {
+			if err := k.Member.Set(ctx, funder, fm); err != nil {
 				return math.ZeroInt(), err
 			}
 		}
 		drawn = drawn.Add(take)
 		if take.IsPositive() {
-			draws = append(draws, draw{funder: c.Funder, take: take})
+			draws = append(draws, draw{funder: funder, take: take})
 		}
 		if refund := c.Amount.Sub(take); refund.IsPositive() {
 			sdkCtx.EventManager().EmitEvent(sdk.NewEvent(
@@ -427,12 +432,14 @@ func (k Keeper) RefundInitiativeBounty(ctx context.Context, initiativeID uint64,
 // across all initiative bounties, without unlocking anything. Called by
 // ZeroMember, which burns the member's whole balance, locked DREAM included.
 func (k Keeper) dropInitiativeBountyContributions(ctx context.Context, addr string) error {
+	// Contributions keep the address they were made from (REP-E-07).
+	addrs := k.AllAddressesOf(ctx, addr)
 	var changed []types.InitiativeBounty
 	if err := k.InitiativeBounty.Walk(ctx, nil, func(_ uint64, b types.InitiativeBounty) (bool, error) {
 		kept := make([]types.InitiativeBountyContribution, 0, len(b.Contributions))
 		dropped := math.ZeroInt()
 		for _, c := range b.Contributions {
-			if c.Funder == addr {
+			if AddressesMatch(addrs, c.Funder) {
 				dropped = dropped.Add(c.Amount)
 				continue
 			}

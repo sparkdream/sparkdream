@@ -2,6 +2,7 @@ package keeper
 
 import (
 	"context"
+	"errors"
 	"strconv"
 
 	"cosmossdk.io/collections"
@@ -10,6 +11,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	"sparkdream/x/collect/types"
+	commontypes "sparkdream/x/common/types"
 	reptypes "sparkdream/x/rep/types"
 )
 
@@ -61,19 +63,20 @@ func (k msgServer) ChallengeReview(ctx context.Context, msg *types.MsgChallengeR
 			review.CreatedAt, params.ChallengeWindowBlocks)
 	}
 
-	// Creator != review's curator
-	if msg.Creator == review.Curator {
+	// Creator != review's curator (alias-aware: a migrated curator cannot
+	// challenge their own review from the new key).
+	if k.sameMember(ctx, msg.Creator, review.Curator) {
 		return nil, errorsmod.Wrap(types.ErrCannotChallengeSelf, "cannot challenge own review")
 	}
 
 	// reason <= max_challenge_reason_length
-	if uint32(len(msg.Reason)) > params.MaxChallengeReasonLength {
+	if commontypes.Saturate[uint32](len(msg.Reason)) > params.MaxChallengeReasonLength {
 		return nil, errorsmod.Wrapf(types.ErrReasonTooLong, "reason length %d exceeds max %d",
 			len(msg.Reason), params.MaxChallengeReasonLength)
 	}
 
 	// Lock challenge_deposit DREAM from creator via repKeeper.LockDREAM
-	if err := k.repKeeper.LockDREAM(ctx, creatorAddr, params.ChallengeDeposit); err != nil {
+	if err := k.late.repKeeper.LockDREAM(ctx, creatorAddr, params.ChallengeDeposit); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to lock challenge deposit")
 	}
 
@@ -88,7 +91,7 @@ func (k msgServer) ChallengeReview(ctx context.Context, msg *types.MsgChallengeR
 	// Reject challenges when the curator is already demoted and their bond
 	// cannot cover the commit — the reservation would fail anyway, but
 	// rejecting early avoids locking the challenger's deposit first.
-	if curatorRole, rErr := k.repKeeper.GetBondedRole(ctx, reptypes.RoleType_ROLE_TYPE_COLLECT_CURATOR, review.Curator); rErr == nil {
+	if curatorRole, rErr := k.late.repKeeper.GetBondedRole(ctx, reptypes.RoleType_ROLE_TYPE_COLLECT_CURATOR, review.Curator); rErr == nil {
 		curatorBond, ok := math.NewIntFromString(curatorRole.CurrentBond)
 		if !ok {
 			curatorBond = math.ZeroInt()
@@ -99,10 +102,8 @@ func (k msgServer) ChallengeReview(ctx context.Context, msg *types.MsgChallengeR
 	}
 
 	if slashBudget.IsPositive() {
-		if err := k.repKeeper.ReserveBond(ctx, reptypes.RoleType_ROLE_TYPE_COLLECT_CURATOR, review.Curator, slashBudget); err != nil {
-			// Refund the already-locked challenge deposit so the challenger
-			// isn't stuck paying for a failed reservation.
-			_ = k.repKeeper.UnlockDREAM(ctx, creatorAddr, params.ChallengeDeposit)
+		if err := k.late.repKeeper.ReserveBond(ctx, reptypes.RoleType_ROLE_TYPE_COLLECT_CURATOR, review.Curator, slashBudget); err != nil {
+			// The tx reverts, so the challenge deposit lock above is undone too.
 			return nil, errorsmod.Wrap(err, "failed to reserve curator slash budget")
 		}
 	}
@@ -111,6 +112,7 @@ func (k msgServer) ChallengeReview(ctx context.Context, msg *types.MsgChallengeR
 	review.Challenged = true
 	review.Challenger = msg.Creator
 	review.CommittedSlash = slashBudget
+	review.ChallengeDeposit = params.ChallengeDeposit
 	if err := k.CurationReview.Set(ctx, msg.ReviewId, review); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to update review")
 	}
@@ -123,7 +125,10 @@ func (k msgServer) ChallengeReview(ctx context.Context, msg *types.MsgChallengeR
 	}
 
 	// Bump per-module curator activity counters.
-	activity, _ := k.CuratorActivity.Get(ctx, review.Curator)
+	activity, err := k.CuratorActivity.Get(ctx, review.Curator)
+	if err != nil && !errors.Is(err, collections.ErrNotFound) {
+		return nil, err
+	}
 	if activity.Address == "" {
 		activity.Address = review.Curator
 	}

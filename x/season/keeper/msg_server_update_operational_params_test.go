@@ -40,9 +40,10 @@ func TestMsgServerUpdateOperationalParams(t *testing.T) {
 	t.Run("council authorized succeeds (mock commonsKeeper)", func(t *testing.T) {
 		randomAddr := sdk.AccAddress([]byte("council_operator"))
 
-		// Build fixture with a commonsKeeper mock that authorizes everyone
+		// Build fixture with a commonsKeeper mock where every address is a
+		// council/committee policy address (an executed proposal).
 		mock := &mockCommonsKeeper{
-			IsCouncilAuthorizedFn: func(ctx context.Context, addr string, council string, committee string) bool {
+			IsCouncilOrCommitteePolicyFn: func(ctx context.Context, addr string, council string, committee string) bool {
 				return true
 			},
 		}
@@ -149,5 +150,24 @@ func TestMsgServerUpdateOperationalParams(t *testing.T) {
 		require.Equal(t, types.DefaultEpochBlocks, updatedParams.EpochBlocks)
 		require.Equal(t, types.DefaultSeasonDurationEpochs, updatedParams.SeasonDurationEpochs)
 		require.Equal(t, types.DefaultMinGuildMembers, updatedParams.MinGuildMembers)
+	})
+
+	t.Run("single committee member is refused (SEA-10)", func(t *testing.T) {
+		member := sdk.AccAddress([]byte("committee_member__"))
+		mock := &mockCommonsKeeper{
+			// The member passes the 1-of-N check but is no policy address.
+			IsCouncilAuthorizedFn: func(ctx context.Context, addr string, council string, committee string) bool {
+				return true
+			},
+		}
+		f := initFixtureWithCommons(t, mock)
+		ms := keeper.NewMsgServerImpl(f.keeper)
+		memberStr, err := f.addressCodec.BytesToString(member)
+		require.NoError(t, err)
+		_, err = ms.UpdateOperationalParams(f.ctx, &types.MsgUpdateOperationalParams{
+			Authority:         memberStr,
+			OperationalParams: types.DefaultSeasonOperationalParams(),
+		})
+		require.Error(t, err)
 	})
 }

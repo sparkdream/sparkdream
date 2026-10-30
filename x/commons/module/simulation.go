@@ -13,17 +13,12 @@ import (
 
 // GenerateGenesisState creates a randomized GenState of the module.
 func (AppModule) GenerateGenesisState(simState *module.SimulationState) {
-	accs := make([]string, len(simState.Accounts))
-	for i, acc := range simState.Accounts {
-		accs[i] = acc.Address.String()
-	}
+	founding, seats := simGovernanceSeats(simState)
 	commonsGenesis := types.GenesisState{
-		Params: types.DefaultParams(),
-		PolicyPermissionsMap: []types.PolicyPermissions{{
-			PolicyAddress: "0",
-		}, {
-			PolicyAddress: "1",
-		}}}
+		Params:          types.DefaultParams(),
+		FoundingMembers: founding,
+		CouncilMembers:  seats,
+	}
 	simState.GenState[types.ModuleName] = simState.Cdc.MustMarshalJSON(&commonsGenesis)
 }
 
@@ -61,7 +56,7 @@ func (am AppModule) WeightedOperations(simState module.SimulationState) []simtyp
 	)
 	operations = append(operations, simulation.NewWeightedOperation(
 		weightMsgEmergencyCancelGovProposal,
-		commonssimulation.SimulateMsgEmergencyCancelGovProposal(am.authKeeper, am.bankKeeper, nil, am.keeper, simState.TxConfig),
+		commonssimulation.SimulateMsgEmergencyCancelGovProposal(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
 	))
 	const (
 		opWeightMsgCreatePolicyPermissions          = "op_weight_msg_commons"
@@ -121,7 +116,7 @@ func (am AppModule) WeightedOperations(simState module.SimulationState) []simtyp
 	)
 	operations = append(operations, simulation.NewWeightedOperation(
 		weightMsgRegisterGroup,
-		commonssimulation.SimulateMsgRegisterGroup(am.authKeeper, am.bankKeeper, am.keeper, am.cdc, simState.TxConfig),
+		commonssimulation.SimulateMsgRegisterGroup(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
 	))
 	const (
 		opWeightMsgRenewGroup          = "op_weight_msg_commons"
@@ -181,7 +176,7 @@ func (am AppModule) WeightedOperations(simState module.SimulationState) []simtyp
 	)
 	operations = append(operations, simulation.NewWeightedOperation(
 		weightMsgForceUpgrade,
-		commonssimulation.SimulateMsgForceUpgrade(am.authKeeper, am.bankKeeper, am.keeper, am.cdc, simState.TxConfig),
+		commonssimulation.SimulateMsgForceUpgrade(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
 	))
 	const (
 		opWeightMsgDeleteGroup          = "op_weight_msg_commons"
@@ -196,7 +191,7 @@ func (am AppModule) WeightedOperations(simState module.SimulationState) []simtyp
 	)
 	operations = append(operations, simulation.NewWeightedOperation(
 		weightMsgDeleteGroup,
-		commonssimulation.SimulateMsgDeleteGroup(am.authKeeper, am.bankKeeper, am.keeper, am.cdc, simState.TxConfig),
+		commonssimulation.SimulateMsgDeleteGroup(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
 	))
 	const (
 		opWeightMsgVetoGroupProposals          = "op_weight_msg_commons"
@@ -211,7 +206,7 @@ func (am AppModule) WeightedOperations(simState module.SimulationState) []simtyp
 	)
 	operations = append(operations, simulation.NewWeightedOperation(
 		weightMsgVetoGroupProposals,
-		commonssimulation.SimulateMsgVetoGroupProposals(am.authKeeper, am.bankKeeper, am.keeper, am.cdc, simState.TxConfig),
+		commonssimulation.SimulateMsgVetoGroupProposals(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
 	))
 	const (
 		opWeightMsgCreateCategory          = "op_weight_msg_commons"
@@ -242,6 +237,66 @@ func (am AppModule) WeightedOperations(simState module.SimulationState) []simtyp
 	operations = append(operations, simulation.NewWeightedOperation(
 		weightMsgDeleteCategory,
 		commonssimulation.SimulateMsgDeleteCategory(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
+	))
+	const (
+		opWeightMsgOpenPoll          = "op_weight_msg_commons"
+		defaultWeightMsgOpenPoll int = 100
+	)
+
+	var weightMsgOpenPoll int
+	simState.AppParams.GetOrGenerate(opWeightMsgOpenPoll, &weightMsgOpenPoll, nil,
+		func(_ *rand.Rand) {
+			weightMsgOpenPoll = defaultWeightMsgOpenPoll
+		},
+	)
+	operations = append(operations, simulation.NewWeightedOperation(
+		weightMsgOpenPoll,
+		commonssimulation.SimulateMsgOpenPoll(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
+	))
+	const (
+		opWeightMsgVotePoll          = "op_weight_msg_commons"
+		defaultWeightMsgVotePoll int = 100
+	)
+
+	var weightMsgVotePoll int
+	simState.AppParams.GetOrGenerate(opWeightMsgVotePoll, &weightMsgVotePoll, nil,
+		func(_ *rand.Rand) {
+			weightMsgVotePoll = defaultWeightMsgVotePoll
+		},
+	)
+	operations = append(operations, simulation.NewWeightedOperation(
+		weightMsgVotePoll,
+		commonssimulation.SimulateMsgVotePoll(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
+	))
+	const (
+		opWeightMsgAnonymousVotePoll          = "op_weight_msg_commons"
+		defaultWeightMsgAnonymousVotePoll int = 100
+	)
+
+	var weightMsgAnonymousVotePoll int
+	simState.AppParams.GetOrGenerate(opWeightMsgAnonymousVotePoll, &weightMsgAnonymousVotePoll, nil,
+		func(_ *rand.Rand) {
+			weightMsgAnonymousVotePoll = defaultWeightMsgAnonymousVotePoll
+		},
+	)
+	operations = append(operations, simulation.NewWeightedOperation(
+		weightMsgAnonymousVotePoll,
+		commonssimulation.SimulateMsgAnonymousVotePoll(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
+	))
+	const (
+		opWeightMsgCancelPoll          = "op_weight_msg_commons"
+		defaultWeightMsgCancelPoll int = 100
+	)
+
+	var weightMsgCancelPoll int
+	simState.AppParams.GetOrGenerate(opWeightMsgCancelPoll, &weightMsgCancelPoll, nil,
+		func(_ *rand.Rand) {
+			weightMsgCancelPoll = defaultWeightMsgCancelPoll
+		},
+	)
+	operations = append(operations, simulation.NewWeightedOperation(
+		weightMsgCancelPoll,
+		commonssimulation.SimulateMsgCancelPoll(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
 	))
 
 	// Recurring-spend simulations were removed by the M10 migration —

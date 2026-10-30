@@ -6,6 +6,7 @@ import (
 
 	"cosmossdk.io/collections"
 	errorsmod "cosmossdk.io/errors"
+	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	"sparkdream/x/collect/types"
@@ -31,6 +32,11 @@ func (k msgServer) SponsorCollection(ctx context.Context, msg *types.MsgSponsorC
 	coll, err := k.Collection.Get(ctx, msg.CollectionId)
 	if err != nil {
 		return nil, errorsmod.Wrap(types.ErrCollectionNotFound, "collection not found")
+	}
+
+	// A HIDDEN collection is under moderation and cannot be sponsored.
+	if coll.Status == types.CollectionStatus_COLLECTION_STATUS_HIDDEN {
+		return nil, errorsmod.Wrapf(types.ErrCollectionNotActive, "collection is %s", coll.Status)
 	}
 
 	// Creator must NOT be collection owner
@@ -87,6 +93,24 @@ func (k msgServer) SponsorCollection(ctx context.Context, msg *types.MsgSponsorC
 	// Save old expiry before modifying (needed for index cleanup)
 	oldExpiresAt := coll.ExpiresAt
 
+	// Sponsoring a PENDING collection completes its endorsement stage in the
+	// sponsor's place: it leaves the unendorsed-collection prune (which would
+	// otherwise delete it after it became permanent), turns ACTIVE, and the
+	// endorsement fee escrowed at creation goes back to the owner (no
+	// endorser earned it). It does not become immutable: there is no
+	// endorser stake behind the content as it stands.
+	wasPending := coll.Status == types.CollectionStatus_COLLECTION_STATUS_PENDING
+	if wasPending {
+		k.clearEndorsementPending(ctx, &coll, true)
+		if fee := escrowedEndorsementFee(coll); fee.IsPositive() {
+			if err := k.RefundSPARK(ctx, ownerAddr, fee); err != nil {
+				return nil, errorsmod.Wrap(err, "failed to refund escrowed endorsement fee")
+			}
+		}
+		coll.EndorsementFeeEscrowed = math.ZeroInt()
+		coll.Status = types.CollectionStatus_COLLECTION_STATUS_ACTIVE
+	}
+
 	// Update collection fields
 	coll.DepositAmount = req.CollectionDeposit
 	coll.ItemDepositTotal = req.ItemDepositTotal
@@ -106,9 +130,19 @@ func (k msgServer) SponsorCollection(ctx context.Context, msg *types.MsgSponsorC
 		return nil, errorsmod.Wrap(err, "failed to remove sponsorship request")
 	}
 
+	if wasPending {
+		if err := k.MoveCollectionStatusIndex(ctx,
+			types.CollectionStatus_COLLECTION_STATUS_PENDING, coll.Pinned,
+			types.CollectionStatus_COLLECTION_STATUS_ACTIVE, coll.Pinned, coll.Id); err != nil {
+			return nil, errorsmod.Wrap(err, "failed to update status index")
+		}
+	}
+
 	// Remove from CollectionsByExpiry (was TTL, now permanent)
 	if oldExpiresAt > 0 {
-		k.CollectionsByExpiry.Remove(ctx, collections.Join(oldExpiresAt, msg.CollectionId)) //nolint:errcheck
+		if err := k.CollectionsByExpiry.Remove(ctx, collections.Join(oldExpiresAt, msg.CollectionId)); err != nil {
+			return nil, err
+		}
 	}
 
 	// Emit event

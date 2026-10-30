@@ -20,7 +20,7 @@ trap 'rm -rf "$TEST_HOME"; if [ -n "$CHAIN_PID" ]; then kill "$CHAIN_PID" 2>/dev
 
 CHAIN_ID="aurora-mainnet-1"
 EXPECTED_BOND="uaspk.aurora"
-EXPECTED_DREAM="udream.aurora"
+EXPECTED_DREAM="uadrm.aurora"
 EXPECTED_BOND_SYMBOL="ASPK"
 EXPECTED_DREAM_SYMBOL="ADRM"
 
@@ -94,7 +94,8 @@ if [ "${ENABLE_CHAIN_START:-false}" = "true" ]; then
         --chain-id "$CHAIN_ID" --keyring-backend test --home "$TEST_HOME"
     $BINARY genesis collect-gentxs --home "$TEST_HOME"
 
-    "$BINARY" start --home "$TEST_HOME" --grpc.address "0.0.0.0:19090" --rpc.laddr "tcp://0.0.0.0:19657" --api.address "tcp://0.0.0.0:11317" --p2p.laddr "tcp://0.0.0.0:19656" >"$TEST_HOME/chain.log" 2>&1 &
+    # An untagged test binary refuses non-local chain-ids unless opted in.
+    SPARKDREAM_ALLOW_TEST_BUILD=1 "$BINARY" start --home "$TEST_HOME" --grpc.address "0.0.0.0:19090" --rpc.laddr "tcp://0.0.0.0:19657" --api.address "tcp://0.0.0.0:11317" --p2p.laddr "tcp://0.0.0.0:19656" >"$TEST_HOME/chain.log" 2>&1 &
     CHAIN_PID=$!
     sleep 6
 

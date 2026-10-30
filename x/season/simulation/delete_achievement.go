@@ -1,9 +1,6 @@
 package simulation
 
 import (
-	"math/rand"
-
-	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
@@ -12,29 +9,35 @@ import (
 	"sparkdream/x/season/types"
 )
 
-// SimulateMsgDeleteAchievement simulates a MsgDeleteAchievement message using direct keeper calls.
-// This bypasses the governance/committee authority requirement for simulation purposes.
-// Full authority testing should be done in integration tests.
+// SimulateMsgDeleteAchievement deletes a sim-created achievement that no
+// quest requires through an executed x/commons proposal (council.go), one
+// step per call.
 func SimulateMsgDeleteAchievement(
 	ak types.AuthKeeper,
 	bk types.BankKeeper,
 	k keeper.Keeper,
 	txGen client.TxConfig,
 ) simtypes.Operation {
-	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
-	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		// Get or create an achievement to delete
-		achievementId, err := getOrCreateAchievement(r, ctx, k)
-		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgDeleteAchievement{}), "failed to get or create achievement"), nil, nil
-		}
-
-		// Delete the achievement via keeper
-		if err := k.RemoveAchievement(ctx, achievementId); err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgDeleteAchievement{}), "failed to delete achievement"), nil, nil
-		}
-
-		// Return success
-		return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgDeleteAchievement{}), "ok (direct keeper call)"), nil, nil
-	}
+	return authorityOp(ak, bk, k, txGen, &types.MsgDeleteAchievement{}, decodeAs[types.MsgDeleteAchievement](),
+		func(e *simEnv, policy string, taken []sdk.Msg) (sdk.Msg, string, error) {
+			ids, err := allAchievements(e.ctx, e.k)
+			if err != nil {
+				return nil, "", err
+			}
+			skip := pendingIDs(taken, achievementIDOf)
+			// DeleteAchievement does not check quest references; the sim
+			// never strands a quest's required achievement.
+			quests, err := allQuests(e.ctx, e.k)
+			if err != nil {
+				return nil, "", err
+			}
+			for _, q := range quests {
+				skip[q.RequiredAchievement] = true
+			}
+			id, ok := pick(e.r, without(simOwned(ids), skip))
+			if !ok {
+				return nil, "no sim achievement to delete", nil
+			}
+			return &types.MsgDeleteAchievement{Authority: policy, AchievementId: id}, "", nil
+		})
 }

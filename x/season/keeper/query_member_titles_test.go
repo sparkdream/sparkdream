@@ -63,7 +63,10 @@ func TestQueryMemberTitles(t *testing.T) {
 		// Add unlocked titles to profile
 		profile, _ := k.MemberProfile.Get(ctx, memberStr)
 		profile.UnlockedTitles = []string{"champion", "veteran"}
-		k.MemberProfile.Set(ctx, memberStr, profile)
+		for _, id := range profile.UnlockedTitles {
+			require.NoError(t, k.SetTitle(ctx, types.Title{TitleId: id, Name: id}))
+		}
+		require.NoError(t, k.MemberProfile.Set(ctx, memberStr, profile))
 
 		resp, err := qs.MemberTitles(ctx, &types.QueryMemberTitlesRequest{Address: memberStr})
 		require.NoError(t, err)

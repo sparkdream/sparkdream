@@ -81,7 +81,7 @@ func TestMsgServerTransferGuildFounder(t *testing.T) {
 		// Set guild to dissolved
 		guild, _ := k.Guild.Get(ctx, guildID)
 		guild.Status = types.GuildStatus_GUILD_STATUS_DISSOLVED
-		k.Guild.Set(ctx, guildID, guild)
+		require.NoError(t, k.Guild.Set(ctx, guildID, guild))
 
 		_, err := ms.TransferGuildFounder(ctx, &types.MsgTransferGuildFounder{
 			Creator:    founderStr,
@@ -218,7 +218,7 @@ func TestMsgServerTransferGuildFounder(t *testing.T) {
 		// Make new founder an officer
 		guild, _ := k.Guild.Get(ctx, guildID)
 		guild.Officers = []string{newFounderStr}
-		k.Guild.Set(ctx, guildID, guild)
+		require.NoError(t, k.Guild.Set(ctx, guildID, guild))
 
 		_, err := ms.TransferGuildFounder(ctx, &types.MsgTransferGuildFounder{
 			Creator:    founderStr,

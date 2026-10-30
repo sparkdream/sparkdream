@@ -52,9 +52,9 @@ echo '{
       "name": "'$FORT_KNOX_NAME'",
       "description": "High security vault",
       "policy_type": "threshold",
-      "members": ["'$ALICE_ADDR'"],
-      "member_weights": ["1"],
-      "min_members": 1,
+      "members": ["'$ALICE_ADDR'", "'$BOB_ADDR'"],
+      "member_weights": ["1", "1"],
+      "min_members": 2,
       "max_members": 3,
       "term_duration": 180,
       "voting_period": 3600,
@@ -363,9 +363,9 @@ echo '{
       "authority": "'$COMMONS_POLICY'",
       "name": "Victim Group",
       "description": "Target for mutiny test",
-      "members": ["'$ALICE_ADDR'"],
-      "member_weights": ["1"],
-      "min_members": 1,
+      "members": ["'$ALICE_ADDR'", "'$BOB_ADDR'"],
+      "member_weights": ["1", "1"],
+      "min_members": 2,
       "max_members": 3,
       "term_duration": 3600,
       "voting_period": 3600,
@@ -457,8 +457,11 @@ if [ -z "$PROPOSAL_ID" ]; then
 fi
 echo "[ OK ] Cooldown Proposal ID: $PROPOSAL_ID"
 
-# Vote
+# Vote: a membership change needs a strict majority of Fort Knox (both of
+# its two members), or it is never accepted and fails for the wrong reason.
 $BINARY tx commons vote-proposal $PROPOSAL_ID yes --from alice -y --chain-id $CHAIN_ID --keyring-backend test
+sleep 3
+$BINARY tx commons vote-proposal $PROPOSAL_ID yes --from bob -y --chain-id $CHAIN_ID --keyring-backend test
 sleep 3
 
 echo "Votes cast. Attempting Execution..."

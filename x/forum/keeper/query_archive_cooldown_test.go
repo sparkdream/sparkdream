@@ -50,7 +50,7 @@ func TestQueryArchiveCooldown(t *testing.T) {
 			FirstArchivedAt: now,
 			LastArchivedAt:  now,
 		}
-		f.keeper.ArchiveMetadata.Set(f.ctx, post.PostId, metadata)
+		require.NoError(t, f.keeper.ArchiveMetadata.Set(f.ctx, post.PostId, metadata))
 
 		resp, err := qs.ArchiveCooldown(f.ctx, &types.QueryArchiveCooldownRequest{RootId: post.PostId})
 		require.NoError(t, err)

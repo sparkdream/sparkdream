@@ -38,7 +38,7 @@ func (k Keeper) adjustCreatorCount(ctx context.Context, creator string, delta in
 	if err != nil && !errors.Is(err, collections.ErrNotFound) {
 		return err
 	}
-	next := int64(cur) + delta
+	next := commontypes.Saturate[int64](cur) + delta
 	if next <= 0 {
 		return k.ClassCountByCreator.Remove(ctx, creator)
 	}
@@ -304,13 +304,19 @@ func (k Keeper) getCount(ctx context.Context, m collections.Map[string, uint64],
 // reserveInboxSlot enforces both inbox caps and bumps the counters (§7.6).
 func (k Keeper) reserveInboxSlot(ctx context.Context, origin, to string, p types.Params) error {
 	pairKey := collections.Join(origin, to)
-	pair, _ := k.PendingPairCount.Get(ctx, pairKey)
+	pair, getErr := k.PendingPairCount.Get(ctx, pairKey)
+	if getErr != nil && !errors.Is(getErr, collections.ErrNotFound) {
+		return getErr
+	}
 	// The cap counts every recent address of the origin member (a mint
 	// origin is not an address and has no aliases); the counter itself
 	// stays keyed by origin so releaseInboxSlot finds it.
 	var open uint64
 	for _, a := range k.recentAddressesOf(ctx, origin) {
-		n, _ := k.PendingPairCount.Get(ctx, collections.Join(a, to))
+		n, getErr := k.PendingPairCount.Get(ctx, collections.Join(a, to))
+		if getErr != nil && !errors.Is(getErr, collections.ErrNotFound) {
+			return getErr
+		}
 		open += n
 	}
 	if open >= uint64(p.MaxPendingPerPair) {
@@ -328,7 +334,10 @@ func (k Keeper) reserveInboxSlot(ctx context.Context, origin, to string, p types
 
 func (k Keeper) releaseInboxSlot(ctx context.Context, origin, to string) error {
 	pairKey := collections.Join(origin, to)
-	pair, _ := k.PendingPairCount.Get(ctx, pairKey)
+	pair, getErr := k.PendingPairCount.Get(ctx, pairKey)
+	if getErr != nil && !errors.Is(getErr, collections.ErrNotFound) {
+		return getErr
+	}
 	if pair <= 1 {
 		if err := k.PendingPairCount.Remove(ctx, pairKey); err != nil {
 			return err
@@ -344,10 +353,10 @@ func (k Keeper) releaseInboxSlot(ctx context.Context, origin, to string) error {
 }
 
 func (k Keeper) indexPending(ctx context.Context, kind types.InboxKind, classID, tokenID uint64, from, to string, expiresAt int64) error {
-	if err := k.InboxByRecipient.Set(ctx, collections.Join3(to, classID, tokenID), uint64(kind)); err != nil {
+	if err := k.InboxByRecipient.Set(ctx, collections.Join3(to, classID, tokenID), commontypes.Saturate[uint64](kind)); err != nil {
 		return err
 	}
-	if err := k.OutboxBySender.Set(ctx, collections.Join3(from, classID, tokenID), uint64(kind)); err != nil {
+	if err := k.OutboxBySender.Set(ctx, collections.Join3(from, classID, tokenID), commontypes.Saturate[uint64](kind)); err != nil {
 		return err
 	}
 	return k.PendingExpiry.Set(ctx, collections.Join3(expiresAt, classID, tokenID))

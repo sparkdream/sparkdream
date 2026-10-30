@@ -8,7 +8,9 @@ import "sparkdream/commons/v1/category.proto";
 import "sparkdream/commons/v1/group.proto";
 import "sparkdream/commons/v1/params.proto";
 import "sparkdream/commons/v1/policy_permissions.proto";
-import "sparkdream/commons/v1/recurring_spend.proto";
+import "sparkdream/commons/v1/poll.proto";
+import "sparkdream/commons/v1/poll_vote.proto";
+import "sparkdream/commons/v1/voter_tree.proto";
 
 option go_package = "sparkdream/x/commons/types";
 
@@ -40,19 +42,89 @@ message GenesisState {
   repeated Category category_map = 11 [(gogoproto.nullable) = false];
   // next_category_id is the next auto-increment category ID
   uint64 next_category_id = 12;
-  // recurring_spends stores all schedules for export.
-  repeated RecurringSpend recurring_spends = 13 [(gogoproto.nullable) = false];
-  // next_recurring_spend_id is the next auto-increment recurring spend ID.
-  uint64 next_recurring_spend_id = 14;
   // founding_members overrides the build's compiled-in genesis founders
   // (GenesisNames / GenesisHandles / FounderName) when non-empty, so a chain
   // launched from a shared build can bootstrap governance around its own
   // accounts. Empty means: use the build's founders. Consumed by the
   // governance bootstrap at InitGenesis and intentionally not exported: an
   // exported chain already carries its bootstrapped councils in group_map /
-  // council_members, and the bootstrap's early return (no founder accounts
-  // in the auth store) keeps a re-import from re-running it.
-  repeated FoundingMember founding_members = 15 [(gogoproto.nullable) = false];
+  // council_members, and InitGenesis skips the bootstrap whenever group_map
+  // is non-empty.
+  repeated FoundingMember founding_members = 13 [(gogoproto.nullable) = false];
+  // epoch_spending carries the per-(policy, UTC day) spend buckets so a
+  // round trip does not reset the daily caps.
+  repeated EpochSpendingEntry epoch_spending = 14 [(gogoproto.nullable) = false];
+  // market_to_group links open confidence-vote markets to their group.
+  repeated MarketToGroupEntry market_to_group = 15 [(gogoproto.nullable) = false];
+  // market_trigger_queue holds the scheduled confidence-vote markets.
+  repeated MarketTriggerEntry market_trigger_queue = 16 [(gogoproto.nullable) = false];
+  // deleted_policies lists the policy addresses of deleted groups; claims
+  // granted by a former group policy are refused.
+  repeated string deleted_policies = 17;
+  // anon_vote_tallies carries the anonymous vote counts per proposal, so a
+  // round trip keeps them visible in proposal queries.
+  repeated AnonVoteTallyEntry anon_vote_tallies = 18 [(gogoproto.nullable) = false];
+  // anon_proposal_counts carries the per-(council, UTC day) anonymous
+  // proposal counters, so a round trip does not reset the daily cap.
+  repeated AnonProposalCountEntry anon_proposal_counts = 19 [(gogoproto.nullable) = false];
+  // polls are every stored poll (open, and closed or cancelled ones still
+  // inside the retention window).
+  repeated Poll polls = 20 [(gogoproto.nullable) = false];
+  // poll_votes are the open votes on stored polls.
+  repeated PollVote poll_votes = 21 [(gogoproto.nullable) = false];
+  // next_poll_id is the next poll ID to assign.
+  uint64 next_poll_id = 22;
+  // proposal_voter_trees are the voter snapshots of secret-ballot proposals
+  // still open for voting.
+  repeated ProposalVoterTreeEntry proposal_voter_trees = 23 [(gogoproto.nullable) = false];
+  // poll_voter_trees are the voter snapshots of open secret-ballot polls.
+  repeated PollVoterTreeEntry poll_voter_trees = 24 [(gogoproto.nullable) = false];
+}
+
+// ProposalVoterTreeEntry pairs a proposal ID with its voter snapshot.
+message ProposalVoterTreeEntry {
+  uint64 proposal_id = 1;
+  VoterTree tree = 2 [(gogoproto.nullable) = false];
+}
+
+// PollVoterTreeEntry pairs a poll ID with its voter snapshot.
+message PollVoterTreeEntry {
+  uint64 poll_id = 1;
+  VoterTree tree = 2 [(gogoproto.nullable) = false];
+}
+
+// AnonVoteTallyEntry pairs a proposal ID with its anonymous vote tally.
+message AnonVoteTallyEntry {
+  uint64 proposal_id = 1;
+  AnonVoteTally tally = 2 [(gogoproto.nullable) = false];
+}
+
+// AnonProposalCountEntry is one per-(council, UTC day) anonymous proposal
+// counter.
+message AnonProposalCountEntry {
+  string council_name = 1;
+  // utc_day is the block time in unix seconds divided by 86400.
+  int64 utc_day = 2;
+  uint64 count = 3;
+}
+
+// EpochSpendingEntry is one per-epoch spend bucket of a group policy.
+message EpochSpendingEntry {
+  string policy_address = 1;
+  int64 epoch_day = 2;
+  string amount = 3;
+}
+
+// MarketToGroupEntry links a confidence-vote market to its group.
+message MarketToGroupEntry {
+  uint64 market_id = 1;
+  string group_name = 2;
+}
+
+// MarketTriggerEntry is one scheduled confidence-vote market.
+message MarketTriggerEntry {
+  int64 trigger_time = 1;
+  string group_name = 2;
 }
 
 // FoundingMember is one governance founding member for the InitGenesis

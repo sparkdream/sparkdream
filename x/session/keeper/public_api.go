@@ -89,6 +89,13 @@ func (k Keeper) CreateGrantOnBehalfOf(
 			callerModuleAddr, len(params.AuthorizedGrantCreators))
 	}
 
+	// Creator binding (SES-09): a module creates grants only for granters it
+	// controls, as declared by its registered GranterOwner.
+	if !k.callerManagesGranter(ctx, callerModuleAddr, msg.Granter, false) {
+		return 0, errorsmod.Wrapf(types.ErrModuleNotAuthorized,
+			"caller %s does not control granter %s", callerModuleAddr, msg.Granter)
+	}
+
 	// Run the same shared validation the MsgCreateGrant handler does.
 	if err := k.validateGrantCommon(ctx, params, blockTime, msg.Granter, msg.Grantee, msg.ExpiresAt, msg.Note); err != nil {
 		return 0, err
@@ -166,14 +173,22 @@ func (k Keeper) CreateGrantOnBehalfOf(
 		return 0, types.ErrInvalidPayload.Wrap("payload oneof must be set")
 	}
 
+	if err := k.checkPayoutRecipients(grant); err != nil {
+		return 0, err
+	}
 	if err := k.writeGrant(ctx, grant); err != nil {
+		return 0, err
+	}
+	// Remember which module created the grant: the bypass decline and
+	// claim paths are bound to it (SES-09).
+	if err := k.GrantCreatorModule.Set(ctx, id, callerModuleAddr); err != nil {
 		return 0, err
 	}
 
 	sdkCtx.EventManager().EmitEvent(sdk.NewEvent(
 		"grant_created",
 		sdk.NewAttribute("id", fmt.Sprintf("%d", id)),
-		sdk.NewAttribute("type", grant.Type.String()),
+		sdk.NewAttribute("type", types.GrantTypeEventValue(grant.Type)),
 		sdk.NewAttribute("granter", msg.Granter),
 		sdk.NewAttribute("grantee", msg.Grantee),
 		sdk.NewAttribute("expires_at", msg.ExpiresAt.UTC().Format(time.RFC3339Nano)),
@@ -231,6 +246,14 @@ func (k Keeper) RevokeGrantInternal(
 		return sdk.Coin{}, errorsmod.Wrapf(types.ErrGrantTerminal,
 			"grant %d is %s (terminal)", grant.Id, grant.Status)
 	}
+	// Creator binding (SES-09): only grants the caller created, or grants
+	// of a granter the caller controls (or controlled, for a deleted
+	// council policy).
+	if creator, cErr := k.GrantCreatorModule.Get(ctx, grant.Id); (cErr != nil || creator != callerModuleAddr) &&
+		!k.callerManagesGranter(ctx, callerModuleAddr, grant.Granter, true) {
+		return sdk.Coin{}, errorsmod.Wrapf(types.ErrModuleNotAuthorized,
+			"caller %s neither created grant %d nor controls its granter", callerModuleAddr, grant.Id)
+	}
 
 	// Refund any held oneshot deposit.
 	refund := sdk.NewCoin(k.BondDenom(ctx), sdkmath.ZeroInt())
@@ -244,7 +267,9 @@ func (k Keeper) RevokeGrantInternal(
 			if err := k.bankKeeper.SendCoinsFromModuleToAccount(ctx, types.ModuleName, granterAddr, sdk.NewCoins(dep)); err != nil {
 				return sdk.Coin{}, errorsmod.Wrap(err, "deposit refund failed")
 			}
-			_ = k.OneshotGasDeposit.Remove(ctx, grant.Id)
+			if err := k.OneshotGasDeposit.Remove(ctx, grant.Id); err != nil {
+				return sdk.Coin{}, err
+			}
 			refund = dep
 		}
 	}
@@ -256,7 +281,7 @@ func (k Keeper) RevokeGrantInternal(
 	sdkCtx.EventManager().EmitEvent(sdk.NewEvent(
 		"grant_revoked",
 		sdk.NewAttribute("id", fmt.Sprintf("%d", grant.Id)),
-		sdk.NewAttribute("type", grant.Type.String()),
+		sdk.NewAttribute("type", types.GrantTypeEventValue(grant.Type)),
 		sdk.NewAttribute("granter", grant.Granter),
 		sdk.NewAttribute("grantee", grant.Grantee),
 		sdk.NewAttribute("refund_amount", refund.String()),
@@ -321,6 +346,13 @@ func (k Keeper) DeclineGrantInternal(
 		return sdk.Coin{}, errorsmod.Wrapf(types.ErrDeclineUnauthorized,
 			"supplied grantee %s does not match grant.Grantee %s", grantee, grant.Grantee)
 	}
+	// Only the module that created the grant may decline it on the
+	// grantee's behalf: a user-made grant is declined by its grantee
+	// through MsgDeclineGrant.
+	if creator, err := k.GrantCreatorModule.Get(ctx, grant.Id); err != nil || creator != callerModuleAddr {
+		return sdk.Coin{}, errorsmod.Wrapf(types.ErrModuleNotAuthorized,
+			"grant %d was not created by %s", grant.Id, callerModuleAddr)
+	}
 	if terminalStatus(grant.Status) {
 		return sdk.Coin{}, errorsmod.Wrapf(types.ErrGrantTerminal,
 			"grant %d is %s (terminal; decline is one-way)", grant.Id, grant.Status)
@@ -338,7 +370,9 @@ func (k Keeper) DeclineGrantInternal(
 			if err := k.bankKeeper.SendCoinsFromModuleToAccount(ctx, types.ModuleName, granterAddr, sdk.NewCoins(dep)); err != nil {
 				return sdk.Coin{}, errorsmod.Wrap(err, "deposit refund failed")
 			}
-			_ = k.OneshotGasDeposit.Remove(ctx, grant.Id)
+			if err := k.OneshotGasDeposit.Remove(ctx, grant.Id); err != nil {
+				return sdk.Coin{}, err
+			}
 			refund = dep
 		}
 	}
@@ -350,7 +384,7 @@ func (k Keeper) DeclineGrantInternal(
 	sdkCtx.EventManager().EmitEvent(sdk.NewEvent(
 		"grant_declined",
 		sdk.NewAttribute("id", fmt.Sprintf("%d", grant.Id)),
-		sdk.NewAttribute("type", grant.Type.String()),
+		sdk.NewAttribute("type", types.GrantTypeEventValue(grant.Type)),
 		sdk.NewAttribute("granter", grant.Granter),
 		sdk.NewAttribute("grantee", grant.Grantee),
 		sdk.NewAttribute("refund_amount", refund.String()),
@@ -397,6 +431,15 @@ func (k Keeper) ClaimRecurringPullForGrantee(
 	if !authorized {
 		return nil, errorsmod.Wrapf(types.ErrModuleNotAuthorized,
 			"caller %s not in allowlist", callerModuleAddr)
+	}
+
+	// A module may claim only grants it created through the bypass, or
+	// grants payable to itself (artifact's Harberger tax pulls).
+	if grantee != callerModuleAddr {
+		if creator, err := k.GrantCreatorModule.Get(ctx, grantID); err != nil || creator != callerModuleAddr {
+			return nil, errorsmod.Wrapf(types.ErrModuleNotAuthorized,
+				"grant %d was not created by %s and is not payable to it", grantID, callerModuleAddr)
+		}
 	}
 
 	return k.claimRecurringPullCommon(ctx, grantID, grantee)

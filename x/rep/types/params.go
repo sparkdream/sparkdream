@@ -145,6 +145,9 @@ func DefaultParams() Params {
 		MigrationObjectionBond:    math.NewInt(10_000_000), // 10 SPARK, equal to DefaultAppealBondAmount
 		ZkKeyActivationDelay:      getMigrationTimings().zkKeyActivationEpochs,
 
+		// Tag budgets: one awarder may give at most 25% of a pool per epoch.
+		TagBudgetAwarderEpochCapBps: DefaultTagBudgetAwarderEpochCapBps,
+
 		// Challenges (stake in micro-DREAM: 1 DREAM = 1e6 micro-DREAM)
 		MinChallengeStake:    math.NewInt(50000000),            // 50 DREAM
 		ChallengerRewardRate: math.LegacyNewDecWithPrec(20, 2), // 20%
@@ -252,10 +255,10 @@ func DefaultParams() Params {
 		LargeProjectBudgetThreshold: math.NewInt(10000000000), // 10,000 DREAM (Epic tier max)
 
 		// Permissionless creation fees (burned on creation — anti-spam + deflationary)
-		ProjectCreationFee:              math.NewInt(5000000), // 5 DREAM
-		InitiativeCreationFeeApprentice: math.NewInt(1000000), // 1 DREAM
-		InitiativeCreationFeeStandard:   math.NewInt(3000000), // 3 DREAM
-		TagCreationFee:                  math.NewInt(100),     // 100 micro-DREAM
+		ProjectCreationFee:              math.NewInt(5000000),  // 5 DREAM
+		InitiativeCreationFeeApprentice: math.NewInt(1000000),  // 1 DREAM
+		InitiativeCreationFeeStandard:   math.NewInt(3000000),  // 3 DREAM
+		TagCreationFee:                  math.NewInt(10000000), // 10 DREAM
 
 		// Permissionless access control (governance-only)
 		PermissionlessMinTrustLevel: 2, // ESTABLISHED
@@ -1056,10 +1059,10 @@ func DefaultRepOperationalParams() RepOperationalParams {
 		MaxInterimRewardsPerSeason:    getMaxInterimRewardsPerSeason(),
 		LargeProjectBudgetThreshold:   math.NewInt(10000000000), // 10,000 DREAM
 		// Permissionless creation fees
-		ProjectCreationFee:              math.NewInt(5000000), // 5 DREAM
-		InitiativeCreationFeeApprentice: math.NewInt(1000000), // 1 DREAM
-		InitiativeCreationFeeStandard:   math.NewInt(3000000), // 3 DREAM
-		TagCreationFee:                  math.NewInt(100),     // 100 micro-DREAM
+		ProjectCreationFee:              math.NewInt(5000000),  // 5 DREAM
+		InitiativeCreationFeeApprentice: math.NewInt(1000000),  // 1 DREAM
+		InitiativeCreationFeeStandard:   math.NewInt(3000000),  // 3 DREAM
+		TagCreationFee:                  math.NewInt(10000000), // 10 DREAM
 
 		// Sentinel SPARK reward pool
 		MaxSentinelRewardPool:               math.NewInt(100000000000),        // 100,000 SPARK in uspark
@@ -1994,13 +1997,16 @@ type migrationTimings struct {
 	revealMinBlocks       int64
 	commitTTL             int64
 	zkKeyActivationEpochs int64
+	// objectionEscalationWindow: seconds x/gov has to decide an escalated
+	// migration objection (MigrationObjectionEscalationWindow).
+	objectionEscalationWindow int64
 }
 
 // productionMigrationTimings are the plan's defaults: 7d key delay, 2d
 // recovery delay, 21d council delay, 7d accept window, 30d cooldown, 365d
 // rolling window, 30d commitment change delay, 20-block seal age, 7d seal
 // TTL, 14-epoch ZK key activation delay.
-func productionMigrationTimings() migrationTimings {
+func productionMigrationTimings() migrationTimings { //nolint:unused // used by the mainnet, testnet and devnet builds (params_vals_*.go)
 	const day = int64(86400)
 	return migrationTimings{
 		keyDelay:              7 * day,
@@ -2013,6 +2019,8 @@ func productionMigrationTimings() migrationTimings {
 		revealMinBlocks:       20,
 		commitTTL:             7 * day,
 		zkKeyActivationEpochs: 14,
+
+		objectionEscalationWindow: 30 * day,
 	}
 }
 
@@ -2061,7 +2069,20 @@ func (p Params) validateMigrationParams() error {
 	if p.ZkKeyActivationDelay <= 0 {
 		return fmt.Errorf("zk_key_activation_delay must be positive: %d", p.ZkKeyActivationDelay)
 	}
+	if p.TagBudgetAwarderEpochCapBps > 10000 {
+		return fmt.Errorf("tag_budget_awarder_epoch_cap_bps must be at most 10000 (0 = default %d): %d",
+			DefaultTagBudgetAwarderEpochCapBps, p.TagBudgetAwarderEpochCapBps)
+	}
 	return nil
+}
+
+// TagBudgetAwarderEpochCapBpsOrDefault returns the per-awarder epoch cap,
+// with 0 meaning the default (25%).
+func (p Params) TagBudgetAwarderEpochCapBpsOrDefault() uint64 {
+	if p.TagBudgetAwarderEpochCapBps == 0 {
+		return DefaultTagBudgetAwarderEpochCapBps
+	}
+	return p.TagBudgetAwarderEpochCapBps
 }
 
 // ZkKeyActivationDelaySeconds converts the epoch-denominated activation

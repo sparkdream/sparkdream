@@ -112,58 +112,79 @@ func TestGetAccountForAddress_TableDriven(t *testing.T) {
 	}
 }
 
-// --- pickDifferentAccount ---
+// --- pick / accountsWhere ---
 
-func TestPickDifferentAccount_ExcludesTarget(t *testing.T) {
+func TestPick_EmptyReturnsFalse(t *testing.T) {
+	r := rand.New(rand.NewSource(1))
+	_, ok := pick(r, []int{})
+	require.False(t, ok)
+}
+
+func TestPick_ReturnsElement(t *testing.T) {
 	r := rand.New(rand.NewSource(7))
-	accs := makeTestAccounts(r, 10)
-	exclude := accs[0].Address.String()
-
-	// Run many iterations to confirm we never get the excluded account back.
-	for i := 0; i < 200; i++ {
-		got, ok := pickDifferentAccount(r, accs, exclude)
+	items := []string{"phoenix", "aurora", "zenith"}
+	for i := 0; i < 50; i++ {
+		got, ok := pick(r, items)
 		require.True(t, ok)
-		require.NotEqual(t, exclude, got.Address.String(),
-			"iteration %d returned the excluded account", i)
+		require.Contains(t, items, got)
 	}
 }
 
-func TestPickDifferentAccount_SingleAccount_ReturnsFalse(t *testing.T) {
-	r := rand.New(rand.NewSource(1))
-	accs := makeTestAccounts(r, 1)
-
-	got, ok := pickDifferentAccount(r, accs, accs[0].Address.String())
-	require.False(t, ok)
-	require.Empty(t, got.Address)
-}
-
-func TestPickDifferentAccount_EmptySlice_ReturnsFalse(t *testing.T) {
-	r := rand.New(rand.NewSource(1))
-	got, ok := pickDifferentAccount(r, []simtypes.Account{}, "anyaddr")
-	require.False(t, ok)
-	require.Empty(t, got.Address)
-}
-
-func TestPickDifferentAccount_AllExcluded_ReturnsFalse(t *testing.T) {
-	// Two identical address entries (unusual but tests the filtered-empty path).
-	r := rand.New(rand.NewSource(2))
-	base := makeTestAccounts(r, 1)
-	accs := []simtypes.Account{base[0], base[0]}
-	exclude := base[0].Address.String()
-
-	got, ok := pickDifferentAccount(r, accs, exclude)
-	require.False(t, ok)
-	require.Empty(t, got.Address)
-}
-
-func TestPickDifferentAccount_TwoAccounts_AlwaysReturnsOther(t *testing.T) {
+func TestAccountsWhere_Filters(t *testing.T) {
 	r := rand.New(rand.NewSource(55))
-	accs := makeTestAccounts(r, 2)
+	accs := makeTestAccounts(r, 5)
+	exclude := accs[2].Address.String()
+	got := accountsWhere(accs, func(a simtypes.Account) bool { return a.Address.String() != exclude })
+	require.Len(t, got, 4)
+	for _, a := range got {
+		require.NotEqual(t, exclude, a.Address.String())
+	}
+	require.Empty(t, accountsWhere(accs, func(simtypes.Account) bool { return false }))
+}
 
+// --- randomItemContent / randomEncryptedData ---
+
+func TestRandomItemContent_Public(t *testing.T) {
+	params := types.DefaultParams()
+	r := rand.New(rand.NewSource(3))
+	for i := 0; i < 100; i++ {
+		c := randomItemContent(r, false, params)
+		require.Empty(t, c.encrypted)
+		require.NotEmpty(t, c.title)
+		require.LessOrEqual(t, len(c.title), int(params.MaxTitleLength))
+		switch c.refType {
+		case types.ReferenceType_REFERENCE_TYPE_LINK:
+			require.NotNil(t, c.link)
+			require.LessOrEqual(t, len(c.link.Uri), int(params.MaxReferenceFieldLength))
+		case types.ReferenceType_REFERENCE_TYPE_NFT:
+			require.NotNil(t, c.nft)
+		case types.ReferenceType_REFERENCE_TYPE_CUSTOM:
+			require.NotNil(t, c.custom)
+		default:
+			t.Fatalf("unexpected reference type %s", c.refType)
+		}
+		require.LessOrEqual(t, len(c.attributes), int(params.MaxAttributesPerItem))
+	}
+}
+
+func TestRandomItemContent_Encrypted(t *testing.T) {
+	params := types.DefaultParams()
+	r := rand.New(rand.NewSource(4))
 	for i := 0; i < 50; i++ {
-		got, ok := pickDifferentAccount(r, accs, accs[0].Address.String())
-		require.True(t, ok)
-		require.Equal(t, accs[1].Address.String(), got.Address.String())
+		c := randomItemContent(r, true, params)
+		require.NotEmpty(t, c.encrypted)
+		require.LessOrEqual(t, len(c.encrypted), int(params.MaxEncryptedDataSize))
+		require.Empty(t, c.title)
+		require.Empty(t, c.description)
+		require.Empty(t, c.imageURI)
+	}
+}
+
+func TestRandomEncryptedData_RespectsCap(t *testing.T) {
+	r := rand.New(rand.NewSource(5))
+	require.Len(t, randomEncryptedData(r, 8), 8)
+	for i := 0; i < 50; i++ {
+		require.LessOrEqual(t, len(randomEncryptedData(r, 4096)), 4096)
 	}
 }
 
@@ -273,41 +294,6 @@ func TestRandomDescription_Deterministic(t *testing.T) {
 	r2 := rand.New(rand.NewSource(99))
 	for i := 0; i < 20; i++ {
 		require.Equal(t, randomDescription(r1), randomDescription(r2))
-	}
-}
-
-// --- randomTag ---
-
-var validTags = []string{
-	"art", "science", "history", "tech", "nature",
-	"music", "code", "design", "research", "education",
-}
-
-func TestRandomTag_NonEmpty(t *testing.T) {
-	r := rand.New(rand.NewSource(111))
-	for i := 0; i < 50; i++ {
-		tag := randomTag(r)
-		require.NotEmpty(t, tag)
-	}
-}
-
-func TestRandomTag_ValidValues(t *testing.T) {
-	r := rand.New(rand.NewSource(222))
-	tagSet := make(map[string]bool, len(validTags))
-	for _, v := range validTags {
-		tagSet[v] = true
-	}
-	for i := 0; i < 200; i++ {
-		tag := randomTag(r)
-		require.True(t, tagSet[tag], "unexpected tag %q", tag)
-	}
-}
-
-func TestRandomTag_Deterministic(t *testing.T) {
-	r1 := rand.New(rand.NewSource(333))
-	r2 := rand.New(rand.NewSource(333))
-	for i := 0; i < 20; i++ {
-		require.Equal(t, randomTag(r1), randomTag(r2))
 	}
 }
 

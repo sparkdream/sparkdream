@@ -48,4 +48,21 @@ var (
 
 	// VotesByVoterKey: (voter, voteKey) - for querying all votes by a voter
 	VotesByVoterKey = collections.NewPrefix("vote/by_voter/")
+
+	// ContributionDeadlinesKey: (next_deadline, contributionID) - IN_PROGRESS
+	// contributions ordered by their earliest pending tranche deadline, so the
+	// EndBlocker walks only the contributions that are due.
+	ContributionDeadlinesKey = collections.NewPrefix("contribution/by_deadline/")
+
+	// ContributionNextDeadlineKey: contributionID -> the deadline currently
+	// indexed under ContributionDeadlinesKey (reverse map for index upkeep).
+	ContributionNextDeadlineKey = collections.NewPrefix("contribution/next_deadline/")
+
+	// ProjectTransitionQueueKey: (next_attempt_height, contributionID) for
+	// COMPLETED contributions whose x/rep project creation failed (REV-07).
+	// ProjectTransitionAttemptsKey: contributionID -> failed attempts.
+	// Derived state: InitGenesis re-queues every COMPLETED contribution
+	// without a project.
+	ProjectTransitionQueueKey    = collections.NewPrefix("contribution/project_retry/")
+	ProjectTransitionAttemptsKey = collections.NewPrefix("contribution/project_retry_attempts/")
 )

@@ -1,105 +1,61 @@
 package simulation
 
 import (
-	"math/rand"
-
 	"cosmossdk.io/math"
-	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
-	"github.com/cosmos/cosmos-sdk/x/simulation"
 
 	"sparkdream/x/rep/keeper"
 	"sparkdream/x/rep/types"
 )
 
-func SimulateMsgApproveInitiative(
-	ak types.AuthKeeper,
-	bk types.BankKeeper,
-	k keeper.Keeper,
-	txGen client.TxConfig,
-) simtypes.Operation {
-	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
-	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		// Get or create an approver with enough DREAM to stake — the
-		// MsgApproveInitiative handler requires the caller to be an active
-		// staker (or operations committee), so we seed a stake below.
-		approver, approverAcc, err := getOrCreateMemberWithDream(r, ctx, k, accs, math.NewInt(100))
+// SimulateMsgApproveInitiative records an approval of a SUBMITTED or
+// IN_REVIEW initiative by one of its stakers or a Commons Operations
+// Committee seat (never its assignee or project creator); now and then an
+// ops seat disapproves, which closes it. With no submitted initiative the
+// work of an assigned one is submitted first, and with no staker on it a
+// member stakes first.
+func SimulateMsgApproveInitiative(ak types.AuthKeeper, bk types.BankKeeper, k keeper.Keeper, txGen client.TxConfig) simtypes.Operation {
+	label := &types.MsgApproveInitiative{}
+	return operation(ak, bk, k, txGen, label, func(e *simEnv) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
+		in, ok, err := e.submittedInitiative(nil)
 		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgApproveInitiative{}), "failed to get/create approver"), nil, nil
+			return noOpErr(label, err)
 		}
-
-		// Find or create a submitted initiative. The initiative must be
-		// built by a member DISTINCT from the approver: the handler's
-		// conflict-of-interest exclusion rejects approvals signed by the
-		// initiative's assignee or the parent project's creator.
-		builder, _, err := getOrCreateDistinctMemberWithDream(r, ctx, k, accs, approver.Address, math.NewInt(100))
+		if !ok {
+			return noOp(label, "no SUBMITTED initiative and none could be submitted")
+		}
+		creator := ""
+		if p, ok := e.project(in.ProjectId); ok {
+			creator = p.Creator
+		}
+		conflicted := func(addr string) bool {
+			return e.k.SameMember(e.ctx, addr, in.Assignee) || (creator != "" && e.k.SameMember(e.ctx, addr, creator))
+		}
+		stakes, err := e.k.GetInitiativeStakes(e.ctx, in.Id)
 		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgApproveInitiative{}), "failed to get/create builder"), nil, nil
+			return noOpErr(label, err)
 		}
-		initID, err := getOrCreateInitiative(r, ctx, k, builder, types.InitiativeStatus_INITIATIVE_STATUS_SUBMITTED)
-		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgApproveInitiative{}), "failed to get/create initiative"), nil, nil
+		var cands []candidate
+		approve := func(acc simtypes.Account, yes bool) {
+			if conflicted(acc.Address.String()) {
+				return
+			}
+			cands = append(cands, candidate{acc: acc, msg: &types.MsgApproveInitiative{
+				Creator:      acc.Address.String(),
+				InitiativeId: in.Id,
+				Approved:     yes,
+				Comments:     randomReason(e.r),
+			}, spent: math.ZeroInt()})
 		}
-
-		// A pre-existing initiative found by getOrCreateInitiative may still
-		// conflict with this approver — skip instead of failing delivery.
-		initiative, err := k.Initiative.Get(ctx, initID)
-		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgApproveInitiative{}), "failed to get initiative"), nil, nil
-		}
-		project, err := k.Project.Get(ctx, initiative.ProjectId)
-		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgApproveInitiative{}), "failed to get project"), nil, nil
-		}
-		if approver.Address == initiative.Assignee || approver.Address == project.Creator {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgApproveInitiative{}), "approver conflicts with assignee/project creator"), nil, nil
-		}
-
-		// Ensure the approver has a stake on this initiative so the handler's
-		// authorization check passes. This bypasses MsgStake (no fee/ante);
-		// staking flow itself is exercised by SimulateMsgStake.
-		stakes, err := k.GetInitiativeStakes(ctx, initID)
-		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgApproveInitiative{}), "failed to read stakes"), nil, nil
-		}
-		hasStake := false
 		for _, s := range stakes {
-			if s.Staker == approver.Address {
-				hasStake = true
-				break
+			if acc, ok := e.account(s.Staker); ok {
+				approve(acc, true)
 			}
 		}
-		if !hasStake {
-			if _, err := createStake(ctx, k, r, approver, initID); err != nil {
-				return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgApproveInitiative{}), "failed to seed stake"), nil, nil
-			}
+		for _, acc := range e.liveSeats(commonsOpsCommittee) {
+			approve(acc, e.r.Intn(8) != 0)
 		}
-
-		// Always approve in the simulation. Rejection path calls
-		// ReturnBudget, which requires the project's AllocatedBudget to
-		// still cover this initiative's budget — but other operations may
-		// have since reallocated or spent it, leading to spurious
-		// "only 0 allocated" failures.
-		msg := &types.MsgApproveInitiative{
-			Creator:      approver.Address,
-			InitiativeId: initID,
-			Approved:     true,
-		}
-
-		return simulation.GenAndDeliverTxWithRandFees(simulation.OperationInput{
-			R:               r,
-			App:             app,
-			TxGen:           txGen,
-			Cdc:             nil,
-			Msg:             msg,
-			CoinsSpentInMsg: sdk.NewCoins(),
-			Context:         ctx,
-			SimAccount:      approverAcc,
-			AccountKeeper:   ak,
-			Bankkeeper:      bk,
-			ModuleName:      types.ModuleName,
-		})
-	}
+		return e.firstValid(label, cands, 6, "no staker or ops seat may approve the initiative")
+	})
 }

@@ -51,18 +51,18 @@ message Contribution {
   uint64 project_id = 13;          // x/rep Project ID after transition
 
   ContributionStatus status = 14;
-  uint64 council_id = 15;          // Commons Council that approved (used for project transition)
-                                    // NOTE: Currently not populated by implementation — MsgApprove handler
-                                    // records approved_by but does not set council_id.
-  string approved_by = 16;         // Operations Committee member who initiated approval
-  int64 approved_at = 17;
-  int64 created_at = 18;
+  // There is no council_id: approval always comes from the Commons Council
+  // (councils are identified by name), so the project transition files the
+  // project under "commons".
+  string approved_by = 15;         // Operations Committee member who initiated approval
+  int64 approved_at = 16;
+  int64 created_at = 17;
 
   // DREAM held back from tranche payouts until all tranches complete
-  string holdback_amount = 19 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
+  string holdback_amount = 18 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
 
   // Epoch at which a rejected contributor may re-propose (0 if not rejected)
-  int64 proposal_eligible_at = 20;
+  int64 proposal_eligible_at = 19;
 }
 
 enum ContributionStatus {
@@ -150,6 +150,8 @@ message VerificationVote {
 
 **`quality_rating` purpose**: The stake-weighted average quality rating determines the reputation bonus granted to the contributor on payout. A rating of 5 grants full reputation; lower ratings scale linearly (e.g., avg 3/5 = 60% of max rep). This incentivizes high-quality code, not just technically passing code.
 
+**Reputation formula**: `rep = min(50, stake_threshold_in_DREAM / 1000 × avg_quality / 5)` on the `reveal` tag. `stake_threshold` is stored in micro-DREAM and converted to DREAM first (1 DREAM = 1,000,000 udream), so a 50,000 DREAM tranche at quality 5 earns 50 and a 2,000 DREAM tranche earns 2. The per-tranche cap of 50 (`RevealReputationCapPerTranche`) matches x/rep's default `max_reputation_gain_per_epoch`, so a single tranche can never carry a contributor past the trust-level thresholds on its own. The deductions (20 for a missed reveal, 10 for a lost or timed-out dispute) are on the same DREAM scale.
+
 ## Params
 
 ```protobuf
@@ -218,6 +220,8 @@ service Msg {
 // - total_valuation <= max_total_valuation
 // - len(tranches) <= max_tranches
 // - Each tranche: stake_threshold <= max_tranche_valuation
+// - Each tranche: stake_threshold >= min_stake_amount (ErrTrancheBelowMinStake,
+//   1175); a smaller threshold could never be filled
 // - sum(stake_threshold) across all tranches == total_valuation
 // - Contributor has no active proposal_cooldown
 // - final_license is an open license, by SPDX id: CC0-1.0, Unlicense, 0BSD,
@@ -268,8 +272,15 @@ message MsgReject {
 // Staked DREAM is temporarily locked and returned after verification — it is NOT payment.
 // The contributor is paid via freshly minted DREAM on tranche verification.
 // Validation:
+// - Staker must be an active member at TRUST_LEVEL_PROVISIONAL or above
+//   (ErrInsufficientTrustLevel)
 // - Staker must NOT be the contribution's contributor (prevents self-staking loop)
-// - Amount must be >= min_stake_amount (prevents dust stake griefing)
+// - Amount must be >= min_stake_amount (prevents dust stake griefing), except a
+//   stake that exactly fills the tranche (only reachable when min_stake_amount
+//   was raised after earlier stakes)
+// - The stake must not leave a remainder below min_stake_amount
+//   (ErrStakeLeavesUnfillableRest, 1176): every tranche stays fillable, so a
+//   staker cannot strand a contribution until its stake deadline cancels it
 // - Total staked must not exceed stake_threshold (excess stakes rejected)
 message MsgStake {
   string staker = 1;
@@ -278,13 +289,14 @@ message MsgStake {
   string amount = 4 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
 }
 
-// Withdraw a stake (only allowed before verification period)
+// Withdraw a stake (only allowed while the tranche is STAKING; see Withdrawal Rules)
 message MsgWithdraw {
   string staker = 1;
   uint64 stake_id = 2;
 }
 
-// Contributor reveals the code for a backed tranche
+// Contributor reveals the code for a backed tranche. code_uri and commit_hash
+// are required (ErrEmptyReveal, 1174); docs_uri is optional.
 message MsgReveal {
   string contributor = 1;
   uint64 contribution_id = 2;
@@ -305,10 +317,14 @@ message MsgVerify {
   string comments = 6;
 }
 
-// Contributor cancels their own contribution (only if no tranche is BACKED or beyond)
-// Operations Committee can cancel any contribution at any time
+// Contributor cancels their own contribution (only if no tranche is BACKED or beyond).
+// Governance, the Commons Council policy or the Commons Operations Committee
+// policy (an executed committee proposal) can cancel any contribution at any
+// time. An individual committee member cannot: a committee cancel releases
+// the accumulated holdback, so one member could otherwise pay it out without
+// the final tranche being delivered.
 message MsgCancel {
-  string authority = 1;            // contributor or committee member
+  string authority = 1;            // contributor, gov, council policy or Ops Committee policy
   uint64 contribution_id = 2;
   string reason = 3;
 }
@@ -321,7 +337,7 @@ message MsgResolveDispute {
   uint64 contribution_id = 3;
   uint32 tranche_id = 4;
   DisputeVerdict verdict = 5;
-  string reason = 6;              // required for IMPROVE/REJECT; feedback for contributor
+  string reason = 6;              // required for IMPROVE/REJECT (ErrReasonRequired, 1173); feedback for contributor
 }
 
 enum DisputeVerdict {
@@ -377,7 +393,7 @@ service Query {
 type Keeper interface {
     // Contribution management
     ProposeContribution(ctx context.Context, contributor sdk.AccAddress, msg *MsgPropose) (uint64, error)
-    // Approve sets status → IN_PROGRESS, tranche 0 → STAKING, records council_id
+    // Approve sets status → IN_PROGRESS, tranche 0 → STAKING, records approved_by
     ApproveContribution(ctx context.Context, councilID uint64, proposer sdk.AccAddress, contributionID uint64) error
     RejectContribution(ctx context.Context, councilID uint64, proposer sdk.AccAddress, contributionID uint64, reason string) error
     CancelContribution(ctx context.Context, authority sdk.AccAddress, contributionID uint64, reason string) error
@@ -478,8 +494,8 @@ PHASE 2: STAKING (per tranche, sequential)
 │ - Lock DREAM in module account  │
 │ - Stake weight = amount         │
 │ - Rejects excess (no overstake)│
-│ - Can withdraw before           │
-│   verification period starts    │
+│ - Can withdraw while STAKING    │
+│   (not once BACKED)             │
 │                                 │
 │ Deadline: 60 epochs (~2 months) │
 └──────────────┬──────────────────┘
@@ -559,7 +575,7 @@ PHASE 4: VERIFICATION
 │                                 │
 │ If min_votes not met:           │
 │ - Extend by verification_period │
-│ - Max 1 extension               │
+│ - Max 3 extensions              │
 └──────────────┬──────────────────┘
                │
           ┌────┴────┐
@@ -628,9 +644,9 @@ PHASE 6: TRANSITION
 │   to contributor                │
 │ - Return contributor bond       │
 │ - Create community x/rep Project│
-│   - council = council_id (the   │
-│     Commons Council that        │
-│     approved)                   │
+│   - council = "commons" (the    │
+│     Commons Council approves    │
+│     every contribution)         │
 │   - creator = contributor       │
 │   - category = from contribution│
 │   - budget = 0 (starts fresh)   │
@@ -647,7 +663,11 @@ PHASE 6: TRANSITION
 
 ## EndBlocker
 
-The EndBlocker runs every block and enforces all deadline-based transitions. It iterates over contributions with status `IN_PROGRESS` and checks each active tranche:
+The EndBlocker runs every block and enforces all deadline-based transitions. It does not scan every `IN_PROGRESS` contribution: a deadline index keyed `(next_deadline, contribution_id)` holds each IN_PROGRESS contribution under its earliest pending deadline (STAKING → `stake_deadline`, BACKED → `reveal_deadline`, REVEALED → `verification_deadline`, DISPUTED → `verification_deadline + dispute_resolution_epochs`). Every keeper write of a contribution re-indexes it, `InitGenesis` rebuilds the index (it is not exported), and the EndBlocker walks only entries with `next_deadline <= height`, at most 100 contributions per block (the rest carry over). A DISPUTED entry uses the `dispute_resolution_epochs` value from its last save; a lowered value takes effect for that tranche at its next save.
+
+**Atomicity.** Each due contribution is processed in its own `CacheContext` and committed only if every step succeeds. A failed step (store error, a refused mint such as the per-epoch mint cap) leaves the contribution exactly as it was, logs, emits `contribution_deadline_failed` and is retried on the next block; the EndBlocker never returns an error. Within a step the stake returns run before the payout mint. A lock that x/rep reports as already gone (`ErrInsufficientStake` / `ErrMemberNotFound`: the staker or contributor was zeroed, and `ZeroMember` already burned the staked DREAM) is treated as settled: the stake record is deleted, the bond counts as released, nothing is burned for it, and a `reveal_lock_gone` event is emitted. So a zeroed staker can never make the payout repeat, and a zeroed contributor can never strand the stakers' DREAM on a disputed tranche. The holdback mint at completion is part of the same step, so a refused holdback mint is retried rather than dropped.
+
+Per tranche:
 
 ```go
 func (k Keeper) ProcessDeadlines(ctx context.Context) error {
@@ -662,8 +682,12 @@ func (k Keeper) ProcessDeadlines(ctx context.Context) error {
     //        (using scaled min_verification_votes);
     //        if pass → confirm + payout (with holdback); if fail → mark DISPUTED
     //     4. DISPUTED + past dispute_resolution deadline → auto-REJECT
-    //        (council missed window), slash 50% of remaining bond,
-    //        burn accumulated holdback, cancel remaining tranches.
+    //        (council missed window): return stakes first, then burn 50% of the
+    //        remaining bond and release the rest, burn accumulated holdback,
+    //        cancel remaining tranches.
+    //   Verification votes are deleted when their tranche becomes terminal
+    //   (VERIFIED after the quality average is taken, FAILED, CANCELLED);
+    //   only the aggregate survives, on the tranche_verified event.
 }
 ```
 
@@ -678,15 +702,15 @@ func (k Keeper) ProcessDeadlines(ctx context.Context) error {
 
 ## Withdrawal Rules
 
-Stake withdrawal is time-gated to prevent gaming of verification weights:
+Stake withdrawal is allowed only while the tranche is STAKING:
 
 | Tranche status | Withdrawal allowed? | Notes |
 |---------------|-------------------|-------|
 | STAKING | Yes | Freely withdraw at any time |
-| BACKED | Yes | Waiting for reveal; contributor may not deliver |
+| BACKED | **No** | Stakes stay committed until the reveal or the reveal deadline. `MsgStake` never overfills a tranche, so any withdrawal would drop it below threshold and re-arm a stake deadline that has usually already passed: the next EndBlock would then cancel the contribution as a stake timeout, returning the bond instead of slashing it (a contributor's friend could launder a missed delivery) and burning every earlier tranche's holdback (a single staker could grief the contributor). |
 | REVEALED | **No** | Verification in progress; vote weights must be stable |
 | VERIFIED | N/A | Stakes auto-returned on payout |
-| DISPUTED | **No** | Awaiting council resolution; if IMPROVE verdict, tranche returns to BACKED (withdrawal allowed again) |
+| DISPUTED | **No** | Awaiting council resolution; an IMPROVE verdict returns the tranche to BACKED (still no withdrawal) |
 | CANCELLED | N/A | Stakes auto-returned by EndBlocker |
 | FAILED | N/A | Stakes auto-returned by EndBlocker |
 
@@ -697,9 +721,12 @@ The contributor must lock a bond of `bond_rate * total_valuation` DREAM at propo
 - Is returned in full when all tranches are verified (COMPLETED)
 - Is returned if the council rejects the proposal
 - Is **fully slashed** (all of `bond_remaining` burned) if the contributor fails to reveal after a tranche is backed
-- Is **50% of `bond_remaining` slashed** (burned) if a dispute verdict is REJECT. The other 50% remains locked for subsequent tranches (if any). ACCEPT and IMPROVE verdicts do not slash the bond.
-- Is **returned** (`bond_remaining`) if the Operations Committee cancels the contribution (not contributor's fault)
+- Is **50% of `bond_remaining` slashed** (burned) if a dispute verdict is REJECT or the dispute times out. The contribution is cancelled in both cases, so the other 50% is returned to the contributor. ACCEPT and IMPROVE verdicts do not slash the bond.
+- Is **returned** (`bond_remaining`) if the Operations Committee (its policy address, i.e. an executed committee proposal), the Commons Council or governance cancels the contribution (not contributor's fault)
+- Is **returned** if a STAKING tranche's stake deadline passes (the community did not back it; the contributor is not at fault)
 - Is returned (`bond_remaining`) if the contributor cancels before any tranche reaches BACKED
+
+Slashes burn straight out of the contributor's lock through x/rep `BurnLockedDREAM` (release and burn in one step, so a failed burn never leaves the lock released); on a 50% slash the other half is then unlocked. A lock x/rep reports as gone (the contributor was zeroed, which already burned it) is treated as settled.
 
 ### Holdback fate
 
@@ -717,7 +744,7 @@ The `holdback_amount` accumulates as tranches are verified (`payout_holdback_rat
 | Committee cancels | **Returned** to contributor | Not contributor's fault |
 | Stake deadline expires (tranche not backed) | **Burned** | Contributor couldn't attract conviction |
 
-**Bond + holdback tracking example**: Contributor posts 5,000 DREAM bond. Tranche 0 (15,000) verified → paid 12,000 immediate, 3,000 holdback retained. Dispute on tranche 1 with REJECT verdict → 2,500 bond burned (`bond_remaining` = 2,500), 3,000 holdback burned (`holdback_amount` = 0). Remaining tranches cancelled. (Had the verdict been IMPROVE, no slash — tranche returns to BACKED for re-reveal.)
+**Bond + holdback tracking example**: Contributor posts 5,000 DREAM bond. Tranche 0 (15,000) verified → paid 12,000 immediate, 3,000 holdback retained. Dispute on tranche 1 with REJECT verdict → 2,500 bond burned, the other 2,500 returned (`bond_remaining` = 0), 3,000 holdback burned (`holdback_amount` = 0). Remaining tranches cancelled. (Had the verdict been IMPROVE, no slash — tranche returns to BACKED for re-reveal.)
 
 ## Dispute Resolution
 
@@ -728,7 +755,7 @@ When verification fails (< 60% stake-weighted YES or < effective min votes after
 3. **Resolution verdicts** (three-way):
    - **ACCEPT**: Code is acceptable. Tranche proceeds to payout (with holdback) as if verified. Council overrules the staker vote.
    - **IMPROVE**: Code has merit but needs work. Tranche returns to BACKED with a new `reveal_deadline`. Contributor may re-reveal improved code. No bond slash. No holdback burn. Stakes remain locked.
-   - **REJECT**: Unacceptable or bad faith. Tranche marked FAILED. Stakes returned. **50% of `bond_remaining`** slashed (burned). Accumulated `holdback_amount` burned. Contributor loses reputation. All subsequent LOCKED tranches cancelled. Contribution → CANCELLED.
+   - **REJECT**: Unacceptable or bad faith. Tranche marked FAILED. Stakes returned. **50% of `bond_remaining`** slashed (burned), the rest returned. Accumulated `holdback_amount` burned. Contributor loses reputation. All subsequent LOCKED tranches cancelled. Contribution → CANCELLED.
 4. **Timeout**: If the council does not resolve within `dispute_resolution_epochs`, the dispute auto-resolves as **REJECT** (staker protection). 50% of `bond_remaining` is slashed. Accumulated `holdback_amount` burned. Remaining tranches cancelled.
 5. **IMPROVE cycle**: After an IMPROVE verdict, the tranche transitions DISPUTED → BACKED → REVEALED → verification as normal. **All previous verification votes for the tranche are deleted** so the next round starts clean (prevents stale votes from non-participating voters corrupting the tally). There is no limit on IMPROVE cycles, but each cycle costs the contributor time and the council review bandwidth. The council may issue REJECT on subsequent disputes if progress is insufficient.
 
@@ -747,17 +774,15 @@ message EventContributionProposed {
 // Emitted when council approves a contribution
 message EventContributionApproved {
   uint64 contribution_id = 1;
-  uint64 council_id = 2;
-  string proposed_by = 3;          // Ops Committee member who initiated
+  string proposed_by = 2;          // Ops Committee member who initiated
 }
 
 // Emitted when council rejects a contribution
 message EventContributionRejected {
   uint64 contribution_id = 1;
-  uint64 council_id = 2;
-  string proposed_by = 3;          // Ops Committee member who initiated
-  string reason = 4;
-  int64 proposal_eligible_at = 5;
+  string proposed_by = 2;          // Ops Committee member who initiated
+  string reason = 3;
+  int64 proposal_eligible_at = 4;
 }
 
 // Emitted when a contribution is cancelled
@@ -793,7 +818,9 @@ message EventTrancheVerified {
   uint64 contribution_id = 1;
   uint32 tranche_id = 2;
   string avg_quality_rating = 3;
-  string dream_paid = 4;
+  string dream_paid = 4;           // immediate payout (stake_threshold minus holdback)
+  string holdback = 5;
+  string reputation_granted = 6;
 }
 
 // Emitted when verification fails and tranche enters dispute
@@ -825,10 +852,9 @@ message EventDisputeResolved {
   uint64 contribution_id = 1;
   uint32 tranche_id = 2;
   DisputeVerdict verdict = 3;      // ACCEPT, IMPROVE, or REJECT
-  uint64 council_id = 4;
-  string proposed_by = 5;          // Ops Committee member who initiated
-  string reason = 6;
-  string bond_slashed = 7;         // amount slashed (0 for ACCEPT/IMPROVE)
+  string proposed_by = 4;          // Ops Committee member who initiated
+  string reason = 5;
+  string bond_slashed = 6;         // amount slashed (0 for ACCEPT/IMPROVE)
 }
 
 // Emitted when a member stakes DREAM toward a tranche
@@ -952,13 +978,20 @@ k.repKeeper.GetTrustLevel(ctx, address)           // verify sufficient trust
 // Mint DREAM on tranche payout
 k.repKeeper.MintDream(ctx, contributor, amount)
 
-// Grant reputation on verified tranche (scaled by quality rating)
+// Grant reputation on verified tranche (DREAM-scaled, quality-weighted, capped at 50)
 k.repKeeper.AddReputation(ctx, contributor, tag, score)
 
 // Deduct reputation on failed reveal / lost dispute
 k.repKeeper.DeductReputation(ctx, contributor, tag, penalty)
 
-// Create project on transition
+// Create project on transition (council "commons"), in a cache context. A
+// failure leaves transitioned_to_project = false and queues the contribution
+// in ProjectTransitionQueue: the EndBlocker retries at most 5 per block, the
+// n-th retry 100 x (n+1) blocks after the previous one, up to 10 attempts
+// (then event contribution_project_transition_abandoned). Success sets
+// project_id and emits contribution_project_transitioned. The queue is
+// derived state: InitGenesis re-queues every COMPLETED contribution without
+// a project.
 k.repKeeper.CreateProject(ctx, project)
 ```
 
@@ -1007,7 +1040,7 @@ This section documents the attack vectors addressed by the spec and the mitigati
 
 **Attack**: A single Operations Committee member colludes with a contributor — approving inflated valuations or resolving disputes in their favor.
 
-**Mitigation**: All approvals, rejections, and dispute resolutions (ACCEPT/IMPROVE/REJECT) are routed as Commons Council proposals via the native `x/commons` `SubmitProposal`/`VoteProposal`/`ExecuteProposal` flow. The Operations Committee member *initiates* the proposal, but the full council votes on it. This requires majority consensus for any action that moves DREAM or changes tranche state.
+**Mitigation**: All approvals, rejections, and dispute resolutions (ACCEPT/IMPROVE/REJECT) are routed as Commons Council proposals via the native `x/commons` `SubmitProposal`/`VoteProposal`/`ExecuteProposal` flow. The Operations Committee member *initiates* the proposal, but the full council votes on it. The `proposer` recorded on `MsgApprove` (as `approved_by`), `MsgReject` and `MsgResolveDispute` is checked: it must be a Commons Operations Committee member (`ErrInvalidProposer`, 1172). Under governance the proposer may be left empty, and the gov authority is recorded instead. This requires majority consensus for any action that moves DREAM or changes tranche state.
 
 ### Dust Stake Griefing Prevention
 
@@ -1026,6 +1059,28 @@ This section documents the attack vectors addressed by the spec and the mitigati
 **Attack**: Contributor proposes an absurdly high valuation (e.g., 10 tranches × 50,000 = 500,000 DREAM) that could destabilize the DREAM economy if backed.
 
 **Mitigation**: `max_total_valuation` (default 50,000 DREAM) caps the total valuation per contribution. This is independent of `max_tranche_valuation` — both must be satisfied.
+
+### Committee Cancel Requires the Committee Policy
+
+**Attack**: A committee cancel returns the bond and mints the accumulated holdback to the contributor. If any single Operations Committee member could cancel, a contributor plus one colluding member could collect 100% of the verified tranches, including the 20% holdback that exists to secure final delivery, without ever revealing the last tranche.
+
+**Mitigation**: The non-contributor `MsgCancel` path accepts only governance, the Commons Council policy address, or the Commons Operations Committee policy address (`IsCouncilOrCommitteePolicy`): an executed proposal carrying the committee's decision-policy majority, never an individual member.
+
+### Withdraw-from-BACKED Deadline Escape
+
+**Attack**: Withdrawing from a BACKED tranche used to flip it back to STAKING while keeping its original, already-passed `stake_deadline`. The next EndBlock then cancelled the whole contribution as a stake timeout: the bond came back instead of the full slash and -20 reputation of a missed reveal, and every earlier tranche's holdback was burned.
+
+**Mitigation**: Stakes on a BACKED tranche cannot be withdrawn (see Withdrawal Rules), so a BACKED tranche only ever leaves that state through a reveal or the reveal deadline.
+
+### Non-Atomic Deadline Processing
+
+**Attack**: A deadline step that failed half way (for example a zeroed staker's unlock failing after the payout mint) used to persist the partial writes and retry every block, re-minting the tranche payout each time and re-unlocking the other stakers' DREAM against their unrelated locks.
+
+**Mitigation**: Per-contribution `CacheContext`, stake returns before the mint, and "lock already gone" treated as settled (see EndBlocker).
+
+### Threat Model: Staker Verification
+
+Stakes are returned on every outcome (verified, failed, cancelled), so stakers lose nothing by confirming bad code, and a contributor's sybil members can stake a tranche and vote 5/5 for it. Self-staking and self-voting are barred only for the contributor's own address (and its migration aliases). The check against a sybil verification is the council dispute, which needs a "no" vote, or a low turnout, to trigger. This is a known design limit: x/reveal relies on the invitation and trust-level gates of x/rep (staking needs an active member, proposing needs ESTABLISHED), the bond and the holdback, and on council review of the proposal itself (approval is a council vote that sets the valuation the payout is bounded by).
 
 ### Re-Proposal Spam Prevention
 

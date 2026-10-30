@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 
 	abci "github.com/cometbft/cometbft/abci/types"
 	"github.com/cosmos/cosmos-sdk/baseapp"
@@ -34,6 +35,37 @@ type ArtifactGnoVMAdapter struct {
 	// queries resolves the app's query router, which exists only once the
 	// BaseApp is built (after keepers are wired).
 	queries func() *baseapp.GRPCQueryRouter
+
+	// Each evaluation runs under renderMaxGas instead of the VM's 3B query
+	// cap (the VM charges one gas per byte of peak allocation, so this bounds
+	// memory too). On top of that, at most maxConcurrentRenders evaluations
+	// run at once (a caller that finds them busy gets an error and x/artifact
+	// falls back to stored metadata), and every result, failures included,
+	// is cached for the height it was computed at, so repeating a Token query
+	// costs one evaluation per block.
+	slots       chan struct{}
+	mu          sync.Mutex
+	cache       map[renderKey]renderResult
+	cacheHeight int64
+}
+
+// renderMaxGas is one renderer evaluation's gas budget, sent as the gnovm
+// Query/Eval max_gas; maxConcurrentRenders bounds simultaneous renderer
+// evaluations; maxCachedRenders bounds the per-height result cache.
+const (
+	renderMaxGas         = 10_000_000
+	maxConcurrentRenders = 2
+	maxCachedRenders     = 4096
+)
+
+type renderKey struct {
+	height        int64
+	pkgPath, expr string
+}
+
+type renderResult struct {
+	out string
+	err error
 }
 
 // gnovmEvalRoute is x/gnovm's Query/Eval method.
@@ -41,7 +73,8 @@ const gnovmEvalRoute = "/gnovm.gnovm.v1.Query/Eval"
 
 // NewArtifactGnoVMAdapter wraps the app's gnovm keeper and query router.
 func NewArtifactGnoVMAdapter(k *gnovmmodulekeeper.Keeper, queries func() *baseapp.GRPCQueryRouter) *ArtifactGnoVMAdapter {
-	return &ArtifactGnoVMAdapter{keeper: k, queries: queries}
+	return &ArtifactGnoVMAdapter{keeper: k, queries: queries,
+		slots: make(chan struct{}, maxConcurrentRenders), cache: map[renderKey]renderResult{}}
 }
 
 var _ artifacttypes.GnoVMKeeper = (*ArtifactGnoVMAdapter)(nil)
@@ -97,10 +130,47 @@ func (a *ArtifactGnoVMAdapter) Package(ctx context.Context, pkgPath string) (art
 	return pkg, true, nil
 }
 
-// EvalString runs expr read-only on the gnovm module's VM, under the VM's
-// query gas and allocation caps; VM panics surface as errors. The expression
-// must yield exactly one string.
+// EvalString runs expr read-only on the gnovm module's VM, under
+// renderMaxGas; running out of gas and VM panics surface as errors. The expression
+// must yield exactly one string. Results are cached per height and
+// concurrent evaluations are bounded (see ArtifactGnoVMAdapter).
 func (a *ArtifactGnoVMAdapter) EvalString(ctx context.Context, pkgPath, expr string) (string, error) {
+	key := renderKey{height: sdk.UnwrapSDKContext(ctx).BlockHeight(), pkgPath: pkgPath, expr: expr}
+	if res, ok := a.cached(key); ok {
+		return res.out, res.err
+	}
+	select {
+	case a.slots <- struct{}{}:
+	default:
+		return "", errors.New("renderer evaluations are busy")
+	}
+	out, err := func() (string, error) {
+		defer func() { <-a.slots }()
+		return a.evalString(ctx, pkgPath, expr)
+	}()
+	a.store(key, renderResult{out: out, err: err})
+	return out, err
+}
+
+func (a *ArtifactGnoVMAdapter) cached(key renderKey) (renderResult, bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	res, ok := a.cache[key]
+	return res, ok
+}
+
+// store caches a result; a new height (or a full cache) starts it afresh.
+func (a *ArtifactGnoVMAdapter) store(key renderKey, res renderResult) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if key.height != a.cacheHeight || len(a.cache) >= maxCachedRenders {
+		a.cache = map[renderKey]renderResult{}
+		a.cacheHeight = key.height
+	}
+	a.cache[key] = res
+}
+
+func (a *ArtifactGnoVMAdapter) evalString(ctx context.Context, pkgPath, expr string) (string, error) {
 	var handler baseapp.GRPCQueryHandler
 	if router := a.queries(); router != nil {
 		handler = router.Route(gnovmEvalRoute)
@@ -108,7 +178,7 @@ func (a *ArtifactGnoVMAdapter) EvalString(ctx context.Context, pkgPath, expr str
 	if handler == nil {
 		return "", errors.New("gnovm eval query is not registered")
 	}
-	bz, err := (&gnovmtypes.QueryEvalRequest{PkgPath: pkgPath, Expr: expr}).Marshal()
+	bz, err := (&gnovmtypes.QueryEvalRequest{PkgPath: pkgPath, Expr: expr, MaxGas: renderMaxGas}).Marshal()
 	if err != nil {
 		return "", err
 	}

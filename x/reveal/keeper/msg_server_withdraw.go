@@ -39,9 +39,19 @@ func (k msgServer) Withdraw(ctx context.Context, msg *types.MsgWithdraw) (*types
 
 	// Check withdrawal rules based on tranche status
 	switch tranche.Status {
-	case types.TrancheStatus_TRANCHE_STATUS_STAKING,
-		types.TrancheStatus_TRANCHE_STATUS_BACKED:
+	case types.TrancheStatus_TRANCHE_STATUS_STAKING:
 		// Allowed
+	case types.TrancheStatus_TRANCHE_STATUS_BACKED:
+		// Stakes on a BACKED tranche stay committed until the contributor
+		// reveals (or misses the reveal deadline). Stake() never lets a
+		// tranche exceed its threshold, so any withdrawal here would drop it
+		// below threshold and re-arm a stake deadline that has usually
+		// already passed: the next EndBlock would cancel the contribution as
+		// a "stake timeout", returning the bond instead of slashing it and
+		// burning every earlier tranche's holdback (REV-02).
+		if tranche.DreamStaked.Sub(stake.Amount).LT(tranche.StakeThreshold) {
+			return nil, types.ErrWithdrawalNotAllowed.Wrap("tranche is BACKED: stakes stay committed until reveal or the reveal deadline")
+		}
 	case types.TrancheStatus_TRANCHE_STATUS_REVEALED,
 		types.TrancheStatus_TRANCHE_STATUS_DISPUTED:
 		return nil, types.ErrWithdrawalNotAllowed.Wrapf("tranche is in %s status", tranche.Status)
@@ -50,24 +60,16 @@ func (k msgServer) Withdraw(ctx context.Context, msg *types.MsgWithdraw) (*types
 		return nil, types.ErrWithdrawalNotAllowed.Wrapf("tranche is in %s status", tranche.Status)
 	}
 
-	// Return DREAM to staker
-	if err := k.repKeeper.UnlockDREAM(ctx, sdk.AccAddress(stakerAddr), stake.Amount); err != nil {
+	// Return DREAM to staker (a zeroed staker's lock is already gone)
+	if _, err := k.unlockOrGone(ctx, sdk.AccAddress(stakerAddr), stake.Amount); err != nil {
 		return nil, err
 	}
 
 	// Update tranche dream_staked
 	tranche.DreamStaked = tranche.DreamStaked.Sub(stake.Amount)
 
-	// If tranche was BACKED and now drops below threshold, revert to STAKING
-	if tranche.Status == types.TrancheStatus_TRANCHE_STATUS_BACKED &&
-		tranche.DreamStaked.LT(tranche.StakeThreshold) {
-		tranche.Status = types.TrancheStatus_TRANCHE_STATUS_STAKING
-		tranche.BackedAt = 0
-		tranche.RevealDeadline = 0
-	}
-
 	// Save updated contribution
-	if err := k.Contribution.Set(ctx, contrib.Id, contrib); err != nil {
+	if err := k.saveContribution(ctx, &contrib); err != nil {
 		return nil, err
 	}
 

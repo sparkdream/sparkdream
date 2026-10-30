@@ -9,6 +9,7 @@ import (
 	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/season/types"
 )
 
@@ -71,16 +72,16 @@ func (k Keeper) requirementMet(ctx context.Context, profile types.MemberProfile,
 	case types.RequirementType_REQUIREMENT_TYPE_ACHIEVEMENT_COUNT:
 		return uint64(len(profile.Achievements)) >= threshold, true
 	case types.RequirementType_REQUIREMENT_TYPE_INITIATIVES_COMPLETED:
-		if k.repKeeper == nil {
+		if k.late.repKeeper == nil {
 			return false, true
 		}
-		count, err := k.repKeeper.GetCompletedInitiativesCount(ctx, profile.Address)
+		count, err := k.late.repKeeper.GetCompletedInitiativesCount(ctx, profile.Address)
 		return err == nil && count >= threshold, true
 	case types.RequirementType_REQUIREMENT_TYPE_REPUTATION_EARNED:
-		if k.repKeeper == nil {
+		if k.late.repKeeper == nil {
 			return false, true
 		}
-		scores, err := k.repKeeper.GetReputationScores(ctx, profile.Address)
+		scores, err := k.late.repKeeper.GetReputationScores(ctx, profile.Address)
 		if err != nil {
 			return false, true
 		}
@@ -90,16 +91,16 @@ func (k Keeper) requirementMet(ctx context.Context, profile types.MemberProfile,
 				total = total.Add(d)
 			}
 		}
-		return total.GTE(math.LegacyNewDec(int64(threshold))), true
+		return total.GTE(math.LegacyNewDec(commontypes.Saturate[int64](threshold))), true
 	case types.RequirementType_REQUIREMENT_TYPE_SEASONS_ACTIVE:
-		if k.repKeeper == nil {
+		if k.late.repKeeper == nil {
 			return false, true
 		}
 		addr, err := k.addressCodec.StringToBytes(profile.Address)
 		if err != nil {
 			return false, true
 		}
-		member, err := k.repKeeper.GetMember(ctx, addr)
+		member, err := k.late.repKeeper.GetMember(ctx, addr)
 		if err != nil {
 			return false, true
 		}
@@ -271,6 +272,7 @@ func (k Keeper) unlockTitlesOnProfile(ctx context.Context, env xpEnv, profile *t
 		return false, nil
 	}
 	sort.Strings(toUnlock)
+	k.dropDeletedTitles(ctx, profile)
 	for _, id := range toUnlock {
 		unlockTitleOnProfile(ctx, env, profile, id)
 	}
@@ -308,6 +310,7 @@ func (k Keeper) unlockTitle(ctx context.Context, env xpEnv, memberStr string, ti
 	if hasTitle(profile, titleID) {
 		return nil
 	}
+	k.dropDeletedTitles(ctx, &profile)
 	unlockTitleOnProfile(ctx, env, &profile, titleID)
 	return k.MemberProfile.Set(ctx, memberStr, profile)
 }
@@ -321,7 +324,7 @@ func unlockTitleOnProfile(ctx context.Context, env xpEnv, profile *types.MemberP
 	}
 	memberStr := profile.Address
 	profile.UnlockedTitles = append(profile.UnlockedTitles, titleID)
-	for env.params.MaxDisplayableTitles > 0 && uint32(len(profile.UnlockedTitles)) > env.params.MaxDisplayableTitles {
+	for env.params.MaxDisplayableTitles > 0 && commontypes.Saturate[uint32](len(profile.UnlockedTitles)) > env.params.MaxDisplayableTitles {
 		oldest := profile.UnlockedTitles[0]
 		profile.UnlockedTitles = profile.UnlockedTitles[1:]
 		profile.ArchivedTitles = append(profile.ArchivedTitles, oldest)
@@ -329,11 +332,37 @@ func unlockTitleOnProfile(ctx context.Context, env xpEnv, profile *types.MemberP
 			profile.DisplayTitle = ""
 		}
 	}
-	for env.params.MaxArchivedTitles > 0 && uint32(len(profile.ArchivedTitles)) > env.params.MaxArchivedTitles {
+	for env.params.MaxArchivedTitles > 0 && commontypes.Saturate[uint32](len(profile.ArchivedTitles)) > env.params.MaxArchivedTitles {
 		profile.ArchivedTitles = profile.ArchivedTitles[1:]
 	}
 	sdk.UnwrapSDKContext(ctx).EventManager().EmitEvent(sdk.NewEvent("title_unlocked",
 		sdk.NewAttribute("member", memberStr),
 		sdk.NewAttribute("title_id", titleID),
 	))
+}
+
+// dropDeletedTitles removes titles that no longer exist (MsgDeleteTitle does
+// not walk every profile: that would be unbounded work in one tx) from the
+// profile's displayed, unlocked and archived lists, so a deleted title never
+// occupies a displayable slot. Runs whenever a profile gains a title or sets
+// its display title; queries filter the same way.
+func (k Keeper) dropDeletedTitles(ctx context.Context, profile *types.MemberProfile) {
+	exists := func(id string) bool {
+		ok, err := k.Title.Has(ctx, id)
+		return err != nil || ok // keep the title on a read error
+	}
+	keep := func(ids []string) []string {
+		out := ids[:0]
+		for _, id := range ids {
+			if exists(id) {
+				out = append(out, id)
+			}
+		}
+		return out
+	}
+	profile.UnlockedTitles = keep(profile.UnlockedTitles)
+	profile.ArchivedTitles = keep(profile.ArchivedTitles)
+	if profile.DisplayTitle != "" && !exists(profile.DisplayTitle) {
+		profile.DisplayTitle = ""
+	}
 }

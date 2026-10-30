@@ -2,6 +2,7 @@ package keeper
 
 import (
 	"fmt"
+	commontypes "sparkdream/x/common/types"
 
 	"go.dedis.ch/kyber/v4"
 	"go.dedis.ch/kyber/v4/pairing/bn256"
@@ -249,7 +250,7 @@ func AggregateFeldmanDKGFromContributions(contributions []types.DKGContribution,
 
 	var valShares []*types.TLEValidatorPublicShare
 	for i, valAddr := range dkgState.ExpectedValidators {
-		idx := uint32(i + 1)
+		idx := commontypes.Saturate[uint32](i + 1)
 		pubShare, err := computePublicShareFromCommitments(contributions, idx)
 		if err != nil {
 			return nil, fmt.Errorf("public share computation failed for %s: %w", valAddr, err)

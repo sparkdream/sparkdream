@@ -11,6 +11,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	"sparkdream/x/collect/types"
+	commontypes "sparkdream/x/common/types"
 )
 
 func (k msgServer) AddItems(ctx context.Context, msg *types.MsgAddItems) (*types.MsgAddItemsResponse, error) {
@@ -28,7 +29,7 @@ func (k msgServer) AddItems(ctx context.Context, msg *types.MsgAddItems) (*types
 	}
 
 	// Batch size check
-	batchSize := uint32(len(msg.Items))
+	batchSize := commontypes.Saturate[uint32](len(msg.Items))
 	if batchSize == 0 {
 		return nil, errorsmod.Wrap(types.ErrBatchTooLarge, "empty batch")
 	}
@@ -61,6 +62,9 @@ func (k msgServer) AddItems(ctx context.Context, msg *types.MsgAddItems) (*types
 	// Collection must not be immutable
 	if coll.Immutable {
 		return nil, types.ErrCollectionImmutable
+	}
+	if err := checkNotHidden(coll, nil); err != nil {
+		return nil, err
 	}
 
 	// Collection must not have pending sponsorship
@@ -129,7 +133,7 @@ func (k msgServer) AddItems(ctx context.Context, msg *types.MsgAddItems) (*types
 	ids := make([]uint64, 0, batchSize)
 	for i := range msg.Items {
 		entry := &msg.Items[i]
-		position := coll.ItemCount + uint64(i)
+		position := coll.ItemCount + commontypes.Saturate[uint64](i)
 
 		itemID, err := k.ItemSeq.Next(ctx)
 		if err != nil {

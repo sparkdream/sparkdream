@@ -3,6 +3,7 @@ package simulation
 import (
 	"math/rand"
 
+	"cosmossdk.io/math"
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -12,6 +13,7 @@ import (
 	"sparkdream/x/artifact/types"
 )
 
+// SimulateMsgRevoke revokes a random token of a revocable class (signed by the class owner).
 func SimulateMsgRevoke(
 	ak types.AuthKeeper,
 	bk types.BankKeeper,
@@ -20,13 +22,14 @@ func SimulateMsgRevoke(
 ) simtypes.Operation {
 	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
 	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		simAccount, _ := simtypes.RandomAcc(r, accs)
-		msg := &types.MsgRevoke{
-			Owner: simAccount.Address.String(),
+		msg := &types.MsgRevoke{}
+		t, owner, ok := randomTokenOfClassOwner(r, ctx, k, accs, func(c types.Class, t types.Token) bool {
+			return !c.IsEditions() && c.Flags.IssuerMayBurn()
+		})
+		if !ok {
+			return noop(msg, "no revocable token")
 		}
-
-		// TODO: Handle the Revoke simulation
-
-		return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "Revoke simulation not implemented"), nil, nil
+		msg = &types.MsgRevoke{Owner: owner.Address.String(), ClassId: t.ClassId, TokenIds: []uint64{t.Id}, Reason: "simulation"}
+		return deliver(r, app, ctx, ak, bk, txGen, owner, msg, math.ZeroInt())
 	}
 }

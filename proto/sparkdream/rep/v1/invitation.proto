@@ -14,6 +14,10 @@ message Invitation {
   string staked_dream = 4 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
   repeated string vouched_tags = 5;
 
+  // accountability_end / referral_end: unix-time estimates for display,
+  // derived from the epochs below at a nominal 6 s per block. The chain
+  // decides on created_epoch and accountability_end_epoch, which follow the
+  // block-based epoch clock exactly.
   int64 accountability_end = 6;
   string referral_rate = 7 [(gogoproto.customtype) = "cosmossdk.io/math.LegacyDec"];
   int64 referral_end = 8;
@@ -22,6 +26,12 @@ message Invitation {
   InvitationStatus status = 10;
   int64 created_at = 11;
   int64 accepted_at = 12;
+  // created_epoch: rep epoch the invitation was created in. The acceptance
+  // window (invitation_acceptance_epochs) is counted from it.
+  int64 created_epoch = 13;
+  // accountability_end_epoch: last rep epoch of the inviter accountability
+  // and referral window (created_epoch + invitation_accountability_epochs).
+  int64 accountability_end_epoch = 14;
 }
 
 enum InvitationStatus {

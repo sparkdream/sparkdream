@@ -19,7 +19,9 @@ func createNVoteXpRecord(keeper keeper.Keeper, ctx context.Context, n int) []typ
 	for i := range items {
 		items[i].SeasonMemberProposal = strconv.Itoa(i)
 		items[i].GrantedBlock = int64(i)
-		_ = keeper.VoteXpRecord.Set(ctx, items[i].SeasonMemberProposal, items[i])
+		if err := keeper.VoteXpRecord.Set(ctx, items[i].SeasonMemberProposal, items[i]); err != nil {
+			panic(err)
+		}
 	}
 	return items
 }

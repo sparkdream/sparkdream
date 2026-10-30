@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/season/types"
 
 	errorsmod "cosmossdk.io/errors"
@@ -22,6 +23,12 @@ func (k msgServer) SetDisplayName(ctx context.Context, msg *types.MsgSetDisplayN
 	// Validate display name (length + content filtering for blocked terms)
 	if err := k.ValidateDisplayName(ctx, msg.Name); err != nil {
 		return nil, err
+	}
+
+	// A name upheld as rejected for this member stays refused after the
+	// case closes (SEA-23).
+	if k.isDisplayNameBlocked(ctx, msg.Creator, msg.Name) {
+		return nil, errorsmod.Wrap(types.ErrDisplayNameModerated, "this display name was rejected by moderation")
 	}
 
 	// Get or create member profile
@@ -43,9 +50,9 @@ func (k msgServer) SetDisplayName(ctx context.Context, msg *types.MsgSetDisplayN
 		currentEpoch := k.GetCurrentEpoch(ctx)
 		if profile.LastDisplayNameChangeEpoch > 0 {
 			epochsSinceChange := currentEpoch - profile.LastDisplayNameChangeEpoch
-			if uint64(epochsSinceChange) < params.DisplayNameChangeCooldownEpochs {
+			if commontypes.Saturate[uint64](epochsSinceChange) < params.DisplayNameChangeCooldownEpochs {
 				return nil, errorsmod.Wrapf(types.ErrDisplayNameCooldown,
-					"must wait %d more epochs", params.DisplayNameChangeCooldownEpochs-uint64(epochsSinceChange))
+					"must wait %d more epochs", params.DisplayNameChangeCooldownEpochs-commontypes.Saturate[uint64](epochsSinceChange))
 			}
 		}
 

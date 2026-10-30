@@ -4,6 +4,7 @@ package types
 func IsContentConvictionType(t StakeTargetType) bool {
 	switch t {
 	case StakeTargetType_STAKE_TARGET_BLOG_CONTENT,
+		StakeTargetType_STAKE_TARGET_BLOG_REPLY_CONTENT,
 		StakeTargetType_STAKE_TARGET_FORUM_CONTENT,
 		StakeTargetType_STAKE_TARGET_COLLECTION_CONTENT:
 		return true
@@ -65,6 +66,8 @@ func ContentTypeToAuthorBondType(t StakeTargetType) StakeTargetType {
 	switch t {
 	case StakeTargetType_STAKE_TARGET_BLOG_CONTENT:
 		return StakeTargetType_STAKE_TARGET_BLOG_AUTHOR_BOND
+	case StakeTargetType_STAKE_TARGET_BLOG_REPLY_CONTENT:
+		return StakeTargetType_STAKE_TARGET_BLOG_REPLY_AUTHOR_BOND
 	case StakeTargetType_STAKE_TARGET_FORUM_CONTENT:
 		return StakeTargetType_STAKE_TARGET_FORUM_AUTHOR_BOND
 	case StakeTargetType_STAKE_TARGET_COLLECTION_CONTENT:
@@ -78,9 +81,10 @@ func ContentTypeToAuthorBondType(t StakeTargetType) StakeTargetType {
 // Returns the input unchanged if it's not an author bond type.
 func AuthorBondTypeToContentType(t StakeTargetType) StakeTargetType {
 	switch t {
-	case StakeTargetType_STAKE_TARGET_BLOG_AUTHOR_BOND,
-		StakeTargetType_STAKE_TARGET_BLOG_REPLY_AUTHOR_BOND:
+	case StakeTargetType_STAKE_TARGET_BLOG_AUTHOR_BOND:
 		return StakeTargetType_STAKE_TARGET_BLOG_CONTENT
+	case StakeTargetType_STAKE_TARGET_BLOG_REPLY_AUTHOR_BOND:
+		return StakeTargetType_STAKE_TARGET_BLOG_REPLY_CONTENT
 	case StakeTargetType_STAKE_TARGET_FORUM_AUTHOR_BOND:
 		return StakeTargetType_STAKE_TARGET_FORUM_CONTENT
 	case StakeTargetType_STAKE_TARGET_COLLECTION_AUTHOR_BOND:

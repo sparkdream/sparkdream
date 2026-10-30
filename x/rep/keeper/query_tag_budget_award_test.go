@@ -27,8 +27,12 @@ func createNTagBudgetAward(k keeper.Keeper, ctx context.Context, n int) []types.
 		items[i].Reason = strconv.Itoa(i)
 		items[i].AwardedAt = int64(i)
 		items[i].AwardedBy = strconv.Itoa(i)
-		_ = k.TagBudgetAward.Set(ctx, iu, items[i])
-		_ = k.TagBudgetAwardSeq.Set(ctx, iu)
+		if err := k.TagBudgetAward.Set(ctx, iu, items[i]); err != nil {
+			panic(err)
+		}
+		if err := k.TagBudgetAwardSeq.Set(ctx, iu); err != nil {
+			panic(err)
+		}
 	}
 	return items
 }

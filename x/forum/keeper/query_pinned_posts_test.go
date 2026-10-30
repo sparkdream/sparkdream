@@ -39,7 +39,7 @@ func TestQueryPinnedPosts(t *testing.T) {
 		post.PinnedBy = authority
 		post.PinnedAt = f.sdkCtx().BlockTime().Unix()
 		post.PinPriority = 5
-		f.keeper.Post.Set(f.ctx, post.PostId, post)
+		require.NoError(t, f.keeper.Post.Set(f.ctx, post.PostId, post))
 		require.NoError(t, f.keeper.PostsByPinned.Set(f.ctx, collections.Join(post.CategoryId, post.PostId)))
 
 		resp, err := qs.PinnedPosts(f.ctx, &types.QueryPinnedPostsRequest{})
@@ -57,7 +57,7 @@ func TestQueryPinnedPosts(t *testing.T) {
 		post.Pinned = true
 		post.PinnedBy = authority
 		post.PinPriority = 3
-		f.keeper.Post.Set(f.ctx, post.PostId, post)
+		require.NoError(t, f.keeper.Post.Set(f.ctx, post.PostId, post))
 		require.NoError(t, f.keeper.PostsByPinned.Set(f.ctx, collections.Join(post.CategoryId, post.PostId)))
 
 		// Query with category filter
@@ -73,7 +73,7 @@ func TestQueryPinnedPosts(t *testing.T) {
 		// Pin the reply (should not be returned)
 		reply.Pinned = true
 		reply.PinnedBy = authority
-		f.keeper.Post.Set(f.ctx, reply.PostId, reply)
+		require.NoError(t, f.keeper.Post.Set(f.ctx, reply.PostId, reply))
 
 		resp, err := qs.PinnedPosts(f.ctx, &types.QueryPinnedPostsRequest{})
 		require.NoError(t, err)

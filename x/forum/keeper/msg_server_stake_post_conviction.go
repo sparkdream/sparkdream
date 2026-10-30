@@ -25,6 +25,9 @@ func (k msgServer) StakePostConviction(
 		return nil, errorsmod.Wrap(err, "invalid creator address")
 	}
 	staker := sdk.AccAddress(stakerBytes)
+	if err := k.requireForumNotPaused(ctx); err != nil {
+		return nil, err
+	}
 
 	if k.repKeeper == nil {
 		return nil, fmt.Errorf("rep keeper not wired")

@@ -12,6 +12,7 @@ CHAIN_ID="sparkdream"
 if [ -f "$SCRIPT_DIR/.test_env" ]; then
     source "$SCRIPT_DIR/.test_env"
 fi
+source "$SCRIPT_DIR/../lib/ops_committee.sh"
 
 # Get existing test keys
 ALICE_ADDR=$($BINARY keys show alice -a --keyring-backend test)
@@ -481,19 +482,13 @@ if [ "$ASSIGNEE_TRUST" == "TRUST_LEVEL_NEW" ] || [ "$ASSIGNEE_TRUST" == "null" ]
         INTERIM_ID=$($BINARY query rep list-interim --output json 2>/dev/null | jq -r '.interim[-1].id // "1"')
         echo "  Created interim #$INTERIM_ID for assignee"
 
-        # Alice approves the interim (as Operations Committee member)
-        $BINARY tx rep approve-interim --gas 500000 \
-            "$INTERIM_ID" \
-            "true" \
-            "Approved for trust building" \
-            --from alice \
-            --chain-id $CHAIN_ID \
-            --keyring-backend test \
-            --fees 5000${BOND_DENOM} \
-            -y > /dev/null 2>&1
-        sleep 3
-
-        echo "  Interim #$INTERIM_ID approved and completed"
+        # An Operations Committee proposal approves the interim (a single
+        # committee member is refused).
+        if ops_approve_interim "$INTERIM_ID" "Approved for trust building"; then
+            echo "  Interim #$INTERIM_ID approved and completed"
+        else
+            echo "  Interim #$INTERIM_ID approval failed: $OPS_COMMITTEE_ERROR"
+        fi
     else
         echo "  Failed to create interim: $(echo "$TX_RES" | jq -r '.raw_log // .')"
     fi
@@ -636,7 +631,7 @@ if [ "$NEW_CREDITS" != "0" ] && [ -n "$NEW_CREDITS" ]; then
             TX_RES=$($BINARY tx rep invite-member --gas 400000 \
                 "$REF_CHILD1_ADDR" \
                 "$REQUIRED_STAKE" \
-                --vouched-tags "cascade-test" \
+                --vouched-tags "referral-test" \
                 --from assignee \
                 --chain-id $CHAIN_ID \
                 --keyring-backend test \

@@ -28,13 +28,13 @@ func (k Keeper) validateTags(ctx context.Context, tags []string, maxTags, maxLen
 // reserved-tag checks without touching IncrementTagUsage. Used on update flows
 // where we only want to increment the delta.
 func (k Keeper) validateTagsNoIncrement(ctx context.Context, tags []string, maxTags, maxLen uint32) error {
-	if uint32(len(tags)) > maxTags {
+	if commontypes.Saturate[uint32](len(tags)) > maxTags {
 		return errorsmod.Wrapf(types.ErrMaxTags, "%d tags, max %d", len(tags), maxTags)
 	}
 	if len(tags) == 0 {
 		return nil
 	}
-	if k.repKeeper == nil {
+	if k.late.repKeeper == nil {
 		return errorsmod.Wrap(types.ErrTagNotFound, "tag registry not available")
 	}
 
@@ -45,21 +45,21 @@ func (k Keeper) validateTagsNoIncrement(ctx context.Context, tags []string, maxT
 		}
 		seen[tag] = true
 
-		if uint32(len(tag)) > maxLen {
+		if commontypes.Saturate[uint32](len(tag)) > maxLen {
 			return errorsmod.Wrapf(types.ErrTagTooLong, "tag %q exceeds max length %d", tag, maxLen)
 		}
 		if !commontypes.ValidateTagFormat(tag) {
 			return errorsmod.Wrapf(types.ErrInvalidTag, "tag %q does not match required format", tag)
 		}
 
-		exists, err := k.repKeeper.TagExists(ctx, tag)
+		exists, err := k.late.repKeeper.TagExists(ctx, tag)
 		if err != nil {
 			return errorsmod.Wrapf(err, "failed to check tag %q", tag)
 		}
 		if !exists {
 			return errorsmod.Wrapf(types.ErrTagNotFound, "tag %q not found", tag)
 		}
-		reserved, err := k.repKeeper.IsReservedTag(ctx, tag)
+		reserved, err := k.late.repKeeper.IsReservedTag(ctx, tag)
 		if err != nil {
 			return errorsmod.Wrapf(err, "failed to check reserved tag %q", tag)
 		}
@@ -74,14 +74,14 @@ func (k Keeper) validateTagsNoIncrement(ctx context.Context, tags []string, maxT
 // to have already validated the tags (or to be incrementing only a known-valid
 // subset like "tags newly added on update").
 func (k Keeper) incrementTagUsages(ctx context.Context, tags []string, now int64) error {
-	if k.repKeeper == nil {
+	if k.late.repKeeper == nil {
 		if len(tags) == 0 {
 			return nil
 		}
 		return errorsmod.Wrap(types.ErrTagNotFound, "tag registry not available")
 	}
 	for _, tag := range tags {
-		if err := k.repKeeper.IncrementTagUsage(ctx, tag, now); err != nil {
+		if err := k.late.repKeeper.IncrementTagUsage(ctx, tag, now); err != nil {
 			return errorsmod.Wrap(err, "failed to update tag metadata")
 		}
 	}
@@ -94,12 +94,12 @@ func (k Keeper) incrementTagUsages(ctx context.Context, tags []string, now int64
 // (the tag may have been GC'd by ExpireTags between create and update) and
 // logged rather than failing the user's transaction.
 func (k Keeper) decrementTagUsages(ctx context.Context, tags []string) {
-	if k.repKeeper == nil || len(tags) == 0 {
+	if k.late.repKeeper == nil || len(tags) == 0 {
 		return
 	}
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	for _, tag := range tags {
-		if err := k.repKeeper.DecrementTagUsage(ctx, tag); err != nil {
+		if err := k.late.repKeeper.DecrementTagUsage(ctx, tag); err != nil {
 			sdkCtx.Logger().Error("failed to decrement dropped tag usage",
 				"tag", tag, "error", err)
 		}

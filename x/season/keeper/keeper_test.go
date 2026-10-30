@@ -22,6 +22,7 @@ type fixture struct {
 	ctx          context.Context
 	keeper       keeper.Keeper
 	addressCodec address.Codec
+	storeKey     *storetypes.KVStoreKey
 }
 
 func initFixture(t *testing.T) *fixture {
@@ -64,5 +65,6 @@ func initFixture(t *testing.T) *fixture {
 		ctx:          ctx,
 		keeper:       k,
 		addressCodec: addressCodec,
+		storeKey:     storeKey,
 	}
 }

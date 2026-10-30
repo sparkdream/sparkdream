@@ -20,6 +20,7 @@ type proposalJSON struct {
 	PolicyAddress string            `json:"policy_address"`
 	Messages      []json.RawMessage `json:"messages"`
 	Metadata      string            `json:"metadata"`
+	SecretBallot  bool              `json:"secret_ballot"`
 }
 
 // CmdSubmitProposal returns a CLI command to submit a council proposal from a JSON file.
@@ -39,8 +40,13 @@ The JSON file should have the format:
       ...
     }
   ],
-  "metadata": "optional description"
-}`,
+  "metadata": "optional description",
+  "secret_ballot": false
+}
+
+secret_ballot asks for a secret ballot; it is honoured only when the group's
+ballot_mode is PROPOSER_CHOICE (a SECRET group always votes secretly, an OPEN
+group refuses it). Members of a secret ballot vote through x/shield.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			clientCtx, err := client.GetClientTxContext(cmd)
@@ -81,6 +87,7 @@ The JSON file should have the format:
 				PolicyAddress: proposal.PolicyAddress,
 				Messages:      msgs,
 				Metadata:      proposal.Metadata,
+				SecretBallot:  proposal.SecretBallot,
 			}
 
 			return tx.GenerateOrBroadcastTxCLI(clientCtx, cmd.Flags(), msg)

@@ -1,12 +1,6 @@
 package simulation
 
 import (
-	"fmt"
-	"math/rand"
-	"strings"
-
-	"cosmossdk.io/math"
-	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
@@ -15,182 +9,118 @@ import (
 	"sparkdream/x/futarchy/types"
 )
 
-// SimulateMsgRedeem simulates a MsgRedeem message using direct keeper calls.
-// This bypasses complex state requirements (resolved markets with winning shares).
-// Full integration testing should be done in integration tests.
+// redeemable reports whether a market pays out now: resolved (YES/NO pay
+// winning shares 1:1) or cancelled / INVALID (every share pays at the
+// settlement price), and past its redemption delay.
+func (e *simEnv) redeemable(m types.Market) bool {
+	switch m.Status {
+	case "RESOLVED_YES", "RESOLVED_NO", "CANCELLED", "RESOLVED_INVALID":
+	default:
+		return false
+	}
+	return m.RedemptionBlocks <= 0 || e.ctx.BlockHeight() >= m.ResolutionHeight+m.RedemptionBlocks
+}
+
+// redeemShares returns the share coins acc would redeem on m (the coins the
+// handler takes): the winning side for YES/NO, both sides otherwise.
+func (e *simEnv) redeemShares(acc simtypes.Account, m types.Market) sdk.Coins {
+	var outcomes []string
+	switch m.Status {
+	case "RESOLVED_YES":
+		outcomes = []string{"yes"}
+	case "RESOLVED_NO":
+		outcomes = []string{"no"}
+	default:
+		outcomes = []string{"yes", "no"}
+	}
+	coins := sdk.NewCoins()
+	for _, o := range outcomes {
+		if bal := e.bk.GetBalance(e.ctx, acc.Address, shareDenom(m.Index, o)); bal.Amount.IsPositive() {
+			coins = coins.Add(bal)
+		}
+	}
+	return coins
+}
+
+// SimulateMsgRedeem has a live sim holder of payable shares on a resolved
+// or cancelled market redeem them. Markets resolve in the EndBlocker at
+// their end block, so redemption follows the trades of earlier blocks; the
+// shares the handler burns are the tx's CoinsSpentInMsg (the random fee
+// never spends them).
 func SimulateMsgRedeem(
 	ak types.AuthKeeper,
 	bk types.BankKeeper,
 	k keeper.Keeper,
 	txGen client.TxConfig,
 ) simtypes.Operation {
-	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
-	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		simAccount, _ := simtypes.RandomAcc(r, accs)
-
-		// 1. Get or create a resolved market
-		market, marketID, err := getOrCreateResolvedMarket(r, ctx, k, simAccount.Address.String())
+	label := &types.MsgRedeem{}
+	return operation(ak, bk, k, txGen, label, func(e *simEnv) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
+		payable, err := e.markets(e.redeemable)
 		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgRedeem{}), fmt.Sprintf("failed to get/create market: %v", err)), nil, nil
+			return noOpErr(label, err)
 		}
-
-		// 2. Determine winning outcome
-		winningOutcome := "yes"
-		if market.Status == "RESOLVED_NO" {
-			winningOutcome = "no"
-		}
-
-		// 3. Ensure user has winning shares (mint if needed via direct keeper)
-		shareDenom := fmt.Sprintf("f/%d/%s", marketID, winningOutcome)
-		shareBalance := bk.GetBalance(ctx, simAccount.Address, shareDenom)
-
-		if shareBalance.Amount.IsZero() {
-			// Mint shares for simulation
-			shareAmount := math.NewInt(int64(100 + r.Intn(900)))
-			shareCoins := sdk.NewCoins(sdk.NewCoin(shareDenom, shareAmount))
-
-			if err := bk.MintCoins(ctx, types.ModuleName, shareCoins); err != nil {
-				return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgRedeem{}), fmt.Sprintf("failed to mint shares: %v", err)), nil, nil
+		holders := e.live(nil)
+		for _, i := range e.r.Perm(len(payable)) {
+			m := payable[i]
+			for _, j := range e.r.Perm(len(holders)) {
+				acc := holders[j]
+				shares := e.redeemShares(acc, m)
+				if shares.IsZero() {
+					continue
+				}
+				msg := &types.MsgRedeem{Creator: acc.Address.String(), MarketId: m.Index}
+				if e.usable(acc, nil) != "" || e.dryRun(msg) != nil {
+					continue
+				}
+				return e.deliver(acc, msg, shares)
 			}
-			if err := bk.SendCoinsFromModuleToAccount(ctx, types.ModuleName, simAccount.Address, shareCoins); err != nil {
-				return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgRedeem{}), fmt.Sprintf("failed to send shares: %v", err)), nil, nil
-			}
-
-			// Also ensure module has collateral for payout
-			denom := market.Denom
-			if denom == "" {
-				denom = sdk.DefaultBondDenom
-			}
-			collateralCoins := sdk.NewCoins(sdk.NewCoin(denom, shareAmount))
-			if err := bk.MintCoins(ctx, types.ModuleName, collateralCoins); err != nil {
-				return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgRedeem{}), fmt.Sprintf("failed to mint collateral: %v", err)), nil, nil
-			}
-
-			shareBalance = sdk.NewCoin(shareDenom, shareAmount)
 		}
-
-		// 4. Simulate redemption via direct keeper calls:
-		// - Burn shares from user
-		// - Send collateral from module to user
-
-		// Burn shares
-		if err := bk.SendCoinsFromAccountToModule(ctx, simAccount.Address, types.ModuleName, sdk.NewCoins(shareBalance)); err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgRedeem{}), fmt.Sprintf("failed to transfer shares to module: %v", err)), nil, nil
+		if len(payable) == 0 {
+			return noOp(label, "no resolved or cancelled market past its redemption delay")
 		}
-		if err := bk.BurnCoins(ctx, types.ModuleName, sdk.NewCoins(shareBalance)); err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgRedeem{}), fmt.Sprintf("failed to burn shares: %v", err)), nil, nil
-		}
-
-		// Pay out collateral
-		denom := market.Denom
-		if denom == "" {
-			denom = sdk.DefaultBondDenom
-		}
-		payout := sdk.NewCoin(denom, shareBalance.Amount)
-		if err := bk.SendCoinsFromModuleToAccount(ctx, types.ModuleName, simAccount.Address, sdk.NewCoins(payout)); err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgRedeem{}), fmt.Sprintf("failed to pay collateral: %v", err)), nil, nil
-		}
-
-		return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgRedeem{}), "ok (direct keeper call)"), nil, nil
-	}
+		return noOp(label, "no live sim account holds payable shares")
+	})
 }
 
-// getOrCreateResolvedMarket finds a resolved market or creates one
-func getOrCreateResolvedMarket(r *rand.Rand, ctx sdk.Context, k keeper.Keeper, creator string) (*types.Market, uint64, error) {
-	// Try to find an existing resolved market
-	var markets []struct {
-		id     uint64
-		market types.Market
-	}
-
-	_ = k.Market.Walk(ctx, nil, func(id uint64, market types.Market) (bool, error) {
-		if strings.HasPrefix(market.Status, "RESOLVED_") && market.Status != "RESOLVED_INVALID" {
-			// Check if redemption is unlocked
-			if market.RedemptionBlocks > 0 {
-				unlockHeight := market.ResolutionHeight + market.RedemptionBlocks
-				if ctx.BlockHeight() < unlockHeight {
-					return false, nil // Still locked
-				}
+// SimulateMsgWithdrawLiquidity has the creator of a resolved market withdraw
+// the part of its LMSR residual not yet paid out. The EndBlocker refunds
+// the residual at resolution, so this succeeds only where that automatic
+// refund failed; otherwise the op is a NoOp.
+func SimulateMsgWithdrawLiquidity(
+	ak types.AuthKeeper,
+	bk types.BankKeeper,
+	k keeper.Keeper,
+	txGen client.TxConfig,
+) simtypes.Operation {
+	label := &types.MsgWithdrawLiquidity{}
+	return operation(ak, bk, k, txGen, label, func(e *simEnv) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
+		resolved, err := e.markets(func(m types.Market) bool {
+			switch m.Status {
+			case "RESOLVED_YES", "RESOLVED_NO", "RESOLVED_INVALID":
+				return true
 			}
-			markets = append(markets, struct {
-				id     uint64
-				market types.Market
-			}{id, market})
+			return false
+		})
+		if err != nil {
+			return noOpErr(label, err)
 		}
-		return false, nil
-	})
-
-	if len(markets) > 0 {
-		selected := markets[r.Intn(len(markets))]
-		return &selected.market, selected.id, nil
-	}
-
-	// Try to resolve an active market
-	_ = k.Market.Walk(ctx, nil, func(id uint64, market types.Market) (bool, error) {
-		if market.Status == "ACTIVE" {
-			// Resolve it
-			outcome := "RESOLVED_YES"
-			if r.Intn(2) == 0 {
-				outcome = "RESOLVED_NO"
+		mine := 0
+		for _, i := range e.r.Perm(len(resolved)) {
+			m := resolved[i]
+			acc, ok := e.account(m.Creator)
+			if !ok {
+				continue
 			}
-			market.Status = outcome
-			market.ResolutionHeight = ctx.BlockHeight() - 10
-			market.RedemptionBlocks = 0
-
-			if err := k.Market.Set(ctx, id, market); err != nil {
-				return false, err
+			mine++
+			msg := &types.MsgWithdrawLiquidity{Creator: m.Creator, MarketId: m.Index}
+			if e.dryRun(msg) != nil {
+				continue
 			}
-
-			markets = append(markets, struct {
-				id     uint64
-				market types.Market
-			}{id, market})
-			return true, nil // Found one
+			return e.deliver(acc, msg, nil)
 		}
-		return false, nil
+		if mine == 0 {
+			return noOp(label, "no resolved market created by a live sim account")
+		}
+		return noOp(label, "every residual was already refunded at resolution")
 	})
-
-	if len(markets) > 0 {
-		return &markets[0].market, markets[0].id, nil
-	}
-
-	// Create a new resolved market
-	marketID, err := k.MarketSeq.Next(ctx)
-	if err != nil {
-		return nil, 0, err
-	}
-
-	outcome := "RESOLVED_YES"
-	if r.Intn(2) == 0 {
-		outcome = "RESOLVED_NO"
-	}
-
-	bValue := math.LegacyNewDec(1000)
-	zeroInt := math.ZeroInt()
-	liquidity := math.NewInt(100000)
-	minTick := math.NewInt(100)
-
-	market := types.Market{
-		Index:              marketID,
-		Creator:            creator,
-		Symbol:             fmt.Sprintf("SIM%d", marketID),
-		Question:           "Simulation test market?",
-		Denom:              sdk.DefaultBondDenom,
-		MinTick:            &minTick,
-		EndBlock:           ctx.BlockHeight() - 100,
-		RedemptionBlocks:   0,
-		ResolutionHeight:   ctx.BlockHeight() - 10,
-		Status:             outcome,
-		BValue:             &bValue,
-		PoolYes:            &zeroInt,
-		PoolNo:             &zeroInt,
-		InitialLiquidity:   &liquidity,
-		LiquidityWithdrawn: &zeroInt,
-	}
-
-	if err := k.Market.Set(ctx, marketID, market); err != nil {
-		return nil, 0, err
-	}
-
-	return &market, marketID, nil
 }

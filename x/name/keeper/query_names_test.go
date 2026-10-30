@@ -29,10 +29,14 @@ func createNamesForOwner(k keeper.Keeper, ctx context.Context, owner string, n i
 		}
 
 		// 1. Set Primary Store
-		_ = k.Names.Set(ctx, name, items[i])
+		if err := k.Names.Set(ctx, name, items[i]); err != nil {
+			panic(err)
+		}
 
 		// 2. Set Secondary Index (Crucial for the query to work)
-		_ = k.OwnerNames.Set(ctx, collections.Join(owner, name))
+		if err := k.OwnerNames.Set(ctx, collections.Join(owner, name)); err != nil {
+			panic(err)
+		}
 	}
 	return items
 }

@@ -53,8 +53,8 @@ if [ "$GOT_BOND_DENOM" != "upspk.phoenix" ]; then
     echo "FAIL: derived bond_denom = $GOT_BOND_DENOM, want upspk.phoenix"
     exit 1
 fi
-if [ "$GOT_DREAM_DENOM" != "udream.phoenix" ]; then
-    echo "FAIL: derived dream_denom = $GOT_DREAM_DENOM, want udream.phoenix"
+if [ "$GOT_DREAM_DENOM" != "updrm.phoenix" ]; then
+    echo "FAIL: derived dream_denom = $GOT_DREAM_DENOM, want updrm.phoenix"
     exit 1
 fi
 echo "PASS: derived denoms"

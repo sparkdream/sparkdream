@@ -167,7 +167,7 @@ All content on the chain is public domain: submitting it dedicates it under CC0 
 
 **Native Proposals:** `SubmitProposal` → `VoteProposal` → `ExecuteProposal` with early acceptance when threshold met, configurable `MinExecutionPeriod`.
 
-**Anonymous Governance:** `SubmitAnonymousProposal` and `AnonymousVoteProposal` are shield-aware messages routed via x/shield's `MsgShieldedExec`, enabling anonymous council proposals and votes.
+**Anonymous Governance:** `SubmitAnonymousProposal` and the secret-ballot votes `AnonymousVoteProposal` / `AnonymousVotePoll` are shield-aware messages routed via x/shield's `MsgShieldedExec`. A secret ballot is proven against a snapshot of the group's members (`PROOF_DOMAIN_GROUP_TREE`), and a proposal is voted either openly or by secret ballot, never both. Groups also run non-binding polls (`MsgOpenPoll`).
 
 **Recurring Spends (hosted in x/session as RECURRING_PULL grants):** `MsgScheduleRecurringSpend` / `MsgCancelRecurringSpend` / `MsgClaimRecurringSpend` / `MsgDeclineRecurringSpend` are wire-compatible wrappers over the unified grant registry — `Schedule → CreateGrantOnBehalfOf`, `Cancel → RevokeGrantInternal`, `Decline → DeclineGrantInternal`, `Claim → ClaimRecurringPullForGrantee`. The legacy `RecurringSpends*` collections and the three duplicated params (`MinRecurringPeriodSeconds`, `MaxRecurringDurationSeconds`, `MaxActiveRecurringSpendsPerGroup`) are gone (proto `reserved 2, 3, 4` in [params.proto](../proto/sparkdream/commons/v1/params.proto)). Council activation, term-expiry, and per-epoch rate-limit gates apply to every council-policy claim via `SessionClaimHook` (PreCheck + PostCommit). Cancelled and declined schedules return `NotFound` post-migration — audit trail is the `grant_revoked` / `grant_declined` events.
 
@@ -189,7 +189,7 @@ The `get_decision_policy` and `list_decision_policies` queries expose each counc
 
 **Mechanism:**
 - **Shares:** Manages a registry of `Share` objects (Address + Weight).
-- **Distribution Loop:** Runs in `BeginBlock` (via [x/split/module/module.go](x/split/module/module.go)). It iterates through the funds in the `x/distribution` module account (Community Pool).
+- **Distribution Loop:** Runs in `BeginBlock` (via [x/split/module/module.go](x/split/module/module.go)). It distributes the Community Pool's bond denom (SPARK) by weight; foreign denoms donated to the pool are not distributed and stay there for `x/gov`.
 - **Calculation:** Distributes funds to shareholders proportional to their weight: `(Balance × ShareWeight) / TotalWeight`.
 - **Optimization:** Includes a "dust protection" check (in [x/split/keeper/split.go](x/split/keeper/split.go)) to skip insignificant transfers and save gas.
 
@@ -215,13 +215,13 @@ The `get_decision_policy` and `list_decision_policies` queries expose each counc
 
 **Queries (4):** `params`, `get_market`, `list_market`, `get_market_price`
 
-**EndBlocker:** Resolves expired prediction markets based on pool sizes (YES/NO/INVALID) and calls `AfterMarketResolved` hooks to adjust council tenure via x/commons.
+**EndBlocker:** Resolves expired prediction markets on the time-weighted YES price (YES/NO/INVALID) and calls `AfterMarketResolved` hooks to adjust council tenure via x/commons.
 
 ### x/ecosystem (Ecosystem Treasury)
 
 **Purpose:** Independent governance-gated spending from the ecosystem module account.
 
-Separate from the `x/split` distribution pipeline, this module holds funds for ecosystem grants and partnerships, spending only via `x/gov` authority.
+Separate from the `x/split` distribution pipeline, this module holds funds for ecosystem grants and partnerships, spending only via `x/gov` authority. It is dormant by design: nothing funds it except direct bank sends to the module address (no genesis allocation, no x/split share), and its scaffold-injected staking keeper is unused (see [x/ecosystem/README.md](../x/ecosystem/README.md)).
 
 **Messages (2):** `spend`, `update_params`
 
@@ -256,17 +256,18 @@ Separate from the `x/split` distribution pipeline, this module holds funds for e
 - **Single `MsgExec` entrypoint** accepting `google.protobuf.Any` inner msg. On accept, the filter overwrites the inner msg's `Authority` with guardian's module address and routes via `baseapp.MessageRouter`.
 - **Hard-coded allowlist** of routable msg types — chain upgrade required to change. Unknown inner msg types are rejected with `ErrInnerMsgNotAllowed` (allowlist, not denylist).
 - **Per-msg-type field filters** lock immutable fields and enforce bounds on tunable ones:
-  - `mint.MsgUpdateParams`: `inflation_min`, `inflation_max`, `inflation_rate_change`, `goal_bonded`, `mint_denom` rejected; `blocks_per_year` passes through.
-  - `staking.MsgUpdateParams`: `bond_denom` rejected; rest pass.
+  - `mint.MsgUpdateParams`: `inflation_min`, `inflation_max`, `inflation_rate_change`, `goal_bonded`, `mint_denom` rejected; `blocks_per_year` bounded to `[3,153,600, 63,072,000]`, ±50% per change and at most one change per 7 days.
+  - `staking.MsgUpdateParams`: `bond_denom` rejected; `unbonding_time` in `[7d, 60d]` and at least the evidence age, `max_validators ≥ 20`, `max_entries ≥ 7`, `historical_entries ≤ 100k`, `min_commission_rate ≤ 0.2`.
+  - `bank.MsgUpdateParams`: `default_send_enabled` must stay true.
   - `bank.MsgSetSendEnabled`: rejects toggles that would disable send on native bond/dream denoms.
   - `distribution.MsgUpdateParams`: `community_tax` clamped to `[0.05, 0.25]`.
   - **`distribution.MsgCommunityPoolSpend`: hard reject** — community pool spending must flow through x/split.
-  - `gov.MsgUpdateParams`: floors on `voting_period` (6h), `expedited_voting_period` (1h), `quorum` (0.2), `threshold` (0.5), `veto_threshold` (0.2).
-  - `slashing.MsgUpdateParams`: floors on `slash_fraction_double_sign` (0.01), `slash_fraction_downtime` (1e-5); ceiling on `signed_blocks_window` (1M).
-  - `auth.MsgUpdateParams`: floors on `tx_size_cost_per_byte`, `sig_verify_cost_ed25519`, `sig_verify_cost_secp256k1`.
-  - `consensus.MsgUpdateParams`: floors on `block.max_bytes` (200k), `block.max_gas` (1M or -1), `evidence.max_age_num_blocks` (1k), `evidence.max_age_duration` (1h).
+  - `gov.MsgUpdateParams`: voting periods within `[6h, 28d]` / `[1h, 28d]`, `max_deposit_period ≤ 28d`, `quorum` `[0.2, 0.5]`, `threshold` `[0.5, 0.67]`, `veto_threshold` `[0.2, 0.5]`, `expedited_threshold ≥ 0.667`, `min_deposit_ratio` `[0.001, 1]`, native `min_deposit ≥ 5 SPARK` and expedited at least that.
+  - `slashing.MsgUpdateParams`: `slash_fraction_double_sign` `[0.01, 0.33]`, `slash_fraction_downtime` `[1e-5, 0.05]`, `min_signed_per_window` `[0.05, 0.95]`, jail `[10m, 30d]`, `signed_blocks_window` `[100, 1M]`.
+  - `auth.MsgUpdateParams`: gas costs and `tx_sig_limit` within compiled floors and ceilings (`tx_sig_limit ≥ 7` for native multisig).
+  - `consensus.MsgUpdateParams`: `block.max_bytes ≥ 200k`, `block.max_gas` in `[1M, 1B]` (`-1` refused), `evidence.max_age_num_blocks ≥ 1k`, `evidence.max_age_duration` in `[1h, unbonding_time]`, `validator.pub_key_types` must include `ed25519`.
 - **Fail-closed** on missing late-bound keepers: filters that need an identity/mint/staking keeper return `ErrIdentityNotSealed` / `ErrImmutableField` until wired.
-- **No state of its own.** Empty genesis, no invariants, no ante handler — enforcement is purely through the Msg server.
+- **Almost no state.** One item (the last `blocks_per_year` change time, for its cooldown), empty genesis, no invariants, no ante handler — enforcement is purely through the Msg server.
 - **Authority module name resolution.** Authority passed as the bare module name `"guardian"` (not a pre-computed bech32 string) so depinject resolves it *after* `sdk.SetBech32PrefixForAccount` seals the prefix.
 
 **Messages (1):** `exec`
@@ -290,7 +291,7 @@ Separate from the `x/split` distribution pipeline, this module holds funds for e
 - **Conviction staking:** Time-weighted engagement (half-life: 7 epochs), 50% external conviction requirement
 - **Challenges:** Named + anonymous (via x/shield, no DREAM stake), jury resolution (5 members, 67% supermajority)
 - **Content challenges:** Cross-module author bonds, slashable on moderation (50% to challenger)
-- **Interim compensation:** Fixed-rate delegated duties (Simple 50 → Expert 1,000 DREAM)
+- **Interim compensation:** Fixed-rate delegated duties (Simple 50 → Expert 1,000 DREAM), paid only when the Commons Operations Committee approves by proposal (`MsgApproveInterim` from the committee policy, never a single member)
 - **MasterChef staking rewards:** Epoch-based pool distribution (10% APY)
 - **Trust tree:** Persistent KV-based sparse Merkle tree (depth 20) of member ZK public keys + trust levels, rebuilt incrementally via EndBlocker dirty-member tracking
 - **ZK key registration:** Members register ZK public keys (`MsgRegisterZkPublicKey`) stored on Member proto (field 28: `bytes zk_public_key`), used as trust tree leaves via `MiMC(zk_public_key, trust_level)`
@@ -299,7 +300,7 @@ Separate from the `x/split` distribution pipeline, this module holds funds for e
 - **Bonded-role accountability** (generic primitive for forum sentinels, collect curators, federation verifiers): `BondedRole(role_type, address)` record plus per-role `BondedRoleConfig`; `MsgBondRole`/`MsgUnbondRole` (role-typed); keeper surface `IsBondedRole`, `GetBondedRole`, `GetAvailableBond`, `ReserveBond`, `ReleaseBond`, `SlashBond`, `RecordActivity`, `SetBondStatus`, `SetBondedRoleConfig`, `GetBondedRoleConfig`. Role types: `ROLE_TYPE_CONTENT_SENTINEL`, `ROLE_TYPE_COLLECT_CURATOR`, `ROLE_TYPE_FEDERATION_VERIFIER`. DREAM-bond only — SPARK-staked roles like federation bridge operators keep their own primitives. See [bonded-role-generalization.md](untracked/bonded-role-generalization.md).
 - **Member accountability:** `MemberReport`, `MemberWarning`, `GovActionAppeal`, `JuryParticipation`, and the 5 member-report messages + `MsgAppealGovAction`; salvation counters live on the `Member` proto (`epoch_salvations`, `last_salvation_epoch`). A keeper-internal `IssueWarning` path lets downstream modules file a `MemberWarning` without a user-signed message — x/forum's `ExpireHiddenPosts` warns the promoter of an unappealed-hidden post, and x/collect uses it on confirmed hides
 - **Sentinel reward pool:** SPARK pool fed by split of forum spam taxes/edit fees and `UPHELD` appeal bonds, capped (`max_sentinel_reward_pool`) with overflow burn; epoch distribution is accuracy-weighted via `accuracy_rate * sqrt(appeals_resolved) + action bonuses`, pro-rata in `uspark`
-- **Gov-action appeal resolution:** two paths — `MsgResolveGovActionAppeal` (Operations Committee on commons council) and rep EndBlocker timeout; verdicts (`UPHELD`/`OVERTURNED`/`TIMEOUT`) drive appellant-bond burn/refund, sentinel `SlashBond(ROLE_TYPE_CONTENT_SENTINEL, ...)` on OVERTURNED, and forum counter updates via `RecordSentinelActionUpheld` / `RecordSentinelActionOverturned`
+- **Gov-action appeal resolution:** two paths — `MsgResolveGovActionAppeal` (Commons Operations Committee policy via a proposal, Commons Council policy or x/gov; never a single member) and rep EndBlocker timeout; verdicts (`UPHELD`/`OVERTURNED`/`TIMEOUT`) drive appellant-bond burn/refund, sentinel `SlashBond(ROLE_TYPE_CONTENT_SENTINEL, ...)` on OVERTURNED, and forum counter updates via `RecordSentinelActionUpheld` / `RecordSentinelActionOverturned`
 
 **Messages (31):** `invite_member`, `accept_invitation`, `transfer_dream`, `propose_project`, `approve_project_budget`, `cancel_project`, `create_initiative`, `assign_initiative`, `submit_initiative_work`, `approve_initiative`, `complete_initiative`, `abandon_initiative`, `stake`, `unstake`, `claim_staking_rewards`, `compound_staking_rewards`, `create_challenge`, `respond_to_challenge`, `submit_juror_vote`, `submit_expert_testimony`, `challenge_content`, `respond_to_content_challenge`, `create_interim`, `assign_interim`, `submit_interim_work`, `approve_interim`, `complete_interim`, `abandon_interim`, `register_zk_public_key`, `update_params`, `update_operational_params`
 
@@ -811,7 +812,7 @@ x/shield eliminates the need for relay addresses and per-module subsidy budgets.
           (bond escrow), x/commons
           (IsGroupAddress, controller),
           x/rep (jury via
-          CreateAppealInitiative,
+          CreateSeatedAppeal,
           service-operator reputation
           tag), x/distribution
           (community pool deposit),
@@ -1763,7 +1764,7 @@ Governance controls which message types can be executed via x/shield:
 │ x/forum                    │ CreatePost, CreateReply, React             │
 │ x/collect                  │ CreateCollection, React                    │
 │ x/commons                  │ SubmitAnonymousProposal,                   │
-│                            │ AnonymousVoteProposal                      │
+│                            │ AnonymousVoteProposal, AnonymousVotePoll   │
 │ x/rep                      │ CreateChallenge                            │
 └────────────────────────────┴────────────────────────────────────────────┘
 

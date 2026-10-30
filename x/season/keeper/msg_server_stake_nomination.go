@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	commontypes "sparkdream/x/common/types"
 	reptypes "sparkdream/x/rep/types"
 	"sparkdream/x/season/types"
 
@@ -39,13 +40,19 @@ func (k msgServer) StakeNomination(ctx context.Context, msg *types.MsgStakeNomin
 	if err != nil {
 		return nil, errorsmod.Wrapf(types.ErrNominationNotFound, "nomination %d not found", msg.NominationId)
 	}
+	// SEA-13: only this season's nominations take stakes; a stake on a past
+	// nomination would sit locked until the next transition.
+	if nomination.Season != season.Number {
+		return nil, errorsmod.Wrapf(types.ErrNominationNotFound,
+			"nomination %d belongs to season %d, not the current season %d", msg.NominationId, nomination.Season, season.Number)
+	}
 
 	// 3. Check staker is a member with sufficient trust level
-	if k.repKeeper == nil {
+	if k.late.repKeeper == nil {
 		return nil, errorsmod.Wrap(types.ErrNotMember, "reputation module not available")
 	}
 	stakerAddr, _ := sdk.AccAddressFromBech32(msg.Creator)
-	if !k.repKeeper.IsMember(ctx, stakerAddr) {
+	if !k.late.repKeeper.IsActiveMember(ctx, stakerAddr) {
 		return nil, types.ErrNotMember
 	}
 
@@ -54,11 +61,11 @@ func (k msgServer) StakeNomination(ctx context.Context, msg *types.MsgStakeNomin
 		return nil, errorsmod.Wrap(err, "failed to get params")
 	}
 
-	trustLevel, err := k.repKeeper.GetTrustLevel(ctx, stakerAddr)
+	trustLevel, err := k.late.repKeeper.GetTrustLevel(ctx, stakerAddr)
 	if err != nil {
 		return nil, errorsmod.Wrap(err, "failed to get trust level")
 	}
-	if trustLevel < reptypes.TrustLevel(params.NominationStakeMinTrustLevel) {
+	if trustLevel < commontypes.Saturate[reptypes.TrustLevel](params.NominationStakeMinTrustLevel) {
 		return nil, errorsmod.Wrapf(types.ErrInsufficientTrustLevel,
 			"trust level %d < required %d", trustLevel, params.NominationStakeMinTrustLevel)
 	}
@@ -67,6 +74,11 @@ func (k msgServer) StakeNomination(ctx context.Context, msg *types.MsgStakeNomin
 	amount, err := math.LegacyNewDecFromStr(msg.Amount)
 	if err != nil {
 		return nil, errorsmod.Wrapf(err, "invalid stake amount: %s", msg.Amount)
+	}
+	// SEA-31: only whole micro-DREAM is locked, so only whole micro-DREAM
+	// may score conviction.
+	if !amount.Equal(amount.TruncateDec()) {
+		return nil, errorsmod.Wrapf(types.ErrStakeAmountFractional, "amount %s", amount.String())
 	}
 	if amount.LT(params.NominationMinStake) {
 		return nil, errorsmod.Wrapf(types.ErrStakeAmountTooLow,
@@ -81,9 +93,25 @@ func (k msgServer) StakeNomination(ctx context.Context, msg *types.MsgStakeNomin
 		}
 	}
 
-	// 6. Check staker is not the nominator (can't self-stake)
+	// 6. Check staker is neither the nominator nor the content's author
+	// (no self-staking; SEA-08: the spec's rule is about the content author)
 	if k.sameMember(ctx, msg.Creator, nomination.Nominator) {
 		return nil, errorsmod.Wrap(types.ErrNominationStakeExists, "cannot stake on own nomination")
+	}
+	// SEA-30: the author is the one stored at Nominate. A nomination
+	// without one (created before the field existed) re-resolves the ref,
+	// and an unresolvable ref (hidden, deleted) refuses the stake: the ban
+	// fails closed.
+	author := nomination.Author
+	if author == "" {
+		a, aErr := k.resolveContentRef(ctx, nomination.ContentRef)
+		if aErr != nil {
+			return nil, errorsmod.Wrapf(aErr, "nomination %d content can no longer be verified", msg.NominationId)
+		}
+		author = a
+	}
+	if author != "" && k.sameMember(ctx, msg.Creator, author) {
+		return nil, errorsmod.Wrap(types.ErrNominationStakeExists, "cannot stake on a nomination of your own content")
 	}
 
 	// 7. Convert amount to integer and lock DREAM
@@ -109,15 +137,13 @@ func (k msgServer) StakeNomination(ctx context.Context, msg *types.MsgStakeNomin
 	// 9. Update nomination's total_staked by adding amount
 	nomination.TotalStaked = nomination.TotalStaked.Add(amount)
 
-	// 10. Recalculate conviction
-	conviction, err := k.CalculateNominationConviction(ctx, nomination)
-	if err != nil {
-		return nil, errorsmod.Wrap(err, "failed to calculate conviction")
-	}
-	nomination.Conviction = conviction
+	// 10. Conviction is not recomputed here (SEA-20): that walks every
+	// stake on the nomination, so late stakers on a popular nomination
+	// would pay for all earlier ones. The retro phase computes the final
+	// conviction; the nomination queries compute it on read.
 
 	// 11. Save updated nomination
-	if err := k.Nomination.Set(ctx, msg.NominationId, nomination); err != nil {
+	if err := k.SetNomination(ctx, nomination); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to update nomination")
 	}
 

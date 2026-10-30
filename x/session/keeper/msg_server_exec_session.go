@@ -2,6 +2,7 @@ package keeper
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"reflect"
 	"strings"
@@ -48,9 +49,14 @@ func (k msgServer) ExecSession(ctx context.Context, msg *types.MsgExecSession) (
 		return nil, types.ErrSessionExpired
 	}
 
-	// 3. Exec count check
-	if sk.MaxExecCount > 0 && sk.ExecCount >= sk.MaxExecCount {
+	// 3. Exec count check: the whole batch must fit in the remaining count.
+	if sk.MaxExecCount > 0 && sk.ExecCount+uint64(len(msg.Msgs)) > sk.MaxExecCount {
 		return nil, types.ErrExecCountExceeded
+	}
+
+	granterBz, err := k.addressCodec.StringToBytes(msg.Granter)
+	if err != nil {
+		return nil, err
 	}
 
 	// Get current params for allowlist validation
@@ -84,7 +90,14 @@ func (k msgServer) ExecSession(ctx context.Context, msg *types.MsgExecSession) (
 		if !sessionAllowed[typeURL] {
 			return nil, types.ErrMsgTypeNotAllowed.Wrapf("type: %s", typeURL)
 		}
-		if !globalAllowed[typeURL] {
+		// MsgRevokeGrant is gated by allow_self_revoke, not by the global
+		// allowlist, exactly as at grant creation; the signer rewrite below
+		// makes it revoke only the granter's own grants.
+		if typeURL == types.MsgRevokeGrantTypeURL {
+			if !sk.AllowSelfRevoke {
+				return nil, types.ErrSelfRevokeNotPermitted
+			}
+		} else if !globalAllowed[typeURL] {
 			return nil, types.ErrMsgTypeNotInAllowlist.Wrapf("type: %s", typeURL)
 		}
 
@@ -111,9 +124,9 @@ func (k msgServer) ExecSession(ctx context.Context, msg *types.MsgExecSession) (
 			return nil, types.ErrMultipleSigners.Wrapf("expected 1 signer, got %d", len(signerBytes))
 		}
 
-		// Rewrite signer field to granter address using Go reflection.
-		// Try common signer field names in order of prevalence.
-		if err := rewriteSignerField(innerMsg, msg.Granter); err != nil {
+		// Rewrite the signer field (named by the proto signer option) to
+		// the granter, then confirm the derived signer is the granter.
+		if err := rewriteAndCheckSigner(k.cdc, innerMsg, msg.Granter, granterBz); err != nil {
 			return nil, fmt.Errorf("cannot rewrite signer on %s: %w", typeURL, err)
 		}
 
@@ -133,7 +146,11 @@ func (k msgServer) ExecSession(ctx context.Context, msg *types.MsgExecSession) (
 		if err != nil {
 			return nil, err // atomic: entire MsgExecSession reverts
 		}
-		_ = result
+		// The router hands each handler a fresh EventManager; re-emit
+		// the inner events so indexers see what the session did.
+		if result != nil {
+			sdkCtx.EventManager().EmitEvents(result.GetEvents())
+		}
 
 		executedTypeURLs = append(executedTypeURLs, typeURL)
 	}
@@ -143,11 +160,24 @@ func (k msgServer) ExecSession(ctx context.Context, msg *types.MsgExecSession) (
 	// debits Spent in fee units (uspark) atomically with the actual fee
 	// deduction. This avoids the gas-vs-fee unit mismatch and ensures failed
 	// inner messages still consume budget (SESSION-S2-2).
-	sk.ExecCount += uint64(len(msg.Msgs))
-	sk.LastUsedAt = blockTime
-	grant.Payload = &types.Grant_SessionKey{SessionKey: sk}
-	if err := k.Grants.Set(ctx, id, grant); err != nil {
+	//
+	// Reload the grant: an inner message may have changed it, or revoked it
+	// outright (a self-revoking key executing MsgRevokeGrant on itself).
+	// Writing back the copy loaded before dispatch would resurrect a deleted
+	// grant as an orphan ACTIVE record with no indexes.
+	current, err := k.Grants.Get(ctx, id)
+	if err != nil && !errors.Is(err, collections.ErrNotFound) {
 		return nil, err
+	}
+	if err == nil && current.Status == types.GrantStatus_GRANT_STATUS_ACTIVE {
+		if csk := current.GetSessionKey(); csk != nil {
+			csk.ExecCount += uint64(len(msg.Msgs))
+			csk.LastUsedAt = blockTime
+			sk = csk
+			if err := k.Grants.Set(ctx, id, current); err != nil {
+				return nil, err
+			}
+		}
 	}
 
 	sdkCtx.EventManager().EmitEvent(sdk.NewEvent(
@@ -160,37 +190,6 @@ func (k msgServer) ExecSession(ctx context.Context, msg *types.MsgExecSession) (
 	))
 
 	return &types.MsgExecSessionResponse{}, nil
-}
-
-// rewriteSignerField sets the signer field on a message to the granter address.
-// Tries common signer field names in order of prevalence across the codebase.
-// All allowlisted messages (blog, forum, name, collect) use "Creator" or "Authority".
-func rewriteSignerField(msg sdk.Msg, granter string) error {
-	v := reflect.ValueOf(msg)
-	if v.Kind() == reflect.Ptr {
-		v = v.Elem()
-	}
-	if v.Kind() != reflect.Struct {
-		return fmt.Errorf("message is not a struct")
-	}
-
-	// Try common signer field names in order of prevalence across Cosmos SDK modules.
-	// SESSION-5 fix: expanded list to cover all known signer field conventions.
-	for _, fieldName := range []string{
-		"Creator", "Sender", "Authority", "Proposer", "Validator",
-		"Delegator", "Granter", "FromAddress", "Signer", "Admin",
-		"Owner", "Operator",
-		// x/artifact MsgMint
-		"Minter",
-	} {
-		field := v.FieldByName(fieldName)
-		if field.IsValid() && field.Kind() == reflect.String && field.CanSet() {
-			field.SetString(granter)
-			return nil
-		}
-	}
-
-	return fmt.Errorf("no known signer field found on %T", msg)
 }
 
 // snakeToPascal converts a snake_case string to PascalCase.

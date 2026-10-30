@@ -34,12 +34,12 @@ func TestShieldedExecRateLimitExhaustion(t *testing.T) {
 
 	// Use the same rate limit nullifier for all calls
 	sameRateLimit := make([]byte, 32)
-	copy(sameRateLimit, "same_rate_limit_identity_key")
+	copy(sameRateLimit[1:], "same_rate_limit_identity_key")
 
 	// Submit 3 successful shielded execs (each with unique nullifier but same rate limit identity)
 	for i := 0; i < 3; i++ {
 		uniqueNullifier := make([]byte, 32)
-		copy(uniqueNullifier, fmt.Sprintf("unique_nullifier_%d_padding", i))
+		copy(uniqueNullifier[1:], fmt.Sprintf("unique_nullifier_%d_padding", i))
 
 		_, err = ms.ShieldedExec(f.ctx, &types.MsgShieldedExec{
 			Submitter:          submitter,
@@ -57,7 +57,7 @@ func TestShieldedExecRateLimitExhaustion(t *testing.T) {
 
 	// 4th call should hit rate limit
 	uniqueNullifier4 := make([]byte, 32)
-	copy(uniqueNullifier4, "unique_nullifier_3_padding")
+	copy(uniqueNullifier4[1:], "unique_nullifier_3_padding")
 
 	_, err = ms.ShieldedExec(f.ctx, &types.MsgShieldedExec{
 		Submitter:          submitter,
@@ -121,9 +121,9 @@ func TestEncryptedBatchSubmissionHappyPath(t *testing.T) {
 	require.NoError(t, f.keeper.SetShieldEpochStateVal(f.ctx, types.ShieldEpochState{CurrentEpoch: 5}))
 
 	nullifier := make([]byte, 32)
-	copy(nullifier, "nullifier_for_batch_happy_path")
+	copy(nullifier[1:], "nullifier_for_batch_happy_path")
 	rateLimitNull := make([]byte, 32)
-	copy(rateLimitNull, "rate_limit_batch_happy_path")
+	copy(rateLimitNull[1:], "rate_limit_batch_happy_path")
 
 	resp, err := ms.ShieldedExec(f.ctx, &types.MsgShieldedExec{
 		Submitter:          submitter,
@@ -170,7 +170,7 @@ func TestEncryptedBatchNullifierReplay(t *testing.T) {
 	require.NoError(t, f.keeper.SetShieldEpochStateVal(f.ctx, types.ShieldEpochState{CurrentEpoch: 1}))
 
 	sameNullifier := make([]byte, 32)
-	copy(sameNullifier, "same_nullifier_for_replay_test")
+	copy(sameNullifier[1:], "same_nullifier_for_replay_test")
 
 	// First submission succeeds
 	_, err = ms.ShieldedExec(f.ctx, &types.MsgShieldedExec{
@@ -179,7 +179,7 @@ func TestEncryptedBatchNullifierReplay(t *testing.T) {
 		EncryptedPayload:   []byte("first_encrypted_vote"),
 		TargetEpoch:        1,
 		Nullifier:          sameNullifier,
-		RateLimitNullifier: func() []byte { b := make([]byte, 32); copy(b, "rate_1_replay"); return b }(),
+		RateLimitNullifier: func() []byte { b := make([]byte, 32); copy(b[1:], "rate_1_replay"); return b }(),
 		MerkleRoot:         make([]byte, 32),
 		ProofDomain:        types.ProofDomain_PROOF_DOMAIN_TRUST_TREE,
 	})
@@ -192,7 +192,7 @@ func TestEncryptedBatchNullifierReplay(t *testing.T) {
 		EncryptedPayload:   []byte("second_encrypted_vote"),
 		TargetEpoch:        1,
 		Nullifier:          sameNullifier,
-		RateLimitNullifier: func() []byte { b := make([]byte, 32); copy(b, "rate_2_replay"); return b }(),
+		RateLimitNullifier: func() []byte { b := make([]byte, 32); copy(b[1:], "rate_2_replay"); return b }(),
 		MerkleRoot:         make([]byte, 32),
 		ProofDomain:        types.ProofDomain_PROOF_DOMAIN_TRUST_TREE,
 	})
@@ -218,12 +218,12 @@ func TestEncryptedBatchRateLimitExhaustion(t *testing.T) {
 	require.NoError(t, f.keeper.SetShieldEpochStateVal(f.ctx, types.ShieldEpochState{CurrentEpoch: 1}))
 
 	sameRateLimit := make([]byte, 32)
-	copy(sameRateLimit, "same_rate_limit_batch_exhaust")
+	copy(sameRateLimit[1:], "same_rate_limit_batch_exhaust")
 
 	// Two successful submissions
 	for i := 0; i < 2; i++ {
 		uniqueNull := make([]byte, 32)
-		copy(uniqueNull, fmt.Sprintf("batch_null_%d_padding__________", i))
+		copy(uniqueNull[1:], fmt.Sprintf("batch_null_%d_padding__________", i))
 
 		_, err = ms.ShieldedExec(f.ctx, &types.MsgShieldedExec{
 			Submitter:          submitter,
@@ -240,7 +240,7 @@ func TestEncryptedBatchRateLimitExhaustion(t *testing.T) {
 
 	// Third should be rate-limited
 	thirdNull := make([]byte, 32)
-	copy(thirdNull, "batch_null_2_padding__________")
+	copy(thirdNull[1:], "batch_null_2_padding__________")
 
 	_, err = ms.ShieldedExec(f.ctx, &types.MsgShieldedExec{
 		Submitter:          submitter,

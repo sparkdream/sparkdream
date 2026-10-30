@@ -36,8 +36,12 @@ func createNProject(keeper keeper.Keeper, ctx context.Context, n int) []types.Pr
 		items[i].ApprovedBy = strconv.Itoa(i)
 		items[i].ApprovedAt = int64(i)
 		items[i].CompletedAt = int64(i)
-		_ = keeper.Project.Set(ctx, iu, items[i])
-		_ = keeper.ProjectSeq.Set(ctx, iu)
+		if err := keeper.Project.Set(ctx, iu, items[i]); err != nil {
+			panic(err)
+		}
+		if err := keeper.ProjectSeq.Set(ctx, iu); err != nil {
+			panic(err)
+		}
 	}
 	return items
 }

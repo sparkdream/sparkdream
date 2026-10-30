@@ -3,6 +3,7 @@ package keeper
 import (
 	"fmt"
 	stdmath "math"
+	commontypes "sparkdream/x/common/types"
 
 	"cosmossdk.io/math"
 
@@ -32,7 +33,7 @@ func EffectiveMinVotes(minVerificationVotes uint32, stakeThreshold math.Int) uin
 	if scaled.GT(math.NewInt(int64(stdmath.MaxUint32))) {
 		return stdmath.MaxUint32
 	}
-	scaledU32 := uint32(scaled.Uint64())
+	scaledU32 := commontypes.Saturate[uint32](scaled.Uint64())
 	if scaledU32 > minVerificationVotes {
 		return scaledU32
 	}

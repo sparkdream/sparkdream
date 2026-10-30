@@ -100,7 +100,7 @@ Posts linked to `x/rep` initiatives (via `initiative_id`) can renew their epheme
 
 DREAM is locked for `post_conviction_lock_seconds`; `MsgReleasePostConviction` before `unlocks_at` is rejected. `LockDREAM` / `UnlockDREAM` bypass the 3% DREAM transfer tax (internal member-balance rebalance, not a transfer).
 
-On a **confirmed sentinel hide** (`ExpireHiddenPosts` finalizes an unappealed hide), the rep each stake produced is clawed back from the author per tag (`repKeeper.DeductForumRep`), and `post_conviction_staker_slash_bps` of the staker's locked DREAM is burned; the remainder is unlocked and the stake closed.
+On a **confirmed sentinel hide** (`ExpireHiddenPosts` finalizes an unappealed hide), the rep each stake produced is clawed back from the author per tag (`repKeeper.DeductForumRep`), and `post_conviction_staker_slash_bps` of the staker's locked DREAM is burned; the remainder is unlocked and the stake closed. At most 200 stakes are settled per pass; the post waits in `StakeSlashQueue` for the EndBlocker to finish it, and its stakes cannot be released or collected meanwhile.
 
 The forum-earned rep lives on the x/rep `Member.forum_rep_per_tag` map (counted toward PROVISIONAL/ESTABLISHED only — see the [x/rep spec](../../docs/x-rep-spec.md)); forum reaches into x/rep via `AddForumRep`, `DeductForumRep`, `LockDREAM`, `UnlockDREAM`, `BurnDREAM`, `DeductReputation`, and `IssueWarning`.
 
@@ -297,7 +297,7 @@ Anonymous posts, replies, and reactions are submitted via `x/shield`'s `MsgShiel
 | `ThreadMetadata` | Thread-level metadata (reply count, last activity) |
 | `ThreadLockRecord` | Lock record for a thread |
 | `ThreadLockStatus` | Whether a thread is locked |
-| `LockedThreads` | All locked threads |
+| `LockedThreads` | Locked threads (paginated) |
 | `ThreadMoveRecord` | Move history for a thread |
 | `ThreadFollow` | Whether a user follows a thread |
 | `ThreadFollowers` | List of followers for a thread |
@@ -322,8 +322,8 @@ Anonymous posts, replies, and reactions are submitted via `x/shield`'s `MsgShiel
 |-------|-------------|
 | `Bounty` | Single bounty by ID |
 | `BountyByThread` | Bounty on a specific thread |
-| `ActiveBounties` | All active bounties |
-| `UserBounties` | Bounties created by a user |
+| `ActiveBounties` | Active bounties (paginated) |
+| `UserBounties` | Bounties created by a user, across key migrations (paginated) |
 | `BountyExpiringSoon` | Bounties near expiration |
 
 > Tag registry queries (`Tag`, `TagExists`, `ReservedTag`), tag-budget queries, and tag-report queries are exposed by the x/rep query service. Member-report, member-warning, and gov-action-appeal queries also live in x/rep.
@@ -375,9 +375,6 @@ Anonymous posts, replies, and reactions are submitted via `x/shield`'s `MsgShiel
 | `reaction_spam_tax` | Coin | 0.1 SPARK | Non-member reaction tax |
 | `flag_spam_tax` | Coin | 0.1 SPARK | Non-member flag tax |
 | `downvote_deposit` | Coin | 0.05 SPARK | Burned on downvote |
-| `appeal_fee` | Coin | 5.0 SPARK | Hide appeal submission fee |
-| `lock_appeal_fee` | Coin | 5.0 SPARK | Lock appeal fee |
-| `move_appeal_fee` | Coin | 5.0 SPARK | Move appeal fee |
 | `edit_fee` | Coin | 0.01 SPARK | Edit after grace period |
 | `cost_per_byte` | Coin | 100 uspark/byte | Storage cost |
 
@@ -468,6 +465,7 @@ All operational (editable via `MsgUpdateOperationalParams`). Defaults are the sa
 | `max_sentinel_moves_per_epoch` | 10 | Sentinel move limit per epoch |
 | `max_pinned_per_category` | 5 | Pinned posts per category |
 | `max_pinned_replies_per_thread` | 3 | Pinned replies per thread |
+| `min_bounty_amount` | 50,000,000 (50 SPARK) | Minimum bounty and minimum increase |
 | `max_bounty_winners` | 5 | Max winners per bounty |
 | `bounty_duration` | 1,209,600 (14d) | Default bounty duration |
 | `max_bounty_duration` | 2,592,000 (30d) | Maximum bounty duration |

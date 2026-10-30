@@ -83,3 +83,25 @@ func TestIsCouncilAuthorized_NilCommons_UnauthorizedFails(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "not authorized")
 }
+
+// APP-09: with x/commons wired, the Commons Operations Committee policy
+// address (an executed committee proposal) may update blog ops params, and
+// the check asked of commons is the policy check, not single-member
+// authorization.
+func TestUpdateOperationalParams_CommitteePolicy(t *testing.T) {
+	policy := "sprkdrm1qypqxpq9qcrsszg2pvxq6rs0zqg3yyc5tzsm5"
+	var asked []string
+	mock := &mockCommonsKeeper{
+		IsCouncilAuthorizedFn: func(_ context.Context, addr, council, committee string) bool {
+			asked = append(asked, council+"/"+committee)
+			return addr == policy && council == "commons" && committee == "operations"
+		},
+	}
+	_, ms, ctx := setupMsgServerWithCommons(t, mock)
+	_, err := ms.UpdateOperationalParams(ctx, &types.MsgUpdateOperationalParams{
+		Authority:         policy,
+		OperationalParams: types.DefaultBlogOperationalParams(),
+	})
+	require.NoError(t, err)
+	require.Equal(t, []string{"commons/operations"}, asked)
+}

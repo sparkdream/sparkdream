@@ -2,9 +2,9 @@ package ante
 
 import (
 	"context"
-	"encoding/hex"
 
 	errorsmod "cosmossdk.io/errors"
+	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	authsigning "github.com/cosmos/cosmos-sdk/x/auth/signing"
@@ -27,7 +27,8 @@ const (
 type ShieldKeeper interface {
 	GetShieldParams(ctx sdk.Context) (shieldtypes.Params, error)
 	GetCurrentEpoch(ctx context.Context) uint64
-	PrecheckExec(ctx sdk.Context, msg *shieldtypes.MsgShieldedExec) error
+	PrecheckExec(ctx sdk.Context, msg *shieldtypes.MsgShieldedExec) (bool, error)
+	ChargeEpochFee(ctx sdk.Context, fee math.Int, budget math.Int) error
 	GetVerificationKeyVal(ctx context.Context, circuitID string) (shieldtypes.VerificationKey, bool)
 	GetShieldedOp(ctx context.Context, typeURL string) (shieldtypes.ShieldedOpRegistration, bool)
 	BondDenom(ctx context.Context) string
@@ -89,6 +90,13 @@ func (d ShieldGasDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool
 		return next(ctx, tx, simulate)
 	}
 
+	// The public submitter's key is public: an ordered tx from it bumps a
+	// sequence every client shares, so anyone could grief it, and an ordered
+	// tx is also a client fingerprint. Its txs must be unordered.
+	if err := requireUnorderedPublicSubmitter(tx); err != nil {
+		return ctx, err
+	}
+
 	// REJECT multi-message transactions containing MsgShieldedExec
 	if len(msgs) != 1 {
 		return ctx, shieldtypes.ErrMultiMsgNotAllowed
@@ -111,6 +119,11 @@ func (d ShieldGasDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool
 	if len(shieldMsg.Nullifier) != nullifierByteLength || len(shieldMsg.RateLimitNullifier) != nullifierByteLength {
 		return ctx, shieldtypes.ErrInvalidNullifierLength
 	}
+	// Canonical field encodings only: the verifier reduces public inputs mod
+	// r, so n and n+r would both verify while being distinct nullifiers.
+	if err := shieldtypes.ValidateCanonicalPublicInputs(shieldMsg.Nullifier, shieldMsg.RateLimitNullifier, shieldMsg.MerkleRoot); err != nil {
+		return ctx, err
+	}
 	if len(shieldMsg.Proof) < minProofByteLength {
 		return ctx, shieldtypes.ErrInvalidProof
 	}
@@ -123,12 +136,19 @@ func (d ShieldGasDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool
 	//    proof makes unforgeable in both modes). Outside DeliverTx this runs
 	//    behind the node-local proof guard (rejected-proof cache +
 	//    verification throttle; see proof_guard.go).
-	if err := d.precheckExec(ctx, shieldMsg, simulate); err != nil {
+	consumed, err := d.precheckExec(ctx, shieldMsg, simulate)
+	if err != nil {
 		return ctx, err
 	}
 	// The msg server runs against the same state, so it needn't verify the
 	// proof again.
 	ctx = shieldtypes.WithProofVerified(ctx, shieldMsg)
+	// An immediate exec was spent here (nullifier or owner sequence, and the
+	// identity rate limit), in the ante state that commits with the fee even
+	// if the inner message fails: the msg server must not spend it again.
+	if consumed {
+		ctx = shieldtypes.WithExecConsumed(ctx, shieldMsg)
+	}
 
 	// Calculate fee from gas
 	feeTx, ok := tx.(sdk.FeeTx)
@@ -144,10 +164,28 @@ func (d ShieldGasDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool
 		return ctx, errorsmod.Wrapf(shieldtypes.ErrFeeTooHigh, "fee %s, max %s", fees, maxFee)
 	}
 
+	// The standard DeductFeeDecorator (skipped below) is where CheckTx
+	// enforces the node's minimum gas prices; apply the same mempool rule
+	// here so a shield tx can't claim a large gas limit for a zero or token
+	// fee. Like the SDK's check this is node-local and CheckTx-only.
+	if ctx.IsCheckTx() && !simulate {
+		if err := checkMinGasPrices(ctx, fees, feeTx.GetGas()); err != nil {
+			return ctx, err
+		}
+	}
+
 	if fees.IsZero() {
 		// No fees to pay — proceed (gas is still metered)
 		ctx = ctx.WithValue(shieldtypes.ContextKeyFeePaid, true)
 		return next(ctx, tx, simulate)
+	}
+
+	// Chain-wide budget: the fees the module pays in one shield epoch are
+	// capped (max_fees_per_epoch), so no set of identities, however many
+	// in-quota execs they run, can spend the day's funding in a few epochs
+	// and leave the reserve at ErrShieldGasDepleted for everyone else.
+	if err := d.shieldKeeper.ChargeEpochFee(ctx, fees.AmountOf(d.shieldKeeper.BondDenom(ctx)), params.MaxFeesPerEpoch); err != nil {
+		return ctx, err
 	}
 
 	// Deduct fees from shield module account → fee collector
@@ -187,11 +225,43 @@ func rejectPublicSubmitter(tx sdk.Tx) error {
 	return nil
 }
 
-// validateNullifierHex checks that a hex-encoded nullifier is well-formed (optional utility).
-func validateNullifierHex(nullifierHex string) bool {
-	b, err := hex.DecodeString(nullifierHex)
-	if err != nil {
-		return false
+// requireUnorderedPublicSubmitter refuses a shield tx signed by the shared
+// anonymous submitter unless it is unordered.
+func requireUnorderedPublicSubmitter(tx sdk.Tx) error {
+	sigTx, ok := tx.(authsigning.SigVerifiableTx)
+	if !ok {
+		return nil
 	}
-	return len(b) == nullifierByteLength
+	signers, err := sigTx.GetSigners()
+	if err != nil {
+		return err
+	}
+	public := shieldtypes.PublicSubmitterAddress()
+	for _, s := range signers {
+		if !public.Equals(sdk.AccAddress(s)) {
+			continue
+		}
+		if utx, ok := tx.(sdk.TxWithUnordered); !ok || !utx.GetUnordered() {
+			return shieldtypes.ErrOrderedPublicSubmitterTx
+		}
+	}
+	return nil
+}
+
+// checkMinGasPrices mirrors the SDK's CheckTx minimum-gas-price rule
+// (fee >= ceil(minGasPrice * gasLimit) in at least one denom).
+func checkMinGasPrices(ctx sdk.Context, fees sdk.Coins, gas uint64) error {
+	minGasPrices := ctx.MinGasPrices()
+	if minGasPrices.IsZero() {
+		return nil
+	}
+	required := make(sdk.Coins, len(minGasPrices))
+	glDec := math.LegacyNewDecFromInt(math.NewIntFromUint64(gas))
+	for i, gp := range minGasPrices {
+		required[i] = sdk.NewCoin(gp.Denom, gp.Amount.Mul(glDec).Ceil().RoundInt())
+	}
+	if !fees.IsAnyGTE(required) {
+		return errorsmod.Wrapf(sdkerrors.ErrInsufficientFee, "insufficient fees; got: %s required: %s", fees, required)
+	}
+	return nil
 }

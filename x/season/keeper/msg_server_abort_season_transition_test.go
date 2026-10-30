@@ -70,7 +70,7 @@ func TestMsgServerAbortSeasonTransition(t *testing.T) {
 		state := types.SeasonTransitionState{
 			Phase: types.TransitionPhase_TRANSITION_PHASE_COMPLETE,
 		}
-		k.SeasonTransitionState.Set(ctx, state)
+		require.NoError(t, k.SeasonTransitionState.Set(ctx, state))
 
 		_, err := ms.AbortSeasonTransition(ctx, &types.MsgAbortSeasonTransition{
 			Authority: authority,
@@ -92,7 +92,7 @@ func TestMsgServerAbortSeasonTransition(t *testing.T) {
 		state := types.SeasonTransitionState{
 			Phase: types.TransitionPhase_TRANSITION_PHASE_ARCHIVE_REPUTATION,
 		}
-		k.SeasonTransitionState.Set(ctx, state)
+		require.NoError(t, k.SeasonTransitionState.Set(ctx, state))
 
 		_, err := ms.AbortSeasonTransition(ctx, &types.MsgAbortSeasonTransition{
 			Authority: authority,
@@ -102,7 +102,7 @@ func TestMsgServerAbortSeasonTransition(t *testing.T) {
 		require.ErrorIs(t, err, types.ErrTransitionTooFarToAbort)
 	})
 
-	t.Run("successful abort during snapshot phase", func(t *testing.T) {
+	t.Run("successful abort during retro rewards phase", func(t *testing.T) {
 		f := initFixture(t)
 		ctx := sdk.UnwrapSDKContext(f.ctx)
 		k := f.keeper
@@ -114,13 +114,13 @@ func TestMsgServerAbortSeasonTransition(t *testing.T) {
 		// Set up an ending season
 		season, _ := k.Season.Get(ctx)
 		season.Status = types.SeasonStatus_SEASON_STATUS_ENDING
-		k.Season.Set(ctx, season)
+		require.NoError(t, k.Season.Set(ctx, season))
 
-		// Set transition state to snapshot phase (can still abort)
+		// Set transition state to the retro phase before payout (can still abort)
 		state := types.SeasonTransitionState{
-			Phase: types.TransitionPhase_TRANSITION_PHASE_SNAPSHOT,
+			Phase: types.TransitionPhase_TRANSITION_PHASE_RETRO_REWARDS,
 		}
-		k.SeasonTransitionState.Set(ctx, state)
+		require.NoError(t, k.SeasonTransitionState.Set(ctx, state))
 
 		_, err := ms.AbortSeasonTransition(ctx, &types.MsgAbortSeasonTransition{
 			Authority: authority,

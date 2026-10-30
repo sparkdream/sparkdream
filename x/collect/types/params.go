@@ -329,6 +329,20 @@ func (p Params) Validate() error {
 	if p.FlagReviewThreshold == 0 {
 		return fmt.Errorf("flag_review_threshold must be positive")
 	}
+	// Daily limits gate their action with current >= max, so zero would
+	// silently disable upvotes, downvotes, pin/unpin or make-permanent.
+	if p.MaxUpvotesPerDay == 0 {
+		return fmt.Errorf("max_upvotes_per_day must be positive")
+	}
+	if p.MaxDownvotesPerDay == 0 {
+		return fmt.Errorf("max_downvotes_per_day must be positive")
+	}
+	if p.MaxPinsPerDay == 0 {
+		return fmt.Errorf("max_pins_per_day must be positive")
+	}
+	if p.MaxMakePermanentPerDay == 0 {
+		return fmt.Errorf("max_make_permanent_per_day must be positive")
+	}
 	if p.MaxFlagsPerDay == 0 {
 		return fmt.Errorf("max_flags_per_day must be positive")
 	}
@@ -649,4 +663,65 @@ func (p Params) ApplyOperationalParams(op CollectOperationalParams) Params {
 		p.AuthorRepPenalty = op.AuthorRepPenalty
 	}
 	return p
+}
+
+// Compiled hard bounds for the operational path (MsgUpdateOperationalParams).
+// The Operations Committee can tune these knobs but cannot push the
+// moderation and endorsement clocks or the accountability amounts outside
+// these ranges; only governance (MsgUpdateParams, or genesis — e2e configs
+// use short test windows) may. A too-short clock lets content be deleted
+// before its owner can respond; a near-zero commit or deposit makes hides and
+// challenges free.
+const (
+	OpMinClockBlocks int64 = 14400   // ~1 day
+	OpMaxClockBlocks int64 = 1296000 // ~90 days
+	// OpMaxAppealCooldownBlocks keeps the appeal window open well before a
+	// hide can expire.
+	OpMaxAppealCooldownBlocks int64 = 14400 // ~1 day
+)
+
+var (
+	OpMinSentinelCommitAmount = math.NewInt(1_000_000)         // 1 DREAM
+	OpMaxSentinelCommitAmount = math.NewInt(10_000_000_000)    // 10,000 DREAM
+	OpMinChallengeDeposit     = math.NewInt(1_000_000)         // 1 DREAM
+	OpMaxChallengeDeposit     = math.NewInt(10_000_000_000)    // 10,000 DREAM
+	OpMaxEndorsementFee       = math.NewInt(1_000_000_000_000) // 1,000,000 SPARK
+)
+
+// ValidateOperationalBounds checks merged params against the compiled hard
+// bounds that apply to Operations Committee updates.
+func (p Params) ValidateOperationalBounds() error {
+	clocks := []struct {
+		name string
+		v    int64
+	}{
+		{"hide_expiry_blocks", p.HideExpiryBlocks},
+		{"endorsement_expiry_blocks", p.EndorsementExpiryBlocks},
+		{"endorsement_stake_duration", p.EndorsementStakeDuration},
+		{"flag_expiration_blocks", p.FlagExpirationBlocks},
+		{"challenge_window_blocks", p.ChallengeWindowBlocks},
+	}
+	for _, c := range clocks {
+		if c.v < OpMinClockBlocks || c.v > OpMaxClockBlocks {
+			return fmt.Errorf("%s must be within [%d, %d] blocks for an operational update: %d",
+				c.name, OpMinClockBlocks, OpMaxClockBlocks, c.v)
+		}
+	}
+	if p.AppealCooldownBlocks > OpMaxAppealCooldownBlocks {
+		return fmt.Errorf("appeal_cooldown_blocks must be <= %d for an operational update: %d",
+			OpMaxAppealCooldownBlocks, p.AppealCooldownBlocks)
+	}
+	if p.SentinelCommitAmount.LT(OpMinSentinelCommitAmount) || p.SentinelCommitAmount.GT(OpMaxSentinelCommitAmount) {
+		return fmt.Errorf("sentinel_commit_amount must be within [%s, %s] for an operational update: %s",
+			OpMinSentinelCommitAmount, OpMaxSentinelCommitAmount, p.SentinelCommitAmount)
+	}
+	if p.ChallengeDeposit.LT(OpMinChallengeDeposit) || p.ChallengeDeposit.GT(OpMaxChallengeDeposit) {
+		return fmt.Errorf("challenge_deposit must be within [%s, %s] for an operational update: %s",
+			OpMinChallengeDeposit, OpMaxChallengeDeposit, p.ChallengeDeposit)
+	}
+	if p.EndorsementCreationFee.GT(OpMaxEndorsementFee) {
+		return fmt.Errorf("endorsement_creation_fee must be <= %s for an operational update: %s",
+			OpMaxEndorsementFee, p.EndorsementCreationFee)
+	}
+	return nil
 }

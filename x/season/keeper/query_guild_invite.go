@@ -37,7 +37,7 @@ func (q queryServer) GetGuildInvite(ctx context.Context, req *types.QueryGetGuil
 		return nil, status.Error(codes.InvalidArgument, "invalid request")
 	}
 
-	val, err := q.k.GuildInvite.Get(ctx, req.GuildInvitee)
+	val, err := q.k.GuildInvite.Get(ctx, guildInviteKey(req.GuildId, req.GuildInvitee))
 	if err != nil {
 		if errors.Is(err, collections.ErrNotFound) {
 			return nil, status.Error(codes.NotFound, "not found")

@@ -3,6 +3,7 @@ package keeper
 import (
 	"context"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/rep/types"
 
 	errorsmod "cosmossdk.io/errors"
@@ -48,6 +49,11 @@ func (k msgServer) CreateInitiative(ctx context.Context, msg *types.MsgCreateIni
 			msg.ProjectId)
 	}
 
+	budget, err := requireAmount(msg.Budget, "budget")
+	if err != nil {
+		return nil, err
+	}
+
 	// Create initiative using keeper method
 	initiativeID, err := k.Keeper.CreateInitiative(
 		ctx,
@@ -56,9 +62,9 @@ func (k msgServer) CreateInitiative(ctx context.Context, msg *types.MsgCreateIni
 		msg.Title,
 		msg.Description,
 		msg.Tags,
-		types.InitiativeTier(msg.Tier),
-		types.InitiativeCategory(msg.Category),
-		*msg.Budget,
+		commontypes.Saturate[types.InitiativeTier](msg.Tier),
+		commontypes.Saturate[types.InitiativeCategory](msg.Category),
+		budget,
 		msg.AcceptanceCriteria...,
 	)
 	if err != nil {

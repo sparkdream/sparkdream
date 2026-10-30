@@ -205,10 +205,12 @@ func TestAuthorBondRestoration_AppealOverturn(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		// Simulate the OVERTURNED branch firing ReverseSentinelAction.
+		// Simulate the OVERTURNED branch firing ReverseSentinelAction on a
+		// hide appealed through MsgAppealPost.
+		f.markHideAppealed(t, post.PostId)
 		require.NoError(t, f.keeper.ReverseSentinelAction(
 			f.ctx,
-			reptypes.GovActionType_GOV_ACTION_TYPE_UNSPECIFIED, // hide path
+			reptypes.GovActionType_GOV_ACTION_TYPE_POST_HIDE,
 			strconv.FormatUint(post.PostId, 10),
 		))
 
@@ -251,11 +253,12 @@ func TestAuthorBondRestoration_AppealOverturn(t *testing.T) {
 		})
 		require.NoError(t, err)
 
+		f.markHideAppealed(t, post.PostId)
 		delete(f.commonsKeeper.categories, cat.CategoryId)
 
 		require.NoError(t, f.keeper.ReverseSentinelAction(
 			f.ctx,
-			reptypes.GovActionType_GOV_ACTION_TYPE_UNSPECIFIED,
+			reptypes.GovActionType_GOV_ACTION_TYPE_POST_HIDE,
 			strconv.FormatUint(post.PostId, 10),
 		), "soft skip")
 

@@ -30,8 +30,8 @@ func (k Keeper) validateCraftInputs(ctx context.Context, inputs []types.CraftInp
 			return errorsmod.Wrapf(types.ErrInvalidRecipe, "duplicate input %d/%d", in.ClassId, in.EditionId)
 		}
 		seen[key] = true
-		if in.Quantity == 0 {
-			return errorsmod.Wrap(types.ErrInvalidRecipe, "input quantities must be positive")
+		if in.Quantity == 0 || in.Quantity > types.HardMaxEditionSupply {
+			return errorsmod.Wrapf(types.ErrInvalidRecipe, "input quantities must be 1 to %d", types.HardMaxEditionSupply)
 		}
 		ic, err := k.getClass(ctx, in.ClassId)
 		if err != nil {
@@ -65,8 +65,8 @@ func (k Keeper) validateCraftOutput(ctx context.Context, c types.Class, meta typ
 		if !meta.IsEmpty() {
 			return errorsmod.Wrap(types.ErrInvalidRecipe, "edition outputs take the edition's metadata")
 		}
-		if quantity == 0 {
-			return errorsmod.Wrap(types.ErrInvalidRecipe, "output_quantity must be positive")
+		if quantity == 0 || quantity > types.HardMaxEditionSupply {
+			return errorsmod.Wrapf(types.ErrInvalidRecipe, "output_quantity must be 1 to %d", types.HardMaxEditionSupply)
 		}
 		_, err := k.getEdition(ctx, c.Id, editionID)
 		return err

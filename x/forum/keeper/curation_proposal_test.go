@@ -426,13 +426,15 @@ func TestProposalAutoConfirm(t *testing.T) {
 		require.NotEqual(t, md.ProposalFireAt, extended.ProposalFireAt)
 		require.Empty(t, f.repKeeper.mintDreamCalls)
 
-		// Second EndBlocker past the new fire_at: confirms regardless of activity.
+		// Second EndBlocker past the new fire_at: confirms regardless of
+		// activity, but an author who never came back endorsed nothing, so
+		// the sentinel earns no reward and no upheld tick (FRM-10).
 		f.ctx = f.sdkCtx().WithBlockTime(time.Unix(extended.ProposalFireAt+1, 0))
 		require.NoError(t, f.keeper.EndBlocker(f.ctx))
 
 		confirmed, err := f.keeper.ThreadMetadata.Get(f.ctx, thread.PostId)
 		require.NoError(t, err)
 		require.Equal(t, reply.PostId, confirmed.AcceptedReplyId)
-		require.Len(t, f.repKeeper.mintDreamCalls, 1)
+		require.Empty(t, f.repKeeper.mintDreamCalls)
 	})
 }

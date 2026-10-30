@@ -3,6 +3,7 @@ package keeper
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"math/rand"
 
@@ -11,6 +12,7 @@ import (
 	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/rep/types"
 )
 
@@ -28,6 +30,10 @@ func (k Keeper) CreateContentChallenge(
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	params, err := k.Params.Get(ctx)
 	if err != nil {
+		return 0, err
+	}
+
+	if err := validateEvidence(evidence); err != nil {
 		return 0, err
 	}
 
@@ -199,35 +205,51 @@ func (k Keeper) UpholdContentChallenge(ctx context.Context, ccID uint64) error {
 			"content challenge %d is already resolved (status %s)", ccID, cc.Status)
 	}
 
-	// Get author address
-	authorAddr, err := sdk.AccAddressFromBech32(cc.Author)
-	if err != nil {
+	if _, err := sdk.AccAddressFromBech32(cc.Author); err != nil {
 		return fmt.Errorf("invalid author address: %w", err)
 	}
 
-	// Slash the author bond: unlock → burn (same pattern as SlashAuthorBond)
+	// Slash the author bond that is actually there (REP-E-17). The amount
+	// snapshotted at challenge time is not enough: a sentinel hide can slash
+	// the bond while the jury deliberates, and unlocking the snapshot from the
+	// author's aggregate lock then burned some other escrow of theirs (an
+	// initiative stake) and minted the challenger a reward with no bond behind
+	// it. The bond record is the escrow: when it is gone there is nothing to
+	// slash and nothing to pay the challenger from.
 	bondAmount := cc.BondAmount
-	if bondAmount.IsPositive() {
-		if err := k.UnlockDREAM(ctx, authorAddr, bondAmount); err != nil {
-			// Bond might already be gone; log and continue
-			sdkCtx.Logger().Debug("failed to unlock author bond for slashing", "error", err)
-		} else {
-			if err := k.BurnDREAM(ctx, authorAddr, bondAmount); err != nil {
-				return fmt.Errorf("failed to burn author bond: %w", err)
+	slashed := math.ZeroInt()
+	if bond, bondErr := k.GetAuthorBond(ctx, cc.TargetType, cc.TargetId); bondErr == nil {
+		burn := bond.Amount
+		if bondAmount.IsPositive() && burn.GT(bondAmount) {
+			burn = bondAmount
+		}
+		bondStaker, aErr := sdk.AccAddressFromBech32(bond.Staker)
+		if aErr != nil {
+			return fmt.Errorf("invalid author address in bond: %w", aErr)
+		}
+		if burn.IsPositive() {
+			if err := k.BurnLockedDREAM(ctx, bondStaker, burn); err != nil {
+				if !errors.Is(err, types.ErrInsufficientStake) && !errors.Is(err, types.ErrMemberNotFound) {
+					return fmt.Errorf("failed to burn author bond: %w", err)
+				}
+				// The author was zeroed: the lock was burned with the rest.
+				sdkCtx.Logger().Info("author bond already burned", "content_challenge_id", ccID, "error", err)
+			} else {
+				slashed = burn
 			}
 		}
-
-		// Remove the bond stake from storage
-		bond, bondErr := k.GetAuthorBond(ctx, cc.TargetType, cc.TargetId)
-		if bondErr == nil {
-			_ = k.RemoveStakeFromTargetIndex(ctx, bond)
-			_ = k.Stake.Remove(ctx, bond.Id)
+		if err := k.RemoveStakeFromTargetIndex(ctx, bond); err != nil {
+			sdkCtx.Logger().Error("failed to remove author bond from target index", "stake_id", bond.Id, "error", err)
+		}
+		if err := k.Stake.Remove(ctx, bond.Id); err != nil {
+			return fmt.Errorf("failed to remove slashed author bond: %w", err)
 		}
 	}
 
-	// Calculate challenger reward
+	// The challenger's reward is a share of what was actually slashed, never
+	// of the snapshot: no burn, no reward.
 	rewardShare := params.ContentChallengeRewardShare
-	rewardAmount := bondAmount.ToLegacyDec().Mul(rewardShare).TruncateInt()
+	rewardAmount := slashed.ToLegacyDec().Mul(rewardShare).TruncateInt()
 
 	// Get challenger address
 	challengerAddr, err := sdk.AccAddressFromBech32(cc.Challenger)
@@ -258,15 +280,19 @@ func (k Keeper) UpholdContentChallenge(ctx context.Context, ccID uint64) error {
 	}
 
 	// Update indexes
-	_ = k.UpdateContentChallengeStatusIndex(ctx, oldStatus, cc.Status, ccID)
-	_ = k.ContentChallengesByTarget.Remove(ctx, collections.Join(int32(cc.TargetType), cc.TargetId))
+	if err := k.UpdateContentChallengeStatusIndex(ctx, oldStatus, cc.Status, ccID); err != nil {
+		return err
+	}
+	if err := k.ContentChallengesByTarget.Remove(ctx, collections.Join(int32(cc.TargetType), cc.TargetId)); err != nil {
+		return err
+	}
 
 	// Emit event
 	sdkCtx.EventManager().EmitEvent(
 		sdk.NewEvent(
 			"content_challenge_upheld",
 			sdk.NewAttribute("content_challenge_id", fmt.Sprintf("%d", ccID)),
-			sdk.NewAttribute("bond_slashed", bondAmount.String()),
+			sdk.NewAttribute("bond_slashed", slashed.String()),
 			sdk.NewAttribute("challenger_reward", rewardAmount.String()),
 		),
 	)
@@ -300,10 +326,7 @@ func (k Keeper) RejectContentChallenge(ctx context.Context, ccID uint64) error {
 	}
 
 	if cc.StakedDream.IsPositive() {
-		if err := k.UnlockDREAM(ctx, challengerAddr, cc.StakedDream); err != nil {
-			return fmt.Errorf("failed to unlock challenger stake for burning: %w", err)
-		}
-		if err := k.BurnDREAM(ctx, challengerAddr, cc.StakedDream); err != nil {
+		if err := k.BurnLockedDREAM(ctx, challengerAddr, cc.StakedDream); err != nil {
 			return fmt.Errorf("failed to burn challenger stake: %w", err)
 		}
 	}
@@ -317,8 +340,12 @@ func (k Keeper) RejectContentChallenge(ctx context.Context, ccID uint64) error {
 	}
 
 	// Update indexes
-	_ = k.UpdateContentChallengeStatusIndex(ctx, oldStatus, cc.Status, ccID)
-	_ = k.ContentChallengesByTarget.Remove(ctx, collections.Join(int32(cc.TargetType), cc.TargetId))
+	if err := k.UpdateContentChallengeStatusIndex(ctx, oldStatus, cc.Status, ccID); err != nil {
+		return err
+	}
+	if err := k.ContentChallengesByTarget.Remove(ctx, collections.Join(int32(cc.TargetType), cc.TargetId)); err != nil {
+		return err
+	}
 
 	// Emit event
 	sdkCtx.EventManager().EmitEvent(
@@ -373,8 +400,12 @@ func (k Keeper) ResolveInconclusiveContentChallenge(ctx context.Context, ccID ui
 	}
 
 	// Update indexes
-	_ = k.UpdateContentChallengeStatusIndex(ctx, oldStatus, cc.Status, ccID)
-	_ = k.ContentChallengesByTarget.Remove(ctx, collections.Join(int32(cc.TargetType), cc.TargetId))
+	if err := k.UpdateContentChallengeStatusIndex(ctx, oldStatus, cc.Status, ccID); err != nil {
+		return err
+	}
+	if err := k.ContentChallengesByTarget.Remove(ctx, collections.Join(int32(cc.TargetType), cc.TargetId)); err != nil {
+		return err
+	}
 
 	// Emit event
 	sdkCtx.EventManager().EmitEvent(
@@ -438,7 +469,7 @@ func (k Keeper) CreateContentJuryReview(ctx context.Context, ccID uint64) error 
 		InitiativeId:       0, // Not an initiative
 		ContentChallengeId: ccID,
 		Jurors:             jurors,
-		RequiredVotes:      uint32(requiredVotes),
+		RequiredVotes:      commontypes.Saturate[uint32](requiredVotes),
 		ExpertWitnesses:    []string{},
 		Testimonies:        []*types.ExpertTestimony{},
 		ReviewDeliverable:  fmt.Sprintf("Content challenge %d against %s #%d", ccID, cc.TargetType, cc.TargetId),
@@ -478,24 +509,12 @@ func (k Keeper) CreateContentJuryReview(ctx context.Context, ccID uint64) error 
 	}
 
 	// Update status index
-	_ = k.UpdateContentChallengeStatusIndex(ctx, oldStatus, cc.Status, ccID)
-
-	// Create JURY_DUTY interims for jurors
-	for _, jurorAddr := range jurors {
-		_, err := k.CreateInterimWork(
-			ctx,
-			types.InterimType_INTERIM_TYPE_JURY_DUTY,
-			[]string{jurorAddr},
-			"",
-			0, // No initiative reference
-			fmt.Sprintf("content_challenge:%d", ccID),
-			types.InterimComplexity_INTERIM_COMPLEXITY_STANDARD,
-			juryReview.Deadline,
-		)
-		if err != nil {
-			return err
-		}
+	if err := k.UpdateContentChallengeStatusIndex(ctx, oldStatus, cc.Status, ccID); err != nil {
+		return err
 	}
+
+	// No JURY_DUTY interims (REP-E-05): RewardJurors pays the jurors who
+	// vote, at the tally.
 
 	// Emit event
 	sdkCtx.EventManager().EmitEvent(
@@ -537,10 +556,10 @@ func (k Keeper) SelectContentJury(
 	}
 	var eligible []eligibleMember
 
-	err = k.Member.Walk(ctx, nil, func(addr string, member types.Member) (stop bool, err error) {
+	err = k.walkJurorCandidates(ctx, minReputation, func(addr string, member types.Member) error {
 		// Skip excluded addresses
 		if _, skip := excludeSet[addr]; skip {
-			return false, nil
+			return nil
 		}
 
 		// Check if any reputation tag meets minimum
@@ -564,7 +583,7 @@ func (k Keeper) SelectContentJury(
 			})
 		}
 
-		return false, nil
+		return nil
 	})
 	if err != nil {
 		return nil, err
@@ -585,9 +604,9 @@ func (k Keeper) SelectContentJury(
 	appHash := sdkCtx.BlockHeader().AppHash
 	var seed int64
 	if len(appHash) >= 8 {
-		seed = int64(binary.BigEndian.Uint64(appHash[:8])) ^ int64(ccID)
+		seed = int64(binary.BigEndian.Uint64(appHash[:8]) ^ ccID) //nolint:gosec // seed bits; wraparound is intended
 	} else {
-		seed = int64(ccID) ^ sdkCtx.BlockHeight()
+		seed = int64(ccID) ^ sdkCtx.BlockHeight() //nolint:gosec // seed bits; wraparound is intended
 	}
 	rng := rand.New(rand.NewSource(seed))
 
@@ -630,7 +649,14 @@ func contentWeightedRandomSelect(rng *rand.Rand, weights []float64) int {
 // Content Challenge Index Helpers
 
 // AddContentChallengeToStatusIndex adds a content challenge to the status index
+// and, for an ACTIVE content challenge, a response due-queue entry at its
+// response deadline (due_queue.go).
 func (k Keeper) AddContentChallengeToStatusIndex(ctx context.Context, cc types.ContentChallenge) error {
+	if cc.Status == types.ContentChallengeStatus_CONTENT_CHALLENGE_STATUS_ACTIVE {
+		if err := enqueueDue(ctx, k.ContentChallengeResponseDue, cc.ResponseDeadline, cc.Id); err != nil {
+			return err
+		}
+	}
 	return k.ContentChallengesByStatus.Set(ctx, collections.Join(int32(cc.Status), cc.Id))
 }
 
@@ -646,6 +672,11 @@ func (k Keeper) UpdateContentChallengeStatusIndex(ctx context.Context, oldStatus
 	}
 	if err := k.RemoveContentChallengeFromStatusIndex(ctx, oldStatus, id); err != nil {
 		if !isNotFoundError(err) {
+			return err
+		}
+	}
+	if newStatus == types.ContentChallengeStatus_CONTENT_CHALLENGE_STATUS_ACTIVE {
+		if err := enqueueDue(ctx, k.ContentChallengeResponseDue, 0, id); err != nil {
 			return err
 		}
 	}
@@ -666,9 +697,11 @@ func (k Keeper) IterateContentChallengesByStatus(ctx context.Context, status typ
 
 // IterateActiveContentChallenges iterates over active content challenges.
 func (k Keeper) IterateActiveContentChallenges(ctx context.Context, fn func(index int64, cc types.ContentChallenge) bool) {
-	_ = k.IterateContentChallengesByStatus(ctx, types.ContentChallengeStatus_CONTENT_CHALLENGE_STATUS_ACTIVE, func(id uint64, cc types.ContentChallenge) bool {
-		return fn(int64(id), cc)
-	})
+	if err := k.IterateContentChallengesByStatus(ctx, types.ContentChallengeStatus_CONTENT_CHALLENGE_STATUS_ACTIVE, func(id uint64, cc types.ContentChallenge) bool {
+		return fn(commontypes.Saturate[int64](id), cc)
+	}); err != nil {
+		sdk.UnwrapSDKContext(ctx).Logger().Error("IterateActiveContentChallenges: k.IterateContentChallengesByStatus failed", "err", err)
+	}
 }
 
 // SweepExpiredContentJuryReviews resolves content-challenge jury reviews whose

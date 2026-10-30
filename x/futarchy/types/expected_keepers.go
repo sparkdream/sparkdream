@@ -44,6 +44,9 @@ type CommonsKeeper interface {
 	// IsCouncilAuthorized checks if addr is authorized via governance, council policy,
 	// or committee membership.
 	IsCouncilAuthorized(ctx context.Context, addr string, council string, committee string) bool
+	// IsCouncilOrCommitteePolicy accepts the gov authority, the council policy
+	// address or the committee policy address -- never an individual member.
+	IsCouncilOrCommitteePolicy(ctx context.Context, addr string, council string, committee string) bool
 }
 
 // RepKeeper defines the expected interface for the x/rep module.

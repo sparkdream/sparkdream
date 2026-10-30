@@ -1,38 +1,25 @@
 package simulation
 
 import (
-	"math/rand"
-
-	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
 
 	"sparkdream/x/federation/keeper"
 	"sparkdream/x/federation/types"
 )
 
+// SimulateMsgRemovePeer is always a NoOp. Removal starts the irreversible
+// cleanup of a peer's content, links and attestations, so RemovePeer accepts
+// only x/gov or the Commons Council / Operations Committee policy address
+// (isCouncilPolicy), never a single member. Sim accounts are never made a
+// group or committee policy.
 func SimulateMsgRemovePeer(
 	ak types.AuthKeeper,
 	bk types.BankKeeper,
 	k keeper.Keeper,
 	txGen client.TxConfig,
 ) simtypes.Operation {
-	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
-	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		simAccount, _ := simtypes.RandomAcc(r, accs)
-
-		peer, err := getOrCreateActivePeer(r, ctx, k, simAccount.Address.String())
-		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgRemovePeer{}), "failed to get/create active peer"), nil, nil
-		}
-
-		peer.Status = types.PeerStatus_PEER_STATUS_REMOVED
-		peer.RemovedAt = ctx.BlockTime().Unix()
-		if err := k.Peers.Set(ctx, peer.Id, peer); err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgRemovePeer{}), "failed to update peer"), nil, nil
-		}
-
-		return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgRemovePeer{}), "ok (direct keeper call)"), nil, nil
-	}
+	return operation(ak, bk, k, txGen, &types.MsgRemovePeer{}, func(e *simEnv) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
+		return noOp(&types.MsgRemovePeer{}, "policy-only: needs x/gov or a commons council/committee policy address")
+	})
 }

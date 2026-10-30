@@ -22,9 +22,9 @@ func (k msgServer) RevealRecovery(ctx context.Context, msg *types.MsgRevealRecov
 	if _, err := k.addressCodec.StringToBytes(msg.NewAddress); err != nil {
 		return nil, errorsmod.Wrap(err, "invalid new address")
 	}
-	id, err := k.Keeper.RevealRecovery(ctx, msg.Revealer, msg.Member, msg.NewAddress, msg.Preimage)
+	id, reason, err := k.Keeper.RevealRecovery(ctx, msg.Revealer, msg.Member, msg.NewAddress, msg.Preimage)
 	if err != nil {
 		return nil, err
 	}
-	return &types.MsgRevealRecoveryResponse{MigrationId: id}, nil
+	return &types.MsgRevealRecoveryResponse{MigrationId: id, FailureReason: reason}, nil
 }

@@ -10,8 +10,7 @@ import (
 )
 
 func (k msgServer) CompleteInterim(ctx context.Context, msg *types.MsgCompleteInterim) (*types.MsgCompleteInterimResponse, error) {
-	creatorAddr, err := k.addressCodec.StringToBytes(msg.Creator)
-	if err != nil {
+	if _, err := k.addressCodec.StringToBytes(msg.Creator); err != nil {
 		return nil, errorsmod.Wrap(err, "invalid creator address")
 	}
 
@@ -23,10 +22,13 @@ func (k msgServer) CompleteInterim(ctx context.Context, msg *types.MsgCompleteIn
 
 	// Authorization check based on interim type
 	if interim.Type == types.InterimType_INTERIM_TYPE_ADJUDICATION {
-		// ADJUDICATION interims can only be completed by Technical Committee members
-		if !k.Keeper.IsOperationsCommittee(ctx, creatorAddr) {
-			return nil, errorsmod.Wrap(types.ErrUnauthorized,
-				fmt.Sprintf("only technical committee members can complete ADJUDICATION interims (creator: %s)", msg.Creator))
+		// An ADJUDICATION verdict upholds or rejects a challenge (slashing
+		// one side), so it needs an executed proposal: the Commons Operations
+		// Committee policy, the Commons Council policy or x/gov, never a
+		// single committee member.
+		if !k.Keeper.isCouncilOrCommitteePolicy(ctx, msg.Creator, "commons", "operations") {
+			return nil, errorsmod.Wrap(types.ErrNotGovAuthority,
+				fmt.Sprintf("only the Commons Operations Committee policy (a committee proposal), the Commons Council policy or x/gov can complete ADJUDICATION interims (creator: %s)", msg.Creator))
 		}
 		// The verdict is structured, not parsed from the notes: a free-text
 		// keyword that failed to match used to strand the challenged initiative
@@ -36,18 +38,15 @@ func (k msgServer) CompleteInterim(ctx context.Context, msg *types.MsgCompleteIn
 				"completing an ADJUDICATION interim requires a decision: ADJUDICATION_DECISION_UPHOLD or ADJUDICATION_DECISION_REJECT")
 		}
 	} else {
-		// Regular interims can only be completed by assignees
-		isAssignee := false
-		for _, assigneeStr := range interim.Assignees {
-			if k.Keeper.CanActAs(ctx, msg.Creator, assigneeStr) {
-				isAssignee = true
-				break
-			}
-		}
-		if !isAssignee {
-			return nil, errorsmod.Wrap(types.ErrUnauthorized,
-				fmt.Sprintf("only assignees can complete this interim (creator: %s not in assignees)", msg.Creator))
-		}
+		// Every other interim is paid only through MsgApproveInterim, by the
+		// Operations Committee and never by an assignee (REP-E-02, REP-E-05).
+		// Completing one here let the payee certify their own payment: a
+		// member could create an EXPERT interim and collect 1,500 DREAM in
+		// the next transaction, or farm reputation up the trust ladder, and a
+		// seated juror could take the jury-duty budget without voting.
+		return nil, errorsmod.Wrapf(types.ErrInterimNeedsApproval,
+			"interim %d is %s; submit the work with MsgSubmitInterimWork and the Operations Committee approves it with MsgApproveInterim",
+			interim.Id, interim.Type)
 	}
 
 	// Complete the interim directly using the keeper method

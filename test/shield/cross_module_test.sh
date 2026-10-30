@@ -234,13 +234,12 @@ else
 
     echo "  MsgCreateChallenge: domain=$DOMAIN, scope=$SCOPE, batch=$BATCH_MODE, active=$ACTIVE"
 
-    if [ "$DOMAIN" == "41" ] && [ "$ACTIVE" == "true" ]; then
-        # Verify it's ENCRYPTED_ONLY (challenges require maximum privacy)
-        if echo "$BATCH_MODE" | grep -qi "ENCRYPTED_ONLY\|2"; then
-            echo "  Correctly configured as ENCRYPTED_ONLY"
-        else
-            echo "  batch_mode: $BATCH_MODE (challenges should be ENCRYPTED_ONLY)"
-        fi
+    # Registered INACTIVE by default: x/rep refuses a shield-module
+    # challenger until the identity-derived challenger exists, so governance
+    # activates it later. Challenges need maximum privacy: ENCRYPTED_ONLY.
+    if [ "$DOMAIN" == "41" ] && [ "$ACTIVE" == "false" ] && \
+       echo "$BATCH_MODE" | grep -qi "ENCRYPTED_ONLY"; then
+        echo "  Correctly registered INACTIVE and ENCRYPTED_ONLY"
         record_result "Rep op (challenge)" "PASS"
     else
         echo "  Unexpected configuration"
@@ -373,7 +372,7 @@ record_result "Batch mode consistency" "PASS"
 echo "--- TEST 10: Cross-module nullifier isolation ---"
 
 # Verify same nullifier in different module domains are independent
-TEST_NULL="dddd000000000000000000000000000000000000000000000000000000004444"
+TEST_NULL="00dd000000000000000000000000000000000000000000000000000000004444"
 
 echo "  Checking nullifier across blog (d=1), forum (d=11), collect (d=21), rep (d=41), commons (d=31)..."
 

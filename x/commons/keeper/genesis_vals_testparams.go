@@ -37,3 +37,12 @@ var SupervisoryMinExecution = 1 * time.Second
 var CouncilUpdateCooldown = 1 * time.Second
 var CommitteeUpdateCooldown = 1 * time.Second
 var SupervisoryUpdateCooldown = 1 * time.Second
+
+// Secret ballots and polls (test values). MinSecretBallotVoters is the
+// smallest voter snapshot (members with a registered ZK key) a secret ballot
+// accepts: below it the tally all but names each vote. MinPollDuration is the
+// shortest poll; PollRetention is how long a closed or cancelled poll stays
+// queryable before it is pruned.
+var MinSecretBallotVoters uint64 = 2
+var MinPollDuration = 10 * time.Second
+var PollRetention = 2 * time.Minute

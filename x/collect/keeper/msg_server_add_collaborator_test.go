@@ -128,7 +128,7 @@ func TestAddCollaborator(t *testing.T) {
 				coll, _ := f.keeper.Collection.Get(f.ctx, collID)
 				params, _ := f.keeper.Params.Get(f.ctx)
 				coll.NonMemberCollaboratorCount = params.MaxNonMemberCollaboratorsPerCollection
-				f.keeper.Collection.Set(f.ctx, collID, coll)
+				require.NoError(t, f.keeper.Collection.Set(f.ctx, collID, coll))
 				return collID
 			},
 			msg: func(f *testFixture, collID uint64) *types.MsgAddCollaborator {
@@ -188,7 +188,7 @@ func TestAddCollaborator(t *testing.T) {
 				collID := f.createCollection(t, f.owner)
 				coll, _ := f.keeper.Collection.Get(f.ctx, collID)
 				coll.Immutable = true
-				f.keeper.Collection.Set(f.ctx, collID, coll)
+				require.NoError(t, f.keeper.Collection.Set(f.ctx, collID, coll))
 				return collID
 			},
 			msg: func(f *testFixture, collID uint64) *types.MsgAddCollaborator {
@@ -209,7 +209,7 @@ func TestAddCollaborator(t *testing.T) {
 				// Set collaborator_count to max
 				coll, _ := f.keeper.Collection.Get(f.ctx, collID)
 				coll.CollaboratorCount = 20
-				f.keeper.Collection.Set(f.ctx, collID, coll)
+				require.NoError(t, f.keeper.Collection.Set(f.ctx, collID, coll))
 				return collID
 			},
 			msg: func(f *testFixture, collID uint64) *types.MsgAddCollaborator {

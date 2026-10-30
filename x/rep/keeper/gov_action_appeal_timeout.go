@@ -6,6 +6,7 @@ import (
 
 	"sparkdream/x/rep/types"
 
+	"cosmossdk.io/collections"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 )
 
@@ -37,40 +38,26 @@ func (k Keeper) TimeoutExpiredAppeals(ctx context.Context) error {
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	now := sdkCtx.BlockTime().Unix()
 
-	processed := 0
-	iter, err := k.GovActionAppeal.Iterate(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("iterate gov action appeals: %w", err)
-	}
-	defer iter.Close()
-
 	type pending struct {
 		id     uint64
 		appeal types.GovActionAppeal
 	}
 	var toProcess []pending
 
-	for ; iter.Valid(); iter.Next() {
-		if processed >= maxAppealTimeoutsPerBlock {
-			break
+	// Due PENDING appeals only (deadline < now), read from the deadline
+	// queue so the per-block cost follows open appeals, not history.
+	rng := new(collections.Range[collections.Pair[int64, uint64]]).
+		EndExclusive(collections.Join[int64, uint64](now, 0))
+	if err := k.PendingGovActionAppeals.Walk(ctx, rng, func(key collections.Pair[int64, uint64]) (bool, error) {
+		appeal, err := k.GovActionAppeal.Get(ctx, key.K2())
+		if err != nil || appeal.Status != types.GovAppealStatus_GOV_APPEAL_STATUS_PENDING {
+			return false, nil
 		}
-		kv, err := iter.KeyValue()
-		if err != nil {
-			continue
-		}
-		appeal := kv.Value
-		if appeal.Status != types.GovAppealStatus_GOV_APPEAL_STATUS_PENDING {
-			continue
-		}
-		if appeal.Deadline == 0 || appeal.Deadline >= now {
-			continue
-		}
-		toProcess = append(toProcess, pending{id: kv.Key, appeal: appeal})
-		processed++
+		toProcess = append(toProcess, pending{id: key.K2(), appeal: appeal})
+		return len(toProcess) >= maxAppealTimeoutsPerBlock, nil
+	}); err != nil {
+		return fmt.Errorf("walk pending gov action appeals: %w", err)
 	}
-
-	// Close the iterator before mutating.
-	iter.Close()
 
 	for _, p := range toProcess {
 		// Deadline jury tally: if a quorum of the seated jury has voted, let the
@@ -133,7 +120,7 @@ func (k Keeper) TimeoutExpiredAppeals(ctx context.Context) error {
 		}
 
 		p.appeal.Status = types.GovAppealStatus_GOV_APPEAL_STATUS_TIMEOUT
-		if err := k.GovActionAppeal.Set(ctx, p.id, p.appeal); err != nil {
+		if err := k.SetGovActionAppeal(ctx, p.appeal); err != nil {
 			sdkCtx.Logger().Error("failed to update appeal on timeout",
 				"appeal_id", p.id, "error", err)
 			continue

@@ -5,9 +5,16 @@ import "cosmossdk.io/math"
 // Defaults for accountability flows (member reports, warnings, gov action
 // appeals).
 var (
-	// DefaultMinSentinelBond is the minimum DREAM required to file or co-sign
-	// a member report.
-	DefaultMinSentinelBond = math.NewInt(500)
+	// DefaultMinSentinelBond is the minimum staked DREAM (micro-DREAM) required
+	// to file or co-sign a member report: 500 DREAM, the forum sentinel
+	// minimum. It was 500 micro-DREAM (REP-R-15).
+	DefaultMinSentinelBond = math.NewInt(500_000_000)
+
+	// DefaultMaxMemberReportBond caps the DREAM each reporter and co-signer
+	// locks behind a member report: the lesser of their staked DREAM and
+	// this cap (100 DREAM). It was 1000 micro-DREAM for the reporter and
+	// uncapped for co-signers (REP-R-15).
+	DefaultMaxMemberReportBond = math.NewInt(100_000_000)
 )
 
 const (

@@ -27,11 +27,10 @@ type BankKeeper interface {
 // CommonsKeeper defines the expected interface for the Commons module.
 // Used for council-gated operational parameter updates.
 type CommonsKeeper interface {
-	// IsCouncilAuthorized checks if addr is authorized via governance, council policy,
-	// or committee membership.
-	IsCouncilAuthorized(ctx context.Context, addr string, council string, committee string) bool
-	// SpendFromTreasury transfers coins from a council treasury to a recipient.
-	SpendFromTreasury(ctx context.Context, council string, recipient sdk.AccAddress, amount sdk.Coins) error
+	// IsCouncilOrCommitteePolicy is true only for the gov authority or a
+	// council / committee policy address (an executed proposal), never a
+	// single committee member's signature.
+	IsCouncilOrCommitteePolicy(ctx context.Context, addr string, council string, committee string) bool
 }
 
 // RepKeeper defines the expected interface for the Rep module.

@@ -12,7 +12,7 @@ is x/vault ([x-vault-spec.md](x-vault-spec.md)).
 |---|---|
 | Lose one device without losing the account; no single hot key can drain it | **Native multisig** (this document) |
 | Day-to-day posting, voting, reacting without collecting signatures each time | Native multisig as the cold root plus an **x/session session key** as the hot key (below) |
-| Several people sharing one treasury, signers that change over time, approvals from Keplr | **x/vault** ([x-vault-spec.md](x-vault-spec.md)): keyless stable address, weighted rotatable signers, approvals by ordinary txs |
+| Several people sharing one treasury, signers that change over time, approvals from Keplr | **x/vault** ([x-vault-spec.md](x-vault-spec.md)): keyless stable address, weighted rotatable signers (each listed signer accepts before its weight counts), approvals by ordinary txs |
 
 ## What works today
 
@@ -122,6 +122,29 @@ council path applies, exactly as for a lost single key.
 
 Recovery and council migrations clear the ZK key, so a thief cannot keep a
 signature-derived shield secret through a recovery.
+
+A rotation request does not reserve the new address: only
+`MsgAcceptMigration`, multisigned by the new set, does. Several requests may
+name the same new multisig; the first one the new set accepts wins. Plan the
+signature collection for the accept within the 7-day window.
+
+A recovery reveal is final once its preimage and seal check out: if the
+migration cannot open (for example because the new address became a member in
+the meantime), the reveal still succeeds with `migration_id = 0` and a
+`failure_reason`, and the commitment is consumed, because its preimage is
+public. Reveal another commitment for the next attempt. On the recovery and
+council paths the old address (the tombstone) may still sign
+`MsgUndelegate`, `MsgWithdrawDelegatorReward` and
+`MsgWithdrawValidatorCommission`, but no longer `MsgBeginRedelegate`,
+`MsgCancelUnbondingDelegation` or `MsgSend`; a multisig whose old set was
+compromised cannot be used to steer its delegations. Finalization of a
+recovery or council migration also starts unbonding every delegation of the
+old address, so a lost signer set does not leave stake bonded forever; once
+the unbonding period ends, the new address collects the SPARK with
+`MsgSweepTombstone`. A key rotation leaves delegations alone.
+
+An interchain account is never a person: it cannot be invited, accept an
+invitation, sign a vault or be a migration target.
 
 ### Sign-in to services
 

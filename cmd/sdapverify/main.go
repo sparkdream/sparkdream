@@ -180,7 +180,7 @@ func main() {
 
 	log.Printf("sdapverify: verifier=%s peers=%v lcd=%s poll=%s",
 		v.self, cfg.PeerIDs, cfg.LCD, cfg.PollInterval)
-	if err := v.Run(ctx); err != nil && err != context.Canceled {
+	if err := v.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
 		log.Fatalf("sdapverify: %v", err)
 	}
 	log.Println("sdapverify: stopped")
@@ -226,7 +226,8 @@ func loadConfig() Config {
 		LCD:     env("SDA_LCD", "https://api-dev.sparkdream.io"),
 		ChainID: env("SDA_CHAIN_ID", "sparkdream-dev-1"),
 		Prefix:  env("SDA_PREFIX", "sprkdrm"),
-		Denom:   env("SDA_DENOM", "usparz.sparkdreamdev"),
+		// Empty = the chain's bond denom, read from x/identity.
+		Denom: env("SDA_DENOM", ""),
 		// SDA_PEER_IDS is a comma-separated list; SDA_PEER_ID is still read
 		// when it is unset.
 		PeerIDs:             splitList(env("SDA_PEER_IDS", env("SDA_PEER_ID", ""))),

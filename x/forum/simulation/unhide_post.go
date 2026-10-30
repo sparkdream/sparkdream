@@ -1,78 +1,74 @@
 package simulation
 
 import (
-	"math/rand"
-
-	"github.com/cosmos/cosmos-sdk/baseapp"
+	"cosmossdk.io/math"
 	"github.com/cosmos/cosmos-sdk/client"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
 
 	"sparkdream/x/forum/keeper"
 	"sparkdream/x/forum/types"
 )
 
-// SimulateMsgUnhidePost reverses a hidden post via direct keeper calls,
-// matching the style used by SimulateMsgHidePost and the other reverse-
-// action sim ops (UnpinPost, UnlockThread). It skips the sentinel /
-// council authorization gate and the parent-category dangling guard that
-// the real handler enforces — integration and unit tests cover those
-// paths.
-//
-// To exercise the reversal as faithfully as possible without dragging in
-// the full bond / sentinel-activity machinery, the op seeds a post into
-// HIDDEN status (using getOrCreatePost + a status flip) and a matching
-// HideRecord, then flips it back to ACTIVE and removes the record.
+// SimulateMsgUnhidePost delivers MsgUnhidePost on the sentinel
+// self-correction path: the sentinel that hid a post unhides it inside
+// sentinel_unhide_window, while the hide is not under appeal and the post's
+// category still exists. The council path needs a Commons Operations
+// Committee member, which the op uses when one exists among the sim
+// accounts.
 func SimulateMsgUnhidePost(
 	ak types.AuthKeeper,
 	bk types.BankKeeper,
 	k keeper.Keeper,
 	txGen client.TxConfig,
 ) simtypes.Operation {
-	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
-	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		msgType := sdk.MsgTypeURL(&types.MsgUnhidePost{})
-
-		simAccount, _ := simtypes.RandomAcc(r, accs)
-
-		// Seed a post we can move through HIDDEN -> ACTIVE.
-		postID, err := getOrCreatePost(r, ctx, k, simAccount.Address.String())
-		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, msgType, "failed to get/create post"), nil, nil
+	return operation(ak, bk, k, txGen, &types.MsgUnhidePost{}, func(e *simEnv) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
+		msg := &types.MsgUnhidePost{}
+		if e.params.ModerationPaused {
+			return noOp(msg, "moderation is paused")
 		}
-
-		post, err := k.Post.Get(ctx, postID)
-		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, msgType, "failed to read post"), nil, nil
+		window := e.params.SentinelUnhideWindow
+		if window == 0 {
+			window = types.DefaultSentinelUnhideWindow
 		}
-
-		// Force the post into HIDDEN if it isn't already (no-op if it is).
-		if post.Status != types.PostStatus_POST_STATUS_HIDDEN {
-			post.Status = types.PostStatus_POST_STATUS_HIDDEN
-			post.HiddenBy = simAccount.Address.String()
-			post.HiddenAt = ctx.BlockTime().Unix()
-			if err := k.Post.Set(ctx, postID, post); err != nil {
-				return simtypes.NoOpMsg(types.ModuleName, msgType, "failed to seed HIDDEN status"), nil, nil
+		var council []string
+		for _, a := range e.opsCommittee() {
+			council = append(council, a.Address.String())
+		}
+		type unhide struct {
+			signer string
+			post   uint64
+		}
+		var targets []unhide
+		err := e.k.HideRecord.Walk(e.ctx, nil, func(id uint64, hr types.HideRecord) (bool, error) {
+			if hr.Appealed {
+				return false, nil
 			}
-			// Best-effort matching HideRecord so the reversal can clean it up.
-			_ = k.HideRecord.Set(ctx, postID, types.HideRecord{
-				PostId:   postID,
-				Sentinel: simAccount.Address.String(),
-				HiddenAt: post.HiddenAt,
-			})
+			p, ok := e.post(id)
+			if !ok || p.Status != types.PostStatus_POST_STATUS_HIDDEN {
+				return false, nil
+			}
+			if _, ok := e.category(p.CategoryId); !ok {
+				return false, nil
+			}
+			if hr.Sentinel != "" && e.now()-hr.HiddenAt <= window {
+				if _, ok := e.account(hr.Sentinel); ok {
+					targets = append(targets, unhide{hr.Sentinel, id})
+				}
+			}
+			for _, c := range council {
+				targets = append(targets, unhide{c, id})
+			}
+			return false, nil
+		})
+		if err != nil {
+			return noOpErr(msg, err)
 		}
-
-		// Now perform the reversal: flip status, clear hide metadata, drop
-		// the HideRecord. Mirrors what MsgUnhidePost does on the happy path
-		// minus the auth + bond restoration paths.
-		post.Status = types.PostStatus_POST_STATUS_ACTIVE
-		post.HiddenBy = ""
-		post.HiddenAt = 0
-		if err := k.Post.Set(ctx, postID, post); err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, msgType, "failed to flip status"), nil, nil
+		t, ok := pick(e.r, targets)
+		if !ok {
+			return noOp(msg, "no hide the signer may undo")
 		}
-		_ = k.HideRecord.Remove(ctx, postID)
-
-		return simtypes.NoOpMsg(types.ModuleName, msgType, "ok (direct keeper call)"), nil, nil
-	}
+		acc, _ := e.account(t.signer)
+		msg.Creator, msg.PostId = t.signer, t.post
+		return e.submit(acc, msg, math.ZeroInt())
+	})
 }

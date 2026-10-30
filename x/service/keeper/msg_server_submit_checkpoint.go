@@ -22,6 +22,10 @@ func (k msgServer) SubmitCheckpoint(ctx context.Context, msg *types.MsgSubmitChe
 	if err != nil {
 		return nil, types.ErrInvalidSigner.Wrap("invalid operator address")
 	}
+	// A raised min_bond takes effect on the operator's next message (§3.6).
+	if err := k.reconcileMinBond(ctx, opBytes, msg.ServiceType); err != nil {
+		return nil, err
+	}
 	op, ok := k.GetOperator(ctx, opBytes, msg.ServiceType)
 	if !ok {
 		return nil, types.ErrOperatorNotFound.Wrapf("%s / %s", msg.Operator, msg.ServiceType)

@@ -59,51 +59,51 @@ func TestMsgServerSubmitJurorVote(t *testing.T) {
 		// Setup params
 		params := types.DefaultParams()
 		params.JurySize = 3
-		_ = k.Params.Set(ctx, params)
+		require.NoError(t, k.Params.Set(ctx, params))
 
 		// Setup: create jury review
 		juror1 := sdk.AccAddress([]byte("juror1"))
 		juror2 := sdk.AccAddress([]byte("juror2"))
 		juror3 := sdk.AccAddress([]byte("juror3"))
 
-		k.Member.Set(ctx, juror1.String(), types.Member{
+		require.NoError(t, k.Member.Set(ctx, juror1.String(), types.Member{
 			Address:          juror1.String(),
 			DreamBalance:     PtrInt(math.ZeroInt()),
 			StakedDream:      PtrInt(math.ZeroInt()),
 			LifetimeEarned:   PtrInt(math.ZeroInt()),
 			LifetimeBurned:   PtrInt(math.ZeroInt()),
 			ReputationScores: map[string]string{"tag": "100.0"},
-		})
+		}))
 
-		k.Member.Set(ctx, juror2.String(), types.Member{
+		require.NoError(t, k.Member.Set(ctx, juror2.String(), types.Member{
 			Address:          juror2.String(),
 			DreamBalance:     keeper.PtrInt(math.ZeroInt()),
 			StakedDream:      keeper.PtrInt(math.ZeroInt()),
 			LifetimeEarned:   keeper.PtrInt(math.ZeroInt()),
 			LifetimeBurned:   keeper.PtrInt(math.ZeroInt()),
 			ReputationScores: map[string]string{"tag": "100.0"},
-		})
-		k.Member.Set(ctx, juror3.String(), types.Member{
+		}))
+		require.NoError(t, k.Member.Set(ctx, juror3.String(), types.Member{
 			Address:          juror3.String(),
 			DreamBalance:     keeper.PtrInt(math.ZeroInt()),
 			StakedDream:      keeper.PtrInt(math.ZeroInt()),
 			LifetimeEarned:   keeper.PtrInt(math.ZeroInt()),
 			LifetimeBurned:   keeper.PtrInt(math.ZeroInt()),
 			ReputationScores: map[string]string{"tag": "100.0"},
-		})
+		}))
 
 		// Create project, initiative, challenge
 		creator := sdk.AccAddress([]byte("creator"))
-		k.Member.Set(ctx, creator.String(), types.Member{
+		require.NoError(t, k.Member.Set(ctx, creator.String(), types.Member{
 			Address:          creator.String(),
 			DreamBalance:     keeper.PtrInt(math.ZeroInt()),
 			StakedDream:      keeper.PtrInt(math.ZeroInt()),
 			LifetimeEarned:   keeper.PtrInt(math.ZeroInt()),
 			LifetimeBurned:   keeper.PtrInt(math.ZeroInt()),
 			ReputationScores: map[string]string{"tag": "100.0"},
-		})
+		}))
 		projectID, _ := k.CreateProject(ctx, creator, "Proj", "Desc", []string{"tag"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical", math.NewInt(10000), math.NewInt(1000), false)
-		k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(10000), math.NewInt(1000))
+		require.NoError(t, k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(10000), math.NewInt(1000)))
 		// The juror below answers criterion "quality", so the initiative has to
 		// declare it — an id that resolves to nothing is now rejected rather
 		// than stored as unverifiable free text.
@@ -116,7 +116,7 @@ func TestMsgServerSubmitJurorVote(t *testing.T) {
 			Challenger:   challenger.String(),
 			Status:       types.ChallengeStatus_CHALLENGE_STATUS_ACTIVE,
 		}
-		_ = k.Challenge.Set(ctx, 1, challenge)
+		require.NoError(t, k.Challenge.Set(ctx, 1, challenge))
 		challengeID := uint64(1)
 
 		err := k.CreateJuryReview(ctx, challengeID, "response", []string{}) // wantErr: "collections: not found"
@@ -129,7 +129,7 @@ func TestMsgServerSubmitJurorVote(t *testing.T) {
 		err = k.JuryReview.Walk(ctx, nil, func(id uint64, jr types.JuryReview) (bool, error) {
 			juryReviewID = id
 			jr.Jurors = []string{jurorStr}
-			_ = k.JuryReview.Set(ctx, id, jr)
+			require.NoError(t, k.JuryReview.Set(ctx, id, jr))
 			return true, nil
 		})
 		require.NoError(t, err)

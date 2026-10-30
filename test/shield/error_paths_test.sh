@@ -158,7 +158,7 @@ echo "--- TEST 3: Nullifier domain isolation ---"
 
 # Test that nullifiers in different domains don't interfere
 # Query nullifier in domain 1 (blog MsgCreatePost) and domain 11 (forum MsgCreatePost)
-RANDOM_NULL="aaaa000000000000000000000000000000000000000000000000000000001111"
+RANDOM_NULL="00aa000000000000000000000000000000000000000000000000000000001111"
 
 NULL_D1=$($BINARY query shield nullifier-used 1 0 "$RANDOM_NULL" --output json 2>&1)
 NULL_D11=$($BINARY query shield nullifier-used 11 0 "$RANDOM_NULL" --output json 2>&1)
@@ -191,7 +191,7 @@ fi
 echo "--- TEST 4: Nullifier scope isolation ---"
 
 # Same nullifier in same domain but different scopes should be independent
-SCOPE_NULL="bbbb000000000000000000000000000000000000000000000000000000002222"
+SCOPE_NULL="00bb000000000000000000000000000000000000000000000000000000002222"
 
 NULL_S0=$($BINARY query shield nullifier-used 1 0 "$SCOPE_NULL" --output json 2>&1)
 NULL_S1=$($BINARY query shield nullifier-used 1 1 "$SCOPE_NULL" --output json 2>&1)
@@ -366,7 +366,7 @@ fi
 # =========================================================================
 echo "--- TEST 10: Fresh identity rate limit ---"
 
-FRESH_IDENTITY="cccc000000000000000000000000000000000000000000000000000000003333"
+FRESH_IDENTITY="00cc000000000000000000000000000000000000000000000000000000003333"
 RATE_RESULT=$($BINARY query shield identity-rate-limit "$FRESH_IDENTITY" --output json 2>&1)
 
 if echo "$RATE_RESULT" | grep -qi "not found\|error"; then

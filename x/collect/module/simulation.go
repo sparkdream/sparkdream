@@ -13,12 +13,13 @@ import (
 
 // GenerateGenesisState creates a randomized GenState of the module.
 func (AppModule) GenerateGenesisState(simState *module.SimulationState) {
-	accs := make([]string, len(simState.Accounts))
-	for i, acc := range simState.Accounts {
-		accs[i] = acc.Address.String()
-	}
+	// Hides become appealable after appeal_cooldown_blocks; the default
+	// (600) is longer than a simulation run, so MsgAppealHide could never
+	// deliver.
+	params := types.DefaultParams()
+	params.AppealCooldownBlocks = 5
 	collectGenesis := types.GenesisState{
-		Params: types.DefaultParams(),
+		Params: params,
 	}
 	simState.GenState[types.ModuleName] = simState.Cdc.MustMarshalJSON(&collectGenesis)
 }
@@ -451,6 +452,21 @@ func (am AppModule) WeightedOperations(simState module.SimulationState) []simtyp
 	operations = append(operations, simulation.NewWeightedOperation(
 		weightMsgUnhideContent,
 		collectsimulation.SimulateMsgUnhideContent(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
+	))
+	const (
+		opWeightMsgResolveCurationChallenge          = "op_weight_msg_collect"
+		defaultWeightMsgResolveCurationChallenge int = 100
+	)
+
+	var weightMsgResolveCurationChallenge int
+	simState.AppParams.GetOrGenerate(opWeightMsgResolveCurationChallenge, &weightMsgResolveCurationChallenge, nil,
+		func(_ *rand.Rand) {
+			weightMsgResolveCurationChallenge = defaultWeightMsgResolveCurationChallenge
+		},
+	)
+	operations = append(operations, simulation.NewWeightedOperation(
+		weightMsgResolveCurationChallenge,
+		collectsimulation.SimulateMsgResolveCurationChallenge(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
 	))
 
 	return operations

@@ -252,3 +252,22 @@ EndBlocker table row (L15) to drop "accuracy decay" (the ring is self-expiring;
 no decay pass exists). Update the "not yet implemented" note at L3476 to mark
 accuracy freshness as handled by the window rather than by decay.
 ```
+
+## Which outcomes reach the window (2026-10 hardening)
+
+- Hide, lock, move and pin outcomes are recorded only for appeals filed through
+  the forum's own handlers (`MsgAppealPost`, `MsgAppealThreadLock`,
+  `MsgAppealThreadMove`, `MsgDisputePin`). x/rep's `MsgAppealGovAction`
+  refuses these action types outright (they are module-owned), and action
+  types the forum does not own are rejected by the forum appeal target.
+- TIMEOUT records no outcome (neither party is blamed).
+- A sentinel can no longer escape an outcome by walking an action back after
+  the appeal is filed: self-unhide, council unhide, council unlock and unpin
+  are refused while the appeal is pending.
+- Curation outcomes (`ActionKindForumCuration`, upheld only) count only when
+  the thread author endorsed the proposal (author confirmation, or an
+  auto-confirm where the author was active after the proposal), never for the
+  sentinel's own reply, and at most `MaxRewardedCurationsPerEpoch` (10) per
+  sentinel reward epoch. This keeps self-curation from diluting overturned
+  hides in the window.
+

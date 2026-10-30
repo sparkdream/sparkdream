@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -191,6 +192,26 @@ func TestAccountChoices(t *testing.T) {
 	// only for an open login page
 	if status, _ := h.accountChoices(t, "no-such-request"); status != http.StatusBadRequest {
 		t.Fatalf("unknown request: %d", status)
+	}
+}
+
+// Grants naming the key can fill a page ahead of the real one (anyone can
+// create them): account discovery follows next_key to find it.
+func TestAccountChoicesFollowPages(t *testing.T) {
+	h, granter, _ := delegationHarness(t)
+	h.lcd.mu.Lock()
+	h.lcd.pageSize = 2
+	delete(h.lcd.grants, "7")
+	for i := 1; i <= 4; i++ {
+		spam, _ := granterAddr(fmt.Sprintf("spam-%d", i))
+		h.lcd.grants[strconv.Itoa(i)] = grantJSON(strconv.Itoa(i), spam, h.addr, signInGrantType, grantStatusActive, "spam.example", time.Now().Add(time.Hour))
+	}
+	h.lcd.grants["9"] = grantJSON("9", granter, h.addr, signInGrantType, grantStatusActive, testService, time.Now().Add(time.Hour))
+	h.lcd.mu.Unlock()
+
+	request, _ := h.openPage(t)
+	if status, accounts := h.accountChoices(t, request); status != http.StatusOK || len(accounts) != 1 || accounts[0].Address != granter {
+		t.Fatalf("accounts: %d %+v", status, accounts)
 	}
 }
 

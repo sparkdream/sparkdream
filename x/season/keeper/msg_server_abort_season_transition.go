@@ -2,17 +2,20 @@ package keeper
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"sparkdream/x/season/types"
 
+	"cosmossdk.io/collections"
 	errorsmod "cosmossdk.io/errors"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 )
 
 // AbortSeasonTransition aborts a stuck season transition.
-// Authorized: Commons Council policy address or Commons Operations Committee members.
-// Can only abort before critical phases (reputation archival/reset).
+// Authorized: governance, the Commons Council policy address or the Commons
+// Operations Committee policy address (never a single committee member).
+// Can only abort before the retro-PGF payout (SEA-01).
 func (k msgServer) AbortSeasonTransition(ctx context.Context, msg *types.MsgAbortSeasonTransition) (*types.MsgAbortSeasonTransitionResponse, error) {
 	if _, err := k.addressCodec.StringToBytes(msg.Authority); err != nil {
 		return nil, errorsmod.Wrap(err, "invalid authority address")
@@ -20,8 +23,8 @@ func (k msgServer) AbortSeasonTransition(ctx context.Context, msg *types.MsgAbor
 
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 
-	// Check authority (Commons Council or Operations Committee)
-	if !k.IsAuthorizedForGamification(ctx, msg.Authority) {
+	// Check authority (gov, Commons Council or Operations Committee policy)
+	if !k.IsAuthorizedForTransition(ctx, msg.Authority) {
 		return nil, types.ErrNotAuthorized
 	}
 
@@ -37,13 +40,15 @@ func (k msgServer) AbortSeasonTransition(ctx context.Context, msg *types.MsgAbor
 		return nil, types.ErrNoActiveTransition
 	}
 
-	// Cannot abort after critical phases have started (data would be inconsistent).
-	// Use an explicit allowlist so enum renumbering (retro phases added with higher numeric values)
-	// can't silently widen the abort window past reputation mutations.
+	// Cannot abort once anything irreversible has happened. Use an explicit
+	// allowlist so enum renumbering can't silently widen the abort window.
+	// SEA-01: RETRO_REWARDS pays out in the block that finishes the phase
+	// and the phase advances in that same block, so an abort is possible
+	// only while convictions are still being tallied. Aborting any later
+	// (RETURN_NOMINATION_STAKES, SNAPSHOT) would re-run the retro payout
+	// after the grace period.
 	allowedAbortPhases := map[types.TransitionPhase]bool{
-		types.TransitionPhase_TRANSITION_PHASE_RETRO_REWARDS:            true,
-		types.TransitionPhase_TRANSITION_PHASE_RETURN_NOMINATION_STAKES: true,
-		types.TransitionPhase_TRANSITION_PHASE_SNAPSHOT:                 true,
+		types.TransitionPhase_TRANSITION_PHASE_RETRO_REWARDS: true,
 	}
 	if !allowedAbortPhases[state.Phase] {
 		return nil, errorsmod.Wrapf(types.ErrTransitionTooFarToAbort,
@@ -56,8 +61,25 @@ func (k msgServer) AbortSeasonTransition(ctx context.Context, msg *types.MsgAbor
 		return nil, errorsmod.Wrap(err, "failed to get season")
 	}
 
+	// SEA-14: each abort extends the season by the grace period; cap them so
+	// a season stays inside x/rep's alias dedup horizon.
+	aborts, err := k.TransitionAborts.Get(ctx, season.Number)
+	if err != nil && !errors.Is(err, collections.ErrNotFound) {
+		return nil, errorsmod.Wrap(err, "failed to read abort count")
+	}
+	if aborts >= types.MaxTransitionAbortsPerSeason {
+		return nil, errorsmod.Wrapf(types.ErrTransitionTooFarToAbort,
+			"season %d transition already aborted %d times (max %d)", season.Number, aborts, types.MaxTransitionAbortsPerSeason)
+	}
+	if err := k.TransitionAborts.Set(ctx, season.Number, aborts+1); err != nil {
+		return nil, errorsmod.Wrap(err, "failed to record abort")
+	}
+
 	// Get params for grace period
-	params, _ := k.Params.Get(ctx)
+	params, getErr := k.Params.Get(ctx)
+	if getErr != nil && !errors.Is(getErr, collections.ErrNotFound) {
+		return nil, getErr
+	}
 
 	// Reset season to active with extended end block
 	season.Status = types.SeasonStatus_SEASON_STATUS_ACTIVE
@@ -73,7 +95,9 @@ func (k msgServer) AbortSeasonTransition(ctx context.Context, msg *types.MsgAbor
 	}
 
 	// Clear recovery state if any
-	_ = k.TransitionRecoveryState.Remove(ctx)
+	if err := k.TransitionRecoveryState.Remove(ctx); err != nil {
+		return nil, err
+	}
 
 	// Emit event
 	sdkCtx.EventManager().EmitEvent(

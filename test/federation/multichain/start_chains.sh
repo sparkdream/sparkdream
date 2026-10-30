@@ -55,6 +55,10 @@ if [ -n "$BUSY" ]; then
     exit 1
 fi
 
+# fedtest-a/fedtest-b are not the local "sparkdream" chain, so an untagged
+# (testparams) binary refuses to start on them without this opt-in.
+export SPARKDREAM_ALLOW_TEST_BUILD=1
+
 echo "=== Starting chain-a (fedtest-a) ==="
 $BINARY start --home "$CHAIN_A_HOME" > "$CHAIN_A_HOME/chain.log" 2>&1 &
 PID_A=$!

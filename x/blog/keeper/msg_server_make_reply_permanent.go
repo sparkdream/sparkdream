@@ -3,6 +3,7 @@ package keeper
 import (
 	"context"
 	"fmt"
+	commontypes "sparkdream/x/common/types"
 
 	"sparkdream/x/blog/types"
 
@@ -38,8 +39,8 @@ func (k msgServer) MakeReplyPermanent(ctx context.Context, msg *types.MsgMakeRep
 		return nil, err
 	}
 
-	if !k.meetsReplyTrustLevel(ctx, creatorAddr, int32(params.MakePermanentMinTrustLevel)) {
-		return nil, k.trustLevelError(ctx, creatorAddr, int32(params.MakePermanentMinTrustLevel), "making replies permanent")
+	if !k.meetsReplyTrustLevel(ctx, creatorAddr, commontypes.Saturate[int32](params.MakePermanentMinTrustLevel)) {
+		return nil, k.trustLevelError(ctx, creatorAddr, commontypes.Saturate[int32](params.MakePermanentMinTrustLevel), "making replies permanent")
 	}
 
 	if err := k.checkRateLimit(ctx, "make_permanent", creatorAddr, params.MaxMakePermanentPerDay); err != nil {

@@ -1,45 +1,54 @@
 package simulation
 
 import (
-	"math/rand"
-
-	sdkmath "cosmossdk.io/math"
-	"github.com/cosmos/cosmos-sdk/baseapp"
+	"cosmossdk.io/math"
 	"github.com/cosmos/cosmos-sdk/client"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
 
 	"sparkdream/x/service/keeper"
 	"sparkdream/x/service/types"
 )
 
-// SimulateMsgTopUpBond adds bond directly to a random live operator.
-func SimulateMsgTopUpBond(
-	ak types.AuthKeeper,
-	bk types.BankKeeper,
-	k keeper.Keeper,
-	txGen client.TxConfig,
-) simtypes.Operation {
-	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
-	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		op, found := findRandomOperator(r, ctx, k)
-		msg := &types.MsgTopUpBond{}
-		if !found {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "no operator available"), nil, nil
+// SimulateMsgTopUpBond adds SPARK to the bond of an ACTIVE or UNDERFUNDED
+// operator. An UNDERFUNDED operator is topped up to at least min_bond half
+// the time (returning it to ACTIVE). When no sim account is an operator one
+// registers first.
+func SimulateMsgTopUpBond(ak types.AuthKeeper, bk types.BankKeeper, k keeper.Keeper, txGen client.TxConfig) simtypes.Operation {
+	label := &types.MsgTopUpBond{}
+	return operation(ak, bk, k, txGen, label, func(e *simEnv) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
+		op, acc, ok, err := e.signedOperator(func(op types.Operator) bool {
+			return op.Status == types.OperatorStatus_OPERATOR_STATUS_ACTIVE ||
+				op.Status == types.OperatorStatus_OPERATOR_STATUS_UNDERFUNDED
+		})
+		if err != nil {
+			return noOpErr(label, err)
 		}
-		if op.Status == types.OperatorStatus_OPERATOR_STATUS_UNBONDING {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "operator is unbonding"), nil, nil
+		if !ok {
+			return noOp(label, "no ACTIVE or UNDERFUNDED operator signed by a live sim account")
 		}
-
-		additional := sdkmath.NewInt(int64(1 + r.Intn(1_000_000)))
-		msg.Operator = op.Address
-		msg.ServiceType = op.ServiceType
-		msg.AdditionalBondAmount = additional
-
-		op.BondAmount = op.BondAmount.Add(additional)
-		if err := k.PutOperator(ctx, op); err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "failed to update operator"), nil, nil
+		// Up to 2 SPARK, or exactly what returns an UNDERFUNDED operator to
+		// min_bond.
+		amount := math.NewInt(1 + e.r.Int63n(2_000_000))
+		if op.Status == types.OperatorStatus_OPERATOR_STATUS_UNDERFUNDED && e.r.Intn(2) == 0 {
+			cfg, found, err := e.serviceType(op.ServiceType)
+			if err != nil {
+				return noOpErr(label, err)
+			}
+			if found && cfg.MinBondAmount.GT(op.BondAmount) {
+				amount = cfg.MinBondAmount.Sub(op.BondAmount)
+			}
 		}
-		return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "ok (direct keeper call)"), nil, nil
-	}
+		if e.spendable(acc).LTE(amount) {
+			amount = e.spendable(acc).QuoRaw(10)
+		}
+		if !amount.IsPositive() {
+			return noOp(label, "operator holds no SPARK to add")
+		}
+		msg := &types.MsgTopUpBond{
+			Operator:             op.Address,
+			ServiceType:          op.ServiceType,
+			AdditionalBondAmount: amount,
+		}
+		return e.submit(acc, msg, amount)
+	})
 }

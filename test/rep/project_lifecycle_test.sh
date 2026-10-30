@@ -8,6 +8,7 @@ echo "    (defaults: 1M DREAM / 100K SPARK). Distinct from"
 echo "    large_project_budget_threshold (an approval-time routing rule)."
 echo "  • TTL on PROPOSED projects: EndBlocker transitions stale proposals"
 echo "    to PROJECT_STATUS_EXPIRED after proposed_project_expiry_blocks."
+echo "  • MsgCompleteProject: committee policy only; releases project stakes."
 echo ""
 
 # ========================================================================
@@ -24,6 +25,25 @@ CHAIN_ID="sparkdream"
 # standalone — without it BOND_DENOM is empty and every --fees flag becomes
 # a bare amount with no denom, which the CLI rejects as an invalid coin.
 source "$SCRIPT_DIR/../lib/denoms.sh"
+# MsgCompleteProject, and MsgCancelProject on an approved budget-backed
+# project, are accepted only from the council / Operations Committee policy
+# address, so TESTS 7-10 route them through a committee proposal.
+source "$SCRIPT_DIR/../lib/ops_committee.sh"
+
+# ops_cancel_project <project_id> <reason>: cancel through a proposal of the
+# Technical Operations Committee (the projects below name the Technical
+# Council). On success TX_RESULT holds the execute tx, whose events include
+# the inner message's.
+ops_cancel_project() {
+    local pid=$1 reason=$2
+    if OPS_COMMITTEE_NAME="Technical Operations Committee" ops_committee_exec \
+        "$(jq -nc --arg id "$pid" --arg r "$reason" '{"@type":"/sparkdream.rep.v1.MsgCancelProject",project_id:$id,reason:$r}')" creator; then
+        TX_RESULT=$OPS_COMMITTEE_TX
+        return 0
+    fi
+    TX_RESULT=$(jq -nc --arg e "$OPS_COMMITTEE_ERROR" '{code:1,raw_log:$e}')
+    return 1
+}
 
 ALICE_ADDR=$($BINARY keys show alice -a --keyring-backend test)
 echo "Alice: $ALICE_ADDR"
@@ -494,9 +514,10 @@ fi
 # ========================================================================
 # TEST 5 — cancel authorization: a non-creator, non-ops member is rejected
 # ========================================================================
-# MsgCancelProject is gated to the project creator or the project council's
-# Operations Committee. A plain member (challenger) is neither, so their
-# cancel attempt must be rejected and the project must stay non-terminal.
+# MsgCancelProject is gated to the project council's / Operations Committee's
+# policy (or gov), plus the creator's own withdrawal of a PROPOSED project. A
+# plain member (challenger) is neither, so their cancel attempt must be
+# rejected and the project must stay non-terminal.
 echo "--- TEST 5: non-creator, non-ops cancel is rejected ---"
 
 # Propose a fresh project as alice (left PROPOSED; PROPOSED is cancellable).
@@ -522,7 +543,7 @@ else
 
     if submit_tx_and_wait "$TX_RES" && check_tx_failure "$TX_RESULT"; then
         RAW=$(echo "$TX_RESULT" | jq -r '.raw_log // ""')
-        if echo "$RAW" | grep -qi "only the project creator or the Operations Committee"; then
+        if echo "$RAW" | grep -qi "only the project creator"; then
             echo "  Correctly rejected: $RAW"
             record_result "TEST 5: unauthorized cancel rejected" "PASS"
         else
@@ -656,11 +677,8 @@ if [ "$CASCADE_OK" == "1" ]; then
     echo "  Allocated budget before cancel: $ALLOC_BEFORE"
 
     # 7f. Cancel the project and verify the cascade over both initiatives.
-    TX_RES=$($BINARY tx rep cancel-project \
-        "$CASCADE_PID" "retire with cascade" \
-        --from alice --chain-id $CHAIN_ID --keyring-backend test \
-        --fees 5000${BOND_DENOM} --gas 400000 -y --output json 2>&1)
-    if ! submit_tx_and_wait "$TX_RES" || ! check_tx_success "$TX_RESULT"; then
+    # An approved budget-backed project: the creator alone may not cancel it.
+    if ! ops_cancel_project "$CASCADE_PID" "retire with cascade"; then
         echo "  Cancel failed: $(echo "$TX_RESULT" | jq -r '.raw_log // ""')"
         CASCADE_OK=0
     fi
@@ -779,6 +797,18 @@ if [ "$T8_OK" == "1" ]; then
         VOID_CHALLENGE=$(echo "$TX_RESULT" | jq -r '.events[] | select(.type=="challenge_created") | .attributes[] | select(.key=="challenge_id") | .value' | tr -d '"')
         STAKED_DURING=$($BINARY query rep get-member "$CHALLENGER_ADDR" -o json 2>/dev/null | jq -r '.member.staked_dream // "0"')
         echo "  Challenge #$VOID_CHALLENGE created (staked: $STAKED_BEFORE -> $STAKED_DURING)"
+        # The assignee answers at once: an unanswered challenge is auto-upheld
+        # after challenge_response_deadline_epochs (one short e2e epoch),
+        # sooner than the committee cancel below can execute. A responded
+        # challenge sits IN_JURY_REVIEW, which the cancel cascade voids.
+        TX_RES=$($BINARY tx rep respond-to-challenge \
+            "$VOID_CHALLENGE" "The work meets the requirements" \
+            --from expert --chain-id $CHAIN_ID --keyring-backend test \
+            --fees 5000${BOND_DENOM} --gas 400000 -y --output json 2>&1)
+        if ! submit_tx_and_wait "$TX_RES" || ! check_tx_success "$TX_RESULT"; then
+            echo "  Assignee response failed: $(echo "$TX_RESULT" | jq -r '.raw_log // ""')"
+            T8_OK=0
+        fi
     else
         echo "  Failed to create challenge: $(echo "$TX_RESULT" | jq -r '.raw_log // ""')"
         T8_OK=0
@@ -788,11 +818,8 @@ fi
 # 8d. Cancel the project; assert challenge VOIDED, initiative CANCELLED, and
 # the challenger's staked DREAM back at its pre-challenge level.
 if [ "$T8_OK" == "1" ]; then
-    TX_RES=$($BINARY tx rep cancel-project \
-        "$VOID_PID" "retire with active challenge" \
-        --from alice --chain-id $CHAIN_ID --keyring-backend test \
-        --fees 5000${BOND_DENOM} --gas 400000 -y --output json 2>&1)
-    if ! submit_tx_and_wait "$TX_RES" || ! check_tx_success "$TX_RESULT"; then
+    # An approved budget-backed project: the creator alone may not cancel it.
+    if ! ops_cancel_project "$VOID_PID" "retire with active challenge"; then
         echo "  Cancel failed: $(echo "$TX_RESULT" | jq -r '.raw_log // ""')"
         T8_OK=0
     fi
@@ -899,11 +926,8 @@ fi
 
 # 9c. Cancel, and the principal must come back on the transition.
 if [ "$STAKE_OK" == "1" ]; then
-    TX_RES=$($BINARY tx rep cancel-project \
-        "$STAKE_PID" "retire with stakes" \
-        --from alice --chain-id $CHAIN_ID --keyring-backend test \
-        --fees 5000${BOND_DENOM} --gas 400000 -y --output json 2>&1)
-    if ! submit_tx_and_wait "$TX_RES" || ! check_tx_success "$TX_RESULT"; then
+    # An approved budget-backed project: the creator alone may not cancel it.
+    if ! ops_cancel_project "$STAKE_PID" "retire with stakes"; then
         echo "  Cancel failed: $(echo "$TX_RESULT" | jq -r '.raw_log // ""')"
         STAKE_OK=0
     fi
@@ -938,6 +962,86 @@ if [ "$STAKE_OK" == "1" ]; then
     fi
 else
     record_result "TEST 9: cancel releases project stakes" "FAIL"
+fi
+
+# ========================================================================
+# TEST 10 - MsgCompleteProject: committee policy only, releases stakes
+# ========================================================================
+# Completion mints the staker bonus and settles every project stake, so a
+# single Operations Committee member is refused; the committee completes the
+# project through an executed proposal. The project carries no initiatives,
+# so the open-work precondition is met.
+echo "--- TEST 10: complete-project (committee policy only) ---"
+
+COMPLETE_OK=1
+TX_RES=$($BINARY tx rep propose-project \
+    "lifecycle-complete" "Completion target" "infrastructure" \
+    "Commons Council" "5000000000" "0" \
+    --from alice --chain-id $CHAIN_ID --keyring-backend test \
+    --fees 5000${BOND_DENOM} --gas 400000 -y --output json 2>&1)
+if ! submit_tx_and_wait "$TX_RES" || ! check_tx_success "$TX_RESULT"; then
+    echo "  Failed to propose completion project: $(echo "$TX_RESULT" | jq -r '.raw_log // ""')"
+    COMPLETE_OK=0
+fi
+COMPLETE_PID=$(echo "$TX_RESULT" | jq -r '.events[] | select(.type=="project_proposed") | .attributes[] | select(.key=="project_id") | .value' | tr -d '"')
+
+if [ "$COMPLETE_OK" == "1" ]; then
+    TX_RES=$($BINARY tx rep approve-project-budget \
+        "$COMPLETE_PID" "5000000000" "0" \
+        --from alice --chain-id $CHAIN_ID --keyring-backend test \
+        --fees 5000${BOND_DENOM} --gas 400000 -y --output json 2>&1)
+    if ! submit_tx_and_wait "$TX_RES" || ! check_tx_success "$TX_RESULT"; then
+        echo "  Failed to approve completion project: $(echo "$TX_RESULT" | jq -r '.raw_log // ""')"
+        COMPLETE_OK=0
+    fi
+fi
+
+if [ "$COMPLETE_OK" == "1" ]; then
+    TX_RES=$($BINARY tx rep stake \
+        "stake-target-project" "$COMPLETE_PID" "$STAKE_AMOUNT" \
+        --from alice --chain-id $CHAIN_ID --keyring-backend test \
+        --fees 5000${BOND_DENOM} --gas 400000 -y --output json 2>&1)
+    if ! submit_tx_and_wait "$TX_RES" || ! check_tx_success "$TX_RESULT"; then
+        echo "  Failed to stake on completion project: $(echo "$TX_RESULT" | jq -r '.raw_log // ""')"
+        COMPLETE_OK=0
+    fi
+fi
+
+# 10a. alice alone (a committee member, not the policy) is refused.
+if [ "$COMPLETE_OK" == "1" ]; then
+    TX_RES=$($BINARY tx rep complete-project "$COMPLETE_PID" \
+        --from alice --chain-id $CHAIN_ID --keyring-backend test \
+        --fees 5000${BOND_DENOM} --gas 400000 -y --output json 2>&1)
+    if submit_tx_and_wait "$TX_RES" && check_tx_failure "$TX_RESULT"; then
+        echo "  Single-member completion refused: $(echo "$TX_RESULT" | jq -r '.raw_log // ""' | head -c 200)"
+    else
+        echo "  Expected a single committee member's complete-project to fail"
+        COMPLETE_OK=0
+    fi
+fi
+
+# 10b. The committee completes it through a proposal.
+if [ "$COMPLETE_OK" == "1" ]; then
+    STAKED_PRE=$($BINARY query rep get-member "$STAKER_ADDR" --output json 2>/dev/null | jq -r '.member.staked_dream // "0"')
+    if ops_committee_exec "$(jq -nc --arg id "$COMPLETE_PID" '{"@type":"/sparkdream.rep.v1.MsgCompleteProject",project_id:$id}')" creator; then
+        PROJ_STATUS=$($BINARY query rep get-project "$COMPLETE_PID" --output json 2>/dev/null | jq -r '.project.status // ""')
+        STAKED_POST=$($BINARY query rep get-member "$STAKER_ADDR" --output json 2>/dev/null | jq -r '.member.staked_dream // "0"')
+        RELEASED_DROP=$((STAKED_PRE - STAKED_POST))
+        MIN_DROP=$((STAKE_AMOUNT * 99 / 100))
+        echo "  project status: $PROJ_STATUS; released $RELEASED_DROP of $STAKE_AMOUNT staked"
+        if [ "$PROJ_STATUS" != "PROJECT_STATUS_COMPLETED" ] || [ "$RELEASED_DROP" -lt "$MIN_DROP" ]; then
+            COMPLETE_OK=0
+        fi
+    else
+        echo "  Committee completion failed: $OPS_COMMITTEE_ERROR"
+        COMPLETE_OK=0
+    fi
+fi
+
+if [ "$COMPLETE_OK" == "1" ]; then
+    record_result "TEST 10: complete-project via committee policy" "PASS"
+else
+    record_result "TEST 10: complete-project via committee policy" "FAIL"
 fi
 
 # ========================================================================

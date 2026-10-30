@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
+	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	"cosmossdk.io/collections"
 	errorsmod "cosmossdk.io/errors"
@@ -20,7 +21,10 @@ func (k Keeper) tokenView(ctx context.Context, c types.Class, t types.Token, wit
 	hash := types.MetadataHash(t.Metadata)
 	view := types.TokenView{Token: t, MetadataHash: hash, ClassStatus: c.Status, Expired: types.IsExpired(t, now(ctx))}
 	if t.Lock == types.TokenLock_TOKEN_LOCK_RENTED {
-		if r, err := k.Rentals.Get(ctx, collections.Join(t.ClassId, t.Id)); err == nil {
+		// A rental past its term (not yet ended by the EndBlocker) no
+		// longer names a user: services gating on user must not keep
+		// admitting the renter (§6).
+		if r, err := k.Rentals.Get(ctx, collections.Join(t.ClassId, t.Id)); err == nil && r.ExpiresAt > now(ctx) {
 			view.User = r.User
 		}
 	}
@@ -134,6 +138,9 @@ func (k Keeper) renderState(ctx context.Context, c types.Class, t types.Token, u
 			children = append(children, refString(r))
 		}
 	}
-	hash, _ := k.ContentsHash(ctx, t)
+	hash, getErr := k.ContentsHash(ctx, t)
+	if getErr != nil {
+		sdk.UnwrapSDKContext(ctx).Logger().Error("ContentsHash failed", "err", getErr)
+	}
 	return types.NewRenderStateV2(v1, season, standing, children, hash).JSON()
 }

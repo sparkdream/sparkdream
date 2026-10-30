@@ -55,90 +55,75 @@ message Params {
     (gogoproto.nullable) = false
   ];
 
-  // appeal_fee_amount charged for appeals, in bond-denom micro-units.
-  string appeal_fee_amount = 11 [
-    (gogoproto.customtype) = "cosmossdk.io/math.Int",
-    (gogoproto.nullable) = false
-  ];
 
-  // lock_appeal_fee_amount charged for thread lock appeals, in bond-denom micro-units.
-  string lock_appeal_fee_amount = 12 [
-    (gogoproto.customtype) = "cosmossdk.io/math.Int",
-    (gogoproto.nullable) = false
-  ];
 
-  // move_appeal_fee_amount charged for thread move appeals, in bond-denom micro-units.
-  string move_appeal_fee_amount = 13 [
-    (gogoproto.customtype) = "cosmossdk.io/math.Int",
-    (gogoproto.nullable) = false
-  ];
 
   // edit_fee_amount charged for edits past grace period, in bond-denom micro-units.
-  string edit_fee_amount = 14 [
+  string edit_fee_amount = 11 [
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
 
   // bounty_cancellation_fee_percent percentage of bounty taken on cancellation (0-100)
-  uint64 bounty_cancellation_fee_percent = 15;
+  uint64 bounty_cancellation_fee_percent = 12;
 
   // max_content_size in bytes
-  uint64 max_content_size = 16;
+  uint64 max_content_size = 13;
 
   // daily_post_limit per user
-  uint64 daily_post_limit = 17;
+  uint64 daily_post_limit = 14;
 
   // max_reply_depth for thread nesting
-  uint32 max_reply_depth = 18;
+  uint32 max_reply_depth = 15;
 
   // edit_grace_period in seconds (no fee during this time)
-  int64 edit_grace_period = 19;
+  int64 edit_grace_period = 16;
 
   // edit_max_window in seconds (cannot edit after this time)
-  int64 edit_max_window = 20;
+  int64 edit_max_window = 17;
 
   // max_follows_per_day per user
-  uint64 max_follows_per_day = 21;
+  uint64 max_follows_per_day = 18;
 
   // archive_threshold in seconds (thread must be inactive this long before archiving)
-  int64 archive_threshold = 22;
+  int64 archive_threshold = 19;
 
   // unarchive_cooldown in seconds (must wait this long after archive before unarchiving)
-  int64 unarchive_cooldown = 23;
+  int64 unarchive_cooldown = 20;
 
   // archive_cooldown in seconds (must wait this long after unarchive before re-archiving)
-  int64 archive_cooldown = 24;
+  int64 archive_cooldown = 21;
 
   // hide_appeal_cooldown in seconds (must wait this long after hide before appeal)
-  int64 hide_appeal_cooldown = 25;
+  int64 hide_appeal_cooldown = 22;
 
   // lock_appeal_cooldown in seconds (must wait this long after lock before appeal)
-  int64 lock_appeal_cooldown = 26;
+  int64 lock_appeal_cooldown = 23;
 
   // move_appeal_cooldown in seconds (must wait this long after move before appeal)
-  int64 move_appeal_cooldown = 27;
+  int64 move_appeal_cooldown = 24;
 
   // cost_per_byte_amount charged for on-chain content storage (applies to all
   // posts, burned), in bond-denom micro-units.
-  string cost_per_byte_amount = 28 [
+  string cost_per_byte_amount = 25 [
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
 
   // cost_per_byte_exempt when true, disables cost_per_byte fee collection
-  bool cost_per_byte_exempt = 29;
+  bool cost_per_byte_exempt = 26;
 
   // ephemeral_ttl in seconds (TTL for non-member posts, default 86400 = 24h)
-  int64 ephemeral_ttl = 30;
+  int64 ephemeral_ttl = 27;
 
   // conviction_renewal_threshold is the minimum conviction score for TTL renewal
-  string conviction_renewal_threshold = 37 [
+  string conviction_renewal_threshold = 28 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
 
   // conviction_renewal_period is the TTL extension in seconds when conviction threshold is met
-  int64 conviction_renewal_period = 38;
+  int64 conviction_renewal_period = 29;
 
   // ---------------------------------------------------------------------------
   // Sentinel bonded-role config (flattened).
@@ -149,48 +134,48 @@ message Params {
   // ---------------------------------------------------------------------------
 
   // min_sentinel_bond — see ForumOperationalParams.min_sentinel_bond.
-  string min_sentinel_bond = 40;
+  string min_sentinel_bond = 30;
   // min_sentinel_rep_tier — see ForumOperationalParams.min_sentinel_rep_tier.
-  uint64 min_sentinel_rep_tier = 41;
+  uint64 min_sentinel_rep_tier = 31;
   // min_sentinel_trust_level — see ForumOperationalParams.min_sentinel_trust_level.
-  string min_sentinel_trust_level = 42;
+  string min_sentinel_trust_level = 32;
   // min_sentinel_age_blocks — see ForumOperationalParams.min_sentinel_age_blocks.
-  int64 min_sentinel_age_blocks = 43;
+  int64 min_sentinel_age_blocks = 33;
   // sentinel_demotion_cooldown — see ForumOperationalParams.sentinel_demotion_cooldown.
-  int64 sentinel_demotion_cooldown = 44;
+  int64 sentinel_demotion_cooldown = 34;
   // sentinel_demotion_threshold — see ForumOperationalParams.sentinel_demotion_threshold.
-  string sentinel_demotion_threshold = 45;
+  string sentinel_demotion_threshold = 35;
 
   // sentinel_unhide_window in seconds. A sentinel who hid a post may
   // self-correct (call MsgUnhidePost) within this window of the original
   // hide; after it expires, only the Commons Operations Committee or
   // governance can unhide. Analogous to edit_max_window for authors.
-  int64 sentinel_unhide_window = 46;
+  int64 sentinel_unhide_window = 36;
 
   // sentinel_unbond_cooldown is the number of seconds a sentinel's bond stays
   // locked and slashable after MsgUnbondRole. During the cooldown, the
   // BondedRole status is UNBONDING and forum action gates refuse authority.
   // Propagated to x/rep BondedRoleConfig via SyncSentinelBondedRoleConfig.
   // Zero = immediate withdrawal (legacy behavior).
-  int64 sentinel_unbond_cooldown = 47;
+  int64 sentinel_unbond_cooldown = 37;
 
   // make_permanent_min_trust_level is the minimum trust level a caller of
   // MsgMakePostPermanent must hold (0–4). Default PROVISIONAL (1) — lower
   // than the sentinel-pin gate because preservation is a smaller curator
   // action than featuring.
-  uint32 make_permanent_min_trust_level = 48;
+  uint32 make_permanent_min_trust_level = 38;
 
   // max_promotions_per_block bounds how many ephemeral posts the EndBlocker
   // membership-promotion drain may flip per block. Bounds block gas; the
   // remaining queue is processed in subsequent blocks.
-  uint32 max_promotions_per_block = 49;
+  uint32 max_promotions_per_block = 39;
 
   // author_rep_slash is the per-tag reputation deduction applied to a post's
   // author when ExpireHiddenPosts finalizes an unappealed sentinel hide.
   // Deducted from the author's score in each tag the post carried.
   // DeductReputation floors at zero, so authors with no rep in the tag take
   // no harm — safe to ship before any forum-side rep-grant flow exists.
-  string author_rep_slash = 50 [
+  string author_rep_slash = 40 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
@@ -198,11 +183,11 @@ message Params {
   // max_make_permanent_per_day caps MsgMakePostPermanent calls per address per
   // UTC day. Independent of daily_post_limit — promoting an ephemeral to
   // permanent is a distinct curator action with its own quota.
-  uint64 max_make_permanent_per_day = 51;
+  uint64 max_make_permanent_per_day = 41;
 
   // ---------------------------------------------------------------------------
   // Sentinel moderation rate caps + per-action slash (Operations-Committee
-  // tunable; see ForumOperationalParams 52-55). Each value is bounded in
+  // tunable; see the same fields in ForumOperationalParams). Each value is bounded in
   // Params.Validate(). A stored 0 means "unset" and the handler falls back to
   // the compile-time default — so existing chains keep today's behavior with
   // no migration, while fresh genesis seeds the real defaults.
@@ -210,20 +195,20 @@ message Params {
 
   // max_hides_per_epoch caps sentinel MsgHidePost actions per address per UTC
   // day. 0 = use the default (50).
-  uint64 max_hides_per_epoch = 52;
+  uint64 max_hides_per_epoch = 42;
 
   // max_sentinel_locks_per_epoch caps sentinel MsgLockThread actions per
   // address per UTC day. 0 = use the default (5).
-  uint64 max_sentinel_locks_per_epoch = 53;
+  uint64 max_sentinel_locks_per_epoch = 43;
 
   // max_sentinel_moves_per_epoch caps sentinel MsgMoveThread actions per
   // address per UTC day. 0 = use the default (10).
-  uint64 max_sentinel_moves_per_epoch = 54;
+  uint64 max_sentinel_moves_per_epoch = 44;
 
   // sentinel_slash_amount is the DREAM reserved-then-slashed per moderation
   // action that is later overturned on appeal (math.Int string, udream).
   // Bounded to (0, min_sentinel_bond]. Empty/"0" = use the default (100 DREAM).
-  string sentinel_slash_amount = 55;
+  string sentinel_slash_amount = 45;
 
   // ---------------------------------------------------------------------------
   // Thread-lock eligibility floors (governance-only; NOT in
@@ -236,16 +221,16 @@ message Params {
   // lock_bond_multiplier: a sentinel must have bonded at least
   // lock_bond_multiplier × min_sentinel_bond to lock a thread. Bounded >= 1
   // (lock can never be weaker than the base bond). 0 = use the default (4).
-  uint64 lock_bond_multiplier = 56;
+  uint64 lock_bond_multiplier = 46;
 
   // lock_backing_amount is the minimum DREAM backing (total balance) a sentinel
   // must hold to lock a thread (math.Int string, udream). Bounded >= the
   // derived lock bond. Empty/"0" = use the default (20000 DREAM).
-  string lock_backing_amount = 57;
+  string lock_backing_amount = 47;
 
   // lock_min_rep_tier is the minimum reputation tier required to lock a thread.
   // Bounded to [min_sentinel_rep_tier, 5]. 0 = use the default (4).
-  uint64 lock_min_rep_tier = 58;
+  uint64 lock_min_rep_tier = 48;
 
   // ---------------------------------------------------------------------------
   // Post conviction-stake (author-earned forum rep) config.
@@ -260,7 +245,7 @@ message Params {
   // PostConvictionStake (math.Int string, e.g. "10000000" = 10 DREAM). Floors
   // out sybil dust stakes that would otherwise farm the per-tag epoch cap with
   // many tiny accounts.
-  string min_post_conviction_stake = 60 [
+  string min_post_conviction_stake = 49 [
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
@@ -268,7 +253,7 @@ message Params {
   // post_conviction_lock_seconds is the DREAM-lock duration in seconds. A
   // staker cannot call MsgReleasePostConviction before staked_at + this many
   // seconds. Longer lock = more skin-in-the-game per uDREAM committed.
-  int64 post_conviction_lock_seconds = 61;
+  int64 post_conviction_lock_seconds = 50;
 
   // post_conviction_stream_rate_per_block is the per-DREAM-per-day rep
   // accrual rate (math.LegacyDec). Despite the historical "per_block"
@@ -280,7 +265,7 @@ message Params {
   //   rep_credited_per_tag = rep_credited_total / len(post.tags)
   // The author's per-tag credit is then capped by
   // max_forum_rep_per_tag_per_epoch (one epoch = one UTC day).
-  string post_conviction_stream_rate_per_block = 62 [
+  string post_conviction_stream_rate_per_block = 51 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
@@ -290,7 +275,7 @@ message Params {
   // a single tag from being flooded by many simultaneous stakes — excess
   // accrual is silently dropped (no error, no refund) so honest stakers do not
   // suffer from saturation they could not have foreseen.
-  string max_forum_rep_per_tag_per_epoch = 63 [
+  string max_forum_rep_per_tag_per_epoch = 52 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
@@ -300,11 +285,11 @@ message Params {
   // (0-10000; 2500 = 25%). The slashed DREAM is burned. The non-slashed
   // portion is unlocked back to the staker on the next MsgReleasePostConviction
   // and the stake is closed.
-  uint64 post_conviction_staker_slash_bps = 64;
+  uint64 post_conviction_staker_slash_bps = 53;
 
   // ---------------------------------------------------------------------------
   // Sentinel curation-proposal config (Operations-Committee tunable; see
-  // ForumOperationalParams 65-66).
+  // the same fields in ForumOperationalParams).
   // ---------------------------------------------------------------------------
 
   // curation_dream_reward is the DREAM minted to a sentinel when their accepted-
@@ -312,7 +297,7 @@ message Params {
   // micro-DREAM (math.Int string). Read directly (no unset/default fallback):
   // a non-positive value disables the reward, matching the IsPositive fee guards
   // in x/rep / x/blog. Seeded by the genesis defaults.
-  string curation_dream_reward = 65 [
+  string curation_dream_reward = 54 [
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
@@ -322,7 +307,7 @@ message Params {
   // Must be positive (Validate rejects 0/negative — a 0 timeout would
   // auto-confirm on the next block, never an intended config). Seeded by the
   // genesis defaults (48h).
-  int64 accept_proposal_timeout = 66;
+  int64 accept_proposal_timeout = 55;
 
   // max_accept_proposals_per_sentinel_per_thread caps how many accepted-reply
   // proposals a single sentinel may make on a given thread (counting all
@@ -331,7 +316,7 @@ message Params {
   // done proposing there, permanently. Per-sentinel (not a thread-global cap) so
   // one bad actor cannot exhaust a thread's quota and lock out honest curators.
   // 0 disables the cap. Seeded by the genesis defaults (2).
-  uint32 max_accept_proposals_per_sentinel_per_thread = 67;
+  uint32 max_accept_proposals_per_sentinel_per_thread = 56;
 
   // Media rules (docs/content-scanning.md §9). Apply to writes the chain
   // labels as media (media_flags != 0); plain text is never affected.
@@ -339,13 +324,13 @@ message Params {
   // media_min_trust_level is the trust level (0-4) an active member needs to
   // post media without a bond (default 1 = PROVISIONAL). Anonymous
   // (shield-routed) content can never carry media.
-  uint32 media_min_trust_level = 68;
+  uint32 media_min_trust_level = 57;
 
   // media_author_bond_min is the DREAM author bond (micro-DREAM) that lets an
   // active member below media_min_trust_level post media at creation. A
   // confirmed abuse verdict costs the author this bond. 0 disables the bond
   // path.
-  string media_author_bond_min = 69 [
+  string media_author_bond_min = 58 [
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
@@ -354,7 +339,7 @@ message Params {
   // whose media labels are non-zero. It prices the off-chain scanning work
   // media creates (and media spam); 0 disables it. Scanner pay itself comes
   // from commons recurring spend (§8.5).
-  string media_scan_fee = 70 [
+  string media_scan_fee = 59 [
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
@@ -390,54 +375,42 @@ message ForumOperationalParams {
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
-  string appeal_fee_amount = 8 [
+  string edit_fee_amount = 8 [
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
-  string lock_appeal_fee_amount = 9 [
+  string cost_per_byte_amount = 9 [
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
-  string move_appeal_fee_amount = 10 [
-    (gogoproto.customtype) = "cosmossdk.io/math.Int",
-    (gogoproto.nullable) = false
-  ];
-  string edit_fee_amount = 11 [
-    (gogoproto.customtype) = "cosmossdk.io/math.Int",
-    (gogoproto.nullable) = false
-  ];
-  string cost_per_byte_amount = 12 [
-    (gogoproto.customtype) = "cosmossdk.io/math.Int",
-    (gogoproto.nullable) = false
-  ];
-  bool cost_per_byte_exempt = 13;
+  bool cost_per_byte_exempt = 10;
 
   // Limits
-  uint64 max_content_size = 14;
-  uint64 daily_post_limit = 15;
-  uint32 max_reply_depth = 16;
-  uint64 max_follows_per_day = 17;
-  uint64 bounty_cancellation_fee_percent = 18;
+  uint64 max_content_size = 11;
+  uint64 daily_post_limit = 12;
+  uint32 max_reply_depth = 13;
+  uint64 max_follows_per_day = 14;
+  uint64 bounty_cancellation_fee_percent = 15;
 
   // Time windows
-  int64 edit_grace_period = 19;
-  int64 edit_max_window = 20;
-  int64 archive_threshold = 21;
-  int64 unarchive_cooldown = 22;
-  int64 archive_cooldown = 23;
-  int64 hide_appeal_cooldown = 24;
-  int64 lock_appeal_cooldown = 25;
-  int64 move_appeal_cooldown = 26;
-  int64 ephemeral_ttl = 27;
+  int64 edit_grace_period = 16;
+  int64 edit_max_window = 17;
+  int64 archive_threshold = 18;
+  int64 unarchive_cooldown = 19;
+  int64 archive_cooldown = 20;
+  int64 hide_appeal_cooldown = 21;
+  int64 lock_appeal_cooldown = 22;
+  int64 move_appeal_cooldown = 23;
+  int64 ephemeral_ttl = 24;
 
   // conviction_renewal_threshold is the minimum conviction score for TTL renewal
-  string conviction_renewal_threshold = 31 [
+  string conviction_renewal_threshold = 25 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
 
   // conviction_renewal_period is the TTL extension in seconds when conviction threshold is met
-  int64 conviction_renewal_period = 32;
+  int64 conviction_renewal_period = 26;
 
   // ---------------------------------------------------------------------------
   // Sentinel bonded-role config (flattened).
@@ -450,117 +423,117 @@ message ForumOperationalParams {
 
   // min_sentinel_bond is the minimum DREAM required to bond as a sentinel
   // (math.Int string, e.g. "1000").
-  string min_sentinel_bond = 40;
+  string min_sentinel_bond = 27;
 
   // min_sentinel_rep_tier is the minimum reputation tier required to bond as
   // a sentinel. 0 = no rep-tier gate.
-  uint64 min_sentinel_rep_tier = 41;
+  uint64 min_sentinel_rep_tier = 28;
 
   // min_sentinel_trust_level is the minimum trust level required to bond as a
   // sentinel, as an enum name (e.g. "TRUST_LEVEL_ESTABLISHED"). Empty = no
   // trust-level gate.
-  string min_sentinel_trust_level = 42;
+  string min_sentinel_trust_level = 29;
 
   // min_sentinel_age_blocks is enforced by forum at action time (the sentinel
   // must have been bonded for this many blocks before taking an action). Zero
   // = no age gate.
-  int64 min_sentinel_age_blocks = 43;
+  int64 min_sentinel_age_blocks = 30;
 
   // sentinel_demotion_cooldown is the number of seconds a DEMOTED sentinel
   // must wait before re-bonding.
-  int64 sentinel_demotion_cooldown = 44;
+  int64 sentinel_demotion_cooldown = 31;
 
   // sentinel_demotion_threshold is the bond floor below which the sentinel
   // transitions from RECOVERY to DEMOTED (math.Int string).
-  string sentinel_demotion_threshold = 45;
+  string sentinel_demotion_threshold = 32;
 
   // sentinel_unhide_window in seconds. A sentinel who hid a post may
   // self-correct (call MsgUnhidePost) within this window of the original
   // hide; after it expires, only the Commons Operations Committee or
   // governance can unhide.
-  int64 sentinel_unhide_window = 46;
+  int64 sentinel_unhide_window = 33;
 
   // sentinel_unbond_cooldown is the number of seconds a sentinel's bond stays
   // locked and slashable after MsgUnbondRole. During the cooldown the
   // BondedRole is in UNBONDING status and forum action gates refuse
   // authority. Zero = immediate withdrawal.
-  int64 sentinel_unbond_cooldown = 47;
+  int64 sentinel_unbond_cooldown = 34;
 
   // make_permanent_min_trust_level — see Params.make_permanent_min_trust_level.
-  uint32 make_permanent_min_trust_level = 48;
+  uint32 make_permanent_min_trust_level = 35;
 
   // max_promotions_per_block — see Params.max_promotions_per_block.
-  uint32 max_promotions_per_block = 49;
+  uint32 max_promotions_per_block = 36;
 
   // author_rep_slash — see Params.author_rep_slash.
-  string author_rep_slash = 50 [
+  string author_rep_slash = 37 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
 
   // max_make_permanent_per_day — see Params.max_make_permanent_per_day.
-  uint64 max_make_permanent_per_day = 51;
+  uint64 max_make_permanent_per_day = 38;
 
   // ---------------------------------------------------------------------------
-  // Sentinel moderation rate caps + per-action slash. See Params 52-55.
-  // The lock-eligibility floors (Params 56-58) are intentionally NOT here —
+  // Sentinel moderation rate caps + per-action slash. See Params.
+  // The lock-eligibility floors (Params.lock_*) are intentionally NOT here —
   // those are governance-only.
   // ---------------------------------------------------------------------------
 
   // max_hides_per_epoch — see Params.max_hides_per_epoch.
-  uint64 max_hides_per_epoch = 52;
+  uint64 max_hides_per_epoch = 39;
 
   // max_sentinel_locks_per_epoch — see Params.max_sentinel_locks_per_epoch.
-  uint64 max_sentinel_locks_per_epoch = 53;
+  uint64 max_sentinel_locks_per_epoch = 40;
 
   // max_sentinel_moves_per_epoch — see Params.max_sentinel_moves_per_epoch.
-  uint64 max_sentinel_moves_per_epoch = 54;
+  uint64 max_sentinel_moves_per_epoch = 41;
 
   // sentinel_slash_amount — see Params.sentinel_slash_amount.
-  string sentinel_slash_amount = 55;
+  string sentinel_slash_amount = 42;
 
   // ---------------------------------------------------------------------------
   // Post conviction-stake (author-earned forum rep) config. See Params.
   // ---------------------------------------------------------------------------
 
   // min_post_conviction_stake — see Params.min_post_conviction_stake.
-  string min_post_conviction_stake = 60 [
+  string min_post_conviction_stake = 43 [
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
 
   // post_conviction_lock_seconds — see Params.post_conviction_lock_seconds.
-  int64 post_conviction_lock_seconds = 61;
+  int64 post_conviction_lock_seconds = 44;
 
   // post_conviction_stream_rate_per_block — see Params.post_conviction_stream_rate_per_block.
-  string post_conviction_stream_rate_per_block = 62 [
+  string post_conviction_stream_rate_per_block = 45 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
 
   // max_forum_rep_per_tag_per_epoch — see Params.max_forum_rep_per_tag_per_epoch.
-  string max_forum_rep_per_tag_per_epoch = 63 [
+  string max_forum_rep_per_tag_per_epoch = 46 [
     (gogoproto.customtype) = "cosmossdk.io/math.LegacyDec",
     (gogoproto.nullable) = false
   ];
 
   // post_conviction_staker_slash_bps — see Params.post_conviction_staker_slash_bps.
-  uint64 post_conviction_staker_slash_bps = 64;
+  uint64 post_conviction_staker_slash_bps = 47;
 
   // ---------------------------------------------------------------------------
-  // Sentinel curation-proposal config. See Params 65-66.
+  // Sentinel curation-proposal config. See Params.
   // ---------------------------------------------------------------------------
 
   // curation_dream_reward — see Params.curation_dream_reward.
-  string curation_dream_reward = 65 [
+  string curation_dream_reward = 48 [
     (gogoproto.customtype) = "cosmossdk.io/math.Int",
     (gogoproto.nullable) = false
   ];
 
   // accept_proposal_timeout — see Params.accept_proposal_timeout.
-  int64 accept_proposal_timeout = 66;
+  int64 accept_proposal_timeout = 49;
 
   // max_accept_proposals_per_sentinel_per_thread —
   // see Params.max_accept_proposals_per_sentinel_per_thread.
-  uint32 max_accept_proposals_per_sentinel_per_thread = 67;
+  uint32 max_accept_proposals_per_sentinel_per_thread = 50;
 }

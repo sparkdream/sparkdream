@@ -37,15 +37,15 @@ func TestCreateChallenge(t *testing.T) {
 	require.NoError(t, err)
 
 	creator := sdk.AccAddress([]byte("creator"))
-	k.Member.Set(ctx, creator.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, creator.String(), types.Member{
 		Address:          creator.String(),
 		DreamBalance:     PtrInt(math.ZeroInt()),
 		StakedDream:      PtrInt(math.ZeroInt()),
 		LifetimeEarned:   PtrInt(math.ZeroInt()),
 		LifetimeBurned:   PtrInt(math.ZeroInt()),
 		ReputationScores: map[string]string{"tag1": "100.0"},
-	})
-	k.MintDREAM(ctx, creator, math.NewInt(1000))
+	}))
+	require.NoError(t, k.MintDREAM(ctx, creator, math.NewInt(1000)))
 	initID, err := k.CreateInitiative(
 		ctx,
 		creator,
@@ -70,15 +70,15 @@ func TestCreateChallenge(t *testing.T) {
 	// Test Case 1: Normal Challenge
 	challenger := sdk.AccAddress([]byte("challenger"))
 	stakedAmount := math.NewInt(50000000) // Min stake
-	k.Member.Set(ctx, challenger.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, challenger.String(), types.Member{
 		Address:          challenger.String(),
 		DreamBalance:     PtrInt(math.ZeroInt()),
 		StakedDream:      PtrInt(math.ZeroInt()),
 		LifetimeEarned:   PtrInt(math.ZeroInt()),
 		LifetimeBurned:   PtrInt(math.ZeroInt()),
 		ReputationScores: make(map[string]string),
-	})
-	k.MintDREAM(ctx, challenger, math.NewInt(1000000000)) // 1000 DREAM
+	}))
+	require.NoError(t, k.MintDREAM(ctx, challenger, math.NewInt(1000000000))) // 1000 DREAM
 
 	chalID, err := k.CreateChallenge(
 		ctx,
@@ -120,18 +120,18 @@ func TestRespondToChallenge(t *testing.T) {
 		math.NewInt(100),
 		false,
 	)
-	k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(1000), math.NewInt(100))
+	require.NoError(t, k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(1000), math.NewInt(100)))
 
 	assignee := sdk.AccAddress([]byte("assignee"))
-	k.Member.Set(ctx, assignee.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, assignee.String(), types.Member{
 		Address:          assignee.String(),
 		DreamBalance:     PtrInt(math.ZeroInt()),
 		StakedDream:      PtrInt(math.ZeroInt()),
 		LifetimeEarned:   PtrInt(math.ZeroInt()),
 		LifetimeBurned:   PtrInt(math.ZeroInt()),
 		ReputationScores: map[string]string{"tag": "500"},
-	})
-	k.MintDREAM(ctx, assignee, math.NewInt(1000))
+	}))
+	require.NoError(t, k.MintDREAM(ctx, assignee, math.NewInt(1000)))
 	initID, _ := k.CreateInitiative(
 		ctx,
 		assignee, // acting as creator
@@ -146,41 +146,41 @@ func TestRespondToChallenge(t *testing.T) {
 	// Assign needed if creator != assignee but here we make them same for simplicity of creation
 	// Actually creator != assignee usually.
 	// CreateInitiative doesn't set Assignee.
-	k.AssignInitiativeToMember(ctx, initID, assignee)
-	k.SubmitInitiativeWork(ctx, initID, assignee, "URI")
+	require.NoError(t, k.AssignInitiativeToMember(ctx, initID, assignee))
+	require.NoError(t, k.SubmitInitiativeWork(ctx, initID, assignee, "URI"))
 
 	challenger := sdk.AccAddress([]byte("chal"))
-	k.Member.Set(ctx, challenger.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, challenger.String(), types.Member{
 		Address:          challenger.String(),
 		DreamBalance:     PtrInt(math.ZeroInt()),
 		StakedDream:      PtrInt(math.ZeroInt()),
 		LifetimeEarned:   PtrInt(math.ZeroInt()),
 		LifetimeBurned:   PtrInt(math.ZeroInt()),
 		ReputationScores: make(map[string]string),
-	})
+	}))
 	// Create jurors matching the initiative tag. MinSeatedJurors (3) is the smallest jury that can return a verdict —
 	// TallyJuryVotes floors quorum there, so a smaller one would be held at
 	// INCONCLUSIVE forever and CreateJuryReview escalates to the committee
 	// rather than seating it.
 	for i := 0; i < types.MinSeatedJurors; i++ {
 		juror := sdk.AccAddress([]byte(fmt.Sprintf("%-16.16s", fmt.Sprintf("juror-%d", i))))
-		k.Member.Set(ctx, juror.String(), types.Member{
+		require.NoError(t, k.Member.Set(ctx, juror.String(), types.Member{
 			Address:          juror.String(),
 			DreamBalance:     PtrInt(math.ZeroInt()),
 			StakedDream:      PtrInt(math.ZeroInt()),
 			LifetimeEarned:   PtrInt(math.ZeroInt()),
 			LifetimeBurned:   PtrInt(math.ZeroInt()),
 			ReputationScores: map[string]string{"tag": "100.0"},
-		})
+		}))
 	}
 
 	// Update params for small jury
 	params, _ := k.Params.Get(ctx)
 	params.JurySize = uint32(types.MinSeatedJurors)
 	params.MinJurorReputation = math.LegacyOneDec()
-	k.Params.Set(ctx, params)
+	require.NoError(t, k.Params.Set(ctx, params))
 
-	k.MintDREAM(ctx, challenger, math.NewInt(1000000000)) // 1000 DREAM
+	require.NoError(t, k.MintDREAM(ctx, challenger, math.NewInt(1000000000))) // 1000 DREAM
 	chalID, err := k.CreateChallenge(ctx, challenger, initID, "Reason", nil, math.NewInt(50000000))
 	require.NoError(t, err)
 
@@ -235,15 +235,15 @@ func TestChallengeResponseDeadline(t *testing.T) {
 	require.NoError(t, err)
 
 	creator := sdk.AccAddress([]byte("creator"))
-	k.Member.Set(ctx, creator.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, creator.String(), types.Member{
 		Address:          creator.String(),
 		DreamBalance:     PtrInt(math.ZeroInt()),
 		StakedDream:      PtrInt(math.ZeroInt()),
 		LifetimeEarned:   PtrInt(math.ZeroInt()),
 		LifetimeBurned:   PtrInt(math.ZeroInt()),
 		ReputationScores: map[string]string{"tag1": "100.0"},
-	})
-	k.MintDREAM(ctx, creator, math.NewInt(1000))
+	}))
+	require.NoError(t, k.MintDREAM(ctx, creator, math.NewInt(1000)))
 
 	initID, err := k.CreateInitiative(
 		ctx,
@@ -266,15 +266,15 @@ func TestChallengeResponseDeadline(t *testing.T) {
 
 	// Create a challenger
 	challenger := sdk.AccAddress([]byte("challenger"))
-	k.Member.Set(ctx, challenger.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, challenger.String(), types.Member{
 		Address:          challenger.String(),
 		DreamBalance:     PtrInt(math.ZeroInt()),
 		StakedDream:      PtrInt(math.ZeroInt()),
 		LifetimeEarned:   PtrInt(math.ZeroInt()),
 		LifetimeBurned:   PtrInt(math.ZeroInt()),
 		ReputationScores: make(map[string]string),
-	})
-	k.MintDREAM(ctx, challenger, math.NewInt(1000000000)) // 1000 DREAM
+	}))
+	require.NoError(t, k.MintDREAM(ctx, challenger, math.NewInt(1000000000))) // 1000 DREAM
 
 	// Create a challenge
 	chalID, err := k.CreateChallenge(
@@ -325,15 +325,15 @@ func TestChallengeAutoUpholdOnExpiration(t *testing.T) {
 	require.NoError(t, err)
 
 	creator := sdk.AccAddress([]byte("creator"))
-	k.Member.Set(ctx, creator.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, creator.String(), types.Member{
 		Address:          creator.String(),
 		DreamBalance:     PtrInt(math.ZeroInt()),
 		StakedDream:      PtrInt(math.ZeroInt()),
 		LifetimeEarned:   PtrInt(math.ZeroInt()),
 		LifetimeBurned:   PtrInt(math.ZeroInt()),
 		ReputationScores: map[string]string{"tag1": "100.0"},
-	})
-	k.MintDREAM(ctx, creator, math.NewInt(1000))
+	}))
+	require.NoError(t, k.MintDREAM(ctx, creator, math.NewInt(1000)))
 
 	initID, err := k.CreateInitiative(
 		ctx,
@@ -356,21 +356,21 @@ func TestChallengeAutoUpholdOnExpiration(t *testing.T) {
 
 	// Create a challenger
 	challenger := sdk.AccAddress([]byte("challenger"))
-	k.Member.Set(ctx, challenger.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, challenger.String(), types.Member{
 		Address:          challenger.String(),
 		DreamBalance:     PtrInt(math.ZeroInt()),
 		StakedDream:      PtrInt(math.ZeroInt()),
 		LifetimeEarned:   PtrInt(math.ZeroInt()),
 		LifetimeBurned:   PtrInt(math.ZeroInt()),
 		ReputationScores: make(map[string]string),
-	})
-	k.MintDREAM(ctx, challenger, math.NewInt(1000000000)) // 1000 DREAM
+	}))
+	require.NoError(t, k.MintDREAM(ctx, challenger, math.NewInt(1000000000))) // 1000 DREAM
 
 	// Set short deadline for testing
 	params, _ := k.Params.Get(ctx)
 	params.ChallengeResponseDeadlineEpochs = 1
 	params.EpochBlocks = 10
-	k.Params.Set(ctx, params)
+	require.NoError(t, k.Params.Set(ctx, params))
 
 	// Create a challenge
 	chalID, err := k.CreateChallenge(
@@ -440,15 +440,15 @@ func TestChallengeResponsePreventsAutoUphold(t *testing.T) {
 	require.NoError(t, err)
 
 	assignee := sdk.AccAddress([]byte("assignee"))
-	k.Member.Set(ctx, assignee.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, assignee.String(), types.Member{
 		Address:          assignee.String(),
 		DreamBalance:     PtrInt(math.ZeroInt()),
 		StakedDream:      PtrInt(math.ZeroInt()),
 		LifetimeEarned:   PtrInt(math.ZeroInt()),
 		LifetimeBurned:   PtrInt(math.ZeroInt()),
 		ReputationScores: map[string]string{"tag1": "100.0"},
-	})
-	k.MintDREAM(ctx, assignee, math.NewInt(1000))
+	}))
+	require.NoError(t, k.MintDREAM(ctx, assignee, math.NewInt(1000)))
 
 	initID, err := k.CreateInitiative(
 		ctx,
@@ -471,15 +471,15 @@ func TestChallengeResponsePreventsAutoUphold(t *testing.T) {
 
 	// Create a challenger
 	challenger := sdk.AccAddress([]byte("challenger"))
-	k.Member.Set(ctx, challenger.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, challenger.String(), types.Member{
 		Address:          challenger.String(),
 		DreamBalance:     PtrInt(math.ZeroInt()),
 		StakedDream:      PtrInt(math.ZeroInt()),
 		LifetimeEarned:   PtrInt(math.ZeroInt()),
 		LifetimeBurned:   PtrInt(math.ZeroInt()),
 		ReputationScores: make(map[string]string),
-	})
-	k.MintDREAM(ctx, challenger, math.NewInt(1000000000)) // 1000 DREAM
+	}))
+	require.NoError(t, k.MintDREAM(ctx, challenger, math.NewInt(1000000000))) // 1000 DREAM
 
 	// Create jurors for the jury selection. MinSeatedJurors (3) is the smallest jury that can return a verdict —
 	// TallyJuryVotes floors quorum there, so a smaller one would be held at
@@ -487,14 +487,14 @@ func TestChallengeResponsePreventsAutoUphold(t *testing.T) {
 	// rather than seating it.
 	for i := 0; i < types.MinSeatedJurors; i++ {
 		juror := sdk.AccAddress([]byte(fmt.Sprintf("%-16.16s", fmt.Sprintf("juror-%d", i))))
-		k.Member.Set(ctx, juror.String(), types.Member{
+		require.NoError(t, k.Member.Set(ctx, juror.String(), types.Member{
 			Address:          juror.String(),
 			DreamBalance:     PtrInt(math.ZeroInt()),
 			StakedDream:      PtrInt(math.ZeroInt()),
 			LifetimeEarned:   PtrInt(math.ZeroInt()),
 			LifetimeBurned:   PtrInt(math.ZeroInt()),
 			ReputationScores: map[string]string{"tag1": "100.0"},
-		})
+		}))
 	}
 
 	// Set params for small jury
@@ -503,7 +503,7 @@ func TestChallengeResponsePreventsAutoUphold(t *testing.T) {
 	params.MinJurorReputation = math.LegacyOneDec()
 	params.ChallengeResponseDeadlineEpochs = 1
 	params.EpochBlocks = 10
-	k.Params.Set(ctx, params)
+	require.NoError(t, k.Params.Set(ctx, params))
 
 	// Create a challenge
 	chalID, err := k.CreateChallenge(
@@ -557,22 +557,22 @@ func TestHasActiveChallenges(t *testing.T) {
 			[]string{"tag1"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical",
 			math.NewInt(1000), math.NewInt(100), false)
 		require.NoError(t, err)
-		k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(1000), math.NewInt(100))
+		require.NoError(t, k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(1000), math.NewInt(100)))
 
 		assignee := sdk.AccAddress([]byte("assignee"))
-		k.Member.Set(ctx, assignee.String(), types.Member{
+		require.NoError(t, k.Member.Set(ctx, assignee.String(), types.Member{
 			Address: assignee.String(), DreamBalance: PtrInt(math.ZeroInt()),
 			StakedDream: PtrInt(math.ZeroInt()), LifetimeEarned: PtrInt(math.ZeroInt()),
 			LifetimeBurned: PtrInt(math.ZeroInt()), ReputationScores: map[string]string{"tag1": "100.0"},
-		})
-		k.MintDREAM(ctx, assignee, math.NewInt(1000))
+		}))
+		require.NoError(t, k.MintDREAM(ctx, assignee, math.NewInt(1000)))
 
 		initID, err := k.CreateInitiative(ctx, assignee, projectID, "Init", "D", []string{"tag1"},
 			types.InitiativeTier_INITIATIVE_TIER_STANDARD, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE,
 			math.NewInt(100))
 		require.NoError(t, err)
-		k.AssignInitiativeToMember(ctx, initID, assignee)
-		k.SubmitInitiativeWork(ctx, initID, assignee, "URI")
+		require.NoError(t, k.AssignInitiativeToMember(ctx, initID, assignee))
+		require.NoError(t, k.SubmitInitiativeWork(ctx, initID, assignee, "URI"))
 
 		return initID
 	}
@@ -593,12 +593,12 @@ func TestHasActiveChallenges(t *testing.T) {
 		initID := setupInitiative(t, fixture)
 
 		challenger := sdk.AccAddress([]byte("challenger"))
-		k.Member.Set(ctx, challenger.String(), types.Member{
+		require.NoError(t, k.Member.Set(ctx, challenger.String(), types.Member{
 			Address: challenger.String(), DreamBalance: PtrInt(math.ZeroInt()),
 			StakedDream: PtrInt(math.ZeroInt()), LifetimeEarned: PtrInt(math.ZeroInt()),
 			LifetimeBurned: PtrInt(math.ZeroInt()), ReputationScores: make(map[string]string),
-		})
-		k.MintDREAM(ctx, challenger, math.NewInt(1000000000)) // 1000 DREAM
+		}))
+		require.NoError(t, k.MintDREAM(ctx, challenger, math.NewInt(1000000000))) // 1000 DREAM
 
 		_, err := k.CreateChallenge(ctx, challenger, initID, "Bad work", nil, math.NewInt(50000000))
 		require.NoError(t, err)
@@ -615,12 +615,12 @@ func TestHasActiveChallenges(t *testing.T) {
 		initID := setupInitiative(t, fixture)
 
 		challenger := sdk.AccAddress([]byte("challenger"))
-		k.Member.Set(ctx, challenger.String(), types.Member{
+		require.NoError(t, k.Member.Set(ctx, challenger.String(), types.Member{
 			Address: challenger.String(), DreamBalance: PtrInt(math.ZeroInt()),
 			StakedDream: PtrInt(math.ZeroInt()), LifetimeEarned: PtrInt(math.ZeroInt()),
 			LifetimeBurned: PtrInt(math.ZeroInt()), ReputationScores: make(map[string]string),
-		})
-		k.MintDREAM(ctx, challenger, math.NewInt(1000000000)) // 1000 DREAM
+		}))
+		require.NoError(t, k.MintDREAM(ctx, challenger, math.NewInt(1000000000))) // 1000 DREAM
 
 		chalID, err := k.CreateChallenge(ctx, challenger, initID, "Bad work", nil, math.NewInt(50000000))
 		require.NoError(t, err)
@@ -641,12 +641,12 @@ func TestHasActiveChallenges(t *testing.T) {
 		initID := setupInitiative(t, fixture)
 
 		challenger := sdk.AccAddress([]byte("challenger"))
-		k.Member.Set(ctx, challenger.String(), types.Member{
+		require.NoError(t, k.Member.Set(ctx, challenger.String(), types.Member{
 			Address: challenger.String(), DreamBalance: PtrInt(math.ZeroInt()),
 			StakedDream: PtrInt(math.ZeroInt()), LifetimeEarned: PtrInt(math.ZeroInt()),
 			LifetimeBurned: PtrInt(math.ZeroInt()), ReputationScores: make(map[string]string),
-		})
-		k.MintDREAM(ctx, challenger, math.NewInt(1000000000)) // 1000 DREAM
+		}))
+		require.NoError(t, k.MintDREAM(ctx, challenger, math.NewInt(1000000000))) // 1000 DREAM
 
 		chalID, err := k.CreateChallenge(ctx, challenger, initID, "Bad work", nil, math.NewInt(50000000))
 		require.NoError(t, err)
@@ -675,12 +675,12 @@ func TestHasActiveChallenges(t *testing.T) {
 		initID := setupInitiative(t, fixture)
 
 		challenger := sdk.AccAddress([]byte("challenger"))
-		k.Member.Set(ctx, challenger.String(), types.Member{
+		require.NoError(t, k.Member.Set(ctx, challenger.String(), types.Member{
 			Address: challenger.String(), DreamBalance: PtrInt(math.ZeroInt()),
 			StakedDream: PtrInt(math.ZeroInt()), LifetimeEarned: PtrInt(math.ZeroInt()),
 			LifetimeBurned: PtrInt(math.ZeroInt()), ReputationScores: make(map[string]string),
-		})
-		k.MintDREAM(ctx, challenger, math.NewInt(1000000000)) // 1000 DREAM
+		}))
+		require.NoError(t, k.MintDREAM(ctx, challenger, math.NewInt(1000000000))) // 1000 DREAM
 
 		chalID, err := k.CreateChallenge(ctx, challenger, initID, "Bad work", nil, math.NewInt(50000000))
 		require.NoError(t, err)
@@ -709,30 +709,30 @@ func TestTriageChallenge(t *testing.T) {
 			[]string{"tag1"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical",
 			math.NewInt(1000), math.NewInt(100), false)
 		require.NoError(t, err)
-		k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(1000), math.NewInt(100))
+		require.NoError(t, k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(1000), math.NewInt(100)))
 
 		assignee := sdk.AccAddress([]byte("assignee"))
-		k.Member.Set(ctx, assignee.String(), types.Member{
+		require.NoError(t, k.Member.Set(ctx, assignee.String(), types.Member{
 			Address: assignee.String(), DreamBalance: PtrInt(math.ZeroInt()),
 			StakedDream: PtrInt(math.ZeroInt()), LifetimeEarned: PtrInt(math.ZeroInt()),
 			LifetimeBurned: PtrInt(math.ZeroInt()), ReputationScores: map[string]string{"tag1": "100.0"},
-		})
-		k.MintDREAM(ctx, assignee, math.NewInt(1000))
+		}))
+		require.NoError(t, k.MintDREAM(ctx, assignee, math.NewInt(1000)))
 
 		initID, err := k.CreateInitiative(ctx, assignee, projectID, "Init", "D", []string{"tag1"},
 			types.InitiativeTier_INITIATIVE_TIER_STANDARD, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE,
 			math.NewInt(100))
 		require.NoError(t, err)
-		k.AssignInitiativeToMember(ctx, initID, assignee)
-		k.SubmitInitiativeWork(ctx, initID, assignee, "URI")
+		require.NoError(t, k.AssignInitiativeToMember(ctx, initID, assignee))
+		require.NoError(t, k.SubmitInitiativeWork(ctx, initID, assignee, "URI"))
 
 		challenger := sdk.AccAddress([]byte("challenger"))
-		k.Member.Set(ctx, challenger.String(), types.Member{
+		require.NoError(t, k.Member.Set(ctx, challenger.String(), types.Member{
 			Address: challenger.String(), DreamBalance: PtrInt(math.ZeroInt()),
 			StakedDream: PtrInt(math.ZeroInt()), LifetimeEarned: PtrInt(math.ZeroInt()),
 			LifetimeBurned: PtrInt(math.ZeroInt()), ReputationScores: make(map[string]string),
-		})
-		k.MintDREAM(ctx, challenger, math.NewInt(1000000000)) // 1000 DREAM
+		}))
+		require.NoError(t, k.MintDREAM(ctx, challenger, math.NewInt(1000000000))) // 1000 DREAM
 
 		chalID, err := k.CreateChallenge(ctx, challenger, initID, "Bad work", nil, math.NewInt(50000000))
 		require.NoError(t, err)
@@ -751,30 +751,30 @@ func TestTriageChallenge(t *testing.T) {
 			[]string{"tag1"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical",
 			math.NewInt(1000), math.NewInt(100), false)
 		require.NoError(t, err)
-		k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(1000), math.NewInt(100))
+		require.NoError(t, k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(1000), math.NewInt(100)))
 
 		assignee := sdk.AccAddress([]byte("assignee"))
-		k.Member.Set(ctx, assignee.String(), types.Member{
+		require.NoError(t, k.Member.Set(ctx, assignee.String(), types.Member{
 			Address: assignee.String(), DreamBalance: PtrInt(math.ZeroInt()),
 			StakedDream: PtrInt(math.ZeroInt()), LifetimeEarned: PtrInt(math.ZeroInt()),
 			LifetimeBurned: PtrInt(math.ZeroInt()), ReputationScores: map[string]string{"tag1": "100.0"},
-		})
-		k.MintDREAM(ctx, assignee, math.NewInt(1000))
+		}))
+		require.NoError(t, k.MintDREAM(ctx, assignee, math.NewInt(1000)))
 
 		initID, err := k.CreateInitiative(ctx, assignee, projectID, "Init", "D", []string{"tag1"},
 			types.InitiativeTier_INITIATIVE_TIER_STANDARD, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE,
 			math.NewInt(100))
 		require.NoError(t, err)
-		k.AssignInitiativeToMember(ctx, initID, assignee)
-		k.SubmitInitiativeWork(ctx, initID, assignee, "URI")
+		require.NoError(t, k.AssignInitiativeToMember(ctx, initID, assignee))
+		require.NoError(t, k.SubmitInitiativeWork(ctx, initID, assignee, "URI"))
 
 		challenger := sdk.AccAddress([]byte("challenger"))
-		k.Member.Set(ctx, challenger.String(), types.Member{
+		require.NoError(t, k.Member.Set(ctx, challenger.String(), types.Member{
 			Address: challenger.String(), DreamBalance: PtrInt(math.ZeroInt()),
 			StakedDream: PtrInt(math.ZeroInt()), LifetimeEarned: PtrInt(math.ZeroInt()),
 			LifetimeBurned: PtrInt(math.ZeroInt()), ReputationScores: make(map[string]string),
-		})
-		k.MintDREAM(ctx, challenger, math.NewInt(1000000000)) // 1000 DREAM
+		}))
+		require.NoError(t, k.MintDREAM(ctx, challenger, math.NewInt(1000000000))) // 1000 DREAM
 
 		chalID, err := k.CreateChallenge(ctx, challenger, initID, "Bad work", nil, math.NewInt(50000000))
 		require.NoError(t, err)
@@ -795,31 +795,31 @@ func TestEscalateChallengeToCommittee(t *testing.T) {
 		[]string{"tag1"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical",
 		math.NewInt(1000), math.NewInt(100), false)
 	require.NoError(t, err)
-	k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(1000), math.NewInt(100))
+	require.NoError(t, k.ApproveProject(ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(1000), math.NewInt(100)))
 
 	assignee := sdk.AccAddress([]byte("assignee"))
-	k.Member.Set(ctx, assignee.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, assignee.String(), types.Member{
 		Address: assignee.String(), DreamBalance: PtrInt(math.ZeroInt()),
 		StakedDream: PtrInt(math.ZeroInt()), LifetimeEarned: PtrInt(math.ZeroInt()),
 		LifetimeBurned: PtrInt(math.ZeroInt()), ReputationScores: map[string]string{"tag1": "100.0"},
-	})
-	k.MintDREAM(ctx, assignee, math.NewInt(1000))
+	}))
+	require.NoError(t, k.MintDREAM(ctx, assignee, math.NewInt(1000)))
 
 	initID, err := k.CreateInitiative(ctx, assignee, projectID, "Init", "D", []string{"tag1"},
 		types.InitiativeTier_INITIATIVE_TIER_STANDARD, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE,
 		math.NewInt(100))
 	require.NoError(t, err)
-	k.AssignInitiativeToMember(ctx, initID, assignee)
-	k.SubmitInitiativeWork(ctx, initID, assignee, "URI")
+	require.NoError(t, k.AssignInitiativeToMember(ctx, initID, assignee))
+	require.NoError(t, k.SubmitInitiativeWork(ctx, initID, assignee, "URI"))
 
 	// Create a challenger and challenge
 	challenger := sdk.AccAddress([]byte("challenger"))
-	k.Member.Set(ctx, challenger.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, challenger.String(), types.Member{
 		Address: challenger.String(), DreamBalance: PtrInt(math.ZeroInt()),
 		StakedDream: PtrInt(math.ZeroInt()), LifetimeEarned: PtrInt(math.ZeroInt()),
 		LifetimeBurned: PtrInt(math.ZeroInt()), ReputationScores: make(map[string]string),
-	})
-	k.MintDREAM(ctx, challenger, math.NewInt(1000000000)) // 1000 DREAM
+	}))
+	require.NoError(t, k.MintDREAM(ctx, challenger, math.NewInt(1000000000))) // 1000 DREAM
 
 	chalID, err := k.CreateChallenge(ctx, challenger, initID, "Bad work", []string{"evidence"}, math.NewInt(50000000))
 	require.NoError(t, err)

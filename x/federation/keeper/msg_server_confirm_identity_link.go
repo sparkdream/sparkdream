@@ -30,6 +30,12 @@ func (k msgServer) ConfirmIdentityLink(ctx context.Context, msg *types.MsgConfir
 		return nil, errorsmod.Wrapf(types.ErrChallengeExpired, "challenge expired at %d, current time %d", challenge.ExpiresAt, blockTime)
 	}
 
+	// 2b. The peer must still be ACTIVE: a suspended or removed peer gets
+	//     no confirmations (spec §6.3).
+	if _, err := k.GetPeerRequireActive(ctx, msg.ClaimantChainPeerId); err != nil {
+		return nil, errorsmod.Wrapf(err, "peer %q", msg.ClaimantChainPeerId)
+	}
+
 	// 3. Send IdentityVerificationConfirmPacket via IBC
 	// The fact that creator signed this tx proves they own the private key for claimed_address.
 	packetData := &types.FederationPacketData{
@@ -42,14 +48,17 @@ func (k msgServer) ConfirmIdentityLink(ctx context.Context, msg *types.MsgConfir
 			},
 		},
 	}
-	// Best-effort: the remote chain will process the confirmation when delivered.
-	// The local challenge is cleaned up regardless.
-	_, _ = k.SendFederationPacket(ctx, msg.ClaimantChainPeerId, packetData)
-
-	// 4. Delete the PendingIdentityChallenge
-	if err := k.PendingIdChallenges.Remove(ctx, challengeKey); err != nil {
-		return nil, err
+	// A failed send fails the tx: the confirmation would otherwise be lost
+	// silently while the user believes it went out.
+	if _, err := k.SendFederationPacket(ctx, msg.ClaimantChainPeerId, packetData); err != nil {
+		return nil, errorsmod.Wrap(err, "send identity confirmation")
 	}
+
+	// 4. The PendingIdentityChallenge is deliberately kept until it expires
+	//    (EndBlocker Phase 4). If the confirmation packet times out, the
+	//    user re-submits MsgConfirmIdentityLink and a new packet goes out
+	//    (spec §8.3, Phase 2 timeout); the claimant chain treats a repeat
+	//    confirmation of an already-verified link as a no-op.
 
 	// 5. Emit event
 	sdkCtx.EventManager().EmitEvent(

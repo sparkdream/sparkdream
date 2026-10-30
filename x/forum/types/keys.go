@@ -102,3 +102,48 @@ var (
 	// per-block cap can't starve high-id stakes.
 	PostConvictionAccrualCursorKey = collections.NewPrefix("post_conviction/accrual_cursor/")
 )
+
+// Lifecycle indexes added by the 2026-10 security review. All are derived
+// state: InitGenesis rebuilds each from the records it indexes, so none is a
+// genesis field.
+var (
+	// PostsByRoot: (root_id, post_id) for every reply in a thread. Lets
+	// thread-wide operations (freeze / unarchive) walk one thread instead of
+	// the whole Post store. Root posts are not indexed under themselves.
+	PostsByRootKey = collections.NewPrefix("idx/posts_by_root/")
+	// HideRecordExpiry: (hidden_at + hidden_expiration, post_id) for every
+	// unappealed HideRecord. ExpireHiddenPosts walks it up to now instead of
+	// scanning every HideRecord each block. Appealed hides leave the index
+	// (their verdict finalizes them).
+	HideRecordExpiryKey = collections.NewPrefix("idx/hide_record_expiry/")
+	// LockRecordExpiry / MoveRecordExpiry: (action_at + appeal deadline,
+	// root_id) for every sentinel lock / move record with no appeal filed.
+	// At the deadline the reservation is released and the record dropped
+	// (the action stood unchallenged).
+	LockRecordExpiryKey = collections.NewPrefix("idx/lock_record_expiry/")
+	MoveRecordExpiryKey = collections.NewPrefix("idx/move_record_expiry/")
+	// ReleasedStakesByPost: (post_id, stake_id) for released-but-not-GC'd
+	// PostConvictionStakes, so a late tombstone can still claw back the rep
+	// they produced (PostConvictionStakesByPost holds only active stakes).
+	ReleasedStakesByPostKey = collections.NewPrefix("idx/released_stakes_by_post/")
+	// ReleasedStakeGc: (gc_at, stake_id) — time-ordered GC queue of released
+	// stakes, so the GC pass never scans active stakes.
+	ReleasedStakeGcKey = collections.NewPrefix("idx/released_stake_gc/")
+	// RootsByCategory: (category_id, root_post_id) for every thread root, so
+	// category-deletion checks walk one category's threads, not every post.
+	// Derived; rebuilt at genesis.
+	RootsByCategoryKey = collections.NewPrefix("idx/roots_by_category/")
+	// StakeSlashQueue: post_id -> author for every post whose stood hide is
+	// still being settled against its conviction stakes.
+	StakeSlashQueueKey = collections.NewPrefix("stake_slash_queue/")
+	// LockedRoots: root post ids of locked threads (LockedThreads query).
+	LockedRootsKey = collections.NewPrefix("idx/locked_roots/")
+)
+
+// TagPruneQueue: tag name -> next post id to scan. A tag x/rep removed from
+// the registry is queued here and the EndBlocker strips it from posts in
+// capped batches (maxTagPruneScanPerBlock), so neither the removing tx nor
+// a single block pays for a walk of every post. Not a genesis field: a
+// reference left behind by an export is a harmless stale label (the tag no
+// longer resolves).
+var TagPruneQueueKey = collections.NewPrefix("tag_prune_queue/")

@@ -174,6 +174,9 @@ type mockRepKeeper struct {
 	AddReputationCalls    []repGrantCall
 	DeductReputationCalls []repGrantCall
 	NextInitiativeID      uint64
+	// SeatedExcludes / SeatedDeadlines record every CreateSeatedAppeal call.
+	SeatedExcludes  [][]string
+	SeatedDeadlines []int64
 }
 
 type repGrantCall struct {
@@ -204,6 +207,14 @@ func (m *mockRepKeeper) CreateAppealInitiative(ctx context.Context, initiativeTy
 	}
 	m.NextInitiativeID++
 	return m.NextInitiativeID, nil
+}
+
+// CreateSeatedAppeal records the parties excluded from the jury and opens
+// the case through the same stub as CreateAppealInitiative.
+func (m *mockRepKeeper) CreateSeatedAppeal(ctx context.Context, initiativeType string, payload []byte, deadline int64, excludes []string) (uint64, error) {
+	m.SeatedExcludes = append(m.SeatedExcludes, excludes)
+	m.SeatedDeadlines = append(m.SeatedDeadlines, deadline)
+	return m.CreateAppealInitiative(ctx, initiativeType, payload, deadline)
 }
 
 func (m *mockRepKeeper) GetJuryVerdictName(ctx context.Context, juryReviewID uint64) (string, error) {
@@ -326,6 +337,7 @@ type fixture struct {
 	authKeeper         *mockAuthKeeper
 	hooks              *mockServiceHooks
 	authorityStr       string
+	storeKey           *storetypes.KVStoreKey
 }
 
 // initFixture wires up a fully-mocked Keeper with permissive defaults.
@@ -405,6 +417,7 @@ func initFixture(t *testing.T) *fixture {
 		authKeeper:         authKeeper,
 		hooks:              hooks,
 		authorityStr:       authorityStr,
+		storeKey:           storeKey,
 	}
 }
 

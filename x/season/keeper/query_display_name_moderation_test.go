@@ -25,7 +25,7 @@ func createNDisplayNameModeration(keeper keeper.Keeper, ctx context.Context, n i
 		items[i].AppealChallengeId = strconv.Itoa(i)
 		items[i].AppealedAt = int64(i)
 		items[i].AppealSucceeded = true
-		_ = keeper.DisplayNameModeration.Set(ctx, items[i].Member, items[i])
+		_ = keeper.SetDisplayNameModeration(ctx, items[i].Member, items[i])
 	}
 	return items
 }

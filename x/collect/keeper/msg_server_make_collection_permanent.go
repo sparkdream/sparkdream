@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"sparkdream/x/collect/types"
+	commontypes "sparkdream/x/common/types"
 
 	"cosmossdk.io/collections"
 	errorsmod "cosmossdk.io/errors"
@@ -55,29 +56,30 @@ func (k msgServer) MakeCollectionPermanent(ctx context.Context, msg *types.MsgMa
 	}
 
 	creatorAddr, _ := sdk.AccAddressFromBech32(msg.Creator)
-	if k.repKeeper == nil {
+	if k.late.repKeeper == nil {
 		return nil, errorsmod.Wrap(types.ErrMakePermanentTrustLevelTooLow, "reputation module not available")
 	}
-	if !k.repKeeper.IsMember(ctx, creatorAddr) {
+	if !k.late.repKeeper.IsActiveMember(ctx, creatorAddr) {
 		return nil, errorsmod.Wrap(types.ErrMakePermanentTrustLevelTooLow, "not a member")
 	}
-	tl, err := k.repKeeper.GetTrustLevel(ctx, creatorAddr)
+	tl, err := k.late.repKeeper.GetTrustLevel(ctx, creatorAddr)
 	if err != nil {
 		return nil, errorsmod.Wrap(types.ErrMakePermanentTrustLevelTooLow, "cannot determine trust level")
 	}
-	if uint32(tl) < params.MakePermanentMinTrustLevel {
+	if commontypes.Saturate[uint32](tl) < params.MakePermanentMinTrustLevel {
 		return nil, errorsmod.Wrap(types.ErrMakePermanentTrustLevelTooLow,
-			fmt.Sprintf("does not meet make-permanent trust level requirement (have=%d, need=%d)", uint32(tl), params.MakePermanentMinTrustLevel))
+			fmt.Sprintf("does not meet make-permanent trust level requirement (have=%d, need=%d)", commontypes.Saturate[uint32](tl), params.MakePermanentMinTrustLevel))
+	}
+
+	// Idempotent on already-permanent (before the rate limit, so a blind
+	// upgrade-then-pin never spends a daily slot on a no-op).
+	if coll.ExpiresAt == 0 {
+		return &types.MsgMakeCollectionPermanentResponse{}, nil
 	}
 
 	// Dedicated MakePermanent daily counter — independent of MaxPinsPerDay.
 	if err := k.checkDailyLimit(ctx, msg.Creator, blockHeight, "make_permanent", params.MaxMakePermanentPerDay); err != nil {
 		return nil, err
-	}
-
-	// Idempotent on already-permanent.
-	if coll.ExpiresAt == 0 {
-		return &types.MsgMakeCollectionPermanentResponse{}, nil
 	}
 
 	oldExpiresAt := coll.ExpiresAt
@@ -87,17 +89,44 @@ func (k msgServer) MakeCollectionPermanent(ctx context.Context, msg *types.MsgMa
 		coll.ConvictionSustained = false
 	}
 
+	// The owner's escrowed deposits are refundable to the owner, so a third
+	// party preserving someone else's collection pays the burn itself: the
+	// caller burns an equal amount from its own account and the escrow goes
+	// back to the owner (as sponsorship does). The owner (or its migrated
+	// key) preserving its own collection burns the escrow directly.
 	totalDeposit := coll.DepositAmount.Add(coll.ItemDepositTotal)
+	paidByCaller := false
 	if totalDeposit.IsPositive() {
-		if err := k.BurnSPARK(ctx, totalDeposit); err != nil {
-			return nil, err
+		if k.isCollectionOwner(ctx, coll, msg.Creator) {
+			if err := k.BurnSPARK(ctx, totalDeposit); err != nil {
+				return nil, err
+			}
+		} else {
+			if err := k.BurnSPARKFromAccount(ctx, creatorAddr, totalDeposit); err != nil {
+				return nil, errorsmod.Wrap(types.ErrInsufficientFunds, err.Error())
+			}
+			ownerAddr, err := k.addressCodec.StringToBytes(coll.Owner)
+			if err != nil {
+				return nil, errorsmod.Wrap(err, "invalid owner address")
+			}
+			if err := k.RefundSPARK(ctx, ownerAddr, totalDeposit); err != nil {
+				return nil, err
+			}
+			paidByCaller = true
 		}
 	}
 
 	if err := k.Collection.Set(ctx, coll.Id, coll); err != nil {
 		return nil, err
 	}
-	_ = k.CollectionsByExpiry.Remove(ctx, collections.Join(oldExpiresAt, coll.Id))
+	if err := k.CollectionsByExpiry.Remove(ctx, collections.Join(oldExpiresAt, coll.Id)); err != nil {
+		return nil, err
+	}
+	// A direct conversion supersedes a pending sponsorship request, as in
+	// MsgUpdateCollection: refund its escrow and delete it.
+	if err := k.supersedeSponsorshipRequest(ctx, coll.Id); err != nil {
+		return nil, err
+	}
 
 	sdkCtx.EventManager().EmitEvent(sdk.NewEvent("collect.collection.upgraded",
 		sdk.NewAttribute("collection_id", fmt.Sprintf("%d", msg.CollectionId)),
@@ -105,6 +134,7 @@ func (k msgServer) MakeCollectionPermanent(ctx context.Context, msg *types.MsgMa
 		sdk.NewAttribute("by", msg.Creator),
 		sdk.NewAttribute("via", "make_permanent"),
 		sdk.NewAttribute("deposit_burned", totalDeposit.String()),
+		sdk.NewAttribute("paid_by_caller", fmt.Sprintf("%t", paidByCaller)),
 	))
 
 	return &types.MsgMakeCollectionPermanentResponse{}, nil

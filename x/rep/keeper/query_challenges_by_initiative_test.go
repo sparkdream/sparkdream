@@ -26,8 +26,12 @@ func createChallengeForInitiative(k keeper.Keeper, ctx context.Context, id uint6
 		CreatedAt:    1000,
 		ResolvedAt:   0,
 	}
-	_ = k.Challenge.Set(ctx, id, challenge)
-	_ = k.ChallengeSeq.Set(ctx, id)
+	if err := k.Challenge.Set(ctx, id, challenge); err != nil {
+		panic(err)
+	}
+	if err := k.ChallengeSeq.Set(ctx, id); err != nil {
+		panic(err)
+	}
 	return challenge
 }
 

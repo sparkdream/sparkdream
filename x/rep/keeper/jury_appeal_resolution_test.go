@@ -51,7 +51,6 @@ func setupJuryAppeal(t *testing.T) *juryAppealFixture {
 	t.Helper()
 
 	f := initFixture(t)
-	ms := keeper.NewMsgServerImpl(f.keeper)
 
 	fk := &mockForumKeeper{
 		authors:         make(map[uint64]string),
@@ -103,12 +102,7 @@ func setupJuryAppeal(t *testing.T) *juryAppealFixture {
 	setActiveMember(t, f.keeper, f.ctx, appellant)
 	ja.appellantStr = appellant.String()
 
-	_, err := ms.AppealGovAction(f.ctx, &types.MsgAppealGovAction{
-		Creator:      ja.appellantStr,
-		ActionType:   uint64(ja.actionType),
-		ActionTarget: ja.actionTarget,
-		AppealReason: "jury path",
-	})
+	_, _, err := f.keeper.CreateGovActionAppeal(f.ctx, ja.actionType, ja.actionTarget, appellant, "jury path")
 	require.NoError(t, err)
 
 	appealID, appeal := findAppeal(t, f, ja.appellantStr)

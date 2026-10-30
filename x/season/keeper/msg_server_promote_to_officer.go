@@ -2,8 +2,11 @@ package keeper
 
 import (
 	"context"
+	"cosmossdk.io/collections"
+	"errors"
 	"fmt"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/season/types"
 
 	errorsmod "cosmossdk.io/errors"
@@ -57,8 +60,11 @@ func (k msgServer) PromoteToOfficer(ctx context.Context, msg *types.MsgPromoteTo
 	}
 
 	// Check max officers
-	params, _ := k.Params.Get(ctx)
-	if uint32(len(guild.Officers)) >= params.MaxGuildOfficers {
+	params, getErr := k.Params.Get(ctx)
+	if getErr != nil && !errors.Is(getErr, collections.ErrNotFound) {
+		return nil, getErr
+	}
+	if commontypes.Saturate[uint32](len(guild.Officers)) >= params.MaxGuildOfficers {
 		return nil, types.ErrMaxOfficers
 	}
 

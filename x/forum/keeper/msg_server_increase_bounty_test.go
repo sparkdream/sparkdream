@@ -51,7 +51,7 @@ func TestMsgServerIncreaseBounty(t *testing.T) {
 		post := f.createTestPost(t, testCreator, 0, 0)
 		bounty := f.createTestBounty(t, testCreator, post.PostId, "1000000")
 		bounty.Status = types.BountyStatus_BOUNTY_STATUS_AWARDED
-		f.keeper.Bounty.Set(f.ctx, bounty.Id, bounty)
+		require.NoError(t, f.keeper.Bounty.Set(f.ctx, bounty.Id, bounty))
 
 		msg := &types.MsgIncreaseBounty{
 			Creator:          testCreator,
@@ -84,7 +84,7 @@ func TestMsgServerIncreaseBounty(t *testing.T) {
 		msg := &types.MsgIncreaseBounty{
 			Creator:          testCreator,
 			BountyId:         bounty.Id,
-			AdditionalAmount: "500000",
+			AdditionalAmount: "50000000", // the 50 SPARK minimum
 		}
 		_, err := f.msgServer.IncreaseBounty(f.ctx, msg)
 		require.NoError(t, err)
@@ -92,6 +92,18 @@ func TestMsgServerIncreaseBounty(t *testing.T) {
 		// Verify bounty amount increased
 		updatedBounty, err := f.keeper.Bounty.Get(f.ctx, bounty.Id)
 		require.NoError(t, err)
-		require.Equal(t, "1500000", updatedBounty.Amount)
+		require.Equal(t, "51000000", updatedBounty.Amount)
+	})
+
+	t.Run("increase below minimum", func(t *testing.T) {
+		post := f.createTestPost(t, testCreator, 0, 0)
+		bounty := f.createTestBounty(t, testCreator, post.PostId, "50000000")
+
+		_, err := f.msgServer.IncreaseBounty(f.ctx, &types.MsgIncreaseBounty{
+			Creator:          testCreator,
+			BountyId:         bounty.Id,
+			AdditionalAmount: "49999999",
+		})
+		require.ErrorIs(t, err, types.ErrBountyAmountTooSmall)
 	})
 }

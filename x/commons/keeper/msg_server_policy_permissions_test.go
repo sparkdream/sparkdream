@@ -76,6 +76,7 @@ func TestPolicyPermissionsMsgServerCreate(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.desc, func(t *testing.T) {
 			policyAddr := tc.setup()
+			require.NoError(t, f.keeper.PolicyToName.Set(f.ctx, policyAddr, "Policy Group"))
 			msg := tc.request(policyAddr)
 
 			_, err := srv.CreatePolicyPermissions(f.ctx, msg)
@@ -101,6 +102,8 @@ func TestPolicyPermissionsMsgServerUpdate(t *testing.T) {
 	addrBytes := []byte("policyAddress_______________00")
 	policyAddr, err := f.addressCodec.BytesToString(addrBytes)
 	require.NoError(t, err)
+	// Self-registration is for registered group policies.
+	require.NoError(t, f.keeper.PolicyToName.Set(f.ctx, policyAddr, "Policy Group"))
 
 	unauthBytes := []byte("unauthorizedAddr____________00")
 	unauthorizedAddr, err := f.addressCodec.BytesToString(unauthBytes)
@@ -205,6 +208,8 @@ func TestPolicyPermissionsMsgServerDelete(t *testing.T) {
 	addrBytes := []byte("policyAddress_______________00")
 	policyAddr, err := f.addressCodec.BytesToString(addrBytes)
 	require.NoError(t, err)
+	// Self-registration is for registered group policies.
+	require.NoError(t, f.keeper.PolicyToName.Set(f.ctx, policyAddr, "Policy Group"))
 
 	unauthBytes := []byte("unauthorizedAddr____________00")
 	unauthorizedAddr, err := f.addressCodec.BytesToString(unauthBytes)
@@ -278,6 +283,7 @@ func TestPolicyPermissionsNarrowingBumpsPolicyVersion(t *testing.T) {
 
 	policyAddr, err := f.addressCodec.BytesToString([]byte("policyAddress_______________01"))
 	require.NoError(t, err)
+	require.NoError(t, f.keeper.PolicyToName.Set(f.ctx, policyAddr, "Policy Group"))
 
 	_, err = srv.CreatePolicyPermissions(f.ctx, &types.MsgCreatePolicyPermissions{
 		Authority:       policyAddr,

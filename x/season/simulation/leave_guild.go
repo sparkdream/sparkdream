@@ -12,9 +12,9 @@ import (
 	"sparkdream/x/season/types"
 )
 
-// SimulateMsgLeaveGuild simulates a MsgLeaveGuild message using direct keeper calls.
-// This bypasses the maintenance mode check for simulation purposes.
-// Full maintenance mode testing should be done in integration tests.
+// SimulateMsgLeaveGuild delivers MsgLeaveGuild from a random sim account
+// whose profile is in a guild it did not found. Skips maintenance mode and
+// founders (who cannot leave).
 func SimulateMsgLeaveGuild(
 	ak types.AuthKeeper,
 	bk types.BankKeeper,
@@ -23,31 +23,30 @@ func SimulateMsgLeaveGuild(
 ) simtypes.Operation {
 	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
 	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		// Find a member who can leave (not a founder)
-		membership, memberAddr, err := findGuildMembership(r, ctx, k)
-		if err != nil || membership == nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgLeaveGuild{}), "no guild memberships found"), nil, nil
+		msg := &types.MsgLeaveGuild{}
+
+		if k.IsInMaintenanceMode(ctx) {
+			return noOp(msg, "maintenance mode")
 		}
-
-		// Check if the member is the founder of the guild
-		if isFounder(ctx, k, membership.GuildId, memberAddr) {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgLeaveGuild{}), "cannot leave as founder"), nil, nil
+		var leavers []simtypes.Account
+		for _, acc := range accs {
+			addr := acc.Address.String()
+			profile, ok := getProfile(ctx, k, addr)
+			if !ok || profile.GuildId == 0 {
+				continue
+			}
+			guild, err := k.Guild.Get(ctx, profile.GuildId)
+			if err != nil || guild.Founder == addr {
+				continue
+			}
+			leavers = append(leavers, acc)
 		}
-
-		// Use direct keeper calls to leave guild (bypasses maintenance mode check)
-
-		// Remove membership
-		if err := k.GuildMembership.Remove(ctx, memberAddr); err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgLeaveGuild{}), "failed to remove membership"), nil, nil
+		simAccount, ok := pick(r, leavers)
+		if !ok {
+			return noOp(msg, "no sim account can leave a guild")
 		}
+		msg.Creator = simAccount.Address.String()
 
-		// Update profile to clear guild ID
-		profile, err := k.MemberProfile.Get(ctx, memberAddr)
-		if err == nil {
-			profile.GuildId = 0
-			k.MemberProfile.Set(ctx, memberAddr, profile)
-		}
-
-		return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgLeaveGuild{}), "ok (direct keeper call)"), nil, nil
+		return deliver(r, app, ctx, txGen, ak, bk, simAccount, msg)
 	}
 }

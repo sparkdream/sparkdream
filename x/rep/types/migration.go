@@ -46,7 +46,6 @@ const (
 	// MigrationObjectionInitiativeType is the ChallengerClaim tag of the jury
 	// review opened by MsgObjectMigration. TallyJuryVotes dispatches on it.
 	MigrationObjectionInitiativeType = "member_migration_objection"
-
 	// MaxMigrationFinalizationsPerBlock caps the EndBlocker finalization pass;
 	// the backlog drains over the following blocks.
 	MaxMigrationFinalizationsPerBlock = 10
@@ -55,6 +54,10 @@ const (
 	MaxMigrationExpiriesPerBlock = 50
 	// MaxZkKeyActivationsPerBlock caps the pending ZK key activation pass.
 	MaxZkKeyActivationsPerBlock = 50
+	// MaxTombstoneUndelegations caps how many of a tombstone's delegations
+	// one finalization or MsgSweepTombstone starts unbonding; a later sweep
+	// picks up the rest.
+	MaxTombstoneUndelegations = 50
 
 	// AssumedBlockTimeSeconds converts epoch-denominated windows to the
 	// seconds other modules measure voting periods in. It is the same
@@ -226,3 +229,12 @@ func AllRoleTypes() []RoleType {
 	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
 	return out
 }
+
+// MigrationObjectionEscalationWindow is how long (seconds) x/gov has to
+// decide an objection that an inconclusive jury escalated. Past it the
+// objection is rejected and the council migration proceeds, so a stalled
+// escalation cannot park a migration forever. 30 days on network builds (a
+// conservative bound that leaves room for a full gov proposal cycle); 90
+// seconds in the test build so the e2e suites can reach the expiry path
+// (build-tagged through getMigrationTimings).
+var MigrationObjectionEscalationWindow = getMigrationTimings().objectionEscalationWindow

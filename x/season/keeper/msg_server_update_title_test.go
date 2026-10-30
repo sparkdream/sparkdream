@@ -77,7 +77,7 @@ func TestMsgServerUpdateTitle(t *testing.T) {
 			RequirementSeason:    0,
 			Seasonal:             false,
 		}
-		k.Title.Set(ctx, "title1", existing)
+		require.NoError(t, k.Title.Set(ctx, "title1", existing))
 
 		// Update it
 		_, err := ms.UpdateTitle(ctx, &types.MsgUpdateTitle{
@@ -123,7 +123,7 @@ func TestMsgServerUpdateTitle(t *testing.T) {
 			TitleId: "title1",
 			Name:    "Original",
 		}
-		k.Title.Set(ctx, "title1", existing)
+		require.NoError(t, k.Title.Set(ctx, "title1", existing))
 
 		// Update it
 		_, err := ms.UpdateTitle(ctx, &types.MsgUpdateTitle{
@@ -154,7 +154,7 @@ func TestMsgServerUpdateTitle(t *testing.T) {
 			Name:     "Permanent Title",
 			Seasonal: false,
 		}
-		k.Title.Set(ctx, "title1", existing)
+		require.NoError(t, k.Title.Set(ctx, "title1", existing))
 
 		// Make it seasonal
 		_, err := ms.UpdateTitle(ctx, &types.MsgUpdateTitle{

@@ -267,8 +267,11 @@ genesis:
         staked_dream: "0"
         lifetime_earned: "25000000000"
         lifetime_burned: "0"
-        reputation_scores: {}
-        lifetime_reputation: {}
+        # Some "jury" reputation, below min_juror_reputation (20): bob is never
+        # drawn as a juror but qualifies as an expert witness on the rep
+        # challenge test's jury review (test/rep/challenge_test.sh Step 4b).
+        reputation_scores: {"jury": "10.000000000000000000"}
+        lifetime_reputation: {"jury": "10.000000000000000000"}
         trust_level: TRUST_LEVEL_ESTABLISHED
         trust_level_updated_at: 0
         joined_season: 0

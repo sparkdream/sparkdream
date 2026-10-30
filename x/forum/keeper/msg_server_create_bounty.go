@@ -16,6 +16,9 @@ func (k msgServer) CreateBounty(ctx context.Context, msg *types.MsgCreateBounty)
 	if _, err := k.addressCodec.StringToBytes(msg.Creator); err != nil {
 		return nil, errorsmod.Wrap(err, "invalid creator address")
 	}
+	if err := k.requireForumNotPaused(ctx); err != nil {
+		return nil, err
+	}
 
 	// A bounty escrows real SPARK from its creator. From the shield address
 	// that would be the communal gas reserve, and every anonymous member
@@ -51,17 +54,27 @@ func (k msgServer) CreateBounty(ctx context.Context, msg *types.MsgCreateBounty)
 	if !k.canActAs(ctx, msg.Creator, post.Author) {
 		return nil, errorsmod.Wrap(types.ErrNotThreadAuthor, "only the thread author can create a bounty")
 	}
+	// Spec: the creator must be a member (FRM-29).
+	if !k.IsActiveMember(ctx, msg.Creator) {
+		return nil, errorsmod.Wrap(types.ErrNotMember, "only active members can create bounties")
+	}
+	// A bounty on a hidden, locked, deleted or archived root starts life
+	// suspended or unreachable (FRM-29, FRM-25).
+	if !bountyRootEligible(post) {
+		return nil, errorsmod.Wrapf(types.ErrBountyRootIneligible, "thread %d is %s (locked=%t)", msg.ThreadId, post.Status, post.Locked)
+	}
 
-	// Check no existing active bounty for this thread (O(1) lookup via secondary index)
+	// At most one open bounty per thread (O(1) lookup via secondary index).
+	// A suspended (MODERATION_PENDING) bounty is still open: replacing it
+	// would drop its only index entry and strand its escrow (FRM-25).
 	if existingBountyID, err := k.ActiveBountyByThread.Get(ctx, msg.ThreadId); err == nil {
-		// Verify the bounty is still active (defensive check)
-		if existingBounty, err := k.Bounty.Get(ctx, existingBountyID); err == nil {
-			if existingBounty.Status == types.BountyStatus_BOUNTY_STATUS_ACTIVE {
-				return nil, types.ErrBountyAlreadyExists
-			}
+		if existingBounty, err := k.Bounty.Get(ctx, existingBountyID); err == nil && existingBounty.IsOpen() {
+			return nil, types.ErrBountyAlreadyExists
 		}
-		// Stale index entry — clean it up
-		_ = k.ActiveBountyByThread.Remove(ctx, msg.ThreadId)
+		// Stale index entry (the bounty is settled or gone) — clean it up
+		if err := k.ActiveBountyByThread.Remove(ctx, msg.ThreadId); err != nil {
+			return nil, err
+		}
 	}
 
 	// Parse and validate amount
@@ -70,10 +83,10 @@ func (k msgServer) CreateBounty(ctx context.Context, msg *types.MsgCreateBounty)
 		return nil, errorsmod.Wrap(types.ErrInvalidAmount, "invalid bounty amount")
 	}
 
-	minBountyAmount := math.NewInt(50) // DefaultMinBountyAmount
+	minBountyAmount := math.NewInt(types.MinBountyAmount)
 	if amount.LT(minBountyAmount) {
 		return nil, errorsmod.Wrapf(types.ErrBountyAmountTooSmall,
-			"minimum bounty is %s SPARK", minBountyAmount.String())
+			"minimum bounty is %s (bond denom base units)", minBountyAmount.String())
 	}
 
 	// Validate duration

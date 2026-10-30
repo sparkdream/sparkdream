@@ -49,7 +49,7 @@ func (k msgServer) TriggerDKG(ctx context.Context, msg *types.MsgTriggerDkg) (*t
 		return nil, err
 	}
 
-	if uint32(len(bondedVals)) < params.MinTleValidators {
+	if len(bondedVals) < int(params.MinTleValidators) {
 		return nil, errorsmod.Wrapf(types.ErrInsufficientValidators,
 			"need at least %d bonded validators, have %d", params.MinTleValidators, len(bondedVals))
 	}

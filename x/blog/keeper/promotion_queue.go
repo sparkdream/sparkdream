@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	commontypes "sparkdream/x/common/types"
 
 	"cosmossdk.io/store/prefix"
 	"github.com/cosmos/cosmos-sdk/runtime"
@@ -56,7 +57,7 @@ func (k Keeper) EnqueueAuthorForPromotion(ctx context.Context, creator string) {
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	store := k.promotionQueueStore(ctx)
 	bz := make([]byte, 8)
-	binary.BigEndian.PutUint64(bz, uint64(sdkCtx.BlockHeight()))
+	binary.BigEndian.PutUint64(bz, commontypes.Saturate[uint64](sdkCtx.BlockHeight()))
 	store.Set([]byte(creator), bz)
 }
 

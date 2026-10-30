@@ -3,6 +3,7 @@ package keeper
 import (
 	"context"
 	"errors"
+	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	"sparkdream/x/commons/types"
 
@@ -23,6 +24,9 @@ func (k Keeper) GetCategory(ctx context.Context, id uint64) (types.Category, boo
 
 // HasCategory reports whether a category with the given id exists.
 func (k Keeper) HasCategory(ctx context.Context, id uint64) bool {
-	has, _ := k.Category.Has(ctx, id)
+	has, getErr := k.Category.Has(ctx, id)
+	if getErr != nil {
+		sdk.UnwrapSDKContext(ctx).Logger().Error("Has failed", "err", getErr)
+	}
 	return has
 }

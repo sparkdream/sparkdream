@@ -12,11 +12,13 @@ import (
 // openMediaProposals counts a token's open proposals (bounded by the cap).
 func (k Keeper) openMediaProposals(ctx context.Context, classID, tokenID uint64) uint32 {
 	var n uint32
-	_ = k.MediaProposals.Walk(ctx, collections.NewSuperPrefixedTripleRange[uint64, uint64, uint64](classID, tokenID),
+	if err := k.MediaProposals.Walk(ctx, collections.NewSuperPrefixedTripleRange[uint64, uint64, uint64](classID, tokenID),
 		func(_ collections.Triple[uint64, uint64, uint64], _ types.MediaProposal) (bool, error) {
 			n++
 			return false, nil
-		})
+		}); err != nil {
+		sdk.UnwrapSDKContext(ctx).Logger().Error("openMediaProposals: MediaProposals.Walk failed", "err", err)
+	}
 	return n
 }
 

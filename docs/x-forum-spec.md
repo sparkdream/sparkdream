@@ -231,7 +231,7 @@ message ReservedTag {
 }
 ```
 
-Forum exposes a narrow `ForumKeeper` interface back to rep for tag moderation and tag-budget awards:
+Forum exposes a narrow `ForumKeeper` interface back to rep for tag moderation and tag-budget awards (`PruneTagReferences` queues the tag; the EndBlocker strips it from posts in capped batches, see the lazy garbage collection step of post creation):
 
 ```go
 type ForumKeeper interface {
@@ -276,6 +276,7 @@ message UserReactionLimit {
   uint64 current_day_count = 2;                          // Reactions in current 24h window
   uint64 previous_day_count = 3;                         // Reactions in previous 24h window (for overlap)
   int64  current_day_start = 4;                          // Timestamp when current window started
+  ReactionLimitKind kind = 5;                            // REACTION (bare-address key), FLAG, DOWNVOTE or FOLLOW ("<kind>_<address>" key)
 }
 
 // Individual reaction record — enforces one reaction per user per post
@@ -457,8 +458,9 @@ message HideRecord {
   string reason_text = 8;                                // Custom reason text (required if reason_code=OTHER)
 }
 
-// Snapshot of sentinel state at thread lock time - for appeal/slashing
-// Only created for sentinel-initiated locks (not HR Committee locks)
+// Snapshot of sentinel state at thread lock time - for appeal/slashing.
+// Committee / council locks write an authority record (empty sentinel, no
+// bond snapshot, no committed_amount) so the author can appeal them too.
 message ThreadLockRecord {
   uint64 root_id = 1;                                    // Locked thread root ID
   string sentinel = 2 [(cosmos_proto.scalar) = "cosmos.AddressString"];
@@ -789,7 +791,9 @@ message MemberWarning {
 // verdict through the vote-triggered TallyJuryVotes path: UPHOLD_CHALLENGE →
 // OVERTURNED, REJECT_CHALLENGE → UPHELD, INCONCLUSIVE/no-quorum → left PENDING
 // for TimeoutExpiredAppeals (TIMEOUT, no penalty). The committee
-// MsgResolveGovActionAppeal remains as a manual override (same auth-free
+// MsgResolveGovActionAppeal remains as a manual override, accepted only from
+// the Commons Operations Committee policy (an executed proposal), the Commons
+// Council policy or x/gov, never a single committee member (same
 // applyGovActionAppealVerdict core, idempotent on status). Both paths run
 // ReverseSentinelAction + RecordSentinelAction{Upheld,Overturned}.
 enum GovActionType {
@@ -799,7 +803,7 @@ enum GovActionType {
   GOV_ACTION_TYPE_ZEROING = 3;
   GOV_ACTION_TYPE_TAG_REMOVAL = 4;
   GOV_ACTION_TYPE_FORUM_PAUSE = 5;                        // Extended pause (>24h) can be appealed
-  GOV_ACTION_TYPE_THREAD_LOCK = 6;                        // Sentinel- or HR-initiated thread lock, appealed by thread author
+  GOV_ACTION_TYPE_THREAD_LOCK = 6;                        // Sentinel-, committee- or council-initiated thread lock, appealed by thread author via MsgAppealThreadLock
   GOV_ACTION_TYPE_THREAD_MOVE = 7;                        // Sentinel- or HR-initiated thread move, appealed by thread author
   GOV_ACTION_TYPE_REPLY_PIN = 8;                          // Sentinel reply pin, disputed by thread author (ActionTarget = reply id)
   GOV_ACTION_TYPE_POST_HIDE = 9;                          // Sentinel post hide, appealed by post author
@@ -829,72 +833,69 @@ message GovActionAppeal {
 
 ```protobuf
 message Params {
-  // Emergency Controls (governance-only — cannot be changed via UpdateOperationalParams)
-  bool forum_paused = 1;                                 // Emergency pause: stops all new posts
-  bool moderation_paused = 2;                            // Pause all moderation actions
-  bool appeals_paused = 5;                               // Pause new appeals
-
-  // Feature Toggles
-  bool bounties_enabled = 3;                             // Allow bounty creation
-  bool reactions_enabled = 4;                            // Allow upvotes/downvotes
-  bool editing_enabled = 6;                              // Allow post editing
-
-  // Fees (SPARK)
-  cosmos.base.v1beta1.Coin spam_tax = 7;                 // Charged to non-members for posting
-  cosmos.base.v1beta1.Coin reaction_spam_tax = 8;        // Charged to non-members for reactions
-  cosmos.base.v1beta1.Coin flag_spam_tax = 9;            // Charged to non-members for flagging
-  cosmos.base.v1beta1.Coin downvote_deposit = 10;        // Burned when downvoting
-  cosmos.base.v1beta1.Coin appeal_fee = 11;              // Charged for appeals
-  cosmos.base.v1beta1.Coin lock_appeal_fee = 12;         // Charged for thread lock appeals
-  cosmos.base.v1beta1.Coin move_appeal_fee = 13;         // Charged for thread move appeals
-  cosmos.base.v1beta1.Coin edit_fee = 14;                // Charged for edits past grace period
-  cosmos.base.v1beta1.Coin cost_per_byte = 28;           // Charged for on-chain content storage (burned)
-  bool cost_per_byte_exempt = 29;                        // When true, disables cost_per_byte fee
-
-  // Content Limits
-  uint64 max_content_size = 16;                          // Max bytes for post content
-  uint64 daily_post_limit = 17;                          // Max posts per user per day
-  uint32 max_reply_depth = 18;                           // Max nesting depth for replies
-  uint64 max_follows_per_day = 21;                       // Max follows per user per 24h
-
-  // Bounty Limits
-  uint64 bounty_cancellation_fee_percent = 15;           // % of bounty taken on cancellation (0-100)
-
-  // Edit Windows
-  int64 edit_grace_period = 19;                          // Seconds for free edits after creation
-  int64 edit_max_window = 20;                            // Seconds after which editing is no longer allowed
-
-  // Archival
-  int64 archive_threshold = 22;                          // Seconds of inactivity before archiving allowed
-  int64 unarchive_cooldown = 23;                         // Seconds after archive before unarchiving
-  int64 archive_cooldown = 24;                           // Seconds after unarchive before re-archiving
-
-  // Appeal Cooldowns
-  int64 hide_appeal_cooldown = 25;                       // Seconds after hide before appeal
-  int64 lock_appeal_cooldown = 26;                       // Seconds after lock before appeal
-  int64 move_appeal_cooldown = 27;                       // Seconds after move before appeal
-
-  // Ephemeral Content
-  int64 ephemeral_ttl = 30;                              // TTL for non-member posts (default 86400 = 24h)
-
-  // Cross-Module Conviction Propagation
-  string conviction_renewal_threshold = 31 [(gogoproto.customtype) = "cosmossdk.io/math.LegacyDec"];  // Min conviction score to renew content at TTL expiry (default: 100.0; 0 = disabled)
-  int64 conviction_renewal_period = 32;                  // Duration in seconds to extend TTL by when conviction-renewed (default: 604800 = 7 days)
-
-  // (later additions — see fields 33..49 in params.proto for pin/make-permanent
-  //  trust-gate, daily make-permanent counter precursors, and membership
-  //  auto-promotion: make_permanent_min_trust_level, max_promotions_per_block, …)
-
-  // Promoter / author accountability
-  string author_rep_slash = 50 [(gogoproto.customtype) = "cosmossdk.io/math.LegacyDec", (gogoproto.nullable) = false];  // Per-tag rep deducted from a post's author when ExpireHiddenPosts finalizes an unappealed hide (default 5)
-  uint64 max_make_permanent_per_day = 51;                // Caps MsgMakePostPermanent per address per UTC day, independent of daily_post_limit (default 10)
-
-  // Post conviction-stake (author-earned forum rep)
-  string min_post_conviction_stake = 60 [(gogoproto.customtype) = "cosmossdk.io/math.Int", (gogoproto.nullable) = false];        // Minimum uDREAM to open a PostConvictionStake (default 10_000_000 = 10 DREAM)
-  int64 post_conviction_lock_seconds = 61;               // DREAM-lock duration; release rejected before staked_at + this (default 1_209_600 = 14 days)
-  string post_conviction_stream_rate_per_block = 62 [(gogoproto.customtype) = "cosmossdk.io/math.LegacyDec", (gogoproto.nullable) = false];  // Per-DREAM-per-DAY rep accrual rate despite the legacy name (default 0.05)
-  string max_forum_rep_per_tag_per_epoch = 63 [(gogoproto.customtype) = "cosmossdk.io/math.LegacyDec", (gogoproto.nullable) = false];        // Per-(author, tag) rep cap per UTC-day epoch; excess silently dropped (default 5)
-  uint64 post_conviction_staker_slash_bps = 64;          // Basis-points of the staker's locked DREAM burned on a confirmed hide; 0-10000 (default 2500 = 25%)
+  // Field documentation lives in proto/sparkdream/forum/v1/params.proto.
+  // Tags are dense (no gaps, no reserved numbers). Fee and cost fields are
+  // bare amounts in the identity bond denom. There is no appeal fee: forum
+  // appeals post the x/rep appeal bond.
+  bool forum_paused = 1;
+  bool moderation_paused = 2;
+  bool bounties_enabled = 3;
+  bool reactions_enabled = 4;
+  bool appeals_paused = 5;
+  bool editing_enabled = 6;
+  string spam_tax_amount = 7;  // math.Int
+  string reaction_spam_tax_amount = 8;  // math.Int
+  string flag_spam_tax_amount = 9;  // math.Int
+  string downvote_deposit_amount = 10;  // math.Int
+  string edit_fee_amount = 11;  // math.Int
+  uint64 bounty_cancellation_fee_percent = 12;
+  uint64 max_content_size = 13;
+  uint64 daily_post_limit = 14;
+  uint32 max_reply_depth = 15;
+  int64 edit_grace_period = 16;
+  int64 edit_max_window = 17;
+  uint64 max_follows_per_day = 18;
+  int64 archive_threshold = 19;
+  int64 unarchive_cooldown = 20;
+  int64 archive_cooldown = 21;
+  int64 hide_appeal_cooldown = 22;
+  int64 lock_appeal_cooldown = 23;
+  int64 move_appeal_cooldown = 24;
+  string cost_per_byte_amount = 25;  // math.Int
+  bool cost_per_byte_exempt = 26;
+  int64 ephemeral_ttl = 27;
+  string conviction_renewal_threshold = 28;  // math.LegacyDec
+  int64 conviction_renewal_period = 29;
+  string min_sentinel_bond = 30;
+  uint64 min_sentinel_rep_tier = 31;
+  string min_sentinel_trust_level = 32;
+  int64 min_sentinel_age_blocks = 33;
+  int64 sentinel_demotion_cooldown = 34;
+  string sentinel_demotion_threshold = 35;
+  int64 sentinel_unhide_window = 36;
+  int64 sentinel_unbond_cooldown = 37;
+  uint32 make_permanent_min_trust_level = 38;
+  uint32 max_promotions_per_block = 39;
+  string author_rep_slash = 40;  // math.LegacyDec
+  uint64 max_make_permanent_per_day = 41;
+  uint64 max_hides_per_epoch = 42;
+  uint64 max_sentinel_locks_per_epoch = 43;
+  uint64 max_sentinel_moves_per_epoch = 44;
+  string sentinel_slash_amount = 45;
+  uint64 lock_bond_multiplier = 46;
+  string lock_backing_amount = 47;
+  uint64 lock_min_rep_tier = 48;
+  string min_post_conviction_stake = 49;  // math.Int
+  int64 post_conviction_lock_seconds = 50;
+  string post_conviction_stream_rate_per_block = 51;  // math.LegacyDec
+  string max_forum_rep_per_tag_per_epoch = 52;  // math.LegacyDec
+  uint64 post_conviction_staker_slash_bps = 53;
+  string curation_dream_reward = 54;  // math.Int
+  int64 accept_proposal_timeout = 55;
+  uint32 max_accept_proposals_per_sentinel_per_thread = 56;
+  uint32 media_min_trust_level = 57;
+  string media_author_bond_min = 58;  // math.Int
+  string media_scan_fee = 59;  // math.Int
 }
 ```
 
@@ -933,7 +934,6 @@ message Params {
   bool   editing_enabled = 92;                           // Toggle to enable/disable post editing (default true)
 
   // Thread Moving (sentinels can move non-reserved tag threads, appealable)
-  cosmos.base.v1beta1.Coin move_appeal_fee = 93;         // Fee to appeal a thread move (e.g., 500 SPARK)
   int64  move_appeal_deadline = 94;                      // Seconds for jury to decide move appeal (e.g., 1209600 = 14d)
   int64  move_appeal_cooldown = 95;                      // Min seconds between move and appeal (e.g., 3600 = 1h)
   uint64 max_sentinel_moves_per_epoch = 96;              // Max thread moves per sentinel per epoch (e.g., 10)
@@ -1050,6 +1050,8 @@ message GenesisState {
 }
 ```
 
+The promotion queue (members admitted after posting ephemeral content, awaiting the EndBlocker's eager promotion) is hook-driven and cannot be rebuilt from the posts, so it is exported verbatim with its enqueue heights (`promotion_queue`).
+
 #### 4.7.2. Design Genesis Fields (Not Yet Implemented)
 
 The following genesis fields from the original design are **not in the current implementation**:
@@ -1126,8 +1128,8 @@ params_authority              -> string (address that can update params, default
 pinned_posts/{category_id}/{priority}/{post_id} -> PostID (index for pinned posts by category)
 locked_threads/{root_id}      -> int64 (timestamp when locked, for queries)
 
-# Thread lock records (sentinel locks only - for appeal/slashing)
-thread_lock_records/{root_id} -> ThreadLockRecord (sentinel lock snapshot)
+# Thread lock records (sentinel snapshot, or an authority record with no sentinel for a committee/council lock)
+thread_lock_records/{root_id} -> ThreadLockRecord
 lock_appeal_cooldown/{root_id} -> int64 (earliest appeal timestamp)
 
 # Reactions (one per user per post — public tracked via ReactionRecord, private via nullifier)
@@ -1336,6 +1338,13 @@ Creates a new post or reply.
      Each reclamation calls `forumKeeper.PruneTagReferences(ctx, tag_name)`
      best-effort to drop stale references from forum posts. Capped at
      `maxTagExpirations` per block to bound state I/O.
+   - **Removed-tag references:** `PruneTagReferences` only queues the tag
+     (`TagPruneQueue`: tag -> next post id). The forum EndBlocker strips queued
+     tags from posts in batches of at most 200 posts read per block across all
+     queued tags, resuming at the persisted cursor. A queued tag that is back in
+     the rep registry (re-created) is dropped from the queue without touching
+     posts. The queue is not exported at genesis; a reference left behind by an
+     export is a stale label for a tag that no longer resolves.
 
 7. **Initiative Link Registration** (Cross-Module Conviction Propagation)
    - If `initiative_id > 0` and `repKeeper` is not nil:
@@ -1439,6 +1448,13 @@ Archives an inactive thread to reduce state size.
 The ArchiveMetadata is the authoritative source and persists independently of the archive/unarchive cycle.
 
 ---
+
+> **Implementation note (§17.1).** The compressed `ArchivedThread` blob is not
+> implemented. Archiving rewrites status in place, but only ACTIVE posts become
+> ARCHIVED and unarchive restores only ARCHIVED posts, so HIDDEN and DELETED
+> replies keep their status. `archive_cooldown` is enforced from
+> `ArchiveMetadata.last_unarchived_at`, and `max_archive_post_count` is the
+> compiled `MaxArchivePostCount` (500).
 
 #### `MsgUnarchiveThread`
 
@@ -1555,7 +1571,8 @@ is derived from the base sentinel bond so it can never silently diverge from it.
 Under AUTO,
 a council member whose bond is below the lock floor (or who lacks the tier) is not
 lock-eligible and **falls through to the council path** — the council lock writes
-no `ThreadLockRecord` and is unlockable only by the council. Explicit `SENTINEL`
+an authority `ThreadLockRecord` (no sentinel, no bond) so the author can appeal
+it, and is unlockable only by the council or an overturned appeal. Explicit `SENTINEL`
 hard-errors with the specific bond/tier reason (e.g. `ErrInsufficientLockBond`)
 rather than silently downgrading; explicit `COUNCIL` requires council
 authorization (`ErrNotAuthorized` otherwise). The backing floor, cooldown, and
@@ -1582,6 +1599,7 @@ reversal path is already determined by whether a lock record exists.
    - Load post by `root_id`
    - Fail with `ErrPostNotFound` if post does not exist
    - Fail with `ErrNotRootPost` if `post.parent_id != 0` (only threads can be locked)
+   - Fail with `ErrThreadNotActive` if `post.status != ACTIVE` (a hidden, deleted or archived thread is not locked: it would reserve bond and open an appealable record on dead content)
    - Fail with `ErrThreadAlreadyLocked` if `post.locked == true`
    - **If Sentinel (not HR Committee):**
      - Fail with `ErrInsufficientReputation` if tier < `min_rep_tier_thread_lock`
@@ -1598,6 +1616,7 @@ reversal path is already determined by whether a lock record exists.
    - Set `post.lock_reason = reason`
    - Add to `locked_threads/{root_id}` index with timestamp
    - **If Sentinel:** Create `ThreadLockRecord` (for appeal/slashing)
+   - **If HR Committee / council:** Create an authority `ThreadLockRecord` (empty `sentinel`, no bond) so the author can appeal
    - **If Sentinel:** Increment `sentinel.epoch_locks`
    - Emit `EventThreadLocked`
 
@@ -1651,7 +1670,8 @@ Unlocks a previously locked thread, allowing new replies. HR Committee can unloc
 
 #### `MsgAppealThreadLock`
 
-Thread author appeals a sentinel-initiated lock.
+Thread author appeals a lock: sentinel-initiated, or committee / council
+(authority record).
 
 > **Implementation note:** this message is now a thin facade over x/rep's
 > `CreateGovActionAppeal` (ActionType `THREAD_LOCK`). It charges the x/rep appeal
@@ -1659,15 +1679,32 @@ Thread author appeals a sentinel-initiated lock.
 > unified `GovActionAppeal` path — see the `GovActionType` note and
 > [docs/x-forum-appeal-reconciliation.md](untracked/x-forum-appeal-reconciliation.md). The
 > "Cost"/"Verdict Handling (via x/rep hook)" prose below describes the original
-> design; the current resolution is the unified jury/committee path. HR-Committee
-> locks are appealed the same way via `MsgAppealGovAction`.
+> design; the current resolution is the unified jury/committee path. x/rep's
+> `MsgAppealGovAction` refuses `THREAD_LOCK` (forum's types are module-owned), so
+> this message is the only lock appeal path.
+>
+> **Committee and council actions are appealable (authority records).** A lock
+> or move taken on the council path (Commons Operations Committee member,
+> council or x/gov) writes an authority record: a `ThreadLockRecord` /
+> `ThreadMoveRecord` with an empty `sentinel`, no bond snapshot and no
+> `committed_amount`, indexed for expiry like a sentinel record. The thread
+> author appeals it through this message under the same rules as a sentinel
+> action: author only (`CanActAs`), after the appeal cooldown, inside the
+> appeal window, once per action (the record is dropped when the window
+> closes or the appeal settles). There is no sentinel bond to slash or
+> release and no sentinel accountability to record. OVERTURNED reverses the
+> action (unlock / move back to `original_category_id`); UPHELD keeps it.
+> TIMEOUT also keeps a committee or council action (decided: only a jury
+> verdict reverses a council decision), unlike a sentinel action, which
+> timeout reverses. `ThreadLockStatus.is_sentinel_lock` is false for an authority
+> record, and a sentinel cannot self-unlock one.
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `appellant` | `string` | Thread author (signer) |
 | `root_id` | `uint64` | Locked thread root ID |
 
-**Cost:** Deposit `lock_appeal_fee` (SPARK) + Standard Gas Fee.
+**Cost:** The x/rep appeal bond + Standard Gas Fee (forum has no appeal-fee param; the Logic below is the original design).
 
 **Authorization:** Appellant must be the original thread author (`post.author`).
 
@@ -1680,7 +1717,7 @@ Thread author appeals a sentinel-initiated lock.
    - Fail with `ErrThreadNotLocked` if `post.locked == false`
    - Fail with `ErrNotThreadAuthor` if `appellant != post.author`
    - Load `ThreadLockRecord` for `root_id`
-   - Fail with `ErrHRLockNotAppealable` if no `ThreadLockRecord` exists (HR Committee lock - use `MsgAppealGovAction` instead)
+   - Fail with `ErrGovLockNotAppealable` ("lock or move is not appealable") if no `ThreadLockRecord` exists (the appeal window closed or the lock was already appealed; every lock, sentinel or committee/council, writes one)
    - Fail with `ErrLockAppealAlreadyFiled` if appeal already exists for this lock
    - **Check appeal cooldown:** If `lock_appeal_cooldown/{root_id}` exists and `value > now`:
      - Fail with `ErrAppealCooldown` (must wait before appealing)
@@ -1741,8 +1778,9 @@ Moves a thread to a different category. HR Committee can move any thread. Sentin
 **Move eligibility** for the sentinel path = bonded sentinel in `NORMAL`/`RECOVERY`
 **and** the thread carries **no reserved tag** (only the council may move a
 reserved-tag thread). Under AUTO, a council member moving a reserved-tag thread is
-not move-eligible and **falls through to the council path** (no `ThreadMoveRecord`
-written). Explicit `SENTINEL` on a reserved-tag thread hard-errors with
+not move-eligible and **falls through to the council path** (an authority
+`ThreadMoveRecord` with no sentinel and no bond is written so the author can
+appeal). Explicit `SENTINEL` on a reserved-tag thread hard-errors with
 `ErrCannotMoveReservedTag` rather than silently downgrading; explicit `COUNCIL`
 requires council authorization. Cooldown and the epoch limit are operational gates
 applied once the sentinel path is taken, not part of the authority decision.
@@ -1764,6 +1802,7 @@ applied once the sentinel path is taken, not part of the authority decision.
    - Load post by `root_id`
    - Fail with `ErrPostNotFound` if post does not exist
    - Fail with `ErrNotRootPost` if `post.parent_id != 0`
+   - Fail with `ErrThreadNotActive` if `post.status != ACTIVE`
    - Fail with `ErrCategoryNotFound` if `new_category_id` is invalid
    - Fail with `ErrSameCategory` if `post.category_id == new_category_id`
    - Fail with `ErrCannotMovePinnedThread` if `post.pinned == true` (must unpin first)
@@ -1779,6 +1818,7 @@ applied once the sentinel path is taken, not part of the authority decision.
    - Store `original_category_id = post.category_id`
    - Set `post.category_id = new_category_id`
    - **If Sentinel:** Create `ThreadMoveRecord` (for appeal/slashing)
+   - **If HR Committee / council:** Create an authority `ThreadMoveRecord` (empty `sentinel`, no bond) so the author can appeal
    - **If Sentinel:** Increment sentinel's epoch move count
    - **Set move appeal cooldown:** Store `move_appeal_cooldown/{root_id} = now + move_appeal_cooldown`
    - Emit `EventThreadMoved`
@@ -1789,7 +1829,8 @@ applied once the sentinel path is taken, not part of the authority decision.
 
 #### `MsgAppealThreadMove`
 
-Thread author appeals a sentinel-initiated move.
+Thread author appeals a move: sentinel-initiated, or committee / council
+(authority record, see the note under `MsgAppealThreadLock`).
 
 > **Implementation note:** thin facade over x/rep's `CreateGovActionAppeal`
 > (ActionType `THREAD_MOVE`); charges the x/rep appeal bond (not the legacy
@@ -1801,7 +1842,7 @@ Thread author appeals a sentinel-initiated move.
 | `appellant` | `string` | Thread author (signer) |
 | `root_id` | `uint64` | Moved thread root ID |
 
-**Cost:** Deposit `move_appeal_fee` (SPARK) + Standard Gas Fee.
+**Cost:** The x/rep appeal bond + Standard Gas Fee (forum has no appeal-fee param; the Logic below is the original design).
 
 **Authorization:** Appellant must be the original thread author.
 
@@ -1813,7 +1854,7 @@ Thread author appeals a sentinel-initiated move.
    - Fail with `ErrPostNotFound` if post does not exist
    - Fail with `ErrNotThreadAuthor` if `appellant != post.author`
    - Load `ThreadMoveRecord` for `root_id`
-   - Fail with `ErrHRMoveNotAppealable` if no `ThreadMoveRecord` exists (HR Committee move - use `MsgAppealGovAction` instead)
+   - Fail with `ErrGovLockNotAppealable` ("lock or move is not appealable") if no `ThreadMoveRecord` exists (no move, the appeal window closed or the move was already appealed; every move, sentinel or committee/council, writes one)
    - Fail with `ErrMoveAppealAlreadyFiled` if appeal already exists
    - **Check appeal cooldown:** Fail with `ErrAppealCooldown` if cooldown not expired
 
@@ -1877,6 +1918,7 @@ Follow a thread to receive notifications (via off-chain indexers).
    - Fail with `ErrForumPaused` if `params.forum_paused == true`
    - Load thread root by `thread_id`
    - Fail with `ErrThreadNotFound` if thread does not exist
+   - Fail with `ErrThreadNotActive` if the root's status is not ACTIVE (hidden, deleted and archived threads cannot be followed)
    - Fail with `ErrAlreadyFollowing` if `thread_followers/{thread_id}/{follower}` exists
 
 2. **Rate Limit Check:**
@@ -2305,7 +2347,7 @@ Withdraw remaining funds from tag budget. Returns pool to group.
 
 #### Bounty Behavior on Thread Moderation
 
-When a thread with an active bounty is hidden, locked, or archived, the bounty is automatically cancelled with a small fee.
+When a thread with an active bounty is hidden or locked, the bounty timer is suspended and the bounty is either resumed or cancelled with a small fee once the moderation is settled. Archiving (`MsgFreezeThread`) is refused while the thread has an open bounty. Implementation notes: §17.6.
 
 **Trigger Events:**
 - `MsgHidePost` on thread root (sentinel or HR)
@@ -3206,7 +3248,7 @@ Author appeals a hidden post.
 | `appellant` | `string` | Original post author (signer) |
 | `post_id` | `uint64` | Hidden post ID |
 
-**Cost:** Deposit `appeal_fee` (SPARK) + Standard Gas Fee.
+**Cost:** The x/rep appeal bond + Standard Gas Fee (forum has no appeal-fee param; the Logic below is the original design).
 
 **State Transition Logic:**
 
@@ -3591,7 +3633,7 @@ Bounded passes per block (cursor/queue-driven so the remainder resumes next bloc
 1. **Ephemeral pruning** (max 100/block) — walk `ExpirationQueue` up to `now`, hard-delete expired-TTL posts; check conviction renewal first (extend TTL instead of tombstoning when conviction ≥ threshold).
 2. **Hidden-post expiration** (`ExpireHiddenPosts`) — finalize posts hidden past `hidden_expiration` that were never appealed (`HideRecord.appealed` records are skipped and finalized by the appeal outcome instead; an UPHELD verdict applies the same hooks). Before tombstoning, three best-effort accountability hooks fire against the **pre-tombstone** state (failures log, never halt the tombstone):
    - **Author rep slash** — for each tag the post carried, `repKeeper.DeductReputation(author, tag, params.author_rep_slash)`. Floored at zero, so an author with no rep in a tag takes no harm.
-   - **Post-conviction slash** (`SlashStakesForPost`) — for every active (or recently-released-but-not-GC'd) `PostConvictionStake` on the post: claw back the exact per-tag rep the stake produced via `repKeeper.DeductForumRep`, burn `post_conviction_staker_slash_bps` of the staker's locked DREAM (UnlockDREAM → BurnDREAM), unlock the remainder, and close the stake.
+   - **Post-conviction slash** (`SlashStakesForPost`) — for every active (or recently-released-but-not-GC'd) `PostConvictionStake` on the post: claw back the exact per-tag rep the stake produced via `repKeeper.DeductForumRep`, burn `post_conviction_staker_slash_bps` of the staker's locked DREAM straight out of the lock (`BurnLockedDREAM`, one step: a failed burn leaves the lock in place), unlock the remainder, and close the stake. The post (with its author) goes into `StakeSlashQueue` and at most 200 stakes are settled per pass: the finalizing tx or block does the first batch, each EndBlocker the next, until no stake is left. While a post is queued its stakes cannot be released (`MsgReleasePostConviction` fails) or garbage-collected, so each is slashed exactly once. The queue is exported in genesis (`pending_stake_slash_list`).
    - **Promoter warning** — if `post.promoted_by` is set and differs from the author, `repKeeper.IssueWarning(promoted_by, forumModuleAddr, "promoted_hidden_content", [post_id])` — the promoter vouched for rejected content.
 3. **Bounty expiration** — mark expired bounties, refund escrow.
 4. **Post-conviction accrual** (`AccruePostConvictions`, max 100 stakes/block via a persisted round-robin cursor) — stream per-tag forum rep to each backed post's author. Per stake:
@@ -3607,7 +3649,7 @@ Bounded passes per block (cursor/queue-driven so the remainder resumes next bloc
    Each per-tag credit is bounded by `max_forum_rep_per_tag_per_epoch` (epoch = `floor(block_time / 86400)`, tracked in `ForumRepEpochCounter`); excess is **silently dropped** — no error, no refund. The rep is written to the author's `forum_rep_per_tag` via `repKeeper.AddForumRep`; the credited amount is also recorded on the stake's `accrued_rep_per_tag` so a later slash claws back exactly what was credited. Per-stake errors log but never abort the loop.
 5. **Released-stake GC** (`GcReleasedPostConvictionStakes`, max 100/block) — delete `PostConvictionStake` records that are `released` and older than the retention window (`post_conviction_lock_seconds + hide_appeal_cooldown + 1 day`), past which no slash can still target them.
 
-> The forum-earned rep itself lives on the x/rep `Member.forum_rep_per_tag` map; x/rep's trust-ladder counts it toward the PROVISIONAL and ESTABLISHED thresholds only (see [`docs/x-rep-spec.md`](x-rep-spec.md)). The forum keeper reaches into x/rep through `AddForumRep` / `DeductForumRep`, `LockDREAM` / `UnlockDREAM` / `BurnDREAM`, `DeductReputation`, and `IssueWarning`.
+> The forum-earned rep itself lives on the x/rep `Member.forum_rep_per_tag` map; x/rep's trust-ladder counts it toward the PROVISIONAL and ESTABLISHED thresholds only (see [`docs/x-rep-spec.md`](x-rep-spec.md)). The forum keeper reaches into x/rep through `AddForumRep` / `DeductForumRep`, `LockDREAM` / `UnlockDREAM` / `BurnDREAM` / `BurnLockedDREAM`, `DeductReputation`, and `IssueWarning`.
 
 ```go
 // x/forum/keeper/abci.go (illustrative — ephemeral pruning shown)
@@ -4327,6 +4369,18 @@ These messages allow members to challenge HR Committee decisions by escalating t
 
 #### `MsgAppealGovAction`
 
+> **Implementation note (2026-10):** `MsgAppealGovAction` is an x/rep message
+> (docs/x-rep-spec.md, "Appeal Resolution"). It accepts only WARNING, DEMOTION
+> and ZEROING, filed by the affected member (`CanActAs` on `action_target`)
+> within `DefaultAppealDeadline` of the member-report resolution that applied
+> the action, once per resolution. Forum's action types (POST_HIDE,
+> THREAD_LOCK, THREAD_MOVE, REPLY_PIN) are module-owned and refused; they are
+> appealed through `MsgAppealPost`, `MsgAppealThreadLock`,
+> `MsgAppealThreadMove` and `MsgDisputePin`. TAG_REMOVAL and FORUM_PAUSE are
+> refused. A verdict settles the bond; the reversals and HR-member penalties
+> described below are not implemented. The rest of this section is the
+> original design.
+
 Appeal an HR Committee decision to a jury.
 
 | Field | Type | Description |
@@ -4593,16 +4647,16 @@ service Query {
 | `MemberWarnings` | Get all warnings issued to a member |
 | `MemberStanding` | Get member's full standing (warning_count, active_report, trust_tier) |
 | `PinnedPosts` | Get all pinned posts for a category, sorted by priority |
-| `LockedThreads` | List all currently locked threads (flat: root_id, locked_by, locked_at) |
+| `LockedThreads` | Locked threads, paginated over the `LockedRoots` index (`posts`; `root_id`/`locked_by`/`locked_at` repeat the first) |
 | `ThreadLockStatus` | Check if thread is locked and get lock details |
 | `TopPosts` | Get posts sorted by upvote count (filter by category, time range) |
 | `ThreadFollowers` | Get addresses following a thread (paginated) |
 | `UserFollowedThreads` | Get threads followed by a user (paginated) |
 | `IsFollowingThread` | Check if a user is following a specific thread |
 | `BountyByThread` | Get bounty for a specific thread |
-| `ActiveBounties` | List all active bounties (paginated) |
-| `UserBounties` | Get bounties created by a specific user |
-| `BountyExpiringSoon` | List bounties expiring within a time window |
+| `ActiveBounties` | ACTIVE bounties, soonest expiry first, paginated (`bounties`; the flat fields repeat the first) |
+| `UserBounties` | Bounties created by a member under any of their addresses, paginated (`bounties`; the flat fields repeat the first) |
+| `BountyExpiringSoon` | ACTIVE bounties expiring within `within_seconds`, key-paginated (`bounties`; the flat fields repeat the first) |
 | `TagBudgetByTag` | Get tag budget for a specific tag |
 | `TagBudgets` | List all tag budgets (paginated) |
 | `TagBudgetAwards` | Get award history for a tag budget |
@@ -4699,15 +4753,17 @@ message QueryIsFollowingThreadResponse {
 
 ```protobuf
 message QueryBountyExpiringSoonRequest {
-  int64  within_seconds = 1;                             // Time window - bounties expiring within this many seconds (e.g., 86400 = 24h)
-  uint64 category_id = 2;                                // Filter by category (0 = all categories)
-  string min_amount = 3;                                 // Min bounty amount filter (empty = no minimum)
-  cosmos.base.query.v1beta1.PageRequest pagination = 4;
+  int64 within_seconds = 1;                             // Time window - bounties expiring within this many seconds (e.g., 86400 = 24h)
+  cosmos.base.query.v1beta1.PageRequest pagination = 2; // key pagination only
 }
 
 message QueryBountyExpiringSoonResponse {
-  repeated Bounty bounties = 1;
-  cosmos.base.query.v1beta1.PageResponse pagination = 2;
+  // First bounty of the page, kept for older clients.
+  uint64 bounty_id = 1;
+  uint64 thread_id = 2;
+  int64 expires_at = 3;
+  cosmos.base.query.v1beta1.PageResponse pagination = 4;
+  repeated Bounty bounties = 5;
 }
 ```
 
@@ -5585,22 +5641,19 @@ message EventInitiativeLinkRemoved {
 
 > **Implementation note:** The actual error codes in `x/forum/types/errors.go` use the range 1100-2499, organized by category. The design spec previously used codes 1-166. The table below reflects the **actual implementation**.
 
+> Registered errors that no forum code path returned were removed (their codes are retired and stay unused). Procedural sections above that still say "Fail with `ErrX`" for a name missing from this table describe a check that now lives in x/rep (sentinel bonds, member reports, appeals) or is raised under another error listed here.
+
 | Category | Error | Code | Description |
 |----------|-------|------|-------------|
 | **Base (1100-1199)** | | | |
 | | `ErrInvalidSigner` | 1100 | Expected gov account as only signer for proposal message |
 | | `ErrUnauthorized` | 1101 | Unauthorized |
-| | `ErrInvalidParam` | 1102 | Invalid parameter |
 | **Content (1200-1299)** | | | |
 | | `ErrContentTooLarge` | 1200 | Content exceeds maximum size |
 | | `ErrInvalidTag` | 1201 | Invalid tag format |
 | | `ErrTagLimitExceeded` | 1202 | Tag limit exceeded for post |
-| | `ErrTotalTagsExceeded` | 1203 | System-wide tag limit exceeded |
 | | `ErrTagNotFound` | 1204 | Tag not found |
-| | `ErrTagAlreadyExists` | 1205 | Tag already exists |
 | | `ErrReservedTag` | 1206 | Tag is reserved |
-| | `ErrTagExpired` | 1207 | Tag has expired |
-| | `ErrInvalidContent` | 1208 | Invalid content |
 | | `ErrEmptyContent` | 1209 | Content cannot be empty |
 | | `ErrInvalidReasonCode` | 1210 | Invalid reason code |
 | | `ErrReasonTextRequired` | 1211 | Custom reason text required for OTHER reason code |
@@ -5613,14 +5666,9 @@ message EventInitiativeLinkRemoved {
 | | `ErrPostDeleted` | 1304 | Post has been deleted |
 | | `ErrPostArchived` | 1305 | Post has been archived |
 | | `ErrNotRootPost` | 1306 | Operation only allowed on root posts |
-| | `ErrIsRootPost` | 1307 | Operation not allowed on root posts |
-| | `ErrPostAlreadyPinned` | 1308 | Post is already pinned |
-| | `ErrPostNotPinned` | 1309 | Post is not pinned |
-| | `ErrMaxPinnedPosts` | 1310 | Maximum pinned posts reached for category |
 | | `ErrCannotDeleteHiddenPost` | 1311 | Cannot delete hidden post |
 | | `ErrMaxReplyDepthExceeded` | 1312 | Maximum reply depth exceeded |
 | | `ErrParentPostNotFound` | 1313 | Parent post not found |
-| | `ErrInvalidPostStatus` | 1314 | Invalid post status for this operation |
 | **Thread (1400-1449)** | | | |
 | | `ErrThreadLocked` | 1400 | Thread is locked |
 | | `ErrThreadNotLocked` | 1401 | Thread is not locked |
@@ -5629,9 +5677,9 @@ message EventInitiativeLinkRemoved {
 | | `ErrLockReasonRequired` | 1404 | Lock reason required for sentinels |
 | | `ErrMoveReasonRequired` | 1405 | Move reason required |
 | | `ErrCannotMoveReservedTag` | 1406 | Cannot move thread with reserved tag |
+| | `ErrThreadNotActive` | 1407 | Lock, move or follow on a thread whose root is not ACTIVE |
 | **Category (1450-1499)** | | | |
 | | `ErrCategoryNotFound` | 1450 | Category not found |
-| | `ErrCategoryAlreadyExists` | 1451 | Category already exists |
 | | `ErrMembersOnlyWrite` | 1452 | Category restricted to members only |
 | | `ErrAdminOnlyWrite` | 1453 | Category restricted to admins only |
 | | `ErrInvalidCategoryId` | 1454 | Invalid category ID |
@@ -5640,41 +5688,29 @@ message EventInitiativeLinkRemoved {
 | | `ErrReactionLimitExceeded` | 1501 | Reaction rate limit exceeded |
 | | `ErrFlagLimitExceeded` | 1502 | Flag rate limit exceeded |
 | | `ErrFollowLimitExceeded` | 1503 | Follow rate limit exceeded |
-| | `ErrSalvationLimitExceeded` | 1504 | Salvation rate limit exceeded |
 | | `ErrDownvoteLimitExceeded` | 1505 | Downvote rate limit exceeded |
 | **Moderation (1550-1649)** | | | |
 | | `ErrSentinelCooldown` | 1550 | Sentinel is in cooldown period |
 | | `ErrInsufficientBond` | 1551 | Insufficient sentinel bond |
-| | `ErrInsufficientBacking` | 1552 | Insufficient sentinel backing |
 | | `ErrInsufficientReputation` | 1553 | Insufficient reputation tier |
 | | `ErrSentinelDemoted` | 1554 | Sentinel is demoted |
 | | `ErrNotSentinel` | 1555 | Not a registered sentinel |
-| | `ErrAlreadySentinel` | 1556 | Already registered as sentinel |
 | | `ErrHideLimitExceeded` | 1557 | Sentinel hide limit exceeded for epoch |
 | | `ErrLockLimitExceeded` | 1558 | Sentinel lock limit exceeded for epoch |
 | | `ErrMoveLimitExceeded` | 1559 | Sentinel move limit exceeded for epoch |
 | | `ErrInsufficientLockBond` | 1560 | Insufficient bond for thread locking |
 | | `ErrInsufficientLockBacking` | 1561 | Insufficient backing for thread locking |
-| | `ErrSentinelNotFound` | 1562 | Sentinel activity record not found |
-| | `ErrCannotUnbondPendingHides` | 1563 | Cannot unbond with pending hide appeals |
-| | `ErrDemotionCooldown` | 1564 | Sentinel is in demotion cooldown |
-| | `ErrBondAmountTooSmall` | 1565 | Bond amount too small |
 | | `ErrNotGovAuthority` | 1566 | Not governance authority |
 | | `ErrNotAuthorized` | 1567 | Not authorized for this action |
 | | `ErrPostStatus` | 1568 | Invalid post status for this operation |
 | **Appeal (1650-1699)** | | | |
 | | `ErrAppealCooldown` | 1650 | Appeal cooldown not yet passed |
-| | `ErrAppealAlreadyFiled` | 1651 | Appeal already filed for this action |
-| | `ErrAppealNotFound` | 1652 | Appeal not found |
 | | `ErrAppealPending` | 1653 | Appeal is pending |
-| | `ErrAppealExpired` | 1654 | Appeal deadline has passed |
-| | `ErrGovLockNotAppealable` | 1655 | Governance locks must be appealed via gov action appeal |
+| | `ErrGovLockNotAppealable` | 1655 | No appealable record: the post was not hidden by a sentinel (a council hide is reversed by `MsgUnhidePost`), or the lock/move appeal window closed or was used. Committee and council locks and moves are appealed with `MsgAppealThreadLock` / `MsgAppealThreadMove` |
 | | `ErrLockAppealAlreadyFiled` | 1656 | Lock appeal already filed |
 | | `ErrLockAppealExpired` | 1657 | Lock appeal window has expired |
 | | `ErrMoveAppealAlreadyFiled` | 1658 | Move appeal already filed |
 | | `ErrMoveAppealExpired` | 1659 | Move appeal window has expired |
-| | `ErrPinDisputeAlreadyFiled` | 1660 | Pin dispute already filed |
-| | `ErrNotSentinelPin` | 1661 | Cannot dispute non-sentinel pins |
 | **Archive (1700-1749)** | | | |
 | | `ErrThreadNotInactive` | 1700 | Thread is not inactive enough to archive |
 | | `ErrArchiveCooldown` | 1701 | Archive cooldown not yet passed |
@@ -5694,7 +5730,6 @@ message EventInitiativeLinkRemoved {
 | | `ErrInvalidBountyDuration` | 1758 | Bounty duration exceeds maximum |
 | | `ErrBountyInModeration` | 1759 | Bounty is pending moderation resolution |
 | | `ErrNotReplyInThread` | 1760 | Post is not a reply in the bounty thread |
-| | `ErrBountyFullyAwarded` | 1761 | Bounty has been fully awarded |
 | | `ErrCannotAwardSelf` | 1762 | Cannot award bounty to own reply |
 | | `ErrAnonymousBounty` | 1763 | Anonymous senders cannot fund bounties |
 | **Tag Budget (1800-1849)** | | | |
@@ -5712,7 +5747,6 @@ message EventInitiativeLinkRemoved {
 | | `ErrAlreadyFlagged` | 1850 | Already flagged this post |
 | | `ErrFlagNotFound` | 1851 | Flag record not found |
 | | `ErrNotInReviewQueue` | 1852 | Post not in review queue |
-| | `ErrFlagExpired` | 1853 | Flags have expired |
 | | `ErrMaxFlaggersReached` | 1854 | Maximum flaggers reached for this post |
 | **Thread Metadata (1900-1949)** | | | |
 | | `ErrNoAcceptedReply` | 1900 | No accepted reply for this thread |
@@ -5790,7 +5824,7 @@ message EventInitiativeLinkRemoved {
 | **Tag Squatting** | `reserved_tags` parameter protects system-critical tags. HR Committee can reserve tags and assign authorities. Existing posts with newly-reserved tags may be hidden by sentinels as misinformation if misleading. |
 | **Tag Authority Abuse** | Only HR Committee can reserve tags or assign authorities (via governance). Groups cannot self-assign reserved tags. HR Committee retains override on all reserved tags. |
 | **Sybil Posts** | Membership check via `x/commons` prevents anonymous spam. Non-member tax creates cost. |
-| **Appeal Abuse** | `appeal_fee` deposit discourages frivolous appeals. Lost appeals forfeit deposit. |
+| **Appeal Abuse** | The x/rep appeal bond discourages frivolous appeals. Lost appeals forfeit the bond. |
 | **Recursive Salvation Bomb** | `max_salvation_depth=10` limits ancestor chain conversion. Partial salvation emits event. |
 | **Archive Bomb** | `max_archive_post_count=500` and `max_archive_size_bytes=1MB` prevent oversized archives. |
 | **Decompression Attack** | `MsgUnarchiveThread` gas cost proportional to archive size. Metered decompression. |
@@ -5867,9 +5901,9 @@ message EventInitiativeLinkRemoved {
 | **Thread Lock Bypass** | Lock check occurs at reply creation time, not just validation. Locked status stored on root post, so single lookup determines thread state. |
 | **Lock Reason Abuse** | Lock reason required for Sentinels, displayed to users. HR Committee and jury oversight via appeals. |
 | **Sentinel Lock Abuse** | High-trust requirements (Tier 4+, 2x bond/backing) ensure only established Sentinels can lock. Rate limit (`max_sentinel_locks_per_epoch=5`) prevents mass locking. |
-| **Lock Appeal Gaming** | `lock_appeal_fee` (500 SPARK) discourages frivolous appeals. `lock_appeal_cooldown` (1h) prevents instant coordination. |
+| **Lock Appeal Gaming** | The x/rep appeal bond discourages frivolous appeals. `lock_appeal_cooldown` (1h) prevents instant coordination. |
 | **Sentinel Lock Escape** | `ThreadLockRecord` snapshots bond at lock time. Sentinel cannot unbond to avoid slash during appeal period. |
-| **HR Lock Appeal Path** | HR Committee locks cannot be appealed via `MsgAppealThreadLock` but CAN be appealed via `MsgAppealGovAction` with `GOV_ACTION_TYPE_THREAD_LOCK`. Thread author retains recourse while using proper channel. |
+| **HR Lock Appeal Path** | Committee and council locks and moves write an authority record (no sentinel, no bond), so the thread author appeals them through `MsgAppealThreadLock` / `MsgAppealThreadMove` under the same author, window and once-per-action rules as sentinel actions. x/rep's `MsgAppealGovAction` refuses forum action types. An overturned appeal reverses the action; upheld and timeout keep it. |
 | **Lock Overturn Penalty** | Same escalating cooldown as hide overturns. Repeated bad locks progressively restrict sentinel's moderation ability. |
 | **Reaction Spam** | Unified `max_reactions_per_day` (100) limits all reactions per user per 24h. Non-member `reaction_spam_tax` (10 SPARK) creates cost barrier. One reaction per user per post prevents vote-stacking. |
 | **Reaction Sybil** | Rate limit + spam tax + one-per-target makes Sybil attacks expensive. Membership requirement for free reactions ties votes to earned status. |
@@ -5889,7 +5923,7 @@ message EventInitiativeLinkRemoved {
 | **Edit Detection** | `edited` flag and `edited_at` timestamp allow clients to clearly indicate edited posts to users. |
 | **Edit Without Change** | `ErrNoContentChange` rejects no-op edits. Prevents fee-free timestamp refreshes via identical content. |
 | **Thread Move Abuse** | Sentinels rate-limited (`max_sentinel_moves_per_epoch=10`). Reserved tag threads protected from sentinel moves. HR Committee retains full authority. |
-| **Move Appeal Gaming** | `move_appeal_fee` (500 SPARK) discourages frivolous appeals. `move_appeal_cooldown` (1h) prevents instant coordination. |
+| **Move Appeal Gaming** | The x/rep appeal bond discourages frivolous appeals. `move_appeal_cooldown` (1h) prevents instant coordination. |
 | **Sentinel Move Escape** | `ThreadMoveRecord` snapshots bond at move time. Sentinel cannot unbond to avoid slash during appeal period. |
 | **HR Move Appeal Path** | HR Committee moves cannot be appealed via `MsgAppealThreadMove` but CAN be appealed via `MsgAppealGovAction` with `GOV_ACTION_TYPE_THREAD_MOVE`. Thread author retains recourse while using proper channel. |
 | **Archive With Pending Appeal** | `MsgFreezeThread` validates no pending `ThreadLockRecord` or `ThreadMoveRecord` appeals exist. Prevents archiving disputed threads which would destroy appeal state and allow sentinel/HR to escape accountability. Appeals must resolve before archive. |
@@ -6207,7 +6241,6 @@ The following ranges are recommended for production deployment. Values outside t
 | Parameter | Safe Range | Default | Notes |
 |-----------|------------|---------|-------|
 | `spam_tax` | 10-500 SPARK | 50 SPARK | Too low enables spam; too high excludes legitimate non-members |
-| `appeal_fee` | 100-2000 SPARK | 500 SPARK | Must be high enough to deter frivolous appeals |
 | `tag_creation_fee` | 50-500 SPARK | 100 SPARK | Balance between accessibility and anti-squatting |
 | `sentinel_reward_ratio` | 0.30-0.70 | 0.50 | Portion of taxes to sentinel rewards |
 | `jury_share_ratio` | — | — | Removed — jurors compensated via x/rep DREAM minting |
@@ -6653,3 +6686,211 @@ RemoveContentInitiativeLink(ctx context.Context, initiativeID uint64, targetType
 - **Cross-Chain Moderation:** Allow sentinel activity across IBC-connected forums
 - **Appeal Escalation:** Multi-tier appeal system for high-stakes decisions
 - **Sentinel Insurance:** Pool to compensate wrongly-slashed sentinels on successful meta-appeal
+
+---
+
+## 17. Security Review Hardening (2026-10)
+
+This section records how the implementation closes the 2026-10 review
+findings. Where it differs from earlier sections, this section describes the
+code.
+
+### 17.1. Archive (`MsgFreezeThread` / `MsgUnarchiveThread`)
+- The thread is walked through the `PostsByRoot` index `(root_id, post_id)`,
+  never the whole Post store. Root + replies must not exceed
+  `MaxArchivePostCount` (500), else `ErrThreadTooLarge` (1707).
+- Only an ACTIVE root can be archived (`ErrPostStatus` otherwise). A thread with
+  any `HideRecord` (root or reply) is refused with
+  `ErrCannotArchiveThreadWithPendingAppeal`, as is one with a lock or move
+  appeal pending.
+- Inactivity is measured from the newest `created_at` / `edited_at` in the
+  thread, not the root's creation time.
+- Freeze marks only ACTIVE posts ARCHIVED; unarchive restores only ARCHIVED
+  posts. A HIDDEN or DELETED reply keeps its status across the cycle.
+- Unarchive stamps `ArchiveMetadata.last_unarchived_at`; freeze refuses until
+  `last_unarchived_at + archive_cooldown` (`ErrArchiveCooldown`).
+- Replies are refused on an ARCHIVED or HIDDEN thread.
+
+### 17.2. Appeal routing and the forum appeal target
+- The forum appeal-target methods (`GetActionSentinel`,
+  `GetActionCommittedAmount`, `ReverseSentinelAction`,
+  `OnSentinelActionResolved`, `OnAppealOutcome`) return an error for any action
+  type other than `POST_HIDE`, `THREAD_LOCK`, `THREAD_MOVE` and `REPLY_PIN`.
+  x/rep routes unregistered types to the forum, so WARNING / DEMOTION / ... no
+  longer fall through to the hide branch.
+- Only appeals filed through the forum's own handlers are honored:
+  `MsgAppealPost` sets `HideRecord.appealed`, `MsgAppealThreadLock` /
+  `MsgAppealThreadMove` set `appeal_pending`, `MsgDisputePin` sets `disputed`
+  (each before opening the rep appeal, after the author / cooldown /
+  one-appeal checks). An appeal for the same target filed straight through
+  x/rep `MsgAppealGovAction` sees an unmarked record and is a no-op for the
+  forum: no release, no slash, no reversal.
+- One appeal per action: `MsgAppealPost` refuses an already-appealed hide
+  (`ErrAppealPending`); lock and move appeals must be filed before the appeal
+  deadline (`DefaultLockAppealDeadline` / `DefaultMoveAppealDeadline`, 14 d).
+
+### 17.3. Reservation lifecycle (hide, lock, move, pin)
+Every sentinel reservation has exactly one terminal path:
+
+| Record | Released / settled by |
+|---|---|
+| Hide | self-correct or council unhide (refused while appealed, `ErrAppealPending`); `hidden_expiration` when unappealed (`HideRecordExpiry` index); ephemeral TTL prune when unappealed; the appeal verdict |
+| Lock | self-unlock; council unlock (refused while appealed); appeal deadline when unappealed (`LockRecordExpiry`); the verdict |
+| Move | appeal deadline when unappealed (`MoveRecordExpiry`); a council move (supersedes, refused while appealed); the verdict |
+| Pin | self-unpin; council unpin; the verdict (UPHELD zeroes `committed_amount`, so a later unpin releases nothing) |
+
+- Verdicts: UPHELD drops the lock / move record (the action stands; the thread
+  stays locked / moved), tombstones a hide, and settles a pin. OVERTURNED is
+  applied by `ReverseSentinelAction` and any leftover record is dropped.
+  TIMEOUT releases the reservation and reverses the action (timeout favors the
+  appellant), then drops the record.
+- A second sentinel move while a move record is open is refused
+  (`ErrMoveRecordOpen`, 1662).
+- A pin under an unresolved dispute cannot be unpinned by anyone
+  (`ErrPinDisputed`).
+- A hidden ephemeral post that reaches its TTL: unappealed, the hide is
+  finalized like an expiry (author slash, conviction-stake slash, reservation
+  released) and the post pruned; appealed, the prune is deferred a day at a
+  time until the verdict.
+- Hard-deleting a post (TTL prune) releases any lock, move or pin reservation
+  attached to it.
+
+### 17.4. Write gates and rate limits
+- A reply's category is its thread's category: `msg.category_id` must be 0 or
+  equal to the root's (`ErrInvalidCategoryId`), and the members-only /
+  admin-only write gates are checked against the thread's category. A reply's
+  stored `category_id` is the thread's category at creation time; the root's
+  category is authoritative after a move.
+- Member treatment (permanent posts, members-only writes, salvage, member flag
+  weight, media gate, TTL upgrade) requires an ACTIVE x/rep member
+  (`IsActiveMember`); a zeroed or inactive member is treated as a non-member.
+- `max_content_size`, `max_reply_depth`, `edit_max_window`,
+  `max_follows_per_day` and `edit_grace_period` are read from params (0 falls
+  back to the default).
+- `forum_paused` also stops edit, delete, flag, up/downvote, follow, reply
+  pins, make-permanent, accepted-reply marking, bounty create / increase and
+  conviction staking. Moderation, appeals and fund exits (bounty cancel /
+  award, stake release) stay open.
+- Sliding-window rate limits are evaluated in exact integer arithmetic
+  (`cur*window + prev*(window-elapsed) >= limit*window`), not float64.
+- No-op edits (same content, content type and tag set) are refused with
+  `ErrNoContentChange` (2154). `MsgMakePostPermanent` on an already-permanent
+  post returns before consuming a daily slot.
+
+### 17.5. Curation, pins and flags
+- A sentinel cannot propose its own reply as accepted, and cannot dismiss
+  flags on its own post (`ErrCannotCurateOwnContent`, 1919).
+- A confirmed curation earns the DREAM reward and the upheld accuracy tick
+  only when the thread author endorsed it: an author confirmation, or an
+  auto-confirm where the author was active after the proposal. At most
+  `MaxRewardedCurationsPerEpoch` (10) curations per sentinel reward epoch are
+  rewarded; past the cap the reply is still accepted.
+- Sentinel reply pins get the moderation gates: `moderation_paused`, the
+  overturn cooldown, `MaxSentinelPinsPerEpoch` (20, `ErrPinLimitExceeded`
+  1571) and no self-pins (`ErrCannotPinOwnReply`). Every pin needs an ACTIVE
+  reply, and a thread holds at most `max_pinned_replies_per_thread` (3)
+  pinned replies (`ErrMaxPinnedReplies`).
+- `MsgHidePost` validates `reason_code` against the `ModerationReason` enum and
+  caps `reason_text` at `MaxFlagReasonLength` (512 bytes).
+
+### 17.6. Bounties
+- `ExpireBounties` walks `BountiesByExpiry` up to now.
+- A bounty that expires with assigned awards pays them (equal split, largest
+  remainder) to the still-eligible replies (ACTIVE, not anonymous), exactly as
+  `MsgAwardBounty` would. With no eligible award the escrow is refunded to the
+  creator. With no payable award the expiry follows the burn-plus-top-reply
+  rule: if the thread has an eligible top reply (ACTIVE, at least one
+  upvote, not anonymous, not written by the creator or an alias of the
+  creator; most upvotes wins, ties to the earliest; at most
+  `MaxBountyTopReplyScan` = 500 replies read), `BountyExpiryBurnBps` (50%) of
+  the escrow is burned and the rest paid to that reply's author and recorded
+  as the bounty's award. With no eligible reply the escrow is refunded minus
+  `bounty_cancellation_fee_percent` (burned), so letting a bounty lapse is
+  never cheaper than cancelling it. The spec's `bounty_expiry_burn_ratio`
+  and `bounty_moderation_fee_ratio` are compiled constants
+  (`BountyExpiryBurnBps`, `BountyModerationFeeBps` in `types/params.go`),
+  not params.
+- Moderation timer: hiding or locking a thread root with an open bounty
+  suspends it (`MODERATION_PENDING`, remaining time captured, expiry index
+  dropped). When the hide / lock is reversed (unhide, unlock, appeal
+  OVERTURNED or TIMEOUT reversal) the timer resumes with the captured time,
+  no fee. When it stands (hide expiry tombstones the root, appeal UPHELD,
+  lock appeal window closes, authority lock outlives a TIMEOUT) the bounty is
+  cancelled: `BountyModerationFeeBps` (2.5%) burned, the rest refunded to the
+  creator, event `bounty_moderation_cancelled`. One keeper function
+  (`reconcileThreadBounty`) derives the bounty state from the root's
+  moderation state and runs after every one of those paths.
+- `MsgFreezeThread` refuses a thread with an open bounty (ACTIVE or
+  suspended) instead of suspending it: archiving has no appeal path that
+  could resume the bounty.
+- `MsgAssignBountyToReply` refuses non-ACTIVE and anonymous replies.
+- `ActiveBountyByThread` is cleared on award, cancel and expiry.
+- The minimum bounty is the compiled `MinBountyAmount` = 50 SPARK
+  (50,000,000 base units of the identity bond denom), not a param. It applies
+  to `MsgCreateBounty.amount` and to every `MsgIncreaseBounty.additional_amount`
+  (`ErrBountyAmountTooSmall`).
+
+### 17.7. Post conviction stakes
+- Release moves a stake to `ReleasedStakesByPost` and a time-ordered GC queue
+  (`ReleasedStakeGc`). Retention is `hidden_expiration + appeal deadline + 1 d`
+  from release; GC defers stakes whose post still carries a hide.
+- `SlashStakesForPost` slashes released stakes too: the rep they produced is
+  clawed back exactly and `staker_slash_bps` is burned from the staker's
+  balance (best effort; the DREAM is liquid by then).
+- The slash is bounded: 200 stakes per pass through `StakeSlashQueue`, the
+  rest in later EndBlockers; a queued post's stakes can be neither released
+  nor collected.
+- Accrual skips posts that are not ACTIVE.
+- `MsgReleasePostConviction` is alias-aware (`CanActAs`): after a key
+  migration the new canonical key releases the old key's stakes.
+
+### 17.8. EndBlocker cost
+Every EndBlocker pass walks a time-ordered index up to now: `ExpirationQueue`,
+`HideRecordExpiry`, `LockRecordExpiry` / `MoveRecordExpiry`,
+`BountiesByExpiry`, `ProposalAutoConfirmQueue` and `ReleasedStakeGc`. None
+scans a whole store.
+
+### 17.9. Genesis
+Genesis now carries `post_conviction_stake_list`,
+`post_conviction_stake_count`, `post_vote_list` and
+`forum_rep_epoch_counter_list`. `ArchiveMetadata` gains `last_unarchived_at`.
+`InitGenesis` rebuilds every derived index from the records:
+`ExpirationQueue`, `PostsByRoot`, `PostsByUpvotes`, `PostsByPinned`,
+`HideRecordExpiry`, `LockRecordExpiry`, `MoveRecordExpiry`,
+`BountiesByCreator`, `BountiesByExpiry`, `ActiveBountyByThread`,
+`FollowersByThread`, `ThreadsByFollower` (and the `ThreadFollow` key is the
+`<follower>:<thread_id>` key the handler writes), the active and released
+stake indexes, and `PostConvictionStakeSeq`.
+
+A member holds up to four `UserReactionLimit` records, one per daily budget:
+the shared reaction budget under the bare address and the flag, downvote and
+follow budgets under `flag_<address>`, `downvote_<address>` and
+`follow_<address>`. Each record carries its `kind` (`ReactionLimitKind`), and
+`InitGenesis` stores it under `UserReactionLimitStoreKey(kind, user_address)`,
+so the round trip puts every record back under its own key (genesis validation
+de-duplicates on that key). The rolling `PostConvictionAccrualCursor` is not
+exported: after an import accrual restarts from the first stake, which only
+reorders one pass.
+
+### 17.10. Invariant
+`ThreadLockConsistencyInvariant` checks that every lock record names an
+existing, locked root whose `locked_by` is the record's sentinel. A locked root
+without a record is legitimate (council locks, settled sentinel locks).
+
+### 17.11. Operational params authority
+`MsgUpdateOperationalParams` requires an executed Commons Operations Committee
+decision (`IsCouncilOrCommitteePolicy`) or governance; a single committee
+member is refused. The committee path is also checked against compiled hard
+bounds (`ValidateCommitteeBounds`, x/forum/types/params_bounds.go): ceilings on
+every fee, tax and deposit (100 SPARK), cost per byte, curation reward, stream
+rate, rep caps, appeal cooldowns (7 d), archive / unarchive cooldowns and
+cancellation fee, and lower clock bounds (ephemeral TTL >= 1 h, archive
+threshold >= 7 d, sentinel cooldowns >= 1 d, conviction lock >= 1 d, proposal
+timeout >= 1 h) that apply on network builds only. Governance and genesis are
+not bound.
+
+### 17.12. Queries
+`PinnedPosts`, `TopPosts` (highest first; `category_id` and `time_range`
+filters) and `FlagReviewQueue` return full pages (`posts` / `flags`). The
+legacy single-record fields describe the first entry of the page.
+

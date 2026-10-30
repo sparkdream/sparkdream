@@ -57,6 +57,10 @@ const (
 	EventTypeIdentityChallengeConfirmed  = "identity_challenge_confirmed"
 	EventTypeIdentityChallengeExpired    = "identity_challenge_expired"
 	EventTypeIdentityConfirmationTimeout = "identity_confirmation_timeout"
+	// Bridge identity attestation: an operator verified a link to a bridge
+	// peer, or a slashed operator's attestation was withdrawn.
+	EventTypeIdentityLinkAttested       = "identity_link_attested"
+	EventTypeIdentityAttestationRevoked = "identity_attestation_revoked"
 
 	// Reputation
 	EventTypeReputationAttested     = "reputation_attested"
@@ -95,6 +99,27 @@ const (
 	EventTypeChallengeEscalated            = "challenge_escalated"
 	EventTypeArbiterResolutionExpired      = "arbiter_resolution_expired"
 	EventTypeChallengeCancelledPeerRemoved = "challenge_cancelled_peer_removed"
+	// settlement_failure records an EndBlocker settlement whose side effect
+	// (bank send, burn, x/rep slash / mint / outcome / release) failed. The
+	// settlement ran in a cache context, so none of it committed (the escrow
+	// stays on the record), and it is retried. Attributes: content_id,
+	// step, attempt, retry_at, error.
+	EventTypeSettlementFailure = "settlement_failure"
+	// settlement_abandoned: the last retry of an EndBlocker settlement
+	// failed. The record keeps its escrow (content still in dispute) until
+	// peer removal or a committee verdict settles it. Attributes:
+	// content_id, step, attempt, error.
+	EventTypeSettlementAbandoned = "settlement_abandoned"
+	// challenge_report_filed / challenge_report_deferred track the x/service
+	// system report federation owes against a submitting bridge operator.
+	// deferred means x/service refused it for now (rate limit); the
+	// EndBlocker retries with the same dedupe key.
+	EventTypeChallengeReportFiled    = "challenge_report_filed"
+	EventTypeChallengeReportDeferred = "challenge_report_deferred"
+	// content_awaiting_review: content landed HIDDEN because its peer's
+	// policy has require_review set; an Operations Committee restore
+	// (MsgModerateContent to ACTIVE) publishes it.
+	EventTypeContentAwaitingReview = "content_awaiting_review"
 
 	// Phase 2 (jury) resolution
 	EventTypeJuryVerdictApplied    = "jury_verdict_applied"
@@ -116,6 +141,8 @@ const (
 	AttributeKeyCreatorIdentity = "creator_identity"
 	AttributeKeyLocalAddress    = "local_address"
 	AttributeKeyRemoteIdentity  = "remote_identity"
+	AttributeKeyEvidenceURI     = "evidence_uri"
+	AttributeKeyLinkProof       = "link_proof"
 	AttributeKeyVerifier        = "verifier"
 	AttributeKeyChallenger      = "challenger"
 	AttributeKeyNewStatus       = "new_status"

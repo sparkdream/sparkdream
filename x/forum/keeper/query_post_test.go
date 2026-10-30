@@ -41,7 +41,9 @@ func createNPost(keeper keeper.Keeper, ctx context.Context, n int) []types.Post 
 		items[i].Depth = uint64(i)
 		items[i].Edited = true
 		items[i].EditedAt = int64(i)
-		_ = keeper.Post.Set(ctx, items[i].PostId, items[i])
+		if err := keeper.Post.Set(ctx, items[i].PostId, items[i]); err != nil {
+			panic(err)
+		}
 	}
 	return items
 }

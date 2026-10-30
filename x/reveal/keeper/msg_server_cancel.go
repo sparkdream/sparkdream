@@ -38,29 +38,15 @@ func (k msgServer) Cancel(ctx context.Context, msg *types.MsgCancel) (*types.Msg
 			contrib.Status != types.ContributionStatus_CONTRIBUTION_STATUS_IN_PROGRESS {
 			return nil, types.ErrInvalidStatus.Wrapf("contribution already finalized (status: %s)", contrib.Status)
 		}
-		// REVEAL-2 fix: Non-contributor callers must be Operations Committee members.
-		// Without this check, any address could cancel any contribution.
-		authorityAddr, err := k.addressCodec.StringToBytes(msg.Authority)
-		if err != nil {
-			return nil, types.ErrUnauthorized.Wrapf("invalid authority address: %s", err)
-		}
-		authorized := false
-		// Gov authority (chain upgrades / governance) always permitted.
-		if msg.Authority == k.GetAuthorityString() {
-			authorized = true
-		}
-		// Commons Council policy address or Operations Committee member.
-		if !authorized && k.commonsKeeper.IsCouncilAuthorized(ctx, msg.Authority, "Commons Council", "operations") {
-			authorized = true
-		}
-		if !authorized {
-			ok, err := k.commonsKeeper.IsCommitteeMember(ctx, sdk.AccAddress(authorityAddr), "Commons Council", "operations")
-			if err == nil && ok {
-				authorized = true
-			}
-		}
-		if !authorized {
-			return nil, types.ErrUnauthorized.Wrapf("caller %s is not the contributor and not an Operations Committee member", msg.Authority)
+		// Non-contributor callers must be governance, the Commons Council
+		// policy, or the Commons Operations Committee policy (an executed
+		// committee proposal). A single committee member cannot cancel: a
+		// committee cancel mints the accumulated holdback to the contributor,
+		// so one colluding member could otherwise release it without the
+		// final tranche ever being delivered (REV-04).
+		if msg.Authority != k.GetAuthorityString() &&
+			!k.commonsKeeper.IsCouncilOrCommitteePolicy(ctx, msg.Authority, "commons", "operations") {
+			return nil, types.ErrUnauthorized.Wrapf("caller %s is not the contributor, governance, the Commons Council or the Operations Committee policy", msg.Authority)
 		}
 	}
 
@@ -77,20 +63,12 @@ func (k msgServer) Cancel(ctx context.Context, msg *types.MsgCancel) (*types.Msg
 		return nil, err
 	}
 
-	if contrib.BondRemaining.IsPositive() {
-		if isContributor {
-			// Contributor cancels before BACKED: bond returned
-			if err := k.repKeeper.UnlockDREAM(ctx, sdk.AccAddress(contributorAddr), contrib.BondRemaining); err != nil {
-				return nil, err
-			}
-		} else {
-			// Committee cancels: bond returned (not contributor's fault)
-			if err := k.repKeeper.UnlockDREAM(ctx, sdk.AccAddress(contributorAddr), contrib.BondRemaining); err != nil {
-				return nil, err
-			}
-		}
-		contrib.BondRemaining = math.ZeroInt()
+	// Bond is returned on either path: before BACKED it is not the
+	// contributor's fault, and a committee cancel is not either.
+	if _, err := k.unlockOrGone(ctx, sdk.AccAddress(contributorAddr), contrib.BondRemaining); err != nil {
+		return nil, err
 	}
+	contrib.BondRemaining = math.ZeroInt()
 
 	// Return holdback if committee cancelled (not contributor's fault)
 	if !isContributor && contrib.HoldbackAmount.IsPositive() {
@@ -106,16 +84,19 @@ func (k msgServer) Cancel(ctx context.Context, msg *types.MsgCancel) (*types.Msg
 		return nil, err
 	}
 
-	// Cancel all tranches
+	// Cancel all tranches; their verification votes go with them (REV-10).
 	for i := range contrib.Tranches {
 		if contrib.Tranches[i].Status != types.TrancheStatus_TRANCHE_STATUS_VERIFIED {
+			if err := k.deleteTrancheVotes(ctx, contrib.Id, contrib.Tranches[i].Id); err != nil {
+				return nil, err
+			}
 			contrib.Tranches[i].Status = types.TrancheStatus_TRANCHE_STATUS_CANCELLED
 		}
 	}
 	contrib.Status = types.ContributionStatus_CONTRIBUTION_STATUS_CANCELLED
 
 	// Save updated contribution
-	if err := k.Contribution.Set(ctx, contrib.Id, contrib); err != nil {
+	if err := k.saveContribution(ctx, &contrib); err != nil {
 		return nil, err
 	}
 	if err := k.ContributionsByStatus.Set(ctx, collections.Join(int32(contrib.Status), contrib.Id)); err != nil {
@@ -151,29 +132,19 @@ func (k Keeper) returnAllStakes(ctx context.Context, contrib *types.Contribution
 }
 
 // returnTrancheStakes returns all stakes for a specific tranche to their stakers.
+// A stake whose lock x/rep reports as already gone (the staker was zeroed)
+// is still deleted, so one zeroed staker can never wedge the tranche or
+// cause the other stakers to be unlocked again on a retry (REV-01). Any other
+// unlock error is returned; callers run in a CacheContext (EndBlocker) or a
+// tx, so nothing is half-applied.
 func (k Keeper) returnTrancheStakes(ctx context.Context, contributionID uint64, trancheID uint32) error {
 	trancheKey := TrancheKey(contributionID, trancheID)
 
-	var stakesToRemove []uint64
+	var stakeIDs []uint64
 	err := k.StakesByTranche.Walk(ctx,
 		collections.NewPrefixedPairRange[string, uint64](trancheKey),
 		func(key collections.Pair[string, uint64]) (bool, error) {
-			stakeID := key.K2()
-			stake, err := k.RevealStake.Get(ctx, stakeID)
-			if err != nil {
-				return true, err
-			}
-
-			// Unlock DREAM back to staker
-			stakerAddr, err := k.addressCodec.StringToBytes(stake.Staker)
-			if err != nil {
-				return true, err
-			}
-			if err := k.repKeeper.UnlockDREAM(ctx, sdk.AccAddress(stakerAddr), stake.Amount); err != nil {
-				return true, err
-			}
-
-			stakesToRemove = append(stakesToRemove, stakeID)
+			stakeIDs = append(stakeIDs, key.K2())
 			return false, nil
 		},
 	)
@@ -181,12 +152,24 @@ func (k Keeper) returnTrancheStakes(ctx context.Context, contributionID uint64, 
 		return err
 	}
 
-	// Remove stakes and indexes
-	for _, stakeID := range stakesToRemove {
+	for _, stakeID := range stakeIDs {
 		stake, err := k.RevealStake.Get(ctx, stakeID)
 		if err != nil {
+			// Dangling index entry: drop it.
+			if err := k.StakesByTranche.Remove(ctx, collections.Join(trancheKey, stakeID)); err != nil {
+				return err
+			}
 			continue
 		}
+
+		stakerAddr, err := k.addressCodec.StringToBytes(stake.Staker)
+		if err != nil {
+			return err
+		}
+		if _, err := k.unlockOrGone(ctx, sdk.AccAddress(stakerAddr), stake.Amount); err != nil {
+			return err
+		}
+
 		if err := k.RevealStake.Remove(ctx, stakeID); err != nil {
 			return err
 		}

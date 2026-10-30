@@ -100,6 +100,18 @@ service Msg {
   // future claims on a schedule (graceful exit when leaving a role). The
   // signer must be the recipient.
   rpc DeclineRecurringSpend(MsgDeclineRecurringSpend) returns (MsgDeclineRecurringSpendResponse);
+
+  // OpenPoll opens a non-binding poll for a group's members.
+  rpc OpenPoll(MsgOpenPoll) returns (MsgOpenPollResponse);
+
+  // VotePoll casts a member's open vote on a poll.
+  rpc VotePoll(MsgVotePoll) returns (MsgVotePollResponse);
+
+  // AnonymousVotePoll casts a secret-ballot poll vote via x/shield.
+  rpc AnonymousVotePoll(MsgAnonymousVotePoll) returns (MsgAnonymousVotePollResponse);
+
+  // CancelPoll withdraws a poll before anyone has voted on it.
+  rpc CancelPoll(MsgCancelPoll) returns (MsgCancelPollResponse);
 }
 
 // MsgUpdateParams is the Msg/UpdateParams request type.
@@ -211,6 +223,9 @@ message MsgRegisterGroup {
   string policy_type = 18;
   repeated string allowed_messages = 19;
   string electoral_policy_address = 20;
+  // ballot_mode decides how the group's proposals are voted (UNSPECIFIED
+  // means OPEN).
+  BallotMode ballot_mode = 21;
 }
 
 // MsgRegisterGroupResponse defines the MsgRegisterGroupResponse message.
@@ -249,6 +264,12 @@ message MsgUpdateGroupConfig {
   int64 voting_period = 11;
   int64 min_execution_period = 12;
   string electoral_policy_address = 13;
+  // funding_weight replaces the group's x/split share when non-zero. x/gov
+  // only; 0 leaves it unchanged.
+  uint64 funding_weight = 14;
+  // ballot_mode replaces the group's ballot mode; UNSPECIFIED leaves it
+  // unchanged.
+  BallotMode ballot_mode = 15;
 }
 
 // MsgUpdateGroupConfigResponse defines the MsgUpdateGroupConfigResponse message.
@@ -328,6 +349,10 @@ message MsgSubmitProposal {
   repeated google.protobuf.Any messages = 3;
   // metadata is optional metadata about the proposal
   string metadata = 4;
+  // secret_ballot asks for a secret ballot. Honoured only when the group's
+  // ballot_mode is PROPOSER_CHOICE; a SECRET group always votes secretly and
+  // an OPEN group refuses it.
+  bool secret_ballot = 5;
 }
 
 // MsgSubmitProposalResponse defines the response for SubmitProposal.
@@ -380,6 +405,8 @@ message MsgSubmitAnonymousProposal {
   repeated google.protobuf.Any messages = 3;
   // metadata is optional metadata about the proposal
   string metadata = 4;
+  // secret_ballot: as MsgSubmitProposal.secret_ballot.
+  bool secret_ballot = 5;
 }
 
 // MsgSubmitAnonymousProposalResponse defines the response for SubmitAnonymousProposal.
@@ -528,3 +555,69 @@ message MsgDeclineRecurringSpend {
 
 // MsgDeclineRecurringSpendResponse is empty.
 message MsgDeclineRecurringSpendResponse {}
+
+// MsgOpenPoll opens a non-binding, single-choice poll for a group's members.
+message MsgOpenPoll {
+  option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/commons/MsgOpenPoll";
+
+  // creator must be a member of the group.
+  string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  // council_name is the group whose members vote.
+  string council_name = 2;
+  string question = 3;
+  // options are the 2 to 10 choices, each distinct and non-empty.
+  repeated string options = 4;
+  // duration_seconds is how long voting stays open.
+  int64 duration_seconds = 5;
+  // secret_ballot votes through x/shield against a snapshot of the group's
+  // members (equal weights, enough registered ZK keys).
+  bool secret_ballot = 6;
+}
+
+// MsgOpenPollResponse defines the MsgOpenPollResponse message.
+message MsgOpenPollResponse {
+  uint64 poll_id = 1;
+}
+
+// MsgVotePoll casts a member's open vote. One vote per member, final.
+message MsgVotePoll {
+  option (cosmos.msg.v1.signer) = "voter";
+  option (amino.name) = "sparkdream/x/commons/MsgVotePoll";
+
+  string voter = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 poll_id = 2;
+  // option is the index into the poll's options.
+  uint64 option = 3;
+}
+
+// MsgVotePollResponse defines the MsgVotePollResponse message.
+message MsgVotePollResponse {}
+
+// MsgAnonymousVotePoll casts a secret-ballot poll vote. Submitted inside
+// x/shield's MsgShieldedExec, whose proof shows membership of the poll's
+// voter snapshot; the nullifier (scope poll_id) allows one vote per member.
+message MsgAnonymousVotePoll {
+  option (cosmos.msg.v1.signer) = "voter";
+  option (amino.name) = "sparkdream/x/commons/MsgAnonymousVotePoll";
+
+  // voter must be the shield module account address
+  string voter = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 poll_id = 2;
+  uint64 option = 3;
+}
+
+// MsgAnonymousVotePollResponse defines the MsgAnonymousVotePollResponse message.
+message MsgAnonymousVotePollResponse {}
+
+// MsgCancelPoll lets the creator withdraw a poll nobody has voted on.
+message MsgCancelPoll {
+  option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/commons/MsgCancelPoll";
+
+  string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 poll_id = 2;
+}
+
+// MsgCancelPollResponse defines the MsgCancelPollResponse message.
+message MsgCancelPollResponse {}

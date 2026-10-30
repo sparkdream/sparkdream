@@ -9,7 +9,10 @@ import (
 )
 
 func (k msgServer) UpdateOperationalParams(ctx context.Context, req *types.MsgUpdateOperationalParams) (*types.MsgUpdateOperationalParamsResponse, error) {
-	if !k.isCouncilAuthorized(ctx, req.Authority, "commons", "operations") {
+	// An executed Commons Council or Operations Committee proposal (or
+	// x/gov); a single committee member may not move these clocks
+	// (NAM-01). Values are also held inside compiled bounds by Validate.
+	if !k.isCouncilOrCommitteePolicy(ctx, req.Authority, "commons", "operations") {
 		return nil, errorsmod.Wrapf(types.ErrInvalidSigner, "address %s is not authorized to update operational params", req.Authority)
 	}
 

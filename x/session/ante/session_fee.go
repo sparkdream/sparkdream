@@ -2,6 +2,10 @@ package ante
 
 import (
 	"context"
+	"math"
+
+	errorsmod "cosmossdk.io/errors"
+	sdkmath "cosmossdk.io/math"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
@@ -84,6 +88,11 @@ func (d SessionFeeDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate boo
 
 	for _, msg := range msgs {
 		execMsg := msg.(*sessiontypes.MsgExecSession)
+		// An empty exec does nothing but spend the granter's fee budget;
+		// refuse it before any fee moves (the msg server refuses it too).
+		if len(execMsg.Msgs) == 0 {
+			return ctx, errorsmod.Wrap(sessiontypes.ErrEmptyMsgs, "exec session carries no messages")
+		}
 		session, err := d.sessionKeeper.GetSession(ctx, execMsg.Granter, execMsg.Grantee)
 		if err != nil {
 			return ctx, sessiontypes.ErrSessionNotFound
@@ -91,8 +100,17 @@ func (d SessionFeeDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate boo
 		if !session.Expiration.After(blockTime) {
 			return ctx, sessiontypes.ErrSessionExpired
 		}
+		// A used-up session must not keep landing (fee-free or granter-paid)
+		// txs that only fail in the msg server.
+		if session.MaxExecCount > 0 && session.ExecCount+uint64(len(execMsg.Msgs)) > session.MaxExecCount {
+			return ctx, sessiontypes.ErrExecCountExceeded
+		}
 		if session.SpendLimit.IsPositive() {
 			hasFeeDelegate = true
+			// An exhausted budget pays nothing, so the tx would ride for free.
+			if !session.Spent.Amount.LT(session.SpendLimit.Amount) {
+				return ctx, sessiontypes.ErrSpendLimitExceeded
+			}
 			if isFeeTx {
 				fees := feeTx.GetFee()
 				for _, fee := range fees {
@@ -122,6 +140,17 @@ func (d SessionFeeDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate boo
 			return ctx, sdkerrors.ErrTxDecode
 		}
 		fees := feeTx.GetFee()
+
+		// The standard DeductFeeDecorator, which the fee-paid flag below
+		// skips, is where CheckTx enforces the node's minimum gas prices and
+		// sets the tx priority. Do both here, or every session tx could ride
+		// with a zero fee and any gas limit (SES-01).
+		if ctx.IsCheckTx() && !simulate {
+			if err := checkMinGasPrices(ctx, fees, feeTx.GetGas()); err != nil {
+				return ctx, err
+			}
+		}
+		ctx = ctx.WithPriority(txPriority(fees, feeTx.GetGas()))
 
 		if !fees.IsZero() {
 			granterAddr, err := sdk.AccAddressFromBech32(granter)
@@ -165,4 +194,43 @@ func (d SessionFeeDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate boo
 	}
 
 	return next(ctx, tx, simulate)
+}
+
+// checkMinGasPrices mirrors the SDK's CheckTx minimum-gas-price rule
+// (fee >= ceil(minGasPrice * gasLimit) in at least one denom). It is
+// node-local and CheckTx-only, exactly like the SDK check it replaces.
+func checkMinGasPrices(ctx sdk.Context, fees sdk.Coins, gas uint64) error {
+	minGasPrices := ctx.MinGasPrices()
+	if minGasPrices.IsZero() {
+		return nil
+	}
+	required := make(sdk.Coins, len(minGasPrices))
+	glDec := sdkmath.LegacyNewDecFromInt(sdkmath.NewIntFromUint64(gas))
+	for i, gp := range minGasPrices {
+		required[i] = sdk.NewCoin(gp.Denom, gp.Amount.Mul(glDec).Ceil().RoundInt())
+	}
+	if !fees.IsAnyGTE(required) {
+		return errorsmod.Wrapf(sdkerrors.ErrInsufficientFee, "insufficient fees; got: %s required: %s", fees, required)
+	}
+	return nil
+}
+
+// txPriority is the SDK's default fee priority: the smallest per-denom gas
+// price of the fee, so a session tx competes on the same terms as any other.
+func txPriority(fees sdk.Coins, gas uint64) int64 {
+	if gas == 0 {
+		return 0
+	}
+	var priority int64
+	for _, c := range fees {
+		p := int64(math.MaxInt64)
+		gasPrice := c.Amount.Quo(sdkmath.NewIntFromUint64(gas))
+		if gasPrice.IsInt64() {
+			p = gasPrice.Int64()
+		}
+		if priority == 0 || p < priority {
+			priority = p
+		}
+	}
+	return priority
 }

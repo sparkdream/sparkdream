@@ -36,7 +36,7 @@ func TestRegisterName(t *testing.T) {
 		mockRK.Reset()
 		// Alice is an active x/rep member; bob is not.
 		mockRK.SetActiveMember(alice)
-		k.SetParams(c, types.DefaultParams())
+		require.NoError(t, k.SetParams(c, types.DefaultParams()))
 	}
 
 	tests := []struct {
@@ -107,14 +107,14 @@ func TestRegisterName(t *testing.T) {
 			},
 			runBefore: func(c sdk.Context) {
 				commonSetup(c)
-				_ = k.Names.Set(c, "bob", types.NameRecord{Name: "bob", Owner: bob})
-				_ = k.OwnerNames.Set(c, collections.Join(bob, "bob"))
+				require.NoError(t, k.Names.Set(c, "bob", types.NameRecord{Name: "bob", Owner: bob}))
+				require.NoError(t, k.OwnerNames.Set(c, collections.Join(bob, "bob")))
 
-				_ = k.Owners.Set(c, bob, types.OwnerInfo{
+				require.NoError(t, k.Owners.Set(c, bob, types.OwnerInfo{
 					Address:        bob,
 					LastActiveTime: c.BlockTime().Unix(),
 					PrimaryName:    "bob",
-				})
+				}))
 			},
 			err: types.ErrNameTaken,
 		},
@@ -126,16 +126,16 @@ func TestRegisterName(t *testing.T) {
 			},
 			runBefore: func(c sdk.Context) {
 				commonSetup(c)
-				_ = k.Names.Set(c, "expired-name", types.NameRecord{Name: "expired-name", Owner: bob, Data: "meta"})
-				_ = k.OwnerNames.Set(c, collections.Join(bob, "expired-name"))
+				require.NoError(t, k.Names.Set(c, "expired-name", types.NameRecord{Name: "expired-name", Owner: bob, Data: "meta"}))
+				require.NoError(t, k.OwnerNames.Set(c, collections.Join(bob, "expired-name")))
 
 				// Set expiration way back (10 years) to guarantee it passes default params check
 				expiredTime := c.BlockTime().Add(-(24 * 365 * 10 * time.Hour)).Unix()
-				_ = k.Owners.Set(c, bob, types.OwnerInfo{
+				require.NoError(t, k.Owners.Set(c, bob, types.OwnerInfo{
 					Address:        bob,
 					LastActiveTime: expiredTime,
 					PrimaryName:    "expired-name",
-				})
+				}))
 			},
 			check: func(t *testing.T, c sdk.Context) {
 				rec, err := k.Names.Get(c, "expired-name")
@@ -156,16 +156,16 @@ func TestRegisterName(t *testing.T) {
 			},
 			runBefore: func(c sdk.Context) {
 				commonSetup(c)
-				_ = k.Names.Set(c, "hijacked", types.NameRecord{
+				require.NoError(t, k.Names.Set(c, "hijacked", types.NameRecord{
 					Name: "hijacked", Owner: bob, Target: carol, TargetAccepted: true,
-				})
-				_ = k.OwnerNames.Set(c, collections.Join(bob, "hijacked"))
-				_ = k.AcceptedTargets.Set(c, collections.Join(carol, "hijacked"))
+				}))
+				require.NoError(t, k.OwnerNames.Set(c, collections.Join(bob, "hijacked")))
+				require.NoError(t, k.AcceptedTargets.Set(c, collections.Join(carol, "hijacked")))
 				expiredTime := c.BlockTime().Add(-(24 * 365 * 10 * time.Hour)).Unix()
-				_ = k.Owners.Set(c, bob, types.OwnerInfo{Address: bob, LastActiveTime: expiredTime})
-				_ = k.Owners.Set(c, carol, types.OwnerInfo{
+				require.NoError(t, k.Owners.Set(c, bob, types.OwnerInfo{Address: bob, LastActiveTime: expiredTime}))
+				require.NoError(t, k.Owners.Set(c, carol, types.OwnerInfo{
 					Address: carol, LastActiveTime: c.BlockTime().Unix(), PrimaryName: "hijacked",
-				})
+				}))
 			},
 			check: func(t *testing.T, c sdk.Context) {
 				rec, err := k.Names.Get(c, "hijacked")
@@ -201,16 +201,16 @@ func TestRegisterName(t *testing.T) {
 				require.NoError(t, err)
 
 				// Create 2 existing names
-				_ = k.Names.Set(c, "name1", types.NameRecord{Name: "name1", Owner: alice})
-				_ = k.OwnerNames.Set(c, collections.Join(alice, "name1"))
-				_ = k.Names.Set(c, "name2", types.NameRecord{Name: "name2", Owner: alice})
-				_ = k.OwnerNames.Set(c, collections.Join(alice, "name2"))
+				require.NoError(t, k.Names.Set(c, "name1", types.NameRecord{Name: "name1", Owner: alice}))
+				require.NoError(t, k.OwnerNames.Set(c, collections.Join(alice, "name1")))
+				require.NoError(t, k.Names.Set(c, "name2", types.NameRecord{Name: "name2", Owner: alice}))
+				require.NoError(t, k.OwnerNames.Set(c, collections.Join(alice, "name2")))
 
-				_ = k.Owners.Set(c, alice, types.OwnerInfo{
+				require.NoError(t, k.Owners.Set(c, alice, types.OwnerInfo{
 					Address:        alice,
 					LastActiveTime: c.BlockTime().Unix(),
 					PrimaryName:    "name1",
-				})
+				}))
 			},
 			err: types.ErrTooManyNames,
 		},
@@ -241,4 +241,24 @@ func TestRegisterName(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestRegisterNameBurnsFee: the registration fee is burned, like every other
+// creation fee, instead of accumulating in the x/name module account (NAM-07).
+func TestRegisterNameBurnsFee(t *testing.T) {
+	f := initFixture(t)
+	ms := keeper.NewMsgServerImpl(f.keeper)
+	alice := sdk.AccAddress([]byte("alice_test_address__")).String()
+	f.mockRep.SetActiveMember(alice)
+	params := types.DefaultParams()
+	require.NoError(t, f.keeper.SetParams(f.ctx, params))
+	f.mockBank.Reset()
+
+	_, err := ms.RegisterName(f.ctx, &types.MsgRegisterName{Authority: alice, Name: "phoenix"})
+	require.NoError(t, err)
+
+	fee := sdk.NewCoins(sdk.NewCoin(f.keeper.BondDenom(f.ctx), params.RegistrationFeeAmount))
+	require.False(t, fee.IsZero())
+	require.Equal(t, fee, f.mockBank.Burned[types.ModuleName], "fee burned")
+	require.True(t, f.mockBank.ToModule[types.ModuleName].IsZero(), "nothing left in the module account")
 }

@@ -13,7 +13,7 @@ import (
 // tracks collect's source-of-truth params. No-op when the rep keeper is not
 // wired (tests may construct the collect keeper standalone).
 func (k Keeper) SyncCuratorBondedRoleConfig(ctx context.Context, p types.Params) error {
-	if k.repKeeper == nil {
+	if k.late.repKeeper == nil {
 		return nil
 	}
 	minBond := "0"
@@ -24,7 +24,7 @@ func (k Keeper) SyncCuratorBondedRoleConfig(ctx context.Context, p types.Params)
 	if !p.CuratorDemotionThreshold.IsNil() {
 		demotionThreshold = p.CuratorDemotionThreshold.String()
 	}
-	return k.repKeeper.SetBondedRoleConfig(ctx, reptypes.BondedRoleConfig{
+	return k.late.repKeeper.SetBondedRoleConfig(ctx, reptypes.BondedRoleConfig{
 		RoleType:          reptypes.RoleType_ROLE_TYPE_COLLECT_CURATOR,
 		MinBond:           minBond,
 		MinRepTier:        0, // curator is trust-level-gated, not rep-tier-gated

@@ -142,9 +142,9 @@ TX_RES=$($BINARY tx shield shielded-exec \
     --encrypted-payload "$(openssl rand -hex 160)" \
     --target-epoch "$CURRENT_EPOCH_T4" \
     --proof "$(openssl rand -hex 128)" \
-    --nullifier "$(openssl rand -hex 32)" \
-    --rate-limit-nullifier "$(openssl rand -hex 32)" \
-    --merkle-root "$(openssl rand -hex 32)" \
+    --nullifier "00$(openssl rand -hex 31)" \
+    --rate-limit-nullifier "00$(openssl rand -hex 31)" \
+    --merkle-root "00$(openssl rand -hex 31)" \
     --from submitter1 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \

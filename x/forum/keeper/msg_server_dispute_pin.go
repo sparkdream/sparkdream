@@ -79,6 +79,15 @@ func (k msgServer) DisputePin(ctx context.Context, msg *types.MsgDisputePin) (*t
 	if err != nil {
 		return nil, errorsmod.Wrap(err, "invalid creator address")
 	}
+	// Mark the pin disputed BEFORE opening the rep appeal: the appeal-target
+	// adapter only honors REPLY_PIN appeals on a disputed pin (see
+	// forumAppealRecord). A failure below reverts the whole message.
+	foundRecord.Disputed = true
+	metadata.PinnedRecords[foundIndex] = foundRecord
+	if err := k.ThreadMetadata.Set(ctx, msg.ThreadId, metadata); err != nil {
+		return nil, errorsmod.Wrap(err, "failed to update thread metadata")
+	}
+
 	_, initiativeID, err := k.repKeeper.CreateGovActionAppeal(
 		ctx,
 		reptypes.GovActionType_GOV_ACTION_TYPE_REPLY_PIN,
@@ -90,8 +99,6 @@ func (k msgServer) DisputePin(ctx context.Context, msg *types.MsgDisputePin) (*t
 		return nil, errorsmod.Wrap(err, "failed to create pin dispute appeal")
 	}
 
-	// Mark as disputed
-	foundRecord.Disputed = true
 	foundRecord.InitiativeId = initiativeID
 	metadata.PinnedRecords[foundIndex] = foundRecord
 

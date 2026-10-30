@@ -1,81 +1,78 @@
 package simulation
 
 import (
-	"math/rand"
-
-	"github.com/cosmos/cosmos-sdk/baseapp"
+	"cosmossdk.io/math"
 	"github.com/cosmos/cosmos-sdk/client"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
-	"github.com/cosmos/cosmos-sdk/x/simulation"
 
 	"sparkdream/x/session/keeper"
 	"sparkdream/x/session/types"
 )
 
-// SimulateMsgRetryScheduledOneshot picks a random
-// PAUSED_INSUFFICIENT_FUNDS scheduled-oneshot grant and submits a
-// retry from the granter or grantee (both are accepted by the
-// handler).
-//
-// NoOps when no paused oneshot exists — which is the common case in
-// randomized sims, since underfunded oneshots are rare without
-// explicit bank churn. Kept for completeness so a sim that does
-// generate PAUSED state through other operations sees the retry path
-// exercised.
+// SimulateMsgRetryScheduledOneshot re-arms a PAUSED_INSUFFICIENT_FUNDS
+// scheduled oneshot, signed by its live sim granter or grantee. A oneshot
+// pauses only at fire time (EndBlocker), so when none is paused the op
+// creates an oneshot transfer larger than the granter holds: it pauses when
+// it fires in a later block, and a later call retries it.
 func SimulateMsgRetryScheduledOneshot(
 	ak types.AuthKeeper,
 	bk types.BankKeeper,
 	k keeper.Keeper,
 	txGen client.TxConfig,
 ) simtypes.Operation {
-	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
-	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		msgType := sdk.MsgTypeURL(&types.MsgRetryScheduledOneshot{})
-
-		grant, found := findRandomGrantOfType(
-			r, ctx, k, types.GrantType_GRANT_TYPE_SCHEDULED_ONESHOT,
-			func(g types.Grant) bool {
-				return g.Status == types.GrantStatus_GRANT_STATUS_PAUSED_INSUFFICIENT_FUNDS
-			},
-		)
-		if !found {
-			return simtypes.NoOpMsg(types.ModuleName, msgType, "no paused oneshot to retry"), nil, nil
+	label := &types.MsgRetryScheduledOneshot{}
+	return operation(ak, bk, k, txGen, label, func(e *simEnv) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
+		paused, err := e.grants(func(g types.Grant) bool {
+			return g.Type == types.GrantType_GRANT_TYPE_SCHEDULED_ONESHOT &&
+				g.Status == types.GrantStatus_GRANT_STATUS_PAUSED_INSUFFICIENT_FUNDS
+		})
+		if err != nil {
+			return noOpErr(label, err)
+		}
+		for _, i := range e.r.Perm(len(paused)) {
+			g := paused[i]
+			callers := []string{g.Granter, g.Grantee}
+			if e.r.Intn(2) == 0 {
+				callers[0], callers[1] = callers[1], callers[0]
+			}
+			for _, c := range callers {
+				acc, ok := e.account(c)
+				if !ok {
+					continue
+				}
+				msg := &types.MsgRetryScheduledOneshot{Caller: c, GrantId: g.Id}
+				if e.dryRun(msg) != nil {
+					continue
+				}
+				return e.deliver(acc, msg, math.ZeroInt())
+			}
 		}
 
-		// Caller can be granter OR grantee. Pick whichever is a sim
-		// account; if neither, NoOp.
-		var callerAcc simtypes.Account
-		var callerAddr string
-		if acc, ok := findSimAccount(accs, grant.Granter); ok {
-			callerAcc = acc
-			callerAddr = grant.Granter
-		} else if acc, ok := findSimAccount(accs, grant.Grantee); ok {
-			callerAcc = acc
-			callerAddr = grant.Grantee
-		} else {
-			return simtypes.NoOpMsg(types.ModuleName, msgType, "neither granter nor grantee is a sim account"), nil, nil
+		// Prerequisite: an underfunded oneshot transfer that pauses when it
+		// fires.
+		granter, grantee, ok := e.pair(math.NewInt(100_000))
+		if !ok {
+			return noOp(label, "no paused oneshot and no pair to schedule one")
 		}
-
-		msg := &types.MsgRetryScheduledOneshot{
-			Caller:  callerAddr,
-			GrantId: grant.Id,
+		msg, spent, why, err := e.buildGrant(kindOneshotTransfer, granter, grantee)
+		if err != nil {
+			return noOpErr(label, err)
 		}
-
-		opMsg := simulation.OperationInput{
-			R:               r,
-			App:             app,
-			TxGen:           txGen,
-			Cdc:             nil,
-			Msg:             msg,
-			CoinsSpentInMsg: sdk.NewCoins(),
-			Context:         ctx,
-			SimAccount:      callerAcc,
-			AccountKeeper:   ak,
-			Bankkeeper:      bk,
-			ModuleName:      types.ModuleName,
+		if why != "" {
+			return noOp(label, "no paused oneshot: "+why)
 		}
-
-		return simulation.GenAndDeliverTxWithRandFees(opMsg)
-	}
+		if t := msg.GetScheduledOneshot().GetTransfer(); t != nil {
+			t.Amount = sdk.NewCoin(e.denom(), e.spendable(granter).MulRaw(2).AddRaw(1))
+		}
+		created, ok, err := e.ensure(granter, msg, spent)
+		if err != nil || !ok {
+			if err == nil {
+				return noOp(label, "no paused oneshot and an underfunded one cannot be scheduled")
+			}
+			return created, nil, err
+		}
+		created.Comment = "scheduled an underfunded oneshot transfer to pause at fire time"
+		return created, nil, nil
+	})
 }

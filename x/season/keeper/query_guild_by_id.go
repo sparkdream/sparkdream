@@ -3,6 +3,7 @@ package keeper
 import (
 	"context"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/season/types"
 
 	"google.golang.org/grpc/codes"
@@ -24,6 +25,6 @@ func (q queryServer) GuildById(ctx context.Context, req *types.QueryGuildByIdReq
 		Description: guild.Description,
 		Founder:     guild.Founder,
 		InviteOnly:  guild.InviteOnly,
-		Status:      uint64(guild.Status),
+		Status:      commontypes.Saturate[uint64](guild.Status),
 	}, nil
 }

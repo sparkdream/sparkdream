@@ -60,6 +60,19 @@ func (k Keeper) CreateInvitation(ctx context.Context, inviter, invitee sdk.AccAd
 		return 0, types.ErrMemberNotFound
 	}
 
+	// Only an ACTIVE member vouches for anyone (REP-E-14): a zeroed member
+	// keeps its record, and credits returned by an old invitation must not
+	// let it invite again once it is funded.
+	if inviterMember.Status != types.MemberStatus_MEMBER_STATUS_ACTIVE {
+		return 0, types.ErrMemberNotActive
+	}
+
+	// Vouched tags become reputation keys on the new member, so they are
+	// bounded and must name registered tags (REP-E-16).
+	if err := k.validateVouchedTags(ctx, vouchedTags); err != nil {
+		return 0, err
+	}
+
 	// Check invitation credits
 	if inviterMember.InvitationCredits == 0 {
 		return 0, types.ErrNoInvitationCredits
@@ -82,6 +95,12 @@ func (k Keeper) CreateInvitation(ctx context.Context, inviter, invitee sdk.AccAd
 	// address or x/vault shared account can be invited.
 	if err := k.IsPersonalAddress(ctx, invitee.String()); err != nil {
 		return 0, errorsmod.Wrapf(types.ErrInvalidRequest, "invitee %v", err)
+	}
+	// An address a recovery or council migration is about to move an
+	// identity into cannot be invited: a pending invitation would make the
+	// target "not fresh" and void the migration (REP-R-02).
+	if k.IsReservedMigrationTarget(ctx, invitee.String()) {
+		return 0, errorsmod.Wrap(types.ErrMigrationTargetNotFresh, "invitee is the target of a pending migration")
 	}
 
 	// Check if there's already an invitation for this address (via secondary index)
@@ -119,9 +138,11 @@ func (k Keeper) CreateInvitation(ctx context.Context, inviter, invitee sdk.AccAd
 		return 0, err
 	}
 
-	// Calculate accountability end using the configured accountability period
+	// The accountability / referral window is counted in epochs, which follow
+	// block height (REP-E-16). The unix-time fields are display estimates at
+	// a nominal 6 s per block; no check reads them for new invitations.
 	accountabilityEndEpoch := currentEpoch + int64(params.InvitationAccountabilityEpochs)
-	accountabilityEndTime := currentTime + (accountabilityEndEpoch-currentEpoch)*params.EpochBlocks*6 // ~6 sec per block
+	accountabilityEndTime := currentTime + (accountabilityEndEpoch-currentEpoch)*params.EpochBlocks*types.NominalBlockSeconds
 
 	// Create invitation
 	invitationID, err := k.InvitationSeq.Next(ctx)
@@ -143,9 +164,15 @@ func (k Keeper) CreateInvitation(ctx context.Context, inviter, invitee sdk.AccAd
 		Status:            types.InvitationStatus_INVITATION_STATUS_PENDING,
 		CreatedAt:         currentTime,
 		AcceptedAt:        0,
+		CreatedEpoch:      currentEpoch,
+		// accountability_end_epoch is the last epoch inside the window.
+		AccountabilityEndEpoch: accountabilityEndEpoch,
 	}
 
 	if err := k.Invitation.Set(ctx, invitationID, invitation); err != nil {
+		return 0, err
+	}
+	if err := k.addPendingInvitation(ctx, invitation); err != nil {
 		return 0, err
 	}
 
@@ -204,6 +231,9 @@ func (k Keeper) AcceptInvitationWithRecovery(ctx context.Context, invitationID u
 	if err := k.IsPersonalAddress(ctx, invitee.String()); err != nil {
 		return errorsmod.Wrapf(types.ErrInvalidRequest, "invitee %v", err)
 	}
+	if k.IsReservedMigrationTarget(ctx, invitee.String()) {
+		return errorsmod.Wrap(types.ErrMigrationTargetNotFresh, "invitee is the target of a pending migration")
+	}
 
 	// Get invitation
 	invitation, err := k.Invitation.Get(ctx, invitationID)
@@ -227,8 +257,10 @@ func (k Keeper) AcceptInvitationWithRecovery(ctx context.Context, invitationID u
 		return types.ErrMemberAlreadyExists
 	}
 
-	// Get inviter member to build invitation chain
-	inviterMember, err := k.Member.Get(ctx, invitation.Inviter)
+	// Get inviter member to build invitation chain. The invitation keeps the
+	// address it was sent from; the inviter may have migrated since
+	// (REP-E-07), so the record is found through the alias.
+	inviterMember, err := k.Member.Get(ctx, k.Canonical(ctx, invitation.Inviter))
 	if err != nil {
 		return types.ErrMemberNotFound
 	}
@@ -263,7 +295,7 @@ func (k Keeper) AcceptInvitationWithRecovery(ctx context.Context, invitationID u
 		LifetimeReputation:  make(map[string]string),
 		TrustLevel:          types.TrustLevel_TRUST_LEVEL_NEW,
 		TrustLevelUpdatedAt: currentTime,
-		JoinedSeason:        uint32(currentSeason),
+		JoinedSeason:        commontypes.Saturate[uint32](currentSeason),
 		JoinedAt:            currentTime,
 		// Height-domain twin of JoinedAt: the decay grace window is
 		// denominated in epochs (height / epoch_blocks), so it must be
@@ -300,6 +332,9 @@ func (k Keeper) AcceptInvitationWithRecovery(ctx context.Context, invitationID u
 	}
 
 	// Update invitation status
+	if err := k.removePendingInvitation(ctx, invitation); err != nil {
+		return err
+	}
 	invitation.Status = types.InvitationStatus_INVITATION_STATUS_ACCEPTED
 	invitation.AcceptedAt = currentTime
 	if err := k.Invitation.Set(ctx, invitationID, invitation); err != nil {
@@ -321,13 +356,18 @@ func (k Keeper) AcceptInvitationWithRecovery(ctx context.Context, invitationID u
 	stakedAmount := *invitation.StakedDream
 	burnAmount := params.InvitationStakeBurnRate.MulInt(stakedAmount).TruncateInt()
 
-	// Unlock full amount from staked balance, then burn the fraction from free balance.
-	// UnlockDREAM handles decay-induced shortfalls by capping to actual staked balance.
-	if err := k.UnlockDREAM(ctx, inviterAddr, stakedAmount); err != nil {
-		return err
+	// Burn the anti-sybil fraction out of the invitation's own lock and
+	// release the rest, so the burn is never paid from another escrow.
+	if burnAmount.GT(stakedAmount) {
+		burnAmount = stakedAmount
 	}
 	if burnAmount.IsPositive() {
-		if err := k.BurnDREAM(ctx, inviterAddr, burnAmount); err != nil {
+		if err := k.BurnLockedDREAM(ctx, inviterAddr, burnAmount); err != nil {
+			return err
+		}
+	}
+	if rest := stakedAmount.Sub(burnAmount); rest.IsPositive() {
+		if err := k.UnlockDREAM(ctx, inviterAddr, rest); err != nil {
 			return err
 		}
 	}
@@ -361,9 +401,15 @@ func (k Keeper) AcceptInvitationWithRecovery(ctx context.Context, invitationID u
 
 // ProcessInviterAccountability slashes an inviter if their invitee fails during accountability period.
 // This is called when an invitee is zeroed or severely penalized.
+//
+// The penalty is the original invitation stake, capped at the inviter's
+// UNLOCKED balance (REP-E-03): it used to burn up to the whole balance, locks
+// included, which left the inviter's escrows (challenge stakes, bonds,
+// bounties) without DREAM behind them. What the inviter has locked stays with
+// the escrows it backs.
 func (k Keeper) ProcessInviterAccountability(ctx context.Context, invitee sdk.AccAddress, reason string) error {
 	// Get invitee member
-	_, err := k.Member.Get(ctx, invitee.String())
+	_, err := k.Member.Get(ctx, k.Canonical(ctx, invitee.String()))
 	if err != nil {
 		return types.ErrMemberNotFound
 	}
@@ -372,8 +418,16 @@ func (k Keeper) ProcessInviterAccountability(ctx context.Context, invitee sdk.Ac
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	currentTime := sdkCtx.BlockTime().Unix()
 
-	// Find the invitation via secondary index
-	invitationID, err := k.InvitationsByInvitee.Get(ctx, invitee.String())
+	// Find the invitation via secondary index. It is keyed by the address the
+	// invitee joined with, which a migrated member no longer signs with.
+	var invitationID uint64
+	err = types.ErrInvitationNotFound
+	for _, addr := range k.AllAddressesOf(ctx, invitee.String()) {
+		if id, gErr := k.InvitationsByInvitee.Get(ctx, addr); gErr == nil {
+			invitationID, err = id, nil
+			break
+		}
+	}
 	if err != nil {
 		return types.ErrInvitationNotFound
 	}
@@ -387,7 +441,7 @@ func (k Keeper) ProcessInviterAccountability(ctx context.Context, invitee sdk.Ac
 	invitation := &inv
 
 	// Check if still in accountability period
-	if currentTime > invitation.AccountabilityEnd {
+	if k.invitationWindowClosed(ctx, *invitation, invitation.AccountabilityEnd, currentTime) {
 		return nil // Accountability period has ended, no penalty
 	}
 
@@ -404,24 +458,22 @@ func (k Keeper) ProcessInviterAccountability(ctx context.Context, invitee sdk.Ac
 	}
 
 	// Calculate penalty (burn the staked amount that was returned)
-	penaltyAmount := *invitation.StakedDream
+	penaltyAmount := DerefInt(invitation.StakedDream)
 
 	// Apply decay before slashing
 	if err := k.ApplyPendingDecay(ctx, &inviterMember); err != nil {
 		return err
 	}
 
-	// Slash inviter (burn DREAM)
-	if inviterMember.DreamBalance.GTE(penaltyAmount) {
-		if err := k.BurnDREAM(ctx, inviterAddr, penaltyAmount); err != nil {
+	// Slash the inviter out of the unlocked balance only.
+	burned := penaltyAmount
+	unlocked := inviterMember.DreamBalance.Sub(DerefInt(inviterMember.StakedDream))
+	if burned.GT(unlocked) {
+		burned = math.MaxInt(unlocked, math.ZeroInt())
+	}
+	if burned.IsPositive() {
+		if err := k.BurnDREAM(ctx, inviterAddr, burned); err != nil {
 			return err
-		}
-	} else {
-		// Burn what's available
-		if inviterMember.DreamBalance.IsPositive() {
-			if err := k.BurnDREAM(ctx, inviterAddr, *inviterMember.DreamBalance); err != nil {
-				return err
-			}
 		}
 	}
 
@@ -432,6 +484,7 @@ func (k Keeper) ProcessInviterAccountability(ctx context.Context, invitee sdk.Ac
 			sdk.NewAttribute("inviter", inviterAddr.String()),
 			sdk.NewAttribute("failed_invitee", invitee.String()),
 			sdk.NewAttribute("penalty", penaltyAmount.String()),
+			sdk.NewAttribute("burned", burned.String()),
 			sdk.NewAttribute("reason", reason),
 		),
 	)
@@ -452,10 +505,21 @@ func (k Keeper) CalculateReferralReward(ctx context.Context, invitee sdk.AccAddr
 		return nil // Not an invited member
 	}
 
-	// Find the invitation via secondary index
+	// Find the invitation via secondary index. It is keyed by the address
+	// the invitee joined with; a migrated invitee earns under a new one
+	// (REP-E-07), so the bounded recent-alias set is searched too.
 	invitationID, err := k.InvitationsByInvitee.Get(ctx, invitee.String())
 	if err != nil {
-		return nil // No invitation found
+		found := false
+		for _, alias := range k.RecentAddressesOf(ctx, invitee.String()) {
+			if id, gErr := k.InvitationsByInvitee.Get(ctx, alias); gErr == nil {
+				invitationID, found = id, true
+				break
+			}
+		}
+		if !found {
+			return nil // No invitation found
+		}
 	}
 	inv, err := k.Invitation.Get(ctx, invitationID)
 	if err != nil {
@@ -469,7 +533,7 @@ func (k Keeper) CalculateReferralReward(ctx context.Context, invitee sdk.AccAddr
 	// Check if still in referral period
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	currentTime := sdkCtx.BlockTime().Unix()
-	if currentTime > invitation.ReferralEnd {
+	if k.invitationWindowClosed(ctx, *invitation, invitation.ReferralEnd, currentTime) {
 		return nil // Referral period has ended
 	}
 
@@ -518,4 +582,42 @@ func (k Keeper) CalculateReferralReward(ctx context.Context, invitee sdk.AccAddr
 	)
 
 	return nil
+}
+
+// validateVouchedTags bounds an invitation's vouched tags: at most
+// types.MaxVouchedTags, no duplicates, each a registered tag.
+func (k Keeper) validateVouchedTags(ctx context.Context, tags []string) error {
+	if len(tags) > types.MaxVouchedTags {
+		return errorsmod.Wrapf(types.ErrTooManyVouchedTags, "%d vouched tags, at most %d", len(tags), types.MaxVouchedTags)
+	}
+	seen := make(map[string]struct{}, len(tags))
+	for _, tag := range tags {
+		if _, dup := seen[tag]; dup {
+			return errorsmod.Wrapf(types.ErrInvalidTag, "vouched tag %q listed twice", tag)
+		}
+		seen[tag] = struct{}{}
+		ok, err := k.TagExists(ctx, tag)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return errorsmod.Wrapf(types.ErrTagNotFound, "vouched tag %q is not registered", tag)
+		}
+	}
+	return nil
+}
+
+// invitationWindowClosed reports whether the invitation's accountability /
+// referral window is over. It is counted in epochs (block height) through
+// accountability_end_epoch; a record without one (written before the field
+// existed) falls back to its unix-time end.
+func (k Keeper) invitationWindowClosed(ctx context.Context, inv types.Invitation, timeEnd, now int64) bool {
+	if inv.AccountabilityEndEpoch > 0 {
+		epoch, err := k.GetCurrentEpoch(ctx)
+		if err != nil {
+			return true
+		}
+		return epoch > inv.AccountabilityEndEpoch
+	}
+	return now > timeEnd
 }

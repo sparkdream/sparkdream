@@ -1,6 +1,7 @@
 package circuit
 
 import (
+	"github.com/stretchr/testify/require"
 	"math"
 	"math/big"
 	"testing"
@@ -97,14 +98,15 @@ func (c *smallShieldCircuit) Define(api frontend.API) error {
 }
 
 // buildSmallTrustTree builds a depth-4 MiMC Merkle tree with trust-level-encoded leaves.
-func buildSmallTrustTree(pubKeys [][]byte, trustLevels []uint64) *zkcrypto.MerkleTree {
+func buildSmallTrustTree(t *testing.T, pubKeys [][]byte, trustLevels []uint64) *zkcrypto.MerkleTree {
+	t.Helper()
 	tree := zkcrypto.NewMerkleTree(4)
 	for i, pk := range pubKeys {
 		leaf := zkcrypto.ComputeLeaf(pk, trustLevels[i])
-		tree.AddLeaf(leaf) //nolint:errcheck
+		require.NoError(t, tree.AddLeaf(leaf))
 	}
 	if len(pubKeys) > 0 {
-		tree.Build() //nolint:errcheck
+		require.NoError(t, tree.Build())
 	}
 	return tree
 }
@@ -161,7 +163,7 @@ func TestShieldCircuit_ValidProof(t *testing.T) {
 
 	pubKeys := [][]byte{publicKey, otherPK1, otherPK2}
 	trustLevels := []uint64{trustLevel, 1, 3}
-	tree := buildSmallTrustTree(pubKeys, trustLevels)
+	tree := buildSmallTrustTree(t, pubKeys, trustLevels)
 
 	leaf := zkcrypto.ComputeLeaf(publicKey, trustLevel)
 	leafIndex := tree.FindLeafIndex(leaf)
@@ -182,7 +184,7 @@ func TestShieldCircuit_InsufficientTrustLevel(t *testing.T) {
 	scope := uint64(42)
 	rlEpoch := uint64(42)
 
-	tree := buildSmallTrustTree([][]byte{publicKey}, []uint64{trustLevel})
+	tree := buildSmallTrustTree(t, [][]byte{publicKey}, []uint64{trustLevel})
 	leaf := zkcrypto.ComputeLeaf(publicKey, trustLevel)
 
 	assignment := makeAssignment(secretKey, trustLevel, 1, scope, rlEpoch, tree, tree.FindLeafIndex(leaf))
@@ -199,7 +201,7 @@ func TestShieldCircuit_WrongScope(t *testing.T) {
 	wrongScope := uint64(99)
 	rlEpoch := uint64(42)
 
-	tree := buildSmallTrustTree([][]byte{publicKey}, []uint64{trustLevel})
+	tree := buildSmallTrustTree(t, [][]byte{publicKey}, []uint64{trustLevel})
 	leaf := zkcrypto.ComputeLeaf(publicKey, trustLevel)
 	leafIndex := tree.FindLeafIndex(leaf)
 
@@ -236,7 +238,7 @@ func TestShieldCircuit_WrongMerkleRoot(t *testing.T) {
 	scope := uint64(42)
 	rlEpoch := uint64(42)
 
-	tree := buildSmallTrustTree([][]byte{publicKey}, []uint64{trustLevel})
+	tree := buildSmallTrustTree(t, [][]byte{publicKey}, []uint64{trustLevel})
 	leaf := zkcrypto.ComputeLeaf(publicKey, trustLevel)
 	leafIndex := tree.FindLeafIndex(leaf)
 
@@ -274,7 +276,7 @@ func TestShieldCircuit_ForgedRateLimitNullifier(t *testing.T) {
 	scope := uint64(42)
 	rlEpoch := uint64(42)
 
-	tree := buildSmallTrustTree([][]byte{publicKey}, []uint64{trustLevel})
+	tree := buildSmallTrustTree(t, [][]byte{publicKey}, []uint64{trustLevel})
 	leaf := zkcrypto.ComputeLeaf(publicKey, trustLevel)
 	leafIndex := tree.FindLeafIndex(leaf)
 
@@ -313,7 +315,7 @@ func TestShieldCircuit_WrongRateLimitEpoch(t *testing.T) {
 	clientEpoch := uint64(42)
 	verifierEpoch := uint64(43) // Different epoch
 
-	tree := buildSmallTrustTree([][]byte{publicKey}, []uint64{trustLevel})
+	tree := buildSmallTrustTree(t, [][]byte{publicKey}, []uint64{trustLevel})
 	leaf := zkcrypto.ComputeLeaf(publicKey, trustLevel)
 	leafIndex := tree.FindLeafIndex(leaf)
 
@@ -350,7 +352,7 @@ func TestShieldCircuit_DifferentScopesDifferentNullifiers(t *testing.T) {
 	trustLevel := uint64(2)
 	rlEpoch := uint64(42)
 
-	tree := buildSmallTrustTree([][]byte{publicKey}, []uint64{trustLevel})
+	tree := buildSmallTrustTree(t, [][]byte{publicKey}, []uint64{trustLevel})
 	leaf := zkcrypto.ComputeLeaf(publicKey, trustLevel)
 	leafIndex := tree.FindLeafIndex(leaf)
 

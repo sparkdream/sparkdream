@@ -18,6 +18,9 @@ if [ ! -f "$SCRIPT_DIR/.test_env" ]; then
 fi
 
 source "$SCRIPT_DIR/.test_env"
+# Season calendar and transition control need a committee/council policy
+# address (x/season SEA-10): route them through an Ops Committee proposal.
+source "$SCRIPT_DIR/../lib/ops_committee.sh"
 
 echo "Test Accounts:"
 echo "  Alice: $ALICE_ADDR"
@@ -303,42 +306,22 @@ echo ""
 # ========================================================================
 echo "--- Part 5: Set Next Season Info ---"
 
-TX_RES=$($BINARY tx season set-next-season-info \
-    "Season of Discovery" \
-    "Exploration and Adventure" \
-    --from alice \
-    --chain-id $CHAIN_ID \
-    --keyring-backend test \
-    --fees 5000${BOND_DENOM} \
-    -y \
-    --output json 2>&1)
+if ops_committee_exec '{"@type":"/sparkdream.season.v1.MsgSetNextSeasonInfo","name":"Season of Discovery","theme":"Exploration and Adventure"}'; then
+    # Verify it was set
+    NEXT_INFO=$($BINARY query season get-next-season-info --output json 2>&1)
+    NEXT_NAME=$(echo "$NEXT_INFO" | jq -r '.next_season_info.name // ""')
+    NEXT_THEME=$(echo "$NEXT_INFO" | jq -r '.next_season_info.theme // ""')
 
-TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
+    echo "  Next season name: $NEXT_NAME"
+    echo "  Next season theme: $NEXT_THEME"
 
-if [ -z "$TXHASH" ] || [ "$TXHASH" == "null" ]; then
-    echo "  Failed to submit set-next-season-info tx"
-    fail_test "Set next season info" "no txhash"
-else
-    echo "  Tx: $TXHASH"
-    TX_RESULT=$(wait_for_tx $TXHASH)
-
-    if check_tx_success "$TX_RESULT"; then
-        # Verify it was set
-        NEXT_INFO=$($BINARY query season get-next-season-info --output json 2>&1)
-        NEXT_NAME=$(echo "$NEXT_INFO" | jq -r '.next_season_info.name // ""')
-        NEXT_THEME=$(echo "$NEXT_INFO" | jq -r '.next_season_info.theme // ""')
-
-        echo "  Next season name: $NEXT_NAME"
-        echo "  Next season theme: $NEXT_THEME"
-
-        if [ "$NEXT_NAME" == "Season of Discovery" ]; then
-            pass_test "Set next season info"
-        else
-            fail_test "Set next season info" "name mismatch: $NEXT_NAME"
-        fi
+    if [ "$NEXT_NAME" == "Season of Discovery" ]; then
+        pass_test "Set next season info"
     else
-        fail_test "Set next season info" "tx failed"
+        fail_test "Set next season info" "name mismatch: $NEXT_NAME"
     fi
+else
+    fail_test "Set next season info" "committee proposal failed: $OPS_COMMITTEE_ERROR"
 fi
 
 echo ""
@@ -348,36 +331,15 @@ echo ""
 # ========================================================================
 echo "--- Part 6: Extend Season (by 1 epoch) ---"
 
-TX_RES=$($BINARY tx season extend-season \
-    "1" \
-    "Testing season extension" \
-    --from alice \
-    --chain-id $CHAIN_ID \
-    --keyring-backend test \
-    --fees 5000${BOND_DENOM} \
-    -y \
-    --output json 2>&1)
-
-TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
-
-if [ -z "$TXHASH" ] || [ "$TXHASH" == "null" ]; then
-    echo "  Failed to submit extend-season tx"
-    fail_test "Extend season" "no txhash"
+if ops_committee_exec '{"@type":"/sparkdream.season.v1.MsgExtendSeason","extension_epochs":"1","reason":"Testing season extension"}'; then
+    # Re-query to get updated end_block
+    SEASON_INFO=$($BINARY query season current-season --output json 2>&1)
+    NEW_END_BLOCK=$(echo "$SEASON_INFO" | jq -r '.end_block // "0"')
+    echo "  Season extended. New end block: $NEW_END_BLOCK (was $SEASON_END_BLOCK)"
+    SEASON_END_BLOCK=$NEW_END_BLOCK
+    pass_test "Extend season"
 else
-    echo "  Tx: $TXHASH"
-    TX_RESULT=$(wait_for_tx $TXHASH)
-
-    if check_tx_success "$TX_RESULT"; then
-        # Re-query to get updated end_block
-        SEASON_INFO=$($BINARY query season current-season --output json 2>&1)
-        NEW_END_BLOCK=$(echo "$SEASON_INFO" | jq -r '.end_block // "0"')
-        echo "  Season extended. New end block: $NEW_END_BLOCK (was $SEASON_END_BLOCK)"
-        SEASON_END_BLOCK=$NEW_END_BLOCK
-        pass_test "Extend season"
-    else
-        echo "  Extension failed (may need specific authority)"
-        fail_test "Extend season" "tx failed"
-    fi
+    fail_test "Extend season" "committee proposal failed: $OPS_COMMITTEE_ERROR"
 fi
 
 echo ""
@@ -446,9 +408,12 @@ fi
 echo ""
 
 # ========================================================================
-# PART 8: ABORT TRANSITION DURING SNAPSHOT PHASE
+# PART 8: ABORT TRANSITION BY A SINGLE COMMITTEE MEMBER (refused)
 # ========================================================================
-echo "--- Part 8: Abort Transition (SNAPSHOT phase) ---"
+# Abort is accepted only from a committee/council policy address, and only in
+# RETRO_REWARDS before the payout (x/season SEA-01/SEA-10). alice signing it
+# directly must be refused, whatever phase the transition is in.
+echo "--- Part 8: Abort Transition by a single committee member (expect refusal) ---"
 
 ABORT_SUCCEEDED=false
 
@@ -473,39 +438,16 @@ if [ "$TRANSITION_STARTED" == "true" ]; then
         # Use short initial sleep (1s) - timing is critical during SNAPSHOT phase
         TX_RESULT=$(wait_for_tx $TXHASH 1)
 
-        if check_tx_success "$TX_RESULT"; then
-            echo "  Abort succeeded!"
-
-            # Verify season is back to ACTIVE
-            sleep 1
-            SEASON_INFO=$($BINARY query season current-season --output json 2>&1)
-            POST_ABORT_STATUS=$(echo "$SEASON_INFO" | jq -r '.status // "0"')
-            POST_ABORT_END=$(echo "$SEASON_INFO" | jq -r '.end_block // "0"')
-
-            echo "  Season status after abort: $(status_text $POST_ABORT_STATUS)"
-            echo "  New end block: $POST_ABORT_END (was $SEASON_END_BLOCK)"
-
-            # After abort, status is set to ACTIVE with a short grace period.
-            # However, BeginBlocker may re-transition to NOMINATION if the new
-            # end block is within the nomination window. Both are valid outcomes.
-            if [ "$POST_ABORT_STATUS" == "1" ] || [ "$POST_ABORT_STATUS" == "5" ]; then
-                SEASON_END_BLOCK=$POST_ABORT_END
-                ABORT_SUCCEEDED=true
-                pass_test "Abort transition"
-            else
-                fail_test "Abort transition" "status not ACTIVE/NOMINATION after abort: $POST_ABORT_STATUS"
-            fi
+        ERROR_MSG=$(get_tx_error "$TX_RESULT")
+        if ! check_tx_success "$TX_RESULT" && echo "$ERROR_MSG" | grep -qi "not authorized"; then
+            echo "  Single-member abort refused (SEA-10): $ERROR_MSG"
+            pass_test "Abort transition (single member refused)"
+        elif check_tx_success "$TX_RESULT"; then
+            echo "  Abort succeeded for a single committee member!"
+            fail_test "Abort transition" "a single committee member must not be able to abort"
         else
-            ERROR_MSG=$(get_tx_error "$TX_RESULT")
-            if echo "$ERROR_MSG" | grep -q "too far to abort"; then
-                echo "  Transition moved past SNAPSHOT phase (batch processed too fast)"
-                echo "  This is expected - with batch_size=1 and few profiles, SNAPSHOT completes in ~3 blocks"
-                echo "  The safety check correctly prevents abort after critical phases"
-                pass_test "Abort transition (safety check verified)"
-            else
-                echo "  Abort failed: $ERROR_MSG"
-                fail_test "Abort transition" "$ERROR_MSG"
-            fi
+            echo "  Abort failed for another reason: $ERROR_MSG"
+            fail_test "Abort transition" "$ERROR_MSG"
         fi
     fi
 else
@@ -829,38 +771,18 @@ echo "--- Part 18: Extend Season 2 ---"
 SEASON_INFO=$($BINARY query season current-season --output json 2>&1)
 S2_END_BEFORE=$(echo "$SEASON_INFO" | jq -r '.end_block // "0"')
 
-TX_RES=$($BINARY tx season extend-season \
-    "1" \
-    "Testing season 2 extension" \
-    --from alice \
-    --chain-id $CHAIN_ID \
-    --keyring-backend test \
-    --fees 5000${BOND_DENOM} \
-    -y \
-    --output json 2>&1)
+if ops_committee_exec '{"@type":"/sparkdream.season.v1.MsgExtendSeason","extension_epochs":"1","reason":"Testing season 2 extension"}'; then
+    SEASON_INFO=$($BINARY query season current-season --output json 2>&1)
+    S2_END_AFTER=$(echo "$SEASON_INFO" | jq -r '.end_block // "0"')
+    echo "  Season 2 end block: $S2_END_BEFORE -> $S2_END_AFTER"
 
-TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
-
-if [ -z "$TXHASH" ] || [ "$TXHASH" == "null" ]; then
-    echo "  Failed to submit extend-season tx"
-    fail_test "Extend Season 2" "no txhash"
-else
-    echo "  Tx: $TXHASH"
-    TX_RESULT=$(wait_for_tx $TXHASH)
-
-    if check_tx_success "$TX_RESULT"; then
-        SEASON_INFO=$($BINARY query season current-season --output json 2>&1)
-        S2_END_AFTER=$(echo "$SEASON_INFO" | jq -r '.end_block // "0"')
-        echo "  Season 2 end block: $S2_END_BEFORE -> $S2_END_AFTER"
-
-        if [ "$S2_END_AFTER" -gt "$S2_END_BEFORE" ] 2>/dev/null; then
-            pass_test "Extend Season 2"
-        else
-            fail_test "Extend Season 2" "end_block did not increase"
-        fi
+    if [ "$S2_END_AFTER" -gt "$S2_END_BEFORE" ] 2>/dev/null; then
+        pass_test "Extend Season 2"
     else
-        fail_test "Extend Season 2" "tx failed"
+        fail_test "Extend Season 2" "end_block did not increase"
     fi
+else
+    fail_test "Extend Season 2" "committee proposal failed: $OPS_COMMITTEE_ERROR"
 fi
 
 echo ""

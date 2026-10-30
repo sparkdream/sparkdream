@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/rep/types"
 
 	"cosmossdk.io/collections"
@@ -143,7 +144,7 @@ func (k Keeper) DistributeVerifierRewards(ctx context.Context) error {
 		}
 
 		// Gate 2: epoch work floor. The only place volume is consulted.
-		if uint32(ra.EpochActions[types.ActionKindFederationVerify]) < params.MinEpochVerifications {
+		if commontypes.Saturate[uint32](ra.EpochActions[types.ActionKindFederationVerify]) < params.MinEpochVerifications {
 			return false, nil
 		}
 
@@ -156,7 +157,7 @@ func (k Keeper) DistributeVerifierRewards(ctx context.Context) error {
 		up, ov := k.GetRoleWindowedAccuracy(ctx, types.RoleType_ROLE_TYPE_FEDERATION_VERIFIER,
 			addr, epochNum, params.VerifierAccuracyWindowEpochs)
 		if decided := up + ov; decided > 0 {
-			accuracyRate = math.LegacyNewDec(int64(up)).Quo(math.LegacyNewDec(int64(decided)))
+			accuracyRate = math.LegacyNewDec(commontypes.Saturate[int64](up)).Quo(math.LegacyNewDec(commontypes.Saturate[int64](decided)))
 			if !params.MinVerifierAccuracy.IsNil() && accuracyRate.LT(params.MinVerifierAccuracy) {
 				return false, nil
 			}
@@ -176,14 +177,14 @@ func (k Keeper) DistributeVerifierRewards(ctx context.Context) error {
 		// plain int64 with no "never slashed" encoding, so a slash in epoch 0
 		// is indistinguishable from an unslashed verifier. That only matters
 		// for the first two distributions on a fresh chain.
-		if ra.LastSlashEpoch != 0 && uint64(ra.LastSlashEpoch)+1 >= epochNum {
+		if ra.LastSlashEpoch != 0 && commontypes.Saturate[uint64](ra.LastSlashEpoch)+1 >= epochNum {
 			return false, nil
 		}
 
 		// score = 1 (flat) + accuracy * sqrt(contested verdicts resolved).
 		score := math.LegacyOneDec()
 		if ra.EpochAppealsResolved > 0 {
-			sqrtResolved, sErr := math.LegacyNewDec(int64(ra.EpochAppealsResolved)).ApproxSqrt()
+			sqrtResolved, sErr := math.LegacyNewDec(commontypes.Saturate[int64](ra.EpochAppealsResolved)).ApproxSqrt()
 			if sErr != nil {
 				sdkCtx.Logger().Warn("verifier reward: sqrt failed", "verifier", addr, "error", sErr)
 			} else {
@@ -366,7 +367,7 @@ func (k Keeper) payoutVerifierDreamReward(
 	}
 
 	if err := k.RecordRewardPayout(ctx, types.RoleType_ROLE_TYPE_FEDERATION_VERIFIER,
-		c.addr, int64(epochNum), reward); err != nil {
+		c.addr, commontypes.Saturate[int64](epochNum), reward); err != nil {
 		sdkCtx.Logger().Warn("record verifier reward payout failed",
 			"verifier", c.addr, "error", err)
 	}

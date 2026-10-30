@@ -3,6 +3,8 @@ package types
 import (
 	"fmt"
 
+	"cosmossdk.io/math"
+
 	commontypes "sparkdream/x/common/types"
 )
 
@@ -314,6 +316,21 @@ func (gs GenesisState) Validate() error {
 		}
 		memberWarningIdMap[elem.Id] = true
 	}
+	restorationMembers := make(map[string]struct{}, len(gs.MemberActionRestorationList))
+	for _, elem := range gs.MemberActionRestorationList {
+		if _, dup := restorationMembers[elem.Member]; dup {
+			return fmt.Errorf("duplicated member for memberActionRestoration")
+		}
+		restorationMembers[elem.Member] = struct{}{}
+		if !MemberActionAppealTypes[elem.Action] {
+			return fmt.Errorf("memberActionRestoration for %s: %s is not a member action", elem.Member, elem.Action)
+		}
+		if elem.BurnedDream != "" {
+			if v, ok := math.NewIntFromString(elem.BurnedDream); !ok || v.IsNegative() {
+				return fmt.Errorf("memberActionRestoration for %s: invalid burned_dream", elem.Member)
+			}
+		}
+	}
 	govActionAppealIdMap := make(map[uint64]bool)
 	govActionAppealCount := gs.GetGovActionAppealCount()
 	for _, elem := range gs.GovActionAppealList {
@@ -429,6 +446,7 @@ func (gs GenesisState) validateMigrationState() error {
 	}
 	ids := make(map[uint64]struct{}, len(gs.MemberMigrationList))
 	pendingFrom := make(map[string]struct{})
+	acceptedTo := make(map[string]struct{})
 	for _, m := range gs.MemberMigrationList {
 		if _, dup := ids[m.Id]; dup {
 			return fmt.Errorf("duplicated id for member migration %d", m.Id)
@@ -448,6 +466,14 @@ func (gs GenesisState) validateMigrationState() error {
 				return fmt.Errorf("member %s has more than one pending migration", m.FromAddress)
 			}
 			pendingFrom[m.FromAddress] = struct{}{}
+			// Only an accepted migration reserves its target; requests may
+			// share one.
+			if m.Status != MigrationStatus_MIGRATION_STATUS_REQUESTED {
+				if _, dup := acceptedTo[m.ToAddress]; dup {
+					return fmt.Errorf("address %s is the target of more than one accepted migration", m.ToAddress)
+				}
+				acceptedTo[m.ToAddress] = struct{}{}
+			}
 		}
 	}
 	seenMembers := make(map[string]struct{}, len(gs.RecoveryCommitmentList))

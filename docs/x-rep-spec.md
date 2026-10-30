@@ -351,6 +351,8 @@ message Invitation {
   InvitationStatus status = 10;
   int64 created_at = 11;
   int64 accepted_at = 12;
+  int64 created_epoch = 13;             // acceptance window counted from here
+  int64 accountability_end_epoch = 14;  // last epoch of the accountability / referral window
 }
 
 enum InvitationStatus {
@@ -360,6 +362,33 @@ enum InvitationStatus {
   INVITATION_STATUS_REVOKED = 3;
 }
 ```
+
+**Invitation rules.**
+
+- Only an ACTIVE member invites (`ErrMemberNotActive`): a zeroed member keeps
+  its record, and credits returned by an old invitation must not let it vouch
+  again.
+- `vouched_tags` holds at most `MaxVouchedTags` (10) distinct registered tags
+  (`ErrTooManyVouchedTags`, 2410); each becomes a reputation key on the new
+  member.
+- Acceptance burns `invitation_stake_burn_rate` of the stake out of the
+  invitation's own lock (`BurnLockedDREAM`) and unlocks the rest. The inviter
+  is found through the alias contract, so an inviter that migrated still has
+  its invitation accepted, revoked or expired normally.
+- A credit returned by expiry or revocation goes back only to an ACTIVE
+  inviter and never above the trust level's maximum.
+- The inviter-accountability penalty (an invitee zeroed inside the
+  accountability window) is the original stake, capped at the inviter's
+  **unlocked** balance. It used to burn up to the whole balance, locks
+  included, which left the inviter's own escrows without DREAM behind them.
+  The `inviter_accountability` event carries `penalty` and `burned`.
+- `PendingInvitations` indexes PENDING invitations by `(created_at, id)` for the
+  expiry sweep; it and the invitee index (rebuilt for PENDING and ACCEPTED
+  invitations only) are derived at InitGenesis.
+- A RECOVERY or COUNCIL migration that opens with a PENDING invitation to its
+  target voids the invitation (`REVOKED`, stake unlocked, credit restored,
+  slot freed, event `invitation_voided_by_migration`); see "Member key
+  migration".
 
 ### Project
 
@@ -707,8 +736,8 @@ Committee members receive fixed-rate DREAM compensation for the following interi
 
 | Interim Type | Description | Typical Complexity |
 |--------------|-------------|-------------------|
-| `JURY_DUTY` | Serving on challenge juries | STANDARD (150 DREAM) |
-| `EXPERT_TESTIMONY` | Providing expert witness input | COMPLEX (400 DREAM) |
+| `JURY_DUTY` | Not created any more: jurors are paid per vote by `RewardJurors` at the tally (see Juror Pay) | n/a |
+| `EXPERT_TESTIMONY` | Testifying as an expert witness a juror called (`MsgInviteExpertWitness`); paid when the testimony is submitted | COMPLEX (400 DREAM) |
 | `PROJECT_APPROVAL` | Reviewing project proposals | STANDARD (150 DREAM) |
 | `BUDGET_REVIEW` | Evaluating large budget requests | COMPLEX (400 DREAM) |
 | `CONTRIBUTION_REVIEW` | Reviewing founder contributions | STANDARD (150 DREAM) |
@@ -718,8 +747,31 @@ Committee members receive fixed-rate DREAM compensation for the following interi
 - Standard: 150 DREAM
 - Complex: 400 DREAM
 - Expert: 1,000 DREAM
-- Epic: 2,500 DREAM (critical disputes)
+- Epic: 2,500 DREAM (critical disputes). There is no `epic_complexity_budget`
+  param: EPIC is derived as 2.5 x `expert_complexity_budget`, so it follows
+  every change to the expert budget. (It used to return a hardcoded 2,500
+  micro-DREAM, 0.0025 DREAM, while granting 100 reputation.)
 - Solo Expert Bonus: +50% (when single assignee handles expert-level work)
+
+**Who pays an interim.** Every interim except ADJUDICATION is paid only through
+`MsgApproveInterim`, signed by the Commons Operations Committee policy address
+(an executed committee proposal), the Commons Council policy or x/gov, never by
+a single committee member (`ErrNotGovAuthority`); an approver that is one of the
+assignees is refused (`ErrSelfApproval`, 2404). `MsgCompleteInterim` settles ADJUDICATION
+interims only and refuses every other type (`ErrInterimNeedsApproval`, 2403). A
+member may still propose paid work for themselves with `MsgCreateInterim` and
+submit it with `MsgSubmitInterimWork`; the committee decides whether it is paid.
+The ADJUDICATION and JURY_DUTY types are module-only: `MsgCreateInterim` refuses
+them (`ErrInterimTypeSystemOnly`, 2401), refuses a deadline that is not after
+the current height (`ErrInterimDeadlineInvalid`, 2402), and requires an ACTIVE
+member. An ADJUDICATION interim resolves a challenge (on completion or on
+expiry) only when the module raised it: its only assignee is the module
+authority. Before this, a member could create an ADJUDICATION interim naming a
+challenged initiative with a past deadline and force-reject the challenge on the
+next EndBlock, or create an EXPERT interim and collect 1,500 DREAM (and EPIC
+reputation up the trust ladder) by completing it in the next transaction.
+`MsgAbandonInterim` accepts only PENDING or IN_PROGRESS non-ADJUDICATION
+interims and emits `interim_abandoned`.
 
 #### Uncompensated Work (Civic Duty)
 
@@ -785,7 +837,7 @@ enum StakeTargetType {
   STAKE_TARGET_TAG = 3;                  // Revenue share from tagged initiatives
 
   // Content conviction staking (no DREAM rewards, conviction signal only)
-  STAKE_TARGET_BLOG_CONTENT = 4;         // Community conviction on x/blog posts/replies
+  STAKE_TARGET_BLOG_CONTENT = 4;         // Community conviction on x/blog posts
   STAKE_TARGET_FORUM_CONTENT = 5;        // Community conviction on x/forum posts
   STAKE_TARGET_COLLECTION_CONTENT = 6;   // Community conviction on x/collect collections
 
@@ -793,6 +845,9 @@ enum StakeTargetType {
   STAKE_TARGET_BLOG_AUTHOR_BOND = 7;     // Author bond on x/blog content
   STAKE_TARGET_FORUM_AUTHOR_BOND = 8;    // Author bond on x/forum content
   STAKE_TARGET_COLLECTION_AUTHOR_BOND = 9; // Author bond on x/collect content
+  STAKE_TARGET_BLOG_REPLY_AUTHOR_BOND = 10;  // Author bond on x/blog replies (own id sequence)
+  STAKE_TARGET_BLOG_REPLY_CONTENT = 11;      // Community conviction on x/blog replies (own id sequence;
+                                             // the self-stake check resolves BlogKeeper.GetReplyAuthor)
 }
 ```
 
@@ -892,7 +947,7 @@ The pool is seeded in `InitGenesis` and refilled by x/season at the end of each 
 - `reward_debt` is set to `amount × acc_per_share` at join and rebased to `new_amount × acc_per_share` on every settlement. This is what makes a new staker's pending balance start at zero rather than at the pool's whole accumulated history, and it is why a stake placed just before a distribution earns nothing from it. A partial withdrawal rebases against the *remaining* amount, so a shrunken stake does not sit under a debt sized for its original principal.
 - `total_staked` moves in lockstep with `stake.Amount` in both directions, via `updateStakePoolTotals`. A project stake moves two denominators (its own `ProjectStakeInfo` and the seasonal pool). `ReconcileStakePoolTotals` recomputes every denominator from live stakes and runs at genesis import.
 
-**Accumulator is rebased on genesis import.** `acc_per_share` is derived state that genesis does not carry, while `reward_debt` is exported with each stake — so an import resumes with the accumulator back at zero and every stake still holding a debt taken against the old one. `RebaseStakeRewardDebt` runs from `InitGenesis` (after `ReconcileStakePoolTotals`) and re-measures every initiative and project stake against the accumulator it will actually earn from. Without it a stake with positive debt silently earns nothing until the accumulator climbs back past its stale figure, and a stake whose debt is zero because it predates any distribution keeps claiming from zero against whatever the accumulator later becomes.
+**Accumulator travels with genesis; the rebase is a legacy fallback.** `acc_per_share` is exported in `EconomicState.seasonal_pool_acc_per_share` alongside each stake's `reward_debt`, so an import restores both and pending seasonal rewards survive the round trip exactly. Only a genesis that does not carry the accumulator (older exports) resumes with it back at zero while every stake still holds a debt taken against the old one; for that case alone `RebaseStakeRewardDebt` runs from `InitGenesis` (after `ReconcileStakePoolTotals`) and re-measures every initiative and project stake against the accumulator it will actually earn from. Without it a stake with positive debt silently earns nothing until the accumulator climbs back past its stale figure, and a stake whose debt is zero because it predates any distribution keeps claiming from zero against whatever the accumulator later becomes.
 
 **Accumulator is monotonic across seasons.** `InitSeasonalPool` re-sizes `SeasonalPoolRemaining` but does *not* reset `acc_per_share`. Since each stake's `reward_debt` is a snapshot of the accumulator, zeroing it at a season boundary would leave every surviving stake holding a debt larger than the accumulator it is measured against, silently paying nothing until the new season climbed back past the old value. Per-season budgeting is enforced by `SeasonalPoolRemaining` alone.
 
@@ -928,7 +983,14 @@ Consequences worth knowing:
 - Initiatives that leave the active status set are dropped from the queue by the drainer itself, so completion, cancellation, abandonment and expiry are all covered without a hook in each transition.
 - The queue and the `InitiativesByContent` reverse index are derived state and are not exported in genesis. `InitGenesis` rebuilds the reverse index from `ContentInitiativeLinks` and calls `RearmConvictionQueue`, which is also available as a recovery hatch if the queue is ever suspected of having drifted.
 
-**Every derived index must be rebuilt on import.** Derived indexes are not exported, so `InitGenesis` rebuilds all of them from the primary collections: `Project`, `Initiative` and `Challenge` by status, `JuryReview` by verdict and by juror, `Stake` by target, `Interim` by status, `ContentChallenge` by status and by target, and `Invitation` by invitee. Covered by `TestGenesisRebuildsDerivedIndexes` and `TestGenesisRebuildsStakeAndInvitationIndexes`.
+**Every derived index must be rebuilt on import.** Derived indexes are not exported, so `InitGenesis` rebuilds all of them from the primary collections: `Project`, `Initiative` and `Challenge` by status, `JuryReview` by verdict and by juror, `Stake` by target, `Interim` by status, `ContentChallenge` by status and by target, and `Invitation` by invitee. Covered by `TestGenesisRebuildsDerivedIndexes` and `TestGenesisRebuildsStakeAndInvitationIndexes`. The verdict index is the one exception to "rebuilt from the records alone": content-challenge reviews and `CreateAppealInitiative` reviews (gov-action appeals, migration objections, forum appeals) are deliberately kept out of it, so the export lists them in `jury_reviews_outside_verdict_index` and `InitGenesis` indexes every other review (a hand-written genesis without the list indexes them all).
+
+**Genesis round trip is exact.** An export followed by an import reproduces the store except for state documented as not carried: the trust tree (marked dirty and rebuilt in the next EndBlock), the conviction queue (`RearmConvictionQueue` re-arms every accruing initiative as due), the rolling `SubmittedCheckCursor`, the decay-pass cursors, and stale entries in the lazily drained `due/` deadline queues (import enqueues only live initiatives and challenges; an entry left behind by an early resolution would be dropped by the sweep anyway). In particular:
+- `ExportGenesis` starts from `DefaultGenesis`, so it resets `reserved_tag_map` before walking the live set: a removed default reserved tag stays removed, a kept one is not listed twice.
+- The per-(budget, post) award cooldown travels as `tag_budget_award_cooldown_list` with its heights; only an award without an entry restarts its cooldown at the import height.
+- The per-awarder epoch spend ledger (`TagBudgetAwarderEpoch`) travels as `tag_budget_awarder_epoch_list`, so an import inside an epoch keeps each awarder's epoch cap.
+- `EconomicState`'s epoch fields are imported even when zero if their partner is set (`seasonal_pool_season` / `seasonal_pool_start_epoch` with `seasonal_pool_remaining`, `epoch_minted_epoch` with `epoch_minted_amount`), so a pool opened, or a mint made, in epoch 0 round-trips.
+Covered by `TestGenesis_RoundTripMatchesLiveState` and the app-level `TestAppImportExport`.
 
 > The last four were missing while the first four carried comments explaining why they mattered. Their absence was not cosmetic:
 >
@@ -1043,6 +1105,34 @@ Both added projections are upper bounds and are skipped when the payout cannot h
 
 **Staked Decay**: Reward-bearing stake records (initiative, project, member, tag, content conviction) decay at `StakedDecayRate` (0.025%/epoch, ~8.7% annualized compounded), applied once per epoch by `decayStakes` in the EndBlocker bulk decay pass. Each stake's `Amount`, its pool denominators (seasonal pool, per-project info, member/tag pools), its `reward_debt` (scaled with the principal so the pending claim shrinks proportionally instead of clamping to zero), and the staker's `staked_dream`/`dream_balance`/`lifetime_burned` all move in lockstep, so the member aggregate always equals the sum of the obligations backing it and every unlock can be paid in full. This replaces the earlier design that decayed only the `member.StakedDream` aggregate: that left every obligation at face value against a shrinking aggregate, and `UnlockDREAM`'s cap-to-actual fallback dumped the whole shortfall on whoever unlocked last. Escrow-style locks — invitation stakes, challenge stakes, bonded roles, review bounties, report bonds, author bonds — do not decay; a bond that must be slashable at full face value cannot erode. Idle stakes still erode (active stakers earning from the seasonal pool outpace 0.025%), but escrow does not.
 
+**Locked DREAM backs exactly one escrow.** `staked_dream` is the sum of every
+escrow the member holds (stake records, challenge stakes, invitation stakes,
+bonded-role bonds, author bonds, bounty and report bonds), and the DREAM
+primitives keep it backed:
+
+- `BurnDREAM` (fees and every other plain burn) spends only the **unlocked**
+  balance, `dream_balance - staked_dream`. A fee paid out of locked DREAM left
+  the balance below the locks, and the escrow's later slash failed and wedged
+  the challenge or initiative waiting on it.
+- `BurnLockedDREAM(addr, amount)` slashes an escrow: it releases `amount` from
+  the lock and burns it in one step. Every in-module slash uses it (rejected
+  challenge and content-challenge stakes, slashed bonded-role, author and
+  self-assign bonds, review-bounty draws, the invitation acceptance burn, a
+  dismissed tag report's bonds). Other modules keep the "unlock, then burn"
+  pair, which `internal/dreamutil.Ops.BurnLocked` wraps.
+- `UnlockDREAM` is strict: with less than `amount` locked it fails with
+  `ErrInsufficientStake` and releases nothing. It used to cap the release at
+  the aggregate, which on a shortfall released other escrows' locks.
+- `LockDREAM` refuses a member that is not ACTIVE (`ErrMemberNotActive`). A
+  zeroed member therefore never locks again, so any escrow record still naming
+  it unlocks against nothing instead of against a lock that backs something
+  else.
+- `decayStakes` charges each staker through the alias (records keep the
+  address they were opened under) and floors the aggregate charge at zero.
+
+The `member-staked-within-balance` invariant (`staked_dream <= dream_balance`)
+checks this in `TestInvariants`.
+
 **Content conviction stakes decay too**, and originally did not. They were exempt on the stated grounds that content conviction "already time-decays via the conviction half-life" — it does not. Both `CalculateContentConviction` and `CalculateRawStakeConviction` compute `time_factor = t / (2 * half_life)` capped at 1.0: a linear ramp to a permanent maximum, not a half-life, despite the names `ContentConvictionHalfLifeEpochs` and `ConvictionHalfLifeEpochs`. Content stakes are locked (so exempt from the 0.2%/epoch unstaked decay), earn no DREAM, and propagate conviction into initiative conviction — which made them a costless shelter strictly better than holding DREAM, with a governance benefit attached. Decaying the principal is also what makes content conviction genuinely erode, since conviction is `amount * time_factor` and only the amount can carry the decay. `updateStakePoolTotals` routes these through `adjustMemberContentStaked`, so the per-member content aggregate moves in lockstep. Regression: `TestDecayStakes_DecaysContentConviction`.
 
 **Terminal-project stakes decay; PROPOSED-project stakes do not.** Staked decay is the cost of holding a staked position, not merely a brake on compounding, so a stake on a completed or cancelled project keeps eroding — its principal is freely withdrawable and decay is the nudge to withdraw it, and exempting it would create a decay-free store of value dominating both unstaked DREAM and live stakes as a place to park. A stake on a *PROPOSED* project is the opposite case: `stakeAccruing` freezes it out of the seasonal pool, so charging it decay is a pure levy on backing work at the earliest and least certain moment — exactly the conviction the system exists to buy. That window is bounded (approval starts accrual and rebases the debt; rejection ends the stake), so the exemption creates no lasting shelter. Regression: `TestDecayStakes_ExemptsProposedProjectStakes`.
@@ -1108,13 +1198,30 @@ assignee's standing and the creator still has to survive the jury or
 committee to collect.
 
 Note that the reward is freshly *minted* DREAM, not a transfer out of the
-initiative budget — `UpholdChallenge` sizes it at `budget ×
-challenger_reward_rate`, and the budget itself is returned to the parent
-project untouched (skipped for permissionless projects, which never
-pre-allocated one). So an upheld challenge is paid by inflation and the budget
-only sets the scale. That is why the gate matters more than the accounting:
-there is no pot the challenger has to compete for, and nothing about the
-budget bounds how often the loop can be run.
+initiative budget — it is sized at `budget × challenger_reward_rate`, and the
+budget itself is returned to the parent project untouched (skipped for
+permissionless projects, which never pre-allocated one). So an upheld challenge
+is paid by inflation and the budget only sets the scale.
+
+**Limits on the challenger reward.** Two accounts could run the loop the
+self-challenge gate closed: one assigns itself the other's initiative, the
+other challenges, and the assignee never answers, so the challenge is
+auto-upheld and 20% of a self-declared budget is minted. The reward is now:
+
+- capped at the self-assign bond the assignee forfeits when the challenge is
+  *conceded* rather than decided: an empty response (`TriageAutoApprove`) or no
+  response by the deadline (`UpholdConcededChallenge`). An externally assigned
+  initiative has no bond, so a conceded challenge returns the stake and mints
+  nothing;
+- zero when the challenger is an insider of the work (assignee, apprentice,
+  author or project creator, compared canonically) or one of the challenger
+  and the assignee invited the other;
+- booked against `max_initiative_rewards_per_season` and clamped to what is
+  left of it.
+
+A jury or committee verdict (`UpholdChallenge`) pays the full reward subject to
+the last two rules. The `challenge_upheld` event carries `challenger_reward`
+and `conceded`.
 
 **Scope: the gate covers the directly-signed path only.** It compares
 `initiative.assignee` against the message signer, and on the shielded path
@@ -1215,6 +1322,18 @@ enum ContentChallengeStatus {
   CONTENT_CHALLENGE_STATUS_REJECTED = 3;
 }
 ```
+
+**Upholding slashes the bond that is there.** `UpholdContentChallenge` loads
+the author bond record and burns its own lock (`BurnLockedDREAM`, capped at
+`bond_amount`); the challenger's reward is `content_challenge_reward_share` of
+what was actually burned. When the bond is already gone (a sentinel hide
+slashed it while the jury deliberated, or the author was zeroed), nothing more
+is burned and no reward is minted. The snapshot used to be unlocked from the
+author's aggregate lock regardless, which burned another escrow of theirs (an
+initiative stake) and minted the challenger a reward with no bond behind it.
+`bond_amount` stays as the record of what was at stake when the challenge was
+filed; the `content_challenge_upheld` event's `bond_slashed` is the amount
+actually burned.
 
 ### ContentInitiativeLink
 
@@ -1558,9 +1677,12 @@ message MemberReport {
   MemberReportStatus status               = 6;
   string             defense              = 7;
   int64              defense_submitted_at = 8;
-  repeated string    reporters            = 10;
-  repeated uint64    evidence_post_ids    = 11;
-  repeated uint64    defense_post_ids     = 12;
+  repeated string    reporters            = 9;
+  repeated uint64    evidence_post_ids    = 10;
+  repeated uint64    defense_post_ids     = 11;
+  repeated ReporterBondEntry reporter_bonds = 12;
+  GovActionType      resolved_action      = 13; // action MsgResolveMemberReport applied (UNSPECIFIED = dismissed)
+  int64              resolved_at          = 14; // block time of the resolution
 }
 
 // proto/sparkdream/rep/v1/member_warning.proto
@@ -1575,9 +1697,36 @@ message MemberWarning {
 }
 ```
 
+#### Member report rules
+
+- A report names the member's **canonical** address: a report filed against a
+  tombstone lands on the successor, trips `HasOpenMemberReport` for it (the KEY
+  migration path is then refused) and is defended by the successor. Only an
+  existing, non-zeroed member can be reported, so reporter bonds cannot be
+  parked against arbitrary addresses. `MsgCosignMemberReport` and
+  `MsgResolveMemberReport` resolve the alias the same way; a tombstone cannot
+  defend.
+- One **open** report per member (PENDING, ESCALATED, META_APPEALED). A
+  resolved report is history and gives way to a new one, except while the
+  member's appeal window on its resolution is still open
+  (`resolved_at + DefaultAppealDeadline`), since the new report overwrites the
+  record that opens that window, or while an appeal of that resolution is
+  pending (its `MemberActionRestoration` still exists).
+- Reporting and co-signing need `DefaultMinSentinelBond` (500 DREAM) of staked
+  DREAM, and each reporter and co-signer locks the lesser of its staked DREAM
+  and `DefaultMaxMemberReportBond` (100 DREAM). Both were micro-DREAM-scale
+  before (500 and 1000 micro-DREAM, co-signers uncapped).
+- `MsgResolveMemberReport` records `resolved_action` and `resolved_at`.
+- `MsgResolveMemberReport` can zero a member, so its `creator` must be the
+  Commons Operations Committee policy address (an executed committee
+  proposal), the Commons Council policy or x/gov (`isCouncilOrCommitteePolicy`
+  over `IsCouncilOrCommitteePolicy`); a single committee member is refused
+  with `ErrNotGovAuthority`. The message is in the committee's bootstrap
+  `AllowedMessages`.
+
 #### Keeper-internal warning issuance (`IssueWarning`)
 
-Besides the governance/sentinel `MsgResolveMemberReport` path, x/rep exposes a
+Besides the committee-proposal `MsgResolveMemberReport` path, x/rep exposes a
 keeper method other modules call directly from their EndBlocker / ABCI paths
 (via their `RepKeeper` interface):
 
@@ -1641,7 +1790,9 @@ message GovActionAppeal {
 //     votes is cast, or at the deadline via TimeoutExpiredAppeals (which tallies
 //     if a quorum of the seated jury voted, else TIMEOUT); the no-quorum guard
 //     means juror inaction never resolves an appeal; OR
-//   - manually by an Operations-Committee MsgResolveGovActionAppeal override.
+//   - manually by a MsgResolveGovActionAppeal override from the Operations
+//     Committee policy (an executed committee proposal), the Commons Council
+//     policy or x/gov.
 // The two paths share applyGovActionAppealVerdict and are idempotent on status,
 // so they cannot double-apply. On OVERTURNED the underlying content action is
 // reversed (ReverseSentinelAction) and the sentinel is slashed; on UPHELD the
@@ -1658,6 +1809,36 @@ message JuryParticipation {
   bool   excluded          = 6;
 }
 ```
+
+### Zeroing (`ZeroMember`)
+
+Zeroing burns the member's whole DREAM balance, locks included, so every
+escrow that claims part of the lock ends with it. Before the balance goes,
+`terminateEscrowsForZeroing` (keeper/zeroing.go), over every address the
+member ever held:
+
+- **forfeits** the member's open initiative challenges (`RejectChallenge`: the
+  stake is burned, the initiative restored, a seated jury closed
+  INCONCLUSIVE) and open content challenges (`RejectContentChallenge`, jury
+  closed), and its PENDING invitations (stake burned, invitee slot freed, no
+  credit back, event `invitation_forfeited`);
+- **drops** its review-bounty contributions, tag-report bonds and open
+  member-report bonds, and empties its bonded-role bonds (status DEMOTED);
+- releases its stake records (author bonds included) through the by-staker
+  index, and drops its initiative-bounty contributions and self-assign bonds,
+  as before.
+
+Each of these used to stay behind: its later `UnlockDREAM` failed against the
+zeroed aggregate and wedged whatever waited on it, a challenged initiative for
+good. After zeroing, `LockDREAM` refuses the member, so its `staked_dream`
+stays zero.
+
+Modules that hold their own lock records drop the zeroed member's through
+`MemberZeroingHook.AfterMemberZeroed(ctx, member, addresses)`, registered in
+app.go with `AddMemberZeroingHook`: x/reveal drops its stakes on tranches still
+STAKING (adjusting the tranche total), x/season drops its nomination stakes
+(recomputing the nominations). Each hook runs in its own cache context; an
+error is logged and never blocks the zeroing.
 
 ## Messages
 
@@ -1904,6 +2085,13 @@ message MsgCancelProject {
   uint64 project_id = 2;
   string reason = 3;
 }
+
+message MsgCompleteProject {
+  option (cosmos.msg.v1.signer) = "creator";
+  option (amino.name) = "sparkdream/x/rep/MsgCompleteProject";
+  string creator = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 project_id = 2;
+}
 ```
 
 #### Permissionless Project Creation Flow
@@ -1928,20 +2116,58 @@ message MsgCancelProject {
 3. Trigger `PROJECT_APPROVAL` interim for Operations Committee
 4. Await `MsgApproveProjectBudget` → transitions to ACTIVE
 
+#### Approving a Project Budget
+
+`MsgApproveProjectBudget` moves a `PROPOSED` project to `ACTIVE` with the
+approved DREAM and SPARK budgets. Authority is resolved against
+`project.council` (a member or policy of another council's committee is
+refused):
+
+- **Any budget**: the gov authority, or the policy address of the project's
+  council or of that council's Operations Committee
+  (`IsCouncilOrCommitteePolicy(project.council, "operations")`, an executed
+  proposal). The message is on the `AllowedMessages` of the Commons, Technical
+  and Ecosystem Operations Committees.
+- **Budget ≤ `large_project_budget_threshold`**: a single member of the
+  project council's Operations Committee may also approve directly.
+- **Budget > `large_project_budget_threshold`**: a single member is refused
+  with `ErrLargeProjectNeedsCouncil`; the approval must come through a
+  committee or council proposal (or gov).
+
+Otherwise `ErrUnauthorized`.
+
 #### Cancelling a Project
 
 `MsgCancelProject` moves a project to `CANCELLED` from any non-terminal status
-(`PROPOSED` or `ACTIVE`); it returns `ErrUnauthorized` unless the signer is
-either:
+(`PROPOSED` or `ACTIVE`). Cancelling an approved project closes its
+initiatives (returning their budget, releasing self-assign bonds, voiding
+active challenges) and settles every project stake, so it is a decision of
+the body that approved the project, never of one of its members. The handler
+accepts:
 
-- the **project creator**, or
-- a member of the **project council's Operations Committee** — the same
-  committee that approves and funds the project via `MsgApproveProjectBudget`
-  (authority is resolved against `project.council`, not a fixed council).
+- the **gov authority**, or the **policy address of the project's council or
+  of that council's Operations Committee**
+  (`IsCouncilOrCommitteePolicy(project.council, "operations")`, an executed
+  proposal) — for any live project. A single committee member is refused.
+  `MsgCancelProject` is on the `AllowedMessages` of the Commons, Technical and
+  Ecosystem Operations Committees.
+- the **project creator** (matched through the alias contract, `CanActAs`, so
+  it survives a key migration), with a narrower right of withdrawal:
+  - a `PROPOSED` project: nothing has been approved or funded and no
+    initiative can exist under it, so withdrawing the proposal touches nobody
+    else;
+  - an `ACTIVE` **permissionless** project (no council budget behind it), only
+    once every initiative under it is terminal and no challenge on one is
+    active (`ErrProjectHasOpenWork` otherwise) — so the creator can neither
+    close other members' open work nor void a challenge on their own
+    initiative (which would release a self-assign bond an upheld challenge
+    would burn).
 
-This authorization gate is enforced in the message handler. Without it any
-address could retire any project, including budget-backed ones with active
-initiatives. Cancellation flips the by-status index off `PROPOSED`/`ACTIVE` so
+  The creator alone can never cancel an `ACTIVE` **budget-backed** project
+  (`ErrUnauthorized`): the council approved and funded it, and only that
+  council's body can retire it.
+
+Anyone else gets `ErrUnauthorized`. Cancellation flips the by-status index off `PROPOSED`/`ACTIVE` so
 the EndBlocker expiry sweep skips the project, and emits `project_cancelled`.
 Cancellation is only permitted from the two live states (`PROPOSED`, `ACTIVE`):
 the three terminal states — `COMPLETED`, `CANCELLED`, and `EXPIRED` — are
@@ -2003,8 +2229,36 @@ project is `CANCELLED`, so no DREAM can ever be minted from a cancelled
 project's work even if an initiative reached a terminal-payout path by another
 route.
 
+#### Completing a Project
+
+`MsgCompleteProject` (CLI `tx rep complete-project [project-id]`) records an
+`ACTIVE` project as `COMPLETED`. It is the only path to `COMPLETED`; no
+EndBlocker completes projects automatically.
+
+- **Authorization.** The signer must be the gov authority or the policy
+  address of the project's council or of that council's Operations Committee
+  (`IsCouncilOrCommitteePolicy(project.council, "operations")`) — an executed
+  proposal, never an individual committee member, because completion mints the
+  staker completion bonus and settles every project stake. Otherwise
+  `ErrUnauthorized`. The message is on the `AllowedMessages` of the Commons,
+  Technical and Ecosystem Operations Committees, so each can execute it for
+  projects under its council; a council executes it through its own policy only
+  if its permissions list it, and gov always can. A project whose `council`
+  names no known council can be completed only by gov.
+- **Preconditions.** The project must be `ACTIVE` (`ErrInvalidProjectStatus`).
+  Every initiative of the project must be terminal (`COMPLETED`, `REJECTED` or
+  `CLOSED`) and no challenge on any of them may be `ACTIVE` or
+  `IN_JURY_REVIEW`; otherwise `ErrProjectHasOpenWork` (2415). Unfinished work
+  is closed first (`MsgCloseInitiative`), or the project is cancelled instead.
+- **Effects.** Pays the staker completion bonus (`project_completion_bonus_rate`
+  of `spent_budget`, external stakers only, capped by
+  `max_completion_bonus_stake_multiple` and the season's initiative reward
+  headroom, booked against that cap), settles and releases every project stake
+  (below), sets `COMPLETED`, moves the by-status index entry and emits
+  `project_completed` with `spent_budget`. Not delegable through x/session.
+
 **Release of the project's own stakes.** Both terminal transitions that leave
-`ACTIVE` — `MsgCancelProject` and project completion — run
+`ACTIVE` — `MsgCancelProject` and `MsgCompleteProject` — run
 `releaseProjectStakes` *before* the status flips, while `settleStake` still sees
 the project as accruing. Every project stake is harvested against the seasonal
 accumulator and paid out (`forfeit=false`, since the staker did not choose to
@@ -2310,7 +2564,9 @@ challenge in `IN_JURY_REVIEW` — a status `HasActiveChallenges` counts as activ
 so `CanCompleteInitiative` never returns true again.
 
 **Committee action is a structured verdict.** Completing an `ADJUDICATION`
-interim requires `MsgCompleteInterim.decision` — `ADJUDICATION_DECISION_UPHOLD`
+interim needs the same policy signer as an approval (Commons Operations
+Committee policy, Commons Council policy or x/gov; `ErrNotGovAuthority` for a
+single member) and requires `MsgCompleteInterim.decision` — `ADJUDICATION_DECISION_UPHOLD`
 resolves the challenge as upheld (work fails), `ADJUDICATION_DECISION_REJECT`
 as rejected (work stands); the verdict is recorded on the interim for the audit
 trail. The decision used to be parsed out of the free-text completion notes,
@@ -2545,6 +2801,15 @@ not to react to a block.
   the time replacement jurors need to read the work. Discovery already supports
   the wider window: `jury-reviews-by-juror` and the juror addresses on the
   `jury_review_created` event.
+- **Jury candidates come from a reputation index.** `Member` is an
+  `IndexedMap` with a `MaxRep` multi-index keyed by the integer part of the
+  member's highest tag reputation, maintained on every member write.
+  `SelectJury`, `SelectContentJury` and the moderation-appeal draw (also used
+  by `CreateSeatedAppeal`) read it in descending order down to
+  `floor(MinJurorReputation)`, at most 1,000 candidates (`maxJurorCandidates`,
+  the most reputable), sort them by address and then apply the exact
+  eligibility rule and the weighted draw as before. No draw walks the whole
+  member store (REP-E-10).
 - **Jury selection shrinks to fit instead of refusing outright.** `SelectJury`
   used to error whenever the eligible pool was smaller than `jury_size`, so a
   pool one juror short produced *no* jury at all and escalated to the committee
@@ -2595,6 +2860,21 @@ Charging the no-show at vacate time is load-bearing: `RecordJuryNoShows` reads
 the seated list at tally time, so an un-seated juror would otherwise escape the
 record entirely.
 
+#### Juror Vote Domain
+
+`MsgSubmitJurorVote` accepts only a vote that takes a side: `verdict` must be
+`VERDICT_UPHOLD_CHALLENGE` or `VERDICT_REJECT_CHALLENGE`, and `confidence` must
+lie in `[0, 1]`; anything else fails with `ErrInvalidJurorVote` (2414) before
+the seat, the vote list or participation is touched. `VERDICT_PENDING` and
+`VERDICT_INCONCLUSIVE` are outcomes the tally records, never votes. The check
+runs in the message server and again in `Keeper.SubmitJurorVote`, and applies to
+every case type (initiative and content challenges, moderation appeals,
+external cases opened by other modules), which are all decided on the same two
+verdicts. Without it a seated juror could file a non-deciding vote that used up
+the seat, counted toward the tally trigger and the supermajority denominator
+while supporting neither side (forcing an `INCONCLUSIVE` result), and still
+counted as having voted for participation and juror pay.
+
 #### Juror Pay
 
 Juror pay scales with the amount in dispute: each seat is worth
@@ -2616,6 +2896,39 @@ appeals carry no initiative budget and pay the floor.
 > dispute, so a challenge over a 100 DREAM APPRENTICE initiative minted 750
 > DREAM in juror fees to settle it — several times the value of the work. A jury
 > should cost a fraction of what it is judging.
+
+This per-seat share is the only juror pay. Seating a jury no longer creates a
+`JURY_DUTY` interim per seat: those paid a flat STANDARD budget on top, and a
+seated juror could complete theirs at once and then decline the seat or never
+vote.
+
+#### Expert Witnesses
+
+A juror seated on a pending initiative jury review can call an expert witness
+with `MsgInviteExpertWitness`. Jurors are drawn by lot and often lack the domain
+knowledge a deliverable needs; the expert supplies it, and the jurors still
+decide.
+
+- **Who invites**: any juror seated on the review (`ErrNotSeatedJuror`). The
+  review must be an initiative review (not a content challenge or moderation
+  appeal, which carry no tags to measure expertise against), still `PENDING`
+  and before its deadline (`ErrNotInitiativeReview`).
+- **Who can testify**: an active `ESTABLISHED`+ member with positive reputation
+  in at least one of the initiative's tags, who is not the challenger, anyone
+  affiliated with the initiative (assignee, apprentice, creator, project
+  creator) or a juror on the review, and is not already listed
+  (`ErrExpertIneligible`).
+- **How many**: at most `MaxExpertWitnessesPerReview` (2, a compiled constant)
+  per review (`ErrTooManyExpertWitnesses`): each invitation is paid work.
+- **Pay**: the invitation opens an `EXPERT_TESTIMONY` interim assigned to the
+  expert (COMPLEX budget, `reference_id` = the review id, deadline = the review
+  deadline), subject to the expert's `max_active_interims_per_member` cap.
+  `MsgSubmitExpertTestimony` completes it and pays the budget (charged to the
+  season's interim reward cap like any interim). A payment failure never blocks
+  the testimony: it is reported as an `expert_testimony_unpaid` event and the
+  interim expires with the review. An expert who never testifies is never paid.
+
+Each expert testifies once, while the review is still `PENDING`.
 
 #### Juror Accountability
 
@@ -2804,8 +3117,8 @@ This is the single constraint the reward design cannot trade away.
   APPRENTICE → EPIC — no new parameter needed). Self-funding and available from
   day one. It mirrors juror pay, which already scales against the disputed
   budget. On rejection the budget returns to the project **minus** the review
-  fees: the project pays for having had the work evaluated, which is where that
-  cost belongs.
+  fees of every round: the project pays for having had the work evaluated,
+  which is where that cost belongs.
 - **SPARK from an accuracy-gated pool**, distributed on the sentinel schedule
   with the same cap-and-overflow-burn treatment. This is the quality component —
   the reason to hold the role rather than merely fill it.
@@ -2867,14 +3180,24 @@ liveness.
 2. If approvals are still short of `min_verifier_count`, the initiative
    escalates to the Operations Committee, which has three options:
    - **approve** — satisfies the reviewer gate,
-   - **reject** — blocks completion; the assignee may appeal as above,
+   - **reject** — rejects the round; the assignee may appeal as above,
    - **let the challenge period run** — decline to substitute judgement; the
      initiative proceeds on conviction alone.
-3. **Committee inaction defaults to option three.** This module has already been
-   bitten once by an escalation that expired and touched nothing, freezing an
-   initiative permanently with the challenger's stake, every staker's conviction
-   and the assignee's bond locked inside it. Silence must never be the state
-   that wedges an initiative, and silence must never mint.
+3. **Committee inaction rejects the round.** When the committee's window closes
+   without a decision, the escalation-timeout sweep (`applyEscalationTimeout`)
+   calls `rejectReviewRound`: the work goes back to the assignee (`ASSIGNED`,
+   deliverable cleared) for a new round, the reviewers of the rejected round are
+   paid their fee, and the assignee may resubmit. Rounds are bounded by
+   `max_review_rounds`; when the last round is rejected the initiative closes
+   cleanly through `CloseInitiative` — budget returned to the project net of
+   every round's review fees, self-assign bond released, stakes settled,
+   nothing minted to the assignee. Silence never passes and never mints: an
+   earlier design resolved silence to PASSED, which let a gated initiative
+   complete with no verdict on it at all. Silence also never wedges: this module
+   has already been bitten once by an escalation that expired and touched
+   nothing, freezing an initiative permanently with the challenger's stake,
+   every staker's conviction and the assignee's bond locked inside it. Every
+   timeout ends in a resubmittable round or a close.
 
 **All three committee outcomes still run the challenge window.** Committee
 approval satisfies the reviewer requirement and nothing else — it is not a
@@ -2963,13 +3286,43 @@ the same gate rather than an independent one — and because genesis seeds trust
 levels but ships no reputation scores, a non-zero tier made the role
 unqualifiable on a fresh chain.
 
+##### Review fees are paid per round
+
+Every review round that collects verdicts pays its reviewers once, whatever
+the outcome:
+
+- **A round a rejection sends back** (a reviewer's reject verdict, a committee
+  rejection, or the escalation timeout) is paid in `rejectReviewRound` before
+  `review_round` advances. The round's fee pool (`review_fee_rate` × tier
+  multiplier × budget) is split evenly across its verdicts and minted under the
+  same per-season initiative reward cap that gates completion. If minting it
+  would pass that cap or the per-epoch mint ceiling, the round's fee is
+  forfeited with an `initiative_review_fee_forfeited` event instead of blocking
+  the rejection: a reviewer must always be able to reject.
+- **The round that resolves the initiative** is paid on its terminal path:
+  completion, close (including close on round exhaustion), the project-cancel
+  cascade, or an upheld challenge.
+
+Each paid verdict records its fee in `InitiativeReview.fee_paid`, and a verdict
+with a fee recorded is never paid again, so every verdict is paid at most once
+across all paths (a failed transaction rolls the record back with the mint).
+Close, cancel cascade and upheld challenge return the initiative budget to the
+project net of `ReviewFeesPaid` — the sum over every round — not just the final
+round's fees. Fees emit `initiative_review_fee_paid` with the round.
+
+A round discarded by `MsgUnassignInitiative` (verdicts filed, but the round
+neither resolved nor rejected) is not paid: rounds advanced that way are not
+bounded by `max_review_rounds`, so paying them would turn assignment churn into
+a mint loop.
+
 ##### What shipped, and what did not
 
 Both halves are built: the role and its `BondedRoleConfig`, per-verdict
 bond scaled by `reviewer_bond_reserve_rate`, the completion gate, the
-round/resubmit cycle, the committee escalation with its PASSED-on-silence
-default, the DREAM fee via `review_fee_rate` x the tier multiplier paid on both
-terminal paths, the accuracy wiring into `RoleActivity` from both challenge
+round/resubmit cycle, the committee escalation whose silence rejects the round
+(bounded by `max_review_rounds`, clean close on exhaustion), the DREAM fee via
+`review_fee_rate` x the tier multiplier paid for every round (see
+[Review fees are paid per round](#review-fees-are-paid-per-round)), the accuracy wiring into `RoleActivity` from both challenge
 directions, and the accuracy-gated SPARK pool below.
 
 ##### The SPARK pool
@@ -3700,12 +4053,12 @@ missing — together they composed into an unbounded DREAM self-mint:
 
 | Message | Gate | What it was before |
 |---|---|---|
-| `MsgCreateInterim` | must be a member | none at all — any address could commission a complexity-derived budget for itself, since `CreateInterimWork` makes the creator the sole assignee |
+| `MsgCreateInterim` | ACTIVE member; not ADJUDICATION or JURY_DUTY; deadline after the current height | none at all — any address could commission a complexity-derived budget for itself, since `CreateInterimWork` makes the creator the sole assignee |
 | `MsgAssignInterim` | Operations Committee | none at all — anyone could add themselves to anyone's PENDING interim and collect on completion |
-| `MsgCompleteInterim` | interim must not be finalized | none — `CompleteInterimDirectly` paid on *every* call, so re-sending the same message minted the budget again indefinitely (`ApproveInterim` always had this guard; the direct path did not) |
-| `MsgApproveInterim` | interim must not be an `ADJUDICATION` | none — a bool cannot carry a verdict, so approving or rejecting an adjudication finalized it undecided and stranded the challenge it was raised to settle |
+| `MsgCompleteInterim` | ADJUDICATION only (Commons Operations Committee policy, explicit decision); interim must not be finalized | none — `CompleteInterimDirectly` paid on *every* call, so re-sending the same message minted the budget again indefinitely; and until the 2026-10 fix pass any assignee could complete (and be paid for) its own interim |
+| `MsgApproveInterim` | Commons Operations Committee policy (or council / gov); interim must not be an `ADJUDICATION` | none — a bool cannot carry a verdict, so approving or rejecting an adjudication finalized it undecided and stranded the challenge it was raised to settle |
 
-Beyond authorization, the path needed a ceiling. An interim is self-assigned by
+Beyond authorization, the path needed a ceiling. An interim was self-assigned by
 its creator and self-completed by its assignee, so
 `max_active_interims_per_member` bounds only how many are open at once, not how
 many a member can complete and re-create in a season. That left the interim path
@@ -3726,6 +4079,21 @@ reset with the other per-season counters in `InitSeasonalPool`. Regressions:
 `TestInterim_SeasonCapBoundsTotalEmission`.
 
 ### Stake Messages
+
+**Stake limits.** A member holds at most `MaxStakeRecordsPerMember` (500)
+stake records across every target (`ErrTooManyStakes`, 2409): reward-bearing
+records are decayed and rewritten every epoch, so at the `min_stake_amount`
+floor an uncapped count bought tens of thousands of per-epoch writes for a
+refundable 100 DREAM. MEMBER and TAG stakes now get the same
+`MaxStakeTranchesPerTarget` (10) as the other types, counted per target member
+or tag (they share target id 0, so the per-id count never applied). A TAG
+stake must name a registered tag. A content stake requires the content to
+exist (`ErrContentNotFound`, 2408): a failed author lookup used to let the
+stake through, so a member could stake on the next sequential id and then
+post the content, holding conviction on their own item. The by-staker index
+`StakesByStaker` (`(staker as stored, stake id)`, maintained with
+`StakesByTarget`, derived at InitGenesis) serves the record cap, the circular
+member-stake check and zeroing, which used to walk every stake on the chain.
 
 Content conviction staking uses the same `MsgStake`/`MsgUnstake` with module-specific target types (`STAKE_TARGET_BLOG_CONTENT`, `STAKE_TARGET_FORUM_CONTENT`, `STAKE_TARGET_COLLECTION_CONTENT`) and `target_id` set to the content item's ID. Author bonds use `STAKE_TARGET_BLOG_AUTHOR_BOND`, `STAKE_TARGET_FORUM_AUTHOR_BOND`, or `STAKE_TARGET_COLLECTION_AUTHOR_BOND`. Author bonds are created via keeper methods (called by content modules during content creation) and released via `MsgUnstake`.
 
@@ -3807,6 +4175,30 @@ message MsgSubmitJurorVote {
   string reasoning = 6;
 }
 
+// MsgInviteExpertWitness lets a juror seated on a pending initiative jury
+// review call an expert witness. The expert must be an active ESTABLISHED+
+// member with reputation in one of the initiative's tags and no stake in the
+// dispute (not the challenger, assignee, initiative creator or a juror). The
+// invitation opens an EXPERT_TESTIMONY interim that pays the expert when they
+// testify and expires with the review. At most MaxExpertWitnessesPerReview
+// experts per review.
+message MsgInviteExpertWitness {
+  option (cosmos.msg.v1.signer) = "juror";
+  option (amino.name) = "sparkdream/x/rep/MsgInviteExpertWitness";
+  string juror = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  uint64 jury_review_id = 2;
+  string expert = 3 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+}
+
+// MsgInviteExpertWitnessResponse returns the EXPERT_TESTIMONY interim opened
+// for the expert.
+message MsgInviteExpertWitnessResponse {
+  uint64 interim_id = 1;
+}
+
+// An expert listed on the review's expert_witnesses (seated by
+// MsgInviteExpertWitness) testifies once, while the review is still PENDING.
+// Testifying completes and pays the expert's EXPERT_TESTIMONY interim.
 message MsgSubmitExpertTestimony {
   option (cosmos.msg.v1.signer) = "expert";
   string expert = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
@@ -3817,6 +4209,8 @@ message MsgSubmitExpertTestimony {
 ```
 
 #### Anonymous Challenge Flow (via x/shield)
+
+> **Not live.** The x/shield op table registers `MsgCreateChallenge` **inactive**: x/rep refuses a challenge whose creator is the shield module until it can derive the challenger from the member's identity (see the note on the Challenge proto and `TestShieldedChallengePathFailsClosed`). Governance activates the registration once that exists. The flow below is the target design.
 
 Anonymous challenges are not submitted directly to x/rep with per-module ZK proof verification. Instead, they go through x/shield's unified privacy layer:
 
@@ -3898,6 +4292,18 @@ message MsgCreateTag {
 message MsgCreateTagResponse { string name = 1; }
 ```
 
+**Limits.** The registry holds `DefaultMaxTotalTags` (10,000) tags, counted by
+the `TagCount` item (`tag/count`) that `SetTag`/`RemoveTag` maintain, so the cap
+check reads one value instead of walking the registry. Members may fill only
+90% of it: the last `CouncilTagHeadroomBps` (10%) is reserved for council and
+committee policy addresses and the gov authority, which create tags without the
+member gates and without a fee. A member must be ACTIVE and ESTABLISHED and may
+create at most `MaxTagCreationsPerEpoch` (5) tags per epoch (`TagCreationWindow`,
+keyed by canonical address; `ErrTagCreationRateLimited`, 2407). The default
+`tag_creation_fee` is 10 DREAM. Before this, 10,000 tags at the old 100
+micro-DREAM fee cost about 1 DREAM and blocked tag creation chain-wide for 30
+days.
+
 **Fee destination.** 100% of the tag-creation fee is burned via `k.BurnDREAM(ctx, creatorAddr, params.TagCreationFee)` in `msg_server_create_tag.go`. Burn is the only viable destination: DREAM is an internal, non-transferable reputation-backed token with no bank-module community-pool flow, so splitting the fee to the community pool isn't a design option. The burn contributes to DREAM scarcity in the same way other anti-spam DREAM burns do (unstaked/staked decay, failed-challenge slashing, transfer tax).
 
 ### Tag Moderation Messages
@@ -3912,8 +4318,8 @@ message MsgReportTag {
 message MsgReportTagResponse {}
 
 // Authority-only. `action` selects one of: ignore / reserve / remove / restore.
-// On REMOVE, the handler calls ForumKeeper.PruneTagReferences to strip the
-// tag from any forum posts that still reference it.
+// On REMOVE, the handler calls ForumKeeper.PruneTagReferences, which queues
+// the tag; the forum EndBlocker strips it from posts in capped batches.
 message MsgResolveTagReport {
   option (cosmos.msg.v1.signer) = "creator";
   string creator                 = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
@@ -3925,9 +4331,18 @@ message MsgResolveTagReport {
 message MsgResolveTagReportResponse {}
 ```
 
+**Report bonds.** Each reporter locks `DefaultTagReportBond` (1 DREAM, a
+compiled constant). Resolution `remove` (1) and `reserve` (2) refund the bonds;
+`dismiss` (0) burns them, so an unfounded report costs its bond. A refund or
+burn that fails (the reporter was zeroed) emits
+`tag_report_bond_settlement_failed` instead of vanishing. `ExpireTags` does not
+collect a tag with an open report, and a report whose tag is already gone still
+resolves (remove is then a no-op), so reporter bonds are never stranded.
+Reporting requires an ACTIVE member.
+
 ### Tag Budget Messages
 
-All five messages (`MsgCreateTagBudget`, `MsgTopUpTagBudget`, `MsgAwardFromTagBudget`, `MsgToggleTagBudget`, `MsgWithdrawTagBudget`) live in `proto/sparkdream/rep/v1/tx.proto`. `MsgAwardFromTagBudget` delegates post lookup to x/forum via `ForumKeeper.GetPostAuthor` and `ForumKeeper.GetPostTags`; the payout handler verifies the post carries the budget's tag before awarding.
+All five messages (`MsgCreateTagBudget`, `MsgTopUpTagBudget`, `MsgAwardFromTagBudget`, `MsgToggleTagBudget`, `MsgWithdrawTagBudget`) live in `proto/sparkdream/rep/v1/tx.proto`. `MsgAwardFromTagBudget` delegates post lookup to x/forum via `ForumKeeper.GetPostAuthor` and `ForumKeeper.GetPostTags`; the payout handler verifies the post carries the budget's tag before awarding. A group member cannot award to a post they wrote (`ErrSelfAward`, 2406, compared canonically): one member acting alone could otherwise take `1 - 0.75^k` of the pool with k posts of their own, the 25% per-call cap and the per-post cooldown notwithstanding. A members-only budget requires an ACTIVE author. The per-(budget, post) cooldown (`TagBudgetAwardByPost`) is exported with its heights (`tag_budget_award_cooldown_list`); an award the genesis gives no entry restarts its cooldown at the import height. On top of the per-call cap, one group member may award at most `tag_budget_awarder_epoch_cap_bps` (default 2500 = 25%, `0` = the default, at most 10000) of the pool as it stood before their own awards in the current epoch, summed over every post they award from that budget (`ErrTagBudgetAwarderCap`, 2413). The running total lives in `TagBudgetAwarderEpoch (budget_id, canonical awarder, epoch)`, one row per (budget, awarder): an award in a later epoch drops the earlier row. It is exported at genesis (`tag_budget_awarder_epoch_list`), so an import keeps every allowance. `MsgToggleTagBudget` refuses to resume a paused budget while the same group has another active budget for that tag (`ErrTagBudgetAlreadyExists`), the rule `MsgCreateTagBudget` applies.
 
 ### Bonded-Role Messages
 
@@ -4043,13 +4458,38 @@ message MsgAppealGovAction {
 message MsgAppealGovActionResponse {}
 ```
 
-`MsgAppealGovAction` creates a `GovActionAppeal` record and an appeal initiative (via `CreateAppealInitiative`) with deadline = `now + DefaultAppealDeadline`. It rejects `POST_HIDE`: post hides are appealed through x/forum's `MsgAppealPost`, which marks the hide appealed so the forum's 7-day hide expiry waits for the verdict (the forum keeper is still the appeal target). Appeal resolution is handled via the two paths described in "Appeal Resolution" below.
+`MsgAppealGovAction` creates a `GovActionAppeal` record and an appeal initiative (via `CreateAppealInitiative`) with deadline = `now + DefaultAppealDeadline`. It accepts only the member actions `MsgResolveMemberReport` applies (`MemberActionAppealTypes`: WARNING, DEMOTION, ZEROING), and only:
+
+- from the affected member: `action_target` is the member's address and the signer must pass `CanActAs(signer, action_target)` (a migrated member appeals an action recorded against its old address; a tombstone never can);
+- for an action actually applied: the member's report is RESOLVED with `resolved_action == action_type`;
+- inside the filing window: `now <= resolved_at + DefaultAppealDeadline`;
+- once per resolution (any earlier appeal of the same action created at or after `resolved_at` refuses a new one, and the action's `MemberActionRestoration` record must exist and not be marked `appealed`).
+
+Everything else is refused with `ErrAppealNotAllowed` (1957). Every module-owned type (`ModuleOwnedAppealTypes`: forum POST_HIDE, THREAD_LOCK, THREAD_MOVE, REPLY_PIN, collect and artifact hides) is refused with `ErrInvalidReasonCode`: those appeals are filed through the owning module (`MsgAppealPost`, `MsgAppealThreadLock`, `MsgAppealThreadMove`, `MsgDisputePin`, `MsgAppealHide`), which checks who may appeal and marks its own record appealed. Filed through rep, they would do nothing to the forum record while the one-pending-appeal rule blocked the affected author's own appeal (FRM-02). TAG_REMOVAL, FORUM_PAUSE and REVIEW_REJECTION have no on-chain action record to appeal and are refused. An OVERTURNED member-action appeal reverses the action (see "Member-action reversal" below). Appeal resolution is handled via the two paths described in "Appeal Resolution" below.
+
+#### Member-action reversal
+
+`MsgResolveMemberReport` writes a `MemberActionRestoration` for every WARNING, DEMOTION or ZEROING it applies, keyed by the member's canonical address (`MemberActionRestorations`, re-keyed by a migration finalization like the report itself). It holds what an overturn needs:
+
+| Action | Recorded at resolution | OVERTURNED reverses |
+|---|---|---|
+| WARNING | `warning_id` of the warning created | the warning is deleted |
+| DEMOTION | `reputation`: per tag, the reputation the `severe_slash_penalty` slash took | the slashed amounts are added back to `reputation_scores` (to `lifetime_reputation` if a season reset came in between, where the reset would have archived them). A demotion is a reputation slash and never lowers the trust level, so there is no trust level to restore. |
+| ZEROING | prior status, trust level and invitation credits, per-tag seasonal reputation, `burned_dream` (the liquid DREAM the final burn took) and the `zeroed_count` the zeroing produced | status, trust level, credits and reputation are restored (in the same season the scores come back out of the lifetime archive the zeroing added them to; in a later season they stay archived), `burned_dream` is re-minted onto the balance (counted in the season's minted total, outside the per-epoch mint ceiling: a restoration, not issuance), `lifetime_burned` is reduced by it, `zeroed_count` drops by one and the trust tree leaf is rebuilt |
+
+What a zeroing forfeited is **not** restored: open challenge stakes, pending invitation stakes, bonded-role, report and bounty bonds, self-assign bonds and stake positions released before the burn went to counterparties or were burned (released stake principal is part of `burned_dream`), the inviter's accountability slash stands, and other modules' zeroing-hook cleanup (x/season, forum, collect and reveal lock records) is not undone.
+
+A reversal only applies to the state the action left. A DEMOTION is not reversed onto a member who is no longer ACTIVE (zeroed meanwhile for another reason: no resurrection), and a ZEROING is reversed only while the member is still ZEROED with the recorded `zeroed_count`. Otherwise, and on any reversal error, nothing is written, the verdict and bond refund stand, and the `member_action_reversed` event (`appeal_id`, `member`, `action`, `result`) says `skipped: …` or `failed: …` instead of `reversed`. The reversal runs in a child cache context.
+
+The record is bounded: it exists only while the action is appealable. Filing an appeal marks it `appealed` (with `appeal_id`); the appeal's terminal outcome (UPHELD, OVERTURNED or TIMEOUT, through `MsgResolveGovActionAppeal`, the jury tally or the timeout sweep) drops it. With no appeal, the EndBlocker drops it once the filing window `resolved_at + DefaultAppealDeadline` has passed, reading the `MemberActionRestorationExpiry` index `(window close, member)` up to the block time, at most 50 per block. A new report against the member is refused while the record exists. Records are exported in genesis (`member_action_restoration_list`); the expiry index is rebuilt at import.
+
+Every `GovActionAppeal` write goes through `SetGovActionAppeal`, which maintains three indexes so no path scans the never-pruned appeal history: by `(action_type, action_target, id)` (the one-pending-appeal rule and the member-action dedup), PENDING appeals by `(deadline, id)` (the EndBlock timeout reads the due prefix, at most 50 per block) and by jury review id (the tally's verdict dispatch). They are rebuilt at genesis import.
 
 ### Appeal Resolution
 
 `MsgAppealGovAction` charges `DefaultAppealBondAmount` (10 SPARK, in `uspark`) from the appellant and writes `AppealBond` + `Deadline` onto the `GovActionAppeal` record (`status = GOV_APPEAL_STATUS_PENDING`). Two resolution paths exist:
 
-- **Council resolution** — `MsgResolveGovActionAppeal(resolver, appeal_id, verdict, reason)` with `verdict ∈ {UPHELD, OVERTURNED}`. Signer must pass `commonsKeeper.IsCouncilAuthorized(ctx, resolver, "commons", "operations")`.
+- **Council resolution** — `MsgResolveGovActionAppeal(resolver, appeal_id, verdict, reason)` with `verdict ∈ {UPHELD, OVERTURNED}`. A verdict slashes bonds, so the signer must be the Commons Operations Committee policy address (an executed committee proposal), the Commons Council policy or x/gov: `commonsKeeper.IsCouncilOrCommitteePolicy(ctx, resolver, "commons", "operations")` or the gov authority. A single committee member is refused (`ErrNotGovAuthority`). The message is in the committee's bootstrap `AllowedMessages`.
 - **Timeout** — the rep EndBlocker transitions `PENDING` appeals past their `Deadline` to `TIMEOUT` (up to 50 per block).
 
 Verdict effects:
@@ -4067,7 +4507,7 @@ Each action type's verdict effects on content are applied by the module that own
 - `ReverseSentinelAction` reverses the action on OVERTURNED.
 - `OnSentinelActionResolved` handles module-local bookkeeping.
 
-Forum's action types fall back to the wired `ForumKeeper`. Other modules register a target per action type from `app.go` with `RegisterModerationAppealTarget`:
+Forum's action types (`ForumAppealTypes`: POST_HIDE, THREAD_LOCK, THREAD_MOVE, REPLY_PIN) fall back to the wired `ForumKeeper`; no other type does, so a rep member-action appeal never reaches the forum. Other modules register a target per action type from `app.go` with `RegisterModerationAppealTarget`. A target whose actions are taken by a bonded role other than the content sentinel implements the optional `ModerationAppealRole.AppealRoleType(action_type)`, and the verdict releases, slashes and scores that role's bond (`appealRoleType`; content sentinel by default):
 
 | Action type | Owner | `action_target` | Filed by |
 |---|---|---|---|
@@ -4076,7 +4516,7 @@ Forum's action types fall back to the wired `ForumKeeper`. Other modules registe
 
 Rules:
 - A target may also implement `ModerationAppealOutcomeHandler.OnAppealOutcome`. x/rep calls it after applying its own effects for UPHELD, OVERTURNED and TIMEOUT. Collect deletes and artifact scrubs on UPHELD; on TIMEOUT both restore the content and release the sentinel bond themselves, since x/rep does not touch it on a timeout. Hook failures are logged and never undo x/rep's verdict.
-- Both are `ModuleOwnedAppealTypes`. `MsgAppealGovAction` rejects them, because only the owning module can check who may appeal and mark its record appealed.
+- Both are `ModuleOwnedAppealTypes` (with forum's four types). `MsgAppealGovAction` rejects them, because only the owning module can check who may appeal and mark its record appealed.
 - An unregistered module-owned type has no target and never falls back to the forum keeper, so a collect hide id is never reversed as a forum post.
 - A target whose record the module already closed (e.g. the content was deleted) reports no sentinel and no committed amount, so a late verdict cannot release or slash a bond twice.
 - `ActionKindForGovAction` maps the two types to `collect_hide` and `artifact_hide`, so `RecordRoleOutcome` lands on the right RoleActivity kind.
@@ -4274,6 +4714,9 @@ Direction follows `pagination.reverse` for every key; ties fall back to id
 in the same direction so pages stay deterministic. An unknown key is
 rejected with `InvalidArgument`.
 
+A sorted page holds at most 100 items: a larger `pagination.limit` is clamped,
+and the end offset is computed so a limit near `MaxUint64` cannot overflow.
+
 A sorted query cannot page by store key (the sort order isn't the store
 order), so when `sort_by` is set — and always, for the filtered queries —
 pagination is offset-based: `next_key` carries the next offset as a decimal
@@ -4461,6 +4904,36 @@ per path: `SeasonBurned` moves by exactly the total movement in members'
 `LifetimeBurned`. SPARK burns — the bonded-role reward-pool overflows — are
 deliberately excluded, since `SeasonBurned` counts DREAM.
 
+## Keeper Surface for Other Modules (additions)
+
+- `AddReputationCapped(ctx, addr, tag, amount) (granted, error)`: the
+  address-based form of `GrantReputationCapped`. Resolves the alias, refuses a
+  member that is not ACTIVE, applies `max_reputation_gain_per_epoch` per tag
+  and returns what was granted. x/reveal grants tranche reputation through it.
+- `MembersAfter(ctx, after, limit) (addresses, done, error)`: pages member
+  records in address order, strictly after `after`. x/season's
+  RESET_REPUTATION phase walks it, so a member without a season profile is
+  reset too.
+- `AddMemberZeroingHook(MemberZeroingHook)`: see Zeroing.
+- `BurnLockedDREAM(ctx, addr, amount)`: see "Locked DREAM backs exactly one
+  escrow".
+
+**Input validation.** Optional amount fields (`staked_dream`, `amount`,
+`approved_budget`/`approved_spark`, `budget`, `requested_budget`/
+`requested_spark`) are refused when missing or negative instead of being
+dereferenced (`ErrInvalidAmount`); `ApproveProject` refuses negative
+approvals. Challenge and response evidence holds at most
+`MaxChallengeEvidence` (20) entries of `MaxChallengeEvidenceLength` (1,024)
+bytes (`ErrTooMuchEvidence`, 2411). The required conviction of a new
+initiative is `conviction_per_dream x sqrt(budget)` computed with
+`LegacyDec.ApproxSqrt` (no float in consensus code). The invitation
+acceptance and accountability windows are counted in epochs (block height):
+`Invitation.created_epoch` and `accountability_end_epoch` (created epoch +
+`invitation_accountability_epochs`) drive expiry, the inviter penalty and the
+referral window. `accountability_end` / `referral_end` remain unix-time
+estimates for display at a nominal 6 s per block (`NominalBlockSeconds`); a
+record without `accountability_end_epoch` falls back to them.
+
 ## Expected Keeper Interfaces
 
 ```go
@@ -4593,12 +5066,16 @@ The permissionless model removes this bottleneck for zero-budget work. Members b
 
 ## Interim Creation Triggers
 
-Interims are created automatically by the system in response to events:
+Interims are created automatically by the system in response to events. Only
+the ADJUDICATION and EXPERT_TESTIMONY rows are built today (the other system
+triggers are not wired; see the completeness notes), and JURY_DUTY interims are
+no longer created at all: jurors are paid by `RewardJurors` for the votes they
+cast.
 
 | Trigger | Interim Type | Assignees | Reference |
 |---------|-------------------|-----------|-----------|
-| JuryReview created | JURY_DUTY | Selected jurors | JuryReview ID |
-| Expert requested | EXPERT_TESTIMONY | Invited expert | JuryReview ID |
+| JuryReview created | ~~JURY_DUTY~~ (not created) | n/a | n/a |
+| Juror calls an expert (`MsgInviteExpertWitness`) | EXPERT_TESTIMONY | Invited expert | JuryReview ID |
 | Budget-backed project proposed | PROJECT_APPROVAL | Operations committee | Project ID |
 | Large budget request | BUDGET_REVIEW | Operations committee | Project ID |
 | *(Permissionless projects skip PROJECT_APPROVAL — no interim created)* | | | |
@@ -4611,7 +5088,7 @@ Interims are created automatically by the system in response to events:
 
 Located in `x/rep/keeper/abci.go`:
 
-**Pending-invitation expiry.** `ProcessExpiredAccountability` runs at every epoch-end block and walks `Invitation` for `PENDING` records older than `invitation_acceptance_epochs` (default 30, measured as `created_at + epochs * epoch_blocks * 6s`, the same clock `accountability_end` uses; 0 disables expiry). Each one becomes `EXPIRED`, its `InvitationsByInvitee` entry is removed so the address can be invited again, the inviter's staked DREAM is unlocked (`UnlockDREAM`, capped at what is actually staked) and the invitation credit it consumed is restored. The record is kept for history and an `invitation_expired` event carries `invitation_id`, `inviter`, `invitee`, `stake_unlocked`. `MsgRevokeInvitation` closes a pending invitation the same way on the inviter's request (status `REVOKED`, event `invitation_revoked`), so every `InvitationStatus` is now reachable. Accountability for accepted invitations stays passive (applied when the invitee is zeroed).
+**Pending-invitation expiry.** `ProcessExpiredAccountability` runs at every epoch-end block and reads the `PendingInvitations` index (`(created_epoch, id)`, PENDING only) in creation order, stopping at the first invitation still inside its window, for records whose `created_epoch + invitation_acceptance_epochs` is behind the current epoch (default 30 epochs, counted in block height, independent of block time; 0 disables expiry). Each one is closed in its own cache context: the inviter's staked DREAM is unlocked first (found through the alias if the inviter migrated), then the invitation becomes `EXPIRED` and its `InvitationsByInvitee` entry is removed so the address can be invited again, and the credit it consumed is restored to an ACTIVE inviter, never above the trust level's maximum. The record is kept for history and an `invitation_expired` event carries `invitation_id`, `inviter`, `invitee`, `stake_unlocked`. `MsgRevokeInvitation` closes a pending invitation the same way on the inviter's request (status `REVOKED`, event `invitation_revoked`), so every `InvitationStatus` is now reachable. Accountability for accepted invitations stays passive (applied when the invitee is zeroed).
 
 **Maintenance-mode gate.** While x/season reports `IsInMaintenanceMode` (reputation archive/reset and XP reset phases of a season transition), `MsgStake`, `MsgUnstake`, `MsgCreateInitiative`, `MsgCompleteInitiative` and `MsgCreateChallenge` are refused up front with `ErrMaintenanceMode` (2112). Tips, gifts, governance, invitations and queries stay open. x/season gates its own quest and guild messages the same way.
 
@@ -4622,47 +5099,53 @@ func (k Keeper) EndBlocker(ctx context.Context) error {
     // initiative on every block. See "Conviction refresh scheduling".
     k.DrainConvictionQueue(ctx)
 
-    // 2. Check initiative completion thresholds
-    k.IterateSubmittedInitiatives(ctx, func(index int64, initiative types.Initiative) bool {
-        canComplete, err := k.CanCompleteInitiative(ctx, initiative.Id)
-        if err == nil && canComplete {
-            _ = k.TransitionToChallengePeriod(ctx, initiative.Id)
-        }
-        return false
-    })
+    // 2. Check initiative completion thresholds (CheckSubmittedInitiatives):
+    // a round-robin over the SUBMITTED status index, at most 100 initiatives
+    // per block, resuming after the id it stopped at (SubmittedCheckCursor,
+    // not exported, restarts at 0) and starting over at the end. Each
+    // SUBMITTED initiative is checked at least once every ceil(n / 100)
+    // blocks; conviction only grows, so a later check never misses a
+    // completion, it can only land a few blocks later (REP-E-10).
+    k.CheckSubmittedInitiatives(ctx)
 
-    // 3. Finalize unchallenged initiatives.
+    // 3. Finalize unchallenged initiatives (SweepDueInitiativeCompletions).
+    // The per-block live-item sweeps read due queues (REP-E-10):
+    // InitiativeCompletionDue / ChallengeResponseDue /
+    // ContentChallengeResponseDue, keyed (due height, id). The status-index
+    // helpers write an entry whenever an item enters its live status (IN_REVIEW
+    // initiative, ACTIVE challenge, ACTIVE content challenge): at its deadline
+    // when the record carries it, at 0 otherwise. Each sweep reads only entries
+    // due at or below the current height, at most 100 per queue per block, and
+    // checks the record: an item that left the live status is dropped, one not
+    // yet due is re-queued at its real deadline, one whose processing fails is
+    // re-queued at the next height (behind everything already due, so failing
+    // items cannot starve the rest). The queues are not exported; InitGenesis
+    // rebuilds them through the status-index helpers.
+    //
     // Run in a child cache context, committed only on success: CompleteInitiative
     // mints to the completer, treasury and every staker before deleting the
     // stakes, and is not idempotent. EndBlocker writes straight to the deliver
     // state, so a mid-function error would persist those mints and pay them
-    // again on the next block's retry.
+    // again on the retry.
     //
     // An IN_REVIEW initiative with ChallengePeriodEnd == 0 never had its window
     // opened (legacy / pre-snapshot state); it is adopted — a full window opens
-    // (initiative_challenge_window_opened) — rather than completing vacuously
-    // or freezing.
-    var adoptWindows []uint64
-    k.IteratePendingCompletionInitiatives(ctx, func(index int64, initiative types.Initiative) bool {
-        if initiative.ChallengePeriodEnd == 0 {
-            adoptWindows = append(adoptWindows, initiative.Id)
-            return false
-        }
-        if sdkCtx.BlockHeight() >= initiative.ChallengePeriodEnd {
-            cacheCtx, writeCache := sdkCtx.CacheContext()
-            if err := k.CompleteInitiative(cacheCtx, initiative.Id); err == nil {
-                writeCache()
-            }
-        }
-        return false
-    })
-    for _, id := range adoptWindows {
-        _ = k.TransitionToChallengePeriod(ctx, id)
-    }
+    // (initiative_challenge_window_opened) and the entry is re-queued at its
+    // end — rather than completing vacuously or freezing.
+    k.SweepDueInitiativeCompletions(ctx)
 
-    // 4. DREAM decay runs once per epoch at the top of EndBlocker
-    // (MaybeApplyBulkDecay), with the lazy per-member ApplyPendingDecay on
-    // write paths as a safety net.
+    // 4. DREAM decay runs once per epoch from the top of EndBlocker
+    // (MaybeApplyBulkDecay) as a pass split across blocks: at most 500
+    // member + stake records per block, resuming at a persisted cursor
+    // (DecayPassEpoch / DecayPassMemberCursor / DecayPassStakeCursor), so no
+    // block scales with the member or stake count. Members first (the lazy
+    // per-member ApplyPendingDecay keeps unvisited members exact on every
+    // read), then stake records, decayed by the epochs since the previous
+    // pass (catch-up, capped at 500) so a pass outliving its epoch neither
+    // skips nor repeats decay. DecayLastProcessedEpoch is written when the
+    // pass completes. The pass cursor is not exported at genesis: an export
+    // mid-pass restarts it (idempotent for members; stakes already visited
+    // in that pass decay once more).
     // Unstaked decay: 0.2%/epoch, per member. Staked decay: 0.05%/epoch,
     // per reward-bearing stake record (decayStakes), moving the stake, its
     // pool denominators, its reward debt, and the member aggregates in
@@ -4670,19 +5153,17 @@ func (k Keeper) EndBlocker(ctx context.Context) error {
     // exempt from both.
 
     // 5. Process expired challenge responses
-    // If assignee doesn't respond within deadline, challenge is auto-upheld.
-    // Same cache-context containment as step 3: UpholdChallenge marks the
+    // If assignee doesn't respond within deadline, challenge is auto-upheld
+    // as conceded: the challenger's reward is capped at the forfeited
+    // self-assign bond (see Challenge).
+    // Same cache-context containment as step 3: the uphold marks the
     // challenge resolved before it releases the stakes, and a resolved
     // challenge never re-enters this sweep.
-    k.IterateActiveChallenges(ctx, func(index int64, challenge types.Challenge) bool {
-        if challenge.ResponseDeadline > 0 && sdkCtx.BlockHeight() >= challenge.ResponseDeadline {
-            cacheCtx, writeCache := sdkCtx.CacheContext()
-            if err := k.UpholdChallenge(cacheCtx, challenge.Id); err == nil {
-                writeCache()
-            }
-        }
-        return false
-    })
+    k.SweepDueChallengeResponses(ctx)
+
+    // 5b. Same for ACTIVE content challenges past their response deadline
+    // (UpholdContentChallenge), from ContentChallengeResponseDue.
+    k.SweepDueContentChallengeResponses(ctx)
 
     // 6. Process jury review deadlines. Each tally is applied all-or-nothing:
     // TallyJuryVotes de-indexes the review before it resolves the challenge,
@@ -4832,8 +5313,22 @@ implemented contract.
   profile / registration / guild references / open-epoch XP tracker / quest
   progress, session grants (path-aware, below). Federation drops identity links,
   attestations and pending challenges (peers attested `A`; `B` re-links). Service
-  vetoes while `A` is a live operator; artifact vetoes while a class-owner
-  handover names `A`.
+  vetoes a KEY migration while `A` is a live (ACTIVE, UNDERFUNDED or UNBONDING)
+  operator; on RECOVERY and COUNCIL it forces `A`'s ACTIVE and UNDERFUNDED
+  operators into UNBONDING at finalization instead, and `MsgSweepTombstone`
+  later claims the matured exit bond for `B`. Artifact never vetoes (a
+  class-owner handover that names `A` is accepted by `B` through `CanActAs`).
+- **Bonded roles follow the alias.** Every bonded-role and `RoleActivity`
+  primitive (`GetBondedRole`, `IsBondedRole`, `GetAvailableBond`,
+  `ReserveBond`, `ReleaseBond`, `IncreaseBond`, `SlashBond`, `RecordActivity`,
+  `SetBondStatus`, `RecordRewardPayout`, `RecordRoleAction`,
+  `RecordRoleOutcome`, the cooldown / epoch-count / accuracy reads, the slash
+  stamp) resolves `Canonical` before touching the record. Owning modules pass
+  the address stored on their action record (a hide's sentinel, a review's
+  curator, a verification's verifier), which stays `A`; without the
+  resolution a role holder would escape a slash, a demotion or a cooldown by
+  migrating, and an honest holder's committed bond would be stranded.
+  `EligibleForRole`, the action-time gate, refuses a tombstone.
 - **Forward alias.** `A` becomes a permanent `Tombstone{canonical, path,
   migration_id, finalized_epoch}`. Everything unbounded (authorship, stakes,
   votes, escrows, listings) keeps storing `A` and is read through the alias
@@ -4864,7 +5359,13 @@ AllAddressesOf(ctx, member) []string     // canonical + every predecessor, <= Ma
 Every module replaced `stored != signer` authorization comparisons with
 `!CanActAs(signer, stored)`, dedup checks ("already voted / reacted / staked")
 with a lookup over `RecentAddressesOf`, self-dealing bans with `SameMember`,
-and by-address list queries with a union over `AllAddressesOf`.
+and by-address list queries with a union over `AllAddressesOf`. Gates that
+grant member treatment use `IsActiveMember` (false for a ZEROED member), never
+`IsMember`. `x/rep/types/alias_guard_test.go` walks every keeper and ante file
+under `x/` and fails on a raw `stored == signer` comparison of a member-identity
+field, a raw `Member.Get` by a stored address, or another module gating on
+rep's `IsMember`, outside an allowlist that names the reason for each
+exception (an entry the code no longer matches also fails).
 `RecentAddressesOf` is the only form allowed inside gas-tight transactions
 (a council vote has ~50k gas of headroom); x/commons re-keys votes on open
 proposals eagerly instead. Compiled constants (`x/rep/types/migration.go`):
@@ -4900,15 +5401,55 @@ fresh. RECOVERY and COUNCIL skip the report, cooldown and window checks and
 use the full `MaxRecentAliases`.
 
 **Freshness of `B`** (`checkTargetFresh` + the `BeforeMemberMigration` hooks):
-not a member, no pending invitation, not a tombstone, not the target of another
-pending migration, not a reserved address (every module account and the x/shield
-public submitter, registered from `app.go`), not a module account, not a group
-policy address, not a vault (late-wired check, false until x/vault exists), no
-x/name owner record or names, no x/season profile, no x/session grants as
-granter (grantee-side fee grants and allowances are allowed: they are how a
-fresh `B` pays gas), no live x/service operator record, no federation identity
-links. Zeroed members cannot migrate on any path; a zeroing during the delay
-cancels the migration at finalization.
+not a member, no pending invitation (KEY path; RECOVERY and COUNCIL void it,
+below), not a tombstone, not the target of another
+*accepted* migration, not a reserved address (every module account and the
+x/shield public submitter, registered from `app.go`), not a module account,
+not an interchain account, not a group policy address, not a vault, no x/name
+owner record or names, no x/season profile, no x/session grants as granter
+(grantee-side fee grants and allowances are allowed: they are how a fresh `B`
+pays gas), no live x/service operator record, no federation identity links.
+Zeroed members cannot migrate on any path; a zeroing during the delay cancels
+the migration at finalization.
+
+**Nobody but the owner can make a recovery or council migration fail.** The
+design intent is that RECOVERY outranks anything a thief holding `A`'s key can
+do, and that a stolen key cannot block a council migration. Every condition a
+third party (or the thief through `A`) could create is therefore either
+impossible or ignored on those paths:
+
+- A request does not reserve its target. `PendingMigrationByTarget` is written
+  only when `B` accepts (it proves control then); REQUESTED migrations sit in
+  the non-reserving `MigrationRequestsByTarget` index, so a KEY request naming
+  the victim's recovery target squats nothing. Several requests may name one
+  target; the first one `B` accepts wins and the others fail freshness at
+  their own accept.
+- `IsReservedMigrationTarget(B)` (an accepted migration into `B`, or a pending
+  RECOVERY / COUNCIL request naming it) refuses `CreateInvitation` and
+  `AcceptInvitation` for `B`, so nobody can invite the target to make it "not
+  fresh". KEY requests do not reserve: anyone can name any address in one.
+- Before the request exists the target is already public (a recovery reveal
+  sits in the mempool, a forced migration in a commons proposal), so an
+  invitation to `B` can be filed in that window. On the RECOVERY and COUNCIL
+  paths a PENDING invitation to `B` therefore does not fail freshness: once
+  every other check and hook has passed, the open voids it as `REVOKED`
+  exactly like `MsgRevokeInvitation` (the inviter's stake is unlocked and the
+  invitation credit restored, the invitee slot is freed) and emits
+  `invitation_voided_by_migration` (`invitation_id`, `inviter`, `invitee`,
+  `stake_unlocked`, `migration_id`). The front-run costs the victim nothing,
+  where it used to consume a recovery commitment per attempt. The KEY path
+  keeps refusing a target with a pending invitation.
+- Module hooks veto from-side state only on the KEY path: an active x/name
+  dispute on one of `A`'s names (a resolved dispute never blocks; on the other
+  paths the dispute follows the name to `B`), a live x/service operator on `A`
+  (forced into UNBONDING instead, above), a vault co-signed by `A` and `B`
+  (x/vault's `Tally` counts the merged member once, at its largest entry
+  weight). Target-side checks apply on every path.
+
+**Season maintenance.** No migration finalizes while x/season is in
+maintenance mode (archiving or resetting reputation and XP): the season walk
+keys on member addresses. Due migrations wait in the queue and finalize once
+maintenance ends.
 
 ### Recovery commitments
 
@@ -4927,6 +5468,16 @@ voids every pending commitment change, cancels any pending KEY or COUNCIL
 migration and opens a RECOVERY migration. Nothing on this path relies on a
 signature by `A`.
 
+Once the preimage and the aged seal check out, the commitment and the seal are
+consumed **even if the migration cannot be opened** (for example because `B`
+became a member in the meantime). The migration is opened in a child cache
+context and only its writes are dropped; the transaction succeeds with
+`migration_id = 0` and `failure_reason` set in `MsgRevealRecoveryResponse`,
+and a `recovery_reveal_failed` event is emitted. A reverted reveal would leave
+the commitment active while its preimage sat in the mempool and the block, and
+whoever induced the failure could re-seal the preimage to an address of their
+own. The member reveals another commitment.
+
 ### Council path and objections
 
 `MsgObjectMigration`, signed by `A` while the COUNCIL migration is ACCEPTED,
@@ -4934,23 +5485,69 @@ posts `migration_objection_bond` and opens an x/rep jury review
 (`ChallengerClaim = "member_migration_objection"`, jurors seated like a
 moderation appeal, parties excluded). The objector is the challenger:
 REJECT_CHALLENGE upholds the migration (finalizes at the next EndBlock, bond
-paid to `B`); UPHOLD_CHALLENGE cancels it (bond refunded); INCONCLUSIVE or a
-deadline without quorum cancels and refunds, so no identity moves without a
-positive jury decision (the committee may file again). The bond is never
+paid to `B`); UPHOLD_CHALLENGE cancels it (bond refunded). The bond is never
 burned: on the stolen-key path it is the victim's SPARK.
+
+**Inconclusive objections escalate to x/gov.** INCONCLUSIVE, including a
+deadline without quorum or a jury that could not be seated at all, neither
+cancels nor refunds: if it did, a thief holding `A` on a chain too young or
+quiet to seat a jury could stall every HR filing for free. The migration stays
+OBJECTED (out of the finalization queue), the objector's bond stays in escrow,
+`escalated_until = now + MigrationObjectionEscalationWindow` (compiled and
+build-tagged with the other migration timings: 30 days on network builds,
+90 seconds in the test build so e2e can reach the expiry path) is set on the migration and a `member_migration_objection_escalated`
+event is emitted. Governance decides with the existing messages, no new Msg:
+
+- `MsgCancelMigration` signed by x/gov upholds the objection: the migration is
+  cancelled and the bond refunded to the objector (cancelling any OBJECTED
+  migration refunds the objector; the HR committee may also withdraw its own
+  filing this way).
+- `MsgForceMigration{authority = x/gov, member = A, new_address = B}` naming
+  the escalated migration's addresses rejects the objection: the bond is paid
+  to `B` and the migration finalizes at the next EndBlock
+  (`member_migration_objection_rejected`, `by = gov`). While an escalation is
+  open the HR committee cannot use `MsgForceMigration` on `A` (it filed the
+  migration and cannot overrule the objection to it), and x/gov cannot point
+  it at another address without cancelling first.
+- If governance has not decided by `escalated_until`, the EndBlocker rejects
+  the objection the same way (`by = escalation_expired`), so nothing waits
+  forever. A late jury verdict on an escalated review is ignored.
+
+OBJECTED migrations are tracked in `ObjectedMigrations`, so the deadline and
+escalation sweep walks only those.
 
 ### Finalization and tombstones
 
 `ProcessMigrations` runs at the end of the x/rep EndBlocker with capped,
 contained passes: finalize due migrations (each in a child cache context; a
 failure marks the migration FAILED with the reason and frees the pending slot),
-expire unaccepted requests, tally overdue objection juries, burn expired seal
+expire unaccepted requests, tally overdue objection juries and reject
+escalated objections past `escalated_until`, burn expired seal
 deposits, activate pending ZK keys. Finalization re-verifies the preconditions
 and hooks, re-keys the core, writes and path-compresses the alias, runs
 `AfterMemberMigration`, sweeps `A`'s spendable SPARK to `B` and sets `A`'s
-x/distribution withdraw address to `B`. Delegations stay at `A`; unbonding pays
-out to `A` outside the send restriction, and `MsgSweepTombstone` (signed by the
-canonical address) collects it.
+x/distribution withdraw address to `B`. On the KEY path delegations stay at
+`A` (the member still holds the key). On RECOVERY and COUNCIL the old key is
+lost or stolen, so finalization begins undelegating every delegation of `A`
+(at most `MaxTombstoneUndelegations` = 50, each in its own cache context; a
+failure such as a validator's unbonding-entry cap emits
+`tombstone_undelegation_failed` and the rest proceed). The normal unbonding
+period and slashing apply; rewards withdrawn by the unbond go to `B` through
+the withdraw address. x/staking pays the matured SPARK to `A` through
+`UndelegateCoins`, which credits the account directly, so the bank send
+restriction that redirects transfers to a tombstone does not apply.
+`MsgSweepTombstone` (signed by the canonical address) collects it: on
+RECOVERY and COUNCIL tombstones it first starts unbonding any delegation still
+at `A` (one finalization left behind), then runs every registered tombstone
+sweeper (`AddTombstoneSweeper`, wired from `app.go`; x/service claims `A`'s
+matured operator exit bonds, which the send restriction delivers to `B`), then
+moves `A`'s spendable SPARK to `B`. Once the unbonding matures, one more sweep
+collects it. The staking keeper is late-wired (`SetStakingKeeper` in
+`app.go`). Undelegating a validator operator's self-delegation can jail that
+validator, as any undelegation below `min_self_delegation` would. The
+REQUESTED accept deadline is stored on the migration (`accept_by`), so a later
+change of `migration_accept_window` never moves a deadline or orphans its
+queue entry.
 
 The ZK key is path-aware: KEY keeps `zk_public_key` (the leaf is unchanged, so
 proofs and nullifiers stay continuous); RECOVERY and COUNCIL clear it and set
@@ -4960,11 +5557,19 @@ KEY path and revoked on the others; session keys with `A` as grantee are
 revoked on every path, other grantee-side grants are re-keyed.
 
 `TombstonedSignerDecorator` (`x/rep/ante`, early in the ante chain) refuses any
-transaction signed by a tombstone unless every message is staking
-undelegate / redelegate / cancel-unbonding or a distribution withdrawal, plus
-`bank.MsgSend` only when the tombstoning migration was a KEY migration. This is
-the backstop for any authorization site the alias conversion missed. A
-tombstone can never be invited again or register a ZK key.
+transaction signed by a tombstone unless every message is on its allowlist:
+`MsgUndelegate`, `MsgWithdrawDelegatorReward` and
+`MsgWithdrawValidatorCommission` on every path (they only move value toward
+the member: unbonded coins are swept from the tombstone, rewards and
+commission go to the withdraw address finalization pointed at `B`), and
+`bank.MsgSend`, `MsgBeginRedelegate` and `MsgCancelUnbondingDelegation` only
+when the tombstoning migration was a KEY migration. On RECOVERY and COUNCIL
+the old key is presumed stolen; with redelegation a thief could move the
+victim's stake to a validator they run at 100% commission, and with
+unbonding cancellation hold the principal hostage. This is the backstop for
+any authorization site the alias conversion missed. A tombstone can never be
+invited again or register a ZK key. A lost key no longer leaves `A`'s
+delegations bonded: RECOVERY and COUNCIL finalization unbond them (above).
 
 ### ZK key change discipline
 
@@ -4989,7 +5594,8 @@ hour-long windows against a two-epoch delay.
 ### Personal addresses
 
 Membership is a person. `IsPersonalAddress(addr)` fails for a reserved module or system address,
-a module account, a council or committee policy and an x/vault shared account (learned through the
+a module account, an interchain account (driven by a controller chain's module, not a key holder
+here), a council or committee policy and an x/vault shared account (learned through the
 late-wired `SetVaultChecker`). It gates `CreateInvitation`, `AcceptInvitationWithRecovery` (re-run
 at acceptance, so an address that became a vault or policy in between, or an executed proposal
 signing as the invitee, is still refused with error 1600) and migration-target freshness
@@ -5049,10 +5655,11 @@ return NotFound when nothing is pending. `GetMember` and x/season's
 
 Genesis exports `tombstone_list`, `member_migration_list`,
 `member_migration_count`, `recovery_commitment_list`, `recovery_commit_list`;
-the reverse alias index, pending pointers and queues are rebuilt at import.
+the reverse alias index, pending pointers, the request-by-target index, the
+objected set and the queues are rebuilt at import.
 Events: `member_migration_requested/accepted/cancelled/failed/objected`,
 `member_migrated`, `recovery_commitment_set`, `recovery_commit`,
-`recovery_revealed`, `tombstone_swept`, `rep.zk_public_key_change_scheduled`,
+`recovery_revealed`, `recovery_reveal_failed`, `tombstone_swept`, `rep.zk_public_key_change_scheduled`,
 `rep.zk_public_key_activated`, `rep.zk_public_key_cleared`, plus `council_seat_migrated`, `names_migrated`,
 `season_profile_migrated`, `grant_migrated` from the hooks.
 
@@ -5341,6 +5948,16 @@ Council-gated operational parameter updates (same pattern as x/blog and x/collec
 
 The `RepOperationalParams` message mirrors most `Params` fields except governance-only fields (tier configs, slashing penalties, trust level thresholds). See `proto/sparkdream/rep/v1/params.proto` for the full field list.
 
+**Epoch clocks.** `epoch_blocks` is fixed at genesis: `MsgUpdateParams` (x/gov
+included) and `MsgUpdateOperationalParams` both refuse a change
+(`ErrParamImmutable`, 2412), so it moves only with a chain upgrade. Every epoch clock in the module is
+`height / epoch_blocks`; one committee member lowering it applied up to 500
+epochs of decay to every member in one block (about 63% of liquid DREAM) and
+made every block an epoch boundary, and x/season's epoch must match it.
+`season_duration_epochs` is still in the message but only governance may
+change it (`ErrParamGovernanceOnly`, 2405). Resending the current values, as a
+full operational-params update does, is accepted.
+
 **Governance-only fields** (NOT in RepOperationalParams):
 - `ApprenticeTier`, `StandardTier`, `ExpertTier`, `EpicTier`
 - `MinorSlashPenalty`, `ModerateSlashPenalty`, `SevereSlashPenalty`, `ZeroingSlashPenalty`
@@ -5388,7 +6005,7 @@ naming the field the committee actually set.
 | 1302 | `ErrInvalidProjectStatus` | Invalid project status |
 | 1303 | `ErrInsufficientBudget` | Insufficient budget |
 | 1304 | `ErrUnauthorized` | Unauthorized: insufficient permissions |
-| 1305 | `ErrLargeProjectNeedsCouncil` | Project budget exceeds `large_project_budget_threshold`; requires council proposal approval |
+| 1305 | `ErrLargeProjectNeedsCouncil` | Project budget exceeds `large_project_budget_threshold` and the approver is not a council / Operations Committee policy (or gov); requires a proposal |
 | 1306 | `ErrProjectTerminal` | Project is COMPLETED, CANCELLED or EXPIRED and can no longer accept stakes |
 | 1401 | `ErrInitiativeNotFound` | Initiative not found |
 | 1402 | `ErrInvalidInitiativeStatus` | Invalid initiative status |
@@ -5644,3 +6261,21 @@ type ModuleInputs struct {
 | 2340 | `ErrZkKeyCooldown` | ZK key changed once per season |
 | 2341 | `ErrZkKeyPending` | ZK key change already waiting for activation |
 | 2342 | `ErrVotingPeriodExceedsZkDelay` | ZK delay cannot go below a live voting period |
+| 2401 | `ErrInterimTypeSystemOnly` | ADJUDICATION and JURY_DUTY interims are created by the module only |
+| 2402 | `ErrInterimDeadlineInvalid` | Interim deadline must be after the current height |
+| 2403 | `ErrInterimNeedsApproval` | Only ADJUDICATION interims complete through MsgCompleteInterim; others are paid by MsgApproveInterim |
+| 2404 | `ErrSelfApproval` | An assignee cannot approve their own interim |
+| 2405 | `ErrParamGovernanceOnly` | Parameter can only be changed by governance |
+| 2406 | `ErrSelfAward` | A budget group member cannot award to their own post |
+| 2407 | `ErrTagCreationRateLimited` | Per-member per-epoch tag creation limit reached |
+| 2408 | `ErrContentNotFound` | Content stake target does not exist |
+| 2409 | `ErrTooManyStakes` | Member holds `MaxStakeRecordsPerMember` stake records |
+| 2410 | `ErrTooManyVouchedTags` | More than `MaxVouchedTags` vouched tags |
+| 2411 | `ErrTooMuchEvidence` | Evidence list longer than `MaxChallengeEvidence` or an entry over `MaxChallengeEvidenceLength` bytes |
+| 2412 | `ErrParamImmutable` | Parameter is fixed at genesis |
+| 2413 | `ErrTagBudgetAwarderCap` | Awarder reached their per-epoch award cap for this tag budget |
+| 2414 | `ErrInvalidJurorVote` | Juror vote must be UPHOLD or REJECT with confidence in [0, 1] |
+| 2415 | `ErrProjectHasOpenWork` | Project still has open initiatives or active challenges (`MsgCompleteProject`) |
+| 2416 | `ErrNotInitiativeReview` | Expert witnesses can be called only on a pending initiative jury review |
+| 2417 | `ErrTooManyExpertWitnesses` | Jury review already has the maximum number of expert witnesses |
+| 2418 | `ErrExpertIneligible` | Expert witness must be an active ESTABLISHED+ member with reputation in the initiative's tags and no stake in the dispute |

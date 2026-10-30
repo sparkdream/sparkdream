@@ -11,6 +11,7 @@ import (
 
 	"sparkdream/x/artifact/keeper"
 	"sparkdream/x/artifact/types"
+	commontypes "sparkdream/x/common/types"
 )
 
 // SimulateMsgRevokeUnits revokes units of an issuer-burnable edition.
@@ -29,7 +30,7 @@ func SimulateMsgRevokeUnits(ak types.AuthKeeper, bk types.BankKeeper, k keeper.K
 			return noop(msg, "class owner is not a sim account")
 		}
 		msg = &types.MsgRevokeUnits{Owner: owner.Address.String(), ClassId: c.Id, EditionId: b.EditionId, Holder: b.Owner,
-			Amount: uint64(1 + r.Intn(int(b.Amount))), Reason: "simulated"}
+			Amount: commontypes.Saturate[uint64](1 + r.Intn(commontypes.Saturate[int](b.Amount))), Reason: "simulated"}
 		return deliver(r, app, ctx, ak, bk, txGen, owner, msg, math.ZeroInt())
 	}
 }

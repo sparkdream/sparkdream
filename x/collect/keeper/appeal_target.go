@@ -142,8 +142,8 @@ func (t RepAppealTarget) OnAppealOutcome(ctx context.Context, actionType reptype
 		))
 	case reptypes.GovAppealStatus_GOV_APPEAL_STATUS_TIMEOUT:
 		t.k.restoreHiddenTarget(ctx, hr)
-		if t.k.repKeeper != nil && hr.Sentinel != "" && hr.CommittedAmount.IsPositive() {
-			if err := t.k.repKeeper.ReleaseBond(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, hr.Sentinel, hr.CommittedAmount); err != nil {
+		if t.k.late.repKeeper != nil && hr.Sentinel != "" && hr.CommittedAmount.IsPositive() {
+			if err := t.k.late.repKeeper.ReleaseBond(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, hr.Sentinel, hr.CommittedAmount); err != nil {
 				sdkCtx.Logger().Warn("collect: release sentinel bond on appeal timeout failed", "hide_record_id", hr.Id, "error", err)
 			}
 		}

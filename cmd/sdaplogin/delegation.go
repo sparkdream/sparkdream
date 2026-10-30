@@ -27,6 +27,11 @@ const (
 	// The REST gateway parses an enum query parameter as its number only:
 	// "?type=GRANT_TYPE_SIGN_IN" is refused with code 3.
 	signInGrantTypeNum = "5"
+	// Anyone can create grants naming any key, so one page of grants is not
+	// all of them: follow next_key. x/session caps a grantee at 256 grants
+	// and a page at 100, so three pages always suffice; the bound only stops
+	// a misbehaving node from looping us.
+	maxSignInGrantPages = 4
 )
 
 // signInGrant is the part of an x/session Grant this service reads.
@@ -49,18 +54,34 @@ func (g signInGrant) honours(service, grantee string, now time.Time) bool {
 		g.Grantee == grantee && now.Before(g.ExpiresAt)
 }
 
-// SignInGrantsTo lists the SIGN_IN grants made to grantee on the chain. A
-// chain running a release without the grant type refuses
-// the type filter; that is an error here, which callers treat as "none".
+// SignInGrantsTo lists the SIGN_IN grants made to grantee on the chain,
+// every page of them. A chain running a release without the grant type
+// refuses the type filter; that is an error here, which callers treat as
+// "none".
 func (q LCD) SignInGrantsTo(ctx context.Context, c Chain, grantee string) ([]signInGrant, error) {
-	var resp struct {
-		Grants []signInGrant `json:"grants"`
+	var grants []signInGrant
+	nextKey := ""
+	for page := 0; page < maxSignInGrantPages; page++ {
+		var resp struct {
+			Grants     []signInGrant `json:"grants"`
+			Pagination *struct {
+				NextKey string `json:"next_key"`
+			} `json:"pagination"`
+		}
+		path := "/sparkdream/session/v1/grants/by_grantee/" + url.PathEscape(grantee) + "?type=" + signInGrantTypeNum
+		if nextKey != "" {
+			path += "&pagination.key=" + url.QueryEscape(nextKey)
+		}
+		if _, err := q.lcdGet(ctx, c, path, &resp); err != nil {
+			return nil, err
+		}
+		grants = append(grants, resp.Grants...)
+		if resp.Pagination == nil || resp.Pagination.NextKey == "" {
+			return grants, nil
+		}
+		nextKey = resp.Pagination.NextKey
 	}
-	path := "/sparkdream/session/v1/grants/by_grantee/" + url.PathEscape(grantee) + "?type=" + signInGrantTypeNum
-	if _, err := q.lcdGet(ctx, c, path, &resp); err != nil {
-		return nil, err
-	}
-	return resp.Grants, nil
+	return nil, errors.New("sign-in grants: too many pages")
 }
 
 // Grant reads one grant by id; found is false once it is revoked, declined

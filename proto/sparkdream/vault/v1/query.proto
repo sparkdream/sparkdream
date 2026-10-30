@@ -93,10 +93,14 @@ message QueryVaultByAddressResponse {
 message QueryVaultsBySignerRequest {
   string address = 1;
   cosmos.base.query.v1beta1.PageRequest pagination = 2;
+  // When true, lists the vaults where the address (or an alias) is listed but
+  // has not accepted yet (pending invitations) instead of the accepted ones.
+  bool invited = 3;
 }
 
 // QueryVaultsBySignerResponse lists the vaults the address (or any of its
-// x/rep alias addresses) is a signer of.
+// x/rep alias addresses) is an accepted signer of, or, with invited, the
+// vaults where it is listed but has not accepted yet.
 message QueryVaultsBySignerResponse {
   repeated Vault vaults = 1 [(gogoproto.nullable) = false];
   cosmos.base.query.v1beta1.PageResponse pagination = 2;

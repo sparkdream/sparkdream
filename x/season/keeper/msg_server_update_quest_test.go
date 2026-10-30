@@ -74,7 +74,7 @@ func TestMsgServerUpdateQuest(t *testing.T) {
 			XpReward: 50,
 			Active:   true,
 		}
-		k.Quest.Set(ctx, "quest1", existing)
+		require.NoError(t, k.Quest.Set(ctx, "quest1", existing))
 
 		_, err := ms.UpdateQuest(ctx, &types.MsgUpdateQuest{
 			Authority: authority,
@@ -104,7 +104,7 @@ func TestMsgServerUpdateQuest(t *testing.T) {
 			CooldownEpochs: 0,
 			Active:         true,
 		}
-		k.Quest.Set(ctx, "quest1", existing)
+		require.NoError(t, k.Quest.Set(ctx, "quest1", existing))
 
 		// Update it
 		_, err := ms.UpdateQuest(ctx, &types.MsgUpdateQuest{
@@ -150,7 +150,7 @@ func TestMsgServerUpdateQuest(t *testing.T) {
 			XpReward: 50,
 			Active:   true,
 		}
-		k.Quest.Set(ctx, "quest1", existing)
+		require.NoError(t, k.Quest.Set(ctx, "quest1", existing))
 
 		// Update it
 		_, err := ms.UpdateQuest(ctx, &types.MsgUpdateQuest{
@@ -184,7 +184,7 @@ func TestMsgServerUpdateQuest(t *testing.T) {
 			Name:    "Active Quest",
 			Active:  true,
 		}
-		k.Quest.Set(ctx, "quest1", existing)
+		require.NoError(t, k.Quest.Set(ctx, "quest1", existing))
 
 		// Deactivate via update
 		_, err := ms.UpdateQuest(ctx, &types.MsgUpdateQuest{
@@ -215,7 +215,7 @@ func TestMsgServerUpdateQuest(t *testing.T) {
 			Name:    "Inactive Quest",
 			Active:  false,
 		}
-		k.Quest.Set(ctx, "quest1", existing)
+		require.NoError(t, k.Quest.Set(ctx, "quest1", existing))
 
 		// Reactivate via update
 		_, err := ms.UpdateQuest(ctx, &types.MsgUpdateQuest{
@@ -246,7 +246,10 @@ func TestMsgServerUpdateQuest(t *testing.T) {
 			Name:    "Basic Quest",
 			Active:  true,
 		}
-		k.Quest.Set(ctx, "quest1", existing)
+		require.NoError(t, k.Quest.Set(ctx, "quest1", existing))
+		// Prerequisites must exist (SEA-19).
+		require.NoError(t, k.Quest.Set(ctx, "intro", types.Quest{QuestId: "intro", Name: "Intro", Active: true}))
+		require.NoError(t, k.Achievement.Set(ctx, "first_steps", types.Achievement{AchievementId: "first_steps", Name: "First Steps"}))
 
 		// Update with all options (XP must be within MaxQuestXpReward limit of 100)
 		_, err := ms.UpdateQuest(ctx, &types.MsgUpdateQuest{

@@ -274,6 +274,7 @@ func TestAuthorBondTypeToContentType(t *testing.T) {
 func TestContentTypeToAuthorBondType_Roundtrip(t *testing.T) {
 	contentTypes := []types.StakeTargetType{
 		types.StakeTargetType_STAKE_TARGET_BLOG_CONTENT,
+		types.StakeTargetType_STAKE_TARGET_BLOG_REPLY_CONTENT,
 		types.StakeTargetType_STAKE_TARGET_FORUM_CONTENT,
 		types.StakeTargetType_STAKE_TARGET_COLLECTION_CONTENT,
 	}
@@ -290,6 +291,7 @@ func TestContentTypeToAuthorBondType_Roundtrip(t *testing.T) {
 func TestAuthorBondTypeToContentType_Roundtrip(t *testing.T) {
 	bondTypes := []types.StakeTargetType{
 		types.StakeTargetType_STAKE_TARGET_BLOG_AUTHOR_BOND,
+		types.StakeTargetType_STAKE_TARGET_BLOG_REPLY_AUTHOR_BOND,
 		types.StakeTargetType_STAKE_TARGET_FORUM_AUTHOR_BOND,
 		types.StakeTargetType_STAKE_TARGET_COLLECTION_AUTHOR_BOND,
 	}

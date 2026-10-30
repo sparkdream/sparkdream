@@ -114,11 +114,12 @@ func TestMsgTrade(t *testing.T) {
 		{
 			name: "Error - Trade Too Small (MinTick)",
 			market: types.Market{
-				Index:   4,
-				Status:  "ACTIVE",
-				BValue:  testutil.DecPtr("1000"),
-				PoolYes: testutil.IntPtr(0),
-				PoolNo:  testutil.IntPtr(0),
+				Index:    4,
+				Status:   "ACTIVE",
+				EndBlock: 1000,
+				BValue:   testutil.DecPtr("1000"),
+				PoolYes:  testutil.IntPtr(0),
+				PoolNo:   testutil.IntPtr(0),
 				// Set a high MinTick to trigger error
 				MinTick:            testutil.IntPtr(1000000),
 				Denom:              "uspark",
@@ -159,13 +160,14 @@ func TestMsgTrade(t *testing.T) {
 		{
 			name: "Error - Invalid Trade Amount",
 			market: types.Market{
-				Index:   5,
-				Status:  "ACTIVE",
-				BValue:  testutil.DecPtr("1000"),
-				PoolYes: testutil.IntPtr(0),
-				PoolNo:  testutil.IntPtr(0),
-				MinTick: testutil.IntPtr(1),
-				Denom:   "uspark",
+				Index:    5,
+				Status:   "ACTIVE",
+				EndBlock: 1000,
+				BValue:   testutil.DecPtr("1000"),
+				PoolYes:  testutil.IntPtr(0),
+				PoolNo:   testutil.IntPtr(0),
+				MinTick:  testutil.IntPtr(1),
+				Denom:    "uspark",
 			},
 			msg: types.MsgTrade{
 				Creator:  alice.String(),

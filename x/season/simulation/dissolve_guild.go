@@ -8,13 +8,15 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/season/keeper"
 	"sparkdream/x/season/types"
 )
 
-// SimulateMsgDissolveGuild simulates a MsgDissolveGuild message using direct keeper calls.
-// This bypasses the epoch age requirement for simulation purposes.
-// Full timing-based testing should be done in integration tests.
+// SimulateMsgDissolveGuild delivers MsgDissolveGuild from the founder of a
+// live guild at least min_guild_age_epochs old. Skips younger guilds (with
+// the default epoch length most runs end before any guild is old enough)
+// and guilds whose founder is not a sim account.
 func SimulateMsgDissolveGuild(
 	ak types.AuthKeeper,
 	bk types.BankKeeper,
@@ -23,58 +25,30 @@ func SimulateMsgDissolveGuild(
 ) simtypes.Operation {
 	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
 	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		simAccount, _ := simtypes.RandomAcc(r, accs)
+		msg := &types.MsgDissolveGuild{}
 
-		// Find or create a guild where this account is the founder
-		guild, guildID, err := findGuildByFounder(r, ctx, k, simAccount.Address.String())
-		if err != nil || guild == nil {
-			// Create a guild for this account
-			guildID, err = getOrCreateGuild(r, ctx, k, simAccount.Address.String())
-			if err != nil {
-				return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgDissolveGuild{}), "failed to get/create guild"), nil, nil
-			}
-			guildVal, _ := k.Guild.Get(ctx, guildID)
-			guild = &guildVal
+		params, err := k.Params.Get(ctx)
+		if err != nil {
+			return noOpErr(msg, err)
 		}
-
-		// Check if guild is active, if not make it active for simulation
-		if guild.Status != types.GuildStatus_GUILD_STATUS_ACTIVE {
-			guild.Status = types.GuildStatus_GUILD_STATUS_ACTIVE
-			if err := k.Guild.Set(ctx, guildID, *guild); err != nil {
-				return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgDissolveGuild{}), "failed to activate guild"), nil, nil
-			}
-		}
-
-		// Using direct keeper calls to simulate dissolution
-		// This bypasses the epoch age check which can't be satisfied in simulation
-
-		// Remove all memberships for this guild
-		k.GuildMembership.Walk(ctx, nil, func(addr string, membership types.GuildMembership) (bool, error) {
-			if membership.GuildId == guildID {
-				k.GuildMembership.Remove(ctx, addr)
-				// Also clear the profile's GuildId
-				profile, err := k.MemberProfile.Get(ctx, addr)
-				if err == nil && profile.GuildId == guildID {
-					profile.GuildId = 0
-					k.MemberProfile.Set(ctx, addr, profile)
-				}
-			}
-			return false, nil
+		epoch := k.GetCurrentEpoch(ctx)
+		guilds, err := guildsWhere(ctx, k, func(g types.Guild) bool {
+			age := epoch - k.BlockToEpoch(ctx, g.CreatedBlock)
+			return g.Status != types.GuildStatus_GUILD_STATUS_DISSOLVED && commontypes.Saturate[uint64](age) >= params.MinGuildAgeEpochs
 		})
-
-		// Remove all pending invites for this guild
-		k.GuildInvite.Walk(ctx, nil, func(key string, invite types.GuildInvite) (bool, error) {
-			// Key format is "guildId:invitee"
-			k.GuildInvite.Remove(ctx, key)
-			return false, nil
-		})
-
-		// Delete the guild
-		if err := k.Guild.Remove(ctx, guildID); err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgDissolveGuild{}), "failed to remove guild"), nil, nil
+		if err != nil {
+			return noOpErr(msg, err)
 		}
+		guild, ok := pick(r, guilds)
+		if !ok {
+			return noOp(msg, "no live guild old enough to dissolve")
+		}
+		founder, ok := getAccountForAddress(guild.Founder, accs)
+		if !ok {
+			return noOp(msg, "guild founder is not a sim account")
+		}
+		msg.Creator, msg.GuildId = guild.Founder, guild.Id
 
-		// Return success
-		return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgDissolveGuild{}), "ok (direct keeper call)"), nil, nil
+		return deliver(r, app, ctx, txGen, ak, bk, founder, msg)
 	}
 }

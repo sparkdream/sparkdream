@@ -1,6 +1,6 @@
 # `x/split`
 
-The `x/split` module implements automated revenue distribution that runs in BeginBlock. It splits coins from the `x/distribution` Community Pool to registered treasury recipients based on dynamic weight allocations.
+The `x/split` module implements automated revenue distribution that runs in BeginBlock. It splits the chain's bond denom (SPARK) from the `x/distribution` Community Pool to registered treasury recipients based on dynamic weight allocations.
 
 ## Overview
 
@@ -9,7 +9,7 @@ This module provides:
 - **Automatic distribution** — runs every block in BeginBlock without explicit calls
 - **Weight-based allocation** — each recipient has a proportional weight; distribution is `share = (balance * weight) / total_weight`
 - **Dust optimization** — skips distributions where total balance < number of recipients to prevent wasteful gas
-- **Denom-agnostic** — handles any coin type in the Community Pool
+- **Bond denom only** — distributes only the chain's bond denom, resolved through x/identity. Anyone can donate a foreign denom to the Community Pool, so distributing every denom would let the pool's denom count set the per-block work; other denoms stay in the pool, where x/gov can spend them
 - **Graceful degradation** — logs errors on failed transfers but continues processing
 
 ## Concepts
@@ -36,7 +36,9 @@ the Supervisory Board keep `FundingWeight=0` because their
 
 ### Cross-Module Wiring
 
-`x/commons` calls `SetShareByAddress()` during council setup to register treasury recipients and their weights. The split module has no awareness of governance structure — it simply distributes to addresses by weight.
+`x/commons` calls `SetShareByAddress()` during council setup to register treasury recipients and their weights, and `RemoveShareByAddress()` when a group is deleted. The split module has no awareness of governance structure — it simply distributes to addresses by weight.
+
+`SetShareByAddress` returns an error (propagated by x/commons, so a refused weight is never recorded on the group) for a zero weight, a weight above `MaxShareWeight` (10000), or a weight that would push the sum of all shares above `MaxTotalShareWeight` (10000; the genesis pillars total about 1000). Only x/gov can give a group a non-zero weight: a council-registered group must have `funding_weight` 0, and `MsgUpdateGroupConfig.funding_weight` (which replaces a live group's share) is gov-only. Every change emits `split_share_set` / `split_share_removed`.
 
 ## State
 
@@ -63,7 +65,7 @@ the Supervisory Board keep `FundingWeight=0` because their
 
 ## Parameters
 
-None defined. Placeholder for future governance-controlled distribution rules.
+None defined. Placeholder for future governance-controlled distribution rules. Weights are changed through x/commons (`MsgRegisterGroup` / `MsgUpdateGroupConfig` by x/gov, `MsgDeleteGroup`).
 
 ## Dependencies
 
@@ -72,23 +74,28 @@ None defined. Placeholder for future governance-controlled distribution rules.
 | `x/auth` | Yes | Module address resolution |
 | `x/bank` | Yes | Balance queries and coin transfers |
 | `x/distribution` | Yes | Community pool queries (`GetCommunityPool`) and fund distribution (`DistributeFromFeePool`) |
+| `x/identity` | Yes | The bond denom to distribute (`BondDenom`) |
 
 ### Cyclic Dependency Breaking
 
-`DistrKeeper` is wired manually in `app.go` via `SetDistrKeeper()` after `depinject.Inject()` (using a `DistrKeeperAdapter` that wraps the SDK's distribution keeper). Held in a shared `lateKeepers` struct so value-copies of Keeper see updates.
+`DistrKeeper` and `IdentityKeeper` are wired manually in `app.go` via `SetDistrKeeper()` (using a `DistrKeeperAdapter` that wraps the SDK's distribution keeper) and `SetIdentityKeeper()` after `depinject.Inject()`. Held in a shared `lateKeepers` struct so value-copies of Keeper see updates. If either is unwired, BeginBlock logs and skips distribution.
 
 ## BeginBlocker
 
 Runs at the start of every block:
 
 1. Fetch all registered shares and compute total weight (skip if zero)
-2. Query the community pool balance via `DistrKeeper.GetCommunityPool()` and truncate to integer coins
-3. For each coin denomination in the pool:
-   - Skip if amount <= number of recipients (dust protection)
-   - For each recipient, calculate `share_amount = (amount * weight) / total_weight`
-   - Call `DistrKeeper.DistributeFromFeePool()` to transfer coins to recipient
-   - If pool is exhausted mid-distribution, log and continue to next denomination
-4. All errors are non-fatal — the module logs but never panics
+2. Query the community pool balance via `DistrKeeper.GetCommunityPool()` and truncate the bond denom's amount to whole units (other denoms are ignored)
+3. Skip the block if the amount is below `MinDistributionAmount` (1,000,000 base units, i.e. 1 SPARK) or not above the number of recipients (dust protection)
+4. For each recipient:
+   - Calculate `share_amount = (amount * weight) / total_weight`
+   - Call `DistrKeeper.DistributeFromFeePool()` to transfer coins to recipient and emit `split_distribution` (`recipient`, `amount`, `weight`)
+   - If the pool cannot pay a recipient, skip it and continue with the next. The starting recipient rotates with the block height, so a shortfall does not always hit the same addresses
+5. All errors are non-fatal — store and pool errors are logged and the block moves on (BeginBlock never halts the chain)
+
+## Invariants
+
+`ShareWeightsInvariant` (run by app's `TestInvariants`): every share has a valid address and a weight in (0, 10000], and the weights sum to at most 10000. `GenesisState.Validate` enforces the same per-share and total caps on import.
 
 ## Client
 

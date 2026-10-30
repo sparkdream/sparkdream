@@ -98,9 +98,41 @@ func (k msgServer) CreatePost(ctx context.Context, msg *types.MsgCreatePost) (*t
 	if k.commonsKeeper == nil {
 		return nil, errorsmod.Wrap(types.ErrCategoryNotFound, "category registry unavailable")
 	}
-	category, catOk := k.commonsKeeper.GetCategory(ctx, msg.CategoryId)
+
+	// Variables for thread context
+	var rootID uint64
+	var parentPost types.Post
+	var rootPost types.Post
+	var depth uint64
+
+	// A reply belongs to its thread's category: resolve the root first so the
+	// write gates below are checked against the thread's real category, not
+	// whatever the message claims.
+	categoryID := msg.CategoryId
+	if msg.ParentId != 0 {
+		parentPost, err = k.Post.Get(ctx, msg.ParentId)
+		if err != nil {
+			return nil, errorsmod.Wrap(types.ErrParentPostNotFound, fmt.Sprintf("parent post %d not found", msg.ParentId))
+		}
+		if parentPost.ParentId == 0 {
+			rootID = msg.ParentId
+		} else {
+			rootID = parentPost.RootId
+		}
+		rootPost, err = k.Post.Get(ctx, rootID)
+		if err != nil {
+			return nil, errorsmod.Wrap(types.ErrPostNotFound, fmt.Sprintf("root post %d not found", rootID))
+		}
+		if msg.CategoryId != 0 && msg.CategoryId != rootPost.CategoryId {
+			return nil, errorsmod.Wrapf(types.ErrInvalidCategoryId,
+				"reply category %d does not match thread category %d", msg.CategoryId, rootPost.CategoryId)
+		}
+		categoryID = rootPost.CategoryId
+	}
+
+	category, catOk := k.commonsKeeper.GetCategory(ctx, categoryID)
 	if !catOk {
-		return nil, errorsmod.Wrap(types.ErrCategoryNotFound, fmt.Sprintf("category %d not found", msg.CategoryId))
+		return nil, errorsmod.Wrap(types.ErrCategoryNotFound, fmt.Sprintf("category %d not found", categoryID))
 	}
 
 	// Check category write permissions
@@ -114,18 +146,17 @@ func (k msgServer) CreatePost(ctx context.Context, msg *types.MsgCreatePost) (*t
 		return nil, types.ErrMembersOnlyWrite
 	}
 
-	// Variables for thread context
-	var rootID uint64
-	var parentPost types.Post
-	var depth uint64
+	maxContentSize := params.MaxContentSize
+	if maxContentSize == 0 {
+		maxContentSize = types.DefaultMaxContentSize
+	}
+	maxReplyDepth := params.MaxReplyDepth
+	if maxReplyDepth == 0 {
+		maxReplyDepth = types.DefaultMaxReplyDepth
+	}
 
 	// Handle replies
 	if msg.ParentId != 0 {
-		parentPost, err = k.Post.Get(ctx, msg.ParentId)
-		if err != nil {
-			return nil, errorsmod.Wrap(types.ErrParentPostNotFound, fmt.Sprintf("parent post %d not found", msg.ParentId))
-		}
-
 		// Check parent post status — cannot reply to hidden/deleted/archived posts
 		switch parentPost.Status {
 		case types.PostStatus_POST_STATUS_HIDDEN:
@@ -136,17 +167,12 @@ func (k msgServer) CreatePost(ctx context.Context, msg *types.MsgCreatePost) (*t
 			return nil, errorsmod.Wrap(types.ErrPostArchived, fmt.Sprintf("parent post %d is archived", msg.ParentId))
 		}
 
-		// Determine root ID
-		if parentPost.ParentId == 0 {
-			rootID = msg.ParentId
-		} else {
-			rootID = parentPost.RootId
-		}
-
-		// Load root post to check thread lock
-		rootPost, err := k.Post.Get(ctx, rootID)
-		if err != nil {
-			return nil, errorsmod.Wrap(types.ErrPostNotFound, fmt.Sprintf("root post %d not found", rootID))
+		// An archived or hidden thread takes no new replies.
+		switch rootPost.Status {
+		case types.PostStatus_POST_STATUS_ARCHIVED:
+			return nil, errorsmod.Wrap(types.ErrPostArchived, fmt.Sprintf("thread %d is archived", rootID))
+		case types.PostStatus_POST_STATUS_HIDDEN:
+			return nil, errorsmod.Wrap(types.ErrPostAlreadyHidden, fmt.Sprintf("thread %d is hidden", rootID))
 		}
 
 		// Check if thread is locked
@@ -156,8 +182,8 @@ func (k msgServer) CreatePost(ctx context.Context, msg *types.MsgCreatePost) (*t
 
 		// Check reply depth
 		depth = parentPost.Depth + 1
-		if depth > uint64(types.DefaultMaxReplyDepth) {
-			return nil, errorsmod.Wrapf(types.ErrMaxReplyDepthExceeded, "max depth is %d", types.DefaultMaxReplyDepth)
+		if depth > uint64(maxReplyDepth) {
+			return nil, errorsmod.Wrapf(types.ErrMaxReplyDepthExceeded, "max depth is %d", maxReplyDepth)
 		}
 	}
 
@@ -165,8 +191,8 @@ func (k msgServer) CreatePost(ctx context.Context, msg *types.MsgCreatePost) (*t
 	if msg.Content == "" {
 		return nil, types.ErrEmptyContent
 	}
-	if uint64(len(msg.Content)) > types.DefaultMaxContentSize {
-		return nil, errorsmod.Wrapf(types.ErrContentTooLarge, "max size is %d bytes", types.DefaultMaxContentSize)
+	if uint64(len(msg.Content)) > maxContentSize {
+		return nil, errorsmod.Wrapf(types.ErrContentTooLarge, "max size is %d bytes", maxContentSize)
 	}
 
 	// Media rules + scan fee (docs/content-scanning.md §9).
@@ -246,7 +272,7 @@ func (k msgServer) CreatePost(ctx context.Context, msg *types.MsgCreatePost) (*t
 	// Create post
 	post := types.Post{
 		PostId:         postID,
-		CategoryId:     msg.CategoryId,
+		CategoryId:     categoryID,
 		RootId:         rootID,
 		ParentId:       msg.ParentId,
 		Author:         msg.Creator,
@@ -264,6 +290,17 @@ func (k msgServer) CreatePost(ctx context.Context, msg *types.MsgCreatePost) (*t
 	// Store post
 	if err := k.Post.Set(ctx, postID, post); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to store post")
+	}
+
+	// Index replies under their thread so thread-wide operations (freeze /
+	// unarchive) walk one thread, not the whole store; index roots under
+	// their category for category-deletion checks.
+	if msg.ParentId != 0 {
+		if err := k.PostsByRoot.Set(ctx, collections.Join(rootID, postID)); err != nil {
+			return nil, errorsmod.Wrap(err, "failed to index reply under thread")
+		}
+	} else if err := k.RootsByCategory.Set(ctx, collections.Join(post.CategoryId, postID)); err != nil {
+		return nil, errorsmod.Wrap(err, "failed to index thread under category")
 	}
 
 	// A reply is engagement the parent's author may earn XP for.
@@ -322,7 +359,7 @@ func (k msgServer) CreatePost(ctx context.Context, msg *types.MsgCreatePost) (*t
 		sdk.NewEvent(
 			"post_created",
 			sdk.NewAttribute("post_id", fmt.Sprintf("%d", postID)),
-			sdk.NewAttribute("category_id", fmt.Sprintf("%d", msg.CategoryId)),
+			sdk.NewAttribute("category_id", fmt.Sprintf("%d", categoryID)),
 			sdk.NewAttribute("parent_id", fmt.Sprintf("%d", msg.ParentId)),
 			sdk.NewAttribute("author", msg.Creator),
 			sdk.NewAttribute("is_ephemeral", fmt.Sprintf("%t", expirationTime > 0)),
@@ -360,15 +397,9 @@ func (k msgServer) checkAndUpdateRateLimit(ctx context.Context, addr string, now
 		rateLimit.CurrentEpochStart = now
 	}
 
-	// Calculate effective count using sliding window approximation
-	var overlapRatio float64
-	elapsed := now - rateLimit.CurrentEpochStart
-	if elapsed < epochDuration {
-		overlapRatio = float64(epochDuration-elapsed) / float64(epochDuration)
-	}
-	effectiveCount := float64(rateLimit.CurrentEpochCount) + float64(rateLimit.PreviousEpochCount)*overlapRatio
-
-	if effectiveCount >= float64(limit) {
+	// Sliding-window count, evaluated in exact integer math.
+	if slidingWindowAtLimit(uint64(rateLimit.CurrentEpochCount), uint64(rateLimit.PreviousEpochCount),
+		now-rateLimit.CurrentEpochStart, epochDuration, limit) {
 		return types.ErrRateLimitExceeded
 	}
 
@@ -407,14 +438,8 @@ func (k msgServer) checkAndUpdateMakePermanentRateLimit(ctx context.Context, add
 		rateLimit.MakePermanentCurrentEpochStart = now
 	}
 
-	var overlapRatio float64
-	elapsed := now - rateLimit.MakePermanentCurrentEpochStart
-	if elapsed < epochDuration {
-		overlapRatio = float64(epochDuration-elapsed) / float64(epochDuration)
-	}
-	effectiveCount := float64(rateLimit.MakePermanentCurrentEpochCount) + float64(rateLimit.MakePermanentPreviousEpochCount)*overlapRatio
-
-	if effectiveCount >= float64(limit) {
+	if slidingWindowAtLimit(uint64(rateLimit.MakePermanentCurrentEpochCount), uint64(rateLimit.MakePermanentPreviousEpochCount),
+		now-rateLimit.MakePermanentCurrentEpochStart, epochDuration, limit) {
 		return types.ErrRateLimitExceeded
 	}
 

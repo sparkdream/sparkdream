@@ -153,7 +153,32 @@ func (k Keeper) collectHarbergerTax(ctx sdk.Context, cutoff int64, limit int) {
 				return err
 			}
 			return k.indexHarbergerDue(c, t)
-		}, func() { _ = k.HarbergerDue.Remove(ctx, key) })
+		}, func() {
+			// Re-queue the token one period later rather than dropping its
+			// due entry, which would stop tax (and foreclosure) for good.
+			if !k.tryCached(ctx, func(c sdk.Context) error {
+				if err := k.HarbergerDue.Remove(c, key); err != nil {
+					return err
+				}
+				t, err := k.getToken(c, classID, tokenID)
+				if err != nil || t.Harberger == nil || t.Harberger.NextDue != key.K1() {
+					return nil
+				}
+				period := k.harbergerPeriod(c, classID)
+				if period <= 0 {
+					return fmt.Errorf("class %d has no tax period", classID)
+				}
+				t.Harberger.NextDue = key.K1() + period
+				if err := k.saveToken(c, t); err != nil {
+					return err
+				}
+				return k.indexHarbergerDue(c, t)
+			}) {
+				if err := k.HarbergerDue.Remove(ctx, key); err != nil {
+					ctx.Logger().Error("collectHarbergerTax: HarbergerDue.Remove failed", "err", err)
+				}
+			}
+		})
 	}
 }
 

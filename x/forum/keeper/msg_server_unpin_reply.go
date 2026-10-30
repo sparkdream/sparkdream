@@ -46,12 +46,17 @@ func (k msgServer) UnpinReply(ctx context.Context, msg *types.MsgUnpinReply) (*t
 	// Check authorization
 	// Gov can unpin anything
 	// Sentinel can only unpin their own pins (and only if not disputed/resolved)
+	// A pin under an unresolved dispute belongs to the jury: unpinning it
+	// would release the reservation the verdict slashes or releases. The
+	// council resolves it through MsgResolveGovActionAppeal instead. Once
+	// the verdict settles the pin (CommittedAmount zeroed), it can be
+	// unpinned again without releasing anything twice.
+	if pinDisputePending(foundRecord) {
+		return nil, errorsmod.Wrap(types.ErrPinDisputed, "cannot unpin a pin under dispute")
+	}
 	if !isGov {
 		if !k.canActAs(ctx, msg.Creator, foundRecord.PinnedBy) {
 			return nil, errorsmod.Wrap(types.ErrNotAuthorized, "sentinels can only unpin their own pins")
-		}
-		if foundRecord.Disputed {
-			return nil, errorsmod.Wrap(types.ErrPinDisputed, "cannot unpin disputed pin")
 		}
 	}
 

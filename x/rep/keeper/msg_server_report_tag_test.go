@@ -36,7 +36,7 @@ func TestMsgServerReportTag(t *testing.T) {
 		require.NoError(t, f.keeper.Member.Set(f.ctx, creatorStr, types.Member{
 			Address:      creatorStr,
 			Status:       types.MemberStatus_MEMBER_STATUS_ACTIVE,
-			DreamBalance: keeper.PtrInt(math.NewInt(1000)),
+			DreamBalance: keeper.PtrInt(math.NewInt(10_000_000)),
 			StakedDream:  keeper.PtrInt(math.NewInt(0)),
 		}))
 
@@ -59,7 +59,7 @@ func TestMsgServerReportTag(t *testing.T) {
 		require.NoError(t, f.keeper.Member.Set(f.ctx, creatorStr, types.Member{
 			Address:      creatorStr,
 			Status:       types.MemberStatus_MEMBER_STATUS_ACTIVE,
-			DreamBalance: keeper.PtrInt(math.NewInt(1000)),
+			DreamBalance: keeper.PtrInt(math.NewInt(10_000_000)),
 			StakedDream:  keeper.PtrInt(math.NewInt(0)),
 		}))
 		require.NoError(t, f.keeper.SetTag(f.ctx, types.Tag{Name: "report-test-tag"}))
@@ -87,7 +87,7 @@ func TestMsgServerReportTag(t *testing.T) {
 		require.NoError(t, f.keeper.Member.Set(f.ctx, creatorStr, types.Member{
 			Address:      creatorStr,
 			Status:       types.MemberStatus_MEMBER_STATUS_ACTIVE,
-			DreamBalance: keeper.PtrInt(math.NewInt(1000)),
+			DreamBalance: keeper.PtrInt(math.NewInt(10_000_000)),
 			StakedDream:  keeper.PtrInt(math.NewInt(0)),
 		}))
 		require.NoError(t, f.keeper.SetTag(f.ctx, types.Tag{Name: "double-report-tag"}))
@@ -120,7 +120,7 @@ func TestMsgServerReportTag(t *testing.T) {
 			require.NoError(t, f.keeper.Member.Set(f.ctx, s, types.Member{
 				Address:      s,
 				Status:       types.MemberStatus_MEMBER_STATUS_ACTIVE,
-				DreamBalance: keeper.PtrInt(math.NewInt(1000)),
+				DreamBalance: keeper.PtrInt(math.NewInt(10_000_000)),
 				StakedDream:  keeper.PtrInt(math.NewInt(0)),
 			}))
 		}

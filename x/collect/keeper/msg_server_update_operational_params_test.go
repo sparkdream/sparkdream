@@ -38,9 +38,10 @@ func TestUpdateOperationalParams(t *testing.T) {
 			},
 		},
 		{
-			name: "success council authorized updates",
+			name: "success committee policy updates",
 			setup: func(f *testFixture) {
-				f.commonsKeeper.isCouncilAuthorizedFn = func(_ context.Context, addr string, _ string, _ string) bool {
+				// f.member stands in for the Operations Committee policy.
+				f.commonsKeeper.isCouncilOrCommitteeFn = func(_ context.Context, addr string, _ string, _ string) bool {
 					return addr == f.member
 				}
 			},
@@ -59,9 +60,14 @@ func TestUpdateOperationalParams(t *testing.T) {
 			},
 		},
 		{
-			name: "error unauthorized",
+			// A single committee member (IsCouncilAuthorized true) is not the
+			// committee: value-moving / clock params need the policy.
+			name: "error individual committee member is not the policy",
 			setup: func(f *testFixture) {
 				f.commonsKeeper.isCouncilAuthorizedFn = func(_ context.Context, _ string, _ string, _ string) bool {
+					return true
+				}
+				f.commonsKeeper.isCouncilOrCommitteeFn = func(_ context.Context, _ string, _ string, _ string) bool {
 					return false
 				}
 			},

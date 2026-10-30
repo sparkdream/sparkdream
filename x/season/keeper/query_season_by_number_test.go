@@ -36,7 +36,7 @@ func TestQuerySeasonByNumber(t *testing.T) {
 			EndBlock:   10000,
 			Status:     types.SeasonStatus_SEASON_STATUS_ACTIVE,
 		}
-		k.Season.Set(ctx, season)
+		require.NoError(t, k.Season.Set(ctx, season))
 
 		resp, err := qs.SeasonByNumber(ctx, &types.QuerySeasonByNumberRequest{Number: 3})
 		require.NoError(t, err)
@@ -51,7 +51,7 @@ func TestQuerySeasonByNumber(t *testing.T) {
 			Season:        2,
 			SnapshotBlock: 5000,
 		}
-		k.SeasonSnapshot.Set(ctx, 2, snapshot)
+		require.NoError(t, k.SeasonSnapshot.Set(ctx, 2, snapshot))
 
 		resp, err := qs.SeasonByNumber(ctx, &types.QuerySeasonByNumberRequest{Number: 2})
 		require.NoError(t, err)

@@ -11,6 +11,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	"sparkdream/x/artifact/types"
+	commontypes "sparkdream/x/common/types"
 	reptypes "sparkdream/x/rep/types"
 )
 
@@ -250,7 +251,7 @@ func (k Keeper) canCreateClass(ctx context.Context, addr sdk.AccAddress, addrStr
 	if err != nil {
 		return false
 	}
-	return uint32(lvl) >= p.MinTrustLevelCreateClass
+	return commontypes.Saturate[uint32](lvl) >= p.MinTrustLevelCreateClass
 }
 
 // isOpsAuthority: gov, the Commons Council policy, the Ops Committee policy,
@@ -270,7 +271,7 @@ func (k Keeper) isOpsAuthority(ctx context.Context, addr string) bool {
 func (k Keeper) EffectiveReceivePolicy(ctx context.Context, addr string) (types.ReceivePolicy, bool) {
 	v, err := k.ReceivePolicies.Get(ctx, addr)
 	if err == nil && v != 0 {
-		return types.ReceivePolicy(v), false
+		return commontypes.Saturate[types.ReceivePolicy](v), false
 	}
 	return k.GetParams(ctx).DefaultReceivePolicy, true
 }
@@ -328,7 +329,7 @@ func checkBatch(n int, p types.Params) error {
 	if n == 0 {
 		return errorsmod.Wrap(types.ErrInvalidBatch, "batch is empty")
 	}
-	if uint32(n) > p.MaxBatchSize {
+	if commontypes.Saturate[uint32](n) > p.MaxBatchSize {
 		return errorsmod.Wrapf(types.ErrInvalidBatch, "batch exceeds %d entries", p.MaxBatchSize)
 	}
 	return nil

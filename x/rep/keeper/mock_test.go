@@ -22,24 +22,6 @@ func PtrDec(d math.LegacyDec) *math.LegacyDec {
 	return &d
 }
 
-// mockAuthKeeper mocks the auth keeper
-type mockAuthKeeper struct {
-	GetModuleAddressFn func(name string) sdk.AccAddress
-}
-
-func (m mockAuthKeeper) GetModuleAddress(name string) sdk.AccAddress {
-	if m.GetModuleAddressFn != nil {
-		return m.GetModuleAddressFn(name)
-	}
-	// Return a dummy address
-	return sdk.AccAddress([]byte("module_address_" + name))
-}
-
-func (m mockAuthKeeper) GetAccount(ctx context.Context, addr sdk.AccAddress) sdk.AccountI {
-	// Not needed for these tests yet
-	return nil
-}
-
 // mockBankKeeper mocks the bank keeper
 type mockBankKeeper struct {
 	SpendableCoinsFn               func(ctx context.Context, addr sdk.AccAddress) sdk.Coins

@@ -6,6 +6,7 @@ import (
 	"sparkdream/x/rep/types"
 
 	errorsmod "cosmossdk.io/errors"
+	sdk "github.com/cosmos/cosmos-sdk/types"
 )
 
 func (k msgServer) CreateInterim(ctx context.Context, msg *types.MsgCreateInterim) (*types.MsgCreateInterimResponse, error) {
@@ -15,15 +16,33 @@ func (k msgServer) CreateInterim(ctx context.Context, msg *types.MsgCreateInteri
 	}
 
 	// An interim is budget-backed paid work, and CreateInterimWork below makes
-	// the creator its sole assignee — so creating one is commissioning DREAM
-	// for yourself. This had no gate at all: any address, member or not, could
-	// mint a complexity-derived budget by pairing it with MsgCompleteInterim.
-	// Membership is the floor; the per-member active cap
-	// (max_active_interims_per_member) and the per-season interim reward cap
-	// bound it from there.
-	if _, err := k.Keeper.GetMember(ctx, creatorAddr); err != nil {
+	// the creator its sole assignee. Creating one is therefore only a request
+	// to be paid for work: the budget is paid when the Operations Committee
+	// approves it (MsgApproveInterim, never by an assignee), not when the
+	// assignee says it is done (REP-E-02). Active membership is the floor;
+	// the per-member active cap (max_active_interims_per_member) and the
+	// per-season interim reward cap bound it from there.
+	if !k.Keeper.IsActiveMember(ctx, creatorAddr) {
 		return nil, errorsmod.Wrapf(types.ErrNotMember,
-			"only members may create interim work (creator: %s)", msg.Creator)
+			"only active members may create interim work (creator: %s)", msg.Creator)
+	}
+
+	// ADJUDICATION and JURY_DUTY interims are raised by the module only
+	// (REP-E-01). A member-created ADJUDICATION interim naming a challenged
+	// initiative, with a deadline already behind it, force-rejected the
+	// challenge sitting in jury review on its next EndBlock.
+	if IsSystemOnlyInterimType(msg.InterimType) {
+		return nil, errorsmod.Wrapf(types.ErrInterimTypeSystemOnly, "%s", msg.InterimType)
+	}
+	if _, known := types.InterimType_name[int32(msg.InterimType)]; !known {
+		return nil, errorsmod.Wrapf(types.ErrInvalidRequest, "unknown interim type %d", int32(msg.InterimType))
+	}
+	if _, known := types.InterimComplexity_name[int32(msg.Complexity)]; !known {
+		return nil, errorsmod.Wrapf(types.ErrInvalidRequest, "unknown interim complexity %d", int32(msg.Complexity))
+	}
+	if msg.Deadline <= sdk.UnwrapSDKContext(ctx).BlockHeight() {
+		return nil, errorsmod.Wrapf(types.ErrInterimDeadlineInvalid,
+			"deadline %d is not after the current height %d", msg.Deadline, sdk.UnwrapSDKContext(ctx).BlockHeight())
 	}
 
 	// Create interim work with single assignee (creator)

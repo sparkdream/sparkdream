@@ -3,6 +3,7 @@ package keeper_test
 import (
 	"testing"
 
+	"sparkdream/x/name/keeper"
 	"sparkdream/x/name/types"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -310,4 +311,35 @@ func TestIsActiveRepMember(t *testing.T) {
 	isMember, err = f.keeper.IsActiveRepMember(f.ctx, memberAddr)
 	require.NoError(t, err)
 	require.True(t, isMember)
+}
+
+// TestReleaseName: a name reserved through ClaimName and released is gone
+// (record, owner index, primary pointer), so it can be claimed again and the
+// owner index never holds a record the export would rebuild an entry for.
+func TestReleaseName(t *testing.T) {
+	f := initFixture(t)
+
+	owner := sdk.AccAddress([]byte("owner_release_______"))
+	other := sdk.AccAddress([]byte("owner_release_other_"))
+	require.NoError(t, f.keeper.ClaimName(f.ctx, "zenith", owner.String(), "guild"))
+	require.NoError(t, f.keeper.SetPrimaryName(f.ctx, owner, "zenith"))
+
+	// Someone else's release leaves the name alone.
+	require.NoError(t, f.keeper.ReleaseName(f.ctx, "zenith", other.String()))
+	require.False(t, f.keeper.IsNameAvailable(f.ctx, "zenith"))
+
+	require.NoError(t, f.keeper.ReleaseName(f.ctx, "zenith", owner.String()))
+	require.True(t, f.keeper.IsNameAvailable(f.ctx, "zenith"))
+	count, err := f.keeper.GetOwnedNamesCount(f.ctx, owner)
+	require.NoError(t, err)
+	require.Zero(t, count)
+	info, err := f.keeper.Owners.Get(f.ctx, owner.String())
+	require.NoError(t, err)
+	require.Empty(t, info.PrimaryName)
+	msg, broken := keeper.OwnerIndexInvariant(f.keeper)(f.ctx)
+	require.False(t, broken, msg)
+
+	// Releasing an absent name is a no-op, and the name is claimable again.
+	require.NoError(t, f.keeper.ReleaseName(f.ctx, "zenith", owner.String()))
+	require.NoError(t, f.keeper.ClaimName(f.ctx, "zenith", other.String(), "username"))
 }

@@ -190,7 +190,7 @@ func TestPrecheckOwnershipModeRejections(t *testing.T) {
 				Nullifier:          make([]byte, 32),
 				RateLimitNullifier: make([]byte, 32),
 			}
-			require.ErrorIs(t, f.keeper.PrecheckExec(f.ctx.WithIsCheckTx(true), msg), tc.wantIs)
+			require.ErrorIs(t, f.keeper.PrecheckExecErr(f.ctx.WithIsCheckTx(true), msg), tc.wantIs)
 		})
 	}
 }
@@ -218,5 +218,35 @@ func TestPrecheckUnknownProofDomain(t *testing.T) {
 		MerkleRoot:         make([]byte, 32),
 		Proof:              []byte("proof"),
 	}
-	require.ErrorIs(t, f.keeper.PrecheckExec(f.ctx, msg), types.ErrInvalidProofDomain)
+	require.ErrorIs(t, f.keeper.PrecheckExecErr(f.ctx, msg), types.ErrInvalidProofDomain)
+}
+
+// TestPrecheckImmediateRefusesIncompatibleOp: an active registration whose
+// target module rejects the message is refused before the ante spends the
+// nullifier or the reserve pays a fee (a module that refuses every exec,
+// such as anonymous council votes, would otherwise cost a fee per attempt).
+func TestPrecheckImmediateRefusesIncompatibleOp(t *testing.T) {
+	f := initFixture(t)
+	inner := innerAny(t, &types.MsgTriggerDkg{Authority: authtypes.NewModuleAddress(types.ModuleName).String()})
+	require.NoError(t, f.keeper.SetShieldedOp(f.ctx, types.ShieldedOpRegistration{
+		MessageTypeUrl:     inner.TypeUrl,
+		ProofDomain:        types.ProofDomain_PROOF_DOMAIN_TRUST_TREE,
+		Active:             true,
+		BatchMode:          types.ShieldBatchMode_SHIELD_BATCH_MODE_EITHER,
+		NullifierDomain:    99,
+		NullifierScopeType: types.NullifierScopeType_NULLIFIER_SCOPE_GLOBAL,
+	}))
+	msg := &types.MsgShieldedExec{
+		ExecMode:           types.ShieldExecMode_SHIELD_EXEC_IMMEDIATE,
+		ProofDomain:        types.ProofDomain_PROOF_DOMAIN_TRUST_TREE,
+		InnerMessage:       inner,
+		Nullifier:          make([]byte, 32),
+		RateLimitNullifier: make([]byte, 32),
+	}
+
+	f.keeper.RegisterShieldAwareModule("/sparkdream.shield.v1.", &mockShieldAware{compatible: false})
+	require.ErrorIs(t, f.keeper.PrecheckImmediateErr(f.ctx, msg), types.ErrIncompatibleOperation)
+
+	f.keeper.RegisterShieldAwareModule("/sparkdream.shield.v1.", &mockShieldAware{compatible: true})
+	require.NoError(t, f.keeper.PrecheckImmediateErr(f.ctx, msg))
 }

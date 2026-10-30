@@ -21,6 +21,10 @@ func (k msgServer) Reject(ctx context.Context, msg *types.MsgReject) (*types.Msg
 	if !k.commonsKeeper.IsCouncilPolicyOrGov(ctx, msg.Authority, "commons") {
 		return nil, types.ErrUnauthorized.Wrapf("unauthorized: must be governance or Commons Council")
 	}
+	proposer, err := k.checkCouncilProposer(ctx, msg.Authority, msg.Proposer)
+	if err != nil {
+		return nil, err
+	}
 
 	// Get the contribution
 	contrib, err := k.Contribution.Get(ctx, msg.ContributionId)
@@ -66,7 +70,7 @@ func (k msgServer) Reject(ctx context.Context, msg *types.MsgReject) (*types.Msg
 	}
 
 	// Save updated contribution
-	if err := k.Contribution.Set(ctx, contrib.Id, contrib); err != nil {
+	if err := k.saveContribution(ctx, &contrib); err != nil {
 		return nil, err
 	}
 	if err := k.ContributionsByStatus.Set(ctx, collections.Join(int32(contrib.Status), contrib.Id)); err != nil {
@@ -78,7 +82,7 @@ func (k msgServer) Reject(ctx context.Context, msg *types.MsgReject) (*types.Msg
 		sdk.NewEvent(
 			"contribution_rejected",
 			sdk.NewAttribute("contribution_id", fmt.Sprintf("%d", contrib.Id)),
-			sdk.NewAttribute("proposed_by", msg.Proposer),
+			sdk.NewAttribute("proposed_by", proposer),
 			sdk.NewAttribute("reason", msg.Reason),
 			sdk.NewAttribute("proposal_eligible_at", fmt.Sprintf("%d", contrib.ProposalEligibleAt)),
 		),

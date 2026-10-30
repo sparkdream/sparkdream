@@ -84,6 +84,10 @@ func (m *mockCommonsKeeperAuthorized) IsCouncilAuthorized(_ context.Context, _ s
 	return true
 }
 
+func (m *mockCommonsKeeperAuthorized) IsCouncilOrCommitteePolicy(_ context.Context, _ string, _ string, _ string) bool {
+	return true
+}
+
 // initFixtureCouncilAuthorized creates a test fixture with a CommonsKeeper that
 // authorizes any address via IsCouncilAuthorized.
 func initFixtureCouncilAuthorized(t *testing.T) *fixture {
@@ -145,9 +149,9 @@ func TestUpdateOperationalParams(t *testing.T) {
 	modifiedOp := types.NameOperationalParams{
 		ExpirationDuration:    time.Hour * 24 * 180, // 180 days
 		RegistrationFeeAmount: math.NewInt(20000000),
-		DisputeStakeDream:     math.NewInt(75),
+		DisputeStakeDream:     math.NewInt(75_000_000), // 75 DREAM
 		DisputeTimeoutBlocks:  200000,
-		ContestStakeDream:     math.NewInt(150),
+		ContestStakeDream:     math.NewInt(150_000_000), // 150 DREAM
 	}
 
 	tests := []struct {

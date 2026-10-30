@@ -21,3 +21,27 @@ func TestCheckNetworkBuild(t *testing.T) {
 		}
 	}
 }
+
+func TestCheckTestBuildStart(t *testing.T) {
+	t.Setenv(AllowTestBuildEnv, "")
+	if builtForNetwork != "" {
+		require.NoError(t, CheckTestBuildStart("phoenix-1"))
+		return
+	}
+	require.NoError(t, CheckTestBuildStart(""))
+	require.NoError(t, CheckTestBuildStart("sparkdream"))
+	require.ErrorContains(t, CheckTestBuildStart("phoenix-1"), "UNTAGGED TEST BUILD")
+	require.ErrorContains(t, CheckTestBuildStart("phoenix-1"), AllowTestBuildEnv)
+
+	t.Setenv(AllowTestBuildEnv, "1")
+	require.NoError(t, CheckTestBuildStart("phoenix-1"))
+}
+
+func TestTestBuildWarning(t *testing.T) {
+	if builtForNetwork != "" {
+		require.Empty(t, testBuildWarning("phoenix-1"))
+		return
+	}
+	require.Empty(t, testBuildWarning(""))
+	require.Contains(t, testBuildWarning("phoenix-1"), "UNTAGGED TEST BUILD")
+}

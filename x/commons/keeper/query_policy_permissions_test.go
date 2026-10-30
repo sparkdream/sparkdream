@@ -19,7 +19,9 @@ func createNPolicyPermissions(keeper keeper.Keeper, ctx context.Context, n int) 
 	for i := range items {
 		items[i].PolicyAddress = strconv.Itoa(i)
 		items[i].AllowedMessages = []string{`abc` + strconv.Itoa(i), `xyz` + strconv.Itoa(i)}
-		_ = keeper.PolicyPermissions.Set(ctx, items[i].PolicyAddress, items[i])
+		if err := keeper.PolicyPermissions.Set(ctx, items[i].PolicyAddress, items[i]); err != nil {
+			panic(err)
+		}
 	}
 	return items
 }

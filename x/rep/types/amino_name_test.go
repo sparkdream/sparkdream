@@ -1,7 +1,6 @@
 package types_test
 
 import (
-	"fmt"
 	"strings"
 	"testing"
 
@@ -103,5 +102,5 @@ func TestAminoNamesPresent(t *testing.T) {
 		seen[got] = string(md.Name())
 	}
 
-	t.Log(fmt.Sprintf("checked %d signer messages in %s", len(signerMsgs), pkg))
+	t.Logf("checked %d signer messages in %s", len(signerMsgs), pkg)
 }

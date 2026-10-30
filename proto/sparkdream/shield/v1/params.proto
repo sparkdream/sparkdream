@@ -76,7 +76,8 @@ message Params {
   uint64 dkg_window_blocks = 17;
 
   // Validator set drift percentage (0-100) that triggers automatic re-keying.
-  // e.g. 33 means re-key if >33% of DKG participants are no longer in the bonded set.
+  // e.g. 33 means re-key once 33% or more of the DKG participants (truncated
+  // to a whole percent) are no longer in the bonded set.
   uint32 max_validator_set_drift = 18;
 
   // Maximum fee (in the bond denom) the shield module pays for one
@@ -94,4 +95,18 @@ message Params {
   // Off by default: governance enables batch mode explicitly once it is
   // satisfied with the ceremony. A re-key always turns batch mode off.
   bool enable_batch_after_dkg = 20;
+
+  // Chain-wide budget (in the bond denom) of fees the shield module pays in
+  // one shield epoch, summed over every exec. An exec whose fee would exceed
+  // what is left is rejected before anything is paid; the budget resets at
+  // the next shield epoch. Size it so that budget x epochs per day stays
+  // below max_funding_per_day (at 6 s blocks and a 50-block epoch there are
+  // 288 epochs a day): then no set of identities, however many in-quota
+  // execs they run, can drain the reserve faster than it is funded. Must be
+  // at least max_fee_per_exec.
+  string max_fees_per_epoch = 21 [
+    (cosmos_proto.scalar) = "cosmossdk.io/math.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
 }

@@ -91,7 +91,7 @@ func TestPruneSponsorshipRequests(t *testing.T) {
 	f.setBlockHeight(100)
 
 	// Create a TTL collection as nonMember (creates PENDING collection)
-	collID := f.createPendingCollection(t)
+	collID := f.createEndorsedCollection(t)
 
 	// Request sponsorship
 	_, err := f.msgServer.RequestSponsorship(f.ctx, &types.MsgRequestSponsorship{
@@ -673,12 +673,12 @@ func TestEndorsementPendingCleanedUpOnEndorse(t *testing.T) {
 
 	// Verify EndorsementPending has an entry
 	var pendingCount int
-	f.keeper.EndorsementPending.Walk(f.ctx, nil, func(key collections.Pair[int64, uint64]) (bool, error) {
+	require.NoError(t, f.keeper.EndorsementPending.Walk(f.ctx, nil, func(key collections.Pair[int64, uint64]) (bool, error) {
 		if key.K2() == collID {
 			pendingCount++
 		}
 		return false, nil
-	})
+	}))
 	require.Equal(t, 1, pendingCount)
 
 	// Set seeking and endorse
@@ -693,11 +693,11 @@ func TestEndorsementPendingCleanedUpOnEndorse(t *testing.T) {
 
 	// Verify EndorsementPending entry is removed
 	pendingCount = 0
-	f.keeper.EndorsementPending.Walk(f.ctx, nil, func(key collections.Pair[int64, uint64]) (bool, error) {
+	require.NoError(t, f.keeper.EndorsementPending.Walk(f.ctx, nil, func(key collections.Pair[int64, uint64]) (bool, error) {
 		if key.K2() == collID {
 			pendingCount++
 		}
 		return false, nil
-	})
+	}))
 	require.Equal(t, 0, pendingCount)
 }

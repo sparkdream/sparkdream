@@ -67,11 +67,11 @@ func TestQueryListNominationsByCreator(t *testing.T) {
 			RewardAmount: math.LegacyZeroDec(),
 		}
 
-		err := f.keeper.Nomination.Set(f.ctx, nom1.Id, nom1)
+		err := f.keeper.SetNomination(f.ctx, nom1)
 		require.NoError(t, err)
-		err = f.keeper.Nomination.Set(f.ctx, nom2.Id, nom2)
+		err = f.keeper.SetNomination(f.ctx, nom2)
 		require.NoError(t, err)
-		err = f.keeper.Nomination.Set(f.ctx, nom3.Id, nom3)
+		err = f.keeper.SetNomination(f.ctx, nom3)
 		require.NoError(t, err)
 
 		// Query for Alice's nominations

@@ -49,9 +49,10 @@ func (k Keeper) CreateMarketInternal(ctx sdk.Context, creator sdk.AccAddress, sy
 	}
 
 	// 2. Calculate b (LMSR Constant)
-	ln2 := math.LegacyMustNewDecFromStr("0.69314718")
+	// b = L / ln(2) with ln(2) at full LegacyDec precision, so the initial
+	// cost b*ln(2) equals the deposited subsidy to rounding (FUT-05).
 	amountDec := math.LegacyNewDecFromInt(liquidity.Amount)
-	bValue := amountDec.Quo(ln2)
+	bValue := amountDec.Quo(types.Ln2)
 
 	// 3. Generate ID
 	id, err := k.MarketSeq.Next(ctx)
@@ -66,6 +67,7 @@ func (k Keeper) CreateMarketInternal(ctx sdk.Context, creator sdk.AccAddress, sy
 	poolYes := math.ZeroInt()
 	poolNo := math.ZeroInt()
 	liqWithdrawn := math.ZeroInt()
+	twapAcc := math.LegacyZeroDec()
 
 	market := types.Market{
 		Index:            id,
@@ -84,6 +86,11 @@ func (k Keeper) CreateMarketInternal(ctx sdk.Context, creator sdk.AccAddress, sy
 		Status:             "ACTIVE",
 		InitialLiquidity:   &liquidity.Amount,
 		LiquidityWithdrawn: &liqWithdrawn,
+
+		// FUT-01: the resolution price is time-weighted from creation.
+		TwapAccumulator: &twapAcc,
+		TwapLastHeight:  ctx.BlockHeight(),
+		StartHeight:     ctx.BlockHeight(),
 	}
 
 	// 5. Save Market

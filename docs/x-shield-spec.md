@@ -19,7 +19,7 @@ The current architecture has each module independently implementing anonymous op
 | Module | Anonymous Messages | Problems |
 |--------|-------------------|----------|
 | x/blog | `MsgCreateAnonymousPost`, `MsgCreateAnonymousReply`, `MsgAnonymousReact` | Submitter needs gas funds (funding trail) |
-| x/commons | `MsgSubmitAnonymousProposal`, `MsgAnonymousVoteProposal` | Submitter needs gas funds |
+| x/commons | `MsgSubmitAnonymousProposal`; secret-ballot votes `MsgAnonymousVoteProposal` and `MsgAnonymousVotePoll`, proven against the ballot's voter snapshot (`PROOF_DOMAIN_GROUP_TREE`, see [x-commons-spec.md](x-commons-spec.md) §11.2) | Submitter needs gas funds |
 | x/rep | `MsgCreateChallenge` (with `is_anonymous` flag) | Submitter needs SPARK for gas |
 | x/forum | `MsgCreateAnonymousPost`, `MsgCreateAnonymousReply`, `MsgAnonymousReact` | Submitter needs gas funds |
 | x/collect | `MsgCreateAnonymousCollection`, `MsgAnonymousReact` | Submitter needs gas funds |
@@ -268,11 +268,13 @@ The **MessageHash** is `crypto.ShieldMessageHash(type_url, value)` over the inne
 
 For a `NULLIFIER_MODE_OWNERSHIP` operation (see [Nullifier Modes](#nullifier-modes)) the MessageHash is `crypto.ShieldOwnedMessageHash(type_url, value, sequence)` instead: `sha256("sparkdream/shield/owned-message/v1" || be32(len(type_url)) || type_url || value || be64(sequence))`, top three bits cleared, where `sequence` is the owner sequence the target module reports for the content. The separate domain string keeps the two hash families disjoint.
 
-> **Note**: The original design had a separate `PROOF_DOMAIN_VOTER_TREE` for governance operations. This was removed because the unified `ShieldCircuit` handles all proof domains — governance operations use `TRUST_TREE` with `min_trust_level = 0` (any member). The `PROOF_DOMAIN_VOTER_TREE` enum value (2) is reserved but unused.
+**Group trees.** The circuit does not care which tree it proves against. `PROOF_DOMAIN_GROUP_TREE` (2) proves membership of a tree the inner message's module keeps instead of the trust tree, with the same circuit and verifying key: leaves `MiMC(zk_public_key, 0)` and `min_trust_level = 0`. x/commons uses it for secret ballots (a snapshot of a group's members per proposal or poll). Only the root check differs (see [Merkle Root Validation](#merkle-root-validation)).
 
 ### Merkle Root Validation
 
 The trust tree domain accepts the **current or previous** tree root. This allows proofs generated slightly before a tree update to remain valid.
+
+The group tree domain accepts exactly the root the inner message's module names: shield decodes the inner message, finds its `ShieldAware` module and asks its `ShieldRootResolver.ShieldMerkleRoot(ctx, msg)`; a module without a resolver, a message without a root (no such ballot, or voting on it is over) or any other root is refused. A group-tree exec must therefore carry its inner message in the clear: a batch submission is checked before its payload is decrypted, so group-tree operations are registered `IMMEDIATE_ONLY` and a group-tree batch submission is refused. Batch execution also refuses an operation whose registered proof domain differs from the domain the submission was proven in.
 
 **Encrypted batch mode note**: Merkle roots are validated at submission time, not at execution time. If a batch op carries over multiple epochs (due to small batch or TLE failure), the root may be stale by execution time. A member removed from the tree after submission but before execution would still have their proof verify against the stored root. This is "valid when submitted" semantics — consistent with how traditional systems honor transactions valid at submission time. The `max_pending_epochs` parameter bounds how stale a root can be (default: 6 epochs ≈ 30 min). The same rule applies to the epoch: the prover binds `RateLimitEpoch` (and any EPOCH-scoped nullifier scope) to the epoch the op is submitted in (`target_epoch`, stored as `submitted_at_epoch`), and the EndBlocker verifies against that stored epoch, never the current one, since the epoch has always advanced by the time a batch runs.
 
@@ -295,6 +297,8 @@ Two guards keep that test-mode skip off the real networks:
 
 - **Launch gate.** In production builds `InitGenesis` fails when `params.enabled` is true and no `shield_v1` key is in genesis: no message can add one later, so such a chain could never run a shielded exec. Mainnet genesis therefore ships with `enabled: false` until its ceremony key is pasted in; flip both together. `TestShieldEnabledHasVerificationKey` (`deploy/config/network/crossnetwork`) catches the mismatch before chain start.
 - **Network build guard.** `app.New` refuses to start on a canonical chain-id (`sparkdream-1`, `sparkdream-test-1`, `sparkdream-dev-1`) unless the binary carries that network's build tag (`app/network_build.go`). An untagged build would skip verification, and a build for another network would compute different compiled values; both would fork off. Other chain-ids (local chains, sister chains) are unaffected.
+
+**Sister chains and other chain-ids.** The network build guard only covers the canonical chain-ids. A sister chain (or any network on a non-canonical chain-id) must be built with a network tag (`-tags mainnet|testnet|devnet`), never with plain `go build` / `ignite chain build`: an untagged build is the test build, which skips proof verification whenever no key is stored and accepts any merkle root when the rep keeper is not wired. Put this in the release checklist of every sister chain. As a backstop, the daemon refuses to start an untagged build on any chain-id other than the local `sparkdream` chain unless `SPARKDREAM_ALLOW_TEST_BUILD=1` is set (`app.CheckTestBuildStart`). In network builds an unwired rep keeper fails closed (`ErrInvalidMerkleRoot`) instead.
 
 One ceremony serves every network and sister chain: the key depends on the circuit, not the chain. Check each network's key with `ceremony verify -genesis <genesis.json>` against the published transcript.
 
@@ -371,7 +375,7 @@ type RepKeeper interface {
 }
 ```
 
-> **Note**: The original design included `GetVoterTreeRoot` / `GetPreviousVoterTreeRoot` for a separate voter tree. This was removed when the circuit was unified — all operations now use the trust tree.
+Group-tree roots come from the target module through the `ShieldRootResolver` interface (implemented by x/commons), not from x/rep.
 
 ## State
 
@@ -445,7 +449,8 @@ message Params {
   // Total DKG window in blocks, split into four equal phases: key registration, dealing, complaints, justifications
   uint64 dkg_window_blocks = 17;
   // Validator set drift percentage (0-100) that triggers automatic re-keying.
-  // e.g. 33 means re-key if >33% of DKG participants are no longer in the bonded set.
+  // e.g. 33 means re-key once 33% or more of the DKG participants (truncated
+  // to a whole percent) are no longer in the bonded set.
   uint32 max_validator_set_drift = 18;
 
   // Maximum fee (bond denom) the module pays for one MsgShieldedExec. The
@@ -457,8 +462,16 @@ message Params {
   // by default: governance enables batch mode explicitly once it is satisfied
   // with the ceremony. A re-key always turns batch mode off.
   bool enable_batch_after_dkg = 20;
+
+  // Chain-wide budget (bond denom) of fees the module pays in one shield
+  // epoch, summed over every exec. An exec whose fee would exceed what is
+  // left is rejected before anything is paid (ErrEpochFeeBudgetExhausted);
+  // the budget resets at the next shield epoch. Must be >= max_fee_per_exec.
+  string max_fees_per_epoch = 21 [(gogoproto.customtype) = "cosmossdk.io/math.Int"];
 }
 ```
+
+`max_fees_per_epoch` bounds what all identities together can spend: one identity may run `max_execs_per_identity_per_epoch` execs at up to `max_fee_per_exec` each (50 x 0.05 SPARK x 288 epochs = 720 SPARK a day at the defaults), far above `max_funding_per_day`. Size the budget so `max_fees_per_epoch x epochs per day <= max_funding_per_day` (0.65 SPARK x 288 = 187 SPARK at 6 s blocks and 50-block epochs; devnet's 25-block epochs use 0.325 SPARK). The reserve then never drains faster than it is funded. One busy identity can still use up one epoch's budget; the budget is fresh five minutes later. The fees paid so far in the current epoch are the `EpochFeeLedger` singleton (exported in genesis as `epoch_fee_ledger`).
 
 ### Registered Operations
 
@@ -508,7 +521,7 @@ message ShieldedOpRegistration {
 enum ProofDomain {
   PROOF_DOMAIN_UNSPECIFIED = 0;
   PROOF_DOMAIN_TRUST_TREE = 1;
-  // 2 was PROOF_DOMAIN_VOTER_TREE — removed (unified circuit makes it redundant)
+  PROOF_DOMAIN_GROUP_TREE = 2;   // a module's own tree (x/commons secret ballots); immediate only
 }
 
 enum NullifierScopeType {
@@ -557,6 +570,8 @@ message UsedNullifier {
 ```
 
 `scope` here is the raw scope (epoch, message field value, or 0), not the proof's scope element: the domain is already part of the key. Only consume-mode execs record nullifiers; ownership-mode execs reuse the owner tag and record nothing, and x/shield keeps no ownership state (the owner claim and its sequence live with the content in the target module).
+
+**Canonical encodings only.** Nullifiers, rate-limit nullifiers and merkle roots are BN254 scalar-field elements, and the Groth16 verifier reduces every public input mod r. Without a check, `n` and `n + r` (both fit in 32 bytes for most `n`) verify against the same proof while being distinct store keys, so one proof could act about five times in one scope, exceed the identity rate limit five-fold, or be replayed by anyone under a new encoding. Every path that accepts public inputs (the ante handler's format check, `validateImmediate`, `validateBatch`, and the EndBlocker for the sealed operation nullifier) refuses a value that is not below r (`ErrNonCanonicalPublicInput`, `types.ValidateCanonicalPublicInputs`). The `canonical-nullifiers` invariant checks no stored nullifier is non-canonical.
 
 ### Funding Ledger
 
@@ -705,10 +720,10 @@ message MsgShieldedExecResponse {
 
 `MsgShieldedExec` still needs an outer signer, and a member's own address would deanonymize them. `types.PublicSubmitterAddress()` is a shared secp256k1 account whose private key is **public on purpose**: it is derived from `sha256("sparkdream/shield/public-submitter/v1")` (`types.PublicSubmitterPrivKey()`). Every anonymous client signs its exec with it, so all anonymous actions come from one address and the outer signer reveals nothing. The ZK proof, not the signature, authorizes an exec.
 
-- Clients send **unordered** txs, so concurrent submitters never race on the account's sequence.
+- Clients send **unordered** txs, so concurrent submitters never race on the account's sequence. The ante handler enforces it: a shield tx signed by the public submitter that is not unordered is refused (`ErrOrderedPublicSubmitterTx`), since anyone could otherwise bump the shared sequence and an ordered tx is also a client fingerprint.
 - `InitGenesis` creates the account if it is missing - clients sign with its account number, which a just-created account would not have yet.
 - Because anyone can sign as it, the `ShieldGasDecorator` refuses any tx signed by it that is not a `MsgShieldedExec` (`sdkerrors.ErrUnauthorized`), so nothing else it signs is spendable by anyone.
-- Anyone can also rewrap a pending exec in a new outer tx; the CheckTx nullifier mark in `PrecheckExec` keeps those copies out of the mempool, and the message binding (`MessageHash`) stops a copy from carrying different content.
+- Anyone can also rewrap a pending exec in a new outer tx; the CheckTx nullifier mark in `PrecheckExec` keeps those copies out of the mempool, the DeliverTx spend in the ante handler (see [Ante Handler](#ante-handler-shieldgasdecorator)) makes any copy that reaches a block fail before the module pays, and the message binding (`MessageHash`) stops a copy from carrying different content.
 
 Any other account still works as submitter; the public one is the recommended default.
 
@@ -728,9 +743,11 @@ Validators participate in the DKG ceremony and submit decryption shares via **Co
 
 2. **PrepareProposalHandler**: The block proposer aggregates the DKG vote extensions from the previous block's commit into a single `InjectedDKGData` pseudo-transaction at position 0 of the block, then hands the rest of the block to the SDK's default proposal handler (byte and block-gas limits over the mempool). Each extension is checked against the phase's acceptance rule (`x/shield/abci/validate.go`) with the same state `ProcessProposal` will use, so an honest proposer never injects something that would get its block rejected. The injection is capped at half of `MaxTxBytes`; extensions that do not fit are left out and their validators re-send them in the next vote, so a large validator set's ceremony spreads over several blocks instead of never landing. If no DKG is active or no extension qualifies, the block is whatever the default handler returns.
 
-3. **ProcessProposalHandler**: Validators re-run the acceptance rule on every injected extension and share (round/phase, participant membership, PoPs, commitment counts and G1/G2 pairing consistency, complaint and justification validity, share pairing checks). An invalid injection rejects the proposal; the remaining txs go to the SDK default handler.
+   Each injected ceremony extension carries the validator's CometBFT **vote-extension signature** (`ValidatorDKGExtension.extension_signature`): the proposer copies it from the extended commit and leaves out any extension whose bytes do not re-marshal identically or whose signature does not verify.
 
-4. **PreBlocker**: `ProcessDKGInjection` (in `x/shield/abci/preblocker.go`) extracts the `InjectedDKGData` from tx[0], maps each validator's consensus address to their operator address via the staking keeper, re-applies the acceptance rule, and stores what passes:
+3. **ProcessProposalHandler**: Validators check that every injected ceremony extension is signed by the validator it names — its consensus key over the length-delimited `CanonicalVoteExtension{extension, height - 1, last commit round, chain id}`, the same bytes CometBFT signs (`baseapp.ValidateVoteExtensions` uses them too) — and that no validator appears twice. Without this a single proposer could inject registrations, contributions or complaints "from" other validators: choose their keys and polynomials (and so learn the master secret), or complain on their behalf against every honest dealer, whose justifications would then publish enough evaluations to reconstruct the master secret. The proof of possession inside an extension does not authenticate the validator, since it is made under a key the prover chooses. Decryption shares need no signature: each is pairing-verified against the validator's public share, which only the holder of the secret share can satisfy. Validators then re-run the acceptance rule on every injected extension and share (round/phase, participant membership, PoPs, commitment counts and G1/G2 pairing consistency, complaint and justification validity, share pairing checks). An invalid injection rejects the proposal; the remaining txs go to the SDK default handler.
+
+4. **PreBlocker**: `ProcessDKGInjection` (in `x/shield/abci/preblocker.go`) extracts the `InjectedDKGData` from tx[0], maps each validator's consensus address to their operator address via the staking keeper, re-verifies each ceremony extension's signature (against `req.Height - 1` and `DecidedLastCommit.Round`; a node replaying blocks never ran ProcessProposal), re-applies the acceptance rule, and stores what passes:
    - For REGISTERING: stores public keys as DKG registrations (first key per round wins)
    - For CONTRIBUTING: stores Feldman commitments + encrypted evaluations as DKG contributions, updates the contribution count
    - For COMPLAINING: records `(dealer, complainer)` complaints (`shield_dkg_complaint`)
@@ -805,7 +822,7 @@ While `params.enabled` is false the BeginBlocker does not run, so a ceremony pha
 A validator that misses the complaint window while holding a bad evaluation ends up with a share inconsistent with its public share and is judged like one that is offline — the standard assumption of a complaint-based DKG is that participants are online for the whole ceremony. A dealer's garbage ciphertext cannot crash a validator: ECIES decryption is length-checked and recovered (`decryptEvaluation`).
 
 **Validator set drift:**
-- BeginBlocker monitors `max_validator_set_drift` (param field 18) — the percentage of original DKG participants no longer in the bonded set. If drift exceeds the threshold (default 33%), a new DKG ceremony is automatically triggered (`EventTypeShieldValidatorDrift`).
+- BeginBlocker monitors `max_validator_set_drift` (param field 18) — the percentage of original DKG participants no longer in the bonded set, counted by head (departures only, truncated to a whole percent). When drift reaches the threshold (at or above; default 33%), a new DKG ceremony is automatically triggered (`EventTypeShieldValidatorDrift`).
 - **Validator leaves**: Their shares are no longer available for future epochs. Threshold must still be met with remaining validators. If the active validator set drops below threshold, encrypted batch mode gracefully degrades (ops carry over, eventually expire).
 
 ### MsgTriggerDKG (Governance)
@@ -843,9 +860,13 @@ message MsgRegisterShieldedOp {
 message MsgRegisterShieldedOpResponse {}
 ```
 
+A nullifier domain keeps one scoping rule: a registration is refused (`ErrNullifierDomainConflict`) when another registered op uses the same `nullifier_domain` with a different `nullifier_mode`, `nullifier_scope_type`, `scope_field_path` or epoch window. Uniqueness and pruning are per domain (`PruneEpochScopedNullifiers` prunes every domain an EPOCH op uses), so an EPOCH op in, say, the anonymous-vote domain would have pruning delete old vote nullifiers and re-open voting, and two windows in one domain would make different ops' nullifiers collide. Ops that share a domain on purpose (upvote and downvote of one target) have identical scoping. `GenesisState.Validate` applies the same rule to the genesis op table. Re-registering an op under a new domain resets its uniqueness (the old nullifiers stay under the old domain).
+
 ### MsgDeregisterShieldedOp (Governance)
 
 Fully removes a shielded operation registration from state. Unlike setting `active = false` (which preserves state for potential reactivation), deregistration deletes the entry entirely.
+
+Its nullifier domain's scoping rule outlives it. When no other registered op uses the domain, the deregistered registration is kept in `RetiredDomains` (keyed by domain): `PruneEpochScopedNullifiers` still expires an EPOCH domain's nullifiers, and `MsgRegisterShieldedOp` refuses an op that would reuse the domain under a different rule (`ErrNullifierDomainConflict`), exactly as for a live op. Registering a compatible op makes the domain live again and clears the entry; an update that moves an op to another domain retires its old domain the same way. A retired EPOCH domain's entry is dropped once pruning has emptied it; a retired MESSAGE_FIELD or GLOBAL domain keeps its nullifiers, and its entry, for good. `RetiredDomains` is exported in genesis.
 
 ```protobuf
 message MsgDeregisterShieldedOp {
@@ -966,6 +987,11 @@ func (d ShieldGasDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool
     if len(shieldMsg.Nullifier) != 32 || len(shieldMsg.RateLimitNullifier) != 32 {
         return ctx, shieldtypes.ErrInvalidNullifierLength
     }
+    // Canonical BN254 field elements only (see Used Nullifiers).
+    if err := shieldtypes.ValidateCanonicalPublicInputs(shieldMsg.Nullifier,
+        shieldMsg.RateLimitNullifier, shieldMsg.MerkleRoot); err != nil {
+        return ctx, err // ErrNonCanonicalPublicInput
+    }
     if len(shieldMsg.Proof) < 128 {
         return ctx, shieldtypes.ErrInvalidProof
     }
@@ -980,11 +1006,16 @@ func (d ShieldGasDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool
     //    the identity rate limit bounds spend per member. Outside DeliverTx
     //    this runs behind the node-local proof guard (rejected-proof cache +
     //    verification throttle; see below).
-    if err := d.precheckExec(ctx, shieldMsg, simulate); err != nil {
+    consumed, err := d.precheckExec(ctx, shieldMsg, simulate)
+    if err != nil {
         return ctx, err
     }
-    // The msg server needn't verify the proof again.
+    // The msg server needn't verify the proof again, and must not spend an
+    // exec the ante already spent.
     ctx = shieldtypes.WithProofVerified(ctx, shieldMsg)
+    if consumed {
+        ctx = shieldtypes.WithExecConsumed(ctx, shieldMsg)
+    }
 
     fees := tx.(sdk.FeeTx).GetFee()
 
@@ -995,10 +1026,24 @@ func (d ShieldGasDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool
         return ctx, shieldtypes.ErrFeeTooHigh
     }
 
+    // 4. CheckTx only: the node's minimum gas prices, as DeductFeeDecorator
+    //    (skipped below) would apply them, so a zero or token fee can't buy
+    //    a large gas limit.
+    if ctx.IsCheckTx() && !simulate {
+        if err := checkMinGasPrices(ctx, fees, feeTx.GetGas()); err != nil {
+            return ctx, err // ErrInsufficientFee
+        }
+    }
+
     if fees.IsZero() {
         // No fees to pay — proceed (gas is still metered)
         ctx = ctx.WithValue(shieldtypes.ContextKeyFeePaid, true)
         return next(ctx, tx, simulate)
+    }
+
+    // 5. Chain-wide per-epoch budget (max_fees_per_epoch).
+    if err := d.shieldKeeper.ChargeEpochFee(ctx, fees.AmountOf(bondDenom), params.MaxFeesPerEpoch); err != nil {
+        return ctx, err // ErrEpochFeeBudgetExhausted
     }
 
     // Deduct fees from shield module account → fee collector
@@ -1013,7 +1058,11 @@ func (d ShieldGasDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool
 }
 ```
 
-`PrecheckExec` runs the same read-only validation as the msg server (`validateImmediate` for an immediate exec, `validateBatch` for a batch exec). In CheckTx (but not simulate) it also marks the exec spent in the check state, which is discarded at every commit - a consume-mode nullifier is recorded, an ownership-mode exec calls the target module's `AdvanceOwnership` so the owner sequence moves on, and a batch exec's submission nullifier is recorded as pending: anyone can sign as the public submitter, so anyone can rewrap a pending exec in new outer txs, and without the mark every copy would enter the mempool and take block space until the first one landed.
+`PrecheckExec` runs the same read-only validation as the msg server (`validateImmediate` for an immediate exec, `validateBatch` for a batch exec), then, for an immediate exec in every mode but simulate (CheckTx, ReCheckTx, the proposal-verification runs and DeliverTx), **spends** it in the ante state: a consume-mode nullifier is recorded (an ownership-mode exec calls the target module's `AdvanceOwnership` instead, so the owner sequence moves on) and the exec is counted against the identity rate limit. It reports that it did, and the ante handler tells the msg server through `types.WithExecConsumed`; the msg server then only runs the inner message.
+
+- In **DeliverTx** the ante state commits with the fee payment even when the inner message fails and the msg state is discarded. A failing exec therefore costs its member a rate-limit slot and its nullifier, exactly like a successful one: it can't be replayed block after block at the reserve's expense (before, the nullifier and the rate-limit increment were written in the msg state and reverted with the failed inner message, while the module had already paid the fee), and nobody can re-run it later once its target becomes valid. This matches batch mode, where the operation nullifier stays recorded on failure. Copies of one exec in a block fail in the ante after the first, before anything is paid.
+- In **CheckTx** the check state is discarded at every commit; the mark keeps rewrapped copies of a pending exec out of the mempool (anyone can sign as the public submitter).
+- A batch exec's submission nullifier is marked pending in CheckTx; in DeliverTx the msg server records it (it cannot fail once `validateBatch` passed against the same state).
 
 ### Mempool CPU Guard (CheckTx Proof Verification)
 
@@ -1296,7 +1345,7 @@ func (k Keeper) EndBlocker(ctx context.Context) error {
 
 **Readiness (`recordDecryptionDemands`).** Pending ops are counted per closed epoch (`target_epoch < currentEpoch`; a key-only walk of the `(target_epoch, id)` index, payloads are not decoded). An epoch without a demand gets one when it alone holds `>= min_batch_size` ops, when all closed epochs together do (they will execute in the same block and form one anonymity set), or when it has waited `max_pending_epochs`. The current epoch is never demanded: its ops are still arriving.
 
-**Execution (`processReadyBatches` → `executeBatch`).** Each closed epoch with pending ops, a demand and a reconstructed (or genesis-seeded) key is executed, oldest first, at most `max_ops_per_batch` ops per block (the remainder run next block). Per op (`processEncryptedOp`):
+**Execution (`processReadyBatches` → `executeBatch`).** Each closed epoch with pending ops, a demand and a reconstructed (or genesis-seeded) key is executed, oldest first, at most `max_ops_per_batch` ops per block in total, shared across every ready epoch (the remainder run next block). Per op (`processEncryptedOp`):
 
 1. `tle.Decrypt(epoch key, target_epoch, payload)`; failure → dropped (`decrypt_failed`)
 2. Decode the fragment (`inner_message`, `proof`, the 32-byte operation `nullifier`); restore `merkle_root`, `proof_domain`, `min_trust_level` and `rate_limit_nullifier` (the one the submission proof established) from the pending op
@@ -1324,6 +1373,14 @@ The shuffle uses `SHA256(last_block_hash || epoch)` as the seed for a Fisher-Yat
 ### Expired Operations
 
 Operations that hit `max_pending_epochs` without being executed (sustained TLE failure, or a key that never came) are dropped every block by `expirePendingOps`, together with their pending nullifiers and their epoch's decryption demand; one `EventShieldBatchExpired` (`count`, `cutoff_epoch`) reports them. A persistently small batch is no longer a cause: readiness forces a demand once an epoch has waited `max_pending_epochs`, so a lone op executes (with an anonymity set of one, which is the documented trade-off) rather than expiring.
+
+## Invariants
+
+x/crisis is not wired; `app.TestInvariants` runs every module's invariants against the e2e snapshots. x/shield registers:
+
+- `pending-op-count`: the maintained `PendingOpCount` equals the number of stored pending ops (the queue-capacity check reads the counter);
+- `pending-nullifiers`: every pending submission nullifier belongs to a pending op and every pending op's nullifier is in the pending set;
+- `canonical-nullifiers`: no used or pending nullifier is a non-canonical field element.
 
 ## State Pruning
 
@@ -1394,6 +1451,9 @@ k.pruneStaleState(ctx, newEpoch)
 | `PendingOps` / `PendingNullifiers` | Every block (`expirePendingOps`), batch mode on or off | `max_pending_epochs` |
 | `TLEEpochParticipation` / `TLEMissCounters` / `TLEJudgedEpochs` | On every key set change (`ResetTLELiveness`); the ring itself is bounded by `tle_miss_window` | Current key set |
 | `DKGRegistrations` / `DKGContributions` / `DKGComplaints` | At every round open, failure or `MsgTriggerDKG` | Current round |
+| `EpochFeeLedger` | Overwritten when a fee is paid in a new epoch (singleton) | Current epoch |
+
+`IdentityRateLimits` and `DayFundings` are keyed by epoch / day first, so their prune passes iterate only the stale key range, like the EPOCH-scoped nullifier pass.
 
 ## Shield-Aware Module Interface
 
@@ -1418,6 +1478,8 @@ type ShieldAware interface {
 | Module interface (`ShieldAware`) | Registered-but-incompatible operations executing | Module code (cannot be changed without chain upgrade) |
 
 **Example**: If governance is tricked into registering `x/bank.MsgSend`, the whitelist gate passes but the interface gate rejects — the bank module doesn't implement `ShieldAware`. No funds are drained.
+
+In immediate mode the interface gate is also consulted before the ante spends the nullifier and the reserve pays the fee: an active registration whose module is registered and rejects the message is refused with `ErrIncompatibleOperation` at no cost. (Execution checks it again; a message that does not decode, or whose module registered no gate, is refused there.) Encrypted batch ops are checked only at execution, since their inner message is sealed at submission.
 
 **Implementation per module:**
 
@@ -1921,15 +1983,20 @@ These let the anonymous creator of a collection manage it (see [Nullifier Modes]
 | Message Type | Proof Domain | Min Trust | Null. Domain | Scope | Batch Mode |
 |-------------|-------------|-----------|-------------|-------|------------|
 | `MsgSubmitAnonymousProposal` | TRUST_TREE | 0 | 31 | EPOCH | EITHER |
-| `MsgAnonymousVoteProposal` | TRUST_TREE | 0 | 32 | MESSAGE_FIELD (proposal_id) | EITHER |
+| `MsgAnonymousVoteProposal` | GROUP_TREE | 0 | 32 | MESSAGE_FIELD (proposal_id) | IMMEDIATE_ONLY |
+| `MsgAnonymousVotePoll` | GROUP_TREE | 0 | 33 | MESSAGE_FIELD (poll_id) | IMMEDIATE_ONLY |
 
-> **Note**: Batch mode is EITHER so these work in both immediate and encrypted batch modes. Immediate mode is needed while TLE/DKG is not yet active (`encrypted_batch_enabled=false`). Once TLE is production-ready, governance can tighten these to ENCRYPTED_ONLY for maximum sender unlinkability.
+The two votes are secret-ballot votes: the proof shows membership of the proposal's or poll's voter snapshot, whose root x/commons names (a trust-tree proof is refused with a domain mismatch), and the nullifier lets each member vote once per proposal or poll. x/commons refuses an anonymous vote on an openly voted proposal or poll and an open vote on a secret one, so no member can vote both ways. They are immediate-only because their root is resolved from the inner message (see [Merkle Root Validation](#merkle-root-validation)).
+
+> **Note**: `MsgSubmitAnonymousProposal`'s batch mode is EITHER so it works in both immediate and encrypted batch modes. Immediate mode is needed while TLE/DKG is not yet active (`encrypted_batch_enabled=false`). Once TLE is production-ready, governance can tighten these to ENCRYPTED_ONLY for maximum sender unlinkability.
 
 #### x/rep
 
 | Message Type | Proof Domain | Min Trust | Null. Domain | Scope | Batch Mode |
 |-------------|-------------|-----------|-------------|-------|------------|
-| `MsgCreateChallenge` | TRUST_TREE | 0 | 41 | GLOBAL | ENCRYPTED_ONLY |
+| `MsgCreateChallenge` | TRUST_TREE | 0 | 41 | GLOBAL | ENCRYPTED_ONLY (registered **inactive**) |
+
+The rep challenge op is registered but inactive. x/rep refuses a challenge whose creator is the shield module until it can derive the challenger from the member's identity (`TestShieldedChallengePathFailsClosed`), so an active registration would only let members pay for batch submissions that are always dropped. Governance activates it (`MsgRegisterShieldedOp` with `active = true`) once x/rep supports the flow.
 
 #### x/federation (Anonymous Arbiter Quorum)
 
@@ -2226,6 +2293,12 @@ var (
 
     // DKG trigger
     ErrInvalidDKGThreshold = errorsmod.Register(ModuleName, 53, "DKG threshold must satisfy 0 < numerator <= denominator <= 100")
+
+    // Public inputs, epoch fee budget, registrations, public submitter
+    ErrNonCanonicalPublicInput  = errorsmod.Register(ModuleName, 54, "public input is not a canonical BN254 scalar field element")
+    ErrEpochFeeBudgetExhausted  = errorsmod.Register(ModuleName, 55, "shield epoch fee budget (max_fees_per_epoch) exhausted; retry next shield epoch")
+    ErrNullifierDomainConflict  = errorsmod.Register(ModuleName, 56, "nullifier domain is already used by an operation with a different scope type, scope field or window")
+    ErrOrderedPublicSubmitterTx = errorsmod.Register(ModuleName, 57, "txs signed by the public anonymous submitter must be unordered")
 )
 ```
 
@@ -2264,9 +2337,8 @@ Add TLE infrastructure and encrypted batch execution:
 ### Phase 3: x/commons Anonymous Governance
 
 Add anonymous proposal and voting to x/commons (absorbing former x/vote functionality):
-- `MsgSubmitAnonymousProposal` — shielded proposal creation
-- `MsgAnonymousVoteProposal` — shielded voting
-- Both routed through `MsgShieldedExec` (EITHER batch mode — works in immediate mode while TLE is inactive)
+- `MsgSubmitAnonymousProposal` — shielded proposal creation, routed through `MsgShieldedExec` (EITHER batch mode — works in immediate mode while TLE is inactive)
+- `MsgAnonymousVoteProposal` / `MsgAnonymousVotePoll` — secret-ballot voting against the ballot's voter snapshot (`PROOF_DOMAIN_GROUP_TREE`, see x-commons-spec.md §11.2)
 - Standard (non-anonymous) proposals/votes continue working as before
 
 ### Phase 4: Dual Support
@@ -2292,13 +2364,15 @@ Legacy per-module anonymous messages have been removed:
 
 Multiple layers prevent free gas exploitation:
 
-1. **ZK proof required**: Every shielded exec needs a valid membership proof — no proof, no free gas. In both modes the ante handler checks a proof, the nullifier and the identity rate limit (`PrecheckExec`) before any fee moves — the operation proof for an immediate exec, the submission proof for a batch exec — and the msg server skips re-verifying a proof the ante handler already verified for the same message. In CheckTx the precheck also marks the exec spent in the check state (discarded at commit) - it records a consume-mode nullifier, advances an ownership-mode owner sequence, or records a pending submission nullifier - so rewrapped copies of a pending exec — anyone can sign as the public submitter — never enter the mempool
+1. **ZK proof required**: Every shielded exec needs a valid membership proof — no proof, no free gas. In both modes the ante handler checks a proof, the nullifier and the identity rate limit (`PrecheckExec`) before any fee moves — the operation proof for an immediate exec, the submission proof for a batch exec — and the msg server skips re-verifying a proof the ante handler already verified for the same message. In CheckTx the precheck also marks the exec spent in the check state (discarded at commit) - it records a consume-mode nullifier, advances an ownership-mode owner sequence, or records a pending submission nullifier - so rewrapped copies of a pending exec — anyone can sign as the public submitter — never enter the mempool. In DeliverTx the ante spends an immediate exec (nullifier and rate-limit slot) in the state that commits with the fee, so a failing inner message still costs the exec and cannot be replayed at the reserve's expense
 2. **Per-identity rate limit**: `max_execs_per_identity_per_epoch` caps how many free operations each anonymous identity gets per epoch, enforced via the ZK-proven `rate_limit_nullifier` (same for all ops by the same member in the same epoch). Unforgeable in both modes: an immediate exec proves it with the operation proof, a batch exec with the cleartext submission proof, and both are verified before payment
 3. **Single-message enforcement**: Cannot bundle non-shielded messages with a shielded exec to piggyback free gas. Multi-message txs containing `MsgShieldedExec` are explicitly rejected by the ante handler.
 4. **Max gas per exec**: `max_gas_per_exec` prevents expensive inner messages from draining the module quickly
 5. **Daily funding cap**: `max_funding_per_day` bounds community pool drain regardless of usage (independent of shield epoch interval)
 6. **Registered operations only**: Only governance-approved message types can be executed via shield (whitelist model)
-7. **Fee cap**: the submitter picks the fee but the module pays it, so `max_fee_per_exec` caps it (bond denom only); without it one exec could hand the whole reserve to the fee collector
+7. **Fee cap**: the submitter picks the fee but the module pays it, so `max_fee_per_exec` caps it (bond denom only); without it one exec could hand the whole reserve to the fee collector. In CheckTx the fee must also meet the node's minimum gas prices for the tx's gas limit, as for any other tx
+7b. **Epoch fee budget**: `max_fees_per_epoch` caps the fees the module pays per shield epoch across all identities, so in-quota successful execs can't drain the reserve faster than it is funded
+7c. **Canonical public inputs**: non-canonical nullifier, rate-limit nullifier or root encodings are refused, so one proof has exactly one nullifier
 8. **No per-action charges on anonymous actions**: inner messages are signed by the shield module account, so target modules skip every per-action SPARK cost for it (storage fees, spam taxes, edit fees, blog reaction fee, downvote costs, collection/item deposits) — charging them would spend the gas reserve, not the member's SPARK. Anonymous volume is bounded instead by the per-identity exec limit and per-op rate-limit windows
 
 ### Privacy Properties
@@ -2394,6 +2468,15 @@ message GenesisState {
   repeated DecryptionDemandEntry decryption_demands = 18 [(gogoproto.nullable) = false];
   // DKG complaints for the current round
   repeated DKGComplaint dkg_complaints = 19 [(gogoproto.nullable) = false];
+  // TLE liveness ring buffer (validator, slot) -> participated
+  repeated TLEParticipationEntry tle_participation = 20 [(gogoproto.nullable) = false];
+  // Demanded epochs judged under the current key set (slot = count % window)
+  uint64 tle_judged_epochs = 21;
+  // Fees paid in the current shield epoch (params.max_fees_per_epoch)
+  EpochFeeLedger epoch_fee_ledger = 22 [(gogoproto.nullable) = false];
+
+  // Nullifier domains no live op uses, with the last op's registration.
+  repeated ShieldedOpRegistration retired_domains = 23 [(gogoproto.nullable) = false];
 }
 
 // Helper messages for genesis export/import
@@ -2409,7 +2492,7 @@ message TLEMissCounterEntry {
 }
 ```
 
-`GenesisState.Validate()` runs `ShieldedOpRegistration.Validate()` on every registered op and rejects a duplicate `message_type_url`, then validates the TLE key set and the params. `ExportGenesis` exports exactly the stored registrations (not the `DefaultGenesis` seed), so an op governance deregistered stays gone across an export/import. In production builds `InitGenesis` also applies the verification-key launch gate (see Verification Keys).
+`GenesisState.Validate()` runs `ShieldedOpRegistration.Validate()` on every registered op and rejects a duplicate `message_type_url` or two ops that share a nullifier domain with different scoping (`ErrNullifierDomainConflict`), and a retired domain listed twice or still used by a registered op, then validates the TLE key set and the params. `InitGenesis` pairing-verifies every imported decryption share against its validator's public share in the imported key set (like every ABCI path) and refuses the genesis on a bad one; it restores the pending-op sequence with one write. Export/import keeps the TLE liveness ring and judged-epoch counter, so a restart forgives no accumulated misses. `ExportGenesis` exports exactly the stored registrations (not the `DefaultGenesis` seed), so an op governance deregistered stays gone across an export/import. In production builds `InitGenesis` also applies the verification-key launch gate (see Verification Keys).
 
 ## Default Parameters
 
@@ -2446,6 +2529,7 @@ params:
 
   # Fees
   max_fee_per_exec: "50000"                   # 0.05 SPARK: ~700k gas at 0.025 uspark/gas, ~3x headroom
+  max_fees_per_epoch: "650000"                # 0.65 SPARK/epoch x 288 epochs/day = 187 SPARK/day (devnet 325000, testparams 10 SPARK)
 ```
 
 ## CLI Commands

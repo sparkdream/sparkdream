@@ -1,0 +1,28 @@
+syntax = "proto3";
+package gnovm.gnovm.v1;
+
+import "amino/amino.proto";
+import "gnovm/gnovm/v1/params.proto";
+import "gogoproto/gogo.proto";
+
+option go_package = "github.com/sparkdream/gnovm/x/gnovm/types";
+
+// GenesisState defines the gnovm module's genesis state.
+message GenesisState {
+  // params defines all the parameters of the module.
+  Params params = 1 [
+    (gogoproto.nullable) = false,
+    (amino.dont_omitempty) = true
+  ];
+  // realm_params defines the realm parameters of the module.
+  bytes realm_params = 2;
+  // state contains all key-value pairs from the gnovm store.
+  // currently that part of the state should NOT be modified manually.
+  repeated KVPair state = 3 [(gogoproto.nullable) = false];
+}
+
+// KVPair represents a key-value pair from the store.
+message KVPair {
+  bytes key = 1;
+  bytes value = 2;
+}

@@ -54,6 +54,7 @@ import (
 	collectmodulekeeper "sparkdream/x/collect/keeper"
 	commonsante "sparkdream/x/commons/ante"
 	commonsmodulekeeper "sparkdream/x/commons/keeper"
+	commonsmoduletypes "sparkdream/x/commons/types"
 	ecosystemmodulekeeper "sparkdream/x/ecosystem/keeper"
 	federationmodulekeeper "sparkdream/x/federation/keeper"
 	forummodulekeeper "sparkdream/x/forum/keeper"
@@ -328,6 +329,9 @@ func New(
 	// Wire cross-module keepers into Blog after depinject.
 	app.BlogKeeper.SetRepKeeper(app.RepKeeper)
 	app.BlogKeeper.SetIdentityKeeper(app.IdentityKeeper)
+	// Blog operational params: gov or the Commons Operations Committee
+	// policy (IsCouncilOrCommitteePolicy, never one member's signature).
+	app.BlogKeeper.SetCommonsKeeper(app.CommonsKeeper)
 
 	// Wire RepKeeper into Collect after depinject.
 	app.CollectKeeper.SetRepKeeper(app.RepKeeper)
@@ -377,8 +381,15 @@ func New(
 		collectmodulekeeper.NewCollectRepHooks(&app.CollectKeeper),
 	))
 
+	// Modules holding DREAM lock records drop a zeroed member's (x/rep burns
+	// the whole balance, locks included, when it zeroes a member).
+	app.RepKeeper.AddMemberZeroingHook(revealmodulekeeper.NewZeroingHook(&app.RevealKeeper))
+	app.RepKeeper.AddMemberZeroingHook(seasonmodulekeeper.NewZeroingHook(&app.SeasonKeeper))
+	app.RepKeeper.AddMemberZeroingHook(forummodulekeeper.NewZeroingHook(&app.ForumKeeper))
+
 	// Wire DistrKeeper into Split after depinject (adapter adds GetCommunityPool).
 	app.SplitKeeper.SetDistrKeeper(NewDistrKeeperAdapter(app.DistrKeeper))
+	app.SplitKeeper.SetIdentityKeeper(app.IdentityKeeper)
 
 	// Wire cross-module keepers into Shield after depinject.
 	app.ShieldKeeper.SetRepKeeper(app.RepKeeper)
@@ -480,6 +491,9 @@ func New(
 	if err := checkNetworkBuild(app.ChainID()); err != nil {
 		panic(err)
 	}
+	if w := testBuildWarning(app.ChainID()); w != "" {
+		logger.Error(w)
+	}
 
 	// Wire MsgServiceRouter into Commons for proposal message execution.
 	app.CommonsKeeper.SetRouter(app.MsgServiceRouter())
@@ -503,6 +517,10 @@ func New(
 	// Wire CommonsKeeper into Session so Commons Operations Committee can update
 	// operational params alongside governance authority.
 	app.SessionKeeper.SetCommonsKeeper(app.CommonsKeeper)
+	// Bypass creator binding (SES-09): the commons module account creates
+	// session grants only for council policies and revokes only grants of
+	// live or deleted council policies (or grants it created).
+	app.SessionKeeper.SetGranterOwner(authtypes.NewModuleAddress(commonsmoduletypes.ModuleName).String(), app.CommonsKeeper)
 
 	// Wire SessionKeeper into Commons (M4 of the RecurringSpend migration).
 	// Reverse direction of SetCommonsKeeper above: commons consumes session
@@ -516,6 +534,13 @@ func New(
 	// Cross-module hooks: each module vetoes a migration that would strand
 	// its state or re-keys its bounded core state at finalization. Late-wired
 	// here because every one of these modules already depends on x/rep.
+	// MsgSweepTombstone also collects a migrated operator's matured exit
+	// bond (forced into UNBONDING by the service migration hook on the
+	// RECOVERY and COUNCIL paths).
+	app.RepKeeper.AddTombstoneSweeper(app.ServiceKeeper.ClaimForTombstone)
+	// RECOVERY and COUNCIL finalization unbonds the delegations left at the
+	// tombstone; MsgSweepTombstone collects the matured SPARK.
+	app.RepKeeper.SetStakingKeeper(app.StakingKeeper)
 	app.RepKeeper.SetMigrationHooks(repmoduletypes.NewMultiMemberMigrationHooks(
 		servicemodulekeeper.NewMigrationHooks(&app.ServiceKeeper),
 		artifactmodulekeeper.NewMigrationHooks(&app.ArtifactKeeper),
@@ -524,6 +549,9 @@ func New(
 		seasonmodulekeeper.NewMigrationHooks(&app.SeasonKeeper),
 		sessionmodulekeeper.NewMigrationHooks(&app.SessionKeeper),
 		federationmodulekeeper.NewMigrationHooks(&app.FederationKeeper),
+		// x/vault refuses a migration whose target already co-signs a
+		// vault with the source (one key would carry both weights).
+		vaultmodulekeeper.NewMigrationHooks(&app.VaultKeeper),
 	))
 	// Addresses that can never be a migration target: every module account
 	// and the x/shield public submitter, whose private key is public.
@@ -551,6 +579,9 @@ func New(
 	app.ShieldKeeper.RegisterShieldAwareModule("/sparkdream.forum.v1.", app.ForumKeeper)
 	app.ShieldKeeper.RegisterShieldAwareModule("/sparkdream.collect.v1.", app.CollectKeeper)
 	app.ShieldKeeper.RegisterShieldAwareModule("/sparkdream.rep.v1.", app.RepKeeper)
+	// Commons secret ballots prove against the ballot's voter snapshot
+	// (PROOF_DOMAIN_GROUP_TREE), whose root commons names to shield.
+	var _ shieldmoduletypes.ShieldRootResolver = app.CommonsKeeper
 	app.ShieldKeeper.RegisterShieldAwareModule("/sparkdream.commons.v1.", app.CommonsKeeper)
 	app.ShieldKeeper.RegisterShieldAwareModule("/sparkdream.federation.v1.", app.FederationKeeper)
 
@@ -755,11 +786,13 @@ func (app *App) RegisterAPIRoutes(apiSvr *api.Server, apiConfig config.APIConfig
 	// — grpc-gateway v1 is first-registered-wins, so the SDK's mux cannot be
 	// amended in place. Codec safety comes from clientCtx itself; see
 	// gateway_fix.go.
-	installGatewayFix(apiSvr, app.ModuleManager)
+	installGatewayFix(apiSvr, app.ModuleManager, app.Logger())
 
-	// register swagger API in app.go so that other applications can override easily
+	// register swagger API in app.go so that other applications can override easily.
+	// A swagger failure only loses the docs page; it must not take the node
+	// down, so it is logged instead of panicking.
 	if err := server.RegisterSwaggerAPI(apiSvr.ClientCtx, apiSvr.Router, apiConfig.Swagger); err != nil {
-		panic(err)
+		app.Logger().Error("failed to register swagger API", "err", err)
 	}
 
 	// register app's OpenAPI routes.

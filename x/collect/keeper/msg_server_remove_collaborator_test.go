@@ -49,7 +49,7 @@ func TestRemoveCollaborator(t *testing.T) {
 				// Make collection immutable
 				coll, _ := f.keeper.Collection.Get(f.ctx, collID)
 				coll.Immutable = true
-				f.keeper.Collection.Set(f.ctx, collID, coll)
+				require.NoError(t, f.keeper.Collection.Set(f.ctx, collID, coll))
 				return collID
 			},
 			msg: func(f *testFixture, collID uint64) *types.MsgRemoveCollaborator {
@@ -143,7 +143,7 @@ func TestRemoveCollaborator(t *testing.T) {
 				// Flip collection to HIDDEN
 				coll, _ := f.keeper.Collection.Get(f.ctx, collID)
 				coll.Status = types.CollectionStatus_COLLECTION_STATUS_HIDDEN
-				f.keeper.Collection.Set(f.ctx, collID, coll)
+				require.NoError(t, f.keeper.Collection.Set(f.ctx, collID, coll))
 
 				f.repKeeper.unlockDREAMFn = func(_ context.Context, addr sdk.AccAddress, amount math.Int) error {
 					f.repKeeper.unlockCalls = append(f.repKeeper.unlockCalls, dreamCall{addr: addr, amount: amount})
@@ -167,8 +167,12 @@ func TestRemoveCollaborator(t *testing.T) {
 				params, _ := f.keeper.Params.Get(f.ctx)
 				expectedBurn := params.NonMemberCollabBurnFraction.MulInt(params.NonMemberCollabDreamStake).TruncateInt()
 
-				require.Len(t, f.repKeeper.unlockCalls, 1)
-				require.True(t, f.repKeeper.unlockCalls[0].amount.Equal(params.NonMemberCollabDreamStake))
+				// The burn comes straight out of the lock (the mock's
+				// BurnLockedDREAM records an unlock and a burn of the same
+				// amount), then the rest of the stake is released.
+				require.Len(t, f.repKeeper.unlockCalls, 2)
+				require.True(t, f.repKeeper.unlockCalls[0].amount.Equal(expectedBurn))
+				require.True(t, f.repKeeper.unlockCalls[1].amount.Equal(params.NonMemberCollabDreamStake.Sub(expectedBurn)))
 
 				require.Len(t, f.repKeeper.burnCalls, 1)
 				require.True(t, f.repKeeper.burnCalls[0].addr.Equals(f.ownerAddr))

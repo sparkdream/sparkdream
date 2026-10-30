@@ -27,27 +27,46 @@ func NewMigrationHooks(k *Keeper) MigrationHooks {
 
 var _ reptypes.MemberMigrationHooks = MigrationHooks{}
 
-// BeforeMemberMigration refuses while the old address has an active dispute
-// as owner (the dispute is bound to the owner's identity and must resolve
-// first) and refuses a target that already owns names or has an OwnerInfo
+// BeforeMemberMigration refuses a KEY migration while the old address owns a
+// name under an ACTIVE dispute (the owner settles it first; a resolved
+// dispute record is history and never blocks), and refuses a target that
+// already owns names or has an owner record beyond a bare display name
 // (freshness, plan §7.1).
+//
+// On the RECOVERY and COUNCIL paths an active dispute does not veto: the
+// owner has lost the key and cannot settle it, and any member can file a
+// dispute, so a veto would let a griefer block recovery for one dispute
+// stake. The dispute is keyed by name and follows it to the new owner;
+// contest and resolution read ownership through the alias contract.
+
 func (h MigrationHooks) BeforeMemberMigration(ctx context.Context, from, to sdk.AccAddress, path reptypes.MigrationPath) error {
 	k := h.k
 	fromStr, toStr := from.String(), to.String()
-	if _, err := k.Owners.Get(ctx, toStr); err == nil {
+	// A display-name-only OwnerInfo (MsgSetDisplayName needs no names and
+	// no membership) still counts as fresh: refusing it would let a
+	// recovery key that once set a display name block its own migration.
+	if info, err := k.Owners.Get(ctx, toStr); err == nil && info.PrimaryName != "" {
 		return fmt.Errorf("x/name: %s already has an owner record", toStr)
 	}
 	if n, _ := k.GetOwnedNamesCount(ctx, to); n > 0 {
 		return fmt.Errorf("x/name: %s already owns %d name(s)", toStr, n)
 	}
+	if path != reptypes.MigrationPath_MIGRATION_PATH_KEY {
+		return nil
+	}
+	// Check the old address's own names (at most MaxNamesPerAddress)
+	// instead of walking every dispute ever filed (NAM-05).
 	var disputed string
-	_ = k.Disputes.Walk(ctx, nil, func(name string, d types.Dispute) (bool, error) {
-		if owner, found := k.GetNameOwner(ctx, name); found && owner.String() == fromStr {
-			disputed = name
+	rng := collections.NewPrefixedPairRange[string, string](fromStr)
+	if err := k.OwnerNames.Walk(ctx, rng, func(key collections.Pair[string, string]) (bool, error) {
+		if d, found := k.GetDispute(ctx, key.K2()); found && d.Active {
+			disputed = key.K2()
 			return true, nil
 		}
 		return false, nil
-	})
+	}); err != nil {
+		return err
+	}
 	if disputed != "" {
 		return fmt.Errorf("x/name: %s owns %q, which is under dispute", fromStr, disputed)
 	}
@@ -96,9 +115,11 @@ func (h MigrationHooks) AfterMemberMigration(ctx context.Context, from, to sdk.A
 
 	// Names pointing at the old address: repoint the target and the
 	// accepted-target consent, which was given by the same identity.
+	// Read through the TargetNames index rather than the whole registry.
 	var targeted []types.NameRecord
-	if err := k.Names.Walk(ctx, nil, func(_ string, r types.NameRecord) (bool, error) {
-		if r.Target == fromStr {
+	trng := collections.NewPrefixedPairRange[string, string](fromStr)
+	if err := k.TargetNames.Walk(ctx, trng, func(key collections.Pair[string, string]) (bool, error) {
+		if r, found := k.GetName(ctx, key.K2()); found && r.Target == fromStr {
 			targeted = append(targeted, r)
 		}
 		return false, nil
@@ -107,7 +128,9 @@ func (h MigrationHooks) AfterMemberMigration(ctx context.Context, from, to sdk.A
 	}
 	for _, r := range targeted {
 		if r.TargetAccepted {
-			_ = k.AcceptedTargets.Remove(ctx, collections.Join(fromStr, r.Name))
+			if err := k.AcceptedTargets.Remove(ctx, collections.Join(fromStr, r.Name)); err != nil {
+				return err
+			}
 			if err := k.AcceptedTargets.Set(ctx, collections.Join(toStr, r.Name)); err != nil {
 				return err
 			}

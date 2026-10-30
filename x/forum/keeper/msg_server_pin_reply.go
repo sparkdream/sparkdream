@@ -18,6 +18,9 @@ func (k msgServer) PinReply(ctx context.Context, msg *types.MsgPinReply) (*types
 	if _, err := k.addressCodec.StringToBytes(msg.Creator); err != nil {
 		return nil, errorsmod.Wrap(err, "invalid creator address")
 	}
+	if err := k.requireForumNotPaused(ctx); err != nil {
+		return nil, err
+	}
 
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	now := sdkCtx.BlockTime().Unix()
@@ -37,6 +40,24 @@ func (k msgServer) PinReply(ctx context.Context, msg *types.MsgPinReply) (*types
 
 	if !isGov && !isSentinel {
 		return nil, errorsmod.Wrap(types.ErrNotSentinel, "only operations committee or qualified sentinels can pin replies")
+	}
+
+	params, err := k.Params.Get(ctx)
+	if err != nil {
+		params = types.DefaultParams()
+	}
+	// Sentinel pins are moderation actions backed by a bond reservation, so
+	// they get the same operational gates as hide / lock / move.
+	if isSentinel {
+		if params.ModerationPaused {
+			return nil, types.ErrModerationPaused
+		}
+		if until := k.repKeeper.RoleOverturnCooldownUntil(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, msg.Creator); until > now {
+			return nil, errorsmod.Wrapf(types.ErrSentinelCooldown, "cooldown until %d", until)
+		}
+		if k.repKeeper.RoleEpochActionCount(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, msg.Creator, reptypes.ActionKindForumPin) >= types.MaxSentinelPinsPerEpoch {
+			return nil, errorsmod.Wrapf(types.ErrPinLimitExceeded, "max %d sentinel pins per epoch", types.MaxSentinelPinsPerEpoch)
+		}
 	}
 
 	// Load thread root
@@ -66,9 +87,15 @@ func (k msgServer) PinReply(ctx context.Context, msg *types.MsgPinReply) (*types
 		return nil, errorsmod.Wrap(types.ErrNotReplyInThread, "cannot pin the thread root as a reply")
 	}
 
-	// Check reply is not deleted or hidden
-	if reply.Status == types.PostStatus_POST_STATUS_DELETED || reply.Status == types.PostStatus_POST_STATUS_HIDDEN {
+	// Only a live reply can be pinned.
+	if reply.Status != types.PostStatus_POST_STATUS_ACTIVE {
 		return nil, errorsmod.Wrapf(types.ErrPostStatus, "cannot pin reply with status %s", reply.Status.String())
+	}
+
+	// A sentinel pin is a rewarded action: pinning their own reply would be
+	// self-dealing.
+	if isSentinel && k.sameMember(ctx, reply.Author, msg.Creator) {
+		return nil, errorsmod.Wrap(types.ErrCannotPinOwnReply, "sentinels cannot pin their own reply")
 	}
 
 	// Pin is display-only and requires the reply to already be permanent. Use
@@ -94,16 +121,15 @@ func (k msgServer) PinReply(ctx context.Context, msg *types.MsgPinReply) (*types
 			return nil, errorsmod.Wrap(types.ErrAlreadyPinned, "reply is already pinned")
 		}
 	}
+	if uint64(len(metadata.PinnedReplyIds)) >= types.DefaultMaxPinnedRepliesPerThread {
+		return nil, errorsmod.Wrapf(types.ErrMaxPinnedReplies, "a thread holds at most %d pinned replies", types.DefaultMaxPinnedRepliesPerThread)
+	}
 
 	// Reserve the sentinel's slash bond so an overturned pin dispute has funds
 	// to slash, mirroring the hide/lock/move reservation path. Released on an
 	// upheld dispute via GetActionCommittedAmount. Gov pins reserve nothing.
 	committedAmount := ""
 	if isSentinel {
-		params, err := k.Params.Get(ctx)
-		if err != nil {
-			params = types.DefaultParams()
-		}
 		slashAmount := params.SentinelSlashAmountInt()
 		if err := k.repKeeper.ReserveBond(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, msg.Creator, slashAmount); err != nil {
 			return nil, errorsmod.Wrap(err, "insufficient bond to pin")
@@ -133,8 +159,12 @@ func (k msgServer) PinReply(ctx context.Context, msg *types.MsgPinReply) (*types
 	// record. Gov pins are not sentinel activity and must not count toward
 	// epoch rewards. Mirrors the lock/move/hide counter convention.
 	if isSentinel {
-		_ = k.repKeeper.RecordRoleAction(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, msg.Creator, reptypes.ActionKindForumPin)
-		_ = k.repKeeper.RecordActivity(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, msg.Creator)
+		if err := k.repKeeper.RecordRoleAction(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, msg.Creator, reptypes.ActionKindForumPin); err != nil {
+			return nil, err
+		}
+		if err := k.repKeeper.RecordActivity(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, msg.Creator); err != nil {
+			return nil, err
+		}
 	}
 
 	// Emit event

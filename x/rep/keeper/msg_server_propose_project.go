@@ -3,6 +3,7 @@ package keeper
 import (
 	"context"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/rep/types"
 
 	errorsmod "cosmossdk.io/errors"
@@ -25,6 +26,16 @@ func (k msgServer) ProposeProject(ctx context.Context, msg *types.MsgProposeProj
 		return nil, errorsmod.Wrap(err, "failed to get params")
 	}
 
+	requestedBudget, err := requireAmount(msg.RequestedBudget, "requested_budget")
+	if err != nil {
+		return nil, err
+	}
+	requestedSpark, err := requireAmount(msg.RequestedSpark, "requested_spark")
+	if err != nil {
+		return nil, err
+	}
+	msg.RequestedBudget, msg.RequestedSpark = &requestedBudget, &requestedSpark
+
 	// Proposal-time hard cap: reject obviously-absurd requested amounts before
 	// any state is written. The cap is set well above any legitimate project
 	// (default 1M DREAM / 100K SPARK) and exists purely to prevent state
@@ -46,7 +57,7 @@ func (k msgServer) ProposeProject(ctx context.Context, msg *types.MsgProposeProj
 
 	if permissionless {
 		// Permissionless path: validate trust level and burn creation fee
-		if uint32(member.TrustLevel) < params.PermissionlessMinTrustLevel {
+		if commontypes.Saturate[uint32](member.TrustLevel) < params.PermissionlessMinTrustLevel {
 			return nil, errorsmod.Wrapf(types.ErrInsufficientTrustLevel,
 				"permissionless project requires trust level >= %d, got %d",
 				params.PermissionlessMinTrustLevel, member.TrustLevel)

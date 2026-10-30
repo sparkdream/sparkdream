@@ -123,15 +123,15 @@ var (
 		{Account: icatypes.ModuleName},
 		{Account: splitmoduletypes.ModuleName},
 		{Account: ecosystemmoduletypes.ModuleName},
-		{Account: namemoduletypes.ModuleName},
-		{Account: commonsmoduletypes.ModuleName, Permissions: []string{authtypes.Minter}},
+		{Account: namemoduletypes.ModuleName, Permissions: []string{authtypes.Burner}},
+		{Account: commonsmoduletypes.ModuleName},
 		{Account: futarchymoduletypes.ModuleName, Permissions: []string{authtypes.Minter, authtypes.Burner}},
-		{Account: repmoduletypes.ModuleName, Permissions: []string{authtypes.Minter, authtypes.Burner, authtypes.Staking}},
+		{Account: repmoduletypes.ModuleName, Permissions: []string{authtypes.Burner}},
 		{Account: blogmoduletypes.ModuleName, Permissions: []string{authtypes.Burner}},
 		{Account: shieldmoduletypes.ModuleName},
-		{Account: forummoduletypes.ModuleName, Permissions: []string{authtypes.Minter, authtypes.Burner, authtypes.Staking}},
+		{Account: forummoduletypes.ModuleName, Permissions: []string{authtypes.Burner}},
 		{Account: seasonmoduletypes.ModuleName},
-		{Account: collectmoduletypes.ModuleName, Permissions: []string{authtypes.Minter, authtypes.Burner, authtypes.Staking}},
+		{Account: collectmoduletypes.ModuleName, Permissions: []string{authtypes.Burner}},
 		{Account: gnovmmoduletypes.ModuleName, Permissions: []string{authtypes.Minter, authtypes.Burner}},
 		{Account: sessionmoduletypes.ModuleName},
 		{Account: federationmoduletypes.ModuleName, Permissions: []string{authtypes.Burner}},
@@ -141,15 +141,40 @@ var (
 		// x/artifact escrows token deposits and burns creation / inbox fees.
 		{Account: artifactmoduletypes.ModuleName, Permissions: []string{authtypes.Burner}}, {Account: vaultmoduletypes.ModuleName, Permissions: []string{authtypes.Burner}}}
 
-	// blocked account addresses
+	// blocked account addresses: no MsgSend, MultiSend or IBC transfer may
+	// credit them, and x/session refuses them as a pull or transfer
+	// recipient. Escrow and pool accounts are blocked so stray deposits can
+	// never desynchronise their bookkeeping.
 	blockAccAddrs = []string{
 		authtypes.FeeCollectorName,
 		minttypes.ModuleName,
 		stakingtypes.BondedPoolName,
 		stakingtypes.NotBondedPoolName,
+		repmoduletypes.ModuleName,
+		forummoduletypes.ModuleName,
+		collectmoduletypes.ModuleName,
+		blogmoduletypes.ModuleName,
+		namemoduletypes.ModuleName,
+		futarchymoduletypes.ModuleName,
+		seasonmoduletypes.ModuleName,
+		sessionmoduletypes.ModuleName,
+		federationmoduletypes.ModuleName,
+		guardianmoduletypes.ModuleName,
+		servicemoduletypes.ModuleName,
+		vaultmoduletypes.ModuleName,
+		// The community pool is funded through MsgFundCommunityPool, never
+		// by a plain send, which would sit outside the fee pool's bookkeeping.
+		distrtypes.ModuleName,
+		splitmoduletypes.ModuleName,
+		commonsmoduletypes.ModuleName,
+		ibctransfertypes.ModuleName,
+		icatypes.ModuleName,
 		// We allow the following module accounts to receive funds:
-		// distrtypes.ModuleName,
-		// govtypes.ModuleName
+		// govtypes.ModuleName (SDK convention), shieldmoduletypes.ModuleName
+		// and ecosystemmoduletypes.ModuleName (topped up by plain sends),
+		// gnovmmoduletypes.ModuleName (realm coin flows) and
+		// artifactmoduletypes.ModuleName, which is the grantee of every
+		// Harberger tax RecurringPull.
 	}
 
 	// application configuration (used by depinject)
@@ -269,10 +294,13 @@ var (
 						shieldmoduletypes.ModuleName,
 						gnovmmoduletypes.ModuleName,
 						sessionmoduletypes.ModuleName,
+						// service before federation: federation's InitGenesis
+						// rebuilds bridge bindings against x/service operators.
+						servicemoduletypes.ModuleName,
 						federationmoduletypes.ModuleName,
 						guardianmoduletypes.ModuleName,
 						// this line is used by starport scaffolding # stargate/app/initGenesis
-						servicemoduletypes.ModuleName, artifactmoduletypes.ModuleName, vaultmoduletypes.ModuleName},
+						artifactmoduletypes.ModuleName, vaultmoduletypes.ModuleName},
 				}),
 			},
 			{
@@ -353,9 +381,11 @@ var (
 					// SECURITY: inflation parameters are immutable.
 					// Authority is routed through x/guardian, whose
 					// mint.MsgUpdateParams filter rejects changes to
-					// inflation_min/max, goal_bonded, inflation_rate_change.
-					// blocks_per_year and mint_denom remain gov-tunable
-					// (mint_denom is also locked by identity invariant 5).
+					// inflation_min/max, goal_bonded, inflation_rate_change
+					// and mint_denom (also checked by identity invariant 5).
+					// blocks_per_year (the per-block issuance divisor) is
+					// held to a compiled range, ±50% per change and at most
+					// one change per 7 days.
 					//
 					// Replaces the previous burn-address authority pattern;
 					// the rule moves from app_config.go comments to

@@ -51,7 +51,7 @@ func TestQueryPostFlags(t *testing.T) {
 			InReviewQueue: true,
 			Flaggers:      []string{testCreator2, testSentinel},
 		}
-		f.keeper.PostFlag.Set(f.ctx, post.PostId, flag)
+		require.NoError(t, f.keeper.PostFlag.Set(f.ctx, post.PostId, flag))
 
 		resp, err := qs.PostFlags(f.ctx, &types.QueryPostFlagsRequest{PostId: post.PostId})
 		require.NoError(t, err)

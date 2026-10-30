@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/rep/types"
 
 	"cosmossdk.io/math"
@@ -22,6 +23,11 @@ import (
 // key, matching how the unsorted queries already expose direction.
 
 const defaultSortedPageLimit = 100
+
+// maxSortedPageLimit caps a sorted page (REP-E-20). The whole filtered set is
+// already loaded and sorted; an unbounded limit only made the response, and
+// the arithmetic below, as large as the caller asked.
+const maxSortedPageLimit = 100
 
 // collectProjects gathers every project matching the predicate, in id order.
 func (q queryServer) collectProjects(ctx context.Context, match func(types.Project) bool) ([]types.Project, error) {
@@ -106,7 +112,7 @@ func sortProjects(list []types.Project, sortBy string, reverse bool) error {
 		}
 	case "status":
 		cmp = func(a, b types.Project) int {
-			if c := cmpUint64(uint64(a.Status), uint64(b.Status)); c != 0 {
+			if c := cmpUint64(commontypes.Saturate[uint64](a.Status), commontypes.Saturate[uint64](b.Status)); c != 0 {
 				return dir * c
 			}
 			return byID(a, b)
@@ -155,7 +161,7 @@ func sortInitiatives(list []types.Initiative, sortBy string, reverse bool) error
 		}
 	case "status":
 		cmp = func(a, b types.Initiative) int {
-			if c := cmpUint64(uint64(a.Status), uint64(b.Status)); c != 0 {
+			if c := cmpUint64(commontypes.Saturate[uint64](a.Status), commontypes.Saturate[uint64](b.Status)); c != 0 {
 				return dir * c
 			}
 			return byID(a, b)
@@ -169,7 +175,7 @@ func sortInitiatives(list []types.Initiative, sortBy string, reverse bool) error
 		}
 	case "tier":
 		cmp = func(a, b types.Initiative) int {
-			if c := cmpUint64(uint64(a.Tier), uint64(b.Tier)); c != 0 {
+			if c := cmpUint64(commontypes.Saturate[uint64](a.Tier), commontypes.Saturate[uint64](b.Tier)); c != 0 {
 				return dir * c
 			}
 			return byID(a, b)
@@ -221,13 +227,18 @@ func paginateSorted[T any](list []T, page *query.PageRequest) ([]T, *query.PageR
 			limit = page.Limit
 		}
 	}
+	if limit > maxSortedPageLimit {
+		limit = maxSortedPageLimit
+	}
 	total := uint64(len(list))
 	if offset > total {
 		offset = total
 	}
-	end := offset + limit
-	if end > total {
-		end = total
+	// offset <= total and limit <= maxSortedPageLimit, so this cannot wrap
+	// (a limit near MaxUint64 used to overflow end and panic the slice).
+	end := total
+	if total-offset > limit {
+		end = offset + limit
 	}
 	res := &query.PageResponse{Total: total}
 	if end < total {

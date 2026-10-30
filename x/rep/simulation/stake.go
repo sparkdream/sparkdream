@@ -1,147 +1,73 @@
 package simulation
 
 import (
-	"math/rand"
-
 	"cosmossdk.io/math"
-	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
-	"github.com/cosmos/cosmos-sdk/x/simulation"
 
 	"sparkdream/x/rep/keeper"
 	"sparkdream/x/rep/types"
 )
 
-func SimulateMsgStake(
-	ak types.AuthKeeper,
-	bk types.BankKeeper,
-	k keeper.Keeper,
-	txGen client.TxConfig,
-) simtypes.Operation {
-	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
-	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		// The handler refuses this message while x/season is in a blocking
-		// transition phase; a delivery failure fails the whole simulation.
-		if k.InMaintenanceMode(ctx) {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgStake{}), "season maintenance mode"), nil, nil
-		}
-		// The stake floor is a param (min_stake_amount), not a constant: a
-		// hardcoded floor below it makes every op this function sends fail
-		// delivery with ErrStakeBelowMinimum, which fails the whole simulation.
-		params, err := k.Params.Get(ctx)
+// SimulateMsgStake has a member stake DREAM on an initiative that is still
+// in progress, an ACTIVE project, another member or a registered tag.
+func SimulateMsgStake(ak types.AuthKeeper, bk types.BankKeeper, k keeper.Keeper, txGen client.TxConfig) simtypes.Operation {
+	label := &types.MsgStake{}
+	return operation(ak, bk, k, txGen, label, func(e *simEnv) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
+		stakers, err := e.members(func(ma memberAcc) bool { _, ok := e.stakeAmount(ma); return ok })
 		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgStake{}), "failed to load params"), nil, nil
+			return noOpErr(label, err)
 		}
-		minStake := params.MinStakeAmount
-		if minStake.IsNil() || !minStake.IsPositive() {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgStake{}), "min_stake_amount is unset"), nil, nil
+		if len(stakers) == 0 {
+			return noOp(label, "no member has DREAM to stake")
 		}
-
-		// Get or create a member with DREAM to stake. Ask for headroom above
-		// the floor so the random amount below has a range to draw from
-		// instead of pinning to the minimum every time.
-		staker, stakerAcc, err := getOrCreateMemberWithDream(r, ctx, k, accs, minStake.MulRaw(4))
-		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgStake{}), "failed to get/create member with DREAM"), nil, nil
-		}
-
-		// Get or create an initiative to stake on
-		targetType := types.StakeTargetType_STAKE_TARGET_INITIATIVE
-		targetID, err := getOrCreateInitiative(r, ctx, k, staker, types.InitiativeStatus_INITIATIVE_STATUS_ASSIGNED)
-		if err != nil {
-			// Fallback to OPEN status
-			targetID, err = getOrCreateInitiative(r, ctx, k, staker, types.InitiativeStatus_INITIATIVE_STATUS_OPEN)
-			if err != nil {
-				return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgStake{}), "failed to get/create initiative"), nil, nil
+		ins, err := e.initiatives(func(in types.Initiative) bool {
+			switch in.Status {
+			case types.InitiativeStatus_INITIATIVE_STATUS_OPEN,
+				types.InitiativeStatus_INITIATIVE_STATUS_ASSIGNED,
+				types.InitiativeStatus_INITIATIVE_STATUS_SUBMITTED,
+				types.InitiativeStatus_INITIATIVE_STATUS_IN_REVIEW:
+				return true
 			}
-		}
-
-		// Precheck CreateStake's per-target limits against live state. A
-		// simulation runs many ops against a small account set, so the same
-		// member repeatedly drawing the same random initiative is normal — and
-		// both of these would fail delivery, which fails the whole simulation.
-		existingStakes, err := k.GetStakesByTarget(ctx, targetType, targetID)
-		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgStake{}), "failed to read existing stakes"), nil, nil
-		}
-		stakerTotal := math.ZeroInt()
-		tranches := 0
-		for _, s := range existingStakes {
-			if s.Staker != staker.Address {
-				continue
-			}
-			stakerTotal = stakerTotal.Add(s.Amount)
-			tranches++
-		}
-		if tranches >= types.MaxStakeTranchesPerTarget {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgStake{}), "tranche cap reached on this target"), nil, nil
-		}
-
-		// Calculate stake amount (10-50% of available DREAM)
-		// Calculate available (unstaked) balance
-		if staker.DreamBalance == nil || staker.DreamBalance.LT(minStake) {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgStake{}), "insufficient balance"), nil, nil
-		}
-
-		availableBalance := *staker.DreamBalance
-		if staker.StakedDream != nil {
-			availableBalance = availableBalance.Sub(*staker.StakedDream)
-		}
-
-		if availableBalance.LT(minStake) {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgStake{}), "insufficient unstaked balance"), nil, nil
-		}
-
-		maxStake := availableBalance.QuoRaw(2) // Max 50%
-		if maxStake.LT(minStake) {
-			maxStake = minStake
-		}
-		if maxStake.GT(availableBalance) {
-			maxStake = availableBalance
-		}
-
-		var stakeAmount math.Int
-		rangeVal := maxStake.Sub(minStake).Int64()
-		if rangeVal > 0 {
-			stakeAmount = math.NewInt(int64(r.Intn(int(rangeVal))) + minStake.Int64())
-		} else {
-			stakeAmount = minStake
-		}
-		// The floor is enforced by CreateStake; never send below it.
-		if stakeAmount.LT(minStake) {
-			stakeAmount = minStake
-		}
-		if stakeAmount.GT(availableBalance) {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgStake{}), "floor exceeds available balance"), nil, nil
-		}
-
-		// Second half of the per-target precheck: the anti-whale cap is on the
-		// staker's cumulative total on this target, not on a single stake.
-		if stakerTotal.Add(stakeAmount).GT(params.MaxInitiativeStakePerMember) {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgStake{}), "per-member stake cap reached on this target"), nil, nil
-		}
-
-		msg := &types.MsgStake{
-			Staker:     staker.Address,
-			TargetType: targetType,
-			TargetId:   targetID,
-			Amount:     &stakeAmount,
-		}
-
-		return simulation.GenAndDeliverTxWithRandFees(simulation.OperationInput{
-			R:               r,
-			App:             app,
-			TxGen:           txGen,
-			Cdc:             nil,
-			Msg:             msg,
-			CoinsSpentInMsg: sdk.NewCoins(),
-			Context:         ctx,
-			SimAccount:      stakerAcc,
-			AccountKeeper:   ak,
-			Bankkeeper:      bk,
-			ModuleName:      types.ModuleName,
+			return false
 		})
-	}
+		if err != nil {
+			return noOpErr(label, err)
+		}
+		ps, err := e.activeProjects()
+		if err != nil {
+			return noOpErr(label, err)
+		}
+		tags, err := e.tags()
+		if err != nil {
+			return noOpErr(label, err)
+		}
+		var cands []candidate
+		for _, ma := range stakers {
+			amt, _ := e.stakeAmount(ma)
+			msg := &types.MsgStake{Staker: ma.addr(), Amount: PtrInt(amt)}
+			switch x := e.r.Intn(10); {
+			case x < 5 && len(ins) > 0:
+				in := ins[e.r.Intn(len(ins))]
+				msg.TargetType, msg.TargetId = types.StakeTargetType_STAKE_TARGET_INITIATIVE, in.Id
+			case x < 7 && len(ps) > 0:
+				p := ps[e.r.Intn(len(ps))]
+				msg.TargetType, msg.TargetId = types.StakeTargetType_STAKE_TARGET_PROJECT, p.Id
+			case x < 9:
+				other, ok := pick(e.r, stakers)
+				if !ok || other.addr() == ma.addr() {
+					continue
+				}
+				msg.TargetType, msg.TargetIdentifier = types.StakeTargetType_STAKE_TARGET_MEMBER, other.addr()
+			default:
+				tag, ok := pick(e.r, tags)
+				if !ok {
+					continue
+				}
+				msg.TargetType, msg.TargetIdentifier = types.StakeTargetType_STAKE_TARGET_TAG, tag
+			}
+			cands = append(cands, candidate{acc: ma.acc, msg: msg, spent: math.ZeroInt()})
+		}
+		return e.firstValid(label, cands, 6, "no stake target accepts a stake")
+	})
 }

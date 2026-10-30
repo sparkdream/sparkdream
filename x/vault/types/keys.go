@@ -25,8 +25,12 @@ var (
 	ProposalSeqKey = collections.NewPrefix("vaultProposal/seq/")
 	// VaultByAddressKey indexes address -> vault_id.
 	VaultByAddressKey = collections.NewPrefix("vault/by_address/")
-	// VaultsBySignerKey indexes (signer, vault_id); never iterated in full.
+	// VaultsBySignerKey indexes (signer, vault_id) of accepted signer
+	// entries; never iterated in full.
 	VaultsBySignerKey = collections.NewPrefix("vault/by_signer/")
+	// VaultInvitesBySignerKey indexes (signer, vault_id) of unaccepted
+	// signer entries; never iterated in full.
+	VaultInvitesBySignerKey = collections.NewPrefix("vault/invites_by_signer/")
 	// PendingByVaultKey indexes (vault_id, proposal_id) of PENDING proposals.
 	PendingByVaultKey = collections.NewPrefix("vaultProposal/pending_by_vault/")
 	// PendingByProposerKey indexes (vault_id, proposer, proposal_id) of PENDING proposals.

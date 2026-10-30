@@ -14,8 +14,6 @@ import (
 // x/authz — the signer-check is enforced by the SDK's signer rules
 // per the proto signer option).
 func (k msgServer) UnbondOperator(ctx context.Context, msg *types.MsgUnbondOperator) (*types.MsgUnbondOperatorResponse, error) {
-	sdkCtx := sdk.UnwrapSDKContext(ctx)
-
 	opBytes, err := k.addrBytes(msg.Operator)
 	if err != nil {
 		return nil, types.ErrInvalidSigner.Wrap("invalid operator address")
@@ -36,13 +34,26 @@ func (k msgServer) UnbondOperator(ctx context.Context, msg *types.MsgUnbondOpera
 		return nil, types.ErrOperatorNotActive.Wrap(op.Status.String())
 	}
 
+	if err := k.startOperatorUnbond(ctx, op, opBytes, types.UnbondSourceVoluntary); err != nil {
+		return nil, err
+	}
+
+	return &types.MsgUnbondOperatorResponse{}, nil
+}
+
+// startOperatorUnbond moves an ACTIVE or UNDERFUNDED operator to UNBONDING
+// and starts the exit clock. Shared by MsgUnbondOperator and the forced exit
+// of an operator whose address migrated away on a RECOVERY or COUNCIL path
+// (migration_hooks.go). The caller checks the status.
+func (k Keeper) startOperatorUnbond(ctx context.Context, op types.Operator, opBytes []byte, source string) error {
+	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	cfg, err := k.resolveServiceTypeConfig(ctx, op.ServiceType)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	params, err := k.Params.Get(ctx)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	// Settle BEFORE the status change so accrual stops at this height
@@ -61,18 +72,18 @@ func (k msgServer) UnbondOperator(ctx context.Context, msg *types.MsgUnbondOpera
 		oldUnderfundedSince := op.UnderfundedSince
 		op.UnderfundedSince = 0
 		if err := k.removeUnderfundedQueueEntry(ctx, oldUnderfundedSince, opBytes, op.ServiceType); err != nil {
-			return nil, err
+			return err
 		}
 	}
 
 	if err := k.PutOperator(ctx, op); err != nil {
-		return nil, err
+		return err
 	}
 
 	sdkCtx.EventManager().EmitEvent(types.NewOperatorUnbondStartedEvent(
-		msg.Operator, msg.ServiceType, op.UnbondCompleteAt, types.UnbondSourceVoluntary,
+		op.Address, op.ServiceType, op.UnbondCompleteAt, source,
 	))
-	emitOperatorUnbondStarted(msg.ServiceType, types.UnbondSourceVoluntary)
+	emitOperatorUnbondStarted(op.ServiceType, source)
 
-	return &types.MsgUnbondOperatorResponse{}, nil
+	return nil
 }

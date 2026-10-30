@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	commontypes "sparkdream/x/common/types"
 
 	"cosmossdk.io/store/prefix"
 	"github.com/cosmos/cosmos-sdk/runtime"
@@ -35,7 +36,15 @@ func (k Keeper) EndBlock(ctx context.Context) error {
 	return nil
 }
 
-// processExpiredContent iterates the expiry index and tombstones or upgrades expired content.
+// MaxExpiriesPerBlock caps how many expired entries one EndBlock handles.
+// Non-members post ephemeral content for free addresses, so without a cap
+// many items timed to expire in the same second would make one block do all
+// the work. The index is ordered by expiry, so the oldest go first and the
+// rest are picked up by the following blocks (a few seconds late at worst).
+var MaxExpiriesPerBlock = 200
+
+// processExpiredContent iterates the expiry index and tombstones or upgrades
+// expired content, at most MaxExpiriesPerBlock entries per block.
 func (k Keeper) processExpiredContent(ctx context.Context, blockTime int64) {
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	storeAdapter := runtime.KVStoreAdapter(k.storeService.OpenKVStore(ctx))
@@ -47,7 +56,7 @@ func (k Keeper) processExpiredContent(ctx context.Context, blockTime int64) {
 
 	// Build an end key: blockTime+1 encoded as big-endian to get all entries <= blockTime
 	endBz := make([]byte, 8)
-	binary.BigEndian.PutUint64(endBz, uint64(blockTime+1))
+	binary.BigEndian.PutUint64(endBz, commontypes.Saturate[uint64](blockTime+1))
 
 	iter := store.Iterator(nil, endBz)
 	defer iter.Close()
@@ -61,13 +70,13 @@ func (k Keeper) processExpiredContent(ctx context.Context, blockTime int64) {
 	}
 	var entries []expiryEntry
 
-	for ; iter.Valid(); iter.Next() {
+	for ; iter.Valid() && len(entries) < MaxExpiriesPerBlock; iter.Next() {
 		key := iter.Key()
 		// Key format from expiryKey(): {timestamp_8bytes}/{type}/{id_8bytes}
 		if len(key) < 18 { // 8 (ts) + min 2 (separator) + 8 (id) = 18 minimum
 			continue
 		}
-		expiresAt := int64(binary.BigEndian.Uint64(key[:8]))
+		expiresAt := commontypes.Saturate[int64](binary.BigEndian.Uint64(key[:8]))
 		// Parse "/{type}/" from key[8:]. Use byte-offset parsing so that raw
 		// id bytes (which may contain '/') cannot corrupt the contentType.
 		rest := key[8:]
@@ -143,10 +152,10 @@ func (k Keeper) processExpiredPost(ctx context.Context, sdkCtx sdk.Context, id u
 	}
 
 	// Conviction check (anonymous only): if creator is the shield module account and conviction renewal is enabled
-	if post.Creator == anonAddr && k.repKeeper != nil {
+	if post.Creator == anonAddr && k.hasRep() {
 		params, err := k.Params.Get(ctx)
 		if err == nil && params.ConvictionRenewalThreshold.IsPositive() {
-			conviction, err := k.repKeeper.GetContentConviction(ctx, reptypes.StakeTargetType_STAKE_TARGET_BLOG_CONTENT, id)
+			conviction, err := k.late.repKeeper.GetContentConviction(ctx, reptypes.StakeTargetType_STAKE_TARGET_BLOG_CONTENT, id)
 			if err == nil && conviction.GTE(params.ConvictionRenewalThreshold) {
 				blockTime := sdkCtx.BlockTime().Unix()
 				newExpiresAt := blockTime + params.ConvictionRenewalPeriod
@@ -240,11 +249,12 @@ func (k Keeper) processExpiredReply(ctx context.Context, sdkCtx sdk.Context, id 
 		}
 	}
 
-	// Conviction check (anonymous only): if creator is the shield module account and conviction renewal is enabled
-	if reply.Creator == anonAddr && k.repKeeper != nil {
+	// Conviction check (anonymous only; replies have their own stake target,
+	// since reply ids and post ids are separate sequences): if creator is the shield module account and conviction renewal is enabled
+	if reply.Creator == anonAddr && k.hasRep() {
 		params, err := k.Params.Get(ctx)
 		if err == nil && params.ConvictionRenewalThreshold.IsPositive() {
-			conviction, err := k.repKeeper.GetContentConviction(ctx, reptypes.StakeTargetType_STAKE_TARGET_BLOG_CONTENT, id)
+			conviction, err := k.late.repKeeper.GetContentConviction(ctx, reptypes.StakeTargetType_STAKE_TARGET_BLOG_REPLY_CONTENT, id)
 			if err == nil && conviction.GTE(params.ConvictionRenewalThreshold) {
 				blockTime := sdkCtx.BlockTime().Unix()
 				newExpiresAt := blockTime + params.ConvictionRenewalPeriod

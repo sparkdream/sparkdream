@@ -7,6 +7,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	"sparkdream/x/artifact/types"
+	commontypes "sparkdream/x/common/types"
 )
 
 // Nest places a token the signer owns, with anything nested in it, inside
@@ -38,6 +39,15 @@ func (k msgServer) Nest(ctx context.Context, msg *types.MsgNest) (*types.MsgNest
 	childClass, err := k.getClass(ctx, child.ClassId)
 	if err != nil {
 		return nil, err
+	}
+	// A child that could not be sold on its own (hidden, expired, a spent
+	// non-transferable ticket), or a tree holding one, cannot be nested:
+	// it would move and sell with the receiving root.
+	if err := sellable(childClass, child, now(ctx)); err != nil {
+		return nil, errorsmod.Wrap(types.ErrNestNotAllowed, err.Error())
+	}
+	if err := k.treeSellable(ctx, child); err != nil {
+		return nil, errorsmod.Wrap(types.ErrNestNotAllowed, err.Error())
 	}
 	anc, err := k.ancestors(ctx, parent)
 	if err != nil {
@@ -72,8 +82,8 @@ func (k msgServer) Nest(ctx context.Context, msg *types.MsgNest) (*types.MsgNest
 	if err != nil {
 		return nil, err
 	}
-	if uint32(len(chain))+height > p.MaxNestDepth {
-		return nil, errorsmod.Wrapf(types.ErrNestTooDeep, "tree would be %d levels deep (max %d)", uint32(len(chain))+height, p.MaxNestDepth)
+	if commontypes.Saturate[uint32](len(chain))+height > p.MaxNestDepth {
+		return nil, errorsmod.Wrapf(types.ErrNestTooDeep, "tree would be %d levels deep (max %d)", commontypes.Saturate[uint32](len(chain))+height, p.MaxNestDepth)
 	}
 	if root.Descendants+child.Descendants+1 > p.MaxNestedTokens {
 		return nil, errorsmod.Wrapf(types.ErrNestTooDeep, "tree would hold %d tokens (max %d)", root.Descendants+child.Descendants+1, p.MaxNestedTokens)

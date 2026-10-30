@@ -2,8 +2,11 @@ package keeper
 
 import (
 	"context"
+	"cosmossdk.io/collections"
+	"errors"
 	"fmt"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/season/types"
 
 	errorsmod "cosmossdk.io/errors"
@@ -36,8 +39,11 @@ func (k msgServer) AppealDisplayNameModeration(ctx context.Context, msg *types.M
 	}
 
 	// Check appeal period hasn't expired
-	params, _ := k.Params.Get(ctx)
-	if sdkCtx.BlockHeight() > moderation.ModeratedAt+int64(params.DisplayNameAppealPeriodBlocks) {
+	params, getErr := k.Params.Get(ctx)
+	if getErr != nil && !errors.Is(getErr, collections.ErrNotFound) {
+		return nil, getErr
+	}
+	if sdkCtx.BlockHeight() > moderation.ModeratedAt+commontypes.Saturate[int64](params.DisplayNameAppealPeriodBlocks) {
 		return nil, types.ErrAppealPeriodExpired
 	}
 
@@ -57,7 +63,7 @@ func (k msgServer) AppealDisplayNameModeration(ctx context.Context, msg *types.M
 	moderation.AppealChallengeId = challengeID
 	moderation.AppealedAt = sdkCtx.BlockHeight()
 
-	if err := k.DisplayNameModeration.Set(ctx, msg.Creator, moderation); err != nil {
+	if err := k.SetDisplayNameModeration(ctx, msg.Creator, moderation); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to update moderation")
 	}
 

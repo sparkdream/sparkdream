@@ -15,6 +15,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -36,6 +38,10 @@ type fakeLCD struct {
 	names   map[string]string // bech32 -> primary name
 	grants  map[string]string // grant id -> x/session Grant JSON
 	down    bool
+	// pageSize > 0 pages by_grantee results in grant-id order, the key
+	// being the index of the page's first grant, like the real gateway's
+	// opaque next_key.
+	pageSize int
 }
 
 func (f *fakeLCD) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -50,18 +56,18 @@ func (f *fakeLCD) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		m, ok := f.members[strings.TrimPrefix(r.URL.Path, "/sparkdream/rep/v1/member/")]
 		if !ok {
 			w.WriteHeader(http.StatusNotFound)
-			io.WriteString(w, `{"code":5,"message":"not found"}`)
+			_, _ = io.WriteString(w, `{"code":5,"message":"not found"}`)
 			return
 		}
-		io.WriteString(w, `{"member":`+m+`}`)
+		_, _ = io.WriteString(w, `{"member":`+m+`}`)
 	case strings.HasPrefix(r.URL.Path, "/sparkdream/name/v1/reverse_resolve/"):
 		n, ok := f.names[strings.TrimPrefix(r.URL.Path, "/sparkdream/name/v1/reverse_resolve/")]
 		if !ok {
 			w.WriteHeader(http.StatusNotFound)
-			io.WriteString(w, `{"code":5,"message":"account has no primary name set"}`)
+			_, _ = io.WriteString(w, `{"code":5,"message":"account has no primary name set"}`)
 			return
 		}
-		json.NewEncoder(w).Encode(map[string]string{"name": n})
+		_ = json.NewEncoder(w).Encode(map[string]string{"name": n})
 	case strings.HasPrefix(r.URL.Path, "/sparkdream/session/v1/grants/by_grantee/"):
 		grantee := strings.TrimPrefix(r.URL.Path, "/sparkdream/session/v1/grants/by_grantee/")
 		// like the real gateway, the type filter takes the enum's number only
@@ -69,26 +75,45 @@ func (f *fakeLCD) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		want, ok := typeNames[r.URL.Query().Get("type")]
 		if !ok {
 			w.WriteHeader(http.StatusBadRequest)
-			io.WriteString(w, `{"code":3,"message":"strconv.ParseInt: invalid syntax"}`)
+			_, _ = io.WriteString(w, `{"code":3,"message":"strconv.ParseInt: invalid syntax"}`)
 			return
 		}
+		ids := make([]string, 0, len(f.grants))
+		for id := range f.grants {
+			ids = append(ids, id)
+		}
+		sort.Slice(ids, func(i, j int) bool {
+			a, _ := strconv.Atoi(ids[i])
+			b, _ := strconv.Atoi(ids[j])
+			return a < b
+		})
 		var list []json.RawMessage
-		for _, g := range f.grants {
+		for _, id := range ids {
+			g := f.grants[id]
 			var probe struct{ Grantee, Type string }
 			_ = json.Unmarshal([]byte(g), &probe)
 			if probe.Grantee == grantee && (want == "" || probe.Type == want) {
 				list = append(list, json.RawMessage(g))
 			}
 		}
-		json.NewEncoder(w).Encode(map[string]any{"grants": list})
+		nextKey := ""
+		if f.pageSize > 0 {
+			start, _ := strconv.Atoi(r.URL.Query().Get("pagination.key"))
+			end := min(start+f.pageSize, len(list))
+			if end < len(list) {
+				nextKey = strconv.Itoa(end)
+			}
+			list = list[min(start, len(list)):end]
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"grants": list, "pagination": map[string]string{"next_key": nextKey}})
 	case strings.HasPrefix(r.URL.Path, "/sparkdream/session/v1/grants/"):
 		g, ok := f.grants[strings.TrimPrefix(r.URL.Path, "/sparkdream/session/v1/grants/")]
 		if !ok {
 			w.WriteHeader(http.StatusNotFound)
-			io.WriteString(w, `{"code":5,"message":"grant not found"}`)
+			_, _ = io.WriteString(w, `{"code":5,"message":"grant not found"}`)
 			return
 		}
-		io.WriteString(w, `{"grant":`+g+`}`)
+		_, _ = io.WriteString(w, `{"grant":`+g+`}`)
 	default:
 		http.NotFound(w, r)
 	}
@@ -591,7 +616,9 @@ func TestChainListRefresh(t *testing.T) {
 			http.Error(w, "down", http.StatusServiceUnavailable)
 			return
 		}
-		io.WriteString(w, `{
+		// Fake server: a failed write shows up as a broken body on the
+		// client side, so the result is deliberately discarded.
+		_, _ = io.WriteString(w, `{
 			"fleet-a": {"chainId":"phoenix-1","chainName":"Phoenix","rest":"https://api.phoenix.example/","bech32Prefix":"sprkdrm"},
 			"fleet-b": {"chainId":"","rest":"https://api.aurora.example","bech32Prefix":"sprkdrm"}
 		}`)

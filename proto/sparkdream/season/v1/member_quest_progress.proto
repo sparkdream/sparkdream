@@ -19,4 +19,7 @@ message MemberQuestProgress {
 
   // Progress on each objective (parallel array with quest objectives)
   repeated uint64 objective_progress = 5;
+
+  // Quest.objectives_version the progress was recorded against (SEA-32).
+  uint64 objectives_version = 6;
 }

@@ -46,125 +46,28 @@ func (k Keeper) EndBlocker(ctx context.Context) error {
 		sdkCtx.Logger().Error("failed to drain conviction queue", "error", err)
 	}
 
-	// 2. Check initiative completion thresholds
-	k.IterateSubmittedInitiatives(ctx, func(index int64, initiative types.Initiative) bool {
-		canComplete, err := k.CanCompleteInitiative(ctx, initiative.Id)
-		if err != nil {
-			sdkCtx.Logger().Error("failed to check initiative completion", "initiative_id", initiative.Id, "error", err)
-		} else if canComplete {
-			if err := k.TransitionToChallengePeriod(ctx, initiative.Id); err != nil {
-				sdkCtx.Logger().Error("failed to transition initiative to challenge period", "initiative_id", initiative.Id, "error", err)
-			}
-		}
-		return false
-	})
+	// 2. Check initiative completion thresholds: a capped round-robin over
+	// SUBMITTED initiatives (REP-E-10); see submitted_check.go.
+	k.CheckSubmittedInitiatives(ctx)
 
-	// 3. Finalize unchallenged initiatives
-	//
-	// An IN_REVIEW initiative whose ChallengePeriodEnd is still 0 never had its
-	// window opened (legacy state, or a pre-snapshot rejected challenge). It
-	// must not complete vacuously — `height >= 0` is always true — and must not
-	// freeze either: adopt it by opening a full window now, the same policy the
-	// review-gate sweep applies to work that came under its gate after
-	// submission. Collected during the walk, applied after it closes:
-	// TransitionToChallengePeriod writes the initiative and its status index.
-	var adoptWindows []uint64
-	k.IteratePendingCompletionInitiatives(ctx, func(index int64, initiative types.Initiative) bool {
-		if initiative.ChallengePeriodEnd == 0 {
-			adoptWindows = append(adoptWindows, initiative.Id)
-			return false
-		}
-		if sdkCtx.BlockHeight() >= initiative.ChallengePeriodEnd {
-			// Skip payout for initiatives whose parent project was cancelled
-			// after they entered review — CompleteInitiative would reject them
-			// anyway; skipping keeps that off the per-block error log. The
-			// cancel cascade closes them and returns the assignee's bond.
-			if project, perr := k.GetProject(ctx, initiative.ProjectId); perr == nil &&
-				project.Status == types.ProjectStatus_PROJECT_STATUS_CANCELLED {
-				return false
-			}
-			// CompleteInitiative mints to the completer, the treasury, and every
-			// staker before it deletes the stake records, and it is not
-			// idempotent. EndBlocker writes straight to the deliver state, so a
-			// mid-function error here would persist the mints already made and
-			// leave the initiative to be retried next block — paying them
-			// twice. Run it in a child cache context and only commit on
-			// success. (The msg-server path already gets this from the SDK.)
-			cacheCtx, writeCache := sdkCtx.CacheContext()
-			if err := k.CompleteInitiative(cacheCtx, initiative.Id); err != nil {
-				sdkCtx.Logger().Error("failed to complete initiative", "initiative_id", initiative.Id, "error", err)
-			} else {
-				writeCache()
-			}
-		}
-		return false
-	})
-	for _, id := range adoptWindows {
-		if err := k.TransitionToChallengePeriod(ctx, id); err != nil {
-			sdkCtx.Logger().Error("failed to open challenge window for adopted initiative",
-				"initiative_id", id, "error", err)
-			continue
-		}
-		adopted, err := k.GetInitiative(ctx, id)
-		if err != nil {
-			continue
-		}
-		sdkCtx.EventManager().EmitEvent(sdk.NewEvent(
-			"initiative_challenge_window_opened",
-			sdk.NewAttribute("initiative_id", fmt.Sprintf("%d", id)),
-			sdk.NewAttribute("reason", "window_missing_at_completion_sweep"),
-			sdk.NewAttribute("challenge_period_end", fmt.Sprintf("%d", adopted.ChallengePeriodEnd)),
-		))
-	}
+	// 3. Finalize unchallenged initiatives whose challenge period ended.
+	// Reads the completion due queue up to this height, capped per block
+	// (REP-E-10); see due_queue.go.
+	k.SweepDueInitiativeCompletions(ctx)
 
 	// 4. DREAM decay: bulk pass in step 0 applies decay once per epoch for every
 	// member so same-epoch reads stay consistent. The lazy ApplyPendingDecay on
 	// write paths remains as a safety net (becomes a no-op once bulk pass runs).
 
-	// 5. Process expired challenge responses
-	// If assignee doesn't respond within the deadline, challenge is auto-upheld
-	k.IterateActiveChallenges(ctx, func(index int64, challenge types.Challenge) bool {
-		if challenge.ResponseDeadline > 0 && sdkCtx.BlockHeight() >= challenge.ResponseDeadline {
-			// Auto-uphold the challenge - assignee failed to respond.
-			//
-			// UpholdChallenge marks the challenge resolved before it releases the
-			// initiative's stakes, and a resolved challenge never re-enters this
-			// sweep. On deliver state, a mid-function error would therefore
-			// persist the resolution and strand the transition half-done — the
-			// initiative never reaching REJECTED while some stakes are already
-			// released — with no retry. Run it in a child cache context and only
-			// commit on success, mirroring step 3; the still-ACTIVE challenge is
-			// retried on the next block instead.
-			cacheCtx, writeCache := sdkCtx.CacheContext()
-			if err := k.UpholdChallenge(cacheCtx, challenge.Id); err != nil {
-				sdkCtx.Logger().Error("failed to uphold challenge", "challenge_id", challenge.Id, "error", err)
-			} else {
-				writeCache()
-			}
-		}
-		return false
-	})
+	// 5. Process expired challenge responses: an ACTIVE challenge whose
+	// assignee did not respond by the deadline is auto-upheld. Due queue,
+	// capped per block (REP-E-10).
+	k.SweepDueChallengeResponses(ctx)
 
-	// 5b. Process expired content challenge responses
-	// If author doesn't respond within the deadline, challenge is auto-upheld
-	k.IterateActiveContentChallenges(ctx, func(index int64, cc types.ContentChallenge) bool {
-		if cc.ResponseDeadline > 0 && sdkCtx.BlockHeight() >= cc.ResponseDeadline {
-			// Same containment as step 5: UpholdContentChallenge burns the
-			// author's bond and deletes the bond stake before it mints the
-			// challenger's reward, and only flips Status to UPHELD last. A
-			// mid-way failure without this branch persists the burn with the
-			// challenge still live, and the next block's retry burns the bond
-			// a second time -- UnlockDREAM clamps to StakedDream rather than
-			// erroring, so nothing downstream notices the bond is already gone.
-			cacheCtx, writeCache := sdkCtx.CacheContext()
-			if err := k.UpholdContentChallenge(cacheCtx, cc.Id); err != nil {
-				sdkCtx.Logger().Error("failed to uphold content challenge", "content_challenge_id", cc.Id, "error", err)
-			} else {
-				writeCache()
-			}
-		}
-		return false
-	})
+	// 5b. Process expired content challenge responses: an author who did not
+	// respond by the deadline has the challenge auto-upheld. Due queue,
+	// capped per block (REP-E-10).
+	k.SweepDueContentChallengeResponses(ctx)
 
 	// 6. Resolve challenge / content-challenge jury reviews whose (block-height)
 	// deadline passed without reaching a verdict by votes. Appeals are NOT
@@ -195,8 +98,11 @@ func (k Keeper) EndBlocker(ctx context.Context) error {
 	// 6c. Escalate review rounds nobody finished. With the staker veto retired,
 	// reviewers are the quality gate — so if nobody reviews, nothing completes.
 	// This is the liveness guarantee: past the deadline the round goes to the
-	// Operations Committee, and committee silence resolves to PASSED rather than
-	// leaving the initiative wedged.
+	// Operations Committee, and committee silence rejects the round rather than
+	// leaving the initiative wedged. The assignee resubmits for a new round
+	// (bounded by max_review_rounds); when the rounds run out the initiative
+	// closes cleanly (budget returned, bond released, nothing minted). Silence
+	// never passes or mints.
 	if err := k.SweepReviewDeadlines(ctx); err != nil {
 		sdkCtx.Logger().Error("failed to sweep review deadlines", "error", err)
 	}
@@ -323,6 +229,9 @@ func (k Keeper) EndBlocker(ctx context.Context) error {
 	if err := k.TimeoutExpiredAppeals(ctx); err != nil {
 		sdkCtx.Logger().Error("error timing out expired gov action appeals", "error", err)
 	}
+	// 16a. Drop member-action restoration records whose filing window closed
+	// with no appeal (capped per block).
+	k.PruneMemberActionRestorations(ctx)
 
 	// 17. Mature any in-flight bonded-role unbonds whose cooldown has elapsed:
 	// unlocks the pending DREAM, flips status to DEMOTED, and starts
@@ -436,6 +345,12 @@ func (k Keeper) ExpireTags(ctx context.Context, now int64) error {
 		if reserved, rErr := k.ReservedTag.Has(ctx, name); rErr == nil && reserved {
 			return false, nil
 		}
+		// A tag with an open report waits for its resolution (REP-E-11):
+		// collecting it made ResolveTagReport fail on the missing tag and
+		// stranded the reporters' bonds.
+		if reported, rErr := k.TagReport.Has(ctx, name); rErr == nil && reported {
+			return false, nil
+		}
 		toRemove = append(toRemove, expiredTag{
 			name: name, lastUsedAt: tag.LastUsedAt, expiresAt: expiresAt,
 		})
@@ -447,13 +362,15 @@ func (k Keeper) ExpireTags(ctx context.Context, now int64) error {
 
 	expired := 0
 	for _, t := range toRemove {
-		if rmErr := k.Tag.Remove(ctx, t.name); rmErr != nil {
+		if rmErr := k.RemoveTag(ctx, t.name); rmErr != nil {
 			sdkCtx.Logger().Error("failed to remove expired tag", "tag", t.name, "error", rmErr)
 			continue
 		}
 		if k.late.forumKeeper != nil {
 			// Best-effort cleanup of stale references; non-fatal.
-			_ = k.late.forumKeeper.PruneTagReferences(ctx, t.name)
+			if err := k.late.forumKeeper.PruneTagReferences(ctx, t.name); err != nil {
+				sdk.UnwrapSDKContext(ctx).Logger().Error("ExpireTags: late.forumKeeper.PruneTagReferences failed", "err", err)
+			}
 		}
 		sdkCtx.EventManager().EmitEvent(sdk.NewEvent("tag_expired",
 			sdk.NewAttribute("tag_name", t.name),

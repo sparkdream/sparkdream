@@ -3,6 +3,7 @@ package keeper
 import (
 	"context"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/rep/types"
 
 	"google.golang.org/grpc/codes"
@@ -17,7 +18,7 @@ func (q queryServer) StakesByTarget(ctx context.Context, req *types.QueryStakesB
 	// Collect all stakes matching the target type and ID
 	var stakes []*types.Stake
 	err := q.k.Stake.Walk(ctx, nil, func(id uint64, stake types.Stake) (bool, error) {
-		if uint64(stake.TargetType) == req.TargetType && stake.TargetId == req.TargetId {
+		if commontypes.Saturate[uint64](stake.TargetType) == req.TargetType && stake.TargetId == req.TargetId {
 			stakeCopy := stake
 			stakes = append(stakes, &stakeCopy)
 		}

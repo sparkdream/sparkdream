@@ -303,7 +303,7 @@ func (mt *MerkleTree) GetProof(leafIndex int) (*MerkleProof, error) {
 	for level := 0; level < mt.depth; level++ {
 		// Determine if we're a left or right child
 		isRightChild := currentIndex % 2
-		pathIndices[level] = uint64(isRightChild)
+		pathIndices[level] = uint64(isRightChild) //nolint:gosec // a non-negative index mod 2
 
 		// Get sibling index
 		var siblingIndex int

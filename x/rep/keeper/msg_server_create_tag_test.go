@@ -32,7 +32,7 @@ func TestCreateTag_HappyPath(t *testing.T) {
 	srv := keeper.NewMsgServerImpl(f.keeper)
 
 	addr := sdk.AccAddress([]byte("tagmaker"))
-	seedEstablishedMember(t, f, addr, math.NewInt(10_000))
+	seedEstablishedMember(t, f, addr, math.NewInt(100_000_000))
 
 	resp, err := srv.CreateTag(f.ctx, &types.MsgCreateTag{
 		Creator: addr.String(),
@@ -54,7 +54,7 @@ func TestCreateTag_RejectsInvalidFormat(t *testing.T) {
 	srv := keeper.NewMsgServerImpl(f.keeper)
 
 	addr := sdk.AccAddress([]byte("tagmaker"))
-	seedEstablishedMember(t, f, addr, math.NewInt(10_000))
+	seedEstablishedMember(t, f, addr, math.NewInt(100_000_000))
 
 	_, err := srv.CreateTag(f.ctx, &types.MsgCreateTag{
 		Creator: addr.String(),
@@ -68,7 +68,7 @@ func TestCreateTag_RejectsDuplicate(t *testing.T) {
 	srv := keeper.NewMsgServerImpl(f.keeper)
 
 	addr := sdk.AccAddress([]byte("tagmaker"))
-	seedEstablishedMember(t, f, addr, math.NewInt(10_000))
+	seedEstablishedMember(t, f, addr, math.NewInt(100_000_000))
 
 	// The fixture pre-seeds "backend" — a second attempt must fail.
 	_, err := srv.CreateTag(f.ctx, &types.MsgCreateTag{
@@ -83,7 +83,7 @@ func TestCreateTag_RejectsReserved(t *testing.T) {
 	srv := keeper.NewMsgServerImpl(f.keeper)
 
 	addr := sdk.AccAddress([]byte("tagmaker"))
-	seedEstablishedMember(t, f, addr, math.NewInt(10_000))
+	seedEstablishedMember(t, f, addr, math.NewInt(100_000_000))
 
 	require.NoError(t, f.keeper.SetReservedTag(f.ctx, types.ReservedTag{Name: "admin"}))
 

@@ -296,7 +296,7 @@ fi
 # operation nullifier is sealed inside the payload; the cleartext nullifier
 # is the per-payload submission nullifier.
 DUMMY_PROOF_HEX=$(openssl rand -hex 128)
-OP_NULLIFIER_HEX=$(openssl rand -hex 32)
+OP_NULLIFIER_HEX=00$(openssl rand -hex 31)
 
 # Build the payload tool once: `go run` can take longer than a test epoch
 # (10 blocks), and a payload is sealed to the epoch it targets.
@@ -341,8 +341,8 @@ fi
 
 # Submission nullifier and rate-limit nullifier (32-byte random values; a
 # real client takes both from the submission proof)
-NULLIFIER_HEX=$(openssl rand -hex 32)
-RATE_NULLIFIER_HEX=$(openssl rand -hex 32)
+NULLIFIER_HEX=00$(openssl rand -hex 31)
+RATE_NULLIFIER_HEX=00$(openssl rand -hex 31)
 
 # The CLI takes hex for every byte field (payload included); exec-mode 1 = ENCRYPTED_BATCH.
 ENCRYPTED_PAYLOAD_HEX=$(echo "$ENCRYPTED_PAYLOAD_B64" | base64 -d | od -An -tx1 | tr -d ' \n')
@@ -641,7 +641,7 @@ if [ "${SKIP_REPLAY:-false}" != true ]; then
 # current epoch and resubmit a bounded number of times.
 for attempt in 1 2 3; do
     NEW_PAYLOAD_HEX=$(echo "$NEW_PAYLOAD_B64" | base64 -d | od -An -tx1 | tr -d ' \n')
-    REPLAY_SUBMISSION_NULLIFIER=$(openssl rand -hex 32)
+    REPLAY_SUBMISSION_NULLIFIER=00$(openssl rand -hex 31)
     REPLAY_TX_RES=$($BINARY tx shield shielded-exec \
         --exec-mode=1 \
         --encrypted-payload="$NEW_PAYLOAD_HEX" \
@@ -733,8 +733,8 @@ echo "--- PART 11: Wrong target epoch rejection ---"
 
 # Submit with a wrong epoch number
 WRONG_EPOCH=$((REPLAY_EPOCH + 999))
-WRONG_NULLIFIER_HEX=$(openssl rand -hex 32)
-WRONG_RATE_HEX=$(openssl rand -hex 32)
+WRONG_NULLIFIER_HEX=00$(openssl rand -hex 31)
+WRONG_RATE_HEX=00$(openssl rand -hex 31)
 
 WRONG_TX_RES=$($BINARY tx shield shielded-exec \
     --exec-mode=1 \
@@ -775,8 +775,8 @@ fi
 # =========================================================================
 echo "--- PART 12: Empty encrypted payload rejection ---"
 
-EMPTY_NULLIFIER_HEX=$(openssl rand -hex 32)
-EMPTY_RATE_HEX=$(openssl rand -hex 32)
+EMPTY_NULLIFIER_HEX=00$(openssl rand -hex 31)
+EMPTY_RATE_HEX=00$(openssl rand -hex 31)
 
 EMPTY_TX_RES=$($BINARY tx shield shielded-exec \
     --exec-mode=1 \

@@ -40,7 +40,7 @@ func TestQueryAvailableQuests(t *testing.T) {
 
 		resp, err := qs.AvailableQuests(ctx, &types.QueryAvailableQuestsRequest{Member: memberStr})
 		require.NoError(t, err)
-		require.Empty(t, resp.Id)
+		require.Empty(t, resp.Quests)
 	})
 
 	t.Run("quest available for member", func(t *testing.T) {
@@ -52,8 +52,9 @@ func TestQueryAvailableQuests(t *testing.T) {
 
 		resp, err := qs.AvailableQuests(ctx, &types.QueryAvailableQuestsRequest{Member: memberStr})
 		require.NoError(t, err)
-		require.Equal(t, "available_quest", resp.Id)
-		require.Equal(t, uint64(75), resp.XpReward)
+		require.Len(t, resp.Quests, 1)
+		require.Equal(t, "available_quest", resp.Quests[0].QuestId)
+		require.Equal(t, uint64(75), resp.Quests[0].XpReward)
 	})
 
 	t.Run("inactive quest not available", func(t *testing.T) {
@@ -69,11 +70,13 @@ func TestQueryAvailableQuests(t *testing.T) {
 			XpReward: 50,
 			Active:   false, // Inactive
 		}
-		k.Quest.Set(ctx, "inactive_test", quest)
+		require.NoError(t, k.Quest.Set(ctx, "inactive_test", quest))
 
 		resp, err := qs.AvailableQuests(ctx, &types.QueryAvailableQuestsRequest{Member: memberStr})
 		require.NoError(t, err)
 		// Should not return the inactive quest
-		require.NotEqual(t, "inactive_test", resp.Id)
+		for _, q := range resp.Quests {
+			require.NotEqual(t, "inactive_test", q.QuestId)
+		}
 	})
 }

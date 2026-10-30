@@ -34,8 +34,15 @@ const unitNamespace uint64 = 0
 // issuedUnits is the count an edition's max_supply applies to.
 func issuedUnits(e types.Edition) uint64 { return e.Supply + e.Burned + e.Reserved }
 
+// checkUnitSupply checks that n more units fit the edition: under the
+// compiled HardMaxEditionSupply always (an uncapped edition included) and
+// under max_supply when set. The sum is checked, never wrapped.
 func checkUnitSupply(e types.Edition, n uint64) error {
-	if e.MaxSupply > 0 && issuedUnits(e)+n > e.MaxSupply {
+	issued, err := types.AddUnits(issuedUnits(e), n)
+	if err != nil {
+		return err
+	}
+	if e.MaxSupply > 0 && issued > e.MaxSupply {
 		return errorsmod.Wrapf(types.ErrSupplyExceeded, "edition issued %d + %d > max %d", issuedUnits(e), n, e.MaxSupply)
 	}
 	return nil
@@ -167,7 +174,9 @@ func (k Keeper) credit(ctx context.Context, e *types.Edition, to string, amount 
 		b.Deposit = dep
 		b.RewardDebt = e.RewardPerUnit
 	}
-	b.Amount += amount
+	if b.Amount, err = types.AddUnits(b.Amount, amount); err != nil {
+		return err
+	}
 	return k.writeBalance(ctx, e, b)
 }
 
@@ -210,10 +219,14 @@ func (k Keeper) lockUnits(ctx context.Context, e *types.Edition, owner string, a
 	}
 	if unlock {
 		b.Locked -= amount
-		b.Amount += amount
+		if b.Amount, err = types.AddUnits(b.Amount, amount); err != nil {
+			return err
+		}
 	} else {
 		b.Amount -= amount
-		b.Locked += amount
+		if b.Locked, err = types.AddUnits(b.Locked, amount); err != nil {
+			return err
+		}
 	}
 	return k.writeBalance(ctx, e, b)
 }
@@ -284,11 +297,17 @@ func (k Keeper) mintUnitsTo(ctx context.Context, c types.Class, e *types.Edition
 	if _, err := k.validateRecipient("recipient", recipient); err != nil {
 		return res, err
 	}
-	if recipient == minterStr || (!c.Flags.NeedsConsent() && k.deliversDirectly(ctx, minterStr, recipient)) {
+	// Minting to oneself (any of one's own addresses) is always direct, as
+	// on the unique-token path.
+	if k.sameMember(ctx, recipient, minterStr) || (!c.Flags.NeedsConsent() && k.deliversDirectly(ctx, minterStr, recipient)) {
 		if err := k.credit(ctx, e, recipient, amount, minter, false, math.Int{}, ""); err != nil {
 			return res, err
 		}
-		e.Supply += amount
+		supply, err := types.AddUnits(e.Supply, amount)
+		if err != nil {
+			return res, err
+		}
+		e.Supply = supply
 		res.Delivered = true
 		emit(ctx, types.EventUnitsMinted, classAttr(c.Id), editionAttr(e.Id),
 			sdk.NewAttribute("minter", minterStr), sdk.NewAttribute("owner", recipient), sdk.NewAttribute("amount", u64(amount)))
@@ -298,7 +317,9 @@ func (k Keeper) mintUnitsTo(ctx context.Context, c types.Class, e *types.Edition
 	if err != nil {
 		return res, err
 	}
-	e.Reserved += amount
+	if e.Reserved, err = types.AddUnits(e.Reserved, amount); err != nil {
+		return res, err
+	}
 	res.PendingId = id
 	return res, nil
 }
@@ -381,8 +402,8 @@ func (k Keeper) resolvePendingUnits(ctx context.Context, pu types.PendingUnits, 
 			if err := k.debit(ctx, &e, pu.From, pu.Amount, true); err != nil {
 				return err
 			}
-		} else {
-			e.Supply += pu.Amount
+		} else if e.Supply, err = types.AddUnits(e.Supply, pu.Amount); err != nil {
+			return err
 		}
 		if err := k.credit(ctx, &e, pu.To, pu.Amount, nil, true, pu.Deposit, pu.From); err != nil {
 			return err

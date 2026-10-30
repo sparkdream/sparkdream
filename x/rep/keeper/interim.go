@@ -8,7 +8,6 @@ import (
 
 	errorsmod "cosmossdk.io/errors"
 
-	"cosmossdk.io/collections"
 	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 )
@@ -133,9 +132,6 @@ func (k Keeper) CountActiveInterimsForMember(ctx context.Context, member string)
 func (k Keeper) GetInterim(ctx context.Context, interimID uint64) (types.Interim, error) {
 	interim, err := k.Interim.Get(ctx, interimID)
 	if err != nil {
-		if err == collections.ErrNotFound {
-			return types.Interim{}, fmt.Errorf("interim %d not found", interimID)
-		}
 		return types.Interim{}, err
 	}
 	return interim, nil
@@ -294,15 +290,30 @@ func (k Keeper) ApproveInterim(
 		return err
 	}
 
-	// Validate approver has authority (Operations Committee)
-	if !k.IsOperationsCommittee(ctx, approver) {
-		return fmt.Errorf("approver %s is not authorized (requires Operations Committee)", approver.String())
+	// Approval pays the assignees, so it needs an executed proposal: the
+	// Commons Operations Committee policy (or the Commons Council policy, or
+	// x/gov), never a single committee member.
+	approverStr, err := k.addressCodec.BytesToString(approver)
+	if err != nil {
+		return errorsmod.Wrap(err, "invalid approver address")
+	}
+	if !k.isCouncilOrCommitteePolicy(ctx, approverStr, "commons", "operations") {
+		return errorsmod.Wrapf(types.ErrNotGovAuthority,
+			"approver %s is not authorized: interim approval requires the Commons Operations Committee policy (a committee proposal), the Commons Council policy or x/gov", approverStr)
 	}
 
 	if interim.Type == types.InterimType_INTERIM_TYPE_ADJUDICATION {
 		return errorsmod.Wrapf(types.ErrInvalidRequest,
 			"interim %d is an adjudication; settle it with MsgCompleteInterim, which carries an explicit UPHOLD or REJECT decision",
 			interimID)
+	}
+
+	// Approval is what pays a member-created interim (REP-E-02), so the
+	// approver must be someone other than the payee.
+	for _, a := range interim.Assignees {
+		if k.SameMember(ctx, a, approver.String()) {
+			return errorsmod.Wrapf(types.ErrSelfApproval, "approver %s is an assignee of interim %d", approver, interimID)
+		}
 	}
 
 	// If approved, pay assignees and mark complete
@@ -351,7 +362,9 @@ func (k Keeper) ApproveInterim(
 				}
 
 				// Check for trust level upgrade after interim completion (lazy evaluation)
-				_ = k.UpdateTrustLevel(ctx, assigneeAddr)
+				if err := k.UpdateTrustLevel(ctx, assigneeAddr); err != nil {
+					return err
+				}
 			}
 		}
 
@@ -453,7 +466,7 @@ func (k Keeper) CompleteInterimDirectly(
 	// every sweep, nothing left to retry, the initiative frozen forever. A
 	// missing decision is now a hard error while the interim is still live, and
 	// the errors from the resolution itself propagate for the same reason.
-	adjudication := interim.Type == types.InterimType_INTERIM_TYPE_ADJUDICATION && interim.ReferenceId != 0
+	adjudication := k.isSystemAdjudication(interim)
 	if adjudication {
 		switch decision {
 		case types.AdjudicationDecision_ADJUDICATION_DECISION_UPHOLD,
@@ -506,7 +519,9 @@ func (k Keeper) CompleteInterimDirectly(
 
 			// Check for trust level upgrade after interim completion (lazy evaluation)
 			// Completed interims count toward trust level progression
-			_ = k.UpdateTrustLevel(ctx, assigneeAddr)
+			if err := k.UpdateTrustLevel(ctx, assigneeAddr); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -548,7 +563,7 @@ func (k Keeper) CompleteInterimDirectly(
 func (k Keeper) findAdjudicationChallenge(ctx context.Context, initiativeID uint64) (uint64, bool) {
 	var challengeID uint64
 	var found bool
-	_ = k.IterateChallengesByStatus(ctx, types.ChallengeStatus_CHALLENGE_STATUS_IN_JURY_REVIEW,
+	if err := k.IterateChallengesByStatus(ctx, types.ChallengeStatus_CHALLENGE_STATUS_IN_JURY_REVIEW,
 		func(id uint64, challenge types.Challenge) bool {
 			if challenge.InitiativeId == initiativeID {
 				challengeID = id
@@ -556,7 +571,9 @@ func (k Keeper) findAdjudicationChallenge(ctx context.Context, initiativeID uint
 				return true
 			}
 			return false
-		})
+		}); err != nil {
+		sdk.UnwrapSDKContext(ctx).Logger().Error("findAdjudicationChallenge: k.IterateChallengesByStatus failed", "err", err)
+	}
 	return challengeID, found
 }
 
@@ -608,7 +625,7 @@ func (k Keeper) expireInterim(ctx context.Context, interimID uint64) error {
 		return err
 	}
 
-	if interim.Type != types.InterimType_INTERIM_TYPE_ADJUDICATION || interim.ReferenceId == 0 {
+	if !k.isSystemAdjudication(interim) {
 		return nil
 	}
 	challengeID, ok := k.findAdjudicationChallenge(ctx, interim.ReferenceId)
@@ -635,24 +652,23 @@ func (k Keeper) expireInterim(ctx context.Context, interimID uint64) error {
 	return nil
 }
 
-// GetInterimBudget returns the budget for a given complexity level
+// EpicComplexityBudgetNum / EpicComplexityBudgetDen derive the EPIC interim
+// budget from the EXPERT one: 2.5x, which is 2,500 DREAM at the default
+// 1,000 DREAM expert budget (spec: "Epic: 2,500 DREAM"). EPIC used to return a
+// hardcoded 2500 micro-DREAM (0.0025 DREAM) while granting 100 reputation, the
+// cheapest reputation on the chain (REP-E-12). Derived rather than a new param
+// so the ratio follows every expert-budget change.
+const (
+	EpicComplexityBudgetNum = 5
+	EpicComplexityBudgetDen = 2
+)
+
+// GetInterimBudget returns the budget for a given complexity level, in
+// micro-DREAM.
 func (k Keeper) GetInterimBudget(ctx context.Context, complexity types.InterimComplexity) math.Int {
 	params, err := k.Params.Get(ctx)
 	if err != nil {
-		// Return defaults if params not available
-		switch complexity {
-		case types.InterimComplexity_INTERIM_COMPLEXITY_SIMPLE:
-			return math.NewInt(50)
-		case types.InterimComplexity_INTERIM_COMPLEXITY_STANDARD:
-			return math.NewInt(150)
-		case types.InterimComplexity_INTERIM_COMPLEXITY_COMPLEX:
-			return math.NewInt(400)
-		case types.InterimComplexity_INTERIM_COMPLEXITY_EXPERT:
-			return math.NewInt(1000)
-		// For EPIC (newly added), assuming large budget
-		case types.InterimComplexity_INTERIM_COMPLEXITY_EPIC:
-			return math.NewInt(2500)
-		}
+		params = types.DefaultParams()
 	}
 
 	switch complexity {
@@ -665,9 +681,29 @@ func (k Keeper) GetInterimBudget(ctx context.Context, complexity types.InterimCo
 	case types.InterimComplexity_INTERIM_COMPLEXITY_EXPERT:
 		return params.ExpertComplexityBudget
 	case types.InterimComplexity_INTERIM_COMPLEXITY_EPIC:
-		// Fallback for Epic if params not updated
-		return math.NewInt(2500)
+		return params.ExpertComplexityBudget.MulRaw(EpicComplexityBudgetNum).QuoRaw(EpicComplexityBudgetDen)
 	default:
-		return math.NewInt(150)
+		return params.StandardComplexityBudget
 	}
+}
+
+// isSystemAdjudication reports whether an interim is a module-raised
+// ADJUDICATION: the type, a challenged initiative as reference, and the module
+// authority as its only assignee (EscalateChallengeToCommittee and the
+// inconclusive-jury path). Only these may resolve a challenge when they are
+// completed or expire (REP-E-01): a member-created ADJUDICATION interim with a
+// past deadline used to force-reject whatever challenge sat in jury review on
+// the referenced initiative.
+func (k Keeper) isSystemAdjudication(interim types.Interim) bool {
+	return interim.Type == types.InterimType_INTERIM_TYPE_ADJUDICATION &&
+		interim.ReferenceId != 0 &&
+		len(interim.Assignees) == 1 &&
+		interim.Assignees[0] == k.GetAuthorityString()
+}
+
+// IsSystemOnlyInterimType reports whether only the module may create an
+// interim of this type: ADJUDICATION settles a challenge and JURY_DUTY is a
+// jury seat. MsgCreateInterim refuses both.
+func IsSystemOnlyInterimType(t types.InterimType) bool {
+	return t == types.InterimType_INTERIM_TYPE_ADJUDICATION || t == types.InterimType_INTERIM_TYPE_JURY_DUTY
 }

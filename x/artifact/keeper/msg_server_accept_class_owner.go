@@ -17,7 +17,9 @@ func (k msgServer) AcceptClassOwner(ctx context.Context, msg *types.MsgAcceptCla
 		return nil, err
 	}
 	po, err := k.PendingClassOwners.Get(ctx, msg.ClassId)
-	if err != nil || po.ProposedOwner != msg.ProposedOwner || po.ExpiresAt <= now(ctx) {
+	// A proposal names an address; a member who migrated its key since
+	// accepts it from the successor (the tombstone never passes CanActAs).
+	if err != nil || !k.canActAs(ctx, msg.ProposedOwner, po.ProposedOwner) || po.ExpiresAt <= now(ctx) {
 		return nil, types.ErrPendingOwnerNotFound
 	}
 	if err := k.clearPendingOwner(ctx, c.Id); err != nil {
@@ -31,7 +33,11 @@ func (k msgServer) AcceptClassOwner(ctx context.Context, msg *types.MsgAcceptCla
 	c.Minters = nil
 	c.MintPolicy.PublicMintEnabled = false
 	c.PayoutAddress = msg.ProposedOwner
-	c.RoyaltyRecipients = types.SoleRoyaltyRecipient(msg.ProposedOwner)
+	// A locked split is a promise to its collaborators that no owner can
+	// take back (§5.1.12): it survives the handover untouched.
+	if !c.RoyaltyLocked {
+		c.RoyaltyRecipients = types.SoleRoyaltyRecipient(msg.ProposedOwner)
+	}
 	if err := k.saveClass(ctx, c); err != nil {
 		return nil, err
 	}

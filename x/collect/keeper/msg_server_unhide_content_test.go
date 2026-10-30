@@ -33,7 +33,6 @@ func hideCollectionForUnhide(t *testing.T, f *testFixture, collID uint64) uint64
 		TargetId:   collID,
 		TargetType: types.FlagTargetType_FLAG_TARGET_TYPE_COLLECTION,
 		ReasonCode: commontypes.ModerationReason_MODERATION_REASON_SPAM,
-		ReasonText: "spam content",
 	})
 	require.NoError(t, err)
 	return resp.HideRecordId

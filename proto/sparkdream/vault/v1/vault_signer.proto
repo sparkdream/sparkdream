@@ -7,8 +7,15 @@ option go_package = "sparkdream/x/vault/types";
 
 // VaultSigner is one weighted signer of a vault. The address is personal (never
 // a vault, module account, group policy or reserved address); a native multisig
-// address is allowed.
+// address is allowed. An entry listed by someone else stays unaccepted until
+// the address accepts it (MsgAcceptVaultSigner).
 message VaultSigner {
   string address = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
   uint64 weight = 2;
+  // Set by the chain, ignored on MsgCreateVault / MsgUpdateVault input. True
+  // once the listed address consented: the creator's own entry at create, an
+  // entry carried over from the previous accepted config by MsgUpdateVault, or
+  // MsgAcceptVaultSigner. Only accepted entries carry weight in the tally, may
+  // propose, approve or execute, and count toward MaxVaultsPerSigner.
+  bool accepted = 3;
 }

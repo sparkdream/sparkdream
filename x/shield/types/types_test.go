@@ -12,6 +12,7 @@ import (
 	"go.dedis.ch/kyber/v4/util/random"
 
 	"sparkdream/tools/tle"
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/shield/types"
 )
 
@@ -162,9 +163,9 @@ func TestGenesisValidation(t *testing.T) {
 		require.NoError(t, gs.Validate())
 	})
 
-	t.Run("default genesis has 21 registered ops", func(t *testing.T) {
+	t.Run("default genesis has 22 registered ops", func(t *testing.T) {
 		gs := types.DefaultGenesis()
-		require.Len(t, gs.RegisteredOps, 21)
+		require.Len(t, gs.RegisteredOps, 22)
 	})
 
 	t.Run("ownership op must be immediate-only", func(t *testing.T) {
@@ -220,6 +221,7 @@ func TestDefaultGenesisOpsContent(t *testing.T) {
 		require.Equal(t, types.ProofDomain_PROOF_DOMAIN_TRUST_TREE, op.ProofDomain)
 		require.Equal(t, types.NullifierScopeType_NULLIFIER_SCOPE_GLOBAL, op.NullifierScopeType)
 		require.Equal(t, types.ShieldBatchMode_SHIELD_BATCH_MODE_ENCRYPTED_ONLY, op.BatchMode)
+		require.False(t, op.Active, "SHD-11: inactive until x/rep can execute a shielded challenge")
 	})
 
 	// Verify commons ops (EITHER mode — immediate needed while TLE is not yet active)
@@ -235,6 +237,19 @@ func TestDefaultGenesisOpsContent(t *testing.T) {
 		require.True(t, ok)
 		require.Equal(t, types.NullifierScopeType_NULLIFIER_SCOPE_MESSAGE_FIELD, op.NullifierScopeType)
 		require.Equal(t, "proposal_id", op.ScopeFieldPath)
+		require.Equal(t, types.ProofDomain_PROOF_DOMAIN_GROUP_TREE, op.ProofDomain, "proven against the ballot's voter snapshot, not the trust tree")
+		require.Equal(t, types.ShieldBatchMode_SHIELD_BATCH_MODE_IMMEDIATE_ONLY, op.BatchMode)
+		require.True(t, op.Active)
+	})
+
+	t.Run("commons MsgAnonymousVotePoll", func(t *testing.T) {
+		op, ok := ops["/sparkdream.commons.v1.MsgAnonymousVotePoll"]
+		require.True(t, ok)
+		require.Equal(t, types.ProofDomain_PROOF_DOMAIN_GROUP_TREE, op.ProofDomain)
+		require.Equal(t, uint32(33), op.NullifierDomain)
+		require.Equal(t, "poll_id", op.ScopeFieldPath)
+		require.Equal(t, types.ShieldBatchMode_SHIELD_BATCH_MODE_IMMEDIATE_ONLY, op.BatchMode)
+		require.True(t, op.Active)
 	})
 
 	// FEDERATION-S2-5: per-content nullifier scope ensures one identity =
@@ -337,7 +352,7 @@ func TestErrorCodesUnique(t *testing.T) {
 func TestModuleConstants(t *testing.T) {
 	require.Equal(t, "shield", types.ModuleName)
 	require.Equal(t, "shield", types.StoreKey)
-	require.Equal(t, "shield_fee_paid", types.ContextKeyFeePaid)
+	require.Equal(t, commontypes.ContextKeyFeePaid, types.ContextKeyFeePaid)
 }
 
 // sharedVoteDomains are op pairs that deliberately share a nullifier domain:

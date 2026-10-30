@@ -2,6 +2,8 @@ package keeper
 
 import (
 	"context"
+	"cosmossdk.io/collections"
+	"errors"
 	"fmt"
 
 	"sparkdream/x/season/types"
@@ -46,19 +48,16 @@ func (k msgServer) CreateGuild(ctx context.Context, msg *types.MsgCreateGuild) (
 
 	// Check guild hop cooldown
 	membership, err := k.GuildMembership.Get(ctx, msg.Creator)
-	if err == nil && membership.LeftEpoch > 0 {
-		params, _ := k.Params.Get(ctx)
-		currentEpoch := k.GetCurrentEpoch(ctx)
-		epochsSinceLeft := currentEpoch - membership.LeftEpoch
-		if uint64(epochsSinceLeft) < params.GuildHopCooldownEpochs {
-			return nil, errorsmod.Wrapf(types.ErrGuildHopCooldown,
-				"must wait %d more epochs", params.GuildHopCooldownEpochs-uint64(epochsSinceLeft))
-		}
+	params, getErr := k.Params.Get(ctx)
+	if getErr != nil && !errors.Is(getErr, collections.ErrNotFound) {
+		return nil, getErr
+	}
+	if err := checkGuildHopCooldown(membership, err == nil, k.GetCurrentEpoch(ctx), params.GuildHopCooldownEpochs); err != nil {
+		return nil, err
 	}
 
 	// Check max guilds per season
-	params, _ := k.Params.Get(ctx)
-	if err == nil && membership.GuildsJoinedThisSeason >= uint64(params.MaxGuildsPerSeason) {
+	if err == nil && k.guildsJoinedThisSeason(ctx, membership) >= uint64(params.MaxGuildsPerSeason) {
 		return nil, types.ErrMaxGuildsPerSeason
 	}
 
@@ -104,19 +103,9 @@ func (k msgServer) CreateGuild(ctx context.Context, msg *types.MsgCreateGuild) (
 		return nil, errorsmod.Wrap(err, "failed to update profile")
 	}
 
-	// Create/update membership record
-	currentEpoch := k.GetCurrentEpoch(ctx)
-	newMembership := types.GuildMembership{
-		Member:                 msg.Creator,
-		GuildId:                guildID,
-		JoinedEpoch:            currentEpoch,
-		LeftEpoch:              0,
-		GuildsJoinedThisSeason: 1,
-	}
-	if err == nil {
-		newMembership.GuildsJoinedThisSeason = membership.GuildsJoinedThisSeason + 1
-	}
-	if err := k.GuildMembership.Set(ctx, msg.Creator, newMembership); err != nil {
+	// Create/update membership record; the founder is the first counted
+	// member (SEA-24).
+	if err := k.joinGuildMembership(ctx, msg.Creator, guildID, k.GetCurrentEpoch(ctx)); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to save membership")
 	}
 

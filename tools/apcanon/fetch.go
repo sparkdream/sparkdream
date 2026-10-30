@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"syscall"
 	"time"
 )
 
@@ -127,7 +128,7 @@ func guardedClient(opts FetchOptions, origin string, defaultTimeout time.Duratio
 		if timeout == 0 {
 			timeout = defaultTimeout
 		}
-		client = &http.Client{Timeout: timeout}
+		client = &http.Client{Timeout: timeout, Transport: guardedTransport(opts.AllowPrivateHosts)}
 	}
 	// Install the redirect policy on a shallow copy so an injected test
 	// client keeps its transport without inheriting a shared mutation.
@@ -186,12 +187,79 @@ func checkFetchTarget(rawURL string, allowPrivate bool) error {
 	return nil
 }
 
+// guardedTransport is the transport every default fetch client uses. The
+// pre-flight checkFetchTarget resolves the host once, but the connection
+// resolves it again: a host with a zero-TTL record can answer the check
+// with a public address and the dial with 169.254.169.254 or 127.0.0.1
+// (DNS rebinding). The dialer's Control hook therefore re-applies the
+// address policy to the IP actually being connected to, after resolution.
+// Proxies from the environment are ignored: a proxy would make the dialed
+// address the proxy's, and the target unchecked.
+func guardedTransport(allowPrivate bool) *http.Transport {
+	t := http.DefaultTransport.(*http.Transport).Clone()
+	t.Proxy = nil
+	dialer := &net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}
+	if !allowPrivate {
+		dialer.Control = func(_, address string, _ syscall.RawConn) error {
+			host, _, err := net.SplitHostPort(address)
+			if err != nil {
+				return fmt.Errorf("apcanon: refusing to dial %q: %w", address, err)
+			}
+			ip := net.ParseIP(host)
+			if ip == nil || isDisallowedIP(ip) {
+				return fmt.Errorf("apcanon: refusing to dial non-public address %s", address)
+			}
+			return nil
+		}
+	}
+	t.DialContext = dialer.DialContext
+	return t
+}
+
+// disallowedNets are special-purpose ranges the net.IP predicates below do
+// not cover but a fetcher must never reach.
+var disallowedNets = func() []*net.IPNet {
+	var out []*net.IPNet
+	for _, cidr := range []string{
+		"0.0.0.0/8",       // "this network"
+		"100.64.0.0/10",   // CGNAT / shared address space (common on cloud hosts)
+		"192.0.0.0/24",    // IETF protocol assignments
+		"192.0.2.0/24",    // TEST-NET-1
+		"198.18.0.0/15",   // benchmarking
+		"198.51.100.0/24", // TEST-NET-2
+		"203.0.113.0/24",  // TEST-NET-3
+		"240.0.0.0/4",     // reserved, incl. broadcast
+		"64:ff9b::/96",    // NAT64: maps onto internal IPv4
+		"64:ff9b:1::/48",  // local-use NAT64
+		"2001:db8::/32",   // documentation
+		"100::/64",        // discard-only
+	} {
+		_, n, err := net.ParseCIDR(cidr)
+		if err != nil {
+			panic(err)
+		}
+		out = append(out, n)
+	}
+	return out
+}()
+
 func isDisallowedIP(ip net.IP) bool {
-	return ip.IsLoopback() ||
+	if v4 := ip.To4(); v4 != nil {
+		ip = v4 // IPv4-mapped IPv6 is judged as the IPv4 it maps to
+	}
+	if ip.IsLoopback() ||
 		ip.IsLinkLocalUnicast() ||
 		ip.IsLinkLocalMulticast() ||
 		ip.IsInterfaceLocalMulticast() ||
 		ip.IsPrivate() ||
 		ip.IsUnspecified() ||
-		ip.IsMulticast()
+		ip.IsMulticast() {
+		return true
+	}
+	for _, n := range disallowedNets {
+		if n.Contains(ip) {
+			return true
+		}
+	}
+	return false
 }

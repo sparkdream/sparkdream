@@ -84,7 +84,7 @@ func TestMsgServerApproveProjectBudget(t *testing.T) {
 		// Set a low threshold for testing: 500 micro-DREAM
 		params, _ := k.Params.Get(ctx)
 		params.LargeProjectBudgetThreshold = math.NewInt(500)
-		k.Params.Set(ctx, params)
+		require.NoError(t, k.Params.Set(ctx, params))
 
 		creator := sdk.AccAddress([]byte("creator"))
 		projectID, _ := k.CreateProject(ctx, creator, "Proj", "Desc", []string{"tag"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical", math.NewInt(10000), math.NewInt(1000), false)
@@ -96,6 +96,7 @@ func TestMsgServerApproveProjectBudget(t *testing.T) {
 		// Default fixture: IsCommitteeMember→true, IsCouncilAuthorized→false (nil fn)
 		// The msg_server should reject because budget (1000) > threshold (500) and
 		// the approver is a plain committee member, not a policy address.
+		f.commonsKeeper.IsCouncilOrCommitteePolicyFn = func(context.Context, string, string, string) bool { return false }
 
 		_, err := ms.ApproveProjectBudget(ctx, &types.MsgApproveProjectBudget{
 			Approver:       approverStr,
@@ -115,7 +116,7 @@ func TestMsgServerApproveProjectBudget(t *testing.T) {
 
 		params, _ := k.Params.Get(ctx)
 		params.LargeProjectBudgetThreshold = math.NewInt(500)
-		k.Params.Set(ctx, params)
+		require.NoError(t, k.Params.Set(ctx, params))
 
 		creator := sdk.AccAddress([]byte("creator"))
 		projectID, _ := k.CreateProject(ctx, creator, "Proj", "Desc", []string{"tag"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical", math.NewInt(10000), math.NewInt(1000), false)
@@ -154,7 +155,7 @@ func TestMsgServerApproveProjectBudget(t *testing.T) {
 
 		params, _ := k.Params.Get(ctx)
 		params.LargeProjectBudgetThreshold = math.NewInt(500)
-		k.Params.Set(ctx, params)
+		require.NoError(t, k.Params.Set(ctx, params))
 
 		creator := sdk.AccAddress([]byte("creator"))
 		projectID, _ := k.CreateProject(ctx, creator, "Proj", "Desc", []string{"tag"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical", math.NewInt(10000), math.NewInt(1000), false)
@@ -235,6 +236,70 @@ func TestMsgServerApproveProjectBudget(t *testing.T) {
 			ApprovedSpark:  keeper.PtrInt(math.NewInt(0)),
 		})
 		require.Error(t, err)
+		require.ErrorIs(t, err, types.ErrUnauthorized)
+	})
+
+	// The Operations Committee's policy (an executed committee proposal) is
+	// not a personal committee member; it must be able to approve a budget
+	// on either side of the large-project threshold, and so must gov.
+	t.Run("committee policy approves small and large budgets", func(t *testing.T) {
+		f := initFixture(t)
+		ms := keeper.NewMsgServerImpl(f.keeper)
+		k := f.keeper
+		ctx := f.ctx
+
+		params, _ := k.Params.Get(ctx)
+		params.LargeProjectBudgetThreshold = math.NewInt(500)
+		require.NoError(t, k.Params.Set(ctx, params))
+
+		policyStr, err := f.addressCodec.BytesToString(sdk.AccAddress([]byte("tech_ops_policy_")))
+		require.NoError(t, err)
+		f.commonsKeeper.IsCommitteeMemberFn = func(context.Context, sdk.AccAddress, string, string) (bool, error) {
+			return false, nil
+		}
+		f.commonsKeeper.IsCouncilAuthorizedFn = func(context.Context, string, string, string) bool { return false }
+		f.commonsKeeper.IsCouncilOrCommitteePolicyFn = func(_ context.Context, addr, council, committee string) bool {
+			return addr == policyStr && council == "technical" && committee == "operations"
+		}
+
+		creator := sdk.AccAddress([]byte("creator"))
+		for _, budget := range []int64{400, 1000} {
+			projectID, err := k.CreateProject(ctx, creator, "Proj", "Desc", []string{"tag"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical", math.NewInt(10000), math.NewInt(1000), false)
+			require.NoError(t, err)
+			_, err = ms.ApproveProjectBudget(ctx, &types.MsgApproveProjectBudget{
+				Approver:       policyStr,
+				ProjectId:      projectID,
+				ApprovedBudget: keeper.PtrInt(math.NewInt(budget)),
+				ApprovedSpark:  keeper.PtrInt(math.NewInt(0)),
+			})
+			require.NoError(t, err, "budget %d", budget)
+			project, err := k.GetProject(ctx, projectID)
+			require.NoError(t, err)
+			require.Equal(t, types.ProjectStatus_PROJECT_STATUS_ACTIVE, project.Status)
+		}
+
+		// Gov approves a small budget too (it is not a committee member).
+		gov, err := f.addressCodec.BytesToString(k.GetAuthority())
+		require.NoError(t, err)
+		projectID, err := k.CreateProject(ctx, creator, "Proj", "Desc", []string{"tag"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical", math.NewInt(10000), math.NewInt(1000), false)
+		require.NoError(t, err)
+		_, err = ms.ApproveProjectBudget(ctx, &types.MsgApproveProjectBudget{
+			Approver:       gov,
+			ProjectId:      projectID,
+			ApprovedBudget: keeper.PtrInt(math.NewInt(400)),
+			ApprovedSpark:  keeper.PtrInt(math.NewInt(0)),
+		})
+		require.NoError(t, err)
+
+		// The policy of another council's committee is not this project's body.
+		otherID, err := k.CreateProject(ctx, creator, "Proj", "Desc", []string{"tag"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "ecosystem", math.NewInt(10000), math.NewInt(1000), false)
+		require.NoError(t, err)
+		_, err = ms.ApproveProjectBudget(ctx, &types.MsgApproveProjectBudget{
+			Approver:       policyStr,
+			ProjectId:      otherID,
+			ApprovedBudget: keeper.PtrInt(math.NewInt(400)),
+			ApprovedSpark:  keeper.PtrInt(math.NewInt(0)),
+		})
 		require.ErrorIs(t, err, types.ErrUnauthorized)
 	})
 }

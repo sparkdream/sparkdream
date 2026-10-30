@@ -1,0 +1,87 @@
+# golangci-lint v1 configuration (make lint / make lint-fix; CI: .github/workflows/lint.yml).
+#
+# Beyond the default linters (errcheck, govet, ineffassign, staticcheck,
+# gosimple, unused) this enables checks that matter for consensus code:
+# forbidigo bans wall-clock time and random sources in on-chain modules
+# (validators would disagree), gosec G115 flags integer conversions that can
+# overflow, and errorlint catches error comparisons that break on wrapping.
+run:
+  timeout: 15m
+  tests: true
+
+linters:
+  enable:
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - gosimple
+    - unused
+    - errorlint
+    - misspell
+    - nolintlint
+    - gosec
+    - forbidigo
+
+linters-settings:
+  errcheck:
+    # Explicit `_ =` discards are allowed; they must be deliberate.
+    check-blank: false
+  errorlint:
+    # fmt.Errorf without %w is a style choice here, not a bug.
+    errorf: false
+    asserts: true
+    comparison: true
+  gosec:
+    includes:
+      - G115 # integer overflow on conversion
+  misspell:
+    # No locale: the codebase uses British spellings (CANCELLED, behaviour)
+    # in enums, event names and docs; only real misspellings are flagged.
+    locale: ""
+  nolintlint:
+    require-explanation: true
+    require-specific: true
+  forbidigo:
+    analyze-types: true
+    forbid:
+      - p: '^time\.Now$'
+        msg: "on-chain code must use the block time (sdk.Context.BlockTime), never the wall clock"
+      - p: '^math/rand(/v2)?\..*$'
+        pkg: '^math/rand(/v2)?$'
+        msg: "on-chain code must not use non-deterministic randomness"
+      - p: '^crypto/rand\..*$'
+        pkg: '^crypto/rand$'
+        msg: "on-chain code must not use non-deterministic randomness"
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+  exclude-files:
+    - '.*\.pb\.go$'
+    - '.*\.pb\.gw\.go$'
+    - '.*\.pulsar\.go$'
+  exclude-dirs:
+    - proto_vendor
+  exclude-rules:
+    # Determinism bans apply to on-chain module and app code only; tests,
+    # simulations, CLIs and off-chain tools may use the clock and randomness.
+    - path: '(_test\.go|/simulation/|/client/|^cmd/|^tools/|^internal/|^test/|^testutil/|^deploy/)'
+      linters:
+        - forbidigo
+    - path: '_test\.go'
+      linters:
+        - gosec
+    # x/crisis is not wired; module invariants are still registered and run
+    # by app TestInvariants, so the deprecated invariant API stays on purpose.
+    # module.AppModule appears only in the Ignite-generated interface
+    # assertions of each module.go, which follow the scaffold.
+    # app/sim_test.go and app/sim_bench_test.go are Ignite-generated and
+    # app.go keeps the scaffold's ParamsKeeper (IBC params migration).
+    - path: '^app/(sim_test|sim_bench_test|app)\.go$'
+      linters:
+        - staticcheck
+      text: 'SA1019: (simcli\.FlagEnabledValue|simtestutil\.SimulationOperations|config\.OnOperation|config\.AllInvariants|paramskeeper\.Keeper)'
+    - linters:
+        - staticcheck
+      text: 'SA1019: (sdk\.Invariant|sdk\.InvariantRegistry|sdk\.FormatInvariant|module\.HasInvariants|module\.AppModule)'

@@ -10,6 +10,7 @@ import (
 	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/rep/types"
 )
 
@@ -72,7 +73,7 @@ func (k Keeper) CreateJuryReview(
 		ChallengeId:       challengeID,
 		InitiativeId:      challenge.InitiativeId,
 		Jurors:            jurors,
-		RequiredVotes:     uint32(requiredVotes),
+		RequiredVotes:     commontypes.Saturate[uint32](requiredVotes),
 		ExpertWitnesses:   []string{},
 		Testimonies:       []*types.ExpertTestimony{},
 		ReviewDeliverable: initiative.DeliverableUri,
@@ -108,24 +109,14 @@ func (k Keeper) CreateJuryReview(
 	}
 
 	// Update challenge status index
-	_ = k.UpdateChallengeStatusIndex(ctx, oldStatus, challenge.Status, challenge.Id)
-
-	// Create JURY_DUTY interim for each juror
-	for _, jurorAddr := range jurors {
-		_, err := k.CreateInterimWork(
-			ctx,
-			types.InterimType_INTERIM_TYPE_JURY_DUTY,
-			[]string{jurorAddr},
-			"", // Committee determined by governance
-			challenge.InitiativeId,
-			"challenge",
-			types.InterimComplexity_INTERIM_COMPLEXITY_STANDARD,
-			juryReview.Deadline,
-		)
-		if err != nil {
-			return err
-		}
+	if err := k.UpdateChallengeStatusIndex(ctx, oldStatus, challenge.Status, challenge.Id); err != nil {
+		return err
 	}
+
+	// No JURY_DUTY interim per seat (REP-E-05): a juror is paid by
+	// RewardJurors at the tally, and only for a vote cast. The per-seat
+	// interim paid a flat STANDARD budget on top, and any seated juror could
+	// complete it at once and then decline or never vote.
 
 	// Emit event
 	sdkCtx.EventManager().EmitEvent(
@@ -136,7 +127,7 @@ func (k Keeper) CreateJuryReview(
 			sdk.NewAttribute("juror_count", fmt.Sprintf("%d", len(jurors))),
 			// The seated addresses, so a juror's client can act on a plain event
 			// filter instead of fetching every review to check whether it is
-			// theirs. Jury duty pays StandardComplexityBudget and is easy to
+			// theirs. Jury duty pays the voting jurors at the tally and is easy to
 			// miss; an unnoticed summons is the main cause of a lost quorum.
 			sdk.NewAttribute("jurors", strings.Join(jurors, ",")),
 			sdk.NewAttribute("deadline", fmt.Sprintf("%d", juryReview.Deadline)),
@@ -200,10 +191,10 @@ func (k Keeper) SelectJury(
 	eligibleMembers := []types.Member{}
 	minReputation := params.MinJurorReputation
 
-	// Iterate through all members
-	err = k.Member.Walk(ctx, nil, func(addr string, member types.Member) (stop bool, err error) {
+	// Reputable members only, read from the max-reputation index.
+	err = k.walkJurorCandidates(ctx, minReputation, func(addr string, member types.Member) error {
 		if _, skip := excludeSet[addr]; skip {
-			return false, nil
+			return nil
 		}
 
 		// Check reputation requirement
@@ -225,7 +216,7 @@ func (k Keeper) SelectJury(
 			eligibleMembers = append(eligibleMembers, member)
 		}
 
-		return false, nil
+		return nil
 	})
 	if err != nil {
 		return nil, err
@@ -249,7 +240,7 @@ func (k Keeper) SelectJury(
 		return nil, fmt.Errorf("insufficient eligible jurors: need %d, have 0", jurySize)
 	}
 	if len(eligibleMembers) < int(jurySize) {
-		jurySize = uint32(len(eligibleMembers))
+		jurySize = commontypes.Saturate[uint32](len(eligibleMembers))
 	}
 
 	// Weighted random selection based on reputation
@@ -284,10 +275,10 @@ func (k Keeper) SelectJury(
 	appHash := sdkCtx.BlockHeader().AppHash
 	var seed int64
 	if len(appHash) >= 8 {
-		seed = int64(binary.BigEndian.Uint64(appHash[:8])) ^ int64(initiative.Id)
+		seed = int64(binary.BigEndian.Uint64(appHash[:8]) ^ initiative.Id) //nolint:gosec // seed bits; wraparound is intended
 	} else {
 		// Fallback for genesis block or test contexts where AppHash is empty
-		seed = int64(initiative.Id) ^ sdkCtx.BlockHeight()
+		seed = int64(initiative.Id) ^ sdkCtx.BlockHeight() //nolint:gosec // seed bits; wraparound is intended
 	}
 	rng := rand.New(rand.NewSource(seed))
 
@@ -331,9 +322,9 @@ func (k Keeper) selectModerationAppealJury(ctx context.Context, juryReviewID uin
 		eligible []string
 		weights  []float64
 	)
-	err = k.Member.Walk(ctx, nil, func(addr string, member types.Member) (stop bool, err error) {
+	err = k.walkJurorCandidates(ctx, minReputation, func(addr string, member types.Member) error {
 		if _, skip := excludeSet[addr]; skip {
-			return false, nil
+			return nil
 		}
 		qualifies := false
 		totalRep := math.LegacyZeroDec()
@@ -351,7 +342,7 @@ func (k Keeper) selectModerationAppealJury(ctx context.Context, juryReviewID uin
 			eligible = append(eligible, addr)
 			weights = append(weights, totalRep.MustFloat64()*k.JurorResponsivenessWeight(ctx, addr))
 		}
-		return false, nil
+		return nil
 	})
 	if err != nil {
 		return nil, err
@@ -369,9 +360,9 @@ func (k Keeper) selectModerationAppealJury(ctx context.Context, juryReviewID uin
 	appHash := sdkCtx.BlockHeader().AppHash
 	var seed int64
 	if len(appHash) >= 8 {
-		seed = int64(binary.BigEndian.Uint64(appHash[:8])) ^ int64(juryReviewID)
+		seed = int64(binary.BigEndian.Uint64(appHash[:8]) ^ juryReviewID) //nolint:gosec // seed bits; wraparound is intended
 	} else {
-		seed = int64(juryReviewID) ^ sdkCtx.BlockHeight()
+		seed = int64(juryReviewID) ^ sdkCtx.BlockHeight() //nolint:gosec // seed bits; wraparound is intended
 	}
 	rng := rand.New(rand.NewSource(seed))
 
@@ -435,6 +426,14 @@ func (k Keeper) SubmitJurorVote(
 	reasoning string,
 ) error {
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
+
+	// A vote must take a side (REP-E-23). PENDING, INCONCLUSIVE or an unknown
+	// enum value would use up the seat, count toward the tally trigger and the
+	// supermajority denominator while supporting neither side, and still book
+	// the juror as having voted for participation and reward purposes.
+	if err := types.ValidateJurorVote(verdict, confidence); err != nil {
+		return err
+	}
 
 	juryReview, err := k.GetJuryReview(ctx, juryReviewID)
 	if err != nil {
@@ -514,7 +513,7 @@ func (k Keeper) SubmitJurorVote(
 	}
 
 	// Check if we have enough votes to tally
-	if uint32(len(juryReview.Votes)) >= juryReview.RequiredVotes {
+	if commontypes.Saturate[uint32](len(juryReview.Votes)) >= juryReview.RequiredVotes {
 		if err := k.TallyJuryVotes(ctx, juryReviewID); err != nil {
 			return err
 		}
@@ -550,15 +549,24 @@ func (k Keeper) SubmitExpertTestimony(
 
 	// Verify expert is on the witness list
 	expertAddrStr := expertAddr.String()
-	isExpert := false
+	witness := ""
 	for _, e := range juryReview.ExpertWitnesses {
 		if k.CanActAs(ctx, expertAddrStr, e) {
-			isExpert = true
+			witness = e
 			break
 		}
 	}
-	if !isExpert {
+	if witness == "" {
 		return fmt.Errorf("address is not an expert witness on this review")
+	}
+	// Testimony informs a pending deliberation, once per expert.
+	if juryReview.Verdict != types.Verdict_VERDICT_PENDING {
+		return fmt.Errorf("jury review %d already has a verdict", juryReview.Id)
+	}
+	for _, t := range juryReview.Testimonies {
+		if k.SameMember(ctx, t.Expert, expertAddrStr) {
+			return fmt.Errorf("expert %s already testified on jury review %d", expertAddrStr, juryReview.Id)
+		}
 	}
 
 	// Create testimony
@@ -576,6 +584,9 @@ func (k Keeper) SubmitExpertTestimony(
 	if err := k.JuryReview.Set(ctx, juryReview.Id, juryReview); err != nil {
 		return err
 	}
+
+	// Pay the EXPERT_TESTIMONY interim opened by the invitation.
+	k.payExpertTestimony(ctx, juryReview, witness)
 
 	// Emit event
 	sdkCtx.EventManager().EmitEvent(
@@ -649,7 +660,7 @@ func (k Keeper) TallyJuryVotes(ctx context.Context, juryReviewID uint64) error {
 	switch {
 	case totalVotes < quorum:
 		finalVerdict = types.Verdict_VERDICT_INCONCLUSIVE
-	case upholdVotes >= int(requiredSupermajority):
+	case upholdVotes >= commontypes.Saturate[int](requiredSupermajority):
 		finalVerdict = types.Verdict_VERDICT_UPHOLD_CHALLENGE
 	case rejectVotes > totalVotes/2:
 		finalVerdict = types.Verdict_VERDICT_REJECT_CHALLENGE
@@ -710,6 +721,17 @@ func (k Keeper) TallyJuryVotes(ctx context.Context, juryReviewID uint64) error {
 			sdk.UnwrapSDKContext(ctx).Logger().Error(
 				"failed to apply jury verdict to migration objection",
 				"jury_review_id", juryReview.Id, "error", err)
+		}
+		return k.RewardJurors(ctx, juryReview)
+	}
+
+	// External cases (CreateSeatedAppeal, e.g. x/service slash and
+	// controller-transfer juries): the owning module reads the verdict
+	// back itself. Leave the PENDING index and pay the jurors; there is no
+	// challenge to resolve here.
+	if isExternalJuryCase(juryReview) {
+		if err := k.UpdateJuryReviewVerdictIndex(ctx, types.Verdict_VERDICT_PENDING, finalVerdict, juryReview.Id); err != nil {
+			return err
 		}
 		return k.RewardJurors(ctx, juryReview)
 	}

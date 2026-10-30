@@ -21,7 +21,9 @@ func createNDisplayNameReportStake(keeper keeper.Keeper, ctx context.Context, n 
 		items[i].ChallengeId = strconv.Itoa(i)
 		items[i].Reporter = strconv.Itoa(i)
 		items[i].Amount = math.NewInt(int64(i))
-		_ = keeper.DisplayNameReportStake.Set(ctx, items[i].ChallengeId, items[i])
+		if err := keeper.DisplayNameReportStake.Set(ctx, items[i].ChallengeId, items[i]); err != nil {
+			panic(err)
+		}
 	}
 	return items
 }

@@ -63,4 +63,9 @@ message Quest {
 
   // Quest objectives
   repeated QuestObjective objectives = 15;
+
+  // Bumped by MsgUpdateQuest whenever the objectives change (SEA-32).
+  // Progress recorded against another version is stale and restarts from
+  // zero, so a reorder or retarget never re-reads old counters.
+  uint64 objectives_version = 16;
 }

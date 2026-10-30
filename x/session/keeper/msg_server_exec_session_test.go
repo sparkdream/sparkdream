@@ -111,7 +111,7 @@ func TestExecSessionValidation(t *testing.T) {
 				sk := g.GetSessionKey()
 				sk.ExecCount = 5
 				g.Payload = &types.Grant_SessionKey{SessionKey: sk}
-				_ = f.keeper.Grants.Set(f.ctx, id, g)
+				require.NoError(t, f.keeper.Grants.Set(f.ctx, id, g))
 			},
 			cleanup:     func() { cleanupSession() },
 			expectError: true,
@@ -159,11 +159,11 @@ func TestExecSessionValidation(t *testing.T) {
 				params, _ := f.keeper.Params.Get(f.ctx)
 				params.AllowedMsgTypes = []string{"/sparkdream.forum.v1.MsgCreatePost"}
 				params.MaxAllowedMsgTypes = []string{"/sparkdream.forum.v1.MsgCreatePost", blogType}
-				_ = f.keeper.Params.Set(f.ctx, params)
+				require.NoError(t, f.keeper.Params.Set(f.ctx, params))
 			},
 			cleanup: func() {
 				cleanupSession()
-				_ = f.keeper.Params.Set(f.ctx, types.DefaultParams())
+				require.NoError(t, f.keeper.Params.Set(f.ctx, types.DefaultParams()))
 			},
 			expectError: true,
 			errContains: "not in current Params.allowed_msg_types",

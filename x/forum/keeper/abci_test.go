@@ -202,6 +202,7 @@ func TestPruneExpiredPosts(t *testing.T) {
 		require.NoError(t, f.keeper.HideRecord.Set(f.ctx, postID, types.HideRecord{
 			PostId: postID,
 		}))
+		require.NoError(t, f.keeper.IndexHideExpiryForTest(f.ctx, postID))
 
 		// Run EndBlocker
 		err = f.keeper.EndBlocker(f.ctx)
@@ -489,6 +490,7 @@ func TestExpireHiddenPosts_DecrementsTagUsage(t *testing.T) {
 		PostId:   postID,
 		HiddenAt: hiddenAt,
 	}))
+	require.NoError(t, f.keeper.IndexHideExpiryForTest(f.ctx, postID))
 
 	require.NoError(t, f.keeper.ExpireHiddenPosts(f.ctx, now))
 
@@ -563,6 +565,7 @@ func setupExpiredSentinelHide(t *testing.T, appealed bool) (*fixture, uint64, in
 		CommittedAmount: "100000000",
 		Appealed:        appealed,
 	}))
+	require.NoError(t, f.keeper.IndexHideExpiryForTest(f.ctx, postID))
 	return f, postID, now
 }
 
@@ -744,6 +747,7 @@ func TestExpireHiddenPosts_SlashesAuthorRepPerTag(t *testing.T) {
 		PostId:   postID,
 		HiddenAt: hiddenAt,
 	}))
+	require.NoError(t, f.keeper.IndexHideExpiryForTest(f.ctx, postID))
 
 	require.NoError(t, f.keeper.ExpireHiddenPosts(f.ctx, now))
 
@@ -791,6 +795,7 @@ func TestExpireHiddenPosts_IssuesPromoterWarning(t *testing.T) {
 		PostId:   postID,
 		HiddenAt: hiddenAt,
 	}))
+	require.NoError(t, f.keeper.IndexHideExpiryForTest(f.ctx, postID))
 
 	require.NoError(t, f.keeper.ExpireHiddenPosts(f.ctx, now))
 
@@ -832,6 +837,7 @@ func TestExpireHiddenPosts_NoWarningOnSelfPromote(t *testing.T) {
 		PostId:   postID,
 		HiddenAt: hiddenAt,
 	}))
+	require.NoError(t, f.keeper.IndexHideExpiryForTest(f.ctx, postID))
 
 	require.NoError(t, f.keeper.ExpireHiddenPosts(f.ctx, now))
 
@@ -847,8 +853,11 @@ func TestExpireBountiesRefundsCreator(t *testing.T) {
 	// Push the bounty past its deadline
 	b, err := f.keeper.Bounty.Get(f.ctx, bounty.Id)
 	require.NoError(t, err)
+	require.NoError(t, f.keeper.BountiesByExpiry.Remove(f.ctx, collections.Join(b.ExpiresAt, bounty.Id)))
 	b.ExpiresAt = f.sdkCtx().BlockTime().Unix() - 1
 	require.NoError(t, f.keeper.Bounty.Set(f.ctx, bounty.Id, b))
+	// ExpireBounties walks the BountiesByExpiry index, so keep it in step.
+	require.NoError(t, f.keeper.BountiesByExpiry.Set(f.ctx, collections.Join(b.ExpiresAt, bounty.Id)))
 
 	var refundTo sdk.AccAddress
 	var refundAmt sdk.Coins
@@ -861,11 +870,12 @@ func TestExpireBountiesRefundsCreator(t *testing.T) {
 
 	require.NoError(t, f.keeper.ExpireBounties(f.ctx, f.sdkCtx().BlockTime().Unix()))
 
-	// Full escrow refunded to the creator in the bond denom
+	// No reply to pay: escrow refunded minus the cancellation fee (10%), so
+	// letting a bounty lapse is never cheaper than cancelling it.
 	require.NotNil(t, refundTo)
 	require.Equal(t, testCreator, refundTo.String())
 	denom := f.keeper.BondDenom(f.ctx)
-	require.Equal(t, "1000000", refundAmt.AmountOf(denom).String())
+	require.Equal(t, "900000", refundAmt.AmountOf(denom).String())
 
 	// Bounty marked expired
 	updated, err := f.keeper.Bounty.Get(f.ctx, bounty.Id)

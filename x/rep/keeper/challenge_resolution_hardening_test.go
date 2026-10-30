@@ -59,13 +59,13 @@ func juryDeadlineReview(t *testing.T, f *fixture, reviewDeadline int64) (jrID, c
 		[]string{"coding"}, types.InitiativeTier_INITIATIVE_TIER_STANDARD,
 		types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, math.NewInt(150))
 	require.NoError(t, err)
-	k.MintDREAM(ctx, assignee, math.NewInt(1000000))
+	require.NoError(t, k.MintDREAM(ctx, assignee, math.NewInt(1000000)))
 	require.NoError(t, k.AssignInitiativeToMember(ctx, initID, assignee))
 	require.NoError(t, k.SubmitInitiativeWork(ctx, initID, assignee, "URI"))
 
 	challenger := sdk.AccAddress([]byte("rh-challenger-aa"))
 	mkMember(challenger.String(), map[string]string{})
-	k.MintDREAM(ctx, challenger, math.NewInt(1000000000))
+	require.NoError(t, k.MintDREAM(ctx, challenger, math.NewInt(1000000000)))
 	chalID, err = k.CreateChallenge(ctx, challenger, initID, "Bad work", nil, math.NewInt(50000000))
 	require.NoError(t, err)
 	ch, err := k.GetChallenge(ctx, chalID)
@@ -619,7 +619,8 @@ func TestUnansweredContentChallengeSweepRetriesFailedUphold(t *testing.T) {
 	require.Equal(t, types.ContentChallengeStatus_CONTENT_CHALLENGE_STATUS_ACTIVE, cc.Status,
 		"the challenge must stay live so the next block retries it")
 
-	// Healed, the retry upholds exactly once.
+	// Healed, the retry on the next block upholds exactly once.
+	future = future.WithBlockHeight(future.BlockHeight() + 1)
 	require.NoError(t, k.Member.Set(future, challengerAddr.String(), challengerMember))
 	require.NoError(t, k.EndBlocker(future))
 

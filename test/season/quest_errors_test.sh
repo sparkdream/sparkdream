@@ -11,6 +11,9 @@ CHAIN_ID="sparkdream"
 if [ -f "$SCRIPT_DIR/.test_env" ]; then
     source "$SCRIPT_DIR/.test_env"
 fi
+# Quest definitions need a Commons Operations Committee proposal (x/season
+# SEA-23 decision).
+source "$SCRIPT_DIR/../lib/ops_committee.sh"
 
 ALICE_ADDR=$($BINARY keys show alice -a --keyring-backend test)
 BOB_ADDR=$($BINARY keys show bob -a --keyring-backend test)
@@ -213,43 +216,14 @@ TEST_QUEST_ID="err_test_quest_$(date +%s)"
 
 echo "  Creating quest with objectives: $TEST_QUEST_ID"
 
-TX_RES=$($BINARY tx season create-quest \
-    "$TEST_QUEST_ID" \
-    "Error Test Quest" \
-    "A quest that requires real progress to complete" \
-    "100" \
-    "false" \
-    "0" \
-    "0" \
-    "0" \
-    "$END_BLOCK" \
-    "0" \
-    "" \
-    "" \
-    "" \
-    --from alice \
-    --chain-id $CHAIN_ID \
-    --keyring-backend test \
-    --fees 5000${BOND_DENOM} \
-    -y \
-    --output json 2>&1)
-
-TXHASH=$(echo "$TX_RES" | jq -r '.txhash')
 CREATED_QUEST=""
-
-if [ -n "$TXHASH" ] && [ "$TXHASH" != "null" ]; then
-    sleep 6
-    TX_RESULT=$(wait_for_tx $TXHASH)
-
-    if check_tx_success "$TX_RESULT"; then
-        CREATED_QUEST="$TEST_QUEST_ID"
-        echo "  Quest created: $CREATED_QUEST"
-    else
-        echo "  Quest creation failed (may require authority)"
-        echo "  $(echo "$TX_RESULT" | jq -r '.raw_log // "Unknown error"')"
-    fi
+QUEST_MSG=$(jq -nc --arg id "$TEST_QUEST_ID" --arg end "$END_BLOCK" \
+    '{"@type":"/sparkdream.season.v1.MsgCreateQuest",quest_id:$id,name:"Error Test Quest",description:"A quest that requires real progress to complete",xp_reward:"100",start_block:"0",end_block:$end}')
+if ops_committee_exec "$QUEST_MSG"; then
+    CREATED_QUEST="$TEST_QUEST_ID"
+    echo "  Quest created: $CREATED_QUEST"
 else
-    echo "  Failed to submit quest creation"
+    echo "  Quest creation failed: $OPS_COMMITTEE_ERROR"
 fi
 
 # Try to use the created quest, or fall back to an existing quest

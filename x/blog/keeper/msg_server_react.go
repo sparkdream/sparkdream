@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	commontypes "sparkdream/x/common/types"
 
 	"sparkdream/x/blog/types"
 
@@ -70,7 +71,7 @@ func safeAddDelta(count uint64, delta int64) uint64 {
 	if count > uint64(math.MaxInt64) {
 		return count
 	}
-	return uint64(int64(count) + delta)
+	return count + commontypes.Saturate[uint64](delta) // delta >= 0 here
 }
 
 func (k msgServer) React(ctx context.Context, msg *types.MsgReact) (*types.MsgReactResponse, error) {

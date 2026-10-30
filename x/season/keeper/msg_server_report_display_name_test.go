@@ -232,7 +232,7 @@ func TestMsgServerReportDisplayName(t *testing.T) {
 			Active:          false, // Inactive
 			AppealSucceeded: true,
 		}
-		k.DisplayNameModeration.Set(ctx, targetStr, oldModeration)
+		require.NoError(t, k.SetDisplayNameModeration(ctx, targetStr, oldModeration))
 
 		// New report should succeed
 		_, err := ms.ReportDisplayName(ctx, &types.MsgReportDisplayName{

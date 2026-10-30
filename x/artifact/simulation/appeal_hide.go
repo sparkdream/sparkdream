@@ -25,8 +25,7 @@ func SimulateMsgAppealHide(
 			Appellant: simAccount.Address.String(),
 		}
 
-		// TODO: Handle the AppealHide simulation
-
-		return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "AppealHide simulation not implemented"), nil, nil
+		// Not simulated: MsgAppealHide needs a hide record, which only sentinels create.
+		return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "AppealHide needs a hide record, which only sentinels create"), nil, nil
 	}
 }

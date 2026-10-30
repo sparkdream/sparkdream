@@ -37,6 +37,7 @@ type fixture struct {
 	authority    string
 	repKeeper    *mockRepKeeper
 	bankKeeper   *mockBankKeeper
+	authKeeper   *mockAuthKeeper
 	// commonsKeeper is exposed so authorization tests can replace the
 	// permissive default stubs with ones that actually discriminate
 	// between a committee POLICY and an individual committee member.
@@ -56,13 +57,14 @@ func initFixture(t *testing.T) *fixture {
 	authority := authtypes.NewModuleAddress(govtypes.ModuleName)
 	mockUpgradeKeeper := newMockUpgradeKeeper()
 	bankKeeper := &mockBankKeeper{balances: make(map[string]sdk.Coins)}
+	authKeeper := &mockAuthKeeper{addressCodec: addressCodec}
 
 	k := keeper.NewKeeper(
 		storeService,
 		encCfg.Codec,
 		addressCodec,
 		authority,
-		&mockAuthKeeper{addressCodec: addressCodec},
+		authKeeper,
 		bankKeeper,
 		func() *ibckeeper.Keeper {
 			return ibckeeper.NewKeeper(encCfg.Codec, storeService, newMockParams(), mockUpgradeKeeper, authority.String())
@@ -90,6 +92,7 @@ func initFixture(t *testing.T) *fixture {
 		authority:    authorityStr,
 		repKeeper:    repKeeper,
 		bankKeeper:   bankKeeper,
+		authKeeper:   authKeeper,
 
 		commonsKeeper: commonsKeeper,
 	}
@@ -99,14 +102,20 @@ func initFixture(t *testing.T) *fixture {
 
 type mockAuthKeeper struct {
 	addressCodec address.Codec
+	// missing lists addresses with no account. Every other address has one,
+	// so the identity-challenge existence check passes by default.
+	missing map[string]bool
 }
 
 func (m *mockAuthKeeper) AddressCodec() address.Codec {
 	return m.addressCodec
 }
 
-func (m *mockAuthKeeper) GetAccount(_ context.Context, _ sdk.AccAddress) sdk.AccountI {
-	return nil
+func (m *mockAuthKeeper) GetAccount(_ context.Context, addr sdk.AccAddress) sdk.AccountI {
+	if m.missing[addr.String()] {
+		return nil
+	}
+	return authtypes.NewBaseAccountWithAddress(addr)
 }
 
 func (m *mockAuthKeeper) GetModuleAddress(name string) sdk.AccAddress {
@@ -116,6 +125,12 @@ func (m *mockAuthKeeper) GetModuleAddress(name string) sdk.AccAddress {
 type mockBankKeeper struct {
 	balances map[string]sdk.Coins
 	metadata map[string]banktypes.Metadata
+
+	// moduleSends counts module→account sends (fee refunds and payouts),
+	// so settlement tests can tell a single payout from a double one.
+	// failModuleSends makes every such send fail.
+	moduleSends     int
+	failModuleSends bool
 }
 
 func (m *mockBankKeeper) SpendableCoins(_ context.Context, addr sdk.AccAddress) sdk.Coins {
@@ -166,6 +181,10 @@ func (m *mockBankKeeper) SendCoinsFromAccountToModule(_ context.Context, from sd
 }
 
 func (m *mockBankKeeper) SendCoinsFromModuleToAccount(_ context.Context, _ string, _ sdk.AccAddress, _ sdk.Coins) error {
+	if m.failModuleSends {
+		return fmt.Errorf("mock bank: module send failed")
+	}
+	m.moduleSends++
 	return nil
 }
 
@@ -269,6 +288,10 @@ type mockRepKeeper struct {
 	// blockTime the mock stamps cooldowns against. Tests that assert on
 	// cooldown values set this to the same time the keeper ctx uses.
 	blockTime int64
+
+	aliases   map[string]string
+	inactive  map[string]bool
+	repScores map[string]map[string]string
 }
 
 // The mock mirrors x/rep's RecordRoleOutcome closely enough for federation's
@@ -386,6 +409,41 @@ func (m *mockRepKeeper) SeedBondedRole(roleType reptypes.RoleType, addr string, 
 
 func mockBondedRoleKey(roleType reptypes.RoleType, addr string) string {
 	return reptypes.RoleType_name[int32(roleType)] + "/" + addr
+}
+
+// --- Alias contract and membership (RepMemberKeeper) ---
+//
+// aliases maps an address a member migrated AWAY from to the address that
+// now carries the member; inactive marks zeroed/inactive members;
+// repScores seeds per-tag reputation.
+
+func (m *mockRepKeeper) canonical(addr string) string {
+	if to, ok := m.aliases[addr]; ok {
+		return to
+	}
+	return addr
+}
+
+func (m *mockRepKeeper) CanActAs(_ context.Context, signer, stored string) bool {
+	if signer == "" || stored == "" {
+		return false
+	}
+	if _, tombstoned := m.aliases[signer]; tombstoned {
+		return false
+	}
+	return m.canonical(stored) == signer
+}
+
+func (m *mockRepKeeper) SameMember(_ context.Context, a, b string) bool {
+	return a != "" && b != "" && m.canonical(a) == m.canonical(b)
+}
+
+func (m *mockRepKeeper) IsActiveMember(_ context.Context, addr sdk.AccAddress) bool {
+	return !m.inactive[addr.String()]
+}
+
+func (m *mockRepKeeper) GetMember(_ context.Context, addr sdk.AccAddress) (reptypes.Member, error) {
+	return reptypes.Member{Address: addr.String(), JoinedAt: 1_700_000_000, ReputationScores: m.repScores[addr.String()]}, nil
 }
 
 func (m *mockRepKeeper) GetTrustLevel(_ context.Context, _ sdk.AccAddress) (reptypes.TrustLevel, error) {
@@ -699,6 +757,15 @@ func registerTestIBCPeer(t *testing.T, f *fixture, ms types.MsgServer, peerID st
 	})
 	require.NoError(t, err)
 	activateTestPeer(t, f, ms, peerID)
+}
+
+// testHash returns a deterministic 32-byte content hash.
+func testHash(seed byte) []byte {
+	h := make([]byte, 32)
+	for i := range h {
+		h[i] = seed + byte(i)
+	}
+	return h
 }
 
 // testAddr returns a deterministic test address string.

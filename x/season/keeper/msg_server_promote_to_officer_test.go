@@ -156,7 +156,7 @@ func TestMsgServerPromoteToOfficer(t *testing.T) {
 		// Add officer to officers list
 		guild, _ := k.Guild.Get(ctx, guildID)
 		guild.Officers = []string{officerStr}
-		k.Guild.Set(ctx, guildID, guild)
+		require.NoError(t, k.Guild.Set(ctx, guildID, guild))
 
 		_, err := ms.PromoteToOfficer(ctx, &types.MsgPromoteToOfficer{
 			Creator: founderStr,
@@ -222,7 +222,7 @@ func TestMsgServerPromoteToOfficer(t *testing.T) {
 		for i := uint32(0); i < params.MaxGuildOfficers; i++ {
 			guild.Officers = append(guild.Officers, "officer"+string(rune('0'+i)))
 		}
-		k.Guild.Set(ctx, guildID, guild)
+		require.NoError(t, k.Guild.Set(ctx, guildID, guild))
 
 		_, err := ms.PromoteToOfficer(ctx, &types.MsgPromoteToOfficer{
 			Creator: founderStr,

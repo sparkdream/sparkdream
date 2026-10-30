@@ -52,7 +52,7 @@ func TestMsgServerUnlockThread(t *testing.T) {
 		post.LockedBy = testSentinel
 		post.LockedAt = f.sdkCtx().BlockTime().Unix()
 		post.LockReason = "Test lock"
-		f.keeper.Post.Set(f.ctx, post.PostId, post)
+		require.NoError(t, f.keeper.Post.Set(f.ctx, post.PostId, post))
 
 		msg := &types.MsgUnlockThread{
 			Creator: authority,
@@ -75,7 +75,7 @@ func TestMsgServerUnlockThread(t *testing.T) {
 		post.Locked = true
 		post.LockedBy = testCreator2
 		post.LockedAt = f.sdkCtx().BlockTime().Unix()
-		f.keeper.Post.Set(f.ctx, post.PostId, post)
+		require.NoError(t, f.keeper.Post.Set(f.ctx, post.PostId, post))
 
 		msg := &types.MsgUnlockThread{
 			Creator: testSentinel,
@@ -97,15 +97,15 @@ func TestMsgServerUnlockThread(t *testing.T) {
 		post.Locked = true
 		post.LockedBy = testSentinel
 		post.LockedAt = f.sdkCtx().BlockTime().Unix()
-		f.keeper.Post.Set(f.ctx, post.PostId, post)
+		require.NoError(t, f.keeper.Post.Set(f.ctx, post.PostId, post))
 
-		f.keeper.ThreadLockRecord.Set(f.ctx, post.PostId, types.ThreadLockRecord{
+		require.NoError(t, f.keeper.ThreadLockRecord.Set(f.ctx, post.PostId, types.ThreadLockRecord{
 			RootId:          post.PostId,
 			Sentinel:        testSentinel,
 			LockedAt:        f.sdkCtx().BlockTime().Unix(),
 			AppealPending:   false,
 			CommittedAmount: "100000000",
-		})
+		}))
 
 		_, err := f.msgServer.UnlockThread(f.ctx, &types.MsgUnlockThread{
 			Creator: testSentinel,
@@ -123,7 +123,7 @@ func TestMsgServerUnlockThread(t *testing.T) {
 		post.Locked = true
 		post.LockedBy = testSentinel
 		post.LockedAt = f.sdkCtx().BlockTime().Unix()
-		f.keeper.Post.Set(f.ctx, post.PostId, post)
+		require.NoError(t, f.keeper.Post.Set(f.ctx, post.PostId, post))
 
 		// Create lock record
 		lockRecord := types.ThreadLockRecord{
@@ -132,7 +132,7 @@ func TestMsgServerUnlockThread(t *testing.T) {
 			LockedAt:      f.sdkCtx().BlockTime().Unix(),
 			AppealPending: false,
 		}
-		f.keeper.ThreadLockRecord.Set(f.ctx, post.PostId, lockRecord)
+		require.NoError(t, f.keeper.ThreadLockRecord.Set(f.ctx, post.PostId, lockRecord))
 
 		msg := &types.MsgUnlockThread{
 			Creator: testSentinel,

@@ -70,7 +70,7 @@ func TestMsgServerSkipTransitionPhase(t *testing.T) {
 		state := types.SeasonTransitionState{
 			Phase: types.TransitionPhase_TRANSITION_PHASE_COMPLETE,
 		}
-		k.SeasonTransitionState.Set(ctx, state)
+		require.NoError(t, k.SeasonTransitionState.Set(ctx, state))
 
 		_, err := ms.SkipTransitionPhase(ctx, &types.MsgSkipTransitionPhase{
 			Authority: authority,
@@ -92,7 +92,7 @@ func TestMsgServerSkipTransitionPhase(t *testing.T) {
 		state := types.SeasonTransitionState{
 			Phase: types.TransitionPhase_TRANSITION_PHASE_ARCHIVE_REPUTATION,
 		}
-		k.SeasonTransitionState.Set(ctx, state)
+		require.NoError(t, k.SeasonTransitionState.Set(ctx, state))
 
 		_, err := ms.SkipTransitionPhase(ctx, &types.MsgSkipTransitionPhase{
 			Authority: authority,
@@ -114,7 +114,7 @@ func TestMsgServerSkipTransitionPhase(t *testing.T) {
 		state := types.SeasonTransitionState{
 			Phase: types.TransitionPhase_TRANSITION_PHASE_RESET_REPUTATION,
 		}
-		k.SeasonTransitionState.Set(ctx, state)
+		require.NoError(t, k.SeasonTransitionState.Set(ctx, state))
 
 		_, err := ms.SkipTransitionPhase(ctx, &types.MsgSkipTransitionPhase{
 			Authority: authority,
@@ -140,7 +140,7 @@ func TestMsgServerSkipTransitionPhase(t *testing.T) {
 			ProcessedCount: 10,
 			LastProcessed:  "something",
 		}
-		k.SeasonTransitionState.Set(ctx, state)
+		require.NoError(t, k.SeasonTransitionState.Set(ctx, state))
 
 		_, err := ms.SkipTransitionPhase(ctx, &types.MsgSkipTransitionPhase{
 			Authority: authority,
@@ -166,7 +166,7 @@ func TestMsgServerSkipTransitionPhase(t *testing.T) {
 		state := types.SeasonTransitionState{
 			Phase: types.TransitionPhase_TRANSITION_PHASE_SNAPSHOT,
 		}
-		k.SeasonTransitionState.Set(ctx, state)
+		require.NoError(t, k.SeasonTransitionState.Set(ctx, state))
 
 		_, err := ms.SkipTransitionPhase(ctx, &types.MsgSkipTransitionPhase{
 			Authority: authority,
@@ -187,14 +187,14 @@ func TestMsgServerSkipTransitionPhase(t *testing.T) {
 		state := types.SeasonTransitionState{
 			Phase: types.TransitionPhase_TRANSITION_PHASE_RETURN_NOMINATION_STAKES,
 		}
-		k.SeasonTransitionState.Set(ctx, state)
+		require.NoError(t, k.SeasonTransitionState.Set(ctx, state))
 
 		// Set recovery state
 		recovery := types.TransitionRecoveryState{
 			RecoveryMode: true,
 			FailureCount: 5,
 		}
-		k.TransitionRecoveryState.Set(ctx, recovery)
+		require.NoError(t, k.TransitionRecoveryState.Set(ctx, recovery))
 
 		_, err := ms.SkipTransitionPhase(ctx, &types.MsgSkipTransitionPhase{
 			Authority: authority,
@@ -221,7 +221,7 @@ func TestMsgServerSkipTransitionPhase(t *testing.T) {
 			Phase:           types.TransitionPhase_TRANSITION_PHASE_RESET_XP,
 			MaintenanceMode: true,
 		}
-		k.SeasonTransitionState.Set(ctx, state)
+		require.NoError(t, k.SeasonTransitionState.Set(ctx, state))
 
 		_, err := ms.SkipTransitionPhase(ctx, &types.MsgSkipTransitionPhase{
 			Authority: authority,

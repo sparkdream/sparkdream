@@ -71,15 +71,20 @@ Collect records never carry inline bytes: a data URI in any collect string field
 
 ### 3.2. Data URI rule
 
-A data URI has the shape `data:[<mediatype>][;base64],<data>` (RFC 2397). A plain substring search for `data:` would also match ordinary prose ("metadata:", "Data: 5 records") and hold back harmless posts, so rules version 1 matches the URI shape instead:
+A data URI has the shape `data:[<mediatype>][;base64],<data>` (RFC 2397). A plain substring search for `data:` would also match ordinary prose ("metadata:", "Data: 5 records") and hold back harmless posts, so the rule matches the URI shape instead. It must also match what a **browser** reads as a data URI, not just the literal text, or a body can carry an inline image that is never labelled: shown "fail open" (§6), never indexed by a scanner (§5.1), and let past the media gate, so anonymous and low-trust authors could post inline media (§9). Rules version 1 missed `data:image/png;base64&#44;…` (entity-encoded comma), `data&#58;…` (entity-encoded colon), a tab or newline anywhere in the URI, and media types longer than 256 characters.
+
+**Rules version 2** (`MediaRulesVersion = 2`, `tools/datauri`, shared by the chain and the scanners so both agree byte for byte):
+
+1. **Normalise** the text the way a browser reads a URL in it: decode HTML character references once (numeric `&#58;` / `&#x3a;`, with or without the closing `;`, and the named `&colon;` `&semi;` `&comma;` `&sol;` `&Tab;` `&NewLine;`), decode CSS escapes (`\3a `, `\:`, as in a `style` attribute's `url()`), and remove ASCII tab, CR and LF (the URL parser strips them anywhere in a URL, so `da<TAB>ta:` is `data:`). Because removing them also joins words (`intro\ndata:`), the text is matched a second time with them read as spaces; either reading counts.
+2. **Match**, case-insensitively, `data:` not preceded by a URI-scheme character (letter, digit, `+`, `.`, `-`) and followed by a media-type token and one of `/`, `;` or `,` (`data:image/png;…`, `data:text,…`, `data:;base64,…`, `data:,…`), or by spaces and then a `type/` token or `;` (`data: image/png;…`). There is no length bound on the media type and no literal comma is required.
 
 ```
-(?i)(^|[^a-z0-9+.-])data:[^\s,]{0,256},
+(?i)(^|[^a-z0-9+.-])data:(?:[TOKEN]*[/;,]|[ ]+(?:[TOKEN]+/|;))      TOKEN = RFC 7230 token characters
 ```
 
-`data:` must not follow a URI-scheme character (letter, digit, `+`, `.`, `-`), and must reach a comma with no whitespace in between. That matches every data URI, including `data:,hello` and `data:image/png;base64,…`, and none of the prose examples. Any media type is flagged, not only `image/` and its relatives. The cost is the same, and a text post flagged by mistake only waits for the scanner. A missed image is the worse failure.
+"Data: 5 records, all valid" and "metadata: x" still do not match; rare prose like "data:input/output" now does (a text post flagged by mistake only waits for the scanner; a missed image is the worse failure). Any media type is flagged, not only `image/` and its relatives.
 
-The same rule is used for rejection in collect fields (§3.3).
+The same rule is used for rejection in collect and artifact fields (§3.3). Clients must still refuse to load a `data:` URL from a body whose `media_flags == 0` (§6): the chain's rule is a filter, not a sanitiser.
 
 ### 3.3. New fields
 
@@ -109,13 +114,15 @@ List and show queries keep their signatures, but return the body as `""` wheneve
 
 Plain-text content, which will be most content, behaves exactly as today. Only flagged content costs the client a second request, made after the verdict check. Collect records are not withheld: they carry URI strings, never media bytes (§3.3).
 
+**Withholding is a display convention, not confidentiality.** A withheld body is still in the original transaction bytes (tx queries, block explorers), in the raw KV store (`abci_query /store/...`) and in genesis exports. The body queries exist so honest clients wait for a verdict; anyone can read the bytes another way. Operators must not treat withholding (or a removed verdict) as a takedown of the data itself.
+
 ### 3.5. Cost and determinism
 
 The data URI rule is a single linear pass over a body that is already size-limited (`max_body_length` in blog, `max_content_size` in forum), so its gas is bounded. Implement it as a hand-written scanner or with Go's `regexp` (RE2, linear time, no backtracking); either gives the same result on every node. `body_hash` is one sha256 per write.
 
 ### 3.6. Migration
 
-Every module's `InitGenesis` recomputes labels for the records it imports instead of trusting the file, so a network relaunched from a genesis exported by an older binary comes up labelled under rules version 1 with `body_hash` filled. It needs no decompression or network access. If live in-place upgrades are ever introduced, the same recomputation runs as a store iteration in the upgrade handler. Existing collect records that already hold a data URI cannot be rejected after the fact: relabelling gives them `MEDIA_FLAG_INLINE_DATA`, and clients do not render the affected fields.
+Every module's `InitGenesis` recomputes labels for the records it imports instead of trusting the file, so a network relaunched from a genesis exported by an older binary comes up labelled under the current rules version (2) with `body_hash` filled. It needs no decompression or network access. If live in-place upgrades are ever introduced, the same recomputation runs as a store iteration in the upgrade handler. Existing collect records that already hold a data URI cannot be rejected after the fact: relabelling gives them `MEDIA_FLAG_INLINE_DATA`, and clients do not render the affected fields.
 
 ## 4. Verdicts
 
@@ -149,7 +156,7 @@ Each worker signs every verdict it issues:
 }
 ```
 
-**Canonical JSON** (what `sig` covers): the attestation without `sig`, object keys sorted lexicographically, no insignificant whitespace, no HTML escaping, numbers as written, timestamps RFC 3339 UTC. Optional subject fields and `expires_at` are omitted when empty. The test vector in `tools/contentscan/contentscan_test.go` (`TestSigningBytesAreCanonical`) pins the exact bytes; every client implementation must reproduce it.
+**Canonical JSON** (what `sig` covers): the attestation without `sig`, object keys sorted lexicographically, no insignificant whitespace, no HTML escaping, numbers as written, timestamps RFC 3339 UTC. Optional subject fields and `expires_at` are omitted when empty. `issued_at` and `expires_at` must be **UTC whole seconds** (`YYYY-MM-DDTHH:MM:SSZ`): `Validate`, and so `Sign` and `Verify`, refuse any other offset or a fraction, because Go would write a numeric offset or a trimmed fraction that a port re-deriving the bytes from parsed JSON gets wrong. The bytes are re-derived from the parsed attestation, so unknown fields are not signed and are dropped. Floats are written as Go's `encoding/json` writes them (`1e-7`, `1e+21`); integers are exact (`scanned_height` may exceed 2^53, so JavaScript ports must parse it as a big integer). The test vectors in `tools/contentscan/contentscan_test.go` (`TestSigningBytesAreCanonical`, `TestSigningBytesVectors`) pin the exact bytes; every client implementation must reproduce them.
 
 Verdicts are signed with a dedicated **ed25519 verdict key**, never the operator's wallet key. On decentralized compute the hosting provider can read the worker's memory, so the key a worker holds must not be able to move funds. ed25519 is fast and deterministic and has libraries everywhere clients run.
 
@@ -188,8 +195,8 @@ When workers disagree (removed against clean), removed wins and the conflict is 
 
 1. Follows blocks and indexes every record with `media_flags != 0`, plus external URLs found in rendered text bodies.
 2. Fetches the material: flagged bodies through the body queries, off-chain references through storage gateways, external URIs over HTTP.
-3. Decompresses, decodes and hashes it in a sandbox.
-4. Runs detection (§5.2) and signs a verdict.
+3. Decompresses, decodes and hashes it in a sandbox. Data URIs are extracted from the text after the same normalisation as the chain's rule (§3.2), so entity-encoded or line-wrapped payloads are decoded too.
+4. Runs detection (§5.2) and signs a verdict. **A worker never signs a verdict for a body it could not fully extract**: if any data-URI payload fails to decode, or fewer blobs come out than the chain's rule counts data URIs, it signs nothing (`ErrIncompleteExtraction`) and the subject stays unchecked. Judging only what decoded would sign "clean" for media nobody looked at, and every worker running the same code would agree, so the quorum would too.
 5. Appends the verdict to its feed, and periodically posts a checkpoint onchain (§8.2).
 
 A worker reads only public data and serves no reader traffic. It can run on a personal machine, a server or decentralized compute (Akash). Where it runs is a deployment choice; what it publishes and how its verdicts combine is protocol.
@@ -216,7 +223,7 @@ Without access to known-abuse hash lists, known material is caught only after so
 ### 5.3. Worker safety
 
 - **No media at rest.** Fetched files are hashed and classified in memory and never written to disk. Possessing illegal material is the central legal risk of running a worker.
-- **Egress through a VPN or proxy**, and refuse private and link-local address ranges, so a posted URL cannot reveal the worker's IP or reach its local network (SSRF).
+- **Egress through a VPN or proxy**, and refuse every non-public destination at dial time (after DNS resolution), so a posted URL cannot reveal the worker's IP or reach its local network (SSRF): loopback, RFC 1918, link-local, multicast and unspecified, plus the IANA special-purpose ranges `net.IP` doesn't cover — `0.0.0.0/8`, `100.64.0.0/10` (CGNAT, Tailscale/Headscale overlays), `192.0.0.0/24`, the documentation and benchmarking ranges, `240.0.0.0/4`, NAT64 (`64:ff9b::/96`, `64:ff9b:1::/48`, which reach internal IPv4 hosts through a translator), Teredo, 6to4, ORCHID, unique-local and site-local IPv6. An IPv4-mapped IPv6 address is judged as its IPv4 address.
 - **Sandbox all decoding.** Image, video and archive parsers run on attacker-chosen input.
 - **Limits** on fetch size, decompressed size and time.
 
@@ -244,8 +251,9 @@ Feeds are static files on any hosting and can be mirrored freely. Anyone may pub
 | link | URL text shown, not clickable | not clickable | not shown |
 | external URL inside a rendered body | not loaded | not loaded | not loaded |
 
-4. **Verify what is fetched.** A body fetched through a body query must match `body_hash`. A link with `content_hash` must match it. On mismatch, treat as unchecked.
-5. **Freshness.** If the newest verdict data is older than an operator-configured limit, flagged content stays unchecked. Text keeps working, so a stale feed degrades the site but never takes it down.
+4. **Never load a `data:` URL from an unflagged body.** The chain's rule (§3.2) is a filter, not a sanitiser; a renderer that shows `media_flags == 0` bodies (HTML or Markdown) strips or refuses `data:` URLs in them.
+5. **Verify what is fetched.** A body fetched through a body query must match `body_hash`. A link with `content_hash` must match it. On mismatch, treat as unchecked.
+6. **Freshness.** If the newest verdict data is older than an operator-configured limit, flagged content stays unchecked. Text keeps working, so a stale feed degrades the site but never takes it down.
 
 Encrypted collections (`encrypted_data`) cannot be scanned: only members can decrypt them. Their contents are the members' responsibility, and clients render decrypted media under the same hold-until-checked policy where the client controls the fetch.
 
@@ -389,6 +397,7 @@ Open:
 | Piece | Where |
 |---|---|
 | Labelling rule, `MediaFlag`, media gate | [x/common/types/media_labels.go](../x/common/types/media_labels.go), `proto/sparkdream/common/v1/media_flag.proto` |
+| Data-URI rule shared by chain and scanners (normalisation, match, count) | [tools/datauri](../tools/datauri) |
 | Labels, withholding, body queries, media gate | `x/blog/keeper/media_labels.go`, `x/forum/keeper/media_labels.go`, `x/federation/keeper/media_labels.go`; `PostBody` / `ReplyBody`, `PostContent`, `FederatedContentBody` |
 | Collect data-URI rejection and labels | `x/collect/keeper/media_labels.go` (`ErrDataURINotAllowed`, 1271) |
 | `content-scanner` type, quorum, checkpoints, liveness | `x/service/types/genesis.go` (seed), `x/service/keeper/checkpoints.go`, `msg_server_submit_checkpoint.go`, `query_checkpoint*.go` |

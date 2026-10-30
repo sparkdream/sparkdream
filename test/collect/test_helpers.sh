@@ -7,6 +7,9 @@ KEYRING="test"
 FEES="500000${BOND_DENOM}"
 TX_WAIT=6
 
+# Operations Committee proposals (assert_ops_resolve).
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/ops_committee.sh"
+
 # Counters
 TESTS_PASSED=0
 TESTS_FAILED=0
@@ -136,6 +139,28 @@ assert_tx_success() {
         TESTS_FAILED=$((TESTS_FAILED + 1))
         return 1
     fi
+}
+
+# assert_ops_resolve <description> <appeal-id> <upheld|overturned> <reason>
+# Moderation-appeal verdicts (x/rep MsgResolveGovActionAppeal) are accepted
+# only from the Commons Operations Committee policy, never from a single
+# member, so the verdict goes through a committee proposal. Sets
+# TX_RESULT_OUT to the execute tx JSON like assert_tx_success.
+assert_ops_resolve() {
+    local description="$1" appeal_id="$2" verdict="GOV_APPEAL_STATUS_UPHELD" reason="$4"
+    [ "$3" = "overturned" ] && verdict="GOV_APPEAL_STATUS_OVERTURNED"
+    if ops_committee_exec "$(jq -nc --arg id "$appeal_id" --arg v "$verdict" --arg r "$reason" \
+        '{"@type":"/sparkdream.rep.v1.MsgResolveGovActionAppeal",appeal_id:$id,verdict:$v,reason:$r}')" resolver; then
+        TX_RESULT_OUT="$OPS_COMMITTEE_TX"
+        echo "PASS: $description"
+        TESTS_PASSED=$((TESTS_PASSED + 1))
+        return 0
+    fi
+    TX_RESULT_OUT=""
+    echo "FAIL: $description"
+    echo "  Error: $OPS_COMMITTEE_ERROR"
+    TESTS_FAILED=$((TESTS_FAILED + 1))
+    return 1
 }
 
 # Assert a tx fails (code!=0 or broadcast rejection).

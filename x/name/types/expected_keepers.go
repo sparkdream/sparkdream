@@ -28,6 +28,9 @@ type BankKeeper interface {
 	SpendableCoins(context.Context, sdk.AccAddress) sdk.Coins
 	SendCoins(context.Context, sdk.AccAddress, sdk.AccAddress, sdk.Coins) error
 	SendCoinsFromAccountToModule(context.Context, sdk.AccAddress, string, sdk.Coins) error
+	// BurnCoins burns the registration fee once it reaches the module
+	// account (the module account holds the Burner permission).
+	BurnCoins(context.Context, string, sdk.Coins) error
 }
 
 // CommonsKeeper defines the expected interface for the x/commons module.
@@ -39,6 +42,10 @@ type CommonsKeeper interface {
 	// IsCouncilAuthorized checks if addr is authorized via governance, council policy,
 	// or committee membership.
 	IsCouncilAuthorized(ctx context.Context, addr string, council string, committee string) bool
+	// IsCouncilOrCommitteePolicy accepts the gov authority, the council's
+	// policy address or the named committee's policy address, never an
+	// individual member: the action needs an executed proposal.
+	IsCouncilOrCommitteePolicy(ctx context.Context, addr string, council string, committee string) bool
 	// HasMember checks if an address is a member of a council.
 	HasMember(ctx context.Context, councilName string, address string) (bool, error)
 	// AddMember adds a member to a council.
@@ -51,6 +58,7 @@ type RepKeeper interface {
 	LockDREAM(ctx context.Context, addr sdk.AccAddress, amount math.Int) error
 	UnlockDREAM(ctx context.Context, addr sdk.AccAddress, amount math.Int) error
 	BurnDREAM(ctx context.Context, addr sdk.AccAddress, amount math.Int) error
+	BurnLockedDREAM(ctx context.Context, addr sdk.AccAddress, amount math.Int) error
 	// IsActiveMember reports whether addr is a registered x/rep member with
 	// status MEMBER_STATUS_ACTIVE. Used as the registration / transfer gate.
 	IsActiveMember(ctx context.Context, addr sdk.AccAddress) bool

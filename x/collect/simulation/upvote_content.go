@@ -1,59 +1,34 @@
 package simulation
 
 import (
-	"math/rand"
-
-	"github.com/cosmos/cosmos-sdk/baseapp"
+	"cosmossdk.io/math"
 	"github.com/cosmos/cosmos-sdk/client"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
 
 	"sparkdream/x/collect/keeper"
 	"sparkdream/x/collect/types"
 )
 
+// SimulateMsgUpvoteContent delivers MsgUpvoteContent from an active member
+// on a public, active, feedback-enabled collection or non-hidden item that
+// is not its own or one it collaborates on, has not reacted to yet, under
+// max_upvotes_per_day.
 func SimulateMsgUpvoteContent(
 	ak types.AuthKeeper,
 	bk types.BankKeeper,
 	k keeper.Keeper,
 	txGen client.TxConfig,
 ) simtypes.Operation {
-	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
-	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		simAccount, _ := simtypes.RandomAcc(r, accs)
-		msg := &types.MsgUpvoteContent{
-			Creator: simAccount.Address.String(),
-		}
-
-		// Pick a different account as the collection owner
-		ownerAccount, ok := pickDifferentAccount(r, accs, simAccount.Address.String())
-		if !ok {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "not enough accounts"), nil, nil
-		}
-
-		collID, err := getOrCreateCollection(r, ctx, k, ownerAccount.Address.String())
+	return operation(ak, bk, k, txGen, &types.MsgUpvoteContent{}, func(e *simEnv) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
+		msg := &types.MsgUpvoteContent{}
+		voter, t, reason, err := e.reactionTarget("upvote", e.params.MaxUpvotesPerDay)
 		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "failed to create collection: "+err.Error()), nil, nil
+			return noOpErr(msg, err)
 		}
-
-		// Get the collection to update upvote count
-		coll, err := k.Collection.Get(ctx, collID)
-		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "failed to get collection: "+err.Error()), nil, nil
+		if reason != "" {
+			return noOp(msg, reason)
 		}
-
-		// Set dedup key (value 1 = upvote)
-		dedupKey := keeper.ReactionDedupCompositeKey(simAccount.Address.String(), types.FlagTargetType_FLAG_TARGET_TYPE_COLLECTION, collID)
-		if err := k.ReactionDedup.Set(ctx, dedupKey, 1); err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "failed to set dedup key: "+err.Error()), nil, nil
-		}
-
-		// Increment upvote count
-		coll.UpvoteCount++
-		if err := k.Collection.Set(ctx, collID, coll); err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "failed to update collection: "+err.Error()), nil, nil
-		}
-
-		return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "ok (direct keeper call)"), nil, nil
-	}
+		msg.Creator, msg.TargetId, msg.TargetType = voter.Address.String(), t.id, t.typ
+		return e.submit(voter, msg, math.ZeroInt())
+	})
 }

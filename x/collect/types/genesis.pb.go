@@ -33,7 +33,7 @@ type GenesisState struct {
 	Items               []Item               `protobuf:"bytes,4,rep,name=items,proto3" json:"items"`
 	ItemCount           uint64               `protobuf:"varint,5,opt,name=item_count,json=itemCount,proto3" json:"item_count,omitempty"`
 	Collaborators       []Collaborator       `protobuf:"bytes,6,rep,name=collaborators,proto3" json:"collaborators"`
-	CuratorActivities   []CuratorActivity    `protobuf:"bytes,16,rep,name=curator_activities,json=curatorActivities,proto3" json:"curator_activities"`
+	CuratorActivities   []CuratorActivity    `protobuf:"bytes,7,rep,name=curator_activities,json=curatorActivities,proto3" json:"curator_activities"`
 	CurationReviews     []CurationReview     `protobuf:"bytes,8,rep,name=curation_reviews,json=curationReviews,proto3" json:"curation_reviews"`
 	CurationReviewCount uint64               `protobuf:"varint,9,opt,name=curation_review_count,json=curationReviewCount,proto3" json:"curation_review_count,omitempty"`
 	CurationSummaries   []CurationSummary    `protobuf:"bytes,10,rep,name=curation_summaries,json=curationSummaries,proto3" json:"curation_summaries"`
@@ -42,6 +42,19 @@ type GenesisState struct {
 	HideRecords         []HideRecord         `protobuf:"bytes,13,rep,name=hide_records,json=hideRecords,proto3" json:"hide_records"`
 	HideRecordCount     uint64               `protobuf:"varint,14,opt,name=hide_record_count,json=hideRecordCount,proto3" json:"hide_record_count,omitempty"`
 	Endorsements        []Endorsement        `protobuf:"bytes,15,rep,name=endorsements,proto3" json:"endorsements"`
+	// reaction_dedups persists the per-(voter, target) reaction marker
+	// (1 = upvote, 2 = downvote) so a voter cannot react again after import.
+	ReactionDedups []ReactionCounterEntry `protobuf:"bytes,16,rep,name=reaction_dedups,json=reactionDedups,proto3" json:"reaction_dedups"`
+	// reaction_limits persists the per-(address, day, category) daily counters.
+	ReactionLimits []ReactionCounterEntry `protobuf:"bytes,17,rep,name=reaction_limits,json=reactionLimits,proto3" json:"reaction_limits"`
+	// Not-adjudicated timeout schedule of the pending curation challenges.
+	// A pending challenge without an entry gets the latest possible deadline
+	// (review creation + challenge window + resolution timeout).
+	CurationChallengeDeadlines []CurationChallengeDeadline `protobuf:"bytes,18,rep,name=curation_challenge_deadlines,json=curationChallengeDeadlines,proto3" json:"curation_challenge_deadlines"`
+	// Members queued for eager promotion of their ephemeral content (admitted
+	// after posting). Hook-driven, so carried verbatim with the enqueue height;
+	// without it an import would leave that content to the lazy TTL-time path.
+	PromotionQueue []PromotionQueueEntry `protobuf:"bytes,19,rep,name=promotion_queue,json=promotionQueue,proto3" json:"promotion_queue"`
 }
 
 func (m *GenesisState) Reset()         { *m = GenesisState{} }
@@ -182,8 +195,200 @@ func (m *GenesisState) GetEndorsements() []Endorsement {
 	return nil
 }
 
+func (m *GenesisState) GetReactionDedups() []ReactionCounterEntry {
+	if m != nil {
+		return m.ReactionDedups
+	}
+	return nil
+}
+
+func (m *GenesisState) GetReactionLimits() []ReactionCounterEntry {
+	if m != nil {
+		return m.ReactionLimits
+	}
+	return nil
+}
+
+func (m *GenesisState) GetCurationChallengeDeadlines() []CurationChallengeDeadline {
+	if m != nil {
+		return m.CurationChallengeDeadlines
+	}
+	return nil
+}
+
+func (m *GenesisState) GetPromotionQueue() []PromotionQueueEntry {
+	if m != nil {
+		return m.PromotionQueue
+	}
+	return nil
+}
+
+// CurationChallengeDeadline is the block height at which the pending
+// challenge on review_id resolves as not adjudicated.
+type CurationChallengeDeadline struct {
+	Deadline int64  `protobuf:"varint,1,opt,name=deadline,proto3" json:"deadline,omitempty"`
+	ReviewId uint64 `protobuf:"varint,2,opt,name=review_id,json=reviewId,proto3" json:"review_id,omitempty"`
+}
+
+func (m *CurationChallengeDeadline) Reset()         { *m = CurationChallengeDeadline{} }
+func (m *CurationChallengeDeadline) String() string { return proto.CompactTextString(m) }
+func (*CurationChallengeDeadline) ProtoMessage()    {}
+func (*CurationChallengeDeadline) Descriptor() ([]byte, []int) {
+	return fileDescriptor_b16b90430cb10524, []int{1}
+}
+func (m *CurationChallengeDeadline) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *CurationChallengeDeadline) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_CurationChallengeDeadline.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *CurationChallengeDeadline) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_CurationChallengeDeadline.Merge(m, src)
+}
+func (m *CurationChallengeDeadline) XXX_Size() int {
+	return m.Size()
+}
+func (m *CurationChallengeDeadline) XXX_DiscardUnknown() {
+	xxx_messageInfo_CurationChallengeDeadline.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_CurationChallengeDeadline proto.InternalMessageInfo
+
+func (m *CurationChallengeDeadline) GetDeadline() int64 {
+	if m != nil {
+		return m.Deadline
+	}
+	return 0
+}
+
+func (m *CurationChallengeDeadline) GetReviewId() uint64 {
+	if m != nil {
+		return m.ReviewId
+	}
+	return 0
+}
+
+// ReactionCounterEntry is one string-keyed uint32 counter (ReactionDedup or
+// ReactionLimit), flattened for genesis import/export.
+type ReactionCounterEntry struct {
+	Key   string `protobuf:"bytes,1,opt,name=key,proto3" json:"key,omitempty"`
+	Value uint32 `protobuf:"varint,2,opt,name=value,proto3" json:"value,omitempty"`
+}
+
+func (m *ReactionCounterEntry) Reset()         { *m = ReactionCounterEntry{} }
+func (m *ReactionCounterEntry) String() string { return proto.CompactTextString(m) }
+func (*ReactionCounterEntry) ProtoMessage()    {}
+func (*ReactionCounterEntry) Descriptor() ([]byte, []int) {
+	return fileDescriptor_b16b90430cb10524, []int{2}
+}
+func (m *ReactionCounterEntry) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *ReactionCounterEntry) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_ReactionCounterEntry.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *ReactionCounterEntry) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_ReactionCounterEntry.Merge(m, src)
+}
+func (m *ReactionCounterEntry) XXX_Size() int {
+	return m.Size()
+}
+func (m *ReactionCounterEntry) XXX_DiscardUnknown() {
+	xxx_messageInfo_ReactionCounterEntry.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_ReactionCounterEntry proto.InternalMessageInfo
+
+func (m *ReactionCounterEntry) GetKey() string {
+	if m != nil {
+		return m.Key
+	}
+	return ""
+}
+
+func (m *ReactionCounterEntry) GetValue() uint32 {
+	if m != nil {
+		return m.Value
+	}
+	return 0
+}
+
+// PromotionQueueEntry is one queued author and the height it was enqueued.
+type PromotionQueueEntry struct {
+	Address    string `protobuf:"bytes,1,opt,name=address,proto3" json:"address,omitempty"`
+	EnqueuedAt int64  `protobuf:"varint,2,opt,name=enqueued_at,json=enqueuedAt,proto3" json:"enqueued_at,omitempty"`
+}
+
+func (m *PromotionQueueEntry) Reset()         { *m = PromotionQueueEntry{} }
+func (m *PromotionQueueEntry) String() string { return proto.CompactTextString(m) }
+func (*PromotionQueueEntry) ProtoMessage()    {}
+func (*PromotionQueueEntry) Descriptor() ([]byte, []int) {
+	return fileDescriptor_b16b90430cb10524, []int{3}
+}
+func (m *PromotionQueueEntry) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *PromotionQueueEntry) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_PromotionQueueEntry.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *PromotionQueueEntry) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_PromotionQueueEntry.Merge(m, src)
+}
+func (m *PromotionQueueEntry) XXX_Size() int {
+	return m.Size()
+}
+func (m *PromotionQueueEntry) XXX_DiscardUnknown() {
+	xxx_messageInfo_PromotionQueueEntry.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_PromotionQueueEntry proto.InternalMessageInfo
+
+func (m *PromotionQueueEntry) GetAddress() string {
+	if m != nil {
+		return m.Address
+	}
+	return ""
+}
+
+func (m *PromotionQueueEntry) GetEnqueuedAt() int64 {
+	if m != nil {
+		return m.EnqueuedAt
+	}
+	return 0
+}
+
 func init() {
 	proto.RegisterType((*GenesisState)(nil), "sparkdream.collect.v1.GenesisState")
+	proto.RegisterType((*CurationChallengeDeadline)(nil), "sparkdream.collect.v1.CurationChallengeDeadline")
+	proto.RegisterType((*ReactionCounterEntry)(nil), "sparkdream.collect.v1.ReactionCounterEntry")
+	proto.RegisterType((*PromotionQueueEntry)(nil), "sparkdream.collect.v1.PromotionQueueEntry")
 }
 
 func init() {
@@ -191,44 +396,57 @@ func init() {
 }
 
 var fileDescriptor_b16b90430cb10524 = []byte{
-	// 579 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0x84, 0x94, 0x4f, 0x6f, 0x12, 0x41,
-	0x18, 0xc6, 0x59, 0x0b, 0xa4, 0x0c, 0x54, 0x60, 0xda, 0x26, 0x13, 0x4c, 0x57, 0x4a, 0xa3, 0xa1,
-	0x8d, 0x81, 0x14, 0x4d, 0xbc, 0x5a, 0x1a, 0xff, 0xd4, 0x98, 0x68, 0x96, 0xc4, 0x83, 0x1e, 0xc8,
-	0xb0, 0x8c, 0x30, 0x91, 0xdd, 0x59, 0xe7, 0x1d, 0xd0, 0x7e, 0x0b, 0x3f, 0x83, 0x27, 0x8f, 0x7e,
-	0x8c, 0x1e, 0x7b, 0xf4, 0x64, 0x0c, 0x1c, 0xfc, 0x1a, 0x66, 0x67, 0x07, 0x96, 0xad, 0x80, 0x17,
-	0x32, 0xbc, 0xfc, 0x9e, 0xe7, 0xe1, 0x7d, 0xe7, 0x0f, 0x3a, 0x82, 0x80, 0xca, 0x8f, 0x7d, 0xc9,
-	0xa8, 0xd7, 0x74, 0xc5, 0x68, 0xc4, 0x5c, 0xd5, 0x9c, 0x9c, 0x36, 0x07, 0xcc, 0x67, 0xc0, 0xa1,
-	0x11, 0x48, 0xa1, 0x04, 0xde, 0x8f, 0xa1, 0x86, 0x81, 0x1a, 0x93, 0xd3, 0x4a, 0x99, 0x7a, 0xdc,
-	0x17, 0x4d, 0xfd, 0x19, 0x91, 0x95, 0xbd, 0x81, 0x18, 0x08, 0xbd, 0x6c, 0x86, 0x2b, 0x53, 0x7d,
-	0xb0, 0x3a, 0xc4, 0x1d, 0x4b, 0xaa, 0x84, 0xec, 0x52, 0x57, 0xf1, 0x09, 0x57, 0x97, 0x86, 0xae,
-	0xad, 0xa6, 0x03, 0x2a, 0xa9, 0x67, 0xfe, 0x51, 0xe5, 0x70, 0x35, 0xa3, 0x2e, 0x03, 0x66, 0x90,
-	0xda, 0xb7, 0x6d, 0x54, 0x78, 0x1e, 0xb5, 0xd1, 0x51, 0x54, 0x31, 0xfc, 0x04, 0x65, 0x23, 0x0f,
-	0x62, 0x55, 0xad, 0x7a, 0xbe, 0x75, 0xd0, 0x58, 0xd9, 0x56, 0xe3, 0x8d, 0x86, 0xda, 0xb9, 0xab,
-	0x5f, 0x77, 0x53, 0xdf, 0xff, 0xfc, 0x38, 0xb1, 0x1c, 0xa3, 0xc3, 0x17, 0x28, 0x6f, 0x38, 0x2e,
-	0x7c, 0x20, 0xb7, 0xaa, 0x5b, 0xf5, 0x7c, 0xeb, 0x70, 0x8d, 0xcd, 0xf9, 0x82, 0x6c, 0xa7, 0x43,
-	0x2b, 0x67, 0x59, 0x8b, 0x8f, 0x51, 0x29, 0xfe, 0xda, 0x75, 0xc5, 0xd8, 0x57, 0x64, 0xab, 0x6a,
-	0xd5, 0xd3, 0x4e, 0x31, 0xae, 0x9f, 0x87, 0x65, 0xfc, 0x18, 0x65, 0xb8, 0x62, 0x1e, 0x90, 0xb4,
-	0xce, 0xbb, 0xb3, 0x26, 0xef, 0x42, 0x31, 0xcf, 0x24, 0x45, 0x3c, 0x3e, 0x40, 0x28, 0x5c, 0x18,
-	0xf7, 0x8c, 0x76, 0xcf, 0x85, 0x95, 0xc8, 0xf7, 0x35, 0xda, 0x09, 0xe5, 0xb4, 0x27, 0xf4, 0x36,
-	0x00, 0xc9, 0x6a, 0xff, 0xa3, 0x0d, 0xfd, 0xcc, 0x59, 0x93, 0x93, 0xd4, 0xe3, 0xf7, 0x08, 0xdf,
-	0xd8, 0x52, 0xce, 0x80, 0x94, 0xb4, 0xeb, 0xfd, 0x75, 0xae, 0x91, 0xe0, 0xcc, 0x1c, 0x01, 0x63,
-	0x5c, 0x76, 0x13, 0x65, 0xce, 0x00, 0xbf, 0x45, 0x25, 0x5d, 0x0c, 0xc7, 0x25, 0xd9, 0x84, 0xb3,
-	0xcf, 0x40, 0xb6, 0xb5, 0xf5, 0xbd, 0x4d, 0xd6, 0x5c, 0xf8, 0x8e, 0xa6, 0x8d, 0x73, 0xd1, 0x4d,
-	0x54, 0x01, 0xb7, 0xd0, 0xfe, 0x0d, 0x5f, 0x33, 0xaf, 0x9c, 0x9e, 0xd7, 0x6e, 0x92, 0x8f, 0x26,
-	0x37, 0x6f, 0x34, 0xd4, 0xc0, 0xd8, 0xf3, 0xa8, 0x0c, 0x1b, 0x45, 0xff, 0x6f, 0x94, 0x0b, 0xbf,
-	0xa3, 0xf9, 0x64, 0xa3, 0x8b, 0x72, 0xd8, 0x68, 0x0f, 0xed, 0x41, 0x20, 0x7c, 0x10, 0x12, 0x86,
-	0x3c, 0xe8, 0x4a, 0xf6, 0x69, 0xcc, 0x40, 0x01, 0xc9, 0x6b, 0xfb, 0xe3, 0x35, 0xf6, 0x9d, 0x58,
-	0xe2, 0x44, 0x0a, 0x93, 0xb0, 0x0b, 0xff, 0xfc, 0x02, 0xf8, 0x0c, 0x65, 0x3e, 0x8c, 0xe8, 0x00,
-	0x48, 0x61, 0xf3, 0x04, 0x17, 0x27, 0xf1, 0xd9, 0x88, 0x0e, 0xe6, 0x87, 0x4b, 0x2b, 0xf1, 0x4b,
-	0x54, 0x18, 0xf2, 0x3e, 0xeb, 0x4a, 0xe6, 0x0a, 0xd9, 0x07, 0xb2, 0xb3, 0xf1, 0x32, 0xbc, 0xe0,
-	0x7d, 0xe6, 0x68, 0x72, 0x7e, 0x19, 0x86, 0x8b, 0x0a, 0xe0, 0x13, 0x54, 0x5e, 0xf2, 0x32, 0xf3,
-	0xbf, 0x1d, 0xdd, 0x86, 0x98, 0x8b, 0x66, 0xff, 0x0a, 0x15, 0x98, 0xdf, 0x17, 0x12, 0x98, 0xc7,
-	0x7c, 0x05, 0xa4, 0xa8, 0x73, 0x6b, 0x6b, 0x72, 0x9f, 0xc6, 0xa8, 0x09, 0x4e, 0xa8, 0xdb, 0x8f,
-	0xae, 0xa6, 0xb6, 0x75, 0x3d, 0xb5, 0xad, 0xdf, 0x53, 0xdb, 0xfa, 0x3a, 0xb3, 0x53, 0xd7, 0x33,
-	0x3b, 0xf5, 0x73, 0x66, 0xa7, 0xde, 0x55, 0x96, 0x5e, 0x98, 0x2f, 0x8b, 0x37, 0x46, 0x3f, 0x30,
-	0xbd, 0xac, 0x7e, 0x61, 0x1e, 0xfe, 0x0d, 0x00, 0x00, 0xff, 0xff, 0x97, 0xed, 0x6a, 0xbf, 0x3d,
-	0x05, 0x00, 0x00,
+	// 796 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xa4, 0x95, 0x41, 0x6f, 0x1b, 0x45,
+	0x14, 0xc7, 0xed, 0x3a, 0x4e, 0xe3, 0xb1, 0x53, 0xdb, 0x63, 0x57, 0x1a, 0x5c, 0xea, 0xa6, 0xae,
+	0x40, 0x69, 0x40, 0x36, 0x0d, 0x48, 0xdc, 0x10, 0x49, 0x5a, 0x20, 0xa8, 0x12, 0x65, 0x83, 0x90,
+	0x28, 0x07, 0x6b, 0xb2, 0xfb, 0xb0, 0x47, 0xdd, 0xdd, 0xd9, 0xce, 0xcc, 0x9a, 0xe6, 0x5b, 0xf0,
+	0x31, 0xb8, 0xc1, 0xc7, 0xe8, 0x31, 0x47, 0x4e, 0x08, 0x25, 0x07, 0xbe, 0x06, 0xda, 0xb7, 0xb3,
+	0xeb, 0x6c, 0xf0, 0x3a, 0x87, 0x5e, 0xac, 0x99, 0xe7, 0xff, 0xfb, 0xfd, 0xf7, 0xbd, 0x7d, 0xb3,
+	0x43, 0x1e, 0xe9, 0x88, 0xab, 0x57, 0x9e, 0x02, 0x1e, 0x4c, 0x5c, 0xe9, 0xfb, 0xe0, 0x9a, 0xc9,
+	0xe2, 0xc9, 0x64, 0x06, 0x21, 0x68, 0xa1, 0xc7, 0x91, 0x92, 0x46, 0xd2, 0xbb, 0x4b, 0xd1, 0xd8,
+	0x8a, 0xc6, 0x8b, 0x27, 0x83, 0x2e, 0x0f, 0x44, 0x28, 0x27, 0xf8, 0x9b, 0x2a, 0x07, 0xfd, 0x99,
+	0x9c, 0x49, 0x5c, 0x4e, 0x92, 0x95, 0x8d, 0x7e, 0xbc, 0xda, 0xc4, 0x8d, 0x15, 0x37, 0x52, 0x4d,
+	0xb9, 0x6b, 0xc4, 0x42, 0x98, 0x33, 0xab, 0x1e, 0xad, 0x56, 0x47, 0x5c, 0xf1, 0xc0, 0x3e, 0xd1,
+	0xe0, 0xe1, 0x6a, 0x8d, 0x39, 0x8b, 0xc0, 0x4a, 0x46, 0x7f, 0x34, 0x49, 0xeb, 0xeb, 0xb4, 0x8c,
+	0x13, 0xc3, 0x0d, 0xd0, 0x2f, 0xc9, 0x66, 0xca, 0x60, 0xd5, 0x9d, 0xea, 0x6e, 0x73, 0xff, 0xfe,
+	0x78, 0x65, 0x59, 0xe3, 0x17, 0x28, 0x3a, 0x6c, 0xbc, 0xfd, 0xfb, 0x41, 0xe5, 0xf7, 0x7f, 0xff,
+	0xdc, 0xab, 0x3a, 0x36, 0x8f, 0x1e, 0x93, 0xa6, 0xd5, 0x09, 0x19, 0x6a, 0x76, 0x6b, 0xa7, 0xb6,
+	0xdb, 0xdc, 0x7f, 0x58, 0x82, 0x39, 0xca, 0x95, 0x87, 0x1b, 0x09, 0xca, 0xb9, 0x9a, 0x4b, 0x1f,
+	0x93, 0xce, 0x72, 0x3b, 0x75, 0x65, 0x1c, 0x1a, 0x56, 0xdb, 0xa9, 0xee, 0x6e, 0x38, 0xed, 0x65,
+	0xfc, 0x28, 0x09, 0xd3, 0xcf, 0x49, 0x5d, 0x18, 0x08, 0x34, 0xdb, 0x40, 0xbf, 0x7b, 0x25, 0x7e,
+	0xc7, 0x06, 0x02, 0xeb, 0x94, 0xea, 0xe9, 0x7d, 0x42, 0x92, 0x85, 0xa5, 0xd7, 0x91, 0xde, 0x48,
+	0x22, 0x29, 0xf7, 0x3b, 0xb2, 0x9d, 0xa4, 0xf3, 0x53, 0x89, 0xaf, 0x41, 0xb3, 0x4d, 0xe4, 0x3f,
+	0x5a, 0x53, 0x4f, 0xa6, 0xb5, 0x3e, 0xc5, 0x7c, 0xfa, 0x33, 0xa1, 0xd7, 0x5e, 0xa9, 0x00, 0xcd,
+	0x6e, 0x23, 0xf5, 0xc3, 0x32, 0x6a, 0x9a, 0x70, 0x60, 0x47, 0xc0, 0x82, 0xbb, 0x6e, 0x21, 0x2c,
+	0x40, 0xd3, 0x1f, 0x49, 0x07, 0x83, 0x49, 0xbb, 0x14, 0x2c, 0x04, 0xfc, 0xaa, 0xd9, 0x16, 0xa2,
+	0x3f, 0x58, 0x87, 0x16, 0x32, 0x74, 0x50, 0x6d, 0xc9, 0x6d, 0xb7, 0x10, 0xd5, 0x74, 0x9f, 0xdc,
+	0xbd, 0xc6, 0xb5, 0xfd, 0x6a, 0x60, 0xbf, 0x7a, 0x45, 0x7d, 0xda, 0xb9, 0xac, 0xd0, 0x24, 0x47,
+	0xc7, 0x41, 0xc0, 0x55, 0x52, 0x28, 0xb9, 0xb9, 0x50, 0x21, 0xc3, 0x13, 0xd4, 0x17, 0x0b, 0xcd,
+	0xc3, 0x49, 0xa1, 0xa7, 0xa4, 0xaf, 0x23, 0x19, 0x6a, 0xa9, 0xf4, 0x5c, 0x44, 0x53, 0x05, 0xaf,
+	0x63, 0xd0, 0x46, 0xb3, 0x26, 0xe2, 0x1f, 0x97, 0xe0, 0x4f, 0x96, 0x29, 0x4e, 0x9a, 0x61, 0x1d,
+	0x7a, 0xfa, 0x7f, 0xff, 0x68, 0x7a, 0x40, 0xea, 0xbf, 0xf8, 0x7c, 0xa6, 0x59, 0x6b, 0x7d, 0x07,
+	0xf3, 0x49, 0xfc, 0xca, 0xe7, 0xb3, 0x6c, 0xb8, 0x30, 0x93, 0x7e, 0x4b, 0x5a, 0x73, 0xe1, 0xc1,
+	0x54, 0x81, 0x2b, 0x95, 0xa7, 0xd9, 0xf6, 0xda, 0xc3, 0xf0, 0x8d, 0xf0, 0xc0, 0x41, 0x65, 0x76,
+	0x18, 0xe6, 0x79, 0x44, 0xd3, 0x3d, 0xd2, 0xbd, 0xc2, 0xb2, 0xfd, 0xbf, 0x93, 0x9e, 0x86, 0xa5,
+	0x2e, 0xed, 0xfd, 0x73, 0xd2, 0x82, 0xd0, 0x93, 0x4a, 0x43, 0x00, 0xa1, 0xd1, 0xac, 0x8d, 0xbe,
+	0xa3, 0x12, 0xdf, 0x67, 0x4b, 0xa9, 0x35, 0x2e, 0x64, 0xd3, 0x97, 0xa4, 0xad, 0x80, 0xa7, 0x87,
+	0xd0, 0x03, 0x2f, 0x8e, 0x34, 0xeb, 0x20, 0xf0, 0xa3, 0x12, 0xa0, 0x63, 0xd5, 0xf8, 0x30, 0xa0,
+	0x9e, 0x85, 0x26, 0x7f, 0x97, 0x77, 0x32, 0xd2, 0x53, 0x04, 0x15, 0xd8, 0xbe, 0x08, 0x84, 0xd1,
+	0xac, 0xfb, 0xce, 0xec, 0xe7, 0x08, 0xa2, 0x6f, 0xc8, 0xfb, 0xf9, 0x04, 0xba, 0x73, 0xee, 0xfb,
+	0x10, 0xce, 0x60, 0xea, 0x01, 0xf7, 0x7c, 0x11, 0x82, 0x66, 0x14, 0x8d, 0x3e, 0xb9, 0x61, 0x16,
+	0x8f, 0xb2, 0xcc, 0xa7, 0x36, 0xd1, 0xba, 0x0d, 0xdc, 0x32, 0x81, 0xa6, 0x3f, 0x91, 0x76, 0xa4,
+	0x64, 0x20, 0xd1, 0xfa, 0x75, 0x0c, 0x31, 0xb0, 0x1e, 0x9a, 0xed, 0x95, 0x7d, 0x4e, 0x33, 0xf5,
+	0xf7, 0x89, 0xb8, 0x50, 0x54, 0x54, 0xf8, 0x6b, 0xf4, 0x03, 0x79, 0xaf, 0xf4, 0xc9, 0xe8, 0x80,
+	0x6c, 0x65, 0xe5, 0xe1, 0xf7, 0xbb, 0xe6, 0xe4, 0x7b, 0x7a, 0x8f, 0x34, 0xec, 0xd1, 0x15, 0x1e,
+	0xbb, 0x85, 0x73, 0xb3, 0x95, 0x06, 0x8e, 0xbd, 0xd1, 0x17, 0xa4, 0xbf, 0xaa, 0xb1, 0xb4, 0x43,
+	0x6a, 0xaf, 0xe0, 0x0c, 0x59, 0x0d, 0x27, 0x59, 0xd2, 0x3e, 0xa9, 0x2f, 0xb8, 0x1f, 0x03, 0x22,
+	0xb6, 0x9d, 0x74, 0x33, 0x7a, 0x41, 0x7a, 0x2b, 0x4a, 0xa0, 0x8c, 0xdc, 0xe6, 0x9e, 0xa7, 0x40,
+	0x6b, 0x8b, 0xc8, 0xb6, 0xf4, 0x01, 0x69, 0x42, 0x88, 0x9d, 0xf1, 0xa6, 0xdc, 0x20, 0xac, 0xe6,
+	0x90, 0x2c, 0x74, 0x60, 0x0e, 0x3f, 0x7b, 0x7b, 0x31, 0xac, 0x9e, 0x5f, 0x0c, 0xab, 0xff, 0x5c,
+	0x0c, 0xab, 0xbf, 0x5d, 0x0e, 0x2b, 0xe7, 0x97, 0xc3, 0xca, 0x5f, 0x97, 0xc3, 0xca, 0xcb, 0xc1,
+	0x95, 0x6b, 0xed, 0x4d, 0x7e, 0xb1, 0xe1, 0xad, 0x76, 0xba, 0x89, 0xd7, 0xda, 0xa7, 0xff, 0x05,
+	0x00, 0x00, 0xff, 0xff, 0xac, 0x21, 0x1a, 0x1e, 0xb2, 0x07, 0x00, 0x00,
 }
 
 func (m *GenesisState) Marshal() (dAtA []byte, err error) {
@@ -251,10 +469,58 @@ func (m *GenesisState) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	_ = i
 	var l int
 	_ = l
-	if len(m.CuratorActivities) > 0 {
-		for iNdEx := len(m.CuratorActivities) - 1; iNdEx >= 0; iNdEx-- {
+	if len(m.PromotionQueue) > 0 {
+		for iNdEx := len(m.PromotionQueue) - 1; iNdEx >= 0; iNdEx-- {
 			{
-				size, err := m.CuratorActivities[iNdEx].MarshalToSizedBuffer(dAtA[:i])
+				size, err := m.PromotionQueue[iNdEx].MarshalToSizedBuffer(dAtA[:i])
+				if err != nil {
+					return 0, err
+				}
+				i -= size
+				i = encodeVarintGenesis(dAtA, i, uint64(size))
+			}
+			i--
+			dAtA[i] = 0x1
+			i--
+			dAtA[i] = 0x9a
+		}
+	}
+	if len(m.CurationChallengeDeadlines) > 0 {
+		for iNdEx := len(m.CurationChallengeDeadlines) - 1; iNdEx >= 0; iNdEx-- {
+			{
+				size, err := m.CurationChallengeDeadlines[iNdEx].MarshalToSizedBuffer(dAtA[:i])
+				if err != nil {
+					return 0, err
+				}
+				i -= size
+				i = encodeVarintGenesis(dAtA, i, uint64(size))
+			}
+			i--
+			dAtA[i] = 0x1
+			i--
+			dAtA[i] = 0x92
+		}
+	}
+	if len(m.ReactionLimits) > 0 {
+		for iNdEx := len(m.ReactionLimits) - 1; iNdEx >= 0; iNdEx-- {
+			{
+				size, err := m.ReactionLimits[iNdEx].MarshalToSizedBuffer(dAtA[:i])
+				if err != nil {
+					return 0, err
+				}
+				i -= size
+				i = encodeVarintGenesis(dAtA, i, uint64(size))
+			}
+			i--
+			dAtA[i] = 0x1
+			i--
+			dAtA[i] = 0x8a
+		}
+	}
+	if len(m.ReactionDedups) > 0 {
+		for iNdEx := len(m.ReactionDedups) - 1; iNdEx >= 0; iNdEx-- {
+			{
+				size, err := m.ReactionDedups[iNdEx].MarshalToSizedBuffer(dAtA[:i])
 				if err != nil {
 					return 0, err
 				}
@@ -361,6 +627,20 @@ func (m *GenesisState) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 			dAtA[i] = 0x42
 		}
 	}
+	if len(m.CuratorActivities) > 0 {
+		for iNdEx := len(m.CuratorActivities) - 1; iNdEx >= 0; iNdEx-- {
+			{
+				size, err := m.CuratorActivities[iNdEx].MarshalToSizedBuffer(dAtA[:i])
+				if err != nil {
+					return 0, err
+				}
+				i -= size
+				i = encodeVarintGenesis(dAtA, i, uint64(size))
+			}
+			i--
+			dAtA[i] = 0x3a
+		}
+	}
 	if len(m.Collaborators) > 0 {
 		for iNdEx := len(m.Collaborators) - 1; iNdEx >= 0; iNdEx-- {
 			{
@@ -426,6 +706,109 @@ func (m *GenesisState) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	return len(dAtA) - i, nil
 }
 
+func (m *CurationChallengeDeadline) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *CurationChallengeDeadline) MarshalTo(dAtA []byte) (int, error) {
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *CurationChallengeDeadline) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.ReviewId != 0 {
+		i = encodeVarintGenesis(dAtA, i, uint64(m.ReviewId))
+		i--
+		dAtA[i] = 0x10
+	}
+	if m.Deadline != 0 {
+		i = encodeVarintGenesis(dAtA, i, uint64(m.Deadline))
+		i--
+		dAtA[i] = 0x8
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *ReactionCounterEntry) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *ReactionCounterEntry) MarshalTo(dAtA []byte) (int, error) {
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *ReactionCounterEntry) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.Value != 0 {
+		i = encodeVarintGenesis(dAtA, i, uint64(m.Value))
+		i--
+		dAtA[i] = 0x10
+	}
+	if len(m.Key) > 0 {
+		i -= len(m.Key)
+		copy(dAtA[i:], m.Key)
+		i = encodeVarintGenesis(dAtA, i, uint64(len(m.Key)))
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *PromotionQueueEntry) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *PromotionQueueEntry) MarshalTo(dAtA []byte) (int, error) {
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *PromotionQueueEntry) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.EnqueuedAt != 0 {
+		i = encodeVarintGenesis(dAtA, i, uint64(m.EnqueuedAt))
+		i--
+		dAtA[i] = 0x10
+	}
+	if len(m.Address) > 0 {
+		i -= len(m.Address)
+		copy(dAtA[i:], m.Address)
+		i = encodeVarintGenesis(dAtA, i, uint64(len(m.Address)))
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
+}
+
 func encodeVarintGenesis(dAtA []byte, offset int, v uint64) int {
 	offset -= sovGenesis(v)
 	base := offset
@@ -465,6 +848,12 @@ func (m *GenesisState) Size() (n int) {
 	}
 	if len(m.Collaborators) > 0 {
 		for _, e := range m.Collaborators {
+			l = e.Size()
+			n += 1 + l + sovGenesis(uint64(l))
+		}
+	}
+	if len(m.CuratorActivities) > 0 {
+		for _, e := range m.CuratorActivities {
 			l = e.Size()
 			n += 1 + l + sovGenesis(uint64(l))
 		}
@@ -511,11 +900,76 @@ func (m *GenesisState) Size() (n int) {
 			n += 1 + l + sovGenesis(uint64(l))
 		}
 	}
-	if len(m.CuratorActivities) > 0 {
-		for _, e := range m.CuratorActivities {
+	if len(m.ReactionDedups) > 0 {
+		for _, e := range m.ReactionDedups {
 			l = e.Size()
 			n += 2 + l + sovGenesis(uint64(l))
 		}
+	}
+	if len(m.ReactionLimits) > 0 {
+		for _, e := range m.ReactionLimits {
+			l = e.Size()
+			n += 2 + l + sovGenesis(uint64(l))
+		}
+	}
+	if len(m.CurationChallengeDeadlines) > 0 {
+		for _, e := range m.CurationChallengeDeadlines {
+			l = e.Size()
+			n += 2 + l + sovGenesis(uint64(l))
+		}
+	}
+	if len(m.PromotionQueue) > 0 {
+		for _, e := range m.PromotionQueue {
+			l = e.Size()
+			n += 2 + l + sovGenesis(uint64(l))
+		}
+	}
+	return n
+}
+
+func (m *CurationChallengeDeadline) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if m.Deadline != 0 {
+		n += 1 + sovGenesis(uint64(m.Deadline))
+	}
+	if m.ReviewId != 0 {
+		n += 1 + sovGenesis(uint64(m.ReviewId))
+	}
+	return n
+}
+
+func (m *ReactionCounterEntry) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	l = len(m.Key)
+	if l > 0 {
+		n += 1 + l + sovGenesis(uint64(l))
+	}
+	if m.Value != 0 {
+		n += 1 + sovGenesis(uint64(m.Value))
+	}
+	return n
+}
+
+func (m *PromotionQueueEntry) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	l = len(m.Address)
+	if l > 0 {
+		n += 1 + l + sovGenesis(uint64(l))
+	}
+	if m.EnqueuedAt != 0 {
+		n += 1 + sovGenesis(uint64(m.EnqueuedAt))
 	}
 	return n
 }
@@ -725,6 +1179,40 @@ func (m *GenesisState) Unmarshal(dAtA []byte) error {
 			}
 			m.Collaborators = append(m.Collaborators, Collaborator{})
 			if err := m.Collaborators[len(m.Collaborators)-1].Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 7:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field CuratorActivities", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowGenesis
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthGenesis
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthGenesis
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.CuratorActivities = append(m.CuratorActivities, CuratorActivity{})
+			if err := m.CuratorActivities[len(m.CuratorActivities)-1].Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
 				return err
 			}
 			iNdEx = postIndex
@@ -972,7 +1460,7 @@ func (m *GenesisState) Unmarshal(dAtA []byte) error {
 			iNdEx = postIndex
 		case 16:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field CuratorActivities", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field ReactionDedups", wireType)
 			}
 			var msglen int
 			for shift := uint(0); ; shift += 7 {
@@ -999,11 +1487,403 @@ func (m *GenesisState) Unmarshal(dAtA []byte) error {
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			m.CuratorActivities = append(m.CuratorActivities, CuratorActivity{})
-			if err := m.CuratorActivities[len(m.CuratorActivities)-1].Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+			m.ReactionDedups = append(m.ReactionDedups, ReactionCounterEntry{})
+			if err := m.ReactionDedups[len(m.ReactionDedups)-1].Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
 				return err
 			}
 			iNdEx = postIndex
+		case 17:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ReactionLimits", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowGenesis
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthGenesis
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthGenesis
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.ReactionLimits = append(m.ReactionLimits, ReactionCounterEntry{})
+			if err := m.ReactionLimits[len(m.ReactionLimits)-1].Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 18:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field CurationChallengeDeadlines", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowGenesis
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthGenesis
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthGenesis
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.CurationChallengeDeadlines = append(m.CurationChallengeDeadlines, CurationChallengeDeadline{})
+			if err := m.CurationChallengeDeadlines[len(m.CurationChallengeDeadlines)-1].Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 19:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field PromotionQueue", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowGenesis
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthGenesis
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthGenesis
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.PromotionQueue = append(m.PromotionQueue, PromotionQueueEntry{})
+			if err := m.PromotionQueue[len(m.PromotionQueue)-1].Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipGenesis(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthGenesis
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *CurationChallengeDeadline) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowGenesis
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: CurationChallengeDeadline: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: CurationChallengeDeadline: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Deadline", wireType)
+			}
+			m.Deadline = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowGenesis
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.Deadline |= int64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 2:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ReviewId", wireType)
+			}
+			m.ReviewId = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowGenesis
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.ReviewId |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		default:
+			iNdEx = preIndex
+			skippy, err := skipGenesis(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthGenesis
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *ReactionCounterEntry) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowGenesis
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: ReactionCounterEntry: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: ReactionCounterEntry: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Key", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowGenesis
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthGenesis
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthGenesis
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Key = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 2:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Value", wireType)
+			}
+			m.Value = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowGenesis
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.Value |= uint32(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		default:
+			iNdEx = preIndex
+			skippy, err := skipGenesis(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthGenesis
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *PromotionQueueEntry) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowGenesis
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: PromotionQueueEntry: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: PromotionQueueEntry: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Address", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowGenesis
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthGenesis
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthGenesis
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Address = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 2:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field EnqueuedAt", wireType)
+			}
+			m.EnqueuedAt = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowGenesis
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.EnqueuedAt |= int64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
 		default:
 			iNdEx = preIndex
 			skippy, err := skipGenesis(dAtA[iNdEx:])

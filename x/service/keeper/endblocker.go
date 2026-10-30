@@ -28,6 +28,7 @@ import (
 //  5. Checkpoint liveness (operators whose checkpoint trails the chain by
 //     more than their type's checkpoint_max_lag_blocks get a system
 //     report; see checkpoints.go).
+//  6. System-report dedup pruning (sweepSystemReportDedup).
 //
 // Unbond completion is NOT swept — it's lazy via
 // MsgClaimUnbondedBond (§3.6).
@@ -53,7 +54,7 @@ func (k Keeper) EndBlocker(ctx context.Context) error {
 	var firstErr error
 
 	runSweep := func(name string, fn func() (int, error)) {
-		start := time.Now()
+		start := time.Now() //nolint:forbidigo // telemetry timing only, no state depends on it
 		n, err := fn()
 		emitSweepDuration(name, start)
 		if n > 0 {
@@ -82,6 +83,9 @@ func (k Keeper) EndBlocker(ctx context.Context) error {
 	runSweep("checkpoint_liveness", func() (int, error) {
 		return k.sweepCheckpointLiveness(ctx, currentHeight, limit)
 	})
+	runSweep("system_report_dedup", func() (int, error) {
+		return k.sweepSystemReportDedup(ctx, params, currentHeight, limit)
+	})
 
 	return firstErr
 }
@@ -91,54 +95,54 @@ func (k Keeper) EndBlocker(ctx context.Context) error {
 // ---------------------------------------------------------------------------
 
 // sweepUnderfunded force-unbonds UNDERFUNDED operators whose grace
-// period has elapsed. Iterates UnderfundedQueue in (underfunded_since)
-// order so the oldest victims are processed first. Returns the number
-// of records actually transitioned for telemetry.
+// period has elapsed. It walks UnderfundedDue (keyed by grace deadline) up
+// to the current height, so it visits only due entries (SVC-07): an
+// operator still in grace is never read, whatever the service type's grace.
 func (k Keeper) sweepUnderfunded(ctx context.Context, params types.Params, currentHeight int64, limit int) (int, error) {
 	processed := 0
-	iter, err := k.UnderfundedQueue.Iterate(ctx, nil)
-	if err != nil {
-		return 0, err
+	if limit <= 0 {
+		return 0, nil
 	}
-	defer iter.Close()
-
 	type pending struct {
-		queueKey collections.Triple[int64, []byte, string]
+		dueKey collections.Triple[int64, []byte, string]
 	}
 	var batch []pending
-	for ; iter.Valid() && len(batch) < limit; iter.Next() {
-		key, err := iter.Key()
-		if err != nil {
-			return processed, err
-		}
-		batch = append(batch, pending{queueKey: key})
+	if err := k.UnderfundedDue.Walk(ctx, collections.NewPrefixUntilTripleRange[int64, []byte, string](currentHeight),
+		func(key collections.Triple[int64, []byte, string]) (bool, error) {
+			batch = append(batch, pending{dueKey: key})
+			return len(batch) >= limit, nil
+		}); err != nil {
+		return 0, err
 	}
 
 	for _, p := range batch {
-		underfundedSince := p.queueKey.K1()
-		opAddr := p.queueKey.K2()
-		serviceType := p.queueKey.K3()
+		opAddr := p.dueKey.K2()
+		serviceType := p.dueKey.K3()
 
 		// Re-fetch the operator and verify it's still UNDERFUNDED — a
 		// concurrent message may have transitioned it (e.g. top-up).
 		op, exists := k.GetOperator(ctx, opAddr, serviceType)
-		if !exists {
-			// Stale queue entry. Remove.
-			_ = k.UnderfundedQueue.Remove(ctx, p.queueKey)
+		if !exists || op.Status != types.OperatorStatus_OPERATOR_STATUS_UNDERFUNDED || op.UnderfundedSince == 0 {
+			// Stale entry. Remove.
+			k.clearUnderfundedDue(ctx, opAddr, serviceType)
 			continue
 		}
-		if op.Status != types.OperatorStatus_OPERATOR_STATUS_UNDERFUNDED {
-			_ = k.UnderfundedQueue.Remove(ctx, p.queueKey)
-			continue
-		}
+		underfundedSince := op.UnderfundedSince
 		cfg, err := k.resolveServiceTypeConfig(ctx, op.ServiceType)
 		if err != nil {
-			// Service type yanked from registry mid-flight; skip.
+			// Service type yanked from registry mid-flight: look again
+			// after the default grace instead of holding a batch slot.
+			if err := k.setUnderfundedDue(ctx, opAddr, serviceType, currentHeight+k.effectiveUnderfundedGraceBlocks(types.ServiceTypeConfig{}, params)+1); err != nil {
+				sdk.UnwrapSDKContext(ctx).Logger().Error("sweepUnderfunded: k.setUnderfundedDue failed", "err", err)
+			}
 			continue
 		}
 		grace := k.effectiveUnderfundedGraceBlocks(cfg, params)
 		if currentHeight < underfundedSince+grace {
-			// Not yet expired.
+			// The grace grew since the entry was filed: re-file it.
+			if err := k.setUnderfundedDue(ctx, opAddr, serviceType, underfundedSince+grace); err != nil {
+				return processed, err
+			}
 			continue
 		}
 
@@ -150,7 +154,9 @@ func (k Keeper) sweepUnderfunded(ctx context.Context, params types.Params, curre
 		op.UnderfundedSince = 0
 		clearPendingWithdrawal(&op)
 
-		_ = k.UnderfundedQueue.Remove(ctx, p.queueKey)
+		if err := k.removeUnderfundedQueueEntry(ctx, underfundedSince, opAddr, serviceType); err != nil {
+			sdk.UnwrapSDKContext(ctx).Logger().Error("sweepUnderfunded: k.removeUnderfundedQueueEntry failed", "err", err)
+		}
 		if err := k.PutOperator(ctx, op); err != nil {
 			return processed, err
 		}
@@ -203,11 +209,15 @@ func (k Keeper) sweepPendingReports(ctx context.Context, params types.Params, cu
 	for _, p := range batch {
 		report, err := k.Reports.Get(ctx, p.reportID)
 		if err != nil {
-			_ = k.PendingReportsQueue.Remove(ctx, p.queueKey)
+			if err := k.PendingReportsQueue.Remove(ctx, p.queueKey); err != nil {
+				sdk.UnwrapSDKContext(ctx).Logger().Error("sweepPendingReports: PendingReportsQueue.Remove failed", "err", err)
+			}
 			continue
 		}
 		if report.Status != types.ReportStatus_REPORT_STATUS_PENDING {
-			_ = k.PendingReportsQueue.Remove(ctx, p.queueKey)
+			if err := k.PendingReportsQueue.Remove(ctx, p.queueKey); err != nil {
+				sdk.UnwrapSDKContext(ctx).Logger().Error("sweepPendingReports: PendingReportsQueue.Remove failed", "err", err)
+			}
 			continue
 		}
 
@@ -234,7 +244,9 @@ func (k Keeper) sweepPendingReports(ctx context.Context, params types.Params, cu
 				if err := k.timeoutDismissReport(ctx, params, &report, currentHeight); err != nil {
 					return processed, err
 				}
-				_ = k.PendingReportsQueue.Remove(ctx, p.queueKey)
+				if err := k.PendingReportsQueue.Remove(ctx, p.queueKey); err != nil {
+					sdk.UnwrapSDKContext(ctx).Logger().Error("sweepPendingReports: PendingReportsQueue.Remove failed", "err", err)
+				}
 				processed++
 				continue
 			}
@@ -254,7 +266,9 @@ func (k Keeper) sweepPendingReports(ctx context.Context, params types.Params, cu
 		if err := k.timeoutDismissReport(ctx, params, &report, currentHeight); err != nil {
 			return processed, err
 		}
-		_ = k.PendingReportsQueue.Remove(ctx, p.queueKey)
+		if err := k.PendingReportsQueue.Remove(ctx, p.queueKey); err != nil {
+			sdk.UnwrapSDKContext(ctx).Logger().Error("sweepPendingReports: PendingReportsQueue.Remove failed", "err", err)
+		}
 		processed++
 	}
 
@@ -282,10 +296,18 @@ func (k Keeper) timeoutDismissReport(
 		}
 	}
 
-	// Record refile cooldown against the operator's current controller.
-	op, exists := k.GetOperator(ctx, mustAddrBytesK(k, report.OperatorAddress), report.ServiceType)
-	if exists {
-		if err := k.recordRefileCooldown(ctx, op.Controller, report.OperatorAddress, report.ServiceType, currentHeight); err != nil {
+	// Bar the reporter of a lapsed MEMBER report from re-filing it for
+	// report_refile_cooldown_blocks. System reports (federation
+	// challenges, x/service's own liveness reports) record nothing: a
+	// lapsed liveness report must never stop members from reporting the
+	// operator it was about.
+	if !isSystemReport(*report) {
+		op, exists := k.GetOperator(ctx, mustAddrBytesK(k, report.OperatorAddress), report.ServiceType)
+		controller := ""
+		if exists {
+			controller = op.Controller
+		}
+		if err := k.recordRefileCooldown(ctx, controller, report.Reporter, report.OperatorAddress, report.ServiceType, currentHeight); err != nil {
 			return err
 		}
 	}
@@ -339,11 +361,15 @@ func (k Keeper) sweepEscalatedReports(ctx context.Context, params types.Params, 
 	for _, p := range batch {
 		report, err := k.Reports.Get(ctx, p.reportID)
 		if err != nil {
-			_ = k.EscalatedReportsQueue.Remove(ctx, p.queueKey)
+			if err := k.EscalatedReportsQueue.Remove(ctx, p.queueKey); err != nil {
+				sdk.UnwrapSDKContext(ctx).Logger().Error("sweepEscalatedReports: EscalatedReportsQueue.Remove failed", "err", err)
+			}
 			continue
 		}
 		if report.Status != types.ReportStatus_REPORT_STATUS_ESCALATED {
-			_ = k.EscalatedReportsQueue.Remove(ctx, p.queueKey)
+			if err := k.EscalatedReportsQueue.Remove(ctx, p.queueKey); err != nil {
+				sdk.UnwrapSDKContext(ctx).Logger().Error("sweepEscalatedReports: EscalatedReportsQueue.Remove failed", "err", err)
+			}
 			continue
 		}
 
@@ -353,10 +379,12 @@ func (k Keeper) sweepEscalatedReports(ctx context.Context, params types.Params, 
 		}
 
 		// Release any contested-T1 escrow back to the operator's bond.
+		returned := sdkmath.ZeroInt()
 		op, exists := k.GetOperator(ctx, opBytes, report.ServiceType)
 		if exists {
 			escrow, escrowID, hasEscrow, err := k.findTier1EscrowForReportK(ctx, opBytes, report.ServiceType, report.ReportId)
 			if err == nil && hasEscrow {
+				returned = escrow.Amount
 				k.settleBondBlocks(&op, currentHeight)
 				op.BondAmount = op.BondAmount.Add(escrow.Amount)
 				if !op.Tier1SlashedInWindow.IsNil() && !escrow.Amount.IsZero() {
@@ -375,7 +403,9 @@ func (k Keeper) sweepEscalatedReports(ctx context.Context, params types.Params, 
 							op.Status = types.OperatorStatus_OPERATOR_STATUS_ACTIVE
 							op.UnderfundedSince = 0
 							if oldUF > 0 {
-								_ = k.removeUnderfundedQueueEntry(ctx, oldUF, opBytes, op.ServiceType)
+								if err := k.removeUnderfundedQueueEntry(ctx, oldUF, opBytes, op.ServiceType); err != nil {
+									sdk.UnwrapSDKContext(ctx).Logger().Error("sweepEscalatedReports: k.removeUnderfundedQueueEntry failed", "err", err)
+								}
 							}
 							refundedTransition = true
 						}
@@ -387,9 +417,15 @@ func (k Keeper) sweepEscalatedReports(ctx context.Context, params types.Params, 
 				if refundedTransition && k.hooks() != nil {
 					k.hooks().AfterOperatorReFunded(ctx, sdk.AccAddress(opBytes), op.ServiceType)
 				}
-				_ = k.Tier1Escrow.Remove(ctx, escrowID)
-				_ = k.Tier1EscrowByOperator.Remove(ctx, collections.Join3(opBytes, op.ServiceType, escrowID))
-				_ = k.Tier1EscrowReleaseQueue.Remove(ctx, collections.Join(escrow.ReleaseAt, escrowID))
+				if err := k.Tier1Escrow.Remove(ctx, escrowID); err != nil {
+					sdk.UnwrapSDKContext(ctx).Logger().Error("sweepEscalatedReports: Tier1Escrow.Remove failed", "err", err)
+				}
+				if err := k.Tier1EscrowByOperator.Remove(ctx, collections.Join3(opBytes, op.ServiceType, escrowID)); err != nil {
+					sdk.UnwrapSDKContext(ctx).Logger().Error("sweepEscalatedReports: Tier1EscrowByOperator.Remove failed", "err", err)
+				}
+				if err := k.Tier1EscrowReleaseQueue.Remove(ctx, collections.Join(escrow.ReleaseAt, escrowID)); err != nil {
+					sdk.UnwrapSDKContext(ctx).Logger().Error("sweepEscalatedReports: Tier1EscrowReleaseQueue.Remove failed", "err", err)
+				}
 			}
 		}
 
@@ -418,17 +454,16 @@ func (k Keeper) sweepEscalatedReports(ctx context.Context, params types.Params, 
 		if err := k.Reports.Set(ctx, report.ReportId, report); err != nil {
 			return processed, err
 		}
-		_ = k.EscalatedReportsQueue.Remove(ctx, p.queueKey)
+		if err := k.EscalatedReportsQueue.Remove(ctx, p.queueKey); err != nil {
+			sdk.UnwrapSDKContext(ctx).Logger().Error("sweepEscalatedReports: EscalatedReportsQueue.Remove failed", "err", err)
+		}
 
 		// AUTO_TIMEOUT is treated as REJECT-equivalent. Any contested-T1
-		// escrow was already returned to bond by the inner block above;
-		// it's removed from state too. We just need to surface the
-		// returned-to-bond amount in the event for downstream auditing.
-		// For now report zero since the actual contested amount was
-		// already added to op.Bond inline; future versions could pass
-		// the captured escrow value here.
+		// escrow still held was returned to bond by the inner block above
+		// and is reported here. (A contest returns the escrow before
+		// escalation, so this is zero on every path reachable today.)
 		sdk.UnwrapSDKContext(ctx).EventManager().EmitEvent(
-			types.NewReportAutoTimeoutEvent(report.ReportId, depositCoin, sdk.NewCoin(bondDenom, sdkmath.ZeroInt())),
+			types.NewReportAutoTimeoutEvent(report.ReportId, depositCoin, sdk.NewCoin(bondDenom, returned)),
 		)
 		processed++
 	}
@@ -450,15 +485,22 @@ func (k Keeper) sweepEscalatedReports(ctx context.Context, params types.Params, 
 // JuryReview is left in place; a late FinalizeControllerTransfer against
 // it fails with ErrControllerTransferCaseNotFound.
 //
-// There is no deadline index, so this walks ControllerTransferCases in
-// jury_case_id order. The map holds at most one case per (operator,
-// service_type), and rows written before this sweep existed are covered
-// by the same walk, so no migration is needed. At most `limit` cases are
-// timed out per block; the rest go next block.
+// The sweep reads ControllerTransferCasesByOpenedAt in opened_at order and
+// stops at the first case that is not due yet, so it never reads undue
+// cases (every case shares max_escalated_blocks, so opened_at order is due
+// order). At most `limit` cases are timed out per block; the rest go next
+// block.
 func (k Keeper) sweepControllerTransferCases(ctx context.Context, params types.Params, currentHeight int64, limit int) (int, error) {
 	var expired []types.ControllerTransferCase
-	err := k.ControllerTransferCases.Walk(ctx, nil, func(_ uint64, c types.ControllerTransferCase) (bool, error) {
-		if currentHeight < c.OpenedAt+params.MaxEscalatedBlocks {
+	var stale []collections.Pair[int64, uint64]
+	err := k.ControllerTransferCasesByOpenedAt.Walk(ctx, nil, func(key collections.Pair[int64, uint64]) (bool, error) {
+		if currentHeight < key.K1()+params.MaxEscalatedBlocks {
+			return true, nil
+		}
+		c, err := k.ControllerTransferCases.Get(ctx, key.K2())
+		if err != nil {
+			// The case is gone; drop its index entry.
+			stale = append(stale, key)
 			return false, nil
 		}
 		expired = append(expired, c)
@@ -466,6 +508,11 @@ func (k Keeper) sweepControllerTransferCases(ctx context.Context, params types.P
 	})
 	if err != nil {
 		return 0, err
+	}
+	for _, key := range stale {
+		if err := k.ControllerTransferCasesByOpenedAt.Remove(ctx, key); err != nil {
+			sdk.UnwrapSDKContext(ctx).Logger().Error("sweepControllerTransferCases: ControllerTransferCasesByOpenedAt.Remove failed", "err", err)
+		}
 	}
 
 	processed := 0
@@ -484,14 +531,16 @@ func (k Keeper) sweepControllerTransferCases(ctx context.Context, params types.P
 			}
 		}
 
-		if err := k.ControllerTransferCases.Remove(ctx, c.JuryCaseId); err != nil {
+		if err := k.removeControllerTransferCase(ctx, c); err != nil {
 			return processed, err
 		}
 		if opBytes, err := k.addrBytes(c.OperatorAddress); err == nil {
 			idxKey := collections.Join(opBytes, c.ServiceType)
 			// Only drop the index if it still points at this case.
 			if id, err := k.OpenControllerTransferByOperator.Get(ctx, idxKey); err == nil && id == c.JuryCaseId {
-				_ = k.OpenControllerTransferByOperator.Remove(ctx, idxKey)
+				if err := k.OpenControllerTransferByOperator.Remove(ctx, idxKey); err != nil {
+					sdk.UnwrapSDKContext(ctx).Logger().Error("sweepControllerTransferCases: OpenControllerTransferByOperator.Remove failed", "err", err)
+				}
 			}
 		}
 
@@ -507,6 +556,63 @@ func (k Keeper) sweepControllerTransferCases(ctx context.Context, params types.P
 // ---------------------------------------------------------------------------
 // Sweep 4: Tier-1 escrow release (§3.6 queue 4)
 // ---------------------------------------------------------------------------
+
+// releaseTier1Escrow finalizes one matured tier-1 escrow: the SPARK goes to
+// the community pool, the §6.6 reputation deduction is applied against the
+// bond as it stood before the slash, and the escrow and its indexes are
+// removed. Both the EndBlocker sweep and the claim paths
+// (eagerReleaseExpiredEscrowsForOperator) finalize through it, so whichever
+// runs first applies the same accounting; a claim can no longer finalize the
+// slash without the deduction.
+func (k Keeper) releaseTier1Escrow(ctx context.Context, escrowID uint64, escrow types.Tier1EscrowEntry, currentHeight int64) error {
+	escrowCoin := sdk.NewCoin(k.BondDenom(ctx), escrow.Amount)
+	if k.distributionKeeper() != nil && !escrow.Amount.IsZero() {
+		if err := k.distributionKeeper().FundCommunityPool(
+			ctx, sdk.NewCoins(escrowCoin), k.bankModuleAddress(),
+		); err != nil {
+			return err
+		}
+	}
+
+	opBytes, err := k.addrBytes(escrow.OperatorAddress)
+	if err == nil {
+		if err := k.Tier1EscrowByOperator.Remove(ctx, collections.Join3(opBytes, escrow.ServiceType, escrowID)); err != nil {
+			sdk.UnwrapSDKContext(ctx).Logger().Error("releaseTier1Escrow: Tier1EscrowByOperator.Remove failed", "err", err)
+		}
+
+		// The tier-1 slash is final now (uncontested through the window):
+		// apply the reputation deduction. A dissolved operator has no live
+		// record and gets no deduction.
+		if op, live := k.GetOperator(ctx, opBytes, escrow.ServiceType); live {
+			// Settle on a local copy so the deduction sees accrual up to
+			// this height; the stored record is left for the next mutation
+			// to settle from its own timestamp.
+			k.settleBondBlocks(&op, currentHeight)
+			bondBefore := op.BondAmount.Add(escrow.Amount)
+			if err := k.deductReputationOnSlash(ctx, op, opBytes, escrow.Amount, bondBefore, 1); err != nil {
+				// Best effort: an x/rep failure must not trap the bond.
+				sdk.UnwrapSDKContext(ctx).Logger().Warn(
+					"x/service: reputation deduction on tier-1 release failed (non-fatal)",
+					"operator", escrow.OperatorAddress,
+					"service_type", escrow.ServiceType,
+					"error", err,
+				)
+			}
+		}
+	}
+	if err := k.Tier1Escrow.Remove(ctx, escrowID); err != nil {
+		sdk.UnwrapSDKContext(ctx).Logger().Error("releaseTier1Escrow: Tier1Escrow.Remove failed", "err", err)
+	}
+	if err := k.Tier1EscrowReleaseQueue.Remove(ctx, collections.Join(escrow.ReleaseAt, escrowID)); err != nil {
+		sdk.UnwrapSDKContext(ctx).Logger().Error("releaseTier1Escrow: Tier1EscrowReleaseQueue.Remove failed", "err", err)
+	}
+
+	sdk.UnwrapSDKContext(ctx).EventManager().EmitEvent(types.NewTier1EscrowReleasedEvent(
+		escrowID, escrow.ReportId, escrow.OperatorAddress, escrow.ServiceType,
+		escrowCoin, types.EscrowDestCommunityPool,
+	))
+	return nil
+}
 
 // sweepTier1EscrowRelease transfers escrowed SPARK to the community
 // pool for any Tier1Escrow entries whose release_at has passed AND
@@ -541,7 +647,9 @@ func (k Keeper) sweepTier1EscrowRelease(ctx context.Context, currentHeight int64
 	for _, p := range batch {
 		escrow, err := k.Tier1Escrow.Get(ctx, p.escrowID)
 		if err != nil {
-			_ = k.Tier1EscrowReleaseQueue.Remove(ctx, p.queueKey)
+			if err := k.Tier1EscrowReleaseQueue.Remove(ctx, p.queueKey); err != nil {
+				sdk.UnwrapSDKContext(ctx).Logger().Error("sweepTier1EscrowRelease: Tier1EscrowReleaseQueue.Remove failed", "err", err)
+			}
 			continue
 		}
 
@@ -550,7 +658,9 @@ func (k Keeper) sweepTier1EscrowRelease(ctx context.Context, currentHeight int64
 		// shouldn't happen given release_at, but defensive.
 		report, err := k.Reports.Get(ctx, escrow.ReportId)
 		if err != nil {
-			_ = k.Tier1EscrowReleaseQueue.Remove(ctx, p.queueKey)
+			if err := k.Tier1EscrowReleaseQueue.Remove(ctx, p.queueKey); err != nil {
+				sdk.UnwrapSDKContext(ctx).Logger().Error("sweepTier1EscrowRelease: Tier1EscrowReleaseQueue.Remove failed", "err", err)
+			}
 			continue
 		}
 		// AUTO_TIMEOUT already returned funds to bond via sweep 3 (above)
@@ -560,47 +670,12 @@ func (k Keeper) sweepTier1EscrowRelease(ctx context.Context, currentHeight int64
 			continue
 		}
 
-		// Pay out to community pool.
-		escrowCoin := sdk.NewCoin(k.BondDenom(ctx), escrow.Amount)
-		if k.distributionKeeper() != nil && !escrow.Amount.IsZero() {
-			if err := k.distributionKeeper().FundCommunityPool(
-				ctx, sdk.NewCoins(escrowCoin), k.bankModuleAddress(),
-			); err != nil {
-				return processed, err
-			}
+		if err := k.releaseTier1Escrow(ctx, p.escrowID, escrow, currentHeight); err != nil {
+			return processed, err
 		}
-
-		opBytes, err := k.addrBytes(escrow.OperatorAddress)
-		if err == nil {
-			_ = k.Tier1EscrowByOperator.Remove(ctx, collections.Join3(opBytes, escrow.ServiceType, p.escrowID))
-
-			// The tier-1 slash is final now (uncontested through the
-			// window): apply the §6.6 reputation deduction against the
-			// bond as it stood before the slash. A dissolved operator has
-			// no live record and gets no deduction.
-			if op, live := k.GetOperator(ctx, opBytes, escrow.ServiceType); live {
-				// Settle on a local copy so the deduction sees accrual up to
-				// this height; the stored record is left for the next mutation
-				// to settle from its own timestamp.
-				k.settleBondBlocks(&op, currentHeight)
-				bondBefore := op.BondAmount.Add(escrow.Amount)
-				if err := k.deductReputationOnSlash(ctx, op, opBytes, escrow.Amount, bondBefore, 1); err != nil {
-					sdk.UnwrapSDKContext(ctx).Logger().Warn(
-						"x/service: reputation deduction on tier-1 release failed (non-fatal)",
-						"operator", escrow.OperatorAddress,
-						"service_type", escrow.ServiceType,
-						"error", err,
-					)
-				}
-			}
+		if err := k.Tier1EscrowReleaseQueue.Remove(ctx, p.queueKey); err != nil {
+			sdk.UnwrapSDKContext(ctx).Logger().Error("sweepTier1EscrowRelease: Tier1EscrowReleaseQueue.Remove failed", "err", err)
 		}
-		_ = k.Tier1Escrow.Remove(ctx, p.escrowID)
-		_ = k.Tier1EscrowReleaseQueue.Remove(ctx, p.queueKey)
-
-		sdk.UnwrapSDKContext(ctx).EventManager().EmitEvent(types.NewTier1EscrowReleasedEvent(
-			p.escrowID, escrow.ReportId, escrow.OperatorAddress, escrow.ServiceType,
-			escrowCoin, types.EscrowDestCommunityPool,
-		))
 		processed++
 	}
 

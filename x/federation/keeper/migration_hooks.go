@@ -57,13 +57,11 @@ func (h MigrationHooks) AfterMemberMigration(ctx context.Context, from, to sdk.A
 		return err
 	}
 	for _, peerID := range peers {
-		link, err := k.IdentityLinks.Get(ctx, collections.Join(fromStr, peerID))
-		if err == nil {
-			_ = k.IdentityLinksByRemote.Remove(ctx, collections.Join(peerID, link.RemoteIdentity))
-		}
 		k.removeIdentityLink(ctx, sdkCtx, fromStr, peerID, params)
 	}
-	_ = k.IdentityLinkCount.Remove(ctx, fromStr)
+	if err := k.IdentityLinkCount.Remove(ctx, fromStr); err != nil {
+		return err
+	}
 
 	var attPeers []string
 	if err := k.RepAttestations.Walk(ctx, rng, func(key collections.Pair[string, string], _ types.ReputationAttestation) (bool, error) {
@@ -73,12 +71,7 @@ func (h MigrationHooks) AfterMemberMigration(ctx context.Context, from, to sdk.A
 		return err
 	}
 	for _, peerID := range attPeers {
-		att, err := k.RepAttestations.Get(ctx, collections.Join(fromStr, peerID))
-		if err != nil {
-			continue
-		}
-		_ = k.RepAttestations.Remove(ctx, collections.Join(fromStr, peerID))
-		_ = k.AttestationExp.Remove(ctx, collections.Join3(att.ExpiresAt, fromStr, peerID))
+		k.removeRepAttestation(ctx, fromStr, peerID)
 	}
 
 	var challengePeers []string
@@ -89,7 +82,7 @@ func (h MigrationHooks) AfterMemberMigration(ctx context.Context, from, to sdk.A
 		return err
 	}
 	for _, peerID := range challengePeers {
-		_ = k.PendingIdChallenges.Remove(ctx, collections.Join(fromStr, peerID))
+		k.removePendingChallenge(ctx, fromStr, peerID)
 	}
 
 	sdkCtx.EventManager().EmitEvent(sdk.NewEvent("federation_identity_dropped_on_migration",

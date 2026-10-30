@@ -21,7 +21,9 @@ func createNTagReport(keeper keeper.Keeper, ctx context.Context, n int) []types.
 		items[i].TotalBond = strconv.Itoa(i)
 		items[i].FirstReportAt = int64(i)
 		items[i].UnderReview = true
-		_ = keeper.TagReport.Set(ctx, items[i].TagName, items[i])
+		if err := keeper.TagReport.Set(ctx, items[i].TagName, items[i]); err != nil {
+			panic(err)
+		}
 	}
 	return items
 }

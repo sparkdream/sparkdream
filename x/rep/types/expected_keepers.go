@@ -2,10 +2,12 @@ package types
 
 import (
 	"context"
+	"time"
 
 	"cosmossdk.io/core/address"
 	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
 )
 
 // SeasonState is a minimal representation of season data needed by x/rep.
@@ -195,10 +197,47 @@ type ModerationAppealOutcomeHandler interface {
 
 // ModuleOwnedAppealTypes are filed only by the owning module (which checks
 // who may appeal and marks its own record appealed); MsgAppealGovAction
-// rejects them.
+// rejects them. Forum's four types are filed through MsgAppealPost,
+// MsgAppealThreadLock, MsgAppealThreadMove and MsgDisputePin: filed through
+// rep they would do nothing to the forum record but still block the
+// affected author's own appeal while pending (FRM-02).
 var ModuleOwnedAppealTypes = map[GovActionType]bool{
 	GovActionType_GOV_ACTION_TYPE_COLLECT_HIDE:  true,
 	GovActionType_GOV_ACTION_TYPE_ARTIFACT_HIDE: true,
+	GovActionType_GOV_ACTION_TYPE_POST_HIDE:     true,
+	GovActionType_GOV_ACTION_TYPE_THREAD_LOCK:   true,
+	GovActionType_GOV_ACTION_TYPE_THREAD_MOVE:   true,
+	GovActionType_GOV_ACTION_TYPE_REPLY_PIN:     true,
+}
+
+// ForumAppealTypes are the module-owned types whose appeal target is the
+// wired ForumKeeper when no target is registered for them.
+var ForumAppealTypes = map[GovActionType]bool{
+	GovActionType_GOV_ACTION_TYPE_POST_HIDE:   true,
+	GovActionType_GOV_ACTION_TYPE_THREAD_LOCK: true,
+	GovActionType_GOV_ACTION_TYPE_THREAD_MOVE: true,
+	GovActionType_GOV_ACTION_TYPE_REPLY_PIN:   true,
+}
+
+// MemberActionAppealTypes are the rep-owned actions MsgAppealGovAction
+// accepts: the actions MsgResolveMemberReport applies to a member. The
+// action_target is the member's address, and only that member may appeal,
+// within DefaultAppealDeadline of the resolution. Every other rep-owned type
+// (TAG_REMOVAL, FORUM_PAUSE, REVIEW_REJECTION) has no on-chain action record
+// to appeal against and is refused.
+var MemberActionAppealTypes = map[GovActionType]bool{
+	GovActionType_GOV_ACTION_TYPE_WARNING:  true,
+	GovActionType_GOV_ACTION_TYPE_DEMOTION: true,
+	GovActionType_GOV_ACTION_TYPE_ZEROING:  true,
+}
+
+// ModerationAppealRole is optionally implemented by a ModerationAppealTarget
+// whose actions are taken by a bonded role other than the content sentinel
+// (for example a curator). x/rep releases, slashes and scores that role's
+// bond on the verdict. Targets that do not implement it are content
+// sentinel actions.
+type ModerationAppealRole interface {
+	AppealRoleType(actionType GovActionType) RoleType
 }
 
 // BlogKeeper defines the minimal blog surface area required by x/rep to
@@ -206,6 +245,9 @@ var ModuleOwnedAppealTypes = map[GovActionType]bool{
 type BlogKeeper interface {
 	// GetPostAuthor returns the author address for the given blog post.
 	GetPostAuthor(ctx context.Context, postID uint64) (string, error)
+	// GetReplyAuthor returns the author address for the given blog reply
+	// (replies have their own id sequence: STAKE_TARGET_BLOG_REPLY_CONTENT).
+	GetReplyAuthor(ctx context.Context, replyID uint64) (string, error)
 }
 
 // CollectKeeper defines the minimal collect surface area required by x/rep
@@ -232,6 +274,15 @@ type DistrKeeper interface {
 	// pool. Together with annual provisions it gives the pool's income rate,
 	// which is what role_reward_inflation_share is a share OF.
 	GetCommunityTax(ctx context.Context) (math.LegacyDec, error)
+}
+
+// StakingKeeper is the slice of x/staking x/rep needs to unbond the
+// delegations a RECOVERY or COUNCIL migration leaves at the tombstone (the old
+// key is lost or stolen, so nobody can be relied on to undelegate them).
+// Late-wired in app.go (SetStakingKeeper), like DistrKeeper.
+type StakingKeeper interface {
+	GetDelegatorDelegations(ctx context.Context, delegator sdk.AccAddress, maxRetrieve uint16) ([]stakingtypes.Delegation, error)
+	Undelegate(ctx context.Context, delAddr sdk.AccAddress, valAddr sdk.ValAddress, sharesAmount math.LegacyDec) (time.Time, math.Int, error)
 }
 
 // MintKeeper is the slice of x/mint x/rep needs to size the bonded-role

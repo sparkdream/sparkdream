@@ -24,7 +24,9 @@ func createNDispute(keeper keeper.Keeper, ctx context.Context, n int) []types.Di
 		items[i].Claimant = strconv.Itoa(i)
 		items[i].StakeAmount = math.ZeroInt()
 
-		_ = keeper.Disputes.Set(ctx, items[i].Name, items[i])
+		if err := keeper.Disputes.Set(ctx, items[i].Name, items[i]); err != nil {
+			panic(err)
+		}
 	}
 	return items
 }

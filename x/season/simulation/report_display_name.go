@@ -12,9 +12,10 @@ import (
 	"sparkdream/x/season/types"
 )
 
-// SimulateMsgReportDisplayName simulates a MsgReportDisplayName using direct keeper calls.
-// This bypasses the DREAM token requirement for simulation purposes.
-// Full token integration testing should be done in integration tests.
+// SimulateMsgReportDisplayName delivers MsgReportDisplayName from a random
+// x/rep member against another account's display name. Skips self-reports,
+// targets without a display name or already under moderation, and
+// reporters whose DREAM stake cannot be locked.
 func SimulateMsgReportDisplayName(
 	ak types.AuthKeeper,
 	bk types.BankKeeper,
@@ -23,50 +24,42 @@ func SimulateMsgReportDisplayName(
 ) simtypes.Operation {
 	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
 	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		if len(accs) < 2 {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgReportDisplayName{}), "need at least 2 accounts"), nil, nil
-		}
-
-		// Pick two distinct accounts: reporter and target
-		perm := r.Perm(len(accs))
-		_ = accs[perm[0]] // reporter (unused in direct keeper call mode)
-		targetAccount := accs[perm[1]]
-
-		// Ensure target has a profile with display name
-		if err := getOrCreateMemberProfile(r, ctx, k, targetAccount.Address.String()); err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgReportDisplayName{}), "failed to create target profile"), nil, nil
-		}
-
-		// Re-read profile and ensure display name is set (may have been cleared by prior moderation)
-		profile, err := k.MemberProfile.Get(ctx, targetAccount.Address.String())
+		msg := &types.MsgReportDisplayName{Reason: "simulation report"}
+		params, err := k.Params.Get(ctx)
 		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgReportDisplayName{}), "failed to get target profile"), nil, nil
+			return noOpErr(msg, err)
 		}
-		if profile.DisplayName == "" {
-			profile.DisplayName = randomDisplayName(r)
-			if err := k.MemberProfile.Set(ctx, targetAccount.Address.String(), profile); err != nil {
-				return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgReportDisplayName{}), "failed to restore display name"), nil, nil
-			}
+		// The report stake is locked DREAM, so the reporter is an x/rep
+		// member holding it.
+		reporter, ok := pick(r, accountsWhere(accs, func(a simtypes.Account) bool {
+			return hasDream(ctx, k, a.Address.String(), params.DisplayNameReportStakeDream.Uint64())
+		}))
+		if !ok {
+			return noOp(msg, "no x/rep member holding the report stake")
+		}
+		target, ok := pick(r, accountsWhere(accs, func(a simtypes.Account) bool {
+			p, has := getProfile(ctx, k, a.Address.String())
+			return has && p.DisplayName != ""
+		}))
+		if !ok {
+			return noOp(msg, "no display name to report")
+		}
+		msg.Creator, msg.Target = reporter.Address.String(), target.Address.String()
+
+		if msg.Creator == msg.Target {
+			return noOp(msg, "cannot report own display name")
+		}
+		profile, ok := getProfile(ctx, k, msg.Target)
+		if !ok || profile.DisplayName == "" {
+			return noOp(msg, "target has no display name")
+		}
+		if m, err := k.DisplayNameModeration.Get(ctx, msg.Target); err == nil && m.Active {
+			return noOp(msg, "target already moderated")
+		}
+		if err := dryRunMsg(app, ctx, msg); err != nil {
+			return noOp(msg, "handler would reject: "+err.Error())
 		}
 
-		// Create moderation record directly (bypasses DREAM lock requirement)
-		moderation := types.DisplayNameModeration{
-			Member:       targetAccount.Address.String(),
-			RejectedName: profile.DisplayName,
-			Reason:       "Simulated report",
-			ModeratedAt:  ctx.BlockHeight(),
-			Active:       true,
-		}
-		if err := k.DisplayNameModeration.Set(ctx, targetAccount.Address.String(), moderation); err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgReportDisplayName{}), "failed to save moderation"), nil, nil
-		}
-
-		// Clear the target's display name (moderated)
-		profile.DisplayName = ""
-		if err := k.MemberProfile.Set(ctx, targetAccount.Address.String(), profile); err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgReportDisplayName{}), "failed to update profile"), nil, nil
-		}
-
-		return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgReportDisplayName{}), "ok (direct keeper call)"), nil, nil
+		return deliver(r, app, ctx, txGen, ak, bk, reporter, msg)
 	}
 }

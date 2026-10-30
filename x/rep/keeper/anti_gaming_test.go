@@ -428,7 +428,7 @@ func TestReputationSplitAcrossTags(t *testing.T) {
 
 	// --- Single-tag initiative ---
 	addr1 := sdk.AccAddress([]byte("single-tag-worker_"))
-	k.Member.Set(sdkCtx, addr1.String(), types.Member{
+	require.NoError(t, k.Member.Set(sdkCtx, addr1.String(), types.Member{
 		Address:          addr1.String(),
 		DreamBalance:     PtrInt(math.NewInt(TestLargeAmount)),
 		StakedDream:      PtrInt(math.ZeroInt()),
@@ -437,7 +437,7 @@ func TestReputationSplitAcrossTags(t *testing.T) {
 		ReputationScores: map[string]string{},
 		TrustLevel:       types.TrustLevel_TRUST_LEVEL_ESTABLISHED,
 		Status:           types.MemberStatus_MEMBER_STATUS_ACTIVE,
-	})
+	}))
 	projectID1, err := k.CreateProject(sdkCtx, TestAddrCreator, "P1", "D", []string{"alpha"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical", math.NewInt(100000), math.NewInt(0), false)
 	require.NoError(t, err)
 	err = k.ApproveProject(sdkCtx, projectID1, TestAddrCreator, math.NewInt(100000), math.NewInt(0))
@@ -457,7 +457,7 @@ func TestReputationSplitAcrossTags(t *testing.T) {
 	reqConv := params.ConvictionPerDream.MulInt(budget).Mul(math.LegacyNewDec(2))
 	init1.CurrentConviction = PtrDec(reqConv)
 	init1.ExternalConviction = PtrDec(reqConv)
-	k.UpdateInitiative(sdkCtx, init1)
+	require.NoError(t, k.UpdateInitiative(sdkCtx, init1))
 	advanceToCompletable(t, k, sdkCtx, initID1)
 	err = k.CompleteInitiative(sdkCtx, initID1)
 	require.NoError(t, err)
@@ -468,7 +468,7 @@ func TestReputationSplitAcrossTags(t *testing.T) {
 
 	// --- Three-tag initiative ---
 	addr2 := sdk.AccAddress([]byte("three-tag-worker__"))
-	k.Member.Set(sdkCtx, addr2.String(), types.Member{
+	require.NoError(t, k.Member.Set(sdkCtx, addr2.String(), types.Member{
 		Address:          addr2.String(),
 		DreamBalance:     PtrInt(math.NewInt(TestLargeAmount)),
 		StakedDream:      PtrInt(math.ZeroInt()),
@@ -477,7 +477,7 @@ func TestReputationSplitAcrossTags(t *testing.T) {
 		ReputationScores: map[string]string{},
 		TrustLevel:       types.TrustLevel_TRUST_LEVEL_ESTABLISHED,
 		Status:           types.MemberStatus_MEMBER_STATUS_ACTIVE,
-	})
+	}))
 	projectID2, err := k.CreateProject(sdkCtx, TestAddrCreator, "P2", "D", []string{"beta"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical", math.NewInt(100000), math.NewInt(0), false)
 	require.NoError(t, err)
 	err = k.ApproveProject(sdkCtx, projectID2, TestAddrCreator, math.NewInt(100000), math.NewInt(0))
@@ -494,7 +494,7 @@ func TestReputationSplitAcrossTags(t *testing.T) {
 	init2, _ := k.GetInitiative(sdkCtx, initID2)
 	init2.CurrentConviction = PtrDec(reqConv)
 	init2.ExternalConviction = PtrDec(reqConv)
-	k.UpdateInitiative(sdkCtx, init2)
+	require.NoError(t, k.UpdateInitiative(sdkCtx, init2))
 	advanceToCompletable(t, k, sdkCtx, initID2)
 	err = k.CompleteInitiative(sdkCtx, initID2)
 	require.NoError(t, err)
@@ -753,4 +753,58 @@ func DerefDec(d *math.LegacyDec) math.LegacyDec {
 		return math.LegacyZeroDec()
 	}
 	return *d
+}
+
+// ---------------------------------------------------------------------------
+// Per-member active initiative cap: held work counts, the OPEN backlog does not
+// ---------------------------------------------------------------------------
+
+func TestMaxActiveInitiativesPerMember(t *testing.T) {
+	f := initFixture(t, WithAuthorizationPolicy(AlwaysAuthorized))
+	k := f.keeper
+	sdkCtx := sdk.UnwrapSDKContext(f.ctx)
+
+	params, err := k.Params.Get(sdkCtx)
+	require.NoError(t, err)
+	params.MaxActiveInitiativesPerMember = 2
+	require.NoError(t, k.Params.Set(sdkCtx, params))
+
+	SetupMember(t, &k, sdkCtx, DefaultMemberConfig(TestAddrCreator))
+	worker := sdk.AccAddress([]byte("active-cap-worker_"))
+	require.NoError(t, k.Member.Set(sdkCtx, worker.String(), types.Member{
+		Address:          worker.String(),
+		DreamBalance:     PtrInt(math.NewInt(TestLargeAmount)),
+		StakedDream:      PtrInt(math.ZeroInt()),
+		LifetimeEarned:   PtrInt(math.ZeroInt()),
+		LifetimeBurned:   PtrInt(math.ZeroInt()),
+		ReputationScores: map[string]string{},
+		TrustLevel:       types.TrustLevel_TRUST_LEVEL_ESTABLISHED,
+		Status:           types.MemberStatus_MEMBER_STATUS_ACTIVE,
+	}))
+
+	projectID, err := k.CreateProject(sdkCtx, TestAddrCreator, "P", "D", []string{"alpha"}, types.ProjectCategory_PROJECT_CATEGORY_INFRASTRUCTURE, "technical", math.NewInt(100000), math.NewInt(0), false)
+	require.NoError(t, err)
+	require.NoError(t, k.ApproveProject(sdkCtx, projectID, TestAddrCreator, math.NewInt(100000), math.NewInt(0)))
+
+	ids := make([]uint64, 4)
+	for i := range ids {
+		ids[i], err = k.CreateInitiative(sdkCtx, TestAddrCreator, projectID, "T", "D", []string{"alpha"},
+			types.InitiativeTier_INITIATIVE_TIER_APPRENTICE, types.InitiativeCategory_INITIATIVE_CATEGORY_FEATURE, math.NewInt(TestRewardAmount))
+		require.NoError(t, err)
+	}
+
+	count, err := k.CountActiveInitiativesForAssignee(sdkCtx, worker.String())
+	require.NoError(t, err)
+	require.Zero(t, count, "OPEN initiatives are held by nobody")
+
+	require.NoError(t, k.AssignInitiativeToMember(sdkCtx, ids[0], worker))
+	require.NoError(t, k.AssignInitiativeToMember(sdkCtx, ids[1], worker))
+	require.NoError(t, k.SubmitInitiativeWork(sdkCtx, ids[0], worker, "uri"))
+
+	// One ASSIGNED, one SUBMITTED: both count; the two OPEN initiatives do not.
+	count, err = k.CountActiveInitiativesForAssignee(sdkCtx, worker.String())
+	require.NoError(t, err)
+	require.Equal(t, uint32(2), count)
+
+	require.ErrorIs(t, k.AssignInitiativeToMember(sdkCtx, ids[2], worker), types.ErrTooManyActiveInitiatives)
 }

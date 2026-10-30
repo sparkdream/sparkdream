@@ -45,3 +45,8 @@ func getFederationGenesisParams() federationGenesisParams {
 		OperatorRewardEpochBlocks: 3600,
 	}
 }
+
+// activeParamFloors are the minimums Params.Validate enforces on this
+// network: devnet runs hour- and minute-scale windows and a 10 SPARK
+// escalation fee on purpose, so it has its own floors (DevnetParamFloors).
+var activeParamFloors = DevnetParamFloors

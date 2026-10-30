@@ -110,7 +110,7 @@ func TestMsgMarkAcceptedReply(t *testing.T) {
 			AcceptedBy:      testCreator,
 			AcceptedAt:      now,
 		}
-		f.keeper.ThreadMetadata.Set(f.ctx, thread.PostId, metadata)
+		require.NoError(t, f.keeper.ThreadMetadata.Set(f.ctx, thread.PostId, metadata))
 
 		// Submitting the same already-accepted reply errors.
 		_, err := ms.MarkAcceptedReply(f.ctx, &types.MsgMarkAcceptedReply{

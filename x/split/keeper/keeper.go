@@ -9,6 +9,7 @@ import (
 	"cosmossdk.io/collections"
 	"cosmossdk.io/core/address"
 	corestore "cosmossdk.io/core/store"
+	errorsmod "cosmossdk.io/errors"
 	"github.com/cosmos/cosmos-sdk/codec"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 )
@@ -17,7 +18,8 @@ import (
 // Stored as a shared pointer so value-copies of Keeper (in AppModule, msgServer)
 // see updates made after NewAppModule().
 type lateKeepers struct {
-	distrKeeper types.DistrKeeper
+	distrKeeper    types.DistrKeeper
+	identityKeeper types.IdentityKeeper
 }
 
 type Keeper struct {
@@ -86,40 +88,64 @@ func (k Keeper) SetDistrKeeper(dk types.DistrKeeper) {
 	k.late.distrKeeper = dk
 }
 
-// SetShareByAddress is a helper to satisfy the x/commons expected interface.
-// It acts as a wrapper around the Collections API.
-// Access control is enforced at the interface level (x/commons keeper is the only caller).
-func (k Keeper) SetShareByAddress(ctx context.Context, address string, weight uint64) {
-	// Reject zero weight — zero-weight shares waste storage and have no distribution effect.
+// SetIdentityKeeper wires the IdentityKeeper (bond denom source) after depinject.
+func (k Keeper) SetIdentityKeeper(ik types.IdentityKeeper) {
+	k.late.identityKeeper = ik
+}
+
+// SetShareByAddress registers (or replaces) the x/split share of address.
+// x/commons is the only caller, and only x/gov (or the genesis bootstrap) can
+// give a group a non-zero funding weight. Refuses a zero weight, a weight
+// above types.MaxShareWeight, and a weight that would push the sum of all
+// shares above types.MaxTotalShareWeight, so the caller's state never
+// disagrees with what x/split distributes.
+func (k Keeper) SetShareByAddress(ctx context.Context, address string, weight uint64) error {
 	if weight == 0 {
-		sdkCtx := sdk.UnwrapSDKContext(ctx)
-		sdkCtx.Logger().With("module", "x/split").Error("rejected zero-weight share", "address", address)
-		return
+		return errorsmod.Wrapf(types.ErrInvalidShare, "zero weight for %s", address)
+	}
+	if weight > types.MaxShareWeight {
+		return errorsmod.Wrapf(types.ErrInvalidShare, "weight %d for %s exceeds the cap %d", weight, address, types.MaxShareWeight)
 	}
 
-	// Cap weight to a reasonable maximum (10000 basis points) to prevent accidental misuse.
-	const maxWeight uint64 = 10000
-	if weight > maxWeight {
-		sdkCtx := sdk.UnwrapSDKContext(ctx)
-		sdkCtx.Logger().With("module", "x/split").Error("rejected share weight exceeding cap", "address", address, "weight", weight, "max", maxWeight)
-		return
+	total := weight
+	if err := k.Share.Walk(ctx, nil, func(addr string, share types.Share) (bool, error) {
+		if addr != address {
+			total += share.Weight
+		}
+		return false, nil
+	}); err != nil {
+		return err
+	}
+	if total > types.MaxTotalShareWeight {
+		return errorsmod.Wrapf(types.ErrInvalidShare,
+			"total share weight %d would exceed the cap %d", total, types.MaxTotalShareWeight)
 	}
 
-	// Construct the Share struct
-	share := types.Share{
-		Address: address,
-		Weight:  weight,
+	if err := k.Share.Set(ctx, address, types.Share{Address: address, Weight: weight}); err != nil {
+		return err
 	}
-
-	if err := k.Share.Set(ctx, address, share); err != nil {
-		sdkCtx := sdk.UnwrapSDKContext(ctx)
-		sdkCtx.Logger().With("module", "x/split").Error("failed to set share in x/split", "address", address, "error", err)
-	}
+	sdk.UnwrapSDKContext(ctx).EventManager().EmitEvent(sdk.NewEvent(
+		"split_share_set",
+		sdk.NewAttribute("address", address),
+		sdk.NewAttribute("weight", fmt.Sprintf("%d", weight)),
+	))
+	return nil
 }
 
 // RemoveShareByAddress deletes the share registered for address, so the
 // address stops receiving distributions. Removing an address with no share
 // is a no-op. x/commons calls it when a group is deleted.
 func (k Keeper) RemoveShareByAddress(ctx context.Context, address string) error {
-	return k.Share.Remove(ctx, address)
+	has, err := k.Share.Has(ctx, address)
+	if err != nil || !has {
+		return err
+	}
+	if err := k.Share.Remove(ctx, address); err != nil {
+		return err
+	}
+	sdk.UnwrapSDKContext(ctx).EventManager().EmitEvent(sdk.NewEvent(
+		"split_share_removed",
+		sdk.NewAttribute("address", address),
+	))
+	return nil
 }

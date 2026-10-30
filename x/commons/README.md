@@ -76,9 +76,13 @@ Decision policies support two modes:
 
 Through `x/shield`, members can:
 - **Submit anonymous proposals** — proposer is the shield module account; ZK proof verifies membership. Signaling proposals (no messages) need non-empty metadata, as for `MsgSubmitProposal`
-- **Cast anonymous votes** — uniform weight of 1; nullifier scoped by proposal ID prevents double-voting
+- **Vote by secret ballot** — a group's `ballot_mode` (OPEN default, SECRET, PROPOSER_CHOICE) decides whether a proposal is a secret ballot. A secret ballot snapshots the members' ZK keys into a voter tree (equal member weights and at least 5 keyed members required); members vote with `MsgAnonymousVoteProposal` through `x/shield`, proven against that tree (`PROOF_DOMAIN_GROUP_TREE`), once each. Open votes are refused on a secret ballot and anonymous votes on an open one, so nobody votes twice
 
-Anonymous vote tallies are stored separately and combined with regular votes during threshold checks. Queries report them as `anon_tally` rather than as entries in `votes`.
+Anonymous tallies are reported as `anon_tally` and count the snapshot's member weight per vote in threshold checks.
+
+### Polls
+
+Any member can put a non-binding, single-choice question (2-10 options) to their group for 1 hour to 30 days (`MsgOpenPoll`). Members vote once, finally (`MsgVotePoll`), or by secret ballot through `x/shield` when the creator chose one (`MsgAnonymousVotePoll`). The creator can cancel a poll nobody voted on. The EndBlocker closes polls at their deadline and prunes them 30 days later. Caps: 20 open polls per group, 3 per creator.
 
 ### Permission Model
 
@@ -123,6 +127,13 @@ When a group has `futarchy_enabled=true`:
 | `MarketTriggerQueue` | `{trigger_time, name}` | `—` | Scheduled confidence markets |
 | `ProposalSeq` | — | `uint64` | Auto-increment proposal ID sequence |
 | `CouncilSeq` | — | `uint64` | Auto-increment council ID sequence |
+| `ProposalVoterTrees` | `{proposal_id}` | `VoterTree` | Voter snapshot of an open secret ballot |
+| `Polls` | `{poll_id}` | `Poll` | Polls with their tallies |
+| `PollVotes` | `{poll_id, voter}` | `PollVote` | Open votes on polls |
+| `PollsByCouncil` / `OpenPollsByCouncil` | `{council_name, poll_id}` | `—` | Poll listing index / open-poll caps |
+| `PollQueue` | `{due_time, poll_id}` | `—` | Poll closing and pruning schedule |
+| `PollVoterTrees` | `{poll_id}` | `VoterTree` | Voter snapshot of an open secret poll |
+| `PollSeq` | — | `uint64` | Auto-increment poll ID sequence (from 1) |
 
 ### Group Fields
 
@@ -139,6 +150,7 @@ When a group has `futarchy_enabled=true`:
 | `min_members` / `max_members` | uint64 | Group size constraints |
 | `term_duration` | int64 | Seconds until renewal required |
 | `current_term_expiration` | int64 | When the group's mandate ends |
+| `ballot_mode` | BallotMode | `OPEN` (default), `SECRET` or `PROPOSER_CHOICE`: how proposals are voted |
 | `activation_time` | int64 | Shell group activation timestamp |
 | `futarchy_enabled` | bool | Confidence markets enabled |
 
@@ -152,7 +164,11 @@ When a group has `futarchy_enabled=true`:
 | `MsgVoteProposal` | Cast a weighted vote on a proposal | Council members |
 | `MsgExecuteProposal` | Execute an accepted proposal after min execution period | Anyone |
 | `MsgSubmitAnonymousProposal` | Submit a proposal via `x/shield` ZK proof | Via `x/shield` (proposer = shield module) |
-| `MsgAnonymousVoteProposal` | Cast an anonymous vote via `x/shield` | Via `x/shield` (voter = shield module) |
+| `MsgAnonymousVoteProposal` | Cast a secret-ballot vote via `x/shield` | Via `x/shield` (voter = shield module) |
+| `MsgOpenPoll` | Open a single-choice poll for the group | Group members |
+| `MsgVotePoll` | Vote on an open poll | Group members |
+| `MsgAnonymousVotePoll` | Cast a secret-ballot poll vote via `x/shield` | Via `x/shield` (voter = shield module) |
+| `MsgCancelPoll` | Withdraw a poll with no votes | Poll creator |
 
 ### Group Management
 
@@ -220,6 +236,10 @@ Cancelled and declined schedules return `NotFound` from `QueryGetRecurringSpend(
 | `GetProposal` | Single proposal by ID (includes votes, tally, and `anon_tally` of anonymous votes) |
 | `ListProposals` | Paginated proposals with optional council filter |
 | `GetProposalVotes` | Votes for a proposal with tally and `anon_tally` |
+| `GetProposalVoterTree` | A secret ballot's voter snapshot (for building the shield proof) |
+| `GetPoll` / `ListPolls` | Polls with their tallies (filter by group and status) |
+| `GetPollVotes` | Open votes on a poll |
+| `GetPollVoterTree` | A secret poll's voter snapshot |
 
 ## Parameters
 
@@ -282,8 +302,8 @@ The module bootstraps the entire Three Pillars governance structure at genesis v
 
 The module implements `ShieldAware` for `x/shield` integration:
 
-- `MsgSubmitAnonymousProposal` — shield-compatible
-- `MsgAnonymousVoteProposal` — shield-compatible, but refused by the handler: council votes are open
+- `MsgSubmitAnonymousProposal` — shield-compatible, proven against the x/rep trust tree
+- `MsgAnonymousVoteProposal`, `MsgAnonymousVotePoll` — shield-compatible, proven against the ballot's voter snapshot; the keeper implements `ShieldRootResolver` to name its root
 
 These messages are routed through `x/shield`'s `MsgShieldedExec` for ZK proof verification and nullifier management.
 
@@ -296,7 +316,7 @@ These messages are routed through `x/shield`'s `MsgShieldedExec` for ZK proof ve
 - **Permission ratcheting** — groups can reduce but not expand their own permissions
 - **Rate limiting** — `SpendFromCommons` enforces per-epoch spending caps
 - **Policy versioning** — veto bumps version, invalidating all pending proposals under the old version
-- **Open council votes** — anonymous votes are refused: the proof shows trust-tree membership, not a council seat, and could be cast on top of an open vote
+- **One ballot per proposal** — a proposal is voted openly or by secret ballot, never both, and a secret-ballot vote proves membership of that proposal's voter snapshot, not just of the trust tree
 
 ## Client
 

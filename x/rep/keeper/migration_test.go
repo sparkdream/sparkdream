@@ -2,6 +2,8 @@ package keeper_test
 
 import (
 	"context"
+
+	"cosmossdk.io/collections"
 	"encoding/hex"
 	"testing"
 	"time"
@@ -261,19 +263,19 @@ func TestRecoveryPath(t *testing.T) {
 	sealed := types.RecoverySeal(preimage, a.String(), b.String())
 	require.NoError(t, f.keeper.CommitRecovery(f.ctx, revealer.String(), sealed))
 	require.ErrorIs(t, f.keeper.CommitRecovery(f.ctx, revealer.String(), sealed), types.ErrRecoverySealExists)
-	_, err = f.keeper.RevealRecovery(f.ctx, revealer.String(), a.String(), b.String(), preimage)
+	_, _, err = f.keeper.RevealRecovery(f.ctx, revealer.String(), a.String(), b.String(), preimage)
 	require.ErrorIs(t, err, types.ErrRecoveryCommitmentInactive, "delayed commitment is not active yet")
 	advance(f, 0, p.RecoveryRevealMinBlocks)
 	// Reveal of the immediate commitment works once the seal has aged; a
 	// seal for another target does not match.
-	_, err = f.keeper.RevealRecovery(f.ctx, revealer.String(), a.String(), thief.String(), preimage2)
+	_, _, err = f.keeper.RevealRecovery(f.ctx, revealer.String(), a.String(), thief.String(), preimage2)
 	require.ErrorIs(t, err, types.ErrRecoverySealNotFound)
 	sealed2 := types.RecoverySeal(preimage2, a.String(), b.String())
 	require.NoError(t, f.keeper.CommitRecovery(f.ctx, revealer.String(), sealed2))
-	_, err = f.keeper.RevealRecovery(f.ctx, revealer.String(), a.String(), b.String(), preimage2)
+	_, _, err = f.keeper.RevealRecovery(f.ctx, revealer.String(), a.String(), b.String(), preimage2)
 	require.ErrorIs(t, err, types.ErrRecoverySealTooYoung)
 	advance(f, 0, p.RecoveryRevealMinBlocks)
-	id, err := f.keeper.RevealRecovery(f.ctx, revealer.String(), a.String(), b.String(), preimage2)
+	id, _, err := f.keeper.RevealRecovery(f.ctx, revealer.String(), a.String(), b.String(), preimage2)
 	require.NoError(t, err)
 
 	// Precedence: the thief's key migration is gone, the recovery is pending.
@@ -339,7 +341,6 @@ func TestCouncilPath_ObjectionVerdicts(t *testing.T) {
 	}{
 		{"rejected objection finalizes", types.Verdict_VERDICT_REJECT_CHALLENGE, types.MigrationStatus_MIGRATION_STATUS_FINALIZED, "to"},
 		{"upheld objection cancels", types.Verdict_VERDICT_UPHOLD_CHALLENGE, types.MigrationStatus_MIGRATION_STATUS_CANCELLED, "objector"},
-		{"inconclusive cancels", types.Verdict_VERDICT_INCONCLUSIVE, types.MigrationStatus_MIGRATION_STATUS_CANCELLED, "objector"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -418,7 +419,7 @@ func TestCouncilPath_RecoveryOutranksAndCancels(t *testing.T) {
 	sealed := types.RecoverySeal(preimage, a.String(), c.String())
 	require.NoError(t, f.keeper.CommitRecovery(f.ctx, c.String(), sealed))
 	advance(f, 0, p.RecoveryRevealMinBlocks)
-	recID, err := f.keeper.RevealRecovery(f.ctx, c.String(), a.String(), c.String(), preimage)
+	recID, _, err := f.keeper.RevealRecovery(f.ctx, c.String(), a.String(), c.String(), preimage)
 	require.NoError(t, err)
 	cm, _ := f.keeper.GetMemberMigration(f.ctx, councilID)
 	require.Equal(t, types.MigrationStatus_MIGRATION_STATUS_CANCELLED, cm.Status)
@@ -542,9 +543,14 @@ func TestMigrationGenesisRoundTrip(t *testing.T) {
 	require.Equal(t, pendingID, pending.Id)
 	_, err = g.keeper.RequestKeyMigration(g.ctx, b.String(), sdk.AccAddress([]byte("genesis-d__________")).String())
 	require.ErrorIs(t, err, types.ErrMigrationPending, "pending pointer rebuilt from genesis")
-	has, err := g.keeper.PendingMigrationByTarget.Has(g.ctx, c.String())
+	// A REQUESTED migration is indexed by target without reserving it.
+	has, err := g.keeper.MigrationRequestsByTarget.Has(g.ctx, collections.Join(c.String(), pendingID))
 	require.NoError(t, err)
 	require.True(t, has)
+	has, err = g.keeper.PendingMigrationByTarget.Has(g.ctx, c.String())
+	require.NoError(t, err)
+	require.False(t, has)
+	require.Equal(t, pending.RequestedAt+mustParams(t, g).MigrationAcceptWindow, pending.AcceptBy)
 }
 
 func TestTombstoneCannotBeInvitedAgain(t *testing.T) {

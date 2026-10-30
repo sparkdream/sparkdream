@@ -12,9 +12,9 @@ import (
 	"sparkdream/x/season/types"
 )
 
-// SimulateMsgClaimQuestReward simulates a MsgClaimQuestReward message using direct keeper calls.
-// This bypasses the maintenance mode check for simulation purposes.
-// Full maintenance mode testing should be done in integration tests.
+// SimulateMsgClaimQuestReward delivers MsgClaimQuestReward for a sim
+// account's open quest progress whose objectives are all complete. Skips
+// maintenance mode, quests no longer open, and members without a profile.
 func SimulateMsgClaimQuestReward(
 	ak types.AuthKeeper,
 	bk types.BankKeeper,
@@ -23,37 +23,37 @@ func SimulateMsgClaimQuestReward(
 ) simtypes.Operation {
 	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
 	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		simAccount, _ := simtypes.RandomAcc(r, accs)
+		msg := &types.MsgClaimQuestReward{}
 
-		// Ensure member has a profile
-		if err := getOrCreateMemberProfile(r, ctx, k, simAccount.Address.String()); err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgClaimQuestReward{}), "failed to create profile"), nil, nil
+		if k.IsInMaintenanceMode(ctx) {
+			return noOp(msg, "maintenance mode")
 		}
-
-		// Find or create quest progress for this user
-		questID, err := getOrCreateQuest(r, ctx, k)
+		simAddrs := make(map[string]bool, len(accs))
+		for _, a := range accs {
+			simAddrs[a.Address.String()] = true
+		}
+		open, err := openQuestProgress(ctx, k, simAddrs)
 		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgClaimQuestReward{}), "failed to get/create quest"), nil, nil
+			return noOpErr(msg, err)
 		}
-
-		// Create quest progress if needed
-		progressKey, err := getOrCreateMemberQuestProgress(r, ctx, k, simAccount.Address.String(), questID)
-		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgClaimQuestReward{}), "failed to create quest progress"), nil, nil
+		var claimable []questRef
+		for _, ref := range open {
+			q, err := k.Quest.Get(ctx, ref.questID)
+			if err != nil || !questOpenNow(ctx, k, q) || !questObjectivesComplete(q, ref.progress) {
+				continue
+			}
+			if _, ok := getProfile(ctx, k, ref.member); !ok {
+				continue
+			}
+			claimable = append(claimable, ref)
 		}
-
-		// Check if quest reward was already claimed
-		progress, err := k.MemberQuestProgress.Get(ctx, progressKey)
-		if err == nil && progress.Completed {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgClaimQuestReward{}), "quest reward already claimed"), nil, nil
+		ref, ok := pick(r, claimable)
+		if !ok {
+			return noOp(msg, "no claimable quest")
 		}
+		simAccount, _ := getAccountForAddress(ref.member, accs)
+		msg.Creator, msg.QuestId = ref.member, ref.questID
 
-		// Use direct keeper calls to claim reward (bypasses maintenance mode check)
-		if err == nil {
-			progress.Completed = true
-			k.MemberQuestProgress.Set(ctx, progressKey, progress)
-		}
-
-		return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgClaimQuestReward{}), "ok (direct keeper call)"), nil, nil
+		return deliver(r, app, ctx, txGen, ak, bk, simAccount, msg)
 	}
 }

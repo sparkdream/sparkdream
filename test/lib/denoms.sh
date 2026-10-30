@@ -26,21 +26,31 @@
 
 # Allow caller-set values to win; otherwise probe the chain, otherwise fall
 # back to the canonical sparkdream defaults. Probes use --output json + jq
-# rather than the raw query so we get the inner .denom string.
+# rather than the raw query so we get the inner .denom string. They are capped
+# by `timeout`: under WSL mirrored networking a closed localhost port drops the
+# connection instead of refusing it, so a probe with no chain up would
+# otherwise hang for minutes before falling back.
 _BINARY="${BINARY:-sparkdreamd}"
 
-if [ -z "${BOND_DENOM:-}" ]; then
-    BOND_DENOM=$("$_BINARY" q identity bond-denom --output json 2>/dev/null | jq -r '.denom // ""' 2>/dev/null)
-    if [ -z "$BOND_DENOM" ] || [ "$BOND_DENOM" = "null" ]; then
-        BOND_DENOM="uspark.sparkdream"
-    fi
+# One cheap liveness check first, so a missing chain costs seconds, not a
+# timeout per probe.
+_DENOMS_CHAIN_UP=false
+if [ -z "${BOND_DENOM:-}" ] || [ -z "${DREAM_DENOM:-}" ]; then
+    timeout 5 "$_BINARY" status > /dev/null 2>&1 && _DENOMS_CHAIN_UP=true
 fi
 
-if [ -z "${DREAM_DENOM:-}" ]; then
-    DREAM_DENOM=$("$_BINARY" q identity dream-denom --output json 2>/dev/null | jq -r '.denom // ""' 2>/dev/null)
-    if [ -z "$DREAM_DENOM" ] || [ "$DREAM_DENOM" = "null" ]; then
-        DREAM_DENOM="udream.sparkdream"
-    fi
+if [ -z "${BOND_DENOM:-}" ] && [ "$_DENOMS_CHAIN_UP" = true ]; then
+    BOND_DENOM=$(timeout 15 "$_BINARY" q identity bond-denom --output json 2>/dev/null | jq -r '.denom // ""' 2>/dev/null)
+fi
+if [ -z "${BOND_DENOM:-}" ] || [ "$BOND_DENOM" = "null" ]; then
+    BOND_DENOM="uspark.sparkdream"
+fi
+
+if [ -z "${DREAM_DENOM:-}" ] && [ "$_DENOMS_CHAIN_UP" = true ]; then
+    DREAM_DENOM=$(timeout 15 "$_BINARY" q identity dream-denom --output json 2>/dev/null | jq -r '.denom // ""' 2>/dev/null)
+fi
+if [ -z "${DREAM_DENOM:-}" ] || [ "$DREAM_DENOM" = "null" ]; then
+    DREAM_DENOM="udream.sparkdream"
 fi
 
 export BOND_DENOM DREAM_DENOM

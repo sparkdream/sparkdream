@@ -20,7 +20,7 @@ func TestCancelSponsorshipRequest(t *testing.T) {
 		{
 			name: "success: owner cancels",
 			setup: func(f *testFixture) uint64 {
-				collID := f.createPendingCollection(t)
+				collID := f.createEndorsedCollection(t)
 				_, err := f.msgServer.RequestSponsorship(f.ctx, &types.MsgRequestSponsorship{
 					Creator:      f.nonMember,
 					CollectionId: collID,
@@ -43,7 +43,7 @@ func TestCancelSponsorshipRequest(t *testing.T) {
 		{
 			name: "error: not owner",
 			setup: func(f *testFixture) uint64 {
-				collID := f.createPendingCollection(t)
+				collID := f.createEndorsedCollection(t)
 				_, err := f.msgServer.RequestSponsorship(f.ctx, &types.MsgRequestSponsorship{
 					Creator:      f.nonMember,
 					CollectionId: collID,
@@ -63,7 +63,7 @@ func TestCancelSponsorshipRequest(t *testing.T) {
 		{
 			name: "error: request not found",
 			setup: func(f *testFixture) uint64 {
-				return f.createPendingCollection(t) // no sponsorship request created
+				return f.createEndorsedCollection(t) // no sponsorship request created
 			},
 			msg: func(f *testFixture, collID uint64) *types.MsgCancelSponsorshipRequest {
 				return &types.MsgCancelSponsorshipRequest{

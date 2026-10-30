@@ -57,7 +57,7 @@ func TestMsgServerDissolveGuild(t *testing.T) {
 		// Make guild old enough
 		guild, _ := k.Guild.Get(ctx, guildID)
 		guild.CreatedBlock = 0 // Created at block 0
-		k.Guild.Set(ctx, guildID, guild)
+		require.NoError(t, k.Guild.Set(ctx, guildID, guild))
 
 		// Advance blocks
 		params, _ := k.Params.Get(ctx)
@@ -89,7 +89,7 @@ func TestMsgServerDissolveGuild(t *testing.T) {
 
 		guild, _ := k.Guild.Get(ctx, guildID)
 		guild.Status = types.GuildStatus_GUILD_STATUS_DISSOLVED
-		k.Guild.Set(ctx, guildID, guild)
+		require.NoError(t, k.Guild.Set(ctx, guildID, guild))
 
 		_, err := ms.DissolveGuild(ctx, &types.MsgDissolveGuild{
 			Creator: founderStr,
@@ -142,11 +142,11 @@ func TestMsgServerDissolveGuild(t *testing.T) {
 		// Update profiles to be in guild
 		founderProfile, _ := k.MemberProfile.Get(ctx, founderStr)
 		founderProfile.GuildId = guildID
-		k.MemberProfile.Set(ctx, founderStr, founderProfile)
+		require.NoError(t, k.MemberProfile.Set(ctx, founderStr, founderProfile))
 
 		memberProfile, _ := k.MemberProfile.Get(ctx, memberStr)
 		memberProfile.GuildId = guildID
-		k.MemberProfile.Set(ctx, memberStr, memberProfile)
+		require.NoError(t, k.MemberProfile.Set(ctx, memberStr, memberProfile))
 
 		// Create membership records
 		founderMembership := types.GuildMembership{
@@ -154,19 +154,19 @@ func TestMsgServerDissolveGuild(t *testing.T) {
 			GuildId:   guildID,
 			LeftEpoch: 0,
 		}
-		k.GuildMembership.Set(ctx, founderStr, founderMembership)
+		require.NoError(t, k.GuildMembership.Set(ctx, founderStr, founderMembership))
 
 		memberMembership := types.GuildMembership{
 			Member:    memberStr,
 			GuildId:   guildID,
 			LeftEpoch: 0,
 		}
-		k.GuildMembership.Set(ctx, memberStr, memberMembership)
+		require.NoError(t, k.GuildMembership.Set(ctx, memberStr, memberMembership))
 
 		// Make guild old enough
 		guild, _ := k.Guild.Get(ctx, guildID)
 		guild.CreatedBlock = 0
-		k.Guild.Set(ctx, guildID, guild)
+		require.NoError(t, k.Guild.Set(ctx, guildID, guild))
 
 		// Advance time
 		params, _ := k.Params.Get(ctx)
@@ -227,7 +227,7 @@ func TestMsgServerDissolveGuild(t *testing.T) {
 		guild.CreatedBlock = 0
 		guild.Officers = []string{officer.String()}
 		guild.PendingInvites = []string{"pending1", "pending2"}
-		k.Guild.Set(ctx, guildID, guild)
+		require.NoError(t, k.Guild.Set(ctx, guildID, guild))
 
 		// Advance time
 		params, _ := k.Params.Get(ctx)

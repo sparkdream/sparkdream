@@ -82,8 +82,9 @@ if ! echo "$BOND_DENOM" | grep -qE '^u[a-z]{2,5}\.[a-z][a-z0-9-]{2,15}$'; then
     echo "FAIL: bond_denom $BOND_DENOM does not match the identity regex"
     exit 1
 fi
-# dream_denom: udream\.<chain>
-if ! echo "$DREAM_DENOM" | grep -qE '^udream\.[a-z][a-z0-9-]{2,15}$'; then
+# dream_denom: same u<2-5 letters>.<chain> shape as bond_denom (the CLI
+# derives u<dream-symbol>.<chain>; devnet uses udrmz.sparkdreamdev)
+if ! echo "$DREAM_DENOM" | grep -qE '^u[a-z]{2,5}\.[a-z][a-z0-9-]{2,15}$'; then
     echo "FAIL: dream_denom $DREAM_DENOM does not match the identity regex"
     exit 1
 fi

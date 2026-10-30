@@ -290,7 +290,8 @@ When a shielded operation executes, the inner message's `creator` field is set t
 - ZK proof reveals *nothing* about the poster except that they are an active member at or above the proven trust level
 - The anonymity set is all active members at that trust level — the larger the set, the stronger the anonymity
 - Nullifiers are unlinkable across different scopes and across operations: the domain is hashed into the scope element, so even two operations that share a raw scope (or two GLOBAL operations) produce different nullifiers
-- Same-scope nullifiers are deterministic (prevents double-posting) but don't reveal identity
+- Same-scope nullifiers are deterministic (prevents double-posting) but don't reveal identity. Each has exactly one accepted encoding: the chain refuses a nullifier, rate-limit nullifier or merkle root that is not a canonical BN254 field element (below the scalar modulus), since the verifier would accept `n + r` as well as `n`. Clients must send the prover's output unchanged (big-endian, 32 bytes)
+- A spent exec stays spent: an immediate exec whose inner message fails still consumes its nullifier and a rate-limit slot (the ante handler records them with the fee payment), like a batch op that fails at execution. Check the target (post exists, not locked, ...) before proving
 - Rate limit nullifiers are scoped per epoch — they identify "the same person" for rate limiting within an epoch but are unlinkable across epochs
 
 ### Anonymity Limitations
@@ -299,6 +300,7 @@ When a shielded operation executes, the inner message's `creator` field is set t
 - **Writing style:** Stylometric analysis of post content could deanonymize frequent anonymous posters. This is outside the protocol's threat model.
 - **Small anonymity sets:** If only 3 members are ESTABLISHED+, anonymity is weak. The minimum trust level should be set to a level with sufficient membership.
 - **Ownership linkability:** management ops on one piece of anonymous content all carry its owner tag (its creation nullifier), so they are linkable to each other and to the creation, though not to the member's other activity. Rotating the ZK key or losing membership/trust makes the tag unprovable and ends management.
+- **Per-epoch linkability:** all of a member's immediate execs (and batch submissions) in one shield epoch (50 blocks, about 5 minutes) carry the same public `rate_limit_nullifier`, so an observer can tell they came from one member. Clients should spread unrelated anonymous actions across epochs (or across several minutes), and use fixed values for the outer tx's fee, gas, memo and timeout so the public submitter's txs don't fingerprint the wallet. Shield txs from the public submitter must be unordered (the ante handler refuses ordered ones).
 - **Self-conviction:** content modules record the shield address as the author of anonymous content, so x/rep's author exclusion cannot stop an anonymous author from staking conviction on their own content from an identified account.
 - **Merkle root freshness:** x/shield accepts the current root or the immediately previous root (one-rebuild-cycle grace period). Roots older than one cycle are rejected.
 

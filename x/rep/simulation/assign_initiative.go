@@ -1,158 +1,73 @@
 package simulation
 
 import (
-	"math/rand"
-
-	"github.com/cosmos/cosmos-sdk/baseapp"
+	"cosmossdk.io/math"
 	"github.com/cosmos/cosmos-sdk/client"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
-	"github.com/cosmos/cosmos-sdk/x/simulation"
 
 	"sparkdream/x/rep/keeper"
 	"sparkdream/x/rep/types"
 )
 
-func SimulateMsgAssignInitiative(
-	ak types.AuthKeeper,
-	bk types.BankKeeper,
-	k keeper.Keeper,
-	txGen client.TxConfig,
-) simtypes.Operation {
-	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
-	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		// Get or create a member who will own the parent project. Using the
-		// project creator as the msg.Creator satisfies the handler's
-		// authorization gate ("only the assignee, project creator, or
-		// operations committee may assign") regardless of which initiative
-		// gets selected below.
-		creator, creatorAcc, err := getOrCreateMember(r, ctx, k, accs)
+// SimulateMsgAssignInitiative assigns an OPEN initiative: usually a member
+// with the tier's reputation takes it (self-assignment), sometimes the
+// project's creator or a Commons Operations Committee seat assigns it to
+// such a member. With no OPEN initiative one is created first.
+func SimulateMsgAssignInitiative(ak types.AuthKeeper, bk types.BankKeeper, k keeper.Keeper, txGen client.TxConfig) simtypes.Operation {
+	label := &types.MsgAssignInitiative{}
+	return operation(ak, bk, k, txGen, label, func(e *simEnv) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
+		in, ok, err := e.openInitiative(nil)
 		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgAssignInitiative{}), "failed to get/create creator"), nil, nil
+			return noOpErr(label, err)
 		}
-
-		// Find or create an open initiative
-		initID, err := getOrCreateInitiative(r, ctx, k, creator, types.InitiativeStatus_INITIATIVE_STATUS_OPEN)
+		if !ok {
+			return noOp(label, "no OPEN initiative and none could be created")
+		}
+		cands, err := e.assignCandidates(in)
 		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgAssignInitiative{}), "failed to get/create initiative"), nil, nil
+			return noOpErr(label, err)
 		}
-
-		// Get the initiative to check tier and tags
-		initiative, err := k.Initiative.Get(ctx, initID)
-		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgAssignInitiative{}), "failed to get initiative"), nil, nil
-		}
-
-		// Get the project to determine its creator (the authorized assigner).
-		project, err := k.Project.Get(ctx, initiative.ProjectId)
-		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgAssignInitiative{}), "failed to get project"), nil, nil
-		}
-
-		// If the initiative came from an existing project (not the one we
-		// just created with `creator`), the signer must match the project
-		// creator. Look up the matching simAccount.
-		signerAcc := creatorAcc
-		signerAddr := creator.Address
-		if project.Creator != creator.Address {
-			projectCreatorMember := &types.Member{Address: project.Creator}
-			acc, found := getAccountFromMember(projectCreatorMember, accs)
-			if !found {
-				return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgAssignInitiative{}), "project creator not in sim accounts"), nil, nil
-			}
-			signerAcc = acc
-			signerAddr = project.Creator
-		}
-
-		// Occasionally exercise the creator self-assignment path (allowed —
-		// conflict-of-interest is handled at the judging layer, and a DREAM
-		// bond is locked at assignment on budget-backed projects). Only
-		// attempted when the keeper's preconditions provably hold, so the
-		// delivered tx cannot fail: APPRENTICE tier (no reputation floor),
-		// creator can afford the bond, and the active-initiative cap allows it.
-		if initiative.Tier == types.InitiativeTier_INITIATIVE_TIER_APPRENTICE && r.Intn(4) == 0 {
-			params, perr := k.Params.Get(ctx)
-			creatorMember, merr := k.Member.Get(ctx, project.Creator)
-			if perr == nil && merr == nil {
-				bond := keeper.DerefInt(initiative.Budget).ToLegacyDec().Mul(params.SelfAssignedBondRate).TruncateInt()
-				unlocked := keeper.DerefInt(creatorMember.DreamBalance).Sub(keeper.DerefInt(creatorMember.StakedDream))
-				underCap := true
-				if params.MaxActiveInitiativesPerMember > 0 {
-					active, cerr := k.CountActiveInitiativesForAssignee(ctx, project.Creator)
-					underCap = cerr == nil && active < params.MaxActiveInitiativesPerMember
-				}
-				// A funder of the initiative's bounty cannot take the work.
-				notFunder := !k.HasInitiativeBountyContribution(ctx, initID, project.Creator)
-				if unlocked.GTE(bond) && underCap && notFunder {
-					msg := &types.MsgAssignInitiative{
-						Creator:      signerAddr,
-						InitiativeId: initID,
-						Assignee:     project.Creator,
-					}
-					return simulation.GenAndDeliverTxWithRandFees(simulation.OperationInput{
-						R:               r,
-						App:             app,
-						TxGen:           txGen,
-						Cdc:             nil,
-						Msg:             msg,
-						CoinsSpentInMsg: sdk.NewCoins(),
-						Context:         ctx,
-						SimAccount:      signerAcc,
-						AccountKeeper:   ak,
-						Bankkeeper:      bk,
-						ModuleName:      types.ModuleName,
-					})
-				}
-			}
-		}
-
-		// Get or create an assignee with appropriate reputation for the initiative tier.
-		// Retry to avoid the project creator: self-assignment is legal but locks
-		// a DREAM bond the random member may not afford, so the general path
-		// sticks to non-creator assignees (the branch above covers self-assign).
-		var assignee *types.Member
-		for i := 0; i < 5; i++ {
-			assignee, _, err = getOrCreateMemberWithReputation(r, ctx, k, accs, initiative.Tier, initiative.Tags)
+		if len(cands) == 0 {
+			// Try the other OPEN initiatives: an expert or epic tier may
+			// have no qualifying member.
+			open, err := e.initiatives(func(x types.Initiative) bool {
+				return x.Status == types.InitiativeStatus_INITIATIVE_STATUS_OPEN
+			})
 			if err != nil {
-				return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgAssignInitiative{}), "failed to get/create assignee with reputation"), nil, nil
+				return noOpErr(label, err)
 			}
-			if assignee.Address != project.Creator {
-				break
-			}
-		}
-		// If we still got the project creator after 5 tries, skip this operation
-		if assignee.Address == project.Creator {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgAssignInitiative{}), "could not pick a non-creator assignee"), nil, nil
-		}
-		// A funder of the initiative's bounty cannot take the work.
-		if k.HasInitiativeBountyContribution(ctx, initID, assignee.Address) {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgAssignInitiative{}), "assignee funds the initiative's bounty"), nil, nil
-		}
-		// Mirror the handler's active-initiative cap.
-		if params, perr := k.Params.Get(ctx); perr == nil && params.MaxActiveInitiativesPerMember > 0 {
-			if active, cerr := k.CountActiveInitiativesForAssignee(ctx, assignee.Address); cerr != nil || active >= params.MaxActiveInitiativesPerMember {
-				return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgAssignInitiative{}), "assignee at the active-initiative cap"), nil, nil
+			for _, i := range e.r.Perm(len(open)) {
+				if cands, err = e.assignCandidates(open[i]); err != nil {
+					return noOpErr(label, err)
+				}
+				if len(cands) > 0 {
+					in = open[i]
+					break
+				}
 			}
 		}
-
-		msg := &types.MsgAssignInitiative{
-			Creator:      signerAddr,
-			InitiativeId: initID,
-			Assignee:     assignee.Address,
+		if e.r.Intn(3) == 0 {
+			// Assigned by someone else: the project creator or an ops seat.
+			var assigners []simtypes.Account
+			if p, ok := e.project(in.ProjectId); ok {
+				if acc, ok := e.account(p.Creator); ok {
+					assigners = append(assigners, acc)
+				}
+			}
+			assigners = append(assigners, e.liveSeats(commonsOpsCommittee)...)
+			if by, ok := pick(e.r, assigners); ok {
+				for i := range cands {
+					msg, ok := cands[i].msg.(*types.MsgAssignInitiative)
+					if ok && msg.Assignee != by.Address.String() {
+						cands[i] = candidate{acc: by, msg: &types.MsgAssignInitiative{
+							Creator:      by.Address.String(),
+							InitiativeId: in.Id,
+							Assignee:     msg.Assignee,
+						}, spent: math.ZeroInt()}
+					}
+				}
+			}
 		}
-
-		return simulation.GenAndDeliverTxWithRandFees(simulation.OperationInput{
-			R:               r,
-			App:             app,
-			TxGen:           txGen,
-			Cdc:             nil,
-			Msg:             msg,
-			CoinsSpentInMsg: sdk.NewCoins(),
-			Context:         ctx,
-			SimAccount:      signerAcc,
-			AccountKeeper:   ak,
-			Bankkeeper:      bk,
-			ModuleName:      types.ModuleName,
-		})
-	}
+		return e.firstValid(label, cands, 6, "no member qualifies for the initiative's tier")
+	})
 }

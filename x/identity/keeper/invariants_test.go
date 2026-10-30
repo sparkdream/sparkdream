@@ -2,6 +2,7 @@ package keeper_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -50,9 +51,12 @@ func TestInvariantInitializedFailsPreGenesis(t *testing.T) {
 // mockSK / mockMK implement the trimmed staking/mint interfaces used by
 // SDKParamsAlignedInvariant. Signatures match upstream cosmos-sdk
 // (context.Context, GetParams returns minttypes.Params).
-type mockSK struct{ denom string }
+type mockSK struct {
+	denom string
+	err   error
+}
 
-func (m mockSK) BondDenom(_ context.Context) (string, error) { return m.denom, nil }
+func (m mockSK) BondDenom(_ context.Context) (string, error) { return m.denom, m.err }
 
 type mockMK struct{ denom string }
 
@@ -97,4 +101,17 @@ func TestInvariantSDKParamsNoOpWithoutStakingMint(t *testing.T) {
 	ctx := toSDKCtx(f.ctx)
 	_, stop := keeper.SDKParamsAlignedInvariant(f.keeper)(ctx)
 	require.False(t, stop)
+}
+
+// IDN-10: a staking read failure is reported as broken, not as a drift
+// against an empty denom.
+func TestInvariantSDKParamsReadErrorIsBroken(t *testing.T) {
+	f := initFixture(t)
+	id := newValidIdentity()
+	require.NoError(t, f.keeper.InitGenesis(f.ctx, types.GenesisState{Identity: id, AllowChainIdMismatch: true}))
+	f.keeper.SetStakingKeeper(mockSK{err: errors.New("store corrupt")})
+	f.keeper.SetMintKeeper(mockMK{denom: id.BondDenom})
+	msg, stop := keeper.SDKParamsAlignedInvariant(f.keeper)(toSDKCtx(f.ctx))
+	require.True(t, stop)
+	require.Contains(t, msg, "read failed")
 }

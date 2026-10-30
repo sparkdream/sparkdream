@@ -26,10 +26,30 @@ func (m *mockCommonsKeeperAuthorized) IsCouncilAuthorized(_ context.Context, _ s
 	return true
 }
 
+func (m *mockCommonsKeeperAuthorized) IsCouncilOrCommitteePolicy(_ context.Context, _ string, _ string, _ string) bool {
+	return true
+}
+
+// mockCommonsKeeperMemberOnly models an individual committee member:
+// IsCouncilAuthorized accepts it, the policy-address check does not.
+type mockCommonsKeeperMemberOnly struct{}
+
+func (m *mockCommonsKeeperMemberOnly) IsCouncilAuthorized(_ context.Context, _ string, _ string, _ string) bool {
+	return true
+}
+
+func (m *mockCommonsKeeperMemberOnly) IsCouncilOrCommitteePolicy(_ context.Context, _ string, _ string, _ string) bool {
+	return false
+}
+
 // mockCommonsKeeperUnauthorized always returns false for IsCouncilAuthorized.
 type mockCommonsKeeperUnauthorized struct{}
 
 func (m *mockCommonsKeeperUnauthorized) IsCouncilAuthorized(_ context.Context, _ string, _ string, _ string) bool {
+	return false
+}
+
+func (m *mockCommonsKeeperUnauthorized) IsCouncilOrCommitteePolicy(_ context.Context, _ string, _ string, _ string) bool {
 	return false
 }
 
@@ -172,6 +192,20 @@ func TestUpdateOperationalParams(t *testing.T) {
 			},
 		},
 		{
+			// FUT-10 regression: a single committee member is not enough.
+			name: "individual committee member fails (policy address required)",
+			setup: func(t *testing.T) (*opFixture, string) {
+				f := initOpFixtureWithCommons(t, &mockCommonsKeeperMemberOnly{})
+				memberAddr := sdk.AccAddress([]byte("operations_member__"))
+				addrStr, err := f.addressCodec.BytesToString(memberAddr)
+				require.NoError(t, err)
+				return f, addrStr
+			},
+			opParams:  validOp,
+			expectErr: true,
+			errMsg:    "not authorized",
+		},
+		{
 			name: "unauthorized address fails (commons returns false)",
 			setup: func(t *testing.T) (*opFixture, string) {
 				f := initOpFixtureWithCommons(t, &mockCommonsKeeperUnauthorized{})
@@ -198,7 +232,7 @@ func TestUpdateOperationalParams(t *testing.T) {
 			errMsg:    "not authorized",
 		},
 		{
-			name: "invalid params - trading fee exceeds 10000 bps",
+			name: "invalid params - trading fee exceeds the 500 bps hard ceiling",
 			setup: func(t *testing.T) (*opFixture, string) {
 				f := initOpFixtureNoCommons(t)
 				authority := authtypes.NewModuleAddress(types.GovModuleName)
@@ -207,12 +241,12 @@ func TestUpdateOperationalParams(t *testing.T) {
 				return f, authorityStr
 			},
 			opParams: types.FutarchyOperationalParams{
-				TradingFeeBps:      10001, // exceeds 100%
+				TradingFeeBps:      501, // FUT-10: above the compiled ceiling
 				MaxDuration:        5256000,
 				MaxRedemptionDelay: 5256000,
 			},
 			expectErr: true,
-			errMsg:    "trading_fee_bps must be <= 10000",
+			errMsg:    "trading_fee_bps must be <= 500",
 		},
 		{
 			name: "invalid params - non-positive max duration",
@@ -260,7 +294,7 @@ func TestUpdateOperationalParams(t *testing.T) {
 				customParams := types.DefaultParams()
 				customParams.MinLiquidity = types.DefaultMinLiquidity.MulRaw(2) // 200,000
 				customParams.DefaultMinTick = types.DefaultMinTick.MulRaw(3)    // 3000
-				customParams.MaxLmsrExponent = "50"
+				customParams.MaxLmsrExponent = "25"
 				err = f.keeper.Params.Set(f.ctx, customParams)
 				require.NoError(t, err)
 
@@ -277,7 +311,7 @@ func TestUpdateOperationalParams(t *testing.T) {
 					"MinLiquidity should be preserved: got %s", params.MinLiquidity)
 				require.True(t, types.DefaultMinTick.MulRaw(3).Equal(params.DefaultMinTick),
 					"DefaultMinTick should be preserved: got %s", params.DefaultMinTick)
-				require.Equal(t, "50", params.MaxLmsrExponent)
+				require.Equal(t, "25", params.MaxLmsrExponent)
 
 				// Operational fields must be updated.
 				require.Equal(t, modifiedOp.TradingFeeBps, params.TradingFeeBps)

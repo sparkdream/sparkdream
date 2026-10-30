@@ -1,88 +1,68 @@
 package simulation
 
 import (
+	"fmt"
 	"math/rand"
+	"regexp"
 	"testing"
 
-	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
 	"github.com/stretchr/testify/require"
+
+	"sparkdream/x/commons/types"
 )
 
-// --- randomFees ---
+// groupNameRegex mirrors the RegisterGroup handler's name rule.
+var groupNameRegex = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9 \-]*[a-zA-Z0-9]$`)
 
-func TestRandomFees_EmptyCoins(t *testing.T) {
+func TestSimGroupNamesAreValid(t *testing.T) {
+	r := rand.New(rand.NewSource(7))
+	for range 200 {
+		name := fmt.Sprintf("%s%s-%s", simGroupPrefix, randomFictional(r), randomLowerAlnum(r, 5))
+		require.True(t, isSimGroup(name))
+		require.Regexp(t, groupNameRegex, name)
+		require.GreaterOrEqual(t, len(name), 3)
+		require.LessOrEqual(t, len(name), 50)
+	}
+	require.False(t, isSimGroup("Commons Council"))
+	require.False(t, isSimGroup("Commons Operations Committee"))
+}
+
+func TestSimGroupAllowlistIsHeldByCommonsCouncil(t *testing.T) {
+	// The bootstrapped Commons Council allowlist (genesis_bootstrap.go) holds
+	// every message a simulated group may be delegated; RegisterGroup refuses
+	// a child allowlist that is not a subset of the parent's.
+	council := map[string]bool{
+		sdk.MsgTypeURL(&types.MsgSpendFromCommons{}):        true,
+		sdk.MsgTypeURL(&types.MsgUpdatePolicyPermissions{}): true,
+		sdk.MsgTypeURL(&types.MsgVoteProposal{}):            true,
+	}
+	for _, m := range simGroupAllowlist {
+		require.True(t, council[m], m)
+	}
+}
+
+func TestPickAndAccountsWhere(t *testing.T) {
 	r := rand.New(rand.NewSource(1))
-	ctx := sdk.Context{}
+	_, ok := pick[int](r, nil)
+	require.False(t, ok)
+	v, ok := pick(r, []int{4})
+	require.True(t, ok)
+	require.Equal(t, 4, v)
 
-	fees, err := randomFees(r, ctx, sdk.Coins{})
-	require.NoError(t, err)
-	require.Nil(t, fees)
-}
-
-func TestRandomFees_NonEmpty(t *testing.T) {
-	r := rand.New(rand.NewSource(42))
-	ctx := sdk.Context{}
-
-	spendable := sdk.NewCoins(sdk.NewCoin(sdk.DefaultBondDenom, math.NewInt(1000000)))
-	fees, err := randomFees(r, ctx, spendable)
-	require.NoError(t, err)
-	require.True(t, fees.AmountOf(sdk.DefaultBondDenom).IsPositive())
-	require.True(t, fees.AmountOf(sdk.DefaultBondDenom).LTE(math.NewInt(1000000)))
-}
-
-func TestRandomFees_MultiDenom(t *testing.T) {
-	r := rand.New(rand.NewSource(99))
-	ctx := sdk.Context{}
-
-	spendable := sdk.NewCoins(
-		sdk.NewCoin(sdk.DefaultBondDenom, math.NewInt(500)),
-		sdk.NewCoin("udream", math.NewInt(300)),
-	)
-	fees, err := randomFees(r, ctx, spendable)
-	require.NoError(t, err)
-	require.True(t, len(fees) > 0)
-}
-
-func TestRandomFees_IsDeterministic(t *testing.T) {
-	ctx := sdk.Context{}
-	spendable := sdk.NewCoins(sdk.NewCoin(sdk.DefaultBondDenom, math.NewInt(1000000)))
-
-	r1 := rand.New(rand.NewSource(77))
-	r2 := rand.New(rand.NewSource(77))
-
-	fees1, err1 := randomFees(r1, ctx, spendable)
-	fees2, err2 := randomFees(r2, ctx, spendable)
-	require.NoError(t, err1)
-	require.NoError(t, err2)
-	require.True(t, fees1.Equal(fees2))
-}
-
-func TestRandomFees_ZeroAmountCoin(t *testing.T) {
-	r := rand.New(rand.NewSource(5))
-	ctx := sdk.Context{}
-
-	spendable := sdk.Coins{sdk.NewCoin(sdk.DefaultBondDenom, math.NewInt(0))}
-	fees, err := randomFees(r, ctx, spendable)
-	require.NoError(t, err)
-	// Zero-amount coin is skipped
-	require.True(t, fees.IsZero() || fees == nil)
-}
-
-// --- getGroupByPolicy ---
-// getGroupByPolicy requires a real keeper with store, so it's tested
-// indirectly via the simulation operations (integration tests).
-// Unit testing it would require the full keeper test fixture.
-
-// --- Simulation Account Helpers ---
-
-func TestRandomAcc_Deterministic(t *testing.T) {
-	r1 := rand.New(rand.NewSource(10))
-	r2 := rand.New(rand.NewSource(10))
 	accs := simtypes.RandomAccounts(rand.New(rand.NewSource(1)), 5)
+	first := accs[0].Address.String()
+	kept := accountsWhere(accs, func(a simtypes.Account) bool { return a.Address.String() != first })
+	require.Len(t, kept, 4)
+	got, found := getAccount(accs, first)
+	require.True(t, found)
+	require.Equal(t, accs[0].Address, got.Address)
+}
 
-	acc1, _ := simtypes.RandomAcc(r1, accs)
-	acc2, _ := simtypes.RandomAcc(r2, accs)
-	require.Equal(t, acc1.Address, acc2.Address)
+func TestFeeExemptMsgsMatchAnte(t *testing.T) {
+	// x/commons/ante ProposalFeeDecorator exempts exactly these two.
+	require.Len(t, feeExemptMsgs, 2)
+	require.True(t, feeExemptMsgs[sdk.MsgTypeURL(&types.MsgVetoGroupProposals{})])
+	require.True(t, feeExemptMsgs[sdk.MsgTypeURL(&types.MsgEmergencyCancelGovProposal{})])
 }

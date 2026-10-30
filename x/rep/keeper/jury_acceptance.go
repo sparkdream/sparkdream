@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/rep/types"
 
 	"cosmossdk.io/collections"
@@ -101,7 +102,7 @@ func (k Keeper) recomputeRequiredVotes(ctx context.Context, review *types.JuryRe
 	if err != nil {
 		return err
 	}
-	review.RequiredVotes = uint32(params.JurySuperMajority.
+	review.RequiredVotes = commontypes.Saturate[uint32](params.JurySuperMajority.
 		MulInt64(int64(len(review.Jurors))).Ceil().TruncateInt().Uint64())
 	return nil
 }
@@ -123,7 +124,7 @@ func (k Keeper) refillJurySeats(ctx context.Context, review *types.JuryReview, s
 		return nil
 	}
 	skip := append(append([]string{}, review.Jurors...), exclude...)
-	drawn, err := k.SelectJury(ctx, initiative, uint32(seatsWanted-len(review.Jurors)), skip...)
+	drawn, err := k.SelectJury(ctx, initiative, commontypes.Saturate[uint32](seatsWanted-len(review.Jurors)), skip...)
 	if err != nil {
 		return nil
 	}
@@ -344,7 +345,7 @@ func (k Keeper) redrawUnansweredSeats(ctx context.Context, juryReviewID uint64) 
 	if review.InitiativeId != 0 {
 		if initiative, iErr := k.GetInitiative(ctx, review.InitiativeId); iErr == nil {
 			exclude := append(append([]string{}, keep...), silent...)
-			drawn, sErr := k.SelectJury(ctx, initiative, uint32(seatsWanted-len(keep)), exclude...)
+			drawn, sErr := k.SelectJury(ctx, initiative, commontypes.Saturate[uint32](seatsWanted-len(keep)), exclude...)
 			if sErr == nil {
 				replacements = drawn
 			}

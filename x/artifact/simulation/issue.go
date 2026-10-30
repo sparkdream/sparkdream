@@ -10,6 +10,7 @@ import (
 
 	"sparkdream/x/artifact/keeper"
 	"sparkdream/x/artifact/types"
+	commontypes "sparkdream/x/common/types"
 )
 
 // SimulateMsgIssue issues one badge metadata to 1-5 distinct random accounts
@@ -34,7 +35,7 @@ func SimulateMsgIssue(
 			return noop(msg, "blind classes mint empty metadata through MsgMint")
 		}
 		n := 1 + r.Intn(5)
-		if c.MaxSupply > 0 && c.Supply+c.Burned+c.ReservedSupply+uint64(n) > c.MaxSupply {
+		if c.MaxSupply > 0 && c.Supply+c.Burned+c.ReservedSupply+commontypes.Saturate[uint64](n) > c.MaxSupply {
 			return noop(msg, "class supply exhausted")
 		}
 		recipients := make([]string, 0, n)

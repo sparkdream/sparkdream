@@ -47,3 +47,17 @@ func (k Keeper) IsImpactCertificate(ctx context.Context, classID, editionID uint
 	c, err := k.Classes.Get(ctx, classID)
 	return err == nil && c.Status != types.ContentStatus_CONTENT_STATUS_HIDDEN
 }
+
+// ImpactCertificateInfo returns the creator and creation time (unix
+// seconds) of a visible impact certificate, for x/season's retro-PGF
+// self-stake ban and created-this-season check.
+func (k Keeper) ImpactCertificateInfo(ctx context.Context, classID, editionID uint64) (string, int64, bool) {
+	if !k.IsImpactCertificate(ctx, classID, editionID) {
+		return "", 0, false
+	}
+	e, err := k.Editions.Get(ctx, collections.Join(classID, editionID))
+	if err != nil {
+		return "", 0, false
+	}
+	return e.Creator, e.CreatedAt, true
+}

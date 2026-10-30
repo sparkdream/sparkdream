@@ -57,10 +57,10 @@ func (k Keeper) checkMediaWrite(ctx context.Context, creator sdk.AccAddress, fla
 		MinTrust:  params.MediaMinTrustLevel,
 		BondMin:   params.MediaAuthorBondMin,
 	}
-	if !gate.Anonymous && k.repKeeper != nil && k.repKeeper.IsActiveMember(ctx, creator) {
+	if !gate.Anonymous && k.hasRep() && k.late.repKeeper.IsActiveMember(ctx, creator) {
 		gate.Member = true
-		if tl, err := k.repKeeper.GetTrustLevel(ctx, creator); err == nil {
-			gate.TrustLevel = uint32(tl)
+		if tl, err := k.late.repKeeper.GetTrustLevel(ctx, creator); err == nil {
+			gate.TrustLevel = commontypes.Saturate[uint32](tl)
 		}
 	}
 	if authorBond != nil {

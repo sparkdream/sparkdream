@@ -21,14 +21,14 @@ func TestMsgClaimStakingRewards(t *testing.T) {
 
 		// Setup: create staker member with DREAM
 		staker := sdk.AccAddress([]byte("staker"))
-		k.Member.Set(ctx, staker.String(), types.Member{
+		require.NoError(t, k.Member.Set(ctx, staker.String(), types.Member{
 			Address:          staker.String(),
 			DreamBalance:     PtrInt(math.NewInt(10000)),
 			StakedDream:      PtrInt(math.ZeroInt()),
 			LifetimeEarned:   PtrInt(math.ZeroInt()),
 			LifetimeBurned:   PtrInt(math.ZeroInt()),
 			ReputationScores: map[string]string{"backend": "50.0"},
-		})
+		}))
 
 		stakerStr, err := f.addressCodec.BytesToString(staker)
 		require.NoError(t, err)
@@ -88,22 +88,22 @@ func TestMsgClaimStakingRewards(t *testing.T) {
 		// Setup: create staker and non-owner
 		staker := sdk.AccAddress([]byte("staker"))
 		nonOwner := sdk.AccAddress([]byte("nonowner"))
-		k.Member.Set(ctx, staker.String(), types.Member{
+		require.NoError(t, k.Member.Set(ctx, staker.String(), types.Member{
 			Address:          staker.String(),
 			DreamBalance:     PtrInt(math.NewInt(10000)),
 			StakedDream:      PtrInt(math.ZeroInt()),
 			LifetimeEarned:   PtrInt(math.ZeroInt()),
 			LifetimeBurned:   PtrInt(math.ZeroInt()),
 			ReputationScores: map[string]string{"backend": "50.0"},
-		})
-		k.Member.Set(ctx, nonOwner.String(), types.Member{
+		}))
+		require.NoError(t, k.Member.Set(ctx, nonOwner.String(), types.Member{
 			Address:          nonOwner.String(),
 			DreamBalance:     PtrInt(math.NewInt(5000)),
 			StakedDream:      PtrInt(math.ZeroInt()),
 			LifetimeEarned:   PtrInt(math.ZeroInt()),
 			LifetimeBurned:   PtrInt(math.ZeroInt()),
 			ReputationScores: map[string]string{},
-		})
+		}))
 
 		nonOwnerStr, err := f.addressCodec.BytesToString(nonOwner)
 		require.NoError(t, err)
@@ -143,14 +143,14 @@ func TestMsgCompoundStakingRewards(t *testing.T) {
 
 		// Setup: create staker member with DREAM
 		staker := sdk.AccAddress([]byte("staker"))
-		k.Member.Set(ctx, staker.String(), types.Member{
+		require.NoError(t, k.Member.Set(ctx, staker.String(), types.Member{
 			Address:          staker.String(),
 			DreamBalance:     PtrInt(math.NewInt(10000)),
 			StakedDream:      PtrInt(math.ZeroInt()),
 			LifetimeEarned:   PtrInt(math.ZeroInt()),
 			LifetimeBurned:   PtrInt(math.ZeroInt()),
 			ReputationScores: map[string]string{"backend": "50.0"},
-		})
+		}))
 
 		stakerStr, err := f.addressCodec.BytesToString(staker)
 		require.NoError(t, err)
@@ -159,14 +159,14 @@ func TestMsgCompoundStakingRewards(t *testing.T) {
 		// and project stakes must claim and re-stake so the new DREAM gets its
 		// own conviction maturity clock.
 		target := sdk.AccAddress([]byte("compound_msg_target_"))
-		k.Member.Set(ctx, target.String(), types.Member{
+		require.NoError(t, k.Member.Set(ctx, target.String(), types.Member{
 			Address:          target.String(),
 			DreamBalance:     PtrInt(math.ZeroInt()),
 			StakedDream:      PtrInt(math.ZeroInt()),
 			LifetimeEarned:   PtrInt(math.ZeroInt()),
 			LifetimeBurned:   PtrInt(math.ZeroInt()),
 			ReputationScores: map[string]string{},
-		})
+		}))
 
 		// Create stake
 		initialStakeAmount := math.NewInt(2000)
@@ -180,7 +180,7 @@ func TestMsgCompoundStakingRewards(t *testing.T) {
 		// Give the staker enough DREAM to cover compounded rewards
 		member, _ := k.Member.Get(ctx, staker.String())
 		*member.DreamBalance = math.NewInt(500000000000000)
-		k.Member.Set(ctx, staker.String(), member)
+		require.NoError(t, k.Member.Set(ctx, staker.String(), member))
 
 		// Advance past the minimum holding period so rewards are collectable
 		params, err := k.Params.Get(ctx)

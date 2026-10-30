@@ -3,6 +3,7 @@ package keeper
 import (
 	"context"
 	"fmt"
+	stdmath "math"
 
 	"sparkdream/x/forum/types"
 
@@ -34,8 +35,20 @@ func (k msgServer) HidePost(ctx context.Context, msg *types.MsgHidePost) (*types
 	if reasonCode == commontypes.ModerationReason_MODERATION_REASON_UNSPECIFIED {
 		return nil, types.ErrInvalidReasonCode
 	}
+	if msg.ReasonCode > uint64(stdmath.MaxInt32) {
+		return nil, errorsmod.Wrapf(types.ErrInvalidReasonCode, "invalid reason code %d", msg.ReasonCode)
+	}
+	if _, ok := commontypes.ModerationReason_name[int32(reasonCode)]; !ok {
+		return nil, errorsmod.Wrapf(types.ErrInvalidReasonCode, "invalid reason code %d", msg.ReasonCode)
+	}
 	if reasonCode == commontypes.ModerationReason_MODERATION_REASON_OTHER && msg.ReasonText == "" {
 		return nil, types.ErrReasonTextRequired
+	}
+	// The reason text is stored on the HideRecord, so it gets the same bound
+	// as flag reasons.
+	if len(msg.ReasonText) > types.MaxFlagReasonLength {
+		return nil, errorsmod.Wrapf(types.ErrFlagReasonTooLong,
+			"reason text is %d bytes, max %d", len(msg.ReasonText), types.MaxFlagReasonLength)
 	}
 
 	// Resolve which moderation authority this hide invokes. An account can be
@@ -96,6 +109,12 @@ func (k msgServer) HidePost(ctx context.Context, msg *types.MsgHidePost) (*types
 	if err != nil {
 		return nil, errorsmod.Wrap(types.ErrPostNotFound, fmt.Sprintf("post %d not found", msg.PostId))
 	}
+	// A sentinel's hide, lock and move are rewarded actions (x/rep scores
+	// them): moderating their own content would be paid self-dealing, and a
+	// self-lock can never be appealed (FRM-28). The council path is unaffected.
+	if !isGovAuthority && k.sameMember(ctx, post.Author, msg.Creator) {
+		return nil, types.ErrSelfModeration
+	}
 
 	switch post.Status {
 	case types.PostStatus_POST_STATUS_HIDDEN:
@@ -147,6 +166,9 @@ func (k msgServer) HidePost(ctx context.Context, msg *types.MsgHidePost) (*types
 		if err := k.HideRecord.Set(ctx, msg.PostId, hideRecord); err != nil {
 			return nil, errorsmod.Wrap(err, "failed to store hide record")
 		}
+		if err := k.indexHideExpiry(ctx, msg.PostId, hideRecord); err != nil {
+			return nil, errorsmod.Wrap(err, "failed to index hide expiry")
+		}
 
 		// Forum-local pending-hide tracking; the hide-action counters live on
 		// rep's shared RoleActivity record.
@@ -159,8 +181,12 @@ func (k msgServer) HidePost(ctx context.Context, msg *types.MsgHidePost) (*types
 			return nil, errorsmod.Wrap(err, "failed to update sentinel activity")
 		}
 
-		_ = k.repKeeper.RecordRoleAction(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, msg.Creator, reptypes.ActionKindForumHide)
-		_ = k.repKeeper.RecordActivity(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, msg.Creator)
+		if err := k.repKeeper.RecordRoleAction(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, msg.Creator, reptypes.ActionKindForumHide); err != nil {
+			return nil, err
+		}
+		if err := k.repKeeper.RecordActivity(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, msg.Creator); err != nil {
+			return nil, err
+		}
 	} else {
 		// Gov-authority hide: write a minimal HideRecord with Sentinel == ""
 		// as the gov-hide marker. The empty Sentinel field is what
@@ -179,12 +205,20 @@ func (k msgServer) HidePost(ctx context.Context, msg *types.MsgHidePost) (*types
 		if err := k.HideRecord.Set(ctx, msg.PostId, govRecord); err != nil {
 			return nil, errorsmod.Wrap(err, "failed to store gov-hide record")
 		}
+		if err := k.indexHideExpiry(ctx, msg.PostId, govRecord); err != nil {
+			return nil, errorsmod.Wrap(err, "failed to index hide expiry")
+		}
 	}
 
 	if k.repKeeper != nil {
 		if err := k.repKeeper.SlashAuthorBond(ctx, reptypes.StakeTargetType_STAKE_TARGET_FORUM_AUTHOR_BOND, msg.PostId); err != nil {
 			sdkCtx.Logger().Debug("author bond slash skipped", "post_id", msg.PostId, "error", err)
 		}
+	}
+
+	// A hidden thread root suspends the thread's bounty timer.
+	if err := k.reconcileThreadBounty(ctx, msg.PostId); err != nil {
+		return nil, errorsmod.Wrap(err, "failed to suspend thread bounty")
 	}
 
 	sdkCtx.EventManager().EmitEvent(

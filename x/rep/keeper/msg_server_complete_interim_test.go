@@ -79,8 +79,8 @@ func TestMsgServerCompleteInterim(t *testing.T) {
 			CompletionNotes: "Trying to complete without being assignee",
 		})
 
-		require.Error(t, err)
-		require.Contains(t, err.Error(), "only assignees can complete this interim")
+		// REP-E-02: no one completes a regular interim through this message.
+		require.ErrorIs(t, err, types.ErrInterimNeedsApproval)
 	})
 
 	t.Run("regular interim - successful completion by assignee", func(t *testing.T) {
@@ -112,19 +112,18 @@ func TestMsgServerCompleteInterim(t *testing.T) {
 		err = k.SubmitInterimWork(ctx, interimID, assignee, "uri", "work comments")
 		require.NoError(t, err)
 
-		// Complete interim as the assignee
+		// REP-E-02: the payee cannot certify their own payment.
 		_, err = ms.CompleteInterim(ctx, &types.MsgCompleteInterim{
 			Creator:         assigneeStr,
 			InterimId:       interimID,
 			CompletionNotes: "Work completed successfully",
 		})
-		require.NoError(t, err)
+		require.ErrorIs(t, err, types.ErrInterimNeedsApproval)
 
-		// Verify interim was completed
+		// Still waiting for the Operations Committee.
 		interim, err := k.GetInterim(ctx, interimID)
 		require.NoError(t, err)
-		require.Equal(t, types.InterimStatus_INTERIM_STATUS_COMPLETED, interim.Status)
-		require.Equal(t, "Work completed successfully", interim.CompletionNotes)
+		require.Equal(t, types.InterimStatus_INTERIM_STATUS_IN_PROGRESS, interim.Status)
 	})
 
 	t.Run("adjudication interim - unauthorized non-committee member", func(t *testing.T) {
@@ -166,7 +165,7 @@ func TestMsgServerCompleteInterim(t *testing.T) {
 		})
 
 		require.Error(t, err)
-		require.Contains(t, err.Error(), "only technical committee members can complete ADJUDICATION interims")
+		require.Contains(t, err.Error(), "can complete ADJUDICATION interims")
 	})
 
 	t.Run("adjudication interim - successful completion by committee member", func(t *testing.T) {
@@ -249,18 +248,13 @@ func TestMsgServerCompleteInterim(t *testing.T) {
 		err = k.SubmitInterimWork(ctx, interimID, assignee1, "uri", "work comments")
 		require.NoError(t, err)
 
-		// First assignee can complete
+		// No assignee completes it (REP-E-02).
 		_, err = ms.CompleteInterim(ctx, &types.MsgCompleteInterim{
 			Creator:         assignee1Str,
 			InterimId:       interimID,
 			CompletionNotes: "Completed by first assignee",
 		})
-		require.NoError(t, err)
-
-		// Verify interim was completed
-		interim, err := k.GetInterim(ctx, interimID)
-		require.NoError(t, err)
-		require.Equal(t, types.InterimStatus_INTERIM_STATUS_COMPLETED, interim.Status)
+		require.ErrorIs(t, err, types.ErrInterimNeedsApproval)
 	})
 
 	t.Run("regular interim - second assignee can complete", func(t *testing.T) {
@@ -296,22 +290,18 @@ func TestMsgServerCompleteInterim(t *testing.T) {
 		err = k.SubmitInterimWork(ctx, interimID, assignee2, "uri", "work comments")
 		require.NoError(t, err)
 
-		// Second assignee can complete
+		// No assignee completes it (REP-E-02).
 		_, err = ms.CompleteInterim(ctx, &types.MsgCompleteInterim{
 			Creator:         assignee2Str,
 			InterimId:       interimID,
 			CompletionNotes: "Completed by second assignee",
 		})
-		require.NoError(t, err)
-
-		// Verify interim was completed
-		interim, err := k.GetInterim(ctx, interimID)
-		require.NoError(t, err)
-		require.Equal(t, types.InterimStatus_INTERIM_STATUS_COMPLETED, interim.Status)
+		require.ErrorIs(t, err, types.ErrInterimNeedsApproval)
 	})
 
-	t.Run("completion rewards DREAM to assignees", func(t *testing.T) {
-		f := initFixture(t)
+	t.Run("committee approval rewards DREAM to assignees", func(t *testing.T) {
+		approver := TestAddrApprover
+		f := initFixture(t, WithAuthorizationPolicy(AuthorizeAddresses(approver)))
 		ms := keeper.NewMsgServerImpl(f.keeper)
 		k := f.keeper
 		ctx := f.ctx
@@ -352,11 +342,14 @@ func TestMsgServerCompleteInterim(t *testing.T) {
 		err = k.SubmitInterimWork(ctx, interimID, assignee, "uri", "work comments")
 		require.NoError(t, err)
 
-		// Complete interim as the assignee
-		_, err = ms.CompleteInterim(ctx, &types.MsgCompleteInterim{
-			Creator:         assigneeStr,
-			InterimId:       interimID,
-			CompletionNotes: "Work completed successfully",
+		// The Operations Committee (not the assignee) approves the payment.
+		approverStr, err := f.addressCodec.BytesToString(approver)
+		require.NoError(t, err)
+		_, err = ms.ApproveInterim(ctx, &types.MsgApproveInterim{
+			Creator:   approverStr,
+			InterimId: interimID,
+			Approved:  true,
+			Comments:  "Work completed successfully",
 		})
 		require.NoError(t, err)
 

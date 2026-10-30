@@ -1,54 +1,48 @@
 package simulation
 
 import (
-	"math/rand"
-
-	"cosmossdk.io/collections"
-	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
 
 	"sparkdream/x/federation/keeper"
 	"sparkdream/x/federation/types"
 )
 
+// SimulateMsgRegisterBridge delivers MsgRegisterBridge: an active x/rep
+// member binds itself as bridge operator to an ACTIVE external-protocol
+// peer. A new x/service operator escrows the service type's min_bond (the
+// tx fee is drawn from what is left); an existing ACTIVE one binds with no
+// extra stake. A NoOp when no ACTIVE bridged peer exists (only a policy
+// address can activate one) or no member can bind.
 func SimulateMsgRegisterBridge(
 	ak types.AuthKeeper,
 	bk types.BankKeeper,
 	k keeper.Keeper,
 	txGen client.TxConfig,
 ) simtypes.Operation {
-	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
-	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		simAccount, _ := simtypes.RandomAcc(r, accs)
-		addr := simAccount.Address.String()
-
-		// Need an active peer
-		peer, err := getOrCreateActivePeer(r, ctx, k, addr)
+	return operation(ak, bk, k, txGen, &types.MsgRegisterBridge{}, func(e *simEnv) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
+		msg := &types.MsgRegisterBridge{}
+		peers, err := e.peersWhere(activeBridged)
 		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgRegisterBridge{}), "failed to get/create active peer"), nil, nil
+			return noOpErr(msg, err)
 		}
-
-		// Check if bridge already exists for this operator+peer
-		_, err = k.BridgeBindings.Get(ctx, collections.Join(addr, peer.Id))
-		if err == nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgRegisterBridge{}), "bridge already exists"), nil, nil
+		p, ok := pick(e.r, peers)
+		if !ok {
+			return noOp(msg, "no ACTIVE external-protocol peer (activation is policy-only)")
 		}
-
-		bridge := types.BridgeBinding{
-			Address:      addr,
-			PeerId:       peer.Id,
-			Protocol:     randomProtocol(r),
-			Endpoint:     randomEndpoint(r),
-			RegisteredAt: ctx.BlockTime().Unix(),
+		candidates := accountsWhere(e.live(), func(a simtypes.Account) bool {
+			addr := a.Address.String()
+			_, has := e.binding(addr, p.Id)
+			return !has && e.isActiveMember(addr)
+		})
+		acc, ok := pick(e.r, candidates)
+		if !ok {
+			return noOp(msg, "no unbound active member for the peer")
 		}
-
-		if err := k.BridgeBindings.Set(ctx, collections.Join(addr, peer.Id), bridge); err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgRegisterBridge{}), "failed to set bridge"), nil, nil
+		msg, spent, reason := e.registerBridgeMsg(acc, p)
+		if reason != "" {
+			return noOp(msg, reason)
 		}
-		_ = k.BridgesByPeer.Set(ctx, collections.Join(peer.Id, addr))
-
-		return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgRegisterBridge{}), "ok (direct keeper call)"), nil, nil
-	}
+		return e.submit(acc, msg, spent)
+	})
 }

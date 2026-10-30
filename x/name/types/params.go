@@ -102,6 +102,9 @@ func (p Params) Validate() error {
 	if p.DisputeTimeoutBlocks == 0 {
 		return fmt.Errorf("dispute timeout blocks must be positive")
 	}
+	if p.MinNameLength > p.MaxNameLength {
+		return fmt.Errorf("min name length %d exceeds max name length %d", p.MinNameLength, p.MaxNameLength)
+	}
 
 	return nil
 }
@@ -118,22 +121,63 @@ func DefaultNameOperationalParams() NameOperationalParams {
 	}
 }
 
-// Validate validates the operational params.
+// Compiled hard bounds on the operational params. The Commons Operations
+// Committee may tune these values (MsgUpdateOperationalParams) only inside
+// the bounds; a value that would make names instantly scavengeable or
+// disputes instantly upheld (NAM-01) is refused. x/gov (MsgUpdateParams) is
+// not bound by them.
+var (
+	// MinOpExpirationDuration: an owner must be inactive this long before
+	// their names can be scavenged.
+	MinOpExpirationDuration = 180 * 24 * time.Hour
+	// MaxOpExpirationDuration caps it so scavenging stays possible.
+	MaxOpExpirationDuration = 10 * 365 * 24 * time.Hour
+	// MinOpDisputeTimeoutBlocks: the owner's contest window (~3 days at 6s).
+	MinOpDisputeTimeoutBlocks uint64 = 43_200
+	// MaxOpDisputeTimeoutBlocks: ~60 days at 6s.
+	MaxOpDisputeTimeoutBlocks uint64 = 864_000
+	// MinOpStakeDream: 1 DREAM floor on the dispute and contest stakes, so
+	// filing a dispute always costs something.
+	MinOpStakeDream = math.NewInt(1_000_000)
+	// MaxOpContestStakeDream: 1,000 DREAM ceiling on the contest stake, so
+	// owners are not priced out of defending their names.
+	MaxOpContestStakeDream = math.NewInt(1_000_000_000)
+	// MaxOpRegistrationFeeAmount: 1,000 SPARK ceiling on the registration
+	// fee.
+	MaxOpRegistrationFeeAmount = math.NewInt(1_000_000_000)
+)
+
+// Validate validates the operational params against the compiled bounds.
 func (op NameOperationalParams) Validate() error {
 	if op.ExpirationDuration <= 0 {
 		return fmt.Errorf("expiration duration must be positive")
 	}
+	if op.ExpirationDuration < MinOpExpirationDuration || op.ExpirationDuration > MaxOpExpirationDuration {
+		return fmt.Errorf("expiration duration %s outside [%s, %s]", op.ExpirationDuration, MinOpExpirationDuration, MaxOpExpirationDuration)
+	}
 	if err := validateRegistrationFee(op.RegistrationFeeAmount); err != nil {
 		return err
 	}
-	if op.DisputeStakeDream.IsNegative() {
+	if op.RegistrationFeeAmount.GT(MaxOpRegistrationFeeAmount) {
+		return fmt.Errorf("registration fee %s exceeds %s", op.RegistrationFeeAmount, MaxOpRegistrationFeeAmount)
+	}
+	if op.DisputeStakeDream.IsNil() || op.DisputeStakeDream.IsNegative() {
 		return fmt.Errorf("dispute stake must be non-negative")
 	}
-	if op.ContestStakeDream.IsNegative() {
+	if op.ContestStakeDream.IsNil() || op.ContestStakeDream.IsNegative() {
 		return fmt.Errorf("contest stake must be non-negative")
+	}
+	if op.DisputeStakeDream.LT(MinOpStakeDream) {
+		return fmt.Errorf("dispute stake %s below the %s floor", op.DisputeStakeDream, MinOpStakeDream)
+	}
+	if op.ContestStakeDream.LT(MinOpStakeDream) || op.ContestStakeDream.GT(MaxOpContestStakeDream) {
+		return fmt.Errorf("contest stake %s outside [%s, %s]", op.ContestStakeDream, MinOpStakeDream, MaxOpContestStakeDream)
 	}
 	if op.DisputeTimeoutBlocks == 0 {
 		return fmt.Errorf("dispute timeout blocks must be positive")
+	}
+	if op.DisputeTimeoutBlocks < MinOpDisputeTimeoutBlocks || op.DisputeTimeoutBlocks > MaxOpDisputeTimeoutBlocks {
+		return fmt.Errorf("dispute timeout %d blocks outside [%d, %d]", op.DisputeTimeoutBlocks, MinOpDisputeTimeoutBlocks, MaxOpDisputeTimeoutBlocks)
 	}
 	return nil
 }

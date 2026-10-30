@@ -20,5 +20,5 @@ func (q queryServer) GetNomination(ctx context.Context, req *types.QueryGetNomin
 		return nil, status.Errorf(codes.NotFound, "nomination %d not found", req.Id)
 	}
 
-	return &types.QueryGetNominationResponse{Nomination: nomination}, nil
+	return &types.QueryGetNominationResponse{Nomination: q.k.withLiveConviction(ctx, nomination)}, nil
 }

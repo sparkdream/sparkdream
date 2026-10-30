@@ -31,6 +31,11 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 				return err
 			}
 		}
+		if elem.Target != "" {
+			if err := k.TargetNames.Set(ctx, collections.Join(elem.Target, elem.Name)); err != nil {
+				return err
+			}
+		}
 	}
 
 	// 3. Set Owner Infos
@@ -42,7 +47,8 @@ func (k Keeper) InitGenesis(ctx context.Context, genState types.GenesisState) er
 
 	// 4. Set Disputes
 	for _, elem := range genState.DisputeMap {
-		if err := k.Disputes.Set(ctx, elem.Name, elem); err != nil {
+		// SetDispute also rebuilds the PendingDisputes index.
+		if err := k.SetDispute(ctx, elem); err != nil {
 			return err
 		}
 	}

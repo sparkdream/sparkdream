@@ -17,6 +17,9 @@ func (k msgServer) UpdateCollaboratorRole(ctx context.Context, msg *types.MsgUpd
 	if _, err := k.addressCodec.StringToBytes(msg.Address); err != nil {
 		return nil, errorsmod.Wrap(err, "invalid collaborator address")
 	}
+	if msg.Role != types.CollaboratorRole_COLLABORATOR_ROLE_EDITOR && msg.Role != types.CollaboratorRole_COLLABORATOR_ROLE_ADMIN {
+		return nil, errorsmod.Wrapf(types.ErrInvalidCollaboratorRole, "got %s", msg.Role)
+	}
 
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	blockHeight := sdkCtx.BlockHeight()

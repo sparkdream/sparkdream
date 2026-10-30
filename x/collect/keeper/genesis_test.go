@@ -22,3 +22,18 @@ func TestGenesis(t *testing.T) {
 
 	require.EqualExportedValues(t, genesisState.Params, got.Params)
 }
+
+// The promotion queue is hook-driven, so genesis carries it verbatim.
+func TestGenesisKeepsPromotionQueue(t *testing.T) {
+	f := initFixture(t)
+	require.NoError(t, f.keeper.PromotionQueue.Set(f.ctx, "phoenix", 60))
+	exported, err := f.keeper.ExportGenesis(f.ctx)
+	require.NoError(t, err)
+	require.Len(t, exported.PromotionQueue, 1)
+
+	g := initFixture(t)
+	require.NoError(t, g.keeper.InitGenesis(g.ctx, *exported))
+	at, err := g.keeper.PromotionQueue.Get(g.ctx, "phoenix")
+	require.NoError(t, err)
+	require.Equal(t, int64(60), at)
+}

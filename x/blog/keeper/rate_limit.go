@@ -2,6 +2,7 @@ package keeper
 
 import (
 	"context"
+	commontypes "sparkdream/x/common/types"
 
 	"cosmossdk.io/store/prefix"
 	"github.com/cosmos/cosmos-sdk/runtime"
@@ -19,7 +20,7 @@ func (k Keeper) checkRateLimit(ctx context.Context, actionType string, addr sdk.
 	}
 
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
-	currentDay := uint64(sdkCtx.BlockTime().Unix() / 86400)
+	currentDay := commontypes.Saturate[uint64](sdkCtx.BlockTime().Unix() / 86400)
 
 	entry := k.getRateLimitEntry(ctx, actionType, addr.String())
 	if entry.Day != currentDay {
@@ -38,7 +39,7 @@ func (k Keeper) incrementRateLimit(ctx context.Context, actionType string, addr 
 		return
 	}
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
-	currentDay := uint64(sdkCtx.BlockTime().Unix() / 86400)
+	currentDay := commontypes.Saturate[uint64](sdkCtx.BlockTime().Unix() / 86400)
 
 	entry := k.getRateLimitEntry(ctx, actionType, addr.String())
 	if entry.Day != currentDay {

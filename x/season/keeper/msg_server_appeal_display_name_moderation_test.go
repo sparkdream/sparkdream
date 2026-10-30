@@ -61,7 +61,7 @@ func TestMsgServerAppealDisplayNameModeration(t *testing.T) {
 			ModeratedAt:  ctx.BlockHeight(),
 			Active:       false, // Not active
 		}
-		k.DisplayNameModeration.Set(ctx, creatorStr, moderation)
+		require.NoError(t, k.SetDisplayNameModeration(ctx, creatorStr, moderation))
 
 		_, err := ms.AppealDisplayNameModeration(ctx, &types.MsgAppealDisplayNameModeration{
 			Creator:      creatorStr,
@@ -90,7 +90,7 @@ func TestMsgServerAppealDisplayNameModeration(t *testing.T) {
 			Active:            true,
 			AppealChallengeId: "existing-appeal-123", // Already has appeal
 		}
-		k.DisplayNameModeration.Set(ctx, creatorStr, moderation)
+		require.NoError(t, k.SetDisplayNameModeration(ctx, creatorStr, moderation))
 
 		_, err := ms.AppealDisplayNameModeration(ctx, &types.MsgAppealDisplayNameModeration{
 			Creator:      creatorStr,
@@ -120,7 +120,7 @@ func TestMsgServerAppealDisplayNameModeration(t *testing.T) {
 			ModeratedAt:  0, // Created at block 0
 			Active:       true,
 		}
-		k.DisplayNameModeration.Set(ctx, creatorStr, moderation)
+		require.NoError(t, k.SetDisplayNameModeration(ctx, creatorStr, moderation))
 
 		// Advance time past appeal period
 		ctx = ctx.WithBlockHeight(int64(params.DisplayNameAppealPeriodBlocks) + 1)
@@ -151,7 +151,7 @@ func TestMsgServerAppealDisplayNameModeration(t *testing.T) {
 			ModeratedAt:  ctx.BlockHeight(),
 			Active:       true,
 		}
-		k.DisplayNameModeration.Set(ctx, creatorStr, moderation)
+		require.NoError(t, k.SetDisplayNameModeration(ctx, creatorStr, moderation))
 
 		_, err := ms.AppealDisplayNameModeration(ctx, &types.MsgAppealDisplayNameModeration{
 			Creator:      creatorStr,
@@ -185,7 +185,7 @@ func TestMsgServerAppealDisplayNameModeration(t *testing.T) {
 			ModeratedAt:  ctx.BlockHeight(),
 			Active:       true,
 		}
-		k.DisplayNameModeration.Set(ctx, creatorStr, moderation)
+		require.NoError(t, k.SetDisplayNameModeration(ctx, creatorStr, moderation))
 
 		_, err := ms.AppealDisplayNameModeration(ctx, &types.MsgAppealDisplayNameModeration{
 			Creator:      creatorStr,
@@ -221,7 +221,7 @@ func TestMsgServerAppealDisplayNameModeration(t *testing.T) {
 			ModeratedAt:  100,
 			Active:       true,
 		}
-		k.DisplayNameModeration.Set(ctx, creatorStr, moderation)
+		require.NoError(t, k.SetDisplayNameModeration(ctx, creatorStr, moderation))
 
 		// Set block height to exactly the last valid block
 		ctx = ctx.WithBlockHeight(100 + int64(params.DisplayNameAppealPeriodBlocks))
@@ -253,7 +253,7 @@ func TestMsgServerAppealDisplayNameModeration(t *testing.T) {
 			ModeratedAt:  100,
 			Active:       true,
 		}
-		k.DisplayNameModeration.Set(ctx, creatorStr, moderation)
+		require.NoError(t, k.SetDisplayNameModeration(ctx, creatorStr, moderation))
 
 		// Set block height to one block past the period
 		ctx = ctx.WithBlockHeight(100 + int64(params.DisplayNameAppealPeriodBlocks) + 1)

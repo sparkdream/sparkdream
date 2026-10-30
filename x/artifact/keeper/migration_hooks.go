@@ -2,21 +2,20 @@ package keeper
 
 import (
 	"context"
-	"fmt"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
-	"sparkdream/x/artifact/types"
 	reptypes "sparkdream/x/rep/types"
 )
 
 // MigrationHooks implements x/rep's MemberMigrationHooks for x/artifact
 // (member-key-migration plan §8, artifact row). Everything artifact holds
-// for a member (classes, tokens, listings, offers, inbox items) is read
-// through the alias (CanActAs / RecentAddressesOf), so nothing moves. The
-// one veto: a class-owner handover proposed TO the old address, which names
-// an address rather than an identity and would otherwise land on a
-// tombstone.
+// for a member (classes, tokens, listings, offers, inbox items, pending
+// class-owner handovers) is read through the alias (CanActAs /
+// RecentAddressesOf), so nothing moves and nothing vetoes: a handover
+// proposed to the old address is accepted by the successor
+// (MsgAcceptClassOwner checks CanActAs), so no third party can block a
+// migration by proposing a handover to the migrating address.
 type MigrationHooks struct {
 	k *Keeper
 }
@@ -28,21 +27,8 @@ func NewMigrationHooks(k *Keeper) MigrationHooks {
 
 var _ reptypes.MemberMigrationHooks = MigrationHooks{}
 
-// BeforeMemberMigration vetoes while a pending class-owner proposal names
-// the old address.
+// BeforeMemberMigration never vetoes (see MigrationHooks).
 func (h MigrationHooks) BeforeMemberMigration(ctx context.Context, from, to sdk.AccAddress, path reptypes.MigrationPath) error {
-	fromStr := from.String()
-	var pending uint64
-	_ = h.k.PendingClassOwners.Walk(ctx, nil, func(classID uint64, p types.PendingClassOwner) (bool, error) {
-		if p.ProposedOwner == fromStr {
-			pending = classID
-			return true, nil
-		}
-		return false, nil
-	})
-	if pending != 0 {
-		return fmt.Errorf("x/artifact: class %d has a pending owner handover to %s; accept or let it expire first", pending, fromStr)
-	}
 	return nil
 }
 

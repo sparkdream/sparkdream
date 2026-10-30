@@ -2,8 +2,6 @@ package keeper
 
 import (
 	"context"
-	"fmt"
-	"strings"
 
 	"sparkdream/x/season/types"
 
@@ -17,40 +15,25 @@ func (q queryServer) GuildInvites(ctx context.Context, req *types.QueryGuildInvi
 	}
 
 	// Verify guild exists
-	_, err := q.k.Guild.Get(ctx, req.GuildId)
+	guild, err := q.k.Guild.Get(ctx, req.GuildId)
 	if err != nil {
 		return nil, status.Errorf(codes.NotFound, "guild %d not found", req.GuildId)
 	}
 
-	// Iterate through invites to find those for this guild
-	// Keys are formatted as "guildId:invitee"
-	prefix := fmt.Sprintf("%d:", req.GuildId)
-
-	iter, err := q.k.GuildInvite.Iterate(ctx, nil)
-	if err != nil {
-		return nil, status.Error(codes.Internal, err.Error())
-	}
-	defer iter.Close()
-
+	// First live invite of the guild, read through its pending list rather
+	// than a scan of every invite (SEA-28).
 	var foundInvitee string
 	var foundInviter string
 	var foundInvitedEpoch int64
-
-	for ; iter.Valid(); iter.Next() {
-		key, err := iter.Key()
+	for _, invitee := range guild.PendingInvites {
+		invite, err := q.k.GuildInvite.Get(ctx, guildInviteKey(req.GuildId, invitee))
 		if err != nil {
 			continue
 		}
-		if strings.HasPrefix(key, prefix) {
-			invite, err := iter.Value()
-			if err != nil {
-				continue
-			}
-			foundInvitee = invite.GuildInvitee
-			foundInviter = invite.Inviter
-			foundInvitedEpoch = invite.ExpiresEpoch
-			break // Return first match for non-paginated response
-		}
+		foundInvitee = invite.GuildInvitee
+		foundInviter = invite.Inviter
+		foundInvitedEpoch = invite.ExpiresEpoch
+		break // Return first match for non-paginated response
 	}
 
 	return &types.QueryGuildInvitesResponse{

@@ -251,9 +251,13 @@ func TestSeasonalTitlesGrantedOnTransition(t *testing.T) {
 		grants[g.TitleId] = g.EligibleMembers
 	}
 	require.ElementsMatch(t, []string{top, low}, grants["champion"], "top-10 XP includes both")
-	require.Equal(t, []string{top}, grants["rising_star"], "level 5+")
-	require.Equal(t, []string{top}, grants["guardian"], "3 challenges won")
-	require.Empty(t, grants["exemplar"], "level 10 not reached")
+	// Threshold titles are recorded on each member's season snapshot.
+	topSnap, err := k.MemberSeasonSnapshot.Get(ctx, "3/"+top)
+	require.NoError(t, err)
+	require.ElementsMatch(t, []string{"rising_star", "guardian"}, topSnap.EligibleTitleIds, "level 5+, 3 challenges won; level 10 not reached")
+	lowSnap, err := k.MemberSeasonSnapshot.Get(ctx, "3/"+low)
+	require.NoError(t, err)
+	require.Empty(t, lowSnap.EligibleTitleIds)
 
 	// Drive the TITLES phase over every profile.
 	state := types.SeasonTransitionState{Phase: types.TransitionPhase_TRANSITION_PHASE_TITLES}
@@ -307,4 +311,48 @@ func TestOnMemberZeroedLeavesGuildAndFreezesForFounder(t *testing.T) {
 	require.Equal(t, uint64(0), fp.GuildId)
 	guild, _ = k.Guild.Get(ctx, guildID)
 	require.Equal(t, types.GuildStatus_GUILD_STATUS_FROZEN, guild.Status)
+}
+
+// SEA-02: the per-season copies (`s<N>_<id>`, RequirementSeason = N) are
+// never evaluated as seasonal bases, so the number of seasonal definitions
+// grows by the base count per season instead of doubling.
+func TestSeasonalTitleDefinitionsDoNotDouble(t *testing.T) {
+	f, ctx := engineFixture(t)
+	k := f.keeper
+	top := GetAddrString(t, f.addressCodec, TestAddrMember1)
+	countSeasonal := func() (bases, copies int) {
+		require.NoError(t, k.Title.Walk(ctx, nil, func(_ string, ti types.Title) (bool, error) {
+			if ti.Seasonal {
+				if ti.RequirementSeason == 0 {
+					bases++
+				} else {
+					copies++
+				}
+			}
+			return false, nil
+		}))
+		return
+	}
+	baseCount, _ := countSeasonal()
+	require.Positive(t, baseCount)
+
+	for season := uint64(1); season <= 4; season++ {
+		cur, err := k.Season.Get(ctx)
+		require.NoError(t, err)
+		cur.Number = season
+		require.NoError(t, k.Season.Set(ctx, cur))
+		// The member qualifies for every seasonal base each season.
+		require.NoError(t, k.MemberProfile.Set(ctx, top, types.MemberProfile{
+			Address: top, SeasonXp: 50000, SeasonLevel: 20, ChallengesWon: 50, VotesCast: 500,
+		}))
+		require.NoError(t, k.ComputeSeasonTitleEligibility(ctx, season))
+		state := types.SeasonTransitionState{Phase: types.TransitionPhase_TRANSITION_PHASE_TITLES}
+		_, err = k.ProcessTitlesPhaseForTest(ctx, &state, 100)
+		require.NoError(t, err)
+
+		bases, copies := countSeasonal()
+		t.Logf("season %d bases=%d copies=%d", season, bases, copies)
+		require.Equal(t, baseCount, bases, "season %d: bases must not multiply", season)
+		require.LessOrEqual(t, copies, baseCount*int(season), "season %d: at most one copy per base per season", season)
+	}
 }

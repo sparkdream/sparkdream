@@ -128,3 +128,42 @@ func TestRegisterShieldedOpEpochWindow(t *testing.T) {
 	reg.BatchMode = types.ShieldBatchMode_SHIELD_BATCH_MODE_IMMEDIATE_ONLY
 	require.Error(t, register(reg))
 }
+
+// TestRegisterShieldedOpDomainConflict (SHD-05): an op can't join a nullifier
+// domain whose existing ops scope nullifiers differently (here an EPOCH op in
+// the MESSAGE_FIELD domain of anonymous proposal votes, which pruning would
+// then wipe), but may share a domain with identical scoping.
+func TestRegisterShieldedOpDomainConflict(t *testing.T) {
+	f, ms := initMsgServer(t)
+	authority, err := f.addressCodec.BytesToString(f.keeper.GetAuthority())
+	require.NoError(t, err)
+
+	votes, found := f.keeper.GetShieldedOp(f.ctx, "/sparkdream.commons.v1.MsgAnonymousVoteProposal")
+	require.True(t, found)
+
+	clash := types.ShieldedOpRegistration{
+		MessageTypeUrl:     "/sparkdream.phoenix.v1.MsgSpark",
+		ProofDomain:        types.ProofDomain_PROOF_DOMAIN_TRUST_TREE,
+		NullifierDomain:    votes.NullifierDomain,
+		NullifierScopeType: types.NullifierScopeType_NULLIFIER_SCOPE_EPOCH,
+		Active:             true,
+	}
+	_, err = ms.RegisterShieldedOp(f.ctx, &types.MsgRegisterShieldedOp{Authority: authority, Registration: clash})
+	require.ErrorIs(t, err, types.ErrNullifierDomainConflict)
+
+	same := votes
+	same.MessageTypeUrl = "/sparkdream.phoenix.v1.MsgSpark"
+	_, err = ms.RegisterShieldedOp(f.ctx, &types.MsgRegisterShieldedOp{Authority: authority, Registration: same})
+	require.NoError(t, err)
+
+	// Updating an op in place is checked against the others only.
+	votes.Active = false
+	_, err = ms.RegisterShieldedOp(f.ctx, &types.MsgRegisterShieldedOp{Authority: authority, Registration: votes})
+	require.NoError(t, err)
+
+	// The genesis op table obeys the same rule.
+	require.NoError(t, types.DefaultGenesis().Validate())
+	gen := types.DefaultGenesis()
+	gen.RegisteredOps = append(gen.RegisteredOps, clash)
+	require.ErrorIs(t, gen.Validate(), types.ErrNullifierDomainConflict)
+}

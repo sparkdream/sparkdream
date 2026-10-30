@@ -131,11 +131,23 @@ func (k msgServer) ResolveReportByJury(ctx context.Context, msg *types.MsgResolv
 		// drawn from. If we have a contested escrow, the slash is
 		// bounded by the escrow amount; the difference returns to bond.
 		// If no escrow, the slash debits the current bond directly.
-		basis := op.BondAmount
-		if hasEscrow {
-			basis = escrow.Amount
+		//
+		// With a contested escrow still held (not reachable today —
+		// ContestSlash returns the escrow to bond before escalating — but
+		// kept correct for any path that holds it through the contest):
+		// ACCEPT keeps the escrow as the slash, since it already IS the
+		// proposed slash taken at tier 1; REDUCE recomputes on the bond
+		// as it stood before the tier-1 slash (bond + escrow) and is
+		// capped at the escrow. Applying bps to the escrow itself would
+		// slash bps² of the bond.
+		switch {
+		case hasEscrow && msg.Verdict == types.JuryVerdict_JURY_VERDICT_ACCEPT:
+			slashAmount = escrow.Amount
+		case hasEscrow:
+			slashAmount = computeSlashAmount(op.BondAmount.Add(escrow.Amount), msg.SlashBps)
+		default:
+			slashAmount = computeSlashAmount(op.BondAmount, msg.SlashBps)
 		}
-		slashAmount = computeSlashAmount(basis, msg.SlashBps)
 	}
 
 	switch {
@@ -189,14 +201,33 @@ func (k msgServer) ResolveReportByJury(ctx context.Context, msg *types.MsgResolv
 		}
 	}
 
+	// Escrow returned to bond (REJECT, or the unslashed remainder of a
+	// REDUCE): an UNDERFUNDED operator whose bond clears min_bond again
+	// goes back to ACTIVE, exactly as a contest or top-up would.
+	refundedTransition := false
+	if hasEscrow && op.Status == types.OperatorStatus_OPERATOR_STATUS_UNDERFUNDED && op.BondAmount.GTE(cfg.MinBondAmount) {
+		if op.UnderfundedSince > 0 {
+			if err := k.removeUnderfundedQueueEntry(ctx, op.UnderfundedSince, opBytes, op.ServiceType); err != nil {
+				return nil, err
+			}
+		}
+		op.Status = types.OperatorStatus_OPERATOR_STATUS_ACTIVE
+		op.UnderfundedSince = 0
+		refundedTransition = true
+	}
+
 	// Clean up the escrow row + indexes regardless of verdict (the
 	// contested funds have been routed by this point).
 	if hasEscrow {
 		if err := k.Tier1Escrow.Remove(ctx, escrowID); err != nil {
 			return nil, err
 		}
-		_ = k.Tier1EscrowByOperator.Remove(ctx, collections.Join3(opBytes, op.ServiceType, escrowID))
-		_ = k.Tier1EscrowReleaseQueue.Remove(ctx, collections.Join(escrow.ReleaseAt, escrowID))
+		if err := k.Tier1EscrowByOperator.Remove(ctx, collections.Join3(opBytes, op.ServiceType, escrowID)); err != nil {
+			return nil, err
+		}
+		if err := k.Tier1EscrowReleaseQueue.Remove(ctx, collections.Join(escrow.ReleaseAt, escrowID)); err != nil {
+			return nil, err
+		}
 	}
 
 	// Dissolve check (§5.2): ACCEPT with dissolve=true OR bond → 0 ⇒
@@ -209,7 +240,9 @@ func (k msgServer) ResolveReportByJury(ctx context.Context, msg *types.MsgResolv
 	if err := k.Reports.Set(ctx, report.ReportId, report); err != nil {
 		return nil, err
 	}
-	_ = k.EscalatedReportsQueue.Remove(ctx, collections.Join(report.EscalatedAt, report.ReportId))
+	if err := k.EscalatedReportsQueue.Remove(ctx, collections.Join(report.EscalatedAt, report.ReportId)); err != nil {
+		return nil, err
+	}
 
 	// Reporter deposit: refund on ACCEPT/REDUCE, forfeit on REJECT.
 	if msg.Verdict == types.JuryVerdict_JURY_VERDICT_REJECT {
@@ -269,6 +302,9 @@ func (k msgServer) ResolveReportByJury(ctx context.Context, msg *types.MsgResolv
 	// consumer hooks see the post-transition state. Suppressed when the
 	// operator dissolved this block (AfterOperatorDissolved already
 	// covers that). Phase 0 federation→service migration.
+	if refundedTransition && !dissolveNow && k.hooks() != nil {
+		k.hooks().AfterOperatorReFunded(ctx, sdk.AccAddress(opBytes), op.ServiceType)
+	}
 	if underfundedTransition && !dissolveNow && k.hooks() != nil {
 		_ = preStatus // captured at top for symmetry; not currently used post-dissolve gate
 		k.hooks().AfterOperatorUnderfunded(ctx, sdk.AccAddress(opBytes), op.ServiceType)

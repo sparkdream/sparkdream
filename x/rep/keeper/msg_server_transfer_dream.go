@@ -20,12 +20,17 @@ func (k msgServer) TransferDream(ctx context.Context, msg *types.MsgTransferDrea
 		return nil, errorsmod.Wrap(err, "invalid recipient address")
 	}
 
+	amount, err := requireAmount(msg.Amount, "amount")
+	if err != nil {
+		return nil, err
+	}
+
 	// Transfer DREAM
 	if err := k.Keeper.TransferDREAM(
 		ctx,
 		senderAddr,
 		recipientAddr,
-		*msg.Amount,
+		amount,
 		msg.Purpose,
 	); err != nil {
 		return nil, err

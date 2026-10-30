@@ -3,6 +3,7 @@ package keeper
 import (
 	"crypto/sha256"
 	"encoding/binary"
+	commontypes "sparkdream/x/common/types"
 )
 
 // deterministicShuffle performs a Fisher-Yates shuffle using a deterministic seed.
@@ -26,7 +27,7 @@ func deterministicShuffle[T any](items []T, seed []byte) []T {
 		h = hash[:]
 
 		// Convert first 8 bytes to uint64 for index selection
-		j := int(binary.BigEndian.Uint64(h[:8]) % uint64(i+1))
+		j := commontypes.Saturate[int](binary.BigEndian.Uint64(h[:8]) % commontypes.Saturate[uint64](i+1))
 
 		result[i], result[j] = result[j], result[i]
 	}

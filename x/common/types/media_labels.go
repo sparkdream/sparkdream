@@ -3,12 +3,13 @@ package types
 import (
 	"crypto/sha256"
 	"fmt"
-	"regexp"
 
 	"cosmossdk.io/math"
+
+	"sparkdream/tools/datauri"
 )
 
-// Media labelling, rules version 1. The chain labels every content record at
+// Media labelling, rules version 2. The chain labels every content record at
 // write time from information it already has (content_type, which URI fields
 // are set) plus one deterministic data-URI scan of uncompressed text. It never
 // decompresses GZIP/ZSTD bodies and never parses or fetches links: that is the
@@ -16,20 +17,21 @@ import (
 
 // MediaRulesVersion is the labelling rules version stamped into every
 // record's media_rules_version. Bump it only together with a change to the
-// rules below, and relabel existing records when you do.
-const MediaRulesVersion uint32 = 1
+// rules below, and relabel existing records when you do (every InitGenesis
+// recomputes labels).
+//
+// Version 2: the data-URI rule reads the body as a browser would (HTML
+// character references and CSS escapes decoded, tab/CR/LF removed), no longer
+// needs a literal comma within 256 characters, and is shared with the
+// off-chain scanners through tools/datauri. Version 1 missed
+// data:image/png;base64&#44;..., data&#58;..., a newline before the comma and
+// media types longer than 256 characters.
+const MediaRulesVersion uint32 = 2
 
-// dataURIPattern matches the RFC 2397 shape data:[<mediatype>][;base64],<data>
-// rather than the bare substring "data:", so prose like "metadata:" or
-// "Data: 5 records" is not flagged. "data:" must not follow a URI-scheme
-// character and must reach a comma with no whitespace in between. Go's
-// regexp is RE2 (linear time, no backtracking), so the result and cost are
-// identical on every node.
-var dataURIPattern = regexp.MustCompile(`(?i)(^|[^a-z0-9+.-])data:[^\s,]{0,256},`)
-
-// ContainsDataURI reports whether s contains a data URI under rules version 1.
+// ContainsDataURI reports whether s contains a data URI under the current
+// rules version (tools/datauri).
 func ContainsDataURI(s string) bool {
-	return dataURIPattern.MatchString(s)
+	return datauri.Contains(s)
 }
 
 // MediaLabels is the chain-computed label set written onto a content record.

@@ -70,7 +70,7 @@ func TestQueryMemberGuild(t *testing.T) {
 			JoinedEpoch: 5,
 			LeftEpoch:   10, // Left at epoch 10
 		}
-		k.GuildMembership.Set(ctx, memberStr, membership)
+		require.NoError(t, k.GuildMembership.Set(ctx, memberStr, membership))
 
 		resp, err := qs.MemberGuild(ctx, &types.QueryMemberGuildRequest{Member: memberStr})
 		require.NoError(t, err)

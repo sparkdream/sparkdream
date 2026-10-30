@@ -38,6 +38,14 @@ func (k msgServer) SubmitFederatedContent(ctx context.Context, msg *types.MsgSub
 		return nil, errorsmod.Wrapf(types.ErrPeerNotActive, "peer %q status is %s", msg.PeerId, peer.Status)
 	}
 
+	// 2b. The operator's x/service record must be ACTIVE. The binding's
+	//     suspended flag tracks UNDERFUNDED through hooks, but an operator
+	//     that called MsgUnbondOperator fires no hook and would otherwise
+	//     keep submitting (and earning) through its whole unbonding period.
+	if err := k.requireActiveOperator(ctx, msg.Operator, peer.Type); err != nil {
+		return nil, err
+	}
+
 	// 3. Verify content_type is in peer policy's inbound_content_types
 	policy, err := k.PeerPolicies.Get(ctx, msg.PeerId)
 	if err != nil {
@@ -122,18 +130,11 @@ func (k msgServer) SubmitFederatedContent(ctx context.Context, msg *types.MsgSub
 	}
 
 	// 7. Truncate fields for storage (hash covers full source content, not truncated body)
-	body := msg.Body
-	if uint64(len(body)) > params.MaxContentBodySize {
-		body = body[:params.MaxContentBodySize]
-	}
-	contentUri := msg.ContentUri
-	if uint64(len(contentUri)) > params.MaxContentUriSize {
-		contentUri = contentUri[:params.MaxContentUriSize]
-	}
-	protocolMetadata := msg.ProtocolMetadata
-	if uint64(len(protocolMetadata)) > params.MaxProtocolMetadataSize {
-		protocolMetadata = protocolMetadata[:params.MaxProtocolMetadataSize]
-	}
+	//    Text fields are cut on a rune boundary so the stored proto
+	//    string stays valid UTF-8.
+	body := types.TruncateUTF8(msg.Body, params.MaxContentBodySize)
+	contentUri := types.TruncateUTF8(msg.ContentUri, params.MaxContentUriSize)
+	protocolMetadata := truncateBytes(msg.ProtocolMetadata, params.MaxProtocolMetadataSize)
 
 	// 8. Check ContentByHash for duplicates. Only a live record counts: a
 	//    hash whose content was pruned may be anchored again.

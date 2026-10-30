@@ -42,6 +42,7 @@ import (
 	"fmt"
 	"sync"
 
+	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 
@@ -51,6 +52,24 @@ import (
 	ibcante "github.com/cosmos/ibc-go/v10/modules/core/ante"
 	ibckeeper "github.com/cosmos/ibc-go/v10/modules/core/keeper"
 )
+
+// MaxRefundGasPrice caps the refund at gas_limit × this price per fee
+// denom (4x the reference relayer price of 0.025). A relayer cannot attach
+// an outsized fee for priority and get all of it back; the excess stays
+// with the fee collector like any other fee. Compiled, so the refund is
+// deterministic (a node's min gas prices are local).
+var MaxRefundGasPrice = math.LegacyMustNewDecFromStr("0.1")
+
+// refundAmount is the part of fee that is paid back: per denom, the lesser
+// of the fee and ceil(gas × MaxRefundGasPrice).
+func refundAmount(fee sdk.Coins, gas uint64) sdk.Coins {
+	limit := math.LegacyNewDecFromInt(math.NewIntFromUint64(gas)).Mul(MaxRefundGasPrice).Ceil().TruncateInt()
+	out := sdk.NewCoins()
+	for _, c := range fee {
+		out = out.Add(sdk.NewCoin(c.Denom, math.MinInt(c.Amount, limit)))
+	}
+	return out
+}
 
 // EventTypeRelayFeeRefund is emitted for every refunded relay tx.
 const (
@@ -306,7 +325,7 @@ func (d RefundDecorator) PostHandle(ctx sdk.Context, tx sdk.Tx, simulate, succes
 	marked := !simulate && ctx.ExecMode() == sdk.ExecModeFinalize && d.marks.Take(ctx)
 	if success && marked {
 		if feeTx, ok := tx.(sdk.FeeTx); ok {
-			fee := feeTx.GetFee()
+			fee := refundAmount(feeTx.GetFee(), feeTx.GetGas())
 			if !fee.IsZero() {
 				payer := sdk.AccAddress(feeTx.FeePayer())
 				// a refund that cannot be paid leaves the relay standing: the

@@ -50,7 +50,7 @@ func TestMsgServerSetForumPaused(t *testing.T) {
 		// First pause
 		params := types.DefaultParams()
 		params.ForumPaused = true
-		f.keeper.Params.Set(f.ctx, params)
+		require.NoError(t, f.keeper.Params.Set(f.ctx, params))
 
 		msg := &types.MsgSetForumPaused{
 			Creator: authority,

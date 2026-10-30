@@ -1,83 +1,49 @@
 package simulation
 
 import (
-	"math/rand"
-
-	"cosmossdk.io/collections"
 	"cosmossdk.io/math"
-	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
 
 	"sparkdream/x/collect/keeper"
 	"sparkdream/x/collect/types"
 )
 
+// SimulateMsgEndorseCollection delivers MsgEndorseCollection from a member
+// at min_sponsor_trust_level holding endorsement_dream_stake unlocked DREAM,
+// for a PENDING, seeking, unendorsed collection of a non-member owner other
+// than the endorser. The stake is locked in x/rep; the escrowed creation fee
+// is split between the endorser and a burn.
 func SimulateMsgEndorseCollection(
 	ak types.AuthKeeper,
 	bk types.BankKeeper,
 	k keeper.Keeper,
 	txGen client.TxConfig,
 ) simtypes.Operation {
-	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
-	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
+	return operation(ak, bk, k, txGen, &types.MsgEndorseCollection{}, func(e *simEnv) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
 		msg := &types.MsgEndorseCollection{}
-
-		// Find a seeking-endorsement collection
-		coll, collID, err := findSeekingEndorsementCollection(r, ctx, k)
-		if err != nil || coll == nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "no seeking-endorsement collection found"), nil, nil
+		p := e.params
+		colls, err := e.collectionsWhere(func(c types.Collection) bool {
+			return c.Status == types.CollectionStatus_COLLECTION_STATUS_PENDING && c.SeekingEndorsement &&
+				c.EndorsedBy == "" && !e.isActiveMember(c.Owner)
+		})
+		if err != nil {
+			return noOpErr(msg, err)
 		}
-
-		// Endorser must be different from owner
-		endorser, ok := pickDifferentAccount(r, accs, coll.Owner)
+		coll, ok := pick(e.r, colls)
 		if !ok {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "not enough accounts"), nil, nil
+			return noOp(msg, "no collection seeking endorsement")
 		}
-
-		// Create endorsement
-		endorsement := types.Endorsement{
-			CollectionId:   collID,
-			Endorser:       endorser.Address.String(),
-			DreamStake:     math.NewInt(int64(r.Intn(10000) + 1000)),
-			EndorsedAt:     ctx.BlockHeight(),
-			StakeReleaseAt: ctx.BlockHeight() + int64(r.Intn(10000)+1000),
+		endorsers := accountsWhere(e.accs, func(a simtypes.Account) bool {
+			addr := a.Address.String()
+			return addr != coll.Owner && e.trustAtLeastName(addr, p.MinSponsorTrustLevel) &&
+				e.unlockedDream(addr).GTE(p.EndorsementDreamStake)
+		})
+		endorser, ok := pick(e.r, endorsers)
+		if !ok {
+			return noOp(msg, "no member able to endorse")
 		}
-
-		if err := k.Endorsement.Set(ctx, collID, endorsement); err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "failed to set endorsement: "+err.Error()), nil, nil
-		}
-
-		// Set stake expiry index
-		if err := k.EndorsementStakeExpiry.Set(ctx, collections.Join(endorsement.StakeReleaseAt, collID)); err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "failed to set stake expiry: "+err.Error()), nil, nil
-		}
-
-		// Remove from EndorsementPending (walk to find the key for this collID)
-		k.EndorsementPending.Walk(ctx, nil, func(key collections.Pair[int64, uint64]) (bool, error) {
-			if key.K2() == collID {
-				k.EndorsementPending.Remove(ctx, key) //nolint:errcheck
-				return true, nil                      // stop
-			}
-			return false, nil
-		}) //nolint:errcheck
-
-		// Update collection: Status -> ACTIVE, EndorsedBy -> endorser address
-		oldStatus := coll.Status
-		coll.Status = types.CollectionStatus_COLLECTION_STATUS_ACTIVE
-		coll.EndorsedBy = endorser.Address.String()
-		coll.SeekingEndorsement = false
-
-		// Update status index: old → new (pinned unchanged).
-		if err := k.MoveCollectionStatusIndex(ctx, oldStatus, coll.Pinned, coll.Status, coll.Pinned, collID); err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "failed to update status index: "+err.Error()), nil, nil
-		}
-
-		if err := k.Collection.Set(ctx, collID, *coll); err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "failed to update collection: "+err.Error()), nil, nil
-		}
-
-		return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "ok (direct keeper call)"), nil, nil
-	}
+		msg.Creator, msg.CollectionId = endorser.Address.String(), coll.Id
+		return e.submit(endorser, msg, math.ZeroInt())
+	})
 }

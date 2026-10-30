@@ -28,8 +28,12 @@ func createNBounty(keeper keeper.Keeper, ctx context.Context, n int) []types.Bou
 		items[i].Status = types.BountyStatus(i)
 		items[i].ModerationSuspendedAt = int64(i)
 		items[i].TimeRemainingAtSuspension = int64(i)
-		_ = keeper.Bounty.Set(ctx, iu, items[i])
-		_ = keeper.BountySeq.Set(ctx, iu)
+		if err := keeper.Bounty.Set(ctx, iu, items[i]); err != nil {
+			panic(err)
+		}
+		if err := keeper.BountySeq.Set(ctx, iu); err != nil {
+			panic(err)
+		}
 	}
 	return items
 }

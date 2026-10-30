@@ -44,14 +44,14 @@ func TestMsgServerUnfollowThread(t *testing.T) {
 			ThreadId:   post.PostId,
 			FollowedAt: f.sdkCtx().BlockTime().Unix(),
 		}
-		f.keeper.ThreadFollow.Set(f.ctx, followKey, follow)
+		require.NoError(t, f.keeper.ThreadFollow.Set(f.ctx, followKey, follow))
 
 		// Create follow count
 		followCount := types.ThreadFollowCount{
 			ThreadId:      post.PostId,
 			FollowerCount: 1,
 		}
-		f.keeper.ThreadFollowCount.Set(f.ctx, post.PostId, followCount)
+		require.NoError(t, f.keeper.ThreadFollowCount.Set(f.ctx, post.PostId, followCount))
 
 		msg := &types.MsgUnfollowThread{
 			Creator:  testCreator2,

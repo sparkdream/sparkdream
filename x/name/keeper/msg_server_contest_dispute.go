@@ -3,6 +3,7 @@ package keeper
 import (
 	"context"
 	"fmt"
+	commontypes "sparkdream/x/common/types"
 
 	"sparkdream/x/name/types"
 
@@ -13,6 +14,10 @@ import (
 func (k msgServer) ContestDispute(goCtx context.Context, msg *types.MsgContestDispute) (*types.MsgContestDisputeResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
 	params := k.GetParams(ctx)
+	// Work on a normalized copy: names are stored lowercase and trimmed.
+	normalized := *msg
+	normalized.Name = normalizeName(msg.Name)
+	msg = &normalized
 
 	// 1. Verify active dispute exists
 	dispute, found := k.GetDispute(ctx, msg.Name)
@@ -36,7 +41,7 @@ func (k msgServer) ContestDispute(goCtx context.Context, msg *types.MsgContestDi
 
 	// 4. Verify contest period hasn't expired
 	currentHeight := ctx.BlockHeight()
-	deadline := dispute.FiledAt + int64(params.DisputeTimeoutBlocks)
+	deadline := dispute.FiledAt + commontypes.Saturate[int64](params.DisputeTimeoutBlocks)
 	if currentHeight > deadline {
 		return nil, errorsmod.Wrapf(types.ErrContestPeriodExpired,
 			"contest deadline was block %d, current block is %d", deadline, currentHeight)

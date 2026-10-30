@@ -51,6 +51,9 @@ func (k msgServer) UpdateItem(ctx context.Context, msg *types.MsgUpdateItem) (*t
 	if coll.Immutable {
 		return nil, types.ErrCollectionImmutable
 	}
+	if err := checkNotHidden(coll, &item); err != nil {
+		return nil, err
+	}
 
 	params, err := k.Params.Get(ctx)
 	if err != nil {
@@ -73,7 +76,9 @@ func (k msgServer) UpdateItem(ctx context.Context, msg *types.MsgUpdateItem) (*t
 
 	// Remove old OnChainRef index entry if the item previously had one
 	if item.ReferenceType == types.ReferenceType_REFERENCE_TYPE_ON_CHAIN && item.OnChain != nil {
-		k.ItemsByOnChainRef.Remove(ctx, collections.Join(onChainRefKey(item.OnChain), item.Id)) //nolint:errcheck
+		if err := k.ItemsByOnChainRef.Remove(ctx, collections.Join(onChainRefKey(item.OnChain), item.Id)); err != nil {
+			return nil, err
+		}
 	}
 
 	// Update item fields

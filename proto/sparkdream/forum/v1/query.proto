@@ -645,10 +645,13 @@ message QueryPinnedPostsRequest {
 
 // QueryPinnedPostsResponse defines the QueryPinnedPostsResponse message.
 message QueryPinnedPostsResponse {
+  // post_id / priority / pinned_by describe the first pinned post of the page
+  // (kept for older clients); posts carries the whole page.
   uint64 post_id = 1;
   uint64 priority = 2;
   string pinned_by = 3;
   cosmos.base.query.v1beta1.PageResponse pagination = 4;
+  repeated Post posts = 5 [(gogoproto.nullable) = false];
 }
 
 // QueryLockedThreadsRequest defines the QueryLockedThreadsRequest message.
@@ -658,10 +661,13 @@ message QueryLockedThreadsRequest {
 
 // QueryLockedThreadsResponse defines the QueryLockedThreadsResponse message.
 message QueryLockedThreadsResponse {
+  // root_id / locked_by / locked_at describe the first locked thread of the
+  // page (kept for older clients); posts carries the whole page.
   uint64 root_id = 1;
   string locked_by = 2;
   int64 locked_at = 3;
   cosmos.base.query.v1beta1.PageResponse pagination = 4;
+  repeated Post posts = 5 [(gogoproto.nullable) = false];
 }
 
 // QueryThreadLockStatusRequest defines the QueryThreadLockStatusRequest message.
@@ -686,10 +692,13 @@ message QueryTopPostsRequest {
 
 // QueryTopPostsResponse defines the QueryTopPostsResponse message.
 message QueryTopPostsResponse {
+  // post_id / upvote_count / downvote_count describe the top post of the page
+  // (kept for older clients); posts carries the whole page, highest first.
   uint64 post_id = 1;
   uint64 upvote_count = 2;
   uint64 downvote_count = 3;
   cosmos.base.query.v1beta1.PageResponse pagination = 4;
+  repeated Post posts = 5 [(gogoproto.nullable) = false];
 }
 
 // QueryThreadFollowersRequest defines the QueryThreadFollowersRequest message.
@@ -750,10 +759,13 @@ message QueryActiveBountiesRequest {
 
 // QueryActiveBountiesResponse defines the QueryActiveBountiesResponse message.
 message QueryActiveBountiesResponse {
+  // bounty_id / thread_id / amount describe the first bounty of the page
+  // (kept for older clients); bounties carries the whole page.
   uint64 bounty_id = 1;
   uint64 thread_id = 2;
   string amount = 3;
   cosmos.base.query.v1beta1.PageResponse pagination = 4;
+  repeated Bounty bounties = 5 [(gogoproto.nullable) = false];
 }
 
 // QueryUserBountiesRequest defines the QueryUserBountiesRequest message.
@@ -764,10 +776,13 @@ message QueryUserBountiesRequest {
 
 // QueryUserBountiesResponse defines the QueryUserBountiesResponse message.
 message QueryUserBountiesResponse {
+  // bounty_id / thread_id / status describe the first bounty of the page
+  // (kept for older clients); bounties carries the whole page.
   uint64 bounty_id = 1;
   uint64 thread_id = 2;
   uint64 status = 3;
   cosmos.base.query.v1beta1.PageResponse pagination = 4;
+  repeated Bounty bounties = 5 [(gogoproto.nullable) = false];
 }
 
 // QueryBountyExpiringSoonRequest defines the QueryBountyExpiringSoonRequest message.
@@ -778,10 +793,13 @@ message QueryBountyExpiringSoonRequest {
 
 // QueryBountyExpiringSoonResponse defines the QueryBountyExpiringSoonResponse message.
 message QueryBountyExpiringSoonResponse {
+  // bounty_id / thread_id / expires_at describe the first bounty of the page
+  // (kept for older clients); bounties carries the whole page.
   uint64 bounty_id = 1;
   uint64 thread_id = 2;
   int64 expires_at = 3;
   cosmos.base.query.v1beta1.PageResponse pagination = 4;
+  repeated Bounty bounties = 5 [(gogoproto.nullable) = false];
 }
 
 // QueryPostFlagsRequest defines the QueryPostFlagsRequest message.
@@ -803,9 +821,12 @@ message QueryFlagReviewQueueRequest {
 
 // QueryFlagReviewQueueResponse defines the QueryFlagReviewQueueResponse message.
 message QueryFlagReviewQueueResponse {
+  // post_id / total_weight describe the first queued post of the page (kept
+  // for older clients); flags carries the whole page.
   uint64 post_id = 1;
   string total_weight = 2;
   cosmos.base.query.v1beta1.PageResponse pagination = 3;
+  repeated PostFlag flags = 4 [(gogoproto.nullable) = false];
 }
 
 // QueryGetPostConvictionStakeRequest defines the QueryGetPostConvictionStakeRequest message.

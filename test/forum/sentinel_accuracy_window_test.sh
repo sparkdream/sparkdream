@@ -16,7 +16,8 @@
 #
 # Flow per appeal: poster creates a post, sentinel1 hides it, the author appeals
 # (forum appeal-post -> rep GovActionAppeal), and the Operations Committee
-# (alice) resolves it via `rep resolve-gov-action-appeal`. Lifetime upheld
+# resolves it through a committee proposal carrying MsgResolveGovActionAppeal
+# (test/lib/ops_committee.sh). Lifetime upheld
 # counters are asserted to move in parallel with the window.
 #
 # Depends on the forum account setup (.test_env). Self-bonds sentinel1.
@@ -33,6 +34,7 @@ if [ ! -f "$SCRIPT_DIR/.test_env" ]; then
 fi
 source "$SCRIPT_DIR/.test_env"
 BOND_DENOM="${BOND_DENOM:-uspark}"
+source "$SCRIPT_DIR/../lib/ops_committee.sh"
 
 FAILED=0
 fail() { echo "  FAIL: $1"; FAILED=1; }
@@ -115,8 +117,19 @@ create_hide_appeal() {
     echo "$PID $AID"
 }
 
-# resolve <appeal-id> <upheld|overturned>
-resolve() { run_tx alice rep resolve-gov-action-appeal "$1" "$2" "e2e accuracy window test" --gas 400000; }
+# resolve <appeal-id> <upheld|overturned> -> echoes the execute tx JSON.
+# Verdicts are accepted only from the Operations Committee policy, so this
+# goes through a committee proposal (alice submits, votes and executes).
+resolve() {
+    local VERDICT=GOV_APPEAL_STATUS_UPHELD
+    [ "$2" = "overturned" ] && VERDICT=GOV_APPEAL_STATUS_OVERTURNED
+    if ops_committee_exec "$(jq -nc --arg id "$1" --arg v "$VERDICT" \
+        '{"@type":"/sparkdream.rep.v1.MsgResolveGovActionAppeal",appeal_id:$id,verdict:$v,reason:"e2e accuracy window test"}')" resolver; then
+        echo "$OPS_COMMITTEE_TX"
+    else
+        jq -nc --arg e "$OPS_COMMITTEE_ERROR" '{code:1,raw_log:$e}'
+    fi
+}
 
 # ========================================================================
 # PART 0: DERIVE EPOCH CADENCE + BOND SENTINEL

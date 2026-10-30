@@ -163,6 +163,11 @@ fi
 echo ""
 echo "--- PART 4: WAITING FOR MARKET TO RESOLVE ---"
 
+# The creator residual is returned automatically when the market resolves
+# (FUT-02), so Alice's balance is sampled before resolution.
+ALICE_BALANCE_BEFORE=$($BINARY query bank balance $ALICE_ADDR ${BOND_DENOM} --output json | jq -r '.balance.amount')
+echo "  Alice balance before resolution: $ALICE_BALANCE_BEFORE uspark"
+
 while true; do
     CURRENT_HEIGHT=$($BINARY status | jq -r '.sync_info.latest_block_height')
     if [ "$CURRENT_HEIGHT" -ge "$END_BLOCK" ]; then
@@ -201,12 +206,11 @@ BOB_WITHDRAW=$($BINARY tx futarchy withdraw-liquidity \
 
 expect_tx_failure "$BOB_WITHDRAW" "only market creator can withdraw" "Non-creator withdrawal rejected"
 
-# --- PART 6: ALICE WITHDRAWS LIQUIDITY ---
+# --- PART 6: RESIDUAL ALREADY RETURNED ---
+# The EndBlocker pays the creator's LMSR residual at resolution (FUT-02), so a
+# manual withdrawal finds nothing left.
 echo ""
-echo "--- PART 6: ALICE (CREATOR) WITHDRAWS LIQUIDITY ---"
-
-ALICE_BALANCE_BEFORE=$($BINARY query bank balance $ALICE_ADDR ${BOND_DENOM} --output json | jq -r '.balance.amount')
-echo "  Alice balance before withdrawal: $ALICE_BALANCE_BEFORE uspark"
+echo "--- PART 6: ALICE (CREATOR) MANUAL WITHDRAWAL FINDS NOTHING LEFT ---"
 
 WITHDRAW_RES=$($BINARY tx futarchy withdraw-liquidity \
   --market-id $MARKET_ID \
@@ -215,21 +219,9 @@ WITHDRAW_RES=$($BINARY tx futarchy withdraw-liquidity \
   --keyring-backend test \
   --fees 5000${BOND_DENOM} \
   -y \
-  --output json)
+  --output json 2>&1) || true
 
-WITHDRAW_TX_HASH=$(echo $WITHDRAW_RES | jq -r '.txhash')
-if WITHDRAW_RESULT=$(wait_for_tx "$WITHDRAW_TX_HASH" "Alice withdraw"); then
-    # Check for liquidity_withdrawn event
-    WITHDRAW_AMOUNT=$(echo "$WITHDRAW_RESULT" | \
-      jq -r '.events[] | select(.type=="liquidity_withdrawn") | .attributes[] | select(.key=="amount") | .value')
-    if [ -n "$WITHDRAW_AMOUNT" ] && [ "$WITHDRAW_AMOUNT" != "null" ]; then
-        pass "Alice withdrew liquidity (amount: $WITHDRAW_AMOUNT)"
-    else
-        pass "Alice withdrawal tx succeeded"
-    fi
-else
-    fail "Alice withdrawal failed"
-fi
+expect_tx_failure "$WITHDRAW_RES" "No liquidity available" "Residual was auto-returned at resolution"
 
 # --- PART 7: VERIFY MARKET STATE UPDATED ---
 echo ""
@@ -285,7 +277,7 @@ echo "  Early withdrawal rejected:        $([ $PASSED -ge 3 ] && echo 'PASS' || 
 echo "  Market remains ACTIVE:            $([ $PASSED -ge 4 ] && echo 'PASS' || echo 'FAIL')"
 echo "  Market resolved:                  $([ $PASSED -ge 5 ] && echo 'PASS' || echo 'FAIL')"
 echo "  Non-creator rejected:             $([ $PASSED -ge 6 ] && echo 'PASS' || echo 'FAIL')"
-echo "  Creator withdrawal:               $([ $PASSED -ge 7 ] && echo 'PASS' || echo 'FAIL')"
+echo "  Residual auto-returned:           $([ $PASSED -ge 7 ] && echo 'PASS' || echo 'FAIL')"
 echo "  Market state updated:             $([ $PASSED -ge 8 ] && echo 'PASS' || echo 'FAIL')"
 echo "  Balance increased:                $([ $PASSED -ge 9 ] && echo 'PASS' || echo 'FAIL')"
 echo "  Second withdrawal rejected:       $([ $PASSED -ge 10 ] && echo 'PASS' || echo 'FAIL')"

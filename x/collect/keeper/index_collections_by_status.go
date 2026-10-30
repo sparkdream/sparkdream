@@ -2,6 +2,7 @@ package keeper
 
 import (
 	"context"
+	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	"cosmossdk.io/collections"
 
@@ -43,7 +44,9 @@ func (k Keeper) AddCollectionStatusIndex(ctx context.Context, status types.Colle
 // pinned marker. Callers must pass the status/pinned the entry was written with
 // (the values *before* any mutation).
 func (k Keeper) RemoveCollectionStatusIndex(ctx context.Context, status types.CollectionStatus, pinned bool, id uint64) {
-	_ = k.CollectionsByStatus.Remove(ctx, collectionsByStatusKey(status, pinned, id))
+	if err := k.CollectionsByStatus.Remove(ctx, collectionsByStatusKey(status, pinned, id)); err != nil {
+		sdk.UnwrapSDKContext(ctx).Logger().Error("RemoveCollectionStatusIndex: CollectionsByStatus.Remove failed", "err", err)
+	}
 }
 
 // MoveCollectionStatusIndex re-points the index entry from a prior (status,

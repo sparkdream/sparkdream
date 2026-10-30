@@ -109,9 +109,12 @@ func chainIDBase(s string) string {
 }
 
 // EqualCanonical compares the canonical (immutable) fields of two
-// ChainIdentity values. All nine fields named in §6.5 are considered
-// canonical; only bond_display_name and dream_display_name are excluded
-// (reserved for a future MsgUpdateNonCanonicalMetadata, §18).
+// ChainIdentity values: the nine fields named in §6.5 plus the two display
+// names. The display names were once reserved for a future
+// MsgUpdateNonCanonicalMetadata (§18), but the sealed bank metadata fixes
+// Name to them (CheckSealedMetadata), so excluding them here let export
+// accept, and import seal, an identity whose metadata the guard then
+// refuses (IDN-09). Making them mutable later needs a change to both rules.
 func (c ChainIdentity) EqualCanonical(other ChainIdentity) bool {
 	return c.BondDenom == other.BondDenom &&
 		c.DreamDenom == other.DreamDenom &&
@@ -121,7 +124,9 @@ func (c ChainIdentity) EqualCanonical(other ChainIdentity) bool {
 		c.DreamDisplayDecimals == other.DreamDisplayDecimals &&
 		c.ChainHumanName == other.ChainHumanName &&
 		c.ChainTickerPrefix == other.ChainTickerPrefix &&
-		c.FoundedAt == other.FoundedAt
+		c.FoundedAt == other.FoundedAt &&
+		c.BondDisplayName == other.BondDisplayName &&
+		c.DreamDisplayName == other.DreamDisplayName
 }
 
 // DiffCanonical returns a human-readable per-field diff of canonical fields
@@ -155,6 +160,12 @@ func (c ChainIdentity) DiffCanonical(other ChainIdentity) string {
 	}
 	if c.FoundedAt != other.FoundedAt {
 		parts = append(parts, fmt.Sprintf("founded_at: %d -> %d", c.FoundedAt, other.FoundedAt))
+	}
+	if c.BondDisplayName != other.BondDisplayName {
+		parts = append(parts, fmt.Sprintf("bond_display_name: %q -> %q", c.BondDisplayName, other.BondDisplayName))
+	}
+	if c.DreamDisplayName != other.DreamDisplayName {
+		parts = append(parts, fmt.Sprintf("dream_display_name: %q -> %q", c.DreamDisplayName, other.DreamDisplayName))
 	}
 	return strings.Join(parts, "; ")
 }

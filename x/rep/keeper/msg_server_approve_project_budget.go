@@ -18,12 +18,20 @@ func (k msgServer) ApproveProjectBudget(ctx context.Context, msg *types.MsgAppro
 	// large-budget proposal-required gate — lives in keeper.ApproveProject so
 	// the rule cannot be bypassed by other code paths that call the keeper
 	// directly.
+	budget, err := requireAmount(msg.ApprovedBudget, "approved_budget")
+	if err != nil {
+		return nil, err
+	}
+	spark, err := requireAmount(msg.ApprovedSpark, "approved_spark")
+	if err != nil {
+		return nil, err
+	}
 	if err := k.ApproveProject(
 		ctx,
 		msg.ProjectId,
 		approverAddr,
-		*msg.ApprovedBudget,
-		*msg.ApprovedSpark,
+		budget,
+		spark,
 	); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to approve project")
 	}

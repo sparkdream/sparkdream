@@ -15,7 +15,8 @@ import (
 // OpenSystemReport arguments without going through the full
 // MsgSubmitArbiterHash / MsgEscalateChallenge flow.
 func (k Keeper) FileChallengeReportForTest(ctx context.Context, content types.FederatedContent, evidenceURI string) error {
-	return k.fileChallengeReport(ctx, content, evidenceURI)
+	_, err := k.fileChallengeReport(ctx, content, evidenceURI)
+	return err
 }
 
 // Rate-limit helpers re-exported for rate_limit_test.go. The
@@ -37,4 +38,17 @@ func (k Keeper) CallCheckAndRecordInboundPerBlock(ctx context.Context, height in
 
 func (k Keeper) CallCheckAndRecordOutboundPerBlock(ctx context.Context, height int64, limit uint64) error {
 	return k.checkAndRecordOutboundPerBlock(ctx, height, limit)
+}
+
+// SetPendingChallengeForTest stores a pending identity challenge through the
+// indexing helper, the way the IBC receive path does.
+func (k Keeper) SetPendingChallengeForTest(ctx context.Context, c types.PendingIdentityChallenge) error {
+	return k.setPendingChallenge(ctx, c)
+}
+
+// SetSendPacketOverrideForTest replaces the IBC SendPacket call (nil
+// restores it). The fixture has no open channel; tests of paths that fail
+// on a send error use this for a send that succeeds or fails on demand.
+func (k Keeper) SetSendPacketOverrideForTest(fn func(ctx context.Context, peerID string, data []byte) (uint64, error)) {
+	k.late.sendPacketOverride = fn
 }

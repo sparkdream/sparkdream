@@ -507,7 +507,7 @@ func compileCircuit() (*cs.R1CS, error) {
 }
 
 func domainSize(ccs *cs.R1CS) uint64 {
-	return ecc.NextPowerOfTwo(uint64(ccs.GetNbConstraints()))
+	return ecc.NextPowerOfTwo(uint64(ccs.GetNbConstraints())) //nolint:gosec // a constraint count is non-negative
 }
 
 func contributionName(prefix string, n int) string {

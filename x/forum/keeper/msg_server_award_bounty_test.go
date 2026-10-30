@@ -50,7 +50,7 @@ func TestMsgServerAwardBounty(t *testing.T) {
 		post := f.createTestPost(t, testCreator, 0, 0)
 		bounty := f.createTestBounty(t, testCreator, post.PostId, "1000000")
 		bounty.Status = types.BountyStatus_BOUNTY_STATUS_CANCELLED
-		f.keeper.Bounty.Set(f.ctx, bounty.Id, bounty)
+		require.NoError(t, f.keeper.Bounty.Set(f.ctx, bounty.Id, bounty))
 
 		msg := &types.MsgAwardBounty{
 			Creator:  testCreator,
@@ -78,13 +78,14 @@ func TestMsgServerAwardBounty(t *testing.T) {
 		post := f.createTestPost(t, testCreator, 0, 0)
 		bounty := f.createTestBounty(t, testCreator, post.PostId, "1000000")
 
-		// Add award to bounty
+		// Add award to bounty (the reply must exist and be ACTIVE to be paid)
+		reply := f.createTestPost(t, testCreator2, post.PostId, 0)
 		bounty.Awards = append(bounty.Awards, &types.BountyAward{
-			PostId:    100,
+			PostId:    reply.PostId,
 			Recipient: testCreator2,
 			Amount:    "500000",
 		})
-		f.keeper.Bounty.Set(f.ctx, bounty.Id, bounty)
+		require.NoError(t, f.keeper.Bounty.Set(f.ctx, bounty.Id, bounty))
 
 		msg := &types.MsgAwardBounty{
 			Creator:  testCreator,
@@ -103,11 +104,12 @@ func TestMsgServerAwardBounty(t *testing.T) {
 		post := f.createTestPost(t, testCreator, 0, 0)
 		bounty := f.createTestBounty(t, testCreator, post.PostId, "1000000")
 
+		reply := f.createTestPost(t, testCreator2, post.PostId, 0)
 		bounty.Awards = append(bounty.Awards, &types.BountyAward{
-			PostId:    100,
+			PostId:    reply.PostId,
 			Recipient: testCreator2,
 		})
-		f.keeper.Bounty.Set(f.ctx, bounty.Id, bounty)
+		require.NoError(t, f.keeper.Bounty.Set(f.ctx, bounty.Id, bounty))
 
 		type transfer struct {
 			recipient string
@@ -142,13 +144,14 @@ func TestMsgServerAwardBounty(t *testing.T) {
 
 		// 1000000 / 3 = 333333 rem 1 — first award gets the extra unit
 		recipients := []string{testCreator2, testSentinel, testCreator2}
-		for i, r := range recipients {
+		for _, r := range recipients {
+			reply := f.createTestPost(t, r, post.PostId, 0)
 			bounty.Awards = append(bounty.Awards, &types.BountyAward{
-				PostId:    uint64(100 + i),
+				PostId:    reply.PostId,
 				Recipient: r,
 			})
 		}
-		f.keeper.Bounty.Set(f.ctx, bounty.Id, bounty)
+		require.NoError(t, f.keeper.Bounty.Set(f.ctx, bounty.Id, bounty))
 
 		var amounts []string
 		f.bankKeeper.SendCoinsFromModuleToAccountFn = func(ctx context.Context, senderModule string, recipientAddr sdk.AccAddress, amt sdk.Coins) error {

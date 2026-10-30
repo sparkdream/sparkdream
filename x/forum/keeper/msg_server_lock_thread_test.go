@@ -56,7 +56,7 @@ func TestLockThread(t *testing.T) {
 			setup: func() {
 				params := types.DefaultParams()
 				params.ForumPaused = true
-				_ = f.keeper.Params.Set(f.ctx, params)
+				require.NoError(t, f.keeper.Params.Set(f.ctx, params))
 			},
 			expectError: true,
 			errContains: "forum is paused",
@@ -97,7 +97,7 @@ func TestLockThread(t *testing.T) {
 			setup: func() {
 				p, _ := f.keeper.Post.Get(f.ctx, thread.PostId)
 				p.Locked = true
-				_ = f.keeper.Post.Set(f.ctx, thread.PostId, p)
+				require.NoError(t, f.keeper.Post.Set(f.ctx, thread.PostId, p))
 			},
 			expectError: true,
 			errContains: "thread is already locked",
@@ -112,7 +112,7 @@ func TestLockThread(t *testing.T) {
 			setup: func() {
 				params := types.DefaultParams()
 				params.ModerationPaused = true
-				_ = f.keeper.Params.Set(f.ctx, params)
+				require.NoError(t, f.keeper.Params.Set(f.ctx, params))
 			},
 			expectError: true,
 			errContains: "moderation is paused",
@@ -142,14 +142,14 @@ func TestLockThread(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Reset params and thread state
-			_ = f.keeper.Params.Set(f.ctx, types.DefaultParams())
+			require.NoError(t, f.keeper.Params.Set(f.ctx, types.DefaultParams()))
 			p, _ := f.keeper.Post.Get(f.ctx, thread.PostId)
 			p.Locked = false
 			p.ParentId = 0 // Ensure it's a root post
-			_ = f.keeper.Post.Set(f.ctx, thread.PostId, p)
+			require.NoError(t, f.keeper.Post.Set(f.ctx, thread.PostId, p))
 
 			// Reset sentinel (forum-local counters + rep bond record)
-			_ = f.keeper.SentinelActivity.Set(f.ctx, testSentinel, types.SentinelActivity{Address: testSentinel})
+			require.NoError(t, f.keeper.SentinelActivity.Set(f.ctx, testSentinel, types.SentinelActivity{Address: testSentinel}))
 			f.repKeeper.sentinels[testSentinel] = reptypes.BondedRole{
 				Address:            testSentinel,
 				CurrentBond:        "3000000000",
@@ -223,9 +223,12 @@ func TestLockThreadByGovAuthority(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, lockedThread.Locked)
 
-	// Verify no lock record was created (gov locks don't create lock records)
-	_, err = f.keeper.ThreadLockRecord.Get(f.ctx, thread.PostId)
-	require.Error(t, err) // Should not find lock record
+	// A gov lock writes an authority record (no sentinel, no bond) so the
+	// author can appeal it.
+	rec, err := f.keeper.ThreadLockRecord.Get(f.ctx, thread.PostId)
+	require.NoError(t, err)
+	require.Empty(t, rec.Sentinel)
+	require.Empty(t, rec.CommittedAmount)
 }
 
 // TestLockThread_UnbondingSentinelRejected: a sentinel unbonding its entire
@@ -348,7 +351,8 @@ func TestLockThread_AuthorityDisambiguation(t *testing.T) {
 		require.Equal(t, testSentinel, rec.Sentinel)
 	})
 
-	// Explicit COUNCIL by the same account is the deliberate gov lock: no record.
+	// Explicit COUNCIL by the same account is the deliberate gov lock: an
+	// authority record with no sentinel.
 	t.Run("explicit council is opt-in gov lock", func(t *testing.T) {
 		f, rootID := setup(t, "3000000000")
 		_, err := f.msgServer.LockThread(f.ctx, &types.MsgLockThread{
@@ -358,8 +362,9 @@ func TestLockThread_AuthorityDisambiguation(t *testing.T) {
 			Authority: types.ModerationAuthority_MODERATION_AUTHORITY_COUNCIL,
 		})
 		require.NoError(t, err)
-		_, err = f.keeper.ThreadLockRecord.Get(f.ctx, rootID)
-		require.Error(t, err, "explicit COUNCIL lock must not write a sentinel lock record")
+		rec, err := f.keeper.ThreadLockRecord.Get(f.ctx, rootID)
+		require.NoError(t, err)
+		require.Empty(t, rec.Sentinel, "explicit COUNCIL lock must not write a sentinel lock record")
 	})
 
 	// AUTO by a council account whose bond is BELOW the 2x lock floor (1000 <
@@ -373,8 +378,9 @@ func TestLockThread_AuthorityDisambiguation(t *testing.T) {
 			Authority: types.ModerationAuthority_MODERATION_AUTHORITY_AUTO,
 		})
 		require.NoError(t, err)
-		_, err = f.keeper.ThreadLockRecord.Get(f.ctx, rootID)
-		require.Error(t, err, "sub-floor bond with council falls through to a gov lock (no record)")
+		rec, err := f.keeper.ThreadLockRecord.Get(f.ctx, rootID)
+		require.NoError(t, err)
+		require.Empty(t, rec.Sentinel, "sub-floor bond with council falls through to a gov lock (authority record)")
 	})
 
 	// Explicit SENTINEL by a sub-floor-bond account hard-errors with the

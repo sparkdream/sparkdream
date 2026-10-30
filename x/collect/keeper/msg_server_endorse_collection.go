@@ -6,6 +6,7 @@ import (
 
 	"cosmossdk.io/collections"
 	errorsmod "cosmossdk.io/errors"
+	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	"sparkdream/x/collect/types"
@@ -68,7 +69,7 @@ func (k msgServer) EndorseCollection(ctx context.Context, msg *types.MsgEndorseC
 	}
 
 	// Lock endorsement_dream_stake DREAM from creator
-	if err := k.repKeeper.LockDREAM(ctx, creatorAddr, params.EndorsementDreamStake); err != nil {
+	if err := k.late.repKeeper.LockDREAM(ctx, creatorAddr, params.EndorsementDreamStake); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to lock DREAM stake")
 	}
 
@@ -86,17 +87,25 @@ func (k msgServer) EndorseCollection(ctx context.Context, msg *types.MsgEndorseC
 		return nil, errorsmod.Wrap(err, "failed to store endorsement")
 	}
 
-	// Update collection: status=ACTIVE, endorsed_by=creator, immutable=true
+	// Split the endorsement fee actually escrowed at creation (never the
+	// current param): endorser_share to creator, remainder burned from the
+	// module account.
+	fee := escrowedEndorsementFee(coll)
+	endorserShareAmt := params.EndorsementFeeEndorserShare.MulInt(fee).TruncateInt()
+	burnAmt := fee.Sub(endorserShareAmt)
+
+	// Remove from EndorsementPending using the deadline stored at creation.
+	k.clearEndorsementPending(ctx, &coll, true)
+
+	// Update collection: status=ACTIVE, endorsed_by=creator, immutable=true,
+	// fee settled.
 	coll.Status = types.CollectionStatus_COLLECTION_STATUS_ACTIVE
 	coll.EndorsedBy = msg.Creator
 	coll.Immutable = true
+	coll.EndorsementFeeEscrowed = math.ZeroInt()
 	if err := k.Collection.Set(ctx, coll.Id, coll); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to update collection")
 	}
-
-	// Split endorsement_creation_fee: endorser_share to creator, remainder burned from module account
-	endorserShareAmt := params.EndorsementFeeEndorserShare.MulInt(params.EndorsementCreationFee).TruncateInt()
-	burnAmt := params.EndorsementCreationFee.Sub(endorserShareAmt)
 
 	// Pay endorser share from module account
 	if endorserShareAmt.IsPositive() {
@@ -116,11 +125,6 @@ func (k msgServer) EndorseCollection(ctx context.Context, msg *types.MsgEndorseC
 	if err := k.EndorsementStakeExpiry.Set(ctx, collections.Join(stakeReleaseAt, msg.CollectionId)); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to set endorsement stake expiry")
 	}
-
-	// Remove from EndorsementPending index.
-	// Compute the key directly using CreatedAt + EndorsementExpiryBlocks instead of walking.
-	expiryBlock := coll.CreatedAt + params.EndorsementExpiryBlocks
-	k.EndorsementPending.Remove(ctx, collections.Join(expiryBlock, msg.CollectionId)) //nolint:errcheck
 
 	// Update CollectionsByStatus index: PENDING → ACTIVE (pinned unchanged).
 	if err := k.MoveCollectionStatusIndex(ctx,

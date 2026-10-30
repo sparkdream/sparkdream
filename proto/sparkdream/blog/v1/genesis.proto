@@ -34,4 +34,16 @@ message GenesisState {
 
   // reaction_counts is the list of all aggregate reaction counts.
   repeated GenesisReactionCounts reaction_counts = 7 [(gogoproto.nullable) = false];
+
+  // Authors queued for eager promotion of their ephemeral content (admitted
+  // as members after posting). The queue is driven by an x/rep hook, so it
+  // cannot be rebuilt from the posts; without it an import would drop every
+  // pending promotion.
+  repeated PromotionQueueEntry promotion_queue = 8 [(gogoproto.nullable) = false];
+}
+
+// PromotionQueueEntry is one queued author and the height it was enqueued.
+message PromotionQueueEntry {
+  string creator = 1;
+  int64 enqueued_at = 2;
 }

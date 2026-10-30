@@ -998,6 +998,18 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 					Use:       "clear-zk-public-key",
 					Short:     "Zero your ZK public key at once (leaked shield secret); no cooldown, the next registration waits the activation delay",
 				},
+				{
+					RpcMethod:      "CompleteProject",
+					Use:            "complete-project [project-id]",
+					Short:          "Send a complete-project tx",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "project_id"}},
+				},
+				{
+					RpcMethod:      "InviteExpertWitness",
+					Use:            "invite-expert-witness [jury-review-id] [expert]",
+					Short:          "Call an expert witness onto a pending initiative jury review (seated juror)",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "jury_review_id"}, {ProtoField: "expert"}},
+				},
 			},
 		},
 	}

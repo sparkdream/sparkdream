@@ -2,6 +2,7 @@ package types
 
 import (
 	"fmt"
+	"math/big"
 
 	"cosmossdk.io/errors"
 	"cosmossdk.io/math"
@@ -75,15 +76,15 @@ var (
 	DefaultNominationWindowEpochs             uint64 = 5
 	DefaultMaxNominationsPerMember            uint64 = 3
 	DefaultRetroRewardMaxRecipients           uint64 = 20
-	DefaultRetroRewardBudgetRatio                    = math.LegacyNewDecWithPrec(25, 2) // 0.25
-	DefaultRetroRewardBudgetMin                      = math.NewInt(10_000_000_000)      // 10,000 DREAM in micro-DREAM
-	DefaultRetroRewardBudgetMax                      = math.NewInt(75_000_000_000)      // 75,000 DREAM in micro-DREAM
-	DefaultRetroRewardMinConviction                  = math.LegacyMustNewDecFromStr("50")
+	DefaultRetroRewardBudgetRatio                    = math.LegacyNewDecWithPrec(25, 2)         // 0.25
+	DefaultRetroRewardBudgetMin                      = math.NewInt(10_000_000_000)              // 10,000 DREAM in micro-DREAM
+	DefaultRetroRewardBudgetMax                      = math.NewInt(75_000_000_000)              // 75,000 DREAM in micro-DREAM
+	DefaultRetroRewardMinConviction                  = math.LegacyMustNewDecFromStr("50000000") // 50 DREAM of conviction in micro-DREAM
 	DefaultNominationConvictionHalfLifeEpochs uint64 = 3
 	DefaultNominationRationaleMaxLength       uint32 = 500
 	DefaultNominationMinTrustLevel            uint32 = 2
 	DefaultNominationStakeMinTrustLevel       uint32 = 1
-	DefaultNominationMinStake                        = math.LegacyMustNewDecFromStr("10")
+	DefaultNominationMinStake                        = math.LegacyMustNewDecFromStr("10000000") // 10 DREAM in micro-DREAM
 )
 
 // NewParams creates a new Params instance.
@@ -165,7 +166,19 @@ func DefaultParams() Params {
 }
 
 // Validate validates the set of params.
+// HardMaxQuestXpReward is the compiled ceiling on a quest's xp_reward
+// (user decision, SEA-23 authority follow-up). It equals the default
+// max_xp_per_epoch: one quest can never be worth more than a full epoch of
+// capped XP, so a single committee proposal cannot mint levels, titles or
+// leaderboard rank through one quest. max_quest_xp_reward (an operational
+// param) may only be set at or below it, and quests in genesis are checked
+// against it.
+const HardMaxQuestXpReward uint64 = 200
+
 func (p Params) Validate() error {
+	if p.MaxQuestXpReward > HardMaxQuestXpReward {
+		return errors.Wrapf(ErrInvalidParams, "max_quest_xp_reward (%d) exceeds the hard ceiling %d", p.MaxQuestXpReward, HardMaxQuestXpReward)
+	}
 	if p.EpochBlocks <= 0 {
 		return errors.Wrapf(ErrInvalidParams, "epoch_blocks must be positive: %d", p.EpochBlocks)
 	}
@@ -188,10 +201,14 @@ func (p Params) Validate() error {
 	// Member key migration: every season-scoped dedup record must stay inside
 	// x/rep's alias dedup horizon, or a member could act twice on one
 	// season-scoped item with two addresses (member-key-migration plan §3).
-	if total := p.SeasonDurationEpochs + p.SeasonTransitionEpochs + int64(p.MaxExtensionEpochs); total > reptypes.AliasDedupHorizonEpochs {
+	// SEA-14: a season can be extended max_season_extensions times and its
+	// transition aborted MaxTransitionAbortsPerSeason times, each abort
+	// adding transition_grace_period blocks, so the worst case counts all of
+	// them.
+	if total := p.MaxSeasonLengthEpochs(); total > reptypes.AliasDedupHorizonEpochs {
 		return errors.Wrapf(ErrInvalidParams,
-			"season_duration_epochs + season_transition_epochs + max_extension_epochs (%d) exceeds the x/rep alias dedup horizon (%d epochs)",
-			total, reptypes.AliasDedupHorizonEpochs)
+			"season_duration_epochs + season_transition_epochs + max_season_extensions*max_extension_epochs + %d aborts*transition_grace_period (%d epochs) exceeds the x/rep alias dedup horizon (%d epochs)",
+			MaxTransitionAbortsPerSeason, total, reptypes.AliasDedupHorizonEpochs)
 	}
 
 	// Transition driver params: 0 stalls or silently substitutes magic defaults.
@@ -339,6 +356,9 @@ func DefaultSeasonOperationalParams() SeasonOperationalParams {
 
 // Validate validates the operational parameters.
 func (op SeasonOperationalParams) Validate() error {
+	if op.MaxQuestXpReward > HardMaxQuestXpReward {
+		return fmt.Errorf("max_quest_xp_reward (%d) exceeds the hard ceiling %d", op.MaxQuestXpReward, HardMaxQuestXpReward)
+	}
 	if op.EpochBlocks <= 0 {
 		return fmt.Errorf("epoch_blocks must be positive: %d", op.EpochBlocks)
 	}
@@ -533,4 +553,32 @@ func (p Params) ExtractOperationalParams() SeasonOperationalParams {
 		NominationStakeMinTrustLevel:       p.NominationStakeMinTrustLevel,
 		NominationMinStake:                 p.NominationMinStake,
 	}
+}
+
+// MaxTransitionAbortsPerSeason caps MsgAbortSeasonTransition per season.
+// Every abort pushes the season end out by transition_grace_period, so an
+// unbounded number would let a season outlive x/rep's alias dedup horizon
+// (SEA-14).
+const MaxTransitionAbortsPerSeason = 2
+
+// MaxSeasonLengthEpochs is the longest a season can run, in epochs: its
+// duration and transition, every allowed extension, and every allowed
+// abort's grace period (rounded up to whole epochs). Saturates instead of
+// overflowing on absurd values.
+func (p Params) MaxSeasonLengthEpochs() int64 {
+	const ceiling = int64(1) << 62
+	total := p.SeasonDurationEpochs + p.SeasonTransitionEpochs
+	ext := new(big.Int).Mul(new(big.Int).SetUint64(uint64(p.MaxSeasonExtensions)), new(big.Int).SetUint64(p.MaxExtensionEpochs))
+	if !ext.IsInt64() || ext.Int64() > ceiling {
+		return ceiling
+	}
+	total += ext.Int64()
+	if p.EpochBlocks > 0 {
+		graceEpochs := (int64(p.TransitionGracePeriod) + p.EpochBlocks - 1) / p.EpochBlocks
+		total += MaxTransitionAbortsPerSeason * graceEpochs
+	}
+	if total < 0 || total > ceiling {
+		return ceiling
+	}
+	return total
 }

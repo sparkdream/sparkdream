@@ -47,4 +47,6 @@ type RepKeeper interface {
 	// IsPersonalAddress fails for module accounts, module-derived addresses,
 	// group policies, reserved addresses and vaults.
 	IsPersonalAddress(ctx context.Context, addr string) error
+	// IsTombstoned reports whether addr has migrated away.
+	IsTombstoned(ctx context.Context, addr string) bool
 }

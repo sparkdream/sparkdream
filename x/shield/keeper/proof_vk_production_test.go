@@ -49,3 +49,13 @@ func TestProductionProofWithoutKeyRejected(t *testing.T) {
 	}
 	require.ErrorIs(t, f.keeper.VerifyConsumeProof(f.ctx, msg, 1, 0, 0), types.ErrNoVerificationKey)
 }
+
+// TestProductionMerkleRootFailsClosedWithoutRep (SHD-16): a network build with
+// no rep keeper wired refuses every root instead of accepting any.
+func TestProductionMerkleRootFailsClosedWithoutRep(t *testing.T) {
+	gs := types.DefaultGenesis()
+	gs.Params.Enabled = false
+	f := initFixtureEmpty(t)
+	require.NoError(t, f.keeper.InitGenesis(f.ctx, *gs))
+	require.ErrorIs(t, f.keeper.ValidateMerkleRoot(f.ctx, &types.MsgShieldedExec{MerkleRoot: make([]byte, 32), ProofDomain: types.ProofDomain_PROOF_DOMAIN_TRUST_TREE}), types.ErrInvalidMerkleRoot)
+}

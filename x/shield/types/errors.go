@@ -62,4 +62,19 @@ var (
 
 	// DKG trigger
 	ErrInvalidDKGThreshold = errorsmod.Register(ModuleName, 53, "DKG threshold must satisfy 0 < numerator <= denominator <= 100")
+
+	// Public inputs: every nullifier, rate-limit nullifier and merkle root is
+	// a BN254 scalar-field element and must be given in its one canonical
+	// encoding (value < r). The verifier reduces inputs mod r, so n and n+r
+	// verify alike while being different store keys.
+	ErrNonCanonicalPublicInput = errorsmod.Register(ModuleName, 54, "public input is not a canonical BN254 scalar field element")
+
+	// Chain-wide per-epoch budget of fees the module pays
+	ErrEpochFeeBudgetExhausted = errorsmod.Register(ModuleName, 55, "shield epoch fee budget (max_fees_per_epoch) exhausted; retry next shield epoch")
+
+	// Nullifier domain reuse across registrations
+	ErrNullifierDomainConflict = errorsmod.Register(ModuleName, 56, "nullifier domain is already used by an operation with a different scope type, scope field or window")
+
+	// The shared anonymous submitter's txs must be unordered
+	ErrOrderedPublicSubmitterTx = errorsmod.Register(ModuleName, 57, "txs signed by the public anonymous submitter must be unordered")
 )

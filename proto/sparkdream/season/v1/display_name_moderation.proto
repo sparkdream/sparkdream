@@ -13,4 +13,14 @@ message DisplayNameModeration {
   string appeal_challenge_id = 6;
   int64 appealed_at = 7;
   bool appeal_succeeded = 8;
+  // Names upheld as rejected for this member (most recent last, capped).
+  // The member can never set one of them again, and the list survives later
+  // reports and the closure of this record (SEA-23).
+  repeated string blocked_names = 9;
+  // Failed automatic resolutions of this unappealed moderation (SEA-09).
+  // A failure re-queues the record at auto_resolve_retry_at with backoff;
+  // after the last attempt it leaves the queue (retry_at 0) and waits for
+  // MsgResolveUnappealedModeration.
+  uint32 auto_resolve_attempts = 10;
+  int64 auto_resolve_retry_at = 11;
 }

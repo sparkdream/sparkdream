@@ -32,7 +32,7 @@ func TestMsgServerDismissFlags(t *testing.T) {
 			TotalWeight:   "100",
 			InReviewQueue: true,
 		}
-		f.keeper.PostFlag.Set(f.ctx, post.PostId, flag)
+		require.NoError(t, f.keeper.PostFlag.Set(f.ctx, post.PostId, flag))
 
 		msg := &types.MsgDismissFlags{
 			Creator: testCreator2, // Not sentinel or authority
@@ -62,7 +62,7 @@ func TestMsgServerDismissFlags(t *testing.T) {
 			TotalWeight:   "100",
 			InReviewQueue: true,
 		}
-		f.keeper.PostFlag.Set(f.ctx, post.PostId, flag)
+		require.NoError(t, f.keeper.PostFlag.Set(f.ctx, post.PostId, flag))
 
 		msg := &types.MsgDismissFlags{
 			Creator: authority,
@@ -86,7 +86,7 @@ func TestMsgServerDismissFlags(t *testing.T) {
 			TotalWeight:   "100",
 			InReviewQueue: true,
 		}
-		f.keeper.PostFlag.Set(f.ctx, post.PostId, flag)
+		require.NoError(t, f.keeper.PostFlag.Set(f.ctx, post.PostId, flag))
 
 		msg := &types.MsgDismissFlags{
 			Creator: testSentinel,
@@ -117,7 +117,7 @@ func TestMsgServerDismissFlags(t *testing.T) {
 			TotalWeight:   "50",
 			InReviewQueue: false,
 		}
-		f.keeper.PostFlag.Set(f.ctx, post.PostId, flag)
+		require.NoError(t, f.keeper.PostFlag.Set(f.ctx, post.PostId, flag))
 
 		msg := &types.MsgDismissFlags{
 			Creator: testCreator2,
@@ -147,7 +147,7 @@ func TestMsgServerDismissFlags(t *testing.T) {
 			TotalWeight:   "100",
 			InReviewQueue: true,
 		}
-		f.keeper.PostFlag.Set(f.ctx, post.PostId, flag)
+		require.NoError(t, f.keeper.PostFlag.Set(f.ctx, post.PostId, flag))
 
 		msg := &types.MsgDismissFlags{
 			Creator: testSentinel,
@@ -179,7 +179,7 @@ func TestMsgServerDismissFlags(t *testing.T) {
 			TotalWeight:   "100",
 			InReviewQueue: true,
 		}
-		f.keeper.PostFlag.Set(f.ctx, post.PostId, flag)
+		require.NoError(t, f.keeper.PostFlag.Set(f.ctx, post.PostId, flag))
 
 		msg := &types.MsgDismissFlags{
 			Creator: testSentinel,
@@ -210,7 +210,7 @@ func TestMsgServerDismissFlags(t *testing.T) {
 			TotalWeight:   "100",
 			InReviewQueue: true,
 		}
-		f.keeper.PostFlag.Set(f.ctx, post.PostId, flag)
+		require.NoError(t, f.keeper.PostFlag.Set(f.ctx, post.PostId, flag))
 
 		_, err := f.msgServer.DismissFlags(f.ctx, &types.MsgDismissFlags{
 			Creator: testSentinel,

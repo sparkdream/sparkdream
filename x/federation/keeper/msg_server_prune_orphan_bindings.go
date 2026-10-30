@@ -71,9 +71,15 @@ func (k msgServer) PruneOrphanBindings(ctx context.Context, msg *types.MsgPruneO
 	pruned := uint64(0)
 	for _, addr := range orphanAddrs {
 		bindingKey := collections.Join(addr, msg.PeerId)
-		_ = k.BridgeBindings.Remove(ctx, bindingKey)
-		_ = k.BridgesByPeer.Remove(ctx, collections.Join(msg.PeerId, addr))
-		_ = k.BindingsByOperator.Remove(ctx, collections.Join3(serviceType, addr, msg.PeerId))
+		if err := k.BridgeBindings.Remove(ctx, bindingKey); err != nil {
+			return nil, err
+		}
+		if err := k.BridgesByPeer.Remove(ctx, collections.Join(msg.PeerId, addr)); err != nil {
+			return nil, err
+		}
+		if err := k.BindingsByOperator.Remove(ctx, collections.Join3(serviceType, addr, msg.PeerId)); err != nil {
+			return nil, err
+		}
 		sdkCtx.EventManager().EmitEvent(
 			sdk.NewEvent(types.EventTypeBridgeUnbound,
 				sdk.NewAttribute(types.AttributeKeyOperator, addr),

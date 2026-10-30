@@ -121,6 +121,21 @@ func (k Keeper) PruneEpochScopedNullifiers(ctx context.Context, cutoffEpoch uint
 	}); err != nil {
 		return err
 	}
+	// Retired EPOCH domains: no live op uses them, but their nullifiers
+	// still expire.
+	retired := make(map[uint32]bool)
+	if err := k.RetiredDomains.Walk(ctx, nil, func(domain uint32, reg types.ShieldedOpRegistration) (bool, error) {
+		if reg.NullifierScopeType == types.NullifierScopeType_NULLIFIER_SCOPE_EPOCH {
+			if _, seen := windows[domain]; !seen {
+				epochDomains = append(epochDomains, domain)
+				windows[domain] = reg.Window()
+				retired[domain] = true
+			}
+		}
+		return false, nil
+	}); err != nil {
+		return err
+	}
 
 	for _, domain := range epochDomains {
 		// [(domain, 0, ""), (domain, cutoffScope, "")) covers every scope
@@ -143,7 +158,30 @@ func (k Keeper) PruneEpochScopedNullifiers(ctx context.Context, cutoffEpoch uint
 				return err
 			}
 		}
+		// A retired domain with no nullifiers left has nothing to protect.
+		if retired[domain] {
+			empty, err := k.domainEmpty(ctx, domain)
+			if err != nil {
+				return err
+			}
+			if empty {
+				if err := k.RetiredDomains.Remove(ctx, domain); err != nil {
+					return err
+				}
+			}
+		}
 	}
 
 	return nil
+}
+
+// domainEmpty reports whether no used nullifier is stored in the domain.
+func (k Keeper) domainEmpty(ctx context.Context, domain uint32) (bool, error) {
+	rng := collections.NewPrefixedTripleRange[uint32, uint64, string](domain)
+	iter, err := k.UsedNullifiers.Iterate(ctx, rng)
+	if err != nil {
+		return false, err
+	}
+	defer iter.Close()
+	return !iter.Valid(), nil
 }

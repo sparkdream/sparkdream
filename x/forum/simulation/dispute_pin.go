@@ -1,61 +1,52 @@
 package simulation
 
 import (
-	"math/rand"
-
-	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
 
 	"sparkdream/x/forum/keeper"
 	"sparkdream/x/forum/types"
 )
 
-// SimulateMsgDisputePin simulates a MsgDisputePin message using direct keeper calls.
-// This bypasses author verification for simulation purposes.
-// Full integration testing should be done in integration tests.
+// SimulateMsgDisputePin delivers MsgDisputePin from the author of a thread
+// whose reply a sentinel pinned, while that pin is not yet disputed. The
+// author escrows x/rep's appeal bond. Pins only come from sentinels, so this
+// op succeeds only in runs that bond one.
 func SimulateMsgDisputePin(
 	ak types.AuthKeeper,
 	bk types.BankKeeper,
 	k keeper.Keeper,
 	txGen client.TxConfig,
 ) simtypes.Operation {
-	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
-	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		simAccount, _ := simtypes.RandomAcc(r, accs)
-
-		// Get or create a pinned reply with proper metadata
-		threadID, replyID, err := getOrCreatePinnedReplyWithMetadata(r, ctx, k, simAccount.Address.String())
-		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgDisputePin{}), "failed to get/create pinned reply"), nil, nil
-		}
-
-		// Use direct keeper calls to dispute pin (bypasses author verification)
-		metadata, err := k.ThreadMetadata.Get(ctx, threadID)
-		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgDisputePin{}), "thread metadata not found"), nil, nil
-		}
-
-		// Find and update the pinned record (only Disputed field exists)
-		found := false
-		for _, record := range metadata.PinnedRecords {
-			if record.PostId == replyID {
-				record.Disputed = true
-				found = true
-				break
+	return operation(ak, bk, k, txGen, &types.MsgDisputePin{}, func(e *simEnv) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
+		msg := &types.MsgDisputePin{}
+		var targets []*types.MsgDisputePin
+		err := e.k.ThreadMetadata.Walk(e.ctx, nil, func(threadID uint64, md types.ThreadMetadata) (bool, error) {
+			root, ok := e.post(threadID)
+			if !ok || root.ParentId != 0 {
+				return false, nil
 			}
+			if _, ok := e.account(root.Author); !ok {
+				return false, nil
+			}
+			for _, rec := range md.PinnedRecords {
+				if rec != nil && rec.IsSentinelPin && !rec.Disputed {
+					targets = append(targets, &types.MsgDisputePin{
+						Creator: root.Author, ThreadId: threadID, ReplyId: rec.PostId,
+						Reason: "aurora: the pinned reply is misleading",
+					})
+				}
+			}
+			return false, nil
+		})
+		if err != nil {
+			return noOpErr(msg, err)
 		}
-
-		if !found {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgDisputePin{}), "reply has no pinned record"), nil, nil
+		t, ok := pick(e.r, targets)
+		if !ok {
+			return noOp(msg, "no undisputed sentinel pin in a sim account's thread")
 		}
-
-		if err := k.ThreadMetadata.Set(ctx, threadID, metadata); err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgDisputePin{}), "failed to dispute pin"), nil, nil
-		}
-
-		// Return success
-		return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgDisputePin{}), "ok (direct keeper call)"), nil, nil
-	}
+		author, _ := e.account(t.Creator)
+		return e.submit(author, t, appealBond())
+	})
 }

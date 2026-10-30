@@ -59,7 +59,7 @@ func TestQueryMemberGuildInvites(t *testing.T) {
 			GuildInvitee: inviteeStr,
 			Inviter:      founderStr,
 		}
-		k.GuildInvite.Set(ctx, key, invite)
+		require.NoError(t, k.GuildInvite.Set(ctx, key, invite))
 
 		resp, err := qs.MemberGuildInvites(ctx, &types.QueryMemberGuildInvitesRequest{Member: inviteeStr})
 		require.NoError(t, err)

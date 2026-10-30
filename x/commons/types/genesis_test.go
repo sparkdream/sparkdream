@@ -132,6 +132,68 @@ func TestGenesisState_Validate(t *testing.T) {
 			},
 			valid: false,
 		},
+		// CMN-15: the group index is the collection key and the policy
+		// indexes are rebuilt from group_map.
+		{
+			desc:     "group with empty index",
+			genState: &types.GenesisState{Params: types.DefaultParams(), GroupMap: []types.Group{{Index: "", PolicyAddress: sampleAddr}}},
+			valid:    false,
+		},
+		{
+			desc: "two groups claim the same policy address",
+			genState: &types.GenesisState{Params: types.DefaultParams(), GroupMap: []types.Group{
+				{Index: "Aurora Guild", PolicyAddress: sampleAddr},
+				{Index: "Zenith Circle", PolicyAddress: sampleAddr2, VetoPolicyAddress: sampleAddr},
+			}},
+			valid: false,
+		},
+		{
+			desc: "members of an unknown group",
+			genState: &types.GenesisState{Params: types.DefaultParams(),
+				GroupMap:       []types.Group{{Index: "Aurora Guild", PolicyAddress: sampleAddr}},
+				CouncilMembers: []types.CouncilMembers{{CouncilName: "Zenith Circle"}},
+			},
+			valid: false,
+		},
+		{
+			desc: "groups with distinct policies and their members",
+			genState: &types.GenesisState{Params: types.DefaultParams(),
+				GroupMap: []types.Group{
+					{Index: "Aurora Guild", PolicyAddress: sampleAddr},
+					{Index: "Zenith Circle", PolicyAddress: sampleAddr2},
+				},
+				CouncilMembers: []types.CouncilMembers{{CouncilName: "Zenith Circle"}},
+			},
+			valid: true,
+		},
+		// CMN-17: anonymous state.
+		{
+			desc: "duplicate anon vote tally",
+			genState: &types.GenesisState{Params: types.DefaultParams(),
+				AnonVoteTallies: []types.AnonVoteTallyEntry{{ProposalId: 1}, {ProposalId: 1}},
+			},
+			valid: false,
+		},
+		{
+			desc: "duplicate anon proposal counter",
+			genState: &types.GenesisState{Params: types.DefaultParams(),
+				AnonProposalCounts: []types.AnonProposalCountEntry{
+					{CouncilName: "Aurora Guild", UtcDay: 3, Count: 1},
+					{CouncilName: "Aurora Guild", UtcDay: 3, Count: 2},
+				},
+			},
+			valid: false,
+		},
+		{
+			desc: "anon counters on distinct days",
+			genState: &types.GenesisState{Params: types.DefaultParams(),
+				AnonProposalCounts: []types.AnonProposalCountEntry{
+					{CouncilName: "Aurora Guild", UtcDay: 3, Count: 1},
+					{CouncilName: "Aurora Guild", UtcDay: 4, Count: 2},
+				},
+			},
+			valid: true,
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.desc, func(t *testing.T) {

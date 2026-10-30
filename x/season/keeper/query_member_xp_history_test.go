@@ -58,7 +58,7 @@ func TestQueryMemberXpHistory(t *testing.T) {
 			OtherXpEarned: 0,
 		}
 		key := memberStr + ":5"
-		k.EpochXpTracker.Set(ctx, key, tracker)
+		require.NoError(t, k.EpochXpTracker.Set(ctx, key, tracker))
 
 		resp, err := qs.MemberXpHistory(ctx, &types.QueryMemberXpHistoryRequest{Address: memberStr})
 		require.NoError(t, err)

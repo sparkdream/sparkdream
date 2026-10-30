@@ -22,8 +22,6 @@ import (
 // return and is best-effort (its failure does not block the bond
 // return — see grantReputationOnClaim below).
 func (k msgServer) ClaimUnbondedBond(ctx context.Context, msg *types.MsgClaimUnbondedBond) (*types.MsgClaimUnbondedBondResponse, error) {
-	sdkCtx := sdk.UnwrapSDKContext(ctx)
-
 	opBytes, err := k.addrBytes(msg.Operator)
 	if err != nil {
 		return nil, types.ErrInvalidSigner.Wrap("invalid operator address")
@@ -45,37 +43,50 @@ func (k msgServer) ClaimUnbondedBond(ctx context.Context, msg *types.MsgClaimUnb
 		return nil, types.ErrOperatorNotActive.Wrap("operator is not unbonding and has no pending withdrawal")
 	}
 
+	if err := k.claimUnbondedExit(ctx, op, opBytes); err != nil {
+		return nil, err
+	}
+
+	return &types.MsgClaimUnbondedBondResponse{}, nil
+}
+
+// claimUnbondedExit returns a matured exit bond and retires the operator.
+// Shared by MsgClaimUnbondedBond and the tombstone sweep (ClaimForTombstone),
+// which lets the canonical address of a migrated operator collect an exit
+// bond the old key can no longer claim. The caller checks the status.
+func (k Keeper) claimUnbondedExit(ctx context.Context, op types.Operator, opBytes []byte) error {
+	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	currentHeight := sdkCtx.BlockHeight()
 	if currentHeight < op.UnbondCompleteAt {
-		return nil, types.ErrUnbondingPeriodNotElapsed.Wrapf("complete_at=%d height=%d", op.UnbondCompleteAt, currentHeight)
+		return types.ErrUnbondingPeriodNotElapsed.Wrapf("complete_at=%d height=%d", op.UnbondCompleteAt, currentHeight)
 	}
 
 	// Open-reports gate (§3.5).
-	hasOpen, err := k.HasOpenReports(ctx, opBytes, msg.ServiceType)
+	hasOpen, err := k.HasOpenReports(ctx, opBytes, op.ServiceType)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	if hasOpen {
-		return nil, types.ErrOpenReports
+		return types.ErrOpenReports
 	}
 
 	// Active tier-1 escrow gate (§3.5). Genuinely-still-in-window
 	// entries block; expired-but-unswept entries are eagerly processed
 	// inline below.
-	hasActive, err := k.HasActiveTier1Escrow(ctx, opBytes, msg.ServiceType, currentHeight)
+	hasActive, err := k.HasActiveTier1Escrow(ctx, opBytes, op.ServiceType, currentHeight)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	if hasActive {
-		return nil, types.ErrEscrowStillActive
+		return types.ErrEscrowStillActive
 	}
 
 	// Eagerly release any expired-but-unswept escrows for this operator
 	// to the community pool (§3.5). The EndBlocker sweep will eventually
 	// do this anyway, but the operator shouldn't have to wait if the
 	// queue is saturated.
-	if err := k.eagerReleaseExpiredEscrowsForOperator(ctx, opBytes, msg.ServiceType, currentHeight); err != nil {
-		return nil, err
+	if err := k.eagerReleaseExpiredEscrowsForOperator(ctx, opBytes, op.ServiceType, currentHeight); err != nil {
+		return err
 	}
 
 	// Final settle (no-op for UNBONDING — accrual already capped, but
@@ -87,7 +98,7 @@ func (k msgServer) ClaimUnbondedBond(ctx context.Context, msg *types.MsgClaimUnb
 	bondCoin := sdk.NewCoin(bondDenom, op.BondAmount)
 	if !op.BondAmount.IsZero() {
 		if err := k.bankKeeper.SendCoinsFromModuleToAccount(ctx, types.ModuleName, sdk.AccAddress(opBytes), sdk.NewCoins(bondCoin)); err != nil {
-			return nil, err
+			return err
 		}
 	}
 
@@ -100,8 +111,8 @@ func (k msgServer) ClaimUnbondedBond(ctx context.Context, msg *types.MsgClaimUnb
 	if err := k.grantReputationOnClaim(ctx, op, opBytes); err != nil {
 		sdkCtx.Logger().Warn(
 			"x/service: reputation grant on claim failed (non-fatal)",
-			"operator", msg.Operator,
-			"service_type", msg.ServiceType,
+			"operator", op.Address,
+			"service_type", op.ServiceType,
 			"error", err,
 		)
 	}
@@ -114,17 +125,17 @@ func (k msgServer) ClaimUnbondedBond(ctx context.Context, msg *types.MsgClaimUnb
 	op.Status = types.OperatorStatus_OPERATOR_STATUS_RETIRED
 	op.RetiredAt = currentHeight
 	if err := k.ArchiveOperator(ctx, op); err != nil {
-		return nil, err
+		return err
 	}
 
 	sdkCtx.EventManager().EmitEvents(sdk.Events{
-		types.NewOperatorUnbondCompletedEvent(msg.Operator, msg.ServiceType, returnedBond),
-		types.NewOperatorArchivedEvent(msg.Operator, msg.ServiceType, "RETIRED", currentHeight),
+		types.NewOperatorUnbondCompletedEvent(op.Address, op.ServiceType, returnedBond),
+		types.NewOperatorArchivedEvent(op.Address, op.ServiceType, "RETIRED", currentHeight),
 	})
 
 	if k.hooks() != nil {
-		k.hooks().AfterOperatorRetired(ctx, sdk.AccAddress(opBytes), msg.ServiceType)
+		k.hooks().AfterOperatorRetired(ctx, sdk.AccAddress(opBytes), op.ServiceType)
 	}
 
-	return &types.MsgClaimUnbondedBondResponse{}, nil
+	return nil
 }

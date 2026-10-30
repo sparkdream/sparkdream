@@ -2,6 +2,8 @@ package types
 
 import (
 	"cosmossdk.io/math"
+
+	reptypes "sparkdream/x/rep/types"
 )
 
 // Default param values. See docs/x-service-spec.md §4.2 for the full table
@@ -103,6 +105,15 @@ func DefaultParams() Params {
 // validation rules. Returns nil iff all constraints hold; otherwise
 // returns a wrapped ErrInvalidParams.
 func (p Params) Validate() error {
+	// The reporter gate names an x/rep trust level; empty means no gate. An
+	// unknown name used to read as "no gate" at report time, so a typo in a
+	// params update silently switched the gate off.
+	if p.MinReporterTrustLevel != "" {
+		if _, ok := reptypes.TrustLevel_value[p.MinReporterTrustLevel]; !ok {
+			return ErrInvalidParams.Wrapf("min_reporter_trust_level %q is not an x/rep trust level", p.MinReporterTrustLevel)
+		}
+	}
+
 	// All *_blocks params > 0.
 	blocksFields := map[string]int64{
 		"default_unbonding_period_blocks":   p.DefaultUnbondingPeriodBlocks,
@@ -211,7 +222,8 @@ func (p Params) Validate() error {
 	}
 
 	// System-report rate-limit window must be positive when the cap is
-	// nonzero (zero cap means "unlimited" and the window is irrelevant).
+	// nonzero (a zero cap disables system reports and the window is
+	// irrelevant).
 	if p.MaxSystemReportsPerCallerPerWindow > 0 && p.RateLimitWindowBlocks <= 0 {
 		return ErrInvalidParams.Wrapf(
 			"rate_limit_window_blocks must be > 0 when max_system_reports_per_caller_per_window (%d) is positive",

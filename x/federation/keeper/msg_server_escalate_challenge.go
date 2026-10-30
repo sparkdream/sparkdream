@@ -31,8 +31,31 @@ func (k msgServer) EscalateChallenge(ctx context.Context, msg *types.MsgEscalate
 	if err != nil {
 		return nil, errorsmod.Wrapf(types.ErrContentNotFound, "no verification record for content %d", msg.ContentId)
 	}
-	if msg.Creator != record.Verifier && msg.Creator != record.Challenger {
+	// Alias-aware: a party who migrated keys acts for records written under
+	// the old address; a tombstoned key acts for nobody.
+	if !k.canActAs(ctx, msg.Creator, record.Verifier) && !k.canActAs(ctx, msg.Creator, record.Challenger) {
 		return nil, errorsmod.Wrap(types.ErrNotChallengeParty, "signer must be challenger or verifier")
+	}
+
+	// 2b. Once the arbiter quorum has stashed an auto-verdict, it may be
+	//     escalated only until its escalation deadline (spec §6.25 step
+	//     2). Without this check a party could escalate after the window
+	//     whenever the EndBlocker was behind on its prune budget.
+	//
+	//     Escalating BEFORE any quorum is still allowed: it skips the
+	//     arbiter phase and sends the dispute straight to the Operations
+	//     Committee policy (MsgResolveEscalatedChallenge), and with no
+	//     auto-verdict to overturn the escalator always forfeits the fee.
+	if record.PendingVerifierVerdict != types.PendingVerifierVerdict_PENDING_VERIFIER_VERDICT_UNSPECIFIED &&
+		record.ArbiterEscalationDeadline != 0 &&
+		sdk.UnwrapSDKContext(ctx).BlockTime().Unix() > record.ArbiterEscalationDeadline {
+		return nil, errorsmod.Wrapf(types.ErrEscalationWindowExpired, "escalation deadline %d", record.ArbiterEscalationDeadline)
+	}
+
+	// 2c. One escalation per dispute: the jury lifecycle owns it once open.
+	if has, _ := k.EscalatedChallenges.Has(ctx, msg.ContentId); has {
+		return nil, errorsmod.Wrap(types.ErrNoAutoResolutionToEscalate,
+			"challenge already escalated to jury")
 	}
 
 	params, err := k.Params.Get(ctx)
@@ -48,40 +71,21 @@ func (k msgServer) EscalateChallenge(ctx context.Context, msg *types.MsgEscalate
 		return nil, errorsmod.Wrapf(err, "failed to escrow escalation fee %s", escalationFee)
 	}
 
-	// 4. File a system report against the bridge operator that
-	// submitted the disputed content. Phase 6 of the federation→
-	// service migration: federation no longer maintains a parallel
-	// jury creation path; it delegates to x/service.OpenSystemReport
-	// and lets the standard tier-1 → jury flow handle resolution.
-	// ReportTimeoutAction=ESCALATE on the bridge service types ensures
-	// a silent controller can't park the slash forever.
-	//
-	// On standalone-mode (no service keeper wired), this is a no-op;
-	// the escalation_fee escrow above still happens for completeness.
-	evidenceURI := fmt.Sprintf("content_id=%d escalator=%s record_verifier=%s record_challenger=%s",
-		msg.ContentId, msg.Creator, record.Verifier, record.Challenger)
+	// 4. No operator report here. Escalation is a dispute between the
+	//    verifier and the challenger; the submitting operator's hash may
+	//    well have been confirmed. The report is filed where the
+	//    operator's content is actually falsified: at an arbiter quorum
+	//    whose hash differs from the content hash, or by a jury verdict
+	//    that finds the content hash false (applyJuryVerdict).
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 	blockTime := sdkCtx.BlockTime().Unix()
-	if rerr := k.Keeper.fileChallengeReport(ctx, content, evidenceURI); rerr != nil {
-		sdkCtx.EventManager().EmitEvent(
-			sdk.NewEvent(types.EventTypeFederationHookFailure,
-				sdk.NewAttribute("hook", "fileChallengeReport"),
-				sdk.NewAttribute(types.AttributeKeyContentID, fmt.Sprintf("%d", msg.ContentId)),
-				sdk.NewAttribute("error", rerr.Error()),
-			),
-		)
-	}
 
 	// 5. Open the jury lifecycle. Snapshot the Phase 1 auto-verdict on
 	// the EscalatedChallenge (the jury will be compared against this to
 	// determine "overturned" for the escalation-fee refund), then clear
-	// PendingVerifierVerdict on the record so finalizeAutoResolutions
-	// skips its auto-application path. Reject if a jury lifecycle is
-	// already open for this content (double-escalation guard).
-	if _, err := k.EscalatedChallenges.Get(ctx, msg.ContentId); err == nil {
-		return nil, errorsmod.Wrap(types.ErrNoAutoResolutionToEscalate,
-			"challenge already escalated to jury")
-	}
+	// PendingVerifierVerdict on the record. From here the round belongs to
+	// the jury path: SubmitArbiterHash refuses further votes and
+	// finalizeAutoResolutions never applies an auto-verdict to it.
 	autoVerdict := record.PendingVerifierVerdict
 	juryDeadline := blockTime + int64(params.ChallengeJuryDeadline.Seconds())
 	escalated := types.EscalatedChallenge{

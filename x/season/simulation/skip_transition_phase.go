@@ -1,9 +1,6 @@
 package simulation
 
 import (
-	"math/rand"
-
-	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
@@ -12,61 +9,33 @@ import (
 	"sparkdream/x/season/types"
 )
 
-// SimulateMsgSkipTransitionPhase simulates a MsgSkipTransitionPhase message using direct keeper calls.
-// This bypasses the governance authority requirement for simulation purposes.
-// Full authority testing should be done in integration tests.
+// SimulateMsgSkipTransitionPhase skips a stuck, non-critical phase of an
+// in-flight season transition through an executed x/commons proposal
+// (council.go), only while the transition is in recovery mode (an operator
+// skips a phase that failed, not a healthy one). Without such a transition
+// it is a NoOp (see activeTransition); the handler's dry-run refuses the
+// critical reputation phases.
 func SimulateMsgSkipTransitionPhase(
 	ak types.AuthKeeper,
 	bk types.BankKeeper,
 	k keeper.Keeper,
 	txGen client.TxConfig,
 ) simtypes.Operation {
-	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
-	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		// Get the current transition state
-		transitionState, err := k.SeasonTransitionState.Get(ctx)
-		if err != nil {
-			// Create a transition state for simulation
-			transitionState = types.SeasonTransitionState{
-				Phase:           types.TransitionPhase_TRANSITION_PHASE_UNSPECIFIED,
-				TransitionStart: ctx.BlockHeight(),
+	return authorityOp(ak, bk, k, txGen, &types.MsgSkipTransitionPhase{}, decodeAs[types.MsgSkipTransitionPhase](),
+		func(e *simEnv, policy string, taken []sdk.Msg) (sdk.Msg, string, error) {
+			if len(taken) > 0 {
+				return nil, "a skip is already proposed", nil
 			}
-		}
-
-		// Check if we're in a transition (not unspecified or complete)
-		// If not in transition, create one for simulation purposes
-		if transitionState.Phase == types.TransitionPhase_TRANSITION_PHASE_UNSPECIFIED ||
-			transitionState.Phase == types.TransitionPhase_TRANSITION_PHASE_COMPLETE {
-			// Start a new transition for simulation
-			transitionState.Phase = types.TransitionPhase_TRANSITION_PHASE_SNAPSHOT
-			transitionState.TransitionStart = ctx.BlockHeight()
-			transitionState.ProcessedCount = 0
-			transitionState.TotalCount = 100        // Simulated total
-			transitionState.MaintenanceMode = false // Don't enable maintenance mode in simulation
-			if err := k.SeasonTransitionState.Set(ctx, transitionState); err != nil {
-				return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgSkipTransitionPhase{}), "failed to create transition"), nil, nil
+			if _, reason, err := activeTransition(e.ctx, e.k); err != nil || reason != "" {
+				return nil, reason, err
 			}
-		}
-
-		// Advance to the next phase
-		currentPhase := transitionState.Phase
-		nextPhase := currentPhase + 1
-		if nextPhase > types.TransitionPhase_TRANSITION_PHASE_COMPLETE {
-			nextPhase = types.TransitionPhase_TRANSITION_PHASE_COMPLETE
-		}
-
-		// Update the transition state
-		transitionState.Phase = nextPhase
-		transitionState.ProcessedCount = 0 // Reset for new phase
-		transitionState.TotalCount = 0
-		transitionState.LastProcessed = ""
-		transitionState.MaintenanceMode = false // Always reset maintenance mode in simulation
-
-		if err := k.SeasonTransitionState.Set(ctx, transitionState); err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgSkipTransitionPhase{}), "failed to skip phase"), nil, nil
-		}
-
-		// Return success
-		return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgSkipTransitionPhase{}), "ok (direct keeper call)"), nil, nil
-	}
+			recovering, err := inRecovery(e.ctx, e.k)
+			if err != nil {
+				return nil, "", err
+			}
+			if !recovering {
+				return nil, "transition phase is not stuck (not in recovery mode)", nil
+			}
+			return &types.MsgSkipTransitionPhase{Authority: policy}, "", nil
+		})
 }

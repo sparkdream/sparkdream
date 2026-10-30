@@ -1,151 +1,91 @@
 package simulation
 
 import (
-	"fmt"
-	"math/rand"
-
 	"cosmossdk.io/math"
-	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
-	"github.com/cosmos/cosmos-sdk/x/simulation"
 
 	"sparkdream/x/commons/keeper"
 	"sparkdream/x/commons/types"
 )
 
-func SimulateMsgUpdateGroupConfig(
-	ak types.AuthKeeper,
-	bk types.BankKeeper,
-	k keeper.Keeper,
-	txGen client.TxConfig,
-) simtypes.Operation {
-	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
-	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		var (
-			simAccount  simtypes.Account
-			targetGroup types.Group
-			targetName  string
-			found       bool
-		)
-
-		simAccount, _ = simtypes.RandomAcc(r, accs)
-
-		// 1. FIND CANDIDATE GROUP
-		// Find a group where simAccount is the PARENT (Authorized to update config)
-		err := k.Groups.Walk(ctx, nil, func(name string, g types.Group) (bool, error) {
-			if g.ParentPolicyAddress == simAccount.Address.String() {
-				// SKIP INVALID GROUPS
-				if g.MinMembers == 0 {
-					return false, nil
-				}
-				targetGroup = g
-				targetName = name
-				found = true
-				return true, nil
+// SimulateMsgUpdateGroupConfig reconfigures a simulated group through a
+// proposal of its parent (the only non-gov signer the handler accepts):
+// cooldown, term, spend cap within the parent's, ballot mode, and sometimes
+// a new decision policy. Size bounds, the x/split share and futarchy are
+// left alone (x/gov only, or a confidence market the run cannot fund).
+// Bootstrapped bodies are never reconfigured: every other module's
+// simulation depends on their decision policies.
+func SimulateMsgUpdateGroupConfig(ak types.AuthKeeper, bk types.BankKeeper, k keeper.Keeper, txGen client.TxConfig) simtypes.Operation {
+	label := &types.MsgUpdateGroupConfig{}
+	return operation(ak, bk, k, txGen, func(e *simEnv) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
+		return e.advance(label, func() (proposal, string, error) {
+			now := e.ctx.BlockTime().Unix()
+			targets, err := e.groups(func(name string, g types.Group) bool {
+				// The parent is throttled by the group's update_cooldown.
+				return isSimGroup(name) && (g.UpdateCooldown <= 0 || g.LastConfigUpdate <= 0 || now >= g.LastConfigUpdate+g.UpdateCooldown)
+			})
+			if err != nil {
+				return proposal{}, "", err
 			}
-			return false, nil
+			if len(targets) == 0 {
+				return proposal{}, "no simulated group outside its config cooldown", nil
+			}
+			target := targets[e.r.Intn(len(targets))]
+			policy, proposer, reason, err := e.pickCarrier([]string{target.g.ParentPolicyAddress}, sdk.MsgTypeURL(label))
+			if err != nil || reason != "" {
+				return proposal{}, reason, err
+			}
+			msg, err := e.groupConfigMsg(target, policy)
+			if err != nil {
+				return proposal{}, "", err
+			}
+			return proposal{policy: policy, proposer: proposer, inner: msg}, "", nil
 		})
-		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgUpdateGroupConfig{}), "error walking groups"), nil, err
-		}
+	})
+}
 
-		// 2. FALLBACK: CREATE GROUP
-		if !found {
-			targetName = "sim-config-group-" + simtypes.RandStringOfLength(r, 5)
-			policyAddr := "sim-config-policy-" + simtypes.RandStringOfLength(r, 10)
-
-			targetGroup = types.Group{
-				GroupId:             uint64(simtypes.RandIntBetween(r, 1, 1000)),
-				PolicyAddress:       policyAddr,
-				ParentPolicyAddress: simAccount.Address.String(), // Key: simAccount is Parent
-				MinMembers:          1,
-				MaxMembers:          5,
-				TermDuration:        86400,
-				FutarchyEnabled:     true,
-			}
-			if err := k.Groups.Set(ctx, targetName, targetGroup); err != nil {
-				return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgUpdateGroupConfig{}), "failed to set group"), nil, err
-			}
-			if err := k.PolicyToName.Set(ctx, policyAddr, targetName); err != nil {
-				return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgUpdateGroupConfig{}), "failed to set policy index"), nil, err
-			}
-
-			// Add initial member
-			if err := k.AddMember(ctx, targetName, types.Member{
-				Address: simAccount.Address.String(),
-				Weight:  "1",
-				AddedAt: ctx.BlockTime().Unix(),
-			}); err != nil {
-				return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgUpdateGroupConfig{}), "failed to add member"), nil, err
-			}
-		}
-
-		// 3. GENERATE RANDOM UPDATES
-		msg := &types.MsgUpdateGroupConfig{
-			Authority: simAccount.Address.String(),
-			GroupName: targetName,
-		}
-
-		// A. Update Member Bounds (50% chance OR if group is invalid)
-		if r.Intn(2) == 0 || targetGroup.MinMembers == 0 {
-			newMin := uint64(simtypes.RandIntBetween(r, 1, 5))
-			newMax := uint64(simtypes.RandIntBetween(r, int(newMin), 10))
-			msg.MinMembers = newMin
-			msg.MaxMembers = newMax
-		}
-
-		// C. Update Cooldown (50% chance)
-		if r.Intn(2) == 0 {
-			msg.UpdateCooldown = int64(simtypes.RandIntBetween(r, 0, 86400))
-		}
-
-		// D. Update Futarchy (50% chance)
-		if r.Intn(2) == 0 {
-			val := r.Intn(2) == 0 // true or false
-			msg.FutarchyEnabled = &types.BoolValue{Value: val}
-		}
-
-		// E. Update Policy (30% chance - less frequent as it's heavier)
-		if r.Intn(10) < 3 {
-			if r.Intn(2) == 0 {
-				// Percentage
-				msg.PolicyType = keeper.PolicyTypePercentage
-
-				strVal := fmt.Sprintf("0.%d", simtypes.RandIntBetween(r, 51, 99))
-				dec := math.LegacyMustNewDecFromStr(strVal)
-				msg.VoteThreshold = &dec
-			} else {
-				// Threshold
-				msg.PolicyType = keeper.PolicyTypeThreshold
-
-				dec := math.LegacyNewDec(int64(simtypes.RandIntBetween(r, 1, 5)))
-				msg.VoteThreshold = &dec
-			}
-			msg.VotingPeriod = int64(simtypes.RandIntBetween(r, 3600, 172800))
-			msg.MinExecutionPeriod = 0
-		}
-
-		// F. Update Term Duration (50% chance)
-		if r.Intn(2) == 0 {
-			msg.TermDuration = int64(simtypes.RandIntBetween(r, 86400, 86400*30))
-		}
-
-		txCtx := simulation.OperationInput{
-			R:               r,
-			App:             app,
-			TxGen:           txGen,
-			Cdc:             nil,
-			Msg:             msg,
-			Context:         ctx,
-			SimAccount:      simAccount,
-			ModuleName:      types.ModuleName,
-			CoinsSpentInMsg: sdk.NewCoins(),
-			AccountKeeper:   ak,
-			Bankkeeper:      bk,
-		}
-
-		return simulation.GenAndDeliverTxWithRandFees(txCtx)
+// groupConfigMsg builds a random config change of target signed by policy.
+func (e *simEnv) groupConfigMsg(target namedGroup, policy string) (*types.MsgUpdateGroupConfig, error) {
+	msg := &types.MsgUpdateGroupConfig{Authority: policy, GroupName: target.name}
+	if e.r.Intn(2) == 0 {
+		msg.UpdateCooldown = 1 + e.r.Int63n(3600)
 	}
+	if e.r.Intn(2) == 0 {
+		msg.TermDuration = day + e.r.Int63n(4*day)
+	}
+	if e.r.Intn(2) == 0 {
+		capAmt := math.NewInt(1_000_000 + e.r.Int63n(999_000_000))
+		if parent, ok, err := e.policyBody(target.g.ParentPolicyAddress); err != nil {
+			return nil, err
+		} else if ok && parent.g.MaxSpendPerEpoch != nil && parent.g.MaxSpendPerEpoch.IsPositive() && capAmt.GT(*parent.g.MaxSpendPerEpoch) {
+			capAmt = *parent.g.MaxSpendPerEpoch
+		}
+		msg.MaxSpendPerEpoch = &capAmt
+	}
+	if e.r.Intn(3) == 0 {
+		modes := []types.BallotMode{types.BallotMode_BALLOT_MODE_OPEN, types.BallotMode_BALLOT_MODE_PROPOSER_CHOICE}
+		msg.BallotMode = modes[e.r.Intn(len(modes))]
+	}
+	if e.r.Intn(3) == 0 {
+		members, _, total, err := e.seats(target.name)
+		if err != nil {
+			return nil, err
+		}
+		msg.VotingPeriod = day + e.r.Int63n(2*day)
+		if e.r.Intn(2) == 0 || !total.IsPositive() {
+			msg.PolicyType = keeper.PolicyTypePercentage
+			threshold := math.LegacyNewDecWithPrec(int64(50+e.r.Intn(26)), 2)
+			msg.VoteThreshold = &threshold
+		} else {
+			msg.PolicyType = keeper.PolicyTypeThreshold
+			threshold := math.LegacyNewDec(int64(1 + e.r.Intn(max(1, len(members)))))
+			if threshold.GT(total) {
+				threshold = math.LegacyOneDec()
+			}
+			msg.VoteThreshold = &threshold
+		}
+	}
+	return msg, nil
 }

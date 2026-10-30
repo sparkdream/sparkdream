@@ -81,3 +81,23 @@ func TestGenesisRebuildsAcceptedTargets(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, has, "unaccepted target must not be indexed")
 }
+
+// A dispute the BeginBlocker left to council review stays active but out of
+// the auto-resolution queue, and a genesis import keeps it out (the queue is
+// rebuilt from the disputes).
+func TestGenesisKeepsReviewedDisputeOutOfQueue(t *testing.T) {
+	f := initFixture(t)
+	d := types.Dispute{Name: "phoenix", Claimant: "aurora", FiledAt: 8, StakeAmount: math.NewInt(1), Active: true, AwaitingReview: true}
+	require.NoError(t, f.keeper.SetDispute(f.ctx, d))
+	has, err := f.keeper.PendingDisputes.Has(f.ctx, collections.Join(int64(8), "phoenix"))
+	require.NoError(t, err)
+	require.False(t, has)
+
+	exported, err := f.keeper.ExportGenesis(f.ctx)
+	require.NoError(t, err)
+	g := initFixture(t)
+	require.NoError(t, g.keeper.InitGenesis(g.ctx, *exported))
+	has, err = g.keeper.PendingDisputes.Has(g.ctx, collections.Join(int64(8), "phoenix"))
+	require.NoError(t, err)
+	require.False(t, has, "a reviewed dispute is not queued for auto-resolution after import")
+}

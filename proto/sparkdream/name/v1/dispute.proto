@@ -20,6 +20,11 @@ message Dispute {
   string contest_challenge_id = 6; // Set when owner contests (for jury tracking)
   int64 contested_at = 7; // Block height when contested
   bool contest_succeeded = 8; // Jury verdict: did owner's contest win?
+  // Set when the BeginBlocker leaves an uncontested dispute to council
+  // review (the owner is still active, or auto-resolution failed). The
+  // dispute stays active but out of the auto-resolution queue, and a genesis
+  // import keeps it out.
+  bool awaiting_review = 9;
 }
 
 // DisputeStake tracks the claimant's DREAM stake for a name dispute.

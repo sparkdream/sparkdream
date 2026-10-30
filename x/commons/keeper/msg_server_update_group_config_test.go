@@ -174,7 +174,7 @@ func TestUpdateGroupConfig(t *testing.T) {
 			msg: &types.MsgUpdateGroupConfig{
 				Authority:          parentPolicy.String(),
 				GroupName:          childGroup,
-				VoteThreshold:      testutil.DecPtr("7"), // Threshold of 7 members
+				VoteThreshold:      testutil.DecPtr("1"), // absolute: at most the group's total weight
 				PolicyType:         PolicyTypeThreshold,
 				VotingPeriod:       43200, // 12 hours
 				MinExecutionPeriod: 0,     // No min execution time
@@ -227,7 +227,7 @@ func TestUpdateGroupConfig(t *testing.T) {
 				require.NoError(t, k.Groups.Set(ctx, childGroup, g_new))
 			},
 			msg: &types.MsgUpdateGroupConfig{
-				Authority:  parentPolicy.String(),
+				Authority:  govAddr, // size bounds are x/gov only
 				GroupName:  childGroup,
 				MaxMembers: 4, // Min is 5 in state for this test
 			},
@@ -259,7 +259,7 @@ func TestUpdateGroupConfig(t *testing.T) {
 			desc:     "Failure - Max Members < Min Members (Direct Update)",
 			preCheck: resetState,
 			msg: &types.MsgUpdateGroupConfig{
-				Authority:  parentPolicy.String(),
+				Authority:  govAddr, // size bounds are x/gov only
 				GroupName:  childGroup,
 				MinMembers: 20,
 				MaxMembers: 10,

@@ -48,7 +48,7 @@ func (k msgServer) FlagContent(ctx context.Context, msg *types.MsgFlagContent) (
 		if len(msg.ReasonText) == 0 {
 			return nil, types.ErrFlagReasonTextRequired
 		}
-		if uint32(len(msg.ReasonText)) > params.MaxFlagReasonLength {
+		if commontypes.Saturate[uint32](len(msg.ReasonText)) > params.MaxFlagReasonLength {
 			return nil, types.ErrFlagReasonTextTooLong
 		}
 	} else if msg.ReasonText != "" {
@@ -89,7 +89,7 @@ func (k msgServer) FlagContent(ctx context.Context, msg *types.MsgFlagContent) (
 	}
 
 	// Cap flag_records at max_flaggers_per_target
-	if uint32(len(flag.FlagRecords)) >= params.MaxFlaggersPerTarget {
+	if commontypes.Saturate[uint32](len(flag.FlagRecords)) >= params.MaxFlaggersPerTarget {
 		return nil, types.ErrMaxFlagsPerTarget
 	}
 
@@ -105,7 +105,9 @@ func (k msgServer) FlagContent(ctx context.Context, msg *types.MsgFlagContent) (
 
 	flag.FlagRecords = append(flag.FlagRecords, newRecord)
 	flag.TotalWeight = flag.TotalWeight.Add(weight)
+	prevExpiry := flagExpiryBlock(flag, params)
 	flag.LastFlagAt = blockHeight
+	flag.ExpiresAt = blockHeight + params.FlagExpirationBlocks
 
 	// If total_weight >= flag_review_threshold and not already in_review_queue: set in_review_queue=true
 	if flag.TotalWeight.GTE(math.NewIntFromUint64(uint64(params.FlagReviewThreshold))) && !flag.InReviewQueue {
@@ -124,11 +126,11 @@ func (k msgServer) FlagContent(ctx context.Context, msg *types.MsgFlagContent) (
 	// Using prev_last_flag_at + expiration as the stale key so we don't leave
 	// orphan expiry rows behind when a subsequent flag lands in a new block.
 	if !flagIsNew && prevLastFlagAt > 0 {
-		prevExpiry := prevLastFlagAt + params.FlagExpirationBlocks
-		_ = k.FlagExpiry.Remove(ctx, collections.Join(prevExpiry, flagKey))
+		if err := k.FlagExpiry.Remove(ctx, collections.Join(prevExpiry, flagKey)); err != nil {
+			return nil, err
+		}
 	}
-	expiryBlock := blockHeight + params.FlagExpirationBlocks
-	if err := k.FlagExpiry.Set(ctx, collections.Join(expiryBlock, flagKey)); err != nil {
+	if err := k.FlagExpiry.Set(ctx, collections.Join(flag.ExpiresAt, flagKey)); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to set flag expiry")
 	}
 

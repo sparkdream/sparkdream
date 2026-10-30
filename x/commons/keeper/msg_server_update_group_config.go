@@ -5,6 +5,7 @@ import (
 
 	"sparkdream/x/commons/types"
 
+	"cosmossdk.io/collections"
 	errorsmod "cosmossdk.io/errors"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
@@ -27,6 +28,36 @@ func (k msgServer) UpdateGroupConfig(goCtx context.Context, msg *types.MsgUpdate
 			"only the parent (%s) or x/gov can update this config", group.ParentPolicyAddress)
 	}
 
+	// The parent is throttled by the group's update_cooldown (spec §7);
+	// x/gov is not.
+	now := ctx.BlockTime().Unix()
+	if !isGov && group.UpdateCooldown > 0 && group.LastConfigUpdate > 0 &&
+		now < group.LastConfigUpdate+group.UpdateCooldown {
+		return nil, errorsmod.Wrapf(types.ErrRateLimitExceeded,
+			"config update cooldown active: wait until %d", group.LastConfigUpdate+group.UpdateCooldown)
+	}
+
+	// The x/split share is the community's revenue split: x/gov only.
+	if msg.FundingWeight > 0 {
+		if !isGov {
+			return nil, errorsmod.Wrap(sdkerrors.ErrUnauthorized, "funding_weight can only be changed by x/gov")
+		}
+		if err := k.splitKeeper.SetShareByAddress(ctx, group.PolicyAddress, msg.FundingWeight); err != nil {
+			return nil, errorsmod.Wrap(err, "failed to update split share")
+		}
+		group.FundingWeight = msg.FundingWeight
+	}
+
+	// Ballot mode (UNSPECIFIED leaves it unchanged). A SECRET or
+	// PROPOSER_CHOICE group needs equal member weights and enough registered
+	// ZK keys at each secret ballot; that is checked when one opens.
+	if msg.BallotMode != types.BallotMode_BALLOT_MODE_UNSPECIFIED {
+		if _, ok := types.BallotMode_name[int32(msg.BallotMode)]; !ok {
+			return nil, errorsmod.Wrapf(sdkerrors.ErrInvalidRequest, "unknown ballot_mode %d", msg.BallotMode)
+		}
+		group.BallotMode = msg.BallotMode
+	}
+
 	// Validate & update fields
 	if msg.MaxSpendPerEpoch != nil {
 		if msg.MaxSpendPerEpoch.IsNegative() {
@@ -36,6 +67,13 @@ func (k msgServer) UpdateGroupConfig(goCtx context.Context, msg *types.MsgUpdate
 		if !coin.IsValid() {
 			return nil, errorsmod.Wrap(sdkerrors.ErrInvalidRequest, "max_spend_per_epoch must be valid")
 		}
+		// A parent may lower or raise a child's cap only within its own
+		// cap, and may never lift it (0 = no cap).
+		if !isGov {
+			if err := k.checkSpendCapWithinParent(ctx, msg.MaxSpendPerEpoch, group.ParentPolicyAddress); err != nil {
+				return nil, err
+			}
+		}
 		group.MaxSpendPerEpoch = msg.MaxSpendPerEpoch
 	}
 
@@ -43,17 +81,26 @@ func (k msgServer) UpdateGroupConfig(goCtx context.Context, msg *types.MsgUpdate
 		group.UpdateCooldown = int64(msg.UpdateCooldown)
 	}
 
+	enablingFutarchy := false
 	if msg.FutarchyEnabled != nil {
+		enablingFutarchy = msg.FutarchyEnabled.Value && !group.FutarchyEnabled
 		group.FutarchyEnabled = msg.FutarchyEnabled.Value
 	}
 
+	// Size bounds: x/gov only (docs/security-hardening.md), and the
+	// standing committees' compiled [2,5] bounds hold even for x/gov.
+	minChanged := msg.MinMembers > 0 && msg.MinMembers != group.MinMembers
+	maxChanged := msg.MaxMembers > 0 && msg.MaxMembers != group.MaxMembers
+	if !isGov && (minChanged || maxChanged) {
+		return nil, errorsmod.Wrap(sdkerrors.ErrUnauthorized, "min_members and max_members can only be changed by x/gov")
+	}
 	targetMin := group.MinMembers
 	if msg.MinMembers > 0 {
-		targetMin = uint64(msg.MinMembers)
+		targetMin = msg.MinMembers
 	}
 	targetMax := group.MaxMembers
 	if msg.MaxMembers > 0 {
-		targetMax = uint64(msg.MaxMembers)
+		targetMax = msg.MaxMembers
 	}
 	if targetMin == 0 {
 		return nil, errorsmod.Wrap(types.ErrInvalidGroupSize, "min_members must be > 0")
@@ -62,6 +109,9 @@ func (k msgServer) UpdateGroupConfig(goCtx context.Context, msg *types.MsgUpdate
 		return nil, errorsmod.Wrapf(types.ErrInvalidGroupSize,
 			"invalid bounds: max_members (%d) cannot be less than min_members (%d)", targetMax, targetMin)
 	}
+	if err := checkCommitteeBounds(msg.GroupName, targetMin, targetMax); err != nil {
+		return nil, err
+	}
 	group.MinMembers = targetMin
 	group.MaxMembers = targetMax
 
@@ -69,7 +119,21 @@ func (k msgServer) UpdateGroupConfig(goCtx context.Context, msg *types.MsgUpdate
 		group.TermDuration = int64(msg.TermDuration)
 	}
 
-	if msg.ElectoralPolicyAddress != "" {
+	if msg.ElectoralPolicyAddress != "" && msg.ElectoralPolicyAddress != group.ElectoralPolicyAddress {
+		if !isGov {
+			if err := k.validateElectoralAddress(ctx, msg.ElectoralPolicyAddress, group.PolicyAddress); err != nil {
+				return nil, err
+			}
+		}
+		// The electoral authority sits beside the parent chain; it must not
+		// be a descendant of the group, or the group elects itself.
+		hasCycle, err := k.DetectCycle(ctx, group.PolicyAddress, msg.ElectoralPolicyAddress)
+		if err != nil {
+			return nil, err
+		}
+		if hasCycle {
+			return nil, errorsmod.Wrap(sdkerrors.ErrInvalidRequest, "electoral_policy_address would make the group its own electoral authority")
+		}
 		group.ElectoralPolicyAddress = msg.ElectoralPolicyAddress
 	}
 
@@ -86,6 +150,14 @@ func (k msgServer) UpdateGroupConfig(goCtx context.Context, msg *types.MsgUpdate
 		}
 		if err := k.checkVotingPeriodCap(ctx, int64(msg.VotingPeriod)); err != nil {
 			return nil, errorsmod.Wrap(sdkerrors.ErrInvalidRequest, err.Error())
+		}
+
+		members, err := k.GetCouncilMembers(ctx, msg.GroupName)
+		if err != nil {
+			return nil, err
+		}
+		if err := validateVoteThreshold(msg.PolicyType, msg.VoteThreshold, totalMemberWeight(members), isGov); err != nil {
+			return nil, err
 		}
 
 		var thresholdStr string
@@ -111,8 +183,27 @@ func (k msgServer) UpdateGroupConfig(goCtx context.Context, msg *types.MsgUpdate
 		}
 	}
 
+	// Every config change invalidates proposals voted under the old config
+	// (spec §7), not only decision-policy changes. Bumped at most once.
+	if msg.VoteThreshold == nil && msg.PolicyType == "" {
+		if _, err := k.BumpPolicyVersion(ctx, group.PolicyAddress); err != nil {
+			return nil, err
+		}
+	}
+
+	if !isGov {
+		group.LastConfigUpdate = now
+	}
 	if err := k.Groups.Set(ctx, msg.GroupName, group); err != nil {
 		return nil, err
+	}
+
+	// Turning futarchy on schedules the first confidence market; the
+	// commons EndBlocker fires it (CMN-08).
+	if enablingFutarchy {
+		if err := k.MarketTriggerQueue.Set(ctx, collections.Join(now, msg.GroupName)); err != nil {
+			return nil, err
+		}
 	}
 
 	return &types.MsgUpdateGroupConfigResponse{}, nil

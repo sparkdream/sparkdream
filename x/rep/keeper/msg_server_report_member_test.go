@@ -20,9 +20,9 @@ func setSentinelReporter(t *testing.T, k keeper.Keeper, ctx sdk.Context, addr sd
 	err := k.Member.Set(ctx, addr.String(), types.Member{
 		Address:          addr.String(),
 		Status:           types.MemberStatus_MEMBER_STATUS_ACTIVE,
-		DreamBalance:     keeper.PtrInt(math.NewInt(2000)),
-		StakedDream:      keeper.PtrInt(math.NewInt(500)),
-		LifetimeEarned:   keeper.PtrInt(math.NewInt(2000)),
+		DreamBalance:     keeper.PtrInt(math.NewInt(2_000_000_000)),
+		StakedDream:      keeper.PtrInt(math.NewInt(500_000_000)),
+		LifetimeEarned:   keeper.PtrInt(math.NewInt(2_000_000_000)),
 		LifetimeBurned:   keeper.PtrInt(math.ZeroInt()),
 		ReputationScores: map[string]string{"backend": "250.0"},
 		TrustLevel:       types.TrustLevel_TRUST_LEVEL_ESTABLISHED,
@@ -38,6 +38,7 @@ func TestMsgServerReportMember(t *testing.T) {
 		member := sdk.AccAddress([]byte("member__________"))
 		memberStr, err := f.addressCodec.BytesToString(member)
 		require.NoError(t, err)
+		setActiveMember(t, f.keeper, f.ctx, member)
 
 		_, err = ms.ReportMember(f.ctx, &types.MsgReportMember{
 			Creator: "invalid-address",
@@ -107,6 +108,7 @@ func TestMsgServerReportMember(t *testing.T) {
 		member := sdk.AccAddress([]byte("subject_phoenix_"))
 		memberStr, err := f.addressCodec.BytesToString(member)
 		require.NoError(t, err)
+		setActiveMember(t, f.keeper, f.ctx, member)
 
 		_, err = ms.ReportMember(f.ctx, &types.MsgReportMember{
 			Creator: reporterStr,
@@ -140,6 +142,7 @@ func TestMsgServerReportMember(t *testing.T) {
 		member := sdk.AccAddress([]byte("subject_aurora__"))
 		memberStr, err := f.addressCodec.BytesToString(member)
 		require.NoError(t, err)
+		setActiveMember(t, f.keeper, f.ctx, member)
 
 		_, err = ms.ReportMember(f.ctx, &types.MsgReportMember{
 			Creator: reporterStr,
@@ -162,6 +165,7 @@ func TestMsgServerReportMember(t *testing.T) {
 		member := sdk.AccAddress([]byte("subject_zenith__"))
 		memberStr, err := f.addressCodec.BytesToString(member)
 		require.NoError(t, err)
+		setActiveMember(t, f.keeper, f.ctx, member)
 
 		// Seed an existing report.
 		err = f.keeper.MemberReport.Set(f.ctx, memberStr, types.MemberReport{
@@ -191,6 +195,7 @@ func TestMsgServerReportMember(t *testing.T) {
 		member := sdk.AccAddress([]byte("subject_happy___"))
 		memberStr, err := f.addressCodec.BytesToString(member)
 		require.NoError(t, err)
+		setActiveMember(t, f.keeper, f.ctx, member)
 
 		_, err = ms.ReportMember(f.ctx, &types.MsgReportMember{
 			Creator:           reporterStr,
@@ -208,7 +213,7 @@ func TestMsgServerReportMember(t *testing.T) {
 		require.Equal(t, types.GovActionType_GOV_ACTION_TYPE_WARNING, report.RecommendedAction)
 		require.Equal(t, types.MemberReportStatus_MEMBER_REPORT_STATUS_PENDING, report.Status)
 		require.Equal(t, []string{reporterStr}, report.Reporters)
-		require.Equal(t, "500", report.TotalBond) // min(500 staked, 1000 cap) = 500
+		require.Equal(t, "100000000", report.TotalBond) // min(500 DREAM staked, 100 DREAM cap)
 
 		// An event should be emitted.
 		events := f.ctx.EventManager().Events()
@@ -233,6 +238,7 @@ func TestMsgServerReportMember(t *testing.T) {
 		member := sdk.AccAddress([]byte("subject_default_"))
 		memberStr, err := f.addressCodec.BytesToString(member)
 		require.NoError(t, err)
+		setActiveMember(t, f.keeper, f.ctx, member)
 
 		_, err = ms.ReportMember(f.ctx, &types.MsgReportMember{
 			Creator:           reporterStr,

@@ -63,7 +63,7 @@ func (k msgServer) UpdateReply(ctx context.Context, msg *types.MsgUpdateReply) (
 	// not their own SPARK, so the fee doesn't apply.
 	newBytes := uint64(len(msg.Body))
 	if !params.CostPerByteExempt && params.CostPerByteAmount.IsPositive() && newBytes > reply.FeeBytesHighWater && !isShieldModuleAddress(creatorAddr) {
-		delta := int64(newBytes - reply.FeeBytesHighWater)
+		delta := commontypes.Saturate[int64](newBytes - reply.FeeBytesHighWater)
 		deltaFee := sdk.NewCoin(k.BondDenom(ctx),
 			params.CostPerByteAmount.MulRaw(delta))
 		if deltaFee.IsPositive() {

@@ -69,7 +69,11 @@ func (k Keeper) expireOffers(ctx sdk.Context, cutoff int64, limit int) {
 				return k.OfferExpiry.Remove(c, key)
 			}
 			return k.removeOffer(c, o, true, "expired")
-		}, func() { _ = k.OfferExpiry.Remove(ctx, key) })
+		}, func() {
+			if err := k.OfferExpiry.Remove(ctx, key); err != nil {
+				ctx.Logger().Error("expireOffers: OfferExpiry.Remove failed", "err", err)
+			}
+		})
 	}
 }
 
@@ -84,8 +88,43 @@ func (k Keeper) settleEndedAuctions(ctx sdk.Context, cutoff int64, limit int) {
 			}
 			_, err = k.settleAuction(c, a)
 			return err
-		}, func() { _ = k.AuctionEnds.Remove(ctx, key) })
+		}, func() {
+			// The sale could not settle: end the auction without one so the
+			// high bid is refunded and the token unlocked, instead of
+			// stranding both behind a record nothing can settle or cancel.
+			if !k.tryCached(ctx, func(c sdk.Context) error {
+				a, err := k.Auctions.Get(c, id)
+				if err != nil {
+					return err
+				}
+				return k.abortAuction(c, a, "settlement_failed")
+			}) {
+				if err := k.AuctionEnds.Remove(ctx, key); err != nil {
+					ctx.Logger().Error("settleEndedAuctions: AuctionEnds.Remove failed", "err", err)
+				}
+			}
+		})
 	}
+}
+
+// tryCached runs fn in a cached context, writing it only on success (a
+// panic counts as failure). It reports whether fn succeeded.
+func (k Keeper) tryCached(ctx sdk.Context, fn func(sdk.Context) error) bool {
+	cacheCtx, write := ctx.CacheContext()
+	err := func() (err error) {
+		defer func() {
+			if r := recover(); r != nil {
+				err = fmt.Errorf("panic: %v", r)
+			}
+		}()
+		return fn(cacheCtx)
+	}()
+	if err != nil {
+		ctx.Logger().Error("artifact endblock: fallback failed", "error", err)
+		return false
+	}
+	write()
+	return true
 }
 
 // expireRentals ends rentals whose term has run out. It runs before
@@ -99,7 +138,11 @@ func (k Keeper) expireRentals(ctx sdk.Context, cutoff int64, limit int) {
 				return k.RentalExpiry.Remove(c, key)
 			}
 			return k.endRental(c, r, "expired")
-		}, func() { _ = k.RentalExpiry.Remove(ctx, key) })
+		}, func() {
+			if err := k.RentalExpiry.Remove(ctx, key); err != nil {
+				ctx.Logger().Error("expireRentals: RentalExpiry.Remove failed", "err", err)
+			}
+		})
 	}
 }
 
@@ -113,7 +156,11 @@ func (k Keeper) expireRentalOffers(ctx sdk.Context, cutoff int64, limit int) {
 				return k.RentalOfferExpiry.Remove(c, key)
 			}
 			return k.clearRentalOffer(c, classID, tokenID, "expired")
-		}, func() { _ = k.RentalOfferExpiry.Remove(ctx, key) })
+		}, func() {
+			if err := k.RentalOfferExpiry.Remove(ctx, key); err != nil {
+				ctx.Logger().Error("expireRentalOffers: RentalOfferExpiry.Remove failed", "err", err)
+			}
+		})
 	}
 }
 
@@ -140,7 +187,11 @@ func (k Keeper) expireUnitListings(ctx sdk.Context, cutoff int64, limit int) {
 				return k.UnitListingExpiry.Remove(c, key)
 			}
 			return k.removeUnitListing(c, l, "expired")
-		}, func() { _ = k.UnitListingExpiry.Remove(ctx, key) })
+		}, func() {
+			if err := k.UnitListingExpiry.Remove(ctx, key); err != nil {
+				ctx.Logger().Error("expireUnitListings: UnitListingExpiry.Remove failed", "err", err)
+			}
+		})
 	}
 }
 
@@ -180,7 +231,11 @@ func (k Keeper) expireTokens(ctx sdk.Context, cutoff int64, limit int) {
 			emit(c, types.EventTokenExpired, classAttr(classID), tokenAttr(tokenID),
 				sdk.NewAttribute("holder", t.Owner), sdk.NewAttribute("refund", t.Deposit.String()))
 			return nil
-		}, func() { _ = k.TokenExpiry.Remove(ctx, key) })
+		}, func() {
+			if err := k.TokenExpiry.Remove(ctx, key); err != nil {
+				ctx.Logger().Error("expireTokens: TokenExpiry.Remove failed", "err", err)
+			}
+		})
 	}
 }
 
@@ -229,7 +284,9 @@ func (k Keeper) safely(ctx sdk.Context, pass, key string, fn func(sdk.Context) e
 		return
 	}
 	ctx.Logger().Error("artifact endblock: record failed", "pass", pass, "key", key, "error", err)
-	_ = k.FailedExpiry.Set(ctx, collections.Join(pass, key))
+	if err := k.FailedExpiry.Set(ctx, collections.Join(pass, key)); err != nil {
+		ctx.Logger().Error("safely: FailedExpiry.Set failed", "err", err)
+	}
 	if onFail != nil {
 		onFail()
 	}
@@ -262,7 +319,11 @@ func (k Keeper) expirePending(ctx sdk.Context, cutoff int64, limit int) {
 		classID, tokenID := key.K2(), key.K3()
 		k.safely(ctx, "pending", fmt.Sprintf("%d/%d", classID, tokenID), func(c sdk.Context) error {
 			return k.resolvePending(c, classID, tokenID, OutcomeExpired)
-		}, func() { _ = k.PendingExpiry.Remove(ctx, key) })
+		}, func() {
+			if err := k.PendingExpiry.Remove(ctx, key); err != nil {
+				ctx.Logger().Error("expirePending: PendingExpiry.Remove failed", "err", err)
+			}
+		})
 	}
 }
 
@@ -271,7 +332,11 @@ func (k Keeper) expireListings(ctx sdk.Context, cutoff int64, limit int) {
 		classID, tokenID := key.K2(), key.K3()
 		k.safely(ctx, "listing", fmt.Sprintf("%d/%d", classID, tokenID), func(c sdk.Context) error {
 			return k.removeListing(c, classID, tokenID, "expired")
-		}, func() { _ = k.ListingExpiry.Remove(ctx, key) })
+		}, func() {
+			if err := k.ListingExpiry.Remove(ctx, key); err != nil {
+				ctx.Logger().Error("expireListings: ListingExpiry.Remove failed", "err", err)
+			}
+		})
 	}
 }
 
@@ -300,7 +365,11 @@ func (k Keeper) expireOwnerProposals(ctx sdk.Context, cutoff int64, limit int) {
 			}
 			emit(c, types.EventClassOwnerExpired, classAttr(classID), sdk.NewAttribute("to", po.ProposedOwner))
 			return nil
-		}, func() { _ = k.PendingOwnerExpiry.Remove(ctx, key) })
+		}, func() {
+			if err := k.PendingOwnerExpiry.Remove(ctx, key); err != nil {
+				ctx.Logger().Error("expireOwnerProposals: PendingOwnerExpiry.Remove failed", "err", err)
+			}
+		})
 	}
 }
 
@@ -325,13 +394,23 @@ func (k Keeper) expireHides(ctx sdk.Context, cutoff int64, limit int) {
 				return k.HideExpiry.Remove(c, key)
 			}
 			return k.expireHide(c, hr)
-		}, func() { _ = k.HideExpiry.Remove(ctx, key) })
+		}, func() {
+			if err := k.HideExpiry.Remove(ctx, key); err != nil {
+				ctx.Logger().Error("expireHides: HideExpiry.Remove failed", "err", err)
+			}
+		})
 	}
 }
 
 // drainQueue advances class cursors in queue, spending at most limit visits
 // across all queued classes. visit is called per token id at or after the
-// cursor; it must be idempotent.
+// cursor; it must be idempotent. Each visit runs in its own cached context,
+// so one failing token never rolls back its neighbours, and the queue entry
+// is never dropped on a failure: the first failure of a token records it in
+// FailedExpiry (pass, "class/token") and holds the cursor there so the next
+// block retries it; a token that fails again on that retry is skipped (its
+// FailedExpiry record stays) so a permanent fault cannot stall the rest of
+// the class. A retried token that succeeds clears its record.
 func (k Keeper) drainQueue(ctx sdk.Context, queue collections.Map[uint64, uint64], name string, limit int,
 	nextIDs func(sdk.Context, uint64, uint64, int) ([]uint64, bool), visit func(sdk.Context, uint64, uint64) error,
 ) {
@@ -357,23 +436,47 @@ func (k Keeper) drainQueue(ctx sdk.Context, queue collections.Map[uint64, uint64
 		ids, done := nextIDs(ctx, e.classID, e.cursor, budget)
 		budget -= len(ids)
 		classID := e.classID
-		k.safely(ctx, name, u64(classID), func(c sdk.Context) error {
-			for _, id := range ids {
-				if err := visit(c, classID, id); err != nil {
-					return err
+		cursor := e.cursor
+		stalled := false
+		for _, id := range ids {
+			tokenID := id
+			failKey := collections.Join(name, fmt.Sprintf("%d/%d", classID, tokenID))
+			failedBefore, getErr := k.FailedExpiry.Has(ctx, failKey)
+			if getErr != nil {
+				sdk.UnwrapSDKContext(ctx).Logger().Error("Has failed", "err", getErr)
+			}
+			ok := true
+			k.safely(ctx, name, failKey.K2(), func(c sdk.Context) error {
+				return visit(c, classID, tokenID)
+			}, func() { ok = false })
+			switch {
+			case ok:
+				if failedBefore {
+					if err := k.FailedExpiry.Remove(ctx, failKey); err != nil {
+						ctx.Logger().Error("drainQueue: FailedExpiry.Remove failed", "err", err)
+					}
 				}
+				cursor = tokenID + 1
+			case failedBefore:
+				// Failed on its retry too: skip it, keep the record.
+				cursor = tokenID + 1
+			default:
+				// First failure: hold the cursor here and retry next block.
+				cursor = tokenID
+				stalled = true
 			}
-			cursor := e.cursor
-			if len(ids) > 0 {
-				cursor = ids[len(ids)-1] + 1
+			if stalled {
+				break
 			}
-			emit(c, types.EventClassDrainProgress, classAttr(classID), sdk.NewAttribute("queue", name),
-				sdk.NewAttribute("cursor", u64(cursor)), sdk.NewAttribute("done", fmt.Sprintf("%t", done)))
-			if done {
-				return queue.Remove(c, classID)
-			}
-			return queue.Set(c, classID, cursor)
-		}, func() { _ = queue.Remove(ctx, classID) })
+		}
+		done = done && !stalled
+		emit(ctx, types.EventClassDrainProgress, classAttr(classID), sdk.NewAttribute("queue", name),
+			sdk.NewAttribute("cursor", u64(cursor)), sdk.NewAttribute("done", fmt.Sprintf("%t", done)))
+		if done {
+			_ = queue.Remove(ctx, classID)
+		} else {
+			_ = queue.Set(ctx, classID, cursor)
+		}
 	}
 }
 

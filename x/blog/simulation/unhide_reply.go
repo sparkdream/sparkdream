@@ -1,58 +1,50 @@
 package simulation
 
 import (
-	"math/rand"
-
-	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
 
 	"sparkdream/x/blog/keeper"
 	"sparkdream/x/blog/types"
 )
 
-// SimulateMsgUnhideReply simulates a MsgUnhideReply message using direct keeper calls.
+// SimulateMsgUnhideReply delivers MsgUnhideReply for a random hidden reply,
+// signed by the post's author (by alias). With none, the post author hides
+// an active reply first (a real MsgHideReply) and then unhides it.
 func SimulateMsgUnhideReply(
 	ak types.AuthKeeper,
 	bk types.BankKeeper,
 	k keeper.Keeper,
 	txGen client.TxConfig,
 ) simtypes.Operation {
-	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
-	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		simAccount, _ := simtypes.RandomAcc(r, accs)
-		msgType := sdk.MsgTypeURL(&types.MsgUnhideReply{})
-
-		// Need a post first, then a hidden reply on it
-		postID, err := getOrCreateAnyActivePost(r, ctx, k, simAccount.Address.String())
-		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, msgType, "failed to get-or-create active post"), nil, nil
+	return operation(ak, bk, k, txGen, &types.MsgUnhideReply{}, func(e *simEnv) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
+		label := &types.MsgUnhideReply{}
+		withOwner := func(status types.ReplyStatus) func(types.Reply) bool {
+			return func(rp types.Reply) bool {
+				_, ok := e.postOwner(rp)
+				return rp.Status == status && ok
+			}
 		}
-
-		replyID, err := getOrCreateHiddenReply(r, ctx, k, postID, simAccount.Address.String())
-		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, msgType, "failed to get-or-create hidden reply"), nil, nil
+		rp, ok := pick(e.r, e.repliesWhere(withOwner(types.ReplyStatus_REPLY_STATUS_HIDDEN)))
+		if !ok {
+			var err error
+			rp, ok, err = e.replyOrCreate(withOwner(types.ReplyStatus_REPLY_STATUS_ACTIVE), anyone)
+			if err != nil {
+				return noOpErr(label, err)
+			}
+			if !ok {
+				return noOp(label, "no hidden or active reply on a post with a live author")
+			}
+			acc, _ := e.postOwner(rp)
+			hid, err := e.ensure(acc, &types.MsgHideReply{Creator: acc.Address.String(), Id: rp.Id}, zero())
+			if err != nil {
+				return noOpErr(label, err)
+			}
+			if !hid {
+				return noOp(label, "no hidden reply and none could be hidden")
+			}
 		}
-
-		reply, found := k.GetReply(ctx, replyID)
-		if !found {
-			return simtypes.NoOpMsg(types.ModuleName, msgType, "reply not found"), nil, nil
-		}
-
-		// Unhide the reply
-		reply.Status = types.ReplyStatus_REPLY_STATUS_ACTIVE
-		reply.HiddenBy = ""
-		reply.HiddenAt = 0
-		k.SetReply(ctx, reply)
-
-		// Increment post reply count
-		post, found := k.GetPost(ctx, postID)
-		if found {
-			post.ReplyCount++
-			k.SetPost(ctx, post)
-		}
-
-		return simtypes.NoOpMsg(types.ModuleName, msgType, "ok (direct keeper call)"), nil, nil
-	}
+		acc, _ := e.postOwner(rp)
+		return e.submit(acc, &types.MsgUnhideReply{Creator: acc.Address.String(), Id: rp.Id}, zero())
+	})
 }

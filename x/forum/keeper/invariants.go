@@ -1,10 +1,8 @@
 package keeper
 
 import (
-	"errors"
 	"fmt"
 
-	"cosmossdk.io/collections"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	"sparkdream/x/forum/types"
@@ -48,16 +46,17 @@ func PostCounterInvariant(k Keeper) sdk.Invariant {
 	}
 }
 
-// BountyPostReferenceInvariant checks that every active bounty references
-// an existing root post.
+// BountyPostReferenceInvariant checks that every open bounty (ACTIVE or
+// suspended) references an existing root post and is the one its thread
+// index points to (FRM-25: a suspended bounty without its index entry is
+// unreachable by moderation reconciliation).
 func BountyPostReferenceInvariant(k Keeper) sdk.Invariant {
 	return func(ctx sdk.Context) (string, bool) {
 		var broken int
 		var msg string
 
 		err := k.Bounty.Walk(ctx, nil, func(id uint64, bounty types.Bounty) (bool, error) {
-			// Only check active bounties
-			if bounty.Status != types.BountyStatus_BOUNTY_STATUS_ACTIVE {
+			if !bounty.IsOpen() {
 				return false, nil
 			}
 
@@ -65,6 +64,11 @@ func BountyPostReferenceInvariant(k Keeper) sdk.Invariant {
 			if err != nil {
 				broken++
 				msg += fmt.Sprintf("  bounty %d references non-existent root post %d\n",
+					id, bounty.ThreadId)
+			}
+			if indexed, err := k.ActiveBountyByThread.Get(ctx, bounty.ThreadId); err != nil || indexed != id {
+				broken++
+				msg += fmt.Sprintf("  open bounty %d is not the thread index entry of thread %d\n",
 					id, bounty.ThreadId)
 			}
 			return false, nil
@@ -80,7 +84,8 @@ func BountyPostReferenceInvariant(k Keeper) sdk.Invariant {
 }
 
 // ThreadLockConsistencyInvariant checks that every ThreadLockRecord
-// references an existing root post that has its Locked field set to true.
+// references an existing root post that is locked by the record's sentinel
+// (an authority record from a committee or council lock has no sentinel).
 func ThreadLockConsistencyInvariant(k Keeper) sdk.Invariant {
 	return func(ctx sdk.Context) (string, bool) {
 		var broken int
@@ -96,6 +101,10 @@ func ThreadLockConsistencyInvariant(k Keeper) sdk.Invariant {
 			if !post.Locked {
 				broken++
 				msg += fmt.Sprintf("  lock record exists for root post %d but post.Locked=false\n", rootID)
+			} else if tlr.Sentinel != "" && tlr.Sentinel != post.LockedBy {
+				broken++
+				msg += fmt.Sprintf("  lock record for root post %d names sentinel %s but post.LockedBy=%s\n",
+					rootID, tlr.Sentinel, post.LockedBy)
 			}
 			if post.ParentId != 0 {
 				broken++
@@ -109,23 +118,9 @@ func ThreadLockConsistencyInvariant(k Keeper) sdk.Invariant {
 				fmt.Sprintf("error walking thread lock records: %v", err)), true
 		}
 
-		// Also check the reverse: any locked post should have a lock record
-		err = k.Post.Walk(ctx, nil, func(id uint64, post types.Post) (bool, error) {
-			if post.Locked && post.ParentId == 0 {
-				_, err := k.ThreadLockRecord.Get(ctx, id)
-				if err != nil {
-					if errors.Is(err, collections.ErrNotFound) {
-						broken++
-						msg += fmt.Sprintf("  post %d is locked but has no ThreadLockRecord\n", id)
-					}
-				}
-			}
-			return false, nil
-		})
-		if err != nil {
-			return sdk.FormatInvariant(types.ModuleName, "thread-lock-consistency",
-				fmt.Sprintf("error walking posts for lock check: %v", err)), true
-		}
+		// No reverse check: a locked root without a record is legitimate. A
+		// sentinel or authority lock whose appeal window closed (or whose
+		// appeal was UPHELD) drops its record while the thread stays locked.
 
 		return sdk.FormatInvariant(types.ModuleName, "thread-lock-consistency",
 			fmt.Sprintf("found %d thread lock consistency violations\n%s", broken, msg)), broken > 0

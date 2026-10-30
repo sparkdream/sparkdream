@@ -138,7 +138,7 @@ elif [ -z "$EXISTING_MEMBER" ]; then
     INVITE_RES=$($BINARY tx rep invite-member --gas 400000 \
       "$INVITEE1_ADDR" \
       "$REQUIRED_STAKE" \
-      --vouched-tags "rust","golang" \
+      --vouched-tags "cryptography","zero-knowledge" \
       --from alice \
       --chain-id $CHAIN_ID \
       --keyring-backend test \
@@ -817,8 +817,8 @@ echo "--- PART 7: VOUCHED TAGS VERIFICATION ---"
 INV1_TAGS=$(echo "$ALL_INVITATIONS_P6" | jq -r '.invitation[] | select(.id=="'$INVITATION_ID1'") | .vouched_tags')
 echo "Invitation #1 vouched tags: $INV1_TAGS"
 
-EXPECTED_TAGS='"rust","golang"'
-if echo "$INV1_TAGS" | grep -q "rust" && echo "$INV1_TAGS" | grep -q "golang"; then
+EXPECTED_TAGS='"cryptography","zero-knowledge"'
+if echo "$INV1_TAGS" | grep -q "cryptography" && echo "$INV1_TAGS" | grep -q "zero-knowledge"; then
     echo "[ OK ] Vouched tags correctly stored"
 else
     echo "[WARN]  Vouched tags format: $INV1_TAGS"

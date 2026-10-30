@@ -370,33 +370,39 @@ echo "  Proposal ID: $PROPOSAL_ID"
 echo ""
 
 # ========================================================================
-# PART 4: VOTE & EXECUTE
+# PART 4: VOTE & EXECUTE (refused: the owner's contest window is open)
 # ========================================================================
-echo "--- PART 4: VOTE & EXECUTE ---"
+echo "--- PART 4: VOTE & EXECUTE (expect refusal inside the contest window) ---"
 
-vote_and_execute_commons $PROPOSAL_ID
-if [ $? -ne 0 ]; then
-    fail "Could not execute uncontested dispute proposal"
+# x/name refuses to uphold an UNCONTESTED dispute until the owner's contest
+# window (filed_at + dispute_timeout_blocks, ~7 days) has closed, so the
+# council cannot hand the name over before the owner had a chance to contest.
+# The window cannot elapse in an e2e run; the transfer path is covered by the
+# contested dispute in PART 9 and by unit tests.
+if vote_and_execute_commons $PROPOSAL_ID; then
+    PROP_STATUS=$($BINARY query commons get-proposal $PROPOSAL_ID --output json 2>/dev/null | jq -r '.proposal.status')
+    if [ "$PROP_STATUS" == "PROPOSAL_STATUS_EXECUTED" ]; then
+        fail "uncontested dispute was upheld inside the owner's contest window"
+    fi
 fi
 
 echo ""
 
 # ========================================================================
-# PART 5: VERIFY RESULTS (uncontested, transfer approved)
+# PART 5: VERIFY RESULTS (uncontested, window still open)
 # ========================================================================
 echo "--- PART 5: VERIFY RESULTS ---"
 
-# Check name ownership transferred to claimant
+# The name stays with its owner and the dispute stays active.
 RESOLVE_RES=$($BINARY query name resolve "$TARGET_NAME" --output json 2>&1)
 FINAL_OWNER=$(echo "$RESOLVE_RES" | jq -r '.name_record.owner')
 
-assert_equals "name transferred to $CLAIMANT_KEY" "$CLAIMANT_ADDR" "$FINAL_OWNER"
+assert_equals "name still owned by Alice" "$ALICE_ADDR" "$FINAL_OWNER"
 
-# Check dispute is inactive (disputes are marked inactive, NOT removed from state)
 DISPUTE_RES=$($BINARY query name get-dispute "$TARGET_NAME" --output json 2>&1)
 DISPUTE_ACTIVE=$(jq_bool "$DISPUTE_RES" ".dispute.active")
 
-assert_equals "dispute is inactive after resolution" "false" "$DISPUTE_ACTIVE"
+assert_equals "dispute is still active" "true" "$DISPUTE_ACTIVE"
 
 echo ""
 

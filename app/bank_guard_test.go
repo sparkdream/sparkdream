@@ -90,14 +90,42 @@ func TestWrapperAllowsDescriptionEditOnNativeDenom(t *testing.T) {
 	ctx, k := setupKeeperWithSeal(t)
 	fake := &fakeBank{}
 	w := WrapBankKeeperWithIdentityGuard(fake, k)
-	// Canonical Symbol+Display retained, description tweak allowed.
-	w.SetDenomMetaData(ctx, banktypes.Metadata{
-		Base:        "upspk.phoenix",
-		Symbol:      "PSPK",
-		Display:     "pspk",
-		Description: "Phoenix Spark, updated description text",
-	})
+	// Canonical sealed fields retained; description, URI and alias edits allowed.
+	spark, _ := validIdentity().NativeDenomMetadata()
+	spark.Description = "Phoenix Spark, updated description text"
+	spark.URI = "https://example.invalid/pspk.json"
+	spark.DenomUnits[0].Aliases = []string{"micropspk", "upspk"}
+	w.SetDenomMetaData(ctx, spark)
 	require.Len(t, fake.captured, 1)
+}
+
+// IDN-01: the decimals (display unit exponent), the unit list and the Name
+// are sealed too, not only Symbol and Display.
+func TestWrapperRejectsSealedFieldTamper(t *testing.T) {
+	cases := map[string]func(m *banktypes.Metadata){
+		"display exponent": func(m *banktypes.Metadata) { m.DenomUnits[1].Exponent = 18 },
+		"base exponent":    func(m *banktypes.Metadata) { m.DenomUnits[0].Exponent = 3 },
+		"unit denom":       func(m *banktypes.Metadata) { m.DenomUnits[1].Denom = "zenith" },
+		"extra unit": func(m *banktypes.Metadata) {
+			m.DenomUnits = append(m.DenomUnits, &banktypes.DenomUnit{Denom: "kpspk", Exponent: 9})
+		},
+		"dropped units": func(m *banktypes.Metadata) { m.DenomUnits = nil },
+		"name":          func(m *banktypes.Metadata) { m.Name = "Aurora Spark" },
+	}
+	for name, mutate := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, k := setupKeeperWithSeal(t)
+			fake := &fakeBank{}
+			w := WrapBankKeeperWithIdentityGuard(fake, k)
+			for _, pick := range []int{0, 1} {
+				spark, dream := validIdentity().NativeDenomMetadata()
+				m := []banktypes.Metadata{spark, dream}[pick]
+				mutate(&m)
+				require.Panics(t, func() { w.SetDenomMetaData(ctx, m) })
+			}
+			require.Empty(t, fake.captured)
+		})
+	}
 }
 
 func TestWrapperRejectsNativeSymbolTamper(t *testing.T) {
@@ -117,9 +145,9 @@ func TestWrapperRejectsNativeDisplayTamper(t *testing.T) {
 	fake := &fakeBank{}
 	w := WrapBankKeeperWithIdentityGuard(fake, k)
 	require.Panics(t, func() {
-		w.SetDenomMetaData(ctx, banktypes.Metadata{
-			Base: "upspk.phoenix", Symbol: "PSPK", Display: "tampered",
-		})
+		m, _ := validIdentity().NativeDenomMetadata()
+		m.Display = "tampered"
+		w.SetDenomMetaData(ctx, m)
 	})
 }
 

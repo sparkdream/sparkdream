@@ -37,7 +37,11 @@ func (k Keeper) AfterMarketResolved(ctx context.Context, marketId uint64, winner
 
 	switch winner {
 	case "yes":
-		// CONFIDENCE: Extend
+		// CONFIDENCE: Extend. A group without expiry (0) has nothing to
+		// extend.
+		if group.CurrentTermExpiration == 0 {
+			return k.MarketToGroup.Remove(ctx, marketId)
+		}
 		group.CurrentTermExpiration += bonusTime
 
 		// Cap logic: Max 2 terms from *now* (or strictly from activation)
@@ -77,7 +81,9 @@ func (k Keeper) AfterMarketResolved(ctx context.Context, marketId uint64, winner
 				sdk.NewAttribute("action", "no quorum"),
 			),
 		)
-		return nil
+		// The market is over either way: drop the link (x/futarchy calls
+		// this hook for INVALID outcomes too).
+		return k.MarketToGroup.Remove(ctx, marketId)
 	}
 
 	// 4. Clean up the link

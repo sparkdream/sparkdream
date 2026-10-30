@@ -186,9 +186,9 @@ echo "  Encrypted batch enabled: $BATCH_ENABLED"
 record_result "Shield module operational" "PASS"
 
 # Dummy ZK values for test submissions (all will fail at proof verification or earlier)
-DUMMY_NULLIFIER="aaaa111100000000000000000000000000000000000000000000000000005555"
-DUMMY_RATE_LIMIT="bbbb222200000000000000000000000000000000000000000000000000006666"
-DUMMY_MERKLE_ROOT="cccc333300000000000000000000000000000000000000000000000000007777"
+DUMMY_NULLIFIER="00aa111100000000000000000000000000000000000000000000000000005555"
+DUMMY_RATE_LIMIT="00bb222200000000000000000000000000000000000000000000000000006666"
+DUMMY_MERKLE_ROOT="00cc333300000000000000000000000000000000000000000000000000007777"
 DUMMY_PROOF=$(python3 -c "print('aa' * 128)")
 
 # =========================================================================
@@ -196,7 +196,8 @@ DUMMY_PROOF=$(python3 -c "print('aa' * 128)")
 # =========================================================================
 echo "--- TEST 1: ErrImmediateNotAllowed (immediate exec on ENCRYPTED_ONLY op) ---"
 
-# Rep MsgCreateChallenge (domain 41) is ENCRYPTED_ONLY
+# Rep MsgCreateChallenge (domain 41) is ENCRYPTED_ONLY (and registered inactive
+# until x/rep can execute a shielded challenge, so "inactive" also counts)
 # Verify it is indeed ENCRYPTED_ONLY first
 REP_OP=$($BINARY query shield shielded-op "/sparkdream.rep.v1.MsgCreateChallenge" --output json 2>&1)
 REP_BATCH=$(echo "$REP_OP" | jq -r '.registration.batch_mode // "unknown"')
@@ -209,7 +210,7 @@ INNER_MSG="{\"@type\":\"/sparkdream.rep.v1.MsgCreateChallenge\",\"creator\":\"$S
 TEST_PASS=false
 expect_tx_failure \
     "Immediate exec on ENCRYPTED_ONLY op" \
-    "requires encrypted batch mode\|ErrImmediateNotAllowed\|ENCRYPTED_ONLY\|invalid execution mode\|inner message" \
+    "requires encrypted batch mode\|ErrImmediateNotAllowed\|ENCRYPTED_ONLY\|invalid execution mode\|inner message\|inactive" \
     --inner-message "$INNER_MSG" \
     --proof "$DUMMY_PROOF" \
     --nullifier "$DUMMY_NULLIFIER" \
@@ -288,7 +289,7 @@ if echo "$FAKE_OP" | grep -qi "not found\|error"; then
         "not registered\|unregistered\|inactive\|inner message" \
         --inner-message "$FAKE_INNER" \
         --proof "$DUMMY_PROOF" \
-        --nullifier "eeee000000000000000000000000000000000000000000000000000000009999" \
+        --nullifier "00ee000000000000000000000000000000000000000000000000000000009999" \
         --rate-limit-nullifier "$DUMMY_RATE_LIMIT" \
         --merkle-root "$DUMMY_MERKLE_ROOT" \
         --proof-domain 1 \
@@ -324,7 +325,7 @@ expect_tx_failure \
     "proof domain\|mismatch\|ErrProofDomainMismatch\|inner message" \
     --inner-message "$BLOG_INNER" \
     --proof "$DUMMY_PROOF" \
-    --nullifier "dddd000000000000000000000000000000000000000000000000000000008888" \
+    --nullifier "00dd000000000000000000000000000000000000000000000000000000008888" \
     --rate-limit-nullifier "$DUMMY_RATE_LIMIT" \
     --merkle-root "$DUMMY_MERKLE_ROOT" \
     --proof-domain 0 \
@@ -356,7 +357,7 @@ if [ "$BLOG_MIN_TRUST" -gt 0 ] 2>/dev/null; then
         "trust level\|insufficient\|ErrInsufficientTrustLevel\|inner message" \
         --inner-message "$BLOG_INNER2" \
         --proof "$DUMMY_PROOF" \
-        --nullifier "ffff000000000000000000000000000000000000000000000000000000001111" \
+        --nullifier "00ff000000000000000000000000000000000000000000000000000000001111" \
         --rate-limit-nullifier "$DUMMY_RATE_LIMIT" \
         --merkle-root "$DUMMY_MERKLE_ROOT" \
         --proof-domain 1 \
@@ -396,7 +397,7 @@ else
                 "trust level\|insufficient\|ErrInsufficientTrustLevel\|inner message" \
                 --inner-message "$TRUST_INNER" \
                 --proof "$DUMMY_PROOF" \
-                --nullifier "ffff000000000000000000000000000000000000000000000000000000001111" \
+                --nullifier "00ff000000000000000000000000000000000000000000000000000000001111" \
                 --rate-limit-nullifier "$DUMMY_RATE_LIMIT" \
                 --merkle-root "$DUMMY_MERKLE_ROOT" \
                 --proof-domain 1 \

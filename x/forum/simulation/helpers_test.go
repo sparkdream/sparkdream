@@ -7,6 +7,9 @@ import (
 	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
+
+	commontypes "sparkdream/x/common/types"
+	"sparkdream/x/forum/types"
 )
 
 // makeAccount constructs a simtypes.Account from a secp256k1 private key seed.
@@ -102,18 +105,6 @@ func TestGetAccountForAddress_TableDriven(t *testing.T) {
 	}
 }
 
-// ------------------------------------------------------------------ //
-// randomTagName
-// ------------------------------------------------------------------ //
-
-// knownTagNames is the exact slice defined inside helpers.go.  Keeping
-// it here lets us verify that every returned value is a member.
-var knownTagNames = []string{
-	"golang", "rust", "python", "javascript",
-	"devops", "testing", "documentation",
-	"design", "frontend", "backend",
-}
-
 func inSlice(s string, slice []string) bool {
 	for _, v := range slice {
 		if v == s {
@@ -123,52 +114,6 @@ func inSlice(s string, slice []string) bool {
 	return false
 }
 
-func TestRandomTagName_NonEmpty(t *testing.T) {
-	r := rand.New(rand.NewSource(0))
-	tag := randomTagName(r)
-	if tag == "" {
-		t.Error("randomTagName returned empty string")
-	}
-}
-
-func TestRandomTagName_ValidMember(t *testing.T) {
-	r := rand.New(rand.NewSource(99))
-	for i := 0; i < 50; i++ {
-		tag := randomTagName(r)
-		if !inSlice(tag, knownTagNames) {
-			t.Errorf("randomTagName returned %q which is not in the known list", tag)
-		}
-	}
-}
-
-func TestRandomTagName_Deterministic(t *testing.T) {
-	// Same seed must yield the same sequence.
-	r1 := rand.New(rand.NewSource(77))
-	r2 := rand.New(rand.NewSource(77))
-	for i := 0; i < 20; i++ {
-		t1 := randomTagName(r1)
-		t2 := randomTagName(r2)
-		if t1 != t2 {
-			t.Errorf("iteration %d: r1 produced %q, r2 produced %q", i, t1, t2)
-		}
-	}
-}
-
-func TestRandomTagName_Distribution(t *testing.T) {
-	// Run enough iterations that every tag should appear at least once
-	// when sampling uniformly from 10 items.
-	r := rand.New(rand.NewSource(555))
-	seen := make(map[string]bool)
-	for i := 0; i < 500; i++ {
-		seen[randomTagName(r)] = true
-	}
-	for _, tag := range knownTagNames {
-		if !seen[tag] {
-			t.Errorf("tag %q never appeared in 500 samples", tag)
-		}
-	}
-}
-
 // ------------------------------------------------------------------ //
 // randomContent
 // ------------------------------------------------------------------ //
@@ -176,7 +121,7 @@ func TestRandomTagName_Distribution(t *testing.T) {
 var knownContents = []string{
 	"This is a simulation generated post content.",
 	"Testing the forum module with random content.",
-	"Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+	"Phoenix aurora zenith: a short note from the simulation.",
 	"This post was created during simulation testing.",
 	"Sample content for forum simulation.",
 }
@@ -283,15 +228,12 @@ func TestRandomReason_Distribution(t *testing.T) {
 // Cross-function seed independence
 // ------------------------------------------------------------------ //
 
-// TestHelpers_SeedIndependence verifies that the three random* functions do
+// TestHelpers_SeedIndependence verifies that the random* functions do
 // not share internal state — each call advances the rand by exactly one step
 // (one r.Intn call), so interleaving them with the same seed produces the
 // same individual results as calling each in isolation.
 func TestHelpers_SeedIndependence(t *testing.T) {
 	// Capture individual outputs with a fresh rand each time.
-	rTag := rand.New(rand.NewSource(42))
-	tag := randomTagName(rTag)
-
 	rContent := rand.New(rand.NewSource(42))
 	content := randomContent(rContent)
 
@@ -299,16 +241,98 @@ func TestHelpers_SeedIndependence(t *testing.T) {
 	reason := randomReason(rReason)
 
 	// Each function calls r.Intn(len(slice)) exactly once, so the first
-	// random integer drawn from seed 42 determines all three results.
+	// random integer drawn from seed 42 determines both results.
 	// They may or may not be equal — the point is that each function is
 	// self-contained and doesn't read extra random values.
-	if tag == "" {
-		t.Error("tag is empty")
-	}
 	if content == "" {
 		t.Error("content is empty")
 	}
 	if reason == "" {
 		t.Error("reason is empty")
+	}
+}
+
+// ------------------------------------------------------------------ //
+// selection and post-state helpers
+// ------------------------------------------------------------------ //
+
+func TestPick_EmptyReturnsFalse(t *testing.T) {
+	r := rand.New(rand.NewSource(1))
+	if _, ok := pick(r, []int{}); ok {
+		t.Error("pick on an empty slice returned ok=true")
+	}
+}
+
+func TestPick_ReturnsElement(t *testing.T) {
+	r := rand.New(rand.NewSource(1))
+	items := []string{"phoenix", "aurora", "zenith"}
+	for i := 0; i < 20; i++ {
+		got, ok := pick(r, items)
+		if !ok || !inSlice(got, items) {
+			t.Fatalf("pick returned %q, ok=%t", got, ok)
+		}
+	}
+}
+
+func TestAccountsWhere_Filters(t *testing.T) {
+	r := rand.New(rand.NewSource(3))
+	accs := simtypes.RandomAccounts(r, 6)
+	keep := accs[2].Address.String()
+	got := accountsWhere(accs, func(a simtypes.Account) bool { return a.Address.String() == keep })
+	if len(got) != 1 || got[0].Address.String() != keep {
+		t.Fatalf("accountsWhere returned %d accounts, want the one kept", len(got))
+	}
+	if len(accountsWhere(accs, anyone)) != len(accs) {
+		t.Error("anyone should keep every account")
+	}
+	if len(accountsWhere(accs, notAddr(keep))) != len(accs)-1 {
+		t.Error("notAddr should drop exactly one account")
+	}
+}
+
+func TestRootID(t *testing.T) {
+	if got := rootID(types.Post{PostId: 7}); got != 7 {
+		t.Errorf("root post: got %d, want 7", got)
+	}
+	if got := rootID(types.Post{PostId: 9, ParentId: 8, RootId: 7}); got != 7 {
+		t.Errorf("reply: got %d, want 7", got)
+	}
+}
+
+func TestVisibleAndActiveRoot(t *testing.T) {
+	cases := []struct {
+		status  types.PostStatus
+		visible bool
+	}{
+		{types.PostStatus_POST_STATUS_ACTIVE, true},
+		{types.PostStatus_POST_STATUS_HIDDEN, false},
+		{types.PostStatus_POST_STATUS_DELETED, false},
+		{types.PostStatus_POST_STATUS_ARCHIVED, false},
+	}
+	for _, c := range cases {
+		p := types.Post{PostId: 1, Status: c.status}
+		if visible(p) != c.visible {
+			t.Errorf("visible(%s) = %t, want %t", c.status, !c.visible, c.visible)
+		}
+		wantRoot := c.status == types.PostStatus_POST_STATUS_ACTIVE
+		if activeRoot(p) != wantRoot {
+			t.Errorf("activeRoot(%s) = %t, want %t", c.status, !wantRoot, wantRoot)
+		}
+	}
+	if activeRoot(types.Post{PostId: 2, ParentId: 1, Status: types.PostStatus_POST_STATUS_ACTIVE}) {
+		t.Error("a reply is never an active root")
+	}
+}
+
+func TestRandomModerationReason_Specified(t *testing.T) {
+	r := rand.New(rand.NewSource(5))
+	for i := 0; i < 100; i++ {
+		reason := randomModerationReason(r)
+		if reason == commontypes.ModerationReason_MODERATION_REASON_UNSPECIFIED {
+			t.Fatal("randomModerationReason returned UNSPECIFIED, which every handler rejects")
+		}
+		if _, ok := commontypes.ModerationReason_name[int32(reason)]; !ok {
+			t.Fatalf("randomModerationReason returned unknown reason %d", reason)
+		}
 	}
 }

@@ -8,7 +8,6 @@ import (
 
 	"cosmossdk.io/collections"
 	errorsmod "cosmossdk.io/errors"
-	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 )
 
@@ -41,37 +40,14 @@ func (k msgServer) AwardBounty(ctx context.Context, msg *types.MsgAwardBounty) (
 		return nil, errorsmod.Wrap(types.ErrBountyNotActive, "no awards assigned yet - use AssignBountyToReply first")
 	}
 
-	bountyAmount, ok := math.NewIntFromString(bounty.Amount)
-	if !ok {
-		return nil, errorsmod.Wrap(types.ErrInvalidAmount, "invalid bounty escrow amount")
+	// Split the escrow equally among the accepted replies that are still
+	// eligible (ACTIVE, not anonymous).
+	paid, err := k.payBountyAwards(ctx, &bounty)
+	if err != nil {
+		return nil, err
 	}
-
-	// Split the escrow equally among the accepted replies. The integer-division
-	// remainder is handed out one unit at a time in award order (largest-remainder
-	// method) so the full escrow is always paid out — nothing stays stranded in
-	// the module account and the creator gets no dust refund.
-	numAwards := int64(len(bounty.Awards))
-	share := bountyAmount.Quo(math.NewInt(numAwards))
-	extra := bountyAmount.Mod(math.NewInt(numAwards)).Int64()
-
-	for i, award := range bounty.Awards {
-		awardAmount := share
-		if int64(i) < extra {
-			awardAmount = awardAmount.AddRaw(1)
-		}
-		if !awardAmount.IsPositive() {
-			return nil, errorsmod.Wrap(types.ErrInvalidAmount, "bounty escrow too small to split among awards")
-		}
-		recipientAddr, err := sdk.AccAddressFromBech32(award.Recipient)
-		if err != nil {
-			return nil, errorsmod.Wrapf(err, "invalid recipient address for award to post %d", award.PostId)
-		}
-		// Persist the actual paid share on the award for the audit trail.
-		award.Amount = awardAmount.String()
-		awardCoins := sdk.NewCoins(sdk.NewCoin(k.BondDenom(ctx), awardAmount))
-		if err := k.bankKeeper.SendCoinsFromModuleToAccount(ctx, types.ModuleName, recipientAddr, awardCoins); err != nil {
-			return nil, errorsmod.Wrapf(err, "failed to transfer bounty award to %s", award.Recipient)
-		}
+	if paid == 0 {
+		return nil, errorsmod.Wrap(types.ErrBountyNotActive, "no assigned reply is still eligible for an award")
 	}
 
 	// Mark bounty as awarded
@@ -82,7 +58,10 @@ func (k msgServer) AwardBounty(ctx context.Context, msg *types.MsgAwardBounty) (
 	}
 	// FORUM-S2-8: drop from BountiesByExpiry — awarded bounties are no longer
 	// candidates for the BountyExpiringSoon query.
-	_ = k.BountiesByExpiry.Remove(ctx, collections.Join(bounty.ExpiresAt, bounty.Id))
+	if err := k.BountiesByExpiry.Remove(ctx, collections.Join(bounty.ExpiresAt, bounty.Id)); err != nil {
+		return nil, err
+	}
+	k.clearActiveBountyIndex(ctx, bounty)
 
 	// Emit event
 	sdkCtx.EventManager().EmitEvent(

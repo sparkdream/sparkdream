@@ -1,47 +1,37 @@
 package simulation
 
 import (
-	"math/rand"
-
-	"cosmossdk.io/collections"
-	"github.com/cosmos/cosmos-sdk/baseapp"
+	"cosmossdk.io/math"
 	"github.com/cosmos/cosmos-sdk/client"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
 
 	"sparkdream/x/federation/keeper"
 	"sparkdream/x/federation/types"
 )
 
+// SimulateMsgUnlinkIdentity delivers MsgUnlinkIdentity from the local
+// address of an identity link (any status), linking one first through
+// MsgLinkIdentity when none exists.
 func SimulateMsgUnlinkIdentity(
 	ak types.AuthKeeper,
 	bk types.BankKeeper,
 	k keeper.Keeper,
 	txGen client.TxConfig,
 ) simtypes.Operation {
-	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
-	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		simAccount, _ := simtypes.RandomAcc(r, accs)
-		addr := simAccount.Address.String()
-
-		// Get or create an identity link to unlink
-		link, err := getOrCreateIdentityLink(r, ctx, k, addr)
+	return operation(ak, bk, k, txGen, &types.MsgUnlinkIdentity{}, func(e *simEnv) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
+		msg := &types.MsgUnlinkIdentity{}
+		l, ok, err := e.ensureLink(func(l types.IdentityLink) bool {
+			_, ok := e.account(l.LocalAddress)
+			return ok
+		}, anyone)
 		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgUnlinkIdentity{}), "failed to get/create identity link"), nil, nil
+			return noOpErr(msg, err)
 		}
-
-		// Remove the link
-		if err := k.IdentityLinks.Remove(ctx, collections.Join(link.LocalAddress, link.PeerId)); err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgUnlinkIdentity{}), "failed to remove link"), nil, nil
+		if !ok {
+			return noOp(msg, "no identity link held by a live sim account (links need an ACTIVE bridged peer)")
 		}
-		_ = k.IdentityLinksByRemote.Remove(ctx, collections.Join(link.PeerId, link.RemoteIdentity))
-
-		// Decrement link count
-		count, _ := k.IdentityLinkCount.Get(ctx, link.LocalAddress)
-		if count > 0 {
-			_ = k.IdentityLinkCount.Set(ctx, link.LocalAddress, count-1)
-		}
-
-		return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgUnlinkIdentity{}), "ok (direct keeper call)"), nil, nil
-	}
+		acc, _ := e.account(l.LocalAddress)
+		msg.Creator, msg.PeerId = l.LocalAddress, l.PeerId
+		return e.submit(acc, msg, math.ZeroInt())
+	})
 }

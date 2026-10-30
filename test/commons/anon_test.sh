@@ -4,7 +4,7 @@ echo "--- TESTING: ANONYMOUS COMMONS ACTIONS VIA X/SHIELD ---"
 echo ""
 echo "Tests full-stack anonymous governance operations through MsgShieldedExec:"
 echo "  1. Anonymous proposal submission"
-echo "  2. Anonymous vote on a proposal is refused (council votes are open)"
+echo "  2. Anonymous votes on an openly voted proposal are refused"
 echo "  3. Anonymous tally stays empty"
 echo ""
 
@@ -192,8 +192,8 @@ echo "--- TEST 1: Anonymous proposal submission ---"
 # Generate a per-run nullifier so a stale chain state (snapshot reuse
 # or hung suite reusing parallel-N data) from a previous run can't
 # trip the "nullifier already used" replay guard.
-NULLIFIER_PROP=$(openssl rand -hex 32)
-RATE_NULL_PROP=$(openssl rand -hex 32)
+NULLIFIER_PROP=00$(openssl rand -hex 31)
+RATE_NULL_PROP=00$(openssl rand -hex 31)
 
 # The inner message is MsgSubmitAnonymousProposal with shield module as proposer
 # The messages inside it must be in the council's AllowedMessages list
@@ -245,32 +245,31 @@ else
 fi
 
 # =========================================================================
-# TEST 2: Anonymous vote on proposal is refused
+# TEST 2: Anonymous vote on an openly voted proposal is refused
 # =========================================================================
-# Council votes are open: an anonymous vote proves only trust-tree membership,
-# not a council seat, and could be cast on top of the member's open vote, so
-# x/commons refuses MsgAnonymousVoteProposal (ErrAnonymousVotingDisabled).
-echo "--- TEST 2: Anonymous vote on proposal is refused ---"
+# Anonymous votes count only on secret ballots (secret_ballot_test.sh), proven
+# against the ballot's voter snapshot (PROOF_DOMAIN_GROUP_TREE = 2). A vote
+# proven against the trust tree is refused by x/shield (domain mismatch); a
+# group-tree vote on an openly voted proposal is refused by x/commons (open
+# votes and anonymous votes never mix on one proposal).
+echo "--- TEST 2: Anonymous vote on an openly voted proposal is refused ---"
 
 # Vote on the regular proposal (if available), otherwise the anonymous one
 VOTE_PROPOSAL_ID="${REGULAR_PROPOSAL_ID:-$ANON_PROPOSAL_ID}"
 
-if [ -z "$VOTE_PROPOSAL_ID" ]; then
-    echo "  SKIP: No proposal available to vote on"
-    record_result "Anonymous vote refused" "FAIL"
-else
-    NULLIFIER_VOTE=$(openssl rand -hex 32)
-    RATE_NULL_VOTE=$(openssl rand -hex 32)
+anon_vote_tx() {
+    local DOMAIN=$1
+    local NULLIFIER=00$(openssl rand -hex 31)
+    local RATE_NULL=00$(openssl rand -hex 31)
     # option 1 = VOTE_OPTION_YES
-    INNER_MSG="{\"@type\":\"/sparkdream.commons.v1.MsgAnonymousVoteProposal\",\"voter\":\"$SHIELD_MODULE_ADDR\",\"proposal_id\":\"$VOTE_PROPOSAL_ID\",\"option\":1,\"metadata\":\"Anonymous yes vote\"}"
-
+    local INNER="{\"@type\":\"/sparkdream.commons.v1.MsgAnonymousVoteProposal\",\"voter\":\"$SHIELD_MODULE_ADDR\",\"proposal_id\":\"$VOTE_PROPOSAL_ID\",\"option\":1,\"metadata\":\"Anonymous yes vote\"}"
     TX_RES=$($BINARY tx shield shielded-exec \
-        --inner-message "$INNER_MSG" \
+        --inner-message "$INNER" \
         --proof "$DUMMY_PROOF" \
-        --nullifier "$NULLIFIER_VOTE" \
-        --rate-limit-nullifier "$RATE_NULL_VOTE" \
+        --nullifier "$NULLIFIER" \
+        --rate-limit-nullifier "$RATE_NULL" \
         --merkle-root "$DUMMY_MERKLE_ROOT" \
-        --proof-domain 1 \
+        --proof-domain "$DOMAIN" \
         --min-trust-level 0 \
         --exec-mode 0 \
         --from alice \
@@ -280,19 +279,38 @@ else
         --gas 500000 \
         -y \
         --output json 2>&1)
-
     submit_tx_and_wait "$TX_RES"
+}
 
+if [ -z "$VOTE_PROPOSAL_ID" ]; then
+    echo "  SKIP: No proposal available to vote on"
+    record_result "Trust-tree anonymous vote refused" "FAIL"
+    record_result "Anonymous vote on open proposal refused" "FAIL"
+else
+    anon_vote_tx 1
     RAW_LOG=$(echo "$TX_RESULT" | jq -r '.raw_log // ""' 2>/dev/null)
     if check_tx_success "$TX_RESULT"; then
-        echo "  ERROR: anonymous vote was accepted"
-        record_result "Anonymous vote refused" "FAIL"
-    elif echo "$RAW_LOG" | grep -q "anonymous votes on council proposals are disabled"; then
-        echo "  Correctly refused: anonymous council votes are disabled"
-        record_result "Anonymous vote refused" "PASS"
+        echo "  ERROR: trust-tree anonymous vote was accepted"
+        record_result "Trust-tree anonymous vote refused" "FAIL"
+    elif echo "$RAW_LOG" | grep -q "proof domain does not match"; then
+        echo "  Correctly refused: votes are proven against a ballot snapshot, not the trust tree"
+        record_result "Trust-tree anonymous vote refused" "PASS"
     else
         echo "  ERROR: refused for another reason: ${RAW_LOG:0:200}"
-        record_result "Anonymous vote refused" "FAIL"
+        record_result "Trust-tree anonymous vote refused" "FAIL"
+    fi
+
+    anon_vote_tx 2
+    RAW_LOG=$(echo "$TX_RESULT" | jq -r '.raw_log // ""' 2>/dev/null)
+    if check_tx_success "$TX_RESULT"; then
+        echo "  ERROR: anonymous vote on an open proposal was accepted"
+        record_result "Anonymous vote on open proposal refused" "FAIL"
+    elif echo "$RAW_LOG" | grep -q "ballot mode does not allow this vote"; then
+        echo "  Correctly refused: the proposal is voted openly"
+        record_result "Anonymous vote on open proposal refused" "PASS"
+    else
+        echo "  ERROR: refused for another reason: ${RAW_LOG:0:200}"
+        record_result "Anonymous vote on open proposal refused" "FAIL"
     fi
 fi
 

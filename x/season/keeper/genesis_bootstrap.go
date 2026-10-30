@@ -2,6 +2,7 @@ package keeper
 
 import (
 	"context"
+	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	"sparkdream/x/season/types"
 )
@@ -246,7 +247,9 @@ func (k Keeper) BootstrapTitlesAndAchievements(ctx context.Context) {
 
 	// Store all achievements
 	for _, achievement := range achievements {
-		_ = k.SetAchievement(ctx, achievement)
+		if err := k.SetAchievement(ctx, achievement); err != nil {
+			sdk.UnwrapSDKContext(ctx).Logger().Error("BootstrapTitlesAndAchievements: k.SetAchievement failed", "err", err)
+		}
 	}
 
 	// =========================================================================
@@ -360,6 +363,8 @@ func (k Keeper) BootstrapTitlesAndAchievements(ctx context.Context) {
 
 	// Store all titles
 	for _, title := range titles {
-		_ = k.SetTitle(ctx, title)
+		if err := k.SetTitle(ctx, title); err != nil {
+			sdk.UnwrapSDKContext(ctx).Logger().Error("BootstrapTitlesAndAchievements: k.SetTitle failed", "err", err)
+		}
 	}
 }

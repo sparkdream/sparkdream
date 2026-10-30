@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"cosmossdk.io/collections"
+	errorsmod "cosmossdk.io/errors"
 	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
@@ -28,6 +29,9 @@ func (k msgServer) CreateEdition(ctx context.Context, msg *types.MsgCreateEditio
 	}
 	if !c.IsEditions() {
 		return nil, types.ErrWrongTokenModel
+	}
+	if msg.MaxSupply > types.HardMaxEditionSupply {
+		return nil, errorsmod.Wrapf(types.ErrSupplyExceeded, "max_supply above the hard ceiling %d", types.HardMaxEditionSupply)
 	}
 	if err := types.ValidateTokenMetadata(msg.Metadata, p); err != nil {
 		return nil, err

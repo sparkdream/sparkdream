@@ -8,6 +8,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	"sparkdream/x/artifact/types"
+	commontypes "sparkdream/x/common/types"
 )
 
 func (q queryServer) Outbox(ctx context.Context, req *types.QueryOutboxRequest) (*types.QueryOutboxResponse, error) {
@@ -17,11 +18,11 @@ func (q queryServer) Outbox(ctx context.Context, req *types.QueryOutboxRequest) 
 	addrs := q.k.allAddressesOf(ctx, req.Address)
 	items, page, err := query.CollectionFilteredPaginate(ctx, q.k.OutboxBySender, capPage(req.Pagination),
 		func(key AddrTokenKey, kind uint64) (bool, error) {
-			_, ok := q.inboxItem(ctx, key.K2(), key.K3(), types.InboxKind(kind))
+			_, ok := q.inboxItem(ctx, key.K2(), key.K3(), commontypes.Saturate[types.InboxKind](kind))
 			return ok, nil
 		},
 		func(key AddrTokenKey, kind uint64) (types.InboxItem, error) {
-			item, _ := q.inboxItem(ctx, key.K2(), key.K3(), types.InboxKind(kind))
+			item, _ := q.inboxItem(ctx, key.K2(), key.K3(), commontypes.Saturate[types.InboxKind](kind))
 			return item, nil
 		}, addrPrefix(addrs[0]))
 	if err != nil {
@@ -30,7 +31,7 @@ func (q queryServer) Outbox(ctx context.Context, req *types.QueryOutboxRequest) 
 	if lastPage(page) {
 		for _, a := range addrs[1:] {
 			err = q.k.OutboxBySender.Walk(ctx, addrRange(a, 0), func(key AddrTokenKey, kind uint64) (bool, error) {
-				if item, ok := q.inboxItem(ctx, key.K2(), key.K3(), types.InboxKind(kind)); ok {
+				if item, ok := q.inboxItem(ctx, key.K2(), key.K3(), commontypes.Saturate[types.InboxKind](kind)); ok {
 					items = append(items, item)
 				}
 				return false, nil

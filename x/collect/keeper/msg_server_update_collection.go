@@ -9,6 +9,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	"sparkdream/x/collect/types"
+	commontypes "sparkdream/x/common/types"
 )
 
 func (k msgServer) UpdateCollection(ctx context.Context, msg *types.MsgUpdateCollection) (*types.MsgUpdateCollectionResponse, error) {
@@ -48,23 +49,23 @@ func (k msgServer) UpdateCollection(ctx context.Context, msg *types.MsgUpdateCol
 
 	// Validate content fields
 	if coll.Encrypted {
-		if uint32(len(msg.EncryptedData)) > params.MaxEncryptedDataSize {
+		if commontypes.Saturate[uint32](len(msg.EncryptedData)) > params.MaxEncryptedDataSize {
 			return nil, types.ErrEncryptedDataTooLarge
 		}
 		if msg.Name != "" || msg.Description != "" || msg.CoverUri != "" {
 			return nil, types.ErrEncryptedFieldMismatch
 		}
 	} else {
-		if msg.EncryptedData != nil && len(msg.EncryptedData) > 0 {
+		if len(msg.EncryptedData) > 0 {
 			return nil, types.ErrEncryptedFieldMismatch
 		}
-		if msg.Name == "" || uint32(len(msg.Name)) > params.MaxNameLength {
+		if msg.Name == "" || commontypes.Saturate[uint32](len(msg.Name)) > params.MaxNameLength {
 			return nil, types.ErrInvalidName
 		}
-		if uint32(len(msg.Description)) > params.MaxDescriptionLength {
+		if commontypes.Saturate[uint32](len(msg.Description)) > params.MaxDescriptionLength {
 			return nil, types.ErrInvalidDescription
 		}
-		if uint32(len(msg.CoverUri)) > params.MaxReferenceFieldLength {
+		if commontypes.Saturate[uint32](len(msg.CoverUri)) > params.MaxReferenceFieldLength {
 			return nil, types.ErrReferenceFieldTooLong
 		}
 		if err := rejectDataURIs(msg.CoverUri); err != nil {
@@ -123,21 +124,13 @@ func (k msgServer) UpdateCollection(ctx context.Context, msg *types.MsgUpdateCol
 		}
 
 		// Remove from expiry index
-		k.CollectionsByExpiry.Remove(ctx, collections.Join(coll.ExpiresAt, coll.Id)) //nolint:errcheck
+		if err := k.CollectionsByExpiry.Remove(ctx, collections.Join(coll.ExpiresAt, coll.Id)); err != nil {
+			return nil, err
+		}
 
 		// Cancel pending sponsorship request if any
-		req, err := k.SponsorshipRequest.Get(ctx, coll.Id)
-		if err == nil {
-			// Refund sponsorship request deposits
-			requesterAddr, err := k.addressCodec.StringToBytes(req.Requester)
-			if err == nil {
-				refundAmt := req.CollectionDeposit.Add(req.ItemDepositTotal)
-				if refundAmt.IsPositive() {
-					k.RefundSPARK(ctx, requesterAddr, refundAmt) //nolint:errcheck
-				}
-			}
-			k.SponsorshipRequestsByExpiry.Remove(ctx, collections.Join(req.ExpiresAt, coll.Id)) //nolint:errcheck
-			k.SponsorshipRequest.Remove(ctx, coll.Id)                                           //nolint:errcheck
+		if err := k.supersedeSponsorshipRequest(ctx, coll.Id); err != nil {
+			return nil, err
 		}
 
 		coll.ExpiresAt = 0
@@ -162,7 +155,9 @@ func (k msgServer) UpdateCollection(ctx context.Context, msg *types.MsgUpdateCol
 
 		// Update expiry index
 		if coll.ExpiresAt > 0 {
-			k.CollectionsByExpiry.Remove(ctx, collections.Join(coll.ExpiresAt, coll.Id)) //nolint:errcheck
+			if err := k.CollectionsByExpiry.Remove(ctx, collections.Join(coll.ExpiresAt, coll.Id)); err != nil {
+				return nil, err
+			}
 		}
 		if err := k.CollectionsByExpiry.Set(ctx, collections.Join(msg.ExpiresAt, coll.Id)); err != nil {
 			return nil, errorsmod.Wrap(err, "failed to set expiry index")

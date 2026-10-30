@@ -10,14 +10,17 @@ import (
 )
 
 func (k msgServer) UpdateOperationalParams(ctx context.Context, msg *types.MsgUpdateOperationalParams) (*types.MsgUpdateOperationalParamsResponse, error) {
-	// Verify council authorization via commonsKeeper.IsCouncilAuthorized
+	// Operational params move value (fees, deposits, commits) and set clocks
+	// (hide expiry, endorsement deadline), so a single committee member must
+	// not change them: only the gov authority, the Commons Council policy or
+	// the Commons Operations Committee policy (an executed proposal) may.
 	if _, err := k.addressCodec.StringToBytes(msg.Authority); err != nil {
 		return nil, errorsmod.Wrap(err, "invalid authority address")
 	}
 
 	authorized := false
 	if k.commonsKeeper != nil {
-		authorized = k.commonsKeeper.IsCouncilAuthorized(ctx, msg.Authority, "commons", "operations")
+		authorized = k.commonsKeeper.IsCouncilOrCommitteePolicy(ctx, msg.Authority, "commons", "operations")
 	} else {
 		// Fall back to governance authority check
 		authorityAddr, _ := k.addressCodec.StringToBytes(msg.Authority)
@@ -45,6 +48,9 @@ func (k msgServer) UpdateOperationalParams(ctx context.Context, msg *types.MsgUp
 	// Validate merged params
 	if err := merged.Validate(); err != nil {
 		return nil, errorsmod.Wrap(err, "merged params validation failed")
+	}
+	if err := merged.ValidateOperationalBounds(); err != nil {
+		return nil, errorsmod.Wrap(err, "operational hard bounds")
 	}
 
 	// Store merged params

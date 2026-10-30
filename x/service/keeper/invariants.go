@@ -295,7 +295,10 @@ func PendingReportQueueConsistencyInvariant(k Keeper) sdk.Invariant {
 			if r.Status != types.ReportStatus_REPORT_STATUS_PENDING {
 				return false, nil
 			}
-			has, _ := k.PendingReportsQueue.Has(ctx, collections.Join(r.FiledAt, r.ReportId))
+			has, err := k.PendingReportsQueue.Has(ctx, collections.Join(r.FiledAt, r.ReportId))
+			if err != nil {
+				return true, err
+			}
 			if !has {
 				broken++
 				msg += fmt.Sprintf("  PENDING report %d missing queue entry\n", r.ReportId)
@@ -333,7 +336,10 @@ func EscalatedReportQueueConsistencyInvariant(k Keeper) sdk.Invariant {
 				return false, nil
 			}
 			if r.EscalatedAt > 0 {
-				has, _ := k.EscalatedReportsQueue.Has(ctx, collections.Join(r.EscalatedAt, r.ReportId))
+				has, err := k.EscalatedReportsQueue.Has(ctx, collections.Join(r.EscalatedAt, r.ReportId))
+				if err != nil {
+					return true, err
+				}
 				if !has {
 					broken++
 					msg += fmt.Sprintf("  ESCALATED report %d missing queue entry\n", r.ReportId)

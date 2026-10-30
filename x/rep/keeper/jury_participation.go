@@ -2,6 +2,7 @@ package keeper
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"sparkdream/x/rep/types"
@@ -238,7 +239,7 @@ func (k Keeper) JurorResponsivenessWeight(ctx context.Context, juror string) flo
 func (k Keeper) GetJuryParticipation(ctx context.Context, juror string) (types.JuryParticipation, error) {
 	p, err := k.JuryParticipation.Get(ctx, juror)
 	if err != nil {
-		if err == collections.ErrNotFound {
+		if errors.Is(err, collections.ErrNotFound) {
 			return types.JuryParticipation{Juror: juror}, nil
 		}
 		return types.JuryParticipation{}, err

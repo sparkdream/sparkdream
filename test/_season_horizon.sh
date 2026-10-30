@@ -8,8 +8,9 @@
 # three genesis profiles it used to touch. The non-season suites run for
 # thousands of blocks and assume reputation persists, so they must stay inside
 # one season: before their setup starts, ensure_season_horizon extends season 1
-# through the Commons Council's MsgExtendSeason (alice is a council member at
-# genesis). config.yml pins season.max_extension_epochs high enough for one
+# through MsgExtendSeason executed by a Commons Operations Committee proposal
+# (alice is the committee's member at genesis; a single member can no longer
+# sign it directly). config.yml pins season.max_extension_epochs high enough for one
 # extension to cover a whole suite.
 #
 # The x/season suite must NOT call this: its tests wait for block 1001.
@@ -64,25 +65,14 @@ ensure_season_horizon() {
     [ -z "$denom" ] && denom="${BOND_DENOM:-uspark}"
 
     echo "  Extending season 1 by $max_epochs epochs so the $module suite stays inside one season (height $height, end $end_block)..."
-    local tx_json txhash code
-    tx_json=$("$bin" tx season extend-season "$max_epochs" "e2e horizon for $module suite" \
-        --from alice --chain-id "$chain_id" --keyring-backend test \
-        --fees "5000${denom}" --gas 300000 -y --output json 2>&1)
-    txhash=$(echo "$tx_json" | jq -r '.txhash // empty' 2>/dev/null)
-    code=$(echo "$tx_json" | jq -r '.code // "1"' 2>/dev/null)
-    if [ -z "$txhash" ] || [ "$code" != "0" ]; then
-        echo "  [WARN] season horizon: extend-season broadcast failed: $(echo "$tx_json" | head -c 300)"
-        return 0
-    fi
-    # Poll for inclusion (bounded) rather than sleeping a fixed interval.
-    local i delivered=""
-    for i in $(seq 1 30); do
-        sleep 1
-        delivered=$("$bin" query tx "$txhash" --output json 2>/dev/null | jq -r '.code // empty')
-        [ -n "$delivered" ] && break
-    done
-    if [ "$delivered" != "0" ]; then
-        echo "  [WARN] season horizon: extend-season tx $txhash not delivered cleanly (code ${delivered:-pending})"
+    # MsgExtendSeason is accepted only from a committee/council policy
+    # address (x/season SEA-10), so it goes through an Operations Committee
+    # proposal that alice submits, votes and executes.
+    # shellcheck source=./lib/ops_committee.sh
+    source "$(dirname "${BASH_SOURCE[0]}")/lib/ops_committee.sh"
+    if ! BINARY="$bin" CHAIN_ID="$chain_id" BOND_DENOM="$denom" ops_committee_exec \
+        "{\"@type\":\"/sparkdream.season.v1.MsgExtendSeason\",\"extension_epochs\":\"$max_epochs\",\"reason\":\"e2e horizon for $module suite\"}"; then
+        echo "  [WARN] season horizon: extend-season proposal failed: $OPS_COMMITTEE_ERROR"
         return 0
     fi
     end_block=$("$bin" query season current-season --output json 2>/dev/null | jq -r '.end_block // "0"')

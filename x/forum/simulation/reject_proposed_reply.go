@@ -1,68 +1,37 @@
 package simulation
 
 import (
-	"math/rand"
-
-	"github.com/cosmos/cosmos-sdk/baseapp"
+	"cosmossdk.io/math"
 	"github.com/cosmos/cosmos-sdk/client"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
 
 	"sparkdream/x/forum/keeper"
 	"sparkdream/x/forum/types"
 )
 
-// SimulateMsgRejectProposedReply simulates a MsgRejectProposedReply message using direct keeper calls.
-// This simulates rejecting a proposed accepted reply by directly updating the thread metadata.
-// Full integration testing should be done in integration tests.
+// SimulateMsgRejectProposedReply delivers MsgRejectProposedReply from the
+// author of a thread with a pending sentinel proposal (a sentinel proposal
+// is first made, a real MsgMarkAcceptedReply, when none is pending).
+// Proposals need a sentinel, so this op succeeds only in runs that bond
+// one.
 func SimulateMsgRejectProposedReply(
 	ak types.AuthKeeper,
 	bk types.BankKeeper,
 	k keeper.Keeper,
 	txGen client.TxConfig,
 ) simtypes.Operation {
-	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
-	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		simAccount, _ := simtypes.RandomAcc(r, accs)
-
-		// Get or create a root post owned by this account
-		threadID, err := getOrCreateRootPostByAuthor(r, ctx, k, simAccount.Address.String())
+	return operation(ak, bk, k, txGen, &types.MsgRejectProposedReply{}, func(e *simEnv) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
+		msg := &types.MsgRejectProposedReply{}
+		roots, err := e.pendingProposals()
 		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgRejectProposedReply{}), "failed to get/create thread"), nil, nil
+			return noOpErr(msg, err)
 		}
-
-		// Get or create a reply (simulates a proposed reply that will be rejected)
-		replyID, err := getOrCreateReply(r, ctx, k, threadID)
-		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgRejectProposedReply{}), "failed to get/create reply"), nil, nil
+		root, ok := pick(e.r, roots)
+		if !ok {
+			return noOp(msg, "no pending proposal on a sim account's thread")
 		}
-
-		// Use direct keeper calls to simulate rejecting a proposed reply
-		// Get or create thread metadata with a proposed reply
-		metadata, err := k.ThreadMetadata.Get(ctx, threadID)
-		if err != nil {
-			metadata = types.ThreadMetadata{
-				ThreadId:        threadID,
-				PinnedReplyIds:  []uint64{},
-				PinnedRecords:   []*types.PinnedReplyRecord{},
-				ProposedReplyId: replyID, // Set a proposed reply to reject
-				ProposedAt:      ctx.BlockTime().Unix(),
-			}
-		} else if metadata.ProposedReplyId == 0 {
-			// Set a proposed reply if none exists
-			metadata.ProposedReplyId = replyID
-			metadata.ProposedAt = ctx.BlockTime().Unix()
-		}
-
-		// Reject the proposed reply by clearing it
-		metadata.ProposedReplyId = 0
-		metadata.ProposedAt = 0
-
-		if err := k.ThreadMetadata.Set(ctx, threadID, metadata); err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgRejectProposedReply{}), "failed to update metadata"), nil, nil
-		}
-
-		// Return success
-		return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgRejectProposedReply{}), "ok (direct keeper call)"), nil, nil
-	}
+		author, _ := e.account(root.Author)
+		msg.Creator, msg.ThreadId, msg.Reason = root.Author, root.PostId, "zenith: not the answer"
+		return e.submit(author, msg, math.ZeroInt())
+	})
 }

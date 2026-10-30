@@ -209,11 +209,10 @@ func TestDKGEnableBatchAfterDKGParam(t *testing.T) {
 // TestVerifyEvaluation pins the local check every validator runs on a dealt
 // evaluation and the chain runs on a justification.
 func TestVerifyEvaluation(t *testing.T) {
-	c, a0 := realContribution(t, "val1", 3)
-	coeffs := []kyber.Scalar{a0}
-	// Recover the other coefficients is not possible from the contribution;
+	c, _ := realContribution(t, "val1", 3)
+	// The other coefficients cannot be recovered from the contribution;
 	// rebuild a polynomial we know instead.
-	coeffs = nil
+	var coeffs []kyber.Scalar
 	c2 := types.DKGContribution{ValidatorAddress: "val2"}
 	for i := 0; i < 3; i++ {
 		s := tle.Suite.G1().Scalar().Pick(random.New())

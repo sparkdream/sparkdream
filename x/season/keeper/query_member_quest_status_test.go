@@ -84,7 +84,7 @@ func TestQueryMemberQuestStatus(t *testing.T) {
 			ObjectiveProgress: []uint64{5},
 			Completed:         false,
 		}
-		k.MemberQuestProgress.Set(ctx, key, progress)
+		require.NoError(t, k.MemberQuestProgress.Set(ctx, key, progress))
 
 		resp, err := qs.MemberQuestStatus(ctx, &types.QueryMemberQuestStatusRequest{Member: memberStr, QuestId: "progress_quest"})
 		require.NoError(t, err)
@@ -105,7 +105,7 @@ func TestQueryMemberQuestStatus(t *testing.T) {
 			Completed:      true,
 			CompletedBlock: 1000,
 		}
-		k.MemberQuestProgress.Set(ctx, key, progress)
+		require.NoError(t, k.MemberQuestProgress.Set(ctx, key, progress))
 
 		resp, err := qs.MemberQuestStatus(ctx, &types.QueryMemberQuestStatusRequest{Member: memberStr, QuestId: "completed_quest"})
 		require.NoError(t, err)

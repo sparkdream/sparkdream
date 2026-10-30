@@ -52,6 +52,34 @@ var (
 	AnonVoteTalliesKey = collections.NewPrefix("anonVoteTallies/value/")
 	// EpochSpending: (policy_address, epoch_day) -> cumulative bond-denom amount spent (string-encoded math.Int)
 	EpochSpendingKey = collections.NewPrefix("epochSpending/value/")
+	// DeletedPolicies: policy addresses of deleted groups. A grant whose
+	// granter is a former group policy is refused by the session claim hook.
+	DeletedPoliciesKey = collections.NewPrefix("deletedPolicies/value/")
+	// ProposalQueue: (due_time, proposal_id) -> empty. A SUBMITTED proposal
+	// is queued at its voting deadline, an ACCEPTED one at the end of its
+	// execution window, so EndBlock walks only what is due.
+	ProposalQueueKey = collections.NewPrefix("proposalQueue/value/")
+	// AnonProposalCount: (council_name, utc_day) -> anonymous proposals
+	// submitted to the council that day.
+	AnonProposalCountKey = collections.NewPrefix("anonProposalCount/value/")
+	// ProposalVoterTrees: proposal_id -> VoterTree, the voter snapshot of a
+	// secret-ballot proposal, dropped once voting closes.
+	ProposalVoterTreesKey = collections.NewPrefix("proposalVoterTrees/value/")
+
+	// Polls (non-binding, single-choice questions to a group's members).
+	PollsKey   = collections.NewPrefix("polls/value/")
+	PollSeqKey = collections.NewPrefix("polls/seq/")
+	// PollVotes: (poll_id, voter) -> PollVote, open votes only.
+	PollVotesKey = collections.NewPrefix("pollVotes/value/")
+	// PollsByCouncil: (council_name, poll_id), every stored poll.
+	PollsByCouncilKey = collections.NewPrefix("pollsByCouncil/value/")
+	// OpenPollsByCouncil: (council_name, poll_id), open polls only (caps).
+	OpenPollsByCouncilKey = collections.NewPrefix("openPollsByCouncil/value/")
+	// PollQueue: (due_time, poll_id). An open poll is queued at its
+	// deadline, a closed or cancelled one at the end of its retention.
+	PollQueueKey = collections.NewPrefix("pollQueue/value/")
+	// PollVoterTrees: poll_id -> VoterTree, dropped when the poll closes.
+	PollVoterTreesKey = collections.NewPrefix("pollVoterTrees/value/")
 
 	// --- Recurring Spend collections (M10 removed) ---
 	// The parallel commons.RecurringSpends storage was deleted by the

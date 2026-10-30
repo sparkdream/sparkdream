@@ -44,3 +44,24 @@ func (k Keeper) IterateShieldedOps(ctx context.Context, fn func(typeURL string, 
 	}
 	return nil
 }
+
+// domainInUse reports whether a registered op other than exceptTypeURL uses
+// the nullifier domain.
+func (k Keeper) domainInUse(ctx context.Context, domain uint32, exceptTypeURL string) (bool, error) {
+	inUse := false
+	err := k.IterateShieldedOps(ctx, func(typeURL string, reg types.ShieldedOpRegistration) bool {
+		inUse = typeURL != exceptTypeURL && reg.NullifierDomain == domain
+		return inUse
+	})
+	return inUse, err
+}
+
+// retireDomainIfUnused records reg as its domain's retired scoping rule when
+// no registered op other than reg's own uses the domain any more.
+func (k Keeper) retireDomainIfUnused(ctx context.Context, reg types.ShieldedOpRegistration) error {
+	inUse, err := k.domainInUse(ctx, reg.NullifierDomain, reg.MessageTypeUrl)
+	if err != nil || inUse {
+		return err
+	}
+	return k.RetiredDomains.Set(ctx, reg.NullifierDomain, reg)
+}

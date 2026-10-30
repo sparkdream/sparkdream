@@ -185,7 +185,7 @@ func TestBondedRole_MatureDefersCommittedBond(t *testing.T) {
 	seedBondedRoleConfig(t, f, role, 400, 100)
 	// 700 bonded, 500 committed to an outstanding action, 300 queued to unbond.
 	// Only current - committed = 200 may be released; 100 stays pending.
-	require.NoError(t, k.BondedRoles.Set(f.ctx, bondedRoleKey(role, addr.String()), types.BondedRole{
+	require.NoError(t, k.SetBondedRole(f.ctx, types.BondedRole{
 		Address:              addr.String(),
 		RoleType:             role,
 		BondStatus:           types.BondedRoleStatus_BONDED_ROLE_STATUS_UNBONDING,

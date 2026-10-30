@@ -3,447 +3,238 @@ package simulation
 import (
 	"fmt"
 	"math/rand"
+	"strings"
 
+	"github.com/cosmos/cosmos-sdk/baseapp"
+	"github.com/cosmos/cosmos-sdk/client"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
+	"github.com/cosmos/cosmos-sdk/x/simulation"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/season/keeper"
 	"sparkdream/x/season/types"
 )
 
-// findGuild returns a random guild from state
-func findGuild(r *rand.Rand, ctx sdk.Context, k keeper.Keeper) (*types.Guild, uint64, error) {
-	var guilds []struct {
-		id    uint64
-		guild types.Guild
-	}
-	err := k.Guild.Walk(ctx, nil, func(id uint64, guild types.Guild) (bool, error) {
-		guilds = append(guilds, struct {
-			id    uint64
-			guild types.Guild
-		}{id, guild})
-		return false, nil
+// The season simulation delivers real transactions through the message
+// handlers. A delivered tx the handler rejects fails the whole simulation,
+// so every op first checks the handler's preconditions against live state
+// and dry-runs the message through its real handler on a throwaway cache
+// (dryRunMsg), returning a NoOp when it cannot hold. No op writes a store:
+// prerequisite state is only ever created by delivering earlier real
+// messages (ensureProfile, or for quest, achievement and title definitions
+// an executed x/commons proposal, see council.go).
+
+// deliver signs msg with acc and delivers it as a real transaction.
+func deliver(
+	r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, txGen client.TxConfig,
+	ak types.AuthKeeper, bk types.BankKeeper, acc simtypes.Account, msg sdk.Msg,
+) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
+	return simulation.GenAndDeliverTxWithRandFees(simulation.OperationInput{
+		R:               r,
+		App:             app,
+		TxGen:           txGen,
+		Cdc:             nil,
+		Msg:             msg,
+		CoinsSpentInMsg: sdk.NewCoins(),
+		Context:         ctx,
+		SimAccount:      acc,
+		AccountKeeper:   ak,
+		Bankkeeper:      bk,
+		ModuleName:      types.ModuleName,
 	})
-	if err != nil || len(guilds) == 0 {
-		return nil, 0, err
-	}
-	selected := guilds[r.Intn(len(guilds))]
-	return &selected.guild, selected.id, nil
 }
 
-// findGuildByFounder returns a guild created by the given founder
-func findGuildByFounder(r *rand.Rand, ctx sdk.Context, k keeper.Keeper, founder string) (*types.Guild, uint64, error) {
-	var guilds []struct {
-		id    uint64
-		guild types.Guild
+// noOp returns a skipped operation for msg's type.
+func noOp(msg sdk.Msg, reason string) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
+	return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), reason), nil, nil
+}
+
+// noOpErr returns a skipped operation together with a store error, which
+// fails the simulation: a failing store read is a real bug.
+func noOpErr(msg sdk.Msg, err error) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
+	return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), err.Error()), nil, err
+}
+
+// pick returns a random element of items.
+func pick[T any](r *rand.Rand, items []T) (T, bool) {
+	var zero T
+	if len(items) == 0 {
+		return zero, false
 	}
-	err := k.Guild.Walk(ctx, nil, func(id uint64, guild types.Guild) (bool, error) {
-		if guild.Founder == founder {
-			guilds = append(guilds, struct {
-				id    uint64
-				guild types.Guild
-			}{id, guild})
+	return items[r.Intn(len(items))], true
+}
+
+// accountsWhere returns the sim accounts accepted by keep.
+func accountsWhere(accs []simtypes.Account, keep func(simtypes.Account) bool) []simtypes.Account {
+	var out []simtypes.Account
+	for _, acc := range accs {
+		if keep(acc) {
+			out = append(out, acc)
+		}
+	}
+	return out
+}
+
+// getAccountForAddress finds a simulation account for the given address
+func getAccountForAddress(addr string, accs []simtypes.Account) (simtypes.Account, bool) {
+	for _, acc := range accs {
+		if acc.Address.String() == addr {
+			return acc, true
+		}
+	}
+	return simtypes.Account{}, false
+}
+
+// hasDream reports whether addr is an x/rep member holding at least amount
+// DREAM (the handler's lock/burn is still dry-run before delivery).
+func hasDream(ctx sdk.Context, k keeper.Keeper, addr string, amount uint64) bool {
+	if !k.IsMember(ctx, addr) {
+		return false
+	}
+	bal, err := k.GetDREAMBalance(ctx, addr)
+	return err == nil && bal >= amount
+}
+
+// guildsWhere returns the guilds accepted by keep.
+func guildsWhere(ctx sdk.Context, k keeper.Keeper, keep func(types.Guild) bool) ([]types.Guild, error) {
+	var out []types.Guild
+	err := k.Guild.Walk(ctx, nil, func(_ uint64, g types.Guild) (bool, error) {
+		if keep(g) {
+			out = append(out, g)
 		}
 		return false, nil
 	})
-	if err != nil || len(guilds) == 0 {
-		return nil, 0, err
-	}
-	selected := guilds[r.Intn(len(guilds))]
-	return &selected.guild, selected.id, nil
+	return out, err
 }
 
-// findOpenGuild returns a random non-invite-only guild
-func findOpenGuild(r *rand.Rand, ctx sdk.Context, k keeper.Keeper) (*types.Guild, uint64, error) {
-	var guilds []struct {
-		id    uint64
-		guild types.Guild
-	}
-	err := k.Guild.Walk(ctx, nil, func(id uint64, guild types.Guild) (bool, error) {
-		if !guild.InviteOnly {
-			guilds = append(guilds, struct {
-				id    uint64
-				guild types.Guild
-			}{id, guild})
+// guildMembers returns the addresses holding an active membership in the
+// guild (the handler's IsGuildMember view).
+func guildMembers(ctx sdk.Context, k keeper.Keeper, guildID uint64) ([]string, error) {
+	var out []string
+	err := k.GuildMembership.Walk(ctx, nil, func(addr string, m types.GuildMembership) (bool, error) {
+		if m.GuildId == guildID && m.LeftEpoch == 0 {
+			out = append(out, addr)
 		}
 		return false, nil
 	})
-	if err != nil || len(guilds) == 0 {
-		return nil, 0, err
-	}
-	selected := guilds[r.Intn(len(guilds))]
-	return &selected.guild, selected.id, nil
+	return out, err
 }
 
-// findGuildMembership returns a random guild membership
-func findGuildMembership(r *rand.Rand, ctx sdk.Context, k keeper.Keeper) (*types.GuildMembership, string, error) {
-	var memberships []struct {
-		addr       string
-		membership types.GuildMembership
-	}
-	err := k.GuildMembership.Walk(ctx, nil, func(addr string, membership types.GuildMembership) (bool, error) {
-		memberships = append(memberships, struct {
-			addr       string
-			membership types.GuildMembership
-		}{addr, membership})
-		return false, nil
-	})
-	if err != nil || len(memberships) == 0 {
-		return nil, "", err
-	}
-	selected := memberships[r.Intn(len(memberships))]
-	return &selected.membership, selected.addr, nil
+// getProfile returns addr's member profile.
+func getProfile(ctx sdk.Context, k keeper.Keeper, addr string) (types.MemberProfile, bool) {
+	p, err := k.MemberProfile.Get(ctx, addr)
+	return p, err == nil
 }
 
-// findGuildMemberByGuild returns a member of a specific guild
-func findGuildMemberByGuild(r *rand.Rand, ctx sdk.Context, k keeper.Keeper, guildId uint64) (*types.GuildMembership, string, error) {
-	var memberships []struct {
-		addr       string
-		membership types.GuildMembership
-	}
-	err := k.GuildMembership.Walk(ctx, nil, func(addr string, membership types.GuildMembership) (bool, error) {
-		if membership.GuildId == guildId {
-			memberships = append(memberships, struct {
-				addr       string
-				membership types.GuildMembership
-			}{addr, membership})
-		}
-		return false, nil
-	})
-	if err != nil || len(memberships) == 0 {
-		return nil, "", err
-	}
-	selected := memberships[r.Intn(len(memberships))]
-	return &selected.membership, selected.addr, nil
-}
-
-// findGuildInvite returns a random pending guild invite
-func findGuildInvite(r *rand.Rand, ctx sdk.Context, k keeper.Keeper) (*types.GuildInvite, string, error) {
-	var invites []struct {
-		key    string
-		invite types.GuildInvite
-	}
-	err := k.GuildInvite.Walk(ctx, nil, func(key string, invite types.GuildInvite) (bool, error) {
-		invites = append(invites, struct {
-			key    string
-			invite types.GuildInvite
-		}{key, invite})
-		return false, nil
-	})
-	if err != nil || len(invites) == 0 {
-		return nil, "", err
-	}
-	selected := invites[r.Intn(len(invites))]
-	return &selected.invite, selected.key, nil
-}
-
-// findQuest returns a random quest from state
-func findQuest(r *rand.Rand, ctx sdk.Context, k keeper.Keeper) (*types.Quest, string, error) {
-	var quests []struct {
-		id    string
-		quest types.Quest
-	}
-	err := k.Quest.Walk(ctx, nil, func(id string, quest types.Quest) (bool, error) {
-		quests = append(quests, struct {
-			id    string
-			quest types.Quest
-		}{id, quest})
-		return false, nil
-	})
-	if err != nil || len(quests) == 0 {
-		return nil, "", err
-	}
-	selected := quests[r.Intn(len(quests))]
-	return &selected.quest, selected.id, nil
-}
-
-// findActiveQuest returns a random active quest
-func findActiveQuest(r *rand.Rand, ctx sdk.Context, k keeper.Keeper) (*types.Quest, string, error) {
-	var quests []struct {
-		id    string
-		quest types.Quest
-	}
-	err := k.Quest.Walk(ctx, nil, func(id string, quest types.Quest) (bool, error) {
-		if quest.Active {
-			quests = append(quests, struct {
-				id    string
-				quest types.Quest
-			}{id, quest})
-		}
-		return false, nil
-	})
-	if err != nil || len(quests) == 0 {
-		return nil, "", err
-	}
-	selected := quests[r.Intn(len(quests))]
-	return &selected.quest, selected.id, nil
-}
-
-// findMemberQuestProgress returns a random member quest progress
-func findMemberQuestProgress(r *rand.Rand, ctx sdk.Context, k keeper.Keeper) (*types.MemberQuestProgress, string, error) {
-	var progress []struct {
-		key      string
-		progress types.MemberQuestProgress
-	}
-	err := k.MemberQuestProgress.Walk(ctx, nil, func(key string, prog types.MemberQuestProgress) (bool, error) {
-		progress = append(progress, struct {
-			key      string
-			progress types.MemberQuestProgress
-		}{key, prog})
-		return false, nil
-	})
-	if err != nil || len(progress) == 0 {
-		return nil, "", err
-	}
-	selected := progress[r.Intn(len(progress))]
-	return &selected.progress, selected.key, nil
-}
-
-// findMemberProfile returns a random member profile
-func findMemberProfile(r *rand.Rand, ctx sdk.Context, k keeper.Keeper) (*types.MemberProfile, string, error) {
-	var profiles []struct {
-		addr    string
-		profile types.MemberProfile
-	}
-	err := k.MemberProfile.Walk(ctx, nil, func(addr string, profile types.MemberProfile) (bool, error) {
-		profiles = append(profiles, struct {
-			addr    string
-			profile types.MemberProfile
-		}{addr, profile})
-		return false, nil
-	})
-	if err != nil || len(profiles) == 0 {
-		return nil, "", err
-	}
-	selected := profiles[r.Intn(len(profiles))]
-	return &selected.profile, selected.addr, nil
-}
-
-// findTitle returns a random title
-func findTitle(r *rand.Rand, ctx sdk.Context, k keeper.Keeper) (*types.Title, string, error) {
-	var titles []struct {
-		id    string
-		title types.Title
-	}
-	err := k.Title.Walk(ctx, nil, func(id string, title types.Title) (bool, error) {
-		titles = append(titles, struct {
-			id    string
-			title types.Title
-		}{id, title})
-		return false, nil
-	})
-	if err != nil || len(titles) == 0 {
-		return nil, "", err
-	}
-	selected := titles[r.Intn(len(titles))]
-	return &selected.title, selected.id, nil
-}
-
-// findDisplayNameModeration returns a pending display name moderation case
-func findDisplayNameModeration(r *rand.Rand, ctx sdk.Context, k keeper.Keeper) (*types.DisplayNameModeration, string, error) {
-	var mods []struct {
-		addr string
-		mod  types.DisplayNameModeration
-	}
-	err := k.DisplayNameModeration.Walk(ctx, nil, func(addr string, mod types.DisplayNameModeration) (bool, error) {
-		mods = append(mods, struct {
-			addr string
-			mod  types.DisplayNameModeration
-		}{addr, mod})
-		return false, nil
-	})
-	if err != nil || len(mods) == 0 {
-		return nil, "", err
-	}
-	selected := mods[r.Intn(len(mods))]
-	return &selected.mod, selected.addr, nil
-}
-
-// getOrCreateGuild returns an existing guild or creates one
-func getOrCreateGuild(r *rand.Rand, ctx sdk.Context, k keeper.Keeper, founder string) (uint64, error) {
-	// Try to find existing guild by founder
-	_, guildID, err := findGuildByFounder(r, ctx, k, founder)
-	if err == nil && guildID != 0 {
-		return guildID, nil
-	}
-
-	// Create new guild
-	guildID, err = k.GuildSeq.Next(ctx)
+// displayNameBlocked mirrors the handler's check that a name upheld as
+// rejected for the member stays refused.
+func displayNameBlocked(ctx sdk.Context, k keeper.Keeper, addr, name string) bool {
+	m, err := k.DisplayNameModeration.Get(ctx, addr)
 	if err != nil {
-		return 0, err
+		return false
 	}
-
-	guild := types.Guild{
-		Id:           guildID,
-		Name:         randomGuildName(r),
-		Description:  "A simulation generated guild",
-		Founder:      founder,
-		InviteOnly:   r.Intn(2) == 1,
-		CreatedBlock: ctx.BlockHeight(),
-		Status:       types.GuildStatus_GUILD_STATUS_ACTIVE,
-	}
-
-	if err := k.Guild.Set(ctx, guildID, guild); err != nil {
-		return 0, err
-	}
-
-	// Create founder membership
-	membership := types.GuildMembership{
-		Member:      founder,
-		GuildId:     guildID,
-		JoinedEpoch: 1, // Default epoch
-	}
-
-	return guildID, k.GuildMembership.Set(ctx, founder, membership)
-}
-
-// getOrCreateQuest returns an existing quest or creates one
-func getOrCreateQuest(r *rand.Rand, ctx sdk.Context, k keeper.Keeper) (string, error) {
-	// Try to find existing active quest
-	_, questID, err := findActiveQuest(r, ctx, k)
-	if err == nil && questID != "" {
-		return questID, nil
-	}
-
-	// Create new quest
-	questID = randomQuestId(r)
-	quest := types.Quest{
-		QuestId:        questID,
-		Name:           fmt.Sprintf("Quest %s", questID),
-		Description:    "A simulation generated quest",
-		XpReward:       uint64(50 + r.Intn(200)),
-		Repeatable:     r.Intn(2) == 1,
-		CooldownEpochs: uint64(r.Intn(5)),
-		Active:         true,
-	}
-
-	return questID, k.Quest.Set(ctx, questID, quest)
-}
-
-// getOrCreateMemberProfile returns an existing member profile or creates one
-func getOrCreateMemberProfile(r *rand.Rand, ctx sdk.Context, k keeper.Keeper, member string) error {
-	// Check if profile exists
-	profile, err := k.MemberProfile.Get(ctx, member)
-	if err == nil {
-		// Profile exists - make sure GuildId is synced with membership
-		membership, mErr := k.GuildMembership.Get(ctx, member)
-		if mErr == nil && profile.GuildId != membership.GuildId {
-			profile.GuildId = membership.GuildId
-			return k.MemberProfile.Set(ctx, member, profile)
+	n := strings.ToLower(strings.TrimSpace(name))
+	for _, b := range m.BlockedNames {
+		if b == n {
+			return true
 		}
-		return nil
 	}
-
-	// Create new profile
-	profile = types.MemberProfile{
-		Address:     member,
-		DisplayName: randomDisplayName(r),
-		Username:    randomUsername(r),
-	}
-
-	// Check if member has a guild membership and set GuildId
-	membership, mErr := k.GuildMembership.Get(ctx, member)
-	if mErr == nil {
-		profile.GuildId = membership.GuildId
-	}
-
-	return k.MemberProfile.Set(ctx, member, profile)
+	return false
 }
 
-// getOrCreateTitle returns an existing title or creates one
-func getOrCreateTitle(r *rand.Rand, ctx sdk.Context, k keeper.Keeper) (string, error) {
-	// Try to find existing title
-	_, titleID, err := findTitle(r, ctx, k)
-	if err == nil && titleID != "" {
-		return titleID, nil
+// ensureProfile makes sure acc has a member profile, creating one the way
+// the chain does: by delivering MsgSetDisplayName (which creates a missing
+// profile). It returns false when no profile exists and none could be
+// created without a handler rejection.
+func ensureProfile(
+	r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, txGen client.TxConfig,
+	ak types.AuthKeeper, bk types.BankKeeper, k keeper.Keeper, acc simtypes.Account,
+) (bool, error) {
+	addr := acc.Address.String()
+	if _, ok := getProfile(ctx, k, addr); ok {
+		return true, nil
 	}
-
-	// Create new title
-	titleID = randomTitleId(r)
-	title := types.Title{
-		TitleId:     titleID,
-		Name:        fmt.Sprintf("Title %s", titleID),
-		Description: "A simulation generated title",
+	name := randomDisplayName(r)
+	if k.ValidateDisplayName(ctx, name) != nil || displayNameBlocked(ctx, k, addr, name) {
+		return false, nil
 	}
-
-	return titleID, k.SetTitle(ctx, title)
+	if _, _, err := deliver(r, app, ctx, txGen, ak, bk, acc, &types.MsgSetDisplayName{Creator: addr, Name: name}); err != nil {
+		return false, err
+	}
+	_, ok := getProfile(ctx, k, addr)
+	return ok, nil
 }
 
-// getOrCreateGuildMember creates a membership for a user in a guild
-func getOrCreateGuildMember(r *rand.Rand, ctx sdk.Context, k keeper.Keeper, guildId uint64, member string) error {
-	// Check if membership exists
-	existing, err := k.GuildMembership.Get(ctx, member)
-	if err == nil {
-		// Membership exists - check if it's for the correct guild
-		if existing.GuildId == guildId {
-			return nil // Already a member of this guild
-		}
-		// Member is in a different guild - can't add to this one
-		return fmt.Errorf("member %s is already in guild %d", member, existing.GuildId)
+// guildsJoinedThisSeason mirrors the keeper's per-season join count: a
+// record from an earlier season reads as zero.
+func guildsJoinedThisSeason(ctx sdk.Context, k keeper.Keeper, m types.GuildMembership) uint64 {
+	season, err := k.Season.Get(ctx)
+	if err != nil || m.GuildsJoinedSeason != season.Number {
+		return 0
 	}
-
-	// Create new membership
-	membership := types.GuildMembership{
-		Member:      member,
-		GuildId:     guildId,
-		JoinedEpoch: 1, // Default epoch
-	}
-
-	return k.GuildMembership.Set(ctx, member, membership)
+	return m.GuildsJoinedThisSeason
 }
 
-// getOrCreateGuildInvite creates an invite for a user to a guild
-func getOrCreateGuildInvite(r *rand.Rand, ctx sdk.Context, k keeper.Keeper, guildId uint64, inviter string, invitee string) error {
-	key := fmt.Sprintf("%d:%s", guildId, invitee)
-	// Check if invite exists
-	_, err := k.GuildInvite.Get(ctx, key)
-	if err == nil {
-		return nil
+// joinBlocker returns why addr cannot enter a guild (create, join or accept
+// an invite), or "" when it can: it needs a profile outside any guild, no
+// active membership record, an elapsed guild-hop cooldown and a free slot in
+// the per-season guild cap.
+func joinBlocker(ctx sdk.Context, k keeper.Keeper, params types.Params, addr string) string {
+	profile, ok := getProfile(ctx, k, addr)
+	if !ok {
+		return "no member profile"
 	}
-
-	// Create new invite
-	invite := types.GuildInvite{
-		GuildInvitee: invitee,
-		Inviter:      inviter,
-		CreatedEpoch: 1,
-		ExpiresEpoch: 100,
+	if profile.GuildId != 0 {
+		return "already in a guild"
 	}
-
-	if err := k.GuildInvite.Set(ctx, key, invite); err != nil {
-		return err
-	}
-
-	// Also add to the guild's PendingInvites list
-	guild, err := k.Guild.Get(ctx, guildId)
+	membership, err := k.GuildMembership.Get(ctx, addr)
 	if err != nil {
-		return err
+		return ""
 	}
-	guild.PendingInvites = append(guild.PendingInvites, invitee)
-	return k.Guild.Set(ctx, guildId, guild)
+	if membership.GuildId != 0 && membership.LeftEpoch == 0 {
+		return "active guild membership record"
+	}
+	// Any past membership starts the hop cooldown, one left in epoch 0 too.
+	since := k.GetCurrentEpoch(ctx) - membership.LeftEpoch
+	if commontypes.Saturate[uint64](since) < params.GuildHopCooldownEpochs {
+		return "guild hop cooldown"
+	}
+	if guildsJoinedThisSeason(ctx, k, membership) >= uint64(params.MaxGuildsPerSeason) {
+		return "max guilds per season reached"
+	}
+	return ""
 }
 
-// getOrCreateMemberQuestProgress creates quest progress for a member
-func getOrCreateMemberQuestProgress(r *rand.Rand, ctx sdk.Context, k keeper.Keeper, member string, questId string) (string, error) {
-	key := fmt.Sprintf("%s:%s", member, questId)
-	// Check if progress exists
-	_, err := k.MemberQuestProgress.Get(ctx, key)
-	if err == nil {
-		return key, nil
-	}
-
-	// Create new progress
-	progress := types.MemberQuestProgress{
-		MemberQuest: key,
-		Completed:   false,
-	}
-
-	return key, k.MemberQuestProgress.Set(ctx, key, progress)
+// guildHasRoom reports whether the guild is below max_guild_members.
+func guildHasRoom(ctx sdk.Context, k keeper.Keeper, params types.Params, guildID uint64) bool {
+	return k.GetGuildMemberCount(ctx, guildID) < uint64(params.MaxGuildMembers)
 }
 
-// randomGuildName generates a random guild name
+// inviteLive reports whether invitee holds an unexpired invite to the guild.
+func inviteLive(ctx sdk.Context, k keeper.Keeper, guildID uint64, invitee string) bool {
+	inv, err := k.GuildInvite.Get(ctx, fmt.Sprintf("%d:%s", guildID, invitee))
+	if err != nil {
+		return false
+	}
+	return inv.ExpiresEpoch == 0 || k.GetCurrentEpoch(ctx) <= inv.ExpiresEpoch
+}
+
+// isOfficer reports whether addr is one of the guild's officers.
+func isOfficer(g types.Guild, addr string) bool {
+	for _, o := range g.Officers {
+		if o == addr {
+			return true
+		}
+	}
+	return false
+}
+
+// randomGuildName generates a random guild name. Guild names are also
+// reserved in x/name, so they use its character set (a-z, 0-9, -, _).
 func randomGuildName(r *rand.Rand) string {
-	names := []string{"Warriors", "Explorers", "Guardians", "Pioneers", "Champions", "Legends", "Defenders", "Builders"}
-	return fmt.Sprintf("The %s %d", names[r.Intn(len(names))], r.Intn(1000))
+	names := []string{"warriors", "explorers", "guardians", "pioneers", "champions", "legends", "defenders", "builders"}
+	return fmt.Sprintf("%s-%d", names[r.Intn(len(names))], r.Intn(100000))
 }
 
 // randomDisplayName generates a random display name
@@ -466,99 +257,4 @@ func randomUsername(r *rand.Rand) string {
 // randomQuestId generates a random quest ID
 func randomQuestId(r *rand.Rand) string {
 	return fmt.Sprintf("quest_%d", r.Intn(10000))
-}
-
-// randomTitleId generates a random title ID
-func randomTitleId(r *rand.Rand) string {
-	return fmt.Sprintf("title_%d", r.Intn(100))
-}
-
-// randomAchievementId generates a random achievement ID
-func randomAchievementId(r *rand.Rand) string {
-	return fmt.Sprintf("achievement_%d", r.Intn(100))
-}
-
-// findAchievement returns a random achievement from state
-func findAchievement(r *rand.Rand, ctx sdk.Context, k keeper.Keeper) (*types.Achievement, string, error) {
-	var achievements []struct {
-		id          string
-		achievement types.Achievement
-	}
-	err := k.Achievement.Walk(ctx, nil, func(id string, achievement types.Achievement) (bool, error) {
-		achievements = append(achievements, struct {
-			id          string
-			achievement types.Achievement
-		}{id, achievement})
-		return false, nil
-	})
-	if err != nil || len(achievements) == 0 {
-		return nil, "", err
-	}
-	selected := achievements[r.Intn(len(achievements))]
-	return &selected.achievement, selected.id, nil
-}
-
-// getOrCreateAchievement returns an existing achievement or creates one
-func getOrCreateAchievement(r *rand.Rand, ctx sdk.Context, k keeper.Keeper) (string, error) {
-	// Try to find existing achievement
-	_, achievementID, err := findAchievement(r, ctx, k)
-	if err == nil && achievementID != "" {
-		return achievementID, nil
-	}
-
-	// Create new achievement
-	achievementID = randomAchievementId(r)
-	achievement := types.Achievement{
-		AchievementId:        achievementID,
-		Name:                 fmt.Sprintf("Achievement %s", achievementID),
-		Description:          "A simulation generated achievement",
-		Rarity:               types.Rarity(r.Intn(6) + 1),
-		XpReward:             uint64(50 + r.Intn(200)),
-		RequirementType:      types.RequirementType(r.Intn(8) + 1),
-		RequirementThreshold: uint64(1 + r.Intn(10)),
-	}
-
-	return achievementID, k.SetAchievement(ctx, achievement)
-}
-
-// getAccountForAddress finds a simulation account for the given address
-func getAccountForAddress(addr string, accs []simtypes.Account) (simtypes.Account, bool) {
-	for _, acc := range accs {
-		if acc.Address.String() == addr {
-			return acc, true
-		}
-	}
-	return simtypes.Account{}, false
-}
-
-// getAuthority returns the module authority as string
-func getAuthority(k keeper.Keeper) string {
-	addr, err := k.GetAddressCodec().BytesToString(k.GetAuthority())
-	if err != nil {
-		return ""
-	}
-	return addr
-}
-
-// isFounder checks if an address is the founder of a guild
-func isFounder(ctx sdk.Context, k keeper.Keeper, guildId uint64, addr string) bool {
-	guild, err := k.Guild.Get(ctx, guildId)
-	if err != nil {
-		return false
-	}
-	return guild.Founder == addr
-}
-
-// isOfficer checks if an address is an officer of a guild
-func isOfficer(ctx sdk.Context, k keeper.Keeper, guildId uint64, addr string) bool {
-	guild, err := k.Guild.Get(ctx, guildId)
-	if err != nil {
-		return false
-	}
-	for _, officer := range guild.Officers {
-		if officer == addr {
-			return true
-		}
-	}
-	return false
 }

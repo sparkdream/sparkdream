@@ -97,7 +97,7 @@ func TestSmallShieldCircuit_MessageHashIsBound(t *testing.T) {
 
 	sk := zkcrypto.PadTo32([]byte("test-secret-key-message-binding"))
 	const trust = 2
-	tree := buildSmallTrustTree([][]byte{zkcrypto.DerivePublicKey(sk)}, []uint64{trust})
+	tree := buildSmallTrustTree(t, [][]byte{zkcrypto.DerivePublicKey(sk)}, []uint64{trust})
 	msgHash := zkcrypto.ShieldMessageHash("/sparkdream.blog.v1.MsgCreatePost", []byte("original"))
 	full := makeAssignment(sk, trust, 1, 3, 4, tree, 0)
 	full.MessageHash = new(big.Int).SetBytes(msgHash)

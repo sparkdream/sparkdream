@@ -12,7 +12,12 @@ option go_package = "sparkdream/x/shield/types";
 enum ProofDomain {
   PROOF_DOMAIN_UNSPECIFIED = 0;
   PROOF_DOMAIN_TRUST_TREE = 1;
-  // 2 was PROOF_DOMAIN_VOTER_TREE — removed (unified circuit makes it redundant)
+  // PROOF_DOMAIN_GROUP_TREE: the proof is against a voter snapshot the
+  // target module names for the inner message (x/commons secret ballots:
+  // the proposal's or poll's voter tree). Same circuit; the leaves are
+  // MiMC(zk_public_key, 0). Immediate mode only: a batch submission is
+  // checked before its inner message is decrypted, so its root cannot be.
+  PROOF_DOMAIN_GROUP_TREE = 2;
 }
 
 // NullifierScopeType determines nullifier uniqueness granularity.
@@ -378,6 +383,11 @@ message ValidatorDKGExtension {
   bytes validator_address = 1;
   // The vote extension data from this validator
   DKGVoteExtension extension = 2 [(gogoproto.nullable) = false];
+  // The validator's CometBFT vote-extension signature (its consensus key over
+  // the CanonicalVoteExtension of the marshaled extension at the previous
+  // height and the last commit's round). ProcessProposal and the PreBlocker
+  // verify it, so a proposer can only inject what the named validator signed.
+  bytes extension_signature = 3;
 }
 
 // VerificationKey stores a ZK circuit verification key.
@@ -398,6 +408,25 @@ message IdentityRateLimitEntry {
 message TLEMissCounterEntry {
   string validator_address = 1;
   uint64 miss_count = 2;
+}
+
+// TLEParticipationEntry is a genesis helper for exporting the TLE liveness
+// ring buffer: whether a validator released its share in a judged epoch slot.
+message TLEParticipationEntry {
+  string validator_address = 1;
+  uint64 slot = 2;
+  bool participated = 3;
+}
+
+// EpochFeeLedger is the fees the shield module paid in one shield epoch,
+// checked against params.max_fees_per_epoch.
+message EpochFeeLedger {
+  uint64 epoch = 1;
+  string paid = 2 [
+    (cosmos_proto.scalar) = "cosmossdk.io/math.Int",
+    (gogoproto.customtype) = "cosmossdk.io/math.Int",
+    (gogoproto.nullable) = false
+  ];
 }
 
 // DecryptionDemandEntry records that the EndBlocker asked validators for

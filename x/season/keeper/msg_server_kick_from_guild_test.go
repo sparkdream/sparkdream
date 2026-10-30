@@ -109,7 +109,7 @@ func TestMsgServerKickFromGuild(t *testing.T) {
 		// Make officer
 		guild, _ := k.Guild.Get(ctx, guildID)
 		guild.Officers = []string{officerStr}
-		k.Guild.Set(ctx, guildID, guild)
+		require.NoError(t, k.Guild.Set(ctx, guildID, guild))
 
 		_, err := ms.KickFromGuild(ctx, &types.MsgKickFromGuild{
 			Creator: officerStr,
@@ -140,7 +140,7 @@ func TestMsgServerKickFromGuild(t *testing.T) {
 		// Make officer
 		guild, _ := k.Guild.Get(ctx, guildID)
 		guild.Officers = []string{officerStr}
-		k.Guild.Set(ctx, guildID, guild)
+		require.NoError(t, k.Guild.Set(ctx, guildID, guild))
 
 		// Officer tries to kick themselves
 		_, err := ms.KickFromGuild(ctx, &types.MsgKickFromGuild{
@@ -232,7 +232,7 @@ func TestMsgServerKickFromGuild(t *testing.T) {
 		// Make both officers
 		guild, _ := k.Guild.Get(ctx, guildID)
 		guild.Officers = []string{officer1Str, officer2Str}
-		k.Guild.Set(ctx, guildID, guild)
+		require.NoError(t, k.Guild.Set(ctx, guildID, guild))
 
 		_, err := ms.KickFromGuild(ctx, &types.MsgKickFromGuild{
 			Creator: officer1Str,

@@ -7,12 +7,15 @@ import (
 	"github.com/cosmos/cosmos-sdk/client"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
-	"github.com/cosmos/cosmos-sdk/x/simulation"
 
 	"sparkdream/x/season/keeper"
 	"sparkdream/x/season/types"
 )
 
+// SimulateMsgSetDisplayTitle delivers MsgSetDisplayTitle from a random
+// account (creating its profile first when needed): it displays one of the
+// member's unlocked (or archived) titles that still exists, or clears the
+// displayed title.
 func SimulateMsgSetDisplayTitle(
 	ak types.AuthKeeper,
 	bk types.BankKeeper,
@@ -22,51 +25,29 @@ func SimulateMsgSetDisplayTitle(
 	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
 	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
 		simAccount, _ := simtypes.RandomAcc(r, accs)
+		addr := simAccount.Address.String()
+		msg := &types.MsgSetDisplayTitle{Creator: addr}
 
-		// Ensure profile exists
-		if err := getOrCreateMemberProfile(r, ctx, k, simAccount.Address.String()); err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgSetDisplayTitle{}), "failed to create profile"), nil, nil
+		if ok, err := ensureProfile(r, app, ctx, txGen, ak, bk, k, simAccount); err != nil || !ok {
+			if err != nil {
+				return noOpErr(msg, err)
+			}
+			return noOp(msg, "could not create member profile")
 		}
+		profile, _ := getProfile(ctx, k, addr)
 
-		// Get or create a title
-		titleID, err := getOrCreateTitle(r, ctx, k)
-		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgSetDisplayTitle{}), "failed to get/create title"), nil, nil
-		}
-
-		// Unlock the title for this member (normally done through achievements)
-		profile, _ := k.MemberProfile.Get(ctx, simAccount.Address.String())
-		titleUnlocked := false
-		for _, unlocked := range profile.UnlockedTitles {
-			if unlocked == titleID {
-				titleUnlocked = true
-				break
+		var titles []string
+		for _, id := range append(append([]string{}, profile.UnlockedTitles...), profile.ArchivedTitles...) {
+			if has, err := k.Title.Has(ctx, id); err == nil && has && id != "" {
+				titles = append(titles, id)
 			}
 		}
-		if !titleUnlocked {
-			profile.UnlockedTitles = append(profile.UnlockedTitles, titleID)
-			if err := k.MemberProfile.Set(ctx, simAccount.Address.String(), profile); err != nil {
-				return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgSetDisplayTitle{}), "failed to unlock title"), nil, nil
-			}
+		// Displaying no title is always allowed; prefer a real title when the
+		// member has one.
+		if id, ok := pick(r, titles); ok && r.Intn(4) != 0 {
+			msg.TitleId = id
 		}
 
-		msg := &types.MsgSetDisplayTitle{
-			Creator: simAccount.Address.String(),
-			TitleId: titleID,
-		}
-
-		return simulation.GenAndDeliverTxWithRandFees(simulation.OperationInput{
-			R:               r,
-			App:             app,
-			TxGen:           txGen,
-			Cdc:             nil,
-			Msg:             msg,
-			CoinsSpentInMsg: sdk.NewCoins(),
-			Context:         ctx,
-			SimAccount:      simAccount,
-			AccountKeeper:   ak,
-			Bankkeeper:      bk,
-			ModuleName:      types.ModuleName,
-		})
+		return deliver(r, app, ctx, txGen, ak, bk, simAccount, msg)
 	}
 }

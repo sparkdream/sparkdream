@@ -178,7 +178,7 @@ func TestCompletionBonusWithholdsFromAuthorAndProjectOwner(t *testing.T) {
 	// project's creator were paid as though they were independent backers.
 	// Both are in InitiativeAffiliates for every other purpose.
 	owner := sdk.AccAddress([]byte("cb-owner-address"))
-	author := sdk.AccAddress([]byte("cb-author-addres"))
+	author := sdk.AccAddress([]byte("cb-author-addres")) //nolint:misspell // a 16-byte address seed
 	assignee := sdk.AccAddress([]byte("cb-assignee-addr"))
 	invitee := sdk.AccAddress([]byte("cb-invitee-addre"))
 	outsider := sdk.AccAddress([]byte("cb-outsider-addr"))

@@ -1,36 +1,38 @@
 package simulation
 
 import (
-	"math/rand"
-
-	"github.com/cosmos/cosmos-sdk/baseapp"
+	"cosmossdk.io/math"
 	"github.com/cosmos/cosmos-sdk/client"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
 
 	"sparkdream/x/rep/keeper"
 	"sparkdream/x/rep/types"
 )
 
-func SimulateMsgUnstake(
-	ak types.AuthKeeper,
-	bk types.BankKeeper,
-	k keeper.Keeper,
-	txGen client.TxConfig,
-) simtypes.Operation {
-	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
-	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		// The handler refuses this message while x/season is in a blocking
-		// transition phase; a delivery failure fails the whole simulation.
-		if k.InMaintenanceMode(ctx) {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgUnstake{}), "season maintenance mode"), nil, nil
+// SimulateMsgUnstake has a staker withdraw all or part of one of its
+// initiative, project, member or tag stakes.
+func SimulateMsgUnstake(ak types.AuthKeeper, bk types.BankKeeper, k keeper.Keeper, txGen client.TxConfig) simtypes.Operation {
+	label := &types.MsgUnstake{}
+	return operation(ak, bk, k, txGen, label, func(e *simEnv) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
+		stakes, err := e.stakes(func(s types.Stake) bool {
+			if s.TargetType > types.StakeTargetType_STAKE_TARGET_TAG {
+				return false // content stakes and author bonds belong to their modules
+			}
+			_, ok := e.account(s.Staker)
+			return ok
+		})
+		if err != nil {
+			return noOpErr(label, err)
 		}
-		// NOTE: The unstake simulation is complex because:
-		// 1. It requires a stake to exist with proper member balance tracking
-		// 2. The member's StakedDream must match what the Stake record expects
-		// 3. The unlock mechanism relies on precise balance state
-		// Rather than risk state inconsistency, we skip this message in simulation.
-		// In a real chain environment, the Stake and MsgStake handlers maintain proper state.
-		return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(&types.MsgUnstake{}), "skipped: requires accurate stake state tracking"), nil, nil
-	}
+		cands := make([]candidate, 0, len(stakes))
+		for _, s := range stakes {
+			acc, _ := e.account(s.Staker)
+			msg := &types.MsgUnstake{Staker: s.Staker, StakeId: s.Id}
+			if e.r.Intn(2) == 0 && s.Amount.GT(math.OneInt()) {
+				msg.Amount = PtrInt(randBetween(e.r, math.OneInt(), s.Amount.QuoRaw(2)))
+			}
+			cands = append(cands, candidate{acc: acc, msg: msg, spent: math.ZeroInt()})
+		}
+		return e.firstValid(label, cands, 4, "no stake held by a live sim account")
+	})
 }

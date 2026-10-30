@@ -62,7 +62,7 @@ func TestMoveThread(t *testing.T) {
 			setup: func() {
 				params := types.DefaultParams()
 				params.ForumPaused = true
-				_ = f.keeper.Params.Set(f.ctx, params)
+				require.NoError(t, f.keeper.Params.Set(f.ctx, params))
 			},
 			expectError: true,
 			errContains: "forum is paused",
@@ -111,7 +111,7 @@ func TestMoveThread(t *testing.T) {
 			setup: func() {
 				params := types.DefaultParams()
 				params.ModerationPaused = true
-				_ = f.keeper.Params.Set(f.ctx, params)
+				require.NoError(t, f.keeper.Params.Set(f.ctx, params))
 			},
 			expectError: true,
 			errContains: "moderation is paused",
@@ -143,14 +143,16 @@ func TestMoveThread(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Reset params and thread state
-			_ = f.keeper.Params.Set(f.ctx, types.DefaultParams())
+			require.NoError(t, f.keeper.Params.Set(f.ctx, types.DefaultParams()))
 			p, _ := f.keeper.Post.Get(f.ctx, thread.PostId)
 			p.CategoryId = cat1.CategoryId
 			p.ParentId = 0
-			_ = f.keeper.Post.Set(f.ctx, thread.PostId, p)
+			require.NoError(t, f.keeper.Post.Set(f.ctx, thread.PostId, p))
+			// Each case starts without an open move record from a prior case.
+			require.NoError(t, f.keeper.ThreadMoveRecord.Remove(f.ctx, thread.PostId))
 
 			// Reset sentinel (local counters + rep bond record)
-			_ = f.keeper.SentinelActivity.Set(f.ctx, testSentinel, types.SentinelActivity{Address: testSentinel})
+			require.NoError(t, f.keeper.SentinelActivity.Set(f.ctx, testSentinel, types.SentinelActivity{Address: testSentinel}))
 			f.repKeeper.sentinels[testSentinel] = reptypes.BondedRole{
 				Address:            testSentinel,
 				CurrentBond:        "2000000000",
@@ -215,9 +217,13 @@ func TestMoveThreadByGovAuthority(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, cat2.CategoryId, movedThread.CategoryId)
 
-	// Verify no move record was created (gov moves don't create move records)
-	_, err = f.keeper.ThreadMoveRecord.Get(f.ctx, thread.PostId)
-	require.Error(t, err) // Should not find move record
+	// A gov move writes an authority record (no sentinel, no bond) so the
+	// author can appeal it.
+	rec, err := f.keeper.ThreadMoveRecord.Get(f.ctx, thread.PostId)
+	require.NoError(t, err)
+	require.Empty(t, rec.Sentinel)
+	require.Empty(t, rec.CommittedAmount)
+	require.Equal(t, cat2.CategoryId, rec.NewCategoryId)
 }
 
 func TestMoveThreadWithReservedTag(t *testing.T) {
@@ -231,7 +237,7 @@ func TestMoveThreadWithReservedTag(t *testing.T) {
 	thread := f.createTestPost(t, testCreator, 0, cat1.CategoryId)
 	p, _ := f.keeper.Post.Get(f.ctx, thread.PostId)
 	p.Tags = []string{"governance"}
-	_ = f.keeper.Post.Set(f.ctx, thread.PostId, p)
+	require.NoError(t, f.keeper.Post.Set(f.ctx, thread.PostId, p))
 
 	// Create reserved tag in mock rep registry
 	reservedTag := reptypes.ReservedTag{
@@ -357,8 +363,9 @@ func TestMoveThread_AuthorityDisambiguation(t *testing.T) {
 			Authority:     types.ModerationAuthority_MODERATION_AUTHORITY_COUNCIL,
 		})
 		require.NoError(t, err)
-		_, err = f.keeper.ThreadMoveRecord.Get(f.ctx, rootID)
-		require.Error(t, err, "explicit COUNCIL move must not write a sentinel move record")
+		rec, err := f.keeper.ThreadMoveRecord.Get(f.ctx, rootID)
+		require.NoError(t, err)
+		require.Empty(t, rec.Sentinel, "explicit COUNCIL move must not write a sentinel move record")
 	})
 
 	// AUTO by a council account moving a RESERVED-tag thread is not
@@ -368,7 +375,7 @@ func TestMoveThread_AuthorityDisambiguation(t *testing.T) {
 		f, rootID, destCat := setup(t)
 		p, _ := f.keeper.Post.Get(f.ctx, rootID)
 		p.Tags = []string{"governance"}
-		_ = f.keeper.Post.Set(f.ctx, rootID, p)
+		require.NoError(t, f.keeper.Post.Set(f.ctx, rootID, p))
 		_ = f.repKeeper.SetReservedTag(f.ctx, reptypes.ReservedTag{Name: "governance", Authority: testAuthority, MembersCanUse: true})
 		_, err := f.msgServer.MoveThread(f.ctx, &types.MsgMoveThread{
 			Creator:       testSentinel,
@@ -378,8 +385,9 @@ func TestMoveThread_AuthorityDisambiguation(t *testing.T) {
 			Authority:     types.ModerationAuthority_MODERATION_AUTHORITY_AUTO,
 		})
 		require.NoError(t, err)
-		_, err = f.keeper.ThreadMoveRecord.Get(f.ctx, rootID)
-		require.Error(t, err, "council moving a reserved-tag thread writes no sentinel record")
+		rec, err := f.keeper.ThreadMoveRecord.Get(f.ctx, rootID)
+		require.NoError(t, err)
+		require.Empty(t, rec.Sentinel, "council moving a reserved-tag thread writes no sentinel record")
 	})
 
 	// Explicit SENTINEL moving a reserved-tag thread hard-errors with the
@@ -388,7 +396,7 @@ func TestMoveThread_AuthorityDisambiguation(t *testing.T) {
 		f, rootID, destCat := setup(t)
 		p, _ := f.keeper.Post.Get(f.ctx, rootID)
 		p.Tags = []string{"governance"}
-		_ = f.keeper.Post.Set(f.ctx, rootID, p)
+		require.NoError(t, f.keeper.Post.Set(f.ctx, rootID, p))
 		_ = f.repKeeper.SetReservedTag(f.ctx, reptypes.ReservedTag{Name: "governance", Authority: testAuthority, MembersCanUse: true})
 		_, err := f.msgServer.MoveThread(f.ctx, &types.MsgMoveThread{
 			Creator:       testSentinel,

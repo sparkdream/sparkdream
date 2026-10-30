@@ -34,10 +34,13 @@ func (k msgServer) UpdateName(goCtx context.Context, msg *types.MsgUpdateName) (
 	}
 
 	// 3. Update the Metadata
+	if len(msg.Data) > MaxNameDataLen {
+		return nil, errorsmod.Wrapf(types.ErrInvalidName, "data is at most %d bytes", MaxNameDataLen)
+	}
 	val.Data = msg.Data
 
 	// 4. Save the updated record
-	if err := k.Names.Set(ctx, name, val); err != nil {
+	if err := k.SetName(ctx, val); err != nil {
 		return nil, err
 	}
 

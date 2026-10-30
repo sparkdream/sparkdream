@@ -4,28 +4,22 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 
 	"cosmossdk.io/collections"
 	errorsmod "cosmossdk.io/errors"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 
 	"sparkdream/x/identity/types"
 )
 
 // InitGenesis persists the identity record, seals it for invariant
 // enforcement, and seeds bank metadata for the two native tokens. Validation
-// runs first; no state is written when validation fails. See §6.2.
-//
-// V1 DEVIATION FROM SPEC: when the supplied identity is empty (the chain is
-// running in single-chain legacy mode without a configured identity),
-// InitGenesis returns nil and writes no state. Queries against an
-// uninitialized chain return NotFound. See
-// docs/x-identity-implementation-decisions.md.
+// runs first; no state is written when validation fails. See §6.2. An empty
+// identity is refused (GenesisState.Validate): no module can run without the
+// native denoms.
 func (k Keeper) InitGenesis(ctx context.Context, gs types.GenesisState) error {
-	if gs.Identity.BondDenom == "" && gs.Identity.DreamDenom == "" {
-		return nil
+	if gs.Identity.IsEmpty() {
+		return gs.Validate()
 	}
 	if err := gs.Identity.Validate(); err != nil {
 		return fmt.Errorf("invalid chain identity: %w", err)
@@ -103,32 +97,8 @@ func (k Keeper) sealGenesisIdentity(ctx context.Context, id types.ChainIdentity)
 // legitimate seed window. The caller (InitGenesis) has already verified
 // k.bankKeeper is non-nil.
 func (k Keeper) registerNativeDenomMetadata(ctx context.Context, id types.ChainIdentity) error {
-	sparkMeta := banktypes.Metadata{
-		Description: fmt.Sprintf("%s, native gas and staking token of the %s federated Spark Dream chain",
-			id.BondDisplayName, id.ChainHumanName),
-		DenomUnits: []*banktypes.DenomUnit{
-			{Denom: id.BondDenom, Exponent: 0, Aliases: []string{"micro" + strings.ToLower(id.BondDisplaySymbol)}},
-			{Denom: strings.ToLower(id.BondDisplaySymbol), Exponent: id.BondDisplayDecimals},
-		},
-		Base:    id.BondDenom,
-		Display: strings.ToLower(id.BondDisplaySymbol),
-		Name:    id.BondDisplayName,
-		Symbol:  id.BondDisplaySymbol,
-	}
+	sparkMeta, dreamMeta := id.NativeDenomMetadata()
 	k.bankKeeper.SetDenomMetaData(ctx, sparkMeta)
-
-	dreamMeta := banktypes.Metadata{
-		Description: fmt.Sprintf("%s, internal reputation token of the %s federated Spark Dream chain (non-transferable, non-IBC)",
-			id.DreamDisplayName, id.ChainHumanName),
-		DenomUnits: []*banktypes.DenomUnit{
-			{Denom: id.DreamDenom, Exponent: 0, Aliases: []string{"micro" + strings.ToLower(id.DreamDisplaySymbol)}},
-			{Denom: strings.ToLower(id.DreamDisplaySymbol), Exponent: id.DreamDisplayDecimals},
-		},
-		Base:    id.DreamDenom,
-		Display: strings.ToLower(id.DreamDisplaySymbol),
-		Name:    id.DreamDisplayName,
-		Symbol:  id.DreamDisplaySymbol,
-	}
 	k.bankKeeper.SetDenomMetaData(ctx, dreamMeta)
 	return nil
 }

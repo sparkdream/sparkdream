@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"syscall"
 	"time"
@@ -39,10 +40,62 @@ var DefaultFetchLimits = FetchLimits{MaxBytes: 16 << 20, Timeout: 30 * time.Seco
 // ErrTooLarge is returned when a body exceeds MaxBytes.
 var ErrTooLarge = errors.New("contentscan: fetched body exceeds size limit")
 
+// specialPurposeNets are IANA special-purpose ranges (RFC 6890 registries)
+// that are not public unicast destinations but that net.IP's predicates
+// don't cover: shared address space used by CGNAT and overlay VPNs such as
+// Tailscale, "this network", benchmarking, IETF protocol assignments,
+// documentation, reserved space, NAT64/IPv4-translated prefixes (which reach
+// internal IPv4 hosts through a translator), Teredo, 6to4 and ORCHID.
+var specialPurposeNets = func() []netip.Prefix {
+	var out []netip.Prefix
+	for _, c := range []string{
+		"0.0.0.0/8",       // "this network"
+		"100.64.0.0/10",   // shared address space (CGNAT, Tailscale)
+		"192.0.0.0/24",    // IETF protocol assignments
+		"192.0.2.0/24",    // TEST-NET-1
+		"198.18.0.0/15",   // benchmarking
+		"198.51.100.0/24", // TEST-NET-2
+		"203.0.113.0/24",  // TEST-NET-3
+		"240.0.0.0/4",     // reserved, incl. broadcast
+		"64:ff9b::/96",    // NAT64 well-known prefix
+		"64:ff9b:1::/48",  // local-use NAT64
+		"100::/64",        // discard-only
+		"2001::/32",       // Teredo
+		"2001:2::/48",     // benchmarking
+		"2001:10::/28",    // ORCHID
+		"2001:20::/28",    // ORCHIDv2
+		"2001:db8::/32",   // documentation
+		"2002::/16",       // 6to4
+		"::ffff:0:0/96",   // IPv4-mapped (checked again as IPv4 below)
+		"::ffff:0:0:0/96", // IPv4-translated
+		"fc00::/7",        // unique local (also IsPrivate)
+		"fec0::/10",       // deprecated site-local
+	} {
+		out = append(out, netip.MustParsePrefix(c))
+	}
+	return out
+}()
+
 func disallowedIP(ip net.IP) bool {
-	return ip.IsLoopback() || ip.IsPrivate() || ip.IsUnspecified() ||
+	if ip.IsLoopback() || ip.IsPrivate() || ip.IsUnspecified() ||
 		ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() ||
-		ip.IsInterfaceLocalMulticast() || ip.IsMulticast()
+		ip.IsInterfaceLocalMulticast() || ip.IsMulticast() {
+		return true
+	}
+	addr, ok := netip.AddrFromSlice(ip)
+	if !ok {
+		return true
+	}
+	if addr.Is4In6() {
+		// An IPv4-mapped address is judged as the IPv4 address it maps.
+		return disallowedIP(net.IP(addr.Unmap().AsSlice()))
+	}
+	for _, p := range specialPurposeNets {
+		if p.Contains(addr) {
+			return true
+		}
+	}
+	return false
 }
 
 // NewFetchClient returns an http.Client enforcing the limits' destination

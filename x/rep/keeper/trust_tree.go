@@ -8,6 +8,7 @@ import (
 
 	corestore "cosmossdk.io/core/store"
 
+	commontypes "sparkdream/x/common/types"
 	"sparkdream/x/rep/types"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -83,7 +84,9 @@ func (k Keeper) GetPreviousMemberTrustTreeRoot(ctx context.Context) []byte {
 // chain upgrades that invalidate the entire tree.
 func (k Keeper) MarkTrustTreeDirty(ctx context.Context) {
 	store := k.storeService.OpenKVStore(ctx)
-	store.Set(trustTreeDirtyKey, []byte{1}) //nolint:errcheck
+	if err := store.Set(trustTreeDirtyKey, []byte{1}); err != nil {
+		sdk.UnwrapSDKContext(ctx).Logger().Error("MarkTrustTreeDirty: store.Set failed", "err", err)
+	}
 }
 
 // IsTrustTreeDirty returns true if there are any pending tree updates
@@ -111,7 +114,9 @@ func (k Keeper) IsTrustTreeDirty(ctx context.Context) bool {
 // On the next EndBlock, only this member's leaf will be recomputed.
 func (k Keeper) MarkMemberDirty(ctx context.Context, address string) {
 	store := k.storeService.OpenKVStore(ctx)
-	store.Set(dirtyMemberKey(address), []byte{1}) //nolint:errcheck
+	if err := store.Set(dirtyMemberKey(address), []byte{1}); err != nil {
+		sdk.UnwrapSDKContext(ctx).Logger().Error("MarkMemberDirty: store.Set failed", "err", err)
+	}
 }
 
 // MaybeRebuildTrustTree is called from EndBlocker. It handles:
@@ -192,9 +197,13 @@ func (k Keeper) setNode(ctx context.Context, level int, index uint64, hash []byt
 	store := k.storeService.OpenKVStore(ctx)
 	key := nodeKey(level, index)
 	if bytes.Equal(hash, zeroHashes[level]) {
-		store.Delete(key) //nolint:errcheck
+		if err := store.Delete(key); err != nil {
+			sdk.UnwrapSDKContext(ctx).Logger().Error("setNode: store.Delete failed", "err", err)
+		}
 	} else {
-		store.Set(key, hash) //nolint:errcheck
+		if err := store.Set(key, hash); err != nil {
+			sdk.UnwrapSDKContext(ctx).Logger().Error("setNode: store.Set failed", "err", err)
+		}
 	}
 }
 
@@ -232,8 +241,12 @@ func (k Keeper) setMemberLeafIndex(ctx context.Context, address string, index ui
 	store := k.storeService.OpenKVStore(ctx)
 	bz := make([]byte, 8)
 	binary.BigEndian.PutUint64(bz, index)
-	store.Set(memberIdxKey(address), bz)            //nolint:errcheck
-	store.Set(idxMemberKey(index), []byte(address)) //nolint:errcheck
+	if err := store.Set(memberIdxKey(address), bz); err != nil {
+		sdk.UnwrapSDKContext(ctx).Logger().Error("setMemberLeafIndex: store.Set failed", "err", err)
+	}
+	if err := store.Set(idxMemberKey(index), []byte(address)); err != nil {
+		sdk.UnwrapSDKContext(ctx).Logger().Error("setMemberLeafIndex: store.Set failed", "err", err)
+	}
 }
 
 // allocLeafIndex returns the next available leaf index and increments the counter.
@@ -246,7 +259,9 @@ func (k Keeper) allocLeafIndex(ctx context.Context) uint64 {
 	}
 	next := make([]byte, 8)
 	binary.BigEndian.PutUint64(next, idx+1)
-	store.Set(trustTreeNextLeafIdxKey, next) //nolint:errcheck
+	if err := store.Set(trustTreeNextLeafIdxKey, next); err != nil {
+		sdk.UnwrapSDKContext(ctx).Logger().Error("allocLeafIndex: store.Set failed", "err", err)
+	}
 	return idx
 }
 
@@ -283,7 +298,9 @@ func (k Keeper) getDirtyMembers(ctx context.Context) []string {
 
 	// Clear dirty set.
 	for _, addr := range addresses {
-		store.Delete(dirtyMemberKey(addr)) //nolint:errcheck
+		if err := store.Delete(dirtyMemberKey(addr)); err != nil {
+			sdk.UnwrapSDKContext(ctx).Logger().Error("getDirtyMembers: store.Delete failed", "err", err)
+		}
 	}
 	return addresses
 }
@@ -300,7 +317,9 @@ func (k Keeper) isTrustTreeInitialized(ctx context.Context) bool {
 
 func (k Keeper) setTrustTreeInitialized(ctx context.Context) {
 	store := k.storeService.OpenKVStore(ctx)
-	store.Set(trustTreeInitializedKey, []byte{1}) //nolint:errcheck
+	if err := store.Set(trustTreeInitializedKey, []byte{1}); err != nil {
+		sdk.UnwrapSDKContext(ctx).Logger().Error("setTrustTreeInitialized: store.Set failed", "err", err)
+	}
 }
 
 func (k Keeper) isFullRebuildRequested(ctx context.Context) bool {
@@ -311,7 +330,9 @@ func (k Keeper) isFullRebuildRequested(ctx context.Context) bool {
 
 func (k Keeper) clearFullRebuildFlag(ctx context.Context) {
 	store := k.storeService.OpenKVStore(ctx)
-	store.Set(trustTreeDirtyKey, []byte{0}) //nolint:errcheck
+	if err := store.Set(trustTreeDirtyKey, []byte{0}); err != nil {
+		sdk.UnwrapSDKContext(ctx).Logger().Error("clearFullRebuildFlag: store.Set failed", "err", err)
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -372,7 +393,7 @@ func (k Keeper) initializeTrustTree(ctx context.Context) error {
 		leafIndex := k.allocLeafIndex(ctx)
 		k.setMemberLeafIndex(ctx, member.Address, leafIndex)
 
-		trustLevel := uint64(member.TrustLevel)
+		trustLevel := commontypes.Saturate[uint64](member.TrustLevel)
 		leaf := zkcrypto.ComputeLeaf(member.ZkPublicKey, trustLevel)
 		root = k.updateLeafPath(ctx, leafIndex, leaf)
 		leafCount++
@@ -415,17 +436,21 @@ func (k Keeper) fullRebuildTrustTree(ctx context.Context) error {
 func (k Keeper) clearAllTreeState(ctx context.Context) {
 	store := k.storeService.OpenKVStore(ctx)
 
-	// Clear nodes.
-	clearPrefix(store, trustTreeNodePrefix)
-	// Clear member-to-index and index-to-member mappings.
-	clearPrefix(store, trustTreeMemberIdxPrefix)
-	clearPrefix(store, trustTreeIdxMemberPrefix)
-	// Clear dirty members.
-	clearPrefix(store, trustTreeDirtyMemberPrefix)
+	// Clear nodes, the member-to-index and index-to-member mappings, and the
+	// dirty members.
+	for _, prefix := range [][]byte{trustTreeNodePrefix, trustTreeMemberIdxPrefix, trustTreeIdxMemberPrefix, trustTreeDirtyMemberPrefix} {
+		if err := clearPrefix(store, prefix); err != nil {
+			sdk.UnwrapSDKContext(ctx).Logger().Error("clearAllTreeState: clearPrefix failed", "prefix", string(prefix), "err", err)
+		}
+	}
 	// Reset leaf counter.
-	store.Delete(trustTreeNextLeafIdxKey) //nolint:errcheck
+	if err := store.Delete(trustTreeNextLeafIdxKey); err != nil {
+		sdk.UnwrapSDKContext(ctx).Logger().Error("clearAllTreeState: store.Delete failed", "err", err)
+	}
 	// Clear initialized flag so initializeTrustTree runs.
-	store.Delete(trustTreeInitializedKey) //nolint:errcheck
+	if err := store.Delete(trustTreeInitializedKey); err != nil {
+		sdk.UnwrapSDKContext(ctx).Logger().Error("clearAllTreeState: store.Delete failed", "err", err)
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -454,7 +479,7 @@ func (k Keeper) incrementalUpdateTrustTree(ctx context.Context, dirtyAddrs []str
 					continue
 				}
 			} else {
-				trustLevel := uint64(member.TrustLevel)
+				trustLevel := commontypes.Saturate[uint64](member.TrustLevel)
 				newLeaf = zkcrypto.ComputeLeaf(zkPubKey, trustLevel)
 				if !hasIndex {
 					leafIndex = k.allocLeafIndex(ctx)
@@ -486,6 +511,21 @@ func (k Keeper) incrementalUpdateTrustTree(ctx context.Context, dirtyAddrs []str
 	}
 
 	return nil
+}
+
+// ActiveZkPublicKey returns the ZK public key an ACTIVE member proves with
+// today (a pending key change does not count until it activates), or nil for
+// a non-member, an inactive member or a member without a key. Read-only (no
+// decay write), for x/commons secret-ballot snapshots.
+func (k Keeper) ActiveZkPublicKey(ctx context.Context, addr string) []byte {
+	member, err := k.Member.Get(ctx, addr)
+	if err != nil || member.Status != types.MemberStatus_MEMBER_STATUS_ACTIVE {
+		return nil
+	}
+	if len(member.ZkPublicKey) == 0 {
+		return nil
+	}
+	return member.ZkPublicKey
 }
 
 // getZkPubKeyForMember looks up a single member's ZK public key from their
@@ -523,11 +563,11 @@ func prefixEnd(prefix []byte) []byte {
 }
 
 // clearPrefix deletes all keys with the given prefix from the store.
-func clearPrefix(store corestore.KVStore, prefix []byte) {
+func clearPrefix(store corestore.KVStore, prefix []byte) error {
 	end := prefixEnd(prefix)
 	iter, err := store.Iterator(prefix, end)
 	if err != nil {
-		return
+		return err
 	}
 	defer iter.Close()
 
@@ -536,6 +576,9 @@ func clearPrefix(store corestore.KVStore, prefix []byte) {
 		keys = append(keys, append([]byte(nil), iter.Key()...))
 	}
 	for _, key := range keys {
-		store.Delete(key) //nolint:errcheck
+		if err := store.Delete(key); err != nil {
+			return err
+		}
 	}
+	return nil
 }

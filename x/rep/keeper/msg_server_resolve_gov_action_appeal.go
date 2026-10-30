@@ -15,8 +15,9 @@ import (
 // it to apply the jury verdict through applyGovActionAppealVerdict.
 const govActionAppealInitiativeType = "gov_action_appeal"
 
-// ResolveGovActionAppeal resolves a pending appeal via commons council
-// Operations Committee authority. This is the manual-override entry point; the
+// ResolveGovActionAppeal resolves a pending appeal on behalf of the Commons
+// Operations Committee policy (an executed committee proposal), the Commons
+// Council policy or x/gov. This is the manual-override entry point; the
 // same verdict logic is invoked automatically from TallyJuryVotes when a jury
 // reaches a verdict (see applyGovActionAppealVerdict).
 func (k msgServer) ResolveGovActionAppeal(ctx context.Context, msg *types.MsgResolveGovActionAppeal) (*types.MsgResolveGovActionAppealResponse, error) {
@@ -24,9 +25,12 @@ func (k msgServer) ResolveGovActionAppeal(ctx context.Context, msg *types.MsgRes
 		return nil, errorsmod.Wrap(err, "invalid resolver address")
 	}
 
-	if !k.isCouncilAuthorized(ctx, msg.Resolver, "commons", "operations") {
+	// A verdict slashes bonds, so it takes an executed proposal of the
+	// Commons Operations Committee (or its council, or x/gov), never a single
+	// committee member.
+	if !k.isCouncilOrCommitteePolicy(ctx, msg.Resolver, "commons", "operations") {
 		return nil, errorsmod.Wrap(types.ErrNotGovAuthority,
-			"only commons council operations committee can resolve gov action appeals")
+			"only governance, the Commons Council or the Commons Operations Committee policy can resolve gov action appeals")
 	}
 
 	if err := k.applyGovActionAppealVerdict(ctx, msg.AppealId, msg.Verdict, msg.Resolver, msg.Reason); err != nil {
@@ -55,7 +59,7 @@ func (k msgServer) ResolveGovActionAppeal(ctx context.Context, msg *types.MsgRes
 //	demotion on streak) and ReverseSentinelAction (unhide/unlock/un-move/unpin).
 //
 // resolver and reason are recorded on the emitted event for audit (the manual
-// path passes the committee member; the jury path passes "jury:<review id>").
+// path passes the committee policy address; the jury path passes "jury:<review id>").
 func (k Keeper) applyGovActionAppealVerdict(ctx context.Context, appealID uint64, verdict types.GovAppealStatus, resolver, reason string) error {
 	appeal, err := k.GovActionAppeal.Get(ctx, appealID)
 	if err != nil {
@@ -130,7 +134,7 @@ func (k Keeper) applyGovActionAppealVerdict(ctx context.Context, appealID uint64
 					sdkCtx.Logger().Warn("failed to read sentinel committed amount on uphold",
 						"sentinel", sentinelAddr, "appeal_id", appealID, "error", cErr)
 				} else if committed.IsPositive() {
-					if err := k.ReleaseBond(ctx, types.RoleType_ROLE_TYPE_CONTENT_SENTINEL, sentinelAddr, committed); err != nil {
+					if err := k.ReleaseBond(ctx, k.appealRoleType(appeal.ActionType), sentinelAddr, committed); err != nil {
 						sdkCtx.Logger().Warn("failed to release sentinel bond on uphold",
 							"sentinel", sentinelAddr, "appeal_id", appealID, "error", err)
 					}
@@ -142,7 +146,7 @@ func (k Keeper) applyGovActionAppealVerdict(ctx context.Context, appealID uint64
 		// forum-local bookkeeping (pending-hide count). Best-effort.
 		if fk := k.appealTarget(appeal.ActionType); fk != nil {
 			if sentinelAddr, sErr := fk.GetActionSentinel(ctx, appeal.ActionType, appeal.ActionTarget); sErr == nil && sentinelAddr != "" {
-				if err := k.RecordRoleOutcome(ctx, types.RoleType_ROLE_TYPE_CONTENT_SENTINEL, sentinelAddr,
+				if err := k.RecordRoleOutcome(ctx, k.appealRoleType(appeal.ActionType), sentinelAddr,
 					types.ActionKindForGovAction(appeal.ActionType), true); err != nil {
 					sdkCtx.Logger().Warn("failed to record upheld role outcome",
 						"appeal_id", appealID, "error", err)
@@ -190,7 +194,7 @@ func (k Keeper) applyGovActionAppealVerdict(ctx context.Context, appealID uint64
 					sdkCtx.Logger().Warn("failed to read sentinel committed amount on overturn",
 						"sentinel", sentinelAddr, "appeal_id", appealID, "error", cErr)
 				} else if committed.IsPositive() {
-					if err := k.SlashBond(ctx, types.RoleType_ROLE_TYPE_CONTENT_SENTINEL, sentinelAddr, committed, "appeal_overturned"); err != nil {
+					if err := k.SlashBond(ctx, k.appealRoleType(appeal.ActionType), sentinelAddr, committed, "appeal_overturned"); err != nil {
 						sdkCtx.Logger().Warn("failed to slash sentinel bond on overturn",
 							"sentinel", sentinelAddr, "appeal_id", appealID, "error", err)
 					}
@@ -201,7 +205,7 @@ func (k Keeper) applyGovActionAppealVerdict(ctx context.Context, appealID uint64
 		// Shared accountability record (rep-local: streaks, ring, cooldown,
 		// streak demotion) plus forum-local bookkeeping (pending-hide count).
 		if sentinelAddr != "" {
-			if err := k.RecordRoleOutcome(ctx, types.RoleType_ROLE_TYPE_CONTENT_SENTINEL, sentinelAddr,
+			if err := k.RecordRoleOutcome(ctx, k.appealRoleType(appeal.ActionType), sentinelAddr,
 				types.ActionKindForGovAction(appeal.ActionType), false); err != nil {
 				sdkCtx.Logger().Warn("failed to record overturned role outcome",
 					"appeal_id", appealID, "error", err)
@@ -231,7 +235,7 @@ func (k Keeper) applyGovActionAppealVerdict(ctx context.Context, appealID uint64
 	}
 
 	appeal.Status = verdict
-	if err := k.GovActionAppeal.Set(ctx, appealID, appeal); err != nil {
+	if err := k.SetGovActionAppeal(ctx, appeal); err != nil {
 		return errorsmod.Wrap(err, "failed to update appeal")
 	}
 
@@ -256,17 +260,15 @@ func (k Keeper) applyGovActionAppealVerdict(ctx context.Context, appealID uint64
 
 // findGovActionAppealByInitiative returns the PENDING GovActionAppeal whose
 // InitiativeId matches the given jury review id. Used by TallyJuryVotes to map a
-// resolved appeal jury review back to its appeal record.
+// resolved appeal jury review back to its appeal record. One index read.
 func (k Keeper) findGovActionAppealByInitiative(ctx context.Context, initiativeID uint64) (types.GovActionAppeal, bool) {
-	var found types.GovActionAppeal
-	ok := false
-	_ = k.GovActionAppeal.Walk(ctx, nil, func(id uint64, a types.GovActionAppeal) (bool, error) {
-		if a.InitiativeId == initiativeID && a.Status == types.GovAppealStatus_GOV_APPEAL_STATUS_PENDING {
-			found = a
-			ok = true
-			return true, nil
-		}
-		return false, nil
-	})
-	return found, ok
+	id, err := k.GovActionAppealByInitiative.Get(ctx, initiativeID)
+	if err != nil {
+		return types.GovActionAppeal{}, false
+	}
+	a, err := k.GovActionAppeal.Get(ctx, id)
+	if err != nil || a.Status != types.GovAppealStatus_GOV_APPEAL_STATUS_PENDING {
+		return types.GovActionAppeal{}, false
+	}
+	return a, true
 }

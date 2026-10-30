@@ -10,6 +10,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	"sparkdream/x/collect/types"
+	commontypes "sparkdream/x/common/types"
 
 	reptypes "sparkdream/x/rep/types"
 )
@@ -88,6 +89,10 @@ func (k Keeper) PruneExpired(ctx context.Context) error {
 	return nil
 }
 
+// maxDeferredExpiryScan bounds how many expired-but-deferred collections (a
+// hide appeal in flight) the TTL pruner may step over per block.
+const maxDeferredExpiryScan uint32 = 100
+
 // pruneExpiredCollections implements §10.1: walk CollectionsByExpiry for entries
 // where expiresAt <= currentBlock, then delete via deleteCollectionFull.
 func (k Keeper) pruneExpiredCollections(
@@ -98,10 +103,18 @@ func (k Keeper) pruneExpiredCollections(
 ) (uint32, error) {
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
 
-	// Collect entries to process (cannot modify store during Walk)
+	// Collect entries to process (cannot modify store during Walk). Entries
+	// deferred for an in-flight hide appeal stay at the head of the queue and
+	// do not consume the prune budget, so the scan reaches up to
+	// maxDeferredExpiryScan entries past the budget; otherwise a run of
+	// deferred collections would block every expiry behind it.
+	if pruned >= cap {
+		return pruned, nil
+	}
+	scanLimit := (cap - pruned) + maxDeferredExpiryScan
 	var entries []collections.Pair[int64, uint64]
 	err := k.CollectionsByExpiry.Walk(ctx, nil, func(key collections.Pair[int64, uint64]) (bool, error) {
-		if key.K1() > currentBlock || pruned+uint32(len(entries)) >= cap {
+		if key.K1() > currentBlock || commontypes.Saturate[uint32](len(entries)) >= scanLimit {
 			return true, nil // stop — keys are ordered by expiry
 		}
 		entries = append(entries, key)
@@ -123,7 +136,9 @@ func (k Keeper) pruneExpiredCollections(
 		coll, err := k.Collection.Get(ctx, collID)
 		if err != nil {
 			// Collection no longer exists (already deleted by owner) — remove stale index entry
-			k.CollectionsByExpiry.Remove(ctx, collections.Join(expiresAt, collID)) //nolint:errcheck
+			if err := k.CollectionsByExpiry.Remove(ctx, collections.Join(expiresAt, collID)); err != nil {
+				sdk.UnwrapSDKContext(ctx).Logger().Error("pruneExpiredCollections: CollectionsByExpiry.Remove failed", "err", err)
+			}
 			pruned++
 			continue
 		}
@@ -131,11 +146,11 @@ func (k Keeper) pruneExpiredCollections(
 		// §10.1 Conviction-based TTL renewal: anonymous collections (owned by the
 		// shield module account, which x/shield signs inner messages with) can be
 		// renewed if their conviction score meets the threshold.
-		if k.isAnonymous(coll.Owner) && k.repKeeper != nil && params.ConvictionRenewalThreshold.IsPositive() {
+		if k.isAnonymous(coll.Owner) && k.late.repKeeper != nil && params.ConvictionRenewalThreshold.IsPositive() {
 			// Community conviction stakes sit on the content target (as the
 			// CollectionConviction query reads them); x/rep rejects the
 			// author-bond target here with ErrNotContentTargetType.
-			conviction, convErr := k.repKeeper.GetContentConviction(ctx,
+			conviction, convErr := k.late.repKeeper.GetContentConviction(ctx,
 				reptypes.StakeTargetType_STAKE_TARGET_COLLECTION_CONTENT, collID)
 			if convErr == nil && conviction.GTE(params.ConvictionRenewalThreshold) {
 				// Renew: extend TTL by conviction_renewal_period
@@ -150,14 +165,20 @@ func (k Keeper) pruneExpiredCollections(
 				newExpiresAt := currentBlock + renewalPeriod
 
 				// Update expiry index
-				k.CollectionsByExpiry.Remove(ctx, collections.Join(expiresAt, collID)) //nolint:errcheck
-				k.CollectionsByExpiry.Set(ctx, collections.Join(newExpiresAt, collID)) //nolint:errcheck
+				if err := k.CollectionsByExpiry.Remove(ctx, collections.Join(expiresAt, collID)); err != nil {
+					sdk.UnwrapSDKContext(ctx).Logger().Error("pruneExpiredCollections: CollectionsByExpiry.Remove failed", "err", err)
+				}
+				if err := k.CollectionsByExpiry.Set(ctx, collections.Join(newExpiresAt, collID)); err != nil {
+					sdk.UnwrapSDKContext(ctx).Logger().Error("pruneExpiredCollections: CollectionsByExpiry.Set failed", "err", err)
+				}
 
 				// Update collection
 				wasSustained := coll.ConvictionSustained
 				coll.ExpiresAt = newExpiresAt
 				coll.ConvictionSustained = true
-				k.Collection.Set(ctx, collID, coll) //nolint:errcheck
+				if err := k.Collection.Set(ctx, collID, coll); err != nil {
+					sdk.UnwrapSDKContext(ctx).Logger().Error("pruneExpiredCollections: Collection.Set failed", "err", err)
+				}
 
 				// Emit appropriate event
 				eventType := "collection_renewed"
@@ -176,7 +197,9 @@ func (k Keeper) pruneExpiredCollections(
 			// Below threshold — clear conviction_sustained flag before deletion
 			if coll.ConvictionSustained {
 				coll.ConvictionSustained = false
-				k.Collection.Set(ctx, collID, coll) //nolint:errcheck
+				if err := k.Collection.Set(ctx, collID, coll); err != nil {
+					sdk.UnwrapSDKContext(ctx).Logger().Error("pruneExpiredCollections: Collection.Set failed", "err", err)
+				}
 			}
 		}
 
@@ -201,8 +224,8 @@ func (k Keeper) pruneExpiredCollections(
 		}
 
 		// Remove initiative link on hard-delete (best effort)
-		if coll.InitiativeId > 0 && k.repKeeper != nil {
-			if linkErr := k.repKeeper.RemoveContentInitiativeLink(ctx, coll.InitiativeId, int32(reptypes.StakeTargetType_STAKE_TARGET_COLLECTION_CONTENT), collID); linkErr != nil {
+		if coll.InitiativeId > 0 && k.late.repKeeper != nil {
+			if linkErr := k.late.repKeeper.RemoveContentInitiativeLink(ctx, coll.InitiativeId, int32(reptypes.StakeTargetType_STAKE_TARGET_COLLECTION_CONTENT), collID); linkErr != nil {
 				sdkCtx.Logger().Error("failed to remove initiative link on prune", "collection_id", collID, "error", linkErr)
 			}
 		}
@@ -226,7 +249,7 @@ func (k Keeper) pruneExpiredCollections(
 		))
 
 		// Count each item + the collection itself toward the prune budget
-		pruned += uint32(coll.ItemCount) + 1
+		pruned += commontypes.Saturate[uint32](coll.ItemCount) + 1
 	}
 
 	return pruned, nil
@@ -244,7 +267,7 @@ func (k Keeper) pruneExpiredSponsorshipRequests(
 
 	var entries []collections.Pair[int64, uint64]
 	err := k.SponsorshipRequestsByExpiry.Walk(ctx, nil, func(key collections.Pair[int64, uint64]) (bool, error) {
-		if key.K1() > currentBlock || pruned+uint32(len(entries)) >= cap {
+		if key.K1() > currentBlock || pruned+commontypes.Saturate[uint32](len(entries)) >= cap {
 			return true, nil
 		}
 		entries = append(entries, key)
@@ -265,7 +288,9 @@ func (k Keeper) pruneExpiredSponsorshipRequests(
 		req, err := k.SponsorshipRequest.Get(ctx, collID)
 		if err != nil {
 			// Request no longer exists (already cleaned up) — remove stale index entry
-			k.SponsorshipRequestsByExpiry.Remove(ctx, collections.Join(expiresAt, collID)) //nolint:errcheck
+			if err := k.SponsorshipRequestsByExpiry.Remove(ctx, collections.Join(expiresAt, collID)); err != nil {
+				sdk.UnwrapSDKContext(ctx).Logger().Error("pruneExpiredSponsorshipRequests: SponsorshipRequestsByExpiry.Remove failed", "err", err)
+			}
 			pruned++
 			continue
 		}
@@ -290,8 +315,12 @@ func (k Keeper) pruneExpiredSponsorshipRequests(
 		}
 
 		// Delete request and index entry
-		k.SponsorshipRequest.Remove(ctx, collID)                                       //nolint:errcheck
-		k.SponsorshipRequestsByExpiry.Remove(ctx, collections.Join(expiresAt, collID)) //nolint:errcheck
+		if err := k.SponsorshipRequest.Remove(ctx, collID); err != nil {
+			sdk.UnwrapSDKContext(ctx).Logger().Error("pruneExpiredSponsorshipRequests: SponsorshipRequest.Remove failed", "err", err)
+		}
+		if err := k.SponsorshipRequestsByExpiry.Remove(ctx, collections.Join(expiresAt, collID)); err != nil {
+			sdk.UnwrapSDKContext(ctx).Logger().Error("pruneExpiredSponsorshipRequests: SponsorshipRequestsByExpiry.Remove failed", "err", err)
+		}
 
 		sdkCtx.EventManager().EmitEvent(sdk.NewEvent("sponsorship_request_expired",
 			sdk.NewAttribute("collection_id", strconv.FormatUint(collID, 10)),
@@ -319,7 +348,7 @@ func (k Keeper) pruneExpiredHideRecords(
 
 	var entries []collections.Pair[int64, uint64]
 	err := k.HideRecordExpiry.Walk(ctx, nil, func(key collections.Pair[int64, uint64]) (bool, error) {
-		if key.K1() > currentBlock || pruned+uint32(len(entries)) >= cap {
+		if key.K1() > currentBlock || pruned+commontypes.Saturate[uint32](len(entries)) >= cap {
 			return true, nil
 		}
 		entries = append(entries, key)
@@ -340,7 +369,9 @@ func (k Keeper) pruneExpiredHideRecords(
 		hr, err := k.HideRecord.Get(ctx, hrID)
 		if err != nil {
 			// Stale index entry — remove
-			k.HideRecordExpiry.Remove(ctx, collections.Join(deadline, hrID)) //nolint:errcheck
+			if err := k.HideRecordExpiry.Remove(ctx, collections.Join(deadline, hrID)); err != nil {
+				sdk.UnwrapSDKContext(ctx).Logger().Error("pruneExpiredHideRecords: HideRecordExpiry.Remove failed", "err", err)
+			}
 			pruned++
 			continue
 		}
@@ -351,16 +382,28 @@ func (k Keeper) pruneExpiredHideRecords(
 		// appeal_deadline (anti hide/unhide cycling). Release it now.
 		if hr.Resolved {
 			if hr.SelfCorrected {
-				if k.repKeeper != nil && hr.CommittedAmount.IsPositive() {
-					k.repKeeper.ReleaseBond(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, hr.Sentinel, hr.CommittedAmount) //nolint:errcheck
+				if k.late.repKeeper != nil && hr.CommittedAmount.IsPositive() {
+					if err := k.late.repKeeper.ReleaseBond(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, hr.Sentinel, hr.CommittedAmount); err != nil {
+						sdk.UnwrapSDKContext(ctx).Logger().Error("pruneExpiredHideRecords: repKeeper.ReleaseBond failed", "err", err)
+					}
 				}
-				k.HideRecordExpiry.Remove(ctx, collections.Join(deadline, hrID)) //nolint:errcheck
+				if err := k.HideRecordExpiry.Remove(ctx, collections.Join(deadline, hrID)); err != nil {
+					sdk.UnwrapSDKContext(ctx).Logger().Error("pruneExpiredHideRecords: HideRecordExpiry.Remove failed", "err", err)
+				}
 				pruned++
+
+				released := hr.CommittedAmount
+				// Zero the amount so genesis rebuild and deletion cleanup
+				// know the retained bond is no longer held.
+				hr.CommittedAmount = math.ZeroInt()
+				if err := k.HideRecord.Set(ctx, hr.Id, hr); err != nil {
+					sdk.UnwrapSDKContext(ctx).Logger().Error("pruneExpiredHideRecords: HideRecord.Set failed", "err", err)
+				}
 
 				sdkCtx.EventManager().EmitEvent(sdk.NewEvent("self_corrected_hide_bond_released",
 					sdk.NewAttribute("hide_record_id", strconv.FormatUint(hr.Id, 10)),
 					sdk.NewAttribute("sentinel", hr.Sentinel),
-					sdk.NewAttribute("released", hr.CommittedAmount.String()),
+					sdk.NewAttribute("released", released.String()),
 				))
 			}
 			continue
@@ -370,7 +413,9 @@ func (k Keeper) pruneExpiredHideRecords(
 			// Appealed hides are owned by x/rep (deadline, verdict, timeout;
 			// see appeal_target.go). MsgAppealHide removes the expiry entry,
 			// so this is only a stale index entry.
-			k.HideRecordExpiry.Remove(ctx, collections.Join(deadline, hrID)) //nolint:errcheck
+			if err := k.HideRecordExpiry.Remove(ctx, collections.Join(deadline, hrID)); err != nil {
+				sdk.UnwrapSDKContext(ctx).Logger().Error("pruneExpiredHideRecords: HideRecordExpiry.Remove failed", "err", err)
+			}
 			pruned++
 			continue
 		}
@@ -395,14 +440,20 @@ func (k Keeper) handleUnappealedHideExpiry(
 	targetDeleted := k.deleteHiddenTarget(ctx, sdkCtx, hr, params)
 
 	// Release sentinel's reserved bond (no penalty — content was not appealed)
-	if k.repKeeper != nil && hr.CommittedAmount.IsPositive() {
-		k.repKeeper.ReleaseBond(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, hr.Sentinel, hr.CommittedAmount) //nolint:errcheck
+	if k.late.repKeeper != nil && hr.CommittedAmount.IsPositive() {
+		if err := k.late.repKeeper.ReleaseBond(ctx, reptypes.RoleType_ROLE_TYPE_CONTENT_SENTINEL, hr.Sentinel, hr.CommittedAmount); err != nil {
+			sdk.UnwrapSDKContext(sdkCtx).Logger().Error("handleUnappealedHideExpiry: repKeeper.ReleaseBond failed", "err", err)
+		}
 	}
 
 	// Mark HideRecord resolved
 	hr.Resolved = true
-	k.HideRecord.Set(ctx, hr.Id, hr)                                 //nolint:errcheck
-	k.HideRecordExpiry.Remove(ctx, collections.Join(deadline, hrID)) //nolint:errcheck
+	if err := k.HideRecord.Set(ctx, hr.Id, hr); err != nil {
+		sdk.UnwrapSDKContext(sdkCtx).Logger().Error("handleUnappealedHideExpiry: HideRecord.Set failed", "err", err)
+	}
+	if err := k.HideRecordExpiry.Remove(ctx, collections.Join(deadline, hrID)); err != nil {
+		sdk.UnwrapSDKContext(sdkCtx).Logger().Error("handleUnappealedHideExpiry: HideRecordExpiry.Remove failed", "err", err)
+	}
 
 	sdkCtx.EventManager().EmitEvent(sdk.NewEvent("unappealed_hide_expired",
 		sdk.NewAttribute("hide_record_id", strconv.FormatUint(hr.Id, 10)),
@@ -426,7 +477,7 @@ func (k Keeper) pruneExpiredFlags(
 
 	var entries []collections.Pair[int64, string]
 	err := k.FlagExpiry.Walk(ctx, nil, func(key collections.Pair[int64, string]) (bool, error) {
-		if key.K1() > currentBlock || pruned+uint32(len(entries)) >= cap {
+		if key.K1() > currentBlock || pruned+commontypes.Saturate[uint32](len(entries)) >= cap {
 			return true, nil
 		}
 		entries = append(entries, key)
@@ -448,19 +499,37 @@ func (k Keeper) pruneExpiredFlags(
 		flag, err := k.Flag.Get(ctx, flagKey)
 		if err != nil {
 			// Flag no longer exists — remove stale expiry index entry
-			k.FlagExpiry.Remove(ctx, collections.Join(expiryBlock, flagKey)) //nolint:errcheck
+			if err := k.FlagExpiry.Remove(ctx, collections.Join(expiryBlock, flagKey)); err != nil {
+				sdk.UnwrapSDKContext(ctx).Logger().Error("pruneExpiredFlags: FlagExpiry.Remove failed", "err", err)
+			}
+			pruned++
+			continue
+		}
+
+		// A stale entry (left by an older key derivation) must never delete
+		// a flag whose stored expiry is later: drop the entry only.
+		if flag.ExpiresAt > 0 && flag.ExpiresAt != expiryBlock {
+			if err := k.FlagExpiry.Remove(ctx, collections.Join(expiryBlock, flagKey)); err != nil {
+				sdk.UnwrapSDKContext(ctx).Logger().Error("pruneExpiredFlags: FlagExpiry.Remove failed", "err", err)
+			}
 			pruned++
 			continue
 		}
 
 		// Remove from review queue if present
 		if flag.InReviewQueue {
-			k.FlagReviewQueue.Remove(ctx, collections.Join(int32(flag.TargetType), flag.TargetId)) //nolint:errcheck
+			if err := k.FlagReviewQueue.Remove(ctx, collections.Join(int32(flag.TargetType), flag.TargetId)); err != nil {
+				sdk.UnwrapSDKContext(ctx).Logger().Error("pruneExpiredFlags: FlagReviewQueue.Remove failed", "err", err)
+			}
 		}
 
 		// Delete flag record and expiry index
-		k.Flag.Remove(ctx, flagKey)                                      //nolint:errcheck
-		k.FlagExpiry.Remove(ctx, collections.Join(expiryBlock, flagKey)) //nolint:errcheck
+		if err := k.Flag.Remove(ctx, flagKey); err != nil {
+			sdk.UnwrapSDKContext(ctx).Logger().Error("pruneExpiredFlags: Flag.Remove failed", "err", err)
+		}
+		if err := k.FlagExpiry.Remove(ctx, collections.Join(expiryBlock, flagKey)); err != nil {
+			sdk.UnwrapSDKContext(ctx).Logger().Error("pruneExpiredFlags: FlagExpiry.Remove failed", "err", err)
+		}
 
 		sdkCtx.EventManager().EmitEvent(sdk.NewEvent("flags_expired",
 			sdk.NewAttribute("target_id", strconv.FormatUint(flag.TargetId, 10)),
@@ -486,7 +555,7 @@ func (k Keeper) pruneUnendorsedCollections(
 
 	var entries []collections.Pair[int64, uint64]
 	err := k.EndorsementPending.Walk(ctx, nil, func(key collections.Pair[int64, uint64]) (bool, error) {
-		if key.K1() > currentBlock || pruned+uint32(len(entries)) >= cap {
+		if key.K1() > currentBlock || pruned+commontypes.Saturate[uint32](len(entries)) >= cap {
 			return true, nil
 		}
 		entries = append(entries, key)
@@ -505,7 +574,9 @@ func (k Keeper) pruneUnendorsedCollections(
 		collID := entry.K2()
 
 		// Remove the pending index entry regardless of outcome
-		k.EndorsementPending.Remove(ctx, collections.Join(expiryBlock, collID)) //nolint:errcheck
+		if err := k.EndorsementPending.Remove(ctx, collections.Join(expiryBlock, collID)); err != nil {
+			sdk.UnwrapSDKContext(ctx).Logger().Error("pruneUnendorsedCollections: EndorsementPending.Remove failed", "err", err)
+		}
 
 		coll, err := k.Collection.Get(ctx, collID)
 		if err != nil {
@@ -514,11 +585,23 @@ func (k Keeper) pruneUnendorsedCollections(
 			continue
 		}
 
-		// The endorsement creation fee refund (minus burn fraction) is handled by
-		// deleteCollectionFull when status == PENDING, so we just need to call it.
-		// But deleteCollectionFull will also try to remove from EndorsementPending index
-		// using the current block height (not the stored expiry). Since we already removed it
-		// above, that's fine — the remove will be a no-op.
+		// Only an unendorsed collection still in the endorsement stage, whose
+		// stored deadline is this entry, is pruned. Anything else (endorsed,
+		// promoted to ACTIVE or permanent, hidden, or a stale entry whose
+		// deadline no longer matches) only loses the stale index entry.
+		if coll.Status != types.CollectionStatus_COLLECTION_STATUS_PENDING || coll.EndorsedBy != "" ||
+			(coll.EndorsementPendingUntil != 0 && coll.EndorsementPendingUntil != expiryBlock) {
+			if coll.EndorsementPendingUntil == expiryBlock {
+				coll.EndorsementPendingUntil = 0
+				if err := k.Collection.Set(ctx, collID, coll); err != nil {
+					sdk.UnwrapSDKContext(ctx).Logger().Error("pruneUnendorsedCollections: Collection.Set failed", "err", err)
+				}
+			}
+			pruned++
+			continue
+		}
+		// The endorsement creation fee refund (minus burn fraction) is handled
+		// by deleteCollectionFull from the fee escrowed at creation.
 
 		depositRefunded := coll.DepositAmount.Add(coll.ItemDepositTotal)
 
@@ -535,7 +618,7 @@ func (k Keeper) pruneUnendorsedCollections(
 			sdk.NewAttribute("deposit_refunded", depositRefunded.String()),
 		))
 
-		pruned += uint32(coll.ItemCount) + 1
+		pruned += commontypes.Saturate[uint32](coll.ItemCount) + 1
 	}
 
 	return pruned, nil
@@ -553,7 +636,7 @@ func (k Keeper) releaseExpiredEndorsementStakes(
 
 	var entries []collections.Pair[int64, uint64]
 	err := k.EndorsementStakeExpiry.Walk(ctx, nil, func(key collections.Pair[int64, uint64]) (bool, error) {
-		if key.K1() > currentBlock || pruned+uint32(len(entries)) >= cap {
+		if key.K1() > currentBlock || pruned+commontypes.Saturate[uint32](len(entries)) >= cap {
 			return true, nil
 		}
 		entries = append(entries, key)
@@ -572,7 +655,9 @@ func (k Keeper) releaseExpiredEndorsementStakes(
 		collID := entry.K2()
 
 		// Remove index entry regardless
-		k.EndorsementStakeExpiry.Remove(ctx, collections.Join(releaseAt, collID)) //nolint:errcheck
+		if err := k.EndorsementStakeExpiry.Remove(ctx, collections.Join(releaseAt, collID)); err != nil {
+			sdk.UnwrapSDKContext(ctx).Logger().Error("releaseExpiredEndorsementStakes: EndorsementStakeExpiry.Remove failed", "err", err)
+		}
 
 		endorsement, err := k.Endorsement.Get(ctx, collID)
 		if err != nil {
@@ -596,7 +681,7 @@ func (k Keeper) releaseExpiredEndorsementStakes(
 			continue
 		}
 
-		if err := k.repKeeper.UnlockDREAM(ctx, endorserAddr, endorsement.DreamStake); err != nil {
+		if err := k.late.repKeeper.UnlockDREAM(ctx, endorserAddr, endorsement.DreamStake); err != nil {
 			sdkCtx.Logger().Error("endblock: failed to unlock endorser DREAM stake",
 				"collection_id", collID, "error", err)
 			pruned++
@@ -605,7 +690,9 @@ func (k Keeper) releaseExpiredEndorsementStakes(
 
 		// Mark stake as released
 		endorsement.StakeReleased = true
-		k.Endorsement.Set(ctx, collID, endorsement) //nolint:errcheck
+		if err := k.Endorsement.Set(ctx, collID, endorsement); err != nil {
+			sdk.UnwrapSDKContext(ctx).Logger().Error("releaseExpiredEndorsementStakes: Endorsement.Set failed", "err", err)
+		}
 
 		sdkCtx.EventManager().EmitEvent(sdk.NewEvent("endorsement_stake_released",
 			sdk.NewAttribute("collection_id", strconv.FormatUint(collID, 10)),
@@ -659,7 +746,9 @@ func (k Keeper) deleteHiddenTarget(ctx context.Context, sdkCtx sdk.Context, hr t
 				}
 				ownerAddr, addrErr := k.addressCodec.StringToBytes(coll.Owner)
 				if addrErr == nil && refund.IsPositive() {
-					k.RefundSPARK(ctx, ownerAddr, refund) //nolint:errcheck
+					if err := k.RefundSPARK(ctx, ownerAddr, refund); err != nil {
+						sdk.UnwrapSDKContext(sdkCtx).Logger().Error("deleteHiddenTarget: k.RefundSPARK failed", "err", err)
+					}
 				}
 				// Decrement item_count and item_deposit_total
 				k.decrementItemCount(&coll, 1)
@@ -669,28 +758,45 @@ func (k Keeper) deleteHiddenTarget(ctx context.Context, sdkCtx sdk.Context, hr t
 						coll.ItemDepositTotal = math.ZeroInt() // safety clamp
 					}
 				}
-				k.Collection.Set(ctx, coll.Id, coll) //nolint:errcheck
+				if err := k.Collection.Set(ctx, coll.Id, coll); err != nil {
+					sdk.UnwrapSDKContext(sdkCtx).Logger().Error("deleteHiddenTarget: Collection.Set failed", "err", err)
+				}
 			}
 
 			// Remove item from indexes
-			k.ItemsByCollection.Remove(ctx, collections.Join(item.CollectionId, item.Id)) //nolint:errcheck
+			if err := k.ItemsByCollection.Remove(ctx, collections.Join(item.CollectionId, item.Id)); err != nil {
+				sdk.UnwrapSDKContext(sdkCtx).Logger().Error("deleteHiddenTarget: ItemsByCollection.Remove failed", "err", err)
+			}
 			if collErr == nil {
-				k.ItemsByOwner.Remove(ctx, collections.Join(coll.Owner, item.Id)) //nolint:errcheck
+				if err := k.ItemsByOwner.Remove(ctx, collections.Join(coll.Owner, item.Id)); err != nil {
+					sdk.UnwrapSDKContext(sdkCtx).Logger().Error("deleteHiddenTarget: ItemsByOwner.Remove failed", "err", err)
+				}
 			}
 			// Clean up item flags
 			flagKey := FlagCompositeKey(types.FlagTargetType_FLAG_TARGET_TYPE_ITEM, item.Id)
 			flag, flagErr := k.Flag.Get(ctx, flagKey)
 			if flagErr == nil {
 				if flag.InReviewQueue {
-					k.FlagReviewQueue.Remove(ctx, collections.Join(int32(types.FlagTargetType_FLAG_TARGET_TYPE_ITEM), item.Id)) //nolint:errcheck
+					if err := k.FlagReviewQueue.Remove(ctx, collections.Join(int32(types.FlagTargetType_FLAG_TARGET_TYPE_ITEM), item.Id)); err != nil {
+						sdk.UnwrapSDKContext(sdkCtx).Logger().Error("deleteHiddenTarget: FlagReviewQueue.Remove failed", "err", err)
+					}
 				}
-				k.FlagExpiry.Remove(ctx, collections.Join(flag.LastFlagAt+params.FlagExpirationBlocks, flagKey)) //nolint:errcheck
-				k.Flag.Remove(ctx, flagKey)                                                                      //nolint:errcheck
+				if err := k.FlagExpiry.Remove(ctx, collections.Join(flagExpiryBlock(flag, params), flagKey)); err != nil {
+					sdk.UnwrapSDKContext(sdkCtx).Logger().Error("deleteHiddenTarget: FlagExpiry.Remove failed", "err", err)
+				}
+				if err := k.Flag.Remove(ctx, flagKey); err != nil {
+					sdk.UnwrapSDKContext(sdkCtx).Logger().Error("deleteHiddenTarget: Flag.Remove failed", "err", err)
+				}
 			}
 			// Clean up item hide records (other hide records for this same item)
 			k.cleanupItemHideRecords(ctx, item, params)
+			// Drop reaction dedup markers and the on-chain ref index entry.
+			k.deleteTargetReactions(ctx, types.FlagTargetType_FLAG_TARGET_TYPE_ITEM, item.Id)
+			k.removeItemOnChainRef(ctx, item)
 			// Delete item
-			k.Item.Remove(ctx, item.Id) //nolint:errcheck
+			if err := k.Item.Remove(ctx, item.Id); err != nil {
+				sdk.UnwrapSDKContext(sdkCtx).Logger().Error("deleteHiddenTarget: Item.Remove failed", "err", err)
+			}
 
 			// Positions are allowed to be sparse (no auto-compaction on removal).
 			targetDeleted = true
@@ -712,14 +818,20 @@ func (k Keeper) restoreHiddenTarget(ctx context.Context, hr types.HideRecord) {
 			// Update status index: HIDDEN → ACTIVE (pinned unchanged).
 			oldStatus := coll.Status
 			coll.Status = types.CollectionStatus_COLLECTION_STATUS_ACTIVE
-			k.MoveCollectionStatusIndex(ctx, oldStatus, coll.Pinned, coll.Status, coll.Pinned, coll.Id) //nolint:errcheck
-			k.Collection.Set(ctx, coll.Id, coll)                                                        //nolint:errcheck
+			if err := k.MoveCollectionStatusIndex(ctx, oldStatus, coll.Pinned, coll.Status, coll.Pinned, coll.Id); err != nil {
+				sdk.UnwrapSDKContext(ctx).Logger().Error("restoreHiddenTarget: k.MoveCollectionStatusIndex failed", "err", err)
+			}
+			if err := k.Collection.Set(ctx, coll.Id, coll); err != nil {
+				sdk.UnwrapSDKContext(ctx).Logger().Error("restoreHiddenTarget: Collection.Set failed", "err", err)
+			}
 		}
 	case types.FlagTargetType_FLAG_TARGET_TYPE_ITEM:
 		item, itemErr := k.Item.Get(ctx, hr.TargetId)
 		if itemErr == nil && item.Status == types.ItemStatus_ITEM_STATUS_HIDDEN {
 			item.Status = types.ItemStatus_ITEM_STATUS_ACTIVE
-			k.Item.Set(ctx, item.Id, item) //nolint:errcheck
+			if err := k.Item.Set(ctx, item.Id, item); err != nil {
+				sdk.UnwrapSDKContext(ctx).Logger().Error("restoreHiddenTarget: Item.Set failed", "err", err)
+			}
 		}
 	}
 }

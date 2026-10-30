@@ -20,7 +20,23 @@ func setAllowlist(t *testing.T, f *fixture, addrs ...string) {
 	require.NoError(t, err)
 	params.AuthorizedGrantCreators = addrs
 	require.NoError(t, f.keeper.Params.Set(f.ctx, params))
+	// The bypass is also bound to the granters a caller controls (SES-09).
+	// These tests exercise the other gates, so every allowlisted caller
+	// controls every granter.
+	for _, a := range addrs {
+		f.keeper.SetGranterOwner(a, allGranters{})
+	}
 }
+
+// allGranters is a GranterOwner that controls every granter.
+type allGranters struct{}
+
+func (allGranters) ManagesGranter(context.Context, string, bool) bool { return true }
+
+// onlyGranter is a GranterOwner that controls one granter.
+type onlyGranter string
+
+func (o onlyGranter) ManagesGranter(_ context.Context, g string, _ bool) bool { return g == string(o) }
 
 func TestCreateGrantOnBehalfOf_BypassDisabledWhenAllowlistEmpty(t *testing.T) {
 	f := initFixture(t)

@@ -24,6 +24,27 @@ message Group {
   int64 last_parent_update = 14;
   bool futarchy_enabled = 15;
   string veto_policy_address = 16;
+  // last_config_update is when the parent last changed this group's config
+  // with MsgUpdateGroupConfig (unix seconds; 0 = never). update_cooldown
+  // throttles the parent from it.
+  int64 last_config_update = 17;
+  // ballot_mode decides how the group's proposals are voted. UNSPECIFIED
+  // means OPEN.
+  BallotMode ballot_mode = 18;
+}
+
+// BallotMode is a group's proposal voting mode.
+enum BallotMode {
+  // UNSPECIFIED is OPEN on a group; on MsgUpdateGroupConfig it leaves the
+  // mode unchanged.
+  BALLOT_MODE_UNSPECIFIED = 0;
+  // OPEN: members vote with MsgVoteProposal.
+  BALLOT_MODE_OPEN = 1;
+  // SECRET: every proposal is a secret ballot (MsgAnonymousVoteProposal via
+  // x/shield). Needs equal member weights and enough registered ZK keys.
+  BALLOT_MODE_SECRET = 2;
+  // PROPOSER_CHOICE: the proposer picks per proposal (secret_ballot).
+  BALLOT_MODE_PROPOSER_CHOICE = 3;
 }
 
 // Member represents a member of a council or committee.
@@ -113,6 +134,16 @@ message Proposal {
   int64 execution_time = 11;
   // failed_reason stores the reason if execution failed
   string failed_reason = 12;
+  // secret_ballot proposals are voted only with MsgAnonymousVoteProposal,
+  // against the voter snapshot taken at submission.
+  bool secret_ballot = 13;
+  // voter_root is the Merkle root of the voter snapshot (secret ballots).
+  bytes voter_root = 14;
+  // ballot_member_count and ballot_member_weight are the group's member
+  // count and (equal) member weight at submission; a secret ballot's
+  // threshold is computed against them.
+  uint64 ballot_member_count = 15;
+  string ballot_member_weight = 16;
 }
 
 // TallyResult contains the vote tally for a proposal.

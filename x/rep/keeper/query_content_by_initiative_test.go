@@ -16,15 +16,15 @@ func setupInitiativeForContentLink(t *testing.T, f *fixture) uint64 {
 	t.Helper()
 
 	creator := sdk.AccAddress([]byte("init_link_creator___"))
-	f.keeper.Member.Set(f.ctx, creator.String(), types.Member{
+	require.NoError(t, f.keeper.Member.Set(f.ctx, creator.String(), types.Member{
 		Address:          creator.String(),
 		DreamBalance:     PtrInt(math.ZeroInt()),
 		StakedDream:      PtrInt(math.ZeroInt()),
 		LifetimeEarned:   PtrInt(math.ZeroInt()),
 		LifetimeBurned:   PtrInt(math.ZeroInt()),
 		ReputationScores: map[string]string{"tag1": "100.0"},
-	})
-	f.keeper.MintDREAM(f.ctx, creator, math.NewInt(1000))
+	}))
+	require.NoError(t, f.keeper.MintDREAM(f.ctx, creator, math.NewInt(1000)))
 
 	projectID, err := f.keeper.CreateProject(
 		f.ctx,
@@ -39,7 +39,7 @@ func setupInitiativeForContentLink(t *testing.T, f *fixture) uint64 {
 		false,
 	)
 	require.NoError(t, err)
-	f.keeper.ApproveProject(f.ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(1000), math.NewInt(100))
+	require.NoError(t, f.keeper.ApproveProject(f.ctx, projectID, sdk.AccAddress([]byte("approver")), math.NewInt(1000), math.NewInt(100)))
 
 	initID, err := f.keeper.CreateInitiative(
 		f.ctx,

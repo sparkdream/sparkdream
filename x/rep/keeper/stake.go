@@ -6,7 +6,7 @@ import (
 
 	"sparkdream/x/rep/types"
 
-	"cosmossdk.io/collections"
+	errorsmod "cosmossdk.io/errors"
 	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 )
@@ -68,6 +68,19 @@ func (k Keeper) CreateStake(
 	if amount.LT(params.MinStakeAmount) {
 		return 0, fmt.Errorf("%w: %s is below the %s minimum",
 			types.ErrStakeBelowMinimum, amount, params.MinStakeAmount)
+	}
+
+	// Per-member record cap across every target (REP-E-10). Reward-bearing
+	// records are decayed and rewritten every epoch, so at the
+	// min_stake_amount floor an uncapped count let one member buy tens of
+	// thousands of per-epoch writes for a refundable 100 DREAM. Read through
+	// the by-staker index: the cost is the member's own records.
+	held, err := k.stakesOfMember(ctx, k.Canonical(ctx, staker.String()))
+	if err != nil {
+		return 0, err
+	}
+	if len(held) >= types.MaxStakeRecordsPerMember {
+		return 0, errorsmod.Wrapf(types.ErrTooManyStakes, "%d stake records, at most %d", len(held), types.MaxStakeRecordsPerMember)
 	}
 
 	// Self-stake prevention for member staking
@@ -146,11 +159,32 @@ func (k Keeper) CreateStake(
 		if hasReverse {
 			return 0, types.ErrCircularMemberStake
 		}
+		// MEMBER stakes all share target id 0, so the per-target tranche cap
+		// that bounds the other types never applied (REP-E-10). Count this
+		// member's records on the same target member instead.
+		if n := countTranches(held, targetType, func(st types.Stake) bool {
+			return k.SameMember(ctx, st.TargetIdentifier, targetIdentifier)
+		}); n >= types.MaxStakeTranchesPerTarget {
+			return 0, types.ErrTooManyStakeTranches
+		}
 	case types.StakeTargetType_STAKE_TARGET_TAG:
 		if targetIdentifier == "" {
 			return 0, fmt.Errorf("tag name required for tag staking")
 		}
+		// A tag stake must name a registered tag (REP-E-10): stakes on
+		// arbitrary strings opened tag pools nothing could ever pay into.
+		if ok, err := k.TagExists(ctx, targetIdentifier); err != nil {
+			return 0, err
+		} else if !ok {
+			return 0, errorsmod.Wrapf(types.ErrTagNotFound, "tag %q is not registered", targetIdentifier)
+		}
+		if n := countTranches(held, targetType, func(st types.Stake) bool {
+			return st.TargetIdentifier == targetIdentifier
+		}); n >= types.MaxStakeTranchesPerTarget {
+			return 0, types.ErrTooManyStakeTranches
+		}
 	case types.StakeTargetType_STAKE_TARGET_BLOG_CONTENT,
+		types.StakeTargetType_STAKE_TARGET_BLOG_REPLY_CONTENT,
 		types.StakeTargetType_STAKE_TARGET_FORUM_CONTENT,
 		types.StakeTargetType_STAKE_TARGET_COLLECTION_CONTENT:
 		if targetID == 0 {
@@ -159,7 +193,16 @@ func (k Keeper) CreateStake(
 		// Self-stake prevention: resolve the true author/owner from the owning
 		// module's keeper. The user-supplied targetIdentifier cannot be trusted
 		// for security checks (an empty or forged value would bypass).
-		if author := k.resolveContentAuthor(ctx, targetType, targetID); author != "" && k.SameMember(ctx, author, staker.String()) {
+		//
+		// The content must exist (REP-E-18). A failed lookup used to read as
+		// "unable to verify" and let the stake through, so a member could
+		// stake on the next sequential id and then post the content: conviction
+		// on their own item, which the spec forbids.
+		author := k.resolveContentAuthor(ctx, targetType, targetID)
+		if author == "" {
+			return 0, errorsmod.Wrapf(types.ErrContentNotFound, "%s %d", targetType, targetID)
+		}
+		if k.SameMember(ctx, author, staker.String()) {
 			return 0, types.ErrSelfContentStake
 		}
 		// Per-member cap: sum existing stakes by this member on this target
@@ -286,9 +329,6 @@ func (k Keeper) CreateStake(
 func (k Keeper) GetStake(ctx context.Context, stakeID uint64) (types.Stake, error) {
 	stake, err := k.Stake.Get(ctx, stakeID)
 	if err != nil {
-		if err == collections.ErrNotFound {
-			return types.Stake{}, fmt.Errorf("stake %d not found", stakeID)
-		}
 		return types.Stake{}, err
 	}
 	return stake, nil
@@ -505,39 +545,31 @@ func (k Keeper) GetProjectStakes(ctx context.Context, projectID uint64) ([]types
 
 // HasMemberStakeOn checks if `stakerAddr` has an active MEMBER-type stake targeting `targetAddr`.
 // Used for circular staking prevention: if B already stakes on A, A cannot stake on B.
+//
+// Reads the staker's own records through the by-staker index (REP-E-10): the
+// old walk over every MEMBER stake on the chain, with two alias lookups per
+// record, ran on every member stake and grew with everyone's positions.
 func (k Keeper) HasMemberStakeOn(ctx context.Context, stakerAddr, targetAddr string) (bool, error) {
-	// Walk all MEMBER-type stakes (targetID=0 for member stakes) and check
-	// if any have staker==stakerAddr and targetIdentifier==targetAddr.
-	memberType := int32(types.StakeTargetType_STAKE_TARGET_MEMBER)
-	rng := collections.NewSuperPrefixedTripleRange[int32, uint64, uint64](memberType, 0)
-	found := false
 	// Compare canonical addresses so a migration on either side cannot open
 	// an A->B + B->A loop.
-	stakerCanon := k.Canonical(ctx, stakerAddr)
 	targetCanon := k.Canonical(ctx, targetAddr)
-	err := k.StakesByTarget.Walk(ctx, rng, func(key collections.Triple[int32, uint64, uint64]) (stop bool, err error) {
-		stakeID := key.K3()
-		stake, err := k.Stake.Get(ctx, stakeID)
-		if err != nil {
-			return false, nil // Skip stale index entries
-		}
-		if k.Canonical(ctx, stake.Staker) == stakerCanon && k.Canonical(ctx, stake.TargetIdentifier) == targetCanon {
-			found = true
-			return true, nil // Stop walking
-		}
-		return false, nil
-	})
+	stakes, err := k.stakesOfMember(ctx, k.Canonical(ctx, stakerAddr))
 	if err != nil {
 		return false, err
 	}
-	return found, nil
+	for _, stake := range stakes {
+		if stake.TargetType == types.StakeTargetType_STAKE_TARGET_MEMBER &&
+			k.Canonical(ctx, stake.TargetIdentifier) == targetCanon {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // resolveContentAuthor returns the on-chain author/owner address for the given
 // content stake target by querying the owning module. Returns "" when the
-// owning keeper is not wired or the lookup fails — callers must treat an
-// empty result as "unable to verify" (fails closed: stake will not be blocked
-// by self-stake check, but the lookup is not the only safeguard).
+// owning keeper is not wired or the lookup fails; CreateStake refuses the
+// stake then (the content must exist).
 func (k Keeper) resolveContentAuthor(ctx context.Context, targetType types.StakeTargetType, targetID uint64) string {
 	switch targetType {
 	case types.StakeTargetType_STAKE_TARGET_BLOG_CONTENT:
@@ -545,6 +577,15 @@ func (k Keeper) resolveContentAuthor(ctx context.Context, targetType types.Stake
 			return ""
 		}
 		author, err := k.late.blogKeeper.GetPostAuthor(ctx, targetID)
+		if err != nil {
+			return ""
+		}
+		return author
+	case types.StakeTargetType_STAKE_TARGET_BLOG_REPLY_CONTENT:
+		if k.late.blogKeeper == nil {
+			return ""
+		}
+		author, err := k.late.blogKeeper.GetReplyAuthor(ctx, targetID)
 		if err != nil {
 			return ""
 		}
@@ -569,4 +610,15 @@ func (k Keeper) resolveContentAuthor(ctx context.Context, targetType types.Stake
 		return owner
 	}
 	return ""
+}
+
+// countTranches counts the records in stakes of the given type that match.
+func countTranches(stakes []types.Stake, targetType types.StakeTargetType, match func(types.Stake) bool) int {
+	n := 0
+	for _, st := range stakes {
+		if st.TargetType == targetType && match(st) {
+			n++
+		}
+	}
+	return n
 }

@@ -158,54 +158,59 @@ else
 fi
 
 # ========================================================================
-# TEST 4: Remote identity already claimed fails
+# TEST 4: An unverified claim does not reserve the remote identity
+# linker1 holds an UNVERIFIED claim to @alice@mastodon.example. Until a
+# bridge operator attests one of them (TEST 15), another member may claim the
+# same handle too (otherwise anyone could squat other people's handles).
+# challenger1 unlinks again so TEST 13 can link it to a different handle.
 # ========================================================================
 echo ""
-echo "--- TEST 4: Remote identity already claimed ---"
+echo "--- TEST 4: Unverified claim does not reserve the remote identity ---"
 
 TX_RES=$($BINARY tx federation link-identity \
     mastodon.example \
     "@alice@mastodon.example" \
-    --from linker2 \
+    --from challenger1 \
     --chain-id $CHAIN_ID \
     --keyring-backend test \
     --fees 5000${BOND_DENOM} \
     -y \
     --output json)
 
-if submit_and_wait "$TX_RES" "claimed identity"; then
-    CODE=$(echo "$TX_RESULT" | jq -r '.code')
-    if [ "$CODE" != "0" ]; then
-        echo "  Already-claimed identity correctly rejected"
-        record_result "Identity already claimed" "PASS"
-    else
-        echo "  Should have been rejected"
-        record_result "Identity already claimed" "FAIL"
-    fi
+if submit_and_wait "$TX_RES" "second unverified claim"; then
+    echo "  Second unverified claim accepted"
+    record_result "Unverified claim does not reserve" "PASS"
+    TX_RES=$($BINARY tx federation unlink-identity \
+        mastodon.example \
+        --from challenger1 \
+        --chain-id $CHAIN_ID \
+        --keyring-backend test \
+        --fees 5000${BOND_DENOM} \
+        -y \
+        --output json)
+    submit_and_wait "$TX_RES" "unlink second claim" > /dev/null || true
 else
-    echo "  Correctly rejected"
-    record_result "Identity already claimed" "PASS"
+    RAW=$(echo "$TX_RESULT" | jq -r '.raw_log // empty' 2>/dev/null)
+    echo "  Second claim rejected: $RAW"
+    record_result "Unverified claim does not reserve" "FAIL"
 fi
 
 # ========================================================================
-# TEST 5: Resolve remote identity
+# TEST 5: An unverified claim does not resolve
+# ResolveRemoteIdentity answers only for VERIFIED links.
 # ========================================================================
 echo ""
-echo "--- TEST 5: Resolve remote identity ---"
+echo "--- TEST 5: Unverified claim does not resolve ---"
 
-RESOLVE_DATA=$($BINARY query federation resolve-remote-identity mastodon.example "@alice@mastodon.example" --output json)
-RESOLVED_ADDR=$(echo "$RESOLVE_DATA" | jq -r '.local_address // empty')
+RESOLVE_DATA=$($BINARY query federation resolve-remote-identity mastodon.example "@alice@mastodon.example" --output json 2>/dev/null)
+RESOLVED_ADDR=$(echo "$RESOLVE_DATA" | jq -r '.local_address // empty' 2>/dev/null)
 
-if [ "$RESOLVED_ADDR" == "$LINKER1_ADDR" ]; then
-    echo "  Resolved @alice@mastodon.example → $RESOLVED_ADDR"
-    record_result "Resolve remote identity" "PASS"
-elif [ -n "$RESOLVED_ADDR" ] && [ "$RESOLVED_ADDR" != "null" ]; then
-    echo "  Resolved to different address: $RESOLVED_ADDR"
-    record_result "Resolve remote identity" "FAIL"
+if [ -z "$RESOLVED_ADDR" ] || [ "$RESOLVED_ADDR" == "null" ]; then
+    echo "  Unverified claim not resolvable (expected)"
+    record_result "Unverified claim does not resolve" "PASS"
 else
-    echo "  Could not resolve (link may not exist if peer was inactive)"
-    # If we couldn't create the link, this is expected
-    record_result "Resolve remote identity" "PASS"
+    echo "  Resolved an unverified claim to $RESOLVED_ADDR"
+    record_result "Unverified claim does not resolve" "FAIL"
 fi
 
 # ========================================================================
@@ -471,23 +476,94 @@ else
 fi
 
 # ========================================================================
-# TEST 14: Resolve reclaimed identity returns new owner
+# TEST 14: The reclaimed (unverified) identity still does not resolve
 # ========================================================================
 echo ""
-echo "--- TEST 14: Resolve reclaimed identity returns new owner ---"
+echo "--- TEST 14: Reclaimed unverified identity does not resolve ---"
 
-RESOLVE=$($BINARY query federation resolve-remote-identity mastodon.example "@bob@mastodon.example" --output json)
-RESOLVED_ADDR=$(echo "$RESOLVE" | jq -r '.local_address // empty')
+RESOLVE=$($BINARY query federation resolve-remote-identity mastodon.example "@bob@mastodon.example" --output json 2>/dev/null)
+RESOLVED_ADDR=$(echo "$RESOLVE" | jq -r '.local_address // empty' 2>/dev/null)
 
-if [ "$RESOLVED_ADDR" == "$CHALLENGER1_ADDR" ]; then
-    echo "  Resolved: @bob@mastodon.example → $RESOLVED_ADDR (challenger1)"
-    record_result "Resolve reclaimed identity" "PASS"
-elif [ -n "$RESOLVED_ADDR" ] && [ "$RESOLVED_ADDR" != "null" ]; then
-    echo "  Resolved to $RESOLVED_ADDR (expected challenger1=$CHALLENGER1_ADDR)"
-    record_result "Resolve reclaimed identity" "FAIL"
+if [ -z "$RESOLVED_ADDR" ] || [ "$RESOLVED_ADDR" == "null" ]; then
+    echo "  Not resolvable while unverified (expected)"
+    record_result "Reclaimed identity unresolved" "PASS"
 else
-    echo "  Could not resolve"
-    record_result "Resolve reclaimed identity" "FAIL"
+    echo "  Resolved an unverified claim to $RESOLVED_ADDR"
+    record_result "Reclaimed identity unresolved" "FAIL"
+fi
+
+# ========================================================================
+# TEST 15: Bridge attestation verifies a bridge-peer link (FED-28)
+# challenger1 holds an UNVERIFIED claim to @bob@mastodon.example (TEST 13).
+# A bridge operator bound to mastodon.example attests it with the link's
+# challenge (hex) and an evidence URI on the peer's host; the link becomes
+# VERIFIED, records attested_by and resolves. A non-operator's attestation
+# and a second attestation are refused. Uses whichever of operator1 /
+# operator2 is still ACTIVE in x/service with a live binding (earlier
+# suites unbond some of them); skipped if neither is.
+# ========================================================================
+echo ""
+echo "--- TEST 15: Bridge operator attests a bridge-peer link ---"
+
+ATTESTER=""
+ATTESTER_ADDR=""
+for CAND in operator1 operator2; do
+    if [ "$CAND" == "operator1" ]; then CAND_ADDR=$OPERATOR1_ADDR; else CAND_ADDR=$OPERATOR2_ADDR; fi
+    B_SUSP=$($BINARY query federation get-bridge-binding $CAND_ADDR mastodon.example --output json 2>/dev/null | jq -r '.bridge_binding.suspended // false')
+    B_ADDR=$($BINARY query federation get-bridge-binding $CAND_ADDR mastodon.example --output json 2>/dev/null | jq -r '.bridge_binding.address // empty')
+    S_STATUS=$($BINARY query service operator $CAND_ADDR federation-bridge-activitypub --output json 2>/dev/null | jq -r '.operator.status // empty')
+    if [ "$B_ADDR" == "$CAND_ADDR" ] && [ "$B_SUSP" != "true" ] && [ "$S_STATUS" == "OPERATOR_STATUS_ACTIVE" ]; then
+        ATTESTER=$CAND; ATTESTER_ADDR=$CAND_ADDR; break
+    fi
+done
+
+LINK_DATA=$($BINARY query federation get-identity-link $CHALLENGER1_ADDR mastodon.example --output json 2>/dev/null)
+CHALLENGE_HEX=$(echo "$LINK_DATA" | jq -r '.link.challenge // empty' | base64 -d 2>/dev/null | od -An -tx1 | tr -d ' \n')
+
+if [ -z "$ATTESTER" ] || [ -z "$CHALLENGE_HEX" ]; then
+    echo "  No ACTIVE bound operator or no claim challenge (attester=$ATTESTER); skipping"
+else
+    # 15a: a member without a binding cannot attest
+    TX_RES=$($BINARY tx federation attest-identity-link \
+        mastodon.example $CHALLENGER1_ADDR "@bob@mastodon.example" "$CHALLENGE_HEX" "https://mastodon.example/@bob/1" \
+        --from linker1 --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y --output json)
+    if submit_and_wait "$TX_RES" "non-operator attestation"; then
+        echo "  Non-operator attestation accepted (should fail)"
+        record_result "Non-operator attestation rejected" "FAIL"
+    else
+        record_result "Non-operator attestation rejected" "PASS"
+    fi
+
+    # 15b: the bound operator attests
+    TX_RES=$($BINARY tx federation attest-identity-link \
+        mastodon.example $CHALLENGER1_ADDR "@bob@mastodon.example" "$CHALLENGE_HEX" "https://mastodon.example/@bob/1" \
+        --from $ATTESTER --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y --output json)
+    if submit_and_wait "$TX_RES" "operator attestation"; then
+        LINK_DATA=$($BINARY query federation get-identity-link $CHALLENGER1_ADDR mastodon.example --output json)
+        L_STATUS=$(echo "$LINK_DATA" | jq -r '.link.status // empty')
+        L_ATTESTER=$(echo "$LINK_DATA" | jq -r '.link.attested_by // empty')
+        RESOLVED_ADDR=$($BINARY query federation resolve-remote-identity mastodon.example "@bob@mastodon.example" --output json 2>/dev/null | jq -r '.local_address // empty')
+        echo "  status=$L_STATUS attested_by=$L_ATTESTER resolves_to=$RESOLVED_ADDR"
+        if [ "$L_STATUS" == "IDENTITY_LINK_STATUS_VERIFIED" ] && [ "$L_ATTESTER" == "$ATTESTER_ADDR" ] && [ "$RESOLVED_ADDR" == "$CHALLENGER1_ADDR" ]; then
+            record_result "Operator attestation verifies link" "PASS"
+        else
+            record_result "Operator attestation verifies link" "FAIL"
+        fi
+    else
+        RAW=$(echo "$TX_RESULT" | jq -r '.raw_log // empty' 2>/dev/null)
+        echo "  Attestation failed: $RAW"
+        record_result "Operator attestation verifies link" "FAIL"
+    fi
+
+    # 15c: a second attestation of a verified link is refused
+    TX_RES=$($BINARY tx federation attest-identity-link \
+        mastodon.example $CHALLENGER1_ADDR "@bob@mastodon.example" "$CHALLENGE_HEX" "https://mastodon.example/@bob/2" \
+        --from $ATTESTER --chain-id $CHAIN_ID --keyring-backend test --fees 5000${BOND_DENOM} -y --output json)
+    if submit_and_wait "$TX_RES" "repeat attestation"; then
+        record_result "Repeat attestation rejected" "FAIL"
+    else
+        record_result "Repeat attestation rejected" "PASS"
+    fi
 fi
 
 # ========================================================================

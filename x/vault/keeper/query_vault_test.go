@@ -24,7 +24,9 @@ func createNVault(keeper keeper.Keeper, ctx context.Context, n int) []types.Vaul
 		items[i].ProposalTtl = int64(i)
 		items[i].Label = strconv.Itoa(i)
 		items[i].CreatedAt = int64(i)
-		_ = keeper.Vault.Set(ctx, items[i].VaultId, items[i])
+		if err := keeper.Vault.Set(ctx, items[i].VaultId, items[i]); err != nil {
+			panic(err)
+		}
 	}
 	return items
 }

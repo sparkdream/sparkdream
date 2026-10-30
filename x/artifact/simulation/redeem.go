@@ -27,7 +27,8 @@ func SimulateMsgRedeem(
 		now := ctx.BlockTime().Unix()
 		t, _, ok := randomToken(r, ctx, k, accs, func(c types.Class, t types.Token) bool {
 			return c.Flags.Redeemable && t.RedeemedAt == 0 && !types.IsExpired(t, now) &&
-				t.Lock != types.TokenLock_TOKEN_LOCK_PENDING_TRANSFER &&
+				t.Lock != types.TokenLock_TOKEN_LOCK_PENDING_TRANSFER && t.Lock != types.TokenLock_TOKEN_LOCK_AUCTION &&
+				t.Lock != types.TokenLock_TOKEN_LOCK_NESTED &&
 				c.Status == types.ContentStatus_CONTENT_STATUS_ACTIVE && t.Status == types.ContentStatus_CONTENT_STATUS_ACTIVE
 		})
 		if !ok {

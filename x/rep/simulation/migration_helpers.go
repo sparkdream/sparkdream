@@ -1,47 +1,62 @@
 package simulation
 
 import (
-	"math/rand"
+	"bytes"
 
-	"github.com/cosmos/cosmos-sdk/baseapp"
-	"github.com/cosmos/cosmos-sdk/client"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
-	"github.com/cosmos/cosmos-sdk/x/simulation"
 
-	"sparkdream/x/rep/keeper"
 	"sparkdream/x/rep/types"
 )
 
-func deliver(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, msg sdk.Msg, acc simtypes.Account, ak types.AuthKeeper, bk types.BankKeeper, txGen client.TxConfig) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-	return simulation.GenAndDeliverTxWithRandFees(simulation.OperationInput{
-		R: r, App: app, TxGen: txGen, Cdc: nil, Msg: msg, CoinsSpentInMsg: sdk.NewCoins(),
-		Context: ctx, SimAccount: acc, AccountKeeper: ak, Bankkeeper: bk, ModuleName: types.ModuleName,
+// Member key migration. Finalizing a migration tombstones the old address,
+// and the SDK modules' own simulations keep signing with every sim account
+// (a tombstone may sign almost nothing), so the simulated genesis stretches
+// the migration delays far past any run (module/simulation.go): requests,
+// acceptances, objections, cancellations and recovery reveals all run for
+// real, and no migration finalizes.
+
+// freshTargets returns the live non-member sim accounts that may become the
+// new address of from on path (freshness and the other modules' vetoes).
+func (e *simEnv) freshTargets(from string, path types.MigrationPath) []simtypes.Account {
+	var out []simtypes.Account
+	for _, acc := range e.nonMembers() {
+		to := acc.Address.String()
+		if to == from {
+			continue
+		}
+		cacheCtx, _ := e.ctx.CacheContext()
+		if e.k.CheckMigrationTarget(cacheCtx, from, to, path) == nil {
+			out = append(out, acc)
+		}
+	}
+	return out
+}
+
+// migrationSources returns the live, active members without a pending
+// migration or an open report that may start one.
+func (e *simEnv) migrationSources() ([]memberAcc, error) {
+	return e.members(func(ma memberAcc) bool {
+		if _, pending := e.k.GetPendingMigration(e.ctx, ma.addr()); pending {
+			return false
+		}
+		return !e.k.HasOpenMemberReport(e.ctx, ma.addr())
 	})
 }
 
-// freshTarget picks a sim account that is not a member, so it can be a
-// migration target.
-func freshTarget(r *rand.Rand, ctx sdk.Context, k keeper.Keeper, accs []simtypes.Account, exclude string) (simtypes.Account, bool) {
-	for i := 0; i < 8; i++ {
-		acc, _ := simtypes.RandomAcc(r, accs)
-		if acc.Address.String() == exclude || k.IsMember(ctx, acc.Address) || k.IsTombstoned(ctx, acc.Address.String()) {
-			continue
-		}
-		// Other modules' freshness vetoes (season profile, names, grants...).
-		if err := k.CheckMigrationTarget(ctx, exclude, acc.Address.String(), types.MigrationPath_MIGRATION_PATH_KEY); err != nil {
-			continue
-		}
-		return acc, true
+// recoverable reports whether member holds an active recovery commitment to
+// the simulation's preimage for it (an onboarding commitment).
+func (e *simEnv) recoverable(member string) bool {
+	set, found := e.k.GetRecoveryCommitments(e.ctx, member)
+	if !found {
+		return false
 	}
-	return simtypes.Account{}, false
+	want := types.RecoveryCommitmentHash(recoveryPreimage(member))
+	idx := set.FindCommitment(want)
+	return idx >= 0 && set.ActiveCommitment(set.Commitments[idx], e.ctx.BlockTime().Unix())
 }
 
-func accountFor(accs []simtypes.Account, addr string) (simtypes.Account, bool) {
-	for _, a := range accs {
-		if a.Address.String() == addr {
-			return a, true
-		}
-	}
-	return simtypes.Account{}, false
+// sealFor reports whether sealed is the simulation's seal of member's
+// recovery to newAddr.
+func sealFor(sealed []byte, member, newAddr string) bool {
+	return bytes.Equal(sealed, types.RecoverySeal(recoveryPreimage(member), member, newAddr))
 }

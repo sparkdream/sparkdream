@@ -67,7 +67,7 @@ func SparseMerkleProof(leaves map[uint64][]byte, depth int, leafIndex uint64) (*
 	return &MerkleProof{
 		Root:         node(level, depth, 0),
 		Leaf:         PadTo32(leaf),
-		LeafIndex:    int(leafIndex),
+		LeafIndex:    int(leafIndex), //nolint:gosec // leafIndex < 2^depth, depth <= 32 (checked above)
 		PathElements: path,
 		PathIndices:  indices,
 	}, nil
@@ -112,7 +112,7 @@ const shieldOwnedMessageDomain = "sparkdream/shield/owned-message/v1"
 // re-encode the message.
 func ShieldMessageHash(typeURL string, value []byte) []byte {
 	var n [4]byte
-	binary.BigEndian.PutUint32(n[:], uint32(len(typeURL)))
+	binary.BigEndian.PutUint32(n[:], uint32(len(typeURL))) //nolint:gosec // a type URL is far below 4 GiB
 	h := sha256.Sum256(bytes.Join([][]byte{[]byte(shieldMessageDomain), n[:], []byte(typeURL), value}, nil))
 	h[0] &= 0x1f
 	return h[:]
@@ -126,7 +126,7 @@ func ShieldMessageHash(typeURL string, value []byte) []byte {
 // or rewrapped exec: once it advances, an old proof no longer verifies.
 func ShieldOwnedMessageHash(typeURL string, value []byte, sequence uint64) []byte {
 	var n [4]byte
-	binary.BigEndian.PutUint32(n[:], uint32(len(typeURL)))
+	binary.BigEndian.PutUint32(n[:], uint32(len(typeURL))) //nolint:gosec // a type URL is far below 4 GiB
 	var seq [8]byte
 	binary.BigEndian.PutUint64(seq[:], sequence)
 	h := sha256.Sum256(bytes.Join([][]byte{[]byte(shieldOwnedMessageDomain), n[:], []byte(typeURL), value, seq[:]}, nil))

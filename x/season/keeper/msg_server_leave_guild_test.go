@@ -73,7 +73,7 @@ func TestMsgServerLeaveGuild(t *testing.T) {
 		// Update founder to be in guild
 		profile, _ := k.MemberProfile.Get(ctx, founderStr)
 		profile.GuildId = guildID
-		k.MemberProfile.Set(ctx, founderStr, profile)
+		require.NoError(t, k.MemberProfile.Set(ctx, founderStr, profile))
 
 		_, err := ms.LeaveGuild(ctx, &types.MsgLeaveGuild{
 			Creator: founderStr,
@@ -104,13 +104,13 @@ func TestMsgServerLeaveGuild(t *testing.T) {
 		// Add member to guild
 		profile, _ := k.MemberProfile.Get(ctx, memberStr)
 		profile.GuildId = guildID
-		k.MemberProfile.Set(ctx, memberStr, profile)
+		require.NoError(t, k.MemberProfile.Set(ctx, memberStr, profile))
 
 		membership := types.GuildMembership{
 			Member:  memberStr,
 			GuildId: guildID,
 		}
-		k.GuildMembership.Set(ctx, memberStr, membership)
+		require.NoError(t, k.GuildMembership.Set(ctx, memberStr, membership))
 		// Counter starts at 1 to reflect the member that is about to leave.
 		require.NoError(t, k.GuildMemberCount.Set(ctx, guildID, 1))
 
@@ -150,17 +150,17 @@ func TestMsgServerLeaveGuild(t *testing.T) {
 		// Add officer to guild and officers list
 		guild, _ := k.Guild.Get(ctx, guildID)
 		guild.Officers = []string{officerStr}
-		k.Guild.Set(ctx, guildID, guild)
+		require.NoError(t, k.Guild.Set(ctx, guildID, guild))
 
 		profile, _ := k.MemberProfile.Get(ctx, officerStr)
 		profile.GuildId = guildID
-		k.MemberProfile.Set(ctx, officerStr, profile)
+		require.NoError(t, k.MemberProfile.Set(ctx, officerStr, profile))
 
 		membership := types.GuildMembership{
 			Member:  officerStr,
 			GuildId: guildID,
 		}
-		k.GuildMembership.Set(ctx, officerStr, membership)
+		require.NoError(t, k.GuildMembership.Set(ctx, officerStr, membership))
 
 		_, err := ms.LeaveGuild(ctx, &types.MsgLeaveGuild{
 			Creator: officerStr,
@@ -191,18 +191,18 @@ func TestMsgServerLeaveGuild(t *testing.T) {
 		// Set founder as in guild
 		founderProfile, _ := k.MemberProfile.Get(ctx, founderStr)
 		founderProfile.GuildId = guildID
-		k.MemberProfile.Set(ctx, founderStr, founderProfile)
+		require.NoError(t, k.MemberProfile.Set(ctx, founderStr, founderProfile))
 
 		// Add member to guild (so we have 2 members - founder + 1)
 		memberProfile, _ := k.MemberProfile.Get(ctx, memberStr)
 		memberProfile.GuildId = guildID
-		k.MemberProfile.Set(ctx, memberStr, memberProfile)
+		require.NoError(t, k.MemberProfile.Set(ctx, memberStr, memberProfile))
 
 		membership := types.GuildMembership{
 			Member:  memberStr,
 			GuildId: guildID,
 		}
-		k.GuildMembership.Set(ctx, memberStr, membership)
+		require.NoError(t, k.GuildMembership.Set(ctx, memberStr, membership))
 
 		// Member leaves - now guild has 1 member (below min of 3)
 		_, err := ms.LeaveGuild(ctx, &types.MsgLeaveGuild{

@@ -27,7 +27,7 @@ var (
 	ErrSelfStake             = errors.Register(ModuleName, 1121, "contributor cannot stake on own contribution")
 	ErrStakeAmountTooLow     = errors.Register(ModuleName, 1122, "stake amount below minimum")
 	ErrStakeExceedsThreshold = errors.Register(ModuleName, 1123, "stake would exceed tranche threshold")
-	ErrWithdrawalNotAllowed  = errors.Register(ModuleName, 1124, "withdrawal not allowed during verification or dispute")
+	ErrWithdrawalNotAllowed  = errors.Register(ModuleName, 1124, "withdrawal not allowed in the tranche's current status")
 
 	// Vote errors
 	ErrSelfVote             = errors.Register(ModuleName, 1130, "contributor cannot vote on own contribution")
@@ -58,4 +58,14 @@ var (
 	// Cancel errors
 	ErrCannotCancelBacked = errors.Register(ModuleName, 1170, "contributor cannot cancel after a tranche has been backed or beyond")
 	ErrInvalidStatus      = errors.Register(ModuleName, 1171, "contribution is in an invalid status for this operation")
+
+	// Council-routed msgs: the recorded initiator must be an Operations
+	// Committee member (the proposal itself is the Commons Council's).
+	ErrInvalidProposer = errors.Register(ModuleName, 1172, "proposer must be a Commons Operations Committee member")
+	ErrReasonRequired  = errors.Register(ModuleName, 1173, "a reason is required for an IMPROVE or REJECT verdict")
+	ErrEmptyReveal     = errors.Register(ModuleName, 1174, "code_uri and commit_hash are required to reveal a tranche")
+	// Every tranche must stay fillable: no threshold below min_stake_amount
+	// and no stake that leaves a remainder below it.
+	ErrTrancheBelowMinStake      = errors.Register(ModuleName, 1175, "tranche stake threshold is below min_stake_amount")
+	ErrStakeLeavesUnfillableRest = errors.Register(ModuleName, 1176, "stake would leave a tranche remainder below min_stake_amount")
 )

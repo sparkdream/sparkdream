@@ -8,6 +8,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
 	"sparkdream/x/artifact/types"
+	commontypes "sparkdream/x/common/types"
 )
 
 // AcceptMedia moves a proposal into the token's accepted media versions and
@@ -35,14 +36,14 @@ func (k msgServer) AcceptMedia(ctx context.Context, msg *types.MsgAcceptMedia) (
 	if err != nil {
 		return nil, errorsmod.Wrapf(types.ErrMediaProposalNotFound, "%d/%d #%d", t.ClassId, t.Id, msg.ProposalId)
 	}
-	if uint32(len(t.MediaVersions)) >= k.GetParams(ctx).MaxMediaVersionsPerToken {
+	if commontypes.Saturate[uint32](len(t.MediaVersions)) >= k.GetParams(ctx).MaxMediaVersionsPerToken {
 		return nil, types.ErrTooManyMediaVersions
 	}
 	if err := k.MediaProposals.Remove(ctx, key); err != nil {
 		return nil, err
 	}
 	t.MediaVersions = append(t.MediaVersions, mp.Metadata)
-	version := uint32(len(t.MediaVersions))
+	version := commontypes.Saturate[uint32](len(t.MediaVersions))
 	if msg.Display {
 		t.DisplayedVersion = version
 	}

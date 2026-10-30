@@ -25,7 +25,7 @@ func TestSponsorCollection(t *testing.T) {
 		{
 			name: "success: member sponsors",
 			setup: func(f *testFixture) uint64 {
-				collID := f.createPendingCollection(t) // owned by nonMember
+				collID := f.createEndorsedCollection(t) // owned by nonMember
 				_, err := f.msgServer.RequestSponsorship(f.ctx, &types.MsgRequestSponsorship{
 					Creator:      f.nonMember,
 					CollectionId: collID,
@@ -55,7 +55,7 @@ func TestSponsorCollection(t *testing.T) {
 		{
 			name: "error: trust level too low",
 			setup: func(f *testFixture) uint64 {
-				collID := f.createPendingCollection(t)
+				collID := f.createEndorsedCollection(t)
 				_, err := f.msgServer.RequestSponsorship(f.ctx, &types.MsgRequestSponsorship{
 					Creator:      f.nonMember,
 					CollectionId: collID,
@@ -83,7 +83,7 @@ func TestSponsorCollection(t *testing.T) {
 		{
 			name: "error: owner cannot self-sponsor",
 			setup: func(f *testFixture) uint64 {
-				collID := f.createPendingCollection(t) // owned by nonMember
+				collID := f.createEndorsedCollection(t) // owned by nonMember
 				_, err := f.msgServer.RequestSponsorship(f.ctx, &types.MsgRequestSponsorship{
 					Creator:      f.nonMember,
 					CollectionId: collID,
@@ -111,7 +111,7 @@ func TestSponsorCollection(t *testing.T) {
 		{
 			name: "error: no pending sponsorship request",
 			setup: func(f *testFixture) uint64 {
-				return f.createPendingCollection(t) // no sponsorship request
+				return f.createEndorsedCollection(t) // no sponsorship request
 			},
 			msg: func(f *testFixture, collID uint64) *types.MsgSponsorCollection {
 				return &types.MsgSponsorCollection{

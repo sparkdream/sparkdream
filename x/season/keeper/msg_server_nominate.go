@@ -2,12 +2,14 @@ package keeper
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
-	repkeeper "sparkdream/x/rep/keeper"
+	commontypes "sparkdream/x/common/types"
 	reptypes "sparkdream/x/rep/types"
 	"sparkdream/x/season/types"
 
+	"cosmossdk.io/collections"
 	errorsmod "cosmossdk.io/errors"
 	"cosmossdk.io/math"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -36,11 +38,11 @@ func (k msgServer) Nominate(ctx context.Context, msg *types.MsgNominate) (*types
 	}
 
 	// 2. Check creator is a member with sufficient trust level
-	if k.repKeeper == nil {
+	if k.late.repKeeper == nil {
 		return nil, errorsmod.Wrap(types.ErrNotMember, "reputation module not available")
 	}
 	creatorAddr, _ := sdk.AccAddressFromBech32(msg.Creator)
-	if !k.repKeeper.IsMember(ctx, creatorAddr) {
+	if !k.late.repKeeper.IsActiveMember(ctx, creatorAddr) {
 		return nil, types.ErrNotMember
 	}
 
@@ -49,57 +51,59 @@ func (k msgServer) Nominate(ctx context.Context, msg *types.MsgNominate) (*types
 		return nil, errorsmod.Wrap(err, "failed to get params")
 	}
 
-	trustLevel, err := k.repKeeper.GetTrustLevel(ctx, creatorAddr)
+	trustLevel, err := k.late.repKeeper.GetTrustLevel(ctx, creatorAddr)
 	if err != nil {
 		return nil, errorsmod.Wrap(err, "failed to get trust level")
 	}
-	if trustLevel < reptypes.TrustLevel(params.NominationMinTrustLevel) {
+	if trustLevel < commontypes.Saturate[reptypes.TrustLevel](params.NominationMinTrustLevel) {
 		return nil, errorsmod.Wrapf(types.ErrInsufficientTrustLevel,
 			"trust level %d < required %d", trustLevel, params.NominationMinTrustLevel)
 	}
 
 	// 3. Validate rationale length
-	if uint32(len(msg.Rationale)) > params.NominationRationaleMaxLength {
+	if commontypes.Saturate[uint32](len(msg.Rationale)) > params.NominationRationaleMaxLength {
 		return nil, errorsmod.Wrapf(types.ErrRationaleTooLong,
 			"rationale length %d exceeds max %d", len(msg.Rationale), params.NominationRationaleMaxLength)
 	}
 
-	// 4. Validate content_ref format
-	if err := k.ValidateContentRef(ctx, msg.ContentRef); err != nil {
+	// 4. Validate content_ref format (canonical ids, content exists)
+	author, err := k.resolveContentRef(ctx, msg.ContentRef)
+	if err != nil {
 		return nil, err
+	}
+	// The content's creator must be an active member (spec "Content
+	// eligibility"; SEA-08).
+	if author != "" {
+		authorAddr, aErr := k.addressCodec.StringToBytes(author)
+		if aErr != nil {
+			return nil, errorsmod.Wrapf(types.ErrInvalidContentRef, "content author %s is not a valid address", author)
+		}
+		member, mErr := k.late.repKeeper.GetMember(ctx, authorAddr)
+		if mErr != nil || member.Address == "" || member.Status != reptypes.MemberStatus_MEMBER_STATUS_ACTIVE {
+			return nil, errorsmod.Wrapf(types.ErrNotMember, "content author %s is not an active member", author)
+		}
 	}
 
 	// 5. Count existing nominations by this creator for this season; reject if >= MaxNominationsPerMember
 	// 6. Check no duplicate content_ref for this season
 	//
-	// NOTE: The Nomination collection is keyed by auto-increment ID (uint64), not by season,
-	// so we cannot use a prefix range scan to filter by season. Once both checks are satisfied
-	// (duplicate found OR creator count exceeds max), we stop early.
-	var creatorNomCount uint64
-	var maxReached bool
-	creatorAliases := k.recentAddressesOf(ctx, msg.Creator)
-	err = k.Nomination.Walk(ctx, nil, func(id uint64, nom types.Nomination) (bool, error) {
-		if nom.Season != season.Number {
-			return false, nil
-		}
-		if repkeeper.AddressesMatch(creatorAliases, nom.Nominator) {
-			creatorNomCount++
-			if creatorNomCount >= params.MaxNominationsPerMember {
-				maxReached = true
-			}
-		}
-		if nom.ContentRef == msg.ContentRef {
-			return true, types.ErrAlreadyNominated
-		}
-		// Stop early if we've confirmed max is reached and no duplicate found yet
-		// (we still need to check all remaining for duplicates, so only stop if max reached
-		// and we can't find more info — but we must continue to check for content_ref dups)
-		return false, nil
-	})
-	if err != nil {
+	// Both are point reads of the (season, ref) set and the per-(season,
+	// nominator) counter, summed over the creator's recent addresses
+	// (SEA-20): no walk of the season's nominations.
+	if dup, err := k.NominationsByRef.Has(ctx, collections.Join(season.Number, msg.ContentRef)); err != nil {
 		return nil, err
+	} else if dup {
+		return nil, types.ErrAlreadyNominated
 	}
-	if maxReached {
+	var creatorNomCount uint64
+	for _, alias := range k.recentAddressesOf(ctx, msg.Creator) {
+		n, err := k.NominationCountBy.Get(ctx, collections.Join(season.Number, alias))
+		if err != nil && !errors.Is(err, collections.ErrNotFound) {
+			return nil, err
+		}
+		creatorNomCount += n
+	}
+	if creatorNomCount >= params.MaxNominationsPerMember {
 		return nil, errorsmod.Wrapf(types.ErrMaxNominationsReached,
 			"already have %d nominations (max %d)", creatorNomCount, params.MaxNominationsPerMember)
 	}
@@ -123,11 +127,15 @@ func (k msgServer) Nominate(ctx context.Context, msg *types.MsgNominate) (*types
 		Conviction:     math.LegacyZeroDec(),
 		RewardAmount:   math.LegacyZeroDec(),
 		Rewarded:       false,
+		Author:         author,
 	}
 
 	// 10. Save to Nomination collection
-	if err := k.Nomination.Set(ctx, nominationID, nomination); err != nil {
+	if err := k.SetNomination(ctx, nomination); err != nil {
 		return nil, errorsmod.Wrap(err, "failed to save nomination")
+	}
+	if err := k.indexNewNomination(ctx, nomination); err != nil {
+		return nil, errorsmod.Wrap(err, "failed to index nomination")
 	}
 
 	// 11. Emit "nomination_created" event

@@ -27,14 +27,14 @@ func TestCreateInterimWork(t *testing.T) {
 
 	// Create committee member for testing
 	committeeAddr := sdk.AccAddress([]byte("committee"))
-	k.Member.Set(ctx, committeeAddr.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, committeeAddr.String(), types.Member{
 		Address:          committeeAddr.String(),
 		DreamBalance:     PtrInt(math.ZeroInt()),
 		StakedDream:      PtrInt(math.ZeroInt()),
 		LifetimeEarned:   PtrInt(math.ZeroInt()),
 		LifetimeBurned:   PtrInt(math.ZeroInt()),
 		ReputationScores: map[string]string{"audit": "50.0"},
-	})
+	}))
 
 	// Test creating a simple interim
 	assignees := []string{committeeAddr.String()}
@@ -76,14 +76,14 @@ func TestCreateInterimWithSoloExpertBonus(t *testing.T) {
 
 	// Create committee member
 	committeeAddr := sdk.AccAddress([]byte("committee"))
-	k.Member.Set(ctx, committeeAddr.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, committeeAddr.String(), types.Member{
 		Address:          committeeAddr.String(),
 		DreamBalance:     PtrInt(math.ZeroInt()),
 		StakedDream:      PtrInt(math.ZeroInt()),
 		LifetimeEarned:   PtrInt(math.ZeroInt()),
 		LifetimeBurned:   PtrInt(math.ZeroInt()),
 		ReputationScores: map[string]string{"audit": "100.0"},
-	})
+	}))
 
 	// Test solo expert interim (should get bonus)
 	assignees := []string{committeeAddr.String()}
@@ -120,14 +120,14 @@ func TestCreateInterimWithMultipleAssignees(t *testing.T) {
 	assignee2 := sdk.AccAddress([]byte("assignee2"))
 
 	for _, addr := range []sdk.AccAddress{assignee1, assignee2} {
-		k.Member.Set(ctx, addr.String(), types.Member{
+		require.NoError(t, k.Member.Set(ctx, addr.String(), types.Member{
 			Address:          addr.String(),
 			DreamBalance:     PtrInt(math.ZeroInt()),
 			StakedDream:      PtrInt(math.ZeroInt()),
 			LifetimeEarned:   PtrInt(math.ZeroInt()),
 			LifetimeBurned:   PtrInt(math.ZeroInt()),
 			ReputationScores: map[string]string{"audit": "50.0"},
-		})
+		}))
 	}
 
 	// Create interim with multiple assignees
@@ -158,14 +158,14 @@ func TestGetInterim(t *testing.T) {
 
 	// Create committee member
 	committeeAddr := sdk.AccAddress([]byte("committee"))
-	k.Member.Set(ctx, committeeAddr.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, committeeAddr.String(), types.Member{
 		Address:          committeeAddr.String(),
 		DreamBalance:     PtrInt(math.ZeroInt()),
 		StakedDream:      PtrInt(math.ZeroInt()),
 		LifetimeEarned:   PtrInt(math.ZeroInt()),
 		LifetimeBurned:   PtrInt(math.ZeroInt()),
 		ReputationScores: map[string]string{"audit": "50.0"},
-	})
+	}))
 
 	// Create an interim
 	assignees := []string{committeeAddr.String()}
@@ -202,26 +202,26 @@ func TestAssignInterimToMember(t *testing.T) {
 	assignee := sdk.AccAddress([]byte("assignee"))
 
 	for _, addr := range []sdk.AccAddress{committeeAddr, assignee} {
-		k.Member.Set(ctx, addr.String(), types.Member{
+		require.NoError(t, k.Member.Set(ctx, addr.String(), types.Member{
 			Address:          addr.String(),
 			DreamBalance:     PtrInt(math.ZeroInt()),
 			StakedDream:      PtrInt(math.ZeroInt()),
 			LifetimeEarned:   PtrInt(math.ZeroInt()),
 			LifetimeBurned:   PtrInt(math.ZeroInt()),
 			ReputationScores: map[string]string{"audit": "50.0"},
-		})
+		}))
 	}
 
 	// Create an interim without assignees
 	committeeMember := sdk.AccAddress([]byte("comm_member"))
-	k.Member.Set(ctx, committeeMember.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, committeeMember.String(), types.Member{
 		Address:          committeeMember.String(),
 		DreamBalance:     PtrInt(math.ZeroInt()),
 		StakedDream:      PtrInt(math.ZeroInt()),
 		LifetimeEarned:   PtrInt(math.ZeroInt()),
 		LifetimeBurned:   PtrInt(math.ZeroInt()),
 		ReputationScores: map[string]string{"audit": "50.0"},
-	})
+	}))
 
 	interimID, err := k.CreateInterimWork(
 		ctx,
@@ -238,7 +238,7 @@ func TestAssignInterimToMember(t *testing.T) {
 	// Remove initial assignee by directly updating
 	interim, _ := k.GetInterim(ctx, interimID)
 	interim.Assignees = []string{}
-	k.UpdateInterim(ctx, interim)
+	require.NoError(t, k.UpdateInterim(ctx, interim))
 
 	// Test assigning to a member
 	err = k.AssignInterimToMember(ctx, interimID, assignee)
@@ -258,14 +258,14 @@ func TestAssignInterimToMember_NotPending(t *testing.T) {
 
 	// Create committee member
 	committeeAddr := sdk.AccAddress([]byte("committee"))
-	k.Member.Set(ctx, committeeAddr.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, committeeAddr.String(), types.Member{
 		Address:          committeeAddr.String(),
 		DreamBalance:     PtrInt(math.ZeroInt()),
 		StakedDream:      PtrInt(math.ZeroInt()),
 		LifetimeEarned:   PtrInt(math.ZeroInt()),
 		LifetimeBurned:   PtrInt(math.ZeroInt()),
 		ReputationScores: map[string]string{"audit": "50.0"},
-	})
+	}))
 
 	// Create and mark interim as in progress
 	assignees := []string{committeeAddr.String()}
@@ -284,18 +284,18 @@ func TestAssignInterimToMember_NotPending(t *testing.T) {
 	// Mark as in progress
 	interim, _ := k.GetInterim(ctx, interimID)
 	interim.Status = types.InterimStatus_INTERIM_STATUS_IN_PROGRESS
-	k.UpdateInterim(ctx, interim)
+	require.NoError(t, k.UpdateInterim(ctx, interim))
 
 	// Try to assign - should fail
 	newAssignee := sdk.AccAddress([]byte("new_assignee"))
-	k.Member.Set(ctx, newAssignee.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, newAssignee.String(), types.Member{
 		Address:          newAssignee.String(),
 		DreamBalance:     PtrInt(math.ZeroInt()),
 		StakedDream:      PtrInt(math.ZeroInt()),
 		LifetimeEarned:   PtrInt(math.ZeroInt()),
 		LifetimeBurned:   PtrInt(math.ZeroInt()),
 		ReputationScores: map[string]string{"audit": "50.0"},
-	})
+	}))
 
 	err = k.AssignInterimToMember(ctx, interimID, newAssignee)
 	require.Error(t, err)
@@ -309,14 +309,14 @@ func TestAssignInterimToMember_AlreadyAssigned(t *testing.T) {
 
 	// Create committee member
 	committeeAddr := sdk.AccAddress([]byte("committee"))
-	k.Member.Set(ctx, committeeAddr.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, committeeAddr.String(), types.Member{
 		Address:          committeeAddr.String(),
 		DreamBalance:     PtrInt(math.ZeroInt()),
 		StakedDream:      PtrInt(math.ZeroInt()),
 		LifetimeEarned:   PtrInt(math.ZeroInt()),
 		LifetimeBurned:   PtrInt(math.ZeroInt()),
 		ReputationScores: map[string]string{"audit": "50.0"},
-	})
+	}))
 
 	// Create interim
 	assignees := []string{committeeAddr.String()}
@@ -350,25 +350,25 @@ func TestAssignInterimToMember_NotAMember(t *testing.T) {
 
 	// Create committee member
 	committeeAddr := sdk.AccAddress([]byte("committee"))
-	k.Member.Set(ctx, committeeAddr.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, committeeAddr.String(), types.Member{
 		Address:          committeeAddr.String(),
 		DreamBalance:     PtrInt(math.ZeroInt()),
 		StakedDream:      PtrInt(math.ZeroInt()),
 		LifetimeEarned:   PtrInt(math.ZeroInt()),
 		LifetimeBurned:   PtrInt(math.ZeroInt()),
 		ReputationScores: map[string]string{"audit": "50.0"},
-	})
+	}))
 
 	// Create interim without assignees
 	committeeMember := sdk.AccAddress([]byte("comm_member"))
-	k.Member.Set(ctx, committeeMember.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, committeeMember.String(), types.Member{
 		Address:          committeeMember.String(),
 		DreamBalance:     PtrInt(math.ZeroInt()),
 		StakedDream:      PtrInt(math.ZeroInt()),
 		LifetimeEarned:   PtrInt(math.ZeroInt()),
 		LifetimeBurned:   PtrInt(math.ZeroInt()),
 		ReputationScores: map[string]string{"audit": "50.0"},
-	})
+	}))
 
 	interimID, err := k.CreateInterimWork(
 		ctx,
@@ -385,7 +385,7 @@ func TestAssignInterimToMember_NotAMember(t *testing.T) {
 	// Remove initial assignee
 	interim, _ := k.GetInterim(ctx, interimID)
 	interim.Assignees = []string{}
-	k.UpdateInterim(ctx, interim)
+	require.NoError(t, k.UpdateInterim(ctx, interim))
 
 	// Try to assign non-member - should fail
 	nonMember := sdk.AccAddress([]byte("non_member"))
@@ -404,14 +404,14 @@ func TestSubmitInterimWork(t *testing.T) {
 	assignee := sdk.AccAddress([]byte("assignee"))
 
 	for _, addr := range []sdk.AccAddress{committeeAddr, assignee} {
-		k.Member.Set(ctx, addr.String(), types.Member{
+		require.NoError(t, k.Member.Set(ctx, addr.String(), types.Member{
 			Address:          addr.String(),
 			DreamBalance:     PtrInt(math.ZeroInt()),
 			StakedDream:      PtrInt(math.ZeroInt()),
 			LifetimeEarned:   PtrInt(math.ZeroInt()),
 			LifetimeBurned:   PtrInt(math.ZeroInt()),
 			ReputationScores: map[string]string{"audit": "50.0"},
-		})
+		}))
 	}
 
 	// Create interim with assignee
@@ -452,14 +452,14 @@ func TestSubmitInterimWork_NotAssignee(t *testing.T) {
 	nonAssignee := sdk.AccAddress([]byte("non_assignee"))
 
 	for _, addr := range []sdk.AccAddress{committeeAddr, assignee, nonAssignee} {
-		k.Member.Set(ctx, addr.String(), types.Member{
+		require.NoError(t, k.Member.Set(ctx, addr.String(), types.Member{
 			Address:          addr.String(),
 			DreamBalance:     PtrInt(math.ZeroInt()),
 			StakedDream:      PtrInt(math.ZeroInt()),
 			LifetimeEarned:   PtrInt(math.ZeroInt()),
 			LifetimeBurned:   PtrInt(math.ZeroInt()),
 			ReputationScores: map[string]string{"audit": "50.0"},
-		})
+		}))
 	}
 
 	// Create interim with assignee
@@ -492,14 +492,14 @@ func TestSubmitInterimWork_InvalidStatus(t *testing.T) {
 	assignee := sdk.AccAddress([]byte("assignee"))
 
 	for _, addr := range []sdk.AccAddress{committeeAddr, assignee} {
-		k.Member.Set(ctx, addr.String(), types.Member{
+		require.NoError(t, k.Member.Set(ctx, addr.String(), types.Member{
 			Address:          addr.String(),
 			DreamBalance:     PtrInt(math.ZeroInt()),
 			StakedDream:      PtrInt(math.ZeroInt()),
 			LifetimeEarned:   PtrInt(math.ZeroInt()),
 			LifetimeBurned:   PtrInt(math.ZeroInt()),
 			ReputationScores: map[string]string{"audit": "50.0"},
-		})
+		}))
 	}
 
 	// Create interim with assignee
@@ -519,7 +519,7 @@ func TestSubmitInterimWork_InvalidStatus(t *testing.T) {
 	// Mark interim as expired
 	interim, _ := k.GetInterim(ctx, interimID)
 	interim.Status = types.InterimStatus_INTERIM_STATUS_EXPIRED
-	k.UpdateInterim(ctx, interim)
+	require.NoError(t, k.UpdateInterim(ctx, interim))
 
 	// Try to submit work on expired interim
 	err = k.SubmitInterimWork(ctx, interimID, assignee, "uri", "comments")
@@ -538,14 +538,14 @@ func TestApproveInterim_Approved(t *testing.T) {
 	approver := sdk.AccAddress([]byte("approver"))
 
 	for _, addr := range []sdk.AccAddress{committeeAddr, assignee, approver} {
-		k.Member.Set(ctx, addr.String(), types.Member{
+		require.NoError(t, k.Member.Set(ctx, addr.String(), types.Member{
 			Address:          addr.String(),
 			DreamBalance:     PtrInt(math.ZeroInt()),
 			StakedDream:      PtrInt(math.ZeroInt()),
 			LifetimeEarned:   PtrInt(math.ZeroInt()),
 			LifetimeBurned:   PtrInt(math.ZeroInt()),
 			ReputationScores: map[string]string{"audit": "50.0"},
-		})
+		}))
 	}
 
 	// Create interim with assignee
@@ -596,14 +596,14 @@ func TestApproveInterim_Rejected(t *testing.T) {
 	approver := sdk.AccAddress([]byte("approver"))
 
 	for _, addr := range []sdk.AccAddress{committeeAddr, assignee, approver} {
-		k.Member.Set(ctx, addr.String(), types.Member{
+		require.NoError(t, k.Member.Set(ctx, addr.String(), types.Member{
 			Address:          addr.String(),
 			DreamBalance:     PtrInt(math.ZeroInt()),
 			StakedDream:      PtrInt(math.ZeroInt()),
 			LifetimeEarned:   PtrInt(math.ZeroInt()),
 			LifetimeBurned:   PtrInt(math.ZeroInt()),
 			ReputationScores: map[string]string{"audit": "50.0"},
-		})
+		}))
 	}
 
 	// Create interim with assignee
@@ -653,14 +653,14 @@ func TestApproveInterim_MultipleAssignees(t *testing.T) {
 	approver := sdk.AccAddress([]byte("approver"))
 
 	for _, addr := range []sdk.AccAddress{committeeAddr, assignee1, assignee2, approver} {
-		k.Member.Set(ctx, addr.String(), types.Member{
+		require.NoError(t, k.Member.Set(ctx, addr.String(), types.Member{
 			Address:          addr.String(),
 			DreamBalance:     PtrInt(math.ZeroInt()),
 			StakedDream:      PtrInt(math.ZeroInt()),
 			LifetimeEarned:   PtrInt(math.ZeroInt()),
 			LifetimeBurned:   PtrInt(math.ZeroInt()),
 			ReputationScores: map[string]string{"audit": "50.0"},
-		})
+		}))
 	}
 
 	// Create interim with multiple assignees
@@ -703,14 +703,14 @@ func TestCompleteInterimDirectly(t *testing.T) {
 	assignee := sdk.AccAddress([]byte("assignee"))
 
 	for _, addr := range []sdk.AccAddress{committeeAddr, assignee} {
-		k.Member.Set(ctx, addr.String(), types.Member{
+		require.NoError(t, k.Member.Set(ctx, addr.String(), types.Member{
 			Address:          addr.String(),
 			DreamBalance:     PtrInt(math.ZeroInt()),
 			StakedDream:      PtrInt(math.ZeroInt()),
 			LifetimeEarned:   PtrInt(math.ZeroInt()),
 			LifetimeBurned:   PtrInt(math.ZeroInt()),
 			ReputationScores: map[string]string{"audit": "50.0"},
-		})
+		}))
 	}
 
 	// Create interim with assignee
@@ -756,14 +756,14 @@ func TestExpireInterim(t *testing.T) {
 
 	// Create committee member
 	committeeAddr := sdk.AccAddress([]byte("committee"))
-	k.Member.Set(ctx, committeeAddr.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, committeeAddr.String(), types.Member{
 		Address:          committeeAddr.String(),
 		DreamBalance:     PtrInt(math.ZeroInt()),
 		StakedDream:      PtrInt(math.ZeroInt()),
 		LifetimeEarned:   PtrInt(math.ZeroInt()),
 		LifetimeBurned:   PtrInt(math.ZeroInt()),
 		ReputationScores: map[string]string{"audit": "50.0"},
-	})
+	}))
 
 	// Create interim
 	assignees := []string{committeeAddr.String()}
@@ -832,9 +832,10 @@ func TestGetInterimBudget(t *testing.T) {
 			expectedBudget: params.ExpertComplexityBudget, // 1000 DREAM = 1000000000 uDREAM
 		},
 		{
-			name:           "Epic",
-			complexity:     types.InterimComplexity_INTERIM_COMPLEXITY_EPIC,
-			expectedBudget: math.NewInt(2500), // Epic uses hardcoded fallback (no param yet)
+			name:       "Epic",
+			complexity: types.InterimComplexity_INTERIM_COMPLEXITY_EPIC,
+			// REP-E-12: 2.5x the expert budget (2,500 DREAM), not 2500 micro-DREAM.
+			expectedBudget: params.ExpertComplexityBudget.MulRaw(5).QuoRaw(2),
 		},
 	}
 
@@ -909,14 +910,14 @@ func TestCreateInterimAllTypes(t *testing.T) {
 
 	// Create committee member
 	committeeAddr := sdk.AccAddress([]byte("committee"))
-	k.Member.Set(ctx, committeeAddr.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, committeeAddr.String(), types.Member{
 		Address:          committeeAddr.String(),
 		DreamBalance:     PtrInt(math.ZeroInt()),
 		StakedDream:      PtrInt(math.ZeroInt()),
 		LifetimeEarned:   PtrInt(math.ZeroInt()),
 		LifetimeBurned:   PtrInt(math.ZeroInt()),
 		ReputationScores: map[string]string{"audit": "50.0"},
-	})
+	}))
 
 	assignees := []string{committeeAddr.String()}
 
@@ -971,26 +972,26 @@ func TestApproveInterim_EmptyAssignees(t *testing.T) {
 	approver := sdk.AccAddress([]byte("approver"))
 
 	for _, addr := range []sdk.AccAddress{committeeAddr, approver} {
-		k.Member.Set(ctx, addr.String(), types.Member{
+		require.NoError(t, k.Member.Set(ctx, addr.String(), types.Member{
 			Address:          addr.String(),
 			DreamBalance:     PtrInt(math.ZeroInt()),
 			StakedDream:      PtrInt(math.ZeroInt()),
 			LifetimeEarned:   PtrInt(math.ZeroInt()),
 			LifetimeBurned:   PtrInt(math.ZeroInt()),
 			ReputationScores: map[string]string{"audit": "50.0"},
-		})
+		}))
 	}
 
 	// Create interim with assignee
 	assignee := sdk.AccAddress([]byte("assignee"))
-	k.Member.Set(ctx, assignee.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, assignee.String(), types.Member{
 		Address:          assignee.String(),
 		DreamBalance:     PtrInt(math.ZeroInt()),
 		StakedDream:      PtrInt(math.ZeroInt()),
 		LifetimeEarned:   PtrInt(math.ZeroInt()),
 		LifetimeBurned:   PtrInt(math.ZeroInt()),
 		ReputationScores: map[string]string{"audit": "50.0"},
-	})
+	}))
 
 	assignees := []string{assignee.String()}
 	interimID, err := k.CreateInterimWork(
@@ -1033,14 +1034,14 @@ func TestCompleteInterimDirectly_EmptyAssignees(t *testing.T) {
 	assignee := sdk.AccAddress([]byte("assignee"))
 
 	for _, addr := range []sdk.AccAddress{committeeAddr, assignee} {
-		k.Member.Set(ctx, addr.String(), types.Member{
+		require.NoError(t, k.Member.Set(ctx, addr.String(), types.Member{
 			Address:          addr.String(),
 			DreamBalance:     PtrInt(math.ZeroInt()),
 			StakedDream:      PtrInt(math.ZeroInt()),
 			LifetimeEarned:   PtrInt(math.ZeroInt()),
 			LifetimeBurned:   PtrInt(math.ZeroInt()),
 			ReputationScores: map[string]string{"audit": "50.0"},
-		})
+		}))
 	}
 
 	// Create interim with assignee
@@ -1088,14 +1089,14 @@ func TestCreateInterimWork_EmitsEvent(t *testing.T) {
 
 	// Create committee member for testing
 	committeeAddr := sdk.AccAddress([]byte("committee"))
-	k.Member.Set(ctx, committeeAddr.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, committeeAddr.String(), types.Member{
 		Address:          committeeAddr.String(),
 		DreamBalance:     PtrInt(math.ZeroInt()),
 		StakedDream:      PtrInt(math.ZeroInt()),
 		LifetimeEarned:   PtrInt(math.ZeroInt()),
 		LifetimeBurned:   PtrInt(math.ZeroInt()),
 		ReputationScores: map[string]string{"audit": "50.0"},
-	})
+	}))
 
 	assignees := []string{committeeAddr.String()}
 	interimID, err := k.CreateInterimWork(
@@ -1130,14 +1131,14 @@ func TestUpdateInterim(t *testing.T) {
 
 	// Create committee member
 	committeeAddr := sdk.AccAddress([]byte("committee"))
-	k.Member.Set(ctx, committeeAddr.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, committeeAddr.String(), types.Member{
 		Address:          committeeAddr.String(),
 		DreamBalance:     PtrInt(math.ZeroInt()),
 		StakedDream:      PtrInt(math.ZeroInt()),
 		LifetimeEarned:   PtrInt(math.ZeroInt()),
 		LifetimeBurned:   PtrInt(math.ZeroInt()),
 		ReputationScores: map[string]string{"audit": "50.0"},
-	})
+	}))
 
 	// Create interim
 	assignees := []string{committeeAddr.String()}
@@ -1183,14 +1184,14 @@ func TestAssignInterimToMember_EmitsEvent(t *testing.T) {
 	assignee := sdk.AccAddress([]byte("assignee"))
 
 	for _, addr := range []sdk.AccAddress{committeeAddr, assignee} {
-		k.Member.Set(ctx, addr.String(), types.Member{
+		require.NoError(t, k.Member.Set(ctx, addr.String(), types.Member{
 			Address:          addr.String(),
 			DreamBalance:     PtrInt(math.ZeroInt()),
 			StakedDream:      PtrInt(math.ZeroInt()),
 			LifetimeEarned:   PtrInt(math.ZeroInt()),
 			LifetimeBurned:   PtrInt(math.ZeroInt()),
 			ReputationScores: map[string]string{"audit": "50.0"},
-		})
+		}))
 	}
 
 	// Create interim with initial assignee then clear it
@@ -1210,7 +1211,7 @@ func TestAssignInterimToMember_EmitsEvent(t *testing.T) {
 	interim, _ := k.GetInterim(ctx, interimID)
 	interim.Assignees = []string{}
 	interim.Status = types.InterimStatus_INTERIM_STATUS_PENDING
-	k.UpdateInterim(ctx, interim)
+	require.NoError(t, k.UpdateInterim(ctx, interim))
 
 	// Clear previous events
 	sdkCtx := sdk.UnwrapSDKContext(ctx)
@@ -1241,14 +1242,14 @@ func TestSubmitInterimWork_EmitsEvent(t *testing.T) {
 	assignee := sdk.AccAddress([]byte("assignee"))
 
 	for _, addr := range []sdk.AccAddress{committeeAddr, assignee} {
-		k.Member.Set(ctx, addr.String(), types.Member{
+		require.NoError(t, k.Member.Set(ctx, addr.String(), types.Member{
 			Address:          addr.String(),
 			DreamBalance:     PtrInt(math.ZeroInt()),
 			StakedDream:      PtrInt(math.ZeroInt()),
 			LifetimeEarned:   PtrInt(math.ZeroInt()),
 			LifetimeBurned:   PtrInt(math.ZeroInt()),
 			ReputationScores: map[string]string{"audit": "50.0"},
-		})
+		}))
 	}
 
 	// Create interim
@@ -1295,14 +1296,14 @@ func TestApproveInterim_EmitsEvent(t *testing.T) {
 	approver := sdk.AccAddress([]byte("approver"))
 
 	for _, addr := range []sdk.AccAddress{committeeAddr, assignee, approver} {
-		k.Member.Set(ctx, addr.String(), types.Member{
+		require.NoError(t, k.Member.Set(ctx, addr.String(), types.Member{
 			Address:          addr.String(),
 			DreamBalance:     PtrInt(math.ZeroInt()),
 			StakedDream:      PtrInt(math.ZeroInt()),
 			LifetimeEarned:   PtrInt(math.ZeroInt()),
 			LifetimeBurned:   PtrInt(math.ZeroInt()),
 			ReputationScores: map[string]string{"audit": "50.0"},
-		})
+		}))
 	}
 
 	// Create interim
@@ -1391,14 +1392,14 @@ func TestApproveInterim_UnauthorizedApprover(t *testing.T) {
 	unauthorizedApprover := sdk.AccAddress([]byte("unauthorized"))
 
 	for _, addr := range []sdk.AccAddress{committeeAddr, assignee, unauthorizedApprover} {
-		testKeeper.Member.Set(testCtx, addr.String(), types.Member{
+		require.NoError(t, testKeeper.Member.Set(testCtx, addr.String(), types.Member{
 			Address:          addr.String(),
 			DreamBalance:     PtrInt(math.ZeroInt()),
 			StakedDream:      PtrInt(math.ZeroInt()),
 			LifetimeEarned:   PtrInt(math.ZeroInt()),
 			LifetimeBurned:   PtrInt(math.ZeroInt()),
 			ReputationScores: map[string]string{"audit": "50.0"},
-		})
+		}))
 	}
 
 	// Create interim
@@ -1432,14 +1433,14 @@ func TestCreateInterimWork_MultipleExpertAssignees_NoBonus(t *testing.T) {
 	expert2 := sdk.AccAddress([]byte("expert2"))
 
 	for _, addr := range []sdk.AccAddress{expert1, expert2} {
-		k.Member.Set(ctx, addr.String(), types.Member{
+		require.NoError(t, k.Member.Set(ctx, addr.String(), types.Member{
 			Address:          addr.String(),
 			DreamBalance:     PtrInt(math.ZeroInt()),
 			StakedDream:      PtrInt(math.ZeroInt()),
 			LifetimeEarned:   PtrInt(math.ZeroInt()),
 			LifetimeBurned:   PtrInt(math.ZeroInt()),
 			ReputationScores: map[string]string{"audit": "100.0"},
-		})
+		}))
 	}
 
 	// Create expert complexity interim with multiple assignees
@@ -1480,14 +1481,14 @@ func TestApproveInterim_OddBudgetDivision(t *testing.T) {
 	approver := sdk.AccAddress([]byte("approver"))
 
 	for _, addr := range []sdk.AccAddress{assignee1, assignee2, assignee3, approver} {
-		k.Member.Set(ctx, addr.String(), types.Member{
+		require.NoError(t, k.Member.Set(ctx, addr.String(), types.Member{
 			Address:          addr.String(),
 			DreamBalance:     PtrInt(math.ZeroInt()),
 			StakedDream:      PtrInt(math.ZeroInt()),
 			LifetimeEarned:   PtrInt(math.ZeroInt()),
 			LifetimeBurned:   PtrInt(math.ZeroInt()),
 			ReputationScores: map[string]string{"audit": "50.0"},
-		})
+		}))
 	}
 
 	// Create interim with 3 assignees and STANDARD budget (150)
@@ -1539,8 +1540,10 @@ func TestGetInterimBudget_UnknownComplexity(t *testing.T) {
 	unknownComplexity := types.InterimComplexity(999)
 	budget := k.GetInterimBudget(ctx, unknownComplexity)
 
-	// Should return default fallback (150)
-	require.Equal(t, math.NewInt(150).String(), budget.String())
+	// Falls back to the STANDARD budget (150 DREAM), in micro-DREAM.
+	params, err := k.Params.Get(ctx)
+	require.NoError(t, err)
+	require.Equal(t, params.StandardComplexityBudget.String(), budget.String())
 }
 
 // TestCreateInterimWork_SequentialIDs verifies ID sequencing
@@ -1551,14 +1554,14 @@ func TestCreateInterimWork_SequentialIDs(t *testing.T) {
 
 	// Create committee member
 	committeeAddr := sdk.AccAddress([]byte("committee"))
-	k.Member.Set(ctx, committeeAddr.String(), types.Member{
+	require.NoError(t, k.Member.Set(ctx, committeeAddr.String(), types.Member{
 		Address:          committeeAddr.String(),
 		DreamBalance:     PtrInt(math.ZeroInt()),
 		StakedDream:      PtrInt(math.ZeroInt()),
 		LifetimeEarned:   PtrInt(math.ZeroInt()),
 		LifetimeBurned:   PtrInt(math.ZeroInt()),
 		ReputationScores: map[string]string{"audit": "50.0"},
-	})
+	}))
 
 	assignees := []string{committeeAddr.String()}
 	deadline := sdk.UnwrapSDKContext(ctx).BlockTime().Unix() + 86400

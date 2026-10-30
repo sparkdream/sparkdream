@@ -32,7 +32,9 @@ func createNMember(keeper keeper.Keeper, ctx context.Context, n int) []types.Mem
 		items[i].Status = types.MemberStatus(i)
 		items[i].ZeroedAt = int64(i)
 		items[i].ZeroedCount = uint32(i)
-		_ = keeper.Member.Set(ctx, items[i].Address, items[i])
+		if err := keeper.Member.Set(ctx, items[i].Address, items[i]); err != nil {
+			panic(err)
+		}
 	}
 	return items
 }

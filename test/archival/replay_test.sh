@@ -49,6 +49,9 @@ free_port() {
 RPC_PORT=$(free_port); PICKED_PORTS+=("$RPC_PORT")
 P2P_PORT=$(free_port); PICKED_PORTS+=("$P2P_PORT")
 CHAIN_ID="replay-test-1"
+# Not the local "sparkdream" chain: an untagged (testparams) binary refuses to
+# start on it without this opt-in.
+export SPARKDREAM_ALLOW_TEST_BUILD=1
 TARGET_HEIGHT=15
 ARCHIVE_BATCH_SIZE=5
 

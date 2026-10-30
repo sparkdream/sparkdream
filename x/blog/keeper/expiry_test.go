@@ -3,6 +3,7 @@ package keeper_test
 import (
 	"testing"
 
+	"github.com/cosmos/cosmos-sdk/types/query"
 	"github.com/stretchr/testify/require"
 
 	"sparkdream/x/blog/keeper"
@@ -199,4 +200,49 @@ func TestExpiryIndexNilRequest(t *testing.T) {
 	_, err := qs.ListExpiringContent(f.ctx, nil)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "invalid request")
+}
+
+// BLG-04: ListExpiringContent pages with next_key, and filtered or deleted
+// entries count against a scan budget, so no page walks the whole index.
+func TestListExpiringContentPaginates(t *testing.T) {
+	f := initFixture(t)
+	ctx := f.ctx
+	k := f.keeper
+	qs := keeper.NewQueryServerImpl(k)
+	creator := "sprkdrm1afyuna8gqe55t7jztxcg0aleg0k5txep72pfan"
+
+	for i := 0; i < 25; i++ {
+		id := k.AppendPost(ctx, types.Post{Creator: creator, Title: "aurora", Body: "b", Status: types.PostStatus_POST_STATUS_ACTIVE})
+		k.AddToExpiryIndex(ctx, int64(1000+i), "post", id)
+	}
+
+	seen := map[uint64]bool{}
+	var key []byte
+	for page := 0; ; page++ {
+		require.Less(t, page, 20)
+		resp, err := qs.ListExpiringContent(ctx, &types.QueryListExpiringContentRequest{
+			Pagination: &query.PageRequest{Key: key, Limit: 10},
+		})
+		require.NoError(t, err)
+		require.LessOrEqual(t, len(resp.Posts), 10)
+		for _, p := range resp.Posts {
+			require.False(t, seen[p.Id], "post %d on two pages", p.Id)
+			seen[p.Id] = true
+		}
+		key = resp.Pagination.NextKey
+		if len(key) == 0 {
+			break
+		}
+	}
+	require.Len(t, seen, 25)
+
+	// Every entry filtered out: the page stops at the scan budget (limit x
+	// 10) with a resume key instead of scanning on.
+	resp, err := qs.ListExpiringContent(ctx, &types.QueryListExpiringContentRequest{
+		ContentType: "reply",
+		Pagination:  &query.PageRequest{Limit: 1},
+	})
+	require.NoError(t, err)
+	require.Empty(t, resp.Replies)
+	require.NotEmpty(t, resp.Pagination.NextKey)
 }

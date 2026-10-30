@@ -93,14 +93,14 @@ func TestMsgServerAssignInterim(t *testing.T) {
 		assigneeStr, err := f.addressCodec.BytesToString(assignee)
 		require.NoError(t, err)
 
-		k.Member.Set(ctx, assigneeStr, types.Member{
+		require.NoError(t, k.Member.Set(ctx, assigneeStr, types.Member{
 			Address:          assigneeStr,
 			DreamBalance:     keeper.PtrInt(math.ZeroInt()),
 			StakedDream:      keeper.PtrInt(math.ZeroInt()),
 			LifetimeEarned:   keeper.PtrInt(math.ZeroInt()),
 			LifetimeBurned:   keeper.PtrInt(math.ZeroInt()),
 			ReputationScores: map[string]string{"tag": "100.0"},
-		})
+		}))
 
 		// Assign interim
 		_, err = ms.AssignInterim(ctx, &types.MsgAssignInterim{

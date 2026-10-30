@@ -29,9 +29,17 @@ func TestFederateContent(t *testing.T) {
 	creatorStr := testAddr(t, f, "content-creator")
 	_, err = ms.FederateContent(f.ctx, &types.MsgFederateContent{
 		Creator: creatorStr, PeerId: "ibc-peer", ContentType: "blog_post",
-		LocalContentId: "123", Title: "Test", Body: "Content",
+		LocalContentId: "123", Title: "Test", Body: "Content", ContentHash: testHash(1),
 	})
 	require.NoError(t, err)
+
+	// FED-16: the receiving chain refuses anything but a SHA-256 digest,
+	// so the sending side refuses it first.
+	_, err = ms.FederateContent(f.ctx, &types.MsgFederateContent{
+		Creator: creatorStr, PeerId: "ibc-peer", ContentType: "blog_post",
+		LocalContentId: "124", Title: "Test", Body: "Content", ContentHash: []byte("short"),
+	})
+	require.ErrorIs(t, err, types.ErrInvalidContentHash)
 }
 
 func TestFederateContentWrongPeerType(t *testing.T) {

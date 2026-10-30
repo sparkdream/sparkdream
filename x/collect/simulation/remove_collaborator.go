@@ -1,59 +1,73 @@
 package simulation
 
 import (
-	"math/rand"
-
-	"cosmossdk.io/collections"
-	"github.com/cosmos/cosmos-sdk/baseapp"
+	"cosmossdk.io/math"
 	"github.com/cosmos/cosmos-sdk/client"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
 
 	"sparkdream/x/collect/keeper"
 	"sparkdream/x/collect/types"
 )
 
+// SimulateMsgRemoveCollaborator delivers MsgRemoveCollaborator for an
+// existing collaborator, signed by the collaborator itself (always allowed,
+// even on an immutable collection), the owner, or an ADMIN removing a
+// non-ADMIN (both only on a mutable collection). A non-member's inviter
+// stake is released (part burned when the collection is HIDDEN).
 func SimulateMsgRemoveCollaborator(
 	ak types.AuthKeeper,
 	bk types.BankKeeper,
 	k keeper.Keeper,
 	txGen client.TxConfig,
 ) simtypes.Operation {
-	return func(r *rand.Rand, app *baseapp.BaseApp, ctx sdk.Context, accs []simtypes.Account, chainID string,
-	) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
-		simAccount, _ := simtypes.RandomAcc(r, accs)
-		msg := &types.MsgRemoveCollaborator{
-			Creator: simAccount.Address.String(),
+	return operation(ak, bk, k, txGen, &types.MsgRemoveCollaborator{}, func(e *simEnv) (simtypes.OperationMsg, []simtypes.FutureOperation, error) {
+		msg := &types.MsgRemoveCollaborator{}
+		type removal struct {
+			collab  types.Collaborator
+			remover simtypes.Account
 		}
-
-		collab, collabKey, err := findAnyCollaborator(r, ctx, k)
-		if err != nil || collab == nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "no collaborator found"), nil, nil
-		}
-
-		// Verify the collection owner is a sim account
-		coll, err := k.Collection.Get(ctx, collab.CollectionId)
+		// With no collaborator anywhere, add one first (a real MsgAddCollaborator).
+		n, err := e.countCollaborators()
 		if err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "collection not found"), nil, nil
+			return noOpErr(msg, err)
 		}
-		_, found := getAccountForAddress(coll.Owner, accs)
-		if !found {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "collection owner not a sim account"), nil, nil
+		if n == 0 {
+			if _, err := e.ensureCollaborator(); err != nil {
+				return noOpErr(msg, err)
+			}
 		}
-
-		// Remove the collaborator
-		if err := k.Collaborator.Remove(ctx, collabKey); err != nil {
-			return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "failed to remove collaborator: "+err.Error()), nil, nil
+		var removals []removal
+		err = e.k.Collaborator.Walk(e.ctx, nil, func(_ string, collab types.Collaborator) (bool, error) {
+			coll, err := e.k.Collection.Get(e.ctx, collab.CollectionId)
+			if err != nil {
+				return true, err
+			}
+			for _, a := range e.accs {
+				addr := a.Address.String()
+				switch {
+				case addr == collab.Address:
+					removals = append(removals, removal{collab, a})
+				case coll.Immutable:
+				case addr == coll.Owner:
+					removals = append(removals, removal{collab, a})
+				default:
+					if mine, ok := e.collaborator(coll.Id, addr); ok &&
+						mine.Role == types.CollaboratorRole_COLLABORATOR_ROLE_ADMIN &&
+						collab.Role != types.CollaboratorRole_COLLABORATOR_ROLE_ADMIN {
+						removals = append(removals, removal{collab, a})
+					}
+				}
+			}
+			return false, nil
+		})
+		if err != nil {
+			return noOpErr(msg, err)
 		}
-		_ = k.CollaboratorReverse.Remove(ctx, collections.Join(collab.Address, collab.CollectionId))
-
-		// Decrement CollaboratorCount on the collection
-		if coll.CollaboratorCount > 0 {
-			coll.CollaboratorCount--
+		rm, ok := pick(e.r, removals)
+		if !ok {
+			return noOp(msg, "no collaborator a sim account may remove")
 		}
-		coll.UpdatedAt = ctx.BlockHeight()
-		_ = k.Collection.Set(ctx, collab.CollectionId, coll)
-
-		return simtypes.NoOpMsg(types.ModuleName, sdk.MsgTypeURL(msg), "ok (direct keeper call)"), nil, nil
-	}
+		msg.Creator, msg.CollectionId, msg.Address = rm.remover.Address.String(), rm.collab.CollectionId, rm.collab.Address
+		return e.submit(rm.remover, msg, math.ZeroInt())
+	})
 }

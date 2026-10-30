@@ -62,7 +62,7 @@ func TestMsgServerUnpinPost(t *testing.T) {
 		post.PinnedBy = authority
 		post.PinnedAt = f.sdkCtx().BlockTime().Unix()
 		post.PinPriority = 5
-		f.keeper.Post.Set(f.ctx, post.PostId, post)
+		require.NoError(t, f.keeper.Post.Set(f.ctx, post.PostId, post))
 
 		msg := &types.MsgUnpinPost{
 			Creator: authority,

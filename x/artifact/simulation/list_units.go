@@ -11,6 +11,7 @@ import (
 
 	"sparkdream/x/artifact/keeper"
 	"sparkdream/x/artifact/types"
+	commontypes "sparkdream/x/common/types"
 )
 
 // SimulateMsgListUnits lists some free units of a visible edition.
@@ -25,7 +26,7 @@ func SimulateMsgListUnits(ak types.AuthKeeper, bk types.BankKeeper, k keeper.Kee
 			return noop(msg, "no listable units")
 		}
 		msg = &types.MsgListUnits{Seller: holder.Address.String(), ClassId: c.Id, EditionId: b.EditionId,
-			Quantity: uint64(1 + r.Intn(int(b.Amount))), UnitPrice: sdk.NewInt64Coin(sdk.DefaultBondDenom, int64(1+r.Intn(5))*100_000),
+			Quantity: commontypes.Saturate[uint64](1 + r.Intn(commontypes.Saturate[int](b.Amount))), UnitPrice: sdk.NewInt64Coin(sdk.DefaultBondDenom, int64(1+r.Intn(5))*100_000),
 			Duration: int64(60 + r.Intn(3600))}
 		return deliver(r, app, ctx, ak, bk, txGen, holder, msg, math.ZeroInt())
 	}

@@ -10,6 +10,7 @@ import (
 
 	"sparkdream/x/artifact/keeper"
 	"sparkdream/x/artifact/types"
+	commontypes "sparkdream/x/common/types"
 )
 
 // SimulateMsgMint mints 1-3 tokens of a random open class to random accounts.
@@ -30,7 +31,7 @@ func SimulateMsgMint(
 			return noop(msg, "editions classes mint through MsgCreateEdition and MsgMintUnits")
 		}
 		n := 1 + r.Intn(3)
-		if c.MaxSupply > 0 && c.Supply+c.Burned+c.ReservedSupply+uint64(n) > c.MaxSupply {
+		if c.MaxSupply > 0 && c.Supply+c.Burned+c.ReservedSupply+commontypes.Saturate[uint64](n) > c.MaxSupply {
 			return noop(msg, "class supply exhausted")
 		}
 		entries := make([]types.MintEntry, n)

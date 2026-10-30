@@ -44,6 +44,9 @@ func (k msgServer) Buy(ctx context.Context, msg *types.MsgBuy) (*types.MsgBuyRes
 	if t.RedeemedAt != 0 && !c.Flags.RedeemedTransferable {
 		return nil, types.ErrRedeemedNotTransferable
 	}
+	if err := k.treeSellable(ctx, t); err != nil {
+		return nil, err
+	}
 	if k.sameMember(ctx, msg.Buyer, l.Seller) {
 		return nil, errorsmod.Wrap(types.ErrInvalidRecipient, "cannot buy your own listing")
 	}

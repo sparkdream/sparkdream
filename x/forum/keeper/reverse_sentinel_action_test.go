@@ -27,11 +27,11 @@ func TestReverseSentinelAction(t *testing.T) {
 		_, err = f.keeper.HideRecord.Get(f.ctx, postID)
 		require.NoError(t, err)
 
-		// Use UNSPECIFIED to hit the default (hide) branch — same dispatch
-		// the appeal resolver uses for hide-appeal verdicts today.
+		// Only hides appealed through the forum are reversible.
+		f.markHideAppealed(t, postID)
 		require.NoError(t, f.keeper.ReverseSentinelAction(
 			f.ctx,
-			reptypes.GovActionType_GOV_ACTION_TYPE_UNSPECIFIED,
+			reptypes.GovActionType_GOV_ACTION_TYPE_POST_HIDE,
 			strconv.FormatUint(postID, 10),
 		))
 
@@ -50,12 +50,13 @@ func TestReverseSentinelAction(t *testing.T) {
 		cat := f.createTestCategory(t, "ReverseHideCategoryGone")
 		postID := f.hidePostViaSentinel(t, testSentinel, "2000000000", cat.CategoryId)
 
+		f.markHideAppealed(t, postID)
 		// Simulate category deletion mid-life.
 		delete(f.commonsKeeper.categories, cat.CategoryId)
 
 		require.NoError(t, f.keeper.ReverseSentinelAction(
 			f.ctx,
-			reptypes.GovActionType_GOV_ACTION_TYPE_UNSPECIFIED,
+			reptypes.GovActionType_GOV_ACTION_TYPE_POST_HIDE,
 			strconv.FormatUint(postID, 10),
 		), "soft skip — appeal resolver continues")
 
@@ -82,7 +83,7 @@ func TestReverseSentinelAction(t *testing.T) {
 		// already ACTIVE. Must not error and must not re-mutate.
 		require.NoError(t, f.keeper.ReverseSentinelAction(
 			f.ctx,
-			reptypes.GovActionType_GOV_ACTION_TYPE_UNSPECIFIED,
+			reptypes.GovActionType_GOV_ACTION_TYPE_POST_HIDE,
 			strconv.FormatUint(postID, 10),
 		))
 
@@ -96,7 +97,7 @@ func TestReverseSentinelAction(t *testing.T) {
 		// No state setup — pure soft-skip path.
 		require.NoError(t, f.keeper.ReverseSentinelAction(
 			f.ctx,
-			reptypes.GovActionType_GOV_ACTION_TYPE_UNSPECIFIED,
+			reptypes.GovActionType_GOV_ACTION_TYPE_POST_HIDE,
 			"99999999",
 		))
 	})
@@ -117,9 +118,10 @@ func TestReverseSentinelAction(t *testing.T) {
 		p.LockReason = "test lock"
 		require.NoError(t, f.keeper.Post.Set(f.ctx, root.PostId, p))
 		require.NoError(t, f.keeper.ThreadLockRecord.Set(f.ctx, root.PostId, types.ThreadLockRecord{
-			RootId:   root.PostId,
-			Sentinel: testSentinel,
-			LockedAt: 1000,
+			RootId:        root.PostId,
+			Sentinel:      testSentinel,
+			LockedAt:      1000,
+			AppealPending: true,
 		}))
 
 		require.NoError(t, f.keeper.ReverseSentinelAction(
@@ -157,9 +159,10 @@ func TestReverseSentinelAction(t *testing.T) {
 		p.LockedAt = 1
 		require.NoError(t, f.keeper.Post.Set(f.ctx, root.PostId, p))
 		require.NoError(t, f.keeper.ThreadLockRecord.Set(f.ctx, root.PostId, types.ThreadLockRecord{
-			RootId:   root.PostId,
-			Sentinel: testSentinel,
-			LockedAt: 1,
+			RootId:        root.PostId,
+			Sentinel:      testSentinel,
+			LockedAt:      1,
+			AppealPending: true,
 		}))
 
 		require.NoError(t, f.keeper.ReverseSentinelAction(
@@ -185,6 +188,7 @@ func TestReverseSentinelAction(t *testing.T) {
 			OriginalCategoryId: origCat.CategoryId,
 			NewCategoryId:      newCat.CategoryId,
 			MovedAt:            1000,
+			AppealPending:      true,
 		}))
 
 		require.NoError(t, f.keeper.ReverseSentinelAction(
@@ -213,6 +217,7 @@ func TestReverseSentinelAction(t *testing.T) {
 			Sentinel:           testSentinel,
 			OriginalCategoryId: origCat.CategoryId,
 			NewCategoryId:      newCat.CategoryId,
+			AppealPending:      true,
 		}))
 
 		// Original category deleted while thread sat in the new one.
@@ -235,7 +240,7 @@ func TestReverseSentinelAction(t *testing.T) {
 		f := initFixture(t)
 		err := f.keeper.ReverseSentinelAction(
 			f.ctx,
-			reptypes.GovActionType_GOV_ACTION_TYPE_UNSPECIFIED,
+			reptypes.GovActionType_GOV_ACTION_TYPE_POST_HIDE,
 			"not-a-number",
 		)
 		require.Error(t, err)

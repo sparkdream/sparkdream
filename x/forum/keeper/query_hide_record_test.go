@@ -26,7 +26,9 @@ func createNHideRecord(keeper keeper.Keeper, ctx context.Context, n int) []types
 		items[i].CommittedAmount = strconv.Itoa(i)
 		items[i].ReasonCode = commontypes.ModerationReason(i)
 		items[i].ReasonText = strconv.Itoa(i)
-		_ = keeper.HideRecord.Set(ctx, items[i].PostId, items[i])
+		if err := keeper.HideRecord.Set(ctx, items[i].PostId, items[i]); err != nil {
+			panic(err)
+		}
 	}
 	return items
 }

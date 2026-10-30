@@ -8,6 +8,8 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 
+	commontypes "sparkdream/x/common/types"
+	federationtypes "sparkdream/x/federation/types"
 	reptypes "sparkdream/x/rep/types"
 	servicetypes "sparkdream/x/service/types"
 	vaulttypes "sparkdream/x/vault/types"
@@ -93,7 +95,7 @@ var (
 		"/sparkdream.blog.v1.MsgCreatePost",
 		"/sparkdream.blog.v1.MsgUpdatePost",
 		"/sparkdream.blog.v1.MsgCreateReply",
-		"/sparkdream.blog.v1.MsgEditReply",
+		"/sparkdream.blog.v1.MsgUpdateReply",
 		"/sparkdream.blog.v1.MsgReact",
 		"/sparkdream.blog.v1.MsgRemoveReaction",
 		// Hide/unhide are author-only self-curation (msg server requires
@@ -147,12 +149,11 @@ var (
 		"/sparkdream.name.v1.MsgSetDisplayName",
 		"/sparkdream.name.v1.MsgSetTarget",
 		"/sparkdream.name.v1.MsgAcceptTarget",
-		// x/collect — UX-frequent collection actions. Excluded: any item/collection
+		// x/collect — UX-frequent collection actions (collect has no
+		// reaction msgs of its own; votes are its reactions). Excluded: any item/collection
 		// CRUD that escrows a SPARK deposit, MsgDownvoteContent (burns SPARK),
 		// MsgFlagContent (non-member spam tax), endorsement/sponsorship (lock DREAM),
 		// and MsgRateCollection (requires bonded curator role).
-		"/sparkdream.collect.v1.MsgReact",
-		"/sparkdream.collect.v1.MsgRemoveReaction",
 		"/sparkdream.collect.v1.MsgUpvoteContent",
 		"/sparkdream.collect.v1.MsgUpdateItem",
 		"/sparkdream.collect.v1.MsgReorderItem",
@@ -249,8 +250,10 @@ var (
 		"/sparkdream.artifact.v1.MsgMintUnits",
 		// Inbox triage (docs/x-artifact-spec.md §7.13): moves nothing out
 		// of the account. The worst a leaked key does is accept unwanted
-		// tokens (burnable for their deposits) or reject wanted ones (the
-		// sender can resend).
+		// tokens or reject wanted ones (the sender can resend). Accepted
+		// HOLDER-burnable tokens can be burned for their deposits; ISSUER
+		// and NEITHER tokens are soulbound records that stay attached and
+		// cannot be burned by the holder (docs/x-artifact-spec.md §7.13).
 		"/sparkdream.artifact.v1.MsgAcceptIncoming",
 		"/sparkdream.artifact.v1.MsgRejectIncoming",
 		"/sparkdream.artifact.v1.MsgSetReceivePolicy",
@@ -309,6 +312,18 @@ var ForbiddenAllowlistMsgs = func() map[string]bool {
 	// or execute a vault proposal, or create a vault (multisig-accounts plan
 	// §4.4). Built from x/vault's exported list.
 	for _, url := range vaulttypes.NonDelegableMsgTypeURLs() {
+		m[url] = true
+	}
+	// x/federation: a bridge operator's identity attestation vouches with
+	// its SPARK bond for a remote identity and takes effect unchecked, so
+	// it is signed by the operator key, never a daemon session key.
+	for _, url := range federationtypes.NonDelegableMsgTypeURLs() {
+		m[url] = true
+	}
+	// Messages guarded by an ante-only rule (commons proposal-fee floor,
+	// gnovm no-mix): session exec and oneshot Exec dispatch through the
+	// router and would skip the rule.
+	for _, url := range commontypes.AnteOnlyRuleMsgTypeURLs() {
 		m[url] = true
 	}
 	return m
@@ -381,8 +396,34 @@ func DefaultParams() Params {
 	return p
 }
 
+// Compiled ceilings on the Operations-Committee-tunable params (SES-07).
+// They bound the per-block EndBlocker cost and session hygiene levers no
+// matter who edits Params; raising one needs a chain upgrade.
+const (
+	MaxParamSessionsPerGranter          uint64 = 1_000
+	MaxParamMsgTypesPerSession          uint64 = 200
+	MaxParamExpiration                         = 365 * 24 * time.Hour
+	MaxParamExecCount                   uint64 = 1_000_000
+	MaxParamOneshotExecGas              uint64 = 5_000_000
+	MaxParamEndblockerDispatchesPerPass uint32 = 1_000
+	MaxParamPendingOneshotsPerGranter   uint32 = 1_000
+	MaxParamPausedOneshotsPerGranter    uint32 = 200
+	MaxParamGrantLifetimeSeconds        int64  = 5 * 31_536_000 // 5 years
+)
+
+// MaxParamSpendLimitAmount caps max_spend_limit_amount (10,000 SPARK in
+// micro-units): a session's fee budget, not a treasury.
+var MaxParamSpendLimitAmount = sdkmath.NewInt(10_000_000_000)
+
+// MinParamOneshotGasPrice floors oneshot_gas_price so a oneshot's deposit
+// always prices its gas (a zero price leaves only the creation fee).
+var MinParamOneshotGasPrice = sdkmath.LegacyMustNewDecFromStr("0.0001")
+
 // Validate validates the set of params.
 func (p Params) Validate() error {
+	if err := p.validateCeilings(); err != nil {
+		return err
+	}
 	if p.MaxSessionsPerGranter == 0 {
 		return fmt.Errorf("max_sessions_per_granter must be > 0")
 	}
@@ -675,4 +716,37 @@ func (p Params) ExtractOperationalParams() SessionOperationalParams {
 		AllowedDenoms:                  p.AllowedDenoms,
 		MaxGrantLifetimeSeconds:        p.MaxGrantLifetimeSeconds,
 	}
+}
+
+// validateCeilings enforces the compiled ceilings above.
+func (p Params) validateCeilings() error {
+	switch {
+	case p.MaxSessionsPerGranter > MaxParamSessionsPerGranter:
+		return fmt.Errorf("max_sessions_per_granter %d exceeds ceiling %d", p.MaxSessionsPerGranter, MaxParamSessionsPerGranter)
+	case p.MaxMsgTypesPerSession > MaxParamMsgTypesPerSession:
+		return fmt.Errorf("max_msg_types_per_session %d exceeds ceiling %d", p.MaxMsgTypesPerSession, MaxParamMsgTypesPerSession)
+	case p.MaxExpiration > MaxParamExpiration:
+		return fmt.Errorf("max_expiration %s exceeds ceiling %s", p.MaxExpiration, MaxParamExpiration)
+	case p.MaxExecCount > MaxParamExecCount:
+		return fmt.Errorf("max_exec_count %d exceeds ceiling %d", p.MaxExecCount, MaxParamExecCount)
+	case p.MaxOneshotExecGas > MaxParamOneshotExecGas:
+		return fmt.Errorf("max_oneshot_exec_gas %d exceeds ceiling %d", p.MaxOneshotExecGas, MaxParamOneshotExecGas)
+	case p.MaxEndblockerDispatchesPerPass > MaxParamEndblockerDispatchesPerPass:
+		return fmt.Errorf("max_endblocker_dispatches_per_pass %d exceeds ceiling %d", p.MaxEndblockerDispatchesPerPass, MaxParamEndblockerDispatchesPerPass)
+	case p.MaxPendingOneshotsPerGranter > MaxParamPendingOneshotsPerGranter:
+		return fmt.Errorf("max_pending_oneshots_per_granter %d exceeds ceiling %d", p.MaxPendingOneshotsPerGranter, MaxParamPendingOneshotsPerGranter)
+	case p.MaxPausedOneshotsPerGranter > MaxParamPausedOneshotsPerGranter:
+		return fmt.Errorf("max_paused_oneshots_per_granter %d exceeds ceiling %d", p.MaxPausedOneshotsPerGranter, MaxParamPausedOneshotsPerGranter)
+	case p.MaxGrantLifetimeSeconds > MaxParamGrantLifetimeSeconds:
+		return fmt.Errorf("max_grant_lifetime_seconds %d exceeds ceiling %d", p.MaxGrantLifetimeSeconds, MaxParamGrantLifetimeSeconds)
+	}
+	if !p.MaxSpendLimitAmount.IsNil() && p.MaxSpendLimitAmount.GT(MaxParamSpendLimitAmount) {
+		return fmt.Errorf("max_spend_limit_amount %s exceeds ceiling %s", p.MaxSpendLimitAmount, MaxParamSpendLimitAmount)
+	}
+	if p.OneshotGasPrice != "" {
+		if dec, err := sdkmath.LegacyNewDecFromStr(p.OneshotGasPrice); err == nil && dec.LT(MinParamOneshotGasPrice) {
+			return fmt.Errorf("oneshot_gas_price %s is below the floor %s", dec, MinParamOneshotGasPrice)
+		}
+	}
+	return nil
 }

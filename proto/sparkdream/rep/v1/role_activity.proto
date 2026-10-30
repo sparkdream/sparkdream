@@ -3,8 +3,12 @@ package sparkdream.rep.v1;
 
 import "cosmos_proto/cosmos.proto";
 import "sparkdream/rep/v1/bonded_role.proto";
+import "gogoproto/gogo.proto";
 
 option go_package = "sparkdream/x/rep/types";
+// Map fields are encoded in sorted key order: an unsorted encoding differs
+// between nodes and would split the app hash.
+option (gogoproto.stable_marshaler_all) = true;
 
 // RoleAccuracyBucket is one reward-epoch slot in a RoleActivity's rolling
 // accuracy ring (slot index = epoch % ring size); the `epoch` stamp

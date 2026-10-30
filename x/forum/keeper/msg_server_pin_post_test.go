@@ -62,7 +62,7 @@ func TestMsgServerPinPost(t *testing.T) {
 	t.Run("cannot pin deleted post", func(t *testing.T) {
 		post := f.createTestPost(t, testCreator, 0, 0)
 		post.Status = types.PostStatus_POST_STATUS_DELETED
-		f.keeper.Post.Set(f.ctx, post.PostId, post)
+		require.NoError(t, f.keeper.Post.Set(f.ctx, post.PostId, post))
 
 		msg := &types.MsgPinPost{
 			Creator:  authority,
@@ -77,7 +77,7 @@ func TestMsgServerPinPost(t *testing.T) {
 	t.Run("cannot pin hidden post", func(t *testing.T) {
 		post := f.createTestPost(t, testCreator, 0, 0)
 		post.Status = types.PostStatus_POST_STATUS_HIDDEN
-		f.keeper.Post.Set(f.ctx, post.PostId, post)
+		require.NoError(t, f.keeper.Post.Set(f.ctx, post.PostId, post))
 
 		msg := &types.MsgPinPost{
 			Creator:  authority,
@@ -92,7 +92,7 @@ func TestMsgServerPinPost(t *testing.T) {
 	t.Run("already pinned", func(t *testing.T) {
 		post := f.createTestPost(t, testCreator, 0, 0)
 		post.Pinned = true
-		f.keeper.Post.Set(f.ctx, post.PostId, post)
+		require.NoError(t, f.keeper.Post.Set(f.ctx, post.PostId, post))
 
 		msg := &types.MsgPinPost{
 			Creator:  authority,

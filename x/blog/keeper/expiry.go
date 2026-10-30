@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	commontypes "sparkdream/x/common/types"
 
 	"cosmossdk.io/store/prefix"
 	"github.com/cosmos/cosmos-sdk/runtime"
@@ -37,7 +38,7 @@ func (k Keeper) TombstoneExpiredContent(ctx context.Context, beforeTimestamp int
 func expiryKey(expiresAt int64, contentType string, id uint64) []byte {
 	// Use big-endian for timestamp to preserve sort order
 	tsBz := make([]byte, 8)
-	binary.BigEndian.PutUint64(tsBz, uint64(expiresAt))
+	binary.BigEndian.PutUint64(tsBz, commontypes.Saturate[uint64](expiresAt))
 	key := tsBz
 	key = append(key, []byte(fmt.Sprintf("/%s/", contentType))...)
 	idBz := make([]byte, 8)

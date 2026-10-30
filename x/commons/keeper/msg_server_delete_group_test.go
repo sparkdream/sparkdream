@@ -290,3 +290,33 @@ func TestMsgDeleteGroup_ZombieKill(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, members, "All members should be removed")
 }
+
+// TestMsgDeleteGroup_RefusesWithDependents: a group that is another group's
+// parent or electoral authority cannot be deleted (even by x/gov); the
+// dependent would keep a policy that no longer exists.
+func TestMsgDeleteGroup_RefusesWithDependents(t *testing.T) {
+	for _, link := range []string{"parent", "electoral"} {
+		t.Run(link, func(t *testing.T) {
+			k, ctx, _ := setupSafeUpdateTest(t)
+			ms := keeper.NewMsgServerImpl(k)
+			govAddr := k.GetModuleAddressByName(govtypes.ModuleName).String()
+
+			phoenixPolicy := keeper.DeriveCouncilAddress(1, "standard").String()
+			auroraPolicy := keeper.DeriveCouncilAddress(2, "standard").String()
+			require.NoError(t, k.Groups.Set(ctx, "phoenix", types.Group{GroupId: 1, PolicyAddress: phoenixPolicy, ParentPolicyAddress: govAddr}))
+			require.NoError(t, k.PolicyToName.Set(ctx, phoenixPolicy, "phoenix"))
+			aurora := types.Group{GroupId: 2, PolicyAddress: auroraPolicy, ParentPolicyAddress: govAddr}
+			if link == "parent" {
+				aurora.ParentPolicyAddress = phoenixPolicy
+			} else {
+				aurora.ElectoralPolicyAddress = phoenixPolicy
+			}
+			require.NoError(t, k.Groups.Set(ctx, "aurora", aurora))
+
+			_, err := ms.DeleteGroup(ctx, &types.MsgDeleteGroup{Authority: govAddr, GroupName: "phoenix"})
+			require.ErrorIs(t, err, types.ErrGroupHasDependents)
+			_, err = k.Groups.Get(ctx, "phoenix")
+			require.NoError(t, err, "phoenix kept")
+		})
+	}
+}

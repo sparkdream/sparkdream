@@ -39,10 +39,12 @@ type mockBank struct {
 	balances map[string]sdk.Coins
 	blocked  map[string]bool
 	burned   sdk.Coins
+	// failTo makes every send to these addresses fail (settlement errors).
+	failTo map[string]bool
 }
 
 func newMockBank() *mockBank {
-	return &mockBank{balances: map[string]sdk.Coins{}, blocked: map[string]bool{}}
+	return &mockBank{balances: map[string]sdk.Coins{}, blocked: map[string]bool{}, failTo: map[string]bool{}}
 }
 
 func (b *mockBank) fund(addr sdk.AccAddress, amt int64) {
@@ -54,6 +56,9 @@ func (b *mockBank) bal(addr sdk.AccAddress) math.Int {
 }
 
 func (b *mockBank) move(from, to string, amt sdk.Coins) error {
+	if b.failTo[to] {
+		return fmt.Errorf("send to %s refused", to)
+	}
 	have := b.balances[from]
 	if !have.IsAllGTE(amt) {
 		return fmt.Errorf("insufficient funds: %s < %s", have, amt)
@@ -105,6 +110,8 @@ type mockRep struct {
 	// migrated maps a tombstoned address to its canonical successor
 	// (member key migration alias contract).
 	migrated map[string]string
+	// releaseErr / outcomeErr make ReleaseBond / RecordRoleOutcome fail.
+	releaseErr, outcomeErr error
 }
 
 func (r *mockRep) canonical(a string) string {
@@ -195,6 +202,9 @@ func (r *mockRep) reservedOf(addr string) math.Int {
 	return math.ZeroInt()
 }
 func (r *mockRep) ReleaseBond(_ context.Context, _ reptypes.RoleType, addr string, amt math.Int) error {
+	if r.releaseErr != nil {
+		return r.releaseErr
+	}
 	r.reserved[addr] = r.reservedOf(addr).Sub(amt)
 	r.sentinels[addr] = r.sentinels[addr].Add(amt)
 	return nil
@@ -218,6 +228,9 @@ func (r *mockRep) CreateGovActionAppeal(_ context.Context, actionType reptypes.G
 }
 
 func (r *mockRep) RecordRoleOutcome(_ context.Context, _ reptypes.RoleType, addr, kind string, upheld bool) error {
+	if r.outcomeErr != nil {
+		return r.outcomeErr
+	}
 	r.outcomes = append(r.outcomes, fmt.Sprintf("%s:%t", kind, upheld))
 	return nil
 }
@@ -291,6 +304,7 @@ type fixture struct {
 	distr   *mockDistr
 	gnovm   *mockGnoVM
 	gov     string
+	key     *storetypes.KVStoreKey
 
 	alice, bob, carol, dave, ops, council, sentinel sdk.AccAddress
 }
@@ -330,7 +344,7 @@ func initFixture(t *testing.T) *fixture {
 
 	f := &fixture{
 		t: t, ctx: ctx, keeper: k, msg: keeper.NewMsgServerImpl(k), query: keeper.NewQueryServerImpl(k),
-		codec: ac, bank: bank, rep: rep, commons: commons, distr: distr, gnovm: gnovm, gov: gov.String(),
+		codec: ac, bank: bank, rep: rep, commons: commons, distr: distr, gnovm: gnovm, gov: gov.String(), key: storeKey,
 		alice: addr("alice"), bob: addr("bob"), carol: addr("carol"), dave: addr("dave"),
 		ops: addr("ops"), council: addr("council"), sentinel: addr("sentinel"),
 	}

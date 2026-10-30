@@ -91,7 +91,7 @@ func TestRandomBody_ProducesExpectedValues(t *testing.T) {
 	knownBodies := []string{
 		"Simulation blog body content.",
 		"Testing the blog module with random content.",
-		"Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+		"Phoenix aurora zenith: notes from the simulation.",
 		"This was created during simulation testing.",
 		"Sample content for blog simulation.",
 	}
@@ -208,327 +208,51 @@ func TestGetAccountForAddress_ReturnedAccountMatchesTarget(t *testing.T) {
 	}
 }
 
-// ─── incrementReactionCount ───────────────────────────────────────────────────
+// ─── selection and gate helpers ──────────────────────────────────────────────
 
-func TestIncrementReactionCount(t *testing.T) {
-	tests := []struct {
-		name         string
-		reactionType types.ReactionType
-		initial      types.ReactionCounts
-		checkField   func(types.ReactionCounts) uint64
-	}{
-		{
-			name:         "like increments LikeCount",
-			reactionType: types.ReactionType_REACTION_TYPE_LIKE,
-			initial:      types.ReactionCounts{LikeCount: 0},
-			checkField:   func(c types.ReactionCounts) uint64 { return c.LikeCount },
-		},
-		{
-			name:         "insightful increments InsightfulCount",
-			reactionType: types.ReactionType_REACTION_TYPE_INSIGHTFUL,
-			initial:      types.ReactionCounts{InsightfulCount: 0},
-			checkField:   func(c types.ReactionCounts) uint64 { return c.InsightfulCount },
-		},
-		{
-			name:         "disagree increments DisagreeCount",
-			reactionType: types.ReactionType_REACTION_TYPE_DISAGREE,
-			initial:      types.ReactionCounts{DisagreeCount: 0},
-			checkField:   func(c types.ReactionCounts) uint64 { return c.DisagreeCount },
-		},
-		{
-			name:         "funny increments FunnyCount",
-			reactionType: types.ReactionType_REACTION_TYPE_FUNNY,
-			initial:      types.ReactionCounts{FunnyCount: 0},
-			checkField:   func(c types.ReactionCounts) uint64 { return c.FunnyCount },
-		},
+func TestPick(t *testing.T) {
+	r := rand.New(rand.NewSource(1))
+	if _, ok := pick(r, []int{}); ok {
+		t.Fatal("pick on an empty slice must report false")
 	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			counts := tc.initial
-			incrementReactionCount(&counts, tc.reactionType)
-			if got := tc.checkField(counts); got != 1 {
-				t.Errorf("expected count 1, got %d", got)
-			}
-		})
-	}
-}
-
-func TestIncrementReactionCount_OnlyTargetFieldChanges(t *testing.T) {
-	tests := []struct {
-		name         string
-		reactionType types.ReactionType
-	}{
-		{"like", types.ReactionType_REACTION_TYPE_LIKE},
-		{"insightful", types.ReactionType_REACTION_TYPE_INSIGHTFUL},
-		{"disagree", types.ReactionType_REACTION_TYPE_DISAGREE},
-		{"funny", types.ReactionType_REACTION_TYPE_FUNNY},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			before := types.ReactionCounts{
-				LikeCount:       5,
-				InsightfulCount: 5,
-				DisagreeCount:   5,
-				FunnyCount:      5,
-			}
-			after := before
-			incrementReactionCount(&after, tc.reactionType)
-
-			// Only the matching field should change; all others stay at 5.
-			switch tc.reactionType {
-			case types.ReactionType_REACTION_TYPE_LIKE:
-				if after.LikeCount != 6 {
-					t.Errorf("LikeCount: want 6, got %d", after.LikeCount)
-				}
-				if after.InsightfulCount != 5 || after.DisagreeCount != 5 || after.FunnyCount != 5 {
-					t.Error("incrementing LIKE changed other fields")
-				}
-			case types.ReactionType_REACTION_TYPE_INSIGHTFUL:
-				if after.InsightfulCount != 6 {
-					t.Errorf("InsightfulCount: want 6, got %d", after.InsightfulCount)
-				}
-				if after.LikeCount != 5 || after.DisagreeCount != 5 || after.FunnyCount != 5 {
-					t.Error("incrementing INSIGHTFUL changed other fields")
-				}
-			case types.ReactionType_REACTION_TYPE_DISAGREE:
-				if after.DisagreeCount != 6 {
-					t.Errorf("DisagreeCount: want 6, got %d", after.DisagreeCount)
-				}
-				if after.LikeCount != 5 || after.InsightfulCount != 5 || after.FunnyCount != 5 {
-					t.Error("incrementing DISAGREE changed other fields")
-				}
-			case types.ReactionType_REACTION_TYPE_FUNNY:
-				if after.FunnyCount != 6 {
-					t.Errorf("FunnyCount: want 6, got %d", after.FunnyCount)
-				}
-				if after.LikeCount != 5 || after.InsightfulCount != 5 || after.DisagreeCount != 5 {
-					t.Error("incrementing FUNNY changed other fields")
-				}
-			}
-		})
-	}
-}
-
-func TestIncrementReactionCount_UnspecifiedIsNoop(t *testing.T) {
-	counts := types.ReactionCounts{
-		LikeCount:       3,
-		InsightfulCount: 3,
-		DisagreeCount:   3,
-		FunnyCount:      3,
-	}
-	incrementReactionCount(&counts, types.ReactionType_REACTION_TYPE_UNSPECIFIED)
-	if counts.LikeCount != 3 || counts.InsightfulCount != 3 ||
-		counts.DisagreeCount != 3 || counts.FunnyCount != 3 {
-		t.Error("incrementing UNSPECIFIED should not modify any field")
-	}
-}
-
-func TestIncrementReactionCount_MultipleIncrements(t *testing.T) {
-	counts := types.ReactionCounts{}
-	for i := 0; i < 10; i++ {
-		incrementReactionCount(&counts, types.ReactionType_REACTION_TYPE_LIKE)
-	}
-	if counts.LikeCount != 10 {
-		t.Errorf("expected LikeCount 10 after 10 increments, got %d", counts.LikeCount)
-	}
-}
-
-// ─── decrementReactionCount ───────────────────────────────────────────────────
-
-func TestDecrementReactionCount_Basic(t *testing.T) {
-	tests := []struct {
-		name         string
-		reactionType types.ReactionType
-		initial      types.ReactionCounts
-		checkField   func(types.ReactionCounts) uint64
-	}{
-		{
-			name:         "like decrements LikeCount",
-			reactionType: types.ReactionType_REACTION_TYPE_LIKE,
-			initial:      types.ReactionCounts{LikeCount: 3},
-			checkField:   func(c types.ReactionCounts) uint64 { return c.LikeCount },
-		},
-		{
-			name:         "insightful decrements InsightfulCount",
-			reactionType: types.ReactionType_REACTION_TYPE_INSIGHTFUL,
-			initial:      types.ReactionCounts{InsightfulCount: 7},
-			checkField:   func(c types.ReactionCounts) uint64 { return c.InsightfulCount },
-		},
-		{
-			name:         "disagree decrements DisagreeCount",
-			reactionType: types.ReactionType_REACTION_TYPE_DISAGREE,
-			initial:      types.ReactionCounts{DisagreeCount: 2},
-			checkField:   func(c types.ReactionCounts) uint64 { return c.DisagreeCount },
-		},
-		{
-			name:         "funny decrements FunnyCount",
-			reactionType: types.ReactionType_REACTION_TYPE_FUNNY,
-			initial:      types.ReactionCounts{FunnyCount: 5},
-			checkField:   func(c types.ReactionCounts) uint64 { return c.FunnyCount },
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			counts := tc.initial
-			before := tc.checkField(counts)
-			decrementReactionCount(&counts, tc.reactionType)
-			if got := tc.checkField(counts); got != before-1 {
-				t.Errorf("expected count %d, got %d", before-1, got)
-			}
-		})
-	}
-}
-
-func TestDecrementReactionCount_DoesNotGoBelowZero(t *testing.T) {
-	tests := []struct {
-		name         string
-		reactionType types.ReactionType
-		checkField   func(types.ReactionCounts) uint64
-	}{
-		{
-			name:         "like stays at 0",
-			reactionType: types.ReactionType_REACTION_TYPE_LIKE,
-			checkField:   func(c types.ReactionCounts) uint64 { return c.LikeCount },
-		},
-		{
-			name:         "insightful stays at 0",
-			reactionType: types.ReactionType_REACTION_TYPE_INSIGHTFUL,
-			checkField:   func(c types.ReactionCounts) uint64 { return c.InsightfulCount },
-		},
-		{
-			name:         "disagree stays at 0",
-			reactionType: types.ReactionType_REACTION_TYPE_DISAGREE,
-			checkField:   func(c types.ReactionCounts) uint64 { return c.DisagreeCount },
-		},
-		{
-			name:         "funny stays at 0",
-			reactionType: types.ReactionType_REACTION_TYPE_FUNNY,
-			checkField:   func(c types.ReactionCounts) uint64 { return c.FunnyCount },
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			counts := types.ReactionCounts{} // all fields start at 0
-			decrementReactionCount(&counts, tc.reactionType)
-			if got := tc.checkField(counts); got != 0 {
-				t.Errorf("expected count to stay at 0, got %d", got)
-			}
-		})
-	}
-}
-
-func TestDecrementReactionCount_OnlyTargetFieldChanges(t *testing.T) {
-	tests := []struct {
-		name         string
-		reactionType types.ReactionType
-	}{
-		{"like", types.ReactionType_REACTION_TYPE_LIKE},
-		{"insightful", types.ReactionType_REACTION_TYPE_INSIGHTFUL},
-		{"disagree", types.ReactionType_REACTION_TYPE_DISAGREE},
-		{"funny", types.ReactionType_REACTION_TYPE_FUNNY},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			before := types.ReactionCounts{
-				LikeCount:       5,
-				InsightfulCount: 5,
-				DisagreeCount:   5,
-				FunnyCount:      5,
-			}
-			after := before
-			decrementReactionCount(&after, tc.reactionType)
-
-			switch tc.reactionType {
-			case types.ReactionType_REACTION_TYPE_LIKE:
-				if after.LikeCount != 4 {
-					t.Errorf("LikeCount: want 4, got %d", after.LikeCount)
-				}
-				if after.InsightfulCount != 5 || after.DisagreeCount != 5 || after.FunnyCount != 5 {
-					t.Error("decrementing LIKE changed other fields")
-				}
-			case types.ReactionType_REACTION_TYPE_INSIGHTFUL:
-				if after.InsightfulCount != 4 {
-					t.Errorf("InsightfulCount: want 4, got %d", after.InsightfulCount)
-				}
-				if after.LikeCount != 5 || after.DisagreeCount != 5 || after.FunnyCount != 5 {
-					t.Error("decrementing INSIGHTFUL changed other fields")
-				}
-			case types.ReactionType_REACTION_TYPE_DISAGREE:
-				if after.DisagreeCount != 4 {
-					t.Errorf("DisagreeCount: want 4, got %d", after.DisagreeCount)
-				}
-				if after.LikeCount != 5 || after.InsightfulCount != 5 || after.FunnyCount != 5 {
-					t.Error("decrementing DISAGREE changed other fields")
-				}
-			case types.ReactionType_REACTION_TYPE_FUNNY:
-				if after.FunnyCount != 4 {
-					t.Errorf("FunnyCount: want 4, got %d", after.FunnyCount)
-				}
-				if after.LikeCount != 5 || after.InsightfulCount != 5 || after.DisagreeCount != 5 {
-					t.Error("decrementing FUNNY changed other fields")
-				}
-			}
-		})
-	}
-}
-
-func TestDecrementReactionCount_UnspecifiedIsNoop(t *testing.T) {
-	counts := types.ReactionCounts{
-		LikeCount:       3,
-		InsightfulCount: 3,
-		DisagreeCount:   3,
-		FunnyCount:      3,
-	}
-	decrementReactionCount(&counts, types.ReactionType_REACTION_TYPE_UNSPECIFIED)
-	if counts.LikeCount != 3 || counts.InsightfulCount != 3 ||
-		counts.DisagreeCount != 3 || counts.FunnyCount != 3 {
-		t.Error("decrementing UNSPECIFIED should not modify any field")
-	}
-}
-
-func TestDecrementReactionCount_MultipleDecrements(t *testing.T) {
-	counts := types.ReactionCounts{FunnyCount: 5}
-	for i := 0; i < 5; i++ {
-		decrementReactionCount(&counts, types.ReactionType_REACTION_TYPE_FUNNY)
-	}
-	if counts.FunnyCount != 0 {
-		t.Errorf("expected FunnyCount 0 after decrementing to zero, got %d", counts.FunnyCount)
-	}
-	// One more decrement should not underflow.
-	decrementReactionCount(&counts, types.ReactionType_REACTION_TYPE_FUNNY)
-	if counts.FunnyCount != 0 {
-		t.Errorf("expected FunnyCount to stay at 0, got %d", counts.FunnyCount)
-	}
-}
-
-// ─── increment / decrement round-trip ────────────────────────────────────────
-
-func TestIncrementThenDecrementReturnsOriginal(t *testing.T) {
-	reactionTypes := []types.ReactionType{
-		types.ReactionType_REACTION_TYPE_LIKE,
-		types.ReactionType_REACTION_TYPE_INSIGHTFUL,
-		types.ReactionType_REACTION_TYPE_DISAGREE,
-		types.ReactionType_REACTION_TYPE_FUNNY,
-	}
-
-	original := types.ReactionCounts{
-		LikeCount:       2,
-		InsightfulCount: 4,
-		DisagreeCount:   1,
-		FunnyCount:      8,
-	}
-
-	for _, rt := range reactionTypes {
-		counts := original
-		incrementReactionCount(&counts, rt)
-		decrementReactionCount(&counts, rt)
-		if counts != original {
-			t.Errorf("after increment+decrement for %v: got %+v, want %+v", rt, counts, original)
+	items := []int{3, 5, 7}
+	for i := 0; i < 50; i++ {
+		v, ok := pick(r, items)
+		if !ok || (v != 3 && v != 5 && v != 7) {
+			t.Fatalf("pick returned %d, %v", v, ok)
 		}
+	}
+}
+
+func TestTruncate(t *testing.T) {
+	cases := []struct {
+		in   string
+		n    uint64
+		want string
+	}{
+		{"zenith", 0, "zenith"},
+		{"zenith", 3, "zen"},
+		{"zenith", 6, "zenith"},
+		{"zenith", 10, "zenith"},
+	}
+	for _, c := range cases {
+		if got := truncate(c.in, c.n); got != c.want {
+			t.Errorf("truncate(%q, %d) = %q, want %q", c.in, c.n, got, c.want)
+		}
+	}
+}
+
+func TestStatusPredicates(t *testing.T) {
+	if !activePost(types.Post{Status: types.PostStatus_POST_STATUS_ACTIVE}) {
+		t.Error("an ACTIVE post is active")
+	}
+	if activePost(types.Post{Status: types.PostStatus_POST_STATUS_HIDDEN}) {
+		t.Error("a HIDDEN post is not active")
+	}
+	if !activeReply(types.Reply{Status: types.ReplyStatus_REPLY_STATUS_ACTIVE}) {
+		t.Error("an ACTIVE reply is active")
+	}
+	if activeReply(types.Reply{Status: types.ReplyStatus_REPLY_STATUS_DELETED}) {
+		t.Error("a DELETED reply is not active")
 	}
 }

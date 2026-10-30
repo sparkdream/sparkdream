@@ -22,7 +22,7 @@ Key principles:
 | `x/auth` | Address codec, module account resolution |
 | `x/bank` | Liquidity transfers, conditional token mint/burn, fee payouts to `fee_collector` |
 | `x/rep` | Trust-level gating (`GetTrustLevel`) for `MsgCreateMarket`. Wired post-depinject via `SetRepKeeper` |
-| `x/commons` | *(optional)* Council authorization (`IsCouncilAuthorized`) for operational parameter updates. Wired post-depinject via `SetCommonsKeeper`. Falls back to gov-authority-only when not wired. Programmatic market creation (`CreateMarketInternal`) is initiated by the Commons keeper for confidence-vote markets, and the Commons keeper registers as a `FutarchyHooks` consumer to apply elastic tenure on resolution |
+| `x/commons` | *(optional)* Committee/council policy authorization (`IsCouncilOrCommitteePolicy`) for operational parameter updates. Wired post-depinject via `SetCommonsKeeper`. Falls back to gov-authority-only when not wired. Programmatic market creation (`CreateMarketInternal`) is initiated by the Commons keeper for confidence-vote markets, and the Commons keeper registers as a `FutarchyHooks` consumer to apply elastic tenure on resolution |
 
 ---
 
@@ -62,6 +62,12 @@ message Market {
   // Settlement price for CANCELLED and RESOLVED_INVALID markets that have
   // outstanding shares. Empty for ACTIVE or RESOLVED_YES/NO markets.
   string settlement_price_yes = 16;  // cosmossdk.io/math.LegacyDec
+
+  // Time-weighted price (Section 7.4): sum over blocks of the YES price in
+  // effect, the height accumulated up to, and the market's creation height.
+  string twap_accumulator = 17;      // cosmossdk.io/math.LegacyDec
+  int64 twap_last_height = 18;
+  int64 start_height = 19;
 }
 ```
 
@@ -70,9 +76,9 @@ Status values are stored as plain strings (no proto enum):
 | Status | Meaning |
 |--------|---------|
 | `ACTIVE` | Market is open. Trades can be submitted. |
-| `RESOLVED_YES` | EndBlocker found `pool_yes > pool_no`. Yes shares pay 1:1. |
-| `RESOLVED_NO` | EndBlocker found `pool_no > pool_yes`. No shares pay 1:1. |
-| `RESOLVED_INVALID` | Both pools are zero, or the pools tied. Outstanding shares (if any) redeem at the snapshotted LMSR-implied price. |
+| `RESOLVED_YES` | The time-weighted YES price over the market's life was above 1/2 (Section 7.4). Yes shares pay 1:1. |
+| `RESOLVED_NO` | The time-weighted YES price was below 1/2. No shares pay 1:1. |
+| `RESOLVED_INVALID` | Nobody traded, or the time-weighted price was exactly 1/2. Outstanding shares (if any) redeem at the snapshotted LMSR-implied price. |
 | `CANCELLED` | Governance terminated the market via `MsgCancelMarket`. Outstanding shares redeem at the LMSR-implied price snapshot. |
 
 ### 3.2. Params
@@ -171,26 +177,30 @@ message MsgTrade {
   uint64 market_id = 2;
   bool is_yes = 3;
   string amount_in = 4;  // cosmossdk.io/math.Int (collateral spent)
+  string min_shares_out = 5;  // optional slippage bound; empty/0 = none
 }
 ```
 
 **Validation:**
 - Market exists and `status == ACTIVE`.
+- `current_block < end_block`: trading closes at `end_block` (the market resolves at the end of that block).
 - `amount_in` is non-nil, non-negative, denomination matches `market.denom`.
 - `amount_in >= market.min_tick` (spam protection).
 
 **Logic:**
 1. Compute `fee = amount_in * trading_fee_bps / 10000` (truncated). Reject if the post-fee remainder is zero or negative.
-2. Compute `currentCost = C(pool_yes, pool_no)` and `newCost = currentCost + (amount_in - fee)`.
+2. Accumulate the time-weighted price: `twap_accumulator += p_yes(pool_yes, pool_no) * (current_block - twap_last_height)`, then `twap_last_height = current_block`. This runs before the pools move, so the price left by the last trade of a block counts for the following blocks.
+3. Compute `currentCost = C(pool_yes, pool_no)` and `newCost = currentCost + (amount_in - fee)`.
 3. Solve for the new winning pool using a numerically-stable rearrangement of the LMSR:
    ```
    newPool_target = newCost + b * ln(1 - exp((pool_loser - newCost) / b))
    shares_out = newPool_target - pool_target
    ```
    Reject the trade with "would deplete market liquidity" if the inner term `1 - exp(...)` is non-positive.
+   Reject it if `|pool_yes' - pool_no'| / b > max_lmsr_exponent` (the price bound, Section 12.2) or if `shares_out < min_shares_out`.
 4. Send `amount_in` SPARK from the trader to the futarchy module account. Forward `fee` to the standard `fee_collector` module.
 5. Mint `shares_out` of `f/{market_id}/{outcome}` and transfer to the trader.
-6. Persist the updated `Market`.
+6. Persist the updated `Market` and emit `market_trade`.
 7. Return `MsgTradeResponse{ shares_out }`.
 
 Truncation note: `shares_out` is truncated to `Int`; trades that round to zero shares are rejected.
@@ -218,11 +228,13 @@ Two payout regimes:
 - **Winning path** (`RESOLVED_YES` or `RESOLVED_NO`): the holder's full balance of the winning denom (`f/{id}/{winner}`) is burned and they receive an equal amount of `market.denom` 1:1. Losing shares are not redeemable but are also not actively burned.
 - **Settled path** (`CANCELLED` or `RESOLVED_INVALID` with non-zero pools): both yes and no balances are burned and the holder receives `yes_balance * settlement_price_yes + no_balance * (1 - settlement_price_yes)`. The settlement price was snapshotted at resolution / cancellation time. Truncation losses are absorbed silently (dust loss is accepted).
 
-If both pools were zero at resolution (`RESOLVED_INVALID` with no trades), no shares were ever minted and there is nothing to redeem; the creator's entire subsidy returns via `WithdrawLiquidity`.
+If both pools were zero at resolution (`RESOLVED_INVALID` with no trades), no shares were ever minted and there is nothing to redeem; the creator's entire subsidy is returned automatically at resolution.
+
+Every redemption emits `market_redeemed`. A redeem with no shares fails with `ErrInsufficientFunds` (standard Cosmos convention: a no-op is an error, so batch clients should check balances first).
 
 ### 5.4. WithdrawLiquidity
 
-Allow the market creator to recover the LMSR residual after the market resolves.
+Allow the market creator to recover any LMSR residual not yet paid. The EndBlocker already returns the residual automatically at resolution (Section 7.4), so this message only matters when that automatic refund failed (it is logged and left for this message). With nothing owed it fails with `ErrInvalidRequest` ("No liquidity available to withdraw"), a deliberate no-op error.
 
 ```protobuf
 message MsgWithdrawLiquidity {
@@ -238,9 +250,8 @@ message MsgWithdrawLiquidity {
 
 **Logic:**
 1. Compute the LMSR creator residual via `computeCreatorResidual` (see Section 7.3).
-2. Cap the residual at `initial_liquidity` defensively to absorb rounding above the theoretical bound.
-3. Pay `residual - liquidity_withdrawn` SPARK to the creator and bump `liquidity_withdrawn`.
-4. Emit `liquidity_withdrawn` event.
+2. Pay `residual - liquidity_withdrawn` SPARK to the creator and bump `liquidity_withdrawn`.
+3. Emit `liquidity_withdrawn` event.
 
 ### 5.5. CancelMarket
 
@@ -260,10 +271,10 @@ message MsgCancelMarket {
 1. Verify authority and that the market is `ACTIVE`.
 2. Set `status = CANCELLED`, `resolution_height = current_block`, and remove the market from `ActiveMarkets`.
 3. If any trades happened (`pool_yes > 0` or `pool_no > 0`), snapshot the LMSR-implied YES price into `settlement_price_yes` so holders can redeem at a fair price.
-4. Compute and refund the creator's residual minus `liquidity_withdrawn`, capped at `initial_liquidity`.
+4. Compute and refund the creator's residual minus `liquidity_withdrawn`.
 5. Persist the market and emit `market_cancelled`.
 
-This path is the only one that immediately settles the creator at cancellation time (other resolution paths require a separate `MsgWithdrawLiquidity` call).
+Like EndBlocker resolution, cancellation settles the creator immediately.
 
 ### 5.6. UpdateParams
 
@@ -289,7 +300,7 @@ message MsgUpdateOperationalParams {
 }
 ```
 
-**Authorization:** governance authority, Commons Council policy address, or Commons Operations Committee member, verified via `x/commons.IsCouncilAuthorized(addr, "commons", "operations")`. Falls back to gov-authority-only if `x/commons` is not wired.
+**Authorization:** governance authority, Commons Council policy address, or the Commons Operations Committee policy address (an executed committee proposal), verified via `x/commons.IsCouncilOrCommitteePolicy(addr, "commons", "operations")`. An individual committee member is not enough: a market-wide fee is a committee decision. Falls back to gov-authority-only if `x/commons` is not wired. `trading_fee_bps` is capped by the compiled ceiling `MaxTradingFeeBps = 500` (5%) in `Params.Validate`, so even a committee decision cannot stop trading with a 100% fee.
 
 **Logic:**
 1. Verify authorization.
@@ -322,10 +333,11 @@ p_yes(qY, qN) = exp(qY/b) / (exp(qY/b) + exp(qN/b))
 ```
 
 The implementation in `types/lmsr.go` is numerically stabilized:
-- `Exp` and `Ln` are Maclaurin / Mercator series with a 100-iteration cap and an `Epsilon = 1e-8` early-exit.
+- `Exp` uses range reduction: the argument is halved `k` times until `|r| <= 1`, the Maclaurin series is summed on `r`, and the result is squared `k` times. `Ln` writes `x = m * 2^k` with `m` in `[1, 2)` and sums the atanh series on `m` (`|y| <= 1/3`), adding `k * ln 2` with `ln 2` at full 18-decimal precision. Both stop at the last representable LegacyDec digit (`Epsilon = 1e-18`) with a 100-iteration cap, and are accurate for any argument (the plain series used before diverged: `Exp(-60)` evaluated to `-4.4e19`).
 - `Exp` and `Ln` consume `LmsrIterationGasCost = 200` gas per iteration via the SDK gas meter (`lmsr_exp_iteration` / `lmsr_ln_iteration`). This bounds worst-case work and lets the standard gas mechanism pay for arithmetic.
-- All `(q/b)` exponents are clamped to the range `[-max_lmsr_exponent, max_lmsr_exponent]` (`ClampExponent`) before being passed to `Exp`.
-- `C` is computed as `max + ln(e^(x-max) + e^(y-max))` to avoid overflow when one pool is much larger than the other.
+- Nothing is clamped. `C` is computed as `b * (max + ln(1 + e^(min-max)))`, the price as a logistic of `(qY - qN)/b`, and `ln(1 + e^z)` as `z + ln(1 + e^-z)` for `z > 0`, so no `Exp` argument is ever positive. The old absolute clamp flattened the cost function past `max_lmsr_exponent * b` and produced negative shares, forced overpayment and a wrong settlement price (FUT-03).
+- `max_lmsr_exponent` is a **price bound**, not a clamp: a trade that would leave `|qY - qN| / b > max_lmsr_exponent` is rejected. It is capped by the compiled ceiling `MaxLmsrExponentCeiling = 30`. Because it no longer enters the cost, settlement or residual math, changing it never reprices open markets.
+- `b = initial_liquidity / ln 2` uses the 18-decimal `ln 2`, so `C(0, 0) = b ln 2` equals the subsidy to rounding.
 
 `Ln(x)` is undefined for `x <= 0` and returns an error rather than panicking; trade computation surfaces this as `ErrInvalidRequest` with "trade too large: would deplete market liquidity".
 
@@ -345,27 +357,30 @@ The creator's correct withdrawal amount depends on the resolution regime (`x/fut
 
 | Regime | Formula | Notes |
 |--------|---------|-------|
-| `RESOLVED_YES` / `RESOLVED_NO` | `b * ln(1 + exp((q_loser - q_winner) / b))` | Winners are paid 1:1 from the module account; the residual is the leftover collateral. |
+| `RESOLVED_YES` / `RESOLVED_NO` | `C(q) - q_winner = b * ln(1 + exp((q_loser - q_winner) / b))` | Winners are paid 1:1 from the module account; the residual is the leftover collateral. Capped at `initial_liquidity` when the winner holds at least as many shares as the loser. Under time-weighted resolution the winner can hold fewer shares; the residual then exceeds the subsidy (the losing traders paid for it) and is still fully backed, since the module holds `C(q)` for the market. |
 | `CANCELLED` / `RESOLVED_INVALID` (non-zero pools) | `b * H(p_yes)` where `H(p) = -p ln(p) - (1-p) ln(1-p)` | Equal to entropy of the implied distribution scaled by `b`. Equivalent to `C(qY, qN) - qY * p_yes - qN * p_no`. |
 | `CANCELLED` / `RESOLVED_INVALID` (zero pools) | `initial_liquidity` | No trades, full subsidy refund. |
 | Other statuses | error | Withdrawal not allowed. |
 
-The residual is always capped at `initial_liquidity` defensively, even though the math should never exceed that bound.
+Where the math bounds the residual by `initial_liquidity` (settled regime, and a winner with at least as many shares) it is capped there against rounding.
 
 ### 7.4. EndBlocker (Resolution Loop)
 
-Each block, `EndBlocker` walks `ActiveMarkets` over the prefix `[*, current_height]`:
+Each block, `EndBlocker` (`keeper.ResolveExpiredMarkets`) walks `ActiveMarkets` over the prefix `[*, current_height]`, taking at most `MaxResolutionsPerBlock = 100` markets; the rest stay indexed and resolve in the following blocks, oldest first. Each market resolves in its own `CacheContext`. The EndBlocker never returns an error: a failing market is logged and retried next block, because an EndBlock error is a consensus failure that would halt the chain.
 
-1. Load the `Market`. If missing or non-`ACTIVE`, drop the index entry and continue (orphan cleanup).
-2. Resolve based on pool comparison:
-   - `pool_yes > pool_no` -> `RESOLVED_YES`
-   - `pool_no > pool_yes` -> `RESOLVED_NO`
-   - tied (including both zero) -> `RESOLVED_INVALID`
+1. Load the `Market`. If missing or non-`ACTIVE`, drop the index entry (orphan cleanup).
+2. Resolve on the **time-weighted price** (FUT-01). Finish the accumulator up to `end_block` (`twap_accumulator += p_yes * (end_block - twap_last_height)`) and take `twap = twap_accumulator / (end_block - start_height)`:
+   - no trades (both pools zero) -> `RESOLVED_INVALID`
+   - `twap > 1/2` -> `RESOLVED_YES`
+   - `twap < 1/2` -> `RESOLVED_NO`
+   - `twap == 1/2` -> `RESOLVED_INVALID`
 3. Set `resolution_height = current_height`.
-4. For `RESOLVED_INVALID` with non-zero pools, snapshot `settlement_price_yes`.
-5. Persist the market and remove from `ActiveMarkets`.
-6. Call `Hooks.AfterMarketResolved(market_id, "yes" | "no")` for `RESOLVED_YES` / `RESOLVED_NO`. `RESOLVED_INVALID` skips the hook (no winner to announce). Hook errors are logged but do not halt the chain.
-7. Emit `market_resolved` event.
+4. For `RESOLVED_INVALID` with non-zero pools, snapshot `settlement_price_yes` (the LMSR price of the final pools).
+5. Persist the market, remove it from `ActiveMarkets`, emit `market_resolved`.
+6. Return the creator's residual (Section 7.3) minus `liquidity_withdrawn` to `market.creator` and emit `liquidity_withdrawn` with `automatic=true` (FUT-02). Programmatic creators such as the x/commons module account never sign `MsgWithdrawLiquidity`, so their residual used to stay in the module account forever. The refund runs in its own `CacheContext`; a failure is logged and leaves the residual for `MsgWithdrawLiquidity`.
+7. Call `Hooks.AfterMarketResolved(market_id, winner)` with `"yes"`, `"no"` or `"invalid"` (FUT-07: listeners need the INVALID call to clean up their link to the market). The hook runs in its own `CacheContext`; an error is logged and its writes are discarded.
+
+**Why time-weighted (design decision, FUT-01).** Resolving on the final pool comparison let whoever traded last flip the outcome: near parity, `s` shares of the trailing side cost less than `s`, so the last trader in the end block (in practice the block proposer) decided the market and profited with certainty, and for x/commons confidence markets decided council tenure. The chosen design is the conservative one: trading closes at `end_block`, and the outcome is the time-weighted average of the LMSR price over the whole window. A last-minute trade moves the average by at most `blocks_left / duration`, and holding the price away from fair for long enough to matter costs real money against every other trader. Payouts stay winner-takes-1:1 and remain solvent whichever side wins, because the module holds `C(q) >= max(q_yes, q_no)` for each market. Alternatives considered: a trading freeze alone (the last trader before the freeze still decides), or the price at a random height (needs a randomness source). **Decided (kept):** a market resolves on its time-weighted YES price and trades in the end block are rejected. A futarchy market therefore expresses the averaged belief over its life rather than the closing belief, for confidence votes and user markets alike.
 
 ### 7.5. Hooks
 
@@ -377,7 +392,7 @@ type FutarchyHooks interface {
 }
 ```
 
-`MultiFutarchyHooks` composes multiple hook subscribers. The hook is registered via the keeper's `SetHooks` method (single-set; subsequent calls panic).
+`winner` is `"yes"`, `"no"` or `"invalid"`; the hook fires for every resolution, including `RESOLVED_INVALID`, so a consumer can drop its link to the market. `MultiFutarchyHooks` composes multiple hook subscribers. The hook is registered via the keeper's `SetHooks` method (single-set; subsequent calls panic).
 
 ### 7.6. Confidence-Vote Integration with `x/commons`
 
@@ -392,7 +407,9 @@ When integrated with `x/commons`, the futarchy module is the engine of elastic c
 - On `AfterMarketResolved`:
   - `winner = "yes"` (high confidence) -> council's `current_term_expiration` extended by `term_duration / 5` (+20%), capped at two terms from `current_time`.
   - `winner = "no"` (low confidence) -> `current_term_expiration` reduced by `term_duration / 2` (-50%), floored at `current_time` so it never expires in the past.
-  - `RESOLVED_INVALID` -> no tenure change; emits `market_invalid_no_quorum`.
+  - `winner = "invalid"` (`RESOLVED_INVALID`) -> no tenure change; emits `market_invalid_no_quorum`.
+- The 1,000 SPARK subsidy's residual returns to the commons module account automatically at resolution (Section 7.4).
+- Resolution is time-weighted (Section 7.4), so the last trader before `end_block` cannot decide council tenure.
 
 ### 7.7. Genesis
 
@@ -408,8 +425,8 @@ When integrated with `x/commons`, the futarchy module is the engine of elastic c
 | `max_duration` | 5,256,000 blocks (~1 year at 6s) | Upper bound on how long collateral can sit in a market |
 | `default_min_tick` | 1,000 (`uspark`) | Per-trade minimum, spam protection |
 | `max_redemption_delay` | 5,256,000 blocks (~1 year) | Upper bound on the post-resolution lock |
-| `trading_fee_bps` | 30 (0.3%) | Sent to `fee_collector`; the standard validator fee path |
-| `max_lmsr_exponent` | "20" | Numerical-stability ceiling for `Exp` / `Ln` arguments |
+| `trading_fee_bps` | 30 (0.3%) | Sent to `fee_collector`; the standard validator fee path. Compiled ceiling 500 (5%) |
+| `max_lmsr_exponent` | "20" | Price bound: trades may not push `|q_yes - q_no| / b` past it. Compiled ceiling 30 |
 
 Confidence-vote markets created by `x/commons` use a 1000 SPARK subsidy, ~5-day duration, and ~21-day redemption delay (constants in `x/commons/keeper/governance_logic.go`).
 
@@ -431,9 +448,11 @@ The module also returns standard `cosmos-sdk/types/errors` for input-shape probl
 | Event | Attributes | Trigger |
 |-------|------------|---------|
 | `market_created` | `market_id`, `creator`, `symbol`, `liquidity` | `CreateMarketInternal` (called by `MsgCreateMarket` and by `x/commons`) |
-| `market_resolved` | `market_id`, `end_block`, `outcome` | EndBlocker resolution |
+| `market_resolved` | `market_id`, `end_block`, `outcome`, `twap_accumulator` | EndBlocker resolution |
+| `market_trade` | `market_id`, `trader`, `outcome`, `amount_in`, `fee`, `shares_out`, `pool_yes`, `pool_no` | `MsgTrade` |
+| `market_redeemed` | `market_id`, `redeemer`, `shares_burned`, `payout` | `MsgRedeem` |
 | `market_cancelled` | `market_id`, `reason`, `refunded` | `MsgCancelMarket` |
-| `liquidity_withdrawn` | `market_id`, `creator`, `amount` | `MsgWithdrawLiquidity` |
+| `liquidity_withdrawn` | `market_id`, `creator`, `amount` (+ `automatic=true` from the EndBlocker) | `MsgWithdrawLiquidity`, automatic residual refund at resolution |
 | `elastic_tenure` | `group`, `action` (extended/shortened), `seconds` | Resolution hook in `x/commons` |
 | `market_invalid_no_quorum` | `group`, `action` | Resolution hook on `RESOLVED_INVALID` |
 
@@ -483,7 +502,7 @@ futarchyKeeper.SetHooks(commonsKeeper)  // Keeper implements FutarchyHooks
 
 ### 12.2. Numerical Stability
 
-Without clamps, `exp(q/b)` overflows once one pool grows much larger than the other. The `max_lmsr_exponent` bound combined with the `(x - max)` rebasing in `CalculateLMSRCost` and `SettlementPriceYes` keeps every series argument in a safe range. Trades that would push the inner term into a negative or zero region (i.e. trades that try to buy more shares than the LMSR can serve) are rejected with "would deplete market liquidity" rather than panicking.
+`Exp` and `Ln` use range reduction (Section 7.1) and every LMSR formula is written so `Exp` only sees non-positive arguments, so nothing overflows and nothing needs clamping. `max_lmsr_exponent` (default 20, compiled ceiling 30) bounds how far a trade may push `|qY - qN| / b`; past it the trade is rejected instead of mispriced. Trades that would push the inner term `1 - exp(...)` to zero or below are rejected with "would deplete market liquidity", and a trade whose computed `shares_out` is not positive is rejected.
 
 ### 12.3. Gas-Metered Math
 
@@ -499,24 +518,27 @@ Earlier versions refunded the creator the full `initial_liquidity` on cancellati
 
 This guarantees the module account is solvent: creator residual + holder payouts = collateral on hand.
 
+The claim is checked by the `futarchy/solvency` invariant (`keeper/invariants.go`, FUT-05; x/crisis is not wired, `go test ./app -run TestInvariants` evaluates it). Per collateral denom, the module balance must cover: `C(q_yes, q_no)` for every `ACTIVE` market; the outstanding winning share supply plus the unpaid residual for `RESOLVED_YES` / `RESOLVED_NO`; `supply_yes * p_yes + supply_no * (1 - p_yes)` plus the unpaid residual for `CANCELLED` / `RESOLVED_INVALID`. A tolerance of 10 base units per market absorbs last-digit rounding (all truncations round in the module's favour).
+
 ### 12.5. Pool Pointer Aliasing
 
 `CreateMarketInternal` deliberately allocates separate `math.Int` variables for `pool_yes` and `pool_no`. Sharing a pointer would alias the two pools and cause mutations to one to mutate both, silently corrupting LMSR state.
 
 ### 12.6. Active Index Cleanup
 
-The EndBlocker is defensive about the `ActiveMarkets` index. Orphan entries (market missing) and stale entries (market not in `ACTIVE`) are removed and skipped instead of failing the block.
+The EndBlocker is defensive about the `ActiveMarkets` index. Orphan entries (market missing) and stale entries (market not in `ACTIVE`) are removed and skipped instead of failing the block. Resolution work per block is capped at `MaxResolutionsPerBlock` (FUT-09), so many cheap markets ending at the same height cannot stall a block.
 
 ### 12.7. Two-Tier Authority
 
-Critical pricing parameters (`min_liquidity`, `default_min_tick`, `max_lmsr_exponent`) are governance-only so the Operations Committee cannot reduce the LMSR safety bounds without a full proposal. Operational knobs (fee, durations) move through the lighter committee path.
+Critical pricing parameters (`min_liquidity`, `default_min_tick`, `max_lmsr_exponent`) are governance-only so the Operations Committee cannot reduce the LMSR safety bounds without a full proposal. Operational knobs (fee, durations) move through the lighter committee path, which requires the committee policy address (an executed committee proposal), never a single member (FUT-10). `trading_fee_bps` is bounded by the compiled `MaxTradingFeeBps = 500`.
 
 ---
 
 ## 13. Future Considerations
 
 1. **More-than-binary markets**: extend the LMSR cost function to `n` outcomes.
-2. **Market parameter recording**: persist the LMSR `max_lmsr_exponent` snapshot per market so resolution math is reproducible across param changes.
+2. **Market parameter recording**: no longer needed for reproducibility. `max_lmsr_exponent` only gates trades and no longer enters cost, settlement or residual math, so a param change does not reprice open markets.
+3. **Council self-trading**: council members can trade in their own confidence market. The time-weighted resolution makes a late flip expensive, but excluding the council's own members from its market is a possible further restriction.
 3. **Gas refund on small trades**: optionally rebate truncation-induced dust losses on `Redeem`.
 4. **Generalized hooks**: add `BeforeMarketResolved` / `AfterMarketCancelled` if other modules need finer-grained reactions.
 5. **Conviction-weighted markets**: integrate with `x/rep` conviction so reputation can be staked alongside SPARK in confidence votes.
@@ -534,5 +556,7 @@ Critical pricing parameters (`min_liquidity`, `default_min_tick`, `max_lmsr_expo
 - LMSR primitives and gas metering: `x/futarchy/types/lmsr.go`
 - Types, errors, hooks, expected keepers: `x/futarchy/types/`
 - Module setup, EndBlocker, genesis: `x/futarchy/module/`
+- Resolution loop, TWAP, automatic residual refund: `x/futarchy/keeper/resolution.go`
+- Solvency invariant: `x/futarchy/keeper/invariants.go`
 - Confidence-vote integration: `x/commons/keeper/governance_logic.go`, `x/commons/keeper/hooks.go`
 - README summary: `x/futarchy/README.md`

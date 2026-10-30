@@ -108,7 +108,9 @@ func (k msgServer) UpdateGroupMembers(goCtx context.Context, msg *types.MsgUpdat
 		if _, err := sdk.AccAddressFromBech32(addr); err != nil {
 			return nil, errorsmod.Wrapf(sdkerrors.ErrInvalidAddress, "invalid removal address: %s", addr)
 		}
-		_ = k.Members.Remove(ctx, collections.Join(councilName, addr))
+		if err := k.Members.Remove(ctx, collections.Join(councilName, addr)); err != nil {
+			return nil, err
+		}
 	}
 	for _, m := range adds {
 		m.AddedAt = ctx.BlockTime().Unix()

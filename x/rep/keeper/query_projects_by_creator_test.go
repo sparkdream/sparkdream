@@ -26,8 +26,12 @@ func createProjectForCreator(k keeper.Keeper, ctx context.Context, id uint64, cr
 		ApprovedBudget: &amount,
 		ApprovedSpark:  PtrInt(math.NewInt(100)),
 	}
-	_ = k.Project.Set(ctx, id, project)
-	_ = k.ProjectSeq.Set(ctx, id)
+	if err := k.Project.Set(ctx, id, project); err != nil {
+		panic(err)
+	}
+	if err := k.ProjectSeq.Set(ctx, id); err != nil {
+		panic(err)
+	}
 	return project
 }
 
