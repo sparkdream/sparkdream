@@ -12,10 +12,12 @@
 !internal/sdaptx
 !tools/apcanon
 !tools/contentscan
+!tools/datauri
 !x/common/types
 !x/federation/types
 !x/identity/types
 !x/rep/types
 !x/service/types
 !x/session/types
+!x/vault/types
 !deploy/docker/sdap/sdap-entry.sh
