@@ -2,6 +2,11 @@ module sparkdream
 
 go 1.25.0
 
+// Listen on plain TCP, not Go's default MPTCP: CVE-2026-98432 (Linux IPv4
+// TCP handshake use-after-free) was shown as remote root against MPTCP
+// listeners on unpatched kernels. GODEBUG=multipathtcp=1 at runtime opts back in.
+godebug multipathtcp=0
+
 replace (
 	// fix upstream GHSA-h395-qcrw-5vmq vulnerability.
 	github.com/gin-gonic/gin => github.com/gin-gonic/gin v1.9.1
