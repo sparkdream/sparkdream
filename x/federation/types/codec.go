@@ -92,6 +92,10 @@ func RegisterInterfaces(registrar codectypes.InterfaceRegistry) {
 	)
 
 	registrar.RegisterImplementations((*sdk.Msg)(nil),
+		&MsgUpdatePeerInfo{},
+	)
+
+	registrar.RegisterImplementations((*sdk.Msg)(nil),
 		&MsgResumePeer{},
 	)
 

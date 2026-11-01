@@ -1545,13 +1545,13 @@ message MsgResumePeer {
 }
 ```
 
-### 6.5. UpdatePeerPolicy (Operations Committee)
+### 6.5. UpdatePeerPolicy (Operations Committee or Commons Council)
 
-Update federation policies for a specific peer. Day-to-day operational tuning.
+Update federation policies for a specific peer. Day-to-day operational tuning, normally by the Operations Committee. The Commons Council also carries it in its genesis `AllowedMessages`, so a council that registers and activates a peer can give it a working policy itself (a new peer's default policy is empty and federates nothing), including while the Operations Committee is still unstarted.
 
 ```protobuf
 message MsgUpdatePeerPolicy {
-  string authority = 1;            // Operations Committee member
+  string authority = 1;            // Operations Committee member, Commons Council policy, or governance
   string peer_id = 2;
   PeerPolicy policy = 3;
 }
@@ -1566,6 +1566,27 @@ message MsgUpdatePeerPolicy {
 3. If peer type is anything other than SPARK_DREAM (ACTIVITYPUB, ATPROTO, NOSTR, or LENS), reject if `allow_reputation_queries` or `accept_reputation_attestations` is true — reputation bridging is only supported for Spark Dream peers (reject with `ErrPeerTypeMismatch`)
 4. `content_hosts`: ActivityPub peers only, at most 8, lowercase hostnames, no duplicates (see Section 4.2)
 5. **Author curation** (see Section 4.2): `allowed_identities` has at most 256 entries, each `"*"` or a recognizable author identity (`ErrInvalidAllowedIdentity`). `curation` is refused on SPARK_DREAM peers (`ErrPeerTypeMismatch`) and must name an existing ACTIVE collection (`ErrCurationUnavailable`) so a mistyped id cannot silently admit nobody
+
+### 6.5a. UpdatePeerInfo (Operations Committee or Commons Council)
+
+Correct a peer's descriptive fields. Authorized like `UpdatePeerPolicy` (governance, Commons Council, or Operations Committee).
+
+```protobuf
+message MsgUpdatePeerInfo {
+  string authority = 1;
+  string peer_id = 2;
+  string display_name = 3;   // replaces peer.display_name
+  string metadata = 4;       // replaces peer.metadata; resend the current value to keep it
+}
+```
+
+**Logic:**
+1. Verify authority.
+2. Verify peer exists and is not REMOVED.
+3. Set `peer.display_name` and `peer.metadata`.
+4. Emit `peer_info_updated` (`peer_id`, `display_name`, `updated_by`).
+
+`id`, `type` and the IBC channels are the peer's identity and cannot change; correcting those still means removing and re-registering the peer.
 
 ### 6.6. RegisterBridge (Bridge Operator — Self)
 
@@ -2889,6 +2910,7 @@ Bridge operators can be slashed for:
 | `peer_removed` | peer_id, reason | Peer removed |
 | `peer_cleanup_complete` | peer_id | All data for removed peer cleaned up |
 | `peer_policy_updated` | peer_id, updated_by | Peer policy changed |
+| `peer_info_updated` | peer_id, display_name, updated_by | Peer display name / metadata corrected |
 | `bridge_registered` | operator, peer_id, protocol | Binding registered (and `service.Operator` created on first registration under this `(address, service_type)`) |
 | `bridge_updated` | operator, peer_id, updated_fields | Binding endpoint updated |
 | `bridge_unbound` | operator, peer_id, service_type, reason | Binding pruned by `AfterOperatorDissolved` / `AfterOperatorRetired` hook (or by `MsgPruneOrphanBindings` recovery) |
@@ -3362,6 +3384,7 @@ sparkdreamd tx federation remove-peer --authority ... --peer-id ... --reason ...
 sparkdreamd tx federation suspend-peer --authority ... --peer-id ... --reason ...
 sparkdreamd tx federation resume-peer --authority ... --peer-id ...
 sparkdreamd tx federation update-peer-policy --authority ... --peer-id ... --policy ...
+sparkdreamd tx federation update-peer-info [peer-id] [display-name] --metadata ...
 sparkdreamd tx federation update-peer-controller --authority ... --peer-id ... --controller-group ...
 sparkdreamd tx federation register-bridge --peer-id ... --protocol ... --endpoint ... --stake ...
 sparkdreamd tx federation update-bridge --authority ... --operator ... --peer-id ... --endpoint ...

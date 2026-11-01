@@ -180,7 +180,8 @@ SPARK on x/service.
 | `MsgRemovePeer` | Gov or Council / Ops Committee policy | Tombstone a peer (cursor-based pruning in EndBlocker) |
 | `MsgSuspendPeer` | Ops Committee member | ACTIVE → SUSPENDED; the emergency brake, deliberately 1-of-N |
 | `MsgResumePeer` | Ops Committee **policy** (a passed vote), Council policy, or gov | PENDING/SUSPENDED → ACTIVE. Activation is the trust decision, so it takes a vote |
-| `MsgUpdatePeerPolicy` | Ops Committee member | Content type allowlists, rate limits, moderation, `content_hosts` (ActivityPub peers: extra hosts allowed in a `content_uri` / `creator_identity`, max 8), author curation (`allowed_identities` max 256 / `"*"`, `curation` collection: must be ACTIVE, not on Spark Dream peers) |
+| `MsgUpdatePeerPolicy` | Ops Committee member, Council policy, or gov | Content type allowlists, rate limits, moderation, `content_hosts` (ActivityPub peers: extra hosts allowed in a `content_uri` / `creator_identity`, max 8), author curation (`allowed_identities` max 256 / `"*"`, `curation` collection: must be ACTIVE, not on Spark Dream peers) |
+| `MsgUpdatePeerInfo` | Ops Committee member, Council policy, or gov | Correct a peer's `display_name` and `metadata` (both replaced; id, type and channels are fixed). Not on REMOVED peers |
 | `MsgUpdatePeerController` | gov | Change controller_group for a peer |
 
 ### Bridge Bindings

@@ -279,6 +279,12 @@ func (am AppModule) AutoCLIOptions() *autocliv1.ModuleOptions {
 				},
 				// Phase 1 federation→service migration messages.
 				{
+					RpcMethod:      "UpdatePeerInfo",
+					Use:            "update-peer-info [peer-id] [display-name]",
+					Short:          "Correct a peer's display name and metadata (gov, Commons Council or Operations Committee)",
+					PositionalArgs: []*autocliv1.PositionalArgDescriptor{{ProtoField: "peer_id"}, {ProtoField: "display_name"}},
+				},
+				{
 					RpcMethod:      "UpdatePeerController",
 					Use:            "update-peer-controller [peer-id] [controller-group]",
 					Short:          "Update a peer's controller_group (gov-only; affects only new bridges)",

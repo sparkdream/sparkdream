@@ -239,6 +239,8 @@ func (k Keeper) BootstrapGovernance(ctx context.Context, founders []types.Foundi
 			"/sparkdream.federation.v1.MsgRemovePeer",
 			"/sparkdream.federation.v1.MsgSuspendPeer",
 			"/sparkdream.federation.v1.MsgResumePeer",
+			"/sparkdream.federation.v1.MsgUpdatePeerPolicy",
+			"/sparkdream.federation.v1.MsgUpdatePeerInfo",
 			"/sparkdream.reveal.v1.MsgApprove",
 			"/sparkdream.reveal.v1.MsgReject",
 			"/sparkdream.reveal.v1.MsgResolveDispute",
@@ -604,6 +606,7 @@ func (k Keeper) BootstrapGovernance(ctx context.Context, founders []types.Foundi
 			"/sparkdream.season.v1.MsgResolveUnappealedModeration",
 			"/sparkdream.federation.v1.MsgUpdateBridge",
 			"/sparkdream.federation.v1.MsgUpdatePeerPolicy",
+			"/sparkdream.federation.v1.MsgUpdatePeerInfo",
 			"/sparkdream.federation.v1.MsgModerateContent",
 			"/sparkdream.federation.v1.MsgUpdateOperationalParams",
 			// Phase 5 federation→service migration: recovery / admin

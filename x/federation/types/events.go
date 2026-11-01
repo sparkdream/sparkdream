@@ -10,6 +10,7 @@ const (
 	EventTypePeerRemoved           = "peer_removed"
 	EventTypePeerCleanupComplete   = "peer_cleanup_complete"
 	EventTypePeerPolicyUpdated     = "peer_policy_updated"
+	EventTypePeerInfoUpdated       = "peer_info_updated"
 	EventTypePeerPolicyAutoUpdated = "peer_policy_auto_updated"
 
 	// Bridge operators. The bond-lifecycle events this block used to carry

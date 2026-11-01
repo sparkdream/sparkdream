@@ -105,6 +105,21 @@ func (am AppModule) WeightedOperations(simState module.SimulationState) []simtyp
 		federationsimulation.SimulateMsgUpdatePeerPolicy(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
 	))
 	const (
+		opWeightMsgUpdatePeerInfo          = "op_weight_msg_federation"
+		defaultWeightMsgUpdatePeerInfo int = 100
+	)
+
+	var weightMsgUpdatePeerInfo int
+	simState.AppParams.GetOrGenerate(opWeightMsgUpdatePeerInfo, &weightMsgUpdatePeerInfo, nil,
+		func(_ *rand.Rand) {
+			weightMsgUpdatePeerInfo = defaultWeightMsgUpdatePeerInfo
+		},
+	)
+	operations = append(operations, simulation.NewWeightedOperation(
+		weightMsgUpdatePeerInfo,
+		federationsimulation.SimulateMsgUpdatePeerInfo(am.authKeeper, am.bankKeeper, am.keeper, simState.TxConfig),
+	))
+	const (
 		opWeightMsgRegisterBridge          = "op_weight_msg_federation"
 		defaultWeightMsgRegisterBridge int = 100
 	)

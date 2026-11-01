@@ -642,6 +642,82 @@ fi
 # ========================================================================
 # Summary
 # ========================================================================
+# ========================================================================
+# TEST 11: Operations Committee corrects peer display name and metadata
+# MsgUpdatePeerInfo replaces both fields; id, type and status stay put.
+# ========================================================================
+echo ""
+echo "--- TEST 11: Update peer info via Ops Committee ---"
+
+BEFORE_PEER=$($BINARY query federation get-peer mastodon.example --output json)
+BEFORE_TYPE=$(echo "$BEFORE_PEER" | jq -r '.peer.type // empty')
+BEFORE_STATUS=$(echo "$BEFORE_PEER" | jq -r '.peer.status // empty')
+NEW_DISPLAY_NAME="Phoenix Mastodon"
+NEW_METADATA='{"software":"mastodon","region":"aurora"}'
+
+cat > "$PROPOSAL_DIR/update_peer_info.json" <<EOF
+{
+  "policy_address": "$OPS_POLICY",
+  "messages": [
+    {
+      "@type": "/sparkdream.federation.v1.MsgUpdatePeerInfo",
+      "authority": "$OPS_POLICY",
+      "peer_id": "mastodon.example",
+      "display_name": "$NEW_DISPLAY_NAME",
+      "metadata": $(jq -Rn --arg m "$NEW_METADATA" '$m')
+    }
+  ],
+  "metadata": "Correct ActivityPub peer display name and metadata"
+}
+EOF
+
+if submit_ops_proposal "$PROPOSAL_DIR/update_peer_info.json" "update peer info"; then
+    AFTER_PEER=$($BINARY query federation get-peer mastodon.example --output json)
+    AFTER_NAME=$(echo "$AFTER_PEER" | jq -r '.peer.display_name // empty')
+    AFTER_METADATA=$(echo "$AFTER_PEER" | jq -r '.peer.metadata // empty')
+    AFTER_TYPE=$(echo "$AFTER_PEER" | jq -r '.peer.type // empty')
+    AFTER_STATUS=$(echo "$AFTER_PEER" | jq -r '.peer.status // empty')
+
+    if [ "$AFTER_NAME" == "$NEW_DISPLAY_NAME" ] && [ "$AFTER_METADATA" == "$NEW_METADATA" ] \
+        && [ "$AFTER_TYPE" == "$BEFORE_TYPE" ] && [ "$AFTER_STATUS" == "$BEFORE_STATUS" ]; then
+        echo "  display_name=$AFTER_NAME, metadata=$AFTER_METADATA (type/status unchanged)"
+        record_result "Update peer info" "PASS"
+    else
+        echo "  Got display_name=$AFTER_NAME metadata=$AFTER_METADATA type=$AFTER_TYPE status=$AFTER_STATUS"
+        echo "  Expected type=$BEFORE_TYPE status=$BEFORE_STATUS"
+        record_result "Update peer info" "FAIL"
+    fi
+else
+    record_result "Update peer info" "FAIL"
+fi
+
+# ========================================================================
+# TEST 12: Unauthorized user cannot update peer info directly
+# ========================================================================
+echo ""
+echo "--- TEST 12: Unauthorized peer info update fails ---"
+
+TX_RES=$($BINARY tx federation update-peer-info mastodon.example "Zenith Impostor" \
+    --from operator1 \
+    --chain-id $CHAIN_ID \
+    --keyring-backend test \
+    --fees 5000${BOND_DENOM} \
+    -y \
+    --output json)
+
+if submit_and_wait "$TX_RES" "unauthorized peer info update"; then
+    echo "  Unauthorized update was accepted"
+    record_result "Unauthorized peer info update" "FAIL"
+else
+    PEER_NAME=$($BINARY query federation get-peer mastodon.example --output json | jq -r '.peer.display_name // empty')
+    if [ "$PEER_NAME" != "Zenith Impostor" ]; then
+        echo "  Correctly rejected (display_name still $PEER_NAME)"
+        record_result "Unauthorized peer info update" "PASS"
+    else
+        record_result "Unauthorized peer info update" "FAIL"
+    fi
+fi
+
 echo ""
 echo "============================================"
 echo "PEER POLICY TEST RESULTS"

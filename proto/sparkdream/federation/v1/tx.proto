@@ -22,6 +22,7 @@ service Msg {
   rpc SuspendPeer(MsgSuspendPeer) returns (MsgSuspendPeerResponse);
   rpc ResumePeer(MsgResumePeer) returns (MsgResumePeerResponse);
   rpc UpdatePeerPolicy(MsgUpdatePeerPolicy) returns (MsgUpdatePeerPolicyResponse);
+  rpc UpdatePeerInfo(MsgUpdatePeerInfo) returns (MsgUpdatePeerInfoResponse);
   rpc RegisterBridge(MsgRegisterBridge) returns (MsgRegisterBridgeResponse);
   rpc UpdateBridge(MsgUpdateBridge) returns (MsgUpdateBridgeResponse);
   // RevokeBridge, SlashBridge, UnbondBridge, TopUpBridgeStake were removed
@@ -137,6 +138,19 @@ message MsgUpdatePeerPolicy {
   PeerPolicy policy = 3 [(gogoproto.nullable) = false];
 }
 message MsgUpdatePeerPolicyResponse {}
+
+// MsgUpdatePeerInfo corrects a peer's descriptive fields. Both fields are
+// replaced as given, so callers resend the current metadata to keep it.
+// The peer's id, type and channels are identity and cannot change here.
+message MsgUpdatePeerInfo {
+  option (cosmos.msg.v1.signer) = "authority";
+  option (amino.name) = "sparkdream/x/federation/MsgUpdatePeerInfo";
+  string authority = 1 [(cosmos_proto.scalar) = "cosmos.AddressString"];
+  string peer_id = 2;
+  string display_name = 3;
+  string metadata = 4;
+}
+message MsgUpdatePeerInfoResponse {}
 
 // --- Bridge Operators (Operations Committee) ---
 
